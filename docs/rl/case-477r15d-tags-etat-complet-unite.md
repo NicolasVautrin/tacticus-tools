@@ -126,10 +126,10 @@ qui lisent l'**ECS par réflexion IL2CPP** — jamais le flux, qui est l'oracle.
 défaut. Une stat rabattue sur `0` produirait une divergence de VALEUR qui accuserait le port alors
 que c'est le CAPTEUR qui n'a rien dit.
 
-## 4. Le non-comparé, PUBLIÉ — la borne (c) passe de 2 à 6 entrées
+## 4. Le non-comparé, PUBLIÉ — la borne (c) passe de 1 à 5 entrées
 
-**Non comparé ≠ égal.** Cinq grandeurs de la tranche D ne sont pas mesurées, et le rapport les
-nomme à chaque run :
+**Non comparé ≠ égal.** Quatre grandeurs de la tranche D ne sont pas mesurées (la cinquième
+entrée, `Tile_IsTerritory`, vient des tranches précédentes), et le rapport les nomme à chaque run :
 
 - **`UnitStats_Range`** — `StatType.Range` (2) est absent de `COMBAT_STAT_IDS` : **aucun RPC ne le
   publie**. Émis à `0`, valeur observée sur **8 unités / 6 kits / 2 boards**, jamais lue
@@ -145,6 +145,13 @@ nomme à chaque run :
   sur toute unité régulière ; les munitions ne mordent que sur les Machines of War, qui passent par
   `AddMachineOperation`, hors de ce groupe. Le port les émet, la garde offline les exerce, le live
   ne les voit pas.
+
+⚠ **Le REBASE a retiré une sixième entrée, et c'est le bon sens de circulation** : `#477-r16-r1`
+(mergé pendant cette tranche) a rendu `GetDerivedEnvironmentAbilities` **LU** dans une table
+statique au lieu d'être obtenu par différence contre le flux. Le probe ne le prend donc plus du
+natif : la base de tuile est désormais une **prédiction**, sortie de la borne (c) et entrée dans
+les recoupements qui font **rougir** (`base_tuile != base_natif`). C'est exactement ce qu'un rebase
+doit produire — un chiffre qui cesse d'être une entrée, pas un conflit textuel.
 
 ⚠ **`max_health` / `max_armor` sont lus au champ BRUT `MaximumValue@0x14`** là où le natif appelle
 `get_CurrentMaximumValue()`. Ce n'est pas une approximation aveugle : le décompilé de cet accesseur

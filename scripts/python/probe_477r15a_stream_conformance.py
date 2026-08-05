@@ -361,20 +361,19 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
     finally:
         dispose(state)
 
-    # --- LES IDS D'ENTITE SONT DERIVES, plus copies (#477-r16, merge le 2026-08-05).
-    # `deriver_regle()` rend P, E et `3 + P + E` depuis les ENTREES versionnees (seed BC, dumps,
-    # tables statiques lues au decompile). Un SEUL terme lui manque -- `GetDerivedEnvironmentAbilities`,
-    # obtenu par DIFFERENCE et donc capable d'absorber en silence toute autre allocation manquee
-    # avant les tuiles. C'est `#477-r16-r1` : on ne le fige PAS, on le mesure et on le PUBLIE.
+    # --- LES IDS D'ENTITE SONT DERIVES, plus copies -- ET L'OFFSET EST DESORMAIS ENTIEREMENT LU
+    # (#477-r16 puis #477-r16-r1, merge le 2026-08-05). `deriver_regle()` rend `3 + P + E` depuis
+    # les ENTREES versionnees seules : le dernier terme libre (`GetDerivedEnvironmentAbilities`)
+    # est LU dans une table statique, plus obtenu par difference. Consequence directe pour ce
+    # probe : la base de tuile n'est plus une ENTREE du natif -- c'est une PREDICTION, et le flux
+    # natif la CONFRONTE. Elle sort donc de la borne (c) et entre dans les recoupements rouges.
     regle = R16.deriver_regle()
     largeur, hauteur = R16.taille_board(board)
-    #  Les JOUEURS sont derives INTEGRALEMENT : ils sont alloues AVANT les env abilities, donc en
-    #  amont du terme inconnu. Le natif itere un `SortedDictionary`, d'ou le tri par cle.
+    #  Le natif itere un `SortedDictionary`, d'ou le tri par cle.
     joueurs = [(3 + i, int(cle)) for i, cle in enumerate(regle["cles_joueurs"])]
-    base_sans_derived = int(regle["premier_id_tuile_sans_derived"])
+    base_tuile = int(regle["premier_id_tuile_prevu"])
     base_natif = premiere_tuile(setup_natif)
-    derived = base_natif - base_sans_derived      # LE terme non derive -- #477-r16-r1
-    base_tuile = base_sans_derived + derived
+    derived = int(regle["E_derived"])
     coords = tuiles_du_board(board)
     # (col, row) -> entite de tuile, table CONSTRUITE par le port a partir de son propre ordre.
     entite_de_tuile = {xy: base_tuile + i for i, xy in enumerate(coords)}
@@ -417,9 +416,6 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
         units=units))
 
     rap = CONF.comparer(setup_natif, setup_port, entrees_du_natif=(
-        "GetDerivedEnvironmentAbilities = %d -- LE SEUL terme non derive de l'offset "
-        "d'allocation (#477-r16-r1) : table statique non lue, obtenue ici par DIFFERENCE, donc "
-        "capable d'absorber toute autre allocation manquee avant les tuiles" % derived,
         "Tag=Tile_IsTerritory -- aucun porteur dans le board dump, emis a 0 en dur "
         "(#477-r15-r3)",
         "Tag=UnitStats_Range -- `StatType.Range` (2) absent de `COMBAT_STAT_IDS` : AUCUN RPC ne "
@@ -438,7 +434,7 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
     return {"board": board, "rapport": rap, "tuiles": len(coords),
             "unites_emises": len(units), "addunit_natifs": attendus,
             "montage_coherent": len(units) == attendus,
-            "derived": derived, "base_tuile": base_tuile,
+            "derived": derived, "base_tuile": base_tuile, "base_natif": base_natif,
             # Recoupement GRATUIT : l'id d'unite derive de la regle vs celui du canal
             # INDEPENDANT `observeBattle.squadId`. Deux sources, un seul chiffre.
             "premiere_unite_derivee": premiere_unite_derivee,
@@ -483,15 +479,19 @@ def main() -> int:
               % (res["tuiles"], res["unites_emises"], res["addunit_natifs"]))
         print("  ALLOCATION DERIVEE (#477-r16) : 1re tuile = %d  plateformes = %s  1re unite = %d"
               % (res["base_tuile"], res["plateformes_derivees"], res["premiere_unite_derivee"]))
-        # Recoupements : la regle DERIVEE contre deux canaux qui ne la connaissent pas.
+        # Recoupements : la regle DERIVEE contre trois canaux qui ne la connaissent pas. La base
+        # de tuile en fait partie DEPUIS #477-r16-r1 : elle n'est plus prise du flux.
+        if res["base_tuile"] != res["base_natif"]:
+            print("  ROUGE ALLOCATION : 1re tuile prevue %d != flux natif %d"
+                  % (res["base_tuile"], res["base_natif"]))
         if res["plateformes_derivees"] != res["plateformes_natives"]:
             print("  ROUGE ALLOCATION : plateformes derivees %s != flux natif %s"
                   % (res["plateformes_derivees"], res["plateformes_natives"]))
         if res["premiere_unite_observee"] != res["premiere_unite_derivee"]:
             print("  ROUGE ALLOCATION : 1re unite derivee %d != observeBattle.squadId %s"
                   % (res["premiere_unite_derivee"], res["premiere_unite_observee"]))
-        print("  terme NON derive (#477-r16-r1) GetDerivedEnvironmentAbilities = %d"
-              % res["derived"])
+        print("  GetDerivedEnvironmentAbilities = %d -- LU dans la table statique depuis "
+              "#477-r16-r1, plus mesure par difference" % res["derived"])
         if not res["montage_coherent"]:
             print("  ⚠ MONTAGE : le filtre « unites adverses » ne predit pas le nombre d'AddUnit "
                   "du groupe natif -- les divergences d'AddUnit ci-dessous accusent le MONTAGE, "
@@ -529,7 +529,8 @@ def main() -> int:
         print("  ROUGE : le registre porte des entrees que le corpus n'exerce plus.")
         rc = 1
     alloc_ko = [r["board"] for r in resultats
-                if r["plateformes_derivees"] != r["plateformes_natives"]
+                if r["base_tuile"] != r["base_natif"]
+                or r["plateformes_derivees"] != r["plateformes_natives"]
                 or r["premiere_unite_observee"] != r["premiere_unite_derivee"]]
     if alloc_ko:
         print("  ROUGE : la regle d'allocation DERIVEE (#477-r16) ne recoupe pas le live sur %s."
