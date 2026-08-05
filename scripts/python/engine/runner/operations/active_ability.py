@@ -76,7 +76,18 @@ CE QUE LE PORT MATERIALISE, ET CE QU'IL NE MATERIALISE PAS
   c'est le `ExecuteInternal` re-entrant qui recalcule les siens). Cette branche est STRUCTURELLEMENT
   inatteignable offline (cf. `execute_for_replaced_target`) -> aucun code mort ecrit ici.
 * `IdunBattle.Operations.ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility` est PORTE depuis
-  #429-r1 (`is_dead_unit_and_not_allowed_by_ability` ci-dessous, cable en tete du visiteur). Il etait
+  #429-r1 (`is_dead_unit_and_not_allowed_by_ability` ci-dessous). Il est cable en TROIS points, un
+  par PORTE du port -- le natif, lui, n'en a qu'UNE (`ExecuteInternal`) :
+    - `AbilityHandler.visit_ActiveAbilityMessage`     (#429-r1)   -- cast commande ;
+    - `DamageHandler.visit_AttackUnitMessage`         (#429-r1-r1) -- attaque normale commandee,
+      AVANT le dispatch `NormalAttackType` concret (MV71 SPAWNE un drone) ;
+    - `AttackDamageOperation.execute` (tete)          (#429-r1-r1) -- le FOYER des attaques normales
+      DECLENCHEES (overwatch, riposte, drone commande, summon), qui n'empruntent AUCUN des deux
+      visiteurs et appellent l'operation directement. Cote natif elles passent toutes par
+      `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute` ->
+      `Core.Services.OperationProcessor$$ActiveAbility` -> `ActiveAbilityOperation$$Execute` ->
+      `ExecuteInternal`, donc par le MEME gate.
+  Il etait
   acte NON PORTE parce que son gate `!ability.CanContinueOnDeadTarget()` lit un bit de
   `TargetingOptions` « RE-lu pour AUCUNE ability » -- l'inventaire de ses overrides est desormais
   releve par deux sources independantes, et le bit est le 38 du masque de CONTINUE

@@ -204,14 +204,13 @@ victoire coupe les vues (cf. §5).
 
 ## 8. Résidus nommés
 
-* **`#429-r1-r1` — l'attaque NORMALE sur cadavre n'est pas gatée côté port.** Le gate est câblé sur
-  `AbilityHandler.visit_ActiveAbilityMessage` seul. Or l'attaque normale native **est** une active
-  ability (#139/#120) et passe par le même `ExecuteInternal` : le natif la refuse donc aussi sur un
-  cadavre. Le port a deux portes (`DamageHandler.visit_AttackUnitMessage` est la seconde) et seule la
-  première est gatée. Non fait ici pour une raison nommée : il faut d'abord établir si les attaques
-  **déclenchées** (overwatch, riposte) empruntent ce visiteur — si oui, y poser le gate sur-refuserait
-  des chemins que le natif n'y fait pas passer. Point d'ancrage : les appelants de
-  `Runner.apply(AttackUnitMessage(...))`, et `IdunBattle.Operations.OverwatchOperation` côté natif.
+* ~~**`#429-r1-r1` — l'attaque NORMALE sur cadavre n'est pas gatée côté port.**~~ **LIVRÉ le
+  2026-08-05** — `docs/rl/case-429r1r1-attaque-normale-cadavre.md`. La question préalable posée ici
+  a **déplacé l'étage** : le port n'a pas « deux portes » mais **onze**, et
+  `DamageHandler.visit_AttackUnitMessage` n'en est qu'une — `engine/**` ne construit **aucun**
+  `AttackUnitMessage`, les attaques déclenchées appellent `AttackDamageOperation.execute`
+  directement. Le foyer est donc l'OPÉRATION. Mesuré : natif 0 tirage / port pré-fix **6 tirages,
+  6049 dégâts sur un cadavre, action consommée** / post-fix 0.
 * **`#429-r1-r3` — la dernière divergence du gate cible-morte : `GreatFrostAxe` (1089).** Le porteur
   du bit 38 échappe correctement au gate #429-r1, puis le natif le refuse par le gate SUIVANT que le
   port ne reproduit pas : `is_invalid_target` rend `0` sur un cadavre positionné. Piste première : la

@@ -1217,6 +1217,21 @@ class DamageHandler:
             self.last = None
             self.after_hit = []
             return
+        # --- #429-r1-r1 GATE CIBLE-MORTE, le gate qui SUIT immediatement le gate acteur-mort dans
+        # `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (et qui PRECEDE
+        # `IsInvalidTarget`). Le foyer commun est en tete d'`AttackDamageOperation.execute` (il couvre
+        # les ~11 portes DECLENCHEES, qui n'empruntent pas ce visiteur) ; il est RE-pose ici parce que
+        # le dispatch `NormalAttackType` CONCRET qui suit (MV71SniperDroneSquad) n'est PAS une simple
+        # attaque : il SPAWNE un drone avant d'attaquer. Cote natif ce dispatch est le corps de
+        # l'ability 1076, donc EN AVAL du gate d'`ExecuteInternal` -- sans cette pose, un cast sur un
+        # cadavre spawnerait le drone puis n'attaquerait pas, alors que le natif ne fait RIEN.
+        # Meme dedoublement, et pour la meme raison, que le gate acteur-mort (#70 au rang du message,
+        # #133 au rang de l'operation).
+        from .active_ability import is_dead_unit_and_not_allowed_by_ability   # lazy : cycle
+        if is_dead_unit_and_not_allowed_by_ability(self.state, None, msg.target_id):
+            self.last = None
+            self.after_hit = []
+            return
         # --- #61bis tranche 3 : dispatch NormalAttackType CONCRET. L'attaque normale native est une
         # ActiveAbility PER-UNIT (`ActiveAbilityComponent.NormalAttackType@0x28`) ; pour un porteur du
         # passif MV71SniperDroneSquad (Sho'syl/tauMarksman), c'est `MV71SniperDroneSquadAttackAbility`
