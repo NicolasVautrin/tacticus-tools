@@ -46,14 +46,35 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
       best pas-en-melee) — la priorite MELEE supplante la distance (un ennemi hex-dist 1 avec
       |dElev|>=2 n'est PAS adjacent, donc pas prioritaire). Tie = 1er enumere (ordre natif
       GetAllAliveUnits ≈ ordre d'ids offline, residu documente).
-    - Les tuiles de spawn eligibles par position T = abilityTargets kind="tile" filtre
-      dist(T, ST)==1 (meme technique que AberrantHypermorphPlaybook — l'RPC rend l'UNION sur
-      toutes les tuiles de move).
+    - Les tuiles de spawn eligibles par position T = abilityTargets kind="tile" RE-PROJETE sur T
+      par le selecteur (meme technique que AberrantHypermorphPlaybook — l'RPC rend l'UNION sur
+      toutes les tuiles de move ; substrat de la re-projection : cf. `generate_candidates`).
     Cible emise = la TUILE de spawn (id via ctx.tile_id_by_pos) — c'est le targetId natif du cast."""
     ABILITY_ID = int(ActiveAbilityType.MasterOfTheTutelaries)   # 1096
     MIN_UTILITY = 1.0
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        """La contrainte « ring-1 » vient du SELECTEUR, et son substrat est la LISTE STOCKEE.
+
+        `IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$EvaluateNonComparable` (relu)
+        ne filtre RIEN par distance : il enumere `GetEligibleTargetsSelectable(caster,
+        MainTile(position))`. Et
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility$$.ctor` recopie
+        le MEME `TargetingRange` statique +0x30 et les MEMES rules 0x1040 que
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$.ctor` (lu
+        separement, pas deduit par symetrie) : `onlyAdjacent = RangedBool.True` detourne
+        `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange` vers le slot 0x51 =
+        `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles` ->
+        `IdunBattle.Core.Services.BattleQuery$$IterateAdjacentTiles`, c'est-a-dire la liste STOCKEE
+        du `ConnectivityComponent` PUIS la porte `|dElev| < 2` -- jamais le balayage cube de
+        `GetSurroundingTiles`. Chaine detaillee : `AberrantHypermorphPlaybook.generate_candidates`
+        (#616).
+
+        La re-projection de l'union sur T EST donc `is_adjacent(T, ST)` ; l'ancien
+        `hexgeo.distance(T, ST) == 1` ne portait aucun des deux etages (ecart PERMISSIF).
+        ⚠ Les deux autres comparaisons de ce corps sont des RING-2 (`nE2`, le bonus de 100) : elles
+        mirrorent `GetUnitsAtDistance`/`GetDistance`, qui passent par `GetTilesAtDistance` --
+        geometriques par construction, elles ne se branchent PAS (#614 §1)."""
         spawn_tiles = self._eligible_spawn_tiles(ctx)
         if not spawn_tiles or ctx.origin is None:
             return []
@@ -67,11 +88,12 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
                if not u.get("isDead") and u.get("col") is not None}
         if not occ:
             occ = set(ctx.epos or []) | set(ctx.fpos or []) | {ctx.origin}
+        neigh = bq.neigh_map(ctx)
         best = None                                          # (target_tile, position, util)
         for T in ctx.reach_nc:                               # positions candidates (ordre movable natif)
             for ST in spawn_tiles:
-                if hexgeo.distance(T, ST) != 1:
-                    continue                                 # spawn = hex libre ADJACENT a la position T
+                if not bq.is_adjacent(T, ST, ctx.elev_by_pos, neigh):
+                    continue                                 # spawn = hex ADJACENT a T au sens du SELECTEUR
                 n_free = bq.adjacent_addable_count(ST, ctx.neigh_by_pos, ctx.walkable_by_pos,
                                                    occ - {ST}, ctx.elev_by_pos)
                 if n_free <= 2:
