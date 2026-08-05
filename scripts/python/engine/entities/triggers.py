@@ -357,6 +357,40 @@ def is_mechanical(unit: TargetsSelector, selection_type: int = 0) -> AbilityTrig
     return AmountIsEqualOrGreater(Count(MechanicalUnits(unit, selection_type)), Const(1))
 
 
+def is_object_or_steppable(unit: AbilityTrigger) -> AbilityTrigger:
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsObjectOrSteppable(unit)` — MIRROR de la FACTORY,
+    meme forme que son frere `is_mechanical` ci-dessus : le natif n'alloue AUCUN predicat dedie,
+    il compose deux `HasTrait` sous un OU. Decompile LU (pas deduit) :
+
+        left  = <ctor>(selector, 0x1b, 0)                 # HasTrait(unit, 27 = Steppable)
+        right = <ctor>(selector, 0x0d, 0)                 # HasTrait(unit, 13 = Object)
+        return IdunBattle.DSL.AbilityTrigger$$op_BitwiseOr(left, right)
+
+    Le `<ctor>` est celui que ghidra mislabelle `UnityEngine.Timeline.SupportsChildTracksAttribute$$.ctor`
+    (STRUCTURE lue, jamais le nom) : c'est EXACTEMENT le meme ctor, avec la meme signature
+    `(this, unit, traitId, 0)`, qu'alloue `IdunBattleLogic.Entities.DSLTriggers$$HasTrait` — d'ou le
+    mirror par le noeud `HasTrait` ci-dessus. L'ORDRE des operandes est celui du natif
+    (Steppable a gauche, Object a droite) ; le OU etant pur, il n'a pas d'effet observable, mais on
+    ne le reordonne pas.
+
+    ⚠ `Object` = **13**, PAS `Decoy` (1053) : ce sont deux traits distincts de l'enum `UnitTrait`, et
+    le natif ne nomme QUE 27 et 13.
+
+    HUIT call-sites natifs (xrefs mesurees sur `rnca9r7q6c`) — d'ou le foyer plutot qu'une n-ieme
+    recopie : `BattleFatigueAbility$$CreateTrigger`, `BarbedOvipositorAbility$$CreateTrigger`,
+    `MasterOfTheTutelaries_SummonAbility$$CreateTrigger`, `CursedOfTheWalkingPoxAbility$$CreateTrigger`,
+    `PossessionAbility$$CreateTrigger`, `Lakrimae_SummonPoxwalker_Ability$$CreateTrigger`,
+    `BounceAbility$$Prioritization`, `KillMaimBurnAbility$$GetNextTarget`.
+
+    Le sujet est un SELECTEUR (le natif passe un `selectors+0x..`) : passer `Target()` / `Caster()` /
+    `Subject()` selon le champ cite par le call-site. Sur un selecteur qui resout PLUSIEURS unites, la
+    semantique any-vs-all est celle du noeud `HasTrait` (cf. sa docstring) — sans effet sur les
+    call-sites portes, qui visent tous une unite unique."""
+    from .traits.unit_trait import UnitTrait     # lazy (meme garde anti-circulaire qu'`IsRepairable`)
+    return TriggerOr(HasTrait(unit, int(UnitTrait.Steppable)),      # 0x1b
+                     HasTrait(unit, int(UnitTrait.Object)))         # 0x0d
+
+
 class IsTurnOf(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLTriggers$$IsTurnOf(selector)` = `new <DAT_1833ab568>(selector,
     matchState@+0x10)` — ctor gshared 2-champs MISLABELE par ghidra
