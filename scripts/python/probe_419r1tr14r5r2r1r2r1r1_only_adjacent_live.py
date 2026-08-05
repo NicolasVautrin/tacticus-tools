@@ -47,7 +47,7 @@ PYDIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(PYDIR))
 
 import hexgeo                                                            # noqa: E402
-from rl_collect_batch import _resolve_session, bind_ambient_rpc          # noqa: E402
+from rl_collect_batch import _resolve_session, bind_ambient_rpc      # noqa: E402
 
 import probe_247_splash_targeting as P247                                # noqa: E402
 import probe_436_taunt_targeting as P436                                 # noqa: E402

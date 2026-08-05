@@ -438,11 +438,21 @@ def consumer_sites(path: Path) -> list:
     return out
 
 
-def binds_ambient(path: Path) -> bool:
-    """Le fichier lie-t-il le transport ambiant lui-meme ? (nom terminal : l'homonymie de
-    `bind_live_rpc`/`live_rpc` n'existe pas dans le corpus, verifie)."""
+def binds_ambient(path: Path, lieurs: set | None = None) -> bool:
+    """Le fichier atteint-il le foyer de liaison `snapshot.bind_live_rpc` ?
+
+    ⚠ CRITERE DERIVE, pas une liste de noms. `lieurs` est la fermeture TRANSITIVE des appelants du
+    foyer sur le graphe qualifie : un wrapper (`rl_collect_batch.bind_ambient_rpc`) y entre tout
+    seul, et le suivant aussi. Un critere par nom terminal `bind_live_rpc` ratait exactement les
+    fichiers CORRIGES par cette tranche -- mesure du 2026-08-05, 4 faux positifs.
+
+    `lieurs=None` : repli par nom terminal, pour les usages hors mesure globale (contre-epreuve)."""
     tree = parse(path)
-    return bool(tree is not None and (called_names(tree) & set(BINDERS)))
+    if tree is None:
+        return False
+    if lieurs is None:
+        return bool(called_names(tree) & set(BINDERS))
+    return bool(lieurs & (called_names(tree) | referenced_names(tree)))
 
 
 def inherits_ambient(path: Path) -> bool:
@@ -469,11 +479,15 @@ def measure(root: Path) -> dict:
     lecteurs = {p for p, m in mods.items()
                 if any((m, fn) in reach_read for fn in idx["per_file"].get(p, {}))}
     greffeurs.discard(CATALOG)                      # le module des primitives n'est pas un montage
+    # Fermeture TRANSITIVE des lieurs : le foyer `snapshot.bind_live_rpc` + tout wrapper qui y mene
+    # (`rl_collect_batch.bind_ambient_rpc`). Derive, donc un wrapper futur y entre seul.
+    reach_bind = reaching(graph, {("engine.runner.snapshot", b) for b in BINDERS})
+    lieurs = {n for _m, n in reach_bind}
     suspects = sorted(greffeurs & lecteurs)
     rows = []
     for p in suspects:
         sites = consumer_sites(p)
-        amb = binds_ambient(p) or inherits_ambient(p)
+        amb = binds_ambient(p, lieurs) or inherits_ambient(p)
         for lineno, regime in sites:
             couvert = regime == "given" or amb
             rows.append({"file": p, "line": lineno, "regime": regime, "ambient": amb,

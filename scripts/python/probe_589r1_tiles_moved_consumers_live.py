@@ -854,7 +854,14 @@ def main() -> int:
     if a.only == "INV":
         return 0 if run_inv() == 0 else 1
     sid, rpc = _rpc_factory()
-    print("== #589-r1 -- l'AVAL de tilesMovedThisTurn   session=%s" % sid)
+    # #448-r3-r1-r1 : les bras TILES et EXO GREFFENT (`write_augmented_seed_bc`,
+    # `write_grafted_seed_bc`). Sans le canal `unitAbilityStates`, `load_state` ne seede pas les
+    # kits REELLEMENT montes et le port derive du gameconfig, qui ignore la greffe -- port AMPUTE,
+    # assertions negatives a vide. Le foyer (`snapshot._refuse_if_grafted`) LEVE sans cette ligne.
+    from rl_collect_batch import bind_ambient_rpc
+    bind_ambient_rpc(sid)
+    print("== #589-r1 -- l'AVAL de tilesMovedThisTurn   session=%s   canal unitAbilityStates LIE"
+          % sid)
     if a.only == "SCAN":
         n = run_scan(sid, rpc, a.board, a.seed, a.reuse_bg, a.verbose)
         print("VERDICT: %s (%d ecart(s))" % ("PASS" if n == 0 else "FAIL", n))
