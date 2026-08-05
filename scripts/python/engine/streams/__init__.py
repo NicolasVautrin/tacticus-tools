@@ -32,7 +32,6 @@ from __future__ import annotations
 from .dispatcher import StreamDispatcher
 from .entity_id import BEntityId, NO_ENTITY, format_enum_value
 from .group_type import GroupType
-from .input_messages import visit_add_unit_message
 from .step_type import StepType
 from .stream_cache import StreamCache
 from .tag_key import TagKey
@@ -56,5 +55,14 @@ __all__ = [
     "get_full_state_update_tags",
     "get_full_state_update_tags_for_active",
     "get_full_state_update_tags_for_triggered",
-    "visit_add_unit_message",
 ]
+
+# ⚠ `game_setup` ET `input_messages` NE SONT PAS REEXPORTES ICI, et ce n'est pas un oubli --
+# c'est la convention deja en place, qu'aucun texte ne disait. Tous deux tirent
+# `engine.services.machine_of_war_position` ; les mettre dans cet `__init__` ferait grossir le
+# graphe d'imports de tout `import engine.streams`. MESURE du 2026-08-05 (#477-r18-r5) :
+# `origin/master` charge 99 modules `engine.*` dont 11 `engine.services` ; avec le reexport,
+# 104 dont 12 ; sans lui, 99 / 11 -- STRICTEMENT INCHANGE. Cet `__init__` reste donc le WRITER
+# seul (grammaire, enums, cache, dispatcher). Les emetteurs s'importent par leur module :
+#     from engine.streams.game_setup import emit_game_setup
+#     from engine.streams.input_messages import visit_add_unit_message

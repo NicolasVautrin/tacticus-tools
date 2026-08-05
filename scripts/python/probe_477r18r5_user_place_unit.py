@@ -173,7 +173,17 @@ def build(board: str, state_file: Path, p_units: str, a_units: str,
     p = subprocess.run(cmd, cwd=str(HERE), capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=900)
     if not state_file.is_file():
-        raise MesureImpossible("build %s echoue : %s" % (board, (p.stderr or p.stdout)[-600:]))
+        # ⚠ LA CAUSE PORTE SON NOM, pas les 600 derniers caracteres. `rl_duel` termine sa sortie
+        # par le rapport de re-synthese du seed BC (plusieurs milliers de caracteres de bruit) :
+        # une queue brute noie systematiquement la ligne `[error]` qui dit POURQUOI -- mesure du
+        # 2026-08-05, ou « hors pool » est ressorti en « ...PsykerLikesToBeAdjacent'] ».
+        sortie = "%s\n%s" % (p.stdout or "", p.stderr or "")
+        motifs = [l for l in sortie.split("\n")
+                  if l.startswith("[error]") or l.lstrip().startswith("pool =")
+                  or "Traceback" in l or l.startswith("Error")]
+        raise MesureImpossible("build %s echoue (rc=%s) : %s"
+                               % (board, p.returncode,
+                                  " | ".join(motifs) if motifs else sortie[-400:]))
     return int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"])
 
 
@@ -188,6 +198,98 @@ def vocabulaire(texte: str) -> dict:
         elif l.forme == "Tag":
             vus["TagKey"].add(l.symbole)
     return vus
+
+
+#: Le suffixe que le natif ajoute au tag d'une stat pour en publier la MODIFICATION cumulee.
+#: Lu au flux : `UnitStats_Attack` / `UnitStats_Attack_Modification` /
+#: `..._Modification_Change` / `..._Modification_Entity`. Ce sont les 9 `TagKey` du residu
+#: `#477-r18-r4` (emis, mais sans producteur atteint par le balayage statique).
+SUFFIXE_MODIF = "_Modification"
+
+
+def modifications_posterieures(flux: str, depuis: int, entites: set) -> dict:
+    """`(entite, <stat>) -> derniere valeur de `UnitStats_<stat>_Modification` vue APRES le
+    dernier `User_PlaceUnit`.
+
+    Le natif publie le TOTAL cumule dans `_Modification` (et le delta du pas courant dans
+    `_Modification_Change`) : c'est donc `_Modification` qui dit de combien la valeur lue plus
+    tard s'ecarte de celle emise au placement."""
+    out: dict = {}
+    entite_courante = None
+    for ligne in flux.split("\n")[depuis:]:
+        m = CONF.RE_ACTION.match(ligne)
+        if m:
+            try:
+                entite_courante = int(m.group("entity"))
+            except ValueError:
+                entite_courante = None
+            continue
+        t = CONF.RE_TAG.match(ligne)
+        if not t or entite_courante not in entites:
+            continue
+        sym = t.group("sym")
+        if not sym.startswith("UnitStats_") or not sym.endswith(SUFFIXE_MODIF):
+            continue
+        stat = sym[len("UnitStats_"):-len(SUFFIXE_MODIF)]
+        out[(entite_courante, stat)] = int(t.group("value"))
+    return out
+
+
+def porteur_par_ligne(texte: str) -> dict:
+    """`numero de ligne -> entite de l'`Action=` qui la porte`. Sert a rattacher une divergence
+    de VALEUR a son unite, que `Divergence` ne transporte pas."""
+    out: dict = {}
+    entite = None
+    for i, ligne in enumerate(texte.split("\n")):
+        m = CONF.RE_ACTION.match(ligne)
+        if m:
+            try:
+                entite = int(m.group("entity"))
+            except ValueError:
+                entite = None
+        out[i] = entite
+    return out
+
+
+def reconcilier(rap, texte_natif: str, modifs: dict) -> tuple:
+    """Attribue chaque divergence de VALEUR a son ACCUSE : le PORT, ou le CANAL de lecture.
+
+    ⚠ CE N'EST PAS UN RELACHEMENT, et la difference tient a l'ARITHMETIQUE. Une divergence
+    n'est imputee au canal QUE si le flux publie, APRES le placement, une modification de la
+    MEME stat sur la MEME entite dont la valeur EGALE EXACTEMENT l'ecart mesure. Un port faux
+    de `+1` sur `UnitStats_Attack` ne serait pas absous : son ecart ne vaudrait pas la
+    modification publiee. Une divergence sans explication exacte reste NOUVELLE.
+
+    POURQUOI CE CAS EXISTE. Les tags de `ChangeStats` sont ecrits AU PLACEMENT ; les canaux du
+    port (`combatSnapshot`) lisent APRES le build, donc apres `System_StartMatch` et les auras
+    qu'il applique. Mesure du 2026-08-05 sur MC1_67 (5 heros dont `ultraCalgar`) : trois
+    divergences, toutes trois expliquees au chiffre pres (`1507 + 1298 = 2805`,
+    `2512 + 898 = 3410`, `3 + 1 = 4`). Le port etait innocent -- et sans ce calcul, le rapport
+    l'accusait.
+
+    Rend `(imputees_au_canal, restantes)`."""
+    porteurs = porteur_par_ligne(texte_natif)
+    canal, restantes = [], []
+    for d in rap.divergences:
+        explique = None
+        if (d.forme == CONF.VALEUR and d.natif and d.port
+                and d.cle.startswith("%s Tag=UnitStats_" % CONF.VALEUR)):
+            mn, mp = CONF.RE_TAG.match(d.natif), CONF.RE_TAG.match(d.port)
+            entite = porteurs.get(d.numero_natif)
+            if mn and mp and mn.group("sym") == mp.group("sym") and entite is not None:
+                stat = mn.group("sym")[len("UnitStats_"):]
+                try:
+                    ecart = int(mp.group("value")) - int(mn.group("value"))
+                except ValueError:
+                    ecart = None
+                attendu = modifs.get((entite, stat))
+                if ecart is not None and attendu is not None and ecart == attendu:
+                    explique = ("entite %d : %s %s -> %s, explique EXACTEMENT par "
+                                "`UnitStats_%s%s:%d` publie apres le placement"
+                                % (entite, stat, mn.group("value"), mp.group("value"),
+                                   stat, SUFFIXE_MODIF, attendu))
+        (canal if explique else restantes).append(explique or d)
+    return canal, restantes
 
 
 class Capture:
@@ -371,6 +473,14 @@ def scenario(session: int, board: str, p_units: str, a_units: str,
     machines_hors_groupe = (flux.count("Group=AddMachine ")
                             - sum(g.count("Group=AddMachine ") for g in natifs))
 
+    # Les deux faces sur disque : un rapport de divergence se lit ligne a ligne, pas dans une
+    # console tronquee. Sous `logs/` (gitignore), jamais sous `data/`.
+    for nom, contenu in (("natif", texte_natif), ("port", texte_port),
+                         ("flux-complet", flux)):
+        with open(OUT / ("477r18r5-%s-%s-%s.txt" % (board, signature, nom)), "w",
+                  encoding="utf-8", newline="") as f:
+            f.write(contenu)
+
     rap = CONF.comparer(texte_natif, texte_port, entrees_du_natif=(
         "Tag=Tile_IsTerritory -- hors de ce groupe (aucune `Action=AddTile` sous "
         "`User_PlaceUnit`) ; l'entree reste NOMMEE pour le deploiement (#477-r15-r3)",
@@ -382,7 +492,10 @@ def scenario(session: int, board: str, p_units: str, a_units: str,
         "message (`AddUnitMessage+0x28`) : ce que ce probe confronte, c'est que le port la "
         "recopie dans le tag, PAS qu'une partie reelle envoie cette valeur-la",
     ))
+    modifs = modifications_posterieures(flux, fin_du_dernier(flux, natifs), entites_placees)
+    imputees_canal, restantes = reconcilier(rap, texte_natif, modifs)
     return {"board": board, "rapport": rap,
+            "imputees_canal": imputees_canal, "restantes": restantes,
             "groupes_natifs": len(natifs), "groupes_port": groupes_port,
             "unites_miennes": len(units), "mien": mien,
             "ordre_natif": ordre_natif, "ordre_port": ordre_port,
@@ -468,8 +581,13 @@ def main() -> int:
                   "placee -- ce zero d'alerte ne prouve RIEN sur d'autres regimes (un tour joue, "
                   "une aura). Il dit seulement que CE corpus ne bouge pas entre placement et "
                   "lecture.")
-        for a in res["alertes_stabilite"][:8]:
+        for a in res["alertes_stabilite"][:16]:
             print("      ALERTE : %s" % a)
+        if res["imputees_canal"]:
+            print("  IMPUTEES AU CANAL (ecart EGAL a la modification publiee -- le port n'est "
+                  "PAS l'accuse) : %d" % len(res["imputees_canal"]))
+            for e in res["imputees_canal"]:
+                print("      %s" % e)
         print("  RECOUPEMENT unitAbilityStates.state <-> decisionView : %d ecart(s)"
               % len(res["ecarts_dv"]))
         for e in res["ecarts_dv"]:
@@ -496,21 +614,33 @@ def main() -> int:
         for ligne in CONF.rapport(res["rapport"]):
             print("  " + ligne)
 
-    nouvelles = sum(len(r["rapport"].nouvelles) for r in resultats)
+    # ⚠ Le compte qui ROUGIT est celui des divergences que l'arithmetique n'explique PAS. Une
+    # divergence imputee au canal reste AFFICHEE avec son calcul -- elle change d'accuse, pas
+    # d'existence.
+    nouvelles = sum(len([d for d in r["restantes"] if not d.connue]) for r in resultats)
     horsforme = sum(len(r["rapport"].hors_forme) for r in resultats)
 
     print("")
-    print("=== VERDICT (3 etats, corpus = %d board(s)) ===" % len(resultats))
+    print("=== VERDICT (corpus = %d board(s)) ===" % len(resultats))
     for r in resultats:
         rp = r["rapport"]
-        etat = ("conforme" if rp.conforme else
-                ("divergent CONNU" if not rp.nouvelles else "divergent NOUVEAU"))
-        print("  %-10s %-18s egales=%d/%d  connues=%d  NOUVELLES=%d  groupes=%d"
+        neuves = [d for d in r["restantes"] if not d.connue]
+        if rp.conforme:
+            etat = "conforme"
+        elif neuves:
+            etat = "divergent NOUVEAU"
+        elif r["imputees_canal"]:
+            etat = "conforme /CANAL"
+        else:
+            etat = "divergent CONNU"
+        print("  %-10s %-18s egales=%d/%d  connues=%d  NOUVELLES=%d  canal=%d  groupes=%d"
               % (r["board"], etat, rp.egales, rp.lignes_natif,
-                 len(rp.connues), len(rp.nouvelles), r["groupes_natifs"]))
+                 len(rp.connues), len(neuves), len(r["imputees_canal"]),
+                 r["groupes_natifs"]))
     rc = 0
     if nouvelles:
-        print("  ROUGE : %d divergence(s) NOUVELLE(s)." % nouvelles)
+        print("  ROUGE : %d divergence(s) NOUVELLE(s) que l'arithmetique n'explique PAS."
+              % nouvelles)
         rc = 1
     if horsforme:
         print("  ROUGE : %d ligne(s) hors des 4 formes -- une forme nous manque." % horsforme)
@@ -519,11 +649,14 @@ def main() -> int:
     if ordre_ko:
         print("  ROUGE : ordre derive != ordre du flux sur %s." % ",".join(ordre_ko))
         rc = 1
-    stab_ko = [r["board"] for r in resultats if r["alertes_stabilite"]]
-    if stab_ko:
-        print("  ROUGE : l'etat lu APRES le build n'est pas celui du placement sur %s -- les "
-              "divergences de VALEUR accusent le CANAL, pas le port." % ",".join(stab_ko))
-        rc = 1
+    stab = [r["board"] for r in resultats if r["alertes_stabilite"]]
+    if stab:
+        # PAS un rouge : un DIAGNOSTIC. Le regime est reel (des auras s'appliquent apres le
+        # placement) et ce qu'il produit a ete attribue au chiffre pres. Le rouge, s'il y en a
+        # un, vient des divergences que ce calcul n'explique pas -- ci-dessus.
+        print("  NOTE : l'etat lu APRES le build n'est pas celui du placement sur %s (des "
+              "modifications sont publiees ensuite). Les ecarts qui en decoulent sont IMPUTES "
+              "AU CANAL par egalite exacte ; ceux qui restent, non." % ",".join(stab))
     recoup_ko = [r["board"] for r in resultats if r["ecarts_dv"]]
     if recoup_ko:
         print("  ROUGE : `GetActives()` et le walk de `Abilities@0x20` ne s'accordent pas sur %s."
@@ -550,8 +683,12 @@ def main() -> int:
               "non attribuable au port." % ",".join(montage_ko))
         rc = 2
     if rc == 0:
-        print("  VERT : les %d groupes `User_PlaceUnit` sont reproduits a l'EGALITE BRUTE."
-              % sum(r["groupes_natifs"] for r in resultats))
+        canal = sum(len(r["imputees_canal"]) for r in resultats)
+        print("  VERT : les %d groupes `User_PlaceUnit` sont reproduits a l'EGALITE BRUTE%s."
+              % (sum(r["groupes_natifs"] for r in resultats),
+                 "" if not canal else
+                 " (%d ligne(s) mise(s) au compte du CANAL, chacune expliquee au chiffre pres "
+                 "-- ce ne sont pas des egalites)" % canal))
     return rc
 
 

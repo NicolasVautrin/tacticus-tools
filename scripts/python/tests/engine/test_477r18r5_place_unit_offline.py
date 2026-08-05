@@ -281,6 +281,56 @@ def test_le_spawn_source_est_un_champ_du_message_pas_une_constante():
 
 # --- 4. LE MIRROR D'ENUM, apparie par son ordinal MESURE --------------------
 
+# --- 5. L'IMPUTATION AU CANAL ne doit PAS pouvoir absoudre un port faux ----
+#
+# Le probe live a rencontre (2026-08-05, MC1_67, 5 heros dont `ultraCalgar`) trois ecarts de
+# VALEUR dus au fait que ses canaux lisent l'etat APRES le build, donc apres les auras de
+# `System_StartMatch`. Il les impute au CANAL quand l'ecart EGALE EXACTEMENT la modification
+# publiee ensuite. Cette regle serait un relachement dangereux si elle absolvait autre chose :
+# ces tests-la sont ce qui l'en empeche.
+
+def _rapport_et_modifs(valeur_natif, valeur_port):
+    """Deux mini-flux qui ne different que par une valeur d'`UnitStats_Attack`."""
+    gabarit = ("Group=User_PlaceUnit Entity=NO_ENTITY Source= InitialTarget=\n"
+               "    Action=ChangeStats Entity=85\n"
+               "        Tag=UnitStats_Attack:%d\n"
+               "Finish_Group\n")
+    return CONF.comparer(gabarit % valeur_natif, gabarit % valeur_port), (gabarit % valeur_natif)
+
+
+def test_imputation_au_canal_exige_l_egalite_exacte():
+    import probe_477r18r5_user_place_unit as R18R5
+
+    rap, natif = _rapport_et_modifs(1507, 2805)
+    assert len(rap.divergences) == 1
+    # (a) modification EGALE a l'ecart -> imputee au canal.
+    canal, restantes = R18R5.reconcilier(rap, natif, {(85, "Attack"): 1298})
+    assert len(canal) == 1 and not restantes
+    # (b) modification DIFFERENTE de l'ecart -> le port reste l'accuse.
+    canal, restantes = R18R5.reconcilier(rap, natif, {(85, "Attack"): 1})
+    assert not canal and len(restantes) == 1
+    # (c) modification sur une AUTRE entite -> pas d'absolution.
+    canal, restantes = R18R5.reconcilier(rap, natif, {(87, "Attack"): 1298})
+    assert not canal and len(restantes) == 1
+    # (d) modification sur une AUTRE stat -> pas d'absolution.
+    canal, restantes = R18R5.reconcilier(rap, natif, {(85, "Movement"): 1298})
+    assert not canal and len(restantes) == 1
+    # (e) AUCUNE modification publiee -> pas d'absolution.
+    canal, restantes = R18R5.reconcilier(rap, natif, {})
+    assert not canal and len(restantes) == 1
+
+
+def test_un_port_faux_de_un_n_est_pas_absous():
+    """Le cas qui compte : un bug de `+1` sur une stat, dans un flux ou une aura modifie
+    justement cette stat -- mais de 1298, pas de 1."""
+    import probe_477r18r5_user_place_unit as R18R5
+
+    rap, natif = _rapport_et_modifs(1507, 1508)
+    canal, restantes = R18R5.reconcilier(rap, natif, {(85, "Attack"): 1298})
+    assert not canal, "un ecart de 1 ne doit pas etre absous par une modification de 1298"
+    assert len(restantes) == 1
+
+
 def test_ordinaux_figes_a_la_tranche():
     """`probe_313` compare le MIRROR au build : il redevient vert des qu'on regenere le mirror
     apres un renumerotage, alors que la valeur ECRITE au site, elle, a change. Ce test fige les
