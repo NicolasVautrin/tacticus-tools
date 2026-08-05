@@ -90,9 +90,18 @@ class MarkUnitAsNoActionAvailableOperation:
     VerifyMachineTurnEnded}`.
 
     LE RETRAIT (`reverse = true`) EST PORTE MAIS N'A AUCUN APPELANT dans le moteur offline, et
-    c'est un ETAT, pas un oubli : son unique declencheur natif est `VerifyUnitTurnEnded`, dont le
-    point d'appel vit dans la couche handler/view (appels par SLOT d'interface, aucun appelant
-    CODE au decompile) — le brancher exigerait d'INVENTER un ancrage. Residu `#287-r1-r1`."""
+    c'est un ETAT, pas un oubli. Son unique declencheur natif est `VerifyUnitTurnEnded`, et son
+    POINT D'ANCRAGE EST LU : `IdunBattle.Messages.InputMessageProcessor$$RunPhase` invoque le slot
+    `IOperationProcessor` 0x21 = `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished`
+    (AUCUN argument — c'est ce qui l'identifie parmi ses voisins `0x22` a un argument et `0x23` a
+    deux) **deux fois** apres chaque message, en phase NON interne. Ce qui bloque le port n'est
+    donc pas l'ancrage mais le CORPS : `VerifyUnitTurnEnded` appelle `HasTilesToMoveTo` =
+    `MovementQuery$$GetMovableTilesFor`, que le moteur offline ne CALCULE pas (il le RECOIT du RPC
+    `aiMovableTiles`). Consequence MESUREE (`probe_287r1_flags_transverse.py`, bras
+    `apres_deplacement`) : apres un simple deplacement, le natif pose le flag 4 et le port non —
+    ecart RESTRICTIF (le port ne pose que par `FinishUnitTurn`, donc son jeu de flags est un
+    SOUS-ENSEMBLE de celui du natif, jamais permissif) et borne a ce seul flag.
+    Residu `#287-r1-r1`."""
     __slots__ = ()
 
     @staticmethod

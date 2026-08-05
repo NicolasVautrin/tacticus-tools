@@ -63,6 +63,39 @@ sous le **meme** gate `!skipEndTurn`, et `Add` est idempotent). Le seul ecart es
 natif pose le flag pendant l'execution du corps de l'ability, le port en queue. Il ne serait
 observable que si un noeud lisait `HasActionLeft` du caster **pendant** son propre cast.
 
+### Le POINT D'ANCRAGE des trois `Verify*` — lu, apres avoir ete declare introuvable
+
+Cette fiche a d'abord ecrit que `VerifyUnitsTurnFinished` n'avait « aucun appelant CODE, donc pas
+d'ancrage portable ». **La mesure l'a refute** (cf. §7, bras `apres_deplacement`), et la relecture
+donne l'ancrage : `IdunBattle.Messages.InputMessageProcessor$$RunPhase` — la boucle de
+post-traitement jouee apres CHAQUE message d'entree — invoque le slot `IOperationProcessor`
+**0x21** *deux fois*, en phase NON interne :
+
+```
+StreamHelper<0x22>(type) ; action() ; VerifyDeaths ; ProcessDamageEvents ; <0x1e>
+ProcessPendingTriggeredAbilities ; <0x14>
+if (!isInternalPhase) {
+    <0x8e> ; <0x94> ; if (!isManualTurnEnd) VerifyDrafting
+    <0x21>()                      # VerifyUnitsTurnFinished  -- AUCUN argument
+    <0x20>(0, isManualTurnEnd)
+    ProcessPendingTriggeredAbilities ; VerifyDeaths ; ProcessDamageEvents ; VerifyDrafting
+    <0x21>()                      # une SECONDE fois
+}
+StreamHelper<0x23>(type)
+```
+
+Le slot est identifie par son ARITE et par ses voisins, pas au jugement : `0x21` n'a **aucun**
+argument (`VerifyUnitsTurnFinished() : void`), `0x22` en a **un** (`VerifyAndRefreshUnitTurnFinished
+(unit)`, confirme independamment par `Taunted_RefreshUnitTurnFinishedEffect$$RevertInternal` qui
+l'appelle avec `target`), `0x23` en a **deux** (`FinishUnitTurn(unit, isTerminated)`, deja etabli
+par `spawn.py` et `FinishUnitTurnBehaviour$$Execute`). Les trois fonctions « fin de tour d'unite »
+sont adjacentes dans l'interface.
+
+⇒ Ce qui bloque le port de `VerifyUnitTurnEnded` n'est donc **pas** l'ancrage, mais le **CORPS** :
+`HasTilesToMoveTo` = `<IMovementQuery slot 3>` = `MovementQuery$$GetMovableTilesFor`, que le moteur
+offline ne CALCULE pas — il le RECOIT du RPC `aiMovableTiles` (`engine/services/movement_query.py`
+prend `movable_tiles` en ENTREE). C'est la vraie forme du residu `#287-r1-r1`.
+
 ## 3. QUI LIT le flag, et qu'en fait-il — la ventilation, pas la liste
 
 C'est la question qui decide si l'absence rendait le port **permissif**. Meme scan (etapes 1 et 2) :
@@ -154,6 +187,23 @@ passerait trivialement : le natif doit poser au moins un flag, **et** il doit po
 | `test_turnflow_endturn_flags.py` + 3 fichiers offline | 51/51 | **51/51** |
 | `probe_181` (masques) / `probe_120` etape 0 / `probe_313` / `probe_273` / `probe_365` | verts | **verts** |
 
+**GENERALISATION** (`probe_287r1_flags_transverse.py`) — le residu etait annonce transverse, il
+fallait le montrer AILLEURS que sur 1100. Autre board (`C1_74`, pas `MC1_67`), autre seed (34117,
+pas 28701), roster inverse, et une **attaque normale** (id concret **69**, pas l'ability 1100) :
+
+| bras | natif | port | verdict |
+|---|---|---|---|
+| `attaque` (attaque normale commandee) | `[1, 2, 3, 4]` | `[1, 2, 3, 4]` | **accord EXACT, bilateral** |
+| `apres_deplacement` (une autre unite BOUGE) | `[0, 1, 4]` | `[0, 1]` | ecart `{4}`, RESTRICTIF, borne |
+
+⚠ **Le 2e bras a REFUTE l'attente avec laquelle il avait ete ecrit.** Il attendait « aucun flag 4,
+ni live ni port » — le natif le pose pourtant, **sans** poser `TurnFinished` (3). Ce n'est donc pas
+`FinishUnitTurn` : c'est la seconde voie, `VerifyUnitTurnEnded` (§2). Le bras a ete RECRIT pour
+MESURER l'ecart au lieu de l'attendre a zero, avec deux bornes : il vaut EXACTEMENT
+`{NoActionAvailable}` (tout autre flag rougit) et il est RESTRICTIF (le port ne pose que par
+`FinishUnitTurn`, donc il est un SOUS-ENSEMBLE du natif — **jamais permissif**, ce qui est la
+propriete qui compte pour un moteur d'entrainement).
+
 **CONTRE-EPREUVE**, mutation verifiee (le texte du fichier a change, grep a l'appui) : pose retiree
 de `FinishUnitTurnOperation.execute` ->
 * LIVE **ROUGE** : `le natif pose des flags que le port ne pose PAS : live=[1, 2, 3, 4]
@@ -162,8 +212,11 @@ de `FinishUnitTurnOperation.execute` ->
 Arbre restaure, verts re-joues.
 
 **NON COUVERT** :
-1. le RETRAIT (`reverse=True`) est porte mais **n'a aucun appelant** offline -> residu `#287-r1-r1` ;
+1. le RETRAIT et la POSE par `VerifyUnitTurnEnded` -> residu `#287-r1-r1`, **chiffre** ci-dessus.
+   Le blocage n'est PAS l'ancrage (lu, §2) mais `HasTilesToMoveTo`, non derivable offline ;
 2. la pose PRECOCE d'`ActiveAbilityOperation$$ExecuteInternal` n'est pas mirroree a sa place exacte
    (equivalente sur l'observable final, cf. §2) ;
 3. les trois generiques DSL qui pourraient lire le flag 4 par configuration ne sont pas balayes ;
-4. l'event de stream `TagKey.UnitStats_ActionsAvailable` n'est pas emis (couche non suivie).
+4. l'event de stream `TagKey.UnitStats_ActionsAvailable` n'est pas emis (couche non suivie) ;
+5. le bras `apres_deplacement` n'est mesure que sur **un** couple (board, unite) : l'amplitude du
+   residu (combien d'unites, a quels moments) n'est pas chiffree.

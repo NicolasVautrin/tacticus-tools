@@ -11,12 +11,26 @@ DEUX BRAS, ET ILS SONT OPPOSES -- c'est ce qui interdit de conclure d'un accord 
   * `attaque` -- une ATTAQUE NORMALE commandee, sur un AUTRE board et un AUTRE roster. Chemin
     natif : `ActiveAbilityMessage(NormalAttackType)` -> `ActiveAbilityOperation$$ExecuteInternal`
     -> `AddFlagsAfterAbilityExecution(skipEndTurn = false)` -> `FinishUnitTurn` -> slot 0x76.
-    ATTENDU : le flag 4 apparait des DEUX cotes.
-  * `sans_fin_de_tour` -- une AUTRE unite du meme camp, qui se contente de SE DEPLACER
+    ATTENDU : le flag 4 apparait des DEUX cotes. C'est CE bras qui mesure la voie #287-r1.
+  * `apres_deplacement` -- une AUTRE unite du meme camp, qui se contente de SE DEPLACER
     (`MoveUnitMessage`) : ce chemin ne traverse PAS `AddFlagsAfterAbilityExecution`.
-    ATTENDU : le flag 4 n'apparait NI live NI port. C'est le bras ou un port qui poserait le flag
-    « au cas ou » (hors du gate `skipEndTurn`) se verrait -- l'accord du 1er bras seul ne le
-    montrerait pas, puisque les deux cotes y posent.
+
+⚠ CE PROBE A COMMENCE AVEC UNE ATTENTE FAUSSE, ET LA MESURE L'A REFUTEE. Le 2e bras attendait
+« aucun flag 4, ni live ni port ». MESURE (`C1_74` / 34117, `ultraCalgar`) : le natif pose
+`[Moved, ArrivedAtFinalTile, NoActionAvailable]` -- le flag 4 EST la, alors que `TurnFinished`
+(3) ne l'est PAS. Ce n'est donc pas `FinishUnitTurn`, et la cause se lit au decompile : la
+DEUXIEME voie d'ecriture est
+`IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded`, appelee par
+`IdunBattle.Messages.InputMessageProcessor$$RunPhase` -- qui invoque le slot `IOperationProcessor`
+**0x21** (`Core.Services.OperationProcessor$$VerifyUnitsTurnFinished`, AUCUN argument) **deux
+fois** apres chaque message, en phase NON interne. Une unite qui vient de bouger a
+`ArrivedAtFinalTile`, donc `MovementQuery$$FindAnyOrAllMoveableTiles` rend `false` d'entree ; si
+elle n'a en plus aucune cible, `VerifyUnitTurnEnded` conclut « plus d'options » et pose le flag.
+
+Le 2e bras MESURE donc l'ECART, il ne l'attend plus a zero. Deux exigences le gardent :
+l'ecart doit valoir EXACTEMENT `{NoActionAvailable}` (tout autre flag = un vrai bug), et il doit
+etre RESTRICTIF (le port n'a jamais un flag que le natif n'a pas) -- le port ne pose que par
+`FinishUnitTurn`, donc il est un SOUS-ENSEMBLE du natif, jamais permissif. Residu `#287-r1-r1`.
 
 ⚠ L'ATTAQUE NORMALE N'EST PAS un `kind` d'`applyAction` : c'est une ABILITY dont le type est
 PER-UNIT (`ActiveAbilityComponent.NormalAttackType@0x28`, jamais le 17 de la FAMILLE). L'id est LU
@@ -173,7 +187,7 @@ def run(keep: bool = False, seed: int = SEED, board_name: str = BOARD,
                                    % CASTER_VID)
         out["normal_ability"] = int(normal_id)
 
-        # ---------- BRAS 1 : SANS fin de tour -- une AUTRE unite se contente de BOUGER ----------
+        # ---------- BRAS 1 : APRES DEPLACEMENT -- une AUTRE unite se contente de BOUGER ---------
         flags_pre, cs_pre = _flags_by_id(rid)
         snap_move = {"dv": dv, "ob": _rpc("observeBattle", [{"runnerId": rid}], 40000),
                      "snap": cs_pre, "rng": _rpc("dumpRng", [{"runnerId": rid}], 30000)}
@@ -187,9 +201,11 @@ def run(keep: bool = False, seed: int = SEED, board_name: str = BOARD,
         port_move = _port_flags(
             snap_move, board, wid,
             lambda r, st: r.apply(MoveUnitMessage(unit_id=wid, to=(int(step[0]), int(step[1])))))
-        out["sans_fin_de_tour"] = {"unit": WALKER_VID, "live_added": live_move,
-                                   "port_flags": port_move,
-                                   "to": [int(step[0]), int(step[1])]}
+        port_move_added = sorted(set(port_move) - set(flags_pre.get(wid) or []))
+        out["apres_deplacement"] = {"unit": WALKER_VID, "live_added": live_move,
+                                    "port_flags": port_move, "port_added": port_move_added,
+                                    "flags_pre": flags_pre.get(wid),
+                                    "to": [int(step[0]), int(step[1])]}
 
         # ---------- BRAS 2 : ATTAQUE NORMALE (le chemin `AddFlagsAfterAbilityExecution`) --------
         dv2 = _dview(rid)
@@ -229,25 +245,48 @@ def main() -> int:
         return 2
     NA = int(UnitFlag.NoActionAvailable)
     ok = True
-    m = r["sans_fin_de_tour"]
-    if NA in (m["live_added"] or []) or NA in (m["port_flags"] or []):
-        print("[287r1-t] ECHEC bras `sans_fin_de_tour` : le flag %d apparait apres un simple "
-              "deplacement (live=%s port=%s)" % (NA, m["live_added"], m["port_flags"]))
-        ok = False
+
+    # --- BRAS `attaque` : la voie #287-r1. Accord EXACT exige, dans les DEUX sens. -------------
     a2 = r["attaque"]
     if NA not in (a2["live_added"] or []):
         print("[287r1-t] REGIME TEMOIN casse : le NATIF ne pose pas le flag %d apres une attaque "
               "normale (live=%s) -- le bras ne mesure rien" % (NA, a2["live_added"]))
         ok = False
-    ecart = set(a2["live_added"] or []) - set(a2["port_added"] or [])
+    manque = set(a2["live_added"] or []) - set(a2["port_added"] or [])
     trop = set(a2["port_added"] or []) - set(a2["live_added"] or [])
-    if ecart or trop:
+    if manque or trop:
         print("[287r1-t] ECHEC bras `attaque` : live=%s port=%s (manquants=%s en_trop=%s)"
-              % (a2["live_added"], a2["port_added"], sorted(ecart), sorted(trop)))
+              % (a2["live_added"], a2["port_added"], sorted(manque), sorted(trop)))
         ok = False
-    print("[287r1-t] board=%s seed=%s : deplacement live=%s port=%s | attaque live=%s port=%s"
-          % (r["board"], r["seed"], m["live_added"], m["port_flags"],
-             a2["live_added"], a2["port_added"]))
+
+    # --- BRAS `apres_deplacement` : l'ECART EST ATTENDU, mais BORNE. --------------------------
+    # Il vaut le residu #287-r1-r1 (`VerifyUnitTurnEnded`, non porte) et RIEN d'autre ; et il est
+    # RESTRICTIF -- le port ne pose que par `FinishUnitTurn`, donc jamais de flag en trop.
+    m = r["apres_deplacement"]
+    manque_m = set(m["live_added"] or []) - set(m["port_added"] or [])
+    trop_m = set(m["port_added"] or []) - set(m["live_added"] or [])
+    if trop_m:
+        print("[287r1-t] ECHEC bras `apres_deplacement` : le PORT pose des flags que le natif ne "
+              "pose PAS (en_trop=%s) -- la degradation cesserait d'etre restrictive"
+              % sorted(trop_m))
+        ok = False
+    if manque_m and manque_m != {NA}:
+        print("[287r1-t] ECHEC bras `apres_deplacement` : ecart AUTRE que le residu #287-r1-r1 "
+              "(live=%s port=%s manquants=%s)" % (m["live_added"], m["port_added"],
+                                                  sorted(manque_m)))
+        ok = False
+    if manque_m == {NA}:
+        print("[287r1-t] RESIDU #287-r1-r1 MESURE : apres un simple deplacement, le natif pose "
+              "%d (via `VerifyUnitTurnEnded`, slot 0x21 de `RunPhase`) et le port non "
+              "(live=%s port=%s). Ecart RESTRICTIF, borne a ce seul flag."
+              % (NA, m["live_added"], m["port_added"]))
+    elif not manque_m:
+        print("[287r1-t] NB : aucun ecart sur `apres_deplacement` -- l'unite gardait des options, "
+              "`VerifyUnitTurnEnded` n'a donc pas pose le flag (live=%s)" % m["live_added"])
+
+    print("[287r1-t] board=%s seed=%s normal=%s : deplacement live=%s port=%s | attaque live=%s "
+          "port=%s" % (r["board"], r["seed"], r.get("normal_ability"), m["live_added"],
+                       m["port_added"], a2["live_added"], a2["port_added"]))
     print("[287r1-t] %s" % ("PROBE OK" if ok else "PROBE ECHEC"))
     return 0 if ok else 1
 
