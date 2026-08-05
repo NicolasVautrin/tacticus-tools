@@ -345,6 +345,21 @@ def table_ghidra(build: str) -> dict:
     return t
 
 
+def decompile_robuste(gh: Ghidra, nom: str, par_symbole: dict) -> tuple:
+    """1) par nom ; 2) budget LARGE (corps enorme) ; 3) par ADRESSE, une par SURCHARGE.
+
+    Le 3e cran n'est pas un luxe : un nom porte par plusieurs surcharges fait rendre a
+    `decompile_function` un corps VIDE, sans erreur. Mesure : `UnitExtensions$$GetFullStateUpdateTags`
+    en a 3, et son absence retirait **23** `TagKey` pourtant EMIS par le flux live.
+    """
+    code = gh.decompile(nom) or gh.decompile(nom, timeout_sec=300)
+    if code is not None:
+        return code, 0
+    morceaux = [c for c in (gh.decompile(va, timeout_sec=180)
+                            for va in par_symbole.get(nom, ())) if c]
+    return ("\n".join(morceaux) if morceaux else None), len(morceaux)
+
+
 def parametres(code: str) -> list:
     """Noms des parametres, lus sur la declaration en tete du pseudo-C."""
     i = code.find("{")
@@ -601,7 +616,8 @@ def main() -> int:
         for s in gh.symboles(re.escape(prefixe)):
             fabriques.append(s["name"])
     fabriques = sorted(set(fabriques))
-    codes_fabriques = {n: gh.decompile(n) for n in fabriques}
+    par_symbole = adresses_par_symbole(build_courant)
+    codes_fabriques = {n: decompile_robuste(gh, n, par_symbole)[0] for n in fabriques}
     dats_tag = dat_dictionnaire_de_tags([c for c in codes_fabriques.values() if c])
     print("\n[2bis] DICTIONNAIRE DE TAGS -- MethodInfo* derive de %d fabrique(s) : %s"
           % (len(fabriques), ", ".join(sorted(dats_tag)) or "AUCUN (le compte de tags sera NUL)"))
@@ -610,20 +626,10 @@ def main() -> int:
     groupes_vus, actions_vues, tags_vus = {}, {}, {}
     variables = []
     illisibles = []
-    par_symbole = adresses_par_symbole(build_courant)
     surcharges = 0
     for nom in producteurs:
-        # 1) par nom ; 2) budget LARGE (corps enorme) ; 3) par ADRESSE, une par SURCHARGE.
-        code = gh.decompile(nom) or gh.decompile(nom, timeout_sec=300)
-        if code is None:
-            morceaux = []
-            for va in par_symbole.get(nom, ()):
-                c = gh.decompile(va, timeout_sec=180)
-                if c:
-                    morceaux.append(c)
-            if morceaux:
-                surcharges += len(morceaux)
-                code = "\n".join(morceaux)
+        code, n_surch = decompile_robuste(gh, nom, par_symbole)
+        surcharges += n_surch
         if code is None:
             illisibles.append(nom)
             continue
