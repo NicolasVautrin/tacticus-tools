@@ -174,12 +174,10 @@ Non-régression (39 verts) : `test_462_r4b_r1_r1_r1_neuroparasite_pose_live` (7)
 
 ## 6. NON CONFRONTÉS et résidus nommés
 
-* **(b) `<klass+0x728> get_Range` et (c) `<klass+0x738> get_Adjacent` — NON CONFRONTÉS, non portés.**
-  Le seul porteur que le port pose et qui les arme est la famille `Taunted`, et `--step gatelive`
-  établit qu'elle est **inobservable** : le taunt de `CrushingClaws` (1105) est posé avec
-  `TurnsFromRounds(1)` et tombe au **deuxième `endturn` sans que personne ne bouge**. Le premier jet
-  du bras, qui déplaçait le taunté, mesurait en réalité la fin de son propre tour. Porter (b)/(c)
-  serait du code que rien ne peut invalider.
+* ~~**(b) `<klass+0x728> get_Range` et (c) `<klass+0x738> get_Adjacent` — NON CONFRONTÉS, non
+  portés.**~~ **RÉSOLU par `#462-r4b-r1-r1-r1-r1-b` — voir §8.** L'énoncé « inobservable » était
+  vrai du seul montage tenté (déplacer le taunté, ce que `Taunted_BlockMovement` interdit de toute
+  façon) ; il tombe dès qu'on **déplace de force** dans le tour du cast.
 * **Les 20 dérivées d'`IdunBattle.Entities.Effects.APendingAttackEffect` — RÉSOLUES par
   `#462-r4b-r1-r1-r1-r1-c`.** Voir §7.
 * **`Taunted_BlockMovement` (25) et `Taunted_CantUseAbility` (26)** : la classe native qui les sert
@@ -295,3 +293,156 @@ et que le natif n'a pas).
 **Non couvert, et nommé** : les **17 autres dérivées** à `RemoveOnBondedEntityDeath = TRUE`. Leur
 valeur est mesurée, mais leurs abilities ne sont pas portées dans `engine/` — donc ni porteur
 recensé, ni confrontation. Ce n'est pas un trou du port : c'est du kit non porté.
+
+## 8. `#462-r4b-r1-r1-r1-r1-b` — (b) `get_Range` porté, (c) `get_Adjacent` mesuré
+
+### 8.1 Ce qui a débloqué la confrontation : ne consommer AUCUN tour
+
+Le §6 concluait « inobservable » sur un montage unique — déplacer le taunté. Deux verrous s'y
+opposent, et le second n'avait pas été nommé : la durée `TurnsFromRounds(1)` du taunt tombe au
+deuxième `endturn`, **et** le composite pose `Taunted_BlockMovement` (25) sur sa cible — le taunté
+**ne peut pas marcher**. Le mouvement volontaire est donc structurellement fermé.
+
+Le montage qui tranche n'attend aucun tour et ne fait marcher personne : une **seconde unité du
+même camp** caste `MortisRound` (1004, `ultraEliminatorSgt`), dont l'arbre porte
+`PushUnit(Caster(), Target())`. Le déplacement **forcé** apporte les deux ingrédients du trigger
+d'un coup — `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects` publie
+`On(0x24)` → `On(0x23)` → **`On(0x1d)`** puis `RefreshEffects(7)`, et la distance change.
+
+**Le discriminant est la GÉOMÉTRIE, pas un paramètre.** Le push envoie le taunté en `V - e` (à
+l'opposé du pousseur), donc `dist(V - e, T) = |e + t|` où `T = V + t` est le taunteur :
+
+| pousseur | `|e + t|` | attendu |
+|---|---|---|
+| à **1 cran** de `t` (adjacent au taunteur) | **2** | hors portée (`get_Range = 1`) |
+| à **2 crans** | **1** | encore à portée — **le CONTRÔLE** |
+
+Les deux bras jouent le même cast, le même push, la même attaque : une tuile de différence.
+Le placement des DEUX camps est explicite (`--a-place` : l'unité quitte `BC.PredefinedUnits` pour
+les `playerUnits` d'`initAndStart` avec `playerId = PLAYER_ID_AI`) — le spawn natif de `MC1_67`
+posait la victime sur une tuile de bord à **deux** voisins jouables, où aucune des deux
+configurations n'existe.
+
+### 8.2 La mesure — (b), les deux faces
+
+`probe_462_r4b_r1_r1_r1_r1_b_bond_range.py --step rangelive` (board `MC1_67`, `tyranTyrantGuard` +
+`ultraEliminatorSgt` vs `blackPossession` à 400 000 PV, **aucun `endturn`**) :
+
+| bras | dist | NATIF | PORT (avant) | PORT (après) |
+|---|---|---|---|---|
+| ELOIGNE | 1 → **2** | `[25,26,27,1237]` → **`[]`** | inchangé | **`[]`** |
+| PROCHE | 1 → **1** | inchangé | inchangé | inchangé |
+
+Le port était donc **faux dans un sens permissif** : un taunt poussé hors de portée survivait, et
+avec lui `ForcedAttackTargets`, `Taunted_BlockMovement` et `Taunted_CantUseAbility` — une unité
+contrainte à vie, sans erreur ni crash.
+
+**C'est le PARENT qui tombe** : les trois sous-effets partent avec lui. Si seul
+`Taunted_RefreshUnitTurnFinishedEffect` (1237) avait porté le trigger, 27 serait resté. La mesure
+**attribue** donc `EffectType 27` à une classe qui arme (b), et parmi les quatre c'est
+`TauntedEffect` — la seule dont `ApplyInternal` pose ces trois sous-effets **et** la liste de
+cibles forcées (#436).
+
+⚠ **La bascule de vtable (§7.3) est inutilisable ici** : les six classes de la famille étaient
+**déjà matérialisées** avant tout cast (session partagée, runners d'autres agents). Le pas
+`--step attrib` existe et le **dit** au lieu de rendre un verdict vide.
+
+### 8.3 Trois défauts trouvés, tous MESURÉS — le trigger seul n'aurait rien fait
+
+1. **Le trigger (b) n'existait pas** → `BondRemoveOnRangeExceeded` (`On(0x1d)`,
+   `distance(owner, bonded) > range`).
+2. **`displace_triggers` n'émettait PAS `On(0x1d)`** — le port le flaggait « concern séparé, non
+   validé ». Sans lui, le trigger ne se réveille jamais sur un push. Contre-épreuve C2 : **2 rouges**.
+3. **`remove_effect_instance` ne retirait pas les SOUS-EFFETS.** `RemoveEffectOperation$$Execute`
+   appelle `$$RemoveSubEffects` (copie de `EffectComponent.SubEffects@+0x78`, `RemoveEffect`
+   récursif sur chacun), et le port n'avait cette cascade que dans `EffectsState.on_turn_end`
+   (expiration par TIMER). Tout retrait **anticipé** laissait les enfants derrière lui — mesuré :
+   le trigger retirait le 27 et `[25, 26, 1237]` restaient. C'est un défaut **antérieur** à ce
+   résidu, révélé par lui.
+4. Corollaire de (3) : sur un état **hydraté**, `parent_type` n'était écrit par personne — les deux
+   consommateurs du lien devenaient muets. `snapshot._load_effect_parent_links` le **reconstruit**
+   depuis la même part DATA que la pose (`sub_effects_on_apply()`), l'attribution étant unique
+   puisqu'`AddEffectOperation` garantit au plus une instance non consommée d'un type par unité.
+
+### 8.4 (c) `get_Adjacent` — mesuré au NATIF, rien à porter
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility$$ExecuteBehaviour` (1050) :
+
+```
+Execute( AddBondEffect(0x443 = 1091 HolyDuel_Taunt, AbilityStateReference,
+                       source = Caster@0x48, targets = Target@0x60,
+                       bondedEntity = Caster@0x48, options VIDES)
+         & UseActiveAbility(caster, target, UnitNormalAttackType(caster), ...) )
+```
+
+Le porteur `templChampion` **est au pool** (rank 17) — la gate de confrontabilité passe, malgré les
+5 npc `templBossChampion*` qui l'accompagnent. Même montage, `--step holyduel` :
+
+| bras | dist | 1091 |
+|---|---|---|
+| ELOIGNE | 1 → 2 | présent → **absent** |
+| PROCHE | 1 → 1 | présent → présent |
+
+Options **vides** ⇒ le bond est **permanent** (`remaining = 0`) : aucune durée ne peut expliquer la
+disparition, contrairement au taunt de `CrushingClaws`. La mesure est donc plus propre que celle
+de (b).
+
+`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent` construit
+`IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger`, dont le ctor est
+`(selector1, selector2, selectionType, query)` — **le `0x3` du call-site est le `selectionType`
+passé aux deux `Select`, PAS un rayon** ; `$$ShouldTrigger` teste `query.IsAdjacent(a, b)` sur
+toutes les paires, et rend `false` si l'un des ensembles est vide.
+
+**PORT : rien à porter, et le test le DIT.** L'ability 1050 n'est pas dans `ABILITY_CLASSES`, donc
+1091 n'est **jamais posé** offline : un trigger (c) serait vacuement vrai (le piège du §5). 1091
+n'entre donc PAS dans `BOND_REMOVAL_GATES` — la table ne contient que des effets que le port pose.
+`test_c_le_port_ne_pose_pas_1091_donc_ne_porte_aucun_trigger_c` **rougira** le jour où 1050 sera
+portée, et c'est ce jour-là qu'il faudra écrire `BondRemoveOnAdjacencyLost`.
+
+### 8.5 (a) sur l'effet 27 — l'effet de BORD, confronté lui aussi
+
+`TauntedEffect$$get_RemoveOnBondedEntityDeath` vaut **`true`**. Faire entrer 27 dans la table
+inscrit donc AUSSI (a), et livrer un câblage non confronté n'est pas acceptable. Vecteur :
+le friendly-fire de `FragBomb` (1017, `astraBullgryn`, **tile-target**), dont le splash
+`AdjacentUnits(Target) - Caster` inclut les **alliés**. Les deux bras ne diffèrent que par les PV
+du taunteur (`--step deathlive`) :
+
+| taunteur | NATIF | PORT (`On(2)` rejoué) |
+|---|---|---|
+| 1 PV → **mort** | `[25,26,27,1237]` → **`[]`** | mort du BONDÉ → **`[]`** |
+| 400 000 PV → vivant | inchangé | mort d'une TIERCE → inchangé |
+
+### 8.6 Validation
+
+`test_462_r4b_r1_r1_r1_r1_b_bond_range_live.py` : **8 verts** (les trois bras, contrôles inclus).
+`test_462_r4b_r1_r1_r1_r1_bond_removal_offline.py` : **9 → 16 verts**.
+
+Contre-épreuves, toutes MORDANTES, arbre restauré :
+
+| mutation | rouges |
+|---|---|
+| C2 — `On(0x1d)` retiré de `displace_triggers` | **2** |
+| C3 — `range = 2` au lieu de 1 | **5** (dont 2 comportementaux) |
+| C4 — `_remove_sub_effects` neutralisé | **5** |
+| C5 — `_load_effect_parent_links` neutralisé | **4** |
+
+Non-régression : **49 verts** offline (`436r1_bond_channel`, `366_r1_tunneling_horror_*`,
+`462_r4b_r1_r1_r1_neuroparasite_pose`), **12 verts** sur le vecteur push
+(`thunderous_assault_push`, `mortis_round`, `rad_saturation`, `decoys_misdirection_migration`).
+
+### 8.7 Non couverts, nommés
+
+* **`BlockUnitMovementBondEffect` et `MindControl_TaunterEffect`** arment (b) à `Nullable<int>(1)`,
+  mais leurs `EffectType` ne sont **pas établis** et le port ne pose aucun de ces effets. Rien à
+  porter ; la valeur est mesurée, elle attend son porteur.
+* **`Taunted_RefreshUnitTurnFinishedEffect`** (1237) arme (b) en propre. Le port pose bien 1237,
+  mais comme **sous-effet** — sans `bondedEntity` (le natif non plus : `AddSubEffectWithSameTurns`
+  ne passe pas de bond). Son `Triggered()` est donc construit côté natif et sans effet : le
+  sélecteur de bond rend une liste vide. Non porté, non confronté.
+* **Résidu `#462-r4b-r1-r1-r1-r1-b-r1`** : `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger`
+  prend un `selectionType` en 3ᵉ argument, **pas un rayon** — or `triggers/loki/narthecium.py` et
+  `tainted_narthecium.py` portent `IsAdjacent(self, target, 2)` comme `distance <= 2`
+  (`ADJACENCY_RANGE = 2`). Les deux nœuds sont peut-être distincts (un FILTRE `DSLFactory` vs ce
+  TRIGGER) et la question n'a **pas** été tranchée : elle est hors du périmètre de ce résidu, et
+  aucune mesure n'a été faite dessus ici. Si le 3ᵉ argument y est aussi un `selectionType`, les
+  deux revives natifs exigent l'**adjacence stricte** et le port est permissif d'un hex.
