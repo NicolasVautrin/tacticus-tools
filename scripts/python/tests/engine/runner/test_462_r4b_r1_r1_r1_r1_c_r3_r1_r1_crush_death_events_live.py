@@ -74,8 +74,17 @@ def _ok(r):
     return isinstance(r, dict) and r.get("ok")
 
 
+def _vue(rpc, rid):
+    """`decisionView` -- LE canal de vivacite. ⚠ PAS `observeBattle` : son `isDead` est derive des
+    PV, or une mine Haywire a **0 PV par construction** (`UnitStats_MaxHealth=0` a l'`AddUnit`), donc
+    elle y apparait `isDead: true` des sa pose. Mesure : un montage filtre sur `observeBattle`
+    voyait ZERO mine sur un plateau qui en portait deux. `decisionView.units[].alive` porte, lui, le
+    `UnitComponent` -- il distingue la mine POSEE de la mine ECRASEE."""
+    return rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+
+
 def _units(dv):
-    return [u for u in (dv.get("units") or []) if u.get("alive")]
+    return [u for u in ((dv or {}).get("units") or []) if u.get("alive")]
 
 
 def _by_vis(dv, vis, contains=False):
@@ -84,6 +93,10 @@ def _by_vis(dv, vis, contains=False):
         if (vis in v) if contains else (v == vis):
             return u
     return None
+
+
+def _uid(u):
+    return u.get("id", u.get("squadId", u.get("entityId")))
 
 
 def _pos(u):
@@ -109,14 +122,51 @@ def _endturn(rpc, rid):
     return rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90)
 
 
-def _step_towards(rpc, rid, unit_id, target):
-    """Un PAS vers `target` : la tuile LEGALE (set resolu par `aiMovableTiles`) la plus proche."""
-    tiles = _movable(rpc, rid, unit_id)
+def _step_one(rpc, rid, unit_id, cur, target, avoid=()):
+    """UN SEUL hex vers `target`, choisi dans le set LEGAL (`aiMovableTiles`), hors `avoid`.
+
+    UN SEUL, et c'est load-bearing : `MoveUnitOperation` traverse TOUTES les tuiles du chemin, donc
+    une destination lointaine ecrase les mines rencontrees EN ROUTE. Mesure du montage naif
+    (destination = la plus proche du but) : `necroWarden` a detruit QUATRE mines et s'est tue avant
+    la premiere capture. En ne bougeant que d'un hex, le chemin EST la tuile choisie."""
+    tiles = {t for t in (_movable(rpc, rid, unit_id) - set(avoid))
+             if hexgeo.distance(t, tuple(cur)) == 1}
     if not tiles:
         return None
-    best = min(tiles, key=lambda t: hexgeo.distance(t[0], t[1], target[0], target[1]))
+    best = min(tiles, key=lambda t: hexgeo.distance(t, tuple(target)))
     _move(rpc, rid, unit_id, best)
     return best
+
+
+def _assure_tour(rpc, rid, unit_id, max_endturns: int = 3) -> bool:
+    """Amene le tour sur l'equipe de `unit_id` : `aiMovableTiles` ne rend QUE le joueur courant, donc
+    un set VIDE veut souvent dire << pas son tour >>, pas << aucun deplacement legal >>. Rend False
+    si l'unite n'a toujours aucun pas apres `max_endturns` (deja agi, ou vraiment bloquee)."""
+    for _ in range(max_endturns + 1):
+        if _movable(rpc, rid, unit_id):
+            return True
+        _endturn(rpc, rid)
+    return bool(_movable(rpc, rid, unit_id))
+
+
+def _mines(dv):
+    """`{(col,row): unitId}` des mines VIVANTES du plateau."""
+    return {_pos(u): _uid(u) for u in _units(dv)
+            if MINE_VIS_FRAGMENT in (u.get("visualId") or "")}
+
+
+def _mine_a_portee(rpc, rid, unit_id):
+    """Une mine VIVANTE dans le set de deplacement LEGAL de `unit_id` ? -> `((col,row), mineId, dv)`.
+
+    ⚠ `aiMovableTiles` ne rend QUE les unites du joueur COURANT : appeler ceci hors du tour de
+    `unit_id` rend systematiquement `None`, ce qui se lirait a tort comme << aucune mine a portee >>."""
+    dv = _vue(rpc, rid)
+    mines = _mines(dv)
+    reach = _movable(rpc, rid, unit_id)
+    for p in sorted(mines):
+        if p in reach:
+            return p, mines[p], dv
+    return None, None, dv
 
 
 def _dmg_events(res):
@@ -167,39 +217,53 @@ def env_mine(live_session, rpc, build_runner):
     catalog_inject.write_augmented_seed_bc(str(bc), [SUMMONER])
     built = build_runner("777", extra=[
         "--seed-bc", str(bc), "--board", BOARD, "--rank", "17", "--no-ai",
-        "--p-units", "%s,%s" % (SUMMONER, ALLY), "--a-units", "%s,orksNob" % MECH_ENEMY], keep=True)
+        "--p-units", "%s,%s" % (SUMMONER, ALLY), "--a-units", "%s,orksNob" % MECH_ENEMY,
+        # LEVIER DE MONTAGE, pas de confort : les spawns de `MC1_67` sont a ~10 hex et Cyrus ne
+        # seme ses mines que sur sa tuile PRECEDENTE. Un rapprochement pas-a-pas fait traverser les
+        # mines par leur porteur (`MoveUnitOperation` ecrase TOUTES les tuiles du chemin -- mesure :
+        # 4 mines detruites et l'ennemi tue avant la 1re capture). En donnant la PORTEE au marcheur,
+        # le pas mesure est UNIQUE et choisi par nous. Aucune incidence sur ce qu'on mesure : le
+        # `Movement` n'entre dans aucun etage de `HaywireMineSteppableAbility`.
+        "--unit-stat", "%s:Movement=25" % MECH_ENEMY,
+        "--unit-stat", "%s:Movement=25" % ALLY], keep=True)
     rid = built["rid"]
 
-    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+    dv = _vue(rpc, rid)
     assert _ok(dv), "decisionView KO -- montage non installe"
     cyrus = _by_vis(dv, SUMMONER)
     foe = _by_vis(dv, MECH_ENEMY)
     assert cyrus is not None and foe is not None, \
         "%s / %s absents du plateau -- injection catalogue ou pool KO" % (SUMMONER, MECH_ENEMY)
-    cyrus_id, foe_id = cyrus["id"], foe["id"]
+    cyrus_id, foe_id = _uid(cyrus), _uid(foe)
 
-    # RAPPROCHEMENT : Cyrus seme une mine sur sa tuile PRECEDENTE a chaque pas ; on les fait
-    # converger jusqu'a ce qu'une mine tombe dans le set de deplacement LEGAL de l'ennemi.
-    cible = None
-    for _ in range(8):
-        dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+    # POSE DES MINES : SEUL Cyrus bouge, un hex a la fois, en EVITANT ses propres mines (il les
+    # ecraserait -- le crush ne regarde pas l'equipe). L'ennemi et l'allie, eux, ne bougent PAS
+    # pendant cette phase : c'est ce qui garantit qu'ils arrivent INTACTS au moment de la capture,
+    # et que leur unique pas mesure est celui qu'on leur fait faire. TROIS mines : une par bras qui
+    # en CONSOMME une (positif MECANIQUE, negatif ALLIE) plus celle que lit le bras de HARNAIS.
+    for _ in range(3):
+        assert _assure_tour(rpc, rid, cyrus_id), "Cyrus n'a aucun pas legal -- montage non installe"
+        dv = _vue(rpc, rid)
         c, f = _by_vis(dv, SUMMONER), _by_vis(dv, MECH_ENEMY)
-        assert c is not None and f is not None, "un protagoniste est mort -- montage instable"
-        mines = {_pos(u): u["id"] for u in _units(dv)
-                 if MINE_VIS_FRAGMENT in (u.get("visualId") or "")}
-        reach = _movable(rpc, rid, foe_id)
-        hit = [p for p in mines if p in reach]
-        if hit:
-            cible = (hit[0], mines[hit[0]])
-            break
-        _step_towards(rpc, rid, cyrus_id, _pos(f))
+        assert c is not None and f is not None, (
+            "un protagoniste est mort avant la mesure -- montage instable ; vus = %s"
+            % [(u.get("visualId"), _uid(u), u.get("alive"))
+               for u in ((dv or {}).get("units") or [])])
+        assert _step_one(rpc, rid, cyrus_id, _pos(c), _pos(f), avoid=_mines(dv)) is not None, \
+            "aucun pas d'UN hex libre pour Cyrus -- montage non installe"
         _endturn(rpc, rid)
-        _step_towards(rpc, rid, foe_id, _pos(c))
-        _endturn(rpc, rid)
-    assert cible is not None, \
-        "aucune mine atteignable par %s apres 8 tours -- montage non installe" % MECH_ENEMY
-    return {"rid": rid, "cyrus": cyrus_id, "foe": foe_id,
-            "mine_pos": cible[0], "mine_id": cible[1]}
+    dv = _vue(rpc, rid)
+    assert len(_mines(dv)) >= 3, (
+        "le passif `HaywireMine` de %s n'a pas pose 3 mines (%d) -- le montage n'exerce rien"
+        % (SUMMONER, len(_mines(dv))))
+    assert _assure_tour(rpc, rid, foe_id), \
+        "%s n'a aucun deplacement legal -- montage non installe" % MECH_ENEMY
+    pos, mine_id, _dv = _mine_a_portee(rpc, rid, foe_id)
+    assert pos is not None, (
+        "aucune mine dans le set de deplacement de %s -- le levier `Movement` n'a pas pris"
+        % MECH_ENEMY)
+    return {"rid": rid, "cyrus": cyrus_id, "foe": foe_id, "ally_vis": ALLY,
+            "mine_pos": pos, "mine_id": mine_id}
 
 
 # --------------------------------------------------------------------------- (a) LIVE vs PORT
@@ -276,10 +340,10 @@ def test_la_raison_de_mort_du_crush_est_Steppable_live(env_mine, rpc):
     rid, foe = env_mine["rid"], env_mine["foe"]
     cap = _capture(rpc, rid)
     st = _state(cap)
-    mine_id = env_mine["mine_id"]
-    if st.get_entity(mine_id) is None or \
-            not st.get_entity(mine_id).get_component(UnitComponent).alive:
-        pytest.fail("la mine n'est plus vivante dans la capture -- l'ordre des bras a change")
+    mine_id = next((_uid(u) for u in _units(cap["dv"])
+                    if MINE_VIS_FRAGMENT in (u.get("visualId") or "")), None)
+    assert mine_id is not None and st.get_entity(mine_id) is not None, \
+        "plus aucune mine VIVANTE sur le plateau -- ce bras n'a rien a mesurer"
     from engine.runner.operations.movement import _kill_steppable_units
     pc = st.get_entity(mine_id).get_component(PositionComponent)
     _kill_steppable_units(st, (pc.col, pc.row), foe)
@@ -298,43 +362,41 @@ def test_la_mine_n_explose_pas_sous_un_allie_natif_vs_port(env_mine, rpc):
     Mesure LIVE de reference (meme runner, mine `u103`, `ultraTitus`) : `0 event(s) de degat`,
     PV inchanges. Sans ce bras, le bras positif ne prouverait pas que le gate existe."""
     rid = env_mine["rid"]
-    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+    dv = _vue(rpc, rid)
     ami = _by_vis(dv, ALLY)
     assert ami is not None, "%s absent -- montage non installe" % ALLY
-    mines = {_pos(u): u["id"] for u in _units(dv)
-             if MINE_VIS_FRAGMENT in (u.get("visualId") or "")}
-    reach = _movable(rpc, rid, ami["id"])
-    hit = [p for p in mines if p in reach]
-    if not hit:
-        for _ in range(6):
-            _step_towards(rpc, rid, ami["id"], next(iter(mines)) if mines else _pos(ami))
-            _endturn(rpc, rid)
-            _endturn(rpc, rid)
-            dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
-            mines = {_pos(u): u["id"] for u in _units(dv)
-                     if MINE_VIS_FRAGMENT in (u.get("visualId") or "")}
-            reach = _movable(rpc, rid, ami["id"])
-            hit = [p for p in mines if p in reach]
-            if hit:
-                break
-    assert hit, "aucune mine atteignable par l'ALLIE -- le bras negatif ne peut pas etre joue"
-    dest, mine_id = hit[0], mines[hit[0]]
+    ami_id = _uid(ami)
+    dest = mine_id = None
+    for _ in range(14):
+        if not _assure_tour(rpc, rid, ami_id):
+            break
+        dest, mine_id, dv = _mine_a_portee(rpc, rid, ami_id)
+        if dest is not None:
+            break
+        mines = _mines(dv)
+        assert mines, "plus aucune mine sur le plateau -- le bras negatif ne peut pas etre joue"
+        a = _by_vis(dv, ALLY)
+        assert a is not None, "l'ALLIE a disparu -- montage instable"
+        _step_one(rpc, rid, ami_id, _pos(a), sorted(mines)[0], avoid=mines)
+        _endturn(rpc, rid)
+    assert dest is not None, \
+        "aucune mine atteignable par l'ALLIE -- le bras negatif ne peut pas etre joue"
 
     cap = _capture(rpc, rid)
     hp0 = {u.get("squadId", u.get("entityId")): u.get("hp") for u in (cap["ob"]["units"] or [])}
-    res = _move(rpc, rid, ami["id"], dest)
-    evs = [td for td in _dmg_events(res) if td.get("Target_Id") == ami["id"]]
+    res = _move(rpc, rid, ami_id, dest)
+    evs = [td for td in _dmg_events(res) if td.get("Target_Id") == ami_id]
     assert not evs, "le natif a fait exploser la mine sous un ALLIE : %s" % (evs,)
 
     st = _state(cap)
-    hc = st.get_entity(ami["id"]).get_component(HealthComponent)
+    hc = st.get_entity(ami_id).get_component(HealthComponent)
     avant = int(hc.hp)
-    Runner(st).install_default_handlers().apply(MoveUnitMessage(ami["id"], dest))
+    Runner(st).install_default_handlers().apply(MoveUnitMessage(ami_id, dest))
     assert int(hc.hp) == avant, \
         "le PORT a fait exploser la mine sous un ALLIE (%d -> %d)" % (avant, hc.hp)
     assert st.get_entity(mine_id).get_component(UnitComponent).alive is False, \
         "la mine n'a pas ete crushee (le pas n'a pas eu lieu ?) -- le bras est vide"
-    assert hp0.get(ami["id"]) is not None, "PV de l'allie illisibles -- capture partielle"
+    assert hp0.get(ami_id) is not None, "PV de l'allie illisibles -- capture partielle"
 
 
 # --------------------------------------------------------------------------- (b) STRUCTURE
@@ -425,7 +487,9 @@ def test_le_seed_de_l_ability_state_d_un_summon_vient_d_unitAbilityStates(env_mi
     `{"error": "config null"}`. Sans le seed depuis `unitAbilityStates`, `passive_ability_level`
     vaut 0 et TOUTE variable per-niveau d'un passif de summon est lue a l'index 0."""
     cap = _capture(rpc, env_mine["rid"])
-    mine_id = env_mine["mine_id"]
+    mine_id = next((_uid(u) for u in _units(cap["dv"])
+                    if MINE_VIS_FRAGMENT in (u.get("visualId") or "")), None)
+    assert mine_id is not None, "plus aucune mine VIVANTE -- ce bras n'a rien a mesurer"
     brut = next((u for u in (cap["snap"].get("units") or [])
                  if u.get("entityId") == mine_id), None)
     assert brut is not None, "la mine est absente du combatSnapshot -- capture partielle"
