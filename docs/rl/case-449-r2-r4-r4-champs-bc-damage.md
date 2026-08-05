@@ -1,125 +1,193 @@
-# `#449-r2-r4-r4` -- les autres champs de `BattleConfiguration.Damage`
+# `#449-r2-r4-r4` — les autres champs de `BattleConfiguration.Damage`
 
-EN COURS. Build de reference : `rnca9r7q6c`.
+Build de référence : `rnca9r7q6c`.
+
+La tranche parente `#449-r2-r4` a montré que `DamageSpreadPercentage` était codé en dur à 20 en
+13 endroits. **Le vice n'était pas isolé** : la même section porte huit autres champs, et le port
+en figeait quatre de plus. C'est mesuré, pas déduit — sur le bras où la BC ne porte **pas**
+`ElevationBonus`, le natif inflige **5160** là où le port calculait **8797** (**+70,5 %**).
 
 ## 1. La classe native, et son ctor
 
-`IdunBattle.Configuration.DamageConfiguration` -- taille **72 = 0x48**
+`IdunBattle.Configuration.DamageConfiguration` — taille **72 = 0x48**
 (`data/symbols/rnca9r7q6c/frida/classes.tsv`).
 
-`IdunBattle.Configuration.DamageConfiguration$$.ctor` n'ecrit **QU'UN** champ :
+`IdunBattle.Configuration.DamageConfiguration$$.ctor` n'écrit **qu'un** champ :
 
     *(this + 0x40) = new Dictionary<DamageProfileType, DamageProfile>()
 
-**Aucun autre champ n'a d'initialiseur.** Tout champ absent du JSON reste a la valeur par defaut de
-son type C# : **0** pour les entiers, **false** pour les bools. C'est la meme mesure que la tranche
-parente `#449-r2-r4` avait faite pour `DamageSpreadPercentage` -- elle vaut pour **TOUS** les champs
-de la section, et c'est ce qui interdit d'ecrire un repli non lu.
+**Aucun autre champ n'a d'initialiseur.** Un champ absent du JSON vaut donc **0** (ou `false`),
+jamais le littéral que le port écrivait en repli. La mesure que la tranche parente avait faite sur
+un champ vaut pour **toute la section**.
 
-Seule autre methode de la classe : `IdunBattle.Configuration.DamageConfiguration$$GetDamageProfile`
-(lookup dans le `Dictionary` `+0x40`, `NullReferenceException` si le dictionnaire est nul).
+Et le zéro n'est pas un accident : `IdunBattle.Core.Services.DamageCalculations$$GetMultiplierFromConfigValue`
+rend un `Nullable` **vide** à `configValue == 0` (même forme inline dans `$$CalculateTrenchReduction`).
+Le natif **modélise** explicitement ce régime — un repli non nul est donc doublement faux : ni lu,
+ni même dans le régime prévu.
 
-## 2. Inventaire des champs -- DERIVE du natif
+## 2. Inventaire des champs — dérivé du natif
 
-Chaque offset est **lu dans le decompile de son consommateur**, jamais deduit de l'ordre du JSON.
+Chaque offset est **lu dans le corps de son consommateur**, jamais déduit de l'ordre de
+sérialisation. Le layout ferme exactement la taille annoncée (`0x40 + 8 = 0x48 = 72`).
 
-| offset | champ | consommateur natif ou l'offset est LU |
+| offset | champ | consommateur natif où l'offset est LU |
 |---|---|---|
-| `+0x10` | `ElevationBonus` | `IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier` |
-| `+0x14` | `ClassBonus` | -- (balayage en cours) |
-| `+0x18` | `AffinityBonus` | -- (balayage en cours) |
-| `+0x1c` | `ArmorPercentage` | `IdunBattle.Core.Services.DamageCalculations$$get_ArmorPercentageFix64` |
+| `+0x10` | `ElevationBonus` | `IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier` (inliné dans `$$CalculateAttackerModifiersForPrediction`) |
+| `+0x14` | `ClassBonus` | **aucun lecteur** — cf. §3 |
+| `+0x18` | `AffinityBonus` | **aucun lecteur** — cf. §3 |
+| `+0x1c` | `ArmorPercentage` | `IdunBattle.Core.Services.DamageCalculations$$get_ArmorPercentageFix64` (inliné dans `$$CalculateDamageBlockedByArmor`) |
 | `+0x20` | `DamageSpreadPercentage` | `IdunBattle.Core.Services.DamageCalculations$$get_DamageSpreadPercentageFix64` (#449-r2-r4) |
-| `+0x24` | `KnockbackPercentage` | `IdunBattle.Core.Services.DamageCalculations$$get_KnockbackPercentageFix64` |
+| `+0x24` | `KnockbackPercentage` | `IdunBattle.Core.Services.DamageCalculations$$get_KnockbackPercentageFix64` (inliné dans `$$CalculateKnockbackDamage`) |
 | `+0x28` | `RangedInMeleeReductionPercentage` | `IdunBattle.Core.Services.DamageCalculations$$CalculateRangedInMeleeReduction` |
 | `+0x2c` | `TrenchReductionPercentage` | `IdunBattle.Core.Services.DamageCalculations$$CalculateTrenchReduction` |
-| `+0x30` | `AllowOverkill` (bool) | `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` -- parametre **NOMME** `allowOverkill` |
+| `+0x30` | `AllowOverkill` (bool) | `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` — paramètre **nommé** `allowOverkill` |
 | `+0x31` | `IgnoreDamageSpread` (bool) | `IdunBattle.Core.Services.DamagePrediction$$get_IgnoreDamageSpread` (#449-r2-r4) |
-| `+0x34` | `OverkillDmgPctOfHealth` | `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` -- parametre **NOMME** `overkillDmgPctOfHealth` |
+| `+0x34` | `OverkillDmgPctOfHealth` | `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` — paramètre **nommé** `overkillDmgPctOfHealth` |
 | `+0x38` | `DamagedMachineDestroyChanceIncrease` | `IdunBattle.Core.Services.DamagePrediction$$GetMachineDestroyChance` |
-| `+0x40` | `DamageProfiles` (Dictionary) | `IdunBattle.Configuration.DamageConfiguration$$GetDamageProfile` |
+| `+0x40` | `DamageProfiles` | `IdunBattle.Configuration.DamageConfiguration$$GetDamageProfile` |
 
-Le layout **ferme exactement** la taille annoncee : `0x40 + 8 (pointeur) = 0x48 = 72`, avec le
-padding `0x3c..0x40` qui aligne le pointeur.
+**Trois confirmations indépendantes du layout**, au-delà des getters :
 
-**Deux confirmations independantes du layout**, au-dela des getters :
+* `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` existe en trois surcharges. La
+  **statique** porte des paramètres nommés — `(targetInitialHealth, healthDamage, isCritical,
+  isForceOverkill, isPreventOverkill, allowOverkill, overkillDmgPctOfHealth, targetMinimumHealth)`
+  — et les deux surcharges d'instance lui passent `*(byte*)(configuration + 0x30)` et
+  `*(uint*)(configuration + 0x34)`. Le **nom** de ces deux champs est donc lu, pas inféré.
+* `idun.tests.AbilityAnimationTest$$SetupBattleConfig` **écrit** dans `BattleConfiguration+0xa8`
+  (= la section `Damage`) : `+0x10 = 50`, `+0x1c = 50`, `+0x24 = 10`, `+0x28 = -50`, et surtout
+  `+0x30` en **un octet** contre `+0x34` en **dword** — la largeur des deux champs d'overkill est
+  confirmée par un écrivain, pas seulement par un lecteur.
+  ⚠ Ne pas confondre avec le bloc voisin `BattleConfiguration+0xb0`, une autre section que le même
+  test remplit ; ses offsets ne sont **pas** ceux de `Damage`.
+* `Idun.Source.IdunBattle.View.BattleConfigBuilder$$CreateBattleConfig` alimente les 12 champs
+  depuis le DTO gameconfig, ce qui donne la correspondance complète offset ↔ source.
 
-* `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` existe en trois surcharges. La **statique**
-  (`@181114410`, celle dont ghidra rend les noms de parametres) a pour signature
-  `(targetInitialHealth, healthDamage, isCritical, isForceOverkill, isPreventOverkill, allowOverkill,
-  overkillDmgPctOfHealth, targetMinimumHealth)`. Les deux surcharges d'instance lui passent
-  `*(byte*)(configuration + 0x30)` en `allowOverkill` et `*(uint*)(configuration + 0x34)` en
-  `overkillDmgPctOfHealth`. Le nom des deux champs est donc **lu**, pas infere.
-* `idun.tests.AbilityAnimationTest$$SetupBattleConfig` construit une BC de test et ecrit dans
-  `BattleConfiguration+0xa8` (= la section `Damage`) : `+0x10 = 50`, `+0x1c = 50`, `+0x24 = 10`,
-  `+0x28 = -50` (`0xffffffce`) -- et, plus haut, `+0x30` en **UN OCTET** et `+0x34` en **dword**.
-  La largeur des deux champs d'overkill est donc confirmee par un ECRIVAIN, pas seulement par un
-  lecteur. (`-50` en `+0x28` est exactement la valeur de `RangedInMeleeReductionPercentage` de la
-  seed : la correspondance offset<->nom se recoupe sur la valeur.)
-  ⚠ Ne pas confondre avec le bloc voisin `BattleConfiguration+0xb0`, une AUTRE section de config que
-  le meme test remplit (`+0x18=1, +0x1c=50, +0x20=15, +0x24=25, +0x28=30, +0x2c=25, +0x30=20,
-  +0x34=6, +0x38=9`) -- ses offsets ne sont PAS ceux de `Damage`.
+## 3. `ClassBonus` et `AffinityBonus` sont de la CONFIG MORTE (verdict natif)
 
-## 3. Un zero natif n'est PAS un no-op arbitraire -- il est MODELISE
+Balayage exhaustif (les 38 méthodes de `DamageCalculations`, les 47 de `DamagePrediction` — `.ctor`
+compris —, les trois sites UI, plus la voie `BattleConfiguration+0xa8`) : **aucune fonction native
+ne lit `+0x14` ni `+0x18`**.
 
-`IdunBattle.Core.Services.DamageCalculations$$GetMultiplierFromConfigValue(configValue)` :
+Ils sont pourtant **écrits** : `Idun.Source.IdunBattle.View.BattleConfigBuilder$$CreateBattleConfig`
+les alimente depuis le DTO (`+0x14 <- DTO+0x15c`, `+0x18 <- DTO+0x160`). Ce sont donc des champs
+**alimentés mais jamais consommés** par le moteur.
 
-    if (configValue == 0) return null;          // Nullable<int> VIDE -> aucune modification
-    return new Nullable<int>(configValue);
+Faisceau corroborant (pas une preuve) : il existe
+`idun.shared.utils.IdunLocalization.Ui$$DamageInfoHud_Detailed_ElevationBonus_Tooltip_Title` mais
+**aucun symbole équivalent** pour ClassBonus/AffinityBonus ; et
+`idun.ui.tooltips.BattlePreviewUnitInfoTooltip` porte bien des champs `ClassBonusAmount` /
+`AffinityBonusAmount`, mais aucune de ses méthodes lues ne les écrit, et la classe ne reçoit jamais
+de `DamageConfiguration`.
 
-Meme forme inline dans `CalculateTrenchReduction` (`if (iVar1 != 0) { ... }`). Le natif **traite
-explicitement le zero** comme « pas de modificateur » : le defaut zero du ctor n'est pas un accident,
-il tombe dans une branche prevue. C'est ce qui rend un repli non nul cote port doublement faux --
-il n'est ni lu, ni meme dans le regime que le natif modelise.
+**⇒ Ne pas porter.** Un port serait du code que rien n'exerce.
 
-## 4. Inventaire cote PORT -- lu / code en dur / pas lu
+*Limite honnête* : la clôture repose sur les quatre porteurs dérivés de `methods.tsv`, élargis à
+`BC+0xa8`. Un cinquième détenteur de référence non déclaré resterait hors de portée.
 
-Derive par balayage de `scripts/python/engine/` (sites de CODE, commentaires ecartes).
+## 4. Inventaire côté PORT — et re-cadrage d'une prémisse
 
-| champ | statut du port | site |
+La tâche annonçait « **8 champs non lus du tout** » par le port. **Faux** : le compte re-dérivé est
+**3**. Les autres étaient lus, mais **mal** — un vice plus discret que l'absence.
+
+| champ | AVANT | APRÈS |
 |---|---|---|
-| `ElevationBonus` | **LU de la seed**, repli litteral `50` | `engine/services/damage_modifiers.py` `ELEVATION_BONUS_PCT` |
-| `ClassBonus` | **PAS LU** (0 mention) | -- |
-| `AffinityBonus` | **PAS LU** (0 mention) | -- |
-| `ArmorPercentage` | **DUR `50`** x2 | `engine/predict.py` `CombatConstants` |
-| `DamageSpreadPercentage` | foyer `damage_config.py` (#449-r2-r4) **+ DUR `20` x2 residuels** | `engine/predict.py` `CombatConstants` |
-| `KnockbackPercentage` | **DUR `20`** | `engine/runner/operations/displace.py` `_KNOCKBACK_PCT` |
-| `RangedInMeleeReductionPercentage` | **LU de la seed**, repli litteral `-50` | `engine/playbook/prediction/_shared.py` `RANGED_IN_MELEE_PCT` |
-| `TrenchReductionPercentage` | **LU de la seed**, repli litteral `-50` | `engine/services/damage_modifiers.py` `TRENCH_PCT` |
-| `AllowOverkill` | **DUR `1`** (defaut de signature + 3 call-sites) | `engine/services/trait_damage_limits.py`, `engine/utilities/damage.py` |
-| `IgnoreDamageSpread` | **LU** (foyer) | `engine/services/damage_config.py` |
-| `OverkillDmgPctOfHealth` | **LU DE LA MAUVAISE TABLE** -- gameconfig `globalValues`, pas `BC.Damage` | `engine/services/trait_damage_limits.py` `_overkill_threshold_pct` |
-| `DamagedMachineDestroyChanceIncrease` | **PAS LU** (0 mention) | -- |
-| `DamageProfiles` / `PiercingDamageRatio` | LU | `engine/predict.py`, couche percage |
+| `ElevationBonus` | seed **figée à l'import**, repli littéral `50` | **BC de la bataille** (foyer) |
+| `ClassBonus` | pas lu | pas lu — **dead-config natif**, §3 |
+| `AffinityBonus` | pas lu | pas lu — **dead-config natif**, §3 |
+| `ArmorPercentage` | `50` en dur dans `predict.py` (**code mort**) | défaut retiré, paramètre obligatoire |
+| `DamageSpreadPercentage` | foyer OK, **+ 2 littéraux résiduels** dans `predict.py` | littéraux retirés |
+| `KnockbackPercentage` | **`_KNOCKBACK_PCT = 20`** | **BC de la bataille** (constante supprimée) |
+| `RangedInMeleeReductionPercentage` | seed figée, repli `-50` | inchangé — **prédiction-only**, §6 |
+| `TrenchReductionPercentage` | seed figée, repli `-50` | **BC de la bataille** (foyer) |
+| `AllowOverkill` | **`1` en dur**, 4 sites | `_allow_overkill()` → foyer |
+| `IgnoreDamageSpread` | foyer (#449-r2-r4) | inchangé |
+| `OverkillDmgPctOfHealth` | **`gameconfig.globalValues`** — une autre table | `BC.Damage` (foyer) |
+| `DamagedMachineDestroyChanceIncrease` | pas lu | pas lu — **mécanisme entier non porté**, §6 |
 
-### 4.1 Re-cadrage d'une premisse de la tache
+Les deux porteurs nommés par la tâche sont **confirmés** : `_KNOCKBACK_PCT = 20` et
+`armor_percentage = 50` étaient bien des littéraux.
 
-La tache annoncait « **8 champs de `BC.Damage` non lus du tout** par le port ». **C'est faux** :
-le compte re-derive est **3** (`ClassBonus`, `AffinityBonus`, `DamagedMachineDestroyChanceIncrease`).
-Les cinq autres qu'on pourrait croire absents sont en realite lus, mais **mal** -- et c'est un vice
-DIFFERENT, plus discret que l'absence :
+### 4.1 `predict.py::CombatConstants` est du CODE MORT (`#449-r2-r4-r5`)
 
-* trois (`ElevationBonus`, `TrenchReductionPercentage`, `RangedInMeleeReductionPercentage`) lisent
-  bien un JSON, mais **la seed `data/seed-bc.json` figee au chargement du module**, jamais la BC de
-  la bataille courante. Le foyer `#449-r2-r4` avait explicitement nomme ce trou (« exact tant qu'ils
-  partent de `data/seed-bc.json`, et faux des qu'un montage utilise `--seed-bc` avec une section
-  `Damage` modifiee ») ;
-* un (`OverkillDmgPctOfHealth`) lit une **autre table** (`gameconfig.globalValues`) qui vaut 100
-  comme la BC : accord en **regime degenere**, donc invisible tant que les deux coincident ;
-* un (`DamageSpreadPercentage`) est corrige sur son rail principal mais garde deux litteraux dans
-  un second lecteur.
+`git grep CombatConstants` sur tout le dépôt : la classe n'apparaît que dans sa propre définition.
+**`from_bc` n'a aucun appelant.** Un défaut que rien n'exerce est un littéral que **rien ne peut
+invalider** — le brancher sur le foyer reviendrait à câbler un canal que personne n'emprunte.
 
-Les deux porteurs nommes par la tache parente sont en revanche **confirmes** : `_KNOCKBACK_PCT = 20`
-et `armor_percentage = 50` sont bien des litteraux en dur.
+Traitement retenu, identique à celui de `HitDamage.from_base` dans la tranche parente : **défauts
+retirés, paramètres rendus obligatoires**, et `from_bc` rend `0` sur champ absent (comme le natif).
+Cela ferme le résidu `#449-r2-r4-r5`.
 
-### 4.2 `predict.py::CombatConstants` est du CODE MORT
+## 5. Le correctif — un seul foyer, pas un second
 
-Mesure sur **tout le depot** (`git grep CombatConstants`) : la classe n'apparait que dans sa propre
-definition (`engine/predict.py`) et dans deux docs. **`from_bc` n'a AUCUN appelant.**
+`engine/services/damage_config.py` devient le foyer de **toute** la section :
 
-C'est le meme cas que `HitDamage.from_base` dans la tranche parente : un defaut qu'aucun appelant
-n'exerce est un litteral que **rien ne peut invalider**. Il ne se corrige donc pas en le rebranchant
-sur le foyer (on cablerait un canal que personne n'emprunte) -- il se **desarme**.
+* **`DAMAGE_FIELDS`** — table `nom_port -> (clé BC, offset natif, symbole du consommateur)`. C'est
+  elle qui porte la RE, et elle est **dérivée** : `snapshot.load_state` boucle dessus, donc un champ
+  qui entre dans la table est transporté sans qu'on ait à y penser.
+* **`default_damage_field(name)`** — défaut **dérivé** de `data/seed-bc.json`, jamais écrit ; **lève**
+  si la seed est illisible ou si la clé manque (même discipline que la tranche parente).
+* **`resolve_damage_field(name, value=None, state=None)`** — généralisation exacte de
+  `resolve_spread_pct` : explicite > BC de cette bataille (`State`) > défaut dérivé.
 
-C'est aussi le residu deja ouvert **`#449-r2-r4-r5`**, que le backlog rattachait explicitement a
-cette tranche (« a fusionner dans `damage_config` quand `#449-r2-r4-r4` sera traite »).
+Consommateurs câblés : `apply_elevation_bonus`, `apply_trench_reduction`
+(`engine/runner/damage_model.py`), `_apply_knockback_to` (`engine/runner/operations/displace.py`,
+constante `_KNOCKBACK_PCT` **supprimée**), `_allow_overkill` / `_overkill_threshold_pct`
+(`engine/services/trait_damage_limits.py`, 4 sites).
+
+## 6. Ce qui n'est PAS porté, et pourquoi
+
+* **`RangedInMeleeReductionPercentage`** — **prédiction-only** (le trait `0xb` n'est jamais assigné,
+  #161). Le consommateur porté est `engine/playbook/prediction/_shared.py`, qui n'a pas de `State` :
+  le câbler demanderait de faire descendre la BC dans la couche prédiction. **Non fait**, résidu.
+* **`ArmorPercentage`** — la branche consommatrice (`calculate_damage_blocked_by_armor`, pool
+  d'armure déplétable) **n'est pas exercée** : toutes les cibles live ont `RemainingArmor == 0`. Son
+  défaut `0` coïncide d'ailleurs avec le natif à champ absent. Non confrontable, résidu.
+* **`DamagedMachineDestroyChanceIncrease`** — le mécanisme entier est **absent du port**. Le natif
+  le lit sur un vrai chemin d'exécution (`IdunBattle.Entities.Behaviours.MachineDamageBehaviour$$Execute`
+  → `IdunBattle.Operations.MachineDamageOperation$$ExecuteHit` → slot 0x13
+  `$$GetMachineDestroyChance`, puis slot 9 `$$ResolveMachineHit` qui tire au PRNG si
+  `destroyChance < 100`). Porter le champ seul, sans son consommateur, serait spéculatif.
+* **`OverkillDmgPctOfHealth`** — la correction de source (`gameconfig` → `BC.Damage`) **n'est pas
+  mesurable** : les deux tables valent 100. C'est un **accord en régime dégénéré**, justifié par le
+  décompilé, pas par un écart observé.
+
+## 7. La mesure
+
+`probe_449r2r4r4_bc_damage_fields.py` — trois bras qui ne diffèrent **que** par la section
+`BC.Damage` d'une copie de `data/seed-bc.json`, passée au runner par `--seed-bc`. Attaquant RANGED
+`necroDestroyer` piloté en **surplomb** (MC1_67, `(0,3)` élévation 4 → `(0,5)` élévation 2, distance
+hex 2, tuiles choisies en LISANT le board — pas subies). Face COMBAT par replay-diff, PRNG calé sur
+le MT live (`dumpRng`).
+
+| bras | `BC.ElevationBonus` | natif | port AVANT | écart | port APRÈS |
+|---|---|---|---|---|---|
+| `seed` | 50 | 8797 | 8797 | 0 | **8797** |
+| `v100` | 100 | 10520 | 8797 | **−1723 (−16,4 %)** | **10520** |
+| `absent` | *(retiré)* | 5160 | 8797 | **+3637 (+70,5 %)** | **5160** |
+
+Le natif suit exactement le champ — centres de `aiPredict` : 5436 → ×1,5 → ×2,0. Après correctif :
+**bit-exact sur les trois bras**.
+
+⚠ **Le premier run de ce probe a accusé le bon coupable pour la mauvaise raison.** Sans
+`load_state(board=...)`, les feuilles positionnelles du port sont des **no-op silencieux** : le port
+rendait 5160 sur les trois bras, ce qui se lisait « le port ignore le champ » alors que le probe
+mesurait son propre montage. Même correctif que #63 dans `_combat_replay.py`. Le probe **refuse**
+désormais de mesurer si `boardGraph` est indisponible.
+
+## 8. Résidus
+
+* **`#449-r2-r4-r4-r1`** — la garde `probe_449r2_spread_inventory.py` couvre désormais
+  `elevation_pct` et `trench_reduction_pct` (attestés `REQUIS`), mais **pas** `allow_overkill`,
+  `overkill_dmg_pct_of_health`, `armor_pct` ni `ranged_in_melee_reduction_pct`. Ce n'est pas un
+  oubli : la sémantique du probe est celle de la *variance*, et ne leur transpose pas — un gate
+  booléen **inversé** (`if not allow_overkill`) est déclaré « paramètre MORT » alors qu'il est bien
+  lu, et aucun des trois régimes (`0` / `LU_BC` / `REQUIS`) ne décrit un *seuil de comparaison*. Les
+  y faire entrer demande d'élargir les **régimes** du détecteur, pas seulement sa liste de noms.
+  Mesuré : les inscrire tels quels rend **15 désaccords**, dont plusieurs sont des artefacts.
+  ⚠ L'extension a aussi révélé un gisement **hors périmètre de cette tranche** : `armor_pct=0` est
+  passé sans attestation par 5 call-sites.
+* **`RangedInMeleeReductionPercentage`** dans la couche prédiction (§6) — la BC n'y descend pas.
+* **`DamagedMachineDestroyChanceIncrease`** (§6) — porter d'abord `MachineDamageOperation`.
+* L'auto-test du probe tourne désormais sur un périmètre restreint (`_SELF_TEST_PARAMS`) : ses
+  arbres synthétiques ne portent qu'un rail, et le garde « périmètre AVEUGLE » les rendait rouges
+  alors qu'ils sont conformes. Le verdict sur l'arbre **réel** garde tous les rails.
