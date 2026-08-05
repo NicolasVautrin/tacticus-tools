@@ -2394,15 +2394,6 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   positif (`probe_477r16 --contre-dedup` en donne le patron).
   cf. `docs/rl/case-477r16-allocation-entites-ecs.md` sec. 3bis et 3quater.
 
-- **#477-r16-r1-r1-r2 : le separateur de `TriggeredAbilityConfigId` n'est pas LU.** `[opus]`
-  `$$CreateFromString` decoupe l'id sur une chaine STATIQUE que Ghidra ne resout pas (`DAT_*`).
-  Le mirror prend `:` par corroboration (66 ids du gameconfig portent cette forme, ex.
-  `EnvFactionSummons:AdeptusMechanicus`), pas par lecture du binaire. Sans effet tant qu'aucun
-  montage n'a de `VariantId` -- un id a variant serait mal decoupe si le caractere etait autre.
-  RETOURNEMENT : lire le litteral (table des string literals IL2CPP, cf. #477-r15-r1) ou monter
-  un id A VARIANT et verifier qu'il alloue comme le nom nu.
-  cf. `docs/rl/case-477r16-allocation-entites-ecs.md` sec. 3quater.
-
 - **#477-r16-r2 : la BOUCLE sur les pieds n'est pas confrontee.** `[opus]`
   `AddUnitOperation$$Execute` alloue `1 + 1 par tuile occupee` -- LU au decompile, jamais observe
   a plus d'un pied : les unites predefinies sont mono-tuile par construction

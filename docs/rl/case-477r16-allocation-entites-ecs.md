@@ -183,11 +183,17 @@ triviaux **dédupliqués** par IL2CPP, donc absents de `frida/methods.tsv` :
 ⚠ **`ConfigId` n'est PAS un objet JSON.** `IdunShared.TriggeredAbilityConfigId` porte
 `TriggeredAbilityConfigIdJsonConverter : Idun.Shared.Serialization.StringJsonConverter<T>` :
 il se sérialise en **chaîne**. Écriture (`$$ToConfigId`) : `Enum.ToString(AbilityType)`, puis
-`+ <séparateur> + VariantId` si le variant est non vide. Lecture (`$$CreateFromString`) : chaîne
-vide → `{0, null}` ; chaîne avec séparateur → `Split`, `[0]` parsé par
+`+ ":" + VariantId` si le variant est non vide. Lecture (`$$CreateFromString`) : chaîne vide →
+`{0, null}` ; chaîne avec séparateur → `Split`, `[0]` parsé par
 `Enum.TryParse<TriggeredAbilityType>`, `[1]` = `VariantId` ; sinon la chaîne entière est parsée.
 Un `TryParse` en échec **ne fait pas échouer le montage** : il rend `AbilityType = 0`, et
 l'entité est allouée quand même.
+
+Le séparateur est **lu**, pas deviné : le `DAT_*` que `$$ToConfigId` passe à `String.Concat` est
+un littéral IL2CPP, que la table livrée par #477-r15-r1 résout en `":"`
+(`string_literals.charger().by_va(<slot cité par ToConfigId>)`, index 3113 sur `rnca9r7q6c`).
+Corroboré par le gameconfig, où 66 ids d'ability portent cette forme
+(`EnvFactionSummons:AdeptusMechanicus`).
 
 D'où le montage minimal, confronté :
 
@@ -369,11 +375,6 @@ dans `deriver_regle` (2 tests sur 8 tombent, dont le principal).
   **(b)** `EnvCapturePointShield` en `GameMode == SyncPVP` — le terme vaut `0` sur **tous** les
   montages joués (le seed est `Campaign`), donc la troisième déduplication n'a jamais été
   exercée. Montage à écrire : un BC en `SyncPVP` portant déjà `EnvCapturePointShield`.
-- **#477-r16-r1-r1-r2** — le **séparateur** de `IdunShared.TriggeredAbilityConfigId` est une
-  chaîne **statique** (`DAT_*`) que Ghidra ne résout pas. Il est pris pour `:` par corroboration
-  (66 ids du gameconfig portent cette forme, ex. `EnvFactionSummons:AdeptusMechanicus`), pas par
-  lecture du binaire. Sans effet ici — aucun montage n'a de `VariantId` — mais un id à variant
-  serait mal découpé si le caractère était autre.
 - **#477-r16-r2** — la **boucle sur les pieds** est lue au décompilé mais **non confrontée** : aucun
   porteur multi-tuiles n'est atteignable par les montages testés (les unités prédéfinies sont
   mono-tuile par construction, une MoW n'a aucun pied). Le porteur est le **BOSS**

@@ -257,9 +257,12 @@ def lire_seed_bc(path=None) -> dict:
 # `System.Enum.TryParse<TriggeredAbilityType>`, `[1]` = VariantId ; sinon la chaine entiere est
 # parsee. Un `TryParse` en echec rend `AbilityType = 0` -- le natif n'echoue PAS, il alloue quand
 # meme une entite.
-CONFIG_ID_SEPARATEUR = ":"      # le litteral natif est une chaine STATIQUE que Ghidra ne resout
-                                # pas (DAT_*) ; corroboree par le gameconfig du build, ou 66 ids
-                                # d'ability portent cette forme (`PowerUp_HeroSpawn:Uthar`,
+CONFIG_ID_SEPARATEUR = ":"      # LU, pas devine : le `DAT_*` que `$$ToConfigId` passe a
+                                # `String.Concat` est un LITTERAL IL2CPP, et la table livree par
+                                # #477-r15-r1 le resout -- `string_literals.charger().by_va(<le
+                                # slot cite par ToConfigId>)` rend `':'` (index 3113 sur
+                                # `rnca9r7q6c`). Corrobore par le gameconfig, ou 66 ids d'ability
+                                # portent cette forme (`PowerUp_HeroSpawn:Uthar`,
                                 # `EnvFactionSummons:AdeptusMechanicus`, ...). Sans effet sur les
                                 # montages d'ici, qui n'ont pas de VariantId.
 
