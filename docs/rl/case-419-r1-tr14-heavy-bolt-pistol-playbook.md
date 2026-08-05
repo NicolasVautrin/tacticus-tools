@@ -245,15 +245,16 @@ Le montant, le profil et le nombre de coups, eux, coïncident entre les deux fac
   l'était que par greffe sur `astraBullgryn`) ; `profile_weapon` devient **algébriquement inerte**
   sur ce porteur (`Chain` et `Bolter` partagent `PiercingRatio = 20` — sur cet axe la greffe était
   un MEILLEUR discriminant), d'où une 7ᵉ contre-épreuve `profile_foreign` ; et le régime « tuile
-  hors de portée » ouvre `#419-r1-tr14-r1-r1`.
+  hors de portée » a ouvert `#419-r1-tr14-r1-r1`, **fermé depuis** (puce suivante).
   Le SUMMON `templInitiate` **arrive** en bataille (stats `summon-spawn`, `dmg = 831`) mais son
   terme n'y est pas appariable — **quatre causes mesurées**, dont le bras qui se rompt (cible à
   7945 PV contre 8518). Démontré par le probe, pas affirmé.
-* **`#419-r1-tr14-r1-r1` — le port ne gate pas l'attaque normale sur la PORTÉE de l'arme.** Mesuré
-  à l'étage PRÉDICTION sur le porteur réel (arme `Chain`, mêlée) : depuis une tuile à 2 hex, le
-  natif rend `0..0` en 1 coup et le port `732..1098` en 2 ; à la tuile adjacente, accord exact.
-  Hors du terme de la tranche (le passif prédit son propre montant) et hors du chemin du générateur
-  d'action, qui n'énumère que les cibles à portée. Gardé dans le sens mesuré.
+* ~~**`#419-r1-tr14-r1-r1` — le port ne gate pas l'attaque normale sur la PORTÉE de l'arme.**~~
+  **FERMÉ (2026-08-06)** : le foyer est la surcharge du slot `0xaf`, qui n'a **aucun repli croisé**
+  et que `ALoki_NormalAttackAbility$$FindAttackWeapon` fait consulter par `PredictAttack` **et**
+  `ExecuteBehaviour`. Voie SANS ARME portée (`0..0` en 1 coup), no-op combat porté, et la distance
+  du runner passe du binaire `1/2` à la distance RÉELLE. Détail :
+  `docs/rl/case-419-r1-tr14-r1-r1-portee-arme.md`.
 * **`#419-r1-tr14-r2` — l'ancrage de la PRÉDICTION sur `case.CasterPosition` est LU mais NON
   EXERCÉ.** Le terme natif vaut `+2.989402` **à l'identique** depuis la tuile au contact et depuis
   celle à 2 hex : aucun canal positionnel n'est actif sur ce montage. Trois causes, toutes mesurées —

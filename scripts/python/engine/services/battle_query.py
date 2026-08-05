@@ -1,18 +1,30 @@
 """BattleQuery — sélection d'arme de l'attaque normale (`IdunBattle.Core.Services.BattleQuery`).
 
-`GetAttackWeaponForDefaultNormalAttack` choisit l'arme DISTANCE-AWARE :
-  - variante simple `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` : `if !AreTilesAdjacent(att, tgt) -> FindRangedWeapon else FindMeleeWeapon`.
-  - variante complète `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` : `rangeType = IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType` (1=Melee, 2=Ranged,
-    3=Both, 0=défaut) ; si 1 -> melée ; si 3 ET !HasFlag(att, 0x15) ET IdunBattle.Core.Services.BattleQuery$$AreUnitsInMelee -> melée ;
-    sinon ranged. `IdunBattle.Core.Services.BattleQuery$$FindMeleeWeapon` / `IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon` avec fallback vers l'autre type.
+`GetAttackWeaponForDefaultNormalAttack` choisit l'arme DISTANCE-AWARE, et il en existe **TROIS
+surcharges que le slot sépare** (détail et appariement : `get_attack_weapon_for_default_normal_
+attack_from_tiles`) :
+  - `0xae` `(attacker, attackerTiles)` : chaîne de repli **croisé** mêlée<->distance. Aucun
+    consommateur porté.
+  - `0xaf` `(attacker, attackerTiles, **target**)` : `rangeType = IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType`
+    (0=None, 1=Melee, 2=Ranged, 3=Normal) ; si 1 -> mêlée ; si 3 ET !HasFlag(att, 0x15) ET
+    `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` -> mêlée ; sinon
+    `IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon` avec la porte `dist <= Range`.
+    **AUCUN repli croisé** : un ensemble vide rend `null`. C'est le FOYER de l'attaque normale, sur
+    les DEUX faces (`ALoki_NormalAttackAbility$$PredictAttack` et `$$ExecuteBehaviour`, via
+    `$$FindAttackWeapon`) -> `get_attack_weapon_for_default_normal_attack`.
+  - `0xb0` `(attacker, attackerTiles, **targetTiles**)` : `AreTilesAdjacent` -> mêlée sinon distance,
+    sans porte de portée -> `get_attack_weapon_for_default_normal_attack_from_tiles`.
 Le `DamageProfile` de l'arme choisie est lu à `weapon+0x10` (perçage : `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`).
 
 ⚠ NE PAS confondre avec `IdunBattle.ViewLogic.BattleSource.ObjectivesBattleQuery$$GetAmountOfHitsRangedFirstOrMelee` : ranged-first
 INCONDITIONNEL, chemin OBJECTIFS de bataille, HORS prédiction de dégât. C'était le bug de l'ancien
 `NormalAttackAbility` (sélection ranged-first au lieu de distance-aware).
 
-Port : critère distance-aware (adjacent -> mêlée sinon ranged), VALIDÉ par l'ancien PV `_normal_weapon_pierce`.
-Raffinements natifs `rangeType==3 (mixte) + flag 0x15` = documentés, à valider sur une unité à armes mixtes.
+Port : critère distance-aware (adjacent -> mêlée sinon ranged **en portée**, cf. #419-r1-tr14-r1-r1),
+confronté live sur `adeptCanoness` aux trois issues (mêlée / distance au boundary `dist == Range` /
+aucune arme). `rangeType` et le flag `0x15` entrent par l'`is_adjacent` que l'appelant calcule : les
+branches `Melee(1)` (mêlée INCONDITIONNELLE) et `ForceRangedAttack` restent NON EXERCÉES ici — leur
+mirror est `is_melee_attack`, pour un autre consommateur.
 """
 from __future__ import annotations
 
@@ -396,7 +408,13 @@ def get_attack_weapon_for_default_normal_attack_from_tiles(visual_id, is_adjacen
         (lecture qui FIXE l'appariement slot<->arite) ;
       * `0xaf` `(attacker, attackerTiles, **target**)` -- resout `GetNormalAttackType` puis
         `BattleQuery$$GetAbilityAttackRangeType`, teste `UnitExtensions$$HasFlag(attacker, 0x15)`
-        et `AreEntitiesAdjacent` ; NON PORTEE, aucun consommateur porte ne l'emprunte ;
+        et `AreEntitiesAdjacent`, et n'a **AUCUN repli croise** ; c'est
+        `get_attack_weapon_for_default_normal_attack` ci-dessus.
+        ⚠ Cette ligne a longtemps dit « NON PORTEE, aucun consommateur porte ne l'emprunte » -- c'etait
+        FAUX, et c'est ce qui a laisse vivre `#419-r1-tr14-r1-r1` : `ALoki_NormalAttackAbility$$
+        FindAttackWeapon(this, entities)` (la surcharge a DEUX arguments) invoque ce slot, et ses
+        appelants sont `PredictAttack` **et** `ExecuteBehaviour`. C'est le foyer de TOUTE attaque
+        normale, sur les DEUX faces ;
       * `0xb0` `(attacker, attackerTiles, **targetTiles**)` -- CELLE-CI.
     L'appariement `0xaf`/`0xb0` est LU sur les deux surcharges de
     `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$FindAttackWeapon`,

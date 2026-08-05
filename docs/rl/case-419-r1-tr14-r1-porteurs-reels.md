@@ -108,30 +108,22 @@ mordant.
 trois inertes sont gardés **à l'envers**, avec leur cause : `melee_from_real` et `spread0` sont les
 résidus `#419-r1-tr14-r2` et `-r3` inchangés ; `profile_weapon` est le cas neuf du §3.
 
-## 5. `#419-r1-tr14-r1-r1` — le port ne gate pas l'attaque normale sur la PORTÉE de l'arme
+## 5. `#419-r1-tr14-r1-r1` — la PORTÉE de l'arme gate l'attaque normale : **FERMÉ**
 
-Étage PRÉDICTION mesuré **à part** (`aiPlaybookPredict` natif contre
-`make_normal_attack_predictions`), sur le bras `base` (attaque normale pure) :
+Détail complet : `docs/rl/case-419-r1-tr14-r1-r1-portee-arme.md`. Ce qui a été mesuré ici :
 
-| tuile | distance à la cible | natif | port |
-|---|---|---|---|
-| `A` = (0,1) | 1 (à portée) | `732..1098`, **2** coups | `732..1098`, **2** coups — exact |
-| `B` = (0,2) | 2 (**hors portée** de `Chain`) | **`0..0`, 1 coup** | **`732..1098`, 2 coups** |
+| tuile | distance à la cible | natif | port AVANT | port APRÈS |
+|---|---|---|---|---|
+| `A` = (0,1) | 1 (à portée) | `732..1098`, **2** coups | `732..1098`, 2 — exact | idem |
+| `B` = (0,2) | 2 (**hors portée** de `Chain`) | **`0..0`, 1 coup** | **`732..1098`, 2** | **`0..0`, 1** |
 
 Le natif produit bien un `UtilityAttackCase` depuis la tuile hors portée — c'est ce qui permet à la
 feuille `TriggeredAbilities(2)` d'y verser son terme, mesuré `+2.989402` — mais la prédiction de
-l'**arme** y est nulle. Le port, lui, sélectionne l'arme sans consulter la portée depuis la tuile
-d'attaque.
+l'**arme** y est nulle : `ALoki_NormalAttackAbility$$PredictAttack` commence par
+`weapon = FindAttackWeapon(entities)` (slot `0xaf`) et branche sur la voie SANS ARME quand elle rend
+`null`. Le port sélectionnait l'arme avec un **repli croisé** que la surcharge `0xaf` n'a pas.
 
-**Hors du périmètre de cette tranche** : le terme du passif s'accorde aux quatre crans, parce qu'il
-prédit son PROPRE montant (`dmg`) et non celui de l'arme. Et le régime n'est **pas atteint par le
-générateur d'action**, qui n'énumère que les cibles à portée depuis chaque tuile — ce montage
-l'atteint parce que `pairUtility` invoque le scoreur **directement**.
-
-Non fermé ici, et **non camouflé** : la garde l'asserte **dans le sens où il a été mesuré**
-(`natif == 0..0` et `port != 0..0` hors portée). Le taire le rendrait invisible ; l'asserter à zéro
-ferait rougir la garde pour une cause étrangère au terme. Si le port se met à gater sur la portée,
-la ligne rougit et le résidu se ferme explicitement.
+La garde du §4 (test 8) est devenue un **ACCORD aux quatre crans**, bornes et nombre de coups.
 
 ## 6. Le porteur SUMMON : arrivée CONFRONTÉE, terme NON CONFRONTABLE — démontré, pas affirmé
 
@@ -181,7 +173,8 @@ vivent dans `frida/hooks/**` — donc une fenêtre de reinject.
 * Les résidus `#419-r1-tr14-r2` (ancrage positionnel de la prédiction) et `-r3` (spread ±20 %)
   restent **ouverts et inchangés** : le porteur réel ne porte pas davantage de modifier gaté
   melee/ranged, le board reste plat, et `HP = 10000` interdit toujours tout kill.
-* Le résidu `#419-r1-tr14-r1-r1` (§5) est **ouvert**, gardé dans le sens mesuré.
+* Le résidu `#419-r1-tr14-r1-r1` (§5) est **FERMÉ** : la garde du §4 est devenue un accord aux
+  quatre crans. Détail : `docs/rl/case-419-r1-tr14-r1-r1-portee-arme.md`.
 
 ## 8. Artefacts
 
