@@ -200,10 +200,19 @@ def test_port_converges_on_the_native_only_with_the_channel(couple):
         "seulement %d/%d positions divergentes pour le port d'AVANT -- contraste trop faible"
         % (len(couple["diff_avant"]), couple["n"]))
     for r in couple["diff_avant"]:
-        assert r["port_avant"] - r["natif"] == 50.0, (
-            "le port d'AVANT doit SUR-evaluer d'exactement un bonus de couverture (il declare "
-            "adjacent un ennemi que le natif ecarte) ; obtenu natif=%r avant=%r"
+        assert abs(r["port_avant"] - r["natif"]) == 50.0, (
+            "chaque divergence du port d'AVANT doit valoir exactement UN bonus de couverture "
+            "(c'est le seul terme que le foyer d'adjacence commute) ; obtenu natif=%r avant=%r"
             % (r["natif"], r["port_avant"]))
+    # Sur CE montage precis les ecarts sont tous de MEME SENS -- le port d'AVANT declare adjacent
+    # un ennemi que la porte ecarte, prend la branche B et verse `+50` la ou le natif ne verse
+    # rien. Le SENS n'est PAS une propriete generale : mesure sur la 4e paire de relief du meme
+    # board (`probe_433_r4_r2_r4_canaux_adjacence.py --pick 3`), la branche B est au contraire
+    # MUETTE (`threshold = 3` non depasse a `d <= 3`) la ou la branche A verse -- le port d'AVANT
+    # y SOUS-evalue de 50 sur 16/48 positions. D'ou la valeur absolue ci-dessus.
+    assert len({r["port_avant"] - r["natif"] for r in couple["diff_avant"]}) == 1, (
+        "les divergences de ce montage doivent etre de meme sens : %r"
+        % ({r["port_avant"] - r["natif"] for r in couple["diff_avant"]},))
 
 
 def test_the_emitted_action_changes_with_the_channel(couple):

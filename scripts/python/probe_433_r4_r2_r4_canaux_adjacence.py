@@ -48,9 +48,13 @@ import probe_433_r4_r2_adjacency_foyer as P                       # noqa: E402
 from rl_collect_batch import _resolve_session                     # noqa: E402
 
 
-def _montage():
+def _montage(pick_idx=0):
     """Le MEME montage que `--step couple` : O porte un voisin hex a `|dElev| >= 2`, le caster a
-    `Movement = 4` pour que le sweep atteigne `d = 4..5` (la zone ou les branches different)."""
+    `Movement = 4` pour que le sweep atteigne `d = 4..5` (la zone ou les branches different).
+
+    `pick_idx` selectionne la N-ieme paire `(O, voisin haut)` du board au lieu de la premiere : une
+    conclusion tiree d'UN SEUL relief ne se generalise pas (le couple, lui, est fige sur la
+    premiere paire pour rester deterministe)."""
     sid = _resolve_session()
     if not sid:
         return None, {"error": "aucune session Frida"}
@@ -61,18 +65,20 @@ def _montage():
         elev, native_nb = P._board_maps(sid, rid)
     finally:
         P._dispose(sid, rid)
-    pick = None
+    paires = []
     for O in sorted(elev):
         if elev[O] is None:
             continue
         hi = [q for q in hexgeo.neighbors(O[0], O[1])
               if elev.get(q) is not None and abs(elev[q] - elev[O]) >= 2]
         if hi:
-            pick = (O, hi[0])
-            break
-    if pick is None:
+            paires.append((O, hi[0]))
+    if not paires:
         return None, {"error": "aucune paire (O, voisin a |dElev| >= 2) sur %s" % P.BOARD}
-    O, Y = pick
+    if pick_idx >= len(paires):
+        return None, {"error": "paire %d demandee, %d disponibles sur %s"
+                               % (pick_idx, len(paires), P.BOARD)}
+    O, Y = paires[pick_idx]
 
     sid = _resolve_session()
     rid, err = P._build(["--unit-stat", "%s:Movement=4" % P.CASTER])
@@ -98,8 +104,8 @@ def _montage():
     return (sid, rid, O, Y, elev, native_nb, ctx, native), None
 
 
-def run(verbose=True) -> dict:
-    m, err = _montage()
+def run(verbose=True, pick_idx=0) -> dict:
+    m, err = _montage(pick_idx)
     if err:
         return err
     sid, rid, O, Y, elev, native_nb, ctx, native = m
@@ -193,8 +199,14 @@ def run(verbose=True) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="all", choices=["all"])
-    ap.parse_args()
-    res = run()
+    ap.add_argument("--pick", type=int, default=0,
+                    help="N-ieme paire (O, voisin a |dElev| >= 2) du board -- generalisation")
+    ap.add_argument("--board", default=None,
+                    help="board a monter (defaut : celui du couple, %s)" % P.BOARD)
+    a = ap.parse_args()
+    if a.board:
+        P.BOARD = a.board          # le montage de `P._build` lit cette globale
+    res = run(pick_idx=a.pick)
     if "error" in res:
         print("[canaux] REFUS : %s" % res["error"])
         return 1
