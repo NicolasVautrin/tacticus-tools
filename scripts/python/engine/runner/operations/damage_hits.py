@@ -30,11 +30,18 @@ class HitDamage:
         self.max = max_
 
     @classmethod
-    def from_base(cls, base: int, spread_pct: int = 20) -> "HitDamage":
+    def from_base(cls, base: int, spread_pct: int) -> "HitDamage":
         """Construit le {Min,Max} d'un coup depuis le dégât de base (spread BC).
 
         Le moteur bâtit ce MinMaxDamage en amont (SetupHitGroup) ; ici on le
-        reconstruit fidèlement via `spread_to_min_max` (= CalculateDamageSpread)."""
+        reconstruit fidèlement via `spread_to_min_max` (= CalculateDamageSpread).
+
+        ⚠ `spread_pct` est OBLIGATOIRE (#449-r2-r4). Il portait `= 20` en dur, alors que le natif
+        le lit dans `BattleConfiguration.Damage.DamageSpreadPercentage`
+        (`IdunBattle.Core.Services.DamageCalculations$$get_DamageSpreadPercentageFix64`) — et cette
+        méthode n'a AUCUN appelant sous `scripts/python` (mesuré : 0 site `.from_base(`). Un défaut
+        y aurait donc été un littéral que rien n'exerce, donc que rien ne peut invalider : le
+        rendre obligatoire est ce qui force le futur appelant à dire d'où vient sa valeur."""
         mm = spread_to_min_max(base, spread_pct)
         return cls(mm.min, mm.max)
 

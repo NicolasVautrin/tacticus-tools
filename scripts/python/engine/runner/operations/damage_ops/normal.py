@@ -10,6 +10,7 @@ module -- un patch pose sur le `__init__` du package serait un NO-OP SILENCIEUX.
 from __future__ import annotations
 
 from ....services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
+from ....services.damage_config import resolve_spread_pct
 from ....services.damage_modifiers import apply_all_modifiers
 from ....services.battle_query import are_tiles_adjacent
 from ....services.attack_hits_formula import attack_hits_with_modifiers
@@ -37,7 +38,7 @@ class _Normal:
 
     @staticmethod
     def execute(state: State, attacker_id: int, target_id: int,
-                spread_pct: int = 20, is_overwatch: bool = False,
+                spread_pct: Optional[int] = None, is_overwatch: bool = False,
                 triggering_ability: Optional[int] = None,
                 allow_dead_caster: bool = False,
                 skip_hit_count_query: bool = False) -> Optional[dict]:
@@ -69,6 +70,10 @@ class _Normal:
         from ..damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
         if state.rng is None:
             raise ValueError("state.rng non calé (seed depuis dumpRng avant un replay-diff)")
+        # #449-r2-r4 : `spread_pct=None` = LU de `BattleConfiguration.Damage.DamageSpreadPercentage`
+        # (`IdunBattle.Core.Services.DamageCalculations$$get_DamageSpreadPercentageFix64` lit
+        # `configuration+0x20`). Le défaut était `20` en dur — un couplage non lu.
+        spread_pct = resolve_spread_pct(spread_pct, state)
         att = state.get_entity(attacker_id)
         tgt = state.get_entity(target_id)
         sc = att.get_component(StatsComponent) if att is not None else None

@@ -202,10 +202,13 @@ lisible dans le dépôt lui-même.
 call-site ne prend le défaut, donc la voie « call-sites » y est structurellement aveugle. La
 contre-épreuve `spread_pct: int = 20 → 0` sur `normal_like.py` n'est vue que par lui.
 
-⚠ Les 13 attestations à `20` portent une **réserve écrite dans le probe** : ce 20 est le
-littéral hérité du résidu `#449-r2-r4`, **pas** une lecture de `BattleConfiguration.Damage.
-DamageSpreadPercentage`. Les attester rend leur *modification* visible ; ça ne prétend pas
-qu'elles sont lues.
+⚠ **Les 13 attestations à `20` n'existent plus depuis `#449-r2-r4` (2026-08-05).** La réserve
+écrite ici — « ce 20 est un littéral hérité, pas une lecture de `BattleConfiguration.Damage.
+DamageSpreadPercentage` » — s'est vérifiée en bataille : à `pct = 60` le natif inflige **7774**
+contre **9388** pour le port. Les 13 défauts sont passés au régime **`LU_BC`** (défaut `None`,
+valeur lue de la BC à l'exécution), et le probe atteste désormais un **RÉGIME**, pas une valeur.
+La contre-épreuve citée juste au-dessus (`spread_pct: int = 20 → 0`) se joue maintenant
+`= None → 20`, et rougit par **deux** voies. Détail : `case-449-r2-r4-spread-lu-de-la-bc.md`.
 
 ### Gardes du garde (tous neufs)
 
@@ -268,18 +271,22 @@ Après chaque contre-épreuve, `git diff` sur `engine/` est **vide**.
   nommé : rejouer le splash sur **N seeds** (`build_runner("777"|"31337"|…)`) et exiger l'accord à
   chaque tirage — la probabilité que TOUS tombent sur `d` est nulle. Non fait : le régime
   CursedPlagueBell sépare déjà de 593 points et porte la démonstration.
-* **`#449-r2-r2`** — `configuration+0x31`, le **second** aiguillage vers la branche plate, est lu
-  comme faux en pratique (les mesures §4 le prouvent : le mutant DIVERGE, donc la branche spread
-  est bien atteignable) mais son champ n'est **pas nommé**. Hérité de `#449-r3`, inchangé.
+* **`#449-r2-r2`** — **FERMÉ par `#449-r2-r4` (2026-08-05)**. `configuration+0x31` est
+  **`BattleConfiguration.Damage.IgnoreDamageSpread`**, lu par
+  `IdunBattle.Core.Services.DamagePrediction$$get_IgnoreDamageSpread` (`this+0x10` =
+  `configuration`, posé par `$$.ctor` ; même section que `DamageSpreadPercentage`, 0x11 octets plus
+  loin). **Confronté live** : une BC portant `IgnoreDamageSpread = true` rend des bornes natives
+  plates `[8434, 8434]` malgré `DamageSpreadPercentage = 20`. Détail :
+  `case-449-r2-r4-spread-lu-de-la-bc.md` §3.
 * **`#449-r2-r3`** — les autres consommateurs du byte ne sont **pas énumérés** : ce cas a lu les
   trois porteurs à variance nulle + SkyStrike. Les abilities qui passeraient un Nullable NON vide
   avec un octet +6 à 1 **et qui ne sont pas encore portées** n'ont pas été recensées ; elles
   entreront par le cliquet (`probe_449r2` rougit sur un zéro non justifié).
-* **`#449-r2-r4`** — le `spread_pct=20` **par défaut** des rails de l'attaque NORMALE
-  (`Runner.install_default_handlers`, `DamageHandler`, `HitDamage.from_base`) est un littéral
-  hérité, alors que le natif le lit dans `BattleConfiguration.Damage.DamageSpreadPercentage`. Hors
-  périmètre de ce cas (c'est le canal de l'attaque normale, pas le slot de montant) et sans effet
-  observé — la seed BC porte 20 — mais c'est un couplage non lu.
+* **`#449-r2-r4`** — **RÉSOLU (2026-08-05)**, et la divergence était bien réelle : à
+  `DamageSpreadPercentage = 60`, le natif inflige **7774** là où le port à `20` en dur calcule
+  **9388**. Les **13** défauts littéraux sont supprimés au profit d'un foyer unique
+  (`engine/services/damage_config.py`) dont le défaut est **dérivé** de `data/seed-bc.json`.
+  Détail, mesures et contre-épreuves : `case-449-r2-r4-spread-lu-de-la-bc.md`.
 
 * **`#449-r2-r5-r1`** — l'**angle mort des noms d'appel ambigus** (§6). `AttackDamageOperation.
   execute(...)` n'est pas inventoriable par nom. Ce qui le fermerait : résoudre le receveur par la
@@ -287,10 +294,11 @@ Après chaque contre-épreuve, `git diff` sur `engine/` est **vide**.
   qui revient à réimplémenter la résolution d'attribut de Python. Le défaut, lui, est gardé par
   attestation, donc le résidu porte uniquement sur un call-site **explicite** à valeur nulle sur
   un nom ambigu.
-* **`#449-r2-r5-r2`** — les **13 attestations à `20`** figent un littéral hérité (`#449-r2-r4`),
-  pas une lecture de `BattleConfiguration.Damage.DamageSpreadPercentage`. Le jour où le couplage
-  sera porté, ces 13 entrées devront devenir *dérivées de la BC* et non plus attestées ; en l'état
-  elles rendent la modification visible, rien de plus.
+* **`#449-r2-r5-r2`** — **FERMÉ par `#449-r2-r4` (2026-08-05)**. Les 13 attestations à `20`
+  n'existent plus : elles sont devenues des attestations de **RÉGIME** (`LU_BC` = défaut `None`,
+  la valeur est lue de la BC à l'exécution). Le cliquet a gagné en chemin un motif qu'il n'avait
+  pas — `LITTERAL DE SPREAD REVENU` — qui rougit sur *tout* défaut entier non nul, sans qu'aucune
+  attestation puisse le blanchir.
 * **`#449-r2-r5-r3`** — le gate d'activation n'est dérivé que pour la forme `if self.G ...` /
   `if self.G is not None` **positive**. Une réécriture en `if self.amount is None: continue` ferait
   perdre le gate : le probe rougirait alors massivement (83 sites), ce qui est un **faux rouge**

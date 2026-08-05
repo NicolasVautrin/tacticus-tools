@@ -25,6 +25,7 @@ from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
 from .state import State
+from ..services.damage_config import DamageConfiguration
 from .components import (
     UnitComponent, OwnerComponent, PositionComponent, HealthComponent,
     EffectsOwnedComponent, StatsComponent, ShieldComponent, ShieldInstance,
@@ -208,8 +209,19 @@ def _machine_ability_state(m: dict) -> tuple:
 
 def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
                board=None, tiles=None, actor_stats=None, ability_states=None,
-               targeting_config=None) -> State:
+               targeting_config=None, damage_config=None) -> State:
     """Snapshot live → `State` ECS (entités + composants d'unité).
+
+    `damage_config` (#449-r2-r4) : la section `BC.Damage` de la BattleConfiguration, MÊME nature
+    que `targeting_config` (elle vit sur DISQUE, aucun RPC ne la publie). Deux champs lus, tous
+    deux relus au décompilé : `DamageSpreadPercentage` (`configuration+0x20`, lu par
+    `IdunBattle.Core.Services.DamageCalculations$$get_DamageSpreadPercentageFix64`) et
+    `IgnoreDamageSpread` (`configuration+0x31`, lu par
+    `IdunBattle.Core.Services.DamagePrediction$$get_IgnoreDamageSpread`). `None` = canal non
+    fourni → le défaut DÉRIVÉ de `data/seed-bc.json` s'applique (cf.
+    `engine.services.damage_config`). Un champ ABSENT de la section fournie vaut `0`, comme le
+    natif — le ctor `IdunBattle.Configuration.DamageConfiguration$$.ctor` n'initialise que
+    `DamageProfiles`, donc rien ne fabrique 20 côté jeu non plus.
 
     `targeting_config` (#444) : la section `BC.Targeting` de la BattleConfiguration, si l'appelant
     la connaît (elle vit sur DISQUE, pas dans un RPC). Seul champ lu :
@@ -294,6 +306,10 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     state.current_player_id = decision.get("currentPlayer")
     if isinstance(targeting_config, dict) and "EnableObscuringTerrain" in targeting_config:
         state.enable_obscuring_terrain = bool(targeting_config["EnableObscuringTerrain"])
+    _dmgcfg = DamageConfiguration.from_bc(damage_config)
+    if _dmgcfg is not None:
+        state.damage_spread_percentage = _dmgcfg.damage_spread_percentage
+        state.ignore_damage_spread = _dmgcfg.ignore_damage_spread
     # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du
     # `BC.Player.TurnOrder` dont `PlayerComponent+0x20 != 2`) * rounds`). `observeBattle.counts.player`
     # = le nb d'entites Player PROJETEES (EntityType 4) ; le joueur **Environment** est unique et

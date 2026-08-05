@@ -4,7 +4,10 @@ declenches inline), `UseActiveAbility` (dispatch recursif d'une ability). Wrappe
 `runner/operations/damage.py` + `triggers/dispatch.py`. Namespace natif `Entities.Behaviours.*`."""
 from __future__ import annotations
 
+from typing import Optional
+
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of, _pos, _is_alive
+from ....services.damage_config import resolve_spread_pct
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import StatsComponent
 from ..base import ability_attack_params
@@ -747,14 +750,20 @@ class UseActiveAbility(AbilityBehaviour):
     ability `UseActiveAbility(<active non-normale>)` apparait, il faudra re-entrer le pipeline d'ability via
     le handler (`visit_ActiveAbilityMessage`), pas `AttackDamageOperation.execute` ; (2) les OPTIONS
     +0x68..+0xac (source AbilityOrEffect, flags) inertes pour une attaque normale. `spread_pct` = variance
-    d'arme du dispatch normal (defaut 20 = defaut de `AttackDamageOperation.execute`). Itere les cibles
-    triees par id (ordre de lecture natif). Emet 'UseActiveAbility' par cible. PUR (non court-circuitant)."""
+    d'arme du dispatch normal ; `None` (le cas normal) = LU de `BattleConfiguration.Damage.
+    DamageSpreadPercentage` a l'EXECUTION, quand l'etat de bataille est connu (#449-r2-r4 -- le
+    natif lit lui aussi la config au moment du calcul, jamais a la construction du behaviour).
+    Itere les cibles triees par id (ordre de lecture natif). Emet 'UseActiveAbility' par cible.
+    PUR (non court-circuitant)."""
     __slots__ = ("subject_sel", "targets_sel", "spread_pct")
 
-    def __init__(self, subject_sel: TargetsSelector, targets_sel: TargetsSelector, spread_pct: int = 20):
+    def __init__(self, subject_sel: TargetsSelector, targets_sel: TargetsSelector,
+                 spread_pct: Optional[int] = None):
         self.subject_sel = subject_sel
         self.targets_sel = targets_sel
-        self.spread_pct = int(spread_pct)
+        # NON resolu ici : l'arbre DSL est construit AVANT toute bataille (aucun `State`). La
+        # resolution vit dans `execute`, ou `ectx.state` porte la BC.
+        self.spread_pct = None if spread_pct is None else int(spread_pct)
 
     def execute(self, entities, ectx):
         from ...operations.damage import AttackDamageOperation
@@ -779,6 +788,7 @@ class UseActiveAbility(AbilityBehaviour):
             # porte sa riposte pour 10502 et tue). Sans lui, le gate acteur-mort de
             # `damage_ops/normal.py` (#133 MartialSuperiority) avalait toute la riposte.
             res = None if state.rng is None else AttackDamageOperation.execute(
-                state, sid, tid, self.spread_pct, allow_dead_caster=True)
+                state, sid, tid, resolve_spread_pct(self.spread_pct, state),
+                allow_dead_caster=True)
             ectx.emit("UseActiveAbility", subject=sid, target=tid, attack=res)
         return OperationResult.ok()
