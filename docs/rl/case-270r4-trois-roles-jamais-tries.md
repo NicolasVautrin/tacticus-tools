@@ -15,13 +15,20 @@ lu dans `data/symbols/<build>/frida/methods.tsv`.
 
 ## 2. Résultat du tri
 
-| | avant | après |
-|---|---|---|
-| candidats (`probe_270r1 --croiser`) | 613 | **549** |
-| `argument d'appel` | 189 | **144** |
-| `comparaison` | 49 | **32** |
-| `expression` | 103 | **103** |
-| `valeur par defaut` (effet de bord, mêmes sites) | 20 | **18** |
+| | avant | après | après REBASE |
+|---|---|---|---|
+| candidats (`probe_270r1 --croiser`) | 613 | 549 | **551** |
+| `argument d'appel` | 189 | **144** | **144** |
+| `comparaison` | 49 | 32 | **33** |
+| `expression` | 103 | **103** | **103** |
+| `valeur par defaut` (effet de bord, mêmes sites) | 20 | **18** | **18** |
+
+⚠ **Le rebase (23 commits) a apporté +2 candidats — le gisement que notre propre cadence
+alimente, mesuré en direct.** Un seul tombe dans les trois rôles de cette tranche, et le tri a été
+refait dessus : `runner/snapshot.py` — `" ..." if len(montrees) > 4 else ""`, un seuil d'aperçu
+dans un message d'erreur, donc **SCALAIRE**. Comparaison faite par (fichier, valeur, source) et non
+par numéro de ligne — `spawn.py` et `snapshot.py` ont grandi, et un diff par ligne aurait rendu
+**28 faux « nouveaux »**.
 
 `expression` ne bouge **pas d'un site**, et c'est le résultat : ses 103 positions sont
 **intégralement** des `int(x or 100)` de multiplicateur. `100` occupe à lui seul **100** des 279
@@ -72,12 +79,15 @@ Empreinte de **tout** `engine/` (attributs de module **et** de classe), arbre t�
 **complet** (`git archive HEAD`, `data/` compris), canonicalisation par `int(x)` **récursive**.
 
 ```
-AVANT 155 990 lignes / 155 933 cles      APRES 157 595 lignes / 157 538 cles
-DIVERGENCES DE VALEUR sur cle commune : 0
-CLES DISPARUES : 0
-CLES APPARUES  : 1605 -- 100 % attribuables a un enum nouvellement importe dans le namespace
-                 du module (251 TagKey x5, 112 UnitTrait, 111 GroupType, 34 UnitFlag, ...)
+                            cles communes   divergences   disparues   apparues
+avant rebase (HEAD)            155 933            0           0         1 605
+APRES REBASE (origin/master)   155 917            0           0         1 622
 ```
+
+Les clés APPARUES sont **100 %** attribuables à un enum nouvellement importé dans le namespace du
+module (251 `TagKey` ×5, 112 `UnitTrait`, 111 `GroupType`, 34 `UnitFlag`, 13 `Corner` ×3, 17
+`StatPart` ×2, 10 `EffectTargetType` ×3) — un import ajoute le symbole au module, sans toucher
+aucune valeur. **0 clé non attribuable.**
 
 ## 6. Contre-épreuves — la garde MORD, et sur le bon étage
 
@@ -189,17 +199,21 @@ contournement par import différé est une dette qui se paie au prochain lecteur
 
 ## 10. Validation
 
-- `probe_313` → rc 0, **26** mirrors sous garde (25 + `EffectTargetType`), **3200** références
-  qualifiées, 0 introuvable, 0 morte, 0 dette.
-- Suite **offline complète** de `tests/engine` : **1730 passed, 3 skipped** (skips documentés,
-  témoins non discriminants — aucun skip de montage).
+**Tout ce qui suit a été RE-JOUÉ après le rebase (23 commits) — les chiffres sont ceux d'après.**
+
+- `probe_313` → rc 0, **26** mirrors sous garde (25 + `EffectTargetType`), 0 introuvable, 0 morte,
+  0 dette.
+- Suite **offline complète** de `tests/engine` : **1757 passed, 3 skipped** (1730 avant rebase ;
+  skips documentés, témoins non discriminants — aucun skip de montage).
 - **12 fichiers live ciblés**, 3 vagues de 4 : `test_effect_stun` (1), `test_taunt_targeting` (7),
   `test_plague_wind` (2), `test_hammer_of_wrath` (1), `test_tile_leaf_unit_traits` (4),
   `test_daemonic_ordnance_decision` (18), `test_366_r1_stormboyz_strike` (8),
   `test_thrice_blessed_decision` (4), `test_summon_spawn` (3), `test_harlequins_panoply` (10),
   `test_hailstrike_phase2` (4), `test_thebetrayer_turnstart` (1) — **63 passed, 0 failed**.
-- `test_270r4_role_enum_offline.py` : 17 tests, 9/9 contre-épreuves de mutation rouges sur le bon
-  étage.
+  **Huit d'entre eux re-joués après rebase** (les plus sensibles : stun, taunt, plague wind, tile
+  leaves, daemonic ordnance, stormboyz, harlequins, hammer of wrath) — **51 passed, 0 failed**.
+- `test_270r4_role_enum_offline.py` : **17** tests, 9/9 contre-épreuves de mutation rouges sur le
+  bon étage.
 
 **NON couvert** : aucun test live ne traverse `EffectTargetType` (les deux `HasEffect`/`HasAnyEffect`
 convertis passent par `ctx.has_effect`, dont aucun consommateur porté ne lit le `sourceFlags`) —
