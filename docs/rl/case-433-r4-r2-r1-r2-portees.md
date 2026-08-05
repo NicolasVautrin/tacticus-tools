@@ -525,6 +525,116 @@ question indécidable côté moteur. C'est une lecture, pas une précaution de s
   change un résultat observable (elle est RESTRICTIVE : elle retire une ability), donc c'est
   spéculatif tant que la mesure n'a pas eu lieu.
 
+# 10. `#433-r4-r2-r1-r2-r2-r1-r1-r1-r4` — le QUATRIÈME gate CASTER, et le préfixe qui manquait
+
+## 10.1 Ce que c'est
+
+La marche **(g)** d'`AttackQuery$$GetInvalidCasterReason` (§8.1) n'est pas une clause de plus :
+c'est un appel à **`IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`**, qui porte à
+elle seule **onze** règles. Chaîne relue à l'octet :
+
+    AttackQuery$$GetInvalidCasterReason(unit, position, type)      [marche g]
+      -> <processor @+0x30>( () => impl.<IActiveAbility slot 8>(unit, position.MainTile) )
+      -> AActiveAbility$$GetInvalidCasterReason(caster, casterTile)
+           caster == null -> GenericBrokenTargetingRule(1)
+           SetConfigValuesInTargetingOptions(this, &this.<TargetingOptions @+0x70>)   // n'écrit
+                                                          // que `+0x10` (range), JAMAIS `rules`
+           -> TargetingQuery$$GetInvalidCasterReason(caster, casterTile, options)  // surcharge TUILE
+      -> surcharge TUILE : `casterTiles = TExtensions.ToList(casterTile)` — un SINGLETON
+      -> surcharge LISTE : la cascade des onze règles.
+
+Les deux voies de retour (`il2cpp_value_box` direct et `TargetingRuleExtensions$$
+GenericBrokenTargetingRule`) boxent **le même type** : aucune ne transforme le code.
+
+Le port est `engine/services/ability_caster_gates.py` (section GATE 4) —
+`invalid_caster_reason` / `CasterSubstrate` / `dynamic_caster_reason`, composés par
+`caster_gate_reason` **au 4ᵉ rang**, après les trois gates de §8.
+
+## 10.2 Le bug : `CasterHasNotMoved` était porté SANS son préfixe
+
+Le décompilé garde la clause 1 derrière `<IBattleQuery slot 0x35>(caster)`, que le port déclarait
+« non résolu » et portait comme **toujours vrai**. Le slot **est** résoluble : le seul autre site du
+binaire qui invoque ce couple (slot, classe d'interface) est la lambda
+`IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass86_0$$
+u003CIsTurnOfUnitu003Eb__0` — son **nom** donne la méthode.
+
+    battleQuery.IsTurnOfUnit(caster)
+      = GetOriginalOwnerEntity(GetUnit(caster)).Id == GetMatchTurn(state).CurrentPlayerId
+
+Préfixe faux ⇒ le port refusait **11 paires sur 42** que le natif accepte (unité ayant bougé mais
+dont ce n'est pas le tour). Écart **RESTRICTIF**, et le pire possible ici : le consommateur côté
+DÉCISION (`is_tile_in_range_of_any_ability`) évalue la menace des unités **ENNEMIES**, c'est-à-dire
+exactement celles dont ce n'est pas le tour. `CasterSubstrate.is_turn_of_unit` (tri-état) le porte.
+
+⚠ **Ne pas le confondre avec `decisionView.units[].ctrl`** (`UnitExtensions$$
+IsControlledByCurrentPlayer`), qui lit `OwnerComponent.CurrentPlayerEntityId` : `IsTurnOfUnit` lit
+le propriétaire d'**ORIGINE**. Les deux divergent sous contrôle mental.
+
+## 10.3 Les deux canaux — ils EXISTENT, contrairement à ce que le module affirmait
+
+* `has_moved` — `UnitExtensions$$DidMove` = `GetComponent<UnitFlagsComponent>(unit).Has(UnitFlag.Moved)`
+  après un `Type == Unit` ; `UnitFlag.Moved` = **0** (`enums.tsv`, re-confronté au runtime par
+  `combatSnapshot.unitFlagTypes`). Publié par **`combatSnapshot.units[].unitFlags`**.
+* `is_turn_of_unit` — `observeBattle.units[].playerId` (= `OwnerComponent.PlayerEntityId`,
+  l'ORIGINE) == `observeBattle.currentPlayer` (= `TurnComponent._currentPlayerId`, celui-là même
+  que le natif compare).
+
+Le probe les nourrit ; `is_tile_in_range_of_any_ability` **non** (résidu §10.6).
+
+## 10.4 Le gisement, re-dérivé des 148 masques
+
+`AllowNullCasterTile` 18 · `CasterHasNotMoved` 13 · `CasterMatchesDynamicRule` 12 ·
+`CasterHas2TurnsLeft` 3 · `CasterCanMove` 2 · `CasterHas1Tiles` 1 · `CasterIsMachine` 1 ·
+`CasterHasCompletedOneTurn` / `CasterHasNoTile` / `CasterHas3Tiles` / `CasterHas7Tiles` **0**
+(mirrors STRUCTURELS — écrits parce que le natif les a, gisement vide = résultat).
+
+Règle-déléguée (`options+0x30`, bit `CasterMatchesDynamicRule`), 12 porteurs :
+**1** dérivable (`1045 GetEmRuntz` → `GetSpawnTileSelector`, littéral **2**), **6** lues et non
+dérivables hors état de bataille (1008, 1015, 1023, 1040, 1102, 1207), **5** dont la surcharge n'est
+pas établie (1077, 1106, 1184, 1215, 1216 — l'absence du symbole ne prouve rien, IL2CPP déduplique).
+
+## 10.5 La mesure (2026-08-05, build `rnca9r7q6c`)
+
+`probe_433_r4_r2_r1_r2_r2_r1_r1_r1_r4_caster_reason.py`, trois volets :
+
+| volet | montage | résultat |
+|---|---|---|
+| `live` | `MC1_67`, seed 777, `orksRuntherd` + 3 `necroWarden` vs 2, caster APPROCHÉ pas à pas | **13 tours comparables, MORD=8 PASSE=5** ; étage natif == port **13/13** ; zone exacte (fp imputables 0, fn 0) ; gate efficace sur 2 tours (retire (2,0) puis (1,0), **tous deux faux positifs**) ; résidu 5 tuiles, **toutes** attribuées au terme d'attaque normale (`fp == fp_normale`) |
+| `cascade` | 10 unités choisies pour couvrir les règles à gisement non nul, 2 passes/tour (posé / bougé) | **60 paires, 60 EXACT, 0 refus inventé** — contre **49/60 + 11 refus inventés** avant le correctif du préfixe |
+| `moved` | `bloodDante` / `1177`, avant/après déplacement | natif `CasterHasNotMoved`, port `CasterHasNotMoved`, et **sans le bit du masque le port ACCEPTE** (contre-épreuve) |
+
+⚠ **Le régime PASSE n'est atteignable qu'en DÉPLAÇANT le caster** : `endturn` seul ne fait pas
+avancer l'adversaire (les deux `necroWarden` restent à (6,7)/(6,8) sur 10 tours) et le Runtherd
+spawne à `d = 10`, alors que le gate ne s'ouvre qu'à `d <= 2`. Bouger est licite : le masque `0x8004`
+de `1045` ne porte pas `CasterHasNotMoved`.
+
+Gardes : `tests/engine/test_433_r4_r2_r1_r2_r2_r1_r1_r1_r4_caster_reason_offline.py` (31 crans —
+ORDRE de la cascade sur masques craftés, préfixe en tri-état, sélecteur de spawn ; **rougit 3/31**
+quand on retire le préfixe, contre-épreuve jouée) et `..._live.py` (9 crans, les volets `cascade` +
+`moved`).
+
+⚠ **L'ORDRE n'est observable dans AUCUN montage live** : sur les 148 masques, aucune ability n'arme
+deux règles CASTER à la fois. Il est donc gardé sur des masques **craftés** — c'est une propriété du
+CODE, pas du catalogue.
+
+## 10.6 Résidus
+
+* **`#433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1`** — `has_moved` / `is_turn_of_unit` ne sont pas branchés
+  dans `is_tile_in_range_of_any_ability`, donc la règle `CasterHasNotMoved` (13 porteurs) reste
+  INERTE par le chemin ZONE. Les deux canaux existent (§10.3) mais vivent côté RUNNER
+  (`combatSnapshot`) / dans `observeBattle`, et `NCContext` — l'appelant de production, dans
+  `engine/playbook/noncomparable/early_warning_override.py` — ne les transporte pas. **Point
+  d'ancrage** : les ajouter à `NCContext` puis les passer en paramètres de
+  `is_tile_in_range_of_any_ability`, comme `team_by_pos` / `walkable_by_pos` l'ont été.
+* **`#433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2`** — huit des onze règles ne sont confrontées par AUCUN
+  montage. Quatre ont **0 porteur** (mirrors structurels) ; `CasterCanMove` (2) lit
+  `UnitExtensions$$CanMove`, `CasterHas2TurnsLeft` (3) le slot `IBattleQuery 0x1b` et
+  `CasterIsMachine` (1) est porté par une MoW (donc inerte chez son seul porteur) — aucun canal
+  DÉCISION ne publie les trois premiers, et le volet `cascade` ne balaie que des UNITÉS (les MoW
+  vivent dans `observeBattle.mows`). `AllowNullCasterTile` (18) exigerait un caster sans tuile.
+* Les **6+5 régimes** de la règle-déléguée (§10.4) restent non portés : le port ne refuse pas —
+  écart PERMISSIF nommé, jamais restrictif.
+
 ### 9.4 PLAN DE MESURE — ce que la fenêtre doit jouer, et ce que chaque résultat tranche
 
 Prérequis : reinject + `warmupGameSingletons({force:true})`. Montage = celui de §8.4, bras

@@ -600,20 +600,22 @@ def _active_ability_ids(visual_id) -> list:
 _REACH_CACHE: dict = {}    # {visual_id: reach} -- kit gameconfig = STATIQUE (aucune dependance d'etat)
 
 
-def _gated_out(ability_id, ability_state) -> bool:
-    """L'ability est-elle ANNULEE par l'un des trois gates CASTER (#433-r4-r2-r1-r1-c) ?
+def _gated_out(ability_id, ability_state, caster=None) -> bool:
+    """L'ability est-elle ANNULEE par l'un des QUATRE gates CASTER (#433-r4-r2-r1-r1-c, puis
+    #433-r4-r2-r1-r2-r2-r1-r1-r1-r4) ?
 
-    Foyer : `engine.services.ability_caster_gates.gates_allow` -- les trois gates que
+    Foyer : `engine.services.ability_caster_gates.gates_allow` -- les quatre gates que
     `IdunBattle.Core.Services.AttackQuery$$GetAllTilesInAbilityRange` (surcharge 4 arguments)
     evalue AVANT les slots 9/10, et qui font rendre un ensemble VIDE. `ability_state` = la table
     `{abilityId: ligne}` de `decisionView.units[].abilities[]` ; absente, seul `IsDisabled`
-    (derivable du kit) peut mordre."""
+    (derivable du kit) peut mordre. `caster` = le `CasterSubstrate` du 4e gate ; absent, aucune de
+    ses onze regles ne peut refuser."""
     st = (ability_state or {}).get(int(ability_id)) if ability_state else None
-    return not acg.gates_allow(ability_id, st)
+    return not acg.gates_allow(ability_id, st, caster)
 
 
 def unit_threat_reach(visual_id, ability_ids=None, ability_state=None,
-                      normal_attack_id=None) -> int:
+                      normal_attack_id=None, caster=None) -> int:
     """Le RAYON de `IdunBattle.Core.Services.AttackQuery$$GetAllTilesInAbilityRange(unit,
     {GetMainTile(unit)}, includeNormalAttack: true)` -- l'UNION des zones de portee de l'unite
     depuis sa tuile COURANTE, modelisee par le max de ses portees.
@@ -625,15 +627,16 @@ def unit_threat_reach(visual_id, ability_ids=None, ability_state=None,
         adjacence (1) sinon. ⚠ Elle N'EST PAS un cas a part cote natif : la lambda
         `AttackQuery.u003Cu003Ec__DisplayClass39_1$$u003CGetAllTilesInAbilityRangeu003Eb__0`
         enumere l'`ActiveAbilityComponent` ENTIER et `includeNormalAttack` ne fait que LEVER le
-        filtre `!IsRegularAttack` -- son entree passe donc par les MEMES trois gates CASTER, d'ou
+        filtre `!IsRegularAttack` -- son entree passe donc par les MEMES quatre gates CASTER, d'ou
         `normal_attack_id` ;
       * chaque ability ACTIVE du kit dont la portee est derivable (`ability_range_value`).
 
     APPROXIMATION NOMMEE : le natif rend un ENSEMBLE de tuiles (les slots 9/10 de chaque
     `AActiveAbility`, LoS et forme comprises) ; le port n'en garde que le RAYON. Le predicat de
     ciblage dynamique (`GetDynamicInvalidTargetReason`) est desormais MODELISE -- c'est ce qui borne
-    la zone d'une ability `UseWholeBoard` (cf. `ability_range_value`) -- et les TROIS gates CASTER
-    en AMONT le sont aussi depuis `#433-r4-r2-r1-r1-c` (`ability_state`, cf.
+    la zone d'une ability `UseWholeBoard` (cf. `ability_range_value`) -- et les QUATRE gates CASTER
+    en AMONT le sont aussi depuis `#433-r4-r2-r1-r1-c` puis `#433-r4-r2-r1-r2-r2-r1-r1-r1-r4`
+    (`ability_state` + `caster`, cf.
     `engine.services.ability_caster_gates`). Reste NON modelise le 2e predicat de
     `GetPossibleTargetsForOptions` : `b__1` retire les tuiles obscurcies par le terrain (residu
     `#433-r4-r2-r1-r2`).
@@ -642,25 +645,28 @@ def unit_threat_reach(visual_id, ability_ids=None, ability_state=None,
     a rendre toute tuile du plateau menacee, ce qui est exactement `GetAllTiles()`.
 
     `ability_state` -- l'etat LIVE par ability (`decisionView.units[].abilities[]`). Fourni, il
-    RETIRE de l'union les abilities que les trois gates CASTER annulent (cf. `_gated_out`) : c'est
+    RETIRE de l'union les abilities que les quatre gates CASTER annulent (cf. `_gated_out`) : c'est
     le seul terme de cette fonction qui depende de l'ETAT, donc le cache est COURT-CIRCUITE des
     qu'il est present.
+
+    `caster` -- le `CasterSubstrate` du 4e gate (#433-r4-r2-r1-r2-r2-r1-r1-r1-r4). Comme
+    `ability_state`, c'est un terme d'ETAT : il COURT-CIRCUITE le cache.
 
     Cache par `visual_id` quand ni le kit ni l'etat ne sont forces par l'appelant : les deux
     sources sont alors STATIQUES (gameconfig + tables lues au decompile), donc le resultat ne
     depend d'AUCUN etat de bataille -- et l'appelant est un SWEEP de positions, qui le
     redemanderait a chaque tuile."""
-    cacheable = ability_ids is None and not ability_state
+    cacheable = ability_ids is None and not ability_state and caster is None
     if cacheable:
         got = _REACH_CACHE.get(visual_id)
         if got is not None:
             return got
     reach = 0
-    if normal_attack_id is None or not _gated_out(normal_attack_id, ability_state):
+    if normal_attack_id is None or not _gated_out(normal_attack_id, ability_state, caster):
         w = unit_weapon_range(visual_id, None)
         reach = 0 if w is None else int(w)
     for aid in (_active_ability_ids(visual_id) if ability_ids is None else ability_ids):
-        if _gated_out(aid, ability_state):
+        if _gated_out(aid, ability_state, caster):
             continue                                  # `GetAllTilesInAbilityRange` -> ensemble VIDE
         v = ability_range_value(aid, visual_id)
         if v is not None and v > reach:
@@ -810,7 +816,7 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
                                     ability_state=None, normal_attack_id=None,
                                     is_wall_by_pos=None, caster_team=None,
                                     team_by_pos=None, walkable_by_pos=None,
-                                    is_in_fog_by_pos=None) -> bool:
+                                    is_in_fog_by_pos=None, caster_pos=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility(unit, tile)` -- mirror :
 
         if (UnitExtensions.GetFeetCount(unit, state) > 1) return true;      // MULTI-TUILES
@@ -868,29 +874,53 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     resout pas l'occupant d'une tuile, `IsFriendOrHasFriendlyUnitOnIt` si).
 
     `ability_state` / `normal_attack_id` -- le canal d'ETAT par ability
-    (`decisionView.units[].abilities[]`, `allAbilities: true`), consomme par les TROIS gates
-    CASTER que `GetAllTilesInAbilityRange` evalue AVANT les slots 9/10 (#433-r4-r2-r1-r1-c). Une
+    (`decisionView.units[].abilities[]`, `allAbilities: true`), consomme par TROIS des QUATRE gates
+    CASTER que `GetAllTilesInAbilityRange` evalue AVANT les slots 9/10 (#433-r4-r2-r1-r1-c ; le
+    4e, lui, se nourrit de `caster_pos` et des cartes de plateau). Une
     ability annulee ne verse RIEN, exactement comme l'ensemble vide du natif. Canal absent -> seul
     `IsDisabled` (derivable du kit) peut mordre, et le reste est le statu quo, borne SUPERIEURE.
     MESURE qui l'a impose (`darkaTerminator`, arme de MELEE + `PlasmaCannon` de zone 3, dont
     `initialCooldownTurns = 1` arme le gate au premier tour) : le natif rend « en portee »
     jusqu'a `d = 3` cooldown eteint, et `d <= 1` SEULEMENT tant qu'il brule -- meme unite, meme
-    tuile, meme sweep."""
+    tuile, meme sweep.
+
+    `caster_pos` -- la tuile COURANTE du caster (`GetMainTile(unit)`), quand elle DIFFERE de
+    `unit_pos` (#433-r4-r2-r1-r2-r2-r1-r1-r1-r4). Les deux coincident dans le regime du foyer natif
+    `BattleQuery$$IsTileInRangeOfAnyAbility`, qui construit `{GetMainTile(unit)}` -- d'ou le defaut.
+    Elles se SEPARENT chez l'autre appelant natif, `AttackQuery$$GetAllTilesInAbilityRange(unit,
+    possiblePositions, true)` (l'oracle `aiMovableTiles`), qui balaie des positions CANDIDATES :
+    la regle-delegue CASTER de `1045 GetEmRuntz` y lit `GetMainTile(caster)` -- la COURANTE -- via
+    `CasterSelector`, pas la position balayee. Confondre les deux ferait varier un verdict que le
+    natif tient CONSTANT sur tout le balayage."""
     if int(feet_count or 1) > 1:
         return True
     if unit_pos is None or tile is None:
         return False
+    # Le substrat du 4e gate CASTER. `pos` est la tuile COURANTE (cf. `caster_pos`) ; les champs
+    # `has_moved` / `feet_count` / `is_machine` restent `None` -- AUCUN canal cote DECISION ne les
+    # publie, et les poser au juge inventerait une mesure. Point d'ancrage a publier pour le
+    # premier : le `UnitFlagsComponent` (`UnitFlag.Moved`) sur la ligne d'unite.
+    # `neigh_by_pos = None` : cette fonction ne recoit PAS la liste d'adjacence STOCKEE, et
+    # `adjacent_neigh_by_pos(MQ.PositionBoard(...))` rend `None` (mesure) -- le gate CIBLE
+    # `GATE_FREE_ADJACENT_IN_CONFIG_RANGE` est deja dans ce meme regime. `battle_query.is_adjacent`
+    # retombe donc sur la couronne hex PLUS la porte d'elevation : degradation PERMISSIVE connue
+    # (4 aretes sur `C1_74`, 38 sur `C3_14`), jamais un voisinage vide.
+    cpos = tuple(caster_pos) if caster_pos is not None else tuple(unit_pos)
+    caster = acg.CasterSubstrate(
+        pos=(int(cpos[0]), int(cpos[1])), has_tile=True, team=caster_team,
+        team_by_pos=team_by_pos, walkable_by_pos=walkable_by_pos, elev_by_pos=elev_by_pos,
+        neigh_by_pos=None)
     d = hexgeo.distance(tuple(unit_pos), tuple(tile))
-    if d > unit_threat_reach(visual_id, ability_ids, ability_state, normal_attack_id):
+    if d > unit_threat_reach(visual_id, ability_ids, ability_state, normal_attack_id, caster):
         return False                          # hors de la borne SUPERIEURE : aucune ability ne porte
     board = (MQ.PositionBoard(elev_by_pos, is_wall_by_pos)
              if elev_by_pos else None)        # canal absent -> aucun retrait (degradation NOMMEE)
     # `includeNormalAttack: true` -- l'attaque normale, dont le `TargetingRange` se reduit a
     # `unit_weapon_range` et qui n'a PAS de gate dynamique porte. Elle passe en revanche par les
-    # MEMES trois gates CASTER (son entree est dans l'`ActiveAbilityComponent`, #-r1-r1-c) ET par
+    # MEMES quatre gates CASTER (son entree est dans l'`ActiveAbilityComponent`, #-r1-r1-c) ET par
     # le MEME `GetPossibleTargetsForOptions` : le predicat de LIGNE DE VUE s'y applique, avec le
     # masque `NORMAL_ATTACK_TARGETING_OPTIONS` (0x4002), qui ne porte AUCUN `AllowObscuredTarget*`.
-    if normal_attack_id is None or not _gated_out(normal_attack_id, ability_state):
+    if normal_attack_id is None or not _gated_out(normal_attack_id, ability_state, caster):
         # La zone de l'attaque normale, branche par branche (#433-r4-r2-r1-r2-r2-r1-r1-r1) : son
         # masque ne porte NI `CasterIsPossibleTarget` NI `TargetIsCasterOrEnemy`, donc `d = 0` en
         # est EXCLU -- ce que `d <= portee d'arme` attribuait a tort.
@@ -909,4 +939,4 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
                                     caster_team=caster_team, team_by_pos=team_by_pos,
                                     walkable_by_pos=walkable_by_pos,
                                     is_in_fog_by_pos=is_in_fog_by_pos)
-               for aid in aids if not _gated_out(aid, ability_state))
+               for aid in aids if not _gated_out(aid, ability_state, caster))
