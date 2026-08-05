@@ -49,6 +49,7 @@ import hexgeo
 
 from . import ability_caster_gates as acg
 from . import movement_query as MQ
+from ..entities.active_ability_type import ActiveAbilityType
 from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS,
                                           NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE,
                                           RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER,
@@ -177,60 +178,64 @@ WHOLE_BOARD_REACH = 1_000_000
 #: une surcharge.
 DYNAMIC_TARGET_GATE_BY_ABILITY: dict[int, str] = {
     # --- LU et derivable : la borne est une DISTANCE au caster -------------------------------
-    1177: GATE_FREE_ADJACENT_IN_CONFIG_RANGE,  # LightOfSanguiniusAbility$$GetDynamicInvalidTargetReason
-    1153: GATE_FREE_ADJACENT_IN_CONFIG_RANGE,  # HammerOfWrathAbility$$GetDynamicInvalidTargetReason
+    # `LightOfSanguiniusAbility$$GetDynamicInvalidTargetReason` /
+    # `HammerOfWrathAbility$$GetDynamicInvalidTargetReason`.
+    ActiveAbilityType.LightOfSanguinius: GATE_FREE_ADJACENT_IN_CONFIG_RANGE,  # 1177
+    ActiveAbilityType.HammerOfWrath: GATE_FREE_ADJACENT_IN_CONFIG_RANGE,  # 1153
     # --- LU, NON derivable hors etat de bataille ---------------------------------------------
-    1058: GATE_NOT_DERIVABLE,   # WaaaghAbility -- GetPossibleMovementTiles (selecteur DSL)
-    1087: GATE_NOT_DERIVABLE,   # ExemplarOfTheKauyonAbility -- TileExtensions$$IsFreeTile + slot 0x7a
-    1112: GATE_NOT_DERIVABLE,   # AlphaWarriorAbility -- IsInSynapseRange(caster, target)
-    1158: GATE_NOT_DERIVABLE,   # DutyEternalAbility -- DSLSelectors$$ThreeTileUnitSpawnShape
-    1163: GATE_NOT_DERIVABLE,   # BlackRageAbility -- GetPossibleMovementTiles (selecteur DSL)
-    1180: GATE_NOT_DERIVABLE,   # HeroicFusilladeAbility -- GetSurroundingTiles + GetMinDistance
-    1202: GATE_NOT_DERIVABLE,   # VigilanceEternalAbility -- AreEntitiesAdjacent, sinon mouvement
-    1204: GATE_NOT_DERIVABLE,   # LeadingTheChargeAbility -- DSLSelectors$$TilesUnitCanMoveToChargeTarget
+    ActiveAbilityType.Waaagh: GATE_NOT_DERIVABLE,  # 1058 -- GetPossibleMovementTiles (selecteur DSL)
+    ActiveAbilityType.ExemplarOfTheKauyon: GATE_NOT_DERIVABLE,  # 1087 -- TileExtensions$$IsFreeTile + slot 0x7a
+    ActiveAbilityType.AlphaWarrior: GATE_NOT_DERIVABLE,  # 1112 -- IsInSynapseRange(caster, target)
+    ActiveAbilityType.DutyEternal: GATE_NOT_DERIVABLE,  # 1158 -- DSLSelectors$$ThreeTileUnitSpawnShape
+    ActiveAbilityType.BlackRage: GATE_NOT_DERIVABLE,  # 1163 -- GetPossibleMovementTiles (selecteur DSL)
+    ActiveAbilityType.HeroicFusillade: GATE_NOT_DERIVABLE,  # 1180 -- GetSurroundingTiles + GetMinDistance
+    ActiveAbilityType.VigilanceEternal: GATE_NOT_DERIVABLE,  # 1202 -- AreEntitiesAdjacent, sinon mouvement
+    ActiveAbilityType.LeadingTheCharge: GATE_NOT_DERIVABLE,  # 1204 -- DSLSelectors$$TilesUnitCanMoveToChargeTarget
     # --- LU (#-r1-r1-a) : le gate ne mord QUE sur une tuile OCCUPEE --------------------------
     # Les sept gates `UseWholeBoard` restants ont ete lus ; AUCUN ne borne une distance. Chacun
     # commence par un test qui, sur l'`entity` que `b__2` resout depuis une tuile VIDE (`null` sans
     # `TargetIsTile`, la tuile elle-meme avec), rend `0` -- donc ne retire pas la tuile.
-    1011: GATE_VALID_ON_EMPTY_TILE,  # TunnelingHorrorAbility$$GetDynamicInvalidTargetReason :
+    ActiveAbilityType.TunnelingHorror: GATE_VALID_ON_EMPTY_TILE,  # 1011
+    #     `TunnelingHorrorAbility$$GetDynamicInvalidTargetReason` :
     #     `DSLTriggers$$HasEffect(DSLSelectors$$Get(sel, target), 0x459)` -> `2` ; sinon parcourt
     #     `casterTiles` et rend `2` a la PREMIERE `TileExtensions$$IsTemporary`, `0` si aucune.
-    1025: GATE_VALID_ON_EMPTY_TILE,  # SkyStrikeAbility$$GetDynamicInvalidTargetReason :
+    ActiveAbilityType.SkyStrike: GATE_VALID_ON_EMPTY_TILE,  # 1025
+    #     `SkyStrikeAbility$$GetDynamicInvalidTargetReason` :
     #     `moved = UnitExtensions$$DidMove(caster) || GetMainTile(caster) != casterTiles[0]` ;
     #     `moved && !<slot 0x62>(casterTiles, targetTiles)` -> `0x10` ; sinon valide si ce meme slot
     #     ou si `<slot 0x51>(targetTiles, 1, 1, 0).Count > 0` (les VOISINES libres et walkables).
     #     Le consommateur passe `casterTiles = {GetMainTile(unit)}` et interroge une unite qui n'a
     #     pas encore joue -> `moved` est faux. ECART NOMME : une tuile sans aucune voisine libre.
-    1145: GATE_VALID_ON_EMPTY_TILE,  # SporeMineLauncherAbility -- `TileExtensions$$HasSteppableUnit`
+    ActiveAbilityType.SporeMineLauncher: GATE_VALID_ON_EMPTY_TILE,  # 1145 -- `TileExtensions$$HasSteppableUnit`
     #     (= `GetUnit(tile) != null && HasTrait(0x1b)`) puis `UnitExtensions$$IsEnemy` -> `2`.
-    1168: GATE_VALID_ON_EMPTY_TILE,  # EntropyCannonsAbility -- `EntityExtensions$$IsUnit(entity)`
+    ActiveAbilityType.EntropyCannons: GATE_VALID_ON_EMPTY_TILE,  # 1168 -- `EntityExtensions$$IsUnit(entity)`
     #     d'abord (`null` -> `0`, LU : la fonction teste `entity == 0` avant tout) ; le reste teste
     #     `DSLTriggers$$IsInTeamContagionsOfNurgleAura` / `HasNegativeModifier` sur la CIBLE.
-    1200: GATE_VALID_ON_EMPTY_TILE,  # SquigLaunchasAbility -- meme premiere ligne `IsUnit(entity)`
+    ActiveAbilityType.SquigLaunchas: GATE_VALID_ON_EMPTY_TILE,  # 1200 -- meme premiere ligne `IsUnit(entity)`
     #     (`0` = valide) ; le reste compte les Orks/allies ADJACENTS AU CASTER.
-    1201: GATE_VALID_ON_EMPTY_TILE,  # SquigMineAbility -- `HasEffect(tile, 0x5a1) ||
+    ActiveAbilityType.SquigMine: GATE_VALID_ON_EMPTY_TILE,  # 1201 -- `HasEffect(tile, 0x5a1) ||
     #     TileExtensions$$HasSteppableUnit(tile)` -> `2`, sinon `0`.
-    1213: GATE_VALID_ON_EMPTY_TILE,  # DeathOnTheWindAbility -- `UnitExtensions$$GetUnit(tile)`
+    ActiveAbilityType.DeathOnTheWind: GATE_VALID_ON_EMPTY_TILE,  # 1213 -- `UnitExtensions$$GetUnit(tile)`
     #     nul -> `0` ; sinon exige `GetNumAttacksReceivedThisTurn(unit) != 0`.
     # --- SURCHARGE etablie au runtime, corps NON LU par cette tranche -------------------------
     # Toutes NON-`UseWholeBoard` : leur borne superieure reste BORNEE, donc ne pas retrecir dessus
     # coute au plus le disque de leur portee (cf. `dynamic_target_gate_reach`).
-    28:   GATE_NOT_READ,        # RepairAbility
-    1005: GATE_NOT_READ,        # AdaptiveStrategyAbility
-    1016: GATE_NOT_READ,        # SendInTheNextWaveAbility
-    1038: GATE_NOT_READ,        # FoulInfusionAbility
-    1059: GATE_NOT_READ,        # RammingSpeedAbility
-    1081: GATE_NOT_READ,        # FightingRetreatAbility
-    1082: GATE_NOT_READ,        # InspiredToGreatnessAbility
-    1101: GATE_NOT_READ,        # AttemptedPossessionAbility
-    1116: GATE_NOT_READ,        # RadBombardmentAbility
-    1117: GATE_NOT_READ,        # DefendTheDivineWorkAbility
-    1119: GATE_NOT_READ,        # Repair_GalvanicFieldAbility
-    1151: GATE_NOT_READ,        # TheQuickeningAbility
-    1164: GATE_NOT_READ,        # MindControlAbility
-    1175: GATE_NOT_READ,        # BloodChaliceAbility
-    1179: GATE_NOT_READ,        # CultDemagogueAbility
-    1197: GATE_NOT_READ,        # ExcruciatingFrequenciesAbility
+    ActiveAbilityType.Repair: GATE_NOT_READ,  # 28
+    ActiveAbilityType.AdaptiveStrategy: GATE_NOT_READ,  # 1005
+    ActiveAbilityType.SendInTheNextWave: GATE_NOT_READ,  # 1016
+    ActiveAbilityType.FoulInfusion: GATE_NOT_READ,  # 1038
+    ActiveAbilityType.RammingSpeed: GATE_NOT_READ,  # 1059
+    ActiveAbilityType.FightingRetreat: GATE_NOT_READ,  # 1081
+    ActiveAbilityType.InspiredToGreatness: GATE_NOT_READ,  # 1082
+    ActiveAbilityType.AttemptedPossession: GATE_NOT_READ,  # 1101
+    ActiveAbilityType.RadBombardment: GATE_NOT_READ,  # 1116
+    ActiveAbilityType.DefendTheDivineWork: GATE_NOT_READ,  # 1117
+    ActiveAbilityType.Repair_GalvanicField: GATE_NOT_READ,  # 1119
+    ActiveAbilityType.TheQuickening: GATE_NOT_READ,  # 1151
+    ActiveAbilityType.MindControl: GATE_NOT_READ,  # 1164
+    ActiveAbilityType.BloodChalice: GATE_NOT_READ,  # 1175
+    ActiveAbilityType.CultDemagogue: GATE_NOT_READ,  # 1179
+    ActiveAbilityType.ExcruciatingFrequencies: GATE_NOT_READ,  # 1197
     # `1100 SorcerousFacade` et `1143 ForwardSpotter` NE FIGURENT PLUS ICI : elles surchargent bien
     # le slot, mais leur gate n'est JAMAIS atteint -- `GetPossibleTargetTiles` court-circuite en
     # amont sur leur masque `rules` (cf. `target_tiles_zone_is_empty`).

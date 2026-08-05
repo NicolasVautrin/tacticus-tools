@@ -274,6 +274,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Optional
 
 from .targeting_rule import TargetingRule as TR
+from ...entities.active_ability_type import ActiveAbilityType
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1024,9 +1025,9 @@ NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE: "dict[int, TargetingOptions]" = {
     # 1030 `...Active.Loki.Loki_NormalBossAttackAbility$$.ctor`   (lu : `lVar1+0x80`)
     # 1114 `...Active.Loki.BlisteringAssault_NormalAttackAbility$$.ctor` -- son corps ENTIER est
     #      `return Loki_NormalBossAttackAbility$$.ctor(this);`, donc le MEME preset par construction.
-    17: _NORMAL_ATTACK_OPTIONS_PRESET_80,
-    1030: _NORMAL_ATTACK_OPTIONS_PRESET_80,
-    1114: _NORMAL_ATTACK_OPTIONS_PRESET_80,
+    ActiveAbilityType.NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_80,
+    ActiveAbilityType.Loki_NormalBossAttack: _NORMAL_ATTACK_OPTIONS_PRESET_80,
+    ActiveAbilityType.BlisteringAssault_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_80,
     # --- recopie du preset `statics+0x00` -> `rules = 0x4002` -------------------------------------
     #   69 `...Active.Loki.Loki_NormalAttackAbility$$.ctor`        (lu : `*puVar1`, offset 0)
     # 1046 `...Active.Loki.TemplarInitiateNormalAttackAbility$$.ctor`   (lu)
@@ -1039,18 +1040,18 @@ NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE: "dict[int, TargetingOptions]" = {
     #      `...Active.Loki.TalonOfHorus_NormalAttackAbility$$.ctor`, dont le corps entier est
     #      `return Loki_NormalAttackAbility$$.ctor(this);` (lu). Leur symbole propre n'existe PAS
     #      dans les tables -- l'absence ne prouve rien, la chaine de ctor si.
-    69: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1046: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1086: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1120: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1123: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1128: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1138: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1162: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1178: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1182: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1205: _NORMAL_ATTACK_OPTIONS_PRESET_00,
-    1220: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.Loki_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.TemplarInitiateNormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.ProperKilly_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.FeederTendrils_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.OptimizedGait_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.Boltstorm_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.Wraithcannon_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.AncientFury_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.ElectroShock_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.RighteousRepugnance_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.TalonOfHorus_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.Fealty_NormalAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
     # --- 1076 MV71SniperDroneSquadAttack -- FACTORY NOMMEE, pas une recopie nue -------------------
     # `...Triggered.Loki.MV71SniperDroneSquadAttackAbility$$.ctor` appelle
     # `IdunBattle.Core.Services.TargetingOptions$$CustomLokiNormalAttackOptions(&opts, extraRules)`,
@@ -1058,7 +1059,7 @@ NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE: "dict[int, TargetingOptions]" = {
     # `opts.rules = preset.rules | extraRules`. Le `extraRules` n'est pas rendu par le decompile
     # (registre RDX perdu) -> LU AUX OCTETS au call-site : `ba 02 00 00 00` = `mov edx, 2`.
     #     0x4002 | 2 = 0x4002  -- l'argument etait deja dans le preset, le calcul le DIT.
-    1076: _NORMAL_ATTACK_OPTIONS_PRESET_00,
+    ActiveAbilityType.MV71SniperDroneSquadAttack: _NORMAL_ATTACK_OPTIONS_PRESET_00,
     # --- 1126 RogalDorn_NormalAttack -- LITTERAL, et son `forceMeleeTarget` DIFFERE ---------------
     # `...Active.Loki.RogalDorn_NormalAttackAbility$$.ctor` n'utilise AUCUN preset de
     # `TargetingOptions` : il recopie `<TargetingRange statics>+0x00` puis appelle la surcharge
@@ -1071,7 +1072,7 @@ NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE: "dict[int, TargetingOptions]" = {
     # (`RangedBoolExtensions.IsTrue(options.ForceMeleeTarget, caster) && ShouldApplyRangedInMelee`)
     # ne s'applique JAMAIS pour ce type -- la ou le preset `+0x00` l'applique a tout caster distant
     # engage au corps a corps.
-    1126: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+    ActiveAbilityType.RogalDorn_NormalAttack: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
                            range=RANGE_ADJACENT_IF_MELEE_CASTER,
                            force_melee_target=RANGED_BOOL_FALSE),
     # --- 1146 FloatingDeath_NormalAttack -- LITTERAL, et son `TargetingRange` DIFFERE -------------
@@ -1086,11 +1087,12 @@ NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE: "dict[int, TargetingOptions]" = {
     #   * `overrideRange = 1` COURT-CIRCUITE `unit_weapon_range` -- avec le preset generique, une
     #     portee d'arme non observable fait rendre `value = None` a `get_range`, donc aucun gate de
     #     DISTANCE (le gate d'adjacence, lui, tient -- #419-r1-tr14-r5-r2-r1-r2-r1-r1).
-    1146: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
+    ActiveAbilityType.FloatingDeath_NormalAttack: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_IF_RANGED_CASTER),
 }
 
-NORMAL_ATTACK_TARGETING_OPTIONS = NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE[69]
+NORMAL_ATTACK_TARGETING_OPTIONS = NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE[
+    ActiveAbilityType.Loki_NormalAttack]     # 69
 """Les options de `69 Loki_NormalAttack`, l'attaque normale GENERIQUE -- celle que la fabrique pose
 quand aucune des trois voies de substitution ne mord (`UnitFactory$$AddNormalAttackAbility`, repli
 `type = this@+0x20`). C'est le DEFAUT du port quand le type n'est pas resoluble, et c'est ce que ce

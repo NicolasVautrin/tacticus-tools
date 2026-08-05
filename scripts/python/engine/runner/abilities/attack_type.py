@@ -64,6 +64,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ...entities.active_ability_type import ActiveAbilityType
+
 
 class AbilityAttackType:
     """`IdunBattle.Entities.Abilities.AbilityAttackType` (dump il2cpp, enum verbatim) -- la valeur
@@ -109,78 +111,79 @@ NORMAL_ATTACK_KIND = 0x3f5      # 1013
 # d'abilities porte au moment de #120 ; une ability absente = litteral non lu (cf. l'en-tete).
 ABILITY_ATTACK_TYPE: dict[int, int] = {
     # --- 0 : DirectTargetAttack ---------------------------------------------------------------
-    1013: AbilityAttackType.DirectTargetAttack,   # PrecisionShot_AttackAbility$$.ctor -- le KIND
-                                                  # attaque-normale threade par la voie normale
-    1004: AbilityAttackType.DirectTargetAttack,   # MortisRoundAbility
-    1006: AbilityAttackType.DirectTargetAttack,   # MultiThreatEliminatorAbility
-    1008: AbilityAttackType.DirectTargetAttack,   # HarbingerOfDestructionAbility
-    1014: AbilityAttackType.DirectTargetAttack,   # ArmoriumCherubAbility
-    1020: AbilityAttackType.DirectTargetAttack,   # HeraldOfTheApocalypseAbility (case-bl-1029-1020)
-    1022: AbilityAttackType.DirectTargetAttack,   # BringerOfDespairAbility
-    1025: AbilityAttackType.DirectTargetAttack,   # SkyStrikeAbility
+    # `PrecisionShot_AttackAbility$$.ctor` -- 1013 est aussi le KIND attaque-normale threade par la
+    # voie normale (cf. `NORMAL_ATTACK_KIND` ci-dessus).
+    ActiveAbilityType.PrecisionShot_Attack: AbilityAttackType.DirectTargetAttack,  # 1013
+    ActiveAbilityType.MortisRound: AbilityAttackType.DirectTargetAttack,  # 1004
+    ActiveAbilityType.MultiThreatEliminator: AbilityAttackType.DirectTargetAttack,  # 1006
+    ActiveAbilityType.HarbingerOfDestruction: AbilityAttackType.DirectTargetAttack,  # 1008
+    ActiveAbilityType.ArmoriumCherub: AbilityAttackType.DirectTargetAttack,  # 1014
+    ActiveAbilityType.HeraldOfTheApocalypse: AbilityAttackType.DirectTargetAttack,  # 1020 (case-bl-1029-1020)
+    ActiveAbilityType.BringerOfDespair: AbilityAttackType.DirectTargetAttack,  # 1022
+    ActiveAbilityType.SkyStrike: AbilityAttackType.DirectTargetAttack,  # 1025
     # Drachnyen (1029) : `DrachnyenAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0, 0)`.
     # Le litteral est `0` MEME si le behaviour n'attaque pas en direct (il dispatche l'attaque
     # NORMALE via `UseActiveAbility`) : on transcrit le 3e argument du ctor, jamais le profil de
     # degat de l'arbre. (case-bl-1029-1020)
-    1029: AbilityAttackType.DirectTargetAttack,   # DrachnyenAbility
-    1042: AbilityAttackType.DirectTargetAttack,   # FlailSwingAbility
-    1043: AbilityAttackType.DirectTargetAttack,   # ThunderousAssaultAbility
-    1017: AbilityAttackType.DirectTargetAttack,   # FragBombAbility
-    1026: AbilityAttackType.DirectTargetAttack,   # BasiliskBarrageAbility
-    1051: AbilityAttackType.DirectTargetAttack,   # StikkbombAbility
-    1062: AbilityAttackType.DirectTargetAttack,   # SanctorumMissileAbility
-    1065: AbilityAttackType.DirectTargetAttack,   # ScythingTalonsAbility
-    1066: AbilityAttackType.DirectTargetAttack,   # ExecutionerAbility
-    1067: AbilityAttackType.DirectTargetAttack,   # HarvesterOfSoulsAbility
+    ActiveAbilityType.Drachnyen: AbilityAttackType.DirectTargetAttack,  # 1029
+    ActiveAbilityType.FlailSwing: AbilityAttackType.DirectTargetAttack,  # 1042
+    ActiveAbilityType.ThunderousAssault: AbilityAttackType.DirectTargetAttack,  # 1043
+    ActiveAbilityType.FragBomb: AbilityAttackType.DirectTargetAttack,  # 1017
+    ActiveAbilityType.BasiliskBarrage: AbilityAttackType.DirectTargetAttack,  # 1026
+    ActiveAbilityType.Stikkbomb: AbilityAttackType.DirectTargetAttack,  # 1051
+    ActiveAbilityType.SanctorumMissile: AbilityAttackType.DirectTargetAttack,  # 1062
+    ActiveAbilityType.ScythingTalons: AbilityAttackType.DirectTargetAttack,  # 1065
+    ActiveAbilityType.Executioner: AbilityAttackType.DirectTargetAttack,  # 1066
+    ActiveAbilityType.HarvesterOfSouls: AbilityAttackType.DirectTargetAttack,  # 1067
     # EmpyricAmbush (1232) : `EmpyricAmbushAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0)`.
     # Le litteral est `0` bien que le behaviour commence par un `FlyUnit` : on transcrit le 3e argument
     # du ctor, jamais la forme de l'arbre. (#589-r1-r1-r1)
-    1232: AbilityAttackType.DirectTargetAttack,   # EmpyricAmbushAbility
-    1078: AbilityAttackType.DirectTargetAttack,   # FragstormAbility
-    1089: AbilityAttackType.DirectTargetAttack,   # GreatFrostAxeAbility
-    1092: AbilityAttackType.DirectTargetAttack,   # DarkTalonStrikeAbility
-    1098: AbilityAttackType.DirectTargetAttack,   # PlasmaGrenadeAbility
-    1104: AbilityAttackType.DirectTargetAttack,   # SpiritLeechAbility
-    1105: AbilityAttackType.DirectTargetAttack,   # CrushingClawsAbility
-    1113: AbilityAttackType.DirectTargetAttack,   # StormcallerAbility
-    1122: AbilityAttackType.DirectTargetAttack,   # CordClawAbility
-    1131: AbilityAttackType.DirectTargetAttack,   # JakhalStimmsAbility
+    ActiveAbilityType.EmpyricAmbush: AbilityAttackType.DirectTargetAttack,  # 1232
+    ActiveAbilityType.Fragstorm: AbilityAttackType.DirectTargetAttack,  # 1078
+    ActiveAbilityType.GreatFrostAxe: AbilityAttackType.DirectTargetAttack,  # 1089
+    ActiveAbilityType.DarkTalonStrike: AbilityAttackType.DirectTargetAttack,  # 1092
+    ActiveAbilityType.PlasmaGrenade: AbilityAttackType.DirectTargetAttack,  # 1098
+    ActiveAbilityType.SpiritLeech: AbilityAttackType.DirectTargetAttack,  # 1104
+    ActiveAbilityType.CrushingClaws: AbilityAttackType.DirectTargetAttack,  # 1105
+    ActiveAbilityType.Stormcaller: AbilityAttackType.DirectTargetAttack,  # 1113
+    ActiveAbilityType.CordClaw: AbilityAttackType.DirectTargetAttack,  # 1122
+    ActiveAbilityType.JakhalStimms: AbilityAttackType.DirectTargetAttack,  # 1131
     # MurderousSwing (1137) : `IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility$$.ctor`
     # -> `AActiveAbility..ctor(this, &opts, 0, 0)`. Litteral RELU au decompile ; il vaut `0` bien que
     # l'arbre soit un splash MULTI-cible self-centre (on transcrit le 3e argument du ctor, jamais la
     # forme du ciblage).
-    1137: AbilityAttackType.DirectTargetAttack,   # MurderousSwingAbility
-    1139: AbilityAttackType.DirectTargetAttack,   # SentinelDirectivesAbility
-    1147: AbilityAttackType.DirectTargetAttack,   # HadesAutocannonsAbility
-    1148: AbilityAttackType.DirectTargetAttack,   # DaemonicOrdnanceAbility
-    1150: AbilityAttackType.DirectTargetAttack,   # PlasmaCannonAbility
-    1160: AbilityAttackType.DirectTargetAttack,   # HeavyRailRifleAbility
-    1161: AbilityAttackType.DirectTargetAttack,   # TwinSmartMissileSystemAbility
-    1168: AbilityAttackType.DirectTargetAttack,   # EntropyCannonsAbility
-    1169: AbilityAttackType.DirectTargetAttack,   # PlagueburstMortarAbility
-    1180: AbilityAttackType.DirectTargetAttack,   # HeroicFusilladeAbility
+    ActiveAbilityType.MurderousSwing: AbilityAttackType.DirectTargetAttack,  # 1137
+    ActiveAbilityType.SentinelDirectives: AbilityAttackType.DirectTargetAttack,  # 1139
+    ActiveAbilityType.HadesAutocannons: AbilityAttackType.DirectTargetAttack,  # 1147
+    ActiveAbilityType.DaemonicOrdnance: AbilityAttackType.DirectTargetAttack,  # 1148
+    ActiveAbilityType.PlasmaCannon: AbilityAttackType.DirectTargetAttack,  # 1150
+    ActiveAbilityType.HeavyRailRifle: AbilityAttackType.DirectTargetAttack,  # 1160
+    ActiveAbilityType.TwinSmartMissileSystem: AbilityAttackType.DirectTargetAttack,  # 1161
+    ActiveAbilityType.EntropyCannons: AbilityAttackType.DirectTargetAttack,  # 1168
+    ActiveAbilityType.PlagueburstMortar: AbilityAttackType.DirectTargetAttack,  # 1169
+    ActiveAbilityType.HeroicFusillade: AbilityAttackType.DirectTargetAttack,  # 1180
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 0, 0)` : 3e argument = 0 = DirectTargetAttack.
-    1199: AbilityAttackType.DirectTargetAttack,   # DoomSirenAbility
-    1200: AbilityAttackType.DirectTargetAttack,   # SquigLaunchasAbility
-    1201: AbilityAttackType.DirectTargetAttack,   # SquigMineAbility
-    1202: AbilityAttackType.DirectTargetAttack,   # VigilanceEternalAbility
-    1213: AbilityAttackType.DirectTargetAttack,   # DeathOnTheWindAbility
-    1221: AbilityAttackType.DirectTargetAttack,   # AugmentedAssaultAbility
-    1230: AbilityAttackType.DirectTargetAttack,   # SavageEchoesAbility
-    1103: AbilityAttackType.DirectTargetAttack,   # SuperchargeAbility (lot #112, litteral 0 relu)
+    ActiveAbilityType.DoomSiren: AbilityAttackType.DirectTargetAttack,  # 1199
+    ActiveAbilityType.SquigLaunchas: AbilityAttackType.DirectTargetAttack,  # 1200
+    ActiveAbilityType.SquigMine: AbilityAttackType.DirectTargetAttack,  # 1201
+    ActiveAbilityType.VigilanceEternal: AbilityAttackType.DirectTargetAttack,  # 1202
+    ActiveAbilityType.DeathOnTheWind: AbilityAttackType.DirectTargetAttack,  # 1213
+    ActiveAbilityType.AugmentedAssault: AbilityAttackType.DirectTargetAttack,  # 1221
+    ActiveAbilityType.SavageEchoes: AbilityAttackType.DirectTargetAttack,  # 1230
+    ActiveAbilityType.Supercharge: AbilityAttackType.DirectTargetAttack,  # 1103 (lot #112, litteral 0 relu)
     # DakkaDakkaDakka (1171, Snappawrecka orksKillaKan), case-decision-noop. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
     # (`&opts` = le PRESET statique `TargetingOptions` `+0x140` -- le MEME que 1006/1206, dont le
     #  masque a ete lu dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` : les
     #  `TARGETING_OPTIONS` de 1171 SONT donc posees, cf. la classe.)
-    1171: AbilityAttackType.DirectTargetAttack,   # DakkaDakkaDakkaAbility
+    ActiveAbilityType.DakkaDakkaDakka: AbilityAttackType.DirectTargetAttack,  # 1171
     # RammingSpeed (1059), #389. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = 0 = DirectTargetAttack. (`&opts` = la
     # forme FLAGS DIRECTS, `rules = 0x4002` litteral -> les `TARGETING_OPTIONS` sont posees aussi.)
-    1059: AbilityAttackType.DirectTargetAttack,   # RammingSpeedAbility
+    ActiveAbilityType.RammingSpeed: AbilityAttackType.DirectTargetAttack,  # 1059
     # FrenziedFiring (1036, Volk blackObliterator) : entree dans `ABILITY_CLASSES` par le lot #61
     # (face COMBAT du volet AoE) SANS son litteral -> l'etape 0 du garde-fou
     # `probe_120_pre_unit_ability_fork` echouait (« ability portee sans AbilityAttackType lu »).
@@ -188,17 +191,17 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # = `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
     # (⚠ le `&opts` y est un PRESET lu d'un champ STATIQUE de la classe, PAS un litteral inline :
     #  ses `TARGETING_OPTIONS` restent donc NON renseignes -- les deviner serait pire que l'absence.)
-    1036: AbilityAttackType.DirectTargetAttack,   # FrenziedFiringAbility
+    ActiveAbilityType.FrenziedFiring: AbilityAttackType.DirectTargetAttack,  # 1036
     # TacticalPrecision (1154, Titus ultraTitus), case-231. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
     # (Contrairement a 1036/1041, ses `TARGETING_OPTIONS` SONT posees : le preset statique recopie
     #  a ete lu dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`, cf. la classe.)
-    1154: AbilityAttackType.DirectTargetAttack,   # TacticalPrecisionAbility
+    ActiveAbilityType.TacticalPrecision: AbilityAttackType.DirectTargetAttack,  # 1154
     # BrazierOfHolyFire (1041) : MEME cas que 1036, entree au registre par le lot #128 sans son
     # litteral. `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$.ctor`
     # = `AActiveAbility..ctor(this, &opts, 0, 0)` -> 0 = DirectTargetAttack (opts = PRESET statique).
-    1041: AbilityAttackType.DirectTargetAttack,   # BrazierOfHolyFireAbility
+    ActiveAbilityType.BrazierOfHolyFire: AbilityAttackType.DirectTargetAttack,  # 1041
     # Foehammer (1097, Arjac spaceRockfist) et HammerOfWrath (1153, Mataneo bloodIntercessor), lot
     # #226. Litteraux RELUS : `...FoehammerAbility$$.ctor` et `...HammerOfWrathAbility$$.ctor` font
     # tous deux `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
@@ -210,25 +213,26 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = 0 = DirectTargetAttack. (`&opts` est la
     # forme FLAGS DIRECTS a 6 arguments, `rules = 0x8004000` litteral -> `TARGETING_OPTIONS` posees.)
-    1090: AbilityAttackType.DirectTargetAttack,   # GrapnelLauncherAbility
-    1097: AbilityAttackType.DirectTargetAttack,   # FoehammerAbility
-    1153: AbilityAttackType.DirectTargetAttack,   # HammerOfWrathAbility
+    ActiveAbilityType.GrapnelLauncher: AbilityAttackType.DirectTargetAttack,  # 1090
+    ActiveAbilityType.Foehammer: AbilityAttackType.DirectTargetAttack,  # 1097
+    ActiveAbilityType.HammerOfWrath: AbilityAttackType.DirectTargetAttack,  # 1153
     # PlagueWind (1035, Typhus deathTyphus), case-psychic-aoe. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
     # (`&opts` = PRESET statique `TargetingOptions statics+0x180` ; son masque EFFECTIF a bien ete lu
     #  dans le `cctor` (`statics+0x1a8` = 0x4002) -> ses `TARGETING_OPTIONS` sont renseignes.)
-    1035: AbilityAttackType.DirectTargetAttack,   # PlagueWindAbility
+    ActiveAbilityType.PlagueWind: AbilityAttackType.DirectTargetAttack,  # 1035
     # --- 1 : SummonAndAttackTarget (le summon pose attaque la cible du cast) --------------------
-    1003: AbilityAttackType.SummonAndAttackTarget,   # DeathFromAboveAbility
-    1007: AbilityAttackType.SummonAndAttackTarget,   # ScarabHiveAbility
-    1016: AbilityAttackType.SummonAndAttackTarget,   # SendInTheNextWaveAbility
-    1021: AbilityAttackType.SummonAndAttackTarget,   # IncursionAbility
-    1040: AbilityAttackType.SummonAndAttackTarget,   # SpawnPoxwalkersAbility
-    1076: AbilityAttackType.SummonAndAttackTarget,   # MV71SniperDroneSquadAttackAbility -- sa classe
-        # native est un TRIGGERED (`...Triggered.Loki.MV71SniperDroneSquadAttackAbility$$.ctor`) mais
-        # elle derive de `ALoki_NormalAttackAbility`, dont le ctor FORWARDE son 3e argument a
-        # `AActiveAbility$$.ctor` : `ALoki_NormalAttackAbility..ctor(this, &opts, 1)` -> 1.
+    ActiveAbilityType.DeathFromAbove: AbilityAttackType.SummonAndAttackTarget,  # 1003
+    ActiveAbilityType.ScarabHive: AbilityAttackType.SummonAndAttackTarget,  # 1007
+    ActiveAbilityType.SendInTheNextWave: AbilityAttackType.SummonAndAttackTarget,  # 1016
+    ActiveAbilityType.Incursion: AbilityAttackType.SummonAndAttackTarget,  # 1021
+    ActiveAbilityType.Poxwalkers: AbilityAttackType.SummonAndAttackTarget,  # 1040 SpawnPoxwalkersAbility
+    # 1076 : sa classe native est un TRIGGERED
+    # (`...Triggered.Loki.MV71SniperDroneSquadAttackAbility$$.ctor`) mais elle derive de
+    # `ALoki_NormalAttackAbility`, dont le ctor FORWARDE son 3e argument a `AActiveAbility$$.ctor` :
+    # `ALoki_NormalAttackAbility..ctor(this, &opts, 1)` -> 1.
+    ActiveAbilityType.MV71SniperDroneSquadAttack: AbilityAttackType.SummonAndAttackTarget,  # 1076
     # --- 2 : Others (y compris des abilities qui font pourtant des degats -- le natif les CLASSE
     #         hors « attaque directe sur la cible » : AoE de zone, charge-puis-frappe, tile-target) -
     # Reparation REGULIERE (#299). `IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$.ctor`
@@ -237,75 +241,75 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # a `AActiveAbility$$.ctor` (il ne fait que recopier les 0x40 octets des `TargetingOptions`) -> 2.
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility$$.ctor` = `return
     # RepairAbility..ctor(this)` -> MEME litteral, herite et non recopie a l'aveugle.
-    28:   AbilityAttackType.Others,   # RepairAbility (derivee du trait Mechanic)
-    1119: AbilityAttackType.Others,   # Repair_GalvanicFieldAbility (passif GalvanicField)
+    ActiveAbilityType.Repair: AbilityAttackType.Others,  # 28 RepairAbility (derivee du trait Mechanic)
+    ActiveAbilityType.Repair_GalvanicField: AbilityAttackType.Others,  # 1119 (passif GalvanicField)
     # `DefendTheDivineWorkAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 2)` : le litteral EST
     # `2`, relu au decompile (et NON deduit du fait que l'ability ne fait pas de degat direct -- le
     # coup gratuit de GalvanicField, lui, en fait).
-    1117: AbilityAttackType.Others,   # DefendTheDivineWorkAbility (admecManipulus)
+    ActiveAbilityType.DefendTheDivineWork: AbilityAttackType.Others,  # 1117 (admecManipulus)
     # WallOfMirrorsAbility$$.ctor -> `AActiveAbility..ctor(this, &opts, 2)` (#433-r4-r1-r1). Le
     # litteral est `2` MEME si l'arbre attaque : il dispatche l'attaque NORMALE par `UseNormalAttack`
     # (meme lecture que Drachnyen, transcrite en sens inverse) -- on transcrit le 3e argument du ctor.
-    1186: AbilityAttackType.Others,   # WallOfMirrorsAbility
-    1000: AbilityAttackType.Others,   # GauntletsOfUltramarAbility
-    1002: AbilityAttackType.Others,   # CombatRestorativesAbility
-    1009: AbilityAttackType.Others,   # ResurrectionOrbAbility
+    ActiveAbilityType.WallOfMirrors: AbilityAttackType.Others,  # 1186
+    ActiveAbilityType.GauntletsOfUltramar: AbilityAttackType.Others,  # 1000
+    ActiveAbilityType.CombatRestoratives: AbilityAttackType.Others,  # 1002
+    ActiveAbilityType.ResurrectionOrb: AbilityAttackType.Others,  # 1009
     # TunnelingHorror (1011, necroSmnDestroyer) -- #366-r1. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others (le behaviour n'attaque pas :
     # il retire le caster de ses tuiles et pose un bond sur la tuile visee).
-    1011: AbilityAttackType.Others,   # TunnelingHorrorAbility
+    ActiveAbilityType.TunnelingHorror: AbilityAttackType.Others,  # 1011
     # Burrowers (1023, tyranSmnRipperSwarm) -- tranche 1 de `#366-r1-tunnel-family`. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. RELU au decompile, pas
     # deduit du fait que le behaviour n'attaque pas (il retire le caster de ses tuiles et se pose un
     # effet).
-    1023: AbilityAttackType.Others,   # BurrowersAbility
-    1018: AbilityAttackType.Others,   # ValkyrieStrikeAbility
-    1028: AbilityAttackType.Others,   # SupremeCommanderAbility
-    1037: AbilityAttackType.Others,   # RevitalizingMalignancyAbility
-    1045: AbilityAttackType.Others,   # GetEmRuntzAbility
-    1047: AbilityAttackType.Others,   # ScarabSummonAbility
-    1058: AbilityAttackType.Others,   # WaaaghAbility
-    1096: AbilityAttackType.Others,   # MasterOfTheTutelariesAbility
-    1112: AbilityAttackType.Others,   # AlphaWarriorAbility
-    1118: AbilityAttackType.Others,   # DoctrinaImperativesAbility
-    1142: AbilityAttackType.Others,   # MalleusRocketLauncherAbility
-    1143: AbilityAttackType.Others,   # ForwardSpotterAbility
-    1145: AbilityAttackType.Others,   # SporeMineLauncherAbility
-    1151: AbilityAttackType.Others,   # TheQuickeningAbility
-    1159: AbilityAttackType.Others,   # MacroPlasmaIncineratorAbility
+    ActiveAbilityType.Burrowers: AbilityAttackType.Others,  # 1023
+    ActiveAbilityType.ValkyrieStrike: AbilityAttackType.Others,  # 1018
+    ActiveAbilityType.SupremeCommander: AbilityAttackType.Others,  # 1028
+    ActiveAbilityType.RevitalizingMalignancy: AbilityAttackType.Others,  # 1037
+    ActiveAbilityType.GetEmRuntz: AbilityAttackType.Others,  # 1045
+    ActiveAbilityType.ScarabSummon: AbilityAttackType.Others,  # 1047
+    ActiveAbilityType.Waaagh: AbilityAttackType.Others,  # 1058
+    ActiveAbilityType.MasterOfTheTutelaries: AbilityAttackType.Others,  # 1096
+    ActiveAbilityType.AlphaWarrior: AbilityAttackType.Others,  # 1112
+    ActiveAbilityType.DoctrinaImperatives: AbilityAttackType.Others,  # 1118
+    ActiveAbilityType.MalleusRocketLauncher: AbilityAttackType.Others,  # 1142
+    ActiveAbilityType.ForwardSpotter: AbilityAttackType.Others,  # 1143
+    ActiveAbilityType.SporeMineLauncher: AbilityAttackType.Others,  # 1145
+    ActiveAbilityType.TheQuickening: AbilityAttackType.Others,  # 1151
+    ActiveAbilityType.MacroPlasmaIncinerator: AbilityAttackType.Others,  # 1159
     # DutyEternal (1158, Galatian ultraDreadnought MoW), case-91. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 3e argument = 2 = Others (l'ability ne fait AUCUN
     # degat : elle retire la MoW et pose un summon a 3 pieds). Le `&opts` y est un litteral INLINE
     # (forme « flags directs », masque 0x20000040000042) -> ses `TARGETING_OPTIONS` sont posees.
-    1158: AbilityAttackType.Others,   # DutyEternalAbility
-    1163: AbilityAttackType.Others,   # BlackRageAbility
-    1166: AbilityAttackType.Others,   # AberrantHypermorphAbility
-    1179: AbilityAttackType.Others,   # CultDemagogueAbility
+    ActiveAbilityType.DutyEternal: AbilityAttackType.Others,  # 1158
+    ActiveAbilityType.BlackRage: AbilityAttackType.Others,  # 1163
+    ActiveAbilityType.AberrantHypermorph: AbilityAttackType.Others,  # 1166
+    ActiveAbilityType.CultDemagogue: AbilityAttackType.Others,  # 1179
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 2, 0)` : 3e argument = 2 = Others (poseur d'effets, le
     # DirectDamage vit dans l'effet 1239, pas dans l'attaque du cast).
-    1115: AbilityAttackType.Others,   # FearOfTheUnseenAbility
-    1187: AbilityAttackType.Others,   # ThriceBlessedConflagrationAbility
-    1188: AbilityAttackType.Others,   # DevastatingRefrainAbility
-    1206: AbilityAttackType.Others,   # GravitonRifleAbility
-    1207: AbilityAttackType.Others,   # AncestralFortuneAbility
-    1214: AbilityAttackType.Others,   # HailstrikeAbility
-    1219: AbilityAttackType.Others,   # IronkinSteeljackAbility
-    1226: AbilityAttackType.Others,   # ChronometronAbility
+    ActiveAbilityType.FearOfTheUnseen: AbilityAttackType.Others,  # 1115
+    ActiveAbilityType.ThriceBlessedConflagration: AbilityAttackType.Others,  # 1187
+    ActiveAbilityType.DevastatingRefrain: AbilityAttackType.Others,  # 1188
+    ActiveAbilityType.GravitonRifle: AbilityAttackType.Others,  # 1206
+    ActiveAbilityType.AncestralFortune: AbilityAttackType.Others,  # 1207
+    ActiveAbilityType.Hailstrike: AbilityAttackType.Others,  # 1214
+    ActiveAbilityType.IronkinSteeljack: AbilityAttackType.Others,  # 1219
+    ActiveAbilityType.Chronometron: AbilityAttackType.Others,  # 1226
     # Doombolt (1102, Ahriman thousAhriman), case-psychic-aoe. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 3e argument = 2 = Others. Coherent avec la nature
     # de l'ability (AoE de zone : les coups sont REPARTIS sur tous les ennemis a portee, la « cible »
     # du message n'etant qu'une priorite d'ordre), et avec son masque, qui n'a PAS `TargetIsEnemy`.
-    1102: AbilityAttackType.Others,   # DoomboltAbility
+    ActiveAbilityType.Doombolt: AbilityAttackType.Others,  # 1102
     # MomentShackle (1184, Trajann custoTrajann), case-231. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.MomentShackleAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 2 = Others (l'ACTIVE ne fait aucun degat ; le
     # 2x Bolter de l'i2 vient de la TRIGGERED `MomentShackle_AttackAbility`, hors registre).
-    1184: AbilityAttackType.Others,   # MomentShackleAbility
+    ActiveAbilityType.MomentShackle: AbilityAttackType.Others,  # 1184
     # SorcerousFacade (1100, Yazaghor thousTzaangor), #287. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. Coherent avec la nature du
@@ -313,22 +317,22 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `UseActiveAbility(attaque NORMALE)`) -- mais c'est bien le LITTERAL du ctor qui est transcrit,
     # pas cette lecture. (`&opts` = un litteral INLINE « flags directs », rules = 0x402 -> ses
     # `TARGETING_OPTIONS` sont posees sur la classe.)
-    1100: AbilityAttackType.Others,   # SorcerousFacadeAbility
+    ActiveAbilityType.SorcerousFacade: AbilityAttackType.Others,  # 1100
     # Lot Tau #114 (merge d67b6ac), arrive APRES la redaction de #120 : les trois ctors passent
     # litteralement `AActiveAbility..ctor(this, &opts, 2, 0)` (relu au decompile).
-    1077: AbilityAttackType.Others,   # EarlyWarningOverrideAbility
-    1081: AbilityAttackType.Others,   # FightingRetreatAbility
-    1082: AbilityAttackType.Others,   # InspiredToGreatnessAbility
+    ActiveAbilityType.EarlyWarningOverride: AbilityAttackType.Others,  # 1077
+    ActiveAbilityType.FightingRetreat: AbilityAttackType.Others,  # 1081
+    ActiveAbilityType.InspiredToGreatness: AbilityAttackType.Others,  # 1082
     # Lot DarkAngels #112, arrive lui aussi apres #120 (litteraux relus au decompile) :
     # Supercharge est le seul des trois a `DirectTargetAttack` (0) -- il entre donc dans le gate
     # `AbilityHasAttackType(0|1)` de SwornProtector, contrairement aux deux autres.
-    1140: AbilityAttackType.Others,   # ExemplarOfHateAbility
-    1189: AbilityAttackType.Others,   # CalibaniteGreatswordAbility
+    ActiveAbilityType.ExemplarOfHate: AbilityAttackType.Others,  # 1140
+    ActiveAbilityType.CalibaniteGreatsword: AbilityAttackType.Others,  # 1189
     # RadBombardment (1116), lot #128 : `IdunBattleLogic.Entities.Abilities.Active.Loki.
     # RadBombardmentAbility$$.ctor` = `AActiveAbility..ctor(this, &opts, 2, 0)` -> 2 = Others.
     # (Ici le `&opts` EST un litteral inline : `TargetingOptions..ctor(&opts, 0, CustomRange(1), 1,
     #  0xa0000000042, 0, 0, 0)` -- mais le masque est deja pose par le lot #128, on ne le double pas.)
-    1116: AbilityAttackType.Others,   # RadBombardmentAbility
+    ActiveAbilityType.RadBombardment: AbilityAttackType.Others,  # 1116
 }
 # COUVERTURE : la table couvre l'INTEGRALITE du registre `ABILITY_CLASSES` (garde-fou :
 # `probe_120_pre_unit_ability_fork.py` etape 0). Une ability AJOUTEE au registre sans son litteral de

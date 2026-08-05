@@ -31,6 +31,8 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 import hexgeo
 
+from ..entities.effect_type import EffectType
+
 Pos = Tuple[int, int]
 
 # `IsValidUnitFeetList` / `GetPossibleTileListsFromMovableTiles` : seuls 1, 3 et 7 sont supportes ;
@@ -323,10 +325,10 @@ SPECIAL_MOVEMENT_EFFECT_TYPES = (0x40b, 0x474, 0x4d6, 0x625)
 #: `<effet> -> (type WALK, type FLY)` -- les huit valeurs que la branche MOUVEMENT SPECIAL rend,
 #: dans l'ordre des tests. Les types sont ceux de `entities.pathfinding.pathfinders.PathfinderType`.
 SPECIAL_MOVEMENT_PATHFINDER_TYPES = {
-    0x40b: (6, 7),        # 1035 TeleportStrike_TeleportingIn    -> TeleportStrikeWalk / Fly
-    0x474: (8, 9),        # 1140 StormboyzStrike_TeleportingIn   -> StormboyzStrikeWalk / Fly
-    0x4d6: (10, 11),      # 1238 FearOfTheUnseen_TeleportingIn   -> FearOfTheUnseenWalk / Fly
-    0x625: (12, 13),      # 1573 TitanhammerSquad_TeleportingIn  -> TitanHammerSquadWalk / Fly
+    EffectType.TeleportStrike_TeleportingIn: (6, 7),     # 1035 = 0x40b -> TeleportStrikeWalk / Fly
+    EffectType.StormboyzStrike_TeleportingIn: (8, 9),    # 1140 = 0x474 -> StormboyzStrikeWalk / Fly
+    EffectType.FearOfTheUnseen_TeleportingIn: (10, 11),  # 1238 = 0x4d6 -> FearOfTheUnseenWalk / Fly
+    EffectType.TitanhammerSquad_TeleportingIn: (12, 13),  # 1573 = 0x625 -> TitanHammerSquadWalk / Fly
 }
 
 
