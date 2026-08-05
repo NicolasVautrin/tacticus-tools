@@ -134,6 +134,11 @@ ou `null`. Le `.cctor` y écrit **DEUX** entrées, et rien d'autre :
 | `PowerUp_ReinforcementShield` | `EnvReinforcementShield` |
 | `Ambush` | `EnvAmbushResurrect` |
 
+⚠ Nuance lue, sans effet ici : `TExtensions$$ToList<T>` **teste une garde sur la valeur** avant
+son unique `List.Add` et rend `null` si elle échoue. La sémantique exacte de cette garde
+(`FUN_1801f53a0`, helper IL2CPP non nommé) n'est **pas** établie — HYPOTHÈSE : « valeur ≠
+défaut ». Sans effet sur ce compte : les deux valeurs de la table sont non nulles.
+
 La boucle appelante n'en lit que les **clés**, et le dictionnaire itéré est
 **`BC.Abilities.PassiveAbilities`** (`BC+0x90` = `AbilitiesConfiguration` par son `.ctor`,
 `+0x18` = le dict des passifs, cf. `AbilitiesConfiguration$$GetPassive`). D'où :
