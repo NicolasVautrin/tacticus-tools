@@ -899,9 +899,30 @@ livraison **PAR PULL REQUEST**) :
 **Ordre, et il ne se reorganise pas :** rapport -> `gh pr view --json headRefName` -> fraicheur
 (`merge-base --is-ancestor`) -> `git merge --no-ff --no-commit` -> **lire le diff des tests EXISTANTS
 modifies** + **classer le diff `engine/`** -> 3 a 5 groupes cibles joues **par moi** -> regenerer les
-docs generes -> **commit LOCAL** -> **push seulement sur VERT** -> `git worktree remove` (apres scan
-des points de reparse).
+docs generes -> **commit LOCAL** -> **push seulement sur VERT** -> **`nettoyer_livraison.py`** (worktree
++ branche, apres scan des points de reparse).
 
+- **Le nettoyage est UN geste, pas deux -- et c'est un OUTIL, pas une consigne (#479-r3).**
+
+  ```powershell
+  python scripts/python/nettoyer_livraison.py              # DRY-RUN : dit ce qu'il ferait
+  python scripts/python/nettoyer_livraison.py --appliquer
+  ```
+
+  Il retire le worktree **et sa branche**, scanne les points de reparse avant toute suppression
+  recursive, et imprime le **tip supprime** (`git branch <nom> <sha>` ressuscite). Le
+  `git branch -D` d'apres-merge etait un second geste manuel, et il etait oublie **sans bruit** :
+  `loop_status.nettoyables` part des WORKTREES, donc une branche dont le worktree venait d'etre
+  retire n'etait plus visitee par personne. Mesure du 2026-08-05 : **27** branches deja dans
+  `origin/master` avaient survecu ainsi, sur 39 branches locales.
+  ⚠ **« Branche livree » ne veut pas dire « agent fini »** : un agent lance il y a 4 minutes n'a
+  rien commite, donc son tip vaut `origin/master`, donc il est ANCETRE -- « livre » au sens du
+  critere. Le premier DRY-RUN de l'outil a propose exactement ce worktree-la. La flotte reelle
+  (`fleet_board`) en est donc retiree, et si elle n'est **pas mesurable** le gisement est REFUSE en
+  entier, jamais rabattu sur « aucun agent en vol ».
+  `loop_status` signale desormais les orphelines (`branches-orphelines`), et
+  `probe_467r4_scene_git_reelle` garde les DEUX sens : le signal doit apparaitre quand la branche
+  survit, et disparaitre apres le `branch -D`.
 - **Ne pousser que du VERT.** Les worktrees d'agents partent d'`origin/master` : un rouge pousse
   demarre casse tout agent dispatche ensuite. Les merges s'empilent **localement** dans l'ordre ;
   on pousse dans l'ordre des VERDICTS, pas des merges.

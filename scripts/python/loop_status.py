@@ -58,6 +58,11 @@ import host_inputs                                                     # noqa: E
 
 REPO = Path(__file__).resolve().parents[2]
 
+# Le motif des branches fabriquees par le harnais d'agents. Sert a BORNER le balayage des
+# branches orphelines (cf. `_worktrees_et_livrees`) -- il est le meme que le perimetre par defaut
+# de `nettoyer_livraison.PREFIXE_AGENT`, qui les supprime.
+BRANCHE_AGENT_GLOB = "worktree-agent-*"
+
 # PARAMETRE, pas mesure. Source : la conduite de campagne (« Profondeur de dispatch : 5 agents »,
 # elle-meme bornee par le partage du pump Frida). Rien dans le depot ne le DERIVE -- l'ecrire ici
 # le rend au moins visible et surchargeable, au lieu de vivre dans la tete de l'orchestrateur.
@@ -504,8 +509,9 @@ def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None, str | N
     return _ok(ouvertes, source), (set() if repli else mergees), repli is None, age, repli
 
 
-def _worktrees_et_livrees(src: Sources) -> tuple[tuple[int, str], tuple[int, str]]:
-    """Les worktrees d'agents, puis LESQUELLES de LEURS branches sont deja livrees.
+def _worktrees_et_livrees(src: Sources) -> tuple[tuple[int, str], tuple[int, str],
+                                                 tuple[int, str]]:
+    """Les worktrees d'agents, LESQUELLES de LEURS branches sont livrees, et les ORPHELINES.
 
     Deux appels en SEQUENCE, et c'est le bon ordre : `git branch --merged origin/master`
     parcourt les 169 branches locales du depot, dont 131 sont des branches d'agents deja
@@ -513,16 +519,27 @@ def _worktrees_et_livrees(src: Sources) -> tuple[tuple[int, str], tuple[int, str
     branches encore MONTEES dans un worktree. `for-each-ref` restreint le parcours a
     celles-la. Le second appel est meme ENTIEREMENT saute quand aucun worktree d'agent
     n'existe : au repos, l'outil ne le paie pas du tout.
+
+    LE TROISIEME APPEL EXISTE PARCE QUE LES DEUX PREMIERS SONT AVEUGLES A UN GISEMENT ENTIER
+    (#479-r3). Les deux ci-dessus partent des WORKTREES : une branche d'agent dont le worktree
+    a deja ete retire n'est visitee par personne, donc elle ne peut RIEN faire dire a cet outil
+    -- « un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas ». Mesure du
+    2026-08-05 : **27** branches deja dans `origin/master` avaient survecu ainsi, sur 39
+    branches locales, parce que le `git branch -D` d'apres-merge etait un geste manuel oublie.
+    Ce troisieme appel part des REFS (glob `worktree-agent-*`, borne : 406 ms contre 998 ms
+    pour un `--merged` complet) et rend celles qui ne sont montees NULLE PART.
     """
     rc_wt, out_wt = src.git("worktree", "list", "--porcelain")
     if rc_wt != 0:
-        return (rc_wt, out_wt), (rc_wt, "")
+        return (rc_wt, out_wt), (rc_wt, ""), (rc_wt, "")
+    orph = src.git("for-each-ref", "--merged", "origin/master", "--format=%(refname:short)",
+                   "refs/heads/" + BRANCHE_AGENT_GLOB)
     refs = ["refs/heads/" + w["branch"] for w in _porcelain_worktrees(out_wt)
             if w["branch"] and ".claude/worktrees/agent-" in w["path"].replace("\\", "/")]
     if not refs:
-        return (rc_wt, out_wt), (0, "")
+        return (rc_wt, out_wt), (0, ""), orph
     return (rc_wt, out_wt), src.git("for-each-ref", "--merged", "origin/master",
-                                    "--format=%(refname:short)", *refs)
+                                    "--format=%(refname:short)", *refs), orph
 
 
 def mesurer_livraison(src: Sources) -> dict:
@@ -542,7 +559,7 @@ def mesurer_livraison(src: Sources) -> dict:
         f_wt_mg = ex.submit(_worktrees_et_livrees, src)
         f_gh = ex.submit(_gh_prs, src)
         rc, out = f_status.result()
-        (rc_wt, out_wt), (rc_mg, out_mg) = f_wt_mg.result()
+        (rc_wt, out_wt), (rc_mg, out_mg), (rc_or, out_or) = f_wt_mg.result()
         pr_ouvertes, pr_mergees_refs, pr_mergees_ok, age_gh, gh_repli = f_gh.result()
     d["gh_age_s"] = age_gh
     d["gh_repli"] = gh_repli
@@ -619,6 +636,18 @@ def mesurer_livraison(src: Sources) -> dict:
         d["nettoyables"] = _ok(nett, "git branch --merged + gh pr list --state merged")
     else:
         d["nettoyables"] = _ko("nettoyables", "ni --merged ni gh n'ont repondu")
+
+    # -- branches d'agents LIVREES et montees NULLE PART (#479-r3). Le poste ci-dessus ne peut
+    #    pas les voir : il part des worktrees. Ce sont elles qui s'accumulaient en silence.
+    if rc_or != 0 or not d["worktrees"].mesuree:
+        d["branches_orphelines"] = _ko("git for-each-ref --merged",
+                                       src.cause_git(rc_or, "for-each-ref")
+                                       if rc_or != 0 else "worktrees non mesures")
+    else:
+        d["branches_orphelines"] = _ok(
+            sorted({b.strip() for b in out_or.splitlines() if b.strip()}
+                   - set(branches_agents)),
+            "git for-each-ref --merged origin/master " + BRANCHE_AGENT_GLOB)
     return d
 
 
@@ -730,6 +759,13 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
         noms = ", ".join(w["branche"][-12:] for w in lv["nettoyables"].valeur[:5])
         sig.append(Signal("nettoyage", "%d worktree(s) d'agent NETTOYABLE(S) (branche livree) : %s"
                           % (len(lv["nettoyables"].valeur), noms)))
+    orph = lv.get("branches_orphelines")
+    if orph is not None and orph.mesuree and orph.valeur:
+        sig.append(Signal(
+            "branches-orphelines",
+            "%d branche(s) d'agent LIVREE(S) et montee(s) nulle part : %s -- "
+            "`python scripts/python/nettoyer_livraison.py` (DRY-RUN par defaut)"
+            % (len(orph.valeur), ", ".join(b[-12:] for b in orph.valeur[:5]))))
     if lv["pr_ouvertes"].mesuree and lv["pr_ouvertes"].valeur:
         ctx.append("PR ouvertes : %d%s (%s)"
                    % (len(lv["pr_ouvertes"].valeur), _age_gh(lv),
@@ -805,6 +841,10 @@ def rendu_complet(e: dict, sig: list[Signal], ctx: list[str]) -> str:
         if lv["nettoyables"].mesuree:
             for w in lv["nettoyables"].valeur:
                 L.append("             . %s  [%s]" % (w["branche"], w["voie"]))
+    orph = lv.get("branches_orphelines")
+    if orph is not None and (not orph.mesuree or orph.valeur):
+        L.append("           branches d'agent livrees sans worktree : %s"
+                 % (len(orph.valeur) if orph.mesuree else orph.txt()))
     L.append("HARNAIS    session %s ; drain %s ; liveRunners %s"
              % (("aucune" if ha["session"].valeur is None else
                  "%s %s" % (ha["session"].valeur.get("id"), ha["session"].valeur.get("status")))

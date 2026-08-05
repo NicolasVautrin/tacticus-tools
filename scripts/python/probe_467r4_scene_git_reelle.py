@@ -144,6 +144,27 @@ def main() -> int:
         for n in ("1", "2"):
             git(local, "worktree", "remove", "--force",
                 str(local / ".claude" / "worktrees" / ("agent-" + n)))
+
+        # ETAT INTERMEDIAIRE (#479-r3) : worktrees retires, BRANCHES SURVIVANTES. C'est l'etat
+        # exact que produisait le nettoyage d'apres-merge, et il etait INVISIBLE -- `nettoyables`
+        # part des worktrees, donc plus aucun capteur ne visitait ces branches. 27 s'y etaient
+        # accumulees dans le vrai depot. L'outil DOIT parler ici.
+        e_orph = LS.etat(SourcesSansFlotte(repo=local, avec_gh=False, avec_host=False,
+                                           ttl_cache=0), 5)
+        cles_orph = {s.cle for s in LS.signaux(e_orph)[0]}
+        verifie("branches-orphelines" in cles_orph,
+                "worktree retire + branche survivante -> signal `branches-orphelines` (%s)"
+                % sorted(cles_orph))
+        lv_o = e_orph["livraison"]["branches_orphelines"]
+        verifie(lv_o.mesuree and sorted(lv_o.valeur) == ["worktree-agent-1", "worktree-agent-2"],
+                "les 2 orphelines sont NOMMEES (%s)" % lv_o.txt())
+
+        # LE `branch -D` FAIT PARTIE DU GESTE. La boucle ci-dessus ne le faisait PAS : la scene
+        # « tout regle » ne l'etait donc pas, et le silence qu'elle exigeait EST le silence qui a
+        # laisse les 27 s'accumuler. On le pose ici, cote a cote avec l'epreuve qui prouve que
+        # sans lui l'outil rougit.
+        for n in ("1", "2"):
+            git(local, "branch", "-D", "worktree-agent-" + n)
         e2 = LS.etat(SourcesSansFlotte(repo=local, avec_gh=False, avec_host=False, ttl_cache=0),
                      5)
         sig2, ctx2 = LS.signaux(e2)
