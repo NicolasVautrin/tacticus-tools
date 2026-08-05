@@ -82,6 +82,129 @@ EXPORT_LIST_RE = re.compile(r"^\s*export\s*\{([^}]*)\}", re.M)
 # exploitable.
 NATURE_SANS_POIDS = {"interface", "type"}
 
+# --- « utilise CHEZ LUI » se juge sur le CODE, pas sur le fichier -------------------------------
+# ⚠ Mesure du 2026-08-05 (#480-r7) : le critere « plus d'une occurrence dans son propre fichier »
+# comptait les mentions en COMMENTAIRE. Deux exports MORTS etaient ainsi ranges en [A]
+# SUR-EXPORTE -- `DPR_SIZE` (cite par le commentaire de la constante voisine) et
+# `predictionLayoutDrift` (deux « Cf. `predictionLayoutDrift` »). Ils echappaient donc au
+# tranchage, exactement comme un scan qui ne descend pas dans les sous-repertoires echappait aux
+# imports relatifs (SS1). Le classement se fait desormais sur le texte prive de commentaires.
+#
+# ⚠ Les INTERPOLATIONS de template literal sont du CODE et sont CONSERVEES. Le premier nettoyeur
+# ecrit ici les effacait avec la chaine porteuse, et accusait a tort `DRAIN_MARKER`
+# (`frida/host/drain.ts`), dont l'unique autre usage est un `${DRAIN_MARKER}`. Un outil de
+# verification qui rougit sur son propre artefact fait supprimer du code vivant.
+# ⚠⚠ Un nettoyeur par REGEX INDEPENDANTES ne peut pas tenir, et le croire a produit ici des
+# faux MORTS -- le biais inverse de celui qu'on annoncait. Mesure : sur
+# `hooks/features/ai-step/playbook-predict.ts`, une passe `//[^\n]*` appliquee au fichier
+# entier mange la fin de toute ligne portant un `//` DANS une chaine (une URL suffit), y
+# compris la backquote fermante d'un template ; la passe template suivante s'apparie alors
+# de travers et emporte des CENTAINES de lignes de code. Effet mesure : `readHealEvent`
+# 2 -> 1, `decodeEventsGeneric` 4 -> 1, deux fonctions bien APPELEES classees mortes.
+# Un scanner a ETATS ne peut pas se desynchroniser ainsi : il sait, a chaque caractere, s'il
+# est dans du code, une chaine, un template ou un commentaire.
+_LIMITE_PERTE = 0.85  # au-dela, on soupconne le NETTOYEUR, pas le fichier
+
+
+def code_seul(txt: str) -> str:
+    """Texte prive des commentaires et du LITTERAL des chaines, interpolations CONSERVEES.
+
+    Les interpolations `${...}` sont du CODE : les effacer accuserait a tort tout symbole
+    dont l'unique usage local est un `${SYMBOLE}` -- mesure faite sur `DRAIN_MARKER`
+    (`frida/host/drain.ts`).
+
+    Les EXPRESSIONS REGULIERES LITTERALES sont un etat a part entiere, et il a fallu le
+    MESURER pour le savoir : `frida/host/config-store.ts` porte
+    `/"Board"\\s*:\\s*\\{[^}]{0,200}?"Id"\\s*:\\s*"([^"]+)"/i`, six guillemets dans un
+    litteral regex. Sans cet etat, le premier ouvrait une chaine fantome et le scanner
+    perdait 91 % du fichier -- deux `interface` bien utilisees s'y retrouvaient classees
+    mortes. C'est le garde de perte ci-dessous qui l'a signale, avant toute conclusion.
+
+    `/` ouvre une regex ou divise selon le dernier caractere de CODE emis : apres un
+    operateur, une ouverture ou un point-virgule c'est une regex ; apres un identifiant,
+    un litteral ou une fermeture c'est une division. Heuristique standard, et une erreur
+    de ce discriminant serait vue par le garde de perte.
+    """
+    out: list[str] = []
+    i, n = 0, len(txt)
+    # `pile` suit les `${ ... }` imbriques : chaque entree est le compte d'accolades ouvertes
+    # dans l'interpolation courante ; sa fermeture rend la main au template porteur.
+    pile: list[int] = []
+    while i < n:
+        c = txt[i]
+        d = txt[i + 1] if i + 1 < n else ""
+        if c == "/" and d == "/":
+            while i < n and txt[i] != "\n":
+                i += 1
+            continue
+        if c == "/" and d == "*":
+            j = txt.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if c == "/":
+            prec = ""
+            for k in range(len(out) - 1, -1, -1):
+                if not out[k].isspace():
+                    prec = out[k]
+                    break
+            if prec == "" or prec in "=(,:[!&|?{};+-*%~^<>":
+                i += 1
+                classe = False
+                while i < n:
+                    if txt[i] == "\\":
+                        i += 2
+                        continue
+                    if txt[i] == "[":
+                        classe = True
+                    elif txt[i] == "]":
+                        classe = False
+                    elif txt[i] == "/" and not classe:
+                        i += 1
+                        break
+                    elif txt[i] == "\n":     # pas de saut de ligne dans un litteral regex
+                        break
+                    i += 1
+                out.append(" ")
+                continue
+        if c in ("'", '"'):
+            i += 1
+            while i < n and txt[i] != c:
+                i += 2 if txt[i] == "\\" else 1
+            i += 1
+            out.append(" ")
+            continue
+        if c == "`":
+            i += 1
+            out.append(" ")
+            while i < n:
+                if txt[i] == "\\":
+                    i += 2
+                    continue
+                if txt[i] == "`":
+                    i += 1
+                    break
+                if txt[i] == "$" and i + 1 < n and txt[i + 1] == "{":
+                    i += 2
+                    pile.append(1)
+                    # L'interpolation est du code : on la copie telle quelle.
+                    while i < n and pile:
+                        if txt[i] == "{":
+                            pile[-1] += 1
+                        elif txt[i] == "}":
+                            pile[-1] -= 1
+                            if pile[-1] == 0:
+                                pile.pop()
+                                i += 1
+                                break
+                        out.append(txt[i])
+                        i += 1
+                    continue
+                i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
 # --- etage 3 : RPC ------------------------------------------------------------------------------
 RPC_DECL_RE = re.compile(r"""(?:^|[^\w.])(?:ctx|c)?\.?rpc\.([A-Za-z_$][\w$]*)\s*=(?!=)""")
 # `rpc.exports = rpcHandlers` (hooks/main.ts) est l'API FRIDA qui PUBLIE la table, pas une entree
@@ -298,12 +421,20 @@ def etage2_exports(atteints: set[Path], verbose: bool) -> list[tuple[str, str]]:
     par_nature: dict[str, int] = {}
     exportes_par_nature: dict[str, int] = {}
     sur_exportes: list[tuple[str, str]] = []      # utilise CHEZ LUI, l'export est superflu
+    suspects: list[str] = []                      # le NETTOYEUR a-t-il derape ?
     total = 0
     for f in fichiers:
         exps = exports_de(f)
         total += len(exps)
         try:
-            propre = f.read_text(encoding="utf-8", errors="replace")
+            src = f.read_text(encoding="utf-8", errors="replace")
+            propre = code_seul(src)
+            # Un fichier de code perd typiquement 20 a 50 % (commentaires + chaines). Une
+            # perte quasi totale signale un nettoyeur DESYNCHRONISE -- c'est exactement la
+            # signature du bug de la premiere version, et il faut le voir SANS relire une
+            # liste de symboles.
+            if len(src) > 400 and len(propre) < len(src) * (1.0 - _LIMITE_PERTE):
+                suspects.append("%s (%d -> %d octets)" % (rel(f), len(src), len(propre)))
         except OSError:
             propre = ""
         for e, nature in sorted(exps.items()):
@@ -335,8 +466,16 @@ def etage2_exports(atteints: set[Path], verbose: bool) -> list[tuple[str, str]]:
           % (len(morts) + len(sur_exportes) - poids))
     print("        dont A POIDS (const/function/class/enum/var) : %d" % poids)
     print()
-    print("        [A] SUR-EXPORTE -- utilise DANS SON PROPRE FICHIER, l'`export` est superflu : %d"
-          % len(sur_exportes))
+    if suspects:
+        print("  ROUGE  le NETTOYEUR a supprime plus de %d %% de %d fichier(s) -- il s'est"
+              % (int(_LIMITE_PERTE * 100), len(suspects)))
+        print("         probablement DESYNCHRONISE, et les classements [A]/[B] ci-dessous")
+        print("         ne valent rien pour eux :")
+        for s in suspects:
+            print("         %s" % s)
+    print("        [A] SUR-EXPORTE -- utilise DANS SON PROPRE FICHIER (usage compte sur le")
+    print("            CODE : commentaires et litteraux de chaine exclus, interpolations")
+    print("            `${...}` gardees), l'`export` est superflu : %d" % len(sur_exportes))
     for f, e in sur_exportes:
         print("    sur-export  %s :: %s" % (f, e))
     print()

@@ -9,6 +9,7 @@ import { installedBuild, pinnedAddressRefusals } from "../il2cpp/build-pin.js";
 import {
     BOND_ENTITY_ID_FIELD_NAME, EFFECT_TARGET_IDS_FIELD_NAME,
 } from "../game/effects.js";
+import { predictionLayoutDrift } from "../game/damage-prediction.js";
 import { state, LogEntry, clearLogUnpinned } from "../game/state.js";
 import { runnerOff } from "../game/runner.js";
 import { readBattleStatus } from "../game/match-state.js";
@@ -119,6 +120,10 @@ export function register(ctx: Ctx): void {
                 effectTargetIds: EFFECT_TARGET_IDS_FIELD_NAME,
                 bondEntityId: BOND_ENTITY_ID_FIELD_NAME,
             },
+            // Offsets qui s'écartent de la table RE. NON BLOQUANT par construction
+            // (#279) : le décodeur SUIT le champ déplacé. `null` = aucune dérive.
+            // C'est le capteur central de #279 et il n'avait pas de lecteur non plus.
+            predictionLayoutDrift: predictionLayoutDrift(),
         };
     };
 
