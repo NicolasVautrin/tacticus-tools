@@ -141,12 +141,20 @@ cités en commentaire dans `targeting.py` ne résolvent plus ; le décalage est 
 
 ## 7. Résidus nommés
 
-* **`AbilityIsNotDisabledByConfigModification` (bit 34) et `AllowDeadTarget` (bit 38) — lecteur non
-  localisé** dans les huit fonctions relues. Ce n'est **pas** une preuve de mort : le terme i2
-  `IdunLocalization.Tooltips$$BattleHUD_Tooltip_AbilityDisabledByConfigModification_Description`
-  existe, donc la raison est présentée quelque part. Classés `READER_UNKNOWN`, sous garde.
-  ⚠ `mcp__ghidra__search_code` **ne prouve pas une absence** : mesuré, il rend `literal_total: 1`
-  pour un motif présent deux fois dans une fonction décompilée à la demande. Son index est partiel.
+* ~~**`AbilityIsNotDisabledByConfigModification` (bit 34) et `AllowDeadTarget` (bit 38) — lecteur non
+  localisé** dans les huit fonctions relues.~~ → **LES DEUX LOCALISÉS (#429-r1, 2026-08-05)**,
+  `case-429r1-lecteurs-bits-ciblage.md`. **Aucun des deux ne vit dans une cascade de ciblage** : le
+  périmètre des huit lecteurs était le bon pour la question posée, et faux pour ces deux-là. Bit 34 =
+  code de raison *produit* par `AnnihilatorBeamAbility$$GetDynamicInvalidTargetReason` (kind `REASON`).
+  Bit 38 = lu par `AActiveAbility$$CanContinueOnDeadTarget` sur le masque de **CONTINUE**
+  (`_targetingOptionsForContinue`, +0xb0), d'où l'impossibilité structurelle de le trouver sur les
+  masques du registre ; son gate `ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility` est porté.
+  `READER_UNKNOWN` : 2 → **0**.
+  ⚠ `mcp__ghidra__search_code` **ne prouve pas une absence** : mesuré ici, il rend `literal_total: 1`
+  pour un motif présent deux fois dans une fonction décompilée à la demande ; re-mesuré par #429-r1,
+  il rend **`literal_total: 0`** pour un motif présent **verbatim** dans un décompilé qu'il venait de
+  rendre. Son index est partiel — la parade est un **scan d'instructions**
+  (`probe_429r1_bit_readers_scan.py`).
 * **Les trois gros gisements de non-port**, désormais chiffrés et actionnables : ligne de vue
   (`TargetIsUnobscured`, 103), `TargetIsNotSteppable` (83), TAUNT `TargetIsAllowedForCaster` (59).
   Les trois dégradent **permissivement** (le moteur accepte des casts que le natif refuse), donc
