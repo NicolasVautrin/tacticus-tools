@@ -197,6 +197,31 @@ def test_le_port_passe_par_le_foyer_partage():
         % (B._HAS_TRAIT_MECHANICAL.trait,))
 
 
+def test_le_module_APPELLE_le_foyer_et_pas_un_equivalent_local():
+    """Volet PROVENANCE de la garde ci-dessus -- et il existe parce que l'autre ne suffit PAS.
+
+    Contre-epreuve mesuree : un mutant qui remplace `is_object_or_steppable(Target())` par
+    `TriggerOr(HasTrait(Target(), 27), HasTrait(Target(), 13))` -- une recopie LOCALE strictement
+    equivalente -- passe les 29 tests, y compris l'assertion de structure (meme type, memes
+    litteraux). C'est normal : elle est comportementalement indistinguable AUJOURD'HUI. Le risque
+    qu'elle porte est la DIVERGENCE FUTURE (c'est exactement ainsi que `master_of_the_tutelaries`
+    en est venu a gater `Decoy`), et un critere de VALEUR ne peut pas la voir.
+
+    On lit donc le SOURCE (AST, pas un grep : un appel dans un commentaire ne compte pas) et on
+    exige un appel effectif a `is_object_or_steppable`."""
+    import ast
+    import inspect
+    from engine.runner.operations.triggers.loki import barbed_ovipositor as B
+
+    arbre = ast.parse(inspect.getsource(B))
+    appels = {n.func.id for n in ast.walk(arbre)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "is_object_or_steppable" in appels, (
+        "`barbed_ovipositor` n'APPELLE plus `entities/triggers.py::is_object_or_steppable` : le "
+        "conjoint est recompose localement. Meme a l'identique, c'est la recopie que ce residu "
+        "ferme -- appels de haut niveau trouves : %r" % (sorted(appels),))
+
+
 def test_le_module_ne_porte_plus_de_recopie_de_traits():
     """Le symptome exact du defaut etait un couple de NOMS de traits fige dans le module, lu sur un
     substrat local. Sa disparition est ce qui garantit qu'aucune recopie ne repousse ici."""

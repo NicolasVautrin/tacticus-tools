@@ -24,12 +24,13 @@ LE CONJOINT EST GARDE LIVE AILLEURS, et il ne faut pas le dupliquer :
 `NOT IsObjectOrSteppable(target@0x178)` avec un `genesSmnDecoy` Steppable en bras negatif. Ce
 fichier-ci garde le CONJOINT sur `BattleFatigueAbility`, que rien ne couvrait.
 
-⚠ RECTIFIE (2026-08-05, #462-r4b-r1-r1-r1-r1-b-r1-r1-r1) : cette docstring affirmait que
-`barbed_ovipositor` << passe par le foyer >>, donc que ce test live gardait le FOYER. C'est FAUX --
-le module a conserve sa recopie manuelle `_OBJECT_OR_STEPPABLE = (UnitTrait.Steppable.name,
-UnitTrait.Object.name)`. Ce test live garde donc LA RECOPIE, pas le foyer. Le foyer est garde live
-par `test_master_tutelaries_object_target_live.py` (qui, lui, passe par lui). Residu
-`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3`.
+⚠ RECTIFIE DEUX FOIS. (2026-08-05 matin, #462-...-r1) cette docstring affirmait que
+`barbed_ovipositor` << passe par le foyer >> : c'etait FAUX, le module avait garde sa recopie
+manuelle. (2026-08-05, #462-...-r3) c'est REDEVENU VRAI -- les TROIS consommateurs du foyer y
+passent maintenant. Le bras `genesSmnDecoy` cite ci-dessus garde le CONJOINT dans le regime NOMINAL ;
+le regime CADAVRE (victime deja morte au chargement, donc SANS `StatsComponent` : substrat brut
+VIDE) est garde par `test_barbed_ovipositor_live.py::test_barbed_ovipositor_corpse_substrate_live`.
+Le foyer est aussi garde live par `test_master_tutelaries_object_target_live.py`.
 
 ASCII only (cp1252).
 """

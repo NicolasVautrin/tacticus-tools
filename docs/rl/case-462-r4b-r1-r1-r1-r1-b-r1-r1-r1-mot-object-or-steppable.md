@@ -185,18 +185,15 @@ Deux effets de bord de ce passage, tous deux dans le sens de la fidélité :
 
 ## Résidus
 
-* **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3`** — `barbed_ovipositor.py` reste une **recopie manuelle** du
-  foyer (`_OBJECT_OR_STEPPABLE = (UnitTrait.Steppable.name, UnitTrait.Object.name)` + intersection
-  dans `matches`). Elle est **fidèle sur les littéraux**, donc sans écart de verdict aujourd'hui —
-  mais la fiche parente §7 et la docstring de
-  `test_battle_fatigue_object_or_steppable_offline.py` affirmaient toutes deux que ce module
-  « passe par le foyer », ce qui est **faux** : `test_barbed_ovipositor_live.py` garde donc la
-  recopie, pas le foyer. Les deux affirmations sont corrigées ici.
-  ⚠ La migration n'est **pas** cosmétique : le trigger est `On(UnitDeath)`, donc la cible est un
-  **CADAVRE**, et le substrat de traits diffère précisément sur ce cas (`entity_trait_names` retombe
-  sur le gameconfig quand le `StatsComponent` manque, ce que `ctx.traits` brut ne fait pas — le vice
-  #226). Elle change donc potentiellement un verdict sur un chemin **live-confrontable**, et exige
-  ses propres bras. Hors périmètre de ce résidu-ci.
+* ~~**`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3`**~~ — **LIVRÉ (2026-08-05)**,
+  `case-462-r4b-r1-r1-r1-r1-b-r1-r1-r3-barbed-substrat-traits.md`. La recopie de
+  `barbed_ovipositor` était **fidèle sur les littéraux** — le défaut était le **substrat**.
+  ⚠ **La formulation ci-dessus (« la cible est un CADAVRE, donc les substrats divergent ») était à
+  moitié fausse** : une unité qui meurt *pendant* le run **garde** son `StatsComponent`, donc les
+  deux substrats y coïncident bit pour bit. La divergence est indexée par « morte **avant la
+  capture** », régime atteignable via `ResurrectUnitOperation$$Execute`. Migration donc
+  **value-preserving mesurée** sur le nominal, **correctrice** sur le cadavre — et le voisin
+  `NOT HasTrait(target, 5)`, qui lisait la même variable locale, est migré avec.
 * **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r2`** (inchangé) — les 5 call-sites natifs non portés
   d'`IsObjectOrSteppable`.
 * **NON MESURÉ, et nommé** : on ne sait pas si un `LootObj_*` arrive sur une **team adverse** dans
