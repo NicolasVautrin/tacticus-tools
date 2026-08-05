@@ -13,9 +13,10 @@ un appel par coup), et son SITE (A) PRECEDE toute emission :
 Le flag, lui, est pose PAR CE MEME `Execute`
 (`IdunBattle.Entities.Components.UnitFlagsComponent$$Add(flags, 8)` sous
 `dar.didOverkill && UnitExtensions.CanBeOverkilled(target)`), et le `didOverkill` vient de la
-surcharge d'INSTANCE d'`IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, dont le terme de
-re-agregation est `targetHealthBeforeAttack.Value - UnitExtensions.GetStat(target, Health)` --
-les PV **REELLEMENT RETIRES**, pas la somme des degats DEMANDES.
+surcharge d'INSTANCE d'`IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, qui accumule
+`(targetHealthBeforeAttack.Value - UnitExtensions.GetStat(target, Health)) + healthComponent@+0x24`
+-- le degat APPLIQUE plus le degat GASPILLE (l'accumulateur de sur-reduction de
+`IdunBattle.Entities.Components.FillUpStatComponent$$Reduce`, nomme par `...$$ResetOverReduce`).
 
 CE QUE CE FICHIER GARDE, et pourquoi OFFLINE : le live (`test_overkill_amount_live.py`) confronte
 les VALEURS a quatre regimes de bataille, mais il ne peut pas montrer POURQUOI la coupure tombe au
@@ -83,20 +84,44 @@ def test_cible_qui_survit_aucun_gate():
     assert r["overkilled"] is False and r["overkill_suppressed"] == 0
 
 
+def _rejoue(hp, coups):
+    """Re-joue une salve HETEROGENE a la main : `Amount` par coup + pose du flag, en tenant
+    l'accumulateur `+0x24` comme le natif (`Reduce` l'alimente APRES la lecture d'`IsOverkill`)."""
+    hp_left, over, out, ovk, at = hp, 0, [], False, None
+    for i, brut in enumerate(coups):
+        if ovk:
+            out.append(None)                     # SITE (A) : aucun event
+            continue
+        entry, over_entry = hp_left, over
+        amount, hp_left = DH.damage_amount_applied(brut, 0, hp_left, None)
+        over += max(0, brut - (entry - hp_left))
+        out.append(amount)
+        if overkill_flag_posted_by_hit(brut, 0, hp, entry, over_reduce_before=over_entry):
+            ovk, at = True, i
+    return out, ovk, at
+
+
 def test_regime_cadavre_mesure_AUCUNE_suppression():
     """C3_01/777 (`[2764, 3787, 2289, 2203]` sur 7530 PV) : la cible meurt au coup 3, un 4e coup
     tombe sur le cadavre -- et le natif emet bien QUATRE events. Le cumul n'atteint jamais
     2 x 7530, donc le flag n'est JAMAIS pose : la borne per-coup (#462-r4e-o) suffit ici, la
     cardinalite est intacte. C'est ce regime qui interdit de rabattre « un coup sur cadavre » sur
     « un coup supprime »."""
-    hp, hp_left, out, ovk = 7530, 7530, [], False
-    for brut in (2764, 3787, 2289, 2203):
-        assert not ovk, "flag pose a tort dans le regime `cadavre`"
-        entry = hp_left
-        amount, hp_left = DH.damage_amount_applied(brut, 0, hp_left, None)
-        out.append(amount)
-        ovk = overkill_flag_posted_by_hit(brut, 0, hp, entry)
+    out, ovk, _ = _rejoue(7530, (2764, 3787, 2289, 2203))
     assert out == [2764, 3787, 979, 0] and not ovk
+
+
+def test_regime_cadavre_sans_flag_mesure_le_TERME_0x24():
+    """MC1_67/31337 `--hp-target 4000`, rolls `[3583, 3181, 3947, 4012]` -> natif `[3583, 417, 0]`.
+
+    C'est LE regime qui a fait apparaitre `healthComponent@+0x24` : sans lui, le coup 3 rend
+    `3947 + 4000 = 7947 < 8000` et le flag tombe au coup 4 (donc QUATRE events). Avec le degat
+    gaspille par le coup 2 (`3181 - 417 = 2764`), il rend `10711` et le flag tombe au coup 3."""
+    out, ovk, at = _rejoue(4000, (3583, 3181, 3947, 4012))
+    assert out == [3583, 417, 0, None] and ovk and at == 2
+    # contre-modele : le meme re-jeu SANS le terme `+0x24` mettrait le flag un coup trop tard.
+    assert overkill_flag_posted_by_hit(3947, 0, 4000, 0, over_reduce_before=0) is False
+    assert overkill_flag_posted_by_hit(3947, 0, 4000, 0, over_reduce_before=2764) is True
 
 
 def test_flag_deja_pose_a_l_entree_supprime_TOUS_les_coups():
@@ -137,12 +162,26 @@ def test_CONTRE_EPREUVE_le_foyer_de_mutation_fait_re_diverger():
     assert _salve(*MULTI_CADAVRE)["per_hit"] == ref, "restauration du foyer KO"
 
 
-def test_predicat_de_pose_lit_les_PV_RETIRES_pas_le_DEMANDE():
-    """Discriminant du terme de re-agregation natif. Cible 1000 PV, coups 1600 puis 500 :
-      * PV RETIRES (natif)  : coup 2 -> 500 + (1000 - 0) = 1500 < 2000 -> PAS de flag ;
-      * demande cumule (le re-jeu de `_did_overkill`) : 1600 + 500 = 2100 >= 2000 -> flag.
-    Les deux modeles rendent des verdicts OPPOSES ici, et c'est le premier qui est natif."""
-    assert overkill_flag_posted_by_hit(1600, 0, 1000, 1000) is False     # coup 1
-    assert overkill_flag_posted_by_hit(500, 0, 1000, 0) is False         # coup 2, PV retires
-    # meme salve, le modele « demande cumule » aurait franchi le seuil :
-    assert 1600 + 500 >= 2 * 1000
+def test_les_deux_termes_natifs_somment_au_DEGAT_DEMANDE_cumule():
+    """IDENTITE qui reconcilie le port : `(hp_start - hp_left)` est le degat APPLIQUE des coups
+    precedents et `+0x24` le degat GASPILLE -- leur somme est le degat DEMANDE cumule. C'est
+    exactement ce que re-joue `AttackDamageOperation._did_overkill`, qui n'est donc PAS un modele
+    concurrent. On l'assertionne sur une salve ou les deux termes sont non nuls."""
+    hp, coups = 1000, (1600, 500)
+    hp_left, over = hp, 0
+    for i, brut in enumerate(coups):
+        entry, over_entry = hp_left, over
+        _, hp_left = DH.damage_amount_applied(brut, 0, hp_left, None)
+        over += max(0, brut - (entry - hp_left))
+        # le terme natif complet == le cumul des degats DEMANDES jusqu'a ce coup inclus
+        assert brut + (hp - entry) + over_entry == sum(coups[:i + 1])
+    assert (hp - hp_left) + over == sum(coups)
+
+
+def test_over_reduce_HERITE_avance_la_pose_du_flag():
+    """Le SEUL axe ou les deux formes se separent DANS une bataille : `+0x24` n'est jamais remis a
+    zero (`ResetOverReduce` sans xref de code), donc une unite RESSUSCITEE apres avoir ete
+    sur-reduite entre dans l'attaque suivante avec un compteur non nul -- et son premier coup peut
+    poser le flag. Un re-jeu par « degat demande de CETTE attaque » ne peut pas le voir."""
+    assert overkill_flag_posted_by_hit(1200, 0, 1000, 1000, over_reduce_before=0) is False
+    assert overkill_flag_posted_by_hit(1200, 0, 1000, 1000, over_reduce_before=900) is True

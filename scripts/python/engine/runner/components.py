@@ -432,19 +432,39 @@ class HealthComponent(Component):
     `minimal_health` = **plancher de PV** courant (`Nullable<int>` natif @+0x1c ; None = pas de plancher).
     Posé/effacé par le HP-floor `HypersensoryAbilities_MinimalHealthEffect` (Apply IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$ApplyInternal / Revert
     IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$RevertInternal) — quand présent, `reduce()` empêche les PV de descendre sous `min(hp, minimal_health)`
-    (mirror du clamp de `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce`)."""
-    __slots__ = ("hp", "hp_max", "minimal_health")
+    (mirror du clamp de `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce`).
 
-    def __init__(self, hp: Optional[int], hp_max: Optional[int], minimal_health: Optional[int] = None):
+    `over_reduce` = **l'accumulateur de sur-reduction** `FillUpStatComponent+0x24` (#462-r4e-o-r1) :
+    `Reduce` y ajoute `Math.Max(0, damage - applied)` -- le degat qui n'a PAS pu etre retire faute de
+    PV. Son NOM vient du natif : `IdunBattle.Entities.Components.FillUpStatComponent$$ResetOverReduce`
+    est la seule autre fonction qui le touche (`this+0x24 = 0`), et elle n'a **AUCUN xref de code**
+    (table de methodes seule) -> le compteur n'est JAMAIS remis a zero en bataille. Il n'est de toute
+    facon non nul que sur une unite deja tombee a 0 PV (tant qu'elle encaisse, `damage == applied`).
+
+    Il est LOAD-BEARING, et c'est une MESURE : la surcharge d'instance d'
+    `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` l'AJOUTE au degat compare
+    (`accum += (targetHealthBeforeAttack - GetStat(Health)) + healthComponent@+0x24`). Sans lui, le
+    port pose `UnitFlag.Overkilled` un coup TROP TARD -- mesure live MC1_67/31337 `--hp-target 4000` :
+    natif `[3583, 417, 0]`, port `[3583, 417, 0, 0]`.
+
+    ⚠ `Reduce` **saute** l'accumulation quand le plancher `Minimum` est pose ET `> 0` (branche
+    `if (0 < minimum) goto LAB_18107e699`) -- le meme gate qui rend `IsOverkill` faux sous plancher."""
+    __slots__ = ("hp", "hp_max", "minimal_health", "over_reduce")
+
+    def __init__(self, hp: Optional[int], hp_max: Optional[int], minimal_health: Optional[int] = None,
+                 over_reduce: int = 0):
         self.hp = hp
         self.hp_max = hp_max
         self.minimal_health = minimal_health
+        self.over_reduce = int(over_reduce or 0)
 
     def reduce(self, amount: int, *, ignore_minimal: bool = False) -> int:
         """`IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` — retire `amount` PV, borné : jamais > PV courant (pas de
         PV négatifs) et, si `minimal_health` est posé et `ignore_minimal` est faux (param_3 natif = flag de
         bypass), jamais sous `min(hp, minimal_health)` (le HP-floor Hypersensory). Renvoie la réduction RÉELLE
-        appliquée (`iVar3`). No-op (0) si `hp` non capté. Mute `self.hp`."""
+        appliquée (`iVar3`). No-op (0) si `hp` non capté. Mute `self.hp` — **et `self.over_reduce`**
+        (#462-r4e-o-r1) : la queue de `Reduce` fait `this[0x24] += Math.Max(0, damage - applied)`,
+        SAUF si le plancher `Minimum` est posé et `> 0` (le `goto LAB_18107e699` du décompilé)."""
         if self.hp is None:
             return 0
         amount = max(0, int(amount))                    # Max(0, param_2)
@@ -453,6 +473,8 @@ class HealthComponent(Component):
             floor = min(self.hp, int(self.minimal_health))   # Min(current, minimalHealth.Value)
             red = min(self.hp - floor, red)              # Min(current - floor, iVar3) — clamp au plancher
         self.hp -= red
+        if not (self.minimal_health is not None and int(self.minimal_health) > 0):
+            self.over_reduce = int(self.over_reduce or 0) + max(0, amount - red)
         return red
 
 

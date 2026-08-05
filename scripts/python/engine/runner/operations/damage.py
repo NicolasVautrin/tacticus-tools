@@ -195,14 +195,15 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         denied : strictement l'ancien comportement.
 
         #462-r4e-o-r1 -- FOYER UNIQUE : quand `_run_hits` a pu evaluer la porte (PV captes), c'est
-        SON verdict qui fait foi, parce que c'est LUI qui a les PV REELLEMENT retires coup par coup
-        (`_hp_left`). Le re-jeu ci-dessous accumule le degat DEMANDE, alors que la surcharge
-        d'instance d'`IdunBattle.Core.Services.DamagePrediction$$IsOverkill` re-agrege
-        `targetHealthBeforeAttack.Value - UnitExtensions.GetStat(target, Health)` -- les PV
-        REELLEMENT retires (relu verbatim, cf. `damage_hits.overkill_flag_posted_by_hit`). Les deux
-        coincident tant qu'aucun coup n'est ECRETE, et divergent des qu'un coup tombe sur un cadavre
-        ou un plancher : le re-jeu SUR-DECLARE alors l'overkill. Il reste le repli des appelants
-        sans decomposition."""
+        SON verdict qui fait foi. Non parce que le re-jeu ci-dessous serait faux -- il ne l'est
+        pas : la surcharge d'instance d'`IdunBattle.Core.Services.DamagePrediction$$IsOverkill`
+        accumule `(targetHealthBeforeAttack - GetStat(Health)) + healthComponent@+0x24`, or ces deux
+        termes valent respectivement le degat APPLIQUE et le degat GASPILLE des coups precedents :
+        leur somme EST le degat DEMANDE cumule, exactement ce que ce re-jeu calcule. Mais `_run_hits`
+        le mesure a la forme NATIVE, donc il voit ce que ce re-jeu ne peut pas voir : un `+0x24`
+        HERITE d'une attaque anterieure (le compteur n'est jamais remis a zero, cf.
+        `HealthComponent.over_reduce`) et un SOIN intercale. Le re-jeu reste le repli des appelants
+        sans decomposition (DoT, knockback, groupes de coups additionnels)."""
         cbo = can_be_overkilled(tgt)
         if not cbo or hp_before is None or damage is None:
             return False
@@ -599,6 +600,11 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if fl_entry is not None and fl_entry.has(UnitFlagsComponent.OVERKILLED):
             return None
         applied = thc.reduce(total)         # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
+        # #462-r4e-o-r1 : `HealthComponent.reduce` a accumule `+0x24` sur le total du GROUPE ; le
+        # natif l'accumule PAR COUP et n'appelle pas `Reduce` pour un coup gate par le SITE (A).
+        # Quand la decomposition existe, on repose la valeur EXACTE calculee coup par coup.
+        if hits_result is not None and hits_result.get("over_reduce") is not None:
+            thc.over_reduce = int(hits_result["over_reduce"])
         # `On(DamageTaken=0xf)` — `IdunBattle.Operations.ApplyDamageOperation$$Execute` emet cet event
         # JUSTE APRES la mutation de PV (`FillUpStatComponent.Reduce`), sous le gate `0 < reduction
         # REELLEMENT appliquee` (variable `local_7dc` du decompile = la valeur de retour de Reduce, PAS

@@ -69,6 +69,11 @@ REGIMES = {
     # PV ecrases : la cible tombe DES LE PREMIER coup -> plusieurs coups derriere elle.
     # Regime qui garde la CARDINALITE des events (#462-r4e-o-r1, cf. `_verdict_r1`).
     "multi_cadavre": ("MC1_67", "31337", ["--hp-target", "2000"], True),
+    # #462-r4e-o-r1, CONTRE-MODELE : la cible meurt au 2e coup et DEUX coups tombent sur le
+    # cadavre, mais le cumul n'atteint jamais `2 x PV` -> `UnitFlag.Overkilled` n'est JAMAIS pose
+    # et le natif emet les QUATRE events. Un modele « on coupe des que la cible est morte »
+    # rendrait ici 2 entrees : ce regime le REFUTE, la ou `multi_cadavre` seul ne le pourrait pas.
+    "cadavre_sans_flag": ("MC1_67", "31337", ["--hp-target", "4000"], True),
 }
 
 # Regime dont le verdict porte sur la CARDINALITE (#462-r4e-o-r1), pas sur la borne.

@@ -399,6 +399,7 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             # TOUS les coups de ce groupe (le natif enchaine ses sous-operations sur la MEME cible).
             overkilled0=unit_is_overkilled(tgt),
             can_be_overkilled=can_be_overkilled(tgt),
+            over_reduce0=int(thc.over_reduce or 0),
             # #195 : `HasFlag(defender, 0x13)` — le 5e argument `isPreventOverkill` que
             # `ApplyTraitDamageLimitsToDamage` lit lui-meme sur son parametre `defender`.
             prevent_overkill=unit_prevents_overkill(state, target_id))

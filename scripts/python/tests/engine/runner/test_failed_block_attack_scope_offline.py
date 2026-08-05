@@ -121,13 +121,26 @@ def test_execute_additional_hits_CHAINE_l_etat_de_groupe_en_groupe():
         return {"total": 0, "per_hit": [], "per_hit_health": [], "rolls": [], "crits": [],
                 "shield_dmg": 0, "armor_dmg": 0, "did_crit": False, "did_block": False,
                 "did_evade": False, "next_hit_index": 0, "crit_allowed": True,
-                "failed_block": out}
+                "failed_block": out,
+                # #462-r4e-o-r1 : contrat complet de `_run_hits` (cf. l'autre double `_rh`).
+                "hits_executed": 0, "overkilled": None, "overkill_at_hit": None,
+                "overkill_suppressed": 0, "over_reduce": 0}
 
     class _Thc:
         """`HealthComponent` minimal. `minimal_health` (le `Nullable<int>` @`FillUpStatComponent+0x1c`)
-        en fait partie : `execute_additional_hits` le threade en `hp_floor` depuis #462-r4e-o."""
+        en fait partie : `execute_additional_hits` le threade en `hp_floor` depuis #462-r4e-o ; et
+        `over_reduce` (@+0x24) depuis #462-r4e-o-r1."""
         hp = 1000
         minimal_health = None
+        over_reduce = 0
+
+    class _Tgt:
+        """Entite CIBLE minimale : `execute_additional_hits` l'interroge par `get_component`
+        (`UnitFlagsComponent` pour `unit_is_overkilled`, `StatsComponent` pour
+        `can_be_overkilled`) -- un `object()` nu ne repond pas, et le rouge accuserait le double."""
+        @staticmethod
+        def get_component(_c):
+            return None
 
     class _State:
         """`State` minimal : `execute_additional_hits` n'y touche que par `unit_prevents_overkill`
@@ -151,7 +164,7 @@ def test_execute_additional_hits_CHAINE_l_etat_de_groupe_en_groupe():
     AttackDamageOperation._apply_damage_pipeline = staticmethod(lambda *a, **k: False)
     try:
         out = AH.execute_additional_hits(
-            _State(), 1, 2, object(), _Thc(),
+            _State(), 1, 2, _Tgt(), _Thc(),
             [{"profile": "Physical", "count": 1, "min": 10, "max": 10},
              {"profile": "Physical", "count": 1, "min": 10, "max": 10}],
             None, None, 0, 100, None, None, failed_block0={9})

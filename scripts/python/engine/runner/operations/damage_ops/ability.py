@@ -452,6 +452,7 @@ class _AbilityAttack:
                                             # PAR COUP + son gate `CanBeOverkilled`.
                                             overkilled0=unit_is_overkilled(tgt),
                                             can_be_overkilled=can_be_overkilled(tgt),
+                                            over_reduce0=int(thc.over_reduce or 0),
                                             # #195 : `HasFlag(defender, 0x13)` — le 5e argument
                                             # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
                                             # lit lui-meme sur son parametre `defender`.
