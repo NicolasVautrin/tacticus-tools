@@ -220,6 +220,7 @@ def post_unit_kill_triggers_for_move(state: State, mover_id: int) -> list[dict]:
     morts par DÉGÂT (damage.py) et pour le crush par `ResurrectUnitOperation`/`AddUnitOperation`.
     Aucun consommateur porté ne les lit ; à rouvrir si un port futur en dépend."""
     from .....entities.traits import UnitTrait, has_trait
+    from .....entities.traits.unit_trait import entity_trait_names
     board = state.board
     mover = state.get_entity(mover_id)
     if board is None or mover is None:
@@ -238,9 +239,18 @@ def post_unit_kill_triggers_for_move(state: State, mover_id: int) -> list[dict]:
         pc = e.get_component(PositionComponent)
         if pc is None or (pc.col, pc.row) != pos:         # ... et co-localisé avec le mover
             continue
+        # « tué par CE move » -- le pendant du `IsKilledThisTurn` de `GetValidDeadDecoys`, que ce
+        # site collapse lui aussi en co-localisation. Un cadavre AU CHARGEMENT (absent de
+        # `combatSnapshot`, donc SANS `StatsComponent`) n'a pas été écrasé par ce move : la
+        # co-localisation seule ne l'écarte PAS (un mort ne bloque pas l'occupation, le mover peut
+        # donc s'arrêter sur sa tuile). Il était écarté PAR ACCIDENT, par le `set()` de la lecture
+        # brute de `ctx.traits` ; on le nomme pour que la réparation du substrat le préserve.
         sc = e.get_component(StatsComponent)
-        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-        if not has_trait(traits or [], UnitTrait.Steppable):
+        if sc is None:
+            continue
+        # Substrat de traits = le foyer `entity_trait_names` (#264/#226).
+        traits = entity_trait_names(sc.ctx, uc.visual_id)
+        if not has_trait(traits, UnitTrait.Steppable):
             continue
         out += post_unit_kill_triggers(state, mover_id, uid)
     return out
