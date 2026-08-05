@@ -547,6 +547,12 @@
    "last": "2026-08-05T17:57:50.579000+00:00",
    "turns": 336
   },
+  "a13d229b5425a5c34": {
+   "ctx": 74119457,
+   "first": "2026-08-05T21:52:51.346000+00:00",
+   "last": "2026-08-05T22:56:22.824000+00:00",
+   "turns": 248
+  },
   "a13daa9afe6e7dbf3": {
    "ctx": 54274546,
    "first": "2026-07-23T08:34:06.144000+00:00",
@@ -2035,6 +2041,12 @@
    "last": "2026-07-30T07:37:01.981000+00:00",
    "turns": 313
   },
+  "a4e8042046cc86792": {
+   "ctx": 3910357,
+   "first": "2026-08-05T22:57:14.799000+00:00",
+   "last": "2026-08-05T22:59:39.168000+00:00",
+   "turns": 31
+  },
   "a4e82874416985d08": {
    "ctx": 132095916,
    "first": "2026-07-30T22:36:05.147000+00:00",
@@ -2064,6 +2076,12 @@
    "first": "2026-07-29T08:02:04.123000+00:00",
    "last": "2026-07-29T08:57:11.016000+00:00",
    "turns": 202
+  },
+  "a4f5c07d51b48d4cc": {
+   "ctx": 26348688,
+   "first": "2026-08-05T22:37:06.652000+00:00",
+   "last": "2026-08-05T22:59:32.914000+00:00",
+   "turns": 111
   },
   "a4ff026aa26851621": {
    "ctx": 84669690,
@@ -2659,6 +2677,12 @@
    "last": "2026-08-05T00:19:27.273000+00:00",
    "turns": 186
   },
+  "a67caf2c06503958d": {
+   "ctx": 52388432,
+   "first": "2026-08-05T22:18:21.682000+00:00",
+   "last": "2026-08-05T22:59:35.637000+00:00",
+   "turns": 249
+  },
   "a68cd4cafb39f19d5": {
    "ctx": 64733065,
    "first": "2026-07-26T07:19:54.755000+00:00",
@@ -3122,10 +3146,10 @@
    "turns": 220
   },
   "a7a7f658ad653d299": {
-   "ctx": 4463036,
+   "ctx": 41997034,
    "first": "2026-08-05T21:10:53.424000+00:00",
-   "last": "2026-08-05T21:19:37.133000+00:00",
-   "turns": 48
+   "last": "2026-08-05T21:58:35.186000+00:00",
+   "turns": 225
   },
   "a7a9c5cceb8bb8e34": {
    "ctx": 48209173,
@@ -3367,6 +3391,12 @@
    "last": "2026-07-09T21:07:00.282000+00:00",
    "turns": 15
   },
+  "a837545e9519b56eb": {
+   "ctx": 52286408,
+   "first": "2026-08-05T22:07:19.609000+00:00",
+   "last": "2026-08-05T22:46:05.806000+00:00",
+   "turns": 216
+  },
   "a8375514e5fd58c64": {
    "ctx": 15215119,
    "first": "2026-07-10T16:02:23.958000+00:00",
@@ -3488,10 +3518,10 @@
    "turns": 246
   },
   "a895ceb05a14d0af1": {
-   "ctx": 15518325,
+   "ctx": 64341663,
    "first": "2026-08-05T21:08:36.030000+00:00",
-   "last": "2026-08-05T21:20:31.822000+00:00",
-   "turns": 74
+   "last": "2026-08-05T22:01:22.858000+00:00",
+   "turns": 197
   },
   "a896f060f4aed0f83": {
    "ctx": 38566291,
@@ -3596,10 +3626,10 @@
    "turns": 584
   },
   "a8fe1a645be89fd5e": {
-   "ctx": 81037700,
+   "ctx": 98251109,
    "first": "2026-08-05T19:51:27.655000+00:00",
-   "last": "2026-08-05T21:18:12.774000+00:00",
-   "turns": 344
+   "last": "2026-08-05T21:37:22.151000+00:00",
+   "turns": 395
   },
   "a900b92ee778a6cd7": {
    "ctx": 5399253,
@@ -3980,10 +4010,10 @@
    "turns": 254
   },
   "aa120b5a10779e106": {
-   "ctx": 9861626,
+   "ctx": 65188723,
    "first": "2026-08-05T21:08:57.758000+00:00",
-   "last": "2026-08-05T21:20:24.237000+00:00",
-   "turns": 63
+   "last": "2026-08-05T22:08:09.982000+00:00",
+   "turns": 242
   },
   "aa149c036f0074289": {
    "ctx": 10771848,
@@ -4694,10 +4724,10 @@
    "turns": 319
   },
   "ac3b58173b98871cc": {
-   "ctx": 6450168,
+   "ctx": 92326795,
    "first": "2026-08-05T21:14:53.394000+00:00",
-   "last": "2026-08-05T21:20:16.889000+00:00",
-   "turns": 41
+   "last": "2026-08-05T22:28:40.529000+00:00",
+   "turns": 268
   },
   "ac3cd24f3a575329e": {
    "ctx": 57183166,
@@ -6121,6 +6151,12 @@
    "last": "2026-07-24T16:38:48.932000+00:00",
    "turns": 278
   },
+  "afa6de9ef0e305df8": {
+   "ctx": 61370516,
+   "first": "2026-08-05T22:06:44.772000+00:00",
+   "last": "2026-08-05T22:59:34.737000+00:00",
+   "turns": 189
+  },
   "afa8602ae92c07436": {
    "ctx": 38522728,
    "first": "2026-07-24T06:40:25.956000+00:00",
@@ -6417,9 +6453,14 @@
    "turns": 19669
   },
   "2026-08-05": {
-   "agent_ctx": 6299993837,
-   "ctx": 7247247654,
-   "turns": 26059
+   "agent_ctx": 6493646242,
+   "ctx": 7467068831,
+   "turns": 26824
+  },
+  "2026-08-06": {
+   "agent_ctx": 321545922,
+   "ctx": 374150621,
+   "turns": 1333
   }
  },
  "files": {
@@ -6437,7 +6478,7 @@
   },
   "770b6b08-a8e1-4df4-99e5-9ea0bcf65487.jsonl": {
    "first": "",
-   "offset": 9834176
+   "offset": 10177140
   },
   "85ce3eaa-558f-4617-a07c-53d13aa4a1bc.jsonl": {
    "first": "",
@@ -6810,6 +6851,10 @@
   "agent-a135fbd5001de664e.jsonl": {
    "first": "e7a44aad-6a9b-4689-8116-9919e2c5697b",
    "offset": 1996362
+  },
+  "agent-a13d229b5425a5c34.jsonl": {
+   "first": "98b398fd-2c56-4a69-9171-97ef950bbcab",
+   "offset": 1795327
   },
   "agent-a13daa9afe6e7dbf3.jsonl": {
    "first": "77b0b9c8-4096-4c92-b57f-839592d203c3",
@@ -7803,6 +7848,10 @@
    "first": "03cd85e9-81d4-4c3c-94a5-e839436da0fd",
    "offset": 2486246
   },
+  "agent-a4e8042046cc86792.jsonl": {
+   "first": "e6c9c7f9-4b2b-47d2-966c-1cff2bfaae21",
+   "offset": 298691
+  },
   "agent-a4e82874416985d08.jsonl": {
    "first": "5c854b6d-c4dc-4337-b5e1-d5949eedfae7",
    "offset": 2916062
@@ -7822,6 +7871,10 @@
   "agent-a4f2ca0a7bc9d042c.jsonl": {
    "first": "2e141d63-0ae6-4cb5-8c67-63a5c799edf3",
    "offset": 1507897
+  },
+  "agent-a4f5c07d51b48d4cc.jsonl": {
+   "first": "38c62b69-ba30-4919-a087-9c8d36de62d2",
+   "offset": 1062373
   },
   "agent-a4ff026aa26851621.jsonl": {
    "first": "eae1ac68-5827-4572-a413-b6a47bc2f6ce",
@@ -8219,6 +8272,10 @@
    "first": "0d513626-49af-45dd-bb53-1f9f19674d20",
    "offset": 1336325
   },
+  "agent-a67caf2c06503958d.jsonl": {
+   "first": "e8515fcc-99e1-45fe-9d09-7bbef66ff79f",
+   "offset": 1292435
+  },
   "agent-a68cd4cafb39f19d5.jsonl": {
    "first": "dbbd6c50-7912-4726-9315-65effe1550e4",
    "offset": 1750660
@@ -8529,7 +8586,7 @@
   },
   "agent-a7a7f658ad653d299.jsonl": {
    "first": "2e039d52-d540-4b9d-a94c-927185ab4f52",
-   "offset": 236035
+   "offset": 1134998
   },
   "agent-a7a9c5cceb8bb8e34.jsonl": {
    "first": "416ce531-9bb3-435a-8f28-ac1305866b52",
@@ -8691,6 +8748,10 @@
    "first": "0c4a3742-4a58-4ac6-9e15-210b2b58bc32",
    "offset": 54014
   },
+  "agent-a837545e9519b56eb.jsonl": {
+   "first": "cb773ba9-1ce6-49d2-bf70-c9b4a970442d",
+   "offset": 1344984
+  },
   "agent-a8375514e5fd58c64.jsonl": {
    "first": "ebcc3a9e-1d36-4663-8dc2-6bae135ca752",
    "offset": 822502
@@ -8773,7 +8834,7 @@
   },
   "agent-a895ceb05a14d0af1.jsonl": {
    "first": "e6f9c35c-5ac4-4d50-9c61-fa6b3b5fc97a",
-   "offset": 943116
+   "offset": 1721204
   },
   "agent-a896f060f4aed0f83.jsonl": {
    "first": "4f3f2770-4856-48cc-b59d-b4af81910bd2",
@@ -8845,7 +8906,7 @@
   },
   "agent-a8fe1a645be89fd5e.jsonl": {
    "first": "7263eac8-f869-4dea-b324-6ddf92ff71e4",
-   "offset": 1464684
+   "offset": 1618372
   },
   "agent-a900b92ee778a6cd7.jsonl": {
    "first": "bcb8d4db-b8ee-40dd-9135-7660359b88e2",
@@ -9101,7 +9162,7 @@
   },
   "agent-aa120b5a10779e106.jsonl": {
    "first": "ec968fc8-39ba-4885-9531-94915112a518",
-   "offset": 570050
+   "offset": 1545352
   },
   "agent-aa149c036f0074289.jsonl": {
    "first": "4396da7b-3c07-487a-914e-ef516795d682",
@@ -9577,7 +9638,7 @@
   },
   "agent-ac3b58173b98871cc.jsonl": {
    "first": "5ee7a03d-4f4f-4b35-bf7f-90a774e1f4a9",
-   "offset": 604541
+   "offset": 2181203
   },
   "agent-ac3cd24f3a575329e.jsonl": {
    "first": "ebe6a4ab-0f75-465e-b884-f3084a16cba7",
@@ -10527,6 +10588,10 @@
    "first": "84c7070c-a2e2-41b0-8e75-dcedf7ff5a7e",
    "offset": 1372900
   },
+  "agent-afa6de9ef0e305df8.jsonl": {
+   "first": "25a82a76-9cc2-4531-9d6f-bd8f70ab209c",
+   "offset": 1852864
+  },
   "agent-afa8602ae92c07436.jsonl": {
    "first": "492d919a-faa2-4016-8c02-71dd02e1fc64",
    "offset": 1179097
@@ -10581,7 +10646,7 @@
   },
   "b2170732-95be-4660-9594-e3e86a19af08.jsonl": {
    "first": "",
-   "offset": 618484760
+   "offset": 620572459
   },
   "b3ddc32a-7528-4057-9d59-bf4ca0066ab3.jsonl": {
    "first": "",
@@ -12819,6 +12884,13 @@
    ],
    "dele": 64
   },
+  "67e6ca684d004ba40baaf71fbbb0f6befb15fbb5": {
+   "add": 1080,
+   "commits": [
+    "c8e973cd80305803b5271f2547772be499ec9f04"
+   ],
+   "dele": 148
+  },
   "67f54b98e140b79f429248b95bacaccb1848d3e2": {
    "add": 271,
    "commits": [
@@ -12826,6 +12898,17 @@
     "1754915fa5ee761b84408a895b80f75b3ef2bd79"
    ],
    "dele": 95
+  },
+  "6805639f66a6b0c407b6d9b9077dd874aa5485a1": {
+   "add": 2023,
+   "commits": [
+    "dda52692dfb21824fa87ba03ac2bab115c842bb3",
+    "fc0c3cda116c4f36645a68cf0d9973a6b470f3ee",
+    "4c24244e7d142ab28cf7504a3b368fc9354b54c1",
+    "492c722f7bc12c269cb1cb9ac7d4d07ba454ecce",
+    "7ed7d510125260568f99f8df6e87d3edc1230523"
+   ],
+   "dele": 658
   },
   "68cbba11da9ec3f645ea42519271d5ae9df414ff": {
    "add": 298,
@@ -13384,6 +13467,13 @@
     "9a86ab46b312190ab79578451f28e14cf631a99d"
    ],
    "dele": 32
+  },
+  "7dd46c4b398e9ecc9ed51e60dc8c4e0ccfcd12c4": {
+   "add": 1580,
+   "commits": [
+    "630a9c593ca1319be4edb84c690d531eeb009713"
+   ],
+   "dele": 16
   },
   "7e48bf736f731c3474a956eb164cd78df226da00": {
    "add": 1009,
@@ -14082,6 +14172,15 @@
     "ceebe3730cae450598f57fd2982acfff10d1f900"
    ],
    "dele": 38
+  },
+  "98dd243fc4607fb4bd95c5d9c616a7316354178f": {
+   "add": 1332,
+   "commits": [
+    "968ec9ee39170746a5d0db57aba26eac573d0ec5",
+    "fa3d74c8ce03d1c26743fe7a37d97339f0b362fd",
+    "2e11adbe6dbae95dbd4d6c0211dc90da807e2c2f"
+   ],
+   "dele": 7
   },
   "99311d68447edab49a953c4db3ce063164cef147": {
    "add": 1223,
@@ -16036,6 +16135,15 @@
    ],
    "dele": 29
   },
+  "ecb20a538e57009efdc4fd3c74cb1796199a414b": {
+   "add": 2030,
+   "commits": [
+    "6cc1bf9126c39fe9310f4ae630855727ea24789f",
+    "dfe6ba089c43ea8e96b926061d618240a5d0de46",
+    "d6d687ca38917ae4f927b9156cddc1731df8acfc"
+   ],
+   "dele": 30
+  },
   "ecdea99563a9e9ffda5480b110e6daff32a00d03": {
    "add": 969,
    "commits": [
@@ -16308,6 +16416,14 @@
     "407380afd7a4f026d69b654667a4b5774a5ca17f"
    ],
    "dele": 45
+  },
+  "fae25223d86f91111920a62001d147fc96b4be27": {
+   "add": 1609,
+   "commits": [
+    "567b10464a40cabc8a4230debc217cc483c24a5f",
+    "02deaf09e46a49d6b3aa28e34de151015f7d270a"
+   ],
+   "dele": 0
   },
   "faf110fea22762fb9918e42a83bdc935becf451a": {
    "add": 956,
@@ -16900,6 +17016,11 @@
   "a135fbd5001de664e": {
    "branch": "worktree-agent-a135fbd5001de664e",
    "name": "#270-r4 roles jamais tries",
+   "type": "opus-solver"
+  },
+  "a13d229b5425a5c34": {
+   "branch": "worktree-agent-a13d229b5425a5c34",
+   "name": "477-r19-r2 phase 0xd mal attribuee",
    "type": "opus-solver"
   },
   "a13daa9afe6e7dbf3": {
@@ -18142,6 +18263,11 @@
    "name": "Fix pathfinding overreach",
    "type": "opus-solver"
   },
+  "a4e8042046cc86792": {
+   "branch": "worktree-agent-a4e8042046cc86792",
+   "name": "477-r21-r3 allocation ECS effets",
+   "type": "opus-solver"
+  },
   "a4e82874416985d08": {
    "branch": "worktree-agent-a4e82874416985d08",
    "name": "Port ModifiedExoarmour ExtraDmg",
@@ -18165,6 +18291,11 @@
   "a4f2ca0a7bc9d042c": {
    "branch": "worktree-agent-a4f2ca0a7bc9d042c",
    "name": "212 cle BC SpiritualLeader 1275",
+   "type": "opus-solver"
+  },
+  "a4f5c07d51b48d4cc": {
+   "branch": "worktree-agent-a4f5c07d51b48d4cc",
+   "name": "419-r1-tr14-r1-r1 portee arme",
    "type": "opus-solver"
   },
   "a4ff026aa26851621": {
@@ -18660,6 +18791,11 @@
   "a67415c4d5206e53d": {
    "branch": "worktree-agent-a67415c4d5206e53d",
    "name": "Harnais de test natif AbilityAnimationTest",
+   "type": "opus-solver"
+  },
+  "a67caf2c06503958d": {
+   "branch": "worktree-agent-a67caf2c06503958d",
+   "name": "302 tranche 5 route cible TUILE",
    "type": "opus-solver"
   },
   "a68cd4cafb39f19d5": {
@@ -19251,6 +19387,11 @@
    "branch": "",
    "name": "Recover warm Frida session",
    "type": "live-ops"
+  },
+  "a837545e9519b56eb": {
+   "branch": "worktree-agent-a837545e9519b56eb",
+   "name": "482-r3 archiver l'empreinte au changement de build",
+   "type": "opus-solver"
   },
   "a8375514e5fd58c64": {
    "branch": "",
@@ -21552,6 +21693,11 @@
    "name": "opus-solver #61 knockback pct",
    "type": "opus-solver"
   },
+  "afa6de9ef0e305df8": {
+   "branch": "worktree-agent-afa6de9ef0e305df8",
+   "name": "477-r22 bloc 2 ContinueTurnPhase",
+   "type": "opus-solver"
+  },
   "afa8602ae92c07436": {
    "branch": "worktree-agent-afa8602ae92c07436",
    "name": "Port SporeMineLauncher (Tyranids)",
@@ -21619,18 +21765,18 @@
   }
  },
  "stat_merges": {
-  "interroges": 9,
-  "reutilises": 652
+  "interroges": 6,
+  "reutilises": 661
  },
  "stat_metas": {
-  "lus": 10,
-  "reutilises": 1024
+  "lus": 6,
+  "reutilises": 1034
  },
  "stat_tokens": {
-  "fichiers": 16,
+  "fichiers": 13,
   "fork": "",
-  "mo": 20.1,
-  "total": 1047
+  "mo": 13.7,
+  "total": 1053
  },
  "version": 2
 }
