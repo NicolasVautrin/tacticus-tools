@@ -57,9 +57,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+import host_inputs
+
 ROOT = Path(__file__).resolve().parents[2]
 FRIDA = ROOT / "frida"
-TSC = FRIDA / "node_modules" / "typescript" / "bin" / "tsc"
+
+# `node_modules` est GITIGNORE : le construire depuis `ROOT` rendrait un chemin qui
+# n'existe pas dans un worktree ou `npm ci` n'a pas tourne, et `subprocess` echouerait sur
+# un message d'OS au lieu de DIRE « pas mesure » (#273, garde par `probe_273` etape 0b).
+# `host_inputs.resolve` rend le tri-etat ET l'ORIGINE (`local` / `main-worktree` / `env`),
+# imprimee ci-dessous : un typecheck joue avec le `typescript` d'un AUTRE arbre reste un
+# resultat, mais le lecteur doit savoir lequel il lit.
+_TSC = host_inputs.resolve("frida/node_modules/typescript/bin/tsc")
+TSC = _TSC.path
 
 # Un compte de fichiers ridiculement bas accuse le CAPTEUR (mauvais cwd, pathspec git
 # relatif, `tsc` muet), pas le depot. Mesure du 2026-08-05 : 207 versionnes, 206 couverts.
@@ -225,10 +235,13 @@ def main() -> int:
                     help="muter l'arbre pour verifier que le cliquet sait rougir")
     a = ap.parse_args()
 
-    if not TSC.is_file():
-        print("[480r9] %s ABSENT -- NON MESURE. `npm ci` dans frida/ d'abord." % TSC)
+    if TSC is None or not TSC.is_file():
+        print("[480r9] `typescript` INTROUVABLE -- NON MESURE. `npm ci` dans frida/.")
+        for origine, p in _TSC.candidates:
+            print("        essaye [%s] %s" % (origine, p.as_posix()))
         print("        (tri-etat : ce n'est PAS un vert, et ce n'est pas un rouge non plus)")
         return 2
+    print("[480r9] tsc : %s  [origine : %s]" % (TSC.as_posix(), _TSC.origin))
 
     temoin: Path | None = None
     sauvegarde: str | None = None
