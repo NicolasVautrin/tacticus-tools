@@ -680,7 +680,8 @@ def has_tiles_to_move_to(state: State, unit_id: int) -> Optional[bool]:
     return len(tiles) > 0
 
 
-def has_action_available(state: State, unit_id: int) -> Optional[bool]:
+def has_action_available(state: State, unit_id: int,
+                         movable_is_empty: Optional[bool] = None) -> Optional[bool]:
     """`IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$HasActionAvailable(unit)` :
 
         movable = <IMovementQuery slot 0>(unit, ignoreUnitFlags: false, options: <memset 0>)
@@ -725,9 +726,20 @@ def has_action_available(state: State, unit_id: int) -> Optional[bool]:
       * au moins une entree utilisable -> `None` (il faudrait `HasValidTargets`).
 
     `UnitExtensions$$IsAbilityBlocked` (`ActiveAbilityComponent.NormalAttackIsBlocked` /
-    `ActiveAbilitiesAreBlocked` / `MachinePrimaryAbilityIsBlocked`) n'a pas non plus de substrat : il
-    ne peut que RESTREINDRE, donc l'ignorer ne change aucun verdict `False` rendu ci-dessus."""
+    `ActiveAbilitiesAreBlocked` / `MachinePrimaryAbilityIsBlocked`) n'a pas de substrat : il ne peut
+    que RESTREINDRE, donc l'ignorer ne peut que rendre un `True` de plus — jamais un `False` a tort.
+
+    LA POSITION D'EVALUATION EST LA TUILE COURANTE, ET C'EST EXACT — pas une approximation.
+    `HasValidTargets` est evalue sur `GetMovableTilesFor(unit) + GetMainTile(unit)`, et le port ne
+    sait juger une cible que depuis la position REELLE du caster (cf. `valid_normal_attack_targets`).
+    Or les DEUX predicats de `VerifyUnitTurnEnded` partagent le MEME `GetMovableTilesFor` : quand
+    `HasTilesToMoveTo` est faux — le seul regime ou `_can_act` consulte cette fonction, le OU natif
+    court-circuitant sinon — ce set est VIDE (meme garde d'entree `FindAnyOrAllMoveableTiles`, meme
+    stop-set), et la liste native se reduit a la seule `GetMainTile`. Le garde ci-dessous rend le
+    raisonnement EXECUTABLE plutot que verbal : si le set n'est pas vide, un `False` ne serait pas
+    certain (le natif jugerait depuis d'autres tuiles) -> `None`."""
     from ..components import ActiveAbilitiesComponent
+    from ..abilities.targeting import valid_normal_attack_targets, normal_attack_type_for
     from .repair import _is_boss
     e = state.get_entity(int(unit_id))
     if e is None:
@@ -744,9 +756,70 @@ def has_action_available(state: State, unit_id: int) -> Optional[bool]:
     comp = e.get_component(ActiveAbilitiesComponent)
     if comp is None:
         return None                        # canal `allAbilities` non demande -> NON MESURE
-    if not any(a.can_currently_be_used() for a in comp.abilities):
-        return False                       # la boucle native ne peut rien rendre
-    return None                            # il faudrait `AttackQuery$$HasValidTargets`
+    # Le garde de POSITION (cf. docstring) : un `False` n'est certain que si le natif n'avait, lui
+    # aussi, que la tuile courante a juger. `movable_is_empty` est passe par `_can_act`, qui vient
+    # d'evaluer `has_tiles_to_move_to` -- ne PAS le recalculer (ce serait un 2e pathfinding).
+    if movable_is_empty is None:
+        movable_is_empty = (has_tiles_to_move_to(state, int(unit_id)) is False)
+    undetermined = not movable_is_empty
+    # L'ATTAQUE NORMALE d'abord : le natif l'a dans sa `KeyedCollection` (c'est
+    # `UnitFactory$$AddNormalAttackAbility` qui l'y pousse), le composant du port l'en EXCLUT (il
+    # n'y a pas d'objet `ActiveAbility` derriere) -> il faut la rajouter, sans quoi la boucle
+    # ignorerait l'action la plus courante du jeu. `CanCurrentlyBeUsed` : elle n'a ni charge, ni
+    # cooldown, ni munitions -> jamais gatee (meme convention que `battle_query.can_use_ability`).
+    if normal_attack_type_for(state, int(unit_id)) is None:
+        undetermined = True                # type d'attaque normale non resolu -> pas de verdict
+    elif valid_normal_attack_targets(state, int(unit_id)):
+        return True
+    for ab in comp.abilities:
+        if not ab.can_currently_be_used():
+            continue                       # `!a.CanCurrentlyBeUsed` -> ability sautee
+        r = _has_valid_targets(state, int(unit_id), ab.ability_type)
+        if r is True:
+            return True                    # la boucle native rend `true` a la PREMIERE qui passe
+        if r is None:
+            undetermined = True
+    return None if undetermined else False
+
+
+def _has_valid_targets(state: State, unit_id: int, ability_type: int) -> Optional[bool]:
+    """`IdunBattle.Core.Services.AttackQuery$$HasValidTargets(attacker, attackerPosition,
+    activeAbilityType)` — la surcharge par POSITION, celle que la surcharge par liste de tuiles
+    appelle en boucle :
+
+        if (activeAbilityType == 0)                                  return false
+        ab = attacker.GetComponent<ActiveAbilityComponent>().GetOrNull(activeAbilityType)
+        if (ab == null || !ab.CanCurrentlyBeUsed)                    return false
+        options = <ITargetingOptionsProvider slot 0>(activeAbilityType)
+        return <ITargetingQuery>.<...>(attacker, attackerPosition, <predicat sur options>)
+
+    Le predicat terminal est la MEME cascade que `TargetingQuery$$GetValidTargets` : la surcharge
+    **7 arguments** de `GetInvalidTargetReason`, le FILTRE STATIQUE PUR (ni aiguillage self-cast, ni
+    volet caster). C'est exactement ce que le port nomme `apply_self_cast_switch=False`, et c'est
+    pour cela qu'on n'appelle PAS `is_invalid_target` (qui, lui, ajoute le volet caster de la
+    surcharge 5 arguments — il refuserait des cibles que `GetValidTargets` garde, donc SUR-FERMERAIT).
+
+    `None` = masque non RE-lu (`targeting_options_for` rend `None`) : sans ses `TargetingOptions`
+    la cascade ne pose AUCUN gate et rendrait `True` pour n'importe quelle entite — un `True`
+    fabrique. On le refuse explicitement.
+
+    ORDRE d'enumeration = `state.entities` (meme residu nomme que `valid_normal_attack_targets`) ;
+    il n'a aucune incidence sur un predicat d'EXISTENCE."""
+    from ..abilities.targeting import get_invalid_target_reason, targeting_options_for
+    opts = targeting_options_for(int(ability_type))
+    if opts is None:
+        return None
+    from ..abilities.handler import ABILITY_CLASSES
+    ability = ABILITY_CLASSES.get(int(ability_type))
+    if ability is None or getattr(ability, "TARGETING_OPTIONS", None) is None:
+        # Masque LU mais behaviour non portee (`TARGETING_OPTIONS_UNPORTED`) : on porte un objet
+        # MINIMAL qui ne transporte que le masque — meme procede que `_NormalAttackTargeting`.
+        ability = type("_UnportedTargeting", (), {"TARGETING_OPTIONS": opts, "ABILITY_ID": int(ability_type)})
+    for tid in list(state.entities.keys()):
+        if get_invalid_target_reason(state, int(unit_id), int(tid), ability,
+                                     apply_self_cast_switch=False) == 0:
+            return True
+    return False
 
 
 def _can_act(state: State, unit_id: int) -> Optional[bool]:
@@ -760,7 +833,7 @@ def _can_act(state: State, unit_id: int) -> Optional[bool]:
     a = has_tiles_to_move_to(state, unit_id)
     if a is True:
         return True                        # court-circuit : `HasActionAvailable` n'est pas evalue
-    b = has_action_available(state, unit_id)
+    b = has_action_available(state, unit_id, movable_is_empty=(a is False))
     if b is True:
         return True
     if a is False and b is False:
