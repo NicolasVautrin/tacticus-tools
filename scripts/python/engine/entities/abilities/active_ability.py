@@ -39,6 +39,8 @@ from ...dsl import nodes as dsl   # facade DSLFactory (construction des noeuds)
 from ...dsl.base import _round_fix64, calculate_average
 # #158 : table `DamageProfileType index -> nom` DERIVEE de l'enum (source unique, ex-copie transcrite retiree).
 from ..damage_profile_type import PROFILE_NAME_BY_INDEX as _PROFILE_BY_INDEX  # re-exporte (prediction.py l'importe d'ici)
+# #270-r4 : direction de BattleQuery.GetTilesInTriangleShape (...Utils.Hex.Corner).
+from ...hex_corner import Corner
 
 
 # ─── #344 : la PRÉDICTION d'ability moyenne `minDmg/maxDmg` par DEUX chaînes natives distinctes ───
@@ -1011,8 +1013,11 @@ class DaemonicOrdnanceAbility(AActiveAbility):
     _AREA = dsl.TilesOnSameElevation(
         dsl.Target(),
         dsl.TilesInTriangleShape(dsl.Target(),
+                                 # #270-r4 : direction de GetTilesInTriangleShape est
+                                 # DECLARE IdunBattleLogic.Utils.Hex.Corner.
                                  dsl.If(dsl.IsPositionMachineForCurrentPlayer(2),
-                                        dsl.Const(1), dsl.Const(4))),
+                                        dsl.Const(int(Corner.NorthEast)),
+                                        dsl.Const(int(Corner.SouthWest)))),
         1)
     _AOE = dsl.Enemies(dsl.Units(dsl.Filter(_AREA, dsl.HasEffect(dsl.Subject(),
                                                                  int(_EffectType.Fire)))))

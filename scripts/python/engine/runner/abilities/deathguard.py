@@ -48,6 +48,8 @@ from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, Heal, healable_heal_type_0, AddEffect,
                         AttackWithAttackDamage, InformWeapon, PerformAIAttack, Spawn)
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
+# #270-r4 : groupType de DSLBehaviors.Group, type DECLARE lu dans rida/methods.tsv.
+from ...streams.group_type import GroupType
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1027,8 +1029,12 @@ def plague_wind_tree(selectors: Optional[tuple] = None) -> AtomicGroup:
                                    min_key="minDmg_3", max_key="maxDmg_3",   # MinMaxDamage3 (0x38/0x39)
                                    native_factory="ability",
                                    ability_type=int(ActiveAbilityType.PlagueWind))
-    return AtomicGroup(op_and(op_and(Group(band1, 0x4b, t1), Group(band2, 0x4c, t1)),
-                              Group(band3, 0x4d, t1)))
+    # #270-r4 : le 3e argument de `DSLBehaviors.Group` est DECLARE
+    # `groupType : IdunBattle.Streams.GroupType` dans `frida/methods.tsv` -- 0x4b/0x4c/0x4d sont
+    # les trois bandes d'attaque de PlagueWind, nommees comme telles par le build.
+    return AtomicGroup(op_and(op_and(Group(band1, int(GroupType.PlagueWind_Attack1), t1),
+                                     Group(band2, int(GroupType.PlagueWind_Attack2), t1)),
+                              Group(band3, int(GroupType.PlagueWind_Attack3), t1)))
 
 
 class PlagueWindAbility(ActiveAbility):

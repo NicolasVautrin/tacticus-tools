@@ -501,9 +501,14 @@ class StunnedEffect(BaseEffect):
 
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         return [
-            SubEffectSpec(0x48d, "Stunned_CantUseAbility", turns=SAME_TURNS),  # AddSubEffectWithSameTurns
-            SubEffectSpec(0x48e, "Stunned_MovementOverride", turns=0),         # AddStatOverrideEffect (cond. mvt>0)
-            SubEffectSpec(0x48f, "Stunned_DamageModifier", turns=0),           # AddEffect turns=0
+            # #270-r4 : l'id ET le nom viennent du MEME membre -- le 2e argument etait deja le
+            # nom d'`EffectType`, l'ordinal ne faisait que le repeter en clair.
+            SubEffectSpec(int(EffectType.Stunned_CantUseAbility),              # 0x48d
+                          EffectType.Stunned_CantUseAbility.name, turns=SAME_TURNS),  # AddSubEffectWithSameTurns
+            SubEffectSpec(int(EffectType.Stunned_MovementOverride),           # 0x48e
+                          EffectType.Stunned_MovementOverride.name, turns=0),  # AddStatOverrideEffect (cond. mvt>0)
+            SubEffectSpec(int(EffectType.Stunned_DamageModifier),             # 0x48f
+                          EffectType.Stunned_DamageModifier.name, turns=0),   # AddEffect turns=0
         ]
 
 
@@ -680,9 +685,13 @@ class TauntedEffect(BaseEffect):
 
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         return [
-            SubEffectSpec(0x19, "Taunted_BlockMovement", turns=SAME_TURNS),      # AddSubEffectWithSameTurns
-            SubEffectSpec(0x1a, "Taunted_CantUseAbility", turns=SAME_TURNS),     # AddSubEffectWithSameTurns
-            SubEffectSpec(0x4d5, "Taunted_RefreshUnitTurnFinished", turns=SAME_TURNS),
+            # #270-r4 : idem -- id et nom derivent du meme membre d'`EffectType`.
+            SubEffectSpec(int(EffectType.Taunted_BlockMovement),                # 0x19
+                          EffectType.Taunted_BlockMovement.name, turns=SAME_TURNS),   # AddSubEffectWithSameTurns
+            SubEffectSpec(int(EffectType.Taunted_CantUseAbility),               # 0x1a
+                          EffectType.Taunted_CantUseAbility.name, turns=SAME_TURNS),  # AddSubEffectWithSameTurns
+            SubEffectSpec(int(EffectType.Taunted_RefreshUnitTurnFinished),      # 0x4d5
+                          EffectType.Taunted_RefreshUnitTurnFinished.name, turns=SAME_TURNS),
         ]
 
     def writes_forced_attack_targets(self) -> bool:

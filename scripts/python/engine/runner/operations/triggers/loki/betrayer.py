@@ -16,6 +16,8 @@ from .....services.movement_query import get_movable_tiles_for
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _unit_tile, _hex_dist
+# #270-r4 : 	ag de DSLBehaviors.Inform, type DECLARE lu dans rida/methods.tsv.
+from .....streams.tag_key import TagKey
 
 THEBETRAYER_EFFECT = int(EffectType.TheBetrayer)  # 1267 — effet « rage » de TheBetrayer (gate de TakeTurn ; gagné au kill).
 THEBETRAYER_RANGE = 2           # `TheBetrayer.variables.range` = 2 (GetVariableForLevel(0x53)) — move max.
@@ -158,7 +160,7 @@ def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
     Voie A). La composition STRUCTURELLE est désormais des NŒUDS DSL, plus du contrôle impératif :
 
         If( AmountIsGreaterThanZero(target),                        # <- gate S collapse (voir plus bas)
-            Inform(0xbf)
+            Inform(int(TagKey.Is_Automatic_Activation))
             & If( NOT IsAdjacent(Caster, Target), MoveUnit(Caster, bestTile, options=NULL) )
             & If(     IsAdjacent(Caster, Target), GetDamageBehaviour(Target) ) )
 
@@ -186,7 +188,7 @@ def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
     - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ATheBetrayerAbility$$GetDamageBehaviour` = `AttackWithAttackDamage(Self, target, MinMaxDamage,
       GetDamageProfileOrDefault(0x19)=Eviscerate, GetHits)` -> feuille `AttackWithAttackDamage(Target(),
       "TheBetrayer", "Eviscerate", melee)` (BIT-EXACT : mêmes `ability_attack_params` + `execute_ability_attack`).
-    - `Inform(0xbf)` = notif AI/UI = NO-OP observable (feuille `Inform`).
+    - `Inform(int(TagKey.Is_Automatic_Activation))` = notif AI/UI = NO-OP observable (feuille `Inform`).
 
     FIDÉLITÉ after-move overwatch (#149, RE `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers`) :
     `On(4)` (after-move / overwatch) est gaté par `if (isInterimStep) return;`, où `isInterimStep` = le 6e
@@ -211,7 +213,7 @@ def _betrayer_take_turn(state: State, owner_id: int) -> Optional[dict]:
 
     # ARBRE UNIFIÉ (mirror IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour) : Inform & If(NOT is_adj, Move) & If(is_adj, Attack). Contexte LIVE
     # partagé -> re-éval de `is_adj` post-move (Voie A). `Seq` = `CombinedBehaviour` court-circuit gauche->droite.
-    tree = Seq(Inform(0xbf),
+    tree = Seq(Inform(int(TagKey.Is_Automatic_Activation)),
                Seq(If(Not(is_adj), move_branch),
                    If(is_adj, AttackWithAttackDamage(Target(), "TheBetrayer", THEBETRAYER_PROFILE,
                                                      is_melee=True))))

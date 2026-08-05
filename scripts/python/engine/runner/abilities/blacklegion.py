@@ -51,6 +51,9 @@ from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD,
 from .targeting_rule import TargetingRule as TR
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
+# #270-r4 : direction de BattleQuery.GetTilesInTriangleShape, type DECLARE lu dans
+# rida/methods.tsv (IdunBattleLogic.Utils.Hex.Corner, pas l'un des cinq homonymes Unity).
+from ...hex_corner import Corner
 
 if TYPE_CHECKING:
     from ..state import State
@@ -515,8 +518,11 @@ def daemonic_ordnance_target_area_tiles(target_sel):
 
     ⚠ CONTRASTE `MacroPlasmaIncineratorAbility$$ExecuteBehaviour` : AUCUN `Walkable` ici (le feu se pose
     sur des tuiles non marchables aussi). Ne pas recopier le filtre de l'autre MoW."""
+    # #270-r4 : le 2e argument de BattleQuery\$\$GetTilesInTriangleShape est DECLARE
+    # direction : IdunBattleLogic.Utils.Hex.Corner dans rida/methods.tsv (le nom court aurait
+    # apparie l'un des CINQ autres Corner Unity/SimpleUI du build).
     direction = FormulaIf(IsPositionMachineForCurrentPlayer(DO_MACHINE_POSITION_BOTTOM),
-                          Const(1), Const(4))
+                          Const(int(Corner.NorthEast)), Const(int(Corner.SouthWest)))
     return TilesOnSameElevation(target_sel, TilesInTriangleShape(target_sel, direction), 1)
 
 

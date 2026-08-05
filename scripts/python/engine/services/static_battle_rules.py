@@ -100,7 +100,13 @@ def not_blocking_movement_of_traits(effect_type) -> tuple:
     et = int(effect_type)
     if et in _MOVEMENT_BLOCKING_EFFECT_TYPES:
         return _MOVEMENT_EXEMPT_TRAIT_IDS
-    if et == 0x3a:
+    # #270-r4 : `0x3a` = `EffectType.Darkness`, et c'est le MEME ordinal que
+    # `TILE_STATUS_EFFECT_TYPES` porte deux fonctions plus haut. Il reste en litteral pour la
+    # MEME raison, mesuree, que les trois collections de ce module (cf. l'encadre #270-r1-r1 en
+    # tete) : importer `EffectType` ici initialise `engine.entities`, qui tire
+    # `effects/loki/hits.py`, qui re-importe ce module -> `ImportError`. Garde deportee au test
+    # `tests/engine/test_270r4_role_enum_offline.py` (le test, lui, importe les deux couches).
+    if et == 0x3a:                                  # EffectType.Darkness
         return _DARKNESS_EXEMPT_TRAIT_IDS
     return ()
 

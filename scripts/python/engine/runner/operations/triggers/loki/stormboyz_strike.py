@@ -152,6 +152,8 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....utilities.utility_type import UtilityType
 from ..base import TriggeredAbility, TriggerEvent
+# #270-r4 : 	ag de DSLBehaviors.Inform, type DECLARE lu dans rida/methods.tsv.
+from .....streams.tag_key import TagKey
 
 STORMBOYZ_STRIKE_ID = "StormboyzStrike"
 STORMBOYZ_TELEPORTING_IN = int(EffectType.StormboyzStrike_TeleportingIn)   # 0x474 = 1140
@@ -398,7 +400,7 @@ def stormboyz_strike_miss_tree(dest, chance: int, rng) -> Seq:
 
     `rng` est passe au CONSTRUCTEUR du `MaybeTrigger`, comme le natif : le PRNG y est un CHAMP de
     l'instance (`+0x18`, pose par la factory depuis `DSLFactory+0x18`), pas une entree du contexte."""
-    return Seq(Seq(Seq(Inform(0x79),
+    return Seq(Seq(Seq(Inform(int(TagKey.Unit_Foot_Tile_Id_1)),
                        If(MaybeTrigger(rng, Const(int(chance))),
                           OverrideUnitMovementTarget(
                               Caster(),

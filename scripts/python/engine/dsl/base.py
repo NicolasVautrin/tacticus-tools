@@ -776,9 +776,12 @@ def _is_alive(u) -> bool:
 def _default_get_stat(u, stat_type, variant, level):
     """Défaut dégradé de `ctx.get_stat` : seule la santé est captée offline (le vrai accès stats vient
     de `ctx.get_stat` fourni par la couche ability)."""
-    # HARDCODE (degrade) : StatType.Health=5 (dump.cs) -- seul stat lisible dans le state offline
-    # {id,team,hp,alive,pos,visualId} ; autres StatType -> 0 tant que ctx.get_stat reel absent.
+    # HARDCODE (degrade) : seul stat lisible dans le state offline {id,team,hp,alive,pos,visualId} ;
+    # autres StatType -> 0 tant que ctx.get_stat reel absent.
     # TEMP : variant base/current/max non tranche (validator) -- on rend le hp COURANT (natif lit maxHP).
-    if stat_type == 5:
+    # Import LOCAL (#270-r4) : `engine.dsl.base` est importe par `engine.entities.stats` en amont
+    # de la definition de `StatType` -- un import module-level y ferait un cycle.
+    from ..entities.stats import StatType
+    if stat_type == StatType.HEALTH:               # 5
         return u.get("hp") or 0
     return 0

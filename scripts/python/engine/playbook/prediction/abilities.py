@@ -1203,8 +1203,9 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
     cfg = AbilityConfiguration.from_gameconfig(_HAMMER_ABILITY_NAME, GC.ability(_HAMMER_ABILITY_NAME))
     if ctx0 is None or cfg is None:
         return []
-    ab = active_ability_for(_HAMMER_ABILITY_NAME, 1153, ctx0, cfg,
-                            ability_state=scene.ability_state(caster_id, 1153))
+    ab = active_ability_for(_HAMMER_ABILITY_NAME, int(ActiveAbilityType.HammerOfWrath), ctx0, cfg,
+                            ability_state=scene.ability_state(
+                                caster_id, int(ActiveAbilityType.HammerOfWrath)))
     lvl, mult = ab.level, ab.multiplier
     minv = cfg.get_variable_for_level("minDmg", lvl, 0, mult)         # var 12 (GetMinDamage)
     minv2 = cfg.get_variable_for_level("minDmg_2", lvl, 0, mult)      # var 54 (GetMinDamage2)
@@ -1213,7 +1214,9 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
     hits2 = max(1, int(consts.get("nrOfHits_2") or 1))               # const 50 (GetHitsToBonusTarget = 1)
     prof1 = consts.get("damageProfile")                              # Power
     prof2 = consts.get("damageProfile_2")                            # Physical
-    dp = generate_multi_hit_attack_prediction(scene, caster_id, target_id, 1153, _HAMMER_ABILITY_NAME,
+    dp = generate_multi_hit_attack_prediction(scene, caster_id, target_id,
+                                              int(ActiveAbilityType.HammerOfWrath),
+                                              _HAMMER_ABILITY_NAME,
                                               attack_pos=attack_pos, base_override=minv,
                                               hits_override=hits1, profile_override=prof1)
     if dp is None:
@@ -1230,7 +1233,9 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
                and (scene.hp(u) or 0) > 0
                and scene.pos(u) is not None and hexgeo.distance(scene.pos(u), t_pos) == 1]
         for sid in adj[:_HAMMER_MAX_SECONDARY]:
-            sdp = generate_multi_hit_attack_prediction(scene, caster_id, sid, 1153, _HAMMER_ABILITY_NAME,
+            sdp = generate_multi_hit_attack_prediction(scene, caster_id, sid,
+                                                      int(ActiveAbilityType.HammerOfWrath),
+                                                      _HAMMER_ABILITY_NAME,
                                                       attack_pos=attack_pos, base_override=minv2,
                                                       hits_override=hits2, profile_override=prof2)
             if sdp is not None:

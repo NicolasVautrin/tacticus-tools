@@ -173,7 +173,7 @@ EXTRA_MOVE_TURNS = 1
 # ⚠ C'est une SECONDE source, distincte de la constante `affectedDamageProfile` que lit
 # `GetDamageProfile` pour le profil de la riposte : le decompile ecrit un littéral ici et un
 # `GetValueOrDefault` la-bas. Les deux coincident au gameconfig courant ; on ne les fusionne PAS.
-ATTACK_GATE_PROFILE = DamageProfileType(0xd).name                 # "Psychic"
+ATTACK_GATE_PROFILE = DamageProfileType.Psychic.name                 # "Psychic"
 VAR_DMG = "dmg"                     # `GetVariableForLevel(cfg, 0xb)` -- AbilityVariableType.dmg
 CONST_NR_OF_HITS = "nrOfHits"       # `GetNumberConstant(cfg, 0x2f)` -- AbilityConstantType.nrOfHits
 

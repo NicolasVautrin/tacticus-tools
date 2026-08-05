@@ -74,7 +74,7 @@ HAILSTRIKE_ATTACK_TRIGGERED = int(TriggeredAbilityType.Hailstrike_Attack)   # 0x
 #: `GetDamageProfileOrDefault(0x14)` — le DEFAUT natif si la config d'ability ne definit pas de profil.
 #: `DamageProfileType(20) = Piercing`. La config 1214 en definit un (`Projectile`) -> ce defaut n'est
 #: JAMAIS retenu pour Hailstrike ; il reste porte pour ne pas maquiller le decompile.
-_DEFAULT_PROFILE = DamageProfileType(0x14).name
+_DEFAULT_PROFILE = DamageProfileType.Piercing.name
 
 
 def _damage_profile_or_default() -> str:

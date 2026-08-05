@@ -1107,7 +1107,8 @@ class SpawnUnitOperation:
         if eff is not None:
             for _uid, _effs in eff.by_unit.items():
                 for _e in _effs:
-                    if not _e.consumed and _e.effect_type == 1061:
+                    if not _e.consumed and \
+                            _e.effect_type == int(EffectType.GeminaeSuperia_JustSummonedEffect):
                         _e.consumed = True
         possible = _free_tiles_adjacent(state, owner_id, set())  # CanAddUnit(AdjacentTiles(owner))
         # TilesUnitCanAttackFrom(possible, owner, "thousSmnScreamer") : Screamer = MELEE -> tuiles avec

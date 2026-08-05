@@ -23,7 +23,7 @@ from ...triggered_ability_type import TriggeredAbilityType
 # Meme cause que dans `status.py` : `630fb33e` (#270-r1-r1-r3) a converti des litteraux en
 # `StatType.<MEMBRE>` dans quatre `get_stat_modification_stat` qui n'avaient aucun import local ->
 # `NameError` au chargement d'etat. Import module-level (#448-r3-r1).
-from ...stats import StatType
+from ...stats import StatPart, StatType
 
 
 class SquigHoundAdditionalHitsEffect(BaseEffect):
@@ -1843,7 +1843,8 @@ class Swarm_HitReductionEffect(BaseEffect):
         if n < 2:
             self._bound_amount = None
             return
-        missing = group_unit_stat_part(4, int(member_total_hp), n, int(current_hp))
+        missing = group_unit_stat_part(int(StatPart.MISSING),          # part 4
+                                       int(member_total_hp), n, int(current_hp))
         self._bound_amount = -min(n - 1, missing)
 
     def get_stat_modification_stat(self) -> "int | None":

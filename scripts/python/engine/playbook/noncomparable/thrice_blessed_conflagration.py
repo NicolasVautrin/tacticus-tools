@@ -150,7 +150,7 @@ class ThriceBlessedConflagrationPlaybook(NonComparablePlaybook):
         multi-tuiles confronte)."""
     ABILITY_ID = int(ActiveAbilityType.ThriceBlessedConflagration)   # 0x4a3 = 1187
     MIN_UTILITY = 1.0     # `ThriceBlessedConflagrationPlaybook$$.cctor` = Fix64.FromInt(1)
-    PRIORITY = native_priority(1187)   # 100 = AbilityPriority.Early (surcharge mesuree, #170)
+    PRIORITY = native_priority(int(ActiveAbilityType.ThriceBlessedConflagration))   # 100 = AbilityPriority.Early (surcharge mesuree, #170)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         # PAS de gate `ctx.origin is None` (contraste DarkTalonStrike, dont l'angle a besoin du
