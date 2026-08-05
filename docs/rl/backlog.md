@@ -2250,16 +2250,15 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   puis `replayOutputStream({runnerId})` sur un runner `rl_duel build`, et LIRE le texte.
   cf. `docs/rl/case-477-harnais-de-test-natif.md`.
 
-- **#477-r5 : placer une unite sur une tuile exacte via `BattleConfiguration+0xc0`.** `[opus]`
-  Les « starting messages » (`List<IInputMessage>`) sont consommes par
-  `IdunBattle.Operations.SetupGameOperation$$ExecuteStartingMessages` : un `AddUnitMessage` y fait
-  naitre l'unite par le pipeline d'operations complet, a une position choisie, sans dependre du
-  `SpawnPointSetConfiguration` ni du deployment HUD. Repond au besoin recurrent « deplacer les unites
-  pour forcer la configuration ». Prerequis : le champ est ABSENT du seed BC JSON -- verifier qu'il
-  survit a `buildNormalizedBC` avant de compter dessus.
-
-- **#477-r6 : `UnitModifiers` (`BattleConfiguration+0x50`), le pendant PROPRE de `--unit-stat`.** `[opus]`
-  Consomme par `SetupGameOperation$$ApplyModifiers`, qui dispatche vers `ModifyUnitAttack` /
-  `ModifyUnitHp` / `ModifyUnitFixedArmor` / ... -- lesquels produisent de vrais
-  `IdunBattleLogic.Battle.StatModifier`, donc visibles de `statModSources`. Notre patch actuel ecrit
-  un scalaire brut. Le seed courant l'a a `{}`.
+- **#477-r9 : `BattleConfiguration.StartingActions` (@0xc0) est IGNORE par la deserialisation.** `[opus]`
+  MESURE avec temoin (`probe_477_bc_montage_leviers.py` etape 1) : un scalaire pose sur
+  `StartingActions` passe en silence, alors que le meme scalaire pose sur `AbilitiesToHide` (une
+  `List<T>` du meme BC, elle deserialisee) fait lever `initAndStart`. Notre chaine passant par
+  `deserializeFromJson(configJson, BattleConfiguration)`, le champ est donc INATTEIGNABLE : l'ecrire
+  exige un hook neuf dans `ctx.rpc.initAndStart` (`frida/hooks/features/launch.ts`), entre
+  `deserializeFromJson` et `buildRunner` -- donc une fenetre de reinject.
+  ⚠ **Qualifier l'interet AVANT de depenser la fenetre** : le pipeline vise
+  (`AddUnitMessage` -> `IdunBattle.Operations.AddUnitOperation$$Execute`) est DEJA celui de
+  `playerUnits[]`, expose depuis #477-r5 par `rl_duel build --place` / `--a-place`. L'apport propre
+  de `StartingActions` est de jouer **tout autre `IInputMessage`** que `AddUnit`, et de le jouer
+  **pendant** `SetupGameOperation`. cf. `docs/rl/case-477-harnais-de-test-natif.md` sec. 2c.

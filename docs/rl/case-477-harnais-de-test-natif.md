@@ -140,25 +140,125 @@ stat écrite **sans `StatModifier`**, donc invisible de `statModSources`, et **s
 `SetUnitStat` ne couvre d'ailleurs que 2 `StatType` (0 → attack, 5 → health) et **lève** sur tout
 autre.
 
-### 2c. Deux leviers que nous n'exploitons PAS, et qui sont plus fidèles
+### 2c. Les deux leviers de montage du `BattleConfiguration` — RÉSOLUS (#477-r5 / #477-r6)
 
-1. **`BattleConfiguration+0xc0` — les « starting messages » (`List<IInputMessage>`).**
-   `AddPredefinedUnits` n'applique pas ses `AddUnitMessage` : il les **empile dans ce champ**,
-   consommé au setup par `IdunBattle.Operations.SetupGameOperation$$ExecuteStartingMessages` →
-   `Core.Services.IOperationProcessor`. Poser un `AddUnitMessage(unitId, playerId, column, row)` fait
-   donc naître l'unité **par le pipeline d'opérations complet, à une position exacte choisie**, sans
-   dépendre du `SpawnPointSetConfiguration` ni du deployment HUD — depuis un BC patché sur disque.
-   C'est une réponse directe au besoin « placer une unité précise sur une tuile précise ».
-   ⚠ Le champ est **absent du seed BC JSON** : vérifier qu'il survit à notre chaîne de
-   sérialisation/normalisation avant de compter dessus.
-   ⚠ Le nom `GetAddUnitMessageForPredefinedUnit` dit vrai sur le **TYPE**, faux sur le **MOMENT** :
-   ce n'est pas envoyé à une bataille en cours.
+**La disposition est MESURÉE en live** (RPC `classFields`, build `rnca9r7q6c`), pas déduite d'un
+offset : `BattleConfiguration` = 35 champs d'instance, taille boxée 240. Les deux champs visés sont
+`UnitModifiers` **@0x50** (`Dictionary<string, List<UnitModifier>>`) et `StartingActions` **@0xc0**
+(`List<...>`) — le second s'appelle `StartingActions`, pas « starting messages ».
 
-2. **`BattleConfiguration+0x50` — `UnitModifiers`.** Le point d'entrée **natif** de modification de
-   stats avant match : `SetupGameOperation$$ApplyModifiers` dispatche vers les `ModifyUnit*` qui
-   produisent de vrais `StatModifier` (avec `CalculatePercentage` pour les modifs en %). C'est le
-   pendant PROPRE de `SetUnitStat`, et il vit dans le BC — donc dans notre voie de patch. Le seed
-   courant l'a à `{}`.
+#### `StartingActions` (@0xc0) — INATTEIGNABLE depuis le JSON, et c'est mesuré
+
+Le champ existe et fait bien ce que la RE disait : `SetupGameOperation$$ExecuteStartingMessages` le
+lit, empile ses éléments avec ceux dérivés du `SpawnPointSet`, enveloppe chacun dans un
+`IdunBattle.Messages.StartingActionContainerMessage` et les pousse dans l'`IOperationProcessor`.
+Il est appelé par `SetupGameOperation$$Execute`, **après** `AddPredefinedUnits` /
+`AddPredefinedMachines` / `AddBossUnit`.
+
+**Mais il n'est pas désérialisé.** Discriminant joué (`probe_477_bc_montage_leviers.py` étape 1) :
+poser un **scalaire** là où le champ déclare une `List<T>`.
+
+| champ posé à `42` | résultat |
+|---|---|
+| `StartingActions` | build **silencieux**, rc 0 |
+| `AbilitiesToHide` (témoin, `List<T>` réellement désérialisée) | **`initAndStart: system error`** |
+
+Le témoin est ce qui rend la mesure concluante : la désérialisation *sait* refuser un mauvais type,
+donc le silence sur `StartingActions` n'est pas de la tolérance — le champ est **ignoré**. Notre
+chaîne passant intégralement par `deserializeFromJson(configJson, BattleConfiguration)`
+(`ctx.rpc.initAndStart`), **ce levier n'est pas pilotable sans écrire dans l'objet natif après
+désérialisation** — donc sans un hook neuf, donc sans fenêtre de reinject. Résidu **#477-r9**.
+
+**Ce n'est pas une perte fonctionnelle** : le besoin « placer une unité sur une tuile exacte » est
+servi par la **même** voie native. `initAndStart` applique déjà, pour chaque entrée de
+`playerUnits[]`, un `AddUnitMessage(unitId, playerId, col, row)` → `IdunRunner$$Apply` →
+`IdunBattle.Operations.AddUnitOperation$$Execute`. `ExecuteStartingMessages` ne fait rien d'autre que
+pousser des messages dans ce même processeur : le pipeline traversé est identique, seul le **moment**
+diffère (pendant `SetupGameOperation` vs après `Initialize`). C'est cette voie qu'exposent
+`rl_duel build --place` / `--a-place`.
+
+#### `--place` / `--a-place` — placement à la tuile exacte, des DEUX côtés
+
+`--place` écrase `col`/`row` de l'entrée `playerUnits` correspondante. `--a-place` **sort** l'unité
+de `BC.PredefinedUnits` (que le natif place lui-même sur le `SpawnPointGroup` via
+`AddPredefinedUnits`) pour la poser à la main avec `playerId = 12`.
+
+**Le natif refuse par QUATRE gardes, toutes en RETOUR NUL SILENCIEUX** dans
+`AddUnitOperation$$Execute` — ni exception, ni event vers l'appelant :
+`AreTilesDisallowedAndLog` (tuile non marchable, ou `TileContentComponent$$IsFilled` sans
+`HasSteppableUnit` — c'est la seule qui *log*, et le runner de test a un `NullLogger`),
+`TilesAreReserved`, `TilesArePendingDrafting`, `TilesAreInFog`. D'où deux gardes côté harnais :
+
+- **avant** le build, ce qui se tranche sur la config seule — hors board (`Board.Width/Height`),
+  `Board.Tiles[col].Tile[row].ForceUnplayable`, deux unités sur la même tuile → refus rc 2, **aucun
+  runner construit** (un refus découvert après laisserait un runner sur le cap partagé) ;
+- **après** le build, `_verify_placements` relit `decisionView` et confronte la position obtenue,
+  clé `(visualId, team)` — sans la team, un placement joueur refusé se lirait comme honoré par
+  l'unité adverse homonyme. Écart → rc 3, *après* `_save_state` (sinon le runner serait orphelin).
+
+#### `--unit-modifier` — `UnitModifiers` (@0x50), le point d'entrée NATIF des stats
+
+`AddPredefinedUnits` fait `UnitModifiers.TryGetValue(GetUnitIdWithoutRarity(unitId))`, puis
+`ApplyModifiers(unit, modifiers)` **sur l'entité déjà créée** ; `AddBossUnit` fait de même. C'est le
+seul chemin de lecture pour une unité régulière ⇒ **le dictionnaire ne mord que sur les unités de
+`BC.PredefinedUnits`**, c'est-à-dire, dans notre montage, le roster **adverse** — et pas sur une
+unité sortie par `--a-place`. Les deux cas sont refusés en amont (rc 2), parce que l'échec natif est
+muet.
+
+Disposition de `IdunBattleLogic.Shared.UnitModifier` (48 boxé / 32 de champs, mesurée) :
+`ModificationType`@0x10 (`0=Stat, 1=AbilityVariable, 2=AbilityConstant,
+3=InitialSpawnAmountDecrease`), `Id`@0x18, `SubId`@0x20, `IsBuff`@0x28, `IsPercentage`@0x29,
+`Amount`@0x2c. ⚠ **`IsBuff` et `IsPercentage` ne sont jamais lus** par `ApplyModifiers` : la nature
+pourcentage/absolu est **câblée par `Id`** dans le natif.
+
+Les **huit** `Id` que `ApplyModifiers` dispatche — littéraux du binaire, chacun **confronté en live**
+(témoin vs modifié, mêmes unités, mêmes positions, board MC1_67, rank 17) :
+
+| `Id` | méthode native | stat `combatSnapshot` | `Amount` | mesure témoin → modifié |
+|---|---|---|---|---|
+| `dmg` | `ModifyUnitAttack` | `attack` | POURCENTAGE | 2609 → 2348 (`Amount` 10) |
+| `fixedArmor` | `ModifyUnitFixedArmor` | `fixedArmor` | POURCENTAGE | 3806 → 2501 (50) |
+| `movement` | `ModifyUnitMovement` | `movement` | ABSOLU | 4 → 3 (1) |
+| `hits` | `ModifyUnitHits` | `extraHits` | ABSOLU | 0 → −1 (1) |
+| `hp` | `ModifyUnitHp` | `health` | POURCENTAGE | cf. ci-dessous |
+| `blockChance` | `ModifyUnitBlockChance` | `blockChance` | ABSOLU | 50 → 40 (10) |
+| `critDmg` | `ModifyUnitCritDamage` | `critDamage` | POURCENTAGE | 300 → 0 (100) |
+| `critChance` | `ModifyUnitCritChance` | `critChance` | ABSOLU | 50 → 40 (10) |
+
+POURCENTAGE passe par `SetupGameOperation$$CalculatePercentage` (Fix64, `Round` puis `Ceiling`) ;
+ABSOLU vaut `StatComponent.CurrentValue − Amount`. **Tout autre `Id` tombe dans la branche de log de
+`ApplyModifiers` et n'applique RIEN** — c'est le mode de panne principal, d'où le refus au parse
+contre la liste fermée.
+
+⚠ **Seul `fixedArmor` a une base native différente de la valeur affichée** : le natif lit un champ du
+**composant** (`+0x48`) que `combatSnapshot` n'expose pas. Mesuré : affiché **3806**, base native
+**2609** — le `StatModifier` posé vaut `total = −2349` pour `Amount = 90`, soit exactement
+`−ceil(2609 × 90 %)`, et `residual = 0` (donc rien d'autre n'y contribue). Le probe exige de lui un
+**écart** et un mod **négatif**, jamais une valeur prédite depuis l'affichage — la prédire serait
+exactement la faute « ajuster un scalaire ».
+
+**C'est un vrai `StatModifier`, et c'est mesuré par différence** — le point qui sépare ce levier de
+`--unit-stat` (qui écrase un scalaire du template et ne laisse aucune trace) :
+
+| bras (même unité, même seed, même board) | `statModSources.fixedArmor` | dégât infligé par `ultraTitus` |
+|---|---|---|
+| témoin | **aucun** | **1 963** |
+| `--unit-modifier orksWarboss:fixedArmor:90` | `total −2349`, `bySource[0].source = 77` | **8 882** |
+
+Le second montage combine les deux leviers : `--place ultraTitus:6,7` amène le mêlée au contact au
+tour 1 (la géométrie de spawn ne le permettait pas), `--unit-modifier` retire l'armure. C'est
+l'étape 3 de `probe_477_bc_montage_leviers.py`.
+
+**Effet BINAIRE, seul attendu calculable sans témoin** :
+`SetupGameOperation$$IsPredefinedUnitDisabledByModifiers` teste littéralement
+`m.Id == "hp" && m.Amount > 99` (et, sur l'autre prédicat,
+`m.ModificationType == InitialSpawnAmountDecrease && numAlreadyDisabled < m.Amount`) — l'unité
+**n'est alors pas déployée du tout**. Mesuré : `orksKillaKan:hp:111` → présent au témoin, absent au
+bras modifié. C'est aussi le premier discriminant qui a prouvé que le dictionnaire **arrive** au
+natif, avant même de connaître les littéraux.
+
+⚠ Le nom `GetAddUnitMessageForPredefinedUnit` dit vrai sur le **TYPE**, faux sur le **MOMENT** : ce
+n'est pas envoyé à une bataille en cours.
 
 ⚠ **Indéterminé nommé** : le lien `<Visit>g__AddUnit|0` → `AddUnitOperation$$Execute` →
 `UnitFactory$$Build` n'est **pas lu** (`UnitFactory$$Build` n'a aucune xref d'appel — invoqué par
@@ -348,13 +448,19 @@ armée** ; ainsi que tout le mécanisme `ReplayValidator` / output stream / RNG 
   ability, écrite par les devs.
 - **#477-r4** — Armer `validate: true` sur un `AutomaticBattleRunner` instancié par nos soins, et
   voir si `ValidationResult.IsValid` détecte une divergence sur une bataille montée par nous.
-- **#477-r5** — **Levier de montage** : exploiter `BattleConfiguration+0xc0` (starting messages) pour
-  placer une unité sur une tuile exacte via le pipeline d'opérations, au lieu de subir la géométrie
-  de spawn. Prérequis : vérifier que le champ survit à `buildNormalizedBC` et à notre chaîne de
-  sérialisation (il est **absent du seed BC JSON**).
-- **#477-r6** — **Levier de stats** : utiliser `BattleConfiguration+0x50` (`UnitModifiers`,
-  consommé par `SetupGameOperation$$ApplyModifiers`) — le pendant PROPRE de `--unit-stat`, qui
-  produit de vrais `StatModifier` visibles de `statModSources`, au lieu d'un scalaire patché.
+- ~~**#477-r5**~~ / ~~**#477-r6**~~ — **RÉSOLUS**, cf. § 2c. `UnitModifiers` (@0x50) est porté
+  (`rl_duel build --unit-modifier`, 8 `Id` mesurés) ; le placement à la tuile exacte est porté par
+  `--place` / `--a-place`. `StartingActions` (@0xc0) est **mesuré INATTEIGNABLE** depuis le JSON →
+  #477-r9. Probe : `probe_477_bc_montage_leviers.py`.
+- **#477-r9** — `BattleConfiguration.StartingActions` (@0xc0) est **ignoré par la désérialisation
+  Newtonsoft** (mesuré, avec témoin). L'atteindre exige d'**écrire dans l'objet natif après
+  `deserializeFromJson`** — donc un capteur/hook neuf dans `frida/hooks/`, donc une fenêtre de
+  reinject. Ancrage : `ctx.rpc.initAndStart` (`frida/hooks/features/launch.ts`), juste après
+  `deserializeFromJson(args.configJson, battleConfigClass)`, avant `buildRunner`. **Intérêt réel à
+  qualifier avant de dépenser la fenêtre** : le pipeline traversé est le même que celui de
+  `playerUnits[]` (`AddUnitMessage` → `AddUnitOperation$$Execute`), déjà exposé par `--place` /
+  `--a-place`. Ce que `StartingActions` apporterait en plus : **tout autre message d'entrée** que
+  `AddUnit` (le champ est une `List<IInputMessage>`), joué **pendant** `SetupGameOperation`.
 - **#477-r7** — Trancher `<Visit>g__AddUnit|0` → `AddUnitOperation$$Execute` →
   `UnitFactory$$Build` (invoqué par vtable, aucune xref d'appel).
 - **#477-r8** — **Outillage** : une table `fields.tsv` (`classe` → `offset` → `nom de champ`) dans
