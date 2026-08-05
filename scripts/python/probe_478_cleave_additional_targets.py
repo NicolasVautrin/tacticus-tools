@@ -469,8 +469,14 @@ def stage(rpc, rid: int, lay: dict, elev: dict) -> dict:
     for v in lay["C"]:
         at = rpc("abilityTargets", {"runnerId": rid, "casterId": uid[v],
                                     "abilityType": want_ab[v]}, 120)
-        abs_ = ((at.get("units") or [{}])[0].get("abilities") or [{}])[0] if isinstance(at, dict) else {}
-        fh = {t.get("targetId") for t in (abs_.get("fromHere") or [])}
+        # ⚠ la reponse liste TOUTES les unites controlees : on RETROUVE la ligne du porteur et
+        # l'entree de SON ability, jamais `units[0].abilities[0]` -- avec trois porteurs au
+        # montage, l'index 0 designe un autre caster et la garde accuserait le mauvais.
+        row = next((u for u in ((at.get("units") or []) if isinstance(at, dict) else [])
+                    if u.get("unitId") == uid[v]), {})
+        entry = next((a for a in (row.get("abilities") or [])
+                      if int(a.get("abilityId") or -1) == int(want_ab[v])), {})
+        fh = {t.get("targetId") for t in (entry.get("fromHere") or [])}
         if uid[TARGET] not in fh:
             raise MontageError(
                 f"cible primaire INCIBLABLE : {v} ne peut pas frapper {TARGET} "

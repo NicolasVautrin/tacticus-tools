@@ -231,10 +231,14 @@ def test_ce_ancrer_boltstorm_sur_un_owner_nul_fait_diverger(case_boltstorm, monk
         def select(self, ctx):
             return getattr(ctx, "owner", None)
 
-    monkeypatch.setattr(
-        AT, "boltstorm_additional_targets",
+    # ⚠ c'est `entry.build` qu'il faut muter, PAS le nom de module : `NORMAL_ATTACK_CLEAVES` capture
+    # la fonction A LA CONSTRUCTION du dict, donc un `setattr` sur le module ne l'atteint pas -- une
+    # contre-epreuve qui viserait le module serait MUETTE (verifie : elle ne deplacait rien).
+    _mutate(monkeypatch, Boltstorm={"build": (
         lambda wr: And(SurroundingEnemies(_NullOwner(), Const(int(wr)), reference=_NullOwner()),
-                       Unobscured(Enemies(AdjacentUnits(Target(), Const(1))), _NullOwner())))
+                       Unobscured(Enemies(AdjacentUnits(Target(), Const(1))), _NullOwner())))})
+    assert AT.NORMAL_ATTACK_CLEAVES["Boltstorm"].build is not AT.boltstorm_additional_targets, (
+        "la mutation n'a pas remplace le constructeur d'arbre -- la contre-epreuve ne teste rien")
     r = _row(case_boltstorm, "templAggressor")
     got = P478.port_only(r["bundle"])
     assert not got["addts"] and r["nat_addts"], (
