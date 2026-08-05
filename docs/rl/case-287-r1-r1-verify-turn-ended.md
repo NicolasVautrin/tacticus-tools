@@ -210,4 +210,32 @@ retour qui porte tout (`ChangeTurn` + `StartTurn` -> `RemoveTurnFlags`, puis, da
    par `_can_act` (§3), mais la fonction `has_action_available` appelee seule le signale par `None` ;
 6. `turn.<+0x24> != 1` (« la bataille est en cours ») : sans substrat offline, un `State` de runner
    etant par construction une bataille en cours ;
-7. l'amplitude n'est mesuree que sur **un** couple (board, roster) — cf. §8 pour ce qui a ete joue.
+7. l'amplitude n'est mesuree que sur les trois configurations du §8 — pas sur une bataille entiere.
+
+## 8. Generalisation, et le COUT
+
+Le probe prend `--board` / `--seed` / `--p-units` / `--a-units` / `--walker` : les trois axes qui
+pourraient faire passer un accord pour une propriete alors qu'il n'est qu'une coincidence de
+montage (geometrie, roster, unite mesuree) varient.
+
+| board / seed / roster | walker | POSE (live = port) | RETRAIT (live = port) | abstentions |
+|---|---|---|---|---|
+| `C1_74` / 34117 / ultra vs thous | `ultraCalgar` | `[0, 1, 4]` | `[]` | 0 |
+| `MC1_67` / 28701 / ultra vs thous | `ultraTitus` | `[0, 1, 4, 19]` | `[19]` | 0 |
+| `C1_74` / 91117 / world vs ultra | `worldJakhal` | `[0, 1, 4]` | `[]` | 0 |
+
+Le 2e bras porte un temoin gratuit : `UnitFlag.PreventOverkill` (19) est present AVANT et APRES —
+le retrait est donc CIBLE sur `NoActionAvailable`, il ne vide pas le jeu de flags.
+
+**COUT.** La voie balaye les unites du joueur courant a CHAQUE message, et chaque unite non gatee
+paie un pathfinding : c'est le seul reproche serieux qu'on puisse lui faire, donc il est CHIFFRE
+(`ms_verify` / `ms_apply` du probe, la voie seule contre le message complet) :
+
+| configuration | `ms_apply` | `ms_verify` | part |
+|---|---|---|---|
+| `C1_74` / 34117 | 65 - 134 | 0,2 - 0,6 | **< 1 %** |
+| `C1_74` / 91117 | 162 - 385 | 0,5 | **< 1 %** |
+
+La raison est structurelle, pas une chance : `HasTilesToMoveTo` teste `Has(UnitFlag.Moved)` et
+`TurnEnded()` AVANT tout pathfinding, et ces deux gates coupent la grande majorite des unites d'un
+tour en cours.
