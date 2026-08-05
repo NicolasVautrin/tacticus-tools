@@ -100,19 +100,46 @@ def _enclosing(tree, lineno):
     return None if best is None else best.name
 
 
-def lecteurs_du_port(racine: Path) -> dict:
-    """Les lecteurs EXECUTABLES du bit 15 dans `engine/**`, derives de l'AST.
+def _role_occurrence(chaine) -> str:
+    """ECRITURE ou LECTURE, decide par la CHAINE DES PARENTS de l'occurrence.
 
-    Un COMMENTAIRE ou une docstring qui cite le bit n'est PAS un lecteur : le balayage ne regarde
-    que les `Attribute`/`Name` de l'arbre, jamais le texte. C'est la difference entre << le bit est
-    mentionne >> (etat 3) et << le bit est lu >> (etats 1 ou 2)."""
+    C'EST LA DISTINCTION QUI TRANCHE LES TROIS ETATS, et un balayage qui l'ignore rend un verdict
+    FAUX : un `TARGETING_OPTIONS = TargetingOptions(rules=... | TR.CasterIsPossibleTarget, ...)`
+    **DECLARE** le bit -- c'est un masque arme, l'etat (3) << enumere seulement >>. Il ne le LIT pas.
+    Seul un test (`options.has(TR.X)`, `rules & int(TR.X)`, `_bit(rules, TR.X)`) est un LECTEUR, et
+    lui seul peut etre dans l'etat (1) ou (2).
+
+    ECRITURE = l'occurrence alimente une construction de masque : argument nomme `rules=`, cible
+    d'une assignation `TARGETING_OPTIONS`/`rules`, ou membre de la definition de l'enum."""
+    for p in chaine:
+        if isinstance(p, ast.keyword) and p.arg in ("rules", "rules_override"):
+            return "ECRITURE"
+        if isinstance(p, ast.Assign):
+            for t in p.targets:
+                nom = getattr(t, "id", None) or getattr(t, "attr", None)
+                if nom in ("TARGETING_OPTIONS", "rules", "CASTER_ADDED"):
+                    return "ECRITURE"
+        if isinstance(p, ast.ClassDef) and p.name == "TargetingRule":
+            return "ECRITURE"           # la DEFINITION du membre d'enum
+    return "LECTURE"
+
+
+def lecteurs_du_port(racine: Path) -> dict:
+    """Les occurrences EXECUTABLES du bit 15 dans `engine/**`, derivees de l'AST et VENTILEES en
+    ECRITURE (le masque le declare) / LECTURE (un chemin le consomme).
+
+    Un COMMENTAIRE ou une docstring qui cite le bit n'apparait pas : le balayage ne regarde que les
+    `Attribute`/`Name` de l'arbre, jamais le texte."""
     out: dict = {}
     for f in sorted(racine.rglob("*.py")):
         try:
-            src = f.read_text(encoding="utf-8")
-            tree = ast.parse(src)
+            tree = ast.parse(f.read_text(encoding="utf-8"))
         except (OSError, SyntaxError):
             continue
+        parents: dict = {}
+        for p in ast.walk(tree):
+            for c in ast.iter_child_nodes(p):
+                parents[id(c)] = p
         for node in ast.walk(tree):
             nom = None
             if isinstance(node, ast.Attribute) and node.attr in JETONS:
@@ -121,20 +148,53 @@ def lecteurs_du_port(racine: Path) -> dict:
                 nom = node.id
             if nom is None:
                 continue
+            chaine, cur = [], node
+            while id(cur) in parents:
+                cur = parents[id(cur)]
+                chaine.append(cur)
             fn = _enclosing(tree, node.lineno)
             cle = "%s::%s" % (f.relative_to(racine.parent).as_posix(), fn or "<module>")
-            out.setdefault(cle, []).append(nom)
-    return {k: sorted(set(v)) for k, v in sorted(out.items())}
+            out.setdefault(cle, set()).add("%s/%s" % (_role_occurrence(chaine), nom))
+    return {k: sorted(v) for k, v in sorted(out.items())}
 
 
-def gardes_qui_mordent(racine_tests: Path) -> dict:
-    """Les fichiers de TEST qui nomment un lecteur du bit -- et sur quelle FONCTION du port.
+def fonctions_lectrices(lect: dict) -> list:
+    """Les fonctions du port qui LISENT le bit -- DERIVEES du balayage, jamais saisies."""
+    return sorted({cle.rsplit("::", 1)[-1] for cle, roles in lect.items()
+                   if any(r.startswith("LECTURE/") for r in roles)})
 
-    Un fichier qui importe `caster_is_valid_target` / `caster_is_possible_target` /
-    `tiles_in_range_zone_contains` EPROUVE le lecteur correspondant. Derive de l'AST, pas du texte."""
-    cibles = ("caster_is_valid_target", "caster_is_possible_target",
-              "tiles_in_range_zone_contains", "can_target_caster")
+
+def consommateurs(racine: Path, lectrices) -> dict:
+    """Les fonctions du port qui APPELLENT une lectrice -- la cloture d'appel a UN niveau.
+
+    Elle compte : une garde qui exerce un consommateur exerce le lecteur qu'il appelle. Sans elle,
+    `caster_is_valid_target` (qui DELEGUE a `caster_is_possible_target`) serait compte << absent >>,
+    et son verdict serait faux."""
+    lectrices = set(lectrices)
     out: dict = {}
+    for f in sorted(racine.rglob("*.py")):
+        try:
+            tree = ast.parse(f.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            fn = getattr(getattr(node, "func", None), "id", None) or \
+                 getattr(getattr(node, "func", None), "attr", None)
+            if isinstance(node, ast.Call) and fn in lectrices:
+                appelant = _enclosing(tree, node.lineno)
+                if appelant and appelant not in lectrices:
+                    out.setdefault(appelant, set()).add(fn)
+    return {k: sorted(v) for k, v in sorted(out.items())}
+
+
+def gardes_qui_mordent(racine_tests: Path, cibles) -> dict:
+    """Pour chaque fonction lectrice, les fichiers de TEST qui la nomment, ventiles LIVE / OFFLINE.
+
+    C'EST LA MESURE QUI SEPARE (1) DE (2). Un lecteur nomme par une garde LIVE est CONFRONTE au
+    natif ; nomme seulement par une garde offline, il est PORTE MAIS JAMAIS EPROUVE contre le jeu ;
+    nomme par aucune, il n'est pas eprouve du tout. Derive de l'AST, jamais du texte."""
+    cibles = set(cibles)
+    out: dict = {c: {"live": [], "offline": []} for c in cibles}
     for f in sorted(racine_tests.rglob("test_*.py")):
         try:
             tree = ast.parse(f.read_text(encoding="utf-8"))
@@ -146,9 +206,32 @@ def gardes_qui_mordent(racine_tests: Path) -> dict:
                 vus.add(node.attr)
             elif isinstance(node, ast.Name) and node.id in cibles:
                 vus.add(node.id)
-        if vus:
-            out[f.name] = sorted(vus)
+        for c in vus:
+            out[c]["live" if "_live" in f.name else "offline"].append(f.name)
     return out
+
+
+def verdict_par_lecteur(lect: dict, cons: dict, gard: dict) -> list:
+    """Les TROIS ETATS, par fonction lectrice -- derives des trois balayages ci-dessus.
+
+    Une garde qui nomme un CONSOMMATEUR compte pour le lecteur qu'il appelle : c'est la difference
+    entre << ce lecteur n'est pas teste >> et << il l'est, par son appelant >>."""
+    lignes = []
+    for fn in fonctions_lectrices(lect):
+        via = [c for c, appeles in cons.items() if fn in appeles]
+        live = list((gard.get(fn) or {}).get("live") or [])
+        off = list((gard.get(fn) or {}).get("offline") or [])
+        for c in via:
+            live += list((gard.get(c) or {}).get("live") or [])
+            off += list((gard.get(c) or {}).get("offline") or [])
+        if live:
+            etat, ou = "(1) PORTE ET CONFRONTE", ",".join(sorted(set(live)))
+        elif off:
+            etat, ou = "(2) PORTE, garde OFFLINE seule", ",".join(sorted(set(off)))
+        else:
+            etat, ou = "(2) PORTE, JAMAIS EPROUVE", "-"
+        lignes.append((fn, etat, ou, ",".join(sorted(via)) or "-"))
+    return lignes
 
 
 # ------------------------------------------------------------------------------------------------
@@ -332,13 +415,18 @@ def main(argv=None) -> int:
 
     if args.step in ("offline", "lecteurs"):
         lect = lecteurs_du_port(PYDIR / "engine")
-        gard = gardes_qui_mordent(PYDIR / "tests")
-        print("== LECTEURS EXECUTABLES DU BIT 15 DANS LE PORT (AST) ==")
+        lectrices = fonctions_lectrices(lect)
+        cons = consommateurs(PYDIR / "engine", lectrices)
+        gard = gardes_qui_mordent(PYDIR / "tests", set(lectrices) | set(cons))
+        ecr = [k for k, v in lect.items() if all(r.startswith("ECRITURE/") for r in v)]
+        print("== OCCURRENCES DU BIT 15 DANS `engine/**` (AST), ventilees ==")
         for k, v in lect.items():
-            print("   %-72s %s" % (k, ",".join(v)))
-        print("== GARDES QUI NOMMENT UN LECTEUR ==")
-        for k, v in gard.items():
-            print("   %-56s %s" % (k, ",".join(v)))
+            print("   %-70s %s" % (k, ",".join(v)))
+        print("   -> %d sites DECLARENT le masque (etat 3 : enumere), %d le LISENT"
+              % (len(ecr), len(lect) - len(ecr)))
+        print("== VERDICT PAR FONCTION LECTRICE (garde via consommateur incluse) ==")
+        for fn, etat, ou, via in verdict_par_lecteur(lect, cons, gard):
+            print("   %-28s %-32s via=%-26s %s" % (fn, etat, via, ou))
         if args.step == "lecteurs":
             return 0
 
@@ -497,8 +585,10 @@ def live(board) -> int:
     finally:
         _dispose(sid, rid2)
 
-    print(json.dumps({"board": board, "distance": d,
-                      "A_spawn_nu": degenere, "B_isole": isole, "B_mutant": mutant}, indent=1))
+    brut = {"board": board, "distance": d,
+            "A_spawn_nu": degenere, "B_isole": isole, "B_mutant": mutant}
+    print(json.dumps(brut, indent=1))
+    print("[RAW] " + json.dumps(brut))
 
     a1, a2 = degenere.get(PAIR_CARRIER_WITH), degenere.get(PAIR_CARRIER_WITHOUT)
     b1, b2 = isole.get(PAIR_CARRIER_WITH), isole.get(PAIR_CARRIER_WITHOUT)
