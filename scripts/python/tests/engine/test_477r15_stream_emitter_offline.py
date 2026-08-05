@@ -554,6 +554,53 @@ def test_MaxMembers_et_InitAliveMembers_sont_DEUX_tags_distincts():
         full_state=replace(ETAT_49, max_members=5, init_alive_members=4)))) > 0
 
 
+def test_MaxHealth_MaxArmor_et_leurs_bruts_sont_QUATRE_tags_distincts():
+    """#477-r15-r7. Meme forme que le test des membres ci-dessus, sur les DEUX autres
+    `IdunBattle.Entities.Components.FillUpStatComponent` de l'unite. Chaque composant est lu par
+    DEUX accesseurs differents, et le natif en fait DEUX tags :
+
+        Tag=UnitStats_MaxHealth          (9)  <- `get_CurrentMaximumValue()`   (case 2)
+        Tag=UnitStats_InitRemainingHealth (2) <- champ BRUT `RemainingValue(+0x18)` (case 0)
+        Tag=UnitStats_MaxArmor          (13)  <- `get_CurrentMaximumValue()`   (case 2)
+        Tag=UnitStats_InitRemainingArmor (3)  <- champ BRUT `RemainingValue(+0x18)` (case 0)
+
+    ⚠ AU DEPLOIEMENT ILS COINCIDENT (rien n'a ete perdu ni modifie), donc le flux ne les separe
+    pas -- regime DEGENERE, accord vide de sens. Ce test etablit ce que le regime ne peut pas
+    montrer : que le PORT, lui, les distingue. La discrimination des CANAUX se mesure ailleurs
+    (`probe_477r15r7_max_discrimine.py`).
+
+    ⚠ ET IL Y A UN SECOND DEGENERESCENCE, PROPRE A L'ARMURE : sur `thousTzaangor` elle vaut ZERO
+    des deux cotes. Deux zeros sont egaux quelle que soit la lecture. Le test l'ASSERTE au lieu de
+    le subir -- si un futur corpus portait une armure non nulle, cette ligne tomberait et
+    signalerait que le regime a change."""
+    from dataclasses import replace
+    tags = get_full_state_update_tags(ETAT_49)
+    assert tags[TagKey.UnitStats_MaxHealth] == tags[TagKey.UnitStats_InitRemainingHealth] == 6525
+    assert tags[TagKey.UnitStats_MaxArmor] == tags[TagKey.UnitStats_InitRemainingArmor] == 0
+    assert ETAT_49.max_armor == 0, ("l'armure du corpus de reference est NULLE : l'egalite du "
+                                    "flux sur `UnitStats_MaxArmor` compare deux zeros")
+    ordinaux = {int(TagKey.UnitStats_MaxHealth), int(TagKey.UnitStats_InitRemainingHealth),
+                int(TagKey.UnitStats_MaxArmor), int(TagKey.UnitStats_InitRemainingArmor)}
+    assert len(ordinaux) == 4, "les quatre tags doivent etre quatre ordinaux distincts"
+    # Un maximum modifie (ce que fait `TwistedScience` sur la sante) : le restant ne bouge pas.
+    use = get_full_state_update_tags(replace(ETAT_49, max_health=8708, max_armor=350))
+    assert use[TagKey.UnitStats_MaxHealth] == 8708
+    assert use[TagKey.UnitStats_InitRemainingHealth] == 6525
+    assert use[TagKey.UnitStats_MaxArmor] == 350
+    assert use[TagKey.UnitStats_InitRemainingArmor] == 0
+
+
+@pytest.mark.parametrize("champ,valeur", [("max_health", 8708), ("max_armor", 350)])
+def test_chaque_maximum_est_SENSIBLE_a_la_valeur_recue(champ: str, valeur: int):
+    """#477-r15-r7, contre-epreuve. Chacun des deux maximums doit faire rougir INDIVIDUELLEMENT.
+
+    Sans ce bras, brancher les capteurs n'aurait rien prouve : un tag insensible resterait vert
+    avec ou sans mesure, et l'egalite du corpus se lirait comme une confirmation."""
+    from dataclasses import replace
+    assert _nouvelles(emettre(_setup_avec(
+        full_state=replace(ETAT_49, **{champ: valeur})))) > 0
+
+
 def test_l_etat_NEUF_d_une_active_est_celui_qu_ecrit_le_ctor_natif():
     """#477-r15-r6. Les trois tags d'etat de l'entree d'ATTAQUE NORMALE etaient poses aux
     defauts du port, faute de canal (`ActiveAbilityComponent$$GetActives` la filtre, donc

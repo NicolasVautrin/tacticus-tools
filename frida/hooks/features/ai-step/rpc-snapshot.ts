@@ -90,6 +90,44 @@ const COMBAT_STAT_IDS: Record<string, number> = {
     range: 2,
 };
 
+// --- #477-r15-r7 — les `StatType` lus UNIQUEMENT en `StatPart.Maximum`, HORS de la table ------
+//
+// POURQUOI UNE SECONDE TABLE, ET PAS UNE ENTRÉE DE PLUS DANS `COMBAT_STAT_IDS`. Celle-ci n'est
+// pas seulement la table de `combatSnapshot` : elle est publiée telle quelle sous `statTypes`, et
+// `engine/entities/stats.py::seed_unit_stats` l'ITÈRE pour seeder un `StatComponent` par entrée
+// dans tout `UnitContext` reconstruit d'une capture live. Or `StatType.Armor` (4) n'est PAS un
+// `StatComponent` côté natif — c'est un `IdunBattle.Entities.Components.FillUpStatComponent`,
+// comme la santé et les membres (`engine/entities/stats.py::_FILLUP_STATS`). L'ajouter à
+// `COMBAT_STAT_IDS` ferait donc matérialiser un composant de la MAUVAISE famille, en plus de
+// publier un `stats.armor` que personne ne lit. La table séparée n'alimente QUE les buffers d'id
+// de `getStatP` — elle ne sort pas du RPC.
+//
+// CE QUE MESURE `armor` ICI, ET POURQUOI C'EST LE MIRROR EXACT DU TAG. La surcharge
+// `IdunBattle.Entities.UnitExtensions$$GetFullStateUpdateTags(unit)` émet
+// `Tag=UnitStats_MaxArmor` (13) depuis
+// `IdunBattle.Entities.Components.FillUpStatComponent$$get_CurrentMaximumValue()` du composant
+// d'ARMURE. `IdunBattle.Entities.UnitExtensions$$GetStat` n'a PAS de switch écrit : son `case 4`
+// passe par une jumptable, dont l'entrée charge le MÊME `Il2CppClass*` de `T` et le MÊME
+// `MethodInfo*` de `GetComponent<T>` que la ligne du tag — identité de pointeur relue sur les
+// deux décompilés, pas déduite du nom — puis appelle
+// `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`, dont le `case 2` (Maximum)
+// EST `get_CurrentMaximumValue()`. `GetStat(unit, StatType.Armor, StatPart.Maximum)` est donc
+// littéralement l'appel du tag.
+//
+// ⚠ `IdunBattle.Entities.UnitExtensions$$GetStatComponent`, LUI, n'a aucun `case 4` — ni `case 5`
+// (santé), ni `case 0x14` (membres) : les trois « fill-up » en sont absents. Conclure de cette
+// absence que l'armure n'a pas de canal est le piège exact que cette tranche a levé : `GetStat`
+// ne passe PAS par `GetStatComponent`, il porte sa PROPRE jumptable, et celle-ci couvre les
+// trois. C'est la même voie que `healthMax` (#45b') et `numberOfMembersMax` (#477-r15-r5)
+// empruntent déjà.
+//
+// ⚠ Comme `range`, `StatType.Armor` est dans la 2ᵉ liste du switch de garde de `GetStat`, celle
+// qui exige `entity.Type == EntityType.Unit` : sur une Machine of War l'appel rend un pointeur
+// nul, publié en `null` = PAS MESURÉ (jamais rabattu sur `0`).
+const STAT_IDS_MAX_SEUL: Record<string, number> = {
+    armor: 4,
+};
+
 // --- UnitFlag PAR UNITÉ (O5) — mirror de `IdunBattle.Entities.UnitExtensions$$HasFlag` ---
 //
 // `IdunBattle.Entities.Components.UnitFlagsComponent` range ses flags dans un
@@ -377,6 +415,12 @@ export function registerViewSnapshot(ctx: Ctx): void {
         const idBufs: Record<string, NativePointer> = {};
         for (const k of Object.keys(STAT_IDS)) {
             const buf = Memory.alloc(4); buf.writeS32(STAT_IDS[k]); idBufs[k] = buf;
+        }
+        // #477-r15-r7 : les ids lus UNIQUEMENT en `StatPart.Maximum` reçoivent leur buffer ici,
+        // et NULLE PART ailleurs — ni dans la boucle `stats`, ni dans `statTypes` (cf. le
+        // commentaire de `STAT_IDS_MAX_SEUL` : `seed_unit_stats` itère la table publiée).
+        for (const k of Object.keys(STAT_IDS_MAX_SEUL)) {
+            const buf = Memory.alloc(4); buf.writeS32(STAT_IDS_MAX_SEUL[k]); idBufs[k] = buf;
         }
         const partBuf = Memory.alloc(4); partBuf.writeS32(0);        // StatPart.Current
         const partBufInit = Memory.alloc(4); partBufInit.writeS32(3); // StatPart.Initial (=base)
@@ -718,6 +762,23 @@ export function registerViewSnapshot(ctx: Ctx): void {
             // le maximum non) ou qu'une modification de stat porte sur `+0x28`.
             const numberOfMembersMax = wants("stats")
                 ? getStatP(e, "numberOfMembers", partBufMax) : null;
+            // #477-r15-r7 — le MAXIMUM d'ARMURE, dernière grandeur du groupe `System_GameSetup`
+            // que l'émetteur de flux COPIAIT de l'oracle. Exactement la même paire de lectures que
+            // les membres ci-dessus, sur le troisième `FillUpStatComponent` :
+            //
+            //   Tag=UnitStats_InitRemainingArmor (3)  <- champ BRUT `RemainingValue(+0x18)`
+            //   Tag=UnitStats_MaxArmor          (13)  <- `FillUpStatComponent$$get_CurrentMaximumValue()`
+            //
+            // Le port lisait `observeBattle.armorMax`, qui est le champ BRUT `MaximumValue(+0x14)`
+            // (`game/match-state.ts::projectSquadStats`) — une TROISIÈME lecture, ni l'une ni
+            // l'autre des deux ci-dessus. Elle coïncide avec le tag au déploiement PAR
+            // CONSTRUCTION, parce que `get_CurrentMaximumValue()` vaut
+            // `MaximumValue(+0x14) + clamp(Modification(+0x28), -Initial(+0x10), IntMax - Initial)`
+            // (ou l'override de `ValueOverride$$GetOverrideValueWithModification(+0x38)`), et que
+            // ces deux termes sont nuls tant qu'aucune opération n'est intercalée. Un accord dans
+            // ce régime ne prouve donc rien — c'est ce que `probe_477r15r7_max_discrimine.py`
+            // mesure séparément.
+            const armorMax = wants("stats") ? getStatP(e, "armor", partBufMax) : null;
             // AbilityState PER-ABILITY (#100) : {level, multiplier} de chaque entrée ActiveAbility
             // (_abilityState @0x4c, Override @0x58 prime — cf. internals.readAbilityState). C'est le
             // couple que le natif passe au playbook (5e arg MakeDamagePredictions) et qui indexe les
@@ -737,7 +798,10 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 // irresolue), a distinguer de `0` = a fini zero tour.
                 turnsFinished: wants("turnsFinished")
                     ? invokeInt(getTurnsFinishedMi, [e]) : null,
-                stats, statDelta, healthMax, numberOfMembersMax,
+                // ⚠ `armorMax` ICI est `StatPart.Maximum` (l'accesseur). `observeBattle` publie un
+                // champ du MÊME NOM qui est le champ BRUT `MaximumValue(+0x14)` : ce sont DEUX RPC
+                // et DEUX lectures distinctes, et c'est justement leur écart qui est mesuré.
+                stats, statDelta, healthMax, numberOfMembersMax, armorMax,
                 // O5 : `UnitFlagsComponent` de l'unité, projeté en ids `UnitFlag` posés. Sans lui,
                 // la face DÉCISION offline n'avait AUCUN accès live aux flags (`PreventOverkill`
                 // =19, `Moved` =0, `Untargetable` =17, `DisableTriggers` =18…) et devait les
