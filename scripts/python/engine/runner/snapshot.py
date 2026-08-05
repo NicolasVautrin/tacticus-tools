@@ -619,10 +619,26 @@ def _load_unit_flags(state: State, snapshot: dict) -> None:
     2026-08-05 (`probe_429r1r3r1_message_gate_perimeter.py --volet fled`) : garde `astraSmnGuardsman`
     hp 1000/1000, enfui -> le natif refuse le message (0 evenement, temoin a 2), le port la
     reconstruisait en unite VIVANTE INTACTE et la frappait pour 10375. `unitsNotAlive` porte
-    desormais `entityId` + `unitFlags` pour ces entites-la. TRI-ETAT : champ ABSENT (bundle Frida
-    anterieur) = non mesure -> on ne pose rien, comportement inchange."""
-    for su in ((snapshot.get("units") or [])
-               + (snapshot.get("unitsNotAlive") or [])):
+    desormais `entityId` + `unitFlags` pour ces entites-la.
+
+    #429-r1-r3-r1-r1 -- LE TRI-ETAT EST ECRIT, PAS SOUS-ENTENDU. `snapshot.get("unitsNotAlive")
+    or []` rend la MEME chose pour « lu, aucune entite non vivante » et pour « le bundle Frida
+    charge est anterieur au correctif » : c'est exactement le rabattement `null -> []` qui a laisse
+    `UnitFlag.Fled` hors d'atteinte du port pendant que son gate etait pourtant arme. La passe
+    ECRIT donc son etat dans `state.unit_flags_seed` (`units_not_alive_channel` = `"lu"` / `"muet"`
+    / `"absent"`), et tout consommateur qui veut conclure « aucune fuite » doit lire ce champ
+    d'abord. Le comportement, lui, reste retro-compatible : champ absent -> on ne pose rien."""
+    rows = list(snapshot.get("units") or [])
+    _ABSENT = object()
+    na = snapshot.get("unitsNotAlive", _ABSENT)
+    if na is _ABSENT:
+        canal, na_rows = "absent", []
+    elif na is None:
+        canal, na_rows = "muet", []
+    else:
+        canal, na_rows = "lu", list(na)
+    poses_units = poses_na = 0
+    for idx, su in enumerate(rows + na_rows):
         eid = su.get("entityId")
         flags = su.get("unitFlags")
         if eid is None or not isinstance(flags, list) or not flags:
@@ -638,6 +654,16 @@ def _load_unit_flags(state: State, snapshot: dict) -> None:
                 fl.add(int(f))
             except (TypeError, ValueError):
                 continue
+        if idx < len(rows):
+            poses_units += 1
+        else:
+            poses_na += 1
+    state.unit_flags_seed = {
+        "units": poses_units,
+        # `None` (jamais `0`) des que le canal n'a PAS ete mesure -- meme regle que `host_inputs.py`.
+        "units_not_alive": poses_na if canal == "lu" else None,
+        "units_not_alive_channel": canal,
+    }
 
 
 def _load_unit_turn_state(state: State, snapshot: dict) -> None:

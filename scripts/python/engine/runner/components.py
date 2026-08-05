@@ -774,6 +774,10 @@ class UnitFlagsComponent(Component):
     ACTIVE_ABILITY_USED = 2     # UnitFlag.ActiveAbilityUsed
     TURN_FINISHED = 3           # UnitFlag.TurnFinished
     NO_ACTION_AVAILABLE = 4     # UnitFlag.NoActionAvailable
+    DEAD = 6                    # UnitFlag.Dead (`enums.tsv` : `6=Dead`) — la PREMIERE branche de
+                                # `IdunBattle.Entities.UnitExtensions$$IsAlive`
+                                # (`UnitFlagsComponent$$Has(flags, 6)` -> faux immediat), lue AVANT
+                                # l'appartenance au pool et AVANT les PV. Cf. `unit_extensions_is_alive`.
     FLED = 9                    # UnitFlag.Fled — « a fui » ce tour
     OVERKILLED = 8              # UnitFlag.Overkilled — pose par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
                                 # +0x17d5 (`if (result.didOverkill) UnitFlagsComponent.Add(target, 8)` — le
@@ -1415,6 +1419,73 @@ def unit_is_alive(entity) -> bool:
     return hc.hp >= 1
 
 
+def unit_extensions_is_alive(entity) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsAlive(entity, state)` — MIRROR du decompile, et ce
+    n'est PAS `HealthComponent$$IsAlive` : le natif teste TROIS choses, dans cet ordre.
+
+        unit = UnitExtensions.GetUnit(entity, state);
+        if (unit == null)                                    // ni unite, ni tuile occupee, ni pied
+            return EntityExtensions.GetEntityType(entity) == 6;   // EntityType.Machine
+        if (UnitFlagsComponent.Has(unit.UnitFlags, 6))       return false;   // UnitFlag.Dead
+        pool = state.GetPool(0);                             // EntityPool.AliveUnits
+        if (!pool.Contains(unit))                            return false;
+        return HealthComponent.IsAlive(unit.Health);
+
+    Les deux constantes sont LUES dans `data/symbols/<build>/frida/enums.tsv`, pas devinees :
+    `IdunBattle.Entities.Enum.UnitFlag` -> `6=Dead` ; `IdunBattle.Entities.Enum.EntityPool` ->
+    `0=AliveUnits` (et `1=DefeatedUnits`, `8=AllUnits`, que lisent respectivement
+    `IdunBattle.Core.Services.BattleQuery$$GetAllDeadUnits` et `$$GetAllUnits` par le MEME
+    accesseur) ; `IdunBattle.Entities.Enum.EntityType` -> `6=Machine`.
+
+    LES TROIS BRANCHES, ET LEUR PORTEUR OFFLINE :
+      * `UnitFlag.Dead` -> `UnitFlagsComponent.has(DEAD)`, seede par `snapshot._load_unit_flags` ;
+      * pool `AliveUnits` -> **`UnitComponent.alive`**. Ce n'est pas une approximation : le canal
+        live qui seede ce champ EST cette fonction native -- `decisionView` publie
+        `alive: invokeBool(isAliveMi, [e, statePtr])` (`frida/hooks/features/ai-step/projection.ts`),
+        `isAliveMi` etant `UnitExtensions$$IsAlive`. Offline, les operations portees l'entretiennent
+        comme le natif entretient le pool : `AttackDamageOperation`/`_fire_death_if_killed` et
+        `MoveUnitOperation.KillSteppableUnits` posent `False`, `RemoveUnitOperation` aussi (etape 8),
+        `ResurrectUnitOperation`/`ReviveUnitOperation`/les spawns posent `True` -- exactement les
+        operations qui, en natif, appellent les slots `AddToPools`/`RemoveFromPools` du state ;
+      * `HealthComponent.IsAlive` -> `unit_is_alive` ci-dessus (hp >= 1), inchange.
+
+    LA BRANCHE MACHINE est portee telle quelle : `GetUnit` ne resout QUE les unites, les tuiles
+    occupees et les pieds (`IdunBattle.Entities.UnitExtensions$$GetUnit`, 3 surcharges lues) -- une
+    MACHINE OF WAR n'en est aucune, donc le natif retombe sur `EntityType == Machine` et la declare
+    TOUJOURS vivante. Cote port, une MoW porte un `MachineComponent` et **aucun** `HealthComponent`
+    (cf. `snapshot._load_machines`), donc ce retour anticipe preserve a l'identique le comportement
+    d'avant cette fonction.
+
+    POURQUOI CETTE FONCTION EXISTE (#429-r1-r3-r1-r2, divergence MESUREE). Le port n'avait AUCUN
+    mirror de ce service : ses lecteurs appelaient `unit_is_alive` = `HealthComponent$$IsAlive`
+    seul. Une unite ENFUIE (`UnitFlag.Fled`, posee par
+    `IdunBattle.Operations.FleeOperation$$Execute`, seul ecrivain du flag) garde ses **PV PLEINS**
+    et sort du pool `AliveUnits` : le natif la voit MORTE-AU-SENS-LARGE, le port la voyait vivante
+    et INTACTE. Mesure du 2026-08-05 (`probe_429r1r3r1_message_gate_perimeter.py --volet fled`,
+    seed 777 / board MC1_67) : cible enfuie a `hp = 1000/1000`, natif **0 evenement**, port
+    **10 375 degats**.
+
+    LECTEURS ROUTES PAR ELLE (les deux sites ou le decompile appelle litteralement ce service) :
+      * `unit_is_dead` -- `IdunBattle.Entities.UnitExtensions$$IsDead` = `!IsAlive(u, state) &&
+        !HasFlag(u, 9 Fled)` ;
+      * `operations/active_ability.is_dead_unit_and_not_allowed_by_ability` --
+        `IdunBattle.Operations.ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility`, dont le
+        2e gate est `if (UnitExtensions.IsAlive(target, state)) return false;`.
+    `is_alive_and_not_fled` n'en fait PAS partie, et c'est LU : `IdunBattle.Entities.UnitExtensions$$IsAliveAndNotFled`
+    appelle `HealthComponent$$IsDead` directement, jamais ce service."""
+    if entity is None:
+        return False                        # `GetUnit(null)` = null, puis `entity != null` faux
+    if entity.get_component(MachineComponent) is not None:
+        return True                         # `EntityType.Machine` (6) -> toujours vivante
+    fl = entity.get_component(UnitFlagsComponent)
+    if fl is not None and fl.has(UnitFlagsComponent.DEAD):
+        return False                        # `UnitFlagsComponent.Has(flags, 6 Dead)`
+    uc = entity.get_component(UnitComponent)
+    if uc is not None and not uc.alive:
+        return False                        # `state.GetPool(EntityPool.AliveUnits).Contains(unit)`
+    return unit_is_alive(entity)            # `HealthComponent.IsAlive`
+
+
 # Effets dont la presence (owner OU target) fait qu'un move est un TELEPORT (cf. `set_moved_flag`) :
 # TeleportStrike_TeleportingIn(0x40b=1035)/TeleportStrike_Moving(0x40c=1036) et
 # FearOfTheUnseen_TeleportingIn(0x4d6=1238)/FearOfTheUnseen_Moving(0x4d9=1241).
@@ -1781,8 +1852,13 @@ def unit_is_dead(entity) -> bool:
     RETIREE du board (flag 9, `UnitFlag.Fled`) n'est PAS « morte » au sens de ce predicat. Restreint aux
     UNITES (mirror du garde `EntityExtensions.IsUnit` d'ExecuteInternal) : une source non-unite (tuile/env,
     sans `HealthComponent`) est TOUJOURS vivante -> jamais gated. Inerte (False) sur tout attaquant/caster
-    vivant -> le port du gate ne peut sur-immuniser aucune attaque legitime."""
-    if entity is None or unit_is_alive(entity):
+    vivant -> le port du gate ne peut sur-immuniser aucune attaque legitime.
+
+    #429-r1-r3-r1-r2 : le `IsAlive` du decompile est `UnitExtensions$$IsAlive` (3 branches), PAS
+    `HealthComponent$$IsAlive` (hp >= 1) -- c'est `unit_extensions_is_alive` qui le porte. Avec
+    l'ancien appel, une unite RETIREE du plateau a PV pleins (flag `Removed`, `RemoveUnitOperation`)
+    restait « pas morte » pour ce predicat ; une ENFUIE le reste, mais par le flag 9, pas par ses PV."""
+    if entity is None or unit_extensions_is_alive(entity):
         return False
     fl = entity.get_component(UnitFlagsComponent)
     if fl is not None and fl.has(UnitFlagsComponent.FLED):
