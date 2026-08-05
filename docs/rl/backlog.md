@@ -631,28 +631,27 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   déployé rend un `HTTP 500` **indiscernable** d'une erreur d'exécution (mesuré sur `replaySteps` /
   `replayRngEvents`, session 7). « Dans le bundle reconstruit » et « dans la session injectée » sont
   deux mesures distinctes, et seule la seconde vaut pour un appelant. Remède : endpoint host rendant
-  `Object.keys(script.exports)`. *Retournement* : l'absence d'un RPC se distingue d'une erreur
-  d'exécution sans lire le bundle. `case-480` §5.
+  `Object.keys(script.exports)`. ⚠ **Nuance mesurée** (#480-r9, session 10) : le **code** HTTP ne
+  discrimine pas, mais le **corps** si — Frida rend littéralement `unable to find method '<nom>'`
+  quand `rpc.exports` ne porte pas la clé, là où une exception du handler remonte son propre
+  message. `probe_480r7_name_resolution.py` s'en sert pour NOMMER le cas. Ce qui reste ouvert est
+  l'**énumération** : rien ne dit ce que la session expose. *Retournement* : l'absence d'un RPC se
+  distingue d'une erreur d'exécution sans lire le bundle. `case-480` §5.
 - **`#480-r5` — deux restes du chantier des sondes (`hooks/probes/`, ex-`scratch/`).** (a) Les
-  **139** erreurs `tsc` (sur 143 — re-mesuré après #480-r6, qui en retire 3 en supprimant deux
-  fichiers morts) d'un répertoire **versionné et bundlé** ne sont pas tranchées : les faire entrer
-  au contrat de typage, ou **écrire et motiver** l'exclusion — `#480-r1` a corrigé la qualification
-  qui les écartait, pas leur sort. (b) La **voie DIRECTE** de build
+  **139** erreurs `tsc` (sur 143) d'un répertoire **versionné et bundlé** ne sont pas tranchées :
+  les faire entrer au contrat de typage, ou **écrire et motiver** l'exclusion — `#480-r1` a
+  corrigé la qualification qui les écartait, pas leur sort. ⚠ Ce ne sont **pas 143 bugs mais UN
+  défaut de configuration**, ventilé par #480-r9 : `TS2584` (`console`) × **140** et `TS2591`
+  (`require`) × **3**, **rien d'autre** — `lib: ["ES2020"]` sans `dom`, et `@types/frida-gum` ne
+  déclare pas `console` (0 occurrence dans son `index.d.ts`) alors que le runtime Frida le
+  fournit. Le cliquet `probe_480r9_tsconfig_couverture.py` **borne** déjà la dette par sa NATURE
+  (0 erreur hors ces deux codes) sans en fixer le nombre. (b) La **voie DIRECTE** de build
   (`node node_modules/frida-compile/dist/cli.js`, documentée dans `tacticus-orchestration` §147)
   échoue toujours si `frida/dist/` n'existe pas : elle court-circuite le script npm. Le remède qui
   couvrirait toutes les voies — versionner un marqueur sous `frida/dist/` — contredit la lettre de
   « Ne jamais commit `frida/dist/` » et demande un arbitrage. *Retournement* : le compte `tsc` est
   stable et assumé, et un checkout frais produit le bundle par **n'importe laquelle** des voies
   documentées. `case-480r1-scratch-versionne-et-bundle.md` §4, §7.
-
-- **`#480-r7` — 13 exports sans AUCUN usage, nulle part, pas même dans leur propre fichier.**
-  8 `function` (`disarmCxxThrowTrap`, `pinnedAddressRefusals`, `resolveThunk`,
-  `invokeMethodDirect`, `projectFromBase`, `aiTraceStoreStatus`, `stopRunnerReconciler`,
-  `cleanupSession`) et 5 `const`. ⚠ Ne PAS lire « 157 exports morts » : ce chiffre brut mélange
-  64 `interface`/`type` sans poids à l'exécution et 144 sur-exportés utilisés chez eux — le
-  gisement est un ordre de grandeur en dessous. *Retournement* :
-  `probe_480r6_code_mort.py --etage 2` rend `[B] = 0`, ou chaque survivant porte sa raison
-  écrite. `case-480r6-scratch-industrialise-et-code-mort.md` §4a.
 
 - **`#480-r10` — le cliquet #480-r8 ne mord que dans UN sens.** Il exige qu'un RPC déclaré soit
   NOMMÉ quelque part ; rien n'interdit à `rpc-api.md` de citer un RPC **disparu** du code. Mesure
@@ -661,13 +660,6 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   conclure « 0 périmé ». *Retournement* : un critère de **position** (nom en forme de RPC —
   `**\`nom(…)\`**`, `"method": "nom"`) rend un compte assumé, et un nom cité comme RPC sans
   déclaration rougit. `case-480r8…` § Résidus.
-
-- **`#480-r9` — `frida/tools/` n'est couvert par AUCUN `tsconfig`.** `tsconfig.hooks.json`
-  inclut `hooks/**`, `tsconfig.host.json` inclut `host/**` : le harnais
-  `tools/probe-279-layout-by-name.ts` — qui garde #279/#372 en exécutant le code de production
-  sous mutations adversariales — n'est **jamais typechecké**, une erreur de type ne s'y verrait
-  qu'à l'exécution. *Retournement* : `tsc` couvre `tools/**` et rend un compte assumé.
-  `case-480r6…` §7.
 
 - **`#462-r4a-r1` — le décompilé route en APPARENCE les deux canaux vers `Multiplier@0x30`.**
   `IdunBattle.Core.Services.DamageModifiers$$Add` surcharge 2-ARGUMENTS (celle des EFFETS) appelle
