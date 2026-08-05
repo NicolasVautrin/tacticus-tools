@@ -55,6 +55,25 @@ Il est consommé par nos outils offline (`whereis`, les sondes, l'axe 5 de `symb
 contredire — un agent interrogeant `mcp__ghidra__*` voit les nouveaux noms pendant que les outils
 offline lisent les anciens. Deux réponses plausibles séparément, incohérentes ensemble.
 
+### La TROISIEME famille — `metadata/`, qui n'entre ni ne sort de Ghidra
+
+`metadata/string_literals.tsv` (#477-r15-r1) est produit par
+`scripts/python/dump_string_literals.py`, **directement depuis les fichiers livres avec le jeu** :
+`global-metadata.dat` pour les valeurs, `GameAssembly.dll` pour les slots. Ni dump Frida, ni
+Il2CppDumper, ni serveur ghidra-mcp.
+
+Elle repond a une question qu'aucune des deux autres ne couvre : **quelle CHAINE se cache derriere
+le `DAT_<slot>` qu'affiche Ghidra ?** Les chaines .NET ne sont pas dans le PE, donc ni Ghidra ni le
+dump Frida ne les nomment. Le pont, lui, est dans le PE : le slot porte statiquement le token
+`(kind << 29) | (2 * index + 1)` avec `kind == 5`.
+
+Lecteur : `scripts/python/string_literals.py` (`whereis` / `find` / `stats`). Il **refuse** de
+servir si le sha256 estampille ne correspond pas au binaire installe — index ET RVA sont des cles
+de build, et resoudre contre la mauvaise table rendrait une chaine *plausible et fausse*.
+
+⚠ **La cle stable est la VALEUR**, jamais l'index ni la RVA. La table n'est pas triee : l'index est
+un rang d'emission du compilateur.
+
 ## La forme `$$` et les `u003C` viennent d'Il2CppDumper
 
 `Classe$$Membre`, avec `u003C` pour `<` et `u003E` pour `>`, est la convention **native

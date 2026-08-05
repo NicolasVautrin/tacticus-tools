@@ -2399,16 +2399,30 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `GetBossPlatform`) et verifier que son pas vaut `1 + nb de pieds`.
   cf. `docs/rl/case-477r16-allocation-entites-ecs.md` sec. 2.
 
-- **#477-r15-r1 : aucune table de STRING LITERALS IL2CPP dans `data/symbols/<build>/`.** `[opus]`
-  Le `sourceId` que `IdunBattle.Operations.AddUnitOperation$$Execute` passe a `StartGroup` est un
-  handle de litteral, NON resoluble statiquement : les chaines .NET vivent dans
-  `global-metadata.dat`, pas dans le PE. Le flux reel montre `Source=` **vide**, donc chaine vide ou
-  `null` -- indiscernables apres `String.Format`. Le meme mur bloque tout `Source=` **non vide**
-  (`AvalancheOfMuscle_ExtraDamage`, `BlockEnteringUnits`, ...), c'est-a-dire la quasi-totalite du
-  deroule de bataille. RETOURNEMENT : ajouter au pipeline de dump un TSV `index -> valeur` extrait
-  de `global-metadata.dat`, puis verifier qu'il rend `""` pour ce handle et le nom symbolique
-  attendu pour un `Ability_Power`.
-  cf. `docs/rl/case-477r15-tranches-abe-emetteur-de-flux.md` resid. r1.
+- ~~**#477-r15-r1 : aucune table de STRING LITERALS IL2CPP dans `data/symbols/<build>/`**~~ —
+  **FAIT** (`case-477r15r1`), et la **premisse est REFUTEE**. La table existe
+  (`data/symbols/<build>/metadata/string_literals.tsv`, 30 372 litteraux, 30 367 slots PE,
+  producteur `dump_string_literals.py`, lecteur `string_literals.py`) : elle tranche que le handle
+  d'`AddUnitOperation$$Execute` est la chaine **VIDE** (pas `null`) et rend **LUS** les cinq
+  litteraux du writer que `case-477r15` declarait « mesures, pas lus » (**5/5** concordants).
+  **Mais `Source=` n'est PAS un litteral** : sur les 8 sources non vides d'un flux de deroule reel,
+  **1** l'est et **8** sont des noms de membres d'enum (`EffectType`, `TriggeredAbilityType`,
+  `ActiveAbilityType`, `UnitTrait`). C'est un `Enum.ToString()`, deja porte par
+  `format_enum_value` — le port rend les **9** couples a l'identique, sans code neuf. Ce qui
+  manque a la **tranche D** n'est donc pas une table de chaines, c'est de savoir **quel enum et
+  quel ordinal** chaque `StartGroup` passe. ⚠ Et le nom seul ne designe pas l'enum : `BigTarget`
+  est porte par `TriggeredAbilityType` (1030) **et** `UnitTrait` (1017).
+  Le slot n'est pas vide sur disque (token `(kind<<29)|(2*index+1)`, `kind==5`), d'ou une voie
+  100 % autonome — ni Frida, ni Il2CppDumper.
+
+- **#477-r15-r1-r1 : `playbook_keys.py` est casse, `probe_212` re-scanne a chaque question.** `[opus]`
+  Les deux resolvent des litteraux par une chaine propre, sans provenance. `playbook_keys.py` lit
+  `data/dumps/<hash>/stringliteral.json`, **chemin disparu** : il refuse (`rc=2`), mais retombait
+  sinon sur « le dump le plus recent » sans confronter de sha256. `probe_212_bc_key_literals.py`
+  fonctionne (`--anchors` -> `VERDICT: OK`) mais ne persiste rien. La table versionnee les couvre.
+  RETOURNEMENT : leur faire consommer `string_literals.charger()`, verifier que
+  `playbook_keys.py --grep SAVIORPROTOCOLS` rend a nouveau ses cles et que `probe_212 --anchors`
+  reste `OK`. cf. `docs/rl/case-477r15r1-litteraux-il2cpp.md` resid.
 
 - **#477-r15-r2 : `BattleQuery$$get_UseGroupForAddUnit` jamais confronte a FAUX.** `[opus]`
   `StartGroup` ET `FinishGroup` du groupe `AddUnit` sont tous deux sous ce drapeau (lu a
