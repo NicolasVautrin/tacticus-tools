@@ -1216,6 +1216,49 @@ class DamageHandler:
         self.after_hit: list = []              # extra-attaques after-hit (traits) du dernier coup
 
     def visit_AttackUnitMessage(self, msg) -> None:
+        """#429-r1-r3-r1 -- LE GATE DE MESSAGE, POSE ICI AUSSI, ET POURQUOI.
+
+        `AttackUnitMessage` N'EXISTE PAS EN NATIF -- mesure exhaustive sur `rnca9r7q6c` :
+        `IdunBattle.Messages` publie 41 classes de message, `InputMessageProcessor` porte 37
+        surcharges de `Visit`, et AUCUNE ne prend un `AttackUnitMessage`. L'attaque normale
+        COMMANDEE est un `IdunBattle.Messages.ActiveAbilityMessage` dont l'`ActiveAbilityType` est
+        le `NormalAttackType` PER-UNITE (#139) : elle traverse donc
+        `IdunBattle.Messages.InputMessageProcessor$$Visit(ActiveAbilityMessage)` et SON gate.
+
+        Le port a DEUX portes pour cet unique site natif (`AbilityHandler.visit_ActiveAbilityMessage`
+        et celle-ci, cf. l'en-tete d'`abilities/handler.py` #120) ; seule la premiere portait le gate
+        de message. C'est le meme FORK que #120, sur l'axe LIVENESS.
+
+        PERIMETRE, mesure par les XREFS de `IdunBattle.Entities.UnitExtensions$$IsAliveAndNotFled` :
+        **2 appels dans tout le binaire**, tous deux dans `Visit(ActiveAbilityMessage)` -- le CASTER
+        puis la CIBLE. Aucune autre surcharge de `Visit` ne le teste : `Visit(MoveUnitMessage)`, lu
+        au decompile, n'a AUCUN gate de liveness (il resout l'unite, construit la liste de tuiles et
+        entre en `RunPhase(5)`). Le gate porte donc sur UN SEUL message, sur SES DEUX bouts.
+
+        CE QUI SEPARE CE GATE DE CEUX D'EN DESSOUS : sur la MORT ils CONVERGENT (le gate #70
+        refuse deja l'attaquant mort, `is_dead_unit_and_not_allowed_by_ability(None, ...)` deja tout
+        cadavre). Sur `UnitFlag.Fled` (9) ils NE CONVERGENT PAS -- `IdunBattle.Entities.
+        UnitExtensions$$IsDead` exclut EXPRESSEMENT ce flag (`!IsAlive && !HasFlag(9)`), donc une
+        unite ENFUIE (hp > 0, retiree du plateau par `IdunBattle.Operations.FleeOperation$$Execute`,
+        seul ecrivain du flag 9 dans le binaire) n'est morte pour AUCUN des deux gates du dessous :
+        sans cette pose, le port frappait une unite que le natif refuse au rang du message.
+
+        IMPORT PARESSEUX VOULU : la contre-epreuve des tests substitue le FOYER
+        (`engine.runner.components.is_alive_and_not_fled`) -- un import de module resolu a chaque
+        appel est ce qui fait MORDRE la mutation.
+
+        CONVENTION PERMISSIVE, identique a `visit_ActiveAbilityMessage` : entite non resolue (id
+        `None`, ou absente de l'etat) -> aucun refus."""
+        from ..components import is_alive_and_not_fled
+        for eid in (msg.attacker_id, msg.target_id):
+            if eid is None:
+                continue
+            ent = self.state.get_entity(int(eid))
+            if ent is None or is_alive_and_not_fled(ent):
+                continue
+            self.last = None
+            self.after_hit = []
+            return
         # --- #70 GATE ACTEUR-MORT (mirror `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
         # `if (EntityExtensions.IsUnit(caster) && UnitExtensions.IsDead(caster)) return 0;`). L'attaque
         # normale native EST une ActiveAbility per-unite (#139) -> passe par le MEME gate. Un attaquant MORT

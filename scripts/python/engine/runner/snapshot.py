@@ -610,8 +610,19 @@ def _load_unit_flags(state: State, snapshot: dict) -> None:
     Portee : TOUTES les lignes du snapshot (`EntityType.Unit` ET `EntityType.Machine` — une MoW porte
     un `UnitFlagsComponent`, cf. `dumpEntityComponents`). Champ absent (capteur plus ancien) ou liste
     vide -> AUCUN composant pose = flag absent = « n'a pas bouge », soit exactement le comportement
-    anterieur : la degradation reste retro-compatible."""
-    for su in (snapshot.get("units") or []):
+    anterieur : la degradation reste retro-compatible.
+
+    #429-r1-r3-r1 -- LES UNITES NON VIVANTES, ET POURQUOI IL A FALLU UN SECOND BLOC. Le capteur
+    n'enumerait QUE les unites vivantes (`if (!invokeBool(isAliveMi, [e, statePtr])) return;`), ce
+    qui rendait ce canal STRUCTURELLEMENT aveugle a `UnitFlag.Fled` (9) : une unite qui a FUI garde
+    ses PV PLEINS mais `IdunBattle.Entities.UnitExtensions$$IsAlive` rend faux pour elle. MESURE du
+    2026-08-05 (`probe_429r1r3r1_message_gate_perimeter.py --volet fled`) : garde `astraSmnGuardsman`
+    hp 1000/1000, enfui -> le natif refuse le message (0 evenement, temoin a 2), le port la
+    reconstruisait en unite VIVANTE INTACTE et la frappait pour 10375. `unitsNotAlive` porte
+    desormais `entityId` + `unitFlags` pour ces entites-la. TRI-ETAT : champ ABSENT (bundle Frida
+    anterieur) = non mesure -> on ne pose rien, comportement inchange."""
+    for su in ((snapshot.get("units") or [])
+               + (snapshot.get("unitsNotAlive") or [])):
         eid = su.get("entityId")
         flags = su.get("unitFlags")
         if eid is None or not isinstance(flags, list) or not flags:

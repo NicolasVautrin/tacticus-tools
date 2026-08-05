@@ -392,9 +392,21 @@ export function registerViewSnapshot(ctx: Ctx): void {
         // étaient absentes du snapshot — leur prédiction offline n'avait donc
         // aucune stat résolue à confronter.
         const allUnits: Array<{ e: NativePointer; id: number; entityType: number }> = [];
+        // #429-r1-r3-r1 : les entités NON vivantes, gardées à part. Le filtre `isAliveMi` ci-dessous
+        // rend le canal `unitFlags` STRUCTURELLEMENT aveugle à `UnitFlag.Fled` (9) — mesuré le
+        // 2026-08-05 : une unité qui a FUI (trait `BattleFatigue` →
+        // `IdunBattle.Operations.FleeOperation$$Execute`, seul écrivain du flag) garde ses PV
+        // PLEINS (hp 1000/1000) mais `IdunBattle.Entities.UnitExtensions$$IsAlive` rend FAUX pour
+        // elle (le prédicat teste aussi le flag 6 `Dead` ET l'appartenance à la collection). Elle
+        // disparaît donc du snapshot, et le port la reconstruit en unité VIVANTE INTACTE : son
+        // mirror d'`IdunBattle.Entities.UnitExtensions$$IsAliveAndNotFled` ne peut pas mordre, et
+        // le port frappait (10375 dégâts) une cible que le natif refuse au rang du MESSAGE.
+        // Bloc SÉPARÉ et MINIMAL (id + type + flags) : la projection lourde reste alive-only, donc
+        // aucun consommateur existant ne change de forme.
+        const notAlive: Array<{ e: NativePointer; id: number; entityType: number }> = [];
         forEachEntity(statePtr, (e, id, ty) => {
             if (ty !== EntityType.Unit && ty !== EntityType.Machine) return;
-            if (!invokeBool(isAliveMi, [e, statePtr])) return;
+            if (!invokeBool(isAliveMi, [e, statePtr])) { notAlive.push({ e, id, entityType: ty }); return; }
             allUnits.push({ e, id, entityType: ty });
         });
         // DÉGÂT DE BASE de l'attaque normale (one-shot, iso-AI) via `GetNormalAttackPrediction
@@ -721,10 +733,18 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 ...readUnitTurnState(e),
             });
         }
+        // #429-r1-r3-r1 : le bloc NON VIVANT, réduit à ce que le filtre alive-only rendait
+        // inatteignable — `entityId` + `unitFlags`. AUCUNE stat, aucune prédiction : ces
+        // sous-lectures supposent une unité en jeu. TRI-ÉTAT conservé (`null` = pas mesuré).
+        // `[]` ici veut dire « lu, aucune entité non vivante », jamais « pas lu ».
+        const unitsNotAlive = wants("unitFlags")
+            ? notAlive.map((u) => ({ entityId: u.id, entityType: u.entityType,
+                unitFlags: readUnitFlags(u.e) }))
+            : null;
         // `unitFlagTypes` = {nom: id} de l'enum, au MÊME titre que `statTypes` : le consommateur
         // nomme les ids qu'il lit sans recopier de table chez lui.
         return { ok: true, runner: label, statTypes: STAT_IDS,
-            unitFlagTypes: wants("unitFlags") ? flagTypes : null, units };
+            unitFlagTypes: wants("unitFlags") ? flagTypes : null, units, unitsNotAlive };
     });
 
     /** PER-SOURCE STAT-MODIFICATION breakdown — la sonde DÉFINITIVE pour SOURCER un

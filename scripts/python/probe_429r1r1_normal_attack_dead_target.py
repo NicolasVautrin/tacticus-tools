@@ -311,10 +311,36 @@ def scenario_live(state_file: str, seed: str = "777", board: str = "MC1_67",
         res["port_op_directe"] = _op
         res["port_op_directe_draws"] = (None if mti3 is None else
                                         (st3.rng.mti - mti3 + (624 if st3.rng.mti < mti3 else 0)))
-        # --- 4. CONTRE-EPREUVE : le MEME coup, gate DEBRANCHE ---------------------------------
-        # Un vert de l'etape 3 ne prouve rien tant qu'on n'a pas montre que SANS le gate le port
-        # EXECUTAIT sur le cadavre. Le gate est importe en LAZY dans les deux porteurs, donc
-        # substituer l'attribut du module le neutralise aux DEUX poses.
+        # --- 3ter. LE GATE DE MESSAGE SEUL, DEBRANCHE (#429-r1-r3-r1) --------------------------
+        # DEPUIS #429-r1-r3-r1, la voie du MESSAGE porte DEUX gates : celui du `Visit` natif
+        # (`IdunBattle.Entities.UnitExtensions$$IsAliveAndNotFled`) puis celui de l'OPERATION
+        # (`IsDeadUnitAndNotAllowedByAbility`). Sur un CADAVRE ils CONVERGENT -- et c'est
+        # exactement ce qu'il faut MESURER, pas supposer : neutraliser le seul gate de message ne
+        # doit RIEN changer, sinon le gate d'operation ne mordrait plus sur cette porte et
+        # l'etape 4 ci-dessous ne prouverait plus rien de LUI.
+        import engine.runner.components as C                        # noqa: PLC0415
+        st5 = load_state(dv, ob0, snap)
+        if isinstance(bg, dict) and "tiles" in bg:
+            st5.board = Board(bg["tiles"], adjacency="native_sym")
+        _cale(st5)
+        garde_msg = C.is_alive_and_not_fled
+        C.is_alive_and_not_fled = lambda *_a, **_k: True
+        try:
+            r5 = Runner(st5).install_default_handlers(20)
+            r5.apply(AttackUnitMessage(att, prime))
+            res["port_sans_gate_message_last"] = (r5.damage_handler.last
+                                                  if hasattr(r5, "damage_handler") else None)
+        finally:
+            C.is_alive_and_not_fled = garde_msg
+        # --- 4. CONTRE-EPREUVE : le MEME coup, LES DEUX gates DEBRANCHES ------------------------
+        # Un vert de l'etape 3 ne prouve rien tant qu'on n'a pas montre que SANS gate le port
+        # EXECUTAIT sur le cadavre. Les deux gates sont importes en LAZY dans leurs porteurs, donc
+        # substituer l'attribut de module les neutralise a TOUTES leurs poses.
+        # #429-r1-r3-r1 : il faut desormais retirer LES DEUX -- retirer le seul gate d'operation
+        # laisse le gate de message refuser (cf. 3ter), et la contre-epreuve rendrait `None`. Ce
+        # n'est PAS un affaiblissement : la garantie du gate d'OPERATION sur cette porte est
+        # RE-ASSERTEE a son etage par l'etape 3ter, et sur la porte DECLENCHEE (qui n'a jamais eu
+        # de gate de message) par `port_op_directe_sans_gate_total` ci-dessous.
         st2 = load_state(dv, ob0, snap)
         if isinstance(bg, dict) and "tiles" in bg:
             st2.board = Board(bg["tiles"], adjacency="native_sym")
@@ -322,6 +348,8 @@ def scenario_live(state_file: str, seed: str = "777", board: str = "MC1_67",
         import engine.runner.operations.active_ability as OA        # noqa: PLC0415
         garde = OA.is_dead_unit_and_not_allowed_by_ability
         OA.is_dead_unit_and_not_allowed_by_ability = lambda *_a, **_k: False
+        garde_msg = C.is_alive_and_not_fled
+        C.is_alive_and_not_fled = lambda *_a, **_k: True
         try:
             r2 = Runner(st2).install_default_handlers(20)
             r2.apply(AttackUnitMessage(att, prime))
@@ -332,6 +360,8 @@ def scenario_live(state_file: str, seed: str = "777", board: str = "MC1_67",
                                            (st2.rng.mti - mti1 + (624 if st2.rng.mti < mti1 else 0)))
             # meme contre-epreuve pour la porte DECLENCHEE : sans le gate, l'operation NUE frappait
             # aussi le cadavre -- c'est la mesure du trou que le rang MESSAGE aurait laisse ouvert.
+            # Elle est INSENSIBLE au gate de message (elle n'emprunte aucun visiteur) : c'est ce
+            # qui la garde probante pour le gate d'OPERATION, tout seul.
             st4 = load_state(dv, ob0, snap)
             if isinstance(bg, dict) and "tiles" in bg:
                 st4.board = Board(bg["tiles"], adjacency="native_sym")
@@ -341,6 +371,7 @@ def scenario_live(state_file: str, seed: str = "777", board: str = "MC1_67",
                                                       else _op2.get("total"))
         finally:
             OA.is_dead_unit_and_not_allowed_by_ability = garde
+            C.is_alive_and_not_fled = garde_msg
         res["why"] = ""
     finally:
         try:

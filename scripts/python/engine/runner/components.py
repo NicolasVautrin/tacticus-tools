@@ -1736,9 +1736,17 @@ def is_alive_and_not_fled(entity) -> bool:
         cast de `GreatFrostAxe` sur la TUILE d'un cadavre ouvre bien le groupe de stream
         `User_UseAbility` (2 evenements), la ou le meme cast sur le CADAVRE n'en produit aucun.
 
-    LECTEUR : `IdunBattle.Messages.InputMessageProcessor$$Visit(ActiveAbilityMessage)`, qui le
-    teste sur le CASTER puis sur la CIBLE avant toute operation (cf.
-    `abilities/handler.py::visit_ActiveAbilityMessage`)."""
+    LECTEUR NATIF, ET SON PERIMETRE (mesure par les XREFS, pas suppose) :
+    `IdunBattle.Entities.UnitExtensions$$IsAliveAndNotFled` n'a que **2 appelants** dans tout le
+    binaire `rnca9r7q6c`, tous deux dans `IdunBattle.Messages.InputMessageProcessor$$
+    Visit(ActiveAbilityMessage)` -- le CASTER puis la CIBLE, avant toute operation. Aucune autre
+    des 37 surcharges de `Visit` ne le teste (`Visit(MoveUnitMessage)`, lue au decompile, n'a
+    AUCUN gate de liveness). Le gate porte donc sur UN message, sur SES DEUX bouts.
+
+    LECTEURS PORTES -- DEUX, parce que le port scinde cet unique message natif en deux :
+    `abilities/handler.py::visit_ActiveAbilityMessage` (les abilities) et
+    `operations/damage.py::visit_AttackUnitMessage` (l'attaque normale COMMANDEE, qui est un
+    `ActiveAbilityMessage` en natif -- #139, #429-r1-r3-r1)."""
     if entity is None:
         return False
     if not unit_is_alive(entity):

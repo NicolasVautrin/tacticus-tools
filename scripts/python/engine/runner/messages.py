@@ -41,7 +41,15 @@ class MoveUnitMessage(Message):
 class AttackUnitMessage(Message):
     """Attaque dirigée (attaque normale) — `attacker_id` frappe `target_id`. Déclenche
     `AttackDamageOperation` (tirage de dégât par coup + réduction → mutation HP). Mirror
-    simplifié de l'`ActiveAbilityMessage` (attaque normale) côté tranche DAMAGE."""
+    simplifié de l'`ActiveAbilityMessage` (attaque normale) côté tranche DAMAGE.
+
+    ⚠ IL N'EXISTE AUCUN `AttackUnitMessage` NATIF, et ce n'est pas une approximation de lecture :
+    `IdunBattle.Messages` publie 41 classes de message et `IdunBattle.Messages.
+    InputMessageProcessor` porte 37 surcharges de `Visit` — aucune ne prend ce type. L'attaque
+    normale commandée EST un `IdunBattle.Messages.ActiveAbilityMessage` portant le
+    `NormalAttackType` per-unité (#139). Conséquence directe (#429-r1-r3-r1) : tout gate posé sur
+    `Visit(ActiveAbilityMessage)` vaut AUSSI pour ce message-ci — les deux visiteurs du port
+    modélisent UN SEUL site natif."""
     __slots__ = ("attacker_id", "target_id")
 
     def __init__(self, attacker_id: int, target_id: int):
