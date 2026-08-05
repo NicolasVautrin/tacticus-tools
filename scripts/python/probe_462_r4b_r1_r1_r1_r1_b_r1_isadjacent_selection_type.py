@@ -350,8 +350,22 @@ def step_guard() -> int:
 # INCONCLUSIVE et le probe le DIT -- il ne conclut pas d'un double negatif.
 # ================================================================================================
 APOTHECARY = "ultraApothecary"      # passif `Narthecium` -- chance 100, aucun filtre de trait
-VICTIM = "bloodIntercessor"         # allie non-Mechanical -> revivable
-ATTACKER = "ultraEliminatorSgt"     # notre tueur (ranged)
+# La victime doit etre non-Mechanical (`CanBeRevived`), sans trait qui perturbe la GEOMETRIE, et
+# sans passif qui INTERCEPTE le coup. DEUX candidats ecartes par la MESURE, pas par lecture :
+#   * `bloodIntercessor` (le choix des tests offline) porte **`Flying`** -- pose au contact, il
+#     n'apparait dans AUCUNE liste de cibles du tueur (ni `fromHere`, ni le superset `targets`),
+#     alors que le porteur, plus loin, y est ;
+#   * `astraCreed` porte le passif **`SwornProtector`** : au coup, il se DEPLACE ((1,1) -> (0,1))
+#     et fait apparaitre `astraSmnKell` a sa place, qui encaisse -- `hpDelta = 0` sur la victime et
+#     geometrie porteur<->victime DETRUITE. Un montage qui ne verifie pas les PV aurait lu ce
+#     `hpDelta = 0` comme << l'attaque ne fait rien >>.
+# `tauAunShi` ne porte aucun trait hors `Hero`.
+VICTIM = "tauAunShi"                # allie non-Mechanical, aucun trait de geometrie -> revivable
+# Le tueur doit pouvoir frapper AU CONTACT. MESURE de ce probe : `ultraEliminatorSgt` (sniper) pose
+# a distance hex 1 de la victime ne la voit dans AUCUNE de ses listes -- ni `fromHere`, ni `targets`
+# (le superset move-inclus) -- alors qu'il cible le porteur a distance 2. Sa portee a un PLANCHER.
+# On prend donc un melee franc, et on continue d'INTERROGER `castFromTiles` plutot que de deduire.
+ATTACKER = "worldKharn"             # notre tueur (melee)
 
 
 def _rl():
@@ -404,8 +418,59 @@ def _build(sid, p_units, p_pos, a_units, a_pos, unit_patch=None):
     return rid, template
 
 
-def live_bras(sid, dist, victim_hp):
-    """Un bras : monte, frappe la victime jusqu'a la mort, rend l'observation."""
+def _normal_attack_type(dv, uid):
+    """L'id CONCRET de l'attaque normale de `uid` (`decisionView.units[].abilities[kind=normal]`).
+
+    ⚠ `applyAction{"kind": "attack"}` N'EXISTE PAS (`applyOneAction` ne connait que
+    `move|ability|finish|endturn` et rend `ok:false, mutated:false`) : l'attaque normale est une
+    ABILITY, et son `ActiveAbilityType` est PER-UNITE (`ActiveAbilityComponent.NormalAttackType`),
+    jamais le 17 synthetique de l'offline. Lecon mesuree par `probe_250_tau_targeting`."""
+    for u in (dv.get("units") or []):
+        if int(u.get("id", -1)) == int(uid):
+            for a in (u.get("abilities") or []):
+                if a.get("kind") == "normal" and a.get("id") is not None:
+                    return int(a["id"])
+    return None
+
+
+def _strike(sid, rid, killer_id, victim_id, nat, tag):
+    """UN coup de `killer_id` sur `victim_id`, en INTERROGEANT le jeu sur l'endroit d'ou frapper.
+
+    C'EST LE JEU QUI DIT D'OU L'ON PEUT FRAPPER, pas la distance hex :
+    `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent` lit la connectivite BRUTE et porte une
+    porte d'ELEVATION. On interroge donc `castFromTiles` et on deplace le TUEUR si besoin -- son
+    deplacement ne touche pas la geometrie porteur<->victime, qui est ce qu'on mesure.
+    Rend `(hp_avant, hp_apres, mutated)` ; `hp_*` = `(hp, isDead)`."""
+    R, PR = _rl()
+    cf = PR.rpc(sid, "castFromTiles", {"runnerId": rid, "casterId": killer_id,
+                                       "targetId": victim_id, "abilityType": nat}, 60) or {}
+    tiles = [t for t in (cf.get("moveTiles") or []) if t.get("col") is not None]
+    if not cf.get("currentValid"):
+        if not tiles:
+            raise RuntimeError("%s : victime injoignable ce tour (nat=%d)" % (tag, nat))
+        PR.act(sid, rid, {"kind": "move", "unitId": killer_id,
+                          "to": {"col": tiles[0]["col"], "row": tiles[0]["row"]}})
+    hp0 = PR.hp_of(sid, rid).get(victim_id)
+    res = PR.cast(sid, rid, killer_id, victim_id, nat)
+    hp1 = PR.hp_of(sid, rid).get(victim_id)
+    print("  %s : coup(%d) ok=%s mutated=%s   hp %s -> %s"
+          % (tag, nat, res.get("ok"), res.get("mutated"), hp0, hp1))
+    return hp0, hp1, bool(res.get("ok") and res.get("mutated"))
+
+
+def live_bras(sid, dist, victim_hp, killers=2):
+    """Un bras : monte la geometrie voulue, frappe la victime jusqu'a la MORT, rend l'observation.
+
+    Le porteur et la victime sont dans le camp ADVERSE (`playerId = PLAYER_ID_AI`) et les tueurs
+    dans le notre : c'est ce qui rend le coup CHOISI (qui frappe, quand) au lieu de subi -- le
+    revive natif ne regarde pas de quel camp est le mourant.
+
+    DEUX tueurs, et c'est load-bearing : une unite n'agit qu'UNE fois par tour, et il faut deux
+    coups pour tuer sans OVERKILLER. Le premier amene la victime bas, le second la tue avec un
+    sur-degat modere (`Narthecium` est « unless Overkilled », et
+    `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` marque overkill des que
+    `(dmg - hpAvant)/hpAvant*100 >= overkillDmgPctOfHealth` = 100). Attendre le tour suivant est
+    exclu : l'IA joue le camp du porteur et DETRUIRAIT la geometrie."""
     from board import Board
     R, PR = _rl()
     seed = R._load_seed_bc()
@@ -414,44 +479,89 @@ def live_bras(sid, dist, victim_hp):
     board = Board(template)
     vpos, ring, far = _open_tile(board)
     apos = ring[0] if dist == 1 else far[0]
-    # l'attaquant est pose loin des deux (il tire), sur une tuile libre
-    taken = {vpos, apos}
-    atk = next(tuple(p) for p in sorted(board.playable_tiles())
-               if tuple(p) not in taken and hexgeo.distance(tuple(p), vpos) in (2, 3))
-    patch = {VICTIM: {"Health": victim_hp, "RemainingHealth": victim_hp}}
-    rid, _ = _build(sid, [ATTACKER], [atk], [APOTHECARY, VICTIM], [apos, vpos], unit_patch=patch)
+    atk_pos = [p for p in ring if p != apos and p != vpos][:killers]
+    if len(atk_pos) < killers:
+        raise RuntimeError("pas assez de tuiles au contact pour %d tueurs" % killers)
+    patch = {VICTIM: {"Health": int(victim_hp), "RemainingHealth": int(victim_hp)}}
+    rid, _ = _build(sid, [ATTACKER] * killers, atk_pos, [APOTHECARY, VICTIM], [apos, vpos],
+                    unit_patch=patch)
     try:
-        dv = PR.rpc(sid, rid and "decisionView" or "", {"runnerId": rid, "maxRank": 1,
-                                                        "allAbilities": True}, 120)
+        dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1,
+                                          "allAbilities": True}, 120)
+        kills = [int(u["id"]) for u in (dv.get("units") or [])
+                 if u.get("visualId") == ATTACKER]
         bv = PR.units_by_visual(dv)
         for need in (ATTACKER, APOTHECARY, VICTIM):
             if need not in bv:
                 raise RuntimeError("roster incomplet : %s" % sorted(bv))
-        ids = {k: int(bv[k]["id"]) for k in (ATTACKER, APOTHECARY, VICTIM)}
+        if len(kills) < killers:
+            raise RuntimeError("%d tueur(s) au lieu de %d" % (len(kills), killers))
+        apo, vic = int(bv[APOTHECARY]["id"]), int(bv[VICTIM]["id"])
         pos = PR.positions(dv)
-        d_real = hexgeo.distance(pos[ids[APOTHECARY]], pos[ids[VICTIM]])
-        print("[dist=%d] place : apo %s  victime %s  attaquant %s  -> dist REELLE %d"
-              % (dist, pos[ids[APOTHECARY]], pos[ids[VICTIM]], pos[ids[ATTACKER]], d_real))
+        d_real = hexgeo.distance(pos[apo], pos[vic])
+        print("[dist=%d] apo %s  victime %s  tueurs %s  -> dist REELLE(apo,victime) = %d"
+              % (dist, pos[apo], pos[vic], [pos[k] for k in kills], d_real))
         if d_real != dist:
             raise RuntimeError("placement non conforme : dist reelle %d != %d" % (d_real, dist))
-        hp0 = PR.hp_of(sid, rid).get(ids[VICTIM])
-        # UNE attaque normale de l'attaquant sur la victime.
-        res = PR.act(sid, rid, {"kind": "attack", "casterId": ids[ATTACKER],
-                                "targetId": ids[VICTIM]})
-        hp1 = PR.hp_of(sid, rid).get(ids[VICTIM])
-        print("[dist=%d] attaque ok=%s   hp %s -> %s" % (dist, res.get("ok"), hp0, hp1))
-        return {"dist": dist, "hp0": hp0, "hp1": hp1, "attack_ok": bool(res.get("ok")),
-                "dead": bool((hp1 or (None, False))[1]),
-                "hp_after": (hp1 or (None, None))[0]}
+        nat = _normal_attack_type(dv, kills[0])
+        if nat is None:
+            raise RuntimeError("le tueur n'expose pas d'attaque normale")
+        coups = []
+        for i, k in enumerate(kills):
+            hp0, hp1, mut = _strike(sid, rid, k, vic, nat, "[dist=%d/coup%d]" % (dist, i + 1))
+            coups.append({"hp0": hp0, "hp1": hp1, "mutated": mut})
+            if (hp1 or (None, False))[1]:                 # isDead -> inutile de continuer
+                break
+        # Geometrie NON DERIVEE : on la RELIT apres les coups (un knockback, un `SwornProtector`
+        # ou un pas de rapprochement l'auraient changee, et la mesure serait alors inattribuable).
+        dv2 = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1,
+                                           "allAbilities": True}, 120)
+        pos2 = PR.positions(dv2)
+        d_end = hexgeo.distance(pos2[apo], pos2[vic]) if pos2.get(vic) else None
+        last = coups[-1]
+        return {"dist": dist, "coups": coups, "d_end": d_end,
+                "all_mutated": all(c["mutated"] for c in coups),
+                "hp_before": (last["hp0"] or (None, None))[0],
+                "hp_after": (last["hp1"] or (None, None))[0],
+                "dead": bool((last["hp1"] or (None, False))[1])}
     finally:
         PR.dispose(sid, rid)
 
 
 def step_live(sid, victim_hp) -> int:
-    print("CONFRONTATION `Narthecium` -- porteur %s, victime %s, tueur %s (camp joueur)."
+    """CALIBRE puis confronte. Deux bras geometriques ; `dist 1` est le CONTROLE.
+
+    Le calibrage existe a cause de l'OVERKILL : `Narthecium` est « unless Overkilled », et
+    `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` marque overkill des que
+    `(dmg - hpAvant)/hpAvant*100 >= overkillDmgPctOfHealth` (= 100 en globalValues, donc
+    `dmg >= 2*hpAvant`) -- ou des que le coup est CRITIQUE sous ce seuil. On mesure donc d'abord le
+    degat d'UN coup sur une victime increvable, puis on patche ses PV a ~1,1x ce degat : le coup
+    suivant la tue avec un sur-degat proche de zero, tres loin du seuil."""
+    print("CONFRONTATION `Narthecium` -- porteur %s + victime %s dans le camp ADVERSE, tueur %s."
           % (APOTHECARY, VICTIM, ATTACKER))
-    print("PV de la victime patches a %d : elle doit MOURIR du coup, sans overkill." % victim_hp)
     print("")
+    dmg = None
+    if victim_hp <= 0:
+        print("--- CALIBRAGE : un coup sur une victime increvable ---")
+        cal = live_bras(sid, 1, 300000, killers=1)
+        if not cal["all_mutated"] or cal["hp_before"] is None or cal["hp_after"] is None:
+            print("  CALIBRAGE KO : %s" % cal)
+            return 1
+        dmg = int(cal["hp_before"]) - int(cal["hp_after"])
+        print("  degat d'UN coup = %d" % dmg)
+        if dmg <= 0:
+            print("  CALIBRAGE KO : degat nul -- le coup n'a pas mordu (passif d'interception ?).")
+            return 1
+        # 1,6 x le degat d'un coup : le 1er coup laisse ~0,6 D, le 2e tue avec un sur-degat
+        # `(D - 0,6 D)/0,6 D = 67 %` -- fatal a coup sur, et sous le seuil d'overkill (100 %).
+        victim_hp = max(2, int(round(dmg * 1.6)))
+        print("  -> PV de la victime pour les deux bras : %d (2 coups, sur-degat ~67%% << 100%%)"
+              % victim_hp)
+        print("")
+    if dmg is None:
+        print("  --victim-hp explicite : pas de degat calibre -> le verdict ne peut pas etablir")
+        print("  qu'un coup etait FATAL. Relancer sans --victim-hp.")
+        return 1
     out = {}
     for d in (1, 2):
         out[d] = live_bras(sid, d, victim_hp)
@@ -461,22 +571,47 @@ def step_live(sid, victim_hp) -> int:
     print("VERDICT")
     for d in (1, 2):
         r = out[d]
-        print("  dist %d : attaque=%s  hp %s -> %s  (revive = hp remonte / pas morte)"
-              % (d, r["attack_ok"], r["hp0"], r["hp1"]))
-    if not (a["attack_ok"] and b["attack_ok"]):
-        print("  INCONCLUSIF : une des deux attaques n'a pas eu lieu.")
+        print("  dist %d : coups=%s  dist finale=%s  hp du coup fatal %s -> %s  isDead=%s"
+              % (d, [(c["hp0"], c["hp1"]) for c in r["coups"]], r["d_end"],
+                 r["hp_before"], r["hp_after"], r["dead"]))
+    if not (a["all_mutated"] and b["all_mutated"]):
+        print("  INCONCLUSIF : un coup n'a pas mute l'etat.")
         return 1
-    revive1 = not a["dead"] and (a["hp_after"] or 0) > 0
-    revive2 = not b["dead"] and (b["hp_after"] or 0) > 0
-    print("  revive a dist 1 (CONTROLE) : %s" % revive1)
-    print("  revive a dist 2 (DISCRIM.) : %s" % revive2)
-    if not revive1:
-        print("  INCONCLUSIF : le CONTROLE ne revive pas -- la victime n'est pas morte, ou le")
-        print("    coup l'a OVERKILLEE (Narthecium = `unless Overkilled`). Rejouer avec --victim-hp")
-        print("    plus haut. On ne conclut RIEN d'un double negatif.")
+    if a["d_end"] != 1 or b["d_end"] != 2:
+        print("  INCONCLUSIF : la geometrie a bouge pendant le bras (%s / %s)."
+              % (a["d_end"], b["d_end"]))
         return 1
-    if revive2:
-        print("  => REFUTE : le natif REVIVE a distance 2. Le `2` serait bien un rayon.")
+
+    def verdict(r):
+        """Le discriminant est la FATALITE du dernier coup, etablie AVANT de lire l'issue :
+        `hp_avant <= dmg` (le degat calibre sur la MEME arme, le MEME tueur, la MEME cible).
+
+        * dernier coup FATAL et `isDead` -> `tuee`   (aucun revive)
+        * dernier coup FATAL et vivante  -> `revive` (le natif a annule la mort)
+        * dernier coup non fatal         -> `non-fatal` : la mesure ne dit rien, on le DIT.
+
+        ⚠ Ne PAS lire le revive a `hp_apres > hp_avant` : le revive pose
+        `min(GetReviveHP, maxPV)`, qui peut etre INFERIEUR au reliquat d'avant le coup. Mesure de
+        ce probe : reliquat 5996 -> revive a **5983**. Un critere par remontee des PV aurait
+        classe ce revive REEL en << non-fatal >> -- il l'a fait, avant correction."""
+        hb = r["hp_before"]
+        fatal = hb is not None and int(hb) <= int(dmg)
+        if not fatal:
+            return "non-fatal"
+        return "tuee" if r["dead"] else "revive"
+
+    va, vb = verdict(a), verdict(b)
+    print("  dist 1 (CONTROLE)  : %s" % va)
+    print("  dist 2 (DISCRIM.)  : %s" % vb)
+    if va == "non-fatal" or vb == "non-fatal":
+        print("  INCONCLUSIF : le coup n'a pas ete fatal -- rejouer avec --victim-hp explicite.")
+        return 1
+    if va != "revive":
+        print("  INCONCLUSIF : le CONTROLE ne revive pas (coup OVERKILL ? `Narthecium` est")
+        print("    « unless Overkilled »). On ne conclut RIEN d'un double negatif.")
+        return 1
+    if vb == "revive":
+        print("  => REFUTE : le natif REVIVE a distance 2 -- le `2` serait bien un rayon.")
         return 1
     print("  => CONFIRME : le natif revive a distance 1 et REFUSE a distance 2.")
     print("     Le `2` est un `UnitSelectionType`, pas un rayon -- le port etait PERMISSIF.")
@@ -486,7 +621,8 @@ def step_live(sid, victim_hp) -> int:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="guard", choices=["re", "scan", "guard", "live", "offline"])
-    ap.add_argument("--victim-hp", type=int, default=20000)
+    ap.add_argument("--victim-hp", type=int, default=0,
+                    help="PV de la victime ; 0 (defaut) = CALIBRER d'abord sur un coup reel")
     args = ap.parse_args()
     if args.step in ("re", "scan", "guard", "offline"):
         rc = 0
