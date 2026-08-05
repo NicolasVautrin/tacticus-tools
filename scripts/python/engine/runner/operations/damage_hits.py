@@ -142,6 +142,51 @@ def overkill_hit_emits(overkilled: bool) -> bool:
     return not overkilled
 
 
+def discarded_hit_emits() -> bool:
+    """ETAPE 5 d'`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, branche `discard` --
+    la SECONDE porte par laquelle un coup n'emet AUCUN event `UnitDamaged` (#462-r4e-o-r1-r1).
+
+    Meme vice, autre porte que le SITE (A) d'`overkill_hit_emits` : la ou celui-la gate un coup
+    a l'entree d'`ApplyDamageOperation$$Execute` (donc en AVAL de la resolution), celui-ci sort
+    d'`ExecuteHit` BIEN AVANT -- juste apres la relecture d'`OngoingAttack+0x98` :
+
+        pcVar18 = <Nullable<AttackHit>.HasValue>(attack + 0x98);
+        if (*pcVar18 != '\\0') {                          // HasValue
+          Nullable<AttackHit>.get_Value(attack + 0x98, &hit);
+          if (hit.discard != 0) { return this; }          // <- `this` = OperationResult MEMSET A 0
+          ...
+        }
+
+    Le `return this` PRECEDE la sub-op **0x42**
+    (`IdunBattle.Operations.DealDamageOperation$$Execute`), et c'est celle-la -- et elle seule --
+    qui atteint l'application : `DealDamageOperation$$Execute` invoque le slot **0x43**
+    (`IdunBattle.Core.Services.OperationProcessor$$ApplyDamage` ->
+    `IdunBattle.Operations.ApplyDamageOperation$$Execute`), unique appelant de code du corps qui
+    emet l'evenement `UnitDamaged` porteur du tag `Amount`
+    (`IdunBattle.Core.Services.StreamHelper$$GetDamageTags`, TagKey 225).
+    Chaine LUE de bout en bout au build `rnca9r7q6c` :
+
+        ExecuteHit --(etape 5: discard)--> return          => AUCUN 0x42, AUCUN 0x43, AUCUN event
+        ExecuteHit --(sinon)--> 0x42 DealDamage --> 0x43 ApplyDamage --> UnitDamaged{Amount}
+
+    => un coup DISCARDE ne laisse **aucune entree** dans `per_hit`, la ou le port en appendait une
+    a 0. Ecart de RAPPORT pur (meme etat, meme somme), donc invisible de tout test d'ETAT -- meme
+    signature que #462-r4e-o-r1.
+
+    ⚠ A NE PAS CONFONDRE avec le coup TRANSFERE (`_transferred`, #411), qui relit le MEME champ au
+    MEME instant sur `!HasValue` : celui-la, le natif NE le sort PAS. Il pose `damage = 0` et
+    poursuit jusqu'a la sub-op 0x42 -> `ApplyDamage` tourne -> l'event EXISTE, a `Amount` 0. La
+    distinction est exactement ce que la docstring de
+    `test_411r1_transfer_port_offline.py::test_le_transfert_est_teste_AVANT_le_discard` annoncait
+    deja (« aucune entree dans `per_hit` » contre « y laisse un 0 ») sans que le port l'applique.
+
+    Fonction de MODULE, sans argument, pour la meme raison que `crit_gate_open` /
+    `damage_amount_applied` / `overkill_hit_emits` : c'est le point de MUTATION des contre-epreuves.
+    La faire rendre `True` restaure exactement le port d'AVANT #462-r4e-o-r1-r1 (une entree a 0 par
+    coup discarde), qui DOIT diverger du live des qu'un `HarlequinsPanoply` jette des coups."""
+    return False
+
+
 def overkill_flag_posted_by_hit(health_damage: int, denied_before: int,
                                 hp_start: int, hp_left_before: int, *,
                                 over_reduce_before: int = 0,
@@ -400,6 +445,14 @@ class _DamageHitsMixin:
         => **`len(per_hit)` n'est plus le nombre de coups EXECUTES** : c'est le nombre d'events
         `UnitDamaged` emis, comme le live. Le compte de coups est `hits_executed`.
 
+        DEUX portes ferment l'emission, et elles sont a des ETAGES DIFFERENTS (#462-r4e-o-r1-r1) :
+          * `overkill_hit_emits` -- le SITE (A), a l'entree d'`ApplyDamageOperation$$Execute`
+            (donc EN AVAL de la resolution : le coup roule ses tirages, se resout, bloque) ;
+          * `discarded_hit_emits` -- l'etape 5 d'`ExecuteHit`, EN AMONT de la sub-op 0x42 (le coup
+            ne se resout meme pas : ni degat, ni block, ni `EvaluateAfterHitTriggers`).
+        Les deux produisent le MEME ecart observable si on les manque : une entree `per_hit` de
+        trop, a somme et etat INCHANGES -- donc invisible de tout test d'ETAT.
+
         Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
         did_crit = did_block = did_evade = False
@@ -627,12 +680,22 @@ class _DamageHitsMixin:
                 un `OperationResult` MEMSET A 0. Appelee APRES le `GetDamage` de tete et le
                 `RollCritical` (donc leurs tirages sont deja consommes) et AVANT le slot 4/8 et la
                 sub-op 0x42 (donc AUCUN de ces tirages-la ne l'est). Le coup est compte (l'index
-                avance, `ExecuteHits` fait `i++`) mais n'inflige RIEN et ne bloque RIEN."""
+                avance, `ExecuteHits` fait `i++`) mais n'inflige RIEN et ne bloque RIEN.
+
+                #462-r4e-o-r1-r1 -- et il n'EMET RIEN non plus. La sub-op 0x42
+                (`IdunBattle.Operations.DealDamageOperation$$Execute`) est le SEUL chemin qui
+                atteint le slot 0x43 (`IdunBattle.Core.Services.OperationProcessor$$ApplyDamage`
+                -> `IdunBattle.Operations.ApplyDamageOperation$$Execute`), donc l'evenement
+                `UnitDamaged` porteur du tag `Amount`. Le `return this` la PRECEDE => AUCUNE entree
+                dans `per_hit` (foyer/point de mutation : `discarded_hit_emits`). `crits` /
+                `rolls` / `per_hit_health` restent FULL-LENGTH -- ils comptent les coups EXECUTES,
+                et `hits_executed = len(per_hit_health)` en depend."""
                 if hit_interceptor is None or not hit_interceptor.should_discard(idx):
                     return False
                 crits.append(crit_flag)
                 rolls.append(0)
-                per_hit.append(0)
+                if discarded_hit_emits():     # natif : FAUX -- `ExecuteHit` sort AVANT la 0x42
+                    per_hit.append(0)
                 per_hit_health.append(0)
                 return True
 
