@@ -13,6 +13,7 @@ from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggerEvent
 from ..loki import _fire_of_absolution_after_attack
 from .core import evaluate_trigger_operation
+from ....abilities.attack_type import is_active_ability
 
 
 def ability_init_triggers(state: State, unit_id: int) -> list[dict]:
@@ -121,7 +122,6 @@ def unit_active_ability_triggers(state: State, caster_id: int, target_id: Option
     de l'override de niveau au PROCHAIN CAST D'ACTIF du porteur. AUCUN autre trigger porte n'ecoute
     `event_id == 12`. `ability_type` = `df@0x130` (l'ability declenchante), threade pour les gates
     kind des futurs consommateurs."""
-    from ....abilities.attack_type import is_active_ability   # lazy : coherent avec les autres vecteurs
     if not is_active_ability(ability_type):
         return []
     ev = TriggerEvent(EventTriggerType.UnitActiveAbility, caster_id,

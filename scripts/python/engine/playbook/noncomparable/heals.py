@@ -14,6 +14,7 @@ from engine.entities.traits.unit_trait import entity_trait_names, trait_name
 
 from ._base import (NCContext, NonComparablePlaybook, _has_valid_targets,
                     _sweep_origin_first, _traits, _unit_cfg)
+from engine.runner.operations.triggers.revive_effect import is_affected_by_heal_type
 
 
 def _affected_by_heal_type(ctx: NCContext, obs_unit: dict, heal_type: int) -> bool:
@@ -53,7 +54,6 @@ def _affected_by_heal_type(ctx: NCContext, obs_unit: dict, heal_type: int) -> bo
     sid = obs_unit.get("squadId")
     uctx = scene.ctx(sid) if (scene is not None and sid is not None) else None
     names = entity_trait_names(uctx, obs_unit.get("visualId"))
-    from engine.runner.operations.triggers.revive_effect import is_affected_by_heal_type
     return bool(is_affected_by_heal_type(lambda _u, tid: trait_name(tid) in names,
                                         obs_unit, int(heal_type)))
 

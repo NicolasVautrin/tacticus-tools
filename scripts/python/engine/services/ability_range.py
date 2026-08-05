@@ -56,6 +56,9 @@ from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS,
                                           RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER,
                                           RANGED_BOOL_TRUE, TargetingRange, unit_weapon_range)
 from ..runner.abilities.targeting_rule import TargetingRule as TR
+from .. import battle_query as bq
+from ..entities.traits.unit_trait import UnitTrait, has_trait
+from ..runner.abilities.targeting import targeting_options_for
 
 
 def _options_of(ability_id):
@@ -69,7 +72,6 @@ def _options_of(ability_id):
         aid = int(ability_id)
     except (TypeError, ValueError):
         return None
-    from ..runner.abilities.targeting import targeting_options_for
     return targeting_options_for(aid)
 
 
@@ -618,7 +620,6 @@ def ability_range_value(ability_id, visual_id) -> int | None:
 
 def _active_ability_ids(visual_id) -> list:
     """Les ids d'ability ACTIVE du kit gameconfig de l'unite (`activeAbilities`, noms -> enum)."""
-    from ..entities.active_ability_type import ActiveAbilityType
     out = []
     for name in ((GC.unit(visual_id or "") or {}).get("activeAbilities") or []):
         try:
@@ -733,7 +734,6 @@ def _free_adjacent_gate_allows(unit_pos, tile, cfg_range: int, elev_by_pos,
     NON MODELISE, et c'est nomme : `onlyEmptyOrSteppable` / `onlyWalkableTiles` -- l'occupation et
     la walkability des voisines ne sont publiees par aucun canal cote DECISION. Le port ne retire
     donc pas les voisines occupees, ce qui ne peut qu'ELARGIR."""
-    from .. import battle_query as bq                  # foyer d'`IterateAdjacentTiles` (#124)
     t = (int(tile[0]), int(tile[1]))
     # Le pool reste la couronne hex, mais `is_adjacent` le REDUIT a la liste STOCKEE des que le
     # canal est la (#433-r4-r1-r4-r2) : `pool ^ N[t] == N[t]` puisque `N subset G`. Le natif, lui,
@@ -751,7 +751,6 @@ def _has_indirect_fire(visual_id) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$HasTrait(caster, 0x3ed)`, substrat gameconfig -- le
     litteral que `IdunBattle.Core.Services.TargetingQuery$$GetTilesObscuringTerrain` teste avant de
     poser le volet ELEVATION du `ObscuringType`."""
-    from ..entities.traits.unit_trait import UnitTrait, has_trait
     return has_trait((GC.unit(visual_id or "") or {}).get("traits"), UnitTrait.IndirectFire)
 
 

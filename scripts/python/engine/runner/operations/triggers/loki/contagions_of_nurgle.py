@@ -118,6 +118,12 @@ from .....entities.effect_type import EffectType
 from .....entities.effects.loki.status import ContagionsOfNurgleArmorReductionEffect
 from .....entities.effects.magnitude import trait_var
 from .....entities.stats import StatType
+from .....entities.traits.unit_trait import UnitTrait
+from ....abilities.deathguard import contagions_of_nurgle_range
+from ....components import OwnerComponent, PositionComponent, UnitComponent
+from ....components import unit_state_for_effects
+from ...effects import AddEffectOperation
+from ...refresh_effects import refresh_stat_modifier_effects
 
 CONTAGIONS_ARMOR_REDUCTION_1 = int(EffectType.ContagionsOfNurgle_ArmorReduction1)   # 0x42f = 1071
 CONTAGIONS_ARMOR_REDUCTION_2 = int(EffectType.ContagionsOfNurgle_ArmorReduction2)   # 0x430 = 1072
@@ -137,7 +143,6 @@ def aura_range(state: State, carrier_id: int) -> int:
     """`IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange` --
     DELEGUE au foyer deja porte (`abilities/deathguard.contagions_of_nurgle_range`), qui est le MEME
     helper natif que celui appele statiquement par `SpawnPoxwalkersAbility$$ExecuteBehaviour`."""
-    from ....abilities.deathguard import contagions_of_nurgle_range
     return contagions_of_nurgle_range(state, int(carrier_id))
 
 
@@ -153,8 +158,6 @@ def aura_carriers(state: State, unit_id: int) -> list:
     MEME etage de portee que le compte (`GetCurrentRange` via `aura_range`) et MEME comparateur
     INCLUSIF : les deux lisent `entities/effects/aura.py`."""
     import hexgeo
-    from ....components import OwnerComponent, PositionComponent, UnitComponent
-    from .....entities.traits.unit_trait import UnitTrait
 
     def _pos(uid):
         ent = state.get_entity(int(uid))
@@ -191,7 +194,6 @@ def instance_is_active(state: State, unit_id: int, name: str) -> Optional[bool]:
     """L'instance nommee `name` portee par `unit_id` est-elle ACTIVE (flag `EffectComponent.IsActive`
     ET `CreateActiveCondition`) ? Lit le MEME `unit_state` que le driver (foyer unique
     `unit_state_for_effects`, #208). `None` = l'unite ne porte pas cette instance."""
-    from ....components import unit_state_for_effects
     if state.effects is None:
         return None
     us = unit_state_for_effects(state, int(unit_id))
@@ -241,8 +243,6 @@ def apply_on_unit_added(state: State, unit_id: int) -> Optional[dict]:
     armor = int(sc.ctx.stat(StatType.FIXED_ARMOR) or 0)
     if armor <= 0:
         return None
-    from ...effects import AddEffectOperation           # lazy : evite le cycle triggers <-> effects
-    from ...refresh_effects import refresh_stat_modifier_effects
     posed = []
     for etype, name, key in _VARIANTS:
         pct = trait_var("ContagionsOfNurgle", key)

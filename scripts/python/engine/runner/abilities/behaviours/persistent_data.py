@@ -31,13 +31,13 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
+from ...components import PersistentDataComponent
 
 
 def _component(state, unit_id):
     """Get-or-create le `PersistentDataComponent` du porteur (mirror : le natif l'a d'office --
     `ClearPersistentDataBehaviour$$GetPersistentDataComponent` / le `GetComponent` de
     `AddToPersistentDataListBehaviour$$Execute`). None si l'entite n'existe pas."""
-    from ...components import PersistentDataComponent
     e = state.get_entity(int(unit_id)) if unit_id is not None else None
     if e is None:
         return None

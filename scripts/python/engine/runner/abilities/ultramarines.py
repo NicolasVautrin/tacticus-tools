@@ -68,6 +68,11 @@ from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1
 from ...streams.tag_key import TagKey
 # #270-r4 : direction de BattleQuery.GetTilesInTriangleShape (...Utils.Hex.Corner).
 from ...hex_corner import Corner
+from ...entities.behaviours import If as IfBehaviour, Inform
+from ...entities.triggers import IsCharging
+from ..operations.spawn import _free_tiles_adjacent
+from ..operations.spawn import _spawn_config_grot
+from .behaviours import ChangeStat
 
 if TYPE_CHECKING:
     from ..state import State
@@ -272,7 +277,6 @@ def _dfa_spawn_tiles(state: "State", caster_id: int, target_id: int) -> list:
     differe, mais tous les Inceptors sont IDENTIQUES et atterrissent adjacents a la cible -> positions
     seulement ; le count et le degat total sont inchanges -- confirme bit-exact live, cf. classe DeathFromAbove)."""
     import hexgeo
-    from ..operations.spawn import _free_tiles_adjacent
     board = state.board
     cas = state.get_entity(caster_id)
     cp = cas.get_component(PositionComponent) if cas is not None else None
@@ -320,7 +324,6 @@ class SpawnInceptors(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         import gameconfig as GC
-        from ..operations.spawn import _spawn_config_grot
         from .loki import _summon_on_appearance_attack
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
@@ -714,9 +717,6 @@ def tactical_precision_tree(crit_amount: int, caster_id: int):
     `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (overload `hits` entier ->
     `Direct(hits)`), pas `AttackWithAbilityDamage`. Profil `Bolter` / `Chain`, `attackRangeType`
     = Melee -> `is_melee=True` des deux cotes."""
-    from ...entities.triggers import IsCharging
-    from ...entities.behaviours import If as IfBehaviour, Inform
-    from .behaviours import ChangeStat
     charging = IsCharging(Caster(), Target())
     src = (f"{TACTICAL_PRECISION_ID}_CritDamage", caster_id)        # source PARTAGEE add<->revert
     crit_add = ChangeStat(Caster(), int(StatType.CRIT_DAMAGE), "add", src, amount=int(crit_amount))

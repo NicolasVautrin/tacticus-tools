@@ -37,6 +37,8 @@ from ....components import StatsComponent, OwnerComponent, PositionComponent, Un
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.effect_type import EffectType
 from ..base import TriggeredAbility, TriggerEvent, _in_attack_range, _unit_tile
+from ...damage import AttackDamageOperation
+from ...spawn import SpawnUnitOperation
 
 PROTECTOR = int(EffectType.ProtectorImperative)   # 1247 (0x4df)
 CONQUEROR = int(EffectType.ConquerorImperative)    # 1248 (0x4e0)
@@ -109,14 +111,12 @@ class ControlEdictAbility(TriggeredAbility):
 
     def _summon_minion(self, state: State) -> list:
         """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$SummonMinion` -> feuille Spawn (Operation validee)."""
-        from ...spawn import SpawnUnitOperation
         return SpawnUnitOperation.execute_control_edict_summon(state, self.owner_id)
 
     def _attack_with_minions(self, state: State, target_id: Optional[int]) -> list:
         """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$AttackWithMinions` + `b__0 IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility.u003Cu003Ec__DisplayClass4_0$$u003CAttackWithMinionsu003Eb__0` : chaque Summon Mechanical adjacent a Tan attaque
         la cible du trigger (`target@0x178`) si `IsInAttackRange`, avec son attaque NORMALE (pipeline normal du
         summon -> selection d'arme Physical melee / Toxic R2 par range). No-op si la cible est absente/morte."""
-        from ...damage import AttackDamageOperation
         if target_id is None:
             return []
         tgt = state.get_entity(target_id)

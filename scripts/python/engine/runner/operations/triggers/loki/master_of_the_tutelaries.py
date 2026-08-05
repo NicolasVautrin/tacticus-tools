@@ -68,6 +68,8 @@ from ....abilities.behaviours import entities_from_state
 from ....state import State
 from ....components import UnitComponent, OwnerComponent
 from ..base import EffectTrigger, TriggerEvent
+from ....abilities.loki.summon import perform_ai_attack_from_current_position
+from ...spawn import SpawnUnitOperation
 
 MASTER_EFFECT = int(EffectType.MasterOfTheTutelaries)        # 1197 (0x4ad) — effet armeur
 _PSYCHIC = DamageProfileType.Psychic.name                        # "Psychic" — profil du gate (0xd)
@@ -180,7 +182,6 @@ class MasterOfTheTutelariesSummonAbility(EffectTrigger):
         # `TriggerAbilityDelayed(owner, 1173, kind=3)` -> reveil differe -> `CreateSummonBehaviour` :
         # collapse inline (cf. en-tete — le spawn s'execute apres la resolution de l'attaque, ce
         # vecteur etant dispatche a FinishAttack ; ordre intra-On(9) = residu).
-        from ...spawn import SpawnUnitOperation
         spawned = SpawnUnitOperation.execute_master_of_tutelaries_screamer(state, self.owner_id)
         if not spawned:
             return None                                      # aucune tuile libre adjacente -> no-op
@@ -190,7 +191,6 @@ class MasterOfTheTutelariesSummonAbility(EffectTrigger):
         # melee Power 3 hits si ennemi adjacent — son propre vecteur after-attack est dispatche par
         # le helper : si le Screamer est ADJACENT a Abraxas, son attaque porte le bonus InfernalPacts
         # PSYCHIC -> re-qualifie -> Screamer suivant (chaine mesuree live, bornee par les positions).
-        from ....abilities.loki.summon import perform_ai_attack_from_current_position
         attacks = []
         for sid in spawned:
             att = perform_ai_attack_from_current_position(state, sid)

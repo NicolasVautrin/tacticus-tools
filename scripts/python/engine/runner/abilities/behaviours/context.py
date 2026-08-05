@@ -10,6 +10,17 @@ from ...components import (OwnerComponent, PositionComponent, UnitComponent, Sta
                           HealthComponent, get_unit_feet)
 from ....entities.traits.unit_trait import (UnitTrait, has_trait, grand_alliance_trait_name,
                                             entity_trait_names)
+from ....entities.effects import effect_stat_mod_key
+from ....entities.stats import StatPart as _SP, StatType as _ST
+from ....entities.stats import StatType as _ST
+from ....utilities.tile import sort_tiles_by_utility as _stbu, runner_tile_leaf_ctx
+from ...components import UnitComponent as _UC
+from ...components import UnitFlagsComponent
+from ...components import charged_unit_ids
+from ...components import persistent_data as _pd
+from ...components import persistent_data_list as _pdl
+from ...components import previous_tiles as _pt
+from ...operations.ability_reset import entity_can_have_active_ability_reset
 
 
 # Trait d'ALLIANCE derive de la GrandAlliance : la resolution CANONIQUE vit desormais dans
@@ -205,7 +216,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         # IdunBattle.Entities.UnitExtensions$$GetStat+0x859 : GroupUnitComponent fill-up {+0x10=nrOfMembers, +0x18=restants}, PAS un
         # StatComponent — `IdunBattle.Entities.UnitExtensions$$GetStatComponent` n'a pas de case 0x14). Offline : parts derivees
         # de l'etat PV via `group_unit_stat_part` (lu par `SwarmAbility` StatAmount(Self,20,3/4)).
-        from ....entities.stats import StatPart as _SP, StatType as _ST
         # HEALTH = l'AUTRE stat « fill-up » du natif (comme NUMBER_OF_MEMBERS ci-dessous) :
         # `IdunBattle.Entities.UnitExtensions$$GetStat` route la PV sur un `FillUpStatComponent`
         # (+0x10 = maximum courant, +0x18 = valeur courante) et delegue a
@@ -359,7 +369,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
 
     def _turns_started(unit):
         """`StatAmount(Owner, 0xc = TurnsStarted)` -- l'entree de `GetCurrentRange` d'un `IAuraEffect`."""
-        from ....entities.stats import StatType as _ST
         return int(_get_stat(unit, int(_ST.TURNS_STARTED), 0, None) or 0)
 
     # `ctx.stat_modifier_amount` (`CurrentStatModifierAmountFormula`, gate d'idempotence de
@@ -369,7 +378,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # entree per_source par entite-effet » que le natif, #118). 0 si l'effet n'est pas porte ou n'a
     # pose aucune stat-modification.
     def _stat_modifier_amount(unit, effect_type, stat_type):
-        from ....entities.effects import effect_stat_mod_key
         uid = (unit or {}).get("id")
         if uid is None or state.effects is None:
             return 0
@@ -394,7 +402,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # `ResurrectUnitOperation` cote port `UnitFlagsComponent.AMBUSH_CONSUMED`). Unite sans composant de
     # flags -> False.
     def _has_unit_flag(unit, flag):
-        from ...components import UnitFlagsComponent
         uid = (unit or {}).get("id")
         e = state.get_entity(uid) if uid is not None else None
         fl = e.get_component(UnitFlagsComponent) if e is not None else None
@@ -406,7 +413,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # selecteur `UnitsThatCanHaveActiveAbilityReset` (InspiredToGreatness). None = INCONNU (canal
     # `ActiveAbilitiesComponent` absent) -> propage, jamais rabattu sur False.
     def _can_have_active_ability_reset(unit):
-        from ...operations.ability_reset import entity_can_have_active_ability_reset
         uid = (unit or {}).get("id")
         if uid is None:
             return None
@@ -420,7 +426,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     _by_id = {u.get("id"): u for u in units}
 
     def _units_damaged_this_phase(unit):
-        from ...components import UnitComponent as _UC
         uid = (unit or {}).get("id")
         e = state.get_entity(uid) if uid is not None else None
         uc = e.get_component(_UC) if e is not None else None
@@ -472,7 +477,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # `leaf_ctx` = `runner_tile_leaf_ctx(state, unit_id, parent_id)`, le port de `dc.units`/`dc.owner`
     # que le natif met dans le `UtilityMovementCase` de chaque feuille (#165).
     def _sort_tiles_by_utility(tiles, unit_id, utility_type, parent_id=None):
-        from ....utilities.tile import sort_tiles_by_utility as _stbu, runner_tile_leaf_ctx
         uid = None if unit_id is None else int(unit_id)
         pid = None if parent_id is None else int(parent_id)
         return _stbu(state, list(tiles), None, uid, int(utility_type), pid, None,
@@ -483,7 +487,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # `IdunBattle.Core.Services.BattleQuery$$IsCharging` (l'autre moitie = l'adjacence). Vide si le
     # composant manque (degradation fidele : personne n'a charge).
     def _charged_units(unit):
-        from ...components import charged_unit_ids
         uid = (unit or {}).get("id")
         return charged_unit_ids(state, int(uid)) if uid is not None else set()
 
@@ -494,7 +497,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # -- `AddToPersistentDataListBehaviour$$Execute`, `IsInPersistentDataListTrigger$$ShouldTrigger`,
     # `EntitiesFromPersistentDataListSelector$$Select` -- font tous `?? new List<T>()`).
     def _persistent_data_list(unit, key):
-        from ...components import persistent_data_list as _pdl
         uid = (unit or {}).get("id")
         return _pdl(state.get_entity(int(uid)) if uid is not None else None, key)
 
@@ -502,14 +504,12 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         """`ctx.persistent_data` -- le pendant SCALAIRE de `_persistent_data_list`, sur le MEME
         `Dictionary` @+0x10 et la MEME cle composite. `None` = cle absente (la formule
         `GetPersistentData` le rend en 0, comme l'`out` par defaut du natif)."""
-        from ...components import persistent_data as _pd
         uid = (unit or {}).get("id")
         return _pd(state.get_entity(int(uid)) if uid is not None else None, key)
 
     def _previous_tiles(unit):
         """`ctx.previous_tiles` -- `PositionComponent+0x88` deplie en coordonnees, ce que rend
         `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select`. `[]` = `Nullable` VIDE."""
-        from ...components import previous_tiles as _pt
         uid = (unit or {}).get("id")
         return _pt(state.get_entity(int(uid)) if uid is not None else None)
 

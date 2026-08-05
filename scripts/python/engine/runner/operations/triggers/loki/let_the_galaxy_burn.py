@@ -103,6 +103,7 @@ from .....entities.triggers import MaybeTrigger
 from .....dsl.base import Const
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent
+from ....damage_model import tile_status_effects_by_pos
 
 _ON_PRE_ATTACK = int(EventTriggerType.PreAttack)   # 5  — vecteur de POSE (avant le calcul des coups)
 _ON_ATTACK = int(EventTriggerType.Attack)          # 9  — vecteur fin-d'attaque (CLEAR)
@@ -115,7 +116,6 @@ def _target_tile_effects(state: State, target_id: Optional[int]) -> list:
     de POSE et le gate du COUP voient exactement le meme etat. Board/effets/position absents -> []."""
     if target_id is None:
         return []
-    from ....damage_model import tile_status_effects_by_pos   # lazy : evite le cycle triggers<->damage_model
     e = state.get_entity(target_id)
     pc = e.get_component(PositionComponent) if e is not None else None
     if pc is None:

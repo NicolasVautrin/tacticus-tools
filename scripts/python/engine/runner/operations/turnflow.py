@@ -68,6 +68,11 @@ from ..abilities.targeting import (valid_normal_attack_targets, normal_attack_ty
 from ..abilities.handler import ABILITY_CLASSES
 from .repair import _is_boss
 from ...ai.state_bridge import _move_tiles
+from .effects import revert_stat_mods_of_removed_effects
+from .refresh_effects import refresh_stat_modifier_effects
+from .summon_ai import run_ai_control_pass
+from .triggers import end_turn_summon_triggers
+from .triggers import unit_finished_turn_triggers
 
 
 class MarkUnitAsNoActionAvailableOperation:
@@ -414,10 +419,8 @@ class StartTurnOperation:
         # avec le `TurnsStarted` du PORTEUR d'aura : une unite jusque-la hors du disque y entre au
         # tour ou l'aura grandit, et prend le debuff SANS avoir bouge.
         # Idempotent pour tout autre effet declaratif a stat-mod (`Modify` = replace par-source).
-        from .refresh_effects import refresh_stat_modifier_effects
         refresh_stat_modifier_effects(state)
         out = start_turn_triggers(state, player)
-        from .summon_ai import run_ai_control_pass         # lazy : evite le cycle turnflow<->summon_ai
         out = tile_ticks + first_aid + living_metal + out + run_ai_control_pass(state, player)
         return out
 
@@ -527,7 +530,6 @@ class EndTurnOperation:
         # l'effet (`On(4)`, `On(0x2a = PreUnitAbility)`, `On(0x28 = UnitFinishedTurn)`) -- mesure live : le natif retire l'effet DES LE
         # MOUVEMENT ou DES LE CAST, pas en fin de tour. Ce site-ci ne couvre donc plus que le cas
         # « l'unite n'a rien fait de son tour », qui est exactement ce que le natif couvre ici.
-        from .triggers import unit_finished_turn_triggers
         landed: list[dict] = []
         for uid, e in state.entities.items():
             oc = e.get_component(OwnerComponent)
@@ -544,7 +546,6 @@ class EndTurnOperation:
         # IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger (grots du joueur
         # FINISSANT a PV pleins -> auto-dedoublement, 75-5%/grot). AVANT le tick d'effets : leurs gates
         # lisent donc l'etat PRE-tick, comme dans le natif. No-op si aucun porteur.
-        from .triggers import end_turn_summon_triggers
         pilein = end_turn_summon_triggers(state, finishing)
         # (5) IdunBattle.Operations.EndTurnOperation$$RefreshEffects : tick d'1 tour des effets a duree de TOUTES les unites (le natif
         # itere GetAllUnits, pas seulement le joueur finissant). `attacked` non suivi offline -> False
@@ -563,7 +564,6 @@ class EndTurnOperation:
         # stat-mod a TIMER (ex. `Thrilled` 1434 de ThrillSeekers, +15 CritChance pour 1 round) restait
         # applique pour toujours. No-op strict pour toute instance sans `stat_mod_source`. Reste COLLE au
         # tick (mirror du `RefreshEffectsOperation` que `RefreshEffects` appelle en sortie de boucle).
-        from .effects import revert_stat_mods_of_removed_effects
         reverted = revert_stat_mods_of_removed_effects(state)
         if not advance:
             return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,

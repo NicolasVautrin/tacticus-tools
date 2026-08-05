@@ -40,6 +40,7 @@ from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
+from .base import convert_rounds_to_turns
 
 if TYPE_CHECKING:
     from ..state import State
@@ -880,7 +881,6 @@ class ThriceBlessedConflagrationAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from .base import convert_rounds_to_turns
         if target_id is None or state.get_entity(target_id) is None:
             return None
         sc = state.get_entity(caster_id).get_component(StatsComponent) \

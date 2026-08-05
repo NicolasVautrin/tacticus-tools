@@ -136,6 +136,8 @@ from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import EffectTrigger, TriggerEvent
+from ....components import UnitComponent
+from ....damage_model import select_weapon, select_weapon_pierce
 
 EWO_REACTIVATE_OVERWATCH = int(EffectType.EarlyWarningOverride_ReactivateOverwatch)   # 0x479 = 1145
 EWO_HIT_REDUCTION = int(EffectType.EarlyWarningOverride_HitReduction)                 # 0x47a = 1146
@@ -172,7 +174,6 @@ def _attack_hits(state: State, unit_id: int, is_melee: bool) -> int:
 
     Le call-site est un GARDE (`Max(ranged, melee) > hitsReduction`) : il empeche la reduction de
     ramener une attaque a 0 coup."""
-    from ....damage_model import select_weapon, select_weapon_pierce   # lazy : cycle triggers<->damage
     e = state.get_entity(int(unit_id))
     sc = e.get_component(StatsComponent) if e is not None else None
     if sc is None:
@@ -194,7 +195,6 @@ def has_death_reason(state: State, unit_id: int, damage_reason: int,
     la `DamageSource` enregistree sur le `UnitComponent` de `unit_id` (`death_source`, cf.
     `runner/components.py`). `ability_or_effect=None` = le `Nullable` VIDE du natif (aucun filtre
     d'ability)."""
-    from ....components import UnitComponent
     e = state.get_entity(int(unit_id))
     uc = e.get_component(UnitComponent) if e is not None else None
     src = getattr(uc, "death_source", None) if uc is not None else None

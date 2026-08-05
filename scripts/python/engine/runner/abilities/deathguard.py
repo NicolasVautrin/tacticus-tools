@@ -299,7 +299,6 @@ def contagions_of_nurgle_range(state: "State", unit_id: int) -> int:
     `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` (l'ability
     n'a pas d'effet Nurgle a ce point : c'est un helper de portee PARTAGE avec l'aura
     ContagionsOfNurgle)."""
-    from ...entities.stats import StatType
     e = state.get_entity(unit_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     stats = getattr(sc.ctx, "stats", None) if sc is not None else None

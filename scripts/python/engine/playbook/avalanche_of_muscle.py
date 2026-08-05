@@ -138,6 +138,10 @@ from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..services.battle_query import select_weapon_pierce
 from ..services.damage_prediction import get_attack_prediction
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
+from .prediction import (prediction_has_moved, prediction_has_teleported,
+                                 _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
+                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
+from .prediction._shared import _prediction_is_charging
 
 # Cle gameconfig de l'ability : l'enum membre EST le nom de config.
 _ABILITY_NAME = TriggeredAbilityType.AvalancheOfMuscle.name          # "AvalancheOfMuscle"
@@ -192,10 +196,6 @@ class AvalancheOfMusclePlaybook:
         actx = scene.ctx(att_id)
         if actx is None:
             return None
-        from .prediction import (prediction_has_moved, prediction_has_teleported,
-                                 _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
-        from .prediction._shared import _prediction_is_charging
         is_melee = not is_ranged
         _hm = prediction_has_moved(scene, att_id, attack_pos)
         _tctx = scene.ctx(tgt_id)

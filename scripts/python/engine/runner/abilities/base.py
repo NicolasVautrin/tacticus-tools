@@ -9,6 +9,12 @@ from typing import Optional, TYPE_CHECKING
 
 # Les deux registres d'override de flags sont indexes par `ActiveAbilityType` (#270-r1-r1).
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.effects import piercing_bonus_from_effects
+from ...entities.effects.magnitude import ability_var
+from ..components import OwnerComponent
+from ..components import OwnerComponent, PositionComponent, UnitComponent
+from ..components import StatsComponent
+from ..components import StatsComponent, UnitComponent, unit_state_for_effects
 
 if TYPE_CHECKING:
     from ..state import State
@@ -42,8 +48,6 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     côté DÉCISION). Un `MartialApotheosis` (passif necroOverlord) attaque au `passive_ability_level` ; dans
     un runner rank-based `active == passive` (vérifié live necroOverlord 50/50) → observationnellement égal,
     mais on lit la BONNE source pour rester fidèle au natif hors de cette coïncidence."""
-    from ..components import StatsComponent
-    from ...entities.effects.magnitude import ability_var
     e = state.get_entity(caster_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None
@@ -103,8 +107,6 @@ def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, abili
     `unit_ctx_of` (déposé dans le ctx) = mirror de `BaseEffect$$GetAbilityState` pour les effets dont la
     SOURCE n'est pas le porteur : la magnitude `ConfigVar` s'indexe sur l'état d'ability de CELUI QUI A
     POSÉ l'effet (la Storm Speeder pour Hailstrike), pas sur celui de l'attaquant qui le porte."""
-    from ..components import StatsComponent, UnitComponent, unit_state_for_effects
-    from ...entities.effects import piercing_bonus_from_effects
     if state is None or caster_id is None:
         return 0
     ce = state.get_entity(caster_id)
@@ -226,7 +228,6 @@ def turns_until_unit_owner_turn(state: "State", unit_id: int) -> int:
     tomber sur le proprietaire : le resultat est **1**. RESIDU NOMME : avec plus de 2 joueurs
     non-Environment le rang exact du proprietaire dans l'ordre n'est pas derivable offline et cette
     fonction rend 1 (borne INFERIEURE, jamais une duree inventee plus longue)."""
-    from ..components import OwnerComponent
     cur = state.current_player_id
     if cur is None:
         return 0                                       # `GetCurrentPlayer(state) == null`
@@ -318,7 +319,6 @@ def _fighting_retreat_sets_flags(state: "State", caster_id: int) -> bool:
     """Mirror IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$SetsActiveAbilityUsedFlag : True (pose les flags = tour fini) ssi PAS d'ennemi VIVANT adjacent (dist hex 1)
     au caster. Ennemi = `team` differente (meme convention que les autres ports, ex. `_nearest_enemy`)."""
     import hexgeo
-    from ..components import OwnerComponent, PositionComponent, UnitComponent
     e = state.get_entity(caster_id)
     if e is None:
         return True

@@ -21,6 +21,7 @@ import engine.playbook.prediction as prediction   # sous-paquet FRERE, pas `from
 from .base import ComparablePlaybook, register
 from ..predict import heal_utility
 from ..entities.active_ability_type import ActiveAbilityType
+from ..entities.triggered_ability_type import TriggeredAbilityType, entity_triggered_ability_ids
 
 
 class NormalAttackPlaybook(ComparablePlaybook):
@@ -69,7 +70,6 @@ class NormalAttackPlaybook(ComparablePlaybook):
         DEUX clauses, donc deux régressions fermées : le gate `Explosive` **et** le seuil
         `utility > 0`, que le port n'appliquait pas davantage. `utility` arrive déjà sommé du custom
         (+1 pour l'attaque normale), exactement comme le natif."""
-        from ..entities.triggered_ability_type import TriggeredAbilityType, entity_triggered_ability_ids
         scene = getattr(ctx, "scene", None)
         if scene is not None and target is not None:
             tctx = scene.ctx(target)

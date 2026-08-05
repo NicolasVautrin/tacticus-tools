@@ -85,6 +85,7 @@ hierarchie 2 du `TriggeredAbilityComponent`, cf. `runner.snapshot.PASSIVE_HIERAR
 from __future__ import annotations
 
 import gameconfig as GC
+from engine.entities.active_ability_type import ActiveAbilityType
 
 # Le dictionnaire statique de `StaticBattleRules.TriggeredAbility$$GetCustomNormalAttack`,
 # {`TriggeredAbilityType` -> `ActiveAbilityType`} -- QUATORZE entrees, transcrites du `.cctor`.
@@ -321,7 +322,6 @@ def normal_attack_already_present(active_abilities) -> str | None:
     """
     if active_abilities is None:
         return None
-    from engine.entities.active_ability_type import ActiveAbilityType
     from engine.runner.abilities.attack_type import is_regular_attack
     found = None
     for name in active_abilities:

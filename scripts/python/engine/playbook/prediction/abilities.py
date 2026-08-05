@@ -21,6 +21,7 @@ from ...entities.effect_type import EffectType as _EffectType
 # cote noeud DSL (`ctx.has_trait`, cable dans `make_damage_predictions`).
 from ...entities.traits.unit_trait import (UnitTrait as _UnitTrait, has_trait as _has_trait,
                                            trait_name as _trait_name)
+from engine.services.damage_prediction import DamagePredictionResult
 
 
 def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_name, attack_pos=None,
@@ -1245,7 +1246,6 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
 
 def _self_damage_prediction(hp_c: int, hl: int):
     """`DamagePredictionResult` du cout self (sante perdue `hl`, pas de bouclier, appliedHits=0)."""
-    from engine.services.damage_prediction import DamagePredictionResult
     return DamagePredictionResult(
         current_health=hp_c, shield=0,
         accurate_health_damage=MinMaxDamage(min=min(hl, hp_c), max=min(hl, hp_c)),

@@ -60,6 +60,13 @@ STORMBOYZ_STRIKE_TELEPORTING_IN = int(EffectType.StormboyzStrike_TeleportingIn) 
 #: `IdunBattle.Entities.Components.UnitFlagsComponent$$Add(0x11)` sur la CIBLE pour TOUTE
 #: sous-classe. Contenu, fermeture native et residus : cf. le commentaire du foyer.
 from engine.entities.effects.aura_selectors import UNTARGETABLE_EFFECT_TYPES  # noqa: E402
+from engine.ai.context import AiDecisionContext, _enemies, action_tiles_for
+from engine.entities.stats import StatType
+from engine.playbook.noncomparable import is_noncomp
+from engine.runner.abilities.targeting import refuses_all_enemy_targets, targeting_options_for
+from engine.runner.components import EffectsOwnedComponent, is_machine_of_war
+from engine.runner.components import is_machine_of_war
+from engine.weights import load as _load
 
 
 def _is_untargetable(state, uid: int) -> bool:
@@ -75,7 +82,6 @@ def _is_untargetable(state, uid: int) -> bool:
 @functools.lru_cache(maxsize=1)
 def _weights():
     """Poids BC (statiques) charges 1x. `engine.weights.load()`."""
-    from engine.weights import load as _load
     return _load()
 
 
@@ -139,7 +145,6 @@ def _move_range(ctx, vid: str) -> int:
     change la TRAVERSEE, pas la portee). Le FlyPathfinder (Flying/Burrow) est desormais reproduit par
     `fly_pathfinder` (`_move_tiles` choisit l'arete). Reste non porte : le TeleportStrike (deep-strike =
     tranche deploiement) et les tuiles-hazard temporaires."""
-    from engine.entities.stats import StatType
     mv = ctx.get_stat(int(StatType.MOVEMENT)) if ctx is not None else 0
     if mv and mv > 0:
         return int(mv)
@@ -376,7 +381,6 @@ def _refuses_all_enemy_targets(ability_id: int) -> bool:
     Strictement SOUSTRACTIF, et c'est voulu : jamais de PROMOTION vers la route ennemie (un masque
     qui porte `TargetIsEnemy` sans `damageProfile` reste hors de `_best_attack`, cf. le residu
     « masque enemy mais non routee » de `probe_217_phantom_action_routing.py`)."""
-    from engine.runner.abilities.targeting import refuses_all_enemy_targets, targeting_options_for
     opts = targeting_options_for(ability_id)
     return opts is not None and refuses_all_enemy_targets(opts)
 
@@ -393,7 +397,6 @@ def _is_attack_ability(ability_id: int, cfg: dict) -> bool:
         return False
     if not (cfg.get("constants") or {}).get("damageProfile"):
         return False
-    from engine.playbook.noncomparable import is_noncomp
     return not is_noncomp(int(ability_id))
 
 
@@ -590,7 +593,6 @@ def _dv_units(state) -> list:
     L'eligibilite d'une ability de MoW vient de ses `TargetingOptions` + `GetAllTargets` (filtre
     STATIQUE non porte, tache #115) ; tant qu'il manque, la face DECISION MoW se confronte par la voie
     LIVE (RPC `abilityTargets`), comme le fait `context.build` pour les unites."""
-    from engine.runner.components import EffectsOwnedComponent, is_machine_of_war
     out: list = []
     for eid, e in state.entities.items():
         uc = e.get_component(UnitComponent)
@@ -615,7 +617,6 @@ def _dv_units(state) -> list:
 def _obs_units(state) -> list:
     """`observeBattle.units` façon runner : squadId/teamId/visualId/hp/hpMax/isDead/col/row.
     MoW EXCLUES (canal separe `.mows` cote natif + chemin de decision dedie, cf. `_dv_units`)."""
-    from engine.runner.components import is_machine_of_war
     out: list = []
     for eid, e in state.entities.items():
         uc = e.get_component(UnitComponent)
@@ -653,7 +654,6 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     « FromCurrentPosition » du noeud `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition`
     (`behaviour+0x78 = Direct(0)`). Seules ces DEUX valeurs ont un call-site natif ; toute autre valeur
     entiere est traitee comme `0` faute d'override de portee porte dans le pathfinder (aucun appelant)."""
-    from engine.ai.context import AiDecisionContext, _enemies, action_tiles_for
 
     me_ent = state.get_entity(uid)
     if me_ent is None:

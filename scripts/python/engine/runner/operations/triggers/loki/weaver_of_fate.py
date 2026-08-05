@@ -33,6 +33,7 @@ from .....dsl.event_trigger_type import EventTriggerType
 from ....state import State
 from ....components import UnitComponent, OwnerComponent
 from ..base import TriggeredAbility, TriggerEvent
+from ...effects import AddEffectOperation
 
 WEAVER_MAXOUT = int(EffectType.WeaverOfFate_MaxOutDamage)      # 1185 (0x4a1)
 _PSYCHIC = int(DamageProfileType.Psychic)                      # 13 (0xd) — arg du selecteur natif
@@ -90,7 +91,6 @@ class WeaverOfFateAbility(TriggeredAbility):
         return len(hit) >= _THRESHOLD                          # AmountIsEqualOrGreater(..., Get(3))
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ...effects import AddEffectOperation              # lazy : cycle triggers<->operations
         eff = AddEffectOperation.execute(
             state, self.owner_id, self.owner_id, WEAVER_MAXOUT,
             name="WeaverOfFate_MaxOutDamage",

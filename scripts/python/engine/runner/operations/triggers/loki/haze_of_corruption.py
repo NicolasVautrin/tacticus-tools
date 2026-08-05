@@ -164,6 +164,13 @@ from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.selectors import (AdjacentEnemies, AdjacentFriends, And, Caster, Damageable,
                                      Target, UnitSet)
 from ..base import EffectTrigger, TriggeredAbility, TriggerEvent
+from ....abilities.base import ability_attack_params
+from ....abilities.behaviours import AttackWithAttackDamage, RemoveEffect, entities_from_state
+from ....abilities.loki.splash import _pick_randomly_n
+from ....components import StatsComponent, UnitComponent
+from ....components import UnitComponent
+from ...damage import AttackDamageOperation
+from ...left_over_damage import left_over_damages
 
 HAZE_OF_CORRUPTION_ABILITY = "HazeOfCorruption"
 # `AddBondEffect(0x435, ...)` -> EffectType 1077 `HazeOfCorruption_DamageTransfer`.
@@ -243,7 +250,6 @@ class HazeOfCorruptionTargetFinderAbility(TriggeredAbility):
         return ev.actor_id == self.owner_id
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ....abilities.loki.splash import _pick_randomly_n   # lazy : foyer UNIQUE de la loi #130
         entities = entities_from_state(state, self.owner_id, ev.target_id, actor_id=ev.actor_id)
         pool = list(HAZE_TARGET_POOL.evaluate(entities) or [])
         # `TargetsSelector.SelectAllUnits(PickRandomly(pool, 2, allowRepeat=0, maxRepeat=0x7fffffff))`
@@ -314,7 +320,6 @@ class HazeCorruptionBonusHitAbility(TriggeredAbility):
     event_id = _ON_PRE_UNIT_DEATH
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        from ....components import UnitComponent
         # `get_OwnerIsActor` : le porteur est l'AUTEUR du coup fatal (slot Actor@0x158 = killer).
         if ev.killer_id is None or int(ev.killer_id) != int(self.owner_id):
             return False
@@ -330,8 +335,6 @@ class HazeCorruptionBonusHitAbility(TriggeredAbility):
         return _triggering_ability_or_effect(state, ev) != HAZE_DAMAGE_TRANSFER
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ....abilities.base import ability_attack_params
-        from ...damage import AttackDamageOperation
         if state.get_entity(ev.dying_id) is None:
             return None
         # `AttackDamage(Owner@0x148, Target@0x178, Get(extraDmg), Direct(Toxic), Get(nrOfHits), ...)`
@@ -409,7 +412,6 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
     def _carries_haze(state: State, unit_id) -> bool:
         """Porteur du passif `HazeOfCorruption` -- ne sert PLUS qu'au repli SEED (cf. docstring)."""
         import gameconfig as GC
-        from ....components import StatsComponent, UnitComponent
         e = state.get_entity(unit_id) if unit_id is not None else None
         if e is None:
             return False
@@ -432,7 +434,6 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         return None
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        from ....components import UnitComponent
         inst = self._instance(state)
         if inst is None or ev.dying_id is None:
             return False
@@ -467,8 +468,6 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         return not (uc is not None and not uc.alive)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ....abilities.behaviours import AttackWithAttackDamage, RemoveEffect, entities_from_state
-        from ...left_over_damage import left_over_damages
         inst = self._instance(state)
         if inst is None:
             return None

@@ -35,6 +35,8 @@ from .behaviours import (AddBondEffect, AddEffect, AttackWithAttackDamage, Spawn
                          PerformAIAttack, SortedAttackSeries, UseActiveAbility, entities_from_state)
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
+from ..components import OwnerComponent, UnitComponent
+from .targeting import unit_of_entity
 
 if TYPE_CHECKING:
     from ..state import State
@@ -212,7 +214,6 @@ def send_in_the_next_wave_num_summons(state: "State", caster_id: int) -> int:
     -> les entites-unites du `state` avec `UnitComponent.alive == False` ; `Friends(owner)` -> meme team
     que le caster ; `Attackable` -> filtre de ciblabilite natif, sans equivalent offline distinct sur des
     unites MORTES (aucun modele de non-attaquable parmi les cadavres) -> IDENTITE (residu documente)."""
-    from ..components import OwnerComponent, UnitComponent
     consts = (GC.ability("SendInTheNextWave") or {}).get("constants") or {}
     base = int(consts.get("nrOfSummons") or 0)
     ce = state.get_entity(caster_id)
@@ -648,7 +649,6 @@ class ForwardSpotterAbility(ActiveAbility):
 
         La clause `caster == target` ne peut pas mordre pour ce porteur (le caster est une MACHINE,
         la cible une unite) : elle est ecrite parce que le natif l'ecrit."""
-        from .targeting import unit_of_entity
         uid = unit_of_entity(state, target_id)
         if uid is None:
             return int(TR.ValidRequest)              # `!IsUnit(target)` -> `return true` = 1

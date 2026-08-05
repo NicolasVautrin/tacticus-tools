@@ -44,6 +44,7 @@ from __future__ import annotations
 from .. import battle_query as bq
 
 from ..entities.triggered_ability_type import TriggeredAbilityType
+from ..runner.abilities.deathguard import cursed_plague_bell_damage_profile
 
 
 class AdjacentUnitPreferenceTriggeredAbilityPlaybook:
@@ -379,7 +380,6 @@ def _cursed_plague_bell_damage_profile() -> str:
     `CursedPlagueBellAttackAbility$$CreateBehaviour`. Deux copies offline d'un seul nœud natif
     seraient le fork que la doctrine `check-own-port` interdit. Import paresseux : la dépendance
     établie du dépôt va playbook -> runner (jamais l'inverse)."""
-    from ..runner.abilities.deathguard import cursed_plague_bell_damage_profile
     return cursed_plague_bell_damage_profile()
 
 

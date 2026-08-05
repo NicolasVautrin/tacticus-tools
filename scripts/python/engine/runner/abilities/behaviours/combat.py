@@ -11,6 +11,8 @@ from ....services.damage_config import resolve_spread_pct
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import StatsComponent
 from ..base import ability_attack_params
+from ...operations.damage import AttackDamageOperation
+from ..base import profile_pierce
 
 
 class AttackWithAttackDamage(AbilityBehaviour):
@@ -194,7 +196,6 @@ class AttackWithAttackDamage(AbilityBehaviour):
         self.amount_spread_pct = int(amount_spread_pct)
 
     def execute(self, entities, ectx):
-        from ...operations.damage import AttackDamageOperation
         state = ectx.state
         caster = (entities.caster or {}).get("id")
         if state is None or caster is None:
@@ -505,8 +506,6 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         from dataclasses import replace
-        from ...operations.damage import AttackDamageOperation
-        from ..base import ability_attack_params
         state = ectx.state
         cu = resolve_unit(self.caster_sel, entities)
         caster = (cu or {}).get("id")
@@ -632,8 +631,6 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         self.multi, self.native_operation = multi, native_operation
 
     def execute(self, entities, ectx):
-        from ...operations.damage import AttackDamageOperation
-        from ..base import profile_pierce
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -766,7 +763,6 @@ class UseActiveAbility(AbilityBehaviour):
         self.spread_pct = None if spread_pct is None else int(spread_pct)
 
     def execute(self, entities, ectx):
-        from ...operations.damage import AttackDamageOperation
         state = ectx.state
         subject = resolve_unit(self.subject_sel, entities)
         if state is None or subject is None:

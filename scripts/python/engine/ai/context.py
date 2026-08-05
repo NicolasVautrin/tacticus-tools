@@ -23,6 +23,9 @@ from engine.playbook.scene import Scene, step_context as _step_context  # état 
 # #443-r2-b1 : projection ACTIF-ONLY de la liste BRUTE d'effets — le pendant de la porte
 # `decision_view_seed_body` (canal `includeInactive`), UN SEUL foyer pour les deux faces.
 from engine.runner.snapshot import active_only_rows
+from ..services.machine_of_war_position import machine_of_war_position_for_player
+from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names, has_trait
+from engine.utilities.move import UtilityMovementCase
 
 
 @dataclass
@@ -505,7 +508,6 @@ def _machine_of_war_position(spawn_groups, current_player_team, mow_slot_by_play
     face PREDICTION (`make_damage_predictions`) ne recoit que la `Scene`, jamais l'
     `AiDecisionContext`, et l'arbre de zone de 1148 lit ce canal. Un seul foyer -> les deux
     consommateurs ne peuvent pas diverger."""
-    from ..services.machine_of_war_position import machine_of_war_position_for_player
     if spawn_groups is not None and current_player_team is not None:
         return machine_of_war_position_for_player(spawn_groups, int(current_player_team))
     return (mow_slot_by_player or {}).get(cur)
@@ -683,8 +685,6 @@ def _mindist_case(uid, me, units, scene, pdr: dict):
         si les candidats sont UNANIMES sur ce trait, le verdict est le meme quel que soit l'argmin,
         donc exact sans connaitre l'argmin. Sinon (candidats PANACHES) le substrat est laisse a
         `None` et le gate 4 est SUSPENDU — jamais devine."""
-    from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names, has_trait
-    from engine.utilities.move import UtilityMovementCase
     if not pdr:
         return None
     # GATE 3 -- voie STRUCTUREE et UNIQUE : le champ `noTargetableEnemies` pose par le hook dans sa

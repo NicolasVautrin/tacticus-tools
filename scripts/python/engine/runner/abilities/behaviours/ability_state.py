@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
+from ...operations.ability_reset import ResetActiveAbilityOperation
 
 
 class ResetActiveAbility(AbilityBehaviour):
@@ -28,7 +29,6 @@ class ResetActiveAbility(AbilityBehaviour):
         self.unit_sel, self.ignore_turn_flag = unit_sel, bool(ignore_turn_flag)
 
     def execute(self, entities, ectx):
-        from ...operations.ability_reset import ResetActiveAbilityOperation
         state = ectx.state
         if state is None:
             return OperationResult.ok()

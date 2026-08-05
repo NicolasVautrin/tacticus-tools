@@ -83,6 +83,7 @@ from typing import Optional
 from ....state import State
 from ....components import UnitComponent
 from ..base import TriggerEvent
+from .registry import CUSTOM_TRIGGERED_ABILITIES
 
 
 def add_pending_triggered_ability(state: State, entity_id: Optional[int],
@@ -124,7 +125,6 @@ def trigger_triggered_ability(state: State, entity_id: int, ability_type: int,
     s'applique. Cote branche `Custom`, la condition qui restait -- `NOT IsAdjacent(...)` -- est
     DANS l'arbre du behaviour, pas dans le trigger : elle s'evalue donc a l'etat COURANT, ce que
     le port respecte en la portant comme noeud `If`."""
-    from .registry import CUSTOM_TRIGGERED_ABILITIES
     out: list[dict] = []
     classes = CUSTOM_TRIGGERED_ABILITIES.get(int(ability_type), ())
     if not classes:

@@ -72,6 +72,8 @@ from ....entities.effect_type import EffectType
 from ....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1
 from ....services.battle_query import are_tiles_adjacent
 from ....services.custom_normal_attack import substitutes_normal_attack
+from ....entities.triggered_ability_type import triggered_ability_ids
+from ....utilities.tile import tile_composite
 
 if TYPE_CHECKING:
     from ...state import State
@@ -180,7 +182,6 @@ def _spawn_tile_utility_0x37(pos, parent_pos, adj, caster_team) -> float:
     `steps` = slot service 0x6b(parentTile, candidate) — port : distance hex (== pas sur board ouvert
     sans mur ; flag si un board a des obstacles). FONCTION PURE (tranche 3) : `adj` = occupants VIVANTS
     adjacents [(team, visual_id)] — hydraté runner-state (`_adjacent_occupants`) OU scene (prédiction)."""
-    from ....entities.triggered_ability_type import triggered_ability_ids
     from ....ai.action_generators import _faction
     wt = _wt()
     u = -hexgeo.distance(pos, parent_pos) * wt.sub(_W_CAT, "MV71SniperDroneSquad_AdjacentToParent")
@@ -208,8 +209,6 @@ def _tile7_utility(pos, elev, elev_minmax, eff_names, adj, caster_team, unit_id:
     occupants VIVANTS adjacents [(team, visual_id)] (counts d'amis par triggered-ability, leaves
     20/21/22). leaf_ctx du drone : kit déclenché (SaviorProtocols 1120 — LoadPlaybook(1120) natif =
     null -> dispatcher(2) à 0), faction T'au (9), arme ranged."""
-    from ....utilities.tile import tile_composite
-    from ....entities.triggered_ability_type import triggered_ability_ids
     meta: dict = {}
     if elev is not None:
         meta = {"elevation": elev, "elevation_max": elev_minmax[1], "elevation_min": elev_minmax[0]}

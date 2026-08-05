@@ -108,10 +108,14 @@ class _Visiteur(ast.NodeVisitor):
     et de DERIVER la forme du conteneur au lieu de l'enumerer.
     """
 
-    def __init__(self, mod: str, pkg: str, src: str) -> None:
+    def __init__(self, mod: str, pkg: str, src: str, garde: str = PAQUET) -> None:
         self.mod = mod
         self.pkg = pkg
         self.src = src
+        # prefixe des cibles retenues. PARAMETRE, pas fige a `engine` : fige, le detecteur
+        # etait intestable sur un arbre synthetique -- et une contre-epreuve qu'on ne peut
+        # pas ecrire est une contre-epreuve qui n'existe pas.
+        self.garde = garde
         self.sites: list[_Site] = []
         self._pile: list[str] = []
         self._prof_fn = 0
@@ -148,7 +152,7 @@ class _Visiteur(ast.NodeVisitor):
     def _enregistrer(self, noeud, cibles: list[str], forme: str) -> None:
         if self._prof_fn == 0 and self._prof_tc == 0:
             return                                    # niveau module : hors sujet
-        if not [c for c in cibles if c.startswith(PAQUET)]:
+        if not [c for c in cibles if c.startswith(self.garde)]:
             return
         cause = "fonction" if self._prof_fn else "TYPE_CHECKING"
         # conteneur = le noeud de CONTROLE le plus proche SOUS la fonction porteuse
@@ -160,7 +164,7 @@ class _Visiteur(ast.NodeVisitor):
             break
         seg = ast.get_source_segment(self.src, noeud) or ""
         self.sites.append(_Site(self.mod, noeud.lineno, getattr(noeud, "end_lineno", noeud.lineno),
-                                seg, cause, [c for c in cibles if c.startswith(PAQUET)],
+                                seg, cause, [c for c in cibles if c.startswith(self.garde)],
                                 forme, conteneur))
 
     def visit_Import(self, noeud: ast.Import) -> None:
@@ -214,16 +218,18 @@ class _Visiteur(ast.NodeVisitor):
         visit_Match = _generique_nomme
 
 
-def collecter(racine_paquet: Path, filtre: str = "") -> tuple[list[_Site], set[str]]:
+def collecter(racine_paquet: Path, filtre: str = "",
+              racine: Path | None = None) -> tuple[list[_Site], set[str]]:
     fichiers = sorted(racine_paquet.rglob("*.py"))
-    modules = {_nom_module(f): f for f in fichiers}
+    modules = {_nom_module(f, racine): f for f in fichiers}
     connus = set(modules)
     sites: list[_Site] = []
     for mod, chemin in sorted(modules.items()):
         if filtre and not (mod == filtre or mod.startswith(filtre + ".")):
             continue
         src = chemin.read_text(encoding="utf-8")
-        v = _Visiteur(mod, mod if chemin.name == "__init__.py" else mod.rsplit(".", 1)[0], src)
+        v = _Visiteur(mod, mod if chemin.name == "__init__.py" else mod.rsplit(".", 1)[0], src,
+                      racine_paquet.name)
         v.visit(ast.parse(src, filename=str(chemin)))
         for s in v.sites:
             reels = []
@@ -248,7 +254,8 @@ def _reduire(cible: str, connus: set[str]) -> str | None:
 
 # ============================================================ invariant : le differe GRATUIT
 
-def preambule(arbre: ast.Module, pkg: str, connus: set[str]) -> set[str]:
+def preambule(arbre: ast.Module, pkg: str, connus: set[str],
+              garde: str = PAQUET) -> set[str]:
     """Modules `engine` importes au NIVEAU MODULE, dans le PREAMBULE du fichier.
 
     Le preambule s'arrete a la premiere `def`/`class` : les imports places APRES une
@@ -256,7 +263,7 @@ def preambule(arbre: ast.Module, pkg: str, connus: set[str]) -> set[str]:
     ne garantissent pas que la cible soit chargee quand le corps s'execute.
     """
     out: set[str] = set()
-    faux = _Visiteur("", pkg, "")
+    faux = _Visiteur("", pkg, "", garde)
     for n in arbre.body:
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             break
@@ -293,8 +300,8 @@ def gratuits(racine_paquet: Path, filtre: str = "",
         src = chemin.read_text(encoding="utf-8")
         arbre = ast.parse(src, filename=str(chemin))
         pkg = mod if chemin.name == "__init__.py" else mod.rsplit(".", 1)[0]
-        deja = preambule(arbre, pkg, connus)
-        v = _Visiteur(mod, pkg, src)
+        deja = preambule(arbre, pkg, connus, racine_paquet.name)
+        v = _Visiteur(mod, pkg, src, racine_paquet.name)
         v.visit(arbre)
         for s in v.sites:
             if s.cause_syn != "fonction" or s.conteneur:

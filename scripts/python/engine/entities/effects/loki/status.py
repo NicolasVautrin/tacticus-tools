@@ -19,6 +19,7 @@ from ...effect_type import EffectType   # #270-r3 : cles de `ContagionsOfNurgle.
 # CHARGEMENT D'ETAT (`stat_modifications_by_source` <- `UnitContext.from_snapshot` <- `load_state`),
 # donc toute bataille portant l'un de ces effets LEVAIT. Import module-level : foyer unique (#448-r3-r1).
 from ...stats import StatType
+from ...stats import StatType, StatPart
 
 
 class HypersensoryMinimalHealthEffect(BaseEffect):
@@ -242,8 +243,6 @@ class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
         args = self.CTOR_ARGS.get(int(self.effect_type or 0))
         if args is None or stats_ctx is None:
             return []
-        from ..magnitude import trait_var
-        from ...stats import StatType, StatPart
         pct = trait_var("ContagionsOfNurgle", args[0])
         st = getattr(stats_ctx, "stats", None)
         if pct is None or st is None:
@@ -255,7 +254,6 @@ class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
 
     def reverted_stats(self) -> "list":
         """`RevertInternal` — annule le `ChangeStat` FixedArmor (lu par la feuille `RemoveEffect`)."""
-        from ...stats import StatType
         return [StatType.FIXED_ARMOR]
 
 
@@ -601,7 +599,6 @@ class ActOfFaithBuffEffect(BaseEffect):
             (0x31=49, =25)%)` FLAT (base hors-ActOfFaith → boost PLAT, PAS compound ; live : 3 stacks +63 plat).
         `stats_ctx` = le `StatsComponent.ctx` du porteur (duck-typé : `.stats.components`/`.stats.get_stat`,
         fallback `.crit_damage` si le composant crit-dmg n'est pas seedé)."""
-        from ...stats import StatType, StatPart
         cc = int(global_value("actOfFaithExtraCritChance") or 0)   # GetNumberConstant 0x30 (=10)
         cd_pct = int(global_value("actOfFaithExtraCritDmgPct") or 0)   # GetNumberConstant 0x31 (=25)
         if int(StatType.CRIT_DAMAGE) in stats_ctx.stats.components:
@@ -615,7 +612,6 @@ class ActOfFaithBuffEffect(BaseEffect):
         """`IdunBattle.Entities.Effects.Loki.ActOfFaithBuffEffect$$RevertInternal` annule les DEUX `ChangeStat` de CE stack :
         crit-chance (Position(9,5)) + crit-damage (Position(10,5)). Ces StatTypes sont lus par la feuille
         `RemoveEffect` (runner) pour `revert_change_stat(…, stat_mod_source)` par-source."""
-        from ...stats import StatType
         return [StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE]
 
 
@@ -793,7 +789,6 @@ class MV71InitialDmgEffect(BaseEffect):
     du porteur atteignable dans ce cast — collapse documenté)."""
 
     def overridden_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.ATTACK, StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE, StatType.EXTRA_HITS]
 
 
@@ -824,12 +819,10 @@ class BlackRageExtraMoveEffect(BaseEffect):
     MOVEMENT au retrait (`reverted_stats`, symétrique via la feuille `RemoveEffect`)."""
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        from ...stats import StatType
         amt = ability_var("BlackRage", "extraMovement", is_constant=True)   # ConfigConst(0xe) = 1
         return [(int(StatType.MOVEMENT), int(amt))] if amt else []
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.MOVEMENT]
 
 
@@ -915,12 +908,10 @@ class WaaaghExtraMovementEffect(BaseEffect):
     lit la stat MOVEMENT *deja bonifiee*. Sans `applied_stat_mods`, la charge perdrait son +1 hex."""
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        from ...stats import StatType
         amt = ability_var("Waaagh", "extraMovement", is_constant=True)   # ConfigConst(0xe) = 1
         return [(int(StatType.MOVEMENT), int(amt))] if amt else []
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.MOVEMENT]
 
 

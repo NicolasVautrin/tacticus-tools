@@ -45,6 +45,15 @@ from ....dsl.event_trigger_type import EventTriggerType
 from .base import TriggeredAbility, _faction_id, _pick_randomly
 
 import hexgeo
+from ....dsl.effects import ExecutionContext
+from ....entities.selectors import Target
+from ...abilities.base import profile_pierce
+from ...abilities.behaviours import AttackWithAttackDamage, entities_from_state
+from ...events import EventBus
+from ..damage import AttackDamageOperation
+from ..effects import AddEffectOperation
+from ..movement import MoveUnitOperation
+from ..spawn import spawn_decoy
 
 DECOYS_EXTRA_DMG = int(EffectType.DecoysAndMisdirection_ExtraDamage)   # 1379 (0x563)
 DECOY_TRAIT = UnitTrait.Decoy                        # 1053 (0x41d)
@@ -183,9 +192,6 @@ class DecoysAndMisdirectionDamageEnemiesAbility(TriggeredAbility):
                 and len(_valid_dead_decoys(state, self.owner_id, ev.actor_id)) > 0)
 
     def execute_behaviour(self, state, ev):
-        from ...abilities.behaviours import AttackWithAttackDamage, entities_from_state
-        from ....dsl.effects import ExecutionContext
-        from ....entities.selectors import Target
         stepper = ev.actor_id
         n = len(_valid_dead_decoys(state, self.owner_id, stepper))
         blasts = []
@@ -218,8 +224,6 @@ class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
                 and len(_valid_dead_decoys(state, self.owner_id, ev.actor_id)) > 0)
 
     def execute_behaviour(self, state, ev):
-        from ..effects import AddEffectOperation
-        from ..spawn import spawn_decoy
         stepper = ev.actor_id
         # AddEffect(1379) sur le stepper : l'effet DecoysAndMisdirectionExtraDamageEffect lit extraDmg AU
         # QUERY-TIME depuis le niveau/mult PORTÉS -> on les initialise depuis le SOURCE (owner Isaak) après la
@@ -368,7 +372,6 @@ class AmbushSummonAbility(TriggeredAbility):
         return not (fl is not None and fl.has(UnitFlagsComponent.AMBUSH_CONSUMED))   # Not(HasFlag 0xe)
 
     def execute_behaviour(self, state, ev):
-        from ..spawn import spawn_decoy
         u = self.owner_id
         e = state.get_entity(u)
         uc = e.get_component(UnitComponent) if e is not None else None
@@ -567,10 +570,6 @@ class HypersensoryMoveAndSpawnDecoyAbility(TriggeredAbility):
         return True
 
     def execute_behaviour(self, state, ev):
-        from ..movement import MoveUnitOperation
-        from ...events import EventBus
-        from ..effects import AddEffectOperation
-        from ..spawn import spawn_decoy
         judh, attacker = self.owner_id, ev.actor_id
         cfg_range = int(ability_var(HYPERSENSORY_ABILITY, "range", is_constant=True) or 2)   # GetNumberConstant(0x16)
         # (1) MOVE : dest = meilleure tuile adjacente libre (GetTilePriority). PreviousTile = tuile QUITTEE.
@@ -622,8 +621,6 @@ class HypersensoryMoveAndSpawnDecoyAbility(TriggeredAbility):
         hits=GetNumberConstant(0x2f=nrOfHits))` -> `execute_ability_attack`. Le degat scale au niveau PASSIF de
         Judh (pas `active_ability_level` : c'est un PASSIF) -> `ability_var(..., passive_ability_level)`. Pierce
         du profil Projectile (15) + ExtraPierce du caster (profile_pierce)."""
-        from ..damage import AttackDamageOperation
-        from ...abilities.base import profile_pierce
         e = state.get_entity(judh)
         sc = e.get_component(StatsComponent) if e is not None else None
         ctx = sc.ctx if sc is not None else None

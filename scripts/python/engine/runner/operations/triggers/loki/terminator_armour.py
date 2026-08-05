@@ -133,6 +133,7 @@ from .....entities.effect_type import EffectType
 from ....state import State
 from ....components import ShieldComponent
 from ..base import EffectTrigger, TriggerEvent
+from .....entities.effects.loki.damage_reduction import _terminator_excluded_profiles
 
 TERMINATOR_ARMOUR_REDUCE_DMG = int(EffectType.TerminatorArmour_ReduceDmg)   # 0x47b = 1147
 
@@ -218,7 +219,6 @@ class TerminatorArmourDeactivateOnAttack(EffectTrigger):
         #     une attaque PUREMENT Psychic/DirectDamage ne consomme pas l'armure (et ne beneficie pas
         #     non plus de la reduction — meme tableau, cf. `CreateEffectDamageMalusForDefense`).
         #     Profils inconnus (aucun canal threade) -> FAUX : on ne fabrique pas une consommation.
-        from .....entities.effects.loki.damage_reduction import _terminator_excluded_profiles
         excluded = _terminator_excluded_profiles()
         profs = _attack_profiles(ev)
         if not profs or not any(p not in excluded for p in profs):

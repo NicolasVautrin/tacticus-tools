@@ -11,6 +11,11 @@ from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggerEvent
 from ..tiles import dry_bush_fire_spread
 from .core import evaluate_trigger_operation
+from .....dsl.base import Const
+from .....entities.triggers import MaybeTrigger
+from ....abilities.behaviours import entities_from_state
+from ...minimal_health import reset_times_attacked, evaluate_minimal_health
+from ...spawn import SpawnUnitOperation
 
 
 def tile_tick_triggers(state: State) -> list[dict]:
@@ -40,7 +45,6 @@ def start_turn_triggers(state: State, player_id: int) -> list[dict]:
     toutes les unites PUIS re-evalue l'ActiveCondition des HP-floors Hypersensory (`IsEnemyTurn(owner) &
     Not(attacked>=1)`) -> Apply (snapshot 50% du HP courant) au tour ENNEMI du porteur, Revert sinon. Avant
     l'emission de l'event (l'etat floor doit etre pose quand les triggers turn-start s'executent)."""
-    from ...minimal_health import reset_times_attacked, evaluate_minimal_health
     from ...revive import reset_revive_gates
     reset_times_attacked(state)
     reset_revive_gates(state)          # case-66 : REACTIVE le passif revive (once-per-turn) au turn-start
@@ -166,10 +170,6 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
      RESIDU ASSUME : seul le gate `Maybe` est un noeud DSL ; le reste du behaviour (Count/Difference/
      Multiply, le selecteur de tuile) demeure impératif dans `spawn.py`.)"""
     import gameconfig as GC
-    from ...spawn import SpawnUnitOperation
-    from .....entities.triggers import MaybeTrigger
-    from .....dsl.base import Const
-    from ....abilities.behaviours import entities_from_state
     # 1. dispatch generique On(TurnEnd) : RadSaturation (fin de tour si pas bouge) + tout futur ability-trigger TurnEnd.
     ev = TriggerEvent(EventTriggerType.TurnEnd, -1, -1, ranged=False, profile=None, player_id=player_id)
     out: list[dict] = evaluate_trigger_operation(state, ev)

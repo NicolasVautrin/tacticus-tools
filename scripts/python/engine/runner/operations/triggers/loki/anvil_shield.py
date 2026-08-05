@@ -129,6 +129,8 @@ from .....entities.traits.unit_trait import UnitTrait, has_trait
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, EffectTrigger
+from ..base import _is_ranged_position
+from ..base import _unit_trait_names
 
 ICE_TILE = int(EffectType.Ice)                          # 0x11 = 17 (effet de TUILE, defaut 2 rounds)
 STUNNED = int(EffectType.Stunned)                       # 0x48a = 1162 (COMPOSITE : 1165/1166/1167)
@@ -257,11 +259,9 @@ class AnvilShieldApplyStunAbility(TriggeredAbility):
         # IsMeleeAttack : le natif lit le TYPE DE TIMELINE de l'ability courante ; le port dispose du
         # discriminant POSITION (`_is_ranged_position`, mirror `DSLFactory$$IsRangedAttack`) — meme
         # discriminant deja utilise par SuppressiveFire pour sa face ranged.
-        from ..base import _is_ranged_position
         if _is_ranged_position(state, ev.actor_id, ev.target_id):
             return False
         # !HasTrait(caster@0x160, 0x1b = Steppable) : exclut les objets « marchables » (decoys, ...).
-        from ..base import _unit_trait_names
         if has_trait(_unit_trait_names(state, ev.actor_id), UnitTrait.Steppable):
             return False
         return _has_active_block_bonus(state, self.owner_id)

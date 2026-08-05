@@ -159,7 +159,6 @@ def calculate_ability_action_for_unit(ctx, ability_id: int, allow_only_move: boo
     (seul TheQuickening en pose un, cf. `abilities/loki/quickening.py`).
 
     Rend l'action (`{kind:"ability"|"move", target, ability, to, util}`) ou `None`."""
-    from engine.ai.action_generators import ComparableAbilityGenerator, MovementActionGenerator
 
     generators = [ComparableAbilityGenerator(ability_ids=(int(ability_id),))]
     if allow_only_move:

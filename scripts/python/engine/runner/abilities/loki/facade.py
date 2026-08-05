@@ -92,6 +92,9 @@ from ....entities.formulas import Count
 from ....entities.selectors import (Cache, Caster, CanAddUnit, First, SortByDistance, Target, Tiles,
                                     Union, ValidNormalAttackTargets)
 from ....entities.triggers import AmountIsGreater, IsAlive, Not, TriggerAnd, TriggerOr
+from ....entities.traits.unit_trait import UnitTrait, has_trait
+from ...components import StatsComponent
+from ..targeting import valid_normal_attack_targets
 
 if TYPE_CHECKING:
     from ...state import State
@@ -253,9 +256,6 @@ class SorcerousFacadeAbility(ActiveAbility):
 
         ⚠ Pas de recursion : `valid_normal_attack_targets` evalue la cascade avec le masque de
         l'ATTAQUE NORMALE (`_NormalAttackTargeting`), jamais avec celui de 1100."""
-        from ..targeting import valid_normal_attack_targets
-        from ....entities.traits.unit_trait import UnitTrait, has_trait
-        from ...components import StatsComponent
         if target_id is None:
             return int(TR.TargetMatchesDynamicRule)
         e = state.get_entity(int(target_id))

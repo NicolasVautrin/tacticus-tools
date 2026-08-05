@@ -112,6 +112,7 @@ from .....entities.selectors import Target, Caster
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent
+from ...spawn import spawn_decoy
 
 ABILITY_ID = "CosmicHorror"
 DECOY_UNIT_KEY = "unitToSpawn"                     # AbilityConstantType 8 (GetStringConstant(config, 8))
@@ -291,7 +292,6 @@ class CosmicHorrorOnKillAbility(TriggeredAbility):
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         import gameconfig as GC
-        from ...spawn import spawn_decoy
         victim = ev.dying_id if ev.dying_id is not None else ev.target_id
         # (1) `Spawn(caster, tile, GetStringConstant(config, 8=unitToSpawn), ForSteppable())`.
         consts = (GC.ability(ABILITY_ID) or {}).get("constants") or {}

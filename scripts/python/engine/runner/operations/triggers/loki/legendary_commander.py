@@ -88,6 +88,7 @@ from .....entities.selectors import Caster
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import EffectTrigger, TriggerEvent
+from ....abilities.behaviours import entities_from_state
 
 
 def _owner_ctx(state: State, owner_id: int, ev: TriggerEvent) -> Optional[dict]:
@@ -193,7 +194,6 @@ class LegendaryCommanderExtraHitsMarkCaster(EffectTrigger):
         ectx = ExecutionContext(state=state, rng=state.rng)
         # La feuille resout son selecteur d'unite sur les `entities` : on lui donne un contexte dont
         # le CASTER est la source de l'effet, exactement ce que designe `EffectSource(Get(effect))`.
-        from ....abilities.behaviours import entities_from_state
         # `key = EntityId(Owner@0x30)` = l'ENNEMI marque (la cible de l'effet ; ici la cible de
         # l'attaque, puisque `get_OwnerIsTarget` vient de tenir) ; `value = EntityId(Caster@0x48)` =
         # l'ATTAQUANT. La feuille recompose la cle composite `(ability_or_effect, data_key)` du port,

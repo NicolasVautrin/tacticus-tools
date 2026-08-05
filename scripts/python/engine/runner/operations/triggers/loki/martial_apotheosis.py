@@ -78,6 +78,10 @@ from .....entities.selectors import (Damageable, Enemies, AdjacentUnits, OwnerTi
 from ....state import State
 from ....components import OwnerComponent
 from ..base import TriggeredAbility, TriggerEvent
+from .....dsl.effects import ExecutionContext
+from ....abilities.behaviours import AttackWithAttackDamage
+from ....abilities.behaviours import entities_from_state
+from ....abilities.loki import _pick_randomly_n
 
 
 def martial_apotheosis_valid_targets():
@@ -94,7 +98,6 @@ def martial_apotheosis_tree(picked: list):
     `UnitSet(picked)` (1 cible), attaque `nrOfHits=2` coups profil "Energy" (pierce 30), bornes
     `MinMaxDamage(minDmg/maxDmg[level])` au `level_slot="passive"`. `native_factory="attack"` (defaut).
     Lazy import (evite le cycle triggers <-> abilities.behaviours au chargement, == living_metal.py)."""
-    from ....abilities.behaviours import AttackWithAttackDamage
     return AttackWithAttackDamage(UnitSet(picked), "MartialApotheosis", "Energy",
                                   is_melee=True, multi=True, level_slot="passive")
 
@@ -108,7 +111,6 @@ class MartialApotheosisAttackAbility(TriggeredAbility):
     def _pool(self, state: State) -> list:
         """Pool `GetValidTargets` id-trie (== l'OrderBy pre-pick du leaf). entities_from_state -> selecteur
         DSL PUR -> tri par id. Aucune conso RNG (le pick est folde a part dans execute_behaviour)."""
-        from ....abilities.behaviours import entities_from_state
         entities = entities_from_state(state, self.owner_id)
         return sorted((u for u in martial_apotheosis_valid_targets().evaluate(entities)
                        if isinstance(u, dict) and u.get("id") is not None), key=lambda u: u["id"])
@@ -126,9 +128,6 @@ class MartialApotheosisAttackAbility(TriggeredAbility):
         return len(self._pool(state)) > 0
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ....abilities.behaviours import entities_from_state
-        from ....abilities.loki import _pick_randomly_n
-        from .....dsl.effects import ExecutionContext
         entities = entities_from_state(state, self.owner_id)
         pool = sorted((u for u in martial_apotheosis_valid_targets().evaluate(entities)
                        if isinstance(u, dict) and u.get("id") is not None), key=lambda u: u["id"])

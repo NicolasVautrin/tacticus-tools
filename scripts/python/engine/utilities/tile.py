@@ -83,6 +83,12 @@ from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.traits.unit_trait import UnitTrait
 from ..entities.unit_faction import UnitFaction, faction_value
+from ..entities.traits.unit_trait import entity_trait_ids
+from ..entities.traits.unit_trait import entity_trait_ids, entity_trait_names
+from ..entities.traits.unit_trait import entity_trait_names
+from ..entities.triggered_ability_type import entity_triggered_ability_ids
+from ..entities.triggered_ability_type import kit_triggered_ability_ids
+from ..entities.triggered_ability_type import triggered_ability_ids
 
 # UtilityType des 29 feuilles de Tile(7) (ordre runtime). name = catégorie BC `Default.<name>`.
 # #158 : ids bruts -> membres `UtilityType` nommés (l'ordre est la sequence runtime native).
@@ -712,7 +718,6 @@ class TriggeredAbilitiesUtility(BaseUtility):
         sc = getattr(ctx, "scene", None)
         if sc is None:
             return 0.0
-        from ..entities.triggered_ability_type import kit_triggered_ability_ids
         from ..playbook.psyker import load_attack_playbook
         total = 0.0
         kit = list(kit_triggered_ability_ids(sc.vis_by_id.get(attacker_uid)))
@@ -1167,8 +1172,6 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
         return {"is_spawning": True} if parent_id is not None else {}
     from ..runner.components import (OwnerComponent, PositionComponent, StatsComponent,
                                      UnitComponent)
-    from ..entities.triggered_ability_type import entity_triggered_ability_ids
-    from ..entities.traits.unit_trait import entity_trait_ids, entity_trait_names
     me = state.get_entity(unit_id)
     if me is None:
         return {}
@@ -1318,8 +1321,6 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
     donc jamais le régime `is_spawning` de case-205)."""
     if unit_id is None:
         return {}
-    from ..entities.triggered_ability_type import entity_triggered_ability_ids
-    from ..entities.traits.unit_trait import entity_trait_ids, entity_trait_names
     units = list(getattr(scene, "units", None) or [])
     my_team = scene.team(unit_id)
     my_vis = (scene.vis_by_id or {}).get(unit_id)
@@ -1391,8 +1392,6 @@ def _adjacent_units(ctx, uid):
     `tile_leaf_ctx` : kit gameconfig UNIONNE avec la lecture live du `TriggeredAbilityComponent`
     (`ctx.live_triggered_kits()`, UN seul `unitAbilityStates` pour toute la bataille) -- union et pas
     remplacement, pour qu'une lecture live partielle ne puisse jamais RETIRER un id connu (N13)."""
-    from ..entities.traits.unit_trait import entity_trait_names
-    from ..entities.triggered_ability_type import triggered_ability_ids
     scene = getattr(ctx, "scene", None)
     _kits_fn = getattr(ctx, "live_triggered_kits", None)
     live_kits = _kits_fn() if callable(_kits_fn) else {}
@@ -1437,8 +1436,6 @@ def tile_leaf_ctx(ctx) -> dict:
     `scene`/`hpmax_by_id`. getattr-tolérant : NCContext (via get_movement_utility/NovaShield) n'a
     ni `me` ni `hpmax_by_id` -> kit vide = feuille silencieuse (comportement pré-case-49) ; ses
     champs partagés (enemies/elev/scene) passent tels quels."""
-    from ..entities.triggered_ability_type import triggered_ability_ids   # lazy : évite tout cycle
-    from ..entities.traits.unit_trait import entity_trait_ids             # lazy : idem
     me = getattr(ctx, "me", None) or {}
     uid = getattr(ctx, "uid", None)
     _scene = getattr(ctx, "scene", None)

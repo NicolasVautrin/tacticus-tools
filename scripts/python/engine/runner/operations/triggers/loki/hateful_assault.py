@@ -107,6 +107,9 @@ from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....components import OwnerComponent, PositionComponent, UnitComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent, _unit_tile
+from ....abilities.behaviours import AddEffect, AttackWithAttackDamage
+from ....abilities.behaviours import entities_from_state
+from ....abilities.targeting import is_targetable
 
 ABILITY_ID = "HatefulAssault"                                        # cle gameconfig (minDmg/maxDmg/nrOfHits)
 HATEFUL_ASSAULT = int(TriggeredAbilityType.HatefulAssault)           # 0x40e = 1038
@@ -138,7 +141,6 @@ def hateful_assault_tree(mover_id: int):
     docstring de module) -> la source de 1175 est le mover.
 
     Lazy import (evite le cycle triggers <-> abilities.behaviours au chargement, == martial_apotheosis)."""
-    from ....abilities.behaviours import AddEffect, AttackWithAttackDamage
     targets = UnitSet([mover_id])
     return op_add(
         AttackWithAttackDamage(targets, ABILITY_ID, DAMAGE_PROFILE,
@@ -162,7 +164,6 @@ class HatefulAssaultAttackAbility(TriggeredAbility):
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         """COLLAPSE du `CreateTrigger`. L'ordre suit celui du decompile ; chaque terme cite son noeud."""
-        from ....abilities.targeting import is_targetable
         owner = state.get_entity(self.owner_id)
         mover_id = ev.actor_id                            # Actor@0x40 (== caster == target sur ce vecteur)
         mover = state.get_entity(mover_id) if mover_id is not None else None
@@ -217,7 +218,6 @@ class HatefulAssaultAttackAbility(TriggeredAbility):
         return True
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ....abilities.behaviours import entities_from_state
         mover_id = int(ev.actor_id)
         # `AbilityEntities` du behaviour : caster = Owner@0x30 (Angrax, qui porte l'attaque),
         # target = Target@0x60 (le mover). `actor` reflete le mover comme sur l'evenement natif.

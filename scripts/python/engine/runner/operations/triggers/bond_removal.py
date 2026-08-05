@@ -212,6 +212,7 @@ from ....dsl.event_trigger_type import EventTriggerType
 from ....entities.effect_type import EffectType
 from ....entities.selectors import Caster
 from .base import EffectTrigger, TriggerEvent
+from ...components import PositionComponent
 
 
 class BondRemovalGates(NamedTuple):
@@ -432,7 +433,6 @@ def _gate_on_death(g: BondRemovalGates) -> bool:
 def _tile_of(state: State, uid: int):
     """MAIN TILE de l'entite (`IdunBattle.Entities.EntityExtensions$$GetMainTile`). `None` = pas de
     `PositionComponent`, c'est-a-dire une entite hors plateau."""
-    from ...components import PositionComponent
     e = state.get_entity(int(uid))
     pc = e.get_component(PositionComponent) if e is not None else None
     return None if pc is None else (pc.col, pc.row)

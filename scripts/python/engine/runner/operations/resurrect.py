@@ -25,6 +25,7 @@ from typing import Optional
 
 from ..state import State
 from ..components import (UnitComponent, PositionComponent, HealthComponent, UnitFlagsComponent)
+from .triggers.dispatch import unit_resurrected_triggers
 
 
 class ResurrectUnitOperation:
@@ -81,7 +82,6 @@ class ResurrectUnitOperation:
         if immediate_turn:
             fl.remove_turn_flags(include_no_action=True, new_activation=True)
         # émet On(UnitResurrected=46) -> G2 BuffFriends (+582 + decoy si GS Cult) + G5 ré-arme HeroicFusillade
-        from .triggers.dispatch import unit_resurrected_triggers
         downstream = unit_resurrected_triggers(state, unit_id)
         return {"resurrected": int(unit_id), "tile": (int(dest_coord[0]), int(dest_coord[1])) if dest_coord else None,
                 "hp": int(hp) if hp is not None else None, "crushed_decoy": crushed,

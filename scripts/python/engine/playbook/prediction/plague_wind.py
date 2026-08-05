@@ -108,6 +108,9 @@ from ...entities.traits.unit_trait import UnitTrait, trait_name as _trait_name
 from ...entities.triggers import HasTrait
 from ...dsl.base import AAmountFormula, Const, DslContext
 from ..probable_damage_event import ProbableDamageEvent
+from ...runner.abilities.deathguard import plague_wind_wave_selectors
+from ._shared import _entity_traits
+from .abilities import generate_multi_hit_attack_prediction
 
 PLAGUE_WIND = int(ActiveAbilityType.PlagueWind)                          # 1035 = 0x40b
 MORTARIONS_PLAGUE_WIND = int(ActiveAbilityType.MortarionsPlagueWind)     # 1093 = 0x445
@@ -162,7 +165,6 @@ def _has_trait_from_scene(scene):
     MEME foyer que `make_damage_predictions` (`_entity_traits`, #267-r1) : substrat d'ENTITE, jamais
     une relecture du kit gameconfig par `visualId` -- sans quoi le pseudo-trait d'ALLIANCE et les
     traits poses en bataille manqueraient, et le gate `Summon` serait faux dans les deux sens."""
-    from ._shared import _entity_traits
 
     def _has_trait(u, trait) -> bool:
         uid = (u or {}).get("id")
@@ -281,8 +283,6 @@ def wave_events(scene, caster_id: int, target_id, ability_id: int, ability_name:
     dctx = dsl_context(scene, caster_id, target_id)
     if dctx is None or dctx.target is None:
         return []
-    from .abilities import generate_multi_hit_attack_prediction
-    from ...runner.abilities.deathguard import plague_wind_wave_selectors
 
     _t1, t2, t3 = plague_wind_wave_selectors()
     events: list = []

@@ -17,6 +17,9 @@ from ....dsl.base import TargetsSelector, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import OwnerComponent, StatsComponent
 from .context import _unit_dict, LiveUnit
+from ...components import PositionComponent as _PC
+from ...operations.spawn import SpawnUnitOperation
+from ...operations.spawn import _spawn_config_grot
 
 
 class Spawn(AbilityBehaviour):
@@ -106,7 +109,6 @@ class Spawn(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         import gameconfig as GC
-        from ...operations.spawn import _spawn_config_grot
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
         ce = state.get_entity(caster_id) if (state is not None and caster_id is not None) else None
@@ -292,7 +294,6 @@ class SpawnSummon(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         import gameconfig as GC
-        from ...operations.spawn import SpawnUnitOperation
         from ..loki import _summon_on_appearance_attack
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
@@ -357,7 +358,6 @@ class SpawnReplica(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         import gameconfig as GC
-        from ...operations.spawn import SpawnUnitOperation
         from ..loki import perform_ai_attack
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
@@ -372,7 +372,6 @@ class SpawnReplica(AbilityBehaviour):
         # deplacer (`+0x78 moveAmount = null` -> `GenerateActionTiles` sur la plage complete), donc
         # sa position finale n'est plus sa tuile d'ATTERRISSAGE. Sans cette capture, le seul canal
         # de diagnostic du placement disparaissait derriere le deplacement.
-        from ...components import PositionComponent as _PC
         for sid in spawned:
             _e = state.get_entity(sid)
             _p = _e.get_component(_PC) if _e is not None else None

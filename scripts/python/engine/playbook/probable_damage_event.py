@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..services.damage_prediction import DamagePredictionResult
+from ..utilities import damage_composite
+from ..utilities.effect import ADDED_EFFECT_UTILITY
 
 
 @dataclass
@@ -98,7 +100,6 @@ def calculate_utility_from_damage_event(event: ProbableDamageEvent, wt, target_m
     """`IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent` = `prob1 × prob2 × weight` où
     `weight = ForDamagePrediction(prediction)` = le composite Damage (`engine.utilities.damage_composite`,
     case 0x22). Event FRIENDLY → utilité NÉGÉE (`DamageUtility` : friendly-fire negated)."""
-    from ..utilities import damage_composite
     sign = -1.0 if event.friendly else 1.0
     return sign * event.probability * damage_composite(event.composite_fields(), target_max_hp, wt)
 
@@ -143,7 +144,6 @@ def calculate_utility_from_effect_event(event: ProbableEffectEvent, wt) -> float
     """Branche effet de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` (LAB_181407fe0) :
     `probability × ForEffect→AddedEffectUtility(name, has_effect, is_friend, weights[AddedTileEffects=46])`.
     Poids = catégorie BC `Utilities.Default.AddedTileEffects` (Fire/Ice/SpiderWeb + `Unit_on_*`)."""
-    from ..utilities.effect import ADDED_EFFECT_UTILITY
     weights = wt.category("AddedTileEffects")
     u = ADDED_EFFECT_UTILITY.evaluate(event.effect_name, event.target_has_effect, event.friendly, weights)
     return event.probability * u

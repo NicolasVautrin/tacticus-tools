@@ -112,6 +112,7 @@ from .base import ActiveAbility
 from .behaviours import entities_from_state, AttackWithAttackDamage, SubtractHealthPercent
 from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
+from ..components import StatsComponent
 
 if TYPE_CHECKING:
     from ..state import State
@@ -302,7 +303,6 @@ class MurderousSwingAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, caster_id, target_id)
-        from ..components import StatsComponent
         ce = state.get_entity(caster_id)
         sc = ce.get_component(StatsComponent) if ce is not None else None
         ctx = sc.ctx if sc is not None else None

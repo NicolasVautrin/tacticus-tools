@@ -22,6 +22,7 @@ from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_an
 from ...services.damage_config import resolve_spread_pct
 from ...services.damage_modifiers import apply_all_modifiers
 from ...entities.effects import additional_hit_groups, aura_additional_hits_from_allies
+from ...entities.damage_trait import DamageTrait
 
 
 def reduce_group_damage(value, g_pierce: int, armor: int, mods, def_mods, hit_mult: int = 1) -> int:
@@ -290,7 +291,6 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     spread_pct = resolve_spread_pct(spread_pct, state)
     import gameconfig as GC
     from .damage import AttackDamageOperation, HitDamage
-    from ...entities.damage_trait import DamageTrait
     death = None
     out = {"groups": 0, "hits": 0, "total": 0, "per_hit": [], "rolls": [], "profiles": []}
     hit_index = int(hit_index0)      # `currentAttack+0x30` — CONTINU d'un groupe a l'autre (R6-b')

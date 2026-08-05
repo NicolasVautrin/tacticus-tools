@@ -101,6 +101,14 @@ from .base import ActiveAbility
 from .behaviours import AddStatOverrideEffect, RemoveEffect, Repair, entities_from_state
 from .targeting import (RANGE_ADJACENT, RANGED_BOOL_IF_RANGED_CASTER, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
+from ...entities.effects.magnitude import ability_var
+from ...entities.selectors import UnitSet
+from ...entities.selectors import UnitsAffectedByHealType
+from ...predict import repair_amount_weapon
+from ..components import StatsComponent
+from .targeting import (_resolves_to_unit, units_are_enemies,
+                                valid_normal_attack_targets)
+from .targeting import _resolves_to_unit, units_are_enemies
 
 if TYPE_CHECKING:
     from ...dsl.base import TargetsSelector
@@ -156,8 +164,6 @@ def repair_amount(state: "State", caster_id: int) -> int:
 
     `StatAmount(..., part 0 = Current)` = la stat Attack RESOLUE (initial + modifiers + overrides) ->
     `UnitStats.get_stat(ATTACK, CURRENT)`. 0 si le caster n'a pas de contexte de stats."""
-    from ...predict import repair_amount_weapon
-    from ..components import StatsComponent
     e = state.get_entity(int(caster_id)) if caster_id is not None else None
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None)
@@ -224,7 +230,6 @@ class RepairAbility(ActiveAbility):
         call-site. `scope = 0` / `removeEffects = true` sont les LITTERAUX de l'appel, pas les
         options de la behaviour."""
         from .attack_query import entity_can_be_repaired
-        from .targeting import _resolves_to_unit, units_are_enemies
         if target_id is None:
             return 0
         if units_are_enemies(state, int(target_id), int(caster_id)):
@@ -250,8 +255,6 @@ def galvanic_override_amount(state: "State", caster_id: int):
     au niveau PASSIF et avec SON multiplicateur de rarete -- MEME resolution que la face DECISION
     (`ai/action_generators.py`, lot #85). COLLAPSE V des deux `ConfigVar` : ils sont resolus ici en
     scalaires, la formule les accepte tels quels. `None` si la config n'est pas lisible."""
-    from ...entities.effects.magnitude import ability_var
-    from ..components import StatsComponent
     e = state.get_entity(int(caster_id)) if caster_id is not None else None
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None)
@@ -307,9 +310,7 @@ def galvanic_field_attack_behavior(state: "State", caster_id: int,
 
     `node is None` (config `GalvanicField` illisible) -> AUCUN override invente, aucune attaque :
     degradation fidele. Rend la liste des attaques declenchees."""
-    from .behaviours import entities_from_state
     from .loki.summon import perform_ai_attack_from_current_position
-    from ...entities.selectors import UnitsAffectedByHealType
     out: list = []
     node = galvanic_override_amount(state, caster_id)
     if node is None:
@@ -373,7 +374,6 @@ class Repair_GalvanicFieldAbility(RepairAbility):
         contexte SANS cible (le natif n'a pas besoin de `Target` dans `CreateAttackBehavior` -- il ne
         lit que `Owner@0x30`), donc on lui passe le selecteur DEJA resolu en `UnitSet` pour ce
         call-site mono-cible."""
-        from ...entities.selectors import UnitSet
         if target_id is None or int(target_id) == int(caster_id):
             return []                                    # `Target - Caster` = ensemble VIDE
         ents = entities_from_state(state, caster_id, int(target_id))
@@ -409,8 +409,6 @@ class Repair_GalvanicFieldAbility(RepairAbility):
         sur le `GetOrNull(normalAttackType)` du natif) n'est pas modelise pour l'attaque normale ->
         degradation PERMISSIVE (le port peut prendre la branche A la ou le natif prendrait B)."""
         from .attack_query import entity_can_be_repaired
-        from .targeting import (_resolves_to_unit, units_are_enemies,
-                                valid_normal_attack_targets)
         if target_id is None:
             return 0            # `target == null` : le natif tombe en branche B, `IsUnit`/`IsEnemy` faux
         tid, cid = int(target_id), int(caster_id)

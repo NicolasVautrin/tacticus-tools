@@ -61,6 +61,9 @@ from ..services.damage_prediction import get_attack_prediction
 from ..entities.abilities.triggered_ability import triggered_prediction_damage
 from .. import battle_query as bq
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
+from .prediction import (_add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
+                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
+from .prediction import prediction_has_moved, prediction_has_teleported
 
 _ABILITY_NAME = "FuryOfTheAncients"
 
@@ -96,7 +99,6 @@ class FuryOfTheAncientsPlaybook:
         dir_pierce = actx.extra_pierce_melee if is_melee else actx.extra_pierce_ranged
         pierce = max(0, min(100, int(prof.get("PiercingRatio") or 0)
                             + actx.extra_pierce + dir_pierce))
-        from .prediction import prediction_has_moved, prediction_has_teleported
         _hm = prediction_has_moved(scene, uid, attack_pos)
         _tctx = scene.ctx(tgt_id)
         _tar = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
@@ -114,8 +116,6 @@ class FuryOfTheAncientsPlaybook:
                      "damage_profile": prof_name,
                      "t_pos": scene.pos(tgt_id),
                      "tgt_team": scene.team(tgt_id)})
-        from .prediction import (_add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
         _add_positional_and_defender_mods(mods, scene, uid, tgt_id, is_melee, attack_pos,
                                           scene.pos(tgt_id), damage_profile=prof_name,
                                           is_normal_attack=False)

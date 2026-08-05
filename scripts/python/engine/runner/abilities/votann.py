@@ -40,6 +40,10 @@ from ...entities.effects.magnitude import ability_var
 from ...entities.selectors import Caster, Target
 from ...dsl.base import _round_fix64   # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result`
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
+from ...entities.formulas import StatAmount, Count
+from ...entities.triggers import AmountIsGreaterThanZero
+from ..operations.damage_utility import first_by_damage_utility
+from ..operations.spawn import _spawn_config_grot
 
 if TYPE_CHECKING:
     from ..state import State
@@ -75,7 +79,6 @@ class SpawnSteeljack(AbilityBehaviour):
         self.tile_id = tile_id
 
     def execute(self, entities, ectx):
-        from ..operations.spawn import _spawn_config_grot
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
         if state is None or caster_id is None or self.tile_id is None:
@@ -358,7 +361,6 @@ def _ancestral_fortune_attack_target(state: "State", caster_id: int) -> Optional
     Selecteur AI-target (kind S lourd, chevauche le playbook) -> COLLAPSE imperativement, comme
     `_finaljustice_target`, puis injecte dans l'arbre via `Target()`. None si aucun ennemi adjacent."""
     import hexgeo
-    from ..operations.damage_utility import first_by_damage_utility
     e = state.get_entity(caster_id)
     pc = e.get_component(PositionComponent) if e is not None else None
     oc = e.get_component(OwnerComponent) if e is not None else None
@@ -445,8 +447,6 @@ def ancestral_fortune_tree(attack_target: Optional[int]) -> object:
     `IdunBattle.Core.Services.DamageCalculations$$RollCritical` (hors perimetre #113) ; le regime SANS
     buff (`fortune_gated`) est lui bit-exact sur les deux boards. Documente dans
     docs/rl/case-220/votann.md."""
-    from ...entities.formulas import StatAmount, Count
-    from ...entities.triggers import AmountIsGreaterThanZero
 
     crit = IfBehaviour(
         AmountIsGreaterThanZero(StatAmount(Caster(), int(StatType.CRIT_CHANCE),

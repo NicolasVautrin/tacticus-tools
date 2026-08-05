@@ -19,6 +19,7 @@ from ._shared import _entity_pos, _tile_positions
 # `has_unit_flag(u, 0xe)` (le parametre `flag` d'`UnitExtensions$$HasFlag`).
 from ..traits.unit_trait import UnitTrait
 from ..unit_flag import UnitFlag
+from ...battle_query import is_target_tile_obscured
 
 
 class SurroundingUnits(TargetsSelector):
@@ -659,7 +660,6 @@ def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
     Consommateur porté : les deux prédicats de ciblage de `SquigLaunchasAbility`
     (`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentOrks` / `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentFriendlyUnits`) — un decoy ou un
     objet adjacent à la cible NE COMPTE PAS comme « unité amie adjacente »."""
-    from ..traits.unit_trait import UnitTrait
     return And(And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable))),
                UnitsWithoutTrait(source, int(UnitTrait.Object)))
 
@@ -886,7 +886,6 @@ class Unobscured(TargetsSelector):
         self.source, self.from_ref = source, from_ref
 
     def select(self, ctx):
-        from ...battle_query import is_target_tile_obscured
         frm = (_pos(resolve_unit(self.from_ref, ctx)) if self.from_ref is not None
                else (ctx.caster_pos or _pos(ctx.caster)))
         units = _units_of(self.source, ctx)

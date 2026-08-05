@@ -5,6 +5,8 @@ from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.effect_type import EffectType
 
 from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first, _has_valid_targets
+from engine import battle_query as bq
+from engine.entities.effects.magnitude import ability_var
 
 
 class DoctrinaImperativesPlaybook(NonComparablePlaybook):
@@ -97,7 +99,6 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
         aurait OVERFIRE ici). Borne OPPOSEE confrontee #38c (board C4_09, seeds 777 et 54321) : a 3
         Skitarii Tan n'a PLUS de voisin libre -> free==0 avec cap FAUX, et le natif EMET quand meme
         (branche encerclement) == le port. Les deux bornes du mirror sont donc mesurees."""
-        from engine import battle_query as bq
         if ctx.origin is None:
             return 0
         occ = {(u.get("col"), u.get("row")) for u in (ctx.obs_units or [])
@@ -143,7 +144,6 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
         pooleraient leurs comptes ; un summon RemoveUnit-ed -- retire du board, pas seulement mort --
         sortirait d'obs_units -> sous-compte). Cf. case-38 / case-38b."""
         import gameconfig as GC
-        from engine.entities.effects.magnitude import ability_var
         unit_id = ((GC.ability("ControlEdict") or {}).get("constants") or {}).get("unitId")
         if unit_id is None:
             return False

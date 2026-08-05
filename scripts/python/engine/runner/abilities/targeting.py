@@ -278,6 +278,23 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType   # #270-r1-r1-r3
 from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 from ...entities.traits.unit_trait import UnitTrait   # #270-r1-r1-r3
+from ...entities.stats import StatType
+from ...entities.traits.unit_trait import entity_trait_names
+from ...services import battle_query as _bq
+from ...services.custom_normal_attack import custom_normal_attack
+from ...services.movement_query import get_distance
+from ...services.movement_query import get_tiles_obscuring_terrain_from_tiles
+from ..components import ForcedAttackTargetsComponent
+from ..components import MachineComponent
+from ..components import MachineComponent, UnitComponent
+from ..components import OwnerComponent
+from ..components import OwnerComponent, PositionComponent, UnitComponent
+from ..components import PositionComponent
+from ..components import StatsComponent
+from ..components import StatsComponent, UnitComponent
+from ..components import UnitComponent
+from ..components import UnitFlagsComponent
+from ..components import get_unit_feet
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1114,9 +1131,6 @@ def normal_attack_type_for(state: "State", caster_id: int) -> Optional[int]:
 
     Rend `None` si le nom rendu n'a pas d'entree dans `ActiveAbilityType` -- l'appelant retombe alors
     sur les options generiques, jamais sur un masque devine."""
-    from ...entities.active_ability_type import ActiveAbilityType
-    from ...services.custom_normal_attack import custom_normal_attack
-    from ..components import StatsComponent
     e = state.get_entity(int(caster_id)) if caster_id is not None else None
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None
@@ -1197,7 +1211,6 @@ def normal_attack_dynamic_invalid_target_reason(state: "State", caster_id: int, 
     RESIDU NOMME : les deux substrats peuvent DIVERGER (`BC.Units[].Weapons` patche a la main ne
     change pas le gameconfig). En bataille standard ils concordent, `buildNormalizedBC` derivant du
     catalogue -- mais un montage qui vide `Weapons` dans le BC seul ferait diverger natif et port."""
-    from ...services import battle_query as _bq
     import gameconfig as GC
     vid = _visual_id(state, caster_id)
     if GC.unit(vid or "") is None:                 # substrat NON MESURE -> aucun refus invente
@@ -1318,7 +1331,6 @@ def _unit_of(state: "State", entity_id):
     Offline le message porte un id d'entite : c'est une unite ssi elle porte un `UnitComponent`.
     None (cible-TUILE, entite absente) = « le port ne sait pas resoudre » -> aucune regle du domaine
     UNITE ne s'applique (degradation permissive, cf. l'inventaire en tete)."""
-    from ..components import UnitComponent
     if entity_id is None:
         return None
     e = state.get_entity(int(entity_id))
@@ -1331,7 +1343,6 @@ def _is_machine(state: "State", entity_id) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$GetMachine(entity, state) != null` — l'entite EST une
     MACHINE OF WAR. Offline le marqueur est le `MachineComponent` pose par
     `engine/runner/snapshot.py` `_load_machines` (`decisionView.mows`, cle = `casterId`)."""
-    from ..components import MachineComponent
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     return e is not None and e.get_component(MachineComponent) is not None
 
@@ -1340,7 +1351,6 @@ def _resolves_to_unit(state: "State", entity_id) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$GetUnit(entity, state) != null`. ⚠ Une MoW n'est PAS une
     unite pour le natif -- mais le port lui pose un `UnitComponent` (porteur d'identite, cf.
     `_load_machines`), d'ou l'exclusion EXPLICITE du `MachineComponent` ici."""
-    from ..components import MachineComponent, UnitComponent
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     if e is None or e.get_component(UnitComponent) is None:
         return False
@@ -1405,7 +1415,6 @@ def unit_of_entity(state: "State", entity_id):
 
     `_unit_of` reste DISTINCTE et n'est PAS remplacee : elle repond a « la cible EST-ELLE une unite »
     (elle alimente `tuid`, donc les regles du domaine UNITE, qui restent permissives sur une tuile)."""
-    from ..components import UnitComponent
     if entity_id is None:
         return None
     e = state.get_entity(int(entity_id))
@@ -1454,7 +1463,6 @@ def _resolved_target_id(state: "State", target_id, options: "TargetingOptions"):
 def is_actor(state: "State", entity_id) -> bool:
     """`IdunBattle.Entities.EntityExtensions$$IsActor` — l'entite AGIT (unite ou machine of war),
     par opposition a une tuile / un objet de decor."""
-    from ..components import MachineComponent, UnitComponent
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     if e is None:
         return False
@@ -1466,7 +1474,6 @@ def units_are_friendly(state: "State", a_id, b_id) -> bool:
     """`IdunBattle.Core.Services.TargetingQuery$$UnitsAreFriendly` = `battleQuery.<slot 0x90>(a, b)`
     — MEME CAMP. Offline : meme `OwnerComponent.team` (la convention d'equipe de tout le port ;
     les summons heritent de l'equipe de leur summoner, cf. project_summon_team_model)."""
-    from ..components import OwnerComponent
     ea = state.get_entity(int(a_id)) if a_id is not None else None
     eb = state.get_entity(int(b_id)) if b_id is not None else None
     oa = ea.get_component(OwnerComponent) if ea is not None else None
@@ -1523,7 +1530,6 @@ def get_only_targets(state: "State", unit_id) -> list:
     -> degradation RESTRICTIVE, du MAUVAIS cote. Elle n'a aucun porteur offline (le port ne
     materialise aucun override d'owner : aucun ecrivain de `OwnerComponent.player` hors capture) ;
     a fermer le jour ou la capture publiera les deux champs."""
-    from ..components import ForcedAttackTargetsComponent
     e = state.get_entity(int(unit_id)) if unit_id is not None else None
     if e is None:
         return []
@@ -1538,7 +1544,6 @@ def is_targetable(state: "State", entity_id) -> bool:
     Le flag 0x11 n'est pose par AUCUN chemin du port (aucun `UnitFlagsComponent.add(0x11)`) -> le
     predicat est constamment vrai offline. Mirror ecrit quand meme : le jour ou le flag sera pose,
     la regle s'activera d'elle-meme (et le lecteur voit que ce n'est pas un oubli)."""
-    from ..components import UnitFlagsComponent
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     fl = e.get_component(UnitFlagsComponent) if e is not None else None
     return not (fl is not None and fl.has(UNIT_FLAG_NOT_TARGETABLE))
@@ -1565,7 +1570,6 @@ def has_steppable_unit(state: "State", entity_id) -> bool:
     `combatSnapshot.units[].traits`. Aucun etat supplementaire n'est a ECRIRE pour cette regle --
     `Steppable` est un TRAIT, pas un effet : il arrive avec l'unite (BC/snapshot) ou avec le summon
     (`build_decoy_context` / `build_summon_context`, tous deux seedes du `traits` gameconfig)."""
-    from ...entities.traits.unit_trait import UnitTrait
     u = unit_of_entity(state, entity_id)
     if u is None:
         return False
@@ -1579,7 +1583,6 @@ def has_steppable_unit(state: "State", entity_id) -> bool:
 def _visual_id(state: "State", unit_id) -> Optional[str]:
     """`visualId` gameconfig de l'entite (le `StatsComponent.ctx` d'abord, le `UnitComponent`
     ensuite — meme resolution que `_faction_id` cote triggers)."""
-    from ..components import StatsComponent, UnitComponent
     e = state.get_entity(int(unit_id)) if unit_id is not None else None
     if e is None:
         return None
@@ -1603,8 +1606,6 @@ def _unit_traits(state: "State", unit_id) -> tuple:
 
     Entite sans `StatsComponent` (cadavre : `combatSnapshot` filtre les morts) -> borne STATIQUE
     `entity_trait_names(None, vid)` = kit gameconfig + alliance, meme repli que `_unit_dict`."""
-    from ...entities.traits.unit_trait import entity_trait_names
-    from ..components import StatsComponent
     e = state.get_entity(unit_id)
     if e is None:
         return ()
@@ -1637,7 +1638,6 @@ def unit_weapon_range(visual_id: Optional[str], stats) -> Optional[int]:
     que `WeaponsComponent`, dont le natif tire `HasAnyWeapon` / `HasRangedWeapon` /
     `FindLongestRangedWeapon`."""
     import gameconfig as GC
-    from ...entities.stats import StatType
     weapons = ((GC.unit(visual_id or "") or {}).get("weapons")) or []
     if not weapons:
         return None                                   # branche `!HasAnyWeapon` : non observable
@@ -1654,7 +1654,6 @@ def unit_is_ranged(state: "State", unit_id) -> bool:
     gameconfig (constat #161) -> en pratique le predicat se reduit a « possede une arme a Range »,
     mais les deux termes sont ecrits."""
     import gameconfig as GC
-    from ...entities.traits.unit_trait import UnitTrait
     traits = _unit_traits(state, unit_id)
     if UnitTrait.Ranged.name in traits:
         return True
@@ -1682,7 +1681,6 @@ def _tile_of(state: "State", entity_id):
     `components.get_main_tile`). Les consommateurs qui doivent voir l'EMPREINTE COMPLETE (portee,
     adjacence : le natif y passe des LISTES de tuiles) utilisent `components.get_unit_feet` —
     cf. `get_range_broken_rule` / `are_entities_adjacent` (#R30)."""
-    from ..components import PositionComponent
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     pc = e.get_component(PositionComponent) if e is not None else None
     return None if pc is None else (pc.col, pc.row)
@@ -1724,8 +1722,6 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
     `HasSteppableUnit` = l'occupant porte `UnitTrait.Steppable` (0x1b),
     `CanMeleeAttackOverElevationDifference` = `|dElevation| < 2` (litteral `iVar1 < 2`).
     Sans `state.board` on ne sait pas decider -> False (aucun clamp invente)."""
-    from ...entities.traits.unit_trait import UnitTrait
-    from ..components import OwnerComponent, PositionComponent, UnitComponent
     board = state.board
     if board is None:
         return False
@@ -1836,7 +1832,6 @@ def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Op
     par lui. Et **tout chemin qui clampe force `only_adjacent`** (les deux `Math.Min(1, v)` du
     decompile sont dans le MEME bloc que `onlyAdjacent = true`) : la valeur clampee n'est donc jamais
     lue par le consommateur, ce qui rend le clamp d'un `None` sans consequence."""
-    from ..components import StatsComponent
     rng = options.range
     if rng is None:
         return None                                   # `TargetingRange` non RE-lu -> pas de gate
@@ -1959,7 +1954,6 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
     FragBomb, 1092 DarkTalonStrike, 1116 RadBombardment, 1151 TheQuickening, 1219 IronkinSteeljack.
     Pour une cible UNITE le resultat est INCHANGE (`entity_tiles` commence par `get_unit_feet` et le
     rend tel quel)."""
-    from ...services.movement_query import get_distance
     rr = get_range(state, caster_id, options)
     if rr is None:
         return 0
@@ -2051,7 +2045,6 @@ def get_tiles_obscuring_terrain(state: "State", caster_id: int, target_id,
     multi-hex). Non resolue -> `GetMainTile(null)` est nul cote natif aussi, et le set est vide.
 
     Rend le SET des positions obscurcissantes (cardinal seul lu par la cascade)."""
-    from ...entities.traits.unit_trait import UnitTrait
     if not getattr(state, "enable_obscuring_terrain", True):
         return set()
     resolved = _resolved_target_id(state, target_id, options)
@@ -2068,7 +2061,6 @@ def get_tiles_obscuring_terrain(state: "State", caster_id: int, target_id,
         t2 = obscuring
     if t2 == 0:
         return set()
-    from ...services.movement_query import get_tiles_obscuring_terrain_from_tiles
     return get_tiles_obscuring_terrain_from_tiles(
         state.board, entity_tiles(state, caster_id), _obscuring_target_tile(state, resolved),
         t2, 2)
@@ -2152,7 +2144,6 @@ def entity_tiles(state: "State", entity_id) -> list:
     effet. `[]` = le port ne sait pas resoudre -> aucun refus (convention permissive du module)."""
     if entity_id is None:
         return []
-    from ..components import get_unit_feet
     feet = get_unit_feet(state, int(entity_id))
     if feet:
         return feet
@@ -2167,7 +2158,6 @@ def _current_player_team(state: "State", entity_id):
     `player.Player.Team` (`+0x20` -> `+0x24`), tels que `UnitExtensions$$IsEnemy` les lit. Le natif
     rabat toute resolution manquante sur `0` ; le port rend `None`, que l'appelant compare comme une
     valeur ordinaire — deux `None` restent EGAUX, donc le verdict est le meme."""
-    from ..components import OwnerComponent
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     oc = e.get_component(OwnerComponent) if e is not None else None
     return None if oc is None else oc.team
@@ -2228,7 +2218,6 @@ def tile_is_empty_or_steppable(state: "State", coord) -> bool:
     empreinte-aware, morts exclus) : il folde les deux etages `IsEmpty()` / `GetUnit`. Sans board ni
     coordonnee le port ne sait pas resoudre -> `True` (aucun refus invente : c'est la valeur qui
     DESARME la regle du bit 19, convention permissive de tout ce module)."""
-    from ...entities.traits.unit_trait import UnitTrait
     if coord is None:
         return True
     occ = state.unit_at((int(coord[0]), int(coord[1])))
@@ -2262,7 +2251,6 @@ def tile_can_add_unit(state: "State", coord) -> bool:
     une tuile walkable-vide-mais-reservee est rendue placable ici alors que le natif la refuse.
     C'est la MEME limitation, deja assumee et documentee, que `engine/battle_query.can_add_unit`
     (le pendant DECISION de ce predicat) -- pas un nouveau residu."""
-    from ...entities.traits.unit_trait import UnitTrait
     board = state.board
     if board is None or coord is None:
         return False
@@ -2350,7 +2338,6 @@ def get_adjacent_enemies(state: "State", tiles, unit_id,
 
     Sans `state.board` le port ne sait pas enumerer l'adjacence -> liste VIDE : aucun refus invente,
     convention permissive du module."""
-    from ...entities.traits.unit_trait import UnitTrait
     board = state.board
     if board is None or not tiles or unit_id is None:
         return []

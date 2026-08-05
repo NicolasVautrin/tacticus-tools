@@ -20,11 +20,13 @@ refus est ventile (un refus muet serait pire qu'un site non traite) :
                           DIFFERENTES : hisser les deux ecraserait l'un des deux.
   ligne-partagee       -- l'instruction partage sa ligne avec autre chose (`a; import b`).
   corps-viderait       -- la fonction n'aurait plus aucune instruction.
-  creerait-un-SCC      -- l'arete hissee refermerait un cycle NIVEAU MODULE. La mesure
-                          materielle du tri est INDIVIDUELLE (une instruction a la fois) ;
-                          l'ENSEMBLE des hissages, lui, peut refermer une boucle qu'aucun
-                          hissage isole ne fermait. Le cliquet #270-r4-r2 (0 SCC) tomberait.
-                          Filtre GLOUTON deterministe (module, ligne) sur le graphe reel.
+  fermerait-une-boucle -- l'arete hissee refermerait une boucle d'import. La mesure du tri
+                          est INDIVIDUELLE (une instruction a la fois) ; l'ENSEMBLE, lui,
+                          peut refermer une boucle qu'aucun hissage isole ne fermait --
+                          MESURE : un premier lot a casse l'import de 405 des 409 modules.
+                          Le graphe du filtre porte donc l'arete `module -> paquet PARENT`,
+                          que Python execute qu'on l'ecrive ou non. Glouton DETERMINISTE
+                          (module, ligne), pour que deux executions rendent le meme resultat.
 
 Usage :
     python migrate_270r4r2r2_hisser_differes.py --tri tri.json --simuler
@@ -58,6 +60,43 @@ def _noms_lies(noeud) -> list[str]:
         if alias.name == "*":
             return []                      # `import *` : indecidable -> refus par vide
         out.append(alias.asname or alias.name.split(".")[0])
+    return out
+
+
+def _source(noeud) -> tuple:
+    """La SOURCE d'un import, independante du texte ecrit.
+
+    Deux instructions `from X import a, b` et `from X import b` ont des SEGMENTS differents
+    mais la meme source pour `b`. Comparer les segments declarait un conflit la ou il n'y en
+    a aucun -- 67 refus, tous faux, a la premiere mesure.
+    """
+    if isinstance(noeud, ast.ImportFrom):
+        return ("from", noeud.level, noeud.module or "")
+    return ("import", 0, "")
+
+
+def _liaisons(noeud) -> dict[str, tuple]:
+    """nom lie -> (source, nom d'origine). C'est la cle d'identite d'une liaison."""
+    out = {}
+    for alias in noeud.names:
+        if alias.name == "*":
+            return {}
+        out[alias.asname or alias.name.split(".")[0]] = (_source(noeud), alias.name)
+    return out
+
+
+def _imports_preambule(arbre: ast.Module) -> dict[str, tuple]:
+    """nom -> (source, origine) pour les imports du PREAMBULE (avant la 1re def/class).
+
+    Un import place APRES une definition (recette du PLACEMENT) n'y entre pas : supprimer
+    un differe au profit d'un tel import ne garantirait pas que la cible soit chargee.
+    """
+    out: dict[str, tuple] = {}
+    for n in arbre.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            break
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            out.update(_liaisons(n))
     return out
 
 
@@ -162,7 +201,11 @@ def _point_insertion(arbre: ast.Module, lignes: list[str]) -> int:
 def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | None:
     chemin = _chemin(module)
     src = chemin.read_text(encoding="utf-8")
-    lignes = src.splitlines(keepends=True)
+    # `split("\n")`, JAMAIS `splitlines()` : ce dernier coupe aussi sur `\x0c` (form feed),
+    # `\x85`, ` `... que le compilateur Python IGNORE. Sept fichiers d'`engine/` en
+    # portent un -- avec `splitlines` la numerotation AST decale et on supprime la MAUVAISE
+    # ligne (mesure : 3 fichiers rendus syntaxiquement invalides).
+    lignes = src.split("\n")
     arbre = ast.parse(src, filename=str(chemin))
     p = _Parents()
     p.visit(arbre)
@@ -174,14 +217,16 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
         if isinstance(n, (ast.Import, ast.ImportFrom)):
             par_ligne[n.lineno] = n
 
+    pre = _imports_preambule(arbre)
     retenus = []
-    lies_par_nom: dict[str, set[str]] = defaultdict(set)
+    lies_par_nom: dict[str, set[tuple]] = defaultdict(set)
     for s in sites:
         noeud = par_ligne.get(s["ligne"])
         if noeud is None:
             refus["site-introuvable"].append("%s:%d" % (module, s["ligne"]))
             continue
-        noms = _noms_lies(noeud)
+        liaisons = _liaisons(noeud)
+        noms = list(liaisons)
         if not noms:
             refus["import-etoile"].append("%s:%d" % (module, s["ligne"]))
             continue
@@ -190,10 +235,16 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
             refus["parent-non-fonction"].append("%s:%d (%s)"
                                                 % (module, s["ligne"], type(parent).__name__))
             continue
-        deja = [n for n in noms if n in au_module]
-        if deja:
-            refus["deja-au-module"].append("%s:%d (%s)" % (module, s["ligne"], ",".join(deja)))
-            continue
+        # DEJA au module : identite comparee sur la SOURCE, pas sur le texte. Si toutes les
+        # liaisons sont deja produites A L'IDENTIQUE par le preambule, l'instruction est un
+        # DOUBLON PUR -> on la SUPPRIME, sans rien inserer.
+        doublon = all(pre.get(n) == liaisons[n] for n in noms)
+        if not doublon:
+            deja = [n for n in noms if n in au_module and pre.get(n) != liaisons[n]]
+            if deja:
+                refus["deja-au-module"].append("%s:%d (%s)"
+                                               % (module, s["ligne"], ",".join(deja)))
+                continue
         stores = _stores(parent)
         # le nom est bien un Store DANS la fonction : celui de l'import lui-meme n'y est
         # pas (un alias d'import n'est pas un `ast.Name`), donc toute presence est ailleurs.
@@ -202,11 +253,16 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
             refus["reassigne-localement"].append("%s:%d (%s)"
                                                  % (module, s["ligne"], ",".join(mauvais)))
             continue
-        # ligne partagee ?
-        brute = lignes[noeud.lineno - 1]
+        # ligne partagee ? un COMMENTAIRE de fin de ligne n'en est pas une -- le confondre
+        # avait produit 78 refus, tous faux.
         seg = ast.get_source_segment(src, noeud) or ""
-        if brute.strip() != seg.splitlines()[0].strip() and noeud.end_lineno == noeud.lineno:
-            refus["ligne-partagee"].append("%s:%d" % (module, s["ligne"]))
+        brute = lignes[noeud.end_lineno - 1].rstrip("\r")
+        reste = brute[noeud.end_col_offset:].strip()
+        if reste and not reste.startswith("#"):
+            refus["ligne-partagee"].append("%s:%d (reste %r)" % (module, s["ligne"], reste[:30]))
+            continue
+        if lignes[noeud.lineno - 1][: noeud.col_offset].strip():
+            refus["ligne-partagee"].append("%s:%d (avant l'import)" % (module, s["ligne"]))
             continue
         # corps qui se viderait ?
         restant = [x for x in parent.body
@@ -215,20 +271,20 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
             refus["corps-viderait"].append("%s:%d" % (module, s["ligne"]))
             continue
         for n in noms:
-            lies_par_nom[n].add(seg.strip())
-        retenus.append((noeud, seg, noms))
+            lies_par_nom[n].add(liaisons[n])
+        retenus.append((noeud, seg, liaisons, doublon))
 
-    # conflit de nom : meme nom, sources differentes
+    # conflit de nom : MEME nom lie a des sources DIFFERENTES -> hisser ecraserait l'un des deux
     conflits = {n for n, srcs in lies_par_nom.items() if len(srcs) > 1}
     if conflits:
         garde = []
-        for noeud, seg, noms in retenus:
-            if any(n in conflits for n in noms):
-                refus["conflit-de-nom"].append("%s:%d (%s)"
-                                               % (module, noeud.lineno,
-                                                  ",".join(n for n in noms if n in conflits)))
+        for noeud, seg, liaisons, doublon in retenus:
+            if any(n in conflits for n in liaisons):
+                refus["conflit-de-nom"].append(
+                    "%s:%d (%s)" % (module, noeud.lineno,
+                                    ",".join(n for n in liaisons if n in conflits)))
             else:
-                garde.append((noeud, seg, noms))
+                garde.append((noeud, seg, liaisons, doublon))
         retenus = garde
     if not retenus:
         return None
@@ -237,9 +293,11 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
     a_supprimer: set[int] = set()
     segments: list[str] = []
     vus: set[str] = set()
-    for noeud, seg, _ in sorted(retenus, key=lambda t: t[0].lineno):
+    for noeud, seg, liaisons, doublon in sorted(retenus, key=lambda t: t[0].lineno):
         for i in range(noeud.lineno, noeud.end_lineno + 1):
             a_supprimer.add(i)
+        if doublon:
+            continue                        # deja au preambule A L'IDENTIQUE : rien a inserer
         cle = seg.strip()
         if cle not in vus:
             vus.add(cle)
@@ -247,21 +305,22 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
     ins = _point_insertion(arbre, lignes)
     sortie: list[str] = []
     for i, ligne in enumerate(lignes, start=1):
-        if i - 1 == ins and ins != 0:
-            pass
         if i in a_supprimer:
             continue
         sortie.append(ligne)
         if i == ins:
-            sortie.append("".join(s + "\n" for s in sorted(segments)))
+            sortie.extend(sorted(segments))
     if ins == 0:
-        sortie = ["".join(s + "\n" for s in sorted(segments))] + sortie
-    texte = "".join(sortie)
+        sortie = sorted(segments) + sortie
+    texte = "\n".join(sortie)
     # controle : le resultat DOIT parser
     try:
         ast.parse(texte, filename=str(chemin))
     except SyntaxError as e:
-        refus["resultat-invalide"].append("%s (%s)" % (module, e))
+        # UN refus PAR SITE, sinon la partition ne boucle plus : un fichier rejete emporte
+        # tous ses sites, et n'en compter qu'un les rendrait invisibles.
+        for noeud, _, _, _ in retenus:
+            refus["resultat-invalide"].append("%s:%d (%s)" % (module, noeud.lineno, e))
         return None
     return texte, len(retenus)
 
@@ -283,13 +342,27 @@ def _filtrer_acyclique(par_module: dict, refus: dict) -> dict:
         raise SystemExit(2)
     g = {k: set(v) for k, v in ml.items()}
 
+    def _succ(x: str) -> set[str]:
+        """Successeurs REELS : les imports declares PLUS le paquet PARENT.
+
+        Importer `engine.a.b` execute `engine/a/__init__.py` AVANT le corps de `b` -- que
+        `b` le declare ou non. Le graphe des seules sources declarees est AVEUGLE a ces
+        boucles-la, et c'est mesure : sans cette arete, le filtre a laisse passer un lot qui
+        cassait l'import de 405 des 409 modules (`battle_query` -> `entities.effects.aura`
+        -> [parent] `engine.entities` -> ... -> `entities.triggers` -> `battle_query`).
+        """
+        out = set(g.get(x, ()))
+        if "." in x:
+            out.add(x.rsplit(".", 1)[0])
+        return out
+
     def _accessible(src: str, dst: str) -> bool:
         vus, pile = {src}, [src]
         while pile:
             n = pile.pop()
-            if n == dst:
-                return True
-            for w in g.get(n, ()):
+            for w in _succ(n):
+                if w == dst:
+                    return True
                 if w not in vus:
                     vus.add(w)
                     pile.append(w)
@@ -300,7 +373,7 @@ def _filtrer_acyclique(par_module: dict, refus: dict) -> dict:
         for s in sorted(par_module[module], key=lambda x: x["ligne"]):
             nouvelles = [c for c in s["cibles"] if c not in g.get(module, set())]
             if nouvelles and any(_accessible(c, module) for c in nouvelles):
-                refus["creerait-un-SCC"].append("%s:%d -> %s"
+                refus["fermerait-une-boucle"].append("%s:%d -> %s"
                                                 % (module, s["ligne"], ",".join(nouvelles)))
                 continue
             for c in nouvelles:
@@ -309,7 +382,7 @@ def _filtrer_acyclique(par_module: dict, refus: dict) -> dict:
     apres = CY._cycles(g)
     print("[270-r4-r2-r2/hisser] filtre acyclique : %d retenu(s), %d refuse(s) ; "
           "SCC du graphe projete = %d"
-          % (sum(len(v) for v in out.values()), len(refus["creerait-un-SCC"]), len(apres)))
+          % (sum(len(v) for v in out.values()), len(refus["fermerait-une-boucle"]), len(apres)))
     if apres:
         print("[270-r4-r2-r2/hisser] ECHEC : le filtre laisse passer un cycle -- il ne "
               "discrimine plus")

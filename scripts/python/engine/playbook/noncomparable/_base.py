@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import gameconfig as _gc
 
 from ...entities.active_ability_type import ActiveAbilityType
+from engine.battle_query import count_adjacent, neigh_map
 
 
 # ---------------------------------------------------------------------------------------------
@@ -271,7 +272,6 @@ def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tu
         return 0     # pas d'arme de melee -> le mirror geometrique ne sait pas compter (borne inf)
     # #433-r4-r1-r4-r2-r1 : le voisinage NATIF (liste stockee) accompagne l'elevation -- les deux
     # sont les DEUX etages d'`IterateAdjacentTiles`, et n'en passer qu'un degrade en silence.
-    from engine.battle_query import count_adjacent, neigh_map
     return count_adjacent(tile, ctx.epos or [], ctx.elev_by_pos, neigh_map(ctx))
 
 

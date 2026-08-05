@@ -43,6 +43,7 @@ from .entities.active_ability_type import ActiveAbilityType   # #270-r1-r1
 from .utilities.heal import HEAL_UTILITY
 from .utilities.repair import REPAIR_UTILITY
 from .utilities.effect import ADDED_EFFECT_UTILITY, EFFECT_UTILITY_PREFIX  # noqa: F401 (re-export)
+from engine.entities.effects.magnitude import ability_var
 
 # #158 : ex-`DAMAGE_PROFILE_BY_INDEX` (copie MORTE, 0 usage, de la table DamageProfileType) retiree.
 # La table index->nom vit desormais dans `entities.damage_profile_type.PROFILE_NAME_BY_INDEX` (derivee de l'enum).
@@ -216,7 +217,6 @@ def heal_amount_config(ability_name: str | None, active_level: int, passive_leve
     key = _heal_config_key(ability_name)
     if not key:
         return None
-    from engine.entities.effects.magnitude import ability_var  # lazy : evite tout cycle d'import
     granted = (key != str(ability_name))
     level = passive_level if granted else active_level
     return ability_var(key, "hpToHeal", level, multiplier_pct=multiplier_pct)
@@ -420,7 +420,6 @@ def calculate_repair_modifier_for_prediction(target_effects, heal_config=None) -
     `heal_config` = callable(uid) → {"multiplier": …} (scaling rareté du poseur du Nanoscarab).
     Retourne `(mod_add, mod_mul)` à passer à `repair_amount` (troncature unique là-bas)."""
     mod_add, mod_mul = 0, 1.0
-    from engine.entities.effects.magnitude import ability_var   # lazy : évite tout cycle d'import
     for e in (target_effects or []):
         name = str(e.get("name") or "")
         if name == "NanoscarabRepairProtocols":
@@ -486,7 +485,6 @@ def repair_amount_config(caster_visual_id: str | None, active_level: int,
     key = _repair_config_key((u or {}).get("activeAbilities"))
     if not key:
         return None
-    from engine.entities.effects.magnitude import ability_var  # lazy : évite tout cycle d'import
     return ability_var(key, "hpToRepair", active_level, multiplier_pct=multiplier_pct)
 
 

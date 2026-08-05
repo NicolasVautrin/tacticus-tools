@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector
 from ....dsl.effects import AbilityBehaviour, OperationResult
+from ...operations.summon_ai import ComputerActionOperation
 
 
 class PerformAIAction(AbilityBehaviour):
@@ -49,7 +50,6 @@ class PerformAIAction(AbilityBehaviour):
         self.reset_turn_flags = bool(reset_turn_flags)
 
     def execute(self, entities, ectx):
-        from ...operations.summon_ai import ComputerActionOperation
         state = ectx.state
         if state is None:
             return OperationResult.ok()

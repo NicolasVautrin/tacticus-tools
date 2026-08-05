@@ -39,6 +39,12 @@ from ...entities.selectors import (ActiveTarget, AdjacentEnemies, AdjacentFriend
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.triggers import AmountIsGreater, HasEffect, HasTrait, IsRepairable
+from ...entities.effects.magnitude import ability_var
+from ...entities.selectors import AdjacentTiles, CanAddUnit, PickFirstN
+from ..components import ActiveAbilitiesComponent, StatsComponent
+from ..components import StatsComponent
+from ..operations.ability_reset import entity_can_have_active_ability_reset
+from .targeting import entity_tiles, get_adjacent_enemies, get_adjacent_friends
 
 if TYPE_CHECKING:
     from ..state import State
@@ -495,7 +501,6 @@ class FightingRetreatAbility(ActiveAbility):
         signifie alors « inconnu », pas « aucun ennemi » -- on rend donc 0 dans ce cas, comme partout
         ailleurs dans le gate. MESURE offline (`State()` nu) : sans cette garde le port rendait
         `0x2` sur un etat ou il n'avait rien lu."""
-        from .targeting import entity_tiles, get_adjacent_enemies, get_adjacent_friends
         tiles = entity_tiles(state, caster_id)
         if state.board is None or not tiles:
             return 0                     # adjacence NON ENUMERABLE -> aucun refus invente
@@ -668,7 +673,6 @@ class EarlyWarningOverrideAbility(ActiveAbility):
         # COLLAPSE de `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(Owner))), nrOfSummons)` :
         # la chaine sans le tri IA est EXPRIMABLE en selecteurs DSL portes -> on l'evalue telle quelle et
         # on injecte les ids resolus (le tri IA reste le seul maillon non porte, cf. bloc ci-dessus).
-        from ...entities.selectors import AdjacentTiles, CanAddUnit, PickFirstN
         tiles = PickFirstN(CanAddUnit(AdjacentTiles(Caster())), Const(n)).evaluate(entities) or []
         ectx = ExecutionContext(state=state, rng=state.rng)
         early_warning_override_tree(state, list(tiles)).execute(entities, ectx)
@@ -733,8 +737,6 @@ def _itg_heal_amounts(state: "State", caster_id: int) -> tuple[int, int]:
         0x22 -> `hpToHeal_2` : l'allie qui ne l'a PAS utilise   (cantReset)
     Lues SEPAREMENT via `ability_var` (scaling rarete `AbilityVariablesMultiplier`). MEME convention
     d'index que le jumeau 1002 (`CombatRestoratives`), lue independamment au decompile."""
-    from ...entities.effects.magnitude import ability_var
-    from ..components import StatsComponent
     e = state.get_entity(caster_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None
@@ -749,7 +751,6 @@ def _ability_level_amount(state: "State", unit_id, ability_type: int):
     COLLAPSEE) : le niveau de CETTE ability sur CETTE unite = `ActiveAbility.AbilityState.Level`
     (canal `readAbilityState` #100). Repli sur `UnitContext.active_ability_level` (canal global) si
     l'entree n'est pas seedee. None si rien de lisible."""
-    from ..components import ActiveAbilitiesComponent, StatsComponent
     e = state.get_entity(int(unit_id)) if unit_id is not None else None
     if e is None:
         return None
@@ -766,7 +767,6 @@ def _primary_active_ability_level_amount(state: "State", unit_id):
     COLLAPSEE) : le niveau de l'ability active PRIMAIRE de l'unite (`ActiveAbilityComponent.GetActive`
     = la 1re entree active/granted, cf. le meme accesseur cote playbook `InspiredToGreatnessPlaybook.
     _active_ability`). Repli `UnitContext.active_ability_level`."""
-    from ..components import ActiveAbilitiesComponent, StatsComponent
     e = state.get_entity(int(unit_id)) if unit_id is not None else None
     if e is None:
         return None
@@ -891,7 +891,6 @@ class InspiredToGreatnessAbility(ActiveAbility):
         donc sur des verdicts REELS -- les gardes ne masquent aucune de ces lignes."""
         from .attack_query import (_has_trait, entity_can_be_healed, entity_can_be_repaired,
                                    health_is_readable)
-        from ..operations.ability_reset import entity_can_have_active_ability_reset
         if target_id is None:
             return 0                                    # cible non resolue -> le port ne decide pas
         if int(target_id) == int(caster_id):
@@ -917,7 +916,6 @@ class InspiredToGreatnessAbility(ActiveAbility):
         # VERDICT INCONNU (canal `ActiveAbilitiesComponent` absent = `decisionView` sans
         # `allAbilities`) : le split de soin retomberait SILENCIEUSEMENT sur `cantReset` -> on le
         # REND VISIBLE dans le diagnostic plutot que de laisser une fausse certitude.
-        from ..operations.ability_reset import entity_can_have_active_ability_reset
         unknown = entity_can_have_active_ability_reset(state, target_id) is None
         ectx = ExecutionContext(state=state, rng=state.rng)
         inspired_to_greatness_tree(state, caster_id, target_id).execute(entities, ectx)

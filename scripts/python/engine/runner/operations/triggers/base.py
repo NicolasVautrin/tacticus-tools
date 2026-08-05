@@ -12,6 +12,8 @@ from typing import Optional
 
 from ...state import State
 from ...components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
+from ...abilities.loki.splash import _pick_randomly_n
+from ...abilities.targeting import unit_weapon_range
 
 # --- Cap phase-triggers (#140) --------------------------------------------------------------------
 PHASE_TRIGGER_CAP = 0x33         # 51 — `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger : GetTimesTriggeredThisPhase < 0x33.
@@ -373,7 +375,6 @@ def _max_attack_range(ctx) -> int:
 
     Le clamp `ForcedInMelee` (`Math.Min(1, range)`) et le cap final restent chez l'appelant
     (`_in_attack_range`)."""
-    from ...abilities.targeting import unit_weapon_range
     r = unit_weapon_range(getattr(ctx, "visual_id", None), getattr(ctx, "stats", None))
     return 1 if r is None else r
 
@@ -518,7 +519,6 @@ def _pick_randomly(state: State, candidates: list[int]) -> Optional[int]:
     native) : on délègue au lieu de la ré-écrire. Ordre du pool = ids triés (⚠ résidu #215 restant :
     le natif énumère dans l'ordre du sélecteur source, ce qui ne change QUI est pris que lorsque le
     pool déborde `amount` — jamais le NOMBRE de tirages)."""
-    from ...abilities.loki.splash import _pick_randomly_n     # lazy : cycle triggers <-> abilities
     picked = _pick_randomly_n(state, sorted(candidates), 1)    # PickRandomly(., 1)
     return picked[0] if picked else None
 

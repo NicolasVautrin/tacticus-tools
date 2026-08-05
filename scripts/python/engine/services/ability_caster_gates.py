@@ -113,6 +113,8 @@ from ..entities.active_ability_type import ActiveAbilityType
 from ..runner.abilities.attack_type import is_regular_attack
 from ..runner.abilities.targeting_rule import TargetingRule as TR
 from ..entities.traits.unit_trait import UnitTrait   # #270-r1-r1-r3
+from .. import battle_query as bq
+from ..runner.abilities.targeting import targeting_options_for
 
 # ------------------------------------------------------------------------------------------------
 # `IdunBattle.Configuration.AbilityConfiguration$$TryGetNumberConstant` sur le substrat gameconfig.
@@ -129,7 +131,6 @@ CONST_MUNITIONS_COST = "munitionsCost"       # AbilityConstantType 0x6b = 107
 
 
 def _ability_name(ability_id):
-    from ..entities.active_ability_type import ActiveAbilityType
     try:
         return ActiveAbilityType(int(ability_id)).name
     except (TypeError, ValueError):
@@ -250,7 +251,6 @@ def can_currently_be_used(state) -> bool | None:
     depuis `NormalAttackType @0x28` sans entree de composant, que le foyer traite deja a part."""
     if _flag(state, "usable") is None and _flag(state, "disabled") is None:
         return None
-    from .. import battle_query as bq        # foyer UNIQUE de la propriete (import tardif : cycle)
     return bool(bq.can_currently_be_used(state))
 
 
@@ -491,7 +491,6 @@ def _spawn_tile_gate_allows(caster: "CasterSubstrate") -> bool | None:
         return None
     p = (int(pos[0]), int(pos[1]))
     elev, neigh = caster.elev_by_pos, caster.neigh_by_pos
-    from .. import battle_query as bq          # foyer d'`IterateAdjacentTiles` (#124)
     enemies = [t for t, team in caster.team_by_pos.items()
                if team is not None and int(team) != int(caster.team)]
     for n in hexgeo.neighbors(p[0], p[1]):
@@ -532,7 +531,6 @@ def invalid_caster_reason(ability_id, caster: "CasterSubstrate" = None) -> int |
     L'ORDRE EST LE LIVRABLE : c'est lui qui fixe LAQUELLE des onze regles est rendue quand
     plusieurs sont rompues. Il est transcrit du decompile cite en tete de section, clause par
     clause, y compris les quatre a gisement VIDE."""
-    from ..runner.abilities.targeting import targeting_options_for   # foyer UNIQUE des masques
     try:
         aid = int(ability_id)
     except (TypeError, ValueError):

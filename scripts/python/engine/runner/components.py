@@ -14,6 +14,15 @@ from typing import TYPE_CHECKING, Dict, Hashable, Iterator, List, Optional
 from .state import Component
 from ..entities.effect_type import EffectType   # #270-r1-r1 : `_TELEPORT_MOVE_EFFECTS`
 from ..entities.unit_flag import UnitFlag   # #270-r1-r1-r3
+from ..battle_query import get_in_range_aura_amount
+from ..battle_query import is_adjacent
+from ..entities.effect_targets import is_effect_target as _iet
+from ..entities.effects.loki.amulet_of_the_voidwyrm import (
+        adjacent_friendly_summons_and_decoys_selector)
+from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
+from ..entities.stats import StatType
+from ..entities.traits import UnitTrait as _UT, has_trait as _has_trait
+from ..entities.traits.unit_trait import UnitTrait, has_trait
 
 if TYPE_CHECKING:
     from ..entities import UnitContext
@@ -1731,8 +1740,6 @@ def update_charging(state, unit_id: int, old_pos, new_pos) -> list:
     predicat `IsCharging` sa semantique « a charge cette cible CE TOUR ». Aucun autre site natif
     n'ecrit ce champ (xrefs de `UpdateCharging` : les 2 call-sites de `Execute` ; le seul autre
     lecteur est `BattleQuery$$IsCharging`)."""
-    from ..battle_query import is_adjacent
-    from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
     e = state.get_entity(unit_id)
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is None or new_pos is None:
@@ -1786,7 +1793,6 @@ def can_be_overkilled(entity) -> bool:
     Les noms de traits viennent de `StatsComponent.ctx.traits` (NOMS gameconfig), meme convention que
     tous les `HasTrait(target, ...)` portes ; ctx absent -> pas de trait connu -> True (degradation
     fidele : le natif rend True quand le composant de base manque)."""
-    from ..entities.traits.unit_trait import UnitTrait, has_trait
     if entity is None:
         return True
     sc = entity.get_component(StatsComponent)
@@ -2040,7 +2046,6 @@ def is_effect_target(state, unit_id: int, effect_type: int) -> Optional[bool]:
     liste `EffectComponent.Targets @+0x48` vient du `<Effect>$$CreateTargetSelector` de CHAQUE
     effectType, jamais d'un defaut. `None` = type non porte / substrat manquant -> l'appelant
     degrade explicitement (cf. la docstring du foyer)."""
-    from ..entities.effect_targets import is_effect_target as _iet
     ent = state.get_entity(int(unit_id))
     pc = ent.get_component(PositionComponent) if ent is not None else None
     oc = ent.get_component(OwnerComponent) if ent is not None else None
@@ -2085,9 +2090,6 @@ def contagions_of_nurgle_amount(state, unit_id: int, source_id) -> Optional[int]
     `CreateActiveCondition` consommatrice traite en dégradation (cf.
     `ContagionsOfNurgleArmorReductionEffect.is_active`) — jamais un 0 inventé, qui rendrait
     l'instance inactive et ferait remonter l'armure sans raison native."""
-    from ..battle_query import get_in_range_aura_amount
-    from ..entities.effect_type import EffectType
-    from ..entities.stats import StatType
     src = state.get_entity(int(source_id)) if source_id is not None else None
     soc = src.get_component(OwnerComponent) if src is not None else None
     if soc is None or soc.team is None:
@@ -2119,7 +2121,6 @@ def contagions_of_nurgle_amount(state, unit_id: int, source_id) -> Optional[int]
         units.append(d)
     if target is None:
         return None                                   # cible sans tuile -> aucun voisinage
-    from ..entities.traits import UnitTrait as _UT, has_trait as _has_trait
 
     def _unit_has_trait(u, trait_id) -> bool:
         """`UnitExtensions.HasTrait(unit, aura.GetTrait())` — le trait natif est un ID d'enum, le
@@ -2224,8 +2225,6 @@ def adjacent_friendly_summons_and_decoys_count(state, unit_id: int) -> Optional[
     pc = ent.get_component(PositionComponent) if ent is not None else None
     if oc is None or oc.team is None or pc is None:
         return None
-    from ..entities.effects.loki.amulet_of_the_voidwyrm import (
-        adjacent_friendly_summons_and_decoys_selector)
     from .abilities.behaviours import entities_from_state
     return int(adjacent_friendly_summons_and_decoys_selector()
                .calculate(entities_from_state(state, int(unit_id))))

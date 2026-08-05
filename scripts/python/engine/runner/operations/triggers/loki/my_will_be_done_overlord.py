@@ -198,6 +198,15 @@ from ....components import OwnerComponent, StatsComponent, persistent_data_list
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
 from .....entities.unit_faction import UnitFaction   # #270-r1-r1-r3
+from .....dsl.base import AbilityTrigger
+from .....dsl.effects import OperationResult
+from .....entities.behaviours import Seq
+from .....entities.effects.magnitude import ability_var
+from ....abilities.base import convert_rounds_to_turns
+from ....abilities.behaviours import (AddDynamicStatModifierEffect, AddStatOverrideEffect,
+                                          AddToPersistentDataList, PerformAIAttack, RemoveEffect)
+from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours import entities_from_state, ClearAllPersistentData
 
 ABILITY_ID = "MyWillBeDoneOverlord"
 # `AbilityOrEffect(this.Id)` = `BaseTriggeredAbility+0x10` (`get_Count` mislabel de ghidra =
@@ -273,10 +282,6 @@ def my_will_be_done_attack_tree(target: TargetsSelector, cap: int, pct: int, tur
 
     ⚠ `target` est passe TEL QUEL aux quatre feuilles ET a la condition du `If` : c'est le MEME objet
     d'arbre, SANS `Cache` -- le natif le re-resout a chaque etage (section 6 de l'en-tete)."""
-    from ....abilities.behaviours import (AddDynamicStatModifierEffect, AddStatOverrideEffect,
-                                          AddToPersistentDataList, PerformAIAttack, RemoveEffect)
-    from .....entities.behaviours import Seq
-    from .....dsl.base import AbilityTrigger
 
     amount = percentage_of_attack_capped_at_max(target, Const(int(cap)), Const(int(pct)),
                                                 stat_part=int(StatPart.CURRENT))
@@ -313,7 +318,6 @@ class _IfTargets:
         self.condition, self.then, self.otherwise = condition, then, otherwise
 
     def execute(self, entities, ectx):
-        from .....dsl.effects import OperationResult
         chosen = self.condition.evaluate(entities)
         branch = self.then if chosen else self.otherwise
         if branch is None:
@@ -329,7 +333,6 @@ def _ability_vars(state: State, owner_id: int) -> tuple:
     -> le multiplicateur de rarete s'applique a `maxDmg` et PAS a `dmgPct` ; `ability_var` gate
     l'application sur cette liste, on ne la re-implemente pas ici. (0, 0) si le contexte manque ->
     l'override vaut alors 0 et la feuille est inerte."""
-    from .....entities.effects.magnitude import ability_var
     e = state.get_entity(owner_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None) if sc is not None else None
@@ -365,8 +368,6 @@ class MyWillBeDoneOverlordAttackAbility(TriggeredAbility):
         return ev.actor_id is not None and int(ev.actor_id) == int(self.owner_id)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ....abilities.behaviours import entities_from_state
-        from ....abilities.base import convert_rounds_to_turns
         cap, pct = _ability_vars(state, self.owner_id)
         # `turns = Sum(TurnsFromRounds(1), Direct(1))` -- resolu AVANT l'arbre (le natif le resout
         # aussi avant de batir la feuille), via le MEME mirror de `ConvertRoundsToTurns` que
@@ -408,7 +409,6 @@ class MyWillBeDoneOverlordClearAbility(TriggeredAbility):
         return len(_used_ids(state, self.owner_id)) > 0
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ....abilities.behaviours import entities_from_state, ClearAllPersistentData
         before = list(_used_ids(state, self.owner_id))
         entities = entities_from_state(state, self.owner_id, None)
         ectx = ExecutionContext(state=state, rng=state.rng)

@@ -36,6 +36,20 @@ from ..state import State
 from ..components import (StatsComponent, OwnerComponent, PositionComponent,
                           HealthComponent, UnitComponent)
 from ...entities.effect_type import EffectType
+from ...dsl.event_trigger_type import EventTriggerType
+from ...entities import EffectsState
+from ...entities import UnitContext
+from ...entities.effects import EffectFactory
+from ...entities.effects.factory import (get_derived_abilities_for_trait,
+                                             get_owner_effects_added_on_ability_init)
+from ...entities.effects.factory import (get_owner_effects_added_on_ability_init,
+                                             get_effect_to_be_added_to_owner_for_ability)
+from ...entities.effects.factory import get_effect_to_be_added_to_owner_for_trait
+from ...entities.effects.magnitude import ability_var
+from ...entities.stats import UnitStats, StatType
+from ...utilities.tile import sort_tiles_by_utility
+from ..components import UnitFlagsComponent
+from engine.battle_query import is_adjacent
 
 
 def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
@@ -47,9 +61,6 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
     `caster_level` = `activeAbilityLevel` du caster ; `caster_mult` = `abilityVariablesMultiplier`. Une clé
     `summon*` absente → 0 (ex. ScarabHive n'a pas `summonArmor` → armure 0, cohérent i2 « 0 Armour »)."""
     import gameconfig as GC
-    from ...entities import UnitContext
-    from ...entities.effects.magnitude import ability_var
-    from ...entities.stats import UnitStats, StatType
 
     def sv(key: str) -> int:
         v = ability_var(summon_ability, key, caster_level, multiplier_pct=caster_mult)
@@ -121,8 +132,6 @@ def build_decoy_context(entity_id: int, visual_id: str = "genesSmnDecoy"):
     traits `Steppable`(27)+`Decoy`(1053), AUCUNE arme, AUCUNE stat de combat (config `stats` = juste
     `AbilityLevel:1`). Token inerte (`move=None`, non-ciblable)."""
     import gameconfig as GC
-    from ...entities import UnitContext
-    from ...entities.stats import UnitStats, StatType
     gu = GC.unit(visual_id) or {}
     stats = UnitStats()
     for st in (StatType.ATTACK, StatType.HEALTH, StatType.FIXED_ARMOR, StatType.CRIT_CHANCE,
@@ -196,7 +205,6 @@ def trigger_spawned_unit_finish_turn(state: State, unit_id: int) -> Optional[dic
 
     Rend le dict de `FinishUnitTurnOperation.execute` quand le finish a lieu, sinon `None` (avec la
     raison) -- diagnostic pour les probes/tests."""
-    from ..components import UnitFlagsComponent  # noqa: F401  (documente le contrat de flags)
     from .turnflow import FinishUnitTurnOperation
     e = state.get_entity(int(unit_id))
     if e is None:
@@ -428,7 +436,6 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
     pour Loop2 + le repli statique du Loop1 non hydraté — d'où le passage de `state` (et non du seul
     `board`) au foyer. `caster_id` EST le `parent` natif (case-205) : il ne devient un sujet à AUCUN
     moment, mais sa PRÉSENCE est ce qui arme `IsSpawning`."""
-    from ...utilities.tile import sort_tiles_by_utility   # lazy : évite le cycle utilities<->runner
     return sort_tiles_by_utility(state, tiles, parent_id=caster_id)
 
 
@@ -589,7 +596,6 @@ def on_unit_added(state: State, unit_id: Optional[int]) -> list:
     # DISPATCH GENERIQUE `On(UnitAdded = 0x32 = 50)` : `AbilityEntities.ctor(added, added, added)`
     # -> actor = caster = target = l'unite qui vient d'apparaitre.
     from .triggers import TriggerEvent, evaluate_trigger_operation
-    from ...dsl.event_trigger_type import EventTriggerType
     out += evaluate_trigger_operation(
         state, TriggerEvent(EventTriggerType.UnitAdded, int(unit_id), int(unit_id),
                             ranged=False, profile=None))
@@ -619,8 +625,6 @@ def _maybe_seed_ignore_battle_fatigue(state: State, unit_id: int, team, mult: in
     ⚠ Snapshot au spawn : le retrait de l'aura si Snotflogga meurt N'EST PAS modélisé (grot garde l'immunité)."""
     if not _team_has_squighound(state, team):
         return False
-    from ...entities.effects import EffectFactory
-    from ...entities import EffectsState
     if state.effects is None:
         state.effects = EffectsState.seed({})
     if state.effects.has_effect(unit_id, effect_type=IGNORE_BATTLE_FATIGUE):
@@ -641,8 +645,6 @@ def _materialize_owner_effect(state: State, unit_id: int, name: str, mult: int,
     `ability_level` = niveau de l'ability SOURCE de l'owner-effect (indexe ses variables per-niveau ; ex.
     HypersensoryAbilities.hpPct[level] = 30..50). Threadé par `_seed_ability_owner_effects` depuis
     `ctx.passive_ability_level` ; None = fallback stack level dans l'effet."""
-    from ...entities.effects import EffectFactory
-    from ...entities import EffectsState
     if state.effects is None:
         state.effects = EffectsState.seed({})
     if state.effects.has_effect(unit_id, name=name):
@@ -666,7 +668,6 @@ def _seed_trait_owner_effects(state: State, unit_id: int, traits, mult: int) -> 
     trait ajoute à son PORTEUR les owner-effects de `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$GetEffectToBeAddedToOwnerForTrait (dict `Trait..idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor +0x30). Sans ce seed, un summon SPAWNÉ n'a AUCUN effet -> ses
     traits de dégât (HeavyWeapon +25% ranged, RangedSpecialist +33% ranged, ...) ne s'appliquent PAS à ses
     attaques (gap corrigé)."""
-    from ...entities.effects.factory import get_effect_to_be_added_to_owner_for_trait
     return [name for tr in (traits or [])
             for name in get_effect_to_be_added_to_owner_for_trait(tr)
             if _materialize_owner_effect(state, unit_id, name, mult)]
@@ -680,8 +681,6 @@ def _seed_derived_ability_owner_effects(state: State, unit_id: int, traits, mult
     Cas porté : trait **BigTarget** -> ability `BigTarget` (0x406) -> `IdunBattleLogic.Entities.Abilities.Active.Loki.BigTargetAbility$$CreateBehaviour` = `AddEffect(BigTarget_AdjacentEffect)` (aura -1 hit ranged aux alliés ring-1, source-side).
     Les autres traits summon dérivent aussi une ability mais leur owner-effect à l'init n'est pas encore LU
     (cf. `factory.ABILITY_INIT_OWNER_EFFECTS`) -> non seedés (fidélité-safe)."""
-    from ...entities.effects.factory import (get_derived_abilities_for_trait,
-                                             get_owner_effects_added_on_ability_init)
     added: list = []
     for tr in (traits or []):
         for ab in get_derived_abilities_for_trait(tr):
@@ -707,8 +706,6 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
       * `StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility` (dict `ActiveAbility` +0x50,
         `ABILITY_OWNER_EFFECTS`) — chemin DIRECT, ex. GravitonRifle -> GravitonRifle_ExtraPierce (#113)."""
     import gameconfig as GC
-    from ...entities.effects.factory import (get_owner_effects_added_on_ability_init,
-                                             get_effect_to_be_added_to_owner_for_ability)
     gu = GC.unit(vid) or {}
     abilities = list(gu.get("activeAbilities") or []) + list(gu.get("passiveAbilities") or [])
     return [name for ab in abilities
@@ -872,7 +869,6 @@ class SpawnUnitOperation:
         VIDE consomme **zero tirage** (`PickRandomAmountSelector$$Select` sort sur `candidates.Count <
         1`, cf. sa docstring), donc s'arreter la ne decale AUCUN flux RNG."""
         from dataclasses import replace as _dc_replace
-        from ...entities.stats import UnitStats, StatType
         caster = state.get_entity(caster_id)
         if caster is None:
             return []
@@ -1034,7 +1030,6 @@ class SpawnUnitOperation:
         AdjacentTiles(caster@0x148)), 7 = UtilityType.Tile, @0x160), 1)` = **0 tirage**, PORTE (case-130 SS5,
         `_sort_tiles_by_utility_for_summon` -- meme noeud que SquigHound ; surtout PAS un `PickRandomly`)."""
         import gameconfig as GC
-        from ...entities.effects.magnitude import ability_var
         caster = state.get_entity(caster_id)
         board = state.board
         if caster is None or board is None:
@@ -1113,7 +1108,6 @@ class SpawnUnitOperation:
         possible = _free_tiles_adjacent(state, owner_id, set())  # CanAddUnit(AdjacentTiles(owner))
         # TilesUnitCanAttackFrom(possible, owner, "thousSmnScreamer") : Screamer = MELEE -> tuiles avec
         # >=1 ennemi VIVANT hex-adjacent (porte d'elevation |dElev|<2, `is_adjacent` maison).
-        from engine.battle_query import is_adjacent
         elev = {}
         neigh = None      # tri-etat : `None` = pas de canal -> repli geometrique NOMME d'`is_adjacent`
         epos = []

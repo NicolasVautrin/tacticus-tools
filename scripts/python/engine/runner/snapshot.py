@@ -34,6 +34,15 @@ from .components import (
     set_unit_feet,
 )
 from ..entities.entity_type import EntityType   # #270-r1-r1-r3
+from ..entities import EffectsState, EffectFactory
+from ..entities import UnitContext, EffectFactory
+from ..entities import UnitContext, EffectsState, EffectFactory, baked_ability_state
+from ..entities.active_ability_type import ActiveAbilityType
+from ..entities.traits.unit_trait import trait_names_from_ids
+from ..entities.triggered_ability_type import TriggeredAbilityType
+from .components import ForcedAttackTargetsComponent
+from .operations.aura_stat_mods import attribute_aura_stat_modifiers
+from .operations.spawn import _seed_ability_owner_effects, TELEPORT_STRIKE_TELEPORTING_IN
 
 
 # `EntityType.Machine` — l'enum d'entité du `MatchState` natif, projeté tel quel par les capteurs
@@ -432,7 +441,6 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     # vit sur le porteur) → elle dort dans `CAPTURED_SOURCE` et rien ne peut la retirer quand la cible
     # sort du rayon. On la RE-ATTRIBUE sous la clé de l'effet, à somme constante (`GetStat(Current)`
     # inchangé). NO-OP strict tant qu'aucun porteur d'aura stat-mod n'est en jeu.
-    from .operations.aura_stat_mods import attribute_aura_stat_modifiers
     attribute_aura_stat_modifiers(state)
     return state
 
@@ -567,7 +575,6 @@ def _load_machine_stats(state: State, decision: dict, snapshot: dict,
     (Pas de `ablvl_by_id` : une MoW n'a AUCUNE passive en gameconfig — `passiveAbilities` absent sur
     les 8 MoW du pool — donc aucun niveau de passive à propager au seed d'effets.)"""
     import gameconfig as GC
-    from ..entities import UnitContext, EffectFactory
 
     snap_rows = {u.get("entityId"): u for u in (snapshot.get("units") or [])
                  if u.get("entityType") == _ENTITY_TYPE_MACHINE}
@@ -851,7 +858,6 @@ def _load_forced_attack_targets(state: State) -> None:
     Le composant est CREE a la demande, comme sur la voie de pose (le natif l'a par blueprint sur
     toute unite ; offline il n'existe que la ou une ecriture a eu lieu -- `get_only_targets` traite
     son absence comme la liste vide, exactement comme le `TryGetComponent` faux du natif)."""
-    from .components import ForcedAttackTargetsComponent
     effects = getattr(state, "effects", None)
     if effects is None:
         return
@@ -1285,7 +1291,6 @@ def _load_tertiary_abilities(state: State, ability_states: dict) -> int:
     denonce un montage incomplet (relique posee sans son niveau, cf. `docs/rl/case-237-relique-
     forcee.md` §4). On refuse de l'ingerer plutot que d'indexer `arr[-1]` cote port la ou le natif
     faute."""
-    from ..entities.triggered_ability_type import TriggeredAbilityType
     seeded = 0
     for su in ((ability_states or {}).get("units") or []):
         uid = su.get("entityId")
@@ -1343,7 +1348,6 @@ def passive_ability_names_by_unit(ability_states: dict) -> dict:
 
     Une unite PRESENTE dans le payload mais sans aucune entree de hierarchie 2 recoit `[]` -- une
     MESURE (unite sans passif), a distinguer d'un canal muet, qui lui n'a aucune cle."""
-    from ..entities.triggered_ability_type import TriggeredAbilityType
     out: dict = {}
     for su in ((ability_states or {}).get("units") or []):
         uid = su.get("entityId")
@@ -1381,7 +1385,6 @@ def active_ability_names_by_unit(ability_states: dict) -> dict:
     L'ORDRE est celui du composant, et il compte (la boucle native rend au PREMIER actif gagnant).
     Une unite PRESENTE dans le payload mais sans aucune active recoit `[]` -- une MESURE, a
     distinguer d'un canal muet, qui lui n'a aucune cle."""
-    from ..entities.active_ability_type import ActiveAbilityType
     out: dict = {}
     for su in ((ability_states or {}).get("units") or []):
         uid = su.get("entityId")
@@ -1423,7 +1426,6 @@ def config_active_ability_names_by_unit(ability_states: dict) -> dict:
     TRI-ETAT STRICT, et il porte du sens : la VALEUR `None` (distincte d'une cle absente) signifie
     « le capteur a regarde et n'a pas pu joindre » -- pas « la configuration est vide ». Une cle
     ABSENTE signifie « canal muet » (capteur anterieur a #466, ou unite hors payload)."""
-    from ..entities.active_ability_type import ActiveAbilityType
     out: dict = {}
     for su in ((ability_states or {}).get("units") or []):
         uid = su.get("entityId")
@@ -1728,7 +1730,6 @@ def _load_unit_traits(state: State, snapshot: dict) -> None:
     `traits_measured` marque le ctx : `entity_trait_names` cesse alors de re-deriver l'alliance
     par-dessus (elle est DANS la mesure -- `BC.Units[].Traits` la porte explicitement, verifie sur
     `necroOverlord` : `Xenos` y figure)."""
-    from ..entities.traits.unit_trait import trait_names_from_ids
 
     for su in (snapshot.get("units") or []):
         eid = su.get("entityId")
@@ -1771,7 +1772,6 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     ci-dessous ne traite QUE les premières ; les MoW sont déléguées à `_load_machine_stats` — elles
     n'ont ni `unitConfig` ni VisualId sur cette ligne, et leur niveau vit ailleurs (#174)."""
     import gameconfig as GC                      # données offline (traits/arme/profil)
-    from ..entities import UnitContext, EffectsState, EffectFactory, baked_ability_state
 
     vis_by_id = {u.get("id"): u.get("visualId") for u in (decision.get("units") or [])}
     effects_by_id = {u.get("id"): (u.get("effects") or []) for u in (decision.get("units") or [])}
@@ -1873,7 +1873,6 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     # actif seulement au tour ENNEMI via son ActiveCondition). On les pose ici (idempotent : les effets déjà
     # captés live sont skippés). Gate TeleportingIn (1035) : passives DIFFÉRÉES jusqu'à l'atterrissage
     # (`land_deep_strike`), pas initialisées au capture. #G6a.
-    from .operations.spawn import _seed_ability_owner_effects, TELEPORT_STRIKE_TELEPORTING_IN
     for eid in list(state.entities.keys()):
         if state.effects.has_effect(eid, effect_type=TELEPORT_STRIKE_TELEPORTING_IN):
             continue
@@ -1937,7 +1936,6 @@ def _load_tile_effects(state: State, tiles, board) -> int:
     `state.effects` et `AddEffectOperation` utilisent) ne vient que de `boardGraph`. Sans board →
     aucun seed (dégradation silencieuse impossible à confondre : l'appelant qui veut les effets de
     tuile passe forcément le board, seul point d'injection du plateau)."""
-    from ..entities import EffectsState, EffectFactory
 
     rows = _tile_rows(tiles)
     if board is None or not rows:

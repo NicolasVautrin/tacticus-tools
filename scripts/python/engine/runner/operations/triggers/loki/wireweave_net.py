@@ -146,6 +146,9 @@ from ....state import State
 from ....components import OwnerComponent, UnitComponent
 from ....abilities.attack_type import is_normal_attack
 from ..base import EffectTrigger, TriggerEvent, _is_adjacent_units
+from .....dsl.effects import ExecutionContext
+from ....abilities.behaviours import AttackWithAttackDamage
+from ....abilities.behaviours import entities_from_state
 
 WIREWEAVE_NET_COUNTER_ATTACK = int(EffectType.WireweaveNet_CounterAttack)   # 0x457 = 1111
 WIREWEAVE_NET = "WireweaveNet"          # nom gameconfig de l'ability SOURCE (passif d'`eldarRanger`)
@@ -216,7 +219,6 @@ def wireweave_net_tree():
     SOURCE de l'effet, montee en PASSIF sur `eldarRanger` -> `level_slot="passive"`.
     `multi=False` = collapse MONO-CIBLE (le slot `Caster` ne porte qu'UNE entite).
     Import paresseux (evite le cycle triggers <-> abilities.behaviours, == martial_superiority)."""
-    from ....abilities.behaviours import AttackWithAttackDamage
     return AttackWithAttackDamage(Actor(), WIREWEAVE_NET, _PROFILE,
                                   is_melee=True, level_slot="passive")
 
@@ -282,8 +284,6 @@ class WireweaveNetCounterAttack(EffectTrigger):
         dans CET ordre (`AbilityBehaviour$$op_BitwiseAnd`, gauche puis droite)."""
         if state.rng is None:                          # l'attaque consomme le RNG (rolls/crit/block)
             return None
-        from ....abilities.behaviours import entities_from_state
-        from .....dsl.effects import ExecutionContext
         entities = entities_from_state(state, self.owner_id, actor_id=int(ev.actor_id))
         ectx = ExecutionContext(state=state, rng=state.rng)
         wireweave_net_tree().execute(entities, ectx)
