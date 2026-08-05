@@ -114,7 +114,8 @@ def _valid_dead_decoys(state: State, owner_id: int, stepper_id: int) -> list:
         if sc is None:
             continue
         # Substrat de traits = le foyer `entity_trait_names` (#264/#226), plus la lecture brute
-        # de `ctx.traits` : cf. `docs/rl/case-462-...-r3-r1-substrat-traits-inventaire.md`.
+        # de `ctx.traits` : cf.
+        # `docs/rl/case-462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-substrat-traits-inventaire.md`.
         traits = entity_trait_names(sc.ctx, uc.visual_id)
         if not has_trait(traits, DECOY_TRAIT):        # HasTrait(decoy, Decoy=1053)
             continue
