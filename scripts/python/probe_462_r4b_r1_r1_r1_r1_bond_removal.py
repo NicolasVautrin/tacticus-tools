@@ -48,9 +48,33 @@ de LIRE LE SLOT sur la classe, au runtime, et de comparer son POINTEUR a celui d
         `0x1802b45a0` = `return 0`  -> bool FALSE
         `0x1802b45b0` = `return 0`  -> `Nullable<int>` VIDE (pas de portee)
 
+LE QUATRIEME VIRTUEL, `<klass+0x778>` (residu ferme par #462-r4b-r1-r1-r1-r1-c).
+`IdunBattle.Entities.Effects.APendingAttackEffect$$get_RemoveOnBondedEntityDeath` ne rend pas une
+constante : son corps est `NOT <klass+0x778>()`. Les 20 derivees d'`APendingAttackEffect` heritent
+donc leur gate (a) d'un QUATRIEME virtuel, propre a cette sous-famille. Il est NOMME
+`IsExecutedIfOwnerDies` -- mesure, pas deduction, et par DEUX voies concordantes :
+
+  * `--step pending`, voie `class_get_methods` : les 20 derivees le DECLARENT toutes en propre
+    (`depth 0`), corps `0x1802b4590` (= `return 1`, VRAI) ou `0x1802b45a0` (= `return 0`, FAUX) ;
+  * `--step vtable` : sur une classe dont la vtable EST materialisee, le slot `+0x778` rend le meme
+    couple (adresse, nom). Les slots voisins servent de CONTROLE de l'alignement --
+    `+0x758 = GetAttackingUnitSelector`, `+0x768 = GetTriggeredAbilityType`, tous deux confirmes
+    par `data/symbols/<build>/frida/methods.tsv`, qui les nomme pour les classes dont le corps
+    n'est PAS dedupliqué.
+
+⚠ POURQUOI LA PASSE PRECEDENTE A CONCLU << slot NULL, non resolvable >>. Les slots de cette vtable
+sont a `0x728 / 0x738 / 0x748 / 0x758 / 0x768 / 0x778` -- alignes sur `...8`, PAS sur `...0`. Le
+premier jet de ce pas balayait `0x750..0x790` par pas de 0x10, soit `0x750, 0x760, 0x770, 0x780` :
+DECALE DE 8, donc a cote de CHAQUE slot. Il rendait des cases vides, ce qui s'est lu comme << aucune
+vtable n'est materialisee >>. Un balayage aligne montre l'inverse : la vtable de
+`SeekerMissileFrequencyLockTargetEffect` etait deja materialisee dans la session, et le nom se lisait
+sans rien monter. LECON : sur un balayage de slots, l'alignement du `start` fait partie de la mesure
+-- une plage vide n'est une absence QUE si l'on a d'abord prouve que la plage tombe sur les slots.
+
 Usage (ASCII only, depuis scripts/python) :
   python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step vtable
   python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step declared
+  python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step pending
   python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step all
 """
 from __future__ import annotations
@@ -67,12 +91,22 @@ PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 
 BOND_BASE = "IdunBattle.Entities.Effects.ABondEffect"
+PENDING_BASE = "IdunBattle.Entities.Effects.APendingAttackEffect"
 
 # Les TROIS slots gates, dans l'ordre ou `CreateHandleTriggerAbilitiesInternal` les consulte.
 SLOT_RANGE = 0x728          # (b) `Nullable<int>` -- portee au-dela de laquelle le bond tombe
 SLOT_ADJACENT = 0x738       # (c) bool -- le bond exige l'ADJACENCE
 SLOT_ON_DEATH = 0x748       # (a) bool -- le bond tombe a la mort/au retrait du bonde
 SLOTS = (SLOT_RANGE, SLOT_ADJACENT, SLOT_ON_DEATH)
+
+# Les TROIS virtuels que `APendingAttackEffect` AJOUTE aux precedents. Les deux premiers sont
+# recoupes par `methods.tsv` (qui les nomme pour les classes au corps non dedupliqué) et servent de
+# CONTROLE D'ALIGNEMENT du balayage ; le troisieme est le gate cherche.
+SLOT_ATTACKING_SELECTOR = 0x758     # `GetAttackingUnitSelector` : ITargetsSelector
+SLOT_TRIGGERED_ABILITY = 0x768      # `GetTriggeredAbilityType` : TriggeredAbilityType
+SLOT_EXECUTED_IF_OWNER_DIES = 0x778  # `IsExecutedIfOwnerDies` : bool -- gate (a) de la sous-famille
+PENDING_SLOTS = (SLOT_RANGE, SLOT_ADJACENT, SLOT_ON_DEATH,
+                 SLOT_ATTACKING_SELECTOR, SLOT_TRIGGERED_ABILITY, SLOT_EXECUTED_IF_OWNER_DIES)
 
 
 def _r(sid, m, b, t=60):
@@ -93,8 +127,8 @@ def _parents():
     return out
 
 
-def bond_effect_classes():
-    """Toutes les classes dont la chaine de parents atteint `ABondEffect` (elle exclue)."""
+def derived_classes(base):
+    """Toutes les classes dont la chaine de parents atteint `base` (elle exclue)."""
     parents = _parents()
     out = []
     for name in parents:
@@ -102,10 +136,18 @@ def bond_effect_classes():
         while cur and seen < 12:
             cur = parents.get(cur)
             seen += 1
-            if cur == BOND_BASE:
+            if cur == base:
                 out.append(name)
                 break
     return sorted(out)
+
+
+def bond_effect_classes():
+    return derived_classes(BOND_BASE)
+
+
+def pending_attack_classes():
+    return derived_classes(PENDING_BASE)
 
 
 def _split(full):
@@ -194,10 +236,14 @@ def _step_vtable_inner(sid, extra=()):
         for full, err in unresolved:
             print("    %-72s %s" % (full, err))
     for full in extra:
+        # ⚠ ALIGNEMENT : les slots sont a `...8` (0x728/0x738/.../0x778), pas a `...0`. Un balayage
+        # depuis 0x750 tomberait A COTE de chacun et rendrait des cases vides -- ce qui s'etait lu
+        # comme << aucune vtable materialisee >>, et a laisse le residu ouvert une passe entiere.
         ns, cls = _split(full)
-        res = _r(sid, "resolveVtableSlot", {"ns": ns, "cls": cls, "start": 0x750, "end": 0x790}, 30)
+        res = _r(sid, "resolveVtableSlot", {"ns": ns, "cls": cls,
+                                            "start": SLOT_RANGE, "end": 0x788}, 30)
         print("")
-        print("SLOTS 0x750..0x790 de %s (les virtuels d'`APendingAttackEffect`)" % full)
+        print("SLOTS 0x728..0x788 de %s (les virtuels d'`APendingAttackEffect`)" % full)
         for sl in (res.get("slots") or []):
             print("    %-8s %-14s %s" % (sl.get("off"), sl.get("ghidraVA") or "(vide)",
                                          sl.get("method")))
@@ -284,6 +330,134 @@ def step_declared(sid):
         print("ERREURS : %d" % len(errs))
         for full, m, err in errs[:8]:
             print("    %-60s %-30s %s" % (full, m, err))
+    return 0
+
+
+# ------------------------------------------------------------------------------------------------
+# --step pending : le QUATRIEME virtuel `<klass+0x778> IsExecutedIfOwnerDies`
+#
+# LA QUESTION. `IdunBattle.Entities.Effects.APendingAttackEffect$$get_RemoveOnBondedEntityDeath` ne
+# rend PAS une constante : son corps est `NOT <klass+0x778>()`. Les 20 derivees d'
+# `APendingAttackEffect` heritent donc leur gate (a) d'un virtuel de plus, que `--step declared` ne
+# regardait pas (il n'interrogeait que `get_Range` / `get_Adjacent` /
+# `get_RemoveOnBondedEntityDeath`, et pour ces classes le troisieme rendait l'entree HERITEE de la
+# base -- une adresse de code REEL, pas un corps trivial, donc illisible comme booleen).
+#
+# LES DEUX VOIES, ET POURQUOI ON JOUE LES DEUX.
+#   * `class_get_methods` (colonne DECLARE) ne depend d'AUCUNE initialisation de classe : c'est la
+#     seule qui couvre les 20, y compris celles qu'aucune bataille n'a instanciees.
+#   * la VTABLE (colonne SLOT) ne repond que pour les classes materialisees, mais elle est la SEULE
+#     a etablir le lien slot <-> nom : c'est elle qui NOMME `<klass+0x778>`. Sans elle, la colonne
+#     DECLARE serait une valeur sans adresse d'appel.
+# Les deux doivent CONCORDER sur toute classe materialisee ; le pas le verifie et le DIT.
+#
+# CONTROLE D'ALIGNEMENT, joue dans le meme balayage. `+0x758` et `+0x768` doivent rendre
+# `GetAttackingUnitSelector` et `GetTriggeredAbilityType` -- deux noms que
+# `data/symbols/<build>/frida/methods.tsv` porte independamment. S'ils ne tombent pas, le balayage
+# est decale et AUCUNE valeur du pas ne vaut (c'est exactement la faute qui a laisse ce residu
+# ouvert : un balayage `0x750..0x790` par pas de 0x10 rate les six slots).
+# ------------------------------------------------------------------------------------------------
+IS_EXECUTED_IF_OWNER_DIES = "IsExecutedIfOwnerDies"
+
+# Ce que `methods.tsv` nomme independamment pour les deux slots de controle.
+ALIGNMENT_CONTROL = {SLOT_ATTACKING_SELECTOR: "GetAttackingUnitSelector",
+                     SLOT_TRIGGERED_ABILITY: "GetTriggeredAbilityType",
+                     SLOT_EXECUTED_IF_OWNER_DIES: IS_EXECUTED_IF_OWNER_DIES}
+
+
+def _pending_slot_row(sid, full):
+    """`{off: (ghidraVA, nom)}` pour les six slots, balayes ALIGNES sur `...8`."""
+    ns, cls = _split(full)
+    res = _r(sid, "resolveVtableSlot",
+             {"ns": ns, "cls": cls, "start": SLOT_RANGE, "end": SLOT_EXECUTED_IF_OWNER_DIES}, 30)
+    if not res.get("ok"):
+        return None
+    out = {}
+    for sl in (res.get("slots") or []):
+        try:
+            off = int(str(sl.get("off")), 16)
+        except (TypeError, ValueError):
+            continue
+        out[off] = (sl.get("ghidraVA") or None, sl.get("method"))
+    return out
+
+
+def step_pending(sid):
+    names = [PENDING_BASE] + pending_attack_classes()
+    print("`<klass+0x778>` -- le QUATRIEME virtuel des derivees d'`APendingAttackEffect`")
+    print("Corps triviaux resolus par ADRESSE : %s" % TRIVIAL)
+    print("")
+    hdr = ("%-48s | %-26s | %-26s | %s"
+           % ("classe", "DECLARE IsExecutedIfOwnerDies", "SLOT +0x778 (vtable)",
+              "=> get_RemoveOnBondedEntityDeath"))
+    print(hdr)
+    print("-" * len(hdr))
+    verdicts, mismatches, misaligned, materialised = {}, [], [], []
+    for full in names:
+        short = full.rsplit(".", 1)[-1]
+        got, err = _declared(sid, full, IS_EXECUTED_IF_OWNER_DIES)
+        decl_va, decl = None, "ERR:" + str(err)[:20] if err else "ABSENT"
+        if got:
+            own = [(d, k, va) for d, k, va in got if d == 0]
+            if own:
+                decl_va = own[0][2]
+                decl = TRIVIAL.get(decl_va) or ("?" + str(decl_va))
+        row = _pending_slot_row(sid, full)
+        slot_va, slot = None, "(non materialisee)"
+        if row:
+            slot_va, slot_name = row.get(SLOT_EXECUTED_IF_OWNER_DIES, (None, None))
+            # ⚠ Le critere de MATERIALISATION est le `MethodInfo*` (donc le NOM), pas le pointeur de
+            # code : une classe non initialisee porte le stub de remplissage paresseux
+            # (`Unity.Burst.Unsafe$$AsRef`) a une adresse bien reelle, avec un `MethodInfo*` NUL.
+            # Prendre l'adresse pour critere ferait passer la BASE ABSTRAITE -- qui n'est jamais
+            # instanciee -- pour une classe lisible, et son slot vide pour un desalignement.
+            if slot_name is None:
+                slot_va = None
+            if slot_va is not None:
+                materialised.append(short)
+                slot = "%s=%s" % (slot_name, TRIVIAL.get(slot_va) or ("?" + str(slot_va)))
+                for off, expect in ALIGNMENT_CONTROL.items():
+                    nm = (row.get(off) or (None, None))[1]
+                    if nm != expect:
+                        misaligned.append((short, hex(off), expect, nm))
+                if decl_va is not None and slot_va != decl_va:
+                    mismatches.append((short, decl_va, slot_va))
+        # `get_RemoveOnBondedEntityDeath` = NOT `IsExecutedIfOwnerDies`.
+        if decl in ("true", "false"):
+            verdicts[short] = (decl == "false")
+            verdict = "TRUE (le bond tombe)" if decl == "false" else "FALSE (le bond SURVIT)"
+        else:
+            verdict = "NON RESOLU"
+        print("%-48s | %-26s | %-26s | %s" % (short, decl, slot, verdict))
+
+    print("")
+    print("CONTROLE D'ALIGNEMENT : %d classe(s) materialisee(s) -- %s"
+          % (len(materialised), ", ".join(materialised) or "aucune"))
+    if misaligned:
+        print("  ECHEC : le balayage ne tombe PAS sur les slots attendus -- AUCUNE valeur ne vaut.")
+        for short, off, expect, nm in misaligned:
+            print("    %-40s %s attendu=%s lu=%s" % (short, off, expect, nm))
+        return 2
+    if not materialised:
+        print("  AUCUNE classe materialisee : le lien slot <-> nom n'est pas etabli par CE run.")
+        print("  La colonne DECLARE reste valable (elle ne depend d'aucune initialisation), mais")
+        print("  rien ici ne prouve qu'elle repond au slot `+0x778`. NE PAS conclure seul.")
+        return 3
+    print("  OK : `+0x758`/`+0x768`/`+0x778` rendent bien "
+          "`GetAttackingUnitSelector`/`GetTriggeredAbilityType`/`%s`." % IS_EXECUTED_IF_OWNER_DIES)
+    if mismatches:
+        print("")
+        print("DESACCORD declare/vtable : %d -- le pas NE CONCLUT PAS." % len(mismatches))
+        for short, dv, sv in mismatches:
+            print("    %-40s declare=%s slot=%s" % (short, dv, sv))
+        return 2
+    print("  Les deux voies CONCORDENT sur chaque classe materialisee.")
+    print("")
+    armes = sorted(k for k, v in verdicts.items() if v)
+    print("get_RemoveOnBondedEntityDeath VRAI (trigger (a) CONSTRUIT) : %d / %d"
+          % (len(armes), len(verdicts)))
+    print("FAUX (aucun trigger (a)) : %s"
+          % ", ".join(sorted(k for k, v in verdicts.items() if not v)))
     return 0
 
 
@@ -589,7 +763,7 @@ def step_killlive(sid):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="declared",
-                    choices=["vtable", "declared", "gatelive", "killlive", "all"])
+                    choices=["vtable", "declared", "pending", "gatelive", "killlive", "all"])
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default="MC1_67")
     a = ap.parse_args()
@@ -601,6 +775,9 @@ def main():
         print("")
     if a.step in ("declared", "all"):
         rc |= step_declared(sid)
+        print("")
+    if a.step in ("pending", "all"):
+        rc |= step_pending(sid)
         print("")
     if a.step in ("gatelive", "all"):
         rc |= step_gatelive(sid, a.seed, a.board)
