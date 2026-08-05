@@ -176,6 +176,9 @@ from ..runner.abilities.attack_type import is_regular_attack
 from ..services.damage_prediction import get_attack_prediction
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
 from .prediction._shared import _entity_traits, _prediction_is_charging
+from .prediction import (prediction_has_moved, prediction_has_teleported,
+                         _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
+                         _target_damage_limits, _PROFILE_INDEX)
 
 # Cle gameconfig de l'ability : l'enum membre EST le nom de config.
 _ABILITY_NAME = TriggeredAbilityType.Shrapnel.name          # "Shrapnel"
@@ -294,9 +297,6 @@ class ShrapnelPlaybook:
         prof = GC.damage_profile(_PROFILE_NAME) or {}
         pierce = max(0, min(100, int(prof.get("PiercingRatio") or 0)
                             + actx.extra_pierce + actx.extra_pierce_ranged))
-        from .prediction import (prediction_has_moved, prediction_has_teleported,
-                                 _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                                 _target_damage_limits, _PROFILE_INDEX)
         _hm = prediction_has_moved(scene, att_id, attack_pos)
         _tctx = scene.ctx(tgt_id)
         _tar = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)

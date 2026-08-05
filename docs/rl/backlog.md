@@ -580,7 +580,7 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   — **LIVRÉ (2026-08-05)**, `case-270r4r2r2-trier-les-differes.md`.
 
 - ~~**`#270-r4-r2-r2` — trier les imports différés restants d'`engine/`**~~ — **LIVRÉ
-  (2026-08-05)**, `case-270r4r2r2-trier-les-differes.md`. **971 → 347** (-64 %), **624 hissages**,
+  (2026-08-05)**, `case-270r4r2r2-trier-les-differes.md`. **971 → 346** (-64 %), **625 hissages**,
   et l'invariant du différé **GRATUIT** (cible déjà chargée par le préambule du même fichier :
   ni cycle possible, ni coût) passe de **150 à 0**. Cause MESURÉE par site : hissage **simulé**
   (`MetaPathFinder` qui `exec`-ute le segment source exact avant le corps du module — aucun
@@ -593,14 +593,20 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   ⚠ **`str.splitlines()` ne découpe pas comme le compilateur** (form feed, `\x85`…) : **7** fichiers
   d'`engine/` en portent un, et la numérotation AST décalait d'une ligne — 3 fichiers rendus
   invalides. `split("\n")`, toujours.
-  Invariance : **0 divergence de VALEUR sur 197 017 attributs**, 0 nom disparu. Coût : +98 modules
+  Invariance : **0 divergence de VALEUR sur 197 116 attributs**, 0 nom disparu. Coût : +98 modules
   au pire (`playbook.scene` 258 → 356), **0** sur 3 des 6 entrées mesurées ; le TEMPS n'est pas
   rapporté — en mesure appariée il varie de -11 % à +24 % **à nombre de modules identique**.
-  Résidu : **#270-r4-r2-r2-r1** — les **347** restants, ventilés : 139 `fermerait-une-boucle`
-  (refus **sur-approximés** du filtre, à départager par mesure itérative), 84 `conditionnel`
-  (jamais mesurés — catégorie **syntaxique**), 61 `brise-cycle`, 43 `TYPE_CHECKING`, 17
-  `placement` (mesurés hissables en FIN de fichier, mais chaque arête rendrait le graphe déclaré
-  cyclique), 3 `conflit-de-nom`.
+  ⚠ **Un tri se PÉRIME sous l'effet de son PROPRE lot** : re-mesurée sur l'arbre LIVRÉ, la
+  ventilation bouge franchement (`hissable` 766 → **107**, `brise-cycle` 61 → **90**) — un site de
+  `loki_custom.py` passe de `hissable` à `brise-cycle` parce que les hissages faits dans
+  `engine.ai.*` ont fermé sa boucle. Il faut **itérer jusqu'au point fixe** : la re-mesure a rendu
+  **1** hissage de plus, la suivante **0**.
+  Résidu : **#270-r4-r2-r2-r1** — les **346** restants, ventilés **sur l'arbre livré** : 107
+  `hissable` REFUSÉS par le filtre (105 `fermerait-une-boucle` **sur-approximés** + 2
+  `conflit-de-nom`, à départager par mesure itérative), 90 `brise-cycle`, 84 `conditionnel`
+  (**JAMAIS MESURÉS** — catégorie **syntaxique**, à ne pas lire comme triée), 43 `TYPE_CHECKING`,
+  22 `placement` (mesurés hissables en FIN de fichier, mais chaque arête rendrait le graphe déclaré
+  cyclique).
   Texte d'origine, conservé pour la mesure qu'il porte :
   Ouvert par
   `case-270r4-trois-roles-jamais-tries.md` §9, **mesuré** (3 imports posés puis vus échouer, arbre
