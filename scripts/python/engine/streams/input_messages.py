@@ -25,8 +25,10 @@ from __future__ import annotations
 
 from typing import Callable, Optional, Sequence
 
+from ..dsl.event_trigger_type import EventTriggerType
 from .dispatcher import StreamDispatcher
 from .entity_id import NO_ENTITY
+from .evaluate_trigger import execute_internal
 from .game_setup import UnitSetup, add_unit
 from .group_type import GroupType
 from .step_type import StepType
@@ -276,6 +278,55 @@ def start_match(events: StreamDispatcher, match_entity_id: int) -> None:
     events.action(StepType.StartMatch, match_entity_id, {})
 
 
+#: LES DEUX DECLENCHEURS DE L'ARBRE D'ACTIVATION, dans l'ORDRE ou
+#: `IdunBattle.Operations.StartMatchOperation$$Execute` les passe au slot `0x51` de
+#: `Core.Services.IOperationProcessor`. Les deux ordinaux sont LUS au decompile (`0x19` puis
+#: `0x1a`) et NOMMES par `engine/dsl/event_trigger_type.py` -- c'est le nom qui identifie le
+#: bloc, pas sa forme dans le flux.
+#:
+#: ⚠ CE TUPLE N'EST PAS UNE SIMPLE DOCUMENTATION : `evaluate_abilities` EXIGE d'en recevoir
+#: exactement autant de sequences, et refuse sinon. Une entree muette pour l'un des deux
+#: declencheurs produirait un flux ampute SANS ERREUR -- exactement la projection implicite que
+#: `engine/streams/conformance.py` existe pour interdire.
+START_MATCH_TRIGGERS = (EventTriggerType.MatchInit, EventTriggerType.MatchStart)
+
+
+def evaluate_abilities(events: StreamDispatcher,
+                       par_declencheur: Sequence[Sequence[Callable[[], None]]]) -> None:
+    """Face stream des DEUX appels `EvaluateAbilities` de
+    `IdunBattle.Operations.StartMatchOperation$$Execute` -- le BLOC 1 de son contenu.
+
+    LE DECOMPILE, litteral pour litteral (les deux call-sites sont le meme slot `0x51`, a cinq
+    arguments plus le `MethodInfo*`) :
+
+        EvaluateAbilities(GetMatchEntity(state), null, null,
+                          EventTriggerType.MatchInit  /*0x19*/, default(<ability>));
+        // ... une boucle sur les unites, slot `0x5f` -- aucune emission de flux ...
+        EvaluateAbilities(GetMatchEntity(state), null, null,
+                          EventTriggerType.MatchStart /*0x1a*/, default(<ability>));
+
+    ⚠ ENTRE LES DEUX, LE NATIF FAIT AUTRE CHOSE -- ET CE N'EST PAS DU FLUX. La boucle
+    intermediaire parcourt une collection d'unites et appelle le slot `0x5f` sur chacune ; le
+    port ne la mirror pas parce qu'elle n'ecrit rien, et le flux temoin le confirme : entre le
+    dernier groupe de `MatchInit` et le premier de `MatchStart` il n'y a AUCUNE ligne. C'est une
+    omission DECLAREE, pas un oubli -- si ce slot se mettait a emettre, la conformite le dirait
+    en divergence, jamais en silence.
+
+    ⚠ CETTE FONCTION N'EMET RIEN ELLE-MEME. Comme `EvaluateTriggerOperation$$ExecuteInternal`
+    dont elle prolonge la chaine, tout son texte vient de ses enfants ; ce qu'elle apporte, et ce
+    que le port preserve, c'est l'ORDRE des deux declencheurs et le fait qu'ils partagent la meme
+    entite de match. Le CONTENU de chaque declencheur -- quelles abilites, quels effets, dans quel
+    ordre -- vient du cache d'abilites et d'effets, qui n'est pas porte (`#477-r21-r2`)."""
+    if len(par_declencheur) != len(START_MATCH_TRIGGERS):
+        raise ValueError(
+            "evaluate_abilities attend %d sequences (une par declencheur : %s), %d recue(s) -- "
+            "une entree muette produirait un flux ampute sans erreur"
+            % (len(START_MATCH_TRIGGERS),
+               ",".join(t.name for t in START_MATCH_TRIGGERS), len(par_declencheur)))
+    for entrees in par_declencheur:
+        execute_internal(events, entrees)
+
+
 def visit_start_battle_message(events: StreamDispatcher, match_entity_id: int,
                                corps: Optional[Callable[[], None]] = None) -> None:
     """Face stream d'`IdunBattle.Messages.InputMessageProcessor$$Visit(message:
@@ -338,17 +389,19 @@ def visit_start_battle_message(events: StreamDispatcher, match_entity_id: int,
 
     CE QUE LE PORT N'EMET PAS -- ENUMERE, PAS SOUS-ENTENDU. `StartMatchOperation$$Execute` est,
     apres `User_UseAbility`, le plus gros groupe du deroule : 477 lignes sur le flux temoin, dont
-    475 que ce module ne produit pas. Elles se ventilent en TROIS blocs, tous mesures par
-    `probe_477r20_start_match.py` et aucun porte cote flux aujourd'hui :
+    475 que cette fonction ne produit pas elle-meme. Elles se ventilent en TROIS blocs, tous
+    mesures par `probe_477r20_start_match.py` :
 
       1. l'ARBRE D'ACTIVATION des effets permanents -- `Group=Ability_Power` et
          `Group=Effect_Refresh` imbriques, avec leurs `Action=ActivateEffect` / `ReceiveEffect` /
          `ChangeStats` / `LoseEffect`. Il sort de DEUX appels au meme slot `0x51` de
          `IOperationProcessor`, a cinq arguments, dont le decompile donne les litteraux :
          `EvaluateAbilities(GetMatchEntity(state), null, null, EventTriggerType.MatchInit /*0x19*/,
-         null)` puis le meme avec `EventTriggerType.MatchStart /*0x1a*/`. Les deux ordinaux sont
-         NOMMES par `engine/dsl/event_trigger_type.py` (`MatchInit = 25`, `MatchStart = 26`) --
-         c'est ce qui identifie le bloc, pas sa forme dans le flux ;
+         null)` puis le meme avec `EventTriggerType.MatchStart /*0x1a*/`. **Sa face STREAM est
+         portee depuis #477-r21** : `evaluate_abilities` ci-dessus, plus
+         `engine/streams/evaluate_trigger.py` et `engine/streams/refresh_effects.py`. Ce qui
+         reste dehors est la DECISION (quels effets, quelles cibles, dans quel ordre --
+         `#477-r21-r2`) et l'ALLOCATION ECS des entites d'effet (`#477-r21-r1`) ;
       2. `Action=PrepareTurn` et le `Group=StartTurn` COMPLET, qui sortent du dernier appel de
          l'operation -- `processor.<slot 0x16>(TurnStage.Start /*3*/, false, true)`, c'est-a-dire
          `ContinueTurnPhase` (meme slot, memes trois arguments, que la lambda `<Visit>b__20_0` de
@@ -358,9 +411,10 @@ def visit_start_battle_message(events: StreamDispatcher, match_entity_id: int,
          flux temoin. Son unique tag est la cle `0xd4`, que `TagKey` NOMME `Rarity` : le nom
          recoupe la lecture du fragment.
 
-    `corps` rend ce trou EXPRIMABLE plutot que silencieux : un appelant qui saurait produire l'un
-    de ces blocs le passe ici, et l'enveloppe reste inchangee. `None` = le port n'emet que ce
-    qu'il a lu."""
+    `corps` rend ce trou EXPRIMABLE plutot que silencieux : un appelant qui sait produire l'un de
+    ces blocs le passe ici, et l'enveloppe reste inchangee -- c'est par cette couture
+    qu'`evaluate_abilities` se branche. `None` = le port n'emet que l'enveloppe et son
+    `Action=StartMatch`."""
     events.start_group(GroupType.System_StartMatch, match_entity_id,
                        START_MATCH_SOURCE_ID, None)
     start_match(events, match_entity_id)
