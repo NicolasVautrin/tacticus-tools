@@ -619,6 +619,19 @@ def test_un_capteur_de_concurrence_MUET_ne_se_rabat_JAMAIS_sur_zero(capsys):
     assert p468.MARQUEUR_ANGLE_MORT in vide, vide
 
 
+def test_un_worktree_list_MUET_n_est_pas_lu_comme_ZERO_WORKTREE(monkeypatch):
+    """Le piege est dans le contrat de `_git`, pas dans le capteur : il TOLERE `rc=1`, parce
+    que `git grep` rend 1 quand il ne trouve rien -- reponse valide. Pour `worktree list`,
+    `rc=1` est une PANNE (sous-commande absente d'un git ancien) et sort en stdout VIDE.
+
+    Sans discriminant, cette panne se lirait << 0 autre worktree MESURE >>, c'est-a-dire
+    exactement le zero fabrique que #468-r10 existe pour supprimer. Le discriminant est
+    DERIVE : un `worktree list` qui reussit liste TOUJOURS au moins l'arbre courant."""
+    monkeypatch.setattr(p468, "_git", lambda args, quoi: "")
+    assert p468._autres_worktrees() is None, (
+        "une sortie VIDE de `git worktree list` a ete lue comme << aucun autre worktree >>")
+
+
 def test_un_worktree_ILLISIBLE_est_NOMME_et_non_compte_pour_vide(capsys):
     """Tri-etat PAR worktree : un repertoire disparu en cours de balayage (worktree jetable de
     pytest, agent nettoye) ne doit pas passer pour << rien a signaler >>."""

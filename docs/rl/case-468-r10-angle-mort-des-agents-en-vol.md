@@ -95,7 +95,7 @@ tient.
 
 ---
 
-## 5. Contre-épreuve — 6 mutations, 6 rouges, et la cinquième a corrigé le CODE
+## 5. Contre-épreuve — 7 mutations, 7 rouges, et deux ont corrigé le CODE
 
 Chaque mutation est vérifiée **appliquée** avant le run, et chaque bras **non muté** est vert —
 sans quoi les rouges ne prouveraient rien.
@@ -107,6 +107,7 @@ sans quoi les rouges ne prouveraient rien.
 | N2 désarmé, **autre combinaison** | `test_N2_generalisation_un_PROBE_du_voisin_bloque_le_mode_RESIDU` |
 | N1 désarmé (les refs hors `HEAD` ne sont plus lues) | `test_N1_un_numero_commite_sur_une_ref_HORS_HEAD_...` |
 | le capteur **muet** est rabattu sur zéro | `test_un_capteur_de_concurrence_MUET_ne_se_rabat_JAMAIS_sur_zero` |
+| une **sortie vide** de `worktree list` est lue comme zéro | `test_un_worktree_list_MUET_n_est_pas_lu_comme_ZERO_WORKTREE` |
 | un worktree **illisible** est avalé en silence | `test_un_worktree_ILLISIBLE_est_NOMME_et_non_compte_pour_vide` |
 
 **Généralisation, et ce n'est pas décoratif** : le cas réel mesuré était un **probe** (`probe_425r3_*`)
@@ -120,12 +121,20 @@ passerait pour la mauvaise raison. Elle **exige d'abord que le régime soit dég
 un montage où les deux se départagent seuls ne met pas l'avertissement à l'épreuve, et serait vert
 sans jamais le lire.
 
-**La cinquième mutation est la plus instructive : elle a d'abord rendu VERT.** `Path.glob` sur un
-répertoire **absent** ne lève pas, il rend une liste vide — le test passait donc par un second
-chemin que la mutation ne visait pas. Deux chemins pour un même constat, c'est un chemin **non
-gardé** : le **code** a été corrigé en un foyer unique, pas le test recalibré.
+**Deux faiblesses trouvées, et corrigées dans le CODE — pas dans le test** :
 
-État : `probe_468` **PASS**, **21** auto-tests, **29** tests offline (22 + 7). `probe_439`,
+* **La mutation « worktree illisible » a d'abord rendu VERT.** `Path.glob` sur un répertoire
+  **absent** ne lève pas, il rend une liste vide : le test passait par un **second chemin** que la
+  mutation ne visait pas. Deux chemins pour un même constat, c'est un chemin **non gardé** —
+  refondu en un foyer unique.
+* **La relecture a trouvé le vice que ce dossier existe pour supprimer, dans mon propre code.**
+  `_git` **tolère `rc=1`**, parce que `git grep` rend 1 quand il ne trouve rien — réponse valide.
+  Mais pour `worktree list`, `rc=1` est une **panne** (sous-commande absente d'un git ancien), qui
+  sort en stdout **vide** et se serait lue « **0 autre worktree MESURÉ** » : un zéro fabriqué. Le
+  discriminant est **dérivé, pas conventionnel** — un `worktree list` qui réussit liste **toujours**
+  au moins l'arbre d'où l'on parle, donc une sortie vide ne peut être qu'un capteur muet.
+
+État : `probe_468` **PASS**, **21** auto-tests, **30** tests offline (22 + 8). `probe_439`,
 `probe_440`, `probe_365` re-joués **verts** — `probe_440` en particulier, puisque le balayage N2
 touche des worktrees (§ ci-dessous).
 

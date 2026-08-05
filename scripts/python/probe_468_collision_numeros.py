@@ -679,6 +679,14 @@ def _autres_worktrees():
         txt = _git(["worktree", "list", "--porcelain"], "`git worktree list`")
     except Indisponible:
         return None
+    # TROUVE A LA RELECTURE, et c'est le vice meme que ce bloc existe pour eviter : `_git`
+    # TOLERE `rc=1`, parce que `git grep` rend 1 quand il ne trouve rien -- reponse valide.
+    # Pour `worktree list`, `rc=1` est une PANNE (sous-commande absente d'un git ancien), et
+    # elle sortirait en stdout VIDE, donc en << 0 autre worktree MESURE >>. Le discriminant
+    # est DERIVE, pas conventionnel : un `worktree list` qui reussit liste TOUJOURS au moins
+    # l'arbre d'ou l'on parle. Une sortie vide ne peut donc etre qu'un capteur muet.
+    if not txt.strip():
+        return None
     moi = os.path.normcase(os.path.realpath(str(REPO)))
     out, courant = [], {}
     for ligne in txt.splitlines() + [""]:
