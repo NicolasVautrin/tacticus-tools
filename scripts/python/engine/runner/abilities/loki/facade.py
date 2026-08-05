@@ -63,10 +63,14 @@ executait entierement (effet pose + switch). C'est une divergence PERMISSIVE qui
 elle est fermee ici.
 
 CE QUE LE PORT NE FAIT PAS (residus NOMMES) :
-  * la garde `IsTemporary` des tuiles du switch (le port n'a pas de tuile temporaire) ;
-  * `UnitFlag.NoActionAvailable` (4), que le natif pose en queue de cast : il vient de
-    `IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation`, jamais portee -- residu
-    TRANSVERSE au turn-flow, pas propre a cette ability (mesure `probe_287`).
+  * la garde `IsTemporary` des tuiles du switch (le port n'a pas de tuile temporaire).
+
+FERME depuis #287-r1 : `UnitFlag.NoActionAvailable` (4), que le natif pose en queue de cast
+(`IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation`). Le residu etait TRANSVERSE au
+turn-flow, pas propre a cette ability -- il est ferme au foyer
+(`runner/operations/turnflow.py::MarkUnitAsNoActionAvailableOperation`, branchee en queue de
+`FinishUnitTurnOperation`), pas ici. L'ecart de flags mesure par `probe_287` (`[1, 2, 3, 4]`
+natif contre `[1, 2, 3]` port) tombe a VIDE.
 """
 from __future__ import annotations
 

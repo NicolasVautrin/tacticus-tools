@@ -172,14 +172,21 @@ def trigger_spawned_unit_finish_turn(state: State, unit_id: int) -> Optional[dic
     exactement cette sequence.
 
     PORTE ICI : les flags de tour (`TURN_FINISHED` + `ARRIVED_AT_FINAL_TILE` + `TURN_FINISHED_FORCED`
-    via `FinishUnitTurnOperation.execute(forced=True)`).
-    **NON PORTE, residu NOMME** : le `MarkUnitAsNoActionAvailable` final (flag 4). Le poser offline
-    serait une REGRESSION et non un gain de fidelite : son unique retrait natif est
-    `IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded` (slot 0x77 =
-    `MarkUnitAsActionAvailable`, quand l'unite regagne des options), que le port ne mirrore PAS --
-    et `StartTurnOperation` appelle `RemoveTurnFlags(includeNoAction=0, ...)`, donc le flag SURVIT au
-    turn-start. Un flag 4 pose sans son retrait figerait definitivement l'unite (`has_action_left`
-    est le gate de `ai_control_execute_for_group`). Debloqueur exact = porter `VerifyUnitTurnEnded`.
+    via `FinishUnitTurnOperation.execute(forced=True)`) — et depuis #287-r1 le
+    `MarkUnitAsNoActionAvailable` final (flag 4), que `FinishUnitTurnOperation` pose lui-meme en
+    queue, comme le natif.
+
+    LA CRAINTE QUI RETENAIT CETTE POSE EST MESUREE, ET ELLE NE MORD PAS. Le raisonnement etait :
+    « son unique retrait natif est `VerifyUnitTurnEnded` (slot 0x77), non mirrore, et
+    `StartTurnOperation` appelle `RemoveTurnFlags(includeNoAction=0)` -> le flag survit au
+    turn-start et FIGE l'unite, puisque `has_action_left` gate `ai_control_execute_for_group` ».
+    Ce qu'il manquait : `ai_control_execute_for_group` n'est atteint que par
+    `ComputerActionOperation.execute_group`, dont TOUS les call-sites natifs recenses passent
+    `resetTurnFlags = 1` -> `RemoveTurnFlags(True, True)` EFFACE le flag juste avant la boucle. Et
+    la passe automatique du turn-start (`run_ai_control_pass` -> `collect_ai_controlled`) filtre
+    sur `TurnEnded()` (flag 3), pas sur le flag 4. Le flag collant n'a donc AUCUN lecteur effectif
+    offline. Cliquet : `test_287r1_no_action_available_offline.py` (etage « le summon reste
+    jouable au tour suivant »). Le retrait reste a porter : residu `#287-r1-r1`.
 
     PLACE DANS LE PORT : le natif tient ce foyer dans `SpawnUnitBehaviour` (au-dessus d'`AddUnit`) ;
     offline on l'appelle depuis les CHOKE POINTS de spawn (`_spawn_config_grot`, `spawn_decoy`, les

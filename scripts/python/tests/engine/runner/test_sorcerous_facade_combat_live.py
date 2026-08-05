@@ -42,6 +42,7 @@ PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python
 sys.path.insert(0, str(PYDIR))
 
 import probe_287_facade_combat as P                          # noqa: E402
+from engine.entities.unit_flag import UnitFlag               # noqa: E402
 
 CASTER = P.CASTER_VID
 ALLY = P.ALLY_VID
@@ -186,21 +187,35 @@ def test_la_regle_dynamique_refuse_le_cast_sans_cible_d_attaque_normale(facade_c
 
 def test_le_switch_ne_pose_pas_le_flag_moved(facade_cases):
     """F -- `MoveUnitOptions+0x11`. Le caster TELEPORTE par le switch ne recoit PAS `UnitFlag.Moved`
-    (0) cote natif ; le port ne doit pas le poser non plus (sinon il fermerait a tort la regle
+    cote natif ; le port ne doit pas le poser non plus (sinon il fermerait a tort la regle
     `CasterHasNotMoved` d'un cast ulterieur du meme tour).
 
-    ⚠ `NoActionAvailable` (4) reste ABSENT cote port : il est pose par
-    `IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation`, que le port n'a jamais porte --
-    residu TRANSVERSE (turn-flow), pas un effet de ce cast. Le test le nomme au lieu de le taire."""
+    #287-r1 -- L'ECART DE FLAGS EST DESORMAIS VIDE, et cette assertion a CHANGE DE SENS. Elle
+    exigeait `live - port == {NoActionAvailable}` : le flag 4 etait pose par
+    `IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation`, que le port ne portait par
+    AUCUNE voie -- residu TRANSVERSE (turn-flow), pas un effet de ce cast. La voie est portee
+    (queue de `FinishUnitTurnOperation`, slot 0x76), donc l'ecart doit valoir l'ENSEMBLE VIDE.
+    ⚠ La borne reste bilaterale : c'est une EGALITE d'ensembles, pas une inclusion -- un port qui
+    poserait un flag de plus la fait rougir aussi (cf. l'assertion `port - live` ci-dessous)."""
     r = facade_cases("base")
-    MOVED, NO_ACTION = 0, 4
-    assert MOVED not in (r["live"]["flags_added"][CASTER] or []), (
+    assert UnitFlag.Moved not in (r["live"]["flags_added"][CASTER] or []), (
         "le natif POSE `Moved` sur le caster du switch : la lecture du port est a revoir")
-    assert MOVED not in (r["offline"]["flags_post"][CASTER] or []), (
+    assert UnitFlag.Moved not in (r["offline"]["flags_post"][CASTER] or []), (
         "le port pose `Moved` sur le caster du switch (flags=%s) alors que le natif ne le fait pas"
         % r["offline"]["flags_post"][CASTER])
     live_added = set(r["live"]["flags_added"][CASTER] or [])
     off_added = set(r["offline"]["flags_post"][CASTER] or [])
-    assert live_added - off_added == {NO_ACTION}, (
-        "ecart de flags AUTRE que le residu turn-flow connu : live=%s port=%s"
-        % (sorted(live_added), sorted(off_added)))
+    # REGIME TEMOIN : sans flag pose cote natif, l'egalite serait vraie trivialement (deux
+    # ensembles vides) et ne mesurerait rien. On exige que le natif en pose au moins un.
+    assert live_added, (
+        "le natif n'a pose AUCUN flag sur le caster : le cast n'a pas eu lieu, l'accord de flags "
+        "qui suit serait vide de sens (live=%s port=%s)" % (sorted(live_added), sorted(off_added)))
+    assert UnitFlag.NoActionAvailable in live_added, (
+        "REGIME TEMOIN casse : le natif ne pose plus `NoActionAvailable` sur le caster "
+        "(live=%s) -- ce test ne mesure alors plus la voie #287-r1" % sorted(live_added))
+    assert live_added - off_added == set(), (
+        "le natif pose des flags que le port ne pose PAS : live=%s port=%s (manquants=%s)"
+        % (sorted(live_added), sorted(off_added), sorted(live_added - off_added)))
+    assert off_added - live_added == set(), (
+        "le port pose des flags que le natif ne pose PAS : live=%s port=%s (en trop=%s)"
+        % (sorted(live_added), sorted(off_added), sorted(off_added - live_added)))

@@ -57,19 +57,93 @@ from .triggers import (start_turn_triggers, turn_start_other_triggers, tile_tick
                        first_aid_heal)
 
 
+class MarkUnitAsNoActionAvailableOperation:
+    """`IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation$$Execute(unit, reverse)` (#287-r1)
+    — le FOYER UNIQUE de `UnitFlag.NoActionAvailable` (4). MIRROR du decompile :
+
+        if (unit == null) return
+        comp = unit.GetComponent<UnitFlagsComponent>()          # TryGetComponent -> null => return
+        if (comp == null) return
+        if (!reverse) { if (!comp.Add(UnitFlag.NoActionAvailable)) return }
+        else          { if (!comp.Remove(UnitFlag.NoActionAvailable)) return }
+        Events.Publish(0xc, entityId(unit),
+                       { TagKey.UnitStats_ActionsAvailable (0x6f) : reverse ? 1 : 0 })
+
+    `Add` / `Remove` rendent « la mutation a MORDU » (`UnitFlagsComponent$$Add` = `Contains ?
+    false : (Add, true)`) : l'event n'est publie QUE si le flag a reellement change. Le port ne
+    suit pas la couche stream (comme le reste des Operations) — la cle est CITEE, pas emise.
+
+    DEUX ENTREES natives, qui different par `reverse` :
+      * `Core.Services.OperationProcessor$$MarkUnitAsNoActionAvailable` (slot `IOperationProcessor`
+        0x76) -> `reverse = false` : POSE le flag ;
+      * `Core.Services.OperationProcessor$$MarkUnitAsActionAvailable`   (slot 0x77)
+        -> `reverse = true`  : le RETIRE.
+    Le couple est identifie sans ambiguite : `FinishUnitTurnOperation$$Execute` termine par le
+    slot 0x76, et la branche `Has(4)` de `VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded`
+    (« l'unite a REGAGNE des options ») appelle le 0x77.
+
+    LES CINQ PORTEURS du slot 0x76, recenses par SCAN BINAIRE
+    (`scripts/python/probe_287r1_no_action_available.py`, etape 3) :
+    `FinishUnitTurnOperation$$Execute` (queue, INCONDITIONNEL — c'est CE site que le port
+    mirrore), `ActiveAbilityOperation$$ExecuteInternal` (`if (!skipEndTurn)`, AVANT le corps de
+    l'ability), et les trois `VerifyUnitsTurnFinishedOperation$${Execute, VerifyUnitTurnEnded,
+    VerifyMachineTurnEnded}`.
+
+    LE RETRAIT (`reverse = true`) EST PORTE MAIS N'A AUCUN APPELANT dans le moteur offline, et
+    c'est un ETAT, pas un oubli. Son unique declencheur natif est `VerifyUnitTurnEnded`, et son
+    POINT D'ANCRAGE EST LU : `IdunBattle.Messages.InputMessageProcessor$$RunPhase` invoque le slot
+    `IOperationProcessor` 0x21 = `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished`
+    (AUCUN argument — c'est ce qui l'identifie parmi ses voisins `0x22` a un argument et `0x23` a
+    deux) **deux fois** apres chaque message, en phase NON interne. Ce qui bloque le port n'est
+    donc pas l'ancrage mais le CORPS : `VerifyUnitTurnEnded` appelle `HasTilesToMoveTo` =
+    `MovementQuery$$GetMovableTilesFor`, que le moteur offline ne CALCULE pas (il le RECOIT du RPC
+    `aiMovableTiles`). Consequence MESUREE (`probe_287r1_flags_transverse.py`, bras
+    `apres_deplacement`) : apres un simple deplacement, le natif pose le flag 4 et le port non —
+    ecart RESTRICTIF (le port ne pose que par `FinishUnitTurn`, donc son jeu de flags est un
+    SOUS-ENSEMBLE de celui du natif, jamais permissif) et borne a ce seul flag.
+    Residu `#287-r1-r1`."""
+    __slots__ = ()
+
+    @staticmethod
+    def execute(state: State, unit_id: int, reverse: bool = False) -> dict:
+        e = state.get_entity(int(unit_id))
+        if e is None:
+            return {"unit": int(unit_id), "found": False, "changed": False}
+        fl = e.get_component(UnitFlagsComponent)
+        if fl is None:
+            # Mirror STRICT : le natif `TryGetComponent` -> composant absent = retour immediat,
+            # il n'en CREE pas. Toute unite native en porte un ; offline, une entite sans
+            # `UnitFlagsComponent` est une capture partielle, pas une unite a marquer.
+            return {"unit": int(unit_id), "found": False, "changed": False}
+        present = fl.has(UnitFlagsComponent.NO_ACTION_AVAILABLE)
+        if reverse:
+            changed = present
+            fl.remove(UnitFlagsComponent.NO_ACTION_AVAILABLE)
+        else:
+            changed = not present
+            fl.add(UnitFlagsComponent.NO_ACTION_AVAILABLE)
+        # `changed` = ce que rend `Add`/`Remove` natif, et le gate de l'event de stream
+        # (`TagKey.UnitStats_ActionsAvailable` = `reverse ? 1 : 0`). Rendu pour le diagnostic.
+        return {"unit": int(unit_id), "found": True, "changed": bool(changed),
+                "reverse": bool(reverse)}
+
+
 class FinishUnitTurnOperation:
     """`IdunBattle.Operations.FinishUnitTurnOperation$$Execute (#139) — clot le tour d'UNE unite :
       * si `forced` : Add(UnitFlag 27 = TURN_FINISHED_FORCED) ;
       * Add(ArrivedAtFinalTile=1) — si nouvellement pose et !forced, le natif publie l'event 0x1c ;
       * Add(TurnFinished=3)       — si nouvellement pose, events 0x29 (+0x2a si !forced) + step Events(0xd) ;
-      * reset du cache de mouvement (MovementComponent@+0x18/+0x10) + slot processor 0x76 (Verify...).
+      * reset du cache de mouvement (MovementComponent@+0x18/+0x10) puis, en DERNIERE instruction,
+        le slot processor 0x76 = `Core.Services.OperationProcessor$$MarkUnitAsNoActionAvailable`
+        -> `UnitFlag.NoActionAvailable` (4). PORTE depuis #287-r1 (la citation « (Verify...) » qui
+        etait ici nommait la MAUVAISE fonction : 0x76 pose le flag, il ne verifie rien).
       * **`UnitComponent.ChargedUnitIds` (+0x190) VIDEE** — le decompile termine par un
         `TryGetComponent<UnitComponent>` suivi d'un `List<T>.Clear()` INLINE sur le champ @+0x190
         (`_version++`, `_size = 0`, `Array.Clear(_items, 0, size)`). C'est CE site qui donne au
         predicat `IdunBattle.Core.Services.BattleQuery$$IsCharging` sa portee « CE TOUR » : la liste
         est remplie par les moves de l'activation et remise a zero quand elle se termine.
-    OFFLINE on porte la MUTATION (les 3 flags + la purge des charges) ; events/steps de stream + verify
-    = couche view/process non suivie (documente). Declencheurs natifs :
+    OFFLINE on porte la MUTATION (les 3 flags + `NoActionAvailable` + la purge des charges) ;
+    events/steps de stream = couche view/process non suivie (documente). Declencheurs natifs :
     `Core.Services.OperationProcessor$$FinishUnitTurn (appele par
     `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution quand l'ability TERMINE le tour),
     `FinishUnitTurnMessage`, et `FinishUnitTurnBehaviour` IdunBattle.Entities.Behaviours.FinishUnitTurnBehaviour$$Execute (DSL)."""
@@ -121,6 +195,15 @@ class FinishUnitTurnOperation:
             from .triggers import unit_finished_turn_normally_triggers
             out["finished_normally_triggers"] = unit_finished_turn_normally_triggers(
                 state, int(unit_id))
+        # #287-r1 -- DERNIERE instruction du corps natif, INCONDITIONNELLE (aucun gate `forced`,
+        # aucun gate `newly_*`) : `<IOperationProcessor slot 0x76>(unit)` =
+        # `Core.Services.OperationProcessor$$MarkUnitAsNoActionAvailable`. Elle vient APRES le
+        # vidage de `UnitComponent.ChargedUnitIds` -- l'ordre est celui du decompile.
+        # Ce que ca ferme, MESURE : `probe_287_facade_combat.py` lisait `[1, 2, 3, 4]` cote natif
+        # et `[1, 2, 3]` cote port sur le caster d'un cast. Le flag est ce que lit
+        # `IdunBattle.Entities.UnitExtensions$$HasActionLeft` (et donc
+        # `AnAiGroupOperator$$GetValidUnits`, deja mirroree par `summon_ai.has_action_left`).
+        out["no_action"] = MarkUnitAsNoActionAvailableOperation.execute(state, int(unit_id))
         return out
 
 
