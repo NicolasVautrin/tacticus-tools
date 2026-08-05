@@ -799,9 +799,11 @@ def _imprimer_portee(pris, autres, illisibles) -> None:
     en_vol = sorted(k for k, src in pris.items()
                     if src and all(s == SRC_REF_EN_VOL or s.startswith(SRC_WORKTREE)
                                    for s in src))
+    detail = ", ".join("#%s (%s)" % (k, "/".join(sorted(pris[k]))) for k in en_vol[:6])
+    if len(en_vol) > 6:                       # ne pas annoncer 7 et n'en montrer que 6
+        detail += ", ... (%d de plus)" % (len(en_vol) - 6)
     print("   deja EN VOL et donc ecartes (hors de ce qui est fusionne) : %d%s"
-          % (len(en_vol), " -> " + ", ".join("#%s (%s)" % (k, "/".join(sorted(pris[k])))
-                                             for k in en_vol[:6]) if en_vol else ""))
+          % (len(en_vol), " -> " + detail if en_vol else ""))
     print("   -> si d'autres agents travaillent en ce moment, ANNONCE le numero que tu prends.")
 
 

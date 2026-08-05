@@ -50,9 +50,13 @@ par le système de fichiers, sur quatre motifs bornés.
 `probe_425r3_removed_writers.py` dans un worktree d'agent (N2), `case-448-r3-*.md` commité hors de
 la lignée de `HEAD` (N1).
 
-⚠ La mesure a dû être **refaite sur la révision de lancement** : citer `#425-r3` dans un docstring
-le **réserve**, le corpus étant l'union mentions comprises. Un outil d'attribution qui se lit
-lui-même contamine sa propre démonstration.
+⚠ **Un dossier sur l'allocation CONSOMME les numéros qu'il cite** — le corpus est l'union, mentions
+comprises, et c'est le critère revendiqué (§9 de `case-468`). Deux conséquences, toutes deux
+vécues ici : la mesure a dû être **refaite sur la révision de lancement**, un docstring citant
+`#425-r3` le réservant avant même d'être committé ; et `#425-r4` ci-dessus, qui n'existe dans
+**aucun** dossier, est désormais **pris** — par cette fiche. Sauter un entier est le bon côté de
+l'asymétrie, mais il faut le savoir : un outil d'attribution qui se lit lui-même contamine sa
+propre démonstration.
 
 ---
 
