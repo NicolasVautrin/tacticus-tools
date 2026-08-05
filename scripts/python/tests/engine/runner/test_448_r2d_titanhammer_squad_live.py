@@ -30,11 +30,9 @@ import pytest
 
 import catalog_inject
 import probe_448_r2d_titanhammer_squad as P
+import probe_448_r3_move_step_atomicity as R3
 from engine.entities.pathfinding.board import Board
 from engine.runner.components import UnitComponent, get_unit_feet
-from engine.runner.events import EventBus
-from engine.runner.operations.movement import MoveUnitOperation
-from engine.runner.operations.triggers import after_move_triggers
 from engine.runner.snapshot import load_state
 
 
@@ -139,9 +137,14 @@ def test_a_walk_far_from_the_mark_poses_no_moving_marker(rpc, stage):
         pytest.fail("MONTAGE : aucune tuile du pool natif hors de la zone marquee (pool=%r)" % pool)
 
     st, _b = _state(_capture(rpc, rid))
-    MoveUnitOperation(mover, tuple(dest)).execute(st, EventBus())
-    mid = _types(st, mover)
-    after_move_triggers(st, mover)
+    # ⚠ `mid` DOIT venir de l'INSTRUMENTATION (#448-r3). Il etait pris APRES un pas deja complet
+    # (le vecteur after-move est replie dans l'Operation depuis `9767a8e4`), donc 1574 pose PUIS
+    # retire n'y apparaissait jamais : ce bras NEGATIF passait meme vslot COLLAPSE a True -- un VERT
+    # QUI MENT, symetrique du faux ROUGE du bras positif.
+    step = R3.play_step_instrumented(st, mover, dest)
+    assert len(step["calls"]) == 1, (
+        "le vecteur after-move a ete joue %d fois pour UN pas" % len(step["calls"]))
+    mid = step["calls"][0]["effects"]
     assert P.MOVING not in mid, (
         "le port pose 1574 sur un pas LOIN de la marque : le vslot 0x748 est collapse a True (%r)"
         % (mid,))
@@ -158,9 +161,12 @@ def test_a_walk_far_from_the_mark_poses_no_moving_marker(rpc, stage):
 
 
 def test_a_teleport_onto_the_mark_poses_the_moving_marker(rpc, stage):
-    """LE BRAS POSITIF (`Contains`). Le pas est DECOUPE cote port pour observer le marqueur
-    TRANSITOIRE que la cascade native montre elle aussi (`ActivateEffect`/`ReceiveEffect
-    TitanhammerSquad_Moving` AVANT `ChangePosition`, puis `LoseEffect` apres)."""
+    """LE BRAS POSITIF (`Contains`). Le marqueur TRANSITOIRE est observe PAR INSTRUMENTATION du
+    vecteur after-move (#448-r3) -- le pas est ATOMIQUE des deux cotes
+    (`IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` a ses DEUX seuls
+    call-sites dans `$$Execute`), et la cascade native le montre pareillement
+    (`ActivateEffect`/`ReceiveEffect TitanhammerSquad_Moving` AVANT `ChangePosition`, `LoseEffect`
+    apres)."""
     rid, mover = stage["rid"], stage["on_mover"]
     dest = stage["target"]
     mv = rpc("aiMovableTiles", {"runnerId": rid}, 120) or {}
@@ -172,11 +178,12 @@ def test_a_teleport_onto_the_mark_poses_the_moving_marker(rpc, stage):
                     % (dest, mover, sorted(pool)))
 
     st, _b = _state(_capture(rpc, rid))
-    MoveUnitOperation(mover, tuple(dest)).execute(st, EventBus())
-    mid = _types(st, mover)
+    step = R3.play_step_instrumented(st, mover, dest)
+    assert len(step["calls"]) == 1, (
+        "le vecteur after-move a ete joue %d fois pour UN pas" % len(step["calls"]))
+    mid = step["calls"][0]["effects"]
     assert P.MOVING in mid, "T4 n'a pas pose 1574 pendant le pas : %r" % (mid,)
     assert P.TELEPORTING_IN in mid, "1573 deja retire pendant le pas : T1 fire trop tot"
-    after_move_triggers(st, mover)
     end = _types(st, mover)
     assert P.MOVING not in end, "1574 SURVIT au pas cote port (TeleportMovingEffect non retire)"
     assert P.TELEPORTING_IN not in end, "1573 SURVIT au pas cote port (T1 n'a pas retire)"

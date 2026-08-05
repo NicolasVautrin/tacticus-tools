@@ -373,20 +373,21 @@ def run_montage(sid, board_id, seed, graft, foes, fails, mutate_hastile=False) -
         print("  [CONFRONT-MOVE] pool natif=%d tuiles, destination choisie=%r" % (len(legal), dest))
         out["poolSize"], out["dest"] = len(legal), tuple(dest)
 
-        # (a) PORT -- le pas decoupe : Operation puis vecteur after-move. C'est la seule fenetre ou
-        #     un `*_Moving` pose par T4 serait visible (son propre trigger le retire au vecteur).
-        from engine.runner.events import EventBus
-        from engine.runner.operations.movement import MoveUnitOperation
-        from engine.runner.operations.triggers import after_move_triggers
+        # (a) PORT -- le pas joue UNE SEULE FOIS, l'etat intermediaire capte PAR INSTRUMENTATION.
+        #     ⚠ #448-r3 : le decoupage d'avant (`Operation` puis vecteur) ne montrait plus rien --
+        #     `9767a8e4` a replie le vecteur DANS l'Operation, donc `mid` etait pris APRES un pas
+        #     deja complet. Le controle NEGATIF ci-dessous (aucun `*_Moving` pose, branche
+        #     `Nothing()` de T4) en devenait INERTE : il aurait passe meme si T4 posait.
+        import probe_448_r3_move_step_atomicity as R3
         st_split, _b = offline_state(capture(sid, rid))
         repair_owner(st_split, uid, team, player)
-        MoveUnitOperation(int(uid), tuple(dest)).execute(st_split, EventBus())
-        mid = sorted(int(x.effect_type) for x in (st_split.effects.by_unit.get(int(uid)) or [])
-                     if not x.consumed)
-        after_move_triggers(st_split, int(uid))
-        end = sorted(int(x.effect_type) for x in (st_split.effects.by_unit.get(int(uid)) or [])
-                     if not x.consumed)
-        print("  [E-MOVING] port : PENDANT le pas=%r  APRES le vecteur after-move=%r" % (mid, end))
+        r_step = R3.play_step_instrumented(st_split, int(uid), dest)
+        if len(r_step["calls"]) != 1:
+            fails.append("E-MOVING : le vecteur after-move a ete joue %d fois pour UN pas "
+                         "(attendu 1)" % len(r_step["calls"]))
+        mid = r_step["calls"][0]["effects"] if r_step["calls"] else []
+        end = r_step["end"]
+        print("  [E-MOVING] port : PENDANT le pas=%r  APRES le pas=%r" % (mid, end))
         out["moveMid"], out["moveEnd"] = mid, end
         if TELEPORTING_IN not in mid:
             fails.append("E-MOVING : 1140 deja retire PENDANT le pas -- T1 fire trop tot")

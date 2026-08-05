@@ -27,8 +27,9 @@ CE QUE LE PROBE MESURE :
   CONFRONT-ABILITY T2. Un cast SANS deplacement prealable.
   CONFRONT-FINISH  T3. `FinishUnitTurn` sans avoir ni bouge ni caste.
   E-MOVING         Le 1036 transitoire : pose au `On(PreUnitMove)`, retire au `On(UnitAfterMove)` du
-                   MEME pas -- des deux cotes (natif = cascade d'events, port = etat entre les deux
-                   vecteurs).
+                   MEME pas -- cote PORT, par INSTRUMENTATION du vecteur after-move (le pas est
+                   ATOMIQUE depuis `9767a8e4`, cf. #448-r3). Le pendant NATIF (cascade d'events du
+                   `applyAction`) vit dans `probe_448_r3_move_step_atomicity.py`, etape E-CASCADE.
 
 DISCRIMINANT DE VERDICT : le port d'AVANT #448-r2 faisait atterrir les unites deep-strike dans
 `EndTurnOperation` (boucle bespoke). Sur CONFRONT-MOVE il rendait donc, apres le pas, un porteur
@@ -321,21 +322,26 @@ def confront_finish(rid, uid, ally, fails) -> None:
 
 def e_moving(rid, uid, dest, fails) -> None:
     """Le marqueur TRANSITOIRE `1036 TeleportStrike_Moving` : T4 le pose au `On(PreUnitMove)`,
-    `TeleportMovingEffect` le retire au `On(UnitAfterMove)` du MEME pas. On l'observe des deux
-    cotes : cote PORT en decoupant le pas (Operation puis vecteur after-move), cote NATIF dans la
-    cascade d'events du `applyAction`."""
-    from engine.runner.events import EventBus
-    from engine.runner.operations.movement import MoveUnitOperation
-    from engine.runner.operations.triggers import after_move_triggers
+    `TeleportMovingEffect` le retire au `On(UnitAfterMove)` du MEME pas.
+
+    ⚠ CORRIGE #448-r3, SUR DEUX POINTS. (1) Le pas n'est plus DECOUPE : `9767a8e4` a replie le
+    vecteur after-move DANS `MoveUnitOperation.execute` (mirror -- `$$EvaluateAfterMoveTriggers` a
+    ses DEUX seuls call-sites dans `$$Execute`), donc l'ancien decoupage jouait le pas entier puis
+    REJOUAIT le vecteur, et ne voyait jamais 1036. L'etat intermediaire se capte desormais par
+    INSTRUMENTATION (`probe_448_r3_move_step_atomicity.play_step_instrumented`). (2) La docstring
+    annoncait un cote NATIF « dans la cascade d'events du `applyAction` » que cette fonction ne
+    prenait PAS -- elle ne mesurait que le port. Le temoin natif est desormais pris pour de vrai,
+    et il vit dans `probe_448_r3_move_step_atomicity.py` (etape E-CASCADE)."""
+    import probe_448_r3_move_step_atomicity as R3
 
     st, _b = offline_state(capture(rid))
-    MoveUnitOperation(int(uid), tuple(dest)).execute(st, EventBus())
-    mid = sorted(int(getattr(x, "effect_type", -1))
-                 for x in (st.effects.by_unit.get(int(uid)) or []) if not x.consumed)
-    after_move_triggers(st, int(uid))
-    end = sorted(int(getattr(x, "effect_type", -1))
-                 for x in (st.effects.by_unit.get(int(uid)) or []) if not x.consumed)
-    print("[E-MOVING] port : PENDANT le pas=%r  APRES le vecteur after-move=%r" % (mid, end))
+    r = R3.play_step_instrumented(st, int(uid), dest)
+    if len(r["calls"]) != 1:
+        fails.append("E-MOVING : le vecteur after-move a ete joue %d fois pour UN pas (attendu 1)"
+                     % len(r["calls"]))
+    mid = r["calls"][0]["effects"] if r["calls"] else []
+    end = r["end"]
+    print("[E-MOVING] port : PENDANT le pas=%r  APRES le pas=%r" % (mid, end))
     if MOVING not in mid:
         fails.append("E-MOVING : %d absent PENDANT le pas cote port -- T4 n'a pas pose" % MOVING)
     if TELEPORTING_IN not in mid:
