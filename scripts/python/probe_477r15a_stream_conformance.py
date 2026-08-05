@@ -31,13 +31,27 @@ l'oracle. Chaque grandeur comparee vient donc d'ailleurs :
                                        `traits`) et `observeBattle` (hp/hpMax, armor/armorMax,
                                        champs bruts `RemainingValue@0x18` / `MaximumValue@0x14`
                                        du `FillUpStatComponent`) ;
+  `UnitStats_Range`                 <- `combatSnapshot.stats.range` (#477-r15-r4) =
+                                       `GetStat(unit, StatType.Range, StatPart.Current)`, dont
+                                       `StatComponent$$GetStatPart` case 0 EST
+                                       `get_CurrentValue` -- l'appel exact du tag ;
+  `UnitStats_MaxMembers`            <- `combatSnapshot.numberOfMembersMax` (#477-r15-r5) =
+                                       `StatPart.Maximum`, dont
+                                       `FillUpStatComponent$$GetStatPart` case 2 EST
+                                       `get_CurrentMaximumValue()` ;
   abilities de `ChangeAbility`      <- `unitAbilityStates`, qui lit les DEUX collections
                                        natives DANS LEUR ORDRE (`ActiveAbilityComponent
                                        .Abilities@0x20`, `TriggeredAbilityComponent
                                        .Abilities@0x18`) -- le meme ordre qu'itere
                                        `AddUnitOperation$$Execute` ;
-  cooldown / disabled / munitions   <- `decisionView.units[].abilities[]` (`readAbilityState`),
-                                       apparie par id d'ability.
+  etat castable de chaque active    <- `unitAbilityStates.actives[].state` (#477-r15-r6),
+                                       `readAbilityState` sur L'INSTANCE de la meme boucle.
+                                       Ce canal-la n'a rien a apparier et ne filtre rien : il
+                                       couvre l'entree d'ATTAQUE NORMALE, que
+                                       `ActiveAbilityComponent$$GetActives` -- donc
+                                       `decisionView` -- laisse tomber. `decisionView` reste
+                                       branche en RECOUPEMENT (voir
+                                       `recouper_avec_decision_view`).
 
 ⚠ AUCUN de ces canaux ne lit le flux : ils lisent l'ECS par reflexion IL2CPP. Ce qu'ils NE
 discriminent PAS est publie en borne (c), jamais compte comme un accord.
@@ -226,18 +240,38 @@ def _stat(u_cs: dict, nom: str) -> int:
     return int(stats[nom])
 
 
+def _champ_unite(u_cs: dict, nom: str) -> int:
+    """Un champ de NIVEAU UNITE de `combatSnapshot` (hors du dict `stats`), en tri-etat.
+
+    `null` = PAS MESURE (le capteur n'a pas resolu), jamais rabattu sur une valeur : c'est
+    exactement le regime ou le port se remettrait a copier l'oracle sans le dire."""
+    if u_cs.get(nom) is None:
+        raise MesureImpossible(
+            "combatSnapshot ne publie pas `%s` de l'unite %s -- capteur #477-r15-r5 absent "
+            "(bundle anterieur a la fenetre de reinject ?)" % (nom, u_cs.get("entityId")))
+    return int(u_cs[nom])
+
+
 def etat_complet(u_cs: dict, u_obs: dict, u_ua: dict) -> UnitFullState:
     """Le substrat de `GetFullStateUpdateTags(unit)`, assemble depuis TROIS canaux ECS.
 
-    ⚠ DEUX GRANDEURS N'ONT AUCUN CANAL, et elles sont declarees en borne (c) -- pas maquillees :
+    #477-r15-r4 et -r5 -- LES DEUX GRANDEURS QUI ETAIENT COPIEES SONT DESORMAIS LUES, et chaque
+    canal est le mirror 1:1 de l'accesseur natif, verifie au decompile :
 
-      * `UnitStats_Range` -- `StatType.Range` (2) n'est pas dans la table `COMBAT_STAT_IDS` du
-        hook, donc AUCUN RPC ne le publie. Emis a 0, valeur MESUREE sur 8 unites / 6 kits /
-        2 boards, jamais lue. Residu `#477-r15-r4`.
-      * `UnitStats_MaxMembers` -- le natif appelle `get_CurrentMaximumValue()` sur le composant
-        de membres ; le seul canal, `stats.numberOfMembers`, est le `StatPart.Current`. Au
-        deploiement aucun membre n'est mort, donc courant == maximum, mais LE CANAL NE
-        DISCRIMINE PAS les deux tags. Residu `#477-r15-r5`."""
+      * `UnitStats_Range` <- `stats.range` = `GetStat(unit, StatType.Range, StatPart.Current)`.
+        Le `case 2` d'`IdunBattle.Entities.UnitExtensions$$GetStatComponent` et la ligne du tag
+        chargent le MEME pointeur de classe ; et les `case 0` / `case 2` de
+        `IdunBattle.Entities.Components.StatComponent$$GetStatPart` rendent tous deux
+        `get_CurrentValue(this)`, l'appel exact que fait le tag.
+      * `UnitStats_MaxMembers` <- `numberOfMembersMax` = `GetStat(.., StatPart.Maximum)`, dont
+        `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart` `case 2` EST
+        `get_CurrentMaximumValue()`. Son `case 0` (Current) est le champ BRUT
+        `RemainingValue(+0x18)`, c'est-a-dire l'autre tag : les deux ont enfin chacun le sien.
+
+    ⚠ AU DEPLOIEMENT LES DEUX MEMBRES COINCIDENT (aucun membre mort, aucune modification), donc
+    l'egalite du flux ne DISCRIMINE toujours pas les deux tags. Ce que le changement ferme, c'est
+    la COPIE ; la discrimination, elle, demande de sortir du regime -- c'est ce que mesure
+    `probe_477r15r5_membres_discrimine.py`, et le present probe l'affiche a chaque run."""
     flags = u_cs.get("unitFlags")
     traits = u_cs.get("traits")
     if flags is None or traits is None:
@@ -248,19 +282,20 @@ def etat_complet(u_cs: dict, u_obs: dict, u_ua: dict) -> UnitFullState:
             raise MesureImpossible("observeBattle ne publie pas `%s`" % cle)
     triggered_types = {int(t["raw"][0]) for t in (u_ua.get("triggered") or [])
                        if t.get("raw")}
-    membres = _stat(u_cs, "numberOfMembers")
     return UnitFullState(
         entity_type=int(EntityType.Unit),
         # `MaximumValue@0x14` brut. `get_CurrentMaximumValue()` y ajoute la modification
         # (`+0x28`) et l'override (`+0x38`) : identiques au deploiement, ou les deux sont nuls.
+        # (Non couvert par cette tranche -- le pendant `healthMax` du capteur existe, mais le
+        # changer sort du perimetre de #477-r15-r4/r5/r6 ; c'est dit en borne (c).)
         max_health=int(u_obs["hpMax"]), max_armor=int(u_obs["armorMax"]),
-        max_members=membres,                      # cf. docstring -- NON DISCRIMINE
+        max_members=_champ_unite(u_cs, "numberOfMembersMax"),      # StatPart.Maximum -- MESURE
         fixed_armor=_stat(u_cs, "fixedArmor"),
         # `RemainingValue@0x18` brut, lu par le projecteur (`game/match-state.ts`).
         init_remaining_health=int(u_obs["hp"]), init_remaining_armor=int(u_obs["armor"]),
-        init_alive_members=membres,
+        init_alive_members=_stat(u_cs, "numberOfMembers"),         # StatPart.Current -- MESURE
         attack=_stat(u_cs, "attack"),
-        range=0,                                  # cf. docstring -- AUCUN CANAL
+        range=_stat(u_cs, "range"),                                # MESURE (#477-r15-r4)
         movement=_stat(u_cs, "movement"),
         block_chance=_stat(u_cs, "blockChance"), block_damage=_stat(u_cs, "blockDamage"),
         crit_chance=_stat(u_cs, "critChance"), crit_damage=_stat(u_cs, "critDamage"),
@@ -270,31 +305,62 @@ def etat_complet(u_cs: dict, u_obs: dict, u_ua: dict) -> UnitFullState:
                                             for a in DEATH_ANIMATION_ABILITIES))
 
 
+#: Les cinq champs d'etat que la surcharge ACTIVE lit, et le nom que `readAbilityState` leur
+#: donne. Ecrit ici plutot qu'en dur au site : le controle de presence et la construction
+#: doivent porter sur LA MEME liste, sans quoi un champ ajoute au capteur serait consomme sans
+#: etre verifie -- ou l'inverse.
+CHAMPS_ETAT_ACTIVE = ("usable", "cooldown", "disabled", "ammoCost", "hasAmmo")
+
+
 def abilities_unite(u_ua: dict, u_dv: dict) -> tuple:
     """Les deux collections d'ability, DANS L'ORDRE que le natif itere.
 
     `unitAbilityStates` lit `Abilities@0x20` / `@0x18` element par element : c'est la meme
     liste que parcourt `AddUnitOperation$$Execute`, donc l'ordre est mesure, pas suppose.
-    `decisionView` complete l'etat castable, apparie PAR ID d'ability.
 
-    ⚠ L'ENTREE D'ATTAQUE NORMALE N'A PAS D'ETAT PUBLIE, et c'est en borne (c). `decisionView`
-    la sort de `AbilityComponent.NormalAttackType` SANS objet `ActiveAbility` derriere (kind
-    `normal`), donc sans `usable` / `cooldown` / `disabled` ; `GetActives()` la filtre. Ses
-    trois tags correspondants sont donc poses a l'etat NEUF d'une ability qui vient d'etre
-    fabriquee -- non mesures. Residu `#477-r15-r6`."""
-    etats_dv = {int(a["id"]): a for a in ((u_dv or {}).get("abilities") or [])
-                if a.get("id") is not None}
+    #477-r15-r6 -- L'ETAT CASTABLE VIENT DESORMAIS DE LA MEME BOUCLE, plus de `decisionView`.
+    Celui-ci enumere par `IdunBattle.Entities.Components.ActiveAbilityComponent$$GetActives`, qui
+    FILTRE : la seule entree d'attaque normale en sort par `AbilityComponent.NormalAttackType`,
+    SANS objet `ActiveAbility` derriere, donc sans `usable` / `cooldown` / `disabled`. Ses trois
+    tags etaient posesa l'etat NEUF -- justes (le ctor
+    `IdunBattle.Entities.Components.ActiveAbility$$.ctor` ecrit `CanStillBeUsed(+0x28) = 1`,
+    laisse `RemainingCooldownTurns(+0x2c)` a un `Nullable` VIDE et `IsDisabled(+0x35)` a 0) mais
+    NON MESURES. `actives[].state` les lit sur l'instance elle-meme, donc pour TOUTES les entrees.
+
+    ⚠ `state.level` / `state.multiplier` sont `ActiveAbility$$get_AbilityState()` (l'OVERRIDE
+    prime), c'est-a-dire ce que le natif ecrit dans les tags 24/25 ; `a["level"]` / `a["mult"]`
+    sont le champ BRUT `_abilityState`. On lit les premiers : les deux coincident tant qu'aucun
+    override n'existe, et prendre le brut serait une SEPTIEME copie silencieuse."""
     actives = []
     for a in (u_ua.get("actives") or []):
-        dv = etats_dv.get(int(a["type"]), {})
+        st = a.get("state")
+        if not isinstance(st, dict):
+            raise MesureImpossible(
+                "unitAbilityStates ne publie pas `actives[].state` (ability %s) -- capteur "
+                "#477-r15-r6 absent (bundle anterieur a la fenetre de reinject ?)" % a.get("type"))
+        manquants = [c for c in CHAMPS_ETAT_ACTIVE if c not in st]
+        if manquants:
+            raise MesureImpossible(
+                "`actives[].state` de l'ability %s ne porte pas %s -- offsets non resolus "
+                "cote capteur (lire `abilityStateLayout` de la reponse)"
+                % (a.get("type"), ",".join(manquants)))
+        for cle in ("level", "multiplier"):
+            if st.get(cle) is None:
+                raise MesureImpossible(
+                    "`actives[].state.%s` est null sur l'ability %s -- `get_AbilityState()` non "
+                    "resolu" % (cle, a.get("type")))
+        if st.get("usable") is None or st.get("disabled") is None:
+            raise MesureImpossible(
+                "`actives[].state` rend `usable`/`disabled` a null sur l'ability %s (PAS MESURE)"
+                % a.get("type"))
         actives.append(ActiveAbilityState(
-            ability_name=int(a["type"]), level=int(a["level"]),
-            variable_multiplier_percentage=int(a["mult"]),
-            can_still_be_used=bool(dv.get("usable", True)),
-            remaining_cooldown_turns=dv.get("cooldown"),
-            is_disabled=bool(dv.get("disabled", False)),
-            ammo_cost=dv.get("ammoCost"),
-            has_enough_ammo=bool(dv.get("hasAmmo", True))))
+            ability_name=int(a["type"]), level=int(st["level"]),
+            variable_multiplier_percentage=int(st["multiplier"]),
+            can_still_be_used=bool(st["usable"]),
+            remaining_cooldown_turns=st["cooldown"],
+            is_disabled=bool(st["disabled"]),
+            ammo_cost=st["ammoCost"],
+            has_enough_ammo=bool(st["hasAmmo"])))
     triggered = []
     for t in (u_ua.get("triggered") or []):
         if not t.get("raw"):
@@ -306,6 +372,34 @@ def abilities_unite(u_ua: dict, u_dv: dict) -> tuple:
                           TriggeredAbilityState(level=int(t["level"]),
                                                 variable_multiplier_percentage=int(t["mult"]))))
     return actives, triggered
+
+
+def recouper_avec_decision_view(u_ua: dict, u_dv: dict) -> list[str]:
+    """RECOUPEMENT `unitAbilityStates.actives[].state` <-> `decisionView.units[].abilities[]`.
+
+    CE QUE CE CONTROLE TESTE, ET CE QU'IL NE TESTE PAS. Les deux canaux appellent la MEME
+    fonction de lecture (`readAbilityState`) : il ne verifie donc PAS la lecture des champs. Ce
+    qu'il verifie, c'est que les deux chemins de RECUPERATION designent les memes objets --
+    `GetActives()` d'un cote, le walk manuel de `Abilities@0x20` (`readInstList`) de l'autre. Si
+    ce walk lisait une autre collection, ou decalait d'un element, ce recoupement rougirait alors
+    que le flux, lui, resterait egal tant que les valeurs se ressemblent.
+
+    Les abilities que `decisionView` NE publie PAS (l'attaque normale) sont hors de portee du
+    recoupement par construction : c'est justement ce que #477-r15-r6 vient combler. Le nombre de
+    NON RECOUPEES est rendu, jamais tu."""
+    etats_dv = {int(a["id"]): a for a in ((u_dv or {}).get("abilities") or [])
+                if a.get("id") is not None}
+    ecarts: list[str] = []
+    for a in (u_ua.get("actives") or []):
+        st = a.get("state") or {}
+        dv = etats_dv.get(int(a["type"]))
+        if dv is None:
+            continue                        # non recoupee (attaque normale, typiquement)
+        for cle in ("usable", "cooldown", "disabled", "ammoCost", "hasAmmo"):
+            if cle in dv and cle in st and dv[cle] != st[cle]:
+                ecarts.append("ability %s : %s unitAbilityStates=%r decisionView=%r"
+                              % (a["type"], cle, st[cle], dv[cle]))
+    return ecarts
 
 
 # --- Etape 3 : emettre et comparer ------------------------------------------
@@ -395,6 +489,11 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
     attendus = len(re.findall(r"^ *Action=AddUnit ", setup_natif, re.M))
 
     units = []
+    ecarts_dv: list[str] = []
+    non_recoupees = 0
+    actives_recoupees = 0
+    membres_degeneres = 0        # unites ou courant == maximum (le regime qui ne discrimine pas)
+    membres_total = 0
     for u in sorted(adverses, key=lambda x: int(x["squadId"])):
         xy = (int(u["col"]), int(u["row"]))
         sid = int(u["squadId"])
@@ -403,10 +502,22 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
                                    "l'entite %d (combatSnapshot=%s unitAbilityStates=%s)"
                                    % (sid, sid in par_cs, sid in par_ua))
         actives, triggered = abilities_unite(par_ua[sid], par_dv.get(sid, {}))
+        ecarts_dv += recouper_avec_decision_view(par_ua[sid], par_dv.get(sid, {}))
+        ids_dv = {int(a["id"]) for a in ((par_dv.get(sid) or {}).get("abilities") or [])
+                  if a.get("id") is not None}
+        for a in (par_ua[sid].get("actives") or []):
+            if int(a["type"]) in ids_dv:
+                actives_recoupees += 1
+            else:
+                non_recoupees += 1
+        etat = etat_complet(par_cs[sid], u, par_ua[sid])
+        membres_total += 1
+        if etat.max_members == etat.init_alive_members:
+            membres_degeneres += 1
         units.append(UnitSetup(entity_id=sid,
                                owner_id=int(u["playerId"]),
                                foot_tile_ids=[entite_de_tuile[xy]],
-                               full_state=etat_complet(par_cs[sid], u, par_ua[sid]),
+                               full_state=etat,
                                active_abilities=actives,
                                triggered_abilities=triggered))
     setup_port = emettre(GameSetup(
@@ -418,15 +529,21 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
     rap = CONF.comparer(setup_natif, setup_port, entrees_du_natif=(
         "Tag=Tile_IsTerritory -- aucun porteur dans le board dump, emis a 0 en dur "
         "(#477-r15-r3)",
-        "Tag=UnitStats_Range -- `StatType.Range` (2) absent de `COMBAT_STAT_IDS` : AUCUN RPC ne "
-        "le publie. Emis a 0, valeur observee sur tout le corpus, jamais lue (#477-r15-r4)",
-        "Tag=UnitStats_MaxMembers -- pris de `stats.numberOfMembers` (`StatPart.Current`) alors "
-        "que le natif appelle `get_CurrentMaximumValue()`. Le canal ne DISCRIMINE pas ce tag de "
-        "`UnitStats_InitAliveMembers` (#477-r15-r5)",
-        "Tag=UnitStats_ActiveAbility_{CanStillBeUsed,RemainingCooldownTurns,IsDisabled} de la "
-        "SEULE entree d'attaque normale -- `decisionView` la sort de "
-        "`AbilityComponent.NormalAttackType` sans objet `ActiveAbility`, donc sans etat ; "
-        "posee a l'etat neuf. Mesuree pour toutes les autres actives (#477-r15-r6)",
+        # ⚠ LA BORNE A RETRECI DE TROIS ENTREES, ET CHACUNE A UN REMPLACANT NOMME. Une borne qui
+        # maigrit sans que rien ne soit mesure serait un mensonge : `range` vient de
+        # `stats.range` (`GetStat(.., StatType.Range, StatPart.Current)`), `MaxMembers` de
+        # `numberOfMembersMax` (`StatPart.Maximum`), et les trois tags d'etat de l'attaque
+        # normale de `unitAbilityStates.actives[].state` (`readAbilityState` sur l'instance).
+        # Les trois canaux sont cites dans l'entete de ce fichier et dans `etat_complet` /
+        # `abilities_unite`, avec le symbole natif dont ils sont le mirror.
+        "Tag=UnitStats_{MaxHealth,MaxArmor} -- lus au champ BRUT `MaximumValue@0x14` "
+        "(`observeBattle.hpMax`/`armorMax`) la ou le natif appelle "
+        "`FillUpStatComponent$$get_CurrentMaximumValue()`. Les deux coincident au deploiement "
+        "PAR CONSTRUCTION (modification `+0x28` et override `+0x38` nuls), pas par chance. Le "
+        "capteur `combatSnapshot.healthMax` (`StatPart.Maximum`) existe DEJA pour la sante et "
+        "fermerait la moitie de cette entree ; l'armure n'a aucun canal (son composant n'est "
+        "atteignable ni par `GetStatComponent` ni par `GetStat`). Hors perimetre de "
+        "#477-r15-r4/r5/r6 -- non traite, donc DECLARE",
         "Tag=UnitStats_TriggeredAbility_{AmmoCost,EnoughAmmo} -- NON CONFRONTES : `AmmoCost` est "
         "null sur toute unite reguliere (les munitions ne mordent que sur les Machines of War, "
         "qui passent par `AddMachineOperation`, hors de ce groupe)",
@@ -434,6 +551,9 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
     return {"board": board, "rapport": rap, "tuiles": len(coords),
             "unites_emises": len(units), "addunit_natifs": attendus,
             "montage_coherent": len(units) == attendus,
+            "ecarts_dv": ecarts_dv, "non_recoupees": non_recoupees,
+            "actives_recoupees": actives_recoupees,
+            "membres_degeneres": membres_degeneres, "membres_total": membres_total,
             "derived": derived, "base_tuile": base_tuile, "base_natif": base_natif,
             # Recoupement GRATUIT : l'id d'unite derive de la regle vs celui du canal
             # INDEPENDANT `observeBattle.squadId`. Deux sources, un seul chiffre.
@@ -492,10 +612,33 @@ def main() -> int:
                   % (res["premiere_unite_derivee"], res["premiere_unite_observee"]))
         print("  GetDerivedEnvironmentAbilities = %d -- LU dans la table statique depuis "
               "#477-r16-r1, plus mesure par difference" % res["derived"])
+        # --- #477-r15-r6 : le RECOUPEMENT des deux chemins de recuperation d'instance, et son
+        # TEMOIN. Un zero ne se lit comme un accord que si on dit combien de couples il a
+        # compares -- sinon c'est le zero d'un balayage qui n'a rien visite.
+        print("  RECOUPEMENT unitAbilityStates.state <-> decisionView : %d ecart(s) sur %d "
+              "active(s) recoupee(s) ; %d non recoupee(s) (attaque normale : `GetActives()` la "
+              "filtre -- c'est le trou que ce canal comble)"
+              % (len(res["ecarts_dv"]), res["actives_recoupees"], res["non_recoupees"]))
+        for e in res["ecarts_dv"]:
+            print("      ROUGE RECOUPEMENT : %s" % e)
+        if res["actives_recoupees"] == 0:
+            print("      ! TEMOIN VIDE : aucune active recoupee -- ce zero ne prouve RIEN.")
+        # --- #477-r15-r5 : le REGIME. La grandeur est MESUREE (plus copiee), mais l'egalite du
+        # flux ne la DISCRIMINE pas tant que courant == maximum sur toutes les unites.
+        print("  REGIME MEMBRES (#477-r15-r5) : %d/%d unite(s) ou courant == maximum -- sur "
+              "celles-la, `MaxMembers` et `InitAliveMembers` NE SE DISTINGUENT PAS (les deux "
+              "canaux sont distincts, le regime ne les separe pas). Discrimination :"
+              " probe_477r15r5_membres_discrimine.py"
+              % (res["membres_degeneres"], res["membres_total"]))
         if not res["montage_coherent"]:
-            print("  ⚠ MONTAGE : le filtre « unites adverses » ne predit pas le nombre d'AddUnit "
+            # ASCII PUR, sans `.replace` de rattrapage : la console Windows est en cp1252, et
+            # cette ligne ne s'imprime QUE quand le montage est incoherent -- c'est-a-dire
+            # exactement quand le probe a quelque chose a dire. Un `UnicodeEncodeError` y aurait
+            # fait crasher le diagnostic au seul moment ou il compte. Le `.replace` qui etait la
+            # ne couvrait que le premier des trois caracteres non-ASCII de la ligne.
+            print("  ! MONTAGE : le filtre \"unites adverses\" ne predit pas le nombre d'AddUnit "
                   "du groupe natif -- les divergences d'AddUnit ci-dessous accusent le MONTAGE, "
-                  "pas le port.".replace("⚠", "!"))
+                  "pas le port.")
         for ligne in CONF.rapport(res["rapport"]):
             print("  " + ligne)
 
@@ -535,6 +678,14 @@ def main() -> int:
     if alloc_ko:
         print("  ROUGE : la regle d'allocation DERIVEE (#477-r16) ne recoupe pas le live sur %s."
               % ",".join(alloc_ko))
+        rc = 1
+    # #477-r15-r6 : deux chemins de recuperation d'instance qui divergent designent des objets
+    # DIFFERENTS -- le flux peut rester egal et le canal etre faux. C'est donc un ROUGE a part
+    # entiere, pas une note de bas de page.
+    recoup_ko = [r["board"] for r in resultats if r["ecarts_dv"]]
+    if recoup_ko:
+        print("  ROUGE : `GetActives()` et le walk de `Abilities@0x20` ne s'accordent pas sur %s."
+              % ",".join(recoup_ko))
         rc = 1
     if montage_ko:
         print("  ROUGE : montage incoherent sur %s -- verdict non attribuable au port."

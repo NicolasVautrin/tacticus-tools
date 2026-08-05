@@ -507,6 +507,96 @@ def test_les_deux_tags_de_munitions_sont_CONDITIONNELS_et_mal_nommes():
     assert len(avec) == 8
 
 
+# --- 2ter. #477-r15-r4/r5/r6 : les trois grandeurs qui CESSENT d'etre copiees -----
+#
+# Ces gardes ne verifient PAS les capteurs (qui vivent dans `frida/hooks/*` -- c'est le role de
+# `probe_477r15r4_capteurs_offline.py`). Elles verifient ce dont le port a besoin pour que la
+# mesure SERVE : que chaque tag est SENSIBLE a la grandeur qu'on vient de brancher. Un tag
+# insensible resterait vert quel que soit le canal, et brancher un capteur ne prouverait rien.
+
+
+def test_UnitStats_Range_est_SENSIBLE_a_la_valeur_recue():
+    """#477-r15-r4. Le port emettait `0` EN DUR parce qu'aucun RPC ne publiait
+    `StatType.Range` ; il recoit desormais `GetStat(unit, StatType.Range, StatPart.Current)`,
+    dont `IdunBattle.Entities.Components.StatComponent$$GetStatPart` case 0 EST
+    `get_CurrentValue` -- l'appel exact que fait la ligne du tag.
+
+    Ce que ce test etablit : une valeur DIFFERENTE produit un flux DIFFERENT. Sans lui, le
+    capteur pourrait publier n'importe quoi sans que l'egalite bouge, et le `0` mesure du corpus
+    se lirait comme une confirmation alors qu'il ne serait qu'une coincidence."""
+    from dataclasses import replace
+    assert get_full_state_update_tags(ETAT_49)[TagKey.UnitStats_Range] == 0
+    mute = get_full_state_update_tags(replace(ETAT_49, range=7))
+    assert mute[TagKey.UnitStats_Range] == 7
+    assert _nouvelles(emettre(_setup_avec(full_state=replace(ETAT_49, range=7)))) > 0
+
+
+def test_MaxMembers_et_InitAliveMembers_sont_DEUX_tags_distincts():
+    """#477-r15-r5. Les deux lisent le MEME composant par DEUX accesseurs de
+    `IdunBattle.Entities.Components.FillUpStatComponent` -- `get_CurrentMaximumValue()` (case 2
+    de son `GetStatPart`) et le champ BRUT `RemainingValue(+0x18)` (case 0).
+
+    ⚠ AU DEPLOIEMENT ILS COINCIDENT (aucun membre mort), donc le flux ne les separe pas : c'est
+    un regime DEGENERE, et un accord y est vide de sens. Ce que ce test etablit est ce que le
+    regime ne peut pas montrer -- que le PORT, lui, les distingue, et qu'une divergence entre les
+    deux se verrait immediatement. La discrimination du CANAL se mesure ailleurs
+    (`probe_477r15r5_membres_discrimine.py`), et le regime du groupe `System_GameSetup` ne
+    permettra JAMAIS de la mesurer sur le flux : c'est ecrit, pas contourne."""
+    from dataclasses import replace
+    tags = get_full_state_update_tags(ETAT_49)
+    assert tags[TagKey.UnitStats_MaxMembers] == tags[TagKey.UnitStats_InitAliveMembers] == 1
+    assert int(TagKey.UnitStats_MaxMembers) != int(TagKey.UnitStats_InitAliveMembers)
+    # Un membre mort : le maximum ne bouge pas, le restant si.
+    use = get_full_state_update_tags(replace(ETAT_49, max_members=5, init_alive_members=4))
+    assert use[TagKey.UnitStats_MaxMembers] == 5
+    assert use[TagKey.UnitStats_InitAliveMembers] == 4
+    assert _nouvelles(emettre(_setup_avec(
+        full_state=replace(ETAT_49, max_members=5, init_alive_members=4)))) > 0
+
+
+def test_l_etat_NEUF_d_une_active_est_celui_qu_ecrit_le_ctor_natif():
+    """#477-r15-r6. Les trois tags d'etat de l'entree d'ATTAQUE NORMALE etaient poses aux
+    defauts du port, faute de canal (`ActiveAbilityComponent$$GetActives` la filtre, donc
+    `decisionView` ne la publie pas). Ils sont desormais LUS sur l'instance
+    (`unitAbilityStates.actives[].state`).
+
+    Ce test fige POURQUOI ces defauts etaient justes, lu dans
+    `IdunBattle.Entities.Components.ActiveAbility$$.ctor` :
+
+        this.<CanStillBeUsed +0x28> = 1
+        this.<RemainingCooldownTurns +0x2c> = Nullable<int>()     // vide -> GetValueOrDefault = 0
+        this.<HasEnoughAmmo +0x40> = 1
+        // IsDisabled (+0x35) et AmmoCost (+0x38) ne sont PAS ecrits -> zero de l'allocation
+
+    Le port ne se trompait donc pas -- il ne MESURAIT pas. Si un futur build changeait ce ctor,
+    ce test tomberait ICI plutot qu'en live, et il nomme la fonction a relire."""
+    neuve = ActiveAbilityState(ability_name=69, level=1, variable_multiplier_percentage=180,
+                               can_still_be_used=True)
+    tags = get_full_state_update_tags_for_active(neuve)
+    assert tags[TagKey.UnitStats_ActiveAbility_CanStillBeUsed] == 1
+    assert tags[TagKey.UnitStats_ActiveAbility_RemainingCooldownTurns] == 0
+    assert tags[TagKey.UnitStats_ActiveAbility_IsDisabled] == 0
+    # ... et les deux tags de munitions ne sont PAS emis (AmmoCost non ecrit par le ctor).
+    assert TagKey.UnitStats_TriggeredAbility_AmmoCost not in tags
+    # C'est exactement ce que porte l'entree `Id:69` du fragment natif.
+    assert "Tag=UnitStats_ActiveAbility_Id:69\n" in FRAGMENT_NATIF
+    assert neuve.has_enough_ammo is True
+
+
+@pytest.mark.parametrize("champ,valeur", [
+    ("can_still_be_used", False),
+    ("remaining_cooldown_turns", 3),
+    ("is_disabled", True),
+])
+def test_chaque_tag_d_etat_de_l_attaque_normale_est_SENSIBLE(champ: str, valeur):
+    """#477-r15-r6, contre-epreuve. Les trois tags doivent faire rougir INDIVIDUELLEMENT sur
+    l'entree d'attaque normale (`Id:69`, la SECONDE active). Sans ce bras, brancher le capteur
+    n'aurait rien prouve : un tag insensible resterait vert avec ou sans mesure."""
+    from dataclasses import replace
+    actives = [ACTIVES_49[0], replace(ACTIVES_49[1], **{champ: valeur})]
+    assert _nouvelles(emettre(_setup_avec(active_abilities=actives))) > 0
+
+
 # --- 3. Le cliquet lui-meme -------------------------------------------------
 
 def test_ligne_hors_des_quatre_formes_est_signalee():

@@ -2459,36 +2459,25 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `probe_477r15a_stream_conformance.py` rougit en `VALEUR Tag=Tile_IsTerritory`, puis deriver le
   champ. cf. `docs/rl/case-477r15-tranches-abe-emetteur-de-flux.md` resid. r3.
 
-- **#477-r15-r4 : `UnitStats_Range` est emis a 0 EN DUR.** `[opus]`
-  `StatType.Range` (2) n'est dans AUCUNE table de capteur (`COMBAT_STAT_IDS` de
-  `frida/hooks/features/ai-step/rpc-snapshot.ts`), donc aucun RPC ne publie la valeur que le natif
-  lit (`StatComponent$$get_CurrentValue` du composant que le `case 2` d'
-  `IdunBattle.Entities.UnitExtensions$$GetStatComponent` designe). `0` est ce que le flux porte sur
-  tout le corpus mesure (8 unites, 6 kits, 2 boards) -- mais la constante passerait aussi si elle
-  etait fausse. RETOURNEMENT : ajouter `range: 2` a `COMBAT_STAT_IDS` (**exige une fenetre de
-  reinject**), alimenter `UnitFullState.range` depuis ce canal, verifier que
-  `probe_477r15a_stream_conformance.py` reste a 0 divergence.
-  cf. `docs/rl/case-477r15d-tags-etat-complet-unite.md` resid. r4.
-
-- **#477-r15-r5 : `MaxMembers` et `InitAliveMembers` viennent du MEME canal.** `[opus]`
-  `combatSnapshot.stats.numberOfMembers` est un `GetStat(NumberOfMembers, StatPart.Current)` ; le
-  natif lit `FillUpStatComponent$$get_CurrentMaximumValue()` pour le premier tag et le champ brut
-  `RemainingValue(+0x18)` pour le second. Au deploiement aucun membre n'est mort, donc les deux
-  coincident -- et le corpus ne peut pas les separer : les 8 unites mesurees valent toutes `1`.
-  RETOURNEMENT : publier `GetStat(..., StatPart.Maximum)` pour `numberOfMembers` comme le hook le
-  fait deja pour `health` (`getStatP(e, "health", partBufMax)`), ou monter une unite multi-membres
-  et lui faire perdre un membre avant la capture.
-  cf. `docs/rl/case-477r15d-tags-etat-complet-unite.md` resid. r5.
-
-- **#477-r15-r6 : l'entree `ActiveAbility` de l'ATTAQUE NORMALE n'a aucun etat publie.** `[opus]`
-  `unitAbilityTypes` la pousse depuis `AbilityComponent.NormalAttackType` SANS objet
-  `ActiveAbility` derriere, et `GetActives()` la filtre : ni `usable`, ni `cooldown`, ni
-  `disabled`. Ses trois tags (`CanStillBeUsed`, `RemainingCooldownTurns`, `IsDisabled`) sont donc
-  poses a l'etat neuf -- juste au deploiement, NON MESURE. RETOURNEMENT : `unitAbilityStates` lit
-  DEJA chaque instance de `ActiveAbilityComponent.Abilities` ; y ajouter `...readAbilityState(inst)`
-  (fonction exportee d'`ai-step/internals.ts`) publierait les cinq champs pour TOUTES les entrees.
-  **Exige une fenetre de reinject.**
-  cf. `docs/rl/case-477r15d-tags-etat-complet-unite.md` resid. r6.
+- **#477-r15-r4 / -r5 / -r6 : les trois grandeurs COPIEES de l'oracle -- CODE LIVRE, ATTEND UNE
+  FENETRE DE REINJECT.** `[opus]`
+  Les trois capteurs sont ECRITS, bundles (`frida-compile` rc=0, 0 erreur TS sur `features/ai-step`)
+  et gardes offline ; le probe live les CONSOMME en tri-etat strict. Il ne reste plus que la
+  confrontation, qui exige de recharger le bundle :
+  `range: 2` dans `COMBAT_STAT_IDS`, `combatSnapshot.numberOfMembersMax` (`StatPart.Maximum`), et
+  `unitAbilityStates.actives[].state` (`readAbilityState` sur l'INSTANCE -- le seul canal qui couvre
+  l'attaque normale, que `GetActives()` filtre).
+  DEUX MESURES au decompile rendent les remedes EXACTS (pas approches) :
+  `StatComponent$$GetStatPart` rend `get_CurrentValue` pour ses `case 0` ET `case 2` ; et
+  `FillUpStatComponent$$GetStatPart` rend `*(int*)(this+0x18)` au `case 0`,
+  `get_CurrentMaximumValue()` au `case 2` -- les deux tags des membres y sont cote a cote.
+  ⚠ Le regime degenere de `-r5` est IRREDUCTIBLE sur le groupe `System_GameSetup` (aucun membre
+  n'est mort au deploiement) : ce qu'on prouve discriminant est le CANAL, par
+  `probe_477r15r5_membres_discrimine.py` (summons multi-membres via `necroSpyder`/`tyranParasite`,
+  tous deux au pool). PREDICTION ECRITE AVANT LA FENETRE, liste executable des commandes, et
+  residus ouverts (`UnitStats_{MaxHealth,MaxArmor}`, entres en borne (c)) :
+  `docs/rl/case-477r15r4r5r6-trois-grandeurs-copiees.md`.
+  Cliquet jouable SANS session : `python scripts/python/probe_477r15r4_capteurs_offline.py`.
 
 - **#477-r17 : `visualId` (le NOM du kit) reste sans porteur dans le flux.** `[opus]`
   Sans consequence pour le DIFF (comparer deux flux ne demande pas le kit), determinant pour le
