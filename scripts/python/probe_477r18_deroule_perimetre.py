@@ -932,14 +932,14 @@ def main() -> int:
             ("TagKey", TagKey, tags_vus, "IdunBattle.Streams.TagKey", emetteurs)):
         ms = methodes_typees(build_courant, natif)
         avant = len([m for m in cls if int(m) in vus])
-        sites, lus, ecartes = 0, 0, 0
+        sites, lus, ecartes = 0, 0, set()
         for m in ms:
             sym = tg.get(m["rva"])
             if not sym:
                 porteurs_sans_litteral.append((lib, m["nom"], "SANS SYMBOLE GHIDRA"))
                 continue
             if filtre is not None and sym not in filtre:
-                ecartes += 1
+                ecartes.add(sym)
                 continue
             cible = nom_ghidra_en_c(sym)
             # Par ADRESSE, jamais par nom : `DSLBehaviors$$AtomicGroup` a TROIS surcharges
@@ -971,8 +971,12 @@ def main() -> int:
               % (lib, len(ms), sites, lus))
         print("              couverture %d -> %d / %d" % (avant, apres, len(list(cls))))
         if filtre is not None:
-            print("              ECARTES PAR CE FILTRE : %d porteuse(s) qui n'emettent ni "
-                  "n'ecrivent (cote VUE, tests)" % ecartes)
+            # Le filtre ne peut que SOUS-compter, jamais sur-compter -- et ce qu'il ecarte est
+            # NOMME : c'est la seule facon de voir un jour qu'il ecarte a tort.
+            print("              ECARTES PAR CE FILTRE : %d symbole(s) qui n'emettent ni "
+                  "n'ecrivent" % len(ecartes))
+            for s in sorted(ecartes):
+                print("                %s" % s)
     for lib, nom, cause in porteurs_sans_litteral[:12]:
         print("      NON LU  %-9s %-58s %s" % (lib, nom, cause))
     if len(porteurs_sans_litteral) > 12:
