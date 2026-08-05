@@ -359,6 +359,16 @@ class CasterSubstrate:
                              controle mental.
       * `feet_count`      -- `IdunBattle.Entities.UnitExtensions$$GetFeetCount`.
       * `is_machine`      -- `IdunBattle.Entities.EntityExtensions$$IsMachine`.
+      * `interrogated_pos` -- le `casterTiles` INTERROGE, c'est-a-dire la position que l'appelant
+                             passe a la requete, PAS la tuile courante (`pos`). C'est la 2e clause
+                             de `CasterHasNotMoved` qui le lit
+                             (`GetTiles(caster).IsEquivalentTo(casterTiles)`), et elle n'est INERTE
+                             que chez `BattleQuery$$IsTileInRangeOfAnyAbility`, ou les deux
+                             coincident par construction. Chez l'autre consommateur --
+                             `AttackQuery$$GetAllTilesInAbilityRange(unit, possiblePositions, true)`,
+                             l'oracle `aiMovableTiles` -- elle MORD : le natif refuse toute position
+                             candidate DIFFERENTE de la tuile courante (#447-r1-r1). `None` = non
+                             mesure -> la clause ne peut pas refuser.
       * `team`, `team_by_pos`, `walkable_by_pos`, `elev_by_pos`, `neigh_by_pos` -- le substrat de
                              plateau des regles-delegues derivables (aujourd'hui la seule qui l'est,
                              `1045`). Memes cartes que celles d'`is_tile_in_range_of_any_ability`.
@@ -367,6 +377,7 @@ class CasterSubstrate:
     has_tile: bool | None = None
     has_moved: bool | None = None
     is_turn_of_unit: bool | None = None
+    interrogated_pos: tuple | None = None
     feet_count: int | None = None
     is_machine: bool | None = None
     team: int | None = None
@@ -533,11 +544,23 @@ def invalid_caster_reason(ability_id, caster: "CasterSubstrate" = None) -> int |
     #    DEUX conditions, dans cet ordre, et il faut que les deux soient MESUREES vraies (tri-etat :
     #    un `None` ne refuse pas). Omettre le prefixe faisait refuser 11 paires sur 42 que le natif
     #    ACCEPTE (cf. l'encadre de la section GATE 4).
-    #    La 2e clause (`GetTiles(caster).IsEquivalentTo(casterTiles)`) est INERTE dans le regime du
-    #    consommateur : `casterTiles` y est le singleton `{GetMainTile(caster)}`, donc equivalent.
+    #    La 2e clause (`GetTiles(caster).IsEquivalentTo(casterTiles)`) N'EST INERTE QUE CHEZ UN
+    #    consommateur : `BattleQuery$$IsTileInRangeOfAnyAbility`, qui passe le singleton
+    #    `{GetMainTile(caster)}` -- donc toujours equivalent. Chez l'AUTRE,
+    #    `AttackQuery$$GetAllTilesInAbilityRange(unit, possiblePositions, true)` (l'oracle
+    #    `aiMovableTiles`), `casterTiles` est la position CANDIDATE balayee, et la clause MORD des
+    #    qu'elle differe de la tuile courante. MESURE (#447-r1-r1, greffe sur un cul-de-sac, deux
+    #    abilities du MEME preset dont le masque ne differe que par ce bit) : `1215` (`0x8004`) --
+    #    le natif verse la tuile source ; `1216` (`0x8014`) -- il ne verse RIEN, alors que
+    #    `abilityReason.casterReason` (evalue depuis la tuile COURANTE) rend `0` des deux cotes.
+    #    Les deux termes sont en TRI-ETAT : un fait non mesure ne refuse jamais.
     if rules & int(TR.CasterHasNotMoved):
-        if caster is not None and caster.is_turn_of_unit and caster.has_moved:
-            return int(TR.CasterHasNotMoved)
+        if caster is not None and caster.is_turn_of_unit:
+            if caster.has_moved:
+                return int(TR.CasterHasNotMoved)
+            if (caster.interrogated_pos is not None and caster.pos is not None
+                    and tuple(caster.interrogated_pos) != tuple(caster.pos)):
+                return int(TR.CasterHasNotMoved)
     # 2. `CasterCanMove` (0x10000000) -- `UnitExtensions$$CanMove` n'est publie par aucun canal
     #    DECISION. 2 porteurs (1043, 1152). NON PORTEE, degradation permissive.
     # 3. `CasterHasCompletedOneTurn` (0x80000000) -- `GetStat(caster, 0xc) <= 1`. **0 porteur**.
