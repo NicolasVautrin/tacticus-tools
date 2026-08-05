@@ -157,9 +157,60 @@ def volet_trietat(verbose: bool = True) -> dict:
     return res
 
 
+# ================================================================= volet `flee` (OFFLINE)
+def volet_flee(verbose: bool = True) -> dict:
+    """L'ECRIVAIN de la branche POOL, en ROLLOUT OFFLINE.
+
+    Le mirror `unit_extensions_is_alive` ne vaut que si l'operation qui SORT l'unite du pool le
+    fait aussi offline. `IdunBattle.Operations.FleeOperation$$Execute` appelle le slot 6 de
+    `Core.Services.OperationProcessor` (= `$$RemoveUnit` -> `RemoveUnitOperation$$Execute`) AVANT
+    de poser `UnitFlag.Fled` -- et la mesure live le corrobore : l'enfuie porte `[9, 26]`, le 26
+    (`UnitFlag.Removed`) n'ayant qu'UN poseur dans le binaire. Le port ne posait que le 9.
+
+    Ce volet est OFFLINE et n'a besoin d'AUCUN runner : il fait fuir une unite construite a la
+    main et regarde les trois observables (`Removed`, `alive`, le service)."""
+    from engine.runner.state import State                               # noqa: PLC0415
+    from engine.runner.components import (UnitComponent, UnitFlagsComponent,   # noqa: PLC0415
+                                          HealthComponent, unit_extensions_is_alive,
+                                          unit_is_alive, unit_is_dead, is_alive_and_not_fled)
+    from engine.runner.operations.behaviour import FleeOperation        # noqa: PLC0415
+
+    st = State()
+    e = st.add_entity(42)
+    e.add_component(UnitComponent(visual_id="astraNpc1Guardsman", alive=True))
+    e.add_component(HealthComponent(hp=1000, hp_max=1000))
+    res: dict = {"ok": True}
+    res["avant_is_alive"] = unit_extensions_is_alive(e)
+    out = FleeOperation.execute(st, 42)
+    res["retrait_rendu"] = (out or {}).get("retrait") is not None
+    fl = e.get_component(UnitFlagsComponent)
+    res["flag_fled"] = bool(fl is not None and fl.has(UnitFlagsComponent.FLED))
+    res["flag_removed"] = bool(fl is not None and fl.has(UnitFlagsComponent.REMOVED))
+    res["uc_alive"] = e.get_component(UnitComponent).alive
+    res["hp_intact"] = e.get_component(HealthComponent).hp
+    # LES TROIS PREDICATS, apres la fuite : le service rend FAUX, celui des PV rend VRAI (les PV
+    # sont intacts), et `IsDead` reste FAUX -- il exclut expressement le flag 9.
+    res["apres_unit_extensions_is_alive"] = unit_extensions_is_alive(e)
+    res["apres_health_is_alive"] = unit_is_alive(e)
+    res["apres_unit_is_dead"] = unit_is_dead(e)
+    res["apres_is_alive_and_not_fled"] = is_alive_and_not_fled(e)
+    attendu = {"avant_is_alive": True, "retrait_rendu": True, "flag_fled": True,
+               "flag_removed": True, "uc_alive": False, "hp_intact": 1000,
+               "apres_unit_extensions_is_alive": False, "apres_health_is_alive": True,
+               "apres_unit_is_dead": False, "apres_is_alive_and_not_fled": False}
+    for k, v in attendu.items():
+        if res[k] != v:
+            res["ok"] = False
+            res["%s_ATTENDU" % k] = v
+    if verbose:
+        for k in sorted(res):
+            print("  %-40s %s" % (k, res[k]))
+    return res
+
+
 # ================================================================= volet `fled` (LIVE)
 def volet_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
-               essais: int = 3, verbose: bool = True) -> dict:
+               essais: int = 3, verbose: bool = True, places=None) -> dict:
     """LA CONFRONTATION. Meme montage que `--volet fled` de #429-r1-r3-r1 (foyer partage
     `installer_regime_fled`), mais la mesure porte sur les DEUX volets de cette tranche :
 
@@ -186,7 +237,7 @@ def volet_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
                                           HealthComponent, is_alive_and_not_fled,
                                           unit_extensions_is_alive, unit_is_alive, unit_is_dead)
 
-    P.build_fled(state_file, seed, board)
+    P.build_fled(state_file, seed, board, places=places)
     s, rid = P.sid(), None
     res: dict = {"kills": 0, "gardes_poses": 0, "roulements": 0}
     import json                                                        # noqa: PLC0415
@@ -306,6 +357,50 @@ def volet_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
                 AA.unit_extensions_is_alive = garde_op
         finally:
             C.is_alive_and_not_fled = garde_msg
+
+        # ---------- ATTRIBUTION PAR BRANCHE, sur l'etat LIVE --------------------------------
+        # Les trois branches d'`IsAlive` sont conjonctives : dire « le port refuse » ne dit pas
+        # LAQUELLE refuse. On les bouge UNE A UNE sur l'etat reel (jamais sur un etat fabrique) :
+        #   * `uc.alive = True` (l'unite RENTRE dans le pool `AliveUnits`) -> le service doit
+        #     rendre VRAI, le gate d'OPERATION laisser passer, et seul le gate de MESSAGE
+        #     (`UnitFlag.Fled`, un autre predicat) refuser encore ;
+        #   * puis, sur ce meme etat, poser `UnitFlag.Dead` -> le service redevient FAUX par la
+        #     PREMIERE branche. Sans ce second bras, rien ne prouverait que la branche `Dead` est
+        #     lue du tout sur cet etat.
+        st_pool = _monter()
+        e_pool = st_pool.get_entity(int(fled_id))
+        e_pool.get_component(UnitComponent).alive = True
+        res["attribution_pool_rentre_is_alive"] = unit_extensions_is_alive(e_pool)
+        res["attribution_pool_rentre_is_dead"] = unit_is_dead(e_pool)
+        e_pool.get_component(UnitFlagsComponent).add(UnitFlagsComponent.DEAD)
+        res["attribution_puis_flag_dead_is_alive"] = unit_extensions_is_alive(e_pool)
+
+        def _frappe_sans_gate_message(mut):
+            """Le gate d'OPERATION seul, sur un etat MUTE -- pour voir la branche mordre/lacher."""
+            st = _monter()
+            mut(st.get_entity(int(fled_id)))
+            garde = C.is_alive_and_not_fled
+            C.is_alive_and_not_fled = lambda *_a, **_k: True
+            try:
+                run = Runner(st).install_default_handlers(20)
+                try:
+                    run.apply(AttackUnitMessage(obs, fled_id))
+                except Exception as e:                                 # noqa: BLE001
+                    return {"leve": type(e).__name__ + ": " + str(e)[:120]}
+                return run.damage_handler.last
+            finally:
+                C.is_alive_and_not_fled = garde
+
+        def _rentre(e):
+            e.get_component(UnitComponent).alive = True
+
+        def _rentre_puis_dead(e):
+            e.get_component(UnitComponent).alive = True
+            e.get_component(UnitFlagsComponent).add(UnitFlagsComponent.DEAD)
+
+        res["attribution_frappe_si_pool_rentre"] = _frappe_sans_gate_message(_rentre)
+        res["attribution_frappe_si_pool_rentre_mais_flag_dead"] = _frappe_sans_gate_message(
+            _rentre_puis_dead)
         res["why"] = ""
     finally:
         try:
@@ -320,11 +415,14 @@ def volet_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--volet", choices=("scan", "trietat", "fled"), default="scan")
+    ap.add_argument("--volet", choices=("scan", "trietat", "flee", "fled"), default="scan")
     ap.add_argument("--state-file", default=None, help="chemin ABSOLU, hors data/")
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--essais", type=int, default=3)
+    ap.add_argument("--sans-place", action="store_true",
+                    help="spawn NATUREL (les `--place` de MC1_67 ne valent que sur MC1_67) : "
+                         "c'est le mode de la generalisation multi-board")
     a = ap.parse_args()
     if a.volet == "scan":
         print("[scan] perimetre du mirror")
@@ -332,11 +430,16 @@ def main() -> int:
     if a.volet == "trietat":
         print("[trietat] canal unitsNotAlive -- lu / muet / absent")
         return 0 if volet_trietat()["ok"] else 1
+    if a.volet == "flee":
+        print("[flee] l'ecrivain de la branche POOL, en rollout offline")
+        return 0 if volet_flee()["ok"] else 1
     if not a.state_file:
         print("--state-file ABSOLU requis pour le volet live")
         return 2
-    print("[fled] confrontation live seed=%s board=%s" % (a.seed, a.board))
-    out = volet_fled(a.state_file, a.seed, a.board, a.essais)
+    print("[fled] confrontation live seed=%s board=%s sans_place=%s"
+          % (a.seed, a.board, bool(a.sans_place)))
+    out = volet_fled(a.state_file, a.seed, a.board, a.essais,
+                     places=() if a.sans_place else None)
     return 0 if out.get("fled_id") is not None else 1
 
 

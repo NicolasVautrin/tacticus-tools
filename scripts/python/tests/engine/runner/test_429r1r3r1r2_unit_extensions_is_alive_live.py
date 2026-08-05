@@ -106,6 +106,34 @@ def test_l_absence_du_bloc_unitsNotAlive_est_NOMMEE_et_ne_se_confond_pas_avec_un
         "le bloc `unitsNotAlive` doit POSER les flags qu'il porte, sinon le lecteur est inerte")
 
 
+# --------------------------------------------------------------- 2bis. L'ECRIVAIN (OFFLINE)
+def test_la_fuite_portee_SORT_l_unite_du_plateau_comme_le_natif():
+    """OFFLINE. Un mirror de liveness ne vaut que si l'operation qui SORT l'unite du pool le fait
+    aussi en rollout : sans ca, `unit_extensions_is_alive` serait correct sur un etat SEEDE du live
+    et INERTE en self-play. `IdunBattle.Operations.FleeOperation$$Execute` appelle le slot 6 de
+    `Core.Services.OperationProcessor` (= `$$RemoveUnit` -> `RemoveUnitOperation$$Execute`, unique
+    appelant de code de cette Operation) AVANT de poser `UnitFlag.Fled`.
+
+    La mesure live le corrobore, sur DEUX boards : l'enfuie porte `unitFlags = [9, 26]` -- le 26
+    (`UnitFlag.Removed`) n'a qu'UN poseur dans tout le binaire. Le port ne posait que le 9."""
+    r = Q.volet_flee(verbose=False)
+    assert r["avant_is_alive"] is True, "prealable : l'unite est vivante avant de fuir"
+    assert r["flag_fled"] is True and r["flag_removed"] is True, (
+        "la fuite doit poser `Fled` (9) ET `Removed` (0x1a) -- obtenu %s / %s"
+        % (r["flag_fled"], r["flag_removed"]))
+    assert r["uc_alive"] is False, (
+        "et SORTIR l'unite du plateau (le collapse porte du pool `AliveUnits`)")
+    assert r["hp_intact"] == 1000, (
+        "sans toucher aux PV -- une fuite n'est PAS une mort (le natif ne pose ni `Dead` ni hp=0)")
+    assert r["apres_unit_extensions_is_alive"] is False, (
+        "`UnitExtensions$$IsAlive` doit rendre FAUX apres la fuite, en rollout PUR")
+    assert r["apres_health_is_alive"] is True, (
+        "alors que `HealthComponent$$IsAlive` rend VRAI -- c'est exactement l'ecart que cette "
+        "tranche porte, et il doit rester visible")
+    assert r["apres_unit_is_dead"] is False, "`IsDead` exclut expressement `Fled`"
+    assert r["ok"] is True
+
+
 # --------------------------------------------------------------- 3. LE CANAL, EN LIVE
 def test_l_enfui_est_hors_des_unites_VIVANTES_et_dans_le_bloc_unitsNotAlive(fled):
     """LA CAUSE RACINE, mesuree. Le filtre alive-only de `combatSnapshot` rendait le canal

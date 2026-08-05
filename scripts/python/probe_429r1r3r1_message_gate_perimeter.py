@@ -125,16 +125,25 @@ def build(state_file: str, seed: str, board: str, extra=()) -> dict:
     return json.loads(Path(state_file).read_text(encoding="utf-8"))
 
 
-def build_fled(state_file: str, seed: str, board: str) -> dict:
+def build_fled(state_file: str, seed: str, board: str, places=None) -> dict:
     """Montage du volet `fled` : roster propre + `--unit-stat` sur l'entree de SUMMON.
 
     Sans le patch de stats, `applyAddUnit` poserait des gardes MORT-NES : les 12 entrees
     `BattleFatigue` du seed BC portent toutes `Health = 0` (les stats d'un summon viennent
-    normalement des constantes de l'ability qui l'invoque, pas du catalogue)."""
+    normalement des constantes de l'ability qui l'invoque, pas du catalogue).
+
+    `places` = les `--place`/`--a-place` a passer ; `FLED_PLACES` par defaut. **Ces coordonnees
+    sont celles de `MC1_67`** -- sur un AUTRE board elles ne sont pas honorees
+    (`IdunBattle.Operations.AddUnitOperation$$Execute` rend NUL en SILENCE sur une tuile
+    interdite / occupee / reservee, et `rl_duel` le detecte pour nous). Passer `places=()` laisse
+    le spawn naturel : `installer_regime_fled` sait alors POSER lui-meme une victime sur un hex
+    libre adjacent au killer. C'est ce que fait la generalisation multi-board de
+    #429-r1-r3-r1-r2 -- le montage n'est donc PAS bloque par la geometrie de spawn."""
     out = subprocess.run([sys.executable, sibling_script("rl_duel.py"), "build",
                           "--seed", seed, "--board", board, "--state-file", state_file,
                           "--p-units", FLED_P_UNITS, "--a-units", FLED_A_UNITS,
-                          "--hp-target", "1", *FLED_PLACES,
+                          "--hp-target", "1",
+                          *(FLED_PLACES if places is None else tuple(places)),
                           "--unit-stat", "%s:Health=%d,RemainingHealth=%d,Damage=100"
                           % (FLED_SUMMON_VISUAL, FLED_HP, FLED_HP)],
                          capture_output=True, text=True)
