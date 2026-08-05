@@ -705,8 +705,14 @@ def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) 
         return any(getattr(ef, "effect_type", None) == EFFECT_NO_ELEVATION for ef in effs)
 
     no_elev = _has_no_elev(attacker_id) or _has_no_elev(target_id)
-    eb = calculate_elevation_bonus_modifier(a_elev, t_elev, ELEVATION_BONUS_PCT,
-                                            attacker_or_target_has_no_elev_effect=no_elev)
+    # #449-r2-r4-r4 : le pct vient de la BC de CETTE bataille (`State`), plus de la seed figee a
+    # l'import. `ELEVATION_BONUS_PCT` restait juste tant que la BC valait la seed et devenait faux
+    # sinon -- mesure : a `ElevationBonus` ABSENT le natif inflige 5160 la ou le port en calculait
+    # 8797 (+70,5 %), et a 100 le natif monte a 10520 quand le port restait a 8797.
+    from ..services.damage_config import resolve_damage_field
+    eb = calculate_elevation_bonus_modifier(
+        a_elev, t_elev, resolve_damage_field("elevation_bonus", state=state),
+        attacker_or_target_has_no_elev_effect=no_elev)
     if eb is not None:
         add_modifier(mods, eb)
 
@@ -725,7 +731,8 @@ def apply_trench_reduction(state: State, mods, attacker_id: int, target_id: int,
         return
     from .components import PositionComponent
     from ..services.damage_modifiers import (add_modifier, calculate_trench_reduction,
-                                             TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
+                                             _TRENCH_IGNORED_PROFILES)
+    from ..services.damage_config import resolve_damage_field
     from ..entities.traits.unit_trait import UnitTrait
     ea, et = state.get_entity(attacker_id), state.get_entity(target_id)
     pa = ea.get_component(PositionComponent) if ea is not None else None
@@ -741,7 +748,10 @@ def apply_trench_reduction(state: State, mods, attacker_id: int, target_id: int,
         (pa.col, pa.row), (pt.col, pt.row), target_has_trench,
         UnitTrait.IndirectFire.name in att_traits,                              # HasTrait(att, IndirectFire 0x3ed)
         bool(damage_profile) and damage_profile in _TRENCH_IGNORED_PROFILES,    # IgnoreTrenchReduction
-        board, TRENCH_PCT)
+        # #449-r2-r4-r4 : LU de la BC de cette bataille (`+0x2c`), plus de la seed figee a
+        # l'import. `abs()` conserve : la config native est un pourcentage NEGATIF, et le port
+        # passe la MAGNITUDE a un `PercentDecrease` (le signe est porte par le kind).
+        board, abs(resolve_damage_field("trench_reduction_percentage", state=state)))
     if eb is not None:
         add_modifier(mods, eb)
 

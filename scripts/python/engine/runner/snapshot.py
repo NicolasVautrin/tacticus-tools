@@ -308,8 +308,12 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         state.enable_obscuring_terrain = bool(targeting_config["EnableObscuringTerrain"])
     _dmgcfg = DamageConfiguration.from_bc(damage_config)
     if _dmgcfg is not None:
-        state.damage_spread_percentage = _dmgcfg.damage_spread_percentage
-        state.ignore_damage_spread = _dmgcfg.ignore_damage_spread
+        # #449-r2-r4-r4 : toute la section, pas seulement les deux champs de la variance. La liste
+        # est DERIVEE de `DAMAGE_FIELDS` -- un champ qui entre dans la table est pose ici sans
+        # qu'on ait a y penser, et ne peut donc pas rester silencieusement non transporte.
+        from ..services.damage_config import DAMAGE_FIELDS
+        for _name in DAMAGE_FIELDS:
+            setattr(state, _name, getattr(_dmgcfg, _name))
     # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du
     # `BC.Player.TurnOrder` dont `PlayerComponent+0x20 != 2`) * rounds`). `observeBattle.counts.player`
     # = le nb d'entites Player PROJETEES (EntityType 4) ; le joueur **Environment** est unique et

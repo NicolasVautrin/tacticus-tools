@@ -124,10 +124,13 @@ def _occupied(state: State, exclude_id: int) -> dict[tuple[int, int], int]:
 # `IdunBattle.Core.Services.DamageCalculations$$Init` (arg2) depuis `IdunRunner.Initialize` = `BattleConfiguration+0xa8`
 # = `BattleConfiguration.Damage`. Layout du sous-objet `Damage` (ints consecutifs, verifie par les 3
 # getters soeurs) : +0x1c=ArmorPercentage, +0x20=DamageSpreadPercentage, +0x24=KnockbackPercentage.
-# => pct = `BattleConfiguration.Damage.KnockbackPercentage` = 20 (gameconfig gqfc5mff6c ; present tel
-# quel dans TOUS les seeds BC frais). Constante sourcee, coherente avec `calculate_damage_spread(
-# spread_pct=20)` (DamageSpreadPercentage) et `armor_percentage=50` : ces % Damage sont des constantes
-# gameconfig par-build dans le port (defaut = valeur courante ; a re-lire si le gameconfig change).
+# => pct = `BattleConfiguration.Damage.KnockbackPercentage`.
+#
+# #449-r2-r4-r4 -- ce module portait `_KNOCKBACK_PCT = 20`, presente comme une « constante sourcee,
+# coherente avec spread_pct=20 et armor_percentage=50 ». C'etait le MEME vice que #449-r2-r4 : la
+# valeur est un ETAT DE LA BATAILLE, pas une constante du build. Elle se resout desormais par
+# `engine.services.damage_config.resolve_damage_field("knockback_percentage", state=state)`, qui
+# lit la BC de cette bataille et, a defaut de canal, DERIVE son defaut de `data/seed-bc.json`.
 #
 # CORRECTION #61 (le "10" de #47 etait un FIT compensatoire, PAS la valeur reelle) : #47 mesurait le
 # hpDelta NET d'un cast MortisRound sur necroWarden (=Makhotep, HERO Necron a trait LivingMetal). Le
@@ -135,7 +138,6 @@ def _occupied(state: State, exclude_id: int) -> dict[tuple[int, int], int]:
 # = attaque + 10%net, tout attribue a tort au knockback (pct=10). Mesure ISOLEE #61 (event StreamDispatcher
 # UnitDamaged DamageProfileType=0, degat separe de l'attaque profile=19) : maxHealth 30001 -> knockback
 # 6001 = Ceiling(30001x0.20) [impair sur mono-modele -> exclut 10% ET tout /2] ; 50000 -> 10000. => pct=20.
-_KNOCKBACK_PCT = 20
 
 
 def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: int):
@@ -144,7 +146,7 @@ def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: in
       vivant) puis, dans le montant (`IdunBattle.Core.Services.DamagePrediction$$GetKnockback`, atteint via le MEME
       couple (iface DAT_183287ef8, slot 0xf) que `IdunBattleLogic.Core.Services.Caches.CachedDamagePrediction$$GetKnockback`) :
       `IsDisplaceable(unit)` + `!HasTrait(unit, 0x19=25 Immune)` -> 0 (aucun degat).
-    - montant : `IdunBattle.Core.Services.DamageCalculations$$CalculateKnockbackDamage` = ceil(maxHealth x _KNOCKBACK_PCT/100),
+    - montant : `IdunBattle.Core.Services.DamageCalculations$$CalculateKnockbackDamage` = ceil(maxHealth x BC.Damage.KnockbackPercentage/100),
       DETERMINISTE (0 tirage rng — confirme live #47 : mti+2 sur tout le cast MortisRound bloque,
       les 2 tirages = valeur + resolve de l'ATTAQUE).
     - application : sub-op 0x42 (pipeline degat partage) -> part BOUCLIER d'abord puis PV
@@ -168,7 +170,13 @@ def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: in
     thc = e.get_component(HealthComponent)
     if thc is None or thc.hp is None or not thc.hp_max:
         return None
-    amount = -(-int(thc.hp_max) * _KNOCKBACK_PCT // 100)      # ceil (Fix64.Ceiling, entiers exacts)
+    # #449-r2-r4-r4 : le pct est LU dans `BC.Damage.KnockbackPercentage` (`+0x24`, getter
+    # `IdunBattle.Core.Services.DamageCalculations$$get_KnockbackPercentageFix64`), plus code en
+    # dur. La signature native n'a AUCUN parametre de pourcentage : il n'existe donc cote jeu
+    # aucune constante 20 a recopier, et un litteral ici etait par construction une invention.
+    from ...services.damage_config import resolve_damage_field
+    pct = resolve_damage_field("knockback_percentage", state=state)
+    amount = -(-int(thc.hp_max) * pct // 100)                 # ceil (Fix64.Ceiling, entiers exacts)
     if amount <= 0:
         return None
     shc, shield_total = AttackDamageOperation._target_shield(e)
@@ -574,7 +582,7 @@ class DisplaceUnitOperation(Operation):
             #     (l'occupant ALLIE du pousseur n'est pas endommage — return avant le 2e appel).
             # GROUND TRUTH #61 (MortisRound, push vers le bord, event knockback ISOLE) : le degat de
             # knockback = ceil(maxHealth x 20%) (30001 -> 6001 ; 50000 -> 10000), 0 tirage rng
-            # supplementaire (cf. _KNOCKBACK_PCT = BC.Damage.KnockbackPercentage).
+            # supplementaire (cf. BC.Damage.KnockbackPercentage, resolu par damage_config).
             res = {"moved": False, "reason": "blocked"}   # push annule (mirror lVar7==0 : pas de move)
             kbs = []
             kb = _apply_knockback_to(state, bus, self.pusher_id, self.pushed_id)
