@@ -70,6 +70,12 @@ from probe_480r6_code_mort import (  # noqa: E402
 
 # Extensions qui portent du code EXECUTABLE (par opposition a la doc `.md`).
 EXT_EXEC = (".py", ".js", ".ts", ".cjs", ".mjs", ".ps1", ".sh", ".bat")
+# `hooks-legacy/` est VERSIONNE et consultable, mais le CLAUDE.md en fixe le statut : « rien de
+# vivant ne doit en dependre ». Un appelant qui n'existe QUE la ne prouve donc aucune vie -- il
+# prouve le contraire, une survivance historique. Il est compte et NOMME a part, jamais fondu
+# dans le compte des appelants vivants. #480-r6 le rangeait dans son groupe `autre`, ce qui
+# faisait passer pour cable un RPC dont le seul appelant est archive.
+GROUPES_HISTORIQUES = frozenset({"legacy"})
 # Le declarant lui-meme : un RPC cite chez lui n'est pas un appelant.
 PREFIXE_DECLARANT = "frida/hooks/"
 # Plancher d'auto-accusation du capteur : sous ce seuil, c'est la MESURE qui est cassee,
@@ -187,19 +193,47 @@ def index_appels(corpus: dict[str, str]) -> dict[str, set[str]]:
 
 def index_commits() -> tuple[dict[str, set[str]], int]:
     """Noms cites dans les MESSAGES de commit, toutes refs. Rend (index, nb de commits lus)."""
-    sep = "\x00"
-    brut = _git_brut("log", "--all", "--format=%s" + sep + "%b" + sep + "%H" + sep + sep)
+    # Windows refuse un `\x00` dans un argument de processus (`ValueError: embedded null
+    # character`) : le separateur est donc textuel, et choisi hors de l'alphabet des
+    # identifiants pour ne jamais scinder un nom de RPC.
+    sep = "@@480R8@@"
+    brut = _git_brut("log", "--all", "--format=%H" + sep + "%s%n%b" + sep + sep)
     idx: dict[str, set[str]] = {}
     n = 0
     for bloc in brut.split(sep + sep):
         if not bloc.strip():
             continue
-        parts = bloc.split(sep)
-        sha = parts[-1].strip()[:8] if len(parts) >= 3 else "?"
+        parts = bloc.split(sep, 1)
+        sha = parts[0].strip()[:8] if parts else "?"
+        corps = parts[1] if len(parts) > 1 else ""
         n += 1
-        for m in IDENT_RE.findall(bloc):
+        for m in IDENT_RE.findall(corps):
             idx.setdefault(m, set()).add(sha)
     return idx, n
+
+
+def archeologie(noms: list[str]) -> dict[str, list[str]]:
+    """Pour chaque nom : les commits ou il a vecu dans du code VIVANT hors de son declarant.
+
+    `-S` (pickaxe) coute ~12 s par terme sur ce depot ; la mesure est purement OFFLINE, donc
+    elle se parallelise sans toucher au budget des runners (CLAUDE.md : « le plafond de 4
+    borne ce qui MONTE UN RUNNER, pas la parallelisation »).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    def un(n: str) -> tuple[str, list[str]]:
+        try:
+            out = _git("log", "--all", "--oneline", "-S", n, "--",
+                       ":!frida/hooks", ":!hooks-legacy", ":!*.md")
+        except subprocess.CalledProcessError:
+            return n, ["<MESURE ECHOUEE>"]
+        return n, [l for l in out if l.strip()]
+
+    res: dict[str, list[str]] = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for n, v in ex.map(un, noms):
+            res[n] = v
+    return res
 
 
 def main() -> int:
@@ -209,6 +243,9 @@ def main() -> int:
                     help="rc != 0 si un RPC n'a AUCUN canal de joignabilite")
     ap.add_argument("--temoins", type=int, default=3,
                     help="nombre de temoins affiches par RPC (defaut 3)")
+    ap.add_argument("--archeologie", action="store_true",
+                    help="pour chaque candidat mort, chercher s'il a DEJA eu un appelant "
+                         "(git log -S, ~12 s/terme, parallelise)")
     a = ap.parse_args()
 
     # --- ETAPE 1 : recensement ------------------------------------------------------------
@@ -250,9 +287,18 @@ def main() -> int:
     print("        doc        : %d fichiers `.md` versionnes" % len(cdoc))
     print("        commits    : %d messages lus (`git log --all`)" % n_commits)
 
-    # C1 = quote OU forme d'appel, dans un fichier executable  (critere #480-r6)
-    c1 = {n: quote_idx.get(n, set()) | appel_idx.get(n, set()) for n in noms}
-    c2 = {n: nu_idx.get(n, set()) - c1[n] for n in noms}
+    # C1 = quote OU forme d'appel, dans un fichier executable VIVANT (critere #480-r6, corrige
+    # de son biais `hooks-legacy`). C0 = le meme signal, mais dans l'ARCHIVE seule.
+    def _vivants(s: set[str]) -> set[str]:
+        return {f for f in s if groupe_de(f) not in GROUPES_HISTORIQUES}
+
+    def _archives(s: set[str]) -> set[str]:
+        return {f for f in s if groupe_de(f) in GROUPES_HISTORIQUES}
+
+    brut1 = {n: quote_idx.get(n, set()) | appel_idx.get(n, set()) for n in noms}
+    c1 = {n: _vivants(brut1[n]) for n in noms}
+    c0 = {n: _archives(brut1[n]) for n in noms}
+    c2 = {n: _vivants(nu_idx.get(n, set())) - c1[n] for n in noms}
     c3 = {n: doc_idx.get(n, set()) for n in noms}
     c4 = {n: commit_idx.get(n, set()) for n in noms}
     # C5 : un FRERE du meme fichier declarant possede C1.
@@ -269,7 +315,8 @@ def main() -> int:
                     cables.add(autre)
         c5[n] = cables
 
-    canaux = (("C1 appel executable (quote ou forme d'appel)", c1),
+    canaux = (("C0 appel depuis l'ARCHIVE `hooks-legacy/` seule", c0),
+              ("C1 appel executable (quote ou forme d'appel)", c1),
               ("C2 token nu dans un fichier executable", c2),
               ("C3 cite dans une doc .md versionnee", c3),
               ("C4 cite dans un message de commit", c4),
@@ -281,7 +328,14 @@ def main() -> int:
 
     sans_c1 = [n for n in noms if not c1[n]]
     print()
-    print("        SANS C1 (le compte de #480-r6) : %d" % len(sans_c1))
+    print("        SANS C1 (le compte de #480-r6, corrige du biais `hooks-legacy`) : %d"
+          % len(sans_c1))
+    seul_archive = [n for n in noms if not c1[n] and c0[n]]
+    print("        dont appeles SEULEMENT depuis `hooks-legacy/` (archive : ne prouve aucune")
+    print("        vie, et #480-r6 les comptait comme cables) : %d" % len(seul_archive))
+    for n in sorted(seul_archive):
+        print("        archive-seule  rpc.%-30s %s"
+              % (n, ", ".join(sorted(c0[n])[:a.temoins])))
 
     # --- ETAPE 4 : ventilation des SANS-C1 ------------------------------------------------
     # Partition EXHAUSTIVE : chaque RPC sans C1 tombe dans exactement une classe, et la somme
@@ -290,6 +344,8 @@ def main() -> int:
     classes: dict[str, list[str]] = {}
     for n in sans_c1:
         sig = []
+        if c0[n]:
+            sig.append("C0")
         if c2[n]:
             sig.append("C2")
         if c3[n]:
@@ -327,9 +383,24 @@ def main() -> int:
 
     morts = sorted(classes.get("AUCUN CANAL", []))
     print()
-    print("[480r8] ETAPE 5 -- CANDIDATS MORTS (aucun des cinq canaux) : %d" % len(morts))
+    print("[480r8] ETAPE 5 -- CANDIDATS MORTS (aucun des canaux) : %d" % len(morts))
     for n in morts:
         print("  MORT?  rpc.%-34s declare dans %s" % (n, ", ".join(sorted(set(decl[n])))))
+
+    if a.archeologie and morts:
+        print()
+        print("[480r8] ETAPE 5bis -- ARCHEOLOGIE : un candidat mort a-t-il DEJA eu un appelant ?")
+        print("        `git log --all -S<nom>` restreint au code VIVANT (hors `frida/hooks/`,")
+        print("        hors `hooks-legacy/`, hors `.md`). Un resultat NON VIDE veut dire que le")
+        print("        nom a vecu hors de son declarant : feature retiree ou remplacant. Un")
+        print("        resultat VIDE veut dire qu'il n'a JAMAIS eu d'appelant ecrit.")
+        arch = archeologie(morts)
+        jamais = [n for n in morts if not arch[n]]
+        eurent = [n for n in morts if arch[n]]
+        print("        JAMAIS d'appelant ecrit : %d  |  en ont EU un : %d"
+              % (len(jamais), len(eurent)))
+        for n in eurent:
+            print("  A-VECU rpc.%-32s %s" % (n, ", ".join(arch[n][:a.temoins])))
 
     # Canal UNIQUE = fragilite : un RPC qui ne tient que par le message de commit n'a aucune
     # trace vivante dans l'arbre. On le NOMME, sans le declarer mort.
