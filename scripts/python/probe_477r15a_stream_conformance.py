@@ -146,10 +146,18 @@ def session_courante() -> int:
 
 
 def build(board: str, state_file: Path, p_units: str = ROSTER_P,
-          a_units: str = ROSTER_A) -> int:
+          a_units: str = ROSTER_A, armor_target: "int | None" = None) -> int:
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(SEED), "--board", board,
            "--p-units", p_units, "--a-units", a_units,
            "--record-replay", "--no-ai", "--state-file", str(state_file)]
+    # #477-r15-r7 -- MONTAGE ECRIT pour sortir du TEMOIN VIDE. Les unites regulieres du corpus
+    # portent une armure « fill-up » NULLE (`StatType.Armor` = 4 ; le `A` des kits est
+    # `FixedArmor` = 16, un autre composant). Le tag `UnitStats_MaxArmor` ne porte donc que des
+    # zeros, et son egalite ne teste aucun canal. `--armor-target` force `Armor` + `FixedArmor`
+    # des a-units -- c'est-a-dire exactement les unites que `SetupGameOperation$$AddPredefinedUnits`
+    # pose dans le groupe `System_GameSetup`.
+    if armor_target is not None:
+        cmd += ["--armor-target", str(armor_target)]
     p = subprocess.run(cmd, cwd=str(HERE), capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=900)
     if not state_file.is_file():
@@ -460,13 +468,16 @@ def emettre(setup: GameSetup) -> str:
 
 
 def scenario(session: int, board: str, p_units: str = ROSTER_P,
-             a_units: str = ROSTER_A) -> dict:
+             a_units: str = ROSTER_A, armor_target: "int | None" = None) -> dict:
     # Le state-file porte le board ET une signature du roster : deux passes qui ne different que
     # par leurs rosters ne doivent pas se marcher dessus (discipline runner, `runner.md` §3).
-    signature = "%08x" % (zlib.crc32(("%s|%s" % (p_units, a_units)).encode()) & 0xffffffff)
+    # L'armure forcee entre dans la signature : sans elle, deux passes qui ne different QUE par
+    # `--armor-target` partageraient un state-file.
+    signature = "%08x" % (zlib.crc32(("%s|%s|%s" % (p_units, a_units, armor_target)).encode())
+                          & 0xffffffff)
     state = OUT / ("state-477r15a-%s-%s.json" % (board, signature))
     state.parent.mkdir(parents=True, exist_ok=True)
-    rid = build(board, state, p_units, a_units)
+    rid = build(board, state, p_units, a_units, armor_target)
     try:
         flux = (rpc(session, "replayOutputStream",
                     {"runnerId": rid, "maxChars": 8000000}).get("outputStream") or "")
@@ -630,6 +641,10 @@ def main() -> int:
     # defauts sont ceux de la mesure de reference des tranches A + B + E.
     ap.add_argument("--p-units", default=ROSTER_P)
     ap.add_argument("--a-units", default=ROSTER_A)
+    ap.add_argument("--armor-target", type=int, default=None,
+                    help="#477-r15-r7 : force `Armor`+`FixedArmor` des a-units. SANS lui, le tag "
+                         "`UnitStats_MaxArmor` vaut 0 sur tout le corpus et son egalite compare "
+                         "deux zeros -- le probe le DIT, mais seul ce montage le leve.")
     args = ap.parse_args()
 
     try:
@@ -639,14 +654,14 @@ def main() -> int:
         return 2
 
     boards = [b.strip() for b in args.boards.split(",") if b.strip()]
-    print("[477-r15a] session=%d  boards=%s  p=%s  a=%s"
-          % (session, ",".join(boards), args.p_units, args.a_units))
+    print("[477-r15a] session=%d  boards=%s  p=%s  a=%s  armor-target=%s"
+          % (session, ",".join(boards), args.p_units, args.a_units, args.armor_target))
     resultats, exercees_corpus = [], set()
     for board in boards:
         print("")
         print("=== BOARD %s ===" % board)
         try:
-            res = scenario(session, board, args.p_units, args.a_units)
+            res = scenario(session, board, args.p_units, args.a_units, args.armor_target)
         except MesureImpossible as e:
             print("  MESURE IMPOSSIBLE : %s" % e)
             return 2
