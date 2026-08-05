@@ -38,10 +38,10 @@
    "turns": 374
   },
   "a011d6d5372116f68": {
-   "ctx": 55683068,
+   "ctx": 97854339,
    "first": "2026-08-05T14:14:10.795000+00:00",
-   "last": "2026-08-05T14:55:52.778000+00:00",
-   "turns": 183
+   "last": "2026-08-05T15:19:51.932000+00:00",
+   "turns": 277
   },
   "a011d963dd7d1cf6a": {
    "ctx": 1073033,
@@ -638,10 +638,10 @@
    "turns": 237
   },
   "a170ee0dbae86b096": {
-   "ctx": 43898254,
+   "ctx": 48133331,
    "first": "2026-08-05T14:07:33.113000+00:00",
-   "last": "2026-08-05T14:55:57.552000+00:00",
-   "turns": 199
+   "last": "2026-08-05T14:58:43.563000+00:00",
+   "turns": 213
   },
   "a1759a2b80713d352": {
    "ctx": 1531945,
@@ -2101,6 +2101,12 @@
    "last": "2026-07-26T05:27:24.967000+00:00",
    "turns": 270
   },
+  "a52ececbfe035163e": {
+   "ctx": 8122996,
+   "first": "2026-08-05T15:57:03.923000+00:00",
+   "last": "2026-08-05T16:03:51.701000+00:00",
+   "turns": 54
+  },
   "a53103b4b5d220e79": {
    "ctx": 68136039,
    "first": "2026-07-24T00:26:53.834000+00:00",
@@ -2486,10 +2492,10 @@
    "turns": 109
   },
   "a5f389477ed14ac02": {
-   "ctx": 29585918,
+   "ctx": 39510894,
    "first": "2026-08-05T14:33:14.388000+00:00",
-   "last": "2026-08-05T14:55:57.647000+00:00",
-   "turns": 147
+   "last": "2026-08-05T15:01:59.140000+00:00",
+   "turns": 181
   },
   "a5f4b2cd390b5c50e": {
    "ctx": 6542258,
@@ -2570,16 +2576,22 @@
    "turns": 42
   },
   "a64f5345a85c51632": {
-   "ctx": 6695046,
+   "ctx": 53788484,
    "first": "2026-08-05T14:47:31.382000+00:00",
-   "last": "2026-08-05T14:55:47.917000+00:00",
-   "turns": 52
+   "last": "2026-08-05T15:31:50.158000+00:00",
+   "turns": 238
   },
   "a65d39470ffda8578": {
    "ctx": 2961430,
    "first": "2026-06-27T00:04:54.428000+00:00",
    "last": "2026-06-27T00:11:52.964000+00:00",
    "turns": 39
+  },
+  "a662846a06dc41590": {
+   "ctx": 31166265,
+   "first": "2026-08-05T15:08:06.538000+00:00",
+   "last": "2026-08-05T15:49:51.091000+00:00",
+   "turns": 144
   },
   "a662e27f56c2b4b06": {
    "ctx": 75942413,
@@ -3103,6 +3115,12 @@
    "last": "2026-07-21T23:54:07.663000+00:00",
    "turns": 6
   },
+  "a7b04e4c61374e102": {
+   "ctx": 18185810,
+   "first": "2026-08-05T15:39:36.028000+00:00",
+   "last": "2026-08-05T16:03:53.597000+00:00",
+   "turns": 127
+  },
   "a7b85fb4f3cac5ad6": {
    "ctx": 2606550,
    "first": "2026-07-19T11:49:39.289000+00:00",
@@ -3486,6 +3504,12 @@
    "first": "2026-08-04T12:57:55.321000+00:00",
    "last": "2026-08-04T14:49:28.509000+00:00",
    "turns": 293
+  },
+  "a8d3bc989c5dfee61": {
+   "ctx": 27720540,
+   "first": "2026-08-05T15:28:32.638000+00:00",
+   "last": "2026-08-05T16:03:57.716000+00:00",
+   "turns": 154
   },
   "a8d9c8bcc3bee1cf2": {
    "ctx": 155323906,
@@ -3888,6 +3912,12 @@
    "first": "2026-07-11T18:00:28.330000+00:00",
    "last": "2026-07-11T18:16:21.243000+00:00",
    "turns": 77
+  },
+  "aa1976e745be44e05": {
+   "ctx": 50789807,
+   "first": "2026-08-05T15:07:36.970000+00:00",
+   "last": "2026-08-05T15:47:38.602000+00:00",
+   "turns": 201
   },
   "aa19c2dd769c3d745": {
    "ctx": 2112837,
@@ -4322,10 +4352,10 @@
    "turns": 164
   },
   "ab5d50682c685ddc4": {
-   "ctx": 13342098,
+   "ctx": 100068666,
    "first": "2026-08-05T14:47:07.631000+00:00",
-   "last": "2026-08-05T14:55:28.140000+00:00",
-   "turns": 78
+   "last": "2026-08-05T15:44:21.634000+00:00",
+   "turns": 304
   },
   "ab6a8843db291105c": {
    "ctx": 62352347,
@@ -4848,6 +4878,12 @@
    "first": "2026-07-08T21:51:32.590000+00:00",
    "last": "2026-07-08T22:20:25.600000+00:00",
    "turns": 173
+  },
+  "acfee5cf17056b359": {
+   "ctx": 4458484,
+   "first": "2026-08-05T15:57:58.295000+00:00",
+   "last": "2026-08-05T16:03:35.498000+00:00",
+   "turns": 37
   },
   "ad021f28a4b57f4ee": {
    "ctx": 58284175,
@@ -5989,6 +6025,12 @@
    "last": "2026-07-24T08:11:26.686000+00:00",
    "turns": 228
   },
+  "afa9aa139002d22ee": {
+   "ctx": 5078111,
+   "first": "2026-08-05T15:57:30.620000+00:00",
+   "last": "2026-08-05T16:04:09.710000+00:00",
+   "turns": 43
+  },
   "afb40d50e7be34bb5": {
    "ctx": 14668779,
    "first": "2026-07-20T17:18:13.123000+00:00",
@@ -6267,9 +6309,9 @@
    "turns": 19669
   },
   "2026-08-05": {
-   "agent_ctx": 4584600774,
-   "ctx": 5251009012,
-   "turns": 18634
+   "agent_ctx": 4920274117,
+   "ctx": 5637228005,
+   "turns": 20158
   }
  },
  "files": {
@@ -6287,7 +6329,7 @@
   },
   "770b6b08-a8e1-4df4-99e5-9ea0bcf65487.jsonl": {
    "first": "",
-   "offset": 9676703
+   "offset": 9720162
   },
   "85ce3eaa-558f-4617-a07c-53d13aa4a1bc.jsonl": {
    "first": "",
@@ -6323,7 +6365,7 @@
   },
   "agent-a011d6d5372116f68.jsonl": {
    "first": "bb1c698a-a044-41bb-ab5b-8702bbd01f57",
-   "offset": 1755254
+   "offset": 2252278
   },
   "agent-a011d963dd7d1cf6a.jsonl": {
    "first": "57954158-f537-4fd5-8dc3-a4516d03571d",
@@ -6723,7 +6765,7 @@
   },
   "agent-a170ee0dbae86b096.jsonl": {
    "first": "02697133-ffa3-4718-abfb-4085a1794ce2",
-   "offset": 1203461
+   "offset": 1252778
   },
   "agent-a1759a2b80713d352.jsonl": {
    "first": "e9a86f8d-2e3f-4bdd-867d-30583efd17f7",
@@ -7697,6 +7739,10 @@
    "first": "c5fad442-f3fd-4f6c-94e3-9d996f3f07a1",
    "offset": 1997709
   },
+  "agent-a52ececbfe035163e.jsonl": {
+   "first": "b0532686-7cc1-4d49-9272-fe1f9fab73e9",
+   "offset": 526732
+  },
   "agent-a53103b4b5d220e79.jsonl": {
    "first": "22538e36-1962-4db0-84f2-c274c2ea75ec",
    "offset": 1753846
@@ -7955,7 +8001,7 @@
   },
   "agent-a5f389477ed14ac02.jsonl": {
    "first": "e6afe0d8-0b2f-47ab-886c-19feaddb6000",
-   "offset": 1012718
+   "offset": 1161482
   },
   "agent-a5f4b2cd390b5c50e.jsonl": {
    "first": "f842d8a3-35fd-422a-ad22-625926c3e1d6",
@@ -8011,11 +8057,15 @@
   },
   "agent-a64f5345a85c51632.jsonl": {
    "first": "05df1810-c1e0-4c25-8b2b-74537b28156e",
-   "offset": 317499
+   "offset": 1367343
   },
   "agent-a65d39470ffda8578.jsonl": {
    "first": "099a95e3-af4e-4957-a6dd-9d77ff547735",
    "offset": 325408
+  },
+  "agent-a662846a06dc41590.jsonl": {
+   "first": "7cfb2d6f-3663-4b45-a883-65be849ca453",
+   "offset": 1133007
   },
   "agent-a662e27f56c2b4b06.jsonl": {
    "first": "1f66d65a-c8da-44e8-ba42-4913f5569e53",
@@ -8365,6 +8415,10 @@
    "first": "9462bc3e-3355-40ae-a6f6-f613c8169480",
    "offset": 27795
   },
+  "agent-a7b04e4c61374e102.jsonl": {
+   "first": "20b75bcc-83ea-451f-b186-ac0712f82aac",
+   "offset": 600150
+  },
   "agent-a7b85fb4f3cac5ad6.jsonl": {
    "first": "8c898d4f-aee6-475e-b773-b6f3832870ac",
    "offset": 381079
@@ -8620,6 +8674,10 @@
   "agent-a8d2eece500e055e2.jsonl": {
    "first": "a2fd268c-4fc4-4209-8b4b-3d61bee1126b",
    "offset": 1951868
+  },
+  "agent-a8d3bc989c5dfee61.jsonl": {
+   "first": "7463375b-a61d-43c4-a708-a58896d3e14a",
+   "offset": 1065631
   },
   "agent-a8d9c8bcc3bee1cf2.jsonl": {
    "first": "1b4069a6-392e-4e15-b504-62d09a42cb02",
@@ -8888,6 +8946,10 @@
   "agent-aa149c036f0074289.jsonl": {
    "first": "4396da7b-3c07-487a-914e-ef516795d682",
    "offset": 626817
+  },
+  "agent-aa1976e745be44e05.jsonl": {
+   "first": "b1e8db0b-2b18-43c6-bdc0-67268c5467b0",
+   "offset": 1431258
   },
   "agent-aa19c2dd769c3d745.jsonl": {
    "first": "5cb29c77-5454-4bab-b893-ca19f31e7b59",
@@ -9179,7 +9241,7 @@
   },
   "agent-ab5d50682c685ddc4.jsonl": {
    "first": "f7832bf8-ba44-42b3-9b83-77b8b9a756eb",
-   "offset": 748067
+   "offset": 2137030
   },
   "agent-ab6a8843db291105c.jsonl": {
    "first": "d4afe43d-30e7-4757-8f9a-42f23a492911",
@@ -9528,6 +9590,10 @@
   "agent-acf1a6241d0720821.jsonl": {
    "first": "2ee24277-2750-48f5-a6e9-3c7d8b681e0f",
    "offset": 896539
+  },
+  "agent-acfee5cf17056b359.jsonl": {
+   "first": "d2e035e2-2e6b-476a-93e5-d4364495c723",
+   "offset": 321671
   },
   "agent-ad021f28a4b57f4ee.jsonl": {
    "first": "c3fd112c-e3b7-492b-affc-0fc7a95f865c",
@@ -10289,6 +10355,10 @@
    "first": "492d919a-faa2-4016-8c02-71dd02e1fc64",
    "offset": 1179097
   },
+  "agent-afa9aa139002d22ee.jsonl": {
+   "first": "a8e480b9-4f87-4726-99ed-99876247c32c",
+   "offset": 281079
+  },
   "agent-afb40d50e7be34bb5.jsonl": {
    "first": "08c1b66b-abaf-4bfd-a74f-2ee4fb14fced",
    "offset": 782654
@@ -10331,7 +10401,7 @@
   },
   "b2170732-95be-4660-9594-e3e86a19af08.jsonl": {
    "first": "",
-   "offset": 607609800
+   "offset": 609785791
   },
   "b3ddc32a-7528-4057-9d59-bf4ca0066ab3.jsonl": {
    "first": "",
@@ -11594,6 +11664,13 @@
     "38484906f778faffd99bb974f6b7e408777be855"
    ],
    "dele": 72
+  },
+  "38e317f1c1d80970275d1b5cee0db0469711f272": {
+   "add": 1396,
+   "commits": [
+    "abc55fffbf98fe8cb882d8b93485c205789cdb9a"
+   ],
+   "dele": 16
   },
   "391b81fae68539ddf837de0c283fd06c34e67d0b": {
    "add": 858,
@@ -13047,6 +13124,15 @@
    ],
    "dele": 12
   },
+  "7ff7c2bc5321a60806bc03f206c83be24a6f0c96": {
+   "add": 934,
+   "commits": [
+    "fecdb953c11e15bcf8463498c1051ff17f49c89c",
+    "ebf627ee63c6727b37370504d24c6b3c1abe5b0e",
+    "5b2774ba2c35b499d6b739149f3071096da12638"
+   ],
+   "dele": 94
+  },
   "80f6d03e17cb1514b3584e1653c2ce0b93af8fc9": {
    "add": 808,
    "commits": [
@@ -13159,6 +13245,17 @@
     "85eddb73733a09fca86556816347ed23c8c6c26c"
    ],
    "dele": 28
+  },
+  "86456959f01a7af1137a30b16b5fc77aebd91024": {
+   "add": 1250,
+   "commits": [
+    "af10b5c37a828e4c0605523b91f32127eab0c47b",
+    "67b9d5ebc6071a36c86d67974abe9f2e2e862e5b",
+    "164c908c2bfd48361dd595ec43e1ec7b80fdfd39",
+    "3ee689faa525124a9118762983b48253e935594a",
+    "1d04acb1d217bec073a9200dae6e661a4198fb55"
+   ],
+   "dele": 216
   },
   "864906e56d64e8e55ae659118f61b74e272d6885": {
    "add": 875,
@@ -14271,6 +14368,17 @@
    ],
    "dele": 42
   },
+  "b0308e6608c5611773ab1b8d8bc0893e2bd9eee2": {
+   "add": 659,
+   "commits": [
+    "790451d7e4514b8954a61e6d45e59a76efd46eb2",
+    "71f91073e529239520b220ee31387d5b0614dd1b",
+    "44ad3d9c6aafe1c7c732dfe9679f0d2b83df0a52",
+    "0ec12475aa5b7ae5c37cdf21e5cd2c5bed34cf2b",
+    "b3d2d1d50ad60f20b5ea6338a95da271a761b9b6"
+   ],
+   "dele": 33
+  },
   "b07bc93d2a978d37469ae369fa722031e52e452e": {
    "add": 830,
    "commits": [
@@ -15356,6 +15464,16 @@
    ],
    "dele": 63
   },
+  "e1d973ced18996ef407d9b7ad449d257fad4d694": {
+   "add": 449,
+   "commits": [
+    "78b43757a76e94bf1161abc1e14a260f26c111b8",
+    "b7e609a85b75c7b609c704fe9574697d24cb8ea1",
+    "3d89733617ed7bf866b9f82287ded7a95a16360b",
+    "4b71e8f6280dc5be5bef55f01c5e26ac7053fceb"
+   ],
+   "dele": 81
+  },
   "e203a71167302c3d1192720c9d88d16693a34756": {
    "add": 631,
    "commits": [
@@ -15549,6 +15667,16 @@
    ],
    "dele": 8
   },
+  "eec21f39e5f38e640bbedabbf9c5ebf4db38f1b0": {
+   "add": 1090,
+   "commits": [
+    "559aa6c9cc978d810701b2ffe6e9d0068b933791",
+    "1571e891e2327fb88d172809fec17921af5b6e1e",
+    "9bd48883b9c96b6ab34f4b6285c89cfb72bc8844",
+    "e764eb5d859ee463bf84d7a2b26347cbc1535203"
+   ],
+   "dele": 83
+  },
   "ef343261ddec27c10c2c41985e78f8d692f01d9f": {
    "add": 735,
    "commits": [
@@ -15697,6 +15825,13 @@
     "d368fa707d2c53c85286b5c7a2a6b11390e698d6"
    ],
    "dele": 23
+  },
+  "f70bb322396f244277de4acf83de610489c27d49": {
+   "add": 728,
+   "commits": [
+    "2ea7b95f00d8b95269c875e4d67df146e6c79ade"
+   ],
+   "dele": 45
   },
   "f7922b0d60f709706a5288c6791422d2f906189a": {
    "add": 935,
@@ -17666,6 +17801,11 @@
    "name": "Camouflage hits ability vector",
    "type": "opus-solver"
   },
+  "a52ececbfe035163e": {
+   "branch": "worktree-agent-a52ececbfe035163e",
+   "name": "#477-r15-r4/r5/r6 capteurs borne (c)",
+   "type": "opus-solver"
+  },
   "a53103b4b5d220e79": {
    "branch": "worktree-agent-a53103b4b5d220e79",
    "name": "Port opus HarbingerOfDestruction Necrons",
@@ -18065,6 +18205,11 @@
    "branch": "",
    "name": "RE MoveTowardsUnit leaf",
    "type": "general-purpose"
+  },
+  "a662846a06dc41590": {
+   "branch": "worktree-agent-a662846a06dc41590",
+   "name": "L'allocateur propose un TROU sur les residus",
+   "type": "opus-solver"
   },
   "a662e27f56c2b4b06": {
    "branch": "worktree-agent-a662e27f56c2b4b06",
@@ -18501,6 +18646,11 @@
    "name": "Question UI transcript sous-agents",
    "type": "claude-code-guide"
   },
+  "a7b04e4c61374e102": {
+   "branch": "worktree-agent-a7b04e4c61374e102",
+   "name": "#480-r1 + #480-r4 scratch versionne",
+   "type": "opus-solver"
+  },
   "a7b85fb4f3cac5ad6": {
    "branch": "",
    "name": "Trouver vtable + 6 slots concrets",
@@ -18819,6 +18969,11 @@
   "a8d2eece500e055e2": {
    "branch": "worktree-agent-a8d2eece500e055e2",
    "name": "Clamps de melee et tiles_in_range_reach",
+   "type": "opus-solver"
+  },
+  "a8d3bc989c5dfee61": {
+   "branch": "worktree-agent-a8d3bc989c5dfee61",
+   "name": "#448-r3-r1-r1 probes greffeurs verts a vide",
    "type": "opus-solver"
   },
   "a8d9c8bcc3bee1cf2": {
@@ -19155,6 +19310,11 @@
    "branch": "",
    "name": "RE feuilles NC #114",
    "type": "re-expert"
+  },
+  "aa1976e745be44e05": {
+   "branch": "worktree-agent-aa1976e745be44e05",
+   "name": "#477-r16-r1-r1 : la branche dedup",
+   "type": "opus-solver"
   },
   "aa19c2dd769c3d745": {
    "branch": "",
@@ -19960,6 +20120,11 @@
    "branch": "",
    "name": "RE #67 aura per-candidate DISPLAY",
    "type": "re-expert"
+  },
+  "acfee5cf17056b359": {
+   "branch": "worktree-agent-acfee5cf17056b359",
+   "name": "#287-r1 UnitFlag.NoActionAvailable",
+   "type": "opus-solver"
   },
   "ad021f28a4b57f4ee": {
    "branch": "worktree-agent-ad021f28a4b57f4ee",
@@ -20911,6 +21076,11 @@
    "name": "Port SporeMineLauncher (Tyranids)",
    "type": "opus-solver"
   },
+  "afa9aa139002d22ee": {
+   "branch": "worktree-agent-afa9aa139002d22ee",
+   "name": "Inventaire du DEROULE de bataille",
+   "type": "opus-solver"
+  },
   "afb40d50e7be34bb5": {
    "branch": "",
    "name": "Énumère la famille native du gate slot 0x13",
@@ -20963,18 +21133,18 @@
   }
  },
  "stat_merges": {
-  "interroges": 0,
+  "interroges": 7,
   "reutilises": 636
  },
  "stat_metas": {
-  "lus": 0,
+  "lus": 7,
   "reutilises": 1009
  },
  "stat_tokens": {
-  "fichiers": 7,
+  "fichiers": 14,
   "fork": "",
-  "mo": 0.6,
-  "total": 1022
+  "mo": 10.2,
+  "total": 1029
  },
  "version": 2
 }
