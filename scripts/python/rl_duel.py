@@ -292,13 +292,69 @@ def _apply_place_overrides(units: list[dict], places: list[tuple[str, int, int]]
     return None
 
 
+def _board_playable(bc: dict) -> tuple[int, int, set[tuple[int, int]]]:
+    """(width, height, tuiles INJOUABLES) de `BC.Board`.
+
+    `Board.Tiles` est indexe [col].Tile[row] (mesure : board 7x9 -> 7 entrees de 9).
+    `ForceUnplayable` est le seul drapeau de la config qui retire une tuile du plateau ;
+    le refus natif, lui, vit dans
+    `IdunBattle.Operations.AddUnitOperation$$AreTilesDisallowedAndLog` (tuile non
+    marchable OU `TileContentComponent$$IsFilled`)."""
+    board = bc.get("Board") or {}
+    w, h = int(board.get("Width") or 0), int(board.get("Height") or 0)
+    bad: set[tuple[int, int]] = set()
+    for c, colentry in enumerate(board.get("Tiles") or []):
+        for r, t in enumerate((colentry or {}).get("Tile") or []):
+            if (t or {}).get("ForceUnplayable"):
+                bad.add((c, r))
+    return w, h, bad
+
+
+def _validate_placements(bc: dict, player_units: list[dict],
+                         placed: list[tuple[str, int, int, int]]) -> list[str]:
+    """Refuse AVANT le build une tuile hors board, injouable, ou reclamee deux fois.
+
+    POURQUOI EN AMONT, alors que `_verify_placements` confronte deja APRES : les quatre
+    gardes natives de `IdunBattle.Operations.AddUnitOperation$$Execute` rendent NUL EN
+    SILENCE, donc un refus se lit comme un succes tant qu'on n'a pas releve l'etat -- et
+    entre-temps le runner est construit, enregistre, et mange le cap partage. Une tuile
+    hors board ne produit meme pas de tuile a examiner. Ici on tranche ce qui est
+    decidable sur la CONFIG seule ; `_verify_placements` garde ce qui ne l'est pas
+    (fog, reservation, draft en attente, contenu de tuile a l'instant du spawn)."""
+    w, h, unplayable = _board_playable(bc)
+    problems: list[str] = []
+    if w <= 0 or h <= 0:
+        return ["board sans Width/Height exploitables -- placement invalidable"]
+    for uid, col, row, team in placed:
+        if not (0 <= col < w and 0 <= row < h):
+            problems.append(f"{uid} (team{team}) @({col},{row}) HORS BOARD "
+                            f"(board {w}x{h}, col 0..{w - 1} / row 0..{h - 1})")
+        elif (col, row) in unplayable:
+            problems.append(f"{uid} (team{team}) @({col},{row}) tuile INJOUABLE "
+                            f"(Board.Tiles[{col}].Tile[{row}].ForceUnplayable)")
+    # Collision : deux unites sur la MEME tuile. On confronte l'ensemble COMPLET des
+    # positions de deploiement (spawns retenus + tuiles forcees), pas seulement les
+    # tuiles forcees : poser une unite sur un spawn deja attribue a une autre est
+    # exactement le cas que `AreTilesDisallowedAndLog` refuse (`IsFilled`).
+    occ: dict[tuple[int, int], list[str]] = {}
+    for u in player_units:
+        occ.setdefault((int(u["col"]), int(u["row"])), []).append(str(u["unitId"]))
+    for tile, ids in sorted(occ.items()):
+        if len(ids) > 1:
+            problems.append(f"tuile ({tile[0]},{tile[1]}) reclamee par {len(ids)} unites: "
+                            f"{ids} -- le natif n'en deploiera qu'une")
+    return problems
+
+
 def _verify_placements(sid: int, rid: int, wanted: list[dict]) -> list[str]:
     """Confronte les placements DEMANDES aux positions REELLEMENT obtenues.
 
     Raison d'etre : `IdunBattle.Operations.AddUnitOperation$$Execute` abandonne en
-    RETOUR NUL SILENCIEUX sur trois gardes (`TilesAreReserved`,
-    `TilesArePendingDrafting`, `TilesAreInFog`) -- ni exception, ni event d'erreur.
-    Un placement refuse se lirait donc comme un succes. Rend la liste des ecarts."""
+    RETOUR NUL SILENCIEUX sur QUATRE gardes -- `AreTilesDisallowedAndLog` (tuile non
+    marchable ou `TileContentComponent$$IsFilled`, la seule qui LOG),
+    `TilesAreReserved`, `TilesArePendingDrafting`, `TilesAreInFog` -- ni exception, ni
+    event d'erreur cote appelant. Un placement refuse se lirait donc comme un succes.
+    Rend la liste des ecarts."""
     res = _decision(sid, rid)
     units = res.get("units") or []
     # Cle = (visualId, team) : le MEME unitId peut etre des DEUX cotes (rosters croises),
@@ -317,6 +373,144 @@ def _verify_placements(sid: int, rid: int, wanted: list[dict]) -> list[str]:
         if (w["col"], w["row"]) not in got:
             problems.append(f"{w['unitId']} (team{w['team']}) demande @({w['col']},{w['row']}) "
                             f"mais present @{got or 'NULLE PART (non deploye)'}")
+    return problems
+
+
+# --- #477-r6 : BC.UnitModifiers, le point d'entree NATIF de modification de stats -----
+#
+# `BattleConfiguration.UnitModifiers` (champ @0x50, `Dictionary<string,
+# List<IdunBattleLogic.Shared.UnitModifier>>`, cle = unitId SANS suffixe de rarete) est lu
+# par `IdunBattle.Operations.SetupGameOperation$$AddPredefinedUnits` (et
+# `...$$AddBossUnit`) juste apres la creation de l'entite, puis dispatche par
+# `...$$ApplyModifiers`. C'est le pendant PROPRE de `--unit-stat` : il produit de VRAIS
+# `StatModifier` pousses par une Operation, la ou `--unit-stat` reecrit un scalaire du
+# template `BC.Units[]`.
+#
+# CHAMPS de `UnitModifier` (disposition MESUREE en live, RPC `classFields`, build
+# `rnca9r7q6c`) : `ModificationType`@0x10 (enum `UnitModificationType` :
+# 0=Stat, 1=AbilityVariable, 2=AbilityConstant, 3=InitialSpawnAmountDecrease),
+# `Id`@0x18 (string), `SubId`@0x20 (string), `IsBuff`@0x28, `IsPercentage`@0x29,
+# `Amount`@0x2c (Int32).
+# ⚠ `IsBuff` et `IsPercentage` ne sont JAMAIS LUS par `ApplyModifiers` : la nature
+# (pourcentage vs absolu) est cablee PAR `Id` dans le natif, pas portee par le modifier.
+#
+# Les HUIT `Id` acceptes -- litteraux du binaire, chacun CONFRONTE en live (temoin vs
+# modifie, memes positions ; voir probe_477r6_unit_modifiers.py). Tout autre `Id` tombe
+# dans la branche de log de `ApplyModifiers` et n'applique RIEN : c'est le mode de panne
+# silencieux principal, d'ou le refus explicite ci-dessous.
+#
+# | Id           | methode native            | stat combatSnapshot | Amount        |
+# |--------------|---------------------------|---------------------|---------------|
+# | dmg          | ModifyUnitAttack          | attack              | POURCENTAGE   |
+# | fixedArmor   | ModifyUnitFixedArmor      | fixedArmor          | POURCENTAGE   |
+# | movement     | ModifyUnitMovement        | movement            | ABSOLU        |
+# | hits         | ModifyUnitHits            | extraHits           | ABSOLU        |
+# | hp           | ModifyUnitHp              | health              | POURCENTAGE   |
+# | blockChance  | ModifyUnitBlockChance     | blockChance         | ABSOLU        |
+# | critDmg      | ModifyUnitCritDamage      | critDamage          | POURCENTAGE   |
+# | critChance   | ModifyUnitCritChance      | critChance          | ABSOLU        |
+#
+# POURCENTAGE passe par `IdunBattle.Operations.SetupGameOperation$$CalculatePercentage`
+# (Fix64, arrondi puis `Ceiling`) et la valeur finale vaut `base - pourcentage(base)` ;
+# ABSOLU vaut `StatComponent.CurrentValue - Amount`. Mesures (board MC1_67, rank 17) :
+# `dmg` 10 sur `orksNob` attack 2411 -> 2169 (= 2411 - ceil(241,1)) ; `movement` 1 sur
+# `orksRuntherd` 3 -> 2 ; `blockChance` 10 sur base 50 -> 40 ; `critChance` 10 sur base
+# 50 -> 40. ⚠ Pour `fixedArmor` et `critDmg` la base lue par le natif est un champ du
+# COMPOSANT (`+0x48`), pas la valeur rendue par `combatSnapshot` : l'ecart observe est
+# reel mais ne se recalcule pas depuis la valeur affichee (mesure : `fixedArmor` 50 sur
+# 3003 affiche -> 2100 ; `critDmg` 100 sur 300 affiche -> 0).
+UNIT_MODIFIER_STATS: dict[str, str] = {
+    "dmg": "attack",
+    "fixedArmor": "fixedArmor",
+    "movement": "movement",
+    "hits": "extraHits",
+    "hp": "health",
+    "blockChance": "blockChance",
+    "critDmg": "critDamage",
+    "critChance": "critChance",
+}
+
+
+def _parse_unit_modifier_specs(specs) -> list[tuple[str, str, int]]:
+    """'unitId:Id:Amount' -> (unitId, Id, Amount). Leve ValueError sur forme invalide
+    ou sur un `Id` hors des huit que `ApplyModifiers` sait dispatcher."""
+    out: list[tuple[str, str, int]] = []
+    for spec in (specs or []):
+        parts = [p.strip() for p in str(spec).split(":")]
+        if len(parts) != 3 or not all(parts[:2]):
+            raise ValueError(
+                f"--unit-modifier: forme attendue 'unitId:Id:Amount', recu {spec!r}")
+        uid, ident, amount_s = parts
+        if ident not in UNIT_MODIFIER_STATS:
+            raise ValueError(
+                f"--unit-modifier: Id '{ident}' inconnu du natif -- "
+                f"IdunBattle.Operations.SetupGameOperation$$ApplyModifiers ne dispatche "
+                f"que {sorted(UNIT_MODIFIER_STATS)} ; tout autre Id part dans sa branche "
+                f"de log et n'applique RIEN (panne SILENCIEUSE)")
+        try:
+            amount = int(amount_s)
+        except ValueError:
+            raise ValueError(
+                f"--unit-modifier: Amount non entier dans {spec!r}") from None
+        out.append((uid, ident, amount))
+    return out
+
+
+def _apply_unit_modifiers(bc: dict, mods: list[tuple[str, str, int]]) -> None:
+    """Ecrit `BC.UnitModifiers`. A appeler APRES la normalisation (`buildNormalizedBC`
+    ne touche qu'a `Units`/`Board`/`SpawnPointSetIndex`, donc aucun etage ne le reecrit
+    -- contrairement au piege `TertiaryAbilityLevel` de #237)."""
+    table: dict[str, list[dict]] = dict(bc.get("UnitModifiers") or {})
+    for uid, ident, amount in mods:
+        table.setdefault(uid, []).append({
+            "ModificationType": "Stat",
+            "Id": ident,
+            "SubId": None,
+            "IsBuff": False,
+            "IsPercentage": False,
+            "Amount": amount,
+        })
+    bc["UnitModifiers"] = table
+
+
+def _verify_unit_modifiers(sid: int, rid: int,
+                           mods: list[tuple[str, str, int]]) -> list[str]:
+    """Releve en bataille la stat visee par chaque modifier, et rougit sur le SEUL cas
+    dont l'attendu se calcule sans temoin : `hp` avec `Amount > 99` DOIT retirer l'unite
+    du deploiement (`...$$IsPredefinedUnitDisabledByModifiers` -> `Id == "hp" &&
+    Amount > 99`). Pour les autres, la valeur relevee est IMPRIMEE (l'attendu exige un
+    bras temoin -- c'est le role de probe_477r6_unit_modifiers.py, pas du build)."""
+    snap = (_rpc(sid, "combatSnapshot", [{"runnerId": rid}], timeout=30)
+            .get("result") or {})
+    obs = (_rpc(sid, "observeBattle", [{"runnerId": rid}], timeout=30)
+           .get("result") or {})
+    vis: dict[int, str] = {}
+    for u in (obs.get("units") or []):
+        vis[int(u["entityId"])] = str(u["visualId"])
+        vis[int(u["squadId"])] = str(u["visualId"])
+    stats_by: dict[str, dict] = {}
+    for u in (snap.get("units") or []):
+        name = vis.get(int(u.get("entityId") or -1))
+        if name:
+            stats_by[name] = u.get("stats") or {}
+    problems: list[str] = []
+    for uid, ident, amount in mods:
+        key = UNIT_MODIFIER_STATS[ident]
+        if ident == "hp" and amount > 99:
+            if uid in stats_by:
+                problems.append(
+                    f"{uid}: hp={amount} (>99) devait EMPECHER le deploiement "
+                    f"(IsPredefinedUnitDisabledByModifiers) -- l'unite est pourtant la")
+            else:
+                print(f"[build] unit-modifier {uid}:hp:{amount} -> unite NON deployee "
+                      f"(attendu : Amount > 99)")
+            continue
+        if uid not in stats_by:
+            problems.append(f"{uid}: absent de la bataille -- le modifier ne peut pas "
+                            f"avoir mordu (unite hors --a-units, ou non deployee)")
+            continue
+        print(f"[build] unit-modifier {uid}:{ident}:{amount} -> {key}="
+              f"{stats_by[uid].get(key)}")
     return problems
 
 
@@ -437,6 +631,30 @@ def cmd_build(sid: int, a) -> int:
         a_predef.remove(uid)
         a_hand.append((uid, col, row))
 
+    # --unit-modifier (#477-r6) : BC.UnitModifiers, lu par
+    # `IdunBattle.Operations.SetupGameOperation$$AddPredefinedUnits`. Deux refus AMONT,
+    # parce que les deux pannes correspondantes sont SILENCIEUSES cote natif : un `Id`
+    # hors des huit part dans la branche de log de `ApplyModifiers` (levee par le parse),
+    # et une unite hors `BC.PredefinedUnits` n'est jamais confrontee au dictionnaire --
+    # `AddPredefinedUnits` est le SEUL chemin qui le lit pour une unite reguliere, donc
+    # une p-unit (posee par `AddUnitMessage`) ou une cible de `--a-place` (sortie des
+    # PredefinedUnits, cf. plus haut) ne recevrait RIEN.
+    try:
+        unit_mods = _parse_unit_modifier_specs(getattr(a, "unit_modifier", None))
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        return 2
+    for uid, ident, _amt in unit_mods:
+        if uid not in a_predef:
+            hint = ("il est pose a la main par --a-place, donc SORTI de "
+                    "BC.PredefinedUnits" if uid in {u for u, _c, _r in a_places}
+                    else f"roster adverse confie au natif = {a_predef}")
+            print(f"[error] --unit-modifier: '{uid}' ({ident}) n'est pas une unite "
+                  f"PREDEFINIE de l'equipe adverse -- {hint}. BC.UnitModifiers n'est lu "
+                  f"que par SetupGameOperation$$AddPredefinedUnits (et $$AddBossUnit) : "
+                  f"pour une unite du joueur, utiliser --unit-stat.", file=sys.stderr)
+            return 2
+
     # MoW : explicite, ou auto (--mow), ou aucun.
     p_mow, a_mow = a.p_mow, a.a_mow
     if a.mow and not p_mow and not a_mow and pool_mow:
@@ -471,6 +689,11 @@ def cmd_build(sid: int, a) -> int:
               f"({len(_bpool)} eligibles)")
     _patch_predefined_units(bc, a_predef)
     _patch_predefined_machines(bc, p_mow, a_mow)
+    if unit_mods:
+        _apply_unit_modifiers(bc, unit_mods)
+        for uid, ident, amount in unit_mods:
+            print(f"[build] --unit-modifier {uid}:{ident}:{amount} "
+                  f"(-> {UNIT_MODIFIER_STATS[ident]})")
 
     # --crit/--block "CC,CD" : restaure des stats de combat sur les TEMPLATES Units des
     # p-units (la normalisation les remet à 0 ; AddUnit honore le template, cf. probe). Sert
@@ -621,6 +844,18 @@ def cmd_build(sid: int, a) -> int:
                              "col": col, "row": row})
     placed = ([(u, c, r, 1) for u, c, r in p_places]
               + [(u, c, r, 2) for u, c, r in a_places])
+    if placed:
+        # REFUS AVANT le build : hors board / tuile injouable / deux unites sur la meme
+        # tuile. Le runner n'est pas encore construit, donc rien a nettoyer -- alors
+        # qu'un refus decouvert APRES laisse un runner enregistre sur le cap partage.
+        bad = _validate_placements(bc, player_units, placed)
+        if bad:
+            for p in bad:
+                print(f"[error] placement REFUSE: {p}", file=sys.stderr)
+            print("[error] --place/--a-place: aucun runner n'a ete construit. "
+                  "Choisir des tuiles dans le board et libres (voir board.py / "
+                  "data/boards/ pour la geometrie).", file=sys.stderr)
+            return 2
     for uid, col, row, team in placed:
         print(f"[build] place {uid} @({col},{row}) team{team}")
     # Replace SCOPE par acteur : cote hooks la coexistence est le DEFAUT
@@ -682,6 +917,12 @@ def cmd_build(sid: int, a) -> int:
             {"unitId": u, "col": c, "row": r, "team": t} for u, c, r, t in placed])
         if not placement_problems:
             print(f"[build] placements verifies OK ({len(placed)})")
+    modifier_problems: list[str] = []
+    if unit_mods:
+        # Meme raison d'etre que la confrontation des placements : `ApplyModifiers`
+        # n'emet rien vers l'appelant, et le runner de test utilise un NullLogger --
+        # sa branche d'erreur est donc muette. On RELIT l'etat.
+        modifier_problems = _verify_unit_modifiers(sid, rid, unit_mods)
     if a.advance > 0:
         _advance(sid, rid, a.advance, a.maxpump)
         print(f"[build] advanced {a.advance} tours (IA vs IA)")
@@ -694,10 +935,17 @@ def cmd_build(sid: int, a) -> int:
         for p in placement_problems:
             print(f"[error] placement NON HONORE par le natif: {p}", file=sys.stderr)
         print("[error] --place/--a-place: le runner est construit ET enregistre dans le "
-              "state-file, mais le montage demande n'a PAS eu lieu -- tuile deja occupee "
-              "(TilesAreReserved), en attente de draft (TilesArePendingDrafting) ou sous "
-              "brouillard (TilesAreInFog) : les trois font un retour NUL SILENCIEUX dans "
+              "state-file, mais le montage demande n'a PAS eu lieu -- tuile interdite ou "
+              "occupee (AreTilesDisallowedAndLog), reservee (TilesAreReserved), en attente "
+              "de draft (TilesArePendingDrafting) ou sous brouillard (TilesAreInFog) : les "
+              "quatre font un retour NUL SILENCIEUX dans "
               "IdunBattle.Operations.AddUnitOperation$$Execute.", file=sys.stderr)
+        return 3
+    if modifier_problems:
+        for p in modifier_problems:
+            print(f"[error] unit-modifier NON HONORE par le natif: {p}", file=sys.stderr)
+        print("[error] --unit-modifier: le runner est construit ET enregistre dans le "
+              "state-file, mais le montage demande n'a PAS eu lieu.", file=sys.stderr)
         return 3
     return 0
 
@@ -2368,19 +2616,33 @@ def main(argv: list[str]) -> int:
                          "avec assez de spawns/cote (+ MoW-capable si un MoW est en jeu). "
                          "Exclusif avec --board.")
     ap.add_argument("--place", action="append", default=None,
-                    help="build: place une unite de MON roster sur une TUILE EXACTE — "
+                    help="build: place une unite de MON roster sur une TUILE EXACTE -- "
                          "'unitId:col,row', repetable (une entree par occurrence de l'id). "
                          "Sans lui, les p-units prennent les SpawnPoints du board dans l'ordre. "
                          "Le natif (IdunBattle.Operations.AddUnitOperation$$Execute) n'exige PAS "
-                         "que la tuile appartienne au SpawnPointSet : ses seules gardes sont "
-                         "TilesAreReserved / TilesArePendingDrafting / TilesAreInFog, et chacune "
-                         "fait un RETOUR NUL SILENCIEUX -> le build VERIFIE la position obtenue et "
-                         "rougit si elle ne correspond pas.")
+                         "que la tuile appartienne au SpawnPointSet : ses gardes sont "
+                         "AreTilesDisallowedAndLog / TilesAreReserved / TilesArePendingDrafting / "
+                         "TilesAreInFog, et chacune fait un RETOUR NUL SILENCIEUX -> hors board / "
+                         "tuile injouable / collision sont REFUSES avant le build, et la position "
+                         "obtenue est VERIFIEE apres.")
     ap.add_argument("--a-place", action="append", default=None,
                     help="build: idem --place pour une unite du roster ADVERSE. L'unite est SORTIE "
                          "de BC.PredefinedUnits (que le natif place lui-meme sur le "
                          "SpawnPointGroup) et posee par AddUnitMessage(playerId=12) sur la tuile "
-                         "demandee. Meme verification qu'au --place.")
+                         "demandee. Meme verification qu'au --place. ATTENTION: sortie des "
+                         "PredefinedUnits, elle n'est plus eligible a --unit-modifier.")
+    ap.add_argument("--unit-modifier", action="append", default=None,
+                    help="build: modifie une stat d'une unite PREDEFINIE adverse par le point "
+                         "d'entree NATIF BC.UnitModifiers -- 'unitId:Id:Amount', repetable. Id parmi "
+                         "dmg / fixedArmor / movement / hits / hp / blockChance / critDmg / "
+                         "critChance (les seuls que "
+                         "IdunBattle.Operations.SetupGameOperation$$ApplyModifiers dispatche ; tout "
+                         "autre part dans sa branche de log et n'applique RIEN). Produit de VRAIS "
+                         "StatModifier, la ou --unit-stat reecrit un scalaire du template "
+                         "BC.Units[]. Amount = POURCENTAGE pour dmg/fixedArmor/hp/critDmg, ABSOLU "
+                         "pour movement/hits/blockChance/critChance. Cas particulier : "
+                         "'<u>:hp:<N>' avec N > 99 EMPECHE le deploiement de l'unite "
+                         "(IsPredefinedUnitDisabledByModifiers).")
     ap.add_argument("--advance", type=int, default=0)
     ap.add_argument("--maxpump", type=int, default=2000)
     ap.add_argument("--unit", type=int, default=None)
