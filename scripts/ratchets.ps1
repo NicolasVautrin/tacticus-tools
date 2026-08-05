@@ -378,12 +378,14 @@ $Ratchets = @(
     # aucun rouge, seulement un cout DIFFERE -- et ce cout est ASYMETRIQUE. Avant livraison, une
     # collision de numero est un choix de nom ; apres, c'est une REECRITURE D'HISTORIQUE (fichiers,
     # residus, references internes ET messages de commit, dont `git log --grep` depend).
-    # Il porte sa contre-epreuve : 16 mutations du probe, 16 rouges du test (#468, -r4, -r10).
+    # Il porte sa contre-epreuve : 25 mutations du probe, 25 rouges du test (#468, -r4, -r10, -r11).
     # ATTENTION au sens de `--suggere` depuis #468-r10 : son corpus n'est plus << ce qui est
     # fusionne >>. Il lit AUSSI les refs hors HEAD et les NOMS ecrits dans les autres worktrees,
-    # et il IMPRIME sa portee -- ce qu'il ne peut structurellement pas voir (un numero pris et
-    # pas encore ecrit) est NOMME au lieu d'etre tu. Ce chemin n'est pas joue par la banque :
-    # `Argv` ci-dessous n'a pas `--suggere`, donc son cout (~2 s) ne touche pas le mur.
+    # et depuis #468-r11 le CORPS DES PULL REQUESTS -- qui n'entre jamais dans l'arbre, le
+    # squash-merge ne le recopiant pas dans le message de commit. Il IMPRIME sa portee : ce qu'il
+    # ne peut structurellement pas voir (un numero pris et pas encore ecrit) est NOMME au lieu
+    # d'etre tu. Ce chemin n'est pas joue par la banque : `Argv` ci-dessous n'a pas `--suggere`,
+    # donc son cout (~3 s sans `gh`, ~6 s avec) ne touche pas le mur.
     @{ Id = 'probe_468'; Argv = @('probe_468_collision_numeros.py')
        Seul = 'un NUMERO de tache ou de residu ATTRIBUE DEUX FOIS -- rien dans ce depot ne les alloue : ils sont pris au vol par qui en a besoin, sans registre, et une collision ne se voit qu A L OEIL au merge. DEUX occurrences INDEPENDANTES le 2026-08-04 a quelques heures d ecart (#465, deux `#465-r1` a neuf lignes d ecart ; #448-r1-r1-r2, une ligne de backlog et un dispatch). Le critere porte sur la POSITION -- premiere cellule de tableau, tete de puce, prefixe de nom de case-doc -- et JAMAIS sur la presence : sur docs/rl, 6580 occurrences `#<n>` pour 836 definitions (12,7 %), donc un critere par presence rougirait sur la quasi-totalite des renvois croises du depot. Il a trouve des son premier passage une collision QUADRUPLE jamais vue a l oeil (#420-r1 portait quatre dossiers sans rapport, dont trois OUVERTS -- RESOLUE par #468-r5 : A livre garde le numero, B/C/D renumerotes). Le mode `--suggere` DONNE un numero libre au lieu de rattraper le geste fautif, sur le critere INVERSE (l UNION, mentions et messages de commit compris : un numero seulement cite est deja pris) -- et depuis #468-r10 il DIT ce qu il ne voit pas : deux agents dispatches ensemble avaient pris `#479` du meme `--suggere` (collision DOUBLE, racine ET residu) pendant que ce cliquet rendait PASS, correctement au regard de son corpus d alors. Aucun autre cliquet ne lit les identifiants : 439 lit la banque, 462 le ledger live, 457 les tests -- tous PAR nom, aucun ne verifie que le nom designe UN seul sujet'
        Doc  = 'docs/rl/case-468-attribution-des-numeros.md' }

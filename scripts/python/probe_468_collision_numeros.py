@@ -104,6 +104,23 @@ C'est ce qui rend `--suggere` robuste aux trous CONNUS du detecteur (#468-r1/r2/
 puce de residu d'une case-doc, qui n'est pas une position de definition) : elle n'a pas
 besoin de savoir ce qu'est une definition pour eviter un numero deja employe.
 
+LA MONOTONIE VAUT DANS LES DEUX MODES -- elle ne valait que dans un (#468-r11)
+-----------------------------------------------------------------------------
+Le mode RACINE refuse de recycler un trou sous la borne (<< un trou peut etre reserve par une
+PR en vol >>) ; le mode RESIDU, lui, s'arretait au PREMIER trou et le proposait. Le motif
+s'applique pourtant mot pour mot aux deux, et le docstring de `suggerer` affirmait deja la
+monotonie pour la fonction ENTIERE : c'etait une contradiction interne, pas un arbitrage.
+
+MESURE de l'asymetrie (2026-08-05) : `--suggere 477` rendait `#477-r14` alors que `#477-r15`,
+`-r16` et `-r17` EXISTENT -- deux case-docs, trois probes, un test, des messages de commit,
+une ref non fusionnee et cinq worktrees. Le corpus les VOYAIT tous (verifie dans `employes()`,
+pas deduit de la sortie) : le defaut etait dans la RESTITUTION, qui n'imprimait que le PREFIXE
+CONTIGU, donc un compte filtre qui ne disait pas ce qu'il filtrait. Gisement : **11 parents sur
+218** proposaient un trou avec des residus superieurs (#66, #95, #229, #437-r1, #462-r4d...).
+
+Les deux modes sont donc alignes : on part du PLUS GRAND pris + 1, et les trous sont LISTES,
+jamais proposes.
+
 MESURE qui l'impose (2026-08-04) : 13 racines pures < 500 -- dont `#28`, `#269`, `#297`,
 `#300`, `#307` -- n'existent QUE dans les messages de commit. Le corpus documentaire les
 donne pour des trous LIBRES ; `git log --grep` prouve le contraire. Un balayage qui omet
@@ -155,6 +172,56 @@ DEUX EXTENSIONS MESUREES PUIS REFUSEES -- le chiffre decide, pas l'intuition :
     **25** identifiants pour **+2,64 s** (x1,7 le temps total), dont **24 de bruit pur** --
     `#arithmetic`, `#dispatcher`, `#selectors`... des noms de modules Python que `couper_nom`
     lit comme des identifiants. Rapport signal/bruit 1/25.
+
+UNE TROISIEME SOURCE, MESUREE PUIS RETENUE : LE CORPS DES PULL REQUESTS (#468-r11)
+---------------------------------------------------------------------------------
+`#468-r10` nommait la parade `gh` sans la construire. Elle est ici, et le chiffre la justifie --
+le meme protocole qui a REFUSE les deux extensions ci-dessus (0 changement de numero) la RETIENT
+(2 changements de numero sur l'arbre vivant).
+
+Le corps d'une PR N'EST PAS DANS L'ARBRE. Le squash-merge de GitHub ne le recopie pas dans le
+message de commit : `git log --all --grep "479-r2"` rend **0**, `git grep "479-?r2"` rend **0**,
+et pourtant la PR #663 ecrit noir sur blanc << son verdict ne pese pas `manquants` => #479-r2 >>.
+`--suggere 479` rendait donc `#479-r2` -- un numero DEJA OUVERT, invisible de toute lecture de
+l'arbre. C'est le meme symptome que `#425-r3` et `#448-r3` au niveau N1/N2, sur une quatrieme
+source.
+
+MESURE (2026-08-05, 670 PR, depot reel), identifiants ABSENTS du corpus des quatre autres
+sources et apportes par le TITRE + le CORPS des PR :
+
+  | PR lues        | inedits | dont residus | CHANGENT le numero rendu       | cout   |
+  |----------------|---------|--------------|--------------------------------|--------|
+  | 25             |    4    |      1       | 1 (`--suggere 479` r2 -> r3)   | ~1,5 s |
+  | 200 (RETENU)   |   20    |      2       | 2 (+ `--suggere 449-r2-r5`)    | ~3,9 s |
+  | 670 (toutes)   |   25    |      2       | 2 -- AUCUN de plus             | ~7,3 s |
+
+Le gisement se TARIT : les 470 PR les plus anciennes n'apportent aucun changement de numero
+(leur contenu a fini dans l'arbre). `GH_LIMITE_PR = 200` capture donc 100 % du signal mesure
+pour 53 % du cout de la lecture integrale.
+
+DEUX CHOIX DE FORME, tous deux dictes par la mesure :
+
+  * ON NE LIT PAS LE NOM DE BRANCHE, et le chiffre qui le justifie a du etre RE-MESURE : la
+    premiere mesure (<< 24 identifiants de bruit >>) prefixait un `#` au nom de branche, ce que
+    le code ne ferait jamais -- un mutant l'a montre en RESTANT VERT. Formes reelles, sur 40 PR :
+    `RE_TOKEN_LARGE` tel quel rend **0** identifiant (il exige un `#`), et `couper_nom` -- la
+    voie que ce fichier emploie deja pour les NOMS de fichiers -- rend **2** identifiants,
+    `worktree` et `agent`, soit **0** signal pour du bruit pur. Meme famille que le
+    `--name-only` refuse ci-dessus, en plus petit.
+  * ON GARDE LES NUMEROS DE PR, et c'est le cote SUR. Sur 200 PR, 18 des 20 inedits sont des
+    numeros de PULL REQUEST cites en prose (`#631`, `#655`...) que rien ne distingue d'une tache
+    (`#468-r8`). Les prendre fait SAUTER un entier le jour ou l'espace des taches (borne 480)
+    atteindra celui des PR (~670) ; les ecarter risquerait de rater une vraie racine. Sauter
+    coute un entier, reprendre coute une reecriture d'historique.
+
+CE CAPTEUR NE LEVE PAS `Indisponible`, comme `git worktree list` et pour la meme raison : c'est
+un capteur d'APPOINT. Sans lui, `--suggere` retombe sur les quatre sources d'avant, degradees
+mais pas fausses ; le faire lever rendrait l'outil inutilisable hors ligne ou sans `gh` -- donc
+ferait revenir au geste que ce cliquet supprime (choisir son numero au vol). La contrepartie est
+stricte et c'est `_imprimer_portee` qui la tient : muet se DIT (<< NON MESUREES >>), avec le
+STDERR de `gh` en clair (un `rc` ne nomme rien -- `rc=1` couvre a lui seul le token invalide, le
+depot inconnu et l'erreur d'usage, cf. #467-r6), et JAMAIS rabattu sur << 0 PR >>. Aucun repli
+sur cache : un cache disant << 0 PR >> ne prouverait rien.
 
 ASCII only (console Windows cp1252).
 Usage:
@@ -625,9 +692,10 @@ def _identifiants_des_commits() -> dict:
     return out
 
 
-#: Libelles de PROVENANCE des deux sources EN VOL (niveaux N1 et N2 du docstring). Ils sont
-#: le discriminant de `_imprimer_portee` : un identifiant dont TOUTES les sources sont en vol
-#: n'est PAS encore fusionne, et c'est exactement ce qu'un `--suggere` d'hier aurait propose.
+#: Libelles de PROVENANCE des sources HORS DE CE QUI EST FUSIONNE (niveaux N1 et N2 du
+#: docstring, plus le corps des PR ajoute par #468-r11). Ils sont le discriminant de
+#: `_imprimer_portee` : un identifiant dont TOUTES les sources sont la n'est PAS dans l'arbre
+#: fusionne, et c'est exactement ce qu'un `--suggere` d'hier aurait propose.
 SRC_REF_EN_VOL = "ref non fusionnee"
 SRC_WORKTREE = "worktree "
 
@@ -740,19 +808,99 @@ def _identifiants_des_worktrees(autres) -> tuple:
     return out, illisibles
 
 
-def employes(ids_worktrees=None) -> dict:
+#: Profondeur de lecture des PULL REQUESTS. DERIVEE d'une mesure, pas choisie : sur le depot
+#: reel (670 PR), les 200 plus recentes apportent les **2** changements de numero mesures, et
+#: la lecture integrale n'en apporte AUCUN de plus pour x1,9 le cout. Cf. docstring du module.
+GH_LIMITE_PR = 200
+
+#: Libelle de PROVENANCE de la quatrieme source en vol -- le corps d'une PR n'est PAS dans
+#: l'arbre (le squash-merge ne l'y recopie pas), donc un identifiant qui n'existe que la est,
+#: du point de vue de toute lecture de l'arbre, aussi invisible qu'un worktree voisin.
+SRC_PR = "corps de PR"
+
+#: Delai maximal accorde a `gh`. MESURE : 1,4 s (0 PR ouverte) a 3,9 s (200 PR). Un depassement
+#: est une PANNE NOMMEE, pas un zero -- meme frontiere que les autres capteurs.
+GH_TIMEOUT_S = 30
+
+
+def _pull_requests():
+    """([{title, body}], None) si MESURE | (None, raison) si NON MESURE. JAMAIS ([], raison).
+
+    Le tri-etat est la seule chose qui compte ici : un `gh` muet doit se lire << je n'ai pas
+    regarde >>, jamais << il n'y a rien >>. Et la panne doit porter son NOM -- sur `gh 2.88.1`,
+    `rc=1` couvre a lui seul le token invalide (HTTP 401), le depot inconnu (GraphQL) et
+    l'erreur d'usage ; `4` = non authentifie. Seul le STDERR les separe (#467-r6), donc c'est
+    le stderr qu'on remonte, pas le `rc`.
+
+    PAS DE DISCRIMINANT DERIVE ICI, contrairement a `git worktree list`. La-bas, une sortie
+    vide ne PEUT PAS etre vraie (un `worktree list` qui reussit liste toujours l'arbre courant).
+    Ici, un depot sans aucune PR rend legitimement `[]` : le seul discriminant disponible est
+    `rc == 0` + JSON valide, et on le dit plutot que d'inventer une regle.
+
+    AUCUN REPLI SUR CACHE. Un cache disant << 0 PR >> ne prouverait rien et ferait taire l'outil
+    sur une PR ouverte depuis -- il peut SIGNALER, jamais RASSURER, donc il n'existe pas.
+    """
+    import subprocess
+    try:
+        res = subprocess.run(
+            ["gh", "pr", "list", "--state", "all", "--limit", str(GH_LIMITE_PR),
+             "--json", "number,title,body"],
+            cwd=str(REPO), capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=GH_TIMEOUT_S)
+    except FileNotFoundError:
+        return None, "`gh` introuvable sur le PATH"
+    except subprocess.TimeoutExpired:
+        return None, "`gh` n'a pas repondu en %d s" % GH_TIMEOUT_S
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, "`gh` injouable : %s" % exc
+    if res.returncode != 0:
+        motif = " ".join((res.stderr or "").split())[:160] or "(stderr vide)"
+        return None, "`gh` rc=%d -- %s" % (res.returncode, motif)
+    try:
+        data = json.loads(res.stdout or "null")
+    except ValueError as exc:
+        return None, "`gh` rc=0 mais sortie illisible : %s" % exc
+    if not isinstance(data, list):
+        return None, "`gh` rc=0 mais sortie inattendue (%s)" % type(data).__name__
+    return data, None
+
+
+def _identifiants_des_pr(prs) -> dict:
+    """{cle: {SRC_PR}} -- les identifiants du TITRE et du CORPS des PR.
+
+    LE NOM DE BRANCHE EST EXCLU, et c'est une mesure : sur 40 PR il apporte 24 identifiants
+    (`#worktree-agent-a5af8da...`, `#agent-477r16r1`) pour **0** signal -- exactement le bruit
+    qui a fait refuser `git log --name-only` (#468-r10 section 3).
+    """
+    out = {}
+    for pr in prs or ():
+        for champ in ("title", "body"):
+            for m in re.finditer(RE_TOKEN_LARGE, pr.get(champ) or ""):
+                out.setdefault(normaliser(m.group(0)[1:]), set()).add(SRC_PR)
+    return out
+
+
+def employes(ids_worktrees=None, ids_pr=None) -> dict:
     """{cle normalisee: {sources}} -- l'UNION, toutes positions confondues.
 
     Depuis #468-r10 l'union couvre AUSSI les deux sources en vol (N1 et N2) : sans elles,
     `--suggere 425` et `--suggere 448` rendaient, le jour de la mesure, deux numeros que des
-    dossiers en vol portaient deja. Le parametre evite de globber deux fois quand l'appelant
-    a deja mesure la concurrence pour l'imprimer."""
+    dossiers en vol portaient deja. Depuis #468-r11 elle couvre la QUATRIEME source hors-arbre,
+    le corps des PR : sans elle, `--suggere 479` rendait `#479-r2`, ouvert par la PR #663 et
+    introuvable de `git grep` comme de `git log --all`. Les parametres evitent de mesurer deux
+    fois quand l'appelant a deja interroge ces capteurs pour imprimer sa portee."""
     if ids_worktrees is None:
         ids_worktrees, _illisibles = _identifiants_des_worktrees(_autres_worktrees())
+    if ids_pr is None:
+        # Chemin par DEFAUT (tests, appels internes) : la panne n'a AUCUN lecteur ici, donc elle
+        # n'est pas dite -- et c'est pourquoi le chemin de PRODUCTION (`suggerer`) mesure lui-meme
+        # et passe le resultat : le tri-etat ne vaut que la ou quelqu'un l'imprime.
+        prs, _panne = _pull_requests()
+        ids_pr = _identifiants_des_pr(prs)
     union = {}
     for part in (_identifiants_du_contenu(), _identifiants_des_noms(),
                  _identifiants_des_commits(), _identifiants_des_refs_hors_head(),
-                 ids_worktrees):
+                 ids_worktrees, ids_pr):
         for k, v in part.items():
             union.setdefault(k, set()).update(v)
     return union
@@ -777,7 +925,8 @@ def employes(ids_worktrees=None) -> dict:
 MARQUEUR_ANGLE_MORT = "ANGLE MORT"
 
 
-def _imprimer_portee(pris, autres, illisibles) -> None:
+def _imprimer_portee(pris, autres, illisibles, pr_lues=None,
+                     pr_panne="capteur non sollicite") -> None:
     """Dit ce que le numero rendu NE garantit PAS. Voir le commentaire de bloc ci-dessus."""
     print("[468] PORTEE DE LA MESURE -- ce que ce numero ne garantit PAS")
     print("   %s : un agent qui vient de recevoir un numero et n'a RIEN encore ecrit est"
@@ -785,6 +934,13 @@ def _imprimer_portee(pris, autres, illisibles) -> None:
     print("   invisible de toute lecture de l'arbre. Deux `--suggere` lances au meme instant")
     print("   depuis deux worktrees rendent le MEME numero. Reserver le supprimerait, mais")
     print("   exigerait commit+push -- ce qui serialiserait l'allocation entre agents.")
+    if pr_lues is None:
+        # Tri-etat, meme regle que partout : `null` n'est pas `0`. Un << 0 PR >> fabrique ferait
+        # lire << aucune PR ne porte ce numero >>, et aucun repli sur cache ne peut le dire.
+        print("   PR GitHub : NON MESUREES -- %s" % pr_panne)
+    else:
+        print("   PR GitHub : %d lue(s) sur les %d plus recentes ; les plus ANCIENNES ne sont "
+              "PAS lues" % (len(pr_lues), GH_LIMITE_PR))
     if autres is None:
         # Tri-etat : jamais rabattu sur 0. Un `0` fabrique ferait lire << personne d'autre >>.
         print("   concurrence : NON MESUREE -- `git worktree list` muet")
@@ -797,8 +953,8 @@ def _imprimer_portee(pris, autres, illisibles) -> None:
     for chemin, raison in illisibles or ():
         print("   worktree ILLISIBLE (non mesure, pas vide) : %s -- %s" % (chemin.name, raison))
     en_vol = sorted(k for k, src in pris.items()
-                    if src and all(s == SRC_REF_EN_VOL or s.startswith(SRC_WORKTREE)
-                                   for s in src))
+                    if src and all(s == SRC_REF_EN_VOL or s == SRC_PR
+                                   or s.startswith(SRC_WORKTREE) for s in src))
     detail = ", ".join("#%s (%s)" % (k, "/".join(sorted(pris[k]))) for k in en_vol[:6])
     if len(en_vol) > 6:                       # ne pas annoncer 7 et n'en montrer que 6
         detail += ", ... (%d de plus)" % (len(en_vol) - 6)
@@ -828,29 +984,67 @@ def borne_des_taches() -> int:
     return max(racines) if racines else 0
 
 
+def _residus_pris(base: str, pris) -> dict:
+    """{k: sources} -- TOUS les `<base>r<k>` employes, pas seulement le prefixe contigu.
+
+    C'est le correctif de #468-r11. L'ancien code s'arretait au PREMIER trou et n'imprimait que
+    ce qu'il avait traverse : `--suggere 477` annoncait << pris sous #477 : r1..r13 >> alors que
+    `r15`, `r16` et `r17` etaient dans `pris` -- deux case-docs, trois probes, un test, des
+    messages de commit, une ref non fusionnee et cinq worktrees. Le corpus les VOYAIT ; c'est la
+    restitution qui filtrait sans le dire."""
+    motif = re.compile(r"^" + re.escape(base) + r"r(\d+)$")
+    out = {}
+    for cle, src in pris.items():
+        m = motif.match(cle)
+        if m:
+            out[int(m.group(1))] = src
+    return out
+
+
+def _lister_trous(trous, libelle_element) -> str:
+    """Rend la liste des trous SANS mentir sur ce qu'elle tronque (#468-r10, meme regle que
+    `en_vol` : ne pas annoncer N et n'en montrer que 12)."""
+    if not trous:
+        return "(aucun)"
+    txt = ", ".join(libelle_element(i) for i in trous[:12])
+    if len(trous) > 12:
+        txt += ", ... (%d de plus)" % (len(trous) - 12)
+    return txt
+
+
 def suggerer(parent: str) -> int:
     """Imprime un identifiant LIBRE. `parent` vide -> une racine ; sinon un `r<k>` sous `parent`.
 
-    On ne recycle JAMAIS un trou sous la borne, meme libre : un trou peut etre un numero pris
-    par un agent EN VOL dont la PR n'est pas encore fusionnee -- l'arbre ne peut pas le voir.
-    La suggestion est donc MONOTONE, et les trous sont seulement LISTES.
+    On ne recycle JAMAIS un trou, meme libre : un trou peut etre un numero pris par un agent EN
+    VOL dont la PR n'est pas encore fusionnee -- l'arbre ne peut pas le voir. La suggestion est
+    donc MONOTONE, et les trous sont seulement LISTES.
+
+    LA MONOTONIE VAUT DANS LES DEUX MODES (#468-r11). Elle ne valait que dans le mode RACINE :
+    le mode RESIDU s'arretait au premier trou et le PROPOSAIT, contredisant ce docstring meme.
+    Le motif ecrit pour les racines s'applique mot pour mot a un residu -- `#477-r14` peut avoir
+    ete alloue par un agent qui n'a encore rien ecrit (N3), ou porte par une PR ouverte dont le
+    worktree est deja supprime. Mesure de l'asymetrie : **11 parents sur 218** proposaient un
+    trou alors que des residus SUPERIEURS existaient.
 
     La PORTEE est imprimee dans les deux modes, et apres le numero : c'est ce qui empeche de
     lire une suggestion comme une garantie (#468-r10).
     """
     autres = _autres_worktrees()
     ids_wt, illisibles = _identifiants_des_worktrees(autres)
-    pris = employes(ids_wt)
+    prs, pr_panne = _pull_requests()
+    pris = employes(ids_wt, _identifiants_des_pr(prs))
     if parent:
-        base = normaliser(parent.lstrip("#"))
-        k = 1
-        while "%sr%d" % (base, k) in pris:
-            k += 1
-        print("[468] LIBRE : #%s-r%d" % (parent.lstrip("#"), k))
-        occupes = [i for i in range(1, k) if "%sr%d" % (base, i) in pris]
-        print("   pris sous #%s : %s" % (parent.lstrip("#"),
-                                         ", ".join("r%d" % i for i in occupes) or "(aucun)"))
-        _imprimer_portee(pris, autres, illisibles)
+        nom = parent.lstrip("#")
+        base = normaliser(nom)
+        occupes = _residus_pris(base, pris)
+        k = max(occupes) + 1 if occupes else 1
+        print("[468] LIBRE : #%s-r%d" % (nom, k))
+        print("   pris sous #%s : %s"
+              % (nom, ", ".join("r%d" % i for i in sorted(occupes)) or "(aucun)"))
+        trous = [i for i in range(1, k) if i not in occupes]
+        print("   %d trou(s) libre(s) SOUS r%d, NON proposes (un trou peut etre reserve par une "
+              "PR en vol) : %s" % (len(trous), k, _lister_trous(trous, lambda i: "r%d" % i)))
+        _imprimer_portee(pris, autres, illisibles, prs, pr_panne)
         return 0
 
     borne = borne_des_taches()
@@ -863,10 +1057,11 @@ def suggerer(parent: str) -> int:
           "   borne des taches = %d (plus grande racine DEFINIE que backlog.md connait)" % borne)
     trous = [i for i in range(1, borne) if str(i) not in pris]
     print("   %d trou(s) libre(s) SOUS la borne, NON proposes (un trou peut etre reserve par une "
-          "PR en vol) : %s" % (len(trous), ", ".join(str(i) for i in trous[:12]) or "(aucun)"))
+          "PR en vol) : %s" % (len(trous), _lister_trous(trous, str)))
     print("   corpus : docs/rl + scripts/python + messages de commit + refs hors HEAD + noms "
-          "des autres worktrees -- l'UNION, mentions comprises (%d identifiants)" % len(pris))
-    _imprimer_portee(pris, autres, illisibles)
+          "des autres worktrees + corps des PR -- l'UNION, mentions comprises (%d identifiants)"
+          % len(pris))
+    _imprimer_portee(pris, autres, illisibles, prs, pr_panne)
     return 0
 
 

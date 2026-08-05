@@ -414,11 +414,21 @@ dossiers) que le cliquet a trouvée à son premier passage.
   fusionné**, quand une allocation se fait au DÉBUT d'une tranche. Deux agents ont ainsi pris `#479`
   (collision **double**, racine ET `r1`). Depuis #468-r10 il lit aussi les **refs hors `HEAD`** et
   les **noms écrits dans les autres worktrees** — ce qui, le jour de la mesure, a évité **deux**
-  collisions imminentes (`#425-r3`, `#448-r3`, tous deux déjà portés). Reste **irréductible** : un
-  numéro pris et **pas encore écrit** — deux `--suggere` au même instant rendent le même numéro,
-  et c'est ce que la portée nomme. Détail et parades chiffrées (dont **deux refusées** : balayer les
-  94 branches non fusionnées apporte **0** changement de numéro) :
-  `docs/rl/case-468-r10-angle-mort-des-agents-en-vol.md`.
+  collisions imminentes (`#425-r3`, `#448-r3`, tous deux déjà portés) — et depuis #468-r11 le
+  **corps des PULL REQUESTS**, qui n'entre JAMAIS dans l'arbre (le squash-merge ne le recopie pas) :
+  `git grep` et `git log --all` rendaient **0** sur `#479-r2`, que la PR #663 ouvre explicitement.
+  Reste **irréductible** : un numéro pris et **pas encore écrit** — deux `--suggere` au même instant
+  rendent le même numéro, et c'est ce que la portée nomme. Détail et parades chiffrées (dont
+  **deux refusées** : balayer les 94 branches non fusionnées apporte **0** changement de numéro ;
+  et **une retenue** sur le même critère : le corps des PR en change **2**) :
+  `docs/rl/case-468-r10-angle-mort-des-agents-en-vol.md` et
+  `docs/rl/case-468-r11-monotonie-des-deux-modes-et-corps-des-pr.md`.
+- ⚠ **La suggestion est MONOTONE dans les DEUX modes — elle ne l'était que dans un.** Le mode
+  RÉSIDU s'arrêtait au **premier trou** et le proposait (`--suggere 477` → `#477-r14` alors que
+  `-r15/-r16/-r17` existent), en n'affichant comme « pris » que le **préfixe contigu** : les
+  résidus au-delà étaient **VUS par le corpus** et **tus par la sortie**. **11 parents sur 218**
+  étaient dans ce cas. Un trou n'est jamais proposé, dans aucun mode — il peut être réservé par
+  une PR en vol ou par un agent qui n'a rien écrit ; il est seulement **listé**.
 - ⚠ La **puce** de résidu d'une case-doc est une 4ᵉ position de définition **de fait**, non gardée
   (`#468-r7`) ; et `#<n>` désigne à la fois une tâche et une PR (`#468-r8`), ce qui rend
   `git log --grep` structurellement ambigu.
