@@ -116,8 +116,8 @@ HOLY_DUEL_TAUNT = 1091            # (c) -- `HolyDuel_TauntEffect`
 # Classes natives qui arment (b) / (c), telles que `--step declared` les rend.
 BOND_BASE = "IdunBattle.Entities.Effects.ABondEffect"
 ARMS_RANGE = ("IdunBattle.Entities.Effects.TauntedEffect",
-              "IdunBattle.Entities.Effects.Loki.Taunted_RefreshUnitTurnFinishedEffect",
-              "IdunBattle.Entities.Effects.Loki.BlockUnitMovementBondEffect",
+              "IdunBattle.Entities.Effects.Taunted_RefreshUnitTurnFinishedEffect",
+              "IdunBattle.Entities.Effects.BlockUnitMovementBondEffect",
               "Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.MindControl_TaunterEffect")
 ARMS_ADJACENT = ("IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect",)
 
@@ -262,17 +262,13 @@ def _pick_geometry(board, victim_pos, taken, mode):
     Dans les deux cas la tuile d'arrivee du push (V - e) doit etre JOUABLE et LIBRE, sinon le push
     est bloque (knockback) et la mesure ne dirait rien du trigger."""
     vc, vr = victim_pos
-    ring = [p for p in board.neighbors(vc, vr)
-            if board.is_playable(*p) and tuple(p) not in taken]
+    ring = [tuple(p) for p in board.neighbors(vc, vr) if tuple(p) not in taken]
     for t in ring:
         for e in ring:
             if e == t:
                 continue
-            dest = (2 * vc - e[0], 2 * vr - e[1])          # V - e en OFFSET : faux en general
-            dest = _opposite(victim_pos, e)
-            if dest is None or not board.is_playable(*dest) or tuple(dest) in taken:
-                continue
-            if dest in (t, e):
+            dest = _opposite(victim_pos, e)               # la tuile ou le push envoie le taunte
+            if not board.is_playable(*dest) or dest in taken or dest in (t, e):
                 continue
             d = hexgeo.distance(dest, t)
             if (mode == "eloigne" and d == 2) or (mode == "proche" and d == 1):
@@ -281,34 +277,30 @@ def _pick_geometry(board, victim_pos, taken, mode):
 
 
 def _opposite(center, other):
-    """Tuile diametralement opposee a `other` par rapport a `center` (1 hex), en offset even-q.
+    """Tuile diametralement opposee a `other` par rapport a `center` (1 hex).
 
-    Passe par les coordonnees CUBE : l'arithmetique offset n'est pas lineaire (la parite de la
-    colonne decale les lignes), et un `2*c - e` naif y donne une tuile fausse une fois sur deux."""
-    ax, ay, az = hexgeo.offset_to_cube(*center)
-    bx, by, bz = hexgeo.offset_to_cube(*other)
-    return hexgeo.cube_to_offset(2 * ax - bx, 2 * ay - by, 2 * az - bz)
-
-
-def _seed_layout(sid, a_units):
-    """Position que la BC donne au camp adverse (spawn points) -- REPRODUCTIBLE a seed et BC
-    egales, donc utilisable pour CHOISIR le placement joueur du build suivant."""
-    rid = _build(sid, [TAUNTER], list(a_units), positions=None)
-    try:
-        dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
-        pos = PR.positions(dv)
-        return {u.get("visualId"): pos[u["id"]] for u in (dv.get("units") or [])
-                if not u.get("ctrl")}
-    finally:
-        PR.dispose(sid, rid)
+    Passe par les coordonnees CUBE (`hexgeo.to_cube`/`from_cube`) : l'arithmetique OFFSET n'est pas
+    lineaire -- la parite de la colonne decale les lignes -- et un `2*c - e` naif y donne une tuile
+    fausse une fois sur deux (c'est exactement la faute de parite de `hexgeo`, corrigee le
+    2026-07-02)."""
+    ax, _ay, az = hexgeo.to_cube(*center)
+    bx, _by, bz = hexgeo.to_cube(*other)
+    return hexgeo.from_cube(2 * ax - bx, 2 * az - bz)
 
 
-def _build(sid, p_units, a_units, positions=None, unit_patch=None):
-    """Runner isole : seed BC + board `MC1_67` + rosters explicites + placement joueur EXACT.
+def _build(sid, p_units, p_pos, a_units, a_pos, unit_patch=None):
+    """Runner isole : seed BC + board `MC1_67` + rosters explicites + placement EXACT DES DEUX
+    CAMPS.
 
-    `positions` = liste `[(col,row)]` alignee sur `p_units` ; `None` -> placement au contact
-    (build de reconnaissance). `unit_patch` = `{visualId: {champ: valeur}}`, ecrit VERBATIM dans
-    `BC.Units` (meme geste que `--unit-stat`)."""
+    Le camp adverse est pose A LA MAIN, exactement comme `rl_duel build --a-place` (#477-r5) :
+    l'unite QUITTE `BC.PredefinedUnits` -- que `IdunBattle.Operations.SetupGameOperation$$AddPredefinedUnits`
+    placerait lui-meme sur le `SpawnPointGroup` -- pour rejoindre les `playerUnits` d'`initAndStart`
+    avec `playerId = PLAYER_ID_AI`. C'est ce qui rend la GEOMETRIE choisie plutot que subie : le
+    spawn natif de MC1_67 mettait la victime sur une tuile de BORD a DEUX voisins jouables, ou
+    aucune des deux configurations de push n'existe.
+
+    `unit_patch` = `{visualId: {champ: valeur}}`, ecrit VERBATIM dans `BC.Units` (meme geste que
+    `--unit-stat`)."""
     seed = R._load_seed_bc()
     board_dump = R._load_board_dump(PR.BOARD)
     template, pool, _mow = R._normalize_and_extract_pool(sid, seed, PR.RANK, board_dump=board_dump)
@@ -316,17 +308,19 @@ def _build(sid, p_units, a_units, positions=None, unit_patch=None):
     if miss:
         raise RuntimeError("hors pool rank %d : %s" % (PR.RANK, miss))
     bc = copy.deepcopy(template)
-    R._patch_predefined_units(bc, list(a_units))
+    R._patch_predefined_units(bc, [])              # tout le camp adverse est pose a la main
     for vis, fields in (unit_patch or {}).items():
         touched = [u for u in bc.get("Units", []) if u.get("VisualId") == vis]
         if not touched:
             raise RuntimeError("unit_patch: VisualId %r absent de BC.Units" % vis)
         for u in touched:
             u.update(fields)
-    pos = positions if positions is not None else PR._contact_placement(bc, len(p_units))
     player_units = [{"unitId": u, "playerId": R.PLAYER_ID_HUMAN,
-                     "col": int(pos[i][0]), "row": int(pos[i][1])}
+                     "col": int(p_pos[i][0]), "row": int(p_pos[i][1])}
                     for i, u in enumerate(p_units)]
+    player_units += [{"unitId": u, "playerId": R.PLAYER_ID_AI,
+                      "col": int(a_pos[i][0]), "row": int(a_pos[i][1])}
+                     for i, u in enumerate(a_units)]
     resp = R._rpc(sid, "initAndStart",
                   [{"configJson": json.dumps(bc), "seed": PR.SEED,
                     "playerUnits": player_units}], timeout=60)
@@ -337,25 +331,32 @@ def _build(sid, p_units, a_units, positions=None, unit_patch=None):
     return rid, bc
 
 
+def _open_tile(board):
+    """Une tuile jouable dont les SIX voisins sont jouables -- la seule ou les deux configurations
+    de push (ELOIGNE et PROCHE) existent toutes les deux, donc la seule qui permette au CONTROLE
+    d'etre le meme geste a une tuile pres."""
+    for (c, r), t in sorted(board.playable_tiles().items()):
+        if len(board.neighbors(c, r)) == 6 and all(
+                len(board.neighbors(*n)) >= 3 for n in board.neighbors(c, r)):
+            return (c, r)
+    raise RuntimeError("aucune tuile jouable a 6 voisins jouables sur %s" % PR.BOARD)
+
+
 def build_montage(sid, mode="eloigne", hp=400000):
     """Monte le runner du bras `mode` et rend le contexte {sid, rid, taunter, pusher, victim, ...}.
 
     Le taunte est patche a `hp` PV : `CrushingClaws` (2 coups Piercing) PUIS `MortisRound`
     (HeavyRound) le frappent, et un taunte MORT ferait tomber le bond par le trigger (a) -- ce qui
     rendrait la mesure de (b) inattribuable."""
-    layout = _seed_layout(sid, [VICTIM])
-    if VICTIM not in layout:
-        raise RuntimeError("victime absente du layout adverse : %s" % sorted(layout))
-    vpos = tuple(layout[VICTIM])
     seed = R._load_seed_bc()
     board_dump = R._load_board_dump(PR.BOARD)
     template, _pool, _mow = R._normalize_and_extract_pool(sid, seed, PR.RANK,
                                                           board_dump=board_dump)
     board = _board_of(template)
-    taken = set(tuple(p) for p in layout.values())
-    tpos, epos = _pick_geometry(board, vpos, taken, mode)
+    vpos = _open_tile(board)
+    tpos, epos = _pick_geometry(board, vpos, {vpos}, mode)
     patch = {VICTIM: {"Health": hp, "RemainingHealth": hp}}
-    rid, bc = _build(sid, [TAUNTER, PUSHER], [VICTIM], positions=[tpos, epos], unit_patch=patch)
+    rid, bc = _build(sid, [TAUNTER, PUSHER], [tpos, epos], [VICTIM], [vpos], unit_patch=patch)
     dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     bv = PR.units_by_visual(dv)
     for need in (TAUNTER, PUSHER, VICTIM):
@@ -467,6 +468,78 @@ def step_rangelive(sid):
 
 
 # ================================================================================================
+# --step portrange : la MEME question, cote PORT
+#
+# On capture l'etat APRES le taunt (donc AVANT le push), puis on rejoue le push OFFLINE par
+# `DisplaceUnitOperation` -- la meme Operation que le natif emet. C'est la mesure honnete : elle
+# exerce a la fois le trigger (b) et le VECTEUR qui doit le reveiller (`On(0x1d)` apres un push).
+# ================================================================================================
+def port_bras(sid, mode):
+    """Un bras complet, cote PORT. Rend `{d_before, d_after, taunt_before, taunt_after, moved}`."""
+    import probe_462_r4b_r1_terminator_commanded_attack as R1
+    from engine.runner.events import EventBus
+    from engine.runner.operations.displace import DisplaceUnitOperation
+    from engine.runner.components import PositionComponent
+
+    ctx = build_montage(sid, mode=mode)
+    try:
+        cast_taunt(ctx)
+        board, dv, ob, cs = R1._snapshot(sid, ctx["rid"])
+        st = R1._seeded_state(sid, ctx["rid"], board, dv, ob, cs)
+    finally:
+        PR.dispose(sid, ctx["rid"])
+
+    def _pos(uid):
+        e = st.get_entity(int(uid))
+        pc = e.get_component(PositionComponent) if e is not None else None
+        return None if pc is None else (pc.col, pc.row)
+
+    def _fam(uid):
+        eff = getattr(st, "effects", None)
+        if eff is None:
+            return []
+        return sorted(int(e.effect_type) for e in eff.by_unit.get(int(uid), [])
+                      if not e.consumed and int(e.effect_type) in TAUNTED_FAMILY)
+
+    v, t, p = ctx["victim"], ctx["taunter"], ctx["pusher"]
+    before, d_before = _fam(v), hexgeo.distance(_pos(v), _pos(t))
+    inst = [e for e in st.effects.by_unit.get(int(v), [])
+            if not e.consumed and int(e.effect_type) == TAUNTED]
+    bonded = int(getattr(inst[0], "bonded", -1)) if inst else None
+    res = DisplaceUnitOperation(int(p), int(v)).execute(st, EventBus())
+    after, d_after = _fam(v), hexgeo.distance(_pos(v), _pos(t))
+    print("[%s/PORT] bond(27) -> %s (taunteur %s)  push=%s  dist %d -> %d  taunt %s -> %s"
+          % (mode, bonded, t, res.get("moved"), d_before, d_after, before, after))
+    return {"mode": mode, "moved": bool(res.get("moved")), "bonded": bonded,
+            "d_before": d_before, "d_after": d_after,
+            "taunt_before": before, "taunt_after": after}
+
+
+def step_portrange(sid):
+    out = {m: port_bras(sid, m) for m in ("eloigne", "proche")}
+    e, p = out["eloigne"], out["proche"]
+    print("")
+    print("=" * 96)
+    print("VERDICT (b) `get_Range` -- PORT")
+    for m in ("eloigne", "proche"):
+        r = out[m]
+        print("  bras %-8s : pousse=%s dist %d -> %d, taunt %s -> %s"
+              % (m, r["moved"], r["d_before"], r["d_after"], r["taunt_before"], r["taunt_after"]))
+    if not (e["moved"] and p["moved"]):
+        print("  INCONCLUSIF : un des deux push n'a pas eu lieu cote port.")
+        return 1
+    if e["taunt_after"]:
+        print("  ECART : le port GARDE le bond alors que le natif le retire (dist %d > 1)."
+              % e["d_after"])
+        return 1
+    if not p["taunt_after"]:
+        print("  ECART : le port retire le bond alors que la distance est encore de 1.")
+        return 1
+    print("  => le port suit le natif sur les DEUX bras.")
+    return 0
+
+
+# ================================================================================================
 # --step holyduel : (c) `get_Adjacent` -- recensement des porteurs de `HolyDuel_Taunt` (1091)
 # ================================================================================================
 def step_holyduel(sid):
@@ -490,7 +563,7 @@ def step_holyduel(sid):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="declared",
-                    choices=["declared", "attrib", "rangelive", "holyduel", "all"])
+                    choices=["declared", "attrib", "rangelive", "portrange", "holyduel", "all"])
     args = ap.parse_args()
     sid = _resolve_session()
     rc = 0
@@ -501,6 +574,8 @@ def main():
             rc |= step_attrib(sid)
         if args.step in ("rangelive", "all"):
             rc |= step_rangelive(sid)
+        if args.step in ("portrange", "all"):
+            rc |= step_portrange(sid)
         if args.step in ("holyduel", "all"):
             rc |= step_holyduel(sid)
     finally:

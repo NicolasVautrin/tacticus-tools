@@ -138,30 +138,71 @@ RESIDUS NOMMES, explicitement HORS table (aucun trigger pose pour eux -- statu q
     non lue). Les inscrire par ressemblance serait une hypothese, pas une lecture.
 
 ================================================================================================
-4. LES TRIGGERS (b) ET (c) NE SONT PAS PORTES -- NON CONFRONTES, et voici la raison
+4. LE TRIGGER (b) `get_Range` -- PORTE, et CONFRONTE (#462-r4b-r1-r1-r1-r1-b)
 ================================================================================================
-Ils exigent `get_Range.HasValue` (b) ou `get_Adjacent == true` (c). Mesure `--step declared` sur les
-37 classes de la famille :
+Mesure `--step declared` sur les 37 classes de la famille (rejouable par
+`probe_462_r4b_r1_r1_r1_r1_b_bond_range.py --step declared`) :
 
-  * (b) arme sur `TauntedEffect`, `Taunted_RefreshUnitTurnFinishedEffect`,
-    `BlockUnitMovementBondEffect` et `Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.MindControl_TaunterEffect`
-    -- les quatre rendent `Nullable<int>(1)` (corps LUS : `System.Nullable..ctor(&ret, 1)`).
+  * (b) arme sur `IdunBattle.Entities.Effects.TauntedEffect`,
+    `IdunBattle.Entities.Effects.Taunted_RefreshUnitTurnFinishedEffect`,
+    `IdunBattle.Entities.Effects.BlockUnitMovementBondEffect` et
+    `Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.MindControl_TaunterEffect` -- les QUATRE
+    rendent `Nullable<int>(1)` (corps LUS : `System.Nullable..ctor(&ret, 1)`).
   * (c) arme sur `IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect` et sur elle seule.
   * `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect` porte les DEUX en
     CHAMPS (`get_Range` = `this+0x480`, `get_Adjacent` = `this+0x488`) -- et son ctor n'ecrit NI
     l'un NI l'autre, donc `Nullable` vide et `false` : ni (b) ni (c).
 
-Aucun de ces porteurs n'est confrontable sur ce cycle. Le seul que le port POSE est la famille
-`Taunted` -- et la mesure `--step gatelive` etablit qu'elle est INOBSERVABLE ici : le taunt de
-`CrushingClaws` (1105) est pose avec `TurnsFromRounds(1)` et TOMBE au deuxieme `endturn` SANS QUE
-PERSONNE NE BOUGE (sa duree epuise le montage avant que le terme de PORTEE soit exercable ; le
-premier jet, qui deplacait le taunte, mesurait en realite la fin de son propre tour). Porter (b) ou
-(c) serait donc du code que rien ne peut invalider -- exactement ce que la doctrine proscrit.
-NON CONFRONTES : `<klass+0x728> get_Range` et `<klass+0x738> get_Adjacent`.
+CE QUI A DEBLOQUE LA CONFRONTATION. La passe precedente concluait << inobservable >> : le taunt de
+`CrushingClaws` (1105) dure `TurnsFromRounds(1)` et tombe au DEUXIEME `endturn`, et son porteur ne
+peut pas MARCHER (le composite pose `Taunted_BlockMovement`). Le montage qui tranche n'attend AUCUN
+tour et ne fait marcher PERSONNE : une SECONDE unite du meme camp caste `MortisRound` (1004), dont
+l'arbre porte `PushUnit(Caster(), Target())`. Le push emet `On(0x1d)` cote natif
+(`IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects` : 0x24 -> 0x23 -> 0x1d)
+et change la distance -- les deux ingredients du trigger, dans le tour du cast.
+
+Le DISCRIMINANT est la GEOMETRIE du pousseur, pas un parametre du montage. Le push envoie le taunte
+en `V - e` (a l'oppose du pousseur), donc `dist(V - e, T) = |e + t|` : pousseur a 1 cran du taunteur
+-> distance 2 (HORS portee) ; a 2 crans -> distance 1 (ENCORE a portee). Les deux bras jouent le
+MEME geste a une tuile pres.
+
+MESURE (2026-08-05, board `MC1_67`, `tyranTyrantGuard` + `ultraEliminatorSgt` vs `blackPossession`
+a 400000 PV, aucun `endturn`) :
+
+    bras ELOIGNE : push (1,1)->(0,0), dist 1 -> 2 ; taunt [25,26,27,1237] -> []      <- RETIRE
+    bras PROCHE  : push (1,1)->(0,1), dist 1 -> 1 ; taunt [25,26,27,1237] -> [ide]   <- GARDE
+
+C'est le PARENT qui tombe : les trois sous-effets partent avec lui (`RevertInternal`). Si seul
+`Taunted_RefreshUnitTurnFinishedEffect` (1237) avait porte le trigger, 27 serait reste -- la mesure
+ATTRIBUE donc `EffectType 27` a une classe qui arme (b), et parmi les quatre c'est `TauntedEffect`
+(la seule dont `ApplyInternal` pose ces trois sous-effets ET la liste de cibles forcees, #436).
+
+⚠ La BASCULE DE VTABLE, qui avait servi a attribuer les `APendingAttackEffect` (§7.3 de la fiche),
+est INUTILISABLE ici : les six classes de la famille etaient DEJA materialisees avant tout cast
+(session partagee, runners d'autres agents). Le pas existe (`--step attrib`) et le DIT.
+
+================================================================================================
+5. LE TRIGGER (c) `get_Adjacent` -- MESURE au natif, NON PORTE (rien a porter)
+================================================================================================
+Seul `HolyDuel_TauntEffect` l'arme, c'est-a-dire l'`EffectType 1091 HolyDuel_Taunt` que pose
+`IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility$$ExecuteBehaviour` :
+
+    Execute( AddBondEffect(0x443 = 1091, AbilityStateReference, source = Caster@0x48,
+                           targets = Target@0x60, bondedEntity = Caster@0x48, options VIDES)
+             & UseActiveAbility(caster, target, UnitNormalAttackType(caster), ...) )
+
+Le porteur `templChampion` EST au pool (rank 17), donc la face NATIVE est confrontable et l'est
+(`--step holyduellive`). Mais l'ability 1050 n'est PAS dans `ABILITY_CLASSES` : **le port ne pose
+jamais 1091**. Inscrire un trigger (c) produirait du code qu'aucun etat ne peut atteindre -- le
+piege << vacuously vrai >> du §5 de la fiche. `EffectType 1091` n'entre donc PAS dans la table :
+elle ne contient que des effets que le port POSE. Le jour ou `HolyDuelAbility` sera portee, la
+valeur mesuree est ici, et la classe `BondRemoveOnAdjacencyLost` reste a ecrire.
 """
 from __future__ import annotations
 
 from typing import NamedTuple, Optional
+
+import hexgeo
 
 from ...state import State
 from ...components import UnitComponent
@@ -226,6 +267,16 @@ BOND_REMOVAL_GATES: dict[int, BondRemovalGates] = {
     int(EffectType.ValkyrieStrike_Effect): BondRemovalGates(
         "IdunBattle.Entities.Effects.Loki.ValkyrieStrikeEffect", False, None, False,
         is_executed_if_owner_dies=True),
+    # Pose par `CrushingClawsAbility$$ExecuteBehaviour` (1105) et par
+    # `GetEmRuntzAbility$$TauntWithNewChildrenWhoDidDamage` (1045) -- les DEUX passent le TAUNTANT en
+    # 5e argument d'`AddBondEffect`, donc `bondedEntity` = le taunteur. Classe native ETABLIE : c'est
+    # `IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal` qui pose les trois sous-effets
+    # 25/26/1237 ET la liste de cibles forcees (#436) -- la seule des quatre classes armant (b) qui
+    # le fasse. CONFRONTEE au natif dans les DEUX sens (cf. §4 : retire a distance 2, gardee a 1).
+    # `get_RemoveOnBondedEntityDeath = true` : le taunt tombe AUSSI a la mort du taunteur -- meme
+    # mesure `--step declared`, confrontee par le bras `deathlive` du probe de ce residu.
+    int(EffectType.Taunted_OnlySpecificTargets): BondRemovalGates(
+        "IdunBattle.Entities.Effects.TauntedEffect", True, 1, False),
 }
 
 
@@ -248,6 +299,7 @@ def assert_pending_gate_consistency() -> None:
 
 _ON_PRE_UNIT_DEATH_2 = int(EventTriggerType.PreUnitDeath_2)      # `On(2)`
 _ON_UNIT_REMOVED = int(EventTriggerType.UnitRemoved)             # `On(0x25)`
+_ON_UNIT_POSITION_CHANGED_2 = int(EventTriggerType.UnitPositionChanged_2)   # `On(0x1d)`
 
 
 def bond_removal_tree(effect_type: int) -> RemoveEffect:
@@ -293,7 +345,7 @@ class BondRemoveOnBondedEntityDeath(EffectTrigger):
     event_ids = (_ON_PRE_UNIT_DEATH_2, _ON_UNIT_REMOVED)
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        inst = _bonded_instance(state, int(self.owner_id))
+        inst = _bonded_instance(state, int(self.owner_id), _gate_on_death)
         if inst is None:
             return False
         gates = BOND_REMOVAL_GATES.get(int(inst.effect_type))
@@ -314,26 +366,86 @@ class BondRemoveOnBondedEntityDeath(EffectTrigger):
         return ev.target_id is not None and int(ev.target_id) == int(bonded)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        inst = _bonded_instance(state, int(self.owner_id))
+        return _remove_bond(state, int(self.owner_id), _gate_on_death, "BondedEntityDeath")
+
+
+class BondRemoveOnRangeExceeded(EffectTrigger):
+    """Trigger (b) d'`ABondEffect$$CreateHandleTriggerAbilitiesInternal`, gate
+    `<klass+0x728> get_Range` (un `Nullable<int>` : le trigger n'existe QUE s'il a une valeur).
+
+        Triggered( NOT IsInRange(Owner@DSLSelectors+0x30, BondedEntityFromEffect(Effect),
+                                 Direct(range.Value))
+                   & NOT AmountIsZero(BondedEntityFromEffect(Effect))
+                   & On(0x1d = UnitPositionChanged_2),
+                   RemoveEffect(Effect) )
+
+    `IdunBattleLogic.Entities.DSLTriggers$$IsInRange` construit
+    `IdunBattle.Entities.Triggers.IsInRangeAbilityTrigger`, dont `$$ShouldTrigger` rend
+    `query.GetDistance(Select(s1), Select(s2)) <= GetAmount(range)` -- comparateur INCLUSIF. Le
+    `NOT` en fait donc `distance > range`.
+    ⚠ ghidra resout le ctor DEDUPLIQUE de ce noeud vers `IsUnitOnTileEffectTrigger$$.ctor` : c'est
+    la signature Frida `(selector1, selector2, range: IAmountFormula)` qui tranche, pas le nom.
+
+    AUCUN gate sur l'ACTEUR de l'event : le natif ne regarde ni `actor` ni `target`. N'importe quel
+    mouvement de n'importe quelle unite re-evalue la distance COURANTE -- c'est ce qui rend le
+    trigger atteignable alors meme que le taunte, lui, ne peut PAS marcher
+    (`Taunted_BlockMovement`).
+
+    Comme (a) : UNE SEULE classe pour tous les `effect_type` (c'est la BASE qui construit le
+    `Triggered()`), `effect_type` declaratif a `-1`, lookup du dispatch sur l'instance."""
+    event_id = _ON_UNIT_POSITION_CHANGED_2
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        inst = _bonded_instance(state, int(self.owner_id), _gate_range)
         if inst is None:
-            return None
-        et = int(inst.effect_type)
-        ectx = ExecutionContext(state=state, rng=state.rng)
-        bond_removal_tree(et).execute(
-            entities_from_state(state, int(self.owner_id), int(self.owner_id)), ectx)
-        removed = sum(int(p.get("removed") or 0) for n, p in ectx.emitted if n == "RemoveEffect")
-        if not removed:
-            return None
-        return {"effect": et, "owner": int(self.owner_id), "removed": removed,
-                "bonded": int(getattr(inst, "bonded", -1)), "reason": "BondedEntityDeath"}
+            return False
+        gates = BOND_REMOVAL_GATES.get(int(inst.effect_type))
+        if gates is None or gates.range is None:
+            return False                        # `get_Range` VIDE -> trigger NON CONSTRUIT
+        bonded = getattr(inst, "bonded", None)
+        if bonded is None:
+            return False
+        # `NOT AmountIsZero(BondedEntityFromEffect(Effect))` -- meme semantique MESUREE qu'en (a)
+        # (cf. §2) : l'entite bondee est encore resoluble dans l'etat.
+        if state.get_entity(int(bonded)) is None:
+            return False
+        a, b = _tile_of(state, int(self.owner_id)), _tile_of(state, int(bonded))
+        if a is None or b is None:
+            # `query.GetDistance` sur une entite SANS tuile (hors plateau : `RemoveUnitFromItsTiles`,
+            # MoW) n'est pas lisible ici. On ne RETIRE PAS -- le retrait est l'action, donc l'inaction
+            # est le choix conservateur -- et on le DIT plutot que de fabriquer une distance.
+            return False
+        return hexgeo.distance(a, b) > int(gates.range)
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        return _remove_bond(state, int(self.owner_id), _gate_range, "RangeExceeded")
 
 
-def _bonded_instance(state: State, owner_id: int):
+def _gate_range(g: BondRemovalGates) -> bool:
+    return g.range is not None
+
+
+def _gate_on_death(g: BondRemovalGates) -> bool:
+    return bool(g.remove_on_bonded_entity_death)
+
+
+def _tile_of(state: State, uid: int):
+    """MAIN TILE de l'entite (`IdunBattle.Entities.EntityExtensions$$GetMainTile`). `None` = pas de
+    `PositionComponent`, c'est-a-dire une entite hors plateau."""
+    from ...components import PositionComponent
+    e = state.get_entity(int(uid))
+    pc = e.get_component(PositionComponent) if e is not None else None
+    return None if pc is None else (pc.col, pc.row)
+
+
+def _bonded_instance(state: State, owner_id: int, gate=_gate_on_death):
     """L'instance NON CONSOMMEE, portee par `owner_id`, dont l'`effect_type` est dans la table ET
-    dont le gate (a) est arme. `None` sinon.
+    dont le gate demande est arme. `None` sinon.
 
     Mirror du couple (`Effect@DSLSelectors+0x38`, `ABondEffect$$BondedEntityId`) : le natif tient
-    l'entite-effet COURANTE, le port la retrouve par son type sur le porteur."""
+    l'entite-effet COURANTE, le port la retrouve par son type sur le porteur. Le `gate` est le
+    VIRTUEL du trigger appelant -- les trois `Triggered()` d'`ABondEffect` sont INDEPENDANTS, donc
+    chacun ne doit voir que les instances dont SON virtuel est arme."""
     eff = getattr(state, "effects", None)
     if eff is None:
         return None
@@ -341,16 +453,45 @@ def _bonded_instance(state: State, owner_id: int):
         if e.consumed:
             continue
         g = BOND_REMOVAL_GATES.get(int(e.effect_type))
-        if g is not None and g.remove_on_bonded_entity_death:
+        if g is not None and gate(g):
             return e
     return None
 
 
+def _remove_bond(state: State, owner_id: int, gate, reason: str) -> Optional[dict]:
+    """Execution du behaviour commun aux trois `Triggered()` : l'arbre `RemoveEffect(Effect@0x38)`.
+    Foyer UNIQUE -- le natif construit le MEME `DSLBehaviors$$RemoveEffect(Effect@0x38)` dans les
+    trois branches, seul le trigger differe."""
+    inst = _bonded_instance(state, int(owner_id), gate)
+    if inst is None:
+        return None
+    et = int(inst.effect_type)
+    ectx = ExecutionContext(state=state, rng=state.rng)
+    bond_removal_tree(et).execute(
+        entities_from_state(state, int(owner_id), int(owner_id)), ectx)
+    removed = sum(int(p.get("removed") or 0) for n, p in ectx.emitted if n == "RemoveEffect")
+    if not removed:
+        return None
+    return {"effect": et, "owner": int(owner_id), "removed": removed,
+            "bonded": int(getattr(inst, "bonded", -1)), "reason": reason}
+
+
 def bond_removal_registry_entries() -> list[tuple[int, type[EffectTrigger]]]:
-    """`(effect_type, classe)` a inscrire dans `EFFECT_TRIGGERS` -- UNIQUEMENT pour les effets dont
-    `<klass+0x748>` est VRAI. Une entree a `False` (`TunnelingHorror_PendingSummon`) reste dans la
-    table -- elle y DOCUMENTE le non-retrait, et un garde offline peut l'assertionner -- mais
-    n'inscrit aucun trigger : cote natif, le `Triggered()` n'entre pas dans l'`ArraySet`."""
-    return [(et, BondRemoveOnBondedEntityDeath)
-            for et, g in sorted(BOND_REMOVAL_GATES.items())
-            if g.remove_on_bonded_entity_death]
+    """`(effect_type, classe)` a inscrire dans `EFFECT_TRIGGERS`, DERIVE de la table -- jamais ecrit
+    a la main. Un effet peut y entrer DEUX fois (deux `Triggered()` distincts dans l'`ArraySet`
+    natif) : c'est le cas de `Taunted_OnlySpecificTargets`, qui arme (a) ET (b).
+
+    Une entree dont AUCUN virtuel n'est arme (`TunnelingHorror_PendingSummon`,
+    `ValkyrieStrike_Effect`) reste dans la table -- elle y DOCUMENTE le non-retrait, et un garde
+    offline peut l'assertionner -- mais n'inscrit aucun trigger : cote natif, le `Triggered()`
+    n'entre pas dans l'`ArraySet`.
+
+    (c) `get_Adjacent` n'a pas de ligne ici : aucun `effect_type` POSE par le port ne l'arme
+    (cf. §5). Inscrire une classe sans instance atteignable serait vacuement vrai."""
+    out: list[tuple[int, type[EffectTrigger]]] = []
+    for et, g in sorted(BOND_REMOVAL_GATES.items()):
+        if g.remove_on_bonded_entity_death:
+            out.append((et, BondRemoveOnBondedEntityDeath))
+        if g.range is not None:
+            out.append((et, BondRemoveOnRangeExceeded))
+    return out

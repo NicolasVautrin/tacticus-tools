@@ -350,6 +350,9 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # de remplacer par un `EffectsState.seed` frais. MEME nature que `_load_unit_parent` -- une
         # ENTREE de gate que seule la simulation posait, cf. `_load_forced_attack_targets`.
         _load_forced_attack_targets(state)
+        # MEME nature, MEME rang (elle lit `state.effects`) : le lien PARENT -> ENFANT entre effets
+        # composites, cf. `_load_effect_parent_links`.
+        _load_effect_parent_links(state)
         # APRES les stats : le substrat de traits vit dans `UnitContext.traits`, que
         # `_load_stats_and_effects` vient de construire (unites ET MoW). Meme nature que les deux
         # seeds ci-dessus -- une ENTREE de gate que rien ne peuplait sur un etat recharge, le port
@@ -804,6 +807,46 @@ def _load_forced_attack_targets(state: State) -> None:
                 comp = ForcedAttackTargetsComponent()
                 ent.add_component(comp)
             comp.set_from_effect(eff, [int(bonded)])
+
+
+def _load_effect_parent_links(state: State) -> None:
+    """Reconstruit `BaseEffect.parent_type` (lien `EffectComponent.ParentEffect@+0x70`) sur un etat
+    HYDRATE, depuis les instances deja materialisees dans `state.effects`.
+
+    POURQUOI. Pendant EXACT de `_load_forced_attack_targets` : seule la voie OFFLINE ecrivait ce
+    lien (`AddEffectOperation._spawn_sub_effects`). Sur un etat reconstruit d'une capture prise
+    APRES la pose d'un composite, les enfants arrivaient ORPHELINS -- et les DEUX consommateurs du
+    lien devenaient muets : la cascade d'expiration (`EffectsState.on_turn_end`) et le mirror de
+    `IdunBattle.Operations.RemoveEffectOperation$$RemoveSubEffects`
+    (`operations/remove_effects._remove_sub_effects`). Symptome MESURE le 2026-08-05 : le trigger
+    (b) d'`ABondEffect` retirait bien le composite 27 sur un etat capture, et `[25, 26, 1237]`
+    restaient sur la cible -- la ou le natif rend une liste VIDE.
+
+    RECONSTRUCTION, et non lecture : le canal natif est la liste `SubEffects@+0x78`, qu'aucun RPC
+    n'expose. La source du port est la meme part DATA que la voie de pose --
+    `BaseEffect.sub_effects_on_apply()`, mirror de `<Effect>.ApplyInternal`. L'attribution est
+    UNIQUE parce qu'`AddEffectOperation` garantit au plus UNE instance non consommee d'un
+    `effect_type` par unite : si le porteur a le parent ET un type que ce parent declare, cette
+    instance EST son enfant. Les deux composites du port (`Stunned` 1162 -> 1165/1166/1167,
+    `Taunted` 27 -> 25/26/1237) ont d'ailleurs des types d'enfant qu'aucune autre voie ne pose.
+
+    N'ECRASE JAMAIS un `parent_type` deja pose (etat mixte capture + simulation)."""
+    effects = getattr(state, "effects", None)
+    if effects is None:
+        return
+    for uid, effs in (getattr(effects, "by_unit", None) or {}).items():
+        live = [e for e in (effs or []) if not e.consumed]
+        if len(live) < 2:
+            continue
+        by_type = {}
+        for e in live:
+            if e.effect_type is not None:
+                by_type.setdefault(int(e.effect_type), e)
+        for parent in live:
+            for spec in parent.sub_effects_on_apply():
+                child = by_type.get(int(spec.effect_type))
+                if child is not None and child is not parent and child.parent_type is None:
+                    child.parent_type = int(parent.effect_type)
 
 
 def _load_actor_statistics(state: State, actor_stats: dict) -> None:

@@ -133,7 +133,8 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
          (`ValueModification$$ReverseModification`), stat-OVERRIDES, puis modifications d'ability
          (`AddUnitActiveAbilityModification` rejouees en `-delta`) ;
       3. retrait de la liste du porteur (`ActiveEffectIds.Remove`) -> `consumed` + `unregister_name` ;
-      4. `On(EffectRemoved = 0x40)` APRES tout ce qui precede.
+      4. `RemoveSubEffects` -- retrait RECURSIF des enfants (cf. `_remove_sub_effects`) ;
+      5. `On(EffectRemoved = 0x40)` APRES tout ce qui precede.
     """
     from ...entities.effects import effect_stat_mod_key
     from .stat_ops import revert_change_stat
@@ -163,9 +164,45 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
     eff.consumed = True
     # `ActiveEffectIds.Remove(effectId)` -> le canal des NOMS (lu par la couche decision) suit.
     unregister_name(state, tgt, eff.name)
+    # `RemoveSubEffects(this, effect, effectComponent)` -- au RANG NATIF : apres le retrait de la
+    # liste du porteur, AVANT `On(0x40)`.
+    _remove_sub_effects(state, tgt, eff)
     # `On(EffectRemoved = 0x40 = 64)` — MEME `AbilityEntities` que `On(63 = PreEffectRemoved)`.
     effect_removed_triggers(state, tgt, eff.effect_type)
     return True
+
+
+def _remove_sub_effects(state: State, unit_id: int, parent) -> None:
+    """`IdunBattle.Operations.RemoveEffectOperation$$RemoveSubEffects` — MIRROR :
+
+        subs = new List<int>(effectComponent.SubEffects@+0x78)   // COPIE de la liste
+        foreach (id in subs) { e = state.GetEntity(id) ; processor.RemoveEffect(e) }
+
+    Donc : retrait RECURSIF (chaque enfant repasse par `RemoveEffectOperation$$Execute`, qui
+    retire a son tour SES sous-effets), et sur une COPIE de la liste -- le retrait de l'enfant
+    mute celle du parent (branche `+0x70 ParentEffect` du meme `Execute`).
+
+    Le port n'a pas la liste `SubEffects` par instance : il a le lien INVERSE `parent_type`, pose
+    par `AddEffectOperation._spawn_sub_effects` et reconstruit a l'hydratation
+    (`snapshot._load_effect_parent_links`). C'est le meme lien, lu dans l'autre sens.
+
+    POURQUOI CE FOYER MANQUAIT. La cascade parent -> enfants n'existait que dans
+    `EffectsState.on_turn_end` (expiration par le TIMER). Un retrait ANTICIPE -- une feuille
+    `RemoveEffect`, un trigger de bond -- laissait donc les enfants DERRIERE lui. Mesure du
+    2026-08-05 (#462-r4b-r1-r1-r1-r1-b) : le trigger (b) retirait bien le composite 27, et
+    `[25, 26, 1237]` restaient sur la cible alors que le natif rend une liste VIDE."""
+    specs = parent.sub_effects_on_apply()
+    if not specs:
+        return
+    eff = getattr(state, "effects", None)
+    if eff is None:
+        return
+    et = int(parent.effect_type)
+    # COPIE de la liste avant de muter (mirror du `new List<int>(...)` natif).
+    children = [e for e in list(eff.by_unit.get(int(unit_id), []))
+                if not e.consumed and e.parent_type is not None and int(e.parent_type) == et]
+    for child in children:
+        remove_effect_instance(state, int(unit_id), child)
 
 
 def remove_effects_operation(state: State, owner_id: Optional[int], *,
