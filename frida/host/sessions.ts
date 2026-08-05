@@ -12,7 +12,7 @@ import {
 } from "fs";
 import path from "path";
 import { openLog, appendLog, closeLog } from "./logger.js";
-import { publish } from "./ws.js";
+import { cleanupSession, publish } from "./ws.js";
 import { routeMessage } from "./router-messages.js";
 import { pruneRunnersBySession, removeRunner } from "./battle-store.js";
 import {
@@ -252,6 +252,14 @@ export async function stopSession(id: number): Promise<void> {
     } catch (e) {
         console.log(`[sessions] prune failed for session ${id}: ${(e as Error).message}`);
     }
+
+    // Le script est unloadé : plus aucun `publish` ne viendra pour cet id. Sans cet appel,
+    // le ring WS (jusqu'à RING_SIZE = 10 000 événements) et le Set d'abonnés restaient en
+    // mémoire pour la durée de vie du host, une session stoppée après l'autre —
+    // `cleanupSession` existait pour ça et n'avait AUCUN appelant (#480-r7).
+    // Rien d'observable n'est perdu : le front ne se réabonne qu'à une session
+    // `status === "running"` (`public/src/runners.js`), donc ce ring n'était plus relu.
+    cleanupSession(id);
 
     persist();
 }

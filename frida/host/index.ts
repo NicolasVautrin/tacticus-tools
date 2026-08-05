@@ -10,7 +10,7 @@ import { initConfigStore } from "./config-store.js";
 import { initBattleStore } from "./battle-store.js";
 import { initAiTraceStore, closeAiTraceStore } from "./ai-trace-store.js";
 import { postMessage, restoreSessions, stopAllPreservingState } from "./sessions.js";
-import { startRunnerReconciler } from "./runner-reconcile.js";
+import { startRunnerReconciler, stopRunnerReconciler } from "./runner-reconcile.js";
 import { findPidByExePath } from "./admin.js";
 import { registerHandler } from "./router-messages.js";
 
@@ -139,6 +139,11 @@ async function shutdown(signal: string): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[host] ${signal} received — detaching sessions (state preserved)`);
+    // AVANT de détacher : le réconciliateur purge le cache host des runners d'après le
+    // registre des hooks. Le laisser tourner pendant qu'on détache le ferait mesurer un
+    // registre en train de disparaître et conclure « ces runners sont morts » sur une
+    // session qu'on veut justement RESTAURER au prochain boot (#480-r7).
+    stopRunnerReconciler();
     try { await stopAllPreservingState(); } catch { /* ignore */ }
     try { await closeAiTraceStore(); } catch { /* ignore */ }
     process.exit(0);

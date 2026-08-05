@@ -5,6 +5,10 @@
 import { il2cppBase, il2cppSize } from "../il2cpp/helpers.js";
 import { isSerializerReady } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
+import { installedBuild, pinnedAddressRefusals } from "../il2cpp/build-pin.js";
+import {
+    BOND_ENTITY_ID_FIELD_NAME, EFFECT_TARGET_IDS_FIELD_NAME,
+} from "../game/effects.js";
 import { state, LogEntry, clearLogUnpinned } from "../game/state.js";
 import { runnerOff } from "../game/runner.js";
 import { readBattleStatus } from "../game/match-state.js";
@@ -88,6 +92,35 @@ export function register(ctx: Ctx): void {
         if (statePtr.isNull()) return { err: "state null" };
         return readBattleStatus(statePtr);
     });
+
+    // Ce que la session a résolu PAR NOM, et ce qu'elle a REFUSÉ (#480-r7).
+    //
+    // Trois capteurs existaient déjà, chacun documenté comme « exporté pour qu'une MAJ se
+    // VOIE » — et AUCUN n'avait de lecteur : un garde-fou qu'on croit armé et qui ne peut
+    // pas signaler. Ils sont ici, sur le SEUL canal qu'un appelant peut interroger.
+    //
+    // Aucun accès mémoire : tout est déjà résolu au chargement des modules. Pas de
+    // `queueOnMainThread` — l'appel n'a pas à attendre la boucle Unity pour rendre trois
+    // valeurs figées.
+    ctx.rpc.nameResolutionStatus = (): unknown => {
+        const probe = installedBuild();
+        return {
+            // Tri-état : `build: null` = NON MESURÉ, et `why` dit laquelle des trois
+            // pannes c'est. Jamais rabattu sur « un autre build ».
+            build: probe.build,
+            buildWhy: probe.why === "" ? null : probe.why,
+            // Refus d'adresses épinglées depuis le chargement du script. Liste VIDE =
+            // mesurée et vide ; c'est le cas nominal.
+            pinnedAddressRefusals: pinnedAddressRefusals(),
+            // Noms natifs des champs retenus par résolution d'offset. `null` = le champ
+            // n'a pas été résolu et la lecture retombe sur l'offset RE — c'est
+            // exactement ce qu'une MAJ de disposition rend visible ici.
+            fieldNames: {
+                effectTargetIds: EFFECT_TARGET_IDS_FIELD_NAME,
+                bondEntityId: BOND_ENTITY_ID_FIELD_NAME,
+            },
+        };
+    };
 
     ctx.rpc.forceInstall = () => queueOnMainThread(() => {
         const before = state.installedListeners.length;

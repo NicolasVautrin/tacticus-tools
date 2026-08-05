@@ -465,14 +465,17 @@ export interface PredictionLayout {
      *  `null` (tri-état) au lieu d'un zéro qui se lirait « pas de scénario de blocage ». */
     scenario: ScenarioLayout | null;
     dprFieldsSize: number;
-    dprBoxedSize: number;
     pdePrediction: number;
     pdeProbability: number;
     pdeWeight: number;
     pdeStride: number;
-    pdeBoxedSize: number;
     smallEventStride: number;
-    smallEventBoxedSize: number;
+    // RETIRE (#480-r7) : `dprBoxedSize` / `pdeBoxedSize` / `smallEventBoxedSize`. Ces trois
+    // champs etaient `<taille de champs> + IL2CPP_BOX_HEADER`, et leurs SEULS lecteurs
+    // etaient les trois exports `*_BOXED_SIZE` ci-dessous, eux-memes sans aucun appelant.
+    // Un consommateur qui aurait besoin de la taille BOXEE l'obtient en ajoutant le header
+    // `0x10` au stride ; `IL2CPP_BOX_HEADER` est PRIVE a ce module, l'exporter est le geste
+    // a faire quand un appelant existera -- pas avant.
 }
 
 export interface LayoutResolution {
@@ -632,11 +635,10 @@ export function resolvePredictionLayout(probe: LayoutProbe): LayoutResolution {
     return {
         layout: {
             dpr, minMaxMin, minMaxMax, scenario,
-            dprFieldsSize, dprBoxedSize: dprFieldsSize + IL2CPP_BOX_HEADER,
+            dprFieldsSize,
             pdePrediction, pdeProbability, pdeWeight,
-            pdeStride, pdeBoxedSize: pdeStride + IL2CPP_BOX_HEADER,
+            pdeStride,
             smallEventStride: healStride,
-            smallEventBoxedSize: healStride + IL2CPP_BOX_HEADER,
         },
         errors, drift,
     };
@@ -660,16 +662,18 @@ const L = RESOLUTION.layout;
 
 // ─── Offsets exposés (résolus PAR NOM, empoisonnés si la résolution a échoué) ──────
 
-/** Champs de `DamagePredictionResult`, header exclu — c'est aussi son STRIDE. */
-export const DPR_SIZE = L ? L.dprFieldsSize : POISON_OFFSET;
-/** Taille BOXÉE (= `il2cpp_class_instance_size`) : header `0x10` + `DPR_SIZE`. */
-export const DPR_BOXED_SIZE = L ? L.dprBoxedSize : POISON_OFFSET;
+// RETIRE (#480-r7) : `DPR_BOXED_SIZE`, `PDE_BOXED_SIZE`, `SMALL_EVENT_BOXED_SIZE` --
+// derives triviaux (stride + header `0x10`) sans aucun lecteur, dans aucune des
+// trois langues du depot. Et `DPR_SIZE` avec eux : le recensement le classait
+// « sur-exporte, utilise chez lui », mais sa seule autre occurrence etait le COMMENTAIRE
+// de `DPR_BOXED_SIZE` ci-dessus -- il etait mort lui aussi. La taille des champs de
+// `DamagePredictionResult` reste disponible dans le layout (`dprFieldsSize`), lu par le
+// harnais `tools/probe-279-layout-by-name.ts`.
+
 /** Champs de `ProbableDamageEvent` = son STRIDE dans un `List<T>` / un tableau. */
 export const PDE_STRIDE = L ? L.pdeStride : POISON_OFFSET;
-export const PDE_BOXED_SIZE = L ? L.pdeBoxedSize : POISON_OFFSET;
 /** `Probable{Heal,Effect}Event` : 3 slots de 8 o (égalité VÉRIFIÉE, pas supposée). */
 export const SMALL_EVENT_STRIDE = L ? L.smallEventStride : POISON_OFFSET;
-export const SMALL_EVENT_BOXED_SIZE = L ? L.smallEventBoxedSize : POISON_OFFSET;
 
 /** Décalage du `DamagePredictionResult` embarqué dans un `ProbableDamageEvent`
  *  (champ `DamagePrediction`, ValueType INLINE). */

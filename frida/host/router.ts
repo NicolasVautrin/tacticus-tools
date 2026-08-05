@@ -22,6 +22,7 @@ import {
     getSession, listProcesses, listSessions, postMessage, pickLiveSessionId,
     rpcCall, runScript, stopAllPreservingState, stopSession,
 } from "./sessions.js";
+import { aiTraceStoreStatus } from "./ai-trace-store.js";
 import {
     listConfigs, getConfig, getReplayBundle, clearConfigs,
     deleteConfig, saveConfig, updateConfigDescription,
@@ -980,10 +981,17 @@ export function buildRouter(defaultLogDir: string): Router {
 
     router.get("/api/ai-trace/status", async (_req: Request, res: Response) => {
         try {
+            // `store` = état des WRITERS côté host (répertoire ABSOLU où les traces
+            // atterrissent, fichiers ouverts, lignes écrites). Il est mesurable SANS
+            // session — d'où sa présence dans les deux branches. Jusqu'ici aucun
+            // consommateur ne pouvait DEMANDER au host où il écrit : il l'INFÉRAIT
+            // (#273-r(c)), et `aiTraceStoreStatus()` portait la réponse sans être
+            // exposée par aucune route (#480-r7).
+            const store = aiTraceStoreStatus();
             const sid = pickRunningSession();
-            if (sid == null) { res.json({ session: false }); return; }
+            if (sid == null) { res.json({ session: false, store }); return; }
             const result = await rpcCall(sid, "aiTraceStatus", [], 5000);
-            res.json({ session: true, ...result as Record<string, unknown> });
+            res.json({ session: true, store, ...result as Record<string, unknown> });
         } catch (e) {
             res.status(500).json({ error: (e as Error).message });
         }
