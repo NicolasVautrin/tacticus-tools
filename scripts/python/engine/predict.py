@@ -113,17 +113,30 @@ def predict_normal_attack(weapon: WeaponBase, target_hp: int,
 
 @dataclass
 class CombatConstants:
-    """`BattleConfiguration.Damage` (lu one-shot). Pour la couche RÉSOLUTION uniquement."""
-    armor_percentage: int = 50
-    damage_spread_percentage: int = 20
+    """`BattleConfiguration.Damage` (lu one-shot). Pour la couche RÉSOLUTION uniquement.
+
+    #449-r2-r4-r4 — LES DÉFAUTS ONT ÉTÉ RETIRÉS, et c'est délibéré. Ils valaient `50` et `20`,
+    soit exactement le vice que `#449-r2-r4` a nommé : un littéral qui se fait passer pour une
+    lecture. Le natif n'a **aucun** défaut à recopier — `IdunBattle.Configuration.DamageConfiguration$$.ctor`
+    n'initialise que le `Dictionary` `DamageProfiles`, donc un champ absent de la BC vaut **0**.
+
+    Pourquoi les rendre OBLIGATOIRES plutôt que les brancher sur le foyer
+    `engine.services.damage_config` : mesuré sur tout le dépôt (`git grep CombatConstants`), cette
+    classe **n'a aucun appelant** — `from_bc` non plus. Un défaut que rien n'exerce est un littéral
+    que **rien ne peut invalider** ; le câbler reviendrait à brancher un canal que personne
+    n'emprunte. Même traitement que `HitDamage.from_base` dans la tranche parente. Le jour où un
+    appelant apparaît, il devra fournir sa BC — et le foyer est là pour la lui résoudre."""
+    armor_percentage: int
+    damage_spread_percentage: int
     profile_pierce: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def from_bc(cls, bc_damage: dict) -> "CombatConstants":
+        """Champ ABSENT de la section = **0**, comme le natif — jamais un repli inventé."""
         profiles = bc_damage.get("DamageProfiles") or {}
         pp = {n: int(p.get("PiercingDamageRatio", 0)) for n, p in profiles.items()}
-        return cls(armor_percentage=int(bc_damage.get("ArmorPercentage", 50)),
-                   damage_spread_percentage=int(bc_damage.get("DamageSpreadPercentage", 20)),
+        return cls(armor_percentage=int(bc_damage.get("ArmorPercentage") or 0),
+                   damage_spread_percentage=int(bc_damage.get("DamageSpreadPercentage") or 0),
                    profile_pierce=pp)
 
 

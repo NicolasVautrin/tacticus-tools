@@ -97,7 +97,15 @@ class State:
                  "pending_deaths", "draining_deaths", "ability_states_seed",
                  "pending_triggered_abilities", "draining_pending_abilities",
                  "enable_obscuring_terrain",
-                 "damage_spread_percentage", "ignore_damage_spread")
+                 "damage_spread_percentage", "ignore_damage_spread",
+                 # #449-r2-r4-r4 -- les autres champs de `BC.Damage` que le port CONSOMME.
+                 # Meme nature et meme canal que les deux ci-dessus : la table `DAMAGE_FIELDS`
+                 # de `engine.services.damage_config` porte, pour chacun, l'offset natif et le
+                 # symbole du consommateur qui le lit.
+                 "elevation_bonus", "trench_reduction_percentage",
+                 "ranged_in_melee_reduction_percentage", "knockback_percentage",
+                 "armor_percentage", "allow_overkill", "overkill_dmg_pct_of_health",
+                 "damaged_machine_destroy_chance_increase")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -130,6 +138,17 @@ class State:
         # `data/seed-bc.json`. AUCUN chemin ne fabrique un 20 en dur.
         self.damage_spread_percentage: Optional[int] = None
         self.ignore_damage_spread: bool = False
+        # #449-r2-r4-r4 -- meme regle pour toute la section : `None` = canal non fourni, et le
+        # foyer `damage_config.resolve_damage_field` retombe alors sur le defaut DERIVE de
+        # `data/seed-bc.json`. AUCUN chemin ne fabrique ici un litteral (ni 50, ni 20, ni 1).
+        self.elevation_bonus: Optional[int] = None
+        self.trench_reduction_percentage: Optional[int] = None
+        self.ranged_in_melee_reduction_percentage: Optional[int] = None
+        self.knockback_percentage: Optional[int] = None
+        self.armor_percentage: Optional[int] = None
+        self.allow_overkill: Optional[bool] = None
+        self.overkill_dmg_pct_of_health: Optional[int] = None
+        self.damaged_machine_destroy_chance_increase: Optional[int] = None
         self.turn_counts: dict[int, int] = {}
         # #101 : le fait "a bouge ce tour" N'EST PLUS un set d'etat ici — il vit ou le natif le met, dans
         # le `UnitFlagsComponent` de l'unite (`UnitFlag.Moved=0`), pose par `set_moved_flag`

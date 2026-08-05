@@ -57,7 +57,27 @@ ENGINE = Path(__file__).resolve().parent / "engine"
 # --- LE SEUL litteral de perimetre : les noms de parametre qui PORTENT la variance --------
 # Il est lui-meme garde : un nom qui ne designe plus AUCUNE definition fait rougir (le probe
 # serait devenu aveugle sans que rien ne le dise).
-VARIANCE_PARAMS = ("amount_spread_pct", "spread_pct")
+VARIANCE_PARAMS = ("amount_spread_pct", "spread_pct",
+                   # #449-r2-r4-r4 -- la MEME regle vaut pour les AUTRES pourcentages de
+                   # `BC.Damage` : ce sont des etats de la bataille, et AUCUN n'a de defaut natif
+                   # (le ctor `IdunBattle.Configuration.DamageConfiguration$$.ctor` n'initialise
+                   # que le `Dictionary` DamageProfiles). Le gisement etait REEL et CHIFFRE :
+                   # `ElevationBonus` etait fige a 50 -- sur le bras ou la BC ne porte PAS le
+                   # champ, le natif inflige 5160 la ou le port calculait 8797 (+70,5 %).
+                   "elevation_pct", "trench_reduction_pct")
+# --- CE QUI RESTE HORS PERIMETRE, ET POURQUOI (residu `#449-r2-r4-r4-r1`) ------------------
+# Quatre autres parametres portent une valeur de `BC.Damage`, et ce probe ne les garde PAS --
+# non par oubli, mais parce que sa semantique est celle de la VARIANCE et ne leur transpose pas
+# telle quelle (mesure : les inscrire rend 15 desaccords, dont plusieurs sont des artefacts) :
+#   * `allow_overkill` -- gate BOOLEEN INVERSE (`if not allow_overkill: return 0`). Le detecteur
+#     cherche un gate POSITIF, donc il le declare « parametre MORT » alors qu'il est bien lu.
+#   * `overkill_dmg_pct_of_health` -- seuil de comparaison, pas un facteur de variance : aucun
+#     des trois regimes (`0` / `LU_BC` / `REQUIS`) ne decrit ce qu'il doit valoir.
+#   * `armor_pct` -- son defaut `0` est JUSTE (c'est ce que rend le natif a champ absent) et sa
+#     branche n'est pas exercee (toutes les cibles live ont `RemainingArmor == 0`).
+#   * `ranged_in_melee_reduction_pct` -- PREDICTION-only (trait 0xb jamais assigne, #161), donc
+#     hors de la face que ce probe garde.
+# Les y faire entrer demande d'elargir les REGIMES du detecteur, pas seulement sa liste de noms.
 
 
 # =========================================================================================
@@ -379,6 +399,18 @@ _RAISON_FOYER = (
     "d'explicite » et declenche la lecture de la BC portee par le `State`, puis le defaut DERIVE "
     "de `data/seed-bc.json`. Un litteral ici recreerait le vice en UN point au lieu de treize.")
 
+_RAISON_FEUILLE_POSITIONNELLE = (
+    "REQUIS = aucun defaut, et c'est le POINT du correctif #449-r2-r4-r4. Ces deux feuilles sont "
+    "le mirror de `IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier` "
+    "et `$$CalculateTrenchReduction`, dont les signatures natives ne portent AUCUN parametre de "
+    "pourcentage : le natif lit `configuration+0x10` / `configuration+0x2c` -- il n'existe donc "
+    "cote jeu aucune constante a recopier, et tout defaut ecrit ici serait une INVENTION. Le pct "
+    "est fourni par l'appelant (`engine/runner/damage_model.py`), qui le resout au foyer "
+    "`damage_config.resolve_damage_field(..., state=state)`. Les deux portaient auparavant une "
+    "constante de module lue dans la SEED figee a l'import (`ELEVATION_BONUS_PCT` / `TRENCH_PCT`) "
+    "-- juste tant que la BC valait la seed, faux sinon : mesure a `ElevationBonus` absent, natif "
+    "5160 contre 8797 pour le port (+70,5 %).")
+
 _RAISON_REQUIS = (
     "REQUIS = aucun defaut. `HitDamage.from_base` n'a AUCUN appelant sous `scripts/python` "
     "(mesure : 0 site `.from_base(`) : un defaut y serait un litteral que rien n'exerce, donc "
@@ -418,6 +450,10 @@ EXPECTED_DEFAULT = {
      "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/services/damage_prediction.py", "get_attack_prediction",
      "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
+    ("engine/services/damage_modifiers.py", "calculate_elevation_bonus_modifier",
+     "elevation_pct"): ("REQUIS", _RAISON_FEUILLE_POSITIONNELLE),
+    ("engine/services/damage_modifiers.py", "calculate_trench_reduction",
+     "trench_reduction_pct"): ("REQUIS", _RAISON_FEUILLE_POSITIONNELLE),
 }
 
 # --- Liste ATTENDUE des CALL-SITES qui rendent une variance NULLE (spread 0) ---------------
@@ -800,11 +836,25 @@ def _un_seul(defs, ko, cas):
     return defs[0]
 
 
+#: Les rails que les ARBRES SYNTHETIQUES de l'auto-test portent effectivement.
+#: L'auto-test eprouve le DETECTEUR (defaut lu, gate, call-site positionnel), pas le PERIMETRE de
+#: production : ses arbres tiennent en trois fichiers et ne portent qu'un rail. Or le garde
+#: « perimetre AVEUGLE » exige que CHAQUE nom de `VARIANCE_PARAMS` designe au moins une definition
+#: de la racine analysee -- exigence juste sur le vrai `engine/`, mais qui rendrait ROUGE tout
+#: arbre synthetique des que `VARIANCE_PARAMS` s'elargit (mesure #449-r2-r4-r4 : les 6 rails
+#: ajoutes ont fait echouer C13 sur un arbre pourtant CONFORME). On restreint donc le perimetre
+#: pendant l'auto-test, et SEULEMENT pendant : le verdict sur l'arbre reel garde les 8 rails.
+_SELF_TEST_PARAMS = ("amount_spread_pct", "spread_pct")
+
+
 def self_test():
     """Rend la liste des echecs. Vide = le detecteur se comporte comme annonce."""
     import shutil
     ko = []
     a_nettoyer = []
+    global VARIANCE_PARAMS
+    _params_prod = VARIANCE_PARAMS
+    VARIANCE_PARAMS = _SELF_TEST_PARAMS
 
     def arbre(fichiers):
         root = _arbre(fichiers)
@@ -1022,6 +1072,7 @@ def self_test():
             globals()["EXPECTED_DEFAULT"] = sauve_d
             globals()["EXPECTED_ZERO"] = sauve_z
     finally:
+        VARIANCE_PARAMS = _params_prod      # le verdict sur l'arbre REEL garde tous les rails
         for base in a_nettoyer:
             shutil.rmtree(base, ignore_errors=True)
     return ko
