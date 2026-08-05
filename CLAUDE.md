@@ -142,6 +142,44 @@ est le garde-fou à passer avant.
 `FUN_<addr>` (le « symbole » n'y est que l'adresse déguisée) et les thunks de la table
 d'imports. Les lister plutôt que les maquiller.
 
+### Règle de code : un ENTIER qui DÉSIGNE quelque chose passe par un ENUM
+
+**Pas de champ de bits sans enum. Pas de clé entière sans enum.** Tout littéral qui *désigne*
+une entité du jeu s'écrit par son membre nommé, **même quand l'ordinal est juste**.
+
+- **champ de bits** → `TR.CasterIsPossibleTarget`, jamais `rules & 0x8000` ;
+- **clé de dict** — `effect_type`, `event_id`, `ability_id`, trait, `GroupType` → le membre ;
+- **argument** → `int(EventTriggerType.PreUnitDeath_2)`, jamais `2`.
+
+**Pourquoi** : un ordinal juste aujourd'hui devient faux au changement de build, **en silence** —
+mesuré, pas redouté : `GROUP_TYPE` porte **66 noms FAUX sur 102** (#270-a). Un membre d'enum se
+re-dérive du dump, et le diff de `data/symbols/<build>/frida/enums.tsv` rend le glissement
+visible. C'est « on cite un SYMBOLE, jamais une adresse » ci-dessus, transposé de l'axe des
+ADRESSES à celui des VALEURS.
+
+**Les enums existent — les compléter, pas les contourner** :
+`engine/runner/abilities/targeting_rule.py` (60), `engine/dsl/event_trigger_type.py` (76),
+`engine/entities/effect_type.py` (629), `engine/entities/traits/unit_trait.py` (117),
+`engine/entities/active_ability_type.py` (260, importé par **145** fichiers). Si le tien n'y est
+pas, **l'ajouter fait partie de la tranche**.
+
+⚠ **L'axe BITS est tenu, l'axe CLÉS ne l'est PAS** — mesure du 2026-08-05 : **0** test de bit
+exécutable à littéral brut, mais **284 clés entières nues sur 15 fichiers** (`attack_type.py` 105,
+`targeting.py` 62, `ability_range.py` 33…), presque toutes des `ability_id` que
+`IdunBattle.Entities.Enum.ActiveAbilityType` nomme. La convention y était « id brut + commentaire
+nommant la classe native » — lisible, mais muette au changement de build. Résidu `#270-d`.
+
+⚠ **Et la conversion n'est PAS mécanique** : elle vaut ce que vaut le miroir Python. Celui
+d'`ActiveAbilityType` est réparé (#270, source `enums.tsv`) ; `TriggeredAbilityType` porte encore
+**107 ids morts et 9 manquants** (#270-c), et les générateurs des autres tables sont **cassés**
+(#270-b, arrimés à un `dump.cs` supprimé). Convertir depuis un miroir périmé écrirait des noms
+FAUX — pire que l'ordinal, qui au moins ne ment pas. **Vérifier la fraîcheur de la table avant
+de nommer quoi que ce soit.**
+
+**Reste en littéral, et c'est voulu** : le décompilé **CITÉ** (docstring, commentaire) — on cite
+le natif verbatim, avec le nom en commentaire de fin de ligne. Et les offsets **relatifs**
+(`+0xa8`, slots de vtable), qui ne désignent aucun enum.
+
 ### L'ABSENCE d'une méthode dans les tables ne prouve RIEN
 
 **`frida/methods.tsv` et `ghidra/functions.tsv` sont indexées par ADRESSE**, et IL2CPP
