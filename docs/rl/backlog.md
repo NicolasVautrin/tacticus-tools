@@ -2567,13 +2567,41 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `AddUnitMessage`, plus un flux ou `+0x40` est vrai -- et l'enveloppe reste inchangee.
   cf. `docs/rl/case-477r18r5-user-place-unit.md` sec. 4.
 
+- **#477-r19-r1 : le CONTENU de `System_ProcessRemovals` n'est pas porte.** `[opus]`
+  L'enveloppe est portee et confrontee (11 occurrences, 3 scenarios, egalite BRUTE, ancrage
+  11/11), mais son contenu ne l'est pas : les 11 groupes sont VIDES. Ce que le natif y ecrirait
+  est LU -- `IdunBattle.Operations.RemoveUnitOperation$$Execute` emet une `Action=RemoveUnit`
+  portant `Unit_IsDying` et `Unit_WasOverkilled` -- sous QUATRE gardes (`unit != null`,
+  `EntityExtensions$$IsUnit`, `!UnitExtensions$$HasFlag(unit, 0x1a)`, plus le `if (entity !=
+  null)` de la lambda). Le porter sans montage serait speculatif.
+  RETOURNEMENT : un montage ou une unite entre dans `MatchState.RemovedActors` sans porter deja
+  le flag `0x1a` ni avoir ete detruite -- et l'enveloppe reste inchangee.
+  cf. `docs/rl/case-477r19-ancrage-process-removals.md` sec. 1 et 4.
+
+- **#477-r19-r2 : `Effect_Refresh` attend un groupe racine PORTEUR -- 0/147 atteignable.** `[opus]`
+  MESURE avant tout code (flux temoin C1_02, 2 tours) : 147 occurrences, ventilees sur 9 groupes
+  racines dont AUCUN n'est porte -- `System_StartMatch` 42, `User_MoveUnit` 27, `EndTurn` 26,
+  `StartTurn` 26, `User_UseAbility` 15, `System_ProcessDeaths` 8, trois autres a 1. Profondeurs
+  `{0:1, 1:92, 2:44, 3:7, 4:3}` : le motif est presque toujours IMBRIQUE. Le porter aujourd'hui
+  produirait du code qu'aucun montage n'exerce. `Source=` n'est PAS le mur (les 39 valeurs
+  sortent de `RefreshEffectsOperation$$GenerateEventGroup`, mirror et rendu deja presents) --
+  le mur est l'enveloppe racine. DEBLOQUEUR NOMME : porter `System_StartMatch` (42/147, et il
+  englobe le seul `Effect_Refresh` racine du flux), ou le couple `StartTurn`/`EndTurn` (52/147,
+  deja porteurs de l'ancre (B) etablie par #477-r19).
+  PORTE AUSSI une correction d'attribution : `revive.py` et `damage.py` decrivent `RunPhase(0xd)`
+  comme la phase de `ReviveUnit` ; la lambda de `0xd` est `<VerifyRemovedUnits>b__0` et appelle
+  `RemoveUnit(unit, removeEffects, keepActive)` (3 arguments, contre 1 pour `ReviveUnit(killed)`).
+  cf. `docs/rl/case-477r19-ancrage-process-removals.md` sec. 5 et 6.
+
 - **#477-r18-suite : les crans suivants du DEROULE, dans l'ordre chiffre par l'inventaire.** `[opus]`
-  `User_PlaceUnit` est LIVRE (#477-r18-r5). Le tableau de `case-477r18` sec. 3 donne la suite,
-  et le critere de chacun se derive de la meme forme : `System_ProcessRemovals` (groupe VIDE,
-  +1 `GroupType`, prouve l'ancrage temporel sans aucune donnee), puis `Effect_Refresh` (motif
-  TRANSVERSAL, imbrique dans presque tous les groupes racines, +1/+2/+1), puis `User_EndTurn`
-  (+2/+2/+2), qui l'englobe. L'ancrage se pose dans `engine/streams/input_messages.py`, ouvert
-  par cette tranche. cf. `docs/rl/case-477r18-perimetre-du-deroule.md` sec. 3 et 6.
+  `User_PlaceUnit` est LIVRE (#477-r18-r5), `System_ProcessRemovals` aussi (#477-r19). Le tableau
+  de `case-477r18` sec. 3 donne la suite -- mais son ordre est a REVOIR : `Effect_Refresh`, qui y
+  venait ensuite, est NON CONFRONTABLE tant qu'aucun de ses 9 groupes racines porteurs n'est
+  porte (#477-r19-r2). Les candidats reels sont donc `System_StartMatch` (+4/+8/+18, le plus gros
+  gisement d'`Effect_Refresh`), `User_EndTurn` (+2/+2/+2) et le couple `StartTurn`/`EndTurn`.
+  L'ancrage se pose dans `engine/streams/input_messages.py`, ouvert par #477-r18-r5 et etendu par
+  #477-r19 (`VERIFY_DEATHS_ANCHOR_GROUPS`, `PHASE_BARRIER_GROUPS`).
+  cf. `docs/rl/case-477r18-perimetre-du-deroule.md` sec. 3 et 6.
 
 - **#477-r17 : `visualId` (le NOM du kit) reste sans porteur dans le flux.** `[opus]`
   Sans consequence pour le DIFF (comparer deux flux ne demande pas le kit), determinant pour le
