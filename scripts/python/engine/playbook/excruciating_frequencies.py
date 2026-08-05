@@ -49,6 +49,12 @@ from engine import battle_query as bq   # get_tiles_behind : mirror UNIQUE de la
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 import gameconfig as _gc
 from engine.entities.active_ability_type import ActiveAbilityType   # #270-r1-r1-r3
+# Modules FRERES, pas `from engine.playbook import ...` (#270-r4-r2) : hisses au niveau module
+# depuis que le cycle `playbook <-> playbook.*` est mort.
+import engine.playbook.prediction as prediction
+from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
+from engine.utilities.tile import triggered_abilities_attack_utility
+from engine.playbook.base import tile_utility
 
 _ABILITY_ID = ActiveAbilityType.ExcruciatingFrequencies
 _ABILITY_NAME = "ExcruciatingFrequencies"
@@ -93,10 +99,6 @@ def _score(ctx, P: tuple, line_enemies: list):
     """Mirror `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` pour 1197 (Comparable) : Sigma
     `CalculateUtilityFromDamageEvent` sur les ennemis touches (degat Blast per-ennemi) + Tile(7)@P.
     Renvoie (u, u_full) ou None si aucun event de degat (ShouldExecute : util > 0 -> u <= 0 filtre)."""
-    from engine.playbook import prediction
-    from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
-    from engine.utilities.tile import triggered_abilities_attack_utility
-    from engine.playbook.base import tile_utility
     name = (ctx.ab_name_by_id.get(_ABILITY_ID) if getattr(ctx, "ab_name_by_id", None) else None) \
         or _ABILITY_NAME
     events = []

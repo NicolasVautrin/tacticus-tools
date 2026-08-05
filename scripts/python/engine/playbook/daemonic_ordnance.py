@@ -94,7 +94,8 @@ from ..entities.selectors.accessors import FixedTileIds
 from ..runner.abilities.blacklegion import (DAEMONIC_ORDNANCE_ID,
                                             daemonic_ordnance_all_damageable_targets,
                                             daemonic_ordnance_target_area_tiles)
-from . import prediction
+import engine.playbook.prediction as prediction   # sous-paquet FRERE, pas `from . import` (#270-r4-r2)
+from .prediction.abilities import _PLAYBOOK_PROFILE_OVERRIDE
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
 from .probable_damage_event import ProbableDamageEvent
 from .tile_targets import dsl_context_for_tile_target, unit_on_tile
@@ -180,8 +181,8 @@ class DaemonicOrdnancePlaybook(NonAttackComparablePlaybook):
         dctx = dsl_context_for_tile_target(ctx)
         if dctx is None or target is None or getattr(ctx, "scene", None) is None:
             return []
-        # Import LOCAL : lecture SEULE du registre de profils de la face PREDICTION (cf. point 3).
-        from .prediction.abilities import _PLAYBOOK_PROFILE_OVERRIDE
+        # Lecture SEULE du registre de profils de la face PREDICTION (cf. point 3). L'import est
+        # MODULE-LEVEL depuis #270-r4-r2 (le cycle `playbook <-> playbook.*` qui l'imposait est mort).
         profile = _PLAYBOOK_PROFILE_OVERRIDE.get(int(ability_id))
         sel = daemonic_ordnance_all_damageable_targets(FixedTileIds([int(target)]))
         events = []

@@ -63,7 +63,7 @@ from __future__ import annotations
 
 from typing import Optional, Sequence, Tuple
 
-from . import movement_query as MQ
+import engine.services.movement_query as MQ   # module FRERE, pas `from . import` (#270-r4-r2)
 from ..entities.traits.unit_trait import UnitTrait   # #270-r1-r1-r3
 
 Pos = Tuple[int, int]

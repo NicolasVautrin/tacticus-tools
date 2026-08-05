@@ -17,7 +17,7 @@ PRÉDICTEUR = `engine.playbook.prediction` (modèle objet : Scene + ability + se
 """
 from __future__ import annotations
 
-from . import prediction
+import engine.playbook.prediction as prediction   # sous-paquet FRERE, pas `from . import` (#270-r4-r2)
 from .base import ComparablePlaybook, register
 from ..predict import heal_utility
 from ..entities.active_ability_type import ActiveAbilityType

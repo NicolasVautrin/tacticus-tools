@@ -13,24 +13,24 @@ Constantes statiques du jeu (LUES au cctor natif, VA citées) :
 """
 from __future__ import annotations
 
-from . import fix64 as _fx
+import engine.services.fix64 as _fx   # module FRERE, pas `from . import` (#270-r4-r2)
 
-# ─── #270-r1-r1 : POURQUOI CE FICHIER GARDE SES ORDINAUX, ET COMMENT IL EST QUAND MEME GARDE ─────
+# ─── #270-r4-r2 : LES ORDINAUX SONT CONVERTIS -- LA CONDITION QU'ON CROYAIT NECESSAIRE ETAIT FAUSSE
 #
-# Les trois collections ci-dessous DESIGNENT bien des membres d'enum (`EffectType` pour le set,
-# `UnitTrait` pour les deux tuples). La conversion a ete TENTEE puis ANNULEE : `engine/services/`
-# est la couche que `engine/entities/` et `engine/runner/` importent tous deux, donc un
-# `from ..entities.effect_type import EffectType` ici initialise le paquet `engine.entities`, qui
-# tire `effects/loki/hits.py`, qui ré-importe `services.static_battle_rules` -> `ImportError` sur
-# `TILE_STATUS_EFFECT_NAMES` (module partiellement initialise). CYCLE MESURE, pas redoute.
+# #270-r1-r1 avait ANNULE cette conversion, avec pour motif un `ImportError` REEL : `engine/services/`
+# est la couche que `engine/entities/` et `engine/runner/` importent tous deux, et un
+# `from ..entities.effect_type import EffectType` EN TETE initialise le paquet `engine.entities`, qui
+# tire `effects/loki/hits.py`, qui ré-importe ce module partiellement initialise.
 #
-# Ce que la regle vise -- qu'un ordinal ne se perime pas EN SILENCE -- est obtenu autrement, et le
-# cran est le meme : `tests/engine/test_270r1r1_container_enum_offline.py` confronte CES valeurs aux
-# membres d'enum correspondants (le test, lui, peut importer les deux couches). Un renumerotage du
-# build fait donc rougir, exactement comme si le membre etait ecrit ici.
-# Condition de RETOURNEMENT de ce compromis : le jour ou `engine/entities/__init__.py` n'importe
-# plus l'arbre des effets, l'import redevient possible -- le meme test le detecte (il TENTE
-# l'import et rougit s'il REUSSIT, cf. son etape « cycle encore present »). Residu : #270-r1-r1-r1.
+# La condition de retournement alors ecrite -- « le jour ou `engine/entities/__init__.py` n'importe
+# plus l'arbre des effets » -- etait TROP FORTE. Elle est toujours vraie (le paquet tire encore cet
+# arbre), et la conversion est pourtant faite : la boucle ne lit qu'UN symbole de ce module,
+# `TILE_STATUS_EFFECT_NAMES`, et il suffit que les imports soient places APRES lui. Cf. l'encadre
+# devant ces imports, plus bas. Mesure : 11 ordres d'entree, 0 echec.
+#
+# Ce qui garde ces valeurs contre un renumerotage du build reste inchange : les membres sont
+# desormais ECRITS ici, et `tests/engine/test_270r1r1_container_enum_offline.py` (etage 4) garde en
+# plus la PLACE des imports -- il rougit si on les remonte en tete.
 
 # Bonus de perçage LasCannon — static_field[0] de `StaticBattleRules.DamageTrait` écrit à 0x32 par sa cctor
 # idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.DamageTrait$$.cctor (`**(int **)(cls + 0xb8) = 0x32`), lu par `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetPiercingRatio`. VALEUR NATIVE = 50.
@@ -55,14 +55,30 @@ W_LASCANNON_PIERCE_BONUS = 50
 # `load_state` ne seedait pas les effets de tuile, la liste offline ne contenait que ce que le runner
 # avait pose lui-meme (Fire/Ice, tous des status) et l'absence de filtre etait INVISIBLE ; depuis le
 # seed elle porte la VRAIE liste native, donc le filtre est OBLIGATOIRE.
-TILE_STATUS_EFFECT_TYPES: frozenset = frozenset({0x3a, 0x05, 0x11, 0x4dc, 0x5c4})
-#                                                ^Darkness ^Fire ^Ice ^Contaminated ^DespoiledGround
-# (ordinaux : cf. l'encadre #270-r1-r1 en tete de module -- cycle d'import, garde deportee au test)
-
 # MEMES membres, par NOM : le canal PREDICTION (`tileMeta.tiles[].effects[].name` ->
 # `Scene.tile_effects_by_pos`) ne transporte que des noms, pas des EffectType.
+# ⚠ CE SYMBOLE EST DEFINI AVANT LES DEUX IMPORTS CI-DESSOUS, ET C'EST FONCTIONNEL (#270-r4-r2) :
+# c'est le SEUL que la boucle d'import lit (`entities/effects/loki/hits.py`). Le descendre sous
+# les imports rouvre l'`ImportError` que l'encadre en tete de module decrit.
 TILE_STATUS_EFFECT_NAMES: frozenset = frozenset(
     {"Darkness", "Fire", "Ice", "Contaminated", "DespoiledGround"})
+
+# ── #270-r4-r2 : LES ORDINAUX SONT CONVERTIS, ET LA PLACE DE CES DEUX IMPORTS EST LE PRIX ──────
+#
+# L'encadre en tete de module disait « conversion impossible, cycle mesure ». C'etait vrai d'un
+# import EN TETE, pas de la conversion : la boucle
+#     services.static_battle_rules -> engine.entities (init) -> effects_state -> effects
+#     -> factory -> effects.loki -> hits.py -> `from ....services.static_battle_rules import
+#        TILE_STATUS_EFFECT_NAMES`
+# ne lit QU'UN symbole de ce module, et il est defini juste au-dessus. Place ICI, l'import trouve
+# donc un module deja complet POUR CE QUE LA BOUCLE DEMANDE. Mesure : 11 ordres d'entree distincts,
+# 0 echec (`probe_270r4r2_import_en_premier.py`) ; remonter ces lignes en tete fait rougir.
+from ..entities.effect_type import EffectType            # noqa: E402
+from ..entities.traits.unit_trait import UnitTrait       # noqa: E402
+
+TILE_STATUS_EFFECT_TYPES: frozenset = frozenset({
+    EffectType.Darkness, EffectType.Fire, EffectType.Ice,
+    EffectType.Contaminated, EffectType.DespoiledGround})
 
 
 def is_tile_status_effect(effect_type) -> bool:
@@ -80,14 +96,15 @@ def is_tile_status_effect(effect_type) -> bool:
 # Consommee par `IdunBattle.Entities.Pathfinding.WalkPathfinder$$GetTileBlockingReasons` : un effet de
 # tuile ne compte comme raison de blocage que si l'unite qui se deplace n'a AUCUN de ces traits
 # (predicat `Enumerable.Any(exemptTraits, t => HasTrait(unit, t))`).
-BLOCK_ENTERING_UNITS_EFFECT_TYPE = 0            # `BlockEnteringUnitsTileEffect` (Swamp, BrokenIce...)
+BLOCK_ENTERING_UNITS_EFFECT_TYPE = EffectType.BlockEnteringUnits   # Swamp, BrokenIce...
 # ⚠ Les elements sont des `EffectType` (le set) et des `UnitTrait` (les deux tuples) -- DEUX enums
-# differents a deux lignes d'ecart, et l'ordinal ne les distingue pas : `0` vaut
-# `EffectType.BlockEnteringUnits` d'un cote et `UnitTrait.Mounted` de l'autre. Ordinaux conserves
-# (cycle d'import, cf. l'encadre en tete de module) ; garde deportee au test #270-r1-r1.
-_MOVEMENT_BLOCKING_EFFECT_TYPES: frozenset = frozenset({0x00, 0x05, 0x11})
-_MOVEMENT_EXEMPT_TRAIT_IDS: tuple = (0, 0x405, 0x412)       # Mounted / Vehicle / Unstoppable
-_DARKNESS_EXEMPT_TRAIT_IDS: tuple = (0x1d,)                 # NightVision
+# differents a deux lignes d'ecart, et l'ordinal ne les distinguait PAS : `0` vaut
+# `EffectType.BlockEnteringUnits` d'un cote et `UnitTrait.Mounted` de l'autre. C'est exactement la
+# confusion que le nom rend visible ; elle etait SILENCIEUSE en ordinal.
+_MOVEMENT_BLOCKING_EFFECT_TYPES: frozenset = frozenset({
+    EffectType.BlockEnteringUnits, EffectType.Fire, EffectType.Ice})
+_MOVEMENT_EXEMPT_TRAIT_IDS: tuple = (UnitTrait.Mounted, UnitTrait.Vehicle, UnitTrait.Unstoppable)
+_DARKNESS_EXEMPT_TRAIT_IDS: tuple = (UnitTrait.NightVision,)
 
 
 def not_blocking_movement_of_traits(effect_type) -> tuple:

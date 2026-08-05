@@ -32,7 +32,8 @@ from __future__ import annotations
 import gameconfig as _gc
 import hexgeo
 
-from . import prediction
+import engine.playbook.prediction as prediction   # sous-paquet FRERE, pas `from . import` (#270-r4-r2)
+from .prediction import make_secondary_multihit_event
 from .common import DefaultActiveAbilityPlaybook
 from .base import NO_ACTION, register, tile_utility, tile_utility_for_unit
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
@@ -514,7 +515,6 @@ class StikkbombPlaybook(_CustomOnlyPlaybook):
         """L'event de degat SPLASH natif (invariant, cf. point 2 de la docstring de classe)."""
         if ctx.scene is None:
             return None
-        from .prediction import make_secondary_multihit_event
         return make_secondary_multihit_event(ctx.scene, ctx.uid, target, ability_id,
                                              ctx.ab_name_by_id.get(ability_id), caster_tile)
 
@@ -644,7 +644,6 @@ class PlasmaGrenadePlaybook(_CustomOnlyPlaybook):
         n = self._adjacent_enemy_count(ctx, target)
         u = 0.0
         if n > 0 and ctx.scene is not None:
-            from .prediction import make_secondary_multihit_event
             ev = make_secondary_multihit_event(ctx.scene, ctx.uid, target, ability_id,
                                                ctx.ab_name_by_id.get(ability_id), caster_tile)
             if ev is not None:

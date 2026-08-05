@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from . import fix64 as _fx
+import engine.services.fix64 as _fx   # module FRERE, pas `from . import` (#270-r4-r2)
 from .min_max_damage import MinMaxDamage
 from .damage_calculations import spread_to_min_max
 from .static_battle_rules import get_damage_with_piercing, get_piercing_ratio, W_LASCANNON_PIERCE_BONUS
