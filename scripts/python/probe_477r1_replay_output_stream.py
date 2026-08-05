@@ -169,50 +169,52 @@ def main() -> int:
         else:
             verdicts.append("TEMOIN OK: desarme -> flux vide, et la panne est NOMMEE.")
 
-        if rc == 3:
-            return rc
-
-        # --- etape 2 : BRAS (arme) ------------------------------------------
-        rid2, out = _build(st_arm, a.board, armed=True)
-        if rid2 is None:
-            print("[477-r1] build BRAS KO:\n" + _ascii(out))
-            return 2
-        rids.append(rid2)
-        _rpc(sid, "autoPlayRunner", [{"runnerId": rid2, "maxTurns": a.turns}],
-             timeout=180)
-        arm = _read_stream(sid, rid2)
-        print(f"[477-r1] BRAS   runner={rid2} recorderArmed={arm.get('recorderArmed')} "
-              f"steps={arm.get('stepCount')} chars={arm.get('outputStreamLength')} "
-              f"rng={arm.get('rngEventCount')}")
-
-        # --- etape 3 : discriminant filtre-joueur ---------------------------
-        if (arm.get("stepCount") or 0) == 0:
-            verdicts.append("BRAS: 0 pas apres autoPlayRunner -> on tente une action "
-                            "JOUEUR explicite pour separer 'non installe' de "
-                            "'filtre par joueur'.")
-            rc2, out3 = _run(["play", "--state-file", str(st_arm)])
+        # rc 3 = bundle antererieur au correctif : on s'ARRETE sans rien conclure
+        # de la bataille, mais on rend quand meme les verdicts (un `return` ici
+        # sauterait le bloc de synthese et l'appelant ne lirait qu'un code).
+        if rc != 3:
+            # --- etape 2 : BRAS (arme) --------------------------------------
+            rid2, out = _build(st_arm, a.board, armed=True)
+            if rid2 is None:
+                print("[477-r1] build BRAS KO:\n" + _ascii(out))
+                return 2
+            rids.append(rid2)
+            _rpc(sid, "autoPlayRunner", [{"runnerId": rid2, "maxTurns": a.turns}],
+                 timeout=180)
             arm = _read_stream(sid, rid2)
-            print(f"[477-r1] BRAS apres action joueur: steps={arm.get('stepCount')} "
-                  f"chars={arm.get('outputStreamLength')} (rl_duel play rc={rc2})")
+            print(f"[477-r1] BRAS   runner={rid2} "
+                  f"recorderArmed={arm.get('recorderArmed')} "
+                  f"steps={arm.get('stepCount')} chars={arm.get('outputStreamLength')} "
+                  f"rng={arm.get('rngEventCount')}")
 
-        text = arm.get("outputStream") or ""
-        if (arm.get("outputStreamLength") or 0) <= 0:
-            verdicts.append("BRAS: flux VIDE malgre l'armement -- l'armement n'est PAS "
-                            "suffisant ; residu a rouvrir.")
-            rc = 1
-        else:
-            verdicts.append("BRAS OK: flux NON VIDE une fois l'enregistreur arme "
-                            f"({arm.get('outputStreamLength')} caracteres, "
-                            f"{arm.get('stepCount')} pas).")
-            # --- etape 4 : FORMAT ------------------------------------------
-            dump = OUT / f"replay-output-stream-{stamp}.txt"
-            dump.write_text(text, encoding="utf-8")
-            print(f"[477-r1] flux ecrit dans {dump}")
-            for ln in _describe(text):
-                print(ln)
-            print("[477-r1] --- 60 premieres lignes ---")
-            for ln in text.splitlines()[:60]:
-                print("    " + _ascii(ln)[:200])
+            # --- etape 3 : discriminant filtre-joueur -----------------------
+            if (arm.get("stepCount") or 0) == 0:
+                verdicts.append("BRAS: 0 pas apres autoPlayRunner -> on tente une "
+                                "action JOUEUR explicite pour separer 'non installe' "
+                                "de 'filtre par joueur'.")
+                rc2, _out3 = _run(["play", "--state-file", str(st_arm)])
+                arm = _read_stream(sid, rid2)
+                print(f"[477-r1] BRAS apres action joueur: steps={arm.get('stepCount')} "
+                      f"chars={arm.get('outputStreamLength')} (rl_duel play rc={rc2})")
+
+            text = arm.get("outputStream") or ""
+            if (arm.get("outputStreamLength") or 0) <= 0:
+                verdicts.append("BRAS: flux VIDE malgre l'armement -- l'armement n'est "
+                                "PAS suffisant ; residu a rouvrir.")
+                rc = 1
+            else:
+                verdicts.append("BRAS OK: flux NON VIDE une fois l'enregistreur arme "
+                                f"({arm.get('outputStreamLength')} caracteres, "
+                                f"{arm.get('stepCount')} pas).")
+                # --- etape 4 : FORMAT --------------------------------------
+                dump = OUT / f"replay-output-stream-{stamp}.txt"
+                dump.write_text(text, encoding="utf-8")
+                print(f"[477-r1] flux ecrit dans {dump}")
+                for ln in _describe(text):
+                    print(ln)
+                print("[477-r1] --- 60 premieres lignes ---")
+                for ln in text.splitlines()[:60]:
+                    print("    " + _ascii(ln)[:200])
     finally:
         for r in rids:
             try:
