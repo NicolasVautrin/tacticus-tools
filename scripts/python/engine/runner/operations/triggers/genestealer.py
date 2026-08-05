@@ -37,7 +37,7 @@ from __future__ import annotations
 from ...state import State
 from ...components import (OwnerComponent, UnitComponent, PositionComponent, StatsComponent,
                           HealthComponent, UnitFlagsComponent)
-from ....entities.traits.unit_trait import UnitTrait, has_trait
+from ....entities.traits.unit_trait import UnitTrait, entity_trait_names, has_trait
 from ....entities.effect_type import EffectType
 from ....entities.effects.magnitude import ability_var
 from ....entities.pathfinding.walk_pathfinder import get_movable_positions
@@ -104,9 +104,19 @@ def _valid_dead_decoys(state: State, owner_id: int, stepper_id: int) -> list:
         uc = e.get_component(UnitComponent)
         if uc is None or uc.alive:                    # decoy MORT (crushe)
             continue
+        # `IsKilledThisTurn(sel@0x68)` -- 3e conjoint natif, COLLAPSE par le port (cf. docstring).
+        # Un cadavre AU CHARGEMENT n'a, par construction, pas ete tue CE TOUR : `combatSnapshot`
+        # ne porte que les entites `IsAlive`, donc `_load_stats_and_effects` ne lui pose AUCUN
+        # `StatsComponent`. C'est le seul discriminant dont dispose le port -- il etait applique
+        # PAR ACCIDENT (la lecture BRUTE de `ctx.traits` rendait `set()` sur lui, d'ou un
+        # `HasTrait` faux), on le NOMME ici pour qu'il survive a la reparation du substrat.
         sc = e.get_component(StatsComponent)
-        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-        if not has_trait(traits or [], DECOY_TRAIT):  # HasTrait(decoy, Decoy=1053)
+        if sc is None:
+            continue
+        # Substrat de traits = le foyer `entity_trait_names` (#264/#226), plus la lecture brute
+        # de `ctx.traits` : cf. `docs/rl/case-462-...-r3-r1-substrat-traits-inventaire.md`.
+        traits = entity_trait_names(sc.ctx, uc.visual_id)
+        if not has_trait(traits, DECOY_TRAIT):        # HasTrait(decoy, Decoy=1053)
             continue
         oc = e.get_component(OwnerComponent)
         if oc is None or oc.team != o_team:           # AreFriends(owner, decoy)
