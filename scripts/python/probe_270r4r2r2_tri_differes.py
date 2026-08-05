@@ -35,9 +35,13 @@ TEMOIN OBLIGATOIRE : avant toute mesure de hissage, les memes modules sont impor
 hissage. Un temoin rouge veut dire qu'on mesure un arbre deja casse -> la mesure s'arrete.
 
 Usage :
-    python probe_270r4r2r2_tri_differes.py --inventaire
+    python probe_270r4r2r2_tri_differes.py --gratuits     # INVARIANT a zero (rapide, rc != 0)
+    python probe_270r4r2r2_tri_differes.py --inventaire   # formes syntaxiques (aucune execution)
     python probe_270r4r2r2_tri_differes.py --mesurer --sortie tri.json [--paquet engine.runner]
     python probe_270r4r2r2_tri_differes.py --resume tri.json
+
+`--mesurer` sur tout `engine/` coute ~10 min (un interpreteur par (site, ordre d'entree)) : il
+N'EST PAS dans le cliquet. Le cliquet garde `--gratuits`, qui est purement statique.
 """
 from __future__ import annotations
 
