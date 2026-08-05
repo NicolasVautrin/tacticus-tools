@@ -572,6 +572,20 @@ def summon_stats(unit_id: str, ability_name: str | None = None,
             raise KeyError(
                 f"aucune ability du gameconfig ne declare {unit_id!r} "
                 f"(constantes {[c[0] for c in SUMMON_ID_CONSTANTS]})")
+        if len(cands) > 1:
+            # Un summon peut etre declare par PLUSIEURS abilities (`necroSmnSwarm` l'est par
+            # `ScarabHive` ET `ScarabSummon`), et elles n'ont aucune raison de porter les memes
+            # variables. Prendre le premier en silence choisirait a la place de l'appelant :
+            # on ne le tolere que si le choix est SANS CONSEQUENCE, et on le MESURE.
+            profils = {
+                n: tuple(summon_stats(unit_id, n, ability_level, multiplier_pct)[f]
+                         for f in COMBAT_STAT_FIELDS)
+                for n, _k, _p in cands
+            }
+            if len(set(profils.values())) > 1:
+                raise KeyError(
+                    f"{unit_id!r} est declare par {len(cands)} abilities aux stats DIFFERENTES "
+                    f"{ {n: v for n, v in profils.items()} } -- nommer `ability_name`")
         ability_name, _key, primary = cands[0]
     else:
         match = [c for c in cands if c[0] == ability_name]

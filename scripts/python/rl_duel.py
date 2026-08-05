@@ -572,10 +572,14 @@ def cmd_build(sid: int, a) -> int:
                    if u not in {x.get("Id") for x in (seed_bc.get("Units") or [])}]
         if missing:
             try:
-                seed_bc = catalog_inject.augment(seed_bc, missing, rank=a.rank)
+                seed_bc, added, added_ab, unresolved = catalog_inject.augment(
+                    seed_bc, missing, rank=a.rank)
             except KeyError as e:
                 print(f"[error] --explicit-stats: {e}", file=sys.stderr)
                 return 2
+            print(f"[explicit-stats] catalogue: +{len(added)} unites {added} "
+                  f"+{len(added_ab)} configs d'ability"
+                  + (f" | sans config (marqueurs): {unresolved}" if unresolved else ""))
         for uid in explicit_specs:
             try:
                 rep = catalog_inject.explicit_stats(uid)
