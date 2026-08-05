@@ -134,7 +134,10 @@ appliquait à sa cible ADDITIONNELLE les rolls `502, 506, 557` que le natif appl
 | `two` | `ultraTitus` | 2493 | `necroWarden` 3104 + `astraCreed` **2894** | identique |
 | `two` | `blackAbaddon` | 3681 | `necroDestroyer` 3224 + `necroSpyder` **3038** | identique |
 | `rr` | `adeptMorvenn` | 3321 | `necroWarden` **1820** | identique |
-| `boltstorm` | `templAggressor` | 3249 (dont **1584** de fold, gate RANGED) | — (cf. §7) | identique |
+| `boltstorm` | `templAggressor` | 3249 (dont **1584** de fold, gate RANGED) | `necroWarden` **1184** + `necroDestroyer` **1196** | identique |
+
+La ligne `boltstorm` est celle de **#478-r4** (§7bis) : elle lisait `—` tant que le montage
+mesurait un faux zéro.
 
 **Un état VIERGE par porteur n'est pas du confort** : joués à la suite sur le même runner, les deux
 premiers casts sont bit-exacts et le **troisième** diverge (natif 7830 / port 2081, avec une cible
@@ -160,19 +163,109 @@ coûte donc **ni runner ni cast live**. Quatre mutations, **toutes mordantes**, 
 | fold primaire **greffé** sur `TalonOfHorus` (le geste « par cohérence ») | rouge |
 | gate d'arme **inversée** sur `TalonOfHorus` | rouge (cleave vidé) |
 
+## 7bis. `#478-r4` — FERMÉ : le cleave de `Boltstorm` EST confronté, et le zéro était un artefact
+
+Le résidu disait : « le natif ne frappe **aucune** cible additionnelle », et en tirait une cause —
+« `Owner` est nul sur cette voie », explicitement marquée **hypothèse non lue**. Les deux sont
+tombées, dans cet ordre : d'abord la cause, au décompilé ; puis le fait, à la mesure.
+
+### La cause supposée est RÉFUTÉE — la chaîne se lit d'un bout à l'autre
+
+```
+ActiveAbilityOperation$$ExecuteInternal
+    -> ActiveAbilityOperation$$GetAbilityEntities        memset(out, 0, 0x128) puis
+                                                        out+0x00 = out+0x08 = out+0x18 = CASTER
+    -> passe CETTE struct aux slots virtuels de l'ability (dont ExecuteBehaviour)
+
+ActorSelector$$Select   lit +0x00
+CasterSelector$$Select  lit +0x08
+OwnerSelector$$Select   lit +0x18      (List VIDE si nul -- le chemin qui aurait justifie `None`)
+```
+
+⇒ pour toute ability **ACTIVE** — et l'attaque normale en est une — `Owner == Caster == Actor`.
+Le nœud partagé `Owner()` (`ctx.owner or ctx.caster`) est donc EXACT ici, exactement comme sur une
+TRIGGERED. `OwnerSlot` est supprimé. Confirmation croisée : la face **DÉCISION** de `Boltstorm`
+(`playbook/boltstorm.py::count_all_targets`, mirror de `BoltstormAbility$$GetAllTargets` — le
+**même** arbre, `+ Target@0x60` en plus) ancre déjà `Owner = case.Caster`. Les deux faces se
+contredisaient ; c'est la face COMBAT qui avait tort.
+
+### Le fait mesuré était un artefact — DEUX trous de montage, tous deux SILENCIEUX
+
+| trou | ce qu'il produisait |
+|---|---|
+| un ennemi **adjacent au caster** capte le ciblage de l'attaque normale | la cible primaire SORT de `fromHere`, `applyAction` rend `ok: true` avec 2 événements et **zéro** dégât |
+| le montage n'avait **qu'UN porteur** | le cast termine le tour, l'IA adverse joue, `LivingMetalRepair` **rend** aux nécrons les PV que le cleave venait de prendre, avant la relecture de `decisionView` |
+
+La capture de ciblage est mesurée à trois configurations (`abilityTargets`, aucun cast — `MC1_67`,
+caster `(1,4)`, cible `(3,4)`, distance 2) :
+
+```
+caster + cible seuls                        -> fromHere = [astraBullgryn]
++ 1 add au CONTACT du caster                -> fromHere = [necroWarden]        <- la CIBLE sort
++ 2 adds hors segment (distance 2)          -> fromHere = [necroWarden, astraBullgryn, necroDestroyer]
+```
+
+Le second trou est le plus instructif : **les événements du cast portaient bel et bien le cleave**.
+
+```
+group 12   entity=templAggressor  src=Boltstorm_NormalAttack
+group 26 x3   Amount 628, 588, 449   Active_Ability_Type 1128     <- coups d'ARME
+group 26 x3   Amount 620, 474, 490   Active_Ability_Type nul      <- le FOLD primaire
+group 42                                                          <- ExecuteAtomic(0x2a) : LE CLEAVE
+group 26 x2   Amount 554, 642   Target_Id necroDestroyer
+group 26 x2   Amount 608, 576   Target_Id necroWarden
+```
+
+`0x2a` n'existe QUE dans `$$ExecuteBoltstorm` — la branche melee inline l'attaque normale sans lui.
+Sa présence prouve donc à la fois la gate d'arme (`IsMelee == 0`) et l'évaluation du sélecteur. Le
+delta de PV, lui, ne voyait plus rien : la régénération avait déjà effacé les 2380 PV.
+
+⇒ **les « +2380 PV de régression » du résidu étaient le port qui avait RAISON.**
+
+### Ce que le montage garde désormais
+
+Deux attestations qui LÈVENT, et une unité alliée INERTE (`lay["F"]`) qui garde le tour ouvert :
+
+* **(e)** la cible primaire est dans `abilityTargets.fromHere` du porteur — `fromHere` et non
+  `targets` : c'est la légalité du cast **immédiat**, celle que le replay joue ;
+* **(f)** le tour n'a **pas** basculé après le cast, sinon le delta de PV mesurerait aussi le tour
+  adverse. Garde générale : elle protège les quatre régimes, pas seulement celui-ci.
+
+### Le régime devient DISCRIMINANT SUR LA PORTÉE
+
+C'est ce que l'arbre de `Boltstorm` a de propre face au rayon 1 figé de `Fealty`/`TalonOfHorus` :
+son premier volet lit le rayon de l'**ARME**. Trois unités adjacentes à la cible, aucune au contact
+du caster —
+
+```
+necroWarden, necroDestroyer   distance 2 du caster (portee 2)   -> frappees   1184 / 1196 PV
+necroSpyder                   distance 3                        -> MUETTE
+```
+
+Trois contre-épreuves `port_only` l'ancrent (coût zéro : ni runner ni cast) : portée élargie à 9
+(le témoin entre), portée rétrécie à 1 (le cleave se vide), et **ancre `Owner` nulle** — l'hypothèse
+réfutée, gardée comme discriminant pour que la réparation ne puisse pas se re-perdre en silence. Le
+bras témoin couvre désormais ce régime aussi.
+
+⚠ Deux bugs de mes propres gardes, trouvés en les rejouant : `abilityTargets` liste **toutes** les
+unités contrôlées (`units[0].abilities[0]` désignait un autre caster dès trois porteurs), et
+`NORMAL_ATTACK_CLEAVES` capture le constructeur d'arbre **à la construction du dict** — muter le nom
+de module laissait la contre-épreuve **muette**. Elle mute `entry.build` et asserte que la
+substitution a mordu.
+
+### Ce qui reste NON couvert sur cet axe
+
+* l'**obscurcissement** : les deux cibles frappées sont non obscurcies, et l'oracle géométrique
+  partage la primitive `is_target_tile_obscured` avec le nœud `Unobscured` du port — un montage où
+  le natif exclurait une cible pour cause de terrain n'est pas construit. `#478-r4-r1`.
+* la **capture de ciblage par un ennemi adjacent** est mesurée, pas RE-lue : le gate natif exact
+  (`TargetingOptions` / `GetInvalidTargetReason`) n'est pas identifié ici. `#478-r4-r2`.
+
 ## 7. Résidus NOMMÉS
 
-* **`#478-r4` — le CLEAVE de `Boltstorm` est NON CONFRONTÉ.** Son arbre ancre sur `Owner@0x30`
-  (`SurroundingEnemies(Owner, range)` **et** `Unobscured(Owner, …)`), un slot que l'`AbilityEntities`
-  d'une attaque **normale** ne renseigne pas. MESURE : dans un montage où les trois gates
-  géométriques sont satisfaites (deux ennemis adjacents à la cible, à portée 2, non obscurcis), le
-  natif ne frappe **aucune** cible additionnelle — là où le **même** montage fait cleaver `Fealty` et
-  `TalonOfHorus`, qui ancrent sur `Caster@0x48`. Le port mirrore le slot **littéralement**
-  (`OwnerSlot`, **sans** le repli sur le caster du nœud partagé `Owner()`) : avec le repli, il
-  frappait deux cibles — **+2380 PV** de régression qu'aucun test n'aurait vue. La cause du zéro
-  natif n'est **pas tranchée** : « `Owner` est nul sur cette voie » est l'hypothèse compatible avec
-  les deux mesures, elle n'est pas lue. Le volet FOLD PRIMAIRE de `Boltstorm`, lui, **est** confronté
-  (gate `IsRangedPosition`, 1584 PV).
+* **`#478-r4` — FERMÉ (2026-08-05)**, cf. §7bis. Ses deux résidus propres : **`#478-r4-r1`**
+  (l'obscurcissement n'est pas discriminé — oracle et port partagent `is_target_tile_obscured`) et
+  **`#478-r4-r2`** (la capture de ciblage par un ennemi adjacent est MESURÉE, pas RE-lue).
 * **`#478-r1` — `CasterTile@0x50` et `CasterTiles@0x58` sont collapsés** sur le même nœud
   `CasterTile()` (= l'empreinte). Le natif choisit `+0x58` pour `Fealty`, `+0x50` pour
   `TalonOfHorus` : deux instances distinctes du même type dans `DSLSelectors$$InitializeShared`.
@@ -198,8 +291,11 @@ coûte donc **ni runner ni cast live**. Quatre mutations, **toutes mordantes**, 
   sélecteurs, deux gates, table de dispatch par la cascade native.
 * `scripts/python/engine/runner/operations/damage.py` — branchement au rang du natif.
 * `scripts/python/probe_478_cleave_additional_targets.py` — quatre régimes, oracle géométrique écrit
-  à la main, ventilation par coup, `port_only` pour les contre-épreuves.
-* `scripts/python/tests/engine/test_478_cleave_live.py` — **10 gardes**, dont les quatre
+  à la main (celui de `Boltstorm` développe l'arbre terme à terme depuis #478-r4), ventilation par
+  coup, `port_only` pour les contre-épreuves, et les attestations **(e)** ciblabilité de la cible
+  primaire / **(f)** le tour n'a pas basculé.
+* `scripts/python/tests/engine/test_478_cleave_live.py` — **13 gardes**, dont les sept
   contre-épreuves et leur bras témoin.
-* `scripts/python/tests/engine/test_446_r3b_fealty_talon_live.py` re-joué **vert** : la face
-  DÉCISION reste sans attribution pour `Fealty`/`TalonOfHorus`.
+* `scripts/python/tests/engine/test_446_r3b_fealty_talon_live.py` et
+  `test_446_boltstorm_pair_term_live.py` re-joués **verts** : la face DÉCISION reste sans
+  attribution pour `Fealty`/`TalonOfHorus`, et le terme de paire de `Boltstorm` est intact.

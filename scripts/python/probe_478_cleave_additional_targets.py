@@ -168,33 +168,78 @@ def layout_boltstorm(elev, playable):
     du cleave) et que `IsMeleePosition` soit FAUX (la gate du fold primaire, donc `IsRangedPosition`
     VRAI), assez pres pour que les cibles additionnelles restent dans la portee de l'arme.
 
-    Deux cibles additionnelles : les deux voisins communs de `T` et d'une tuile de reference, tous
-    deux a distance <= portee du caster. Le cardinal EFFECTIF est re-verifie par `stage` contre la
-    geometrie NATIVE -- ce constructeur ne fait que proposer."""
+    ## LE REGIME EST DISCRIMINANT SUR LA **PORTEE**, et c'est voulu (#478-r4)
+
+    Trois unites additionnelles, TOUTES adjacentes a la cible primaire -- donc toutes retenues par
+    le volet `Unobscured(Owner, Enemies(Caster, AdjacentUnits(Target)))`. Ce qui les separe est le
+    SECOND volet, `SurroundingEnemies(Owner, range)` :
+
+        A1, A2  a distance hex **2** du caster  -> DANS la portee 2   -> frappees
+        A3      a distance hex **3** du caster  -> HORS la portee 2   -> PAS frappee
+
+    C'est ce que l'arbre de `Boltstorm` a de PROPRE : `Fealty`/`TalonOfHorus` ancrent leur premier
+    volet sur `AdjacentEnemies(Caster, CasterTile)` (rayon 1 fige), lui sur un rayon LU DE L'ARME.
+    Un montage ou les trois adds seraient a portee ne distinguerait pas les deux arbres.
+
+    ⚠ AUCUN add ADJACENT AU CASTER -- et ce n'est pas un scrupule, c'est une MESURE. Un ennemi au
+    contact du caster CAPTE le ciblage de l'attaque normale : mesure a trois configurations sur
+    `MC1_67` (`abilityTargets`, aucun cast), caster `(1,4)` / cible `(3,4)` a distance 2 --
+
+        caster + cible seuls                        -> fromHere = [astraBullgryn]
+        + 1 add sur le SEGMENT, adjacent au caster  -> fromHere = [necroWarden]   <- la CIBLE SORT
+        + 2 adds hors segment (distance 2)          -> fromHere = [necroWarden, astraBullgryn,
+                                                                  necroDestroyer]
+
+    Le premier layout de ce regime posait justement ses adds au contact du caster : la cible
+    primaire devenait inciblable, `applyAction` rendait `ok: true` avec DEUX evenements (`group
+    12` + `finish`) et ZERO degat. Un no-op **silencieux** -- que `stage` refuse desormais
+    explicitement (attestation (e)).
+
+    Le cardinal EFFECTIF est re-verifie par `stage` contre la geometrie NATIVE -- ce constructeur
+    ne fait que proposer."""
     rng = weapon_range_of("templAggressor")           # `Boltstorm` : Bolter, portee 2
     cells = sorted(playable)
     ctr = (sum(c for c, _ in cells) / len(cells), sum(r for _, r in cells) / len(cells))
+    best = None
     for t in sorted(cells, key=lambda q: (q[0] - ctr[0]) ** 2 + (q[1] - ctr[1]) ** 2):
         ring = [q for q in hexgeo.neighbors(t[0], t[1])
                 if q in playable and bq.is_adjacent(t, q, elev)]
         if len(ring) < 3:
             continue
         # la tuile du caster : a distance hex 2 de `T` (donc NON adjacente -> arme A DISTANCE et
-        # `IsRangedPosition` vrai), et d'ou les deux cibles additionnelles sont DANS LA PORTEE et
-        # NON OBSCURCIES -- les trois gates du selecteur de `Boltstorm`.
+        # `IsRangedPosition` vrai).
         far = [q for q in cells
                if hexgeo.distance(q, t) == 2 and not bq.is_adjacent(q, t, elev)]
         for c in far:
-            adds = [q for q in ring
-                    if q != c and hexgeo.distance(q, c) <= rng
-                    and not bq.is_target_tile_obscured(c, q, elev)]
-            if len(adds) < 2:
+            # DANS la portee, mais PAS au contact du caster (sinon l'add capte le ciblage).
+            near = [q for q in ring
+                    if q != c and not bq.is_adjacent(q, c, elev)
+                    and hexgeo.distance(q, c) <= rng]
+            # HORS de la portee : voisin de `T` a distance hex > portee de l'arme. C'est le TEMOIN
+            # NEGATIF -- il attend au contact de la cible et ne doit RIEN prendre.
+            out = [q for q in ring if q != c and hexgeo.distance(q, c) > rng]
+            if not near or not out:
                 continue
-            # `want` = 0 : cf. `_expected_cardinal` -- l'ancre `Owner@0x30`. Ce regime exerce donc
-            # la gate RANGED du **FOLD PRIMAIRE** (`IsRangedPosition`), pas le cleave.
-            return {"T": t, "A": adds[:2], "C": {"templAggressor": c},
-                    "want": {"templAggressor": 0}}
-    return None
+            adds = near[:2] + out[:1]
+            # L'unite alliee INERTE qui garde le tour OUVERT : ce regime n'a qu'UN porteur, donc
+            # sans elle le cast le termine, l'IA adverse joue, et les necrons se SOIGNENT
+            # (`LivingMetalRepair`) avant la relecture des PV -- cf. `replay`, garde (f). Placee
+            # LOIN de tout (>= 4 en distance hex de la cible ET du caster) : aucune interaction,
+            # ni ciblage, ni overwatch, ni aura.
+            filler = next((q for q in cells
+                           if hexgeo.distance(q, t) >= 4 and hexgeo.distance(q, c) >= 4
+                           and q not in adds and q != c and q != t), None)
+            if filler is None:
+                continue
+            cand = {"T": t, "A": adds, "C": {"templAggressor": c},
+                    "F": {"ultraTitus": filler},
+                    "want": {"templAggressor": _expected_cardinal(
+                        "Boltstorm", c, t, adds, elev, rng)}}
+            if cand["want"]["templAggressor"] >= 2:
+                return cand                    # le montage le plus riche : 2 dedans, 1 dehors
+            if best is None and cand["want"]["templAggressor"] >= 1:
+                best = cand
+    return best
 
 
 def layout_rr(elev, playable):
@@ -220,18 +265,25 @@ LAYOUTS = {"one": layout_one, "two": layout_two, "rr": layout_rr, "boltstorm": l
 # --------------------------------------------------------------------------- build
 
 def build_args(lay: dict, bc_path: str, board: str = BOARD) -> list:
-    """Les arguments `rl_duel build` du montage -- FOYER UNIQUE, partage par le probe et la garde."""
+    """Les arguments `rl_duel build` du montage -- FOYER UNIQUE, partage par le probe et la garde.
+
+    `lay["F"]` (optionnel) = les unites alliees INERTES : elles ne castent rien et ne servent qu'a
+    garder le tour OUVERT apres le cast mesure. Sans elles, un montage a UN SEUL porteur voit le
+    tour basculer, l'IA adverse jouer, et les cibles additionnelles se SOIGNER avant la relecture
+    des PV -- cf. `replay`, garde (f)."""
     carriers = [v for v in lay["C"]]
+    fillers = [v for v in (lay.get("F") or {})]
     addts = list(ADDTS[:len(lay["A"])])
-    hp = [f"{v}:Health={HP},RemainingHealth={HP}" for v in carriers + [TARGET] + addts]
+    hp = [f"{v}:Health={HP},RemainingHealth={HP}"
+          for v in carriers + fillers + [TARGET] + addts]
     places = []
-    for v, tile in lay["C"].items():
+    for v, tile in list(lay["C"].items()) + list((lay.get("F") or {}).items()):
         places += ["--place", f"{v}:{tile[0]},{tile[1]}"]
     places += ["--a-place", f"{TARGET}:{lay['T'][0]},{lay['T'][1]}"]
     for v, tile in zip(addts, lay["A"]):
         places += ["--a-place", f"{v}:{tile[0]},{tile[1]}"]
     return ["--board", board, "--seed-bc", bc_path,
-            "--p-units", ",".join(carriers),
+            "--p-units", ",".join(carriers + fillers),
             "--a-units", ",".join([TARGET] + addts),
             *places, "--unit-stat", ";".join(hp)]
 
@@ -278,18 +330,36 @@ def _expected_cardinal(passive: str, cpos, tpos, apos: list, elev, wrange: int) 
       * `Fealty`      : adjacent(a, caster) ET adjacent(a, cible)                   [ - cible ]
       * `TalonOfHorus`: adjacent(a, caster) ET adjacent(a, cible)
       * `RighteousRepugnance` : idem (l'autre surcharge, meme geometrie sur des unites MONO-hex)
-      * `Boltstorm`   : **ZERO**, et ce n'est pas une paresse -- son arbre ancre sur `Owner@0x30`
-        (`SurroundingEnemies(Owner, range)` ET `Unobscured(Owner, ...)`), un slot que
-        l'`AbilityEntities` d'une ATTAQUE NORMALE ne renseigne pas. MESURE : dans un montage ou les
-        trois gates geometriques sont satisfaites (deux ennemis adjacents a la cible, a portee, non
-        obscurcis), le natif ne frappe AUCUNE cible additionnelle -- la ou le MEME montage fait
-        cleaver `Fealty`/`TalonOfHorus`, qui ancrent sur `Caster@0x48`. Residu `#478-r4`.
-        L'oracle rend donc `0` **par la RE**, pas par constat : si un jour le natif se met a
-        frapper, c'est CE zero qui rougira, et il faudra reprendre l'ancre.
-    """
+      * `Boltstorm`   : dist_hex(a, caster) <= portee de l'ARME  ET  adjacent(a, cible)
+                        ET non obscurci(caster -> a)
+
+    ## POURQUOI `Boltstorm` N'EST PLUS UN ZERO CONSTANT (#478-r4)
+
+    Cet oracle rendait `0` par HYPOTHESE : « son arbre ancre sur `Owner@0x30`, un slot que
+    l'`AbilityEntities` d'une attaque normale ne renseigne pas ». L'hypothese est **REFUTEE par le
+    decompile** -- `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities` ecrit l'entite
+    CASTER dans TROIS slots (`+0x00`, `+0x08`, `+0x18`), et les trois lecteurs les nomment :
+    `ActorSelector$$Select` lit `+0x00`, `CasterSelector$$Select` lit `+0x08`,
+    `OwnerSelector$$Select` lit `+0x18`. Sur une ability ACTIVE (et l'attaque normale en est une)
+    `Owner == Caster == Actor`, donc les deux volets du selecteur ancrent sur le caster.
+
+    Le developpement geometrique, terme a terme (`AdjacentUnits(origin) = Units(AdjacentTiles(
+    origin)) - origin`, `SurroundingEnemies(u, r) = Enemies(u, Units(SurroundingTiles(u, r) -
+    Tiles(u)))`, `Unobscured(from, source)` = filtre de terrain) :
+
+        SurroundingEnemies(Owner, range) -> ennemi du caster a distance hex <= range, caster exclu
+        Unobscured(Owner, Enemies(Caster, AdjacentUnits(Target)))
+                                         -> ennemi du caster, adjacent a la CIBLE, cible exclue,
+                                            non obscurci depuis la tuile du caster
+
+    La CIBLE PRIMAIRE n'entre jamais dans l'intersection : `AdjacentUnits(Target)` la retire
+    (`op_Subtraction` explicite). C'est la difference avec `$$GetAllTargets`, que la face DECISION
+    porte, et qui la compte."""
     if passive == "Boltstorm":
-        _ = (cpos, tpos, apos, elev, wrange)     # gates geometriques SANS OBJET tant que Owner nul
-        return 0
+        return sum(1 for a in apos
+                   if a != cpos and hexgeo.distance(a, cpos) <= wrange
+                   and bq.is_adjacent(a, tpos, elev)
+                   and not bq.is_target_tile_obscured(cpos, a, elev))
     return sum(1 for a in apos
                if bq.is_adjacent(a, tpos, elev) and bq.is_adjacent(a, cpos, elev))
 
@@ -320,8 +390,17 @@ def stage(rpc, rid: int, lay: dict, elev: dict) -> dict:
             raise MontageError(f"montage NON INSTALLE : {v} absent du roster adverse")
         uid[v] = u["id"]
 
+    # les unites alliees INERTES (`lay["F"]`) : leur PLACEMENT est atteste comme celui des autres --
+    # une inerte qui atterrit ailleurs pourrait capter un ciblage ou declencher un overwatch.
+    for v in (lay.get("F") or {}):
+        u = next((x for x in mine if x.get("visualId") == v), None)
+        if u is None:
+            raise MontageError(f"montage NON INSTALLE : l'unite inerte {v} est absente du roster "
+                               f"controle -- le tour basculerait apres le cast")
+        uid[v] = u["id"]
     pos = {u["id"]: (u["pos"]["col"], u["pos"]["row"]) for u in units if u.get("pos")}
-    want_pos = {uid[v]: tuple(t) for v, t in lay["C"].items()}
+    want_pos = {uid[v]: tuple(t)
+                for v, t in list(lay["C"].items()) + list((lay.get("F") or {}).items())}
     want_pos[uid[TARGET]] = tuple(lay["T"])
     for v, t in zip(addts, lay["A"]):
         want_pos[uid[v]] = tuple(t)
@@ -380,8 +459,32 @@ def stage(rpc, rid: int, lay: dict, elev: dict) -> dict:
     if not any(fold.values()) and not any(lay["want"].values()):
         raise MontageError(f"montage VIDE : ni fold primaire ({fold}) ni cible additionnelle "
                            f"({lay['want']}) -- la mesure n'exercerait aucun des deux volets")
+    # (e) LA CIBLE PRIMAIRE EST CIBLABLE, porteur par porteur -- le seul gate dont l'echec est
+    #     TOTALEMENT SILENCIEUX. Mesure (#478-r4) : avec un ennemi au contact du caster, la cible
+    #     voulue SORT de `fromHere` (elle est captee par l'unite adjacente) et `applyAction` rend
+    #     `ok: true` avec deux evenements (`group 12` + `finish`) et ZERO degat. Le probe lisait
+    #     alors « le natif ne frappe rien » -- une phrase VRAIE dont on tirait une conclusion
+    #     FAUSSE sur le selecteur. `fromHere` (et non `targets`) est le bon champ : c'est la
+    #     legalite du cast IMMEDIAT, sans deplacement, et c'est ce que le replay joue.
+    for v in lay["C"]:
+        at = rpc("abilityTargets", {"runnerId": rid, "casterId": uid[v],
+                                    "abilityType": want_ab[v]}, 120)
+        # ⚠ la reponse liste TOUTES les unites controlees : on RETROUVE la ligne du porteur et
+        # l'entree de SON ability, jamais `units[0].abilities[0]` -- avec trois porteurs au
+        # montage, l'index 0 designe un autre caster et la garde accuserait le mauvais.
+        row = next((u for u in ((at.get("units") or []) if isinstance(at, dict) else [])
+                    if u.get("unitId") == uid[v]), {})
+        entry = next((a for a in (row.get("abilities") or [])
+                      if int(a.get("abilityId") or -1) == int(want_ab[v])), {})
+        fh = {t.get("targetId") for t in (entry.get("fromHere") or [])}
+        if uid[TARGET] not in fh:
+            raise MontageError(
+                f"cible primaire INCIBLABLE : {v} ne peut pas frapper {TARGET} "
+                f"(id {uid[TARGET]}) depuis {pos[uid[v]]} -- fromHere = {sorted(fh)}. Le cast "
+                f"serait accepte et ne ferait RIEN (no-op silencieux)")
     return {"rid": rid, "uid": uid, "pos": pos, "addts": addts, "want": dict(lay["want"]),
-            "fold": fold, "ab": want_ab, "tpos": tp, "carriers": list(lay["C"])}
+            "fold": fold, "ab": want_ab, "tpos": tp, "carriers": list(lay["C"]),
+            "player": myplayer}
 
 
 # --------------------------------------------------------------------------- replay-diff
@@ -471,6 +574,19 @@ def replay(rpc, st: dict, vis: str) -> dict:
     a0 = (res.get("actions") or [{}])[0]
     if res.get("ok") is False or a0.get("ok") is False or a0.get("error"):
         raise MontageError(f"cast live REFUSE pour {vis} : {str(res)[:400]}")
+    # (f) LE TOUR N'A PAS BASCULE. Sans cette garde, le delta de PV mesure le cast **plus** tout
+    #     le tour adverse -- et il l'a deja fait : sur un montage a UN SEUL porteur, le cast
+    #     terminait le tour, l'IA jouait, et `LivingMetalRepair` RENDAIT aux necrons les PV que le
+    #     cleave venait de leur prendre. Le probe lisait alors « le natif ne frappe AUCUNE cible
+    #     additionnelle » -- alors que les evenements du cast portaient bel et bien le groupe
+    #     `0x2a` (`AActiveAbility$$ExecuteAtomic` du `Foreach`) et ses coups. C'est CE faux zero
+    #     qui a fige le residu `#478-r4` sur une hypothese (« Owner nul ») que le decompile
+    #     refute. Le montage garde le tour ouvert par une unite alliee INERTE (`lay["F"]`).
+    if res.get("currentPlayer") is not None and res["currentPlayer"] != st["player"]:
+        raise MontageError(
+            f"LE TOUR A BASCULE apres le cast de {vis} (joueur {st['player']} -> "
+            f"{res['currentPlayer']}) : le delta de PV mesurerait AUSSI le tour adverse "
+            f"(regeneration, overwatch, effets) et pas seulement le cast")
     dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
     after = _hp_by_id(dv2)
 

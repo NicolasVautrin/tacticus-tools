@@ -191,11 +191,11 @@ from typing import Optional, TYPE_CHECKING
 
 import gameconfig as GC
 
-from ....dsl.base import Const, TargetsSelector
+from ....dsl.base import Const
 from ....dsl.effects import ExecutionContext
 from ....entities.behaviours import AtomicGroup, Foreach
 from ....entities.selectors import (AdjacentEnemies, AdjacentFriends, AdjacentUnits, And, Caster,
-                                    CasterTile, Enemies, Sub, Subject, SurroundingEnemies,
+                                    CasterTile, Enemies, Owner, Sub, Subject, SurroundingEnemies,
                                     Target, TargetTile, Unobscured)
 from ..behaviours import AttackWithAttackDamage, entities_from_state
 
@@ -247,30 +247,6 @@ def righteous_repugnance_additional_targets():
     return And(AdjacentEnemies(Caster(), Const(1)), AdjacentUnits(Target(), Const(1)))
 
 
-class OwnerSlot(TargetsSelector):
-    """`<DSLSelectors+0x30>` = **Owner**, LITTERALEMENT -- sans le repli sur le caster.
-
-    Le noeud partage `entities/selectors/accessors.py::Owner` rend `ctx.owner or ctx.caster`, et ce
-    repli est documente comme EXACT pour une TRIGGERED-ability (`Owner == Caster == le porteur`,
-    `BaseTriggeredAbility$$Execute`). Il ne l'est PAS ici : `Boltstorm_NormalAttackAbility` est une
-    ability ACTIVE, et l'`AbilityEntities` que le port construit pour une attaque normale
-    (`entities_from_state`) ne renseigne PAS `owner`.
-
-    MESURE qui l'impose (`probe_478 --regime boltstorm`, `templAggressor` a distance 2 de la cible,
-    DEUX ennemis adjacents a la cible, dans la portee et non obscurcis -- donc les trois gates du
-    selecteur satisfaites) : le natif ne frappe **AUCUNE** cible additionnelle, la ou le MEME
-    montage fait cleaver `Fealty` et `TalonOfHorus` (qui, eux, ancrent sur `Caster@0x48`). Avec le
-    repli, le port en frappait DEUX -- une regression de `+2380 PV` qu'aucun test n'aurait vue.
-
-    ⚠ Ce noeud DIT ce qu'il ne sait pas : il mirroir le slot, il n'explique pas pourquoi le natif le
-    laisse vide sur cette voie. Le volet CLEAVE de `Boltstorm` reste donc **NON CONFRONTE**
-    (residu `#478-r4`) : il est cable, mais son selecteur ne rend rien tant que `owner` n'est pas
-    threade, exactement comme le natif observe. Le jour ou une voie d'appel renseignera `owner`,
-    il partira -- et il faudra le re-confronter AVANT de s'en rejouir."""
-    def select(self, ctx):
-        return getattr(ctx, "owner", None)
-
-
 def boltstorm_additional_targets(weapon_range: int):
     """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BoltstormAbility$$GetAdditionalTargets(dsl, range)`
     -- MIRROR 1:1 :
@@ -285,17 +261,38 @@ def boltstorm_additional_targets(weapon_range: int):
     primaire, le combat ne la re-frappe pas.
 
     `SurroundingEnemies` est ici la surcharge 4-args : `Owner@0x30` sert de centre ET de reference
-    d'equipe. L'ancre est `OwnerSlot()` -- le slot LITTERAL, **sans** le repli sur le caster du
-    noeud partage `Owner()` : cf. sa docstring, c'est une mesure qui l'impose, pas un scrupule.
+    d'equipe.
+
+    ## `Owner` VAUT LE CASTER SUR CETTE VOIE -- LU, plus suppose (#478-r4)
+
+    Le premier port de cette tranche ancrait sur un noeud `OwnerSlot` qui rendait `None`, sur
+    l'hypothese « l'`AbilityEntities` d'une attaque normale ne renseigne pas `Owner` ». Cette
+    hypothese est **REFUTEE par le decompile**, et la chaine se lit d'un bout a l'autre :
+
+      * `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` construit son
+        `AbilityEntities` par `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities`,
+        puis passe CETTE struct aux slots virtuels de l'ability (dont `ExecuteBehaviour`) ;
+      * `$$GetAbilityEntities` `memset` la struct (0x128 octets) puis ecrit l'ENTITE CASTER dans
+        **TROIS** slots : `+0x00`, `+0x08` et `+0x18` ;
+      * les trois lecteurs nomment ces slots sans ambiguite --
+        `IdunBattle.Entities.Selectors.ActorSelector$$Select` lit `+0x00`,
+        `IdunBattle.Entities.Selectors.CasterSelector$$Select` lit `+0x08`,
+        `IdunBattle.Entities.Selectors.OwnerSelector$$Select` lit `+0x18` (et rend une `List` VIDE
+        quand il est nul -- c'est ce chemin-la, jamais pris ici, qui aurait justifie `None`).
+
+    ⇒ pour toute ability **ACTIVE** -- et l'attaque normale en est une (`ActiveAbilityComponent.
+    NormalAttackType@0x28`, cf. `damage.py`) -- `Owner == Caster == Actor`. Le noeud partage
+    `entities/selectors/accessors.py::Owner` (`ctx.owner or ctx.caster`) est donc EXACT ici, pour
+    la meme raison qu'il l'est sur une TRIGGERED : ce n'est pas un repli de confort, c'est ce que
+    le natif ECRIT.
 
     ⚠ L'ORDRE DES ARGUMENTS DU PORT EST L'INVERSE DE CELUI DU NATIF : `DSLFactory$$Unobscured(from,
     source)` mais `Unobscured(source, from_ref=...)` cote port. Ecrit dans l'ordre natif, le noeud
-    rend le CASTER au lieu des cibles -- mesure : `Unobscured(Owner(), Enemies(...))` rendait
-    `['templAggressor']`, donc une intersection VIDE, donc « zero cible additionnelle ». Et cet
-    accord-la avec le natif (qui rend zero pour une AUTRE raison dans ce montage) ne prouvait
-    RIEN : c'est le regime degenere par excellence."""
-    return And(SurroundingEnemies(OwnerSlot(), Const(int(weapon_range)), reference=OwnerSlot()),
-               Unobscured(Enemies(AdjacentUnits(Target(), Const(1))), OwnerSlot()))
+    rend le CASTER au lieu des cibles -- donc une intersection VIDE, donc « zero cible
+    additionnelle ». Cet accord-la avec un natif qu'on croyait a zero ne prouvait RIEN : c'est le
+    regime degenere par excellence, et c'est exactement ce qui avait fige le residu."""
+    return And(SurroundingEnemies(Owner(), Const(int(weapon_range)), reference=Owner()),
+               Unobscured(Enemies(AdjacentUnits(Target(), Const(1))), Owner()))
 
 
 # ---------------------------------------------------------------- la table de dispatch
