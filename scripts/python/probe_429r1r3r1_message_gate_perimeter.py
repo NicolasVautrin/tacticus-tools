@@ -472,16 +472,55 @@ def scenario_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
             killer = ids.get(killer_vis)
             occupe = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
                       if u.get("pos") and u.get("alive")}
-            # VICTIME = une unite ADVERSE vivante et positionnee, hors gardes au 1er tour.
-            victime = next((u for u in (dv.get("units") or [])
-                            if u.get("visualId") == FLED_VICTIM_VISUAL and u.get("alive")
-                            and u.get("pos")), None)
-            if victime is None:                       # tour suivant : un GARDE fait la victime
-                victime = next((u for u in (dv.get("units") or [])
-                                if u.get("visualId") == FLED_SUMMON_VISUAL and u.get("alive")
-                                and u.get("pos")), None)
-            if victime is None or killer is None:
-                res["why"] = "plus de victime adverse (ou killer %s absent)" % killer_vis
+            # VICTIME = une unite ADVERSE vivante ET ADJACENTE au killer. L'adjacence est MESUREE,
+            # pas supposee : les deux killers sont des armes de MELEE, et une victime hors portee
+            # « survit » -- ce qui se lit « le trait n'a pas tire » alors qu'AUCUN tirage n'a eu
+            # lieu (mesure du 2026-08-05, seed 31337, 2e evenement de mort).
+            kpos = _unit(dv, killer).get("pos") if killer is not None else None
+            if killer is None or kpos is None:
+                res["why"] = "killer %s absent ou hors plateau" % killer_vis
+                break
+            ktid = board_obj.id_at(int(kpos["col"]), int(kpos["row"]))
+            k_voisins = {board_obj.coord(n) for n in board_obj.neighbours(ktid)}
+
+            def _adjacent(u, _kv=k_voisins):
+                p = u.get("pos")
+                return p is not None and (int(p["col"]), int(p["row"])) in _kv
+
+            def _candidats(vue):
+                return [u for u in (vue.get("units") or [])
+                        if u.get("alive") and _adjacent(u)
+                        and u.get("visualId") in (FLED_VICTIM_VISUAL, FLED_SUMMON_VISUAL)]
+
+            candidats = _candidats(dv)
+            if not candidats:
+                # Aucune victime a portee de CE killer : on en POSE une sur un hex libre adjacent
+                # a lui. Sans ca, l'evenement de mort suivant n'a jamais lieu -- et une victime
+                # hors portee « survit », ce qui se lit a tort comme un tirage rate.
+                libre_k = next((c for c in sorted(k_voisins)
+                                if board_obj.id_at(*c) is not None
+                                and board_obj.walkable(board_obj.id_at(*c))
+                                and c not in occupe), None)
+                if libre_k is None:
+                    res["why"] = "aucun hex libre adjacent a %s pour poser une victime" % killer_vis
+                    break
+                _add = rpc(s, "applyAddUnit", {"runnerId": rid, "unitId": FLED_SUMMON_ID,
+                                               "playerId": PLAYER_ID_AI, "col": int(libre_k[0]),
+                                               "row": int(libre_k[1])}, 60)
+                res["victime_posee_%s" % killer_vis] = {"hex": libre_k,
+                                                        "ok": (_add or {}).get("ok")}
+                res["gardes_poses"] += 1
+                dv = rpc(s, "decisionView",
+                         {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+                occupe = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
+                          if u.get("pos") and u.get("alive")}
+                candidats = _candidats(dv)
+            # au 1er tour la victime de roster (1 PV) prime ; ensuite, un garde adjacent.
+            victime = next((u for u in candidats if u.get("visualId") == FLED_VICTIM_VISUAL),
+                           None) or (candidats[0] if candidats else None)
+            if victime is None:
+                res["why"] = ("aucune victime adverse ADJACENTE a %s -- rien a tuer, donc aucun "
+                              "tirage `BattleFatigue`" % killer_vis)
                 break
             vtid = board_obj.id_at(int(victime["pos"]["col"]), int(victime["pos"]["row"]))
             libres = [board_obj.coord(n) for n in board_obj.neighbours(vtid)

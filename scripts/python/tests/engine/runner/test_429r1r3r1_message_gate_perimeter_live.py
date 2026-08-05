@@ -59,17 +59,35 @@ def attaque(live_session, tmp_path_factory):
     return r
 
 
+FLED_SEEDS = ("777", "31337", "123")
+
+
 @pytest.fixture(scope="module")
 def fled(live_session, tmp_path_factory):
-    """Le regime FLED. La fuite est un TIRAGE (`BattleFatigue` : `chance`=10, `chance_2`=40 en
-    overkill, `BC.Abilities.PassiveAbilities.BattleFatigue`), donc le montage joue jusqu'a DEUX
-    evenements de mort, chacun faisant tirer chaque garde adjacent. Mesure du 2026-08-05 : 4
-    tirages joues, 4 fuites. Un montage rate est un `fail`, jamais un skip (#455)."""
-    sf = tmp_path_factory.mktemp("t429r1r3r1f") / "state.json"
-    r = P.scenario_fled(str(sf), seed="777", board="MC1_67", essais=2, verbose=False)
-    if r.get("why"):
-        pytest.fail("montage FLED non installe : %s" % r["why"], pytrace=False)
-    return r
+    """Le regime FLED, et pourquoi la liste de seeds n'est PAS un « rejouer jusqu'au vert ».
+
+    La fuite est un TIRAGE du jeu -- `BattleFatigue` : `chance` = 10, `chance_2` = 40 en overkill
+    (`BC.Abilities.PassiveAbilities.BattleFatigue`), un tirage par garde adjacent au mort. Mais
+    l'issue est **DETERMINISTE PAR SEED** : la sequence d'actions du montage est fixe, donc le flux
+    MT l'est aussi. MESURE du 2026-08-05, 2 tirages par seed : **777 -> 2 fuites** (trois runs
+    identiques), **31337 -> 0**, **123 -> 0**. La liste est donc un REPLI en cas de derive du flux
+    (une tranche qui changerait la sequence), pas une loterie qu'on relance.
+
+    Ce qui est rejoue est la PRODUCTION de l'etat, jamais la mesure : les assertions ne portent que
+    sur ce que natif et port font UNE FOIS l'etat obtenu. Aucun seed ne marche => `fail`, jamais un
+    skip (#455)."""
+    tentatives = []
+    for i, seed in enumerate(FLED_SEEDS):
+        sf = tmp_path_factory.mktemp("t429r1r3r1f%d" % i) / "state.json"
+        r = P.scenario_fled(str(sf), seed=seed, board="MC1_67", essais=2, verbose=False)
+        tentatives.append({"seed": seed, "roulements": r.get("roulements"),
+                           "why": r.get("why") or ""})
+        if not r.get("why"):
+            r["seed_retenu"] = seed
+            r["tentatives"] = tentatives
+            return r
+    pytest.fail("montage FLED non installe sur AUCUN seed %s : %s" % (list(FLED_SEEDS), tentatives),
+                pytrace=False)
 
 
 # ------------------------------------------------------------------ 1. LE PERIMETRE (OFFLINE)

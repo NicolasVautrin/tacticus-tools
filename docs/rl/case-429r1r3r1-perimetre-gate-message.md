@@ -160,8 +160,14 @@ Non régressé (re-joué après le fix) : `test_429r1r1r1_ability_attack_dead_ta
   par ce montage : `IsAliveAndNotFled(null)` rend faux lui aussi. Elle ne change **rien** à la
   conclusion — les deux réfutent également « pas mort », puisque `IsDead(null)` est faux et que la
   cible a ses PV pleins.
-* **Un seul board** (`MC1_67`), un seul seed (777) pour le régime FLED. La fuite est un TIRAGE :
-  4 tirages joués, 4 fuites — le montage rejoue jusqu'à deux événements de mort pour amortir.
+* **Un seul board** (`MC1_67`) et **un seul seed utile** pour le régime FLED. La fuite est un
+  tirage du jeu, mais son issue est **déterministe par seed** (la séquence d'actions du montage est
+  fixe, donc le flux MT aussi) : sur 2 tirages, **777 → 2 fuites** (trois runs identiques),
+  **31337 → 0**, **123 → 0**. La liste de seeds du test est un **repli** en cas de dérive du flux,
+  pas une loterie relancée jusqu'au vert. Le second événement de mort (celui qui aurait amorti le
+  tirage) n'est **pas** installé sur 31337/123 : `spaceWulfen` n'y a aucune victime adverse
+  adjacente, et un garde posé à côté de lui n'est pas ressorti adjacent dans la vue — cause non
+  élucidée, montage laissé en l'état puisque 777 fournit le régime.
 * **Les gates 9 et 10 du `Visit`** (deux appels d'interface non résolus par Ghidra, postérieurs au
   gate cible-morte) restent non lus — résidu hérité de `case-429r1r3` §7.
 
