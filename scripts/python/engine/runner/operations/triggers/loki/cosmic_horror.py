@@ -72,13 +72,19 @@ DISPATCH :
     `after_death_triggers`) : aucun cablage neuf ;
   - volet 2 -> vecteur NEUF `post_unit_kill_triggers` (`On(0x35 = PostUnitKill)`) ajoute a `dispatch.py` et emis en
     tete d'`after_move_triggers` pour les steppables que le move vient d'ecraser (le port crushe
-    INLINE dans `movement.py::_kill_steppable_units`, un kill « propre » sans events -- cf. RESIDUS).
+    INLINE dans `movement.py::_kill_steppable_units` -- cf. RESIDUS).
 
 RESIDUS (honnetes) :
   - le port n'emet `On(0x35 = PostUnitKill)` QUE pour le crush-par-MOVE ; les 4 autres events de la sequence de mort
     d'un steppable (On(1)/On(2)/On(0)/On(0x36 = UnitDefeated)) restent non emis pour ce chemin, et `On(0x35 = PostUnitKill)` reste
     non emis pour les morts par DEGAT et pour le crush par `ResurrectUnitOperation`. Aucun
     consommateur porte ne les lit aujourd'hui ; a rouvrir si un port futur en depend.
+    ⚠ « kill propre SANS events » etait la formule d'avant #462-r4b-r1-r1-r1-r1-c-r3-r1, et elle
+    n'est plus exacte : le crush joue desormais les TROIS
+    `IdunBattle.Operations.KillUnitOperation$$RemoveEffects` du mort, qui publient
+    `On(0x3f = PreEffectRemoved)` / `On(0x40 = EffectRemoved)` par instance retiree. Ce sont les
+    events du RETRAIT D'EFFET, pas ceux de la MORT -- les cinq de la sequence de mort restent bien
+    non emis (a l'exception de `On(0x35)` ci-dessus).
   - `variables.extraDmg` de `CosmicHorror` n'est lue par AUCUN des deux `CreateBehaviour` decompiles
     (ni par un 3e symbole `CosmicHorror*` -- la recherche par nom n'en rend que 2 + le playbook + les
     visuals). Non portee, non inventee.

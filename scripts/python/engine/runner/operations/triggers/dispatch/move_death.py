@@ -204,9 +204,12 @@ def post_unit_kill_triggers(state: State, killer_id: int, killed_id: int) -> lis
 def post_unit_kill_triggers_for_move(state: State, mover_id: int) -> list[dict]:
     """`On(0x35 = PostUnitKill)` pour les STEPPABLES que le move qui vient de s'exécuter a écrasés.
 
-    Le port crushe INLINE dans `movement.py::_kill_steppable_units` par un kill « propre » qui n'émet
-    AUCUN event (contrairement au natif, qui passe par `KillUnitOperation$$Execute` et en émet cinq).
-    On ré-identifie donc les crushés par CO-LOCALISATION — le même collapse que
+    Le port crushe INLINE dans `movement.py::_kill_steppable_units`, qui n'émet AUCUN des cinq events
+    de MORT (contrairement au natif, qui passe par `KillUnitOperation$$Execute` et les émet tous).
+    ⚠ Depuis #462-r4b-r1-r1-r1-r1-c-r3-r1 ce crush joue en revanche les TROIS
+    `IdunBattle.Operations.KillUnitOperation$$RemoveEffects` du mort, donc il publie
+    `On(0x3f = PreEffectRemoved)` / `On(0x40 = EffectRemoved)` par effet retiré — events du RETRAIT,
+    pas de la mort. On ré-identifie les crushés par CO-LOCALISATION — le même collapse que
     `genestealer.py::_valid_dead_decoys` (déjà porté/validé pour G2) : une unité MORTE, `Steppable`,
     sur la tuile du mover. Les positions étant exclusives, la tuile est libérée au crush puis
     ré-occupée par le mover -> au plus un crushé par move, et un steppable mort d'un tour antérieur
