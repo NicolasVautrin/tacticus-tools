@@ -19,11 +19,17 @@ FUITE, elle, passe par `Maybe(GetFleeChance)` -- la confronter live demanderait 
 interdit au meme porteur de re-fuir. Ce qu'on garde ici est la **presence du conjoint**, pas la
 fuite ; le verdict natif reste NON CONFRONTE et la fiche le dit.
 
-LE FOYER EST GARDE AILLEURS, et il ne faut pas le dupliquer :
+LE CONJOINT EST GARDE LIVE AILLEURS, et il ne faut pas le dupliquer :
 `tests/engine/runner/test_barbed_ovipositor_live.py` confronte LIVE
-`NOT IsObjectOrSteppable(target@0x178)` avec un `genesSmnDecoy` Steppable en bras negatif. Depuis
-que `barbed_ovipositor` passe par `entities/triggers.py::is_object_or_steppable`, ce test live garde
-le FOYER. Ce fichier-ci garde le CONJOINT sur `BattleFatigueAbility`, que rien ne couvrait.
+`NOT IsObjectOrSteppable(target@0x178)` avec un `genesSmnDecoy` Steppable en bras negatif. Ce
+fichier-ci garde le CONJOINT sur `BattleFatigueAbility`, que rien ne couvrait.
+
+⚠ RECTIFIE (2026-08-05, #462-r4b-r1-r1-r1-r1-b-r1-r1-r1) : cette docstring affirmait que
+`barbed_ovipositor` << passe par le foyer >>, donc que ce test live gardait le FOYER. C'est FAUX --
+le module a conserve sa recopie manuelle `_OBJECT_OR_STEPPABLE = (UnitTrait.Steppable.name,
+UnitTrait.Object.name)`. Ce test live garde donc LA RECOPIE, pas le foyer. Le foyer est garde live
+par `test_master_tutelaries_object_target_live.py` (qui, lui, passe par lui). Residu
+`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3`.
 
 ASCII only (cp1252).
 """
