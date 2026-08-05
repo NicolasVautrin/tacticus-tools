@@ -113,26 +113,75 @@ def test_les_deux_replis_legitimes_sont_dans_le_perimetre_de_letape4(arbres_reel
     assert vus == {"is_adjacent", "are_tiles_adjacent"}, vus
 
 
-def test_le_critere_mord_sur_un_VICE_REEL_des_que_la_liste_est_elargie(arbres_reels, monkeypatch):
-    """La preuve que le critere de flot ne garde pas que des mutations fabriquees.
+def test_le_VICE_REEL_de_orks_est_CORRIGE_et_la_liste_ELARGIE(arbres_reels):
+    """SUITE du constat fige par #614, dans l'ordre qu'il prescrivait : corriger, PUIS elargir.
 
-    `NATIFS_LISTE_STOCKEE` est une liste LITTERALE de 8 noms et `AreEntitiesAdjacent` n'y est pas,
-    alors que la chaine est LUE (`BattleQuery$$AreEntitiesAdjacent` ->
-    `MovementUtil$$AreTilesAdjacent` -> `ConnectivityComponent$$IsNeighbour`). Des qu'on l'y met,
-    l'etape 4 designe `engine/runner/abilities/orks.py:509` -- et elle SEULE : le mirror de
-    `RammingSpeedAbility$$GetDynamicInvalidTargetReason` decide `isAdjacent` par le slot 0x61 cote
-    natif et par `hexgeo.distance == 1` cote port, le canal etant pourtant dans la MEME fonction.
+    Le vice etait `engine/runner/abilities/orks.py`, mirror de
+    `RammingSpeedAbility$$GetDynamicInvalidTargetReason`, qui decidait `isAdjacent` par
+    `hexgeo.distance == 1` la ou le natif appelle le slot 0x61 (`BattleQuery$$AreEntitiesAdjacent`
+    -> `MovementUtil$$AreTilesAdjacent` -> `ConnectivityComponent$$IsNeighbour`).
 
-    Ce test FIGE le constat de `#433-r4-r1-r4-r2-r1-r1-r1` : quand la tranche aura corrige orks, il
-    rougira, et c'est alors la liste qu'il faudra elargir pour de bon."""
-    monkeypatch.setattr(G, "NATIFS_LISTE_STOCKEE",
-                        G.NATIFS_LISTE_STOCKEE + ("AreEntitiesAdjacent",))
-    m4, t4 = G.etape4(arbres_reels)
-    assert t4 == 3, "le perimetre elargi doit compter les 3 mirrors, pas moins"
-    assert [(m[0], m[1], m[2]) for m in m4] == [
-        ("scripts/python/engine/runner/abilities/orks.py", 509,
-         "get_dynamic_invalid_target_reason")]
-    assert G.etape2(arbres_reels)[0] == [], "l'etape 2 n'a rien a dire ici : le canal EST accessible"
+    Ce que ce test verifie, et c'est plus fort que l'ancien : la fonction ne compare PLUS aucune
+    distance a 1 -- elle sort donc du gisement des etapes 2 et 4 par la porte du haut (plus de
+    geometrie du tout), pas parce qu'une garde l'excuse. Et l'elargissement de la liste aux trois
+    natifs LUS ne rouvre rien."""
+    for nat in ("AreEntitiesAdjacent", "AreUnitsInMelee", "GetFreeAdjacentTiles"):
+        assert nat in G.NATIFS_LISTE_STOCKEE, "%s doit etre entre a la liste ARMEE" % nat
+    orks = next(p for p in arbres_reels
+                if p.as_posix().endswith("engine/runner/abilities/orks.py"))
+    # `orks.py` porte DEUX `get_dynamic_invalid_target_reason` (Waaagh 1058 et RammingSpeed 1059) :
+    # on designe par le NATIF cite, pas par le nom de methode.
+    fns = [f for f in G._fonctions_racine(arbres_reels[orks])
+           if f.name == "get_dynamic_invalid_target_reason"
+           and "RammingSpeedAbility" in (ast.get_docstring(f) or "")]
+    assert len(fns) == 1, "mirror de RammingSpeed introuvable ou duplique : %d" % len(fns)
+    fn = fns[0]
+    assert not G._compare_distance_a_un(fn), (
+        "orks.get_dynamic_invalid_target_reason compare encore une distance a 1")
+    assert "AreEntitiesAdjacent" in (ast.get_docstring(fn) or ""), (
+        "le mirror doit CITER le natif qu'il porte -- sans quoi il sort du gisement pour la "
+        "mauvaise raison")
+    assert G.etape2(arbres_reels)[0] == [], "l'etape 2 rougit sur la liste elargie"
+    assert G.etape4(arbres_reels)[0] == [], "l'etape 4 rougit sur la liste elargie"
+
+
+def test_les_natifs_SUSPENDUS_le_sont_pour_une_raison_qui_se_MESURE(arbres_reels):
+    """Le registre suspendu n'est pas une echappatoire : sa justification se re-mesure.
+
+    `AdjacentTiles` / `AdjacentUnits` sont LUS comme substrat stocke
+    (`DSLSelectors$$AdjacentUnits` = `Units(AdjacentTiles(origin)) - origin`,
+    `AdjacentTilesSelector$$Select` = slot 0x50 d'`IBattleQuery`), mais les armer ferait rougir des
+    mirrors DECISION hors du perimetre qui les a lus. Ce test verifie que la suspension est
+    JUSTIFIEE aujourd'hui -- c'est-a-dire que l'armer rougirait vraiment."""
+    assert G.NATIFS_LISTE_STOCKEE_SUSPENDUS, "registre vide : ce test ne garde plus rien"
+    base = G.NATIFS_LISTE_STOCKEE
+    for nat in sorted(G.NATIFS_LISTE_STOCKEE_SUSPENDUS):
+        try:
+            G.NATIFS_LISTE_STOCKEE = base + (nat,)
+            rouges = G.etape2(arbres_reels)[0] + G.etape4(arbres_reels)[0]
+        finally:
+            G.NATIFS_LISTE_STOCKEE = base
+        assert rouges, ("%s ne fait plus rougir personne : sa suspension est PERIMEE, l'etape 5 "
+                        "doit le dire" % nat)
+    assert G.etape5(arbres_reels)[0] == [], "etape 5 rouge sur l'arbre courant"
+
+
+def test_etape5_ROUGIT_sur_une_suspension_perimee(arbres_reels, monkeypatch):
+    """CONTRE-EPREUVE de l'etape 5 : un natif suspendu qui ne fait rougir personne EST le vice.
+
+    On suspend un nom qui n'apparait dans aucune docstring -- l'armer ne peut rien faire rougir,
+    donc la suspension est sans objet, donc PERIMEE."""
+    monkeypatch.setattr(G, "NATIFS_LISTE_STOCKEE_SUSPENDUS",
+                        {"NatifQuiNexistePas": "#000"})
+    m5, t5 = G.etape5(arbres_reels)
+    assert t5 == 1
+    assert [x[0] for x in m5] == ["NatifQuiNexistePas"]
+
+
+def test_etape5_est_CABLEE_au_verdict(monkeypatch):
+    """Le critere le plus juste ne vaut rien s'il n'est pas COMPTE (#430)."""
+    monkeypatch.setattr(G, "etape5", lambda arbres: ([("X", "#000")], 1))
+    assert G.main() == 1
 
 
 def test_indisponible_porte_son_nom(monkeypatch):

@@ -2095,14 +2095,26 @@ def are_entities_adjacent(board, src_feet, dst_feet) -> bool:
 # `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery`, qui re-appellent l'inner par le
 # MEME index — c'est la seule lecture qui donne l'index sans deviner) :
 #
-#   slot 0x5f / 0x60 / 0x61 = les trois surcharges de `BattleQuery$$AreEntitiesAdjacent`
-#       (`...u003Cu003Ec__DisplayClass116_0/117_0/118_0$$u003CAreEntitiesAdjacentu003Eb__0`)
-#   slot 0x7c / 0x7d / 0x7e / 0x7f = les quatre surcharges de `BattleQuery$$GetAdjacentEnemies`
-#       (`...u003Cu003Ec__DisplayClass151_0..154_0$$u003CGetAdjacentEnemiesu003Eb__0`)
+#   slot 0x60 / 0x61 / 0x62 = les trois surcharges de `BattleQuery$$AreEntitiesAdjacent`
+#       (`...u003Cu003Ec__DisplayClass117_0/118_0/119_0$$u003CAreEntitiesAdjacentu003Eb__0`)
+#   slot 0x7d / 0x7e / 0x7f / 0x80 = les quatre surcharges de `BattleQuery$$GetAdjacentEnemies`
+#       (`...u003Cu003Ec__DisplayClass152_0..155_0$$u003CGetAdjacentEnemiesu003Eb__0`)
 #
-# Le filtre statique appelle le slot 0x60 pour la PORTEE `OnlyAdjacent` (`(casterTiles, target)`),
-# le slot 0x61 pour le bit 32 (`(targetTiles, casterTiles)` : deux LISTES) et le slot 0x7f pour le
-# bit 42 (`(targetTiles, caster, false)`).
+# Le filtre statique appelle le slot **0x61** pour la PORTEE `OnlyAdjacent` (`(casterTiles, target)`
+# = `(IList, IEntity)`), le slot **0x62** pour le bit 32 (`(targetTiles, casterTiles)` : deux
+# LISTES) et le slot **0x80** pour le bit 42 (`(targetTiles, caster, false)`).
+#
+# ⚠ LES DEUX GROUPES ONT ETE RE-MESURES le 2026-08-05 (#433-r4-r1-r4-r2-r1-r1-r1) et TOUS DEUX
+# etaient DECALES D'UN CRAN (`0x5f/0x60/0x61` sur `DisplayClass116_0..118_0`, `0x7c..0x7f` sur
+# `DisplayClass151_0..154_0`) -- c'est le gisement annonce par `#433-r3-r3`, ici solde pour ces deux
+# groupes SEULEMENT. Sur `rnca9r7q6c` il n'existe AUCUN `DisplayClass116_0`/`151_0` portant ces
+# lambdas ; les classes reelles sont `117..119` et `152..155`, et les slots qu'elles re-appellent
+# sont `0x60/0x61/0x62` et `0x7d/0x7e/0x7f/0x80`.
+# L'index seul ne suffirait pas a designer une SURCHARGE : ce qui l'identifie ici, c'est le TYPE des
+# arguments a deux call-sites INDEPENDANTS qui melangent une LISTE et une ENTITE --
+# `TargetingQuery$$GetInvalidTargetReason` (branche `OnlyAdjacent`) et
+# `RammingSpeedAbility$$GetDynamicInvalidTargetReason` passent tous deux `(casterTiles, target)` au
+# MEME `0x61`. Le bit 42 est confirme par le meme decompile, qui y appelle `0x80`.
 # ------------------------------------------------------------------------------------------------
 
 def entity_tiles(state: "State", entity_id) -> list:
