@@ -560,6 +560,27 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#270-r4-r1` — les `__init__.py` RÉ-EXPORTATEURS sont la cause ENTIÈRE des cycles d'import
+  d'`engine/`, et la SCC de 284 modules est un ARTEFACT des imports différés.** Ouvert par
+  `case-270r4-trois-roles-jamais-tries.md` §9, **mesuré** (3 imports posés puis vus échouer, arbre
+  restauré ; 3 `__init__.py` neutralisés → les 3 passent) :
+  ```
+                                         aretes  plus grosse SCC
+  REEL (differees comprises)              2921       284  (69,6 %)
+  MODULE-LEVEL seul (differees RETIREES)  2372         7  ( 1,7 %)
+  SANS les aretes d'un __init__.py        2184         1  ( 0,2 %)   <- plus AUCUN cycle
+  ```
+  Deux SCC module-level seulement, et **le paquet est membre des deux** : `engine.services` (6, avec
+  `damage_prediction`/`damage_modifiers`/`static_battle_rules`…) et `engine.playbook` (7). **24**
+  `__init__.py` ré-exportent ; les cinq plus gros : `entities/effects/loki` (**166** noms),
+  `entities/selectors` (100), `runner/operations/triggers/loki` (76), `runner/abilities/loki` (69),
+  `runner/operations/triggers` (68). **Ce n'est PAS l'emplacement des mirrors** : un mirror d'enum est
+  déjà une feuille — ce que Python exécute avant d'y arriver, c'est l'`__init__.py` du parent. Coût
+  **mesuré** sur #270-r4 : **1 site sur 341** bloqué en dur (`static_battle_rules` — `et == 0x3a`,
+  garde déportée au test), **2** contournés par import différé (`dsl/base` — `StatType.HEALTH`,
+  `entities/triggers` — `NORMAL_ATTACK_KIND`). ⚠ **Ne pas dispatcher tant que plusieurs agents
+  éditent `engine/`** : une restructuration d'imports les casse tous.
+
 - ~~**`#468-r10` — l'allocateur de numéros est AVEUGLE aux réservations des agents EN VOL, et son
   mode de défaillance est un `PASS` RASSURANT**~~ — **LIVRÉ (2026-08-05)**,
   `case-468-r10-angle-mort-des-agents-en-vol.md`. L'aveuglement se **ventile en trois niveaux**, et
