@@ -478,8 +478,10 @@ def test_aucun_porteur_steppable_ne_porte_un_effect_type_du_registre():
     intacts, DE FACON PERSISTANTE, cote port seulement.
 
     Ce qui rend la levee sans consequence ici : aucun kit `Steppable` ne porte d'ability qui pose un
-    `effect_type` du registre `EFFECT_TRIGGERS`, et 18 des 20 sont `Immune`. Le jour ou l'un d'eux
-    en portera un, ce bras rougira -- et c'est le residu qu'il faudra alors fermer, pas ce test."""
+    `effect_type` du registre `EFFECT_TRIGGERS`. Mesure du 2026-08-05 : **27** kits `Steppable`
+    (npc + summons), dont **20 `Immune`** ; les 7 restants sont trois objets de butin, deux mines
+    Haywire et deux decoys -- aucun ne porte d'ability adossee au registre. Le jour ou l'un d'eux en
+    portera une, ce bras rougira -- et c'est le residu qu'il faudra alors fermer, pas ce test."""
     import unit_map as UM
     kits = [k for k in UM.all_kits() if "Steppable" in (k.get("traits") or [])]
     assert kits, "aucun kit Steppable trouve -- la mesure serait vide"

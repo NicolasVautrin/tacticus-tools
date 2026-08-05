@@ -243,8 +243,9 @@ if _owner_gate_applies(entry):          # face ABILITY -> CanGetAbilityTrigger
   `+0x44 = 0x0101`) et que **les trois `RemoveEffects` sont appelés** (§7.2). Un `Steppable` écrasé
   est donc, côté port et lui seul, un porteur MORT à effets intacts — **de façon persistante**. C'est
   le **seul** régime où la levée pourrait faire firer un trigger que le natif n'a plus. Il est
-  **vide** aujourd'hui — aucun kit `Steppable` (27 mesurés) ne porte d'ability adossée à un
-  `effect_type` du registre — et le bras
+  **vide** aujourd'hui — **27** kits `Steppable` mesurés (npc + summons, dont **20 `Immune`** ; les 7
+  autres sont trois objets de butin, deux mines Haywire et deux decoys), **aucun** ne porte d'ability
+  adossée à un `effect_type` du registre — et le bras
   `test_aucun_porteur_steppable_ne_porte_un_effect_type_du_registre` garde ce vide.
   Fermer le résidu = mirrorer la séquence de mort complète pour ce chemin, ce qui déborde largement
   (le natif y publie aussi `On(1)`/`On(2)`/`On(0)`/`On(0x36)`/`On(0x35)`, que le port ne publie pas).
