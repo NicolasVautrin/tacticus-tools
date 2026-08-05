@@ -359,6 +359,17 @@ def _int_enum_classes(tree: ast.AST) -> dict:
     return out
 
 
+def _echappe(nom: str) -> str:
+    """`None_` -> `None` : le mirror echappe le mot-clef Python, le jeu ne l'echappe pas.
+
+    ⚠ REGLE ETROITE, ET C'EST VOLONTAIRE. Un `rstrip("_")` general masquerait une vraie
+    divergence -- un membre `Foo_` du build et un `Foo` du mirror sont deux noms DIFFERENTS.
+    Seul `None` ne peut PAS s'ecrire en Python. Jumeau : `probe_313_enum_mirror_bijection._echappe`,
+    qui portait deja cette regle -- c'est son absence ici qui rendait `master` ROUGE sur
+    `StepType.None_` (build `rnca9r7q6c` : `0=None`) depuis l'arrivee du mirror (#477-r15)."""
+    return nom[:-1] if nom == "None_" else nom
+
+
 def step_mirror(verbose: bool) -> list:
     """Confronte chaque mirror Python d'un des 4 enums, MEMBRE PAR MEMBRE, a `enums.tsv`."""
     cur = current_build()
@@ -380,8 +391,8 @@ def step_mirror(verbose: bool) -> list:
             if cls not in ENUMS:
                 continue
             ref = refs[cls]
-            faux = [(m, v, ref.get(m)) for m, v in sorted(membres.items())
-                    if ref.get(m) != v]
+            faux = [(m, v, ref.get(_echappe(m))) for m, v in sorted(membres.items())
+                    if ref.get(_echappe(m)) != v]
             vus.append((rel, cls, len(membres), len(ref), len(faux)))
             for m, v, attendu in faux:
                 bad.append((rel, cls, m, v, attendu))
