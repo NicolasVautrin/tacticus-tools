@@ -147,6 +147,101 @@ par `probe_477r15r7_max_discrimine.py` à chaque run (`PORTEE DE LA RECHERCHE`) 
   non porté peut appeler `FillUpStatComponent$$ModifyMax`/`OverrideMax` sur l'armure sans que rien
   du dépôt ne le montre.
 
+## 6. CE QUI A ÉTÉ MESURÉ — et ce que la prédiction a tenu
+
+### 6.1 La barre du tri-état : les deux probes REFUSENT, ils ne se replient pas
+
+```
+probe_477r15a_stream_conformance.py  --boards C1_02
+    rc=2  « combatSnapshot ne publie pas `armorMax` de l'unite 49 -- capteur #477-r15-r7 absent »
+probe_477r15r7_max_discrimine.py     --tours 1
+    rc=2  « combatSnapshot ne publie pas `armorMax` -- capteur #477-r15-r7 absent »
+```
+
+Effet de bord **utile** de cette mesure : le probe est allé jusqu'à `armorMax`, donc
+`numberOfMembersMax` (r5) et `actives[].state` (r6) **sont dans le bundle chargé**. La fenêtre
+précédente a bien eu lieu, et **la moitié santé est confrontable sans en attendre une nouvelle**.
+
+### 6.2 SANTÉ — le canal DISCRIMINE, mesuré
+
+```
+probe_477r15r7_max_discrimine.py --sans-armure --tours 12
+    SANTE  DISCRIMINE : 13 observation(s)
+        tour 1  entite 83  effectif=9015  brut=6023  (delta +2992)
+        tour 3  entite 85  effectif=10018 brut=7026  (delta +2992)
+    temoins : 29 entites vues avec les deux lectures, dont 10 a valeur non nulle
+```
+
+`combatSnapshot.healthMax` **n'est pas un alias** d'`observeBattle.hpMax`. Le `+2992` est
+exactement le delta que `engine/ai/context.py` citait de mémoire (`TwistedScience` sur u87) —
+re-mesuré ici de première main, sur deux entités.
+
+⚠ **Les écarts commencent au tour 1, pas au tour 0** : au déploiement les deux lectures sont
+égales, ce qui **confirme la prédiction** pour le groupe `System_GameSetup`.
+
+### 6.3 Le flux — la prédiction tenue, sur 3 corpus
+
+| corpus | résultat | témoin santé non nulle | témoin armure non nulle |
+|---|---|---|---|
+| `C1_02` (défaut, 1 unité) | conforme **204/204**, 0 NOUVELLE | 1/1 | **0/1** |
+| `MC1_67` (défaut, 1 unité) | conforme **316/316**, 0 NOUVELLE | 1/1 | **0/1** |
+| `MC1_67`, 4 kits adverses, `--armor-target 350` | conforme **464/464**, 0 NOUVELLE | 4/4 | **4/4** |
+
+Les deux premières lignes sont mesurées avec l'armure encore copiée (patch **temporaire, non
+commité** — le bundle chargé n'a pas le capteur) ; la santé, elle, est **mesurée** dans les trois.
+
+### 6.4 LE TÉMOIN VIDE ÉTAIT RÉEL — et `--armor-target` le lève
+
+Sans montage, `UnitStats_MaxArmor` vaut **0 sur toute unité du corpus** : l'égalité du flux y
+compare **deux zéros** et ne teste aucun canal. La cause est mesurée — le `A` des kits
+(`unit_map`) est `StatType.FixedArmor` (16), un `StatComponent` ; le pool d'armure
+`StatType.Armor` (4) est bien « en pratique absent » des unités régulières.
+
+`rl_duel build --armor-target N` force `Armor` + `FixedArmor` des **a-units**, c'est-à-dire
+exactement celles que `SetupGameOperation$$AddPredefinedUnits` pose dans ce groupe. Le probe
+l'expose (`--armor-target`), et **le témoin passe de 0/1 à 4/4** — l'accord porte alors sur une
+vraie valeur (350). Le probe **imprime son témoin vide** quand le montage n'est pas joué.
+
+### 6.5 Une piste ÉLIMINÉE, et pourquoi elle est retirée du code
+
+`rl_duel build --unit-modifier <unit>:hp:<n>` passe par le point d'entrée natif
+`BC.UnitModifiers` → `IdunBattle.Operations.SetupGameOperation$$ApplyModifiers` et produit de
+**vrais** `StatModifier` — c'était le candidat pour poser une `Modification(+0x28)` **dès le
+déploiement**, donc pour séparer les deux lectures **dans le flux lui-même**. Mesuré :
+
+- le flux reste **conforme 312/312** avec le port d'AVANT la tranche (les deux max copiés) ;
+- et la sonde dit pourquoi : `blackTerminator:hp:1000` fait **DISPARAÎTRE l'unité du
+  déploiement** (3 unités sans le modificateur, 2 avec). Le levier ne fait pas ce qu'on
+  attendait de lui.
+
+L'option a donc été **retirée du probe** : livrer un `--unit-modifier` accompagné d'un
+commentaire affirmant qu'il pose une `Modification(+0x28)` aurait écrit une **fausse vérité
+invérifiable**. Ce que ce paragraphe garde, c'est la piste et sa réfutation.
+
+⚠ **Ce que cela laisse ouvert** : séparer les deux lectures **dans le groupe `System_GameSetup`**
+reste non atteint. Ce n'est pas une limite du canal — c'est une propriété du **régime**, la même
+que pour les membres (#477-r15-r5) : le déploiement précède toute opération, donc
+`Modification(+0x28)` y est nul par construction. La discrimination se mesure **en cours de
+bataille**, et elle l'est (§6.2) pour la santé.
+
+### 6.6 Ce que les cliquets ont prouvé sur EUX-MÊMES
+
+- `probe_477r15r4_capteurs_offline.py` : **5 mutations réelles, 5 détectées**, arbre restauré —
+  `armor` retiré de `STAT_IDS_MAX_SEUL` ; ordinal `armor: 5` ; `armor` ajouté à
+  `COMBAT_STAT_IDS` ; copie `hpMax` revenue ; canal `armorMax` cessant d'être consommé.
+- `tests/engine/test_477r15_stream_emitter_offline.py` : **2 mutations, 2 détectées**
+  (`MaxArmor` figé à 0 ; `MaxHealth` copiant `init_remaining_health` — le vice réparé).
+- Le bras **`MOTIFS_REQUIS_LIVE`** est neuf et comble un trou de forme : un motif *interdit*
+  prouve que la copie a **disparu**, jamais qu'un **canal la remplace**. Le port pourrait cesser
+  de lire `hpMax` sans lire `healthMax` pour autant.
+
+### 6.7 Non-régression
+
+Périmètre réel du changement : **aucun fichier `engine/**` du moteur** n'est touché (seulement
+`tests/engine/`). Le rayon de souffle qui inquiétait #477-r15-r4 — `COMBAT_STAT_IDS` publiée sous
+`statTypes`, itérée par `seed_unit_stats` — est **structurellement évité** ici par la table
+séparée. `test_getstat_live.py` (le lecteur de `statTypes`) + la garde offline : **50 passed**.
+
 ## Résidus
 
 - **#477-r15-r7 — NON CONFRONTÉ EN LIVE côté ARMURE : fenêtre de reinject requise.** Le code est
@@ -155,3 +250,44 @@ par `probe_477r15r7_max_discrimine.py` à chaque run (`PORTEE DE LA RECHERCHE`) 
 - **`entity_type` posé en dur** par le probe (cf. §3) : `combatSnapshot.entityType` le mesurerait.
   Non numéroté — à ouvrir via `probe_468_collision_numeros.py --suggere 477` si l'orchestrateur
   veut le traiter.
+- **Aucun vecteur connu ne modifie le MAX d'ARMURE** : `--armor-target` écrit le champ brut, donc
+  il lève le témoin vide mais **ne discrimine pas** ; `--unit-modifier` ne dispatche pas `armor`
+  (§5, §6.5). Le canal reste le mirror 1:1 de l'accesseur natif — c'est établi au décompilé par
+  identité de pointeur (§1) — mais **sa discrimination live n'est pas atteinte**, et le probe le
+  rend en `NON DISCRIMINE` avec ses témoins, jamais en vert.
+
+## 7. Ce qu'il faut jouer dans la fenêtre
+
+```powershell
+# 0. AVANT le reinject -- doit deja etre VERT (aucune session requise)
+python scripts/python/probe_477r15r4_capteurs_offline.py
+#    attendu : rc=0, 21 cles comparees, 9/9 copies attrapees sur temoin, 10 TagKey compares
+python -m pytest tests/engine/test_477r15_stream_emitter_offline.py -q     # 49 passed
+
+# 1. reinject + warmup (orchestrateur)   ... puis :
+
+# 2. LA mesure : le dernier tag cesse d'etre copie
+python scripts/python/probe_477r15a_stream_conformance.py
+#    attendu : C1_02 204/204, MC1_67 316/316, 0 NOUVELLE, borne (c) = 2 entrees,
+#              "REGIME MAXIMUMS ... sante 1/1, armure 1/1"
+#              "valeurs NON NULLES : sante 1/1, armure 0/1" + le "! TEMOIN VIDE" sur l'armure
+#    rc=2 + "capteur #477-r15-r7 absent" => le bundle n'a pas ete recharge
+
+# 3. LE MONTAGE QUI LEVE LE TEMOIN VIDE -- sans lui l'accord sur `MaxArmor` compare deux zeros
+python scripts/python/probe_477r15a_stream_conformance.py --boards MC1_67 --armor-target 350 `
+    --p-units astraBullgryn,ultraInceptorSgt `
+    --a-units adeptRetributor,admecDestroyer,astraOrdnance,blackTerminator
+#    attendu : conforme 464/464, 0 NOUVELLE, "valeurs NON NULLES : sante 4/4, armure 4/4",
+#              AUCUN "! TEMOIN VIDE"
+#    (mesure de reference prise AVANT la fenetre, armure encore copiee : 464/464. Si le chiffre
+#     change apres le rechargement, l'ecart accuse le capteur `armorMax`.)
+
+# 4. discrimination des DEUX maximums (verdict a 3 etats PAR GRANDEUR)
+python scripts/python/probe_477r15r7_max_discrimine.py --tours 12
+#    attendu : SANTE DISCRIMINE (deja mesure AVANT la fenetre : 13 obs, delta +2992)
+#              ARMURE NON DISCRIMINE -- corpus incapable (armure nulle). C'est un RESULTAT.
+#    rc=3 est donc l'attendu ; rc=0 signifierait qu'un vecteur d'armure existe -> le NOMMER.
+
+# 5. NON-REGRESSION : le lecteur de `statTypes`, que la table SEPAREE doit laisser intact
+python -m pytest tests/engine/test_getstat_live.py -q        # reference AVANT fenetre : vert
+```
