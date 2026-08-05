@@ -461,6 +461,144 @@ def test_suggere_un_RESIDU_sous_un_parent_donne():
         shutil.rmtree(racine, ignore_errors=True)
 
 
+# ==========================================================================================
+#  #468-r10 -- L'ANGLE MORT DES AGENTS EN VOL
+# ==========================================================================================
+#
+# Le defaut repare ici n'etait PAS une collision manquee : c'etait un `PASS` RASSURANT rendu
+# dans le SEUL regime ou nos collisions se produisent. Le corpus de `--suggere` etait ce qui
+# est ECRIT ET FUSIONNE, alors qu'une allocation se fait au DEBUT d'une tranche.
+#
+# Trois gardes, une par niveau d'aveuglement (cf. docstring du probe) :
+#   N1 refs hors HEAD | N2 autres worktrees | N3 irreductible -> l'AVERTISSEMENT.
+
+def _ajouter_worktree(racine, nom, branche):
+    """Un VRAI second worktree du meme `.git` -- c'est le montage, pas une simulation.
+
+    Place a COTE de `racine` : un worktree imbrique serait balaye par le `git grep` du
+    premier, et le test passerait pour la mauvaise raison."""
+    wt = racine.parent / (racine.name + "_" + nom)
+    subprocess.run(["git", "-C", str(racine), "worktree", "add", "-q", "-b", branche, str(wt)],
+                   check=True, capture_output=True)
+    return wt
+
+
+def test_deux_suggere_concurrents_depuis_deux_worktrees_SIGNALENT_leur_angle_mort():
+    """LA condition de retournement de #468-r10, telle qu'elle est formulee.
+
+    Deux agents dispatches ensemble ont pris `#479` du meme `--suggere` -- collision DOUBLE
+    (la racine ET le residu `r1`). Aucune lecture de l'arbre ne peut les departager : a cet
+    instant, NI L'UN NI L'AUTRE n'a rien ecrit. Ce qui est exigible n'est donc pas qu'ils
+    rendent des numeros differents, c'est qu'ils DISENT ne pas pouvoir se voir."""
+    racine = _depot_git(BASE_SAINE)
+    wt2 = None
+    try:
+        wt2 = _ajouter_worktree(racine, "b", "agent-b")
+        rc1, txt1 = _suggere(racine)
+        rc2, txt2 = _suggere(wt2)
+        assert rc1 == 0 and rc2 == 0, "%s\n---\n%s" % (txt1, txt2)
+        n1, n2 = _numero_propose(txt1), _numero_propose(txt2)
+        # Le regime DOIT etre degenere, sinon ce test ne prouve rien sur l'avertissement :
+        # un montage ou les deux se departagent tout seuls le rendrait vert sans le lire.
+        assert n1 == n2 == PREMIER_AU_DESSUS, (
+            "montage NON DISCRIMINANT (n1=%s n2=%s) : les deux worktrees se sont departages "
+            "seuls, donc l'avertissement n'est pas mis a l'epreuve ici." % (n1, n2))
+        manque = [nom for nom, t in (("worktree 1", txt1), ("worktree 2", txt2))
+                  if p468.MARQUEUR_ANGLE_MORT not in t]
+        assert not manque, (
+            "%s rend le MEME numero que son concurrent SANS le signaler (%s absent) :\n%s"
+            % (" et ".join(manque), p468.MARQUEUR_ANGLE_MORT, txt1))
+        # Et la concurrence est CHIFFREE, pas seulement evoquee.
+        assert "concurrence : 1 autre(s) worktree(s)" in txt1, txt1
+    finally:
+        if wt2:
+            shutil.rmtree(wt2, ignore_errors=True)
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_N2_un_numero_ecrit_dans_un_AUTRE_worktree_n_est_plus_propose():
+    """`git grep --untracked` ne lit que SON checkout : un `case-<n>-*.md` ecrit chez le
+    voisin lui est invisible. MESURE sur le depot reel (2026-08-05) : `--suggere 425` rendait
+    `#425-r3`, qu'un `probe_425r3_*.py` d'un worktree en vol portait deja."""
+    racine = _depot_git(BASE_SAINE)
+    wt2 = None
+    try:
+        wt2 = _ajouter_worktree(racine, "b", "agent-b")
+        rc, txt = _suggere(racine)
+        assert rc == 0 and _numero_propose(txt) == PREMIER_AU_DESSUS, (
+            "bras NON MUTE : le numero de reference doit etre %s :\n%s"
+            % (PREMIER_AU_DESSUS, txt))
+        # L'agent d'a cote ouvre son dossier -- sans commiter, comme au premier geste.
+        (wt2 / "docs" / "rl" / ("case-%s-pris-par-le-voisin.md" % PREMIER_AU_DESSUS)).write_text(
+            "# pris\n", encoding="utf-8")
+        rc, txt2 = _suggere(racine)
+        assert rc == 0, txt2
+        assert _numero_propose(txt2) != PREMIER_AU_DESSUS, (
+            "un numero DEJA OUVERT dans un worktree voisin a ete propose :\n%s" % txt2)
+    finally:
+        if wt2:
+            shutil.rmtree(wt2, ignore_errors=True)
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_N1_un_numero_commite_sur_une_ref_HORS_HEAD_n_est_plus_propose():
+    """Un worktree d'agent est FIGE a son commit de lancement : `git log` sans `--all` est
+    aveugle a `master` qui avance et aux branches des voisins. MESURE : `--suggere 448`
+    rendait `#448-r3`, dont le dossier etait commite ailleurs."""
+    racine = _depot_git(BASE_SAINE)
+    try:
+        rc, txt = _suggere(racine)
+        assert rc == 0 and _numero_propose(txt) == PREMIER_AU_DESSUS, txt
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t", "PATH": __import__("os").environ.get("PATH", "")}
+
+        def git(*a):
+            subprocess.run(["git", "-C", str(racine)] + list(a), check=True,
+                           capture_output=True, env=env)
+        depart = subprocess.run(["git", "-C", str(racine), "rev-parse", "--abbrev-ref", "HEAD"],
+                                capture_output=True, text=True).stdout.strip()
+        git("checkout", "-q", "-b", "agent-voisin")
+        (racine / "docs" / "rl" / "note.md").write_text("x\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "feat(#%s): le voisin a deja ouvert ce dossier"
+            % PREMIER_AU_DESSUS)
+        git("checkout", "-q", depart)
+        rc, txt2 = _suggere(racine)
+        assert rc == 0, txt2
+        assert _numero_propose(txt2) != PREMIER_AU_DESSUS, (
+            "un numero commite sur une ref HORS de la lignee de HEAD a ete propose :\n%s" % txt2)
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_un_capteur_de_concurrence_MUET_ne_se_rabat_JAMAIS_sur_zero(capsys):
+    """Meme regle que `loop_status` : `null` n'est pas `0` (#467).
+
+    Un << 0 autre worktree >> fabrique se lirait << personne d'autre ne travaille >> -- soit
+    exactement le PASS rassurant que cette tranche existe pour supprimer."""
+    p468._imprimer_portee({}, None, [])
+    muet = capsys.readouterr().out
+    assert "NON MESUREE" in muet, muet
+    assert "0 autre worktree" not in muet, "un capteur muet a ete rendu comme un ZERO :\n%s" % muet
+
+    p468._imprimer_portee({}, [], [])
+    vide = capsys.readouterr().out
+    assert "0 autre worktree MESURE" in vide, vide
+    # ... et meme a zero concurrent, l'angle mort N3 subsiste : PR en vol, worktree supprime.
+    assert p468.MARQUEUR_ANGLE_MORT in vide, vide
+
+
+def test_un_worktree_ILLISIBLE_est_NOMME_et_non_compte_pour_vide(capsys):
+    """Tri-etat PAR worktree : un repertoire disparu en cours de balayage (worktree jetable de
+    pytest, agent nettoye) ne doit pas passer pour << rien a signaler >>."""
+    absent = Path(tempfile.gettempdir()) / "p468_worktree_qui_n_existe_pas"
+    ids, illisibles = p468._identifiants_des_worktrees([(absent, None)])
+    assert ids == {} and len(illisibles) == 1 and illisibles[0][0] == absent
+    p468._imprimer_portee({}, [(absent, None)], illisibles)
+    txt = capsys.readouterr().out
+    assert "ILLISIBLE (non mesure, pas vide)" in txt and absent.name in txt, txt
+
+
 def test_sur_le_depot_REEL_le_numero_suggere_n_apparait_NULLE_PART():
     """Garde sur l'arbre vivant : le numero rendu doit etre absent de l'UNION -- docs/rl,
     scripts/python, noms de fichiers ET messages de commit."""
