@@ -1,6 +1,0 @@
-{
-    "mode": "attach",
-    "pid": 42656,
-    "source": "C:/Users/nicolasv/tacticus-tools/frida/dist/hooks.js",
-    "stop_previous": true
-}

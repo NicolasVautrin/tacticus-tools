@@ -2,9 +2,10 @@
 
 LA FAUTE QUE CE CLIQUET REND VISIBLE (mesuree le 2026-07-31, CORRIGEE depuis)
 -----------------------------------------------------------------------------
-`frida/hooks/controller.ts` est SUIVI PAR GIT et importe **67** modules `./scratch/*.js` que
-`.gitignore` excluait ALORS. `frida/hooks/scratch/` est VERSIONNE depuis (meme commit que ce
-probe, `774df416`) ; l'etat decrit ici est celui de la faute, pas celui du depot.
+`frida/hooks/controller.ts` est SUIVI PAR GIT et importait **67** modules `./scratch/*.js` que
+`.gitignore` excluait ALORS. Ces sondes sont VERSIONNEES depuis (meme commit que ce probe,
+`774df416`) et vivent sous `frida/hooks/probes/` depuis #480-r6 ; l'etat decrit ici est celui
+de la faute, pas celui du depot.
 Trois consequences, toutes constatees le meme jour :
 
   1. **Le depot n'est pas auto-constructible.** Un clone frais ne compile pas : `frida-compile`

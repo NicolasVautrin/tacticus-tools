@@ -723,7 +723,8 @@ bloqué — alors que sa réponse ne changeait rien à la décision.)*
   change rien, la destruction a lieu APRÈS son départ.
 
   **La cause n'est jamais la junction, c'est ce qui la rend nécessaire** : une entrée de build
-  gitignorée. `frida/hooks/scratch/` est donc VERSIONNÉ depuis le 2026-07-31, et le cliquet
+  gitignorée. Ces sondes sont donc VERSIONNÉES depuis le 2026-07-31 (et vivent sous
+  `frida/hooks/probes/` depuis #480-r6), et le cliquet
   `probe_365_versioned_imports_gitignored.py` rougit si un fichier versionné importe
   statiquement une cible gitignorée ou absente — c'est lui qui empêche la classe de revenir.
   L'interdiction de junction est posée dans les invariants agents du `CLAUDE.md`.

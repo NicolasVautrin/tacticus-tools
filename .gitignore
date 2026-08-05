@@ -61,19 +61,23 @@ frida/dump-analyze.cjs
 Tacticus_*.json
 # One-shot debug / capture artifacts
 frida/captures/
-# frida/hooks/scratch/ N'EST PLUS IGNORE (2026-07-31) -- il est ENTREE DE BUILD.
-# `frida/hooks/controller.ts` est VERSIONNE et importe STATIQUEMENT 67 de ses modules : les
-# ignorer rendait le depot non constructible (clone frais ET worktree d'agent), ce qui poussait
-# les agents a contourner par une JUNCTION vers l'arbre principal -- et une junction supprimee en
-# recursif VIDE sa cible sous Windows. Les 67 modules ont ete perdus ainsi le 2026-07-31.
-# Le cliquet `scripts/python/probe_365_versioned_imports_gitignored.py` interdit desormais qu'un
-# fichier versionne importe une cible gitignoree ou absente.
+# Les sondes d'introspection IL2CPP sont VERSIONNEES et BUNDLEES : elles vivent sous
+# `frida/hooks/probes/` (67 modules importes statiquement par `frida/hooks/controller.ts`).
+# Elles s'appelaient `frida/hooks/scratch/` et etaient ignorees jusqu'au 2026-07-31 (#365) :
+# le depot n'etait alors pas constructible depuis un clone frais, ce qui poussait les agents a
+# contourner par une JUNCTION vers l'arbre principal -- et une junction supprimee en recursif
+# VIDE sa cible sous Windows. Les 67 modules ont ete perdus ainsi ce jour-la.
+# Deux cliquets tiennent l'acquis : `scripts/python/probe_365_versioned_imports_gitignored.py`
+# (un fichier versionne ne peut pas importer une cible ignoree ou absente) et
+# `scripts/python/probe_480r1_entrees_de_build.py` (aucun repertoire d'entrees de build ne peut
+# etre redecrit comme jetable).
 # Root-level helper scripts for local sessions (not project deliverables).
 # ANCRE A LA RACINE (`/scratch/`), et c'est ESSENTIEL : sans le `/` initial, gitignore matche
 # n'importe quel repertoire nomme `scratch` A N'IMPORTE QUELLE PROFONDEUR. C'est cette regle
-# generique -- pas la ligne dediee -- qui ignorait `frida/hooks/scratch/`, et elle aurait annule
-# son de-ignorage EN SILENCE (mesure le 2026-07-31 : `git check-ignore -v` pointait `.gitignore:72`
-# alors que la ligne dediee venait d'etre retiree).
+# generique -- pas la ligne dediee -- qui avait ignore les sondes en silence, et son effet
+# s'etait vu au mauvais endroit (`git check-ignore -v` pointait cette ligne-ci alors que la
+# ligne dediee venait d'etre retiree). Depuis #480-r6 plus AUCUN repertoire de production ne
+# s'appelle `scratch` : la regle ne peut plus atteindre du code livre, quelle que soit sa forme.
 /scratch/
 # Claude harness state
 .claude/scheduled_tasks.lock

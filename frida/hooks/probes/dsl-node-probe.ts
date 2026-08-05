@@ -5,7 +5,7 @@
  *  Le fichier source d'origine a été détruit (cf. `probe_365_versioned_imports_gitignored.py`
  *  et l'invariant « jamais de junction » du CLAUDE.md) et n'existait dans aucune sauvegarde.
  *  Le corps ci-dessous est extrait du bundle `frida/dist/hooks.js` compilé AVANT la perte
- *  (délimité par le marqueur `// hooks/scratch/dsl-node-probe.ts`, 198 lignes) : `frida-compile`
+ *  (délimité par le marqueur `// hooks/probes/dsl-node-probe.ts`, 198 lignes) : `frida-compile`
  *  retire les types mais préserve la structure, donc la logique est celle d'origine, à
  *  l'identique. Trois différences, toutes MÉCANIQUES et vérifiables :
  *    1. les helpers locaux `rva2`/`fqn2`/`hasAncestor2` retrouvent leur nom (`rva`/`fqn`/

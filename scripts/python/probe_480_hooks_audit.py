@@ -10,7 +10,7 @@ NECESSAIRE, et si oui QUELLE omission du flux le rend necessaire ».
 
 Ce probe MESURE (il ne GARDE pas, sauf sur deux cliquets explicites, cf. plus bas) :
 
-  1. PERIMETRE      -- fichiers/lignes, y compris `hooks/scratch/` qui est VERSIONNE depuis
+  1. PERIMETRE      -- fichiers/lignes, y compris `hooks/probes/` qui est VERSIONNE depuis
                        #365 et ENTREE DE BUILD (67 imports statiques depuis `controller.ts`).
                        L'ecarter du decompte, comme le font encore plusieurs case-docs en
                        le disant « gitignore », rend un perimetre FAUX.
@@ -126,13 +126,13 @@ ROLES = {
     "features/trigger-trace.ts": "ETAT",
     "features/dsl-trace.ts": "DECISION",
     "features/dsl-ctor-trace.ts": "DECISION",
-    # --- SONDE (hooks/scratch : exploration one-shot, versionnee depuis #365) ---
-    "scratch/dump-idun-nav-info.ts": "SONDE",
-    "scratch/dump-navigation-methods.ts": "SONDE",
-    "scratch/inspect-cgms.ts": "SONDE",
-    "scratch/try-to-campaign.ts": "SONDE",
-    "scratch/test-unity-find.ts": "SONDE",
-    "scratch/test-scene.ts": "SONDE",
+    # --- SONDE (hooks/probes : introspection one-shot, versionnee depuis #365, renommee #480-r6) ---
+    "probes/dump-idun-nav-info.ts": "SONDE",
+    "probes/dump-navigation-methods.ts": "SONDE",
+    "probes/inspect-cgms.ts": "SONDE",
+    "probes/try-to-campaign.ts": "SONDE",
+    "probes/test-unity-find.ts": "SONDE",
+    "probes/test-scene.ts": "SONDE",
 }
 
 # Capteurs LECTEURS PURS : sondables avec un runnerId inexistant sans aucun effet de bord.
@@ -197,18 +197,18 @@ def main() -> int:
 
     rouge = False
     tous = fichiers_ts()
-    scratch = [p for p in tous if rel(p).startswith("scratch/")]
-    hors = [p for p in tous if not rel(p).startswith("scratch/")]
+    sondes = [p for p in tous if rel(p).startswith("probes/")]
+    hors = [p for p in tous if not rel(p).startswith("probes/")]
 
     print("=== (1) PERIMETRE ===")
     print("fichiers .ts sous frida/hooks/ : %d  (%d lignes)"
           % (len(tous), sum(lignes(p) for p in tous)))
-    print("  hors scratch : %-4d (%d lignes)" % (len(hors), sum(lignes(p) for p in hors)))
-    print("  scratch      : %-4d (%d lignes)  -- VERSIONNE depuis #365, ENTREE DE BUILD"
-          % (len(scratch), sum(lignes(p) for p in scratch)))
+    print("  hors sondes : %-4d (%d lignes)" % (len(hors), sum(lignes(p) for p in hors)))
+    print("  sondes       : %-4d (%d lignes)  -- VERSIONNE depuis #365, ENTREE DE BUILD"
+          % (len(sondes), sum(lignes(p) for p in sondes)))
     ctrl = (HOOKS / "controller.ts").read_text(encoding="utf-8")
-    n_imports = len(re.findall(r'from "\./scratch/', ctrl))
-    print("  imports statiques `./scratch/` depuis controller.ts : %d" % n_imports)
+    n_imports = len(re.findall(r'from "\./probes/', ctrl))
+    print("  imports statiques `./probes/` depuis controller.ts : %d" % n_imports)
     print("")
 
     print("=== (2) LES GROS MODULES (seuil doctrine ~1000 lignes) ===")
