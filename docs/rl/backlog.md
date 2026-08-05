@@ -558,6 +558,54 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#468-r10` — l'allocateur de numéros est AVEUGLE aux réservations des agents EN VOL, et son
+  mode de défaillance est un `PASS` RASSURANT.** Son corpus est `docs/rl` + `scripts/python` + les
+  messages de commit : il ne voit un numéro qu'une fois l'artefact **écrit et mergé**. Or une
+  allocation se fait **au début** d'une tranche, quand rien n'existe encore.
+  **MESURE (2026-08-05, ce cas)** : deux agents en vol ont reçu **`#479`** du même
+  `--suggere` — le ménage des branches orphelines (mergé en PR #659) et l'audit des hooks (PR #663).
+  Collision **DOUBLE** : la racine `#479` **et** le résidu `#479-r1`, ouverts des deux côtés pour des
+  sujets sans rapport. Pendant tout ce temps `probe_468` rendait **PASS sur `master`** — correctement,
+  au regard de son corpus : à l'instant de l'allocation, aucun des deux artefacts n'existait. C'est
+  le régime **exact** où nos collisions se produisent (deux le 2026-08-04 à quelques heures d'écart,
+  plus une quadruple `#420-r1`).
+  **Parades, aucune construite ici** :
+  (a) **balayer aussi les branches non mergées** — la voie la plus directe, mais elle se heurte à une
+  mesure déjà au dossier : les branches **survivent au squash-merge** (`--no-merged origin/master`
+  rend **79** branches pour **1** PR ouverte, cf. `#467-r6`). Un balayage naïf « réserverait » donc
+  des dizaines de numéros **morts** et pousserait la borne en avant sans raison ;
+  (b) **un registre de réservation versionné** — mais réserver exigerait un commit+push, ce qui
+  sérialise l'allocation entre agents parallèles ;
+  (c) **interroger les PR ouvertes** (`gh`) — capteur qui peut être **muet** (`#467-r6` : trois pannes
+  distinctes sous un même `rc`), donc utilisable seulement en **tri-état**.
+  ⇒ **Le minimum praticable, et il est indépendant des trois** : que `--suggere` **DISE** que sa
+  mesure ne couvre pas les branches en vol, au lieu de rendre un numéro qui a l'air sûr. Un
+  allocateur qui ne peut pas voir les réservations concurrentes doit le **nommer**, exactement comme
+  `loop_status` distingue `null` de `0`. *Retournement* : deux `--suggere` concurrents, sur deux
+  worktrees, ne rendent plus le même numéro **sans le signaler**.
+- **`#480-r1` — `frida/hooks/scratch/` : 69 fichiers VERSIONNÉS et BUNDLÉS, qualifiés « gitignoré ».**
+  Il ne l'est plus depuis #365 (2026-07-31) — le `.gitignore` le dit ENTRÉE DE BUILD, et
+  `controller.ts` en fait **67 imports statiques**. Les **142** erreurs `tsc` qu'il porte (sur 146 au
+  total) sont donc écartées de tout décompte par une propriété git périmée, répétée par `case-477`
+  (§8, §10.5) et `case-475` (§7). Trancher : soit elles rentrent dans le contrat de typage, soit
+  l'exclusion est **écrite et motivée**. *Retournement* : le compte `tsc` est stable et assumé, et
+  plus aucune case-doc ne les dit gitignorés. `case-480-audit-hooks-frida.md` §1a.
+- **`#480-r2` — `probe_252` ne pèse qu'un SENS de la bijection.** Son verdict est
+  `faux or absents` (table -> enum) ; `manquants` (enum -> table) est calculé, **affiché, et ignoré**.
+  Les 6 tables étant aujourd'hui en bijection exacte, le faire peser ne produirait **aucun faux
+  positif** — mais un build qui AJOUTE des membres laisserait le cliquet vert sur des tables
+  incomplètes. *Retournement* : un membre d'enum absent des tables fait rougir. `case-480` §7.
+- **`#480-r3` — rien ne mesure QUELS RPC la session Frida expose réellement.** Un RPC écrit mais non
+  déployé rend un `HTTP 500` **indiscernable** d'une erreur d'exécution (mesuré sur `replaySteps` /
+  `replayRngEvents`, session 7). « Dans le bundle reconstruit » et « dans la session injectée » sont
+  deux mesures distinctes, et seule la seconde vaut pour un appelant. Remède : endpoint host rendant
+  `Object.keys(script.exports)`. *Retournement* : l'absence d'un RPC se distingue d'une erreur
+  d'exécution sans lire le bundle. `case-480` §5.
+- **`#480-r4` — `npm run build:hooks` échoue (`ENOENT`) sur un worktree frais** tant que
+  `frida/dist/` n'existe pas. Bénin, mais contredit « un worktree frais est RUNNABLE par son seul
+  checkout » pour la voie bundle. *Retournement* : `npm ci` puis `npm run build:hooks` rc 0 sans
+  `mkdir` manuel. `case-480` §10.
+
 - **`#462-r4a-r1` — le décompilé route en APPARENCE les deux canaux vers `Multiplier@0x30`.**
   `IdunBattle.Core.Services.DamageModifiers$$Add` surcharge 2-ARGUMENTS (celle des EFFETS) appelle
   `Add(this, modifier.Value)` dès que `damageBonus@0x20` a une valeur — et cette surcharge écrit
