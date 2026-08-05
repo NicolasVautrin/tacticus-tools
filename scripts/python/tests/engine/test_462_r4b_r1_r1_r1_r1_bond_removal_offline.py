@@ -32,31 +32,66 @@ from engine.dsl.event_trigger_type import EventTriggerType                  # no
 from engine.runner.abilities.behaviours import RemoveEffect                 # noqa: E402
 from engine.runner.operations.triggers.bond_removal import (                # noqa: E402
     BOND_REMOVAL_GATES, BondRemoveOnBondedEntityDeath, bond_removal_tree,
-    bond_removal_registry_entries)
+    bond_removal_registry_entries, assert_pending_gate_consistency)
 from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS  # noqa: E402
 
-# La mesure, recopiee comme ATTENDU : `(classe native, a, b, c)`.
-# Rejeu : `python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step declared`.
+# La mesure, recopiee comme ATTENDU : `(classe native, a, b, c, IsExecutedIfOwnerDies)`.
+# Rejeu : `python probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step declared` (a/b/c) et
+# `--step pending` (le quatrieme virtuel, qui n'existe que sous `APendingAttackEffect`).
 _MEASURED = {
     int(EffectType.Neuroparasite): (
-        "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect", True, None, False),
+        "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect", True, None, False, None),
     int(EffectType.TunnelingHorror_PendingSummon): (
-        "IdunBattle.Entities.Effects.Loki.TunnelingHorror_PendingSummonEffect", False, None, False),
+        "IdunBattle.Entities.Effects.Loki.TunnelingHorror_PendingSummonEffect",
+        False, None, False, None),
     int(EffectType.HazeOfCorruption_DamageTransfer): (
-        "IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect", True, None, False),
+        "IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect",
+        True, None, False, None),
+    # #462-r4b-r1-r1-r1-r1-c -- sous-famille `APendingAttackEffect` : le gate (a) y vaut
+    # `NOT <klass+0x778> IsExecutedIfOwnerDies`. `--step valkyrielive` a CONFRONTE la valeur dans le
+    # sens rare (bonde mort, effet ENCORE present).
+    int(EffectType.ValkyrieStrike_Effect): (
+        "IdunBattle.Entities.Effects.Loki.ValkyrieStrikeEffect", False, None, False, True),
 }
 
 
 def test_table_matches_the_runtime_measurement():
-    """Les trois virtuels, par effet. `native` est dans l'assertion : c'est le seul champ qui relie
+    """Les virtuels, par effet. `native` est dans l'assertion : c'est le seul champ qui relie
     une valeur a la classe dont elle a ete lue, donc a la mesure re-jouable."""
     assert set(BOND_REMOVAL_GATES) == set(_MEASURED), "la table a change de PERIMETRE"
-    for et, (native, a, b, c) in _MEASURED.items():
+    for et, (native, a, b, c, owner_dies) in _MEASURED.items():
         g = BOND_REMOVAL_GATES[et]
         assert g.native == native, "effet %d : classe native" % et
         assert g.remove_on_bonded_entity_death is a, "effet %d : <+0x748> get_RemoveOnBondedEntityDeath" % et
         assert g.range == b, "effet %d : <+0x728> get_Range" % et
         assert g.adjacent is c, "effet %d : <+0x738> get_Adjacent" % et
+        assert g.is_executed_if_owner_dies is owner_dies, (
+            "effet %d : <+0x778> IsExecutedIfOwnerDies" % et)
+
+
+def test_pending_gate_is_the_negation_of_the_fourth_virtual():
+    """`APendingAttackEffect$$get_RemoveOnBondedEntityDeath` a pour corps `NOT <klass+0x778>()`.
+
+    Les deux champs sont redondants EXPRES : sans ce garde, l'un pourrait deriver de l'autre au fil
+    des editions et la table mentirait sans que rien ne rougisse. Le garde est joue ICI, et pas
+    seulement a l'import, pour qu'une regression porte le nom d'un test."""
+    assert_pending_gate_consistency()
+    pend = [et for et, g in BOND_REMOVAL_GATES.items() if g.is_executed_if_owner_dies is not None]
+    assert pend, "aucune entree de la sous-famille : le garde ne verifierait plus RIEN"
+    for et in pend:
+        g = BOND_REMOVAL_GATES[et]
+        assert g.remove_on_bonded_entity_death is (not g.is_executed_if_owner_dies)
+
+
+def test_pending_family_arms_neither_range_nor_adjacent():
+    """`APendingAttackEffect` SURCHARGE `get_Range` (`Nullable` vide) et `get_Adjacent` (`false`)
+    pour ses 20 derivees -- mesure `--step declared`, niveau `d1`. Ni (b) ni (c) n'y sont donc
+    jamais armes, et une entree de la sous-famille qui en porterait un serait une valeur inventee."""
+    for et, g in BOND_REMOVAL_GATES.items():
+        if g.is_executed_if_owner_dies is None:
+            continue
+        assert g.range is None, "effet %d : (b) n'est arme sur AUCUNE derivee" % et
+        assert g.adjacent is False, "effet %d : (c) n'est arme sur AUCUNE derivee" % et
 
 
 def test_only_true_gates_are_wired():
