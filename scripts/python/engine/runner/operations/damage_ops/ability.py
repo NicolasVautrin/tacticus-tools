@@ -17,7 +17,8 @@ from ....services.attack_hits_formula import attack_hits_with_modifiers
 from ....entities.stats import StatType
 from ...state import State
 from ...components import (StatsComponent, HealthComponent, PositionComponent,
-                           persistent_data_keys, unit_prevents_overkill, unit_state_for_effects)
+                           persistent_data_keys, unit_prevents_overkill, unit_state_for_effects,
+                           can_be_overkilled, unit_is_overkilled)
 from ...damage_model import (attacker_modifiers, defender_modifiers, build_hits_board,
                              apply_elevation_bonus, apply_trench_reduction,
                              ice_crit_damage_addition, target_trait_names,
@@ -447,6 +448,10 @@ class _AbilityAttack:
                                             # `Amount` de l'event (retraits REELS), pas le demande.
                                             hp_current=(None if thc.hp is None else int(thc.hp)),
                                             hp_floor=thc.minimal_health,
+                                            # #462-r4e-o-r1 : SITE (A) — `HasFlag(target, 8)` relu
+                                            # PAR COUP + son gate `CanBeOverkilled`.
+                                            overkilled0=unit_is_overkilled(tgt),
+                                            can_be_overkilled=can_be_overkilled(tgt),
                                             # #195 : `HasFlag(defender, 0x13)` — le 5e argument
                                             # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
                                             # lit lui-meme sur son parametre `defender`.

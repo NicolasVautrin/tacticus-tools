@@ -192,10 +192,22 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
 
         `hits_result` = le dict rendu par `_run_hits` (`per_hit_health` / `crits` / `denied_before`).
         Absent (DoT, knockback, coups additionnels) -> degenerescence en UN coup non-critique sans
-        denied : strictement l'ancien comportement."""
+        denied : strictement l'ancien comportement.
+
+        #462-r4e-o-r1 -- FOYER UNIQUE : quand `_run_hits` a pu evaluer la porte (PV captes), c'est
+        SON verdict qui fait foi, parce que c'est LUI qui a les PV REELLEMENT retires coup par coup
+        (`_hp_left`). Le re-jeu ci-dessous accumule le degat DEMANDE, alors que la surcharge
+        d'instance d'`IdunBattle.Core.Services.DamagePrediction$$IsOverkill` re-agrege
+        `targetHealthBeforeAttack.Value - UnitExtensions.GetStat(target, Health)` -- les PV
+        REELLEMENT retires (relu verbatim, cf. `damage_hits.overkill_flag_posted_by_hit`). Les deux
+        coincident tant qu'aucun coup n'est ECRETE, et divergent des qu'un coup tombe sur un cadavre
+        ou un plancher : le re-jeu SUR-DECLARE alors l'overkill. Il reste le repli des appelants
+        sans decomposition."""
         cbo = can_be_overkilled(tgt)
         if not cbo or hp_before is None or damage is None:
             return False
+        if hits_result is not None and hits_result.get("overkilled") is not None:
+            return bool(hits_result["overkilled"])
         prv = unit_prevents_overkill(state, target_id)
         thc = tgt.get_component(HealthComponent) if tgt is not None else None
         floor = getattr(thc, "minimal_health", None) if thc is not None else None

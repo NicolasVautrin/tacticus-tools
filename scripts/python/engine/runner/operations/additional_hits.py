@@ -14,7 +14,8 @@ pleine bataille, `damage` est entierement charge)."""
 from __future__ import annotations
 
 from ..components import (StatsComponent, PositionComponent, UnitComponent,
-                          OwnerComponent, unit_prevents_overkill, unit_state_for_effects)
+                          OwnerComponent, unit_prevents_overkill, unit_state_for_effects,
+                          can_be_overkilled, unit_is_overkilled)
 from ..damage_model import target_trait_names
 from ..state import State
 from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
@@ -393,6 +394,11 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             # suivant, comme le natif enchaine ses sous-operations.
             hp_current=(None if thc.hp is None else int(thc.hp)),
             hp_floor=thc.minimal_health,
+            # #462-r4e-o-r1 : SITE (A) — `HasFlag(target, 8 = Overkilled)` relu PAR COUP. C'est
+            # LE cas ou l'etat d'entree compte : le flag pose pendant la phase d'arme gate
+            # TOUS les coups de ce groupe (le natif enchaine ses sous-operations sur la MEME cible).
+            overkilled0=unit_is_overkilled(tgt),
+            can_be_overkilled=can_be_overkilled(tgt),
             # #195 : `HasFlag(defender, 0x13)` — le 5e argument `isPreventOverkill` que
             # `ApplyTraitDamageLimitsToDamage` lit lui-meme sur son parametre `defender`.
             prevent_overkill=unit_prevents_overkill(state, target_id))
@@ -411,9 +417,10 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             is_first_hit=g_first_hit)
         death = death or d
         out["groups"] += 1
-        # coups REELLEMENT emis (R6-b' : un succes du `Maybe` defere un coup bonus DANS ce groupe,
-        # donc `count` seul sous-compte).
-        out["hits"] += len(r["per_hit"])
+        # coups REELLEMENT EXECUTES (R6-b' : un succes du `Maybe` defere un coup bonus DANS ce
+        # groupe, donc `count` seul sous-compte). #462-r4e-o-r1 : ce n'est PLUS `len(per_hit)` --
+        # depuis le port du SITE (A), un coup gate s'execute sans emettre d'event.
+        out["hits"] += r["hits_executed"]
         out["total"] += r["total"]
         out["per_hit"] += r["per_hit"]
         out["rolls"] += r["rolls"]
