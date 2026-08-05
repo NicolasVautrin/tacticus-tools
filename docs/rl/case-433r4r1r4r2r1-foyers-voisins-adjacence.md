@@ -137,10 +137,13 @@ RECONNAÎTRE un test, donc l'élargir ne peut que retenir le cliquet. L'étape 3
 **Le gisement, mesuré le 2026-08-05** (`--inventaire`) : **99** fonctions d'`engine/` touchent le
 canal, **0** dérivation morte ; **2** mirrors déclarés portent canal + géométrie
 (`is_adjacent`, `services.battle_query.are_tiles_adjacent`), **0** géométrie non gardée. Ce zéro est
-un **cliquet**, pas un acquis. **Contre-épreuve : 25 tests, 12 mutations** — 6 synthétiques isolant
-chaque forme, 6 sur le **vrai** code (`battle_query.py`, `runner/components.py`,
-`services/battle_query.py`), chacune vérifiée **mordante** — et **8 anti-faux-positifs**, qui sont
-ici le vrai risque. Coût : **+2,5 s** (e3 1,7 + e4 0,8) sur ~8 s.
+un **cliquet**, pas un acquis. **Contre-épreuve : 29 tests, 16 cas du vice, 16 rouges** —
+9 synthétiques isolant chaque forme, 7 mutations du **vrai** code sur 4 fichiers
+(`battle_query.py`, `runner/components.py`, `services/battle_query.py`, `runner/damage_model.py`),
+chacune vérifiée **mordante** (ancrage présent, texte changé) — plus **8 anti-faux-positifs**, qui
+sont ici le vrai risque, et **2 tests de câblage** (un rouge d'étape doit sortir par `main()` : le
+critère le plus juste ne vaut rien s'il n'est pas COMPTÉ, #430). Coût : **+2,5 s** (e3 1,7 + e4 0,8)
+sur ~8 s, après mémoïsation des balayages de noms et pré-filtre par fichier (sans eux : +10 s).
 
 **Ce que la mesure NE couvre PAS**, nommé : un store d'**attribut** (`self._neigh = …`) n'est pas
 coté (sa lecture peut vivre hors périmètre) ; le critère porte sur le **nom**, donc une réassignation
