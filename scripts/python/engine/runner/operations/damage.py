@@ -467,10 +467,10 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     def _kill_unit_operation(state: State, target_id: int, attacker_id,
                              overkill: bool) -> list:
         """`IdunBattle.Operations.KillUnitOperation$$Execute` -- l'APPLICATION d'une mort deja
-        enqueuee. Emet la SEQUENCE 1 -> 2 -> 0 -> 0x36 ; les quatre sont portes, DANS CET ORDRE
-        (le 5e, `PostUnitKill = 0x35`, n'a pas de consommateur porte). La garde revive
-        (`if (!unitComponent.PendingRevive@+0xa8 .HasValue)`) court-circuite tout ce qui suit
-        `On(PreUnitDeath)` -- cf. la docstring de `_fire_death_if_killed`.
+        enqueuee. Emet la SEQUENCE COMPLETE 1 -> 2 -> 0 -> 0x36 -> 0x35 ; les CINQ sont portes,
+        DANS CET ORDRE. La garde revive (`if (!unitComponent.PendingRevive@+0xa8 .HasValue)`)
+        court-circuite tout ce qui suit `On(PreUnitDeath)` -- SAUF `On(0x35 = PostUnitKill)`, qui
+        est APRES son `if/else` -- cf. la docstring de `_fire_death_if_killed`.
 
         ORDRE COMPLET, RE-DERIVE au decompile du build `rnca9r7q6c` (#389-r2). Les offsets sont
         les adresses de RETOUR des call-sites, relatives a `KillUnitOperation$$Execute` :
@@ -497,12 +497,31 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         DEUX CORRECTIONS D'ORDRE que ce foyer apporte, toutes deux LUES a la profondeur d'accolades :
           * le retrait des effets du mort etait emis ENTRE `On(UnitDeath)` et `On(UnitDefeated)` ;
             le natif le fait AVANT `On(UnitDeath)` (steps 0 et 1) ;
-          * `On(PostUnitKill)` n'est PAS sous la garde revive (il est apres le `if/else`) --
-            l'ancienne docstring l'affirmait. Sans consequence portee : aucun consommateur de
-            `On(53 = PostUnitKill)` n'existe cote port. Le `return` de la GARDE HEAL, lui, saute bien `On(53 = PostUnitKill)`.
+          * `On(PostUnitKill)` n'est PAS sous la garde revive (il est apres le `if/else`).
+
+        `On(0x35 = PostUnitKill)` EST DESORMAIS EMIS ICI (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4). Il ne
+        l'etait que par `move_death.py::post_unit_kill_triggers_for_move`, donc PLUS TARD dans le
+        pipeline de move (apres `UpdateCharging`/`SetMovedFlag`) et pour le SEUL crush-par-move :
+        double ecart, d'ORDRE et de COUVERTURE. La lecture qui tranche son rang est la PILE
+        d'accolades, pas la PROFONDEUR -- `On(0x35)` et les trois du milieu sont tous a la
+        profondeur 9, mais leurs piles different :
+
+            L1111  if (unitComponent != null) {
+            L1131      if (!PendingRevive.HasValue) {      <- pile de On(2), On(0), On(0x36)
+            L1971          if (health.hp > 0) return;
+            L1997      } else { ... }
+            L2033      if (dispatcher != null) {           <- pile de On(0x35) : PAS L1131
+
+        TROIS consequences PORTEES, toutes lues, aucune deduite :
+          1. la branche REVIVE publie `On(0x35)` elle aussi (le natif sort du `if/else` avant lui) ;
+          2. la GARDE HEAL le saute (son `return` precede) ;
+          3. aucun octet de `KillUnitOptions` ne le gate => il part pour TOUTES les voies qui
+             traversent `Execute` : degat (drain), crush (`_kill_steppable_kill_unit`, donc move ET
+             revive/resurrect/spiritual_leader) et `KillUnitBehaviour` (feuille DSL `Kill`).
         """
         from .triggers import (after_death_triggers, unit_defeated_triggers,
-                               pre_unit_death_2_triggers, unit_death_triggers)
+                               post_unit_kill_triggers, pre_unit_death_2_triggers,
+                               unit_death_triggers)
         from .revive import kill_unit_revive_gate
         from .remove_effects import KillUnitStep
         out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
@@ -511,7 +530,11 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(PreUnitDeath_2), NI On(UnitDeath), NI On(UnitDefeated) — et AUCUN des trois `RemoveEffects`.
         revived = kill_unit_revive_gate(state, target_id)
         if revived is not None:
-            return (out or []) + [{"kill_cancelled_by_revive": revived}]
+            # Branche `else` @`KillUnitOperation$$Execute+0xfcc` (`matchState.<slot 0x63>`) : le revive
+            # s'applique... et l'execution REJOINT le tronc commun, ou `On(0x35)` est publie @+0x10ac.
+            # C'est le SEUL des cinq events que la garde revive n'annule pas (pile d'accolades ci-dessus).
+            return ((out or []) + [{"kill_cancelled_by_revive": revived}]
+                    + post_unit_kill_triggers(state, target_id, attacker_id))
         # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion. Il PRECEDE
         # tout retrait : c'est pourquoi `ExplodesAbility$$GetDamage` voit encore les effets du mort
         # (`HasEffect(Owner, 1098)` de RammingSpeed, #389).
@@ -540,10 +563,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if ent is not None:
             thc = ent.get_component(HealthComponent)
         if thc is not None and thc.hp is not None and int(thc.hp) > 0:
-            return out
+            return out                       # le `return` natif saute AUSSI `On(0x35 = PostUnitKill)`
         out = out + [{"kill_remove_effects": {
             "step": int(KillUnitStep.AfterDeathTrigger),
             "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AfterDeathTrigger)}}]
+        # `On(PostUnitKill = 0x35 = 53)` @`KillUnitOperation$$Execute+0x10ac` -- 5e et DERNIER event,
+        # publie sous le seul null-check du dispatcher (`if (dispatcher != null)` @L2033), hors de la
+        # garde revive. Consommateur porte : `CosmicHorrorOnMoveAbility`.
+        out = out + post_unit_kill_triggers(state, target_id, attacker_id)
         return out
 
     @staticmethod

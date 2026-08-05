@@ -127,12 +127,16 @@ def after_move_triggers(state: State, mover_id: int,
 
     ORDRE NATIF COMPLET, lu au décompilé d'`IdunBattle.Operations.MoveUnitOperation$$Execute` (les deux
     events ENCADRANTS sont désormais portés, cf. les vecteurs dédiés ci-dessous) :
-        AddMoveEvent(s) -> **KillSteppableUnits** (-> `On(0x35=PostUnitKill)` par crushé)
+        AddMoveEvent(s) -> **KillSteppableUnits** (chaque crushé joue `KillUnitOperation$$Execute`
+                           EN ENTIER, `On(0x35 = PostUnitKill)` compris)
         -> UpdateCharging -> SetMovedFlag -> **Add(UnitFlag.ArrivedAtFinalTile=1)**
         -> EvaluateAfterMoveTriggers (`On(0x24)` / `On(4)` / `On(0x1d)`)
         -> si le flag 1 venait d'être AJOUTÉ : **`On(0x1c=ArrivedAtFinalTile)`**.
-    `post_unit_kill_triggers` est donc émis EN TÊTE (le crush précède) et
-    `arrived_at_final_tile_triggers` EN QUEUE (l'event 0x1c suit les after-move).
+    `arrived_at_final_tile_triggers` est donc émis EN QUEUE (l'event 0x1c suit les after-move).
+    ⚠ Les cinq events de mort du crush, `On(0x35)` COMPRIS, partent depuis `MoveUnitOperation` AVANT
+    d'entrer ici (`movement.py::_kill_steppable_units`) : ce vecteur n'en publie AUCUN
+    (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4 — il publiait `On(0x35)` en tête, donc APRÈS
+    `UpdateCharging`/`SetMovedFlag`, et pour le seul chemin MOVE).
 
     `movement_steps` = le 5e argument natif d'`EvaluateAfterMoveTriggers`, propage aux TROIS events
     (un seul `AbilityEntities` cote natif). Il vient de `MoveUnitOperation.last_movement_steps` ;
@@ -163,7 +167,7 @@ def after_move_triggers(state: State, mover_id: int,
     DSL a options nulles l'octet vaut **1** ⇒ ni le flag `ArrivedAtFinalTile`, ni `On(0x1c)`. Le
     mouvement JOUEUR, lui, passe des options entierement nulles ⇒ octet 0 ⇒ flag pose et `On(0x1c)`
     emis (comportement historique, live-valide, INCHANGE)."""
-    out = post_unit_kill_triggers_for_move(state, mover_id)
+    out: list[dict] = []
     # `On(0x24 = UnitPositionChanged_1)` — PREMIER des trois events d'`EvaluateAfterMoveTriggers`.
     # Consommateur porté : `LightCoverAbility` (tile-ability : la tuile de cover pose l'effet 1013 sur
     # l'unité qui vient d'y arriver). Les tile-abilities ne sont pas dans le registre d'effet-triggers
@@ -186,74 +190,59 @@ def after_move_triggers(state: State, mover_id: int,
     return out + arrived_at_final_tile_triggers(state, mover_id)
 
 
-def post_unit_kill_triggers(state: State, killer_id: int, killed_id: int) -> list[dict]:
+def post_unit_kill_triggers(state: State, killed_id: int,
+                            killer_id: Optional[int] = None) -> list[dict]:
     """Vecteur `On(PostUnitKill = 0x35 = 53)` — **5e et DERNIER** des events de mort émis par
     `IdunBattle.Operations.KillUnitOperation$$Execute` (séquence lue au décompilé et déjà documentée
     par `pre_unit_death_2_triggers` : `On(1)` -> `On(2)` -> `On(0)` -> `On(0x36 = UnitDefeated)` -> `On(0x35 = PostUnitKill)`).
-    `actor` = le TUEUR, `target`/`dying` = la victime.
+    `actor` = le TUEUR, `target`/`dying` = la victime. Même `AbilityEntities` que les quatre autres
+    (bâti UNE fois, publié tel quel — cf. `after_death_triggers`), d'où l'ordre d'arguments et le
+    repli `actor = dying` quand le tueur est absent, identiques aux quatre.
+
+    APPELÉ DEPUIS LE FOYER `damage.py::_kill_unit_operation`, à sa place native — pas depuis le
+    pipeline de move (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4). Son RANG exact, lu à la PILE D'ACCOLADES du
+    décompilé `rnca9r7q6c` et non à la profondeur (les deux valent 9, et c'est ce qui avait fait
+    écrire « TOUS à l'intérieur du bloc, sans else ») :
+
+        L1111  if (unitComponent != null) {
+        L1131      if (!PendingRevive.HasValue) {          <- GARDE REVIVE
+                       ... On(2) / RemoveEffects(0,1) / On(0) / On(0x36) ...
+        L1971          if (health.hp > 0) return;          <- GARDE HEAL
+                       RemoveEffects(2) ; processor.<slot 0x55>
+        L1997      } else { matchState.<slot 0x63>(killed) }   <- le revive s'applique
+                   PendingRevive@+0xa8..+0xe8 = 0
+        L2033      if (dispatcher != null) { On(0x35) ; return }
+
+    ⇒ `On(0x35)` est le SEUL des cinq qui ne soit PAS sous la garde revive : il part **dans les deux
+    branches**, y compris quand un revive ANNULE la mort. Il est en revanche sauté par le `return`
+    de la garde HEAL. Aucune gate sur `KillUnitOptions` ne le conditionne (les quatre octets lus le
+    sont ailleurs) ⇒ il part pour TOUTES les voies de mort qui traversent `Execute` : dégât, crush
+    (`*$$KillSteppableUnits` de move / revive / resurrect / spiritual_leader) et `KillUnitBehaviour`.
 
     Consommateur porté : `CosmicHorrorOnMoveAbility` (`On(0x35 = PostUnitKill) & OwnerIsActor & AreFriends &
-    HasTrait(target, Decoy)`) — le Patermine qui marche sur un decoy allié le CRUSHE
-    (`MoveUnitOperation$$KillSteppableUnits` -> `KillUnitOperation$$Execute` avec
-    `KillUnitOperationOptions$$ForSteppable`) et se soigne. No-op si rien ne matche."""
-    ev = TriggerEvent(EventTriggerType.PostUnitKill, killer_id, killed_id,
+    HasTrait(target, Decoy)` — aucune gate de MOUVEMENT malgré son nom, lu au décompilé de
+    `...CosmicHorror_OnMoveAbility$$CreateTrigger`) : le Patermine se soigne dès qu'il est le TUEUR
+    d'un allié `Decoy`, quelle que soit la voie de mort. No-op si rien ne matche."""
+    ev = TriggerEvent(EventTriggerType.PostUnitKill,
+                      killer_id if killer_id is not None else killed_id, killed_id,
                       ranged=False, profile=None, killer_id=killer_id, dying_id=killed_id)
     return evaluate_trigger_operation(state, ev)
 
 
-def post_unit_kill_triggers_for_move(state: State, mover_id: int) -> list[dict]:
-    """`On(0x35 = PostUnitKill)` pour les STEPPABLES que le move qui vient de s'exécuter a écrasés.
-
-    Le port crushe INLINE dans `movement.py::_kill_steppable_units`, qui n'émet AUCUN des cinq events
-    de MORT (contrairement au natif, qui passe par `KillUnitOperation$$Execute` et les émet tous).
-    ⚠ Depuis #462-r4b-r1-r1-r1-r1-c-r3-r1 ce crush joue en revanche les TROIS
-    `IdunBattle.Operations.KillUnitOperation$$RemoveEffects` du mort, donc il publie
-    `On(0x3f = PreEffectRemoved)` / `On(0x40 = EffectRemoved)` par effet retiré — events du RETRAIT,
-    pas de la mort. On ré-identifie les crushés par CO-LOCALISATION — le même collapse que
-    `genestealer.py::_valid_dead_decoys` (déjà porté/validé pour G2) : une unité MORTE, `Steppable`,
-    sur la tuile du mover. Les positions étant exclusives, la tuile est libérée au crush puis
-    ré-occupée par le mover -> au plus un crushé par move, et un steppable mort d'un tour antérieur
-    est sur une AUTRE tuile.
-
-    RÉSIDU assumé : les 4 autres events de la séquence de mort d'un steppable crushé
-    (`On(1)`/`On(2)`/`On(0)`/`On(0x36 = UnitDefeated)`) restent NON émis, et `On(0x35 = PostUnitKill)` reste non émis pour les
-    morts par DÉGÂT (damage.py) et pour le crush par `ResurrectUnitOperation`/`AddUnitOperation`.
-    Aucun consommateur porté ne les lit ; à rouvrir si un port futur en dépend."""
-    from .....entities.traits import UnitTrait, has_trait
-    from .....entities.traits.unit_trait import entity_trait_names
-    board = state.board
-    mover = state.get_entity(mover_id)
-    if board is None or mover is None:
-        return []
-    mpc = mover.get_component(PositionComponent)
-    if mpc is None:
-        return []
-    pos = (mpc.col, mpc.row)
-    out: list[dict] = []
-    for uid, e in sorted(state.entities.items()):
-        if uid == mover_id:
-            continue
-        uc = e.get_component(UnitComponent)
-        if uc is None or uc.alive:                        # le crushé est MORT
-            continue
-        pc = e.get_component(PositionComponent)
-        if pc is None or (pc.col, pc.row) != pos:         # ... et co-localisé avec le mover
-            continue
-        # « tué par CE move » -- le pendant du `IsKilledThisTurn` de `GetValidDeadDecoys`, que ce
-        # site collapse lui aussi en co-localisation. Un cadavre AU CHARGEMENT (absent de
-        # `combatSnapshot`, donc SANS `StatsComponent`) n'a pas été écrasé par ce move : la
-        # co-localisation seule ne l'écarte PAS (un mort ne bloque pas l'occupation, le mover peut
-        # donc s'arrêter sur sa tuile). Il était écarté PAR ACCIDENT, par le `set()` de la lecture
-        # brute de `ctx.traits` ; on le nomme pour que la réparation du substrat le préserve.
-        sc = e.get_component(StatsComponent)
-        if sc is None:
-            continue
-        # Substrat de traits = le foyer `entity_trait_names` (#264/#226).
-        traits = entity_trait_names(sc.ctx, uc.visual_id)
-        if not has_trait(traits, UnitTrait.Steppable):
-            continue
-        out += post_unit_kill_triggers(state, mover_id, uid)
-    return out
+# `post_unit_kill_triggers_for_move` A ÉTÉ SUPPRIMÉE (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4).
+#
+# Elle ré-identifiait les crushés par CO-LOCALISATION (mort + `Steppable` + sur la tuile du mover)
+# parce que le port crushait alors SANS émettre aucun des cinq events de mort, et publiait
+# `On(0x35)` APRÈS coup, depuis `after_move_triggers`. Depuis `-c-r3-r1-r1` le crush passe par
+# `KillUnitOperation$$Execute` (`movement.py::_kill_steppable_kill_unit`), et depuis CETTE tranche
+# ce foyer publie lui-même `On(0x35)` à son rang natif : la ré-identification n'a plus d'objet, et
+# la garder produirait une DOUBLE émission pour le seul chemin MOVE.
+#
+# La garantie qu'elle portait — « un `On(PostUnitKill)` émis pour un cadavre-au-chargement est un
+# kill QUI N'A PAS EU LIEU » — est désormais tenue PAR CONSTRUCTION, un cran plus haut et plus
+# étroitement : `_kill_steppable_units` ne crushe que ce qui est `uc.alive`, donc un cadavre
+# co-localisé n'entre jamais dans `_kill_unit_operation`. Elle reste ASSERTÉE, sur le chemin réel,
+# par `test_ctx_traits_substrat_ventilation_offline.py`.
 
 
 def arrived_at_final_tile_triggers(state: State, unit_id: int,
