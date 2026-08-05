@@ -130,6 +130,39 @@ def test_contre_epreuve_sans_le_gate_le_port_posait_la_glace_ET_le_tour(port):
         "gate cense etre neutralise")
 
 
+@pytest.fixture(scope="module")
+def couverture(live_session, tmp_path_factory):
+    sf = tmp_path_factory.mktemp("t429r1r3c") / "state.json"
+    r = P.scenario_couverture(str(sf), seed="777", board="MC1_67", verbose=False)
+    if r.get("why"):
+        pytest.fail("montage COUVERTURE non installe : %s" % r["why"], pytrace=False)
+    return r
+
+
+def test_le_port_refuse_TOUT_le_registre_sur_un_cadavre(couverture):
+    """L'ORACLE DE SORTIE, joue POUR DE VRAI (un `Runner.apply` complet par ability, pas un compte
+    de predicats) : le gate de MESSAGE ne lit pas l'ability, donc AUCUNE n'y echappe.
+
+    Le compte N'EST PAS SAISI : il se derive de `len(ABILITY_CLASSES)`, qui bouge a chaque tranche
+    portee."""
+    assert couverture["refusees"] == couverture["registre"], (
+        "le port doit refuser TOUT le registre sur un cadavre, obtenu %s / %s"
+        % (couverture["refusees"], couverture["registre"]))
+
+
+def test_l_ATTRIBUTION_du_compteur_le_gate_de_message_est_ce_qui_ferme_la_derniere(couverture):
+    """CE QUI DISCRIMINE. Un 104/104 obtenu par un mecanisme faux serait invisible : le bras mute
+    (gate de MESSAGE debranche) doit differer du bras temoin d'EXACTEMENT une ability, et cette
+    ability doit etre le porteur du bit 38. Si le compte mute etait AUSSI complet, le gate de
+    message serait redondant ; s'il en manquait plusieurs, il masquerait autre chose."""
+    assert couverture["sans_message_gate_refusees"] == couverture["registre"] - 1, (
+        "sans le gate de message, EXACTEMENT une ability doit passer, obtenu %s / %s"
+        % (couverture["sans_message_gate_refusees"], couverture["registre"]))
+    assert couverture["sans_message_gate_rescapees"] == [P.ABILITY_GREAT_FROST_AXE], (
+        "l'unique rescapee doit etre GreatFrostAxe (1089), obtenu %s"
+        % couverture["sans_message_gate_rescapees"])
+
+
 def test_generalisation_autre_seed(port_seed2):
     """Le discriminant est STRUCTUREL (la glace part ou ne part pas), donc insensible au seed."""
     assert port_seed2["natif"]["events"] == 0

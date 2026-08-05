@@ -302,9 +302,92 @@ def scenario_port(state_file: str, seed: str = "777", board: str = "MC1_67",
     return res
 
 
+def scenario_couverture(state_file: str, seed: str = "777", board: str = "MC1_67",
+                        verbose: bool = True) -> dict:
+    """L'ORACLE DE SORTIE, joue POUR DE VRAI. Sur un etat reel ou la cible est un CADAVRE, on
+    APPLIQUE le message pour CHACUNE des abilities du registre (etat re-monte a chaque fois) et on
+    compte celles que le port REFUSE.
+
+    Ce n'est pas un compte de predicats : c'est le verdict d'un `Runner.apply` complet, donc il
+    tombe faux si le gate est ecrit mais mal cable. Deux bras, pour attribuer le compte :
+      * NOMINAL              -> le gate de MESSAGE refuse, il ne lit pas l'ability : 104 / 104 ;
+      * gate de MESSAGE debranche -> seul le gate d'OPERATION reste, qui DEROGE pour le bit 38 :
+        103 / 104, et l'unique rescapee doit etre `GreatFrostAxe` (1089)."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.runner import Runner
+    from engine.runner.messages import ActiveAbilityMessage
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.abilities.handler import ABILITY_CLASSES
+
+    st_json = build(state_file, seed, board)
+    s, rid = sid(), int(st_json["runnerId"])
+    res: dict = {"rid": rid}
+    try:
+        dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        ids = _ids(dv)
+        wulfen, sgt, prime = ids.get("spaceWulfen"), ids.get("ultraInceptorSgt"), \
+            ids.get("tyranWingedPrime")
+        if None in (wulfen, sgt, prime):
+            return {"why": "roster incomplet : %s" % sorted(ids)}
+        nid = _normal_id(dv, sgt)
+        if nid is None:
+            return {"why": "attaque normale de ultraInceptorSgt introuvable"}
+        rpc(s, "applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": sgt, "targetId": prime, "abilityType": nid}}, 40)
+        ob0 = rpc(s, "observeBattle", {"runnerId": rid}, 40)
+        dv1 = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        cible = next((u for u in (dv1.get("units") or []) if u.get("id") == prime), {})
+        if cible.get("alive") or cible.get("pos") is None:
+            return {"why": "la cible n'est pas un cadavre POSITIONNE -- montage non installe"}
+        snap = rpc(s, "combatSnapshot", {"runnerId": rid}, 40)
+        bg = rpc(s, "boardGraph", {"runnerId": rid}, 60)
+
+        def _joue(aid: int) -> dict:
+            st = load_state(dv1, ob0, snap)
+            if isinstance(bg, dict) and "tiles" in bg:
+                st.board = Board(bg["tiles"], adjacency="native_sym")
+            run = Runner(st).install_default_handlers(20)
+            run.apply(ActiveAbilityMessage(wulfen, prime, int(aid)))
+            return run.ability_handler.last or {}
+
+        def _refuse(last: dict) -> bool:
+            """REFUS = le cast n'a produit aucune behaviour ET n'a pose aucun flag de tour."""
+            return (last.get("not_alive_and_not_fled") is not None
+                    or last.get("dead_target_not_allowed") is True
+                    or last.get("invalid_target") is not None)
+
+        aids = sorted(ABILITY_CLASSES)
+        res["registre"] = len(aids)
+        res["refusees"] = sum(1 for a in aids if _refuse(_joue(a)))
+        import engine.runner.components as C                        # noqa: PLC0415
+        garde = C.is_alive_and_not_fled
+        C.is_alive_and_not_fled = lambda *_a, **_k: True
+        try:
+            passe = [a for a in aids if not _refuse(_joue(a))]
+        finally:
+            C.is_alive_and_not_fled = garde
+        res["sans_message_gate_refusees"] = len(aids) - len(passe)
+        res["sans_message_gate_rescapees"] = passe
+        res["why"] = ""
+    finally:
+        try:
+            rpc(s, "disposeRunner", {"runnerId": rid}, 30)
+        except Exception:                                          # noqa: BLE001
+            pass
+    if verbose:
+        print("registre                       : %s" % res.get("registre"))
+        print("REFUSEES (chaine complete)     : %s / %s" % (res.get("refusees"),
+                                                            res.get("registre")))
+        print("refusees SANS le gate MESSAGE  : %s / %s" % (res.get("sans_message_gate_refusees"),
+                                                            res.get("registre")))
+        print("rescapees sans le gate MESSAGE : %s" % res.get("sans_message_gate_rescapees"))
+    return res
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--volet", choices=("offline", "signature", "port"), default="offline")
+    ap.add_argument("--volet", choices=("offline", "signature", "port", "couverture"),
+                    default="offline")
     ap.add_argument("--state-file", default=None, help="chemin ABSOLU, hors data/")
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default="MC1_67")
@@ -314,7 +397,8 @@ def main() -> int:
     if not a.state_file:
         print("--state-file (ABSOLU) requis pour ce volet")
         return 2
-    fn = scenario_signature if a.volet == "signature" else scenario_port
+    fn = {"signature": scenario_signature, "port": scenario_port,
+          "couverture": scenario_couverture}[a.volet]
     r = fn(a.state_file, a.seed, a.board)
     if r.get("why"):
         print("MONTAGE NON INSTALLE : %s" % r["why"])
