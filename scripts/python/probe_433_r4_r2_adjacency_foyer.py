@@ -32,10 +32,27 @@ CE QUE LE PROBE MESURE, en trois etapes :
     dans son bonus a `d = 4`. C'est une comparaison du natif AVEC LUI-MEME : aucun terme du port
     n'y participe, donc aucune confusion possible avec les deux approximations voisines.
 
-  * `--step couple` : le couple divergence -> convergence sur le port, sur un montage ou le sweep
-    reste a `d <= 3` de l'ennemi (`--unit-stat tauCrisis:Movement=2`) -- c'est-a-dire dans le
-    domaine ou les DEUX approximations de branche sont exactes, de sorte que le seul terme qui
-    puisse encore separer port et natif soit celui qu'on corrige.
+  * `--step couple` : le couple divergence -> convergence sur le port. La CONTRE-EPREUVE est le
+    port d'AVANT `#433-r4-r2` -- c'est-a-dire le partage A/B tranche par
+    `hexgeo.distance(origine, E) == 1`, TOUS LES AUTRES CANAUX INTACTS (classe
+    `EarlyWarningOverrideAvant433r4r2` ci-dessous). C'est la seule mutation qui isole le foyer
+    d'adjacence, et elle a remplace une neutralisation de canal qui avait cesse de mordre :
+
+      - `elev_by_pos = None` ne retire PLUS l'adjacence depuis `fix(#433-r4-r1-r4-r2)`
+        (`489bb349`, 2026-08-04) : `battle_query.is_adjacent` enumere d'abord `neigh_by_pos`, la
+        liste STOCKEE que `BattleQuery$$GetAdjacentTiles(t, 0, 0, 1)` rend -- donc DEJA traversee
+        par la porte de `TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`. Les deux canaux
+        portent la meme exclusion : en neutraliser UN SEUL ne restitue rien (MESURE, etape
+        `adj_par_canal` : `elev+neigh` [] / `neigh seul` [] / `elev seul` [] / `aucun` [Y]) ;
+      - et `elev_by_pos` a acquis un SECOND role depuis `feat(#433-r4-r2-r1-r2)` -- il est le
+        substrat de la LIGNE DE VUE d'`AttackQuery$$GetAllTilesInAbilityRange` (branche A). Le
+        neutraliser ELARGIT la zone d'ability de l'ennemi en meme temps : deux mecanismes
+        bougeaient d'un coup, et le bras de contre-epreuve ne mesurait plus une cause.
+
+    Deuxieme correctif de la meme passe : `rows` appelait `utility_at` SANS les canaux que
+    `generate_candidates` lui passe (elevation, murs, equipes, walkability, brouillard). Il
+    confrontait donc au natif un port AMPUTE, et fabriquait une divergence -- `1/34`, imputee au
+    residu LoS. Avec les canaux reellement passes : **0/34**.
 
 Usage (ASCII only, depuis scripts/python) :
   python probe_433_r4_r2_adjacency_foyer.py --step slots
@@ -83,6 +100,34 @@ EXPECTED_SLOTS = {
     0x53: "GetFreeAdjacentTiles",
     0x73: "GetUnitsAtDistance",
 }
+
+
+class _AdjacenceHexNue(object):
+    """Le partage A/B d'AVANT `#433-r4-r2` : `hexgeo.distance(origine, E) == 1`.
+
+    MIXIN, et non une copie du playbook : la mutation ne touche QUE `adjacent_at_origin` -- les
+    deux branches, les canaux de ligne de vue et les gates CASTER restent ceux du port LIVRE. C'est
+    la condition pour qu'un ecart mesure soit imputable au foyer d'adjacence et a lui seul.
+
+    C'est litteralement ce que le port tranchait avant `#433-r4-r2` (cf. l'en-tete de ce module) :
+    ni liste stockee du `ConnectivityComponent`, ni porte d'elevation de
+    `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent`."""
+
+    def adjacent_at_origin(self, ctx, enemies) -> set:
+        if ctx.origin is None:
+            return set()
+        return {e[0] for e in enemies if hexgeo.distance(ctx.origin, e[0]) == 1}
+
+
+def EarlyWarningOverrideAvant433r4r2():
+    """Instance du playbook LIVRE dont le seul foyer d'adjacence est remplace par l'ancien.
+
+    Fabrique (et non classe de module) parce que la base vit dans `engine.playbook.noncomparable`,
+    dont l'import est differe : ce probe est importable sans que `engine` soit charge."""
+    from engine.playbook.noncomparable.early_warning_override import \
+        EarlyWarningOverridePlaybook
+    return type("EarlyWarningOverrideAvant", (_AdjacenceHexNue, EarlyWarningOverridePlaybook),
+                {})()
 
 
 def _r(sid, m, b, t=90):
@@ -305,9 +350,15 @@ def step_couple(verbose=True) -> dict:
     = portee d'ARME, branche B = `threshold` fige a 1) restaient exactes. Les deux etant desormais
     portees (zone d'ability 5, `threshold` 3 sur `tauMarksman`), le confinement n'a plus lieu
     d'etre -- et il RETIRAIT precisement les distances ou les deux branches DIFFERENT. Le sweep
-    doit maintenant ATTEINDRE `d = 4` : c'est la que la branche A ne verse rien (`d <= 5`, en
-    portee) alors que la branche B verse `+50` (`d > 3`), donc c'est la que la mutation du canal
-    d'elevation se lit."""
+    doit ATTEINDRE `d = 4` : c'est la que la branche A ne verse rien (`d <= 5`, en portee) alors
+    que la branche B verse `+50` (`d > 3`), donc c'est la que le partage A/B se lit.
+
+    RE-ETALONNE une SECONDE fois par #433-r4-r2-r4. La contre-epreuve n'est plus une neutralisation
+    de canal (`elev_by_pos = None`) mais le PORT D'AVANT `#433-r4-r2` -- adjacence tranchee par la
+    distance hex nue, tous les autres canaux intacts (`EarlyWarningOverrideAvant433r4r2`). L'ancienne
+    mutation avait cesse de mordre le 2026-08-04 a `489bb349` sans qu'aucun port ne regresse : elle
+    est conservee sous `cand_elev_neutralise`, comme TEMOIN, et l'etape publie `adj_par_canal` qui
+    montre POURQUOI (les deux canaux portent la meme exclusion)."""
     sid = _resolve_session()
     if not sid:
         return {"error": "aucune session Frida"}
@@ -350,19 +401,38 @@ def step_couple(verbose=True) -> dict:
                                      "abilityType": ABILITY, "sweep": True}, 180)
         native = {tuple(p["pos"]): p.get("util") for p in (nat.get("positions") or [])}
 
+        from engine.playbook.noncomparable._base import occupant_team_by_pos
         from engine.playbook.noncomparable.early_warning_override import \
             EarlyWarningOverridePlaybook
         nc_on = _nc_context(sid, rid, dv, c["id"])
-        nc_off = dataclasses.replace(nc_on, elev_by_pos=None)     # l'etat d'AVANT #433-r4-r2
         pb = EarlyWarningOverridePlaybook()
+        pb_avant = EarlyWarningOverrideAvant433r4r2()             # l'etat d'AVANT #433-r4-r2
         enemies = pb.enemies_of(nc_on)
         adj_on = pb.adjacent_at_origin(nc_on, enemies)
-        adj_off = pb.adjacent_at_origin(nc_off, enemies)
+        adj_avant = pb_avant.adjacent_at_origin(nc_on, enemies)
+
+        # Les QUATRE combinaisons du foyer d'adjacence. Elles ne servent pas la confrontation au
+        # natif : elles VERROUILLENT le fait qui a rendu l'ancienne contre-epreuve muette -- les
+        # deux canaux (liste stockee, porte d'elevation) portent la MEME exclusion, donc en
+        # neutraliser un seul ne restitue pas l'adjacence.
+        adj_par_canal = {}
+        for tag, kw in (("elev+neigh", {}), ("neigh seul", {"elev_by_pos": None}),
+                        ("elev seul", {"neigh_by_pos": None}),
+                        ("aucun", {"elev_by_pos": None, "neigh_by_pos": None})):
+            ctx2 = dataclasses.replace(nc_on, **kw) if kw else nc_on
+            adj_par_canal[tag] = sorted(pb.adjacent_at_origin(ctx2, enemies))
+
+        # `utility_at` recoit EXACTEMENT les canaux que `generate_candidates` lui passe : sans eux
+        # on confronte au natif un port ampute, et l'ecart mesure n'est pas un residu du port mais
+        # un artefact de la mesure (c'etait le cas -- 1/34, cf. l'en-tete).
+        team_by_pos = occupant_team_by_pos(nc_on)
+        canaux = (nc_on.elev_by_pos, getattr(nc_on, "is_wall_by_pos", None), team_by_pos,
+                  getattr(nc_on, "walkable_by_pos", None), getattr(nc_on, "is_in_fog_by_pos", None))
         rows = []
         for P in sorted(native):
             rows.append({"pos": P, "d": hexgeo.distance(P, Y), "natif": native[P],
-                         "port_on": pb.utility_at(P, enemies, adj_on),
-                         "port_off": pb.utility_at(P, enemies, adj_off)})
+                         "port_on": pb.utility_at(P, enemies, adj_on, *canaux),
+                         "port_avant": pb_avant.utility_at(P, enemies, adj_avant, *canaux)})
         out = {
             "O": O, "Y": Y, "elev_O": elev[O], "elev_Y": elev[Y],
             "caster": c["id"], "enemy": e["id"],
@@ -373,13 +443,20 @@ def step_couple(verbose=True) -> dict:
             # d'abilities de l'ennemi et l'id de son attaque normale (les gates CASTER).
             "enemies": [{"pos": list(e[0]), "visualId": e[1], "threshold": e[2],
                          "reach": _ability_reach(e[1])} for e in enemies],
-            "adj_on": sorted(adj_on), "adj_off": sorted(adj_off),
+            "adj_on": sorted(adj_on), "adj_avant": sorted(adj_avant),
+            "adj_par_canal": adj_par_canal,
             "d_max": max(r["d"] for r in rows) if rows else None,
             "n": len(rows),
             "diff_on": [r for r in rows if r["natif"] != r["port_on"]],
-            "diff_off": [r for r in rows if r["natif"] != r["port_off"]],
+            "diff_avant": [r for r in rows if r["natif"] != r["port_avant"]],
             "cand_on": pb.generate_candidates(nc_on),
-            "cand_off": pb.generate_candidates(nc_off),
+            "cand_avant": pb_avant.generate_candidates(nc_on),
+            # L'ANCIENNE mutation, conservee comme TEMOIN : elle ne neutralise plus l'adjacence
+            # (l'autre canal la porte) et elargit au contraire la zone d'ability de l'ennemi en
+            # coupant la ligne de vue. C'est ce qui a fait rougir le test sans qu'aucun port ne
+            # regresse -- le garder mesure evite de re-croire un jour qu'elle isole quelque chose.
+            "cand_elev_neutralise": pb.generate_candidates(
+                dataclasses.replace(nc_on, elev_by_pos=None)),
             # Le MAXIMUM que le natif attribue sur tout le sweep. A ne PAS confondre avec « le
             # natif caste » : le Bucket d'EarlyWarningOverride est construit par le ctor a DEUX
             # arguments, donc SANS `min` -- il admet des utilites negatives, et `ncEvaluate` le
@@ -391,16 +468,22 @@ def step_couple(verbose=True) -> dict:
         if verbose:
             print("[couple] O=%s(elev %s) Y=%s(elev %s) |dElev|=%d ; sweep n=%d d_max=%d"
                   % (O, elev[O], Y, elev[Y], abs(elev[Y] - elev[O]), out["n"], out["d_max"]))
-            print("[couple] adj_origin AVEC canal=%r  SANS canal=%r"
-                  % (out["adj_on"], out["adj_off"]))
-            print("[couple] positions ou port != natif : AVEC canal %d/%d, SANS canal %d/%d"
-                  % (len(out["diff_on"]), out["n"], len(out["diff_off"]), out["n"]))
+            print("[couple] adj_origin PORT LIVRE=%r  AVANT #433-r4-r2 (hex nue)=%r"
+                  % (out["adj_on"], out["adj_avant"]))
+            for tag in ("elev+neigh", "neigh seul", "elev seul", "aucun"):
+                print("[couple]   adj par canal  %-11s -> %r" % (tag, adj_par_canal[tag]))
+            print("[couple] positions ou port != natif : LIVRE %d/%d, AVANT %d/%d"
+                  % (len(out["diff_on"]), out["n"], len(out["diff_avant"]), out["n"]))
             for r in out["diff_on"]:
-                print("[couple]   diff_on %r d=%d natif=%r port=%r (LoS/elevation : residu "
-                      "`#433-r4-r2-r1` de la ZONE, cf. case-doc)"
+                print("[couple]   diff_on %r d=%d natif=%r port=%r"
                       % (r["pos"], r["d"], r["natif"], r["port_on"]))
-            print("[couple] action portee -- AVEC canal %r ; SANS canal %r"
-                  % (out["cand_on"], out["cand_off"]))
+            for r in out["diff_avant"][:6]:
+                print("[couple]   diff_avant %r d=%d natif=%r avant=%r"
+                      % (r["pos"], r["d"], r["natif"], r["port_avant"]))
+            print("[couple] action portee -- LIVRE %r ; AVANT %r"
+                  % (out["cand_on"], out["cand_avant"]))
+            print("[couple] TEMOIN `elev_by_pos=None` (l'ancienne mutation, qui n'isole plus "
+                  "rien) -- action %r" % (out["cand_elev_neutralise"],))
             print("[couple] utilite MAXIMALE du natif sur le sweep : %r" % (out["native_best"],))
         return out
     finally:

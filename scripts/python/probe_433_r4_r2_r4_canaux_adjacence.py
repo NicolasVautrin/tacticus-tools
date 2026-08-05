@@ -48,26 +48,6 @@ import probe_433_r4_r2_adjacency_foyer as P                       # noqa: E402
 from rl_collect_batch import _resolve_session                     # noqa: E402
 
 
-class _PortAvant433r4r2(object):
-    """Le partage A/B d'AVANT `#433-r4-r2`, en MIXIN : `hexgeo.distance(origine, E) == 1`.
-
-    C'est litteralement ce que le port tranchait alors (cf. l'en-tete de
-    `probe_433_r4_r2_adjacency_foyer.py`) -- ni liste stockee, ni porte d'elevation. Le reste du
-    playbook (branches A/B, canaux de ligne de vue, gates CASTER) est INCHANGE : la mutation ne
-    touche QUE le foyer d'adjacence, ce qui est la condition pour qu'un ecart lui soit imputable."""
-
-    def adjacent_at_origin(self, ctx, enemies) -> set:
-        if ctx.origin is None:
-            return set()
-        return {e[0] for e in enemies if hexgeo.distance(ctx.origin, e[0]) == 1}
-
-
-def _mk_avant_class():
-    from engine.playbook.noncomparable.early_warning_override import \
-        EarlyWarningOverridePlaybook
-    return type("EarlyWarningOverrideAvant", (_PortAvant433r4r2, EarlyWarningOverridePlaybook), {})
-
-
 def _montage():
     """Le MEME montage que `--step couple` : O porte un voisin hex a `|dElev| >= 2`, le caster a
     `Movement = 4` pour que le sweep atteigne `d = 4..5` (la zone ou les branches different)."""
@@ -128,7 +108,9 @@ def run(verbose=True) -> dict:
         from engine.playbook.noncomparable.early_warning_override import \
             EarlyWarningOverridePlaybook
         pb = EarlyWarningOverridePlaybook()
-        pb_avant = _mk_avant_class()()
+        # Le foyer de la mutation « port d'AVANT #433-r4-r2 » vit dans le probe principal : le
+        # dupliquer ici en ferait deux definitions divergentes de la meme contre-epreuve.
+        pb_avant = P.EarlyWarningOverrideAvant433r4r2()
         enemies = pb.enemies_of(ctx)
 
         # --- (1) CANAUX : les quatre combinaisons du foyer d'adjacence -------------------------
