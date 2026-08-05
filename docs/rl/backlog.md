@@ -560,31 +560,32 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
-- **`#468-r10` — l'allocateur de numéros est AVEUGLE aux réservations des agents EN VOL, et son
-  mode de défaillance est un `PASS` RASSURANT.** Son corpus est `docs/rl` + `scripts/python` + les
-  messages de commit : il ne voit un numéro qu'une fois l'artefact **écrit et mergé**. Or une
-  allocation se fait **au début** d'une tranche, quand rien n'existe encore.
-  **MESURE (2026-08-05, ce cas)** : deux agents en vol ont reçu **`#479`** du même
-  `--suggere` — le ménage des branches orphelines (mergé en PR #659) et l'audit des hooks (PR #663).
-  Collision **DOUBLE** : la racine `#479` **et** le résidu `#479-r1`, ouverts des deux côtés pour des
-  sujets sans rapport. Pendant tout ce temps `probe_468` rendait **PASS sur `master`** — correctement,
-  au regard de son corpus : à l'instant de l'allocation, aucun des deux artefacts n'existait. C'est
-  le régime **exact** où nos collisions se produisent (deux le 2026-08-04 à quelques heures d'écart,
-  plus une quadruple `#420-r1`).
-  **Parades, aucune construite ici** :
-  (a) **balayer aussi les branches non mergées** — la voie la plus directe, mais elle se heurte à une
-  mesure déjà au dossier : les branches **survivent au squash-merge** (`--no-merged origin/master`
-  rend **79** branches pour **1** PR ouverte, cf. `#467-r6`). Un balayage naïf « réserverait » donc
-  des dizaines de numéros **morts** et pousserait la borne en avant sans raison ;
-  (b) **un registre de réservation versionné** — mais réserver exigerait un commit+push, ce qui
-  sérialise l'allocation entre agents parallèles ;
-  (c) **interroger les PR ouvertes** (`gh`) — capteur qui peut être **muet** (`#467-r6` : trois pannes
-  distinctes sous un même `rc`), donc utilisable seulement en **tri-état**.
-  ⇒ **Le minimum praticable, et il est indépendant des trois** : que `--suggere` **DISE** que sa
-  mesure ne couvre pas les branches en vol, au lieu de rendre un numéro qui a l'air sûr. Un
-  allocateur qui ne peut pas voir les réservations concurrentes doit le **nommer**, exactement comme
-  `loop_status` distingue `null` de `0`. *Retournement* : deux `--suggere` concurrents, sur deux
-  worktrees, ne rendent plus le même numéro **sans le signaler**.
+- ~~**`#468-r10` — l'allocateur de numéros est AVEUGLE aux réservations des agents EN VOL, et son
+  mode de défaillance est un `PASS` RASSURANT**~~ — **LIVRÉ (2026-08-05)**,
+  `case-468-r10-angle-mort-des-agents-en-vol.md`. L'aveuglement se **ventile en trois niveaux**, et
+  deux se ferment : **N1** les refs hors `HEAD` (`git log --all --not HEAD`, **+0,06 s**) — un
+  worktree d'agent est figé à son commit de lancement, donc aveugle à `master` qui avance ; **N2**
+  les **noms** écrits dans les autres worktrees (glob borné, **+0,39 s**) — `git grep --untracked`
+  ne lit que SON checkout ; **N3** un numéro pris et **pas encore écrit**, irréductible sans
+  réservation, donc **NOMMÉ** par la section `PORTEE DE LA MESURE`. Mesure avant/après à la révision
+  de lancement : `--suggere 425` rendait **`#425-r3`** et `--suggere 448` **`#448-r3`**, tous deux
+  déjà portés par des dossiers en vol → après, `#425-r4` et `#448-r4`. **Deux collisions imminentes
+  évitées.** Parades **mesurées puis REFUSÉES** : (a) balayer les **94** branches non fusionnées
+  apporte **5** identifiants dont **une seule racine, `#658` — un numéro de PR** (`#468-r8`), et
+  **ne change AUCUN numéro rendu** ; `git log --all --name-only` apporte **25** identifiants pour
+  **+2,64 s** dont **24 de bruit pur** (`#dispatcher`, `#selectors`… des noms de modules).
+  Contre-épreuve : **5 mutations, 5 rouges**, la cinquième ayant d'abord rendu **VERT** et fait
+  corriger le **code** (deux chemins d'illisibilité, un seul gardé).
+- **`#468-r11` — N3 reste ouvert, et le capteur `gh` (parade (c)) n'est pas construit.** Ce qui est
+  livré NOMME l'angle mort ; il ne le ferme pas. Deux `--suggere` lancés **au même instant** depuis
+  deux worktrees rendent toujours le même numéro — aucune lecture de l'arbre ne peut les départager,
+  puisque ni l'un ni l'autre n'a rien écrit. Restent, non construites : **(b)** un registre de
+  réservation versionné (**sérialise** l'allocation : commit + push par numéro) ; **(c)** `gh pr
+  list`, qui couvrirait les PR en vol **dont le worktree est déjà supprimé** — le seul gisement que
+  N1+N2 ne voient pas — mais dont `#467-r6` a mesuré les **trois pannes distinctes sous un même
+  `rc`**, donc utilisable en **tri-état seulement** et jamais en repli rassurant. *Condition de
+  retournement* : un numéro pris par une PR ouverte dont la branche est locale-absente est écarté,
+  et une panne de `gh` se lit `NON MESUREE` et non `0`.
 - **`#480-r1` — `frida/hooks/scratch/` : 69 fichiers VERSIONNÉS et BUNDLÉS, qualifiés « gitignoré ».**
   Il ne l'est plus depuis #365 (2026-07-31) — le `.gitignore` le dit ENTRÉE DE BUILD, et
   `controller.ts` en fait **67 imports statiques**. Les **142** erreurs `tsc` qu'il porte (sur 146 au

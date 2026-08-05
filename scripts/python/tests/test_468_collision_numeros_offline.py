@@ -541,6 +541,37 @@ def test_N2_un_numero_ecrit_dans_un_AUTRE_worktree_n_est_plus_propose():
         shutil.rmtree(racine, ignore_errors=True)
 
 
+def test_N2_generalisation_un_PROBE_du_voisin_bloque_le_mode_RESIDU():
+    """L'AUTRE combinaison, et c'est celle du cas REEL : le porteur mesure de `#425-r3` etait un
+    `probe_425r3_removed_writers.py` -- pas une case-doc -- et la demande etait `--suggere 425`,
+    pas une racine. Un patch qui ne fermerait que le couple (case-doc, racine) laisserait
+    passer exactement la collision qui a ouvert ce dossier."""
+    lignes = [_ligne("900", "socle"), _ligne("900-r1", "premier residu")]
+    racine = _depot_git(lignes)
+    wt2 = None
+    try:
+        wt2 = _ajouter_worktree(racine, "b", "agent-b")
+        rc, txt = _suggere(racine, "900")
+        assert rc == 0 and "LIBRE : #900-r2" in txt, (
+            "bras NON MUTE : le residu de reference doit etre #900-r2 :\n%s" % txt)
+        # Le voisin ouvre `#900-r2` par un PROBE, la graphie COLLEE que le depot emploie aussi.
+        (wt2 / "scripts" / "python").mkdir(parents=True, exist_ok=True)
+        (wt2 / "scripts" / "python" / "probe_900r2_pris_par_le_voisin.py").write_text(
+            "# pris\n", encoding="utf-8")
+        rc, txt2 = _suggere(racine, "900")
+        assert rc == 0, txt2
+        assert "LIBRE : #900-r2" not in txt2, (
+            "un residu deja ouvert chez le voisin (par un PROBE, graphie collee) a ete "
+            "propose :\n%s" % txt2)
+        assert "LIBRE : #900-r3" in txt2, txt2
+        # ... et la portee est imprimee AUSSI dans le mode residu.
+        assert p468.MARQUEUR_ANGLE_MORT in txt2, txt2
+    finally:
+        if wt2:
+            shutil.rmtree(wt2, ignore_errors=True)
+        shutil.rmtree(racine, ignore_errors=True)
+
+
 def test_N1_un_numero_commite_sur_une_ref_HORS_HEAD_n_est_plus_propose():
     """Un worktree d'agent est FIGE a son commit de lancement : `git log` sans `--all` est
     aveugle a `master` qui avance et aux branches des voisins. MESURE : `--suggere 448`

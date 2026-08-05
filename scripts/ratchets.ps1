@@ -378,7 +378,7 @@ $Ratchets = @(
     # aucun rouge, seulement un cout DIFFERE -- et ce cout est ASYMETRIQUE. Avant livraison, une
     # collision de numero est un choix de nom ; apres, c'est une REECRITURE D'HISTORIQUE (fichiers,
     # residus, references internes ET messages de commit, dont `git log --grep` depend).
-    # Il porte sa contre-epreuve : 14 mutations du probe, 14 rouges du test (#468, -r4, -r10).
+    # Il porte sa contre-epreuve : 15 mutations du probe, 15 rouges du test (#468, -r4, -r10).
     # ATTENTION au sens de `--suggere` depuis #468-r10 : son corpus n'est plus << ce qui est
     # fusionne >>. Il lit AUSSI les refs hors HEAD et les NOMS ecrits dans les autres worktrees,
     # et il IMPRIME sa portee -- ce qu'il ne peut structurellement pas voir (un numero pris et

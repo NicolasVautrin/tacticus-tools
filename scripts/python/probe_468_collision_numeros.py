@@ -704,7 +704,13 @@ def _identifiants_des_worktrees(autres) -> tuple:
     TRI-ETAT PAR WORKTREE : un repertoire devenu illisible (un worktree jetable de pytest qui
     meurt en cours de balayage, un agent nettoye) est RENDU dans la seconde liste et NOMME par
     `_imprimer_portee`. Il n'est ni ignore en silence (ce serait un zero fabrique), ni promu en
-    `Indisponible` (ce qui rendrait l'outil inutilisable des qu'une flotte tourne)."""
+    `Indisponible` (ce qui rendrait l'outil inutilisable des qu'une flotte tourne).
+
+    CE QU'ON ACCEPTE, ET C'EST LE BON COTE : un worktree ABANDONNE (agent mort, nettoyage pas
+    encore passe) fait reserver un numero qui ne sera peut-etre jamais livre. On saute alors un
+    numero pour rien -- exactement la meme asymetrie que la monotonie de `suggerer` : on ne
+    recycle pas un trou parce qu'un trou peut etre pris. Sauter coute un entier ; reprendre
+    coute une reecriture d'historique."""
     out, illisibles = {}, []
     for chemin, _branche in (autres or ()):     # `None` = capteur muet, deja dit par la portee
         try:
