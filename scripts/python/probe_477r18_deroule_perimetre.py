@@ -139,6 +139,19 @@ def appels(code: str):
         yield m.group(1), args, m.start()
 
 
+def _ecrire_atomique(f: Path, texte: str) -> None:
+    """Ecrit le cache par fichier TEMPORAIRE + `replace`, jamais en place.
+
+    Le cache est partage entre runs -- et `ghidra-mcp` l'est entre agents. Une ecriture en place
+    laisse une fenetre ou un autre lecteur voit un corps TRONQUE : il le prendrait pour un corps
+    valide et rendrait un compte trop bas, c'est-a-dire un zero produit par la concurrence et non
+    par le binaire. `os.replace` est atomique sur NTFS.
+    """
+    tmp = f.with_suffix(f.suffix + ".%d.part" % os.getpid())
+    tmp.write_text(texte, encoding="utf-8")
+    os.replace(tmp, f)
+
+
 class Ghidra:
     def __init__(self, hors_ligne: bool):
         self.hors_ligne = hors_ligne
@@ -166,7 +179,7 @@ class Ghidra:
             xs = (out[0].get("cross_references") or []) if out else []
         else:
             xs = (res or {}).get("cross_references") or []
-        f.write_text(json.dumps(xs), encoding="utf-8")
+        _ecrire_atomique(f, json.dumps(xs))
         return xs
 
     def decompile(self, nom: str, timeout_sec: int = 60) -> str | None:
@@ -188,7 +201,7 @@ class Ghidra:
             code = (rs[0].get("code") if rs else None) or ""
         else:
             code = (res or {}).get("code") or ""
-        f.write_text(code if code else "\0ABSENT", encoding="utf-8")
+        _ecrire_atomique(f, code if code else "\0ABSENT")
         return code or None
 
     def symboles(self, requete: str, limite: int = 200) -> list:
@@ -201,7 +214,7 @@ class Ghidra:
                                   {"binary_name": BINARY, "query": requete,
                                    "functions_only": True, "limit": limite})
         out = (res or {}).get("symbols") or []
-        f.write_text(json.dumps(out), encoding="utf-8")
+        _ecrire_atomique(f, json.dumps(out))
         return out
 
 
