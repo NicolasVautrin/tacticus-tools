@@ -9,6 +9,8 @@ module -- un patch pose sur le `__init__` du package serait un NO-OP SILENCIEUX.
 `damage_ops.normal.apply_all_modifiers`."""
 from __future__ import annotations
 
+import hexgeo
+
 from ....services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
 from ....services.damage_config import resolve_spread_pct
 from ....services.damage_modifiers import apply_all_modifiers
@@ -111,12 +113,21 @@ class _Normal:
         # PARTAGÉ `BattleQuery.are_tiles_adjacent` (MÊME que la prédiction) : `state.board` → voisins
         # natifs (evenq), fallback géométrie evenq — PAS chebyshev (cheby==1 peut être hex-dist-2 → fausse
         # sélection mêlée d'un tir, ex. overwatch ranged à dist 2).
-        dist = None
+        # #419-r1-tr14-r1-r1 -- LA DISTANCE EST LA VRAIE, ET L'ADJACENCE EST UN CANAL A PART.
+        # `BattleQuery$$GetAttackWeaponForDefaultNormalAttack` (slot `0xaf`) lit DEUX choses :
+        # `AreEntitiesAdjacent(casterTiles, target)` pour choisir la branche melee, et une DISTANCE
+        # (rendue par le service de mouvement) pour la porte `dist <= Range` de `FindRangedWeapon`.
+        # Ce site rabattait les deux sur un `dist = 1 if adj else 2` BINAIRE : la porte de portee ne
+        # pouvait alors JAMAIS mordre au-dela de 2, et une unite tirait a 3 hex avec une arme de
+        # portee 2. MESURE (`probe_419r1tr14r1r1_range_gate_generalisation.py --combat`,
+        # `adeptCanoness` sur MC1_67, cible a 3 hex) : natif `0 degat / 0 tirage`, port
+        # `1311 degats / 2 tirages` -- le natif NO-OPE (`ExecuteBehaviour`), le port frappait.
+        adj = dist = None
         if ap is not None and tp is not None:
             adj = are_tiles_adjacent((ap.col, ap.row), (tp.col, tp.row), state.board)
-            dist = 1 if adj else 2
-        pierce, _ranged, whits = select_weapon_pierce(ctx, dist)
-        _w = select_weapon(ctx, dist)
+            dist = hexgeo.distance((ap.col, ap.row), (tp.col, tp.row))
+        pierce, _ranged, whits = select_weapon_pierce(ctx, dist, is_adjacent=adj)
+        _w = select_weapon(ctx, dist, is_adjacent=adj)
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
         # `BaseEffect$$PiercingBonusForAttack` sur la voie NORMALE (case-117 phase 2) : le natif somme
         # ces `EffectBonus` DANS `GetAttackPiercingDamageRatio` quel que soit le vecteur — l'attaque

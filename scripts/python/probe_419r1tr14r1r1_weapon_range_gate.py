@@ -197,6 +197,29 @@ def main(argv=None) -> int:
     print("ETAPE 7 -- NON-DEGENERESCENCE DU LOT")
     assert diffs, "le lot ne separe PAS les deux hypotheses : l'etape 4 ne conclut rien"
     print("  le lot separe les deux hypotheses (%d classes de divergence)" % len(diffs))
+
+    # --- etape 8 : la DISTANCE BINAIRE du runner contre la distance REELLE -------------------------
+    # Le combat rabattait `dist` sur `1 if adjacent else 2` : la porte `dist <= Range` ne pouvait
+    # alors jamais mordre au-dela de 2. Ce volet compte, unite par unite, les distances ou le choix
+    # d'arme change quand on passe au canal REEL.
+    print("ETAPE 8 -- DISTANCE BINAIRE (1/2) CONTRE DISTANCE REELLE, cote COMBAT")
+    chg_vide, chg_arme, uset = 0, 0, set()
+    for _k, uid in all_ids:
+        ws = _weapons(uid)
+        for d in range(2, args.max_dist + 1):          # d == 1 : les deux canaux coincident
+            bina = _select_apres(ws, False, 2)         # ce que le runner voyait
+            reel = _select_apres(ws, False, d)         # ce que le natif voit
+            if bina is reel:
+                continue
+            uset.add(uid)
+            if reel is None:
+                chg_vide += 1
+            else:
+                chg_arme += 1
+    print("  cas ou le choix CHANGE : %d (dont %d ARME->VIDE, %d ARME->AUTRE ARME), %d unites"
+          % (chg_vide + chg_arme, chg_vide, chg_arme, len(uset)))
+    print("  -> ARME->VIDE = les no-op de combat que le port manquait (mesure live : natif 0 degat "
+          "/ 0 tirage, port 1311 / 2)")
     return 0
 
 
