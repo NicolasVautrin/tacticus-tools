@@ -14,9 +14,10 @@ import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
-                        TargetingOptions)
+                        TargetingOptions, entity_tiles)
 from .targeting_rule import TargetingRule as TR
 from ..components import PositionComponent, StatsComponent
+from ...services.battle_query import are_entities_adjacent
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
@@ -492,6 +493,28 @@ class RammingSpeedAbility(ActiveAbility):
         chemin `ExecuteInternal`, qui passe les tuiles REELLES du caster -- meme lecture que
         `targeting.get_invalid_caster_reason`.
 
+        LE SLOT 0x61 N'EST PAS `hexgeo.distance == 1` (#433-r4-r1-r4-r2-r1-r1-r1). C'est
+        `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent`, surcharge
+        `(IList tiles, IEntity unit)` -- celle dont la signature colle au call-site (le meme `target`
+        part ensuite au slot 0x4f, qui prend une ENTITE) :
+
+            AreEntitiesAdjacent(casterTiles, target)
+              -> MovementUtil.AreTilesAdjacent(casterTiles, EntityExtensions.GetTiles(target))
+                 -> foreach t1 in casterTiles: foreach t2 in targetTiles:
+                        AreTilesAdjacent(t1, t2)   // vrai des qu'UNE paire l'est
+                    AreTilesAdjacent(t1, t2) = (|dElev| < 2)
+                                             & (t1 == t2 || ConnectivityComponent(t1).IsNeighbour(t2))
+
+        soit TROIS etages qu'une distance hexagonale rate, tous PERMISSIFS : la liste STOCKEE
+        (`ConnectivityComponent+0x10`, pas la couronne hex), la porte d'ELEVATION, et les
+        EMPREINTES (deux `IList`, pas deux tuiles principales -- une unite multi-hex est adjacente
+        par n'importe lequel de ses pieds). D'ou l'appel au foyer partage
+        `services.battle_query.are_entities_adjacent`, qui porte les trois et DELEGUE a
+        `targeting.are_entities_adjacent` des qu'un board est la : le verdict de ciblage de
+        RammingSpeed et celui de la cascade generique sortent litteralement de la meme fonction.
+        `board` absent (scene de test) -> sa degradation NOMMEE (adjacence hex pure + court-circuit
+        d'identite, sans porte d'elevation), jamais une geometrie nue de plus.
+
         Le test de CHEMIN (`slot 0x14`) est SUBSUME cote port : `ramming_speed_tile_to_move_to`
         n'emet que des tuiles issues de `MovableTilesInRange`, donc deja atteignables au sens du
         port. RESIDU NOMME `#381-r1` : ce pool est le `visited` d'un BFS qui TRAVERSE, la ou le
@@ -506,12 +529,13 @@ class RammingSpeedAbility(ActiveAbility):
         tp = self._rs_pos(state, target_id)
         if cp is None or tp is None:
             return 0
-        is_adjacent = hexgeo.distance(cp, tp) == 1
+        board = getattr(state, "board", None)
+        is_adjacent = are_entities_adjacent(entity_tiles(state, caster_id),
+                                            entity_tiles(state, target_id), board)
         if is_adjacent:
             return 0                                     # deja au contact : aucun move, aucun gate
         if unit_has_moved(state, int(caster_id)):
             return int(TR.CasterHasNotMoved)             # 0x10
-        board = getattr(state, "board", None)
         if board is None:
             return 0
         ttile = board.id_at(tp[0], tp[1])
