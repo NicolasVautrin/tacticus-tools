@@ -143,10 +143,20 @@ fenêtre, et lui seul. Procédure **exécutée et validée le 2026-07-31**, 4 ag
    (le warmup est enchaîné par l'inject — vérifier `warmupError: null` dans sa réponse).
 
    ⚠ **`npm run build:hooks` HANGE sur cette machine** (même cause que `npm run dev` : `frida-compile`
-   n'est pas dans le PATH que npm expose ici). Passer par node :
-   `node node_modules\frida-compile\dist\cli.js hooks/main.ts -o dist/hooks.js` depuis `frida/`
+   n'est pas dans le PATH que npm expose ici). Passer par node, depuis `frida/` :
+   ```
+   node -e "require('fs').mkdirSync('dist',{recursive:true})"
+   node node_modules\frida-compile\dist\cli.js hooks/main.ts -o dist/hooks.js
+   ```
    (~10 s, rc 0). Vérifier le `LastWriteTime` de `dist/hooks.js` — c'est le seul témoin que le
    bundle est neuf.
+
+   ⚠ **Le `mkdirSync` n'est pas décoratif : sans lui, un worktree FRAIS échoue** (`#480-r4`) —
+   `frida/dist/` est gitignoré, git ne matérialise pas un répertoire vide, et `frida-compile` ne
+   crée pas sa sortie. L'erreur tombe **après** un `npm ci` réussi et toutes les arêtes résolues
+   (`Unable to write bundle: ENOENT`), donc elle se lit comme un défaut de sources — elle n'en est
+   pas un. Le correctif `package.json` de #480-r4 couvre `npm run build:hooks`/`watch:hooks`, **pas
+   cette voie-ci**, qui court-circuite le script npm.
 
    ⚠ **Si l'inject dépasse la minute, N'EN RELANCE PAS UN À L'IDENTIQUE — ISOLE L'ÉTAGE.**
    Mesuré le 2026-07-31 : le premier inject après une session vieille de 2 h a dépassé **300 s** et
