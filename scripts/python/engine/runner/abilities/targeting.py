@@ -2613,7 +2613,7 @@ def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
 
 
 def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optional[int],
-                              ability) -> int:
+                              ability, *, apply_self_cast_switch: bool = True) -> int:
     """`IdunBattle.Entities.Abilities.AActiveAbility$$GetInvalidTargetReason` (-> ...WithRules ->
     `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`) : rend le PREMIER
     `TargetingRule` rompu, dans l'ORDRE NATIF de la cascade, ou 0 (cible valide).
@@ -2621,6 +2621,19 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     `ability` = l'instance d'`ActiveAbility` portee. Ses `TARGETING_OPTIONS` (litteral du ctor natif)
     sont la SEULE source des bits : options absentes (`None`) = donnee non RE-lue -> AUCUN gate
     (jamais de refus invente).
+
+    `apply_self_cast_switch` (#447-r1) -- LAQUELLE DES DEUX SURCHARGES NATIVES. Le natif en a deux,
+    et elles ne font PAS la meme chose :
+
+      * la surcharge **5 arguments** (`TargetingQuery$$GetInvalidTargetReason`, celle du CAST)
+        commence par l'aiguillage self-cast et BRANCHE sur `GetCasterNotAddedReason` -- c'est le
+        defaut ici, et le comportement de tous les appelants historiques ;
+      * la surcharge **7 arguments** (celle que `TargetingQuery$$GetValidTargets` appelle dans sa
+        boucle d'enumeration, avec `range` deja calcule) est le FILTRE STATIQUE PUR : aucun
+        aiguillage, la cible est jugee par la cascade meme quand elle EST le caster.
+
+    Le port n'a qu'un corps ; ce drapeau NOMME la surcharge. `False` = la 7 arguments -- reserve aux
+    mirrors d'ENUMERATION (`caster_is_valid_target`), jamais au chemin du cast.
 
     Regles portees uniquement — l'inventaire complet et le motif de chaque non-port sont en tete de
     module."""
@@ -2639,7 +2652,8 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # filtre statique a un self-cast et refuserait sur `TargetIsEnemy` un cast que le natif JUGE PAR
     # UN AUTRE CHEMIN -- exactement le FAUX REFUS que le gate doit eviter (mesure : Chronometron
     # 1226, natif `0x800`, port `0x4000` avant ce correctif).
-    if options.self_cast and _targets_the_caster(state, caster_id, target_id, tuid, options):
+    if (apply_self_cast_switch and options.self_cast
+            and _targets_the_caster(state, caster_id, target_id, tuid, options)):
         return get_caster_not_added_reason(state, caster_id, ability)
 
     # TETE DE DOMAINE (bits 44/45/46) -- elle precede TOUT le reste, y compris la branche
@@ -3038,3 +3052,147 @@ def is_invalid_target(state: "State", caster_id: int, target_id: Optional[int], 
     if caster_reason:
         return caster_reason
     return get_invalid_target_reason(state, caster_id, target_id, ability)
+
+
+# ================================================================================================
+# `CasterIsPossibleTarget` (bit 15) -- LE CASTER COMME CIBLE DE SA PROPRE ABILITY (#447-r1)
+#
+# LES QUATRE LECTEURS NATIFS DU BIT, relus a l'octet sur `rnca9r7q6c`. Trois seulement MORDENT,
+# et le quatrieme est du CODE MORT -- ce qui n'est pas une opinion mais une lecture de ses
+# appelants :
+#
+#   1. `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions`
+#          if ((rules >> 0xf & 1) != 0)
+#              <ensemble>.<IOrderedSet slot 0>(bVar12 ? casterTiles : caster);
+#          if ((rules & 0x200000000000000) != 0)                        // TargetIsCasterOrEnemy
+#              <ensemble>.<IOrderedSet slot 0>(bVar12 ? casterTiles : caster);
+#      -- `bVar12 = onlyTiles || (rules >> 6 & 1)` (`TargetIsTile`) : domaine TUILE -> ce sont les
+#      TUILES du caster qui entrent, domaine UNITE -> l'ENTITE caster. C'est le lecteur qui compte :
+#      il AJOUTE le caster aux cibles POSSIBLES, en AMONT des trois `RemoveAll` et de la boucle de
+#      filtrage de `GetValidTargets`.
+#
+#   2. `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange` -- deux fois :
+#          (int)range == 0 -> `(rules >> 0xf & 1)` ? new OrderedSet(casterTiles) : OrderedSet VIDE
+#          branche disque  -> <IBattleQuery slot 0x67> `GetSurroundingTiles(..., includeCenter:
+#                             (byte)(rules >> 0xf) & 1)`
+#      Porte cote DECISION par `engine/services/ability_range.py` (#433-r4-r2-r1-r2-r2-r1-r1-r1),
+#      qui est LE foyer de la zone -- ce module lui DELEGUE plutot que d'en ecrire un second corps.
+#
+#   3. `IdunBattle.Core.Services.TargetingOptions$$get_CanTargetCaster` = `rules >> 0xf & 1`,
+#      lecteur DECLARATIF (deux appelants, tous deux UI : `IdunBattle.View.FSM.Actions.UnitSelection$$QueueShowAsSelected`
+#      et `idun.Ui.IdunAbilitySelectionHud$$SelectIfPossible`). Porte : `TargetingOptions.can_target_caster`.
+#
+#   4. `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason`, branche
+#      `else if (options+0x00 == 0 && !(rules & 0x800)) { if (rules & 0x8000) ... }` -- **MORTE sur
+#      le chemin du CAST**, et c'est une mesure : cette fonction n'a que DEUX appelants de CODE
+#      (les deux surcharges 5 arguments de `TargetingQuery$$GetInvalidTargetReason`), et toutes
+#      deux n'y branchent que sous `if (*(char *)options != 0)`, c'est-a-dire self-cast POSE --
+#      contradictoire avec le `options+0x00 == 0` que la branche exige. Non portee, et ne doit pas
+#      l'etre : la porter INVENTERAIT un refus que le natif ne rend jamais.
+#
+# ⚠ CE QUE #447-r1 DISAIT, ET QUI EST FAUX : « elle vit par `TargetingQuery$$GetValidTargets`, qui
+# RE-APPLIQUE la cascade CIBLE complete au caster ». `GetValidTargets` NE TESTE JAMAIS le bit 15 --
+# relu en entier : il teste le bit 7 (`AddCaster`), `isSelfCasting || bit 11`, le bit 22 et le
+# bit 3. Le bit 15 vit UN CRAN PLUS HAUT, dans `GetPossibleTargetsForOptions`.
+# ================================================================================================
+
+
+def caster_is_possible_target(state: "State", caster_id: int, ability) -> bool:
+    """Le CASTER (domaine unite) ou SA TUILE (domaine tuile) entre-t-il dans l'ensemble rendu par
+    `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions` ?
+
+    C'est la question que le bit 15 decide, et elle a exactement TROIS termes -- la zone de
+    `GetTilesInRange` evaluee a la distance 0, puis les DEUX `AddRange(casterTiles)` de l'appelant :
+
+        UseWholeBoard | CasterIsPossibleTarget | TargetIsCasterOrEnemy
+
+    (les branches `(int)range == 0` et `GetSurroundingTiles` de `GetTilesInRange` lisent le MEME
+    bit 15 que le premier ajout, donc elles n'ajoutent aucun terme ; `OnlyAdjacent` et
+    `TargetIsAtRange` ne rendent JAMAIS la source d'eux-memes.)
+
+    UN SEUL FOYER : la cascade est portee par `engine.services.ability_range`, et cette fonction lui
+    DELEGUE (`zone_contains_for_options(..., distance=0)`) au lieu d'en ecrire un second corps.
+
+    ⚠ LA DELEGATION PASSE LE MASQUE, PAS SEULEMENT L'ID -- et c'est un DEFAUT MESURE, pas un detail
+    de style : `tiles_in_range_zone_contains(ability_id, ...)` RECHARGE le masque du registre depuis
+    l'id, donc un masque MUTE par l'appelant (contre-epreuve qui desarme le bit 15, override
+    runtime) etait silencieusement ignore -- la contre-epreuve rendait alors un VERT qui n'exercait
+    rien. L'`ability_id` n'est passe que pour resoudre le `TargetingRange` (`UseRangeFromConfig` lit
+    la config de l'ability) ; `None` est admis et laisse `_range_terms` decider.
+
+    `False` quand le masque n'est pas RE-lu (`TARGETING_OPTIONS is None`) -- meme convention
+    permissive que le reste du module : on n'invente ni un ajout ni un refus."""
+    options = getattr(ability, "TARGETING_OPTIONS", None)
+    if options is None:
+        return False
+    options = set_config_values_in_targeting_options(options, ability)
+    # Les DEUX `AddRange` de `GetPossibleTargetsForOptions` -- inconditionnels, en aval de la zone.
+    if options.has(TR.CasterIsPossibleTarget) or options.has(TR.TargetIsCasterOrEnemy):
+        return True
+    aid = getattr(ability, "ABILITY_ID", None)
+    from engine.services.ability_range import zone_contains_for_options
+    return bool(zone_contains_for_options(options, None if aid is None else int(aid),
+                                          _visual_id(state, caster_id), 0))
+
+
+def caster_is_valid_target(state: "State", caster_id: int, ability,
+                           *, other_valid_targets: Optional[int] = None) -> bool:
+    """`IdunBattle.Core.Services.TargetingQuery$$GetValidTargets` RESTREINT a une seule question :
+    **le CASTER figure-t-il dans l'ensemble rendu ?** -- c'est-a-dire ce que le canal
+    `abilityTargets.fromHere` publie (`IdunBattle.Core.Services.AttackQuery$$GetValidTargets(unit,
+    UnitPosition{GetTiles(unit)}, abilityType)` -> `IdunBattle.Entities.Abilities.AActiveAbility$$GetValidTargets`
+    -> la surcharge 6 arguments avec `skipAddCasterChecks = false`, lu au call-site).
+
+    Le natif, dans l'ordre :
+
+        if (IsInvalid(GetInvalidCasterReason(caster, casterTiles, options))) return Empty;
+        possible = GetPossibleTargetsForOptions(...);          // le bit 15 AJOUTE le caster ICI
+        foreach (t in possible)
+            if (!IsInvalid(GetInvalidTargetReason(caster, casterTiles, t, options, true, range)))
+                targets.Add(t);                                // surcharge 7 args = filtre STATIQUE
+        if ((char)rules < 0)                     { if (!targets.Contains(caster)) targets.Add(caster); }
+        if (isSelfCasting || (rules & 0x800))    { if (targets.Count > 0 && !Contains) Add(caster); }
+        if (rules & 0x400000)                    { if (HasFreeTilesInRange || Count > 0) Add(caster); }
+        if (rules & 8)                           { if (delegate(caster) == 0) Add(caster); }
+
+    ⚠ **L'ETAGE D'AJOUT PEUT MASQUER LE BIT 15**, et c'est ce qui rend le regime de mesure delicat :
+    une ability SELF-CAST voit son caster ajoute des qu'il existe au moins UNE autre cible valide,
+    quel que soit le bit 15. Le seul regime ou le bit 15 DECIDE seul est donc « aucune autre cible
+    valide » (`other_valid_targets == 0`), ou une ability NON self-castee sans le bit 11.
+
+    `other_valid_targets` = le CARDINAL des autres cibles valides, que ce mirror n'enumere pas (il
+    ne porte pas `GetPossibleTargetsForOptions` en entier -- residu nomme). `None` = non fourni :
+    l'etage `Count > 0` est alors NON DECIDABLE et le mirror le traite en PERMISSIF (il n'ajoute
+    pas), ce qui peut rendre `False` la ou le natif rend `True`. Un appelant qui veut la reponse
+    EXACTE doit le fournir."""
+    options = getattr(ability, "TARGETING_OPTIONS", None)
+    if options is None:
+        return False
+    options = set_config_values_in_targeting_options(options, ability)
+    # `if (IsInvalid(GetInvalidCasterReason(...))) return ValidTargets.Empty;`
+    if get_invalid_caster_reason(state, caster_id, ability):
+        return False
+    # La boucle de filtrage, restreinte au caster : il n'y entre que s'il est POSSIBLE, et il n'y
+    # survit que si le FILTRE STATIQUE (surcharge 7 arguments, donc sans l'aiguillage self-cast)
+    # ne rompt aucune regle.
+    if caster_is_possible_target(state, caster_id, ability):
+        if not get_invalid_target_reason(state, caster_id, caster_id, ability,
+                                         apply_self_cast_switch=False):
+            return True
+    # L'ETAGE D'AJOUT, dans l'ordre natif. Chaque bras AJOUTE le caster SANS le filtrer.
+    if options.has(TR.AddCaster):
+        return True
+    if options.self_cast or options.has(TR.AddCasterIfAtLeastOneTarget):
+        if other_valid_targets is not None and int(other_valid_targets) > 0:
+            return True
+    # `AddCasterIfAtLeastOneFreeTileInRange` (bit 22) -> `TargetingQuery$$HasFreeTilesInRange`, NON
+    # PORTE (meme motif que dans `get_caster_not_added_reason`). Son bras `Count > 0` l'est, lui.
+    if options.has(TR.AddCasterIfAtLeastOneFreeTileInRange):
+        if other_valid_targets is not None and int(other_valid_targets) > 0:
+            return True
+    # `AddCasterIfMatchesDynamicRule` (bit 3) -- la regle-delegue CASTER `options+0x30`, deja portee
+    # par #447 dans `get_caster_not_added_reason`. Ici le natif AJOUTE quand elle rend 0.
+    if options.has(TR.AddCasterIfMatchesDynamicRule):
+        if not int(ability.get_dynamic_invalid_caster_reason(state, caster_id) or 0):
+            return True
+    return False

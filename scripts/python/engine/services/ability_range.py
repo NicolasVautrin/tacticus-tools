@@ -516,11 +516,26 @@ def tiles_in_range_zone_contains(ability_id, visual_id, distance) -> bool | None
     ensemble, jamais une seconde source.
 
     `None` = « le port ne sait pas decider », exactement les trois cas de `tiles_in_range_reach`."""
-    terms = _range_terms(targeting_range_of(ability_id), ability_id, visual_id)
+    return zone_contains_for_options(_options_of(ability_id), ability_id, visual_id, distance)
+
+
+def zone_contains_for_options(options, ability_id, visual_id, distance) -> bool | None:
+    """La MEME zone, mais pour un masque **EFFECTIF** fourni par l'appelant plutot que relu du
+    registre par son `ability_id`.
+
+    POURQUOI CETTE PORTE (#447-r1, et c'est un DEFAUT MESURE, pas un confort) : un appelant qui
+    porte un masque MUTE -- une contre-epreuve qui desarme un bit, un override runtime -- et qui
+    passait par `tiles_in_range_zone_contains` voyait sa mutation **silencieusement ignoree**, la
+    fonction rechargeant le masque du registre depuis l'`ability_id`. Une contre-epreuve devenue
+    inoperante rend alors un VERT qui ne prouve rien.
+
+    L'`ability_id` reste requis : il ne sert QU'A resoudre le `TargetingRange` (`UseRangeFromConfig`
+    lit la config de l'ability), jamais les `rules`."""
+    terms = _range_terms(getattr(options, "range", None) if options is not None else None,
+                         ability_id, visual_id)
     if terms is None:
         return None
-    opts = _options_of(ability_id)
-    return _zone_contains_distance(getattr(opts, "rules", None) if opts is not None else None,
+    return _zone_contains_distance(getattr(options, "rules", None) if options is not None else None,
                                    terms[0], terms[1], terms[2], distance)
 
 
