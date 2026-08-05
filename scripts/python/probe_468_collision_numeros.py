@@ -114,6 +114,48 @@ l'historique fabrique donc exactement la collision qu'il pretend eviter, d'ou :
   taire. Meme frontiere que le tri-etat ci-dessous : ce n'est pas une echappatoire, c'est un
   changement d'ACCUSE.
 
+ET LE CORPUS N'EST PAS L'ARBRE COURANT -- l'angle mort des agents EN VOL (#468-r10)
+------------------------------------------------------------------------------------
+`--suggere` rendait `PASS` dans le SEUL regime ou nos collisions se produisent. Son corpus
+etait ce qui est ECRIT ET FUSIONNE, alors qu'une allocation se fait au DEBUT d'une tranche,
+avant que le moindre artefact existe. MESURE (2026-08-05) : deux agents dispatches ensemble
+ont pris `#479` du meme `--suggere` -- collision DOUBLE (la racine ET le residu `r1`), pour
+deux sujets sans rapport. Le cliquet rendait `PASS` pendant tout ce temps, et il avait raison
+au regard de son corpus.
+
+L'aveuglement se VENTILE en trois niveaux, et deux se ferment :
+
+  N1 -- L'HISTORIQUE DE `HEAD` SEULEMENT. `git log` sans `--all` ne voit rien hors de la
+        lignee du worktree appelant : un worktree d'agent est FIGE a son commit de lancement,
+        donc aveugle a `master` qui avance et aux branches des voisins. FERME par
+        `_identifiants_des_refs_hors_head()` (`git log --all --not HEAD`). Cout mesure
+        +0,06 s ; il a rendu `#448-r3`, que `--suggere 448` proposait alors qu'un dossier
+        le portait deja.
+  N2 -- L'ARBRE DE TRAVAIL DU WORKTREE COURANT SEULEMENT. `git grep --untracked` ne lit que
+        SON checkout : un `case-<n>-*.md` ecrit chez le voisin est invisible. FERME par
+        `_identifiants_des_worktrees()` -- un glob des NOMS (jamais du contenu, jamais une
+        commande git DANS l'arbre d'autrui : `git status` rafraichit l'index et ecrirait chez
+        le voisin). Cout mesure +0,39 s pour 13 worktrees ; il a rendu `#425-r3`, meme
+        symptome.
+  N3 -- CE QUI N'EST ECRIT NULLE PART. Un agent qui vient de recevoir un numero et n'a rien
+        ecrit est invisible de TOUTE lecture de l'arbre. **Irreductible** sans reservation, et
+        reserver exigerait commit+push, ce qui serialise l'allocation entre agents paralleles.
+        C'est pourquoi `--suggere` IMPRIME SA PORTEE (`_imprimer_portee`) : un allocateur
+        incapable de voir les reservations concurrentes doit le NOMMER, exactement comme
+        `loop_status` distingue `null` de `0`.
+
+DEUX EXTENSIONS MESUREES PUIS REFUSEES -- le chiffre decide, pas l'intuition :
+
+  * BALAYER LES 94 BRANCHES NON FUSIONNEES (diff + log par branche, ~30 s) : **5** identifiants
+    apportes, dont **une seule racine, `#658`** -- et c'est un numero de PULL REQUEST, pas de
+    tache (`#468-r8` : les deux espaces se remplissent en parallele). Effet sur le numero rendu :
+    **AUCUN**. Les branches survivent au squash-merge (79 pour 1 PR ouverte, `#467-r6`), donc
+    leur contenu est deja dans le corpus. `--all` en capte deja les messages pour 0,06 s.
+  * `git log --all --diff-filter=A --name-only` (couvrirait les branches SANS worktree) :
+    **25** identifiants pour **+2,64 s** (x1,7 le temps total), dont **24 de bruit pur** --
+    `#arithmetic`, `#dispatcher`, `#selectors`... des noms de modules Python que `couper_nom`
+    lit comme des identifiants. Rapport signal/bruit 1/25.
+
 ASCII only (console Windows cp1252).
 Usage:
     python probe_468_collision_numeros.py [-v]
@@ -583,14 +625,186 @@ def _identifiants_des_commits() -> dict:
     return out
 
 
-def employes() -> dict:
-    """{cle normalisee: {sources}} -- l'UNION, toutes positions confondues."""
+#: Libelles de PROVENANCE des deux sources EN VOL (niveaux N1 et N2 du docstring). Ils sont
+#: le discriminant de `_imprimer_portee` : un identifiant dont TOUTES les sources sont en vol
+#: n'est PAS encore fusionne, et c'est exactement ce qu'un `--suggere` d'hier aurait propose.
+SRC_REF_EN_VOL = "ref non fusionnee"
+SRC_WORKTREE = "worktree "
+
+
+def _identifiants_des_refs_hors_head() -> dict:
+    """{cle: {SRC_REF_EN_VOL}} -- N1 : les commits que `HEAD` n'atteint PAS.
+
+    `--not HEAD` est ce qui rend la provenance gratuite ET la mesure bon marche : sur 363 refs,
+    ce qui reste hors de la lignee courante est une poignee de commits. Un `--all` nu couterait
+    autant mais melangerait les deux origines, et on ne pourrait plus DIRE ce qui est en vol.
+    """
+    out = {}
+    txt = _git(["log", "--all", "--not", "HEAD", "--format=%s%n%b", "--no-merges"],
+               "`git log --all --not HEAD`")
+    for m in re.finditer(RE_TOKEN_LARGE, txt):
+        out.setdefault(normaliser(m.group(0)[1:]), set()).add(SRC_REF_EN_VOL)
+    return out
+
+
+#: Les motifs qui portent un identifiant DANS UN NOM DE FICHIER. Bornes a dessein : un glob
+#: non borne (ou `git log --name-only`) ramasse tous les modules du moteur et rend 24 faux
+#: positifs sur 25 -- mesure, cf. docstring.
+GLOBS_IDENTIFIANTS = ("docs/rl/case-*.md", "scripts/python/probe_*.py",
+                      "scripts/python/test_*.py", "scripts/python/tests/test_*.py")
+
+#: CE N'EST PAS LA FAUTE DE #434, et la distinction est le coeur du sujet. #434 punit un
+#: cliquet qui ENUMERE DEPUIS LA RACINE et ramasse `.claude/worktrees/` sans le vouloir : il
+#: paie la traversee x N et rapporte les fichiers du voisin COMME LES SIENS. Ici les worktrees
+#: sont la CIBLE, nommes un par un par `git worktree list`, avec quatre motifs bornes et pour
+#: leurs seuls NOMS -- jamais confondus avec le perimetre courant, puisqu'ils sortent sous
+#: `worktree <nom>`. Verifie : `probe_440` reste PASS. Et `--suggere` n'est pas dans la banque
+#: (`ratchets.ps1` l'appelle sans argument), donc ces 0,39 s ne touchent pas le mur des
+#: cliquets -- c'est la meme raison qui autorisait deja le `git grep` de `--suggere`.
+
+
+def _autres_worktrees():
+    """[(chemin, branche ou None)] -- les worktrees du meme `.git`, SAUF celui d'ou l'on parle.
+    `None` = capteur MUET, ce qui n'est pas la meme chose qu'une liste vide.
+
+    POURQUOI CELUI-CI NE LEVE PAS `Indisponible`, alors que `git grep` et `git log` le font.
+    C'est un capteur d'APPOINT : sans lui, `--suggere` retombe exactement sur le corpus
+    fusionne, c'est-a-dire sur son comportement d'avant #468-r10 -- degrade, mais pas faux au
+    sens ou l'etait un corpus prive de son historique. Le faire lever transformerait la panne
+    d'un capteur d'appoint en REFUS TOTAL, donc une regression pour un `git` ancien ou bride.
+    La contrepartie est stricte, et c'est `_imprimer_portee` qui la tient : muet se DIT
+    (<< NON MESUREE >>) et ne se rabat JAMAIS sur << 0 autre worktree >>."""
+    import os
+    try:
+        txt = _git(["worktree", "list", "--porcelain"], "`git worktree list`")
+    except Indisponible:
+        return None
+    # TROUVE A LA RELECTURE, et c'est le vice meme que ce bloc existe pour eviter : `_git`
+    # TOLERE `rc=1`, parce que `git grep` rend 1 quand il ne trouve rien -- reponse valide.
+    # Pour `worktree list`, `rc=1` est une PANNE (sous-commande absente d'un git ancien), et
+    # elle sortirait en stdout VIDE, donc en << 0 autre worktree MESURE >>. Le discriminant
+    # est DERIVE, pas conventionnel : un `worktree list` qui reussit liste TOUJOURS au moins
+    # l'arbre d'ou l'on parle. Une sortie vide ne peut donc etre qu'un capteur muet.
+    if not txt.strip():
+        return None
+    moi = os.path.normcase(os.path.realpath(str(REPO)))
+    out, courant = [], {}
+    for ligne in txt.splitlines() + [""]:
+        if not ligne.strip():
+            if courant.get("worktree"):
+                chemin = courant["worktree"]
+                if os.path.normcase(os.path.realpath(chemin)) != moi:
+                    out.append((Path(chemin), courant.get("branch")))
+            courant = {}
+            continue
+        cle, _, val = ligne.partition(" ")
+        courant[cle] = val or True
+    return out
+
+
+def _identifiants_des_worktrees(autres) -> tuple:
+    """({cle: {'worktree <nom>'}}, [(chemin, raison)]) -- N2 : les NOMS ecrits chez les voisins.
+
+    On ne lit QUE des noms de fichiers, et par le systeme de fichiers : aucune commande git
+    n'est lancee DANS l'arbre d'autrui. `git status` y rafraichirait l'index -- une ECRITURE
+    dans le worktree d'un agent qui travaille.
+
+    TRI-ETAT PAR WORKTREE : un repertoire devenu illisible (un worktree jetable de pytest qui
+    meurt en cours de balayage, un agent nettoye) est RENDU dans la seconde liste et NOMME par
+    `_imprimer_portee`. Il n'est ni ignore en silence (ce serait un zero fabrique), ni promu en
+    `Indisponible` (ce qui rendrait l'outil inutilisable des qu'une flotte tourne).
+
+    CE QU'ON ACCEPTE, ET C'EST LE BON COTE : un worktree ABANDONNE (agent mort, nettoyage pas
+    encore passe) fait reserver un numero qui ne sera peut-etre jamais livre. On saute alors un
+    numero pour rien -- exactement la meme asymetrie que la monotonie de `suggerer` : on ne
+    recycle pas un trou parce qu'un trou peut etre pris. Sauter coute un entier ; reprendre
+    coute une reecriture d'historique."""
+    out, illisibles = {}, []
+    for chemin, _branche in (autres or ()):     # `None` = capteur muet, deja dit par la portee
+        try:
+            # UN SEUL foyer d'illisibilite, et c'est une contre-epreuve qui l'a impose :
+            # `Path.glob` sur un repertoire ABSENT ne leve pas, il rend une liste VIDE. Le
+            # test passait donc par un second chemin que la mutation ne visait pas, et la
+            # mutation << illisible avale >> restait VERTE. Deux chemins pour un meme constat,
+            # c'est un chemin non garde.
+            if not chemin.is_dir():
+                raise OSError("repertoire absent")
+            trouves = [p for g in GLOBS_IDENTIFIANTS for p in chemin.glob(g)]
+        except OSError as exc:
+            illisibles.append((chemin, str(exc)))
+            continue
+        for p in trouves:
+            ident, _slug = couper_nom(re.sub(r"^(?:probe|test)_", "", p.stem).replace("_", "-"))
+            if ident:
+                out.setdefault(normaliser(ident), set()).add(SRC_WORKTREE + chemin.name)
+    return out, illisibles
+
+
+def employes(ids_worktrees=None) -> dict:
+    """{cle normalisee: {sources}} -- l'UNION, toutes positions confondues.
+
+    Depuis #468-r10 l'union couvre AUSSI les deux sources en vol (N1 et N2) : sans elles,
+    `--suggere 425` et `--suggere 448` rendaient, le jour de la mesure, deux numeros que des
+    dossiers en vol portaient deja. Le parametre evite de globber deux fois quand l'appelant
+    a deja mesure la concurrence pour l'imprimer."""
+    if ids_worktrees is None:
+        ids_worktrees, _illisibles = _identifiants_des_worktrees(_autres_worktrees())
     union = {}
     for part in (_identifiants_du_contenu(), _identifiants_des_noms(),
-                 _identifiants_des_commits()):
+                 _identifiants_des_commits(), _identifiants_des_refs_hors_head(),
+                 ids_worktrees):
         for k, v in part.items():
             union.setdefault(k, set()).update(v)
     return union
+
+
+# ------------------------------------------------------------------------------------------
+#  LA PORTEE DE LA MESURE -- niveau N3, celui qu'aucune lecture de l'arbre ne ferme
+# ------------------------------------------------------------------------------------------
+#
+# Ce bloc est le LIVRABLE de #468-r10, pas un ornement. Un allocateur qui rend un numero d'air
+# sur -- alors qu'il ne peut structurellement pas voir les reservations concurrentes -- est le
+# patron qu'on traque partout ailleurs : un capteur qui repond sur ce qu'il regarde en laissant
+# croire qu'il a tout regarde.
+#
+# Il est IMPRIME INCONDITIONNELLEMENT, y compris a zero worktree concurrent : une PR en vol,
+# ou un worktree deja supprime dont la branche n'a pas encore ete poussee, porte peut-etre ce
+# numero. Le rendre conditionnel reintroduirait le << PASS rassurant >> qu'il existe pour tuer.
+
+#: Marqueur STABLE de l'avertissement -- c'est lui que la garde de retournement cherche dans
+#: les deux sorties concurrentes (`test_468_..._offline.py`). Le deplacer casse la garde, et
+#: c'est voulu : l'avertissement est un contrat, pas une decoration.
+MARQUEUR_ANGLE_MORT = "ANGLE MORT"
+
+
+def _imprimer_portee(pris, autres, illisibles) -> None:
+    """Dit ce que le numero rendu NE garantit PAS. Voir le commentaire de bloc ci-dessus."""
+    print("[468] PORTEE DE LA MESURE -- ce que ce numero ne garantit PAS")
+    print("   %s : un agent qui vient de recevoir un numero et n'a RIEN encore ecrit est"
+          % MARQUEUR_ANGLE_MORT)
+    print("   invisible de toute lecture de l'arbre. Deux `--suggere` lances au meme instant")
+    print("   depuis deux worktrees rendent le MEME numero. Reserver le supprimerait, mais")
+    print("   exigerait commit+push -- ce qui serialiserait l'allocation entre agents.")
+    if autres is None:
+        # Tri-etat : jamais rabattu sur 0. Un `0` fabrique ferait lire << personne d'autre >>.
+        print("   concurrence : NON MESUREE -- `git worktree list` muet")
+    elif autres:
+        print("   concurrence : %d autre(s) worktree(s) sur ce depot -> %s"
+              % (len(autres), ", ".join(sorted(c.name for c, _b in autres)[:6])))
+    else:
+        print("   concurrence : 0 autre worktree MESURE -- mais une PR en vol, ou un worktree")
+        print("   deja supprime, peut porter ce numero sans que rien ici ne le montre.")
+    for chemin, raison in illisibles or ():
+        print("   worktree ILLISIBLE (non mesure, pas vide) : %s -- %s" % (chemin.name, raison))
+    en_vol = sorted(k for k, src in pris.items()
+                    if src and all(s == SRC_REF_EN_VOL or s.startswith(SRC_WORKTREE)
+                                   for s in src))
+    detail = ", ".join("#%s (%s)" % (k, "/".join(sorted(pris[k]))) for k in en_vol[:6])
+    if len(en_vol) > 6:                       # ne pas annoncer 7 et n'en montrer que 6
+        detail += ", ... (%d de plus)" % (len(en_vol) - 6)
+    print("   deja EN VOL et donc ecartes (hors de ce qui est fusionne) : %d%s"
+          % (len(en_vol), " -> " + detail if en_vol else ""))
+    print("   -> si d'autres agents travaillent en ce moment, ANNONCE le numero que tu prends.")
 
 
 def borne_des_taches() -> int:
@@ -620,8 +834,13 @@ def suggerer(parent: str) -> int:
     On ne recycle JAMAIS un trou sous la borne, meme libre : un trou peut etre un numero pris
     par un agent EN VOL dont la PR n'est pas encore fusionnee -- l'arbre ne peut pas le voir.
     La suggestion est donc MONOTONE, et les trous sont seulement LISTES.
+
+    La PORTEE est imprimee dans les deux modes, et apres le numero : c'est ce qui empeche de
+    lire une suggestion comme une garantie (#468-r10).
     """
-    pris = employes()
+    autres = _autres_worktrees()
+    ids_wt, illisibles = _identifiants_des_worktrees(autres)
+    pris = employes(ids_wt)
     if parent:
         base = normaliser(parent.lstrip("#"))
         k = 1
@@ -631,6 +850,7 @@ def suggerer(parent: str) -> int:
         occupes = [i for i in range(1, k) if "%sr%d" % (base, i) in pris]
         print("   pris sous #%s : %s" % (parent.lstrip("#"),
                                          ", ".join("r%d" % i for i in occupes) or "(aucun)"))
+        _imprimer_portee(pris, autres, illisibles)
         return 0
 
     borne = borne_des_taches()
@@ -644,8 +864,9 @@ def suggerer(parent: str) -> int:
     trous = [i for i in range(1, borne) if str(i) not in pris]
     print("   %d trou(s) libre(s) SOUS la borne, NON proposes (un trou peut etre reserve par une "
           "PR en vol) : %s" % (len(trous), ", ".join(str(i) for i in trous[:12]) or "(aucun)"))
-    print("   corpus : docs/rl + scripts/python + messages de commit -- l'UNION, mentions "
-          "comprises (%d identifiants)" % len(pris))
+    print("   corpus : docs/rl + scripts/python + messages de commit + refs hors HEAD + noms "
+          "des autres worktrees -- l'UNION, mentions comprises (%d identifiants)" % len(pris))
+    _imprimer_portee(pris, autres, illisibles)
     return 0
 
 

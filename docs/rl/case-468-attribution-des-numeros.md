@@ -360,6 +360,23 @@ préférence :
 ⇒ **Le registre est DÉRIVÉ, pas tenu.** Ce qui reste hors de sa portée est nommé : un numéro pris
 par une PR **en vol** (non fusionnée) — d'où la monotonie, qui ne recycle jamais un trou.
 
+### 9.2 Le corpus n'est PAS l'arbre courant (`#468-r10`, fermé)
+
+Tout ce qui précède mesure ce qui est **écrit et fusionné** — or une allocation se fait **au début**
+d'une tranche. `--suggere` rendait donc un numéro d'air sûr dans le **seul régime où nos collisions
+se produisent** : deux agents dispatchés ensemble ont pris `#479`, collision **double** (racine et
+`r1`), pendant que le cliquet rendait `PASS`.
+
+Le corpus couvre depuis lors les **refs hors `HEAD`** (`git log --all --not HEAD`, +0,06 s — un
+worktree d'agent est figé à son commit de lancement) et les **noms écrits dans les autres
+worktrees** (glob borné, +0,39 s — `git grep --untracked` ne lit que *son* checkout). Effet mesuré :
+`--suggere 425` et `--suggere 448` rendaient `#425-r3` et `#448-r3`, **tous deux déjà portés par des
+dossiers en vol**. Ce qui reste — un numéro pris et **pas encore écrit** — est irréductible sans
+réservation, et se lit dans la section `PORTEE DE LA MESURE`, imprimée **inconditionnellement**.
+
+Détail, parades chiffrées et les cinq mutations :
+**`docs/rl/case-468-r10-angle-mort-des-agents-en-vol.md`**.
+
 ⚠ **Sous flotte chargée, `git grep` passe de 0,6 s à 20-40 s** (3 mesures dans chaque régime, à
 10 worktrees actifs) : de la **contention git** pure — `.git/` est partagé — et non un effet de
 `--untracked`, sans lequel c'est même plus lent. `--suggere` n'est pas dans la banque et le chemin
@@ -388,6 +405,8 @@ trancher la cause du `128`.
   collision qui ne se manifesterait QUE par deux probes de sujets différents passerait — non
   mesurée, et probablement vide (un probe naît avec sa case-doc).
 * ~~**`#468-r4`**~~ — **FERMÉ** par `--suggere` (§9).
+* ~~**`#468-r10`**~~ — **FERMÉ** (§9.2) : `--suggere` lit les refs hors `HEAD` et les autres
+  worktrees, et **nomme** l'angle mort qui reste. Ouvre `#468-r11` (parade `gh`, non construite).
 * **`#468-r7` — la puce de résidu d'une case-doc n'est PAS une position de définition.**
   `case-467` §Résidus ouvre `#472-r1`, `-r2`, `-r3` en puces de premier niveau, et le critère ne
   lit les puces que dans `backlog.md` : ces trois-là sont invisibles à l'étape 1 tant qu'ils ne

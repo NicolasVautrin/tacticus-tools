@@ -408,6 +408,17 @@ dossiers) que le cliquet a trouvée à son premier passage.
   déjà pris**. Mesuré : 13 racines `< 500` n'existent QUE dans `git log`.
 - **Une mesure incomplète ne rend JAMAIS de numéro** (git muet → 99, rien suggéré), et on ne
   recycle pas un trou — une PR peut être en vol.
+- ⚠ **`--suggere` DIT désormais ce qu'il ne voit pas — LIS sa section `PORTEE DE LA MESURE`, et si
+  d'autres agents travaillent, ANNONCE le numéro que tu prends.** Il rendait un `PASS` rassurant
+  dans le SEUL régime où nos collisions se produisent : son corpus était ce qui est écrit **et
+  fusionné**, quand une allocation se fait au DÉBUT d'une tranche. Deux agents ont ainsi pris `#479`
+  (collision **double**, racine ET `r1`). Depuis #468-r10 il lit aussi les **refs hors `HEAD`** et
+  les **noms écrits dans les autres worktrees** — ce qui, le jour de la mesure, a évité **deux**
+  collisions imminentes (`#425-r3`, `#448-r3`, tous deux déjà portés). Reste **irréductible** : un
+  numéro pris et **pas encore écrit** — deux `--suggere` au même instant rendent le même numéro,
+  et c'est ce que la portée nomme. Détail et parades chiffrées (dont **deux refusées** : balayer les
+  94 branches non fusionnées apporte **0** changement de numéro) :
+  `docs/rl/case-468-r10-angle-mort-des-agents-en-vol.md`.
 - ⚠ La **puce** de résidu d'une case-doc est une 4ᵉ position de définition **de fait**, non gardée
   (`#468-r7`) ; et `#<n>` désigne à la fois une tâche et une PR (`#468-r8`), ce qui rend
   `git log --grep` structurellement ambigu.
