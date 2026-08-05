@@ -28,16 +28,23 @@ PY = next(p for p in HERE.parents if p.name == "python")
 if str(PY) not in sys.path:
     sys.path.insert(0, str(PY))
 
+from engine.entities.entity_type import EntityType  # noqa: E402
+from engine.entities.traits.unit_trait import UnitTrait  # noqa: E402
+from engine.entities.triggered_ability_type import TriggeredAbilityType  # noqa: E402
 from engine.streams import (BEntityId, GroupType, StepType, StreamCache,  # noqa: E402
                             StreamDispatcher, TagKey, format_enum_value)
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.divergence_registry import KNOWN_DIVERGENCES  # noqa: E402
 from engine.streams.game_setup import (GameSetup, PlayerSetup, TileSetup,  # noqa: E402
                                        UnitSetup, emit_game_setup)
+from engine.streams.unit_extensions import (ActiveAbilityState,  # noqa: E402
+                                            TriggeredAbilityState, UnitFullState,
+                                            get_full_state_update_tags,
+                                            get_full_state_update_tags_for_active)
 
 # --- EXTRAIT VERBATIM du flux natif (C1_02, seed 777) -----------------------
-# Les tuiles 14..46 et les `Action=ChangeStats` / `ChangeAbility` sont omis pour la lisibilite ;
-# ce qui reste est copie caractere pour caractere.
+# Les tuiles 14..46 sont omises pour la lisibilite ; ce qui reste est copie caractere pour
+# caractere, `Action=ChangeStats` et les cinq `Action=ChangeAbility` COMPRIS (tranche D).
 FRAGMENT_NATIF = (
     "Group=System_GameSetup Entity=1 Source= InitialTarget=\n"
     "    Action=AddPlayer Entity=3\n"
@@ -66,15 +73,82 @@ FRAGMENT_NATIF = (
     "            Tag=Unit_Foot_Tile_Id_1:46\n"
     "            Tag=Unit_IsSummoned:0\n"
     "            Tag=Unit_SpawnSource:1\n"
+    "        Action=ChangeStats Entity=49\n"
+    "            Tag=UnitStats_InitRemainingHealth:6525\n"
+    "            Tag=UnitStats_InitRemainingArmor:0\n"
+    "            Tag=UnitStats_InitAliveMembers:1\n"
+    "            Tag=UnitStats_MaxHealth:6525\n"
+    "            Tag=UnitStats_MaxArmor:0\n"
+    "            Tag=UnitStats_MaxMembers:1\n"
+    "            Tag=UnitStats_Range:0\n"
+    "            Tag=UnitStats_Attack:4919\n"
+    "            Tag=UnitStats_FixedArmor:1408\n"
+    "            Tag=UnitStats_Movement:4\n"
+    "            Tag=UnitStats_BlockChance:0\n"
+    "            Tag=UnitStats_BlockDamage:0\n"
+    "            Tag=UnitStats_CritChance:0\n"
+    "            Tag=UnitStats_CritDamage:0\n"
+    "            Tag=UnitStats_TurnFinished:0\n"
+    "            Tag=UnitStats_IsPlayDeathAnimationOnHit:1\n"
+    "        Action=ChangeAbility Entity=49\n"
+    "            Tag=UnitStats_ActiveAbility_Id:1100\n"
+    "            Tag=UnitStats_ActiveAbility_CanStillBeUsed:1\n"
+    "            Tag=UnitStats_ActiveAbility_RemainingCooldownTurns:0\n"
+    "            Tag=UnitStats_ActiveAbility_IsDisabled:0\n"
+    "            Tag=UnitStats_ActiveAbility_Level:50\n"
+    "            Tag=UnitStats_ActiveAbility_VariableMultiplierPercentage:180\n"
+    "        Action=ChangeAbility Entity=49\n"
+    "            Tag=UnitStats_ActiveAbility_Id:69\n"
+    "            Tag=UnitStats_ActiveAbility_CanStillBeUsed:1\n"
+    "            Tag=UnitStats_ActiveAbility_RemainingCooldownTurns:0\n"
+    "            Tag=UnitStats_ActiveAbility_IsDisabled:0\n"
+    "            Tag=UnitStats_ActiveAbility_Level:1\n"
+    "            Tag=UnitStats_ActiveAbility_VariableMultiplierPercentage:180\n"
+    "        Action=ChangeAbility Entity=49\n"
+    "            Tag=UnitStats_TriggeredAbility_Id:1174\n"
+    "            Tag=UnitStats_TriggeredAbility_Level:50\n"
+    "            Tag=UnitStats_TriggeredAbility_VariableMultiplierPercentage:180\n"
+    "        Action=ChangeAbility Entity=49\n"
+    "            Tag=UnitStats_TriggeredAbility_Id:1180\n"
+    "            Tag=UnitStats_TriggeredAbility_Level:50\n"
+    "            Tag=UnitStats_TriggeredAbility_VariableMultiplierPercentage:180\n"
+    "        Action=ChangeAbility Entity=49\n"
+    "            Tag=UnitStats_TriggeredAbility_Id:1161\n"
+    "            Tag=UnitStats_TriggeredAbility_Level:50\n"
+    "            Tag=UnitStats_TriggeredAbility_VariableMultiplierPercentage:180\n"
     "    Finish_Group\n"
     "Finish_Group\n"
 )
+
+#: L'etat de `thousTzaangor` au deploiement, tel que les canaux ECS le publient (session Frida 8,
+#: C1_02, seed 777). Les valeurs sont celles du FLUX ci-dessus -- c'est ce qui rend la garde
+#: lisible ; ce que le probe LIVE, lui, prouve, c'est qu'elles viennent bien des canaux ECS.
+ETAT_49 = UnitFullState(
+    entity_type=int(EntityType.Unit),
+    max_health=6525, max_armor=0, max_members=1, fixed_armor=1408,
+    init_remaining_health=6525, init_remaining_armor=0, init_alive_members=1,
+    attack=4919, range=0, movement=4,
+    block_chance=0, block_damage=0, crit_chance=0, crit_damage=0,
+    turn_finished=False, has_death_animation_trait=False,
+    has_death_animation_abilities=(False, False))
+
+ACTIVES_49 = [
+    ActiveAbilityState(ability_name=1100, level=50, variable_multiplier_percentage=180,
+                       can_still_be_used=True),
+    ActiveAbilityState(ability_name=69, level=1, variable_multiplier_percentage=180,
+                       can_still_be_used=True),
+]
+TRIGGERED_49 = [(1174, TriggeredAbilityState(50, 180)),
+                (1180, TriggeredAbilityState(50, 180)),
+                (1161, TriggeredAbilityState(50, 180))]
 
 SETUP = GameSetup(
     players=[PlayerSetup(3, 11), PlayerSetup(4, 12), PlayerSetup(5, 13)],
     tiles=[TileSetup(12, 0, 0), TileSetup(13, 0, 1)],
     platform_entity_ids=[47, 48],
-    units=[UnitSetup(entity_id=49, owner_id=4, foot_tile_ids=[46])],
+    units=[UnitSetup(entity_id=49, owner_id=4, foot_tile_ids=[46],
+                     full_state=ETAT_49, active_abilities=ACTIVES_49,
+                     triggered_abilities=TRIGGERED_49)],
 )
 
 
@@ -279,6 +353,160 @@ def test_contre_epreuve_groupe_AddUnit_desarme():
     assert _nouvelles(emettre(sans)) > 0
 
 
+def _setup_avec(**kw) -> GameSetup:
+    """Le SETUP de reference, avec UN attribut de son unique unite remplace."""
+    from dataclasses import replace
+    return GameSetup(players=SETUP.players, tiles=SETUP.tiles,
+                     platform_entity_ids=SETUP.platform_entity_ids,
+                     units=[replace(SETUP.units[0], **kw)])
+
+
+def test_contre_epreuve_une_stat_fausse():
+    """Tranche D : une seule des seize valeurs de `ChangeStats` suffit a faire rougir."""
+    from dataclasses import replace
+    assert _nouvelles(emettre(_setup_avec(
+        full_state=replace(ETAT_49, attack=4918)))) > 0
+
+
+def test_les_actives_sont_emises_AVANT_les_declenchees():
+    """L'ORDRE est une PROPRIETE DU NATIF : `AddUnitOperation$$Execute` itere
+    `ActiveAbilityComponent.Abilities` PUIS `TriggeredAbilityComponent.Abilities`. Les deux
+    boucles ecrivent le meme `Action=ChangeAbility` sur la meme entite -- seul l'ORDRE des blocs
+    les distingue, et c'est ce qu'un port pourrait intervertir sans s'en rendre compte.
+
+    On lit l'ordre sur le TEXTE emis, puis on le PERMUTE pour verifier que le comparateur y est
+    sensible : sans cette seconde moitie, l'assertion d'ordre ne prouverait pas que le cliquet
+    saurait la faire respecter."""
+    lignes = emettre().split("\n")
+    ordre = [("active" if "ActiveAbility_Id" in lignes[i + 1] else "declenchee")
+             for i, l in enumerate(lignes) if l.strip() == "Action=ChangeAbility Entity=49"]
+    assert ordre == ["active", "active", "declenchee", "declenchee", "declenchee"]
+    # Permutation du TEXTE : les deux blocs d'active passent apres les trois declenchees.
+    blocs, courant = [], []
+    for l in lignes:
+        if l.strip().startswith("Action=ChangeAbility"):
+            if courant:
+                blocs.append(courant)
+            courant = [l]
+        elif courant and l.strip().startswith("Tag="):
+            courant.append(l)
+        elif courant:
+            blocs.append(courant)
+            courant = []
+    permute = emettre()
+    for bloc in blocs:
+        permute = permute.replace("\n".join(bloc) + "\n", "")
+    tete = "\n".join("\n".join(b) for b in blocs[2:] + blocs[:2]) + "\n"
+    permute = permute.replace("    Finish_Group\n", tete + "    Finish_Group\n", 1)
+    assert permute != FRAGMENT_NATIF, "la permutation n'a pas mordu"
+    assert len(CONF.comparer(FRAGMENT_NATIF, permute).nouvelles) > 0
+
+
+def test_contre_epreuve_ordre_des_actives_permute():
+    """L'ordre DANS une collection compte aussi : `1100` puis `69`, pas l'inverse."""
+    assert _nouvelles(emettre(_setup_avec(
+        active_abilities=list(reversed(ACTIVES_49))))) > 0
+
+
+def test_contre_epreuve_un_id_de_declenchee_faux():
+    assert _nouvelles(emettre(_setup_avec(
+        triggered_abilities=[(1174, TriggeredAbilityState(50, 180)),
+                             (1181, TriggeredAbilityState(50, 180)),
+                             (1161, TriggeredAbilityState(50, 180))]))) > 0
+
+
+def test_full_state_absent_n_emet_aucune_ligne_ChangeStats():
+    """Le SEUL degre de liberte du mirror, et il est VISIBLE : `full_state=None` signifie
+    « l'appelant ne fournit pas l'etat », donc le port n'emet rien plutot que d'inventer seize
+    valeurs. Le comparateur classe alors la ligne absente -- il ne la lit jamais comme egale."""
+    port = emettre(_setup_avec(full_state=None,
+                               active_abilities=[], triggered_abilities=[]))
+    assert "Action=ChangeStats" not in port
+    assert "Action=ChangeAbility" not in port
+    manquantes = {d.cle for d in CONF.comparer(FRAGMENT_NATIF, port).divergences}
+    assert "MANQUANT Action=ChangeStats" in manquantes
+    assert "MANQUANT Action=ChangeAbility" in manquantes
+
+
+# --- 2bis. Les trois surcharges de `GetFullStateUpdateTags` -----------------
+
+def test_garde_d_entree_rend_un_dictionnaire_VIDE_hors_EntityType_Unit():
+    """`GetFullStateUpdateTags(unit)` commence par `if (unit == null || unit.Type != Unit)` et
+    saute a la construction d'un `Dictionary` NEUF, qu'il rend tel quel. L'appelant emet donc une
+    `Action=ChangeStats` SANS AUCUN TAG -- pas « pas de ligne », une ligne vide de tags."""
+    from dataclasses import replace
+    for autre in (EntityType.Machine, EntityType.MachinePlatform, EntityType.Effect):
+        assert get_full_state_update_tags(replace(ETAT_49, entity_type=int(autre))) == {}
+    assert len(get_full_state_update_tags(ETAT_49)) == 16
+
+
+def test_les_seize_tags_et_leurs_ordinaux():
+    """Le CONTENU exact du dictionnaire, fige contre le decompile. Un tag ajoute ou retire par
+    un futur build doit faire rougir ici, pas seulement en live."""
+    tags = get_full_state_update_tags(ETAT_49)
+    assert sorted(tags) == sorted([
+        TagKey.UnitStats_InitRemainingHealth, TagKey.UnitStats_InitRemainingArmor,
+        TagKey.UnitStats_InitAliveMembers, TagKey.UnitStats_MaxHealth,
+        TagKey.UnitStats_MaxArmor, TagKey.UnitStats_MaxMembers, TagKey.UnitStats_Range,
+        TagKey.UnitStats_Attack, TagKey.UnitStats_FixedArmor, TagKey.UnitStats_Movement,
+        TagKey.UnitStats_BlockChance, TagKey.UnitStats_BlockDamage,
+        TagKey.UnitStats_CritChance, TagKey.UnitStats_CritDamage,
+        TagKey.UnitStats_TurnFinished, TagKey.UnitStats_IsPlayDeathAnimationOnHit])
+
+
+def test_IsPlayDeathAnimationOnHit_est_la_NEGATION_d_un_OU_a_trois_porteurs():
+    """`(HasTrait(UnitTrait.FinalJustice) | TryGetAbility(TriggeredAbilityType.FinalJustice)
+    | TryGetAbility(TriggeredAbilityType.Bounce)) ^ 1`. Les trois porteurs sont testes UN A UN :
+    un port qui n'en lirait qu'un rendrait le meme resultat sur l'unite de reference (qui n'en
+    porte aucun) et divergerait ailleurs."""
+    from dataclasses import replace
+    tag = TagKey.UnitStats_IsPlayDeathAnimationOnHit
+    assert get_full_state_update_tags(ETAT_49)[tag] == 1
+    assert get_full_state_update_tags(
+        replace(ETAT_49, has_death_animation_trait=True))[tag] == 0
+    assert get_full_state_update_tags(
+        replace(ETAT_49, has_death_animation_abilities=(True, False)))[tag] == 0
+    assert get_full_state_update_tags(
+        replace(ETAT_49, has_death_animation_abilities=(False, True)))[tag] == 0
+    # Les deux enums portent un `FinalJustice` a des ordinaux DIFFERENTS : c'est le TYPE DECLARE
+    # du parametre natif qui tranche, pas le nom. Si un build les alignait, ce test ne dirait
+    # plus rien -- d'ou l'assertion sur leur difference.
+    assert int(UnitTrait.FinalJustice) != int(TriggeredAbilityType.FinalJustice)
+
+
+def test_le_cooldown_est_TOUJOURS_emis_meme_Nullable_vide():
+    """`Nullable$$GetValueOrDefault` : un cooldown absent s'ecrit `0`, il ne fait pas disparaitre
+    le tag. C'est l'INVERSE du couple munitions ci-dessous, et confondre les deux est facile."""
+    sans = ActiveAbilityState(ability_name=69, level=1, variable_multiplier_percentage=180,
+                              can_still_be_used=True, remaining_cooldown_turns=None)
+    tags = get_full_state_update_tags_for_active(sans)
+    assert tags[TagKey.UnitStats_ActiveAbility_RemainingCooldownTurns] == 0
+    avec = get_full_state_update_tags_for_active(
+        ActiveAbilityState(ability_name=69, level=1, variable_multiplier_percentage=180,
+                           can_still_be_used=False, remaining_cooldown_turns=3,
+                           is_disabled=True))
+    assert avec[TagKey.UnitStats_ActiveAbility_RemainingCooldownTurns] == 3
+    assert avec[TagKey.UnitStats_ActiveAbility_CanStillBeUsed] == 0
+    assert avec[TagKey.UnitStats_ActiveAbility_IsDisabled] == 1
+
+
+def test_les_deux_tags_de_munitions_sont_CONDITIONNELS_et_mal_nommes():
+    """Emis UNIQUEMENT si `AmmoCost.HasValue`. Et leurs ordinaux sont ceux des tags nommes
+    `UnitStats_TriggeredAbility_*` (29 et 30) alors qu'ils sont ecrits par la surcharge ACTIVE :
+    un port qui « corrigerait » ce nom evident ecrirait de faux ordinaux."""
+    base = dict(ability_name=1187, level=50, variable_multiplier_percentage=100,
+                can_still_be_used=True)
+    sans = get_full_state_update_tags_for_active(ActiveAbilityState(**base))
+    assert TagKey.UnitStats_TriggeredAbility_AmmoCost not in sans
+    assert TagKey.UnitStats_TriggeredAbility_EnoughAmmo not in sans
+    assert len(sans) == 6
+    avec = get_full_state_update_tags_for_active(
+        ActiveAbilityState(ammo_cost=2, has_enough_ammo=False, **base))
+    assert avec[TagKey.UnitStats_TriggeredAbility_AmmoCost] == 2
+    assert avec[TagKey.UnitStats_TriggeredAbility_EnoughAmmo] == 0
+    assert len(avec) == 8
+
+
 # --- 3. Le cliquet lui-meme -------------------------------------------------
 
 def test_ligne_hors_des_quatre_formes_est_signalee():
@@ -301,13 +529,33 @@ def test_propagation_de_cause_bornee_a_un_cran():
     assert rap.nouvelles[0].cle == "MANQUANT Tag=Match_CurrentPlayerId"
 
 
-def test_purge_une_entree_non_exercee_est_perimee():
-    """LA purge. Une entree que le corpus n'exerce plus doit rougir : sans cela le registre ne
-    fait que grossir jusqu'a tout couvrir (lecon de `probe_181`)."""
+def test_le_registre_est_VIDE_et_c_est_une_mesure(monkeypatch):
+    """Les deux seules entrees qu'il portait (`MANQUANT Action=ChangeStats` et
+    `MANQUANT Action=ChangeAbility`, 43 lignes du deploiement) ont ete FERMEES par la tranche D.
+    Les laisser les aurait fait rougir comme PERIMEES -- c'est ce que la purge existe pour
+    obtenir, et la reponse correcte est de SUPPRIMER, jamais d'elargir.
+
+    ⚠ Un registre vide ne dit RIEN sur ce qui n'est pas compare : cela vit dans les trois bornes
+    de `conformance.rapport`, verifiees par `test_le_rapport_publie_les_trois_bornes`."""
+    assert KNOWN_DIVERGENCES == {}
+
+
+def test_purge_une_entree_non_exercee_est_perimee(monkeypatch):
+    """LA purge, verifiee sur un registre INJECTE -- pas sur le registre reel, qui est vide.
+
+    Un test qui dependrait du contenu du registre cesserait de mordre au moment exact ou il
+    devient utile : c'est la degradation en silence d'une garde par seuil."""
+    factice = {"MANQUANT Action=ChangeStats": "cause factice",
+               "MANQUANT Action=ChangeAbility": "cause factice"}
+    monkeypatch.setattr(CONF, "KNOWN_DIVERGENCES", factice)
     perimees = CONF.entrees_perimees({"MANQUANT Action=ChangeStats"})
-    assert "MANQUANT Action=ChangeAbility" in perimees
+    assert perimees == ["MANQUANT Action=ChangeAbility"]
     # ... et un corpus qui exerce TOUT le registre ne rend aucune entree perimee.
-    assert CONF.entrees_perimees(set(KNOWN_DIVERGENCES)) == []
+    assert CONF.entrees_perimees(set(factice)) == []
+    # Registre vide => rien ne peut etre perime, quel que soit le corpus.
+    monkeypatch.setattr(CONF, "KNOWN_DIVERGENCES", {})
+    assert CONF.entrees_perimees(set()) == []
+    assert CONF.entrees_perimees({"MANQUANT Action=AddUnit"}) == []
 
 
 def test_le_perimetre_se_derive_des_enums_pas_de_l_observe():
@@ -333,17 +581,41 @@ def test_le_rapport_publie_les_trois_bornes():
     assert "id d'entite des joueurs" in texte
 
 
-@pytest.mark.parametrize("cle", sorted(KNOWN_DIVERGENCES))
-def test_chaque_cle_du_registre_est_bien_formee(cle: str):
-    """Une cle mal formee ne serait jamais appariee -- l'entree deviendrait un commentaire
-    inerte que la purge ne saurait meme pas signaler."""
+def _cle_bien_formee(cle: str) -> bool:
+    """Une cle de registre est `<FORME> <Genre>=<Membre>` (ou `<FORME> Finish_Group`), le membre
+    devant appartenir a l'enum du genre. Une cle mal formee ne serait JAMAIS appariee --
+    l'entree deviendrait un commentaire inerte que la purge ne saurait meme pas signaler."""
     forme, _, symbole = cle.partition(" ")
-    assert forme in (CONF.MANQUANT, CONF.EN_TROP, CONF.VALEUR)
-    assert symbole, "la cle doit porter un symbole"
+    if forme not in (CONF.MANQUANT, CONF.EN_TROP, CONF.VALEUR) or not symbole:
+        return False
     if symbole == "Finish_Group":
-        return
+        return True
     genre, _, membre = symbole.partition("=")
-    assert genre in ("Group", "Action", "Tag")
-    table = {"Group": GroupType, "Action": StepType, "Tag": TagKey}[genre]
-    noms = {m.name[:-1] if m.name == "None_" else m.name for m in table}
-    assert membre in noms, "%s n'est pas un membre de %s" % (membre, genre)
+    table = {"Group": GroupType, "Action": StepType, "Tag": TagKey}.get(genre)
+    if table is None:
+        return False
+    return membre in {m.name[:-1] if m.name == "None_" else m.name for m in table}
+
+
+@pytest.mark.parametrize("cle,attendu", [
+    ("MANQUANT Action=ChangeStats", True),
+    ("EN_TROP Group=AddUnit", True),
+    ("VALEUR Tag=UnitStats_Attack", True),
+    ("MANQUANT Finish_Group", True),
+    ("MANQUANT Action=ChangeStat", False),      # membre inexistant (faute de frappe)
+    ("ABSENT Action=ChangeStats", False),       # forme inconnue
+    ("MANQUANT Etape=ChangeStats", False),      # genre inconnu
+    ("MANQUANT", False),                        # pas de symbole
+])
+def test_le_critere_de_bonne_formation_discrimine(cle: str, attendu: bool):
+    """Le critere lui-meme, teste sur des cas VALIDES et INVALIDES. Il est verifie ici plutot que
+    par un `parametrize` sur le registre : celui-ci est VIDE, et un parametrize vide ne teste
+    rien tout en restant vert."""
+    assert _cle_bien_formee(cle) is attendu
+
+
+def test_chaque_cle_du_registre_est_bien_formee():
+    """Applique le critere ci-dessus aux entrees REELLES -- vacuement vrai tant que le registre
+    est vide, mordant des qu'une entree y revient."""
+    mauvaises = [c for c in KNOWN_DIVERGENCES if not _cle_bien_formee(c)]
+    assert mauvaises == []
