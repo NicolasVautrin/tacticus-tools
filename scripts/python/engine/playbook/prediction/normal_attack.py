@@ -514,6 +514,32 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 config_active_abilities=getattr(ctx, "config_active_abilities", None)):
             return _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, meta=meta)
     _dist = hexgeo.distance(attack_pos, t_pos) if (attack_pos and t_pos) else None   # porte portee ranged #188
+    # #419-r1-tr14-r1-r1 -- LA BRANCHE SANS ARME. `ALoki_NormalAttackAbility$$PredictAttack` COMMENCE
+    # par `weapon = FindAttackWeapon(entities)` (le slot `0xaf` d'`IBattleQuery`, cf.
+    # `services.battle_query.get_attack_weapon_for_default_normal_attack`) et BRANCHE sur sa nullite :
+    #
+    #     weapon = FindAttackWeapon(entities);
+    #     if (weapon != null && TryGet<DamageProfile>(GetDamageProfile(weapon.<+0x10>), out profile)) {
+    #         ... GetAttackHitPrediction(...) ; AddAdditionalHitsToPrediction(...) ...
+    #     } else {
+    #         <IBattleQuery slot 0x26>(caster, target, casterPosition, ability, <widgets VIDES>,
+    #                                  amount: 0, hits: 1, ...)      // prediction SANS arme
+    #     }
+    #
+    # `FindAttackWeapon` rend `null` des qu'aucune arme n'est utilisable DEPUIS LA TUILE D'ATTAQUE :
+    # non adjacent + aucune arme a distance en portee (`FindRangedWeapon` filtre `dist <= Range`, et
+    # `SelectMaxRangeWeapon`/`SelectBestDamageWeapon` rendent `null` sur ensemble vide), ou adjacent +
+    # aucune arme de melee. Le natif n'a AUCUN repli croise sur cette surcharge.
+    # MESURE qui a ouvert le residu (porteur `templNpc1Initiate`, arme `Chain` melee 2 coups) :
+    # tuile A adjacente -> natif `732..1098` en 2 coups ; tuile B a 2 hex -> natif **`0..0` en 1 coup**,
+    # port `732..1098` en 2. Le `1` coup est LU au decompile : la facade de prediction sans arme passe
+    # le litteral `1` en position `hits` (cf. `BattleQuery$$GetAttackPrediction`, argument `1`).
+    _w, _ = get_attack_weapon_for_default_normal_attack(
+        ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits, dist=_dist)
+    if _w is None:
+        from engine.services.damage_prediction import DamagePredictionResult
+        ev = ProbableDamageEvent(target=tgt_id, prediction=DamagePredictionResult(applied_hits=1))
+        return (ev, {"no_weapon": True, "dist": _dist, "is_adjacent": is_adjacent}) if meta else ev
     pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)
     is_melee = not _ranged
     _hm = prediction_has_moved(scene, att_id, attack_pos)

@@ -1,18 +1,30 @@
 """BattleQuery — sélection d'arme de l'attaque normale (`IdunBattle.Core.Services.BattleQuery`).
 
-`GetAttackWeaponForDefaultNormalAttack` choisit l'arme DISTANCE-AWARE :
-  - variante simple `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` : `if !AreTilesAdjacent(att, tgt) -> FindRangedWeapon else FindMeleeWeapon`.
-  - variante complète `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` : `rangeType = IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType` (1=Melee, 2=Ranged,
-    3=Both, 0=défaut) ; si 1 -> melée ; si 3 ET !HasFlag(att, 0x15) ET IdunBattle.Core.Services.BattleQuery$$AreUnitsInMelee -> melée ;
-    sinon ranged. `IdunBattle.Core.Services.BattleQuery$$FindMeleeWeapon` / `IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon` avec fallback vers l'autre type.
+`GetAttackWeaponForDefaultNormalAttack` choisit l'arme DISTANCE-AWARE, et il en existe **TROIS
+surcharges que le slot sépare** (détail et appariement : `get_attack_weapon_for_default_normal_
+attack_from_tiles`) :
+  - `0xae` `(attacker, attackerTiles)` : chaîne de repli **croisé** mêlée<->distance. Aucun
+    consommateur porté.
+  - `0xaf` `(attacker, attackerTiles, **target**)` : `rangeType = IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType`
+    (0=None, 1=Melee, 2=Ranged, 3=Normal) ; si 1 -> mêlée ; si 3 ET !HasFlag(att, 0x15) ET
+    `IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` -> mêlée ; sinon
+    `IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon` avec la porte `dist <= Range`.
+    **AUCUN repli croisé** : un ensemble vide rend `null`. C'est le FOYER de l'attaque normale, sur
+    les DEUX faces (`ALoki_NormalAttackAbility$$PredictAttack` et `$$ExecuteBehaviour`, via
+    `$$FindAttackWeapon`) -> `get_attack_weapon_for_default_normal_attack`.
+  - `0xb0` `(attacker, attackerTiles, **targetTiles**)` : `AreTilesAdjacent` -> mêlée sinon distance,
+    sans porte de portée -> `get_attack_weapon_for_default_normal_attack_from_tiles`.
 Le `DamageProfile` de l'arme choisie est lu à `weapon+0x10` (perçage : `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`).
 
 ⚠ NE PAS confondre avec `IdunBattle.ViewLogic.BattleSource.ObjectivesBattleQuery$$GetAmountOfHitsRangedFirstOrMelee` : ranged-first
 INCONDITIONNEL, chemin OBJECTIFS de bataille, HORS prédiction de dégât. C'était le bug de l'ancien
 `NormalAttackAbility` (sélection ranged-first au lieu de distance-aware).
 
-Port : critère distance-aware (adjacent -> mêlée sinon ranged), VALIDÉ par l'ancien PV `_normal_weapon_pierce`.
-Raffinements natifs `rangeType==3 (mixte) + flag 0x15` = documentés, à valider sur une unité à armes mixtes.
+Port : critère distance-aware (adjacent -> mêlée sinon ranged **en portée**, cf. #419-r1-tr14-r1-r1),
+confronté live sur `adeptCanoness` aux trois issues (mêlée / distance au boundary `dist == Range` /
+aucune arme). `rangeType` et le flag `0x15` entrent par l'`is_adjacent` que l'appelant calcule : les
+branches `Melee(1)` (mêlée INCONDITIONNELLE) et `ForceRangedAttack` restent NON EXERCÉES ici — leur
+mirror est `is_melee_attack`, pour un autre consommateur.
 """
 from __future__ import annotations
 
@@ -184,38 +196,75 @@ def _find_by_hits(cands: list, prefer_hits) -> dict:
 
 
 def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, prefer_hits=None, dist=None):
-    """`IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack` (distance-aware). Renvoie
-    `(weapon_dict|None, is_ranged)`. `is_adjacent` = cible en mêlée (`AreUnitsInMelee`/`AreTilesAdjacent`
-    = **adjacence HEX** élévation-gatée, PAS Chebyshev) -> branche mêlée. Sinon branche ranged
-    (`IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon`).
+    """`IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack(attacker,
+    attackerTiles, **target**)` -- la surcharge du slot `0xaf`. Renvoie `(weapon_dict|None, is_ranged)`.
 
-    PORTE DE PORTÉE ranged (#188) : `IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon` n'inclut une arme ranged QUE si
-    `dist <= weapon.Range + rangeStatBonus` (`param_5 <= local_88[0] + iVar6`, iVar6 =
-    `StatComponent.get_CurrentValue` du stat de portée `DAT_1831b8008` = **0 sur tous les units connus**,
-    cf. sweep case-184 §gaps#2 : boundary exactement à Range). Si AUCUNE ranged en portée, le natif
-    renvoie null -> le jeu retombe sur l'arme MÊLÉE (mesuré : mêlée à `dist > Range`). `dist` = distance
-    HEX attaquant->cible (int) ; fourni -> porte appliquée, `None` -> comportement legacy (pas de porte).
-    IMPACT NUL sur les tuiles d'attaque LÉGALES (cible toujours en portée de l'arme choisie) : la porte
-    ne mord que les prédictions HORS-PORTÉE (que l'IA n'émet jamais) -> zéro régression. rangeStatBonus
-    omis (=0) : à réintroduire si un unit à stat de portée positif apparaît (`DAT_1831b8008`)."""
+    C'EST BIEN CELLE-CI, ET C'EST UN FOYER PARTAGE DECISION<->COMBAT (#419-r1-tr14-r1-r1). La
+    surcharge est etablie par lecture, pas par ressemblance :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$FindAttackWeapon(this,
+    entities)` -- la surcharge a DEUX arguments -- invoque le slot `0xaf` avec `(caster, casterTiles,
+    target)`, et ses appelants sont `ALoki_NormalAttackAbility$$PredictAttack` **et**
+    `ALoki_NormalAttackAbility$$ExecuteBehaviour` (plus les huit attaques normales derivees :
+    `ProperKilly`, `RighteousRepugnance`, `TalonOfHorus`, `Boltstorm`, `Fealty`, `FeederTendrils`,
+    `OptimizedGait`). L'appariement slot<->arite vient des delegues du proxy
+    `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass209_0$$u003CGetAttackWeaponForDefaultNormalAttacku003Eb__0`
+    (slot `0xaf`, 3 parametres) et `...DisplayClass210_0$$...` (slot `0xb0`, `targetTiles`).
+
+    Corps natif, LU :
+
+        rangeType = GetAbilityAttackRangeType(GetNormalAttackType(attacker));   // 0 None 1 Melee 2 Ranged 3 Normal
+        if (rangeType == Melee) return FindMeleeWeapon(attacker, attackerTiles, target);
+        if (rangeType == Normal && !UnitExtensions.HasFlag(attacker, 0x15)      // ForceRangedAttack
+                                && AreEntitiesAdjacent(attackerTiles, target))
+            return FindMeleeWeapon(attacker, attackerTiles, target);
+        return FindRangedWeapon(attacker, attackerTiles, target, distance);     // AUCUN repli croise
+
+    ⚠ **AUCUN REPLI CROISE, DANS AUCUN SENS** -- et c'est le correctif de cette tranche. Le port
+    retombait sur l'autre type d'arme quand la branche choisie ne rendait rien ; le natif rend `null`,
+    et ses deux consommateurs le traitent comme « pas d'attaque » :
+      * `PredictAttack` : `if (weapon == null)` -> branche SANS ARME (prediction `0..0` en `1` coup) ;
+      * `ExecuteBehaviour` : `if (weapon == null) return;` -- ni `ExecuteInformWeapon`, ni
+        `ExecuteNormalAttack`, ni `ExecuteTriggerAbilities`.
+    Le repli croise n'existe QUE sur la surcharge du slot `0xae` `(attacker, attackerTiles)`, qu'aucun
+    consommateur porte n'emprunte.
+
+    `FindMeleeWeapon` / `FindRangedWeapon` rendent `null` sur un ENSEMBLE VIDE : les deux terminent par
+    `SelectBestDamageWeapon` (target non nul) ou `SelectMaxRangeWeapon`, et les deux commencent par
+    `if (weapons.Count == 0) return null`.
+
+    PORTE DE PORTEE ranged (#188) : `FindRangedWeapon(unit, unitPosition, target, distance)` n'ajoute
+    une arme QUE si `distance <= weapon.Range + rangeStatBonus` (`(int)distance <= local_88[0] + iVar6`,
+    `iVar6` = `IdunBattle.Entities.Components.StatComponent$$get_CurrentValue` du stat de portee =
+    **0 sur tous les units connus**, cf. sweep case-184 §gaps#2 : boundary exactement a Range).
+    `dist` = distance HEX attaquant->cible (int) ; `None` = distance NON MESUREE -> porte non
+    appliquee (degradation nommee, le natif la calcule toujours).
+
+    TRI melee/ranged = `IdunShared.Battle.WeaponProfile$$get_IsMelee` (`Range is None || Range < 2`),
+    via `weapon_is_melee` -- le predicat que `FindMeleeWeapon`/`FindRangedWeapon` lisent tous deux.
+    Il remplace l'ancien `bool(w["Range"])`, qui rangeait une arme `Range == 1` en DISTANCE ;
+    value-preserving MESURE sur le catalogue courant (`probe_419r1tr14r1r1_weapon_range_gate.py` :
+    **0** arme `Range == 1` sur 683 unites), mais il fallait l'aligner ici, la disparition du repli
+    rendant cette divergence observable.
+
+    RESIDU NOMME : le natif departage plusieurs armes eligibles par `SelectBestDamageWeapon` (la
+    prediction de degat la plus forte, ou `SelectMaxRangeWeapon` quand `target` est nul) ; le port
+    garde `_find_by_hits` (l'arme dont `hits` egale celui capte, sinon la premiere)."""
     gu = GC.unit(visual_id or "") or {}
     weapons = gu.get("weapons") or []
     if not weapons:
         return None, False
-    melee = [w for w in weapons if not w.get("Range")]
-    ranged = [w for w in weapons if w.get("Range")]
-    if is_adjacent and melee:          # AreUnitsInMelee -> FindMeleeWeapon
+    melee = [w for w in weapons if weapon_is_melee(w)]          # `get_IsMelee`
+    ranged = [w for w in weapons if not weapon_is_melee(w)]
+    if is_adjacent:                    # branche `FindMeleeWeapon(attacker, attackerTiles, target)`
         cand = melee
-    elif ranged:                       # IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon
-        if dist is not None:           # porte de portée : ranged en portée, sinon fallback mêlée
-            in_range = [w for w in ranged if dist <= int(w.get("Range") or 0)]
-            cand = in_range or melee or ranged   # hors portée + mêlée dispo -> mêlée (null natif)
-        else:                          # dist inconnu -> legacy (ranged dès non-adjacent)
-            cand = ranged
-    else:                              # fallback : mêlée si pas de ranged
-        cand = melee or weapons
+    elif dist is None:                 # distance NON MESUREE -> porte inapplicable (degradation)
+        cand = ranged
+    else:                              # `FindRangedWeapon(..., distance)` : porte `dist <= Range`
+        cand = [w for w in ranged if dist <= int(w.get("Range") or 0)]
+    if not cand:                       # ensemble vide -> `SelectMaxRangeWeapon`/`SelectBestDamageWeapon` = null
+        return None, False
     w = _find_by_hits(cand, prefer_hits)
-    return w, bool(w.get("Range"))
+    return w, not weapon_is_melee(w)
 
 
 def select_weapon_pierce(ctx, is_adjacent, dist=None, effect_bonus: int = 0):
@@ -359,7 +408,13 @@ def get_attack_weapon_for_default_normal_attack_from_tiles(visual_id, is_adjacen
         (lecture qui FIXE l'appariement slot<->arite) ;
       * `0xaf` `(attacker, attackerTiles, **target**)` -- resout `GetNormalAttackType` puis
         `BattleQuery$$GetAbilityAttackRangeType`, teste `UnitExtensions$$HasFlag(attacker, 0x15)`
-        et `AreEntitiesAdjacent` ; NON PORTEE, aucun consommateur porte ne l'emprunte ;
+        et `AreEntitiesAdjacent`, et n'a **AUCUN repli croise** ; c'est
+        `get_attack_weapon_for_default_normal_attack` ci-dessus.
+        ⚠ Cette ligne a longtemps dit « NON PORTEE, aucun consommateur porte ne l'emprunte » -- c'etait
+        FAUX, et c'est ce qui a laisse vivre `#419-r1-tr14-r1-r1` : `ALoki_NormalAttackAbility$$
+        FindAttackWeapon(this, entities)` (la surcharge a DEUX arguments) invoque ce slot, et ses
+        appelants sont `PredictAttack` **et** `ExecuteBehaviour`. C'est le foyer de TOUTE attaque
+        normale, sur les DEUX faces ;
       * `0xb0` `(attacker, attackerTiles, **targetTiles**)` -- CELLE-CI.
     L'appariement `0xaf`/`0xb0` est LU sur les deux surcharges de
     `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$FindAttackWeapon`,

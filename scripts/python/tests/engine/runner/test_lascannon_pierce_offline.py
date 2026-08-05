@@ -203,8 +203,19 @@ def test_zero_regression_pool_las_carriers_no_bonus():
         ctx = _Ctx(vis, traits)
         # au range OU en melee : jamais de bonus -> le percage est EXACTEMENT la base du profil de l'arme
         # selectionnee (derive du profil rendu, pas d'un seuil ecrit a la main).
-        for adj, dist in ((False, 3), (True, 1)):
+        # ⚠ #419-r1-tr14-r1-r1 : la distance NON ADJACENTE est DERIVEE des armes du porteur, plus
+        # ecrite en dur. `FindRangedWeapon` filtre `dist <= Range` et rend `null` sur ensemble vide,
+        # sans repli melee -- un `dist = 3` fixe interrogeait `astraCreed` (arme `Las` de MELEE, sa
+        # seule arme) sur un regime ou le natif ne rend AUCUNE arme, et le test y mesurait le percage
+        # par defaut au lieu du profil.
+        ranges = [int(w["Range"]) for w in (u.get("weapons") or [])
+                  if w.get("Range") is not None and int(w["Range"]) >= 2]
+        regimes = [(True, 1)] + ([(False, max(ranges))] if ranges else [])
+        for adj, dist in regimes:
             pierce, _ir, _h, prof = select_weapon_pierce(ctx, adj, dist)
+            assert prof is not None, (
+                f"{vis} (adj={adj}, dist={dist}) : AUCUNE arme selectionnee -- le regime interroge "
+                f"n'existe pas, le test ne mesurerait rien")
             assert pierce == damage_profile_pierce(prof), (
                 f"{vis} (adj={adj}) ne devrait PAS recevoir le bonus lascannon : {pierce} != "
                 f"damageProfiles.{prof}.PiercingRatio")
