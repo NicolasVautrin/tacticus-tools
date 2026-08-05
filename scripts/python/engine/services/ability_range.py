@@ -530,13 +530,22 @@ def zone_contains_for_options(options, ability_id, visual_id, distance) -> bool 
     inoperante rend alors un VERT qui ne prouve rien.
 
     L'`ability_id` reste requis : il ne sert QU'A resoudre le `TargetingRange` (`UseRangeFromConfig`
-    lit la config de l'ability), jamais les `rules`."""
+    lit la config de l'ability), jamais les `rules`.
+
+    ⚠ UN `TargetingRange` NON RE-LU NE COURT-CIRCUITE PAS (#447-r1-r1). Les deux `AddRange(
+    casterTiles)` vivent dans `GetPossibleTargetsForOptions`, l'APPELANT de `GetTilesInRange`, et ne
+    consultent NI la portee NI la branche prise : une ability dont le `TargetingRange` sort d'un
+    preset non resolu met quand meme la tuile du caster dans ses cibles possibles des que le bit 15
+    est arme. Le triplet manquant est donc rabattu sur `(None, False, False)` -- portee NON
+    DECIDABLE, ce que `_zone_contains_distance` rend deja par `None` a toute autre distance -- au
+    lieu d'un `return None` qui retirait AUSSI l'ajout aval. MESURE (`probe_447_r1_r1 --step
+    portee_non_lue`, `1215 InstrumentsOfVengeance` greffee sur `darkaAsmodai`, cul-de-sac) : le
+    natif VERSE la tuile source, le port n'en versait AUCUNE -- ecart RESTRICTIF."""
     terms = _range_terms(getattr(options, "range", None) if options is not None else None,
                          ability_id, visual_id)
-    if terms is None:
-        return None
+    value, only_adjacent, use_whole_board = terms if terms is not None else (None, False, False)
     return _zone_contains_distance(getattr(options, "rules", None) if options is not None else None,
-                                   terms[0], terms[1], terms[2], distance)
+                                   value, only_adjacent, use_whole_board, distance)
 
 
 def normal_attack_zone_contains(normal_attack_id, visual_id, distance) -> bool | None:
@@ -551,14 +560,15 @@ def normal_attack_zone_contains(normal_attack_id, visual_id, distance) -> bool |
 
     AUCUN des 18 masques lus ne porte `CasterIsPossibleTarget` ni `TargetIsCasterOrEnemy` : la
     tuile du caster est donc exclue quel que soit le profil -- `d == 1` pour un caster de melee,
-    `1 <= d <= portee d'arme` pour un caster a distance."""
+    `1 <= d <= portee d'arme` pour un caster a distance. Le triplet manquant est rabattu comme dans
+    `zone_contains_for_options` (meme regle, un seul foyer) ; son gisement est VIDE ici, les 18
+    profils portant tous un `TargetingRange` RE-lu."""
     opts = (NORMAL_ATTACK_TARGETING_OPTIONS if normal_attack_id is None
             else NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE.get(int(normal_attack_id),
                                                              NORMAL_ATTACK_TARGETING_OPTIONS))
     terms = _range_terms(opts.range, None, visual_id)
-    if terms is None:
-        return None
-    return _zone_contains_distance(opts.rules, terms[0], terms[1], terms[2], distance)
+    value, only_adjacent, use_whole_board = terms if terms is not None else (None, False, False)
+    return _zone_contains_distance(opts.rules, value, only_adjacent, use_whole_board, distance)
 
 
 def ability_range_value(ability_id, visual_id) -> int | None:
@@ -792,12 +802,17 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
 
     ⚠ L'etage `GetTilesInRange` est teste par `tiles_in_range_zone_contains`, pas par une
     comparaison `d <= rayon` : un rayon ne sait pas dire si la tuile du CASTER en fait partie, et
-    la reponse depend de la branche prise (#433-r4-r2-r1-r2-r2-r1-r1-r1)."""
+    la reponse depend de la branche prise (#433-r4-r2-r1-r2-r2-r1-r1-r1).
+
+    ⚠ ET LE RAYON NE COURT-CIRCUITE PLUS L'ENSEMBLE (#447-r1-r1). Cette fonction refusait des que
+    `tiles_in_range_reach` rendait `None`. C'etait un fork : l'ajout aval de
+    `GetPossibleTargetsForOptions` ne consulte pas la portee, donc une ability a `TargetingRange`
+    non RE-lu et bit 15 arme verse quand meme la tuile du caster. C'est l'ENSEMBLE qui tranche
+    desormais, et il rend `None` (donc refus) a toute autre distance -- le rayon ne sert plus qu'au
+    gate `GATE_NOT_DERIVABLE`, qui a besoin de savoir si la borne est FINIE."""
     if target_tiles_zone_is_empty(ability_id):
         return False                               # zone VIDE avant meme `GetRange`
     base = tiles_in_range_reach(ability_id, visual_id)
-    if base is None:
-        return False
     if not tiles_in_range_zone_contains(ability_id, visual_id,
                                         hexgeo.distance(tuple(unit_pos), tuple(tile))):
         return False
@@ -821,6 +836,8 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
         return hexgeo.distance(tuple(unit_pos), tuple(tile)) <= int(cfg) + 1
     if gate == GATE_NOT_DERIVABLE:
         # cf. `ability_range_value` : la borne superieure n'est exploitable que si elle est bornee.
+        # `base is None` (portee non RE-lue) n'atteint ce point que par l'ajout aval, dont l'apport
+        # est le SINGLETON `casterTiles` -- donc borne, et `None != WHOLE_BOARD_REACH` le dit.
         return base != WHOLE_BOARD_REACH
     # GATE_NONE / GATE_NOT_READ / GATE_VALID_ON_EMPTY_TILE : aucun retrait sur une tuile LIBRE.
     return True
@@ -831,7 +848,8 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
                                     ability_state=None, normal_attack_id=None,
                                     is_wall_by_pos=None, caster_team=None,
                                     team_by_pos=None, walkable_by_pos=None,
-                                    is_in_fog_by_pos=None, caster_pos=None) -> bool:
+                                    is_in_fog_by_pos=None, caster_pos=None,
+                                    is_turn_of_unit=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility(unit, tile)` -- mirror :
 
         if (UnitExtensions.GetFeetCount(unit, state) > 1) return true;      // MULTI-TUILES
@@ -906,7 +924,15 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     possiblePositions, true)` (l'oracle `aiMovableTiles`), qui balaie des positions CANDIDATES :
     la regle-delegue CASTER de `1045 GetEmRuntz` y lit `GetMainTile(caster)` -- la COURANTE -- via
     `CasterSelector`, pas la position balayee. Confondre les deux ferait varier un verdict que le
-    natif tient CONSTANT sur tout le balayage."""
+    natif tient CONSTANT sur tout le balayage.
+
+    `is_turn_of_unit` -- `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit(caster)`, le PREFIXE de
+    la regle `CasterHasNotMoved` (#447-r1-r1). Il n'a d'effet QUE dans le regime BALAYE : la 2e
+    clause de cette regle compare `casterTiles` (la position candidate, donc `unit_pos`) aux tuiles
+    REELLES du caster, et le natif refuse des qu'elles different. `None` = **non mesure**, la
+    clause ne refuse alors jamais -- c'est le statu quo, et c'est ce que rendent les appelants de
+    production, qui ne publient pas ce fait. Derivable sans capteur neuf :
+    `observeBattle.units[].playerId == observeBattle.currentPlayer` (cf. `CasterSubstrate`)."""
     if int(feet_count or 1) > 1:
         return True
     if unit_pos is None or tile is None:
@@ -923,6 +949,10 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     cpos = tuple(caster_pos) if caster_pos is not None else tuple(unit_pos)
     caster = acg.CasterSubstrate(
         pos=(int(cpos[0]), int(cpos[1])), has_tile=True, team=caster_team,
+        is_turn_of_unit=is_turn_of_unit,
+        # `casterTiles` INTERROGE = la position balayee. Dans le regime du foyer natif elle EGALE
+        # `pos`, donc la 2e clause de `CasterHasNotMoved` reste inerte -- comme chez le natif.
+        interrogated_pos=(int(unit_pos[0]), int(unit_pos[1])),
         team_by_pos=team_by_pos, walkable_by_pos=walkable_by_pos, elev_by_pos=elev_by_pos,
         neigh_by_pos=None)
     d = hexgeo.distance(tuple(unit_pos), tuple(tile))
