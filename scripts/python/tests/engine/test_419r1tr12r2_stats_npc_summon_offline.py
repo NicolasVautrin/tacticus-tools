@@ -1,8 +1,9 @@
 """#419-r1-tr12-r2 -- GARDES du chemin de stats explicite npc / summon.
 
-Le probe `probe_419r1tr12r2_stats_npc_summon.py` MESURE ; ce fichier GARDE. Tout est OFFLINE :
-la seule chose qui exige la session live (le chemin ARME dans `buildNormalizedBC`) est nommee
-dans la case-doc comme NON CONFRONTEE tant que la fenetre de reinject n'a pas eu lieu.
+Le probe `probe_419r1tr12r2_stats_npc_summon.py` MESURE ; ce fichier GARDE. Tout est OFFLINE : le
+chemin ARME dans `buildNormalizedBC`, lui, exige la session live, et il est garde LA OU IL SERT --
+`tests/engine/test_419r1tr12r2_electro_shock_reel_live.py`, dont le montage entier repose sur le
+npc amene au pool par ce chemin (12 gardes, cf. `case-419-r1-tr12-r2-stats-npc-summon.md` §11).
 
 Ce qui est garde ici, et pourquoi :
 
