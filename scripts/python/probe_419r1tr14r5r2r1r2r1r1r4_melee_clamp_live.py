@@ -93,7 +93,7 @@ PYDIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(PYDIR))
 
 import hexgeo                                                            # noqa: E402
-from rl_collect_batch import _resolve_session                            # noqa: E402
+from rl_collect_batch import _resolve_session, bind_ambient_rpc      # noqa: E402
 
 import probe_247_splash_targeting as P247                                # noqa: E402
 import probe_436_taunt_targeting as P436                                 # noqa: E402
@@ -616,6 +616,13 @@ def main(argv=None) -> int:
         return rc
 
     sid = _resolve_session()
+    # #448-r3-r1-r1 : ce montage GREFFE (`graft_active_ability` + `add_unit_trait`). Sans le canal
+    # `unitAbilityStates`, `services.custom_normal_attack` derive le type d'attaque normale du KIT
+    # gameconfig, qui ne connait pas la greffe -- port AMPUTE, assertions negatives a vide. Mesure
+    # sur le montage voisin (`..._r1_r1_only_adjacent_live.py`) : voie implicite `69` sans canal,
+    # `1126` avec. Le foyer (`snapshot._refuse_if_grafted`) LEVE sans cette ligne.
+    bind_ambient_rpc(sid)
+    print("[canal] `unitAbilityStates` LIE en ambiant (bind_live_rpc)")
     try:
         res = run(sid, a.seed, a.board)
         if not a.no_sonde:

@@ -173,13 +173,17 @@ fonctions ne sont pas jugées (tri-état, même discipline que `host_inputs.py`)
 **Contre-épreuves** : le mutant synthétique (méthode sans import, sœur avec import) est détecté ;
 et **retirer l'import réel de `status.py` remet exactement les 4 sites** — vérifié aux octets.
 
-## 9. Résidu ouvert — `#448-r3-r1-r1`
+## 9. Résidu — `#448-r3-r1-r1` — RÉSOLU, et **ce recensement-ci était FAUX PAR EXCÈS**
 
-**Un probe qui GREFFE et ne lie pas le transport ambiant mesure un port amputé, et rend VERT.**
-Recensement du 2026-08-05 sur `scripts/python` : **20** fichiers combinent une greffe/relique
-(`graft_passive_ability`, `graft_active_ability`, `write_grafted_seed_bc`, `equip_relic`,
-`write_relic_seed_bc`) et un `load_state`. Les **tests** sont couverts par
-`tests/conftest.py::live_session` ; **sept probes** ne lient rien :
+**Un probe qui GREFFE et n'alimente pas le canal `unitAbilityStates` mesure un port amputé, et rend
+VERT.** Traité par `docs/rl/case-448-r3-r1-r1-greffe-sans-canal.md` — **lire celle-là**, la liste
+ci-dessous est conservée pour montrer la faute de critère.
+
+Le recensement écrit ici portait sur « le fichier appelle `bind_live_rpc` ». Ce critère ne voit
+qu'**UNE des deux voies** d'alimentation : **quatre** des sept passent `ability_states=<payload>`
+explicitement (`source == "given"`, canal alimenté), et `probe_425_tile_effect_channel.py`
+n'appelle **jamais** `load_state`. Sur les sept, **un seul** était réellement amputé
+(`probe_447_bit51_native.py`).
 
 ```
 probe_366_r1_stormboyz_strike.py          probe_448_r1_r1_r1_flying_movement_steps.py
@@ -188,9 +192,11 @@ probe_447_bit51_native.py                 probe_478_cleave_additional_targets.py
 probe_448_r2b_stormboyz_teleporting_in.py  <- CORRIGÉ par cette tranche
 ```
 
-Ce compte est un **plancher**, pas un inventaire : le critère ne voit que les greffes faites *dans
-le fichier lui-même*, et il ne dit rien des probes qui reçoivent un seed BC déjà greffé par un
-appelant. À re-dériver, jamais à citer.
+Le recensement dérivé a en revanche trouvé **deux patrons que cette liste ignorait** :
+`write_augmented_seed_bc(restrict_abilities=…)` (une greffe en sens **INVERSE** — le BC porte MOINS
+que le gameconfig) et **quatre** probes dont la greffe et le `load_state` vivent dans **deux modules
+différents**. Ce qui restait juste ici : le compte est un **plancher** sur l'axe « greffe faite par
+un AUTRE processus » — c'est le résidu `#448-r3-r1-r1-r1`.
 
 ## 10. Reproduction
 

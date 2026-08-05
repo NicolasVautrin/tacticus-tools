@@ -57,6 +57,29 @@ A_UNITS = "necroWarden,necroWarden,necroOverlord"
 
 # --------------------------------------------------------------------------- montage
 
+def bind_ambient(sans_canal: bool = False):
+    """LIE le canal `unitAbilityStates` en AMBIANT (`snapshot.bind_live_rpc`, #363).
+
+    ⚠ OBLIGATOIRE ICI, et le montage le rend NON EVIDENT (#448-r3-r1-r1). `restrict_abilities`
+    RESTREINT le kit du caster dans le BC (`ActiveAbilities=[1025]`, `PassiveAbilities=[]`) : le BC
+    porte donc MOINS que le gameconfig -- une greffe en sens INVERSE. Sans le canal, le port derive
+    le kit du gameconfig et monte des abilities que la bataille N'A PAS montees (ici
+    `GeminaeSuperia`). La divergence est aussi muette qu'une greffe manquante.
+
+    `sans_canal=True` rejoue le regime d'AVANT (canal muet, registre de greffes purge donc pas de
+    refus) -- c'est la contre-epreuve, pas un mode d'usage."""
+    if sans_canal:
+        CI.clear_declared_grafts()
+        print("[canal] MUET (--sans-canal) -- regime d'AVANT, kit gameconfig complet cote port")
+        return None
+    from engine.runner.snapshot import bind_live_rpc
+    prev = bind_live_rpc(
+        lambda method, body=None, timeout=60:
+            L._rpc(method, [body if body is not None else {}], int(timeout * 1000)))
+    print("[canal] `unitAbilityStates` LIE en ambiant (bind_live_rpc)")
+    return prev
+
+
 def _write_seed_bc(tag: str):
     if not CI.SEED_BC.exists():
         return None
@@ -208,11 +231,14 @@ def _model_c(build, cid, tid, V, pierce, hits, profile):
 
 # --------------------------------------------------------------------------- run
 
-def run_once(seed: int, charge: bool = False, armor_target: int = 0) -> dict:
+def run_once(seed: int, charge: bool = False, armor_target: int = 0,
+             sans_canal: bool = False) -> dict:
     tag = "%s-%s" % (seed, uuid.uuid4().hex[:6])
     out = {"seed": seed, "live": None, "A": None, "B": None, "C": None,
            "charge": charge, "armor_target": armor_target}
     bc_file = _write_seed_bc(tag)
+    if sans_canal:
+        CI.clear_declared_grafts()      # neutralise le refus : on veut le VERDICT d'avant
     if bc_file is None:
         print("[226r] seed BC de reference absent (data/seed-bc.json)")
         return out
@@ -280,8 +306,13 @@ def main(argv) -> int:
                          "est alors comparable : B/C sont calcules SANS le move)")
     ap.add_argument("--armor-target", type=int, default=0,
                     help="force l'armure des a-units (regime discriminant de l'etage reduction)")
+    ap.add_argument("--sans-canal", action="store_true",
+                    help="CONTRE-EPREUVE : rejoue le regime d'AVANT #448-r3-r1-r1 (canal "
+                         "`unitAbilityStates` muet, kit derive du gameconfig)")
     a = ap.parse_args(argv)
-    rows = [run_once(int(s.strip()), charge=a.charge, armor_target=a.armor_target)
+    bind_ambient(a.sans_canal)
+    rows = [run_once(int(s.strip()), charge=a.charge, armor_target=a.armor_target,
+                     sans_canal=a.sans_canal)
             for s in a.seeds.split(",") if s.strip()]
     print("=== SYNTHESE #226-r ===")
     for r in rows:

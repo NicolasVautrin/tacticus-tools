@@ -47,7 +47,7 @@ PYDIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(PYDIR))
 
 import hexgeo                                                            # noqa: E402
-from rl_collect_batch import _resolve_session                            # noqa: E402
+from rl_collect_batch import _resolve_session, bind_ambient_rpc      # noqa: E402
 
 import probe_247_splash_targeting as P247                                # noqa: E402
 import probe_436_taunt_targeting as P436                                 # noqa: E402
@@ -157,7 +157,7 @@ def _build_bc(sid, seed, board, seed_bc):
         time.sleep(10)
 
 
-def run_greffe(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
+def run_greffe(sid, seed: str = "4192", board: str = "MC1_67", sans_canal: bool = False) -> dict:
     """BRAS 2 -- le MEME montage, `PoundThemToDust` greffee sur le summon SANS ARME.
 
     ⚠ La greffe porte sur `BC` (ce que lit le NATIF). Le port, lui, tire son type d'attaque normale
@@ -171,6 +171,8 @@ def run_greffe(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
     import catalog_inject
     bc = catalog_inject._load_seed(None)
     rep = catalog_inject.graft_active_ability(bc, P583.NOWEAPON_VIS, GRAFT_ACTIVE, replace=True)
+    if sans_canal:
+        catalog_inject.clear_declared_grafts()   # neutralise le refus : on veut le VERDICT d'avant
     tmp = Path(tempfile.mkdtemp()) / "seed-graft.json"
     tmp.write_text(json.dumps(bc), encoding="utf-8")
     print("=== BRAS 2 : %s.ActiveAbilities = [%s] (id %s, configAdded=%s)"
@@ -193,6 +195,16 @@ def run_greffe(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
         if got != GRAFT_TYPE:
             raise MontageError("la greffe n'a pas substitue l'attaque normale (%s != %d)"
                                % (got, GRAFT_TYPE))
+        # LA VOIE IMPLICITE (#448-r3-r1-r1) -- ce que le PORT dit tout seul, sans qu'on lui souffle
+        # `1126`. C'est le residu `#419-r1-tr14-r5-r2-r1-r2-r1-r2` (« divergence des substrats »),
+        # que le contournement ci-dessus rend invisible aux lignes de mesure. Sans le canal
+        # `unitAbilityStates` le port derive du gameconfig et dit `69` ; avec, il lit le kit
+        # REELLEMENT monte et doit dire `1126`. Mesure IMPRIMEE, jamais supposee.
+        from engine.runner.abilities.targeting import normal_attack_type_for
+        implicite = normal_attack_type_for(st, int(nw["id"]))
+        print("  voie IMPLICITE du port (normal_attack_type_for) = %s (natif %d) -> %s"
+              % (implicite, GRAFT_TYPE,
+                 "ACCORD" if implicite == GRAFT_TYPE else "DIVERGENCE (substrat gameconfig)"))
         rows = _rows(sid, rid, st, dv, nw, aid=GRAFT_TYPE)
         _print_rows("SANS ARME + GREFFE  u%s (type %d, masque 0x4000)" % (nw["id"], GRAFT_TYPE), rows)
         return {"greffe": rows}
@@ -201,7 +213,7 @@ def run_greffe(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
                        cwd=str(PYDIR), capture_output=True, text=True)
 
 
-def run(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
+def run(sid, seed: str = "4192", board: str = "MC1_67", sans_canal: bool = False) -> dict:
     """La MESURE, sans verdict. Leve `MontageError` si le montage n'a pas mordu."""
     import subprocess
     rid, state = P583._build(sid, seed, board)
@@ -267,12 +279,26 @@ def main(argv=None) -> int:
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--no-graft", action="store_true",
                     help="ne joue que le bras 1 (economise un runner ; perd le discriminant VERDICT)")
+    ap.add_argument("--sans-canal", action="store_true",
+                    help="CONTRE-EPREUVE : rejoue le regime d'AVANT #448-r3-r1-r1 (canal "
+                         "`unitAbilityStates` muet, le port derive le kit du gameconfig)")
     a = ap.parse_args(argv)
     sid = _resolve_session()
+    # ⚠ LE CANAL (#448-r3-r1-r1). Le bras 2 GREFFE `PoundThemToDust` sur un summon SANS ARME ; sans
+    # le canal `unitAbilityStates`, `snapshot._load_{active,config_active,triggered}_abilities` ne
+    # posent rien et `services.custom_normal_attack` derive le type d'attaque normale du KIT
+    # gameconfig -- qui ne connait pas la greffe. C'est la « divergence des substrats » que la
+    # docstring de `run_greffe` contourne en passant `1126` EXPLICITEMENT aux deux modeles
+    # (residu `#419-r1-tr14-r5-r2-r1-r2-r1-r2`). Lier le canal la fait disparaitre.
+    if not a.sans_canal:
+        bind_ambient_rpc(sid)
+        print("[canal] `unitAbilityStates` LIE en ambiant (bind_live_rpc)")
+    else:
+        print("[canal] MUET (--sans-canal) -- regime d'AVANT, kit derive du gameconfig")
     try:
-        res = run(sid, a.seed, a.board)
+        res = run(sid, a.seed, a.board, sans_canal=a.sans_canal)
         if not a.no_graft:
-            res.update(run_greffe(sid, a.seed, a.board))
+            res.update(run_greffe(sid, a.seed, a.board, sans_canal=a.sans_canal))
     except MontageError as e:
         print("\n[FAIL] MONTAGE : %s" % e)
         return 2

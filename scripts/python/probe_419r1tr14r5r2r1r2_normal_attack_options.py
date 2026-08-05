@@ -85,7 +85,7 @@ ROOT = PYDIR.parent.parent
 sys.path.insert(0, str(PYDIR))
 
 import hexgeo                                                        # noqa: E402
-from rl_collect_batch import _resolve_session                        # noqa: E402
+from rl_collect_batch import _resolve_session, bind_ambient_rpc      # noqa: E402
 
 import probe_247_splash_targeting as P247                            # noqa: E402
 import probe_436_taunt_targeting as P436                             # noqa: E402
@@ -292,7 +292,14 @@ def main(argv=None) -> int:
     print("=== #419-r1-tr14-r5-r2-r1-r2 -- options d'attaque normale PAR TYPE ===")
     print_table()
     try:
-        res = run(_resolve_session(), a.seed, a.board)
+        sid = _resolve_session()
+        # #448-r3-r1-r1 : ce montage GREFFE (par les modules qu'il pilote). Sans le canal
+        # `unitAbilityStates`, `services.custom_normal_attack` derive le type d'attaque normale du
+        # KIT gameconfig, qui ne connait pas la greffe -- le port serait AMPUTE et les assertions
+        # negatives passeraient a vide. Le foyer (`snapshot._refuse_if_grafted`) LEVE sans cela.
+        bind_ambient_rpc(sid)
+        print("[canal] `unitAbilityStates` LIE en ambiant (bind_live_rpc)")
+        res = run(sid, a.seed, a.board)
     except MontageError as e:
         print("\n[FAIL] %s" % e)
         return 2
