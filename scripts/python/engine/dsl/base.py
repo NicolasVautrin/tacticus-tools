@@ -773,15 +773,28 @@ def _is_alive(u) -> bool:
     return bool(u.get("alive", True)) and (u.get("hp") or 0) > 0
 
 
+# ── #270-r4-r2 : cet import est MODULE-LEVEL, et sa PLACE EN FIN DE FICHIER est fonctionnelle ──
+#
+# Il etait DIFFERE (dans le corps de `_default_get_stat`), donc invisible a l'import et paye a
+# chaque appel. Le hisser EN TETE leve un vrai `ImportError`, MESURE, pas redoute :
+#     engine.dsl.base -> engine.entities (init du PAQUET, inevitable) -> effects_state
+#     -> effects -> factory -> effects.loki -> ability_modifications -> entities.selectors
+#     -> selectors._shared -> `from ...dsl.base import TargetsSelector`  <- pas encore defini
+# `TargetsSelector` est defini plus haut dans CE fichier (classe unique lue par ce chemin) : place
+# ICI, l'import trouve un module deja complet pour ce dont la boucle a besoin, et l'echec eventuel
+# redevient DETERMINISTE (a l'import) au lieu de dependre du chemin d'execution.
+# Le remonter fait rougir `probe_270r4r2_import_en_premier.py`. La coupe qui rendrait cette place
+# indifferente est de sortir l'arbre des effets de `engine/entities/__init__.py` -- rayon mesure :
+# 41 fichiers lisent 9 symboles de ce paquet. Residu ouvert, cf. la fiche #270-r4-r2.
+from ..entities.stats import StatType   # noqa: E402
+
+
 def _default_get_stat(u, stat_type, variant, level):
     """Défaut dégradé de `ctx.get_stat` : seule la santé est captée offline (le vrai accès stats vient
     de `ctx.get_stat` fourni par la couche ability)."""
     # HARDCODE (degrade) : seul stat lisible dans le state offline {id,team,hp,alive,pos,visualId} ;
     # autres StatType -> 0 tant que ctx.get_stat reel absent.
     # TEMP : variant base/current/max non tranche (validator) -- on rend le hp COURANT (natif lit maxHP).
-    # Import LOCAL (#270-r4) : `engine.dsl.base` est importe par `engine.entities.stats` en amont
-    # de la definition de `StatType` -- un import module-level y ferait un cycle.
-    from ..entities.stats import StatType
     if stat_type == StatType.HEALTH:               # 5
         return u.get("hp") or 0
     return 0

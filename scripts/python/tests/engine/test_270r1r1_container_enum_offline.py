@@ -423,34 +423,53 @@ def test_etage3_lookup_par_int_brut_et_accesseurs_publics():
     assert hors.aura_amount_window() is None, "un type hors table doit rendre None"
 
 
-def test_etage4_static_battle_rules_garde_deportee_et_cycle_encore_present():
-    """ETAGE 4 -- le compromis de `services/static_battle_rules.py`, et sa CONDITION DE
-    RETOURNEMENT, executable.
+def test_etage4_static_battle_rules_membres_et_place_des_imports():
+    """ETAGE 4 -- `services/static_battle_rules.py` : les membres sont ECRITS AU SITE, et la
+    PLACE de ses deux imports d'enum est ce qui le permet.
 
-    Ce fichier garde ses ordinaux : `engine/services/` est la couche que `engine/entities/` et
-    `engine/runner/` importent tous deux ; un `from ..entities.effect_type import EffectType` au
-    niveau module initialise le paquet `engine.entities`, qui tire `effects/loki/hits.py`, qui
-    ré-importe `services.static_battle_rules` -> `ImportError` sur `TILE_STATUS_EFFECT_NAMES`.
-    MESURE, pas redoute.
+    CE QUI A CHANGE (#270-r4-r2), et pourquoi cet etage a change de NATURE. La version
+    precedente gardait un COMPROMIS : ce fichier conservait ses ordinaux, la garde etait
+    deportee ici, et la condition de retournement ecrite etait « le jour ou `engine.entities`
+    n'importera plus `services.static_battle_rules` ». Cette condition etait TROP FORTE -- elle
+    est TOUJOURS FAUSSE (le paquet tire toujours cet arbre, et l'assertion `DEPEND` qui le
+    mesurait passerait encore), et la conversion est pourtant FAITE.
 
-    La protection que la regle vise (qu'un ordinal ne se perime pas EN SILENCE) est obtenue ici :
-    on confronte les valeurs aux MEMBRES, donc un renumerotage du build fait rougir exactement
-    comme si le membre etait ecrit au site.
+    Ce qui l'a debloquee n'est pas la disparition du cycle mais sa LECTURE : la boucle
+        services.static_battle_rules -> engine.entities (init) -> effects_state -> effects
+        -> factory -> effects.loki -> hits.py -> `from ....services.static_battle_rules import
+           TILE_STATUS_EFFECT_NAMES`
+    ne lit QU'UN symbole de ce module. Il suffit donc que les deux imports d'enum soient places
+    APRES sa definition -- ce qui reste un import MODULE-LEVEL (deterministe a l'import), pas un
+    import differe (paye a chaque appel, et dont l'echec dependrait du chemin d'execution).
 
-    Et le compromis se RETOURNE tout seul : la seconde moitie du test tente l'import interdit
-    DEPUIS UN INTERPRETEUR NEUF (le paquet est deja charge dans celui-ci, donc y tenter l'import
-    ne prouverait rien) et ROUGIT s'il REUSSIT -- ce jour-la, la conversion redevient possible et
-    le residu #270-r1-r1-r1 se ferme.
+    Le test garde donc DEUX choses, et la seconde est ce qui rend la premiere durable :
+      * les valeurs sont des MEMBRES (un renumerotage du build fait rougir) ;
+      * remonter ces imports EN TETE du fichier casse -- verifie EN MUTANT une copie du module
+        dans un interpreteur NEUF. Sans cette contre-epreuve, l'etage serait vert meme si la
+        contrainte de placement avait disparu, et personne ne saurait qu'elle est encore la.
     """
-    assert SBR.TILE_STATUS_EFFECT_TYPES == {int(EffectType.Darkness), int(EffectType.Fire),
-                                            int(EffectType.Ice), int(EffectType.Contaminated),
-                                            int(EffectType.DespoiledGround)}
-    assert SBR._MOVEMENT_BLOCKING_EFFECT_TYPES == {int(EffectType.BlockEnteringUnits),
-                                                   int(EffectType.Fire), int(EffectType.Ice)}
-    assert SBR.BLOCK_ENTERING_UNITS_EFFECT_TYPE == int(EffectType.BlockEnteringUnits)
-    assert SBR._MOVEMENT_EXEMPT_TRAIT_IDS == (int(UnitTrait.Mounted), int(UnitTrait.Vehicle),
-                                              int(UnitTrait.Unstoppable))
-    assert SBR._DARKNESS_EXEMPT_TRAIT_IDS == (int(UnitTrait.NightVision),)
+    assert SBR.TILE_STATUS_EFFECT_TYPES == {EffectType.Darkness, EffectType.Fire,
+                                            EffectType.Ice, EffectType.Contaminated,
+                                            EffectType.DespoiledGround}
+    assert SBR._MOVEMENT_BLOCKING_EFFECT_TYPES == {EffectType.BlockEnteringUnits,
+                                                   EffectType.Fire, EffectType.Ice}
+    assert SBR.BLOCK_ENTERING_UNITS_EFFECT_TYPE == EffectType.BlockEnteringUnits
+    assert SBR._MOVEMENT_EXEMPT_TRAIT_IDS == (UnitTrait.Mounted, UnitTrait.Vehicle,
+                                              UnitTrait.Unstoppable)
+    assert SBR._DARKNESS_EXEMPT_TRAIT_IDS == (UnitTrait.NightVision,)
+    # ⚠ ce sont bien des MEMBRES, pas des ints : `int == IntEnum` serait vrai des deux facons.
+    for nom, lot in (("TILE_STATUS_EFFECT_TYPES", SBR.TILE_STATUS_EFFECT_TYPES),
+                     ("_MOVEMENT_BLOCKING_EFFECT_TYPES", SBR._MOVEMENT_BLOCKING_EFFECT_TYPES)):
+        assert lot, "%s est VIDE -- une assertion sur un ensemble vide passerait toute seule" % nom
+        for v in lot:
+            assert isinstance(v, EffectType), "%s porte un ordinal nu : %r" % (nom, v)
+    for nom, lot in (("_MOVEMENT_EXEMPT_TRAIT_IDS", SBR._MOVEMENT_EXEMPT_TRAIT_IDS),
+                     ("_DARKNESS_EXEMPT_TRAIT_IDS", SBR._DARKNESS_EXEMPT_TRAIT_IDS)):
+        assert lot, "%s est VIDE" % nom
+        for v in lot:
+            assert isinstance(v, UnitTrait), "%s porte un ordinal nu : %r" % (nom, v)
+    assert isinstance(SBR.BLOCK_ENTERING_UNITS_EFFECT_TYPE, EffectType)
+
     # le predicat rend bien ces traits-la, pour les types annonces
     assert SBR.not_blocking_movement_of_traits(int(EffectType.Fire)) \
         == SBR._MOVEMENT_EXEMPT_TRAIT_IDS
@@ -458,25 +477,42 @@ def test_etage4_static_battle_rules_garde_deportee_et_cycle_encore_present():
         == SBR._DARKNESS_EXEMPT_TRAIT_IDS
     assert SBR.not_blocking_movement_of_traits(int(EffectType.Markerlight_Visual)) == ()
 
-    # ⚠ LE CRITERE EST LA CAUSE, PAS LE SYMPTOME. Une premiere version de ce test importait
-    # simplement les deux modules dans un interpreteur neuf et exigeait un echec : elle etait
-    # VERTE A TORT (elle passait sur `master` avant meme la conversion), parce que l'import
-    # interdit n'est PAS ecrit dans le fichier -- il n'y a donc rien a faire echouer. Ce qui rend
-    # l'import impossible est une propriete du GRAPHE : le paquet `engine.entities` importe
-    # TRANSITIVEMENT `engine.services.static_battle_rules` (via `effects/loki/hits.py`, qui lit
-    # `TILE_STATUS_EFFECT_NAMES`). Tant que c'est vrai, ajouter l'import inverse ferme le cycle.
-    import subprocess
-    code = ("import sys; sys.path.insert(0, %r)\n"
-            "import engine.entities\n"
-            "print('DEPEND' if 'engine.services.static_battle_rules' in sys.modules else 'LIBRE')\n"
-            % str(PYDIR))
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(PYDIR))
-    assert r.returncode == 0, "la mesure du graphe d'import a echoue : %r" % r.stderr[-400:]
-    assert "DEPEND" in r.stdout, (
-        "le CYCLE A DISPARU : `engine.entities` n'importe plus `services.static_battle_rules`, "
-        "donc `static_battle_rules` peut desormais importer `entities.effect_type` au niveau "
-        "module. Le compromis de l'etage 4 n'a plus lieu d'etre -- convertir les trois "
-        "collections en membres et fermer #270-r1-r1-r1. stdout=%r" % r.stdout)
+    # ── CONTRE-EPREUVE : la contrainte de PLACEMENT est-elle encore reelle ? ──────────────────
+    # On MUTE le fichier (les deux imports remontes juste apres `from __future__`) dans un
+    # arbre temporaire, et on exige l'ImportError. Un vert ici voudrait dire que la contrainte a
+    # disparu -> l'encadre du module et cette docstring sont a reecrire, pas a garder tels quels.
+    import subprocess, shutil, tempfile, ast, os
+    src = (PYDIR / "engine/services/static_battle_rules.py").read_text(encoding="utf-8")
+    lignes = src.splitlines(keepends=True)
+    a_deplacer = [l for l in lignes
+                  if l.startswith("from ..entities.effect_type import")
+                  or l.startswith("from ..entities.traits.unit_trait import")]
+    assert len(a_deplacer) == 2, (
+        "les deux imports d'enum ne sont plus ecrits au niveau module dans "
+        "`static_battle_rules.py` -- la contre-epreuve ne mesure plus rien : %r" % a_deplacer)
+    reste = [l for l in lignes if l not in a_deplacer]
+    i_fut = next(i for i, l in enumerate(reste) if l.startswith("from __future__"))
+    mute = "".join(reste[:i_fut + 1] + ["\n"] + a_deplacer + reste[i_fut + 1:])
+    assert mute != src, "la mutation n'a pas mordu"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        arbre = Path(tmp) / "arbre"
+        shutil.copytree(PYDIR / "engine", arbre / "engine",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        for f in ("gameconfig.py", "hexgeo.py"):
+            if (PYDIR / f).exists():
+                shutil.copy2(PYDIR / f, arbre / f)
+        (arbre / "engine/services/static_battle_rules.py").write_text(mute, encoding="utf-8")
+        env = dict(os.environ, PYTHONPATH=str(arbre) + os.pathsep + str(PYDIR))
+        r = subprocess.run([sys.executable, "-c", "import engine.services.static_battle_rules"],
+                           capture_output=True, text=True, cwd=str(arbre), env=env)
+    assert r.returncode != 0, (
+        "LES IMPORTS SONT REMONTABLES EN TETE : la contrainte de placement de "
+        "`static_battle_rules.py` a disparu. Remonter les deux imports et reecrire l'encadre du "
+        "module ET cette docstring -- ne pas laisser une prescription perimee. stdout=%r" % r.stdout)
+    assert "ImportError" in r.stderr or "circular" in r.stderr, (
+        "l'import mute echoue, mais PAS pour la cause attendue (cycle) -- la contre-epreuve "
+        "accuse peut-etre le montage : %r" % r.stderr[-500:])
 
 
 #: Les structures de cette tranche, par leur NOM tel qu'il s'ecrirait a un site de mutation.
