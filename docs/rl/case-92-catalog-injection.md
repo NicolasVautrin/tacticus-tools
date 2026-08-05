@@ -265,9 +265,34 @@ out = R._rpc(sid, "buildNormalizedBC", [args], timeout=60)["result"]
 **Ce que la greffe NE couvre PAS**, et qu'il faut ecrire dans le rapport : les stats, traits et armes
 du VRAI porteur — donc toute interaction de la mecanique avec eux. Elle est donc legitime pour un
 terme qui ne lit ni stats ni traits du caster (un terme de playbook qui lit `BC.Utilities` + l'etat du
-board), et NON pour une prediction de degat. Debloqueur nomme du verrou lui-meme : donner a
-`buildNormalizedBC` un chemin de stats explicite pour summons/npc, au lieu de
-`IStatsFormula.StatsUsingProgressionIndexFor`.
+board), et NON pour une prediction de degat.
+
+**4. CHEMIN DE STATS EXPLICITE — le recours qui rend la greffe INUTILE (#419-r1-tr12-r2).**
+Le verrou n'est pas le catalogue, c'est l'etage 2 : `buildNormalizedBC` n'avait QU'UNE formule,
+celle des HEROS. Le natif en a deux autres, NOMMEES, desormais mirrorees et cablees :
+
+```bash
+python rl_duel.py build --board MC1_67 --state-file <absolu>.json \
+       --explicit-stats admecNpc3Electropriest:33 --p-units admecNpc3Electropriest:33
+python catalog_inject.py --explicit-stats admecNpc3Electropriest:33   # le patch, hors ligne
+python catalog_inject.py --explicit-stats-witness                     # le temoin, 0 divergence
+```
+
+* **NPC** -> `IdunMetaLogic.UserProgress.UnitProgression$$GetNpcStats` ->
+  `idun.meta.extensions.UnitConfigExtensions$$GetStatsForLevel` = `units.npc[id].stats[]`, palier =
+  suffixe `:<n>` de l'unitId (`idun.shared.UnitNamingConventions$$GetLevelFromUnitId`, **defaut 1**),
+  clamp HAUT seulement. 491/491 npc portent la table. L'unite arrive avec SES stats, SES traits,
+  SES armes — la greffe n'est plus necessaire.
+* **SUMMON** -> `$$GetSummonStats` = les variables `summon*` de l'ability qui invoque. ⚠ Les 65
+  entrees summon du seed BC portent `Health = 0`, **ecrit par le jeu** : leurs stats sont posees au
+  SPAWN (`IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$GetStatsToOverride`), pas au catalogue.
+  Ecrire des stats sur une entree summon est donc un MONTAGE (etat post-spawn), et `explicit_stats`
+  le DIT (`source = "summon-spawn"` vs `"npc"`).
+
+Quand le porteur summon a un jumeau NPC (memes `passiveAbilities`, meme arme, meme `Movement` —
+c'est le cas de `admecSmnElectropriest` / `admecNpc3Electropriest`), **prendre le NPC** : c'est le
+mirror, pas le montage. Detail, temoins, contre-epreuves et limites :
+`docs/rl/case-419-r1-tr12-r2-stats-npc-summon.md`.
 
 ## 5ter. La RELIQUE — un TROISIEME catalogue, et un verrou de NIVEAU (#237)
 
