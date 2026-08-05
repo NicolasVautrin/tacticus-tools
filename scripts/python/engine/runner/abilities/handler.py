@@ -246,6 +246,64 @@ class AbilityHandler:
         self.unported: set[int] = set()
 
     def visit_ActiveAbilityMessage(self, msg) -> None:
+        """`IdunBattle.Messages.InputMessageProcessor$$Visit(ActiveAbilityMessage)` — le VISITEUR
+        DE MESSAGE, et son gate, qui PRECEDENT toute operation. Mirror du decompile :
+
+            caster = state.GetEntity(message.CasterId@0x10);
+            target = state.GetEntity(message.TargetId@0x14);
+            abilityType = message.ActiveAbilityType@0x18;
+            if (!UnitExtensions.IsAliveAndNotFled(caster)
+             || !UnitExtensions.IsAliveAndNotFled(target)) {
+                AddBattleReporterDataForRejectedActiveAbilityMessage(...);   // INLINE ; ne loggue
+                return;                                                       // QUE le caster mort
+            }
+            RunPhase(6, () => {                       // <- rien de tout ceci n'est atteint
+                streamHelper.OpenGroup(0xc User_UseAbility, casterId, abilityType, targetId);
+                operationProcessor.ActiveAbility(caster, target, abilityType, options);
+                streamHelper.CloseGroup();
+            });
+
+        #429-r1-r3 -- POURQUOI CE GATE EST ICI, ET PAS CELUI D'`ExecuteInternal`. Le gate
+        cible-morte de l'OPERATION (`ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility`,
+        #429-r1) DEROGE pour l'unique porteur du bit 38 `AllowDeadTarget` -- `GreatFrostAxe`
+        (1089), dont `CanContinueOnDeadTarget()` rend vrai. Celui-ci NE DEROGE PAS : il ne lit ni
+        l'ability ni ses `TargetingOptions`. Les deux coexistent dans le natif, a deux RANGS
+        differents, et c'est ce qui explique la derniere divergence de la famille : 1089 echappe
+        bien au gate d'operation (mirror correct), puis le natif le refuse ICI.
+
+        L'ETAGE EST MESURE, pas deduit (`probe_429r1r3_dead_target_message_gate.py --volet
+        signature`) : le compte d'evenements de stream SEPARE les deux rangs, parce que le groupe
+        `User_UseAbility` est ouvert par la lambda de ce Visit, donc APRES ce gate et AVANT
+        l'operation --
+          * cast sur un CADAVRE (1089 comme 1003)          -> **0** evenement, aucun groupe ;
+          * cast hors PORTEE sur une cible VIVANTE          -> **2** evenements, groupe 12 ;
+          * cast legal                                      -> 43 evenements.
+        Un refus au rang de l'OPERATION ouvre donc le groupe ; celui-ci ne l'ouvre pas.
+
+        CONVENTION PERMISSIVE sur ce qui n'est pas RESOLU (meme regle que `targeting.py`) :
+        `target_id is None` (le port modelise ainsi « pas de cible », le natif n'a que des ids) et
+        entite absente de l'etat -> aucun refus. On ne gate que sur une entite RESOLUE dont
+        `is_alive_and_not_fled` rend faux."""
+        from ..components import is_alive_and_not_fled
+        for role, eid in (("caster", msg.caster_id), ("target", msg.target_id)):
+            if eid is None:
+                continue
+            ent = self.state.get_entity(int(eid))
+            if ent is None or is_alive_and_not_fled(ent):
+                continue
+            self.last = {"ability_type": msg.ability_type, "ported": None,
+                         "caster": msg.caster_id, "target": msg.target_id,
+                         "not_alive_and_not_fled": role}
+            return
+        self._active_ability_operation(msg)
+
+    def _active_ability_operation(self, msg) -> None:
+        """`Core.Services.OperationProcessor$$ActiveAbility` -> `IdunBattle.Operations.
+        ActiveAbilityOperation$$Execute` -> `$$ExecuteInternal` : tout ce que le natif fait UNE
+        FOIS le gate de message passe. Appele par le visiteur ci-dessus ET par la RE-ENTREE
+        `ExecuteForReplacedTarget` -- qui, cote natif, appelle `ActiveAbilityOperation$$Execute`
+        DIRECTEMENT, sans repasser par `InputMessageProcessor$$Visit` : le gate de message ne doit
+        donc PAS s'y appliquer, d'ou cette separation."""
         # #70 GATE ACTEUR-MORT (mirror `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
         # `if (EntityExtensions.IsUnit(caster) && UnitExtensions.IsDead(caster)) return 0;`). Un caster MORT
         # (hp<1, non-Fled ; `IdunBattle.Entities.UnitExtensions$$IsDead`) => l'ability est un NO-OP complet AVANT toute
@@ -375,7 +433,14 @@ class AbilityHandler:
         enrichi de la tracabilite du remplacement.
 
         `new_target is None` (tuile videe pendant la cascade) : no-op complet, cf.
-        `operations/active_ability.execute_for_replaced_target`."""
+        `operations/active_ability.execute_for_replaced_target`.
+
+        ⚠ La re-entree passe par `_active_ability_operation`, PAS par `visit_ActiveAbilityMessage` :
+        le natif re-entre dans `ActiveAbilityOperation$$Execute` sans repasser par
+        `InputMessageProcessor$$Visit`, donc SANS son gate de message (#429-r1-r3). L'ecart serait
+        inerte en pratique (`resolve_replaced_target` ne rend qu'un occupant VIVANT, cf.
+        `operations/active_ability.get_unit`), mais un gate pose au mauvais rang est un fork, et
+        c'est exactement ce que #120 avait ferme sur ce meme etage."""
         from ..messages import ActiveAbilityMessage
         caster, ability_type = int(msg.caster_id), int(msg.ability_type)
         self.last = {"ability_type": ability_type, "ported": ability is not None,
@@ -384,7 +449,7 @@ class AbilityHandler:
                      "replaced_aborted": True}
 
         def _reenter(target_id: int):
-            self.visit_ActiveAbilityMessage(ActiveAbilityMessage(caster, target_id, ability_type))
+            self._active_ability_operation(ActiveAbilityMessage(caster, target_id, ability_type))
             if isinstance(self.last, dict):
                 self.last["replaced_from"] = msg.target_id
                 self.last["replaced_target"] = target_id
