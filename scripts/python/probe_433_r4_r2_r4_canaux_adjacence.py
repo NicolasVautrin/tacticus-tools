@@ -63,14 +63,20 @@ def _montage(pick_idx=0):
         return None, {"error": "build KO : %s" % err}
     try:
         elev, native_nb = P._board_maps(sid, rid)
+        # `walkable` du `boardGraph` : sans ce filtre, la 1re paire d'un board a fort relief tombe
+        # regulierement sur une tuile ou `applyAction move` ne POSE PAS l'unite -- le montage rend
+        # alors « positions non atteintes », ce qui accuse le board et non le port.
+        bg = P._r(sid, "boardGraph", {"runnerId": rid}, 60)
+        walk = {(t["col"], t["row"]): t.get("walkable") for t in (bg.get("tiles") or [])}
     finally:
         P._dispose(sid, rid)
     paires = []
     for O in sorted(elev):
-        if elev[O] is None:
+        if elev[O] is None or walk.get(O) is False:
             continue
         hi = [q for q in hexgeo.neighbors(O[0], O[1])
-              if elev.get(q) is not None and abs(elev[q] - elev[O]) >= 2]
+              if elev.get(q) is not None and walk.get(q) is not False
+              and abs(elev[q] - elev[O]) >= 2]
         if hi:
             paires.append((O, hi[0]))
     if not paires:
