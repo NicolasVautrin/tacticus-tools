@@ -85,25 +85,31 @@ territoire). Il n'y a **aucun** groupe du déroulé dont l'opération native ser
 ⚠ `Effect_Refresh` est le motif **transversal** : il apparaît imbriqué dans presque tous les
 groupes racines. Le porter tôt paie partout.
 
-## 4. `Source=` — tranché par le GROUPE, jamais par le nom
+## 4. `Source=` — tranché par le PRODUCTEUR, ni par le nom ni par le groupe
 
 Sur le flux témoin : **68** valeurs distinctes, **67** non vides (le déploiement seul n'en montrait
-que 8). L'attribution se fait par le **producteur**, qui est unique par groupe :
+que 8). **Toutes** tombent dans un mirror déjà présent — il n'y a **aucune** source orpheline.
 
-| groupe | sources distinctes | enum | comment il est LU |
-|---|---:|---|---|
-| `Effect_Refresh` | 39 | **`EffectType` 39/39** | `EffectComponent.EffectType` **@0x58**, champ lu par `IdunBattle.Operations.RefreshEffectsOperation$$GenerateEventGroup` puis `System.Enum$$ToString` |
-| `Ability_Power` | 31 | `TriggeredAbilityType` **27/31** | producteur = le trigger d'ability |
-| `User_UseAbility` | 3 | `ActiveAbilityType` **3/3** | producteur = le cast |
+| groupe | sources distinctes | ce que le producteur LIT |
+|---|---:|---|
+| `Effect_Refresh` | 39 | `EffectComponent.EffectType` **@0x58** — `IdunBattle.Operations.RefreshEffectsOperation$$GenerateEventGroup`, puis `System.Enum$$ToString` |
+| `Ability_Power` | 31 | **TROIS producteurs, trois types** (ci-dessous) |
+| `User_UseAbility` | 3 | l'`ActiveAbilityType` du cast |
 
 ⚠ **Le nom ne discrimine pas** : **12** des 31 sources d'`Ability_Power` sont des membres valides
 de **plusieurs** enums à la fois (`Ambush`, `BigTarget`, `TeleportStrike`, `TerminatorArmour`…).
-C'est le **champ lu par le producteur** qui tranche, pas la chaîne. Les mirrors existent tous
-(`engine/entities/effect_type.py`, `active_ability_type.py`, `triggered_ability_type.py`) et
-`format_enum_value` fait déjà le rendu — **`Source=` n'est un mur pour aucun groupe du déroulé**.
+⚠ **Le groupe non plus** : `Ability_Power` est ouvert par **trois** producteurs distincts, et
+chacun boxe un type différent —
+`EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` lit `EffectComponent@0x58` (`EffectType`,
+même `Il2CppClass*` que `RefreshEffectsOperation`), tandis que
+`TriggerTriggeredAbilityOperation$$TriggerAbility` et
+`EvaluateTriggerOperation$$EvaluateAbilityTrigger` boxent un **autre** `Il2CppClass*`, alimenté par
+des porteurs nommés `abilityName` / `sortedTriggeredAbility` (`TriggeredAbilityType`).
 
-Reste ouvert : **4** sources d'`Ability_Power` sur 31 ne tombent dans aucun des quatre mirrors
-essayés (résidu `#477-r18-r1`).
+⇒ **L'unité d'attribution est le SITE, pas le groupe.** Les mirrors existent tous
+(`engine/entities/effect_type.py`, `active_ability_type.py`, `triggered_ability_type.py`) et
+`format_enum_value` fait déjà le rendu : **`Source=` n'est un mur pour aucun groupe du déroulé** —
+le travail est de lire, site par site, le champ que le producteur boxe.
 
 ## 5. Le flux ne nomme pas le kit — non bloquant pour COMPARER
 
@@ -151,10 +157,11 @@ puis `User_EndTurn` (+2/+2/+2), qui l'englobe.
 
 ## Résidus
 
-- **#477-r18-r1** — **4 sources d'`Ability_Power` sur 31 ne tombent dans aucun mirror**
-  (`EffectType`, `ActiveAbilityType`, `TriggeredAbilityType`, `UnitTrait`). Condition de
-  retournement : lire le champ dont le producteur d'`Ability_Power` fait `Enum.ToString`, comme
-  `EffectComponent.EffectType@0x58` l'a tranché pour `Effect_Refresh`.
+- **#477-r18-r1** — **le troisième `Il2CppClass*` boxé par `EvaluateTriggerOperation$$EvaluateAbilityTrigger`
+  n'est pas nommé.** Cette fonction fait **trois** `Enum.ToString` sur **deux** types différents ; le
+  second n'a été rattaché à aucun mirror. Condition de retournement : nommer ce `Il2CppClass*` (par
+  un autre site qui l'initialise et appelle une méthode de la classe), puis vérifier que les sources
+  qu'il produit sont bien celles du flux.
 - **#477-r18-r2** — **`GroupType.User_RemoveUnit` n'a aucun producteur lu**, alors que les 14
   autres racines en ont un. Condition de retournement : trouver la surcharge de
   `InputMessageProcessor$$Visit` qui l'ouvre, ou établir qu'aucune ne le fait (dead code).
