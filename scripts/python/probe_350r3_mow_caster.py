@@ -866,8 +866,12 @@ def _ctx_with_groups(sid, rid, cid, groups):
     eux, `AiDecisionContext.machine_of_war_position` retombe sur le slot d'une MoW DEPLOYEE
     (`decisionView.mows`), et le montage GREFFE n'en a aucune -> `None` -> le predicat
     `IsPositionMachineForCurrentPlayer` rend False -> `dir = 4` au lieu de 1, donc la MAUVAISE
-    zone-triangle. C'est le residu d'outillage nomme par `case-302` : aucun RPC n'expose les groupes
-    par runner, l'appelant qui monte le runner les LIT dans le state-file."""
+    zone-triangle. L'appelant qui monte le runner les LIT donc dans le state-file.
+
+    ⚠ « aucun RPC n'expose les groupes par runner » etait FAUX (corrige #302 tranche 5) :
+    `boardGraph.mowPositions` publie depuis #311 le retour de
+    `GetPositionMachineForPlayer(player)` INVOQUE, et `AICTX.build` le lit desormais tout seul --
+    ce montage explicite n'est plus une necessite, seulement un TEMOIN."""
     from engine import weights as W
     from engine.playbook import scene as _scene
     from engine.ai import context as AICTX

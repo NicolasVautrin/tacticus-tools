@@ -5,7 +5,7 @@ Chantier ouvert par la tranche 4g de `case-27` (PR #313), qui a re-qualifie le v
 cible**. Cette fiche etablit l'INVENTAIRE (RE au decompile `rnca9r7q6c`), pose la premiere tranche
 et decoupe explicitement les suivantes.
 
-**Etat : tranches 1 (§6), 2, 3 (§8) et 4 LIVREES.** Seule la tranche 5 reste ouverte (§7).
+**Etat : tranches 1 (§6), 2, 3 (§8), 4 et 5 LIVREES.** Le chantier est CLOS cote decision (§7).
 La tranche 2 a sa fiche propre : **`case-302-2-prediction-tile-target.md`** — elle porte le terme de
 PREDICTION de 1169 et degage le **patron valable pour tout tile-target a degat**.
 
@@ -306,13 +306,24 @@ annoncait :
   le champ lu par `GetValidTargets` est `AActiveAbility+0x70`, PAS le second jeu d'options
   `+0xb0` (`TargetingOptionsForContinue`), qu'un slot virtuel peut surcharger.
 
-### Tranche 5 (outillage, exige un reinject — a grouper avec un autre besoin de reinject)
+### Tranche 5 — LIVREE : le canal etait DEJA publie, il manquait le FIL
 
-Deux angles morts du harnais, tous deux dans `frida/hooks/features/ai-step/` :
+> ⚠ **Le verrou annonce par cette section etait FAUX** (mesure du 2026-08-06), sur le meme patron
+> que `#27-r8`. Elle affirmait « exige un reinject » en nommant un champ **a ajouter**
+> (`boardGraph.spawnGroups`) — alors qu'un **autre champ du MEME RPC**, livre par `#311` dans le
+> **meme commit hooks** (`de7879b2`) et deploye par le **meme reinject**, publiait deja la reponse,
+> et **mieux**. Le port, lui, appelait deja `boardGraph` et jetait tout sauf `tiles`. Zero reinject,
+> zero RPC supplementaire. **Un verrou doit nommer le canal que le CONSOMMATEUR lit, et se verifier
+> dans le bundle INJECTE avant d'etre ecrit.**
 
-1. `rpc-targeting.ts::mapTargets` n'emet pas d'`id` sur `kind == "tile"` alors que `forEachEntity`
-   l'indexe (`EntityType.Tile`). Le port s'en passe par `boardGraph`, donc c'est **confort**, pas
-   blocage.
+Trois points, dont un seul demande encore une fenetre :
+
+1. **`rpc-targeting.ts::mapTargets` n'emet pas d'`id` sur `kind == "tile"`** alors que
+   `forEachEntity` l'indexe (`EntityType.Tile`). Le port s'en passe par `boardGraph`, donc c'est
+   **confort**, pas blocage. **Code ECRIT et COMPILE** (bundle `rc 0` ; `tsc -p tsconfig.hooks.json`
+   : 0 erreur sur ce fichier), en attente de la prochaine fenetre de reinject. L'id est emis
+   **accompagne de `targetEntityType`** : publier l'id nu ferait passer pour une tuile toute entite
+   tombee dans la branche par defaut — le canal se decrit lui-meme, comme `pairUtility` (#302-t5).
 2. ~~`rpc-predict.ts::pairUtility` ne resout `targetId` que sur `EntityType.Unit`~~ — **CLOS, et
    cette ligne etait PERIMEE des la tranche 2.** Le commit hooks `#302-t5` resout la cible sur TOUS
    les `EntityType` et publie `targetEntityType` : `pairUtility(caster, <tileEntityId>, ability)`
@@ -321,16 +332,38 @@ Deux angles morts du harnais, tous deux dans `frida/hooks/features/ai-step/` :
    identique a 1e-12 selon qu'on passe la TUILE ou l'UNITE qui l'occupe. La tranche 2 valide donc
    par etage ET par la decision complete. ⚠ La ligne restait ecrite ici alors que le correctif
    etait deja au depot : **verifier le hook AVANT de conclure « pas d'oracle »**.
-3. **AUCUN RPC n'expose la config de spawn D'UN RUNNER** (ajout tranche 3). Le predicat
-   `IsPositionMachineForCurrentPlayer` lit `BattleQuery+0x78` =
-   `SpawnPointSetConfiguration`, dont le port a besoin du champ
-   `SpawnPointGroupConfiguration+0x14` (`MachineOfWarPosition`). `inspectSpawnPoints`
-   (`frida/hooks/features/battle-config.ts`) lit la BC **LIVE** (pas un runner) et **n'emet pas ce
-   champ** — les deux manques sont a corriger ensemble. Point d'ancrage le plus economique :
-   `boardGraph`, qui tient deja le `BattleQuery` du runner (`services + <Battle>`), et n'aurait qu'a
-   ajouter `spawnGroups: [{teamWithPlayerIndex, machineOfWarPosition}]`. Contournement en place :
-   l'appelant qui MONTE le runner passe les groupes a `engine_decide(..., spawn_groups=...)` en les
-   lisant dans la BC de son state-file.
+3. ~~**AUCUN RPC n'expose la config de spawn D'UN RUNNER**~~ — **CLOS, et l'enonce visait le
+   MAUVAIS CHAMP.** `boardGraph` publie `mowPositions: [{playerId, teamId, machineOfWarPosition}]`
+   depuis `#311`. Ce champ est **strictement meilleur** que le `spawnGroups` reclame ici : au lieu
+   des groupes BRUTS — que le port devrait re-traverser par un mirror de `GroupForPlayer` — il porte
+   le retour de `IdunBattle.Core.Services.BattleQuery$$GetPositionMachineForPlayer(player)`
+   **INVOQUE**, donc la valeur EFFECTIVE, repli natif compris. Et il est **plus fidele que notre
+   mirror** : le natif lit `playerNr` de `IdunBattle.Entities.StateExtensions$$GetTeam(state)`
+   (`local_res10 >> 0x20` au decompile) la ou `machine_of_war_position_for_player` le **devine a 0**.
+
+   **Ce que la tranche a livre** (Python pur, `engine/ai/context.py`) :
+   - `_board_graph` cache la **REPONSE** de `boardGraph` et non ses seules `tiles` — le champ
+     voyageait deja dans cet objet et etait jete a la ligne suivante, d'ou **0 RPC** de plus ;
+   - `_board_mow_positions` -> `{playerId: MachineOfWarPosition}`, **tri-etat preserve** du hook
+     (`None` = pas mesure, `{}` = mesure et vide). Une entree en ERREUR est **ECARTEE**, jamais
+     rabattue sur `0` — `0` est une valeur **LEGITIME** (`MachineOfWarPosition.None_`), portee par
+     la majorite des plateaux ;
+   - `_machine_of_war_position` gagne un **cran 0** : le natif invoque passe devant le mirror de la
+     BC, qui reste le seul canal du chemin **OFFLINE** (`build_from_state`, sans RPC).
+
+   **Le gain, chiffre sur le consommateur final** (`probe_302_3 --decision`, board `MC1_67`) : le
+   bras `nogroups` (canal BC coupe, c.-a-d. le regime de **tout** appelant qui ne connait pas la BC
+   — `engine_validate`, la collecte RL, le self-play) visait la tuile **53** quand le natif vise
+   **52**. Apres la tranche : **52**. C'est exactement l'erreur que §8.2 avait diagnostiquee, et
+   elle survivait pour tous les appelants qui ne passaient pas `spawn_groups` a la main.
+
+   **Le cran de repli `decisionView.mows` est structurellement MUET la ou le natif diverge** :
+   un groupe qui declare `MachineOfWarPosition.None_` ne deploie **aucune** MoW, donc `mows` y est
+   **vide** (mesure sur `C1_01`). Il ne pouvait donc jamais couvrir les plateaux discriminants.
+
+   Probe : `probe_302_5_mow_position_channel.py` (`--canal/--cascade/--d311/--boards`, `rc 0`) ;
+   garde : `tests/engine/test_302_5_mow_position_offline.py` (18 tests, etage **MUTANTS** — 5/5 des
+   mutations du vrai code la font rougir, `a_mordu` mesure et non suppose).
 
 ---
 

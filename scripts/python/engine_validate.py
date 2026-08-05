@@ -126,11 +126,17 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None,
 
     `spawn_groups` (#359-r3, OPTIONNEL, défaut `None` = comportement STRICTEMENT inchangé) : les
     `SpawnPointGroups` du SpawnPointSet ACTIF de la BC du runner, forwardées telles quelles à
-    `engine_decide`. Aucun RPC ne les expose par runner (résidu d'outillage `case-302`) : seul
-    l'appelant qui MONTE le runner les connaît, et il les lit dans son `--state-file`. Sans elles,
-    tout arbre dont la géométrie dépend du côté du plateau — `1148 DaemonicOrdnance` en tête —
-    marche sur la branche `else` de son `If`, donc sur le MAUVAIS triangle, et l'agreement compte
-    un désaccord qui n'accuse que le harnais."""
+    `engine_decide`. Seul l'appelant qui MONTE le runner les connaît, et il les lit dans son
+    `--state-file`.
+
+    ⚠ **Ce paramètre n'est plus NÉCESSAIRE depuis #302 tranche 5** — il reste accepté (et reste la
+    seule voie du chemin OFFLINE), mais `AiDecisionContext` lit désormais `boardGraph.mowPositions`,
+    c.-à-d. `BattleQuery$$GetPositionMachineForPlayer(player)` INVOQUÉ. La phrase écrite ici
+    jusqu'alors — « aucun RPC ne les expose par runner » — était FAUSSE : le champ existait depuis
+    #311. Sans ce câblage, tout arbre dont la géométrie dépend du côté du plateau
+    (`1148 DaemonicOrdnance` en tête) marchait sur la branche `else` de son `If`, donc sur le
+    MAUVAIS triangle (mesuré : tuile 53 au lieu de 52), et l'agreement comptait un désaccord qui
+    n'accusait que le harnais."""
     # Prédicteur OFFLINE capturé 1×/runner (combatSnapshot cold) — nourrit le scoring d'attaque
     # d'engine_decide SANS aiPredict live. None si combatSnapshot KO (le scoring d'attaque saute alors).
     predictor = _scene.build_predictor(lambda m, b, t: _r(sid, m, b, t), rid)

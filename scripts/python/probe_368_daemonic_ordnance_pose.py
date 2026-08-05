@@ -225,8 +225,11 @@ def _spawn_groups(state: Path):
 
 def _direction(rpc, rid, state: Path) -> int:
     """`dir` REEL = `If(IsPositionMachineForCurrentPlayer(2), 1, 4)`, calcule sur les
-    `SpawnPointGroups` de la BC que le runner EXECUTE (aucun RPC ne les expose -- residu d'outillage
-    deja nomme par `case-302`)."""
+    `SpawnPointGroups` de la BC que le runner EXECUTE.
+
+    ⚠ « aucun RPC ne les expose » etait FAUX (corrige #302 tranche 5) : `boardGraph.mowPositions`
+    publie depuis #311 le retour de `GetPositionMachineForPlayer(player)` INVOQUE. Ce calcul par la
+    BC reste un mirror valide -- il concorde 6/6 avec le natif sur les deux regimes mesures."""
     from engine.ai.context import _current_player_team
     from engine.services.machine_of_war_position import machine_of_war_position_for_player
     team = _current_player_team(_dv(rpc, rid))

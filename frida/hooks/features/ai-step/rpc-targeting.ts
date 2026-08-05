@@ -386,6 +386,13 @@ export function registerViewTargeting(ctx: Ctx): void {
             kind: "unit" | "tile"; targetId?: number; visualId?: string | null;
             pos?: { col: number; row: number } | null;
             tile?: { col: number; row: number };
+            // #302 tranche 5 — sur `kind: "tile"`, l'id de l'ENTITÉ de tuile quand
+            // `forEachEntity` l'a indexée, ACCOMPAGNÉ de son `EntityType`. Publier l'id nu
+            // ferait passer pour une tuile n'importe quelle entité tombée dans la branche
+            // par défaut ; le canal se décrit donc lui-même, comme `targetEntityType` de
+            // `pairUtility` (#302-t5). Les DEUX restent ABSENTS quand l'entité n'est pas
+            // indexée — jamais fabriqués.
+            targetEntityType?: number;
         };
         interface AbilTargets {
             abilityId: number; ability: string; kind: string;
@@ -418,7 +425,15 @@ export function registerViewTargeting(ctx: Ctx): void {
                         pos: posById.get(info.id) ?? { col: p.col, row: p.row },
                     });
                 } else {
-                    out.push({ kind: "tile", tile: { col: p.col, row: p.row } });
+                    // #302 tranche 5 — `forEachEntity` INDEXE les `EntityType.Tile` : l'id
+                    // était disponible ici et jeté. C'est celui qu'`applyAction` attend comme
+                    // cible d'une self-cast AoE (`findTileEntityId`) et que `pairUtility`
+                    // résout désormais sur TOUS les `EntityType`. Le port s'en passait par
+                    // `boardGraph` (d'où « confort, pas blocage ») ; l'émettre ici évite
+                    // l'aller-retour et le ré-appariement par coordonnées.
+                    const t: Tgt = { kind: "tile", tile: { col: p.col, row: p.row } };
+                    if (info) { t.targetId = info.id; t.targetEntityType = info.ty; }
+                    out.push(t);
                 }
             }
             return out;

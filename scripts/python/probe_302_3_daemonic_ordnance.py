@@ -165,8 +165,12 @@ def spawn_groups(state_name: str):
 
     `rl_duel build` ecrit la BC normalisee dans son state-file : c'est litteralement l'objet que
     `buildRunner` a consomme, donc la MEME structure que `BattleQuery+0x78`
-    (`Board.SpawnPointSets[SpawnPointSetIndex].SpawnPointGroups`). Aucun RPC ne l'expose par runner
-    -- c'est le residu d'outillage nomme par `case-302`."""
+    (`Board.SpawnPointSets[SpawnPointSetIndex].SpawnPointGroups`).
+
+    ⚠ La ligne ecrite ici jusqu'a #302 tranche 5 -- « aucun RPC ne l'expose par runner » -- etait
+    FAUSSE : `boardGraph.mowPositions` publie depuis #311 le retour de
+    `GetPositionMachineForPlayer(player)` INVOQUE. Cette lecture de la BC reste utile au bras
+    `nogroups` (elle sert de TEMOIN) et au chemin offline, mais elle n'est plus le seul canal."""
     from engine.services.machine_of_war_position import spawn_groups_from_battle_config
     p = LOGS / state_name
     if not p.exists():
