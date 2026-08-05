@@ -113,6 +113,28 @@ def test_les_deux_replis_legitimes_sont_dans_le_perimetre_de_letape4(arbres_reel
     assert vus == {"is_adjacent", "are_tiles_adjacent"}, vus
 
 
+def test_le_critere_mord_sur_un_VICE_REEL_des_que_la_liste_est_elargie(arbres_reels, monkeypatch):
+    """La preuve que le critere de flot ne garde pas que des mutations fabriquees.
+
+    `NATIFS_LISTE_STOCKEE` est une liste LITTERALE de 8 noms et `AreEntitiesAdjacent` n'y est pas,
+    alors que la chaine est LUE (`BattleQuery$$AreEntitiesAdjacent` ->
+    `MovementUtil$$AreTilesAdjacent` -> `ConnectivityComponent$$IsNeighbour`). Des qu'on l'y met,
+    l'etape 4 designe `engine/runner/abilities/orks.py:509` -- et elle SEULE : le mirror de
+    `RammingSpeedAbility$$GetDynamicInvalidTargetReason` decide `isAdjacent` par le slot 0x61 cote
+    natif et par `hexgeo.distance == 1` cote port, le canal etant pourtant dans la MEME fonction.
+
+    Ce test FIGE le constat de `#433-r4-r1-r4-r2-r1-r1-r1` : quand la tranche aura corrige orks, il
+    rougira, et c'est alors la liste qu'il faudra elargir pour de bon."""
+    monkeypatch.setattr(G, "NATIFS_LISTE_STOCKEE",
+                        G.NATIFS_LISTE_STOCKEE + ("AreEntitiesAdjacent",))
+    m4, t4 = G.etape4(arbres_reels)
+    assert t4 == 3, "le perimetre elargi doit compter les 3 mirrors, pas moins"
+    assert [(m[0], m[1], m[2]) for m in m4] == [
+        ("scripts/python/engine/runner/abilities/orks.py", 509,
+         "get_dynamic_invalid_target_reason")]
+    assert G.etape2(arbres_reels)[0] == [], "l'etape 2 n'a rien a dire ici : le canal EST accessible"
+
+
 def test_indisponible_porte_son_nom(monkeypatch):
     """Une panne de `git` n'est pas un rouge de gisement : rc 99, distinct (#471)."""
     def _explose(*a, **k):

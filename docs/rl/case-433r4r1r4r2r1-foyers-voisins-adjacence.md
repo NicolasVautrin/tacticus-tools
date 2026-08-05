@@ -222,6 +222,10 @@ bouge (résidu #433-r4-r1-r4-r2-r4, mesuré en parallèle) ; (d) les 775 boards 
   Élargir `NATIFS_LISTE_STOCKEE` **armerait le cliquet sur ce rouge**, donc l'ordre est : corriger
   d'abord, élargir ensuite. C'est aussi le voisin de `#433-r4-r1-r4-r2-r2`, resté ouvert pour la même
   raison de fond — le gisement se définit par une **liste de noms natifs**, pas par une dérivation.
+  Le constat est **figé par un test** (`test_le_critere_mord_sur_un_VICE_REEL_…`) : liste élargie en
+  mémoire, l'étape 4 désigne `orks.py:509` **et elle seule** — c'est la preuve que le critère de flot
+  mord sur un vice **du dépôt**, pas seulement sur des mutations fabriquées. Quand la tranche aura
+  corrigé orks, ce test rougira : c'est alors qu'on élargit la liste pour de bon.
 * **`#433-r4-r1-r4-r2-r2`** (ouvert ailleurs) reste ouvert : `playbook/noncomparable/
   heroic_fusillade.py` appelle `count_adjacent` **sans** élévation ni voisinage, donc hors gisement
   de l'étape 1 (qui garde le COUPLE) et de l'étape 2 (il ne cite pas de natif à liste stockée dans
