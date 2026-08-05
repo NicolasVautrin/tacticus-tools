@@ -476,6 +476,12 @@ def test_la_mine_haywire_choisit_sa_branche_sur_le_trait_Mechanical():
     assert mecanique is not None and len(mecanique["hits"]) == 2, \
         "ennemi MECANIQUE : %s attaque(s), attendu 2 (`atk1 + atk2`)" % (
             None if mecanique is None else len(mecanique["hits"]))
+    # Les PROFILS, dans l'ordre de l'arbre -- ce sont ceux que la mesure live montre cote natif
+    # (`[18 Blast]` sur l'ork, `[18 Blast, 16 Energy, 16 Energy]` sur le necroWarden).
+    assert [h["profile"] for h in ordinaire["hits"]] == ["Blast"], \
+        "profils du volet unique : %s" % ([h["profile"] for h in ordinaire["hits"]],)
+    assert [h["profile"] for h in mecanique["hits"]] == ["Blast", "Energy"], \
+        "profils des deux volets : %s" % ([h["profile"] for h in mecanique["hits"]],)
     assert mecanique["total"] > ordinaire["total"], (
         "le volet anti-mecanique n'ajoute rien (%s vs %s)"
         % (mecanique["total"], ordinaire["total"]))

@@ -227,8 +227,16 @@ class HaywireMineSteppableAbility(TriggeredAbility):
         entities = entities_from_state(state, int(self.owner_id), int(self.owner_id),
                                        actor_id=int(actor))
         haywire_mine_steppable_tree(cfg, state.rng).execute(entities, ectx)
-        hits = [{"target": p["target"], "total": p.get("total"), "attack": p.get("attack")}
-                for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        # Le PROFIL par attaque est attribue PAR POSITION, et c'est exact : l'arbre natif est
+        # `If(cond, atk1 + atk2, atk1)`, donc la 1re emission est TOUJOURS `atk1` (profil
+        # `damageProfile`) et la seconde, quand elle existe, `atk2` (`damageProfile_2`). C'est ce que
+        # la mesure live montre cote natif : `[18 Blast]` sur un ennemi ordinaire,
+        # `[18 Blast, 16 Energy, 16 Energy]` sur un MECANIQUE (`nrOfHits_2 = 2`).
+        profils = [cfg["profile"], cfg["profile2"]]
+        hits = [{"target": p["target"], "total": p.get("total"), "attack": p.get("attack"),
+                 "profile": profils[i] if i < len(profils) else None}
+                for i, (n, p) in enumerate(
+                    [(n, p) for n, p in ectx.emitted if n == "AttackWithAbilityDamage"])]
         if not hits:
             return None
         return {"ability": ABILITY_ID, "owner": int(self.owner_id), "stepper": int(actor),

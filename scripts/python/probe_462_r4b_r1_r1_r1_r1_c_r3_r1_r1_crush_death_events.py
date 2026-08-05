@@ -257,8 +257,7 @@ def step_haywire() -> int:
         res = trig.execute_behaviour(st, ev) if ok else None
         hits = (res or {}).get("hits") or []
         print("[haywire] %s matches=%-5s attaques=%d profils=%s total=%s"
-              % (nom, ok, len(hits),
-                 [h.get("attack", {}).get("profile") for h in hits] if hits else [],
+              % (nom, ok, len(hits), [h.get("profile") for h in hits],
                  (res or {}).get("total")))
     print("[haywire] LECTURE : NON-mecanique = 1 attaque (Blast) ; MECANIQUE = 2 (Blast + Energy) ;")
     print("[haywire]           ALLIE = matches FAUX (gate `AreEnemies`). Mesure LIVE de reference :")
