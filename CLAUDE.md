@@ -175,12 +175,27 @@ sets, 16 fichiers), que les cinq rôles du probe ne visitent pas (`#270-r1-r1`).
 n'énumère pas un rôle rend un zéro rassurant sur ce rôle. Re-dériver
 (`probe_270r1_enum_candidates.py --croiser`), jamais citer ce paragraphe.
 
-⚠ **Et la conversion n'est PAS mécanique** : elle vaut ce que vaut le miroir Python. Celui
-d'`ActiveAbilityType` est réparé (#270, source `enums.tsv`) ; `TriggeredAbilityType` porte encore
-**107 ids morts et 9 manquants** (#270-c), et les générateurs des autres tables sont **cassés**
+⚠ **Et la conversion n'est PAS mécanique** : elle vaut ce que vaut le miroir Python. `ActiveAbilityType`
+(#270) **et** `TriggeredAbilityType` (#313, puis #270-c) sont réparés et **sous cliquet**
+(`probe_313`, 12 mirrors en bijection, 0 dette) ; les générateurs des tables **SQL** restent **cassés**
 (#270-b, arrimés à un `dump.cs` supprimé). Convertir depuis un miroir périmé écrirait des noms
 FAUX — pire que l'ordinal, qui au moins ne ment pas. **Vérifier la fraîcheur de la table avant
-de nommer quoi que ce soit.**
+de nommer quoi que ce soit** — la ligne que tu lis a elle-même annoncé « 107 ids morts » **quatre
+jours après leur retrait**, et c'est exactement ce genre de citation périmée qui fait renoncer à une
+conversion pourtant sûre.
+
+⚠ **La conversion se fait PAR NOM, jamais par la VOIE.** Mesuré (#270-c) : le nom **discrimine** —
+sur le gameconfig, l'intersection nom-à-nom `passiveAbilities`/`activeAbilities` est **VIDE**, donc
+**0 nom ambigu** ; l'**ordinal**, lui, ne discrimine pas — `TriggeredAbilityType` partage **458**
+ordinaux avec `EffectType` (**454** nomment autre chose) et **233** avec `ActiveAbilityType`
+(**231**). Deux **inversions de voie** existent et se lisent explicitement (`ShroudPsalm` en
+`passiveAbilities` est un `ActiveAbilityType` 1181 ; `Maugetar` en `activeAbilities` est un
+`TriggeredAbilityType` 1498) — une conversion « voie ⇒ enum » y écrirait un id faux.
+⚠ **Un mirror bijectif ne garde PAS ce que le moteur LIT** : `.get(clé, ())` sur un nom disparu rend
+`()` — le passif n'est jamais inscrit, sans erreur et **sans que le mirror ait bougé**. L'étape 5 de
+`probe_313` garde ce cran (245 clés, 7 dicts) ; elle distingue `INTROUVABLE` d'`EGAREE` (le nom vit
+dans un **autre** enum ⇒ c'est l'**appariement** qui est faux). Détail :
+`docs/rl/case-270c-mirror-deja-bijectif-le-cran-du-dessous.md`.
 
 **Reste en littéral, et c'est voulu** : le décompilé **CITÉ** (docstring, commentaire) — on cite
 le natif verbatim, avec le nom en commentaire de fin de ligne. Et les offsets **relatifs**
