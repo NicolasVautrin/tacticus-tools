@@ -19,8 +19,10 @@ Slots `AbilityEntities` de `IdunBattleLogic.Entities.DSLFactory$$InitializeShare
     & NOT TriggeringAbilityIs(0x438)                     # cf. << gate inerte >> ci-dessous
     & NOT HasTrait(target@0x178, 5 = Mechanical)
 
-`IdunBattleLogic.Entities.DSLFactory$$IsObjectOrSteppable(x)` = `HasTrait(x, 0x1b = 27 Steppable)
-| HasTrait(x, 0xd = 13 Object)` (decompile LU, pas deduit).
+`IdunBattleLogic.Entities.DSLTriggers$$IsObjectOrSteppable(x)` = `HasTrait(x, 0x1b = 27 Steppable)
+| HasTrait(x, 0xd = 13 Object)` (decompile LU, pas deduit — relu VERBATIM sur `rnca9r7q6c`). Ce
+conjoint et son voisin `NOT HasTrait(target, 5)` passent par les NOEUDS DSL partages
+(`entities/triggers.py`), plus par une recopie locale du couple de traits : cf. << SUBSTRAT >>.
 
 `TriggeringAbilityIs` est INLINE par ghidra sur ce site : `AreEqual(@0x138, Direct(AbilityOrEffect
 (0x438)))` puis `op_LogicalNot` — structure IDENTIQUE a `IdunBattleLogic.Entities.DSLFactory$$
@@ -71,6 +73,27 @@ libre. Le mort ne l'occupe plus (le port : `alive=False` -> `CanAddUnit` l'ignor
 libre — MAIS une unite `Flying` (« can traverse impassable hexes ») peut mourir SUR une tuile non
 walkable, et la branche de repli (une adjacente libre au hasard) prend alors le relais.
 
+### SUBSTRAT DE TRAITS -- pourquoi la migration vers le foyer n'est PAS cosmetique
+Les deux conjoints de TRAIT (`NOT IsObjectOrSteppable(target)`, `NOT HasTrait(target, 5)`) lisaient
+`StatsComponent.ctx.traits` BRUT, avec le repli `set()` quand le composant manque. Or le natif lit
+`IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`, et un CADAVRE garde son composant :
+le `set()` etait un ARTEFACT du port, pas une lecture. Les noeuds DSL, eux, lisent `_traits` =
+`entity_trait_names` (le repli gameconfig #226).
+
+MESURE (build `rnca9r7q6c`, runner live, `probe_..._r3 --step substrat`) :
+  * unite VIVANTE au chargement -> `StatsComponent` present, `ctx.traits_measured = True` : les deux
+    substrats coincident **bit pour bit** (grande-alliance comprise). La migration est donc
+    VALUE-PRESERVING sur le regime NOMINAL -- celui de tous les bras de
+    `tests/engine/runner/test_barbed_ovipositor_live.py`.
+  * unite MORTE AU CHARGEMENT -> **absente de `combatSnapshot.units`**, donc AUCUN `StatsComponent`
+    (mesure : `tyranParasite` mort, `combatSnapshot` = {77, 79, 83}, `decisionView` = {77, 79, 81,
+    83}). Substrat BRUT = `[]` -> les DEUX gates AVEUGLES ; substrat foyer =
+    `['Flying','Hero','Synapse','Xenos']` -> gates VOYANTS.
+Ce second regime est ATTEIGNABLE ici parce que `On(UnitDeath)` peut viser une entite RESSUSCITEE :
+`IdunBattle.Operations.ResurrectUnitOperation$$Execute` (port `operations/resurrect.py`) cible
+explicitement une unite DEFEATED, et ni lui ni `operations/revive.py` ne pose de `StatsComponent`.
+Le port spawnait alors un Ripper sur un mort `Steppable`/`Object`/`Mechanical` que le natif ecarte.
+
 ### RESIDUS EXPLICITES
 * `NOT TriggeringAbilityIs(TriggeredAbilityType.ItsGonnaBlow = 1080)` : **NON PORTE, INERTE**. Le
   vecteur `unit_death_triggers` (`../dispatch.py`) ne threade pas d'`ability_type` sur `On(0)`, et
@@ -88,21 +111,26 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....components import OwnerComponent, StatsComponent, UnitComponent
+from ....components import OwnerComponent, UnitComponent
 from ....abilities.behaviours import Spawn, entities_from_state
 from .....dsl.base import TargetsSelector
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.selectors import AdjacentTiles, CanAddUnit, Otherwise, Target, Tiles
 from .....entities.traits.unit_trait import UnitTrait
+from .....entities.triggers import HasTrait, is_object_or_steppable
 from ..base import TriggeredAbility, TriggerEvent
 
 BARBED_OVIPOSITOR_ABILITY = "BarbedOvipositor"
 _ON_UNIT_DEATH = int(EventTriggerType.UnitDeath)             # 0 — 3e event de `KillUnitOperation$$Execute`
 
-# `IdunBattleLogic.Entities.DSLFactory$$IsObjectOrSteppable(x)` = `HasTrait(x, 27) | HasTrait(x, 13)`.
-_OBJECT_OR_STEPPABLE = (UnitTrait.Steppable.name, UnitTrait.Object.name)
-_MECHANICAL = UnitTrait.Mechanical.name                      # `NOT HasTrait(target@0x178, 5)`
+# Les DEUX conjoints de TRAIT de `BarbedOvipositorAbility$$CreateTrigger`, portes par les NOEUDS DSL
+# du foyer `entities/triggers.py` -- surtout pas une n-ieme recopie du couple de traits (le vice que
+# ce residu ferme : `IsObjectOrSteppable` a HUIT call-sites natifs, et deux recopies manuelles
+# avaient DIVERGE). Ils lisent tous deux `ctx.has_trait`, donc le MEME substrat
+# (`entity_trait_names`, repli gameconfig #226) -- cf. << SUBSTRAT DE TRAITS >> en tete de module.
+_IS_OBJECT_OR_STEPPABLE = is_object_or_steppable(Target())   # NOT IsObjectOrSteppable(sel@+0x60)
+_HAS_TRAIT_MECHANICAL = HasTrait(Target(), int(UnitTrait.Mechanical))   # NOT HasTrait(sel@+0x60, 5)
 
 
 class UnitMainTileIds(TargetsSelector):
@@ -170,16 +198,24 @@ class BarbedOvipositorSummonAbility(TriggeredAbility):
         voc = victim.get_component(OwnerComponent)
         if ooc is None or voc is None or ooc.team == voc.team:
             return False
-        # `NOT IsObjectOrSteppable(target)` (traits 27 Steppable / 13 Object) puis
-        # `NOT HasTrait(target, 5 Mechanical)`.
+        # GARDE DE PORT (pas un conjoint natif) : la victime doit etre une entite-UNITE de l'ECS.
+        # INERTE en pratique (les six sites qui creent une entite posent TOUS un `UnitComponent`).
+        # Elle etait AUPARAVANT presentee comme une part d'`IsObjectOrSteppable` (« entite sans
+        # UnitComponent = objet ») : c'est FAUX, le natif ne teste que des TRAITS.
         vuc = victim.get_component(UnitComponent)
-        if vuc is None:                                   # entite sans UnitComponent = objet
+        if vuc is None:
             return False
-        vsc = victim.get_component(StatsComponent)
-        traits = set(getattr(vsc.ctx, "traits", None) or ()) if vsc is not None else set()
-        if traits.intersection(_OBJECT_OR_STEPPABLE):
+        # `NOT IsObjectOrSteppable(target@0x178)` puis `NOT HasTrait(target@0x178, 5 = Mechanical)` :
+        # DEUX noeuds DSL du MEME arbre, sur le MEME selecteur `sel@+0x60`. Le `matches` est
+        # imperatif, donc on materialise ici l'`AbilityEntities` que le natif tient pour tout
+        # `CreateTrigger` -- `entities_from_state(state, owner, dying)` pose `Target()` sur la
+        # victime. Leur substrat de traits devient `entity_trait_names` (cf. en-tete) : un CADAVRE
+        # charge sans `StatsComponent` rendait `set()` en lecture BRUTE, et les deux gates etaient
+        # alors AVEUGLES.
+        entities = entities_from_state(state, self.owner_id, dying)
+        if _IS_OBJECT_OR_STEPPABLE.should_trigger(entities):
             return False
-        if _MECHANICAL in traits:
+        if _HAS_TRAIT_MECHANICAL.should_trigger(entities):
             return False
         # `NOT TriggeringAbilityIs(TriggeredAbilityType.ItsGonnaBlow = 1080)` : gate INERTE offline
         # (aucun poseur porte, et `On(0)` ne threade pas d'ability) -> cf. residus de l'en-tete.
