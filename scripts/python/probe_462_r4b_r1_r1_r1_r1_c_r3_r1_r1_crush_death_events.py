@@ -42,9 +42,11 @@ from engine.runner.state import State                                    # noqa:
 EVENTS_MORT = (int(EventTriggerType.PreUnitDeath), int(EventTriggerType.PreUnitDeath_2),
                int(EventTriggerType.UnitDeath), int(EventTriggerType.UnitDefeated),
                int(EventTriggerType.PostUnitKill))
-# Le 5e reste publie par `after_move_triggers` (chemin MOVE), pas par la sequence de mort : ecart
-# d'ORDRE et de COUVERTURE prealable, nomme, non touche par cette tranche.
-EVENT_HORS_SEQUENCE = int(EventTriggerType.PostUnitKill)
+# Le 5e a REJOINT la sequence en #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 : il etait publie par
+# `after_move_triggers` (chemin MOVE seul, apres coup) -- ecart d'ORDRE et de COUVERTURE, ferme.
+# La constante reste, a `None`, parce que les libelles ci-dessous en derivent ; `None` = plus
+# aucun des cinq n'est hors sequence.
+EVENT_HORS_SEQUENCE = None
 
 
 def _nom(e: int) -> str:
@@ -148,9 +150,11 @@ def step_emission(mutate: str | None = None) -> int:
           % ([("%d %s" % (e, _nom(e))) for e in vus],))
     print("[emission] death_source du crushe : %s (attendu (mover=%d, %d Steppable, None))"
           % (uc.death_source, mover, int(DamageReason.Steppable)))
-    attendus = [e for e in EVENTS_MORT if e != EVENT_HORS_SEQUENCE]
-    print("[emission] LECTURE : attendus %s ; `On(%d %s)` reste publie par `after_move_triggers`."
-          % (sorted(attendus), EVENT_HORS_SEQUENCE, _nom(EVENT_HORS_SEQUENCE)))
+    attendus = [e for e in EVENTS_MORT
+                if EVENT_HORS_SEQUENCE is None or e != EVENT_HORS_SEQUENCE]
+    print("[emission] LECTURE : attendus %s -- les CINQ depuis"
+          % (sorted(attendus),))
+    print("[emission]           #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 (`On(0x35)` a rejoint la sequence).")
     return 0
 
 

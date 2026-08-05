@@ -230,15 +230,20 @@ laissées en verdict analytique — résidu nommé.
 
 ## 9. Résidus ouverts
 
-* **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r4`** — **`On(0x35 = PostUnitKill)` n'est pas dans la séquence de mort du
-  port.** Le natif le publie **dans** `KillUnitOperation$$Execute` (après le `if/else` de la garde revive,
-  et le `return` de la garde HEAL le saute) ; le port le publie depuis
-  `move_death.py::post_unit_kill_triggers_for_move`, donc (a) **plus tard** dans le pipeline de move (après
-  `UpdateCharging`/`SetMovedFlag`), (b) **jamais** pour les crushs de `revive`/`resurrect`/
-  `spiritual_leader`, (c) **jamais** pour une mort par dégât. Un seul consommateur porté
-  (`CosmicHorrorOnMoveAbility`) ⇒ le porter reviendrait à l'ajouter dans `_kill_unit_operation`, ce qui
-  change AUSSI le chemin DÉGÂT (un decoy allié tué par une AoE soignerait le Patermine). Écart
-  préexistant, non touché ici, mais désormais **isolé** : c'est le dernier morceau de la séquence.
+* ~~**`#462-r4b-r1-r1-r1-r1-c-r3-r1-r4`**~~ — **FERMÉ**, cf.
+  `case-462-r4b-r1-r1-r1-r1-c-r3-r1-r4-post-unit-kill.md`. L'event vit désormais dans le foyer
+  `damage.py::_kill_unit_operation`, à son rang natif, et `post_unit_kill_triggers_for_move` a
+  disparu. ⚠ **Deux affirmations de cette fiche étaient FAUSSES**, et la seconde vaut aussi pour
+  la docstring de `test_revive_cancels_death_events_live.py` : (a) l'event n'est pas seulement
+  « après le `if/else` », il part **dans les DEUX branches** — la branche REVIVE le publie aussi,
+  c'est le seul des cinq à survivre à l'annulation de la mort ; (b) le rang se lit à la **PILE**
+  d'accolades, jamais à la **profondeur** (les quatre derniers events valent tous 9, ce qui avait
+  fait écrire « TOUS à l'intérieur de ce bloc, sans `else` » — l'`else` existe, `+0xfcc`).
+  L'effet de bord redouté — « un decoy allié tué par une AoE soignerait le Patermine » — est bien
+  le comportement **NATIF** (le trigger `CosmicHorror_OnMoveAbility` ne porte AUCUNE gate de
+  mouvement, relu nœud par nœud) mais n'a **aucun porteur atteignable** : le Patermine n'a pas
+  d'AoE friendly-fire. La voie DÉGÂT a été confrontée **live** par un autre consommateur natif,
+  `Lakrimae_SummonPoxwalker` (dont le `NOT IsObjectOrSteppable` exclut justement le crush).
 * **`#462-r4b-r1-r1-r1-r1-c-r3-r1-r5`** — **la POSE de la mine n'est pas portée.**
   `HaywireMineAbility` (1531) exige `Spawn` + `GetPersistentData`/`AddPersistentData` +
   `TriggerAbilityDelayed`, et `HaywireMine_ResetAbility` le ré-armement. Conséquence : le port ne **crée**

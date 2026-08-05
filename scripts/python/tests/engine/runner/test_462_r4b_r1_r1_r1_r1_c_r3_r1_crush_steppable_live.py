@@ -310,8 +310,12 @@ def test_les_cinq_evenements_de_mort_sont_emis_au_crush(env_live):
     Il gardait le RESIDU (« le port ne publie qu'`On(0x35)` ») ; l'emission est desormais portee
     (`movement.py::_kill_steppable_kill_unit` -> `damage.py::_kill_unit_operation`), donc il garde
     maintenant l'INVERSE : sur le chemin MOVE, un crush publie les CINQ evenements de
-    `KillUnitOperation$$Execute` -- les quatre de la sequence de mort, plus `On(0x35 = PostUnitKill)`
-    que `after_move_triggers` publie ensuite (ecart d'ORDRE prealable, toujours nomme).
+    `KillUnitOperation$$Execute`. Depuis #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 les cinq sortent du MEME
+    foyer -- `On(0x35 = PostUnitKill)` ne vient plus, APRES coup, d'`after_move_triggers`.
+
+    D'ou le second volet, qui n'avait pas lieu d'etre avant : `On(0x35)` doit partir UNE SEULE
+    FOIS. Deplacer une emission sans retirer l'ancienne est le mode de panne exact de cette
+    tranche, et l'assertion d'ENSEMBLE ci-dessus y est structurellement AVEUGLE.
 
     Une sonde portee par le MOVER (donc VIVANT, hors de tout gate) les ecoute tous les cinq. Le
     blast radius de cette emission est confronte par
@@ -327,7 +331,8 @@ def test_les_cinq_evenements_de_mort_sont_emis_au_crush(env_live):
         _pose_effets(st, mover, [et])            # la sonde vit sur le MOVER, qui reste vivant
         _SondeEvents.vus = []
         Runner(st).install_default_handlers().apply(MoveUnitMessage(mover, dest))
-        vus = sorted(set(_SondeEvents.vus))
+        bruts = list(_SondeEvents.vus)
+        vus = sorted(set(bruts))
     finally:
         REG.EFFECT_TRIGGERS.pop(et, None)
 
@@ -335,6 +340,14 @@ def test_les_cinq_evenements_de_mort_sont_emis_au_crush(env_live):
     assert vus == sorted(EVENTS_MORT), (
         "le crush publie %s ; attendus les CINQ evenements %s -- si l'un manque, la sequence de "
         "mort du crush a ete rabotee" % (vus, sorted(EVENTS_MORT)))
+    # #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 : `On(0x35)` a DEMENAGE (`after_move_triggers` -> le foyer).
+    # Un DOUBLON serait invisible pour l'assertion d'ensemble ci-dessus, et signifierait que
+    # l'ancienne emission n'a pas ete retiree -- donc DEUX heals pour un seul crush.
+    n35 = bruts.count(int(EventTriggerType.PostUnitKill))
+    assert n35 == 1, (
+        "`On(0x35 = PostUnitKill)` est publie %d fois pour UN crush (sequence brute %s). Le foyer "
+        "`_kill_unit_operation` le publie ; si un second emetteur subsiste (pipeline de move), tout "
+        "consommateur -- `CosmicHorrorOnMoveAbility` en tete -- fire DEUX fois." % (n35, bruts))
 
 
 # --------------------------------------------------------------------------- (c) L'ENONCE DU VIDE

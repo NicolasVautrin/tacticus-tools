@@ -379,6 +379,7 @@ def _kill_steppable_kill_unit(state: State, dead_id: int, killer_id) -> list:
         +0x7cc  On(PreUnitDeath = 1)
         +0x81c  GARDE REVIVE, puis On(2) / RemoveEffects(0) / RemoveEffects(1) / On(0) / On(0x36)
         +0xf35  GARDE HEAL, puis RemoveEffects(2)
+        +0x10ac On(PostUnitKill = 0x35), HORS de la garde revive (cf. `_kill_unit_operation`)
 
     LES DEUX CANAUX D'ABILITY SONT **VIDES** SUR TOUT LE VECTEUR, et c'est LU deux fois :
     `Execute` fait `memset(&entities, 0, 0x128)` (donc `CurrentAbility` @+0x60 reste nul) puis recopie
@@ -389,11 +390,12 @@ def _kill_steppable_kill_unit(state: State, dead_id: int, killer_id) -> list:
     behaviour d'une triggered-ability (feuille DSL `MoveUnit`, `spiritual_leader`) laisserait fuiter
     l'ambiant de l'appelant dans les gates `CurrentAbilityIs` / `TriggeringAbilityIs` du vecteur mort.
 
-    `On(0x35 = PostUnitKill)`, 5e et dernier evenement, n'est PAS emis ici : le port ne l'emet nulle
-    part depuis `_kill_unit_operation` (residu prealable, tous chemins de mort confondus) et le
-    couvre pour le CRUSH PAR MOVE via `move_death.py::post_unit_kill_triggers_for_move`. Ecart d'ORDRE
-    nomme (le natif le publie dans `Execute`, donc avant `UpdateCharging`/`SetMovedFlag` ; le port
-    apres) et de COUVERTURE (les crushs de `revive`/`resurrect`/`spiritual_leader` ne l'emettent pas).
+    `On(0x35 = PostUnitKill)`, 5e et dernier evenement, part DESORMAIS d'ici aussi
+    (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4) : il vit dans `_kill_unit_operation`, a son rang natif. Il
+    etait publie par `move_death.py::post_unit_kill_triggers_for_move`, donc APRES
+    `UpdateCharging`/`SetMovedFlag` et pour le SEUL crush-par-move -- double ecart, d'ORDRE et de
+    COUVERTURE, ferme ici pour les QUATRE `*$$KillSteppableUnits` (move, revive, resurrect,
+    spiritual_leader) comme pour la mort par degat.
 
     Renvoie la trace de `_kill_unit_operation` (liste de dicts : vecteurs joues + retraits par step)."""
     from .damage import AttackDamageOperation
@@ -427,14 +429,21 @@ def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: in
     (`KillUnitOperationOptions$$IdunBattle.Operations.KillUnitOperationOptions$$ForSteppable`, type=2 flags 0x0101) : `alive=False` (hp 0),
     puis la SEQUENCE DE MORT COMPLETE (`_kill_steppable_kill_unit` -> `KillUnitOperation$$Execute`) --
     `RecordDeathReason(..., DamageReason.Steppable)`, `On(1)`, garde revive, `On(2)`, les trois
-    `RemoveEffects`, `On(0)`, `On(0x36)`, garde heal. `mover_id` est exclu (une unité ne se crushe pas
-    elle-même). Renvoie les ids crushés. Ordre natif : `AddMoveEvent` → **KillSteppableUnits** →
-    `EvaluateAfterMoveTriggers` (d'où le decoy déjà mort quand DecoysAndMisdirection lit
-    `GetValidDeadDecoys`, G2).
+    `RemoveEffects`, `On(0)`, `On(0x36)`, garde heal, `On(0x35)`. `mover_id` est exclu (une unité ne
+    se crushe pas elle-même). Renvoie les ids crushés. Ordre natif : `AddMoveEvent` →
+    **KillSteppableUnits** → `EvaluateAfterMoveTriggers` (d'où le decoy déjà mort quand
+    DecoysAndMisdirection lit `GetValidDeadDecoys`, G2).
 
-    ⚠ Le 5e evenement `On(0x35 = PostUnitKill)` n'est PAS joue ici : cf. `_kill_steppable_kill_unit`
-    (le chemin MOVE le publie depuis `after_move_triggers`, les autres chemins de crush ne le
-    publient pas -- ecart PREALABLE, nomme, inchange par cette tranche)."""
+    ⚠ La garantie que `post_unit_kill_triggers_for_move` tenait par CO-LOCALISATION avant
+    #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 -- « ne jamais émettre les events de mort pour un mort que le
+    natif n'a pas tué » -- est tenue ici PAR CONSTRUCTION, et par DEUX gates DISTINCTS, mesurés
+    séparément (une matrice de mutants les avait d'abord confondus) :
+      * `not uc.alive` ci-dessous écarte le cadavre DU RUN (il a son ctx et ses traits `Steppable`,
+        donc rien d'autre ne le refuserait) -- c'est le régime du 2e pas d'un chemin, où un
+        steppable crushé au pas N est encore sur sa tuile au pas N+1 ;
+      * l'absence de `StatsComponent` écarte le cadavre AU CHARGEMENT plus bas, par un substrat de
+        traits VIDE (`has_trait([], Steppable)` faux) -- le gate `uc.alive` ne le voit même pas.
+    Les deux sont exercés par `test_ctx_traits_substrat_ventilation_offline.py`, un régime chacun."""
     from ...entities.traits import UnitTrait, has_trait
     killed: list = []
     for uid, e in list(state.entities.items()):

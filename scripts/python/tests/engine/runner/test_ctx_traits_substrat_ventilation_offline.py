@@ -194,29 +194,84 @@ def test_valid_dead_decoys_refuse_le_cadavre_au_chargement(regime, attendu):
         % ("mort du run" if regime else "cadavre au chargement", got, attendu))
 
 
-@pytest.mark.parametrize("regime,attendu", [(True, 1), (False, 0)],
-                         ids=["mort-PENDANT-le-run", "cadavre-AU-CHARGEMENT"])
-def test_post_unit_kill_triggers_for_move_refuse_le_cadavre_au_chargement(regime, attendu,
-                                                                         monkeypatch):
-    """Pendant de `On(0x35 = PostUnitKill)` : le port re-identifie le crushe par CO-LOCALISATION.
-    Un cadavre-au-chargement peut etre co-localise avec le mover (un mort ne bloque PAS
-    l'occupation, donc le mover peut s'arreter sur sa tuile) -- et le natif ne l'a pas tue.
+@pytest.mark.parametrize("cle", sorted(P.DISPARUS))
+def test_le_site_disparu_a_bien_transmis_sa_garantie(cle):
+    """Le pendant du precedent pour un site SUPPRIME, et non converti.
 
-    `post_unit_kill_triggers` est SUBSTITUE : on mesure la SELECTION, pas ce que les triggers
-    aval produisent (ils rendraient `[]` dans les deux regimes, et le test ne discriminerait rien
-    -- l'accord en regime degenere ne prouve rien)."""
-    from engine.runner.operations.triggers.dispatch import move_death as MD
-    appels = []
+    `move_death.py::post_unit_kill_triggers_for_move` a disparu en
+    #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 : `On(0x35 = PostUnitKill)` est publie par le foyer
+    `damage.py::_kill_unit_operation`, a son rang natif, donc plus rien ne re-identifie le crushe
+    par co-localisation. Une garantie qui disparait avec son site est une garantie PERDUE -- sauf
+    si un porteur la reprend. Ce test verifie les trois cotes a la fois :
 
-    def _faux(state, mover_id, uid):
-        appels.append(uid)
-        return [{"crushe": uid}]
+      * le site n'est pas REVENU (s'il revenait, le chemin MOVE emettrait l'event DEUX fois) ;
+      * le porteur nomme existe ;
+      * il porte le gate qui tient la garantie (`uc.alive`).
 
-    monkeypatch.setattr(MD, "post_unit_kill_triggers", _faux)
-    st = P.etat_crush("genesSmnDecoy", avec_stats=regime)
-    st.board = object()                       # le site ne teste que `board is None`
-    got = MD.post_unit_kill_triggers_for_move(st, mover_id=1)
-    assert len(got) == attendu and len(appels) == attendu, (
-        "regime %s : %d event(s) / %d appel(s), attendu %d. Un `On(PostUnitKill)` emis pour un "
-        "cadavre-au-chargement est un kill QUI N'A PAS EU LIEU."
-        % ("mort du run" if regime else "cadavre au chargement", len(got), len(appels), attendu))
+    La garantie elle-meme (COMPORTEMENT) est exercee par le test suivant, sur le chemin reel."""
+    etat = {c: (a, p, g) for c, a, p, g in P.etat_disparus()}
+    absent, porteur, gate = etat[cle]
+    _tranche, fich, fn = P.DISPARUS[cle]
+    assert absent, (
+        "`%s::%s` est REVENU. Il publiait `On(0x35 = PostUnitKill)` depuis `after_move_triggers` ; "
+        "le foyer `_kill_unit_operation` le publie desormais lui-meme -> le chemin MOVE emettrait "
+        "l'event DEUX FOIS. Si la resurrection est voulue, retirer l'emission du foyer d'abord."
+        % cle)
+    assert porteur, (
+        "le porteur annonce `%s::%s` n'existe plus : la garantie du site supprime n'a PLUS de "
+        "titulaire." % (fich, fn))
+    assert gate, (
+        "`%s::%s` a perdu son gate `uc.alive`. C'est LUI qui empeche un cadavre-au-chargement "
+        "d'etre << crushe >> et donc d'entrer dans la sequence de mort : sans lui, le port emet "
+        "les cinq events pour un kill QUI N'A PAS EU LIEU." % (fich, fn))
+
+
+@pytest.mark.parametrize("vivant,avec_stats,attendu", [
+    (True, True, 1),        # le regime NOMINAL : un Steppable vivant sous le mover
+    (False, False, 0),      # CADAVRE-AU-CHARGEMENT : ecarte par le SUBSTRAT (pas de ctx)
+    (False, True, 0),       # CADAVRE DU RUN       : ecarte par le GATE `uc.alive`, et LUI SEUL
+], ids=["steppable-VIVANT", "cadavre-AU-CHARGEMENT", "cadavre-DU-RUN"])
+def test_le_crush_refuse_le_cadavre_au_chargement(vivant, avec_stats, attendu, monkeypatch):
+    """LA GARANTIE, exercee sur le CHEMIN REEL (`_kill_steppable_units`) plutot que sur la
+    re-identification par co-localisation qui la portait avant #462-r4b-r1-r1-r1-r1-c-r3-r1-r4.
+
+    Meme decoy, meme co-localisation, meme tuile : seul change son ETAT a l'entree du move. Un mort
+    peut parfaitement etre sous le mover (un mort ne bloque pas l'occupation) et le natif ne le tue
+    PAS -- `KillSteppableUnits` ne boucle que sur les VIVANTS.
+
+    ⚠ LE 3e REGIME EXISTE PARCE QUE LES DEUX PREMIERS NE DISCRIMINENT PAS LE GATE QU'ILS PRETENDENT
+    GARDER. Mesure (matrice de mutants de la tranche) : retirer `not uc.alive` de
+    `_kill_steppable_units` laisse les deux premiers bras VERTS -- le cadavre-au-chargement est
+    ecarte plus bas, par le substrat de traits VIDE (`sc is None` -> `has_trait([], Steppable)`
+    faux). DEUX gates protegent, et le test n'en isolait aucun. Le cadavre DU RUN, lui, a son ctx
+    et ses traits `Steppable` : seul `uc.alive` peut le refuser. C'est aussi le regime REEL du
+    2e pas d'un chemin -- un steppable crushe au pas N est encore sur sa tuile au pas N+1.
+
+    `post_unit_kill_triggers` est SUBSTITUE dans le PACKAGE `triggers` (c'est de la que
+    `_kill_unit_operation` le resout, par import tardif) : on mesure la SELECTION, pas ce que les
+    triggers aval produisent -- ils rendraient `[]` dans les trois regimes et le test ne
+    discriminerait rien (accord en regime degenere)."""
+    from engine.runner.operations import triggers as TRG
+    from engine.runner.operations.movement import _kill_steppable_units
+    vus = []
+
+    def _faux(state, killed_id, killer_id=None):
+        vus.append((killer_id, killed_id))
+        return [{"post_unit_kill": killed_id}]
+
+    monkeypatch.setattr(TRG, "post_unit_kill_triggers", _faux)
+    st = P.etat_crush("genesSmnDecoy", avec_stats=avec_stats, vivant=vivant)
+    tues = _kill_steppable_units(st, (3, 3), mover_id=1)
+    regime = ("steppable vivant" if vivant else
+              ("cadavre au chargement" if not avec_stats else "cadavre DU RUN"))
+    assert len(tues) == attendu and len(vus) == attendu, (
+        "regime %s : %d crushe(s) / %d `On(PostUnitKill)`, attendu %d. Un event de mort emis pour "
+        "un MORT est un kill QUI N'A PAS EU LIEU (et, sur le cadavre DU RUN, la preuve que le gate "
+        "`uc.alive` de `_kill_steppable_units` a saute) ; l'absence d'event pour un steppable "
+        "VIVANT sous le mover est un crush MANQUE."
+        % (regime, len(tues), len(vus), attendu))
+    if attendu:
+        assert vus == [(1, 2)], (
+            "`On(PostUnitKill)` doit porter {actor = le TUEUR (le mover), target = le crushe} -- "
+            "c'est le meme `AbilityEntities` que les quatre autres events de mort (`local_298 = "
+            "killer` ; `+0x10 = killed`). Vu : %r" % (vus,))

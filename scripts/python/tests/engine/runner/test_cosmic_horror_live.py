@@ -343,10 +343,40 @@ def _prep_move(rpc, build_runner):
     return state, board, pat, tile_a, tile_b, hc
 
 
-def test_cosmic_horror_on_move_heals_when_stepping_on_friendly_decoy(live_session, rpc, build_runner):
+def _capture_on_move(monkeypatch):
+    """Collecte les resultats de `CosmicHorrorOnMoveAbility.execute_behaviour`, A LA SOURCE.
+
+    Le point d'observation a DEMENAGE avec #462-r4b-r1-r1-r1-r1-c-r3-r1-r4 : `On(0x35)` etait
+    publie par `after_move_triggers` (donc son RETOUR portait la trace) ; il l'est desormais par
+    `damage.py::_kill_unit_operation`, appele INLINE dans `MoveUnitOperation.execute`, dont le
+    retour est jete. Observer l'ability elle-meme est ce qui reste INVARIANT au rang de l'emission
+    -- et c'est le meme geste que `probe_462_..._c_r3_r1_r1 --step consommateurs` pour `ActOfFaith`
+    et `TheBetrayer`. AUCUNE garantie n'est perdue : le trigger a-t-il fire, sur QUEL decoy, pour
+    QUEL montant, et les PV ont-ils bouge -- les quatre restent assertes."""
+    from engine.runner.operations.triggers.loki import cosmic_horror as CH
+    vus = []
+    orig = CH.CosmicHorrorOnMoveAbility.execute_behaviour
+
+    def _spy(self, state, ev):
+        r = orig(self, state, ev)
+        vus.append(r if isinstance(r, dict) else {"ability": "CosmicHorror_OnMove", "res": r})
+        return r
+
+    monkeypatch.setattr(CH.CosmicHorrorOnMoveAbility, "execute_behaviour", _spy)
+    return vus
+
+
+def test_cosmic_horror_on_move_heals_when_stepping_on_friendly_decoy(live_session, rpc,
+                                                                     build_runner, monkeypatch):
     """POSITIF OnMove : le Patermine marche sur un decoy ALLIE -> `_kill_steppable_units` le crushe,
-    `after_move_triggers` emet `On(0x35=PostUnitKill)` {actor=Patermine, target=decoy}, et
-    `Heal(caster, caster, ConfigVar(hp))` le soigne."""
+    la sequence de mort emet `On(0x35=PostUnitKill)` {actor=Patermine, target=decoy}, et
+    `Heal(caster, caster, ConfigVar(hp))` le soigne.
+
+    ⚠ L'EMETTEUR a change (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4) : c'etait `after_move_triggers`, c'est
+    maintenant le foyer `_kill_unit_operation`, donc l'event part AVANT que ce test n'appelle
+    `after_move_triggers`. Le heal a toujours lieu, au meme montant -- seul le POINT D'OBSERVATION
+    bouge (cf. `_capture_on_move`). L'appel a `after_move_triggers` est CONSERVE : il doit rester
+    muet sur `CosmicHorror_OnMove`, et c'est ce qui garde le NON-DOUBLON."""
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
     from engine.runner.operations.spawn import spawn_decoy
@@ -356,18 +386,25 @@ def test_cosmic_horror_on_move_heals_when_stepping_on_friendly_decoy(live_sessio
     assert did is not None, "spawn decoy KO (pre-cond)"
     hp0 = int(hc.hp)
 
+    ch = _capture_on_move(monkeypatch)
     MoveUnitOperation(pat, board.coord(tile_b)).execute(state, EventBus())
+    apres_move = len(ch)
     out = after_move_triggers(state, pat)
-    ch = [r for r in out if isinstance(r, dict) and r.get("ability") == "CosmicHorror_OnMove"]
     print(f"[cosmic move+] res={ch} hp {hp0} -> {hc.hp} (max {hc.hp_max})")
 
-    assert ch, f"CosmicHorror_OnMove n'a pas fire sur On(0x36) : {out}"
+    assert ch, f"CosmicHorror_OnMove n'a pas fire sur On(0x35 = PostUnitKill) : {ch}"
     assert ch[0].get("decoy") == did, f"le crushe rapporte n'est pas le decoy pose : {ch[0]}"
     assert int(ch[0].get("amount") or 0) > 0, f"montant de heal nul : {ch[0]}"
     assert int(hc.hp) > hp0, f"aucun heal applique (hp {hp0} -> {hc.hp})"
+    assert apres_move == 1, (
+        f"le heal doit partir DANS `MoveUnitOperation.execute` (sequence de mort du crush) et une "
+        f"seule fois : {apres_move} fire(s) avant `after_move_triggers`")
+    assert len(ch) == 1, (
+        f"`CosmicHorror_OnMove` a fire {len(ch)} fois pour UN crush -- `after_move_triggers` "
+        f"republie `On(0x35)` alors que le foyer le publie deja : DOUBLE heal. Retour : {out}")
 
 
-def test_cosmic_horror_on_move_no_heal_on_enemy_decoy(live_session, rpc, build_runner):
+def test_cosmic_horror_on_move_no_heal_on_enemy_decoy(live_session, rpc, build_runner, monkeypatch):
     """NEGATIF OnMove (LE cas ou le passif NE MORD PAS) -- gate `AreFriends(caster, target)`. Le decoy
     ecrase appartient a l'ENNEMI : `On(0x35 = PostUnitKill)` est bien emis (le crush a lieu), mais le trigger refuse
     -> AUCUN heal. Sans ce gate, le Patermine se soignerait en pietinant les leurres adverses."""
@@ -375,7 +412,7 @@ def test_cosmic_horror_on_move_no_heal_on_enemy_decoy(live_session, rpc, build_r
     from engine.runner.operations.movement import MoveUnitOperation
     from engine.runner.operations.spawn import spawn_decoy
     from engine.runner.operations.triggers.dispatch import after_move_triggers
-    from engine.runner.components import OwnerComponent
+    from engine.runner.components import OwnerComponent, UnitComponent
     state, board, pat, tile_a, tile_b, hc = _prep_move(rpc, build_runner)
     foes = _enemy_ids(state, pat)
     if not foes:
@@ -387,10 +424,13 @@ def test_cosmic_horror_on_move_no_heal_on_enemy_decoy(live_session, rpc, build_r
     assert d_team != p_team, "pre-cond KO : le decoy n'est pas dans l'equipe adverse"
     hp0 = int(hc.hp)
 
+    ch = _capture_on_move(monkeypatch)                  # meme point d'observation que le POSITIF
     MoveUnitOperation(pat, board.coord(tile_b)).execute(state, EventBus())
     out = after_move_triggers(state, pat)
-    ch = [r for r in out if isinstance(r, dict) and r.get("ability") == "CosmicHorror_OnMove"]
-    print(f"[cosmic move- enemy decoy] res={ch} hp {hp0} -> {hc.hp}")
+    print(f"[cosmic move- enemy decoy] res={ch} out={len(out)} hp {hp0} -> {hc.hp}")
 
     assert not ch, f"gate AreFriends KO : heal sur un decoy ENNEMI : {ch}"
     assert int(hc.hp) == hp0, f"gate KO : hp modifie ({hp0} -> {hc.hp}) sur un decoy ennemi"
+    assert state.get_entity(did).get_component(UnitComponent).alive is False, (
+        "le decoy ENNEMI n'a pas ete crushe : le bras negatif est VIDE (il ne teste pas le gate, "
+        "il teste l'absence de crush) -- montage a reparer")
