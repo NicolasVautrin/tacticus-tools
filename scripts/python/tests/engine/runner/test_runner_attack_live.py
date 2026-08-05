@@ -100,7 +100,11 @@ def attack_replay(live_session, rpc, build_runner):
             if not _ok(s1):
                 continue
             state.rng = _seed_rng(s1)                            # MT offline = MT live
-            runner = Runner(state).install_default_handlers(20)
+            # #449-r2-r4 : PAS de `20` ecrit ici. Le pct de spread se LIT dans
+            # `BattleConfiguration.Damage.DamageSpreadPercentage` ; sans BC fournie (ce runner
+            # part de la seed versionnee), le defaut DERIVE de `data/seed-bc.json` s'applique --
+            # donc strictement la meme valeur qu'avant, mais plus un litteral.
+            runner = Runner(state).install_default_handlers()
             res = rpc("applyAction", {"runnerId": rid, "action": {                # LIVE attaque
                 "kind": "ability", "casterId": att, "targetId": tgt,
                 "abilityType": norm["id"]}}, 40)

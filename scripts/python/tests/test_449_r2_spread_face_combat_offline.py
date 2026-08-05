@@ -80,23 +80,125 @@ def test_chaque_defaut_de_variance_est_celui_qui_a_ete_LU():
 
     Deux des trois porteurs a variance nulle n'ecrivent pas le mot-cle du tout -- ils prennent
     ce defaut. Le muter les bascule en +-20 % en silence.
+
+    #449-r2-r4 : le REGIME attendu du defaut a change. `20` n'est plus la valeur nominale, c'est
+    la FAUTE -- le pct se lit dans `BattleConfiguration.Damage.DamageSpreadPercentage`.
+    L'attestation porte donc sur le regime (`LU_BC` / `REQUIS`) ou, pour le seul cas ou le
+    decompile impose la variance nulle, sur le litteral `0`.
     """
     defs, _, _ = _inventaire()
     assert defs, "aucune porte de variance derivee : le perimetre du probe est devenu aveugle"
     divergents = []
     for d in defs:
         att = INV.EXPECTED_DEFAULT.get(d.key)
+        got = d.default if d.default_kind == "LITTERAL" else d.default_kind
         if att is None:
             divergents.append((d.file, d.line, d.call_name, d.param,
                                "NON ATTESTE (porte de variance neuve)"))
-        elif d.default_dynamic or d.default != att[0]:
+        elif got != att[0]:
             divergents.append((d.file, d.line, d.call_name, d.param,
-                               "defaut LU=%s attendu=%s"
-                               % ("dyn" if d.default_dynamic else d.default, att[0])))
+                               "defaut LU=%s attendu=%s" % (got, att[0])))
     assert not divergents, (
         "defaut(s) de variance en desaccord avec la lecture du decompile : %s -- lire le canal "
         "de variance concerne, puis corriger le port ou inscrire la raison dans "
         "EXPECTED_DEFAULT" % (divergents,))
+
+
+def test_aucune_signature_ne_reecrit_le_pct_de_la_bc():
+    """#449-r2-r4 -- LE CLIQUET DU LITTERAL REVENU.
+
+    Le natif ne connait le pct de spread QUE par sa configuration :
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateDamageSpread` inline
+    `$$get_DamageSpreadPercentageFix64`, qui lit `configuration+0x20` -- la signature native n'a
+    AUCUN parametre de spread. Un defaut entier NON NUL dans une signature du port est donc un
+    couplage non lu, muet le jour ou la BC vaut autre chose.
+
+    Ce n'est pas theorique : MESURE du 2026-08-05 (`probe_449r2r4_spread_from_bc`), meme seed,
+    meme board, memes unites, seule la section `BC.Damage` change --
+
+        DamageSpreadPercentage = 20 -> le natif inflige 9388, le port aussi
+        DamageSpreadPercentage = 60 -> le natif inflige 7774, un port a 20 en dur calcule 9388
+        champ ABSENT                -> le natif inflige 8434 (spread 0), le port a 20 : 9388
+        IgnoreDamageSpread = true   -> le natif inflige 8434 (spread 0), le port a 20 : 9388
+
+    Le seul entier legitime est `0`, et seulement la ou le decompile impose la variance nulle
+    (mode `amount`, `Nullable<AttackDamageBehaviourOptions>` VIDE).
+    """
+    defs, _, _ = _inventaire()
+    ecrits = [(d.file, d.line, d.call_name, d.param, d.default) for d in defs
+              if d.default_kind == "LITTERAL" and d.default != 0]
+    assert not ecrits, (
+        "signature(s) qui REECRIVENT le pct de spread au lieu de le lire dans la BC : %s -- "
+        "regime attendu `= None` (foyer `engine.services.damage_config.resolve_spread_pct`)"
+        % (ecrits,))
+
+
+def test_le_foyer_lit_la_bc_puis_la_seed_versionnee():
+    """Le foyer resout dans l'ORDRE annonce, et son defaut est DERIVE -- pas ecrit.
+
+    Ordre natif mirroré : une valeur explicite l'emporte (l'appelant a lu SON decompile) ; sinon
+    la BC de cette bataille (`State`, pose par `load_state(damage_config=...)`) ; sinon le defaut
+    LU dans `data/seed-bc.json`. `IgnoreDamageSpread` (`configuration+0x31`, lu par
+    `IdunBattle.Core.Services.DamagePrediction$$get_IgnoreDamageSpread`) court-circuite a 0 --
+    CONFRONTE LIVE : bras `ignore`, natif 8434 = bornes plates.
+    """
+    from engine.services.damage_config import (resolve_spread_pct, seed_damage_section,
+                                               default_damage_spread_percentage,
+                                               DamageConfiguration)
+    from engine.runner.state import State
+
+    seed_pct = seed_damage_section().get("DamageSpreadPercentage")
+    assert seed_pct is not None, (
+        "`data/seed-bc.json` n'a plus `Damage.DamageSpreadPercentage` : le defaut du port EST "
+        "cette valeur (il n'est ecrit nulle part), il n'a donc plus de source")
+    assert default_damage_spread_percentage() == int(seed_pct)
+
+    st = State()
+    assert resolve_spread_pct(None, st) == int(seed_pct), "canal absent -> defaut derive"
+    assert resolve_spread_pct(0, st) == 0, "une valeur explicite prime toujours"
+
+    cfg = DamageConfiguration.from_bc({"DamageSpreadPercentage": 60})
+    st.damage_spread_percentage = cfg.damage_spread_percentage
+    assert resolve_spread_pct(None, st) == 60, "la BC de la bataille prime sur le defaut"
+    assert resolve_spread_pct(7, st) == 7, "une valeur explicite prime sur la BC"
+
+    st.ignore_damage_spread = True
+    assert resolve_spread_pct(None, st) == 0, "IgnoreDamageSpread -> branche plate"
+    assert resolve_spread_pct(7, st) == 7, (
+        "IgnoreDamageSpread ne doit PAS ecraser une valeur explicite : les porteurs a variance "
+        "nulle/imposee ont lu leur propre decompile (#449-r2)")
+
+    # Champ ABSENT de la section fournie == 0, comme le natif : le ctor
+    # `IdunBattle.Configuration.DamageConfiguration$$.ctor` n'initialise QUE `DamageProfiles`,
+    # donc rien ne fabrique 20 cote jeu non plus (CONFRONTE : bras `absent`, natif 8434).
+    assert DamageConfiguration.from_bc({}).damage_spread_percentage == 0
+    assert DamageConfiguration.from_bc(None) is None, "canal non fourni != zero mesure"
+
+
+def test_le_cablage_de_bout_en_bout_suit_la_bc():
+    """Le canal REEL : `BC.Damage` -> `load_state` -> `State` -> `Runner` -> `DamageHandler`.
+
+    C'est ce chemin-la qui portait le littéral (`install_default_handlers`, `DamageHandler`), et
+    c'est lui que la mesure live a chiffre. Un `State` nu (aucune BC connue) retombe sur le
+    defaut derive de la seed -- comportement STRICTEMENT inchange pour tout appelant existant.
+    """
+    from engine.runner.state import State
+    from engine.runner.runner import Runner
+    from engine.runner.snapshot import load_state
+    from engine.services.damage_config import default_damage_spread_percentage
+
+    nu = Runner(State()).install_default_handlers().damage_handler.spread_pct
+    assert nu == default_damage_spread_percentage()
+
+    vide = {"units": [], "currentPlayer": None}
+    for pct in (0, 5, 60, 100):
+        st = load_state(vide, {}, damage_config={"DamageSpreadPercentage": pct})
+        got = Runner(st).install_default_handlers().damage_handler.spread_pct
+        assert got == pct, "BC.pct=%d -> DamageHandler.spread_pct=%d" % (pct, got)
+
+    st = load_state(vide, {}, damage_config={"DamageSpreadPercentage": 60,
+                                             "IgnoreDamageSpread": True})
+    assert Runner(st).install_default_handlers().damage_handler.spread_pct == 0
 
 
 def test_aucun_parametre_de_variance_n_est_mort():
@@ -112,7 +214,8 @@ def test_inventaire_des_sites_a_variance_nulle_est_justifie():
     """Sens 1 : tout call-site ACTIF a variance NULLE porte sa raison LUE au decompile."""
     _, actifs, _ = _inventaire()
     zero = [s for s in actifs
-            if not s["dynamic"] and not s["unresolved"] and int(s["value"]) == 0]
+            if not s.get("from_bc") and not s["dynamic"] and not s["unresolved"]
+            and int(s["value"]) == 0]
     assert zero, ("aucun site a variance nulle : le gisement de ce cliquet a disparu, "
                   "ce qui invalide sa raison d'etre -- re-lire la case-doc avant de le retirer")
     orphelins = [(s["file"], s["line"], s["callee"]) for s in zero
@@ -132,7 +235,7 @@ def test_les_sites_lus_au_decompile_sont_toujours_a_zero():
     regressions = []
     for key in INV.EXPECTED_ZERO:
         for s in par_site.get(key, []):
-            if s["dynamic"] or s["unresolved"] or int(s["value"]) != 0:
+            if s.get("from_bc") or s["dynamic"] or s["unresolved"] or int(s["value"]) != 0:
                 regressions.append((s["file"], s["line"], s["callee"],
                                     "dyn" if s["dynamic"] else s["value"]))
     assert not regressions, (

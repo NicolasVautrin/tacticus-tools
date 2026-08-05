@@ -221,12 +221,13 @@ class Definition:
     """Une porte d'entree de la variance, DERIVEE de la signature."""
 
     __slots__ = ("file", "line", "call_name", "param", "default", "default_dynamic",
-                 "pos_index", "gates", "reads", "is_class", "problems")
+                 "default_kind", "pos_index", "gates", "reads", "is_class", "problems")
 
     def __init__(self, file, line, call_name, param):
         self.file, self.line, self.call_name, self.param = file, line, call_name, param
         self.default = None
         self.default_dynamic = False
+        self.default_kind = None     # REQUIS | LU_BC | LITTERAL | DYNAMIQUE (cf. `_fill`)
         self.pos_index = None
         self.gates = frozenset()
         self.reads = None            # None = non applicable (fonction libre)
@@ -313,17 +314,38 @@ def _module_level_functions(tree):
 
 
 def _fill(d: Definition, slot):
+    """Classe le DEFAUT de la signature dans l'un des quatre regimes possibles.
+
+    #449-r2-r4 a change ce qui est ATTENDU ici, et donc ce que ce classement doit distinguer.
+    Avant : le defaut nominal etait le litteral `20`. Depuis, `20` est precisement la faute --
+    le natif ne connait le pct QUE par sa configuration
+    (`IdunBattle.Core.Services.DamageCalculations$$get_DamageSpreadPercentageFix64` lit
+    `configuration+0x20`), donc un port qui l'ECRIT dans une signature a re-fabrique un couplage
+    non lu. Les quatre regimes :
+
+        REQUIS    -- pas de defaut : tout appelant doit fournir sa valeur. Le plus sur.
+        LU_BC     -- defaut `None` : la valeur est resolue a l'execution depuis la BC
+                     (`engine.services.damage_config.resolve_spread_pct`). Le regime NOMINAL.
+        LITTERAL  -- defaut entier ecrit dans la signature. N'est legitime que pour un `0` LU au
+                     decompile (mode `amount` : `Nullable<AttackDamageBehaviourOptions>` vide).
+        DYNAMIQUE -- toute autre expression : indeductible, donc ingardable.
+    """
     node, pos = slot
     d.pos_index = pos
     if node is None:
-        d.problems.append("parametre SANS valeur par defaut (tout appelant doit le fournir)")
+        d.default_kind = "REQUIS"
+        return
+    if isinstance(node, ast.Constant) and node.value is None:
+        d.default_kind = "LU_BC"
         return
     val = _literal_int(node)
     if val is None:
+        d.default_kind = "DYNAMIQUE"
         d.default_dynamic = True
         d.problems.append("defaut NON LITTERAL (%s) : indeductible, donc ingardable"
                           % type(node).__name__)
     else:
+        d.default_kind = "LITTERAL"
         d.default = val
 
 
@@ -343,42 +365,59 @@ _RAISON_NULLABLE_VIDE = (
     "Un defaut non nul appliquerait +-20 % aux porteurs qui OMETTENT le mot-cle.")
 
 _RAISON_SPREAD_BC = (
-    "20 = `BattleConfiguration.Damage.DamageSpreadPercentage`, la variance d'arme du canal "
-    "de l'attaque NORMALE (`IdunBattle.Core.Services.DamageCalculations$$CalculateDamageSpread`). "
-    "ATTENTION, ce 20 est un LITTERAL HERITE : le port ne le LIT PAS de la BC (residu "
-    "`#449-r2-r4`). L'attester ici ne pretend pas qu'il est lu -- ca rend sa MODIFICATION "
-    "visible, ce qui est tout ce qu'un cliquet peut promettre tant que le couplage n'est pas "
-    "porte.")
+    "LU_BC = la variance d'arme du canal de l'attaque NORMALE est "
+    "`BattleConfiguration.Damage.DamageSpreadPercentage`, et le natif ne la connait QUE par sa "
+    "configuration : `IdunBattle.Core.Services.DamageCalculations$$CalculateDamageSpread` inline "
+    "`$$get_DamageSpreadPercentageFix64`, qui lit `configuration+0x20` -- la signature native "
+    "n'a AUCUN parametre de spread. Un defaut ECRIT dans la signature du port serait donc un "
+    "couplage non lu (c'etait le residu `#449-r2-r4`, MESURE : a `DamageSpreadPercentage = 60` "
+    "le natif inflige 7774 la ou le port a `20` en dur en calcule 9388). Le defaut nominal est "
+    "`None` -> `engine.services.damage_config.resolve_spread_pct`.")
 
+_RAISON_FOYER = (
+    "LU_BC = c'est LE foyer lui-meme (`resolve_spread_pct`). Son `None` signifie « rien "
+    "d'explicite » et declenche la lecture de la BC portee par le `State`, puis le defaut DERIVE "
+    "de `data/seed-bc.json`. Un litteral ici recreerait le vice en UN point au lieu de treize.")
+
+_RAISON_REQUIS = (
+    "REQUIS = aucun defaut. `HitDamage.from_base` n'a AUCUN appelant sous `scripts/python` "
+    "(mesure : 0 site `.from_base(`) : un defaut y serait un litteral que rien n'exerce, donc "
+    "que rien ne peut invalider. L'exiger force le futur appelant a dire d'ou vient sa valeur.")
+
+#: Regimes acceptes, par cle. Un `int` = litteral attendu (seul `0` est legitime, et seulement
+#: la ou le decompile impose la variance nulle) ; une chaine = regime symbolique (`LU_BC`,
+#: `REQUIS`).
 EXPECTED_DEFAULT = {
     ("engine/runner/abilities/behaviours/combat.py", "AttackWithAttackDamage",
      "amount_spread_pct"): (0, _RAISON_NULLABLE_VIDE),
     ("engine/runner/abilities/behaviours/combat.py", "UseActiveAbility",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/operations/additional_hits.py", "execute_additional_hits",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/operations/damage.py", "DamageHandler",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/operations/damage_hits.py", "from_base",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("REQUIS", _RAISON_REQUIS),
     ("engine/runner/operations/damage_ops/normal.py", "execute",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/operations/damage_ops/normal_like.py", "execute_normal_like",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/runner.py", "install_default_handlers",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/services/damage_calculations.py", "calculate_damage_spread",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/services/damage_calculations.py", "spread_to_min_max",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
+    ("engine/services/damage_config.py", "resolve_spread_pct",
+     "spread_pct"): ("LU_BC", _RAISON_FOYER),
     ("engine/services/damage_prediction.py", "get_base_damage_fix64",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/services/damage_prediction.py", "predict_attack_raw",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/services/damage_prediction.py", "get_multi_hit_attack_prediction",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/services/damage_prediction.py", "get_attack_prediction",
-     "spread_pct"): (20, _RAISON_SPREAD_BC),
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
 }
 
 # --- Liste ATTENDUE des CALL-SITES qui rendent une variance NULLE (spread 0) ---------------
@@ -544,9 +583,19 @@ def _resolve_site(rel, node: ast.Call, name: str, d: Definition):
         return {"file": rel, "line": node.lineno, "callee": name, "param": d.param,
                 "source": "star", "value": None, "dynamic": True, "inert": inert,
                 "unresolved": True, "gates": d.gates, "ambigu": False}
+    # Le site prend le DEFAUT de la porte. Son regime est celui de la signature (`_fill`) :
+    #   LU_BC    -> la variance vient de la BC a l'execution. C'est le regime NOMINAL depuis
+    #               #449-r2-r4 : ni une valeur ecrite, ni un indetermine -- une LECTURE. Le
+    #               garder ici n'aurait aucun sens (il n'y a plus de constante a garder) ; ce
+    #               qui est garde, c'est le REGIME du defaut, cote signature.
+    #   REQUIS   -> un site qui ne fournit rien alors que le parametre est obligatoire est un
+    #               TypeError a l'execution : c'est une faute, pas un indetermine.
+    #   LITTERAL -> valeur ecrite, tranchable comme avant.
     return {"file": rel, "line": node.lineno, "callee": name, "param": d.param,
-            "source": "defaut", "value": d.default, "dynamic": d.default_dynamic,
-            "inert": inert, "unresolved": d.default is None and not d.default_dynamic,
+            "source": "defaut", "value": d.default,
+            "dynamic": d.default_dynamic, "from_bc": d.default_kind == "LU_BC",
+            "inert": inert,
+            "unresolved": d.default_kind == "REQUIS",
             "gates": d.gates, "ambigu": False}
 
 
@@ -606,18 +655,31 @@ def evaluate(root: Path):
                          "ne l'applique plus, tout call-site qui le passe est un no-op "
                          "silencieux (la variance ne serait plus jamais appliquee)"
                          % (d.file, d.line, d.call_name, d.param)))
+        # #449-r2-r4 -- LA GARDE DU LITTERAL REVENU. Un defaut entier NON NUL sur une porte de
+        # variance est le vice lui-meme : le natif lit le pct dans `BattleConfiguration.Damage`,
+        # jamais dans une constante. Le seul entier legitime est `0`, et seulement la ou le
+        # decompile impose la variance nulle (mode `amount`, Nullable vide).
+        if d.default_kind == "LITTERAL" and d.default != 0:
+            reds.append(("LITTERAL DE SPREAD REVENU",
+                         "%s:%d %s(%s) porte le defaut ECRIT %s -- le natif lit ce pct dans "
+                         "`BattleConfiguration.Damage.DamageSpreadPercentage` "
+                         "(`IdunBattle.Core.Services.DamageCalculations$$"
+                         "get_DamageSpreadPercentageFix64` -> `configuration+0x20`). MESURE "
+                         "#449-r2-r4 : a pct=60 le natif inflige 7774, un port a 20 en dur 9388. "
+                         "Regime attendu : `= None` (foyer `damage_config.resolve_spread_pct`)."
+                         % (d.file, d.line, d.call_name, d.param, d.default)))
         att = EXPECTED_DEFAULT.get(d.key)
+        got = d.default if d.default_kind == "LITTERAL" else d.default_kind
         if att is None:
             reds.append(("porte de variance NON ATTESTEE",
                          "%s:%d %s(%s) defaut=%s -- une porte d'entree de la variance est "
-                         "entree sans que son defaut soit lu au decompile ; inscrire sa raison "
-                         "dans EXPECTED_DEFAULT"
-                         % (d.file, d.line, d.call_name, d.param,
-                            "dyn" if d.default_dynamic else d.default)))
-        elif not d.default_dynamic and d.default != att[0]:
+                         "entree sans que son regime de defaut soit lu au decompile ; inscrire "
+                         "sa raison dans EXPECTED_DEFAULT"
+                         % (d.file, d.line, d.call_name, d.param, got)))
+        elif got != att[0]:
             reds.append(("DEFAUT contredit le decompile",
                          "%s:%d %s(%s) : defaut LU = %s, attendu %s -- %s"
-                         % (d.file, d.line, d.call_name, d.param, d.default, att[0], att[1])))
+                         % (d.file, d.line, d.call_name, d.param, got, att[0], att[1])))
     seen_defs = {d.key for d in defs2}
     for key in EXPECTED_DEFAULT:
         if key not in seen_defs:
@@ -632,7 +694,9 @@ def evaluate(root: Path):
                          "%s:%d %s(%s) via %s -- la valeur ne se lit pas statiquement ; ce "
                          "probe ne DEVINE pas" % (s["file"], s["line"], s["callee"],
                                                   s["param"], s["source"])))
-    zero = [s for s in actifs if not s["dynamic"] and not s["unresolved"] and s["value"] == 0]
+    zero = [s for s in actifs
+            if not s.get("from_bc") and not s["dynamic"] and not s["unresolved"]
+            and s["value"] == 0]
     for s in zero:
         if (s["file"], s["callee"]) not in EXPECTED_ZERO:
             reds.append(("zero NON JUSTIFIE",
@@ -772,6 +836,46 @@ def self_test():
             ko.append("C2 (NEGATIF) : changer le DEFAUT n'a PAS change le classement du "
                       "call-site (%r vs %r) -- c'est exactement le vice #449-r2-r5"
                       % (classes.get(0), classes.get(20)))
+
+        # --- C2bis (#449-r2-r4) : les QUATRE regimes de defaut sont DISTINGUES ----------
+        # Sans ca, la garde « LITTERAL DE SPREAD REVENU » ne pourrait pas mordre : elle
+        # repose entierement sur le fait que `= None` et `= 20` ne se classent PAS pareil.
+        # Trois arbres identiques au defaut pres + un sans defaut du tout.
+        regimes = {}
+        for src, attendu in (("def porte(base, spread_pct=None):\n    return spread_pct\n",
+                              "LU_BC"),
+                             ("def porte(base, spread_pct=20):\n    return spread_pct\n",
+                              "LITTERAL"),
+                             ("def porte(base, spread_pct):\n    return spread_pct\n",
+                              "REQUIS"),
+                             ("K = 20\ndef porte(base, spread_pct=K):\n    return spread_pct\n",
+                              "DYNAMIQUE")):
+            root = arbre({"engine/a.py": src})
+            d = _un_seul(collect_definitions(root), ko, "C2bis %s" % attendu)
+            if d is not None:
+                regimes[attendu] = d.default_kind
+                if d.default_kind != attendu:
+                    ko.append("C2bis : regime LU = %r, attendu %r" % (d.default_kind, attendu))
+        if len(set(regimes.values())) != len(regimes):
+            ko.append("C2bis (NEGATIF) : deux regimes de defaut se confondent (%r) -- la garde "
+                      "du litteral revenu ne peut plus mordre" % (regimes,))
+
+        # --- C2ter (#449-r2-r4) : un litteral NON NUL fait rougir, un `0` ATTESTE non ----
+        for defaut, doit_rougir in ((20, True), (0, False)):
+            root = arbre({"engine/a.py":
+                          "def porte(base, spread_pct=%d):\n    return spread_pct\n" % defaut})
+            cle = ("engine/a.py", "porte", "spread_pct")
+            sauve = EXPECTED_DEFAULT
+            try:
+                globals()["EXPECTED_DEFAULT"] = {cle: (defaut, "attestation de test")}
+                _, _, _, reds = evaluate(root)
+            finally:
+                globals()["EXPECTED_DEFAULT"] = sauve
+            vu = any(m == "LITTERAL DE SPREAD REVENU" for m, _ in reds)
+            if vu != doit_rougir:
+                ko.append("C2ter : defaut=%d -> litteral revenu=%s, attendu %s (l'attestation "
+                          "NE DOIT PAS pouvoir blanchir un litteral non nul)"
+                          % (defaut, vu, doit_rougir))
 
         # --- C3 : le mot-cle EXPLICITE prime sur le defaut ------------------------------
         root = arbre({"engine/a.py": "def porte(base, spread_pct=20):\n    return spread_pct\n"
@@ -955,9 +1059,9 @@ def main() -> int:
     print("parametres cherches: %s" % ", ".join(VARIANCE_PARAMS))
     print("definitions: %d" % len(defs))
     for d in sorted(defs, key=lambda x: (x.file, x.line)):
-        print("  %-56s %s:%d  param=%-18s defaut=%-4s pos=%-4s gate=%s"
+        print("  %-56s %s:%d  param=%-18s defaut=%-9s pos=%-4s gate=%s"
               % (d.call_name, d.file, d.line, d.param,
-                 "dyn" if d.default_dynamic else d.default,
+                 d.default if d.default_kind == "LITTERAL" else d.default_kind,
                  d.pos_index if d.pos_index is not None else "kw",
                  ",".join(sorted(d.gates)) if d.gates else "-"))
 
@@ -966,17 +1070,21 @@ def main() -> int:
     print("=== CALL-SITES ===")
     print("  actifs                  : %d" % len(actifs))
     print("  inertes (hors gate)     : %d" % len(inertes))
-    z = [s for s in actifs if not s["dynamic"] and not s["unresolved"] and s["value"] == 0]
-    nz = [s for s in actifs if not s["dynamic"] and not s["unresolved"] and s["value"] != 0]
-    dyn = [s for s in actifs if s["dynamic"] or s["unresolved"]]
-    print("  variance NULLE (0)      : %d" % len(z))
-    print("  variance NON NULLE      : %d" % len(nz))
-    print("  variance DYNAMIQUE      : %d" % len(dyn))
+    bc = [s for s in actifs if s.get("from_bc")]
+    reste = [s for s in actifs if not s.get("from_bc")]
+    z = [s for s in reste if not s["dynamic"] and not s["unresolved"] and s["value"] == 0]
+    nz = [s for s in reste if not s["dynamic"] and not s["unresolved"] and s["value"] != 0]
+    dyn = [s for s in reste if s["dynamic"] or s["unresolved"]]
+    print("  variance LUE DE LA BC    : %d" % len(bc))
+    print("  variance NULLE (0)       : %d" % len(z))
+    print("  variance NON NULLE       : %d" % len(nz))
+    print("  variance DYNAMIQUE       : %d" % len(dyn))
     if args.list:
         for s in sorted(actifs, key=lambda x: (x["file"], x["line"])):
             print("    %s:%d  %s(%s)  spread=%s  %s"
                   % (s["file"], s["line"], s["callee"], s["param"],
-                     "dyn" if s["dynamic"] else s["value"], s["source"]))
+                     "BC" if s.get("from_bc") else ("dyn" if s["dynamic"] else s["value"]),
+                     s["source"]))
 
     print("=== ANGLE MORT NOMME -- noms d'appel AMBIGUS (non inventoriables par nom) ===")
     if not ambigus:
@@ -993,7 +1101,8 @@ def main() -> int:
         # structure (un parametre devenu MORT, un gate qui disparait) fait basculer d'un coup
         # les dizaines de call-sites qui en dependaient. Les imprimer tous noierait la CAUSE
         # sous ses consequences -- et `ratchets.ps1` ne montre que les 14 premieres lignes.
-        ordre = ("perimetre AVEUGLE", "parametre MORT", "signature ingardable",
+        ordre = ("perimetre AVEUGLE", "parametre MORT", "LITTERAL DE SPREAD REVENU",
+                 "signature ingardable",
                  "DEFAUT contredit le decompile", "porte de variance NON ATTESTEE",
                  "attestation de defaut PERIMEE", "variance INDETERMINABLE",
                  "REGRESSION : attendu 0", "attestation de zero PERIMEE", "zero NON JUSTIFIE")
