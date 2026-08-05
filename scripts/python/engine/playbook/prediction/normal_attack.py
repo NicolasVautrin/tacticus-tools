@@ -57,20 +57,26 @@ from engine.services.custom_normal_attack import substitutes_normal_attack
 #    (`Boltstorm`, `RighteousRepugnance`, `Fealty`, `TalonOfHorus`), mais
 #    `$$GetAdditionalDamagePrediction` n'existe que pour les DEUX premieres, et ni `Fealty` ni
 #    `TalonOfHorus` ne portent de `$$PredictAttack`.
-#    ⚠ CE QUE CETTE ASYMETRIE EST VRAIMENT — l'image du « fold en combat » est FAUSSE, et elle
-#    egare : l'UNIQUE consommateur de `$$GetAdditionalDamageBehaviour` est
-#    `<X>_NormalAttackAbility$$GetAdditionalTargetsAttackBehavior`, dont la cible est une cible
-#    **ADDITIONNELLE** (`Execute<X>` -> `IdunBattleLogic.Entities.DSLBehaviors$$Foreach` sur
-#    `<X>Ability$$GetAdditionalTargets`), jamais la cible PRIMAIRE. La face COMBAT est donc un
-#    **CLEAVE**, pour LES QUATRE. Ce que les deux premieres font EN PLUS, c'est ATTRIBUER un paquet
-#    de degat additionnel a la cible PRIMAIRE en PREDICTION — l'approximation que ce registre
-#    mirrore. Le texte i2 le dit aussi : `RighteousRepugnance` porte la clause « **to the target**
-#    and to all enemy units adjacent to both [...] », `TalonOfHorus` ne la porte PAS.
+#    ⚠ CE QUE CETTE ASYMETRIE EST VRAIMENT, ET SA CAUSE (RECTIFIE par #478, qui a LU le second
+#    consommateur et l'a CONFRONTE) : `$$GetAdditionalDamageBehaviour` a **DEUX** consommateurs.
+#      * `<X>_NormalAttackAbility$$GetAdditionalTargetsAttackBehavior` -> le **CLEAVE**, sur des
+#        cibles ADDITIONNELLES (`Execute<X>` -> `IdunBattleLogic.Entities.DSLBehaviors$$Foreach` sur
+#        `<X>Ability$$GetAdditionalTargets`). Il existe pour LES QUATRE.
+#      * `<X>_NormalAttackAbility$$GetCustomNormalAttackBehaviour` (vslot 0x4a8, appele par
+#        `ALoki_NormalAttackAbility$$ExecuteNormalAttack` et compose DANS l'attaque primaire) -> un
+#        paquet sur la cible **PRIMAIRE**, gate par `IsMeleePosition` (`RighteousRepugnance`) ou
+#        `DSLTriggers$$IsRangedPosition` (`Boltstorm`). **Il N'EXISTE PAS pour `Fealty` ni
+#        `TalonOfHorus`** — le symbole est absent de la table.
+#    ⇒ CE REGISTRE-CI est le mirror du SECOND consommateur, pas du cleave, et l'asymetrie n'est pas
+#    un oubli : c'est un symbole qui existe pour deux abilities et pas pour les deux autres. Le
+#    texte i2 le dit aussi : `RighteousRepugnance` porte la clause « **to the target** and to all
+#    enemy units adjacent to both [...] » (les DEUX volets), `TalonOfHorus` ne porte que le second.
 #    Inscrire `Fealty`/`TalonOfHorus` ici par analogie serait un fork de port : MESURE, la greffe
 #    ajoute `+2700/+4050/+3 coups` a `Fealty` et `+1953/+2931/+3` a `TalonOfHorus`, et le cliquet
 #    `tests/engine/test_446_r3b_fealty_talon_live.py` ROUGIT.
-#    ⚠ Le CLEAVE lui-meme n'est porte NULLE PART cote COMBAT (0 site dans `engine/runner/**`) —
-#    residu `#478`, ecart mesure 3104 / 3632 PV.
+#    ⚠ Les DEUX volets sont desormais portes cote COMBAT (`runner/abilities/loki/additional_targets.py`,
+#    #478) — y compris le paquet sur la cible primaire, qui valait **1565 PV** non infliges sur
+#    `adeptMorvenn`. Ne pas relire ce commentaire comme « le combat ne fait rien de plus ».
 # Cle de dispatch = le PASSIF de l'ENTITE (`UnitConfiguration.PassiveAbilities`, lu par
 # `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromPassive` ; l'instance
 # native lit SA config = celle du passif). Le KIT gameconfig n'en est plus que le REPLI quand le

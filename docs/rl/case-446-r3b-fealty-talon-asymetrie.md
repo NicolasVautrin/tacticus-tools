@@ -32,10 +32,20 @@ Les **quatre** `<X>_NormalAttackAbility` de la famille (`Boltstorm`, `RighteousR
                                 GetAdditionalDamageBehaviour(abilityState, target), ctx)
 ```
 
-⇒ **L'unique consommateur de `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour` est
-`$$GetAdditionalTargetsAttackBehavior`, et sa cible est une cible ADDITIONNELLE — jamais la cible
-PRIMAIRE.** La face COMBAT n'est donc pas un « fold sur la cible » : c'est un **CLEAVE**. Cela vaut
-pour les quatre, `Boltstorm` et `RighteousRepugnance` compris.
+⇒ `$$GetAdditionalTargetsAttackBehavior` consomme `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour`
+sur une cible **ADDITIONNELLE** — jamais la cible PRIMAIRE. Cette face-là est un **CLEAVE**, et elle
+vaut pour les quatre.
+
+> ⚠ **RECTIFIÉ par #478** (`case-478-cleave-additional-targets.md`) : « l'**unique** consommateur »
+> était FAUX. Il y en a **DEUX**. Le second est
+> `<X>_NormalAttackAbility$$GetCustomNormalAttackBehaviour` (vslot `0x4a8`, appelé par
+> `ALoki_NormalAttackAbility$$ExecuteNormalAttack` et composé **dans** l'attaque primaire), il frappe
+> bien la cible **PRIMAIRE**, et il **n'existe que pour `Boltstorm` et `RighteousRepugnance`** — le
+> symbole est absent pour `Fealty` et `TalonOfHorus`. C'est donc lui, la **cause nommée** de
+> l'asymétrie décrite ci-dessous : un symbole présent d'un côté, absent de l'autre. Mesure :
+> `adeptMorvenn` inflige `787, 969` (coups d'arme) **puis** `502, 506, 557` à sa cible primaire dans
+> une géométrie où son cleave n'a **aucune** cible — **1565 PV** que ce dossier ne voyait pas.
+> La gate est aussi INVERSÉE pour `Boltstorm` : il cleave sur `IsMelee == 0`, pas sur `IsMelee`.
 
 Côté DÉCISION, seuls ces deux derniers portent `$$PredictAttack` + `$$GetAdditionalDamagePrediction`
 — et ce qu'ils font est d'**attribuer UN paquet de dégât additionnel à la cible PRIMAIRE**
@@ -136,11 +146,11 @@ Exécution live de l'attaque normale sur `T`, PV lus avant/après :
 La face COMBAT native **existe et mord**. L'asymétrie ne veut donc pas dire « ces abilities ne font
 rien » : elle veut dire que l'IA **ne compte pas** ce dégât dans la prédiction de la cible primaire.
 
-**Côté PORT, le cleave n'est implémenté NULLE PART** — balayage à périmètre dérivé de
-`engine/runner/**` : **0 site**. Ce n'est pas propre à ces deux abilities : `Boltstorm` et
-`RighteousRepugnance` non plus (leur `GetAdditionalTargets` n'est porté que côté **playbook**, comme
-terme d'utilité). L'unique vecteur d'attaque normale du port combat est
-`damage_ops._Normal.execute(attacker, target)`, **mono-cible**. Résidu **`#478`** (§7).
+**Côté PORT, le cleave n'était implémenté NULLE PART** au moment de ce dossier — balayage à
+périmètre dérivé de `engine/runner/**` : **0 site**. L'unique vecteur d'attaque normale du port
+combat était `damage_ops._Normal.execute(attacker, target)`, **mono-cible**. Résidu **`#478`**,
+**LIVRÉ depuis** (`engine/runner/abilities/loki/additional_targets.py`) — avec un **second volet**
+que ce dossier n'avait pas vu, cf. l'encadré du §1.
 
 ⚠ Le décompte des coups du cleave n'est **pas** décomposé ici (le montant est
 `RandomAmount(minDmg, maxDmg)` × `ConfigConst(0x2f)`, mais la matérialisation par coup et l'étage
@@ -162,15 +172,14 @@ rien**. C'est exactement le régime dégénéré, provoqué et vu.
 
 ## 7. Résidus NOMMÉS
 
-* **`#478` — le CLEAVE de la face COMBAT n'est porté pour AUCUNE des quatre abilities.**
-  `Execute<X>` → `DSLBehaviors.Foreach(<X>Ability$$GetAdditionalTargets, t => Attack(t, GetAdditionalDamageBehaviour(t)))`
-  n'a **0 site** dans `engine/runner/**` (balayage dérivé). Écart mesuré ici : **3104** et **3632** PV
-  que le natif inflige et que le port n'inflige pas, sur `Fealty` et `TalonOfHorus` ; `Boltstorm` et
-  `RighteousRepugnance` sont dans le même cas, non mesurés. Montage prêt et réutilisable
-  (`probe_446_r3b_fealty_talon_asymetrie.py --volet combat`). Le sélecteur est **déjà porté** côté
-  playbook (`playbook/righteous_repugnance.py::count_additional_targets`,
-  `playbook/boltstorm.py`) et les primitives DSL `AdjacentEnemies`/`AdjacentFriends`/`Foreach`
-  existent : la tranche est un câblage COMBAT, pas une RE de sélecteur.
+* ~~**`#478` — le CLEAVE de la face COMBAT n'est porté pour AUCUNE des quatre abilities.**~~
+  **LIVRÉ (2026-08-05), `case-478-cleave-additional-targets.md`.** ⚠ Et la façon dont ce résidu était
+  écrit a coûté : « le sélecteur est **déjà porté** côté playbook […] c'est un câblage COMBAT, pas
+  une RE de sélecteur » est **faux sur les deux membres**. Les quatre sélecteurs sont distincts (dont
+  deux par la **surcharge** de primitive appelée, tranchée par les xrefs entrantes), la gate est
+  **inversée** pour `Boltstorm`, et il manquait un **second consommateur** entier — celui qui frappe
+  la cible primaire. Écart réellement livré : **3104 / 4835 / 2894 / 3038** PV de cleave **plus**
+  **1565** et **1584** PV de fold primaire.
 * **Les playbooks TRIGGERED `FealtyPlaybook` (1512) et `TalonOfHorusPlaybook` (1484) ne sont pas
   portés** — ils sont nommément dans la liste des résidus ATTACK de `#419-r1` (`Fealty` y figure,
   `TalonOfHorus` y est cité en tête des 4 ATTACK de relique). Cette tranche ne les touche pas ;
