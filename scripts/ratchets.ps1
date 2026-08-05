@@ -430,6 +430,52 @@ if ($List) {
     exit 0
 }
 
+# ==========================================================================================
+#  GARDE DE RETRAIT (2026-08-05, d82ec527 + b0cb6b1e).
+#
+#  La banque n'est plus une obligation avant PR. L'en-tete le disait deja -- et un agent l'a
+#  jouee quand meme le jour meme (46 cliquets, 713 s de mur, pour une tranche qui ne touchait
+#  qu'un fichier). Une consigne en PROSE dans un fichier qu'on ouvre pour le LANCER ne suffit
+#  pas : elle est lue APRES la decision. Donc on REFUSE, et on le dit.
+#
+#  Ce qu'on ne casse PAS : `-List` sort AVANT cette garde. C'est le contrat de derivation
+#  (`probe_439` lit la composition par la), et lister n'execute rien.
+#
+#  Pourquoi 64 et pas 1 : `1` se lit « un cliquet est rouge », soit un verdict sur le depot.
+#  Un refus n'en est pas un. 64 porte deja exactement ce sens dans ce fichier -- « RIEN n'a
+#  ete joue ». Ne pas inventer un code neuf : `probe_471` et `loop_status` lisent cette table.
+# ==========================================================================================
+if (-not $env:TACTICUS_ALLOW_RATCHETS) {
+    Write-Output ''
+    Write-Output '  ==================================================================='
+    Write-Output '   REFUS -- LA BANQUE DE CLIQUETS N EST PLUS UNE OBLIGATION AVANT PR'
+    Write-Output '  ==================================================================='
+    Write-Output ''
+    Write-Output '  Retiree de la doctrine le 2026-08-05 (commit d82ec527). Si tu es un agent'
+    Write-Output '  et que quelque chose t a dit de la jouer, cette source est PERIMEE :'
+    Write-Output '  le CLAUDE.md et le skill d orchestration ne la prescrivent plus.'
+    Write-Output ''
+    Write-Output '  MESURE QUI A MOTIVE LE RETRAIT (67 runs de logs/ratchets-bg) :'
+    Write-Output '    2 437 lignes de cliquet jouees, 5 non nulles -- 0,21 %.'
+    Write-Output '    Les 32 cliquets de GISEMENT n ont pas tire UNE SEULE FOIS.'
+    Write-Output '    probe_457 pesait 67 % du cout, pour ~891 s par agent et par PR.'
+    Write-Output ''
+    Write-Output '  CE QUE TU DOIS FAIRE A LA PLACE :'
+    Write-Output '    - les tests CIBLES de ta tranche, et tu les montres dans ton rapport ;'
+    Write-Output '    - la relecture du diff de tout test EXISTANT que tu modifies.'
+    Write-Output ''
+    Write-Output '  UN CLIQUET PRECIS TE SERT POUR TA MESURE ? Lance-le DIRECTEMENT, c est un'
+    Write-Output '  script Python autonome -- pas besoin de cet enrobage :'
+    Write-Output '      python scripts/python/<probe>.py'
+    Write-Output '  La composition reste lisible : pwsh -File scripts/ratchets.ps1 -List'
+    Write-Output ''
+    Write-Output '  Echappatoire CONSCIENTE (orchestrateur, diagnostic) :'
+    Write-Output '      $env:TACTICUS_ALLOW_RATCHETS = 1'
+    Write-Output ''
+    Write-Output "[ratchets] rc=$EX_USAGE -- RIEN n'a ete joue. Ce n'est PAS un verdict sur le depot."
+    exit $EX_USAGE
+}
+
 # `pwsh -File` ne decoupe PAS sur la virgule : `-Only a,b` arrive comme l'id litteral `a,b`.
 # On re-decoupe, sinon la forme documentee ne selectionne rien -- et ne rien selectionner se
 # lisait comme un rouge (cf. le code 64 ci-dessous).
