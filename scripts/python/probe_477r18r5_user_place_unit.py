@@ -56,9 +56,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
+import subprocess
 import sys
 import zlib
+from dataclasses import replace
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -67,9 +68,9 @@ sys.path.insert(0, str(HERE))
 import probe_477r15a_stream_conformance as R15A  # noqa: E402
 import probe_477r16_allocation_entites_ecs as R16  # noqa: E402
 from engine.entities.spawn_source import SpawnSource  # noqa: E402
-from engine.streams import StreamCache, StreamDispatcher  # noqa: E402
+from engine.streams import GroupType, StreamCache, StreamDispatcher  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
-from engine.streams.game_setup import UnitSetup  # noqa: E402
+from engine.streams.game_setup import UnitSetup, add_unit  # noqa: E402
 from engine.streams.input_messages import visit_add_unit_message  # noqa: E402
 
 ROOT = HERE.parents[1]
@@ -158,6 +159,37 @@ def stabilite_etat(flux: str, depuis: int, entites: set) -> tuple:
     return alertes, len(lignes), actions_sur_entites
 
 
+def build(board: str, state_file: Path, p_units: str, a_units: str,
+          extra: "list | None" = None) -> int:
+    """`rl_duel build`, avec des arguments SUPPLEMENTAIRES (`--p-mow`, ...).
+
+    Ce n'est pas `R15A.build` parce que celui-ci ne sait passer que `--armor-target` : le
+    scenario de generalisation MoW a besoin d'`--p-mow`, et etendre la fonction du probe amont
+    reviendrait a modifier un outil de mesure deja valide pour un besoin qui n'est pas le sien."""
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", "777", "--board", board,
+           "--p-units", p_units, "--a-units", a_units,
+           "--record-replay", "--no-ai", "--state-file", str(state_file)]
+    cmd += list(extra or ())
+    p = subprocess.run(cmd, cwd=str(HERE), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=900)
+    if not state_file.is_file():
+        raise MesureImpossible("build %s echoue : %s" % (board, (p.stderr or p.stdout)[-600:]))
+    return int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"])
+
+
+def vocabulaire(texte: str) -> dict:
+    """Les membres d'enum qu'un texte de flux ECRIT, par enum. Sert au delta de la borne (a)."""
+    vus = {"GroupType": set(), "StepType": set(), "TagKey": set()}
+    for l in CONF.parse_flux(texte):
+        if l.forme == "Group":
+            vus["GroupType"].add(l.symbole)
+        elif l.forme == "Action":
+            vus["StepType"].add(l.symbole)
+        elif l.forme == "Tag":
+            vus["TagKey"].add(l.symbole)
+    return vus
+
+
 class Capture:
     """Un `IStreamCacheListener` : ne garde que les groupes RACINE flushes."""
 
@@ -171,26 +203,77 @@ class Capture:
         pass
 
 
-def emettre(units: list) -> tuple:
+def emettre(units: list, mutation: str = "") -> tuple:
     """Emet un `User_PlaceUnit` par unite et rend `(texte concatene, nb de groupes racine)`.
 
     Le natif flushe UN groupe racine par message d'entree : la concatenation reproduit ce que
-    `IdunBattleLogic.Replay.ReplayRecorder$$OnStreamCacheRootGroupFinished` append au tampon."""
+    `IdunBattleLogic.Replay.ReplayRecorder$$OnStreamCacheRootGroupFinished` append au tampon.
+
+    `mutation` est le levier de la CONTRE-EPREUVE (§ 4 de `case-477r18`). Un flux emis qui
+    reste EGAL au natif apres qu'on a casse le port ne prouve rien : chaque mutation doit
+    rougir, et le probe verifie AUSSI qu'elle a bien change le texte -- une mutation qui ne
+    mord pas rendrait un rouge... ou un vert, tous deux sans valeur."""
     cache = StreamCache()
     capture = Capture()
     cache.add_listener(capture)
     events = StreamDispatcher()
     events.subscribe(cache)
-    for unit in units:
-        visit_add_unit_message(events, unit)
+    ordonnees = list(units)
+    if mutation == "ordre":
+        ordonnees = list(reversed(ordonnees))
+    for unit in ordonnees:
+        if mutation == "spawn_source":
+            unit = replace(unit, source=int(SpawnSource.InitialOperations))
+        elif mutation == "tuile":
+            # L'appariement position -> entite de tuile decale d'un cran. Teste le canal
+            # BOARD DUMP + regle #477-r16, que le tag `Unit_Foot_Tile_Id_1` est seul a exercer.
+            unit = replace(unit, foot_tile_ids=[int(unit.foot_tile_ids[0]) + 1])
+        elif mutation == "owner":
+            # `Unit_Owner_Id` : l'entite du joueur, lue dans `observeBattle.units[].playerId`.
+            unit = replace(unit, owner_id=int(unit.owner_id) + 1)
+        if mutation == "enveloppe":
+            # L'enveloppe supprimee : le `Group=AddUnit` devient un groupe RACINE.
+            add_unit(events, unit)
+        elif mutation == "entite":
+            # `Entity=` du groupe racine = l'unite, au lieu de `NO_ENTITY`.
+            events.start_group(GroupType.User_PlaceUnit, unit.entity_id, "", None)
+            add_unit(events, unit)
+            events.finish_group()
+        else:
+            visit_add_unit_message(events, unit)
     return "".join(capture.racines), len(capture.racines)
 
 
-def scenario(session: int, board: str, p_units: str, a_units: str) -> dict:
-    signature = "%08x" % (zlib.crc32(("%s|%s" % (p_units, a_units)).encode()) & 0xffffffff)
+#: Les quatre mutations du critere ecrit AVANT la tranche (`case-477r18` § 6, point 3), PLUS
+#: deux ajoutees ici. Le critere demandait de le durcir plutot que de l'assouplir : `tuile` et
+#: `owner` frappent les deux seules grandeurs du groupe qui viennent d'un canal INDEPENDANT
+#: (le board dump + la regle d'allocation ; `observeBattle.playerId`). Sans elles, une erreur
+#: d'appariement position -> entite de tuile ne serait couverte par AUCUNE mutation.
+MUTATIONS = ("enveloppe", "entite", "spawn_source", "ordre", "tuile", "owner")
+
+
+def contre_epreuve(texte_natif: str, texte_port: str, units: list) -> list:
+    """Rejoue l'emission avec chaque mutation et exige qu'elle ROUGISSE.
+
+    Rend une liste de `(nom, a_morde, nouvelles)`. `a_morde` est le garde du garde : si le
+    texte mute EGALE le texte sain, la mutation n'a rien change et son verdict -- quel qu'il
+    soit -- ne mesure rien."""
+    out = []
+    for nom in MUTATIONS:
+        texte, _ = emettre(units, mutation=nom)
+        a_morde = texte != texte_port
+        rap = CONF.comparer(texte_natif, texte)
+        out.append((nom, a_morde, len(rap.nouvelles) + len(rap.connues)))
+    return out
+
+
+def scenario(session: int, board: str, p_units: str, a_units: str,
+             extra: "list | None" = None) -> dict:
+    signature = "%08x" % (zlib.crc32(
+        ("%s|%s|%s" % (p_units, a_units, " ".join(extra or ()))).encode()) & 0xffffffff)
     state = OUT / ("state-477r18r5-%s-%s.json" % (board, signature))
     state.parent.mkdir(parents=True, exist_ok=True)
-    rid = R15A.build(board, state, p_units, a_units)
+    rid = build(board, state, p_units, a_units, extra)
     try:
         flux = (R15A.rpc(session, "replayOutputStream",
                          {"runnerId": rid, "maxChars": 8000000}).get("outputStream") or "")
@@ -251,6 +334,15 @@ def scenario(session: int, board: str, p_units: str, a_units: str) -> dict:
     texte_port, groupes_port = emettre(units)
     texte_natif = "".join(natifs)
 
+    # --- LE DELTA DE VOCABULAIRE, exige AVANT la tranche (`case-477r18` § 6, point 2) :
+    #     `+1 GroupType, +0 StepType, +0 TagKey`. Il se derive du MEME flux natif -- le groupe
+    #     de deploiement y est deja -- donc sans aucun cout, et sans dependre du port : c'est
+    #     ce que la TRANCHE ajoute au vocabulaire, pas ce que le port sait ecrire.
+    setup_natif = "".join(groupes_racines(flux, "System_GameSetup"))
+    voc_setup = vocabulaire(setup_natif)
+    voc_union = vocabulaire(setup_natif + texte_natif)
+    delta = {k: sorted(voc_union[k] - voc_setup[k]) for k in voc_union}
+
     # --- RECOUPEMENT D'ORDRE : la sequence derivee contre celle du flux. Le port n'a jamais lu
     #     cette derniere ; si les deux different, la regle « ids croissants » est fausse.
     ordre_natif = [int(m.group("entity")) for m in
@@ -264,6 +356,20 @@ def scenario(session: int, board: str, p_units: str, a_units: str) -> dict:
     sources_natives = sorted({int(m.group("value")) for m in
                               (CONF.RE_TAG.match(l) for g in natifs for l in g.split("\n"))
                               if m and m.group("sym") == "Unit_SpawnSource"})
+    # TEMOIN DE CONTENU : quels GROUPES le natif ouvre SOUS l'enveloppe. Le port n'emet que
+    # `AddUnit` ; si le flux en montrait un autre (`AddMachine`, un `Ability_Power` declenche
+    # a l'arrivee), la divergence rougirait -- mais ce compte le DIT avant meme la comparaison,
+    # et c'est ce qui borne le residu « un `User_PlaceUnit` peut contenir autre chose ».
+    contenus = {}
+    for g in natifs:
+        for l in g.split("\n")[1:]:
+            m = CONF.RE_GROUP.match(l)
+            if m:
+                contenus[m.group("sym")] = contenus.get(m.group("sym"), 0) + 1
+    # Combien de `Group=AddMachine` existent AILLEURS dans le flux : sur un montage `--p-mow`,
+    # ils sont dans `System_GameSetup`, PAS ici -- mesure du 2026-08-05.
+    machines_hors_groupe = (flux.count("Group=AddMachine ")
+                            - sum(g.count("Group=AddMachine ") for g in natifs))
 
     rap = CONF.comparer(texte_natif, texte_port, entrees_du_natif=(
         "Tag=Tile_IsTerritory -- hors de ce groupe (aucune `Action=AddTile` sous "
@@ -284,9 +390,14 @@ def scenario(session: int, board: str, p_units: str, a_units: str) -> dict:
             "largeur_hauteur": (largeur, hauteur),
             "alertes_stabilite": alertes, "lignes_apres": lignes_apres,
             "actions_apres": actions_apres, "sources_natives": sources_natives,
+            "contenus": contenus, "machines_hors_groupe": machines_hors_groupe,
             "ecarts_dv": ecarts_dv,
             "lignes_natif_total": flux.count("\n"),
-            "lignes_groupe": sum(g.count("\n") for g in natifs)}
+            "lignes_groupe": sum(g.count("\n") for g in natifs),
+            "voc_setup": {k: len(v) for k, v in voc_setup.items()},
+            "voc_union": {k: len(v) for k, v in voc_union.items()},
+            "delta_vocabulaire": delta,
+            "contre_epreuve": contre_epreuve(texte_natif, texte_port, units)}
 
 
 def main() -> int:
@@ -295,7 +406,19 @@ def main() -> int:
     ap.add_argument("--boards", default=",".join(BOARDS_DEFAUT))
     ap.add_argument("--p-units", default=ROSTER_P)
     ap.add_argument("--a-units", default=ROSTER_A)
+    ap.add_argument("--p-mow", default=None,
+                    help="scenario de GENERALISATION : une Machine of War cote joueur. Mesure "
+                         "(2026-08-05) -- elle N'OUVRE PAS de `User_PlaceUnit` : le montage la "
+                         "pose par `Group=AddMachine` DANS `System_GameSetup`. C'est ce qui "
+                         "borne le residu « un `User_PlaceUnit` peut contenir autre chose "
+                         "qu'un `AddUnit` » du cote de notre montage.")
+    ap.add_argument("--a-mow", default=None)
     args = ap.parse_args()
+    extra = []
+    if args.p_mow:
+        extra += ["--p-mow", args.p_mow]
+    if args.a_mow:
+        extra += ["--a-mow", args.a_mow]
 
     try:
         session = args.session if args.session is not None else R15A.session_courante()
@@ -304,14 +427,14 @@ def main() -> int:
         return 2
 
     boards = [b.strip() for b in args.boards.split(",") if b.strip()]
-    print("[477-r18-r5] session=%d  boards=%s  p=%s  a=%s"
-          % (session, ",".join(boards), args.p_units, args.a_units))
+    print("[477-r18-r5] session=%d  boards=%s  p=%s  a=%s  extra=%s"
+          % (session, ",".join(boards), args.p_units, args.a_units, " ".join(extra) or "-"))
     resultats, exercees_corpus = [], set()
     for board in boards:
         print("")
         print("=== BOARD %s ===" % board)
         try:
-            res = scenario(session, board, args.p_units, args.a_units)
+            res = scenario(session, board, args.p_units, args.a_units, extra)
         except MesureImpossible as e:
             print("  MESURE IMPOSSIBLE : %s" % e)
             return 2
@@ -331,6 +454,12 @@ def main() -> int:
             print("  ROUGE ORDRE : la regle « ids croissants » ne recoupe pas le flux.")
         print("  MONTAGE : `Unit_SpawnSource` emis par le natif = %s (le port ecrit %d, LU dans "
               "launch.ts)" % (res["sources_natives"], int(SpawnSource.Deployment)))
+        print("  CONTENU sous l'enveloppe : %s   (`Group=AddMachine` AILLEURS dans le flux : %d)"
+              % (", ".join("%s x%d" % (k, v) for k, v in sorted(res["contenus"].items()))
+                 or "(aucun groupe imbrique)", res["machines_hors_groupe"]))
+        if set(res["contenus"]) - {"AddUnit"}:
+            print("      ! CONTENU INATTENDU : le natif ouvre autre chose qu'un `AddUnit` sous "
+                  "l'enveloppe -- le port n'emet que celui-la, la divergence est ATTRIBUABLE.")
         print("  STABILITE D'ETAT : %d alerte(s) `Tag=UnitStats_*` sur une entite placee, apres "
               "le dernier groupe ; %d ligne(s) examinee(s), %d `Action=` portant sur ces entites"
               % (len(res["alertes_stabilite"]), res["lignes_apres"], res["actions_apres"]))
@@ -345,6 +474,25 @@ def main() -> int:
               % len(res["ecarts_dv"]))
         for e in res["ecarts_dv"]:
             print("      ROUGE RECOUPEMENT : %s" % e)
+        # --- LE DELTA DE VOCABULAIRE : ce que la tranche AJOUTE au deploiement deja porte.
+        print("  DELTA DE VOCABULAIRE vs `System_GameSetup` (attendu +1 / +0 / +0) :")
+        for nom in ("GroupType", "StepType", "TagKey"):
+            d = res["delta_vocabulaire"][nom]
+            print("      %-10s %d -> %d   (+%d) %s"
+                  % (nom, res["voc_setup"][nom], res["voc_union"][nom], len(d),
+                     ",".join(d) if d else ""))
+        if res["delta_vocabulaire"]["StepType"] or res["delta_vocabulaire"]["TagKey"]:
+            print("      ROUGE DEBORDEMENT : la tranche ajoute du vocabulaire d'ACTION ou de "
+                  "TAG -- elle n'est plus l'ancrage annonce.")
+        # --- CONTRE-EPREUVE : chaque mutation doit rougir, et doit d'abord AVOIR MORDU.
+        print("  CONTRE-EPREUVE (%d mutations, chacune doit rougir) :" % len(MUTATIONS))
+        for nom, a_morde, divs in res["contre_epreuve"]:
+            marque = "OK" if (a_morde and divs) else "ROUGE"
+            print("      %-14s texte change=%-5s divergences=%-4d %s"
+                  % (nom, a_morde, divs, marque))
+            if not a_morde:
+                print("          ! la mutation n'a PAS change le texte emis -- elle ne mesure "
+                      "rien, quel que soit son verdict.")
         for ligne in CONF.rapport(res["rapport"]):
             print("  " + ligne)
 
@@ -380,6 +528,20 @@ def main() -> int:
     if recoup_ko:
         print("  ROUGE : `GetActives()` et le walk de `Abilities@0x20` ne s'accordent pas sur %s."
               % ",".join(recoup_ko))
+        rc = 1
+    deborde = [r["board"] for r in resultats
+               if r["delta_vocabulaire"]["StepType"] or r["delta_vocabulaire"]["TagKey"]]
+    if deborde:
+        print("  ROUGE : la tranche DEBORDE sur %s -- elle ajoute du vocabulaire d'action ou de "
+              "tag, alors que son contenu devait etre le `AddUnit` deja porte."
+              % ",".join(deborde))
+        rc = 1
+    ce_ko = [(r["board"], nom) for r in resultats
+             for nom, a_morde, divs in r["contre_epreuve"] if not (a_morde and divs)]
+    if ce_ko:
+        print("  ROUGE : %d mutation(s) de contre-epreuve NE ROUGISSENT PAS -- le vert du "
+              "scenario sain ne prouve alors rien : %s"
+              % (len(ce_ko), ", ".join("%s/%s" % (b, n) for b, n in ce_ko)))
         rc = 1
     montage_ko = [r["board"] for r in resultats
                   if r["groupes_natifs"] != r["groupes_port"]]
