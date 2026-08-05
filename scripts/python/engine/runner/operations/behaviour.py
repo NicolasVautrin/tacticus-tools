@@ -3,7 +3,18 @@
 RE ghidra (gqfc5mff6c, re-lu sur rnca9r7q6c) :
   `IdunBattleLogic.Entities.Abilities.Active.Loki.BattleFatigueAbility$$CreateTrigger = `OnDeath(1) & IsAdjacent(self,dying,2) &
    AreFriends(dying,self) & NOT HasEffect(self, 0x437=1079 IgnoreBattleFatigue) & NOT IsObjectOrSteppable(dying)
-   & OwnerActive` -> quand un ALLIE **ADJACENT** meurt et que self n'est pas immunise.
+   & OwnerActive` -> quand une VRAIE UNITE ALLIEE **ADJACENTE** meurt et que self n'est pas immunise.
+  L'ordre ci-dessus est celui du decompile, conjoint par conjoint (`op_BitwiseAnd` de gauche a droite) ;
+  les selecteurs sont `+0x30 = self` et `+0x60 = dying`, et le conjoint terminal est le `OwnerActive`
+  pre-alloue (`<factory+0x88>+0x20`).
+
+⚠ `NOT IsObjectOrSteppable(dying)` A ETE ABSENT DU CODE jusqu'au 2026-08-05, alors que CETTE MEME
+LIGNE d'en-tete le citait (#462-r4b-r1-r1-r1-r1-b-r1-r1). Ecart PERMISSIF : le port faisait fuir sur
+la mort d'un allie OBJET/STEPPABLE (mur, tourelle, decoy, token) que le natif ignore. Il est
+desormais porte par le foyer `entities/triggers.py::is_object_or_steppable` -- mirror de
+`IdunBattleLogic.Entities.DSLTriggers$$IsObjectOrSteppable` = `HasTrait(x, 0x1b=27 Steppable) |
+HasTrait(x, 0xd=13 Object)`, qui a HUIT call-sites natifs. Detail :
+`docs/rl/case-462-r4b-r1-r1-r1-r1-b-r1-r1-object-or-steppable.md`.
 
 ⚠ LE `2` D'`IsAdjacent` N'EST PAS UN RAYON -- c'est un `UnitSelectionType` (#462-r4b-r1-r1-r1-r1-b-r1).
 `IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent(this, sel@+0x30 = self, sel@+0x60 = dying, 0x2)` ->
@@ -43,12 +54,15 @@ from .triggers import TriggeredAbility, _hex_dist
 from ...dsl.event_trigger_type import EventTriggerType
 from ...entities.effect_type import EffectType
 from ...entities.selectors import Caster, Target
-from ...entities.triggers import IsAdjacent
+from ...entities.triggers import IsAdjacent, is_object_or_steppable
 
 IGNORE_BATTLE_FATIGUE = int(EffectType.IgnoreBattleFatigue)  # 1079 (immunite ; posee p.ex. par SquigHound 1078) #158
 # 3e argument d'`DSLTriggers$$IsAdjacent` = `UnitSelectionType`, PAS un rayon (cf. en-tete du module).
 ONLY_TARGETABLE = 2              # UnitSelectionType.OnlyTargetable
 _IS_ADJACENT = IsAdjacent(Caster(), Target(), ONLY_TARGETABLE)   # IsAdjacent(self@+0x30, dying@+0x60, 2)
+# 5e conjoint : `NOT IsObjectOrSteppable(dying@+0x60)`. Foyer partage `entities/triggers.py`
+# (mirror de `IdunBattleLogic.Entities.DSLTriggers$$IsObjectOrSteppable`, 8 call-sites natifs).
+_IS_OBJECT_OR_STEPPABLE = is_object_or_steppable(Target())       # IsObjectOrSteppable(dying@+0x60)
 
 
 class FleeOperation:
@@ -122,9 +136,22 @@ class FleeOperation:
 
 
 class BattleFatigueAbility(TriggeredAbility):
-    """Trait `BattleFatigue` (cf. en-tete module). Trigger MORT : un ALLIE adjacent (<=2) meurt et self
-    n'est pas immunise (1079) -> eligible a la fuite. Behaviour = `FleeOperation` (gate `Maybe(fleeChance)`
-    documente). Gate par le trait via `BEHAVIOUR_TRAIT_TRIGGERS` (mirror Psyker/FinalJustice/ActOfFaith)."""
+    """Trait `BattleFatigue` (cf. en-tete module). Trigger MORT : une VRAIE UNITE ALLIEE **ADJACENTE**
+    meurt et self n'est pas immunise (1079) -> eligible a la fuite. Behaviour = `FleeOperation` (gate
+    `Maybe(fleeChance)` documente). Gate par le trait via `BEHAVIOUR_TRAIT_TRIGGERS` (mirror
+    Psyker/FinalJustice/ActOfFaith).
+
+    ⚠ « adjacent (<=2) » : cette docstring a porte ce `<=2` jusqu'au 2026-08-05, alors que l'en-tete
+    du module le REFUTAIT deja (le `2` est un `UnitSelectionType`, #462-r4b-r1-r1-r1-r1-b-r1). Deux
+    faces du meme accident : ici la docstring survivait au fix, plus bas c'est le CODE qui survivait
+    a la docstring (`NOT IsObjectOrSteppable`, #462-r4b-r1-r1-r1-r1-b-r1-r1). Une docstring n'est pas
+    une source -- l'en-tete cite les symboles, et c'est LUI qu'on relit.
+
+    ORDRE DES CONJOINTS. Le natif enchaine `OnDeath` -> `IsAdjacent` -> `AreFriends` -> `NOT HasEffect`
+    -> `NOT IsObjectOrSteppable` -> `OwnerActive`. `matches` evalue `AreFriends`/`HasEffect` AVANT
+    l'adjacence (ils sont impératifs et bon marche) : l'ordre differe, le VERDICT non -- les six
+    conjoints sont des predicats PURS, donc leur conjonction commute. Ce qui est preserve, c'est
+    l'ordre RELATIF des deux noeuds DSL (`IsAdjacent` avant `IsObjectOrSteppable`)."""
     event_id = EventTriggerType.PreUnitDeath
 
     def matches(self, state, ev) -> bool:
@@ -150,7 +177,13 @@ class BattleFatigueAbility(TriggeredAbility):
         # module). Meme foyer que tout autre consommateur du noeud : empreintes completes, porte
         # d'elevation, court-circuit d'identite, quantificateur universel.
         entities = entities_from_state(state, self.owner_id, ev.dying_id)
-        return bool(_IS_ADJACENT.should_trigger(entities))
+        if not _IS_ADJACENT.should_trigger(entities):
+            return False
+        # `NOT IsObjectOrSteppable(dying@+0x60)` -- 5e conjoint, LU au decompile (cf. en-tete). Un
+        # objet/decor/token qui meurt NE fatigue PERSONNE. Le meme `entities` sert les deux noeuds :
+        # le construire est une boucle sur tout le state, et le natif n'evalue lui aussi qu'UN
+        # `AbilityEntities` pour tout l'arbre.
+        return not _IS_OBJECT_OR_STEPPABLE.should_trigger(entities)
 
     def execute_behaviour(self, state, ev) -> Optional[dict]:
         # Gate natif `Maybe(GetFleeChance)` (RNG, chance un-sourcable offline) : on ne tire que si une chance
