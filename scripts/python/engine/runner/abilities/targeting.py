@@ -2492,7 +2492,6 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     # une unite sous terre rompt CETTE regle et non la regle-delegue de son ability (cf. la section
     # dediee dans la docstring).
     if not (options.has(TR.AllowNullCasterTile) or options.has(TR.CasterHasNoTile)):
-        from ..components import get_unit_feet
         if not get_unit_feet(state, int(caster_id)):
             return int(TR.AllowNullCasterTile)
     # `CasterMatchesDynamicRule` -- LE POINT D'EXTENSION du volet caster (#250), place ici comme dans
@@ -2844,7 +2843,6 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # `UnitTrait.Summon` = 2 ; le substrat de traits est le kit gameconfig, le meme que celui du
     # `UnitsWithTrait(..., 2)` de `HadesAutocannonsAbility$$GetAllTargets`.
     if options.has(TR.TargetIsSummon) and tuid is not None:
-        from ...entities.traits.unit_trait import UnitTrait
         if UnitTrait.Summon.name not in (_unit_traits(state, tuid) or ()):
             return int(TR.TargetIsSummon)
 

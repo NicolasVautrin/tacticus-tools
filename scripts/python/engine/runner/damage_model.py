@@ -489,7 +489,6 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     #  * `tgt_grand_alliance`  = `HasTrait(Target, 0x7ea = 2026 Chaos)` (derive de `GrandAllianceId`,
     #    comme les gates Imperial/Chaos de RitesOfBattle/BeaconOfRage).
     if target_id is not None:
-        from ..entities.effects.loki.dark_angels_passives import grand_alliance_of
         att_ctx = dict(att_ctx or {})
         att_ctx["marked_effect_types"] = marked_effect_types_for_target(state, unit_id, target_id)
         att_ctx["tgt_grand_alliance"] = grand_alliance_of(state, target_id)
@@ -661,7 +660,6 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
         if ceff:
             carriers.append((uid, (pc.col, pc.row), oc.team, ceff))
     if carriers and tp is not None:
-        from ..services.damage_modifiers import add_modifier
         for eb in aura_defense_damage_malus_from_units(
                 carriers, {"tgt_id": unit_id, "t_pos": tp,
                            "tgt_team": toc.team if toc is not None else None,

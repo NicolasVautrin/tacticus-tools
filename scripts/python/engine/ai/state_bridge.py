@@ -424,7 +424,6 @@ def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
     pas portee -> l'ensemble rendu est un SUR-ENSEMBLE des allies, degradation permissive assumee."""
     c = cfg.get("constants") or {}
     if _refuses_all_enemy_targets(ability_id):
-        from engine.runner.abilities.targeting import targeting_options_for
         from engine.runner.abilities.targeting_rule import TargetingRule as _TR
         _opts = targeting_options_for(ability_id)
         if _opts is not None and _opts.has(_TR.TargetIsFriendly):

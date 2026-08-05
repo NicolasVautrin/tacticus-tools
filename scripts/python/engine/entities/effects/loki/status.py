@@ -238,7 +238,6 @@ class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
         if not self.active:
             return []                                    # instance INERTE : le natif a deja reverte
         if self.value is not None:
-            from ...stats import StatType
             return [(int(StatType.FIXED_ARMOR), int(self.value))]
         args = self.CTOR_ARGS.get(int(self.effect_type or 0))
         if args is None or stats_ctx is None:

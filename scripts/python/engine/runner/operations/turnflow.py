@@ -204,7 +204,6 @@ class FinishUnitTurnOperation:
         # Consommateur de `On(0x29 = UnitFinishedTurnNormally)` : `MyWillBeDoneOverlordAttackAbility`
         # (passif `necroOverlord`).
         if newly_finished:
-            from .triggers import unit_finished_turn_triggers
             out["finished_triggers"] = unit_finished_turn_triggers(state, int(unit_id))
         if newly_finished and not forced:
             from .triggers import unit_finished_turn_normally_triggers

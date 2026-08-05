@@ -1344,7 +1344,6 @@ class DamageHandler:
             # (`Traits.Contains(0x7e7 Boss)`), threadee ici aussi -- une face qui ne connaitrait
             # qu'une PARTIE de la cascade est exactement ce que les deux tranches precedentes ont
             # ferme. Substrat d'ENTITE : `entity_trait_names` sur le `UnitContext`.
-            from ...entities.traits.unit_trait import entity_trait_names
             _asc = _ae.get_component(StatsComponent)
             _actx = getattr(_asc, "ctx", None)
             _apas = getattr(_actx, "passive_abilities", None)

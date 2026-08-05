@@ -2385,12 +2385,10 @@ class UnitEffectStateView(Mapping):
         # `CamoCloak_DmgReductionEffect$$HasValidEffectTrigger` (case-366-r1) — les DEUX membres du
         # `op_BitwiseOr`, PARESSEUX (chacun balaie, on ne paie que si une instance 1014 les lit).
         if key == "has_effect_light_cover" and self._has_effstate:
-            from ..entities.effect_type import EffectType
             if self._lc is None:
                 self._lc = has_effect_of_type(self._state, self._uid, int(EffectType.LightCover))
             return self._lc
         if key == "is_target_of_big_target_adjacent" and self._has_pos:
-            from ..entities.effect_type import EffectType
             if self._bta is None:
                 self._bta = is_target_of_adjacent_friend_aura(
                     self._state, self._uid, int(EffectType.BigTarget_AdjacentEffect))
