@@ -39,7 +39,7 @@ from rl_collect_batch import (  # noqa: E402
     _normalize_and_extract_pool, _spawn_points_by_twpi,
     _patch_predefined_units, _patch_predefined_machines, _rpc,
     _load_board_dump, _load_board_pool,
-    PLAYER_ID_HUMAN,
+    PLAYER_ID_HUMAN, PLAYER_ID_AI,
 )
 from rl_probe_step import _print_apply  # noqa: E402
 import catalog_inject  # noqa: E402
@@ -254,6 +254,72 @@ def _board_mow_ok(bc: dict) -> bool:
     return mp.get(0) not in (0, None) and mp.get(1) not in (0, None)
 
 
+def _parse_place_specs(specs, label: str) -> list[tuple[str, int, int]]:
+    """'unitId:col,row' -> (unitId, col, row). Leve ValueError sur forme invalide.
+
+    Une entree = UNE occurrence de l'unite. Repeter l'option pour placer deux copies
+    du meme id."""
+    out: list[tuple[str, int, int]] = []
+    for spec in (specs or []):
+        uid, _, coords = str(spec).partition(":")
+        uid = uid.strip()
+        parts = [p.strip() for p in coords.split(",")]
+        if not uid or len(parts) != 2:
+            raise ValueError(f"{label}: forme attendue 'unitId:col,row', recu {spec!r}")
+        try:
+            col, row = int(parts[0]), int(parts[1])
+        except ValueError:
+            raise ValueError(f"{label}: col/row non entiers dans {spec!r}") from None
+        out.append((uid, col, row))
+    return out
+
+
+def _apply_place_overrides(units: list[dict], places: list[tuple[str, int, int]],
+                           label: str) -> str | None:
+    """Ecrase col/row des entrees `units` (forme initAndStart.playerUnits) dont
+    l'`unitId` est cite. Une occurrence consommee par entree de `places` ; rend un
+    message d'erreur si un id n'a pas assez d'occurrences."""
+    used: dict[str, int] = {}
+    for uid, col, row in places:
+        idxs = [i for i, u in enumerate(units) if u["unitId"] == uid]
+        k = used.get(uid, 0)
+        if k >= len(idxs):
+            return (f"{label}: '{uid}' place {k + 1} fois mais le roster n'en compte "
+                    f"que {len(idxs)}")
+        units[idxs[k]]["col"] = col
+        units[idxs[k]]["row"] = row
+        used[uid] = k + 1
+    return None
+
+
+def _verify_placements(sid: int, rid: int, wanted: list[dict]) -> list[str]:
+    """Confronte les placements DEMANDES aux positions REELLEMENT obtenues.
+
+    Raison d'etre : `IdunBattle.Operations.AddUnitOperation$$Execute` abandonne en
+    RETOUR NUL SILENCIEUX sur trois gardes (`TilesAreReserved`,
+    `TilesArePendingDrafting`, `TilesAreInFog`) -- ni exception, ni event d'erreur.
+    Un placement refuse se lirait donc comme un succes. Rend la liste des ecarts."""
+    res = _decision(sid, rid)
+    units = res.get("units") or []
+    # Cle = (visualId, team) : le MEME unitId peut etre des DEUX cotes (rosters croises),
+    # et sans la team un placement joueur refuse se lirait comme honore par l'unite ADVERSE
+    # homonyme -- faute constatee au premier jet de ce garde.
+    pos_by: dict[tuple[str, int], list[tuple[int, int]]] = {}
+    for u in units:
+        p = u.get("pos") or {}
+        if p.get("col") is None:
+            continue
+        pos_by.setdefault((str(u.get("visualId")), int(u.get("team") or 0)), []).append(
+            (int(p["col"]), int(p["row"])))
+    problems: list[str] = []
+    for w in wanted:
+        got = pos_by.get((w["unitId"], w["team"]), [])
+        if (w["col"], w["row"]) not in got:
+            problems.append(f"{w['unitId']} (team{w['team']}) demande @({w['col']},{w['row']}) "
+                            f"mais present @{got or 'NULLE PART (non deploye)'}")
+    return problems
+
+
 def cmd_build(sid: int, a) -> int:
     # Board swap (--board id fixe / --board-pool aleatoire) — mirror rl_collect_batch.
     if getattr(a, "board", None) and getattr(a, "board_pool", None):
@@ -340,6 +406,37 @@ def cmd_build(sid: int, a) -> int:
     p_units = pick("--p-units", explicit_p, a.roster)
     a_units = pick("--a-units", explicit_a, a.roster)
 
+    # --place / --a-place (#477-r5) : placement sur TUILE EXACTE via AddUnitMessage.
+    # Cote adverse, l'unite quitte BC.PredefinedUnits (que le natif place lui-meme sur le
+    # SpawnPointGroup, cf. `IdunBattle.Operations.SetupGameOperation$$AddPredefinedUnits`)
+    # pour rejoindre les `playerUnits` d'`initAndStart` avec playerId=PLAYER_ID_AI.
+    try:
+        p_places = _parse_place_specs(getattr(a, "place", None), "--place")
+        a_places = _parse_place_specs(getattr(a, "a_place", None), "--a-place")
+    except ValueError as e:
+        print(f"[error] {e}", file=sys.stderr)
+        return 2
+    for uid, _c, _r in p_places:
+        if uid not in p_units:
+            print(f"[error] --place: '{uid}' n'est pas dans --p-units {p_units}",
+                  file=sys.stderr)
+            return 2
+    for uid, _c, _r in a_places:
+        if uid not in a_units:
+            print(f"[error] --a-place: '{uid}' n'est pas dans --a-units {a_units}",
+                  file=sys.stderr)
+            return 2
+    # a_predef = ce qui reste confie au placement natif ; a_hand = pose a la main.
+    a_predef = list(a_units)
+    a_hand: list[tuple[str, int, int]] = []
+    for uid, col, row in a_places:
+        if uid not in a_predef:
+            print(f"[error] --a-place: '{uid}' place plus de fois qu'il n'apparait "
+                  f"dans --a-units", file=sys.stderr)
+            return 2
+        a_predef.remove(uid)
+        a_hand.append((uid, col, row))
+
     # MoW : explicite, ou auto (--mow), ou aucun.
     p_mow, a_mow = a.p_mow, a.a_mow
     if a.mow and not p_mow and not a_mow and pool_mow:
@@ -372,7 +469,7 @@ def cmd_build(sid: int, a) -> int:
         print(f"[build] board swap (pool {a.board_pool}): id={_pick.get('id')} "
               f"{_pi.get('Width')}x{_pi.get('Height')} sps={_pick.get('spawnPointsSet')} "
               f"({len(_bpool)} eligibles)")
-    _patch_predefined_units(bc, a_units)
+    _patch_predefined_units(bc, a_predef)
     _patch_predefined_machines(bc, p_mow, a_mow)
 
     # --crit/--block "CC,CD" : restaure des stats de combat sur les TEMPLATES Units des
@@ -515,6 +612,17 @@ def cmd_build(sid: int, a) -> int:
          "col": int(player_pts[i][0]), "row": int(player_pts[i][1])}
         for i in range(roster_p)
     ]
+    err = _apply_place_overrides(player_units, p_places, "--place")
+    if err:
+        print(f"[error] {err}", file=sys.stderr)
+        return 2
+    for uid, col, row in a_hand:
+        player_units.append({"unitId": uid, "playerId": PLAYER_ID_AI,
+                             "col": col, "row": row})
+    placed = ([(u, c, r, 1) for u, c, r in p_places]
+              + [(u, c, r, 2) for u, c, r in a_places])
+    for uid, col, row, team in placed:
+        print(f"[build] place {uid} @({col},{row}) team{team}")
     # Replace SCOPE par acteur : cote hooks la coexistence est le DEFAUT
     # (initAndStart ne dispose plus jamais les runners freres ; cap dur
     # MAX_RUNNERS sinon refus explicite). Rebuild = remplacer LE runner
@@ -563,6 +671,17 @@ def cmd_build(sid: int, a) -> int:
                if (p_mow or a_mow) else "")
     print(f"[build] runnerId={rid}  MON roster (team 1)={p_units}")
     print(f"[build] roster ADVERSE (team 2)={a_units}{mow_str}")
+    placement_problems: list[str] = []
+    if placed:
+        # Un placement refuse par le natif est un RETOUR NUL SILENCIEUX (cf. _verify_placements) :
+        # sans cette confrontation, `build` rendrait 0 sur un montage qui n'a pas eu lieu.
+        # Le verdict est POSE ICI mais RENDU tout a la fin, apres `_save_state` : sortir avant
+        # d'ecrire le state-file laisserait ce runner ORPHELIN (le prochain build disposerait
+        # l'ancien id, pas celui-ci) -- il mangerait le cap partage sans proprietaire.
+        placement_problems = _verify_placements(sid, rid, [
+            {"unitId": u, "col": c, "row": r, "team": t} for u, c, r, t in placed])
+        if not placement_problems:
+            print(f"[build] placements verifies OK ({len(placed)})")
     if a.advance > 0:
         _advance(sid, rid, a.advance, a.maxpump)
         print(f"[build] advanced {a.advance} tours (IA vs IA)")
@@ -571,6 +690,15 @@ def cmd_build(sid: int, a) -> int:
                     if u.get("ctrl")), None)
     _save_state({"runnerId": rid, "bc": bc, "seed": a.seed, "myTeam": my_team,
                  "playerUnits": player_units})
+    if placement_problems:
+        for p in placement_problems:
+            print(f"[error] placement NON HONORE par le natif: {p}", file=sys.stderr)
+        print("[error] --place/--a-place: le runner est construit ET enregistre dans le "
+              "state-file, mais le montage demande n'a PAS eu lieu -- tuile deja occupee "
+              "(TilesAreReserved), en attente de draft (TilesArePendingDrafting) ou sous "
+              "brouillard (TilesAreInFog) : les trois font un retour NUL SILENCIEUX dans "
+              "IdunBattle.Operations.AddUnitOperation$$Execute.", file=sys.stderr)
+        return 3
     return 0
 
 
@@ -2239,6 +2367,20 @@ def main(argv: list[str]) -> int:
                     help="build: board ALEATOIRE (seede) depuis ce pool dumpe, filtre aux boards "
                          "avec assez de spawns/cote (+ MoW-capable si un MoW est en jeu). "
                          "Exclusif avec --board.")
+    ap.add_argument("--place", action="append", default=None,
+                    help="build: place une unite de MON roster sur une TUILE EXACTE — "
+                         "'unitId:col,row', repetable (une entree par occurrence de l'id). "
+                         "Sans lui, les p-units prennent les SpawnPoints du board dans l'ordre. "
+                         "Le natif (IdunBattle.Operations.AddUnitOperation$$Execute) n'exige PAS "
+                         "que la tuile appartienne au SpawnPointSet : ses seules gardes sont "
+                         "TilesAreReserved / TilesArePendingDrafting / TilesAreInFog, et chacune "
+                         "fait un RETOUR NUL SILENCIEUX -> le build VERIFIE la position obtenue et "
+                         "rougit si elle ne correspond pas.")
+    ap.add_argument("--a-place", action="append", default=None,
+                    help="build: idem --place pour une unite du roster ADVERSE. L'unite est SORTIE "
+                         "de BC.PredefinedUnits (que le natif place lui-meme sur le "
+                         "SpawnPointGroup) et posee par AddUnitMessage(playerId=12) sur la tuile "
+                         "demandee. Meme verification qu'au --place.")
     ap.add_argument("--advance", type=int, default=0)
     ap.add_argument("--maxpump", type=int, default=2000)
     ap.add_argument("--unit", type=int, default=None)
