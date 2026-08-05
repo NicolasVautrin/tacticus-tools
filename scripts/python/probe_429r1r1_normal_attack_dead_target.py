@@ -297,6 +297,20 @@ def scenario_live(state_file: str, seed: str = "777", board: str = "MC1_67",
         res["port_last"] = runner.damage_handler.last if hasattr(runner, "damage_handler") else None
         res["port_draws"] = (None if mti0 is None else
                              (st.rng.mti - mti0 + (624 if st.rng.mti < mti0 else 0)))
+        # --- 3bis. LA PORTE DECLENCHEE : l'operation appelee DIRECTEMENT ----------------------
+        # C'est ce qui separe les deux etages possibles. Les ~11 call-sites declenches (overwatch,
+        # riposte, drone commande, summon) n'empruntent AUCUN visiteur : ils appellent
+        # `AttackDamageOperation.execute` tel quel. Un gate pose au rang du MESSAGE les laisserait
+        # tous ouverts. On mesure donc l'operation NUE sur le cadavre, sur un etat frais.
+        from engine.runner.operations.damage import AttackDamageOperation
+        st3 = load_state(dv, ob0, snap)
+        if isinstance(bg, dict) and "tiles" in bg:
+            st3.board = Board(bg["tiles"], adjacency="native_sym")
+        mti3 = _cale(st3)
+        _op = AttackDamageOperation.execute(st3, att, prime)
+        res["port_op_directe"] = _op
+        res["port_op_directe_draws"] = (None if mti3 is None else
+                                        (st3.rng.mti - mti3 + (624 if st3.rng.mti < mti3 else 0)))
         # --- 4. CONTRE-EPREUVE : le MEME coup, gate DEBRANCHE ---------------------------------
         # Un vert de l'etape 3 ne prouve rien tant qu'on n'a pas montre que SANS le gate le port
         # EXECUTAIT sur le cadavre. Le gate est importe en LAZY dans les deux porteurs, donc
@@ -316,6 +330,15 @@ def scenario_live(state_file: str, seed: str = "777", board: str = "MC1_67",
             res["port_sans_gate_total"] = None if not isinstance(last2, dict) else last2.get("total")
             res["port_sans_gate_draws"] = (None if mti1 is None else
                                            (st2.rng.mti - mti1 + (624 if st2.rng.mti < mti1 else 0)))
+            # meme contre-epreuve pour la porte DECLENCHEE : sans le gate, l'operation NUE frappait
+            # aussi le cadavre -- c'est la mesure du trou que le rang MESSAGE aurait laisse ouvert.
+            st4 = load_state(dv, ob0, snap)
+            if isinstance(bg, dict) and "tiles" in bg:
+                st4.board = Board(bg["tiles"], adjacency="native_sym")
+            _cale(st4)
+            _op2 = AttackDamageOperation.execute(st4, att, prime)
+            res["port_op_directe_sans_gate_total"] = (None if not isinstance(_op2, dict)
+                                                      else _op2.get("total"))
         finally:
             OA.is_dead_unit_and_not_allowed_by_ability = garde
         res["why"] = ""

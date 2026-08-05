@@ -96,6 +96,24 @@ def test_contre_epreuve_sans_le_gate_le_port_frappait_le_cadavre(scenario):
         "alors que le natif la laisse -- obtenu %s" % sans.get("flags"))
 
 
+def test_la_porte_DECLENCHEE_est_gatee_elle_aussi(scenario):
+    """CE QUI JUSTIFIE L'ETAGE. Les ~11 call-sites declenches (overwatch, riposte, drone commande,
+    summon) appellent `AttackDamageOperation.execute` SANS passer par aucun visiteur : un gate pose
+    au rang du message les aurait tous laisses ouverts. On mesure donc l'operation NUE.
+
+    Mesure : 6049 degats sur le cadavre AVANT, `None` / 0 tirage APRES."""
+    assert scenario["port_op_directe"] is None, (
+        "l'operation appelee directement doit no-opper sur un cadavre, obtenu %s"
+        % scenario["port_op_directe"])
+    assert scenario["port_op_directe_draws"] == 0, (
+        "l'operation nue ne doit consommer aucun RNG, obtenu %s"
+        % scenario["port_op_directe_draws"])
+    assert (scenario["port_op_directe_sans_gate_total"]
+            and scenario["port_op_directe_sans_gate_total"] > 0), (
+        "la mutation n'a pas mordu sur CETTE porte : sans le gate l'operation nue doit frapper le "
+        "cadavre, obtenu %s" % scenario["port_op_directe_sans_gate_total"])
+
+
 def test_le_gate_ne_refuse_pas_TOUT_cible_vivante(scenario):
     """GENERALISATION, sur le MEME porteur et la MEME attaque normale : cible VIVANTE, le port
     execute. Sans cette ligne, un gate qui refuserait toute attaque passerait les tests ci-dessus."""
