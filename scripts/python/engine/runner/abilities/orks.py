@@ -41,6 +41,8 @@ from ...utilities.tile import first_tile_by_utility
 from ...utilities.utility_type import UtilityType
 from .behaviours import (AddEffect, AttackWithAttackDamage, KillDeadUnits, MoveUnit, PerformAIAction,
                          Spawn, UseActiveAbility, entities_from_state)
+from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
+from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -48,8 +50,8 @@ if TYPE_CHECKING:
 # Index des constantes lues par `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` et ses helpers
 # (`AbilityConfiguration.Get*Constant(config, <index>)`) -> cle gameconfig correspondante.
 CONST_UNIT_ID = 0x00            # GetStringConstant(0)     -> "unitId"        = orksOrkBoys
-CONST_EXTRA_MOVEMENT = 0x0e     # GetNumberConstant(0xe)   -> "extraMovement" = 1
-CONST_NR_OF_SUMMONS = 0x10      # GetNumberConstant(0x10)  -> "nrOfSummons"   = 2
+CONST_EXTRA_MOVEMENT = AbilityConstantType.extraMovement     # GetNumberConstant(0xe)   -> "extraMovement" = 1
+CONST_NR_OF_SUMMONS = AbilityConstantType.nrOfSummons      # GetNumberConstant(0x10)  -> "nrOfSummons"   = 2
 
 WAAAGH_FACTION = "Orks"         # `UnitsFromFaction(..., 5, 3)` — UnitFaction.Orks = 5 (il2cpp_enums)
 
@@ -264,7 +266,7 @@ def waaagh_attack_tree():
 # noeuds A LA MAIN, dans l'ORDRE INVERSE, et trie avec une definition d'utilite a DEUX termes.
 # ------------------------------------------------------------------------------------------------ #
 
-RAMMING_SPEED_CONST_RANGE = 0x16   # GetNumberConstant(0x16) -> "range" = 5 (AbilityConstantType.range)
+RAMMING_SPEED_CONST_RANGE = AbilityConstantType.range   # GetNumberConstant(0x16) -> "range" = 5 (AbilityConstantType.range)
 
 # `UtilityDefinition( UtilityBucket([ WeightedUtility(7 = Tile, null),
 #                                     WeightedUtility(0x36 = 54 RammingSpeed_MostAdjacentEnemies,
@@ -360,10 +362,10 @@ def ramming_speed_tile_to_move_to(state: "State", caster_id: int, target_id: int
 
 
 RAMMING_SPEED_ID = "RammingSpeed"
-RS_CONST_NR_OF_HITS = 0x2f       # GetNumberConstant(0x2f)     -> "nrOfHits"   = 4
-RS_CONST_NR_OF_HITS_2 = 0x32     # GetNumberConstant(0x32)     -> "nrOfHits_2" = 2
-RS_VAR_MIN_DMG = 0x0c            # GetVariableForLevel(0xc)    -> "minDmg"
-RS_VAR_MAX_DMG = 0x0d            # GetVariableForLevel(0xd)    -> "maxDmg"
+RS_CONST_NR_OF_HITS = AbilityConstantType.nrOfHits       # GetNumberConstant(0x2f)     -> "nrOfHits"   = 4
+RS_CONST_NR_OF_HITS_2 = AbilityConstantType.nrOfHits_2     # GetNumberConstant(0x32)     -> "nrOfHits_2" = 2
+RS_VAR_MIN_DMG = AbilityVariableType.minDmg            # GetVariableForLevel(0xc)    -> "minDmg"
+RS_VAR_MAX_DMG = AbilityVariableType.maxDmg            # GetVariableForLevel(0xd)    -> "maxDmg"
 RS_EXTRA_EXPLODE = int(EffectType.RammingSpeed_ExtraExplode)   # 0x44a = 1098
 # `TargetingRule` rendue par `GetDynamicInvalidTargetReason` quand AUCUNE tuile de charge n'est
 # atteignable : le litteral natif est `0x8000000` = `TargetIsInRange` (bit 27).
@@ -723,10 +725,10 @@ class WaaaghAbility(ActiveAbility):
 #
 # Index des constantes lues par `SquigLaunchasAbility` (`AbilityConfiguration.Get*Constant(config, i)`) :
 CONST_SL_UNIT_ID = 0x00           # GetStringConstant(0)     -> "unitId"      = orksSmnSquig
-CONST_SL_ORKS_TARGET = 0x78       # GetNumberConstant(0x78)  -> "nrOfUnits"   = 1  (CIBLAGE, Orks)
-CONST_SL_FRIENDS_TARGET = 0x79    # GetNumberConstant(0x79)  -> "nrOfUnits_2" = 2  (CIBLAGE, amis)
-CONST_SL_ORKS_SUMMON = 0x81       # GetNumberConstant(0x81)  -> "nrOfUnits_3" = 2  (SUMMON, Orks)
-CONST_SL_FRIENDS_SUMMON = 0x82    # GetNumberConstant(0x82)  -> "nrOfUnits_4" = 4  (SUMMON, amis)
+CONST_SL_ORKS_TARGET = AbilityConstantType.nrOfUnits       # GetNumberConstant(0x78)  -> "nrOfUnits"   = 1  (CIBLAGE, Orks)
+CONST_SL_FRIENDS_TARGET = AbilityConstantType.nrOfUnits_2    # GetNumberConstant(0x79)  -> "nrOfUnits_2" = 2  (CIBLAGE, amis)
+CONST_SL_ORKS_SUMMON = AbilityConstantType.nrOfUnits_3       # GetNumberConstant(0x81)  -> "nrOfUnits_3" = 2  (SUMMON, Orks)
+CONST_SL_FRIENDS_SUMMON = AbilityConstantType.nrOfUnits_4    # GetNumberConstant(0x82)  -> "nrOfUnits_4" = 4  (SUMMON, amis)
 
 SQUIG_LAUNCHAS_ID = "SquigLaunchas"
 SQUIG_FACTION = "Orks"            # `UnitsFromFaction(..., 5, 3)` — UnitFaction.Orks = 5 (il2cpp_enums)
@@ -897,9 +899,9 @@ SQUIG_MINE_TILE = int(EffectType.SquigMine_Tile)     # 0x5a1 = 1441
 # Index des variables/constantes lues par `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$ExecuteBehaviour`
 # (`AbilityConfiguration.Get*`) -> cle gameconfig (croisee avec la config 1201 : nrOfRounds=1, range=2,
 # nrOfTiles[level]).
-SQUIG_CONST_NR_OF_ROUNDS = 0x45     # GetNumberConstant(0x45)     -> "nrOfRounds" = 1
-SQUIG_CONST_RANGE = 0x16            # GetNumberConstant(0x16)     -> "range"      = 2
-SQUIG_VAR_NR_OF_TILES = 0x66        # GetVariableForLevel(0x66)   -> "nrOfTiles"[level]
+SQUIG_CONST_NR_OF_ROUNDS = AbilityConstantType.nrOfRounds     # GetNumberConstant(0x45)     -> "nrOfRounds" = 1
+SQUIG_CONST_RANGE = AbilityConstantType.range            # GetNumberConstant(0x16)     -> "range"      = 2
+SQUIG_VAR_NR_OF_TILES = AbilityVariableType.nrOfTiles        # GetVariableForLevel(0x66)   -> "nrOfTiles"[level]
 
 
 def squig_mine_pool_tree(target_tile_id: int, rng_range: int):
@@ -1068,11 +1070,11 @@ class SquigMineAbility(ActiveAbility):
 # ================================================================================================ #
 
 DDD_ID = "DakkaDakkaDakka"
-DDD_CONST_NR_OF_HITS = 0x2f      # GetNumberConstant(0x2f)  -> "nrOfHits"     = 6
-DDD_CONST_EXTRA_HITS = 0x64      # GetNumberConstant(100)   -> "extraHits"    = 2
-DDD_CONST_MAX_HITS = 0x48        # ConfigConst(0x48)        -> "maxNrOfHits"  = 16
-DDD_CONST_RANGE_2 = 0x44         # GetNumberConstant(0x44)  -> "range_2"      = 3
-DDD_CONST_HEALTH_PCT = 0x4f      # ConfigConst(0x4f)        -> "healthPct"    = 15
+DDD_CONST_NR_OF_HITS = AbilityConstantType.nrOfHits      # GetNumberConstant(0x2f)  -> "nrOfHits"     = 6
+DDD_CONST_EXTRA_HITS = AbilityConstantType.extraHits      # GetNumberConstant(100)   -> "extraHits"    = 2
+DDD_CONST_MAX_HITS = AbilityConstantType.maxNrOfHits        # ConfigConst(0x48)        -> "maxNrOfHits"  = 16
+DDD_CONST_RANGE_2 = AbilityConstantType.range_2         # GetNumberConstant(0x44)  -> "range_2"      = 3
+DDD_CONST_HEALTH_PCT = AbilityConstantType.healthPct      # ConfigConst(0x4f)        -> "healthPct"    = 15
 # ^ 0x44 : index NON derivable de la valeur (1171 a `range` == `range_2` == 3). Il est etabli par
 #   ELIMINATION sur DEUX configs independantes : 0x16 = `range` est deja ancre (dump.cs
 #   AbilityConstantType.range = 22), et le SEUL autre index numerique commun a 1171 et a

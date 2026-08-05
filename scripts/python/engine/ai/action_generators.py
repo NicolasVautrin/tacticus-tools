@@ -77,8 +77,8 @@ from engine.ai.bucket import Action, Bucket
 # exclu ; 82/84 = IDs inexistants dans l'enum, retires -- validateur.)
 # #270-r1-r1 : membre nomme (`Repair(28)` est deja ecrit dans la prose ci-dessus).
 _COMPARABLE_REPAIR_IDS: "frozenset[int]" = frozenset({ActiveAbilityType.Repair})   # 28
-_GALVANIC_REPAIR_ID = 1119   # Repair_GalvanicField (bespoke Comparable, admecManipulus/Loki) — #85
-_SPIRITLEECH_ID = 1104       # SpiritLeech (tyranNeurothrope/Loki) — attaque psychique per-ennemi + lifesteal (#84)
+_GALVANIC_REPAIR_ID = ActiveAbilityType.Repair_GalvanicField   # Repair_GalvanicField (bespoke Comparable, admecManipulus/Loki) — #85
+_SPIRITLEECH_ID = ActiveAbilityType.SpiritLeech       # SpiritLeech (tyranNeurothrope/Loki) — attaque psychique per-ennemi + lifesteal (#84)
 _SPIRITLEECH_HEAL_FACTION = "Tyranids"   # IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealTargets : faction 0xc (self + amis Tyranids adjacents)
 
 

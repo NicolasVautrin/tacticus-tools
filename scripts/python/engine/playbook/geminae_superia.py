@@ -17,6 +17,7 @@ exactement la configuration ou le port rendait une autre tuile que le natif
 from __future__ import annotations
 
 from .. import battle_query as bq
+from ..entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
 
 def _occupied_positions(ctx: dict) -> set:
@@ -70,7 +71,7 @@ class GeminaeSuperiaPlaybook:
     degrade (voisinage hexgeo, tuiles supposees placeables) -- meme degradation que partout ailleurs.
     """
 
-    ABILITY_ID = 1048                                   # 0x418 -- litteral du `..ctor`
+    ABILITY_ID = TriggeredAbilityType.GeminaeSuperia                                   # 0x418 -- litteral du `..ctor`
     FREE_HEX_KEY = "GEMINAESUPERIA_FreeAdjacentHex"           # BC = 10
     ADJACENT_SUMMON_KEY = "GEMINAESUPERIA_AdjacentAliveSummon"  # BC = 30
     CONFIG_ID = "GeminaeSuperia"

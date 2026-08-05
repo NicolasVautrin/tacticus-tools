@@ -45,6 +45,7 @@ from collections.abc import Mapping
 from ...effect_type import EffectType
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ....entities.active_ability_type import ActiveAbilityType   # #270-r1-r1-r3
 
 _AUGMENTED_ASSAULT = "AugmentedAssault"       # ActiveAbilityType 0x4c5 = 1221 (votanBeserk / Havyr)
 _ANCESTRAL_FORTUNE = "AncestralFortune"       # ActiveAbilityType 0x4b7 = 1207 (votanUthar / Uthar)
@@ -197,7 +198,7 @@ class GravitonRifleExtraPierceEffect(BaseEffect):
     QUALIFYING_TRAITS = frozenset({"TerminatorArmour", "MkXGravis", "Mechanical"})
 
     #: `CurrentAbilityIs(AbilityOrEffect(0x4b6))` — ActiveAbilityType de GravitonRifle.
-    CURRENT_ABILITY = 1206
+    CURRENT_ABILITY = ActiveAbilityType.GravitonRifle
 
     def create_effect_piercing_bonus_for_attack(self, ctx=None) -> "int | None":
         """`CreatePiercingBonusForAttack` — bonus ADDITIF au ratio de percage du coup courant, ou None si

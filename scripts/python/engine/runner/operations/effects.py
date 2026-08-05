@@ -55,7 +55,7 @@ from ...entities.effects import BaseEffect, EffectFactory, SAME_TURNS
 # parcourt les GROUPES d'effets de la table statique et, si le type n'appartient a aucun groupe, sort sur
 # `return param_1 != 0x472` -- le SEUL type litteralement non-updatable du build (0x472 = 1138
 # `Wraithcannon_NormalAttack`, deja cite tel quel dans `runner/abilities/attack_type.py`).
-_EFFECT_NOT_UPDATABLE = 0x472
+_EFFECT_NOT_UPDATABLE = EffectType.PowerUp_Armor
 
 
 # Table `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds (port 1:1 du switch décompilé).

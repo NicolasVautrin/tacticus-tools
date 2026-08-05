@@ -193,6 +193,7 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, EffectTrigger, TriggerEvent, _unit_trait_names
 from ..revive_effect import Revive, can_be_revived
+from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
 FURY_EFFECT = int(EffectType.FuelledByFury_ExtraDamage)      # 0x52b = 1323
 FURY_EFFECT_NAME = "FuelledByFury_ExtraDamage"               # nom d'EffectType capte live
@@ -204,11 +205,11 @@ ABILITY_ID = "FuelledByFury"                                 # cle gameconfig (v
 # `TriggeredAbilityType.FuelledByFury` = 0x4e3 = 1251 -- l'id que `...FuelledByFury_ReviveAbility$$
 # CreateBehaviour` passe en `sourceId` du `Revive` (`AbilityOrEffect(this.Id)`) ET que teste le
 # `CurrentAbilityIs` du trigger de desactivation du marqueur.
-FUELLED_BY_FURY_ABILITY = 0x4e3                              # 1251
+FUELLED_BY_FURY_ABILITY = TriggeredAbilityType.FuelledByFury                              # 1251
 # `EffectType.FuelledByFury_CanRevive` = 0x52c = 1324 -- le marqueur << il reste un revive ce tour >>.
 FUELLED_BY_FURY_CAN_REVIVE = int(EffectType.FuelledByFury_CanRevive)      # 1324
 # `TriggeredAbilityType.FinalJustice` = 0x400 = 1024 -- l'argument du `TriggeringAbilityIs`.
-FINAL_JUSTICE_ABILITY = 0x400                                # 1024
+FINAL_JUSTICE_ABILITY = TriggeredAbilityType.FinalJustice                                # 1024
 # 5e argument litteral du `Revive` (`uVar6 & 0xffffffff00000000` = 0) : healType = 0 = Heal
 # -> `IsAffectedByHealType(0)` refuse les cibles Mechanical (Titus ne l'est pas).
 FUELLED_BY_FURY_HEAL_TYPE = 0

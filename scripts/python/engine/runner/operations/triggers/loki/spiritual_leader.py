@@ -99,12 +99,13 @@ from .....entities.traits.unit_trait import UnitTrait, has_trait
 from .....entities.effect_type import EffectType
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _hex_dist
+from .....entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 
 ABILITY_ID = "SpiritualLeader"
 DECOY_UNIT_KEY = "unitId_2"                        # AbilityConstantType 4  (GetStringConstant(config, 4))
 SUMMON_UNIT_KEY = "unitId"                         # AbilityConstantType 0  (GetStringConstant(config, 0))
 DECOY_TRAIT = UnitTrait.Decoy                      # 0x41d = 1053
-UNTARGETABLE_FLAG = 17                             # UnitFlag.Untargetable (0x11)
+UNTARGETABLE_FLAG = UnitFlag.Untargetable                             # UnitFlag.Untargetable (0x11)
 JUST_SUMMONED = int(EffectType.DecoysAndMisdirection_JustSummonedEffect)   # 0x56e = 1390
 ADJACENT_RANGE = 1                                 # AdjacentFriends(caster@0x148, 1, 1)
 MIN_DECOYS_FOR_SUMMON = 2                          # AmountIsEqualOrGreater(GetAdjacentDecoys(), Direct(2))

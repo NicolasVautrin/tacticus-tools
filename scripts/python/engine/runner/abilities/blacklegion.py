@@ -49,6 +49,8 @@ from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD,
                         RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
+from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
+from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -180,8 +182,8 @@ class BringerOfDespairAbility(ActiveAbility):
 #     AActiveAbility.Execute(this, chain, entities)
 # UN SEUL `Execute` top-level. AUCUN `PerformAIAction` : l'on-appearance est une attaque NORMALE dirigee.
 CONST_INCURSION_UNIT_ID = 0x00      # GetStringConstant(0)    -> "unitId"      = blackSmnBloodletter
-CONST_INCURSION_RANGE = 0x16        # GetNumberConstant(0x16) -> "range"       = 2  (MEME index que 1028)
-CONST_INCURSION_MAX_SUMMONS = 0x3c  # GetNumberConstant(0x3c) -> "maxSummons"  = 6
+CONST_INCURSION_RANGE = AbilityConstantType.range        # GetNumberConstant(0x16) -> "range"       = 2  (MEME index que 1028)
+CONST_INCURSION_MAX_SUMMONS = AbilityConstantType.maxSummons  # GetNumberConstant(0x3c) -> "maxSummons"  = 6
 
 
 def incursion_next_spawn_tile(state: "State", entities):
@@ -240,8 +242,8 @@ def incursion_tree(state: "State", max_summons: int) -> ChainBehaviour:
 # d'execution `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` (`UnitsWithTrait(..., 2=Summon)`) : la cible doit etre un
 # **SUMMON ennemi**. C'est CE predicat qui rend « 0 cible au spawn » (sweep case-mow §5) : il faut le
 # MONTER (amener un summoner adverse a invoquer, puis viser un summon) pour obtenir une cible.
-CONST_HADES_RANGE = 0x16          # GetNumberConstant(0x16) -> "range" = 2
-VAR_EXTRA_CRIT_DMG = 0x42         # GetVariableForLevel(0x42) -> "extraCritDmg"
+CONST_HADES_RANGE = AbilityConstantType.range          # GetNumberConstant(0x16) -> "range" = 2
+VAR_EXTRA_CRIT_DMG = AbilityVariableType.extraCritDmg         # GetVariableForLevel(0x42) -> "extraCritDmg"
 HADES_AUTOCANNONS_ID = "HadesAutocannons"
 
 
@@ -690,8 +692,8 @@ class DaemonicOrdnanceAbility(ActiveAbility):
 #   6. AUCUN noeud d'effet, AUCUN spawn, AUCUN stat-mod : la face COMBAT de 1036 est PUREMENT deux
 #      attaques. (`SuppressiveFire`/`LetTheGalaxyBurn` de Volk sont des TRAITS, hors de cet arbre.)
 FRENZIED_FIRING_ID = "FrenziedFiring"
-CONST_FF_NR_OF_HITS = 0x2f        # GetNumberConstant(0x2f) -> "nrOfHits"    = 1  (via ArmoriumCherub.GetHits)
-CONST_FF_MAX_NR_OF_HITS = 0x48    # ConfigConst(0x48)       -> "maxNrOfHits" = 10
+CONST_FF_NR_OF_HITS = AbilityConstantType.nrOfHits        # GetNumberConstant(0x2f) -> "nrOfHits"    = 1  (via ArmoriumCherub.GetHits)
+CONST_FF_MAX_NR_OF_HITS = AbilityConstantType.maxNrOfHits    # ConfigConst(0x48)       -> "maxNrOfHits" = 10
 
 
 def frenzied_firing_tree(n_hits: int, max_hits: int) -> AtomicGroup:
@@ -846,7 +848,7 @@ def _ability_state(state: "State", caster_id: int):
 # =================================================================================================== #
 
 DRACHNYEN_ID = "Drachnyen"
-VAR_DRACHNYEN_HP = 0x1d               # GetVariableForLevel(0x1d) -> "hp" (rarity-scaled)
+VAR_DRACHNYEN_HP = AbilityVariableType.hp               # GetVariableForLevel(0x1d) -> "hp" (rarity-scaled)
 DRACHNYEN_EXTRA_ATTACK = int(EffectType.Drachnyen_ExtraAttack)      # 0x5bf = 1471
 
 
@@ -985,8 +987,8 @@ class DrachnyenAbility(ActiveAbility):
 # =================================================================================================== #
 
 HERALD_ID = "HeraldOfTheApocalypse"
-CONST_HERALD_RANGE = 0x16             # GetNumberConstant(0x16) -> "range" = 2 (disque BattleFatigue)
-CONST_HERALD_HITS = 0x2f              # GetNumberConstant(0x2f) -> "nrOfHits" = 2
+CONST_HERALD_RANGE = AbilityConstantType.range             # GetNumberConstant(0x16) -> "range" = 2 (disque BattleFatigue)
+CONST_HERALD_HITS = AbilityConstantType.nrOfHits              # GetNumberConstant(0x2f) -> "nrOfHits" = 2
 HERALD_EFFECT = int(EffectType.HeraldOfTheApocalypse)               # 0x403 = 1027
 TILES_BEHIND_COUNT = 2                # `Get(2)` = dsl+0xc8 (DSLFactory..ctor : 0xb8=0, 0xc0=1, 0xc8=2)
 

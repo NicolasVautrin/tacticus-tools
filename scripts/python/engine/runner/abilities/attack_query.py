@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from ...entities.traits.unit_trait import UnitTrait
+from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -46,8 +47,8 @@ HEAL_TYPE_MECHANICAL = 1
 # ils rendent legale une cible a PLEINS PV. Aucun chemin du port ne les pose (meme situation que le
 # flag 0x11 de `is_targetable`) ; le mirror est ecrit pour que la regle s'active d'elle-meme le jour
 # ou le canal les exposera, et pour que le lecteur voie que ce n'est pas un oubli.
-UNIT_FLAG_CAN_HEAL_FULL_HEALTH = 23      # CanHealFullHealthUnits
-UNIT_FLAG_CAN_REPAIR_FULL_HEALTH = 24    # CanRepairFullHealthUnits
+UNIT_FLAG_CAN_HEAL_FULL_HEALTH = UnitFlag.CanHealFullHealthUnits      # CanHealFullHealthUnits
+UNIT_FLAG_CAN_REPAIR_FULL_HEALTH = UnitFlag.CanRepairFullHealthUnits    # CanRepairFullHealthUnits
 
 
 def _has_trait(state: "State", unit_id, trait: int) -> bool:

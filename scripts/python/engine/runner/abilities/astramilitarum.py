@@ -33,6 +33,8 @@ from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_SE
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (AddBondEffect, AddEffect, AttackWithAttackDamage, Spawn, PerformAIAction,
                          PerformAIAttack, SortedAttackSeries, UseActiveAbility, entities_from_state)
+from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
+from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -40,9 +42,9 @@ if TYPE_CHECKING:
 # Index des constantes lues par `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour`
 # (`AbilityConfiguration.Get*Constant(config, <index>)`) -> cle gameconfig correspondante.
 CONST_UNIT_ID = 0x00           # GetStringConstant(0)       -> "unitId"          = astraSmnGuardsman
-CONST_NR_OF_SUMMONS = 0x10     # GetNumberConstant(0x10)    -> "nrOfSummons"     = 2
-CONST_RANGE = 0x16             # GetNumberConstant(0x16)    -> "range"           = 2
-CONST_AFFECTED_UNIT_IDS = 0x3e  # GetStringArrayConstant(0x3e) -> "affectedUnitIds"
+CONST_NR_OF_SUMMONS = AbilityConstantType.nrOfSummons     # GetNumberConstant(0x10)    -> "nrOfSummons"     = 2
+CONST_RANGE = AbilityConstantType.range             # GetNumberConstant(0x16)    -> "range"           = 2
+CONST_AFFECTED_UNIT_IDS = AbilityConstantType.affectedUnitIds  # GetStringArrayConstant(0x3e) -> "affectedUnitIds"
 
 
 def supreme_commander_spawn_tree(count: int) -> AtomicGroup:
@@ -187,8 +189,8 @@ class SupremeCommanderAbility(ActiveAbility):
 # UN SEUL `Execute` top-level (PAS d'ExecuteAtomic, PAS de Group) et AUCUN `PerformAIAction` : les Cadians
 # tirent via le sous-behaviour ON-APPEARANCE embarque dans les options de spawn.
 CONST_SITNW_UNIT_ID = 0x00      # GetStringConstant(0)      -> "unitId"      = astraSmnGuardsman
-CONST_SITNW_NR_SUMMONS = 0x10   # GetNumberConstant(0x10)   -> "nrOfSummons" = 2  (MEME index que 1028)
-VAR_SITNW_MAX_SUMMONS = 0x31    # GetVariableForLevel(0x31) -> "maxSummons"  (case-38 : 0x31 = 49)
+CONST_SITNW_NR_SUMMONS = AbilityConstantType.nrOfSummons   # GetNumberConstant(0x10)   -> "nrOfSummons" = 2  (MEME index que 1028)
+VAR_SITNW_MAX_SUMMONS = AbilityVariableType.maxSummons    # GetVariableForLevel(0x31) -> "maxSummons"  (case-38 : 0x31 = 49)
 SITNW_SPAWNED_UNIT_RANGE = 2    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnedUnitRange` = portee d'arme du summon spawne
                                 # (service `ability+0x20`, vslot 0xaa, sur GetStringConstant(0)) ;
                                 # gameconfig `astraSmnGuardsman.weapons[1].Range == 2`. CONSTANTE ici :
@@ -504,7 +506,7 @@ class MalleusRocketLauncherAbility(ActiveAbility):
 # =================================================================================================== #
 
 FORWARD_SPOTTER_ID = "ForwardSpotter"
-FS_CONST_NR_OF_SUMMONS = 0x10        # GetNumberConstant(0x10) -> "nrOfSummons" = 1
+FS_CONST_NR_OF_SUMMONS = AbilityConstantType.nrOfSummons        # GetNumberConstant(0x10) -> "nrOfSummons" = 1
 FS_CONST_UNIT_ID = 0x00              # GetStringConstant(0)    -> "unitId"      = astraSmnGuardsman
 
 
@@ -672,8 +674,8 @@ class ForwardSpotterAbility(ActiveAbility):
 # =================================================================================================== #
 
 FRAG_BOMB_ID = "FragBomb"
-FB_CONST_NR_OF_HITS = 0x2f       # GetNumberConstant(0x2f) -> "nrOfHits"   = 6  (volet principal)
-FB_CONST_NR_OF_HITS_2 = 0x32     # GetNumberConstant(0x32) -> "nrOfHits_2" = 3  (volet splash)
+FB_CONST_NR_OF_HITS = AbilityConstantType.nrOfHits       # GetNumberConstant(0x2f) -> "nrOfHits"   = 6  (volet principal)
+FB_CONST_NR_OF_HITS_2 = AbilityConstantType.nrOfHits_2     # GetNumberConstant(0x32) -> "nrOfHits_2" = 3  (volet splash)
 
 
 def frag_bomb_tree() -> AtomicGroup:
@@ -778,9 +780,9 @@ class FragBombAbility(ActiveAbility):
 # =================================================================================================== #
 
 BASILISK_ID = "BasiliskBarrage"
-BB_CONST_NR_OF_PROJECTILES = 0x1f     # GetNumberConstant(0x1f) -> "nrOfProjectiles"   = 5 (total)
-BB_CONST_NR_OF_PROJECTILES_2 = 0x38   # GetNumberConstant(0x38) -> "nrOfProjectiles_2" = 3
-BB_CONST_NR_OF_HITS = 0x2f            # GetNumberConstant(0x2f) -> "nrOfHits"          = 2 (par obus)
+BB_CONST_NR_OF_PROJECTILES = AbilityConstantType.nrOfProjectiles     # GetNumberConstant(0x1f) -> "nrOfProjectiles"   = 5 (total)
+BB_CONST_NR_OF_PROJECTILES_2 = AbilityConstantType.nrOfProjectiles_2   # GetNumberConstant(0x38) -> "nrOfProjectiles_2" = 3
+BB_CONST_NR_OF_HITS = AbilityConstantType.nrOfHits            # GetNumberConstant(0x2f) -> "nrOfHits"          = 2 (par obus)
 # `PickRandomly(..., allowRepeat=1, maxRepeats=0x7fffffff)` : les TROIS tirages d'obus de 1026 passent
 # ces litteraux (contraste Fragstorm `0`/`0x7fffffff`) -> pool JAMAIS retreci, doublons possibles.
 BB_MAX_REPEATS = 0x7fffffff

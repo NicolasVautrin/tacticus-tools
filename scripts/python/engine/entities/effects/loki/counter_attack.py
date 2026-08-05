@@ -19,6 +19,7 @@ Les cinq membres de la famille sur ce build : `GrimRetribution_CounterAttackEffe
 from __future__ import annotations
 
 from ..base import BaseEffect
+from ....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
 
 class WireweaveNetCounterAttackEffect(BaseEffect):
@@ -81,4 +82,4 @@ class WireweaveNetCounterAttackEffect(BaseEffect):
     TURNS_ENABLED = 1              # `PlayerTurnEffect.TurnsEnabled` -> `NOT IsTurnOf(Owner)`
     ACTIVATION_FREQUENCY = 2       # `PlayerTurnEffect.ActivationFrequency` -> Deactivate@TurnStart / Activate@TurnEnd
     HAS_AUTOMATIC_ACTIVATION = False   # `BaseEffect$$.ctor(hasAutomaticActivation = (freq == 0))`
-    SOURCE_TRIGGERED_ABILITY = 0x457   # 1111 en `TriggeredAbilityType` (set_TriggeredAbility)
+    SOURCE_TRIGGERED_ABILITY = TriggeredAbilityType.WireweaveNet   # 1111 en `TriggeredAbilityType` (set_TriggeredAbility)

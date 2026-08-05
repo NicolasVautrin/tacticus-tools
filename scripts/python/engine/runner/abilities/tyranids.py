@@ -48,6 +48,7 @@ from ...entities.selectors import (Caster, Enemies, SurroundingUnits,
 from ...entities.triggers import HasUnitFlag, Not
 from ...entities.triggered_ability_type import TriggeredAbilityType
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
+from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -332,7 +333,7 @@ class AlphaWarriorAbility(ActiveAbility):
 #
 # Indices de config (`AbilityConfiguration.Get*`) lus au decompile de
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$ExecuteBehaviour` :
-FEAR_CONST_RANGE = 0x16                 # GetNumberConstant(0x16) -> `constants.range` = 2
+FEAR_CONST_RANGE = AbilityConstantType.range                 # GetNumberConstant(0x16) -> `constants.range` = 2
 FEAR_PINNED = int(EffectType.Pinned)                                  # 0x429 = 1065 (UI "Suppressed")
 FEAR_TELEPORTING_IN = int(EffectType.FearOfTheUnseen_TeleportingIn)   # 0x4d6 = 1238
 FEAR_EXTRA_DAMAGE = int(EffectType.FearOfTheUnseen_ExtraDamage)       # 0x4d7 = 1239

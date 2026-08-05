@@ -13,6 +13,7 @@ from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileVa
 from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
                          _effect_field, resolve_unit, _select_tile, _occupants_by_tile)
 from ._shared import _entity_pos, _tile_positions
+from ...utilities.utility_type import UtilityType   # #270-r1-r1-r3
 
 
 # --- Selecteurs de TUILES (domaine TILE = ids de tuile ; lisent ctx.board). Pont unit->tile
@@ -259,7 +260,7 @@ class SortTilesByUtility(TargetsSelector):
     DOMAINE : rend des IDS d'entite-tuile (comme `CanAddUnit`/`AdjacentTiles`, sa source naturelle).
     `ctx.sort_tiles_by_utility` absent -> ordre SOURCE inchange (aucune utilite calculee)."""
     def __init__(self, source: TargetsSelector, unit_sel: TargetsSelector = None,
-                 utility_type: int = 7, parent_sel: TargetsSelector = None):
+                 utility_type: int = UtilityType.Tile, parent_sel: TargetsSelector = None):
         self.source = source
         self.unit_sel = unit_sel
         self.utility_type = int(utility_type)

@@ -311,7 +311,7 @@ NO_ABILITY_USED_FLAG_ABILITY_TYPES = frozenset({
 # (caster, currentPlayerEntityId)))` — pose les flags UNIQUEMENT si AUCUN ennemi adjacent (i2 : « does not
 # end Darkstrider's turn IF he is adjacent to an enemy »). Son SetsEndTurnFlags (corps foldé, non isolable
 # offline) est aligné sur la même condition par le texte i2 — ASSOMPTION DOCUMENTÉE, même prédicat.
-FIGHTING_RETREAT = 1081
+FIGHTING_RETREAT = ActiveAbilityType.FightingRetreat
 
 
 def _fighting_retreat_sets_flags(state: "State", caster_id: int) -> bool:

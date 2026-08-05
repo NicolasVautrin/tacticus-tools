@@ -63,6 +63,7 @@ from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AddEffect, Heal, healable_heal_type_0,
                          AttackWithAttackDamage, PushUnit, Spawn, RemoveMachine, AddTrait,
                          AddTriggeredAbility, first_triggered_ability_of)
+from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -663,7 +664,7 @@ class DutyEternalAbility(ActiveAbility):
 # =================================================================================================== #
 
 TACTICAL_PRECISION_ID = "TacticalPrecision"
-VAR_TP_EXTRA_CRIT_DMG = 0x42     # GetVariableForLevel(0x42) -> AbilityVariableType 66 = extraCritDmg
+VAR_TP_EXTRA_CRIT_DMG = AbilityVariableType.extraCritDmg     # GetVariableForLevel(0x42) -> AbilityVariableType 66 = extraCritDmg
 
 
 def tactical_precision_tree(crit_amount: int, caster_id: int):

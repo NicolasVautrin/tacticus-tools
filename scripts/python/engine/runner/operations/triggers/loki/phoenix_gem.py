@@ -55,10 +55,12 @@ from ..base import EffectTrigger, TriggerEvent
 from ..revive_effect import Revive, RemoveReviveEffect, can_be_revived
 from ....abilities.behaviours import entities_from_state
 from .....entities.effects.magnitude import ability_var
+from .....entities.effect_type import EffectType   # #270-r1-r1-r3
+from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
 ABILITY_ID = "PhoenixGem"
-PHOENIX_GEM_CAN_REVIVE = 1451          # EffectType.PhoenixGem_CanRevive (le marqueur « peut encore revive »)
-PHOENIX_GEM_ABILITY = 1458             # TriggeredAbilityType.PhoenixGem (0x5b2) -- l'id `AbilityOrEffect`
+PHOENIX_GEM_CAN_REVIVE = EffectType.PhoenixGem_CanRevive          # EffectType.PhoenixGem_CanRevive (le marqueur « peut encore revive »)
+PHOENIX_GEM_ABILITY = TriggeredAbilityType.PhoenixGem             # TriggeredAbilityType.PhoenixGem (0x5b2) -- l'id `AbilityOrEffect`
                                        # passe en `sourceId` du `Revive` IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour ET teste par le
                                        # `CurrentAbilityIs` du trigger de retrait IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal.
 PHOENIX_GEM_HEAL_TYPE = 2              # 5e argument du `Revive` IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour (`CONCAT44(0,2)`) : healType=2

@@ -113,9 +113,10 @@ from __future__ import annotations
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ....entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 
 CURSED_PLAGUE_BELL = "CursedPlagueBell"
-CONST_EXTRA_MOVEMENT = 0xe          # AbilityConstantType.extraMovement (GetNumberConstant(cfg, 0xe))
+CONST_EXTRA_MOVEMENT = AbilityConstantType.extraMovement          # AbilityConstantType.extraMovement (GetNumberConstant(cfg, 0xe))
 
 
 class CursedPlagueBellExtraMoveEffect(BaseEffect):

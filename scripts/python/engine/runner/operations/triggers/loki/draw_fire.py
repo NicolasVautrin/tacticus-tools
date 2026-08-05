@@ -109,9 +109,10 @@ from typing import Optional
 
 from ....components import OwnerComponent, PositionComponent, StatsComponent, UnitComponent
 from ....state import State
+from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
-DRAW_FIRE = 1109
-PRIMARCH_OF_THE_FIRST_LEGION = 1511
+DRAW_FIRE = TriggeredAbilityType.DrawFire
+PRIMARCH_OF_THE_FIRST_LEGION = TriggeredAbilityType.PrimarchOfTheFirstLegion
 
 
 def _carries_draw_fire(state: State, uid: int) -> bool:

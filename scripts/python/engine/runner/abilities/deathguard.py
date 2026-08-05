@@ -47,6 +47,7 @@ from .targeting import (custom_range_func, RANGE_ADJACENT, RANGE_FROM_CONFIG, RA
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, Heal, healable_heal_type_0, AddEffect,
                         AttackWithAttackDamage, InformWeapon, PerformAIAttack, Spawn)
+from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -261,8 +262,8 @@ class FlailSwingAbility(ActiveAbility):
 # UN SEUL `Execute` top-level. AUCUN `PerformAIAction` : l'on-appearance est un `PerformAIAttack`
 # (routine IA mono-unite depuis la position courante), PAS un tour d'IA complet.
 # SELF-CAST (`SpawnPoxwalkersPlaybook IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$EvaluateNonComparable` : cible eligible = SOI) -> owner@0x148 == caster.
-VAR_POX_CHANCE = 0x3a       # GetVariableForLevel(0x3a) -> "chance"   (% mini de Poxwalker par tuile libre)
-VAR_POX_CHANCE_2 = 0x3b     # GetVariableForLevel(0x3b) -> "chance_2" (% maxi)
+VAR_POX_CHANCE = AbilityVariableType.chance       # GetVariableForLevel(0x3a) -> "chance"   (% mini de Poxwalker par tuile libre)
+VAR_POX_CHANCE_2 = AbilityVariableType.chance_2     # GetVariableForLevel(0x3b) -> "chance_2" (% maxi)
 CONST_POX_UNIT_ID = 0x00    # GetStringConstant(0)      -> "unitId"   = deathPoxwalker
 
 

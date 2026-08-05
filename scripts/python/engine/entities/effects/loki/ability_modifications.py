@@ -19,11 +19,12 @@ import gameconfig as GC
 
 from ..base import BaseEffect
 from ...selectors import Parent, Caster
+from ....entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 
 # Index des constantes lues par `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$ApplyInternal`
 # (`AbilityConfiguration.GetNumberConstant(config, <index>)`), DANS L'ORDRE du decompile.
-LUM_CONST_RANGE = 0x16          # GetNumberConstant(0x16) -> ListenUpMaggots.constants['range']       = 3
-LUM_CONST_NR_OF_SUMMONS = 0x10  # GetNumberConstant(0x10) -> ListenUpMaggots.constants['nrOfSummons'] = 1
+LUM_CONST_RANGE = AbilityConstantType.range          # GetNumberConstant(0x16) -> ListenUpMaggots.constants['range']       = 3
+LUM_CONST_NR_OF_SUMMONS = AbilityConstantType.nrOfSummons  # GetNumberConstant(0x10) -> ListenUpMaggots.constants['nrOfSummons'] = 1
 LISTEN_UP_MAGGOTS_ABILITY = "ListenUpMaggots"
 
 

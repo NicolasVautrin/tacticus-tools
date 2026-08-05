@@ -83,10 +83,11 @@ from ....state import State
 from .....entities.traits.unit_trait import UnitTrait
 from ..base import TriggerEvent
 from ..revive_effect import ReviveEffectTrigger, are_friends
+from .....entities.effect_type import EffectType   # #270-r1-r1-r3
 
 ABILITY_ID = "ReanimationBeam"
-REANIMATION_BEAM_EFFECT = 1547           # EffectType.ReanimationBeam_Revive (l'effet porte par le beam)
-NANOSCARAB_EFFECT = 1545                 # EffectType.NanoscarabRepairProtocols (le noeud HasEffect du filtre)
+REANIMATION_BEAM_EFFECT = EffectType.ReanimationBeam_Revive           # EffectType.ReanimationBeam_Revive (l'effet porte par le beam)
+NANOSCARAB_EFFECT = EffectType.NanoscarabRepairProtocols                 # EffectType.NanoscarabRepairProtocols (le noeud HasEffect du filtre)
 MECHANICAL = int(UnitTrait.Mechanical)   # 5 (HasTrait(target, 5))
 
 

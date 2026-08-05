@@ -196,7 +196,7 @@ class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
         return window[0] <= int(n) <= window[1]
 
     def get_stat_modification_stat(self) -> int | None:
-        return 16                                    # StatType.FixedArmor (arg du ctor natif)
+        return StatType.FIXED_ARMOR                                    # StatType.FixedArmor (arg du ctor natif)
 
     def get_stat_modification_amount(self) -> int | None:
         # Forme de BASE (`GetStatModificationAmount`) : le DELTA PLAT pre-calcule a la pose
@@ -274,7 +274,7 @@ class ContaminatedUnitEffect(BaseEffect):
     statModSources sur un occupant contamine)."""
 
     def get_stat_modification_stat(self) -> int | None:
-        return 16                                    # StatType.FIXED_ARMOR
+        return StatType.FIXED_ARMOR                                    # StatType.FIXED_ARMOR
 
     def get_stat_modification_amount(self) -> int | None:
         # Delta calcule a l'apply par le vecteur (= -round(FixedArmor_courant * X/100)) et stocke dans value.
@@ -379,7 +379,7 @@ class StandVigilExtraArmorEffect(BaseEffect):
     offline ⇒ **résidu 0 validable live** (contrairement à RitesOfBattle, buff cross-unité)."""
 
     def get_stat_modification_stat(self) -> int | None:
-        return 16                                   # StatType.FIXED_ARMOR
+        return StatType.FIXED_ARMOR                                   # StatType.FIXED_ARMOR
 
     def get_stat_modification_amount(self) -> int | None:
         # StandVigil = ability ACTIVE → indexer sur activeAbilityLevel (fallback passif, puis stack level).
@@ -640,7 +640,7 @@ class ThrillSeekersEffect(BaseEffect):
     0/absent -> aucune contribution (no-op fidele plutot qu'une magnitude inventee)."""
 
     def get_stat_modification_stat(self) -> int | None:
-        return 9                                     # StatType.CRIT_CHANCE (statType du CreateBehaviour)
+        return StatType.CRIT_CHANCE                                     # StatType.CRIT_CHANCE (statType du CreateBehaviour)
 
     def get_stat_modification_amount(self) -> int | None:
         return trait_var("ThrillSeekers", "thrillSeekersExtraCritChance")

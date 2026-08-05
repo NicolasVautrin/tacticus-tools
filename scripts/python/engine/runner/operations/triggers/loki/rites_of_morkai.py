@@ -71,9 +71,10 @@ from __future__ import annotations
 from ....state import State
 from ..base import TriggerEvent
 from ..revive_effect import ReviveEffectTrigger
+from .....entities.effect_type import EffectType   # #270-r1-r1-r3
 
 ABILITY_ID = "RitesOfMorkai"
-RITES_OF_MORKAI_EFFECT = 1502          # EffectType.RitesOfMorkai (i2/enum : l'effet « Inspired »)
+RITES_OF_MORKAI_EFFECT = EffectType.RitesOfMorkai          # EffectType.RitesOfMorkai (i2/enum : l'effet « Inspired »)
 
 
 class RitesOfMorkaiReviveTrigger(ReviveEffectTrigger):

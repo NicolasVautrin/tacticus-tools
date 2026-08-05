@@ -481,7 +481,7 @@ class DefenderOfTheGreaterGoodExtraDmgEffect(BaseEffect):
     # #372 -- UNE SEULE classe native pour 1182 ET 1306 : `..._ExtraDmgEffect$$.ctor(this, isDrone)`
     # ecrit `isDrone` a `this+0x480` apres `DamageModifierAbilityEffect(0x483 = 1155, 0)`.
     _IS_DRONE = False
-    _SOURCE_EFFECT_TYPE = 1182     # 0x49e -- l'effet NON-drone vise par `EntitiesIsNotTargetOfEffect`
+    _SOURCE_EFFECT_TYPE = EffectType.DefenderOfTheGreaterGood_ExtraDmg     # 0x49e -- l'effet NON-drone vise par `EntitiesIsNotTargetOfEffect`
 
     def aura_selector_covers(self, ctx: Mapping | None = None) -> bool:
         """Tronc commun de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector`

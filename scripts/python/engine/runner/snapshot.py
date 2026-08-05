@@ -33,6 +33,7 @@ from .components import (
     UnitFlagsComponent,
     set_unit_feet,
 )
+from ..entities.entity_type import EntityType   # #270-r1-r1-r3
 
 
 # `EntityType.Machine` — l'enum d'entité du `MatchState` natif, projeté tel quel par les capteurs
@@ -42,7 +43,7 @@ from .components import (
 # (#128 « lot ATELIER VIDE »). ⚠ Le commentaire du hook lui-même dit « Machine INCLUSE (#93) » — #93
 # est la tâche SpiritLeech, PAS le commit qui a élargi le filtre. Ne pas recopier cette attribution :
 # elle a déjà induit en erreur (`git log -S "EntityType.Machine" -- <le hook>` tranche).
-_ENTITY_TYPE_MACHINE = 6
+_ENTITY_TYPE_MACHINE = EntityType.Machine
 
 
 def _hp_by_id(observe: dict) -> Dict[int, Tuple[Optional[int], Optional[int]]]:

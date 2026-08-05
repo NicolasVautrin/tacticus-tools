@@ -30,6 +30,8 @@ from __future__ import annotations
 
 from .. import battle_query as bq
 from ..entities.effects.magnitude import ability_var
+from ..entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
+from ..entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3
 
 
 def _friend_positions_including_self(ctx: dict) -> list:
@@ -67,8 +69,8 @@ class AstartesBannerPlaybook:
 
     Poids BC : `Utilities.Default.TriggeredAbilities["AstartesBanner_NearbyFriend"]` = 5."""
 
-    ABILITY_ID = 1106
-    CONST_RANGE = 0x16          # GetNumberConstant(0x16) -> gameconfig `constants.range`
+    ABILITY_ID = TriggeredAbilityType.AstartesBanner
+    CONST_RANGE = AbilityConstantType.range          # GetNumberConstant(0x16) -> gameconfig `constants.range`
     WEIGHT_KEY = "AstartesBanner_NearbyFriend"
 
     def get_range(self) -> int:
@@ -107,7 +109,7 @@ class KardiocoreGalvanusPlaybook:
 
     Poids BC : `Utilities.Default.TriggeredAbilities["KardiocoreGalvanus_LikesAdjacentMechanicalFriends"]` = 5."""
 
-    ABILITY_ID = 1457
+    ABILITY_ID = TriggeredAbilityType.KardiocoreGalvanus
     WEIGHT_KEY = "KardiocoreGalvanus_LikesAdjacentMechanicalFriends"
 
     def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:

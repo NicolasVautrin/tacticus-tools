@@ -64,6 +64,7 @@ from __future__ import annotations
 from typing import Optional, Sequence, Tuple
 
 from . import movement_query as MQ
+from ..entities.traits.unit_trait import UnitTrait   # #270-r1-r1-r3
 
 Pos = Tuple[int, int]
 
@@ -90,7 +91,7 @@ ALLOW_UNWALKABLE_TARGET_TILE = 1 << 43
 #: `IdunBattle.Entities.Enum.UnitTrait.IndirectFire` = 1005 = `0x3ed`, le litteral passe a
 #: `IdunBattle.Entities.UnitExtensions$$HasTrait` par `TargetingQuery$$GetTilesObscuringTerrain`.
 #: Un caster qui le porte est EXEMPTE du volet ELEVATION -- exactement comme le bit 25 du masque.
-INDIRECT_FIRE_TRAIT = 1005
+INDIRECT_FIRE_TRAIT = UnitTrait.IndirectFire
 
 #: `IdunBattle.Core.TeamId` -- `0=Environment, 1=Team1_Default, 2=Team2_DefaultEnemy, 3=Team3`
 #: (enum LU dans `data/symbols/<build>/frida/enums.tsv`). Le `0` n'est PAS « pas d'equipe » : c'est

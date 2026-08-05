@@ -48,8 +48,9 @@ import hexgeo
 from engine import battle_query as bq   # get_tiles_behind : mirror UNIQUE de la ligne hex (#117/#124)
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 import gameconfig as _gc
+from engine.entities.active_ability_type import ActiveAbilityType   # #270-r1-r1-r3
 
-_ABILITY_ID = 1197
+_ABILITY_ID = ActiveAbilityType.ExcruciatingFrequencies
 _ABILITY_NAME = "ExcruciatingFrequencies"
 
 
