@@ -153,8 +153,9 @@ Le composant que `IsOverkill` va chercher est **le même** que le `HealthCompone
 (identique `GetComponent(target, …)`), et `+0x24` est l'accumulateur de **sur-réduction** que
 `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` alimente en queue
 (`this[0x24] += Math.Max(0, damage − applied)`), **sauté** quand le plancher `Minimum` est posé et `> 0`.
-Le nom vient du natif : `…$$ResetOverReduce` (`this+0x24 = 0`) — qui **n'a aucun xref de code**, donc
-le compteur n'est **jamais** remis à zéro.
+Le nom vient du natif : `…$$ResetOverReduce` (`this+0x24 = 0`) — qui **n'a aucun xref de code**.
+
+⚠ **En conclure « le compteur n'est jamais remis à zéro » était FAUX** — corrigé en §7 (`#462-r4e-o-r2`).
 
 ⚠ **Cela réfute le « RÉSIDU NOMMÉ » d'`unit_is_overkill`** (« hypothèse, non mesurée : accumulateur du
 dégât refusé par le plancher de PV ; nul tant qu'aucun plancher n'est actif »). Il est non nul **dès
@@ -310,6 +311,89 @@ publie pas.
 * **la face ABILITY du discard** est lue au décompilé (même gate, même saut de la 0x42) et couverte
   offline, mais **non confrontée live** : aucun montage n'amène une ability multi-coups sur un porteur
   `HarlequinsPanoply` ;
-* résidu ouvert : **`#462-r4e-o-r2`** (`+0x24` **jamais** remis à zéro : une unité **ressuscitée**
-  entre dans l'attaque suivante avec un compteur non nul et peut poser `Overkilled` dès son premier
-  coup — non confronté, il faut revive + seconde attaque).
+* **`#462-r4e-o-r2` est TRAITÉ en §7** — et il a réfuté sa propre prémisse.
+
+## 7. `#462-r4e-o-r2` — l'accumulateur EST purgé, par une voie que `ResetOverReduce` ne trahit pas
+
+**La prémisse de `-r1` (« `+0x24` n'est JAMAIS remis à zéro ») est FAUSSE.** Elle reposait sur
+« `…$$ResetOverReduce` n'a aucun xref de code » — vrai, ce symbole n'est jamais appelé — pour conclure
+que rien n'écrit le zéro. **Deux autres méthodes de la même classe l'écrivent EN LIGNE** :
+
+| écrivain de `this[0x24] = 0` | position | appelants (xrefs **exhaustifs**) |
+|---|---|---|
+| `…FillUpStatComponent$$FillUp` | **queue, inconditionnelle** (même `filled == 0`) | `HealUnitOperation$$Execute`, `RepairUnitOperation$$Execute`, `ResurrectUnitOperation$$SetHealth` |
+| `…FillUpStatComponent$$Initialize` | corps | `AddUnitOperation$$Execute`, `UnitFactory$$Build`, `UnitFactory$$InitHealth` |
+| `…FillUpStatComponent$$ResetOverReduce` | corps | **aucun** (table de méthodes seule) |
+
+⇒ **SOIN, RÉPARATION et RÉSURRECTION purgent l'accumulateur. Le REVIVE, non.**
+`IdunBattle.Operations.ReviveUnitOperation$$SetHealth` n'appelle ni `FillUp` ni `Initialize` : il pose
+les PV via un slot de l'`OperationProcessor` qui applique des **modificateurs de stat** (les deux
+autres call-sites de ce même slot sont `SetupGameOperation$$ApplyModifiers` et
+`TransformActorToConfigIdOperation$$UpdateStats`).
+
+### 7.1 Réponse à la question binaire
+
+* **REVIVE → OUI, quirk natif** : l'unité revient avec l'accumulateur de sa vie précédente et peut poser
+  `UnitFlag.Overkilled` **dès son premier coup reçu, à pleine vie**. Le port le reproduisait déjà **par
+  omission** ; il est désormais **documenté** dans `revive.py` pour qu'il ne soit pas « corrigé », et
+  **gardé** par un test.
+* **RESURRECT → NON** : `FillUp` purge. Le port, lui, écrivait `hc.hp = int(hp)` — **divergence**, corrigée.
+* **SOIN / RÉPARATION → NON** : `FillUp` purge. Le port sortait avant. **Deux divergences de plus.**
+
+### 7.2 Le régime est structurellement étroit — et c'est ce qui le rend invisible
+
+`Reduce` n'accumule que ce qu'il n'a **pas pu** retirer ⇒ **`over_reduce > 0` implique `hp == 0`**, donc
+une unité **morte**. Le seul état où un porteur **vivant** a un accumulateur non nul est
+« mort en sur-réduction **puis** retour à la vie ». Corollaire : le correctif sur `HealUnitOperation` /
+`RepairUnitOperation` est **inerte sauf après un revive** ; celui sur `ResurrectUnitOperation`, lui, mord
+à chaque résurrection (elle opère **toujours** sur un mort).
+
+### 7.3 Port
+
+Foyer unique **`HealthComponent.fill_up`** (mirror 1:1, pendant de `reduce`) — point de mutation des
+contre-épreuves. Appelé par `heal.py`, `repair.py`, `resurrect.py` ; **jamais** par `revive.py`.
+Deux conséquences du mirror, lues au décompilé :
+
+* le `FillUp` natif précède les early-returns des deux opérations (`heal` : `if (!wasWounded &&
+  healed < 1 && …) return;` ; `repair` : `if (filled < 1 && …) return;`) ⇒ le port appelle `fill_up`
+  **avant** de décider de sortir ;
+* `EffectType.Cursed` n'est **pas** une sortie anticipée native : `healAmount = cursed ? 0 : predicted`,
+  puis `FillUp(0)` **quand même** ⇒ un soin annulé par Cursed **purge**. Le port sortait avant.
+
+`resurrect.py` passe d'une écriture **absolue** (`hc.hp = hp`) au `FillUp` **relatif** du natif ; les deux
+coïncident puisque l'unité est morte (`Current == 0`).
+
+### 7.4 Mesures
+
+`test_462r4eor2_over_reduce_purge_offline.py` — **16 tests**. Conséquence observable, 4 coups de 200 sur
+1000 PV : sans accumulateur `per_hit = [200, 200, 200, 200]` et aucun flag ; avec `over_reduce = 8000`
+hérité, **flag au coup 0** et `per_hit = [200]` (le SITE (A) supprime les trois suivants).
+
+**Contre-épreuve DOUBLE** : monkeypatch du foyer (assertions inversées, verte) **et mutation réelle du
+code produit** (`self.over_reduce = 0` retiré de `fill_up`) → **6 tests tombent**. La garde mord.
+
+**Non-régression live rejouée : 73 tests verts** — `test_heal_operation_live`, `test_firstaid_heal_live`,
+`test_repair_execution_live`, `test_target_is_healable_live`, `test_living_metal_repair_live`,
+`test_repair_decision_rail_live`, `test_overkill_amount_live`, `test_overkill_gate_live`,
+`test_ambush_migration_live` (le chemin **resurrect**, qui asserte « PV pleins » — c'est lui qui
+attraperait le passage absolu → relatif), `test_narthecium_revive_live`,
+`test_tainted_narthecium_revive_live`, `test_revive_cancels_death_events_live`.
+
+### 7.5 Non couvert, nommé
+
+* **NON CONFRONTÉ LIVE** — le régime demande un **retour à la vie NATIF suivi d'une attaque NATIVE**, et
+  aucun harnais ne le monte : `replay_normal_attack` ne compose qu'**une** attaque, et les trois tests de
+  revive/resurrect capturent l'état live puis **simulent** la mort offline. Les deux montages possibles
+  sont identifiés : (a) `TaintedNarthecium` (`deathRotbone` + allié Chaos adjacent, revive **75 %**,
+  « even if Overkilled ») pour le **quirk** ; (b) le trait **Ambush** (`genesPrimus`/`genesKelermorph`,
+  `EnvAmbushResurrectAbility` sur `On(TurnStart)` au tour **suivant**) pour le **resurrect**. Résidu
+  **`#462-r4e-o-r2-r1`**.
+  ⚠ `ResurrectionOrb` n'est **pas** une voie : son unique nœud natif est un `Spawn` de `necroSmnWarrior`.
+* `fill_up` mirrore le `Math.Min` **nu** du natif (pas de `max(0, …)`) : un `hp > hp_max` ferait donc
+  **descendre** les PV. Inatteignable à notre connaissance, non mesuré.
+* le gate `amount <= 0 -> return 0` de `heal.py` est **conservé** faute d'équivalent natif lisible — le
+  natif n'a pas de paramètre scalaire à ce rang, sa gate amont est `AttackQuery$$EntityCanBeHealed`
+  (non portée). Il masque la purge d'un soin **de zéro** sur une unité revivée (marginal).
+* le port du revive écrit les PV en **absolu** là où le natif passe par des modificateurs de stat
+  (slot non identifié nominativement — 3 call-sites, tous poseurs de modificateurs). Approximation
+  **pré-existante**, inchangée ici.
