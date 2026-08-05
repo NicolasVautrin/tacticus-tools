@@ -44,7 +44,13 @@ predicat VRAI, donc `MachineOfWarPosition(joueur courant) == 2`. La BC du runner
 Le fallback natif n'est PAS un defaut raisonnable : balayage des 675 boards du depot (le dump que
 `_load_board_dump` retiendrait, sur son `spawnPointsSet` paire) -- **502 declarent (0, 0)** et
 **173 declarent (2, 1)**. Appliquer le fallback sans avoir lu le groupe serait donc faux sur ~74 %
-des plateaux. Le port ne devine pas : il lit les groupes quand on les lui donne, et rend `None`
+des plateaux.
+
+⚠ Ce « 502 » compte les ids qui portent `(0, 0)` **EXCLUSIVEMENT**. Re-mesure #302-5 : `data/boards`
+porte **779 fichiers** pour **675 ids**, **552** ids portent `(0, 0)` dans au moins un pool, **173**
+portent `(2, 1)`, et **50 ids portent les DEUX selon le pool** (`552 + 173 - 50 = 675`). Pour ces 50,
+`--board <id>` ne suffit pas a fixer la valeur : le `--board-pool` la change. Les trois comptes sont
+re-derivables par `probe_302_5_mow_position_channel.py --boards` -- ne pas citer cette ligne. Le port ne devine pas : il lit les groupes quand on les lui donne, et rend `None`
 (= inconnu) sinon (cf. `engine.ai.context.AiDecisionContext.machine_of_war_position`).
 
 CE MIRROR N'EST PLUS LE PREMIER CANAL (#302 tranche 5)

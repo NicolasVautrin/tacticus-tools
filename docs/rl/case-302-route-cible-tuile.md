@@ -361,6 +361,16 @@ Trois points, dont un seul demande encore une fenetre :
    un groupe qui declare `MachineOfWarPosition.None_` ne deploie **aucune** MoW, donc `mows` y est
    **vide** (mesure sur `C1_01`). Il ne pouvait donc jamais couvrir les plateaux discriminants.
 
+   **Le denominateur, et pourquoi « 502 » et « 552 » ne se contredisent PAS.** `data/boards` porte
+   **779 fichiers** pour **675 ids** distincts. Signature `(mow_team1, mow_team2)` du set ACTIF :
+   **552 ids** portent `(0, 0)` (DISCRIMINANTE) et **173** portent `(2, 1)` (== repli) — mais
+   `552 + 173 = 725 > 675`, parce que **50 ids portent une declaration DIFFERENTE selon le pool ou
+   ils sont dumpes**. `552 - 50 = 502` = les ids qui portent `(0, 0)` **exclusivement**, le chiffre
+   ecrit dans `engine/services/machine_of_war_position.py`. Les deux comptes sont justes ; ils ne
+   repondent pas a la meme question, et `probe_302_5 --boards` imprime desormais les trois.
+   ⚠ Consequence pratique : pour ces 50 ids, **`--board <id>` ne suffit pas** a fixer la
+   `MachineOfWarPosition` — le `--board-pool` la change (ex. `C1_02`, `C1_21`, `C1_25`).
+
    Probe : `probe_302_5_mow_position_channel.py` (`--canal/--cascade/--d311/--boards`, `rc 0`) ;
    garde : `tests/engine/test_302_5_mow_position_offline.py` (18 tests, etage **MUTANTS** — 5/5 des
    mutations du vrai code la font rougir, `a_mordu` mesure et non suppose).

@@ -269,6 +269,7 @@ def etape_boards() -> int:
         return 1
     total, disc_par_team, deux, ids = 0, {1: 0, 2: 0}, 0, set()
     ids_deux = set()
+    sig_par_id: dict = {}      # {id: {(mow_team1, mow_team2)}} — un id peut vivre dans 2 pools
     for p in sorted(BOARDS_DIR.rglob("*.json")):
         j = json.loads(p.read_text(encoding="utf-8"))
         sets = (j.get("board") or {}).get("SpawnPointSets")
@@ -292,14 +293,35 @@ def etape_boards() -> int:
         if n == 2:
             deux += 1
             ids_deux.add(bid)
-    # DEUX denominateurs, et les confondre a deja fait citer « 502 » pour « 552 » : `data/boards`
-    # porte 779 FICHIERS pour 675 ids DISTINCTS (un meme board est dumpe dans plusieurs pools).
+        sig_par_id.setdefault(bid, set()).add(
+            tuple(machine_of_war_position_for_player(groups, t) for t in (1, 2)))
+    # DEUX denominateurs, et les confondre fait lire une contradiction la ou il n'y en a pas :
+    # `data/boards` porte 779 FICHIERS pour 675 ids DISTINCTS (un meme id est dumpe dans plusieurs
+    # pools). Le compte DIT donc lequel il rend.
+    ambigus = sorted(b for b, s in sig_par_id.items() if len(s) > 1)
     print("  fichiers lus (set ACTIF) : %d  |  ids de board DISTINCTS : %d" % (total, len(ids)))
     print("  discriminants team=1 : %d fichiers | team=2 : %d | LES DEUX : %d fichiers (%d ids)"
           % (disc_par_team[1], disc_par_team[2], deux, len(ids_deux)))
-    print("  -> sur ces %d ids, un groupe declare `MachineOfWarPosition.None_` : AUCUNE MoW n'y"
+    sig_counts: dict = {}
+    for sigs in sig_par_id.values():
+        for s in sigs:
+            sig_counts[s] = sig_counts.get(s, 0) + 1
+    print("  signature (team1, team2) -> nb d'IDS qui la portent DANS AU MOINS UN POOL :")
+    for s, n in sorted(sig_counts.items(), key=lambda x: -x[1]):
+        marque = "== repli" if (s[0] == _repli_seul(1) and s[1] == _repli_seul(2)) else "DISCRIMINANTE"
+        print("      %-8s -> %4d ids   %s" % (str(s), n, marque))
+    # ⚠ La somme de ces lignes DEPASSE le nombre d'ids, et ce n'est pas une faute de comptage :
+    # un meme id de board porte une declaration DIFFERENTE selon le pool ou il est dumpe. C'est
+    # exactement l'ecart entre « 502 » (ids portant (0,0) EXCLUSIVEMENT) et « 552 » (ids la portant
+    # dans au moins un pool) : 552 + 173 - 50 = 675.
+    print("  ids dont la declaration DIFFERE d'un pool a l'autre : %d" % len(ambigus))
+    if ambigus:
+        print("      -> pour ces ids, `--board <id>` NE SUFFIT PAS a fixer la "
+              "`MachineOfWarPosition` : le POOL la change. Echantillon : %s" % (ambigus[:6],))
+    print("  -> sur les %d ids discriminants, un groupe declare `MachineOfWarPosition.None_` :"
           % len(ids_deux))
-    print("     est deployee, donc `decisionView.mows` est VIDE et le cran de repli est MUET.")
+    print("     AUCUNE MoW n'y est deployee, donc `decisionView.mows` est VIDE et le cran de repli")
+    print("     est MUET -- exactement la ou le natif diverge du fallback.")
     return 0 if total else 1
 
 
