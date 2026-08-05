@@ -530,6 +530,13 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
     # resultat -- pas un aveu.
     max_sante_degeneres = 0
     max_armure_degeneres = 0
+    # ⚠ ET LE TEMOIN DU TEMOIN : une grandeur qui vaut ZERO sur toutes les unites est egale des
+    # deux cotes quoi qu'on lise. `StatType.Armor` est justement le candidat -- le mirror Python
+    # le decrit comme « [Obsolete] Idun Concept, en pratique absente ». Si ce compteur est nul, le
+    # tag `UnitStats_MaxArmor` n'a jamais porte autre chose que `0` sur ce corpus, et l'accord ne
+    # dit rien du canal.
+    max_sante_non_nuls = 0
+    max_armure_non_nuls = 0
     for u in sorted(adverses, key=lambda x: int(x["squadId"])):
         xy = (int(u["col"]), int(u["row"]))
         sid = int(u["squadId"])
@@ -556,6 +563,10 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
             max_sante_degeneres += 1
         if u.get("armorMax") is not None and int(u["armorMax"]) == etat.max_armor:
             max_armure_degeneres += 1
+        if etat.max_health != 0:
+            max_sante_non_nuls += 1
+        if etat.max_armor != 0:
+            max_armure_non_nuls += 1
         units.append(UnitSetup(entity_id=sid,
                                owner_id=int(u["playerId"]),
                                foot_tile_ids=[entite_de_tuile[xy]],
@@ -598,6 +609,8 @@ def scenario(session: int, board: str, p_units: str = ROSTER_P,
             "membres_degeneres": membres_degeneres, "membres_total": membres_total,
             "max_sante_degeneres": max_sante_degeneres,
             "max_armure_degeneres": max_armure_degeneres,
+            "max_sante_non_nuls": max_sante_non_nuls,
+            "max_armure_non_nuls": max_armure_non_nuls,
             "derived": derived, "base_tuile": base_tuile, "base_natif": base_natif,
             # Recoupement GRATUIT : l'id d'unite derive de la regle vs celui du canal
             # INDEPENDANT `observeBattle.squadId`. Deux sources, un seul chiffre.
@@ -683,6 +696,16 @@ def main() -> int:
               " probe_477r15r7_max_discrimine.py"
               % (res["max_sante_degeneres"], res["membres_total"],
                  res["max_armure_degeneres"], res["membres_total"]))
+        print("      valeurs NON NULLES : sante %d/%d, armure %d/%d unite(s)"
+              % (res["max_sante_non_nuls"], res["membres_total"],
+                 res["max_armure_non_nuls"], res["membres_total"]))
+        if res["max_armure_non_nuls"] == 0:
+            print("      ! TEMOIN VIDE : `UnitStats_MaxArmor` vaut 0 sur TOUTES les unites de ce "
+                  "board -- l'egalite du flux sur ce tag ne teste AUCUN canal, elle compare deux "
+                  "zeros. Le canal reste le mirror 1:1 de l'accesseur natif, mais ce corpus ne "
+                  "l'exerce pas.")
+        if res["max_sante_non_nuls"] == 0:
+            print("      ! TEMOIN VIDE : `UnitStats_MaxHealth` vaut 0 sur TOUTES les unites.")
         if not res["montage_coherent"]:
             # ASCII PUR, sans `.replace` de rattrapage : la console Windows est en cp1252, et
             # cette ligne ne s'imprime QUE quand le montage est incoherent -- c'est-a-dire
