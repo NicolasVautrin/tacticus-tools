@@ -421,7 +421,9 @@ def volet_flux_live(board: str, tours: int) -> int:
         print("    MESURE IMPOSSIBLE : `replayOutputStream` rend un flux VIDE")
         return 3
     lignes = flux.split("\n")
-    print("    flux natif : %d lignes, %d octets" % (len(lignes), len(flux)))
+    brut = REPO / "logs" / ("477r18-flux-%s.txt" % board)
+    brut.write_text(flux, encoding="utf-8")
+    print("    flux natif : %d lignes, %d octets -> %s" % (len(lignes), len(flux), brut))
 
     racines, pile, courant, debut = [], 0, None, 0
     for i, s in enumerate(lignes):
