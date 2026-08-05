@@ -68,11 +68,25 @@ FABRIQUES_TAGS = (
 
 RE_APPEL = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 RE_IMM = re.compile(r"^(0x[0-9a-fA-F]+|\d+)$")
+#: Ghidra ecrit un argument entier tantot nu (`0x16`), tantot CASTE (`(void *)0x4e`,
+#: `(ulonglong)7`). Mesure : sans le decapsulage, le canal 3 rendait 657 sites d'appel et
+#: **0** litteral -- un zero produit par le parseur, pas par le binaire.
+RE_CAST = re.compile(r"^\s*(?:\((?:void|u?longlong|u?int\w*|undefined\d*)\s*\**\)\s*)+")
 #: `local_28[0] = 0xd5;` -- Ghidra ecrit la cle du tag dans une locale juste avant l'`Add`.
 RE_AFFECT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)(?:\[0\])?\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*;")
 #: Le dictionnaire de tags est un `Dictionary<TagKey,int>` : son `Add` gshared se reconnait au
 #: `MethodInfo*` passe en DERNIER argument. Ce DAT est DERIVE d'une fabrique temoin, pas ecrit.
 RE_DICT_ADD = re.compile(r"Dictionary[A-Za-z0-9_]*u003E__(?:Add|set_Item)\s*\(")
+
+
+def immediat(expr: str):
+    """La valeur entiere d'un argument, casts Ghidra retires -- ou `None` si ce n'en est pas un."""
+    if not expr:
+        return None
+    e = RE_CAST.sub("", expr).strip()
+    while e.startswith("(") and e.endswith(")"):
+        e = e[1:-1].strip()
+    return int(e, 0) if RE_IMM.match(e) else None
 
 
 def _args_equilibres(txt: str, i: int) -> tuple[list[str], int]:
@@ -182,8 +196,9 @@ def deriver_dat_interface(gh: Ghidra) -> tuple[str, dict]:
             raise RuntimeError("temoin d'interface introuvable : %s" % nom)
         cand = {}
         for _, args, _pos in appels(code):
-            if len(args) >= 3 and RE_IMM.match(args[0] or "") and (args[1] or "").startswith("DAT_"):
-                cand.setdefault(args[1], set()).add(int(args[0], 0))
+            slot = immediat(args[0]) if len(args) >= 3 else None
+            if slot is not None and (args[1] or "").startswith("DAT_"):
+                cand.setdefault(args[1], set()).add(slot)
         vus.append(cand)
     communs = set(vus[0]) & set(vus[1])
     # Le bon DAT est celui qui porte les trois slots sur l'union des temoins.
@@ -213,18 +228,18 @@ def scanner_producteur(code: str, dat: str):
     """Rend (sites_groupes, sites_actions, sites_finish, variables) pour un corps."""
     groupes, actions, finish, variables = [], [], [], []
     for _nom, args, _pos in appels(code):
-        if len(args) < 3 or args[1] != dat or not RE_IMM.match(args[0] or ""):
+        slot = immediat(args[0]) if len(args) >= 3 else None
+        if slot is None or args[1] != dat:
             continue
-        slot = int(args[0], 0)
         reste = args[3:]
-        if slot == SLOT_START_GROUP:
-            v = reste[0] if reste else ""
-            (groupes if RE_IMM.match(v) else variables).append(
-                int(v, 0) if RE_IMM.match(v) else ("StartGroup", v))
-        elif slot == SLOT_ACTION:
-            v = reste[0] if reste else ""
-            (actions if RE_IMM.match(v) else variables).append(
-                int(v, 0) if RE_IMM.match(v) else ("Action", v))
+        if slot in (SLOT_START_GROUP, SLOT_ACTION):
+            brut = reste[0] if reste else ""
+            v = immediat(brut)
+            cible = groupes if slot == SLOT_START_GROUP else actions
+            if v is None:
+                variables.append(("StartGroup" if slot == SLOT_START_GROUP else "Action", brut))
+            else:
+                cible.append(v)
         elif slot == SLOT_FINISH_GROUP:
             finish.append(True)
     return groupes, actions, finish, variables
@@ -380,8 +395,9 @@ def propager_un_cran(gh: Ghidra, variables: list) -> list:
                 if fn != cible or idx >= len(args):
                     continue
                 appelants.add(src)
-                if RE_IMM.match(args[idx] or ""):
-                    vals.add(int(args[idx], 0))
+                v = immediat(args[idx])
+                if v is not None:
+                    vals.add(v)
         trouves.append((nom, kind, expr, idx, sorted(vals), sorted(appelants)))
     return trouves
 
@@ -696,9 +712,10 @@ def main() -> int:
                     decal = len(args) - len(m["params"])
                     for i in m["index"]:
                         j = i + decal
-                        if 0 <= j < len(args) and RE_IMM.match(args[j] or ""):
+                        v = immediat(args[j]) if 0 <= j < len(args) else None
+                        if v is not None:
                             lus += 1
-                            vus.setdefault(int(args[j], 0), []).append(sym + " <- " + src)
+                            vus.setdefault(v, []).append(sym + " <- " + src)
         apres = len([m2 for m2 in cls if int(m2) in vus])
         print("    %-9s : %d methode(s) porteuse(s), %d site(s) d'appel, %d litteral(aux) lus"
               % (lib, len(ms), sites, lus))
