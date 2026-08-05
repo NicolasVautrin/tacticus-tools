@@ -84,6 +84,8 @@ import hexgeo                                                    # noqa: E402
 from engine import battle_query as bq                            # noqa: E402
 from engine import weights as W                                  # noqa: E402
 from engine.ai import context as _ai_ctx                         # noqa: E402
+from engine.entities.active_ability_type import ActiveAbilityType         # noqa: E402
+from engine.entities.triggered_ability_type import TriggeredAbilityType   # noqa: E402
 from engine.playbook import scene as _scene                      # noqa: E402
 
 BOARD = "MC1_67"
@@ -96,10 +98,17 @@ ADDT = "necroWarden"         # la cible ADDITIONNELLE (ennemie du caster, adjace
 #: `(visualId, passif, TriggeredAbilityType, ActiveAbilityType de l'attaque normale, folde en
 #: DECISION, doit etre GREFFE)`. `adeptMorvenn` est le TEMOIN POSITIF : il porte son passif
 #: naturellement et le natif folde pour lui (#446-r3, mesure).
+#: Les deux familles d'ids passent par leur ENUM -- un ordinal juste aujourd'hui devient faux au
+#: changement de build, en silence (regle « un ENTIER qui DESIGNE passe par un ENUM »).
 CARRIERS = (
-    ("ultraTitus",   "Fealty",              1512, 1220, False, True),
-    ("blackAbaddon", "TalonOfHorus",        1484, 1205, False, True),
-    ("adeptMorvenn", "RighteousRepugnance", 1107, 1182, True,  False),
+    ("ultraTitus",   "Fealty",
+     int(TriggeredAbilityType.Fealty), int(ActiveAbilityType.Fealty_NormalAttack), False, True),
+    ("blackAbaddon", "TalonOfHorus",
+     int(TriggeredAbilityType.TalonOfHorus), int(ActiveAbilityType.TalonOfHorus_NormalAttack),
+     False, True),
+    ("adeptMorvenn", "RighteousRepugnance",
+     int(TriggeredAbilityType.RighteousRepugnance),
+     int(ActiveAbilityType.RighteousRepugnance_NormalAttack), True, False),
 )
 CLEAVERS = ("ultraTitus", "blackAbaddon")    # ceux dont la cible ADDITIONNELLE doit etre installee
 
