@@ -125,13 +125,19 @@ def test_an_unread_mask_never_shrinks():
     """Sans masque lu, le port ne retire rien : l'ecart ne peut qu'ELARGIR -- meme arbitrage que
     `GATE_NOT_READ`.
 
-    ⚠ Le TEMOIN a change avec `#433-r4-r2-r1-r2-r2-r1-r1` : `1177 LightOfSanguinius` etait « hors
-    registre donc masque non lu », il est desormais LU (`0x102004032`, `TargetIsEnemy` -> le
-    court-circuit ne s'applique toujours pas, mais pour une raison MESUREE et non par defaut). Le
-    temoin est maintenant `1053 DevoutPush`, portee par un NPC seul et hors des deux sources."""
+    ⚠ Le TEMOIN a change DEUX fois, et la seconde dit pourquoi il en fallait un meilleur :
+    `1177 LightOfSanguinius` a ete lu par `#433-r4-r2-r1-r2-r2-r1-r1`, puis `1053 DevoutPush` par
+    `#433-r4-r2-r1-r2-r2-r1-r1-r1`. Un temoin « pas ENCORE lu » se perime a chaque tranche de
+    portage -- c'est le seul gisement que notre propre cadence alimente.
+
+    Le temoin est maintenant `1091 SlashingDive`, dont la non-lecture est STRUCTURELLE et non
+    circonstancielle : aucune classe `SlashingDiveAbility` n'existe dans les tables (seuls son
+    Playbook et ses Visuals portent ce nom), donc il n'y a aucun ctor a lire -- trancher exigerait
+    le slot de vtable de l'INSTANCE, au runtime (residu `#433-r4-r2-r1-r2-r2-r1-r1-r1-r2`, garde
+    par `test_433_r4_r2_r1_r2_r2_r1_r1_r1_source_tile_zone_offline.py`)."""
     from engine.runner.abilities.targeting import targeting_options_for
-    assert targeting_options_for(1053) is None, "temoin PERIME : le masque de 1053 a ete lu"
-    assert ar.target_tiles_zone_is_empty(1053) is False
+    assert targeting_options_for(1091) is None, "temoin PERIME : le masque de 1091 a ete lu"
+    assert ar.target_tiles_zone_is_empty(1091) is False
     assert targeting_options_for(1177) is not None, "1177 doit desormais porter son masque"
     assert ar.target_tiles_zone_is_empty(1177) is False       # LU, et il porte `TargetIsEnemy`
     assert ar.target_tiles_zone_is_empty(999999) is False
