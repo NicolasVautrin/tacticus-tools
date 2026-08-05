@@ -31,8 +31,8 @@ from engine.entities.selectors import Caster                                # no
 from engine.dsl.event_trigger_type import EventTriggerType                  # noqa: E402
 from engine.runner.abilities.behaviours import RemoveEffect                 # noqa: E402
 from engine.runner.operations.triggers.bond_removal import (                # noqa: E402
-    BOND_REMOVAL_GATES, BondRemoveOnBondedEntityDeath, bond_removal_tree,
-    bond_removal_registry_entries, assert_pending_gate_consistency)
+    BOND_REMOVAL_GATES, BondRemoveOnBondedEntityDeath, BondRemoveOnRangeExceeded,
+    bond_removal_tree, bond_removal_registry_entries, assert_pending_gate_consistency)
 from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS  # noqa: E402
 
 # La mesure, recopiee comme ATTENDU : `(classe native, a, b, c, IsExecutedIfOwnerDies)`.
@@ -52,6 +52,10 @@ _MEASURED = {
     # sens rare (bonde mort, effet ENCORE present).
     int(EffectType.ValkyrieStrike_Effect): (
         "IdunBattle.Entities.Effects.Loki.ValkyrieStrikeEffect", False, None, False, True),
+    # #462-r4b-r1-r1-r1-r1-b -- le SEUL effet pose par le port qui arme (b) `get_Range`. Les DEUX
+    # gates sont confrontes live : (b) par la geometrie du push, (a) par la mort du taunteur.
+    int(EffectType.Taunted_OnlySpecificTargets): (
+        "IdunBattle.Entities.Effects.TauntedEffect", True, 1, False, None),
 }
 
 
@@ -97,7 +101,8 @@ def test_pending_family_arms_neither_range_nor_adjacent():
 def test_only_true_gates_are_wired():
     """Le cablage se DERIVE du gate. Un effet a `a=False` reste DOCUMENTE dans la table mais
     n'inscrit aucun trigger -- cote natif le `Triggered()` n'entre pas dans l'`ArraySet`."""
-    wired = {et for et, _ in bond_removal_registry_entries()}
+    wired = {et for et, cls in bond_removal_registry_entries()
+             if cls is BondRemoveOnBondedEntityDeath}
     assert wired == {et for et, g in BOND_REMOVAL_GATES.items()
                      if g.remove_on_bonded_entity_death}
     tunnel = int(EffectType.TunnelingHorror_PendingSummon)
@@ -129,3 +134,114 @@ def test_behaviour_tree_is_a_removeeffect_on_the_carrier(et):
     assert tree.effect_type == et
     assert isinstance(tree.target_sel, Caster), (
         "le selecteur doit designer le PORTEUR de l'effet, pas le bonde")
+
+
+# ================================================================================================
+# #462-r4b-r1-r1-r1-r1-b -- (b) `get_Range`
+# ================================================================================================
+def test_range_trigger_listens_only_to_position_changed_2():
+    """`On(0x1d = UnitPositionChanged_2)` est le SEUL `On()` de la conjonction (b) -- une classe qui
+    ecouterait aussi les vecteurs de mort retirerait le bond pour la mauvaise raison, et le bras
+    live ne le verrait pas (il tombe pour la bonne raison au meme moment)."""
+    cls = BondRemoveOnRangeExceeded
+    assert cls.event_id == int(EventTriggerType.UnitPositionChanged_2)
+    assert not getattr(cls, "event_ids", ()), "(b) n'a qu'UN `On()`, pas d'`op_BitwiseOr`"
+
+
+def test_range_trigger_is_wired_exactly_where_the_gate_has_a_value():
+    """Deriver, pas ecrire : `range is not None` <=> le trigger (b) est inscrit. Un `Nullable` VIDE
+    (`get_Range` de toutes les autres classes) ne construit AUCUN `Triggered()` cote natif."""
+    wired = {et for et, cls in bond_removal_registry_entries()
+             if cls is BondRemoveOnRangeExceeded}
+    assert wired == {et for et, g in BOND_REMOVAL_GATES.items() if g.range is not None}
+    assert wired, "aucune entree (b) : la garde ne verifierait plus RIEN"
+    for et in wired:
+        assert BondRemoveOnRangeExceeded in EFFECT_TRIGGERS.get(et, []), (
+            "effet %d : (b) derive de la table mais absent d'EFFECT_TRIGGERS" % et)
+    for et, g in BOND_REMOVAL_GATES.items():
+        if g.range is None:
+            assert BondRemoveOnRangeExceeded not in EFFECT_TRIGGERS.get(et, []), (
+                "effet %d : (b) inscrit alors que `get_Range` est VIDE" % et)
+
+
+def test_taunt_carries_both_triggers():
+    """`Taunted_OnlySpecificTargets` arme (a) ET (b) : le natif ajoute alors DEUX `Triggered()`
+    distincts a l'`ArraySet`, et le port doit inscrire les DEUX classes pour le meme effect_type."""
+    et = int(EffectType.Taunted_OnlySpecificTargets)
+    assert BOND_REMOVAL_GATES[et].remove_on_bonded_entity_death is True
+    assert BOND_REMOVAL_GATES[et].range == 1
+    inscrits = EFFECT_TRIGGERS.get(et, [])
+    assert BondRemoveOnBondedEntityDeath in inscrits and BondRemoveOnRangeExceeded in inscrits
+
+
+def test_no_adjacent_trigger_is_wired():
+    """(c) `get_Adjacent` : MESURE au natif (`--step holyduel` : le bond 1091 tombe des que
+    l'adjacence est perdue), mais AUCUN effet pose par le port ne l'arme -- 1091 `HolyDuel_Taunt`
+    vient de l'ability 1050, absente d'`ABILITY_CLASSES`. Inscrire un trigger (c) serait vacuement
+    vrai. Ce garde tient l'INVARIANT, pas la valeur : si un effet a `adjacent=True` entre un jour
+    dans la table, il faudra ecrire la classe -- et ce test le dira."""
+    from engine.runner.abilities.handler import ABILITY_CLASSES
+    assert 1050 not in ABILITY_CLASSES, (
+        "`HolyDuelAbility` est portee : 1091 est desormais posable offline, il faut ECRIRE "
+        "`BondRemoveOnAdjacencyLost` et l'inscrire (mesure native deja faite, cf. bond_removal.py)")
+    assert not [et for et, g in BOND_REMOVAL_GATES.items() if g.adjacent], (
+        "un effet arme (c) dans la table : le trigger d'adjacence n'existe pas encore")
+
+
+# ================================================================================================
+# La CASCADE de sous-effets -- `RemoveEffectOperation$$RemoveSubEffects`
+# ================================================================================================
+def _state_with_taunt():
+    """Etat MINIMAL portant le composite 27 et ses trois enfants, lies par `parent_type`."""
+    from engine.runner.state import State
+    from engine.entities.effects_state import EffectsState
+    from engine.entities.effects.factory import EffectFactory
+    st = State()
+    st.effects = EffectsState()
+    st.effects.by_unit[7] = []
+    parent = EffectFactory.create({"name": "Taunted_OnlySpecificTargets",
+                                   "effectType": int(EffectType.Taunted_OnlySpecificTargets),
+                                   "level": None, "remaining": 2, "source": 9})
+    parent.target = 7
+    st.effects.by_unit[7].append(parent)
+    for spec in parent.sub_effects_on_apply():
+        child = EffectFactory.create({"name": spec.name, "effectType": int(spec.effect_type),
+                                      "level": None, "remaining": 2, "source": 9})
+        child.target = 7
+        child.parent_type = int(parent.effect_type)
+        st.effects.by_unit[7].append(child)
+    return st, parent
+
+
+def test_removing_the_parent_removes_its_sub_effects():
+    """`RemoveEffectOperation$$Execute` appelle `RemoveSubEffects` -- le retrait ANTICIPE d'un
+    composite emporte ses enfants, exactement comme son expiration par le timer.
+
+    MESURE qui l'a impose (2026-08-05) : le trigger (b) retirait le 27 et laissait `[25, 26, 1237]`
+    sur la cible, la ou le natif rend une liste VIDE."""
+    from engine.runner.operations.remove_effects import remove_effect_instance
+    st, parent = _state_with_taunt()
+    vivants = [e for e in st.effects.by_unit[7] if not e.consumed]
+    assert len(vivants) == 4, "montage : le composite et ses trois enfants"
+    assert remove_effect_instance(st, 7, parent) is True
+    restants = sorted(int(e.effect_type) for e in st.effects.by_unit[7] if not e.consumed)
+    assert restants == [], "les sous-effets ont survecu au retrait du parent : %s" % restants
+
+
+def test_hydration_rebuilds_the_parent_link():
+    """`snapshot._load_effect_parent_links` : sur un etat RECHARGE, les enfants arrivent orphelins
+    (`parent_type` n'est ecrit que par la voie de pose) et les DEUX consommateurs du lien -- la
+    cascade d'expiration et `RemoveSubEffects` -- deviennent muets. La reconstruction repart de la
+    meme part DATA que la pose : `sub_effects_on_apply()`."""
+    from engine.runner.snapshot import _load_effect_parent_links
+    from engine.runner.operations.remove_effects import remove_effect_instance
+    st, parent = _state_with_taunt()
+    for e in st.effects.by_unit[7]:
+        e.parent_type = None                    # etat << comme hydrate >> : aucun lien
+    _load_effect_parent_links(st)
+    liens = {int(e.effect_type): e.parent_type for e in st.effects.by_unit[7]}
+    assert liens[int(EffectType.Taunted_OnlySpecificTargets)] is None, "le parent n'a pas de parent"
+    for spec in parent.sub_effects_on_apply():
+        assert liens[int(spec.effect_type)] == int(EffectType.Taunted_OnlySpecificTargets)
+    remove_effect_instance(st, 7, parent)
+    assert not [e for e in st.effects.by_unit[7] if not e.consumed]
