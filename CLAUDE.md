@@ -268,86 +268,65 @@ suite `tests/engine/` — **beaucoup trop lourd**.
   hors `python_files`). Deux volets : hook `pytest_collectreport` à chaque passe, et un balayage
   statique à périmètre dérivé dans le cliquet (le runtime ne voit que ce qu'une passe joue).
 
-## Les DÉFAUTS qui ne crient pas — la liste, sans la machinerie
+## Les défauts qui ne crient pas
 
-Chaque ligne est une classe de défaut **mesurée dans ce dépôt**, avec sa signature. Aucune n'émet
-d'erreur ni de crash : c'est ce qui les rend chères. Le probe qui la mesure reste lançable à la
-demande — `python scripts/python/<probe>.py` — mais **aucun n'est une formalité de livraison**.
+Classes de défaut **mesurées ici**. Aucune n'émet d'erreur ni de crash — c'est ce qui les rend
+chères, et pourquoi il faut les reconnaître à l'œil. Détail et contre-épreuves : `docs/rl/case-*.md`.
 
-**Port ↔ natif**
+**Port ⇄ natif**
 
-- Une contribution de dégât rangée dans l'accumulateur que le natif ne donne PAS à cette classe :
-  la face est le **slot virtuel de SORTIE**, jamais le porteur. (`probe_437r1r1r1`)
-- Un call-site d'adjacence branché **à moitié** — la porte d'élévation sans l'énumération, quand le
-  natif porte les DEUX étages. Dégradation permissive, donc exploitable par un entraînement.
-  (`probe_433r4r1r4r2`)
-- Supposer l'**absence** de variance d'arme sans avoir lu le byte qui la porte — et ne pas lire la
-  valeur PAR DÉFAUT de chaque porte, qui est ce qui décide. Invisible au grep. (`probe_449r2`)
-- Un effet-trigger qui ne lit pas `EffectComponent.IsActive` alors que son rail natif l'exige, ou
-  l'inverse ; et une classe entrée au registre sans entrer au rail. (`probe_229`, `probe_421`)
-- Un mirror de `EntityExtensions$$HasEffect` dont le substrat contredit le littéral `onlyActive`
-  qu'il cite — visible **seulement** sur un effet PRÉSENT-mais-INACTIF, régime qu'aucun montage
-  naïf n'atteint. (`probe_443r2`)
-- Un consommateur de production qui capte son `decisionView` et repart sur le canal **NU**, qui
-  DROPPE les effets inertes : le port rend FAUX là où le natif rend VRAI. (`probe_443r2b1`)
-- Un mirror `IntEnum` qui n'est plus en bijection avec `enums.tsv` — manquant, mort, ou
-  **RENUMÉROTÉ**. (`probe_313`)
-- Un effet condition-gated **INERTE à la capture** : le canal le droppe, donc le port n'a rien à
-  rallumer quand la simulation le fait entrer dans sa condition.
-  (`probe_366_camo_seed_inventory.py`)
+- La face d'un effet est le **slot virtuel de SORTIE**, jamais le porteur.
+- Un call-site d'adjacence se branche **entier** — la porte d'élévation ET l'énumération. À moitié,
+  le prédicat devient plus permissif que le natif.
+- Ne jamais SUPPOSER l'absence de variance d'arme : lire le byte, et lire sa **valeur par défaut**,
+  qui est ce qui décide.
+- Un effet-trigger lit `EffectComponent.IsActive` si et seulement si son rail natif l'exige.
+- Un mirror de `HasEffect` doit porter le substrat que son littéral `onlyActive` annonce — l'écart
+  ne se voit que sur un effet **présent-mais-INACTIF**.
+- Un consommateur qui capte lui-même son `decisionView` repart sur le canal **NU**, qui droppe les
+  inertes : le port rend FAUX là où le natif rend VRAI.
+- Un mirror `IntEnum` reste en bijection avec `enums.tsv` — le piège est la **renumérotation**,
+  pas l'absence.
+- Un effet condition-gated **inerte à la capture** n'est pas dans le canal : le port n'a rien à
+  rallumer.
 
-**Littéraux qui périment au changement de build**
+**Ce qui périme au changement de build**
 
-- Un ordinal figé en dur qui désigne un AUTRE membre depuis la MAJ — y compris derrière un ALIAS
-  (`step = ev.get("step")` puis `step == 13`) ou une clé de dict, et dans les citations de
-  décompilé en commentaire : **220 invalidées sans qu'une seule ligne change**, donc invisibles à
-  tout déclencheur sur diff. (`probe_283`, `probe_274`, `probe_443r1c`)
-- Un hash de build en dur qui RÉSOUT un artefact du jeu, hors du foyer `build_pin`. (`probe_431`)
-- Une adresse du binaire en dur qui ANCRE un hook : `Interceptor.attach` **RÉUSSIT** sur du code
-  arbitraire, donc ça ne se voit ni à l'erreur ni au crash — seulement à un capteur qui ne fire
-  jamais. (`probe_475`)
+- Un ordinal en dur désigne un AUTRE membre après la MAJ — y compris derrière un alias ou une clé
+  de dict, et dans les citations de décompilé en commentaire : elles s'invalident **sans qu'une
+  ligne change**, donc aucun déclencheur sur diff ne les voit.
+- Un hash de build en dur court-circuite `data/symbols/CURRENT`.
+- Une adresse en dur qui ancre un hook : `Interceptor.attach` **RÉUSSIT** sur du code arbitraire.
+  Ça ne se voit qu'à un capteur qui ne fire jamais.
 
 **Lire — et DIRE quand on n'a pas pu**
 
-- Un lecteur qui rend `0` au lieu de dire qu'il ne voit pas ; et un chemin `data/<x>` construit qui
-  ne désigne pas une entrée VERSIONNÉE. (`probe_273`, sa propre fidélité : `probe_319`)
-- Un fichier versionné qui importe statiquement une cible **gitignorée ou absente** — le dépôt
-  cesse d'être auto-constructible, et c'est ce qui pousse à fabriquer des junctions destructrices.
-  (`probe_365`)
-- Un `from X import Y` où `Y` n'existe plus, **dans un corps de fonction** : `--collect-only` rend
-  417/417 rc 0 pendant que 10 tests meurent au setup. (`probe_462r5`)
-- Un script frère invoqué par chemin RELATIF dans un `subprocess` **sans `cwd=`** : hors de
-  `scripts/python`, il n'est JAMAIS lancé (rc 2), et la moitié des appelants ne lisaient pas ce rc.
-  (`probe_464`)
-- Une fixture qui patche dans le seed BC une variable que le port lit depuis `gameconfig` :
-  désynchronisation **ARMÉE**, inerte aujourd'hui, fausse demain.
-  (`probe_366_r1_bcpatch_port_blindspot.py`)
-- Les **CINQ** portes du foyer POSITION pour « unité vivante sans position » — n'en balayer qu'une
-  laisse passer les deux tiers des lecteurs. (`probe_366r1_position_readers_census.py`)
+- Un lecteur rend `null` quand il n'a pas mesuré, **jamais `0`**.
+- Un fichier versionné n'importe pas une cible gitignorée ou absente.
+- Un `from X import Y` dans un **corps de fonction** échappe à `--collect-only` : la collecte est
+  verte et le test meurt au setup.
+- Un script frère lancé par chemin RELATIF dans un `subprocess` **sans `cwd=`** n'est jamais
+  exécuté hors de `scripts/python`.
+- Une fixture qui patche dans le seed BC ce que le port lit dans `gameconfig` arme une
+  désynchronisation.
+- Le foyer POSITION a **cinq** portes ; n'en balayer qu'une laisse passer les deux tiers.
 
 **Tests qui ne confrontent rien**
 
-- Un fichier dont le bilan est `passed == 0 and skipped > 0`, **ou dont tous les tests ont
-  disparu** : rc 0, aucune assertion évaluée, et la passe le compte comme un succès. Le
-  discriminant du second cas est la **COLLECTE**, pas la sélection. (`probe_455`)
-- Un test offline **ROUGE en permanence** sur `master` ; et le **VERT VACUEUX** — un test qui passe
-  avec zéro assertion utile parce que son anneau était vide. (`probe_457`)
-- Un `*_live.py` livré ROUGE. ⚠ Un rouge n'accuse l'arbre que s'il a été mesuré sur CET arbre.
-  (`probe_462`)
-- Un répertoire collecté **DEUX fois** par pytest : les fixtures de son conftest disparaissent pour
-  le 3ᵉ argument, et le nodeid est IDENTIQUE — invisible à toute inspection par chaîne.
-  (`probe_391`)
+- `passed == 0 and skipped > 0`, ou zéro test collecté : rc 0, aucune assertion, et la passe compte
+  un succès.
+- Le **vert vacueux** : un test qui passe avec zéro assertion utile parce que son anneau était vide.
+- Un rouge n'accuse l'arbre que s'il a été **mesuré sur cet arbre**.
+- Un répertoire collecté DEUX fois : les fixtures de son conftest disparaissent, et le nodeid est
+  identique — invisible à toute inspection par chaîne.
 
-**Balayer sans s'auto-saboter**
+**Balayer**
 
-- Un balayage qui part de la racine sans exclure `.claude/worktrees` : il lit — et RAPPORTE — le
-  code en cours des autres agents. Le filtre porte sur le chemin **RELATIF** ; par segment sur
-  l'absolu il s'auto-exclut depuis un worktree et rend **0 fichier, verdict vert**. (`probe_440`)
-- Un `git status` de LECTURE qui prend `.git/index.lock` de l'arbre principal depuis un contexte
-  **tuable** : le résidu est LIBRE et de 0 octet, donc indiscernable à l'œil d'un lock vivant, et
-  c'est la commande SUIVANTE qui meurt dessus. (`probe_474`)
-- Ne JAMAIS écrire dans `scripts/python/` pendant un balayage — un voisin énumère le même arbre au
-  même instant. Travailler dans un tmpdir système (`mkdtemp()` **sans** `dir=`).
+- Exclure `.claude/worktrees` par le chemin **RELATIF** au dépôt. Par segment sur l'absolu, le
+  filtre s'auto-exclut depuis un worktree et rend **0 fichier, verdict vert**.
+- Ne pas prendre `.git/index.lock` en LECTURE depuis un contexte tuable — le résidu est libre, de
+  0 octet, et c'est la commande SUIVANTE qui meurt dessus.
+- Ne pas écrire dans `scripts/python/` pendant un balayage : un voisin énumère le même arbre.
 
 ## Tu OUVRES un résidu ⇒ tu DEMANDES son numéro, tu ne le choisis pas (#468)
 
@@ -569,7 +548,7 @@ ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (se
   ⚠ **Zéro n'est pas un acquis, c'est un CLIQUET** : ce gisement est le seul que notre propre
   cadence de portage alimente — chaque ability entrée sans son masque le rouvre. La règle
   ci-dessus (masque posé DANS LE MÊME COMMIT) est donc désormais ce qui MAINTIENT le zéro,
-  pas ce qui le vise. `probe_181_targeting_gaps.py` le mesure, à la demande.
+  pas ce qui le vise.
   ⚠ Il ne le tenait PAS avant #430 : `probe_181` rendait `0` inconditionnellement — un inventaire
   déguisé en garde-fou, que cette ligne prescrivait pourtant de « faire passer ».
   ⚠ Ces chiffres se périment vite : les re-dériver plutôt que citer cette ligne.
@@ -600,7 +579,7 @@ DANS LE MÊME COMMIT.** C'est le pendant exact de la règle ci-dessus, sur l'axe
 - **Même signature de dégradation** que `TARGETING_OPTIONS` : ni erreur ni crash, et **le seul
   gisement que notre propre cadence de portage aggrave** — chaque nouveau port l'alimente.
 - **Comment** : relire le littéral au décompilé (jamais le déduire du nom de l'ability ni du profil
-  de dégât). `probe_120_pre_unit_ability_fork.py` étape 0 le mesure, à la demande.
+  de dégât).
 
 !include .claude/skills/tacticus-re-port/SKILL.md
 
