@@ -333,9 +333,17 @@ class CosmicHorrorOnKillAbility(TriggeredAbility):
     @staticmethod
     def _pin(state: State, enemy_id: int) -> bool:
         """`If(IsAlive(subject@0x180), AddEffect(0x429=Pinned, ...))` -> arbre `cosmic_horror_pin_tree()`.
-        Le gate `IsAlive` est RE-EVALUE ici parce que le `TriggerAbility` precedent peut avoir fait
-        FUIR la victime (`FleeOperation`) -- elle reste vivante -- mais le natif le teste quand meme
-        apres le re-trigger : on mirrore l'ordre."""
+
+        LE GATE MORD, et c'est MESURE (#429-r1-r3-r1-r2). Cette docstring affirmait que la victime
+        qui fuit « reste vivante », donc que le gate ne servait a rien ici. C'est **FAUX** :
+        `IdunBattle.Operations.FleeOperation$$Execute` appelle le slot 6 de
+        `Core.Services.OperationProcessor` (= `$$RemoveUnit`) AVANT de poser `UnitFlag.Fled`, et
+        l'unite enfuie SORT du pool `EntityPool.AliveUnits` que lit
+        `IdunBattle.Entities.UnitExtensions$$IsAlive`. Live (2026-08-05, MC1_67 et C1_74) : une
+        enfuie porte `unitFlags = [9, 26]` et `IsAlive` rend FAUX sur elle **a PV PLEINS**.
+        Donc : un porteur `BattleFatigue` qui FUIT au `TriggerAbility` precedent ne recoit PAS
+        `Pinned` ; un ennemi qui n'a pas fui, si. Le port posait `Pinned` aux deux tant que sa
+        `FleeOperation` ne sortait pas l'unite du plateau -- le gate etait ecrit mais INERTE."""
         e = state.get_entity(enemy_id)
         uc = e.get_component(UnitComponent) if e is not None else None
         if e is None or (uc is not None and not uc.alive):            # IsAlive(subject)

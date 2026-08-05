@@ -116,7 +116,8 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from ..components import PositionComponent, UnitComponent, unit_is_alive
+from ..components import (PositionComponent, UnitComponent, unit_extensions_is_alive,
+                          unit_is_alive)
 from ..state import State
 
 
@@ -207,7 +208,11 @@ def is_dead_unit_and_not_allowed_by_ability(state: State, ability_class,
     if not is_unit(state, target_id):
         return False
     e = state.get_entity(int(target_id))
-    if e is not None and unit_is_alive(e):
+    # #429-r1-r3-r1-r2 : `UnitExtensions$$IsAlive` (flag `Dead` + pool `AliveUnits` + PV), PAS
+    # `HealthComponent$$IsAlive` (hp >= 1) -- c'est le service que ce site appelle au decompile.
+    # L'ecart mordait sur une unite a PV PLEINS sortie du pool (ENFUIE, RETIREE) : le gate la
+    # laissait passer alors que le natif la refuse.
+    if e is not None and unit_extensions_is_alive(e):
         return False
     if ability_class is None:
         return True

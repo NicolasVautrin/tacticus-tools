@@ -68,10 +68,28 @@ _IS_OBJECT_OR_STEPPABLE = is_object_or_steppable(Target())       # IsObjectOrSte
 class FleeOperation:
     """`IdunBattle.Operations.FleeOperation$$Execute (port STRUCTUREL de l'observable).
 
-    L'unite FUIT : pose le **UnitFlag 9** (`UnitFlagsComponent`, « a fui » -> bloque la ré-action ce tour)
-    + se DEPLACE vers la tuile atteignable maximisant la distance min aux ennemis (best-effort ; la
-    destination exacte du pathfinding de fuite natif n'est pas portee). Les volets non observables
-    (RecordFlee stats/timelines, RemoveEffects 3 phases) ne sont pas portes."""
+    L'unite FUIT : elle est RETIREE du plateau, puis porte le **UnitFlag 9** (`UnitFlagsComponent`,
+    « a fui » -> bloque la ré-action ce tour). Les volets non observables (RecordFlee
+    stats/timelines, RemoveEffects 3 phases) ne sont pas portes.
+
+    #429-r1-r3-r1-r2 -- LE RETRAIT DU PLATEAU MANQUAIT, et c'est LU puis MESURE. Le decompile de
+    `IdunBattle.Operations.FleeOperation$$Execute` enchaine, DANS CET ORDRE :
+
+        OperationProcessor.RemoveUnit(unit, removeEffects: 0, param4: 1)   // slot 6
+        state.AddToPools(unit, [1 = EntityPool.DefeatedUnits])             // slot 0x31
+        UnitFlagsComponent.Add(unit, 9 = UnitFlag.Fled)
+
+    Le slot **6** de `Core.Services.OperationProcessor` est celui de
+    `Core.Services.OperationProcessor$$RemoveUnit` -> `IdunBattle.Operations.RemoveUnitOperation$$
+    Execute` (unique appelant de code de cette Operation) ; `removeEffects = 0` parce que
+    `FleeOperation` fait ses PROPRES `RemoveEffects` en trois phases juste apres.
+
+    MESURE LIVE (2026-08-05, boards MC1_67 **et** C1_74, seed 777) : l'unite enfuie porte
+    `unitFlags = [9, 26]` -- `Fled` **et `Removed` (0x1a)**, ce dernier n'ayant qu'UN poseur dans
+    tout le binaire, `RemoveUnitOperation$$Execute` -- et `UnitExtensions$$IsAlive` rend FAUX sur
+    elle a `hp = 1000/1000`. Le port ne posait que le flag 9 : son enfuie restait `alive = True`,
+    donc VIVANTE pour `unit_extensions_is_alive` -- le mirror de la liveness native aurait ete
+    correct mais INERTE en rollout offline."""
     __slots__ = ()
 
     @staticmethod
@@ -79,6 +97,11 @@ class FleeOperation:
         e = state.get_entity(unit_id)
         if e is None:
             return None
+        # ORDRE NATIF : le retrait du plateau PRECEDE la pose du flag 9. Il pose `Removed` (0x1a),
+        # sort l'unite de l'occupation (le collapse porte du pool `AliveUnits`) et publie
+        # `On(0x25 = UnitRemoved)`. `remove_effects=False` = le `removeEffects: 0` du call-site.
+        from .remove_unit import RemoveUnitOperation
+        retrait = RemoveUnitOperation.execute(state, int(unit_id), remove_effects=False)
         fl = e.get_component(UnitFlagsComponent)
         if fl is None:
             fl = e.add_component(UnitFlagsComponent())
@@ -93,7 +116,7 @@ class FleeOperation:
             # vecteur after-move ici FABRIQUERAIT un overwatch sur un mouvement inexistant cote
             # natif (#448-r1-r1-r2-r1, face inverse).
             MoveUnitOperation(unit_id, to, emit_after_move=False).execute(state, EventBus())
-        return {"fled": unit_id, "to": to, "flag": UnitFlagsComponent.FLED}
+        return {"fled": unit_id, "to": to, "flag": UnitFlagsComponent.FLED, "retrait": retrait}
 
     @staticmethod
     def _safest_tile(state, unit_id: int, movement: int):

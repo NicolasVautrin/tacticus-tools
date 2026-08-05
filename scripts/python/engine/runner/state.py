@@ -96,7 +96,7 @@ class State:
                  "trigger_ability_type",
                  "pending_deaths", "draining_deaths", "ability_states_seed",
                  "pending_triggered_abilities", "draining_pending_abilities",
-                 "enable_obscuring_terrain",
+                 "enable_obscuring_terrain", "unit_flags_seed",
                  "damage_spread_percentage", "ignore_damage_spread",
                  # #449-r2-r4-r4 -- les autres champs de `BC.Damage` que le port CONSOMME.
                  # Meme nature et meme canal que les deux ci-dessus : la table `DAMAGE_FIELDS`
@@ -322,6 +322,22 @@ class State:
         # c'est la discipline tri-etat de `host_inputs.py`, appliquee a un seed. Reste `None` sur un
         # `State` construit a la main (aucun `load_state` n'est passe).
         self.ability_states_seed: Optional[dict] = None
+        # #429-r1-r3-r1-r1 -- TRACE du canal des `UnitFlag` (`snapshot._load_unit_flags`), MEME
+        # discipline que `ability_states_seed` juste au-dessus. `None` = la passe n'a pas tourne
+        # (aucun `combatSnapshot` fourni). Sinon :
+        #   {"units": <int|None>, "units_not_alive": <int|None>, "units_not_alive_channel": <str>}
+        # ou `units`/`units_not_alive` = nb de lignes PORTEUSES de flags lues, et
+        # `units_not_alive_channel` NOMME l'etat du bloc `combatSnapshot.unitsNotAlive` :
+        #   * `"lu"`     -- le bundle Frida le publie (liste, eventuellement vide) ;
+        #   * `"muet"`   -- le champ existe mais vaut `null` (capteur non resolu cote hook) ;
+        #   * `"absent"` -- le bundle charge est ANTERIEUR au correctif : il n'a pas le champ.
+        # POURQUOI CE TROISIEME ETAT EXISTE. Sans lui, `snapshot.get("unitsNotAlive") or []`
+        # dit exactement la meme chose pour « aucune unite non vivante » et pour « le capteur
+        # n'existe pas » -- et c'est par CE rabattement que `UnitFlag.Fled` n'atteignait pas le
+        # port, gate arme, pendant que le port frappait une unite ENFUIE pour 10 375 (mesure du
+        # 2026-08-05). Un consommateur qui veut conclure « aucune fuite » DOIT verifier
+        # `units_not_alive_channel == "lu"` d'abord.
+        self.unit_flags_seed: Optional[dict] = None
 
     def add_entity(self, entity_id: Optional[int] = None) -> Entity:
         if entity_id is None:

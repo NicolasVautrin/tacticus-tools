@@ -125,16 +125,25 @@ def build(state_file: str, seed: str, board: str, extra=()) -> dict:
     return json.loads(Path(state_file).read_text(encoding="utf-8"))
 
 
-def build_fled(state_file: str, seed: str, board: str) -> dict:
+def build_fled(state_file: str, seed: str, board: str, places=None) -> dict:
     """Montage du volet `fled` : roster propre + `--unit-stat` sur l'entree de SUMMON.
 
     Sans le patch de stats, `applyAddUnit` poserait des gardes MORT-NES : les 12 entrees
     `BattleFatigue` du seed BC portent toutes `Health = 0` (les stats d'un summon viennent
-    normalement des constantes de l'ability qui l'invoque, pas du catalogue)."""
+    normalement des constantes de l'ability qui l'invoque, pas du catalogue).
+
+    `places` = les `--place`/`--a-place` a passer ; `FLED_PLACES` par defaut. **Ces coordonnees
+    sont celles de `MC1_67`** -- sur un AUTRE board elles ne sont pas honorees
+    (`IdunBattle.Operations.AddUnitOperation$$Execute` rend NUL en SILENCE sur une tuile
+    interdite / occupee / reservee, et `rl_duel` le detecte pour nous). Passer `places=()` laisse
+    le spawn naturel : `installer_regime_fled` sait alors POSER lui-meme une victime sur un hex
+    libre adjacent au killer. C'est ce que fait la generalisation multi-board de
+    #429-r1-r3-r1-r2 -- le montage n'est donc PAS bloque par la geometrie de spawn."""
     out = subprocess.run([sys.executable, sibling_script("rl_duel.py"), "build",
                           "--seed", seed, "--board", board, "--state-file", state_file,
                           "--p-units", FLED_P_UNITS, "--a-units", FLED_A_UNITS,
-                          "--hp-target", "1", *FLED_PLACES,
+                          "--hp-target", "1",
+                          *(FLED_PLACES if places is None else tuple(places)),
                           "--unit-stat", "%s:Health=%d,RemainingHealth=%d,Damage=100"
                           % (FLED_SUMMON_VISUAL, FLED_HP, FLED_HP)],
                          capture_output=True, text=True)
@@ -404,12 +413,31 @@ def scenario_attaque(state_file: str, seed: str = "777", board: str = "MC1_67",
 
 
 # ==================================================================== volet `fled` (LIVE)
+def canal_units_not_alive(snap) -> str:
+    """TROIS etats du bloc `combatSnapshot.unitsNotAlive`, JAMAIS deux (#429-r1-r3-r1-r1) :
+    `"lu"` (le bundle le publie), `"muet"` (le champ est la mais vaut `null`), `"absent"` (le
+    bundle Frida charge est ANTERIEUR au correctif). Rabattre les deux derniers sur `[]` ferait
+    lire « aucune unite non vivante » la ou le capteur n'existe pas -- le faux negatif exact qui a
+    laisse `UnitFlag.Fled` hors d'atteinte du port. Pendant EXACT de
+    `engine.runner.state.State.unit_flags_seed["units_not_alive_channel"]`."""
+    _ABSENT = object()
+    v = (snap or {}).get("unitsNotAlive", _ABSENT)
+    return "absent" if v is _ABSENT else ("muet" if v is None else "lu")
+
+
 def _flags_par_unite(snap) -> dict:
     """TRI-ETAT conserve : `None` = capteur MUET (`combatSnapshot.units[].unitFlags` rend `null`
     quand `HasFlag` n'est pas resolu), `[]` = lu et aucun flag. Les confondre ferait passer un
-    capteur mort pour « aucune fuite » -- exactement le faux negatif que cette tranche chasse."""
+    capteur mort pour « aucune fuite » -- exactement le faux negatif que cette tranche chasse.
+
+    #429-r1-r3-r1-r1 : le bloc `unitsNotAlive` est lu AUSSI. `combatSnapshot.units` n'enumere que
+    les unites VIVANTES au sens d'`IdunBattle.Entities.UnitExtensions$$IsAlive` -- une ENFUIE en
+    est absente alors qu'elle a ses PV pleins, donc son `UnitFlag.Fled` n'etait lisible par AUCUN
+    canal. L'etat du bloc lui-meme se lit par `canal_units_not_alive` ci-dessus."""
     out = {}
-    for u in (snap or {}).get("units") or []:
+    lignes = list((snap or {}).get("units") or [])
+    lignes += list((snap or {}).get("unitsNotAlive") or [])
+    for u in lignes:
         # `combatSnapshot` nomme la cle `entityId` (PAS `id`, qui est la cle de `decisionView`) --
         # la confondre rendait un dict VIDE, donc « aucun flag » sur TOUTE unite. C'est le tri-etat
         # ci-dessous qui a rattrape ce capteur mort, pas une relecture de code.
@@ -428,6 +456,144 @@ def _etat_flag(flags: dict, uid):
         return "absent-du-snapshot"
     fl = flags[int(uid)]
     return "muet" if fl is None else fl
+
+
+def installer_regime_fled(s: int, rid: int, board_obj, essais: int, res: dict):
+    """POSE l'etat FLED sur un runner DEJA construit, et rend l'`entityId` de l'enfui (ou `None`).
+
+    FOYER UNIQUE DU MONTAGE (#429-r1-r3-r1-r2) : cette boucle etait INLINE dans `scenario_fled`.
+    Elle en est sortie telle quelle -- meme sequence, memes gardes, meme remplissage de `res` --
+    parce qu'un SECOND probe en a besoin et que dupliquer un montage a trois pieges mesures
+    (adjacence victime/killer, `Synapse` qui desarme le trait, condition de victoire) revient a
+    les re-decouvrir un par un. Le seul appelant historique, `scenario_fled`, l'appelle desormais.
+
+    `res` est REMPLI en place (memes cles qu'avant) ; `board_obj` = le `Board` du runner."""
+    fled_id = None
+    # UN killer par evenement de mort : le natif pose `ActiveAbilityUsed` apres un cast qui
+    # s'execute, donc un heros ne tue qu'UNE fois par tour. Les deux p-units = 2 evenements.
+    killers = list(FLED_KILLERS)[:max(1, int(essais))]
+    for killer_vis in killers:
+        dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        ids = _ids(dv)
+        killer = ids.get(killer_vis)
+        occupe = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
+                  if u.get("pos") and u.get("alive")}
+        # VICTIME = une unite ADVERSE vivante ET ADJACENTE au killer. L'adjacence est MESUREE,
+        # pas supposee : les deux killers sont des armes de MELEE, et une victime hors portee
+        # « survit » -- ce qui se lit « le trait n'a pas tire » alors qu'AUCUN tirage n'a eu
+        # lieu (mesure du 2026-08-05, seed 31337, 2e evenement de mort).
+        kpos = _unit(dv, killer).get("pos") if killer is not None else None
+        if killer is None or kpos is None:
+            res["why"] = "killer %s absent ou hors plateau" % killer_vis
+            break
+        ktid = board_obj.id_at(int(kpos["col"]), int(kpos["row"]))
+        k_voisins = {board_obj.coord(n) for n in board_obj.neighbours(ktid)}
+
+        def _adjacent(u, _kv=k_voisins):
+            p = u.get("pos")
+            return p is not None and (int(p["col"]), int(p["row"])) in _kv
+
+        def _candidats(vue):
+            return [u for u in (vue.get("units") or [])
+                    if u.get("alive") and _adjacent(u)
+                    and u.get("visualId") in (FLED_VICTIM_VISUAL, FLED_SUMMON_VISUAL)]
+
+        candidats = _candidats(dv)
+        if not candidats:
+            # Aucune victime a portee de CE killer : on en POSE une sur un hex libre adjacent
+            # a lui. Sans ca, l'evenement de mort suivant n'a jamais lieu -- et une victime
+            # hors portee « survit », ce qui se lit a tort comme un tirage rate.
+            libre_k = next((c for c in sorted(k_voisins)
+                            if board_obj.id_at(*c) is not None
+                            and board_obj.walkable(board_obj.id_at(*c))
+                            and c not in occupe), None)
+            if libre_k is None:
+                res["why"] = "aucun hex libre adjacent a %s pour poser une victime" % killer_vis
+                break
+            _add = rpc(s, "applyAddUnit", {"runnerId": rid, "unitId": FLED_SUMMON_ID,
+                                           "playerId": PLAYER_ID_AI, "col": int(libre_k[0]),
+                                           "row": int(libre_k[1])}, 60)
+            res["victime_posee_%s" % killer_vis] = {"hex": libre_k,
+                                                    "ok": (_add or {}).get("ok")}
+            res["gardes_poses"] += 1
+            dv = rpc(s, "decisionView",
+                     {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+            occupe = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
+                      if u.get("pos") and u.get("alive")}
+            candidats = _candidats(dv)
+        # au 1er tour la victime de roster (1 PV) prime ; ensuite, un garde adjacent.
+        victime = next((u for u in candidats if u.get("visualId") == FLED_VICTIM_VISUAL),
+                       None) or (candidats[0] if candidats else None)
+        if victime is None:
+            res["why"] = ("aucune victime adverse ADJACENTE a %s -- rien a tuer, donc aucun "
+                          "tirage `BattleFatigue`" % killer_vis)
+            break
+        vtid = board_obj.id_at(int(victime["pos"]["col"]), int(victime["pos"]["row"]))
+        libres = [board_obj.coord(n) for n in board_obj.neighbours(vtid)
+                  if board_obj.walkable(n) and board_obj.coord(n) not in occupe]
+        for (c, r) in libres:
+            out = rpc(s, "applyAddUnit", {"runnerId": rid, "unitId": FLED_SUMMON_ID,
+                                          "playerId": PLAYER_ID_AI, "col": int(c),
+                                          "row": int(r)}, 60)
+            if (out or {}).get("ok"):
+                res["gardes_poses"] += 1
+        dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        vpos = (int(victime["pos"]["col"]), int(victime["pos"]["row"]))
+        vtid = board_obj.id_at(*vpos)
+        voisins = {board_obj.coord(n) for n in board_obj.neighbours(vtid)}
+        gardes = [u["id"] for u in (dv.get("units") or [])
+                  if u.get("visualId") == FLED_SUMMON_VISUAL and u.get("alive")
+                  and u.get("pos") and u.get("id") != victime.get("id")
+                  and (int(u["pos"]["col"]), int(u["pos"]["row"])) in voisins]
+        res["gardes_adjacents"] = len(gardes)
+        if not gardes:
+            res["why"] = ("aucun `%s` VIVANT adjacent a la victime (%d poses, hexes libres %s)"
+                          " -- montage non installe"
+                          % (FLED_SUMMON_VISUAL, res["gardes_poses"], libres))
+            break
+        nid_k = _normal_id(dv, killer)
+        res["gardes_avant_kill_%d" % (res["kills"] + 1)] = [
+            {"id": g, "hp": _unit(dv, g).get("hp"), "alive": _unit(dv, g).get("alive"),
+             "pos": _unit(dv, g).get("pos")} for g in gardes]
+        tue = rpc(s, "applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": killer, "targetId": victime["id"],
+            "abilityType": nid_k}}, 60)
+        # Les EVENEMENTS de la mort : `IdunBattle.Operations.FleeOperation$$Execute` emet ses
+        # propres groupes de stream, et `group.entity` NOMME l'unite concernee.
+        evs = ((tue or {}).get("actions") or [{}])[0].get("events") or []
+        res["kill_%d_groupes" % (res["kills"] + 1)] = [
+            (e.get("group"), e.get("entity"), e.get("source"))
+            for e in evs if e.get("kind") == "group"]
+        dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        res["battle_apres_kill_%d" % (res["kills"] + 1)] = rpc(
+            s, "battleStatus", {"runnerId": rid}, 30)
+        if _unit(dv, victime["id"]).get("alive"):
+            res["why"] = ("la victime %s a SURVECU au coup de %s -- aucun tirage `BattleFatigue`"
+                          " n'a eu lieu" % (victime.get("visualId"), killer_vis))
+            break
+        res["kills"] += 1
+        res["roulements"] += len(gardes)
+        snap = rpc(s, "combatSnapshot", {"runnerId": rid}, 40)
+        flags = _flags_par_unite(snap)
+        avant = {d["id"]: d for d in res["gardes_avant_kill_%d" % res["kills"]]}
+        etats = [{"id": g, "alive": _unit(dv, g).get("alive"), "hp": _unit(dv, g).get("hp"),
+                  "hp_avant": avant.get(g, {}).get("hp"), "pos": _unit(dv, g).get("pos"),
+                  "flags": _etat_flag(flags, g)} for g in gardes]
+        res["gardes_apres_kill_%d" % res["kills"]] = etats
+        # CRITERE DE FUITE, en trois faits CONCORDANTS :
+        #   1. un groupe de stream `BattleFatigue` porte l'id du garde ;
+        #   2. `UnitExtensions.IsAlive` rend FAUX apres (il l'etait AVANT) ;
+        #   3. ses PV n'ont PAS bouge -> aucun degat ne peut expliquer (2).
+        fuites = {e for (_g, e, src) in res["kill_%d_groupes" % res["kills"]]
+                  if src == "BattleFatigue"}
+        res["capteur_flag_hors_atteinte"] = [e["id"] for e in etats
+                                             if not isinstance(e["flags"], list)]
+        fled_id = next((e["id"] for e in etats
+                        if e["id"] in fuites and e["alive"] is False
+                        and e["hp"] == e["hp_avant"]), None)
+        if fled_id is not None:
+            break
+    return fled_id
 
 
 def scenario_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
@@ -462,134 +628,7 @@ def scenario_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
     try:
         bg = rpc(s, "boardGraph", {"runnerId": rid}, 60)
         board_obj = Board(bg["tiles"], adjacency="native_sym")
-        fled_id = None
-        # UN killer par evenement de mort : le natif pose `ActiveAbilityUsed` apres un cast qui
-        # s'execute, donc un heros ne tue qu'UNE fois par tour. Les deux p-units = 2 evenements.
-        killers = list(FLED_KILLERS)[:max(1, int(essais))]
-        for killer_vis in killers:
-            dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-            ids = _ids(dv)
-            killer = ids.get(killer_vis)
-            occupe = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
-                      if u.get("pos") and u.get("alive")}
-            # VICTIME = une unite ADVERSE vivante ET ADJACENTE au killer. L'adjacence est MESUREE,
-            # pas supposee : les deux killers sont des armes de MELEE, et une victime hors portee
-            # « survit » -- ce qui se lit « le trait n'a pas tire » alors qu'AUCUN tirage n'a eu
-            # lieu (mesure du 2026-08-05, seed 31337, 2e evenement de mort).
-            kpos = _unit(dv, killer).get("pos") if killer is not None else None
-            if killer is None or kpos is None:
-                res["why"] = "killer %s absent ou hors plateau" % killer_vis
-                break
-            ktid = board_obj.id_at(int(kpos["col"]), int(kpos["row"]))
-            k_voisins = {board_obj.coord(n) for n in board_obj.neighbours(ktid)}
-
-            def _adjacent(u, _kv=k_voisins):
-                p = u.get("pos")
-                return p is not None and (int(p["col"]), int(p["row"])) in _kv
-
-            def _candidats(vue):
-                return [u for u in (vue.get("units") or [])
-                        if u.get("alive") and _adjacent(u)
-                        and u.get("visualId") in (FLED_VICTIM_VISUAL, FLED_SUMMON_VISUAL)]
-
-            candidats = _candidats(dv)
-            if not candidats:
-                # Aucune victime a portee de CE killer : on en POSE une sur un hex libre adjacent
-                # a lui. Sans ca, l'evenement de mort suivant n'a jamais lieu -- et une victime
-                # hors portee « survit », ce qui se lit a tort comme un tirage rate.
-                libre_k = next((c for c in sorted(k_voisins)
-                                if board_obj.id_at(*c) is not None
-                                and board_obj.walkable(board_obj.id_at(*c))
-                                and c not in occupe), None)
-                if libre_k is None:
-                    res["why"] = "aucun hex libre adjacent a %s pour poser une victime" % killer_vis
-                    break
-                _add = rpc(s, "applyAddUnit", {"runnerId": rid, "unitId": FLED_SUMMON_ID,
-                                               "playerId": PLAYER_ID_AI, "col": int(libre_k[0]),
-                                               "row": int(libre_k[1])}, 60)
-                res["victime_posee_%s" % killer_vis] = {"hex": libre_k,
-                                                        "ok": (_add or {}).get("ok")}
-                res["gardes_poses"] += 1
-                dv = rpc(s, "decisionView",
-                         {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-                occupe = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
-                          if u.get("pos") and u.get("alive")}
-                candidats = _candidats(dv)
-            # au 1er tour la victime de roster (1 PV) prime ; ensuite, un garde adjacent.
-            victime = next((u for u in candidats if u.get("visualId") == FLED_VICTIM_VISUAL),
-                           None) or (candidats[0] if candidats else None)
-            if victime is None:
-                res["why"] = ("aucune victime adverse ADJACENTE a %s -- rien a tuer, donc aucun "
-                              "tirage `BattleFatigue`" % killer_vis)
-                break
-            vtid = board_obj.id_at(int(victime["pos"]["col"]), int(victime["pos"]["row"]))
-            libres = [board_obj.coord(n) for n in board_obj.neighbours(vtid)
-                      if board_obj.walkable(n) and board_obj.coord(n) not in occupe]
-            for (c, r) in libres:
-                out = rpc(s, "applyAddUnit", {"runnerId": rid, "unitId": FLED_SUMMON_ID,
-                                              "playerId": PLAYER_ID_AI, "col": int(c),
-                                              "row": int(r)}, 60)
-                if (out or {}).get("ok"):
-                    res["gardes_poses"] += 1
-            dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-            vpos = (int(victime["pos"]["col"]), int(victime["pos"]["row"]))
-            vtid = board_obj.id_at(*vpos)
-            voisins = {board_obj.coord(n) for n in board_obj.neighbours(vtid)}
-            gardes = [u["id"] for u in (dv.get("units") or [])
-                      if u.get("visualId") == FLED_SUMMON_VISUAL and u.get("alive")
-                      and u.get("pos") and u.get("id") != victime.get("id")
-                      and (int(u["pos"]["col"]), int(u["pos"]["row"])) in voisins]
-            res["gardes_adjacents"] = len(gardes)
-            if not gardes:
-                res["why"] = ("aucun `%s` VIVANT adjacent a la victime (%d poses, hexes libres %s)"
-                              " -- montage non installe"
-                              % (FLED_SUMMON_VISUAL, res["gardes_poses"], libres))
-                break
-            nid_k = _normal_id(dv, killer)
-            res["gardes_avant_kill_%d" % (res["kills"] + 1)] = [
-                {"id": g, "hp": _unit(dv, g).get("hp"), "alive": _unit(dv, g).get("alive"),
-                 "pos": _unit(dv, g).get("pos")} for g in gardes]
-            tue = rpc(s, "applyAction", {"runnerId": rid, "action": {
-                "kind": "ability", "casterId": killer, "targetId": victime["id"],
-                "abilityType": nid_k}}, 60)
-            # Les EVENEMENTS de la mort : `IdunBattle.Operations.FleeOperation$$Execute` emet ses
-            # propres groupes de stream, et `group.entity` NOMME l'unite concernee. C'est le SEUL
-            # capteur de fuite disponible -- `combatSnapshot` n'enumere que les unites VIVANTES
-            # (`if (!invokeBool(isAliveMi, ...)) return;`) et `decisionView` ne publie pas les flags.
-            evs = ((tue or {}).get("actions") or [{}])[0].get("events") or []
-            res["kill_%d_groupes" % (res["kills"] + 1)] = [
-                (e.get("group"), e.get("entity"), e.get("source"))
-                for e in evs if e.get("kind") == "group"]
-            dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-            res["battle_apres_kill_%d" % (res["kills"] + 1)] = rpc(
-                s, "battleStatus", {"runnerId": rid}, 30)
-            if _unit(dv, victime["id"]).get("alive"):
-                res["why"] = ("la victime %s a SURVECU au coup de %s -- aucun tirage `BattleFatigue`"
-                              " n'a eu lieu" % (victime.get("visualId"), killer_vis))
-                break
-            res["kills"] += 1
-            res["roulements"] += len(gardes)
-            snap = rpc(s, "combatSnapshot", {"runnerId": rid}, 40)
-            flags = _flags_par_unite(snap)
-            avant = {d["id"]: d for d in res["gardes_avant_kill_%d" % res["kills"]]}
-            etats = [{"id": g, "alive": _unit(dv, g).get("alive"), "hp": _unit(dv, g).get("hp"),
-                      "hp_avant": avant.get(g, {}).get("hp"), "pos": _unit(dv, g).get("pos"),
-                      "flags": _etat_flag(flags, g)} for g in gardes]
-            res["gardes_apres_kill_%d" % res["kills"]] = etats
-            # CRITERE DE FUITE, en trois faits CONCORDANTS -- le flag lui-meme est HORS D'ATTEINTE
-            # (cf. `res["capteur_flag_hors_atteinte"]`) :
-            #   1. un groupe de stream `BattleFatigue` porte l'id du garde ;
-            #   2. `UnitExtensions.IsAlive` rend FAUX apres (il l'etait AVANT) ;
-            #   3. ses PV n'ont PAS bouge -> aucun degat ne peut expliquer (2).
-            fuites = {e for (_g, e, src) in res["kill_%d_groupes" % res["kills"]]
-                      if src == "BattleFatigue"}
-            res["capteur_flag_hors_atteinte"] = [e["id"] for e in etats
-                                                 if not isinstance(e["flags"], list)]
-            fled_id = next((e["id"] for e in etats
-                            if e["id"] in fuites and e["alive"] is False
-                            and e["hp"] == e["hp_avant"]), None)
-            if fled_id is not None:
-                break
+        fled_id = installer_regime_fled(s, rid, board_obj, essais, res)
         res["fled_id"] = fled_id
         if fled_id is None:
             res.setdefault("why", "aucune FUITE apres %d roulements a 40 %% (%d morts) -- regime "
