@@ -238,6 +238,18 @@ REGISTRE: list[Mirror] = [
     # que le mirror vit sous `engine/streams/` (comme `BEntityId`, meme namespace natif).
     Mirror("PhaseType", "engine/streams/phase_type.py",
            "IdunBattle.Core.PhaseType"),
+    # #477-r22 : le mirror NEUF de la tranche, inscrit DANS LE COMMIT QUI LE CREE. `TurnStage` est
+    # le 1er argument de `Core.Services.OperationProcessor$$ContinueTurnPhase` et la valeur que
+    # `IdunBattle.Entities.Components.TurnComponent$$GetNextTurnStage` fait avancer. Sa cle est
+    # LUE dans `enums.tsv` (`IdunBattle.Entities.Enum`) ; le nom court seul serait ambigu --
+    # l'ordinal `3` que le natif passe en dur est aussi un membre valide de `GroupType` ET de
+    # `IdunBattle.Core.PhaseType`, l'enum que l'entree CI-DESSUS (#477-r24) vient precisement de
+    # mirrorer apres TROIS attributions fausses du meme ordinal nu. Les deux entrees sont la MEME
+    # lecon prise par deux bouts : un ordinal de phase et un ordinal de stage se ressemblent, et
+    # seul le NOM les separe.
+    Mirror("TurnStage", "engine/entities/turn_stage.py",
+           "IdunBattle.Entities.Enum.TurnStage"),
+>>>>>>> edbd7713 (feat(#477-r22): porter le BLOC 2 de System_StartMatch -- PrepareTurn + StartTurn)
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune
