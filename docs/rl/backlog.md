@@ -2587,20 +2587,56 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `{0:1, 1:92, 2:44, 3:7, 4:3}` : le motif est presque toujours IMBRIQUE. Le porter aujourd'hui
   produirait du code qu'aucun montage n'exerce. `Source=` n'est PAS le mur (les 39 valeurs
   sortent de `RefreshEffectsOperation$$GenerateEventGroup`, mirror et rendu deja presents) --
-  le mur est l'enveloppe racine. DEBLOQUEUR NOMME : porter `System_StartMatch` (42/147, et il
-  englobe le seul `Effect_Refresh` racine du flux), ou le couple `StartTurn`/`EndTurn` (52/147,
-  deja porteurs de l'ancre (B) etablie par #477-r19).
+  le mur est l'enveloppe racine.
+  ⚠ **LE DEBLOQUEUR NOMME ICI EST REFUTE, MESURE (#477-r20).** `System_StartMatch` est PORTE
+  (enveloppe + `Action=StartMatch`, egalite BRUTE 3/3 sur 4 scenarios) et cela rend **0 / 42**
+  (`C1_02`), **0 / 44** (`MC1_67`), **0 / 12** (roster 2v2) `Effect_Refresh` atteignables. Cause
+  structurelle : un `Effect_Refresh` n'est comparable que si TOUT son CHEMIN est emis, pas
+  seulement sa racine -- 35/44 passent par un `Ability_Power`, 2 par le `StartTurn` imbrique, et
+  meme les 5 enfants directs ont un CONTENU (`ActivateEffect` / `ReceiveEffect` + `Effect_Id`, des
+  ids d'entite ECS d'effet) qui n'est pas produit. La racine est NECESSAIRE, pas SUFFISANTE.
+  Le vrai cout est nomme et chiffre au residu **#477-r21**.
   PORTE AUSSI une correction d'attribution : `revive.py` et `damage.py` decrivent `RunPhase(0xd)`
   comme la phase de `ReviveUnit` ; la lambda de `0xd` est `<VerifyRemovedUnits>b__0` et appelle
   `RemoveUnit(unit, removeEffects, keepActive)` (3 arguments, contre 1 pour `ReviveUnit(killed)`).
-  cf. `docs/rl/case-477r19-ancrage-process-removals.md` sec. 5 et 6.
+  ⚠ CONFIRME PAR LE NOM (#477-r20) : `data/symbols/<build>/frida/enums.tsv` donne
+  `IdunBattle.Core.PhaseType` `12=ProcessDeaths, 13=ProcessRemovals, 14=ProcessDamageEvents` --
+  aucun `PhaseType` ne nomme un revive. Il ne reste qu'a REECRIRE les deux commentaires.
+  cf. `docs/rl/case-477r19-ancrage-process-removals.md` sec. 5 et 6, et
+  `docs/rl/case-477r20-start-match.md` sec. 4 et 6.
+
+- **#477-r21 : le CONTENU de `System_StartMatch` -- 474 / 518 lignes, et c'est ce qui bloque
+  vraiment `Effect_Refresh`.** `[opus]`
+  L'enveloppe est portee et confrontee (#477-r20 : 4 scenarios, egalite BRUTE 3/3, ancrage 4/4,
+  10 contre-epreuves), mais elle ne porte que **2 lignes sur 477**. Le contenu se ventile en TROIS
+  blocs, tous LUS dans `IdunBattle.Operations.StartMatchOperation$$Execute` :
+  (1) l'arbre `Ability_Power` / `Effect_Refresh` des DEUX appels
+  `EvaluateAbilities(GetMatchEntity(state), null, null, EventTriggerType.MatchInit /*25*/, null)`
+  puis `MatchStart /*26*/` -- 29/30 `Ability_Power`, 402/446 lignes ;
+  (2) `Action=PrepareTurn` + `Group=StartTurn` COMPLET, de
+  `ContinueTurnPhase(TurnStage.Start /*3*/, false, true)` -- meme slot et memes arguments que la
+  lambda de `Visit(StartTurnMessage)` ;
+  (3) le groupe `RarityCapTransform` (`StepType.PlayerInitialRarity`, tag `TagKey.Rarity`), emis
+  seulement si le joueur porte une rarete initiale -- JAMAIS exerce par nos montages.
+  CE QUE LE PORTER EXIGE, mesure : la face stream de `TriggerTriggeredAbilityOperation`, celle de
+  `IdunBattle.Operations.RefreshEffectsOperation$$GenerateEventGroup`, et l'ALLOCATION ECS des
+  entites d'effet (`Tag=Effect_Id`, 86/94 occurrences, valeurs 69..113) -- dont #477-r16 n'a porte
+  que le versant unites/tuiles.
+  RETOURNEMENT : un montage ou le contenu deviendrait VIDE. Mesure : il se reduit d'un facteur 3,7
+  avec un roster 2v2 (518 -> 139 lignes) mais NE S'ANNULE PAS -- le regime « groupe vide » qui
+  faisait la valeur du cran `System_ProcessRemovals` n'existe pas ici.
+  cf. `docs/rl/case-477r20-start-match.md` sec. 3, 4 et 5.
 
 - **#477-r18-suite : les crans suivants du DEROULE, dans l'ordre chiffre par l'inventaire.** `[opus]`
-  `User_PlaceUnit` est LIVRE (#477-r18-r5), `System_ProcessRemovals` aussi (#477-r19). Le tableau
-  de `case-477r18` sec. 3 donne la suite -- mais son ordre est a REVOIR : `Effect_Refresh`, qui y
-  venait ensuite, est NON CONFRONTABLE tant qu'aucun de ses 9 groupes racines porteurs n'est
-  porte (#477-r19-r2). Les candidats reels sont donc `System_StartMatch` (+4/+8/+18, le plus gros
-  gisement d'`Effect_Refresh`), `User_EndTurn` (+2/+2/+2) et le couple `StartTurn`/`EndTurn`.
+  `User_PlaceUnit` est LIVRE (#477-r18-r5), `System_ProcessRemovals` aussi (#477-r19), et
+  `System_StartMatch` l'est pour sa seule ENVELOPPE (#477-r20 -- 2 lignes sur 477 ; le contenu est
+  le residu #477-r21). Le tableau de `case-477r18` sec. 3 donne la suite -- mais son ordre est a
+  REVOIR : `Effect_Refresh`, qui y venait ensuite, est NON CONFRONTABLE tant qu'aucun de ses 9
+  groupes racines porteurs n'est porte (#477-r19-r2), et porter la RACINE ne suffit pas -- mesure
+  #477-r20 : 0/42, 0/44, 0/12. Le candidat reel restant est `User_EndTurn` (+2/+2/+2), dont le
+  contenu est un `EndTurn` deja separe ; ⚠ le `+4/+8/+18` de `System_StartMatch` s'est revele etre
+  une propriete du ROSTER (il tombe a `+4/+5/+8` sur un roster 2v2), donc les deltas du tableau
+  d'inventaire sont des ORDRES DE GRANDEUR, pas des bornes.
   L'ancrage se pose dans `engine/streams/input_messages.py`, ouvert par #477-r18-r5 et etendu par
   #477-r19 (`VERIFY_DEATHS_ANCHOR_GROUPS`, `PHASE_BARRIER_GROUPS`).
   cf. `docs/rl/case-477r18-perimetre-du-deroule.md` sec. 3 et 6.

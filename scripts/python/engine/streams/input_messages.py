@@ -23,12 +23,13 @@ mirror ci-dessous cite donc la surcharge par le TYPE de son parametre, lu dans
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Callable, Optional, Sequence
 
 from .dispatcher import StreamDispatcher
 from .entity_id import NO_ENTITY
 from .game_setup import UnitSetup, add_unit
 from .group_type import GroupType
+from .step_type import StepType
 
 #: `sourceId` du groupe racine `User_PlaceUnit`. Ce n'est PAS un slot de litteral (contrairement
 #: a celui d'`AddUnitOperation$$Execute`, resolu par #477-r15-r1) : le decompile lit le PREMIER
@@ -235,4 +236,134 @@ def verify_removed_units(events: StreamDispatcher, match_entity_id: int,
     # `foreach (id in list) { if (state.Get(id) != null) processor.RemoveUnit(...); }` -- le
     # contenu n'est PAS porte (cf. docstring, residu #477-r19-r1). Le groupe reste VIDE, ce qui
     # est ce que le natif produit dans tout le regime confronte.
+    events.finish_group()
+
+
+#: `sourceId` du groupe racine `System_StartMatch`. TROISIEME occurrence de la MEME lecture que
+#: `PLACE_UNIT_SOURCE_ID` et `PROCESS_REMOVALS_SOURCE_ID` : l'argument passe a `StartGroup` est le
+#: PREMIER champ statique de `System.String`, c'est-a-dire `String.Empty` -- pas un slot de
+#: litteral, et pas `null`. `""` et `null` rendent le meme `Source=` vide apres `String.Format` :
+#: la distinction n'est pas observable dans le flux, elle est LUE.
+START_MATCH_SOURCE_ID = ""
+
+
+def start_match(events: StreamDispatcher, match_entity_id: int) -> None:
+    """Face stream d'`IdunBattle.Operations.StartMatchOperation$$Execute` -- SA PREMIERE
+    EMISSION SEULEMENT.
+
+    ⚠ CETTE FONCTION NE PORTE PAS L'OPERATION, ET C'EST MESURE. `StartMatchOperation$$Execute`
+    produit 477 lignes sur le flux temoin ; ce qui est porte ici en fait DEUX (l'`Action=` et sa
+    place). Ce qui reste dehors est ENUMERE dans la docstring de `visit_start_battle_message` et
+    chiffre par `probe_477r20_start_match.py` -- pas sous-entendu.
+
+    L'EMISSION PORTEE, lue verbatim dans le decompile :
+
+        processor.<slot 0xd>();                       // pas d'emission de flux
+        var tags = new Dictionary<TagKey,int>();      // AUCUN `Add` -- le dictionnaire est VIDE
+        Events.Action(StepType.StartMatch /*1*/, 1, tags);
+
+    ⚠ LE DICTIONNAIRE EST VIDE, ET C'EST LU, PAS DEDUIT DU FLUX : le ctor du dictionnaire est
+    suivi directement de l'appel d'action, sans aucun `Dictionary$$Add` entre les deux. Le flux
+    le confirme (`Action=StartMatch Entity=1` sans aucun `Tag=`), mais la lecture tranche.
+
+    ⚠ L'ENTITE EST UN LITTERAL DANS LE DECOMPILE (`1`), la ou l'OUVERTURE du groupe la lit par
+    `IdunBattle.Entities.StateExtensions$$GetMatchEntity(state)` puis l'accesseur d'identifiant
+    d'`IdunBattle.Core.IEntity`. Les deux voies sont DISTINCTES dans le natif et valent 1 sur nos
+    runners (meme entite MATCH que `game_setup.MATCH_ENTITY_ID`, que
+    `IdunBattle.Operations.SetupGameOperation$$Execute` passe elle aussi en dur). Le port prend
+    donc un PARAMETRE plutot que de recopier la constante, et le probe EXIGE que les deux voies
+    coincident sur le flux -- c'est un recoupement mesurable, pas une supposition."""
+    events.action(StepType.StartMatch, match_entity_id, {})
+
+
+def visit_start_battle_message(events: StreamDispatcher, match_entity_id: int,
+                               corps: Optional[Callable[[], None]] = None) -> None:
+    """Face stream d'`IdunBattle.Messages.InputMessageProcessor$$Visit(message:
+    IdunBattle.Messages.StartBattleMessage)`.
+
+    ⚠ « OUVERT PAR `InputMessageProcessor` » NE DIT PAS PAR QUOI. Au cran precedent les deux
+    groupes etaient ouverts par `VerifyDeaths`, pas par `Visit` : la question se re-pose a chaque
+    tranche. Ici la surcharge de `Visit` EST la porte, mais elle n'ouvre RIEN elle-meme --
+
+        this.<+0x28> = <le composant de match>;      // memorise pour la garde de `RunPhase`
+        var action = new Action(this, <Visit>b__18_0);
+        RunPhase(PhaseType.StartBattle /*0*/, action, isInternalPhase: true,
+                 isManualTurnEnd: false);
+
+    -- et c'est la LAMBDA D'INSTANCE `InputMessageProcessor$$u003CVisitu003Eb__18_0` qui emet, en
+    exactement trois choses :
+
+        Events.StartGroup(GroupType.System_StartMatch /*4*/,
+                          StateExtensions.GetMatchEntity(state).<Id>,
+                          String.Empty, default(BEntityId?));
+        processor.<slot 0x12>();                     // -> `Core.Services.OperationProcessor$$StartMatch`
+        Events.FinishGroup();
+
+    ⚠ LA LAMBDA N'EST PAS UN `<>c__DisplayClass`, ET C'EST CE QUI PERMET DE L'APPARIER. Elle ne
+    capture rien : son `this` est l'`InputMessageProcessor` lui-meme (`+0x10` = l'etat, `+0x18` =
+    le processeur d'operations, `+0x20` = le dispatcher -- les champs poses par
+    `InputMessageProcessor$$Initialize`). Le binaire n'en porte que TROIS de cette forme
+    (`<Visit>b__18_0`, `<Visit>b__20_0`, `<Visit>b__42_0`) ; la seconde ouvre
+    `GroupType.System_StartTurn` et est referencee par la seule `Visit(StartTurnMessage)`, la
+    troisieme n'ouvre aucun groupe. Le pointeur de methode que `Visit(StartBattleMessage)` passe
+    au ctor de delegue n'est lu par AUCUNE autre fonction du binaire.
+
+    ⚠ LE `0` DE `RunPhase` EST UN `IdunBattle.Core.PhaseType`, PAS UN `GroupType` -- meme piege
+    qu'aux crans 1 et 2 (`case-477r18r5` § 1, `case-477r19` § 1), ou c'etaient un `4` puis un
+    `0xd`. Le `GroupType` est le `4` que la LAMBDA passe a `StartGroup`. Le NOM tranche, et il
+    est lisible : `data/symbols/<build>/frida/enums.tsv` donne `IdunBattle.Core.PhaseType` =
+    `0=StartBattle, ..., 4=AddUnit, ..., 12=ProcessDeaths, 13=ProcessRemovals`. Les trois crans
+    concordent donc, et cette lecture CONFIRME au passage `case-477r19` § 6 : la phase `0xd` est
+    bien celle des RETRAITS, pas celle du revive.
+
+    ⚠ `isInternalPhase: true` EST LU, et il a une consequence VISIBLE : le bloc
+    `if (isInternalPhase == 0)` d'`InputMessageProcessor$$RunPhase` -- celui qui appelle
+    `VerifyAutomaticTurnEnd` puis `VerifyDrafting` -- est court-circuite. Ce qui suit malgre tout
+    l'invocation (`VerifyDeaths`, `ProcessDamageEvents`,
+    `ProcessPendingTriggeredAbilities`) s'execute APRES le `FinishGroup`, donc HORS de ce groupe.
+    Le `Action=PrepareTurn` et le `Group=StartTurn` que le flux montre DEDANS ne viennent donc pas
+    de la, mais du dernier appel de `StartMatchOperation$$Execute` lui-meme.
+
+    LE SLOT `0x12`, ET COMMENT IL EST ETABLI. Les methodes d'une INTERFACE n'ont aucun corps, donc
+    aucune ligne dans `data/symbols/<build>/frida/methods.tsv` (indexee par adresse) : l'ordre des
+    slots de `Core.Services.IOperationProcessor` ne se LIT nulle part hors du metadata. L'ordre du
+    dump de la CLASSE ne le donne pas non plus -- verifie, il n'existe aucun decalage constant
+    (`ContinueTurnPhase` est au slot `0x16` pour la position 26, `VerifyAutomaticTurnEnd` au slot
+    `0x20` pour la position 134). L'attribution est donc etablie par RECOUPEMENT, et il est
+    ferme : la lambda appelle UN slot SANS ARGUMENT ; `Core.Services.OperationProcessor$$StartMatch`
+    est sans argument et delegue a `IdunBattle.Operations.StartMatchOperation$$Execute` ; cette
+    operation est le seul producteur de `StepType.StartMatch` du binaire ; et le flux montre
+    `Action=StartMatch` comme PREMIERE ligne du groupe. Aucun autre call-site du binaire n'appelle
+    ce slot sur ce `Il2CppClass*`.
+
+    CE QUE LE PORT N'EMET PAS -- ENUMERE, PAS SOUS-ENTENDU. `StartMatchOperation$$Execute` est,
+    apres `User_UseAbility`, le plus gros groupe du deroule : 477 lignes sur le flux temoin, dont
+    475 que ce module ne produit pas. Elles se ventilent en TROIS blocs, tous mesures par
+    `probe_477r20_start_match.py` et aucun porte cote flux aujourd'hui :
+
+      1. l'ARBRE D'ACTIVATION des effets permanents -- `Group=Ability_Power` et
+         `Group=Effect_Refresh` imbriques, avec leurs `Action=ActivateEffect` / `ReceiveEffect` /
+         `ChangeStats` / `LoseEffect`. Il sort de DEUX appels au meme slot `0x51` de
+         `IOperationProcessor`, a cinq arguments, dont le decompile donne les litteraux :
+         `EvaluateAbilities(GetMatchEntity(state), null, null, EventTriggerType.MatchInit /*0x19*/,
+         null)` puis le meme avec `EventTriggerType.MatchStart /*0x1a*/`. Les deux ordinaux sont
+         NOMMES par `engine/dsl/event_trigger_type.py` (`MatchInit = 25`, `MatchStart = 26`) --
+         c'est ce qui identifie le bloc, pas sa forme dans le flux ;
+      2. `Action=PrepareTurn` et le `Group=StartTurn` COMPLET, qui sortent du dernier appel de
+         l'operation -- `processor.<slot 0x16>(TurnStage.Start /*3*/, false, true)`, c'est-a-dire
+         `ContinueTurnPhase` (meme slot, memes trois arguments, que la lambda `<Visit>b__20_0` de
+         `Visit(StartTurnMessage)`) ;
+      3. le groupe `RarityCapTransform` (`StepType.PlayerInitialRarity`), emis seulement quand le
+         joueur humain porte une rarete initiale (`Nullable.HasValue && Value > 0`) -- ABSENT du
+         flux temoin. Son unique tag est la cle `0xd4`, que `TagKey` NOMME `Rarity` : le nom
+         recoupe la lecture du fragment.
+
+    `corps` rend ce trou EXPRIMABLE plutot que silencieux : un appelant qui saurait produire l'un
+    de ces blocs le passe ici, et l'enveloppe reste inchangee. `None` = le port n'emet que ce
+    qu'il a lu."""
+    events.start_group(GroupType.System_StartMatch, match_entity_id,
+                       START_MATCH_SOURCE_ID, None)
+    start_match(events, match_entity_id)
+    if corps is not None:
+        corps()
     events.finish_group()
