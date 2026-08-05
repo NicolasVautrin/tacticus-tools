@@ -205,3 +205,62 @@ def test_the_real_2026_08_04_regression_is_now_attributed_to_the_counterproof():
     ctx = _ctx({O: autres})
     assert _adj(ctx) == _adj(dataclasses.replace(ctx, elev_by_pos=None)) == frozenset()
     assert _adj(dataclasses.replace(ctx, elev_by_pos=None, neigh_by_pos=None)) == frozenset([haut])
+
+
+# ------------------------------------------ 6. le DETECTEUR du probe, garde dans les 3 sens
+
+def test_the_probe_classifier_separates_the_three_regimes():
+    """AUTO-TEST du detecteur de `probe_433_r4_r2_r4_r1_contre_epreuves.classer_appel`.
+
+    Le probe rend `VERDICT: PASS` -- et un PASS ne vaut RIEN si son detecteur a cesse de mordre
+    (c'est ce que `probe_181` faisait avant #430 : un inventaire deguise en garde-fou). Les trois
+    regimes sont donc fixes ici, sur le foyer REEL, et dans les trois sens."""
+    import probe_433_r4_r2_r4_r1_contre_epreuves as P
+
+    haut = _voisins()[1]
+    plat = _voisins()[0]
+    autres = [q for q in _voisins() if q != haut]
+
+    # (1) PORTEUR UNIQUE : seule l'elevation exclut -- la couper restitue
+    cl = P.classer_appel(bq.is_adjacent, (O, haut),
+                         {"elev_by_pos": {O: 2, haut: 4}, "neigh_by_pos": {O: _voisins()}})
+    assert cl["regime"] == "porteur_unique" and cl["uniques"] == ["elev_by_pos"], cl
+    # `neigh_by_pos` y figure en `concurrents` -- il n'exclut simplement PAS. Ce n'est pas une
+    # redondance, et les confondre surevaluait le gisement d'un facteur ~3.
+    assert cl["concurrents"] == ["neigh_by_pos"], cl
+
+    # (2) REDONDANT : les DEUX excluent -- en couper un seul ne restitue rien
+    cl = P.classer_appel(bq.is_adjacent, (O, haut),
+                         {"elev_by_pos": {O: 2, haut: 4}, "neigh_by_pos": {O: autres}})
+    assert cl["regime"] == "redondant", cl
+    assert set(cl["concurrents"]) == {"elev_by_pos", "neigh_by_pos"} and not cl["uniques"], cl
+
+    # (3) INERTE : aucun canal n'exclut -- il n'y a rien a restituer
+    cl = P.classer_appel(bq.is_adjacent, (O, plat),
+                         {"elev_by_pos": {O: 2, plat: 2}, "neigh_by_pos": {O: _voisins()}})
+    assert cl["regime"] == "inerte", cl
+
+    # (4) HORS GISEMENT : aucun canal actif -> `None`, jamais un verdict fabrique
+    assert P.classer_appel(bq.is_adjacent, (O, plat), {}) is None
+
+
+def test_the_probe_classifier_survives_compensating_channels():
+    """LE PIEGE QUI A FAIT RATER 8 FAUX NEGATIFS AU PREMIER JET : deux canaux de sens OPPOSES.
+
+    Ici couper `a_by_pos` RESTREINT et couper `b_by_pos` ELARGIT, si bien que les couper TOUS LES
+    DEUX rend le verdict de depart. Un detecteur qui conclurait « aucun canal ne mord » de ce
+    `tous == base` declarerait MUETTE une contre-epreuve qui mord parfaitement."""
+    import probe_433_r4_r2_r4_r1_contre_epreuves as P
+
+    def foyer(x, a_by_pos=None, b_by_pos=None):
+        n = 0
+        if a_by_pos:
+            n += 1
+        if b_by_pos:
+            n -= 1
+        return x + n
+
+    cl = P.classer_appel(foyer, (10,), {"a_by_pos": {1: 1}, "b_by_pos": {1: 1}})
+    assert cl["base"] == 10 and cl["tous"] == 10, cl
+    assert cl["regime"] == "porteur_unique", cl
+    assert set(cl["uniques"]) == {"a_by_pos", "b_by_pos"}, cl

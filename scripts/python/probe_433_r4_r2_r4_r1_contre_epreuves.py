@@ -458,6 +458,57 @@ def contre_epreuves_par_argument(verbose=True) -> dict:
     return res
 
 
+def classer_appel(foyer, args, kwargs) -> dict | None:
+    """LE DETECTEUR, isole pour etre GARDABLE : dans quel regime cet appel se trouve-t-il ?
+
+    Rend `{"uniques": [...], "concurrents": [...], "regime": ...}`, ou `None` si l'appel ne porte
+    aucun canal actif (hors gisement).
+
+      * `uniques`     -- les canaux dont la neutralisation SEULE change deja le verdict. Une
+        contre-epreuve batie sur l'un d'eux MORD.
+      * `concurrents` -- ceux dont la neutralisation seule ne change RIEN. Une contre-epreuve
+        batie sur l'un d'eux est MUETTE sur cet etat.
+      * `regime`      -- `porteur_unique` des qu'AU MOINS UN canal mord seul (une contre-epreuve
+        est alors ecrivable sur cet etat) ; `redondant` quand AUCUN ne mord seul alors que les
+        couper TOUS mord -- c'est LE piege, l'exclusion est portee CONJOINTEMENT ; `inerte` quand
+        rien ne mord, ni seul ni ensemble.
+
+    ⚠ La presence d'un canal dans `concurrents` NE SUFFIT PAS a faire une redondance : un canal
+    qui n'exclut simplement pas y figure aussi. La redondance est l'absence de TOUT porteur
+    unique -- confondre les deux surevaluait le gisement d'un facteur ~3 (mesure du 2026-08-05).
+
+    ⚠ Chaque canal est evalue SEPAREMENT, MEME quand couper tous les canaux ne change rien :
+    `tous == base` n'implique pas « aucun canal ne mord » -- deux canaux de sens OPPOSES se
+    compensent (`is_tile_in_range_of_any_ability` : couper l'elevation ELARGIT, couper l'equipe
+    RESTREINT). Le premier jet sautait la boucle sur ce test et declarait MUETTE une
+    contre-epreuve qui mordait."""
+    import inspect
+    sig = inspect.signature(foyer)
+    canaux = [p for p in sig.parameters if p.endswith("_by_pos") or p in _CANAUX_SCALAIRES]
+    lie = sig.bind(*args, **kwargs)
+    lie.apply_defaults()
+    vals = dict(lie.arguments)
+    actifs = [c for c in canaux if vals.get(c) is not None]
+    if not actifs:
+        return None
+    base = foyer(*args, **kwargs)
+    uniques, concurrents = [], []
+    for c in actifs:
+        if foyer(**dict(vals, **{c: None})) == base:
+            concurrents.append(c)
+        else:
+            uniques.append(c)
+    tous = foyer(**dict(vals, **{c: None for c in actifs}))
+    if uniques:
+        regime = "porteur_unique"
+    elif tous != base:
+        regime = "redondant"
+    else:
+        regime = "inerte"
+    return {"uniques": uniques, "concurrents": concurrents, "regime": regime,
+            "base": base, "tous": tous}
+
+
 class _Capteur:
     """Plugin pytest qui INTERCEPTE les foyers et enregistre leurs appels REELS.
 
@@ -542,46 +593,28 @@ def muettes(fichiers, verbose=True, max_appels=4000) -> dict:
                  "inerte": 0}
         for (nodeid, a, kw) in appels[:max_appels]:
             try:
-                lie = sig.bind(*a, **kw)
-                lie.apply_defaults()
-                base = orig(*a, **kw)
-                vals = dict(lie.arguments)
-                actifs = [c for c in canaux if vals.get(c) is not None]
-                if not actifs:
-                    continue
-                cle = (nodeid, nom)
-                pt = par_test.setdefault(cle, {"appels": 0, "redondant": 0, "unique": set(),
-                                               "canaux_concurrents": set()})
-                tous = dict(vals)
-                for c in actifs:
-                    tous[c] = None
-                stats["appels"] += 1
-                pt["appels"] += 1
-                # ⚠ CHAQUE canal est evalue SEPAREMENT, MEME quand couper tous les canaux ne
-                # change rien. `tous == base` n'implique PAS « aucun canal ne mord » : deux canaux
-                # de sens OPPOSES se compensent (`is_tile_in_range_of_any_ability` -- couper
-                # l'elevation ELARGIT, couper l'equipe RESTREINT). Le premier jet sautait la
-                # boucle sur ce test et rendait MUETTE une contre-epreuve qui mordait.
-                seul_inerte = []
-                for c in actifs:
-                    un = dict(vals)
-                    un[c] = None
-                    if orig(**un) == base:
-                        seul_inerte.append(c)     # ce canal N'EST PAS le seul porteur
-                    else:
-                        stats["porteur_unique"][c] += 1
-                        pt["unique"].add(c)
-                if len(seul_inerte) == len(actifs) and orig(**tous) == base:
-                    stats["inerte"] += 1          # ni seul ni ensemble : hors regime
-                elif seul_inerte and orig(**tous) != base:
-                    stats["redondant"] += 1
-                    pt["redondant"] += 1
-                    # Un canal peut figurer ici ET dans `unique` : les deux verdicts portent sur
-                    # des APPELS distincts du meme test. C'est le consommateur qui tranche, par
-                    # appel -- agreger les deux ferait dire au probe l'inverse de sa mesure.
-                    pt["canaux_concurrents"] |= set(seul_inerte)
+                cl = classer_appel(orig, a, kw)
             except (TypeError, ValueError):
                 continue
+            if cl is None:
+                continue
+            cle = (nodeid, nom)
+            pt = par_test.setdefault(cle, {"appels": 0, "redondant": 0, "unique": set(),
+                                           "canaux_concurrents": set()})
+            stats["appels"] += 1
+            pt["appels"] += 1
+            for c in cl["uniques"]:
+                stats["porteur_unique"][c] += 1
+                pt["unique"].add(c)
+            if cl["regime"] == "inerte":
+                stats["inerte"] += 1
+            elif cl["regime"] == "redondant":
+                stats["redondant"] += 1
+                pt["redondant"] += 1
+                # Un canal peut figurer ici ET dans `unique` : les deux verdicts portent sur des
+                # APPELS distincts du meme test. C'est le consommateur qui tranche, par appel --
+                # agreger les deux ferait dire au probe l'inverse de sa mesure.
+                pt["canaux_concurrents"] |= set(cl["concurrents"])
         total += stats["appels"]
         res[nom] = stats
     out = {"rc_pytest": int(code), "total_appels": total, "par_foyer": res,
