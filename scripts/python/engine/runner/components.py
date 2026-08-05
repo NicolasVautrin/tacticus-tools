@@ -436,10 +436,32 @@ class HealthComponent(Component):
 
     `over_reduce` = **l'accumulateur de sur-reduction** `FillUpStatComponent+0x24` (#462-r4e-o-r1) :
     `Reduce` y ajoute `Math.Max(0, damage - applied)` -- le degat qui n'a PAS pu etre retire faute de
-    PV. Son NOM vient du natif : `IdunBattle.Entities.Components.FillUpStatComponent$$ResetOverReduce`
-    est la seule autre fonction qui le touche (`this+0x24 = 0`), et elle n'a **AUCUN xref de code**
-    (table de methodes seule) -> le compteur n'est JAMAIS remis a zero en bataille. Il n'est de toute
-    facon non nul que sur une unite deja tombee a 0 PV (tant qu'elle encaisse, `damage == applied`).
+    PV. Il n'est non nul que sur une unite deja tombee a 0 PV (tant qu'elle encaisse, `damage ==
+    applied`).
+
+    ⚠ **IL EST BIEN REMIS A ZERO, et #462-r4e-o-r1 se trompait en ecrivant le contraire** (#462-r4e-o-r2).
+    L'erreur venait d'avoir pris `IdunBattle.Entities.Components.FillUpStatComponent$$ResetOverReduce`
+    pour le SEUL ecrivain du zero : ce symbole n'a effectivement aucun xref de code (table de methodes
+    seule, donc jamais appele), mais **DEUX autres methodes de la meme classe ecrivent `this+0x24 = 0`
+    EN LIGNE**, sans passer par lui -- c'est exactement l'absence qui ne prouve rien :
+
+      * `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` -- en QUEUE, **inconditionnel**
+        (meme quand `filled <= 0`). Appelants (xrefs EXHAUSTIFS, 3 sites) :
+        `IdunBattle.Operations.HealUnitOperation$$Execute`,
+        `IdunBattle.Operations.RepairUnitOperation$$Execute` et
+        `IdunBattle.Operations.ResurrectUnitOperation$$SetHealth`.
+        => **tout SOIN, toute REPARATION et toute RESURRECTION remettent l'accumulateur a zero.**
+      * `IdunBattle.Entities.Components.FillUpStatComponent$$Initialize` -- appelants :
+        `IdunBattle.Operations.AddUnitOperation$$Execute`, `IdunBattle.Entities.Factories.UnitFactory$$Build`
+        et `IdunBattle.Entities.Factories.UnitFactory$$InitHealth` (l'etat initial du port l'a deja a 0).
+
+    ⚠ **Le REVIVE, lui, ne le remet PAS a zero -- et c'est un QUIRK NATIF, pas un trou de port.**
+    `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` n'appelle NI `FillUp` NI `Initialize` (il
+    passe par un slot de l'`OperationProcessor` qui pose des modificateurs de stat -- les deux autres
+    call-sites de ce meme slot sont `IdunBattle.Operations.SetupGameOperation$$ApplyModifiers` et
+    `IdunBattle.Operations.TransformActorToConfigIdOperation$$UpdateStats`). Une unite REVIVEE entre
+    donc dans l'attaque suivante avec l'accumulateur de sa vie precedente, et peut franchir le seuil
+    d'`IsOverkill` des son premier coup recu. `revive.py` le mirrore en NE reposant rien.
 
     Il est LOAD-BEARING, et c'est une MESURE : la surcharge d'instance d'
     `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` l'AJOUTE au degat compare
@@ -476,6 +498,40 @@ class HealthComponent(Component):
         if not (self.minimal_health is not None and int(self.minimal_health) > 0):
             self.over_reduce = int(self.over_reduce or 0) + max(0, amount - red)
         return red
+
+    def fill_up(self, amount: int) -> int:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` -- MIRROR 1:1 (#462-r4e-o-r2) :
+
+            filled   = Math.Min(amount, CurrentMaximumValue - Current)   # PAS de Max(0, .) natif
+            Current += filled
+            this[0x24] = 0                                               # <- INCONDITIONNEL
+            return filled
+
+        C'est le PENDANT de `reduce` : `reduce` ALIMENTE `over_reduce`, `fill_up` le PURGE. FOYER
+        UNIQUE de cette purge cote port -- les trois appelants natifs de `FillUp`
+        (`IdunBattle.Operations.HealUnitOperation$$Execute`,
+        `IdunBattle.Operations.RepairUnitOperation$$Execute`,
+        `IdunBattle.Operations.ResurrectUnitOperation$$SetHealth`) passent tous par ici, pour qu'il
+        n'existe pas TROIS ports d'une meme queue native.
+
+        ⚠ La remise a zero est **en QUEUE et INCONDITIONNELLE** : les deux operations natives
+        appellent `FillUp` AVANT leur early-return `filled < 1` (heal : `if (!wasWounded && healed < 1
+        && shieldPart < 1 && !HasFlag(target, 0x17)) return;` ; repair : `if (filled < 1 && shieldPart
+        < 1 && !HasFlag(target, 0x18)) return;`). Un soin de **0**, et meme un soin **annule par
+        `EffectType.Cursed`** (le natif calcule `healAmount = cursed ? 0 : predicted` puis appelle
+        `FillUp` quand meme), purgent donc l'accumulateur. Les appelants doivent appeler `fill_up`
+        AVANT de decider de sortir.
+
+        ⚠ Pas de `max(0, .)` : le natif prend `Math.Min` nu, donc un `Current` au-dessus du plafond
+        (modificateur de max retire) fait DESCENDRE les PV. Mirror conserve tel quel.
+
+        No-op (0) si `hp`/`hp_max` non captes -- l'absence de composant natif, pas une garde inventee."""
+        if self.hp is None or self.hp_max is None:
+            return 0
+        filled = min(int(amount), int(self.hp_max) - int(self.hp))   # Min(amount, max - current)
+        self.hp = int(self.hp) + filled                              # current += filled
+        self.over_reduce = 0                                         # this[0x24] = 0 (queue, inconditionnel)
+        return filled
 
 
 class EffectsOwnedComponent(Component):

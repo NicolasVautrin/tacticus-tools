@@ -277,11 +277,13 @@ class RepairUnitOperation:
             return 0
         predicted = predict_repair(state, caster_id, int(target_id), int(amount), scope=int(scope))
         # `FillUpStatComponent$$FillUp` : `filled = Min(amount, CurrentMaximumValue - current)` ;
-        # `current += filled` ; le champ `+0x24` (over-reduce) est remis a 0 -- pas de pendant porte.
-        filled = min(int(predicted), int(hc.hp_max) - int(hc.hp))
+        # `current += filled` ; le champ `+0x24` (over-reduce) est remis a 0. PORTE depuis
+        # #462-r4e-o-r2 via le foyer unique `HealthComponent.fill_up` -- appele AVANT la sortie
+        # anticipee, comme le natif (son `if (filled < 1 && shieldPart < 1 && !HasFlag(target, 0x18))
+        # return;` est APRES le `FillUp`).
+        filled = hc.fill_up(int(predicted))
         if filled <= 0:
             return 0
-        hc.hp = int(hc.hp) + filled
         # `On(UnitRepaired = 0x30)` -> bras `On(UnitRepaired=48)` du trait `Swarm` : la remontee de PV
         # REVEILLE des membres, donc le malus EXTRA_HITS doit etre re-evalue (cf. `heal.py`, #60).
         from ..abilities.loki.swarm import on_group_unit_hp_changed

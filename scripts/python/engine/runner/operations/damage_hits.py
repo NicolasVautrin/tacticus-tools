@@ -221,9 +221,13 @@ def overkill_flag_posted_by_hit(health_damage: int, denied_before: int,
     le `FillUpStatComponent` des PV, et son `+0x24` est l'accumulateur de SUR-REDUCTION que
     `IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` alimente en queue
     (`this[0x24] += Math.Max(0, damage - applied)`) -- nom confirme par
-    `...$$ResetOverReduce` (`this+0x24 = 0`, AUCUN xref de code). Il vaut donc le degat DEJA GASPILLE
+    `...$$ResetOverReduce` (`this+0x24 = 0`). Il vaut donc le degat DEJA GASPILLE
     sur cette cible. C'est `over_reduce_before` (lu AVANT le `Reduce` de ce coup-ci, puisque
     `didOverkill` est calcule en amont, dans `CalculateDamageOperation`).
+
+    ⚠ `ResetOverReduce` n'a AUCUN xref de code, mais il ne faut PAS en conclure que l'accumulateur
+    n'est jamais purge (#462-r4e-o-r2 -- c'est l'erreur de -r1) : `...$$FillUp` et `...$$Initialize`
+    ecrivent `this[0x24] = 0` EN LIGNE. Cote port, foyer unique `HealthComponent.fill_up`.
 
     MESURE qui l'etablit (MC1_67/31337, `--hp-target 4000`, rolls `[3583, 3181, 3947, 4012]`) :
     natif `[3583, 417, 0]`, donc flag pose au coup 3. Sans le terme : `3947 + 4000 = 7947 < 8000`
@@ -498,8 +502,9 @@ class _DamageHitsMixin:
         _ovk_at = [None]            # index (0-based dans CETTE serie) du coup qui a pose le flag
         _suppressed = [0]           # coups gates par le SITE (A) : executes, mais AUCUN event emis
         # `FillUpStatComponent+0x24` -- l'accumulateur de SUR-REDUCTION, seme par l'etat du
-        # composant a l'entree de la serie (il traverse coups, sous-operations et attaques : son
-        # seul remetteur a zero, `ResetOverReduce`, n'a AUCUN xref de code). Suivi ICI parce que
+        # composant a l'entree de la serie (il traverse coups, sous-operations et attaques ; il
+        # n'est purge que par `...$$FillUp`/`...$$Initialize`, donc par un SOIN, une REPARATION,
+        # une RESURRECTION ou un spawn -- jamais par un REVIVE, cf. #462-r4e-o-r2). Suivi ICI parce que
         # `IsOverkill` le lit PAR COUP, la ou `HealthComponent.reduce` ne l'ecrit qu'au chokepoint.
         _over_reduce = [int(over_reduce0 or 0)]
 

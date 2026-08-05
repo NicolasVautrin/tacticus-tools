@@ -47,18 +47,22 @@ class HealUnitOperation:
         amount = int(heal_amount)
         if amount <= 0:
             return 0
-        # GATE heal-block EffectType.Cursed(79) : HasEffect(target, 0x4f) -> soin annule (healed=0).
-        if state.effects is not None and state.effects.has_effect(target_id, effect_type=CURSED):
-            return 0
         tgt = state.get_entity(target_id)
         thc = tgt.get_component(HealthComponent) if tgt is not None else None
         if thc is None or thc.hp is None or thc.hp_max is None:
             return 0
-        # IdunBattle.Entities.Components.FillUpStatComponent$$FillUp : healed = Min(amount, max - cur) ; cur += healed.
-        healed = min(amount, int(thc.hp_max) - int(thc.hp))
+        # GATE heal-block EffectType.Cursed(79) : HasEffect(target, 0x4f). Le natif n'en fait PAS une
+        # sortie anticipee -- il calcule `healAmount = cursed ? 0 : predicted` et appelle `FillUp`
+        # AVEC 0 (#462-r4e-o-r2). La difference est observable : `FillUp` purge `over_reduce` en
+        # queue, inconditionnellement. Sortir ici laisserait l'accumulateur intact a tort.
+        if state.effects is not None and state.effects.has_effect(target_id, effect_type=CURSED):
+            amount = 0
+        # `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` : healed = Min(amount, max - cur) ;
+        # cur += healed ; `+0x24 = 0`. FOYER UNIQUE (`HealthComponent.fill_up`) -- appele AVANT toute
+        # sortie anticipee, comme le natif (son early-return `healed < 1` est APRES le `FillUp`).
+        healed = thc.fill_up(amount)
         if healed <= 0:
             return 0
-        thc.hp = int(thc.hp) + healed
         # #60 : bras `On(UnitHealed=43) & OwnerIsTarget` (+ `On(UnitRepaired=48)`, le repair HP passant
         # par ce meme mutateur) du `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — re-evalue le stat-mod
         # EXTRA_HITS du trait Swarm apres la remontee de PV (des membres reviennent -> malus reduit).

@@ -56,7 +56,15 @@ class ResurrectUnitOperation:
         uc.alive = True
         hc = e.get_component(HealthComponent)
         if hc is not None and hp is not None:
-            hc.hp = int(hp)                   # IdunBattle.Operations.ResurrectUnitOperation$$SetHealth
+            # `IdunBattle.Operations.ResurrectUnitOperation$$SetHealth` -> la mutation PV est un
+            # `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` (RELATIF : `current +=
+            # Min(amount, max - current)`), pas une ecriture absolue. Sur une unite morte `current`
+            # vaut 0, donc les deux formes coincident -- mais seul `FillUp` purge l'accumulateur de
+            # sur-reduction `+0x24` en queue (#462-r4e-o-r2), ce qui EMPECHE qu'une unite
+            # RESSUSCITEE herite du compteur de sa vie precedente et soit marquee `UnitFlag.Overkilled`
+            # des son premier coup recu. Foyer unique : `HealthComponent.fill_up`.
+            # (Le REVIVE, lui, ne purge rien : quirk natif mirrore dans `revive.py`.)
+            hc.fill_up(int(hp))
             # #60 : bras `On(UnitRevived=45) & OwnerIsTarget` du `SwarmAbility.CreateTrigger
             # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — re-evalue le stat-mod EXTRA_HITS du trait Swarm au retour a la vie.
             from ..abilities.loki.swarm import on_group_unit_hp_changed
