@@ -85,6 +85,51 @@ NORMALIZED_FIELDS = (
 )
 
 
+# ═══ REGISTRE DES GREFFES DU PROCESSUS (#448-r3-r1-r1) ════════════════════════════════════════════
+#
+# POURQUOI IL EXISTE. Un montage qui GREFFE fabrique une `BattleConfiguration` qui S'ECARTE du
+# gameconfig -- c'est tout son objet. Le port, lui, ne voit cet ecart que si le canal
+# `unitAbilityStates` a parle (`snapshot.load_state`, seeds `passive_abilities` /
+# `active_abilities` / `config_active_abilities` / `triggered_abilities`). Sans le canal,
+# `triggers/dispatch/core.py::collect_triggered_abilities` retombe sur `gameconfig.unit(<greffon>)`,
+# qui ne porte evidemment PAS la greffe : AUCUNE classe greffee n'est montee, et toute assertion
+# NEGATIVE du montage (« l'effet n'est plus la », « aucun marqueur ») passe A VIDE, EN VERT.
+#
+# MESURE (2026-08-05, `probe_448_r2b_stormboyz_teleporting_in.py`) : 0 echec en CLI contre 3 sous
+# pytest -- MEME code, MEME seed, MEME board. Le seul ecart etait le transport ambiant, que
+# `tests/conftest.py::live_session` lie et qu'un lancement direct ne liait pas. La degradation est
+# PERMISSIVE : elle ne rate pas, elle MENT.
+#
+# CE QUE LE REGISTRE PERMET. `load_state` ne peut pas deviner qu'un BC est greffe -- elle recoit des
+# PAYLOADS, jamais le BC. Mais le processus qui greffe est, dans tous les montages du depot, celui
+# qui charge. Declarer la greffe ICI rend donc le fait LISIBLE au choke point, qui REFUSE au lieu
+# de se degrader (`snapshot._refuse_if_grafted`). L'echappatoire est `ability_states=False` -- le
+# refus EXPLICITE, deja le vocabulaire du tri-etat de #363.
+#
+# CE QU'IL NE COUVRE PAS, et c'est nomme : une greffe faite par un AUTRE PROCESSUS (un probe qui
+# recoit un seed BC deja greffe par `--seed-bc <chemin>`). Le registre est un fait de PROCESSUS.
+_GRAFTS: list = []
+
+
+def declare_graft(kind: str, unit_id: str, what: str) -> None:
+    """Enregistre une greffe DIVERGENTE appliquee par ce processus. Appelee par les primitives
+    elles-memes -- un appelant n'a jamais a y penser."""
+    _GRAFTS.append({"kind": kind, "unitId": unit_id, "what": what})
+
+
+def declared_grafts() -> list:
+    """Les greffes declarees par ce processus, dans l'ordre. Lue par
+    `engine.runner.snapshot._refuse_if_grafted`, qui n'importe PAS ce module (elle le lit dans
+    `sys.modules` : pas de greffe possible si le module n'a jamais ete importe)."""
+    return list(_GRAFTS)
+
+
+def clear_declared_grafts() -> None:
+    """Purge le registre. A appeler quand un montage greffe puis charge DELIBEREMENT un etat SANS
+    greffe (contre-bras de controle) -- ou au teardown d'un test."""
+    _GRAFTS.clear()
+
+
 # --------------------------------------------------------------------------- enums per-build
 
 def _build_hash() -> str:
@@ -453,6 +498,10 @@ def write_augmented_seed_bc(out_path, unit_ids, *, seed_bc: dict | None = None,
             if u.get("Id") == uid:
                 u["ActiveAbilities"] = list(act)
                 u["PassiveAbilities"] = list(pas)
+                # #448-r3-r1-r1 : une RESTRICTION est une greffe en sens INVERSE -- le BC porte
+                # MOINS que le gameconfig. Sans le canal `unitAbilityStates`, le port monte le kit
+                # gameconfig COMPLET, c.-a-d. des abilities que la bataille n'a pas montees.
+                declare_graft("restrict", uid, "actives=%s passives=%s" % (list(act), list(pas)))
     # SORTIE de run -> `logs/`, jamais `data/` (versionne, ENTREES seules) : #349.
     p = host_inputs.reject_data_output(out_path, "write_augmented_seed_bc(out_path=...)")
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -577,6 +626,7 @@ def equip_relic(bc: dict, unit_id: str, ability_name: str, level: int = 1,
     for u in hits:
         u["TertiaryAbility"] = aid
         u["TertiaryAbilityLevel"] = level
+    declare_graft("relic", unit_id, ability_name)          # #448-r3-r1-r1, cf. `declare_graft`
     n_lvl = ability_level_count(ability_name)
     return {
         "unitId": unit_id, "ability": ability_name, "abilityId": aid,
@@ -681,6 +731,7 @@ def graft_passive_ability(bc: dict, unit_id: str, ability_name: str,
     for u in hits:
         before = list(u.get("PassiveAbilities") or [])
         u["PassiveAbilities"] = [aid] if replace else sorted(set(before) | {aid})
+    declare_graft("passive", unit_id, ability_name)        # #448-r3-r1-r1, cf. `declare_graft`
     return {"unitId": unit_id, "ability": ability_name, "abilityId": aid,
             "configAdded": config_added, "unitsPatched": len(hits),
             "passiveAbilitiesBefore": before,
@@ -731,6 +782,7 @@ def graft_active_ability(bc: dict, unit_id: str, ability_name: str,
     for u in hits:
         before = list(u.get("ActiveAbilities") or [])
         u["ActiveAbilities"] = [aid] if replace else sorted(set(before) | {aid})
+    declare_graft("active", unit_id, ability_name)         # #448-r3-r1-r1, cf. `declare_graft`
     return {"unitId": unit_id, "ability": ability_name, "abilityId": aid,
             "configAdded": config_added, "unitsPatched": len(hits),
             "activeAbilitiesBefore": before,

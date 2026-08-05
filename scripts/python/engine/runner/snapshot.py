@@ -389,6 +389,9 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     # `_auto_ability_states` va chercher le payload lui-meme quand un transport est lie. `False` est
     # le refus EXPLICITE (contre-epreuve), et lui seul.
     payload, source = _auto_ability_states(ability_states, decision, observe, snapshot)
+    # #448-r3-r1-r1 : un montage qui a GREFFE ne peut PAS se contenter d'un canal muet -- il
+    # mesurerait un port ampute et rendrait VERT. Le choke point REFUSE au lieu de se degrader.
+    _refuse_if_grafted(source, snapshot)
     if payload is not None:
         seeded = _load_tertiary_abilities(state, payload)
         # MEME payload, MEME composant, hierarchie 2 : les passiveAbilities REELLEMENT montees
@@ -1124,6 +1127,65 @@ def _auto_ability_states(ability_states, decision, observe, snapshot) -> tuple:
     if res.get("error"):
         return (None, "unavailable:%s" % (res["error"],))
     return (res, "auto")
+
+
+class GraftedStateWithoutChannel(RuntimeError):
+    """Un montage a GREFFE, et le canal `unitAbilityStates` est muet -- le port serait AMPUTE."""
+
+
+#: Regimes de `_auto_ability_states` ou le canal est muet PAR ACCIDENT (le montage voulait la
+#: mesure et ne l'a pas eue). `refused` en est ABSENT : c'est le refus EXPLICITE, la contre-epreuve
+#: assumee. `no-snapshot` aussi : sans `combatSnapshot` il n'y a AUCUN `StatsComponent`, donc
+#: `collect_triggered_abilities` ne derive rien du gameconfig non plus -- pas de degradation
+#: permissive a fermer, le seed serait un no-op.
+_MUTE_BY_ACCIDENT = ("no-transport", "no-runner-label", "unavailable:")
+
+
+def _declared_grafts() -> list:
+    """Les greffes declarees par CE processus (`catalog_inject.declare_graft`, #448-r3-r1-r1).
+
+    ⚠ On lit `sys.modules`, on n'IMPORTE PAS `catalog_inject` : si le module n'a jamais ete
+    importe, aucune greffe n'a pu etre faite -- le test est donc exact, et `engine/` ne gagne
+    aucune dependance vers un module de montage."""
+    import sys
+    mod = sys.modules.get("catalog_inject")
+    fn = getattr(mod, "declared_grafts", None) if mod is not None else None
+    try:
+        return list(fn()) if callable(fn) else []
+    except Exception:
+        return []
+
+
+def _refuse_if_grafted(source: str, snapshot) -> None:
+    """LEVE si le processus a greffe et que le canal est muet par accident.
+
+    POURQUOI UN REFUS ET PAS UN AVERTISSEMENT. La degradation que ceci ferme ne RATE pas, elle
+    MENT : sans canal, `collect_triggered_abilities` retombe sur `gameconfig.unit(<greffon>)`,
+    aucune classe greffee n'est montee, et toute assertion NEGATIVE du montage (« l'effet n'est
+    plus la ») passe A VIDE, EN VERT. Mesure (#448-r3-r1) : le meme probe rendait 0 echec en CLI
+    et 3 sous pytest, le seul ecart etant le transport ambiant.
+
+    TROIS SORTIES, toutes explicites -- aucune ne consiste a se taire :
+      * lier le transport ambiant (`snapshot.bind_live_rpc(rpc)`), ce que fait `tests/conftest.py` ;
+      * passer le payload (`load_state(..., ability_states=rpc("unitAbilityStates", …))`) ;
+      * `ability_states=False` -- le refus EXPLICITE, quand l'etat charge n'a DELIBEREMENT pas de
+        greffe (contre-bras de controle) ; ou `catalog_inject.clear_declared_grafts()`."""
+    if snapshot is None:
+        return
+    if not any(source.startswith(p) for p in _MUTE_BY_ACCIDENT):
+        return
+    grafts = _declared_grafts()
+    if not grafts:
+        return
+    apercu = ", ".join("%s %s <- %s" % (g["kind"], g["unitId"], g["what"]) for g in grafts[:4])
+    raise GraftedStateWithoutChannel(
+        "load_state : ce processus a declare %d greffe(s) (%s%s) et le canal `unitAbilityStates` "
+        "est MUET (source=%r). Le port serait AMPUTE -- les classes greffees ne seraient pas "
+        "montees et les assertions negatives passeraient a vide, en vert (#448-r3-r1-r1). "
+        "Sorties : `snapshot.bind_live_rpc(rpc)` ; ou `load_state(..., ability_states=<payload>)` ; "
+        "ou `ability_states=False` / `catalog_inject.clear_declared_grafts()` si l'etat charge n'a "
+        "deliberement pas de greffe."
+        % (len(grafts), apercu, " ..." if len(grafts) > 4 else "", source))
 
 
 TERTIARY_HIERARCHY = 3

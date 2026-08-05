@@ -49,12 +49,16 @@ from pathlib import Path
 PYDIR = Path(__file__).resolve().parent
 CATALOG = PYDIR / "catalog_inject.py"
 
-#: Cles de `BC.Units[]` par lesquelles une ability entre en bataille. DERIVEES du montage decrit
-#: dans `catalog_inject.py` (§ « le montage tient en TROIS ecritures ») et de
-#: `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`, qui monte exactement
-#: `PassiveAbilities` (hierarchie 2), `ActiveAbilities` et `TertiaryAbility` (hierarchie 3).
-#: `Traits` y est parce qu'un trait accorde des triggers (`TRAIT_TRIGGERS`).
-UNIT_ABILITY_KEYS = ("PassiveAbilities", "ActiveAbilities", "TertiaryAbility", "Traits")
+#: Cles de `BC.Units[]` dont le port ne peut lire l'ecart QUE par le canal `unitAbilityStates`.
+#: Ce sont exactement les trois que monte `IdunBattle.Entities.Factories.UnitFactory$$
+#: AddConfiguredAbilities` : `PassiveAbilities` (hierarchie 2), `ActiveAbilities` et
+#: `TertiaryAbility` (hierarchie 3).
+#:
+#: ⚠ `Traits` EN EST ABSENT, et ce n'est pas un oubli : un trait greffe (`add_unit_trait`) est lu
+#: par le port sur `combatSnapshot.units[].traits` (`snapshot._load_unit_traits` -> `ctx.traits`,
+#: que `collect_triggered_abilities` itere en PREMIER). Substrat UNIQUE avec le natif, donc aucune
+#: dependance au canal -- c'est le constat deja ecrit dans `catalog_inject.add_unit_trait`.
+UNIT_ABILITY_KEYS = ("PassiveAbilities", "ActiveAbilities", "TertiaryAbility")
 
 #: Le consommateur garde. Un seul foyer : `engine/runner/snapshot.py`.
 CONSUMER = "load_state"
