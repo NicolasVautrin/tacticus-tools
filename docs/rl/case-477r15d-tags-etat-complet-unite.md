@@ -192,6 +192,17 @@ vide ».
 
 ## Résidus
 
+> ⚠ **Les trois résidus ci-dessous sont TRAITÉS** — code écrit, bundlé et gardé offline, mais
+> **NON CONFRONTÉS EN LIVE** (les capteurs vivent dans `frida/hooks/*`, donc une fenêtre de
+> reinject est requise). Détail, RE, prédiction écrite avant la fenêtre et liste exécutable :
+> **`docs/rl/case-477r15r4r5r6-trois-grandeurs-copiees.md`**.
+>
+> Deux mesures y renversent la lecture ci-dessous : `StatComponent$$GetStatPart` rend
+> `get_CurrentValue` pour ses `case 0` **ET** `case 2`, et `FillUpStatComponent$$GetStatPart`
+> rend `*(int*)(this+0x18)` au `case 0` et `get_CurrentMaximumValue()` au `case 2` — les deux
+> remèdes sont donc des mirrors **1:1**, pas des approximations. Et le régime dégénéré de `-r5`
+> est **irréductible sur ce groupe** : c'est le CANAL qu'on prouve discriminant, jamais le tag.
+
 - **#477-r15-r4** — **`UnitStats_Range` est émis à 0 EN DUR.** `StatType.Range` (2) n'est dans
   aucune table de capteur (`COMBAT_STAT_IDS` du hook), donc aucun RPC ne publie la valeur que le
   natif lit. `0` est ce que le flux porte sur tout le corpus mesuré (8 unités, 6 kits, 2 boards),
