@@ -898,6 +898,7 @@ def cmd_build(sid: int, a) -> int:
     init_resp = _rpc(sid, "initAndStart",
                      [{"configJson": json.dumps(bc), "seed": a.seed,
                        "playerUnits": player_units,
+                       "recordReplay": bool(getattr(a, "record_replay", False)),
                        "owner": str(STATE.resolve())}], timeout=40)
     init = init_resp.get("result") or {}
     rid = init.get("runnerId")
@@ -909,6 +910,8 @@ def cmd_build(sid: int, a) -> int:
         return 2
     mow_str = (f"  MoW: moi={p_mow or '-'} IA={a_mow or '-'}"
                if (p_mow or a_mow) else "")
+    if getattr(a, "record_replay", False):
+        print("[build] replay recorder ARME (--record-replay) -> RPC replayOutputStream")
     print(f"[build] runnerId={rid}  MON roster (team 1)={p_units}")
     print(f"[build] roster ADVERSE (team 2)={a_units}{mow_str}")
     placement_problems: list[str] = []
@@ -2546,6 +2549,13 @@ def main(argv: list[str]) -> int:
                          "Sans --end, le tour se finit SEUL quand toutes tes units ont agi.")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--rank", type=int, default=17)
+    ap.add_argument("--record-replay", action="store_true",
+                    help="build: ARME l'enregistreur de replay NATIF sur le runner "
+                         "(#477-r1). Sans lui, `IdunBattle.Runner.IdunRunner$$Initialize` "
+                         "saute `IdunBattle.Runner.IdunRunner$$SetupReplayRecorder` et le RPC "
+                         "`replayOutputStream` rend un flux VIDE sans erreur. Cout: retention du "
+                         "texte de stream + un objet par tirage PRNG pour toute la bataille -- "
+                         "a n'armer que pour lire le flux.")
     ap.add_argument("--seed-bc", default=None,
                     help="build: chemin d'un seed BC CUSTOM (surcharge data/seed-bc.json). Sert a "
                          "valider un porteur HORS pool (ex. bloodTerminator/SavageEchoes) en injectant "

@@ -42,11 +42,24 @@ Ordre obligatoire (détails CLAUDE.md « Workflow RL ») :
   (`normalize-bc.ts`) → `{ ok, configJson, normalized:[unitId], mow:[unitId] }`.
   Résout une BC seed au rank cible ; passage obligé (les UnitId `:pvp` bruts
   échouent la désérialisation).
-- **`initAndStart({ configJson, seed?, playerUnits:[{unitId,playerId,col,row}] })`**
+- **`initAndStart({ configJson, seed?, playerUnits:[{unitId,playerId,col,row}], recordReplay? })`**
   (`launch.ts`) → `{ runnerId, seed, addUnits, startEventCount }`. Atomique :
   deserialize → buildRunner (Initialize auto-spawn PredefinedUnits/Machines) →
   AddUnit joueur → StartMatch. Variante 3-temps : `initRunner` + `applyAddUnit`×N
   (+ `applyAddMachine`/`applyAddUnitSrc`) + `startBattle({ runnerId })`.
+  `recordReplay` (défaut **false**, #477-r1) ARME l'enregistreur natif :
+  `IdunBattle.Runner.IdunRunner$$Initialize` ne fait `SetupReplayRecorder` que si
+  `IdunRunnerOptions.RecordReplay` est vrai — **sans lui, `replayOutputStream` rend un
+  flux VIDE sans erreur**. Côté CLI : `rl_duel build --record-replay`.
+- **`replayOutputStream({ runnerId, maxChars? })`** (`replay-output-stream.ts`) →
+  `{ ok, outputStream, outputStreamLength, truncated, rngEventCount, stepCount,
+  recorderArmed, err }`. Trace textuelle canonique de la bataille
+  (`IdunBattleLogic.Replay.Replay$$GetWholeBattleOutputStream`), celle que
+  `Runner.ReplayValidator$$CompareOutputStream` compare caractère par caractère.
+  `recorderArmed:false` ⇒ le runner a été construit sans `recordReplay` : le flux est
+  vide PAR CONSTRUCTION, `ok` est `false` et `err` le dit.
+  **`replayOutputStreamStatus()`** rend la résolution des symboles **et** `runners[]`
+  avec leur armement — les quatre booléens de résolution ne disent rien du contenu.
 - **`buildPatchedRunner(patch?)`** (`battle-config.ts`) → `{ ok, runnerId, runner,
   seed, bcPtr, patch }`. Runner depuis la BC live capturée avec patch in-place
   (aiUnits/randomizeAi/templateOverrides). Warmup préalable requis.

@@ -350,15 +350,15 @@ Qu'il s'agisse de texte **structuré en lignes taguées** est attesté par deux 
 `AbilityVariableAmountCheat`, `MoreDamageAndKillCheat`, `ForceOverkillCheat`, `ScoreAmountCheat`.
 **Dégâts, blocks, crits, overkills et valeurs de variable d'ability y figurent donc nommément.**
 
-### Pourquoi c'est disponible sur NOS runners, sans rien armer
+### ~~Pourquoi c'est disponible sur NOS runners, sans rien armer~~ — **FAUX, et corrigé (#477-r1)**
 
-- `IdunBattle.Runner.IdunRunner$$Initialize` appelle **inconditionnellement**
-  `IdunBattle.Runner.IdunRunner$$SetupReplayRecorder` (xref unique et directe).
-  ⇒ **tout runner que `buildRunner` initialise a déjà un `ReplayRecorder` actif.**
-- `frida/hooks/game/recorder.ts` tient **déjà** l'objet `Replay` (via `runnerOff.replayRecorder`
-  puis `ReplayRecorder.GetReplay`) — il n'en lisait que `RngSeed`.
+> « `IdunBattle.Runner.IdunRunner$$Initialize` appelle **inconditionnellement**
+> `IdunBattle.Runner.IdunRunner$$SetupReplayRecorder` ⇒ tout runner que `buildRunner`
+> initialise a déjà un `ReplayRecorder` actif. »
 
-Le capteur manquant tenait donc en **deux invocations de plus sur un objet déjà en main**.
+**Mesuré FAUX.** L'appel est sous garde, et c'est **notre propre code** qui la fermait.
+Détail complet : **§10**. Ce paragraphe est conservé barré parce qu'il a été *cité* comme
+acquis pendant deux tranches.
 
 ### Livré ici : `frida/hooks/features/replay-output-stream.ts`
 
@@ -376,10 +376,12 @@ préexistantes, dont 142 dans `hooks/scratch/`, gitignoré) ; `npm run build:hoo
 bundle 1 135 960 o, symbole présent.
 
 ⛔ **NON CONFRONTÉ — nécessite une fenêtre de reinject.** Un agent ne réinjecte pas. Le code est
-livré, jamais exécuté. **Première mesure à faire quand la fenêtre s'ouvre** : sur un runner monté par
-`rl_duel build`, appeler `replayOutputStreamStatus()` (doit rendre tout `true`), puis jouer quelques
-tours et appeler `replayOutputStream({ runnerId })` — **et regarder le texte**. Toute la valeur de la
-piste dépend de sa granularité réelle, qui n'est PAS établie ici.
+livré, jamais exécuté.
+
+> ⚠ **Cette recette a été jouée le 2026-08-04 et elle a rendu ZÉRO** — `replayOutputStreamStatus()`
+> rendait bien ses quatre `true`, et le flux valait `0 / 0 pas / 0 événement PRNG` après
+> `autoPlayRunner maxTurns=3`. **Les quatre `true` ne disaient rien du contenu** : ils mesuraient la
+> résolution de symboles, pas l'armement. Cause et remède : **§10**.
 
 ---
 
@@ -438,12 +440,173 @@ actif »). Ce qui est neuf ici : les deux derniers booléens du ctor sont **nomm
 `validate`) — et la doc existante les passe tous deux à `false`, donc **la validation n'a jamais été
 armée** ; ainsi que tout le mécanisme `ReplayValidator` / output stream / RNG events.
 
+## 10. #477-r1 — pourquoi le flux était VIDE : **c'était NOUS**
+
+Enquête offline (décompilé) + confirmation live par le RPC `classFields` (aucun runner monté,
+aucun reinject). Build `rnca9r7q6c`.
+
+### 10.1 Verdict ventilé sur les trois hypothèses du brief
+
+| hyp. | énoncé | verdict | preuve |
+|---|---|---|---|
+| (a) | la liste de joueurs filtrée est vide sur notre BC | **RÉFUTÉE** | la liste vaut `[11]` — cf. §10.3 |
+| (b) | `ReplayRecorder$$MarkStarted` n'est jamais appelé | **NON PERTINENT** | il n'écrit que `Replay.StartingTimestamp` (@64), qui ne conditionne aucun enregistrement — il ne sert qu'à l'horodatage relatif de `ReplayStep.RelativeTimestampInMS` |
+| (c) | `autoPlayRunner` pilote par une voie qui n'atteint pas le recorder | **RÉFUTÉE** | `autoPlayRunner` applique `CheatRunAIMessage` via `IdunBattle.Runner.IdunRunner$$Apply`, qui parcourt `_inputListeners` **avant** le processeur ; c'est exactement la liste où `SetupReplayRecorder` inscrit le recorder |
+| **(d)** | **`SetupReplayRecorder` n'est JAMAIS appelé sur nos runners** | **CAUSE** | §10.2 |
+
+### 10.2 La cause, lue des DEUX côtés
+
+`IdunBattle.Runner.IdunRunner$$Initialize` :
+
+```
+if (options == null) { options = new IdunRunnerOptions(); /* ctor: RecordReplay = 1 */ }
+if (options != null) {
+    if (options.RecordReplay != 0)          // <<< GARDE
+        SetupReplayRecorder(logger, timeSource, pseudoRNG.GetSeed(), configuration);
+    if (options.ReplayBugFinderModes != 0) AddReplayBugFinder(...);
+    if (options.AddInputInterceptor != 0)  ...
+}
+```
+
+`IdunBattle.Runner.IdunRunnerOptions$$.ctor` écrit `RecordReplay = 1` : **le défaut du jeu est
+« on enregistre »**. Et `frida/hooks/game/runner.ts` (`buildRunner`) écrivait, pour **tous** nos
+runners :
+
+```ts
+options.add(16).writeU8(0);   // « Options: RecordReplay=false — lightweight »
+```
+
+`16` = `0x10` = exactement `IdunRunnerOptions.RecordReplay`. **L'artefact incriminé est notre
+code, pas le jeu.** Le commentaire disait juste ce qu'il faisait ; c'est la docstring de
+`replay-output-stream.ts` qui affirmait le contraire, sans jamais confronter les deux fichiers.
+
+**Signature exacte de la panne** — et c'est ce qui la rendait muette : le recorder **existe quand
+même**. `IdunBattleLogic.Replay.ReplayRecorder$$.ctor` alloue `_replay`, `Messages`,
+`Interactions`, `_lastMessageOutputStream` ; le ctor du runner l'installe en `_replayRecorder`.
+Donc `GetReplay` rend un objet **valide et vide** ⇒ `""`, `0 pas`, `0 événement`, `ok:true`,
+`err:null`. Rien ne distingue « désarmé » de « la bataille n'a rien produit ».
+
+Ce que `SetupReplayRecorder` fait, et que *rien d'autre* ne fait :
+`ReplayRecorder.Init(logger, playerIndicesToRecord, timeSource)` → `SetupBattle(seed, config)` →
+`_inputListeners.Add(recorder)` → `_streamCache.AddListener(recorder)` →
+abonnement au `IPseudoRNG` (⇒ `HandleOnRngEventCreated`). **Aucune de ces cinq écritures n'a
+d'autre appelant.**
+
+### 10.3 Ce qu'est `configuration+0x30` — mesuré, plus déduit
+
+`BattleConfiguration.Player` **@48 (0x30)**, de type
+`IdunBattle.Configuration.PlayersConfiguration` — dont `Players` **@16 (0x10)** est un
+`SortedDictionary` dont les valeurs sont des `IdunBattle.Configuration.PlayerConfiguration`
+(`PlayerType` **@24 (0x18)**). `SetupReplayRecorder` retient les **clés** dont `PlayerType`
+n'est ni `1` ni `2`.
+
+Sur le seed BC : `11 → PlayerType 0`, `12 → 1` (AI), `13 → 2` (Environment) ⇒
+`playerIndicesToRecord = [11]`, **non vide**. Et **aucun fichier du dépôt n'écrit `PlayerType`**
+(vérifié sur `frida/` et `scripts/python/`) — la normalisation ne le touche pas.
+
+### 10.4 Dispositions confirmées EN LIVE (RPC `classFields`, `rnca9r7q6c`)
+
+Toutes les marches d'offsets de la RE ci-dessus sont vérifiées **par nom** :
+
+| classe | champ | offset | ce qu'il tranche |
+|---|---|---:|---|
+| `IdunBattle.Runner.IdunRunnerOptions` | `RecordReplay` (Boolean) | 16 | la garde ; les 3 autres champs sont `ReplayBugFinderModes`@17, `AddInputInterceptor`@18, `PreSetupAction`@24 |
+| `IdunBattle.Runner.IdunRunner` | `_replayRecorder` / `_streamCache` / `_randomNumberGenerator` / `_inputListeners` / `_outputListeners` | 64 / 96 / 56 / 128 / 136 | les cibles des 5 écritures de `SetupReplayRecorder` et les 2 boucles d'`Apply` |
+| `IdunBattleLogic.Replay.ReplayRecorder` | `_playerIndicesToRecord` | 32 | **seul champ écrit par `Init`** ⇒ sa nullité EST la mesure native de l'armement |
+| `IdunBattleLogic.Replay.Replay` | `Messages` / `RecordedPlayerIds` / `StartingTimestamp` | 80 / 56 / 64 | ce que lit `GetWholeBattleOutputStream`, ce qu'écrit `SetupBattle`, ce qu'écrit `MarkStarted` |
+| `IdunBattleLogic.Replay.ReplayStep` | `OutputStream` (String) | 40 | la case que `SaveCurrentOutputStreamBufferToLastMessage` remplit |
+| `IdunBattle.Configuration.BattleConfiguration` | `Player` / `UnitModifiers` / `StartingActions` | 48 / 80 / **192** | confirme aussi §2c (0x50 et **0xc0**) |
+
+### 10.5 Le remède — côté HOOKS, donc fenêtre de reinject
+
+- `buildRunner(cfg, { recordReplay })` — offset **résolu par nom** (`getFieldOffset`), plus de
+  `16` en dur ; si le nom disparaît d'un build futur on **n'écrit rien** (le ctor laisse
+  l'enregistrement **ON**) plutôt que d'écrire à `-1`, et `recordReplay` rendu vaut alors `true`.
+- `initRunner` / `initAndStart` acceptent `recordReplay` ; `rl_duel build --record-replay`.
+- **Défaut `false`, délibérément** : armer fait retenir, pour toute la bataille, le texte de
+  chaque groupe racine de stream **et un objet par tirage PRNG**. C'est un coût mémoire
+  proportionnel à la longueur de la bataille, inutile en collecte de batch.
+- `replayOutputStream` rend désormais `recorderArmed` — **mesuré sur l'objet natif**
+  (`_playerIndicesToRecord`), pas sur notre registre — et un flux vide sur runner désarmé
+  n'est plus `ok:true` : il porte une erreur **nommée**.
+- `replayOutputStreamStatus()` liste les runners vivants avec leur armement. Les quatre `true`
+  de résolution de symboles ne répondaient pas à la question posée ; `runners[]` y répond.
+- Probe : `scripts/python/probe_477r1_replay_output_stream.py` (témoin désarmé / bras armé,
+  même seed, même board, mêmes rosters ; rc 3 = bundle antérieur au correctif).
+
+⛔ **NON CONFRONTÉ — fenêtre de reinject.** Vérifié : `npx tsc -p tsconfig.hooks.json --noEmit`
+→ 146 erreurs, **toutes préexistantes** (142 dans `hooks/scratch/`, gitignoré), aucune sur les
+4 fichiers touchés ; `npm run build:hooks` → exit 0.
+
+### 10.6 Ce que l'armement donnera — et ce qu'il ne donnera PAS
+
+`IdunBattleLogic.Replay.ReplayRecorder$$Listen(message, state, playerIndex)` est appelé par
+`Apply` pour **chaque** message, avec `playerIndex = StateExtensions.GetCurrentPlayerId(state)`.
+Il **n'en fait un `ReplayStep`** que si :
+
+1. le message est d'un type « toujours enregistré », **ou** `playerIndex` est dans
+   `playerIndicesToRecord` (`[11]` chez nous) — un message appliqué pendant le tour du joueur
+   `12` est donc **écarté** ;
+2. il n'est ni le conteneur construit par
+   `IdunBattle.Operations.SetupGameOperation$$ExecuteStartingMessages`, ni le **wrapper d'action
+   IA** construit par `IdunBattle.Core.Services.AiControl$$ApplyAiMessage` (celui que
+   `IdunBattleLogic.Validation.InputInterceptor$$Intercept` déballe par `+0x10`).
+
+⇒ **les sous-messages de l'IA ne créent aucun pas.** Leur **sortie de stream**, elle, s'accumule
+dans `_lastMessageOutputStream` et est versée dans le pas **précédent** au message suivant
+(`SaveCurrentOutputStreamBufferToLastMessage`, appelé par `Listen` et — heureusement —
+**par `GetReplay` lui-même**, donc notre lecture flushe le reliquat). Le **contenu** couvre donc
+toute la bataille ; c'est le **découpage** qui suit les seuls messages du joueur 11.
+
+### 10.7 Le FORMAT du flux — squelette dérivé offline, gabarits NON lus
+
+Producteur : `IdunBattle.BattleStream.Loggers.StreamCache`.
+`SendRootGroupIfFinished` ne pousse aux écouteurs que lorsque la profondeur repasse à 0, et ce
+qu'il pousse est `_sb.ToString()` — donc **une `System.String`**, pas un objet.
+
+```
+StartGroup(groupType, entityId, sourceId, initialTarget)
+    -> Log(String.Format(<gabarit GROUPE>, groupType, entityId, sourceId, initialTarget)) ; depth++
+Action(actionType, entityId, tags)
+    -> depth tabulations + String.Format(<gabarit ACTION>, actionType, entityId)
+       puis, pour chaque tag d'un SortedDictionary (donc ORDRE STABLE) :
+       depth+1 tabulations + String.Format(<gabarit TAG>, key, value)
+FinishGroup()  -> depth-- ; Log(<littéral FIN>) ; flush si depth == 0
+Log(msg, extraTab) -> (depth + extraTab) tabulations + msg, ajouté à _sb ET diffusé ligne à ligne
+```
+
+⇒ **texte indenté par tabulations, arbre de groupes, un tag par ligne, ordre de tags
+déterministe**. Les **gabarits** (`String.Format`) et le littéral de tabulation sont des
+**littéraux IL2CPP** : illisibles de Ghidra (`include_strings` rend `[]`), et le parsing de
+`global-metadata.dat` v39 reste non résolu (§7). **Le format exact reste donc à LIRE sur un flux
+réel** — c'est l'étape 4 du probe.
+
+### 10.8 Ce que je n'ai pas tranché
+
+- **Le type « toujours enregistré »** qui contourne le filtre par joueur dans `Listen` : il est
+  partagé avec `ReplayMessageDto$$.ctor` et `IdunBattleLogic.Synchronous.SynchronousRunner$$Listen`
+  / `$$Block` / `$$ExecuteGameAction`, mais son NOM n'est pas résolu (cache de classe IL2CPP,
+  aucun `new` nommé sur le chemin). Conséquence pratique : je ne peux pas prédire si un
+  `CheatRunAIMessage` joué pendant le tour du joueur 12 crée un pas ou non. **Le probe le mesure**
+  (étape 3).
+- **Le contenu réel du flux.** Toujours pas observé — c'est ce que la fenêtre débloquera.
+
 ## Résidus
 
-- **#477-r1** — Mesurer le contenu réel de l'output stream (bloqué : fenêtre de reinject).
-  Tant qu'il n'est pas lu, la valeur de la piste reste une **hypothèse étayée**, pas un fait.
+- **#477-r1** — **CAUSE TROUVÉE, remède livré, NON CONFRONTÉ** (§10). Le flux était vide parce que
+  `buildRunner` écrivait `IdunRunnerOptions.RecordReplay = 0` : `SetupReplayRecorder` n'a jamais
+  tourné sur aucun de nos runners. Reste à jouer, **dans une fenêtre de reinject** :
+  `python scripts/python/probe_477r1_replay_output_stream.py --session <sid> --board C1_70`.
+  Tant que le flux n'est pas lu, sa **granularité** reste une hypothèse étayée, pas un fait.
+- **#477-r10** — Nommer le type de message qui **contourne** le filtre par joueur de
+  `ReplayRecorder$$Listen` (§10.8). Cache de classe IL2CPP sans `new` nommé sur le chemin ;
+  co-utilisé par `ReplayMessageDto$$.ctor` et `SynchronousRunner$$Listen`/`Block`/`ExecuteGameAction`.
+  Sans lui, on ne prédit pas si un message joué pendant le tour du joueur `12` crée un pas.
 - **#477-r2** — Lire les ~12 `Runner.Cheats.*::get_OutputStreamTextPattern` pour dériver le format
-  des lignes **offline**, sans dépendre de la fenêtre.
+  des lignes **offline**, sans dépendre de la fenêtre. ⚠ **Ré-essayé et re-échoué** : le getter
+  construit un `Nullable<LinePattern>` dont le texte vient d'un **slot de littéral IL2CPP**
+  (`BlockDamageCheat` : littéral + `Fix64.FromIntFraction(110, 100)` comme seuil). Le **squelette**
+  du format, lui, est désormais dérivé — mais du producteur, pas des détecteurs : §10.7.
 - **#477-r3** — Lire les 97 `<RunAbilityTestInternal>d__N$$MoveNext` : banque de scénarios par
   ability, écrite par les devs.
 - **#477-r4** — Armer `validate: true` sur un `AutomaticBattleRunner` instancié par nos soins, et

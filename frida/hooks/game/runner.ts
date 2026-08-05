@@ -130,7 +130,33 @@ export interface RunnerHandle {
     runner: NativePointer;  // IdunRunner instance — the only object pinned in gcRoot
     innerAiControl: NativePointer;
     seed: number;
+    /** Le `ReplayRecorder` de CE runner est-il ARME ? (cf. OPT_RECORD_REPLAY_OFF)
+     *  Faux => `IdunBattle.Runner.IdunRunner$$SetupReplayRecorder` n'a JAMAIS
+     *  tourne sur lui : le recorder existe (le ctor du runner le cree) mais il
+     *  n'est ni `Init`-ialise, ni inscrit dans `_messageListeners`, ni abonne au
+     *  `StreamCache` / au PRNG. Son `Replay` reste donc VIDE, en silence. */
+    recordReplay: boolean;
 }
+
+/** `IdunBattle.Runner.IdunRunnerOptions.RecordReplay` — le booleen qui ARME
+ *  l'enregistrement de replay. RESOLU PAR NOM au runtime, jamais en dur.
+ *
+ *  MESURE (#477-r1, build `rnca9r7q6c`) — trois lectures concordantes :
+ *   - `IdunBattle.Runner.IdunRunnerOptions$$.ctor` ecrit `1` a cet offset (et
+ *     `1` dans `AddInputInterceptor`) : le DEFAUT du jeu est « on enregistre » ;
+ *   - `IdunBattle.Runner.IdunRunner$$Initialize` teste ce meme champ et n'appelle
+ *     `IdunBattle.Runner.IdunRunner$$SetupReplayRecorder` QUE s'il est non nul.
+ *     Le champ suivant (`ReplayBugFinderModes`) gouverne
+ *     `IdunBattle.Runner.IdunRunner$$AddReplayBugFinder`, celui d'apres
+ *     (`AddInputInterceptor`) une troisieme branche — on ne touche ni l'un ni
+ *     l'autre ;
+ *   - RPC `classFields("IdunBattle.Runner", "IdunRunnerOptions")` : 4 champs,
+ *     `RecordReplay:Boolean` en tete.
+ *
+ *  L'appel n'est donc PAS inconditionnel, contrairement a ce qu'affirmait la
+ *  docstring de `features/replay-output-stream.ts` : c'est l'ecriture d'un `0`
+ *  ici qui desarmait le flux natif sur TOUS nos runners. */
+const optRecordReplayOff = getFieldOffset(idunRunnerOptionsClass, "RecordReplay");
 
 /**
  * Build an isolated IdunRunner from a BattleConfiguration, using fresh
@@ -144,7 +170,7 @@ export interface RunnerHandle {
  * StreamDispatcher.Action / StartGroup (see game/apply-stack.ts).
  */
 export function buildRunner(
-    config: NativePointer, opts?: { seed?: number },
+    config: NativePointer, opts?: { seed?: number; recordReplay?: boolean },
 ): RunnerHandle {
     if (!runnerApplyMi) throw new Error("IdunRunner.Apply not found");
     if (!initializeSeedMi) throw new Error("Initialize(seed) overload not resolved");
@@ -186,13 +212,32 @@ export function buildRunner(
         step = "ctor";
         invokeMethod(ctor.info, runner, [config, boolFalseArg]);
 
-        // Options: RecordReplay=false — lightweight. Pinned like the sidecars
-        // (same GC-collection race) until Initialize() has consumed it.
+        // Options. Pinned like the sidecars (same GC-collection race) until
+        // Initialize() has consumed it.
+        //
+        // Le flag de replay est DESARME PAR DEFAUT (le ctor natif le pose a 1) :
+        // armer coute la retention, pour toute la duree de la bataille, du texte
+        // de chaque groupe racine de stream (`ReplayStep.OutputStream`) ET d'un
+        // objet par tirage PRNG. C'est un cout de MEMOIRE proportionnel a la
+        // longueur de la bataille, inutile en collecte de batch.
+        // `recordReplay: true` le laisse a la valeur du ctor => le flux natif
+        // (`ctx.rpc.replayOutputStream`) devient non vide.
         step = "options";
         const options = il2cpp_object_new(idunRunnerOptionsClass!) as NativePointer;
         gcRoot.add(options); pinnedTransients.push(options);
         invokeMethod(idunRunnerOptionsCtor.info, options, null);
-        options.add(16).writeU8(0);
+        // Le desarmement est une OPTIMISATION, pas une exigence : si le nom du
+        // champ a disparu du build, `getFieldOffset` rend -1 et
+        // `options.add(-1).writeU8(0)` ecraserait l'en-tete de l'objet. On ne
+        // touche alors a RIEN — le ctor natif laisse `RecordReplay = true`, donc
+        // le runner ENREGISTRE, et `recordReplay` le dit (jamais un `false` qui
+        // mentirait sur l'etat reel du recorder).
+        let recordReplay = opts?.recordReplay === true;
+        if (!recordReplay && optRecordReplayOff >= 0) {
+            options.add(optRecordReplayOff).writeU8(0);
+        } else if (!recordReplay) {
+            recordReplay = true;
+        }
 
         // Initialize(config, seed, timeSource, options, logger, reporter)
         const seedArg = Memory.alloc(4); seedArg.writeS32(seed);
@@ -212,7 +257,7 @@ export function buildRunner(
         for (const p of pinnedTransients) {
             try { gcRoot.remove(p); } catch { /* best effort */ }
         }
-        return { runner, innerAiControl, seed };
+        return { runner, innerAiControl, seed, recordReplay };
     } catch (e) {
         // Emit a rich diagnostic before cleanup so we always know which
         // build step blew up and what state the runner was in. The
