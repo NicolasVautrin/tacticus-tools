@@ -13,7 +13,7 @@ avec une liste de cibles VIDE.
     On(9=Attack, 1)
     & HasEffect(owner@0x148, 0x4ad=1197, onlyActive=0, relation=6=Both)   # PRESENCE seule (cf. #231)
     & AreEnemies(owner@0x148, target@0x178)            # la cible de l'attaque est un ENNEMI du porteur
-    & Not(IsObjectOrSteppable(target@0x178))           # vraie unite (pas decor/decoy steppable)
+    & Not(IsObjectOrSteppable(target@0x178))           # vraie unite (ni Steppable 27 ni Object 13)
     & CurrentAttackDamageProfilesContain(0xd=13)       # les profils de l'ATTAQUE contiennent Psychic
   `On(9)` = event generique de FIN d'attaque (`FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute`, normale ET ability) —
   UN fire max par attaque qualifiante (MESURE live diag 202c runner 183 : 1 Screamer par ATTAQUE, pas
@@ -43,6 +43,17 @@ avec une liste de cibles VIDE.
   `WithStatsFromConfig2(config 1096)` = summonHp_2/summonDmg_2 (mesure live : 4487 = 2493 x 180%) ;
   on-appearance `PerformAIAttackFromCurrentPosition` (melee Power 3 hits — QUI RE-DECLENCHE 1173 si le
   Screamer est adjacent a Abraxas, via son bonus InfernalPacts Psychic ; cf. en-tete).
+
+⚠ `NOT IsObjectOrSteppable(target)` A ETE RECOPIE A LA MAIN, ET FAUX, jusqu'au 2026-08-05 : le
+module gatait `{Steppable, Decoy}` la ou le natif dit `Steppable | Object`
+(`IdunBattleLogic.Entities.DSLTriggers$$IsObjectOrSteppable` = `HasTrait(x, 0x1b=27 Steppable) |
+HasTrait(x, 0xd=13 Object)`, decompile LU). `Decoy` = **1053**, `Object` = **13** : deux traits
+DISTINCTS de `UnitTrait`. Mesure gameconfig (re-derivee par
+`probe_462_..._r1_mot_object_or_steppable.py --step census`) : `Decoy` sans `Steppable` = **0**
+porteur (le volet retire etait INERTE), `Object` sans `Steppable` = **28** porteurs, tous npc
+`LootObj_*` (le TROU). Le conjoint passe desormais par le foyer partage
+`entities/triggers.py::is_object_or_steppable`, comme `BattleFatigueAbility` — plus de recopie.
+Detail : `docs/rl/case-462-r4b-r1-r1-r1-r1-b-r1-r1-r1-mot-object-or-steppable.md`.
 """
 from __future__ import annotations
 
@@ -50,14 +61,20 @@ from typing import Optional
 
 from .....entities.effect_type import EffectType
 from .....entities.damage_profile_type import DamageProfileType
+from .....entities.selectors import Target
+from .....entities.triggers import is_object_or_steppable
 from .....dsl.event_trigger_type import EventTriggerType
+from ....abilities.behaviours import entities_from_state
 from ....state import State
-from ....components import UnitComponent, OwnerComponent, StatsComponent
+from ....components import UnitComponent, OwnerComponent
 from ..base import EffectTrigger, TriggerEvent
 
 MASTER_EFFECT = int(EffectType.MasterOfTheTutelaries)        # 1197 (0x4ad) — effet armeur
 _PSYCHIC = DamageProfileType(13).name                        # "Psychic" — profil du gate (0xd)
-_STEPPABLE_TRAITS = {"Steppable", "Decoy"}                   # IsObjectOrSteppable (unites-token)
+# 4e conjoint : `NOT IsObjectOrSteppable(target@0x178 = sel@+0x60)`. Foyer partage
+# `entities/triggers.py` (mirror de `IdunBattleLogic.Entities.DSLTriggers$$IsObjectOrSteppable`,
+# HUIT call-sites natifs) — surtout pas une n-ieme recopie du couple de traits.
+_IS_OBJECT_OR_STEPPABLE = is_object_or_steppable(Target())
 
 
 def _master_of_tutelaries_instances(state: State, owner_id: int) -> list:
@@ -137,14 +154,19 @@ class MasterOfTheTutelariesSummonAbility(EffectTrigger):
         toc = te.get_component(OwnerComponent) if te is not None else None
         if ooc is None or toc is None or ooc.team == toc.team:
             return False
-        # Not(IsObjectOrSteppable(target)) : vraie unite — pas d'entite sans UnitComponent (objet)
-        # ni token steppable/decoy (traits gameconfig Steppable/Decoy).
-        tuc = te.get_component(UnitComponent)
-        if tuc is None:
+        # GARDE DE PORT (pas un conjoint natif) : la cible doit etre une entite-UNITE de l'ECS.
+        # INERTE en pratique — les six sites qui creent une entite (`snapshot.load_state` x2,
+        # `operations/spawn.py` x4, `components.py`) posent TOUS un `UnitComponent`. Elle etait
+        # AUPARAVANT presentee comme une part d'`IsObjectOrSteppable` (« objet = pas de
+        # UnitComponent »), ce qui est faux : le natif ne teste que des TRAITS.
+        if te.get_component(UnitComponent) is None:
             return False
-        tsc = te.get_component(StatsComponent)
-        t_traits = set(getattr(tsc.ctx, "traits", None) or ()) if tsc is not None else set()
-        if t_traits & _STEPPABLE_TRAITS:
+        # `NOT IsObjectOrSteppable(target@0x178)` — 4e conjoint, par le FOYER (cf. en-tete). Le
+        # `matches` est imperatif, donc on materialise ici l'`AbilityEntities` que le natif tient
+        # pour tout l'arbre : `entities_from_state(state, owner, target)` pose `Target()` sur la
+        # cible de l'attaque, exactement le `sel@+0x60` du decompile.
+        entities = entities_from_state(state, self.owner_id, tgt)
+        if _IS_OBJECT_OR_STEPPABLE.should_trigger(entities):
             return False
         # CurrentAttackDamageProfilesContain(Psychic=13) : le SET des profils de TOUTE l'attaque —
         # arme + bonus-hits #179. TRANCHE live (diag 202c, runner 183) : l'attaque MELEE Physical du
