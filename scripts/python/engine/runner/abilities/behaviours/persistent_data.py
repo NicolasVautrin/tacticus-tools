@@ -96,6 +96,100 @@ class AddToPersistentDataList(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class AddPersistentData(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddPersistentData(abilityOrEffect, unit, dataKey,
+    valueFormula)` -> `IdunBattle.Entities.Triggers.AddPersistentDataBehavior$$Execute` -- la
+    variante SCALAIRE de la famille (l'autre, LISTE, est `AddToPersistentDataList` ci-dessus).
+
+        entity = <selecteur unit>.SelectSingle(entities)          # null -> no-op
+        key    = <formule dataKey>.Calculate(entities)
+        value  = <formule valeur>.Calculate(entities)
+        entity.GetComponent<PersistentDataComponent>()
+              .PersistData(GetPersistentDataId(abilityOrEffect), key, value)
+
+    `PersistData` **ECRASE** (`Dictionary[key] = value`), il n'empile pas : c'est toute la
+    difference avec `AddToPersistentDataList`, dont le `List.Add` est inconditionnel. Un second
+    appel dans le meme tour ne fait donc rien de plus.
+
+    ⚠ DEUX SURCHARGES natives de ce noeud (`180e9f360` / `180e9f400`) : elles ne different que par
+    la fabrication de la `dataKey` -- la seconde ENVELOPPE une chaine litterale dans une formule
+    constante avant de construire le MEME `AddPersistentDataBehavior`. Le port n'en porte qu'UNE :
+    `data_key` accepte indifferemment un noeud (`.evaluate`) ou un scalaire, ce qui couvre les deux.
+
+    CONSOMMATEUR PORTE : `HaywireMineAbility$$CreateBehaviour`, ou la valeur est la formule
+    partagee `DSLFormulas+0x20` = `Direct(1)` (le `.ctor` de `DSLFormulas` alloue `+0x18`=0,
+    `+0x20`=1, `+0x28`=2, `+0x30`=100, `+0x38`=-1). Effet PUR (`stop=False`).
+    Emet 'AddPersistentData'."""
+    __slots__ = ("ability_or_effect", "unit_sel", "data_key", "value")
+
+    def __init__(self, ability_or_effect: int, unit_sel: TargetsSelector, data_key, value):
+        self.ability_or_effect = int(ability_or_effect)
+        self.unit_sel, self.data_key, self.value = unit_sel, data_key, value
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        key = self.data_key.evaluate(entities) if hasattr(self.data_key, "evaluate") \
+            else self.data_key
+        val = self.value.evaluate(entities) if hasattr(self.value, "evaluate") else self.value
+        if val is None:
+            return OperationResult.ok()
+        ck = (self.ability_or_effect, key)
+        posees: list = []
+        for u in _units_of(self.unit_sel, entities):
+            c = _component(state, (u or {}).get("id"))
+            if c is None:
+                continue
+            c.persist_data(ck, val)                  # `PersistData` ECRASE (pas d'empilement)
+            posees.append({"unit": int(u["id"]), "value": val})
+        ectx.emit("AddPersistentData", ability=self.ability_or_effect, key=key, posees=posees)
+        return OperationResult.ok()
+
+
+class ClearPersistentData(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ClearPersistentData(abilityOrEffect, unit, dataKey)`
+    -> `IdunBattle.Entities.Behaviours.ClearPersistentDataBehaviour$$Execute` : retire UNE cle
+    (`Dictionary.Remove`), a la difference de `ClearAllPersistentData` qui emporte toutes les
+    dataKeys de l'ability.
+
+    ⚠ QUATRE surcharges natives du noeud (`180ea2080` / `180ea21a0` / `180ea22a0` / `180ea2330`) --
+    meme motif que `AddPersistentData` : elles se distinguent par le TYPE de l'`abilityOrEffect`
+    (int converti par `op_Implicit`, ou struct deja formee) et par l'enveloppement de la `dataKey`.
+    Toutes construisent le MEME `ClearPersistentDataBehaviour` ; le port n'en porte qu'un.
+
+    CONSOMMATEUR PORTE : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HaywireMine_ResetAbility
+    $$CreateBehaviour` -- `On(0x28 = UnitFinishedTurn) & OwnerIsActor` -> `ClearPersistentData`. Il
+    partage l'`AbilityOrEffect` (donc l'id de sac) ET la `dataKey` avec l'`AddPersistentData` de
+    `HaywireMineAbility` : c'est ce qui RE-ARME la pose de fin de tour, et la mesure live le
+    confirme (une mine par tour, cf. `docs/rl/case-462-...-r5-pose-mine-haywire.md`).
+
+    Effet PUR (`stop=False`). Emet 'ClearPersistentData'."""
+    __slots__ = ("ability_or_effect", "unit_sel", "data_key")
+
+    def __init__(self, ability_or_effect: int, unit_sel: TargetsSelector, data_key):
+        self.ability_or_effect = int(ability_or_effect)
+        self.unit_sel, self.data_key = unit_sel, data_key
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        key = self.data_key.evaluate(entities) if hasattr(self.data_key, "evaluate") \
+            else self.data_key
+        ck = (self.ability_or_effect, key)
+        vides: list = []
+        for u in _units_of(self.unit_sel, entities):
+            c = _component(state, (u or {}).get("id"))
+            if c is None:
+                continue
+            avait = c.try_get_persist_data(ck) is not None
+            c.clear_persistent_data(ck)              # `Dictionary.Remove` (no-op si absente)
+            vides.append({"unit": int(u["id"]), "avait": avait})
+        ectx.emit("ClearPersistentData", ability=self.ability_or_effect, key=key, vides=vides)
+        return OperationResult.ok()
+
+
 class ClearAllPersistentData(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLBehaviors$$ClearAllPersistentData(abilityOrEffect, unit)` ->
     `IdunBattle.Entities.Behaviours.ClearPersistentDataBehaviour$$ExecuteClearAll` — MIRROR :

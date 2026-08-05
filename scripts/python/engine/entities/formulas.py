@@ -225,6 +225,48 @@ class Count(AAmountFormula):
         return len(_units_of(self.selector, ctx))
 
 
+class GetPersistentData(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$GetPersistentData(abilityOrEffect, unit, dataKey)` ->
+    `IdunBattle.Entities.Triggers.GetPersistentDataFormula$$Calculate` -- MIRROR du decompile :
+
+        entity = this.<+0x28 unitSelector>.SelectSingle(entities)     # null -> return 0
+        key    = this.<+0x30 intFormula>?.Calculate(entities).ToString()
+                 ?? this.<+0x38 stringFormula>.Calculate(entities)
+        id     = AbilityOrEffect.GetPersistentDataId(this.<+0x10..0x20>)
+        comp   = entity.GetComponent<PersistentDataComponent>()
+        comp.TryGetPersistData<T>(id, key, out result)                # cle absente -> `default`
+        return result
+
+    Trois traits LUS, qui ne se devinent pas :
+      * `SelectSingle` (slot 8), pas `Select` : la formule porte sur UNE entite ;
+      * la `dataKey` a DEUX sources -- une formule ENTIERE convertie par `Int32.ToString()`, sinon
+        une formule de CHAINE. Le port accepte les deux (`.evaluate` ou scalaire) ;
+      * `TryGetPersistData` ne signale pas l'absence : son `out` reste au `default` du type, donc
+        **cle absente == 0**. C'est ce qui rend `AmountIsZero(GetPersistentData(...))` VRAI la
+        premiere fois -- et le port doit rendre 0, jamais None.
+
+    Cle composite portee `(abilityOrEffect, dataKey)`, la MEME que la variante LISTE (c'est le meme
+    `Dictionary` @+0x10 cote natif). `ctx.persistent_data` absent -> 0 (meme degradation).
+
+    CONSOMMATEUR PORTE : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HaywireMineAbility$$
+    CreateTrigger`, 2e disjonction (`AmountIsZero(GetPersistentData(...))` = « aucune mine posee ce
+    tour »)."""
+    def __init__(self, ability_or_effect: int, unit: TargetsSelector, data_key):
+        self.ability_or_effect = int(ability_or_effect)
+        self.unit, self.data_key = unit, data_key
+
+    def calculate(self, ctx):
+        fn = getattr(ctx, "persistent_data", None)
+        if fn is None:
+            return 0
+        u = resolve_unit(self.unit, ctx)
+        if not u:
+            return 0                     # `SelectSingle == null` -> 0
+        key = self.data_key.evaluate(ctx) if hasattr(self.data_key, "evaluate") else self.data_key
+        v = fn(u, (self.ability_or_effect, key))
+        return 0 if v is None else int(v)     # `out` par defaut = 0 sur cle absente
+
+
 class AngleBetweenLines(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$AngleBetweenLines(a1, b1, a2, b2)` ->
     `IdunBattle.Entities.Formulas.AngleBetweenLinesFormula$$Calculate` (MIRROR 1:1) :

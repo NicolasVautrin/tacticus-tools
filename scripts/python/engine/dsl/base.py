@@ -220,6 +220,20 @@ class DslContext:
     # natif materialise lui aussi une liste neuve quand la cle est absente). Fourni par la couche
     # runner (`entities_from_state`, lit le `PersistentDataComponent` de l'ECS).
     persistent_data_list: object | None = None
+    # Valeur SCALAIRE persistante d'une unite (`IdunBattle.Entities.Components.PersistentDataComponent$$
+    # TryGetPersistDatau003C__Il2CppFullySharedGenericStructTypeu003E`) : `persistent_data(unit, key)`
+    # -> valeur ou None. Meme cle composite `(GetPersistentDataId(abilityOrEffect), dataKey)` que la
+    # variante LISTE ci-dessus -- c'est le MEME `Dictionary` @+0x10 cote natif. Lu par la formule
+    # `GetPersistentData` (mirror `IdunBattle.Entities.Triggers.GetPersistentDataFormula$$Calculate`)
+    # et ecrit par les feuilles `AddPersistentData` / `ClearPersistentData`. Defaut None -> la formule
+    # rend 0, exactement comme le `out` par defaut du `TryGetPersistData` natif sur cle absente.
+    persistent_data: object | None = None
+    # EMPREINTE PRECEDENTE d'une unite (`PositionComponent+0x88`, ecrite par
+    # `IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition`) : `previous_tiles(unit)`
+    # -> list[(col,row)]. Lu par le selecteur `PreviousTile` (mirror
+    # `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select`). Defaut None -> [] (= le
+    # `Nullable` VIDE, dont le natif rend une `List` NEUVE et vide).
+    previous_tiles: object | None = None
     # Resolution d'un ID d'entite en unite (`IdunBattle.Core.IBattleState$$GetEntity(id)`, le slot
     # 0x29 qu'appelle `IdunBattle.Entities.Selectors.EntitiesFromPersistentDataListSelector$$Select`
     # pour transformer sa liste d'ids en ENTITES). `entity_by_id(id) -> unit|None` ; l'id inconnu
