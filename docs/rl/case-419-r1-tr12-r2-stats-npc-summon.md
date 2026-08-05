@@ -17,10 +17,11 @@ catalogue :
 | chemin | `normalized` | `skipped.reason` | Health | Damage | FixedArmor |
 |---|---|---|---|---|---|
 | formule héros (désarmé) | **non** | `v2 patch: system error` | **0** | 0 | 0 |
-| explicite (armé) | attendu **oui** | — | **5303** | 1765 | 490 |
+| explicite (armé) | **oui** | — | **5303** | 1765 | 490 |
 
-La seconde ligne est **calculée et vérifiée offline** ; sa confrontation live attend la fenêtre de
-reinject (§6).
+Les deux lignes sont **confrontées live**. Côté armé, le npc entre au roster contrôlé avec ses
+valeurs de catalogue, son `Movement` 3 et son arme de mêlée :
+`u83 [admecNpc3Electropriest] HP5303 move3 melee`.
 
 ## 2. Le natif a DEUX autres chemins, et ils ne se ressemblent pas
 
@@ -136,19 +137,14 @@ Aucun des 98 héros ne porte exactement un des deux Health npc. Et les deux pali
 paliers voisins), le multiplicateur par progression index, le zéro du catalogue summon (65/65), le
 refus des déclarants ambigus, le filtre du multiplicateur de rareté.
 
-**Confronté live** : le verrou **désarmé** — `skipped.reason = 'v2 patch: system error'`, stats à 0.
-
-**NON CONFRONTÉ — en attente de fenêtre de reinject** : le chemin **armé** dans
-`buildNormalizedBC`. Le champ `explicitStats` vit dans `frida/hooks/**` ; la session courante porte
-un bundle antérieur. Ce n'est **pas** une panne silencieuse : `_normalize_and_extract_pool`
+**Confronté live** : les DEUX faces du verrou. Désarmé — `skipped.reason = 'v2 patch: system
+error'`, stats à 0. Armé — le npc entre au pool avec `hp = 5303`, et le montage complet de §11 en
+dépend de bout en bout. Le chemin ne peut pas rendre un faux vert : `_normalize_and_extract_pool`
 **lève** quand `explicitStats` est fourni et que le RPC n'honore aucune entrée (champ `explicit`
-vide), et `explicitUnmatched` fait lever de même. Un bundle périmé ne peut donc pas se lire comme
-un résultat.
+vide), et `explicitUnmatched` fait lever de même.
 
-**NON FAIT** : la confrontation de `1303 ElectroShock` sur son porteur réel. Elle dépend
-exclusivement de la fenêtre ci-dessus, plus un montage
-`rl_duel build --board MC1_67 --explicit-stats admecNpc3Electropriest:33
---p-units admecNpc3Electropriest:33 …` reproduisant les quatre crans de la tranche 12.
+**NON CONFRONTÉ** : le régime `summon-spawn` (§2), qui n'a été exercé par aucun montage live —
+résidu `#419-r1-tr12-r2-r2` (§9). Et les 9 summons du résidu `#419-r1-tr12-r2-r1`.
 
 ## 7. Ce qui a été ÉPROUVÉ contre soi-même
 
@@ -174,7 +170,7 @@ un premier balayage « `summonArmor` non flaggé » rendait **0 cas** parce que 
 ## 8. Livré
 
 * `frida/hooks/features/normalize-bc/json-build.ts` — `explicitStats` / `explicit` /
-  `explicitUnmatched`. **Exige une fenêtre de reinject.**
+  `explicitUnmatched`. Injecté et confronté live (§1, §11).
 * `scripts/python/catalog_inject.py` — `npc_stats`, `summon_stats`, `explicit_stats`,
   `apply_explicit_stats`, `npc_witness_diff`, `unit_level_from_id`,
   `npc_progression_multiplier_pct` ; CLI `--explicit-stats` / `--explicit-stats-witness`.
@@ -200,6 +196,13 @@ un premier balayage « `summonArmor` non flaggé » rendait **0 cas** parce que 
   passif. Elle est écrite par symétrie avec `ActiveAbilityLevel` et reste sans conséquence : une
   liste d'abilities vide ne donne rien à niveler à
   `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`.
+* **`#419-r1-tr12-r2-r2` — le TROISIÈME porteur, le SUMMON, n'est pas confronté.**
+  `admecSmnElectropriest` porte le même kit que le npc au trait `Summon` près. Le régime
+  `summon-spawn` d'`explicit_stats` pourrait l'amener, mais son ability déclarante est
+  `EnvFactionSummons:AdeptusMechanicus`, qu'aucune unité ne porte — il n'y a donc pas de summoner
+  à spawner, et un summon n'entre jamais dans `decisionView.toActivate` (#291). Reste à établir si
+  `pairUtility` répond sur une entité qui n'est pas activable. Le régime `summon-spawn` du chemin
+  de stats est **non exercé live** par la même occasion.
 * **`#419-r1-tr12-r3` (la face COMBAT) n'est pas touché par cette tranche** — un chemin de stats ne
   dit rien de l'exécution.
 
@@ -211,6 +214,95 @@ au spawn. Cela lève la condition « la greffe n'est légitime que si le corps n
 traits, ni armes » pour toute la classe — c'est le même débloqueur que `#419-r1-tr13-r2` et
 `#419-r1-tr14-r1` nomment.
 
-**Ne couvre pas** : la face DÉCISION livrée ne dit rien de l'EXÉCUTION ; le chemin **armé** n'est pas
-confronté live ; les 9 summons du résidu ; et rien de ce qui concerne le comportement de `1303`
-lui-même, qui reste tel que la tranche 12 l'a porté et validé.
+**Ne couvre pas** : la face DÉCISION livrée ne dit rien de l'EXÉCUTION (`#419-r1-tr12-r3`) ; le
+régime `summon-spawn` n'est exercé par aucun montage live (`#419-r1-tr12-r2-r2`) ; les 9 summons du
+résidu `#419-r1-tr12-r2-r1`.
+
+## 11. Le montage JOUÉ — `1303 ElectroShock` sur son porteur RÉEL
+
+Les quatre crans de la tranche 12 ont été rejoués sur `admecNpc3Electropriest:33`, amené par ce
+chemin. Le terme natif est mesuré par **bras apparié** (`natif_porteur − natif_base`, deux runners
+identiques à `1303` près), board `MC1_67`, seed `41303`.
+
+| cran | ennemis adj. | amis adj. | natif porteur | natif base | **TERME natif** | port | **TERME port** |
+|---|---|---|---|---|---|---|---|
+| `c0` | 0 | 0 | 4.629769 | 4.629769 | **+0.000000** | 4.629769 | +0.000000 |
+| `cF` | 0 | **1** | 4.629769 | 4.629769 | **+0.000000** | 4.629769 | +0.000000 |
+| `c1` | **1** | 0 | 54.629769 | 4.629769 | **+50.000000** | 54.629769 | +50.000000 |
+| `c2` | **2** | 0 | 54.629769 | 4.629769 | **+50.000000** | 54.629769 | +50.000000 |
+
+Trois résultats que la greffe ne pouvait pas donner.
+
+### L'arme du porteur réel est de MÊLÉE — et c'est la lecture de la TUILE D'ACTION qui sauve le montage
+
+`tauMarksman` tirait à 3 ; l'`Electropriest` a une seule arme `Particle` **sans `Range`**, donc
+`IsMelee` (`catalog_inject._weapons`). Un caster de mêlée est adjacent à sa cible, donc un **voisin
+AMI permanent** : `c0` cesserait d'être un « zéro voisin » et les contre-épreuves
+`friends` / `any_neighbour` / `no_gate` mordraient **exactement les mêmes crans** — l'axe CAMP ne
+serait plus exercé.
+
+Ce qui l'évite est **lu**, pas contourné : `pairUtility` résout `col`/`row` dans le movable set
+(`BattleQuery$$GetMovableTiles`) et construit un `UnitPosition` par `GetUnitPositionAtTile` — il ne
+**déplace rien** dans l'ECS. Or le playbook lit `GetAdjacentEnemies(case.Target, case.Caster,
+false)`, dont les occupants viennent de `GetUnit(tile)` sur l'état RÉEL. Le caster reste donc garé
+loin de sa cible pendant que la paire est évaluée depuis une tuile `A` adjacente à elle. Le port
+fait pareil (`count_adjacent_by_camp` lit `scene.pos` ; `attack_tile` est accepté et ignoré), et
+c'est précisément ce que ce montage confronte : le terme reste nul quand la cible n'a aucun voisin,
+alors que la **tuile d'attaque**, elle, en est voisine.
+
+⚠ **Le mirror OFFLINE du déplacement ne suffit pas à choisir `A`.** Un BFS `_move_ring` à `move`
+pas proposait `(0,2)` depuis `(3,4)` alors que le movable set natif ne la contient pas — le
+pathfinder du jeu n'a pas le même coût de terrain que le ring nu, et `pairUtility` refuse la tuile
+(« ni courante ni dans le movable set »). `A` est donc prise dans les tuiles d'action **mesurées**.
+
+### Les deux bras diffèrent par DEUX choses, et la seconde est neutralisée par construction
+
+`ElectroShock` est une clé de `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromPassive` :
+retirer `1303` retire aussi l'attaque normale custom. Mesuré aux deux bras —
+`porteur = [(1178, ElectroShock_NormalAttack)]`, `base = [(69, Loki_NormalAttack)]`. L'axe ne pollue
+pas le terme parce que `pairUtility` reçoit le **même** `abilityType` des deux côtés (`1178`) ; le
+montage le **mesure** au lieu de le supposer.
+
+### Le terme ne dépend d'AUCUN étage du porteur — deux porteurs, facteur 52 sur le niveau
+
+Le second npc, `admecNpc3ElectropriestSurv:33`, porte le même kit et une ligne `stats[]` d'un tout
+autre ordre (`Damage` 47656 contre 1765, `FixedArmor` 16248 contre 490, multiplicateur 180). Les
+deux sont pourtant « Rank 17 ».
+
+| porteur | niveau de la paire (bras base) | TERME `c1`/`c2` | écart natif↔port |
+|---|---|---|---|
+| `admecNpc3Electropriest:33` | 4.629769 | **+50.000000** | **0.000000** |
+| `admecNpc3ElectropriestSurv:33` | 239.995000 | **+50.000000** | **0.000000** |
+
+Le niveau bouge d'un facteur ~52, le terme ne bouge pas d'un iota : c'est la décomposition par
+étage, pas un scalaire ajusté. Les deux npc partagent le **même `VisualId`**
+(`admecNpc3Electropriest`) — d'où le refus d'ambiguïté de `_roster`, qui lève plutôt que de choisir
+en silence lequel des deux il mesure.
+
+### L'écart natif↔port est NUL, pas seulement constant
+
+Le montage greffe portait un résidu constant de `+1.364932` (le dispatch d'attaque normale, fermé
+par `#419-r1-tr14-r5`). Sur le porteur réel, le port rend **exactement** la valeur native aux quatre
+crans et sur les deux npc. La garde l'assertionne séparément, en **nommant son accusé** : si ce
+test-là rougit seul, c'est le composite de dégât de la paire, pas le terme.
+
+### Contre-épreuves — deux étages, tous deux mordants
+
+Les quatre mutants du calcul (`product`, `any_neighbour`, `no_gate`, `friends`) sont joués à chaque
+cran : chacun mord au moins un cran, épargne au moins un autre, et **aucune paire ne mord les mêmes
+crans** (assertion de non-colinéarité — c'est elle qui détecterait la dégénérescence décrite
+plus haut).
+
+Et la garde elle-même a été éprouvée par mutation du **fichier livré**
+`engine/playbook/electro_shock.py` (`probe_419r1tr12r2_mutants_garde_reel.py`, qui **lève si un
+motif est introuvable** — la tranche 12 avait mesuré qu'un remplacement muet produit un vert
+trompeur) : `friends` → **7 rouges / 12**, `product` → **7 / 12**, `no_gate` → **6 / 12** ;
+restauration re-jouée → **12 passed**.
+
+### Livré par ce montage
+
+* `scripts/python/probe_419r1tr12_electro_shock.py` — profils de montage (`GRAFT`, `REAL`,
+  `REAL_SURV`), portée d'arme **dérivée** du gameconfig, tuile d'action distincte de la position du
+  caster, refus d'ambiguïté de `VisualId`.
+* `scripts/python/probe_419r1tr12r2_mutants_garde_reel.py` — contre-épreuve de la garde.
+* `scripts/python/tests/engine/test_419r1tr12r2_electro_shock_reel_live.py` — 12 gardes.

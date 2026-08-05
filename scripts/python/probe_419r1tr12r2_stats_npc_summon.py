@@ -270,8 +270,16 @@ def etapes_live(sid: int) -> int:
         tmpl2, pool2, _m2 = R._normalize_and_extract_pool(
             sid, seed, RANK, board_dump=board, explicit_stats=patch)
     except RuntimeError as e:
-        print(f"  NON CONFRONTE -- en attente de fenetre de reinject : {e}")
-        return rc
+        # ⚠ CE REFUS EST ROUGE DEPUIS #419-r1-tr12-r2 (2026-08-05). Il rendait `rc` inchange, au
+        # motif que la session portait un bundle anterieur -- un repli qui RASSURE. Le bundle
+        # porteur d'`explicitStats` est injecte et confronte depuis, et le montage complet
+        # (`test_419r1tr12r2_electro_shock_reel_live.py`) en depend de bout en bout : un refus ne
+        # peut donc plus vouloir dire « pas encore ». Les deux accuses possibles sont NOMMES.
+        print(f"  ECHEC : le chemin ARME a ete refuse -- {e}")
+        print("  accuses : (a) la session porte un bundle SANS `explicitStats` "
+              "(`frida/hooks/features/normalize-bc/json-build.ts`) -> le confirmer avant tout ; "
+              "(b) le patch soumis ne correspond a aucune entree de `BC.Units[]`.")
+        return rc | 1
     ent2 = next((u for u in tmpl2["Units"] if u.get("Id") == uid), None)
     print(f"  {uid} au pool ? {uid in pool2}")
     print(f"  entree du template : hp={ent2 and ent2.get('Health')} "

@@ -112,20 +112,28 @@ sont lus séparément et ne partagent aucun sélecteur) : le playbook n'applique
 `Damageable`, NI le gate `IsMeleeAttack`. Un porteur qui tire à distance, ou dont le seul voisin de
 cible est non-damageable, marque quand même ses 50 points.
 
-## 4. Le montage — pourquoi une GREFFE, et sur quel hôte
+## 4. Les DEUX montages — la greffe, puis le porteur RÉEL
 
 Les 3 porteurs sont 2 npc (`admecNpc3Electropriest`, `admecNpc3ElectropriestSurv`) et le SUMMON
 `admecSmnElectropriest`. La gate de confrontabilité a été jouée **dans l'ordre** :
 
-1. `buildNormalizedBC` refuse tout npc → aucun `--p-units`.
-2. **SUMMON sans invocateur — vérifié par balayage, pas supposé** (`case-92` §5bis recours 2) :
+1. **SUMMON sans invocateur — vérifié par balayage, pas supposé** (`case-92` §5bis recours 2) :
    l'unique ability qui le déclare (`units.abilities.<X>.constants.unitId == "admecSmnElectropriest"`)
    est **`EnvFactionSummons:AdeptusMechanicus`**, et **aucune** unité du catalogue ne la porte dans
    `activeAbilities`/`passiveAbilities`. C'est un summon d'**environnement** : il n'y a pas de
-   summoner à spawner, donc pas de voie « observer le summon » (#291).
-3. **Greffe** (`catalog_inject.graft_passive_ability`, recours 3) sur `tauMarksman` — HERO au pool,
+   summoner à spawner, donc pas de voie « observer le summon » (#291). Résidu
+   `#419-r1-tr12-r2-r2`.
+2. **Greffe** (`catalog_inject.graft_passive_ability`, recours 3) sur `tauMarksman` — HERO au pool,
    arme distance portée 3, `replace=True`. Elle est **légitime et c'est LU** : le corps ne consulte
    du caster que son **camp**, ni stat, ni trait, ni arme, ni variable d'ability.
+3. **Porteur RÉEL** (`--explicit-stats admecNpc3Electropriest:33`, #419-r1-tr12-r2). Le chemin de
+   stats explicite fait entrer le npc au pool avec ses valeurs de catalogue, ses traits
+   (`Mechanical`, `Resilient`), son arme (3 hits `Particle`, **MÊLÉE**) et son `Movement` 3.
+
+**Les deux montages sont GARDÉS, et ils ne se recouvrent pas.** La greffe exerce le corps sur un
+hôte neutre dont le caster tire sans bouger (`A == C`) ; le porteur réel l'exerce sur le kit que le
+jeu donne, avec un caster de mêlée garé loin de sa cible. Un accord obtenu sur la seule greffe
+laisserait ouverte l'hypothèse « le terme dépend d'un attribut que `tauMarksman` n'a pas ».
 
 **Bras apparié** : deux runners identiques à un passif près (`graft` = `PassiveAbilities=[1303]`,
 `base` = le bras greffé **moins** 1303 — surtout pas « les passifs d'origine », `replace=True` les a
@@ -154,6 +162,26 @@ Deux crans sont **le** résultat de cette tranche :
   analogie avec `Boltstorm`/`RighteousRepugnance` rendrait ici `100`.
 * **`cF` tranche le CAMP.** Un ami du caster adjacent à la cible ne verse rien : le sélecteur est
   `Enemies(caster)`, pas « voisins ».
+
+### Les mêmes quatre crans sur le porteur RÉEL
+
+| cran | natif porteur | natif base | **TERME natif** | port | **TERME port** |
+|---|---|---|---|---|---|
+| `c0` | 4.629769 | 4.629769 | **+0.000000** | 4.629769 | +0.000000 |
+| `cF` | 4.629769 | 4.629769 | **+0.000000** | 4.629769 | +0.000000 |
+| `c1` | 54.629769 | 4.629769 | **+50.000000** | 54.629769 | +50.000000 |
+| `c2` | 54.629769 | 4.629769 | **+50.000000** | 54.629769 | +50.000000 |
+
+Layout `C=(1,0) A=(1,1) T=(0,1) P1=(0,2) P2=(0,0)`, garages `(3,4) (4,5) (2,5)`. **`A ≠ C`** : le
+caster de mêlée reste garé sur une tuile NON adjacente à sa cible, et la paire est évaluée depuis
+une tuile d'action qui, elle, l'est — `pairUtility` construit un `UnitPosition` par
+`GetUnitPositionAtTile` sans rien déplacer dans l'ECS, et le playbook lit les occupants réels. Sans
+cette lecture, un caster de mêlée serait un voisin ami permanent et `c0` cesserait d'être un « zéro
+voisin ».
+
+Rejoué sur le second npc `admecNpc3ElectropriestSurv:33` (`Damage` 47656 contre 1765) : le niveau
+de la paire passe à **239.995000**, le terme reste **+50.000000**. Détail et contre-épreuves :
+`docs/rl/case-419-r1-tr12-r2-stats-npc-summon.md` §11.
 
 ## 6. Contre-épreuves — mordantes ET réciproques
 
@@ -189,17 +217,18 @@ cela qu'un vert de contre-épreuve doit toujours être suspecté.
   `UnitConfiguration.PassiveAbilities` — que le `replace=True` du montage venait justement de vider.
   Re-mesuré après le fix : **0.000000 aux quatre crans**. Même cause que `#419-r1-tr13-r1` et
   `#419-r1-tr14-r5`, fermés en même temps.
-* **`#419-r1-tr12-r2` — le DÉBLOQUEUR est LIVRÉ ; le montage reste à jouer.**
-  `buildNormalizedBC` a désormais un chemin de stats explicite npc/summon (`explicitStats`), mirror
-  de `IdunMetaLogic.UserProgress.UnitProgression$$GetNpcStats` / `$$GetSummonStats` — confronté au
-  témoin que **le jeu** a écrit (4 npc du seed BC, 56 champs, **0 divergence**) et à une mesure live
-  antérieure (#202c). Le verrou est reproduit LIVE côté désarmé
-  (`skipped.reason = 'v2 patch: system error'`, hp = 0). Le porteur confrontable est le **NPC**
-  `admecNpc3Electropriest` : même kit que le summon (mêmes passifs, même arme 3 hits `Particle`,
-  même `Movement` 3), et lui a une table de stats — alors que les 65 entrées summon du catalogue
-  portent `Health = 0`, écrit par le jeu. **Reste** : la fenêtre de reinject (le champ vit dans
-  `frida/hooks/**`), puis rejouer les quatre crans de §5 sur `admecNpc3Electropriest:33`.
-  Détail : `docs/rl/case-419-r1-tr12-r2-stats-npc-summon.md`.
+* **`#419-r1-tr12-r2` — FERMÉ (2026-08-05).** Les quatre crans ont été rejoués sur le porteur RÉEL
+  `admecNpc3Electropriest:33`, amené par le chemin de stats explicite (`explicitStats`, mirror de
+  `IdunMetaLogic.UserProgress.UnitProgression$$GetNpcStats`). Terme natif **0, 0, +50, +50**,
+  identique à la greffe, et écart natif↔port **0.000000** aux quatre crans — puis re-mesuré sur le
+  second npc, dont le niveau de paire vaut 52× celui du premier. Aucun étage propre au porteur
+  (traits, arme de mêlée, `Movement`, stats) n'entre dans le terme.
+  Détail : `docs/rl/case-419-r1-tr12-r2-stats-npc-summon.md` §11.
+* **`#419-r1-tr12-r2-r2` — le TROISIÈME porteur, le SUMMON, n'est pas confronté.**
+  `admecSmnElectropriest` porte le même kit au trait `Summon` près, mais aucune unité ne porte son
+  ability déclarante (`EnvFactionSummons:AdeptusMechanicus`) et un summon n'entre jamais dans
+  `decisionView.toActivate` (#291). Reste à établir si `pairUtility` répond sur une entité non
+  activable, ce qui exercerait du même coup le régime `summon-spawn` du chemin de stats.
 * **`#419-r1-tr12-r3` — la face COMBAT n'est pas portée.**
   `ElectroShock_NormalAttackAbility$$GetCustomNormalAttackBehaviour` (`If(IsMeleeAttack,
   AttackWithAttackDamage(…, PickRandomly(…, 1, …), PercentageOf(StatAmount, Direct(0x3b))))`) n'a
@@ -225,5 +254,10 @@ dans `TRIGGERED_MOVE_PLAYBOOKS`, et **son absence EST le comportement natif** (m
 
 * `scripts/python/engine/playbook/electro_shock.py` — le playbook.
 * `scripts/python/engine/playbook/psyker.py` — entrée `TRIGGERED_ATTACK_PLAYBOOKS[1303]`.
-* `scripts/python/probe_419r1tr12_electro_shock.py` — bras apparié, 4 crans, 4 contre-épreuves.
-* `scripts/python/tests/engine/test_419r1tr12_electro_shock_live.py` — 7 gardes.
+* `scripts/python/probe_419r1tr12_electro_shock.py` — bras apparié, 4 crans, 4 contre-épreuves,
+  **trois profils de montage** (`GRAFT`, `REAL`, `REAL_SURV`).
+* `scripts/python/probe_419r1tr12r2_mutants_garde_reel.py` — contre-épreuve de la garde du porteur
+  réel (mutants du fichier livré ; lève si un motif est introuvable).
+* `scripts/python/tests/engine/test_419r1tr12_electro_shock_live.py` — 7 gardes (greffe).
+* `scripts/python/tests/engine/test_419r1tr12r2_electro_shock_reel_live.py` — 12 gardes (porteur
+  réel + généralisation au second npc).
