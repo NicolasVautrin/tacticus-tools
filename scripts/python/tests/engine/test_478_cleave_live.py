@@ -75,9 +75,12 @@ def case_two(rpc, build_runner, tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def case_boltstorm(rpc, build_runner, tmp_path_factory):
-    """Le regime RANGED : `Boltstorm`, dont les DEUX gates sont inversees. Il exerce la gate
-    `IsRangedPosition` du fold primaire ; son CLEAVE, lui, ancre sur `Owner@0x30` et reste
-    inobservable sur cette voie (residu `#478-r4`)."""
+    """Le regime RANGED : `Boltstorm`, dont les DEUX gates sont inversees -- et le SEUL qui exerce
+    la gate de **PORTEE** (`SurroundingEnemies(Owner, range)`, rayon LU DE L'ARME).
+
+    Trois unites adjacentes a la cible : deux a distance 2 du caster (portee 2 -> frappees), une a
+    distance 3 (-> PAS frappee). Le cleave de `Boltstorm` y est CONFRONTE (#478-r4 ferme) : cardinal
+    2, montants identiques au natif, temoin negatif muet."""
     return _case(rpc, build_runner, tmp_path_factory, "boltstorm")
 
 
@@ -181,11 +184,73 @@ def test_ce_inverser_la_gate_de_cleave_fait_diverger(case_rr, monkeypatch):
         f"{r['nat_addts']}) -- la gate n'est pas exercee par ce montage")
 
 
-def test_ce_le_temoin_non_mute_reste_identique(case_rr):
+def test_ce_elargir_la_portee_de_boltstorm_fait_diverger(case_boltstorm, monkeypatch):
+    """(4f) LA GATE DE PORTEE, dans le sens PERMISSIF. `SurroundingEnemies(Owner, range)` est ce
+    que l'arbre de `Boltstorm` a de propre face au rayon 1 fige de `Fealty`/`TalonOfHorus`. Le
+    montage pose une troisieme unite adjacente a la cible mais HORS portee : elargir le rayon doit
+    la faire entrer dans le cleave du port, donc l'eloigner du natif."""
+    import engine.runner.abilities.loki.additional_targets as AT
+    monkeypatch.setattr(AT, "selected_weapon_range", lambda *a, **k: 9)
+    r = _row(case_boltstorm, "templAggressor")
+    got = P478.port_only(r["bundle"])
+    assert set(got["addts"]) != set(r["nat_addts"]), (
+        f"elargir la portee de Boltstorm ne DEPLACE RIEN (addts {sorted(got['addts'])} == natif "
+        f"{sorted(r['nat_addts'])}) -- le temoin HORS PORTEE n'existe pas dans ce montage, donc "
+        f"la gate de portee n'y est pas exercee")
+
+
+def test_ce_retrecir_la_portee_de_boltstorm_fait_diverger(case_boltstorm, monkeypatch):
+    """(4g) LA MEME GATE, dans le sens RESTRICTIF : rayon 1 -> plus aucune cible additionnelle
+    (elles sont toutes a distance 2 ou 3). C'est la contre-epreuve symetrique de (4f) : ensemble
+    elles interdisent qu'un cardinal juste vienne d'un rayon ignore."""
+    import engine.runner.abilities.loki.additional_targets as AT
+    monkeypatch.setattr(AT, "selected_weapon_range", lambda *a, **k: 1)
+    r = _row(case_boltstorm, "templAggressor")
+    got = P478.port_only(r["bundle"])
+    assert not got["addts"], (
+        f"retrecir la portee de Boltstorm a 1 laisse {sorted(got['addts'])} dans le cleave -- le "
+        f"rayon n'est donc PAS l'entree du selecteur")
+
+
+def test_ce_ancrer_boltstorm_sur_un_owner_nul_fait_diverger(case_boltstorm, monkeypatch):
+    """(4h) L'HYPOTHESE REFUTEE, gardee comme discriminant. Le premier port de #478 ancrait le
+    selecteur de `Boltstorm` sur un slot `Owner` rendu `None`, et en tirait « le cleave est
+    inobservable sur cette voie ».
+
+    Le decompile dit l'inverse : `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities`
+    ecrit l'entite CASTER dans `+0x00`, `+0x08` ET `+0x18`, que lisent respectivement
+    `ActorSelector$$Select`, `CasterSelector$$Select` et `OwnerSelector$$Select`. Re-ancrer sur nul
+    doit donc VIDER le cleave -- et c'est ce que ce test exige, pour que la reparation ne puisse
+    pas se re-perdre en silence."""
+    import engine.runner.abilities.loki.additional_targets as AT
+    from engine.dsl.base import Const, TargetsSelector
+    from engine.entities.selectors import (AdjacentUnits, And, Enemies, SurroundingEnemies,
+                                           Target, Unobscured)
+
+    class _NullOwner(TargetsSelector):
+        def select(self, ctx):
+            return getattr(ctx, "owner", None)
+
+    monkeypatch.setattr(
+        AT, "boltstorm_additional_targets",
+        lambda wr: And(SurroundingEnemies(_NullOwner(), Const(int(wr)), reference=_NullOwner()),
+                       Unobscured(Enemies(AdjacentUnits(Target(), Const(1))), _NullOwner())))
+    r = _row(case_boltstorm, "templAggressor")
+    got = P478.port_only(r["bundle"])
+    assert not got["addts"] and r["nat_addts"], (
+        f"ancrer Boltstorm sur un Owner NUL rend {sorted(got['addts'])} alors que le natif frappe "
+        f"{sorted(r['nat_addts'])} -- si les deux etaient vides, l'accord ne prouverait rien "
+        f"(c'est exactement le regime degenere qui avait fige #478-r4)")
+
+
+def test_ce_le_temoin_non_mute_reste_identique(case_rr, case_boltstorm):
     """(4e) LE BRAS TEMOIN. Rejouer le port SANS mutation, sur le meme etat pre-cast, doit rendre
-    EXACTEMENT ce que la passe a mesure. Sans ce bras, les quatre precedents ne prouveraient pas
-    que c'est bien la MUTATION qui deplace le chiffre -- seulement que le re-jeu est instable."""
-    for r in case_rr["rows"]:
+    EXACTEMENT ce que la passe a mesure. Sans ce bras, les autres contre-epreuves ne prouveraient
+    pas que c'est bien la MUTATION qui deplace le chiffre -- seulement que le re-jeu est instable.
+
+    `case_boltstorm` en fait partie depuis #478-r4 : ses trois contre-epreuves (portee elargie,
+    portee retrecie, ancre nulle) ne valent que si le bras temoin de CE regime tient aussi."""
+    for r in case_rr["rows"] + case_boltstorm["rows"]:
         got = P478.port_only(r["bundle"])
         assert (got["primaire"], got["addts"]) == (r["nat_primaire"], r["nat_addts"]), (
             f"{r['vis']} : le re-jeu SANS mutation ne reproduit pas la passe "

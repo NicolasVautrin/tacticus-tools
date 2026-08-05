@@ -174,16 +174,26 @@ def layout_boltstorm(elev, playable):
     le volet `Unobscured(Owner, Enemies(Caster, AdjacentUnits(Target)))`. Ce qui les separe est le
     SECOND volet, `SurroundingEnemies(Owner, range)` :
 
-        A1, A2  a distance hex **1** du caster  -> DANS la portee 2   -> frappees
+        A1, A2  a distance hex **2** du caster  -> DANS la portee 2   -> frappees
         A3      a distance hex **3** du caster  -> HORS la portee 2   -> PAS frappee
 
     C'est ce que l'arbre de `Boltstorm` a de PROPRE : `Fealty`/`TalonOfHorus` ancrent leur premier
     volet sur `AdjacentEnemies(Caster, CasterTile)` (rayon 1 fige), lui sur un rayon LU DE L'ARME.
     Un montage ou les trois adds seraient a portee ne distinguerait pas les deux arbres.
 
-    `A1`/`A2` a distance **1** n'est pas non plus du confort : a cette distance l'obscurcissement
-    est structurellement nul (aucune tuile intermediaire), donc l'accord natif/port sur le cardinal
-    ne peut pas venir d'un `is_target_tile_obscured` partage entre l'oracle et le port.
+    ⚠ AUCUN add ADJACENT AU CASTER -- et ce n'est pas un scrupule, c'est une MESURE. Un ennemi au
+    contact du caster CAPTE le ciblage de l'attaque normale : mesure a trois configurations sur
+    `MC1_67` (`abilityTargets`, aucun cast), caster `(1,4)` / cible `(3,4)` a distance 2 --
+
+        caster + cible seuls                        -> fromHere = [astraBullgryn]
+        + 1 add sur le SEGMENT, adjacent au caster  -> fromHere = [necroWarden]   <- la CIBLE SORT
+        + 2 adds hors segment (distance 2)          -> fromHere = [necroWarden, astraBullgryn,
+                                                                  necroDestroyer]
+
+    Le premier layout de ce regime posait justement ses adds au contact du caster : la cible
+    primaire devenait inciblable, `applyAction` rendait `ok: true` avec DEUX evenements (`group
+    12` + `finish`) et ZERO degat. Un no-op **silencieux** -- que `stage` refuse desormais
+    explicitement (attestation (e)).
 
     Le cardinal EFFECTIF est re-verifie par `stage` contre la geometrie NATIVE -- ce constructeur
     ne fait que proposer."""
@@ -201,15 +211,28 @@ def layout_boltstorm(elev, playable):
         far = [q for q in cells
                if hexgeo.distance(q, t) == 2 and not bq.is_adjacent(q, t, elev)]
         for c in far:
-            # DANS la portee : voisins de `T` egalement ADJACENTS au caster (distance hex 1).
-            near = [q for q in ring if q != c and bq.is_adjacent(q, c, elev)]
+            # DANS la portee, mais PAS au contact du caster (sinon l'add capte le ciblage).
+            near = [q for q in ring
+                    if q != c and not bq.is_adjacent(q, c, elev)
+                    and hexgeo.distance(q, c) <= rng]
             # HORS de la portee : voisin de `T` a distance hex > portee de l'arme. C'est le TEMOIN
             # NEGATIF -- il attend au contact de la cible et ne doit RIEN prendre.
             out = [q for q in ring if q != c and hexgeo.distance(q, c) > rng]
             if not near or not out:
                 continue
             adds = near[:2] + out[:1]
+            # L'unite alliee INERTE qui garde le tour OUVERT : ce regime n'a qu'UN porteur, donc
+            # sans elle le cast le termine, l'IA adverse joue, et les necrons se SOIGNENT
+            # (`LivingMetalRepair`) avant la relecture des PV -- cf. `replay`, garde (f). Placee
+            # LOIN de tout (>= 4 en distance hex de la cible ET du caster) : aucune interaction,
+            # ni ciblage, ni overwatch, ni aura.
+            filler = next((q for q in cells
+                           if hexgeo.distance(q, t) >= 4 and hexgeo.distance(q, c) >= 4
+                           and q not in adds and q != c and q != t), None)
+            if filler is None:
+                continue
             cand = {"T": t, "A": adds, "C": {"templAggressor": c},
+                    "F": {"ultraTitus": filler},
                     "want": {"templAggressor": _expected_cardinal(
                         "Boltstorm", c, t, adds, elev, rng)}}
             if cand["want"]["templAggressor"] >= 2:
@@ -242,18 +265,25 @@ LAYOUTS = {"one": layout_one, "two": layout_two, "rr": layout_rr, "boltstorm": l
 # --------------------------------------------------------------------------- build
 
 def build_args(lay: dict, bc_path: str, board: str = BOARD) -> list:
-    """Les arguments `rl_duel build` du montage -- FOYER UNIQUE, partage par le probe et la garde."""
+    """Les arguments `rl_duel build` du montage -- FOYER UNIQUE, partage par le probe et la garde.
+
+    `lay["F"]` (optionnel) = les unites alliees INERTES : elles ne castent rien et ne servent qu'a
+    garder le tour OUVERT apres le cast mesure. Sans elles, un montage a UN SEUL porteur voit le
+    tour basculer, l'IA adverse jouer, et les cibles additionnelles se SOIGNER avant la relecture
+    des PV -- cf. `replay`, garde (f)."""
     carriers = [v for v in lay["C"]]
+    fillers = [v for v in (lay.get("F") or {})]
     addts = list(ADDTS[:len(lay["A"])])
-    hp = [f"{v}:Health={HP},RemainingHealth={HP}" for v in carriers + [TARGET] + addts]
+    hp = [f"{v}:Health={HP},RemainingHealth={HP}"
+          for v in carriers + fillers + [TARGET] + addts]
     places = []
-    for v, tile in lay["C"].items():
+    for v, tile in list(lay["C"].items()) + list((lay.get("F") or {}).items()):
         places += ["--place", f"{v}:{tile[0]},{tile[1]}"]
     places += ["--a-place", f"{TARGET}:{lay['T'][0]},{lay['T'][1]}"]
     for v, tile in zip(addts, lay["A"]):
         places += ["--a-place", f"{v}:{tile[0]},{tile[1]}"]
     return ["--board", board, "--seed-bc", bc_path,
-            "--p-units", ",".join(carriers),
+            "--p-units", ",".join(carriers + fillers),
             "--a-units", ",".join([TARGET] + addts),
             *places, "--unit-stat", ";".join(hp)]
 
@@ -360,8 +390,17 @@ def stage(rpc, rid: int, lay: dict, elev: dict) -> dict:
             raise MontageError(f"montage NON INSTALLE : {v} absent du roster adverse")
         uid[v] = u["id"]
 
+    # les unites alliees INERTES (`lay["F"]`) : leur PLACEMENT est atteste comme celui des autres --
+    # une inerte qui atterrit ailleurs pourrait capter un ciblage ou declencher un overwatch.
+    for v in (lay.get("F") or {}):
+        u = next((x for x in mine if x.get("visualId") == v), None)
+        if u is None:
+            raise MontageError(f"montage NON INSTALLE : l'unite inerte {v} est absente du roster "
+                               f"controle -- le tour basculerait apres le cast")
+        uid[v] = u["id"]
     pos = {u["id"]: (u["pos"]["col"], u["pos"]["row"]) for u in units if u.get("pos")}
-    want_pos = {uid[v]: tuple(t) for v, t in lay["C"].items()}
+    want_pos = {uid[v]: tuple(t)
+                for v, t in list(lay["C"].items()) + list((lay.get("F") or {}).items())}
     want_pos[uid[TARGET]] = tuple(lay["T"])
     for v, t in zip(addts, lay["A"]):
         want_pos[uid[v]] = tuple(t)
@@ -420,8 +459,26 @@ def stage(rpc, rid: int, lay: dict, elev: dict) -> dict:
     if not any(fold.values()) and not any(lay["want"].values()):
         raise MontageError(f"montage VIDE : ni fold primaire ({fold}) ni cible additionnelle "
                            f"({lay['want']}) -- la mesure n'exercerait aucun des deux volets")
+    # (e) LA CIBLE PRIMAIRE EST CIBLABLE, porteur par porteur -- le seul gate dont l'echec est
+    #     TOTALEMENT SILENCIEUX. Mesure (#478-r4) : avec un ennemi au contact du caster, la cible
+    #     voulue SORT de `fromHere` (elle est captee par l'unite adjacente) et `applyAction` rend
+    #     `ok: true` avec deux evenements (`group 12` + `finish`) et ZERO degat. Le probe lisait
+    #     alors « le natif ne frappe rien » -- une phrase VRAIE dont on tirait une conclusion
+    #     FAUSSE sur le selecteur. `fromHere` (et non `targets`) est le bon champ : c'est la
+    #     legalite du cast IMMEDIAT, sans deplacement, et c'est ce que le replay joue.
+    for v in lay["C"]:
+        at = rpc("abilityTargets", {"runnerId": rid, "casterId": uid[v],
+                                    "abilityType": want_ab[v]}, 120)
+        abs_ = ((at.get("units") or [{}])[0].get("abilities") or [{}])[0] if isinstance(at, dict) else {}
+        fh = {t.get("targetId") for t in (abs_.get("fromHere") or [])}
+        if uid[TARGET] not in fh:
+            raise MontageError(
+                f"cible primaire INCIBLABLE : {v} ne peut pas frapper {TARGET} "
+                f"(id {uid[TARGET]}) depuis {pos[uid[v]]} -- fromHere = {sorted(fh)}. Le cast "
+                f"serait accepte et ne ferait RIEN (no-op silencieux)")
     return {"rid": rid, "uid": uid, "pos": pos, "addts": addts, "want": dict(lay["want"]),
-            "fold": fold, "ab": want_ab, "tpos": tp, "carriers": list(lay["C"])}
+            "fold": fold, "ab": want_ab, "tpos": tp, "carriers": list(lay["C"]),
+            "player": myplayer}
 
 
 # --------------------------------------------------------------------------- replay-diff
@@ -511,6 +568,19 @@ def replay(rpc, st: dict, vis: str) -> dict:
     a0 = (res.get("actions") or [{}])[0]
     if res.get("ok") is False or a0.get("ok") is False or a0.get("error"):
         raise MontageError(f"cast live REFUSE pour {vis} : {str(res)[:400]}")
+    # (f) LE TOUR N'A PAS BASCULE. Sans cette garde, le delta de PV mesure le cast **plus** tout
+    #     le tour adverse -- et il l'a deja fait : sur un montage a UN SEUL porteur, le cast
+    #     terminait le tour, l'IA jouait, et `LivingMetalRepair` RENDAIT aux necrons les PV que le
+    #     cleave venait de leur prendre. Le probe lisait alors « le natif ne frappe AUCUNE cible
+    #     additionnelle » -- alors que les evenements du cast portaient bel et bien le groupe
+    #     `0x2a` (`AActiveAbility$$ExecuteAtomic` du `Foreach`) et ses coups. C'est CE faux zero
+    #     qui a fige le residu `#478-r4` sur une hypothese (« Owner nul ») que le decompile
+    #     refute. Le montage garde le tour ouvert par une unite alliee INERTE (`lay["F"]`).
+    if res.get("currentPlayer") is not None and res["currentPlayer"] != st["player"]:
+        raise MontageError(
+            f"LE TOUR A BASCULE apres le cast de {vis} (joueur {st['player']} -> "
+            f"{res['currentPlayer']}) : le delta de PV mesurerait AUSSI le tour adverse "
+            f"(regeneration, overwatch, effets) et pas seulement le cast")
     dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
     after = _hp_by_id(dv2)
 
