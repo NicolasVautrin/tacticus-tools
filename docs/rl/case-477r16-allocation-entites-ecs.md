@@ -5,10 +5,16 @@
 
 ## Verdict en une ligne
 
-**MÉCANIQUE.** L'ordre et le nombre d'allocations se reproduisent depuis la `BattleConfiguration`,
-à **un scalaire près** (les env abilities dérivées, invariant, lisible dans le binaire). Prédiction
-posée **avant** mesure, vérifiée **9 critères sur 9**, sur **trois** boards de tailles distinctes
-(35 / 63 / 70 tuiles) — dont **84**, jamais mesuré auparavant. Un émetteur de flux est constructible.
+**MÉCANIQUE, et sans aucun terme libre depuis `#477-r16-r1`.** L'ordre et le nombre d'allocations
+se reproduisent depuis la `BattleConfiguration` **plus deux tables statiques du binaire**, toutes
+deux désormais lues et mirrorées. Prédiction posée **avant** mesure, vérifiée **10 critères sur
+10**, sur **trois** boards de tailles distinctes (35 / 63 / 70 tuiles) **et trois BC** dont deux
+fabriqués pour faire varier le dernier terme. Un émetteur de flux est constructible.
+
+⚠ **Le scalaire `derived` était le point faible, et il a été attaqué comme tel** : mesuré par
+DIFFÉRENCE, il absorbait silencieusement toute allocation manquée avant les tuiles — exactement
+le mode de panne qui avait déjà produit ici « trois accords parfaits, modèle faux » (cf. Pièges).
+Il est maintenant **prédit** (§3ter), et le contre-test le fait **bouger dans les deux sens**.
 
 ## 1. Qui alloue
 
@@ -77,18 +83,82 @@ premier id de tuile  = 3 + P + E
 premier id d'unite   = premier id de tuile + Width*Height + 2      (+2 = plateformes MoW)
 ```
 
-`P` se lit dans `BC.Player.Players`. **`E` n'est PAS entièrement dans la BC** :
+`P` se lit dans `BC.Player.Players`. **`E` n'est PAS entièrement dans la BC**, et ses termes
+n'ont pas tous le même statut — **trois sont CONDITIONNELS** (cf. § suivant) :
 
-| terme de E | valeur sur le seed | source |
-|---|---:|---|
-| `BC.EnvironmentAbilities` + `…Enhancements` | 0 | la BC |
-| deux constantes **en dur** `0x5cb`, `0x18` | 2 | `SetupGameOperation$$GetEnvironmentAbilities` |
-| `StaticBattleRules.DamageTrait$$GetDamageTraitAbilities` | 3 | table **statique** (`.cctor` : `0x3f8`, `0x4b3`, `0x4bb`) |
-| `0x52e` si `GameMode == SyncPVP` | 0 | idem |
-| `GetDerivedEnvironmentAbilities(passif)` | **1** | table **statique NON lue** — `#477-r16-r1` |
+| terme de E | valeur sur le seed | source | ajout |
+|---|---:|---|---|
+| `BC.EnvironmentAbilities` + `…Enhancements` (2 `AddRange`) | 0 | la BC | inconditionnel |
+| `GetDerivedEnvironmentAbilities(passif)` | **1** | table **statique** `+0x38` (2 entrées) | inconditionnel |
+| `EnvDespoiledGroundTileDamage`, `EnvFireTileDamage` | 2 | constantes en dur | **dédupliqué** |
+| `StaticBattleRules.DamageTrait$$GetDamageTraitAbilities` | 3 | table **statique** (`.cctor`, 3 entrées) | inconditionnel |
+| `EnvCapturePointShield` si `GameMode == SyncPVP` | 0 | idem | **dédupliqué** |
 
 Deux tables statiques du binaire entrent donc dans un offset qu'on croirait dérivable du BC.
 **Un émetteur doit les mirrorer.**
+
+### 3bis. `IncludeEnvironmentAbility` DÉDUPLIQUE — la somme n'est pas une somme (#477-r16-r1)
+
+`IdunBattle.Operations.SetupGameOperation$$IncludeEnvironmentAbility` n'est **pas** un `Add` :
+elle construit un prédicat sur l'id (`<>c__DisplayClass18_0$$<IncludeEnvironmentAbility>b__0`
+compare `cfg.Id` au type capturé), appelle
+`idun.shared.extensions.ListExtensions$$Contains<T>` et **retourne sans rien ajouter** si la
+liste porte déjà cette ability. Les **deux boucles** (derived, damage traits) font au contraire
+un `List.Add` **direct** et ne dédupliquent rien. L'ordre de construction est donc :
+
+```
+list.AddRange(BC.EnvironmentAbilities.EnvironmentAbilities)              # AddRange
+list.AddRange(BC.EnvironmentAbilities.EnhancementsEnvironmentAbilities)  # AddRange
+foreach kv in BC.Abilities.PassiveAbilities: list.Add(derived(kv.Key))   # Add DIRECT
+IncludeEnvironmentAbility(EnvDespoiledGroundTileDamage)                  # DEDUP
+IncludeEnvironmentAbility(EnvFireTileDamage)                             # DEDUP
+foreach x in GetDamageTraitAbilities(): list.Add(x)                      # Add DIRECT
+if SyncPVP: IncludeEnvironmentAbility(EnvCapturePointShield)             # DEDUP
+```
+
+La formule « `|BC| + 2 + 3 + derived + syncpvp` » de la première version reste juste **ici**
+uniquement parce que les deux listes du BC sont **VIDES** sur le seed. Elle est fausse dès qu'un
+BC porte l'une des trois. Résidu `#477-r16-r1-r1`.
+
+### 3ter. `derived` est LU, plus mesuré par différence (#477-r16-r1, FERMÉ)
+
+`StaticBattleRules.TriggeredAbility$$GetDerivedEnvironmentAbilities(passiveAbilityType)` est un
+`TryGetValue` sur le champ **statique `+0x38`** de `StaticBattleRules.TriggeredAbility`, un
+`Dictionary<TriggeredAbilityType, TriggeredAbilityType>` — signature lue dans
+`frida/methods.tsv`, pas déduite. La valeur trouvée est un **scalaire**, emballé par
+`IdunBattleLogic.Extensions.TExtensions$$ToList<T>` : le retour est une liste à **UN** élément,
+ou `null`. Le `.cctor` y écrit **DEUX** entrées, et rien d'autre :
+
+| clé (passif du BC) | valeur (env ability allouée) |
+|---|---|
+| `PowerUp_ReinforcementShield` | `EnvReinforcementShield` |
+| `Ambush` | `EnvAmbushResurrect` |
+
+La boucle appelante n'en lit que les **clés**, et le dictionnaire itéré est
+**`BC.Abilities.PassiveAbilities`** (`BC+0x90` = `AbilitiesConfiguration` par son `.ctor`,
+`+0x18` = le dict des passifs, cf. `AbilitiesConfiguration$$GetPassive`). D'où :
+
+```
+derived = |{PowerUp_ReinforcementShield, Ambush} INTER keys(BC.Abilities.PassiveAbilities)|
+```
+
+**Domaine `0..2`.** Le `1` du seed n'est donc pas un scalaire ajusté : `Ambush` y est présent,
+`PowerUp_ReinforcementShield` non. `GetEnvironmentAbilities` est le **seul** appelant (xrefs).
+
+**Contre-test joué, et il DISCRIMINE** (`probe … --contre-derived`, session 8, board `C1_02`,
+prédictions imprimées avant mesure) :
+
+| montage | `derived` | 1ʳᵉ tuile prévue | mesurée |
+|---|---:|---:|---:|
+| seed intact (témoin, 3 boards) | 1 | 12 | **12** |
+| `+ PowerUp_ReinforcementShield` dans `BC.Abilities.PassiveAbilities` | 2 | 13 | **13** |
+| `− Ambush` | 0 | 11 | **11** |
+
+Un terme obtenu par différence aurait absorbé n'importe quelle allocation manquée en amont ;
+celui-ci **bouge dans les deux sens, de la quantité prévue**. Le probe porte un cran
+anti-régime-dégénéré : `_load_seed_bc` re-synthétise `BC.Abilities` (#254) et pourrait recombler
+une clé retirée — si la prédiction de la variante n'est pas distincte du témoin, il **refuse de
+conclure** au lieu de rendre un vert.
 
 ## 4. Effets, summons, machines, projectiles
 
@@ -108,24 +178,30 @@ Aucun sur le chemin d'allocation, à une réserve près :
 - rien d'asynchrone — les coroutines (`System_GameSetup_GroupHandler$$ExecuteStepInternalCoroutine`)
   sont côté **vue**, pas dans la logique.
 
-⚠ **La seule réserve** : `GetEnvironmentAbilities` itère un **`Dictionary<,>`** (les passifs du BC)
-pour appeler `GetDerivedEnvironmentAbilities`. `Dictionary` ne garantit pas son ordre par contrat ;
+⚠ **La seule réserve** : `GetEnvironmentAbilities` itère un **`Dictionary<,>`**
+(`BC.Abilities.PassiveAbilities`) pour appeler
+`GetDerivedEnvironmentAbilities`. `Dictionary` ne garantit pas son ordre par contrat ;
 en pratique il rend l'ordre d'insertion tant qu'aucun `Remove` n'a eu lieu, et les insertions
 viennent de la désérialisation du BC. Cela n'affecte que **l'ordre interne** du bloc env abilities,
 jamais leur nombre ni les blocs suivants — donc jamais les ids des tuiles ni des unités.
 
-## Mesure — 9/9, trois tailles de board
+## Mesure — 10/10, trois tailles de board et trois BC
 
-`python scripts/python/probe_477r16_allocation_entites_ecs.py --session <sid> --mow adeptExorcist`
+```
+python scripts/python/probe_477r16_allocation_entites_ecs.py \
+    --session <sid> --mow adeptExorcist --contre-derived
+```
 
 joueurs `3..2+P` / nb tuiles == `Width*Height` / tuiles contiguës / 2 plateformes MoW juste après /
 première unité == 1ʳᵉ tuile + T + 2 / pas == 2 / aucun trou dans `3..max` / `derived` invariant /
-tout pas expliqué par `1 + pieds + intercalées`.
+`derived` mesuré == `derived` **lu** / tout pas expliqué par `1 + pieds + intercalées` /
+`derived` **fait varier expres** suit la prédiction.
 
 Le probe **refuse de conclure** sous trois tailles distinctes — deux points valident n'importe
-quelle droite, et `MC1_67`/`C1_70` font tous deux 63 tuiles (piège payé en #477-r15).
+quelle droite, et `MC1_67`/`C1_70` font tous deux 63 tuiles (piège payé en #477-r15). Il refuse
+**aussi** de conclure si une mutation de contre-épreuve n'a pas mordu.
 
-## Trois pièges payés ici même
+## Quatre pièges payés ici même
 
 1. **Un accord parfait peut venir de deux erreurs qui s'annulent.** La première version prédisait
    `3 + P + E + T` avec un `E` trop grand de 2 et **sans** les plateformes MoW : la prédiction sur
@@ -138,13 +214,24 @@ quelle droite, et `MC1_67`/`C1_70` font tous deux 63 tuiles (piège payé en #47
 3. **Le build qui fait foi ne se devine pas.** Le probe re-dérivait « quel build » à la main et
    retenait `gqfc5mff6c` (archive) au lieu de `rnca9r7q6c`. Foyer unique :
    `symbols_layout.current_build()`.
+4. **Une liste d'`Add` n'est pas forcément une somme.** Trois des cinq termes de `E` passent par
+   `IncludeEnvironmentAbility`, qui **déduplique** (§3bis) — la formule additive tenait par
+   accident, parce que les listes du BC sont vides sur ce seed. Le nom de la fonction ne le
+   disait pas ; seul son corps le dit. Corollaire général : **lire le corps de chaque « helper
+   d'ajout » avant de compter ses appels.**
 
 ## Résidus
 
-- **#477-r16-r1** — `GetDerivedEnvironmentAbilities` non lue. Elle vaut **1** sur ce seed BC
-  (mesuré, invariant par board), mais son contenu vit dans le `.cctor` de
-  `StaticBattleRules.TriggeredAbility` et **dépend des passifs du BC** : un autre seed changerait
-  l'offset. Un émetteur doit mirrorer ce dictionnaire.
+- ~~**#477-r16-r1**~~ — **FERMÉ** (§3ter) : la table est lue (2 entrées), `derived` est prédit et
+  confronté, et le contre-test le fait varier dans les deux sens.
+- **#477-r16-r1-r1** — la branche **DÉDUPLICATION** d'`IncludeEnvironmentAbility` (§3bis) est lue
+  mais **NON CONFRONTÉE** : sur tous les montages disponibles, `BC.EnvironmentAbilities` est
+  **vide**, donc les trois termes conditionnels valent invariablement 1/1/0 — régime dégénéré sur
+  cet axe. Il faudrait un BC portant déjà `EnvDespoiledGroundTileDamage` ou `EnvFireTileDamage`
+  dans `BC.EnvironmentAbilities.EnvironmentAbilities`. Conséquence directe : la **forme
+  sérialisée** d'un élément de ces listes n'a jamais été observée —
+  `probe.ids_env_abilities_du_bc` lève plutôt que de deviner, mais son extracteur d'id est donc
+  lui-même non validé.
 - **#477-r16-r2** — la **boucle sur les pieds** est lue au décompilé mais **non confrontée** : aucun
   porteur multi-tuiles n'est atteignable par les montages testés (les unités prédéfinies sont
   mono-tuile par construction, une MoW n'a aucun pied). Le porteur est le **BOSS**
