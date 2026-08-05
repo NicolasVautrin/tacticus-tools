@@ -171,13 +171,20 @@ def _dispose(sid, rid):
 
 
 def _obs(sid, rid):
-    """Les unites VIVANTES et POSEES. La cle d'acteur est `squadId` -- c'est elle que
-    `decisionView.units[].id`, `aiMovableTiles.units[].unitId`, `combatSnapshot.units[].entityId`
-    et `abilityReason.casterId` partagent (MESURE : `entityId` d'`observeBattle` en differe de 1 et
-    `abilityReason` rend `casterReason: null` si on le lui passe)."""
+    """Les unites VIVANTES et POSEES, plus le joueur COURANT.
+
+    La cle d'acteur est `squadId` -- c'est elle que `decisionView.units[].id`,
+    `aiMovableTiles.units[].unitId`, `combatSnapshot.units[].entityId` et `abilityReason.casterId`
+    partagent (MESURE : `entityId` d'`observeBattle` en differe de 1 et `abilityReason` rend
+    `casterReason: null` si on le lui passe).
+
+    `currentPlayer` = `TurnComponent._currentPlayerId` et `units[].playerId` =
+    `OwnerComponent.PlayerEntityId` (le proprietaire d'ORIGINE) : leur egalite EST
+    `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit`, le prefixe de `CasterHasNotMoved`."""
     o = _r(sid, "observeBattle", {"runnerId": rid}, 120)
-    return [u for u in (o.get("units") or [])
-            if not u.get("isDead") and u.get("col") is not None]
+    return ([u for u in (o.get("units") or [])
+             if not u.get("isDead") and u.get("col") is not None],
+            o.get("currentPlayer"))
 
 
 def _threat(sid, rid):
@@ -222,11 +229,13 @@ def _moved_map(sid, rid):
     return out, mid
 
 
-def _substrate(row, units, walk, elev, moved=None):
+def _substrate(row, units, walk, elev, moved=None, current_player=None):
     """Le `CasterSubstrate` d'une unite d'`observeBattle`, alimente par tout ce qui EST publie."""
     return acg.CasterSubstrate(
         pos=(row["col"], row["row"]), has_tile=True, team=row.get("teamId"),
         has_moved=None if moved is None else moved.get(row.get("squadId")),
+        is_turn_of_unit=(None if current_player is None or row.get("playerId") is None
+                         else int(row["playerId"]) == int(current_player)),
         team_by_pos={(u["col"], u["row"]): u.get("teamId") for u in units},
         walkable_by_pos=walk, elev_by_pos=elev, neigh_by_pos=None)
 
@@ -371,7 +380,7 @@ def _rapproche(sid, rid, cible_d, budget) -> dict:
     parce que la GEOMETRIE DE SPAWN l'eloigne. On DEPLACE, on n'accuse pas la geometrie."""
     trace = []
     for _ in range(int(budget)):
-        units = _obs(sid, rid)
+        units, joueur = _obs(sid, rid)
         me = next((u for u in units if u.get("visualId") == CASTER_VISUAL), None)
         if me is None:
             return {"pas": trace, "arret": "caster absent"}
@@ -409,7 +418,7 @@ def live(sid, board=None, fillers=3, tours=8, approche=True, approche_d=4,
         if approche:
             out["approche_silencieuse"] = _rapproche(sid, rid, approche_d, approche_budget)
         for it in range(int(tours)):
-            units = _obs(sid, rid)
+            units, joueur = _obs(sid, rid)
             me = next((u for u in units if u.get("visualId") == CASTER_VISUAL), None)
             if me is None:
                 out["tours"].append({"iter": it, "error": "caster absent"})
@@ -418,7 +427,7 @@ def live(sid, board=None, fillers=3, tours=8, approche=True, approche_d=4,
             ennemis = [(u["col"], u["row"]) for u in units
                        if u.get("teamId") != me.get("teamId")]
             moved, _ = _moved_map(sid, rid)
-            sub = _substrate(me, units, walk, elev, moved)
+            sub = _substrate(me, units, walk, elev, moved, joueur)
             th = _threat(sid, rid)
             move, natif = th.get(uid) or ([], set())
             natif &= set(allp)
@@ -548,7 +557,13 @@ def _kit_ability_ids(visual):
 
 def cascade(sid, board, rosters, tours=3) -> dict:
     """Confronte `_port_caster_reason` a `abilityReason.casterReason` sur TOUTES les paires
-    (unite, ability a masque RE-lu) d'un runner, a chaque tour."""
+    (unite, ability a masque RE-lu) d'un runner.
+
+    DEUX passes par tour, et c'est ce qui rend `CasterHasNotMoved` observable en largeur : le flag
+    `UnitFlag.Moved` est efface au debut de chaque tour
+    (`IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags`), donc la seule fenetre ou
+    il vaut vrai est APRES un deplacement et AVANT la fin du tour. On mesure donc `phase="pose"`,
+    puis on DEPLACE toutes les unites controlees d'un pas, puis `phase="bouge"`."""
     out = {"board": board, "rosters": rosters, "paires": [], "runner": None}
     p_units, a_units = rosters
     rid, err = _build(board, p_units, a_units)
@@ -558,27 +573,46 @@ def cascade(sid, board, rosters, tours=3) -> dict:
     out["runner"] = rid
     try:
         elev, walk, _wall, _fog = _board_maps(sid, rid)
-        for it in range(int(tours)):
-            units = _obs(sid, rid)
+
+        def passe(it, phase):
+            units, joueur = _obs(sid, rid)
             moved, mid = _moved_map(sid, rid)
             if mid is not None and int(mid) != UNIT_FLAG_MOVED:
                 out["error"] = ("UnitFlag.Moved renumerote : enums.tsv=%d live=%s"
                                 % (UNIT_FLAG_MOVED, mid))
-                return out
+                return None
             rows = _dv_rows(sid, rid)
             for u in units:
                 uid, vis = u.get("squadId"), u.get("visualId")
-                sub = _substrate(u, units, walk, elev, moved)
+                sub = _substrate(u, units, walk, elev, moved, joueur)
                 st = acg.ability_state_map(rows.get(uid))
                 for aid in _kit_ability_ids(vis):
                     nat, noms = _caster_reason(sid, rid, uid, aid)
                     out["paires"].append({
-                        "iter": it, "unit": vis, "uid": uid, "ability": aid,
+                        "iter": it, "phase": phase, "unit": vis, "uid": uid, "ability": aid,
                         "rules": "0x%x" % int(getattr(targeting_options_for(aid), "rules", 0) or 0),
                         "natif": nat, "natif_noms": noms,
                         "port": _port_caster_reason(aid, st.get(aid), sub),
                         "moved": sub.has_moved,
                     })
+            return units
+
+        for it in range(int(tours)):
+            units = passe(it, "pose")
+            if units is None:
+                return out
+            # DEPLACER tout ce qui est controlable ce tour -- c'est ce qui arme `Moved`.
+            th = _threat(sid, rid)
+            for u in units:
+                uid = u.get("squadId")
+                tiles = [t for t in (th.get(uid) or ([], set()))[0]
+                         if tuple(t) != (u["col"], u["row"])]
+                if tiles:
+                    d = sorted(tiles)[0]
+                    _r(sid, "applyAction", {"runnerId": rid, "action": {
+                        "kind": "move", "unitId": uid, "to": {"col": d[0], "row": d[1]}}}, 60)
+            if passe(it, "bouge") is None:
+                return out
             _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
         return out
     finally:
@@ -593,6 +627,7 @@ def _verdict_cascade(res) -> int:
         return 1
     inv, exact, permissif = [], 0, {}
     n = 0
+    n_moved = sum(1 for d in (res.get("paires") or []) if d.get("moved") is True)
     for d in (res.get("paires") or []):
         nat, port = d.get("natif"), int(d.get("port") or 0)
         if nat is None:
@@ -612,7 +647,8 @@ def _verdict_cascade(res) -> int:
         else:
             inv.append(d)
     print("paires confrontees : %d   accord EXACT : %d   ecart PERMISSIF : %d"
-          % (n, exact, sum(permissif.values())))
+          "   (dont %d paires avec has_moved=True)"
+          % (n, exact, sum(permissif.values()), n_moved))
     for k, v in sorted(permissif.items(), key=lambda kv: -kv[1]):
         print("   permissif %-40s x%d" % (k, v))
     for d in inv[:20]:
@@ -644,13 +680,13 @@ def moved(sid, board=None) -> dict:
         elev, walk, _w, _f = _board_maps(sid, rid)
 
         def mesure(tag):
-            units = _obs(sid, rid)
+            units, joueur = _obs(sid, rid)
             me = next((u for u in units if u.get("visualId") == MOVED_VISUAL), None)
             if me is None:
                 return {"phase": tag, "error": "caster absent"}, None, None
             uid = me["squadId"]
             mv, mid = _moved_map(sid, rid)
-            sub = _substrate(me, units, walk, elev, mv)
+            sub = _substrate(me, units, walk, elev, mv, joueur)
             st = acg.ability_state_map(_dv_rows(sid, rid).get(uid))
             nat, noms = _caster_reason(sid, rid, uid, MOVED_ABILITY)
             with _SansRegle(TR.CasterHasNotMoved):
@@ -738,8 +774,15 @@ def main() -> int:
     ap.add_argument("--approche-d", type=int, default=4,
                     help="distance a laquelle l'approche SILENCIEUSE s'arrete")
     ap.add_argument("--approche-budget", type=int, default=40)
-    ap.add_argument("--p-units", default="orksWarboss,bloodDante,astraOrdnance,bloodIntercessor")
-    ap.add_argument("--a-units", default="orksNob,templSwordBrother,bloodMephiston")
+    # Roster du volet `cascade`, CHOISI pour couvrir les regles CASTER a gisement non nul :
+    # CasterHasNotMoved (1058 orksWarboss, 1177 bloodDante, 1026 astraOrdnance,
+    # 1153 bloodIntercessor, 1106 spaceBlackmane, 1115 tyranDeathleaper, 1204 astraDreir),
+    # CasterCanMove (1152 orksNob, 1043 templSwordBrother), CasterHas1Tiles (1151 bloodMephiston),
+    # CasterMatchesDynamicRule (1106, regime `not_read`).
+    ap.add_argument("--p-units",
+                    default="orksWarboss,bloodDante,astraOrdnance,bloodIntercessor,spaceBlackmane")
+    ap.add_argument("--a-units",
+                    default="orksNob,templSwordBrother,bloodMephiston,tyranDeathleaper,astraDreir")
     args = ap.parse_args()
     rc = 0
     if args.step in ("all", "inventaire"):

@@ -271,7 +271,7 @@ def can_currently_be_used(state) -> bool | None:
 #
 # LA CASCADE, VERBATIM (surcharge `IList<IEntity> casterTiles` ; `rules` = `options+0x28`) :
 #
-#   if (<IBattleQuery slot 0x35>(...) && (rules & 0x10))            // CasterHasNotMoved
+#   if (battleQuery.IsTurnOfUnit(caster) && (rules & 0x10))         // CasterHasNotMoved
 #       if (!(!DidMove(caster) && GetTiles(caster).IsEquivalentTo(casterTiles))) return 0x10;
 #   if ((rules & 0x10000000) && !CanMove(caster))            return 0x10000000;   // CasterCanMove
 #   if ((rules & 0x80000000) && GetStat(caster, 0xc) <= 1)   return 0x80000000;   // ...CompletedOneTurn
@@ -286,6 +286,24 @@ def can_currently_be_used(state) -> bool | None:
 #   if ((rules >> 0x34 & 1) && !<IBattleQuery slot 0x1b>(caster, 2)) return broken(0x10000000000000);
 #   if ((rules >> 0x35 & 1) && !IsMachine(caster))            return broken(0x20000000000000);
 #   return 0;                                                            // VALIDE
+#
+# LE PREFIXE DE LA CLAUSE 1 N'EST PAS DECORATIF -- il a ete DEDUIT DU DECOMPILE, puis MESURE.
+# Le decompile appelle `<IBattleQuery slot 0x35>(this.<+0x18>, caster)` ; le SEUL autre site du
+# binaire qui invoque ce couple (slot, classe d'interface) est la lambda
+# `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass86_0$$
+# u003CIsTurnOfUnitu003Eb__0`, dont le NOM donne la methode : le slot 0x35 est
+# `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit(caster)`, c'est-a-dire
+#
+#     GetOriginalOwnerEntity(GetUnit(caster)).Id == StateExtensions.GetMatchTurn(state).CurrentPlayerId
+#
+# -- « c'est le tour du PROPRIETAIRE D'ORIGINE de cette unite ». Quand c'est faux, la regle
+# `CasterHasNotMoved` est ENTIEREMENT sautee, quel que soit le flag `Moved`.
+# MESURE (#433-...-r4, `probe --step cascade`, 42 paires portant le bit) : separation PARFAITE --
+# le natif rend `CasterHasNotMoved` exactement quand `has_moved && IsTurnOfUnit`, et rend 0 sur les
+# 11 paires ou l'unite a bouge mais n'est pas du joueur courant. Sans ce prefixe le port refusait
+# ces 11 cas : un ecart RESTRICTIF, et le pire possible ici, puisque le consommateur cote DECISION
+# (`is_tile_in_range_of_any_ability`) evalue la menace des unites ENNEMIES -- precisement celles
+# dont ce n'est PAS le tour.
 #
 # LE GISEMENT, re-derive des 148 masques que le foyer `targeting_options_for` publie (et non
 # herite) : `CasterHasNotMoved` 13 porteurs, `CasterMatchesDynamicRule` 12, `CasterHas2TurnsLeft` 3,
@@ -319,11 +337,26 @@ class CasterSubstrate:
                              DIFFERENT de la clause TUILE-NULLE, que `has_tile` porte.
       * `has_tile`        -- `!CollectionExtensions.IsNullOrEmpty(casterTiles)`. Separe de `pos`
                              parce qu'un appelant peut connaitre l'un sans l'autre.
-      * `has_moved`       -- `IdunBattle.Entities.UnitExtensions$$DidMove` = `UnitFlag.Moved`.
-                             AUCUN canal cote DECISION ne le publie a ce jour (ni `decisionView`
-                             ni `projectUnitsFull`) -> `None` en pratique. Point d'ancrage a
-                             publier : le `UnitFlagsComponent` de la ligne d'unite, comme
-                             `combatSnapshot.units[].unitFlags` le fait deja cote runner.
+      * `has_moved`       -- `IdunBattle.Entities.UnitExtensions$$DidMove`, dont le corps est
+                             `GetComponent<UnitFlagsComponent>(unit).Has(UnitFlag.Moved)` apres un
+                             `Type == Unit` ; `UnitFlag.Moved` vaut **0** (`enums.tsv`).
+                             ⚠ Ni `decisionView` ni `projectUnitsFull` ne le publient, mais
+                             `combatSnapshot.units[].unitFlags` SI (tri-etat : `null` = non mesure,
+                             `[]` = mesure sans flag), et il porte aussi `unitFlagTypes` pour ne pas
+                             recopier l'id. `is_tile_in_range_of_any_ability` ne le branche PAS --
+                             c'est un canal de la face RUNNER, que son appelant (`NCContext`) ne
+                             transporte pas -> `None` en pratique par CE chemin. Le probe du cas, lui,
+                             le nourrit, et c'est ce qui a rendu la regle confrontable.
+      * `is_turn_of_unit` -- `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit`, le PREFIXE de la
+                             regle `CasterHasNotMoved` (cf. l'encadre ci-dessus). Derivable cote
+                             DECISION sans capteur neuf : `observeBattle.units[].playerId` est
+                             `OwnerComponent.PlayerEntityId` -- le proprietaire d'ORIGINE, celui que
+                             `GetOriginalOwnerEntity` resout -- et `observeBattle.currentPlayer` est
+                             `TurnComponent._currentPlayerId`, celui-la meme que le natif compare.
+                             ⚠ NE PAS le confondre avec `decisionView.units[].ctrl`
+                             (`UnitExtensions$$IsControlledByCurrentPlayer`), qui lit
+                             `OwnerComponent.CurrentPlayerEntityId` : les deux divergent sous
+                             controle mental.
       * `feet_count`      -- `IdunBattle.Entities.UnitExtensions$$GetFeetCount`.
       * `is_machine`      -- `IdunBattle.Entities.EntityExtensions$$IsMachine`.
       * `team`, `team_by_pos`, `walkable_by_pos`, `elev_by_pos`, `neigh_by_pos` -- le substrat de
@@ -333,6 +366,7 @@ class CasterSubstrate:
     pos: tuple | None = None
     has_tile: bool | None = None
     has_moved: bool | None = None
+    is_turn_of_unit: bool | None = None
     feet_count: int | None = None
     is_machine: bool | None = None
     team: int | None = None
@@ -495,13 +529,14 @@ def invalid_caster_reason(ability_id, caster: "CasterSubstrate" = None) -> int |
         return None                              # masque NON RE-lu -> aucune regle lisible
     rules = int(getattr(opts, "rules", 0) or 0)
 
-    # 1. `CasterHasNotMoved` (0x10). Le prefixe `<IBattleQuery slot 0x35>` n'est pas resolu ; il ne
-    #    peut que DESARMER la regle, donc le porter comme s'il etait toujours vrai ne peut que
-    #    RETIRER une zone -- c'est pourquoi la regle ne mord que sur un `has_moved` MESURE.
+    # 1. `CasterHasNotMoved` (0x10), sous son PREFIXE `BattleQuery$$IsTurnOfUnit(caster)` -- les
+    #    DEUX conditions, dans cet ordre, et il faut que les deux soient MESUREES vraies (tri-etat :
+    #    un `None` ne refuse pas). Omettre le prefixe faisait refuser 11 paires sur 42 que le natif
+    #    ACCEPTE (cf. l'encadre de la section GATE 4).
     #    La 2e clause (`GetTiles(caster).IsEquivalentTo(casterTiles)`) est INERTE dans le regime du
     #    consommateur : `casterTiles` y est le singleton `{GetMainTile(caster)}`, donc equivalent.
     if rules & int(TR.CasterHasNotMoved):
-        if caster is not None and caster.has_moved:
+        if caster is not None and caster.is_turn_of_unit and caster.has_moved:
             return int(TR.CasterHasNotMoved)
     # 2. `CasterCanMove` (0x10000000) -- `UnitExtensions$$CanMove` n'est publie par aucun canal
     #    DECISION. 2 porteurs (1043, 1152). NON PORTEE, degradation permissive.
