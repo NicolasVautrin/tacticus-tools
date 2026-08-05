@@ -25,10 +25,10 @@ On normalise ce qui est RELOCALISE, on garde ce qui est STRUCTUREL :
 
   RELOCALISE (neutralise)              STRUCTUREL (conserve)
   -------------------------            ----------------------------------------
-  cible d'un call/jmp externe          -> le SYMBOLE de la cible, pas son delta
-  cible RIP-relative vers du code      -> le SYMBOLE
-  cible RIP-relative vers des donnees  -> un jeton par SECTION (limite : cf. plus bas)
-  adresse absolue dans un immediat     -> `<ABS>` ou le symbole
+  cible d'un call/jmp externe          -> `<F>` + l'EMPREINTE de la cible (jamais son nom,
+  cible RIP-relative vers du code         cf. l'avertissement de la classe Normaliseur)
+  cible RIP-relative vers des donnees  -> `<X>`, un jeton UNIQUE (limite : cf. plus bas)
+  adresse absolue dans un immediat     -> le meme traitement que ci-dessus
   branchement INTERNE a la fonction    -> son delta, qui est deja invariant (le corps
                                           se deplace en BLOC, les sauts internes suivent)
                                        registres, mnemoniques, ordre des instructions
@@ -37,23 +37,32 @@ On normalise ce qui est RELOCALISE, on garde ce qui est STRUCTUREL :
 
 CINQ COUCHES, PAS UNE -- pour que le diff VENTILE au lieu de dire seulement <<ca a change>> :
 
-  h_body   sha1 du flux complet normalise ......... LE VERDICT
-  h_mnem   sha1 de la seule sequence de mnemoniques  structure du code, operandes ignorees
-  h_calls  sha1 des cibles d'appel NOMMEES ......... qui la fonction appelle
-  h_imm    sha1 des litteraux conserves ............ constantes et offsets
-  n_ins    nombre d'instructions .................... la mesure la plus grossiere
+  h_local  sha1 du corps PROPRE, references de code anonymisees ... LE VERDICT
+  h_body   h_local + l'empreinte de chaque cible referencee ....... corps + appeles
+  h_mnem   sha1 de la seule sequence de mnemoniques ............... operandes ignorees
+  h_calls  sha1 des empreintes des cibles d'APPEL ................. qui la fonction appelle
+  h_imm    sha1 des litteraux conserves ........................... constantes et offsets
+  n_ins    nombre d'instructions
 
-Un `h_mnem` identique avec un `h_body` different dit <<meme squelette, operandes changees>> :
-typiquement une constante de formule ou une cible d'appel. C'est le signal le plus interessant
-pour un port.
+`h_local` et `h_body` repondent a deux questions qu'il ne faut pas confondre : <<CE code
+a-t-il change ?>> et <<ce code, OU CE QU'IL APPELLE, a-t-il change ?>>. Le second propage d'un
+niveau ; seul le premier perime un port. Un `h_mnem` identique avec un `h_local` different dit
+<<meme squelette, operandes changees>> : typiquement une constante de formule ou un offset de
+struct -- le signal le plus interessant pour un mirror.
 
 CE QUE L'EMPREINTE NE VOIT PAS (limite ASSUMEE, mesuree par la garde)
 --------------------------------------------------------------------
 Une reference vers une DONNEE (`mov rcx, qword ptr [rip + X]` chargeant un `Il2CppClass*`) est
-reduite au jeton de sa section : deux classes differentes donnent le meme jeton. Une fonction
+reduite au jeton unique `<X>` : deux classes differentes donnent le meme jeton. Une fonction
 dont SEULE une reference de donnee change est donc un FAUX NEGATIF. On ne peut pas faire mieux
 sans une table de symboles de DONNEES par build -- `functions.tsv` ne contient que des
-fonctions. La garde `probe_253_empreinte_structurelle.py` mesure ce trou au lieu de le taire.
+fonctions. La garde `probe_482_empreinte_structurelle.py` (etage 3) mesure ce trou au lieu de
+le taire, et rougit s'il S'AGRANDIT.
+
+Ne sont chargees que les sections EXECUTABLES, des deux cotes. C'est un choix de SYMETRIE :
+nommer `.rdata` vs `.data` demanderait de charger les sections de donnees, or le dump d'un
+build archive n'en extrait pas les octets -- l'asymetrie qui en resulterait fabriquerait des
+divergences bien plus couteuses que la finesse gagnee.
 
 DEUX SOURCES D'OCTETS, UN SEUL PIPELINE
 ---------------------------------------
@@ -72,6 +81,7 @@ USAGE
 from __future__ import annotations
 
 import argparse
+import bisect
 import hashlib
 import re
 import sys
@@ -242,32 +252,62 @@ def charger_functions_tsv(build: str, chemin: Path | None = None):
 # 3. NORMALISATION + HACHAGE
 # ===========================================================================
 class Normaliseur:
-    """Transforme une instruction desassemblee en jeton INVARIANT A LA RELOCATION."""
+    """Transforme une instruction desassemblee en jeton INVARIANT A LA RELOCATION.
 
-    def __init__(self, image: ImageCode, par_va: dict):
+    POURQUOI LE NOM DE LA CIBLE N'EST PAS UTILISABLE -- mesure, pas supposition.
+    Une premiere version citait le SYMBOLE de la cible d'appel, par analogie avec la regle
+    du depot <<on cite un symbole, jamais une adresse>>. Elle rendait 52 % de corps changes
+    entre gqfc5mff6c et rnca9r7q6c, alors que la sequence d'opcodes (`h_mnem`, qui n'utilise
+    AUCUN nom) etait identique a 95,0 % : 48 221 fonctions avaient exactement les memes
+    opcodes et un `h_body` different.
+
+    La cause est structurelle, et le CLAUDE.md la nomme deja : IL2CPP DEDUPLIQUE les corps.
+    Un corps partage par N methodes n'a qu'UN SEUL proprietaire dans la table, et ce
+    proprietaire est ARBITRAIRE -- il change d'un dump a l'autre. Mesure ici : 53,5 % des
+    fonctions de gqfc et 55,1 % de rnca vivent dans un groupe de corps partage, le plus gros
+    groupe comptant 3 196 fonctions. Temoin : `AK.Wwise.BaseType$$GetHashCode` <<appelait>>
+    `GooglePlayServices` dans un build et `BurstString.tBigInt$$GetLength` dans l'autre, pour
+    108 instructions rigoureusement identiques des deux cotes.
+
+    Un appel se normalise donc par l'EMPREINTE de sa cible, jamais par son nom. Le nom est
+    instable ; le corps ne l'est pas. C'est la regle du depot appliquee un cran plus bas :
+    ce qui identifie du code, c'est le code.
+    """
+
+    def __init__(self, image: ImageCode, par_va: dict, debuts: list):
         self.image = image
         self.par_va = par_va
+        self.debuts = debuts            # VA de debut de fonction, TRIEES (recherche binaire)
         self.va_min = image.va_min
         self.va_max = image.va_max
-        self._cache_section = {}
+        self.refs = []                  # VA de fonction referencees par l'instruction courante
 
     def _jeton_cible(self, cible: int) -> str:
         """Une adresse ABSOLUE -> un jeton stable entre builds.
 
-        Une fonction connue rend son SYMBOLE : c'est ce qui survit a la relocation, et c'est
-        la meme regle que <<on cite un symbole, jamais une adresse>>, appliquee a la machine.
+        Une reference vers du CODE devient `<F>` (anonyme) et la VA de la fonction visee est
+        accumulee dans `self.refs` : c'est l'appelant qui decidera de la remplacer par
+        l'empreinte de la cible. Le jeton lui-meme ne porte donc AUCUN nom.
         """
-        sym = self.par_va.get(cible)
-        if sym is not None:
-            # Un `FUN_<addr>` porte l'adresse DANS son nom : le citer reintroduirait
-            # exactement la volatilite qu'on cherche a neutraliser.
-            return "<F>" if sym.startswith("FUN_") else "<F:%s>" % sym
+        if cible in self.par_va:
+            self.refs.append(cible)
+            return "<F>"
         sect = self.image.nom_section(cible)
-        if sect is not None:
-            return "<D:%s>" % sect
-        if self.va_min <= cible < self.va_max:
-            return "<D:?>"
-        return "<X>"      # hors image : import, thunk, donnee non mappee
+        if sect is None:
+            return "<X>"                # hors image : import, thunk, donnee non mappee
+        seg = self.image.segment_de(cible)
+        if seg is not None and self._est_executable(seg):
+            # Adresse INTERNE a une fonction (saut dans un corps, table de sauts). On vise la
+            # fonction contenante et on garde l'offset, qui est relatif donc stable.
+            i = bisect.bisect_right(self.debuts, cible) - 1
+            if i >= 0:
+                self.refs.append(self.debuts[i])
+                return "<F+0x%x>" % (cible - self.debuts[i])
+        return "<D:%s>" % sect
+
+    def _est_executable(self, seg):
+        # Les segments proviennent de sections/blocs deja filtres sur l'attribut executable.
+        return True
 
     def _jeton_imm(self, m) -> str:
         """Un litteral hexadecimal dans les operandes.
@@ -328,13 +368,26 @@ def delimiter_corps(insns, fn_deb, borne):
     return len(insns), fin, "trunc"
 
 
-def empreinter_build(build, image, entrees, par_va, verbose=True):
-    """Calcule l'empreinte de chaque fonction. Rend une liste de dicts."""
+def _illisible(va, sym, flag):
+    """Fonction dont aucun corps n'a pu etre lu. On la RENVOIE quand meme, avec sa raison :
+    un symbole absent du fichier de sortie serait indistinguable d'un symbole disparu."""
+    return dict(va=va, sym=sym, taille=0, n_ins=0, h_local="-", h_body="-",
+                h_mnem="-", h_calls="-", h_imm="-", flags=flag, _refs=(), _appels=())
+
+
+def empreinter_build(build, image, entrees, par_va, verbose=True, garder_jetons=None):
+    """Calcule l'empreinte de chaque fonction. Rend une liste de dicts.
+
+    `garder_jetons` : ensemble de symboles dont on CONSERVE la suite de jetons normalises
+    (dans la cle `jetons`). C'est l'outil de DECOMPOSITION PAR ETAGE : quand un diff annonce
+    un ecart, on ne le croit pas sur parole -- on regarde quel jeton, exactement, a bouge.
+    """
     from capstone import Cs, CS_ARCH_X86, CS_MODE_64
 
     md = Cs(CS_ARCH_X86, CS_MODE_64)
     md.detail = False                 # disasm_lite : ~4x plus rapide, suffisant ici
-    norm = Normaliseur(image, par_va)
+    debuts = [va for va, _s in entrees]
+    norm = Normaliseur(image, par_va, debuts)
     resultats = []
     t0 = time.time()
     n = len(entrees)
@@ -344,8 +397,7 @@ def empreinter_build(build, image, entrees, par_va, verbose=True):
             print("    ... %d/%d fonctions (%.0f s)" % (idx, n, time.time() - t0))
         seg = image.segment_de(va)
         if seg is None:
-            resultats.append(dict(va=va, sym=sym, taille=0, n_ins=0, h_body="-",
-                                  h_mnem="-", h_calls="-", h_imm="-", flags="hors-image"))
+            resultats.append(_illisible(va, sym, "hors-image"))
             continue
         seg_deb, seg_fin, _nom, data = seg
         borne = entrees[idx + 1][0] if idx + 1 < n else seg_fin
@@ -356,8 +408,7 @@ def empreinter_build(build, image, entrees, par_va, verbose=True):
         code = data[va - seg_deb: borne - seg_deb]
         insns = list(md.disasm_lite(code, va))
         if not insns:
-            resultats.append(dict(va=va, sym=sym, taille=0, n_ins=0, h_body="-",
-                                  h_mnem="-", h_calls="-", h_imm="-", flags="vide"))
+            resultats.append(_illisible(va, sym, "vide"))
             continue
 
         nb, va_fin, flag = delimiter_corps(insns, va, borne)
@@ -367,36 +418,60 @@ def empreinter_build(build, image, entrees, par_va, verbose=True):
         while corps and corps[-1][2] in PADDING:
             corps.pop()
         if not corps:
-            resultats.append(dict(va=va, sym=sym, taille=0, n_ins=0, h_body="-",
-                                  h_mnem="-", h_calls="-", h_imm="-", flags="padding"))
+            resultats.append(_illisible(va, sym, "padding"))
             continue
 
-        jetons, mnems, appels, imms = [], [], [], []
+        jetons, mnems, imms = [], [], []
+        refs_fn, appels_fn = [], []
         for (addr, size, mnem, ops) in corps:
+            norm.refs = []
             j = norm.instruction(addr, size, mnem, ops, va, va_fin)
             jetons.append(j)
             mnems.append(mnem)
-            if mnem == "call":
-                appels.append(j[5:])
+            if norm.refs:
+                refs_fn.extend(norm.refs)
+                if mnem == "call":
+                    appels_fn.extend(norm.refs)
             for m in RE_HEX.finditer(j):
                 imms.append(m.group(0))
 
-        resultats.append(dict(
+        entree = dict(
             va=va, sym=sym,
             taille=corps[-1][0] + corps[-1][1] - va,
             n_ins=len(corps),
-            h_body=sha1_12(jetons),
+            # h_local : le corps PROPRE, references de code anonymisees. Aucun nom, aucune
+            # adresse -- donc rien qui puisse bouger sans que le code ait bouge.
+            h_local=sha1_12(jetons),
             h_mnem=sha1_12(mnems),
-            h_calls=sha1_12(appels) if appels else "-",
             h_imm=sha1_12(imms) if imms else "-",
             flags=flag,
-        ))
+            _refs=tuple(refs_fn),
+            _appels=tuple(appels_fn),
+        )
+        if garder_jetons is not None and sym in garder_jetons:
+            entree["jetons"] = jetons
+        resultats.append(entree)
+
+    # -- SECONDE PASSE : resoudre chaque reference de code par l'EMPREINTE de sa cible.
+    #    C'est ce qui remplace le nom (instable a cause de la deduplication IL2CPP) par
+    #    quelque chose qui ne bouge que si le code bouge.
+    local_par_va = {r["va"]: r["h_local"] for r in resultats}
+    for r in resultats:
+        if r["h_local"] == "-":
+            r["h_body"] = r["h_calls"] = "-"
+            continue
+        refs = [local_par_va.get(v, "?") for v in r["_refs"]]
+        r["h_body"] = sha1_12([r["h_local"]] + refs)
+        app = [local_par_va.get(v, "?") for v in r["_appels"]]
+        r["h_calls"] = sha1_12(app) if app else "-"
+        del r["_refs"], r["_appels"]
     if verbose:
         print("    %d fonctions empreintees en %.0f s" % (n, time.time() - t0))
     return resultats
 
 
-COLONNES = ["va", "sym", "taille", "n_ins", "h_body", "h_mnem", "h_calls", "h_imm", "flags"]
+COLONNES = ["va", "sym", "taille", "n_ins", "h_local", "h_body", "h_mnem", "h_calls",
+            "h_imm", "flags"]
 
 
 def ecrire_tsv(chemin: Path, build: str, image: ImageCode, resultats):
@@ -407,8 +482,8 @@ def ecrire_tsv(chemin: Path, build: str, image: ImageCode, resultats):
                    time.strftime("%Y-%m-%dT%H:%M:%S")))
         f.write("#" + "\t".join(COLONNES) + "\n")
         for r in resultats:
-            f.write("%x\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\n" % (
-                r["va"], r["sym"], r["taille"], r["n_ins"],
+            f.write("%x\t%s\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n" % (
+                r["va"], r["sym"], r["taille"], r["n_ins"], r["h_local"],
                 r["h_body"], r["h_mnem"], r["h_calls"], r["h_imm"], r["flags"]))
 
 
@@ -427,8 +502,8 @@ def lire_tsv(chemin: Path):
             continue
         c = ligne.split("\t")
         lignes.append(dict(va=int(c[0], 16), sym=c[1], taille=int(c[2]), n_ins=int(c[3]),
-                           h_body=c[4], h_mnem=c[5], h_calls=c[6],
-                           h_imm=c[7], flags=c[8] if len(c) > 8 else ""))
+                           h_local=c[4], h_body=c[5], h_mnem=c[6], h_calls=c[7],
+                           h_imm=c[8], flags=c[9] if len(c) > 9 else ""))
     return entete, lignes
 
 
@@ -467,25 +542,34 @@ def apparier(avant, apres):
 
 
 def classifier(a, b):
-    """Ventile un couple (avant, apres) apparie. Rend (verdict, detail)."""
-    if a["h_body"] == "-" or b["h_body"] == "-":
+    """Ventile un couple (avant, apres) apparie. Rend (verdict, detail).
+
+    TROIS verdicts, pas deux -- parce que <<ce code a change>> et <<ce que ce code APPELLE a
+    change>> sont deux questions differentes, et les confondre rend le rapport inutilisable :
+
+      IDENTIQUE       le corps propre ET tout ce qu'il appelle sont inchanges
+      APPELES_CHANGES le corps propre est BIT A BIT le meme ; une de ses cibles a change.
+                      Propagation d'un niveau, pas une reecriture de cette fonction-ci.
+      CORPS_CHANGE    le corps propre lui-meme a change. C'EST le signal qui perime un port.
+    """
+    if a["h_local"] == "-" or b["h_local"] == "-":
         return "ILLISIBLE", a["flags"] or b["flags"] or "?"
-    if a["h_body"] == b["h_body"]:
-        return "IDENTIQUE", ""
-    quoi = []
-    if a["n_ins"] != b["n_ins"]:
-        quoi.append("n_ins %d->%d" % (a["n_ins"], b["n_ins"]))
-    if a["h_mnem"] != b["h_mnem"]:
-        quoi.append("opcodes")
-    if a["h_calls"] != b["h_calls"]:
-        quoi.append("appels")
-    if a["h_imm"] != b["h_imm"]:
-        quoi.append("litteraux")
-    if a["h_mnem"] == b["h_mnem"]:
-        # Meme squelette d'instructions, operandes differentes : le signal le plus utile
-        # pour un port (une constante de formule ou une cible d'appel a bouge).
-        quoi.append("MEME-SQUELETTE")
-    return "CORPS_CHANGE", ",".join(quoi) if quoi else "operandes"
+    if a["h_local"] != b["h_local"]:
+        quoi = []
+        if a["n_ins"] != b["n_ins"]:
+            quoi.append("n_ins %d->%d" % (a["n_ins"], b["n_ins"]))
+        if a["h_mnem"] != b["h_mnem"]:
+            quoi.append("opcodes")
+        if a["h_imm"] != b["h_imm"]:
+            quoi.append("litteraux")
+        if a["h_mnem"] == b["h_mnem"]:
+            # Meme squelette d'instructions, operandes differentes : le signal le plus utile
+            # pour un port (une constante de formule ou un offset de struct a bouge).
+            quoi.append("MEME-SQUELETTE")
+        return "CORPS_CHANGE", ",".join(quoi) if quoi else "operandes"
+    if a["h_body"] != b["h_body"]:
+        return "APPELES_CHANGES", "appels" if a["h_calls"] != b["h_calls"] else "refs"
+    return "IDENTIQUE", ""
 
 
 def cmd_empreinte(args):
@@ -557,11 +641,11 @@ def cmd_diff(args):
 
     n_comm = max(1, len(communs))
     print("\n-- VERDICT sur les %d symboles communs --" % len(communs))
-    for k in ("IDENTIQUE", "CORPS_CHANGE", "ILLISIBLE"):
+    for k in ("IDENTIQUE", "APPELES_CHANGES", "CORPS_CHANGE", "ILLISIBLE"):
         if k in cats:
-            print("  %-14s %6d  (%5.1f %%)" % (k, cats[k], 100.0 * cats[k] / n_comm))
-    print("  %-14s %6d" % ("APPARU", len(set(ib) - set(ia))))
-    print("  %-14s %6d" % ("DISPARU", len(set(ia) - set(ib))))
+            print("  %-16s %6d  (%5.1f %%)" % (k, cats[k], 100.0 * cats[k] / n_comm))
+    print("  %-16s %6d" % ("APPARU", len(set(ib) - set(ia))))
+    print("  %-16s %6d" % ("DISPARU", len(set(ia) - set(ib))))
 
     # Ventilation du changement : DE QUOI est fait le <<corps change>>.
     vent = {}
@@ -573,6 +657,31 @@ def cmd_diff(args):
         print("\n-- DE QUOI SONT FAITS LES %d CHANGEMENTS --" % len(changes))
         for k, v in sorted(vent.items(), key=lambda kv: -kv[1]):
             print("  %-16s %6d" % (k, v))
+
+    # -- FAUX POSITIF RESIDUEL, mesure et non estime.
+    # L'appariement se fait par NOM. Or IL2CPP deduplique les corps : quand un corps est
+    # partage par plusieurs symboles, celui qui en est le <<proprietaire>> dans la table est
+    # ARBITRAIRE et peut changer d'un dump a l'autre. Comparer un tel nom revient alors a
+    # comparer deux corps sans rapport -- un changement fabrique de toutes pieces.
+    # Quand le corps est UNIQUE dans les deux builds, l'appariement par nom est sur.
+    mult_a, mult_b = {}, {}
+    for l in avant:
+        mult_a[l["h_local"]] = mult_a.get(l["h_local"], 0) + 1
+    for l in apres:
+        mult_b[l["h_local"]] = mult_b.get(l["h_local"], 0) + 1
+    sur = douteux = 0
+    for _s, a, b, _d in changes:
+        if mult_a.get(a["h_local"], 0) == 1 and mult_b.get(b["h_local"], 0) == 1:
+            sur += 1
+        else:
+            douteux += 1
+    n_ch = max(1, len(changes))
+    print("\n-- FIABILITE DE L'APPARIEMENT des %d changements --" % len(changes))
+    print("  corps UNIQUE des deux cotes (appariement sur)   : %6d  (%5.1f %%)"
+          % (sur, 100.0 * sur / n_ch))
+    print("  corps PARTAGE d'au moins un cote (nom arbitraire): %6d  (%5.1f %%)"
+          % (douteux, 100.0 * douteux / n_ch))
+    print("  -> le second groupe est la borne HAUTE du faux positif residuel.")
 
     if args.ecrire:
         p = Path(args.ecrire)
@@ -593,9 +702,212 @@ def cmd_diff(args):
     return 0
 
 
+RE_SYMBOLE_CITE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*\$\$[A-Za-z_.][A-Za-z0-9_.]*")
+
+
+def cmd_impact(args):
+    """Croise le diff avec les symboles que le DEPOT CITE -- <<est-ce que ca tombe sur des
+    fonctions qu'on a portees ?>>.
+
+    Un changement de corps n'a de cout que s'il touche quelque chose qu'on a mirrore. Le
+    depot cite ses fonctions natives sous la forme `Classe$$Methode` (c'est la regle <<on
+    cite un SYMBOLE, jamais une adresse>>), ce qui rend ce croisement possible par simple
+    lecture des sources.
+    """
+    cites = {}
+    racines = [REPO / d for d in args.racines]
+    exts = {".py", ".md", ".ts", ".java", ".json", ".sql"}
+    for racine in racines:
+        if not racine.exists():
+            continue
+        for p in racine.rglob("*"):
+            if p.suffix not in exts or not p.is_file():
+                continue
+            try:
+                txt = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for m in RE_SYMBOLE_CITE.finditer(txt):
+                cites.setdefault(m.group(0), set()).add(str(p.relative_to(REPO)))
+    print("[citations] %d symboles natifs distincts cites dans %s"
+          % (len(cites), ", ".join(args.racines)))
+
+    changes = {}
+    for ligne in Path(args.diff).read_text(encoding="utf-8").splitlines():
+        if ligne.startswith("#"):
+            continue
+        c = ligne.split("\t")
+        changes[c[0]] = c
+
+    touches = sorted(set(cites) & set(changes))
+    print("[impact] %d symboles CITES par le depot ont un CORPS CHANGE" % len(touches))
+    if not touches:
+        print("  (aucun -- mais verifier que le diff porte bien sur les bons builds)")
+        return 0
+    print()
+    for s in touches:
+        c = changes[s]
+        fichiers = sorted(cites[s])
+        print("  %-72s %s" % (s[:72], c[5] if len(c) > 5 else ""))
+        print("      n_ins %s -> %s   cite par : %s%s"
+              % (c[3], c[4], ", ".join(fichiers[:3]),
+                 " (+%d)" % (len(fichiers) - 3) if len(fichiers) > 3 else ""))
+    return 0
+
+
+def charger_source(chemin: str) -> ImageCode:
+    """Un dossier -> blocs Ghidra ; un fichier -> PE. Une seule facon de designer un build."""
+    p = Path(chemin)
+    return charger_depuis_blocs(p) if p.is_dir() else charger_depuis_pe(p)
+
+
+def jetons_de(build, source, symboles):
+    """Rend {symbole: [jetons]} pour un build donne."""
+    image = charger_source(source)
+    entrees, par_va = charger_functions_tsv(build)
+    voulus = set(symboles)
+    cibles = [(va, s) for (va, s) in entrees if s in voulus]
+    # `entrees` COMPLET reste necessaire : le normaliseur resout les cibles d'appel par la
+    # table entiere, et les bornes de fonction dependent du voisin immediat.
+    index = {va: i for i, (va, _s) in enumerate(entrees)}
+    out = {}
+    for va, s in cibles:
+        i = index[va]
+        tranche = entrees[i:i + 2] if i + 1 < len(entrees) else entrees[i:i + 1]
+        r = empreinter_build(build, image, tranche, par_va, verbose=False,
+                             garder_jetons=voulus)[0]
+        out[s] = r.get("jetons", [])
+    return out
+
+
+def cmd_enqueter(args):
+    """Diff des JETONS d'un symbole entre deux builds -- l'outil de decomposition.
+
+    Un verdict `CORPS_CHANGE` ne se croit pas sur parole : on regarde QUEL jeton a bouge.
+    C'est ce qui distingue un vrai changement de code d'un artefact de la normalisation.
+    """
+    ba, sa = args.avant.split("=", 1)
+    bb, sb = args.apres.split("=", 1)
+    symboles = args.symbole
+    ja = jetons_de(ba, sa, symboles)
+    jb = jetons_de(bb, sb, symboles)
+
+    for s in symboles:
+        a, b = ja.get(s, []), jb.get(s, [])
+        print("=" * 78)
+        print("%s" % s)
+        print("  %s : %d instructions      %s : %d instructions" % (ba, len(a), bb, len(b)))
+        import difflib
+        diff = list(difflib.unified_diff(a, b, lineterm="", n=args.contexte,
+                                         fromfile=ba, tofile=bb))
+        if not diff:
+            print("  JETONS IDENTIQUES")
+            continue
+        montre = diff if args.tout else diff[:args.limite]
+        for l in montre:
+            print("  " + l)
+        if not args.tout and len(diff) > args.limite:
+            print("  ... (%d lignes de diff en tout, --tout pour les voir)" % len(diff))
+    return 0
+
+
+def cmd_ventiler(args):
+    """Agrege, sur un ECHANTILLON de symboles changes, la NATURE des jetons qui different.
+
+    Repond a la question qu'un pourcentage global ne peut pas trancher : <<ces 52 % sont-ils
+    du vrai changement de code, ou un artefact de ma normalisation ?>>
+    """
+    ba, sa = args.avant.split("=", 1)
+    bb, sb = args.apres.split("=", 1)
+    _e, changes = [], []
+    for ligne in Path(args.diff).read_text(encoding="utf-8").splitlines():
+        if ligne.startswith("#"):
+            continue
+        changes.append(ligne.split("\t")[0])
+    # Echantillon DETERMINISTE (pas de hasard : la mesure doit se rejouer a l'identique).
+    pas = max(1, len(changes) // args.n)
+    ech = changes[::pas][:args.n]
+    print("[echantillon] %d symboles sur %d changes (pas=%d)" % (len(ech), len(changes), pas))
+
+    ja = jetons_de(ba, sa, ech)
+    jb = jetons_de(bb, sb, ech)
+
+    import difflib
+    familles = {}
+    exemples = {}
+    n_lignes = 0
+    for s in ech:
+        a, b = ja.get(s, []), jb.get(s, [])
+        sm = difflib.SequenceMatcher(a=a, b=b, autojunk=False)
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == "equal":
+                continue
+            for x in range(i1, i2):
+                fam = _famille_jeton(a[x])
+                familles[fam] = familles.get(fam, 0) + 1
+                exemples.setdefault(fam, []).append((s, a[x], "-"))
+                n_lignes += 1
+            for y in range(j1, j2):
+                fam = _famille_jeton(b[y])
+                familles[fam] = familles.get(fam, 0) + 1
+                exemples.setdefault(fam, []).append((s, b[y], "+"))
+                n_lignes += 1
+
+    print("\n-- NATURE des %d jetons qui different --" % n_lignes)
+    for k, v in sorted(familles.items(), key=lambda kv: -kv[1]):
+        print("  %-28s %6d  (%5.1f %%)" % (k, v, 100.0 * v / max(1, n_lignes)))
+    if args.exemples:
+        print("\n-- EXEMPLES par famille --")
+        for k in sorted(familles, key=lambda k: -familles[k]):
+            print("  [%s]" % k)
+            for s, j, sens in exemples[k][:args.exemples]:
+                print("    %s %-58s  %s" % (sens, j[:58], s[:44]))
+    return 0
+
+
+def _famille_jeton(j: str) -> str:
+    """Classe un jeton par CE QUI POURRAIT AVOIR BOUGE -- pas par son mnemonique."""
+    if "<F+" in j:
+        return "ref INTERNE a une fonction"
+    if "<F>" in j:
+        return "appel/ref vers du CODE"
+    if "<D:" in j:
+        return "reference vers DONNEE"
+    if "<X>" in j:
+        return "reference HORS IMAGE"
+    if RE_HEX.search(j):
+        return "litteral conserve (const/offset)"
+    if j.split(" ")[0] in BRANCHES:
+        return "branchement interne"
+    return "instruction pure (registres)"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    q = sub.add_parser("enqueter", help="diff des jetons d'un symbole entre deux builds")
+    q.add_argument("--avant", required=True, help="<build>=<pe ou dossier de blocs>")
+    q.add_argument("--apres", required=True, help="<build>=<pe ou dossier de blocs>")
+    q.add_argument("--symbole", required=True, nargs="+")
+    q.add_argument("--limite", type=int, default=60)
+    q.add_argument("--contexte", type=int, default=2)
+    q.add_argument("--tout", action="store_true")
+    q.set_defaults(fn=cmd_enqueter)
+
+    v = sub.add_parser("ventiler", help="nature des jetons qui different, sur un echantillon")
+    v.add_argument("--avant", required=True)
+    v.add_argument("--apres", required=True)
+    v.add_argument("--diff", required=True, help="TSV produit par `diff --ecrire`")
+    v.add_argument("--n", type=int, default=200)
+    v.add_argument("--exemples", type=int, default=0)
+    v.set_defaults(fn=cmd_ventiler)
+
+    i = sub.add_parser("impact", help="quels symboles CITES par le depot ont un corps change")
+    i.add_argument("--diff", required=True, help="TSV produit par `diff --ecrire`")
+    i.add_argument("--racines", nargs="+",
+                   default=["engine", "docs", "scripts", "frida/hooks"])
+    i.set_defaults(fn=cmd_impact)
 
     e = sub.add_parser("empreinte", help="calcule l'empreinte de chaque fonction d'un build")
     e.add_argument("--build", required=True)

@@ -2,7 +2,7 @@
 //
 // POURQUOI CE SCRIPT EXISTE
 // -------------------------
-// L'empreinte structurelle par fonction (#253) doit comparer les CORPS de deux builds. Le
+// L'empreinte structurelle par fonction (#482) doit comparer les CORPS de deux builds. Le
 // build courant a son `GameAssembly.dll` sur disque, donc lisible par pefile. Un build
 // ARCHIVE, lui, n'existe plus que sous forme de projet Ghidra (`ghidra-projects/ghidra_<hash>/`)
 // -- le `.dll` d'origine a ete efface par la mise a jour du jeu. Ce script rend ses octets.
