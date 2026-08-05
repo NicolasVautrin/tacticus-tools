@@ -7,6 +7,10 @@ La question posée était binaire : **le natif balaie-t-il, lui, les effets de t
 Réponse : **oui, et sans le moindre gate**. Mais la mesure a d'abord **déplacé l'accusation** — le
 collecteur voit déjà les tuiles ; c'est le **gate d'owner** du dispatch qui les jetait.
 
+> **ÉTAT FINAL de cette fiche** : `-c-r1` (2026-08-05) n'a tiré de cette RE que le cas TUILE, en
+> gardant deux gates que le natif n'a pas. **`-c-r3` (2026-08-05, §7) les lève** : sur la face EFFET
+> le port ne gate plus rien. Les §2 et §4 décrivent l'état intermédiaire et le disent.
+
 ## 1. La prémisse est FAUSSE au niveau du collecteur — `by_unit` contient DÉJÀ les tuiles
 
 `EffectsState.by_unit` est clée par **id d'ENTITÉ**, pas par id d'unité. Le nom ment, et quatre
@@ -26,6 +30,8 @@ lecteurs du port en dépendent déjà en le disant :
 trigger**, `owner_id` = l'id de tuile. Le collecteur n'a jamais été aveugle.
 
 ## 2. Le trou réel est un étage plus bas : le gate d'owner de `evaluate_trigger_operation`
+
+*(code d'AVANT `-c-r1`, conservé parce que c'est lui qui porte le vice ; l'état final est au §7.3)*
 
 ```python
 if getattr(entry, "owner_is_tile", False) or getattr(entry, "owner_is_global", False):
@@ -86,16 +92,20 @@ Les deux gates sont **sous** `IsUnit`. Un porteur qui n'est pas une unité — u
 ⇒ **La réponse à la question binaire : le natif ne distingue pas.** Le port avait donc bien un trou,
 et le seul discriminant natif à mirrorer est `EntityExtensions$$IsUnit`.
 
-## 4. Ce qui est porté
+## 4. Ce qui est porté — et ce que `-c-r3` en a fait
 
-`dispatch/core.py::_owner_is_tile_entity(state, owner_id)` — mirror d'`IsUnit` **par la négative** :
-un porteur absent de `state.entities` mais présent dans `state.board.by_id` est une entité-tuile,
-donc aucun gate. **L'ENTITÉ L'EMPORTE** : le prédicat n'est consulté que si `get_entity` n'a rien
-rendu, si bien qu'un id qui serait à la fois unité et tuile resterait gaté comme une unité.
-Sans board (State nu), `False` — le comportement d'avant.
+**État `-c-r1`** : `dispatch/core.py::_owner_is_tile_entity(state, owner_id)`, mirror d'`IsUnit` par
+la négative — un porteur absent de `state.entities` mais présent dans `state.board.by_id` est une
+entité-tuile, donc aucun gate ; l'ENTITÉ l'emporte ; sans board, `False`.
+
+**État FINAL (`-c-r3`, §7)** : ce prédicat est **SUPPRIMÉ**. Il conditionnait un gate qui n'existe
+plus — la face EFFET n'en applique aucun. La bifurcation est désormais
+`dispatch/core.py::_owner_gate_applies(entry)`, qui décide **laquelle des deux fonctions natives**
+`evaluate_trigger_operation` mirrore : `CanGetAbilityTrigger` (gates sous `IsUnit`) ou
+`CanGetEffectTrigger` (aucun gate).
 
 `owner_is_tile` **reste** sur `TileEffectTrigger` : il documente l'intention et porte les helpers
-`_tile_coord`/`_unit_on_tile`. Il n'est simplement plus le SEUL chemin.
+`_tile_coord`/`_unit_on_tile`. Il n'est plus lu par le dispatch.
 
 ## 5. Le trou est RÉEL et LATENT — et le dire fait partie du livrable
 
@@ -124,11 +134,15 @@ tirés du harnais : le `FireEffect` (5) et son DoT de 20 % des PV max. Trois mes
 | bras | montage | attendu | mesuré |
 |---|---|---|---|
 | A | `FireTileDoT` intact | DoT > 0 (le montage brûle) | **352** |
-| B | attribut de classe `owner_is_tile` **RETIRÉ** | DoT > 0 (le gate lit la NATURE) | **352** |
-| C | B + `_owner_is_tile_entity` neutralisé | DoT **nul** (attribution) | **0** |
+| B | attribut de classe `owner_is_tile` **RETIRÉ** | DoT > 0 (la CLASSE ne décide plus) | **352** |
+| C | B + attribution neutralisée | DoT **nul** | **0** |
 
-B est l'invariant : **avant le correctif il rendait 0**. C attribue le passage de B au nouveau
-prédicat et à lui seul — sans lui, B pourrait tenir pour n'importe quelle autre raison.
+B est l'invariant : **avant le correctif il rendait 0**. C attribue le passage de B au correctif et
+à lui seul — sans lui, B pourrait tenir pour n'importe quelle autre raison.
+⚠ **C a changé d'instrument en `-c-r3`** : il neutralisait `_owner_is_tile_entity` (le prédicat qui
+RECONNAISSAIT la tuile) ; ce prédicat n'existe plus, et C force désormais `_owner_gate_applies` à
+`True` — l'entrée est alors traitée comme une face ABILITY, où un porteur absent de `state.entities`
+est écarté. Même chiffre, même rôle, autre accusé.
 
 Contre-épreuves sur l'arbre, toutes MORDANTES, arbre restauré :
 
@@ -154,21 +168,182 @@ classe nue — signal qu'un porteur naturel est apparu, pas régression.
 `test_master_tutelaries_active_gate_live` (5), `test_462_r4b_r1_r1_r1_neuroparasite_pose_live` (7),
 `test_462_r4b_r1_r1_r1_r1_bond_removal_offline` + `test_trigger_ability_channels` (19).
 
-## 7. Résidu nommé — `#462-r4b-r1-r1-r1-r1-c-r3`
+## 7. `#462-r4b-r1-r1-r1-r1-c-r3` — les deux gates de surplus sont LEVÉS (2026-08-05)
 
-La RE du §3 établit **plus** que ce qui est porté : sur la face EFFET, le natif n'applique **aucun**
-gate d'owner, pas même « l'owner existe ». Le port en garde deux, qui sont donc un **SURPLUS** :
+Le résidu ouvert ici disait : sur la face EFFET, le natif n'applique **aucun** gate d'owner, pas même
+« l'owner existe » ; le port en garde deux (porteur **MORT**, porteur **INTROUVABLE**). C'est vrai,
+c'est re-vérifié, et les deux sont levés.
 
-* un effet porté par une unité **MORTE** ne déclenche plus ses triggers (`uc.alive`), là où le natif
-  les évaluerait ;
-* un effet dont le porteur est **introuvable** est écarté, là où le natif passerait `owner = null`.
+### 7.1 La RE, re-dérivée (build `rnca9r7q6c`)
 
-Les deux sont **hors périmètre de cette tranche** et volontairement non touchés : les lever change le
-comportement de **26** `effect_type` à classes nues, et exige sa propre confrontation (le régime
-« effet sur unité morte » est court côté natif — `IdunBattle.Operations.KillUnitOperation$$RemoveEffects`
-détruit les entités-effet de la victime — mais il n'est pas vide, et c'est précisément ce qu'il
-faudrait mesurer). Le 4e test du fichier **fixe** le comportement actuel, pour qu'un élargissement
-soit un choix et pas un effet de bord.
+Le corps partagé est lu **par ses octets**, pas par son nom :
+`UnityEngine.U2D.IK.Solver2D$$DoValidate` = `b0 01 c3` = `mov al,1 ; ret`, **772 propriétaires** dans
+la table. Il ne lit même pas son argument. `CanGetEffectTrigger(this, owner, effect, onlyNonAtomic)`
+commence par lui, et la branche EFFET d'`EvaluateAbilityOrEffectTrigger` aussi ; ni l'une ni l'autre
+n'appelle `IsUnit` ou `IsAlive`. En aval, `EvaluateEffectTriggerEffectAbilities` écrit `owner` **tel
+quel** dans l'`AbilityEntities` (champ `+0x30` de sa frame) puis appelle `ShouldTrigger`/`Execute` —
+aucun test supplémentaire.
+`EntityExtensions$$IsUnit(null)` rend **faux** (lu : `if (entity == 0) return 0`), donc même la face
+ABILITY ne gaterait pas un porteur absent.
+
+### 7.2 Les trois questions, mesurées
+
+**(1) Le natif évalue-t-il le trigger d'un effet dont le porteur est mort ? absent ?** — Oui aux
+deux : il n'y a aucun gate à traverser. Le seul frein est que le porteur mort **n'a plus d'effets** :
+`KillUnitOperation$$Execute` appelle ses **trois** `RemoveEffects(killed, step)` (littéraux 0, 1, 2).
+⚠ Et ces trois appels ne sont gatés par **aucun** champ de `KillUnitOperationOptions` : les quatre
+seuls tests sur `options` portent sur `+0x00`, `+0x44`, `+0x45`, `+0x46` et gatent `IsSteppable`,
+`RecordDeathReason`, le flag `Overkilled` et une émission analytics — rien d'autre.
+
+**(2) La fenêtre, et ce qui s'y passe.** Mesurée sur le pipeline de mort du port
+(`probe_462_r4b_r1_r1_r1_r1_c_r3_gates_owner_effet.py --step fenetre`, et le bras live homonyme) : le
+mourant est `alive=False` avec ses effets **non consommés** sur **EXACTEMENT trois** événements —
+`On(3 = PendingDeathAdded)`, `On(1 = PreUnitDeath)`, `On(2 = PreUnitDeath_2)`. Dès `On(0 = UnitDeath)`
+le premier `RemoveEffects(PreUnitRemove)` a tourné et `collect_effect_triggers` ne rend plus rien.
+C'est la seule fenêtre où le gate `alive` mordait, et il y jetait **3 évaluations sur 3**.
+
+**(3) Quels `effect_type` changent réellement ?** — **AUCUN, aujourd'hui**, et c'est la réponse
+utile. Croisement dérivé du registre (`--step registre`, **re-dérivé après le rebase sur #629**, qui
+a fait passer `EFFECT_TRIGGERS` de 31/69 à **32 `effect_type` / 71 classes** — 15 Tile, **56** nues,
+**27** `effect_type` à classes exclusivement nues, **52** classes nues sans `fire_on_death`) : sur
+les 56 classes NUES, les seules qui écoutent un événement de la fenêtre ont pour owner le **TUEUR**
+(`EarlyWarningOverrideReactivateOverwatch`, `On(1)`), le **REVIVEUR** (`ReanimationBeamReviveTrigger`,
+`On(1)`) ou le **porteur du bond** (`BondRemoveOnBondedEntityDeath`, `On(2)`/`On(0x25)`) — toutes
+VIVANTES. Les deux classes entrées par #629 ne changent pas ce verdict : `BondRemoveOnRangeExceeded`
+écoute `On(29 = UnitPositionChanged_2)`, hors fenêtre, et `BondRemoveOnBondedEntityDeath` sur
+l'`effect_type` 27 a le même owner (le porteur du bond). Les **deux** classes dont l'owner EST le mourant, `PhoenixGemReviveAbility` (1451) et
+`RitesOfMorkaiReviveTrigger` (1502), déclarent `fire_on_death` : l'échappatoire ad hoc qui compensait
+exactement ce surplus. **La corrélation `fire_on_death == (owner est le mourant)` tient sur tout le
+lot.** La levée rend donc cet attribut **INERTE sur la face EFFET** — elle retire une béquille, elle
+ne change aucun observable.
+Pour le gate « porteur introuvable », mesure live : **10 clés** de `by_unit` portant un effet,
+**0 orpheline** — toute clé est une entité ou une tuile. Régime **vide**.
+
+### 7.3 Ce qui est porté
+
+`_owner_is_tile_entity` **disparaît** (plus aucun lecteur). `_owner_gate_applies(entry)` le remplace
+et exprime la bifurcation native :
+
+```python
+if _owner_gate_applies(entry):          # face ABILITY -> CanGetAbilityTrigger
+    owner = state.get_entity(entry.owner_id)
+    if owner is None:
+        continue                        # SURPLUS NOMMÉ (7.4), régime inatteignable
+    uc = owner.get_component(UnitComponent)
+    if uc is not None and not uc.alive and not getattr(entry, "fire_on_death", False):
+        continue
+# face EFFET (`EffectTrigger`) et abilities GLOBALES : AUCUN gate
+```
+
+### 7.4 Résidus ouverts par cette levée
+
+* **`#462-r4b-r1-r1-r1-r1-c-r3-r1`** — `_kill_steppable_units` (`operations/movement.py`) pose
+  `alive=False` + `hp=0` **sans retirer les effets**, alors que le natif passe par
+  `KillUnitOperation$$Execute` avec `KillUnitOperationOptions$$ForSteppable` (`+0x00 = 2`,
+  `+0x44 = 0x0101`) et que **les trois `RemoveEffects` sont appelés** (§7.2). Un `Steppable` écrasé
+  est donc, côté port et lui seul, un porteur MORT à effets intacts — **de façon persistante**. C'est
+  le **seul** régime où la levée pourrait faire firer un trigger que le natif n'a plus. Il est
+  **vide** aujourd'hui — **27** kits `Steppable` mesurés (npc + summons, dont **20 `Immune`** ; les 7
+  autres sont trois objets de butin, deux mines Haywire et deux decoys), **aucun** ne porte d'ability
+  adossée à un `effect_type` du registre — et le bras
+  `test_aucun_porteur_steppable_ne_porte_un_effect_type_du_registre` garde ce vide.
+  Fermer le résidu = mirrorer la séquence de mort complète pour ce chemin, ce qui déborde largement
+  (le natif y publie aussi `On(1)`/`On(2)`/`On(0)`/`On(0x36)`/`On(0x35)`, que le port ne publie pas).
+* **`#462-r4b-r1-r1-r1-r1-c-r3-r2`** — la face ABILITY **garde** le refus d'un porteur
+  **introuvable**, alors que `IsUnit(null)` est faux et que le natif ne gaterait rien. Divergence
+  **assumée** : le régime est inatteignable par construction
+  (`collect_triggered_abilities` n'instancie que depuis `state.entities`, dont rien n'est jamais
+  retiré ; `collect_global_triggers` pose `owner_is_global`), donc les deux lectures sont
+  observationnellement identiques. Ce que ce `continue` achète : il rend la **discrimination de
+  face** attribuable — forcer `_owner_gate_applies` sur une entrée d'effet la fait tomber **là**, et
+  nulle part ailleurs. C'est l'instrument des contre-épreuves C de ce fichier.
+* **`#462-r4b-r1-r1-r1-r1-c-r3-r3`** — `fire_on_death` sur les **4** classes d'`EffectTrigger`
+  (`PhoenixGemReviveAbility`, `PhoenixGemRemoveMarkerOnRevive`, `PhoenixGemRemoveMarkerOnResurrect`,
+  `RitesOfMorkaiReviveTrigger`) est désormais **inerte** : plus aucun gate à dispenser sur cette face.
+  Non retiré — il documente une intention (`OwnerIsTarget` : le porteur EST le mourant) et son
+  retrait ne changerait aucun comportement. Le retirer exigerait de re-jouer les deux familles de
+  revive pour rien.
+
+### 7.5 Validation
+
+`test_462_r4b_r1_r1_r1_r1_c_r3_owner_gates_effet_live.py` — **8 verts** (board `C3_01`, roster
+`ultraTitus,bloodIntercessor,eldarFarseer` vs `worldKharn,orksNob,orksWarboss`, DIFFÉRENTS de ceux de
+`-c-r1`).
+
+Le bras qui MORD prend un porteur RÉEL dont l'owner est le mourant — `RitesOfMorkaiReviveTrigger`
+(1502) — et un observable RÉEL (l'unité revit) :
+
+| bras | montage | attendu | mesuré |
+|---|---|---|---|
+| A | `fire_on_death` intact | revive (contrôle positif) | revive |
+| B | attribut **RETIRÉ** de la classe | revive (la face EFFET ne gate plus) | revive |
+| C | B + `_owner_gate_applies` forcé à `True` | **aucun** revive (attribution) | aucun |
+
+B est l'invariant : **avant `-c-r3` il ne revivait pas**. ⚠ Retirer `fire_on_death` est un
+**MONTAGE**, pas un porteur naturel — et le dire est la seule façon honnête de rendre la garde (§7.2
+(3) : les deux seules classes concernées le déclarent déjà).
+
+Les sept autres bras : la fenêtre rend bien `[On(3), On(1), On(2)]` et **rien** sur `On(0)`/`On(54)`
+(contre-épreuve : face ABILITY forcée ⇒ 0 passage) ; un porteur introuvable atteint `matches` sur la
+face EFFET et **pas** sur la face ABILITY ; la face ABILITY gate **toujours** un porteur mort et
+**seul** `fire_on_death` l'en dispense ; les trois mesures de gisement (0 clé orpheline sur 10 ;
+**2 unités mortes réelles, 17 effets non consommés, 0 sur un mort** ; 27 kits `Steppable`, 0 adossé
+au registre) ; l'inventaire des 4 `fire_on_death`.
+
+⚠ **DEUX rouges PRÉEXISTANTS trouvés en jouant le cliquet offline complet** (`probe_457`, **2056
+tests**), tous deux venus des tranches PRÉCÉDENTES de cette même famille :
+
+1. `tests/test_enum_ordinal_ratchet_offline.py` (cliquet #283) — littéraux `2` en contexte
+   `EventTriggerType` dans les fichiers de `-c-r1` (**5 sites**, mergés par la PR #625). Un ordinal en
+   dur en contexte enum, refusé **même quand il est juste**. **CORRIGÉ ICI** : les 11 sites de la
+   famille (5 hérités + 6 de cette tranche) passent par `EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)` ;
+   le cliquet rend **18 verts**. La valeur est indifférente — ce qui est mesuré est le gate, pas
+   l'événement — mais elle doit désigner un MEMBRE.
+2. `tests/engine/runner/test_421_effect_active_gate_offline.py::test_the_probe_rail_covers_the_whole_registry`
+   — `BondRemoveOnRangeExceeded`, la classe entrée au registre par la PR **#629**, n'est pas déclarée
+   dans `probe_229_effect_triggers_active.RAIL`. **NON CORRIGÉ ICI** : une entrée de `RAIL` encode un
+   verdict de RE (`kind` + symbole natif du rail) que cette tranche n'a pas rendu, et le fabriquer
+   serait exactement ce que le cliquet existe pour empêcher. Résidu `#462-r4b-r1-r1-r1-r1-b-r2`. La
+   dérivation probable — à confirmer par son auteur : même rail `ARRAYSET` et même symbole
+   `IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal` que son frère
+   `BondRemoveOnBondedEntityDeath`, le trigger (b) sortant du même `ArraySet`.
+
+### 7.6 Matrice de mutants — et ce qu'elle a trouvé de MANQUANT
+
+| mutant | ce qu'il casse | rouges |
+|---|---|---|
+| M1 — `_owner_gate_applies` rend `not owner_is_global` (face EFFET re-gatée = état pré-`-c-r1`) | la levée | **7** |
+| M2 — `_owner_gate_applies` rend `False` (gate supprimé **PARTOUT**) | la PORTÉE | **1** |
+| M3 — `fire_on_death` ignoré sur la face ABILITY | le mirror d'`IsAtomic` | **1** |
+| M4 — la face ABILITY n'écarte plus un porteur introuvable | l'attribution | **2** |
+
+⚠ **M2 a d'abord rendu 14 verts sur 14**, et c'est la mesure la plus utile du lot : **tous** les bras
+d'attribution de cette famille **SUBSTITUENT** `_owner_gate_applies` (`monkeypatch` → `lambda: True`),
+donc ils sont par construction **aveugles à sa disparition** — le piège « vacuously vrai » par une
+porte que personne n'avait ouverte. Le bras
+`test_le_gate_alive_de_la_face_ABILITY_mord_toujours` a été **ajouté pour ça** : il inscrit un
+ability-trigger par la voie RÉELLE (`TRAIT_TRIGGERS` + un trait posé sur une unité du live) et ne
+touche à aucun prédicat. C'est lui, et lui seul, qui attrape M2 et M3.
+M4 confirme en creux le résidu `-r3-r2` : le refus d'un porteur introuvable sur la face ABILITY est
+**l'instrument** des contre-épreuves C — le lever coûterait cette attributabilité.
+
+Deux bras de `test_462_r4b_r1_r1_r1_r1_c_r1_tile_owner_gate_live.py` **changent d'assertion** — c'est
+voulu, ils fixaient le comportement d'avant : `test_un_owner_introuvable_passe_desormais_sur_la_face_effet`
+(inversé) et `test_le_gate_d_owner_reste_entier_sur_la_face_ABILITY` (l'ancien 4ᵉ test, qui gardait le
+surplus `alive` ; il garde désormais que la levée **ne déborde pas** sur l'autre face). Le contrôle du
+probe `-c-r1 --step gate` est inversé pour la même raison.
+
+**Non-régression : 208 verts sur 26 fichiers** (24 live + 2 offline), plus **70** re-joués APRÈS le
+rebase sur `origin/master` (#629 mergée entre-temps) et le cliquet offline complet `probe_457`
+(**2024 tests**) — `test_462_r4b_r1_r1_r1_r1_c_r1_tile_owner_gate_live` + `bond_removal_live` (11),
+`death_queue_ordering_live` (22), les trois `overwatch_*` (18), `tile_effect_dynamics_live` +
+`load_state_inactive_effects_live` (15), `rites_of_morkai_revive_live` (13),
+`haze_of_corruption_transfer_live` + `haze_bonded_chain_live` (27), `rad_saturation_live` +
+`master_tutelaries_active_gate_live` (10), `neuroparasite_pose_live` + `bond_removal_offline` +
+`trigger_ability_channels` (26), `revive_cancels_death_events_live` + `death_nova_live` (8),
+`ghost_revive_live` + `echoes_from_the_warp_revive_live` (11), les trois narthecium/fuelled (24),
+`425_tile_effect_channel_live` + `load_state_tile_effects_live` + `swamp_tile_effect_foyer_live` (19),
+`overwatch_active_ability_gate_live` + `overwatch_single_shot_per_activation_live` (4).
 
 ## 8. Non couvert, et nommé
 
@@ -179,3 +354,9 @@ soit un choix et pas un effet de bord.
   dédiés, hors registre. Le correctif les couvrirait si le registre les portait un jour.
 * **Les gates `simulation` / `onlyNonAtomic`** de `CanGet*Trigger` (les deux `FUN_180002590` sur
   `DAT_183365e08` / `DAT_183387e30`) ne sont portés dans aucun sens — ils l'étaient déjà avant.
+* **`UnitExtensions$$IsTriggersDisabled`** (2ᵉ gate de `CanGetAbilityTrigger`) n'est toujours pas
+  porté — antérieur à cette tranche, inchangé par elle.
+* **La fenêtre du DESPAWN** (`RemoveUnitOperation$$Execute` : `alive=False` + `On(0x25 = UnitRemoved)`
+  **avant** l'étape 14 qui consomme les effets) est ouverte par la même levée, mais **non exercée
+  par un bras dédié** : le seul écouteur d'`On(0x25)` est `BondRemoveOnBondedEntityDeath`, dont
+  l'owner est le porteur du bond et dont le behaviour retire un effet du retiré — sans observable.

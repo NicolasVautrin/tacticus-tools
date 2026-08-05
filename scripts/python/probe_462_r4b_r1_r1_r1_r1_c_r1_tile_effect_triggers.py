@@ -24,11 +24,18 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
 from engine.runner.state import State                                    # noqa: E402
 from engine.runner.operations.triggers.base import (EffectTrigger,       # noqa: E402
                                                     TileEffectTrigger, TriggerEvent)
 from engine.runner.operations.triggers.dispatch import registry as REG   # noqa: E402
 from engine.runner.operations.triggers.dispatch import core as CORE      # noqa: E402
+
+# L'evenement sur lequel la sonde ecoute. Sa VALEUR est INDIFFERENTE -- ce qui est mesure est le
+# gate d'owner, pas l'evenement -- mais elle doit designer un MEMBRE nomme : un ordinal en dur en
+# contexte enum est exactement ce que le cliquet #283 refuse, y compris quand il est juste
+# (`TURN_END = 23` etait exact sur deux builds, et c'est ce qui l'a rendu invisible).
+EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)
 
 
 def _classes_par_effet():
@@ -114,7 +121,7 @@ class _SondeTrigger(EffectTrigger):
 
     Il ne modifie rien : son `matches` enregistre le passage et rend False. C'est le capteur du
     gate d'owner -- si `evaluate_trigger_operation` l'ecarte AVANT `matches`, le compteur reste a 0."""
-    event_id = 2
+    event_id = EVENT_SONDE
     vus: list = []
 
     def matches(self, state, ev) -> bool:
@@ -131,7 +138,8 @@ def _mesure_gate(et: int, avec_board: bool) -> list:
     _SondeTrigger.vus = []
     try:
         REG.EFFECT_TRIGGERS[et] = [_SondeTrigger]                 # MUTATION du dict partage
-        CORE.evaluate_trigger_operation(st, TriggerEvent(2, tid, tid, ranged=False, profile=None))
+        CORE.evaluate_trigger_operation(
+            st, TriggerEvent(EVENT_SONDE, tid, tid, ranged=False, profile=None))
     finally:
         if sauf is None:
             REG.EFFECT_TRIGGERS.pop(et, None)
@@ -148,15 +156,20 @@ def step_gate() -> int:
     avec = _mesure_gate(et, avec_board=True)
     sans = _mesure_gate(et, avec_board=False)
     print("[gate] effect_type %d porte par une TUILE, trigger NU (pas TileEffectTrigger) inscrit" % et)
-    print("[gate] AVEC board (la tuile est reconnaissable)  : `matches` appele %d fois" % len(avec))
-    print("[gate] SANS board (l'id reste introuvable)       : `matches` appele %d fois" % len(sans))
+    print("[gate] AVEC board (la tuile est dans board.by_id) : `matches` appele %d fois" % len(avec))
+    print("[gate] SANS board (l'id ne designe RIEN)          : `matches` appele %d fois" % len(sans))
     print("[gate] VERDICT : le gate d'owner %s le trigger d'un porteur TUILE"
           % ("LAISSE PASSER" if avec else "JETTE"))
-    # Le second bras est le CONTROLE : il doit rester a 0. S'il passait, le correctif aurait
-    # supprime le gate au lieu de le rendre dependant de la NATURE du porteur.
-    if sans:
-        print("[gate] CONTROLE ROUGE : un owner introuvable SANS board passe -- gate supprime, "
-              "pas conditionne")
+    # ⚠ MIS A JOUR PAR `#462-r4b-r1-r1-r1-r1-c-r3` -- le second bras a change de sens.
+    # Il servait de CONTROLE (<< le correctif conditionne le gate, il ne le supprime pas >>) et
+    # devait rester a 0. La suite de la RE a etabli que la face EFFET n'a AUCUN gate d'owner cote
+    # natif -- `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetEffectTrigger` commence par un
+    # corps DEDUPLIQUE `mov al,1 ; ret` -- donc un porteur introuvable DOIT passer. Le gate a bien
+    # ete supprime sur cette face, et c'est le mirror ; la contre-epreuve de portee vit desormais
+    # cote face ABILITY (`test_le_gate_d_owner_reste_entier_sur_la_face_ABILITY`).
+    if not sans:
+        print("[gate] CONTROLE ROUGE : un owner introuvable SANS board est JETE -- la face EFFET "
+              "gate encore, alors que le natif ne gate rien (#462-r4b-r1-r1-r1-r1-c-r3)")
         return 2
     return 0 if avec else 1
 

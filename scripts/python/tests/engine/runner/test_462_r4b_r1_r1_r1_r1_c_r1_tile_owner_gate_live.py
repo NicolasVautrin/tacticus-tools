@@ -17,12 +17,19 @@ Cote natif (build `rnca9r7q6c`) le seul discriminant est
     d'`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityOrEffectTrigger` --
     AUCUN appel a `IsUnit` ni a `IsAlive` : leur premier gate est un corps DEDUPLIQUE `return 1`.
 
+⚠ **MIS A JOUR PAR `#462-r4b-r1-r1-r1-r1-c-r3`.** La seconde puce ci-dessus etait deja ecrite ici ;
+`-c-r1` n'en avait tire que le cas TUILE, en gardant deux gates que le natif n'a pas (porteur
+introuvable, porteur mort). `-c-r3` les leve : sur la face EFFET, le port ne gate plus RIEN. Deux
+bras de ce fichier changent donc d'assertion (`test_un_owner_introuvable_passe_desormais_sur_la_face_effet`,
+`test_le_gate_d_owner_reste_entier_sur_la_face_ABILITY`) et le bras C du bras qui mord change
+d'instrument -- chacun le dit dans sa docstring.
+
 LE BRAS QUI MORD (`test_le_dot_du_feu_survit_a_la_perte_de_owner_is_tile_live`) porte sur un effet
 REEL et OBSERVABLE -- le `FireEffect` (5) d'une tuile en feu et son DoT de 20 % des PV max -- monte
 sur un BOARD et des UNITES reels tires du harnais. Il retire a `FireTileDoT` son attribut de classe
-`owner_is_tile` : AVANT le correctif, le DoT disparait ; APRES, il tient, parce que le gate lit
-desormais la NATURE du porteur. La contre-epreuve du meme test neutralise `_owner_is_tile_entity`
-et le DoT redisparait -- c'est ce qui ATTRIBUE le passage au nouveau predicat, et non a autre chose.
+`owner_is_tile` : AVANT le correctif, le DoT disparait ; APRES, il tient. La contre-epreuve du meme
+test force la face ABILITY et le DoT redisparait -- c'est ce qui ATTRIBUE le passage a la
+discrimination de face, et non a autre chose.
 
 ⚠ CE N'EST PAS UN PORTEUR NATUREL, et le dire fait partie de la mesure : `--step registre` du probe
 etablit qu'AUCUN `effect_type` servi par une classe NUE n'est aujourd'hui pose sur une tuile (les
@@ -55,6 +62,10 @@ from engine.runner.operations.triggers.loki import (FIRE_TILE,             # noq
 from engine.dsl.event_trigger_type import EventTriggerType                 # noqa: E402
 
 TICK_ENV = int(EventTriggerType.TurnStart_EnvironmentEffects)   # `On(0x14)` -- le vecteur du DoT
+# L'evenement de la sonde. Sa VALEUR est INDIFFERENTE (ce qui est mesure est le gate d'owner), mais
+# elle doit designer un MEMBRE nomme : le cliquet #283 refuse un ordinal en dur en contexte enum
+# MEME quand il est juste.
+EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)
 _TUILE_SYNTH = 900001
 
 
@@ -65,7 +76,7 @@ class _SondeTrigger(EffectTrigger):
 
     Il ne mute rien : `matches` enregistre le passage puis rend `False`. C'est le capteur du gate --
     si `evaluate_trigger_operation` l'ecarte AVANT `matches`, la liste reste vide."""
-    event_id = 2
+    event_id = EVENT_SONDE
     vus: list = []
 
     def matches(self, state, ev) -> bool:
@@ -108,7 +119,7 @@ def _passages_sonde(et: int, avec_board: bool) -> list:
     try:
         REG.EFFECT_TRIGGERS[et] = [_SondeTrigger]      # le dict EST celui que lit `collect_*`
         CORE.evaluate_trigger_operation(
-            st, TriggerEvent(2, _TUILE_SYNTH, _TUILE_SYNTH, ranged=False, profile=None))
+            st, TriggerEvent(EVENT_SONDE, _TUILE_SYNTH, _TUILE_SYNTH, ranged=False, profile=None))
     finally:
         if sauf is None:
             REG.EFFECT_TRIGGERS.pop(et, None)
@@ -145,45 +156,72 @@ def test_le_gate_laisse_passer_un_trigger_nu_porte_par_une_tuile():
         "#462-r4b-r1-r1-r1-r1-c-r1" % et)
 
 
-def test_le_gate_reste_ferme_sur_un_owner_qui_n_est_ni_unite_ni_tuile():
-    """CONTRE-EPREUVE de portee : le correctif CONDITIONNE le gate, il ne le SUPPRIME pas.
+def test_un_owner_introuvable_passe_desormais_sur_la_face_effet():
+    """MIS A JOUR PAR `#462-r4b-r1-r1-r1-r1-c-r3` -- et l'assertion est INVERSEE, expres.
 
-    Meme montage, board retire : l'id du porteur ne designe alors plus rien de connu, et l'entree
-    doit rester ecartee. Si ce bras passait, `_owner_is_tile_entity` rendrait `True` pour n'importe
-    quel id absent -- ce qui ferait entrer, entre autres, les porteurs RETIRES du state."""
+    Ce bras gardait << le correctif CONDITIONNE le gate, il ne le SUPPRIME pas >> : sans board,
+    l'id du porteur ne designait plus rien de connu et l'entree restait ecartee. C'etait le
+    comportement du port, pas celui du natif -- la RE de `-c-r1` (§3) l'avait deja ecrit sans en
+    tirer la consequence : sur la face EFFET, `IdunBattle.Operations.EvaluateTriggerOperation$$
+    CanGetEffectTrigger` commence par un corps DEDUPLIQUE `mov al,1 ; ret`, donc **aucun** gate
+    d'owner -- ni existence, ni vivacite. Le porteur y est pose TEL QUEL dans l'`AbilityEntities`,
+    `null` compris.
+
+    Le gate a donc bien ete SUPPRIME sur cette face, et c'est le mirror. Ce que la contre-epreuve
+    de portee garde desormais, c'est que la suppression est BORNEE A LA FACE EFFET -- le test
+    suivant le fait, sur la face ABILITY."""
     et = _effect_type_a_classes_nues()
-    assert not _passages_sonde(et, avec_board=False), (
-        "un owner introuvable ET hors board passe le gate : le gate a ete supprime, pas conditionne")
+    assert _passages_sonde(et, avec_board=False), (
+        "un owner introuvable est encore JETE sur la face EFFET -- le natif l'evalue "
+        "(`CanGetEffectTrigger` = `return 1`)")
 
 
-def test_le_gate_alive_reste_pose_sur_un_porteur_unite():
-    """NON-REGRESSION du SURPLUS documente (`#462-r4b-r1-r1-r1-r1-c-r2`).
+def test_le_gate_d_owner_reste_entier_sur_la_face_ABILITY():
+    """CONTRE-EPREUVE DE PORTEE (`#462-r4b-r1-r1-r1-r1-c-r3`) : la levee ne deborde PAS.
 
-    Le correctif ne touche QUE les porteurs non-unite. Un effet porte par une unite MORTE reste
-    ecarte comme avant -- c'est un surplus du port par rapport au natif (qui ne gate pas la face
-    effet), nomme en residu et volontairement NON eleve ici : l'elargir demanderait sa propre
-    confrontation."""
+    Le meme montage -- porteur UNITE MORTE -- est joue deux fois sur le MEME etat :
+
+      * tel quel : l'entree est un `EffectTrigger`, donc AUCUN gate -> `matches` est atteint ;
+      * `_owner_gate_applies` force a `True` : l'entree est traitee comme une face ABILITY, ou
+        `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` place bien
+        `UnitExtensions$$IsAlive` sous `EntityExtensions$$IsUnit` -> l'entree est JETEE.
+
+    Le second bras est ce qui prouve que la levee est un choix de FACE et non une suppression
+    globale : si le gate avait disparu partout, il passerait aussi."""
     from engine.runner.components import UnitComponent
     et = _effect_type_a_classes_nues()
-    st = State()
-    st.effects = EffectsState()
-    ent = st.add_entity()
-    uid = int(ent.id)
-    ent.add_component(UnitComponent(visual_id="sonde", alive=False))
-    st.effects.add_effect(uid, EffectFactory.create(
-        {"name": "SondeUnitEffect", "effectType": int(et), "remaining": 0}, 100, None, None))
-    sauf = REG.EFFECT_TRIGGERS.get(et)
-    _SondeTrigger.vus = []
-    try:
-        REG.EFFECT_TRIGGERS[et] = [_SondeTrigger]
-        CORE.evaluate_trigger_operation(st, TriggerEvent(2, uid, uid, ranged=False, profile=None))
-    finally:
-        if sauf is None:
-            REG.EFFECT_TRIGGERS.pop(et, None)
-        else:
-            REG.EFFECT_TRIGGERS[et] = sauf
-    assert not _SondeTrigger.vus, \
-        "le gate `owner vivant` a saute pour un porteur UNITE morte -- hors perimetre du correctif"
+
+    def _passages(forcer_le_gate: bool) -> list:
+        st = State()
+        st.effects = EffectsState()
+        ent = st.add_entity()
+        uid = int(ent.id)
+        ent.add_component(UnitComponent(visual_id="sonde", alive=False))
+        st.effects.add_effect(uid, EffectFactory.create(
+            {"name": "SondeUnitEffect", "effectType": int(et), "remaining": 0}, 100, None, None))
+        sauf = REG.EFFECT_TRIGGERS.get(et)
+        sauf_gate = CORE._owner_gate_applies
+        _SondeTrigger.vus = []
+        try:
+            REG.EFFECT_TRIGGERS[et] = [_SondeTrigger]
+            if forcer_le_gate:
+                CORE._owner_gate_applies = lambda entry: True
+            CORE.evaluate_trigger_operation(
+                st, TriggerEvent(EVENT_SONDE, uid, uid, ranged=False, profile=None))
+        finally:
+            CORE._owner_gate_applies = sauf_gate
+            if sauf is None:
+                REG.EFFECT_TRIGGERS.pop(et, None)
+            else:
+                REG.EFFECT_TRIGGERS[et] = sauf
+        return list(_SondeTrigger.vus)
+
+    assert _passages(False), (
+        "un effet porte par une unite MORTE est encore JETE : le gate `alive` de la face EFFET "
+        "n'a pas ete leve (#462-r4b-r1-r1-r1-r1-c-r3)")
+    assert not _passages(True), (
+        "la MEME entree passe alors que le gate de la face ABILITY est force -- la levee n'est "
+        "donc pas attribuable a la discrimination de face, elle a supprime le gate PARTOUT")
 
 
 # ─────────────────────────────────────────────── le bras qui MORD : un effet de tuile REEL
@@ -243,12 +281,20 @@ def test_le_dot_du_feu_survit_a_la_perte_de_owner_is_tile_live(etat_avec_tuile_e
     """LE BRAS QUI MORD, sur un effet REEL. Trois mesures sur le MEME etat :
 
       A. `FireTileDoT` intact (`owner_is_tile = True`)   -> DoT applique  (chemin historique)
-      B. attribut de classe RETIRE                       -> DoT applique  (le gate lit la NATURE)
-      C. B + `_owner_is_tile_entity` neutralise          -> DoT NUL       (attribution)
+      B. attribut de classe RETIRE                       -> DoT applique  (la CLASSE ne decide plus)
+      C. B + `_owner_gate_applies` force a `True`        -> DoT NUL       (attribution)
 
-    A est le controle positif : il dit que le montage brule vraiment. B est l'invariant : AVANT le
-    correctif il rendait 0, parce que le gate ne savait reconnaitre un porteur-tuile que par un
-    attribut de CLASSE. C attribue le passage de B au nouveau predicat et a lui seul."""
+    A est le controle positif : il dit que le montage brule vraiment. B est l'invariant : AVANT
+    `-c-r1` il rendait 0, parce que le gate ne savait reconnaitre un porteur-tuile que par un
+    attribut de CLASSE.
+
+    C a CHANGE D'INSTRUMENT en `#462-r4b-r1-r1-r1-r1-c-r3`, parce que ce qu'il attribuait a change :
+    `-c-r1` neutralisait `_owner_is_tile_entity`, le predicat qui RECONNAISSAIT la tuile ; depuis
+    `-c-r3` il n'y a plus rien a reconnaitre -- la face EFFET n'a plus AUCUN gate d'owner (mirror de
+    `CanGetEffectTrigger`, dont le premier appel a pour corps `mov al,1 ; ret`). C neutralise donc
+    desormais la DISCRIMINATION DE FACE elle-meme : forcer `_owner_gate_applies` a `True` fait
+    traiter le tile-effect comme une face ABILITY, ou un porteur absent de `state.entities` est
+    ecarte. Le DoT retombe a 0, et c'est ce qui attribue B a la discrimination de face."""
     assert GC.global_value(FIRE_DMG_PCT_KEY), "fireDmgPct absent du gameconfig -- montage inexploitable"
     st, tile_id = etat_avec_tuile_en_feu["state"], etat_avec_tuile_en_feu["tile"]
 
@@ -261,11 +307,10 @@ def test_le_dot_du_feu_survit_a_la_perte_de_owner_is_tile_live(etat_avec_tuile_e
     assert dot_b > 0, ("B : prive de son attribut de CLASSE, le trigger d'un effet de tuile REEL "
                        "est jete -- c'est le trou #462-r4b-r1-r1-r1-r1-c-r1 (A=%d)" % dot_a)
 
-    monkeypatch.setattr(CORE, "_owner_is_tile_entity", lambda state, owner_id: False)
+    monkeypatch.setattr(CORE, "_owner_gate_applies", lambda entry: True)
     dot_c = _dot_dispatche(st, tile_id)
-    assert dot_c == 0, ("C : le DoT passe encore alors que le predicat de nature est neutralise -- "
-                        "le passage de B n'est PAS attribuable a `_owner_is_tile_entity` (C=%d)"
-                        % dot_c)
+    assert dot_c == 0, ("C : le DoT passe encore alors que la face ABILITY est forcee -- le passage "
+                        "de B n'est PAS attribuable a la discrimination de face (C=%d)" % dot_c)
 
 
 def test_aucun_effect_type_de_tuile_du_registre_n_a_de_classe_nue_live(etat_avec_tuile_en_feu):
@@ -294,7 +339,8 @@ def test_les_ids_de_tuile_et_d_unite_sont_disjoints_live(etat_avec_tuile_en_feu)
     """MESURE de l'invariant que `TileEffectTrigger` AFFIRME (<< boardGraph t.id = entity id,
     disjoint des ids d'unite >>) et dont personne ne verifiait la tenue.
 
-    Il n'est PAS load-bearing pour le correctif -- `_owner_is_tile_entity` n'est consulte que
+    Il n'est PAS load-bearing pour le correctif -- il l'etait pour `-c-r1`, dont le predicat de
+    nature (`_owner_is_tile_entity`, supprime par `-c-r3`) n'etait consulte que
     lorsque `state.get_entity` n'a rien rendu, donc l'entite l'emporte toujours. Mais un
     chevauchement dirait que le modele d'ids du port a change, et c'est le genre de glissement
     qu'on veut apprendre par un rouge plutot que par un comportement."""
