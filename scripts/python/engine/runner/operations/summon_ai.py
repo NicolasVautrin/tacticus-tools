@@ -120,13 +120,13 @@ def run_ai_control_pass(state: State, player: int) -> list:
 
     RESIDUS NOMMES (non portes, avec leur debloqueur exact) :
       * la boucle native est `for i in 0..4: if HasActionLeft(u) -> ComputerAction(u, false)` (jusqu'a
-        CINQ actions par unite automatique), le port n'en joue qu'UNE. Porter le cap exigerait de
-        poser `NoActionAvailable`(4) apres chaque action pour que la boucle TERMINE -- or son seul
-        retrait natif est `VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded` (slot 0x77), non
-        mirrore : le flag survivrait au `RemoveTurnFlags(includeNoAction=0)` du turn-start et figerait
-        l'unite pour toujours. Debloqueur = porter `VerifyUnitTurnEnded`.
-      * le `FinishUnitTurn(u, isTerminated: false)` final (meme raison : il porte le
-        `MarkUnitAsNoActionAvailable`) ;
+        CINQ actions par unite automatique), le port n'en joue qu'UNE. La pose de
+        `NoActionAvailable`(4) qu'elle exige pour TERMINER est portee depuis #287-r1
+        (`MarkUnitAsNoActionAvailableOperation`, branchee en queue de `FinishUnitTurnOperation`) ;
+        ce qui manque encore est le RETRAIT
+        (`VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded`, slot 0x77), sans lequel le flag
+        survit au `RemoveTurnFlags(includeNoAction=0)` du turn-start. Residu `#287-r1-r1`.
+      * le `FinishUnitTurn(u, isTerminated: false)` final ;
       * les deux gates d'ENTREE, cote `StartTurnOperation` : `!BattleQuery.NoAutomaticUnitTurns` et
         `PlayerType in {Human, Network, HumanAI}`. Ni le flag de BC ni le `PlayerType` ne sont suivis
         par le `State` offline. Impact NUL sur l'arene (seed BC mesuree : `NoAutomaticUnitTurns=false`,
@@ -423,13 +423,23 @@ def ai_control_execute_for_group(state: State, uids: list) -> list:
         try:
             results.append(ai_control_execute_for(state, uid))
         finally:
-            e = state.get_entity(uid)                    # l'unite a joue -> plus d'action disponible
+            # L'unite a joue -> plus d'action disponible. #287-r1 : cette pose passe desormais par
+            # le FOYER porte (`MarkUnitAsNoActionAvailableOperation` = le slot 0x76 natif) au lieu
+            # d'ecrire le flag a la main -- deux ecritures directes du meme flag seraient deux
+            # sources de verite qui divergeraient en silence.
+            # Elle reste NECESSAIRE et n'est pas un doublon du branchement de
+            # `FinishUnitTurnOperation` : le natif arrive au flag par
+            # `AiControl$$ApplyAiMessages` -> `FinishUnitTurn`, chaine que `decide_and_apply` ne
+            # joue PAS (il applique directement `MoveUnitOperation`/`AttackDamageOperation`). Sans
+            # elle, `GetValidUnits` ne terminerait jamais. Le `get-or-create` d'avant est conserve
+            # ici (un summon frais peut n'avoir aucun `UnitFlagsComponent`), la ou l'Operation
+            # mirrore le `TryGetComponent` STRICT du natif.
+            e = state.get_entity(uid)
             if e is not None:
-                fl = e.get_component(UnitFlagsComponent)
-                if fl is None:
-                    fl = UnitFlagsComponent()
-                    e.add_component(fl)
-                fl.add(UnitFlagsComponent.NO_ACTION_AVAILABLE)
+                if e.get_component(UnitFlagsComponent) is None:
+                    e.add_component(UnitFlagsComponent())
+                from .turnflow import MarkUnitAsNoActionAvailableOperation
+                MarkUnitAsNoActionAvailableOperation.execute(state, uid)
 
 
 # ============================================================================================== #

@@ -764,8 +764,26 @@ class UnitFlagsComponent(Component):
         `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution ; base du trigger DSL
         `HasOwnersActiveAbilityBeenUsed` (DSLFactory+0x110).
       • `ARRIVED_AT_FINAL_TILE (1)` : posé avec TURN_FINISHED par FinishUnitTurnOperation.
-      • `NO_ACTION_AVAILABLE (4)` : auto-fin (rien à faire) — posé par `MarkUnitAsNoActionAvailableOperation`
-        IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation$$Execute+0xdc ; ré-ouvert par VerifyUnitTurnEnded (slot 0x77) si l'unité regagne des options.
+      • `NO_ACTION_AVAILABLE (4)` : « cette unité n'a plus d'action » — posé par
+        `IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation$$Execute+0xdc` ; ré-ouvert par
+        le même corps sous `reverse` (`MarkUnitAsActionAvailable`, slot 0x77), que
+        `VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded` appelle quand l'unité regagne des
+        options. Ses LECTEURS, recensés par scan binaire (`probe_287r1_no_action_available.py`),
+        VENTILÉS par ce qu'ils en font — c'est la ventilation, pas la liste, qui dit si l'absence
+        du flag rendait le port PERMISSIF :
+          - DÉCISION moteur : `IdunBattle.Entities.UnitExtensions$$HasActionLeft` (lu par
+            `IdunBattle.AI.OperationalDeciders.AnAiGroupOperator$$GetValidUnits` et
+            `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute` — les deux boucles qui
+            TERMINENT grâce à lui), `IdunBattle.Core.Services.BattleQuery$$GetUsableUnitsFor` (×2,
+            l'unité marquée n'est plus « utilisable »), et les trois
+            `VerifyUnitsTurnFinishedOperation$${Execute, VerifyUnitTurnEnded,
+            VerifyMachineTurnEnded}` (qui arbitrent pose/retrait).
+          - STREAM seulement (aucune décision) : `IdunBattle.Operations.ReAddMachineOperation
+            $$Execute` et `IdunBattle.Operations.ResurrectUnitOperation$$SendStreamEvents`, qui le
+            publient sous `TagKey.UnitStats_ActionsAvailable` (`HasFlag(u, 4) ^ 1`) ; plus 11
+            sites `View.FSM` via `HasActionLeft` (sélection à la souris).
+        La POSE est portée depuis #287-r1 (queue de `FinishUnitTurnOperation`) ; le RETRAIT n'a
+        aucun appelant offline (résidu `#287-r1-r1`).
       • `FLED (9)` : « a fui » (FleeOperation ; re-testé NOT HasFlag(self,9) par BattleFatigue).
       • `TURN_FINISHED_FORCED (27 = 0x1b)` : posé par FinishUnitTurnOperation quand `forced` (hors enum du
         dump — ajout post-dump ; nom descriptif, structure lue IdunBattle.Operations.FinishUnitTurnOperation$$Execute/IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags)."""
