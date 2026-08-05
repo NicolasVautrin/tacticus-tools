@@ -290,13 +290,23 @@ face EFFET et **pas** sur la face ABILITY ; la face ABILITY gate **toujours** un
 **2 unités mortes réelles, 17 effets non consommés, 0 sur un mort** ; 27 kits `Steppable`, 0 adossé
 au registre) ; l'inventaire des 4 `fire_on_death`.
 
-⚠ **Un rouge PRÉEXISTANT trouvé au rebase, et corrigé ici** : `tests/test_enum_ordinal_ratchet_offline.py`
-(cliquet #283) échouait **déjà sur `origin/master`** sur les littéraux `2` en contexte
-`EventTriggerType` des fichiers de `-c-r1` (5 sites, merges par la PR #625) — un ordinal en dur en
-contexte enum, refusé même quand il est juste. Les 11 sites de la famille (5 hérités + 6 de cette
-tranche) passent par une constante nommée `EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)` ;
-le cliquet rend **18 verts**. Sa valeur est indifférente — ce qui est mesuré est le gate, pas
-l'événement — mais elle doit désigner un MEMBRE.
+⚠ **DEUX rouges PRÉEXISTANTS trouvés en jouant le cliquet offline complet** (`probe_457`, **2056
+tests**), tous deux venus des tranches PRÉCÉDENTES de cette même famille :
+
+1. `tests/test_enum_ordinal_ratchet_offline.py` (cliquet #283) — littéraux `2` en contexte
+   `EventTriggerType` dans les fichiers de `-c-r1` (**5 sites**, mergés par la PR #625). Un ordinal en
+   dur en contexte enum, refusé **même quand il est juste**. **CORRIGÉ ICI** : les 11 sites de la
+   famille (5 hérités + 6 de cette tranche) passent par `EVENT_SONDE = int(EventTriggerType.PreUnitDeath_2)` ;
+   le cliquet rend **18 verts**. La valeur est indifférente — ce qui est mesuré est le gate, pas
+   l'événement — mais elle doit désigner un MEMBRE.
+2. `tests/engine/runner/test_421_effect_active_gate_offline.py::test_the_probe_rail_covers_the_whole_registry`
+   — `BondRemoveOnRangeExceeded`, la classe entrée au registre par la PR **#629**, n'est pas déclarée
+   dans `probe_229_effect_triggers_active.RAIL`. **NON CORRIGÉ ICI** : une entrée de `RAIL` encode un
+   verdict de RE (`kind` + symbole natif du rail) que cette tranche n'a pas rendu, et le fabriquer
+   serait exactement ce que le cliquet existe pour empêcher. Résidu `#462-r4b-r1-r1-r1-r1-b-r2`. La
+   dérivation probable — à confirmer par son auteur : même rail `ARRAYSET` et même symbole
+   `IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal` que son frère
+   `BondRemoveOnBondedEntityDeath`, le trigger (b) sortant du même `ArraySet`.
 
 ### 7.6 Matrice de mutants — et ce qu'elle a trouvé de MANQUANT
 
