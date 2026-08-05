@@ -284,7 +284,19 @@ def test_cosmic_horror_on_kill_retriggers_battle_fatigue_only_on_carriers(live_s
       * un summon ENNEMI porteur du trait `BattleFatigue` (`genesSmnNeophyte`) -> le behaviour de son
         BattleFatigue s'execute (`FleeOperation` : flag `UnitFlag.Fled=9`) ;
       * un ennemi SANS le trait -> `fatigue is None` (no-op fidele, pas d'ability a re-declencher).
-    Les DEUX recoivent Pinned (le meme tirage couvre les deux volets)."""
+
+    ⚠ SEUL LE NON-PORTEUR RECOIT `Pinned`, et c'est un CORRECTIF DE FIDELITE, pas une degradation
+    (#429-r1-r3-r1-r2). L'arbre natif est `TriggerAbility(0x401) & IfAlive(subject,
+    AddEffect(0x429 = Pinned, ...))` (`CreateBehaviour`, relu : `DSLBehaviors$$IfAlive` enveloppe
+    le `AddEffect` et le `op_BitwiseAnd` le pose APRES le `TriggerAbility`). Ce test attendait
+    `Pinned` sur les DEUX en s'appuyant sur une phrase du port -- « la victime qui fuit reste
+    vivante » -- qui est **REFUTEE PAR LA MESURE** : `IdunBattle.Operations.FleeOperation$$Execute`
+    appelle le slot 6 de `Core.Services.OperationProcessor` (`$$RemoveUnit`), et l'unite enfuie
+    sort du pool `EntityPool.AliveUnits` -- live, elle porte `unitFlags = [9, 26]` et
+    `IdunBattle.Entities.UnitExtensions$$IsAlive` rend FAUX sur elle A PV PLEINS (mesure du
+    2026-08-05, boards MC1_67 et C1_74). Le gate `IfAlive` MORD donc sur un porteur qui vient de
+    fuir. Il etait deja ecrit cote port ; il ne pouvait pas mordre parce que la fuite portee ne
+    sortait pas l'unite du plateau."""
     from engine.runner.operations.triggers.dispatch import unit_defeated_triggers
     from engine.runner.operations.spawn import _spawn_config_grot
     from engine.runner.components import OwnerComponent, UnitFlagsComponent
@@ -316,7 +328,16 @@ def test_cosmic_horror_on_kill_retriggers_battle_fatigue_only_on_carriers(live_s
         "le porteur n'a pas fui : le behaviour BattleFatigue n'a pas ete execute"
     assert bystander in hits and hits[bystander].get("fatigue") is None, \
         f"un non-porteur a re-declenche BattleFatigue : {hits.get(bystander)}"
-    assert state.effects.has_effect(carrier, effect_type=PINNED), "porteur non Pinned (meme tirage)"
+    # `IfAlive(subject)` RE-EVALUE apres le `TriggerAbility` : le porteur a FUI, donc il est sorti
+    # du pool `EntityPool.AliveUnits` -> le gate refuse et `Pinned` ne lui est PAS pose.
+    assert hits[carrier].get("pinned") is False, \
+        f"le porteur a FUI : `IfAlive(subject)` doit refuser `Pinned` -- obtenu {hits[carrier]}"
+    assert not state.effects.has_effect(carrier, effect_type=PINNED), \
+        "porteur ENFUI Pinned quand meme -> le gate `IfAlive` de l'arbre natif ne mord pas"
+    # LE DISCRIMINANT : le non-porteur, lui, n'a pas fui -- meme tirage, meme anneau, il EST Pinned.
+    # Sans cette ligne, le refus ci-dessus se lirait « le AddEffect ne s'execute jamais ».
+    assert hits[bystander].get("pinned") is True, \
+        f"le non-porteur (qui n'a pas fui) doit etre Pinned -- obtenu {hits[bystander]}"
     assert state.effects.has_effect(bystander, effect_type=PINNED), "non-porteur non Pinned (meme tirage)"
 
 
