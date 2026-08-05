@@ -363,17 +363,39 @@ def contre_epreuves(verbose=True) -> dict:
     return res
 
 
-def _canaux_de_lappel(n: ast.Call) -> set:
-    """Les canaux qu'un appel PASSE, par mot-cle ou par nom d'argument positionnel."""
+def _signatures_des_foyers() -> dict:
+    """{nom de foyer: [noms de parametres, dans l'ordre]}, LU par introspection.
+
+    Indispensable pour resoudre un argument POSITIONNEL : le nom de la VARIABLE passee n'est pas
+    celui du parametre. `is_adjacent(t, p, elev, neigh)` passe une variable nommee `neigh` au
+    parametre `neigh_by_pos` -- confondre les deux fabriquait 8 faux positifs sur 9 (mesure du
+    2026-08-05, premier jet de ce probe)."""
+    import inspect
+    from engine import battle_query as BQ
+    from engine.services import ability_range as AR
+    out = {}
+    for mod in (BQ, AR):
+        for nom, fn in vars(mod).items():
+            if inspect.isfunction(fn):
+                out[nom] = list(inspect.signature(fn).parameters)
+    return out
+
+
+def _canaux_de_lappel(n: ast.Call, params: list | None) -> set:
+    """Les canaux qu'un appel PASSE EFFECTIVEMENT, resolus contre la signature du foyer.
+
+    Un argument NEUTRE (`None`, `{}`) ne compte pas comme passe : c'est le bras MUTE."""
+    def _est_canal(nom):
+        return bool(nom) and (nom.endswith("_by_pos") or nom in _CANAUX_SCALAIRES)
+
     out = set()
     for k in n.keywords:
-        if k.arg and (k.arg.endswith("_by_pos") or k.arg in _CANAUX_SCALAIRES) \
-                and not _est_neutre(k.value):
+        if _est_canal(k.arg) and not _est_neutre(k.value):
             out.add(k.arg)
-    for a in n.args:
-        nom = a.id if isinstance(a, ast.Name) else getattr(a, "attr", None)
-        if nom and (nom.endswith("_by_pos") or nom in _CANAUX_SCALAIRES):
-            out.add(nom)
+    if params:
+        for i, a in enumerate(n.args):
+            if i < len(params) and _est_canal(params[i]) and not _est_neutre(a):
+                out.add(params[i])
     return out
 
 
@@ -389,6 +411,7 @@ def contre_epreuves_par_argument(verbose=True) -> dict:
     `len(neigh)` ou un `sorted(team_by_pos)` entre au gisement et le chiffre ne veut plus rien
     dire (33 sites bruts, dont la moitie sont des builtins)."""
     connus = {f["fonction"] for f in foyers_multicanaux(verbose=False)["foyers"]}
+    sigs = _signatures_des_foyers()
     sites = []
     for p in _fichiers_versionnes():
         rel = p.relative_to(RACINE).as_posix()
@@ -409,7 +432,8 @@ def contre_epreuves_par_argument(verbose=True) -> dict:
                 nom = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
                 if nom is None or nom not in connus:
                     continue
-                par_callee.setdefault(nom, []).append((n.lineno, _canaux_de_lappel(n)))
+                par_callee.setdefault(nom, []).append(
+                    (n.lineno, _canaux_de_lappel(n, sigs.get(nom))))
             for nom, appels in par_callee.items():
                 jeux = {frozenset(c) for (_ln, c) in appels}
                 if len(jeux) < 2:
@@ -533,9 +557,11 @@ def muettes(fichiers, verbose=True, max_appels=4000) -> dict:
                     tous[c] = None
                 stats["appels"] += 1
                 pt["appels"] += 1
-                if orig(**tous) == base:
-                    stats["inerte"] += 1          # aucun canal ne mord : hors regime
-                    continue
+                # ⚠ CHAQUE canal est evalue SEPAREMENT, MEME quand couper tous les canaux ne
+                # change rien. `tous == base` n'implique PAS « aucun canal ne mord » : deux canaux
+                # de sens OPPOSES se compensent (`is_tile_in_range_of_any_ability` -- couper
+                # l'elevation ELARGIT, couper l'equipe RESTREINT). Le premier jet sautait la
+                # boucle sur ce test et rendait MUETTE une contre-epreuve qui mordait.
                 seul_inerte = []
                 for c in actifs:
                     un = dict(vals)
@@ -545,9 +571,14 @@ def muettes(fichiers, verbose=True, max_appels=4000) -> dict:
                     else:
                         stats["porteur_unique"][c] += 1
                         pt["unique"].add(c)
-                if seul_inerte:
+                if len(seul_inerte) == len(actifs) and orig(**tous) == base:
+                    stats["inerte"] += 1          # ni seul ni ensemble : hors regime
+                elif seul_inerte and orig(**tous) != base:
                     stats["redondant"] += 1
                     pt["redondant"] += 1
+                    # Un canal peut figurer ici ET dans `unique` : les deux verdicts portent sur
+                    # des APPELS distincts du meme test. C'est le consommateur qui tranche, par
+                    # appel -- agreger les deux ferait dire au probe l'inverse de sa mesure.
                     pt["canaux_concurrents"] |= set(seul_inerte)
             except (TypeError, ValueError):
                 continue
@@ -578,11 +609,119 @@ def muettes(fichiers, verbose=True, max_appels=4000) -> dict:
     return out
 
 
+def verdict(verbose=True) -> int:
+    """LE VERDICT, et il ne porte QUE sur une peremption EFFECTIVE.
+
+    Ce module est d'abord un INVENTAIRE -- et un inventaire qui se declare garde-fou est le vice de
+    `probe_181` avant #430. Le seul invariant qu'on puisse tenir SANS faux positif est celui-ci :
+    une contre-epreuve dont le canal neutralise n'est porteur UNIQUE d'aucune exclusion, sur les
+    etats qu'elle joue reellement, est MUETTE -- elle ne discrimine plus rien, quelle qu'en soit la
+    cause. Elle rougit ici, nommee.
+
+    Elle NE rougit PAS sur la couverture (« ce site ne passe pas par le helper ») : les 17 sites
+    concernes sont tous justes aujourd'hui, et un garde qui les ferait rougir en bloc se ferait
+    desarmer -- c'est l'avertissement du residu, pris au mot.
+
+    TRI-ETAT : un site dont le callee n'est PAS un foyer capte (un playbook, un helper local) est
+    rendu NON MESURE, jamais VERT -- et si TOUS le sont, le verdict est INDISPONIBLE (99), jamais
+    un PASS. Un perimetre vide qui se lit « rien a signaler » est le vice qu'on ferme ici."""
+    par_arg = contre_epreuves_par_argument(verbose=False)["sites"]
+    par_rep = contre_epreuves(verbose=False)["couples"]
+    sites = ([{"fichier": s["fichier"], "fonction": s["fonction"], "callee": s["callee"],
+               "canaux": s["manquants"]} for s in par_arg]
+             + [{"fichier": c["fichier"], "fonction": c["fonction"], "callee": c["callee"],
+                 "canaux": c["champs"]} for c in par_rep])
+    couverts = _sites_couverts_par_le_helper()
+    tests = sorted({s["fichier"] for s in sites if _porteur(s["fichier"]) == "test"})
+    mes = muettes([str(RACINE / f) for f in tests], verbose=False)
+    par_test = mes["par_test"]
+
+    muets, non_mesures, mesures, deja, multi = [], [], 0, [], []
+    for s in sites:
+        if (s["fichier"], s["fonction"]) in couverts:
+            deja.append(s)                     # le helper le garde A L'EXECUTION
+            continue
+        if _porteur(s["fichier"]) != "test":
+            non_mesures.append((s, "porteur PROBE -- non rejoue par pytest"))
+            continue
+        if len(s["canaux"]) != 1:
+            # Une contre-epreuve qui coupe PLUSIEURS canaux d'un coup DISCRIMINE (le bras mute
+            # differe), mais elle n'ATTRIBUE pas : elle ne dit pas LEQUEL des etages a mordu. Ce
+            # n'est pas le regime du residu, et exiger que chaque canal soit porteur unique
+            # ferait rougir des tests corrects. Hors verdict, listee.
+            multi.append(s)
+            continue
+        base = Path(s["fichier"]).name
+        vus = [(cle, v) for cle, v in par_test.items()
+               if base in cle and ("::" + s["fonction"]) in cle
+               and cle.rsplit(" :: ", 1)[-1] == s["callee"]]
+        if not vus:
+            non_mesures.append((s, "aucun appel capte de `%s` dans ce test" % s["callee"]))
+            continue
+        mesures += 1
+        for canal in s["canaux"]:
+            porte = any(canal in v["porteur_unique"] for (_c, v) in vus)
+            redond = any(v["redondant"] for (_c, v) in vus)
+            if not porte and redond:
+                muets.append((s, canal, sorted({x for (_c, v) in vus
+                                                for x in v["canaux_concurrents"]})))
+    if verbose:
+        print("== #433-r4-r2-r4-r1 -- contre-epreuves par CANAL")
+        print("   sites a deux bras recenses : %d" % len(sites))
+        print("   deja gardes par le helper  : %d" % len(deja))
+        print("   MESURES par rejeu (MONO-canal) : %d" % mesures)
+        print("   coupent PLUSIEURS canaux -> discriminent sans ATTRIBUER : %d" % len(multi))
+        for s in multi:
+            print("      %s::%s -- %s prive de %s (aucun etage isole)"
+                  % (s["fichier"], s["fonction"], s["callee"], ",".join(s["canaux"])))
+        print("   NON MESURES (tri-etat, jamais un vert) : %d" % len(non_mesures))
+        for (s, pourquoi) in non_mesures:
+            print("      %s::%s -- %s" % (s["fichier"], s["fonction"], pourquoi))
+        print("   contre-epreuves MUETTES : %d (attendu 0)" % len(muets))
+        for (s, canal, conc) in muets:
+            print("      %s::%s -- `%s` n'est porteur UNIQUE d'aucune exclusion ; concurrents %s"
+                  % (s["fichier"], s["fonction"], canal, ",".join(conc) or "?"))
+    if not mesures and not deja:
+        print("INDISPONIBLE: aucun site MESURE ni garde -- le verdict ne porte sur RIEN")
+        return 99
+    if verbose:
+        print("VERDICT: %s" % ("PASS" if not muets else "FAIL (%d)" % len(muets)))
+    return 0 if not muets else 1
+
+
+def _sites_couverts_par_le_helper() -> set:
+    """{(fichier, fonction)} des contre-epreuves qui passent par `assert_channel_counterproof*`.
+
+    Elles n'ont pas besoin du rejeu de ce probe : le helper mesure la meme chose AU MOMENT ou la
+    contre-epreuve joue, et leve un type NOMME. Les compter ici evite de les rendre « non
+    mesurees », ce qui les ferait passer pour un trou alors qu'elles sont le remede."""
+    out = set()
+    for p in _fichiers_versionnes():
+        rel = p.relative_to(RACINE).as_posix()
+        if _porteur(rel) not in ("probe", "test"):
+            continue
+        try:
+            arbre = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+        except SyntaxError:
+            continue
+        for fn in ast.walk(arbre):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for n in ast.walk(fn):
+                if not isinstance(n, ast.Call):
+                    continue
+                f = n.func
+                nom = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+                if nom and nom.startswith("assert_channel_counterproof"):
+                    out.add((rel, fn.name))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="all",
                     choices=["all", "inventaire", "foyers", "redondance", "contre-epreuves",
-                             "par-argument", "muettes"])
+                             "par-argument", "muettes", "verdict"])
     ap.add_argument("--fichiers", nargs="*", default=None,
                     help="fichiers pytest OFFLINE a rejouer pour `--step muettes`")
     a = ap.parse_args()
@@ -603,6 +742,8 @@ def main() -> int:
             | {s["fichier"] for s in contre_epreuves_par_argument(verbose=False)["sites"]
                if _porteur(s["fichier"]) == "test"})
         muettes([str(RACINE / f) for f in cibles])
+    if a.step in ("all", "verdict"):
+        return verdict()
     return 0
 
 
