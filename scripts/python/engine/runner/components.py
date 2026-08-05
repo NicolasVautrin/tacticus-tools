@@ -1877,6 +1877,50 @@ def structural_analyser_friends(state, unit_id: int) -> Optional[int]:
     return n
 
 
+def adjacent_friendly_summons_and_decoys_count(state, unit_id: int) -> Optional[int]:
+    """`Count( UnitsWithTrait(AdjacentFriends(Owner, 1, 3), 0x2 = Summon)
+    op_Addition UnitsWithTrait(AdjacentFriends(Owner, 1, 3), 0x41d = Decoy) )` -- le cardinal que
+    `IdunBattle.Entities.Effects.Loki.AmuletOfTheVoidwyrm_CritDamageReductionEffect$$
+    GetAdjacentFriendlySummonsAndDecoysCount` calcule pour le PORTEUR de l'effet.
+
+    DEUX consommateurs natifs, un seul foyer ici (le natif appelle LA MEME methode des deux cotes) :
+      * `...$$CreateActiveCondition` = `AmountIsGreaterThanZero(<ce compteur>)` ;
+      * `...$$GetCritDmgReductionAmount` = `Multiply(ConfigVar(0x97), <ce compteur>)`.
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/amulet_of_the_voidwyrm.py::
+    adjacent_friendly_summons_and_decoys_selector`, doctrine #149 : l'artefact natif est un
+    SELECTEUR) ; ce qu'on fait ICI, c'est lui donner son `AbilityEntities` -- `entities_from_state(
+    state, unit_id)` pose `caster = owner = le porteur`, `board = state.board` et `has_trait`.
+
+    ⚠ SUBSTRAT D'ADJACENCE, **MESURE** et non suppose (#589-r1-r1-r2-r1). Le foyer DSL partage
+    (`dsl/base.py::_within`, `order='adjacent'`) filtre l'ENSEMBLE par `hexgeo.distance <= radius`
+    et ne se sert de `board.neighbours_native` que pour l'ORDRE d'enumeration. C'est le
+    comportement du NATIF sur ce chemin : sur `C3_14`, porteur en `(5,4)` et compagnon en `(5,3)`
+    -- meme elevation 4, arete absente de `boardGraph.neighbours` ET de `connectivity`, DANS LES
+    DEUX SENS -- le natif ACTIVE l'effet et retranche `critDmgReduction x 1`. Le probe de cette
+    tranche avait ecrit sa garde a l'envers et la mesure l'a retourne. C'est le meme fait que
+    `runner/operations/triggers/base.py::_adjacent_damageable_enemies` avait deja mesure sur
+    l'AUTRE consommateur du meme sous-arbre (`Units(AdjacentTiles(...))` du splash de FragBomb),
+    ici recoupe par un canal INDEPENDANT (l'activite d'un effet).
+    ⇒ `AdjacentTilesSelector` (le chemin DSL) et `BattleQuery$$IterateAdjacentTiles` (celui
+    d'`IsCharging` / des comptages `GetAdjacent*`, mirror `battle_query.is_adjacent`) NE LISENT PAS
+    le meme substrat, et le port suit chacun a sa place.
+
+    `None` si le porteur n'a ni equipe ni tuile (cle alors ABSENTE du `unit_state` => la
+    `CreateActiveCondition` degrade en VRAI, et le canal crit ne contribue RIEN) -- jamais un 0
+    invente, qui annulerait le produit et ferait passer une reduction reelle pour une absence."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from ..entities.effects.loki.amulet_of_the_voidwyrm import (
+        adjacent_friendly_summons_and_decoys_selector)
+    from .abilities.behaviours import entities_from_state
+    return int(adjacent_friendly_summons_and_decoys_selector()
+               .calculate(entities_from_state(state, int(unit_id))))
+
+
 class UnitEffectStateView(Mapping):
     """Le `unit_state` d'une unité — vue MAPPING PARESSEUSE sur l'ECS (`unit_state_for_effects`).
 
@@ -1929,6 +1973,13 @@ class UnitEffectStateView(Mapping):
         SurroundingFriends(2), Tau)` que `AmountIsGreaterThanZero` compare à 0 dans
         `IdunBattle.Entities.Effects.Loki.StructuralAnalyser_VisualEffect$$CreateActiveCondition`
         (case-366-r1). La clé est présente dès que le porteur a une équipe ET une tuile.
+      * `adjacent_friendly_summons_and_decoys` — cardinal PARESSEUX (O(entités), cf.
+        `adjacent_friendly_summons_and_decoys_count`) : l'arbre `Count(UnitsWithTrait(
+        AdjacentFriends(Owner), Summon) + UnitsWithTrait(AdjacentFriends(Owner), Decoy))` que
+        `AmountIsGreaterThanZero` compare à 0 dans
+        `IdunBattle.Entities.Effects.Loki.AmuletOfTheVoidwyrm_CritDamageReductionEffect$$
+        CreateActiveCondition` (#589-r1-r1-r2-r1). MÊME gate de présence que la clé ci-dessus
+        (sélecteur géométrique ET par équipe) : présente dès que le porteur a une équipe ET une tuile.
       * `turns_started` — `RoundsStarted(Owner@DSLSelectors+0x30)` =
         `IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate` (somme de
         `UnitComponent.turnsStarted@+0x58` sur le sélecteur, ici mono-unité = le porteur), MÊME
@@ -1943,7 +1994,7 @@ class UnitEffectStateView(Mapping):
     par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
 
     __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
-                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa")
+                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -2008,6 +2059,9 @@ class UnitEffectStateView(Mapping):
         # ET par equipe -> la cle n'existe que si le porteur a une tuile ET une equipe.
         self._has_sa = (self._has_pos and oc is not None and oc.team is not None)
         self._sa: Optional[int] = None
+        # `AdjacentFriends(Owner) filtre Summon/Decoy` : MEME gate que ci-dessus (selecteur
+        # geometrique ET par equipe) -> la cle n'existe que si le porteur a une tuile ET une equipe.
+        self._asd: Optional[int] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -2036,6 +2090,10 @@ class UnitEffectStateView(Mapping):
             if self._sa is None:
                 self._sa = structural_analyser_friends(self._state, self._uid)
             return self._sa
+        if key == "adjacent_friendly_summons_and_decoys" and self._has_sa:
+            if self._asd is None:
+                self._asd = adjacent_friendly_summons_and_decoys_count(self._state, self._uid)
+            return self._asd
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -2049,10 +2107,11 @@ class UnitEffectStateView(Mapping):
             yield "has_effect_light_cover"
         if self._has_sa:
             yield "structural_analyser_friends"
+            yield "adjacent_friendly_summons_and_decoys"
 
     def __len__(self) -> int:
         return (len(self._eager) + (1 if self._has_psy else 0) + (2 if self._has_pos else 0)
-                + (1 if self._has_effstate else 0) + (1 if self._has_sa else 0))
+                + (1 if self._has_effstate else 0) + (2 if self._has_sa else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)
         return "UnitEffectStateView(u%d, %s)" % (self._uid, sorted(self))

@@ -25,7 +25,7 @@
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **46** ; kits avec du travail : **81**
 - Volume total : **100** items manquants (actives no-op + passifs/traits non registres)
-- HORS total — voies conditionnelles : **43** abilities non portees (11 mythiques, 32 reliques equipables)
+- HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
 
@@ -251,7 +251,7 @@
 
 adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraCreed, astraOrdnanceBattery, blackForgefiend, blackObliterator, blackTerminator, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathRotbone, deathTyphus, eldarFarseer, eldarMauganRa, genesKelermorph, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauBroadside, tauCrisis, tauDarkstrider, thousAhriman, thousInfernalMaster, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTitus
 
-## HORS total — voies conditionnelles (43 abilities non portees)
+## HORS total — voies conditionnelles (42 abilities non portees)
 
 > Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
 > pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
@@ -264,7 +264,6 @@ adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraC
 
 | ability | voie | porteurs lineup | ex. |
 |---|---|---:|---|
-| AmuletOfTheVoidwyrm | item | 3 | genesBiophagus, genesKelermorph, genesPrimus |
 | BladeOfTheAncestors | item | 1 | votanUthar |
 | BookOfFate | item | 3 | blackPossession, thousInfernalMaster, thousSorcerer |
 | ChaliceOfBaal | item | 1 | bloodSanguinary |
@@ -308,4 +307,4 @@ adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraC
 | ShieldOfFaith | mythic | 1 | adeptExorcist |
 | WisdomOfTheAncients | mythic | 1 | ultraDreadnought |
 
-Portees (au moins un registre) : **0**
+Portees (au moins un registre) : **1** — AmuletOfTheVoidwyrm

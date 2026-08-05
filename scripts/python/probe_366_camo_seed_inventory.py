@@ -61,6 +61,18 @@ import sys
 # --------------------------------------------------------------------------------------------
 POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
     # effet                                   pose       flip       symbole natif de la POSE / condition
+    # #589-r1-r1-r2-r1 -- `AmuletOfTheVoidwyrmAbility` derive d'`AOwnerEffectTriggeredAbility`
+    # (`classes.tsv`) et n'en surcharge QUE `GetEffectType` (-> 0x5b4). Le corps de BASE est
+    # `If(<CreateCondition>, AddEffect(0x5b4, AbilityState(Owner, <cette ability>), source = Owner,
+    # targets = Owner, turns = <zeroe>))` sur `CreateTrigger = OnOwnerSpecificAbilityInit` ; la
+    # `CreateCondition` de base rend `<DSLTriggers+0x70>`, une instance de la MEME classe que
+    # `<+0x40>` (dont `<+0x48>` est le `op_LogicalNot`), donc la pose est INCONDITIONNELLE.
+    # MEME vecteur exact qu'`HammerOfWrath_ConditionalDamage` et `MartialSuperiority_Visual`.
+    "AmuletOfTheVoidwyrm_CritDamageReduction": (
+        "init", "sim",
+        "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
+        " (AmuletOfTheVoidwyrmAbility)",
+        "AmountIsGreaterThanZero(summons/decoys allies ADJACENTS -- geometrique)"),
     "AnvilShield_BlockChanceBelowHealthCap": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_"

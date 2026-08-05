@@ -152,6 +152,7 @@ from .loki import (
     InescapableAccuracyExtraCritDamageEffect,
     InescapableAccuracyOverrideHitsEffect,
     EmpyricAmbushEffect,
+    AmuletOfTheVoidwyrmCritDamageReductionEffect,
     UntilOfEndTurnEffect,
     StructuralAnalyserVisualEffect,
     MartialSuperiorityVisualEffect,
@@ -959,6 +960,25 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ⚠ Config lue = l'ability ACTIVE 1232 (`mov edx, 0x4d0` + surcharge `set_ActiveAbility` de
     # `AbilityOrEffect$$op_Implicit`, relue byte a byte), PAS l'EffectType 1578.
     "EmpyricAmbush": EmpyricAmbushEffect,
+    # 1460 AmuletOfTheVoidwyrm_CritDamageReduction (#589-r1-r1-r2-r1) : owner-effect PERMANENT de la
+    # RELIQUE `AmuletOfTheVoidwyrm`, pose a l'init par la base `IdunBattle.Entities.Abilities.
+    # AOwnerEffectTriggeredAbility$$CreateBehaviour` (`If(<trig>, AddEffect(GetEffectType() = 0x5b4,
+    # AbilityState(Owner, <cette ability>), source = Owner, targets = Owner, turns = <zeroe>))`) sur
+    # le trigger `OnOwnerSpecificAbilityInit`. UN seul canal, et c'est le premier `ForSubtraction` de
+    # l'axe crit-DEGAT :
+    #   `...AmuletOfTheVoidwyrm_CritDamageReductionEffect$$CreateCritDamageBonus`
+    #       = ForSubtraction(get_OwnerIsTarget,            <- trigger NU, aucun op_BitwiseAnd
+    #                        Multiply(ConfigVar(0x97 = critDmgReduction),
+    #                                 GetAdjacentFriendlySummonsAndDecoysCount()))
+    #   + `CreateActiveCondition` = AmountIsGreaterThanZero(<le MEME compteur>)
+    # ⚠ TROIS enums, deux a 1460 : `EffectType` 0x5b4 = 1460 est CET effet, mais sa CONFIG est la
+    # TRIGGERED 0x5b8 = **1464** `AmuletOfTheVoidwyrm` (`.ctor` relu octet a octet : `mov edx, 0x5b8`
+    # + la surcharge d'`AbilityOrEffect$$op_Implicit` qui appelle `set_TriggeredAbility`) -- tandis
+    # que `TriggeredAbilityType` 1460 est `TalismanOfRage`, une AUTRE relique.
+    # ⚠ Le niveau lu est celui de l'`AbilityState` TERTIAIRE du porteur (relique EQUIPEE), via le
+    # foyer `triggered_ability_state` de #357 : `ability_level` (le passif, 50 en runner normalise)
+    # rendrait TOUJOURS le dernier palier.
+    "AmuletOfTheVoidwyrm_CritDamageReduction": AmuletOfTheVoidwyrmCritDamageReductionEffect,
     # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
     # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
     # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce
