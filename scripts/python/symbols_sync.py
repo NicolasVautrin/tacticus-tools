@@ -15,8 +15,8 @@ Mais son defaut visait `data/il2cpp_{methods,classes,enums}.tsv` -- des fichiers
 N'EXISTENT PLUS depuis que les tables sont versionnees sous `data/symbols/<HASH>/`. La
 verification par defaut ne verifiait donc plus rien.
 
-LES CINQ AXES, ET CE QUE CHACUN ATTRAPE
----------------------------------------
+LES SIX AXES, ET CE QUE CHACUN ATTRAPE
+--------------------------------------
 1. **binaire installe <-> tables versionnees** (sha256, pivot de la provenance). Attrape la
    mise a jour du jeu non suivie d'un re-dump : toute RVA lue devient fausse.
 2. **coherence INTERNE des tables** : nom du repertoire == fichier `BUILD` == champ `build=`
@@ -29,6 +29,12 @@ LES CINQ AXES, ET CE QUE CHACUN ATTRAPE
 4. **FORME** : la table parle-t-elle la meme langue que les citations du depot (`Classe$$Membre`) ?
 5. **COUVERTURE par grande famille** : la table NEUVE nomme-t-elle encore, famille par famille,
    ce que nommait la precedente ?
+6. **ARCHIVE D'EMPREINTE** (#482-r3) : le build COURANT a-t-il deja son empreinte structurelle
+   rangee sous `data/symbols/<build>/fingerprints/` ? C'est le SEUL axe qui ne juge pas l'etat
+   present mais une CAPACITE FUTURE -- pouvoir encore repondre, dans six mois, a « ce symbole
+   a-t-il change de corps ? ». Il est ici parce qu'il faut agir AVANT la mise a jour : le
+   lanceur efface `games/<HASH>/` sans preavis, et une empreinte qui n'a pas ete calculee
+   pendant que le binaire existait ne se rattrape que par le projet Ghidra -- ou pas du tout.
 
 Les axes 1 a 4 verifient la PROVENANCE ou la FORME. AUCUN ne compte ce qu'il y a DEDANS --
 c'est exactement pourquoi la disparition de 4 015 symboles est passee sans un mot (#259).
@@ -36,6 +42,15 @@ c'est exactement pourquoi la disparition de 4 015 symboles est passee sans un mo
 L'axe 3 exige un serveur allume (lancement MANUEL, `start-ghidra-mcp.ps1`). Serveur eteint
 n'est PAS un echec -- mais ce n'est PAS un succes non plus : c'est rapporte comme NON VERIFIE.
 Taire la difference reproduirait exactement le defaut qu'on corrige.
+
+L'axe 6 ne fait echouer la garde que sur une archive DISCORDANTE (un artefact incoherent, comme
+l'axe 2). Une archive MANQUANTE le fait seulement PARLER : c'est une action a mener, pas une
+desynchronisation -- rien de ce qui est lu aujourd'hui n'en devient faux. Et il PARLE plutot
+qu'il ne se tait parce que l'action est BORNEE (~70 s, une fois par build) et que le message
+disparait des qu'elle est faite : ce n'est pas une alarme permanente qu'on apprendrait a
+ignorer. Une perte DEFINITIVE (`PERDUE`) est imprimee sans faire echouer -- aucune action ne
+peut plus l'eteindre, et repeter une alarme inextinguible est exactement ce qui desarme un
+garde-fou.
 
 SORTIE : 0 = tout ce qui etait verifiable est SYNCHRONE ; 1 = DESYNCHRONISATION (ou artefact
 illisible). ASCII only (console Windows cp1252).
@@ -403,6 +418,60 @@ def axe5_couverture(build_dir: Path) -> tuple[list[str], bool]:
                                 ref.name, build_dir.name), True)
 
 
+def axe6_archive_empreinte() -> tuple[list[str], bool]:
+    """L'empreinte structurelle de chaque build est-elle ARCHIVEE, ou encore recuperable ?
+
+    Rend (lignes, rien_a_signaler). `rien_a_signaler` est ce qui autorise le hook a se TAIRE :
+    il n'est vrai que si TOUT est archive. Une archive manquante, une perte definitive ou une
+    recuperabilite non mesuree font parler -- chacune pour une raison differente, et l'axe les
+    NOMME au lieu de les fondre.
+
+    Ne LEVE que sur DISCORDANTE. Detail du raisonnement : docstring du module.
+    """
+    try:
+        import build_fingerprint_archive as A
+    except ImportError as exc:                                  # noqa: BLE001
+        return (["  ??  archive d'empreinte : capteur indisponible (%s) -- axe NON VERIFIE"
+                 % exc], False)
+
+    inv = A.inventaire()
+    if not inv:
+        return (["  ??  archive d'empreinte : aucun build versionne -- axe NON VERIFIE"], False)
+
+    mauvais = [e for e in inv if e.echec]
+    if mauvais:
+        e = mauvais[0]
+        raise Desync(
+            "archive d'empreinte DISCORDANTE pour %s : %s\n"
+            "  Une empreinte rangee sous le mauvais build compare deux binaires sans rapport\n"
+            "  et rend un changement fabrique de toutes pieces. La regenerer :\n"
+            "    %s --force" % (e.build, e.detail, e.commande or "(voie a determiner)"))
+
+    lignes, propre = [], True
+    a_faire = [e for e in inv if e.actionnable]
+    for e in a_faire:
+        propre = False
+        urgence = ("le binaire est ENCORE la -- il disparaitra sans preavis"
+                   if e.etat == A.RECUPERABLE_PE else "binaire deja disparu, rattrapage possible")
+        lignes.append("  !!  empreinte NON ARCHIVEE  %s%s : %s"
+                      % (e.build, " (COURANT)" if e.courant else "", urgence))
+        lignes.append("      %s" % e.commande)
+    for e in inv:
+        if e.etat == A.PERDUE:
+            propre = False
+            lignes.append("  --  empreinte PERDUE  %s : %s" % (e.build, e.detail))
+        elif e.etat == A.INDETERMINEE:
+            propre = False
+            lignes.append("  ??  empreinte %s : %s" % (e.build, e.detail))
+        elif e.etat == A.SANS_TABLE:
+            propre = False
+            lignes.append("  ??  empreinte %s : %s" % (e.build, e.detail))
+    if propre:
+        lignes.append("  OK  empreinte structurelle archivee pour les %d build(s) versionne(s)"
+                      % len(inv))
+    return (lignes, propre)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--quiet", action="store_true",
@@ -414,7 +483,7 @@ def main() -> int:
                          "serveur sain). Depasse = axe NON VERIFIE, jamais un faux vert")
     args = ap.parse_args()
 
-    lignes, ghidra_vu, couverture_vue = [], False, False
+    lignes, ghidra_vu, couverture_vue, archive_propre = [], False, False, False
     try:
         build_dir = versioned_build()
         dll = installed_dll()
@@ -423,6 +492,8 @@ def main() -> int:
         lignes += axe4_forme(build_dir)
         l5, couverture_vue = axe5_couverture(build_dir)
         lignes += l5
+        l6, archive_propre = axe6_archive_empreinte()
+        lignes += l6
         if args.skip_ghidra:
             lignes.append("  --  ghidra: non interroge (--skip-ghidra)")
         else:
@@ -434,7 +505,7 @@ def main() -> int:
         print("  Procedure de remise a niveau : CLAUDE.md, section « Au changement de build »")
         return 1
 
-    if args.quiet and ghidra_vu and couverture_vue:
+    if args.quiet and ghidra_vu and couverture_vue and archive_propre:
         return 0                        # tout verifie et synchrone : le hook se tait
     print("symboles SYNCHRONES  build=%s  binaire=%s..."
           % (build_dir.name, sha256_of(dll)[:12]))

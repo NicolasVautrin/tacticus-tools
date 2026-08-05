@@ -74,6 +74,39 @@ de build, et resoudre contre la mauvaise table rendrait une chaine *plausible et
 ⚠ **La cle stable est la VALEUR**, jamais l'index ni la RVA. La table n'est pas triee : l'index est
 un rang d'emission du compilateur.
 
+### La QUATRIEME famille — `fingerprints/`, qui répond à ce que les trois autres ne voient PAS
+
+`fingerprints/functions.tsv` (#482, archivé par #482-r3) est produit par
+`scripts/python/fingerprint_functions.py archiver`, **depuis les OCTETS** : le
+`GameAssembly.dll` du build courant, ou les blocs mémoire d'un projet Ghidra pour un build
+déjà disparu.
+
+Elle répond à la seule question que les trois autres ne peuvent pas poser : **« ce symbole
+a-t-il le même CORPS entre deux builds ? »** — invariante à la relocation, donc lisible malgré
+des adresses qui changent à 100 %.
+
+> ⚠ **La phrase « le diff de `data/symbols/` EST le rapport de changement du jeu » (ci-dessous)
+> est vraie de ce qui APPARAÎT, DISPARAÎT ou se RENOMME — et fausse de tout le reste.** Les
+> tables sont de la forme `<adresse>\t<symbole>` : un corps modifié sous un nom stable y est
+> **invisible**, et c'est exactement ce qui périme un port en silence. Mesuré entre `gqfc5mff6c`
+> et `rnca9r7q6c` : **11 186 corps changés (10,9 %)** sur 102 647 symboles communs, dont
+> **1 532** cités par le dépôt. Aucun autre fichier de ce répertoire ne les montrait.
+
+**Elle s'archive PENDANT que le binaire existe, jamais après.** Le lanceur efface le dossier du
+build sortant *avant* que la divergence installé ↔ `CURRENT` soit détectable — un archivage
+déclenché sur cette divergence n'archiverait rien. L'axe 6 de `symbols_sync.py` le réclame donc
+pour le build **COURANT**, à chaque `SessionStart`, et s'éteint dès que c'est fait.
+
+```powershell
+python scripts/python/build_fingerprint_archive.py       # où en est chaque build
+python scripts/python/fingerprint_functions.py archiver  # le courant, ~70 s
+```
+
+⚠ **`kqkbjqfb6c` est un répertoire PARTIEL** : il porte `BUILD`, `ghidra/` et `fingerprints/`,
+mais **pas** `frida/` — son build n'existe plus, donc le dump Frida (qui exige le jeu qui tourne)
+n'est plus produisible. Son sha256 n'est croisé par aucune seconde source, et le capteur le
+**dit** (`sha256 NON CROISE`). C'est tout ce qui restera jamais de ce build.
+
 ## La forme `$$` et les `u003C` viennent d'Il2CppDumper
 
 `Classe$$Membre`, avec `u003C` pour `<` et `u003E` pour `>`, est la convention **native
