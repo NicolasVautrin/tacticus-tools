@@ -1,8 +1,18 @@
 # #477-r18 — le périmètre du DÉROULÉ DE BATAILLE dans le flux de replay
 
 **INVENTAIRE, rien de porté.** Build `rnca9r7q6c`, ghidra-mcp sur le binaire installé, session Frida
-**9**. Probe : `scripts/python/probe_477r18_deroule_perimetre.py` (deux volets : statique
-`--json`, live `--flux-live`). Flux témoin conservé : `logs/477r18-flux-C1_02.txt`.
+**9**.
+
+```powershell
+python scripts/python/probe_477r18_deroule_perimetre.py --json 477r18-carte.json
+python scripts/python/probe_477r18_deroule_perimetre.py --flux-live --board C1_02 --tours 2
+```
+
+Volet **statique** : dérive le périmètre du binaire (cache disque sous `logs/477r18-decompile/` —
+le premier run décompile ~840 corps, les suivants sont immédiats). Volet **live** : monte un
+runner, joue N tours d'IA, ventile le flux natif par groupe racine, le conserve sous
+`logs/477r18-flux-<board>.txt`, dispose dans le `finally`. **Les chiffres ci-dessous se
+re-dérivent — ne pas les citer.**
 
 ## Verdict en une ligne
 
