@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""#479 -- MESURE de la surface de capteurs `frida/hooks/` : role, atteignabilite, tri-etat.
+"""#480 -- MESURE de la surface de capteurs `frida/hooks/` : role, atteignabilite, tri-etat.
 
 POURQUOI
 --------
@@ -349,7 +349,7 @@ def main() -> int:
 
     print("")
     if rouge:
-        print("AU MOINS UN CLIQUET ROUGE -- cf. docs/rl/case-479-audit-hooks-frida.md")
+        print("AU MOINS UN CLIQUET ROUGE -- cf. docs/rl/case-480-audit-hooks-frida.md")
         return 1
     print("RIEN A SIGNALER.")
     return 0

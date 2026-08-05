@@ -175,7 +175,7 @@ function observeBattle(opts?: { runnerId?: number }): BattleObservation {
     // on the board (pos set) and being played (pos/hp change across turns).
     obs.mows = (proj.mows ?? []) as unknown[];
 
-    // #479 — TRI-ETAT : « aucune entite » n'est PAS « bataille vide », c'est « PAS MESURE ».
+    // #480 — TRI-ETAT : « aucune entite » n'est PAS « bataille vide », c'est « PAS MESURE ».
     // Mesure du 2026-08-05 (session 7) : appele SANS `runnerId` alors qu'aucune bataille n'est
     // chargee, ce RPC rendait `ok:true`, `counts` tout a zero, `units: []` et AUCUNE `err` --
     // `obs.ok = true` etait pose inconditionnellement des que `statePtr` est non nul. Un

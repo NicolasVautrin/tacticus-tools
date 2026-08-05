@@ -1,7 +1,7 @@
-# #479 — Audit de `frida/hooks/` à la lumière du flux de replay : rôles, redondance, angles morts
+# #480 — Audit de `frida/hooks/` à la lumière du flux de replay : rôles, redondance, angles morts
 
 **Build** `rnca9r7q6c`, session Frida **7**, runner **226** (MC1_67, seed 777, `--record-replay`).
-Probe : `scripts/python/probe_479_hooks_audit.py`. Tranche de **décision**, pas de refactoring.
+Probe : `scripts/python/probe_480_hooks_audit.py`. Tranche de **décision**, pas de refactoring.
 
 ## Verdict en une ligne
 
@@ -314,17 +314,30 @@ Résultat : **une confirmée, une déjà résolue**.
 
 ## Résidus
 
-- **#479-r1** — **Le périmètre `hooks/scratch/`** : 69 fichiers versionnés et bundlés portant
+- **#480-r1** — **Le périmètre `hooks/scratch/`** : 69 fichiers versionnés et bundlés portant
   **142** erreurs tsc, qualifiés « gitignoré » par trois case-docs. Trancher : soit ils rentrent
   dans le contrat de typage, soit leur exclusion est **écrite et motivée** au lieu d'être héritée
   d'une propriété git qui a changé. *Condition de retournement* : `npx tsc -p tsconfig.hooks.json
   --noEmit` rend un compte **stable et assumé**, et plus aucune case-doc ne les dit gitignorés.
-- **#479-r2** — **`probe_252` ne pèse qu'un sens de la bijection** (§7). *Condition de
+- **#480-r2** — **`probe_252` ne pèse qu'un sens de la bijection** (§7). *Condition de
   retournement* : ajouter un membre d'enum absent des tables fait **rougir** le cliquet.
-- **#479-r3** — **Aucune mesure de « quels RPC la session expose »** (§5, R3). *Condition de
+- **#480-r3** — **Aucune mesure de « quels RPC la session expose »** (§5, R3). *Condition de
   retournement* : un appel à un RPC absent se distingue d'une erreur d'exécution **sans lire le
   code du bundle**.
-- **#479-r4** — **Friction de worktree** : `npm run build:hooks` échoue (`ENOENT`) sur un worktree
+- **#480-r4** — **Friction de worktree** : `npm run build:hooks` échoue (`ENOENT`) sur un worktree
   frais tant que `frida/dist/` n'existe pas. Bénin, mais il contredit « un worktree frais est
   RUNNABLE par son seul checkout » pour la voie bundle. *Condition de retournement* : `npm ci` puis
   `npm run build:hooks` rc 0 sans `mkdir` manuel.
+- **#468-r10** (ouvert par cette tranche, hors périmètre d'audit) — **l'allocateur de numéros est
+  aveugle aux réservations des agents EN VOL**. Cette tranche en est la mesure : elle a été écrite
+  entière sous `#479`, numéro que `probe_468 --suggere` lui a donné **et** a donné au ménage des
+  branches orphelines (PR #659, mergée pendant). Collision **double** — la racine **et** le résidu
+  `r1`. Renumérotée en `#480` avant merge. Détail, parades évaluées et condition de retournement :
+  au backlog.
+
+## Note de renumérotation
+
+Cette fiche a été écrite sous `#479` et renumérotée en **`#480`** avant merge : `#479` était pris
+par `case-479-branches-orphelines.md` (PR #659), mergé pendant la tranche. Les artefacts `#479`
+du dépôt appartiennent donc **au ménage des branches**, pas à cet audit — et le résidu `#479-r1`
+du backlog n'est **pas** l'un des miens.
