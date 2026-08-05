@@ -30,6 +30,7 @@ import dataclasses
 import pytest
 
 import hexgeo
+from counterproof import assert_channel_counterproof_ctx
 from engine import battle_query as bq
 from engine.playbook.noncomparable import NCContext
 from engine.playbook.noncomparable.early_warning_override import (EarlyWarningOverridePlaybook,
@@ -89,11 +90,17 @@ def test_early_warning_keeps_the_identity_short_circuit():
 def test_early_warning_without_the_channel_degrades_to_bare_distance():
     """Canal absent -> borne SUPERIEURE (distance hex nue), jamais une adjacence retiree a
     l'aveugle. C'est exactement l'etat d'AVANT le fix, et c'est ce que la contre-epreuve live
-    utilise comme second bras."""
+    utilise comme second bras.
+
+    #433-r4-r2-r4-r1 : l'ATTRIBUTION passe d'abord. Si un jour `elev_by_pos` cesse d'etre le seul
+    canal a porter cette exclusion, c'est `InertCounterproof` qui parle -- pas un rouge qui accuse
+    le port, comme le 2026-08-04."""
     pb = EarlyWarningOverridePlaybook()
     nb = _neighbours(O)
     high = nb[1]
     ctx = _ctx(O, [high], {O: 2, high: 4})
+    assert_channel_counterproof_ctx(
+        lambda c: frozenset(pb.adjacent_at_origin(c, pb.enemies_of(c))), ctx, "elev_by_pos")
     assert high not in pb.adjacent_at_origin(ctx, pb.enemies_of(ctx))
     for degraded in (None, {}):
         ctx2 = dataclasses.replace(ctx, elev_by_pos=degraded)
@@ -152,6 +159,9 @@ def test_early_warning_emitted_action_changes_with_the_gate():
     reach = [O] + [ring[d] for d in (2, 3, 4) if d in ring]
     elev = {O: 2, high: 4}
     ctx = _ctx(O, [high], elev, reach=reach)
+    # #433-r4-r2-r4-r1 : ATTRIBUER avant d'assertionner. `on != off` ci-dessous ne sait pas dire
+    # POURQUOI les deux bras coincident ; le helper, si (canal concurrent vs etat hors regime).
+    assert_channel_counterproof_ctx(pb.generate_candidates, ctx, "elev_by_pos")
     ctx_off = dataclasses.replace(ctx, elev_by_pos=None)
     on = pb.generate_candidates(ctx)
     off = pb.generate_candidates(ctx_off)
@@ -253,6 +263,11 @@ def test_both_consumers_reject_the_bare_hex_distance():
     high = nb[1]
     elev = {O: 2, high: 4}
     ctx = _ctx(O, [high], elev)
+    assert_channel_counterproof_ctx(
+        lambda c: frozenset(pb_ew.adjacent_at_origin(c, pb_ew.enemies_of(c))), ctx, "elev_by_pos",
+        remede="ce test NEUTRALISE le foyer pour verifier que les deux consommateurs le lisent ; "
+               "si un second canal porte la meme exclusion, neutraliser celui-ci ne prouve plus "
+               "rien -- couper les DEUX, ou muter le foyer lui-meme")
     assert pb_ew.adjacent_at_origin(ctx, pb_ew.enemies_of(ctx)) == set()
     assert pb_mt._nearest_enemy_tile(ctx) == high      # seul ennemi : il gagne par distance
     ctx_bare = dataclasses.replace(ctx, elev_by_pos=None)

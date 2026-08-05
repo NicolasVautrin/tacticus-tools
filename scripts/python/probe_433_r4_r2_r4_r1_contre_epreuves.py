@@ -434,11 +434,157 @@ def contre_epreuves_par_argument(verbose=True) -> dict:
     return res
 
 
+class _Capteur:
+    """Plugin pytest qui INTERCEPTE les foyers et enregistre leurs appels REELS.
+
+    Le patch balaie `sys.modules` au lieu de patcher le seul module qui DEFINIT le foyer : les
+    call-sites du port l'importent par `from ..battle_query import is_adjacent`, donc ils portent
+    leur PROPRE reference et un patch au point de definition ne les verrait pas (meme piege que
+    l'etape 1 du cliquet `probe_433r4r1r4r2_neigh_channel_wired`, qui RESOUT les imports)."""
+
+    def __init__(self, cibles):
+        self.cibles = cibles                 # {nom: fonction originale}
+        self.appels = {}                     # {nom: [ (nodeid, args, kwargs) ]}
+        self.nodeid = "<hors test>"
+        self._pose = False
+
+    def _wrapper(self, nom, orig):
+        def _w(*a, **kw):
+            self.appels.setdefault(nom, []).append((self.nodeid, a, dict(kw)))
+            return orig(*a, **kw)
+        _w.__wrapped_probe_433r4r2r4r1__ = True
+        return _w
+
+    def pytest_runtest_setup(self, item):
+        self.nodeid = item.nodeid
+
+    def _patcher(self):
+        for nom, orig in self.cibles.items():
+            w = self._wrapper(nom, orig)
+            for mod in list(sys.modules.values()):
+                if mod is None:
+                    continue
+                try:
+                    if getattr(mod, nom, None) is orig:
+                        setattr(mod, nom, w)
+                except Exception:
+                    continue
+
+    def pytest_collection_finish(self, session):
+        if not self._pose:
+            self._pose = True
+            self._patcher()
+
+
+def muettes(fichiers, verbose=True, max_appels=4000) -> dict:
+    """Etage 4 -- sur les etats REELLEMENT joues, neutraliser UN canal change-t-il quelque chose ?
+
+    C'est la question du residu, posee de la seule facon qui ne se devine pas : on capte les appels
+    que les tests font aux foyers, puis on REJOUE chacun avec un canal neutralise.
+
+      * `redondant` -- il existe un canal dont la neutralisation SEULE ne change RIEN, alors que
+        neutraliser TOUS les canaux change le verdict. C'est EXACTEMENT le regime qui a vide la
+        contre-epreuve de `#433-r4-r2` : le canal n'est pas le seul porteur de l'exclusion.
+      * `porteur unique` -- neutraliser ce canal seul change deja le verdict : une contre-epreuve
+        batie dessus MORD.
+
+    Le foyer est appele avec les MEMES arguments, `inspect.signature` liant les positionnels : on
+    ne suppose aucun ordre de parametres."""
+    import inspect
+    import pytest
+
+    from engine import battle_query as BQ
+    from engine.services import ability_range as AR
+
+    cibles = {}
+    for mod in (BQ, AR):
+        for nom, fn in vars(mod).items():
+            if not inspect.isfunction(fn):
+                continue
+            sig = inspect.signature(fn)
+            canaux = [p for p in sig.parameters
+                      if p.endswith("_by_pos") or p in _CANAUX_SCALAIRES]
+            if len(canaux) >= 2:
+                cibles[nom] = fn
+    cap = _Capteur(cibles)
+    code = pytest.main(["-q", "--no-header", "-p", "no:cacheprovider", *fichiers], plugins=[cap])
+
+    res, total, par_test = {}, 0, {}
+    for nom, appels in sorted(cap.appels.items()):
+        orig = cibles[nom]
+        sig = inspect.signature(orig)
+        canaux = [p for p in sig.parameters if p.endswith("_by_pos") or p in _CANAUX_SCALAIRES]
+        stats = {"appels": 0, "redondant": 0, "porteur_unique": {c: 0 for c in canaux},
+                 "inerte": 0}
+        for (nodeid, a, kw) in appels[:max_appels]:
+            try:
+                lie = sig.bind(*a, **kw)
+                lie.apply_defaults()
+                base = orig(*a, **kw)
+                vals = dict(lie.arguments)
+                actifs = [c for c in canaux if vals.get(c) is not None]
+                if not actifs:
+                    continue
+                cle = (nodeid, nom)
+                pt = par_test.setdefault(cle, {"appels": 0, "redondant": 0, "unique": set(),
+                                               "canaux_concurrents": set()})
+                tous = dict(vals)
+                for c in actifs:
+                    tous[c] = None
+                stats["appels"] += 1
+                pt["appels"] += 1
+                if orig(**tous) == base:
+                    stats["inerte"] += 1          # aucun canal ne mord : hors regime
+                    continue
+                seul_inerte = []
+                for c in actifs:
+                    un = dict(vals)
+                    un[c] = None
+                    if orig(**un) == base:
+                        seul_inerte.append(c)     # ce canal N'EST PAS le seul porteur
+                    else:
+                        stats["porteur_unique"][c] += 1
+                        pt["unique"].add(c)
+                if seul_inerte:
+                    stats["redondant"] += 1
+                    pt["redondant"] += 1
+                    pt["canaux_concurrents"] |= set(seul_inerte)
+            except (TypeError, ValueError):
+                continue
+        total += stats["appels"]
+        res[nom] = stats
+    out = {"rc_pytest": int(code), "total_appels": total, "par_foyer": res,
+           "par_test": {"%s :: %s" % (k[0], k[1]):
+                        {"appels": v["appels"], "redondant": v["redondant"],
+                         "porteur_unique": sorted(v["unique"]),
+                         "canaux_concurrents": sorted(v["canaux_concurrents"])}
+                        for k, v in sorted(par_test.items())}}
+    if verbose:
+        print("[muettes] pytest rc=%d, %d appels de foyer multi-canaux captes"
+              % (out["rc_pytest"], total))
+        for nom, s in res.items():
+            print("[muettes]   %-32s appels=%4d  exclusion REDONDANTE=%d  inertes=%d"
+                  % (nom, s["appels"], s["redondant"], s["inerte"]))
+            for c, k in sorted(s["porteur_unique"].items()):
+                if k:
+                    print("[muettes]       porteur UNIQUE de l'exclusion : %-18s sur %d appels"
+                          % (c, k))
+        print("[muettes] -- TESTS dont AUCUN appel n'a de porteur unique (une contre-epreuve"
+              " mono-canal y serait MUETTE) :")
+        for cle, v in out["par_test"].items():
+            if v["redondant"] and not v["porteur_unique"]:
+                print("[muettes]   %s  (%d/%d appels redondants, concurrents %s)"
+                      % (cle, v["redondant"], v["appels"], ",".join(v["canaux_concurrents"])))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="all",
                     choices=["all", "inventaire", "foyers", "redondance", "contre-epreuves",
-                             "par-argument"])
+                             "par-argument", "muettes"])
+    ap.add_argument("--fichiers", nargs="*", default=None,
+                    help="fichiers pytest OFFLINE a rejouer pour `--step muettes`")
     a = ap.parse_args()
     if a.step in ("all", "inventaire"):
         inventaire()
@@ -450,6 +596,13 @@ def main() -> int:
         contre_epreuves()
     if a.step in ("all", "par-argument"):
         contre_epreuves_par_argument()
+    if a.step == "muettes":
+        cibles = a.fichiers or sorted(
+            {c["fichier"] for c in contre_epreuves(verbose=False)["couples"]
+             if _porteur(c["fichier"]) == "test"}
+            | {s["fichier"] for s in contre_epreuves_par_argument(verbose=False)["sites"]
+               if _porteur(s["fichier"]) == "test"})
+        muettes([str(RACINE / f) for f in cibles])
     return 0
 
 
