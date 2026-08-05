@@ -297,6 +297,24 @@ def methodes_typees(build: str, enum_natif: str) -> list:
     return out
 
 
+def adresses_par_symbole(build: str) -> dict:
+    """symbole -> [adresses]. Un symbole IL2CPP peut couvrir N SURCHARGES.
+
+    Mesure : `IdunBattle.Messages.InputMessageProcessor$$Visit` en a **37**. `decompile_function`
+    et `list_xrefs` rendent une ERREUR sur un nom ambigu -- soit, en sortie, un corps vide et
+    « 0 appelant ». Sans cette table, les 12 sites du plus gros producteur du binaire sortaient en
+    « non decompilable », ce qui se lit comme une absence.
+    """
+    p = REPO / "data" / "symbols" / build / "ghidra" / "functions.tsv"
+    t = {}
+    with p.open(encoding="utf-8", errors="replace") as f:
+        for ligne in f:
+            c = ligne.rstrip("\n").split("\t")
+            if len(c) >= 2:
+                t.setdefault(c[1], []).append(c[0].lower().lstrip("0x"))
+    return t
+
+
 def table_ghidra(build: str) -> dict:
     """RVA (hex, sans base) -> symbole Ghidra, depuis la table VERSIONNEE du build."""
     p = REPO / "data" / "symbols" / build / "ghidra" / "functions.tsv"
@@ -576,11 +594,20 @@ def main() -> int:
     groupes_vus, actions_vues, tags_vus = {}, {}, {}
     variables = []
     illisibles = []
+    par_symbole = adresses_par_symbole(build_courant)
+    surcharges = 0
     for nom in producteurs:
-        # Un corps ENORME depasse le budget par defaut : la deuxieme tentative est LARGE. Sans
-        # elle, `InputMessageProcessor$$Visit` -- 12 sites, le plus gros producteur du binaire --
-        # sortirait en « non decompilable », ce qui se lit comme une absence.
+        # 1) par nom ; 2) budget LARGE (corps enorme) ; 3) par ADRESSE, une par SURCHARGE.
         code = gh.decompile(nom) or gh.decompile(nom, timeout_sec=300)
+        if code is None:
+            morceaux = []
+            for va in par_symbole.get(nom, ()):
+                c = gh.decompile(va, timeout_sec=180)
+                if c:
+                    morceaux.append(c)
+            if morceaux:
+                surcharges += len(morceaux)
+                code = "\n".join(morceaux)
         if code is None:
             illisibles.append(nom)
             continue
@@ -682,6 +709,7 @@ def main() -> int:
         print("      ... %d porteur(s) non lu(s) de plus" % (len(porteurs_sans_litteral) - 12))
 
     print("\n[5] CE QUE CETTE MESURE NE VOIT PAS")
+    print("    corps lus PAR ADRESSE faute d'un nom unique (surcharges) : %d" % surcharges)
     print("    fonctions productrices NON decompilables : %d" % len(illisibles))
     for n in illisibles[:10]:
         print("      %s" % n)
