@@ -92,6 +92,39 @@ def test_contre_epreuve_sans_le_gate_le_port_executait(scenario):
         "sans le gate, la behaviour doit s'executer sur le cadavre -- obtenu %s" % sans)
 
 
+@pytest.fixture(scope="module")
+def scenario_porteur(live_session, tmp_path_factory):
+    """GENERALISATION -- roles INVERSES : `ultraInceptorSgt` tue, puis `spaceWulfen` caste
+    `GreatFrostAxe` (1089) sur le cadavre. C'est le cas ou le BIT 38 doit MORDRE dans l'autre sens :
+    le gate ne doit PAS refuser le porteur."""
+    sf = tmp_path_factory.mktemp("t429r1p") / "state.json"
+    r = P.scenario_live(str(sf), seed="777", board="MC1_67", verbose=False,
+                        ability=1089, killer="ultraInceptorSgt", caster="spaceWulfen")
+    if r.get("why"):
+        pytest.fail("montage porteur NON INSTALLE : %s" % r["why"], pytrace=False)
+    return r
+
+
+def test_le_gate_laisse_passer_le_porteur_du_bit_38(scenario_porteur):
+    """Le gate est un MIRROR, pas un refus generalise : `GreatFrostAxe` (1089) arme `AllowDeadTarget`
+    dans son masque de CONTINUE, donc `CanContinueOnDeadTarget()` rend vrai et
+    `IsDeadUnitAndNotAllowedByAbility` rend FAUX. Sans cette assertion, un gate qui refuserait TOUT
+    passerait les quatre tests precedents.
+
+    ⚠ NON COUVERT, et mesure ici -- residu `#429-r1-r3` : sur ce meme cas le NATIF refuse quand meme
+    (0 tirage, action non consommee) alors que le port EXECUTE (la glace se pose). Le refus natif
+    vient donc du gate SUIVANT, `IsInvalidTarget`, ou une regle que le port ne porte pas encore
+    refuse un cadavre -- vraisemblablement la PORTEE (le natif retire l'unite morte du board ; le
+    port lui garde son `PositionComponent`). Ce n'est PAS une regression de #429-r1 : la mesure
+    `port_sans_gate_last` est IDENTIQUE a `port_last` ici, la divergence lui preexiste. Elle n'est
+    pas assertee pour ne pas FIGER un bug ; elle est nommee au backlog."""
+    assert scenario_porteur["port_gate_refuse"] is False, (
+        "le porteur du bit 38 ne doit PAS etre refuse par le gate cible-morte")
+    assert (scenario_porteur["port_last"] or {}).get("dead_target_not_allowed") is None, (
+        "1089 ne doit pas sortir par le gate cible-morte, obtenu %s" % scenario_porteur["port_last"])
+    assert scenario_porteur["port_cible_alive"] is False, "la cible doit bien etre MORTE"
+
+
 def test_seul_le_porteur_du_bit_38_echappe_au_gate():
     """OFFLINE : `can_continue_on_dead_target()` ne vaut True que pour `GreatFrostAxe` (1089).
 

@@ -144,6 +144,23 @@ exige que les tirages soient alors `> 0`. Un vert du test principal ne prouverai
 les sondes rendent `None` — un montage qui ne mesure plus rien, et dont le silence ressemble à un
 résultat. Le test garde ce préalable explicitement (`test_le_montage_pose_bien_un_cadavre_visible_et_positionne`).
 
+### Généralisation, et la ligne qui reste rouge
+
+* **Seed** : `31337` sur le même board → chiffres identiques (natif 0 / port pré-fix 6 / post-fix 0).
+* **Rôles inversés + porteur du bit** : `ultraInceptorSgt` tue, `spaceWulfen` caste `GreatFrostAxe`
+  (1089) sur le cadavre → le gate rend bien **faux** (le porteur du bit 38 n'est PAS refusé). Sans
+  cette ligne, un gate qui refuserait *tout* passerait les quatre autres tests.
+* **Board** : `C1_74` — montage **NON INSTALLÉ** (la cible survit à 1 PV), et le scénario le dit
+  (`why` non vide → `pytest.fail`, jamais un vert). `C3_01` refuse le placement `(6,6)`. Un seul
+  board est donc confronté ; c'est un non-couvert, pas un accord.
+* ⚠ **Une divergence RÉSIDUELLE, mesurée sur ce même cas 1089** (résidu `#429-r1-r3`) : le natif
+  refuse quand même (0 tirage, action non consommée) alors que le port **exécute** (la glace se
+  pose). Le refus natif vient donc du gate **suivant**, où une règle que le port ne porte pas encore
+  refuse un cadavre — vraisemblablement la PORTÉE (le natif retire l'unité morte du board ; le port
+  lui garde son `PositionComponent`). **Ce n'est pas une régression de cette tranche** :
+  `port_sans_gate_last` est *identique* à `port_last` pour 1089, la divergence lui préexiste. Bilan :
+  **43 divergences avant, 1 après**.
+
 **Ce que le live ne peut PAS discriminer, et il faut le dire** : `IsDeadUnitAndNotAllowedByAbility`
 et `IsInvalidTarget` sortent tous deux avant `On(0x2a)`, avant tout dégât et avant les flags de tour.
 Leur observable depuis le runner est **identique**. Le live établit « le natif no-oppe » ; que ce soit
@@ -195,6 +212,14 @@ victoire coupe les vues (cf. §5).
   **déclenchées** (overwatch, riposte) empruntent ce visiteur — si oui, y poser le gate sur-refuserait
   des chemins que le natif n'y fait pas passer. Point d'ancrage : les appelants de
   `Runner.apply(AttackUnitMessage(...))`, et `IdunBattle.Operations.OverwatchOperation` côté natif.
+* **`#429-r1-r3` — la dernière divergence du gate cible-morte : `GreatFrostAxe` (1089).** Le porteur
+  du bit 38 échappe correctement au gate #429-r1, puis le natif le refuse par le gate SUIVANT que le
+  port ne reproduit pas : `is_invalid_target` rend `0` sur un cadavre positionné. Piste première : la
+  PORTÉE — `TargetingQuery$$GetTiles(target)` est vide côté natif pour une unité morte (retirée du
+  board), alors que le port garde le `PositionComponent` du cadavre (`get_tiles` rend `[]`, mais le
+  volet portée de `targeting.py` ne passe pas par lui). Fermer cette ligne rend le port exact sur
+  **104/104**. Mesure : `probe_429r1_dead_target_gate.scenario_live(..., ability=1089,
+  killer="ultraInceptorSgt", caster="spaceWulfen")`.
 * **`#429-r1-r2` — quatre formes d'instruction hors de portée du scanner**, à dire chaque fois qu'on
   l'invoque : constante lue depuis `.rdata` (`and rax, qword ptr [rip+X]`), `bt` à opérande mémoire,
   test compilé en deux moitiés 32 bits (`test dword ptr [x+4], imm32` — le bit 34 y est le bit 2 du

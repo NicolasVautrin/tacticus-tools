@@ -177,7 +177,8 @@ def _normal_id(dv, uid):
 
 
 def scenario_live(state_file: str, seed: str, board: str, verbose: bool = True,
-                  ability: int = 1003) -> dict:
+                  ability: int = 1003, killer: str = "spaceWulfen",
+                  caster: str = "ultraInceptorSgt") -> dict:
     """MONTAGE ECRIT (positions FORCEES, pas subies) : `spaceWulfen` (2,2), `ultraInceptorSgt`
     (3,2), `tyranWingedPrime` (2,3) a 1 PV. `spaceWulfen` TUE la cible, puis `ultraInceptorSgt`
     caste sur le CADAVRE. On mesure des deux cotes.
@@ -197,7 +198,7 @@ def scenario_live(state_file: str, seed: str, board: str, verbose: bool = True,
     out = subprocess.run([sys.executable, sibling_script("rl_duel.py"), "build",
                           "--seed", seed, "--board", board, "--state-file", state_file,
                           "--p-units", P_UNITS, "--a-units", A_UNITS, "--hp-target", "1",
-                          "--place", "spaceWulfen:2,2", "--place", "ultraInceptorSgt:1,3",
+                          "--place", "spaceWulfen:3,3", "--place", "ultraInceptorSgt:1,3",
                           "--a-place", "tyranWingedPrime:2,3",
                           "--a-place", "tauDarkstrider:6,6"],
                          capture_output=True, text=True)
@@ -210,18 +211,15 @@ def scenario_live(state_file: str, seed: str, board: str, verbose: bool = True,
     try:
         dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
         ids = _ids(dv)
-        wulfen, sgt, prime = ids.get("spaceWulfen"), ids.get("ultraInceptorSgt"), \
-            ids.get("tyranWingedPrime")
-        if None in (wulfen, sgt, prime):
+        tueur, sgt, prime = ids.get(killer), ids.get(caster), ids.get("tyranWingedPrime")
+        if None in (tueur, sgt, prime):
             return {"why": "roster incomplet : %s" % sorted(ids)}
-        nid = _normal_id(dv, wulfen)
+        nid = _normal_id(dv, tueur)
         if nid is None:
-            return {"why": "attaque normale de spaceWulfen introuvable"}
-        # --- 1. TUER la cible (attaque normale de spaceWulfen, apres deplacement au contact) ----
+            return {"why": "attaque normale de %s introuvable" % killer}
+        # --- 1. TUER la cible (attaque normale du TUEUR, deja place au contact) ----------------
         rpc(s, "applyAction", {"runnerId": rid, "action": {
-            "kind": "move", "unitId": wulfen, "to": {"col": 3, "row": 3}}}, 40)
-        rpc(s, "applyAction", {"runnerId": rid, "action": {
-            "kind": "ability", "casterId": wulfen, "targetId": prime, "abilityType": nid}}, 40)
+            "kind": "ability", "casterId": tueur, "targetId": prime, "abilityType": nid}}, 40)
         ob0 = rpc(s, "observeBattle", {"runnerId": rid}, 40)
         dv = rpc(s, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
         cible = next((u for u in (dv.get("units") or []) if u.get("id") == prime), {})
