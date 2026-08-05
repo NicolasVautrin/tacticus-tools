@@ -288,9 +288,22 @@ def _mk_state(board, owner_pos, dying_pos, dying_traits):
 def _verdict(dying_traits, neutralise=False):
     """Le verdict de `BattleFatigueAbility.matches` quand le MOURANT porte `dying_traits`.
 
+    Rend `(verdict, calls)` :
+      * `verdict` = ce que `matches` a repondu ;
+      * `calls`   = `None` en mode normal ; en mode NEUTRALISE, le nombre de fois que le noeud
+        SUBSTITUE a ete consulte.
+
     `neutralise=True` rejoue le MEME etat avec le conjoint 5 rendu INERTE (le noeud est remplace par
     un predicat toujours-faux, donc `NOT` toujours-vrai) : c'est la CONTRE-EPREUVE, elle reconstitue
-    exactement le comportement d'AVANT le fix."""
+    exactement le comportement d'AVANT le fix.
+
+    ⚠ POURQUOI UN COMPTEUR. Une contre-epreuve qui ne MORD pas rend un VERT qui ment : si la
+    substitution ne prenait pas (attribut recopie ailleurs, valeur capturee a l'import, symbole
+    renomme), `matches` continuerait d'appeler le VRAI noeud et la contre-epreuve rendrait
+    simplement le meme verdict que le bras normal -- ce qu'un lecteur presse lirait comme
+    « le conjoint ne change rien ». Le compteur transforme cette hypothese en MESURE : `calls == 0`
+    veut dire que la mutation n'a pas ete consultee, donc que la contre-epreuve n'a rien prouve.
+    C'est la garde a lire AVANT le verdict."""
     board = _grid()
     owner_pos = (5, 5)
     dying_pos = _at_distance(board, owner_pos, 1)          # adjacence STRICTE (cf. -b-r1)
@@ -303,17 +316,23 @@ def _verdict(dying_traits, neutralise=False):
     ev = TriggerEvent(int(EventTriggerType.PreUnitDeath), 1, 2,
                       ranged=False, profile=None, killer_id=1, dying_id=2, overkill=False)
     if not neutralise:
-        return bool(B.BattleFatigueAbility(1).matches(st, ev))
+        return bool(B.BattleFatigueAbility(1).matches(st, ev)), None
 
     class _Faux:
-        """`IsObjectOrSteppable` toujours FAUX == le conjoint 5 absent (`NOT faux` = vrai)."""
+        """`IsObjectOrSteppable` toujours FAUX == le conjoint 5 absent (`NOT faux` = vrai).
+        COMPTE ses consultations : c'est la preuve que la substitution a mordu."""
+        def __init__(self):
+            self.calls = 0
+
         def should_trigger(self, ctx):
+            self.calls += 1
             return False
 
+    faux = _Faux()
     saved = B._IS_OBJECT_OR_STEPPABLE
-    B._IS_OBJECT_OR_STEPPABLE = _Faux()
+    B._IS_OBJECT_OR_STEPPABLE = faux
     try:
-        return bool(B.BattleFatigueAbility(1).matches(st, ev))
+        return bool(B.BattleFatigueAbility(1).matches(st, ev)), faux.calls
     finally:
         B._IS_OBJECT_OR_STEPPABLE = saved
 
@@ -336,8 +355,8 @@ def step_guard() -> int:
     rc = 0
     for nom, traits, attendu in bras:
         try:
-            got = _verdict(traits)
-            contre = _verdict(traits, neutralise=True)
+            got, _ = _verdict(traits)
+            contre, calls = _verdict(traits, neutralise=True)
         except Exception as e:                                        # noqa: BLE001
             print("  %-20s ERREUR %s: %s" % (nom, type(e).__name__, e))
             rc = 1
@@ -348,9 +367,17 @@ def step_guard() -> int:
         # garde ne mesure PAS le conjoint 5 (elle serait passee toute seule, avant le fix).
         doit_differer = not attendu
         differe = (contre != got)
-        print("  %-20s traits=%-24s verdict=%-5s attendu=%-5s  contre-epreuve=%-5s %s"
-              % (nom, traits or "[]", got, attendu, contre,
+        print("  %-20s traits=%-24s verdict=%-5s attendu=%-5s  contre-epreuve=%-5s(%d appel(s)) %s"
+              % (nom, traits or "[]", got, attendu, contre, calls,
                  "(DIFFERE)" if differe else "(identique)"))
+        # La mutation A-T-ELLE MORDU ? A lire AVANT le verdict : `calls == 0` = le noeud substitue
+        # n'a jamais ete consulte, donc la contre-epreuve n'a rien prouve (cf. docstring `_verdict`).
+        if calls == 0:
+            print("      ROUGE (MUTATION INERTE) : le noeud substitue n'a ete consulte 0 fois --")
+            print("        la contre-epreuve ne mesure RIEN. Un conjoint anterieur court-circuite,")
+            print("        ou la substitution ne prend pas.")
+            rc = 1
+            continue
         if not ok:
             print("      ROUGE : verdict != attendu.")
             if attendu is False:

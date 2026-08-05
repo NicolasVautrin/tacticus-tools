@@ -131,11 +131,52 @@ Ici elle avait raison sur un point et tort sur l'autre, **dans le même fichier*
 
 ## 7. Validation
 
-* **Garde offline** — `probe_462_r4b_r1_r1_r1_r1_b_r1_r1_object_or_steppable.py --step guard`.
-  Même géométrie (adjacence 1), même team, même événement : **seuls les traits du mourant changent**.
-  Elle porte sa **contre-épreuve** — chaque bras est rejoué avec le conjoint 5 neutralisé, et la
-  garde exige que le verdict **diffère** sur les bras gatés et **coïncide** sur les autres. Une garde
-  qui rendrait le même verdict des deux côtés ne mesurerait rien (elle serait passée *avant* le fix).
+* **Garde — `tests/engine/runner/test_battle_fatigue_object_or_steppable_offline.py` (11 tests).**
+  C'est le **test** qui garde ; le probe, lui, **mesure**. La distinction est load-bearing : aucune
+  passe ne joue un probe, donc la contre-épreuve n'aurait rougi pour personne si elle était restée
+  dans `--step guard` seul. Le test **importe** le probe — aucun fork de montage.
+
+  Offline **à dessein** : `matches` est un prédicat **pur**, il se teste sans runner ni tirage. Ce
+  qu'on garde ici est la **présence du conjoint**, pas la fuite (qui, elle, passe par le `Maybe`).
+
+  Même géométrie (adjacence 1), même team, même événement : **seuls les traits du mourant changent**
+  — c'est ce qui rend un verdict attribuable au conjoint et à rien d'autre.
+
+  | bras | verdict | contre-épreuve (conjoint 5 neutralisé) |
+  |---|---|---|
+  | mourant normal (contrôle) | `True` | `True` — identique, correct |
+  | `Steppable` (27) | `False` | `True` — **diffère** |
+  | `Object` (13) | `False` | `True` — **diffère** |
+  | `Steppable` + `Object` | `False` | `True` — **diffère** |
+  | `Decoy` seul (1053) | `True` | `True` — identique, **et c'est voulu** |
+
+  Le dernier bras **réfute** la recopie `{Steppable, Decoy}` du §5 : le natif ne nomme que 27 et 13.
+  Le passer à `False` en « harmonisant » les deux sites serait la faute exacte.
+
+  ⚠ **La contre-épreuve vérifie d'abord que la mutation A MORDU.** Le nœud substitué **compte ses
+  consultations**, et le test assertionne `calls > 0` **avant** de lire le verdict. Sans ça, une
+  substitution qui ne prend pas (valeur capturée ailleurs qu'à l'attribut de module, conjoint
+  antérieur qui court-circuite) rendrait « verdict identique » — qu'un lecteur pressé lirait comme
+  *« le conjoint ne change rien »*. Ici **le vert est le résultat suspect, pas le rouge.**
+
+* **Le test a été éprouvé par MUTANTS — 3 posés, 3 détectés** (chaque mutation vérifiée mordante par
+  comparaison de hash avant/après, arbre restauré et `git diff` vide ensuite) :
+
+  | mutant | effet | détecté |
+  |---|---|---|
+  | conjoint 5 retiré (`return True`) | le défaut d'origine | **8 rouges / 11** |
+  | sujet `Target()` → `Caster()` | le conjoint porte sur `self` au lieu du mourant | **6 rouges** |
+  | foyer `Object` → `Decoy` | exactement la recopie infidèle de MoT (§5) | **5 rouges** |
+
+  Enseignement à garder : le mutant « conjoint retiré » **ne fait pas rougir** le test d'identité du
+  foyer (le nœud existe toujours au module, il n'est simplement plus consulté). C'est l'assertion
+  `calls > 0` qui l'attrape. Les deux gardes sont complémentaires, pas redondantes.
+
+* **Le FOYER est gardé ailleurs, et il ne fallait pas le dupliquer** —
+  `tests/engine/runner/test_barbed_ovipositor_live.py` (sur `master`, non modifié ici) confronte
+  **live** `NOT IsObjectOrSteppable(target@0x178)` avec un `genesSmnDecoy` Steppable en bras négatif.
+  Depuis que `barbed_ovipositor` passe par le foyer, ce test live garde **le foyer** ; le fichier
+  offline ci-dessus garde **le conjoint sur `BattleFatigueAbility`**, que rien ne couvrait.
 
   | bras | verdict | contre-épreuve (conjoint 5 neutralisé) |
   |---|---|---|
