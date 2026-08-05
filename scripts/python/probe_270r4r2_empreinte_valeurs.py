@@ -116,6 +116,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--emettre")
     ap.add_argument("--comparer")
+    ap.add_argument("--noms", action="store_true",
+                    help="liste INTEGRALE des noms apparus/disparus (par defaut : resume par classe)")
     args = ap.parse_args()
 
     emp = empreinte()
@@ -159,10 +161,28 @@ def main() -> int:
               % (ref.get("!TEMOIN!attributs"), n_att, len(cles)))
         print("[270-r4-r2/empreinte] NOMS apparus = %d, NOMS disparus = %d (effet attendu d'un "
               "import HISSE au niveau module)" % (len(apparus), len(disparus)))
-        for k, b in apparus:
-            print("   + %s = %s" % (k, repr(b)[:160]))
-        for k, a in disparus:
-            print("   - %s = %s" % (k, repr(a)[:160]))
+        # Resume par RACINE (`<module>.<nom>` sans les attributs de classe) : hisser un enum
+        # fait apparaitre ses ~110 membres, qui noieraient le signal s'ils etaient tous listes.
+        for titre, lot in (("+", apparus), ("-", disparus)):
+            racines = {}
+            for k, v in lot:
+                r = k.split(".")
+                # coupe apres le 1er segment qui commence par une MAJUSCULE (= une classe)
+                for i, seg in enumerate(r):
+                    if seg[:1].isupper():
+                        r = r[:i + 1]
+                        break
+                racines.setdefault(".".join(r), []).append((k, v))
+            for rac in sorted(racines):
+                sites = racines[rac]
+                if len(sites) == 1:
+                    print("   %s %s = %s" % (titre, sites[0][0], repr(sites[0][1])[:140]))
+                else:
+                    print("   %s %s  (+%d attributs de cette classe)" % (titre, rac, len(sites) - 1))
+        if args.noms:
+            for titre, lot in (("+", apparus), ("-", disparus)):
+                for k, v in lot:
+                    print("      %s %s = %s" % (titre, k, repr(v)[:140]))
         if val:
             print("[270-r4-r2/empreinte] ECHEC : %d divergence(s) de VALEUR" % len(val))
             for k, a, b in val[:60]:

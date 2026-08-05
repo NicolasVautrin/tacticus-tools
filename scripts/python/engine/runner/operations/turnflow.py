@@ -56,6 +56,18 @@ from ..components import (OwnerComponent, UnitComponent, ShieldComponent, StatsC
 from ...entities.stats import StatType
 from .triggers import (start_turn_triggers, turn_start_other_triggers, tile_tick_triggers,
                        first_aid_heal)
+# #270-r4-r2 : les SIX imports de ce fichier qui etaient DIFFERES sont HISSES. Aucun ne brise
+# de cycle -- mesure `probe_270r4r2_import_en_premier.py`, depuis 8 ordres d'entree distincts
+# (un cycle ne se voit que dans UN sens, un seul ordre ne prouverait rien). Le seul motif qui
+# restait etait le COUT (276 -> 341 modules `engine` charges), et ce n'en est pas un : un import
+# differe deplace l'echec vers le premier appel et rend l'ordre d'initialisation dependant du
+# chemin d'execution. Le cout d'import, lui, se paie une fois.
+from ...entities.traits.unit_trait import UnitTrait, has_trait
+from ..abilities.targeting import (valid_normal_attack_targets, normal_attack_type_for,
+                                   get_invalid_target_reason, targeting_options_for)
+from ..abilities.handler import ABILITY_CLASSES
+from .repair import _is_boss
+from ...ai.state_bridge import _move_tiles
 
 
 class MarkUnitAsNoActionAvailableOperation:
@@ -600,7 +612,6 @@ def _can_move(state: State, unit_id: int) -> Optional[bool]:
 
     Rend `False` (certain), `True` (aux trois etages lus), ou `None` si l'entite n'est pas lisible.
     """
-    from ...entities.traits.unit_trait import UnitTrait, has_trait
     e = state.get_entity(int(unit_id))
     if e is None:
         return False                      # `unit == null` -> false
@@ -671,7 +682,6 @@ def has_tiles_to_move_to(state: State, unit_id: int) -> Optional[bool]:
     uc = e.get_component(UnitComponent)
     if pc is None:
         return None
-    from engine.ai.state_bridge import _move_tiles
     tiles = _move_tiles(state, int(unit_id), (uc.visual_id if uc is not None else "") or "",
                         (oc.team if oc is not None else None), (pc.col, pc.row))
     return len(tiles) > 0
@@ -735,8 +745,6 @@ def has_action_available(state: State, unit_id: int,
     stop-set), et la liste native se reduit a la seule `GetMainTile`. Le garde ci-dessous rend le
     raisonnement EXECUTABLE plutot que verbal : si le set n'est pas vide, un `False` ne serait pas
     certain (le natif jugerait depuis d'autres tuiles) -> `None`."""
-    from ..abilities.targeting import valid_normal_attack_targets, normal_attack_type_for
-    from .repair import _is_boss
     e = state.get_entity(int(unit_id))
     if e is None:
         return None
@@ -801,11 +809,9 @@ def _has_valid_targets(state: State, unit_id: int, ability_type: int) -> Optiona
 
     ORDRE d'enumeration = `state.entities` (meme residu nomme que `valid_normal_attack_targets`) ;
     il n'a aucune incidence sur un predicat d'EXISTENCE."""
-    from ..abilities.targeting import get_invalid_target_reason, targeting_options_for
     opts = targeting_options_for(int(ability_type))
     if opts is None:
         return None
-    from ..abilities.handler import ABILITY_CLASSES
     ability = ABILITY_CLASSES.get(int(ability_type))
     if ability is None or getattr(ability, "TARGETING_OPTIONS", None) is None:
         # Masque LU mais behaviour non portee (`TARGETING_OPTIONS_UNPORTED`) : on porte un objet
