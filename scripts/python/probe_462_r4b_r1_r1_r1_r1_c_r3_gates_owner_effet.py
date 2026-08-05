@@ -98,15 +98,21 @@ def step_fod() -> int:
 # --------------------------------------------------------------------------- fenetre de mort
 
 class _Sonde(EffectTrigger):
-    """Effet-trigger NU qui NOTE le couple (event, owner) a chaque passage de `matches`, sans muter.
+    """Effet-trigger NU qui NOTE (event, owner, alive) a chaque passage de `matches`, sans muter.
 
-    C'est le capteur : si le gate d'owner l'ecarte AVANT `matches`, rien n'est note."""
+    C'est le capteur : si le gate d'owner l'ecarte AVANT `matches`, rien n'est note. Le
+    `fire_on_death` est bascule PAR PAS -- a `True` il mesure la FENETRE (que porte le mourant, et
+    quand), a `False` il mesure ce que le GATE en jette."""
     event_id = -1
     event_ids: tuple = ()
+    fire_on_death = False
     vus: list = []
 
     def matches(self, state, ev) -> bool:
-        _Sonde.vus.append((int(ev.event_id), int(self.owner_id)))
+        e = state.get_entity(int(self.owner_id))
+        uc = e.get_component(UnitComponent) if e is not None else None
+        _Sonde.vus.append((int(ev.event_id), int(self.owner_id),
+                           None if uc is None else bool(uc.alive)))
         return False
 
     def execute_behaviour(self, state, ev):
@@ -151,55 +157,48 @@ _EVENTS_MORT = (int(EventTriggerType.PendingDeathAdded), int(EventTriggerType.Pr
                 int(EventTriggerType.UnitDefeated))
 
 
-def step_fenetre() -> int:
-    """La FENETRE : sur quels evenements de la sequence de mort le mourant porte-t-il encore ses
-    effets alors qu'il est deja `alive=False` ?
-
-    Mesure directe : on inscrit la sonde sur les CINQ events de
-    `IdunBattle.Operations.KillUnitOperation$$Execute`, on tue l'unite par le vrai pipeline de degat
-    du port, et on regarde ce que le COLLECTEUR rend a chaque event -- gate d'owner NEUTRALISE, pour
-    mesurer la fenetre elle-meme et non le gate."""
+def _joue_la_mort(et: int, events: tuple, *, fire_on_death: bool) -> list:
+    """Tue une unite porteuse d'un effet `et` par le VRAI pipeline de degat du port, sonde inscrite
+    sur `events`. Rend la liste `(event, owner, alive)` des passages de `matches`."""
     from engine.runner.operations.damage import AttackDamageOperation
-    et = _effect_type_libre()
+    from engine.runner.components import HealthComponent
     st, uid = _state_unite_avec_effet(et, vivant=True, hp=10)
     ent = st.get_entity(uid)
+    hc = ent.get_component(HealthComponent)
     _Sonde.vus = []
-    _sonde_inscrite(et, _EVENTS_MORT)
-    # Gate d'owner neutralise : on mesure la PRESENCE des effets a chaque event, pas le gate.
-    collecte = {}
-    vrai_collect = CORE.collect_effect_triggers
-
-    def _trace(state):
-        trigs = vrai_collect(state)
-        return trigs
-
+    _Sonde.fire_on_death = bool(fire_on_death)
+    _sonde_inscrite(et, events)
     try:
-        from engine.runner.components import HealthComponent
-        hc = ent.get_component(HealthComponent)
-        vus_par_event = []
-        # on instrumente le collecteur pour enregistrer, PAR EVENT, si l'effet est encore la
-        original = CORE.evaluate_trigger_operation
-
-        def _wrap(state, ev):
-            presents = [t for t in vrai_collect(state) if int(t.owner_id) == uid]
-            vus_par_event.append((int(ev.event_id), len(presents)))
-            return original(state, ev)
-
-        CORE.evaluate_trigger_operation = _wrap
-        try:
-            AttackDamageOperation._fire_death_if_killed(
-                st, uid, uid, hc.hp, 0, ent, damage=hc.hp)
-        finally:
-            CORE.evaluate_trigger_operation = original
-        collecte = vus_par_event
+        hc.hp = 0
+        AttackDamageOperation._fire_death_if_killed(st, uid, uid, 10, 0, ent, damage=10)
     finally:
         _sonde_retiree(et)
-    print("[fenetre] sequence de mort du port -- effets NON CONSOMMES du mourant, par evenement :")
-    for eid, n in collecte:
-        print("   On(%-3d %-22s) : %d effet(s) encore collecte(s)" % (eid, _nom_event(eid), n))
-    fenetre = [eid for eid, n in collecte if n > 0]
-    print("[fenetre] FENETRE (alive=False ET effets presents) = %s"
-          % [(e, _nom_event(e)) for e in fenetre])
+        _Sonde.fire_on_death = False
+    return list(_Sonde.vus)
+
+
+def step_fenetre() -> int:
+    """La FENETRE : sur quels evenements de la sequence de mort le mourant porte-t-il encore ses
+    effets NON CONSOMMES alors qu'il est deja `alive=False` ?
+
+    Mesure directe, sur le VRAI pipeline de mort du port (`_fire_death_if_killed` ->
+    `IdunBattle.Operations.KillUnitOperation$$Execute`). Deux passes sur le MEME montage :
+
+      * `fire_on_death=True`  -> la sonde traverse le gate : ce qu'elle voit EST la fenetre ;
+      * `fire_on_death=False` -> ce que le gate en laisse passer aujourd'hui.
+
+    La difference est exactement ce que la levee du gate `alive` rendrait a la face EFFET."""
+    et = _effect_type_libre()
+    fenetre = _joue_la_mort(et, _EVENTS_MORT, fire_on_death=True)
+    gate = _joue_la_mort(et, _EVENTS_MORT, fire_on_death=False)
+    print("[fenetre] evenements de la sequence de mort ou l'effet du MOURANT est encore collecte :")
+    for eid, _owner, alive in fenetre:
+        print("   On(%-3d %-22s) alive=%s" % (eid, _nom_event(eid), alive))
+    print("[fenetre] FENETRE = %d evenement(s) : %s"
+          % (len(fenetre), [(e, _nom_event(e)) for e, _o, _a in fenetre]))
+    print("[fenetre] ce que le gate `alive` en LAISSE passer aujourd'hui : %d" % len(gate))
+    print("[fenetre] => la levee rendrait %d evenement(s) a la face EFFET"
+          % (len(fenetre) - len(gate)))
     return 0
 
 

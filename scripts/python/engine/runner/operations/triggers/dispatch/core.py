@@ -124,46 +124,37 @@ def collect_effect_triggers(state: State) -> list[EffectTrigger]:
     return out
 
 
-def _owner_is_tile_entity(state: State, owner_id) -> bool:
-    """Le porteur de cette entree est-il une entite-TUILE ? (#462-r4b-r1-r1-r1-r1-c-r1)
+def _owner_gate_applies(entry) -> bool:
+    """Cette entree du registre passe-t-elle par un gate d'OWNER ? (#462-r4b-r1-r1-r1-r1-c-r3)
 
-    MIRROR de `IdunBattle.Entities.EntityExtensions$$IsUnit(owner)`, le SEUL discriminant que le
-    natif applique a un porteur avant ses gates de vivacite :
+    Le natif a DEUX fonctions de gate, et elles ne gatent PAS la meme chose. Ce predicat EST cette
+    bifurcation -- il decide LAQUELLE des deux `evaluate_trigger_operation` applique.
 
-      * `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` -- `IsUnit(owner)`
-        VRAI -> `UnitExtensions$$IsAlive` + `UnitExtensions$$IsTriggersDisabled` ; FAUX -> les deux
-        sauts vont directement a la suite, AUCUN gate.
-      * `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetEffectTrigger` et la branche EFFET
-        d'`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityOrEffectTrigger` -- elles
-        n'appellent NI `IsUnit` NI `IsAlive` : leur premier gate est un corps DEDUPLIQUE `return 1`
-        (le nom ghidra `UnityEngine.U2D.IK.Solver2D$$DoValidate` est celui du proprietaire
-        arbitraire du corps partage), donc constant VRAI. Le porteur y est resolu par
-        `EffectComponent+0x14` et pose tel quel dans `AbilityEntities.Owner`.
+    FACE ABILITY -> `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` : deux
+    gates, tous deux SOUS `IdunBattle.Entities.EntityExtensions$$IsUnit(owner)` --
+    `UnitExtensions$$IsAlive` (sauf ability atomique) et `UnitExtensions$$IsTriggersDisabled`.
 
-    Cote port, une TUILE n'est PAS dans `state.entities` : c'est une entree du `boardGraph`, dont
-    les ids sont disjoints de ceux des unites (cf. `TileEffectTrigger`) et servent de cle a
-    `EffectsState.by_unit` -- laquelle est clee par id d'ENTITE, pas d'unite (le nom ment ; c'est le
-    meme domaine que le tick de duree d'`EndTurnOperation$$RefreshEffects`, #102).
+    FACE EFFET -> **AUCUN gate d'owner**, et ce n'est pas une simplification du port :
+    `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetEffectTrigger` et la branche EFFET
+    d'`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityOrEffectTrigger` commencent
+    TOUTES DEUX par le MEME appel, dont le corps fait DEUX INSTRUCTIONS -- `mov al,1 ; ret`
+    (`b0 01 c3`, corps DEDUPLIQUE par IL2CPP, 772 proprietaires dans la table ; le nom ghidra
+    `UnityEngine.U2D.IK.Solver2D$$DoValidate` est celui d'un proprietaire ARBITRAIRE et ne dit RIEN
+    de l'appelant). Ni `IsUnit` ni `IsAlive` n'y sont appeles. Le porteur est resolu par
+    `EffectComponent+0x14`, puis pose TEL QUEL -- `null` compris -- dans l'`AbilityEntities` par
+    `$$EvaluateEffectTriggerEffectAbilities`, qui ne le teste pas davantage.
 
-    POURQUOI CE PREDICAT PLUTOT QUE L'ATTRIBUT `owner_is_tile` : l'attribut est porte par la CLASSE
-    du trigger, alors que la nature du porteur est une propriete de l'INSTANCE d'effet. Une classe
-    qui sert PLUSIEURS `effect_type` -- `BondRemoveOnBondedEntityDeath` en sert deja deux, et son
-    artefact natif est la BASE `ABondEffect`, donc UNE classe pour toute la famille -- ne peut pas
-    la declarer statiquement. Mesure du 2026-08-05 : `collect_effect_triggers` INSTANCIE bien le
-    trigger d'un effet de tuile (il itere `by_unit`, tuiles comprises), et c'est CE gate-ci qui le
-    jetait -- `probe_462_r4b_r1_r1_r1_r1_c_r1_tile_effect_triggers.py --step collecte` / `--step gate`.
+    Ce que le port gardait sur cette face etait donc un SURPLUS a DEUX branches : porteur
+    INTROUVABLE et porteur MORT. Les deux sont levees. Consequences directes :
+      * la TUILE n'a plus a etre RECONNUE (`_owner_is_tile_entity`, #462-r4b-r1-r1-r1-r1-c-r1,
+        n'avait plus de lecteur -- il conditionnait un gate qui n'existe plus sur cette face) ;
+      * l'attribut `fire_on_death` d'un `EffectTrigger` (4 classes : PhoenixGem x3, RitesOfMorkai)
+        devient INERTE -- il compensait exactement ce surplus. Il reste porte sur `TriggeredAbility`,
+        ou il mirrore le `IsAtomic(ability)` natif.
 
-    Sans board (State nu d'un test unitaire), rend `False` : le comportement d'avant."""
-    if owner_id is None:
-        return False
-    board = getattr(state, "board", None)
-    by_id = getattr(board, "by_id", None) if board is not None else None
-    if not isinstance(by_id, dict):
-        return False
-    try:
-        return int(owner_id) in by_id
-    except (TypeError, ValueError):
-        return False
+    `owner_is_global` : les abilities `IdunBattleLogic.Entities.Abilities.Damage.Loki.*` sont
+    inscrites SANS owner (`owner_id is None`) -- il n'y a rien a gater."""
+    return not (isinstance(entry, EffectTrigger) or getattr(entry, "owner_is_global", False))
 
 
 def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
@@ -192,9 +183,10 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
         pending explicite (ordre snapshot-clear multi-rounds) n'ajoute AUCUN effet observable ici → non portée
         (blast-radius/ordre RNG) tant qu'aucune divergence ne l'exige.
 
-    Gates par entrée : `event_id` écouté → `CanGet*Trigger` (owner VIVANT sauf fire-on-death ;
-    triggers-disabled non porté) → cap-phase (`<0x33`, ability-triggers) → `matches` → behaviour.
-    Renvoie la liste des résultats (diagnostic)."""
+    Gates par entrée : `event_id` écouté → gate d'owner **PAR FACE** (face ABILITY =
+    `CanGetAbilityTrigger`, owner VIVANT sauf fire-on-death ; face EFFET = `CanGetEffectTrigger`,
+    **aucun gate** — cf. le bloc ci-dessous) → cap-phase (`<0x33`, ability-triggers) → `matches` →
+    behaviour. Renvoie la liste des résultats (diagnostic)."""
     out: list[dict] = []
     registry = (collect_triggered_abilities(state) + collect_global_triggers()
                 + collect_effect_triggers(state))
@@ -202,23 +194,29 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
         # Un tile-effect écoute souvent PLUSIEURS events (`event_ids`) ; sinon `event_id` unique.
         if entry.event_id != ev.event_id and ev.event_id not in getattr(entry, "event_ids", ()):
             continue
-        if getattr(entry, "owner_is_tile", False) or getattr(entry, "owner_is_global", False):
-            pass                                           # owner = TUILE ou AUCUN : pas de gate alive
-        else:
+        # GATE D'OWNER -- une branche PAR FACE (#462-r4b-r1-r1-r1-r1-c-r3, build `rnca9r7q6c`).
+        if _owner_gate_applies(entry):
+            # FACE ABILITY -- `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger`
+            # place ses DEUX gates SOUS `EntityExtensions$$IsUnit(owner)` :
+            #     if (!IsAtomic(ability)) { if (IsUnit(owner) && !IsAlive(owner))          return 0; }
+            #     if (IsUnit(owner) && IsTriggersDisabled(owner))                          return 0;
+            # `fire_on_death` mirrore le `IsAtomic(ability)` qui dispense du gate de vivacite
+            # (ex. FinalJustice) ; `IsTriggersDisabled` n'est pas porte (residu anterieur).
             owner = state.get_entity(entry.owner_id)
             if owner is None:
-                # `IdunBattle.Entities.EntityExtensions$$IsUnit(owner)` FAUX : le porteur n'est pas
-                # une unite, donc le natif ne lui applique AUCUN gate (#462-r4b-r1-r1-r1-r1-c-r1).
-                # Cote port, ce cas est une entite-TUILE -- reconnue par le board, PAS par un
-                # attribut de la classe du trigger, qui ne peut pas decrire l'instance qu'elle sert.
-                # L'ENTITE L'EMPORTE : ce test n'est atteint que si `get_entity` n'a rien rendu,
-                # donc un id qui serait a la fois unite et tuile reste gate comme une unite.
-                if not _owner_is_tile_entity(state, entry.owner_id):
-                    continue                               # ni unite ni tuile : rien a evaluer
-            else:
-                uc = owner.get_component(UnitComponent)    # CanGet*Trigger : owner unit vivant
-                if uc is not None and not uc.alive and not getattr(entry, "fire_on_death", False):
-                    continue                               # sauf ability fire-on-death (ex. FinalJustice)
+                # SURPLUS NOMME, et il reste : `IsUnit(null)` rend FAUX (lu -- `if (entity == 0)
+                # return 0`), donc le natif ne gaterait RIEN ici et passerait `owner = null`. Le
+                # port refuse. Sans consequence observable : le regime est INATTEIGNABLE par
+                # construction sur cette face -- `collect_triggered_abilities` n'instancie que
+                # depuis `state.entities` (dont rien n'est jamais retire) et
+                # `collect_global_triggers` pose `owner_is_global`, donc ce `continue` n'est
+                # atteint que par une contre-epreuve. C'est justement ce qui le garde : il rend la
+                # DISCRIMINATION DE FACE attribuable (forcer le gate sur une entree d'effet la fait
+                # tomber ici, et nulle part ailleurs).
+                continue
+            uc = owner.get_component(UnitComponent)
+            if uc is not None and not uc.alive and not getattr(entry, "fire_on_death", False):
+                continue
         if not entry.matches(state, ev):
             continue
         # #140 : CAP phase-triggers (mirror IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger : GetTimesTriggeredThisPhase
