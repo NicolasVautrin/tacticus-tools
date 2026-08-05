@@ -281,19 +281,17 @@ def etape0(fails: list) -> None:
 def confront_arm(label, rid, mover, dest, expect_moving, fails) -> None:
     """UN pas, confronte des deux cotes.
 
-    PORT : le pas est DECOUPE (`MoveUnitOperation` puis le vecteur after-move) pour observer le
-    marqueur TRANSITOIRE entre les deux. NATIF : la cascade du `applyAction`. Puis l'etat final est
-    compare TERME A TERME (l'etat natif est RECHARGE par le meme `load_state`)."""
-    from engine.runner.events import EventBus
-    from engine.runner.operations.movement import MoveUnitOperation
-    from engine.runner.operations.triggers import after_move_triggers
+    PORT : le pas est joue UNE SEULE FOIS et le marqueur TRANSITOIRE est capte PAR INSTRUMENTATION
+    du vecteur after-move (#448-r3 -- `9767a8e4` a replie le vecteur DANS l'Operation, mirror des
+    DEUX call-sites de `$$EvaluateAfterMoveTriggers`, tous deux dans `$$Execute`). NATIF : la
+    cascade du `applyAction`. Puis l'etat final est compare TERME A TERME (l'etat natif est
+    RECHARGE par le meme `load_state`)."""
+    import probe_448_r3_move_step_atomicity as R3
 
     st, _b = offline_state(capture(rid))
     before = unit_view(st, mover)
-    MoveUnitOperation(int(mover), tuple(dest)).execute(st, EventBus())
-    mid = sorted(int(getattr(x, "effect_type", -1))
-                 for x in (st.effects.by_unit.get(int(mover)) or []) if not x.consumed)
-    after_move_triggers(st, int(mover))
+    r_step = R3.play_step_instrumented(st, int(mover), dest)
+    mid = r_step["calls"][0]["effects"] if r_step["calls"] else []
     port = unit_view(st, mover)
     port_end = sorted(int(getattr(x, "effect_type", -1))
                       for x in (st.effects.by_unit.get(int(mover)) or []) if not x.consumed)

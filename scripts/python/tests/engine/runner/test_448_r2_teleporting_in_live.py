@@ -24,16 +24,14 @@ from __future__ import annotations
 import pytest
 
 import gameconfig as GC
+import probe_448_r3_move_step_atomicity as R3
 from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
 from engine.entities.effects import aura_attack_bonus_from_allies
 from engine.entities.stats import StatType
 from engine.playbook.scene import Scene
 from engine.runner.components import StatsComponent, UnitComponent, get_unit_feet
-from engine.runner.events import EventBus
 from engine.runner.messages import MoveUnitMessage
-from engine.runner.operations.movement import MoveUnitOperation
-from engine.runner.operations.triggers import after_move_triggers
 from engine.runner.operations.turnflow import FinishUnitTurnOperation
 from engine.runner.runner import Runner
 from engine.runner.snapshot import load_state
@@ -134,9 +132,27 @@ def test_a_full_replay_of_the_move_through_the_runner_agrees_too(rpc, stage):
 
 
 def test_the_move_poses_the_moving_marker_then_lands_the_carrier(rpc, stage):
-    """T4 puis T1, DANS LE MEME PAS. Le port est decoupe en deux (l'Operation, puis le vecteur
-    after-move) pour observer l'etat INTERMEDIAIRE que la cascade native montre elle aussi
-    (`ActivateEffect TeleportStrike_Moving` avant `ChangePosition`, `LoseEffect` des deux apres)."""
+    """T4 puis T1, DANS LE MEME PAS, observe DE L'INTERIEUR (#448-r3).
+
+    ⚠ CE TEST NE DECOUPE PLUS LE PAS, et c'est une correction de MONTAGE, pas d'intention. Il
+    appelait `MoveUnitOperation.execute()` puis `after_move_triggers()`, en supposant que le premier
+    s'arretait avant le vecteur. `9767a8e4` (#448-r1-r1-r2-r1) a REPLIE le vecteur DANS l'Operation
+    -- le premier appel joue desormais le pas ENTIER, donc 1036 etait pose PUIS retire avant qu'on
+    regarde, et le second appel REJOUAIT un vecteur deja joue. Le test rougissait en accusant le
+    port d'avoir perdu T4, qui fire normalement.
+
+    LE REPLI EST LE MIRROR : `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` a
+    DEUX call-sites dans tout le binaire, les DEUX dans
+    `IdunBattle.Operations.MoveUnitOperation$$Execute`, et
+    `IdunBattle.Operations.MoveUnitOperation$$EvaluatePreMoveTriggers` en a ZERO (corps INLINE dans
+    le meme `Execute`). Le pas natif est donc ATOMIQUE : aucun etat natif RECHARGE ne peut porter
+    1036. C'est pourquoi l'etat intermediaire se capte par INSTRUMENTATION du vecteur
+    (`probe_448_r3_move_step_atomicity.play_step_instrumented`) et non en coupant le pas.
+
+    TEMOIN NATIF NON-NUL, mesure (`probe_448_r3_move_step_atomicity.py`, 2 couples board/seed) : la
+    cascade d'events du `applyAction` publie `Effect_Refresh <<TeleportStrike_Moving>>` avec
+    `ActivateEffect`/`ReceiveEffect` aux events 2-3, `ChangePosition` a l'event 5, puis
+    `LoseEffect`/`DeactivateEffect` aux events 16-17 -- 1036 ENCADRE le deplacement."""
     rid, autarch, ally, board = stage["rid"], stage["autarch"], stage["ally"], stage["board"]
     st, _b = _state(_capture(rpc, rid))
     apos = next(iter(get_unit_feet(st, ally)), None)
@@ -149,12 +165,14 @@ def test_the_move_poses_the_moving_marker_then_lands_the_carrier(rpc, stage):
         pytest.skip("aucune tuile LEGALE adjacente a l'allie (montage)")
 
     before_ally_attack = _attack(st, ally)
-    # --- PORT, en deux temps.
-    MoveUnitOperation(autarch, tuple(dest)).execute(st, EventBus())
-    mid = sorted(int(e.effect_type) for e in st.effects.by_unit.get(autarch, []) if not e.consumed)
+    # --- PORT : le pas joue UNE SEULE FOIS, l'etat intermediaire capte de l'interieur.
+    step = R3.play_step_instrumented(st, autarch, dest)
+    assert len(step["calls"]) == 1, (
+        "le vecteur after-move a ete joue %d fois pour UN pas (attendu 1, par "
+        "MoveUnitOperation.execute)" % len(step["calls"]))
+    mid = step["calls"][0]["effects"]
     assert MOVING in mid, "T4 n'a pas pose 1036 pendant le pas : %r" % (mid,)
     assert TELEPORTING_IN in mid, "1035 deja retire pendant le pas : T1 fire trop tot"
-    after_move_triggers(st, autarch)
     port_eff = _effects(st, autarch)
     port_aura = _aura_bonus(st, ally)
     assert MOVING not in [int(e.effect_type) for e in st.effects.by_unit.get(autarch, [])

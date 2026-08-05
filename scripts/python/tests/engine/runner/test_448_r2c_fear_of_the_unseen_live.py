@@ -40,14 +40,12 @@ from __future__ import annotations
 
 import pytest
 
+import probe_448_r3_move_step_atomicity as R3
 from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
 from engine.runner.components import UnitComponent, get_unit_feet
-from engine.runner.events import EventBus
 from engine.runner.messages import (ActiveAbilityMessage, EndTurnMessage,
                                     FinishUnitTurnMessage, MoveUnitMessage)
-from engine.runner.operations.movement import MoveUnitOperation
-from engine.runner.operations.triggers import after_move_triggers
 from engine.runner.runner import Runner
 from engine.runner.snapshot import load_state
 
@@ -226,10 +224,18 @@ def test_the_effect_walks_down_three_two_one_across_two_end_turns(rpc, stage):
 
 
 def test_at_remaining_one_the_step_poses_1241_then_lands_the_carrier(rpc, stage):
-    """T4 puis T1, DANS LE MEME PAS, et cette fois le vslot est OUVERT (`remaining == 1`). Le port
-    est decoupe en deux (l'Operation, puis le vecteur after-move) pour observer le marqueur
-    `1241 FearOfTheUnseen_Moving` a l'etat intermediaire -- cote natif il n'est PAS observable dans
-    un etat, il nait et meurt dans la MEME cascade d'events."""
+    """T4 puis T1, DANS LE MEME PAS, et cette fois le vslot est OUVERT (`remaining == 1`).
+
+    Le marqueur `1241 FearOfTheUnseen_Moving` n'est PAS observable dans un etat -- ni cote natif, ni
+    cote port : il nait et meurt dans le MEME `IdunBattle.Operations.MoveUnitOperation$$Execute`
+    (`$$EvaluateAfterMoveTriggers` y a ses DEUX seuls call-sites, `$$EvaluatePreMoveTriggers` est
+    INLINE dedans). On le capte donc PAR INSTRUMENTATION du vecteur after-move.
+
+    ⚠ CE TEST NE DECOUPE PLUS LE PAS (#448-r3) : il appelait `MoveUnitOperation.execute()` puis
+    `after_move_triggers()`, contrat rompu par `9767a8e4` (#448-r1-r1-r2-r1) qui a replie le vecteur
+    DANS l'Operation. Le premier appel jouait deja le pas entier -- 1241 pose PUIS retire avant la
+    lecture -- et le second REJOUAIT le vecteur. MEME CAUSE que le rouge jumeau de
+    `test_448_r2_teleporting_in_live.py` sur 1036."""
     rid, caster = stage["rid"], stage["caster"]
     st, _b = _state(_capture(rpc, rid))
     assert _remaining(st, caster).get(TELEPORTING_IN) == 1, \
@@ -243,12 +249,14 @@ def test_at_remaining_one_the_step_poses_1241_then_lands_the_carrier(rpc, stage)
         pytest.skip("aucune tuile legale pour le Deathleaper (montage)")
     dest = legal[0]
 
-    # --- PORT, en deux temps.
-    MoveUnitOperation(caster, tuple(dest)).execute(st, EventBus())
-    mid = sorted(int(e.effect_type) for e in st.effects.by_unit.get(caster, []) if not e.consumed)
+    # --- PORT : le pas joue UNE SEULE FOIS, l'etat intermediaire capte de l'interieur.
+    step = R3.play_step_instrumented(st, caster, dest)
+    assert len(step["calls"]) == 1, (
+        "le vecteur after-move a ete joue %d fois pour UN pas (attendu 1, par "
+        "MoveUnitOperation.execute)" % len(step["calls"]))
+    mid = step["calls"][0]["effects"]
     assert MOVING in mid, "T4 n'a pas pose 1241 pendant le pas : %r" % (mid,)
     assert TELEPORTING_IN in mid, "1238 deja retire pendant le pas : T1 fire trop tot"
-    after_move_triggers(st, caster)
     port_eff, port_rem = _effects(st, caster), _remaining(st, caster)
     assert MOVING not in [int(e.effect_type) for e in st.effects.by_unit.get(caster, [])
                           if not e.consumed], "1241 survit au pas"
