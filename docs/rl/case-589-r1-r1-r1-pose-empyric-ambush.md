@@ -109,8 +109,12 @@ déjà occupée, `TileExtensions$$CanAddUnit` lit le `TileContentComponent`). Il
 
 ## 7. Ce qui n'est PAS couvert
 
-* **`EmpyricAmbush_AnyMove` (1580) et `EmpyricAmbush_Reset` (1555) restent NON PORTÉS** — résidu
-  **`#589-r1-r1-r1-r1`**. Lus au décompile, pas portés :
+* **`EmpyricAmbush_AnyMove` (1580) et `EmpyricAmbush_Reset` (1555)** — résidu **`#589-r1-r1-r1-r1`**,
+  **FERMÉ le 2026-08-05** avec DEUX verdicts distincts (`case-589-r1-r1-r1-r1-satellites-empyric-ambush.md`) :
+  **1555 est PORTÉ et confronté live** (registre `ACTIVE_ABILITY_TRIGGERS`, 3 bras, 2 boards) ;
+  **1580 est DEAD CODE** — sa classe n'a aucune valeur de `TriggeredAbilityType`, donc aucun des trois
+  registres natifs d'attribution ne peut la monter, et l'effet 1580 n'a aucun consommateur de jeu.
+  L'inventaire ci-dessous reste vrai tel qu'il a été lu :
   `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EmpyricAmbush_AnyMoveAbility$$CreateTrigger` =
   `On(PreUnitMove) & OwnerIsActor` → `CreateBehaviour` = `AddEffect(1580, targets = Owner, turns = 0)`,
   retiré par `IdunBattle.Entities.Effects.Loki.EmpyricAmbush_AnyMoveEffect$$CreateRemoveEffectTrigger`

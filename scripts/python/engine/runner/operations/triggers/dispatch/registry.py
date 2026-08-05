@@ -104,6 +104,7 @@ from ..loki import full_throttle as _full_throttle    # noqa: F401
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
+from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
 from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove,   # #114 residu 2
                                          ITG_OVERRIDE_LEVEL)
 from ..loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
@@ -528,6 +529,12 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Le gate `HasEffect(attaquant, 1509)` du trigger rend l'entree INERTE tant qu'aucun Hailstrike
     # n'est pose -> l'inscription inconditionnelle est fidele. Cf. loki/hailstrike.py.
     "Hailstrike": [HailstrikeAttackAbility],
+    # 0x4d0 (1232 EmpyricAmbush, `eldarLhykhis` HERO) -> 0x613 (1555 EmpyricAmbush_Reset) : quand la
+    # PORTEUSE de l'actif ACHEVE un ennemi d'une attaque NORMALE au CONTACT, son actif est re-arme
+    # (`ResetActiveAbility(Owner, allowUseless: 1)`). L'entree du cctor est un `ToList` a UN element.
+    # Le trigger porte ses propres gates (OwnerIsActor + AreEnemies + IsNormalAttack + IsMeleeAttack),
+    # donc l'inscription inconditionnelle est fidele. Cf. loki/empyric_ambush.py.
+    "EmpyricAmbush": [EmpyricAmbushResetAbility],
 }
 
 # --- Registre : relicAbility → triggered-ability(s) accordée(s) ------------------------------------
