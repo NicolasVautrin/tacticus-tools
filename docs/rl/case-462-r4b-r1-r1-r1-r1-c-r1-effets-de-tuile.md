@@ -261,7 +261,7 @@ if _owner_gate_applies(entry):          # face ABILITY -> CanGetAbilityTrigger
 
 ### 7.5 Validation
 
-`test_462_r4b_r1_r1_r1_r1_c_r3_owner_gates_effet_live.py` — **7 verts** (board `C3_01`, roster
+`test_462_r4b_r1_r1_r1_r1_c_r3_owner_gates_effet_live.py` — **8 verts** (board `C3_01`, roster
 `ultraTitus,bloodIntercessor,eldarFarseer` vs `worldKharn,orksNob,orksWarboss`, DIFFÉRENTS de ceux de
 `-c-r1`).
 
@@ -278,11 +278,31 @@ B est l'invariant : **avant `-c-r3` il ne revivait pas**. ⚠ Retirer `fire_on_d
 **MONTAGE**, pas un porteur naturel — et le dire est la seule façon honnête de rendre la garde (§7.2
 (3) : les deux seules classes concernées le déclarent déjà).
 
-Les six autres bras : la fenêtre rend bien `[On(3), On(1), On(2)]` et **rien** sur `On(0)`/`On(54)`
+Les sept autres bras : la fenêtre rend bien `[On(3), On(1), On(2)]` et **rien** sur `On(0)`/`On(54)`
 (contre-épreuve : face ABILITY forcée ⇒ 0 passage) ; un porteur introuvable atteint `matches` sur la
-face EFFET et **pas** sur la face ABILITY ; les trois mesures de gisement (0 clé orpheline sur 10 ;
+face EFFET et **pas** sur la face ABILITY ; la face ABILITY gate **toujours** un porteur mort et
+**seul** `fire_on_death` l'en dispense ; les trois mesures de gisement (0 clé orpheline sur 10 ;
 **2 unités mortes réelles, 17 effets non consommés, 0 sur un mort** ; 27 kits `Steppable`, 0 adossé
 au registre) ; l'inventaire des 4 `fire_on_death`.
+
+### 7.6 Matrice de mutants — et ce qu'elle a trouvé de MANQUANT
+
+| mutant | ce qu'il casse | rouges |
+|---|---|---|
+| M1 — `_owner_gate_applies` rend `not owner_is_global` (face EFFET re-gatée = état pré-`-c-r1`) | la levée | **7** |
+| M2 — `_owner_gate_applies` rend `False` (gate supprimé **PARTOUT**) | la PORTÉE | **1** |
+| M3 — `fire_on_death` ignoré sur la face ABILITY | le mirror d'`IsAtomic` | **1** |
+| M4 — la face ABILITY n'écarte plus un porteur introuvable | l'attribution | **2** |
+
+⚠ **M2 a d'abord rendu 14 verts sur 14**, et c'est la mesure la plus utile du lot : **tous** les bras
+d'attribution de cette famille **SUBSTITUENT** `_owner_gate_applies` (`monkeypatch` → `lambda: True`),
+donc ils sont par construction **aveugles à sa disparition** — le piège « vacuously vrai » par une
+porte que personne n'avait ouverte. Le bras
+`test_le_gate_alive_de_la_face_ABILITY_mord_toujours` a été **ajouté pour ça** : il inscrit un
+ability-trigger par la voie RÉELLE (`TRAIT_TRIGGERS` + un trait posé sur une unité du live) et ne
+touche à aucun prédicat. C'est lui, et lui seul, qui attrape M2 et M3.
+M4 confirme en creux le résidu `-r3-r2` : le refus d'un porteur introuvable sur la face ABILITY est
+**l'instrument** des contre-épreuves C — le lever coûterait cette attributabilité.
 
 Deux bras de `test_462_r4b_r1_r1_r1_r1_c_r1_tile_owner_gate_live.py` **changent d'assertion** — c'est
 voulu, ils fixaient le comportement d'avant : `test_un_owner_introuvable_passe_desormais_sur_la_face_effet`

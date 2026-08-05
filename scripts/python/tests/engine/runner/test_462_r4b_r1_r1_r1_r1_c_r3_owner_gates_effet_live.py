@@ -54,7 +54,7 @@ from engine.runner.operations.damage import AttackDamageOperation
 from engine.runner.operations.revive import kill_unit_revive_gate
 from engine.runner.operations.triggers import after_death_triggers
 from engine.runner.operations.triggers.base import (EffectTrigger, TileEffectTrigger,
-                                                    TriggerEvent)
+                                                    TriggerEvent, TriggeredAbility)
 from engine.runner.operations.triggers.dispatch import core as CORE
 from engine.runner.operations.triggers.dispatch import registry as REG
 from engine.runner.operations.triggers.loki.rites_of_morkai import (RITES_OF_MORKAI_EFFECT,
@@ -317,6 +317,73 @@ def test_un_porteur_introuvable_atteint_matches_sur_la_face_effet():
     assert not passages(True), (
         "il passe AUSSI quand la face ABILITY est forcee -- le gate a ete supprime partout, pas "
         "borne a la face EFFET")
+
+
+# ───────────────────────── PORTEE : la face ABILITY, elle, gate TOUJOURS
+
+class _SondeAbility(TriggeredAbility):
+    """Ability-trigger NU inscrit par la voie REELLE du registre (`TRAIT_TRIGGERS` -> un trait porte
+    par une unite). Il note son passage et ne mute rien."""
+    event_id = 2
+    fire_on_death = False
+    vus: list = []
+
+    def matches(self, state, ev) -> bool:
+        _SondeAbility.vus.append(int(self.owner_id))
+        return False
+
+    def execute_behaviour(self, state, ev):
+        return None
+
+
+_TRAIT_SONDE = "_SondeTrait462cr3"
+
+
+def test_le_gate_alive_de_la_face_ABILITY_mord_toujours(env_live):
+    """CONTRE-EPREUVE STRUCTURELLE, et elle existe parce qu'une premiere passe de mutants l'a
+    trouvee MANQUANTE : neutraliser le gate PARTOUT (`_owner_gate_applies` -> `False`) laissait
+    **14 verts sur 14**. Les bras d'attribution des autres tests SUBSTITUENT ce predicat, donc ils
+    sont par construction aveugles a sa disparition -- c'est le piege << vacuously vrai >> par une
+    autre porte.
+
+    Ce bras-ci n'y touche pas. Il inscrit un ability-trigger par la voie REELLE (`TRAIT_TRIGGERS`,
+    un trait pose sur une unite du live) et lit les trois regimes de
+    `IdunBattle.Operations.EvaluateTriggerOperation$$CanGetAbilityTrigger` :
+
+        if (!IsAtomic(ability)) { if (IsUnit(owner) && !IsAlive(owner)) return 0; }
+
+      * porteur VIVANT                      -> evalue   (controle positif)
+      * porteur MORT                        -> JETE     (`UnitExtensions$$IsAlive`)
+      * porteur MORT + `fire_on_death`      -> evalue   (mirror d'`IsAtomic(ability)`)"""
+    from engine.runner.components import StatsComponent
+
+    def passages(vivant: bool, atomique: bool) -> list:
+        st = _fresh(env_live)
+        uid, _autre = _deux_allies(st)
+        ent = st.get_entity(uid)
+        sc = ent.get_component(StatsComponent)
+        assert sc is not None, "l'unite du live n'a pas de StatsComponent -- montage non installe"
+        sc.ctx.traits = list(sc.ctx.traits or []) + [_TRAIT_SONDE]
+        ent.get_component(UnitComponent).alive = bool(vivant)
+        _SondeAbility.vus = []
+        _SondeAbility.fire_on_death = bool(atomique)
+        REG.TRAIT_TRIGGERS[_TRAIT_SONDE] = [_SondeAbility]      # dict MUTE in-place, jamais rebinde
+        try:
+            CORE.evaluate_trigger_operation(
+                st, TriggerEvent(2, uid, uid, ranged=False, profile=None))
+        finally:
+            REG.TRAIT_TRIGGERS.pop(_TRAIT_SONDE, None)
+            _SondeAbility.fire_on_death = False
+        return list(_SondeAbility.vus)
+
+    assert passages(True, False), \
+        "l'ability-trigger d'un porteur VIVANT n'est pas evalue -- le montage ne prouve rien"
+    assert not passages(False, False), (
+        "l'ability-trigger d'un porteur MORT passe : le gate `IsAlive` de `CanGetAbilityTrigger` a "
+        "disparu -- la levee #462-r4b-r1-r1-r1-r1-c-r3 a deborde sur la face ABILITY")
+    assert passages(False, True), (
+        "`fire_on_death` ne dispense plus du gate `alive` : le mirror d'`IsAtomic(ability)` est "
+        "casse sur la face ABILITY")
 
 
 # ───────────────────────── ce que la levee change AUJOURD'HUI : trois mesures de GISEMENT
