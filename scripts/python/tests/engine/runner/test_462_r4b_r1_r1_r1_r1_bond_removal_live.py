@@ -218,11 +218,16 @@ def test_b_le_marqueur_survit_au_retrait_de_son_bonde():
                        "`bondedEntity`, donc le trigger (a) l'aurait detruit a la pose")
 
         # PORT. ⚠ CE QUI MORD ICI EST LE CABLAGE, PAS UN REJEU D'EVENEMENT -- et c'est mesure :
-        # la contre-epreuve << cabler TOUS les bonds >> laisse le rejeu de `unit_removed_triggers`
-        # au VERT, parce que 1113 vit sur une TUILE et que `collect_effect_triggers` itere
-        # `effects.by_unit`. Un compteur d'instances avant/apres serait donc vacuously vrai : il
+        # la contre-epreuve << cabler TOUS les bonds >> laissait le rejeu de `unit_removed_triggers`
+        # au VERT, parce que 1113 vit sur une TUILE et qu'aucun effet-trigger de tuile n'atteignait
+        # alors son `matches`. Un compteur d'instances avant/apres serait donc vacuously vrai : il
         # se lirait comme une mesure et n'en serait pas une. On assertionne l'ABSENCE au registre,
         # qui elle rougit sur la mutation.
+        # ⚠⚠ L'ATTRIBUTION d'origine (<< `collect_effect_triggers` itere `effects.by_unit` >>) etait
+        # FAUSSE : `by_unit` est clee par id d'ENTITE, tuiles comprises. C'etait le gate d'owner de
+        # `evaluate_trigger_operation`, corrige par #462-r4b-r1-r1-r1-r1-c-r1. Le rejeu N'EST PLUS
+        # vacuously vrai depuis ; il reste non discriminant ici pour une AUTRE raison -- 1113
+        # n'inscrit aucun trigger (virtuel FAUX), donc il n'y a rien a declencher.
         assert BondRemoveOnBondedEntityDeath not in EFFECT_TRIGGERS.get(PENDING_SUMMON, []), (
             "PORT : `BondRemoveOnBondedEntityDeath` est inscrit pour 1113 alors que le virtuel "
             "`get_RemoveOnBondedEntityDeath` est FAUX -- le cablage ignore le gate")
