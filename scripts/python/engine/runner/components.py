@@ -419,12 +419,32 @@ def is_machine_of_war(entity) -> bool:
 
 class PositionComponent(Component):
     """Position sur le board — `PositionComponent` IdunBattle.Entities.Components.PositionComponent$$.ctor (et `UnitFootComponent`
-    IdunBattle.Entities.Components.UnitFootComponent$$.ctor : UnitId@0x10, TileId@0x14). Coordonnées hex (col,row)."""
-    __slots__ = ("col", "row")
+    IdunBattle.Entities.Components.UnitFootComponent$$.ctor : UnitId@0x10, TileId@0x14). Coordonnées hex (col,row).
 
-    def __init__(self, col: int, row: int):
+    `previous` = la POSITION PRECEDENTE (`Nullable<UnitPositionId>` @+0x88), ecrite par
+    `IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition` -- LU verbatim :
+
+        if (previousPosition == null || previousPosition.Count < 1) return;   // gate de garde
+        id = new UnitPositionId(previousPosition);
+        pc = unit.GetComponent<PositionComponent>();
+        pc.<+0x88> = new Nullable<UnitPositionId>(id);      <- CE champ (`PreviousTile`)
+        pc.<+0x98> = new Nullable<UnitPositionId>(id);      <- l'AUTRE (`GetPreviousPositionThisTurn`)
+
+    Les DEUX slots recoivent la MEME valeur a l'ecriture ; ils divergent ensuite par leurs
+    remises a zero respectives. Le port ne porte que `+0x88`, le seul que lise
+    `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select`
+    (`comp.<+0x88>.HasValue ? UnitPositionIdExtensions.ToTileList(value) : new List()`).
+    RESIDU NOMME : `+0x98` (`EntityExtensions$$GetPreviousPositionThisTurn`) et le noeud
+    `DSLBehaviors$$ResetPreviousPosition` n'ont aucun consommateur porte.
+
+    Liste de coordonnees `(col,row)` -- une `UnitPositionId` porte l'EMPREINTE (multi-hex), et
+    `ToTileList` la deplie. `None` = `Nullable` VIDE (aucun deplacement encore enregistre)."""
+    __slots__ = ("col", "row", "previous")
+
+    def __init__(self, col: int, row: int, previous=None):
         self.col = col
         self.row = row
+        self.previous = list(previous) if previous else None
 
 
 class HealthComponent(Component):
@@ -1142,6 +1162,54 @@ def persistent_data_list(entity, key) -> list:
     if comp is None:
         return []
     return list(comp.try_get_persist_data_list(key) or ())
+
+
+def persistent_data(entity, key):
+    """`TryGetPersistData<T>(key)` -- la valeur SCALAIRE rangee sous `key`, `None` si absente.
+    Pendant scalaire de `persistent_data_list`, lu par l'accesseur `ctx.persistent_data` (noeud
+    `GetPersistentData`). Entite/composant/cle absents -> `None` ; c'est l'appelant qui decide de
+    la valeur par defaut (`GetPersistentDataFormula$$Calculate` rend l'`out` par defaut = 0)."""
+    if entity is None:
+        return None
+    comp = entity.get_component(PersistentDataComponent)
+    return comp.try_get_persist_data(key) if comp is not None else None
+
+
+def save_previous_position(state, unit_id, previous_tiles) -> bool:
+    """`IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition(unit, previousPosition)`
+    -- FOYER UNIQUE de l'ecriture de `PositionComponent.previous`. Mirror du decompile :
+
+        if (previousPosition == null) throw
+        if (previousPosition.Count < 1) return          <- gate LU : une empreinte VIDE n'ecrit rien
+        pc.<+0x88> = pc.<+0x98> = new Nullable(new UnitPositionId(previousPosition))
+
+    `previous_tiles` = la liste des coordonnees `(col,row)` que l'unite occupait AVANT (son
+    empreinte, un seul element en mono-hex). Rend « l'ecriture a eu lieu »."""
+    if unit_id is None or not previous_tiles:
+        return False                                    # `Count < 1` -> aucune ecriture
+    e = state.get_entity(int(unit_id))
+    pc = e.get_component(PositionComponent) if e is not None else None
+    if pc is None:
+        return False
+    pc.previous = [(int(c), int(r)) for c, r in previous_tiles]
+    return True
+
+
+def previous_tiles(entity) -> list:
+    """`IdunBattle.Entities.Selectors.PreviousTileSelector$$Select`, remis en C# :
+
+        comp = this.unitSelector.SelectSingle(entities)?.GetComponent<PositionComponent>()
+        if (comp == null) return <throw>
+        nullable = comp.<+0x88>
+        return nullable.HasValue ? UnitPositionIdExtensions.ToTileList(nullable.Value, state)
+                                 : new List<TileEntity>()
+
+    Rend les coordonnees `(col,row)` de l'empreinte PRECEDENTE, `[]` si le `Nullable` est vide.
+    Lu par l'accesseur `ctx.previous_tiles`."""
+    if entity is None:
+        return []
+    pc = entity.get_component(PositionComponent)
+    return list(pc.previous or ()) if pc is not None else []
 
 
 def persistent_data_keys(entity) -> frozenset:

@@ -655,6 +655,23 @@ class MoveUnitOperation(Operation):
             from ..components import set_unit_feet
             set_unit_feet(state, self.unit_id, [(int(self.to[0]), int(self.to[1]))])
         else:
+            # `IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition(unit,
+            # previousPosition)` -- l'EMPREINTE QUITTEE est memorisee dans
+            # `PositionComponent.previous` (`+0x88`) AVANT l'ecriture de la nouvelle position.
+            # C'est ce que lit le selecteur `PreviousTile`, et le seul poseur de mine du binaire
+            # (`HaywireMineAbility`) en depend entierement.
+            # POSE ICI, et pas dans une operation dediee : le port utilise `MoveUnitOperation` comme
+            # STAND-IN d'`IdunBattle.Operations.SetUnitPositionOperation$$Execute` (cf. le bloc
+            # `emit_after_move` du ctor), donc son ECRITURE DE POSITION est le foyer unique -- il n'y
+            # a pas d'autre endroit ou la position d'une unite change.
+            # ⚠ Le gate natif est `previousPosition.Count >= 1` : une empreinte VIDE n'ecrit RIEN
+            # (il est porte dans `save_previous_position`), et l'unite SANS position (branche
+            # ci-dessus, spawn ou retour sur le plateau) n'en a pas -> `previous` reste vide, ce qui
+            # est exactement le `Nullable` VIDE du natif.
+            from ..components import save_previous_position
+            uc_prev = e.get_component(UnitComponent)
+            feet_prev = list(getattr(uc_prev, "feet", None) or ()) if uc_prev is not None else []
+            save_previous_position(state, self.unit_id, feet_prev or [old_pos])
             pc.col, pc.row = self.to
         # #198 : materialisation DYNAMIQUE du stat-mod DEFENSE de tuile (Thorns/famille). En quittant/
         # entrant une tuile a stat-mod DEFENSE, l'occupant non-Immune gagne/perd la modification (mirror
