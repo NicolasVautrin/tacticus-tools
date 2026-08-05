@@ -928,6 +928,32 @@ def _resolve_session() -> int:
     return sid
 
 
+def bind_ambient_rpc(sid: int):
+    """LIE le transport RPC AMBIANT de `engine.runner.snapshot` a la session `sid` (#363). Rend le
+    transport PRECEDENT, pour restauration.
+
+    POURQUOI CE HELPER EST ICI, ET POURQUOI IL EST OBLIGATOIRE DANS TOUT MONTAGE QUI GREFFE
+    (#448-r3-r1-r1). `load_state` ne seede `UnitContext.{passive,active,config_active,triggered}_
+    abilities` que si le canal `unitAbilityStates` a parle -- transport ambiant lie, ou payload
+    passe en argument. Sans canal, `triggers/dispatch/core.py::collect_triggered_abilities`
+    retombe sur `gameconfig.unit(<greffon>)`, qui ne porte PAS la greffe : le port est AMPUTE et
+    toute assertion NEGATIVE passe a vide, EN VERT. Mesure : `probe_448_r2b` rendait 0 echec en CLI
+    contre 3 sous pytest, le seul ecart etant ce transport (que `tests/conftest.py::live_session`
+    lie et qu'un lancement direct ne liait pas).
+
+    Le montage vivait en COPIE dans chaque probe. Il vit ici, a cote de `_rpc`/`_resolve_session`
+    que tout probe importe deja -- un seul foyer, une seule signature.
+
+    Signature attendue par le foyer : `rpc(method, body=None, timeout=...)` -> resultat DEBALLE."""
+    from engine.runner.snapshot import bind_live_rpc
+
+    def _ambient(method: str, body=None, timeout: float = 60):
+        r = _rpc(sid, method, [body if body is not None else {}], timeout=timeout)
+        return (r.get("result") if isinstance(r, dict) and "result" in r else r) or {}
+
+    return bind_live_rpc(_ambient)
+
+
 def _ensure_ai_trace(sid: int) -> dict:
     status = _rpc(sid, "aiTraceStatus", [], timeout=5).get("result") or {}
     for lvl in ("L1", "L2"):

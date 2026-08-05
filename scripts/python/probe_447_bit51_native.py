@@ -102,7 +102,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hexgeo                                                        # noqa: E402
 import catalog_inject as CI                                          # noqa: E402
-from rl_collect_batch import _resolve_session, _rpc                  # noqa: E402
+from rl_collect_batch import _resolve_session, _rpc, bind_ambient_rpc   # noqa: E402
 
 import probe_247_splash_targeting as P247                            # noqa: E402
 import probe_436_taunt_targeting as P436                             # noqa: E402
@@ -209,16 +209,36 @@ def main(argv=None) -> int:
     ap.add_argument("--p-units", default=P_UNITS_DEFAUT)
     ap.add_argument("--free-tiles", type=int, default=3,
                     help="nombre de tuiles LIBRES a mesurer (non-degenerescence)")
+    ap.add_argument("--sans-canal", action="store_true",
+                    help="CONTRE-EPREUVE : rejoue le regime d'AVANT #448-r3-r1-r1 -- canal "
+                         "`unitAbilityStates` muet ET registre de greffes purge (donc pas de "
+                         "refus). C'est ce que ce probe mesurait, port AMPUTE compris.")
     a = ap.parse_args(argv)
 
     sid = _resolve_session()
     p_units = [x for x in a.p_units.split(",") if x]
+
+    # ⚠ LE CANAL, SANS QUOI CE PROBE MESURE UN PORT AMPUTE (#448-r3-r1-r1). Ce montage GREFFE une
+    # ACTIVE (`TunnelingHorror` sur `necroWarden`) : `BC.Units[<greffon>].ActiveAbilities` la porte,
+    # `gameconfig.unit("necroWarden").activeAbilities` NON. Sans le canal `unitAbilityStates`,
+    # `snapshot._load_active_abilities` / `_load_config_active_abilities` / `_load_triggered_
+    # abilities` ne posent RIEN et le port derive le kit du gameconfig -- il ne connait pas
+    # l'ability qu'on mesure. `--sans-canal` reproduit ce regime pour la contre-epreuve : le foyer
+    # (`snapshot._refuse_if_grafted`) LEVE alors au lieu de se degrader en silence, ce qui est tout
+    # l'objet de la tranche.
+    if not a.sans_canal:
+        bind_ambient_rpc(sid)
+        print("[canal] `unitAbilityStates` LIE en ambiant (bind_live_rpc)")
+    else:
+        print("[canal] MUET (--sans-canal) -- regime d'AVANT, port AMPUTE, refus neutralise")
 
     # ------------------------------------------------------------------ LE MONTAGE
     grafted = P247.ROOT / "logs" / ("_probe447-bc-%d.json" % os.getpid())
     bc_path, reports = CI.write_grafted_seed_bc(
         grafted, ["%s:TunnelingHorror" % a.graft], kind="active")
     print("[greffe] %s <- TunnelingHorror : %s" % (a.graft, json.dumps(reports[0])))
+    if a.sans_canal:
+        CI.clear_declared_grafts()      # neutralise le refus : on veut le VERDICT d'avant
 
     a_units = ",".join([a.graft] * 4)
     rid, state_file = _build(sid, a.seed, a.board, p_units, a_units, bc_path)
