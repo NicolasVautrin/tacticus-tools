@@ -20,9 +20,16 @@ CE QU'IL MESURE -- rien n'est enumere a la main :
      Un argument NON litteral (variable) est compte a part et NOMME -- c'est le cas des groupes
      portes par un champ de behaviour, qu'aucune lecture de call-site ne peut trancher.
   4. Les TAGS : `Dictionary<TagKey,int>.Add(dict, &var, ...)` precede de `var = <imm>`. Balaye
-     dans les producteurs ET dans les fabriques de tags (`StreamHelper$$Get*Tags`,
-     `UnitExtensions$$GetFullStateUpdateTags`).
-  5. Le CROISEMENT avec le port : chaque producteur natif est confronte a `engine/`.
+     dans les producteurs, dans les fabriques de tags (`StreamHelper$$Get*Tags`,
+     `UnitExtensions$$GetFullStateUpdateTags`), ET -- canal 4 -- dans TOUTE fonction qui
+     reference le `MethodInfo*` de ce `Add`. Ce dernier canal est le SYMETRIQUE du canal 1 sur
+     l'axe des tags : ECRIRE un tag et EMETTRE dans le flux sont deux gestes distincts, et
+     `DSLBehaviors$$InformWeapon` ne fait que le premier.
+  5. Canal 5 -- les TABLES STATIQUES de cles. Une struct de configuration dont les champs sont
+     des `TagKey` a un `.ctor` de VALUE TYPE, donc INLINE, donc SANS appelant : ni le canal 3
+     (call-sites) ni le canal 4 (elle n'ecrit pas le dictionnaire) ne peuvent la lire. Ses
+     litteraux vivent dans le `.cctor` qui remplit la table, empaquetes DEUX PAR STORE 64 BITS.
+  6. Le CROISEMENT avec le port : chaque producteur natif est confronte a `engine/`.
 
 CE QU'IL NE VOIT PAS -- imprime a chaque run, jamais rabattu sur un zero :
   - un GroupType/StepType passe par VARIABLE (compte separement, avec ses porteurs) ;
@@ -35,6 +42,7 @@ Sortie ASCII. Aucun ecrit hors `logs/`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -73,10 +81,25 @@ RE_IMM = re.compile(r"^(0x[0-9a-fA-F]+|\d+)$")
 #: **0** litteral -- un zero produit par le parseur, pas par le binaire.
 RE_CAST = re.compile(r"^\s*(?:\((?:void|u?longlong|u?int\w*|undefined\d*)\s*\**\)\s*)+")
 #: `local_28[0] = 0xd5;` -- Ghidra ecrit la cle du tag dans une locale juste avant l'`Add`.
-RE_AFFECT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)(?:\[0\])?\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*;")
+#: TROISIEME forme, trouvee par un flux temoin CRAFTE : quand la variable est plus LARGE que la
+#: valeur (typiquement un PARAMETRE reutilise), Ghidra ecrit une affectation de CHAMP --
+#: `removeEffects._0_4_ = 7;` dans `IdunBattle.Operations.RepairUnitOperation$$Execute`. Sans le
+#: suffixe dans la capture, le nom lu etait `_0_4_` et ne pouvait plus s'apparier a la cle
+#: `&removeEffects` de l'`Add` : le tag sortait « sans producteur ».
+RE_AFFECT = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*(?:\._\d+_\d+_)?)(?:\[0\])?"
+                       r"\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*;")
+#: SEUL l'offset 0 designe la meme adresse que `&var` : `cfg._4_4_` est un AUTRE champ de la
+#: struct, et le normaliser sur `cfg` ferait ecrire une cle FAUSSE (pire qu'une cle manquante).
+RE_CHAMP0 = re.compile(r"\._0_\d+_$")
 #: Le dictionnaire de tags est un `Dictionary<TagKey,int>` : son `Add` gshared se reconnait au
 #: `MethodInfo*` passe en DERNIER argument. Ce DAT est DERIVE d'une fabrique temoin, pas ecrit.
 RE_DICT_ADD = re.compile(r"Dictionary[A-Za-z0-9_]*u003E__(?:Add|set_Item)\s*\(")
+#: Le NOM d'une locale Ghidra PORTE son offset de pile (`local_2e8`, `uStack_2e0`, `lStack_210`).
+#: C'est ce qui rend lisible une struct ecrite champ par champ : ses slots sont contigus, de 8 en 8.
+RE_SLOT = re.compile(r"^(?:local|[A-Za-z]*Stack)_([0-9a-f]+)$")
+#: `uStack_2d0 = CONCAT44(uStack_2fc,0x29);` -- Ghidra fusionne deux dwords dont UN SEUL est un
+#: immediat. Sans cette forme, le dword litteral du couple est perdu (mesure : 1 cle sur 62).
+RE_CONCAT44 = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*CONCAT44\s*\(([^,()]+),([^,()]+)\)\s*;")
 #: Les trois formes de ligne du flux, pour la contre-epreuve (le paquet `engine.streams` porte
 #: les memes : on ne les importe pas, ce probe doit rester lisible SANS lui).
 RE_L_GROUP = re.compile(r"^ *Group=([^ ]*) ")
@@ -126,6 +149,19 @@ def appels(code: str):
         yield m.group(1), args, m.start()
 
 
+def _ecrire_atomique(f: Path, texte: str) -> None:
+    """Ecrit le cache par fichier TEMPORAIRE + `replace`, jamais en place.
+
+    Le cache est partage entre runs -- et `ghidra-mcp` l'est entre agents. Une ecriture en place
+    laisse une fenetre ou un autre lecteur voit un corps TRONQUE : il le prendrait pour un corps
+    valide et rendrait un compte trop bas, c'est-a-dire un zero produit par la concurrence et non
+    par le binaire. `os.replace` est atomique sur NTFS.
+    """
+    tmp = f.with_suffix(f.suffix + ".%d.part" % os.getpid())
+    tmp.write_text(texte, encoding="utf-8")
+    os.replace(tmp, f)
+
+
 class Ghidra:
     def __init__(self, hors_ligne: bool):
         self.hors_ligne = hors_ligne
@@ -153,7 +189,7 @@ class Ghidra:
             xs = (out[0].get("cross_references") or []) if out else []
         else:
             xs = (res or {}).get("cross_references") or []
-        f.write_text(json.dumps(xs), encoding="utf-8")
+        _ecrire_atomique(f, json.dumps(xs))
         return xs
 
     def decompile(self, nom: str, timeout_sec: int = 60) -> str | None:
@@ -175,7 +211,7 @@ class Ghidra:
             code = (rs[0].get("code") if rs else None) or ""
         else:
             code = (res or {}).get("code") or ""
-        f.write_text(code if code else "\0ABSENT", encoding="utf-8")
+        _ecrire_atomique(f, code if code else "\0ABSENT")
         return code or None
 
     def symboles(self, requete: str, limite: int = 200) -> list:
@@ -188,7 +224,7 @@ class Ghidra:
                                   {"binary_name": BINARY, "query": requete,
                                    "functions_only": True, "limit": limite})
         out = (res or {}).get("symbols") or []
-        f.write_text(json.dumps(out), encoding="utf-8")
+        _ecrire_atomique(f, json.dumps(out))
         return out
 
 
@@ -312,14 +348,25 @@ def dat_dictionnaire_de_tags(codes) -> set:
     return dats
 
 
+def racine_variable(expr: str) -> str:
+    """Le NOM de la variable derriere `&x`, `x[0]` ou `x._0_4_` -- les trois formes de Ghidra.
+
+    Normalise les DEUX cotes de l'appariement (l'affectation et l'argument CLE de l'`Add`), sans
+    quoi une meme variable porte deux noms differents selon le site et le tag est perdu.
+    """
+    e = expr.strip().lstrip("&").split("[")[0].strip()
+    return RE_CHAMP0.sub("", e)
+
+
 def scanner_tags(code: str, dats_tag: set) -> set:
     """TagKey ecrits : `var = <imm>;` puis `Dictionary<TagKey,int>.Add(dict, var, valeur, DAT)`."""
-    affect = [(m.start(), m.group(1), int(m.group(2), 0)) for m in RE_AFFECT.finditer(code)]
+    affect = [(m.start(), racine_variable(m.group(1)), int(m.group(2), 0))
+              for m in RE_AFFECT.finditer(code)]
     trouves = set()
     for pos, args in _sites_add(code):
         if dats_tag and args[-1] not in dats_tag:
             continue
-        cle = args[1].lstrip("&").split("[")[0].strip()
+        cle = racine_variable(args[1])
         val = None
         for p, nom, v in affect:
             if p < pos and nom == cle:
@@ -327,6 +374,113 @@ def scanner_tags(code: str, dats_tag: set) -> set:
         if val is not None:
             trouves.add(val)
     return trouves
+
+
+def ecrivains_de_tags(gh: Ghidra, dats_tag: set) -> list:
+    """CANAL 4 -- les xrefs du `MethodInfo*` de `Dictionary<TagKey,int>.Add`.
+
+    STRICTEMENT SYMETRIQUE du canal 1 : celui-la rend qui EMET dans le flux, celui-ci rend qui
+    ECRIT un tag. Les deux ensembles ne se recouvrent PAS, et c'est tout l'interet --
+    `IdunBattleLogic.Entities.DSLBehaviors$$InformWeapon` ecrit trois `TagKey`
+    (`Attack_Weapon_DamageProfile`, `_IsMelee`, `_Use_Special`) et n'appelle jamais
+    `IStreamListener` : c'est un noeud DSL, son dictionnaire part vers
+    `IdunBattle.Operations.InformOperation$$Execute`. Sans ce canal, ces tags sortaient
+    « sans producteur » alors que le flux live les emet.
+    """
+    out = set()
+    for d in sorted(dats_tag):
+        for x in gh.xrefs(d[len("DAT_"):]):
+            if x.get("function_name"):
+                out.add(x["function_name"])
+    return sorted(out)
+
+
+def litteraux_table_statique(code: str, n_cles: int):
+    """CANAL 5 -- les cles d'une TABLE STATIQUE de configuration, lues slot par slot.
+
+    Une struct de configuration (`TransformUnitOperation.ModStatTransformConfig`) porte ses
+    `TagKey` en CHAMPS. Son `.ctor` est un ctor de VALUE TYPE : le compilateur l'INLINE, donc il
+    n'a AUCUN appelant nomme et le canal 3 ne peut rien y lire. Les litteraux vivent alors dans
+    le `.cctor` qui remplit la table, ecrits en stores 64 bits qui EMPAQUETTENT DEUX champs
+    (`local_198 = 0x2b0000002a` = champ0 `UnitStats_FixedArmor`, champ1 `..._Modification`).
+
+    Ce qui rend la lecture EXACTE plutot qu'heuristique : la struct est passee par ADRESSE au
+    `Dictionary.Add` de la table (3e argument), et le NOM Ghidra de cette locale porte son offset
+    de pile -- les `n_cles * 4` octets de cles occupent donc les `ceil(n_cles/2)` slots suivants,
+    de 8 en 8. On ne lit que ceux-la : la variable passee en CLE de la table (un `StatType`, pas
+    un `TagKey`) est HORS de cette plage, donc jamais confondue.
+
+    Le `0` est EXCLU : c'est le sentinelle « non implemente », et
+    `IdunBattle.Operations.TransformUnitOperation$$AddTagIfImplemented` commence par
+    `if (key != 0)` -- un champ nul n'ecrit aucun tag.
+    """
+    n_slots = (n_cles * 4 + 7) // 8
+    par_offset = {}
+
+    def _noter(nom, pos, val):
+        s = RE_SLOT.match(nom)
+        if s:
+            par_offset.setdefault(int(s.group(1), 16), []).append((pos, val))
+
+    for m in RE_AFFECT.finditer(code):
+        _noter(m.group(1), m.start(), int(m.group(2), 0))
+    for m in RE_CONCAT44.finditer(code):
+        haut, bas = immediat(m.group(2)), immediat(m.group(3))
+        if haut is None and bas is None:
+            continue
+        _noter(m.group(1), m.start(), ((haut or 0) << 32) | (bas or 0))
+    valeurs, sites = set(), 0
+    for pos, args in _sites_add(code):
+        if len(args) < 3:
+            continue
+        s = RE_SLOT.match(args[2].lstrip("&").strip())
+        if not s:
+            continue
+        sites += 1
+        base = int(s.group(1), 16)
+        for i in range(n_slots):
+            avant = [(p, v) for p, v in par_offset.get(base - 8 * i, ()) if p < pos]
+            if not avant:
+                continue
+            v = max(avant)[1]
+            valeurs |= {v & 0xFFFFFFFF, (v >> 32) & 0xFFFFFFFF}
+    return {v for v in valeurs if v}, sites
+
+
+def tables_statiques_de_cles(gh: Ghidra, build: str, tg: dict, par_symbole: dict) -> list:
+    """Les porteurs de cles INLINES, et le `.cctor` ou leurs litteraux se trouvent reellement.
+
+    Rend une liste de (symbole du ctor, symbole du cctor lu, n_cles, valeurs, sites). Un porteur
+    qui a des appelants nommes n'entre PAS ici : c'est le canal 3 qui le lit.
+    """
+    out = []
+    for m in methodes_typees(build, "IdunBattle.Streams.TagKey"):
+        if len(m["index"]) < 2:
+            continue
+        sym = tg.get(m["rva"])
+        if not sym:
+            out.append((m["nom"], None, len(m["index"]), set(), "SANS SYMBOLE GHIDRA"))
+            continue
+        va = "%x" % (int(m["rva"], 16) + 0x180000000)
+        if [x for x in gh.xrefs(va) if x.get("function_name") and x.get("type") != "DATA"]:
+            continue  # appelable : le canal 3 le lit
+        if sorted(m["index"]) != list(range(len(m["index"]))):
+            out.append((sym, None, len(m["index"]), set(),
+                        "cles NON contigues en tete de la struct"))
+            continue
+        classe = sym.split("$$")[0]
+        cands = [c + "$$.cctor" for c in (classe, classe.rsplit(".", 1)[0]) if "." in c]
+        cctor = next((c for c in cands if c in par_symbole), None)
+        if cctor is None:
+            out.append((sym, None, len(m["index"]), set(), "aucun .cctor pour %s" % classe))
+            continue
+        code, _n = decompile_robuste(gh, cctor, par_symbole)
+        if code is None:
+            out.append((sym, cctor, len(m["index"]), set(), "cctor NON decompilable"))
+            continue
+        vals, sites = litteraux_table_statique(code, len(m["index"]))
+        out.append((sym, cctor, len(m["index"]), vals, "%d entree(s) de table" % sites))
+    return out
 
 
 def methodes_typees(build: str, enum_natif: str) -> list:
@@ -491,7 +645,7 @@ def contre_epreuve_live(GroupType, StepType, TagKey, groupes, actions, tags) -> 
                  ": " + ", ".join(manquants) if manquants else ""))
 
 
-def volet_flux_live(board: str, tours: int) -> int:
+def volet_flux_live(board: str, tours: int, p_units=None, a_units=None) -> int:
     """Ce que le natif EMET REELLEMENT, ventile par GROUPE RACINE.
 
     Le canal statique dit ce qui est EMISSIBLE ; il ne dit pas ce qu'une bataille produit. Un
@@ -517,12 +671,23 @@ def volet_flux_live(board: str, tours: int) -> int:
                               cwd=str(ici), capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=t)
 
+    # Le ROSTER se pilote : le corpus temoin de l'etape [8] ne vaut que ce que la bataille
+    # EXERCE, et deux equipes tirees par defaut ne castent qu'une poignee d'abilities. Un
+    # roster choisi (boucliers, invocations, transformations) est ce qui fait apparaitre des
+    # `TagKey` qu'aucun board ne ferait sortir tout seul.
+    roster = []
+    if p_units:
+        roster += ["--p-units", p_units]
+    if a_units:
+        roster += ["--a-units", a_units]
     try:
-        p = rl("build", "--seed", "777", "--board", board, "--record-replay", "--no-ai")
+        p = rl("build", "--seed", "777", "--board", board, "--record-replay", "--no-ai", *roster)
         if not etat.is_file():
             print("MESURE IMPOSSIBLE (build) : %s" % (p.stderr or p.stdout)[-400:])
             return 3
-        print("    runner %s monte sur %s" % (json.loads(etat.read_text())["runnerId"], board))
+        print("    runner %s monte sur %s%s"
+              % (json.loads(etat.read_text())["runnerId"], board,
+                 (" ; roster " + " ".join(roster)) if roster else ""))
         for i in range(tours):
             q = rl("aiturn", t=600)
             if q.returncode != 0:
@@ -544,7 +709,12 @@ def volet_flux_live(board: str, tours: int) -> int:
         print("    MESURE IMPOSSIBLE : `replayOutputStream` rend un flux VIDE")
         return 3
     lignes = flux.split("\n")
-    brut = REPO / "logs" / ("477r18-flux-%s.txt" % board)
+    # Le nom du fichier porte le roster : deux flux du MEME board avec des equipes differentes
+    # sont deux TEMOINS, pas un ecrasement. L'empreinte est un sha STABLE, jamais `hash()` --
+    # qui est randomise par processus et rendrait le nom du temoin non reproductible.
+    empreinte = hashlib.sha1(" ".join(roster).encode()).hexdigest()[:6] if roster else ""
+    brut = REPO / "logs" / ("477r18-flux-%s%s.txt"
+                            % (board, ("-" + empreinte) if empreinte else ""))
     brut.write_text(flux, encoding="utf-8")
     print("    flux natif : %d lignes, %d octets -> %s" % (len(lignes), len(flux), brut))
 
@@ -635,13 +805,17 @@ def main() -> int:
                     help="volet LIVE : ventile un vrai flux natif par groupe racine")
     ap.add_argument("--board", default="C1_02")
     ap.add_argument("--tours", type=int, default=2)
+    ap.add_argument("--p-units", default=None,
+                    help="volet LIVE : roster JOUEUR passe tel quel a `rl_duel build`")
+    ap.add_argument("--a-units", default=None,
+                    help="volet LIVE : roster ADVERSE passe tel quel a `rl_duel build`")
     a = ap.parse_args()
 
     if a.flux_live:
         print("=" * 78)
         print("#477-r18 -- POIDS MESURE de chaque GROUPE RACINE dans un flux natif")
         print("=" * 78)
-        return volet_flux_live(a.board, a.tours)
+        return volet_flux_live(a.board, a.tours, a.p_units, a.a_units)
 
     gh = Ghidra(a.hors_ligne)
     GroupType, StepType, TagKey = charger_mirrors()
@@ -738,6 +912,34 @@ def main() -> int:
         morts = [m for m in cls if int(m) not in vus]
         print("              %d membres SANS aucun litteral trouve (voir ci-dessous)" % len(morts))
 
+    # CANAL 4 -- symetrique du canal 1, sur l'axe des TAGS. Un ecrivain de tags n'est pas force
+    # d'emettre : le noeud DSL construit le dictionnaire, l'Operation l'envoie.
+    print("\n[3bis] CANAL 4 -- xrefs du MethodInfo* de Dictionary<TagKey,int>.Add")
+    ecrivains = ecrivains_de_tags(gh, dats_tag)
+    deja = set(producteurs) | set(fabriques)
+    avant_c4 = {v for v in tags_vus}
+    neufs, illisibles_c4 = 0, []
+    for nom in ecrivains:
+        if nom in deja:
+            continue
+        neufs += 1
+        code, _n = decompile_robuste(gh, nom, par_symbole)
+        if code is None:
+            illisibles_c4.append(nom)
+            continue
+        for v in scanner_tags(code, dats_tag):
+            tags_vus.setdefault(v, []).append(nom)
+    apres_c4 = {v for v in tags_vus}
+    exclusifs = sorted(apres_c4 - avant_c4)
+    print("    ecrivains de tags : %d ; deja balayes par le canal 1 / les fabriques : %d ; "
+          "neufs : %d ; non decompilables : %d"
+          % (len(ecrivains), len(ecrivains) - neufs, neufs, len(illisibles_c4)))
+    print("    TagKey atteints UNIQUEMENT par ce canal : %d" % len(exclusifs))
+    for v in exclusifs:
+        print("      %-44s <- %s" % (nom_enum(TagKey, v), ", ".join(sorted(set(tags_vus[v])))))
+    for n in illisibles_c4[:6]:
+        print("      NON DECOMPILABLE %s" % n)
+
     print("\n[4] ARGUMENTS PORTES PAR UNE VARIABLE -- propagation d'UN cran chez les appelants")
     prop = propager_un_cran(gh, variables)
     for t in prop:
@@ -759,17 +961,26 @@ def main() -> int:
     print("\n[4bis] CANAL 3 -- methodes dont la SIGNATURE porte l'enum (type LU dans methods.tsv)")
     tg = table_ghidra(build_courant)
     porteurs_sans_litteral = []
-    for lib, cls, vus, natif in (("GroupType", GroupType, groupes_vus,
-                                  "IdunBattle.Streams.GroupType"),
-                                 ("StepType", StepType, actions_vues,
-                                  "IdunBattle.Streams.StepType")):
+    # ⚠ Le vocabulaire des TAGS est aussi LU par la VUE (`IdunBattle.View.*`, `idun.Game.Board.*`,
+    # `IdunBattle.ViewLogic.*`) : sur les porteurs de `TagKey`, un canal 3 non filtre compterait
+    # des CONSOMMATEURS comme des producteurs. Le filtre est DERIVE, pas ecrit : un porteur ne
+    # compte que s'il EMET dans le flux (canal 1) ou s'il ECRIT un tag (canal 4). Ce qu'il ecarte
+    # est IMPRIME. `GroupType` / `StepType` n'ont pas ce double usage : aucun filtre.
+    emetteurs = set(producteurs) | set(fabriques) | set(ecrivains)
+    for lib, cls, vus, natif, filtre in (
+            ("GroupType", GroupType, groupes_vus, "IdunBattle.Streams.GroupType", None),
+            ("StepType", StepType, actions_vues, "IdunBattle.Streams.StepType", None),
+            ("TagKey", TagKey, tags_vus, "IdunBattle.Streams.TagKey", emetteurs)):
         ms = methodes_typees(build_courant, natif)
         avant = len([m for m in cls if int(m) in vus])
-        sites, lus = 0, 0
+        sites, lus, ecartes = 0, 0, set()
         for m in ms:
             sym = tg.get(m["rva"])
             if not sym:
                 porteurs_sans_litteral.append((lib, m["nom"], "SANS SYMBOLE GHIDRA"))
+                continue
+            if filtre is not None and sym not in filtre:
+                ecartes.add(sym)
                 continue
             cible = nom_ghidra_en_c(sym)
             # Par ADRESSE, jamais par nom : `DSLBehaviors$$AtomicGroup` a TROIS surcharges
@@ -800,10 +1011,37 @@ def main() -> int:
         print("    %-9s : %d methode(s) porteuse(s), %d site(s) d'appel, %d litteral(aux) lus"
               % (lib, len(ms), sites, lus))
         print("              couverture %d -> %d / %d" % (avant, apres, len(list(cls))))
+        if filtre is not None:
+            # Le filtre ne peut que SOUS-compter, jamais sur-compter -- et ce qu'il ecarte est
+            # NOMME : c'est la seule facon de voir un jour qu'il ecarte a tort.
+            print("              ECARTES PAR CE FILTRE : %d symbole(s) qui n'emettent ni "
+                  "n'ecrivent" % len(ecartes))
+            for s in sorted(ecartes):
+                print("                %s" % s)
     for lib, nom, cause in porteurs_sans_litteral[:12]:
         print("      NON LU  %-9s %-58s %s" % (lib, nom, cause))
     if len(porteurs_sans_litteral) > 12:
         print("      ... %d porteur(s) non lu(s) de plus" % (len(porteurs_sans_litteral) - 12))
+
+    print("\n[4ter] CANAL 5 -- TABLES STATIQUES de cles (porteurs INLINES, sans appelant)")
+    hors_enum_c5, avant_c5 = [], len([m for m in TagKey if int(m) in tags_vus])
+    for sym, cctor, n_cles, vals, cause in tables_statiques_de_cles(gh, build_courant, tg,
+                                                                   par_symbole):
+        connues = {v for v in vals if v in {int(x) for x in TagKey}}
+        hors_enum_c5 += sorted(vals - connues)
+        for v in connues:
+            tags_vus.setdefault(v, []).append(cctor or sym)
+        bouts = sym.split("$$")
+        court = (bouts[0].rsplit(".", 1)[-1] + "$$" + bouts[1]) if len(bouts) > 1 else sym
+        print("    %-62s %d cles" % (court, n_cles))
+        print("      table lue dans %-52s %s ; %d valeur(s), %d dans TagKey"
+              % (cctor or "<AUCUNE>", cause, len(vals), len(connues)))
+    print("    couverture TagKey %d -> %d / %d"
+          % (avant_c5, len([m for m in TagKey if int(m) in tags_vus]), len(list(TagKey))))
+    # Un parseur qui derape produit des entiers ARBITRAIRES : le controle est qu'ils tombent TOUS
+    # dans l'enum. Un non-vide ici accuse la lecture, pas le binaire.
+    print("    valeurs lues HORS de l'enum TagKey (doit etre VIDE) : %s"
+          % (sorted(set(hors_enum_c5)) if hors_enum_c5 else "aucune"))
 
     print("\n[5] CE QUE CETTE MESURE NE VOIT PAS")
     print("    corps lus PAR ADRESSE faute d'un nom unique (surcharges) : %d" % surcharges)
@@ -835,7 +1073,8 @@ def main() -> int:
              "actions_vues": {str(k): v for k, v in actions_vues.items()},
              "tags_vus": {str(k): v for k, v in tags_vus.items()},
              "variables": variables, "illisibles": illisibles,
-             "fabriques": fabriques, "canal2": canal2}, indent=1), encoding="utf-8")
+             "fabriques": fabriques, "canal2": canal2,
+             "ecrivains_de_tags": ecrivains}, indent=1), encoding="utf-8")
         print("\ncarte brute -> %s" % p)
     return 0
 
