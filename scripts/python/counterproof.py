@@ -143,3 +143,151 @@ def assert_sample_confrontable(realise: bool, *, mutation: str, doit_casser: str
         return
     raise UnconfrontableSample(_bloc("rien n'a ete confronte -- la mesure est INVALIDE",
                                      MARKER_SAMPLE, mutation, doit_casser, observe, remede))
+
+
+# --------------------------------------------------------------------------------------------
+# #433-r4-r2-r4-r1 -- le cas DECIDABLE : une contre-epreuve qui neutralise UN CANAL
+# --------------------------------------------------------------------------------------------
+# La docstring de ce module dit -- et c'est vrai -- qu'on ne peut PAS deriver du code qu'une
+# assertion est un contre-controle. Il existe pourtant une FORME ou on le peut, et c'est celle qui
+# a coute #433-r4-r2-r4 : "je neutralise le canal X, le foyer doit alors changer d'avis". La
+# neutralisation est explicite (`replace(ctx, X=None)`, `f(..., X=None)`), le foyer est nomme, et
+# ses AUTRES canaux se derivent de sa signature. Ce helper ne devine donc rien : il MESURE.
+#
+# CE QU'IL SEPARE, et que le rouge du 2026-08-04 confondait :
+#   * la mutation MORD                     -> silence, la contre-epreuve est valide ;
+#   * un AUTRE canal porte la meme exclusion -> `InertCounterproof`, avec le canal NOMME ;
+#   * meme tous canaux coupes, rien ne bouge -> `UnconfrontableSample`, l'etat est hors regime.
+# Sans cette separation, les trois rendent le meme message et le lecteur va debugger le port.
+
+
+def _canaux_de(foyer) -> list:
+    """Les parametres de `foyer` qui sont des CANAUX, DERIVES de sa signature.
+
+    Deux vocabulaires, tous deux LUS dans le port : le suffixe `_by_pos` (la carte, telle que
+    `battle_query.is_adjacent` la recoit) et les noms SCALAIRES d'un foyer d'aval, qui recoit la
+    valeur deja extraite (`targeting_query.tile_removed_by_walkability(rules, walkable,
+    is_in_fog)`). Un canal n'est retenu que s'il ADMET `None` -- un parametre obligatoire n'est pas
+    neutralisable, donc aucune contre-epreuve ne peut le couper."""
+    import inspect
+    sig = inspect.signature(foyer)
+    scalaires = ("walkable", "is_in_fog", "elevation", "neigh", "is_wall")
+    return [nom for nom, p in sig.parameters.items()
+            if (nom.endswith("_by_pos") or nom in scalaires)
+            and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
+
+
+def assert_channel_counterproof(evaluer, canal: str, autres, *, sujet: str = "le foyer",
+                                remede: str = "") -> None:
+    """LE COEUR, et il ne sait rien du porteur : `evaluer(neutralises: frozenset) -> verdict`.
+
+    Trois lectures du MEME etat, et ce sont elles qui separent les trois causes que le rouge du
+    2026-08-04 confondait :
+
+        base = evaluer({})            le verdict avec tous les canaux
+        seul = evaluer({canal})       different ? la contre-epreuve MORD -> silence
+        tous = evaluer({canal, *autres})  identique a `base` ? l'etat est HORS REGIME
+
+    L'entre-deux (`seul == base` mais `tous != base`) est EXACTEMENT le piege de `#433-r4-r2-r4` :
+    un ou plusieurs AUTRES canaux portent la meme exclusion. On les rejoue UN PAR UN pour NOMMER
+    celui qui suffit -- "ta contre-epreuve suppose que X porte seul l'exclusion, Y la porte aussi"
+    ne s'obtient d'aucune autre facon, et c'est la phrase qui aurait epargne trois merges.
+
+    `autres` = les canaux CONCURRENTS candidats, DERIVES par la facade (signature du foyer, ou
+    champs du contexte) -- jamais une liste ecrite a la main : `is_adjacent` a gagne `neigh_by_pos`
+    sans que rien ne le signale, et c'est precisement ce qu'une liste manuelle rate.
+
+    COUT : le foyer est rejoue `2 + len(autres)` fois au pire (une fois de plus par concurrent
+    quand la contre-epreuve est morte). Sur un foyer LIVE cher, appeler ce helper une fois par
+    contre-epreuve, jamais dans une boucle de balayage."""
+    autres = [c for c in autres if c != canal]
+    base = evaluer(frozenset())
+    seul = evaluer(frozenset([canal]))
+    if seul != base:
+        return                                   # la mutation MORD : rien a dire
+    tous = evaluer(frozenset([canal] + list(autres)))
+    if tous == base:
+        raise UnconfrontableSample(_bloc(
+            "aucun canal ne mord sur cet etat -- la mesure ne confronte RIEN",
+            MARKER_SAMPLE,
+            mutation="%s prive de `%s`" % (sujet, canal),
+            doit_casser="le verdict de %s doit changer" % sujet,
+            observe="verdict %r avec les canaux, %r sans AUCUN d'eux (%s)"
+                    % (base, tous, ", ".join([canal] + list(autres))),
+            remede=remede or ("re-crafter l'ETAT : il ne realise pas le regime ou le canal "
+                              "decide (aucune exclusion a restituer)")))
+    concurrents = [c for c in autres
+                   if evaluer(frozenset([canal, c])) != base]
+    raise InertCounterproof(_bloc(
+        "le canal neutralise n'est PAS le seul a porter cette exclusion",
+        MARKER_COUNTERPROOF,
+        mutation="%s prive de `%s`" % (sujet, canal),
+        doit_casser="le verdict de %s (%r) doit changer quand `%s` est coupe"
+                    % (sujet, base, canal),
+        observe="inchange (%r) ; il faut couper AUSSI %s pour le faire bouger"
+                % (seul, ", ".join("`%s`" % c for c in concurrents) or "d'autres canaux"),
+        remede=remede or ("re-etalonner la contre-epreuve : couper les canaux CONCURRENTS avec "
+                          "celui-ci, ou muter le FOYER (port d'avant) plutot qu'un seul de ses "
+                          "substrats. Ce rouge n'accuse PAS le port -- cf. #433-r4-r2-r4")))
+
+
+def assert_channel_counterproof_call(foyer, canal: str, *, remede: str = "", **etat) -> None:
+    """FACADE 1 -- le foyer est appele DIRECTEMENT, ses canaux viennent de sa SIGNATURE.
+
+    `etat` est passe en MOTS-CLES : le foyer est rejoue par nom, aucun ordre de parametres n'est
+    suppose. C'est voulu -- `battle_query.is_adjacent` a gagne `neigh_by_pos` en 4e position, et
+    une contre-epreuve qui compte les positionnels aurait glisse d'un cran sans le dire."""
+    canaux = _canaux_de(foyer)
+    nom = getattr(foyer, "__name__", str(foyer))
+    if canal not in canaux:
+        raise UnconfrontableSample(_bloc(
+            "le canal neutralise n'existe pas dans la signature du foyer",
+            MARKER_SAMPLE,
+            mutation="%s(..., %s=None)" % (nom, canal),
+            doit_casser="le foyer doit ACCEPTER ce canal",
+            observe="canaux du foyer : %s" % (", ".join(canaux) or "aucun"),
+            remede=remede or "re-lire la signature du foyer : le canal a ete renomme ou retire"))
+    actifs = [c for c in canaux if etat.get(c) is not None]
+
+    def _ev(neutralises):
+        return foyer(**dict(etat, **{c: None for c in neutralises}))
+
+    assert_channel_counterproof(_ev, canal, actifs, sujet="`%s`" % nom, remede=remede)
+
+
+def assert_channel_counterproof_ctx(fn, ctx, canal: str, *, remede: str = "") -> None:
+    """FACADE 2 -- le porteur est un CONTEXTE dataclass, et c'est la forme du bug.
+
+    Les canaux concurrents sont les champs `*_by_pos` NON VIDES du contexte, derives par
+    `dataclasses.fields` : un champ ajoute au contexte entre dans le calcul SANS qu'aucune
+    contre-epreuve n'ait a etre relue. `fn(ctx) -> verdict` est ce que la contre-epreuve compare
+    (un ensemble d'adjacence, une liste de candidats, une utilite)."""
+    import dataclasses as _dc
+    if not _dc.is_dataclass(ctx):
+        raise UnconfrontableSample(_bloc(
+            "le porteur n'est pas un contexte dataclass -- ses canaux ne sont pas derivables",
+            MARKER_SAMPLE,
+            mutation="%s prive de `%s`" % (type(ctx).__name__, canal),
+            doit_casser="les canaux du porteur doivent etre enumerables",
+            observe="type %r" % type(ctx).__name__,
+            remede=remede or "passer par `assert_channel_counterproof_call`, ou un `evaluer` a soi"))
+    noms = {f.name for f in _dc.fields(ctx)}
+    if canal not in noms:
+        raise UnconfrontableSample(_bloc(
+            "le canal neutralise n'est pas un champ du contexte",
+            MARKER_SAMPLE,
+            mutation="%s prive de `%s`" % (type(ctx).__name__, canal),
+            doit_casser="le contexte doit PORTER ce canal",
+            observe="champs `*_by_pos` : %s"
+                    % (", ".join(sorted(n for n in noms if n.endswith("_by_pos"))) or "aucun"),
+            remede=remede or "re-lire les champs du contexte : le canal a ete renomme ou retire"))
+    actifs = [n for n in sorted(noms)
+              if n.endswith("_by_pos") and getattr(ctx, n, None)]
+
+    def _ev(neutralises):
+        return fn(_dc.replace(ctx, **{c: None for c in neutralises}))
+
+    assert_channel_counterproof(_ev, canal, actifs,
+                                sujet="`%s(%s)`" % (getattr(fn, "__name__", "fn"),
+                                                    type(ctx).__name__),
+                                remede=remede)
