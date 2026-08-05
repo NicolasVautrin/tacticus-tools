@@ -175,6 +175,32 @@ def test_EXCLUSION_sans_le_bit_le_natif_ne_la_verse_pas(mesure):
     assert d["source_port"] == []
 
 
+def test_le_LECTEUR_du_bit_15_repond_comme_le_natif(mesure):
+    """LE FOYER, INTERROGE PAR SON NOM et confronte a la mesure LIVE.
+
+    `zone_contains_for_options` (donc `_zone_contains_distance`) est LA fonction que cette tranche
+    confronte : elle repond « la zone contient-elle la tuile a distance `d` ». On l'interroge sur le
+    masque de chaque poste a `d = 0`, et on exige la double implication utile :
+
+      * masque a bit 15 -> la zone repond `True` ; masque sans -> elle repond `False` ;
+      * le natif ne verse la tuile source QUE si la zone repond `True` (les gates CASTER, eux,
+        peuvent encore la retirer -- c'est le cas du Runtherd que le gate annule).
+
+    L'interroger dans du code EXECUTABLE (et non en prose) est aussi ce qui fait basculer son
+    verdict de « garde OFFLINE seule » a « CONFRONTE » dans `probe_447_r1 --step lecteurs` : ce
+    balayage lit l'AST des tests, pas leurs docstrings."""
+    from engine.runner.abilities.targeting import targeting_options_for
+    from engine.services.ability_range import zone_contains_for_options
+    for cle in ("creed_bit", "bullgryn_sans_bit", "ork_gate_passe", "ork_gate_mord"):
+        d = _p(mesure, cle)
+        opts = targeting_options_for(d["ability"])
+        porte = bool(int(getattr(opts, "rules", 0) or 0) & int(TR.CasterIsPossibleTarget))
+        zone = zone_contains_for_options(opts, d["ability"], d["visual"], 0)
+        assert zone is (True if porte else False), "%s : zone(d=0)=%r bit15=%s" % (cle, zone, porte)
+        if d["source_natif"]:
+            assert zone is True, "%s : le natif verse la source mais la zone dit %r" % (cle, zone)
+
+
 def test_l_attaque_normale_ne_verse_jamais_la_tuile_source(mesure):
     """L'ETAGE ISOLE. Aucun des masques d'attaque normale ne porte le bit 15 : le terme d'attaque
     normale ne peut donc PAS etre l'auteur de l'inclusion mesuree ci-dessus."""

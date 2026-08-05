@@ -57,7 +57,7 @@ sans elle `caster_is_possible_target`, atteint seulement par `caster_is_valid_ta
 
 | fonction lectrice | avant | après |
 |---|---|---|
-| `_zone_contains_distance` (`ability_range`) | (2) garde OFFLINE seule | inchangé — cf. `#447-r1-r1` |
+| `_zone_contains_distance` (`ability_range`) | (2) garde OFFLINE seule | **(1) CONFRONTÉ** depuis `#447-r1-r1` |
 | `can_target_caster` | (1) confronté (`test_instruments_of_vengeance_decision_live`) | inchangé |
 | `caster_is_possible_target` | **absent** | **(1) PORTÉ ET CONFRONTÉ** |
 
@@ -159,14 +159,14 @@ trait `Mechanic` (attribution hors gameconfig), non exploré ici.
 
 ## 8. Résidus nommés
 
-* **`#447-r1-r1` — la branche INCLUSION de `_zone_contains_distance` reste en état (2).**
-  Cette tranche confronte le bit 15 sur la face **CIBLAGE** (`abilityTargets`) ; la face **DÉCISION**
-  (`ability_range` → `is_tile_in_range_of_any_ability`, oracle `aiMovableTiles {threat:true}`) n'a
-  toujours qu'une garde offline pour la branche « bit armé » — c'est le résidu
-  `#433-r4-r2-r1-r2-r2-r1-r1-r1-r1`, que ce cas ne ferme pas : le blocage qu'il nomme
-  (`orksRuntherd`/`1045` annulé par un étage amont, `AttackQuery$$GetInvalidCasterReason` non porté)
-  est intact. Les **9** autres porteurs du bit 15 au pool recensés au §6 sont autant de montages non
-  tentés pour le rouvrir.
+* **`#447-r1-r1` — la branche INCLUSION de `_zone_contains_distance` sur la face DÉCISION : FERMÉ
+  le 2026-08-05**, `case-447-r1-r1-inclusion-face-decision.md`. Le blocage nommé ici était **périmé
+  sur sa cause** (`AttackQuery$$GetInvalidCasterReason` **est** porté depuis
+  `#433-r4-r2-r1-r2-r2-r1-r1-r1-r4`) et, sur son effet, un fait de **montage** — il se lève en posant
+  un ennemi contre la sortie du cul-de-sac. Confronté sur `astraCreed`/`1028` (le porteur le moins
+  cher du §6 : `RANGE_SELF` + bit 15, aucun gate caster), régime singleton construit et vérifié.
+  La tranche a trouvé **deux bugs** de la même branche, corrigés et gardés ; ses résidus sont
+  `#447-r1-r1-r1..r3`.
 * **`caster_is_valid_target` n'énumère pas** : son `other_valid_targets` est une **entrée**, pas une
   mesure interne — `None` le rend permissif sur l'étage `Count > 0`. Porter
   `GetPossibleTargetsForOptions` en entier reste ce qui débloquerait `AddCasterIfAtLeastOneTarget`
