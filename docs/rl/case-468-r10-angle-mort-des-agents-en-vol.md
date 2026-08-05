@@ -162,8 +162,9 @@ courant, puisqu'ils sortent sous `worktree <nom>`. Et `--suggere` n'est **pas da
 
 **Quand un capteur ne peut structurellement pas voir une classe de faits, la première livraison
 n'est pas de la voir — c'est de DIRE qu'on ne la voit pas.** L'avertissement est indépendant des
-parades, donc livrable tout de suite ; les parades, elles, se **mesurent avant de se construire**,
-et deux des trois évaluées ici sont mortes sur un chiffre.
+parades, donc livrable tout de suite ; les parades, elles, se **mesurent avant de se construire** —
+les deux extensions évaluées ici sont mortes sur un chiffre, et l'une d'elles était **la voie la
+plus directe**.
 
 Corollaire : **ventiler l'angle mort par niveau avant de choisir la parade.** « `--suggere` ne voit
 pas les agents en vol » est un énoncé sur lequel on ne peut rien construire ; ventilé en N1 / N2 /
