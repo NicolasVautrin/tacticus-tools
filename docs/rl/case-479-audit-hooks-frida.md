@@ -257,7 +257,8 @@ C'est l'inner-sim historique, celui qui applique sur le runner **live**.
 ⚠ Verdict borné : ses noms sont **génériques** (`commit` matche 137 fois côté Python, tous faux
 positifs) — le compte n'est concluant qu'avec un critère par forme d'appel RPC, ce qui a été fait.
 
-**122 RPC sur 321 (38 %) n'ont aucune mention hors `frida/hooks/`.** C'est un **axe de tri, pas un
+**121 RPC sur 321 (38 %) n'ont aucune mention hors `frida/hooks/`** — 122 avant le rebase, 121 après :
+ces chiffres se **re-dérivent**, ils ne se citent pas. C'est un **axe de tri, pas un
 verdict** : ~45 sont les enveloppes `dump*` de `controller.ts` autour de `scratch/`, sondes
 one-shot appelées à la main — leur absence d'appelant est leur nature, pas leur mort.
 
@@ -286,13 +287,17 @@ one-shot appelées à la main — leur absence d'appelant est leur nature, pas l
 
 ### Capteurs manquants du backlog, reclassés au regard de l'objectif
 
+⚠ **Deux de ces lignes de backlog ont été CONFRONTÉES au code avant d'être rangées** — une ligne de
+backlog affirme des faits, et ils sont parfois faux (`feedback_verify_task_freshness_before_dispatch`).
+Résultat : **une confirmée, une déjà résolue**.
+
 | item | rang | pourquoi |
 |---|---|---|
-| `readEffectsByTile` jette `removed` inconditionnellement (#425-r2) | **1er** | le flux porte `LoseEffect` / `DeactivateEffect` / `UpdateEffectTurns` : la **fin de vie** d'un effet est exactement ce qu'un comparateur confrontera en premier, et le capteur la jette |
-| `EffectComponent+0x48` — cibles d'une entité-effet (#366-r1) | 2e | le flux porte l'effet et son entité, **pas** la liste de ses cibles ⇒ omission réelle, non couverte |
-| `decodeRule` publiant `hex: "0x0"` (#444-r1) | 3e | face DÉCISION — hors flux, donc jamais couvert par le comparateur ; reste un zéro rassurant à corriger |
-| `aiPlaybookPredict` ne prend pas une MoW pour caster (#350-r3c) | 4e | face DÉCISION, hors flux |
-| canal d'ENTITÉ pour les armes / stats résolues des MoW | 5e | recoupe partiellement les `UnitStats_*` du flux — **à re-qualifier après R1**, pas avant |
+| `readEffectsByTile` jette `removed` inconditionnellement (#425-r2) | **1er** | **CONFIRMÉ au code** — `game/effects.ts:562` : `if (info && info.removed) continue;`, **sans échappatoire**, alors que la ligne suivante conditionne `!active` à `includeInactive`. Or le flux porte `LoseEffect` / `DeactivateEffect` / `UpdateEffectTurns` : la **fin de vie** d'un effet est exactement ce qu'un comparateur confrontera en premier, et ce capteur-là la jette |
+| ~~`EffectComponent+0x48` — cibles d'une entité-effet (#366-r1)~~ | **RÉSOLU — à retirer du backlog** | le capteur **existe** : `readEffectTargetIds` (`game/effects.ts`), publié en `targetIds`, et avec un **tri-état correct** (`null` = illisible / `[]` = mesuré et vide / taille aberrante ⇒ `null`) |
+| `decodeRule` publiant `hex: "0x0"` (#444-r1) | 2e | face DÉCISION — hors flux, donc **jamais** couvert par le comparateur ; reste un zéro rassurant à corriger, et le flux ne le fera pas à notre place |
+| `aiPlaybookPredict` ne prend pas une MoW pour caster (#350-r3c) | 3e | face DÉCISION, hors flux |
+| canal d'ENTITÉ pour les armes / stats résolues des MoW | 4e | recoupe partiellement les `UnitStats_*` du flux — **à re-qualifier après R1**, pas avant |
 
 ---
 
@@ -302,7 +307,7 @@ one-shot appelées à la main — leur absence d'appelant est leur nature, pas l
   **laissés tels quels** : la doctrine dit de scindre *quand ça passe le seuil*, et aucun d'eux n'a
   montré de défaut **imputable à sa taille** dans cet audit. Les scinder maintenant serait du
   pré-scindage.
-- **Les 122 RPC sans appelant ne sont pas tranchés un par un** — seul `sim.ts` l'a été.
+- **Les 121 RPC sans appelant ne sont pas tranchés un par un** — seul `sim.ts` l'a été.
 - **`winner-capture` vs `Action=FinishMatch`** : laissé INDÉCIDABLE, non mesuré.
 - **Le flux n'a pas été confronté à un flux Python** — il n'y en a pas encore (R1).
 - **Aucun reinject, aucun redémarrage du host.** Le correctif du §4 est livré **inactif**.

@@ -280,10 +280,16 @@ def main() -> int:
             continue
         for ext in ("*.py", "*.ts", "*.js", "*.md", "*.html"):
             corpus.extend(base.rglob(ext))
-    blob = "\n".join(p.read_text(encoding="utf-8", errors="replace")
-                     for p in corpus if p.is_file())
-    orphelins = sorted(n for n in declares
-                       if not re.search(MOT.format(re.escape(n)), blob))
+    # O(n), pas O(n * 321) : on extrait UNE FOIS tous les identifiants du corpus dans un
+    # ensemble, au lieu de relancer 321 regex sur 44 Mo (mesure : ~15 min -> quelques
+    # secondes). Un probe qu'on ne relancera jamais faute de patience ne garde rien.
+    IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    vus: set[str] = set()
+    for p in corpus:
+        if not p.is_file():
+            continue
+        vus.update(IDENT.findall(p.read_text(encoding="utf-8", errors="replace")))
+    orphelins = sorted(n for n in declares if n not in vus)
     print("  RPC sans AUCUNE mention hors frida/hooks/ : %d / %d"
           % (len(orphelins), len(declares)))
     print("    (axe de TRI, pas un verdict : beaucoup sont des sondes appelees a la main)")
