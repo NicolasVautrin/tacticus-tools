@@ -22,29 +22,57 @@ L'émetteur natif est `IdunBattle.Streams.IStreamListener` (slots **0/1/2** =
 |---|---|
 | **1** — xrefs du `Il2CppClass*` de `IStreamListener` | **386** sites, **133** fonctions productrices |
 | **2** — xrefs de `IdunBattle.Core.AOperation$$get_Events` (indépendant) | **77** fonctions, **toutes** incluses dans le canal 1 ; 56 en plus côté canal 1 |
-| **3** — méthodes dont la **signature** déclare le type (lu dans `frida/methods.tsv`) | **32** porteuses de `GroupType`, **20** de `StepType` |
+| **3** — méthodes dont la **signature** déclare le type (lu dans `frida/methods.tsv`) | **32** porteuses de `GroupType` / **20** de `StepType`, **879** sites, **818** littéraux lus |
 
-Vocabulaire atteint par un littéral **lu** : `GroupType` **35 / 104**, `StepType` **54 / 62**,
-`TagKey` **115 / 244**.
+| enum | atteint par un producteur LU | sans aucun producteur |
+|---|---:|---:|
+| `GroupType` | **86 / 104** | 18 |
+| `StepType` | **59 / 62** | 3 (`None_`, `ExtraAttackDamage`, `LootInfo`) |
+| `TagKey` | **131 / 244** | 113 |
 
-**Les 69 `GroupType` restants ne sont pas morts — ils sont DÉCLARATIFS.** Ils ne passent par aucun
-call-site du flux : une ability les pousse au nœud DSL
+**Les `GroupType` que le canal 1 ne voit pas ne sont pas morts — ils sont DÉCLARATIFS.** Ils ne
+passent par aucun call-site du flux : une ability les pousse au nœud DSL
 `IdunBattleLogic.Entities.DSLBehaviors$$AtomicGroup(groupType, …)`. Témoin lu :
 `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$ExecuteBehaviour` passe
-`0x4e` = `GroupType.FrenziedFiring`. Il y a **3** surcharges homonymes d'`AtomicGroup` et **2** de
-`Group` — `list_xrefs` par NOM rend une erreur sur un nom ambigu, donc « 0 appelant » : le probe
-interroge par **adresse**.
+`0x4e` = `GroupType.FrenziedFiring`. Le canal 3 en récupère **50** à lui seul (**36 → 86**).
 
-**Ce que la mesure ne voit pas**, imprimé à chaque run : les arguments portés par une variable
-(propagés d'**un** cran, pas plus), les corps trop gros pour le budget de décompilation (deuxième
-tentative large), les porteurs sans symbole Ghidra.
+**18 `GroupType` restent sans aucun producteur** sur les trois canaux — candidats dead code, **pas**
+une preuve de mort : `None_`, `Ability_Attack`, `Attack`, `DarkDragon`, `AnvilShieldBlock`,
+`Drachnyen_AtomicGroup`, `DrachnyenNormalAttack_AtomicGroup`, et onze noms qui n'évoquent aucun kit
+Tacticus (`HornOfDespair_*`, `SummonIceElemental_Spawn`, `AirshipStrike_Attack`, `EjectEject`,
+`MechRepair`, `RocketBarrage`, `Zinger`, `ZingerAbility`, `VolatileRockets`).
+
+### Trois pièges de mesure, tous trouvés en rougissant
+
+1. **Un nom AMBIGU rend un corps vide, sans erreur.** `InputMessageProcessor$$Visit` a **37**
+   surcharges, `DSLBehaviors$$AtomicGroup` **3** : `decompile_function` et `list_xrefs` par nom
+   échouent, et la sortie se lit « non décompilable » / « 0 appelant ». Le probe interroge par
+   **adresse**, une par surcharge — **39** corps ainsi récupérés, dont les **3** de
+   `UnitExtensions$$GetFullStateUpdateTags` qui valaient à elles seules **15** `TagKey`.
+2. **Ghidra caste les littéraux** (`(void *)0x4e`) autant qu'il les écrit nus. Sans décapsulage, le
+   canal 3 rendait **657 sites et 0 littéral** — un zéro produit par le parseur, pas par le binaire.
+3. **L'appel d'interface a DEUX formes.** Quand Ghidra sort la résolution de slot de l'appel
+   (`p = FUN_…(this, <DAT>, <slot>); (*(code *)*p)(this, 0x37, …)`), le motif du canal 1 ne mord
+   plus : `AddOrUpdateShield` et `RemoveShield` — **tous deux observés dans le flux live** —
+   sortaient « sans producteur ».
+
+**Ce que la mesure ne voit toujours pas**, imprimé à chaque run : les arguments portés par une
+variable (propagés d'**un** cran, pas plus), les porteurs sans symbole Ghidra.
+
+## 1bis. La contre-épreuve — le statique ne se juge pas lui-même
+
+Tout ce que le flux natif **émet** doit avoir été **atteint** par le balayage. Sur les deux flux
+témoins : `GroupType` **0** manquant, `StepType` **0**, `TagKey` **9** — les tags de
+**modification** de stat (`UnitStats_*_Modification[_Change|_Entity]`), `Attack_Weapon_IsMelee`,
+`Attack_Weapon_DamageProfile`, `Custom_Data`. C'est ce contrôle qui a trouvé les pièges 1 et 3
+ci-dessus ; les 9 restants sont le résidu `#477-r18-r4`.
 
 ## 2. La structure : un groupe RACINE = un message d'entrée
 
 Les 15 `System_*` / `User_*` sont ouverts par les lambdas de
-`IdunBattle.Messages.InputMessageProcessor$$Visit` — **14 sur 15** ont leur producteur lu
-(`User_RemoveUnit` seul n'en a aucun). Tout le reste (`StartTurn`, `EndTurn`, `Damage`,
-`Effect_Refresh`, `Ability_Power`…) est ouvert par des **Operations**.
+`IdunBattle.Messages.InputMessageProcessor$$Visit` — **15 sur 15** ont leur producteur lu. Tout le
+reste (`StartTurn`, `EndTurn`, `Damage`, `Effect_Refresh`, `Ability_Power`…) est ouvert par des
+**Operations**.
 
 Séquence mesurée d'une transition de tour, dans l'ordre :
 
@@ -79,10 +107,11 @@ sur `MC1_67` (63 tuiles), le déploiement passe à **535** lignes sur **2 931**,
 | `System_ProcessRemovals` | 3 | 6 | +1 / +0 / +0 | groupe **VIDE** |
 
 **Le classement demandé** : la mécanique de **tous** les groupes du déroulé est déjà dans
-`engine/` — sur les 131 producteurs natifs, **44** sont cités par leur symbole exact dans
-`engine/`, **13** par leur classe. Les **74** absents sont, pour l'essentiel, les lambdas
-d'`InputMessageProcessor` (l'ancrage) et des opérations hors combat (drafting, score, portes,
-territoire). Il n'y a **aucun** groupe du déroulé dont l'opération native serait à porter de zéro.
+`engine/` — sur les **133** producteurs natifs, **50** sont cités par leur symbole exact,
+**19** par leur classe. Les **64** absents se ventilent en `IdunBattle.Operations` (**45**,
+essentiellement hors combat : drafting, score, portes, territoire, réinforcements),
+`InputMessageProcessor` (**10**, l'ancrage), `RefreshEffectsOperation` (**5** lambdas internes),
+et 4 divers. Il n'y a **aucun** groupe du déroulé dont l'opération native serait à porter de zéro.
 
 ⚠ `Effect_Refresh` est le motif **transversal** : il apparaît imbriqué dans presque tous les
 groupes racines. Le porter tôt paie partout.
@@ -164,10 +193,22 @@ puis `User_EndTurn` (+2/+2/+2), qui l'englobe.
   second n'a été rattaché à aucun mirror. Condition de retournement : nommer ce `Il2CppClass*` (par
   un autre site qui l'initialise et appelle une méthode de la classe), puis vérifier que les sources
   qu'il produit sont bien celles du flux.
-- **#477-r18-r2** — **`GroupType.User_RemoveUnit` n'a aucun producteur lu**, alors que les 14
-  autres racines en ont un. Condition de retournement : trouver la surcharge de
-  `InputMessageProcessor$$Visit` qui l'ouvre, ou établir qu'aucune ne le fait (dead code).
-- **#477-r18-r3** — **les 69 `GroupType` déclaratifs ne sont pas ventilés par ability.** Le canal 3
-  établit la voie (`DSLBehaviors$$AtomicGroup`) et la lit sur un témoin ; il ne l'a pas balayée
-  exhaustivement. Condition de retournement : lire les littéraux chez tous les appelants des
-  5 surcharges `AtomicGroup`/`Group`, et confronter le compte au nombre de membres restants.
+- **#477-r18-r2** — **`GroupType.Ability_CustomGroup` et `Ability_AtomicGroup` ne sont ouverts par
+  aucun producteur nommable** : `IdunBattle.Operations.AtomicGroupOperation$$Execute` les reçoit en
+  **paramètre**, et son unique appelant `Core.Services.OperationProcessor$$CreateAtomicGroup` le
+  reçoit lui aussi — la propagation d'un cran s'arrête là. Condition de retournement : remonter le
+  deuxième cran (les appelants de `CreateAtomicGroup`, atteignables seulement par le
+  `Il2CppClass*` de son interface) et vérifier que les littéraux trouvés sont ceux du flux.
+- **#477-r18-r3** — **18 `GroupType` sans aucun producteur, sur trois canaux.** Onze d'entre eux ne
+  correspondent à aucun kit Tacticus (`HornOfDespair_*`, `Zinger`, `MechRepair`, `EjectEject`,
+  `RocketBarrage`, `VolatileRockets`, `SummonIceElemental_Spawn`, `AirshipStrike_Attack`) : dead
+  code hérité, **probable et non démontré**. Condition de retournement : chercher chacun comme
+  immédiat dans le code machine (pas dans le pseudo-C), et pour les quatre génériques
+  (`Ability_Attack`, `Attack`, `DarkDragon`, `AnvilShieldBlock`) établir s'ils passent par un champ
+  écrit ailleurs qu'à un call-site.
+- **#477-r18-r4** — **9 `TagKey` ÉMIS par le flux mais non atteints par le balayage** : les tags de
+  modification de stat (`UnitStats_{FixedArmor,Movement}_Modification[_Change|_Entity]`),
+  `Attack_Weapon_IsMelee`, `Attack_Weapon_DamageProfile`, `Custom_Data`. Leur producteur n'est ni
+  dans les 133, ni dans les 11 fabriques balayées. Condition de retournement : partir du flux
+  (`Action=` qui les porte), remonter à l'opération, et vérifier que l'étape [8] du probe retombe
+  à zéro.
