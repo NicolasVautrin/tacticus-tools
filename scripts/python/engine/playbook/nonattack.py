@@ -127,6 +127,34 @@ class NonAttackComparablePlaybook(ComparablePlaybook):
         `IsTemporary` reste un résidu nommé de `case-27`."""
         return True
 
+    def should_evaluate_unit(self, ctx, ability_id) -> bool:
+        """`IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate(unit)` — le slot de vtable **4**,
+        appele UNE fois PAR ABILITY, AVANT l'enumeration des tuiles (#27-r8).
+
+        Sa position est LUE dans
+        `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`,
+        pas deduite : la machine a etats itere les abilities de l'unite
+        (`...$$GetUnitAbilitiesInOrder`), et pour chacune enchaine
+        `AActionGenerator$$CanAbilityBeUsed` -> `PlaybookDatabase$$LoadPlaybook` -> **slot 4
+        `(unit)`** -> **slot 5 `(unit, actionTiles)`** -> `GetEnumerator()` sur les tuiles -> et
+        SEULEMENT LA, par position, slot 6 `(unit, position, possiblePositions)` puis
+        `battleQuery.<slot 0x40>` puis slot 7 `Evaluate`. Les slots 4 et 5 court-circuitent donc
+        l'ability ENTIERE, pas une tuile.
+
+        Corps de base : `p = <vtable +0x1f8> GetUseProbability(unit)` ; `p >= Fix64(1) -> true` ;
+        `p <= Fix64(0) -> false` ; sinon TIRAGE (`random.<slot 4>(p)`). Et les DEUX surcharges de
+        `IdunBattle.AI.Playbook.BasePlaybook$$GetUseProbability` rendent `Fix64.op_Implicit(1)`,
+        donc `p >= 1` : **le defaut est `True`, et c'est le corps natif EXACT**, pas une convention
+        permissive de notre cote.
+
+        Le slot **5** `ShouldEvaluate(unit, actionTiles)` a la meme forme (via `<vtable +0x208>
+        GetUseProbability(unit, actionTiles)`) ; AUCUN membre du registre non-attaque ne l'override
+        sur ce build -- son seul overrideur mesure est
+        `IdunBattle.AI.Playbook.Loki.DutyEternalPlaybook$$GetUseProbability`, dont le porteur est une
+        Machine of War (hors face DECISION, cf. `case-27` §VERROUS). Il n'est donc PAS cable ici :
+        un crochet sans porteur serait du code speculatif."""
+        return True
+
     def is_caster_added(self, ctx, caster_tile) -> bool:
         """Mirror de `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason == null` pour le
         regime SELF-CAST : quand `TargetingOptions.isSelfCasting` est vrai, le natif appelle
@@ -232,6 +260,10 @@ def nonattack_candidates(ctx) -> list:
     for aid, pb in NONATTACK_PLAYBOOKS.items():
         ab = me_abis.get(aid)
         if ab is None or ab.get("usable") is False:
+            continue
+        # slot 4 : `ShouldEvaluate(unit)` — gate AMONT, PAR ABILITY, avant toute tuile (#27-r8).
+        # Sa place ici (et non dans la boucle des tuiles) est celle du natif, cf. la docstring.
+        if not pb.should_evaluate_unit(ctx, aid):
             continue
         targets = pb.eligible_targets(ctx, aid)
         if not targets:

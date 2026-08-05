@@ -1741,7 +1741,7 @@ class InstrumentsOfVengeancePlaybook(NonAttackComparablePlaybook):
     `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`,
     et il existe autant d'actions 1215 que de tuiles atteignables -- la ou 1216 n'en avait qu'une.
 
-    GATE NON PORTE, et c'est une MESURE, pas un oubli.
+    GATE PORTE (#27-r8) — et le verrou qu'annoncait la redaction precedente etait PERIME.
     `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate(unit)` est la surcharge **2 arguments**
     (slot de vtable 4, appelee UNE fois AVANT la boucle des tuiles -- a ne pas confondre avec la
     4-args slot 6 qu'overrident 1216 et 1217, cf. `nonattack.should_evaluate`) :
@@ -1758,16 +1758,22 @@ class InstrumentsOfVengeancePlaybook(NonAttackComparablePlaybook):
       `p >= 1 -> true` ; `p <= 0 -> false` ; sinon TIRAGE (`random.<slot 4>(p)`). Et
       `...InstrumentsOfVengeancePlaybook$$GetUseProbability` rend
       `Fix64.Zero` si `GetTurnsFinished(unit) == 0`, `Fix64.Half` si `== 1`, `Fix64.One` sinon
-      (`Fix64.<statics>` : `+0x20` One, `+0x28` Zero, `+0x30` Half). Le volet `== 1` est un TIRAGE, de
-      meme statut que `...PlasmaGrenadePlaybook$$GetUseProbability` (1/3) -- non modelisable offline.
-      Le volet `== 0`, lui, est DETERMINISTE et FAUX : le natif ne propose JAMAIS 1215 au tour ou
-      l'unite n'a encore termine aucun tour. Le port ne peut pas le mirrorer parce que
-      `turnsFinished` (`UnitComponent + 0x5c`) **n'est pas dans `decisionView`** -- seul
-      `combatSnapshot` l'expose (`frida/hooks/features/ai-step/rpc-snapshot.ts`), et il n'est PAS
-      derivable de `turnsStarted` (stat 12). ECART MESURE et NOMME (`case-27` §TRANCHE r5) : au tour
-      du build, le natif propose l'attaque normale et le moteur propose 1215. Debloqueur : exposer
-      `GetTurnsFinished` par unite dans `decisionView` (l'accesseur existe deja cote hook,
-      `ai-step/internals.ts`), puis poser le gate ici.
+      -- les trois statiques RELUS au `FixMath.NET.Fix64$$.cctor` : `+0x20 = 0x100000000` (One),
+      `+0x28 = 0` (Zero), `+0x30 = op_Division(1, 2)` (Half). Le volet `== 1` est un TIRAGE, de
+      meme statut que `...PlasmaGrenadePlaybook$$GetUseProbability` (1/3) -- non modelisable
+      offline, laisse PERMISSIF et declare. Le volet `== 0`, lui, est DETERMINISTE, et c'est celui
+      que ce port mirrore : le natif ne propose JAMAIS 1215 au tour ou l'unite n'a encore termine
+      aucun tour.
+
+      ⚠ **Le blocage annonce jusqu'ici -- << `turnsFinished` n'est pas dans `decisionView`, donc il
+      faut un CAPTEUR, donc une fenetre de reinject >> -- etait FAUX sur DEUX crans** (#27-r8) :
+      (a) le capteur EXISTE deja, livre par #N11 (`getTurnsFinishedMi` +
+      `rpc-snapshot.ts::turnsFinished`), et alimente `UnitComponent.turns_finished` que
+      `runner/turnflow.py::_bump_turns_finished` tient aussi offline ; (b) surtout, la `Scene` de
+      DECISION ne se construit PAS depuis `decisionView` pour ces tables -- `build_predictor` les
+      lit dans **`combatSnapshot`**, exactement le canal qui publie le champ, et c'est deja de la
+      qu'elle tire `turnsStarted`. Il n'y avait donc rien a instrumenter : seulement un fil a
+      brancher (`Scene.turns_finished_by_id`, #27-r8).
 
     Porteur `darkaBossLion` [npc] -> GREFFE sur `darkaAsmodai` (Dark Angels comme lui, present dans
     `rl_duel build --list-pool`), meme voie que 1216. La greffe ne couvre pas les stats/traits/armes du
@@ -1803,6 +1809,37 @@ class InstrumentsOfVengeancePlaybook(NonAttackComparablePlaybook):
                                  self.SURROUNDING_RANGE, include_center_tile=False):
                 out.append(u)
         return out
+
+    def should_evaluate_unit(self, ctx, ability_id) -> bool:
+        """`...InstrumentsOfVengeancePlaybook$$ShouldEvaluate(unit)` (slot 4) — mirror 1:1 :
+
+            return BasePlaybook.ShouldEvaluate(unit) && battleQuery.<slot itf 0x1b>(unit, 2);
+
+        `HasMinimumRemainingTurns(unit, 2)` est rendu `true` par le natif des que la limite de tours
+        du match est absente -- le regime du runner -- donc ce facteur vaut `True` ici (cf. la
+        docstring de classe, volet 1). Reste `BasePlaybook.ShouldEvaluate(unit)`, qui se reduit aux
+        trois valeurs de `...InstrumentsOfVengeancePlaybook$$GetUseProbability` :
+
+            t == 0 -> Fix64.Zero  -> `p <= 0` -> **False**   (DETERMINISTE, ce que ce port ajoute)
+            t == 1 -> Fix64.Half  -> tirage `random.<slot 4>(0.5)`  -> non modelisable offline
+            t >= 2 -> Fix64.One   -> `p >= 1` -> **True**
+
+        Le volet `t == 1` reste PERMISSIF, et c'est DECLARE : le natif y tire a pile ou face, et le
+        moteur n'a pas son PRNG a ce point (meme statut que le 1/3 de
+        `...PlasmaGrenadePlaybook$$GetUseProbability`). Rendre `False` y serait aussi faux que
+        `True`, mais RESTRICTIF -- on garde donc le sens qui ne retire jamais une action que le
+        natif peut jouer.
+
+        `t` non capture (`Scene` absente, uid hors tables) -> `True` : ne PAS gater a l'aveugle.
+        Un `0` de repli signifierait `Fix64.Zero`, donc un REFUS que le natif n'a pas prononce --
+        c'est la meme convention que `noncomparable/_base.py::_turns_started_gate`."""
+        sc = getattr(ctx, "scene", None)
+        if sc is None:
+            return True
+        t = sc.turns_finished(ctx.uid)
+        if t is None:
+            return True                        # canal muet -> permissif, jamais un 0 invente
+        return t != 0
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
         adj_ids = {u.get("id") for u in self._adjacent_enemies(ctx, caster_tile)}

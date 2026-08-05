@@ -1222,6 +1222,16 @@ d'agreement ci-dessous : 0 regression).
 > distincts = 26 nommes + 3 partages**, re-derive en §TRANCHE 4g ; les verdicts par ligne ci-dessous
 > sont tenus a jour, mais les VA et le compte d'en-tete ne le sont pas. Re-deriver plutot que citer :
 > `python probe_27_custom_utility_inventory.py --build rnca9r7q6c`.
+>
+> ⚠ **RE-DERIVE OFFLINE le 2026-08-05 (#27-r8), et l'INVENTAIRE DES CORPS EST CLOS.** Sans runner :
+> `data/symbols/rnca9r7q6c/ghidra/functions.tsv` rend **29 corps** `$$CalculateCustomUtility`
+> (+ 1 lambda `DrachnyenPlaybook.<>c$$<CalculateCustomUtility>b__3_0`),
+> `frida/methods.tsv` en rend **26** — l'ecart de 3 EST la liste des gshared
+> (`ComparablePlaybook<T>`, `ALoki_NormalAttackPlaybook<T>`, `Idun.NormalAttackPlaybook<T>`),
+> structurellement absents du dump Frida. Les deux sources concordent avec le balayage vtable de la
+> §TRANCHE 4g. **Les 29 sont tranches : 0 corps non porte a porteur confrontable.** Ce qui reste
+> ouvert dans cette case-doc n'est donc plus un CORPS mais un ETAGE — les gates `ShouldEvaluate` /
+> `GetUseProbability` (cf. §TRANCHE r8) — et un porteur (le tacticien MoW).
 
 **27 corps DISTINCTS** = 1 base + 4 mutualises (attaque normale / heal) + **22 corps par-ability** ;
 **27 classes** overridantes — une par corps. (La tranche 3 en annoncait 28, `AmuletOfTheVoidwyrmPlaybook`
@@ -1252,7 +1262,7 @@ re-derouler la recon : elle part d'ici.
 | 13 | `SorcerousFacadePlaybook` | SorcerousFacade (1100) | thousTzaangor | hero (pool) | **PORTE** (#27-4e) | — (le verrou « route de ciblage ALLIE » est TOMBE : 1100 passe par `playbook/nonattack.py`, dont l'enumeration vient de `ctx.ability_targets` ; le VETO #217 sur la route ENNEMIE est INTACT et re-mesure dans le meme montage) |
 | ~~13bis~~ | ~~`AmuletOfTheVoidwyrmPlaybook`~~ | AmuletOfTheVoidwyrm (1464, `TriggeredAbilityType`) | — | passif/triggered | **RETIRE — FAUX POSITIF (#218)** | n'override PAS : sa base `TriggeredAbilityPlaybook`1` descend directement de `System.Object`, hors de la branche `ComparablePlaybook`1` qui declare le virtuel. Le « slot +0x548 » etait le slot +0x338 de `PlasmaGrenadePlaybook`, dont la classe suit a +0x210 en memoire (les 39 slots coincident). Ce qui reste OUVERT sur 1464 est son playbook de **MOUVEMENT** (`AmuletOfTheVoidwyrmPlaybook$$CalculateMovementUtilityInStepsInternal` + face NonOwner `AmuletOfTheVoidwyrmNonOwnerPlaybook$$GetAdjacencyUtility`), inventorie rang B de `case-193` — un AUTRE item. Detail : `docs/rl/case-218-amulet-voidwyrm-custom-utility.md` |
 | 14 | `ProperKilly_NormalAttackPlaybook` @1811532a0 | ProperKilly (aucun id) | **aucun** | — | **dead-code** | — (non pertinent) |
-| 15 | `PlagueburstMortarPlaybook` @181134e00 | PlagueburstMortar (1169) | deathCrawler | **MoW (pool MoW)** | **invalidable-residu** — verrou **RE-QUALIFIE (#27-4g)** | Le verrou n'est PAS « MoW » : greffee sur `deathTyphus` (pool), 1169 reste ingenerable parce que son ciblage est **TILE-TARGET** (`TargetIsTile` du masque `0x40000042` ; `abilityTargets` -> 58 cibles `kind = "tile"` ; `attackPlans` `rankCount = 0` sur TOUTES les cibles unite). Mesure `probe_27_4g_plagueburst_route.py` en regime maximalement favorable (`--hp-target 400000`, n=2 donc `custom = 20` contre `pair(69)+1 ~ 2.02`) : le natif propose **69 sur 8/8 tirages, 1169 JAMAIS**. Debloqueur en DEUX pieces, dans cet ordre : (1) une route de decision a cibles TUILE ; (2) le tacticien MoW. **La formule, elle, est ENTIEREMENT RE** (cf. §TRANCHE 4g) et son selecteur est deja porte par la face COMBAT (#90) |
+| 15 | `PlagueburstMortarPlaybook` @181134e00 | PlagueburstMortar (1169) | deathCrawler | **MoW (pool MoW)** | **PORTE** (#302 tranche 1) | — (**cette cellule disait encore « invalidable-residu » APRES la livraison de #302 — corrige #27-r8** : le port vit dans `engine/playbook/plagueburst_mortar.py`, il est enregistre par `engine/playbook/__init__.py`, et `tests/engine/test_plagueburst_mortar_decision_live.py` le confronte (10 tests verts au 2026-08-05). La ventilation ci-dessous le classait deja parmi les PORTES : la fiche se CONTREDISAIT, et le tableau — la cellule qu'un dispatch lit en premier — portait la version perimee. Le verrou historique (« ciblage TILE-TARGET, `abilityTargets` -> 58 cibles `kind = "tile"`, `attackPlans` `rankCount = 0` partout ») a ete leve par la ROUTE A CIBLES TUILE : `docs/rl/case-302-route-cible-tuile.md` §6) |
 | 16 | `DaemonicOrdnancePlaybook` @1811286c0 | DaemonicOrdnance (1148) | blackForgefiend | MoW (pool MoW) | **PORTE** (#302 tranche 3) | — (route de decision a cibles TUILE + `10 x |ennemis sur GetTargetAreaTiles|`, `10` = CONSTANTE `Fix64(0xa)` EN DUR ; l'evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))` etait DEJA porte par la face COMBAT #90. La tranche a en outre corrige `IsPositionMachineForCurrentPlayer`, qui lisait le slot d'une MoW DEPLOYEE au lieu du groupe de spawn du PLATEAU — cf. `docs/rl/case-302-route-cible-tuile.md` §8) |
 | 17 | `StikkbombPlaybook` @18115f7c0 | Stikkbomb (1051) **SEULE** | orksOrkBoys [summon de `Waaagh`/orksWarboss, **en pool**] | summon | **PORTE** (#27-4f) | — (le sous-set = `AdjacentUnits(Target)` filtre par `IsFriend`, et chaque membre produit une prediction sur la CIBLE PRINCIPALE : lu au decompile puis a l'assembleur, confirme live). Porteur summon amene par `Waaagh` mais jamais activable en arene -> GREFFE (`case-92` §5bis). ⚠ **Le « playbook PARTAGE 1051/1142 » est RETIRE (#27-4g)** : `...StikkbombPlaybook$$.ctor` appelle `ComparablePlaybook<T>..ctor(this, 0x41b)` — 1051 seule — et aucune classe `Malleus*Playbook` ne porte le slot au balayage runtime. 1142 n'a AUCUN corps propre |
 | 18 | `PlasmaGrenadePlaybook` @181151040 | PlasmaGrenade (1098) | eldarSmnGuardian [summon **sans invocateur**] + eldarNpc1Guardian [npc] | summon + npc | **PORTE** (#27-4g) | — (les deux verrous sont TOMBES : (a) le mold `GenerateMultiHitAttackPredictions` a ete ouvert par 1051 et le foyer est PARTAGE — `prediction.make_secondary_multihit_event`, memes 4 entrees ; (b) le porteur, refuse par `buildNormalizedBC`, est GREFFE sur `eldarAutarch`). S'y ajoute le VETO : somme nulle -> `BaseUtility.<statics+0x18>` -> aucune action |
@@ -1332,21 +1342,16 @@ unite du pool (le playbook se charge par ABILITY, pas par unite).
 
 ### Les VERROUS qui tiennent les residus
 
-1. **Cible TUILE non modelisee dans la route de DECISION** (1169, 1148) — **RE-QUALIFIE #27-4g, et ce
-   n'etait pas le verrou ecrit ici.** La redaction precedente disait « MoW non modelisees comme unites
-   de DECISION » ; or ce verrou-la se LEVE par la GREFFE (le natif charge le playbook PAR ABILITY).
-   Greffee sur `deathTyphus` (pool), 1169 reste ingenerable **par son DOMAINE DE CIBLE** : masque
-   `0x40000042` -> bit `TargetIsTile`, `abilityTargets` rend 58 cibles `kind = "tile"`, et
-   `attackPlans` donne `rankCount = 0` sur toutes les cibles UNITE. En regime maximalement favorable
-   (`--hp-target 400000`, `custom = 20` contre `pair(69)+1 ~ 2.02`), le natif propose 69 sur 8/8
-   tirages et **jamais 1169** — il ne genere pas l'action, et le port ne le peut pas davantage
-   (`_best_attack` consomme `ranked` ; `nonattack.eligible_targets` filtre `kind == "unit"`).
-   Debloqueur en DEUX pieces, dans cet ordre : **(1)** une route de decision a cibles TUILE ;
-   **(2)** le tacticien MoW (les MoW n'apparaissent ni dans `decisionView.units` ni dans
-   `attackPlans` — mesure runner 336). La piece (1) est le prerequis, pas l'inverse.
-   **La face COMBAT de 1169/1148 est deja portee et validee live par #90**, et la FORMULE custom de
-   1169 est desormais entierement RE (§TRANCHE 4g) : le jour ou le verrou tombe, il n'y a rien a
-   inventer — son selecteur EST `plagueburst_damage_targets` sans son `Filter`.
+1. ~~**Cible TUILE non modelisee dans la route de DECISION** (1169, 1148)~~ — **VERROU LEVE (#302),
+   et cette entree etait PERIMEE depuis (corrige #27-r8).** La route de decision a cibles TUILE
+   existe (`engine/playbook/tile_targets.py` + `nonattack.eligible_targets`, qui choisit un DOMAINE
+   au lieu de filtrer `kind == "unit"`), et les DEUX membres sont portes et confrontes :
+   `engine/playbook/plagueburst_mortar.py` (1169) et `engine/playbook/daemonic_ordnance.py` (1148).
+   Detail : `docs/rl/case-302-route-cible-tuile.md` §6 et §8.
+   ⚠ Ce qui reste ouvert n'est PAS le domaine de cible mais **le tacticien MoW** — les MoW
+   n'apparaissent ni dans `decisionView.units` ni dans `attackPlans` (mesure runner 336) — et il ne
+   bloque que le porteur REEL (`deathCrawler`) ; la GREFFE sur une unite du pool suffit a confronter
+   le playbook, puisque le natif le charge PAR ABILITY.
 2. ~~**Routes d'ability non-attaque**~~ — **VERROU LEVE (tranche 4b)**. La route existe
    (`engine/playbook/nonattack.py`) et est validee live sur son premier membre, Chronometron (1226).
    `state_bridge._is_attack_ability` n'est plus la SEULE porte : une ability Comparable sans
@@ -3377,17 +3382,10 @@ Garde : `tests/engine/test_instruments_of_vengeance_decision_live.py` (14 tests 
 
 ### Ce qui n'est PAS couvert, et pourquoi
 
-- **Le gate `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate` (surcharge 2-args, slot 4) n'est PAS
-  porte** — residu **#27-r6-r1**, et l'ecart est MESURE (bras E), pas suppose. Deux volets :
-  * `BasePlaybook$$ShouldEvaluate(unit)` = `p = GetUseProbability(unit)` ; `p >= 1 -> true` ;
-    `p <= 0 -> false` ; sinon TIRAGE. `GetUseProbability` rend `Zero` a `GetTurnsFinished == 0`,
-    `Half` a `== 1`, `One` sinon. Le volet `== 1` est un tirage (statut de 1098) ; le volet `== 0`
-    est DETERMINISTE, et le port l'ignore parce que `turnsFinished` (`UnitComponent + 0x5c`) est
-    **absent de `decisionView`** — seul `combatSnapshot` l'expose, et il n'est pas derivable de
-    `turnsStarted` (stat 12, cf. `runner/snapshot.py` §N11). Consequence : au tour du build, le
-    moteur propose 1215 la ou le natif propose un simple deplacement. **Debloqueur = un CAPTEUR**
-    (exposer `GetTurnsFinished` par unite dans `decisionView` ; l'accesseur existe deja dans
-    `frida/hooks/features/ai-step/internals.ts`), donc une fenetre de reinject.
+- ~~**Le gate `...InstrumentsOfVengeancePlaybook$$ShouldEvaluate` (surcharge 2-args, slot 4) n'est
+  PAS porte**~~ — **PORTE (#27-r8)**, et le debloqueur annonce ici (« un CAPTEUR, donc une fenetre
+  de reinject ») etait **FAUX**. Cf. §TRANCHE r8. Reste PERMISSIF, et c'est declare : le volet
+  `GetTurnsFinished == 1` -> `Fix64.Half` est un TIRAGE (meme statut que le 1/3 de 1098).
   * `BattleQuery$$HasMinimumRemainingTurns(unit, 2)` **n'utilise pas son parametre `unit`** : il lit
     la limite de tours du match (`<config>+0x18`, cle 1) moins
     `TurnComponent$$GetAmountOfTurnsEndedByPlayer`, et **rend `true` quand la limite est absente** —
@@ -3572,3 +3570,187 @@ Gardes : `probe_27_r4_lions_wrath.py` (2 bras x 3 contre-epreuves, `VERDICT: PAS
   MESURE (le natif emet bien l'ability, avec `u = custom = 4300`) est compatible aussi bien avec
   `true` qu'avec `utility > 0` — le montage ne les separe pas. Sans consequence ici : `custom >= 30`
   des qu'une cible existe.
+
+## TRANCHE r8 (2026-08-05, #27-r8) -- l'inventaire des CORPS est CLOS ; le gate slot-4 de 1215 est PORTE
+
+### 1. Ce que la tranche devait faire, et ce que la mesure a rendu
+
+La tranche etait dispatchee comme << les overrides `CalculateCustomUtility` restants >>, avec pour
+consigne de re-deriver l'inventaire (<< 28 classes / 27 corps >> etant un chiffre a re-mesurer).
+**Re-derive, il n'en reste AUCUN.**
+
+Mesure OFFLINE, sans runner ni ghidra-mcp (`data/symbols/rnca9r7q6c/`) :
+
+| source | corps `$$CalculateCustomUtility` | note |
+|---|---|---|
+| `ghidra/functions.tsv` | **29** (+1 lambda `DrachnyenPlaybook.<>c$$<CalculateCustomUtility>b__3_0`) | inclut les gshared |
+| `frida/methods.tsv` | **26** (+1 lambda) | les gshared y sont structurellement absents |
+| ecart | **3** | `ComparablePlaybook<T>`, `ALoki_NormalAttackPlaybook<T>`, `Idun.NormalAttackPlaybook<T>` |
+
+Les deux sources concordent entre elles et avec le balayage de vtable de la §TRANCHE 4g (29 corps
+distincts = 26 nommes + 3 partages). **Les 29 sont tranches**, et la partition est EXHAUSTIVE
+(23 + 5 + 1 = 29) :
+
+- **23 PORTES** : 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212, 1100, 1051,
+  1098, 1009, 1169, 1148, 1222, 1004, 1093, 1215, 1216, 1217 ;
+- **5 COUVERTS sans port dedie** : les 3 gshared (`ComparablePlaybook<T>` = `Fix64(0)`,
+  `ALoki_NormalAttackPlaybook<T>` et `Idun.NormalAttackPlaybook<T>` = `Fix64(1)`) plus
+  `TwistedScience_HealPlaybook` (`HealPlaybook.score`) et `Loki_NormalBossAttackPlaybook` ;
+- **1 DEAD-CODE** : `ProperKilly_NormalAttackPlaybook` (aucun porteur).
+
+⚠ `DevoutPush` (1053) et `MalleusRocketLauncher` (1142) ne figurent PAS dans ces 29 : ils n'ont
+**aucun corps propre** sur ce build (cf. §TRANCHE 4g) -- les compter serait un doublon.
+
+Le compte d'items PORTABLES restants est donc **zero**.
+
+### 2. Deux affirmations de la fiche etaient FAUSSES, et la plus couteuse est une CONTRADICTION INTERNE
+
+- **1169 `PlagueburstMortar` etait porte depuis #302, et le TABLEAU disait encore
+  << invalidable-residu >>** (VERROU 1 idem). La *Ventilation*, six lignes plus bas, le classait
+  pourtant parmi les PORTES. Le port existe (`engine/playbook/plagueburst_mortar.py`, enregistre
+  par `engine/playbook/__init__.py`) et il est confronte
+  (`tests/engine/test_plagueburst_mortar_decision_live.py`, **10 verts** re-joues le 2026-08-05).
+  La cellule perimee etait celle qu'un dispatch lit EN PREMIER. Les deux entrees sont corrigees.
+- **Le debloqueur annonce pour `#27-r6-r1` -- << `turnsFinished` absent de `decisionView`, donc un
+  CAPTEUR a ecrire, donc une fenetre de reinject >> -- etait faux sur DEUX crans** (cf. §3).
+
+Le backlog portait en outre deux entrees OUVERTES pour des tranches deja LIVREES (`#27-r2`
+`ResurrectionOrb`, livree par #289 ; `#27-r4`, dont la version barree << LIVRE >> coexistait avec
+une version ouverte). Corrigees.
+
+### 3. Le verrou de `#27-r6-r1`, et pourquoi il n'existait pas
+
+Le gate, relu VERBATIM :
+
+```
+IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$ShouldEvaluate(unit)   // slot 4
+    return BasePlaybook.ShouldEvaluate(unit) && battleQuery.<slot itf 0x1b>(unit, 2);
+
+IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$GetUseProbability(unit)
+    t = UnitExtensions.GetTurnsFinished(unit);
+    if (t != 0) { if (t != 1) return Fix64.<statics+0x20>;   // One
+                  return Fix64.<statics+0x30>; }             // Half
+    return Fix64.<statics+0x28>;                             // Zero
+
+IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate(unit)
+    p = <vtable +0x1f8> GetUseProbability(unit);
+    if (p >= Fix64(1)) return true;
+    if (p <= Fix64(0)) return false;
+    return random.<slot 4>(p);                               // TIRAGE
+```
+
+Les trois statiques sont LUS au `FixMath.NET.Fix64$$.cctor`, pas deduits du nom :
+`+0x20 = 0x100000000` (One), `+0x28 = 0` (Zero), `+0x30 = op_Division(1, 2)` (Half).
+
+**Le blocage tombe sur deux crans :**
+
+1. **Le capteur EXISTE deja**, livre par #N11 : `getTurnsFinishedMi`
+   (`frida/hooks/features/ai-step/internals.ts`) et le champ `turnsFinished` de
+   `frida/hooks/features/ai-step/rpc-snapshot.ts`. Il alimente `UnitComponent.turns_finished`, que
+   `engine/runner/turnflow.py::_bump_turns_finished` tient AUSSI offline (mirror
+   d'`IdunBattle.Operations.EndTurnOperation$$Execute`). Rien n'etait a instrumenter, donc aucune
+   fenetre de reinject n'etait requise.
+2. **Surtout, la premisse portait sur le mauvais canal.** La `Scene` de DECISION ne se construit pas
+   depuis `decisionView` pour ces tables : `scene.build_predictor` les lit dans **`combatSnapshot`**
+   -- c'est deja de la que vient `turnsStarted` (#46), a trois lignes du champ manquant. Et
+   `combatSnapshot` renvoie `turnsFinished` par defaut (`wants(part)` ne filtre que si `debugOnly`
+   est passe, ce qu'aucun appelant ne fait). Il n'y avait qu'un FIL a brancher.
+
+⚠ La lecon est celle d'un canal nomme par le MAUVAIS bout : << absent de `decisionView` >> etait
+vrai, et sans consequence -- le consommateur ne lisait pas `decisionView`. Un verrou doit nommer le
+canal que le CONSOMMATEUR lit, pas celui auquel on pense en premier.
+
+### 4. Ce qui est porte
+
+- **`Scene.turns_finished_by_id` + `Scene.turns_finished(uid)`** (`engine/playbook/scene.py`),
+  alimente par les TROIS voies, exactement comme `turns_started_by_id` : `from_state` (ECS, via
+  `UnitComponent.turns_finished`), `build_predictor` (cold) et `refresh_shields` (par-pas -- le
+  compteur est DYNAMIQUE, un cold fige au pas 0 refuserait 1215 pour toute la bataille).
+  Accesseur **tri-etat** : `None` = non capte -> l'appelant ne gate pas a l'aveugle. Un `0` de repli
+  signifierait `Fix64.Zero`, donc un REFUS que le natif n'a pas prononce.
+- **Le gate AMONT slot-4 de la route non-attaque** (`engine/playbook/nonattack.py` :
+  `should_evaluate_unit`, appele PAR ABILITY avant l'enumeration des tuiles). Sa POSITION est LUE
+  dans `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` :
+  la machine a etats enchaine, par ability, `AActionGenerator$$CanAbilityBeUsed` ->
+  `PlaybookDatabase$$LoadPlaybook` -> **slot 4 `(unit)`** -> **slot 5 `(unit, actionTiles)`** ->
+  `GetEnumerator()` sur les tuiles -> et seulement la, par position, slot 6 puis
+  `battleQuery.<slot 0x40>` puis slot 7 `Evaluate`. Les slots 4 et 5 court-circuitent donc
+  l'ability ENTIERE, pas une tuile. **Defaut `True` = le corps natif EXACT** (les deux surcharges de
+  `IdunBattle.AI.Playbook.BasePlaybook$$GetUseProbability` rendent `Fix64.op_Implicit(1)`), pas une
+  convention permissive de notre cote.
+- **L'override de 1215** (`engine/playbook/loki_custom.py::InstrumentsOfVengeancePlaybook`) :
+  `t == 0 -> False` (deterministe) ; `t == 1 -> Half -> TIRAGE, laisse PERMISSIF` ;
+  `t >= 2 -> True`. `HasMinimumRemainingTurns(unit, 2)` vaut `True` dans le regime du runner (le
+  natif rend `true` des que la limite de tours est absente) -- deja etabli en §TRANCHE r6.
+
+**FACE DECISION UNIQUEMENT.** Un gate n'a pas de face EXECUTION ; celle de 1215
+(`...InstrumentsOfVengeanceAbility$$ExecuteBehaviour`) reste non portee, comme en §TRANCHE r6.
+
+### 5. Validation -- l'accord est ATTRIBUE, pas constate
+
+Montage inchange (`probe_27_r6_instruments_of_vengeance.py`, board **MC1_67**, seed **909**, rank
+17, greffe `[1215]` sur `darkaAsmodai`). Le bras E CHANGE DE NATURE : il mesurait un ECART NOMME, il
+mesure desormais un ACCORD -- et parce qu'un accord seul ne prouverait rien, il vaut TROIS
+assertions :
+
+| cran | mesure (2026-08-05) | pourquoi il existe |
+|---|---|---|
+| substrat | `Scene.turns_finished(caster) = 0`, `gate = False` | un canal MUET rendrait le gate permissif : l'accord serait celui d'un regime DEGENERE |
+| accord | natif `['MoveUnitMessage']` ; moteur `on = (None, None)`, `to = (3,2)` | ni l'un ni l'autre ne propose 1215 |
+| contre-epreuve | gate NEUTRALISE -> moteur `(1215, 83, None)` | attribue l'accord AU GATE, et pas a autre chose |
+
+⚠ **Ces trois valeurs ont ete mesurees DEUX FOIS, sur DEUX sessions Frida distinctes**, et la
+seconde n'est pas une precaution de forme : le jeu a ete relance en cours de tranche et une premiere
+serie de runners est passee dans la fenetre ou le drain etait retombe **avant** que le warmup ne
+soit joue. Un runner monte sur session NON WARMEE rend `started: true` et ne prouve rien. La serie
+retenue ici est integralement celle d'apres warmup ; elle reproduit la premiere **a l'identique**
+(memes tuiles, memes triplets), et le seul artefact de la fenetre a ete un `rc = 2` transitoire de
+`probe_477r15a_stream_conformance.py`, revenu a `rc = 0` sans qu'aucune ligne de code ne bouge.
+
+Les cinq autres bras (A/B/C/F/D, mesures a `turnsFinished == 2`) restent **inchanges et verts** : le
+gate ne mord pas dans la fenetre deterministe, donc le port de la formule n'est pas touche.
+
+**Contre-epreuve du TEST lui-meme** (ecrite sur disque, pas simulee) : `return t != 0` remplace par
+`return True` dans `loki_custom.py` rend `test_slot4_gate_truth_table_offline` **ROUGE**
+(`assert True is False`) ; restauration verifiee par `git checkout` + re-jeu **VERT**.
+
+**Non-regression re-jouee APRES rebase sur `origin/master` ET apres warmup** (tous verts,
+2026-08-05, **70 tests**) : `test_instruments_of_vengeance_decision_live` **16** (14 + 2 gardes
+offline neuves), et les six autres membres de la route non-attaque --
+`test_chronometron_decision_live` 7, `test_martial_exemplar_decision_live` 9,
+`test_lions_wrath_decision_live` 11, `test_plagueburst_mortar_decision_live` 10,
+`test_forward_observers_decision_live` 6, `test_sorcerous_facade_decision_live` 8 -- plus
+`test_playbook_live` 3. `probe_477r15a_stream_conformance.py` **rc 0** (204/204 et 316/316) et
+`probe_468_collision_numeros.py` **PASS**.
+
+Le re-jeu post-rebase n'etait pas une formalite : la PR fusionnee entre-temps touchait
+`scripts/python/catalog_inject.py` et `scripts/python/rl_duel.py`, c'est-a-dire exactement les deux
+outils dont depend la GREFFE qui rend 1215 confrontable.
+
+### 6. Ce qui n'est PAS couvert, et pourquoi
+
+- **Le volet `GetTurnsFinished == 1` -> `Fix64.Half`** reste PERMISSIF : le natif y TIRE a pile ou
+  face (`random.<slot 4>(p)`) et le moteur n'a pas son PRNG a ce point. Meme statut que le `1/3` de
+  `...PlasmaGrenadePlaybook$$GetUseProbability`. Rendre `False` y serait aussi faux que `True`, mais
+  RESTRICTIF -- on garde le sens qui ne retire jamais une action que le natif peut jouer.
+  **Residu `#27-r9`** : porter le PRNG de decision (`random.<slot 4>`) rendrait ce volet mesurable,
+  et fermerait du meme coup les deux gates a tirage du dossier (1215 et 1098).
+- **Le slot 5** `ShouldEvaluate(unit, actionTiles)` n'est PAS cable : AUCUN membre du registre
+  non-attaque ne l'override sur ce build. Son seul overrideur mesure est
+  `...DutyEternalPlaybook$$GetUseProbability` (= `Fix64.FromIntFraction((GetTurnsFinished(unit) -
+  GetNumberConstant(config, 0x68) + 1) * 33, 100)`), dont le porteur `ultraDreadnought` est une
+  Machine of War -- hors face DECISION tant que le tacticien MoW n'existe pas. Un crochet sans
+  porteur serait du code speculatif.
+- **La route ATTAQUE (`_best_attack`) n'a pas ce gate amont.** Le cran natif y est le MEME (c'est le
+  meme generateur), mais aucun de ses membres n'override le slot 4 par un corps modelisable : le
+  seul qui l'override est 1098 `PlasmaGrenade`, dont `GetUseProbability` rend `1/3` -- un TIRAGE,
+  donc le meme mur que ci-dessus. Poser un gate `True` inconditionnel de ce cote n'ajouterait aucune
+  fidelite. Nomme, pas masque.
+- **`HasMinimumRemainingTurns`** : aucun canal offline n'expose la limite de tours du match ; le
+  defaut permissif est EXACT dans le regime du runner (residu deja nomme en §TRANCHE r6).
+- **Le volet `IsTemporary` du slot 6** (`BasePlaybook$$ShouldEvaluate(unit, position,
+  possiblePositions)` refuse une position posee sur une tuile temporaire, sauf si le predicat de
+  vtable `+0x1d8` l'autorise) reste non porte. `ctx.is_temporary_by_pos` existe en LIVE
+  (`tileMeta.isTemporary`) mais vaut `{}` en offline pur, et le predicat `+0x1d8` n'est nomme dans
+  AUCUNE des deux tables -- le resoudre exige un balayage de vtable au runtime. Residu deja nomme
+  dans `engine/playbook/nonattack.py`.
