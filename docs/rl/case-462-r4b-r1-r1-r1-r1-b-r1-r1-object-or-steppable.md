@@ -115,6 +115,16 @@ Ce que la mesure ne dit **pas**, et qui décide de la gravité : ces 28 `LootObj
 `#462-r4b-r1-r1-r1-r1-b-r1-r1-r1` — **le site n'est pas modifié ici** : c'est un changement de
 comportement sur une autre ability, qui doit être validé avec ses propres tests.
 
+> **RÉPONDU (2026-08-05) : OUI, et la divergence est CONFRONTÉE.**
+> `case-462-r4b-r1-r1-r1-r1-b-r1-r1-r1-mot-object-or-steppable.md`. Un `LootObj_*` s'amène en
+> bataille par un montage écrit (augmentation du seed + `Health` forcée + pose via
+> `initAndStart.playerUnits`/`PLAYER_ID_AI`, qui contourne le refus de pool) : il arrive **team
+> adverse et vivant**, `abilityTargets` le rend **cible légale** de l'attaque normale d'Abraxas, et
+> le conjoint de profil ne lit que l'attaque. Deux bras appariés : **0 Screamer** sur le crate,
+> **1** sur une vraie unité. Le port infidèle rendait `matches = True` sur ce même état live.
+> ⚠ **Le zéro du recensement ci-dessus mesure ce que le seed CONTIENT, pas ce qu'un montage peut
+> produire** — s'y arrêter aurait classé un bug réel en « fix cosmétique ».
+
 ## 6. Les deux faces de la même panne, dans un seul fichier
 
 `operations/behaviour.py` portait **simultanément** :
@@ -172,11 +182,18 @@ Ici elle avait raison sur un point et tort sur l'autre, **dans le même fichier*
   foyer (le nœud existe toujours au module, il n'est simplement plus consulté). C'est l'assertion
   `calls > 0` qui l'attrape. Les deux gardes sont complémentaires, pas redondantes.
 
-* **Le FOYER est gardé ailleurs, et il ne fallait pas le dupliquer** —
+* **Le conjoint est aussi gardé LIVE ailleurs** —
   `tests/engine/runner/test_barbed_ovipositor_live.py` (sur `master`, non modifié ici) confronte
   **live** `NOT IsObjectOrSteppable(target@0x178)` avec un `genesSmnDecoy` Steppable en bras négatif.
-  Depuis que `barbed_ovipositor` passe par le foyer, ce test live garde **le foyer** ; le fichier
-  offline ci-dessus garde **le conjoint sur `BattleFatigueAbility`**, que rien ne couvrait.
+  Le fichier offline ci-dessus garde **le conjoint sur `BattleFatigueAbility`**, que rien ne couvrait.
+
+  ⚠ **RECTIFIÉ (2026-08-05)** : cette puce affirmait que `barbed_ovipositor` « passe par le foyer »,
+  donc que ce test live gardait le foyer. **C'est faux** — le module a conservé sa recopie manuelle
+  `_OBJECT_OR_STEPPABLE = (UnitTrait.Steppable.name, UnitTrait.Object.name)`, fidèle sur les
+  littéraux mais recopie quand même. Ce test live garde donc **la recopie**, pas le foyer. Résidu
+  `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3` — et la migration n'y est **pas** cosmétique : le trigger est
+  `On(UnitDeath)`, donc la cible est un CADAVRE, et c'est exactement le cas où le substrat de traits
+  du contexte DSL (`entity_trait_names`, repli gameconfig, #226) diffère de `ctx.traits` brut.
 
   | bras | verdict | contre-épreuve (conjoint 5 neutralisé) |
   |---|---|---|
@@ -216,12 +233,16 @@ Ici elle avait raison sur un point et tort sur l'autre, **dans le même fichier*
 
 ## Résidus
 
-* **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r1`** — `master_of_the_tutelaries.py` porte `{Steppable, Decoy}`
-  au lieu de `Steppable | Object` (§5). Volet `Decoy` inerte (0 porteur sans `Steppable`), trou réel
-  sur **28** porteurs `Object`. Reste à mesurer avant de corriger : ces `LootObj_*` sont-ils
-  `AreEnemies` d'une unité en bataille et attaquables en `Psychic` ? Le foyer
-  `entities/triggers.py::is_object_or_steppable` est écrit — mais MoT évalue impérativement, sans
-  `DslContext` sous la main, donc la migration n'est pas un simple remplacement d'appel.
+* ~~**`#462-r4b-r1-r1-r1-r1-b-r1-r1-r1`**~~ — **LIVRÉ (2026-08-05)**,
+  `case-462-r4b-r1-r1-r1-r1-b-r1-r1-r1-mot-object-or-steppable.md`. MoT passe par le foyer ; la
+  question ouverte est **répondue OUI** et l'écart **confronté live** (0 vs 1 Screamer sur deux bras
+  appariés). Résidu neuf : `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3`.
+* **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r3`** — `barbed_ovipositor.py` est la **dernière recopie manuelle**
+  du foyer. Fidèle sur les littéraux, donc sans écart de verdict *aujourd'hui* — mais son trigger est
+  `On(UnitDeath)`, donc sa cible est un CADAVRE, et c'est précisément le cas où le substrat de traits
+  diffère (`entity_trait_names` retombe sur le gameconfig quand le `StatsComponent` manque, #226 ;
+  `ctx.traits` brut rend un set VIDE). La migration change donc potentiellement un verdict sur un
+  chemin live-confrontable (`test_barbed_ovipositor_live.py`) et exige ses propres bras.
 * **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r2`** — les **5 call-sites natifs non portés** d'`IsObjectOrSteppable`
   (§3). Chacun est un gate manquant du même genre, sur une ability différente ; `--step re` les
   réimprime avec leur état, donc l'inventaire se re-dérive au lieu de se citer.
