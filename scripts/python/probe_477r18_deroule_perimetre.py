@@ -137,8 +137,9 @@ class Ghidra:
         f.write_text(json.dumps(xs), encoding="utf-8")
         return xs
 
-    def decompile(self, nom: str) -> str | None:
-        f = CACHE / ("fn_%s.c" % re.sub(r"[^A-Za-z0-9_]", "_", nom))
+    def decompile(self, nom: str, timeout_sec: int = 60) -> str | None:
+        f = CACHE / ("fn_%s%s.c" % (re.sub(r"[^A-Za-z0-9_]", "_", nom),
+                                    "" if timeout_sec == 60 else "__t%d" % timeout_sec))
         if f.exists():
             t = f.read_text(encoding="utf-8", errors="replace")
             return None if t == "\0ABSENT" else t
@@ -147,7 +148,7 @@ class Ghidra:
         try:
             res = self._client().call("decompile_function",
                                       {"binary_name": BINARY, "name_or_address": nom,
-                                       "timeout_sec": 60})
+                                       "timeout_sec": timeout_sec})
         except (GhidraDown, RuntimeError):
             return None
         if isinstance(res, dict) and isinstance(res.get("result"), list):
@@ -431,7 +432,10 @@ def main() -> int:
     variables = []
     illisibles = []
     for nom in producteurs:
-        code = gh.decompile(nom)
+        # Un corps ENORME depasse le budget par defaut : la deuxieme tentative est LARGE. Sans
+        # elle, `InputMessageProcessor$$Visit` -- 12 sites, le plus gros producteur du binaire --
+        # sortirait en « non decompilable », ce qui se lit comme une absence.
+        code = gh.decompile(nom) or gh.decompile(nom, timeout_sec=300)
         if code is None:
             illisibles.append(nom)
             continue
@@ -500,7 +504,11 @@ def main() -> int:
                 porteurs_sans_litteral.append((lib, m["nom"], "SANS SYMBOLE GHIDRA"))
                 continue
             cible = nom_ghidra_en_c(sym)
-            appelants = [x.get("function_name") for x in gh.xrefs(sym)
+            # Par ADRESSE, jamais par nom : `DSLBehaviors$$AtomicGroup` a TROIS surcharges
+            # homonymes, et `list_xrefs` sur un nom ambigu rend une erreur -- soit, en sortie,
+            # « 0 appelant » : un zero qui ne mesure rien. L'adresse, elle, est unique.
+            va = "%x" % (int(m["rva"], 16) + 0x180000000)
+            appelants = [x.get("function_name") for x in gh.xrefs(va)
                          if x.get("function_name") and x.get("type") != "DATA"]
             if not appelants:
                 porteurs_sans_litteral.append((lib, sym, "0 appelant nomme"))
