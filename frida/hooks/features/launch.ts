@@ -26,7 +26,7 @@ import {
 } from "../il2cpp/serializer.js";
 import { resolveMt, restoreMt, MtSnapshot } from "../il2cpp/mt.js";
 import {
-    buildRunner, runnerApplyMi, runnerStartMatchMi, runnerOff,
+    buildRunner, runnerApplyMi, runnerStartMatchMi, runnerOff, RunnerHandle,
 } from "../game/runner.js";
 import { readBattleStatus } from "../game/match-state.js";
 import { state } from "../game/state.js";
@@ -148,9 +148,7 @@ function newReplayStats(): ReplayStats {
  * watch for the LOAD path; private slot for the PREVIEW path) before
  * calling `replayOnRunner` so the recorder either captures or ignores
  * subsequent applies as appropriate. */
-export function buildEmptyRunner(configJson: string): {
-    runner: NativePointer; innerAiControl: NativePointer; seed: number;
-} {
+export function buildEmptyRunner(configJson: string): RunnerHandle {
     if (!isDeserializerReady()) {
         throw new Error("Newtonsoft DeserializeObject not resolved");
     }
@@ -309,7 +307,8 @@ export function register(ctx: Ctx): void {
     // d'agent…), enregistrée telle quelle dans le registre. Facultative — les
     // appelants existants restent valides et rendent `owner: null`.
     ctx.rpc.initRunner = (
-        args: { configJson: string; seed?: number; owner?: string },
+        args: { configJson: string; seed?: number; owner?: string;
+                recordReplay?: boolean },
     ) => {
         if (!isDeserializerReady()) {
             throw new Error("Newtonsoft DeserializeObject not resolved");
@@ -347,8 +346,10 @@ export function register(ctx: Ctx): void {
             try {
                 // Forward optional `seed` so the engine RNG is reproducible
                 // across runs with identical roster + same seed.
-                const r = buildRunner(configPtr,
-                    typeof args.seed === "number" ? { seed: args.seed } : undefined);
+                const r = buildRunner(configPtr, {
+                    ...(typeof args.seed === "number" ? { seed: args.seed } : {}),
+                    recordReplay: args.recordReplay === true,
+                });
                 // RL/isolated runner → never auto-evicted by recorder (TF06).
                 const entry = registerRunner(r,
                     { autoDispose: false, owner: args.owner });
@@ -486,6 +487,13 @@ export function register(ctx: Ctx): void {
         /** Étiquette du propriétaire, enregistrée dans le registre (facultative
          *  — cf. runner-registry.ts). */
         owner?: string;
+        /** ARME l'enregistreur de replay natif sur ce runner (#477-r1). Défaut
+         *  `false` : sans lui, `IdunBattle.Runner.IdunRunner$$Initialize` SAUTE
+         *  `IdunBattle.Runner.IdunRunner$$SetupReplayRecorder`, et le flux rendu
+         *  par `ctx.rpc.replayOutputStream` reste vide — SANS ERREUR. Coût
+         *  quand il est armé : rétention du texte de stream + un objet par
+         *  tirage PRNG, pour toute la durée de la bataille. */
+        recordReplay?: boolean;
     }) => {
         if (!isDeserializerReady()) {
             throw new Error("Newtonsoft DeserializeObject not resolved");
@@ -531,10 +539,12 @@ export function register(ctx: Ctx): void {
             try {
                 log("[initAndStart] step=buildRunner seed="
                     + (typeof args.seed === "number" ? args.seed : "none"));
-                const r = buildRunner(configPtr,
-                    typeof args.seed === "number" ? { seed: args.seed }
-                                                  : undefined);
-                log("[initAndStart] buildRunner ok runner=" + r.runner);
+                const r = buildRunner(configPtr, {
+                    ...(typeof args.seed === "number" ? { seed: args.seed } : {}),
+                    recordReplay: args.recordReplay === true,
+                });
+                log("[initAndStart] buildRunner ok runner=" + r.runner
+                    + " recordReplay=" + r.recordReplay);
                 // RL/isolated runner → never auto-evicted by recorder (TF06).
                 entry = registerRunner(r,
                     { autoDispose: false, owner: args.owner });

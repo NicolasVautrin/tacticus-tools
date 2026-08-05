@@ -103,7 +103,7 @@ export function getRunner(runnerId: number): Entry {
 
 export function listRunners(): Array<{
     runnerId: number; started: boolean; seed: number;
-    owner: string | null; createdAt: number;
+    owner: string | null; createdAt: number; recordReplay: boolean;
 }> {
     return [...byId.values()].map((e) => ({
         runnerId: e.runnerId,
@@ -111,6 +111,9 @@ export function listRunners(): Array<{
         seed: e.seed,
         owner: e.owner,
         createdAt: e.createdAt,
+        // #477-r1 : sans lui, un `replayOutputStream` vide ne se distingue pas
+        // d'une bataille qui n'aurait rien produit.
+        recordReplay: e.recordReplay === true,
     }));
 }
 
