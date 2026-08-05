@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -82,6 +83,11 @@ def test_etage2_le_corpus_discrimine() -> None:
         "le corpus doc ne voit pas `dumpComps`, pourtant nomme dans `rpc-api.md`")
 
     # Et il doit savoir dire NON : un nom qui n'existe pas ne doit etre trouve nulle part.
-    invente = "qqNomQuiNExistePas9f3a"
+    # ⚠ Le temoin est TIRE AU HASARD, jamais ecrit en litteral : ce fichier est un `.py`
+    # VERSIONNE, donc il appartient lui-meme au corpus qu'il interroge. Mesure du 2026-08-05 --
+    # un temoin ecrit en dur passait au vert tant que le test n'etait pas commite, puis
+    # ECHOUAIT des qu'il entrait dans `git ls-files`, en s'accusant lui-meme. Un controle qui
+    # contamine son propre corpus finit par rougir sur son artefact, pas sur son sujet.
+    invente = "rpcTemoinAbsent" + uuid.uuid4().hex
     assert invente not in doc_idx and invente not in exec_idx, (
         "le corpus rend un nom INVENTE : le capteur ne discrimine pas")

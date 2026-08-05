@@ -110,7 +110,19 @@ donc le motif ne matchait jamais. Rattrapé parce que le résultat contredisait 
 parce que le probe s'en est aperçu : il porte depuis un **témoin auto-vérifiant dérivé** — un RPC
 appelé par le **host** est nécessairement exposé, s'il apparaît ici c'est le capteur qui ment (rc 2).
 
-## 6. Ce qui n'est PAS couvert
+## 6. Le rebase a trouvé un défaut que la 1ʳᵉ passe ne pouvait pas voir
+
+Re-joué après rebase (**37** commits) : l'étage 2 du cliquet est passé au **ROUGE**. Cause réelle,
+pas artefact — le test est un `.py` **versionné**, donc il appartient au corpus qu'il interroge :
+son témoin « nom qui n'existe pas », écrit en littéral, était vert tant que le fichier n'était pas
+suivi, puis s'est **auto-accusé** dès son entrée dans `git ls-files`. Le témoin est désormais
+**tiré au hasard** (`uuid4`), donc incontaminable. Un contrôle qui contamine son propre corpus finit
+par rougir sur son artefact, pas sur son sujet.
+
+Autre effet du rebase, sans action : **SANS C1 154 → 153** — un RPC a gagné un appelant dans les
+commits arrivés entre-temps. Le corpus bouge ; ces chiffres se **re-dérivent**, ils ne se citent pas.
+
+## 7. Ce qui n'est PAS couvert
 
 - **Aucune confrontation live.** Le retrait de 2 RPC touche `frida/hooks/*` : il n'est **actif
   qu'après un reinject** — fenêtre à planifier, non prise ici.
