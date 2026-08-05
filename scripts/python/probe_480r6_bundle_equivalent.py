@@ -183,19 +183,37 @@ def main() -> int:
     print()
 
     # --- N2 : jeu de modules (noms de base) ---
+    #
+    # Le VERDICT porte sur l'ENSEMBLE, jamais sur le nombre d'OCCURRENCES. C'est ce que la
+    # docstring promet -- « si un module disparait du bundle, il manque ici » -- et c'est
+    # tout ce que le comptage textuel peut soutenir.
+    #
+    # ⚠ Mesure du 2026-08-05 (#480-r9) : la MULTIPLICITE varie sans qu'aucun module ne
+    # bouge. esbuild emet DEUX frontieres pour un module enveloppe dans `__esm` (la
+    # declaration `var x_exports` puis le corps `init_x()`) et une seule pour un module
+    # inline ; ajouter un `import` a un module deja embarque REORDONNE le graphe et
+    # deplace des modules d'une categorie a l'autre. Mesure : 228 -> 227 occurrences pour
+    # **190 modules distincts identiques des deux cotes**, 0 disparu, 0 apparu. Faire
+    # rougir la-dessus accuse le port pour un detail d'emission, et N3 (corps normalise)
+    # voit deja tout reordonnancement.
     ba = sorted(c.rsplit("/", 1)[-1] for c in chemins(tref))
     bb = sorted(c.rsplit("/", 1)[-1] for c in chemins(tneuf))
-    print("[N2] JEU DE MODULES          : ref=%d  neuf=%d" % (len(ba), len(bb)))
-    if ba != bb:
-        sa, sb = set(ba), set(bb)
+    sa, sb = set(ba), set(bb)
+    print("[N2] JEU DE MODULES          : ref=%d  neuf=%d modules DISTINCTS "
+          "(occurrences : %d / %d)" % (len(sa), len(sb), len(ba), len(bb)))
+    if sa != sb:
         print("     ROUGE  manquants : %s" % (sorted(sa - sb) or "(aucun)"))
         print("     ROUGE  en trop   : %s" % (sorted(sb - sa) or "(aucun)"))
-        if sa == sb:
-            print("     ROUGE  meme ensemble mais MULTIPLICITE differente (un module embarque "
-                  "deux fois ?)")
         rouges += 1
     else:
-        print("     OK     memes modules, memes multiplicites")
+        print("     OK     meme ensemble de modules embarques")
+        if ba != bb:
+            ecarts = sorted(k for k in sa if ba.count(k) != bb.count(k))
+            print("     NOTE   multiplicite differente sur %d module(s) : %s"
+                  % (len(ecarts), ", ".join(ecarts[:8])))
+            print("            Ce n'est PAS un rouge : c'est le decoupage `__esm` d'esbuild")
+            print("            qui a bouge (1 frontiere pour un module inline, 2 pour un")
+            print("            module lazy). Tout changement d'ORDRE reste vu par N3.")
     print()
 
     # --- N3 : corps normalise ---

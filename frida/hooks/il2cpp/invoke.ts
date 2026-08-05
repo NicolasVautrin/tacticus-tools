@@ -235,19 +235,13 @@ export function invokeMethod(
     return result;
 }
 
-/** Invoke a managed method using the direct invoker pointer. Slower to set up but
- * avoids some overhead and can be more stable for complex signatures. */
-export function invokeMethodDirect(
-    methodInfo: NativePointer,
-    obj: NativePointer | null,
-    params: NativePointer, // void**
-): NativePointer {
-    const invokerPtr = methodInfo.add(8).readPointer(); // MethodInfo->invoker_method
-    const methodPtr = methodInfo.readPointer();        // MethodInfo->methodPointer
-    
-    const invoker = new NativeFunction(invokerPtr, "pointer", ["pointer", "pointer", "pointer", "pointer"]);
-    return invoker(methodPtr, methodInfo, obj ?? ptr(0), params) as NativePointer;
-}
+// RETIRE (#480-r7) : `invokeMethodDirect` n'avait aucun appelant, et son corps
+// CONTREDISAIT la regle etablie dans `il2cpp/helpers.ts` (`methodEntry`) : il lisait le
+// `methodPointer` par `methodInfo.readPointer()`, que le commentaire de `methodEntry`
+// declare UNSAFE -- « the first field of MethodInfo varies across IL2CPP versions (some
+// have invoker_method first, methodPointer second) ». Le premier appelant l'aurait donc
+// pris pour une voie validee. Le chemin sur : `invokeMethod` ci-dessus, qui passe par
+// `il2cpp_runtime_invoke`.
 
 /** Allocate + invoke the first parameterless ctor. For multi-ctor classes use
  * `findCtorByParamCount` + manual `invokeMethod`. */

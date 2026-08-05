@@ -221,9 +221,14 @@ function installClassInitHook(): boolean {
 // Strategy:
 //   - 0xC0000005 / 0xC00000FD = always fatal, always emit + backtrace
 //   - 0xE06D7363              = noisy IL2CPP managed propagation. Emit
-//                               only when armed via `armCxxThrowTrap`
-//                               RPC, with strict rate limit and skip
-//                               if caller looks like il2cpp_unhandled_*.
+//                               only when armed via `armCxxThrowTrap`,
+//                               with strict rate limit and skip if the
+//                               caller looks like il2cpp_unhandled_*.
+// ⚠ Le hook qui LIT `cxxTrapArmed` (`installRaiseExceptionHook`) n'est PAS câblé —
+// cf. la note de `install()`. `armCxxThrowTrap` / `disarmCxxThrowTrap` sont donc
+// l'interface d'un bloc conservé pour référence, et NON une API du module : ils ont
+// perdu leur `export` (#480-r7). Aucun RPC ne les expose, et il ne faut pas en poser
+// un : armer un flag que personne ne lit ferait croire le piège actif.
 let cxxTrapArmed = false;
 const CXX_THROTTLE_HEAD = 4;
 const CXX_THROTTLE_WINDOW_MS = 1000;
@@ -327,8 +332,8 @@ function installOutputDebugStringHook(): boolean {
     return true;
 }
 
-export function armCxxThrowTrap(): void { cxxTrapArmed = true; }
-export function disarmCxxThrowTrap(): void { cxxTrapArmed = false; }
+function armCxxThrowTrap(): void { cxxTrapArmed = true; }
+function disarmCxxThrowTrap(): void { cxxTrapArmed = false; }
 
 function install(): void {
     if (installed) return;

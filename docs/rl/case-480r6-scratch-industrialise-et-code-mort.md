@@ -139,7 +139,8 @@ du code mort réduit la dette sans qu'on ait rien corrigé.
   l'empreinte s'annonce **déjà inverifiable sur `master`** (`_commit 57bb2a7c` inconnu de git) —
   elle dégrade proprement en rejouant tout. À reprendre à la prochaine maintenance #457.
 - **`frida/tools/` n'est couvert par AUCUN `tsconfig`** (`include` = `hooks/**` et `host/**`) :
-  le harnais #279 n'est jamais typechecké. **`#480-r9`**.
+  le harnais #279 n'est jamais typechecké. **`#480-r9`** — depuis RÉSOLU
+  (`case-480r7-r9-exports-morts-et-tsconfig.md`).
 - **`dump-stat-comp-types.ts`** reste un **import mort** de `controller.ts` (symbole jamais
   appelé ⇒ tree-shaké). Déjà mesuré par #480-r1 ; déplacé tel quel, comportement inchangé.
 - ⚠ **`find-prog-instances.ts` fait un heap scan** (`Process.enumerateRanges` + `Memory.scanSync`).
@@ -147,13 +148,14 @@ du code mort réduit la dette sans qu'on ait rien corrigé.
 
 ## Résidus
 
-- **`#480-r7`** — **13 exports sans aucun usage** (8 `function`, 5 `const`), listés au §4a.
-  Trancher un par un : retrait, ou raison écrite de les garder. *Retournement* : l'étage 2 de
-  `probe_480r6_code_mort.py` rend `[B] = 0`, ou chaque survivant porte sa justification.
+- ~~**`#480-r7`**~~ — **RÉSOLU**, `case-480r7-r9-exports-morts-et-tsconfig.md`. 6 retirés,
+  6 câblés, 1 dé-exporté ; `[B]` **13 → 0**. Le critère de l'étage 2 comptait les mentions en
+  COMMENTAIRE comme un usage local — corrigé (scanner à états), il a trouvé **2** morts de plus.
 - **`#480-r8`** — **155 RPC sans appelant sur 321**. Axe de tri, pas verdict : séparer les
   enveloppes de sondes (absence d'appelant = nature) du vrai mort. `sim.ts` (3 RPC) est déjà
   nommé par #480 R6. *Retournement* : chaque RPC listé est soit appelé, soit retiré, soit
   justifié.
-- **`#480-r9`** — **`frida/tools/` hors de tout `tsconfig`**. Le harnais qui garde #279/#372
-  n'est jamais typechecké ; une erreur de type ne s'y verrait qu'à l'exécution.
-  *Retournement* : `tsc` couvre `tools/**` et rend un compte assumé.
+- ~~**`#480-r9`**~~ — **RÉSOLU**, `case-480r7-r9-exports-morts-et-tsconfig.md`.
+  `tsconfig.tools.json` : 4 fichiers tirés, **0 erreur** ajoutée. Cliquet
+  `probe_480r9_tsconfig_couverture.py` — et son étage 3 garde le piège qui aurait rendu
+  l'invariant trivialement vrai (`tsconfig.base.json`, sans `include`, couvre TOUT).

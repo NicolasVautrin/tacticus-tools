@@ -163,17 +163,12 @@ export function methodInvoker(methodInfo: NativePointer): NativePointer {
     return methodInfo.add(8).readPointer();
 }
 
-/** Resolve the "real" entry of an IL2CPP method by walking any thunk at the
- * entry point. On ARM64 Unity 6 emits managed-to-native thunks (B/BL imm26)
- * that we need to chase. On x86-64 the layout is different and we don't yet
- * have a validated decoder for `JMP rel32` (`E9 xx xx xx xx`) chains in this
- * codebase — return the entry unchanged for now. If we observe muted hooks
- * on internal call sites, plug in an x86 decoder here. */
-export function resolveThunk(
-    entry: NativePointer, _maxHops = 4,
-): NativePointer {
-    return entry;
-}
+// RETIRE (#480-r7) : `resolveThunk(entry)` rendait `entry` INCHANGE. Le decodeur de
+// thunks decrit dans sa docstring visait ARM64 ; sur la cible x86-64 il n'a jamais
+// existe, donc la fonction etait l'IDENTITE sous un nom qui promet une resolution.
+// Aucun appelant, dans aucune des trois langues du depot. Un futur besoin de chasser
+// un `JMP rel32` (`E9 xx xx xx xx`) s'ecrira comme un decodeur qui MESURE, pas comme
+// une identite qu'on croit avoir appelee.
 
 /** Get the managed System.Type object for an IL2CPP class. */
 export function getSystemType(klass: NativePointer): NativePointer {
