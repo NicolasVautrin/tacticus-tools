@@ -31,6 +31,9 @@ class Runner:
         self.pre_handlers: List[object] = []      # visiteurs (visit_<Msg>)
         self.post_handlers: List[object] = []
         self.recorder: List[Message] = []         # @0xb8 — journal des messages
+        # #287-r1-r1 : dernier bilan de `VerifyUnitsTurnFinishedOperation$$Execute` (poses, retraits,
+        # ABSTENTIONS). Diagnostic seulement — c'est ce qui rend l'amplitude du residu lisible.
+        self.last_verify_turn_finished: Optional[dict] = None
 
     def install_default_handlers(self, spread_pct: Optional[int] = None) -> "Runner":
         """Installe les handlers portés (tranche par tranche) : mouvement + dégât + abilities actives.
@@ -97,5 +100,20 @@ class Runner:
         # `operations/triggers/dispatch/pending.py`.
         from .operations.triggers.dispatch.pending import process_pending_triggered_abilities
         process_pending_triggered_abilities(self.state)
+        # #287-r1-r1 : ARBITRAGE DE `UnitFlag.NoActionAvailable`. Toujours dans la branche
+        # `isInternalPhase == false` de `IdunBattle.Messages.InputMessageProcessor$$RunPhase`, et
+        # APRES le DRAIN #1 ci-dessus, le natif invoque le slot `IOperationProcessor` **0x21** =
+        # `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished` (AUCUN argument — c'est ce qui
+        # l'identifie parmi `0x22` a un argument et `0x23` a deux) ->
+        # `IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$Execute`. C'est la SEULE voie
+        # native qui RETIRE le flag (slot 0x77), et le retrait est load-bearing : le flag SURVIT au
+        # changement de tour (`UnitFlagsComponent$$RemoveTurnFlags(includeNoAction: 0)`), donc sans
+        # lui toute unite marquee une fois le resterait pour toujours.
+        # Le natif appelle `0x21` DEUX fois ; le port n'en pose qu'un — les gestes que le natif
+        # intercale entre les deux ne sont pas joues ici, l'operation est idempotente, et le second
+        # appel couterait un second pathfinding par unite (residu nomme dans
+        # `operations/turnflow.verify_units_turn_finished`).
+        from .operations.turnflow import verify_units_turn_finished
+        self.last_verify_turn_finished = verify_units_turn_finished(self.state)
         from .operations.triggers.dispatch.phase import phase_end_triggers   # lazy : circular import
         phase_end_triggers(self.state)
