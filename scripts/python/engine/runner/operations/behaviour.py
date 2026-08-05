@@ -1,9 +1,20 @@
 """Mecaniques de COMPORTEMENT — **Battle Fatigue** (trait `BattleFatigue`).
 
-RE ghidra (gqfc5mff6c) :
+RE ghidra (gqfc5mff6c, re-lu sur rnca9r7q6c) :
   `IdunBattleLogic.Entities.Abilities.Active.Loki.BattleFatigueAbility$$CreateTrigger = `OnDeath(1) & IsAdjacent(self,dying,2) &
    AreFriends(dying,self) & NOT HasEffect(self, 0x437=1079 IgnoreBattleFatigue) & NOT IsObjectOrSteppable(dying)
-   & OwnerActive` -> quand un ALLIE adjacent (<=2 hex) meurt et que self n'est pas immunise.
+   & OwnerActive` -> quand un ALLIE **ADJACENT** meurt et que self n'est pas immunise.
+
+⚠ LE `2` D'`IsAdjacent` N'EST PAS UN RAYON -- c'est un `UnitSelectionType` (#462-r4b-r1-r1-r1-r1-b-r1).
+`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent(this, sel@+0x30 = self, sel@+0x60 = dying, 0x2)` ->
+`IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$.ctor(this, selector1@+0x20, selector2@+0x28,
+(int)selectionType@+0x18, query@+0x10)`. Dans `$$ShouldTrigger`, `+0x18` n'est lu QUE comme 2e argument
+du `Select` des deux selecteurs ; la comparaison par paire est `query.AreEntitiesAdjacent(x, y)`
+(slot 0x60), qui ne prend AUCUN rayon. Enum `IdunBattle.Entities.Enum.UnitSelectionType` :
+`0=Any, 1=OnlyAlive, 2=OnlyTargetable, 3=OnlyAliveAndTargetable`. Le port lisait `dist <= 2` : il
+declenchait la fuite pour un allie mort a 2 hex, que le natif IGNORE. Corrige -- le terme passe par le
+mirror `entities/triggers.py::IsAdjacent`, comme les deux revives Narthecium/TaintedNarthecium qui
+portent le MEME litteral. Detail : `docs/rl/case-462-r4b-r1-r1-r1-r1-b-r1-isadjacent-selection-type.md`.
   `IdunBattleLogic.Entities.Abilities.Active.Loki.BattleFatigueAbility$$CreateBehaviour = `Repeat(numTriggers, If(NOT HasFlag(self,9),
    Maybe(GetFleeChance, self) -> Flee(self,...)))`. `IdunBattleLogic.Entities.Abilities.Active.Loki.BattleFatigueAbility$$GetFleeChance = `ConditionalAmount(
    TargetIsOverkilled ? const 0x33 : const 0x2a)` — chances NON sourcables offline (config interne BC).
@@ -26,13 +37,18 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ..abilities.behaviours import entities_from_state
 from ..components import OwnerComponent, PositionComponent, UnitComponent, UnitFlagsComponent
-from .triggers import TriggeredAbility, _unit_tile, _hex_dist
+from .triggers import TriggeredAbility, _hex_dist
 from ...dsl.event_trigger_type import EventTriggerType
 from ...entities.effect_type import EffectType
+from ...entities.selectors import Caster, Target
+from ...entities.triggers import IsAdjacent
 
 IGNORE_BATTLE_FATIGUE = int(EffectType.IgnoreBattleFatigue)  # 1079 (immunite ; posee p.ex. par SquigHound 1078) #158
-BATTLE_FATIGUE_ADJ = 2           # IsAdjacent(self, dying, 2) — rayon de l'allie mourant
+# 3e argument d'`DSLTriggers$$IsAdjacent` = `UnitSelectionType`, PAS un rayon (cf. en-tete du module).
+ONLY_TARGETABLE = 2              # UnitSelectionType.OnlyTargetable
+_IS_ADJACENT = IsAdjacent(Caster(), Target(), ONLY_TARGETABLE)   # IsAdjacent(self@+0x30, dying@+0x60, 2)
 
 
 class FleeOperation:
@@ -128,15 +144,13 @@ class BattleFatigueAbility(TriggeredAbility):
         if (state.effects is not None and                    # NOT HasEffect(self, 1079)
                 state.effects.has_effect(self.owner_id, effect_type=IGNORE_BATTLE_FATIGUE)):
             return False
-        board = state.board
-        if board is None:
+        if state.board is None:
             return False
-        ot = _unit_tile(state, board, self.owner_id)
-        dt = _unit_tile(state, board, ev.dying_id)
-        if ot is None or dt is None:
-            return False
-        d = _hex_dist(board, ot, dt, BATTLE_FATIGUE_ADJ)       # IsAdjacent(self, dying, 2)
-        return d is not None and d <= BATTLE_FATIGUE_ADJ
+        # `IsAdjacent(self, dying, 2)` : ADJACENCE STRICTE (le `2` va au selecteur -- cf. en-tete du
+        # module). Meme foyer que tout autre consommateur du noeud : empreintes completes, porte
+        # d'elevation, court-circuit d'identite, quantificateur universel.
+        entities = entities_from_state(state, self.owner_id, ev.dying_id)
+        return bool(_IS_ADJACENT.should_trigger(entities))
 
     def execute_behaviour(self, state, ev) -> Optional[dict]:
         # Gate natif `Maybe(GetFleeChance)` (RNG, chance un-sourcable offline) : on ne tire que si une chance

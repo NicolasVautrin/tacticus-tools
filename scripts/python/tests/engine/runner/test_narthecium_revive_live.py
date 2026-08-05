@@ -89,7 +89,13 @@ def _fresh(env, seed=777):
 
 
 def _place(env, st, ally_uid, dist):
-    """apothecary au centre (>=3 voisins), allie a distance hex `dist`. True si place."""
+    """apothecary au centre (>=3 voisins), allie a DISTANCE HEX `dist`. True si place.
+
+    ⚠ La cible est la distance HEX (`hexgeo.distance`), pas le nombre de PAS de graphe : les deux
+    divergent des qu'un obstacle force un detour (pas de graphe >= distance hex), et un BFS qui
+    s'arrete << au 2e pas >> peut atterrir sur une tuile a distance hex 1 -- ce qui rendrait le bras
+    `dist=2` VACU (il mesurerait de l'adjacence). On balaie donc les tuiles par leur distance hex."""
+    import hexgeo
     board = env["board"]
     center = None
     for uid, e in st.entities.items():
@@ -103,23 +109,9 @@ def _place(env, st, ally_uid, dist):
     if center is None:
         return False
     _pc(st, env["ids"]["ap"]).col, _pc(st, env["ids"]["ap"]).row = center
-    ctile = board.id_at(*center)
-    if dist == 1:
-        dst = next((board.coord(n) for n in board.neighbours(ctile) if board.walkable(n)), None)
-    else:
-        from collections import deque
-        seen = {ctile: 0}
-        q = deque([ctile])
-        dst = None
-        while q:
-            x = q.popleft()
-            if seen[x] == dist and board.walkable(x):
-                dst = board.coord(x)
-                break
-            for n in board.neighbours(x):
-                if n not in seen:
-                    seen[n] = seen[x] + 1
-                    q.append(n)
+    dst = next((c for c in sorted(board.by_coord)
+                if hexgeo.distance(center, c) == dist
+                and board.walkable(board.id_at(*c))), None)
     if dst is None:
         return False
     _pc(st, ally_uid).col, _pc(st, ally_uid).row = dst
@@ -201,19 +193,32 @@ def test_no_alliance_filter(nar_env):
     assert _uc(st, env["ids"]["ally2"]).alive, "allie Xenos non revive (Narthecium n'a pas de filtre trait)"
 
 
-def test_adjacency_range_2(nar_env):
-    """IsAdjacent(self,target,2) : un allie a distance hex 3 -> PAS de revive."""
+@pytest.mark.parametrize("dist", [2, 3])
+def test_adjacency_is_strict(nar_env, dist):
+    """`IsAdjacent(self, target, 2)` : le `2` est un `UnitSelectionType`, PAS un rayon
+    (#462-r4b-r1-r1-r1-r1-b-r1) -- donc l'ADJACENCE EST STRICTE et un allie a distance 2 n'est
+    DEJA plus revive.
+
+    ⚠ Le bras `dist=2` est LE discriminant, et c'est celui qui manquait : l'ancien test ne jouait
+    que `dist=3`, ou le modele `distance <= 2` et le modele `adjacence stricte` rendent la MEME
+    reponse -- un regime DEGENERE, qui ne prouvait rien du 3e argument. Le controle `dist=1` vit
+    dans `test_revive_base_hp_and_position`.
+    Chaine lue (rnca9r7q6c) : `IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent(a, b, selectionType)`
+    -> `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$.ctor` (`(int)selectionType` en
+    `+0x18`) -> `$$ShouldTrigger`, ou `+0x18` ne sert QU'aux deux `Select` et le predicat de paire
+    est `query.AreEntitiesAdjacent(x, y)` (slot 0x60), sans rayon."""
     import hexgeo
     env = nar_env
     st = _fresh(env)
-    if not _place(env, st, env["ids"]["ally"], 3):
-        pytest.skip("pas de tuile a dist 3")
+    if not _place(env, st, env["ids"]["ally"], dist):
+        pytest.skip("pas de tuile a dist %d" % dist)
     pap = (_pc(st, env["ids"]["ap"]).col, _pc(st, env["ids"]["ap"]).row)
     pal = (_pc(st, env["ids"]["ally"]).col, _pc(st, env["ids"]["ally"]).row)
-    if hexgeo.distance(pap, pal) <= 2:
-        pytest.skip("placement a dist<=2 (board coin)")
+    assert hexgeo.distance(pap, pal) == dist, "placement a dist %d (attendu %d)" % (
+        hexgeo.distance(pap, pal), dist)
     _kill(env, st, env["ids"]["ally"])
-    assert not _uc(st, env["ids"]["ally"]).alive, "allie a dist>2 revive (adjacence non respectee)"
+    assert not _uc(st, env["ids"]["ally"]).alive, \
+        "allie a dist %d revive : le `2` d'IsAdjacent a ete relu comme un rayon" % dist
 
 
 def test_can_be_revived_mechanical(nar_env):
