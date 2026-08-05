@@ -63,6 +63,46 @@ mesure ne voit pas, à chaque run.
   positifs**, sur les fichiers que cette tranche venait de corriger. Il prend désormais la
   **fermeture transitive** des appelants du foyer : un wrapper futur y entre seul.
 
+## 2bis. Le refus vise l'ÉTAT, pas le PROCESSUS — et c'est une mesure, pas une précaution
+
+Première version : le registre de greffes était **global au processus**, et tout `load_state` à
+canal muet levait dès qu'une greffe y figurait. Mesuré en conditions réelles (registre rempli par
+une **vraie** passe pytest, pas à la main) :
+
+```
+(a) apres `pytest test_366_r1_stormboyz_strike_live.py`  -> registre = 3 entrees
+      passive orksNob <- StormboyzStrike
+      passive thousTzaangor <- StormboyzStrike
+      passive bloodIntercessor <- StormboyzStrike
+(b) `load_state` a canal muet, etat SANS le greffon      -> LEVAIT   (faux positif)
+(c) `load_state` a canal muet, etat AVEC le greffon      -> LEVAIT   (juste)
+```
+
+La cascade était **réelle** : une passe greffeuse laisse le registre plein pour tout ce qui suit
+dans le même processus. Et le régime coupable n'est même pas `no-transport` : avec un transport lié
+(ce que `tests/conftest.py::live_session` fait pour toute la session), on tombe sur `unavailable:`
+dès que le runner visé n'existe plus.
+
+`_grafts_concerning` rapproche donc l'`unitId` de la greffe des `visualId` de **cet état-ci**
+(suffixe d'instance `orksNob:2` retiré des deux côtés). Le critère exact — « une unité de cet état
+porte une greffe invisible du gameconfig » — est circulaire : il faudrait le canal pour le savoir.
+Le porteur est le meilleur substitut disponible. **Tri-état** : une unité `visualId = null` (hors
+plateau, mesure #366-r1) rend le refus **conservateur** — on lève, et le message dit
+« indécidable ». Re-mesuré après correctif : **(b) aucun lever, (c) lève** — la portée est exacte.
+
+## 2ter. Le test doit CONTRÔLER son régime, pas l'hériter
+
+Deux tests de cette tranche assertionnaient `source == "no-transport"` **sans délier le transport**.
+Joués seuls : verts. Joués après un fichier live : **2 failed** — `_auto_ability_states` allait
+jusqu'à `unavailable:runner 99 not found`, parce que `bind_live_rpc` est un **état global de
+processus** que `live_session` pose.
+
+C'est la faute même que cette tranche ferme, à un étage au-dessus : **un vert qui dépend de
+l'isolement ne tient pas en compagnie**. La fixture `autouse` délie le transport et le restaure ;
+le régime `no-transport` devient déterministe **et indépendant de la session Frida** (numéro,
+bundle, runners vivants). Contrôle : la combinaison qui rougissait (`366_r1` + `357_relic_rail` +
+ce fichier) rend **33 passed**.
+
 ## 3. Le foyer : `load_state` REFUSE au lieu de se dégrader
 
 Le vice n'est pas qu'un probe oublie une ligne — c'est que l'oubli soit **permissif** : sans canal,
@@ -137,7 +177,7 @@ deux côtés.
 
 ## 5. Le cliquet
 
-`tests/engine/test_448_r3_r1_r1_greffe_sans_canal_offline.py` — **10 passed, 100 % offline**. Trois
+`tests/engine/test_448_r3_r1_r1_greffe_sans_canal_offline.py` — **13 passed, 100 % offline**. Trois
 étages, qui gardent des choses différentes :
 
 1. **le recensement est à zéro** — invariant `AMPUTES == 0 and INDETERMINES == 0`, jamais un seuil
@@ -146,9 +186,11 @@ deux côtés.
 2. **le recenseur SAIT ÉCHOUER** — quatre fichiers synthétiques (amputé / couvert / vice réparti sur
    **deux modules** / appelant indirect). Un zéro d'instrument aveugle ne vaut rien : `probe_181`
    rendait `0` inconditionnellement ;
-3. **le choke point REFUSE** — plus ses quatre non-régressions : sans greffe, refus explicite,
-   `no-snapshot`, canal alimenté (`given` **et** `auto`), et le capteur en panne (`unavailable`) qui
-   doit lever aussi.
+3. **le choke point REFUSE** — plus ses non-régressions : sans greffe, refus explicite,
+   `no-snapshot`, canal alimenté (`given` **et** `auto`), le capteur en panne (`unavailable`) qui
+   doit lever aussi, et **les trois gardes de PORTÉE** ajoutés après la mesure du §2bis — une greffe
+   qui ne concerne pas cet état ne lève pas, un `visualId` nul lève en le disant, et le suffixe
+   d'instance ne masque pas le porteur.
 
 L'étage 1 garde aussi que le **périmètre reste dérivé** : les quatre primitives divergentes doivent
 y être, et `write_augmented_seed_bc` doit rester **conditionnelle** — la compter greffeuse
@@ -156,13 +198,16 @@ inconditionnellement ferait rougir des dizaines de montages sains.
 
 ## 6. Validation
 
-* **Tests ciblés rejoués, tous verts** : `test_448_r2b_stormboyz_teleporting_in_live` (12),
-  `test_bit51_native_live` (11), `test_357_relic_rail_live` (12),
-  `test_363_ability_states_default_live` (10), `test_366_r1_stormboyz_strike_live` (8),
-  `test_425_tile_effect_channel_live` (4), `test_sky_strike_live` (6),
-  `test_448_r3_r1_noms_non_resolvables_offline` (3). Les deux tests `#357`/`#363` sont ceux qui
-  **délient volontairement** le transport : ils passent parce que leurs reliques viennent du seed BC
-  natif, pas d'une greffe.
+* **Tests ciblés rejoués, tous verts** (session Frida **9**, après le reinject de la fenêtre #11) :
+  `test_448_r2b_stormboyz_teleporting_in_live` (12), `test_bit51_native_live` (11),
+  `test_357_relic_rail_live` (12), `test_363_ability_states_default_live` (10),
+  `test_366_r1_stormboyz_strike_live` (8), `test_425_tile_effect_channel_live` (4),
+  `test_sky_strike_live` (6), `test_448_r3_r1_noms_non_resolvables_offline` (3). Les deux tests
+  `#357`/`#363` sont ceux qui **délient volontairement** le transport : ils passent parce que leurs
+  reliques viennent du seed BC natif, pas d'une greffe.
+* **La COMBINAISON qui rougissait** (`366_r1` + `357_relic_rail` + ce fichier) : **33 passed**
+  (était 2 failed / 28 passed). C'est le contrôle qui compte — les fichiers isolés étaient déjà
+  verts avant correction.
 * **Probes touchés rejoués en entier** : `probe_447` (PASS), `probe_226r` (PASS),
   `probe_419…only_adjacent` (PASS), `probe_419…normal_attack_options` (rc 0),
   `probe_419…r4_melee_clamp` (rc 0), `probe_589r1 --only EXO` (PASS).
@@ -177,6 +222,10 @@ inconditionnellement ferait rougir des dizaines de montages sains.
 * **Un site couvert par `ability_states=<expr>` n'est pas vérifié NON VIDE** par le recenseur : un
   payload en erreur y passerait pour une mesure. Seul `probe_478` l'assertionne — c'est le cran
   au-dessus, et il n'est pas généralisé.
+* **Le refus n'a pas été exercé LIVE sur un probe réel** : le mécanisme est prouvé offline (étage 3
+  du cliquet) et par la mesure du §2bis (registre rempli par une vraie passe pytest), mais aucun
+  probe n'a été relancé avec sa liaison retirée pour voir le refus mordre en conditions de montage.
+  Le recenseur statique garantit qu'aucun site n'est découvert ; le refus est le filet du dessous.
 * **Les quatre probes corrigés par liaison ambiante n'ont pas tous été mesurés AVANT/APRÈS** :
   `probe_419…normal_attack_options`, `probe_419…r4_melee_clamp` et `probe_589r1` ont été rejoués
   APRÈS (rc 0) mais leur bras AVANT n'a pas été isolé — le coût était trois montages de plus pour
@@ -209,4 +258,13 @@ python scripts/python/probe_226r_skystrike_spread.py --sans-canal
 python scripts/python/probe_226r_skystrike_spread.py
 python scripts/python/probe_419r1tr14r5r2r1r2r1r1_only_adjacent_live.py --sans-canal
 python scripts/python/probe_419r1tr14r5r2r1r2r1r1_only_adjacent_live.py
+```
+
+La combinaison qui a fait rougir la première version — un fichier live AVANT le cliquet, dans le
+**même processus pytest** — est le contrôle à rejouer quand on touche à la portée du refus :
+
+```
+python -m pytest tests/engine/runner/test_366_r1_stormboyz_strike_live.py \
+                 tests/engine/runner/test_357_relic_rail_live.py \
+                 tests/engine/test_448_r3_r1_r1_greffe_sans_canal_offline.py -q
 ```
