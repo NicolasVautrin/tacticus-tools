@@ -15,6 +15,17 @@ QUE le filtre et le gate d'overkill :
   TaintedNarthecium.CreateTargetFilter (0x758) IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$CreateTargetFilter  baseFilter(0x98) & AreFriends(self,target) &
                                                            HasTrait(target, Chaos=0x7ea=2026) &
                                                            IsAdjacent(self, target, 2)
+
+⚠ LE `2` D'`IsAdjacent` N'EST PAS UN RAYON -- c'est un `UnitSelectionType` (#462-r4b-r1-r1-r1-r1-b-r1).
+Le decompile de CE filtre sur `rnca9r7q6c` appelle le MEME noeud que Narthecium, avec le MEME litteral :
+`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent(this, sel@+0x30, sel@+0x60, 0x2)` ->
+`IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$.ctor` range `(int)selectionType` en `+0x18`, et
+`$$ShouldTrigger` ne lit ce champ QUE comme 2e argument du `Select` des deux selecteurs -- le predicat
+par paire est `query.AreEntitiesAdjacent(x, y)` (slot 0x60), SANS rayon. Enum
+`IdunBattle.Entities.Enum.UnitSelectionType` : `0=Any, 1=OnlyAlive, 2=OnlyTargetable,
+3=OnlyAliveAndTargetable`. Le port lisait `distance <= 2` -> il ACCEPTAIT des revives a 2 hex que le
+natif REFUSE. Corrige : le terme passe par le mirror `entities/triggers.py::IsAdjacent`.
+Demonstration complete + confrontation live : `docs/rl/case-462-r4b-r1-r1-r1-r1-b-r1-isadjacent-selection-type.md`.
   TaintedNarthecium.get_ReviveOnOverkill (0x738) GameCamera$$get_ShouldDisableRenderingWhenBehindSomething = `return 1`  -> AUCUN gate overkill
                                                            (« even if Overkilled ») -- lu LIVE par
                                                            `probe_79_revive_vtable.py`, PAS deduit.
@@ -29,15 +40,16 @@ from __future__ import annotations
 
 from ....state import State
 from .....entities.traits.unit_trait import UnitTrait
-from .....dsl.base import _pos
+from .....entities.selectors import Caster, Target
+from .....entities.triggers import IsAdjacent
 from ..base import TriggerEvent
 from ..revive_effect import ReviveEffectAbility, are_friends
 
-import hexgeo
-
 ABILITY_ID = "TaintedNarthecium"
 CHAOS = int(UnitTrait.Chaos)                     # 0x7ea=2026 (HasTrait(target, Chaos))
-ADJACENCY_RANGE = 2                              # IsAdjacent(self, target, 2)
+# 3e argument d'`DSLTriggers$$IsAdjacent` = `UnitSelectionType`, PAS un rayon (cf. en-tete).
+ONLY_TARGETABLE = 2                              # UnitSelectionType.OnlyTargetable
+_IS_ADJACENT = IsAdjacent(Caster(), Target(), ONLY_TARGETABLE)
 
 
 class TaintedNartheciumReviveAbility(ReviveEffectAbility):
@@ -49,9 +61,9 @@ class TaintedNartheciumReviveAbility(ReviveEffectAbility):
 
     def create_target_filter(self, state: State, ev: TriggerEvent, entities) -> bool:
         """`IdunBattle.Entities.Effects.Loki.TaintedNarthecium_ReviveEffect$$CreateTargetFilter` = `baseFilter & AreFriends(self,target) &
-        HasTrait(target, Chaos=0x7ea=2026) & IsAdjacent(self, target, 2)`."""
+        HasTrait(target, Chaos=0x7ea=2026) & IsAdjacent(self, target, UnitSelectionType.OnlyTargetable)`."""
         dying = ev.dying_id
-        # AreFriends(self@0x148, target@0x178)
+        # AreFriends(self@sel+0x30, target@sel+0x60)
         if not are_friends(state, self.owner_id, dying):
             return False
         tgt = entities.target
@@ -59,8 +71,7 @@ class TaintedNartheciumReviveAbility(ReviveEffectAbility):
         # HasTrait(target, Chaos=0x7ea=2026)  (== GrandAlliance Chaos)
         if ht is None or not ht(tgt, CHAOS):
             return False
-        # IsAdjacent(self, target, 2) : distance hex <= 2
-        pa, pb = _pos(entities.caster), _pos(tgt)
-        if pa is None or pb is None or hexgeo.distance(pa, pb) > ADJACENCY_RANGE:
+        # `IsAdjacent(self, target, 2)` : ADJACENCE STRICTE (le `2` va au selecteur -- cf. en-tete).
+        if not _IS_ADJACENT.should_trigger(entities):
             return False
         return True
