@@ -29,11 +29,13 @@ CE QUE CE TEST GARDE -- huit choses, dont trois que la greffe ne pouvait pas gar
      INERTE (arme `Chain` et ability `Bolter` ont le MEME `PiercingRatio` 20), donc la lecture « le
      profil vient de l'ABILITY » n'y serait plus gardee du tout. Le test MESURE cette equivalence
      au lieu de la supposer.
-  8. **L'ETAGE PREDICTION EST MESURE A PART** -- il s'accorde exactement a la tuile ADJACENTE, et
-     il DIVERGE depuis une tuile hors de portee de l'arme (natif `0..0`, port `732..1098`). C'est
-     le residu `#419-r1-tr14-r1-r1`, garde ICI dans le sens ou il a ete mesure : le taire le
-     rendrait invisible, l'asserter a zero ferait rougir la garde pour une cause etrangere au
-     terme.
+  8. **L'ETAGE PREDICTION EST MESURE A PART** -- et il s'accorde aux QUATRE crans depuis
+     `#419-r1-tr14-r1-r1` (ferme). Cette garde a d'abord existe A L'ENVERS : elle assertait la
+     DIVERGENCE hors portee (natif `0..0` en 1 coup, port `732..1098` en 2), le port ne gatant pas
+     la selection d'arme sur la portee depuis la tuile d'attaque. La voie SANS ARME de
+     `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$PredictAttack` est
+     desormais portee, et la garde est un ACCORD -- avec sa non-degenerescence (les deux regimes
+     restent distincts).
 
 Et le porteur SUMMON a son propre cran : il ARRIVE en bataille (stats `summon-spawn`, trait
 `Summon`, `dmg` 831 contre 1496 pour le npc), mais son terme n'y est PAS confrontable -- ce que le
@@ -234,35 +236,44 @@ def test_hbpr1_profile_weapon_inertia_is_explained_not_assumed(npc_case):
     assert Q._piercing(Q.foreign_profile()) != pe["ability_piercing"]
 
 
-def test_hbpr1_prediction_stage_agrees_in_range_and_diverges_out_of_range(npc_case):
-    """(8) L'ETAGE PREDICTION, MESURE A PART -- et le residu `#419-r1-tr14-r1-r1`.
+def test_hbpr1_prediction_stage_agrees_in_and_out_of_range(npc_case):
+    """(8) L'ETAGE PREDICTION, MESURE A PART -- ACCORD AUX QUATRE CRANS (`#419-r1-tr14-r1-r1` FERME).
 
-    A la tuile ADJACENTE, natif et port s'accordent EXACTEMENT (bornes et nombre de coups). Depuis
-    une tuile HORS DE PORTEE de l'arme (`Chain`, portee 1, evaluee a 2 hex), le natif rend `0..0`
-    en `1` coup et le port `732..1098` en `2` : le port ne gate pas la selection d'arme sur la
-    portee depuis la tuile d'attaque.
+    Cette garde a d'abord existe A L'ENVERS : elle assertait la DIVERGENCE hors portee (natif
+    `0..0` en `1` coup, port `732..1098` en `2`), parce que le port ne gatait pas la selection
+    d'arme sur la portee depuis la tuile d'attaque. La RE a tranche --
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$PredictAttack`
+    commence par `weapon = FindAttackWeapon(entities)` (slot `0xaf` d'`IBattleQuery` =
+    `IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack(attacker,
+    attackerTiles, target)`), et cette surcharge n'a AUCUN repli croise : hors adjacence elle
+    n'interroge que `FindRangedWeapon(..., distance)`, qui filtre `dist <= Range` et rend `null`
+    sur ensemble vide. `PredictAttack` branche alors sur la voie SANS ARME (`amount: 0`,
+    `hits: 1`). Le porteur n'a que `Chain` (melee) : depuis la tuile B, a 2 hex, il n'a donc plus
+    d'arme du tout.
 
-    L'ecart est HORS du terme de cette tranche (le terme du passif s'accorde aux quatre crans,
-    parce qu'il predit son PROPRE montant), et il n'est pas atteint par le generateur d'action, qui
-    n'enumere que les cibles a portee. Il est garde ICI DANS LE SENS OU IL A ETE MESURE : le taire
-    le rendrait invisible, l'asserter a zero ferait rougir cette garde pour une cause etrangere."""
+    LA GARDE EST DONC UN ACCORD, AUX QUATRE CRANS -- bornes ET nombre de coups. Elle porte en plus
+    sa NON-DEGENERESCENCE : les deux regimes doivent RESTER distincts (une prediction non nulle a
+    portee, nulle hors portee), sans quoi l'accord ne prouverait rien."""
     rows = {r["step"]: r for r in npc_case["rows"]}
-    for step in ("adj", "tileAdj_realFar"):
+    for step in ("adj", "tileAdj_realFar", "far", "realAdj_tileFar"):
         pn, pp = rows[step]["pred_native"], rows[step]["pred_port"]
         assert (pn["dmin"], pn["dmax"], pn["hits"]) == (pp["dmin"], pp["dmax"], pp["hits"]), (
-            f"cran {step} (tuile A, a portee) : etage PREDICTION natif "
-            f"{pn['dmin']}..{pn['dmax']} ({pn['hits']} coups) contre port "
-            f"{pp['dmin']}..{pp['dmax']} ({pp['hits']}) -- un ecart ICI ne se corrige pas dans le "
-            f"composite d'utilite")
-    for step in ("far", "realAdj_tileFar"):
-        pn, pp = rows[step]["pred_native"], rows[step]["pred_port"]
-        assert (pn["dmin"], pn["dmax"]) == (0, 0), (
+            f"cran {step} : etage PREDICTION natif {pn['dmin']}..{pn['dmax']} ({pn['hits']} coups) "
+            f"contre port {pp['dmin']}..{pp['dmax']} ({pp['hits']}) -- un ecart ICI ne se corrige "
+            f"pas dans le composite d'utilite")
+    # NON-DEGENERESCENCE : sans elle, un montage ou les quatre crans rendraient la meme chose
+    # (p. ex. une prediction nulle PARTOUT, montage casse) passerait pour un accord.
+    for step in ("adj", "tileAdj_realFar"):          # tuile A -- l'arme `Chain` est utilisable
+        pn = rows[step]["pred_native"]
+        assert (pn["dmin"], pn["dmax"]) != (0, 0) and pn["hits"] == 2, (
+            f"cran {step} (tuile A, a portee) : le natif rend {pn['dmin']}..{pn['dmax']} en "
+            f"{pn['hits']} coups -- le montage n'exerce plus le regime AVEC arme")
+    for step in ("far", "realAdj_tileFar"):          # tuile B -- aucune arme utilisable
+        pn = rows[step]["pred_native"]
+        assert (pn["dmin"], pn["dmax"], pn["hits"]) == (0, 0, 1), (
             f"cran {step} (tuile B, HORS PORTEE de l'arme `Chain`) : le natif rend "
-            f"{pn['dmin']}..{pn['dmax']} au lieu de 0..0 -- le regime a change et le residu "
-            f"#419-r1-tr14-r1-r1 doit etre re-instruit")
-        assert (pp["dmin"], pp["dmax"]) != (0, 0), (
-            f"cran {step} : le port rend DEJA {pp['dmin']}..{pp['dmax']} hors portee -- le residu "
-            f"#419-r1-tr14-r1-r1 serait FERME, cette garde doit devenir un accord")
+            f"{pn['dmin']}..{pn['dmax']} en {pn['hits']} coups au lieu de 0..0 en 1 -- le regime a "
+            f"change et la voie SANS ARME de `PredictAttack` doit etre re-instruite")
 
 
 def test_hbpr1_summon_reaches_battle_but_its_term_is_unpairable(summon_case):

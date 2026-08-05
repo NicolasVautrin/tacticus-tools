@@ -205,6 +205,23 @@ class _Normal:
                                                         # `TriggeringAbilityIs` du canal COUPS).
                                                         triggering_ability=triggering_ability,
                                                         allow_dead_caster=allow_dead_caster))
+        # #419-r1-tr14-r1-r1 -- PAS D'ARME UTILISABLE = PAS D'ATTAQUE, et c'est le natif qui le dit :
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$ExecuteBehaviour`
+        # tient tout entier dans ce gate --
+        #     weapon = FindAttackWeapon(entities);            // slot 0xaf d'IBattleQuery
+        #     if (weapon == null) return default;             // NI ExecuteInformWeapon, NI
+        #     ExecuteInformWeapon(weapon, ...);               // ExecuteNormalAttack, NI
+        #     ExecuteNormalAttack(abilityState, ..., weapon); // ExecuteTriggerAbilities
+        #     return ExecuteTriggerAbilities(entities, weapon);
+        # -- et c'est le MEME `FindAttackWeapon` (donc le MEME slot `0xaf`) que
+        # `ALoki_NormalAttackAbility$$PredictAttack` consulte : un seul foyer, deux faces.
+        # PLACEMENT : APRES `On(0x2a = PreUnitAbility)`, le gate acteur-mort et la re-resolution de
+        # cible -- tous trois vivent dans `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`,
+        # donc EN AMONT d'`ExecuteBehaviour` : le natif les joue meme quand l'arme manque.
+        # Sans ce gate, la suppression du repli croise (`battle_query`) ferait attaquer avec
+        # `pierce = 100`, `weapon_hits = 1` et `profile = None` -- pire que l'ancien repli melee.
+        if _w is None:
+            return None
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),
