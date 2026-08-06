@@ -271,6 +271,23 @@ VENTILATION = {
     ("runner/operations/summon_ai.py", "is_automatic", "getattr(sc.ctx)", "R"):
         ("INERTE-VIVANT", "`collect_ai_controlled` evalue `not uc.alive or not is_automatic(...)` "
                           "-- le court-circuit Python garantit un sujet vivant"),
+    ("runner/operations/turnflow.py", "_can_move", "getattr(sc.ctx)", "R"):
+        ("INERTE-VIVANT", "chaine d'appel FERMEE (`_can_move` est prive, son unique appelant est "
+                          "`has_tiles_to_move_to`, lui-meme appele par `_can_act` et par "
+                          "`has_action_available`, tous deux sous "
+                          "`VerifyUnitsTurnFinishedOperation.verify_unit_turn_ended`). Le gate "
+                          "vivant y est le NATIF lui-meme -- "
+                          "`VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded` fait "
+                          "`if (TryGetComponent<HealthComponent>(out hp) && hp.IsDead()) return` "
+                          "AVANT `HasTilesToMoveTo`, porte en `if uc is not None and not uc.alive: "
+                          "return` ; et `$$Execute` n'itere que "
+                          "`PlayerComponent$$get_CurrentlyOwnedUnitIds`, dont le `RemoveAll(<defait>)` "
+                          "est porte en `if uc is None or not uc.alive: continue`. Le cas `uc is "
+                          "None` (seul a franchir le 1er gate) sort de `_can_move` par `return None` "
+                          "DEUX lignes avant la lecture. Direction si le gate sautait : `traits is "
+                          "None` -> le test `Stationary` ne mord pas -> `return True`, soit la MEME "
+                          "sur-estimation permissive que le residu `MovementComponent$$IsAllowedToMove` "
+                          "deja nomme dans la docstring du site"),
     ("runner/operations/triggers/base.py", "_unit_trait_names", "sc.ctx.traits", "R"):
         ("INERTE-VIVANT", "foyer local (8 call-sites) : acteur/caster/occupant vivant, ou owner "
                           "d'un `fire_on_death` mort PENDANT le run"),
