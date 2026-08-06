@@ -678,9 +678,9 @@ class HeroicFusilladeAbility(ActiveAbility):
 
             dc.ability = this ; dc.caster = caster ;
             dc.range   = GetNumberConstant(0x16 range);                          // = 2
-            tiles = battleQuery.GetSurroundingTiles(targetTiles, 1,
+            tiles = battleQuery.GetSurroundingTiles(targetTiles, 1,          // slot 103
                                                     onlyEmptyOrSteppable: 0, onlyWalkable: 1,
-                                                    onlyMovable: 0, includeCenter: 1);   // slot 103
+                                                    onlyMovable: 0, includeCenter: 1);
             list  = tiles.Where(t => movementQuery.IsInMovementRange(dc.caster, t,
                                                                      ignoreUnitFlags: 1,
                                                                      { overrideRange = dc.range }))

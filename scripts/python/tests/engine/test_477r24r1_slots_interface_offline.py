@@ -632,6 +632,111 @@ def test_etage3ter_le_recenseur_voit_les_noms_QUALIFIES(table) -> None:
         "le recenseur prend un SUFFIXE de mot pour un nom -- le lookbehind a saute")
 
 
+# --------- etage 3quater : la VIRGULE cede la place a la LOCALITE, et le SECOND commentaire
+
+
+def test_etage3quater_le_franchissement_de_virgule_APPORTE_sans_rien_perdre(table) -> None:
+    """La virgule arretait le remplissage ; sur CE corpus elle cachait **7** couples JUSTES.
+
+    Le cran ne disparait pas : il change d'objet. Ce qui rend faux le couple d'une enumeration
+    `slot N1 \\`X\\`, slot N2 \\`Y\\`` n'est pas la virgule, c'est que `X` est deja apparie a
+    `N1` sans rien franchir (`ceder_aux_locaux`). Le test garde les deux moities.
+    """
+    cits, _ns, _ec = P.recolter()
+    ref, _rns, _rec = P.recolter(virgule_bloquante=True)
+    cle = lambda c: (c.fichier, c.ligne, c.slot, c.noms[0], c.ligne_nom)      # noqa: E731
+    juste = lambda k: table.get(k[2], ("",))[0] == k[3]                       # noqa: E731
+    neufs = {cle(c) for c in cits} - {cle(c) for c in ref}
+    perdus = {cle(c) for c in ref} - {cle(c) for c in cits}
+    assert neufs, "le franchissement de virgule n'apporte plus rien sur ce corpus"
+    #: ⚠ LE CRITERE PORTE SUR LES JUSTES. Un couple que la table CONTREDIT a le droit de
+    #: disparaitre -- c'est meme ce que le cran de localite existe pour faire (mesure sur le
+    #: corpus voisin : `astramilitarum.py` 0xab -> `GetSurroundingTiles`, faux, retire).
+    perdus_justes = [k for k in perdus if juste(k)]
+    assert not perdus_justes, ("le franchissement de virgule PERD des couples JUSTES : %s"
+                               % sorted(perdus_justes)[:5])
+    faux = [k for k in neufs if not juste(k)]
+    assert not faux, "le franchissement de virgule fait entrer des couples FAUX : %s" % faux[:5]
+
+
+def test_etage3quater_la_regle_de_localite_est_CONSERVATRICE() -> None:
+    """Elle ne peut que RETIRER, et seulement la ou un membre est deja pris SANS franchissement.
+
+    Un cran qui pourrait AJOUTER changerait de nature : il deviendrait une heuristique
+    d'appariement, pas un garde-fou.
+    """
+    from dataclasses import dataclass                                       # noqa: PLC0415
+
+    @dataclass(frozen=True)
+    class Faux:
+        slot: int
+        nom: str
+        franchit: bool
+
+    lot = [Faux(0x14, "CanStillBeUsed", False), Faux(0x13, "IsDisabled", False),
+           Faux(0x13, "CanStillBeUsed", True), Faux(0x99, "MoveUnit", True)]
+    gardes, cedes = P.ceder_aux_locaux(lot, lambda c: c.franchit,
+                                       lambda c: c.slot, lambda c: c.nom)
+    assert len(gardes) + len(cedes) == len(lot), "la regle a fabrique ou perdu un element"
+    assert Faux(0x13, "CanStillBeUsed", True) in cedes, (
+        "le couple dont les DEUX membres sont deja pris n'a pas cede")
+    assert Faux(0x99, "MoveUnit", True) in gardes, (
+        "un franchissant dont AUCUN membre n'est pris a cede -- la regle n'est plus "
+        "conservatrice, elle devine")
+
+
+def test_etage3quater_la_resolution_vit_dans_le_SECOND_commentaire() -> None:
+    """`processor.<slot 0x21>();  // -- \\`verifier\\`` puis, LIGNE SUIVANTE, `// = \\`...\\``.
+
+    ⚠ LA CAUSE EST DOUBLE, ET C'EST UNE MESURE. La forme D exigeait le PREMIER commentaire ET
+    refusait un nom PLEINEMENT QUALIFIE (`_NOM` interdit une tete de namespace). Chacune seule
+    rend **0** couple neuf ; leur conjonction rend le site, **0 faux, 0 perdu**.
+    """
+    bloc = ("        processor.<slot 0x21>();                     // -- `verifier`\n"
+            "                          // = `Core.Services.OperationProcessor"
+            "$$VerifyUnitsTurnFinished`")
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(bloc)}
+    assert (0x21, "VerifyUnitsTurnFinished") in vus, (
+        "la resolution du SECOND commentaire n'est pas captee -- vus : %s" % sorted(vus))
+    #: Et elle reste INVISIBLE au regime mono-ligne : la comparaison fenetre=1 / fenetre=N doit
+    #: continuer de vouloir dire quelque chose.
+    vus1 = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+            for k, rx in enumerate(P.RE_COUPLES) for m in rx.finditer(bloc)}
+    assert (0x21, "VerifyUnitsTurnFinished") not in vus1
+
+
+def test_etage3quater_la_LOCALITE_du_commentaire_est_tenue() -> None:
+    """On suit le BLOC DE COMMENTAIRE CONTIGU -- jamais du CODE.
+
+    « Sauter le premier commentaire » perdrait exactement ce que `appel-colle` tient : une ligne
+    de CODE intercalee doit couper la resolution.
+    """
+    avec_code = ("        processor.<slot 0x21>();       // -- `verifier`\n"
+                 "        refresh(x);                    // = `Core.Services.OperationProcessor"
+                 "$$VerifyUnitsTurnFinished`")
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(avec_code)}
+    assert (0x21, "VerifyUnitsTurnFinished") not in vus, (
+        "la forme D franchit une ligne de CODE -- la localite d'`appel-colle` est perdue")
+    #: Et le cran est RELACHABLE : desarme, il franchit -- c'est ce qui prouve qu'il agit.
+    relache = P._regex_couples(True, relaches=("commentaire-contigu",))
+    vus_r = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+             for k, rx in enumerate(relache) for m in rx.finditer(avec_code)}
+    assert (0x21, "VerifyUnitsTurnFinished") in vus_r, (
+        "le cran `commentaire-contigu` ne change RIEN -- il ne garde donc rien")
+
+
+def test_etage3quater_le_mutant_des_franchissants_REFUSE_en_regime_bloquant(table) -> None:
+    """Un mutant qui n'a rien a muter REFUSE, plutot que de rendre une mutation vide."""
+    ref, _ns, _ec = P.recolter(virgule_bloquante=True)
+    assert not any(c.franchit_virgule for c in ref), (
+        "le regime de reference contient des franchissants : il ne mesure pas ce qu'il dit")
+    with pytest.raises(SystemExit) as exc:
+        P.muter(table, "franchissants-decales", ref)
+    assert "IMPOSSIBLE" in str(exc.value)
+
+
 # ------------------------------------- etage 5 : les citations par NOM SEUL (#477-r32)
 
 

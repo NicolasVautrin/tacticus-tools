@@ -1,0 +1,18 @@
+# DECLARATION #477-r42 -- les fichiers dont le CODE EXECUTABLE change legitimement dans
+# cette tranche, et pourquoi. Passee en ENTREE a l'empreinte AST :
+#
+#   python scripts/python/probe_477r30_empreinte_ast.py \
+#          --attendu scripts/python/declaration_477r42_empreinte_ast.tsv
+#
+# Elle est PROPRE A LA TRANCHE (cf. #477-r30-r2 : une declaration figee dans l'instrument
+# accuse la branche suivante). Tout divergent hors de ce fichier est un ROUGE.
+#
+# La tranche corrige des CITATIONS dans `docs/rl/` uniquement -- AUCUN fichier de PORT n'est
+# touche, et c'est ce que l'empreinte doit etablir : une correction de citation n'a pas le
+# droit d'emporter du code executable.
+#
+#chemin	raison
+scripts/python/probe_477r24r1_slots_interface.py	l'instrument : le cran VIRGULE passe du REMPLISSAGE au POST-FILTRE (`ceder_aux_locaux`, foyer partage), la forme D suit le bloc de commentaire CONTIGU et accepte un nom pleinement qualifie, plus les deux crans relachables et le mutant qui les garde
+scripts/python/tests/engine/test_477r24r1_slots_interface_offline.py	le cliquet des trois crans : localite de la virgule, second commentaire, refus du mutant en regime de reference
+scripts/python/probe_477r25_slots_autres_interfaces.py	le cliquet voisin : meme cran de localite (IMPORTE, foyer unique elargi a `_entre`/`_regex_noms`/`_RENVOIS`) et le RECENSEUR qui n'existait pas -- partition assertionnee des 628 lignes ecartees, cause DERIVEE, portee chiffree
+scripts/python/tests/engine/test_477r25_slots_autres_interfaces_offline.py	le cliquet du recenseur (partition, `autre (<forme>)` atteignable, portee) et du foyer unique elargi

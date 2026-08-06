@@ -1668,7 +1668,11 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
         entities.caster      = caster;                // +0x08
         entities.target      = target;                // +0x10
         entities.targetTiles = targetTiles;           // +0x38
-        return selector.<vslot 24 = ITargetsSelector.Count>(entities) > 0 ? 0 : 2;
+        return selector.<slot 2 = ITargetsSelector.Count>(entities) > 0 ? 0 : 2;
+        //                    ^ le SLOT D'INTERFACE, lu dans `interface_slots.tsv`. Le decompile,
+        //                      lui, montre l'index 24 de la VTABLE de la classe -- une position
+        //                      dans la CLASSE n'indexe RIEN (#477-r24-r1), et les melanger sur
+        //                      une meme ligne est ce qui rendait le cliquet ROUGE (#477-r42).
 
     et les DEUX etages du selecteur, tous deux DEJA PORTES -- seul le call-site manquait :
 
