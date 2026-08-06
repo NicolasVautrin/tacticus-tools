@@ -2950,32 +2950,77 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   **41 verts** (33 + 8 neufs) ; `probe_477r25` et ses 57 verts inchanges.
   Residu : **#477-r36**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6ter.
 
-- **#477-r36 : ce qui reste HORS COUVERTURE sur les deux cliquets de slots, VENTILE PAR CAUSE.**
-  `[opus]`
-  Un compte seul est un inventaire ; sa cause en fait une tache. Sur `IOperationProcessor`, apres
-  #477-r32, il reste **173** lignes, mesurees et ventilees (`--ventiler`) : **44** sans aucun
-  NUMERO (le slot est nomme en prose, ou par une tournure que l'etage NOM SEUL ne reconnait pas --
-  « prennent le slot `MoveUnit` (4 arguments...) », sans « de l'... ») ; **79** avec un numero et
-  AUCUN nom de methode dans la fenetre (rien a contredire) ; **50** avec un numero ET un nom de
-  l'interface dans la fenetre, qu'un cran conservateur ecarte. La somme des trois VAUT le total --
-  c'est une partition, assertionnee, pas une liste blanche de motifs.
-  ⚠ Ces comptes BOUGENT quand on ecrit sur les slots -- ET sous les MERGES des autres : le corpus
-  balaye contient les fiches et les tests de la tranche elle-meme (seul le probe est exclu de son
-  propre balayage). Mesure a REGIME CONSTANT : 45 -> 51 attestations sous nos seules ecritures,
-  puis 51 -> 60 au rebase sur #477-r22-r1 (qui RESOUT le slot 0x21, et dont les citations neuves
-  passent toutes le cliquet). Les RE-DERIVER (`--courbe`, `--ventiler`), jamais les citer.
-  CE QU'IL FAUT : les **50** sont le gisement, et il est BORNE -- les quatre relachements mesures
-  en sec. 6ter n'en sortent que **18** couples, dont **10 justes** (dont 1 deja recupere par le
-  cran FLECHE) et **8 artefacts du relachement**. DEUX crans gagneraient sans bruit mesure, et ce
-  sont des axes de FORME, pas de fenetre : (a) le nom COLLE au numero (« slot 0x3c AttackDamage »)
-  -- 2 couples, 0 artefact ; (b) la forme A tolerant un APPEL avant le `=` (« processor.<slot
-  0x12>(); // -> ... ») -- 3 justes pour 1 artefact, donc a durcir avant de l'armer.
-  Cote `probe_477r25`, les ~640 lignes restantes ne sont PAS ventilees : la courbe y est plate et
-  elles n'ont pas de nom appariable. Les ECHANTILLONNER reste le volet ouvert (la premiere lecture
-  du gisement precedent en a sorti une citation fausse, puis l'outillage en a sorti 8).
+- ~~**#477-r36**~~ : **LIVRE (2026-08-06) -- le gisement tenait a l'APPEL, et le compte annonce
+  etait FAUX de 48 % parce que le RECENSEUR ne voyait pas les noms QUALIFIES.**
+  `_regex_noms` portait `$` dans son lookbehind : `Core.Services.OperationProcessor$$RemoveUnit`,
+  la forme la plus courante du corpus, lui etait invisible, et ces lignes partaient en
+  `numero_sans_nom` (« rien a contredire »). Re-mesure a regime CONSTANT sur l'arbre de depart :
+  le gisement n'etait pas de **50** lignes mais de **74**. C'est « un recenseur ne peut pas rendre
+  zero sur ce qu'il ne visite pas », applique au recenseur lui-meme -- et il n'etait visible qu'en
+  faisant entrer des couples qu'il declarait inexistants.
+  **LA CAUSE DOMINANTE EST UNE SEULE** : un slot s'ecrit sous forme d'APPEL, et sa liste
+  d'arguments porte precisement les `(`, `)`, `,`, `:`, `;` que le remplissage exclut -- la
+  resolution ecrite juste apres etait donc structurellement hors d'atteinte. Quatre formes :
+  **appel ABSORBE** d'un bloc equilibre et colle (A/B/C), **resolution COMMENTEE** (D, gardee par
+  un marqueur `=`/`->`/signature), **placeholder** (E, gardee par la fermeture des chevrons),
+  **resolution EN PROSE** (F, gardee par le delimiteur de code ouvrant). Plus la SYMETRIQUE du
+  cran de #477-r32 : le recepteur a aussi le droit de s'ecrire APRES le numero.
+  Re-derive (`--historique` vs service, meme arbre, meme fenetre) : attestations **81 -> 116**,
+  zone aveugle **186 -> 152**, gisement **81 -> 47**, **35** couples propres a la tranche,
+  **0 citation fausse**. ⚠ **L'apport qui ne se lit dans aucun de ces comptes** : l'etage ARITE
+  passe de **8 a 39** citations confrontees (x4,9) -- le cran qui a trouve la faute de #477-r24-r2
+  ne pouvait juger que les sites montrant leurs arguments APRES le couple, or l'ecriture dominante
+  les met AVANT.
+  Le zero est ADVERSARIAL : **7** crans relaches SEPAREMENT (`--relacher`). `qualificateur-forme-c`
+  est REFUSE et chiffre (**2 justes pour 97 artefacts**) ; `placeholder-ferme` est **gratuit**
+  (0 neuf) ; les autres ne sortent que des artefacts. ⚠ **« Concorde » ne veut pas dire
+  « citation »** : relacher la virgule fabrique `(0x65, MoveUnit)` depuis la **syntaxe d'une liste
+  Python** d'un test -- un tableau qui ne compte que les noms faux aurait conclu « la virgule ne
+  rapporte rien ». Non-regression MECANIQUE (master vs branche, meme arbre, rejouee apres rebase) :
+  **0** citation perdue a fenetre 1 comme a fenetre 3.
+  ⚠ **Une affirmation de #477-r32 est DEMENTIE** : la correction du slot `0x66` « reformulee pour
+  rester confrontable » l'est dans `backlog.md`, **pas** dans le corps de sa fiche. Le cran
+  suffixe-recepteur la recupere.
+  ⚠ **LE CRAN, PORTE A `probe_477r25`, A REPARE `master` ET Y A TROUVE 5 CITATIONS FAUSSES.**
+  `master` etait ROUGE depuis la PR #737 (`#287-r11`) : le site ecrit trois
+  `battleQuery.<Nom>(<args>);   # slot <n>` dont les **trois attributions sont JUSTES**, mais
+  faute d'absorption d'appel le cliquet partait du slot pour attraper le nom de la LIGNE SUIVANTE.
+  **On ne plie pas un contenu correct pour satisfaire un outil casse** -- c'est l'outil qui est
+  corrige, par TROIS crans tous mesures necessaires sur ce seul bloc (0 juste/2 faux -> 2/2 ->
+  2/1 -> **3/0**), le dernier etant la PROFONDEUR d'imbrication a 3 niveaux. Le cran est
+  **IMPORTE, pas recopie** (foyer unique `probe_477r24r1._appel`, fige par un test) : deux motifs
+  jumeaux qui derivent l'un de l'autre rouvriraient ici le gisement que l'autre vient de fermer.
+  Et l'elargissement a fait sortir **5 citations FAUSSES du depot**, sur **4 fichiers**, toutes
+  decalees de **+1** (`GetVector` 0x70->0x71, `GetAngleBetweenVectors` 0x71->0x72,
+  `GetEffectConfig` 0xbe->0xbf, `GetFreeAdjacentTiles` 0x51->0x52/0x53 sur DEUX fichiers).
+  La table fait foi et ce n'est pas un postulat : **272** attestations pour **5** fausses -- un
+  decalage de la TABLE les rougirait toutes. La cause est **ecrite au site** par `targeting.py` :
+  l'index avait ete pris sur un `u003Cu003Ec__DisplayClass...`, une lecture INDIRECTE, exactement
+  la grandeur que #477-r24-r1 a montree n'indexer RIEN ; `0x51` est `GetAdjacentTiles`, que le
+  corps APPELLE -- une chaine d'appel prise pour une identite.
+  53 + 60 = **113 verts** ; 6 mutants sur 6 mordants ; les deux cliquets VERTS ;
+  empreinte AST VERTE (3 divergents, 3 declares, **4 fichiers de PORT touches et AST-IDENTIQUES**).
+  Residu : **#477-r42**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater.
+
+- **#477-r42 : les DEUX crans herites qui coutent encore une citation JUSTE, et les ~640 lignes
+  de `probe_477r25` que personne n'a ventilees.** `[opus]`
+  (a) La **VIRGULE** dans le remplissage -- cran de #477-r25, mesure sur l'AUTRE corpus (une
+  enumeration VERTICALE apparie le nom d'un item au slot du suivant). Sur celui-ci il cache
+  « le slot 5 de `Core.Services.IOperationProcessor`, **dont** l'implementation `...$$AddUnit(...)` ».
+  Le discriminant candidat -- « la virgule ne bloque QUE lorsque le remplissage traverse un saut de
+  ligne », qui colle a la cause mesuree -- **n'aide ni cette citation ni l'autre** (toutes deux
+  traversent) : a instruire, pas a appliquer au jugé.
+  (b) La **LOCALITE DU COMMENTAIRE** : `engine/streams/turn_phase.py` ecrit la resolution dans le
+  **second** commentaire de la ligne (`// -- `verifier`` puis `// = `...$$VerifyUnitsTurnFinished``).
+  Sauter le premier commentaire perdrait exactement ce que le cran `appel-colle` tient.
+  (c) Les ~**640** lignes de `probe_477r25` ne sont toujours PAS ventilees. ⚠ **Il n'y a RIEN a
+  verifier cote lookbehind : ce probe n'a AUCUN recenseur** -- pas de ventilation du tout. Ecrire
+  la ventilation, c'est ecrire le recenseur, et il devra naitre avec le lookbehind CORRIGE
+  (`(?<![A-Za-z0-9_])`, pas `(?<![A-Za-z0-9_$])`) -- sans quoi il repetera d'emblee le
+  sous-comptage de 48 % que #477-r36 vient de mesurer sur l'autre.
   NB annexe, non mesure comme gisement : le mot `slot` lui-meme reste sensible a la casse (seul
   son qualificatif ne l'est plus) -- « Slot 0x12 = ... » ne serait pas vu.
-  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6ter et Residus.
+  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater et Residus.
 
 - **#477-r21-r2 : la SELECTION et l'ORDRE de l'arbre d'activation.** `[opus]`
   Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.

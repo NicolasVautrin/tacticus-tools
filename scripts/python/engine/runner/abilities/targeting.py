@@ -2723,10 +2723,15 @@ def tile_can_add_unit(state: "State", coord) -> bool:
 
 
 def get_free_adjacent_tiles(state: "State", entity_id) -> list:
-    """`IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(IEntity)` — le slot 0x51 de
-    `IBattleQuery` (index LU sur
+    """`IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(IEntity)` — le slot 0x52 de
+    `IBattleQuery`, LU dans le champ `slot` d'`Il2CppMethodDefinition`
+    (`data/symbols/<build>/metadata/interface_slots.tsv`).
+    ⚠ Ce slot etait ecrit `0x51`, et la cause est NOMMEE : l'index avait ete pris sur
     `...RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass101_0$$u003CGetFreeAdjacentTilesu003Eb__0`,
-    qui re-appelle l'inner par ce meme index). Mirror du decompile :
+    c'est-a-dire par une lecture INDIRECTE — exactement la grandeur intermediaire que
+    `#477-r24-r1` a montree n'indexer RIEN. `0x51` est `GetAdjacentTiles`, que le corps ci-dessous
+    appelle : le decalage de 1 se lit comme une chaine d'appel prise pour une identite.
+    Mirror du decompile :
 
         tiles = BattleQuery$$GetAdjacentTiles(entity, requireEmptyOrSteppable: true,
                                               requireWalkable: true[, allowTemporary: true]);
@@ -2735,7 +2740,7 @@ def get_free_adjacent_tiles(state: "State", entity_id) -> list:
 
     Les deux pre-filtres de `GetAdjacentTiles` sont SUBSUMES par `CanAddUnit` (vide-ou-steppable +
     walkable), et `allowTemporary` ne filtre rien ; les deux surcharges natives de
-    `GetFreeAdjacentTiles` (slots 0x51 et 0x52, qui ne different QUE par ce flag) coincident donc
+    `GetFreeAdjacentTiles` (slots 0x52 et 0x53, qui ne different QUE par ce flag) coincident donc
     offline -- le port ne modelise pas `TileExtensions$$IsTemporary`. Reste la porte d'ELEVATION de
     `TileQuery$$IterateAdjacentTiles` (`|dElev| < 2`), portee ici. Rend des `(col,row)`."""
     board = state.board

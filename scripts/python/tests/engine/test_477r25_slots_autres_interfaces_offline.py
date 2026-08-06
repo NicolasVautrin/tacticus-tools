@@ -341,6 +341,63 @@ def test_etage3bis_le_qualificatif_de_slot_est_insensible_a_la_CASSE() -> None:
             "« %s » n'est pas reconnu comme un slot" % texte)
 
 
+# ------------- etage 3ter : l'APPEL ABSORBE et la PRIORITE AU MONO-LIGNE (#477-r36)
+
+
+def test_etage3ter_lappel_du_slot_est_absorbe_dun_BLOC() -> None:
+    """Le nom ecrit sur la MEME ligne que son slot ne doit pas rester bloque par ses ARGUMENTS.
+
+    Le degat n'etait PAS « un couple manquant » : faute de pouvoir apparier le nom local, la
+    forme C partait du slot pour attraper celui de la ligne SUIVANTE. Mesure (PR #737,
+    `case-287r11`) : trois citations JUSTES du depot, **2 couples FAUX**, `master` ROUGE.
+
+    Le couple d'exemple est VRAI (`IBattleQuery` 0x68 = `GetFreeSurroundingTiles`) -- ce fichier
+    EST dans le corpus balaye.
+    """
+    bloc = ("    freeTiles = battleQuery.GetFreeSurroundingTiles(GetMainTile(caster, state), "
+            "range, 0, 1);   # slot 104")
+    rxs = P._COUPLES_ML["IBattleQuery"][0]
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(rxs) for m in rx.finditer(bloc)}
+    assert (0x68, "GetFreeSurroundingTiles") in vus, (
+        "la liste d'arguments bloque encore le nom de sa propre ligne -- vus : %s" % sorted(vus))
+
+
+def test_etage3ter_la_PRIORITE_AU_MONO_LIGNE_cede_au_plus_LOCAL() -> None:
+    """Un couple ENJAMBANT cede si le MEME slot est deja apparie SUR SA LIGNE.
+
+    C'est le symetrique du cran deja ecrit pour la forme B (« dans une enumeration verticale, le
+    nom ecrit AVANT appartient a l'item precedent ») : le nom ecrit APRES appartient a l'item
+    SUIVANT. La regle est CONSERVATRICE -- elle ne peut que retirer des enjambants, et seulement
+    la ou une attribution locale du meme slot existe.
+    """
+    tables = P.lire_tsv()
+    cits, ecartees, _rec = P.recolter(tables)
+    assert ecartees.cedes_au_mono_ligne, (
+        "aucun couple n'a cede -- soit le gisement est ferme (le dire), soit la regle ne mesure "
+        "plus rien")
+    #: Ce qui a cede ne doit PLUS etre dans les citations retenues.
+    enjambants = {(c.fichier, c.ligne, c.iface, c.slot) for c in cits if c.ligne != c.ligne_nom}
+    locaux = {(c.fichier, c.ligne, c.iface, c.slot) for c in cits if c.ligne == c.ligne_nom}
+    assert not (enjambants & locaux), (
+        "un couple enjambant coexiste avec une attribution locale du meme slot : %s"
+        % sorted(enjambants & locaux)[:5])
+
+
+def test_etage3ter_le_cran_est_IMPORTE_pas_recopie() -> None:
+    """Les deux cliquets balayent le MEME depot : deux motifs jumeaux qui derivent l'un de
+    l'autre rouvriraient ici le gisement que l'autre vient de fermer.
+
+    Le foyer unique est `probe_477r24r1_slots_interface._appel`. Ce test le FIGE : c'est le seul
+    endroit ou la regression « on a recopie le motif » se voit.
+    """
+    import probe_477r24r1_slots_interface as R24                            # noqa: PLC0415
+
+    assert P._appel is R24._appel, (
+        "l'absorption d'appel n'est plus le foyer unique -- elle a ete recopiee")
+    assert P.PROFONDEUR_APPEL is R24.PROFONDEUR_APPEL
+
+
 # ------------------------------- etages 4-5 : la derivation, si le metadata est la
 
 
