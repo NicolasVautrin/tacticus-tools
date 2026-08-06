@@ -39,16 +39,22 @@ réclamé.
 | | témoin | réécrit + vidé |
 |---|---:|---:|
 | différés recensés | 314 | 319 |
-| **PORTEURS** | **262** | **148** |
-| GRATUITS | 52 | 171 |
-| modules portant ≥ 1 porteur | 91 | 57 |
+| **PORTEURS** | **262** | **167** |
+| GRATUITS | 52 | 152 |
+| modules portant ≥ 1 porteur | 91 | 62 |
 
-**114 porteurs sur 262 (43,5 %) deviennent gratuits**, et **34 modules sont intégralement
-libérés**. Le total monte de 5 parce que la réécriture **éclate** un différé multi-symboles en
-plusieurs imports — d'où l'appariement **par module source**, seul stable.
+**95 porteurs sur 262 (36 %) deviennent gratuits**, et **29 modules sont intégralement libérés**.
+Le total monte de 5 parce que la réécriture **éclate** un différé multi-symboles en plusieurs
+imports — d'où l'appariement **par module source**, seul stable.
 
-Réécriture : **2 005 symboles dans 425 fichiers**. Vidange : **287 ré-exports sur 16 barils**
-(dont `entities.effects.loki` −166, `entities.selectors` −100).
+⚠ **Une première mesure rendait 114 (43,5 %) — elle était FAUSSE**, et de 19 porteurs. Elle avait
+été prise avec un `TRIGGERED_ABILITY_DELAYED_BEHAVIOURS` vidé (cf. section suivante) : 19 de ces
+« libérations » étaient payées par un registre mort. Le gain d'un allègement de cascade et le coût
+d'un registre cassé se ressemblent parfaitement dans ce compte — seul l'étage [3] du probe les
+sépare.
+
+Réécriture : **2 005 symboles dans 425 fichiers**. Vidange : **283 ré-exports sur 16 barils**
+(dont `entities.effects.loki` −166).
 
 ## La preuve, et ce qu'elle ne prouve pas
 
@@ -60,10 +66,11 @@ Réécriture : **2 005 symboles dans 425 fichiers**. Vidange : **287 ré-exports
    aussi (c'est du code, et le vider le réécrit par construction).
 3. **Liaisons**, en process frais, portée large (attributs de module **et** de classe) :
    - réécriture seule : **431 modules, 241 221 attributs, 0 divergence** ;
-   - après vidange : **12 728 divergences**, dont **12 637 déplacements acquittés**,
-     **91 attributs sous-module**, **0 perte réelle**. Un acquittement exige les trois :
+   - après vidange : **12 677 divergences**, dont **12 593 déplacements acquittés**,
+     **84 attributs sous-module**, **0 perte réelle**. Un acquittement exige les trois :
      disparition (jamais mutation), couple présent dans la table, et **même identité au module
-     d'origine**.
+     d'origine**. C'est la 3ᵉ condition qui fait la preuve : « le symbole a disparu du baril » et
+     « le symbole est encore joignable » sont deux affirmations distinctes.
 
 **431/431 modules s'importent seuls** dans les deux arbres.
 
@@ -156,6 +163,27 @@ value-preserving), les ré-exports **d'un ré-export** (résolus transitivement 
 2 maillons sur 846 ; la chaîne **s'arrête** devant un baril à registre), les origines **hors du
 sous-arbre** du baril (import absolu produit), et le **commentaire de fin** d'import, réattaché à
 la dernière ligne produite.
+
+## La prise principale : « à registre » se propage VERS LE HAUT
+
+Exclure les 4 barils à registre **ne suffit pas**, et c'est l'étage [3] du probe qui l'a montré,
+pas une relecture :
+
+```
+engine.runner.abilities.behaviours.TRIGGERED_ABILITY_DELAYED_BEHAVIOURS
+    {1180: engine.runner.abilities.loki.facade._run_switch}  ->  {}
+```
+
+`engine.runner.abilities.loki` était bien exclu du vidage. Mais vider son **parent**
+`engine.runner.abilities` retire le `from .loki import (…)` qui était le **seul chemin** chargeant
+`loki/__init__.py`, donc `facade`, donc l'enregistrement. Un registre vide, aucune erreur,
+**rien qui rougisse** — la panne exacte que l'exclusion devait empêcher, obtenue par un autre
+bord.
+
+Correctif : `_cibles_chargeuses_de_registre()` protège les barils à registre **et tous leurs
+ancêtres qui sont des barils**. Un import chargeur reste intact même si plus personne ne lui
+réclame de symbole : **c'est son exécution qui compte, pas ce qu'il expose**. Effet sur la
+vidange : 287 → **283** ré-exports (`runner.abilities` −8 → −4).
 
 ## Trois pièges mesurés, que rien n'annonçait
 

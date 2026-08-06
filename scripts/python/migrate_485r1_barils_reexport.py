@@ -738,6 +738,34 @@ def recenser_substitutions(racine: Path, barils: dict[str, Baril], exclure: set[
 
 # ------------------------------------------------------------------------------------- vidange
 
+def _cibles_chargeuses_de_registre(barils: dict[str, Baril]) -> set[str]:
+    """Modules dont l'import CHARGE un registre -- les barils a registre EUX-MEMES et tous
+    leurs ancetres qui sont des barils.
+
+    ⚠ LA PROPRIETE << A REGISTRE >> SE PROPAGE VERS LE HAUT, et l'ignorer produit exactement
+    la panne qu'on croyait avoir ecartee. Mesure (2026-08-06) : `engine.runner.abilities.loki`
+    est bien exclu du vidage -- mais vider son PARENT `engine.runner.abilities` retire le
+    `from .loki import (...)` qui etait le SEUL chemin chargeant `loki/__init__.py`, donc
+    `facade`. Resultat lu par l'etage [3] du probe :
+
+        TRIGGERED_ABILITY_DELAYED_BEHAVIOURS  {1180: facade._run_switch} -> {}
+
+    Un registre vide, sans erreur, sans que rien ne rougisse -- la panne meme que l'exclusion
+    devait empecher. Exclure le baril a registre ne suffit donc pas : il faut PROTEGER l'import
+    qui le charge, partout ou il se trouve."""
+    protegees: set[str] = set()
+    for nom, b in barils.items():
+        if not b.registre:
+            continue
+        protegees.add(nom)
+        bouts = nom.split(".")
+        for i in range(1, len(bouts)):
+            prefixe = ".".join(bouts[:i])
+            if prefixe in barils:
+                protegees.add(prefixe)
+    return protegees
+
+
 def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
                  appliquer: bool) -> list[tuple[str, int, int]]:
     """Retire d'un baril les re-exports que PLUS AUCUN fichier du perimetre ne reclame ET que
@@ -776,6 +804,8 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
                     if al.name in barils:
                         reclames[al.name] |= set(barils[al.name].exports)
 
+    chargeuses = _cibles_chargeuses_de_registre(barils)
+    garde_registre: set[str] = set()
     bilan: list[tuple[str, int, int]] = []
     for nom, b in sorted(barils.items()):
         if nom in exclure or not b.exports:
@@ -785,6 +815,13 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
         utilises = _noms_references(arbre, avec_all=False)
         demandes = reclames.get(nom, set())
         retirables = {s for s in b.exports if s not in demandes and s not in utilises}
+        #: Les noms apportes par un import CHARGEUR DE REGISTRE restent lies au module (son
+        #: import n'est pas retire) : les oter d'`__all__` creerait une incoherence entre ce
+        #: que le baril expose et ce qu'il declare.
+        for n in arbre.body:
+            if isinstance(n, ast.ImportFrom) and (
+                    cible_absolue(nom, n, racine) or "") in chargeuses:
+                retirables -= {a.asname or a.name for a in n.names}
         if not retirables:
             bilan.append((nom, 0, len(b.exports)))
             continue
@@ -792,6 +829,12 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
         edits: list[tuple[int, int, list[str]]] = []
         for n in arbre.body:
             if not isinstance(n, ast.ImportFrom):
+                continue
+            #: L'import qui CHARGE un registre reste INTACT, meme si plus personne ne lui
+            #: reclame de symbole : c'est son EXECUTION qui compte, pas ce qu'il expose.
+            vise = cible_absolue(nom, n, racine) or ""
+            if vise in chargeuses:
+                garde_registre.add(vise)
                 continue
             gardes = [(a.name, a.asname) for a in n.names
                       if (a.asname or a.name) not in retirables]
@@ -827,6 +870,9 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
             # rajouter ici creerait une ligne blanche a chaque passage.
             b.chemin.write_text("\n".join(out), encoding="utf-8")
         bilan.append((nom, len(retirables), len(b.exports) - len(retirables)))
+    if garde_registre:
+        print("  imports GARDES parce qu'ils CHARGENT un registre : %s"
+              % ", ".join(sorted(garde_registre)))
     return bilan
 
 
