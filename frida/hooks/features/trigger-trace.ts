@@ -43,7 +43,13 @@ const _classGetMethodFromName = (() => {
     return p ? new NativeFunction(p, "pointer", ["pointer", "pointer", "int"]) : null;
 })();
 
-const FIRE_LOG_MAX = 200;
+// Ring PARTAGE entre tous les agents. A 200, une seule etape de build en produit davantage
+// (mesure du 2026-08-06 : 211 fires pour un 2v2, 1333 pour un 5v5), donc une lecture unique ne
+// rend qu'une QUEUE ARBITRAIRE -- c'est ce qui faisait basculer le verdict de
+// `probe_477r21r2b_activation_cache.py` entre deux passages du meme commit (#477-r28). Le probe
+// s'en sort par un poll continu, mais la rafale d'init deborde encore 200 entrees en moins de
+// 50 ms. Le cout d'un ring large est un tableau de N objets plats, borne et sans copie.
+const FIRE_LOG_MAX = 4000;
 /** offset du type d'ability sur l'instance BaseTriggeredAbility (cf. header). */
 const ABILITY_TYPE_OFF = 0x10;
 /** offsets AbilityEntities (dump.cs) — IEntity references. */
@@ -180,7 +186,11 @@ export function register(ctx: Ctx): void {
         const lim = typeof body?.limit === "number" ? body.limit : 50;
         const recent = state.fires.slice(-Math.max(0, lim)).reverse();
         return {
-            ok: true, installed: state.installed, enabled: state.enabled,
+            // `ringMax` est PUBLIE pour qu'un lecteur sache combien il peut demander sans
+            // deviner : la constante ci-dessus a change, et un lecteur qui garderait 200 en dur
+            // se croirait exhaustif en lisant 5 % du ring. Un lecteur qui ne le trouve pas
+            // (hook anterieur) doit retomber sur 200 EN LE DISANT, jamais supposer la valeur.
+            ok: true, installed: state.installed, enabled: state.enabled, ringMax: FIRE_LOG_MAX,
             totalFires: state.seq, byType: { ...state.byType }, recent,
         };
     };

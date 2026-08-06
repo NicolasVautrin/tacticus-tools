@@ -1,19 +1,19 @@
 # #477-r21-r2 volet B — le CACHE qui choisit ce qui s'active
 
-**PORTÉ ET MESURÉ, PAS FERMÉ.** Build `rnca9r7q6c`, ghidra-mcp, session Frida **1** (chaude, aucun
+**PORTÉ ET MESURÉ, PAS CÂBLÉ.** Build `rnca9r7q6c`, ghidra-mcp, session Frida **1** (chaude, aucun
 reinject, **aucun capteur neuf**). La structure et les règles d'`IdunBattleLogic.Core.Services.Caches.AbilityAndEffectCache`
-sont portées 1:1 dans `engine/runner/caches/ability_and_effect_cache.py`. Sa **séquence** est
-confrontée au natif sur **316 passes complètes** de **32 `EventTriggerType`**, trois scénarios :
-**0** divergence de stabilité, **0** re-dérivation fausse sur 27 événements applicables, **0** ordre
-divergent côté registre du port.
-⚠ **Ces comptes se RE-DÉRIVENT, ils ne se citent pas** : le corpus dépend de ce que l'IA joue et le
-ring de trace est partagé — deux runs consécutifs rendent 9 à 11 événements sur le même board. Ce
-qui est stable et vaut verdict, ce sont les **zéros**.
-**`Effect_Refresh` AUTONOMES reste 0/0/0**, et le § 7 dit pourquoi — ce volet ne pouvait pas le
-bouger.
+sont portées 1:1 dans `engine/runner/caches/ability_and_effect_cache.py`, et sa **séquence** est
+confrontée au natif par cinq invariants.
+
+⚠ **L'INSTRUMENT QUI REND CES CHIFFRES A ÉTÉ RÉPARÉ (#477-r28) — les comptes d'avant ne valaient
+rien.** Il n'était pas ISOLÉ : deux passages sur le **même** commit rendaient ROUGE puis VERT. La
+cause n'était pas le seed (déjà fixé à `777`) mais la **lecture unique sur un ring PARTAGÉ de 200
+entrées**, quand une seule étape en produit **211 à 7 900**. Le § 3 détaille les quatre crans.
+**Ne citez aucun chiffre de cette fiche sans le re-dériver** — et n'en citez aucun qui vienne d'un
+scénario que le probe déclare `NON MESURE`.
 
 ```powershell
-python scripts/python/probe_477r21r2b_activation_cache.py            # live, 3 scenarios
+python scripts/python/probe_477r21r2b_activation_cache.py            # live, 3 scenarios, 2 passages
 python -m pytest scripts/python/tests/engine/test_477r21r2b_activation_cache_offline.py -q
 ```
 
@@ -162,7 +162,7 @@ la priorité de **cache** (slots 7 / 9). Deux slots, deux objets. Ordonner le ca
 décision de l'IA serait une confusion silencieuse — même forme que celle qu'a mesurée #270-r1-r1-r3
 entre `AbilityConstantType` et `AbilityVariableType`.
 
-## 3. L'ORACLE — un hook qui EXISTE DÉJÀ, aucun capteur neuf
+## 3. L'ORACLE, et l'INSTRUMENT qui le lit (#477-r28)
 
 Un cache n'émet aucune ligne : il rend un **ensemble ordonné**. On ne peut donc pas le confronter
 en comparant deux textes de flux, comme les quatre crans #477-r18..r22. L'oracle est
@@ -170,20 +170,90 @@ en comparant deux textes de flux, comme les quatre crans #477-r18..r22. L'oracle
 `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$ShouldTrigger`, appelée **une fois par entrée
 retenue du parcours, dans l'ordre**. Sa trace **est** la séquence `active[trigger]`.
 
-Le probe ne fait **jamais** `triggerTraceReset` — cela effacerait le ring des autres agents. Il lit
-`totalFires` avant/après chaque étape courte et **déclare** ce qu'il a perdu quand une étape dépasse
-le ring de 200 (mesuré : 18 à 90 fires perdus au `build`).
+Le probe ne fait **jamais** `triggerTraceReset` — cela effacerait le ring des autres agents.
+
+### 3.1 Le vice : un ring PARTAGÉ de 200 lu UNE FOIS après coup
+
+**Mesuré, pas redouté** : deux passages sur le même commit rendaient ROUGE puis VERT (19 événements,
+(I2) 24/90, (I4) **10** hors sous-séquence ; puis 10, 1/9, **0**). Le seed n'y était pour rien — il
+valait déjà `777`, et à seed fixe le corpus de notre runner est **rigoureusement déterministe**
+(mesuré : **211** fires au `build` de `C1_02` 2v2 et **73** à l'`aiturn`, reproduits à des instants
+différents). Deux causes distinctes se cumulaient, et l'ancien code les **confondait** :
+
+* **TRONCATURE** — une étape produit 211 à **7 900** fires quand le ring en garde **200**. Une
+  lecture unique après coup ne rend donc pas « un corpus tronqué » mais **une queue arbitraire** :
+  85 % du `build` 5v5 n'était jamais vu, et *lesquels* 200 survivaient dépendait des voisins. Un
+  corpus amputé au hasard **coupe les passes**, ce qui FABRIQUE des (I4) hors sous-séquence et des
+  ruptures (I2) que le natif ne produit pas ;
+* **CONTAMINATION** — le ring est partagé et **n'émet aucun identifiant de runner**. Mesuré :
+  un `build` a rendu **839** fires produits là où le corpus propre en fait **211** — **628
+  étrangers**, soit trois fois le nôtre. Un autre a vu **695** fires étrangers en 3 s de sonde.
+
+⚠ **Et `perdus` ne pouvait pas le voir, parce qu'il ADDITIONNAIT les deux.** L'ancien
+`attendus - len(fires)` mêle une perte (qui doit compter) et une contamination (qui **grossit**
+`len(fires)`, donc **rabaisse** le compte). Un corpus à la fois amputé et pollué s'annonçait
+`0 PERDU`. Les `seq` du hook étant strictement croissants, ce qui manque **s'énumère** :
+`Fenetre.trous` = `]depuis, total]` privé de ce qu'on a lu. Le cliquet offline garde ce cas précis.
+
+### 3.2 Les quatre crans, et c'est le dernier qui mord
+
+| | cran | ce qu'il attrape |
+|---|---|---|
+| 1 | **SEED explicite** (`--seed`, imprimé) | rend le corpus comparable — il était déjà fixé, mais supposé |
+| 2 | **COLLECTE CONTINUE** (`Collecteur`, poll `--intervalle`) | la troncature : à 0,10 s le `build` laissait **403** trous, à 0,02 s **7** |
+| 3 | **VERDICT TRI-ÉTAT** | une fenêtre à trous est **ÉCARTÉE** du corpus ; `rc=2` si aucun scénario n'est exploitable — ni vert, ni rouge |
+| 4 | **CONCORDANCE** (`--repetitions`, défaut 2) | **tout le reste** : deux passages à seed identique doivent rendre la MÊME empreinte |
+
+⚠ **LES TROIS PREMIERS NE SUFFISENT PAS, ET LA MESURE L'A IMPOSÉ.** Un scénario a rendu
+`0 fire étranger` à ses **trois** sondes de silence **et** 23 événements / 15 ruptures / 5 passes
+hors sous-séquence — trois fois le corpus propre, donc massivement pollué, et un ROUGE qui
+n'accusait pas le port. La sonde n'échantillonne que quelques secondes sur une trentaine : elle rate
+les voisins à rafales. Le seul critère **exact** est la concordance de deux passages.
+
+⚠ **Les deux causes d'une discordance sont SÉPARÉES, parce qu'elles n'accusent pas la même chose** :
+si les comptes **produits** diffèrent → `POLLUTION AVEREE` (des fires étrangers ont traversé) ; s'ils
+sont **égaux** → `ALEA DE COLLECTE` (le poll n'a pas lu la même chose d'une fenêtre qui déborde le
+ring). Les confondre ferait accuser les voisins d'un défaut d'instrument.
+
+⚠ **L'empreinte s'arrête à ce qui PÈSE dans le verdict** — réglage imposé par la mesure : y avoir
+mis le `len(fires)` d'une fenêtre **écartée** a rendu deux scénarios `NON REPRODUCTIBLE` dont les
+comptes produits étaient rigoureusement égaux. Combien un poll parvient à lire d'une fenêtre qu'on va
+de toute façon écarter est un aléa d'ordonnancement, pas une propriété du corpus.
+
+### 3.3 Ce qui reste IRRÉDUCTIBLE, et le capteur qui le lèverait
+
+Le hook **n'émet aucun identifiant de runner**, et les identifiants d'entité sont attribués **par
+match** (mesuré : deux runners du même board portent tous deux `49`/`51`). **Aucun champ d'un fire ne
+dit de quelle bataille il vient** — filtrer « nos » entités ne séparerait donc rien. Les deux gardes
+sont à **sens unique** et le disent : la sonde **prouve** une contamination mais ne prouve pas son
+absence ; la concordance **rend improbable** une pollution mais ne l'exclut pas.
+
+**Le remède est écrit et attend une fenêtre de reinject** : `FIRE_LOG_MAX` **200 → 4000** dans
+`frida/hooks/features/trigger-trace.ts`, plus `ringMax` **publié** par le RPC pour qu'aucun lecteur
+n'ait à le deviner (le probe le lit, et **dit** quand il a dû retomber sur 200). Sans lui, toute
+fenêtre au-delà de ~3 300 fires reste à la merci du poll : mesuré, le `build` d'un 4v4 laisse **203**
+trous là où les trois `aiturn` passent complets.
 
 ## 4. LES CINQ INVARIANTS, et ce que chacun a eu à trancher
 
-| | invariant | `MC1_67` 2v2 | `C1_02` 2v2 | `C1_02` 5v5 |
+⚠ **Les comptes ci-dessous sont un INSTANTANÉ post-#477-r28 — les RE-DÉRIVER, jamais les citer.**
+Ce qui vaut verdict, ce sont les **zéros** ; et un scénario que le probe déclare `NON MESURE` n'entre
+dans aucune colonne (le corpus retenu dépend de ce que la flotte laisse passer).
+
+| | invariant | `MC1_67` 2v2 | `C1_02` 2v2 | `MC1_67` 4v4 + SPAWN |
 |---|---|---|---|---|
-| | événements observés | 10 | 11 | 11 |
-| (I1) | **STABILITÉ** — deux publications du même trigger parcourent la même séquence | **0** divergente / **136** passes complètes | **0** / **139** | **0** / **41** |
-| (I2) | **MONOTONIE inter-entité** — les identifiants porteurs sont non décroissants | **1** rupture / 9 couples | **1** / 5 | **3** / 20 |
-| (I3) | **RE-DÉRIVATION** par le port, alimenté dans l'ordre des identifiants | **0 ROUGE** / 9 applicables (+1 hors régime) | **0** / 10 (+1) | **0** / 8 (+3) |
+| | événements observés | 9 | 8 | 19 |
+| (I1) | **STABILITÉ** — deux publications du même trigger parcourent la même séquence | **0** divergente / **65** passes complètes | **0** / **63** | **0** / **188** |
+| (I2) | **MONOTONIE inter-entité** — les identifiants porteurs sont non décroissants | **0** rupture / 6 couples | **0** / 1 | **3** / 27 |
+| (I3) | **RE-DÉRIVATION** par le port, alimenté dans l'ordre des identifiants | **0 ROUGE** / 9 applicables | **0** / 8 | **0** / 17 (+2 hors régime) |
 | (I4) | **CROISSANCE** — les passes courtes sont des sous-séquences de la modale | **0** hors sous-séquence | **0** | **0** |
-| (I5) | l'ORDRE du **registre du port** est une sous-séquence du natif | 4 exercés, **0 discriminant** | 4, **0** | 5 exercés, **3 discriminants**, **0 divergent** |
+| (I5) | l'ORDRE du **registre du port** est une sous-séquence du natif | 4 exercés, **0 discriminant** | 4, **0** | 5 exercés, **1 discriminant**, **0 divergent** |
+| | régime **SPAWN** exercé dans le corpus retenu | non | non | **oui** (unités 125, 127) |
+
+⚠ **Les deux ruptures (I2) des colonnes 2v2 ont DISPARU avec la réparation de l'instrument**, et
+c'est le meilleur témoin de ce que valait l'ancien corpus : elles venaient de la fenêtre `build`,
+lue en queue arbitraire. Une passe coupée par la troncature **fabrique** exactement la signature
+qu'(I2) cherche.
 
 (I1) ne copie **rien** : c'est ce que « cache » veut dire, et le port actuel — qui **reconstruit**
 son registre à chaque événement (`dispatch/core.py`) — n'a aucune raison structurelle de rendre deux
@@ -228,6 +298,44 @@ Corollaire pour (I3) : le critère d'applicabilité porte sur **les deux** — b
 absence de rupture. Le seul `bloc_contigu` ne suffisait pas, et la mesure l'a montré :
 `UnitFinishedTurn` rend `[67, 53, 53, 53, 53]`, deux blocs contigus, mais le cadet passe **devant**
 son aîné.
+
+## 5bis. Le RÉGIME SPAWN de #477-r27 — monté, exercé, MESURÉ (I5 vert)
+
+Le résidu #477-r27 conditionnait le câblage à une **divergence (I5) mesurée**, et nommait deux
+régimes candidats absents du corpus. Le premier est désormais **monté et confronté**.
+
+**Montage** (dérivé de `case-291-summon-activation.md`, board `MC1_67`, seed `777`) :
+
+```powershell
+python scripts/python/probe_477r21r2b_activation_cache.py --boards MC1_67 --sans-roster-large `
+  --p-units "orksWarboss,orksNob,necroSpyder,orksRuntherd" `
+  --a-units "darkaCompanion,tyranWingedPrime,ultraInceptorSgt,necroWarden" `
+  --tours 2 --repetitions 2 --intervalle 0.01
+```
+
+**Mesure** — empreintes **CONCORDANTES** sur 2 passages, donc corpus certifié : `build` écarté
+(203 trous), `aiturn-1` **2 782/2 782** et `aiturn-2` **4 654/4 654** complètes ; **régime SPAWN
+EXERCÉ DANS LE CORPUS** (unités **125** et **127** apparues pendant `aiturn-2`, une fenêtre
+retenue) ; **19** événements, (I1) **0** divergente / **188** passes complètes, (I4) **0** hors
+sous-séquence, (I3) **0 ROUGE** / 17 applicables ; **(I5) 5 exercés, 1 DISCRIMINANT, 0 ordre
+divergent**. Verdict **VERT**.
+
+⚠ **LE RÉGIME SE LIT SUR LES FENÊTRES RETENUES, PAS SUR LE SCÉNARIO — et le premier jet avait le
+vice qu'il combattait.** Mesuré : le roster 5v5 spawne au **tour 2**, dont la fenêtre déborde le
+ring et se fait donc écarter, tandis que le tour 1 — seule fenêtre retenue — n'en contient aucun.
+Rattacher les spawns au scénario affichait `RÉGIME EXERCÉ` **au-dessus d'un corpus qui n'en portait
+aucune trace**. Les spawns sont désormais rattachés **par fenêtre**.
+
+⚠ **UN (I5) VERT SANS DISCRIMINANT NE MESURE RIEN, et deux rosters l'ont montré** : le 2v3 de #291
+(`orksWarboss,orksNob` vs 3 ennemis) exerce bien le spawn mais rend **0 discriminant** — aucune suite
+du port n'y atteint deux porteurs communs avec le natif. Le 3v3 aussi (20 événements, 262 passes,
+**0** discriminant). Il a fallu **4v4** pour qu'un événement discrimine. C'est pourquoi le probe
+imprime les **deux** constats côte à côte : le régime exercé **et** le compte de discriminants.
+
+**Non couvert** : la **généralisation à un second board**. `C1_02`, même roster, a été tenté
+**deux fois** et rendu `NON MESURE` les deux fois — `CONTAMINATION AVEREE` (3 puis **195** fires
+étrangers aux sondes, comptes produits divergents). Ce n'est ni un vert ni un rouge : la flotte
+était active. Le montage ci-dessus, avec `--boards C1_02`, est prêt à rejouer.
 
 ## 6. (I5) — le registre du PORT n'est PAS en divergence d'ordre, et c'est un résultat
 
@@ -326,14 +434,24 @@ résolu par son nom global).
 
 ## Résidus
 
-* **#477-r27** — **CÂBLER le cache dans `evaluate_trigger_operation`**, *conditionné à une mesure* :
-  (I5) rend **0 divergence d'ordre** sur les deux boards, donc le brancher aujourd'hui changerait
-  l'ordre d'exécution des triggers (RNG, cascades) pour un gain nul. Le déclencheur est une
-  **divergence (I5) mesurée** — le probe la rendrait ROUGE. Deux régimes candidats, non couverts par
-  le corpus actuel et identifiés par la structure : une **unité spawnée** en cours de partie (son
-  identifiant dépasse ceux des entités d'effet déjà créées, donc le natif la place **après** elles
-  alors que le port place toutes les abilities avant tous les effets), et un porteur dont la
-  priorité de cache ne serait pas `Normal`. **Monter ces deux scénarios est la tranche.**
+* **#477-r27** — **CÂBLER le cache dans `evaluate_trigger_operation`** : régime **SPAWN clos par la
+  MESURE**, régime **PRIORITÉ non confronté**. Le § 5bis donne le montage et les chiffres : sur un
+  corpus **certifié par concordance** où le régime spawn est **exercé** (2 unités apparues dans une
+  fenêtre retenue), (I5) rend **1 discriminant, 0 ordre divergent**. Le déclencheur que ce résidu
+  s'était donné — une divergence (I5) mesurée — **ne s'est pas produit sur le régime qu'il visait**.
+  Rien n'est donc câblé : le brancher changerait l'ordre d'exécution des triggers, donc le RNG, donc
+  les cascades, pour un gain **mesuré nul**.
+  **Ce qui reste ouvert, et pourquoi** : le régime **PRIORITÉ** (un porteur dont `get_Priority` ne
+  rend pas `AbilityPriority.Normal`) est **NON CONFRONTÉ — non montable sans capteur**. Les valeurs
+  par porteur ne sont pas lisibles au décompilé (§ 2 : corps `mov eax,<imm32> ; ret` dédupliqués par
+  IL2CPP, un seul propriétaire arbitraire dans `methods.tsv`, même faux négatif que #170), et rien
+  dans le corpus ne les révèle — les contre-épreuves `comparaison_inversee` et `append_nu` sont
+  restées **inertes par les données** sur **tous** les scénarios joués, ce qui **est** le constat que
+  les priorités rencontrées sont uniformes. On ne peut donc ni CHOISIR un porteur non-`Normal`, ni
+  CONSTATER qu'on en a rencontré un. Le capteur qui lèverait ce verrou est celui déjà nommé
+  ci-dessous (slot `+0x188`) ; il exige une fenêtre de reinject.
+  Second point ouvert : la **généralisation à un 2ᵉ board** — `C1_02`, même roster, tenté **deux
+  fois** et rendu `NON MESURE` les deux fois (contamination avérée, 3 puis 195 fires étrangers).
 * **#477-r26** (existant, non ouvert ici) s'élargit : à `GetRefreshTriggers` par classe s'ajoutent
   `ITriggeredAbility.<slot 3>` et `IEffect.<slot 0x12>` / `<slot 0x2d>` — **même cause**, mêmes blobs.
   **Point d'ancrage natif à hooker** pour les rendre : le slot `+0x188` de la vtable

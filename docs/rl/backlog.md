@@ -2854,36 +2854,46 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `docs/rl/case-477r21r2b-cache-activation.md`, et
   `docs/rl/case-477r21r3-allocation-entites-effet.md` sec. 4.
 
-- **#477-r27 : CABLER le cache d'activation dans `evaluate_trigger_operation`.** `[opus]`
-  **CONDITIONNE A UNE MESURE, pas une tache en attente.** `engine/runner/operations/triggers/dispatch/core.py`
-  RECONSTRUIT son registre a chaque evenement (`abilites(par entite) + globals + effets(par unite)`)
-  la ou le natif LIT une liste persistante `AbilityAndEffectCache.active[trigger]`. Les deux ordres
-  n'ont aucune raison structurelle de coincider -- et pourtant, mesure sur `MC1_67` 2v2 et `C1_02`
-  5v5 (`probe_477r21r2b`, invariant (I5)) : **0 divergence d'ordre**, 3 evenements discriminants.
-  Brancher le cache aujourd'hui changerait l'ordre d'execution des triggers -- donc le RNG, donc les
-  cascades -- pour un gain **mesure nul**. Le declencheur est une divergence (I5) MESUREE.
-  DEUX REGIMES CANDIDATS, identifies par la STRUCTURE et absents du corpus actuel : (1) une **unite
-  SPAWNEE** en cours de partie -- son identifiant depasse ceux des entites d'effet deja creees, donc
-  le natif la place APRES elles alors que le port place toutes les abilites avant tous les effets ;
-  (2) un porteur dont la priorite de cache n'est pas `AbilityPriority.Normal`. **Monter ces deux
-  scenarios EST la tranche** -- si (I5) reste vert dessus, le residu se ferme par la mesure.
-  cf. `docs/rl/case-477r21r2b-cache-activation.md` sec. 6 et Residus.
+- **#477-r27 : CABLER le cache d'activation -- regime SPAWN CLOS PAR LA MESURE, regime PRIORITE
+  NON CONFRONTE.** `[opus]` **Ne rien cabler.** Le declencheur que ce residu s'etait donne -- une
+  divergence (I5) MESUREE -- ne s'est pas produit sur le regime qu'il visait. Monte et confronte le
+  2026-08-06 : roster 4v4 a summoners (`orksWarboss,orksNob,necroSpyder,orksRuntherd` vs
+  `darkaCompanion,tyranWingedPrime,ultraInceptorSgt,necroWarden`, `MC1_67`, seed 777, 2 tours), corpus
+  **CERTIFIE par concordance de 2 passages**, regime spawn **EXERCE DANS UNE FENETRE RETENUE**
+  (unites 125 et 127) : (I5) **5 exerces, 1 DISCRIMINANT, 0 ordre divergent** ; (I1) 0/188, (I4) 0.
+  Brancher changerait l'ordre d'execution des triggers -- donc le RNG, donc les cascades -- pour un
+  gain **mesure nul**.
+  ⚠ **UN (I5) VERT SANS DISCRIMINANT NE MESURE RIEN** : le 2v3 de #291 et un 3v3 exercent bien le
+  spawn et rendent **0 discriminant** ; il a fallu **4v4** pour qu'un evenement discrimine.
+  ⚠ **Et le regime se lit sur les fenetres RETENUES** : le 5v5 spawne au tour 2, dont la fenetre
+  deborde le ring et se fait ecarter -- « regime exerce » s'affichait alors au-dessus d'un corpus qui
+  n'en portait aucune trace.
+  RESTE OUVERT : (a) le regime **PRIORITE** (`get_Priority` != `AbilityPriority.Normal`) est **NON
+  MONTABLE SANS CAPTEUR** -- valeurs non lisibles au decompile (corps `mov eax,imm32 ; ret`
+  dedupliques, faux negatif de #170) et rien dans le corpus ne les revele, les mutants
+  `comparaison_inversee`/`append_nu` restant **inertes par les donnees** sur tous les scenarios joues.
+  Capteur : slot `+0x188`, cf. #477-r26 -- fenetre de reinject requise ; (b) la **generalisation a un
+  2e board** (`C1_02`, meme roster : tente 2 fois, `NON MESURE` les 2 fois, contamination avereee).
+  cf. `docs/rl/case-477r21r2b-cache-activation.md` sec. 5bis et Residus.
 
-- **#477-r28 : `probe_477r21r2b` n'est pas ISOLE -- son verdict BASCULE avec l'activite des voisins.**
-  `[opus]` **MESURE, pas redoute** : deux passages sur le MEME commit (`dd569b5a`) rendent ROUGE puis
-  VERT. Sur `MC1_67`, passage 1 = 19 evenements, (I2) 24 ruptures / 90 couples, (I4) **10** passes
-  courtes HORS SOUS-SEQUENCE ; passage 2 = 10 evenements, (I2) 1/9, (I4) **0**. Deux causes, toutes
-  deux lisibles dans le code : `R19.build(...)` ne passe **aucun seed** (la bataille differe a chaque
-  run), et le ring `triggerTrace` est **PARTAGE, plafonne a 200 entrees** -- ce que le probe SAIT (il
-  compte ses `perdus` par fenetre) mais dont son VERDICT ne tient pas compte. Sous flotte chargee, des
-  fires etrangers entrent dans la fenetre et (I4) rougit pour une cause etrangere au port.
-  ⚠ La CONFORMITE tient sur les deux passages ((I1) 0 divergente sur 311 puis 315 passes completes,
-  deux corpus independants) -- ce n'est donc pas un defaut du port. Le danger est le REFLEXE qu'un tel
-  artefact installe : « rejoue-le, il est vert » est exactement comment un VRAI rouge finirait ecarte.
-  Deux crans a poser : un **seed explicite** (le corpus doit etre reproductible), et un verdict qui
-  **gate sur `perdus > 0`** -- une fenetre qui a perdu des entrees n'est pas une mesure, elle doit se
-  declarer NON MESUREE, jamais rendre un (I4) rouge ni un vert.
-  cf. `docs/rl/case-477r21r2b-cache-activation.md`.
+- **#477-r28 : l'instrument de #477-r21-r2b est ISOLE -- RESOLU.** `[opus]` Son verdict basculait
+  (ROUGE puis VERT sur le MEME commit). ⚠ **La cause supposee etait FAUSSE sur un point** : `R19.build`
+  passait deja `--seed 777`, et a seed fixe le corpus de NOTRE runner est **rigoureusement
+  deterministe** (mesure : 211 fires au `build` de `C1_02` 2v2, 73 a l'`aiturn`). La vraie cause est la
+  **lecture unique sur un ring PARTAGE de 200** quand une etape en produit **211 a 7 900** : queue
+  arbitraire (85 % du build 5v5 jamais vu) + fires etrangers (mesure : **628** etrangers sur un build,
+  **695** en 3 s de sonde). Quatre crans livres, et c'est le dernier qui mord : seed explicite ;
+  **collecte continue** (trous ENUMERES par `seq`, plus deduits -- l'ancien `attendus - len(fires)`
+  additionnait perte et contamination et rendait `0 PERDU` sur un corpus ampute) ; **verdict
+  TRI-ETAT** (fenetre a trous ECARTEE, `rc=2` si rien n'est exploitable) ; **CONCORDANCE de 2
+  passages** (`--repetitions`, defaut 2). ⚠ Les trois premiers ne suffisent PAS : un scenario a rendu
+  `0 fire etranger` a ses 3 sondes ET 23 evenements / 15 ruptures / 5 passes hors sous-sequence.
+  Une discordance nomme sa cause : `POLLUTION AVEREE` (comptes produits differents) vs `ALEA DE
+  COLLECTE` (comptes egaux). Cliquet offline : 5 tests dedies.
+  RESTE OUVERT -- **le ring elargi attend une fenetre de reinject** : `FIRE_LOG_MAX` **200 -> 4000** +
+  `ringMax` publie sont ECRITS dans `frida/hooks/features/trigger-trace.ts` et compiles, mais le hook
+  actif est l'ancien. Sans lui, toute fenetre au-dela de ~3 300 fires reste a la merci du poll.
+  cf. `docs/rl/case-477r21r2b-cache-activation.md` sec. 3.
 
 - **#477-r26 : les DONNEES que les gardes de `RefreshEffectsOperation` consomment.** `[opus]`
   Le volet A a porte les quatre gardes ; trois entrees qu'elles LISENT manquent au port, et tant
