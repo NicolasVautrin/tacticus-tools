@@ -474,6 +474,99 @@ Sa dérivation est **simulée depuis l'entrée versionnée** pour que la colonne
 dérivation/versionné » reste observable **sans le jeu installé** ; la passer à `None` la fige à 0 et
 le test se lirait « aucun mutant ne garde l'étage 2 » alors que tous le gardent.
 
+## 6quater. `#477-r36` — le gisement tenait à l'APPEL, et le RECENSEUR le sous-comptait de 48 %
+
+**LIVRÉ.** Le résidu demandait de trier les **50** lignes de `nom_ecarte_par_un_cran`. Deux
+résultats, dont un qui n'était pas la question posée.
+
+### Le compte annoncé était FAUX, et c'est le recenseur qui l'était
+
+`_regex_noms` — le motif qui, dans la VENTILATION, cherche « un nom de l'interface est-il écrit
+dans la fenêtre ? » — portait `$` **dans son lookbehind** (`(?<![A-Za-z0-9_$])`). Il ne voyait donc
+**aucun nom QUALIFIÉ** : `Core.Services.OperationProcessor$$RemoveUnit`, la forme la plus courante
+du corpus, lui était invisible. Ces lignes partaient en `numero_sans_nom` — « rien à contredire ».
+
+Re-mesuré sur l'arbre de départ, à régime CONSTANT : le gisement n'était pas de **50** lignes mais
+de **74** (et `numero_sans_nom` de **55**, pas 79). **24 lignes**, soit **48 %**, étaient rangées
+dans le tas que le résidu déclarait sans intérêt. C'est « un recenseur ne peut pas rendre zéro sur
+ce qu'il ne visite pas », appliqué au recenseur lui-même — et le seul moyen de le voir était de
+faire entrer des couples qu'il prétendait inexistants.
+
+### Les quatre formes, chacune née d'une cause LUE au site
+
+Le tri site par site donne **une** cause dominante : **un slot s'écrit sous forme d'APPEL**, et sa
+liste d'arguments porte précisément les `(`, `)`, `,`, `:`, `;` que `_entre` exclut. La résolution
+écrite juste après était donc structurellement hors d'atteinte.
+
+| forme | ce qu'elle lit | cran qui la garde |
+|---|---|---|
+| A/B/C + **appel absorbé** | `processor.AddUnit(a, b, c, d, e); // slot 5` | la paire est ÉQUILIBRÉE et COLLÉE |
+| **D** — résolution commentée | `<IOperationProcessor slot 0x76>(unit) # = MarkUnitAsNoActionAvailable` | marqueur de résolution (`=` avant, `->`/signature après) |
+| **E** — placeholder | `processor.<slot 0x3c AttackDamage>(caster, t, abilityOrEffect, opts)` | les chevrons sont FERMÉS |
+| **F** — résolution en prose | `<slot 0x16>(…) c'est-à-dire \`ContinueTurnPhase\`` | délimiteur de code OUVRANT + marqueur |
+
+⚠ **L'appel absorbé n'est PAS le relâchement « la fermeture ne bloque plus »** de `#477-r32` (6
+couples, 4 artefacts) : on absorbe un bloc équilibré, on n'ignore pas la fermeture. Hors de ce
+bloc, `_entre` garde **toutes** ses exclusions.
+
+### Ce qu'il RAPPORTE, et le seul étage qui change de portée
+
+Re-dérivé (`--historique` vs service, même arbre, même fenêtre) : attestations **81 → 116**, zone
+aveugle **186 → 152**, gisement **81 → 47**. **35** couples n'existent que par ces formes (14 par
+l'appel absorbé seul, 21 par D/E/F), et **0** au nom qui ne concorde pas.
+
+L'apport qui ne se lit pas dans ces comptes : **l'étage ARITÉ passe de 8 à 39 citations
+confrontées** (×4,9). C'est le cran qui a trouvé la faute de `#477-r24-r2` ; il ne pouvait juger
+que les sites montrant leurs arguments APRÈS le couple, or l'écriture dominante les met AVANT.
+
+### La réponse à la question binaire : **0** citation fausse — relâchement par relâchement
+
+| cran désarmé | neufs | ne concordent pas | verdict |
+|---|--:|--:|---|
+| `appel-colle` | 1 | 1 | artefact : l'appel sert de pont vers la ligne suivante |
+| `appel-equilibre` | 9 | 8 | 8 artefacts (`POSE`, `RETRAIT`, `REVERT`), **1 juste perdue** |
+| `resolution-marquee` | 3 | 3 | artefacts : `# RemoveEffectOperation` nomme la CLASSE appelée |
+| `placeholder-ferme` | 0 | 0 | **gratuit** : ni coût ni bénéfice mesurable sur ce corpus |
+| `nom-en-backticks` | 2 | 2 | artefacts : `-- AVANT ContinueTurnPhase` rend le nom `AVANT` |
+| `qualificateur-forme-c` | 99 | 97 | **REFUS chiffré** : 2 justes pour 97 artefacts |
+| `virgule-dans-le-remplissage` | 2 | 0 | **1 juste perdue** + 1 artefact de syntaxe Python |
+
+⚠ **« Concorde » ne veut pas dire « citation »** : le relâchement de la virgule fabrique
+`(0x65, MoveUnit)` à partir de la **syntaxe d'une liste Python** d'un fichier de test — un couple
+juste par accident, sans aucun site qui l'attribue. Un tableau qui ne compte que les noms faux
+aurait conclu « la virgule coûte 2 et ne rapporte rien ».
+
+### Une affirmation de `#477-r32` que la mesure DÉMENT
+
+Sa fiche écrit que la correction du slot `0x66` a été « reformulée pour rester confrontable ».
+C'est vrai dans `backlog.md` (« slot **0x66** = `Core.Services.OperationProcessor$$TransformUnit` »,
+forme A) et **faux dans le corps de la fiche**, qui écrit « le **slot 0x66** de
+l'`IOperationProcessor`, c'est-à-dire … » — tournure qu'aucun étage ne voyait. Le cran qui la
+récupère est la **symétrique** exacte de celui de `#477-r32` : le récepteur a aussi le droit de
+s'écrire **APRÈS** le numéro, et c'est la tournure même dont l'étage NOM SEUL a fait son
+discriminant.
+
+### Non-régression MÉCANIQUE, et ce que le cran hérité coûte encore
+
+La version de `master` et celle de la branche jouées **sur le même arbre** : **0 citation perdue**
+à `fenetre=1` comme à `fenetre=3`, 35 gagnées, 0 fausse. Rejouée **après** le rebase.
+
+Restent **deux** citations justes hors couverture, nommées plutôt que rattrapées :
+
+* `engine/streams/input_messages.py` — « le slot 5 de `Core.Services.IOperationProcessor`, **dont**
+  l'implémentation `…$$AddUnit(…)` » : la virgule arrête le remplissage ;
+* `engine/streams/turn_phase.py` — `processor.<slot 0x21>();  // -- \`verifier\`` puis, ligne
+  suivante, `// = \`…$$VerifyUnitsTurnFinished\`` : la résolution est dans le **second**
+  commentaire, et un cran « sauter le premier commentaire » perdrait la localité que `appel-colle`
+  existe pour tenir.
+
+### Le mutant qui garde les formes neuves
+
+Les **cinq** mutants hérités mordent déjà sans elles : aucun ne dit quoi que ce soit de
+l'élargissement. `formes-r36-decalees` mute les couples que **seules** ces formes rapportent
+(`forme >= 3 or appel_absorbe`) et **REFUSE** (`contre-épreuve IMPOSSIBLE`) en régime
+`--historique`, où il n'a rien à muter. Mesuré : 35 désaccords en service, refus en historique.
+
 ## 7. Un apport hors périmètre, non appliqué
 
 `docs/rl/backlog.md` porte le résidu **`#443-r2-b1-r2` : « slot `0x13` de
@@ -509,7 +602,27 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
   **nom seul**. cf. § 6ter.
   Le volet *(a)* — échantillonner les ~640 lignes de `probe_477r25` — reste ouvert sous
   **#477-r36** ci-dessous.
-- **#477-r36 — ce qui reste hors couverture, VENTILÉ PAR CAUSE, sur les DEUX cliquets.** Le compte
+- ~~**#477-r36**~~ → **CLOS le 2026-08-06 (§ 6quater).** Les **50** lignes du gisement étaient
+  **74** : le RECENSEUR de la ventilation portait `$` dans son lookbehind et ne voyait aucun nom
+  QUALIFIÉ. Quatre formes neuves (appel absorbé, résolution commentée, placeholder, résolution en
+  prose) rendent **35** couples — attestations **81 → 116**, gisement **81 → 47** —, **0 citation
+  fausse**, chacun des **7** crans relâché séparément et chiffré. L'étage ARITÉ passe de **8 à 39**
+  citations confrontées. Non-régression mécanique : **0** citation perdue. Restent **2** justes
+  hors couverture, nommées. Résidu : **#477-r38**.
+- **#477-r38 — les DEUX crans hérités qui coûtent encore une citation juste chacun, et les
+  ~640 lignes de `probe_477r25`.** `[opus]` Le premier est la **VIRGULE** dans le remplissage
+  (cran de `#477-r25`, mesuré sur l'AUTRE corpus : une énumération VERTICALE apparie le nom d'un
+  item au slot du suivant) — sur celui-ci il cache « le slot 5 de `Core.Services.IOperationProcessor`,
+  **dont** l'implémentation `…$$AddUnit(…)` », et son relâchement fabrique un couple à partir de la
+  **syntaxe d'une liste Python**. Le second est la **localité du commentaire** : `turn_phase.py`
+  écrit la résolution dans le **second** commentaire de la ligne, et sauter le premier perdrait ce
+  que `appel-colle` tient. Aucun des deux n'est un relâchement à faire au jugé : le discriminant
+  candidat est « la virgule ne bloque que lorsque le remplissage TRAVERSE un saut de ligne », qui
+  colle à la cause mesurée mais n'aide **ni l'une ni l'autre** — donc à instruire, pas à appliquer.
+  Reste aussi le volet jamais ouvert : les ~**640** lignes de `probe_477r25` ne sont **pas
+  ventilées** (son recenseur porte le **même** défaut de lookbehind que celui qui vient d'être
+  corrigé ici — à vérifier avant tout comptage).
+- ~~**#477-r36 (énoncé d'origine)**~~ — ce qui reste hors couverture, VENTILÉ PAR CAUSE. Le compte
   seul est un inventaire ; sa cause en fait une tâche. Sur `IOperationProcessor` (**173** lignes,
   mesurées ; `--ventiler`, et la somme des trois VAUT le total — c'est une partition
   assertionnée, pas une liste blanche de motifs) :
