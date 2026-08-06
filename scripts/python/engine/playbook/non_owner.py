@@ -117,6 +117,11 @@ class TriggeredAbilityNonOwnerPlaybook:
       * `ctx`       = le dict par-decision `tile_leaf_ctx` (porte `unit_faction`, `elev_by_pos`, ...).
     Le natif passe le CASE entier ; le port passe ce que le CASE expose deja aux autres familles."""
 
+    #: `<slot 4>` de `ITriggeredAbilityNonOwnerPlaybook` -- le predicat SANS argument du pre-gate
+    #: `playbook.<slot 4> || IsFriend(sujet, owner)` d'`IterateAbilities`. C'est une donnee PAR
+    #: CLASSE, jamais une constante de famille (#477-r37) : voir la docstring de tete du module.
+    SLOT_4 = False
+
     def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
                                             ctx: dict, wt) -> float:
         return 0.0
@@ -930,24 +935,27 @@ class HaywireMineNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
         else
             yield return GetUtilityValue("HaywireMine_EnemyAvoidMine");      // -30
 
-    ⚠⚠ **LA BRANCHE ENNEMI EST INATTEIGNABLE, ET C'EST MESURE SUR CETTE CLASSE.** Le pre-gate
-    d'`IterateAbilities` est `playbook.<slot 4> || IsFriend(case.unit ?? case.parent, owner)`. Le
-    `<slot 4>` de CETTE classe a ete relu dans son bloc `methodPointers` du PE
-    (`probe_8889_methodptr_vtable.py`) : le bloc y compte EXACTEMENT deux entrees -- `.ctor` puis
-    `CalculateMovementUtilityInSteps` -- immediatement suivies des six corps de sa state machine
-    (`d__5`), dont les trois fondus (`<SM>.ctor`, `Dispose`, `get_Current<T>`) sont les MEMES corps
-    partages que dans les quatre classes de controle relues cote a cote. Elle ne surcharge donc
-    RIEN et herite le `return 0` de la base : **`slot 4 == false`**. Le corps ayant deja ecarte
-    `case.unit == null`, le sujet du pre-gate EST `case.unit`, et le `IsFriend(case.unit, owner)`
-    du corps est litteralement le meme predicat, deja exige vrai pour que la paire soit yieldee.
-    La cle `HaywireMine_EnemyAvoidMine` (-30) EXISTE au gameconfig et n'a **aucun** consommateur
-    atteignable : il n'y a pas de face OWNER (`HaywireMinePlaybook` n'existe pas dans le binaire),
-    ni de face ATTACK/REPAIR pour cette classe.
-    ⚠ Le numero `d__5` de la state machine ne signale PAS des methodes supplementaires : c'est un
-    compteur du compilateur C#, pas un compte de slots. Le deduire aurait fait chercher un override
-    qui n'existe pas -- et le deduire DES TROIS AUTRES CLASSES (comme le suggerait #433-r4-r3, qui
-    n'en avait lu que trois) aurait donne la bonne reponse pour la MAUVAISE raison : c'est la
-    lecture de CE bloc qui tranche.
+    ⚠⚠ **CETTE CLASSE EST LA SEULE DE LA FAMILLE DONT LE `<slot 4>` VAUT `true`, ET C'EST CE QUI
+    REND SA BRANCHE ENNEMI ATTEIGNABLE.** Le pre-gate d'`IterateAbilities` est
+    `playbook.<slot 4> || IsFriend(case.unit ?? case.parent, owner)`. Relu dans le bloc
+    `methodPointers` du PE, l'entree qui PRECEDE immediatement le `.ctor` de cette classe est un
+    corps trivial d'UN octet -- `UnityEngine.U2D.IK.Solver2D$$DoValidate`, fondu par l'ICF, dont le
+    corps est `return 1`. Les classes de controle relues cote a cote portent, a la meme place,
+    `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId` = `return 0`
+    (`ECogSupportPlaybookNonOwnerPlaybook`, `KustomForceFieldReworkedNonOwnerPlaybook`) ou bien le
+    `get_Current` d'une AUTRE classe, c'est-a-dire AUCUN override -- elles heritent alors le `false`
+    de la base (`PsychicFortressNonOwnerPlaybook`, `MawClawsOfThyraxNonOwnerPlaybook`,
+    `PurgeResponseNonOwnerPlaybook`).
+
+    ⚠ **Le premier critere essaye etait FAUX, et il rendait VERT.** Il postulait que le bloc d'une
+    classe COMMENCE a son `.ctor` -- donc que « `.ctor` + `Calculate*` + les six corps de la SM »
+    valait « aucun override ». Les six classes le satisfaisaient toutes, y compris celle-ci. C'est
+    la MESURE LIVE qui l'a renverse : sur la tuile minee du montage `haywire`, `X_nat` valait
+    **-130** pour un port a **-100** -- il manquait exactement **-30**, la valeur de
+    `HaywireMine_EnemyAvoidMine`, et aucune autre ability du montage n'a de `*NonOwnerPlaybook`
+    (verifie sur les six ids presents). Le discriminant correct est donc l'entree QUI PRECEDE le
+    `.ctor`, pas celles qui le suivent. Corollaire de doctrine : `slot 4` est une donnee PAR CLASSE,
+    et « les trois classes lues valent `false` » n'autorisait rien sur les vingt-cinq autres.
 
     Deux autres lectures qui ne se devinent pas :
 
@@ -969,9 +977,10 @@ class HaywireMineNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
 
     ABILITY_ID = int(TriggeredAbilityType.HaywireMine)                   # 0x5fb = 1531
     KEY_FRIENDLY = "HaywireMine_FriendlyAvoidMine"                       # gameconfig vivant = -50
-    #: `HaywireMine_EnemyAvoidMine` (-30) : la SECONDE cle du corps, INATTEIGNABLE (cf. docstring).
-    #: Nommee ici pour que la garde puisse l'assertionner morte ; jamais lue par le port.
-    KEY_ENEMY = "HaywireMine_EnemyAvoidMine"
+    KEY_ENEMY = "HaywireMine_EnemyAvoidMine"                             # gameconfig vivant = -30
+    #: SEULE classe de la famille a le porter VRAI (`return 1`, cf. docstring) : le dispatcher lui
+    #: yielde donc AUSSI les porteurs ENNEMIS, ce qui rend `KEY_ENEMY` atteignable.
+    SLOT_4 = True
     CONFIG_ID = "HaywireMine"
     #: `GetStringConstant(config, 8)` -- la constante, PAS son ordinal nu.
     MINE_CONSTANT = AbilityConstantType.unitToSpawn                      # 8
@@ -1003,13 +1012,10 @@ class HaywireMineNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
         vis = occ.get("vis")
         if not vis or str(vis).split(":")[0] not in self.mine_unit_ids():   # HasUnitId(u, cst)
             return 0.0
-        # `IsFriend(case.unit, owner, State)` -- le pre-gate `<slot 4 = false> || IsFriend` l'a deja
-        # exige vrai, donc SEULE la branche AMIE est atteignable. Le test est ecrit quand meme :
-        # il rend l'implication VISIBLE, et si un build futur faisait passer `<slot 4>` a vrai,
-        # c'est ici que la branche ennemi devrait revenir -- pas dans un correctif de derniere heure.
-        if not is_friend:
-            return 0.0
-        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY_FRIENDLY))
+        # `IsFriend(case.unit, owner, State)` -- les DEUX branches sont atteignables ici, et elles
+        # seules dans toute la famille : `SLOT_4 = True` fait yielder AUSSI les porteurs ennemis.
+        return float(wt.sub("TriggeredAbilitiesNonOwner",
+                            self.KEY_FRIENDLY if is_friend else self.KEY_ENEMY))
 
 
 # `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner` : singleton par TYPE d'ability, cache

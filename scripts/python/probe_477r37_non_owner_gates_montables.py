@@ -113,22 +113,44 @@ def step0(verbeux: bool = True) -> tuple:
     return rc, {"build": build, "move": move, "ids": ids, "portes": portes, "reste": reste}
 
 
+#: `<slot 4>` attendu par classe -- MESURE, pas suppose. Le probe le RE-DERIVE du binaire et
+#: compare ; cette table n'existe que pour faire ROUGIR un glissement de build.
+SLOT4_ATTENDU = {
+    "HaywireMineNonOwnerPlaybook": True,
+    "ECogSupportPlaybookNonOwnerPlaybook": False,
+    "KustomForceFieldReworkedNonOwnerPlaybook": False,
+    "PsychicFortressNonOwnerPlaybook": False,
+    "MawClawsOfThyraxNonOwnerPlaybook": False,
+    "PurgeResponseNonOwnerPlaybook": False,
+}
+#: les deux corps TRIVIAUX d'UN octet que l'ICF a fondus et qui portent le predicat. Ils sont
+#: designes par leur SYMBOLE (leur proprietaire nomme unique), jamais par une adresse.
+_SLOT4_TRUE = "UnityEngine.U2D.IK.Solver2D$$DoValidate"          # `return 1`
+_SLOT4_FALSE = "Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId"   # `return 0`
+
+
 def step0b(build: str, verbeux: bool = True) -> int:
-    """Le `<slot 4>` de `HaywireMineNonOwnerPlaybook`, RELU sur CETTE classe.
+    """Le `<slot 4>` de chaque classe portee, RELU classe par classe dans le PE.
 
-    Critere, DERIVE et non suppose : le bloc `methodPointers` d'une classe de la famille SANS
-    override compte exactement `.ctor`, `CalculateMovementUtilityInSteps`, puis les SIX corps de sa
-    state machine, dont trois sont FONDUS et partages par toute la famille. On confronte donc le
-    bloc de `HaywireMine` a celui des QUATRE classes de controle : meme longueur, memes trois corps
-    fondus aux memes places => aucune methode supplementaire => le slot 4 herite du `return 0` de
-    la base, et vaut `false`.
+    ⚠⚠ **LE PREMIER CRITERE ETAIT FAUX ET RENDAIT VERT.** Il postulait que le bloc `methodPointers`
+    d'une classe COMMENCE a son `.ctor`, et concluait « aucun override » de la seule presence de
+    `.ctor` + `Calculate*` + les six corps de la state machine. Les SIX classes le satisfaisaient,
+    `HaywireMine` comprise -- alors que la mesure live la contredit (-30 manquants, cf. le cas).
 
-    ⚠ La comparaison porte sur la STRUCTURE, jamais sur les noms : la table est indexee par
-    ADRESSE et un corps fondu n'a qu'un seul proprietaire nomme (regle du `CLAUDE.md`)."""
-    import probe_8889_methodptr_vtable as MP
+    Le discriminant est l'entree QUI PRECEDE le `.ctor` :
+      * un corps TRIVIAL d'un octet fondu par l'ICF -> c'est le `<slot 4>` de la classe, et sa
+        VALEUR se lit dans ce corps (`return 1` / `return 0`) ;
+      * un corps NOMME appartenant a une autre classe -> la classe ne surcharge rien et herite le
+        `false` de la base.
 
-    dll = MP._dll_du_build() if hasattr(MP, "_dll_du_build") else None
+    Les deux corps triviaux sont identifies par leur SYMBOLE, pas par une adresse : l'ICF leur a
+    donne un proprietaire nomme unique (`Solver2D$$DoValidate` = `return 1`,
+    `UnityAdsIdentifier$$get_UserId` = `return 0`) et c'est ce nom qui survit au changement de
+    build -- l'adresse, non."""
     fns = _fonctions(build)
+    par_va = {}
+    for sym, va in fns.items():
+        par_va.setdefault(va, sym)
     cibles = {
         "HaywireMineNonOwnerPlaybook":
             "IdunBattle.AI.Playbook.Loki.HaywireMineNonOwnerPlaybook$$CalculateMovementUtilityInSteps",
@@ -143,39 +165,67 @@ def step0b(build: str, verbeux: bool = True) -> int:
         "PurgeResponseNonOwnerPlaybook":
             "IdunBattle.AI.Playbook.Loki.PurgeResponseNonOwnerPlaybook$$CalculateMovementUtilityInSteps",
     }
-    blocs = {}
+    va_true, va_false = fns.get(_SLOT4_TRUE), fns.get(_SLOT4_FALSE)
+    if va_true is None or va_false is None:
+        print("[0b] ROUGE : les corps triviaux du predicat sont introuvables par leur symbole "
+              "(%r / %r) -- le build a bouge, RIEN ne peut etre conclu du slot 4"
+              % (_SLOT4_TRUE, _SLOT4_FALSE))
+        return 1
+
+    rc, mesures = 0, {}
     for nom, sym in cibles.items():
         va = fns.get(sym)
         if va is None:
             print("[0b] ROUGE : symbole introuvable dans `ghidra/functions.tsv` : %s" % sym)
             return 1
-        blocs[nom] = _bloc_methodptr(build, va, avant=1, apres=6)
-    ref = blocs["ECogSupportPlaybookNonOwnerPlaybook"]
-    # les trois corps FONDUS de la state machine : positions +1 (`<SM>.ctor`), +2 (`Dispose`),
-    # +4 (`get_Current<T>`) apres la methode-usine. Ils sont partages par TOUTE la famille -- c'est
-    # cette identite qui prouve qu'il n'y a rien d'insere entre.
-    fondus_ref = (ref[2], ref[3], ref[5])
-    rc, verdicts = 0, {}
-    for nom, b in blocs.items():
-        ctor_avant = (b[0] == _va_de(fns, cibles[nom].replace("$$CalculateMovementUtilityInSteps",
-                                                              "$$.ctor")))
-        fondus = (b[2], b[3], b[5])
-        ok = ctor_avant and fondus == fondus_ref
-        verdicts[nom] = ok
-        if verbeux:
-            print("[0b] %-44s ctor juste avant=%-5s corps fondus identiques=%-5s -> slot4 %s"
-                  % (nom, ctor_avant, fondus == fondus_ref,
-                     "= false (herite)" if ok else "INDETERMINE"))
-        if not ok:
+        # -2 = l'entree qui PRECEDE le `.ctor` ; -1 = le `.ctor` ; 0 = la methode-usine.
+        bloc = _bloc_methodptr(build, va, avant=2, apres=0)
+        avant_ctor, ctor = bloc[0], bloc[1]
+        attendu_ctor = fns.get(sym.replace("$$CalculateMovementUtilityInSteps", "$$.ctor"))
+        if ctor != attendu_ctor:
+            print("[0b] ROUGE : %s -- l'entree qui precede la methode-usine n'est PAS son `.ctor` ; "
+                  "la structure du bloc a change, le critere ne tient plus" % nom)
+            return 1
+        if avant_ctor == va_true:
+            val, source = True, "override `return 1` (%s)" % _SLOT4_TRUE
+        elif avant_ctor == va_false:
+            val, source = False, "override `return 0` (%s)" % _SLOT4_FALSE
+        else:
+            val = False
+            source = "AUCUN override -- herite de la base (l'entree precedente est `%s`)" \
+                     % par_va.get(avant_ctor, "0x%x" % avant_ctor).rsplit(".", 1)[-1]
+        mesures[nom] = val
+        att = SLOT4_ATTENDU.get(nom)
+        etat = "OK" if att == val else "ECART (attendu %s)" % att
+        if att != val:
             rc = 1
-    if verdicts.get("HaywireMineNonOwnerPlaybook"):
-        print("[0b] VERDICT : `HaywireMineNonOwnerPlaybook` ne surcharge PAS le `<slot 4>`.")
-        print("[0b]   => le pre-gate `<slot 4> || IsFriend(case.unit, owner)` se reduit a IsFriend,")
-        print("[0b]      que le corps RE-TESTE : la branche ENNEMI (`HaywireMine_EnemyAvoidMine`,")
-        print("[0b]      -30) est INATTEIGNABLE dans la face MOUVEMENT.")
-    else:
-        print("[0b] ROUGE : le verdict du slot 4 de HaywireMine n'est PAS etabli -- ne rien porter"
-              " de la branche ennemi sur cette base")
+        if verbeux:
+            print("[0b] %-44s slot4 = %-5s  %s  [%s]" % (nom, val, source, etat))
+
+    from engine.playbook.non_owner import NON_OWNER_MOVE_PLAYBOOKS as REG
+    from engine.entities.triggered_ability_type import TriggeredAbilityType as T
+    # le port DOIT porter la meme valeur, classe par classe : c'est ce qui pilote le pre-gate du
+    # dispatcher. Un ECART ici est EXACTEMENT le bug que cette tranche a trouve.
+    for aid, nom in ((int(T.HaywireMine), "HaywireMineNonOwnerPlaybook"),
+                     (int(T.MawClawsOfThyrax), "MawClawsOfThyraxNonOwnerPlaybook"),
+                     (int(T.PurgeResponse), "PurgeResponseNonOwnerPlaybook"),
+                     (int(T.EcogSupport), "ECogSupportPlaybookNonOwnerPlaybook"),
+                     (int(T.PsychicFortress), "PsychicFortressNonOwnerPlaybook"),
+                     (int(T.KustomForceFieldReworked),
+                      "KustomForceFieldReworkedNonOwnerPlaybook")):
+        pb = REG.get(aid)
+        if pb is None:
+            continue
+        porte = bool(getattr(pb, "SLOT_4", False))
+        if porte != mesures.get(nom):
+            print("[0b] ROUGE : le port dit SLOT_4=%s pour %s, le binaire dit %s. Le pre-gate du "
+                  "dispatcher est alors FAUX -- et il ne leve rien : il ECARTE (ou GARDE) des "
+                  "porteurs en silence." % (porte, nom, mesures.get(nom)))
+            rc = 1
+    if mesures.get("HaywireMineNonOwnerPlaybook"):
+        print("[0b] VERDICT : `HaywireMineNonOwnerPlaybook` est la SEULE de la famille dont le")
+        print("[0b]   `<slot 4>` vaut `true` => le dispatcher lui yielde AUSSI les porteurs")
+        print("[0b]   ENNEMIS, donc sa branche `HaywireMine_EnemyAvoidMine` (-30) est ATTEIGNABLE.")
     return rc
 
 
@@ -241,8 +291,8 @@ def step0c(verbeux: bool = True) -> int:
         if verbeux:
             print("[0c] %-44s gameconfig=%-6s litteral attendu=%-6s %s" % (k, got, v, etat))
     if verbeux:
-        print("[0c] `%s` (-30) est la cle de la branche INATTEIGNABLE (cf. 0b) : elle EXISTE au "
-              "gameconfig et n'a aucun consommateur." % HM.KEY_ENEMY)
+        print("[0c] `%s` (-30) est la cle de la branche ENNEMI, ATTEIGNABLE parce que le `<slot 4>` "
+              "de cette classe vaut `true` (cf. 0b)." % HM.KEY_ENEMY)
     return rc
 
 
@@ -289,9 +339,12 @@ MONTAGES = ("purge", "purge-gate", "mawclaws", "mawclaws-gate", "haywire", "hayw
 #: les montages dont le gate DOIT couper -- l'inertie qui en decoule est DECLAREE et assertionnee.
 MONTAGES_GATE_COUPE = ("purge-gate", "mawclaws-gate", "haywire-gate")
 #: le mutant qui EST la question de chaque montage. S'il ne mord pas : REGIME DEGENERE.
+#: ⚠ `haywire` ne se separe PAS sur l'axe du camp : son `<slot 4>` vaut `true`, donc les DEUX
+#: camps sont yieldes et `CAMP-DEUX` n'existe pas comme mutant. Son mutant separateur est
+#: `SLOT4-OFF` -- l'etat EXACT du port avant la mesure live qui a renverse le verdict.
 MUTANT_SEPARATEUR = {"purge": "CAMP-DEUX", "purge-gate": "SANS-GATE",
                      "mawclaws": "CAMP-DEUX", "mawclaws-gate": "SANS-GATE",
-                     "haywire": "CAMP-DEUX", "haywire-gate": "SANS-GATE"}
+                     "haywire": "SLOT4-OFF", "haywire-gate": "SANS-GATE"}
 
 
 def _layout(board: str) -> dict:
@@ -478,28 +531,65 @@ def _models(tile, leaves, lc, wt, montage) -> tuple:
         occ = bq.get_steppable_unit(tile, lc)
         vis = (occ or {}).get("vis")
         gate = bool(vis and str(vis).split(":")[0] in HM().mine_unit_ids())
+        steppable = occ is not None
         # le corps ne lit PAS la position du porteur -> tous les porteurs du camp comptent.
         na, ne = _owners_any(lc, aid, "ami"), _owners_any(lc, aid, "ennemi")
+        # ⚠ 1531 est la SEULE classe a `SLOT_4 = True` : les porteurs ENNEMIS sont yieldes AUSSI,
+        # avec l'autre cle (-30). Ses mutants ne portent donc PAS sur les memes axes que ceux des
+        # deux autres montages, et les ecrire comme eux serait un modele FAUX.
+        we = float(wt.sub("TriggeredAbilitiesNonOwner", HM.KEY_ENEMY))
+        wa = float(wt.sub("TriggeredAbilitiesNonOwner", HM.KEY_FRIENDLY))
+        mods = {
+            "PORT":        porte,
+            # le pre-gate `<slot 4>` n'existerait pas -> les ennemis seraient ECARTES et la branche
+            # -30 deviendrait morte. C'est EXACTEMENT l'etat du port avant la mesure live.
+            "SLOT4-OFF":   float(wa * na) if gate else 0.0,
+            # les deux camps verseraient la MEME cle (-50), c.-a-d. le corps sans son `IsFriend`.
+            "UNE-SEULE-CLE": float(wa * (na + ne)) if gate else 0.0,
+            # les cles seraient INVERSEES (ami <-> ennemi).
+            "CLES-INVERSEES": float(we * na + wa * ne) if gate else 0.0,
+            # le gate `HasUnitId` serait absent : tout occupant steppable armerait le terme.
+            "SANS-GATE":   float(wa * na + we * ne) if steppable else 0.0,
+            "ABSENT":      0.0,
+        }
+        return mods, {"na": na, "ne": ne, "gate": bool(gate), "w": wa,
+                      "steppable": bool(steppable)}
 
+    # Corps qui lisent l'ADJACENCE au porteur : le natif yielde une paire par porteur retenu, et
+    # le corps ne verse qu'une fois par paire -- donc `x n` ne se distingue de `x 1` que si DEUX
+    # porteurs du meme camp sont adjacents a la meme tuile. C'est dit, pas suppose.
     w = float(wt.sub("TriggeredAbilitiesNonOwner", key))
     mods = {
         "PORT":        porte,
-        "CAMP-DEUX":   float(w * (na + ne)) if gate else 0.0,
-        "CAMP-ENNEMI": float(w * ne) if gate else 0.0,
-        "SANS-GATE":   float(w * na),
+        "CAMP-DEUX":   float(w * (1 if (gate and (na + ne)) else 0)),
+        "CAMP-ENNEMI": float(w * (1 if (gate and ne) else 0)),
+        "SANS-GATE":   float(w * (1 if na else 0)),
         "COUNT (x n)": float(w * na) if gate else 0.0,
         "ABSENT":      0.0,
     }
-    if not montage.startswith("haywire"):
-        # pour un corps qui lit l'adjacence, le natif yield UNE fois par paire retenue -- et il y a
-        # une paire par porteur. `CAMP-DEUX` et `COUNT` coincident donc quand na <= 1 : c'est dit.
-        mods["CAMP-DEUX"] = float(w * (1 if (gate and (na + ne)) else 0))
-        mods["CAMP-ENNEMI"] = float(w * (1 if (gate and ne) else 0))
-        mods["SANS-GATE"] = float(w * (1 if na else 0))
-    return mods, {"na": na, "ne": ne, "gate": bool(gate), "w": w}
+    return mods, {"na": na, "ne": ne, "gate": bool(gate), "w": w, "steppable": False}
 
 
-def _bras(prof, tiles):
+def _bras(prof, tiles, montage):
+    """Les DEUX regimes que le pas doit couvrir pour etre DISCRIMINANT -- et ils ne sont PAS les
+    memes selon l'axe du gate.
+
+    * `purge` / `mawclaws` : le gate porte sur le MOVER, le terme sur l'ADJACENCE au porteur. Le
+      discriminant est donc le CAMP du porteur adjacent : bras AMI (le terme tombe) contre bras
+      ENNEMI (le pre-gate `IsFriend` l'ecarte). Sans les deux, `CAMP-DEUX` ne separe rien.
+    * `haywire` : le gate porte sur l'OCCUPANT DE LA TUILE et le corps ne lit PAS la position du
+      porteur -- `na`/`ne` sont donc CONSTANTS sur toute la decision, et le critere « bras AMI seul
+      vs bras ENNEMI seul » est structurellement VIDE. Mesure : 4 activations, `bras AMI=0
+      ENNEMI=0` a chaque fois. Le discriminant y est la TUILE : celle qui porte le steppable contre
+      les autres. `haywire` exige la MINE (gate vrai) ; `haywire-gate` exige un steppable qui n'est
+      PAS la mine (gate faux mais occupant present), sans quoi `SANS-GATE` serait inerte et le
+      controle ne controlerait rien."""
+    if montage == "haywire":
+        return ([t for t in tiles if prof[t]["gate"]],
+                [t for t in tiles if not prof[t]["gate"]])
+    if montage == "haywire-gate":
+        return ([t for t in tiles if prof[t]["steppable"]],
+                [t for t in tiles if not prof[t]["steppable"]])
     return ([t for t in tiles if prof[t]["na"] > 0 and prof[t]["ne"] == 0],
             [t for t in tiles if prof[t]["ne"] > 0 and prof[t]["na"] == 0])
 
@@ -545,7 +635,7 @@ def mesurer(call, rid, montage="purge", max_steps=25, trace=print) -> dict:
         for t in tiles:
             leaves, lc = _port_leaves(ctx, t)
             prof[t] = _models(t, leaves, lc, wt, montage)[1]
-        ba, bb = _bras(prof, tiles)
+        ba, bb = _bras(prof, tiles, montage)
         trace("  pas %-3d activation #%d : %d candidates | bras AMI=%d bras ENNEMI=%d"
               % (step, seen, len(tiles), len(ba), len(bb)))
         if not (ba and bb):
@@ -573,7 +663,7 @@ def mesurer(call, rid, montage="purge", max_steps=25, trace=print) -> dict:
             step += 1
             continue
         hooked = [t for t in tiles if t in tt]
-        ha, hb = _bras(prof, hooked)
+        ha, hb = _bras(prof, hooked, montage)
         trace("  tuiles HOOKEES=%d | bras AMI=%d bras ENNEMI=%d" % (len(hooked), len(ha), len(hb)))
         if not (ha and hb):
             trace("  les hooks n'ont pas couvert les DEUX bras -- on continue la marche")

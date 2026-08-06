@@ -823,13 +823,21 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
         # RE-TESTE dans son propre corps natif, et le port mirrore ce corps.
         for units, is_friend in ((ctx.get("friend_units") or (), True),
                                  (ctx.get("enemy_units") or (), False)):
-            if not is_friend:                 # `!<slot 4> && !IsFriend` = IsInvalidEntityForPlaybook
-                continue
             for u in units:
                 for ab in (u.get("triggered") or ()):
                     pb = load_playbook_non_owner(ab)
-                    if pb is not None:
-                        total += pb.calculate_movement_utility_in_steps(tile, u, is_friend, ctx, wt)
+                    if pb is None:
+                        continue
+                    # PRE-GATE `playbook.<slot 4> || IsFriend(sujet, owner)`. Le `<slot 4>` se lit
+                    # SUR LE PLAYBOOK, jamais sur la famille : il vaut `true` pour
+                    # `HaywireMineNonOwnerPlaybook` (corps `return 1`) et `false` pour toutes les
+                    # autres. Avant #477-r37 le dispatcher ecartait TOUS les porteurs ennemis d'un
+                    # bloc, avant meme de charger le playbook -- ce qui rendait structurellement
+                    # inatteignable la branche ENNEMI de 1531. MESURE : -30 manquants sur la tuile
+                    # minee du montage `haywire`.
+                    if not (getattr(pb, "SLOT_4", False) or is_friend):
+                        continue          # `!<slot 4> && !IsFriend` = IsInvalidEntityForPlaybook
+                    total += pb.calculate_movement_utility_in_steps(tile, u, is_friend, ctx, wt)
         return total
 
 
