@@ -7,7 +7,3 @@
 NB (cycle) : ce `__init__` n'importe QUE base + effects (feuilles, sans dep `entities/`) -> importer
 `engine.dsl.base` depuis `entities/*` ne re-declenche PAS la facade -> pas de cycle d'import.
 """
-from .base import (  # noqa: F401
-    AAmountFormula, AbilityTrigger, TargetsSelector, DslContext, Const,
-)
-from .effects import AbilityBehaviour, OperationResult, ExecutionContext  # noqa: F401

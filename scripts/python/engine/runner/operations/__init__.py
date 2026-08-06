@@ -7,7 +7,5 @@ Remplis tranche par tranche, validés contre le live.
 """
 from __future__ import annotations
 
-from .base import Operation
-from .damage import AttackDamageOperation, HitDamage
 
-__all__ = ["Operation", "AttackDamageOperation", "HitDamage"]
+__all__ = []

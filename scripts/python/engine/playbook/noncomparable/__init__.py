@@ -56,11 +56,7 @@ publique (`noncomparable.NCContext`, `.is_noncomp`, `.choose_action`, `.is_summo
 """
 from __future__ import annotations
 
-from ._base import (
-    NCContext, NonComparablePlaybook, _PlanTargetPlaybook,
-    NATIVE_PRIORITY, native_priority,
-    _unit_cfg, _traits, _has_valid_targets, _sweep_origin_first,
-)
+from ._base import NCContext, NonComparablePlaybook
 from .bloody_fury import BloodyFuryPlaybook
 from .vexilla_magnifica import VexillaMagnificaPlaybook
 from .fighting_retreat import FightingRetreatPlaybook
@@ -68,14 +64,13 @@ from .aberrant_hypermorph import AberrantHypermorphPlaybook
 from .nova_boost import NovaBoostPlaybook
 from .nova_shield import NovaShieldPlaybook
 from .heals import (
-    RitesOfRestorationPlaybook, CombatRestorativesPlaybook,
-    DefendTheDivineWorkPlaybook, RevitalizingMalignancyPlaybook,
-    InspiredToGreatnessPlaybook, _active_ability_levels,
+    RitesOfRestorationPlaybook, CombatRestorativesPlaybook, DefendTheDivineWorkPlaybook,
+    RevitalizingMalignancyPlaybook, InspiredToGreatnessPlaybook
 )
 from .scarab_summon import ScarabSummonPlaybook
 from .get_em_runtz import GetEmRuntzPlaybook
 from .gauntlets_of_ultramar import GauntletsOfUltramarPlaybook
-from .hammer_of_wrath import HammerOfWrathPlaybook, _enemy_killed_by_normal_attack
+from .hammer_of_wrath import HammerOfWrathPlaybook
 from .heroic_fusillade import HeroicFusilladePlaybook
 from .doctrina_imperatives import DoctrinaImperativesPlaybook
 from .stormcaller import StormcallerPlaybook
@@ -232,23 +227,17 @@ def choose_action(abilities: list, ctx: NCContext, priority: int | None = None) 
 # consommes hors package : `_has_valid_targets` (action_generators.galvanic), et les helpers/bases
 # accessibles via `noncomparable.X` pour compat. Marque-les "used" (pyflakes).
 __all__ = [
-    "NCContext", "NonComparablePlaybook", "_PlanTargetPlaybook",
-    "NATIVE_PRIORITY", "native_priority",
-    "PLAYBOOKS", "playbook_for", "is_noncomp", "is_summon", "choose_action",
-    "_unit_cfg", "_traits", "_has_valid_targets", "_sweep_origin_first",
-    "_active_ability_levels", "_enemy_killed_by_normal_attack",
-    "BloodyFuryPlaybook", "VexillaMagnificaPlaybook", "FightingRetreatPlaybook",
+    "NCContext", "NonComparablePlaybook", "PLAYBOOKS", "playbook_for", "is_noncomp", "is_summon",
+    "choose_action", "BloodyFuryPlaybook", "VexillaMagnificaPlaybook", "FightingRetreatPlaybook",
     "AberrantHypermorphPlaybook", "NovaBoostPlaybook", "NovaShieldPlaybook",
     "RitesOfRestorationPlaybook", "CombatRestorativesPlaybook", "DefendTheDivineWorkPlaybook",
     "RevitalizingMalignancyPlaybook", "InspiredToGreatnessPlaybook", "ScarabSummonPlaybook",
     "GetEmRuntzPlaybook", "GauntletsOfUltramarPlaybook", "HammerOfWrathPlaybook",
-    "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook",
-    "StormcallerPlaybook", "ItItchesPlaybook", "TheQuickeningPlaybook",
-    "BlackRagePlaybook", "VigilanceEternalPlaybook", "KillMaimBurnPlaybook",
-    "ScarabHivePlaybook", "CordClawPlaybook",
-    "SpawnPoxwalkersPlaybook", "FoulInfusionPlaybook", "HolyDuelPlaybook",
-    "GrapnelLauncherPlaybook", "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
-    "ThriceBlessedConflagrationPlaybook",
-    "SendInTheNextWavePlaybook", "IncursionPlaybook", "MasterOfTheTutelariesPlaybook",
-    "SupremeCommanderPlaybook",
+    "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook", "StormcallerPlaybook",
+    "ItItchesPlaybook", "TheQuickeningPlaybook", "BlackRagePlaybook", "VigilanceEternalPlaybook",
+    "KillMaimBurnPlaybook", "ScarabHivePlaybook", "CordClawPlaybook", "SpawnPoxwalkersPlaybook",
+    "FoulInfusionPlaybook", "HolyDuelPlaybook", "GrapnelLauncherPlaybook",
+    "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
+    "ThriceBlessedConflagrationPlaybook", "SendInTheNextWavePlaybook", "IncursionPlaybook",
+    "MasterOfTheTutelariesPlaybook", "SupremeCommanderPlaybook",
 ]

@@ -12,19 +12,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from .base import BaseTrait
-from .combat import GetStuckInTrait, ImperviousTrait, ResilientTrait
-from .factory import TRAIT_CLASSES, TraitFactory
-from .unit_trait import (
-    UnitTrait, has_any_trait, has_trait, trait_name, units_without_trait,
-)
 
 __all__ = [
-    "BaseTrait", "TraitFactory", "TRAIT_CLASSES",
-    "GetStuckInTrait", "ResilientTrait", "ImperviousTrait",
     "attacker_bonus_hits", "attacker_pierce_bonus", "attacker_ignores_armor",
     "target_hit_multiplier", "target_damage_cap",
-    "UnitTrait", "has_trait", "has_any_trait", "trait_name", "units_without_trait",
 ]
 
 
