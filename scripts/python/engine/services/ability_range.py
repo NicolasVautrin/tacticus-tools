@@ -51,6 +51,7 @@ import engine.services.ability_caster_gates as acg   # modules FRERES, pas `from
 import engine.services.movement_query as MQ
 import engine.services.targeting_query as TQ
 from ..entities.active_ability_type import ActiveAbilityType
+from ..entities.active_abilities import kit_active_ability_ids
 from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS,
                                           NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE,
                                           RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER,
@@ -619,14 +620,12 @@ def ability_range_value(ability_id, visual_id) -> int | None:
 
 
 def _active_ability_ids(visual_id) -> list:
-    """Les ids d'ability ACTIVE du kit gameconfig de l'unite (`activeAbilities`, noms -> enum)."""
-    out = []
-    for name in ((GC.unit(visual_id or "") or {}).get("activeAbilities") or []):
-        try:
-            out.append(int(ActiveAbilityType[name]))
-        except KeyError:
-            continue
-    return out
+    """Les ids d'ability ACTIVE du kit gameconfig de l'unite (`activeAbilities`, noms -> enum).
+
+    DELEGUE au foyer `entities.active_abilities.kit_active_ability_ids` (#477-r29) : la meme
+    conversion existait ici et allait etre reecrite pour le predicat de `RadSaturationPlaybook` --
+    deux copies d'un seul substrat sont le fork que la doctrine `check-own-port` interdit."""
+    return kit_active_ability_ids(visual_id)
 
 
 _REACH_CACHE: dict = {}    # {visual_id: reach} -- kit gameconfig = STATIQUE (aucune dependance d'etat)

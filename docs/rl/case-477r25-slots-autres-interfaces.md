@@ -143,7 +143,13 @@ portée qui dépasse la citation :
   appelle le slot **`0x83`**, qui est **`GetAdjacentFriends`** — donc les **ALLIÉS** du caster, pas
   les deux camps. La fiche le disait à moitié elle-même : son cousin y est nommé
   `OptimizedGait_AdjacentFriends`. **⚠ Ce n'est plus une faute de citation mais une faute de
-  SPÉCIFICATION** : un port qui compterait les deux camps serait faux. Résidu **#477-r27** ;
+  SPÉCIFICATION** : un port qui compterait les deux camps serait faux. Résidu **#477-r29**
+  (renuméroté de `#477-r27` au merge — collision), **CLOS** : le port ne comptait en fait
+  **rien** (1202 absente de `TRIGGERED_MOVE_PLAYBOOKS`), et l'A/B live tranche — `X_nat` = 10 sur
+  les tuiles adjacentes à un Marshal ALLIÉ, **0** sur celles adjacentes à un Marshal ENNEMI. Deux
+  autres faits de `case-26` sont morts avec : le multiplicateur (`+10`, pas `−25`) et le prédicat
+  (`HasActiveAbility(DoctrinaImperatives)`, pas l'immunité à `Contaminated`).
+  cf. `docs/rl/case-477r29-radsaturation-camp.md` ;
 * trois fiches attribuaient le slot `0x95` d'`IBattleQuery` à `BattleQuery$$GetInRangeAuraAmount`.
   Ce nom n'est dans **aucune** interface : `GetInRangeAuraAmount` est la méthode **interne**
   (4 paramètres, dont `returnFirst`) ; le slot `0x95` est `GetTeamActiveAuraAmount`, qui l'appelle
@@ -231,12 +237,17 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
 
 ## Résidus
 
-- **#477-r27 — `case-26` : le terme d'adjacence de `RadSaturation` compte les ALLIÉS, pas les deux
-  camps.** Le slot appelé est `0x83` = `GetAdjacentFriends` (lu dans
-  `…RadSaturationPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`). La
-  fiche a été corrigée ; **le PORT ne l'a pas été** — personne n'a vérifié ce que
-  `engine/playbook/` fait de ce terme. Si le port compte les deux camps, il est faux, et aucun test
-  ne le dit.
+- ~~**#477-r27**~~ → **#477-r29 (renuméroté au merge), CLOS le 2026-08-06.** Le port ne comptait ni
+  les alliés ni les deux camps : **il ne comptait rien** (1202 absente de
+  `TRIGGERED_MOVE_PLAYBOOKS`, sur la foi d'un verdict « AI-inerte » de `case-26` que les mesures
+  live de la même feuille réfutent). Porté, puis confronté par un A/B où **seul le CAMP change**
+  (cible neutre au centre, un Marshal allié et un Marshal ennemi à distance 2, de part et d'autre) :
+  `X_nat` = 10 / 10 sur le bras ALLIÉ, **0** sur les quatre tuiles du bras ENNEMI, 0 désaccord sur
+  8 tuiles. Le modèle « deux camps » diverge sur 4 tuiles, celui d'AVANT la tranche sur 2.
+  **⚠ La leçon dépasse la fiche** : le modèle « deux camps » EXISTE dans le même build, sur le même
+  prédicat — `AttractMechanicalsUtility` appelle le slot `0x7a` = `GetAdjacentUnits` (4 arguments).
+  `case-26` décrivait en fait CETTE feuille-là. Elle reste inerte côté port : résidu **#477-r31**.
+  cf. `docs/rl/case-477r29-radsaturation-camp.md`.
 - **Les slots des interfaces DÉRIVÉES mais jamais citées** (11 sur 18) ne sont gardés que par le
   cliquet, pas par des citations. Un renumérotage les ferait rougir ; une attribution fausse écrite
   demain sur `IEffect` ou `IPlaybook` serait, elle, immédiatement gardée — c'est le seul sens dans
