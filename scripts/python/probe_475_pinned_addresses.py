@@ -71,6 +71,21 @@ REPO = PYDIR.parents[1]
 if str(PYDIR) not in sys.path:
     sys.path.insert(0, str(PYDIR))
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: `build: True` est la SEULE dependance de ce type du groupe qui porte sur le CONTENU de la
+#: table : la regle R2 resout chaque `va:` dans `data/symbols/<build>/ghidra/functions.tsv` --
+#: le `<build>` etant celui que le PIN DECLARE, pas `CURRENT`. Une table qui bouge peut donc
+#: faire basculer le verdict SANS qu'aucun `.ts` ne change, ce qui est precisement le gisement.
+DECLENCHEUR = {
+    "chemins": ("frida/hooks/*", "frida/hooks/**", "data/symbols/*", "data/symbols/**"),
+    "build": True,
+    "toujours": False,
+    "raison": "R1 balaie `git ls-files -- frida/hooks` et rien d'autre ; R2 confronte chaque pin "
+              "declare a `data/symbols/<build>/ghidra/functions.tsv`. Les auto-epreuves sont "
+              "jouees sur des sources SYNTHETIQUES portees par ce fichier.",
+}
+
 # LE perimetre balaye. Le foyer s'en DERIVE : c'est le seul fichier ou l'arithmetique d'adresse
 # est permise, et son chemin est ecrit UNE fois, ici comme cote TypeScript.
 HOOKS_DIR = "frida/hooks"

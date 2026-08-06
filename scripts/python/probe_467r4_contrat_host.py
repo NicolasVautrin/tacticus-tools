@@ -117,6 +117,25 @@ HOST = REPO / "frida" / "host"
 #: l'ACCUSE (le harnais au lieu du code fusionne), pas le blocage.
 EX_INDISPONIBLE = 99
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: `frida/host/*.ts` est un glob de PROFONDEUR 1, et c'est la mesure : `volet_a` fait
+#: `racine_host.glob("*.ts")`, il ne descend pas. La forme recursive est donnee EN PLUS parce
+#: qu'un sous-repertoire neuf de `frida/host/` ferait changer le contrat sans changer ce glob.
+DECLENCHEUR = {
+    "chemins": ("frida/host/*.ts", "frida/host/**",
+                "scripts/python/loop_status.py",
+                "scripts/python/fleet_board.py",
+                "scripts/python/host_inputs.py",
+                "scripts/python/probe_467r4_contrat_host.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Volet A confronte le CODE SOURCE de `frida/host/*.ts` a une liste de champs "
+              "DERIVEE de `loop_status.mesurer_harnais` (donc les deux cotes sont dans le "
+              "declencheur) ; volet B est opportuniste sur le host LIVE, qui n'est pas un "
+              "chemin du depot -- host eteint, il sort en NON MESURE, jamais en vert muet.",
+}
+
 ECHECS: list[str] = []
 NON_MESURE: list[str] = []
 #: Le volet s'est OUVERT et n'a pas pu CONCLURE. Distinct de `NON_MESURE` (le volet ne s'est PAS

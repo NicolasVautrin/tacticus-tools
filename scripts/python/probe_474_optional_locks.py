@@ -62,6 +62,17 @@ import threading
 import time
 from pathlib import Path
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("scripts/*", "scripts/**", "scripts/python/loop_status.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Etage 1 = AST (.py) et texte (.ps1/.psm1) de TOUT fichier versionne sous "
+              "`scripts/`, perimetre DERIVE de `git ls-files scripts` ; etage 2 n'importe que "
+              "`loop_status`, qui y vit aussi. Le depot jetable de l'etage 2 est fabrique "
+              "ex nihilo, donc rien hors de `scripts/` n'entre dans le verdict.",
+}
+
 #: Les sous-commandes de LECTURE dont il est MESURE qu'elles prennent un lock optionnel.
 #: `describe` n'en prend un que sous `--dirty` (c'est ce qui declenche le refresh d'index).
 SOUS_COMMANDES = ("status", "describe")

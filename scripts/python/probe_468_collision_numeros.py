@@ -246,6 +246,31 @@ DOCS_RL = REPO / "docs" / "rl"
 BACKLOG = DOCS_RL / "backlog.md"
 LEDGER = REPO / "scripts" / "ratchets-468-numeros-attestes.json"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: ⚠ CE DECLENCHEUR NE VAUT QUE POUR L'ARGV QUE LA BANQUE JOUE (aucun mode). Il a ete MESURE
+#: fonction par fonction, pas suppose : `_lignes_backlog` -> `docs/rl/backlog.md` ;
+#: `_fichiers_case_docs` -> `docs/rl/case-*.md` (les NOMS) ; `ventiler_occurrences` ->
+#: `docs/rl/**/*.md` ; `lire_ledger` -> le ledger ; `self_test` -> les echantillons de CE
+#: fichier. `_artefacts_de_code` (qui, lui, rglob `scripts/python`) n'est atteint QUE par
+#: `--report`, et `employes` / `_identifiants_des_*` (git, worktrees, `gh`) QUE par `--suggere`.
+#: L'IRREDUCTIBILITE de l'unicite -- << n'importe quel numero peut heurter n'importe quel autre >>
+#: -- est vraie du mode ATTRIBUER (`--suggere`), dont le corpus est l'UNION de toutes les
+#: positions ; le mode DETECTER, lui, ne lit que des DEFINITIONS, et les trois positions de
+#: definition vivent toutes dans `docs/rl`.
+DECLENCHEUR = {
+    "chemins": ("docs/rl/*", "docs/rl/**",
+                "scripts/ratchets-468-numeros-attestes.json",
+                "scripts/python/probe_468_collision_numeros.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Les trois positions de DEFINITION (cellule de tableau et tete de puce de "
+              "`backlog.md`, prefixe de `docs/rl/case-<n>-*.md`) et le corpus de separation de "
+              "l'etape 0b vivent tous sous `docs/rl` ; l'etape 2 y ajoute le seul ledger. "
+              "`--suggere` (mode ATTRIBUER, HORS de l'argv de banque) lit en plus git, les "
+              "worktrees et `gh` : lui n'a pas de voisinage, et rien ici ne le borne.",
+}
+
 #: << RIEN N'A ETE MESURE >> -- contrat de banque, `scripts/ratchets-verdict.ps1` (#471).
 #: BLOQUANT comme un rouge, mais il change l'ACCUSE : le harnais, pas le contenu du depot.
 EX_INDISPONIBLE = 99

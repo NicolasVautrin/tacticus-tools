@@ -87,6 +87,23 @@ if str(PYDIR) not in sys.path:
 import repo_read  # noqa: E402
 from probe_462r5_dead_imports import liaisons_de  # noqa: E402
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: `toujours: True`, et c'est l'axe CITATION qui l'impose. Le seau bloquant est le CROISEMENT
+#: ORPHELIN x NON EXECUTABLE : le second se borne (`scripts/python/**/*.py`), le premier PAS.
+#: << nomme NULLE PART >> est une union LARGE -- `git ls-files` entier (docs, code, tests),
+#: `git log --all`, et le corps des PR. Retirer la derniere mention d'un probe depuis n'importe
+#: quel fichier du depot suffit a le faire basculer, et deux de ses trois corpus (l'historique
+#: et les PR) ne sont meme pas des chemins d'arbre.
+DECLENCHEUR = {
+    "chemins": ("*", "**"),
+    "build": False,
+    "toujours": True,
+    "raison": "Le croisement bloquant lit l'axe CITATION sur `git ls-files` ENTIER plus "
+              "`git log --all` plus le corps des PR : la derniere mention d'un probe peut "
+              "disparaitre depuis n'importe ou, y compris depuis hors de l'arbre.",
+}
+
 #: << RIEN N'A ETE MESURE >>. Meme sentinelle que `ratchets-verdict.ps1` / `probe_457`.
 EX_NON_MESURE = 99
 

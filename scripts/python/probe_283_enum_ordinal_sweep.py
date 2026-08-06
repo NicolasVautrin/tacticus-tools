@@ -75,6 +75,45 @@ sys.path.insert(0, str(PYDIR))
 import repo_read  # noqa: E402
 from symbols_layout import archived_builds, current_build  # noqa: E402
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: ⚠ LIMITE DE LA FORME, A REMONTER : ce fichier porte SIX entrees de banque (`--step diff |
+#: mirror | exec | tables | prose | on`) et un DECLENCHEUR ne se declare que par FICHIER. Ce
+#: qui suit est donc l'UNION STRICTE des six, et elle est trop LARGE pour quatre d'entre elles.
+#: Ventilation MESUREE (perimetres lus dans le code, couts isoles du 2026-08-07) :
+#:
+#:   etape    cout     perimetre REEL
+#:   ------   ------   --------------------------------------------------------------------
+#:   diff      1,1 s   `data/symbols/<build>/frida/enums.tsv` des DEUX builds archives. RIEN
+#:                     d'autre -- aucun fichier de code n'est ouvert. (COMPTEUR)
+#:   mirror   32,6 s   TOUT `.py` du depot (`_fichiers_du_depot`) + la table du build courant.
+#:   exec     80,0 s   `scripts/python/**/*.py` SEULEMENT (`REPO/"scripts"/"python"`.rglob).
+#:   tables   12,3 s   TOUT `.py` / `.ts` / `.js` du depot + les tables.
+#:   prose    66,1 s   `scripts/python/**` en `.py`/`.md`/`.ts`/`.js` (arg `--racine`).
+#:   on       15,7 s   `scripts/python/**` en `.py`/`.md`. (COMPTEUR)
+#:
+#: Consequence pratique : sous cette union, un `.ts` de `frida/` rejoue `exec`, `prose` et `on`
+#: (161,8 s) qui ne le lisent pas, et un changement de `data/symbols` seul rejoue les six alors
+#: que `diff` suffirait. Un mecanisme qui saurait porter un declencheur PAR ENTREE de banque
+#: (et non par fichier) recupererait ce qui est ici perdu ; en l'etat, l'union est la seule
+#: declaration qui ne soit pas un faux vert.
+#:
+#: `build: True` n'est pas de la marge : `main` lit `current_build()` et `archived_builds()` a
+#: CHAQUE etape, et `mirror` / `exec` / `tables` / `prose` comparent a des ORDINAUX qui viennent
+#: de `enums.tsv`. Une table qui bouge fait basculer le verdict sans qu'une ligne de code change
+#: -- c'est litteralement le gisement (220 citations invalidees par une MAJ, #420).
+DECLENCHEUR = {
+    "chemins": ("*.py", "**/*.py", "*.ts", "**/*.ts", "*.js", "**/*.js",
+                "scripts/python/*.md", "scripts/python/**/*.md",
+                "data/symbols/*", "data/symbols/**"),
+    "build": True,
+    "toujours": False,
+    "raison": "UNION des six etapes : tout `.py`/`.ts`/`.js` du depot (mirror, tables), "
+              "`scripts/python/**` en `.py`/`.md` (exec, prose, on), et les tables "
+              "`data/symbols/<build>/frida/enums.tsv` dont chaque etape tire ses ordinaux. "
+              "Aucune etape ne lit `docs/**` ni aucune autre extension.",
+}
+
 # Les quatre enums renumerotes, par leur nom PLEINEMENT QUALIFIE (= la cle de `enums.tsv`,
 # et le type du 1er argument du symbole natif correspondant).
 #   `IdunBattle.DSL.EventTriggerType`        -> `IdunBattleLogic.Entities.DSLFactory$$On`
