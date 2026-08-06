@@ -180,6 +180,15 @@ class DslContext:
     # factory dans son trigger). None = contexte sans tour courant (prédiction, arbre purement
     # numérique) → `IsTurnOf` rend False (dégradation conservatrice).
     current_player_id: int | None = None
+    # Nombre de tours DÉMARRÉS par le joueur d'une unité (`TurnComponent+0x38`, le dict PAR JOUEUR
+    # que rend `TurnComponent.GetAmountOfTurnsStartedByPlayer`) — lu par le nœud `PlayerTurnsStarted`
+    # (`IdunBattleLogic.Entities.DSLFormulas$$PlayerTurnsStarted` →
+    # `IdunBattle.Entities.Formulas.UnitsPlayerTurnsStartedFormula$$Calculate`). `player_turns_started
+    # (unit) -> int` ; défaut None → 0 (même dégradation que le natif sur `unit == null`). Fourni par
+    # la couche runner (`entities_from_state`, lit `State.turn_counts`).
+    # ⚠ DISTINCT de `get_stat(unit, 0xc)` (compteur PER-UNITÉ `UnitComponent+0x58`) que lit le nœud
+    # `UnitTurnsStarted` : les deux existent, et les confondre décale la phase d'un cycle `Modulo`.
+    player_turns_started: object | None = None
     # Accès trait/stat PAR UNITÉ (mirror `UnitExtensions.HasFlag`/`GetStat`) — hors state standard.
     # `has_trait(unit, traitId)->bool` défaut None → trait absent ; `get_stat(unit, statType, variant,
     # level)->int` défaut None → Health via hp (cf. `_default_get_stat`). Fournis par la couche ability.

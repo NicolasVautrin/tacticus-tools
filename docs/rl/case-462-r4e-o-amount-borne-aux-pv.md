@@ -475,16 +475,10 @@ désormais posé — flags de la victime après revive natif `[0, 1, 20]`, le po
 
 ### 8.5 Non couvert, nommé
 
-* **L'ÉCART D'ÉTAT du rejeu bout-en-bout du volet (b)**, mesuré et attribué : le port rend
-  `[214, 281, 255, 227, 286]` là où le natif rend `[1044, …]`. Cause **lue**, pas supposée — les effets
-  de l'attaquant divergent : `SereneUnifierSenseOfStone` (round 1) côté port contre
-  `SereneUnifierStormOfFire` (round 3, **+582 Damage**) côté live. C'est le **cycle de round** de
-  `SereneUnifier` que le rejeu offline multi-tours n'avance pas ; mirrorer le `start_turn` des deux
-  joueurs **ne suffit pas** (essayé, mesuré : aucun changement). Hors périmètre de la purge — le
-  verdict est calculé **à état égal**, où le port est **bit-exact**. Résidu **`#462-r4e-o-r2-r1-r1`**.
-* **Les flags de TOUR du ressuscité** : natif `[1, 3, 4, 14]`, port `[14]`. Le natif ouvre puis clôt le
-  tour immédiat de l'unité (`ArrivedAtFinalTile`, `TurnFinished`, `NoActionAvailable`) ; le port pose
-  `immediate_turn` sans jouer ce tour. N'affecte aucun observable de dégât. Même résidu.
+* **L'ÉCART D'ÉTAT du rejeu bout-en-bout du volet (b)** et **les flags de TOUR du ressuscité** :
+  **TRAITÉS en §9** (`#462-r4e-o-r2-r1-r1`) — et le diagnostic « cycle de round que le rejeu
+  n'avance pas » y est **corrigé** : le compteur était déjà avancé, c'est son consommateur qui
+  manquait.
 * **`Add(2 = UnitFlag.ActiveAbilityUsed)` d'`UpdateFlags`** reste NON PORTÉ : il gouverne la face
   DÉCISION (`HasOwnersActiveAbilityBeenUsed`), qu'aucune mesure d'ici n'exerce, et le poser
   contredirait le tour immédiat que `immediate_turn` vient d'ouvrir.
@@ -492,3 +486,160 @@ désormais posé — flags de la victime après revive natif `[0, 1, 20]`, le po
   sont **pas** portées : aucun appelant porté ne pose ce type de modificateur. Lues, nommées, non portées.
 * **`--hp-victime` écrase `Health`** : la mesure est donc faite hors du régime de PV nominal. Le régime
   nominal a été joué **aussi** (première passe) et donne le même sens, avec la marge étroite dite en §8.4.
+
+## 9. `#462-r4e-o-r2-r1-r1` — le rejeu MULTI-TOURS : ce n'était pas un compteur, c'était son CONSOMMATEUR
+
+### 9.1 La question binaire, et sa réponse
+
+> *Après un changement de tour rejoué OFFLINE, l'état du port égale-t-il celui du natif ?*
+
+**Oui, désormais**, sur les deux volets du montage §8, et sur les DEUX observables :
+
+| | avant | après | natif |
+|---|---|---|---|
+| rejeu **bout-en-bout**, volet (b) resurrect | `[214, 281, 255, 227, 286]` | **`[1044, 886, 70, 0, 0]`** | `[1044, 886, 70, 0, 0]` |
+| PV finaux de la cible, volet (b) | 737 | **0** | 0 |
+| **flags de tour** du ressuscité | `[14]` | **`[1, 3, 4, 14]`** | `[1, 3, 4, 14]` |
+| rejeu bout-en-bout, volet (a) revive | `[213, …]` (déjà) | `[213, 214, 281, 255, 227]` | idem |
+
+### 9.2 Le symbole qui avance le round — et pourquoi le diagnostic hérité était FAUX
+
+`#462-r4e-o-r2-r1` avait écrit « c'est le **cycle de round** que le rejeu n'avance pas ». **Il n'y a
+pas de compteur de round, et celui qui existe était déjà avancé.** Chaîne lue de bout en bout
+(`rnca9r7q6c`) :
+
+```
+IdunBattleLogic.Entities.DSLFormulas$$PlayerTurnsStarted(unitSelector)
+  -> IdunBattle.Entities.Formulas.UnitsPlayerTurnsStartedFormula$$Calculate :
+         unit  = <selecteur>.Select(entities)                  # null -> 0
+         owner = EntityExtensions.GetOriginalOwnerEntityId(unit)
+         return TurnComponent.GetAmountOfTurnsStartedByPlayer(GetMatchTurn(state), owner)
+```
+
+C'est le dict **PAR JOUEUR** `TurnComponent+0x38`, incrémenté par
+`IdunBattle.Operations.StartTurnOperation$$Execute` — dont le port a le mirror depuis longtemps
+(`State.turn_counts`, bumpé par `turnflow.StartTurnOperation.execute`). Il est **DISTINCT** du
+compteur PER-UNITÉ `UnitComponent+0x58` (stat `0xc`) que lit
+`IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate` — et c'est celui-là qu'indexe le
+cycle jumeau de `FleshMetalGunsAbility`. Les confondre décale la phase sans lever la moindre erreur.
+
+**Trois crans manquaient, et chacun a sa propre contre-épreuve** :
+
+| cran | ce qui manquait | mutation qui le prouve | rejeu sous mutation |
+|---|---|---|---|
+| **consommateur** | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SereneUnifierAbility` n'était **pas portée** — les EFFETS l'étaient, la ROTATION qui les pose non | `--mutate rotation-absente` | `[214, 281, 255, 227, 286]` |
+| **seed** | `State.turn_counts` restait **VIDE** sur tout état rechargé ⇒ `PlayerTurnsStarted` rendait 0 ⇒ phase `0 % 3 == 0` à chaque rejeu | `--mutate turn-counts-non-seede` | `[214, 281, 255, 227, 286]` |
+| **rejeu** | le harnais **mimait** le changement de tour (`turn_counts += 1` + le seul vecteur `On(0x16)`) au lieu de jouer les Operations | `--mutate avance-de-tour-mimee` | `[214, 281, 255, 227, 286]` |
+
+Les trois redonnent **exactement** la valeur d'avant : aucun n'est décoratif.
+
+### 9.3 La rotation, lue au décompilé
+
+`...SereneUnifierAbility$$CreateTrigger` :
+
+```
+On(0x13 = TurnStart_Other, ownerNeedsToBeAlive = 1)
+  & <DSLTriggers+0x28 = IsTurnOf(Owner)>          # identification : case-366-r1 §2
+  & get_OwnerIsCaster
+```
+
+⚠ **`On(0x13)`, pas `On(0x16)`.** Les deux sortent du MÊME `StartTurnOperation$$Execute`, dans la
+séquence `0x12 -> 0x13 -> 0x14 -> 0x15 -> 0x16` : la rotation pose donc ses effets **avant** les
+triggers `On(0x16)`. Même patron que `LivingMetalRepairAbility` (case-310) et
+`CursedPlagueBellMovementAbility` (case-224) ⇒ même vecteur porté, `turn_start_other_triggers`.
+
+`...SereneUnifierAbility$$CreateBehaviour` — cibles communes aux six branches :
+
+```
+adj     = AdjacentFriends(Self@<DSLSelectors+0x48>, unique = 1, unitSelectionType = 3)
+surr    = SurroundingFriends(Self, range = ConfigConst(0x16 = range), 1, 3)
+targets = (adj + Self) + UnitsFromFaction(surr - adj, Enum.ToString(UnitFaction = 9) = "Tau", 3)
+```
+
+puis, `k = Modulo(PlayerTurnsStarted(Self), Direct(3), Direct(<reste>))` :
+
+| reste | feuille native | effet |
+|---|---|---|
+| 0 | `AddStaticStatModifierEffect(targets, 0x493, stat 0 ATTACK, ConfigVar(8 = extraDmg), TurnsFromRounds(1))` | **1171 StormOfFire** |
+| 1 | `AddEffect(0x491, AbilityStateReference, Self, targets, TurnsFromRounds(1))` | **1169 SenseOfStone** |
+| 2 | `AddStaticStatModifierEffect(targets, 0x492, stat 1 MOVEMENT, ConfigConst(0xe = extraMovement), TurnsFromRounds(1))` | **1170 ZephyrsGrace** |
+| 0 / 1 / 2 | `AddEffect(0x49a / 0x498 / 0x499, …)` | les trois `*_Visual`, `NoneEffect` inertes |
+
+**Aucun `RemoveEffect`** — contrairement à `FleshMetalGunsAbility`. C'est la durée `TurnsFromRounds(1)`
+qui fait le travail, consommée par `IdunBattle.Operations.EndTurnOperation$$RefreshEffects`.
+**Corollaire, et c'est la moitié cachée du défaut** : un rejeu qui n'exécute pas `EndTurnOperation`
+garde l'effet de la phase précédente **ET** no-ope la re-pose (`AddEffectOperation` refuse un effet
+déjà présent).
+
+Décomposition du port (frontière #149, même arbitrage qu'`anvil_shield`) : 1171 et 1169 **ont** leur
+classe portée ⇒ feuille `AddEffect` + `scale_from_source` (la magnitude est la part DATA de la
+classe, et c'est AUSSI la voie du seed live) ; 1170 n'en a pas ⇒ feuille
+`AddStaticStatModifierEffect`, qui porte elle-même le couple (statType, montant).
+
+### 9.4 Le seed de `turn_counts` — une DÉRIVATION, pas une lecture
+
+Le dict natif n'est publié par **aucun** RPC (`readTurnInfo` l'invoque, mais pour le seul joueur
+courant et vers `recorder`/`cheat`/`move-options`). `snapshot._load_turn_counts` le **dérive** de la
+stat `12` déjà captée : `StartTurnOperation$$Execute` bumpe `turnsStarted@+0x58` de chaque unité
+vivante du joueur **au même instant** qu'il bumpe `TurnComponent+0x38[player]` ⇒
+
+* aucune unité ne peut porter plus de bumps que de tours démarrés ⇒ le `max` **ne sur-estime jamais** ;
+* une unité présente et vivante depuis le 1er tour en porte exactement autant ⇒ le `max` est **exact**
+  dès qu'il en existe une ; les mortes sont exclues (leur compteur est gelé par le `RemoveAll` de
+  `PlayerComponent$$get_CurrentlyOwnedUnitIds`).
+
+Direction du résidu : **sous-estimation** si toutes les unités du joueur sont apparues après le début.
+
+### 9.5 Le SECOND volet — les flags de tour, et sa cause est la MÊME
+
+`immediate_turn` n'y était pour rien. Les trois flags manquants (`1 ArrivedAtFinalTile`,
+`3 TurnFinished`, `4 NoActionAvailable`) sont ceux que pose
+`IdunBattle.Operations.FinishUnitTurnOperation$$Execute`, que
+`IdunBattle.Operations.EndTurnOperation$$Execute` appelle par le slot `0x23` avec
+`isTerminated = false` — et que **le port n'appelait pas** : il n'émettait que la jambe `On(0x28)`.
+Le résidu #448-r2 qui l'avait refusé (« rayon de souffle ») était une **prudence, pas une
+fidélité** : l'opération entière était déjà portée, seul l'APPEL manquait.
+
+⚠ **RÉSIDU OUVERT `#462-r4e-o-r2-r1-r1-r1`** — `turnflow.find_next_player` ne mirrore pas
+`IdunBattle.Operations.ChangeTurnOperation$$FindNextPlayer`. Le port cycle sur les ids de joueur
+croissants ; le natif indexe un ORDRE DE TOUR rendu par le slot `0x18` de l'`IBattleQuery` et saute
+les joueurs qu'écarte le slot `0x1a`. **Mesuré** sur ce montage : le natif fait jouer le joueur 3
+**deux tours d'affilée** puis le 4 puis le 3 (`turnsStarted` de l'attaquant 2 : `1 -> 2 -> 2 -> 3`,
+`currentPlayer` `3 -> 3 -> 4 -> 3`) là où `find_next_player` alterne 4 puis 3. Le probe prend donc
+l'**alternance MESURÉE** (`decisionView.currentPlayer` après chaque `endturn`) au lieu de
+`advance=True` : c'est ce qui sépare « l'ÉTAT après un changement de tour » (l'objet de cette
+tranche) de « QUI joue ensuite » (le résidu). Le supposer `[adverse, moi]` aurait figé un rejeu à
+deux tours là où le natif en joue trois — un décalage qu'aucun scalaire ne trahit.
+
+### 9.6 Mesures et gardes
+
+* `probe_462r4eor2r1_retour_a_la_vie_over_reduce.py` — **son verdict porte désormais sur les DEUX
+  observables** (état égal ET bout-en-bout). L'écart bout-en-bout n'était jusqu'ici que RAPPORTÉ
+  (« hors périmètre de la purge »), et c'est ce qui l'avait laissé vivre.
+  **6 contre-épreuves, toutes MORDANTES**, chacune déclarant l'observable qu'elle vise (une mutation
+  d'ÉTAT est inerte par construction sur un observable calculé à état égal) :
+  `rotation-absente`, `turn-counts-non-seede`, `avance-de-tour-mimee` (les trois → `[214, …]`),
+  `resurrect-flags-partiels` (→ `[]`), `fillup-sans-purge` et `revive-sans-purge` (→ `[1044]` / `[213]`).
+* `tests/engine/test_462r4eor2r1r1_cycle_de_tour_offline.py` — **15 tests** : séparation des deux
+  compteurs (en régime SÉPARANT, pas vacu), tri-état du canal, le seed (max / mortes exclues / pas de
+  zéro inventé), le registre et le vecteur, la table des phases, l'arbre parcouru **comme structure**
+  (une docstring qui cite un nom n'est pas un nœud), la pose des flags 1/3/4, leur portée au seul
+  joueur finissant, leur retrait au `StartTurn` (et la CONSERVATION du 4).
+  Contre-épreuves par **mutation réelle du code produit** : `PlayerTurnsStarted -> UnitTurnsStarted`
+  (1 rouge), registre retiré (1), `EndTurn` qui n'appelle plus l'opération (3), `_load_turn_counts`
+  neutralisé (2).
+
+### 9.7 Non couvert, nommé
+
+* **`find_next_player`** — résidu `#462-r4e-o-r2-r1-r1-r1` ci-dessus.
+* **`GetOriginalOwnerEntityId`** : le natif lit le propriétaire d'**ORIGINE**
+  (`OriginalOwnerComponent+0x10`) ; le port n'a pas ce composant et lit l'`OwnerComponent.player`
+  **courant**. Les deux coïncident tant qu'aucune unité n'a changé de camp (Mind Control). Nommé, non porté.
+* **Le seed de `turn_counts` sous-estime** quand toutes les unités vivantes d'un joueur sont apparues
+  après le début de la bataille. Direction connue, jamais une sur-estimation.
+* **Les trois `*_Visual`** se matérialisent en `BaseEffect` nu (aucune classe déclarée). C'est leur
+  rôle natif (`NoneEffect`), et les OMETTRE aurait divergé du seed live, qui les publie sur le même
+  canal — mais aucune mesure ne distingue « inerte » de « inerte et correct ».
+* **Le cycle n'est confronté qu'à la phase `k = 0`** (StormOfFire, round 3 du montage). Les phases 1
+  et 2 sont traversées par le rejeu et cohérentes avec le seed live (round 1 = SenseOfStone), mais
+  aucun régime dédié ne les mesure isolément.

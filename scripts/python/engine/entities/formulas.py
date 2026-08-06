@@ -506,6 +506,40 @@ class UnitTurnsStarted(AAmountFormula):
         return int(gs(u, int(StatType.TURNS_STARTED), 0) or 0)
 
 
+class PlayerTurnsStarted(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$PlayerTurnsStarted(unit)` ->
+    `IdunBattle.Entities.Formulas.UnitsPlayerTurnsStartedFormula$$Calculate`, relu VERBATIM
+    (`rnca9r7q6c`) :
+
+        unit  = <selecteur>.Select(entities)          # null -> 0
+        owner = EntityExtensions.GetOriginalOwnerEntityId(unit)
+        turn  = StateExtensions.GetMatchTurn(state)
+        return TurnComponent.GetAmountOfTurnsStartedByPlayer(turn, owner)
+
+    C'est donc le compteur PAR JOUEUR `TurnComponent+0x38` (= `State.turn_counts`), incremente par
+    `IdunBattle.Operations.StartTurnOperation$$Execute` -- **PAS** le compteur PER-UNITE
+    `UnitComponent+0x58` (stat 0xc) que lit `UnitTurnsStarted` juste au-dessus. Les deux existent et
+    les confondre change la phase d'un cycle : `FleshMetalGunsAbility` indexe son cycle a 3 temps sur
+    le compteur PER-UNITE, `SereneUnifierAbility` sur celui-ci.
+
+    ⚠ APPROXIMATION NOMMEE -- `GetOriginalOwnerEntityId` lit `OriginalOwnerComponent+0x10`, le
+    proprietaire d'ORIGINE (avant tout Mind Control / changement de camp) ; le port n'a pas ce
+    composant et lit `OwnerComponent.player`, le proprietaire COURANT. Les deux coincident tant
+    qu'aucune unite n'a change de camp. Le canal est fourni par `entities_from_state`
+    (`ctx.player_turns_started`) ; absent -> 0, comme le natif sur `unit == null`."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.unit, ctx)
+        if u is None:                                # `if (unit == null) return 0`
+            return 0
+        fn = getattr(ctx, "player_turns_started", None)
+        if fn is None:                               # canal absent (arbre purement numerique)
+            return 0
+        return int(fn(u) or 0)
+
+
 class TurnsFromRounds(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$TurnsFromRounds(rounds)` → `IdunBattle.Entities.Formulas.TurnsFromRoundsFormula$$Calculate`
     = `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (interface slot 0x1c) = `count(joueurs du turnOrder,

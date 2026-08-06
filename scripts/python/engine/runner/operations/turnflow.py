@@ -519,13 +519,20 @@ class EndTurnOperation:
         # appelle le MEME slot 0x23 de la MEME classe avec `(caster, false)`, et c'est deja ce que le
         # port nomme `FinishUnitTurn` (cf. `add_flags_after_ability_execution`).
         #
-        # PORTEE PARTIELLE, et c'est DIT : le port n'emet d'ici que la jambe `On(0x28 =
-        # UnitFinishedTurn)` de cet appel, sous son gate natif (« le flag TurnFinished vient d'etre
-        # POSE »). Les deux autres jambes (`On(0x1c = ArrivedAtFinalTile)` et `On(0x29 =
-        # UnitFinishedTurnNormally)`) restent NON EMISES depuis ce site : les cabler ferait firer
-        # `SpiritualLeaderAbility`/`ArcaneShieldAbility`/`MyWillBeDoneOverlordAttackAbility` pour
-        # toute unite n'ayant PAS agi du tour -- un rayon de souffle hors de la tranche #448-r2.
-        # RESIDU NOMME. (Le flag lui-meme n'est pas pose non plus : meme raison.)
+        # C'EST L'OPERATION ENTIERE QUI EST APPELEE, PAS UNE DE SES JAMBES (#462-r4e-o-r2-r1-r1).
+        # Le port n'emettait d'ici que `On(0x28 = UnitFinishedTurn)`, en sautant la POSE des flags
+        # et les deux autres jambes -- « rayon de souffle hors de la tranche #448-r2 », disait le
+        # residu. C'etait une PRUDENCE, pas une fidelite : le natif appelle bien le slot 0x23 avec
+        # `isTerminated = false`, donc `IdunBattle.Operations.FinishUnitTurnOperation$$Execute`
+        # POSE `Add(0x01 = ArrivedAtFinalTile)` et `Add(0x03 = TurnFinished)`, publie `On(0x1c)`
+        # puis `On(0x28)` puis `On(0x29)` sous leurs gates respectifs, vide `ChargedUnitIds` et
+        # termine par le slot 0x76 (`MarkUnitAsNoActionAvailable` -> flag 4). Tout cela etait DEJA
+        # PORTE dans `FinishUnitTurnOperation.execute` -- seul l'APPEL manquait.
+        # MESURE qui l'a montre (montage Ambush MC1_67/777) : les flags de l'unite RESSUSCITEE
+        # valaient `[14]` cote port contre `[1, 3, 4, 14]` cote natif, et les trois flags manquants
+        # sont EXACTEMENT ceux que cette operation pose.
+        # Le gate `Add(TurnFinished)` (« le flag vient d'etre pose ») vit DANS l'operation
+        # (`newly_finished`), donc la boucle n'a plus a le pre-filtrer.
         #
         # CE QUE CA REMPLACE : la boucle bespoke `land_deep_strike` d'avant #448-r2, qui faisait
         # atterrir ICI toutes les unites deep-strike du joueur finissant. Le retrait de
@@ -533,15 +540,17 @@ class EndTurnOperation:
         # l'effet (`On(4)`, `On(0x2a = PreUnitAbility)`, `On(0x28 = UnitFinishedTurn)`) -- mesure live : le natif retire l'effet DES LE
         # MOUVEMENT ou DES LE CAST, pas en fin de tour. Ce site-ci ne couvre donc plus que le cas
         # « l'unite n'a rien fait de son tour », qui est exactement ce que le natif couvre ici.
+        # ⚠ MORTES EXCLUES : `PlayerComponent$$get_CurrentlyOwnedUnitIds` finit par un `RemoveAll`
+        # des defaits -- MEME filtre que `_bump_turns_started` / `_bump_turns_finished`.
         landed: list[dict] = []
-        for uid, e in state.entities.items():
+        for uid, e in list(state.entities.items()):
             oc = e.get_component(OwnerComponent)
             if oc is None or oc.player != finishing:
                 continue
-            fl = e.get_component(UnitFlagsComponent)
-            if fl is not None and fl.has(UnitFlagsComponent.TURN_FINISHED):
-                continue                       # `flags.Add(TurnFinished)` rend FAUX -> aucune publication
-            landed += unit_finished_turn_triggers(state, int(uid))
+            uc = e.get_component(UnitComponent)
+            if uc is not None and not uc.alive:
+                continue
+            landed.append(FinishUnitTurnOperation.execute(state, int(uid), forced=False))
         # (4) vecteur `On(0x17 = TurnEnd)` — DEUX consommateurs portes (inventaire re-derive du registre
         # par `probe_n8b_turnend_consumers.py`) : le dispatch generique `ABILITY_TRIGGERS`
         # (`RadSaturationAbility`, branche `NOT HasFlag(owner, Moved)`) et le bespoke
