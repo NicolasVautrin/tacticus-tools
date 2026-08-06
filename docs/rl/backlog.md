@@ -2755,18 +2755,6 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `IOperationProcessor`.
   cf. `docs/rl/case-477r24r1-mapping-slot-interface.md` Residus.
 
-- **#477-r21-r1 : les formes `ChangeStats` / `ChangeAbility` du bloc 1 de `System_StartMatch`.**
-  `[opus]`
-  84 lignes (`C1_02`) / 99 (`MC1_67`) / **0** (roster 2v2 crafte), soit 4 sous-arbres par board
-  ecartes EN ENTIER (jamais amputes ligne a ligne) parce qu'ils portent une forme que
-  `engine/streams/refresh_effects.py` ne produit pas. Trois motifs, nommes et comptes : deux
-  `ChangeStats` de `UnitStats_Movement_Modification*`, un de `UnitStats_FixedArmor_Modification*`,
-  et un `ChangeAbility` + `UnitStats_RemoveActiveAbility` (`TwistedScience`). Elles sortent
-  d'`Effect.ApplyModification` et de la transformation d'ability, pas de `RefreshEffectsOperation`.
-  RETOURNEMENT **DEJA MESURE** : sur le roster 2v2 ce residu vaut **0 ligne** -- c'est une
-  propriete du ROSTER, pas une limite du port.
-  cf. `docs/rl/case-477r21-arbre-activation.md` sec. 3.
-
 - **#477-r21-r2 : la SELECTION et l'ORDRE de l'arbre d'activation.** `[opus]`
   Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.
   C'est `AOperation.AbilityAndEffectCache.<slot 3>(trigger)` parcouru par
@@ -2775,7 +2763,14 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `GetTargetsToRemove`, `UpdateEffectTargets`~~ -- **VOLET A LIVRE**, cf. ci-dessous) et les DEUX
   d'`EvaluateAbilityTrigger`
   (`TriggeredAbilityComponent$$GetTimesTriggeredThisPhase(order) >= 0x33`, et le slot 2 de
-  l'ability). ⚠ **CE N'EST PAS UNE FACE STREAM** : contrairement aux quatre crans #477-r18..r21,
+  l'ability).
+  ⚠ **IL A GROSSI DE L'ORDRE DES SIX BLOCS D'`eventActions`** (#477-r21-r1) :
+  `IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` construit une
+  `List<Action>` DIFFEREE dans un ordre LU -- activate, lose, receive, deactivate,
+  `RevertEffectsForTargets`, `ApplyEffectsForTargets` -- que le probe COPIE aujourd'hui. C'est
+  ce qui place l'`Action=ChangeStats` d'une modification de stat APRES les `ReceiveEffect` du
+  meme groupe, et c'est derivable des que les quatre gardes seront portees : meme artefact.
+  ⚠ **CE N'EST PAS UNE FACE STREAM** : contrairement aux quatre crans #477-r18..r21,
   ce residu vit dans l'ETAT ECS -- le decouper comme un port d'emission serait une erreur de
   cadrage. C'est le plus gros des trois residus de #477-r21.
   ⚠ **IL A GROSSI DE #477-r21-r3, ET C'EST UNE MESURE** : il porte desormais aussi la **SEQUENCE
