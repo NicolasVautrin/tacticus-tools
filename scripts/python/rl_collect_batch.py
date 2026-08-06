@@ -1174,10 +1174,102 @@ def _load_board_pool(kind: str, roster_size: int,
     return out
 
 
+# ---- Items equipes : le canal CRIT/BLOCK (#419-r5) ---------------------- #
+#
+# Les 4 stats CritChance/CritDamage/BlockChance/BlockDamage ne sont PAS dans
+# la base d'un heros. Mesure sur le gameconfig du build courant : `adeptMorvenn`
+# porte `stats = {Health, Damage, FixedArmor}` -- aucune stat crit/block -- et
+# `itemSlots = ["I_Crit", "I_Block", "I_Booster_Block"]`. Elles arrivent
+# EXCLUSIVEMENT par les ITEMS equipes, que
+# `IdunMetaLogic.Formulas.StatsFormula$$StatsFor` fusionne
+# (`IdunMetaLogic.Formulas.UnitDynamicStats$$Merge`) a la base de progression.
+#
+# `buildNormalizedBC` ECRASE les 8 stats du seed BC par la sortie de
+# `IdunMetaLogic.Formulas.StatsFormula$$StatsUsingProgressionIndexFor`. Appelee
+# avec une liste d'items VIDE, celle-ci rend legitimement 0 sur les 4 stats
+# crit/block. Le seed portait 352 de CritDamage pour `adeptMorvenn` : le
+# template normalise portait 0.
+#
+# CONSEQUENCE, et c'est elle qui rend ce defaut couteux :
+# `IdunBattle.Core.Services.DamageCalculations$$CouldCrit` est
+# `GetStat(9) > 0 && GetStat(10) > 0` -- donc AUCUN crit n'etait possible, NI
+# cote natif NI cote port, sur AUCUNE unite d'AUCUN runner. Tout accord
+# natif-port sur `RollCritical`, sur le gate « never crit » ou sur le canal
+# block etait un accord en REGIME DEGENERE : les deux cotes rendaient zero.
+# Le meme raisonnement vaut pour le block
+# (`IdunBattle.Core.Services.DamageCalculations$$CouldBlock`).
+#
+# Le regime « heros rank 17 / level 50 / 5 etoiles SANS aucun item » n'existe
+# pas dans le jeu. Equiper est donc le regime FIDELE, et l'ancien comportement
+# reste joignable par `equip_items=False` (temoin, non-regression).
+
+_BIS_CACHE: dict[tuple, dict] = {}
+
+
+def _bis_item_specs(sid: int, base_bc: dict, rarity_cap: int = 5,
+                    exclude_relics: bool = True) -> dict:
+    """`itemSpecs` Best-In-Slot pour les unites du BC, via le RPC `previewBis`.
+
+    `previewBis` (`frida/hooks/features/normalize-bc/items-catalog.ts`
+    `buildBisItemSpecs`) lit `gameConfig.items` + `gameConfig.units.lineup`,
+    et choisit par slot l'item de plus haute rarete (<= `rarity_cap`), puis
+    starLvl, puis nombre de niveaux -- au niveau MAX.
+
+    La faction vient du gameconfig (`FactionId`) : le picker s'en sert pour
+    ecarter les items a `allowedFactions` restreint. Une unite sans
+    `FactionId` (les npc) est simplement omise -- elle n'a de toute facon
+    aucune entree `lineup`, donc aucun slot.
+
+    Un echec du RPC LEVE. Retomber en silence sur « pas d'items » rendrait
+    EXACTEMENT le regime degenere que ce chemin supprime, et un appelant
+    lirait ce zero comme une mesure (cf. l'invariant `data/` tri-etat).
+    """
+    import gameconfig as _gc
+
+    ids = tuple(sorted(u["Id"] for u in (base_bc.get("Units") or [])
+                       if u.get("Id")))
+    key = (sid, ids, rarity_cap, exclude_relics)
+    cached = _BIS_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    units = []
+    for uid in ids:
+        cfg = _gc.unit(uid) or {}
+        faction = cfg.get("FactionId")
+        if faction is None:
+            continue          # npc : aucune entree `lineup`, aucun slot
+        units.append({"unitId": uid, "faction": faction})
+
+    if not units:
+        raise RuntimeError(
+            "_bis_item_specs : aucune unite du BC n'a de FactionId au "
+            "gameconfig -- le canal crit/block resterait MUET (cf. #419-r5). "
+            "Passer equip_items=False pour assumer explicitement ce regime.")
+
+    res = _rpc(sid, "previewBis",
+               [{"units": units, "rarityCap": rarity_cap,
+                 "excludeRelics": exclude_relics}],
+               timeout=60).get("result") or {}
+    if not res.get("ok"):
+        raise RuntimeError(
+            f"previewBis a echoue : {res.get('err', '?')!r}. Sans itemSpecs, "
+            f"CritChance/CritDamage/BlockChance/BlockDamage valent 0 sur "
+            f"TOUTES les unites et le crit devient structurellement "
+            f"impossible (#419-r5). Si le catalogue d'items n'est pas "
+            f"capture, faire un warmup ; pour assumer le regime sans items, "
+            f"passer equip_items=False.")
+    specs = res.get("itemSpecs") or {}
+    _BIS_CACHE[key] = specs
+    return specs
+
+
 def _normalize_and_extract_pool(
     sid: int, base_bc: dict, target_rank: int,
     board_dump: dict | None = None,
     explicit_stats: dict | None = None,
+    equip_items: bool = True,
+    item_specs: dict | None = None,
 ) -> tuple[dict, list[str], list[str]]:
     """Calls buildNormalizedBC. Returns
     (template_bc_normalized, pool_regular, pool_mow).
@@ -1204,7 +1296,24 @@ def _normalize_and_extract_pool(
     fait LEVER ici : sans ce refus, un id mal orthographie retomberait en
     silence sur la formule heros -- exactement la panne que ce chemin
     supprime.
+
+    `equip_items` (#419-r5, defaut VRAI) = equipe chaque unite de ses items
+    Best-In-Slot avant d'appeler la formule. C'est ce qui OUVRE le canal
+    crit/block : sans items la formule rend 0 sur les 4 stats concernees, et
+    `IdunBattle.Core.Services.DamageCalculations$$CouldCrit` (`GetStat(9) > 0
+    && GetStat(10) > 0`) est alors FAUX pour toute unite -- cote natif comme
+    cote port. Mesure sur le seed BC au rank 17 : `could_crit` passe de
+    0/106 a 98/106, `could_block` de 0/106 a 46/106, `Health`, `Damage` et
+    `FixedArmor` restant INCHANGES (les slots crit/block ne portent pas ces
+    stats). `equip_items=False` restitue l'ancien regime -- utile comme
+    TEMOIN, jamais comme defaut.
+
+    `item_specs` (optionnel) court-circuite le calcul BiS et impose des items
+    choisis (meme forme que `previewBis.itemSpecs` :
+    `{unitId: [{configId, level}]}`).
     """
+    if item_specs is None and equip_items:
+        item_specs = _bis_item_specs(sid, base_bc)
     base_json = json.dumps(base_bc)
     args: dict = {
         "baseBcJson": base_json,
