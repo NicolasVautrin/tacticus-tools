@@ -245,9 +245,15 @@ class _Normal:
         # posent le litteral `0` et DEUX posent `1` dans une branche gardee. Le port n'a qu'UN foyer
         # d'attaque normale (celui-ci) la ou le natif a un `ExecuteBehaviour` par classe : la
         # decision est donc DELEGUEE au foyer unique `custom_normal_attack.inform_weapon_use_special`,
-        # qui porte le gate LU de `FeederTendrils` (`IsCharging(caster,target) & weapon.IsMelee`) et
-        # DECLARE `OptimizedGait` non porte. MESURE LIVE du 2026-08-06 (tyranDeathleaper en charge,
-        # MC1_67) : le flux natif ecrit bien `Tag=Attack_Weapon_Use_Special:1` dans ce regime.
+        # qui porte les DEUX gates LUS : `FeederTendrils` (`IsCharging(caster,target) &
+        # weapon.IsMelee`) et `OptimizedGait` (`HasEffect(caster, CordClaw_AdditionHits)`, ancre
+        # TRANCHEE #419-r1-tr14-r4-r2-r1-r2). MESURES LIVE du 2026-08-06 (MC1_67) : le flux natif
+        # ecrit `Tag=Attack_Weapon_Use_Special:1` dans CHACUN des deux regimes, et dans aucun autre.
+        #
+        # ⚠ CE `Use_Special`-CI EST COMBAT-INERTE, PAS LA BRANCHE QUI LE POSE. La ligne
+        # d'`InformWeapon` ne mute rien (`InformBehaviour$$Execute` -> pas `StepType.Info`) ; mais
+        # chez `FeederTendrils` le MEME gate ouvre AUSSI un `Heal` + un `AddEffect`, joues juste
+        # en dessous. Ne pas lire l'inertie du tag comme l'inertie de la branche.
         #
         # COMBAT-INERTE PAR CONSTRUCTION : `InformBehaviour$$Execute` ne mute rien et
         # `InformOperation$$Execute` ne fait que dispatcher un pas `StepType.Info` -- aucun tirage,

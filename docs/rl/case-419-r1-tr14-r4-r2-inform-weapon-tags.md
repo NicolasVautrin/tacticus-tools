@@ -1,7 +1,7 @@
 # #419-r1-tr14-r4-r2 — `InformWeapon` : les trois clés portées, sur les DEUX voies
 
-**Résolu**, résidu `-r1` inclus. Build `rnca9r7q6c`, ghidra-mcp sur le binaire installé, session
-Frida 1.
+**Résolu**, résidus `-r1`, `-r1-r1` et `-r1-r2` inclus. Build `rnca9r7q6c`, ghidra-mcp sur le
+binaire installé, session Frida 1.
 
 ```powershell
 python scripts/python/probe_419r1tr14r4r2_inform_weapon_tags.py                  # cast live x2
@@ -11,6 +11,11 @@ python -m pytest scripts/python/tests/engine/runner/test_419r1tr14r4r2_inform_we
 python scripts/python/probe_419r1tr14r4r2r1_normal_attack_inform_weapon.py                  # 4 porteurs live
 python scripts/python/probe_419r1tr14r4r2r1_normal_attack_inform_weapon.py --contre-epreuve # 7 mutations, 0 runner
 python -m pytest scripts/python/tests/engine/runner/test_419r1tr14r4r2r1_normal_attack_inform_weapon_offline.py -q
+# les DEUX branches SPECIALES (#419-r1-tr14-r4-r2-r1-r1 et -r1-r2), SS7bis / SS7ter
+python scripts/python/probe_419r1tr14r4r2r1r1_normal_attack_special_branches.py --volet 1   # FeederTendrils : Heal + Pinned
+python scripts/python/probe_419r1tr14r4r2r1r1_normal_attack_special_branches.py --volet 2   # OptimizedGait : l'ANCRE, 3 bras
+python scripts/python/probe_419r1tr14r4r2r1r1_normal_attack_special_branches.py --contre-epreuve  # 5 mutations, 0 runner
+python -m pytest scripts/python/tests/engine/runner/test_419r1tr14r4r2r1r1_normal_attack_special_branches_offline.py -q
 ```
 
 ## 1. Le décompilé
@@ -175,16 +180,115 @@ charge, que le natif ne pose pas.
 `Tag=Attack_Weapon_Use_Special:1` dans le flux. C'est la **première** observation de cette clé.
 Le port la reproduit via le foyer unique `custom_normal_attack.inform_weapon_use_special`.
 
+## 7bis. La branche SPÉCIALE de `FeederTendrils` (`-r1`) — le soin ET l'effet, portés
+
+Le bloc existe **DEUX FOIS** dans le binaire, instruction pour instruction : inliné dans
+`FeederTendrils_NormalAttackAbility$$ExecuteBehaviour`, et comme corps autonome de
+`IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteSpecialAttack`.
+C'est une lecture de contrôle gratuite, et elle concorde.
+
+```csharp
+amount  = DSLFormulas.ConfigVar(0x20, abilityState, this@+0x60);   // AbilityVariableType.hpToHeal
+options = HealBehaviourOptions.ForHeal(AbilityOrEffect.op_Implicit(<this>));
+b = DSLBehaviors.Heal(healer: sel@+0x30, selector: sel@+0x30, amount, options)   // le CASTER
+  + DSLBehaviors.AddEffect(0x429, AbilityStateReference, targets: sel@+0x60, turns: null); // la CIBLE
+return ExecuteAtomic(this, b, entities, 0x2a);        // GroupType.Ability_AtomicGroup
+```
+
+⚠ **LES DEUX ANCRES DIFFÈRENT, et c'est le point le plus facile à rater.** `Heal` reçoit `+0x30`
+**deux fois** (`healer` ET `selector` de `DSLBehaviors$$Heal(this, healer, selector, amount,
+options)`) ; `AddEffect` reçoit `+0x60`. Ce que ces deux slots désignent est établi par le MÊME
+`ExecuteBehaviour`, deux lignes plus haut : `DSLTriggers$$IsCharging(this, caster, target)` (noms de
+paramètres du dump) y reçoit `(*(sel+0x30), *(sel+0x60))`. Lecture de contrôle indépendante —
+`CordClawAbility$$ExecuteBehaviour` pose son self-buff via ce même `+0x30`, et le port l'écrit déjà
+`Caster()`. Écrire les deux feuilles sur la même ancre serait **silencieux** : `Pinned` porte un
+malus de dégât ATTAQUANT ×0.70, donc la faute déplacerait un chiffre au tour SUIVANT.
+
+**Littéraux qualifiés** : `0x429` = `EffectType.Pinned` ; `0x2a` = `GroupType.Ability_AtomicGroup`
+(⚠ 42 est aussi `StepType.RotateUnit`) ; `0x20` = `AbilityVariableType.hpToHeal` (⚠ 32 est aussi
+`AbilityConstantType.hpForArmor` — tranché par la **surcharge** `ConfigVar(this, variableType,
+abilityState, config)`, pas par le nom). `turns = null` ⇒ durée DÉFAUT ; contraste LU dans le même
+binaire, `CordClaw` passe `TurnsFromRounds(2)` à la même position.
+
+**Le niveau** : `hpToHeal` n'existe pas sous `FeederTendrils_NormalAttack` au gameconfig — c'est le
+PASSIF `FeederTendrils` qui la porte, cohérent avec la fabrique (`AddNormalAttackAbility` monte
+l'attaque substituée avec le `triggeredAbilityState`). Le port lit `passive_ability_level`, fallback
+actif — même règle et même précédent que `MV71SniperDroneSquad`.
+
+**Confrontation live** (MC1_67), deux régimes qui DIFFÈRENT sur les TROIS observables :
+
+| régime | HP caster | `Pinned` sur la cible | `Use_Special` |
+|---|---|---|---|
+| CHARGE (au contact, arme mêlée) | 392342 → 395632 (**+3290**) | absent → **présent** | **1** |
+| NO_STEP (mêlée, sans charge) | 388050 → 388050 (**0**) | absent → absent | absent |
+
+et **+3290 est exactement ce que le port pose** (`hpToHeal` niv. 50, mult. 180).
+
+⚠ **LE TÉMOIN DOIT ÊTRE NON NUL À DEUX TITRES, et le second ne s'est vu qu'à la mesure.** La garde
+`Healable` (HP < max) rend le soin inerte sur une unité pleine — première passe : 400000 → 400000
+des deux côtés, un accord qui ne prouve rien. Mais `HealUnitOperation` **PLAFONNE aussi le soin à
+`hp_max`** : une blessure de 1356 pour un `hpToHeal` de 3290 a fait lire un « écart de montant »
+qui n'existait pas. Il faut donc creuser un trou **plus profond que le soin attendu** — c'est ce que
+fait le probe (cible = 2 × le montant).
+
+⚠ **Et une garde branchée sur un champ ABSENT ne se déclenche jamais, en silence** :
+`decisionView.units[]` ne porte AUCUN champ de PV max, donc un `hp >= hp_max` y est toujours faux.
+Même forme que le premier faux négatif de cette tranche — `observeBattle.units[]` n'a pas de champ
+`effects` (seul `decisionView` les porte), et le lecteur branché dessus rendait une liste vide sans
+erreur, ce qui se lisait « régime non armé ».
+
+## 7ter. L'ANCRE d'`OptimizedGait_NormalAttack` (`-r2`) — c'est le CASTER
+
+Le gate est `EntityExtensions$$HasEffect(<entités du champ `+8`>, state, 0x4e2, null)` — et
+`HasEffect(entity, state, requestedEffectType, onlyActive)` = `IsOwnerOfEffect(...) ||
+IsTargetOfEffect(...)`, avec `onlyActive = null` (donc **pas** de filtre `IsActive` : le mirror est
+`EffectsState.has_effect`, qui ne filtre que `consumed`).
+
+**RE.** `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` écrit ses champs avec les noms de
+paramètres du dump : `+0x00 = actor`, **`+0x08 = caster`**, `+0x10 = target`, `+0x18 = owner`,
+`+0x20 = activeTarget`, `+0x30 = targetTile`, `+0x40 = casterTile`, `+0x7c = parentAbilityOrEffect`,
+`+0x98 = triggerAbilityOrEffect`. L'appariement nom↔offset est vérifié par **SIX** getters
+concordants de la même classe (`get_ParentAbilityType` → `+0x7c`, `get_TriggerAbilityType` →
+`+0x98`, `get_IsFirstHit` → `+0x108` = `hitIndex`, `get_IsFirstHitGroup` → `+0x110`,
+`get_HasCasterPosition` → `+0x48`/`+0x40`, `get_HasTargetPosition` → `+0x38`/`+0x30`), et la struct
+fait **0x128** octets — exactement ce que l'`ExecuteBehaviour` recopie (0x25 qwords).
+
+**MESURE** (`admecRuststalker` dans CHAQUE camp, trois bras séparants) :
+
+| bras | `0x4e2` sur le caster | sur la cible | `Tag=Attack_Weapon_Use_Special` |
+|---|---|---|---|
+| `aucun` | non | non | **absent** |
+| `caster` | **oui** | non | **1** |
+| `cible` | non | **oui** | **absent** |
+
+Le bras `cible` est le **discriminant** : l'effet EST sur la cible et le natif n'écrit rien. Une
+ancre-cible aurait écrit le tag. Le régime s'arme parce que `CordClaw` pose
+`CordClaw_AdditionHits` **sur son propre caster** (self-buff mesuré, `remaining=3`) — faire caster
+l'adversaire met donc l'effet sur la cible, et sur elle seule.
+
+⚠ **NE PAS GÉNÉRALISER** : `OptimizedGait_TriggerAttackAbility$$CreateBehaviour` (la surcharge à 3
+arguments) ancre SON `HasEffect` sur la **CIBLE**. Deux abilities, deux ancres ; l'une n'autorise
+rien sur l'autre.
+
+⚠ **Deux pièges de MONTAGE, tous deux à refus SILENCIEUX** (`ok=True`, aucun effet — signature
+#111) : un cast sur une unité qui a déjà agi, et un cast par une unité dont ce n'est pas le tour.
+D'où le cran `hasAction` **sur l'unité visée nommément** — avec un même `visualId` dans les deux
+camps, « le premier de ce `visualId` dont l'owner est le joueur courant » désigne tantôt l'un
+tantôt l'autre, et la même unité a casté dans deux bras censés être opposés.
+
 ## 7. Ce qui n'est PAS couvert
 
-* **Résidu `#419-r1-tr14-r4-r2-r1-r1` — la branche SPÉCIALE de `FeederTendrils` n'est portée que
-  pour son TAG.** La même branche exécute aussi `Heal(ConfigVar 0x20)` et `AddEffect(0x429)`, que
-  le port ne joue pas. Ne pas lire « `FeederTendrils` est porté » : seul son `useSpecial` l'est.
-* **Résidu `#419-r1-tr14-r4-r2-r1-r2` — `OptimizedGait_NormalAttack` : l'ANCRE du gate n'est pas
-  tranchée.** `EntityExtensions$$HasEffect(<entité du champ `+8` des `AbilityEntities`>, state,
-  0x4e2, null)` : caster ou cible ? L'inscrire au jugé écrirait un `Use_Special` faux sur un
-  porteur réel (`admecRuststalker`, dans le pool). Débloqueur : lire le layout d'`AbilityEntities`,
-  ou monter les deux régimes (effet `0x4e2` sur le caster / sur la cible) et mesurer.
+* **Le `Pinned` posé par cette branche n'est PAS confronté sur son EFFET AVAL** (malus de mouvement
+  et ×0.70 de dégât attaquant). Ce qui est mesuré ici, c'est sa POSE (présent/absent sur la cible) ;
+  `PinnedEffect` est porté et validé par ailleurs (`status.py`).
+* **L'ORDRE des deux feuilles entre elles n'est pas observable** et ne peut pas l'être : elles sont
+  pures (aucun tirage) et portent sur des unités distinctes. Il est mirroré, pas mesuré.
+* **La position du bloc AVANT `ExecuteNormalAttack` n'a pas d'observable AUJOURD'HUI** : `Pinned`
+  gate `OwnerIsCaster`, donc il ne touche pas l'attaque qui suit (dont l'attaquant est le caster).
+  Elle est portée parce que c'est celle du natif, et gardée par un test de position.
+* **Le groupe `Ability_AtomicGroup` n'est pas ÉMIS dans le flux** par `engine.streams` — le port
+  joue l'arbre, pas son enveloppe de présentation. Hors périmètre, comme le reste du groupe
+  `Ability_Power`.
 * **Les trois porteurs non portés** de la surcharge à 3 arguments (`StranglethornCannon`,
   `IncendiaryShells`, `OptimizedGait_TriggerAttack`) ne sont pas dans `engine/` : rien à corriger.
 * **Le reste du groupe `Ability_Power` de l'attaque normale** (`NormalAttack_AtomicDamage`,
