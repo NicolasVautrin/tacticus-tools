@@ -197,7 +197,7 @@ def _cache():
     if _CACHE is None:
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_270r4r2_import_en_premier",
-            contexte="%s-py%d%d-%s" % (verdict_cache.sha_fichiers(
+            contexte="%s-py%d%d-%s" % (verdict_cache.sha_fichiers_texte(
                 Path(__file__).resolve(), RACINE / "import_closure.py",
                 RACINE / "probe_270r4r2_cycles_imports.py")[:16],
                 sys.version_info[0], sys.version_info[1], sys.platform),
@@ -309,7 +309,7 @@ def main() -> int:
         #: MODE ESPION : le fichier est charge, jamais servi -- ce run recalcule donc TOUT.
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_270r4r2_import_en_premier",
-            contexte="%s-py%d%d-%s" % (verdict_cache.sha_fichiers(
+            contexte="%s-py%d%d-%s" % (verdict_cache.sha_fichiers_texte(
                 Path(__file__).resolve(), RACINE / "import_closure.py",
                 RACINE / "probe_270r4r2_cycles_imports.py")[:16],
                 sys.version_info[0], sys.version_info[1], sys.platform),

@@ -118,6 +118,35 @@ def sha_fichiers(*chemins: Path) -> str:
     return h.hexdigest()
 
 
+def sha_fichiers_texte(*chemins: Path) -> str:
+    """`sha_fichiers`, mais sur le TEXTE -- la variante PORTABLE, pour un contexte de sources.
+
+    ⚠ MESURE (#486-r11), et c'est un vice VECU, pas redoute : `sha_fichiers` hache les OCTETS,
+    donc un simple `git rebase` suffit a changer le contexte d'un cliquet dont les sources
+    passent de LF a CRLF (`core.autocrlf=true`). Constate le 2026-08-07 : le cache de
+    `probe_270r4r2_import_en_premier` est reparti a ZERO apres un rebase qui n'avait touche
+    AUCUNE de ses trois sources -- 119 s au lieu de 20 s. Sur une autre plateforme, un cache
+    VERSIONNE serait ainsi froid en permanence, c'est-a-dire inutile la ou il existe.
+
+    C'est exactement le piege que `sha_texte` documente pour la cle de LIGNE ; le contexte y
+    echappait. Un fichier absent entre dans l'empreinte comme tel : son absence est une donnee.
+
+    ⚠ Les trois cliquets de #486-r1 utilisent encore `sha_fichiers` pour leur contexte : ils
+    portent donc toujours ce defaut. Bascule NON faite ici (hors perimetre) -- elle coute une
+    invalidation unique de leurs caches, et rien d'autre.
+    """
+    h = hashlib.sha256()
+    for p in chemins:
+        h.update(str(p.name).encode("utf-8"))
+        h.update(b"\0")
+        try:
+            h.update(sha_texte(Path(p).read_text(encoding="utf-8")).encode("ascii"))
+        except (OSError, UnicodeDecodeError):
+            h.update(b"ABSENT")
+        h.update(b"\0")
+    return h.hexdigest()
+
+
 def sha_gros_fichiers(*chemins: Path) -> str | None:
     """Empreinte de fichiers VOLUMINEUX, lus par BLOCS. `None` si l'un manque -- jamais un sha.
 

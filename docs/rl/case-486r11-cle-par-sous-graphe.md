@@ -123,6 +123,26 @@ vues -- c'est ce qui fait le menage, et c'est ce qui RETRECIRAIT le fichier si u
 sous-ensemble (un seul des deux fichiers de test, `--modules a,b`) l'ecrivait. Le refus est
 explicite (`_enregistrer_si_complet`) et garde par l'etage 7.
 
+## 4ter. Un defaut TROUVE en chemin : le CONTEXTE n'etait pas portable
+
+Le cache est reparti a ZERO apres un `git rebase` qui n'avait touche **aucune** de ses trois
+sources -- **119 s au lieu de 20 s**. Cause : `verdict_cache.sha_fichiers`, qui produit le
+CONTEXTE, hache les **OCTETS**, et `core.autocrlf=true` fait passer un fichier de LF a CRLF au
+checkout. Sur une plateforme a LF, un cache VERSIONNE serait ainsi froid **en permanence** --
+c'est-a-dire inutile la ou il existe, puisque sa raison d'etre est qu'un worktree frais demarre
+chaud.
+
+C'est exactement le piege que `sha_texte` documente pour la cle de LIGNE ; le contexte y
+echappait. `sha_fichiers_texte` le corrige, et la contre-epreuve MORD : conversion de
+`import_closure.py` en LF, run complet -> **cache CHAUD, 437 reutilisees, 0 interpreteur** (avec
+l'ancien contexte : 437 recalculs). Garde : `test_486_r1_cache_verdict_offline.py`, avec ses deux
+moities -- la variante portable IGNORE la fin de ligne, l'ancienne la VOIT encore (sans quoi le
+test comparerait deux fonctions identiques).
+
+⚠ **Les trois cliquets de #486-r1 portent toujours ce defaut** : ils utilisent `sha_fichiers`
+pour leur contexte. La bascule n'est pas faite ici (hors perimetre) ; elle coute une invalidation
+unique de leurs caches, et rien d'autre. C'est le residu #486-r17.
+
 ## 5. La contre-epreuve, dans les DEUX sens
 
 Le VERT est le resultat suspect sur une contre-epreuve : chaque mutation doit avoir MORDU.
@@ -186,6 +206,12 @@ services=353, entities=397, engine=437`.
   engine.futur / except ImportError:`). Le fichier neuf n'est dans aucune fermeture, donc aucune
   cle ne bouge. Mesure : **0 site** de cette forme dans `engine/**`. Recenser :
   `probe_486r11_fermeture_imports.py --formes`.
+* **Le `DECLENCHEUR` de #486-r13 n'est PAS pose ici.** Ce cliquet n'en portait pas et n'en porte
+  toujours pas -- ce n'est pas une regression, mais son perimetre de lecture s'est ELARGI avec
+  cette tranche (`import_closure.py`, `verdict_cache.py`, `scripts/cliquets-cache/`, et les
+  modules freres `gameconfig`/`hexgeo`). Le poser sans la RE de #486-r13 risquerait une
+  declaration TROP ETROITE, c'est-a-dire un cliquet qui se rejoue MOINS souvent que son gisement
+  ne bouge -- exactement les 4 declarations que la trace de #486-r13 a dû corriger. Nomme, pas fait.
 * **`probe_485_imports_differes`** porte le MEME critere et n'est pas cable au cache. Son entree
   dans `NON_CACHABLES` disait « non cachable, le verdict depend du sous-graphe » ; c'est desormais
   la description d'une cle qui existe. Il reste non cache -- **residu**, pas impossibilite.

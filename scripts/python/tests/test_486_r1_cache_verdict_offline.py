@@ -99,6 +99,43 @@ def test_le_sha_porte_sur_le_TEXTE_pas_sur_les_octets(tmp_path):
     assert VC.sha_texte("a\nb") != VC.sha_texte("a\nc")
 
 
+def test_le_CONTEXTE_portable_ignore_les_fins_de_ligne_la_ou_sha_fichiers_ne_le_fait_PAS(tmp_path):
+    """#486-r11 -- `sha_fichiers` hache les OCTETS : un `git rebase` sous `core.autocrlf=true`
+    suffit a changer le contexte d'un cliquet dont AUCUNE source n'a bouge.
+
+    Vice VECU le 2026-08-07 : le cache de `probe_270r4r2_import_en_premier` est reparti a zero
+    apres un rebase qui n'avait touche aucune de ses trois sources -- 119 s au lieu de 20 s. Et
+    sur une plateforme a LF, un cache VERSIONNE serait froid en PERMANENCE, c'est-a-dire inutile
+    la ou il existe. `sha_texte` documentait deja ce piege pour la cle de LIGNE ; le contexte y
+    echappait.
+
+    Les deux moities comptent : la variante portable doit IGNORER la fin de ligne, et l'ancienne
+    doit encore la voir -- sans quoi ce test serait vert sur deux fonctions identiques.
+    """
+    f = tmp_path / "src.py"
+    f.write_bytes(b"X = 1\r\nY = 2\r\n")
+    crlf_texte, crlf_octets = VC.sha_fichiers_texte(f), VC.sha_fichiers(f)
+    f.write_bytes(b"X = 1\nY = 2\n")
+    assert VC.sha_fichiers_texte(f) == crlf_texte, (
+        "le contexte PORTABLE bouge sur une simple conversion de fins de ligne")
+    assert VC.sha_fichiers(f) != crlf_octets, (
+        "`sha_fichiers` ne voit plus les octets : ce test compare deux fonctions identiques")
+
+
+def test_le_CONTEXTE_portable_voit_un_VRAI_changement_et_une_ABSENCE(tmp_path):
+    """Le pendant du precedent : normaliser ne doit pas rendre l'empreinte aveugle."""
+    f = tmp_path / "src.py"
+    f.write_bytes(b"X = 1\n")
+    avant = VC.sha_fichiers_texte(f)
+    f.write_bytes(b"X = 2\n")
+    assert VC.sha_fichiers_texte(f) != avant, "un changement de CONTENU ne bouge pas l'empreinte"
+    apres = VC.sha_fichiers_texte(f)
+    f.unlink()
+    assert VC.sha_fichiers_texte(f) != apres, (
+        "un fichier ABSENT rend la meme empreinte qu'un fichier present : son absence doit etre "
+        "une donnee du contexte, pas un silence")
+
+
 def test_un_contexte_different_VIDE_le_cache(tmp_path):
     c = _cache(tmp_path, contexte="build-A")
     c.poser("a.py", "ap", VC.sha_texte("v1"), ["x"])
