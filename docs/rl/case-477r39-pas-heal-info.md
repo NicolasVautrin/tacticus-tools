@@ -222,6 +222,14 @@ tout. C'est la différence avec `#477-r39`, dont neuf lignes en libéraient quar
 La chaîne est **fermée de bout en bout**, chaque maillon étant une fonction nommée :
 
 ```
+IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateBehaviour
+    Foreach(SortByFormula(GetUnitsEligibleForResurrect(), ConditionalAmount(HasTrait(0x10), …)),
+        If(AmountIsGreaterThanZero(decoys) & AmountIsGreaterThanZero(eligibles),
+           DSLBehaviors.Group(                                 <- LE NOEUD DSL, pas une Operation
+               DSLBehaviors.Resurrect(targets, PickRandomly(decoys, 1, …), StatAmount(…), 2,
+                                      Nullable(AbilityType), true),
+               <selecteur d'entite>, GroupType.Ability_CustomGroup /*0x31*/)))
+
 IdunBattle.Entities.Behaviours.GroupBehaviour$$Execute            <- `Group=Ability_CustomGroup`
     groupEntity = <selecteur this+0x68>.Select(entities);
     Events.StartGroup(this.<+0x60> /*groupType*/,
@@ -230,14 +238,20 @@ IdunBattle.Entities.Behaviours.GroupBehaviour$$Execute            <- `Group=Abil
     if (this.<+0x50> != null) <abilityBehaviour>.Execute(entities, ...);
     Events.FinishGroup();
 
-IdunBattle.Operations.ResurrectUnitOperation$$Execute
+IdunBattle.Entities.Behaviours.ResurrectBehaviour$$Execute        <- n'ouvre AUCUN groupe
+    for (i in 0 .. Min(units.Count, tiles.Count))
+        processor.<slot 0x64>(units[i], healType, tiles[i], health, abilityType, options);
+
+IdunBattle.Operations.ResurrectUnitOperation$$Execute             <- `Group=ResurrectUnit`
     ... gardes (IsDefeated, slot 0x31 d'IBattleQuery, TilesAreOccupied, TilesAreWalkable,
         GetFeetCount == tiles.Count, slot 0xa5) ...
+    Events.StartGroup(GroupType.ResurrectUnit /*0x29*/, <IEntity slot 0>(unit),
+                      String.Empty, default(BEntityId?));
     $$KillSteppableUnits(unit, tilesUnits)                        <- les 4 actions sur l'occupant
         foreach (steppable in steppableUnits)
             processor.<slot 0x60>(killer, steppable.Entity,
                                   KillUnitOperationOptions{2, ..., 0x10100000000});
-    $$SendStreamEvents(unit, tiles, abilityType)                  <- la face STREAM
+    $$SendStreamEvents(unit, tiles, abilityType)                  <- les 4 emissions du corps
         tags = StreamHelper.<slot 1>(unit, tiles, abilityType);   // GetResurrectUnitTags
         Events.Action(StepType.Resurrect /*0x24*/,  <IEntity slot 0>(unit), tags);
         Events.Action(StepType.ChangeStats /*0xc*/, <IEntity slot 0>(unit),
@@ -252,6 +266,8 @@ IdunBattle.Operations.ResurrectUnitOperation$$Execute
         foreach (t in <composant B>.<+0x18>)                       // les TRIGGERED
             Events.Action(StepType.ChangeAbility /*0xd*/, <IEntity slot 0>(unit),
                           UnitExtensions.GetFullStateUpdateTags(t, ...));
+    ... mutations ECS ...
+    Events.FinishGroup();
 
 IdunBattle.Core.Services.StreamHelper$$GetResurrectUnitTags(unit, tiles, abilityType)
     tags.Add(Unit_Owner_Id /*0x77*/,  EntityExtensions.GetOriginalOwnerEntityId(unit));
@@ -280,27 +296,36 @@ leur premier paramètre (`units` vs `unit`). Celle ci-dessus est celle qui **ém
 montre **deux fois** sur la même entité, avec la même valeur — l'appelant l'appelle deux fois, ce
 n'est pas une boucle de l'opération.
 
-**Trois lectures déjà acquises**, qui font gagner du temps à qui reprendra :
+**Cinq lectures déjà acquises**, qui font gagner du temps à qui reprendra :
 
-1. **`GetResurrectUnitTags` N'A PAS DE CASCADE.** Ses deux tests de source sont **indépendants**
+1. **LES DEUX GROUPES ONT DEUX PRODUCTEURS DIFFÉRENTS, ET AUCUN N'EST CELUI QU'ON SUPPOSERAIT.**
+   `Group=Ability_CustomGroup` sort d'un **nœud DSL** (`DSLBehaviors$$Group`, exécuté par
+   `GroupBehaviour$$Execute`) dont le `groupType` est un **argument de l'arbre** — le littéral
+   `0x31` est lisible dans `EnvAmbushResurrectAbility$$CreateBehaviour`. `Group=ResurrectUnit`,
+   lui, est ouvert par l'**Operation** (`ResurrectUnitOperation$$Execute`), et
+   `ResurrectBehaviour$$Execute` — le nœud DSL du dessus — n'ouvre **rien du tout**. Supposer
+   « un groupe = un behaviour » aurait fait chercher le second au mauvais étage.
+2. **LE `Source=` DU `Group=ResurrectUnit` PASSE PAR `String.Empty`, PAS PAR LE SLOT DE
+   LITTÉRAL** qu'utilisent `Group=StartTurn` et `Group=Damage`. Les deux voies rendent la même
+   chaîne vide et ne sont **pas** distinguables après `String.Format` : c'est une lecture, pas
+   une mesure — et c'est le cinquième `Source=` vide de ce dossier.
+3. **`GetResurrectUnitTags` N'A PAS DE CASCADE.** Ses deux tests de source sont **indépendants**
    (deux `if`, pas un `else if`) et il n'y a **pas** de branche `Effect` — l'inverse exact de
    `GetDamageTags`, dont les deux cascades s'arrêtent au premier champ non vide. Le flux confirme :
    `Action=Resurrect` y porte `Tag=Passive_Ability_Type:1271` seul.
-2. **`UnitStats_ActionsAvailable` est ici l'INVERSE d'un drapeau**, écrit `HasFlag(unit,
+4. **`UnitStats_ActionsAvailable` est ici l'INVERSE d'un drapeau**, écrit `HasFlag(unit,
    UnitFlag.NoActionAvailable) ^ 1` — le **même** recoupement que celui de `#477-r22-r1` (« la
    VALEUR est l'INVERSE du sens du drapeau »), obtenu par une deuxième fonction indépendante.
    ⚠ Mais la ligne est ici **dans un sous-arbre**, pas à la profondeur du groupe : la règle
    structurelle `_marque` de `probe_477r22` ne la voit pas, et c'est pourquoi
    `Tag=UnitStats_ActionsAvailable` figure parmi les 17 formes étrangères.
-3. **Les trois `GetFullStateUpdateTags` sont DÉJÀ PORTÉS** (`engine/streams/unit_extensions.py` :
+5. **Les trois `GetFullStateUpdateTags` sont DÉJÀ PORTÉS** (`engine/streams/unit_extensions.py` :
    `get_full_state_update_tags`, `_for_active`, `_for_triggered`). Le flux le confirme ligne à
    ligne : un `ChangeStats` à 16 tags, puis trois `ChangeAbility` d'ability active et deux de
    triggered — exactement les deux boucles du décompilé.
 
-**Ce qui reste à lire** : `KillUnitOperation$$Execute` (l'`Action=DirectlyKillUnit` et son
-`Tag=Unit_WasOverkilled`), et le producteur du `Group=ResurrectUnit` lui-même — probablement le
-même `GroupBehaviour`, dont le `groupType` est un paramètre de ctor, mais ce n'est **pas**
-établi. Tout le reste de la chaîne est lu ci-dessus.
+**Ce qui reste à lire** : `KillUnitOperation$$Execute` seul — l'`Action=DirectlyKillUnit` et son
+`Tag=Unit_WasOverkilled`. Tout le reste de la chaîne est lu ci-dessus.
 
 **Ce qu'il faudra ÉCRIRE** : `engine/streams/group_behaviour.py` (le producteur générique de
 groupes DSL, qui couvre les deux `Group=`), `engine/streams/resurrect_unit.py`

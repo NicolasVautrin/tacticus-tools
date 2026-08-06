@@ -3138,15 +3138,17 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   les trois actions de kill), puis les trois ensemble, le hors-perimetre reste **106 / 106 /
   106 / 106**. Aucune sous-tranche ne rapporte une seule ligne -- c'est l'inverse de #477-r39,
   dont neuf lignes en liberaient quarante-sept.
-  ⚠ **LA RE EST DEJA ECRITE** (`docs/rl/case-477r39-pas-heal-info.md` sec. 6) : chaine fermee de
-  `GroupBehaviour$$Execute` a `ResurrectUnitOperation$$SendStreamEvents` +
-  `StreamHelper$$GetResurrectUnitTags` + `RemoveUnitOperation$$Execute`, avec trois lectures
-  acquises (les deux tests de source de `GetResurrectUnitTags` sont INDEPENDANTS, pas une
-  cascade, et sans branche `Effect` ; `UnitStats_ActionsAvailable` y est `HasFlag(unit,
-  NoActionAvailable) ^ 1` mais DANS un sous-arbre, donc invisible de la regle `_marque` ; les
-  trois `GetFullStateUpdateTags` sont DEJA PORTES). Restent a lire : `KillUnitOperation$$Execute`,
-  les deux surcharges de `RemoveUnitFromTilesOperation$$Execute`, et le producteur du
-  `Group=ResurrectUnit` lui-meme.
+  ⚠ **LA RE EST DEJA ECRITE** (`docs/rl/case-477r39-pas-heal-info.md` sec. 6), chaine fermee de
+  `EnvAmbushResurrectAbility$$CreateBehaviour` a `RemoveUnitFromTilesOperation$$Execute`. Cinq
+  lectures acquises : (a) les DEUX groupes ont DEUX producteurs differents et aucun n'est celui
+  qu'on supposerait -- `Ability_CustomGroup` sort d'un NOEUD DSL (`DSLBehaviors$$Group`, litteral
+  `0x31` lisible dans le `CreateBehaviour`), `ResurrectUnit` de l'OPERATION, et
+  `ResurrectBehaviour$$Execute` n'ouvre RIEN ; (b) son `Source=` passe par `String.Empty`, pas
+  par le slot de litteral des deux autres groupes ; (c) les deux tests de source de
+  `GetResurrectUnitTags` sont INDEPENDANTS, pas une cascade, et sans branche `Effect` ;
+  (d) `UnitStats_ActionsAvailable` y est `HasFlag(unit, NoActionAvailable) ^ 1` mais DANS un
+  sous-arbre, donc invisible de la regle `_marque` ; (e) les trois `GetFullStateUpdateTags` sont
+  DEJA PORTES. **Reste a lire : `KillUnitOperation$$Execute` seul.**
 
 - ~~**#477-r39 : `Action=HealInfo`, le pipeline de SOIN**~~ -> **LIVRE**
   (`docs/rl/case-477r39-pas-heal-info.md`). Les **47** lignes du roster 2v2 entrent EN ENTIER
