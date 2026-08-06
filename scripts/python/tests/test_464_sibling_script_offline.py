@@ -15,6 +15,33 @@ ASCII only (console Windows cp1252).
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict
+#: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
+        # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
+        # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le
+        # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
+        # glob large retiendrait ce test a chaque modification d'un probe quelconque.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # PROPRE A CE FICHIER :
+        "scripts/python/probe_464_sibling_script_cwd.py",
+        "scripts/python/sibling_script.py", "scripts/python/repo_read.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Le probe sous test, le foyer `sibling_script` dont il verifie l'emploi, et "
+              "`repo_read` qui porte la lecture parallele du balayage. Le perimetre BALAYE, lui, "
+              "est `scripts/python/**` -- deja couvert par les entrees ci-dessus au titre du "
+              "socle et du probe.",
+}
+
 import os
 import shutil
 import sys
