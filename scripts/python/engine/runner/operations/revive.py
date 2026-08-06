@@ -67,6 +67,7 @@ from ..state import State
 from ..components import UnitComponent, HealthComponent
 from ..components import PositionComponent, record_tiles_moved
 from ..components import UnitFlagsComponent
+from ...entities.unit_flag import UnitFlag
 from .movement import _kill_steppable_units
 from .triggers import unit_position_changed_1_triggers, unit_position_changed_2_triggers
 from .triggers import unit_revived_triggers
@@ -256,11 +257,15 @@ class ReviveUnitOperation:
             # FOYER du mirror : `HealthComponent.apply_modifier_set_current` (ecriture ABSOLUE +
             # purge), pendant du `fill_up` RELATIF que prennent soin/reparation/resurrection.
             hc.apply_modifier_set_current(set_hp)
-        # flags IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE.
-        # Le port modelise l'etat de vie via `uc.alive` (les flags ECS 0xf/0x14 = internes non suivis) ;
-        # `Remove(8)` est PORTE depuis que `UnitFlag.Overkilled` est materialise (pose par le pipeline de
-        # degat, lu par `HasFlag(unit, 8)` du volet OVERKILL de DoomSiren) -- sans lui, une unite revive
-        # apres overkill (TaintedNarthecium `ReviveOnOverkill`) resterait marquee overkillee.
+        # flags `IdunBattle.Operations.ReviveUnitOperation$$Execute` : `Remove(0xf = Downed)`,
+        # `Remove(8 = Overkilled)`, `Add(0x14 = Revived)` -> l'unite redevient VIVANTE.
+        # Le port modelise l'etat de vie via `uc.alive` ; `Remove(8)` est load-bearing (le flag est
+        # le gate du SITE (A) d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`, et il est lu
+        # par `HasFlag(unit, 8)` du volet OVERKILL de DoomSiren) -- sans lui, une unite revive apres
+        # overkill (TaintedNarthecium `ReviveOnOverkill`) resterait marquee overkillee.
+        # `Add(0x14)` n'a AUCUN LECTEUR PORTE (recense #462-r4e-o-r2-r1) : il est pose pour que
+        # l'etat de flags egale celui du natif -- MESURE live `[0, 1, 20]` contre port `[0, 1]`.
+        # `Remove(0xf = Downed)` n'a aucun POSEUR porte : inerte, pose pour completer la rafale.
         # ENREGISTREMENT `HasBeenRevivedByAbility` (#213) : mirror du bloc que le natif execute
         # ENTRE `SetHealth` et les flags -- `if (sourceId.HasValue) { GetComponent<
         # ActorStatisticsComponent>(unit)@+0xe0 .Add(sourceId.Value) }`. C'est CE set que relit
@@ -273,7 +278,9 @@ class ReviveUnitOperation:
             uc.revived_by_abilities.add(int(src))
         fl = e.get_component(UnitFlagsComponent)
         if fl is not None:
-            fl.remove(UnitFlagsComponent.OVERKILLED)
+            fl.remove(UnitFlag.Downed)                       # Remove(0xf)
+            fl.remove(UnitFlagsComponent.OVERKILLED)         # Remove(8)
+            fl.add(UnitFlagsComponent.REVIVED)               # Add(0x14)
         uc.alive = True
         # IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : appele ICI (apres les flags,
         # AVANT `On(0x2d = UnitRevived)`). Le natif sort immediatement si `revivePosition` n'a pas de valeur -> le

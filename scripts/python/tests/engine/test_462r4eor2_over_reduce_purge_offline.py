@@ -20,12 +20,19 @@ Xrefs de `FillUp` (EXHAUSTIFS, 3 sites) : `IdunBattle.Operations.HealUnitOperati
 Xrefs d'`Initialize` : `IdunBattle.Operations.AddUnitOperation$$Execute`,
 `IdunBattle.Entities.Factories.UnitFactory$$Build`, `IdunBattle.Entities.Factories.UnitFactory$$InitHealth`.
 
-=> SOIN, REPARATION et RESURRECTION purgent. Le **REVIVE**, lui, ne purge PAS
-(`IdunBattle.Operations.ReviveUnitOperation$$SetHealth` n'appelle NI l'un NI l'autre : il pose les PV
-par un slot de l'`OperationProcessor` qui applique des modificateurs de stat, dont les deux autres
-call-sites sont `IdunBattle.Operations.SetupGameOperation$$ApplyModifiers` et
-`IdunBattle.Operations.TransformActorToConfigIdOperation$$UpdateStats`). C'est un QUIRK natif :
-une unite REVIVEE herite de l'accumulateur de sa vie precedente.
+=> SOIN, REPARATION et RESURRECTION purgent.
+
+⚠ **ET LE REVIVE AUSSI -- ce fichier a d'abord garde le CONTRAIRE, et la mesure live l'a REFUTE**
+(#462-r4e-o-r2-r1). La table de trois ecrivains ci-dessus n'etait PAS exhaustive : il en existe un
+QUATRIEME, `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier`, dont les branches
+`case 0` (Current), `case 2` (Max) et `case 3` (les deux) ecrivent chacune `this[0x24] = 0`. Le
+revive y descend par `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` ->
+`IdunBattle.Entities.UnitExtensions$$ApplyStatModifiers` ->
+`IdunBattle.Entities.UnitExtensions$$ApplyStatModifier` (XREF **UNIQUE** d'`ApplyModifier`) ->
+`case 0`. « `SetHealth` n'appelle ni `FillUp` ni `Initialize` » reste VRAI et ne concluait rien --
+exactement le vice que ce fichier reprochait a #462-r4e-o-r1.
+La garde du regime « retour a la vie puis attaque » vit desormais dans
+`test_462r4eor2r1_purge_au_retour_a_la_vie_offline.py`, adossee a une mesure LIVE.
 
 POURQUOI OFFLINE, et pourquoi c'est le seul endroit ou ca se garde : `over_reduce > 0` implique
 `hp == 0` (`Reduce` n'accumule que ce qu'il n'a PAS pu retirer) -- donc une unite MORTE. Le seul
@@ -147,15 +154,24 @@ def test_la_resurrection_purge_l_accumulateur():
     assert hc.hp == HP_RETOUR and hc.over_reduce == 0
 
 
-def test_le_REVIVE_ne_purge_PAS___quirk_natif_a_ne_pas_corriger():
-    """`IdunBattle.Operations.ReviveUnitOperation$$SetHealth` n'appelle NI `FillUp` NI `Initialize`.
-    L'unite revient donc avec l'accumulateur de sa vie precedente. Ce test GARDE le quirk : le rendre
-    vert en purgeant serait une regression de fidelite, pas une correction."""
+def test_le_REVIVE_purge_AUSSI___par_un_QUATRIEME_ecrivain():
+    """⚠ CE TEST ASSERTIONNAIT L'INVERSE, ET LA MESURE LIVE L'A REFUTE (#462-r4e-o-r2-r1).
+
+    `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` n'appelle bien NI `FillUp` NI
+    `Initialize` -- et cela ne concluait RIEN : il pose un modificateur
+    `{StatType.Health, ModifierType 0, Min(amount, maxHP)}` qui atteint
+    `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier` `case 0`, lequel ecrit
+    `Current` **ET** `this[0x24] = 0`.
+
+    MESURE qui a tranche (`probe_462r4eor2r1_retour_a_la_vie_over_reduce.py --volet revive`,
+    victime a 2000 PV, seuil d'overkill 4000, accumulateur porte 59 807 -- facteur 15) : apres un
+    revive `TaintedNarthecium` NATIF, l'attaque suivante rend **5** events `Amount`
+    `[213, 214, 281, 255, 227]`, pas **1**."""
     st, uid, hc = _unite(alive=False)
     post_pending_revive(st, uid, HP_RETOUR)
     ReviveUnitOperation.execute(st, uid)
     assert hc.hp == HP_RETOUR
-    assert hc.over_reduce == OVER_REDUCE, "le revive natif ne touche PAS `+0x24`"
+    assert hc.over_reduce == 0, "le revive purge AUSSI (`ApplyModifier` case 0)"
 
 
 # --------------------------------------------------------------------------------------------
@@ -171,10 +187,16 @@ def test_sans_accumulateur_aucun_flag_et_les_QUATRE_coups_emettent():
 
 
 def test_avec_accumulateur_herite_le_flag_tombe_des_le_PREMIER_coup():
-    """Le regime nomme par la tache : une unite qui revient a la vie avec `+0x24` herite est marquee
-    `Overkilled` des son premier coup recu, A PLEINE VIE. `accum = 200 + (1000-1000) + 8000` franchit
-    le seuil immediatement, et le SITE (A) supprime tous les coups suivants (le coup qui pose le flag
-    emet encore, cf. #462-r4e-o-r1)."""
+    """Le CONSOMMATEUR de l'accumulateur, garde a l'ETAGE `_run_hits` : une cible qui entre dans une
+    attaque avec `+0x24` non nul est marquee `Overkilled` des le premier coup, A PLEINE VIE --
+    `accum = 200 + (1000-1000) + 8000` franchit le seuil immediatement, et le SITE (A) supprime tous
+    les coups suivants (le coup qui pose le flag emet encore, cf. #462-r4e-o-r1).
+
+    ⚠ Ce test garde la MECANIQUE, pas un regime atteignable : depuis #462-r4e-o-r2-r1 on sait que
+    TOUS les retours a la vie purgent (revive compris), donc aucune unite VIVANTE ne porte plus
+    d'accumulateur non nul. Il reste load-bearing parce qu'il est le seul a fixer le comportement
+    de `_run_hits` sur `over_reduce0 > 0`, que la formule d'`IsOverkill` lit toujours en PLEIN
+    REGIME -- a l'INTERIEUR d'une meme attaque, ou l'accumulateur monte coup apres coup."""
     r = _salve(HP_RETOUR, OVER_REDUCE)
     assert r["overkilled"] is True and r["overkill_at_hit"] == 0
     assert r["per_hit"] == [COUP], "un seul event : les coups 2..4 tombent sur le SITE (A)"
@@ -189,15 +211,26 @@ def test_resurrect_puis_attaque___PAS_de_flag_premature():
     assert r["overkilled"] is False and r["per_hit"] == [COUP] * COUPS
 
 
-def test_revive_puis_SOIN_puis_attaque___le_soin_desamorce():
-    """Chaine complete cote REVIVE : le revive laisse l'accumulateur, mais un SOIN intercale le purge
-    (`FillUp`). C'est le seul regime ou le correctif sur `HealUnitOperation` est observable -- sans
-    revive prealable, aucune unite VIVANTE ne porte un accumulateur non nul."""
+def test_revive_puis_attaque___PAS_de_flag_premature_non_plus():
+    """Chaine complete cote REVIVE, SYMETRIQUE du resurrect ci-dessus -- et c'est la correction de
+    #462-r4e-o-r2-r1 : le revive purge lui aussi (`ApplyModifier` case 0), donc l'attaque qui suit
+    se comporte comme sur une cible neuve. Ce test remplace `test_revive_puis_SOIN_puis_attaque`,
+    dont la premisse (« le revive n'a pas purge ») etait FAUSSE."""
     st, uid, hc = _unite(alive=False)
     post_pending_revive(st, uid, HP_RETOUR)
     ReviveUnitOperation.execute(st, uid)
-    assert hc.over_reduce == OVER_REDUCE, "premisse : le revive n'a pas purge"
-    hc.hp = HP_RETOUR - 1                       # une unite pleine ne serait pas soignee en pratique
+    assert hc.over_reduce == 0, "le revive purge"
+    r = _salve(hc.hp, hc.over_reduce)
+    assert r["overkilled"] is False and r["per_hit"] == [COUP] * COUPS
+
+
+def test_le_SOIN_reste_le_seul_desamorceur_INTRA_attaque():
+    """Le correctif sur `HealUnitOperation` (#462-r4e-o-r2) n'est PAS devenu inerte : un soin purge
+    l'accumulateur d'une unite VIVANTE, et le seul regime qui en produit un est desormais
+    l'INTERIEUR d'une attaque (un coup ecrete sur une cible a 0 PV qui n'est pas encore drainee).
+    On le pose directement ici -- l'etage superieur est garde par `_salve`."""
+    st, uid, hc = _unite(alive=True, hp=HP_RETOUR - 1)
+    assert hc.over_reduce == OVER_REDUCE, "premisse : accumulateur seme"
     HealUnitOperation.execute(st, uid, 1)
     assert hc.over_reduce == 0, "le soin purge"
     r = _salve(hc.hp, hc.over_reduce)
@@ -260,25 +293,21 @@ def test_contre_epreuve_le_foyer_desarme_fait_TOMBER_les_gardes(monkeypatch):
         "sans la purge, le resurrect pose `Overkilled` prematurement -- exactement le bug corrige")
 
 
-def test_contre_epreuve_le_quirk_du_revive_n_est_PAS_un_effet_du_foyer(monkeypatch):
-    """Symetrique : on rend `fill_up` PURGEANT ET on le fait appeler par le revive. Le test qui garde
-    le quirk doit alors tomber -- preuve qu'il mesure bien le revive, et pas l'absence de purge en
-    general."""
-    vrai = ReviveUnitOperation.execute
+def test_contre_epreuve_le_revive_a_SON_PROPRE_foyer(monkeypatch):
+    """Le revive ne passe PAS par `fill_up` -- il passe par `apply_modifier_set_current` (mirror du
+    `case 0` d'`ApplyModifier`, ecriture ABSOLUE). Ce test le PROUVE en desarmant l'autre foyer :
+    sous `fill_up` non purgeant, le revive purge quand meme. Sans lui, le test du revive ci-dessus
+    pourrait passer par accident via le foyer du soin."""
+    def _fill_up_sans_purge(self, amount):
+        if self.hp is None or self.hp_max is None:
+            return 0
+        filled = min(int(amount), int(self.hp_max) - int(self.hp))
+        self.hp = int(self.hp) + filled
+        return filled                                   # <- `this[0x24] = 0` RETIRE
 
-    def _revive_qui_purge(state, unit_id):
-        out = vrai(state, unit_id)
-        e = state.get_entity(unit_id)
-        hc = e.get_component(HealthComponent) if e is not None else None
-        if hc is not None:
-            hc.over_reduce = 0
-        return out
-
-    monkeypatch.setattr(ReviveUnitOperation, "execute", staticmethod(_revive_qui_purge))
+    monkeypatch.setattr(HealthComponent, "fill_up", _fill_up_sans_purge, raising=True)
     st, uid, hc = _unite(alive=False)
     post_pending_revive(st, uid, HP_RETOUR)
     ReviveUnitOperation.execute(st, uid)
-    assert hc.over_reduce == 0, "mutation active"
-    r = _salve(hc.hp, hc.over_reduce)
-    assert r["overkilled"] is False, (
-        "sous mutation le quirk disparait -- le test qui le garde mesure donc bien le revive")
+    assert hc.over_reduce == 0, (
+        "le revive doit purger par SON foyer (`apply_modifier_set_current`), pas par `fill_up`")

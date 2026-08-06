@@ -44,7 +44,7 @@ purge lui aussi, par un QUATRIEME ecrivain du zero que sa table avait manque --
 Usage :
     python scripts/python/probe_462r4eor2r1_retour_a_la_vie_over_reduce.py
         [--volet revive|resurrect|tous] [--state-file <ABSOLU>] [--seeds 777,31337,...]
-        [--mutate revive-purge|fillup-sans-purge|resurrect-flags-partiels]
+        [--mutate revive-sans-purge|fillup-sans-purge|resurrect-flags-partiels]
 
 ASCII only. Dispose ses runners.
 """
@@ -303,6 +303,21 @@ def _uc(state, uid):
     return e.get_component(UnitComponent) if e is not None else None
 
 
+def _effets(state, uid):
+    """Noms des effets portes par `uid` dans `state` (canal `EffectsState`, sinon le composant)."""
+    out = []
+    es = getattr(state, "effects", None)
+    if es is not None:
+        for e in (es.by_unit.get(uid) or []):
+            out.append(str(getattr(e, "effect_type", "?")))
+    e = state.get_entity(uid)
+    from engine.runner.components import EffectsOwnedComponent
+    c = e.get_component(EffectsOwnedComponent) if e is not None else None
+    if c is not None:
+        out += [str(x) for x in (c.effects or [])]
+    return sorted(set(out))
+
+
 def _flags(state, uid):
     e = state.get_entity(uid)
     fl = e.get_component(UnitFlagsComponent) if e is not None else None
@@ -350,9 +365,30 @@ class _EspionDePurge:
 
 # ----------------------------------------------------------------- mutations
 
+# Chaque mutation DECLARE le volet et l'OBSERVABLE qu'elle vise. Sans cette declaration, une
+# mutation qui porte sur l'ETAT (les flags) serait jugee sur un observable calcule A ETAT EGAL,
+# ou elle est INERTE PAR CONSTRUCTION -- et son verdict « n'a pas mordu » accuserait le probe au
+# lieu de dire ce qu'il en est.
+MUTATION_CIBLE = {
+    # nom                        volet vise     observable    ce qu'elle restaure / casse
+    "revive-sans-purge":        ("revive",     "etat_egal"),   # le port d'AVANT #462-r4e-o-r2-r1
+    "fillup-sans-purge":        ("resurrect",  "etat_egal"),   # la queue de FillUp retiree
+    "resurrect-flags-partiels": ("resurrect",  "bout_en_bout"),  # rafale de flags d'avant
+}
+
+
 def _mutation(nom):
-    """Contre-epreuves. Chacune DOIT faire diverger le volet qu'elle vise ; `a_mordu` est mesure
-    SEPAREMENT du verdict (une mutation NON EXERCEE se declare, elle ne compte pas verte)."""
+    """Contre-epreuves. Chacune DOIT faire diverger le volet qu'elle vise sur l'observable qu'elle
+    vise ; `a_mordu` est mesure SEPAREMENT du verdict (une mutation NON EXERCEE se declare, elle ne
+    compte pas verte)."""
+    if nom == "revive-sans-purge":
+        # FOYER : `HealthComponent.apply_modifier_set_current` sans sa purge = le port d'AVANT
+        # #462-r4e-o-r2-r1, celui que la mesure live a REFUTE. Vise le volet (a).
+        def _set_current(self, value):
+            self.hp = int(value)                              # <- purge RETIREE
+        HealthComponent.apply_modifier_set_current = _set_current
+        return ("HealthComponent.apply_modifier_set_current ne purge plus `over_reduce` "
+                "(le « quirk » que #462-r4e-o-r2 croyait natif)")
     if nom == "fillup-sans-purge":
         # FOYER : `HealthComponent.fill_up` sans sa queue `this[0x24] = 0`. Vise le volet (b).
         def _fill_up(self, amount):
@@ -363,19 +399,6 @@ def _mutation(nom):
             return filled                                     # <- purge RETIREE
         HealthComponent.fill_up = _fill_up
         return "HealthComponent.fill_up ne purge plus `over_reduce` (queue de FillUp retiree)"
-    if nom == "revive-purge":
-        # Vise le volet (a) : le revive PURGERAIT (le « correctif » que le quirk natif interdit).
-        from engine.runner.operations import revive as _rev
-        _orig = _rev.ReviveUnitOperation.execute
-
-        def _exec(state, unit_id):
-            out = _orig(state, unit_id)
-            hc = _hc(state, unit_id)
-            if hc is not None:
-                hc.over_reduce = 0                            # <- purge AJOUTEE
-            return out
-        _rev.ReviveUnitOperation.execute = staticmethod(_exec)
-        return "ReviveUnitOperation purge `over_reduce` (le quirk natif serait « corrige »)"
     if nom == "resurrect-flags-partiels":
         # Vise le volet (b) : la rafale de flags AVANT #462-r4e-o-r2-r1 (seul `Remove(0x1a)`).
         from engine.runner.operations import resurrect as _res
@@ -500,6 +523,14 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
             pj = oc.player if oc is not None else joueur_vic
             st.turn_counts[pj] = st.turn_counts.get(pj, 0) + 1
             start_turn_triggers(st, pj)
+            # ⚠ ET LE TURN-START DE **MON** JOUEUR, que le live vient lui aussi de jouer. L'oublier
+            # n'est pas neutre : mesure du 2026-08-06, `tauAunShi` porte `SereneUnifier`, qui pose
+            # au debut de SON tour un buff dependant du ROUND (round 3 = +582 Damage). Le rejeu
+            # bout-en-bout rendait alors `[214, ...]` la ou le natif rend `[1044, ...]` -- un
+            # facteur 4,2 qui n'a RIEN a voir avec l'accumulateur, et qui aurait ete lu comme une
+            # divergence de la purge si le verdict n'etait pas calcule A ETAT EGAL.
+            st.turn_counts[mon_player] = st.turn_counts.get(mon_player, 0) + 1
+            start_turn_triggers(st, mon_player)
 
     cap1 = _capture(rid, board)
     if cap1 is None:
@@ -537,11 +568,21 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
     # la mesure de l'etape 2 (on mesure la CARDINALITE, pas le bit-exact de l'attaque 1).
     _seed_rng(st, rng1)
 
-    # HYPOTHESE ADVERSE (« l'accumulateur est TRANSPORTE au-dela du retour a la vie ») : le MEME
-    # port, sur le MEME etat live post-retour, mais avec `over_reduce` REMIS a la valeur qu'il avait
-    # juste AVANT la purge -- valeur OBSERVEE (pas supposee) par `_EspionDePurge` pendant le rejeu
-    # de l'attaque 1. C'est elle, et non `0`, qui doit servir de contrefactuel : opposer le port a
-    # `0` devient une TAUTOLOGIE des que le port purge.
+    # LES DEUX HYPOTHESES, calculees A ETAT EGAL (le MEME etat live post-retour, recharge par
+    # `load_state`), et qui ne different QUE par `over_reduce` :
+    #   * PURGE     -> 0 ;
+    #   * TRANSPORT -> la valeur OBSERVEE (pas supposee) juste avant la purge, par `_EspionDePurge`.
+    # Comparer A ETAT EGAL est ce qui SEPARE l'etage « purge » de l'etage « etat » : le rejeu de
+    # bout en bout (`ph2_port`) traverse aussi l'avance de tour, donc tout ce que le port ne
+    # mirrore pas de ce tour-la (effets poses, buffs, tour immediat du ressuscite) s'y ajoute et
+    # brouillerait le verdict de la purge s'il en etait le seul juge.
+    st_purge = _clone_hypothese(cap1, board, rng1, vic, 0)
+    ph2_purge = _attaque_port(st_purge, att2, vic) if st_purge is not None else None
+    # DIAGNOSTIC de l'ecart d'ETAT : les effets portes par l'ATTAQUANT 2, dans l'etat rejoue de
+    # bout en bout contre l'etat live recharge. C'est le canal par lequel un buff de turn-start
+    # (`SereneUnifier`) entre -- on le MESURE au lieu de le supposer.
+    base["effets_att2_e2e"] = _effets(st, att2)
+    base["effets_att2_live"] = _effets(st_purge, att2) if st_purge is not None else None
     st_alt = _clone_hypothese(cap1, board, rng1, vic, espion.max_avant_purge)
     ph2_alt = _attaque_port(st_alt, att2, vic) if st_alt is not None else None
 
@@ -552,7 +593,8 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
     ph2_port = _attaque_port(st, att2, vic)
     hp2_port = int(_hc(st, vic).hp) if _hc(st, vic) is not None else None
 
-    base.update({"ph2_live": ph2_live, "ph2_port": ph2_port, "ph2_hypothese_transport": ph2_alt,
+    base.update({"ph2_live": ph2_live, "ph2_port": ph2_port,
+                 "ph2_hypothese_purge": ph2_purge, "ph2_hypothese_transport": ph2_alt,
                  "over_reduce_avant_purge": espion.max_avant_purge,
                  "hp_final_live": hp2_live, "hp_final_port": hp2_port})
     return base
@@ -602,31 +644,52 @@ def _verdict(volet, r, mutate):
     MORDRE), et `a_mordu` est rapporte separement."""
     if not r.get("ok"):
         return None, f"NON CONCLUANT -- {r.get('raison')}"
-    live, port, cf = r["ph2_live"], r["ph2_port"], r.get("ph2_hypothese_transport")
-    if cf is None:
-        return None, "NON CONCLUANT -- hypothese adverse non calculee"
-    if not r.get("over_reduce_avant_purge"):
+    live, e2e = r["ph2_live"], r["ph2_port"]
+    h_purge, h_transp = r.get("ph2_hypothese_purge"), r.get("ph2_hypothese_transport")
+    accum = r.get("over_reduce_avant_purge")
+    porte = r.get("over_reduce_port")
+    if h_purge is None or h_transp is None:
+        return None, "NON CONCLUANT -- hypotheses non calculees"
+    if not accum:
         return None, ("REGIME VACU : `over_reduce` observe AVANT le retour a la vie vaut 0 -- "
                       "la sur-tuerie n'a rien gaspille, les deux hypotheses coincident")
-    if cf == port:
+    if h_purge == h_transp:
         return None, (f"REGIME NON DISCRIMINANT : les deux hypotheses rendent la MEME reponse "
-                      f"(port={port} == transport={cf}, over_reduce avant purge = "
-                      f"{r.get('over_reduce_avant_purge')}) -- resserrer par --hp-victime")
-    diag = (f"live={live} port={port} hypothese_transport(over_reduce="
-            f"{r.get('over_reduce_avant_purge')})={cf}")
-    # Ce que DIT le natif : sur quelle des deux hypotheses il tombe.
-    if live == port and live != cf:
-        sens = "le NATIF s'aligne sur le PORT"
-    elif live == cf:
-        sens = "le NATIF s'aligne sur `over_reduce TRANSPORTE` (le port purge a tort)"
+                      f"(purge={h_purge} == transport={h_transp}, accumulateur {accum}) -- "
+                      f"resserrer par --hp-victime")
+    # A ETAT EGAL, laquelle des deux le port REALISE-t-il ? (`over_reduce` qu'il porte apres son
+    # propre rejeu du retour a la vie -- 0 = il purge, `accum` = il transporte.)
+    attendu = h_purge if not porte else h_transp
+    observable = MUTATION_CIBLE.get(mutate, (None, "etat_egal"))[1] if mutate else "etat_egal"
+    accord = ((attendu == live) if observable == "etat_egal" else (e2e == live))
+    diag = (f"live={live} | port A ETAT EGAL={attendu} (over_reduce porte={porte}) | "
+            f"purge={h_purge} transport(over_reduce={accum})={h_transp} | "
+            f"bout-en-bout={e2e}")
+    if live == h_purge and live != h_transp:
+        sens = "le NATIF s'aligne sur `over_reduce PURGE au retour a la vie`"
+    elif live == h_transp:
+        sens = "le NATIF s'aligne sur `over_reduce TRANSPORTE`"
     else:
         sens = "le NATIF ne s'aligne sur AUCUNE des deux hypotheses"
-    accord = (port == live)
+    # Le rejeu de bout en bout traverse aussi l'avance de tour ; son ecart est un ecart d'ETAT,
+    # rapporte SEPAREMENT et jamais confondu avec le verdict de la purge.
+    if e2e != live:
+        ee, el = r.get("effets_att2_e2e"), r.get("effets_att2_live")
+        cause = (f" -- EFFETS de l'attaquant 2 : bout-en-bout={ee} vs etat live={el}"
+                 if ee != el else " -- effets de l'attaquant 2 IDENTIQUES (cause ailleurs)")
+        sens += (" ; ECART D'ETAT du rejeu bout-en-bout (le port ne mirrore pas tout le tour "
+                 "intercalaire)" + cause + " -- hors perimetre de la purge")
     if mutate is None:
         return accord, (("OK -- " if accord else "DIVERGENCE DU PORT -- ") + diag + " ; " + sens)
+    vise_ce_volet = (MUTATION_CIBLE.get(mutate, (volet, None))[0] == volet)
+    if not vise_ce_volet:
+        return None, (f"MUTATION NON EXERCEE sur ce volet (elle vise "
+                      f"`{MUTATION_CIBLE.get(mutate, ('?',))[0]}`) -- se DECLARE, ne compte pas "
+                      f"verte : {diag}")
     if accord:
-        return False, f"IDENTIQUE SOUS MUTATION -- la mutation n'a PAS mordu : {diag}"
-    return True, f"DIVERGE (attendu sous mutation) : {diag}"
+        return False, (f"IDENTIQUE SOUS MUTATION sur l'observable `{observable}` -- la mutation "
+                       f"n'a PAS mordu : {diag}")
+    return True, (f"DIVERGE sur l'observable `{observable}` (attendu sous mutation) : {diag}")
 
 
 def _dump(volet, r):
@@ -646,8 +709,14 @@ def _dump(volet, r):
               f"(cardinalite {len(r.get('ph2_live') or [])})")
         print(f"                            port={r.get('ph2_port')} "
               f"(cardinalite {len(r.get('ph2_port') or [])})")
-        print(f"                            hypothese_transport={r.get('ph2_hypothese_transport')}")
+        print(f"    A ETAT EGAL (etat live post-retour, seul `over_reduce` change) :")
+        print(f"      hypothese PURGE     (over_reduce=0)     = {r.get('ph2_hypothese_purge')}")
+        print(f"      hypothese TRANSPORT (over_reduce="
+              f"{r.get('over_reduce_avant_purge')}) = {r.get('ph2_hypothese_transport')}")
         print(f"  PV final                : live={r.get('hp_final_live')} port={r.get('hp_final_port')}")
+        if r.get("effets_att2_e2e") != r.get("effets_att2_live"):
+            print(f"  effets ATTAQUANT 2      : bout-en-bout={r.get('effets_att2_e2e')}")
+            print(f"                            etat live   ={r.get('effets_att2_live')}")
     if not r.get("ok"):
         print("  KO:", r.get("raison"))
 
@@ -661,7 +730,7 @@ def main():
                     help="seeds essayes tant que le retour a la vie NATIF n'a pas eu lieu "
                          "(le revive TaintedNarthecium est un tirage a 75 %%)")
     ap.add_argument("--mutate", default=None,
-                    choices=["revive-purge", "fillup-sans-purge", "resurrect-flags-partiels"])
+                    choices=sorted(MUTATION_CIBLE))
     ap.add_argument("--hp-victime", type=int, default=HP_VICTIME_RESSERRE,
                     help="ECRASE Health/RemainingHealth de la victime -> le retour a la vie clampe "
                          "a cette valeur et le seuil d'overkill de l'attaque 2 tombe a 2 x N. "

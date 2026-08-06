@@ -877,6 +877,15 @@ class UnitFlagsComponent(Component):
                                 # RETIRE par `IdunBattle.Operations.ResurrectUnitOperation$$Execute`
                                 # (`Remove(6)/Remove(0xf)/Remove(8)/**Remove(0x1a)**/Remove(9)`).
                                 # Cf. `runner/operations/remove_unit.py`.
+    REVIVED = UnitFlag.Revived                # flag 0x14 (`UnitFlag.Revived`) — pose par
+                                # `IdunBattle.Operations.ReviveUnitOperation$$Execute`
+                                # (`Remove(0xf)` / `Remove(8)` / **`Add(0x14)`**), la rafale de
+                                # flags du revive. AUCUN LECTEUR PORTE a ce jour (recense
+                                # #462-r4e-o-r2-r1 : les occurrences de « Revived » dans `engine/`
+                                # designent toutes l'EVENEMENT `EventTriggerType.UnitRevived = 45`,
+                                # pas ce flag) -- il est porte pour que l'etat de flags du port
+                                # egale celui du natif, mesure a l'appui (live `[0, 1, 20]` contre
+                                # port `[0, 1]` avant #462-r4e-o-r2-r1).
     TURN_FINISHED_FORCED = UnitFlag.TurnTerminated   # flag 0x1b (FinishUnitTurnOperation forced=True ; hors enum dump)
 
     def __init__(self, flags=None):
