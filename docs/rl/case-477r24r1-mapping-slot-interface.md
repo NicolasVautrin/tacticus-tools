@@ -189,12 +189,26 @@ qui, lui, n'est plus suivi de `$$` (mesuré : `FinishAttackOperatio`).
 
 ## Résidus
 
-- **#477-r25 — les slots des AUTRES interfaces ne sont pas gardés.** Le dépôt cite couramment
-  `battleQuery.<slot 0x7f>`, `attackQuery.<slot 0x11>`, `matchState.<slot 0x31>`, des slots
-  d'effets et de `IStreamDispatcher` — **5 684** lignes écartées par l'étage 3 en portent la
-  majeure partie, et **aucune** n'est confrontée à quoi que ce soit. Le mécanisme livré ici est
-  générique (`il2cpp_metadata.interface_table` prend l'interface en paramètre) : il ne manque que
+- **#477-r25 — les slots des AUTRES interfaces ne sont pas gardés, et le gisement est
+  probablement fautif.** Le dépôt cite couramment `battleQuery.<slot 0x7f>`,
+  `attackQuery.<slot 0x11>`, `matchState.<slot 0x31>`, des slots d'effets et de
+  `IStreamDispatcher` — **5 684** lignes écartées par l'étage 3 en portent la majeure partie, et
+  **aucune** n'est confrontée à quoi que ce soit. Le mécanisme livré ici est générique
+  (`il2cpp_metadata.interface_table` prend l'interface en paramètre) : il ne manque que
   l'appariement `nom d'interface ↔ récepteur écrit au site`, qui n'est pas mécanique
   (`battleQuery` désigne `IBattleQuery`, mais `aq`, `def`, `effectAction` demandent une lecture).
-  Condition de retournement : une seule citation fausse trouvée sur ces interfaces prouverait que
-  le gisement mérite le même traitement.
+
+  **Sondage sur `IBattleQuery` (219 slots) — 2 concordent, 3 divergent** : `0x64` =
+  `GetTilesAtDistance` ✅ (`case-433-r4…`), `0x7f` = `GetAdjacentEnemies` ✅ (`case-27`) ; mais
+  `GetAdjacentFriends` est lu en `0x81..0x84` là où `case-250` écrit `0x80`, et
+  `GetFreeAdjacentTiles` en `0x52`/`0x53` là où `case-250` et `case-243` écrivent `0x51` (qui est
+  `GetAdjacentTiles`, 4 arguments).
+
+  ⚠ **Ce sondage n'est PAS concluant, et il ne doit pas être cité comme un verdict.** Deux
+  raisons : le décompilé d'`IBattleQuery` n'a **pas** été confronté (ici, ce sont 9 call-sites
+  décompilés qui verrouillent la table) ; et un décalage global de −1 rendrait `case-250`
+  entièrement juste tout en cassant `case-433`. Ce qui est **certain**, en revanche, c'est que
+  le dépôt se contredit **déjà lui-même** : `case-27` place `GetAdjacentEnemies` au slot `0x7f`,
+  `case-250` au slot `0x7c`. Au moins une des deux est fausse, indépendamment de toute table.
+  ⇒ **Le retournement annoncé est acquis : le gisement mérite le même traitement.** Ce qu'il
+  faut pour le traiter : des call-sites décompilés sur `IBattleQuery`, comme ici.

@@ -245,29 +245,49 @@ class MetadataReader:
         cherchee. Chacun y apparait deux fois -- une entree ABSTRAITE (l'interface) et une
         concrete (l'implementation) ; on retient l'abstraite.
 
-        LE CONTROLE QUI REND CE RESULTAT SUR : pour chaque ancre, `file_offset - slot * pas`
-        doit donner LE MEME debut de table. Si `slot` n'etait pas l'index dans une table
-        contigue, les ancres divergeraient. Elles ne divergent pas -- c'est mesure, pas suppose.
+        LE CONTROLE QUI REND CE RESULTAT SUR : chaque ancre propose l'ensemble des debuts de
+        table `file_offset - slot * pas` compatibles avec elle, et on retient l'INTERSECTION.
+        Si elle est vide, les ancres ne decrivent aucune table commune ; si elle en garde
+        plusieurs, elles n'en designent pas UNE. Les deux LEVENT : on ne devine pas.
+
+        ⚠ D'ou vient la multiplicite -- ce n'est PAS la surcharge. Dans une table CONTIGUE,
+        `file_offset - slot * pas` vaut la meme chose pour toutes les entrees de la meme
+        interface, surchargees ou non (mesure : `EvaluateAbilities` occupe les slots 77-79 et
+        81-82 et ne propose qu'UNE base ; `GetAdjacentEnemies` en occupe quatre d'affilee sur
+        `IBattleQuery`, meme resultat). Ce qui multiplie les candidats, ce sont les interfaces
+        HOMONYMES : `StartMatch` est declaree par CINQ interfaces distinctes, donc cinq bases.
+        C'est exactement ce que l'intersection dissout -- et c'est aussi pourquoi UNE ancre ne
+        suffit pas des que son nom est banal.
         """
         if self.entry_size is None or self.string_offset is None:
             raise MetadataRefused("locate() n'a pas ete appele")
         size = self.entry_size
-        bases: dict[int, list[str]] = {}
-        for name in anchor_names:
-            for ent in self._entries_named(name):
-                if ent.is_abstract:
-                    bases.setdefault(ent.file_offset - ent.slot * size, []).append(name)
-        if not bases:
+        noms = list(anchor_names)
+        candidats: set[int] | None = None
+        vues: list[str] = []
+        for name in noms:
+            propose = {ent.file_offset - ent.slot * size
+                       for ent in self._entries_named(name) if ent.is_abstract}
+            if not propose:
+                continue                      # nom absent ou non unique : cette ancre ne dit rien
+            vues.append(name)
+            candidats = propose if candidats is None else candidats & propose
+        if not vues or candidats is None:
             raise MetadataRefused(
-                "NON MESURE : aucune entree ABSTRAITE pour les ancres donnees -- l'interface "
-                "a-t-elle change de nom, ou ses methodes ne sont-elles plus uniques ?")
-        if len(bases) > 1:
+                "NON MESURE : aucune des %d ancres ne designe une methode ABSTRAITE unique -- "
+                "l'interface a-t-elle change de nom ?" % len(noms))
+        if not candidats:
             raise MetadataRefused(
-                "INCOHERENT : les ancres designent %d debuts de table distincts (%s). "
-                "`slot` n'indexe donc PAS une table contigue -- toute lecture par index serait "
-                "fausse." % (len(bases), bases))
+                "INCOHERENT : les ancres %s ne partagent AUCUN debut de table. Elles ne "
+                "decrivent donc pas la meme interface, ou `slot` n'indexe plus une table "
+                "contigue -- toute lecture par index serait fausse." % ", ".join(vues))
+        if len(candidats) > 1:
+            raise MetadataRefused(
+                "AMBIGU : %d debuts de table restent compatibles avec les ancres %s. En "
+                "ajouter d'autres, portees par cette interface, jusqu'a n'en laisser qu'un."
+                % (len(candidats), ", ".join(vues)))
 
-        base = next(iter(bases))
+        base = next(iter(candidats))
         out: list[MethodDef] = []
         idx = 0
         while base + (idx + 1) * size <= len(self.blob):

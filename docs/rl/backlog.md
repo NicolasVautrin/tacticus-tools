@@ -2709,9 +2709,14 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   (`il2cpp_metadata.interface_table` prend l'interface en parametre) ; il ne manque que
   l'appariement `nom d'interface <-> recepteur ecrit au site`, qui n'est PAS mecanique
   (`battleQuery` -> `IBattleQuery`, mais `aq`, `def`, `effectAction` demandent une lecture).
-  RETOURNEMENT : une seule citation fausse trouvee sur ces interfaces prouve que le gisement
-  merite le meme traitement -- et le taux mesure sur `IOperationProcessor` (1 fausse sur 43)
-  suggere qu'il y en a.
+  RETOURNEMENT DEJA ACQUIS : le depot se CONTREDIT lui-meme sur `IBattleQuery` -- `case-27`
+  place `GetAdjacentEnemies` au slot 0x7f, `case-250` au slot 0x7c. Au moins une des deux est
+  fausse, independamment de toute table. Un sondage (219 slots lus) rend 2 concordances
+  (0x64 `GetTilesAtDistance`, 0x7f `GetAdjacentEnemies`) et 3 divergences, mais il n'est PAS
+  concluant : le decompile d'`IBattleQuery` n'a pas ete confronte, et un decalage global de -1
+  rendrait `case-250` juste en cassant `case-433`. **Ne pas citer ce sondage comme un verdict.**
+  CE QU'IL FAUT : des call-sites decompiles sur ces interfaces, comme les 9 qui ont verrouille
+  `IOperationProcessor`.
   cf. `docs/rl/case-477r24r1-mapping-slot-interface.md` Residus.
 
 - **#477-r21-r1 : les formes `ChangeStats` / `ChangeAbility` du bloc 1 de `System_StartMatch`.**

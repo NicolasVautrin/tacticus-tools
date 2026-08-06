@@ -64,6 +64,24 @@ def citations() -> list[P.Citation]:
     return cits
 
 
+@pytest.fixture(scope="module")
+def localise():
+    """Un `MetadataReader` deja localise -- la localisation coute ~15 s, on la fait UNE fois."""
+    import build_pin
+    import il2cpp_metadata
+    from symbols_layout import build_dir
+
+    try:
+        meta = build_pin.global_metadata()
+    except build_pin.BuildPinRefused as exc:
+        pytest.skip("metadata IL2CPP non disponible (entree hors depot) : %s"
+                    % str(exc).splitlines()[0])
+    reader = il2cpp_metadata.read(meta)
+    reader.locate(il2cpp_metadata.class_method_order(
+        build_dir() / "frida" / "methods.tsv", P.KLASS))
+    return reader, il2cpp_metadata
+
+
 # --------------------------------------------------------- etage 0 : le corpus est NON VIDE
 
 
@@ -160,24 +178,54 @@ def test_etage3_la_garde_mord(table: dict[int, tuple[str, int]],
 
 
 def test_etage4_derivation_concorde_avec_lentree_versionnee(
-        table: dict[int, tuple[str, int]]) -> None:
+        table: dict[int, tuple[str, int]], localise) -> None:
     """Si le jeu est installe, la table versionnee doit etre CELLE du metadata.
 
     Skip NOMME quand le metadata n'est pas la : c'est une entree hors depot (invariant 3 du
     CLAUDE.md, troisieme categorie). « Pas mesure » n'est pas « mesure et vide ».
     """
-    import build_pin
-    import il2cpp_metadata
-    from symbols_layout import build_dir
-
-    try:
-        meta = build_pin.global_metadata()
-    except build_pin.BuildPinRefused as exc:
-        pytest.skip("metadata IL2CPP non disponible (entree hors depot) : %s"
-                    % str(exc).splitlines()[0])
-
-    reader = il2cpp_metadata.read(meta)
-    reader.locate(il2cpp_metadata.class_method_order(
-        build_dir() / "frida" / "methods.tsv", P.KLASS))
+    reader, _ = localise
     derive = reader.interface_table(P.ANCRES)
     assert {m.slot: (m.name, m.param_count) for m in derive} == table
+
+
+def test_etage4_la_table_ne_depend_pas_des_ancres_choisies(localise) -> None:
+    """Generalisation : d'autres ancres, disjointes de celles de production, rendent la MEME table.
+
+    Si le resultat dependait du tirage, la table serait un artefact du choix des ancres et non
+    une lecture du metadata.
+    """
+    reader, _ = localise
+
+    def table_avec(ancres: tuple[str, ...]) -> dict[int, tuple[str, int]]:
+        return {m.slot: (m.name, m.param_count) for m in reader.interface_table(ancres)}
+
+    ref = table_avec(P.ANCRES)
+    for autres in (("StartMatch", "RevealRoom"),
+                   ("AddResurrectDraftPoint", "VerifyDoors"),
+                   ("SkipToNextWave", "AddReinforcementShield")):
+        assert not set(autres) & set(P.ANCRES), "le tirage doit etre DISJOINT des ancres "\
+            "de production, sinon il ne prouve rien"
+        assert table_avec(autres) == ref, "tirage %s : table differente" % (autres,)
+
+
+def test_etage4_une_ancre_HOMONYME_seule_est_refusee(localise) -> None:
+    """Le refus qui evite une table d'une AUTRE interface -- vu MORDRE.
+
+    `StartMatch` est declaree par CINQ interfaces : seule, elle ne designe pas une table. Une
+    seconde ancre suffit a dissoudre l'ambiguite par intersection.
+
+    ⚠ Ce n'est PAS la surcharge qui multiplie les candidats. Dans une table contigue, toutes les
+    entrees d'une meme interface rendent la meme base -- verifie ici sur `EvaluateAbilities`,
+    surchargee ET dispersee (slots 77-79, 81-82), qui n'en propose qu'UNE.
+    """
+    r, il2cpp_metadata = localise
+    with pytest.raises(il2cpp_metadata.MetadataRefused, match="AMBIGU"):
+        r.interface_table(("StartMatch",))
+
+    t = r.interface_table(("StartMatch", "RevealRoom"))
+    assert {m.slot: m.name for m in t}[0x63] == "ReviveUnit"
+
+    #: contre-modele : une ancre surchargee et DISPERSEE reste sans ambiguite
+    seule = r.interface_table(("EvaluateAbilities",))
+    assert {m.slot: m.name for m in seule}[0x63] == "ReviveUnit"
