@@ -81,10 +81,42 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts"/"python"))
 
 import repo_read  # noqa: E402
+import verdict_cache  # noqa: E402
 from symbols_layout import build_dir, current_build  # noqa: E402
 
 PY = REPO / "scripts"/"python"
 ENGINE = PY / "engine"
+
+
+# ------------------------------------------------- le CACHE de verdict par fichier (#486-r1)
+#
+# LOCALITE ETABLIE, cliquet par cliquet, AVANT de cacher quoi que ce soit.
+#
+#   CACHABLE   `intenums_du_moteur` et `references_qualifiees` : ce qu'un fichier rend ne depend
+#              que de son PROPRE texte et de constantes du cliquet (`BASES_ENUM`, `PAR_CLS`).
+#              Aucune variable ne circule d'un fichier a l'autre -- l'agregation (`out[cls] = rel`,
+#              la concatenation des references) se rejoue integralement, hors cache.
+#   PAS CACHE  `enum_natif`, `bijection`, les etapes 4 a 6. La premiere lit `enums.tsv` du BUILD
+#              (une seule lecture, pas un balayage) ; les autres sont des verdicts GLOBAUX --
+#              bijection entre deux ensembles, couverture d'un registre, homonymie inter-enums.
+#              Aucun n'est local a un fichier et aucun ne coute.
+#
+# ⚠ CES DEUX BALAYAGES SONT BUILD-INDEPENDANTS, et le contexte ne porte donc PAS le build. Le
+# build n'entre dans ce cliquet que par `enum_natif`, qui n'est pas cache : garder ces entrees
+# a travers un changement de build n'est pas un raccourci, c'est la mesure de ce dont elles
+# dependent reellement. (Les cliquets #477, eux, resolvent leurs citations CONTRE la table de
+# slots : leur contexte la porte, et tout y manque au changement de build.)
+
+_CACHE: verdict_cache.CacheCliquet | None = None
+
+
+def cache() -> verdict_cache.CacheCliquet:
+    global _CACHE
+    if _CACHE is None:
+        _CACHE = verdict_cache.CacheCliquet(
+            nom="probe_313_enum_mirror_bijection",
+            contexte=verdict_cache.sha_fichiers(Path(__file__).resolve()))
+    return _CACHE
 
 # Attributs qui ne designent PAS un membre : l'API `Enum` elle-meme.
 API_ENUM = {"name", "value", "_value_", "_name_", "_member_map_", "_missing_",
@@ -406,19 +438,32 @@ def intenums_du_moteur() -> dict[str, str]:
     # Lecture PARALLELE (#457-r6) : l'OUVERTURE pese ~7 ms par fichier sous `scripts/`
     # (filtre systeme sur les extensions executables), devant le parse. Ordre inchange.
     fichiers = sorted(ENGINE.rglob("*.py"))
+    cch = cache()
     for p, texte in zip(fichiers, repo_read.read_texts(fichiers)):
         rel = p.relative_to(PY).as_posix()
         if texte is None:
             continue
+        #: ⚠ LE PRE-FILTRE RESTE JOUE A CHAQUE RUN, hors cache : il coute une recherche de
+        #: sous-chaine sur un texte deja lu, et cacher ce qu'il ecarte n'economiserait rien.
         if "Enum" not in texte and "Flag" not in texte:
             continue
-        try:
-            tree = ast.parse(texte, filename=rel)
-        except SyntaxError:
-            continue
-        for cls in classes_intenum(tree):
+        for cls in cch.contribution(rel, "intenums", verdict_cache.sha_texte(texte),
+                                    lambda t=texte, r=rel: _classes_du_fichier(t, r)):
             out[cls] = rel
     return out
+
+
+def _classes_du_fichier(texte: str, rel: str) -> list[str]:
+    """Les noms de classes d'enum d'UN fichier -- verdict LOCAL, donc cachable (#486-r1).
+
+    Un fichier au parse impossible ne contribue rien : c'est l'ancien `except SyntaxError:
+    continue`, deplace ici sans changer ce qu'il ecarte.
+    """
+    try:
+        tree = ast.parse(texte, filename=rel)
+    except SyntaxError:
+        return []
+    return list(classes_intenum(tree))
 
 
 # ------------------------------------------------------------------------------ le calcul
@@ -472,21 +517,35 @@ def references_qualifiees() -> list[tuple[str, int, str, str]]:
     out = []
     # Lecture PARALLELE (#457-r6), meme ordre : `read_texts` rend une liste ALIGNEE.
     rels = [r for r in fichiers_python_suivis() if (REPO / r).is_file()]
+    cch = cache()
     for rel, texte in zip(rels, repo_read.read_texts([REPO / r for r in rels])):
         if texte is None:
             continue
+        #: ⚠ LE PRE-FILTRE RESTE JOUE A CHAQUE RUN, hors cache -- cf. la docstring ci-dessus :
+        #: c'est une sur-approximation EXACTE du parse, pas une allowlist, et elle coute une
+        #: recherche de sous-chaine sur un texte deja lu.
         if not any(cls in texte for cls in PAR_CLS):
             continue
-        try:
-            tree = ast.parse(texte, filename=rel)
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
-                    and node.value.id in PAR_CLS and node.attr not in API_ENUM
-                    and not node.attr.startswith("_")):
-                out.append((rel, node.lineno, node.value.id, node.attr))
+        out += [tuple(x) for x in
+                cch.contribution(rel, "refs", verdict_cache.sha_texte(texte),
+                                 lambda t=texte, r=rel: _references_du_fichier(t, r))]
     return out
+
+
+def _references_du_fichier(texte: str, rel: str) -> list[tuple[str, int, str, str]]:
+    """Les `<Classe>.<membre>` d'UN fichier -- verdict LOCAL, donc cachable (#486-r1).
+
+    Un fichier au parse impossible ne contribue rien : c'est l'ancien `except SyntaxError:
+    continue`, deplace ici sans changer ce qu'il ecarte.
+    """
+    try:
+        tree = ast.parse(texte, filename=rel)
+    except SyntaxError:
+        return []
+    return [(rel, node.lineno, node.value.id, node.attr) for node in ast.walk(tree)
+            if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                and node.value.id in PAR_CLS and node.attr not in API_ENUM
+                and not node.attr.startswith("_"))]
 
 
 def references_cassees(build: str, refs: list | None = None) -> tuple[list, list]:
@@ -895,8 +954,42 @@ def main() -> int:
                     help="sauter l'etape 5 (elle importe le moteur)")
     ap.add_argument("--homonymes", action="store_true",
                     help="etape 6 : inventorier les homonymes inter-enums (jamais bloquant)")
+    ap.add_argument("--verifier-cache", action="store_true",
+                    help="RECALCULE tout en ignorant le cache versionne et le confronte entree "
+                         "par entree (#486-r1) -- le seul controle qui voie une entree falsifiee "
+                         "de facon coherente")
     a = ap.parse_args()
-    return rapport(a.verbose, a.porteurs, not a.sans_consommateurs, a.homonymes)
+
+    global _CACHE
+    if a.verifier_cache:
+        #: MODE ESPION : le fichier est charge, jamais servi -- le rapport recalcule donc TOUT.
+        _CACHE = verdict_cache.CacheCliquet(
+            nom="probe_313_enum_mirror_bijection",
+            contexte=verdict_cache.sha_fichiers(Path(__file__).resolve()), relire=False)
+
+    rc = rapport(a.verbose, a.porteurs, not a.sans_consommateurs, a.homonymes)
+
+    #: LE CACHE (#486-r1) -- muet dans le regime normal : la sortie avec cache chaud doit etre
+    #: BIT POUR BIT celle d'un run a froid. Les modes `--porteurs` / `--homonymes` n'ajoutent
+    #: aucun appel cache, `--sans-consommateurs` non plus : tous les regimes visitent les memes
+    #: entrees, donc tous peuvent ecrire sans chasser celles de la boucle de merge.
+    if a.verifier_cache:
+        divergences = verdict_cache.verifier(cache())
+        print("")
+        print("=== VERIFICATION DU CACHE VERSIONNE (#486-r1) ===")
+        print("  entrees sur disque : %d   recalculees : %d"
+              % (len(cache()._sur_disque), len(cache()._vues)))
+        for d in divergences:
+            print("  DIVERGENCE %s" % d)
+        if divergences:
+            #: rc DEDIE : ce n'est pas le verdict du cliquet sur le depot, c'est le CACHE qui ment.
+            print("  rc=3 -- le cache versionne n'atteste PAS ce que le calcul rend. Le")
+            print("  REGENERER : python scripts/python/probe_313_enum_mirror_bijection.py")
+            return 3
+        print("  OK -- chaque entree du cache vaut ce que le recalcul integral produit.")
+    else:
+        cache().enregistrer()
+    return rc
 
 
 if __name__ == "__main__":
