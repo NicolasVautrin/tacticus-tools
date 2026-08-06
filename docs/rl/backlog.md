@@ -2769,8 +2769,9 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.
   C'est `AOperation.AbilityAndEffectCache.<slot 3>(trigger)` parcouru par
   `IdunBattle.Operations.EvaluateTriggerOperation$$ExecuteInternal`, plus les gardes de
-  `IdunBattle.Operations.RefreshEffectsOperation` (`ShouldBeActive`, `GetTargetsToAdd`,
-  `GetTargetsToRemove`, `UpdateEffectTargets`) et les DEUX d'`EvaluateAbilityTrigger`
+  `IdunBattle.Operations.RefreshEffectsOperation` (~~`ShouldBeActive`, `GetTargetsToAdd`,
+  `GetTargetsToRemove`, `UpdateEffectTargets`~~ -- **VOLET A LIVRE**, cf. ci-dessous) et les DEUX
+  d'`EvaluateAbilityTrigger`
   (`TriggeredAbilityComponent$$GetTimesTriggeredThisPhase(order) >= 0x33`, et le slot 2 de
   l'ability). ⚠ **CE N'EST PAS UNE FACE STREAM** : contrairement aux quatre crans #477-r18..r21,
   ce residu vit dans l'ETAT ECS -- le decouper comme un port d'emission serait une erreur de
@@ -2782,8 +2783,37 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   cette sequence rend du meme coup TOUS les identifiants d'effet. La condition d'allocation est
   lue et nommee -- quatre sorties anticipees d'`Execute`, dont
   `AddEffectOperation$$UpdateExistingEffect`, gardee par `StaticBattleRules.Effect$$IsUpdatable`.
-  cf. `docs/rl/case-477r21-arbre-activation.md` sec. 1 et 5, et
+  ⚠ **SON VOLET A EST LIVRE, ET IL N'A PAS RENDU LES AUTRES ATTEIGNABLES** : les quatre gardes de
+  `RefreshEffectsOperation` sont portees 1:1 (`engine/runner/operations/refresh_effects.py`) et
+  confrontees sur **289** sous-arbres `Effect_Refresh` du flux temoin (0 contre-exemple, 0
+  divergence sur 273 + 265 actions rederivees). Elles decident ce qui se passe **une fois l'effet
+  choisi** ; elles ne le choisissent pas. `Effect_Refresh` AUTONOMES **re-mesure a 0/0/0**.
+  RESTE DONC OUVERT ICI : le cache `AbilityAndEffectCache.<slot 3>` (volet B), les deux gardes
+  d'`EvaluateAbilityTrigger` (volet C), la sequence de creation (volet D).
+  cf. `docs/rl/case-477r21-arbre-activation.md` sec. 1 et 5,
+  `docs/rl/case-477r21r2a-gardes-refresh-effects.md`, et
   `docs/rl/case-477r21r3-allocation-entites-effet.md` sec. 4.
+
+- **#477-r26 : les DONNEES que les gardes de `RefreshEffectsOperation` consomment.** `[opus]`
+  Le volet A a porte les quatre gardes ; trois entrees qu'elles LISENT manquent au port, et tant
+  qu'elles manquent le cablage du declencheur est **exact et INERTE** sous `Automatically` :
+  * **`IEffect.GetRefreshTriggers()`** (slot de vtable `<+0x5c8>`) par classe. **12** classes
+    natives le surchargent ; **une seule** est lisible au decompile (`BlockEnteringUnitsTileEffect`
+    -> `{EffectsChanged}`, ecrit en ligne), les autres construisent leur tableau par
+    `System.Runtime.CompilerServices.RuntimeHelpers$$InitializeArray`, dont le blob vit dans
+    `global-metadata.dat` et **pas dans la DLL**. Un capteur live sur le slot les rendrait.
+    Sans elles, `should_refresh_for_trigger` rend `true` partout et la bascule « re-emettre le
+    flag courant » n'est **jamais** prise.
+  * **`IdunBattle.Entities.Effects.BaseEffect$$NeedsRefreshing`** : le natif saute la garde
+    ENTIERE sous `Automatically` quand la condition d'activite, la condition de simulation ET le
+    selecteur de cibles sont tous des CONSTANTES (test de type sur la hierarchie il2cpp) et
+    qu'aucune formule de niveau n'existe. Le port n'a pas de notion de « condition constante » --
+    `_active_condition_is_ported` en est l'analogue lisible, pas le mirror.
+  * **le MODELE DE CIBLES** : le natif porte UNE entite-effet dont `Targets <+0x48>` liste N
+    unites ; le port materialise N instances (`state.effects.by_unit`). Les trois gardes de
+    ciblage sont portees et confrontees **sur le flux**, mais aucun consommateur du moteur ne les
+    appelle -- les brancher est un changement de modele.
+  cf. `docs/rl/case-477r21r2a-gardes-refresh-effects.md` sec. 5 et 7.
 
 - ~~**#477-r21-r3 : l'ALLOCATION ECS des entites d'EFFET.**~~ **LIVRE** -- la REGLE est portee
   (`engine/streams/entity_allocator.py`, mirror de `MatchComponent$$NextId` et de ses neuf sites)

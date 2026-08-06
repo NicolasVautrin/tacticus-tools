@@ -289,3 +289,44 @@ def generate_event_group(events: StreamDispatcher,
     for action in event_actions:
         action()
     finish_event_group(events)
+
+
+def bind_refresh_actions(events: StreamDispatcher, actions, effect: EffectSetup
+                         ) -> list:
+    """Traduit le PLAN rendu par `engine/runner/operations/refresh_effects.update_effect_targets`
+    en la `Sequence[Callable]` que `generate_event_group` consomme.
+
+    C'EST LA FRONTIERE DECISION / EMISSION, ET ELLE EST LE `.Invoke()` NATIF. Cote natif, la
+    `List<Action>` porte deja les closures : decider et emettre sont le meme objet. Le port les
+    separe (l'un lit et ecrit l'ETAT ECS, l'autre n'ecrit que des lignes), donc il lui faut ce
+    point de recollement -- et c'est ici qu'il vit, du cote EMISSION, pour que la couche qui
+    decide n'importe rien de `streams`.
+
+    ⚠ LES DESCRIPTEURS SONT LUS EN CANARD (`.action`, `.entity`), JAMAIS IMPORTES. Importer
+    `RefreshAction` depuis `engine.runner` creerait une dependance `streams -> runner` a rebours
+    de celle que le port vient d'etablir.
+
+    ⚠ LES TAGS `ReceiveEffect` SONT CALCULES UNE SEULE FOIS, HORS BOUCLE -- mirror littéral d'
+    `IdunBattle.Operations.RefreshEffectsOperation$$AddTargetsToEffect`, qui hisse
+    `GetEffectTags(effectEntity, effectComponent, StepType.ReceiveEffect)` au-dessus de son
+    `foreach` et le passe tel quel a chaque `AddReceiveEffectAction`. C'est aussi ce qui explique
+    que `AddReceiveEffectAction` soit la seule des quatre a RECEVOIR ses tags.
+
+    Les deux formes `RevertEffectsForTargets` / `ApplyEffectsForTargets` n'ecrivent AUCUNE ligne de
+    ce module : elles produisent des `Action=ChangeStats` / `Action=ChangeAbility` qui sortent d'
+    `Effect.ApplyModification`, hors perimetre (#477-r21-r1). Elles sont donc IGNOREES ici, et
+    c'est declare plutot que silencieux."""
+    receive_tags = get_refresh_effect_tags(effect, StepType.ReceiveEffect)
+    out: list = []
+    for a in actions:
+        nom = getattr(a, "action", None)
+        cible = getattr(a, "entity", None)
+        if nom == "AddActivateEffectAction":
+            out.append(lambda o=cible: add_activate_effect_action(events, o, effect))
+        elif nom == "AddDeactivateEffectAction":
+            out.append(lambda o=cible: add_deactivate_effect_action(events, o, effect))
+        elif nom == "AddLoseEffectAction":
+            out.append(lambda t=cible: add_lose_effect_action(events, t, effect))
+        elif nom == "AddReceiveEffectAction":
+            out.append(lambda t=cible, tg=receive_tags: add_receive_effect_action(events, t, tg))
+    return out

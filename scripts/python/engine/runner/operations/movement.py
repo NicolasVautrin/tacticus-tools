@@ -35,7 +35,7 @@ from ...services.movement_query import (get_connected_path_to, get_num_tiles_mov
                                             get_pathfinder_type_for_unit, unit_has_effect_fn)
 from .aura_stat_mods import refresh_aura_stat_modifiers
 from .damage import AttackDamageOperation
-from .refresh_effects import refresh_stat_modifier_effects
+from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
 
 
 def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
@@ -740,7 +740,11 @@ class MoveUnitOperation(Operation):
         # Non-scope (pas de `unit_id`) POUR LA MEME RAISON que la ligne precedente : bouger le
         # PORTEUR d'aura change la condition des AUTRES unites, pas la sienne. Idempotent partout
         # ailleurs (`Modify` = replace par-source, cf. `refresh_effects.py`).
-        refresh_stat_modifier_effects(state)
+        # ⚠ Le declencheur n'est plus seulement en COMMENTAIRE : depuis #477-r21-r2 volet A il est
+        # PASSE, et `RefreshEffectsOperation$$ShouldBeActive` le consomme (via
+        # `BaseEffect$$ShouldRefreshForTrigger`) pour choisir entre re-evaluer la
+        # `CreateActiveCondition` et re-emettre le flag courant.
+        refresh_stat_modifier_effects(state, refresh_trigger=RefreshEffectTrigger.UnitPositionChanged)
         # `EvaluateAfterMoveTriggers(unit, position, previousPosition, movementSteps, isInterimStep,
         # triggeringAbilityOrEffect)` -- RANG NATIF EXACT, lu au decompile d'`IdunBattle.Operations.
         # MoveUnitOperation$$Execute` : il tombe ENTRE les deux `RefreshEffects({7, null})`, apres
@@ -797,7 +801,8 @@ def refresh_effects_after_move_triggers(state: State) -> list:
     partout ou rien n'a change entre les deux -- y compris aux sites qui n'ont PAS de vecteur
     after-move (`DisplaceUnitOperation`, `TheQuickening`, genestealer), qu'on laisse donc
     inchanges."""
-    return refresh_stat_modifier_effects(state)
+    return refresh_stat_modifier_effects(
+        state, refresh_trigger=RefreshEffectTrigger.UnitPositionChanged)
 
 
 class MovementHandler:
