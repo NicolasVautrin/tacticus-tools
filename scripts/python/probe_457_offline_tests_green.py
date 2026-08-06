@@ -177,11 +177,52 @@ soit ~12 min BLOQUANTES par PR pour une OPTIMISATION de mur.
 `--measure-missing` ne chronometre que les fichiers SANS poids et FUSIONNE dans le JSON existant.
 C'est le cas nominal (mediane 0-1 fichier offline neuf par PR) : quelques secondes au lieu de 12 min.
 
-Il n'ecrit PAS l'empreinte, et c'est structurel : `_commit` horodate l'empreinte ENTIERE, donc le
-rafraichir apres n'avoir joue que 2 fichiers pretendrait une fraicheur qu'elle n'a pas et
-transformerait `impacted_files` en faux vert. L'asymetrie est celle que `_weights_path` et
-`_footprints_path` documentent deja : des POIDS perimes coutent du MUR, une EMPREINTE perimee
-ferait sauter des tests. Rafraichir l'empreinte reste le travail de `--measure` complet.
+Il ECRIT desormais l'empreinte des seuls fichiers qu'il a joues (#486-r15). Ce refus etait
+structurel TANT QUE l'empreinte portait UN SEUL tampon de fraicheur pour l'ensemble ; avec un
+tampon PAR ENTREE, une passe partielle rafraichit exactement ce qu'elle a mesure et ne pretend
+RIEN sur le reste. Cf. la section suivante.
+
+LE TAMPON DE FRAICHEUR DESCEND A L'ENTREE (#486-r15)
+-----------------------------------------------------
+L'empreinte portait un `_commit` GLOBAL, et `impacted_files` s'en servait pour unir << tout ce qui
+a change depuis la mesure >> au diff de la PR. Ce sha etait ECRIT DANS LE WORKTREE D'UN AGENT,
+donc sur SA branche -- que le squash-merge remplace par un commit neuf avant de la supprimer. Le
+sha inscrit etait donc MORT-NE : mesure du 2026-08-07, `57bb2a7c` est inconnu de `git cat-file`,
+et `--since` rendait **220/220 fichiers sur chacune des 8 dernieres bases de PR** -- la selection
+ne selectionnait plus rien depuis 3 jours et ~40 commits. Auto-destructeur A CHAQUE LIVRAISON PAR
+PR, pas un oubli.
+
+La forme retenue est celle que ce depot tient DEJA sur l'autre versant, le ledger LIVE
+`scripts/ratchets-462-live-attestations.json` (#462, repare par #465) : un tampon PAR ENTREE, cle
+sur le CONTENU. Une entree perimee MANQUE au lieu de mentir, et un sha mort n'invalide que
+lui-meme.
+
+CE QUE LA CLE D'UNE ENTREE PORTE, ET POURQUOI PAS LE SEUL FICHIER
+------------------------------------------------------------------
+Une empreinte peut changer SANS que le fichier de test change : il suffit qu'un module qu'il
+importe se mette a ouvrir un autre fichier. La cle est donc celle de **{le test, sa FERMETURE
+d'imports}** -- pour chaque module de la fermeture, son NOM et le sha256 de son TEXTE. Les deux
+sont necessaires : modifier un fichier deja present et FAIRE ENTRER un fichier neuf dans la
+fermeture sont deux changements distincts, et un hash de contenus seuls ne verrait pas le second.
+
+La fermeture est calculee sur le graphe que `impacted_files` utilise DEJA (`_import_graph`), donc
+TOUS les imports -- y compris ceux ecrits dans un corps de fonction, qui s'executent bel et bien
+pendant un test -- plus les aretes `conftest.py` de la semantique pytest. Elle n'est PAS la
+fermeture NIVEAU MODULE d'`import_closure.py` (#486-r11), qui repond a une autre question --
+<< que charge `import M` ? >> -- et qui, employee ici, SOUS-approximerait : un import differe
+execute par un test lui echappe, et une sous-approximation est un FAUX VERT. Mesure du
+2026-08-07 : fermetures de 12 / 95 / 171 modules (min / mediane / max) sur les 220 fichiers,
+calculees en **0,45 s** une fois le graphe en main.
+
+`_commit` et `_at` RESTENT dans chaque entree, en CONTEXTE INFORMATIF -- jamais comme critere.
+
+L'ABSENCE D'UNE ENTREE VEUT DIRE << PAS MESURE >>, ET ELLE REJOUE
+------------------------------------------------------------------
+Avant #486-r15, un fichier absent de `par_test` etait lu << il n'ouvre aucun fichier du depot >>
+et SAUTE. C'etait le faux vert que `_footprints_path` decrit : une empreinte videe ne
+sur-selectionne pas, elle SOUS-selectionne. L'empreinte porte desormais une entree pour CHAQUE
+fichier joue, `dirs` VIDE compris, et une absence se lit << jamais mesure >> -> rejoue. Le mode de
+defaillance bascule ainsi du cote SUR : une empreinte videe rejoue TOUT.
 
 ASCII only (cp1252).
 """
@@ -202,6 +243,10 @@ if str(_PYDIR_POUR_IMPORT) not in sys.path:
     sys.path.insert(0, str(_PYDIR_POUR_IMPORT))
 
 import repo_read                                                            # noqa: E402
+#: FOYER UNIQUE du sha de contenu (#486-r1) : sur le TEXTE, jamais sur les octets -- `core.autocrlf`
+#: vaut `true` ici, donc les memes octets versionnes se materialisent en CRLF sous Windows et en LF
+#: ailleurs. En ecrire un second ici ferait deriver deux caches VERSIONNES l'un de l'autre.
+from verdict_cache import sha_texte                                         # noqa: E402
 
 #: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
 #:
@@ -265,6 +310,16 @@ EX_NON_MESURE = 99
 #: 4 erreur d'USAGE, 5 aucun test collecte. `0` et `1` le sont -- des tests ROUGES n'invalident ni
 #: les durees ni l'empreinte, les fichiers ont bien ete joues.
 RC_PYTEST_SANS_MESURE = (2, 3, 4, 5)
+
+#: VERSION DU FORMAT DE L'EMPREINTE (#486-r15). `1` = un `_commit` GLOBAL et `par_test` = liste de
+#: repertoires ; `2` = un tampon PAR ENTREE (`_cle` sur la fermeture d'imports) et une entree pour
+#: CHAQUE fichier mesure, `dirs` vide compris.
+#:
+#: Une empreinte d'un AUTRE format ne se devine pas : `impacted_files` refuse de s'en servir et
+#: rejoue TOUT en le disant. C'est le seul traitement sur -- lire une empreinte de format 1 avec
+#: les regles du 2 conclurait << jamais mesure >> partout (sur-selection, benin) ; l'inverse
+#: conclurait << aucune dependance hors-.py >> partout, soit exactement le FAUX VERT de #464.
+FORMAT_EMPREINTE = 2
 
 
 class MontageImpossible(RuntimeError):
@@ -572,8 +627,54 @@ class _FilesPerTest:
         self.courant = None
 
 
+def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, globales: list,
+                         commit, complete: bool, mods: dict) -> dict:
+    """L'empreinte a ECRIRE : les entrees de CETTE passe, fusionnees dans celle du disque (#486-r15).
+
+    LA REGLE, ET ELLE TIENT EN UNE LIGNE : cette passe n'ecrit QUE ce qu'elle a mesure, et ne
+    touche a RIEN d'autre. C'est ce que le tampon par entree rend possible -- avec un `_commit`
+    global, rafraichir apres 2 fichiers pretendait une fraicheur qu'on n'avait pas.
+
+    UNE ENTREE PAR FICHIER JOUE, `dirs` VIDE COMPRIS. Avant #486-r15, seules les entrees NON VIDES
+    etaient ecrites, et `impacted_files` lisait l'absence comme << aucune dependance hors-.py >> :
+    une empreinte videe faisait alors SAUTER des tests (faux vert, #464). Desormais l'absence se
+    lit << jamais mesure >> -> rejoue, et cela n'est VRAI que si les entrees vides sont ecrites.
+
+    `_globales` : REMPLACE par une passe complete (elle a tout vu), UNI par une passe partielle
+    (elle n'a vu que la collecte de ses propres fichiers). L'union ne peut que SUR-selectionner --
+    `_globales` ne sert qu'a declencher un rejeu total ; la retrecir serait le seul sens dangereux.
+
+    `_commit` et `_at` sont du CONTEXTE : ils disent OU et QUAND, jamais si l'entree est valide.
+    Le sha inscrit peut etre mort-ne (branche d'agent squash-mergee, cf. l'en-tete) sans que cela
+    invalide quoi que ce soit -- c'est tout l'objet de #486-r15.
+    """
+    ancien = _footprints()
+    ancien_pt = ancien.get("par_test") if ancien.get("_format") == FORMAT_EMPREINTE else {}
+    garde = {} if complete else {r: e for r, e in (ancien_pt or {}).items()
+                                 if isinstance(e, dict) and r not in mesures}
+
+    cles = _cles_fermeture(["scripts/python/" + r for r in mesures], mods)
+    maintenant = int(time.time())
+    neuves = {}
+    for rel in sorted(mesures):
+        neuves[rel] = {
+            "_at": maintenant,
+            "_cle": cles.get("scripts/python/" + rel),
+            "_commit": commit,
+            "dirs": dossiers(lus_par_test.get(rel, ())),
+        }
+
+    anciennes_glob = ancien.get("_globales") or []
+    return {
+        "_format": FORMAT_EMPREINTE,
+        "_regime": REGIME_MESURE,
+        "_globales": sorted(globales if complete else set(globales) | set(anciennes_glob)),
+        "par_test": dict(sorted({**garde, **neuves}.items())),
+    }
+
+
 def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
-                   elapsed: float, poids_connus: dict) -> int:
+                   elapsed: float, poids_connus: dict, complete: bool = True) -> int:
     """FOYER UNIQUE d'ecriture de ce probe (#464). DECIDE d'abord, ecrit ensuite -- jamais l'inverse.
 
     Le vice repare : `--measure` ecrivait, PUIS annoncait << poids ecrits, mais l'arbre est ROUGE >>
@@ -585,7 +686,10 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
     puis 15 fichiers << sans mesure >>, signature d'un seuil, pas d'un fichier muet). Ce qui ne peut
     PAS arriver en regime normal, c'est que le perimetre ENTIER soit muet.
 
-    `empreinte is None` = mesure incrementale : on ne touche pas au fichier versionne, cf. `main`.
+    `empreinte is None` = aucune empreinte n'a ete instrumentee : on ne touche pas au fichier
+    versionne. Depuis #486-r15 une mesure PARTIELLE en instrumente une, et n'ecrit alors QUE les
+    entrees des fichiers qu'elle a joues -- le tampon vit dans l'entree, donc rien n'est pretendu
+    sur les autres.
     """
     import json
 
@@ -598,8 +702,8 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
                  else "aucun des %d fichier(s) joue(s) n'a produit le moindre report" % len(joues))
         print("[457] REFUS D'ECRIRE : %s." % cause)
         print("[457] Les poids ET l'empreinte sont INCHANGES -- une mesure vide ecrite serait pire")
-        print("[457] que pas de mesure : une empreinte a zero fichier fait SAUTER des tests sous")
-        print("[457] `--since` (absent de `par_test` = << aucune dependance hors-.py >>).")
+        print("[457] que pas de mesure : elle effacerait des entrees VALIDES et ferait payer un")
+        print("[457] rejeu total a tout le monde sous `--since`.")
         print("[457] Cause la plus frequente : lancement hors `%s`." % _PYDIR)
         print("[457] rc=%d -- aucun verdict sur le depot." % EX_NON_MESURE)
         return EX_NON_MESURE
@@ -657,30 +761,35 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
             empreinte_refusee = True
         else:
             emp_path = _footprints_path()
-            emp = {
-                "_commit": (tete.stdout or "").strip() or None,
-                "_regime": REGIME_MESURE,
-                "_globales": sorted(brutes),
-                "par_test": {rel: d for rel, d in
-                             ((r, _dossiers(v)) for r, v in sorted(empreinte.par_test.items()))
-                             if d},
-            }
+            emp = _empreinte_fusionnee(
+                mesures=mesures,
+                lus_par_test=empreinte.par_test,
+                dossiers=_dossiers,
+                globales=sorted(brutes),
+                commit=(tete.stdout or "").strip() or None,
+                complete=complete,
+                mods=modules)
             emp_path.write_text(json.dumps(emp, indent=1, sort_keys=True) + "\n",
                                 encoding="utf-8")
 
             hors_py = sorted({r for r in emp["_globales"] if not r.endswith(".py")})
             hors_py_test = sorted({r for v in empreinte.par_test.values() for r in v
                                    if not r.endswith(".py")})
-            print("[457] empreinte -> %s : %d fichier(s) de test, %d lecture(s) GLOBALE(s) "
-                  "(non attribuables -> impactent TOUT), dont %d hors .py ; %d fichier(s) hors .py "
-                  "lus pendant les tests"
-                  % (emp_path, len(emp["par_test"]), len(emp["_globales"]), len(hors_py),
-                     len(hors_py_test)))
+            sans_cle = sorted(r for r, e in emp["par_test"].items() if not e.get("_cle"))
+            print("[457] empreinte -> %s : %d entree(s) de test (%s ; %d rafraichie(s) par cette "
+                  "passe), %d lecture(s) GLOBALE(s) (non attribuables -> impactent TOUT), dont %d "
+                  "hors .py ; %d fichier(s) hors .py lus pendant les tests"
+                  % (emp_path, len(emp["par_test"]),
+                     "REECRITE en entier" if complete else "FUSION partielle",
+                     len(mesures), len(emp["_globales"]), len(hors_py), len(hors_py_test)))
+            if sans_cle:
+                # Une entree sans cle ne peut pas prouver sa fraicheur : `impacted_files` la
+                # traitera comme PERIMEE (rejeu). Le DIRE tout de suite -- sinon la degradation ne
+                # se lit qu'au prochain `--since`, dans une ligne que personne ne relit.
+                print("[457] ATTENTION -- %d entree(s) SANS cle de fermeture (hors domaine du "
+                      "graphe ?) : %s" % (len(sans_cle), ", ".join(sans_cle[:5])))
     else:
-        print("[457] empreinte NON REECRITE (mesure incrementale) : `_commit` horodate l'empreinte")
-        print("[457] ENTIERE -- la rafraichir apres n'avoir joue que %d fichier(s) pretendrait une"
-              % len(joues))
-        print("[457] fraicheur qu'elle n'a pas. `--measure` complet reste la voie pour l'empreinte.")
+        print("[457] empreinte NON INSTRUMENTEE par cette passe -- fichier versionne INCHANGE.")
 
     joue = sum(round(horloge.sec.get(rel, 0.0), 3) for rel in joues)
     print("[457] %d fichier(s) joue(s), %.1f s de tests mesures en %.1f s de mur ; %d poids -> %s"
@@ -819,33 +928,44 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
 
     poids_connus = _weights() if seulement_manquants else {}
     if seulement_manquants:
-        joues = [rel for rel in perimetre if rel not in poids_connus]
+        # DEUX criteres, et c'est le sens du mode : un fichier neuf n'a NI poids NI entree
+        # d'empreinte. L'ABSENCE d'entree est detectable sans le graphe ; la PEREMPTION d'une
+        # entree, elle, n'est PAS chassee ici -- une entree perimee fait simplement rejouer son
+        # test sous `--since`, ce qui est deja le comportement voulu, et la poursuivre ferait
+        # degenerer ce mode en `--measure` complet des qu'un module partage change (#486-r15).
+        emp = _footprints()
+        deja = set((emp.get("par_test") or {}) if emp.get("_format") == FORMAT_EMPREINTE else {})
+        joues = [rel for rel in perimetre if rel not in poids_connus or rel not in deja]
         if not joues:
-            print("[457] --measure-missing : les %d fichier(s) du perimetre ont deja un poids, "
-                  "rien a mesurer" % len(perimetre))
+            print("[457] --measure-missing : les %d fichier(s) du perimetre ont deja un poids ET "
+                  "une entree d'empreinte, rien a mesurer" % len(perimetre))
             return 0
-        print("[457] --measure-missing : %d fichier(s) SANS poids sur %d ; les %d autres gardent "
-              "leur mesure" % (len(joues), len(perimetre), len(perimetre) - len(joues)))
+        print("[457] --measure-missing : %d fichier(s) SANS poids ou SANS entree d'empreinte sur "
+              "%d ; les %d autres gardent leur mesure"
+              % (len(joues), len(perimetre), len(perimetre) - len(joues)))
     else:
         joues = list(perimetre)
 
     horloge = _TimePerFile()
     filet = _DeselectLiveItems()
     # AVANT le hook : le bytecode a jour, sinon `import` ouvre les SOURCES et l'empreinte mesure le
-    # `__pycache__` de la machine (#464-r2). Inutile en incremental -- il n'ecrit pas d'empreinte.
-    if not seulement_manquants:
-        ou, secs = _prechauffer_bytecode(joues)
-        print("[457] bytecode prechauffe en %.1f s -> %s (hors scripts/python, cf. #455)"
-              % (secs, ou))
-    # L'empreinte pose un audit hook GLOBAL et IRREVERSIBLE sur `open` : on ne l'installe que
-    # lorsqu'on va reellement la reecrire, c'est-a-dire en mesure COMPLETE.
-    empreinte = None if seulement_manquants else _FilesPerTest(repo_root())
-    plugins = [horloge, filet] + ([empreinte] if empreinte is not None else [])
+    # `__pycache__` de la machine (#464-r2). NECESSAIRE AUSSI EN PARTIEL depuis #486-r15, qui ecrit
+    # l'empreinte des fichiers joues : sans lui, le GARDE DE REGIME refuserait l'ecriture. Le cout
+    # reste borne -- `compileall(force=False)` ne recompile que ce qui a bouge, et le second etage
+    # ne collecte que `joues`.
+    ou, secs = _prechauffer_bytecode(joues)
+    print("[457] bytecode prechauffe en %.1f s -> %s (hors scripts/python, cf. #455)" % (secs, ou))
+    # L'empreinte pose un audit hook GLOBAL et IRREVERSIBLE sur `open`. Elle est installee dans les
+    # DEUX modes : le tampon vit dans l'ENTREE, donc une passe partielle rafraichit exactement ce
+    # qu'elle a joue sans rien pretendre du reste (#486-r15).
+    empreinte = _FilesPerTest(repo_root())
     started = time.time()
-    rc = pytest.main(["-q", "-p", "no:cacheprovider", *joues], plugins=plugins)
+    rc = pytest.main(["-q", "-p", "no:cacheprovider", *joues],
+                     plugins=[horloge, filet, empreinte])
     elapsed = time.time() - started
 
-    return _ecrire_mesure(perimetre, joues, horloge, empreinte, int(rc), elapsed, poids_connus)
+    return _ecrire_mesure(perimetre, joues, horloge, empreinte, int(rc), elapsed, poids_connus,
+                          complete=not seulement_manquants)
 
 
 #: ---------------------------------------------------------------------------------------------
@@ -953,8 +1073,8 @@ def _conftest_edges(mods: dict) -> dict:
     return aretes
 
 
-#: `{(empreinte des sources, modules): (inverse, incertains)}` -- memoise pour la duree du
-#: process (#486-r5).
+#: `{(empreinte des sources, modules): (inverse, incertains, direct, shas)}` -- memoise pour la
+#: duree du process (#486-r5, elargi par #486-r15).
 #:
 #: POURQUOI. `_import_graph` lit et `ast.parse` tout `scripts/python/**`. `tests/
 #: test_457_r8_selection_par_diff_offline.py` l'exerce sur l'arbre REEL dans TROIS tests
@@ -979,15 +1099,29 @@ def _empreinte_sources(mods: dict, racine) -> tuple:
     return tuple(out)
 
 
-def _import_graph(mods: dict) -> tuple:
-    """(qui-importe-qui inverse, modules a resolution INCERTAINE). Purement statique.
+def _graphe(mods: dict) -> tuple:
+    """`(inverse, incertains, direct, shas)` -- le calcul COMPLET, memoise (cf. `_GRAPHE_CACHE`).
 
-    Le resultat est FIGE et memoise -- cf. `_GRAPHE_CACHE`."""
+    UN SEUL passage de lecture et d'AST sert les DEUX usages (#486-r15) : la cloture ARRIERE, qui
+    dit quels tests un `.py` change impacte, et la cloture AVANT, qui donne la CLE de fraicheur
+    d'une entree d'empreinte. Les deriver separement doublerait le poste le plus cher du probe --
+    mesure du 2026-08-07 : 32,7 s d'`ast.parse` pour 2 096 modules, contre 0,45 s pour les 220
+    fermetures qui s'en deduisent.
+    """
     racine = repo_root()
     cle = (_empreinte_sources(mods, racine), tuple(sorted(mods.items())))
     if cle not in _GRAPHE_CACHE:
         _GRAPHE_CACHE[cle] = _calculer_import_graph(mods, racine)
     return _GRAPHE_CACHE[cle]
+
+
+def _import_graph(mods: dict) -> tuple:
+    """(qui-importe-qui inverse, modules a resolution INCERTAINE). Purement statique.
+
+    SEAM historique, conserve tel quel : c'est ce que les gardes offline substituent pour injecter
+    un graphe synthetique. La cloture AVANT passe par `_cles_fermeture`, son propre seam."""
+    inverse, incertains, _direct, _shas = _graphe(mods)
+    return inverse, incertains
 
 
 def _calculer_import_graph(mods: dict, racine) -> tuple:
@@ -997,6 +1131,11 @@ def _calculer_import_graph(mods: dict, racine) -> tuple:
     ~7 ms (filtre systeme sur les extensions executables). Les octets sont passes tels quels a
     `ast.parse`, comme le faisait `read_bytes()` -- l'echec de lecture (`None`) rejoint la meme
     branche `incertains` que l'`OSError` d'origine.
+
+    Rend QUATRE valeurs (#486-r15) : `inverse` (qui-importe-qui, cloture ARRIERE), `incertains`,
+    `direct` (les memes aretes dans l'autre sens, pour la cloture AVANT) et `shas` (le sha256 du
+    TEXTE de chaque module, la matiere de la cle de fraicheur). `direct` et `shas` sortent du meme
+    passage : ils ne coutent ni une lecture ni un `ast.parse` de plus.
     """
     import ast as _ast
     from collections import defaultdict
@@ -1006,10 +1145,21 @@ def _calculer_import_graph(mods: dict, racine) -> tuple:
         par_nom[m].add(rel)
 
     inverse = defaultdict(set)
+    direct = defaultdict(set)
+    shas: dict = {}
     incertains = set()
     ordre = list(mods)
     octets = repo_read.read_bytes_many([str(racine / rel) for rel in ordre])
     for rel, data in zip(ordre, octets):
+        # Le sha du TEXTE, pas des octets : `core.autocrlf` vaut `true` dans ce depot, donc les
+        # memes octets versionnes se materialisent en CRLF sous Windows et en LF ailleurs. Meme
+        # raison -- et meme foyer -- que `verdict_cache.sha_texte` (#486-r1).
+        if data is None:
+            # ABSENT est une DONNEE de la cle, pas un silence : un module illisible fait donc
+            # MANQUER l'entree qui en depend, il ne la laisse pas valide.
+            shas[rel] = SHA_ABSENT
+        else:
+            shas[rel] = sha_texte(repo_read.to_text(data, "replace"))
         try:
             if data is None:
                 raise OSError(rel)
@@ -1041,25 +1191,90 @@ def _calculer_import_graph(mods: dict, racine) -> tuple:
                 if cle in par_nom:
                     for cible in par_nom[cle]:
                         inverse[cible].add(rel)
+                        direct[rel].add(cible)
                     break
 
     # La semantique pytest, que l'AST ne peut PAS voir (aucun test n'importe son conftest).
     for conf, cibles in _conftest_edges(mods).items():
         inverse[conf].update(cibles)
+        for t in cibles:
+            direct[t].add(conf)
     # FIGE avant de sortir : la valeur est memoisee et partagee entre appels (#486-r5).
     # `impacted_files` ne fait que `inverse.get(...)` et `rel in incertains` -- les deux formes
     # marchent a l'identique sur un `dict` de `frozenset` et un `frozenset`.
-    return {k: frozenset(v) for k, v in inverse.items()}, frozenset(incertains)
+    return ({k: frozenset(v) for k, v in inverse.items()}, frozenset(incertains),
+            {k: frozenset(v) for k, v in direct.items()}, shas)
+
+
+#: Le sha porte par un module que la mesure n'a pas pu LIRE. Une valeur, pas un silence.
+SHA_ABSENT = "ABSENT"
+
+
+def _cles_fermeture(cibles, mods: dict) -> dict:
+    """`{chemin depot -> cle de fraicheur}` pour chaque cible, par sa FERMETURE D'IMPORTS.
+
+    SEAM de la cloture AVANT (#486-r15). Une cible hors du domaine est ABSENTE du retour, et
+    `impacted_files` traite cette absence comme << pas de cle >> -> impacte. Rendre une cle
+    arbitraire serait pretendre savoir.
+
+    LA CLE PORTE COMPOSITION ET CONTENU. Pour chaque module de la fermeture, son NOM puis le sha
+    de son texte. Sans les NOMS, ajouter une arete qui fait ENTRER un module neuf dans la
+    fermeture ne bougerait pas le digest -- et c'est exactement une des facons dont une empreinte
+    se perime sans que le fichier de test change.
+
+    CE QUE LA FERMETURE HERITE DU GRAPHE, et il faut le lire : les modules a resolution INCERTAINE
+    (import relatif, `import_module`, fichier illisible) sont dans le graphe mais leurs aretes
+    SORTANTES n'y sont pas. La fermeture peut donc etre trop PETITE. Mesure du 2026-08-07 :
+    **220/220** fichiers du perimetre en portent au moins un (372 modules incertains sur 2 096) --
+    refuser de cler dans ce cas rendrait la selection inutile. C'est EXACTEMENT l'approximation que
+    l'axe `.py` de `impacted_files` fait deja depuis #457-r8 (`touches` sort du meme graphe) : ce
+    n'est pas une regression introduite ici, c'est un trou herite, et il est NOMME.
+    """
+    _inv, _inc, direct, shas = _graphe(mods)
+    blocs: dict = {}
+
+    def bloc(rel: str) -> bytes:
+        b = blocs.get(rel)
+        if b is None:
+            b = (rel.encode("utf-8") + b"\0"
+                 + shas.get(rel, SHA_ABSENT).encode("ascii") + b"\0")
+            blocs[rel] = b
+        return b
+
+    out: dict = {}
+    for cible in cibles:
+        if cible not in mods:
+            continue
+        vus: set = set()
+        pile = [cible]
+        while pile:
+            x = pile.pop()
+            if x in vus:
+                continue
+            vus.add(x)
+            pile.extend(set(direct.get(x, ())) - vus)
+        h = hashlib.sha256()
+        for nom in sorted(vus):
+            h.update(bloc(nom))
+        out[cible] = h.hexdigest()
+    return out
 
 
 #: L'empreinte est VERSIONNEE, contrairement aux poids -- et l'asymetrie est le point.
 #: Des POIDS perimes coutent du MUR, jamais un faux vert : ils ne font que deplacer des fichiers
 #: entre shards. Une EMPREINTE perimee, elle, ferait SAUTER des tests. La versionner telle quelle
 #: convertirait donc un defaut local en faux vert PARTAGE.
-#: Ce qui la rend versionnable : elle porte le commit ou elle a ete mesuree, et `impacted_files`
-#: unit le diff de la PR avec TOUT ce qui a change depuis. Perimee, elle selectionne TROP -- et
-#: retombe continument sur le rejeu total a mesure qu'elle vieillit. Meme classe de surete que les
-#: poids, sans en partager la fragilite.
+#: Ce qui la rend versionnable : CHAQUE ENTREE porte sa propre cle de validite, calculee sur le
+#: CONTENU de la fermeture d'imports du test (#486-r15). Une entree dont la fermeture a bouge
+#: MANQUE -- elle ne ment pas -- et son test est rejoue. Perimee, l'empreinte selectionne donc
+#: TROP, entree par entree, et retombe continument sur le rejeu total a mesure qu'elle vieillit.
+#: Meme classe de surete que les poids, sans en partager la fragilite.
+#:
+#: CE QU'ELLE NE PORTE PLUS : un `_commit` GLOBAL comme critere. Il etait ecrit dans le worktree
+#: d'un AGENT, donc sur une branche que le squash-merge remplace par un commit neuf avant de la
+#: supprimer -- le sha naissait MORT, et l'empreinte entiere devenait inverifiable A CHAQUE
+#: LIVRAISON PAR PR. Mesure du 2026-08-07 : `57bb2a7c` inconnu de git, `--since` a 220/220 sur les
+#: 8 dernieres bases. `_commit` reste ECRIT dans chaque entree, en contexte informatif.
 #: Placee sous `scripts/`, PAS sous `scripts/python/` (#455 : la banque y enumere en parallele) et
 #: PAS sous `data/`, qui est reserve aux ENTREES du jeu et dont un cliquet garde la composition.
 def _footprints_path():
@@ -1103,18 +1318,13 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
     if not emp:
         return perimetre, "AUCUNE empreinte mesuree (`--measure`) -- TOUT rejoue"
 
-    # INVALIDATION PAR L'AGE. L'empreinte decrit l'arbre tel qu'il etait au commit `_commit` ; tout
-    # ce qui a bouge depuis peut l'avoir invalidee. On UNIT donc ce diff-la a celui de la PR. Sans
-    # cela, versionner l'empreinte transformerait sa peremption en FAUX VERT partage.
-    mesure_a = emp.get("_commit")
-    if not mesure_a:
-        return perimetre, "empreinte SANS commit de mesure -- age inverifiable, TOUT rejoue"
-    depuis = _changed(mesure_a)
-    if depuis is None:
-        return perimetre, ("commit de mesure `%s` inconnu de git -- empreinte inverifiable, "
-                           "TOUT rejoue" % mesure_a[:8])
-    if depuis:
-        changes = sorted(set(changes) | set(depuis))
+    # INVALIDATION PAR ENTREE (#486-r15), et non plus par un `_commit` GLOBAL. Le sha global etait
+    # ecrit dans le worktree d'un agent, donc sur une branche que le squash-merge remplace puis
+    # supprime : il naissait MORT, et l'empreinte entiere devenait inverifiable d'un coup. La
+    # fraicheur se lit desormais entree par entree, sur le CONTENU -- rien ne depend d'une ref git.
+    if emp.get("_format") != FORMAT_EMPREINTE:
+        return perimetre, ("empreinte de format %s (attendu %d) -- illisible sans risque, "
+                           "TOUT rejoue" % (emp.get("_format"), FORMAT_EMPREINTE))
 
     racine = repo_root()
     mods = _modules_du_graphe(racine)
@@ -1149,12 +1359,13 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
 
     # Un fichier hors-.py impacte les tests dont l'empreinte lit son REPERTOIRE (granularite
     # repertoire : un test qui lit `docs/rl/x.md` doit rejouer si `docs/rl/y.md` change).
-    # `par_test` stocke des REPERTOIRES (cf. `_dossiers` a l'ecriture). On tolere une empreinte
-    # ancienne qui contiendrait encore des fichiers : en prendre le repertoire est idempotent.
+    # `par_test[rel]["dirs"]` stocke des REPERTOIRES (cf. `_dossiers` a l'ecriture).
     par_test = emp.get("par_test", {})
-    dirs_par_test = {t: {x.rsplit("/", 1)[0] if "." in x.rsplit("/", 1)[-1] else x
-                         for x in lus} | set(lus)
-                     for t, lus in par_test.items()}
+    dirs_par_test = {}
+    for t, entree in par_test.items():
+        lus = (entree.get("dirs") or ()) if isinstance(entree, dict) else ()
+        dirs_par_test[t] = {x.rsplit("/", 1)[0] if "." in x.rsplit("/", 1)[-1] else x
+                            for x in lus} | set(lus)
 
     dirs_changes = {c.rsplit("/", 1)[0] for c in hors_py if "/" in c} | set(hors_py)
 
@@ -1163,20 +1374,43 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
     # sans les ramener l'une a l'autre ne matcherait JAMAIS -- selection vide, donc faux vert.
     prefixe = "scripts/python/"
     changes_s = set(changes)
+    cles = _cles_fermeture([prefixe + rel for rel in perimetre], mods)
 
     retenus = []
+    causes = {"diff": 0, "graphe": 0, "jamais mesure": 0, "empreinte perimee": 0, "hors .py": 0}
     for rel in perimetre:
         abs_rel = prefixe + rel
-        if abs_rel in changes_s or abs_rel in touches or abs_rel in incertains:
+        if abs_rel in changes_s:
             retenus.append(rel)
-        elif rel not in par_test:
-            # Aucune empreinte pour ce fichier : il n'a ouvert AUCUN fichier du depot pendant ses
-            # tests. Ses dependances sont donc d'import pur, deja couvertes par le graphe.
+            causes["diff"] += 1
             continue
-        elif dirs_par_test[rel] & dirs_changes:
+        if abs_rel in touches or abs_rel in incertains:
             retenus.append(rel)
-    raison = ("%d/%d fichier(s) impactes par %d changement(s) depuis %s"
-              % (len(retenus), len(perimetre), len(changes), ref))
+            causes["graphe"] += 1
+            continue
+        entree = par_test.get(rel)
+        if not isinstance(entree, dict):
+            # JAMAIS MESURE. Avant #486-r15 cette absence se lisait << aucune dependance hors-.py >>
+            # et le test etait SAUTE : c'est le faux vert qu'une empreinte videe fabriquait. Une
+            # entree est desormais ecrite pour CHAQUE fichier joue, `dirs` vide compris -- donc
+            # absent veut dire << pas de mesure >>, et cela rejoue.
+            retenus.append(rel)
+            causes["jamais mesure"] += 1
+            continue
+        cle = cles.get(abs_rel)
+        if cle is None or entree.get("_cle") != cle:
+            # La fermeture d'imports de ce test n'est plus celle qui a ete mesuree : ce que le test
+            # OUVRE a pu changer sans que son propre fichier bouge. L'entree ne prouve donc plus
+            # rien. Elle MANQUE, elle ne ment pas.
+            retenus.append(rel)
+            causes["empreinte perimee"] += 1
+            continue
+        if dirs_par_test[rel] & dirs_changes:
+            retenus.append(rel)
+            causes["hors .py"] += 1
+    raison = ("%d/%d fichier(s) impactes par %d changement(s) depuis %s [%s]"
+              % (len(retenus), len(perimetre), len(changes), ref,
+                 ", ".join("%s %d" % (k, v) for k, v in causes.items() if v)))
     return retenus, raison
 
 
@@ -1212,9 +1446,11 @@ def _run(argv=None) -> int:
                          "2026-08-04 : 976,9 s / 1471 tests) -- de la maintenance, pas une etape "
                          "de PR. A rejouer quand le mur derive ou que l'empreinte vieillit.")
     ap.add_argument("--measure-missing", action="store_true", dest="measure_missing",
-                    help="Ne chronometre que les fichiers SANS poids et FUSIONNE dans les poids "
-                         "existants (cas nominal : mediane 0-1 fichier offline neuf par PR). "
-                         "N'ecrit PAS l'empreinte -- son `_commit` horodate l'empreinte ENTIERE.")
+                    help="Ne chronometre que les fichiers SANS poids ou SANS entree d'empreinte, "
+                         "et FUSIONNE dans les poids ET l'empreinte existants (cas nominal : "
+                         "mediane 0-1 fichier offline neuf par PR). Depuis #486-r15 le tampon de "
+                         "fraicheur vit dans l'ENTREE : cette passe rafraichit exactement ce "
+                         "qu'elle a joue et ne pretend RIEN sur le reste.")
     args = ap.parse_args(argv)
 
     if args.measure and args.measure_missing:
