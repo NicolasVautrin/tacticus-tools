@@ -67,6 +67,7 @@ __all__ = [
     "archived_build",
     "functions_tsv",
     "game_dll",
+    "global_metadata",
     "install_dir",
     "installed_build",
     "load_dll",
@@ -158,6 +159,31 @@ def functions_tsv(build: str | None = None) -> Path:
         raise BuildPinRefused(
             "table Ghidra absente : %s\n"
             "  L'extraire : python scripts/python/ghidra_symbols.py dump" % p.as_posix())
+    return p
+
+
+def global_metadata() -> Path:
+    """`global-metadata.dat` du build installe, SEULEMENT s'il est celui qui fait foi.
+
+    Pendant exact de `game_dll()` sur l'AUTRE moitie d'un build IL2CPP. Le binaire porte
+    le CODE, le metadata porte la STRUCTURE -- dont le champ `slot` des `MethodInfo`, seul
+    endroit ou se lit le rang d'une methode dans la table d'une interface. Une interface
+    n'ayant aucun corps, ce rang est INVISIBLE au decompile et absent de
+    `data/symbols/<build>/frida/methods.tsv` (indexee par adresse) : sans ce fichier, un
+    slot ne se reconstruit que par recoupement -- c'est ce qui a produit #477-r24-r1.
+
+    Meme double controle et meme tri-etat que `game_dll()` : on ne lit JAMAIS le metadata
+    d'un build en citant les symboles d'un autre.
+    """
+    inst = installed_build()
+    _assert_same(inst, versioned_build())
+    p = (Path.home() / "AppData" / "Local" / "tacticus" / "games" / inst
+         / "Tacticus_Data" / "il2cpp_data" / "Metadata" / "global-metadata.dat")
+    if not p.is_file():
+        raise BuildPinRefused(
+            "NON MESURE : le metadata IL2CPP du build %s est introuvable (%s).\n"
+            "  C'est une ENTREE hors depot, comme le binaire : absente, il n'y a rien a\n"
+            "  mesurer -- et surtout pas 'zero slot'." % (inst, p))
     return p
 
 

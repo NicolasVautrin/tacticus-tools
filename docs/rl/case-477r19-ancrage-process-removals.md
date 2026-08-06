@@ -41,9 +41,13 @@ La lambda émet **exactement trois choses** :
 ```
 Events.StartGroup(GroupType.System_ProcessRemovals /*6*/, ((IEntity)state).Id,
                   String.Empty, default(BEntityId?));
-foreach (id in list) { e = state.<Get(id)>; if (e != null) processor.RemoveUnit(e, true, keepActive); }
+foreach (id in list) { e = state.<Get(id)>; if (e != null) processor.<slot 0x55>(e, true); }
 Events.FinishGroup();
 ```
+
+⚠ **Ce slot avait d'abord été écrit `processor.RemoveUnit(e, true, keepActive)` ici — c'était
+FAUX** (corrigé par `#477-r24-r1`). Le slot `0x55` est `UnregisterEntityFromTriggers`, et le site
+passe **deux** arguments, pas trois. Voir § 6.
 
 Trois points **lus**, pas déduits :
 
@@ -54,13 +58,19 @@ Trois points **lus**, pas déduits :
   sur les 3 scénarios).
 - **`sourceId` = `String.Empty`** (le premier champ statique de `System.String`), même motif
   qu'au cran 1 ; `initialTarget` = `default(BEntityId?)`.
-- **Le contenu est BORNÉ, pas supposé** : `IdunBattle.Operations.RemoveUnitOperation$$Execute`
-  émet une `Action=RemoveUnit` (`StepType.RemoveUnit`) portant `TagKey.Unit_IsDying` et
-  `TagKey.Unit_WasOverkilled` — **sauf** si l'une de ses trois gardes de tête coupe
-  (`unit != null`, `EntityExtensions$$IsUnit`, `!UnitExtensions$$HasFlag(unit, 0x1a)`, ce dernier
-  flag étant posé par l'opération elle-même sur toute unité qu'elle retire), ou si le
-  `if (entity != null)` de la lambda coupe avant. Dans **tout** le régime confronté, le groupe
-  ressort vide → l'enveloppe seule est portée (résidu `#477-r19-r1`).
+- **Le contenu est VIDE, et la raison en est STRUCTURELLE** : le seul appel de la boucle est
+  `UnregisterEntityFromTriggers` (slot `0x55`), qui **n'émet aucune action de flux**. Le groupe
+  `System_ProcessRemovals` est donc une enveloppe, toujours — pas « vide dans le régime
+  confronté ».
+
+  ⚠ **Ce paragraphe disait le contraire, et se trompait de deux façons à la fois.** Il attribuait
+  au slot `0x55` le nom `RemoveUnit`, donc l'opération `IdunBattle.Operations.RemoveUnitOperation$$Execute`
+  (`Action=RemoveUnit`, `TagKey.Unit_IsDying`, `TagKey.Unit_WasOverkilled`), et expliquait le vide
+  observé par ses trois gardes de tête (`unit != null`, `EntityExtensions$$IsUnit`,
+  `!UnitExtensions$$HasFlag(unit, 0x1a)`). **Le nom était faux** (`#477-r24-r1`), donc
+  l'explication l'était aussi — elle sauvait une prédiction fausse par un mécanisme qui ne
+  s'exécute jamais là. Les 11 occurrences vides étaient la mesure JUSTE d'un contenu qui n'existe
+  pas. <!-- [phase-attribution:refute] -->
 
 ## 2. L'ancrage — et la règle FAUSSE que le second board a tuée
 
@@ -159,9 +169,17 @@ déjà. Le mur est l'**enveloppe racine**, pas le vocabulaire.
 
 `engine/runner/operations/revive.py` (§ DRAIN) et `damage.py` (~l. 303) décrivaient
 `RunPhase(PhaseType.ProcessRemovals /*0xd*/)` comme la phase qui appelle `Core.Services.OperationProcessor$$ReviveUnit`. <!-- [phase-attribution:refute] -->
-**La lambda de la phase `0xd` est `<VerifyRemovedUnits>b__0`**, et elle appelle le slot
-`RemoveUnit(unit, removeEffects, keepActive)` — trois arguments, contre **un seul** pour
-`ReviveUnit(killed)`. La phase `0xd` est celle des **retraits**.
+**La lambda de la phase `0xd` est `<VerifyRemovedUnits>b__0`**, et elle appelle un slot à **deux**
+arguments, contre **un seul** pour `ReviveUnit(killed)`. La phase `0xd` est celle des **retraits**.
+
+⚠ **Ce slot avait été nommé `RemoveUnit` ici, et c'était FAUX** — corrigé par `#477-r24-r1`
+(`case-477r24r1-mapping-slot-interface.md`). C'est le slot `0x55` de
+`Core.Services.IOperationProcessor`, soit **`UnregisterEntityFromTriggers`**, lu dans le champ
+`slot` du metadata IL2CPP. `RemoveUnit` est au slot `6` et prend **trois** arguments — l'arité du
+site (2) l'excluait déjà. La lambda ne retire donc aucune unité : elle **désinscrit des triggers**
+chaque entité de la file. Rien de tout cela n'émet de flux, ce qui **explique** le résidu
+`#477-r19-r1` ci-dessous (« 11 occurrences, 11 vides ») sans recourir aux gardes de tête de
+`RemoveUnitOperation`.
 
 Non corrigé ici : ces fichiers portent la mécanique ECS du revive, pas la face stream, et leur
 comportement n'est pas en cause — seule l'attribution du numéro de phase l'est.
@@ -174,11 +192,13 @@ cf. `docs/rl/case-477r24-le-revive-na-pas-de-phase.md`.
 
 ## Résidus
 
-- **#477-r19-r1** — **le CONTENU de `System_ProcessRemovals` n'est pas porté.** Ce que le natif y
-  écrirait est lu (`Action=RemoveUnit` + `Unit_IsDying` + `Unit_WasOverkilled`, sous quatre
-  gardes), jamais observé : 11 occurrences, 11 vides. Condition de retournement : un montage où
-  une unité entre dans `MatchState.RemovedActors` **sans** avoir déjà le flag `0x1a` ni avoir été
-  détruite — puis vérifier que l'enveloppe, elle, reste inchangée.
+- ~~**#477-r19-r1**~~ — **DISSOUS par `#477-r24-r1` : il n'y a PAS de contenu à porter.** Le
+  résidu postulait un contenu (`Action=RemoveUnit` + `Unit_IsDying` + `Unit_WasOverkilled`) que
+  quatre gardes auraient masqué, et cherchait le montage qui le ferait apparaître — un montage
+  qui n'existe pas. La boucle appelle `UnregisterEntityFromTriggers`, qui n'émet rien : les
+  **11 occurrences vides** sont le comportement natif, pas un régime dégénéré. Le port de
+  l'enveloppe seule est donc **complet**, et le chercher plus loin était une chasse à un
+  fantôme créé par une attribution de slot fausse. <!-- [phase-attribution:refute] -->
 - **#477-r19-r2** — **`Effect_Refresh` attend un groupe racine porteur.** 0/147 atteignable
   aujourd'hui (§ 5). Débloqueur nommé : `System_StartMatch`, ou le couple `StartTurn`/`EndTurn`.
   Porte aussi la correction d'attribution de `RunPhase(0xd)` dans `revive.py` / `damage.py` (§ 6).

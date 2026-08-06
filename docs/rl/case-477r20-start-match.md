@@ -51,9 +51,20 @@ et le `Group=StartTurn` que le flux montre **dedans** ne viennent donc pas de l�
 
 Les méthodes d'une **interface** n'ont aucun corps, donc aucune ligne dans `frida/methods.tsv`
 (indexée par adresse) : l'ordre des slots de `Core.Services.IOperationProcessor` ne se **lit**
-nulle part hors du metadata. L'ordre du dump de la **classe** ne le donne pas non plus — mesuré,
-il n'existe aucun décalage constant (`ContinueTurnPhase` est au slot `0x16` pour la position 26,
-`VerifyAutomaticTurnEnd` au slot `0x20` pour la position 134). Le recoupement, lui, est fermé :
+nulle part hors du metadata. L'ordre du dump de la **classe** ne le donne pas non plus.
+
+⚠ **Ce paragraphe justifiait cela par un « décalage non constant » entre le slot et une
+« position » dans la classe — la comparaison était SANS OBJET, et elle a produit une fausse
+contradiction avec `case-477r24`** (résolue par `#477-r24-r1`,
+`case-477r24r1-mapping-slot-interface.md`). Les deux ordres ne sont liés par rien, et la
+« position » n'est même pas définie : `frida/methods.tsv` perd les surcharges à corps dédupliqué.
+Les slots cités ici sont **exacts** — `0x12` = `StartMatch` (0 argument), `0x16` =
+`ContinueTurnPhase` (3), `0x20` = `VerifyAutomaticTurnEnd` (2), `0x51` = `EvaluateAbilities` (5),
+`0xd` = `UpdatePlayerAverageUnitLevels` (0) — mais ils se **lisent** désormais, au lieu de se
+reconstruire : `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`.
+<!-- [slot-attribution:refute] -->
+
+Le recoupement qui avait servi ici reste exact, et il est reproduit tel quel :
 
 - la lambda appelle **un** slot **sans argument** ;
 - `Core.Services.OperationProcessor$$StartMatch` est sans argument et délègue à
@@ -68,7 +79,7 @@ il n'existe aucun décalage constant (`ContinueTurnPhase` est au slot `0x16` pou
 Portée : la **première** émission seulement.
 
 ```
-processor.<slot 0xd>();                       // pas d'emission de flux
+processor.<slot 0xd>();                       // = `UpdatePlayerAverageUnitLevels` -- pas d'emission de flux
 var tags = new Dictionary<TagKey,int>();      // AUCUN `Add` -- le dictionnaire est VIDE
 Events.Action(StepType.StartMatch /*1*/, 1, tags);
 ```
