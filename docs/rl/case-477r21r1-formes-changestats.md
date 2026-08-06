@@ -229,10 +229,31 @@ quoi retirer un fragment du corpus ferait disparaître des cas sans que rien ne 
 - **`Effect_Refresh` AUTONOMES : 0 / 0 / 0 / 0** — inchangé, et c'est attendu : cette tranche
   ajoute des formes, pas de l'autonomie. Le verrou reste **#477-r21-r2**.
 
+## 7. Le raccord avec le volet A de #477-r21-r2 — ouvert, et nommé des DEUX côtés
+
+Le volet A a été mergé pendant cette tranche (rebase, puis re-jeu complet : 161 tests offline
+verts, probe live re-joué). Il porte `update_effect_targets` côté **décision**
+(`engine/runner/operations/refresh_effects.py`) et rend déjà le **plan complet dans l'ordre
+natif** — `RefreshAction(ACTION_REVERT, …)` et `RefreshAction(ACTION_APPLY, …)` compris. En face,
+`engine/streams/refresh_effects.bind_refresh_actions` les **ignore explicitement** et renvoie
+à #477-r21-r1.
+
+Il manque donc **une seule chose**, et ce n'est pas la forme : que `bind_refresh_actions`
+traduise `ACTION_APPLY` en un `transform_unit(events, <cible>, <modificateurs>)`. **Ce qui bloque
+est la DONNÉE** — les `StatModifierSetup` demandent des lectures `UnitExtensions$$GetStat` que la
+couche décision ne produit pas encore. C'est le **même manque que #477-r26**, pas un trou de
+port. `ACTION_REVERT`, lui, sort d'un artefact que cette tranche **n'a pas lu**
+(`RevertEffectsForTargets` → le slot d'interface `IEffect+0xf`, `ReverseModification`) et n'a
+**aucune occurrence** sur les quatre flux témoins.
+
+⚠ **Ce raccord n'a PAS été écrit ici volontairement** : `engine/streams/refresh_effects.py` et
+`engine/runner/operations/refresh_effects.py` étaient la zone sérialisée du volet A. Les deux
+côtés portent désormais le renvoi, de sorte que le manque est visible depuis l'un comme depuis
+l'autre.
+
 ## Résidus
 
 Aucun résidu neuf. Ce que cette tranche laisse à **#477-r21-r2**, en plus de ce qui était déjà
 nommé : l'**ORDRE des six blocs d'`eventActions`** que fixe
-`IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` (§ 1). Il est aujourd'hui
-**copié** du flux ; il est **dérivable** dès que les quatre gardes de cette opération seront
-portées, et c'est le même artefact.
+`IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` (§ 1) — le volet A le porte
+côté décision, le probe le **copie** encore côté émission, et c'est le § 7 qui dit ce qui reste.

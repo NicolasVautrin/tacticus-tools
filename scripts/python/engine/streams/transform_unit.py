@@ -34,8 +34,19 @@ La chaine, lue de bout en bout :
 
 C'est ce qui explique, sans rien deviner, que le flux temoin ecrive TOUJOURS le `ChangeStats`
 APRES les `ReceiveEffect` du meme groupe. `UpdateEffectTargets` elle-meme n'est PAS portee ici :
-elle est nommement dans le perimetre de `#477-r21-r2` (les quatre gardes de
-`RefreshEffectsOperation`).
+elle est nommement dans le perimetre de `#477-r21-r2`.
+
+⚠ LE RACCORD AVEC LE VOLET A DE `#477-r21-r2` EST OUVERT, ET LES DEUX COTES LE NOMMENT.
+`engine/runner/operations/refresh_effects.update_effect_targets` (volet A, livre) rend deja le
+PLAN complet dans l'ordre natif, `RefreshAction(ACTION_REVERT, ...)` et
+`RefreshAction(ACTION_APPLY, ...)` compris ; `engine/streams/refresh_effects.bind_refresh_actions`
+les IGNORE explicitement et renvoie ici. Il manque donc UNE seule chose : que `bind_refresh_actions`
+traduise `ACTION_APPLY` en un `transform_unit(events, <cible>, <modificateurs>)` de ce module. Ce
+qui bloque n'est pas la forme -- c'est la DONNEE : les `StatModifierSetup` demandent des lectures
+`UnitExtensions$$GetStat` que la couche decision ne produit pas encore (meme manque que
+`#477-r26`). `ACTION_REVERT`, lui, sort d'un artefact que cette tranche n'a PAS lu
+(`RevertEffectsForTargets` -> le slot d'interface `IEffect+0xf`, `ReverseModification`), et il
+n'a aucune occurrence sur les quatre flux temoins.
 
 CE QUE CE MODULE EST -- ET N'EST PAS. Seule la FACE STREAM. `TransformUnitOperation$$Execute`
 fait AUSSI trois choses qui ne sont pas ici : elle clampe les modifications
