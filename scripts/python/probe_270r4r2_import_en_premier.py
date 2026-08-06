@@ -51,6 +51,50 @@ def _essayer(mod: str) -> tuple[str, int, str]:
     return mod, r.returncode, err
 
 
+def empreinte_engine() -> tuple:
+    """Etat de l'arbre `engine/` : `(chemin, mtime_ns, taille)` pour chaque `.py`, trie.
+
+    C'est la CLE du cache de `essayer_tous`. Un cache indexe seulement par nom de module
+    mentirait des qu'un test aurait modifie une source entre deux mesures -- et le mensonge
+    serait dans le sens VERT, le seul qui ne se voit pas. Cout mesure : ~437 `stat`, sous 0,2 s,
+    contre 0,54 s pour UN SEUL essai.
+    """
+    out = []
+    for f in sorted((RACINE / "engine").rglob("*.py")):
+        try:
+            st = f.stat()
+        except OSError:                                # pragma: no cover - course disque
+            out.append((f.as_posix(), None, None))
+            continue
+        out.append((f.as_posix(), st.st_mtime_ns, st.st_size))
+    return tuple(out)
+
+
+#: `{(empreinte de l'arbre, module): (module, rc, message)}` -- memoise pour la duree du process.
+#:
+#: POURQUOI (#486-r5). `_essayer` lance UN interpreteur par module : 0,54 s piece, 131,6 s pour
+#: les 437 modules a 8 workers. DEUX fichiers de test appellent ce balayage dans la MEME passe,
+#: et leurs perimetres se recouvrent a **201 modules sur 437** -- soit 44,1 s payes deux fois.
+#:
+#: SUR A PARTAGER : la valeur est un `tuple` de scalaires, IMMUABLE. Et la cle porte l'EMPREINTE
+#: de l'arbre `engine/`, donc une source modifiee entre deux mesures invalide le cache d'elle-meme
+#: au lieu de rendre un verdict perime.
+_ESSAIS: dict = {}
+
+
+def essayer_tous(mods, jobs: int = 8) -> list:
+    """`[(module, rc, message)]` pour `mods`, en parallele, SANS re-essayer ce qui l'a deja ete
+    sur le MEME etat de l'arbre. L'ordre du retour suit `mods`."""
+    mods = list(mods)
+    emp = empreinte_engine()
+    manquants = [m for m in mods if (emp, m) not in _ESSAIS]
+    if manquants:
+        with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(manquants)))) as ex:
+            for res in ex.map(_essayer, manquants):
+                _ESSAIS[(emp, res[0])] = res
+    return [_ESSAIS[(emp, m)] for m in mods]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tous", action="store_true", help="les 408 modules d'engine/")
@@ -73,11 +117,7 @@ def main() -> int:
         print("[270-r4-r2/import] ECHEC : 0 module a essayer -- un zero de balayage ne prouve RIEN")
         return 2
 
-    echecs = []
-    with ThreadPoolExecutor(max_workers=args.jobs) as ex:
-        for mod, rc, err in ex.map(_essayer, mods):
-            if rc != 0:
-                echecs.append((mod, err))
+    echecs = [(mod, err) for mod, rc, err in essayer_tous(mods, args.jobs) if rc != 0]
 
     if echecs:
         print("[270-r4-r2/import] ECHEC : %d module(s) sur %d ne s'importent pas EN PREMIER"

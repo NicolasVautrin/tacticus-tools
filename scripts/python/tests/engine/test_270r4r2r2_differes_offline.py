@@ -143,12 +143,11 @@ def test_etage5_tout_engine_s_importe_en_premier():
     """
     mods = IP._modules_sous(("engine",))
     assert len(mods) >= 300, "portee derisoire : %d module(s)" % len(mods)
-    echecs = []
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        for mod, rc, err in ex.map(IP._essayer, mods):
-            if rc != 0:
-                echecs.append("  %s\n     %s" % (mod, err))
+    # `essayer_tous` (#486-r5) : MEME mesure, meme parallelisme, mais elle ne re-lance PAS un
+    # interpreteur pour un module deja essaye sur le MEME etat de l'arbre -- et les 201 modules
+    # de `test_270r4r2_cycles_imports_offline.py` sont un SOUS-ENSEMBLE de ces 437.
+    echecs = ["  %s\n     %s" % (mod, err)
+              for mod, rc, err in IP.essayer_tous(mods) if rc != 0]
     assert not echecs, "\n".join(
         ["%d/%d module(s) d'engine/ ne s'importent pas EN PREMIER." % (len(echecs), len(mods)),
          "Un import HISSE a referme une boucle. Le graphe des sources declarees ne la voit "

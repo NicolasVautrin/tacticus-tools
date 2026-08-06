@@ -46,6 +46,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import repo_read
 from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
@@ -495,8 +496,88 @@ def _nom_normalise(ident: str) -> str:
     return ident.replace("_", "")
 
 
-def _sources_python() -> list:
-    return [p for p in PY_ROOT.rglob("*.py") if p != MODULE_GENERE]
+def _sources_python(racine: Path = PY_ROOT) -> list:
+    """`racine` : PARAMETRE depuis #486-r5, pour que la garde du cache puisse exercer le balayage
+    REEL sur un corpus synthetique minuscule. Le defaut est le corpus complet -- le perimetre des
+    tests de ce fichier est INCHANGE."""
+    return [p for p in racine.rglob("*.py") if p != MODULE_GENERE]
+
+
+#: LES DEUX RELEVES, produits par UNE SEULE passe de lecture + `ast.parse` (#486-r5).
+#:
+#: POURQUOI. Les deux tests ci-dessous balaient le MEME corpus (`scripts/python/**`, 2089
+#: fichiers, 37 Mo) et n'en tirent que deux listes de fautifs. Mesure du 2026-08-06 : une passe
+#: de lecture SERIE + `ast.parse` coute 18 a 20 s -- elle etait payee DEUX fois.
+#:
+#: SUR A PARTAGER : la valeur memoisee est un couple de `tuple`s de `str`. Immuable de bout en
+#: bout, donc aucun etat ne fuit d'un test a l'autre. Les ASTs, eux, ne sont PAS gardes (mesure :
+#: les retenir couterait 1013 Mo de tas Python pour ce corpus) -- ils sont liberes au fil de la
+#: passe.
+#:
+#: LES CRITERES SONT INCHANGES : chaque test garde son propre releve, sa propre assertion et son
+#: propre message. Seule la LECTURE est mutualisee.
+_RELEVES_CACHE: tuple | None = None
+
+
+def _releves_de_ciblage() -> tuple:
+    """`(constantes_redeclarees, bits_en_valeur_brute)` -- deux tuples de lignes fautives."""
+    global _RELEVES_CACHE
+    if _RELEVES_CACHE is None:
+        _RELEVES_CACHE = _balayer_ciblage()
+    return _RELEVES_CACHE
+
+
+def _balayer_ciblage(racine: Path = PY_ROOT) -> tuple:
+    """LE balayage, sans cache. Lecture PARALLELE (`repo_read`, 16 threads) : l'ouverture d'un
+    fichier sous `scripts/` pese ~7 ms (filtre systeme sur les extensions executables), soit
+    3,2 s en serie contre 0,8 s en parallele sur ce corpus. Le texte rendu est celui de
+    `read_text(encoding='utf-8')`, donc memes `lineno` ; un fichier illisible ou non-UTF-8 reste
+    ECARTE en silence, exactement comme le faisait le `except (SyntaxError, UnicodeDecodeError)`
+    de chacun des deux tests.
+
+    `racine` : PARAMETRE, pour que la garde du cache exerce ce balayage sur un corpus synthetique
+    minuscule. Le defaut est le corpus complet -- critere INCHANGE."""
+    par_nom = {m.name.upper(): int(m) for m in TargetingRule}
+    par_nom["ALLOWOBSCUREDTARGET"] = int(TargetingRule.AllowObscuredTarget)   # composite, non itere
+
+    constantes, bits = [], []
+    chemins = _sources_python(racine)
+    for chemin, data in zip(chemins, repo_read.read_bytes_many([str(p) for p in chemins])):
+        if data is None:
+            continue
+        try:
+            arbre = ast.parse(repo_read.to_text(data))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for noeud in ast.walk(arbre):
+            if isinstance(noeud, (ast.Assign, ast.AnnAssign)):
+                valeur = noeud.value
+                if not (isinstance(valeur, ast.Constant) and isinstance(valeur.value, int)
+                        and not isinstance(valeur.value, bool)):
+                    continue
+                cibles = noeud.targets if isinstance(noeud, ast.Assign) else [noeud.target]
+                for cible in cibles:
+                    if not isinstance(cible, ast.Name):
+                        continue
+                    ident = cible.id
+                    prefixe = ident.startswith("RULE_") or ident.startswith("TARGETING_RULE_")
+                    homonyme = par_nom.get(_nom_normalise(ident)) == valeur.value
+                    if prefixe or homonyme:
+                        constantes.append("%s:%d  %s = %#x"
+                                          % (chemin.relative_to(racine).as_posix(),
+                                             cible.lineno, ident, valeur.value))
+            elif (isinstance(noeud, ast.Call) and isinstance(noeud.func, ast.Attribute)
+                    and noeud.func.attr == "has"):
+                receveur = noeud.func.value
+                if not (isinstance(receveur, ast.Name) and receveur.id in ("options", "opts")):
+                    continue
+                for arg in noeud.args:
+                    if (isinstance(arg, ast.Constant) and isinstance(arg.value, int)
+                            and not isinstance(arg.value, bool)):
+                        bits.append("%s:%d  options.has(%#x)"
+                                    % (chemin.relative_to(racine).as_posix(),
+                                       noeud.lineno, arg.value))
+    return tuple(constantes), tuple(bits)
 
 
 def test_aucune_constante_de_ciblage_declaree_hors_du_module_genere():
@@ -513,33 +594,7 @@ def test_aucune_constante_de_ciblage_declaree_hors_du_module_genere():
 
     Le mode de defaillance garde ici n'est pas l'erreur : c'est la copie qui reste JUSTE aujourd'hui
     et devient FAUSSE au prochain re-dump, sans que rien ne le dise."""
-    par_nom = {m.name.upper(): int(m) for m in TargetingRule}
-    par_nom["ALLOWOBSCUREDTARGET"] = int(TargetingRule.AllowObscuredTarget)   # composite, non itere
-
-    fautifs = []
-    for chemin in _sources_python():
-        try:
-            arbre = ast.parse(chemin.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
-            continue
-        for noeud in ast.walk(arbre):
-            if not isinstance(noeud, (ast.Assign, ast.AnnAssign)):
-                continue
-            valeur = noeud.value
-            if not (isinstance(valeur, ast.Constant) and isinstance(valeur.value, int)
-                    and not isinstance(valeur.value, bool)):
-                continue
-            cibles = noeud.targets if isinstance(noeud, ast.Assign) else [noeud.target]
-            for cible in cibles:
-                if not isinstance(cible, ast.Name):
-                    continue
-                ident = cible.id
-                prefixe = ident.startswith("RULE_") or ident.startswith("TARGETING_RULE_")
-                homonyme = par_nom.get(_nom_normalise(ident)) == valeur.value
-                if prefixe or homonyme:
-                    fautifs.append("%s:%d  %s = %#x"
-                                   % (chemin.relative_to(PY_ROOT).as_posix(),
-                                      cible.lineno, ident, valeur.value))
+    fautifs = list(_releves_de_ciblage()[0])
     assert not fautifs, (
         "constantes de ciblage declarees HORS du module genere -- il y a de nouveau DEUX sources "
         "pour la meme information, et rien n'oblige la copie a suivre le dump. Importer "
@@ -554,25 +609,7 @@ def test_aucun_bit_de_ciblage_cite_par_sa_valeur_brute():
     Le symptome que ca produit se lit dans nos propres traces : la tache #166 decrivait le refus
     d'une cible deja adjacente comme « le bit `0x100000000` », faute de pouvoir le nommer. Le
     module genere le nomme : `TargetIsNotAdjacent`."""
-    fautifs = []
-    for chemin in _sources_python():
-        try:
-            arbre = ast.parse(chemin.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
-            continue
-        for noeud in ast.walk(arbre):
-            if not (isinstance(noeud, ast.Call) and isinstance(noeud.func, ast.Attribute)
-                    and noeud.func.attr == "has"):
-                continue
-            receveur = noeud.func.value
-            if not (isinstance(receveur, ast.Name) and receveur.id in ("options", "opts")):
-                continue
-            for arg in noeud.args:
-                if (isinstance(arg, ast.Constant) and isinstance(arg.value, int)
-                        and not isinstance(arg.value, bool)):
-                    fautifs.append("%s:%d  options.has(%#x)"
-                                   % (chemin.relative_to(PY_ROOT).as_posix(),
-                                      noeud.lineno, arg.value))
+    fautifs = list(_releves_de_ciblage()[1])
     assert not fautifs, (
         "bits de ciblage cites par leur VALEUR BRUTE au point d'usage -- un lecteur ne peut pas "
         "verifier un masque qu'il doit decoder de tete. Citer `TR.<NomNatif>` : %s" % fautifs)

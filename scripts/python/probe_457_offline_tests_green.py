@@ -197,6 +197,12 @@ from pathlib import Path
 
 import pytest
 
+_PYDIR_POUR_IMPORT = Path(__file__).resolve().parent
+if str(_PYDIR_POUR_IMPORT) not in sys.path:
+    sys.path.insert(0, str(_PYDIR_POUR_IMPORT))
+
+import repo_read                                                            # noqa: E402
+
 #: Fixture RACINE du monde live. La cloture calculee par pytest (`item.fixturenames`) est
 #: TRANSITIVE : un item qui reclame `live_runner` -> `build_runner` -> `host` porte les trois.
 #: Verifie le 2026-08-02 sur les 512 fichiers collectes -- `host` et `live_session` couvrent
@@ -922,8 +928,51 @@ def _conftest_edges(mods: dict) -> dict:
     return aretes
 
 
+#: `{(empreinte des sources, modules): (inverse, incertains)}` -- memoise pour la duree du
+#: process (#486-r5).
+#:
+#: POURQUOI. `_import_graph` lit et `ast.parse` tout `scripts/python/**`. `tests/
+#: test_457_r8_selection_par_diff_offline.py` l'exerce sur l'arbre REEL dans TROIS tests
+#: differents, et `--since` l'appelle une fois de plus.
+#:
+#: SUR A PARTAGER : la valeur rendue est FIGEE (`dict` de `frozenset`, `frozenset`), donc aucun
+#: appelant ne peut modifier ce que verra le suivant -- le `defaultdict(set)` d'origine, lui,
+#: aurait laisse fuiter une mutation. Et la cle porte l'EMPREINTE (mtime, taille) des sources :
+#: un fichier modifie entre deux appels invalide le cache au lieu de rendre un graphe perime.
+_GRAPHE_CACHE: dict = {}
+
+
+def _empreinte_sources(mods: dict, racine) -> tuple:
+    """`(chemin, mtime_ns, taille)` de chaque source du domaine. Cle du cache du graphe."""
+    out = []
+    for rel in sorted(mods):
+        try:
+            st = (racine / rel).stat()
+            out.append((rel, st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append((rel, None, None))
+    return tuple(out)
+
+
 def _import_graph(mods: dict) -> tuple:
-    """(qui-importe-qui inverse, modules a resolution INCERTAINE). Purement statique."""
+    """(qui-importe-qui inverse, modules a resolution INCERTAINE). Purement statique.
+
+    Le resultat est FIGE et memoise -- cf. `_GRAPHE_CACHE`."""
+    racine = repo_root()
+    cle = (_empreinte_sources(mods, racine), tuple(sorted(mods.items())))
+    if cle not in _GRAPHE_CACHE:
+        _GRAPHE_CACHE[cle] = _calculer_import_graph(mods, racine)
+    return _GRAPHE_CACHE[cle]
+
+
+def _calculer_import_graph(mods: dict, racine) -> tuple:
+    """LE calcul, sans cache -- meme critere qu'avant #486-r5.
+
+    Lecture PARALLELE (`repo_read`, 16 threads) : l'ouverture d'un fichier sous `scripts/` pese
+    ~7 ms (filtre systeme sur les extensions executables). Les octets sont passes tels quels a
+    `ast.parse`, comme le faisait `read_bytes()` -- l'echec de lecture (`None`) rejoint la meme
+    branche `incertains` que l'`OSError` d'origine.
+    """
     import ast as _ast
     from collections import defaultdict
 
@@ -933,10 +982,13 @@ def _import_graph(mods: dict) -> tuple:
 
     inverse = defaultdict(set)
     incertains = set()
-    racine = repo_root()
-    for rel in mods:
+    ordre = list(mods)
+    octets = repo_read.read_bytes_many([str(racine / rel) for rel in ordre])
+    for rel, data in zip(ordre, octets):
         try:
-            arbre = _ast.parse((racine / rel).read_bytes())
+            if data is None:
+                raise OSError(rel)
+            arbre = _ast.parse(data)
         except (OSError, SyntaxError, ValueError):
             incertains.add(rel)          # illisible : on ne PRETEND pas savoir
             continue
@@ -969,7 +1021,10 @@ def _import_graph(mods: dict) -> tuple:
     # La semantique pytest, que l'AST ne peut PAS voir (aucun test n'importe son conftest).
     for conf, cibles in _conftest_edges(mods).items():
         inverse[conf].update(cibles)
-    return inverse, incertains
+    # FIGE avant de sortir : la valeur est memoisee et partagee entre appels (#486-r5).
+    # `impacted_files` ne fait que `inverse.get(...)` et `rel in incertains` -- les deux formes
+    # marchent a l'identique sur un `dict` de `frozenset` et un `frozenset`.
+    return {k: frozenset(v) for k, v in inverse.items()}, frozenset(incertains)
 
 
 #: L'empreinte est VERSIONNEE, contrairement aux poids -- et l'asymetrie est le point.
