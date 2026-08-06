@@ -1,5 +1,21 @@
 """#457 -- CLIQUET : TOUT fichier de test qui n'est pas `_live.py` doit etre VERT.
 
+⛔ NE LE JOUE PAS PAR REFLEXE -- IL N'EST PLUS UNE ETAPE DE PR depuis le 2026-08-05 (`d82ec527`,
+qui a retire la BANQUE de `CLAUDE.md` et du skill d'orchestration). Ce probe est DANS cette banque
+et en pese 67 % ; sa de-obligation est donc la sienne. Verifie le 2026-08-06 : **aucun fichier de
+`.claude/` ni `CLAUDE.md` ne le prescrit**, et la banque de fond ne tourne plus (dernier run
+`logs/ratchets-bg` : 2026-08-04). Il reste lancable A LA DEMANDE, et c'est tout.
+
+LA MESURE QUI L'A IMPOSE, et elle vaut pour lui : sur les 67 runs de `logs/ratchets-bg`,
+2 437 lignes de cliquet, **5 non nulles -- 0,21 %**, dont deux faux rouges documentes. Les prises
+citees plus bas restent VRAIES, mais ce sont des prises de **FONDATION** (trouvees en ECRIVANT le
+cliquet), pas de GARDE : elles justifient de l'avoir ecrit, pas de le REJOUER.
+
+⚠ CE QUI SUIT SUR LE COUT (shards, << mur de la banque >>) A ETE ECRIT AVANT cette decision. Ces
+paragraphes disent ce que coute un run, pas qu'il faille en faire un. Le cout ne se << regle >>
+toujours pas en retrecissant le perimetre (faute que #457-r5 repare) ; il se regle en ne jouant
+pas ce qui n'a rien a garder.
+
 CE QU'IL EST SEUL A VOIR
 ------------------------
 Un fichier de test 100 % OFFLINE, ROUGE EN PERMANENCE sur `master`, que rien ne signale.
@@ -173,6 +189,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import subprocess
 import sys
 import time
@@ -1127,6 +1144,58 @@ def _run(argv=None) -> int:
         print("[457] --measure et --measure-missing s'excluent : le premier rejoue TOUT, le "
               "second complete.")
         return 2
+
+    # ======================================================================================
+    #  GARDE DE RETRAIT -- MIROIR EXACT de celle de `scripts/ratchets.ps1` (2026-08-05,
+    #  d82ec527). Ce probe EST dans cette banque et en pese 67 % : sa de-obligation est la
+    #  sienne. La banque REFUSE deja de se lancer sans `TACTICUS_ALLOW_RATCHETS` -- mais ce
+    #  fichier appele DIRECTEMENT (`python probe_457_offline_tests_green.py ...`) contournait
+    #  ce refus entierement. C'est par ce trou-la qu'on continuait de payer.
+    #
+    #  MESURE DU 2026-08-06 : un agent en vol l'a joue PAR REFLEXE, apres la de-obligation, sur
+    #  une tranche qui ne le concernait pas. Le bandeau de l'en-tete ne l'a pas arrete -- il est
+    #  lu APRES la decision de lancer, exactement le constat qui a impose la garde de la banque.
+    #  Une consigne en PROSE n'arrete pas un comportement ; il faut un REFUS EXECUTABLE.
+    #
+    #  MEME ECHAPPATOIRE, pas une seconde : `TACTICUS_ALLOW_RATCHETS`. La banque l'exporte deja,
+    #  donc ses huit shards continuent de tourner SANS RIEN CHANGER a `ratchets.ps1` (l'env est
+    #  herite par le sous-processus). Inventer une variable propre aurait fragmente le contrat.
+    #
+    #  `--list` sort AVANT cette garde, comme `-List` cote banque : lister n'execute rien, et
+    #  c'est le contrat de derivation que lit `probe_439`.
+    #
+    #  Pourquoi `EX_NON_MESURE` (99) et pas 1 : `1` se lit « un fichier de test est ROUGE »,
+    #  soit un verdict sur le depot. Un refus n'en est pas un. C'est la meme regle que le `64`
+    #  de la banque, et la table que lisent `probe_471` / `loop_status` la porte deja.
+    # ======================================================================================
+    if not args.list and not os.environ.get("TACTICUS_ALLOW_RATCHETS"):
+        print("")
+        print("  ===================================================================")
+        print("   REFUS -- CE CLIQUET N EST PLUS UNE ETAPE DE PR")
+        print("  ===================================================================")
+        print("")
+        print("  Retire de la doctrine le 2026-08-05 (commit d82ec527), avec la BANQUE")
+        print("  dont il fait partie. Si quelque chose t a dit de le jouer, cette source")
+        print("  est PERIMEE : ni CLAUDE.md ni le skill d orchestration ne le prescrivent,")
+        print("  et la banque de fond ne tourne plus depuis le 2026-08-04.")
+        print("")
+        print("  MESURE QUI A MOTIVE LE RETRAIT (67 runs de logs/ratchets-bg) :")
+        print("    2 437 lignes de cliquet jouees, 5 non nulles -- 0,21 %.")
+        print("    Ce probe pesait 67 % du cout, pour ~891 s par agent et par PR.")
+        print("    Ses prises sont des prises de FONDATION (trouvees en l ECRIVANT),")
+        print("    pas de GARDE : elles justifient de l avoir ecrit, pas de le REJOUER.")
+        print("")
+        print("  CE QUE TU DOIS FAIRE A LA PLACE :")
+        print("    - les tests CIBLES de ta tranche, et tu les montres dans ton rapport ;")
+        print("    - la relecture du diff de tout test EXISTANT que tu modifies.")
+        print("")
+        print("  SI TU LE VEUX QUAND MEME (diagnostic, maintenance des poids) :")
+        print("    $env:TACTICUS_ALLOW_RATCHETS=1   puis relance.")
+        print("    `--list` n execute rien et reste jouable sans la variable.")
+        print("")
+        print("[457] rc=%d -- RIEN n a ete joue, ce n est PAS un verdict sur le depot."
+              % EX_NON_MESURE)
+        return EX_NON_MESURE
 
     # GARDE DE CWD (#464), en tete : il couvre TOUT mode qui invoque pytest -- la mesure comme le
     # shard. `--list` n'invoque rien (l'enumeration passe par `git -C <racine>`, donc elle est
