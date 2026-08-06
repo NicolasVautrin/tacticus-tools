@@ -12,6 +12,19 @@ import hexgeo
 
 from .hex_corner import Corner
 
+# ⚠ CE MODULE NE DOIT IMPORTER NI `engine.entities` NI RIEN QUI L'EXECUTE (#477-r35).
+# C'est ce qui le rend importable EN PREMIER, et plusieurs probes VERSIONNES en dependent
+# (`probe_433_r1_identity_shortcircuit.py` fait `from engine.battle_query import ...` en tete).
+# MESURE : y avoir ajoute `from .entities.traits.unit_trait import UnitTrait` a rendu
+# `python -c "import engine.battle_query"` IMPOSSIBLE en process frais --
+# `entities/__init__` -> `effects_state` -> `effects/__init__` -> `factory` -> `loki/__init__`
+# -> `ability_modifications` -> `selectors/units.py` -> `from ...battle_query import
+# is_target_tile_obscured`, sur un `battle_query` PARTIELLEMENT initialise. Le cycle est
+# SENSIBLE A L'ORDRE : il disparait des qu'un appelant importe `entities` d'abord, donc aucune
+# passe pytest ne le voit. Le foyer `GetSteppableUnit`, qui a besoin d'`UnitTrait`, vit pour
+# cette raison dans `engine/entities/tile_extensions.py` -- ou il porte AUSSI le bon nom natif.
+# Garde de cet invariant : `probe_477r35r1_import_isole.py`.
+
 # --- `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape(tile, direction)` -----------
 # Rend `new List<>(new HashSet{tile, t1, t2})` = l'ancre PUIS les deux tuiles de la direction
 # demandee (ordre d'INSERTION du HashSet, conserve par le ctor de List). Le natif lit (col,row)
