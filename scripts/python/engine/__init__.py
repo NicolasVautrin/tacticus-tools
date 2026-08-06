@@ -10,5 +10,3 @@ Sous-modules :
   battle_query — primitives IBattleQuery (GetAdjacentEnemies/Friends + porte d'élévation)
   predict      — prédiction non-dégât (heal/repair/effet)
 """
-
-# TEMP mesure #486-r11
