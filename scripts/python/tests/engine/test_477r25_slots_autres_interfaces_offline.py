@@ -124,13 +124,13 @@ def test_etage0_le_balayage_voit_quelque_chose(citations: list[P.Citation]) -> N
 
 
 def test_etage0_la_forme_recepteur_slot_nom_est_captee(tables) -> None:
-    """La forme du CAS NOMME (`battleQuery.<slot 0x7c> GetAdjacentEnemies`) doit etre vue.
+    """La forme du CAS NOMME (`battleQuery.<slot 0x7c> GetAdjacentEnemies`) doit etre vue.  [slot-attribution:refute]
 
     Les trois formes heritees de `#477-r24-r1` ne la captent PAS : elles attendent un signe
     egal, ou un qualificateur COLLE au nom. Sans la forme D, les deux attributions litigieuses
     du cas nomme sont INVISIBLES -- une garde aveugle a ce qu'elle est censee arbitrer.
     """
-    ligne = "adjEnemies = battleQuery.<slot 0x7c> GetAdjacentEnemies(caster, owner, false);"
+    ligne = "adjEnemies = battleQuery.<slot 0x7c> GetAdjacentEnemies(caster, owner, false);"  # [slot-attribution:refute]
     formes = P._COUPLES["IBattleQuery"][0]
     vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
            for k, rx in enumerate(formes) for m in rx.finditer(ligne)}

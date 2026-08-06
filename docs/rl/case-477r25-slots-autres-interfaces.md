@@ -179,14 +179,14 @@ VERDICT : ROUGE
 
 ### Les crans, chacun né d'un faux positif MESURÉ
 
-1. **une 4ᵉ forme de couple** — `battleQuery.<slot 0x7c> GetAdjacentEnemies(...)`. Les trois formes
+1. **une 4ᵉ forme de couple** — `battleQuery.<slot 0x7c> GetAdjacentEnemies(...)` <!-- [slot-attribution:refute] -->. Les trois formes
    héritées de `#477-r24-r1` attendent un signe égal ou un qualificateur collé au nom : **le cas
    nommé leur était invisible**. Une garde aveugle à ce qu'elle arbitre ne prouve rien ;
 2. **en régime MULTI-interface, seules les formes A et D** (attribution portée par un
    qualificateur ou un récepteur collé). « `BattleQuery$$GetNormalAttackPrediction` invoque
    `IDamagePrediction` slot 9 » attribuait sinon le slot de l'une à la méthode de l'autre — 2 faux ;
 3. **les RENVOIS** (`que`, `interroge`, `invoque`, `appelle`, `utilise`, `évalue`, `->`, `→`)
-   retournent la relation : « le slot `0xe` QUE `BattleQuery$$IsTileInRangeOfAnyAbility` interroge »
+   retournent la relation : « le slot `0xe` QUE `BattleQuery$$IsTileInRangeOfAnyAbility` interroge » <!-- [slot-attribution:refute] -->
    désigne le slot APPELÉ — **8 des 49** désaccords étaient de cette forme, tous FAUX ;
 4. **la PONCTUATION FORTE** (`:`, `;`) ouvre une proposition : « …`GetAllTilesInAbilityRange`
    surcharge 4 arguments : slot `0x14`, slot `0x13` » énumère les GATES, qui sont des slots
@@ -202,6 +202,15 @@ VERDICT : ROUGE
 virgule rend désormais invisible au probe. Elle a été corrigée **à la main**, et elle ne sera plus
 gardée. Un cran qui supprime des faux positifs supprime aussi des vrais : le dire est la seule
 façon de ne pas prendre le vert pour une couverture.
+
+⚠ **Le probe ne voit un fichier qu'une fois SUIVI — et la garde s'est retournée contre son propre
+auteur.** Le périmètre est dérivé d'un `git ls-files` : tant que la case-doc et le test n'étaient
+pas indexés, leurs **exemples de syntaxe** (qui reproduisent volontairement l'attribution réfutée)
+étaient invisibles. Au premier re-jeu **après le commit**, la garde est passée à **4 citations
+fausses**, toutes dans les deux fichiers de cette tranche. Ce n'est pas un défaut : c'est
+exactement à quoi sert le marqueur `[slot-attribution:refute]` — elles le portent désormais, et
+l'exemption est **comptée** (1 → 5). Le corollaire vaut pour toute tranche suivante : **jouer le
+probe avant `git add` ne prouve rien sur ce qu'on vient d'écrire.**
 
 ### Ce que les gardes ÉCARTENT, compté et imprimé
 
