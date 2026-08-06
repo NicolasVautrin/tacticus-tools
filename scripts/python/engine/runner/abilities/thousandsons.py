@@ -168,9 +168,7 @@ def doombolt_ordered_targets(state: "State", caster_id: int, target_id: Optional
       QUAND MEME -> la cible du message est TOUJOURS en tete (et compte dans `C`). On mirror tel quel.
 
     `candidates` = ids d'unite rendus par `doombolt_targets_selector`."""
-    # `owner_id` = l'OWNER du selecteur (`this+0x18`) = le caster, porteur du `MightCrit` de la
-    # prediction (#419-r6-r1). Argument OBLIGATOIRE, pas de defaut muet.
-    ordered = list(sort_units_by_damage_utility(state, candidates, dmg_min, dmg_min, caster_id))
+    ordered = list(sort_units_by_damage_utility(state, candidates, dmg_min, dmg_min))
     if target_id is None or int(caster_id) == int(target_id):
         return ordered
     tid = int(target_id)

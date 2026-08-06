@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import re
 import sys
 from collections import Counter
@@ -132,12 +133,44 @@ def _jouer_un(rel: str, regime: str | None) -> dict:
     return compte
 
 
-def _jouer(rels: list[str], regime: str | None, workers: int) -> list[dict]:
-    """4 au plus : le pump est PARTAGE avec les autres agents (cf. CLAUDE.md)."""
+def _jouer(rels: list[str], regime: str | None, workers: int,
+           journal: "Path | None" = None) -> list[dict]:
+    """4 au plus : le pump est PARTAGE avec les autres agents (cf. CLAUDE.md).
+
+    `journal` (JSONL) : chaque bilan y est ECRIT DES QU'IL EXISTE, et les fichiers deja
+    journalises sont SAUTES. Ce n'est pas une commodite -- mesure du 2026-08-06 : quatre shards
+    tues au bout de 10 min (le plafond du harnais qui les lancait) ont rendu **0 octet** apres
+    **1 h** de balayage, parce que la sortie n'etait produite qu'a la fin. Un balayage dont le
+    cout se compte en heures doit etre RE-ENTRANT."""
     from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    deja = {}
+    if journal is not None and journal.exists():
+        for ligne in journal.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(ligne)
+            except Exception:
+                continue
+            if r.get("fichier"):
+                deja[r["fichier"]] = r
+    a_jouer = [r for r in rels if r not in deja]
+    if journal is not None:
+        print("  [journal] %s : %d deja mesure(s), %d a jouer"
+              % (journal.name, len(rels) - len(a_jouer), len(a_jouer)))
+        journal.parent.mkdir(parents=True, exist_ok=True)
+    verrou = threading.Lock()
+
+    def _un(rel):
+        r = _jouer_un(rel, regime)
+        if journal is not None:
+            with verrou, journal.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(r) + "\n")
+        return r
 
     with ThreadPoolExecutor(max_workers=max(1, min(workers, 4))) as ex:
-        return list(ex.map(lambda r: _jouer_un(r, regime), rels))
+        joues = list(ex.map(_un, a_jouer))
+    return [deja[r] for r in rels if r in deja] + joues
 
 
 def main(argv=None) -> int:
@@ -155,6 +188,10 @@ def main(argv=None) -> int:
     ap.add_argument("--regime", choices=["0", "1", "defaut"], default="defaut",
                     help="TACTICUS_BIS_ITEMS impose ; `defaut` = ce que le code porte")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--journal", default=None,
+                    help="JSONL de reprise : chaque bilan y est ecrit DES QU'IL EXISTE, et les "
+                         "fichiers deja mesures sont SAUTES (un balayage de plusieurs heures ne "
+                         "doit pas repartir de zero quand son porteur est tue)")
     ap.add_argument("--depuis", type=int, default=0, help="borner : index de depart")
     ap.add_argument("--jusqu-a", type=int, default=0, help="borner : index de fin (0 = tout)")
     a = ap.parse_args(argv)
@@ -244,7 +281,7 @@ def main(argv=None) -> int:
         regime = None if a.regime == "defaut" else a.regime
         print("=== JEU : %d fichier(s) (%s), regime TACTICUS_BIS_ITEMS=%s ==="
               % (len(rels), a.jouer or "liste explicite", a.regime))
-        res = _jouer(rels, regime, a.workers)
+        res = _jouer(rels, regime, a.workers, Path(a.journal) if a.journal else None)
         n_inerte = n_rouge = n_vert = 0
         for r in sorted(res, key=lambda x: x["fichier"]):
             if r["failed"] or r["error"] or r["rc"] not in (0, 1):

@@ -36,9 +36,8 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
-from ..components import HealthComponent, StatsComponent
+from ..components import HealthComponent
 from ...utilities import damage_composite
-from ...services.damage_prediction import attacker_could_crit
 from ...weights import load as _load_weights
 
 # Cache des poids d'utilite (BC `Utilities` — statiques par bataille, cf.
@@ -54,27 +53,6 @@ def damage_utility_weights():
     return _DAMAGE_UTILITY_WEIGHTS
 
 
-def owner_might_crit(state: State, owner_id: int) -> bool:
-    """`MightCrit` de la prediction que le selecteur natif construit pour l'OWNER (`this+0x18`).
-
-    `SortUnitsByDamageUtilitySelector$$Select` n'invente pas de prediction : il appelle le service
-    (`this+0x50`) avec `owner` et recopie la `DamagePredictionResult` COMPLETE dans son etat de
-    boucle (les 0x9c octets `+0x10..+0xac` du decompile), flags compris. Le champ `MightCrit` y vaut
-    donc ce que `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` y ecrit :
-    `IdunBattle.Core.Services.DamageCalculations$$CouldCrit(owner)`.
-
-    FOYER UNIQUE reutilise, pas de second mirror : `services.damage_prediction.attacker_could_crit`,
-    le meme producteur que la chaine PLAYBOOK (#R34). `UnitContext.crit_chance`/`.crit_damage` sont
-    des proprietes adossees a `get_stat(Current)` = `IdunBattle.Entities.UnitExtensions$$GetStat`
-    NU — exactement le niveau de lecture de `CouldCrit`, qui ignore la couche calc-time
-    `GetCritChanceBonusFromEffects` / `GetCritDamageBonusFromEffects`.
-
-    Owner sans `StatsComponent` (montage sans stats) -> `False`, comme `attacker_could_crit(None)`."""
-    e = state.get_entity(owner_id) if owner_id is not None else None
-    sc = e.get_component(StatsComponent) if e is not None else None
-    return bool(attacker_could_crit(sc.ctx if sc is not None else None))
-
-
 def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
                     might_crit: bool = False) -> float:
     """`UtilityDecider.CalculateUtility(UtilityDefinition(0x22 = Damage), cible, prediction)` pour UNE
@@ -82,9 +60,10 @@ def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
     (bornes santé capées/brutes, PV avant, kill = `MightBeKill`, killSure = `WillBeKill`). Bouclier non
     modelise (`shieldBefore = 0`, meme residu que le reste du moteur).
 
-    `might_crit` = `MightCrit` de l'OWNER (identique pour toutes les cibles d'un meme `Select` : le
-    natif l'evalue sur l'ATTAQUANT). Il est calcule UNE FOIS par l'appelant (`owner_might_crit`) et
-    non par cible, ce qui est exact et evite N lectures de stats."""
+    `might_crit` -- ⚠ **CE PARAMETRE EXISTE POUR LA CONTRE-EPREUVE, PAS POUR LA PRODUCTION.** Aucune
+    des deux entrees publiques ne l'alimente, et c'est un resultat MESURE, pas un oubli : cf. le
+    bloc `#419-r6-r1` sur la cle `mightCrit` ci-dessous. `probe_419r6r1_face_decision.py` s'en sert
+    pour rejouer les DEUX cotes sur le meme etat."""
     e = state.get_entity(target_id)
     hc = e.get_component(HealthComponent) if e is not None else None
     hp = int(hc.hp) if (hc is not None and hc.hp is not None) else 0
@@ -94,42 +73,62 @@ def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
             # (dmg >= 2*PV) — la prediction pre-armure EST deja brute.
             "rawHealthDmgMin": max(0, dmin), "rawHealthDmgMax": max(0, dmax),
             "hpBefore": hp, "shieldBefore": 0,
-            # #419-r6-r1 : `MightCrit` etait ABSENT de ce dict -> `might_be_overkill` lisait 0 en dur,
-            # la ou le natif passe le flag de la prediction. Sans effet TANT QUE le canal crit etait
-            # muet (`CouldCrit` faux sur 106/106 unites normalisees) ; la bascule du defaut a
-            # « equiper » (#419-r6) l'ouvre sur 98/106, donc l'ecart devient REEL. Effet : toute cible
-            # dont les PV tombent dans `(dmax/2, dmax]` (letale mais SOUS `overkillDmgPctOfHealth`)
-            # vaut `PossibleOverkill` pour le natif et 0 pour le port -> classement different.
+            # #419-r6-r1 -- `mightCrit` RESTE NON POSE PAR LES ENTREES PUBLIQUES, et c'est MESURE.
+            #
+            # #R34 avait NOMME l'absence de cette cle en residu (« non porte faute de pouvoir le
+            # VALIDER »), et la bascule du defaut a « equiper » (#419-r6) a rendu le montage
+            # constructible : `CouldCrit` passe de 0/106 a 98/106 unites normalisees, donc l'ecart
+            # aurait ete REEL si le natif lisait le flag ici. Le port a donc ete ECRIT, puis
+            # CONFRONTE -- et le live l'a REFUTE.
+            #
+            # Montage (`probe_419r6r1_face_decision.py`, Doombolt 1102 sur `thousAhriman`, 4 cibles,
+            # `N = 3` coups -> repartition `[1, 1, 1, 0]` : le DERNIER se lit sans ambiguite) :
+            #   * trois roles d'utilite DISTINCTS -- aucune egalite, donc le tie-break (que le port
+            #     approxime par `id` croissant) ne peut pas se substituer au flag ;
+            #   * `FixedArmor = Armor = 0` sur les cibles -- sinon un `MightBeKill` perdu par
+            #     l'armure ferait basculer le classement pour une raison etrangere au flag ;
+            #   * `--crit 100,700` sur le caster -- `CouldCrit(owner)` vrai de facon incontestable
+            #     (et le crit MORD : le coup sur la cible du message passe de 1468 a 2168).
+            # Resultat : port SANS le flag -> `[77, 81, 83, 79]`, **BIT-EXACT** avec le live ;
+            # port AVEC le flag -> `[77, 81, 79, 83]`, DIVERGE (la cible a 0 coup n'est pas la
+            # meme). Idem au regime de crit NATUREL (items equipes, sans `--crit`).
+            #
+            # ⇒ `IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select` ne fait PAS
+            # entrer `MightCrit` dans son classement. Le dict d'ici est donc FIDELE en l'etat.
+            # La RAISON reste ouverte au decompile (residu, cf. la case-doc) : le chemin passe bien
+            # par `IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction` (memset 0xb8
+            # de l'`AttackPredictionRequest` puis slot 4 = `PredictAttack`), `UtilityAttackCase$$
+            # ForDamagePrediction` recopie la struct ENTIERE (+0x00..+0x9c) et
+            # `OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext` appelle bien
+            # `MightBeOverkill` -- l'etage exact qui neutralise le flag n'est pas encore isole.
             "mightCrit": bool(might_crit),
             "killSure": hp > 0 and dmin >= hp,          # WillBeKill  (dmg min >= PV)
             "kill": hp > 0 and dmax >= hp}              # MightBeKill (dmg max >= PV)
     return damage_composite(pred, max_hp, wt)
 
 
-def sort_units_by_damage_utility(state: State, candidates, dmin: int, dmax: int,
-                                 owner_id: int) -> list:
+def sort_units_by_damage_utility(state: State, candidates, dmin: int, dmax: int) -> list:
     """`SortUnitsByDamageUtilitySelector$$Select` — les candidats TRIES par utilite Damage DECROISSANTE
     (`OrderBy(−utilite)`). Tie-break : `OrderBy` natif STABLE sur l'ordre source ; approxime ici par `id`
     croissant (les call-sites portes alimentent le selecteur avec un ensemble non ordonne).
 
-    `owner_id` = l'OWNER du selecteur (`this+0x18`, `SelectSingle(entities)`), OBLIGATOIRE : c'est lui
-    qui porte `MightCrit`. Un defaut `None` re-creerait le canal muet que #419-r6-r1 ferme."""
+    ⚠ L'approximation du tie-break est OBSERVABLE, et #419-r6-r1 l'a vue : sur un montage ou DEUX
+    cibles avaient la MEME utilite, le live rendait `[77, 81, 83, 79]` la ou le port rend
+    `[77, 81, 79, 83]`. C'est un residu NOMME, distinct du flag `mightCrit` -- un montage qui cree
+    une egalite mesure le tie-break, pas ce qu'il croit mesurer."""
     wt = damage_utility_weights()
-    mc = owner_might_crit(state, owner_id)
     ordered = sorted(int(c) for c in candidates)
-    return sorted(ordered, key=lambda eid: -_target_utility(state, eid, dmin, dmax, wt, mc))
+    return sorted(ordered, key=lambda eid: -_target_utility(state, eid, dmin, dmax, wt))
 
 
-def first_by_damage_utility(state: State, candidates, dmin: int, dmax: int,
-                            owner_id: int) -> Optional[int]:
+def first_by_damage_utility(state: State, candidates, dmin: int, dmax: int) -> Optional[int]:
     """`First(SortUnitsByDamageUtility(…), 1)` — l'argmax du composite Damage(34), ou None si aucun
     candidat. Argmax STRICT sur l'ordre `id` croissant = 1er id en cas d'egalite parfaite (== la stabilite
-    de l'`OrderBy` natif sur l'ordre source). `owner_id` : cf. `sort_units_by_damage_utility`."""
+    de l'`OrderBy` natif sur l'ordre source, cf. l'avertissement de `sort_units_by_damage_utility`)."""
     best, best_util = None, None
     wt = damage_utility_weights()
-    mc = owner_might_crit(state, owner_id)
     for eid in sorted(int(c) for c in candidates):
-        util = _target_utility(state, eid, dmin, dmax, wt, mc)
+        util = _target_utility(state, eid, dmin, dmax, wt)
         if best_util is None or util > best_util:
             best_util, best = util, eid
     return best
