@@ -77,17 +77,23 @@ DEMAGOGUE = int(ActiveAbilityType.CultDemagogue)      # 1179
 # --------------------------------------------------------------------------------------------- #
 
 MONTAGES = {
+    # ⚠ `C1_02` fait 5 colonnes x 7 lignes (col 0..4, row 0..6). Toute tuile hors de ce rectangle
+    # fait REFUSER le placement et le build ne construit AUCUN runner -- panne qui se lit comme un
+    # « porteur absent » si on ne regarde pas la sortie du build.
     SQUIG: dict(
         board="C1_02", seed=4242, mow="orksRukkatrukk",
-        # UN Ork (`orksNob`) et DEUX non-Orks : les deux bras du predicat ont chacun leur temoin.
-        p_units="orksNob,ultraTitus,ultraTitus",
-        a_units="necroWarden,necroWarden,necroWarden,necroWarden",
-        # E1 (5,5) : `orksNob` en (5,6) -> 1 Ork adjacent          -> bras `nrOfUnits` (>=1 Ork)
-        # E2 (2,5) : deux `ultraTitus` en (2,6) et (3,5)           -> bras `nrOfUnits_2` (>=2 amis)
-        # E3 (2,2) : UN seul allie adjacent -- aucun ici           -> REFUS attendu
-        # E4 (8,2) : isole                                        -> REFUS attendu
-        place=["orksNob:5,6", "ultraTitus:2,6", "ultraTitus:3,5"],
-        a_place=["necroWarden:5,5", "necroWarden:2,5", "necroWarden:2,2", "necroWarden:8,2"],
+        # UN Ork (`orksNob`) et TROIS non-Orks : les QUATRE bras du predicat ont chacun leur temoin.
+        p_units="orksNob,ultraTitus,ultraTitus,ultraTitus",
+        # ⚠ `necroWarden` n'existe qu'en TROIS exemplaires dans le seed BC : un 4e n'est pas
+        # REFUSE, il n'arrive simplement pas -- mesure de ce probe, la 4e cible manquait sans
+        # aucun message. D'ou le 4e id DISTINCT.
+        a_units="necroWarden,necroWarden,necroWarden,necroDestroyer",
+        # E1 (2,3) : `orksNob` en (2,2)          -> 1 Ork  , 1 ami  -> bras `nrOfUnits`   (>=1 Ork)
+        # E2 (1,1) : deux `ultraTitus` (0,1)/(1,2) -> 0 Ork, 2 amis -> bras `nrOfUnits_2` (>=2 amis)
+        # E3 (4,6) : UN seul `ultraTitus` (4,5)  -> 0 Ork  , 1 ami  -> REFUS (1 < 2)
+        # E4 (0,6) : isole                       -> 0 Ork  , 0 ami  -> REFUS
+        place=["orksNob:2,2", "ultraTitus:0,1", "ultraTitus:1,2", "ultraTitus:4,5"],
+        a_place=["necroWarden:2,3", "necroWarden:1,1", "necroWarden:4,6", "necroDestroyer:0,6"],
     ),
     ENTROPY: dict(
         board="C1_02", seed=4242, mow="deathCrawler",
@@ -95,17 +101,17 @@ MONTAGES = {
         # MoW de `probe_249_deathguard_targeting` -- reutilise tel quel.
         p_units="deathTyphus,deathPutrifier",
         a_units="ultraTitus,ultraTitus,ultraTitus,ultraTitus",
-        place=["deathTyphus:4,4", "deathPutrifier:0,0"],
-        # d = 1 / 2 / 3 / 6 depuis `deathTyphus`. Le rayon natif de l'aura vaut 1/2/3 selon
+        place=["deathTyphus:2,3", "deathPutrifier:0,0"],
+        # d = 1 / 2 / 3 / 4 depuis `deathTyphus`. Le rayon natif de l'aura vaut 1/2/3 selon
         # `TurnsStarted(porteur)` (case-224) : quel qu'il soit, il y a des cibles des DEUX cotes.
-        a_place=["ultraTitus:4,5", "ultraTitus:4,6", "ultraTitus:4,7", "ultraTitus:9,4"],
+        a_place=["ultraTitus:2,4", "ultraTitus:2,5", "ultraTitus:2,6", "ultraTitus:4,0"],
     ),
     DEMAGOGUE: dict(
         board="C1_02", seed=4242, mow=None,
         p_units="genesPrimus,ultraTitus",
         a_units="necroWarden,necroWarden",
-        place=["genesPrimus:4,4", "ultraTitus:0,0"],
-        a_place=["necroWarden:6,4", "necroWarden:8,2"],
+        place=["genesPrimus:2,3", "ultraTitus:0,0"],
+        a_place=["necroWarden:2,5", "necroWarden:4,0"],
     ),
 }
 
@@ -116,9 +122,36 @@ def _rpc(method, body, timeout=90000):
     return INV.rpc(INV._session_id(), method, [body], timeout)
 
 
-def _run(args) -> None:
-    subprocess.run([sys.executable, "rl_duel.py"] + args, cwd=str(HERE),
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+def _run(args) -> str:
+    """Rend la sortie du build. ⚠ ELLE DOIT ETRE LUE : un `--place` hors board (ou sur une tuile
+    occupee / non marchable) est REFUSE ligne par ligne, et le build continue avec les autres. Une
+    cible manquante se lit alors comme « la geometrie n'a pas ce cote », pas comme un placement
+    rate. Mesure de ce probe : `necroWarden:0,6` a disparu silencieusement du premier montage."""
+    r = subprocess.run([sys.executable, "rl_duel.py"] + args, cwd=str(HERE),
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    return (r.stdout or b"").decode("utf-8", "replace")
+
+
+def seed_bc_with_ammo(tag: str, ammo: int = 9) -> Path:
+    """Seed BC PATCHE : `Player.Players[].MachineOfWarAmmo <- ammo`, ecrit sous `logs/` (JAMAIS
+    dans `data/`, qui est versionne et ne contient que des ENTREES). Repris VERBATIM de
+    `probe_250_blacklegion_targeting.seed_bc_with_ammo`.
+
+    SANS LUI, LES DEUX MONTAGES MoW NE MESURENT RIEN, et c'est MESURE, pas redoute : les deux
+    abilities portent `constants.munitionsCost = 1`, le seed BC partage part a
+    `MachineOfWarAmmo = 0`, et `AttackQuery$$GetInvalidTargetReason` court-circuite sur
+    `ActiveAbility$$get_CanCurrentlyBeUsed` en rendant le litteral `1` (`ValidRequest`) AVANT la
+    cascade. Premier jet de ce probe : `casterReason=1`, « munitions epuisees », APRES quatre tours
+    de deblocage -- aucun nombre de tours ne leve ce court-circuit-la. Le patch n'ouvre QUE la porte
+    de `CanCurrentlyBeUsed` ; il ne touche a aucune regle de ciblage."""
+    src = json.loads((ROOT / "data" / "seed-bc.json").read_text(encoding="utf-8"))
+    for pl in (((src.get("Player") or {}).get("Players")) or {}).values():
+        if isinstance(pl, dict) and "MachineOfWarAmmo" in pl:
+            pl["MachineOfWarAmmo"] = int(ammo)
+    out = LOGS / ("_287r11-seedbc-%s.json" % tag)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(src), encoding="utf-8")
+    return out
 
 
 def _pos(u):
@@ -182,6 +215,11 @@ def mesurer(rid: int, at: int, ctx) -> dict:
     out = {"exact": [], "sous_refus": [], "viol": [], "hors_regle": [], "accord_zero": [],
            "cibles": 0, "cotes": {"dedans": 0, "dehors": 0}, "natif": {}, "absent": None,
            "court_circuite": None}
+    # SUBSTRAT EFFECTIVEMENT MONTE, imprime tel quel : une unite demandee par `--place` qui
+    # n'arrive PAS en bataille (sans pour autant faire refuser le placement) retirerait un cote de
+    # la bascule en silence.
+    out["substrat"] = ["%s t%d %s %s" % (u.get("visualId"), u["id"], _pos(u),
+                                         "team%s" % u.get("team")) for u in alive]
     caster = by_vis.get(PORTEUR_VIS[at])
     if caster is None:
         out["absent"] = PORTEUR_VIS[at]
@@ -271,17 +309,21 @@ def jouer(at: int, keep: bool) -> tuple:
     tag = uuid.uuid4().hex[:8]
     state_file = LOGS / f"rs_287r11_{at}_{tag}.json"
     args = ["build", "--seed", str(m["seed"]), "--board", m["board"], "--rank", "17",
-            "--p-units", m["p_units"], "--a-units", m["a_units"],
+            "--p-units", m["p_units"], "--a-units", m["a_units"], "--no-ai",
             "--state-file", str(state_file)]
+    bc = None
     if m.get("mow"):
-        args += ["--p-mow", m["mow"], "--a-mow", m["mow"]]
+        bc = seed_bc_with_ammo(tag)
+        args += ["--p-mow", m["mow"], "--seed-bc", str(bc)]
     for p in m.get("place") or []:
         args += ["--place", p]
     for p in m.get("a_place") or []:
         args += ["--a-place", p]
-    _run(args)
+    sortie = _run(args)
+    refus = [l.strip() for l in sortie.splitlines() if "placement REFUSE" in l]
     if not state_file.exists():
-        return None, "PAS MESURE : build KO (state-file absent)", None, None
+        return None, "PAS MESURE : build KO (state-file absent)\n      " + "\n      ".join(
+            l.strip() for l in sortie.splitlines() if l.startswith("[error]")), None, None
     rid = int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"])
     debloc = "non necessaire"
     try:
@@ -299,6 +341,11 @@ def jouer(at: int, keep: bool) -> tuple:
     finally:
         if not keep:
             _run(["dispose", "--state-file", str(state_file)])
+        if bc is not None:
+            with contextlib.suppress(Exception):
+                bc.unlink()
+    if refus:
+        res["refus_placement"] = refus
     return rid, debloc, res, temoin
 
 
@@ -322,6 +369,9 @@ def main() -> int:
             rc = 2
             continue
         print("   deblocage du cooldown initial (#287-r6) : %s" % debloc)
+        for l in (res.get("refus_placement") or []):
+            print("   !! PLACEMENT REFUSE (la geometrie voulue n'est PAS celle mesuree) : %s" % l)
+            rc = max(rc, 1)
         if res.get("absent"):
             print("   PAS MESURE : porteur `%s` ABSENT du montage" % res["absent"])
             rc = 2
@@ -330,6 +380,7 @@ def main() -> int:
             print("   PAS MESURE : oracle COURT-CIRCUITE (%s)" % res["court_circuite"])
             rc = 2
             continue
+        print("   substrat monte : %s" % " | ".join(res.get("substrat") or ["<vide>"]))
         d, h = res["cotes"]["dedans"], res["cotes"]["dehors"]
         print("   cibles confrontees : %d   (geometrie : dedans=%d dehors=%d%s)"
               % (res["cibles"], d, h, "" if (d and h) or at == DEMAGOGUE else "  !! UN COTE VIDE"))
@@ -363,6 +414,16 @@ def main() -> int:
         if res["cibles"] == 0:
             print("   !! AUCUNE CIBLE : la mesure n'a pas eu lieu")
             rc = 2
+        # LE CRITERE DE NON-DEGENERESCENCE, et c'est LUI le vrai -- pas la ventilation
+        # geometrique. Celle-ci est un INDICE derive d'un rayon suppose (le rayon de l'aura
+        # Contagion vaut 1/2/3 selon `TurnsStarted`, on ne le connait pas d'avance) ; le fait
+        # qu'un accord ne soit pas vrai par vacuite se lit sur les verdicts NATIFS : si le natif
+        # n'a jamais rendu 0 ET jamais rendu un refus, le port n'a rien eu a discriminer.
+        if len([v for v in res["natif"] if int(v, 16) == 0]) == 0 or \
+           len([v for v in res["natif"] if int(v, 16) != 0]) == 0:
+            print("   !! REGIME DEGENERE : le natif n'a rendu qu'UN SEUL verdict (%s) -- "
+                  "l'accord ne prouve rien" % (res["natif"],))
+            rc = max(rc, 1)
         if imputables or res["sous_refus"]:
             rc = 1
         if not res["exact"] and at != DEMAGOGUE:
