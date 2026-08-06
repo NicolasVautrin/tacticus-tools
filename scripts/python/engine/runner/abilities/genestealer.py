@@ -18,6 +18,8 @@ from __future__ import annotations
 import math
 from typing import Optional, TYPE_CHECKING
 
+import gameconfig as GC
+
 from ...dsl.base import resolve_unit, Const
 from ...dsl.effects import AbilityBehaviour, OperationResult, ExecutionContext
 from ...entities.behaviours import op_add, op_and, If
@@ -25,6 +27,7 @@ from ...entities.selectors import (Target, Caster, TargetTile, FixedTiles, Alive
                                    Union, UnitsWithId)
 from ...entities.triggers import Not, IsAlive, IsSurrounding, IsAdjacent, TriggerAnd
 from ...entities.traits.unit_trait import UnitTrait, has_trait
+from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatType
 from ...entities.effects.magnitude import ability_var
@@ -252,6 +255,109 @@ def cult_demagogue_tree(target_ref=None):
     return op_add(op_add(SpawnDecoys(tr), SpawnNeophytesOnDecoys(tr)), cult_demagogue_ai_tree())
 
 
+# ---- CultDemagogue (1179) : les DEUX constantes lues par `GetDynamicInvalidTargetReason` --------
+CULT_DEMAGOGUE_ID = "CultDemagogue"
+# `GetNumberConstant(0x44)`. ⚠ L'ORDINAL EST `range_2`, PAS `range` -- et la confusion serait
+# SILENCIEUSE ici : le gameconfig de 1179 porte LES DEUX (`range = 2` ET `range_2 = 2`), donc lire
+# la mauvaise cle rendrait aujourd'hui la meme valeur et divergerait au premier reequilibrage.
+# (`SpawnDecoys`, dans l'`ExecuteBehaviour`, lit un AUTRE site avec son propre ordinal.)
+CULT_DEMAGOGUE_CONST_RANGE = AbilityConstantType.range_2      # GetNumberConstant(0x44) -> "range_2"
+CULT_DEMAGOGUE_CONST_UNIT_ID = "unitId"                       # GetStringConstant(0x0)  -> "unitId"
+
+
+def cult_demagogue_free_spawn_tiles(state: "State", caster_id: int) -> list:
+    """1er terme de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDynamicInvalidTargetReason` :
+
+        battleQuery.GetFreeSurroundingTiles( EntityExtensions.GetMainTile(caster, state),
+                                             GetNumberConstant(0x44 range_2),
+                                             includeCenter: 0, onlyMovable: 1 )      # IBattleQuery 104
+
+    LE TERME `onlyMovable` DOMINE LES DEUX AUTRES, et c'est ce qui rend le port court -- pas une
+    approximation. Corps natif de `BattleQuery$$GetFreeSurroundingTiles` :
+
+        GetSurroundingTiles(center, distance, onlyEmptyOrSteppable: 1, onlyWalkable: 1,
+                            onlyMovable, includeCenter)
+          -> IterateSurroundingTiles  (disque hex, `TileQuery.<IterateSurroundingTiles>d__6`)
+        FilterInPlace(t => TileExtensions.IsFreeTile(t, state, allowSteppable: 1,
+                                                     allowTemporary: 0, allowAnyUnit: 0))
+
+    et le filtre `onlyMovable` de l'iterateur (champ `+0x30`) est litteralement
+
+        unit = UnitExtensions.GetUnit(srcTile, state)                 # l'unite SUR la tuile centre
+        if (unit != null) reachable = movementQuery.GetMovableTilesFor(unit, ignoreUnitFlags: 1,
+                                                                       options{ overrideRange = distance })
+        ... if (!reachable.Contains(tile)) continue
+
+    Or `reachable` est un BFS a `distance` pas depuis la tuile du caster : toute tuile atteignable
+    est a distance hex <= `distance`, donc `movable(d)` est INCLUS dans le disque `SurroundingTiles(d)`
+    -- l'intersection VAUT `movable(d)`. Et `IsFreeTile` (le `FilterInPlace` de queue) est PLUS
+    strict que `onlyEmptyOrSteppable` comme que `onlyWalkable` (il exige vide-ou-Steppable, walkable
+    et non-Blocker : meme corps que `TileExtensions$$CanAddUnit`, etabli en #287-r8). Les trois
+    termes de disque sont donc DOMINES ; ce qui reste est exactement le `stop_set` du foyer
+    `services/movement_query.get_movable_tiles_for`, celui que `MovableTilesInRange` rend deja.
+
+    `includeCenter = 0` coincide : le natif `GetReachableTiles` n'EMET PAS la tuile de depart
+    (`BasePathfinder.<IterateReachableTiles>d__12$$MoveNext`, cf. #287-r5-r1), et le port non plus.
+
+    `ignoreUnitFlags = 1` desarme la garde d'entree `UnitFlagsComponent$$Has(unitFlags, 1)` de
+    `MovementQuery$$FindAnyOrAllMoveableTiles` : un caster qui a DEJA bouge ce tour garde son pool.
+    Cote port cette garde n'a pas de substrat (residu nomme de `MovableTilesInRange`), donc le
+    booleen est INERTE ici -- ecrit pour la fidelite de lecture, pas pour un effet."""
+    board = state.board
+    cpos = _pos_of(state, caster_id)
+    if board is None or cpos is None:
+        return []
+    ctile = board.id_at(cpos[0], cpos[1])
+    if ctile is None:
+        return []
+    rng = int(((GC.ability(CULT_DEMAGOGUE_ID) or {}).get("constants") or {}).get(
+        CULT_DEMAGOGUE_CONST_RANGE.name) or 0)
+    if rng <= 0:
+        return []
+    return sorted(get_movable_tiles_for(board, state, caster_id, ctile, rng,
+                                        _living_occupants_map(state),
+                                        _team_of(state, caster_id)))
+
+
+def cult_demagogue_has_living_decoy(state: "State", caster_id: int) -> bool:
+    """2e terme de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDynamicInvalidTargetReason` :
+
+        allAlive = battleQuery.GetAllAliveUnits( Nullable<int>(
+                       EntityExtensions.GetCurrentOwnerEntityId(caster)) )            # IBattleQuery 137
+        return allAlive.Where(u => UnitExtensions.GetUnitId(u) == GetStringConstant(0x0 unitId)).Any()
+
+    `BattleQuery$$GetAllAliveUnits(playerEntityId)` itere les entites vivantes et ne garde que
+    celles dont `GetCurrentOwnerEntityId(entity) == playerEntityId.Value` quand le `Nullable` a une
+    valeur -- donc les unites de MON JOUEUR, pas de mon equipe : le port compare
+    `OwnerComponent.player` (11/12), pas `team`. Le lambda est
+    `CultDemagogueAbility.<>c__DisplayClass6_0$$<GetDynamicInvalidTargetReason>b__0`, dont le corps
+    entier est `String.op_Equality(GetUnitId(u), this.<name>)` -- `GetUnitId` = le `visualId`.
+
+    `player` NON CAPTE (`None`) -> on retombe sur l'equipe, qui est la meilleure approximation
+    disponible : un summon herite team ET player de son caster (`SpawnUnitOptions.CopyOwner`), donc
+    les deux partitions coincident sur tous les substrats a deux joueurs. Degradation NOMMEE."""
+    caster = state.get_entity(caster_id)
+    coc = caster.get_component(OwnerComponent) if caster is not None else None
+    if coc is None:
+        return False
+    name = ((GC.ability(CULT_DEMAGOGUE_ID) or {}).get("constants")
+            or {}).get(CULT_DEMAGOGUE_CONST_UNIT_ID)
+    if not name:
+        return False
+    for e in state.entities.values():
+        uc = e.get_component(UnitComponent)
+        oc = e.get_component(OwnerComponent)
+        if uc is None or oc is None or not uc.alive:
+            continue
+        mien = (oc.player == coc.player) if (coc.player is not None and oc.player is not None) \
+            else (oc.team == coc.team)
+        if mien and uc.visual_id == name:
+            return True
+    return False
+
+
 class CultDemagogueAbility(ActiveAbility):
     """`CultDemagogueAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour` (id 1179, Isaak genesPrimus). Arbre DSL
     `cult_demagogue_tree()` : (1) pose N=`nrOfSummons` decoys ≤range de la cible ; (2) summon des Neophytes sur
@@ -270,7 +376,7 @@ class CultDemagogueAbility(ActiveAbility):
     # `IdunBattle.Core.Services.TargetingOptions$$.cctor`), puis `AActiveAbility..ctor(this, &opts, 2, 0)`.
     # Masque effectif = `preset+0x28` = statics `+0x1a8` -> `0x4002`.
     # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
-    #     0x2      TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF assume)
+    #     0x2      TargetMatchesDynamicRule -> PORTE depuis #287-r11 (surcharge ci-dessous)
     #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
     # PORTEE (#241) : preset `TargetingOptions` statique `+0x180` -> `TargetingRange`
     # statique `+0x18` (`useRangeFromConfig` -> `CultDemagogue.constants.range` = 2) +
@@ -291,6 +397,47 @@ class CultDemagogueAbility(ActiveAbility):
         return {"decoys": decoys, "neophytes": neophytes,
                 "ai_units": ai.get("units") or [], "ai_results": ai.get("results") or [],
                 "dsl": True}
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile, ligne a ligne (#287-r11) :
+
+            range     = GetNumberConstant(0x44 range_2);           // = 2 au gameconfig
+            name      = GetStringConstant(0x0 unitId);             // = "genesSmnDecoy"
+            freeTiles = battleQuery.GetFreeSurroundingTiles(GetMainTile(caster, state), range, 0, 1);
+            allAlive  = battleQuery.GetAllAliveUnits(Nullable<int>(GetCurrentOwnerEntityId(caster)));
+            battleQuery.GetSurroundingEnemies(target, allAlive, range, 0);       // RESULTAT JETE
+            if (freeTiles.Count() != 0) return 0;                  // ICollection<ITile>.get_Count
+            return allAlive.Where(u => GetUnitId(u) == name).Any() ? 0 : 2;
+
+        ⚠ L'APPEL A `GetSurroundingEnemies` EST MORT, ET C'EST LU DANS L'ASSEMBLEUR, PAS DEDUIT.
+        C'etait l'ambiguite laissee ouverte par #287-r8 §11 : Ghidra n'assigne pas le retour du slot
+        120, et le `Where` qui suit recoit un `uVar7` qu'on pouvait lire soit comme le resultat
+        perdu, soit comme `allAlive`. Les octets tranchent -- apres le `call r10` du slot vient
+        immediatement `mov rcx, [rip+...]` puis un `call`, sans aucun `mov <reg>, rax` : RAX est
+        ECRASE sans avoir ete sauve. Et le 1er argument de `Enumerable.Where` est `mov rcx, rbp`,
+        or `rbp` est ce que le meme site a passe en 3e argument du slot 120 (`mov r8, rbp`),
+        c'est-a-dire `allAlive`. L'appel n'a par ailleurs AUCUN effet de bord : `GetSurroundingEnemies`
+        construit un `OrderedSet` NEUF (via `GetSurroundingUnits`) et n'applique son `FilterInPlace`
+        qu'a celui-la, jamais a `from`.
+
+        CONSEQUENCE DE PORTAGE, et elle est structurante : **la regle ne lit PAS la cible**. Les deux
+        termes ne dependent que du CASTER (ses tuiles de pose, et l'existence d'un decoy vivant dans
+        son camp). Le verdict est donc le MEME pour toutes les cibles d'un etat donne -- la bascule
+        ne s'exerce pas cible par cible mais entre deux MONTAGES (caster libre / caster encercle).
+
+        SEMANTIQUE : « je peux caster tant que j'ai ou poser un decoy ; si je n'ai plus une seule
+        tuile libre atteignable dans mon rayon 2, il faut qu'un decoy soit deja en jeu ».
+
+        Cible non resolue -> `0` : le natif n'evalue jamais cette regle sur une cible non enumeree,
+        et aucun de ses deux termes ne la lit. Convention permissive du module."""
+        if target_id is None:
+            return 0
+        if cult_demagogue_free_spawn_tiles(state, int(caster_id)):
+            return 0                                   # freeTiles.Count() != 0
+        return 0 if cult_demagogue_has_living_decoy(state, int(caster_id)) \
+            else int(TR.TargetMatchesDynamicRule)
 
 
 # ============================ HeroicFusillade (Judh genesKelermorph, actif 1180) ============================
