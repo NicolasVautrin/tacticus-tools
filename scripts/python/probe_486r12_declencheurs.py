@@ -302,6 +302,18 @@ def etage_declaration(scripts: dict) -> tuple[int, dict]:
     borne = [s for s, d in ok.items() if not d.get("toujours")]
     print("  dont BORNES (toujours=0)  : %d" % len(borne))
 
+    # INFORMATIF, jamais un rc (cf. `declencheur_cliquet.redondants`) : un glob integralement
+    # couvert par un autre de la MEME declaration. Trace d'hesitation sur la semantique de
+    # `**/`, pas une faute -- l'union est identique et rougir punirait un declarant prudent.
+    redond = [(s, r) for s in sorted(ok) for r in DC.redondants(ok[s])]
+    if redond:
+        print("  [info] globs REDONDANTS (couverts par un autre de la meme declaration) : %d"
+              % len(redond))
+        for script, (couvert, couvrant) in redond[:6]:
+            print("      %-46s %r  <=  %r" % (script.rsplit("/", 1)[-1], couvert, couvrant))
+        if len(redond) > 6:
+            print("      ... et %d autre(s)" % (len(redond) - 6))
+
     ko = 0
     if absents:
         ko += len(absents)

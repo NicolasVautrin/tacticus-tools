@@ -186,6 +186,41 @@ def perimetre(d, source_rel: str | None = None) -> tuple[str, ...]:
     return tuple(uniq)
 
 
+def redondants(d) -> list:
+    """[(glob couvert, glob couvrant)] -- INFORMATIF, jamais une faute (cf. `valider`).
+
+    POURQUOI CE N'EST PAS UN ROUGE, et pourquoi ce n'est pas rien non plus. Le groupe B
+    (#486-r13) a ecrit SYSTEMATIQUEMENT les deux formes -- `a/*.py` ET `a/**/*.py` -- faute de
+    trancher la semantique de `**/`. Elle est tranchee ICI (zero segment ou plus), donc la
+    premiere forme est integralement couverte par la seconde : l'union est identique, aucun
+    verdict ne bouge, et rougir dessus punirait un declarant PRUDENT. Mais un glob que rien ne
+    peut selectionner de plus est une trace d'hesitation sur le contrat : il se signale.
+
+    ⚠ Le critere est GLOB-A-GLOB, jamais le fichier reel : `a/*.py` est couvert par
+    `a/**/*.py` parce que tout ce que le premier peut matcher, le second le matche aussi. On
+    ne demande PAS s'il existe un fichier -- un declencheur decrit ce qui PEUT changer,
+    y compris un fichier qui n'existe pas encore.
+    """
+    globs = list(d.get("chemins") or ())
+    out = []
+    for i, g in enumerate(globs):
+        for j, h in enumerate(globs):
+            if i != j and g != h and _couvre_glob(h, g):
+                out.append((g, h))
+                break
+    return out
+
+
+def _couvre_glob(large: str, etroit: str) -> bool:
+    """`large` couvre-t-il tout ce que `etroit` peut matcher ? Teste par SUBSTITUTION : on
+    remplace chaque joker de `etroit` par un temoin qu'il accepte, et on demande a `large`.
+    Suffisant pour la seule forme qui nous occupe (`a/*.py` vs `a/**/*.py`) et conservateur
+    partout ailleurs -- au pire on ne signale pas."""
+    temoin = etroit.replace("**/", "z1/z2/").replace("**", "z1/z2").replace("*", "z3")
+    temoin = temoin.replace("?", "z")
+    return couvre([large], temoin) is not None
+
+
 _RX: dict[str, re.Pattern] = {}
 
 

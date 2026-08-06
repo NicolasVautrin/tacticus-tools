@@ -139,8 +139,9 @@ par `git check-ignore` et `git ls-files data`, hors de portee du hook. Elles vie
 lecture du CRITERE, et c'est le sens de << un declencheur se prend large >>.
 
 **Etat a la livraison** : `11 declares / 0 mal formes / 10 bornes`, **0 faute de fidelite**, et
-**6 des onze marques MESURE INCOMPLETE** (ils lancent `git`). Les **25 scripts restants** de la
-banque sont la dette des groupes B et C, et le garde les NOMME un par un.
+**6 des onze marques MESURE INCOMPLETE** (ils lancent `git`). Apres rebase sur le groupe B :
+`22 declares / 0 mal formes / 21 bornes`, toujours **0 faute de fidelite** (cf. SS5ter), et
+**14 scripts restants** -- la dette du groupe C, que le garde NOMME un par un.
 
 ⚠ **Le cout de la MESURE n'est pas le cout du cliquet** : sous audit hook et machine chargee,
 `probe_273` passe de 69,8 a 122,4 s et `probe_313` de 15,1 a 76,4 s -- ce dernier surtout parce
@@ -157,6 +158,47 @@ de pytest renverse son verdict sans qu'une ligne du depot bouge.
 
 C'est exactement la forme de `build: True`, **moins le `data/symbols/CURRENT` versionne** qui
 rend celui-la bornable : un changement de build SE VOIT dans un diff, un upgrade de pytest NON.
+
+## 5ter. LA COMPOSITION, PROUVEE -- les 11 du groupe B passent les DEUX etages
+
+Le groupe B (#486-r13, PR #756) a ecrit ses onze declarations **a cette forme, sans voir ce
+foyer** -- il n'a livre aucun outil, seulement les declarations. Confrontation apres rebase :
+
+```
+scripts de la banque      : 36
+avec DECLENCHEUR valide   : 22        <- 11 (groupe A) + 11 (groupe B)
+declaration MAL FORMEE    : 0
+dont BORNES (toujours=0)  : 21        <- le seul `toujours: True` reste probe_391
+entrees confrontees       : 22
+NON MESUREES              : 0
+FAUTES DE FIDELITE        : 0
+dette nommee              : 25 -> 14  (groupe C, #486-r14 en vol)
+```
+
+**Aucune retouche** n'a ete faite a une declaration du groupe B : l'etage [1] les valide toutes,
+et l'etage [2] -- apres mesure des onze (`--mesurer --only`, 348 s) -- ne trouve **aucune lecture
+hors du perimetre declare**. Deux tranches ecrites en parallele composent.
+
+⚠ `probe_455` trace **24 process** et lance `git` : les cliquets marques `MESURE INCOMPLETE`
+passent de 6 a 7.
+
+### La DOUBLE FORME (`a/*.py` + `a/**/*.py`) : redondante, inoffensive, NON nettoyee
+
+Le groupe B a ecrit systematiquement les deux, faute d'oser trancher la semantique de `**/`.
+Sous celle retenue ici (zero segment ou plus), la premiere est **integralement couverte** par la
+seconde : l'union est identique, aucun verdict ne bouge, et `valider` ne rougit pas -- rougir
+punirait un declarant PRUDENT.
+
+`declencheur_cliquet.redondants()` les **SIGNALE** (informatif, jamais un rc), et la mesure dit
+**19 globs redondants sur les 22 declarations -- dont TROIS SONT LES MIENNES** (`.gitignore`
+couvert par `**/.gitignore`, chez `probe_273`, `probe_319`, `probe_365`). Ce n'est donc pas une
+faute du groupe B mais une **propriete du contrat** : ecrire les deux formes reste le reflexe de
+quiconque connait `pathlib`, ou `**/` exige un segment.
+
+**Rien n'est nettoye, et c'est un choix.** La forme redondante est LISIBLE (elle dit
+explicitement << la racine ET les imbriques >>) et strictement sans effet. Le jour ou un
+selecteur voudra minimiser ses globs, `redondants()` rend la liste exacte -- c'est pour cela
+qu'il existe.
 
 ## 5bis. Pour les groupes B et C -- le geste, en trois lignes
 

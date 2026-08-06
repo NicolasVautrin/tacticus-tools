@@ -140,6 +140,35 @@ def test_le_perimetre_ajoute_le_SOURCE_du_cliquet_et_le_BUILD():
     assert DC.couvre(p, "scripts/python/probe_x.py") is not None
 
 
+def test_la_DOUBLE_FORME_du_groupe_B_est_redondante_mais_JAMAIS_une_faute():
+    """#486-r13 a ecrit systematiquement `a/*.py` ET `a/**/*.py`, faute de trancher la
+    semantique de `**/`. Elle est tranchee ici : la premiere est integralement couverte par la
+    seconde. L'union est identique, donc AUCUN verdict ne bouge -- et `valider` ne doit pas
+    rougir, sous peine de punir un declarant prudent."""
+    d = _decl(chemins=("scripts/python/engine/*.py", "scripts/python/engine/**/*.py"))
+    assert DC.valider(d) == []
+    assert DC.redondants(d) == [("scripts/python/engine/*.py",
+                                 "scripts/python/engine/**/*.py")]
+    # Le signalement est SYMETRIQUE-SAFE : le glob large n'est pas accuse.
+    assert DC.redondants(_decl(chemins=("a/**/*.py",))) == []
+    # Et deux globs disjoints ne se signalent pas.
+    assert DC.redondants(_decl(chemins=("a/**/*.py", "docs/rl/*.md"))) == []
+
+
+def test_les_declencheurs_du_groupe_B_valident_SANS_retouche():
+    """La composition se prouve la : onze declarations ecrites par une autre tranche, a la
+    forme definie ici, sans que son auteur ait vu ce foyer."""
+    groupe_b = ["probe_229_effect_triggers_active.py", "probe_274_step_ordinals_sweep.py",
+                "probe_366_camo_seed_inventory.py", "probe_366_r1_bcpatch_port_blindspot.py",
+                "probe_366r1_position_readers_census.py", "probe_421_rail_covers_registry.py",
+                "probe_440_repo_root_scan_guard.py", "probe_443r1c_ordinal_index_perime.py",
+                "probe_443r2_only_active_callsites.py",
+                "probe_443r2b1_decision_inactive_readers.py", "probe_455_all_skipped_file.py"]
+    for nom in groupe_b:
+        d = DC.lire(_PYDIR / nom)
+        assert DC.valider(d) == [], nom
+
+
 def test_le_perimetre_ne_repete_pas_un_glob():
     d = _decl(chemins=("a/**", "a/**"))
     assert DC.perimetre(d, source_rel="a/x.py").count("a/**") == 1
