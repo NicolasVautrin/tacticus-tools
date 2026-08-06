@@ -18,11 +18,22 @@ Et le gisement se propage par IMITATION, mesuree : **32 des 52 gratuits (62 %)**
 module qui porte DEJA un differe legitime. Un agent ouvre `abilities/targeting.py`, y voit
 4 porteurs, et ecrit le 5e sans se poser la question. Seul un REFUS executable coupe la boucle.
 
-LE TEST QUI CLASSE -- et il ne demande AUCUNE reecriture
---------------------------------------------------------
-Pour un differe `M -> X` : charger `X` SEUL dans un process FRAIS, et regarder si `M` atterrit
-dans `sys.modules`. Oui ⇒ l'arete `M -> X` fermerait une boucle ⇒ PORTEUR. Non ⇒ GRATUIT.
-Mesure de calibrage : **0 indecis sur 314**.
+DEUX CRITERES, ET LEUR UNION -- n'en avoir qu'UN l'a rendu VERT SUR UN DEPOT ROUGE
+----------------------------------------------------------------------------------
+    CYCLE       charger `X` SEUL dans un process FRAIS : `M` atterrit-il dans `sys.modules` ?
+                Oui ⇒ l'arete fermerait une boucle ⇒ PORTEUR. Non ⇒ GRATUIT.
+                (Calibrage : 0 indecis sur 314. Ne demande AUCUNE reecriture.)
+    REDONDANCE  la cible est-elle DEJA importee au niveau module dans le PREAMBULE du MEME
+                fichier ? Oui ⇒ GRATUIT, **cycle ou pas**. Critere IMPORTE de
+                `probe_270r4r2r2_tri_differes.gratuits` -- foyer unique, jamais recopie.
+
+⚠ LE SECOND NE SE DEDUIT PAS DU PREMIER, et c'est ce qui a manque. Quand le preambule importe
+deja la cible, charger celle-ci tire souvent l'appelant : le critere CYCLE repond << PORTEUR >>
+et TOLERE une instruction purement redondante. Mesure du 2026-08-06 : la PR #743 a hisse `Const`
+et les selecteurs au niveau module d'`abilities/targeting.py` **en citant #485 dans son
+commentaire**, a laisse les copies deferees derriere, et ce probe est reste VERT pendant que
+`tests/engine/test_270r4r2r2_differes_offline.py::etage1` rougissait sur 6 sites. Un cliquet qui
+RASSURE la ou un autre ROUGIT est pire qu'absent.
 
 ⚠ ON NE CLASSE PAS SUR LE GRAPHE STATIQUE, et c'est deliberе. Le graphe des imports DECLARES est
 aveugle aux boucles passant par un paquet ANCETRE, que Python execute quoi qu'on ecrive : mesure
@@ -118,8 +129,47 @@ def _atteints(cible: str) -> set[str] | None:
     return set(r.stdout.split())
 
 
+def _redondants() -> set[tuple[str, int]] | None:
+    """Les (module, ligne) dont la cible est DEJA importee au PREAMBULE du meme fichier.
+
+    ⚠ FOYER IMPORTE, JAMAIS RECOPIE. Le critere vit dans `probe_270r4r2r2_tri_differes.gratuits`,
+    et son cliquet est `tests/engine/test_270r4r2r2_differes_offline.py::etage1`. Deux
+    implementations jumelles du meme predicat divergeraient -- c'est la lecon de #332, et de
+    #390 qui vient de ramener le triplet de nav a un seul corps.
+    """
+    try:
+        import probe_270r4r2r2_tri_differes as TR
+    except ImportError:
+        return None
+    try:
+        return {(mod, ligne) for mod, ligne, _ in TR.gratuits(ENGINE)}
+    except (OSError, ValueError):
+        return None
+
+
 def classer(differes) -> tuple[list, list] | None:
-    """(porteurs, gratuits). `None` si une seule cible n'a pas pu etre chargee."""
+    """(porteurs, gratuits). `None` si une seule cible n'a pas pu etre chargee.
+
+    UN DIFFERE EST GRATUIT PAR L'UNION DE DEUX CRITERES INDEPENDANTS, et n'en avoir qu'un a
+    rendu ce probe VERT sur un depot ROUGE (mesure du 2026-08-06, PR #743 puis #741) :
+
+        CYCLE       charger la cible SEULE dans un process frais -- le module appelant
+                    atterrit-il dans `sys.modules` ? Non ⇒ hisser ne ferme aucune boucle.
+        REDONDANCE  la cible est-elle DEJA importee au niveau module dans le PREAMBULE du
+                    MEME fichier ? Oui ⇒ la copie deferee ne sert a rien, CYCLE OU PAS.
+
+    Le second ne se deduit PAS du premier. Quand le preambule importe deja la cible, charger
+    celle-ci tire souvent l'appelant -- le critere CYCLE repond donc << PORTEUR >> et TOLERE une
+    instruction purement redondante. C'est exactement ce qui est arrive : #743 a hisse `Const`
+    et les selecteurs au niveau module de `abilities/targeting.py` **en citant #485**, a laisse
+    les copies deferees derriere, et ce probe est reste vert pendant que
+    `test_270r4r2r2::etage1` rougissait.
+
+    ⚠ TRI-ETAT PRESERVE : si le critere REDONDANCE n'est pas mesurable (foyer introuvable), on
+    ne le rabat PAS sur un ensemble vide -- ce serait fabriquer un zero. On rend `None`, donc
+    `rc 2 = PAS MESURE`, parce qu'un verdict rendu sur un seul des deux criteres est
+    precisement le faux vert qu'on repare ici.
+    """
     cibles = sorted({c for _, c, _, _ in differes})
     with ThreadPoolExecutor(max_workers=16) as ex:
         table = dict(zip(cibles, ex.map(_atteints, cibles)))
@@ -128,9 +178,18 @@ def classer(differes) -> tuple[list, list] | None:
         print("  cible(s) NON CHARGEABLE(s), classification impossible : %s"
               % ", ".join(muettes[:6]))
         return None
+    redondants = _redondants()
+    if redondants is None:
+        print("  critere REDONDANCE NON MESURABLE (`probe_270r4r2r2_tri_differes` muet) --")
+        print("  un verdict sur le seul critere CYCLE est le faux vert que ce probe repare.")
+        return None
     porteurs, gratuits = [], []
     for mod, cible, ligne, raison in differes:
-        (porteurs if mod in table[cible] else gratuits).append((mod, cible, ligne, raison))
+        cycle_gratuit = mod not in table[cible]
+        if cycle_gratuit or (mod, ligne) in redondants:
+            gratuits.append((mod, cible, ligne, raison))
+        else:
+            porteurs.append((mod, cible, ligne, raison))
     return porteurs, gratuits
 
 
