@@ -107,6 +107,7 @@ from engine.streams.refresh_effects import (EffectSetup,  # noqa: E402
 from engine.streams.apply_damage import DAMAGE_SOURCE_ID, apply_damage  # noqa: E402
 from engine.streams.damage_result import (AbilityOrEffect,  # noqa: E402
                                           DamageAppliedResult, DamageSource)
+from engine.streams.heal_unit import get_heal_tags, heal_unit  # noqa: E402
 from engine.streams.stream_helper import (ADDITIONAL_HIT_SOURCE_TAGS,  # noqa: E402
                                           SOURCE_TAGS, get_damage_tags)
 from engine.streams.transform_unit import (FILL_STAT_TRANSFORM_CONFIG,  # noqa: E402
@@ -155,10 +156,17 @@ BOARDS_DEFAUT = ("C1_02", "MC1_67")
 #: `IdunBattle.Core.Services.StreamHelper$$GetDamageTags` (`engine/streams/stream_helper.py`) et
 #: sa face stream `engine/streams/apply_damage.py`. Les AUTRES groupes du meme pipeline --
 #: `MachineDamage` (28), `DamageChain` (29), `TileDamage` (27) -- restent HORS, ENUMERES.
+#:
+#: ⚠ `HealInfo` Y EST ENTREE AVEC `#477-r39`. Elle sort d'une SIXIEME operation,
+#: `IdunBattle.Operations.HealUnitOperation$$Execute` (`engine/streams/heal_unit.py`), qui
+#: n'ouvre AUCUN groupe -- son action est NUE, comme celle d'`InformOperation`. Les deux autres
+#: pas du meme pipeline -- `RepairInfo` (6) et `LootInfo` -- sortent d'operations distinctes et
+#: restent HORS, ENUMERES.
 ACTIONS_PORTEES = frozenset((StepType.ActivateEffect.name, StepType.ReceiveEffect.name,
                              StepType.LoseEffect.name, StepType.DeactivateEffect.name,
                              StepType.ChangeStats.name, StepType.ChangeAbility.name,
-                             StepType.Info.name, StepType.UnitDamaged.name))
+                             StepType.Info.name, StepType.UnitDamaged.name,
+                             StepType.HealInfo.name))
 GROUPES_PORTES = frozenset((GroupType.Ability_Power.name, GroupType.Effect_Refresh.name,
                             GroupType.Damage.name))
 
@@ -175,6 +183,20 @@ TAGS_DAMAGE = ((TagKey.UnitStats_RemainingHealth, TagKey.UnitStats_RemainingArmo
                 TagKey.Amount, TagKey.DamageProfileType)
                + tuple(cle for _champ, cle in SOURCE_TAGS)
                + tuple(cle for _champ, cle in ADDITIONAL_HIT_SOURCE_TAGS))
+
+#: LES SIX `TagKey` QUE `HealUnitOperation$$Execute` SAIT ECRIRE (#477-r39), DERIVEES DU PORT --
+#: c'est `get_heal_tags` qui les nomme, dans son ordre d'insertion. Comme pour `TAGS_DAMAGE`, la
+#: liste vient du PORT et non du flux : une `Action=HealInfo` portant une cle de plus sortirait
+#: du perimetre au lieu d'y etre absorbee.
+#:
+#: ⚠ TROIS DES SIX SONT AUSSI DES CLES DE `GetDamageTags`, ET C'EST L'AXE `Action=` QUI LES
+#: SEPARE, PAS LA CLE. `UnitStats_RemainingHealth`, `UnitStats_NumberOfMembers` et `Amount`
+#: appartiennent aux deux foyers ; `_formes` juge la forme d'ACTION a part, donc une
+#: `Action=ChangeStats` qui porterait un `Tag=Caster_Id` resterait hors perimetre.
+TAGS_HEAL = tuple(TagKey(o) for o in get_heal_tags(
+    caster_entity_id=0, target_entity_id=0, remaining_health=0,
+    removed_negative_unit_effects=0, was_wounded_before_heal=False, amount=0,
+    number_of_members=0))
 
 #: Les SIX tags qu'`AddActiveAbilityOperation$$Execute` inline, nommes par le port.
 TAGS_ADD_ACTIVE = (TagKey.UnitStats_ActiveAbility_Id, TagKey.UnitStats_ActiveAbility_Level,
@@ -388,7 +410,29 @@ def parser_bloc1(bloc1: List[str]) -> dict:
                             + sum(h["lignes"] for h in hors) == len(bloc1)}
 
 
-def _formes_portees() -> frozenset:
+#: LES FORMES QU'UNE TRANCHE A FAIT ENTRER, par tranche -- le levier du compte AVANT / APRES.
+#:
+#: ⚠ LE « AVANT » SE DERIVE, IL NE SE LISTE PAS. `#477-r34` calculait ses lignes ENTREES en
+#: cherchant les sous-arbres PORTES qui contiennent un `Group=Damage` : la regle etait juste
+#: pour cette famille-la, mais elle ne se generalise pas -- un sous-arbre peut porter DEUX
+#: formes neuves (c'est exactement le cas du bloc de 47 lignes du roster 2v2, qui porte deux
+#: `Group=Damage` ET une `Action=HealInfo`), et l'attribuer entierement a l'une SURESTIME ce que
+#: porter cette forme-la rapporte. Le compte est donc RE-PARTITIONNE en retirant la forme du
+#: perimetre, ce qui rend la question exacte : « combien de lignes de contenu seraient hors
+#: perimetre si cette forme n'y etait pas entree ? »
+#:
+#: ⚠ RETIRER L'`Action=` SUFFIT, ET C'EST VOULU. `_formes` juge chaque ligne separement : une
+#: `Action=UnitDamaged` etrangere met tout son sous-arbre hors perimetre, meme si le `Group=`
+#: qui l'englobe reste porte. Retirer aussi les `Tag=` ne changerait donc rien -- et masquerait
+#: le fait que c'est bien la FORME D'ACTION qui gouverne.
+FORMES_PAR_TRANCHE = {
+    "#477-r34": frozenset(("Group=%s" % GroupType.Damage.name,
+                           "Action=%s" % StepType.UnitDamaged.name)),
+    "#477-r39": frozenset(("Action=%s" % StepType.HealInfo.name,)),
+}
+
+
+def _formes_portees(retirees: frozenset = frozenset()) -> frozenset:
     tags = (list(TAG_VERS_CHAMP)
             + [TagKey.Effect_Id.name, TagKey.Effect_State_Level.name,
                TagKey.Effect_State_VariableMultiplierPercentage.name,
@@ -407,11 +451,14 @@ def _formes_portees() -> frozenset:
             # qui porterait un `Tag=Amount` resterait hors perimetre, sa forme d'action etant
             # jugee a part.
             + [t.name for t in TAGS_DAMAGE]
+            # #477-r39 : les six cles de `HealUnitOperation$$Execute`. Meme regle que ci-dessus --
+            # elles n'entrent QUE parce qu'`Action=HealInfo` entre avec elles.
+            + [t.name for t in TAGS_HEAL]
             + [TagKey(o).name for o in _tags_de_transformation()])
     return frozenset(["Group=%s" % g for g in GROUPES_PORTES]
                      + ["Action=%s" % a for a in ACTIONS_PORTEES]
                      + ["Finish_Group"]
-                     + ["Tag=%s" % t for t in tags])
+                     + ["Tag=%s" % t for t in tags]) - retirees
 
 
 def _sources_non_resolubles(lignes: List[str]) -> frozenset:
@@ -448,11 +495,15 @@ def _sources_non_resolubles(lignes: List[str]) -> frozenset:
     return frozenset(out)
 
 
-def formes_etrangeres(sous: List[str]) -> List[str]:
+def formes_etrangeres(sous: List[str], retirees: frozenset = frozenset()) -> List[str]:
     """CE QUI MET UN SOUS-ARBRE HORS PERIMETRE : une forme qu'aucun module de `engine/streams`
     ne produit, OU un `Source=` qu'aucun mirror ne sait ecrire. Les deux axes sont derives du
-    PORT, jamais du flux."""
-    return sorted((_formes(sous) - _formes_portees()) | _sources_non_resolubles(sous))
+    PORT, jamais du flux.
+
+    `retirees` sert au compte AVANT / APRES : il RETIRE du perimetre les formes qu'une tranche y
+    a fait entrer, ce qui permet de re-partitionner le flux « comme avant » sans rien lister a
+    la main (cf. `FORMES_PAR_TRANCHE`)."""
+    return sorted((_formes(sous) - _formes_portees(retirees)) | _sources_non_resolubles(sous))
 
 
 def _formes(lignes: List[str]) -> frozenset:
@@ -764,6 +815,123 @@ def emettre_action_info(events: StreamDispatcher, act: ActionObs, entite_groupe:
     inform(events, tags)
 
 
+#: LES MUTATIONS DE LA FAMILLE `Action=HealInfo` (#477-r39). Meme separation que
+#: `MUTATIONS_DAMAGE` : elles vivent ici parce que c'est ICI qu'on emet, et c'est
+#: `probe_477r22` qui les JOUE, sur le corpus du foyer.
+#:
+#: ⚠ UNE MUTATION A ETE ECRITE PUIS RETIREE, POUR LA MEME RAISON QUE LA NEUVIEME DE
+#: `MUTATIONS_DAMAGE`. La faute la plus interessante serait de recopier ici la conditionnalite
+#: LUE dans `GetDamageTags` (`if (caster != null) Add(Attacker_Id, ...)`) -- c'est exactement la
+#: confusion que la RE de `#477-r39` ecarte. Mais sur ce corpus, les 2 / 2 `Action=HealInfo`
+#: portent un `Tag=Caster_Id`, donc la garde ne retirerait JAMAIS rien : la mutation serait
+#: INERTE PAR CONSTRUCTION, et le garde-fou herite de `#477-r22-r1` la refuserait. La lecture
+#: est donc portee et DECLAREE NON EXERCEE, jamais comptee verte.
+MUTATIONS_HEAL = ("heal_entite", "heal_tag_caster", "heal_ouvre_groupe",
+                  "heal_permute_etats", "heal_permute_valeurs")
+
+
+def applicable_heal(nom: str, act: ActionObs) -> bool:
+    """LE DOMAINE DE DEFINITION D'UNE MUTATION `heal_*`, derive des DONNEES de l'action.
+
+    Meme regle qu'`applicable_damage` : sans ce calcul, une mutation qui ne mord pas faute de
+    DONNEE se lirait comme une mutation INERTE PAR CONSTRUCTION."""
+    d = dict(act.tags)
+    if nom == "heal_entite":
+        # ecrire l'entite du CASTER ne change rien quand le soin est un auto-soin
+        return d.get(TagKey.Caster_Id.name) != act.entity
+    if nom == "heal_permute_etats":
+        # permuter deux valeurs EGALES ne change rien
+        return (d.get(TagKey.UnitStats_RemovedNegativeUnitEffects.name)
+                != d.get(TagKey.UnitStats_WasWoundedBeforeHeal.name))
+    if nom == "heal_permute_valeurs":
+        return d.get(TagKey.Amount.name) != d.get(TagKey.UnitStats_RemainingHealth.name)
+    return True
+
+
+def entrees_heal(act: ActionObs) -> dict:
+    """`ActionObs` -> les entrees de `get_heal_tags` / `heal_unit`. LA PARTIE COPIEE (#477-r39).
+
+    C'est le pendant d'`entrees_damage`, et il est PLUS COPIE que lui : le `Group=Damage` offre
+    TROIS canaux pour la meme entite (l'entete, l'action, `Tag=Target_Id`), donc deux d'entre eux
+    sont des PREDICTIONS ; ici il n'y en a qu'UN, parce que `HealUnitOperation$$Execute` n'ouvre
+    aucun groupe et n'ecrit aucun `Tag=Target_Id`. Ce qui reste MESURE se lit dans le texte :
+
+      (DH1) LA FORME : une `Action=` NUE a la profondeur du `Group=Ability_Power`, PAS un groupe.
+            La faute naturelle -- croire que le pipeline de soin ouvre son groupe comme celui du
+            degat -- est confrontee par `heal_ouvre_groupe` ;
+      (DH2) L'ENTITE : le port ecrit celle de la CIBLE, quand le `Tag=Caster_Id` de la meme
+            action en porte une AUTRE. Les deux sont a un argument d'ecart dans la signature
+            native, et `heal_entite` les intervertit ;
+      (DH3) L'APPARIEMENT cle <-> grandeur des six `Add` : le port recoit six grandeurs NOMMEES
+            et choisit la cle. `heal_permute_etats` et `heal_permute_valeurs` permutent les deux
+            couples dont les valeurs different reellement sur le corpus.
+
+    ⚠ LES SIX CLES SONT EXIGEES. `get_heal_tags` les ecrit toutes les six sans aucune garde (cf.
+    la lecture du CHEMIN DE SORTIE dans `engine/streams/heal_unit.py`) : une action qui en
+    porterait moins ne sortirait pas de ce foyer-la, et le probe le DIT au lieu de completer."""
+    d = dict(act.tags)
+    manquants = [c.name for c in TAGS_HEAL if c.name not in d]
+    if manquants:
+        raise MesureImpossible("`Action=%s` sans %s -- `HealUnitOperation$$Execute` les ecrit "
+                               "sans aucune garde" % (StepType.HealInfo.name,
+                                                      ",".join(manquants)))
+    if len(d) != len(TAGS_HEAL):
+        raise MesureImpossible("`Action=%s` porte %d cle(s) -- `HealUnitOperation$$Execute` en "
+                               "ecrit exactement %d" % (StepType.HealInfo.name, len(d),
+                                                        len(TAGS_HEAL)))
+    return {"caster_entity_id": d[TagKey.Caster_Id.name],
+            "target_entity_id": act.entity,
+            "remaining_health": d[TagKey.UnitStats_RemainingHealth.name],
+            "removed_negative_unit_effects":
+                d[TagKey.UnitStats_RemovedNegativeUnitEffects.name],
+            "was_wounded_before_heal": bool(d[TagKey.UnitStats_WasWoundedBeforeHeal.name]),
+            "amount": d[TagKey.Amount.name],
+            "number_of_members": d[TagKey.UnitStats_NumberOfMembers.name]}
+
+
+def emettre_action_heal(events: StreamDispatcher, act: ActionObs, mutation: str = "") -> None:
+    """Emet une `Action=HealInfo` AVEC LE PORT -- `#477-r39`.
+
+    UN SEUL foyer, `engine/streams/heal_unit.py`, parce que le natif n'en a qu'un : il n'existe
+    AUCUN `StreamHelper$$GetHealTags` (les dix `Get*Tags` du build sont recensees, aucune de
+    soin), donc le dictionnaire est construit INLINE dans
+    `IdunBattle.Operations.HealUnitOperation$$Execute`."""
+    entrees = entrees_heal(act)
+    tags = get_heal_tags(**entrees)
+    entite = entrees["target_entity_id"]
+    if mutation == "heal_tag_caster":
+        # `Attacker_Id` (0xb6) a la place de `Caster_Id` (0xb4) : les deux cles designent le
+        # meme role dans deux foyers voisins, et `GetDamageTags` ecrit l'autre
+        tags.pop(int(TagKey.Caster_Id), None)
+        tags[int(TagKey.Attacker_Id)] = int(entrees["caster_entity_id"])
+    elif mutation == "heal_permute_etats":
+        # `UnitStats_RemovedNegativeUnitEffects` <-> `UnitStats_WasWoundedBeforeHeal` : deux cles
+        # d'ordinaux VOISINS (7 et 8), toutes deux ecrites juste apres `RemainingHealth`
+        tags[int(TagKey.UnitStats_RemovedNegativeUnitEffects)] = \
+            1 if entrees["was_wounded_before_heal"] else 0
+        tags[int(TagKey.UnitStats_WasWoundedBeforeHeal)] = \
+            int(entrees["removed_negative_unit_effects"])
+    elif mutation == "heal_permute_valeurs":
+        # `Amount` <-> `UnitStats_RemainingHealth` : `result.<+0x04>` et `<composant>.<+0x18>`,
+        # deux entiers que rien ne distingue dans le decompile hors leur provenance
+        tags[int(TagKey.Amount)] = int(entrees["remaining_health"])
+        tags[int(TagKey.UnitStats_RemainingHealth)] = int(entrees["amount"])
+    if mutation == "heal_entite":
+        # l'entite du CASTER a la place de celle de la CIBLE : les deux sont a un argument
+        # d'ecart dans `HealUnitOperation$$Execute(caster, target, ...)`
+        heal_unit(events, int(entrees["caster_entity_id"]), tags)
+        return
+    if mutation == "heal_ouvre_groupe":
+        # l'operation ouvre son groupe, comme `ApplyDamageOperation$$Execute` : le decompile de
+        # `HealUnitOperation$$Execute` ne contient AUCUN appel d'ouverture, et le
+        # `Group=Ability_Power` que le flux montre autour vient de l'etage du dessus
+        events.start_group(GroupType.Ability_Power, int(entite), "", None)
+        heal_unit(events, entite, tags)
+        events.finish_group()
+        return
+    heal_unit(events, entite, tags)
+
+
 #: LES MUTATIONS DE LA FAMILLE `Group=Damage` (#477-r34). Elles vivent ici parce que c'est ICI
 #: qu'on emet, mais leur corpus est celui du FOYER (tout le flux), pas celui du BLOC 1 : c'est
 #: `probe_477r22` qui les JOUE. Meme separation que `MUTATIONS_RELAYEES` (#477-r22-r1).
@@ -992,6 +1160,14 @@ def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> Non
                             # l'ability, PAS par une operation de stat.
                             emettre_action_info(events, e, obs.unit_entity, mutation)
                             continue
+                        if e.step == StepType.HealInfo.name:
+                            # #477-r39 : le motif `MedicusMinistorum` -- une `Action=HealInfo`
+                            # directe, emise par `HealUnitOperation$$Execute` depuis le behaviour
+                            # DSL de l'ability. Comme `Action=Info`, elle est NUE : l'operation
+                            # n'ouvre aucun groupe, c'est le `Group=Ability_Power` de l'etage du
+                            # dessus qui l'enveloppe.
+                            emettre_action_heal(events, e, mutation)
+                            continue
                         # ⚠ ENTITE DU MODIFICATEUR : il n'y a PAS de `Group=Effect_Refresh`
                         # englobant ici, donc rien a en deriver -- et le motif confronte
                         # (`TwistedScience`) n'en a pas besoin : ses deux actions sont des
@@ -1044,6 +1220,15 @@ def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> Non
             raise MesureImpossible(
                 "`Action=%s` DANS un `Group=%s` -- aucun producteur lu de ce paquet ne l'y met"
                 % (StepType.Info.name, GroupType.Effect_Refresh.name))
+        elif act.step == StepType.HealInfo.name:
+            # #477-r39 : meme refus, meme raison. Le perimetre d'`Action=HealInfo` est le motif
+            # « enfant DIRECT d'un `Group=Ability_Power` », qui est le seul que le flux montre
+            # (2 / 2 sur le corpus). Aucune closure de `RefreshEffectsOperation$$
+            # UpdateEffectTargets` n'appelle `HealUnitOperation` ; si le flux en montrait une
+            # ICI, ce serait un producteur qu'on n'a pas lu.
+            raise MesureImpossible(
+                "`Action=%s` DANS un `Group=%s` -- aucun producteur lu de ce paquet ne l'y met"
+                % (StepType.HealInfo.name, GroupType.Effect_Refresh.name))
         elif act.step in (StepType.ChangeStats.name, StepType.ChangeAbility.name):
             # ⚠ CE N'EST PAS `RefreshEffectsOperation` QUI L'EMET. C'est la DERNIERE closure de
             # la `List<Action>` construite par `UpdateEffectTargets` --

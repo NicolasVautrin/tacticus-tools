@@ -136,6 +136,9 @@ class TurnObs:
     hors: List[dict]
     lignes: List[str]
     """LE TEXTE NATIF COMPLET du couple, entete de `PrepareTurn` incluse."""
+    contenu: List[str] = field(default_factory=list)
+    """LE CONTENU BRUT DU GROUPE, garde tel quel pour que le compte AVANT soit RE-PARTITIONNE
+    plutot que liste (cf. `hors_perimetre_sans`)."""
     marques: List[dict] = field(default_factory=list)
     """LA QUEUE DU GROUPE (#477-r22-r1) : les `Action=ChangeStats` + `Tag=%s` du slot `0x21`,
     dans l'ordre du flux. Chacune fait EXACTEMENT deux lignes.""" \
@@ -194,7 +197,8 @@ def _marque(lignes: List[str], i: int) -> Optional[Tuple[int, int]]:
     return _entite(ma.group("entity")), int(mt.group("value"))
 
 
-def _partitionner(contenu: List[str]) -> dict:
+def _partitionner(contenu: List[str], retirees: frozenset = frozenset(),
+                  lire: bool = True) -> dict:
     """La partition PORTE / MARQUES / HORS PERIMETRE du contenu du groupe, au moyen du parseur de
     #477-r21 -- c'est exactement le meme jeu de formes, et le reutiliser est ce qui rend la
     RECOLTE reelle : un sous-arbre `Effect_Refresh` porte ici est porte par le MEME code.
@@ -233,14 +237,32 @@ def _partitionner(contenu: List[str]) -> dict:
         # d'`EffectType`, pas de `TriggeredAbilityType` -- a fait LEVER l'emission au milieu de
         # la mesure. Un sous-arbre qu'on ne sait pas ecrire sort du perimetre ; il ne fait pas
         # taire le probe.
-        etrangeres = R21.formes_etrangeres(sous)
+        etrangeres = R21.formes_etrangeres(sous, retirees)
         if etrangeres:
             hors.append({"raison": "forme(s) non portee(s)", "forme": ",".join(etrangeres),
                          "lignes": len(sous), "texte": sous})
         else:
-            portes.append({"obs": R21._lire_sous_arbre(sous), "lignes": len(sous), "texte": sous})
+            # ⚠ `lire=False` SERT AU COMPTE 'AVANT', ET IL EST NECESSAIRE : re-partitionner avec
+            # une forme retiree laisse au perimetre des sous-arbres que `_lire_sous_arbre`
+            # accepte, mais l'inverse aussi -- et surtout, un AVANT n'a pas besoin des `obs`. Les
+            # construire ferait LEVER sur des sous-arbres que la tranche courante sait pourtant
+            # partitionner, et ce serait une panne du compteur, pas une mesure.
+            portes.append({"obs": R21._lire_sous_arbre(sous) if lire else None,
+                           "lignes": len(sous), "texte": sous})
         i = j + 1
     return {"portes": portes, "hors": hors, "marques": marques}
+
+
+def hors_perimetre_sans(obs: "TurnObs", retirees: frozenset) -> int:
+    """LE COMPTE 'AVANT', DERIVE : combien de lignes du contenu de ce couple seraient HORS
+    PERIMETRE si les formes `retirees` n'y etaient pas entrees.
+
+    ⚠ C'EST UNE RE-PARTITION, PAS UNE SOUSTRACTION. Nommer un bloc par l'une des formes qu'il
+    porte SURESTIME ce que porter cette forme rapporte -- `#477-r34` l'a mesure et ecrit. Le
+    bloc de 47 lignes du roster 2v2 porte DEUX formes neuves (deux `Group=Damage` et une
+    `Action=HealInfo`) : sa sortie du hors-perimetre est imputable a la SECONDE, jamais aux
+    deux. Re-partitionner rend cette question exacte sans rien attribuer a la main."""
+    return sum(h["lignes"] for h in _partitionner(obs.contenu, retirees, lire=False)["hors"])
 
 
 def lire_couple(lignes: List[str], i_prepare: int, racine: str,
@@ -322,7 +344,7 @@ def lire_couple(lignes: List[str], i_prepare: int, racine: str,
                   action_entity=_entite(maa.group("entity")), action_tags=action_tags,
                   portes=par["portes"], hors=par["hors"], marques=par["marques"],
                   candidats=candidats, drapeaux_avant=drapeaux,
-                  lignes=lignes[i_prepare:fin + 1])
+                  lignes=lignes[i_prepare:fin + 1], contenu=list(contenu))
     attendu = (1 + len(TAGS_PREPARE)) + 1 + (1 + len(action_tags)) + obs.lignes_contenu + 1
     if attendu != len(obs.lignes):
         raise MesureImpossible("somme du couple FAUSSE : %d != %d -- une amputation ne serait "
@@ -941,6 +963,108 @@ def conformite_du_groupe_damage(flux: str) -> dict:
             "lignes": sum(len(_nu(t)) for _i, t, _o in groupes)}
 
 
+def _actions_heal(flux: str) -> List[Tuple[int, List[str], "R21.ActionObs"]]:
+    """TOUTES les `Action=HealInfo` du flux, dans l'ordre : `(ligne, texte, obs)` (#477-r39).
+
+    ⚠ LA DECOUPE EST STRUCTURELLE, ET C'EST CE QUI LA REND FALSIFIABLE. Une `Action=HealInfo`
+    est une action NUE suivie de ses `Tag=` a `prof + 1` -- `HealUnitOperation$$Execute` n'ouvre
+    aucun groupe. Le parcours ne suppose donc RIEN de sa place dans l'arbre : il la trouve ou
+    qu'elle soit, et `R21.entrees_heal` REFUSE ensuite toute action dont les cles ne sont pas
+    exactement les six du foyer."""
+    lignes = [l for l in flux.split("\n") if l != ""]
+    out = []
+    for i, ligne in enumerate(lignes):
+        ma = CONF.RE_ACTION.match(ligne)
+        if not ma or ma.group("sym") != StepType.HealInfo.name:
+            continue
+        prof = profondeur(ligne)
+        act = R21.ActionObs(step=ma.group("sym"), entity=_entite(ma.group("entity")))
+        k = i + 1
+        while k < len(lignes) and profondeur(lignes[k]) == prof + 1:
+            mt = CONF.RE_TAG.match(lignes[k])
+            if not mt:
+                break
+            act.tags.append((mt.group("sym"), int(mt.group("value"))))
+            k += 1
+        out.append((i, lignes[i:k], act))
+    return out
+
+
+def _emettre_heal(act: "R21.ActionObs", mutation: str = "") -> str:
+    """Emet UNE `Action=HealInfo` avec le port, sans indentation d'enveloppe.
+
+    ⚠ `StreamCache` NE FLUSHE QU'AU `Finish_Group` D'UN GROUPE RACINE, et une action nue n'en
+    ferme aucun. Le port l'enveloppe donc d'un groupe TECHNIQUE dont les deux lignes sont
+    retirees avant comparaison -- c'est la meme neutralisation de mise en forme que `_nu`, sur
+    l'axe de l'ENVELOPPE plutot que sur celui de l'indentation. Sans elle, la capture serait
+    VIDE et toutes les comparaisons rendraient un vert creux."""
+    cache = StreamCache()
+    capture = Capture()
+    cache.add_listener(capture)
+    events = StreamDispatcher()
+    events.subscribe(cache)
+    events.start_group(GroupType.Ability_Power, act.entity, "", None)
+    R21.emettre_action_heal(events, act, mutation)
+    events.finish_group()
+    lignes = _nu("".join(capture.racines))
+    if len(lignes) < 2:
+        raise MesureImpossible("l'enveloppe technique n'a produit que %d ligne(s) -- la capture "
+                               "ne porte alors pas l'action" % len(lignes))
+    return "\n".join(lignes[1:-1])
+
+
+def conformite_du_foyer_heal(flux: str) -> dict:
+    """LE FOYER `IdunBattle.Operations.HealUnitOperation$$Execute` CONFRONTE SUR TOUT LE FLUX --
+    la GENERALISATION de `#477-r39`, meme forme que celle de `#477-r34`.
+
+    ⚠ CE FOYER EST PLUS COPIE QUE CELUI DU DEGAT, ET C'EST DECLARE. Le `Group=Damage` offre
+    TROIS canaux pour la meme entite, donc deux d'entre eux sont des PREDICTIONS ; ici il n'y en
+    a qu'UN, `HealUnitOperation$$Execute` n'ecrivant aucun `Tag=Target_Id`. Ce qui reste MESURE
+    est enumere par `R21.entrees_heal` -- (DH1) la FORME NUE, (DH2) l'ENTITE de la CIBLE quand le
+    `Tag=Caster_Id` en porte une autre, (DH3) l'appariement cle <-> grandeur -- et chacune de ces
+    trois a sa contre-epreuve."""
+    actions = _actions_heal(flux)
+    egales = 0
+    divergences: List[str] = []
+    # (DH2) l'entite de l'action et le `Tag=Caster_Id` DIFFERENT-ils dans le NATIF ? Sans cela,
+    # la mutation `heal_entite` n'a rien a mordre -- et le compte le DIT.
+    dh2 = sum(1 for _i, _t, a in actions
+              if dict(a.tags).get(TagKey.Caster_Id.name) != a.entity)
+    for i, texte, act in actions:
+        try:
+            emis = _emettre_heal(act)
+        except MesureImpossible as e:
+            divergences.append("L%d %s" % (i, e))
+            continue
+        if _nu(emis) == _nu(texte):
+            egales += 1
+        elif len(divergences) < 6:
+            divergences.append("L%d natif=%d lignes port=%d lignes"
+                               % (i, len(_nu(texte)), len(_nu(emis))))
+    ce = []
+    for nom in R21.MUTATIONS_HEAL:
+        mordus = muets = rouges = hors_domaine = 0
+        for _i, texte, act in actions:
+            if not R21.applicable_heal(nom, act):
+                hors_domaine += 1
+                continue
+            sain = _emettre_heal(act)
+            try:
+                mute = _emettre_heal(act, nom)
+            except (MesureImpossible, ValueError):
+                mute = sain
+            if mute == sain:
+                muets += 1
+                continue
+            mordus += 1
+            if _nu(mute) != _nu(texte):
+                rouges += 1
+        ce.append((nom, mordus, muets, rouges, hors_domaine))
+    return {"actions": len(actions), "egales": egales, "divergences": divergences,
+            "dh2": dh2, "contre_epreuve": ce,
+            "lignes": sum(len(_nu(t)) for _i, t, _a in actions)}
+
+
 def ventilation_du_reste(couples: List[TurnObs]) -> List[dict]:
     """CE QUI RESTE HORS PERIMETRE, ET **QUI** L'Y RETIENT (#477-r34).
 
@@ -972,8 +1096,13 @@ def ventilation_du_reste(couples: List[TurnObs]) -> List[dict]:
                     i = fin + 1
                     continue
                 i += 1
+            en_heal = sum(1 for l in lignes
+                          if (CONF.RE_ACTION.match(l)
+                              and CONF.RE_ACTION.match(l).group("sym")
+                              == StepType.HealInfo.name))
             out.append({"racine": c.racine, "lignes": h["lignes"],
-                        "etrangeres": etrangeres, "lignes_damage": en_damage})
+                        "etrangeres": etrangeres, "lignes_damage": en_damage,
+                        "actions_heal": en_heal})
     return out
 
 
@@ -1127,6 +1256,12 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
             "effect_refresh": effect_refresh_recoltes(couples),
             "foyer": conformite_du_foyer(flux),
             "damage": conformite_du_groupe_damage(flux),
+            "heal": conformite_du_foyer_heal(flux),
+            # LE COMPTE 'AVANT', PAR TRANCHE, RE-PARTITIONNE (jamais liste) : pour chaque jeu de
+            # formes entre par une tranche, le nombre de lignes qui SERAIENT hors perimetre sans
+            # lui. La difference avec l'APRES est ce que cette tranche-la fait ENTRER.
+            "avant": {cle: sum(hors_perimetre_sans(c, formes) for c in couples)
+                      for cle, formes in R21.FORMES_PAR_TRANCHE.items()},
             "reste": ventilation_du_reste(couples),
             "voc_porte": R19.vocabulaire(attendu0)}
 
@@ -1230,6 +1365,19 @@ def imprimer(res: dict) -> None:
     print("      CONTRE-EPREUVE `%s` (%d mutations ; sur son DOMAINE, chacune doit MORDRE puis "
           "ROUGIR) :" % (GroupType.Damage.name, len(R21.MUTATIONS_DAMAGE)))
     for nom, mordus, muets, rouges, hors_domaine in dmg["contre_epreuve"]:
+        etat = ("HORS DOMAINE" if mordus + muets == 0
+                else "OK" if (muets == 0 and rouges == mordus) else "ROUGE")
+        print("          %-30s domaine=%-3d mord=%-3d INERTE=%-2d rougit=%d/%-3d %s"
+              % (nom, mordus + muets, mordus, muets, rouges, mordus, etat))
+    hea = res["heal"]
+    print("      FOYER `HealUnitOperation$$Execute` sur TOUT le flux : %d / %d `Action=%s` "
+          "reproduite(s) (%d lignes) ; %d ou le caster DIFFERE de la cible"
+          % (hea["egales"], hea["actions"], StepType.HealInfo.name, hea["lignes"], hea["dh2"]))
+    for d in hea["divergences"][:6]:
+        print("          ROUGE %s" % d)
+    print("      CONTRE-EPREUVE `%s` (%d mutations ; sur son DOMAINE, chacune doit MORDRE puis "
+          "ROUGIR) :" % (StepType.HealInfo.name, len(R21.MUTATIONS_HEAL)))
+    for nom, mordus, muets, rouges, hors_domaine in hea["contre_epreuve"]:
         etat = ("HORS DOMAINE" if mordus + muets == 0
                 else "OK" if (muets == 0 and rouges == mordus) else "ROUGE")
         print("          %-30s domaine=%-3d mord=%-3d INERTE=%-2d rougit=%d/%-3d %s"
@@ -1448,6 +1596,40 @@ def main() -> int:
               "rien ne les confronte : %s"
               % (len(dmg_partout_vides), ", ".join(dmg_partout_vides)))
         rc = 1
+    # --- #477-r39 : la famille `Action=HealInfo`, confrontee sur TOUT le flux.
+    heal_ko = [(r["etiquette"], len(r["heal"]["divergences"])) for r in resultats
+               if r["heal"]["divergences"]]
+    if heal_ko:
+        print("  ROUGE : le foyer `HealUnitOperation$$Execute` ne reproduit pas %d "
+              "`Action=%s` : %s" % (sum(n for _b, n in heal_ko), StepType.HealInfo.name,
+                                    ", ".join("%s:%d" % (b, n) for b, n in heal_ko)))
+        rc = 1
+    heal_muettes = [(r["etiquette"], nom) for r in resultats
+                    for nom, _m, muets, _ro, _hd in r["heal"]["contre_epreuve"] if muets > 0]
+    if heal_muettes:
+        print("  ROUGE : %d mutation(s) `heal_*` INERTES PAR CONSTRUCTION : %s"
+              % (len(heal_muettes), ", ".join("%s/%s" % (b, n) for b, n in heal_muettes)))
+        rc = 1
+    heal_ce_ko = [(r["etiquette"], nom) for r in resultats
+                  for nom, mordus, _mu, rouges, _hd in r["heal"]["contre_epreuve"]
+                  if mordus > 0 and rouges != mordus]
+    if heal_ce_ko:
+        print("  ROUGE : %d mutation(s) `heal_*` ONT MORDU SANS ROUGIR : %s"
+              % (len(heal_ce_ko), ", ".join("%s/%s" % (b, n) for b, n in heal_ce_ko)))
+        rc = 1
+    heal_partout_vides = [nom for nom in R21.MUTATIONS_HEAL
+                          if all(m + mu == 0 for r in resultats
+                                 for n, m, mu, _ro, _hd in r["heal"]["contre_epreuve"]
+                                 if n == nom)]
+    if heal_partout_vides:
+        print("  ROUGE : %d mutation(s) `heal_*` au domaine NUL sur TOUS les scenarios -- "
+              "rien ne les confronte : %s"
+              % (len(heal_partout_vides), ", ".join(heal_partout_vides)))
+        rc = 1
+    heal_vides = [r["etiquette"] for r in resultats if r["heal"]["actions"] == 0]
+    if heal_vides:
+        print("  ATTENTION : aucune `Action=%s` sur %s -- la famille de `#477-r39` n'y est pas "
+              "exercee." % (StepType.HealInfo.name, ",".join(heal_vides)))
     dmg_vides = [r["etiquette"] for r in resultats if r["damage"]["groupes"] == 0]
     if dmg_vides:
         print("  ATTENTION : aucun `Group=%s` sur %s -- la famille de `#477-r34` n'y est pas "
@@ -1495,31 +1677,47 @@ def main() -> int:
               % (GroupType.Damage.name, dmg_total, dmg_lignes,
                  sum(1 for r in resultats for c in r["couples"] for p in c.portes
                      if _porte_un_damage(p["obs"])), GroupType.StartTurn.name))
+        heal_total = sum(r["heal"]["actions"] for r in resultats)
+        heal_lignes = sum(r["heal"]["lignes"] for r in resultats)
+        print("  FAMILLE `Action=%s` (#477-r39) : %d action(s) reproduite(s) sur TOUT le flux "
+              "(%d lignes)." % (StepType.HealInfo.name, heal_total, heal_lignes))
+        # ⚠ LE 'AVANT' EST RE-PARTITIONNE, PAS SOUSTRAIT, ET IL MESURE LA NECESSITE -- PAS
+        # L'APPORT. Un bloc peut porter DEUX formes neuves : celui de 47 lignes du roster 2v2
+        # porte deux `Group=Damage` ET une `Action=HealInfo`. Retirer l'UNE OU L'AUTRE le remet
+        # hors perimetre en ENTIER, donc les deux colonnes affichent 47 : chaque tranche est
+        # NECESSAIRE, aucune n'est SUFFISANTE seule. Additionner ces colonnes, ou lire l'une
+        # comme « ce que cette tranche rapporte », SURESTIME -- c'est la mesure de `#477-r34`,
+        # transposee au compteur lui-meme.
         print("  LE COMPTE AVANT / APRES, PAR SCENARIO -- le critere de la tranche : les lignes "
-              "ENTRENT, elles ne disparaissent pas.")
+              "ENTRENT, elles ne disparaissent pas. Chaque colonne est OBTENUE en RETIRANT les "
+              "formes de cette tranche-la et en RE-PARTITIONNANT ; elle dit donc ce qui LA REND "
+              "NECESSAIRE, pas ce qu'elle rapporte a elle seule -- deux tranches peuvent etre "
+              "necessaires au MEME bloc, et les colonnes ne s'additionnent PAS.")
         for r in resultats:
-            entrees = sum(p["lignes"] for c in r["couples"] for p in c.portes
-                          if _porte_un_damage(p["obs"]))
             apres = sum(h["lignes"] for c in r["couples"] for h in c.hors)
-            print("      %-22s hors perimetre AVANT %3d -> APRES %3d  (%d ligne(s) ENTREES par "
-                  "`Group=%s`)"
-                  % (r["etiquette"], apres + entrees, apres, entrees, GroupType.Damage.name))
+            detail = "  ".join("sans %s: %d" % (cle, r["avant"][cle])
+                               for cle in sorted(r["avant"]))
+            print("      %-22s hors perimetre APRES %3d   |   %s"
+                  % (r["etiquette"], apres, detail))
         print("  CE QUI RESTE HORS PERIMETRE, ET QUI L'Y RETIENT :")
         for r in resultats:
             if not r["reste"]:
                 print("      %-22s AUCUN -- les couple(s) sont INTEGRALEMENT au perimetre"
                       % r["etiquette"])
             for b in r["reste"]:
-                print("      %-22s %3d ligne(s), dont %d de `Group=%s` (deja reproduites par le "
-                      "foyer, retenues par la regle du sous-arbre) ; BLOQUE PAR : %s"
+                print("      %-22s %3d ligne(s), dont %d de `Group=%s` et %d `Action=%s` (deja "
+                      "reproduites par les foyers, retenues par la regle du sous-arbre) ; "
+                      "BLOQUE PAR : %s"
                       % (r["etiquette"], b["lignes"], b["lignes_damage"], GroupType.Damage.name,
+                         b["actions_heal"], StepType.HealInfo.name,
                          ",".join(b["etrangeres"])))
         print("  NON COUVERT : la DECISION de `VerifyUnitTurnEnded` (les deux predicats de "
               "mobilite), les gardes de `HandleNextTurn` (`#477-r22-r2`), la SELECTION des "
-              "effets (`#477-r21-r2`), la DECISION qu'un coup produise un `Group=%s` (elle vit "
-              "dans le pipeline de degat amont), et la famille `Group=ResurrectUnit` "
-              "(`#477-r34` ne porte QUE `Group=%s`)."
-              % (GroupType.Damage.name, GroupType.Damage.name))
+              "effets (`#477-r21-r2`), la DECISION qu'un coup produise un `Group=%s` ou qu'un "
+              "soin produise une `Action=%s` (elles vivent dans les pipelines amont, dont les "
+              "DEUX gardes lues de `HealUnitOperation$$Execute`), et la famille "
+              "`Group=ResurrectUnit` / `Ability_CustomGroup` (`#477-r38`)."
+              % (GroupType.Damage.name, StepType.HealInfo.name))
     return rc
 
 
