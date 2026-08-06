@@ -564,6 +564,44 @@ class HealthComponent(Component):
         self.over_reduce = 0                                         # this[0x24] = 0 (queue, inconditionnel)
         return filled
 
+    def apply_modifier_set_current(self, value: int) -> None:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier`, branche `case 0`
+        (#462-r4e-o-r2-r1) -- le QUATRIEME ecrivain de `this[0x24] = 0`, celui que la table de
+        `#462-r4e-o-r2` avait MANQUE, et par lequel passe le REVIVE :
+
+            switch (modifier@+4) {                       // ModifierType
+              case 0: this[0x18] = modifier@+8 ;                  this[0x24] = 0 ; break;  // Current
+              case 2: this[0x14] = this[0x10] = modifier@+8 ;     this[0x24] = 0 ; break;  // Max
+              case 3: this[0x10] = this[0x14] = this[0x18] = v ;  this[0x24] = 0 ;         // tout
+                      ValueModification.UpdateInitialValue(this+0x28, v) ; break;
+              case 5/6/9 : ValueModification.Modify / ReverseModification    -- PAS de purge
+              case 7/8   : ValueOverride.SetOverride / RemoveOverride        -- PAS de purge
+              default    : NotImplementedException
+            }
+
+        CHAINE qui l'atteint depuis le revive, lue de bout en bout :
+        `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` construit le modificateur
+        `{StatType.Health = 5, ModifierType = 0, Min(amount, GetStat(unit, Health, MAX)), 0}`,
+        l'emballe dans une liste et le passe au slot `ApplyStatModifiers` de l'`OperationProcessor`
+        -> `IdunBattle.Entities.UnitExtensions$$ApplyStatModifiers` ->
+        `IdunBattle.Entities.UnitExtensions$$ApplyStatModifier` (XREF **UNIQUE** d'`ApplyModifier`)
+        -> `case 0`. Le revive n'appelle donc ni `FillUp` ni `Initialize` -- ce qui reste vrai -- et
+        purge quand meme.
+
+        ⚠ C'EST UNE CORRECTION DE VERDICT, PAS UN AJUSTEMENT. `#462-r4e-o-r2` concluait « le REVIVE
+        ne purge PAS, c'est un QUIRK natif a ne pas corriger », sur une table de trois ecrivains
+        (`FillUp`, `Initialize`, `ResetOverReduce`) reputee exhaustive. MESURE LIVE du 2026-08-06
+        (`probe_462r4eor2r1_retour_a_la_vie_over_reduce.py --volet revive`, victime a 2000 PV,
+        seuil d'overkill 4000, accumulateur porte 59 807 -- facteur 15) : apres un revive
+        `TaintedNarthecium` NATIF, l'attaque suivante rend **5** events `Amount`
+        `[213, 214, 281, 255, 227]` et non **1**. Le natif s'aligne exactement sur l'hypothese
+        « accumulateur PURGE ». Le port, lui, rendait `[213]`.
+
+        Le mirror est ABSOLU (`Current = value`), pas relatif comme `fill_up` : c'est la difference
+        de forme entre `case 0` et `FillUp`, et elle est visible des que `Current != 0`."""
+        self.hp = int(value)                                         # this[0x18] = modifier@+8
+        self.over_reduce = 0                                         # this[0x24] = 0
+
 
 class EffectsOwnedComponent(Component):
     """Effets actifs portés — `EffectsOwnedComponent` IdunBattle.Entities.Components.EffectsOwnedComponent$$.ctor (chaque effet =
@@ -839,6 +877,15 @@ class UnitFlagsComponent(Component):
                                 # RETIRE par `IdunBattle.Operations.ResurrectUnitOperation$$Execute`
                                 # (`Remove(6)/Remove(0xf)/Remove(8)/**Remove(0x1a)**/Remove(9)`).
                                 # Cf. `runner/operations/remove_unit.py`.
+    REVIVED = UnitFlag.Revived                # flag 0x14 (`UnitFlag.Revived`) — pose par
+                                # `IdunBattle.Operations.ReviveUnitOperation$$Execute`
+                                # (`Remove(0xf)` / `Remove(8)` / **`Add(0x14)`**), la rafale de
+                                # flags du revive. AUCUN LECTEUR PORTE a ce jour (recense
+                                # #462-r4e-o-r2-r1 : les occurrences de « Revived » dans `engine/`
+                                # designent toutes l'EVENEMENT `EventTriggerType.UnitRevived = 45`,
+                                # pas ce flag) -- il est porte pour que l'etat de flags du port
+                                # egale celui du natif, mesure a l'appui (live `[0, 1, 20]` contre
+                                # port `[0, 1]` avant #462-r4e-o-r2-r1).
     TURN_FINISHED_FORCED = UnitFlag.TurnTerminated   # flag 0x1b (FinishUnitTurnOperation forced=True ; hors enum dump)
 
     def __init__(self, flags=None):

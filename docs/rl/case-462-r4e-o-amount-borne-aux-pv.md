@@ -312,6 +312,7 @@ publie pas.
   offline, mais **non confrontée live** : aucun montage n'amène une ability multi-coups sur un porteur
   `HarlequinsPanoply` ;
 * **`#462-r4e-o-r2` est TRAITÉ en §7** — et il a réfuté sa propre prémisse.
+* **`#462-r4e-o-r2-r1` est TRAITÉ en §8** — et il a réfuté le verdict (a) de §7, **par la mesure LIVE**.
 
 ## 7. `#462-r4e-o-r2` — l'accumulateur EST purgé, par une voie que `ResetOverReduce` ne trahit pas
 
@@ -319,40 +320,49 @@ publie pas.
 « `…$$ResetOverReduce` n'a aucun xref de code » — vrai, ce symbole n'est jamais appelé — pour conclure
 que rien n'écrit le zéro. **Deux autres méthodes de la même classe l'écrivent EN LIGNE** :
 
-| écrivain de `this[0x24] = 0` | position | appelants (xrefs **exhaustifs**) |
+| écrivain de `this[0x24] = 0` | position | appelants (xrefs) |
 |---|---|---|
 | `…FillUpStatComponent$$FillUp` | **queue, inconditionnelle** (même `filled == 0`) | `HealUnitOperation$$Execute`, `RepairUnitOperation$$Execute`, `ResurrectUnitOperation$$SetHealth` |
 | `…FillUpStatComponent$$Initialize` | corps | `AddUnitOperation$$Execute`, `UnitFactory$$Build`, `UnitFactory$$InitHealth` |
+| `…FillUpStatComponent$$ApplyModifier` | branches `case 0` / `case 2` / `case 3` | `UnitExtensions$$ApplyStatModifier` (**xref unique**), atteint entre autres par `ReviveUnitOperation$$SetHealth` |
 | `…FillUpStatComponent$$ResetOverReduce` | corps | **aucun** (table de méthodes seule) |
 
-⇒ **SOIN, RÉPARATION et RÉSURRECTION purgent l'accumulateur. Le REVIVE, non.**
-`IdunBattle.Operations.ReviveUnitOperation$$SetHealth` n'appelle ni `FillUp` ni `Initialize` : il pose
-les PV via un slot de l'`OperationProcessor` qui applique des **modificateurs de stat** (les deux
-autres call-sites de ce même slot sont `SetupGameOperation$$ApplyModifiers` et
-`TransformActorToConfigIdOperation$$UpdateStats`).
+⇒ **SOIN, RÉPARATION, RÉSURRECTION *et REVIVE* purgent l'accumulateur.**
+
+⚠ **Cette table a d'abord été publiée SANS sa 3ᵉ ligne, et la conclusion qui en découlait — « le
+REVIVE ne purge pas, quirk natif » — a été RÉFUTÉE LIVE par `#462-r4e-o-r2-r1` (§8).** La prémisse
+« `ReviveUnitOperation$$SetHealth` n'appelle ni `FillUp` ni `Initialize` » est exacte et ne concluait
+rien : il pose un **modificateur de stat**, et c'est ce modificateur qui purge.
 
 ### 7.1 Réponse à la question binaire
 
-* **REVIVE → OUI, quirk natif** : l'unité revient avec l'accumulateur de sa vie précédente et peut poser
-  `UnitFlag.Overkilled` **dès son premier coup reçu, à pleine vie**. Le port le reproduisait déjà **par
-  omission** ; il est désormais **documenté** dans `revive.py` pour qu'il ne soit pas « corrigé », et
-  **gardé** par un test.
-* **RESURRECT → NON** : `FillUp` purge. Le port, lui, écrivait `hc.hp = int(hp)` — **divergence**, corrigée.
-* **SOIN / RÉPARATION → NON** : `FillUp` purge. Le port sortait avant. **Deux divergences de plus.**
+* **REVIVE → OUI, il purge** (verdict **corrigé** par la mesure live, §8) : via
+  `ApplyModifier` `case 0`. Foyer porté : `HealthComponent.apply_modifier_set_current`.
+* **RESURRECT → OUI** : `FillUp` purge. Le port écrivait `hc.hp = int(hp)` — **divergence**, corrigée.
+* **SOIN / RÉPARATION → OUI** : `FillUp` purge. Le port sortait avant. **Deux divergences de plus.**
 
 ### 7.2 Le régime est structurellement étroit — et c'est ce qui le rend invisible
 
 `Reduce` n'accumule que ce qu'il n'a **pas pu** retirer ⇒ **`over_reduce > 0` implique `hp == 0`**, donc
-une unité **morte**. Le seul état où un porteur **vivant** a un accumulateur non nul est
-« mort en sur-réduction **puis** retour à la vie ». Corollaire : le correctif sur `HealUnitOperation` /
-`RepairUnitOperation` est **inerte sauf après un revive** ; celui sur `ResurrectUnitOperation`, lui, mord
-à chaque résurrection (elle opère **toujours** sur un mort).
+une unité **morte**. Le seul état où un porteur **vivant** aurait un accumulateur non nul serait
+« mort en sur-réduction **puis** retour à la vie » — et §8 montre que **ce régime n'existe pas** : tous
+les retours à la vie purgent. Il ne reste donc qu'**un** régime vivant, **à l'intérieur d'une même
+attaque** (un coup écrêté sur une cible à 0 PV que le drain de mort n'a pas encore prise), et c'est
+celui que `_run_hits` porte. Corollaire : le correctif sur `ResurrectUnitOperation` mord à chaque
+résurrection (elle opère **toujours** sur un mort) ; ceux sur `HealUnitOperation` /
+`RepairUnitOperation` ne mordent que dans ce régime intra-attaque.
 
 ### 7.3 Port
 
-Foyer unique **`HealthComponent.fill_up`** (mirror 1:1, pendant de `reduce`) — point de mutation des
-contre-épreuves. Appelé par `heal.py`, `repair.py`, `resurrect.py` ; **jamais** par `revive.py`.
-Deux conséquences du mirror, lues au décompilé :
+**DEUX foyers, parce que le natif a deux voies** — et les confondre était l'erreur :
+
+* `HealthComponent.fill_up` — mirror de `FillUp`, **RELATIF** (`Current += Min(amount, max - Current)`).
+  Appelé par `heal.py`, `repair.py`, `resurrect.py`.
+* `HealthComponent.apply_modifier_set_current` — mirror d'`ApplyModifier` `case 0`, **ABSOLU**
+  (`Current = value`). Appelé par `revive.py` **seul**.
+
+Sur une unité **morte** (`Current == 0`) les deux coïncident, et c'est exactement ce qui rendait la
+confusion invisible. Deux conséquences du mirror de `FillUp`, lues au décompilé :
 
 * le `FillUp` natif précède les early-returns des deux opérations (`heal` : `if (!wasWounded &&
   healed < 1 && …) return;` ; `repair` : `if (filled < 1 && …) return;`) ⇒ le port appelle `fill_up`
@@ -365,12 +375,12 @@ coïncident puisque l'unité est morte (`Current == 0`).
 
 ### 7.4 Mesures
 
-`test_462r4eor2_over_reduce_purge_offline.py` — **16 tests**. Conséquence observable, 4 coups de 200 sur
+`test_462r4eor2_over_reduce_purge_offline.py` — **17 tests**. Conséquence observable, 4 coups de 200 sur
 1000 PV : sans accumulateur `per_hit = [200, 200, 200, 200]` et aucun flag ; avec `over_reduce = 8000`
-hérité, **flag au coup 0** et `per_hit = [200]` (le SITE (A) supprime les trois suivants).
+à l'entrée, **flag au coup 0** et `per_hit = [200]` (le SITE (A) supprime les trois suivants).
 
-**Contre-épreuve DOUBLE** : monkeypatch du foyer (assertions inversées, verte) **et mutation réelle du
-code produit** (`self.over_reduce = 0` retiré de `fill_up`) → **6 tests tombent**. La garde mord.
+**Contre-épreuve** : mutation réelle du code produit (`self.over_reduce = 0` retiré de `fill_up`)
+→ des tests tombent. La garde mord.
 
 **Non-régression live rejouée : 73 tests verts** — `test_heal_operation_live`, `test_firstaid_heal_live`,
 `test_repair_execution_live`, `test_target_is_healable_live`, `test_living_metal_repair_live`,
@@ -381,19 +391,104 @@ attraperait le passage absolu → relatif), `test_narthecium_revive_live`,
 
 ### 7.5 Non couvert, nommé
 
-* **NON CONFRONTÉ LIVE** — le régime demande un **retour à la vie NATIF suivi d'une attaque NATIVE**, et
-  aucun harnais ne le monte : `replay_normal_attack` ne compose qu'**une** attaque, et les trois tests de
-  revive/resurrect capturent l'état live puis **simulent** la mort offline. Les deux montages possibles
-  sont identifiés : (a) `TaintedNarthecium` (`deathRotbone` + allié Chaos adjacent, revive **75 %**,
-  « even if Overkilled ») pour le **quirk** ; (b) le trait **Ambush** (`genesPrimus`/`genesKelermorph`,
-  `EnvAmbushResurrectAbility` sur `On(TurnStart)` au tour **suivant**) pour le **resurrect**. Résidu
-  **`#462-r4e-o-r2-r1`**.
+* **CONFRONTÉ LIVE par `#462-r4e-o-r2-r1` — voir §8**, qui a **réfuté** le verdict (a).
   ⚠ `ResurrectionOrb` n'est **pas** une voie : son unique nœud natif est un `Spawn` de `necroSmnWarrior`.
 * `fill_up` mirrore le `Math.Min` **nu** du natif (pas de `max(0, …)`) : un `hp > hp_max` ferait donc
   **descendre** les PV. Inatteignable à notre connaissance, non mesuré.
 * le gate `amount <= 0 -> return 0` de `heal.py` est **conservé** faute d'équivalent natif lisible — le
   natif n'a pas de paramètre scalaire à ce rang, sa gate amont est `AttackQuery$$EntityCanBeHealed`
-  (non portée). Il masque la purge d'un soin **de zéro** sur une unité revivée (marginal).
-* le port du revive écrit les PV en **absolu** là où le natif passe par des modificateurs de stat
-  (slot non identifié nominativement — 3 call-sites, tous poseurs de modificateurs). Approximation
-  **pré-existante**, inchangée ici.
+  (non portée). Marginal.
+
+## 8. `#462-r4e-o-r2-r1` — la mesure LIVE, et le verdict (a) RÉFUTÉ
+
+### 8.1 Ce qui a été joué (le premier montage LIVE de bout en bout du régime)
+
+`probe_462r4eor2r1_retour_a_la_vie_over_reduce.py` — board **MC1_67**, seed **777**. Séquence
+**entièrement NATIVE** : SUR-TUER → laisser le natif ramener l'unité → RE-ATTAQUER ; et la MÊME
+séquence rejouée côté port depuis l'état d'**avant** la sur-tuerie (le seul moyen de faire vivre
+l'accumulateur côté port : `snapshot.load_state` ne transporte **pas** `+0x24`).
+
+| | volet (a) REVIVE | volet (b) RESURRECT |
+|---|---|---|
+| porteur | `TaintedNarthecium` — `deathRotbone` + `worldExecutions` adjacent | trait `Ambush` — `genesPrimus`, `EnvAmbushResurrectAbility` sur `On(TurnStart)` |
+| sur-tueur / mesureur | `astraBullgryn` `Damage=60000` / `tauAunShi` `Damage=250`, 5 coups | idem |
+| accumulateur observé avant purge | **59 807** | **59 807** |
+| PV au retour, seuil d'overkill | 2000, **4000** | 2000, **4000** |
+| **natif** | `[213, 214, 281, 255, 227]` — **5 events** | `[1044, 886, 70, 0, 0]` — **5 events** |
+| hypothèse « accumulateur TRANSPORTÉ » | `[213]` — 1 event | `[1044]` — 1 event |
+| **port, à état égal** | `[213, 214, 281, 255, 227]` | `[1044, 886, 70, 0, 0]` |
+| flag `Overkilled` au 1ᵉʳ coup | **non** | **non** |
+
+**Les deux volets répondent la même chose : l'accumulateur est PURGÉ.** Le port, avant correctif,
+rendait `[213]` sur (a) — la divergence exacte que la garde offline ne pouvait pas voir, puisqu'elle
+figeait le verdict faux.
+
+### 8.2 Pourquoi le RE offline s'était trompé, et le mécanisme réel
+
+Le raisonnement de §7 s'appuyait sur une table de **trois** écrivains du zéro. Il en existe un
+**quatrième**, `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier` :
+
+```
+switch (modifier@+4) {                        // ModifierType
+  case 0: this[0x18] = modifier@+8 ;                 this[0x24] = 0 ;   // Current
+  case 2: this[0x14] = this[0x10] = modifier@+8 ;    this[0x24] = 0 ;   // Max
+  case 3: this[0x10] = this[0x14] = this[0x18] = v ; this[0x24] = 0 ;   // les deux
+  case 5/6/9 : ValueModification.Modify / ReverseModification   -- PAS de purge
+  case 7/8   : ValueOverride.SetOverride / RemoveOverride       -- PAS de purge
+}
+```
+
+Chaîne du revive, lue de bout en bout : `ReviveUnitOperation$$SetHealth` construit
+`{StatType.Health = 5, ModifierType = 0, Min(amount, GetStat(unit, Health, MAX))}` →
+`UnitExtensions$$ApplyStatModifiers` → `UnitExtensions$$ApplyStatModifier` (**xref UNIQUE**
+d'`ApplyModifier`) → `case 0`.
+
+⚠ **C'est le vice que §7 reprochait à `-r1`, reproduit à l'identique** : « le symbole X n'est pas
+appelé » ne dit rien de « la valeur n'est jamais écrite ». `-r1` l'avait commis sur `ResetOverReduce`,
+`-r2` sur le couple `FillUp`/`Initialize`. Le discriminant qui aurait tranché sans la mesure est le
+même dans les deux cas : chercher les **écrivains du champ**, pas les appelants d'un nom.
+
+### 8.3 Deuxième divergence trouvée par le même montage : la rafale de flags
+
+`IdunBattle.Operations.ResurrectUnitOperation$$UpdateFlags`, relue verbatim :
+`Remove(6)` `Remove(0xf)` `Remove(8)` `Remove(0x1a)` `Remove(9)` `Add(2)` `Add(0xe)`.
+Le port n'en portait **qu'un** (`Remove(0x1a)`). L'omission de **`Remove(8 = Overkilled)`** est
+load-bearing : le flag est le gate du SITE (A), donc une unité ressuscitée après overkill restait
+**INFRAPPABLE** côté port. Mesuré sous mutation : port `[]` et PV finaux `2000` là où le natif rend
+5 events et `0` PV. Foyer porté : `resurrect.update_flags_on_resurrect`.
+
+Idem côté revive (`Remove(0xf)`, `Remove(8)`, `Add(0x14)`) : `Add(0x14 = UnitFlag.Revived)` est
+désormais posé — flags de la victime après revive natif `[0, 1, 20]`, le port rendait `[0, 1]`.
+
+### 8.4 Ce que le montage a dû apprendre pour être concluant
+
+* **La marge du régime est une mesure.** Aux PV natifs, le seuil d'overkill de l'attaque 2 (2 × 4887
+  revive-HP = 9774) et le plancher d'accumulateur qu'impose la sur-tuerie (9537) sont à **2,5 %** l'un
+  de l'autre : un natif « 5 events » excluait `over_reduce >= 9561` sans séparer « 0 » de « 9537 ».
+  `--hp-victime 2000` ouvre la marge à un **facteur 15**.
+* **Le discriminant oppose les deux hypothèses entre elles, jamais l'une au natif.** Deux rédactions
+  fautives, symétriques, ont été corrigées **par** la mesure : comparer l'hypothèse au natif déclarait
+  « non discriminant » le cas cherché ; et opposer le port à `over_reduce = 0` devient une
+  **tautologie** dès que le port purge — le probe se serait tu juste après le correctif.
+* **Un move `applyAction` sur une tuile OCCUPÉE échoue en SILENCE** (`ok: true`, `mutated: false`,
+  aucune erreur). Le placement vérifie donc la position obtenue et choisit un cluster libre.
+
+### 8.5 Non couvert, nommé
+
+* **L'ÉCART D'ÉTAT du rejeu bout-en-bout du volet (b)**, mesuré et attribué : le port rend
+  `[214, 281, 255, 227, 286]` là où le natif rend `[1044, …]`. Cause **lue**, pas supposée — les effets
+  de l'attaquant divergent : `SereneUnifierSenseOfStone` (round 1) côté port contre
+  `SereneUnifierStormOfFire` (round 3, **+582 Damage**) côté live. C'est le **cycle de round** de
+  `SereneUnifier` que le rejeu offline multi-tours n'avance pas ; mirrorer le `start_turn` des deux
+  joueurs **ne suffit pas** (essayé, mesuré : aucun changement). Hors périmètre de la purge — le
+  verdict est calculé **à état égal**, où le port est **bit-exact**. Résidu **`#462-r4e-o-r2-r1-r1`**.
+* **Les flags de TOUR du ressuscité** : natif `[1, 3, 4, 14]`, port `[14]`. Le natif ouvre puis clôt le
+  tour immédiat de l'unité (`ArrivedAtFinalTile`, `TurnFinished`, `NoActionAvailable`) ; le port pose
+  `immediate_turn` sans jouer ce tour. N'affecte aucun observable de dégât. Même résidu.
+* **`Add(2 = UnitFlag.ActiveAbilityUsed)` d'`UpdateFlags`** reste NON PORTÉ : il gouverne la face
+  DÉCISION (`HasOwnersActiveAbilityBeenUsed`), qu'aucune mesure d'ici n'exerce, et le poser
+  contredirait le tour immédiat que `immediate_turn` vient d'ouvrir.
+* **Les branches `case 2` / `case 3` d'`ApplyModifier`** (Max, et les deux) purgent elles aussi et ne
+  sont **pas** portées : aucun appelant porté ne pose ce type de modificateur. Lues, nommées, non portées.
+* **`--hp-victime` écrase `Health`** : la mesure est donc faite hors du régime de PV nominal. Le régime
+  nominal a été joué **aussi** (première passe) et donne le même sens, avec la marge étroite dite en §8.4.
