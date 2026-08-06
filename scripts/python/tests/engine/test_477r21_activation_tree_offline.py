@@ -178,16 +178,30 @@ def test_les_six_sous_arbres_ENSEMBLE_sont_reproduits():
     assert _emis(*TOUS) == "".join(TOUS)
 
 
+#: Les QUATRE actions d'EFFET, seules formes que le corpus de CE fichier exerce.
+#: ⚠ `P.ACTIONS_PORTEES` en compte SIX depuis `#477-r21-r1` (`ChangeStats`, `ChangeAbility`) :
+#: ces deux-la sortent de trois autres operations natives et sont gardees par
+#: `test_477r21r1_formes_changestats_offline.py`. Comparer a l'ensemble complet ferait rougir ce
+#: fichier pour une couverture qui n'est pas la sienne.
+ACTIONS_D_EFFET = frozenset((StepType.ActivateEffect.name, StepType.ReceiveEffect.name,
+                             StepType.LoseEffect.name, StepType.DeactivateEffect.name))
+
+
 def test_le_corpus_de_reference_exerce_les_QUATRE_formes_d_action():
     """UN TEST QUI NE VOIT QU'UNE FORME NE GARDE QUE CELLE-LA. Le controle assertionne son propre
     non-vide : si un fragment disparaissait, la garde le dirait au lieu de retrecir en silence."""
     formes = {a.step for f in TOUS
               for p in P.parser_bloc1(_bloc1(f))["portes"]
               for a in _actions(p["obs"])}
-    assert formes == set(P.ACTIONS_PORTEES), formes
+    assert formes == set(ACTIONS_D_EFFET), formes
+    assert ACTIONS_D_EFFET < set(P.ACTIONS_PORTEES), (
+        "les quatre actions d'effet doivent rester un SOUS-ENSEMBLE STRICT du perimetre du "
+        "probe -- sinon `#477-r21-r1` a disparu du registre")
 
 
 def _actions(obs) -> list:
+    if isinstance(obs, P.ActionObs):
+        return [obs]
     if isinstance(obs, P.AbilityPowerObs):
         return [a for e in obs.enfants for a in _actions(e)]
     return list(obs.actions)
@@ -385,12 +399,34 @@ def test_execute_internal_n_emet_RIEN_de_lui_meme():
 
 # --- 9. LA CONTRE-EPREUVE : chaque mutation MORD puis rougit ----------------
 
-@pytest.mark.parametrize("mutation", list(P.MUTATIONS))
+def _domaines_du_corpus() -> dict:
+    return P.domaines([p for f in TOUS for p in P.parser_bloc1(_bloc1(f))["portes"]])
+
+
+#: ⚠ LE PARAMETRAGE EST DERIVE DU DOMAINE, PAS DE LA LISTE DES MUTATIONS. Une mutation qu'AUCUN
+#: site du corpus n'expose ne peut pas mordre : la compter rouge accuserait le port pour une
+#: absence de DONNEE. Celles-la sont figees NOMMEMENT par le test suivant, jamais tues.
+MUTATIONS_EXERCEES = tuple(m for m, d in _domaines_du_corpus().items() if d > 0)
+
+
+@pytest.mark.parametrize("mutation", list(MUTATIONS_EXERCEES))
 def test_chaque_mutation_est_CABLEE_et_rougit(mutation):
     sain = _emis(*TOUS)
     mute = _emis(*TOUS, mutation=mutation)
     assert mute != sain, "la mutation `%s` n'a PAS change le texte emis" % mutation
     assert CONF.comparer(sain, mute).divergences, "`%s` ne produit aucune divergence" % mutation
+
+
+def test_les_mutations_au_domaine_NUL_sont_NOMMEES_et_ce_sont_celles_de_r1():
+    """LE CONTROLE DU PARAMETRAGE CI-DESSUS. Sans lui, retirer un fragment du corpus ferait
+    disparaitre des mutations de la boucle SANS QUE RIEN NE LE DISE -- le vice exact que
+    `#455-r3` a nomme (un test qui ne s'execute plus n'echoue pas, il s'evapore)."""
+    dom = _domaines_du_corpus()
+    assert set(dom) == set(P.MUTATIONS), "le domaine ne couvre pas toutes les mutations"
+    nulles = {m for m, d in dom.items() if d == 0}
+    assert nulles == {"stat_table", "sans_transformed", "modifier_entity", "remove_step",
+                      "ability_tags_ammo"}, nulles
+    assert MUTATIONS_EXERCEES, "aucune mutation exercee -- la boucle ci-dessus serait VIDE"
 
 
 def test_une_mutation_INCONNUE_ne_mord_PAS():
@@ -404,19 +440,31 @@ def test_une_mutation_INCONNUE_ne_mord_PAS():
 def test_la_partition_MET_DE_COTE_un_sous_arbre_a_forme_non_portee():
     """Un sous-arbre qui porte une forme etrangere part HORS PERIMETRE EN ENTIER -- jamais
     ampute ligne a ligne, ce qui laisserait croire que le reste est comparable."""
-    avec_changestats = (
+    # ⚠ LA FORME ETRANGERE A CHANGE AVEC `#477-r21-r1` : `Action=ChangeStats` est desormais
+    # PORTEE (`TransformUnitOperation`), donc elle ne met plus rien de cote. Le temoin est
+    # maintenant `Action=Info`, qu'aucun module d'`engine/streams` ne produit.
+    avec_info = (
         "    Group=Ability_Power Entity=53 Source=RapidAssault InitialTarget=\n"
         "        Group=Effect_Refresh Entity=88 Source=RapidAssault_Movement InitialTarget=\n"
         "            Action=ActivateEffect Entity=53\n"
         "                Tag=Effect_Id:88\n"
-        "            Action=ChangeStats Entity=53\n"
-        "                Tag=UnitStats_Transformed:1\n"
+        "            Action=Info Entity=53\n"
+        "                Tag=Info_Type_Protection:1\n"
         "        Finish_Group\n"
         "    Finish_Group\n")
-    par = P.parser_bloc1(_bloc1(SOUS_ARBRE_SIMPLE, avec_changestats))
+    par = P.parser_bloc1(_bloc1(SOUS_ARBRE_SIMPLE, avec_info))
     assert len(par["portes"]) == 1 and len(par["hors"]) == 1
     assert par["hors"][0]["lignes"] == 8, "le sous-arbre ENTIER, pas les 2 lignes etrangeres"
     assert par["somme_exacte"] is True
+    # ... et le CONTRAIRE : le meme sous-arbre avec `ChangeStats` a la place entre au perimetre.
+    avec_changestats = avec_info.replace(
+        "Action=Info Entity=53\n"
+        "                Tag=Info_Type_Protection:1\n",
+        "Action=ChangeStats Entity=53\n"
+        "                Tag=UnitStats_Movement_Modification:1\n"
+        "                Tag=UnitStats_Transformed:1\n")
+    par = P.parser_bloc1(_bloc1(SOUS_ARBRE_SIMPLE, avec_changestats))
+    assert len(par["portes"]) == 2 and len(par["hors"]) == 0
 
 
 def test_la_somme_de_la_partition_est_EXACTE():

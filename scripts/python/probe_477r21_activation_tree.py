@@ -34,6 +34,37 @@ plutot que sous-entendu :
   (D5) LA COUVERTURE DES MIRRORS. Chaque `Source=` doit etre un membre du mirror correspondant
        (`EffectType`, `TriggeredAbilityType`) : un nom absent fait rougir, il n'est pas ignore.
 
+CE QUE `#477-r21-r1` Y A AJOUTE -- les formes `ChangeStats` / `ChangeAbility` du bloc 1
+--------------------------------------------------------------------------------------
+Elles sortent de TROIS operations natives distinctes, dont AUCUNE n'est
+`RefreshEffectsOperation` : `TransformUnitOperation$$Execute` (les `UnitStats_*_Modification*`
++ `UnitStats_Transformed`), `RemoveActiveAbilityOperation$$Execute` (un seul tag) et
+`AddActiveAbilityOperation$$Execute` (les six `UnitStats_ActiveAbility_*`). Quatre derivations
+de plus :
+
+  (D6) `Tag=UnitStats_Transformed` -- le port le pose SANS GARDE en tete de chaque
+       `Action=ChangeStats` de transformation ; le parseur ne le lui demande jamais ;
+  (D7) L'ENTITE DU MODIFICATEUR, reconstruite depuis le `Entity=` de l'entete du
+       `Group=Effect_Refresh` englobant -- le tag `..._Modification_Entity` est LU POUR RIEN.
+       C'est le jumeau exact de (D1) ;
+  (D8) LES CLES DE TAG, derivees de la table `StatType -> ModStatTransformConfig` lue dans
+       `TransformUnitOperation$$.cctor`. Le parseur donne un `StatType`, le port choisit trois
+       ordinaux -- que l'arithmetique ne donne pas (`Movement` numerote
+       `Modification/Entity/Change`, `MaxHealth` numerote `Modification/Change/Entity`) ;
+  (D9) L'AIGUILLAGE entre les trois producteurs, par deux invariants LUS : un retrait n'ecrit
+       qu'un tag, une transformation ecrit toujours `UnitStats_Transformed`, et seul l'ajout
+       emet un `StepType.ChangeAbility`.
+
+⚠ REGIME PUBLIE : `_Modification` et `_Modification_Change` sont EGAUX sur tous les couples des
+flux temoins (un seul modificateur par stat). L'egalite brute ne SEPARE donc pas ces deux cles
+ici -- le compte est imprime plutot que sous-entendu.
+
+⚠ CHAQUE MUTATION PORTE SON DOMAINE. Une mutation qui ne mord pas parce que le corpus n'a aucun
+site a muter (`domaine == 0`) est une ATTENTION, pas un ROUGE ; une mutation qui ne mord pas
+avec un domaine NON NUL reste un ROUGE. Sans ce compte, les deux se lisent pareil -- et le
+premier roster crafte (2v2) est exactement dans le premier cas pour les cinq mutations de
+`#477-r21-r1`.
+
 ⚠ CE PROBE NE PEUT PAS RENDRE « VERT » SUR LA SELECTION NI SUR LES IDENTIFIANTS, ET C'EST VOULU.
 Comme au cran precedent, l'amputation est CHIFFREE, ENUMEREE, et sa somme confrontee au total.
 
@@ -47,7 +78,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple  # noqa: F401
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -60,6 +91,10 @@ from engine.entities.triggered_ability_type import TriggeredAbilityType  # noqa:
 from engine.streams import GroupType, StepType, StreamCache, StreamDispatcher, TagKey  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.evaluate_trigger import evaluate_ability_trigger  # noqa: E402
+from engine.entities.stats import StatPart, StatType  # noqa: E402
+from engine.streams.active_ability_ops import (AddedActiveAbility,  # noqa: E402
+                                               add_active_ability,
+                                               remove_active_ability)
 from engine.streams.refresh_effects import (EffectSetup,  # noqa: E402
                                             add_activate_effect_action,
                                             add_deactivate_effect_action,
@@ -67,6 +102,13 @@ from engine.streams.refresh_effects import (EffectSetup,  # noqa: E402
                                             add_receive_effect_action,
                                             generate_event_group,
                                             get_refresh_effect_tags)
+from engine.streams.transform_unit import (FILL_STAT_TRANSFORM_CONFIG,  # noqa: E402
+                                           MOD_STAT_TRANSFORM_CONFIG,
+                                           StatModifierSetup, build_transform_tags,
+                                           transform_unit)
+from engine.streams.unit_extensions import ActiveAbilityState  # noqa: E402
+from engine.streams.unit_extensions import \
+    get_full_state_update_tags_for_active  # noqa: E402
 
 ROOT = HERE.parents[1]
 OUT = ROOT / "logs"
@@ -82,13 +124,68 @@ BOARDS_DEFAUT = ("C1_02", "MC1_67")
 #: SOIT d'autre part HORS PERIMETRE en entier -- jamais ampute ligne a ligne, ce qui laisserait
 #: croire que le reste est comparable.
 #:
-#: ⚠ CETTE LISTE EST DERIVEE DU PORT, PAS DU FLUX. Elle nomme exactement les six emissions
-#: portees par `engine/streams/refresh_effects.py` et `engine/streams/evaluate_trigger.py`. Ce
-#: qu'un flux montre en plus (`ChangeStats` d'une modification de stat, `ChangeAbility`, `Info`)
-#: sort d'autres artefacts natifs (`Effect.ApplyModification`, ...) et reste `#477-r21-r1`.
+#: ⚠ CETTE LISTE EST DERIVEE DU PORT, PAS DU FLUX. Elle nomme exactement les emissions portees
+#: par `engine/streams/refresh_effects.py`, `evaluate_trigger.py`, `transform_unit.py` et
+#: `active_ability_ops.py`. Ce qu'un flux montre en plus (`Action=Info`, ...) sort d'autres
+#: artefacts natifs et reste hors perimetre -- ENUMERE, jamais absorbe.
+#:
+#: ⚠ `ChangeStats` ET `ChangeAbility` Y SONT ENTREES AVEC `#477-r21-r1`. Elles sortent de TROIS
+#: operations natives distinctes, dont aucune n'est `RefreshEffectsOperation` :
+#: `TransformUnitOperation$$Execute`, `RemoveActiveAbilityOperation$$Execute` et
+#: `AddActiveAbilityOperation$$Execute`.
 ACTIONS_PORTEES = frozenset((StepType.ActivateEffect.name, StepType.ReceiveEffect.name,
-                             StepType.LoseEffect.name, StepType.DeactivateEffect.name))
+                             StepType.LoseEffect.name, StepType.DeactivateEffect.name,
+                             StepType.ChangeStats.name, StepType.ChangeAbility.name))
 GROUPES_PORTES = frozenset((GroupType.Ability_Power.name, GroupType.Effect_Refresh.name))
+
+#: Les SIX tags qu'`AddActiveAbilityOperation$$Execute` inline, nommes par le port.
+TAGS_ADD_ACTIVE = (TagKey.UnitStats_ActiveAbility_Id, TagKey.UnitStats_ActiveAbility_Level,
+                   TagKey.UnitStats_ActiveAbility_VariableMultiplierPercentage,
+                   TagKey.UnitStats_ActiveAbility_CanStillBeUsed,
+                   TagKey.UnitStats_ActiveAbility_RemainingCooldownTurns,
+                   TagKey.UnitStats_ActiveAbility_IsDisabled)
+
+
+def _tags_de_transformation() -> frozenset:
+    """Les `TagKey` qu'une `Action=ChangeStats` de `TransformUnitOperation` peut porter.
+
+    ⚠ DERIVEE DES TABLES DU PORT, ET C'EST VOULU : c'est le PERIMETRE (« cette forme est-elle
+    portee ? »), jamais une valeur. Un `StatType` que le port ne connait pas sort donc du
+    perimetre au lieu d'etre ampute -- exactement la regle du reste de ce probe."""
+    out = {int(TagKey.UnitStats_Transformed), int(TagKey.UnitStats_Modification_Hidden),
+           int(TagKey.UnitStats_NumberOfMembers), int(TagKey.UnitStats_ActiveAbility_Level)}
+    for cfg in MOD_STAT_TRANSFORM_CONFIG.values():
+        out.update((int(cfg.current_key), int(cfg.modification_key),
+                    int(cfg.modification_change_key), int(cfg.modification_entity_key),
+                    int(cfg.override_key), int(cfg.override_entity_key),
+                    int(cfg.override_is_modifiable_key)))
+    for fcfg in FILL_STAT_TRANSFORM_CONFIG.values():
+        out.update((int(fcfg.remaining_key), int(fcfg.max_key), int(fcfg.modification_key),
+                    int(fcfg.modification_change_key), int(fcfg.modification_entity_key),
+                    int(fcfg.override_key), int(fcfg.override_entity_key),
+                    int(fcfg.override_is_modifiable_key)))
+    out.discard(int(TagKey.UnitStats_Unimplemented))
+    return frozenset(out)
+
+
+def _table_inverse_stat() -> Dict[int, Tuple[int, str]]:
+    """`<ordinal de TagKey>` -> `(StatType, role)`, role dans `total` / `change` / `entity`.
+
+    ⚠ C'EST LE PENDANT DE `TAG_VERS_CHAMP`, ET ELLE EST DECLAREE EN BORNE (c) POUR LA MEME
+    RAISON : le port choisit quelle cle porte quelle grandeur, ce parseur refait le chemin en
+    sens inverse. Elle ne mesure donc RIEN par elle-meme.
+    Ce qui reste MESURE est enumere en (D6)..(D9) -- et le role `entity` n'est JAMAIS consomme :
+    l'entite du modificateur est RECONSTRUITE depuis l'entete du groupe (D7)."""
+    out: Dict[int, Tuple[int, str]] = {}
+    for stat_type, cfg in MOD_STAT_TRANSFORM_CONFIG.items():
+        out[int(cfg.modification_key)] = (int(stat_type), "total")
+        out[int(cfg.modification_change_key)] = (int(stat_type), "change")
+        out[int(cfg.modification_entity_key)] = (int(stat_type), "entity")
+    for stat_type, fcfg in FILL_STAT_TRANSFORM_CONFIG.items():
+        out[int(fcfg.modification_key)] = (int(stat_type), "total")
+        out[int(fcfg.modification_change_key)] = (int(stat_type), "change")
+        out[int(fcfg.modification_entity_key)] = (int(stat_type), "entity")
+    return out
 
 #: LA TRADUCTION INVERSE `Tag=` -> champ d'`EffectSetup`. ELLE EST COPIEE DU PORT, ET C'EST LA
 #: PLUS GROSSE ENTREE DE LA BORNE (c) : le port choisit quel champ produit quel tag, le probe
@@ -234,14 +331,16 @@ def parser_bloc1(bloc1: List[str]) -> dict:
 
 
 def _formes_portees() -> frozenset:
+    tags = (list(TAG_VERS_CHAMP)
+            + [TagKey.Effect_Id.name, TagKey.Effect_State_Level.name,
+               TagKey.Effect_State_VariableMultiplierPercentage.name,
+               TagKey.UnitStats_RemoveActiveAbility.name]
+            + [t.name for t in TAGS_ADD_ACTIVE]
+            + [TagKey(o).name for o in _tags_de_transformation()])
     return frozenset(["Group=%s" % g for g in GROUPES_PORTES]
                      + ["Action=%s" % a for a in ACTIONS_PORTEES]
                      + ["Finish_Group"]
-                     + ["Tag=%s" % t for t in
-                        (list(TAG_VERS_CHAMP) + [TagKey.Effect_Id.name,
-                                                 TagKey.Effect_State_Level.name,
-                                                 TagKey.Effect_State_VariableMultiplierPercentage
-                                                 .name])])
+                     + ["Tag=%s" % t for t in tags])
 
 
 def _formes(lignes: List[str]) -> frozenset:
@@ -275,11 +374,24 @@ def _lire_sous_arbre(sous: List[str]):
         k = 1
         while k < len(sous) - 1:
             me = CONF.RE_GROUP.match(sous[k])
-            if not me:
+            if me:
+                fin = _bloc(sous, k)
+                ap.enfants.append(_lire_sous_arbre(sous[k:fin + 1]))
+                k = fin + 1
+                continue
+            # ⚠ UN `Ability_Power` PORTE AUSSI DES ACTIONS DIRECTES, sans `Effect_Refresh`
+            # intermediaire : c'est le motif `TwistedScience` (`RemoveActiveAbilityOperation`
+            # puis `AddActiveAbilityOperation`, appelees par le behaviour DSL de l'ability).
+            ma = CONF.RE_ACTION.match(sous[k])
+            if not ma:
                 raise MesureImpossible("enfant inattendu dans `Ability_Power` : [%s]" % sous[k])
-            fin = _bloc(sous, k)
-            ap.enfants.append(_lire_sous_arbre(sous[k:fin + 1]))
-            k = fin + 1
+            act = ActionObs(step=ma.group("sym"), entity=_entite(ma.group("entity")))
+            k += 1
+            while k < len(sous) - 1 and CONF.RE_TAG.match(sous[k]):
+                mt = CONF.RE_TAG.match(sous[k])
+                act.tags.append((mt.group("sym"), int(mt.group("value"))))
+                k += 1
+            ap.enfants.append(act)
         return ap
     er = EffectRefreshObs(effect_entity=_entite(m.group("entity")),
                           effect_type_name=m.group("source"))
@@ -319,6 +431,142 @@ def _setup(er: EffectRefreshObs) -> EffectSetup:
                        effect_type=int(EffectType[er.effect_type_name]), **champs)
 
 
+_TABLE_INVERSE_STAT = _table_inverse_stat()
+
+
+def _nom_stat(valeur: int) -> str:
+    try:
+        return StatType(int(valeur)).name
+    except ValueError:
+        return str(int(valeur))
+
+
+def _tag(act: ActionObs, cle: TagKey) -> Optional[int]:
+    for nom, val in act.tags:
+        if nom == cle.name:
+            return val
+    return None
+
+
+def _est_retrait_ability(act: ActionObs) -> bool:
+    return _tag(act, TagKey.UnitStats_RemoveActiveAbility) is not None
+
+
+def _est_transformation(act: ActionObs) -> bool:
+    return _tag(act, TagKey.UnitStats_Transformed) is not None
+
+
+def _setups_stat(act: ActionObs, entite_modificateur: int,
+                 mutation: str = "") -> List[StatModifierSetup]:
+    """Les `StatModifierSetup` d'une `Action=ChangeStats` de transformation.
+
+    ⚠ L'ENTITE DU MODIFICATEUR NE VIENT PAS DU TAG, C'EST (D7). Le parseur la prend dans le
+    `Entity=` de l'entete du `Group=Effect_Refresh` englobant -- le meme canal unique que (D1)
+    pour `Effect_Id`. Le tag `..._Modification_Entity` est LU pour rien : le port le
+    reconstruit.
+
+    ⚠ LE `StatPart` EST UNE CONSTANTE, ET LE CORPUS NE PEUT PAS LA TRANCHER.
+    `AddTagsForModifiable` partage le MEME corps entre `StatPart.Modification` (5) et
+    `MultiplierModification` (9) : les deux produisent un texte identique. Le probe ecrit
+    `Modification` et le DIT, plutot que de laisser croire qu'il l'a mesure."""
+    par_stat: Dict[int, Dict[str, int]] = {}
+    for nom, val in act.tags:
+        ordinal = int(TagKey[nom])
+        if ordinal not in _TABLE_INVERSE_STAT:
+            continue
+        stat_type, role = _TABLE_INVERSE_STAT[ordinal]
+        par_stat.setdefault(stat_type, {})[role] = val
+    if not par_stat:
+        raise MesureImpossible(
+            "`Action=%s` declaree portee mais sans aucun tag de modification reconnu : %s"
+            % (StepType.ChangeStats.name, [n for n, _v in act.tags]))
+    connus = sorted(MOD_STAT_TRANSFORM_CONFIG)
+    out: List[StatModifierSetup] = []
+    for stat_type in sorted(par_stat):
+        roles = par_stat[stat_type]
+        if "total" not in roles:
+            raise MesureImpossible(
+                "`Action=%s` sur StatType=%s sans cle de modification totale"
+                % (StepType.ChangeStats.name, stat_type))
+        cible = stat_type
+        if mutation == "stat_table" and stat_type in connus:
+            # la config d'un AUTRE `StatType` : memes valeurs, cles de tag differentes
+            cible = connus[(connus.index(stat_type) + 1) % len(connus)]
+        entite = entite_modificateur
+        if mutation == "modifier_entity":
+            entite = entite + 1
+        out.append(StatModifierSetup(
+            stat_type=cible, stat_part=StatPart.MODIFICATION,
+            entity_id=entite if "change" in roles else None,
+            stat_current=roles["total"], stat_from_modifier=roles.get("change")))
+    return out
+
+
+def _ability_ajoutee(act: ActionObs) -> AddedActiveAbility:
+    manquants = [t.name for t in TAGS_ADD_ACTIVE if _tag(act, t) is None]
+    if manquants:
+        raise MesureImpossible("`Action=%s` sans les tags %s"
+                               % (StepType.ChangeAbility.name, ",".join(manquants)))
+    return AddedActiveAbility(
+        ability_name=_tag(act, TagKey.UnitStats_ActiveAbility_Id),
+        level=_tag(act, TagKey.UnitStats_ActiveAbility_Level),
+        variable_multiplier_percentage=_tag(
+            act, TagKey.UnitStats_ActiveAbility_VariableMultiplierPercentage),
+        can_still_be_used=bool(_tag(act, TagKey.UnitStats_ActiveAbility_CanStillBeUsed)),
+        remaining_cooldown_turns=_tag(act, TagKey.UnitStats_ActiveAbility_RemainingCooldownTurns),
+        is_disabled=bool(_tag(act, TagKey.UnitStats_ActiveAbility_IsDisabled)))
+
+
+def emettre_action_stat(events: StreamDispatcher, act: ActionObs, entite_modificateur: int,
+                        mutation: str = "") -> None:
+    """Emet une `Action=ChangeStats` / `ChangeAbility` AVEC LE PORT -- `#477-r21-r1`.
+
+    ⚠ L'AIGUILLAGE ENTRE LES TROIS PRODUCTEURS EST (D9), ET IL EST DERIVE D'UN INVARIANT LU :
+    `RemoveActiveAbilityOperation` ecrit UN SEUL tag (`UnitStats_RemoveActiveAbility`),
+    `TransformUnitOperation` ecrit TOUJOURS `UnitStats_Transformed` (sans garde, avant sa
+    boucle), et `AddActiveAbilityOperation` est la seule des trois a emettre un
+    `StepType.ChangeAbility`. Une `Action=ChangeStats` qui ne porte aucun des deux marqueurs
+    sort du perimetre au lieu d'etre devinee."""
+    if act.step == StepType.ChangeAbility.name:
+        if mutation == "ability_tags_ammo":
+            # `GetFullStateUpdateTags(activeAbility)` A LA PLACE de l'inline natif : la
+            # surcharge d'`UnitExtensions` ajoute DEUX tags de munitions que
+            # `AddActiveAbilityOperation` n'ecrit jamais.
+            a = _ability_ajoutee(act)
+            events.action(StepType.ChangeAbility, act.entity,
+                          get_full_state_update_tags_for_active(ActiveAbilityState(
+                              ability_name=a.ability_name, level=a.level,
+                              variable_multiplier_percentage=a.variable_multiplier_percentage,
+                              can_still_be_used=a.can_still_be_used,
+                              remaining_cooldown_turns=a.remaining_cooldown_turns,
+                              is_disabled=a.is_disabled, ammo_cost=0)))
+            return
+        add_active_ability(events, act.entity, _ability_ajoutee(act))
+        return
+    if _est_retrait_ability(act):
+        cible = _tag(act, TagKey.UnitStats_RemoveActiveAbility)
+        if mutation == "remove_step":
+            # meme entite, meme tag, SEULE la `StepType` change (`ChangeStats` -> `ChangeAbility`)
+            events.action(StepType.ChangeAbility, act.entity,
+                          {int(TagKey.UnitStats_RemoveActiveAbility): int(cible)})
+            return
+        remove_active_ability(events, act.entity, cible)
+        return
+    if not _est_transformation(act):
+        raise MesureImpossible(
+            "`Action=%s` sans `Tag=%s` ni `Tag=%s` -- producteur natif non identifie"
+            % (act.step, TagKey.UnitStats_Transformed.name,
+               TagKey.UnitStats_RemoveActiveAbility.name))
+    setups = _setups_stat(act, entite_modificateur, mutation)
+    if mutation == "sans_transformed":
+        # le tag INCONDITIONNEL de `TransformUnitOperation$$Execute`, retire
+        tags = dict(build_transform_tags(setups))
+        tags.pop(int(TagKey.UnitStats_Transformed), None)
+        events.action(StepType.ChangeStats, act.entity, tags)
+        return
+    transform_unit(events, act.entity, setups)
+
+
 def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> None:
     """Re-emet un sous-arbre observe AVEC LE PORT. `mutation` est le levier des contre-epreuves.
 
@@ -339,6 +587,13 @@ def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> Non
         if obs.enfants:
             def corps() -> None:  # noqa: E306
                 for e in obs.enfants:
+                    if isinstance(e, ActionObs):
+                        # ⚠ ENTITE DU MODIFICATEUR : il n'y a PAS de `Group=Effect_Refresh`
+                        # englobant ici, donc rien a en deriver -- et le motif confronte
+                        # (`TwistedScience`) n'en a pas besoin : ses deux actions sont des
+                        # operations d'ABILITY, pas de stat.
+                        emettre_action_stat(events, e, e.entity, mutation)
+                        continue
                     emettre_sous_arbre(events, e, mutation)
         evaluate_ability_trigger(events, obs.unit_entity, ordinal, None, corps)
         return
@@ -376,6 +631,15 @@ def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> Non
         elif act.step == StepType.ReceiveEffect.name:
             actions.append(lambda c=act.entity, s=setup: add_receive_effect_action(
                 events, c, get_refresh_effect_tags(s, StepType.ReceiveEffect)))
+        elif act.step in (StepType.ChangeStats.name, StepType.ChangeAbility.name):
+            # ⚠ CE N'EST PAS `RefreshEffectsOperation` QUI L'EMET. C'est la DERNIERE closure de
+            # la `List<Action>` construite par `UpdateEffectTargets` --
+            # `ApplyEffectsForTargets` -> `AStatModifierEffect$$ApplyModification` ->
+            # `TransformUnitOperation$$Execute`. Le port la glisse donc dans `event_actions`,
+            # exactement comme le natif : `generate_event_group` prend une SEQUENCE de
+            # callables pour cette raison-la.
+            actions.append(lambda a=act, e=obs.effect_entity:
+                           emettre_action_stat(events, a, e, mutation))
         else:
             raise MesureImpossible("action `%s` dans un sous-arbre declare porte" % act.step)
     if mutation == "ouverture_vide":
@@ -425,7 +689,10 @@ def emettre(portes: List[dict], mutation: str = "") -> str:
 
 
 MUTATIONS = ("effect_id", "effect_source", "ability_source", "placement", "step_activate",
-             "tags_activate", "sans_source_id", "ouverture_vide")
+             "tags_activate", "sans_source_id", "ouverture_vide",
+             # `#477-r21-r1`
+             "stat_table", "sans_transformed", "modifier_entity", "remove_step",
+             "ability_tags_ammo")
 
 
 def derivations(portes: List[dict]) -> dict:
@@ -434,10 +701,49 @@ def derivations(portes: List[dict]) -> dict:
     Une derivation qu'aucune donnee du corpus n'exerce ne prouve rien, quel que soit le verdict.
     Ce compte est ce qui distingue « (D3) tient » de « (D3) n'a rien eu a trancher »."""
     d1 = d2 = d3 = d4_vides = d4_pleins = 0
+    d6_transform = d7_entites = d9_retrait = d9_add = 0
+    degeneres = exercees = 0
     noms_effect, noms_ability = set(), set()
+    stats_exercees = set()
+
+    def _compter_action_stat(act: ActionObs) -> None:
+        # ⚠ PAS DE `d1` ICI, ET C'EST VOULU : (D1) compte les actions dont le port RECONSTRUIT
+        # `Tag=Effect_Id`, or aucune des trois formes de `#477-r21-r1` ne le porte. Les y
+        # ajouter gonflerait un compte d'exercice avec des sites qui n'exercent PAS la
+        # derivation -- exactement ce qu'un compte d'exercice doit interdire.
+        nonlocal d2, d6_transform, d7_entites, d9_retrait, d9_add, degeneres, exercees
+        noms = [n for n, _v in act.tags]
+        if len(noms) > 1 and noms != sorted(noms):
+            d2 += 1
+        if act.step == StepType.ChangeAbility.name:
+            d9_add += 1
+            return
+        if _est_retrait_ability(act):
+            d9_retrait += 1
+            return
+        if not _est_transformation(act):
+            return
+        d6_transform += 1
+        par_stat: Dict[int, Dict[str, int]] = {}
+        for nom, val in act.tags:
+            ordinal = int(TagKey[nom])
+            if ordinal in _TABLE_INVERSE_STAT:
+                stat_type, role = _TABLE_INVERSE_STAT[ordinal]
+                par_stat.setdefault(stat_type, {})[role] = val
+        for stat_type, roles in par_stat.items():
+            stats_exercees.add(stat_type)
+            if "entity" in roles:
+                d7_entites += 1
+            if "change" in roles and "total" in roles:
+                exercees += 1
+                if roles["change"] != roles["total"]:
+                    degeneres += 1
 
     def _visiter(obs) -> None:
         nonlocal d1, d2, d3, d4_vides, d4_pleins
+        if isinstance(obs, ActionObs):
+            _compter_action_stat(obs)
+            return
         if isinstance(obs, AbilityPowerObs):
             noms_ability.add(obs.triggered_ability_name)
             if obs.enfants:
@@ -456,6 +762,9 @@ def derivations(portes: List[dict]) -> dict:
         if porteurs and cibles and porteurs != cibles:
             d3 += 1
         for act in obs.actions:
+            if act.step in (StepType.ChangeStats.name, StepType.ChangeAbility.name):
+                _compter_action_stat(act)
+                continue
             d1 += 1
             noms = [n for n, _v in act.tags]
             if len(noms) > 1 and noms != sorted(noms):
@@ -465,7 +774,11 @@ def derivations(portes: List[dict]) -> dict:
         _visiter(p["obs"])
     return {"d1_actions": d1, "d2_blocs_hors_ordre_alpha": d2, "d3_sous_arbres": d3,
             "d4_ability_power_vides": d4_vides, "d4_ability_power_pleins": d4_pleins,
-            "d5_noms_effect": len(noms_effect), "d5_noms_ability": len(noms_ability)}
+            "d5_noms_effect": len(noms_effect), "d5_noms_ability": len(noms_ability),
+            "d6_transformations": d6_transform, "d7_entites_reconstruites": d7_entites,
+            "d8_stats_exercees": sorted(stats_exercees),
+            "d9_retraits": d9_retrait, "d9_ajouts": d9_add,
+            "r1_total_diff_change": degeneres, "r1_couples": exercees}
 
 
 def effect_refresh_comparables(portes: List[dict], hors: List[dict]) -> dict:
@@ -482,6 +795,8 @@ def effect_refresh_comparables(portes: List[dict], hors: List[dict]) -> dict:
     REFUTE par la mesure (0 / 42). Le second chiffre ci-dessous est la meme grandeur, et il est
     MESURE, jamais deduit du premier."""
     def _compter(obs) -> int:
+        if isinstance(obs, ActionObs):
+            return 0
         if isinstance(obs, AbilityPowerObs):
             return sum(_compter(e) for e in obs.enfants)
         return 1
@@ -503,6 +818,8 @@ def _ids_effet(portes: List[dict]) -> set:
     out = set()
 
     def _visiter(obs) -> None:
+        if isinstance(obs, ActionObs):
+            return
         if isinstance(obs, AbilityPowerObs):
             for e in obs.enfants:
                 _visiter(e)
@@ -512,6 +829,52 @@ def _ids_effet(portes: List[dict]) -> set:
     for p in portes:
         _visiter(p["obs"])
     return out
+
+
+def domaines(portes: List[dict]) -> Dict[str, int]:
+    """LE NOMBRE DE SITES QUE CHAQUE MUTATION PEUT TOUCHER -- calcule DEPUIS LES DONNEES.
+
+    ⚠ SANS CE COMPTE, DEUX ECHECS DIFFERENTS SE LISENT PAREIL. Une mutation qui ne mord pas
+    parce qu'elle est INERTE PAR CONSTRUCTION (elle ne change rien a ce qu'elle mute) est un
+    ROUGE : elle ne mesure rien, quel que soit son verdict. Une mutation qui ne mord pas parce
+    que le corpus n'a AUCUN site a muter est une ATTENTION : elle n'a rien pu mesurer ICI, ce
+    qui n'accuse ni le port ni elle. Les distinguer demande un domaine, pas un verdict --
+    mesure sur le roster 2v2, ou les cinq mutations de `#477-r21-r1` ont un domaine NUL parce
+    que ce roster ne produit aucune de ces trois formes."""
+    d = {nom: 0 for nom in MUTATIONS}
+    der = derivations(portes)
+
+    def _visiter(obs) -> None:
+        if isinstance(obs, ActionObs):
+            if obs.step == StepType.ChangeAbility.name:
+                d["ability_tags_ammo"] += 1
+            elif _est_retrait_ability(obs):
+                d["remove_step"] += 1
+            elif _est_transformation(obs):
+                d["stat_table"] += 1
+                d["sans_transformed"] += 1
+                d["modifier_entity"] += 1
+            return
+        if isinstance(obs, AbilityPowerObs):
+            d["ability_source"] += 1
+            for e in obs.enfants:
+                _visiter(e)
+            return
+        d["effect_id"] += 1
+        d["effect_source"] += 1
+        d["sans_source_id"] += 1
+        d["ouverture_vide"] += 1
+        for act in obs.actions:
+            if act.step == StepType.ActivateEffect.name:
+                d["step_activate"] += 1
+                d["tags_activate"] += 1
+            elif act.step in (StepType.ChangeStats.name, StepType.ChangeAbility.name):
+                _visiter(act)
+
+    for p in portes:
+        _visiter(p["obs"])
+    d["placement"] = der["d3_sous_arbres"]
+    return d
 
 
 def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
@@ -571,6 +934,7 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
     der = derivations(par["portes"])
     eff = effect_refresh_comparables(par["portes"], par["hors"])
 
+    dom = domaines(par["portes"])
     ce = []
     for nom in MUTATIONS:
         try:
@@ -579,7 +943,7 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
             texte = texte_port
         a_morde = texte != texte_port
         r = CONF.comparer(natif_porte, texte)
-        ce.append((nom, a_morde, len(r.nouvelles) + len(r.connues)))
+        ce.append((nom, a_morde, len(r.nouvelles) + len(r.connues), dom[nom]))
 
     for nom, contenu in (("natif-porte", natif_porte), ("port", texte_port),
                          ("natif-bloc1", "\n".join(dec["bloc1"]) + "\n")):
@@ -622,6 +986,22 @@ def imprimer(res: dict) -> None:
              der["d4_ability_power_pleins"], GroupType.Effect_Refresh.name))
     print("      (D5) couverture des mirrors : %d nom(s) `EffectType`, %d nom(s) "
           "`TriggeredAbilityType`" % (der["d5_noms_effect"], der["d5_noms_ability"]))
+    print("      (D6) `Tag=%s` pose sans garde sur %d `Action=%s` de transformation"
+          % (TagKey.UnitStats_Transformed.name, der["d6_transformations"],
+             StepType.ChangeStats.name))
+    print("      (D7) entite du modificateur reconstruite depuis l'entete du groupe : %d tag(s) "
+          "`..._Modification_Entity` que le port NE LIT PAS" % der["d7_entites_reconstruites"])
+    print("      (D8) cles de tag derivees de la table `StatType -> config` : StatType %s"
+          % (",".join(_nom_stat(s) for s in der["d8_stats_exercees"]) or "-"))
+    print("      (D9) aiguillage des 3 producteurs : %d retrait(s) d'ability, %d ajout(s), "
+          "%d transformation(s)"
+          % (der["d9_retraits"], der["d9_ajouts"], der["d6_transformations"]))
+    if der["r1_couples"]:
+        print("      REGIME : `_Modification` != `_Modification_Change` sur %d / %d couple(s) -- "
+              "%s" % (der["r1_total_diff_change"], der["r1_couples"],
+                      "les deux cles sont DISCRIMINEES"
+                      if der["r1_total_diff_change"] else
+                      "EGAUX partout : l'egalite du flux NE SEPARE PAS ces deux cles ici"))
     print("  `%s` DANS LE BLOC 1 : %d REPRODUIT(s) a l'egalite brute (donnees fournies), "
           "%d hors perimetre" % (GroupType.Effect_Refresh.name, eff["reproduits"],
                                  eff["hors_perimetre"]))
@@ -633,10 +1013,19 @@ def imprimer(res: dict) -> None:
              len(res["voc_porte"]["TagKey"]),
              ",".join(sorted(res["voc_porte"]["StepType"]))))
     print("  CONTRE-EPREUVE (%d mutations, chacune doit MORDRE puis rougir) :" % len(MUTATIONS))
-    for nom, a_morde, divs in res["contre_epreuve"]:
-        print("      %-18s a_morde=%-5s divergences=%-4d %s"
-              % (nom, a_morde, divs, "OK" if (a_morde and divs) else "ROUGE"))
-        if not a_morde:
+    for nom, a_morde, divs, dom in res["contre_epreuve"]:
+        if dom == 0:
+            etat = "NON EXERCEE"
+        elif a_morde and divs:
+            etat = "OK"
+        else:
+            etat = "ROUGE"
+        print("      %-18s domaine=%-4d a_morde=%-5s divergences=%-4d %s"
+              % (nom, dom, a_morde, divs, etat))
+        if dom == 0:
+            print("          - domaine NUL : aucun site a muter dans ce scenario. La mutation "
+                  "n'a rien pu mesurer ICI -- ce n'est pas une inertie de construction.")
+        elif not a_morde:
             print("          ! la mutation n'a PAS change ce qu'elle mute -- elle ne mesure "
                   "rien, quel que soit son verdict.")
     for ligne in CONF.rapport(res["rapport"]):
@@ -666,6 +1055,17 @@ def main() -> int:
         # tombe d'un facteur 3,7. Il DEPLACE le regime au lieu de rejouer le meme.
         plans.append(("MC1_67", "adeptHospitaller,astraBullgryn",
                       "blackTerminator,worldJakhal", "MC1_67-2v2"))
+        # ⚠ LE SECOND ROSTER CRAFTE EXISTE PARCE QUE LE PREMIER NE PROUVE RIEN SUR
+        # `#477-r21-r1` : il porte ZERO `ChangeStats` / `ChangeAbility`, donc les cinq
+        # mutations de cette tranche y ont un domaine NUL. Celui-ci est choisi PAR PORTEUR,
+        # sur les trois voies mesurees par `unit_map.py find --ability` :
+        #   `custoVexilusPraetor` -> `StandVigil`     (1308) -> `UnitStats_FixedArmor_*`
+        #   `bloodIntercessor`    -> `RapidAssault`   (1188) -> `UnitStats_Movement_*`
+        #   `genesBiophagus`      -> `TwistedScience`        -> Remove + Add d'ability active
+        # Il joue sur un board DIFFERENT des deux precedents, pour que l'accord ne puisse pas
+        # venir d'une geometrie partagee.
+        plans.append(("C1_02", "custoVexilusPraetor,bloodIntercessor",
+                      "genesBiophagus,astraBullgryn", "C1_02-r1"))
     print("[477-r21] session=%d  scenarios=%s  tours=%d"
           % (session, ",".join(p[3] for p in plans), args.tours))
 
@@ -714,11 +1114,29 @@ def main() -> int:
               % ",".join(vide))
         rc = 1
     ce_ko = [(r["etiquette"], nom) for r in resultats
-             for nom, a_morde, divs in r["contre_epreuve"] if not (a_morde and divs)]
+             for nom, a_morde, divs, dom in r["contre_epreuve"]
+             if dom > 0 and not (a_morde and divs)]
     if ce_ko:
-        print("  ROUGE : %d mutation(s) NE ROUGISSENT PAS -- le vert du scenario sain ne prouve "
-              "alors rien : %s" % (len(ce_ko), ", ".join("%s/%s" % (b, n) for b, n in ce_ko)))
+        print("  ROUGE : %d mutation(s) NE ROUGISSENT PAS malgre un domaine NON NUL -- le vert "
+              "du scenario sain ne prouve alors rien : %s"
+              % (len(ce_ko), ", ".join("%s/%s" % (b, n) for b, n in ce_ko)))
         rc = 1
+    # ⚠ UNE MUTATION QU'AUCUN SCENARIO N'EXERCE EST UN ROUGE DU CORPUS, pas une attention : elle
+    # est alors ecrite sans que rien ne la confronte, exactement comme les deux mutations
+    # retirees de cette tranche parce qu'inertes par construction.
+    jamais = [nom for nom in MUTATIONS
+              if all(dom == 0 for r in resultats
+                     for n, _m, _d, dom in r["contre_epreuve"] if n == nom)]
+    if jamais:
+        print("  ROUGE : %d mutation(s) au domaine NUL sur TOUS les scenarios -- rien ne les "
+              "confronte : %s" % (len(jamais), ", ".join(jamais)))
+        rc = 1
+    non_exercees = [(r["etiquette"], nom) for r in resultats
+                    for nom, _m, _d, dom in r["contre_epreuve"] if dom == 0]
+    if non_exercees:
+        print("  ATTENTION : %d couple(s) scenario/mutation au domaine NUL -- le vert de ce "
+              "scenario ne dit rien sur elles : %s"
+              % (len(non_exercees), ", ".join("%s/%s" % (b, n) for b, n in non_exercees)))
     inertes = [(r["etiquette"], cle) for r in resultats for cle in
                ("d1_actions", "d3_sous_arbres", "d4_ability_power_vides")
                if r["derivations"][cle] == 0]
@@ -730,9 +1148,10 @@ def main() -> int:
               "l'EGALITE BRUTE, donnees fournies."
               % ("/".join(str(len(r["partition"]["portes"])) for r in resultats),
                  GroupType.Ability_Power.name, GroupType.Effect_Refresh.name))
-        print("  NON COUVERT : les formes `ChangeStats` / `ChangeAbility` du bloc "
-              "(`#477-r21-r1`) et la SELECTION (`#477-r21-r2`) -- dont la SEQUENCE DE CREATION "
-              "des effets, seul terme qui manque encore a l'allocateur porte par `#477-r21-r3`. "
+        print("  NON COUVERT : la SELECTION (`#477-r21-r2`) -- dont la SEQUENCE DE CREATION "
+              "des effets, seul terme qui manque encore a l'allocateur porte par `#477-r21-r3`, "
+              "et l'ORDRE des six blocs d'`eventActions` que fixe "
+              "`RefreshEffectsOperation$$UpdateEffectTargets`. "
               "`%s` AUTONOMES : %s -- mesure, pas deduite."
               % (GroupType.Effect_Refresh.name,
                  "/".join(str(r["effect_refresh"]["autonomes"]) for r in resultats)))

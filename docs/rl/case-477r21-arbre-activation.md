@@ -5,6 +5,12 @@ Le port reproduit à l'**égalité brute** **363 / 447**, **392 / 491** et **131
 bloc 1, sur trois scénarios. **34 / 36 / 12 `Effect_Refresh`** deviennent reproductibles ;
 **0** devient AUTONOME, et ce zéro est **mesuré**, pas déduit — § 5.
 
+⚠ **CES TROIS CHIFFRES SONT CEUX DE CETTE TRANCHE-LÀ, ET ILS ONT ÉTÉ DÉPASSÉS.** #477-r21-r1 a
+porté les formes que ce cran écartait : le bloc 1 vaut aujourd'hui **447 / 447**, **491 / 491**,
+**131 / 131** et **199 / 199** (quatrième scénario), **0** ligne écartée, **40 / 42 / 12 / 18**
+`Effect_Refresh` reproduits. Les re-dériver (`probe_477r21_activation_tree.py`), jamais citer
+cette ligne.
+
 ```powershell
 python scripts/python/probe_477r21_activation_tree.py          # live, 3 scenarios
 python -m pytest scripts/python/tests/engine/test_477r21_activation_tree_offline.py -q
@@ -126,11 +132,11 @@ périmètre (84 → 0). C'est le seul des trois où le bloc 1 est porté **inté
 montre que les 84 / 99 lignes écartées ailleurs sont une propriété du **roster**, pas une limite
 structurelle du port.
 
-### Ce qui reste HORS PÉRIMÈTRE, énuméré
+### Ce qui restait HORS PÉRIMÈTRE — **PORTÉ depuis #477-r21-r1**
 
 Un sous-arbre part hors périmètre **en entier** dès qu'il porte une forme non portée — jamais
 amputé ligne à ligne, ce qui laisserait croire que le reste est comparable. Les **4** sous-arbres
-écartés sur chacun des deux boards par défaut se ventilent en **trois** motifs :
+écartés sur chacun des deux boards par défaut se ventilaient en **trois** motifs :
 
 | motif | occ. |
 |---|---:|
@@ -138,8 +144,19 @@ amputé ligne à ligne, ce qui laisserait croire que le reste est comparable. Le
 | `Action=ChangeStats` + les 4 `Tag=UnitStats_FixedArmor_Modification*` / `UnitStats_Transformed` | 1 |
 | `Action=ChangeAbility` + `Action=ChangeStats` + les 6 `Tag=UnitStats_ActiveAbility_*` + `UnitStats_RemoveActiveAbility` | 1 |
 
-Ces lignes sortent d'`Effect.ApplyModification` et de la transformation d'ability, pas de
-`RefreshEffectsOperation` — résidu **#477-r21-r1**.
+⚠ **LES TROIS SONT ENTRÉS, ET LE TABLEAU DU § 3 EST DONC PÉRIMÉ SUR SA COLONNE « HORS ».**
+#477-r21-r1 a porté les **trois** opérations natives d'où elles sortent — `TransformUnitOperation`,
+`RemoveActiveAbilityOperation`, `AddActiveAbilityOperation` — et le bloc 1 est désormais reproduit
+**INTÉGRALEMENT** : **447 / 447**, **491 / 491**, **131 / 131**, plus **199 / 199** sur un
+quatrième scénario crafté. Les 84 / 99 lignes valent **0**. Détail :
+`docs/rl/case-477r21r1-formes-changestats.md`.
+
+⚠ Et le résidu se trompait sur **un** point de cadrage : la ligne ne sort pas d'
+`Effect.ApplyModification` *elle-même* mais de `TransformUnitOperation$$Execute`, qu'un arbre DSL
+`ChangeStat` atteint — et elle tombe **dans** le groupe parce que
+`RefreshEffectsOperation$$UpdateEffectTargets` fait d'`ApplyEffectsForTargets` la **dernière
+entrée différée** de sa `List<Action>`. Cet ordre-là reste **copié** : il appartient à
+**#477-r21-r2**.
 
 ## 4. Ce qui est MESURÉ, et ce qui est COPIÉ
 
@@ -221,7 +238,8 @@ ne mord pas sur le cas nominal.
 
 ## 7. Ce qui n'est PAS couvert
 
-- **Les 84 / 99 lignes hors périmètre** (§ 3) → **#477-r21-r1**.
+- ~~**Les 84 / 99 lignes hors périmètre** (§ 3)~~ → **PORTÉES** par **#477-r21-r1**. Le bloc 1 est
+  reproduit intégralement sur quatre scénarios ; il reste **0** ligne écartée.
 - **La SÉLECTION et l'ORDRE** des sous-arbres → **#477-r21-r2**, qui porte désormais aussi la
   **séquence de création** des entités d'effet (cf. § 4).
 - ~~**L'ALLOCATION ECS** des identifiants d'effet~~ → **PORTÉE** par **#477-r21-r3**.
@@ -242,12 +260,12 @@ ne mord pas sur le cas nominal.
 
 ## Résidus
 
-- **#477-r21-r1** — **les formes `ChangeStats` / `ChangeAbility` du bloc 1** : 84 / 99 / 0 lignes,
-  4 sous-arbres par board, trois motifs nommés (§ 3). Elles sortent d'`Effect.ApplyModification`
-  (les `UnitStats_*_Modification` + `UnitStats_Transformed`) et de la transformation d'ability
-  (`TwistedScience` : `UnitStats_RemoveActiveAbility` puis un `Action=ChangeAbility` complet).
-  RETOURNEMENT **déjà mesuré** : sur le roster 2v2 ce résidu vaut **0 ligne** — il est une
-  propriété du roster, pas une limite du port.
+- ~~**#477-r21-r1** — **les formes `ChangeStats` / `ChangeAbility` du bloc 1**~~ — **LIVRÉ**.
+  Trois opérations natives portées (`engine/streams/transform_unit.py`,
+  `engine/streams/active_ability_ops.py`), **sans toucher** `refresh_effects.py` ni
+  `evaluate_trigger.py` : le point de couture existait déjà (`generate_event_group` prend une
+  séquence de callables parce que la `List<Action>` native en est une). Bloc 1 **447 / 447,
+  491 / 491, 131 / 131, 199 / 199**. Détail : `docs/rl/case-477r21r1-formes-changestats.md`.
 - **#477-r21-r2** — **la SÉLECTION et l'ORDRE** : quels effets et quelles abilities déclenchées
   s'activent, sur quelles unités, dans quel ordre. C'est `AOperation.AbilityAndEffectCache.<slot 3>`
   parcouru par `EvaluateTriggerOperation$$ExecuteInternal`, plus les gardes de
@@ -262,6 +280,12 @@ ne mord pas sur le cas nominal.
   (volet C) et la séquence de création (volet D) — plus les **données** que les gardes consomment et
   que le port n'a pas (**#477-r26**). Détail :
   `docs/rl/case-477r21r2a-gardes-refresh-effects.md`.
+  ⚠ **CE QUE #477-r21-r1 Y AJOUTE : l'ORDRE des SIX blocs d'`eventActions`.**
+  `UpdateEffectTargets` construit sa `List<Action>` **différée** dans un ordre **lu** — activate,
+  lose, receive, deactivate, `RevertEffectsForTargets`, `ApplyEffectsForTargets` — et c'est ce qui
+  place l'`Action=ChangeStats` d'une modification de stat **après** les `ReceiveEffect` du même
+  groupe (la sixième entrée est celle qui l'émet). Le probe le **copie** encore : le volet A porte
+  la garde, pas la composition de la liste, et le raccord reste à faire.
   ⚠ **Il a GROSSI de la SÉQUENCE DE CRÉATION des entités d'effet** (l'ordre des appels à
   `AddEffectOperation$$Execute`, **créations muettes comprises**) : #477-r21-r3 a mesuré que
   l'allocateur devient exact dès qu'on la lui donne. La condition d'allocation est lue —
