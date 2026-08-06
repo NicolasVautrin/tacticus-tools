@@ -74,11 +74,20 @@ if str(HERE) not in sys.path:
 
 import build_pin                                                        # noqa: E402
 import il2cpp_metadata                                                  # noqa: E402
-#: ⚠ FOYER UNIQUE DE L'ABSORPTION D'APPEL (#477-r36). Le cran est IMPORTE, jamais recopie : les
-#: deux cliquets balayent le MEME depot, et deux motifs jumeaux qui derivent l'un de l'autre
-#: rouvriraient ici le gisement que l'autre vient de fermer. `probe_477r24r1` ne fait rien de
-#: couteux a l'import (il compile ses regex, c'est tout).
-from probe_477r24r1_slots_interface import _appel, PROFONDEUR_APPEL      # noqa: E402
+#: ⚠ FOYER UNIQUE DES CRANS PARTAGES (#477-r36, elargi par #477-r42). Ils sont IMPORTES, jamais
+#: recopies : les deux cliquets balayent le MEME depot, et deux motifs jumeaux qui derivent l'un
+#: de l'autre rouvriraient ici le gisement que l'autre vient de fermer. `probe_477r24r1` ne fait
+#: rien de couteux a l'import (il compile ses regex, c'est tout).
+#:
+#: * `_appel` / `PROFONDEUR_APPEL` -- l'absorption de la liste d'arguments (#477-r36) ;
+#: * `_entre` -- LE REMPLISSAGE, avec sa capture (#477-r42). `_RENVOIS` est le meme tuple des
+#:   deux cotes ; l'importer est ce qui garantit qu'il le RESTE ;
+#: * `ceder_aux_locaux` -- la priorite au NON-FRANCHISSEMENT de virgule (#477-r42) ;
+#: * `_regex_noms` -- le motif du RECENSEUR, dont #477-r36 a corrige le lookbehind (`$` HORS du
+#:   lookbehind, faute de quoi un nom QUALIFIE est invisible et le gisement sous-compte de 48 %).
+#:   La ventilation de ce probe (#477-r42) nait avec ce motif-la, jamais avec une copie.
+from probe_477r24r1_slots_interface import (                             # noqa: E402
+    _appel, _entre, _regex_noms, _RENVOIS, ceder_aux_locaux, PROFONDEUR_APPEL)
 from symbols_layout import build_dir, current_build                     # noqa: E402
 
 REPO = HERE.parent.parent
@@ -171,26 +180,23 @@ _NOM = r"(?P<nom%d>[A-Z][A-Za-z0-9_]{3,})(?![A-Za-z0-9$])"
 #: suit ne qualifie plus la methode nommee avant : « `AttackQuery$$GetAllTilesInAbilityRange`
 #: surcharge 4 arguments : slot 0x14, slot 0x13 » enumere les GATES evalues, qui sont des slots
 #: d'`IActiveAbility`. Mesure : 2 sites, tous deux JUSTES, rendus faux sans ce cran.
-#: ⚠ NI UNE VIRGULE. Le depot ecrit ses chaines de gates en ENUMERATION -- « slot 0x14
-#: `AActiveAbility$$CanStillBeUsed`, slot 0x13 `AActiveAbility$$IsDisabled` » -- et sans ce
-#: cran la forme « nom PUIS slot » apparie le nom d'un element au slot du SUIVANT. Mesure :
-#: 2 sites, tous deux JUSTES, rendus faux par ce seul saut de virgule.
+#: ⚠ LA VIRGULE N'EST PLUS UN RENVOI, ET C'EST UNE MESURE (#477-r42). Elle arretait le
+#: remplissage parce que le depot ecrit ses chaines de gates en ENUMERATION -- « slot 0x14
+#: `AActiveAbility$$CanStillBeUsed`, slot 0x13 `AActiveAbility$$IsDisabled` » --, ou la forme
+#: « nom PUIS slot » apparie le nom d'un element au slot du SUIVANT.
+#:
+#: Ce n'est PAS la virgule qui rend ce couple faux : c'est que `CanStillBeUsed` est DEJA apparie
+#: a `0x14`, a sa GAUCHE IMMEDIATE, sans rien franchir. Le cran porte donc desormais sur ce
+#: fait-la (`ceder_aux_locaux`, foyer partage), et la virgule redevient du texte. Mesure sur CE
+#: corpus, a fenetre egale : **+23 couples JUSTES**, les **2** faux de l'enumeration DISSOUS,
+#: **0** couple perdu. Le discriminant « la virgule ne bloque que si le remplissage traverse un
+#: saut de ligne » a ete essaye et REFUSE : les deux faux de l'enumeration sont MONO-LIGNE, et
+#: la citation juste qu'il faut liberer, elle, traverse -- il n'aide donc NI l'un NI l'autre.
+#:
 #: ⚠ NI UNE FLECHE. Dans « nom PUIS slot », une fleche marque un ENCHAINEMENT d'appels --
 #: « `BattleQuery$$ReachedSummonCap` -> slot 0x52 » designe ce que la methode APPELLE. La
 #: fleche reste licite dans la forme A, ou elle joue le role du signe egal.
-_RENVOIS = ("slot", "que ", "qu'", "interrog", "invoq", "appel", "utilis", "evalu",
-            "->", "→")
-
-
-def _entre(n: int, traverse: bool) -> str:
-    """Le remplissage tolere entre les deux membres d'un couple, borne a `n` caracteres.
-
-    `traverse` dit si ce remplissage a le droit de franchir un SAUT DE LIGNE. C'est le SEUL
-    parametre par lequel la fenetre agit sur les formes B et C : les formes A et D, elles,
-    separent leurs membres par un `\\s*` qui traverse deja (#477-r30).
-    """
-    classe = "[^);:,]" if traverse else r"[^\n);:,]"
-    return r"(?:(?!%s)%s){0,%d}?" % ("|".join(_RENVOIS), classe, n)
+#: (`_RENVOIS` est IMPORTE du foyer -- meme tuple des deux cotes, et il le reste.)
 
 
 #: UNE CONTINUATION -- ce qui s'intercale la ou une espace suffirait, quand la phrase reprend
@@ -256,6 +262,39 @@ class Citation:
     #: La ligne ou le NOM est ecrit. `ligne_nom != ligne` <=> le couple ENJAMBE un saut de
     #: ligne, donc il n'existe que grace a la fenetre (#477-r30).
     ligne_nom: int = 0
+    #: Le remplissage a-t-il FRANCHI une virgule ? Donnee du cran `priorite-non-franchissement`
+    #: (#477-r42). Seules les formes B et C ont un remplissage capturable.
+    franchit_virgule: bool = False
+
+
+#: LA VENTILATION DU RESIDU (#477-r42) -- LE RECENSEUR QUI N'EXISTAIT PAS.
+#:
+#: Ce probe ecartait ~647 lignes sous un compte NU (« citant un slot SANS lui accoler de nom »).
+#: Il n'y avait pas de ventilation FAUSSE : il n'y en avait AUCUNE. Ecrire la ventilation, c'est
+#: ecrire le recenseur -- et un recenseur ne peut pas rendre zero sur ce qu'il ne VISITE pas.
+#:
+#: TROIS EXIGENCES, reprises de la lecon la plus chere du dossier #270-r1 :
+#: 1. il VISITE toutes les lignes ecartees, jamais un echantillon ni un seuil ;
+#: 2. il DERIVE la cause du contexte (la FORME de la mention de slot, puis le voisinage), il ne
+#:    la cherche pas dans une liste blanche de motifs -- une forme non prevue sort sous
+#:    `autre (<forme>)`, et cette sortie est ATTEIGNABLE (mesure : `slotted`, `slots0`, tout ce
+#:    que `RE_SLOT` reconnait mais qu'aucune forme nommee ne decrit) ;
+#: 3. la somme des causes VAUT le total, et c'est ASSERTIONNE, pas affirme.
+CAUSES = {
+    "sans_numero": "la ligne mentionne un slot sans le CHIFFRER (prose, `slots` au pluriel, "
+                   "tournure que `_SLOT` ne reconnait pas)",
+    "nom_seul_sans_numero": "le slot est designe par un NOM sans numero (« slot `KillUnit` ») "
+                            "-- il n'y a pas de couple a confronter, mais le nom, lui, est une "
+                            "attestation que ce probe ne garde PAS (residu, cf. l'etage 5 de "
+                            "#477-r32 sur l'autre cliquet)",
+    "numero_sans_aucun_nom": "le slot est chiffre et AUCUN nom capitalise n'est ecrit dans la "
+                             "fenetre -- rien a contredire",
+    "numero_nom_hors_interface": "le slot est chiffre, un nom capitalise est dans la fenetre "
+                                 "mais il n'est a AUCUN slot de l'interface appariee -- c'est "
+                                 "le plus souvent une classe, une Operation ou un enum",
+    "nom_ecarte_par_un_cran": "le slot est chiffre ET un nom de l'interface appariee est dans "
+                              "la fenetre, mais un cran conservateur l'ecarte -- LE gisement",
+}
 
 
 @dataclass(frozen=True)
@@ -271,6 +310,13 @@ class Ecartees:
     #: Les couples ENJAMBANTS ecartes parce que le MEME slot, a la MEME ligne, est deja apparie
     #: SUR SA LIGNE (#477-r36). Un compte filtre dit ce qu'il filtre : ils sont listes, pas tus.
     cedes_au_mono_ligne: tuple[str, ...] = ()
+    #: Les couples ayant FRANCHI une virgule et cede a une attribution sans franchissement
+    #: (#477-r42). Meme regle : listes, jamais tus.
+    cedes_au_non_franchissement: tuple[str, ...] = ()
+    #: `{cause: [(fichier, ligne, interface, texte), ...]}` pour les `sans_couple`. `None` =
+    #: PAS MESURE (pas de tables fournies), jamais un dictionnaire vide qui se lirait « aucune
+    #: ligne dans cette cause ». La somme des causes VAUT `sans_couple`.
+    ventilation: dict[str, tuple[tuple[str, int, str, str], ...]] | None = None
 
 
 # ------------------------------------------------------------------ etage 1 : DERIVATION
@@ -412,11 +458,14 @@ def _regex_recepteur(alias: tuple[str, ...]) -> re.Pattern[str]:
 
 
 def _regex_couples(alias: tuple[str, ...], qualificateur_obligatoire: bool,
-                   traverse: bool = False):
+                   traverse: bool = False, virgule_bloquante: bool = False):
     """Les quatre formes de couple (slot, nom), instanciees pour un jeu de recepteurs.
 
     `traverse` n'agit que sur les formes B et C (cf. `_entre`) : A et D franchissent le saut
     de ligne par construction, leur separateur etant un `\\s*`.
+
+    `virgule_bloquante = True` rend le regime d'AVANT #477-r42 (la virgule arretait le
+    remplissage). C'est une REFERENCE mesurable, jamais un regime de service.
     """
     qual = r"(?:(?:[A-Za-z0-9_.<>]*\.)?(?:%s)(?:\$\$|\.)|(?<![A-Za-z0-9_])\$\$)" % _motifs(alias)
     #: Forme A -- `slot 0x7e = MoveUnit`. Le qualificateur y est OPTIONNEL quand la ligne ne
@@ -450,9 +499,11 @@ def _regex_couples(alias: tuple[str, ...], qualificateur_obligatoire: bool,
         #: saut de ligne. Mesure : sur 3 couples que ce franchissement propose, 3 sont FAUX
         #: (`probe_433_..._c_caster_gates.py` : « = AActiveAbility$$CanStillBeUsed » (slot 0x14
         #: de la ligne d'avant) rattache au « slot 0x13 » de la ligne d'apres).
-        re.compile(qual + (_NOM % 2) + _appel(2) + _entre(40, False) + (_SLOT % 2)),
+        re.compile(qual + (_NOM % 2) + _appel(2)
+                   + _entre(40, False, _RENVOIS, virgule_bloquante, k=2) + (_SLOT % 2)),
         #: Forme C -- slot 0x7d ... `BattleQuery$$GetAdjacentEnemies`   (slot PUIS nom)
-        re.compile((_SLOT % 3) + _appel(3) + _entre(60, traverse) + qual + (_NOM % 3)),
+        re.compile((_SLOT % 3) + _appel(3)
+                   + _entre(60, traverse, _RENVOIS, virgule_bloquante, k=3) + qual + (_NOM % 3)),
     )
 
 
@@ -466,6 +517,78 @@ _COUPLES_ML = {iface: (_regex_couples(alias, False, True), _regex_couples(alias,
 _RECEPTEURS = {iface: _regex_recepteur(alias) for _, iface, alias in INTERFACES}
 _RE_DEJA_GARDEE = _regex_recepteur(DEJA_GARDEE)
 RE_SLOT = re.compile(r"v?slot")
+
+#: LA FORME DE LA MENTION DE SLOT, DERIVEE -- premier etage du recenseur (#477-r42).
+#: L'ordre compte : du plus CONTRAINT au plus lache. La derniere entree n'est PAS un fourre-tout,
+#: c'est « le mot `slot` isole » ; ce que `RE_SLOT` reconnait sans qu'AUCUNE entree ne decrive
+#: (`slotted`, `slots0`, `vslotXY`) sort sous `autre (<extrait>)`, et c'est cette sortie-la qui
+#: empeche la ventilation d'etre une liste blanche.
+_FORMES_MENTION: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("chiffre", re.compile(_SLOT % 0)),
+    ("nom_seul", re.compile(r"(?<![A-Za-z0-9_])v?slots?\s+[`*]{0,2}[A-Z][A-Za-z0-9]{3,}")),
+    ("pluriel", re.compile(r"(?<![A-Za-z0-9_])v?slots(?![A-Za-z0-9_])")),
+    ("nu", re.compile(r"(?<![A-Za-z0-9_])v?slot(?![A-Za-z0-9_])")),
+)
+
+#: N'IMPORTE QUEL nom capitalise, isole. Il sert a distinguer « rien a contredire » de « un nom
+#: est ecrit, mais il n'est a aucun slot de l'interface » -- deux residus de nature differente,
+#: qu'un compte unique confondait.
+_RE_NOM_QUELCONQUE = re.compile(r"(?<![A-Za-z0-9_])[A-Z][A-Za-z0-9]{3,}(?![A-Za-z0-9])")
+
+#: LA PORTEE DU BALAYAGE, ET CE QU'ELLE NE VOIT PAS. `RE_SLOT` est SENSIBLE A LA CASSE : une
+#: ligne qui ecrit « Slot 0x12 = ... » n'entre meme pas dans le corpus, donc elle n'apparait dans
+#: AUCUNE cause -- elle est INVISIBLE, pas ecartee. Un recenseur qui tairait cela rendrait une
+#: partition exacte d'un ensemble incomplet. Ce motif la CHIFFRE.
+_RE_SLOT_AUTRE_CASSE = re.compile(r"(?<![A-Za-z0-9_])[Ss][Ll][Oo][Tt]s?(?![A-Za-z0-9_])")
+
+
+def _forme_mention(ligne: str) -> str:
+    """La FORME de la mention de slot, DERIVEE de la ligne. Jamais `None` : `autre (...)` sinon."""
+    for nom, rx in _FORMES_MENTION:
+        if rx.search(ligne):
+            return nom
+    m = RE_SLOT.search(ligne)
+    extrait = ligne[m.start():m.start() + 16].strip() if m else ligne.strip()[:16]
+    return "autre (%s)" % extrait
+
+
+def _compter_autre_casse() -> int:
+    """Les lignes qui ecrivent `slot` avec une AUTRE casse, donc INVISIBLES au balayage.
+
+    Ce n'est pas un residu de plus : c'est la PORTEE de la mesure. Une partition exacte d'un
+    ensemble incomplet se lit comme exhaustive, et c'est precisement le vice que ce recenseur
+    existe pour ne pas commettre.
+    """
+    n = 0
+    for path in fichiers_balayes():
+        if path.relative_to(REPO).as_posix() in EXCLUS:
+            continue
+        try:
+            texte = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for ligne in texte.splitlines():
+            if _RE_SLOT_AUTRE_CASSE.search(ligne) and not RE_SLOT.search(ligne):
+                n += 1
+    return n
+
+
+def _cause_ecartee(ligne: str, autour: str, rx_noms: re.Pattern[str] | None) -> str:
+    """La cause DERIVEE d'une ligne ecartee. Le libelle rendu est une cle de `CAUSES`, ou
+    `autre (<forme>)` -- jamais un silence, jamais un tas par defaut.
+    """
+    forme = _forme_mention(ligne)
+    if forme == "nom_seul":
+        return "nom_seul_sans_numero"
+    if forme in ("pluriel", "nu"):
+        return "sans_numero"
+    if forme != "chiffre":
+        return forme                                    # `autre (<extrait>)`, deja libelle
+    if rx_noms is not None and rx_noms.search(autour):
+        return "nom_ecarte_par_un_cran"
+    if _RE_NOM_QUELCONQUE.search(autour):
+        return "numero_nom_hors_interface"
+    return "numero_sans_aucun_nom"
 
 
 def _compter_args(texte: str) -> int | None:
@@ -531,22 +654,39 @@ def _blocs(lignes: list[str], fenetre: int):
 
 
 def recolter(tables: dict[str, dict[int, tuple[str, int, int]]],
-             fenetre: int = FENETRE, traverse: bool | None = None) -> tuple[
+             fenetre: int = FENETRE, traverse: bool | None = None,
+             relaches: tuple[str, ...] = (), virgule_bloquante: bool = False,
+             ventiler: bool = True) -> tuple[
         list[Citation], Ecartees, dict[str, int]]:
     """(citations retenues, ce qui est ecarte et compte, recensement des recepteurs).
 
     `fenetre` = nombre de LIGNES sur lesquelles un couple peut s'etaler. `traverse` dit si les
     formes B et C (nom et slot separes par du texte) ont le droit de franchir le saut de ligne ;
     par defaut, oui des que la fenetre depasse 1.
+
+    `virgule_bloquante` rejoue le regime d'AVANT #477-r42 (REFERENCE mesurable). `relaches`
+    desarme un cran NOMME (`priorite-non-franchissement`) : c'est une MESURE, pas un service.
+    `ventiler = False` coupe le RECENSEUR -- la ventilation rend alors `None` (PAS MESURE), et
+    c'est ce qu'on passe aux courbes, ou seul le compte importe.
     """
     if traverse is None:
         traverse = fenetre > 1
-    couples = _COUPLES_ML if traverse else _COUPLES
+    if virgule_bloquante:
+        couples = {iface: (_regex_couples(alias, False, traverse, True),
+                           _regex_couples(alias, True, traverse, True))
+                   for _, iface, alias in INTERFACES}
+    else:
+        couples = _COUPLES_ML if traverse else _COUPLES
+    #: Les noms de chaque interface, pour le RECENSEUR. Le motif vient du FOYER (`_regex_noms`,
+    #: importe de #477-r24-r1) -- pas d'une copie qui reproduirait son ancien lookbehind.
+    rx_noms = ({iface: _regex_noms(frozenset(v[0] for v in t.values()))
+                for iface, t in tables.items() if t} if ventiler else None)
     retenues: list[Citation] = []
     sans_iface = deja = multi = sans_couple = exempt = 0
     nom_absent: list[str] = []
     vus_absents: set[tuple[str, int, str, int, str, int]] = set()
     recense: dict[str, int] = {}
+    ventile: dict[str, list[tuple[str, int, str, str]]] = {c: [] for c in CAUSES}
     for path in fichiers_balayes():
         rel = path.relative_to(REPO).as_posix()
         if rel in EXCLUS:
@@ -647,9 +787,11 @@ def recolter(tables: dict[str, dict[int, tuple[str, int, int]]],
                             continue
                         queue = bloc[m.end():]
                         args = _compter_args(queue) if RE_APPEL.match(queue) else None
-                        retenues.append(Citation(fichier=rel, ligne=no, iface=iface, slot=slot,
-                                                 nom=nom, args=args, ligne_nom=no_nom,
-                                                 texte=lignes[no - 1].strip()[:150]))
+                        retenues.append(Citation(
+                            fichier=rel, ligne=no, iface=iface, slot=slot, nom=nom, args=args,
+                            ligne_nom=no_nom,
+                            franchit_virgule="," in (m.groupdict().get("rem%d" % k) or ""),
+                            texte=lignes[no - 1].strip()[:150]))
         #: CE QUI RESTE ECARTE se compte LIGNE PAR LIGNE -- une ligne, un verdict. Compter par
         #: bloc melangerait les regimes et rendrait les chiffres incomparables d'une fenetre
         #: a l'autre, alors que c'est justement ce qu'on veut mesurer.
@@ -670,12 +812,23 @@ def recolter(tables: dict[str, dict[int, tuple[str, int, int]]],
                 multi += 1
             else:
                 sans_couple += 1
+                #: LE RECENSEUR (#477-r42) -- la cause est DERIVEE de la ligne et de son
+                #: voisinage, jamais cherchee dans une liste blanche. `rx_noms` porte les noms
+                #: de l'interface REELLEMENT appariee a cette ligne (`vues[0]`, unique ici par
+                #: construction : le cas multi est parti dans `multi` juste au-dessus).
+                if rx_noms is not None:
+                    autour = "\n".join(lignes[max(0, no - fenetre):no - 1 + fenetre])
+                    ventile.setdefault(
+                        _cause_ecartee(ligne, autour, rx_noms.get(vues[0])), []
+                    ).append((rel, no, vues[0], ligne.strip()[:120]))
     #: Deduplication : plusieurs formes -- et, en fenetre, plusieurs BLOCS -- peuvent capter le
     #: MEME couple. La cle inclut la ligne du NOM : deux noms identiques a deux endroits
     #: differents sont deux citations.
+    #: ⚠ LES NON-FRANCHISSANTS PASSENT D'ABORD (#477-r42) : garder l'exemplaire qui a franchi une
+    #: virgule ferait mentir `franchit_virgule` sur un couple parfaitement local.
     uniques: list[Citation] = []
     deja_vu: set[tuple[str, int, str, int, str, int]] = set()
-    for c in retenues:
+    for c in sorted(retenues, key=lambda x: x.franchit_virgule):
         cle = (c.fichier, c.ligne, c.iface, c.slot, c.nom, c.ligne_nom)
         if cle in deja_vu:
             continue
@@ -693,13 +846,29 @@ def recolter(tables: dict[str, dict[int, tuple[str, int, int]]],
     if cedes:
         gardes = {id(c) for c in cedes}
         uniques = [c for c in uniques if id(c) not in gardes]
+    #: ⚠ PRIORITE AU NON-FRANCHISSEMENT DE VIRGULE (#477-r42) -- foyer PARTAGE, cf.
+    #: `ceder_aux_locaux`. C'est ce cran qui remplace l'ancien « la virgule arrete le
+    #: remplissage » : sur CE corpus il dissout les DEUX faux de l'enumeration
+    #: (`slot 0x14 \`X\`, slot 0x13 \`Y\``) sans en perdre un seul.
+    cedes_v: list[Citation] = []
+    if "priorite-non-franchissement" not in relaches:
+        uniques, cedes_v = ceder_aux_locaux(
+            uniques, lambda c: c.franchit_virgule,
+            lambda c: (c.fichier, c.ligne, c.iface, c.slot),
+            lambda c: (c.fichier, c.ligne_nom, c.iface, c.nom))
     return uniques, Ecartees(sans_interface=sans_iface, deja_gardee=deja,
                              cedes_au_mono_ligne=tuple(
                                  "%s:%d [%s] slot 0x%x = %s (nom lu ligne %d) | %s"
                                  % (c.fichier, c.ligne, c.iface, c.slot, c.nom, c.ligne_nom,
                                     c.texte[:100]) for c in cedes),
+                             cedes_au_non_franchissement=tuple(
+                                 "%s:%d [%s] slot 0x%x = %s (nom lu ligne %d) | %s"
+                                 % (c.fichier, c.ligne, c.iface, c.slot, c.nom, c.ligne_nom,
+                                    c.texte[:100]) for c in cedes_v),
                              multi_non_qualifie=multi, sans_couple=sans_couple,
-                             exemptees=exempt, nom_absent=tuple(nom_absent)), recense
+                             exemptees=exempt, nom_absent=tuple(nom_absent),
+                             ventilation=None if rx_noms is None
+                             else {c: tuple(v) for c, v in ventile.items()}), recense
 
 
 def confronter(cits: list[Citation],
@@ -756,6 +925,12 @@ MUTANTS = {
     #: distinguer fenetre=1 de fenetre=N ne garde pas la fenetre.
     "enjambants-decales": "decale les slots des couples qui ENJAMBENT une ligne -- inerte a "
                           "fenetre=1, doit MORDRE au-dela",
+    #: ⚠ MEME RAISON, UN CRAN PLUS LOIN (#477-r42). Les cinq mutants ci-dessus mordent DEJA sans
+    #: le franchissement de virgule : aucun ne dit quoi que ce soit du cran qui l'autorise, ni de
+    #: la priorite qui l'encadre. Celui-ci porte sur les couples que SEUL ce franchissement
+    #: rapporte, et il REFUSE en regime `--virgule-bloquante`, ou il n'a rien a muter.
+    "franchissants-decales": "decale les slots des couples qui ont FRANCHI une virgule -- inerte "
+                             "en regime --virgule-bloquante, doit MORDRE en service",
 }
 
 
@@ -817,6 +992,24 @@ def muter(tables: dict[str, dict[int, tuple[str, int, int]]], nom: str,
         for iface, s in dict.fromkeys(vises):
             out[iface][s], out[iface][s + 1] = out[iface][s + 1], out[iface][s]
         return out
+    if nom == "franchissants-decales":
+        #: Meme construction que ci-dessus, sur l'autre cran : seuls les slots que PERSONNE ne
+        #: cite sans franchir de virgule sont vises, ET dont le voisin permute ne l'est pas non
+        #: plus. Sans ce filtre, le mutant mordrait AUSSI en `--virgule-bloquante` : il garderait
+        #: l'appariement en general, pas le FRANCHISSEMENT.
+        local = {(c.iface, c.slot) for c in cits if not c.franchit_virgule}
+        vises = [(c.iface, c.slot) for c in cits if c.franchit_virgule
+                 and c.slot in tables.get(c.iface, {})
+                 and c.slot + 1 in tables.get(c.iface, {})
+                 and (c.iface, c.slot) not in local
+                 and (c.iface, c.slot + 1) not in local]
+        if not vises:
+            raise SystemExit("contre-epreuve IMPOSSIBLE : aucun couple ayant FRANCHI une virgule "
+                             "sur un slot que personne ne cite autrement -- ce mutant ne peut "
+                             "pas discriminer le cran de #477-r42.")
+        for iface, s in dict.fromkeys(vises):
+            out[iface][s], out[iface][s + 1] = out[iface][s + 1], out[iface][s]
+        return out
     raise SystemExit("mutant inconnu : %s" % nom)
 
 
@@ -848,6 +1041,12 @@ def main() -> int:
                          "(defaut %d ; 1 = l'etat de #477-r25)" % FENETRE)
     ap.add_argument("--courbe", action="store_true",
                     help="re-derive le CHOIX de la fenetre : gain et bruit pour N = 1..8")
+    ap.add_argument("--ventiler", action="store_true",
+                    help="detaille CE QUI RESTE hors couverture, ligne par ligne, par CAUSE")
+    ap.add_argument("--virgule-bloquante", action="store_true",
+                    help="rejoue le regime d'AVANT #477-r42 (la virgule ARRETE le remplissage)")
+    ap.add_argument("--relacher", action="store_true",
+                    help="desarme le cran `priorite-non-franchissement` et publie ce qu'il CACHE")
     args = ap.parse_args()
 
     print("=== #477-r25 -- slots des AUTRES interfaces (hors IOperationProcessor) ===")
@@ -873,7 +1072,7 @@ def main() -> int:
         print("=== LE CHOIX DE LA FENETRE, RE-DERIVE (fenetre en service : %d) ===" % FENETRE)
         print("  W  citations  enjambantes  sans_couple  indecidables  desaccords")
         for w in (1, 2, 3, 4, 5, 6, 8):
-            c, e, _ = recolter(versionne, fenetre=w)
+            c, e, _ = recolter(versionne, fenetre=w, ventiler=False)
             fn, _fa, _au = confronter(c, versionne)
             print("  %2d   %6d     %6d       %6d        %6d      %6d"
                   % (w, len(c), sum(1 for x in c if x.ligne != x.ligne_nom),
@@ -882,7 +1081,30 @@ def main() -> int:
         print("  La ou les deux premieres colonnes cessent de bouger, elargir n'apporte plus.")
         return 0
 
-    cits, ecartees, recense = recolter(versionne, fenetre=args.fenetre)
+    if args.relacher:
+        print()
+        print("=== CE QUE LE CRAN `priorite-non-franchissement` CACHE (#477-r42) ===")
+        base, _be, _br = recolter(versionne, fenetre=args.fenetre, ventiler=False)
+        connus = {(c.fichier, c.ligne, c.iface, c.slot, c.nom, c.ligne_nom) for c in base}
+        lot, _le, _lr = recolter(versionne, fenetre=args.fenetre, ventiler=False,
+                                 relaches=("priorite-non-franchissement",))
+        neufs = [c for c in lot
+                 if (c.fichier, c.ligne, c.iface, c.slot, c.nom, c.ligne_nom) not in connus]
+        faux = [c for c in neufs
+                if versionne.get(c.iface, {}).get(c.slot, ("",))[0] != c.nom]
+        print("  %d couple(s) neuf(s), dont %d au NOM qui ne concorde PAS" % (len(neufs),
+                                                                             len(faux)))
+        print("  cause du cran : un couple qui a FRANCHI une virgule cede si l'un de ses membres")
+        print("  est deja apparie SANS en franchir -- la citation la plus LOCALE gagne.")
+        for c in neufs:
+            att = versionne.get(c.iface, {}).get(c.slot, ("",))[0]
+            print("    %-8s %s:%d [%s] slot 0x%x -> %s (table : %s) | %s"
+                  % ("CONCORDE" if att == c.nom else "DOUTEUX", c.fichier, c.ligne, c.iface,
+                     c.slot, c.nom, att or "hors table", c.texte[:80]))
+        return 0
+
+    cits, ecartees, recense = recolter(versionne, fenetre=args.fenetre,
+                                       virgule_bloquante=args.virgule_bloquante)
     par_iface: dict[str, int] = {}
     for c in cits:
         par_iface[c.iface] = par_iface.get(c.iface, 0) + 1
@@ -903,11 +1125,20 @@ def main() -> int:
     #: ⚠ LA ZONE AVEUGLE SE PUBLIE AVEC SON RETRECISSEMENT, pas seulement avec sa taille.
     #: Un cliquet dont on ne sait pas si l'angle mort a bouge est un inventaire (#477-r30).
     if args.fenetre > 1:
-        ref_cits, ref, _ = recolter(versionne, fenetre=1)
+        ref_cits, ref, _ = recolter(versionne, fenetre=1, ventiler=False)
         print("      REFERENCE fenetre=1 (l'etat de #477-r25) : %d attestation(s), "
               "%d ligne(s) sans couple" % (len(ref_cits), ref.sans_couple))
         print("      RETRECISSEMENT de la zone aveugle : %d -> %d ligne(s) sans couple (-%d)"
               % (ref.sans_couple, ecartees.sans_couple, ref.sans_couple - ecartees.sans_couple))
+    if not args.virgule_bloquante:
+        #: La SECONDE reference : le regime d'avant #477-r42, a fenetre EGALE. Sans elle, le
+        #: gain du franchissement de virgule se confondrait avec celui de la fenetre.
+        v_cits, v_ec, _ = recolter(versionne, fenetre=args.fenetre, virgule_bloquante=True,
+                                   ventiler=False)
+        print("      REFERENCE --virgule-bloquante (l'etat d'avant #477-r42, meme fenetre) : %d "
+              "attestation(s), %d ligne(s) sans couple" % (len(v_cits), v_ec.sans_couple))
+        print("      dont %d couple(s) qui ont FRANCHI une virgule -- invisibles quand elle "
+              "arretait le remplissage" % sum(1 for c in cits if c.franchit_virgule))
     print("      ECARTEES, et c'est DIT :")
     print("        %5d ligne(s) sans aucun recepteur d'interface couverte"
           % ecartees.sans_interface)
@@ -928,6 +1159,44 @@ def main() -> int:
           "(#477-r36)" % len(ecartees.cedes_au_mono_ligne))
     for f in ecartees.cedes_au_mono_ligne:
         print("            %s" % f)
+    print("        %5d couple(s) ayant FRANCHI une virgule et CEDE a une attribution sans "
+          "franchissement (#477-r42)" % len(ecartees.cedes_au_non_franchissement))
+    for f in ecartees.cedes_au_non_franchissement:
+        print("            %s" % f)
+
+    #: ⚠ LE RESIDU SE PUBLIE AVEC SA CAUSE (#477-r42). Ce probe n'avait AUCUN recenseur : ses
+    #: ~647 lignes ecartees sortaient sous un compte NU, ce qui se lit « rien a signaler » alors
+    #: que c'est la zone ou une citation fausse peut dormir. Un compte seul est un inventaire.
+    vent = ecartees.ventilation
+    if vent is None:
+        print("      VENTILATION du residu : PAS MESUREE (recenseur coupe)")
+    else:
+        total = sum(len(v) for v in vent.values())
+        #: ⚠ ASSERTIONNEE, PAS AFFIRMEE : la somme des causes VAUT le total. C'est ce qui
+        #: transforme la ventilation d'une LISTE BLANCHE en une PARTITION.
+        assert total == ecartees.sans_couple, (total, ecartees.sans_couple)
+        print("      VENTILATION de ces %d lignes -- la somme des causes VAUT le total :"
+              % ecartees.sans_couple)
+        for cause in sorted(vent, key=lambda c: -len(vent[c])):
+            print("        %5d  %-26s %s"
+                  % (len(vent[cause]), cause, CAUSES.get(cause, "CAUSE NON PREVUE -- "
+                                                         "derivee de la ligne, a instruire")))
+        #: ⚠ LA PORTEE SE PUBLIE AVEC LA PARTITION. Une partition exacte d'un ensemble INCOMPLET
+        #: se lit comme exhaustive : ce qui suit dit ce que le balayage NE VOIT PAS.
+        print("      PORTEE DE LA MESURE -- ce que cette partition ne couvre PAS :")
+        print("        les %d lignes sans recepteur, les %d d'IOperationProcessor et les %d "
+              "MULTI-interfaces" % (ecartees.sans_interface, ecartees.deja_gardee,
+                                    ecartees.multi_non_qualifie))
+        print("        les %d ligne(s) qui ecrivent `slot` AVEC UNE AUTRE CASSE (`Slot 0x12`) : "
+              "`RE_SLOT` est sensible a la casse, donc elles n'entrent dans AUCUNE cause -- "
+              "elles sont INVISIBLES, pas ecartees" % _compter_autre_casse())
+        print("        les fichiers hors `BALAYAGE_GLOBS` (%s)" % ", ".join(BALAYAGE_GLOBS))
+        if args.ventiler:
+            for cause in sorted(vent, key=lambda c: -len(vent[c])):
+                print()
+                print("      --- %s (%d) ---" % (cause, len(vent[cause])))
+                for rel, no, iface, txt in vent[cause]:
+                    print("        %s:%d [%s] %s" % (rel, no, iface, txt))
 
     faux_nom, faux_arite, autre = confronter(cits, versionne)
     print("        %5d couple(s) JUSTES mais portes par une AUTRE interface couverte "

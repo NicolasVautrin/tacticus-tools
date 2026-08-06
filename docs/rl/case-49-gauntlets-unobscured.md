@@ -95,8 +95,10 @@ final ancre-réelle : crafts P/N/O/O2 + E1-repro — cf. Résolution finale)**.
   `(5,4)→(6,5)` VISIBLE (fat-line {(6,4)=3,(5,5)=2} vs elev(to)=2 : il faudrait LES DEUX ≥ 4).
   Contrôle synthétique positif (mid forcé à 5 → OBSCURED) : le prédicat se déclenche bien.
   **Arc natif à (5,4) = 3 = notre `count_enemies_in_arc`** — un port Unobscured ne change RIEN
-  à ce cas. MC1_67 n'a aucun mur. Le set ring-2 est géométrique (slot 0x65 « surrounding »,
-  `BattleQuery.GetTilesAtDistance @181069760` filtre distance hex == R), PAS un BFS mouvement
+  à ce cas. MC1_67 n'a aucun mur. Le set ring-2 est géométrique (slot 0x65 =
+  `IdunBattle.Core.Services.BattleQuery$$GetSurroundingTiles`, le « surrounding » natif ; le
+  filtre « distance hex == R » est celui de
+  `IdunBattle.Core.Services.BattleQuery$$GetTilesAtDistance`) ; PAS un BFS mouvement
   (slot 0xc) → 81 est bien dans le set.
 - **Cooldown / munitions / effet bloquant — RÉFUTÉE** (probe live `probe_49_gauntlets.py`,
   walk 31337 → s14) : dv u87 abilities → `{id:1000, usable:true, cooldown:null, disabled:false,

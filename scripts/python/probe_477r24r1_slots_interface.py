@@ -164,19 +164,61 @@ _RENVOIS_SLOT_PUIS_NOM = tuple(r for r in _RENVOIS if r not in ("->", "→"))
 
 
 def _entre(n: int, traverse: bool, renvois: tuple[str, ...] = _RENVOIS,
-           sans_virgule: bool = True) -> str:
+           sans_virgule: bool = False, k: int | None = None) -> str:
     """Le remplissage tolere entre les deux membres d'un couple, borne a `n` caracteres.
 
     `traverse` dit si ce remplissage a le droit de franchir un SAUT DE LIGNE. C'est le SEUL
     parametre par lequel la fenetre agit sur les formes B et C ; la forme A, elle, separe ses
     membres par un separateur qui traverse deja (cf. `_esp`).
 
-    `sans_virgule = False` desarme le cran VIRGULE (cf. `CRANS`) -- c'est une MESURE, pas un
-    regime de service.
+    `sans_virgule = True` REMET le cran VIRGULE d'avant #477-r42 (la virgule arrete le
+    remplissage). Ce n'est plus le regime de service : c'est la REFERENCE mesurable
+    (`--virgule-bloquante`), au meme titre qu'`--historique`.
+
+    `k` nomme le groupe qui CAPTURE le remplissage (`rem<k>`). C'est ce qui permet de savoir,
+    apres coup, si un couple a FRANCHI une virgule -- la donnee du cran `priorite-non-
+    franchissement`. Sans capture, la question n'est pas posable : le motif ne dit pas ce qu'il
+    a traverse.
+
+    ⚠ FOYER UNIQUE, PARTAGE AVEC `probe_477r25_slots_autres_interfaces.py`. Les deux cliquets
+    balayent le MEME depot ; deux motifs jumeaux qui derivent l'un de l'autre y rouvrent le
+    gisement que l'autre vient de fermer (mesure #477-r36 : `master` etait ROUGE pour cette
+    raison exacte). Chaque appelant passe SON jeu de renvois, jamais sa propre copie du motif.
     """
     exclus = ");:," if sans_virgule else ");:"
     classe = "[^%s]" % exclus if traverse else r"[^\n%s]" % exclus
-    return r"(?:(?!%s)%s){0,%d}?" % ("|".join(renvois), classe, n)
+    corps = r"(?:(?!%s)%s){0,%d}?" % ("|".join(renvois), classe, n)
+    return corps if k is None else r"(?P<rem%d>%s)" % (k, corps)
+
+
+def ceder_aux_locaux(couples, franchit, cle_slot, cle_nom):
+    """LA CITATION LA PLUS LOCALE GAGNE -- foyer du cran `priorite-non-franchissement` (#477-r42).
+
+    Un couple dont le remplissage a FRANCHI une virgule CEDE si l'un de ses deux membres -- le
+    SLOT a sa ligne, ou le NOM a la sienne -- est deja apparie par un couple qui n'en a franchi
+    AUCUNE. Rend `(gardes, cedes)`.
+
+    ⚠ C'EST LE DISCRIMINANT QUE LE CRAN VIRGULE N'ETAIT PAS (#477-r42). La virgule etait un PROXY
+    grossier de « ce membre est deja pris » : dans l'enumeration `slot N1 \\`X\\`, slot N2 \\`Y\\``,
+    ce qui rend `(N2, X)` faux n'est pas la virgule -- c'est que `X` est deja apparie a `N1`, a sa
+    GAUCHE IMMEDIATE, sans rien franchir. Mesure : la regle dissout les DEUX faux de ce regime
+    (`test_433_..._c_caster_gates_{live,offline}.py`) et libere `, dont l'implementation
+    \\`...$$AddUnit\\`` -- +6 couples JUSTES ici, +23 sur le corpus voisin, 0 perdu.
+
+    ⚠ ELLE EST CONSERVATRICE PAR CONSTRUCTION : elle ne peut que RETIRER, et seulement la ou une
+    attribution SANS FRANCHISSEMENT existe deja pour le meme membre. C'est le symetrique du cran
+    « priorite au mono-ligne » de #477-r36, transpose du SAUT DE LIGNE a la VIRGULE.
+    """
+    sans = [c for c in couples if not franchit(c)]
+    slots_pris = {cle_slot(c) for c in sans}
+    noms_pris = {cle_nom(c) for c in sans}
+    gardes, cedes = [], []
+    for c in couples:
+        if franchit(c) and (cle_slot(c) in slots_pris or cle_nom(c) in noms_pris):
+            cedes.append(c)
+        else:
+            gardes.append(c)
+    return gardes, cedes
 
 
 #: UNE CONTINUATION -- ce qui s'intercale la ou une espace suffirait, quand la phrase reprend a
@@ -249,9 +291,33 @@ def _appel(k: int, colle: bool = True, equilibre: bool = True, actif: bool = Tru
 #: de la PROSE et non une resolution (le mot `AVANT` passerait pour un nom de methode).
 _MARQ_COMMENT = r"[ \t]*(?:\#+|//+)[ \t]*"
 
+#: LA RESOLUTION PEUT ETRE DANS LE SECOND COMMENTAIRE, ET LA LOCALITE TIENT QUAND MEME (#477-r42).
+#: `engine/streams/turn_phase.py` ecrit `processor.<slot 0x21>();  // -- \`verifier\`` puis, LIGNE
+#: SUIVANTE, `// = \`...$$VerifyUnitsTurnFinished\``. La forme D exigeait le PREMIER commentaire :
+#: elle butait sur `-- \`verifier\``, qui ne resout rien.
+#:
+#: ⚠ « SAUTER LE PREMIER COMMENTAIRE » N'EST PAS CE QU'ON FAIT -- ce serait perdre exactement ce
+#: que `appel-colle` tient. On suit le BLOC DE COMMENTAIRE CONTIGU : la ligne suivante doit etre
+#: ELLE-MEME une ligne de commentaire (rien que des espaces avant son marqueur). On ne franchit
+#: jamais du CODE, et le cran est relachable (`commentaire-contigu`) pour publier ce qu'il ecarte.
+#:
+#: ⚠ LA CONTINUATION SEULE NE SUFFIT PAS, ET C'EST UNE MESURE. La forme D refusait AUSSI le nom
+#: PLEINEMENT QUALIFIE (`_NOM` interdit `Core` suivi de `.S` -- cran de #477-r32 contre les tetes
+#: de namespace), or le site ecrit `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished`.
+#: Mesure, cause par cause : continuation seule **0** couple neuf ; qualificateur seul **0** ;
+#: les deux ensemble **+1, JUSTE, 0 faux, 0 perdu**, et le plateau est atteint des k = 1.
+def _marq_commentaire(traverse: bool, contigu: bool = True) -> str:
+    """Le marqueur de la forme D, prolonge au bloc de commentaire CONTIGU en regime fenetre."""
+    if not traverse:
+        return _MARQ_COMMENT
+    #: `contigu = False` desarme la LOCALITE : la ligne suivante n'a plus a etre un commentaire.
+    #: C'est une MESURE (`--relacher commentaire-contigu`), jamais un regime de service.
+    marq_suite = r"(?:\#+|//+)" if contigu else r"(?:\#+|//+)?"
+    return _MARQ_COMMENT + r"(?:[^\n]*\r?\n[ \t]*%s[ \t]*)?" % marq_suite
+
 
 def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: bool = False,
-                   profondeur: int = PROFONDEUR_APPEL):
+                   profondeur: int = PROFONDEUR_APPEL, virgule_bloquante: bool = False):
     """LES CINQ FORMES DE COUPLE (slot, nom) RETENUES COMME ATTESTATION.
 
     Un nom simplement PRESENT sur la ligne ne compte pas : il faut qu'il soit ADJACENT au slot.
@@ -264,6 +330,9 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
     `historique = True` rend le regime d'AVANT #477-r36 : les trois formes A/B/C, sans absorption
     d'appel. Il joue ici le role que `fenetre = 1` joue pour #477-r32 -- une REFERENCE mesurable,
     et le seul regime ou le mutant des formes neuves doit etre INERTE.
+
+    `virgule_bloquante = True` rend le regime d'AVANT #477-r42, ou la virgule ARRETAIT le
+    remplissage. Meme role de REFERENCE : c'est ce qui permet de chiffrer ce que le cran remplace.
     """
     esp = _esp(traverse)
     coupure = _COUPURE if traverse else ""
@@ -273,8 +342,8 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
         return (
             re.compile((_SLOT % 0) + esp + r"(?:=|->|:)" + esp + r"[`*]{0,2}(?:" + _QUAL + r")?"
                        + coupure + (_NOM % 0)),
-            re.compile(_QUAL + (_NOM % 1) + _entre(40, False) + (_SLOT % 1)),
-            re.compile((_SLOT % 2) + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM)
+            re.compile(_QUAL + (_NOM % 1) + _entre(40, False, _RENVOIS, True) + (_SLOT % 1)),
+            re.compile((_SLOT % 2) + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM, True)
                        + _QUAL + coupure + (_NOM % 2)),
         )
     qual_c = r"(?:" + _QUAL + r")?" if "qualificateur-forme-c" in relaches else _QUAL
@@ -287,7 +356,10 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
     ouvre = "" if "placeholder-ferme" in relaches else r"<"
     ferme = r"[ \t]*" if "placeholder-ferme" in relaches else r"[ \t]*>"
     bt = r"[`*]{0,2}" if "nom-en-backticks" in relaches else r"`"
-    virg = "virgule-dans-le-remplissage" not in relaches
+    #: LE CRAN VIRGULE N'EST PLUS DANS LE MOTIF (#477-r42) : il est passe du REMPLISSAGE au
+    #: POST-FILTRE (`ceder_aux_locaux`). `virgule_bloquante` rejoue l'ancien regime, en reference.
+    virg = virgule_bloquante
+    marq_d = _marq_commentaire(traverse, "commentaire-contigu" not in relaches)
     return (
         #: A -- `slot 0x7e = MoveUnit`, `slot **0x43** = `OperationProcessor$$ApplyDamage``
         re.compile((_SLOT % 0) + _appel(0, colle, equilibre, profondeur=profondeur)
@@ -298,18 +370,24 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
         #: enumeration verticale, le nom ecrit AVANT appartient a l'item precedent, pas au slot
         #: qui suit -- cran mesure par #477-r30, conserve ici a l'identique.
         re.compile(_QUAL + (_NOM % 1) + _appel(1, colle, equilibre, profondeur=profondeur)
-                   + _entre(40, False, _RENVOIS, virg) + (_SLOT % 1)),
+                   + _entre(40, False, _RENVOIS, virg, k=1) + (_SLOT % 1)),
         #: C -- slot 0x3a ... `OperationProcessor$$StartAttack`   (slot PUIS nom, colles)
         re.compile((_SLOT % 2) + _appel(2, colle, equilibre, profondeur=profondeur)
-                   + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM, virg)
+                   + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM, virg, k=2)
                    + qual_c + coupure + (_NOM % 2)),
         #: D -- LA RESOLUTION COMMENTEE : `<IOperationProcessor slot 0x76>(unit)  # = MarkUnitAs…`
         #: Le qualificateur n'y est PAS exige, et c'est ce qui la distingue de C : le marqueur de
         #: commentaire joue son role -- apres `#`/`//`, en fin de ligne de pseudo-code, ce qui est
         #: ecrit RESOUT ce qui precede. Le cran `resolution-marquee` (ci-dessus) est ce qui
         #: empeche cette forme de recolter n'importe quel commentaire.
-        re.compile((_SLOT % 3) + _appel(3, colle, equilibre, profondeur=profondeur) + _MARQ_COMMENT
-                   + r"(?:(?P<eq3>=)[ \t]*)?[`*]{0,2}" + (_NOM % 3) + r"[`*]{0,2}" + marq),
+        #: ⚠ ET LE NOM Y A LE DROIT D'ETRE PLEINEMENT QUALIFIE (#477-r42). `_NOM` refuse une tete
+        #: de namespace (`Core` suivi de `.S`), donc sans ce `(?:_QUAL)?` la resolution
+        #: `= \`Core.Services.OperationProcessor$$VerifyUnitsTurnFinished\`` est hors d'atteinte.
+        #: Mesure : le qualificateur SEUL ne rend aucun couple, la continuation SEULE non plus --
+        #: c'est leur CONJONCTION qui rend le site, et elle ne coute ni faux ni perte.
+        re.compile((_SLOT % 3) + _appel(3, colle, equilibre, profondeur=profondeur) + marq_d
+                   + r"(?:(?P<eq3>=)[ \t]*)?[`*]{0,2}(?:" + _QUAL + r")?" + (_NOM % 3)
+                   + r"[`*]{0,2}" + marq),
         #: E -- LE NOM DANS LE PLACEHOLDER : `processor.<slot 0x3c AttackDamage>(caster, …)`.
         #: Tout ce qui est ENTRE les chevrons designe le slot -- c'est la cause du cran, et non
         #: « le nom est colle au numero » : sans la fermeture, `slot SANS ARGUMENT` et `slot SOIT`
@@ -378,10 +456,19 @@ CRANS = {
     "qualificateur-forme-c": "la forme C exige un qualificateur (`OperationProcessor$$`, "
                              "`processor.`, `$$`) devant le nom -- CRAN HERITE, jamais relache "
                              "en service",
-    "virgule-dans-le-remplissage": "la VIRGULE arrete le remplissage des formes B et C (cran "
-                                   "herite de #477-r25 : une enumeration verticale apparie le "
-                                   "nom d'un item au slot du SUIVANT) -- jamais chiffre sur CE "
-                                   "corpus avant #477-r36",
+    #: ⚠ CE CRAN A REMPLACE `virgule-dans-le-remplissage` (#477-r42), et le remplacement est une
+    #: MESURE, pas un gout. L'ancien arretait le remplissage a la premiere virgule ; il cachait
+    #: **7** couples JUSTES sur ce corpus (dont `slot 5 ... dont l'implementation \\`$$AddUnit\\``)
+    #: et **0** faux. Ce qu'il protegeait vraiment -- l'enumeration `slot N1 \\`X\\`, slot N2
+    #: \\`Y\\`` -- n'est pas un fait de VIRGULE mais de LOCALITE : `X` y est deja apparie a `N1`,
+    #: a sa gauche immediate. Le cran porte donc desormais sur ce fait-la.
+    "priorite-non-franchissement": "un couple qui a FRANCHI une virgule cede si l'un de ses "
+                                   "membres (slot ou nom) est deja apparie SANS en franchir -- "
+                                   "la citation la plus LOCALE gagne (cf. `ceder_aux_locaux`)",
+    #: ⚠ IL NE SE RELACHE QU'EN REGIME FENETRE : hors fenetre, la forme D ne suit aucun bloc.
+    "commentaire-contigu": "la resolution peut vivre dans le SECOND commentaire, mais la ligne "
+                           "suivante doit etre ELLE-MEME un commentaire -- relacher, c'est "
+                           "franchir du CODE, ce qui perd la localite d'`appel-colle`",
 }
 
 #: Les deux jeux, construits UNE fois. `RE_COUPLES` = le regime mono-ligne (l'etat d'avant
@@ -435,6 +522,9 @@ class Citation:
     #: dans le regime historique.
     forme: int = 0
     appel_absorbe: bool = False
+    #: Le remplissage a-t-il FRANCHI une virgule ? Donnee du cran `priorite-non-franchissement`
+    #: (#477-r42) et de son mutant. Seules les formes B et C ont un remplissage capturable.
+    franchit_virgule: bool = False
 
 
 @dataclass(frozen=True)
@@ -476,6 +566,9 @@ class Ecartees:
     #: `{cause: [(fichier, ligne, texte), ...]}` pour les `sans_couple`. La somme des trois
     #: causes VAUT `sans_couple` -- c'est une partition, pas une liste blanche de motifs.
     ventilation: dict[str, tuple[tuple[str, int, str], ...]] | None = None
+    #: Les couples qui ont FRANCHI une virgule et ont CEDE a une attribution sans franchissement
+    #: (#477-r42). Un compte filtre dit ce qu'il filtre : ils sont listes, jamais tus.
+    cedes_au_non_franchissement: tuple[str, ...] = ()
 
 
 # ------------------------------------------------------------------ etage 1 : DERIVATION
@@ -654,7 +747,7 @@ def _regex_noms(noms: frozenset[str]) -> re.Pattern[str]:
 def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
              noms_interface: frozenset[str] | None = None,
              relaches: tuple[str, ...] = (), historique: bool = False,
-             profondeur: int = PROFONDEUR_APPEL
+             profondeur: int = PROFONDEUR_APPEL, virgule_bloquante: bool = False
              ) -> tuple[list[Citation], list[CitationNom], Ecartees]:
     """(couples (slot, nom), citations par NOM SEUL, ce qui est ecarte et compte).
 
@@ -668,8 +761,8 @@ def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
     if traverse is None:
         traverse = fenetre > 1
     rx_un_nom = _regex_noms(noms_interface) if noms_interface else None
-    if relaches or historique or profondeur != PROFONDEUR_APPEL:
-        couples = _regex_couples(traverse, relaches, historique, profondeur)
+    if relaches or historique or profondeur != PROFONDEUR_APPEL or virgule_bloquante:
+        couples = _regex_couples(traverse, relaches, historique, profondeur, virgule_bloquante)
     else:
         couples = RE_COUPLES_ML if traverse else RE_COUPLES
     rx_nom_seul = RE_NOM_SEUL_ML if traverse else RE_NOM_SEUL
@@ -739,6 +832,7 @@ def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
                     retenues.append(Citation(
                         fichier=rel, ligne=no, slot=slot, noms=(nom,), args=args,
                         ligne_nom=no_nom, forme=k, appel_absorbe=bool(capte),
+                        franchit_virgule="," in (m.groupdict().get("rem%d" % k) or ""),
                         texte=lignes[no - 1].strip()[:150]))
             #: LES CITATIONS PAR NOM SEUL, sur le MEME bloc. Elles ne portent pas de numero,
             #: donc la ligne qu'elles couvrent n'est pas forcement une ligne a slot chiffre --
@@ -782,16 +876,31 @@ def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
     #: Deduplication : plusieurs formes -- et, en fenetre, plusieurs BLOCS -- peuvent capter le
     #: MEME couple. La cle inclut la ligne du NOM : deux noms identiques a deux endroits
     #: differents sont deux citations.
+    #: ⚠ LES NON-FRANCHISSANTS PASSENT D'ABORD. Un meme couple peut etre capte par une forme qui
+    #: franchit une virgule ET par une qui n'en franchit pas ; garder l'exemplaire franchissant
+    #: ferait mentir `franchit_virgule` sur un couple parfaitement local (#477-r42).
     uniques: list[Citation] = []
     deja_vu: set[tuple[str, int, int, str, int]] = set()
-    for c in retenues:
+    for c in sorted(retenues, key=lambda x: x.franchit_virgule):
         cle = (c.fichier, c.ligne, c.slot, c.noms[0], c.ligne_nom)
         if cle in deja_vu:
             continue
         deja_vu.add(cle)
         uniques.append(c)
+    #: LA CITATION LA PLUS LOCALE GAGNE (#477-r42) -- cf. `ceder_aux_locaux`. Le cran est
+    #: RELACHABLE : le desarmer publie ce qu'il ecarte, dont les DEUX faux de l'enumeration.
+    cedes: list[Citation] = []
+    if "priorite-non-franchissement" not in relaches:
+        uniques, cedes = ceder_aux_locaux(
+            uniques, lambda c: c.franchit_virgule,
+            lambda c: (c.fichier, c.ligne, c.slot),
+            lambda c: (c.fichier, c.ligne_nom, c.noms[0]))
     return uniques, noms_seuls, Ecartees(
         autre_interface=autre_iface, sans_couple=sans_couple, exemptees=exemptees,
+        cedes_au_non_franchissement=tuple(
+            "%s:%d slot 0x%x = %s (nom lu ligne %d) | %s"
+            % (c.fichier, c.ligne, c.slot, c.noms[0], c.ligne_nom, c.texte[:100])
+            for c in cedes),
         ventilation=None if rx_un_nom is None
         else {c: tuple(v) for c, v in ventile.items()})
 
@@ -869,6 +978,13 @@ MUTANTS = {
     "formes-r36-decalees": "attribue au couple capte par une forme NEUVE (appel absorbe, "
                            "resolution commentee, placeholder) le nom du slot VOISIN -- inerte "
                            "en regime historique, doit MORDRE en service",
+    #: ⚠ MEME RAISON, ENCORE UN CRAN PLUS LOIN (#477-r42). Les six mutants ci-dessus mordent DEJA
+    #: sans le franchissement de virgule : aucun ne dit quoi que ce soit du cran qui l'autorise.
+    #: Celui-ci porte sur les couples que SEUL ce franchissement rapporte, et il REFUSE en regime
+    #: `--virgule-bloquante`, ou il n'a rien a muter.
+    "franchissants-decales": "attribue au couple qui a FRANCHI une virgule le nom du slot "
+                             "VOISIN -- inerte en regime --virgule-bloquante, doit MORDRE en "
+                             "service",
 }
 
 
@@ -923,6 +1039,10 @@ def muter(table: dict[int, tuple[str, int]], nom: str,
         return table, _decaler(table, cits, lambda c: c.forme >= 3 or c.appel_absorbe,
                                "capte par une forme NEUVE (#477-r36)",
                                "l'appel absorbe / la resolution commentee / le placeholder")
+    if nom == "franchissants-decales":
+        return table, _decaler(table, cits, lambda c: c.franchit_virgule,
+                               "ayant FRANCHI une virgule (#477-r42)",
+                               "le franchissement de virgule et sa priorite au plus local")
     raise SystemExit("mutant inconnu : %s" % nom)
 
 
@@ -990,6 +1110,8 @@ def main() -> int:
                     help="re-derive le CHOIX de PROFONDEUR_APPEL : gain et bruit pour p = 1..5")
     ap.add_argument("--historique", action="store_true",
                     help="rejoue le regime d'AVANT #477-r36 (formes A/B/C, sans appel absorbe)")
+    ap.add_argument("--virgule-bloquante", action="store_true",
+                    help="rejoue le regime d'AVANT #477-r42 (la virgule ARRETE le remplissage)")
     args = ap.parse_args()
 
     print("=== #477-r24-r1 -- slots de Core.Services.IOperationProcessor ===")
@@ -1044,7 +1166,12 @@ def main() -> int:
         print()
         print("=== CE QUE CHAQUE CRAN CACHE (il est desarme SEPAREMENT) ===")
         base, _bns, _be = recolter(fenetre=args.fenetre)
-        connus = {(c.fichier, c.ligne, c.slot, c.noms[0]) for c in base}
+        #: ⚠ LA CLE INCLUT LA LIGNE DU NOM (#477-r42). Sans elle, un couple re-admis par un
+        #: relachement mais deja apparie AUTREMENT sur la meme ligne passait pour « pas neuf » :
+        #: `priorite-non-franchissement` rendait alors **0**, et un cran qui rend zero se lit
+        #: comme gratuit alors qu'il ECARTE. Un compte qui ne dit pas ce qu'il filtre est
+        #: exactement le vice que cette famille de probes existe pour ne pas repeter.
+        connus = {(c.fichier, c.ligne, c.slot, c.noms[0], c.ligne_nom) for c in base}
         connus_nat = {v[0] for v in versionne.values()}
         for cran, quoi in CRANS.items():
             try:
@@ -1052,7 +1179,8 @@ def main() -> int:
             except re.error as exc:                                       # noqa: BLE001
                 print("  %-22s PAS MESURE -- motif invalide (%s)" % (cran, exc))
                 continue
-            neufs = [c for c in lot if (c.fichier, c.ligne, c.slot, c.noms[0]) not in connus]
+            neufs = [c for c in lot
+                     if (c.fichier, c.ligne, c.slot, c.noms[0], c.ligne_nom) not in connus]
             faux = [c for c in neufs if versionne.get(c.slot, ("", 0))[0] != c.noms[0]]
             print("  %-22s %3d couple(s) neuf(s), dont %d au NOM qui ne concorde PAS"
                   % (cran, len(neufs), len(faux)))
@@ -1068,6 +1196,7 @@ def main() -> int:
 
     cits, noms_seuls, ecartees = recolter(
         fenetre=args.fenetre, historique=args.historique,
+        virgule_bloquante=args.virgule_bloquante,
         noms_interface=frozenset(v[0] for v in versionne.values()))
     enjambantes = sum(1 for c in cits if c.ligne != c.ligne_nom)
     print("[3] CITATIONS : %d attestation(s) sur %d fichier(s), appariees sur une FENETRE de "
@@ -1091,6 +1220,14 @@ def main() -> int:
               "attestation(s), %d ligne(s) sans couple" % (len(h_cits), h_ec.sans_couple))
         print("      dont %d couple(s) que SEULES les formes de #477-r36 rapportent "
               "(appel absorbe, resolution commentee, placeholder)" % neuves)
+    if not args.virgule_bloquante:
+        #: La TROISIEME reference : le regime d'avant #477-r42, a fenetre EGALE. Sans elle, le
+        #: gain du franchissement de virgule se confondrait avec celui des formes de #477-r36.
+        v_cits, _v_noms, v_ec = recolter(fenetre=args.fenetre, virgule_bloquante=True)
+        print("      REFERENCE --virgule-bloquante (l'etat d'avant #477-r42, meme fenetre) : %d "
+              "attestation(s), %d ligne(s) sans couple" % (len(v_cits), v_ec.sans_couple))
+        print("      dont %d couple(s) qui ont FRANCHI une virgule -- invisibles quand elle "
+              "arretait le remplissage" % sum(1 for c in cits if c.franchit_virgule))
     print("      ECARTEES, et c'est DIT :")
     print("        %5d ligne(s) dont le recepteur ne designe pas cet OperationProcessor "
           "(autre interface -- residu #477-r25)" % ecartees.autre_interface)
@@ -1100,6 +1237,10 @@ def main() -> int:
     print("        %5d ligne(s) exemptees au site par %s" % (ecartees.exemptees,
                                                             MARQUEUR_REFUTE))
     print("        %5d fichier(s) EXCLU(S) et nomme(s) : %s" % (len(EXCLUS), ", ".join(EXCLUS)))
+    print("        %5d couple(s) ayant FRANCHI une virgule et CEDE a une attribution sans "
+          "franchissement (#477-r42)" % len(ecartees.cedes_au_non_franchissement))
+    for f in ecartees.cedes_au_non_franchissement:
+        print("            %s" % f)
     #: ⚠ LE RESIDU SE PUBLIE AVEC SA CAUSE. Un compte seul est un inventaire ; c'est la cause qui
     #: en fait une tache, et qui dit lequel des trois tas est reellement un gisement (#477-r34).
     vent = ecartees.ventilation

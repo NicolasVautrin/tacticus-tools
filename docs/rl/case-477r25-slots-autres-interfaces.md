@@ -269,7 +269,8 @@ La récolte est donc une **union sur toutes les tailles de 1 à W**, monotone pa
    `IMatchState` **parce que la ligne suivante écrit `MatchState+0x60`** ;
 2. **une LIGNE VIDE est une frontière** — 2 faux positifs ne tenaient qu'à ce franchissement
    (`case-433-…-a-gates-whole-board.md` : `# + slot 10` puis, *après une ligne vide*,
-   `AActiveAbility$$GetPossibleTargetTiles`) ;
+   `AActiveAbility$$GetPossibleTargetTiles`) <!-- [slot-attribution:refute] : le couple cité ici
+   est celui que le cran ÉCARTE, pas une attribution du dépôt --> ;
 3. **la forme « nom PUIS slot » ne franchit JAMAIS la ligne.** Dans une énumération verticale le
    nom écrit avant appartient à l'item précédent : c'est le vice du cran VIRGULE de `#477-r25`,
    transposé de la virgule au saut de ligne. Mesure : **3 couples proposés, 3 faux** ;
