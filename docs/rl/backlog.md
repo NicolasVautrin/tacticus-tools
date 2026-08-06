@@ -2872,19 +2872,70 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   deux regimes, donc aucun ne gardait l'elargissement. 57 verts (49 + 8 neufs).
   Residu : **#477-r32**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6bis.
 
-- **#477-r32 : les 641 lignes qui citent un slot sans qu'AUCUN nom ne lui soit appariable, meme
-  sur trois lignes -- et `probe_477r24r1` qui n'a PAS ete elargi.** `[opus]`
-  Ce que #477-r30 laisse ouvert, desormais publie AVEC son retrecissement (666 -> 641). Elargir
-  davantage n'y fera rien : la courbe est plate de W=2 a W=12, donc ces lignes ne sont pas « trop
-  loin de leur nom » -- elles n'en ont PAS, ou il n'est pas reconnaissable (recepteur hors des 18
-  interfaces couvertes, nom en minuscules, slot cite seul dans une enumeration).
-  CE QU'IL FAUT, deux volets : (a) ECHANTILLONNER ce residu comme #477-r30 l'a fait des 665 -- la
-  premiere lecture du gisement precedent en a sorti une citation fausse, puis l'outillage en a
-  sorti 8 ; (b) porter la fenetre a `probe_477r24r1_slots_interface.py`, qui ecarte **162** lignes
-  du MEME patron sur `IOperationProcessor` et reste au regime « slot et nom ADJACENTS ».
+- ~~**#477-r32**~~ : **LIVRE (2026-08-06)** -- **l'etage qui manquait n'etait pas la FENETRE,
+  c'etait le slot cite par son NOM SEUL.** La fenetre est portee a `probe_477r24r1` : courbe
+  RE-DERIVEE sur CE corpus (`--courbe`), meme forme que celle de #477-r30 -- gain integralement
+  capte a **W=2**, plat jusqu'a W=8 ; **17** couples enjambants, attestations **60 -> 81**, zone
+  aveugle **181 -> 173**, et **0 citation fausse** sur l'axe (slot, nom). Ce zero n'est PAS une
+  conclusion par absence : chacun des crans conservateurs a ete RELACHE separement (parenthese
+  fermante, forme « recepteur colle au slot », nom colle au numero, forme A apres appel) -- **18**
+  couples neufs, dont **8 douteux qui sont TOUS des artefacts du relachement**, aucune faute du
+  depot. LA FAUTE etait sur un axe non visite : `components.py` ecrivait
+  « le slot `ApplyStatModifiers` de l'`OperationProcessor` » [slot-attribution:refute],
+  un nom qui n'est a AUCUN des 150 slots. LU au
+  decompile sur les TROIS call-sites que la fiche cite (`ReviveUnitOperation$$SetHealth`,
+  `SetupGameOperation$$ApplyModifiers`, `TransformActorToConfigIdOperation$$UpdateStats`) : tous
+  prennent le slot **0x66** = `Core.Services.OperationProcessor$$TransformUnit` (3 args) ->
+  `TransformUnitOperation$$Execute` -> `UnitExtensions$$ApplyStatModifiers`, DEUX niveaux plus bas ;
+  controle croise, le meme corps invoque `0x2f` = `RefreshEffects`. ⚠ La correction est REFORMULEE
+  pour rester CONFRONTABLE (« slot 0x66 = `TransformUnit` ») -- « slot `TransformUnit` (0x66) »
+  aurait ete juste et INVISIBLE des deux etages. ⚠ Le discriminant de l'etage NOM SEUL est la
+  tournure « de l'<recepteur> », PAS le mot en capitale (5 faux positifs de prose pour 7 citations
+  reelles sans ce cran). Deux crans de RECONNAISSANCE mesures : le recepteur ecrit ENTRE `slot` et
+  le numero (sans lui le motif ne voyait meme pas le SLOT), et « un nom suivi d'un POINT PUIS d'une
+  LETTRE est un segment de chemin » (4 sites rendaient `IdunBattle`/`Core`). ⚠ Le mutant
+  `enjambants-decales` NE PEUT PAS porter sur la table ici, et c'est une MESURE : les 16 couples
+  enjambants tiennent sur 8 slots, tous AUSSI cites en une ligne ailleurs -- il porte donc sur la
+  CITATION, refuse (`contre-epreuve IMPOSSIBLE`) a fenetre=1, et mord a **16** au-dela. Test neuf
+  `test_etage3_chaque_etage_a_son_mutant` : les 4 colonnes de `jouer` doivent etre bougees par au
+  moins un mutant -- c'est ce qui a montre que l'etage NOM SEUL entrait SANS garde.
+  ⚠ **UN CRAN HERITE PEUT COUTER UNE CITATION JUSTE, et seule une NON-REGRESSION MECANIQUE le
+  dit** : la version de `master` et la version livree jouees sur le MEME arbre a fenetre=1 ont
+  montre **1 citation JUSTE perdue**, et le retrait des dix renvois UN PAR UN a isole le
+  coupable -- la FLECHE. Elle n'est un renvoi que dans le sens « nom PUIS slot » (enchainement
+  d'appels) ; dans le sens « slot PUIS nom » elle marque une RESOLUTION, soit l'attribution
+  cherchee. Les DEUX fleches sont retirees de la forme C par leur CAUSE (garder l'ASCII et lacher
+  l'unicode parce que seul l'unicode rapporte serait un fit sur le corpus). Un cran importe d'un
+  corpus voisin se RE-MESURE, il ne se recopie pas.
+  **41 verts** (33 + 8 neufs) ; `probe_477r25` et ses 57 verts inchanges.
+  Residu : **#477-r36**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6ter.
+
+- **#477-r36 : ce qui reste HORS COUVERTURE sur les deux cliquets de slots, VENTILE PAR CAUSE.**
+  `[opus]`
+  Un compte seul est un inventaire ; sa cause en fait une tache. Sur `IOperationProcessor`, apres
+  #477-r32, il reste **173** lignes, mesurees et ventilees (`--ventiler`) : **44** sans aucun
+  NUMERO (le slot est nomme en prose, ou par une tournure que l'etage NOM SEUL ne reconnait pas --
+  « prennent le slot `MoveUnit` (4 arguments...) », sans « de l'... ») ; **79** avec un numero et
+  AUCUN nom de methode dans la fenetre (rien a contredire) ; **50** avec un numero ET un nom de
+  l'interface dans la fenetre, qu'un cran conservateur ecarte. La somme des trois VAUT le total --
+  c'est une partition, assertionnee, pas une liste blanche de motifs.
+  ⚠ Ces comptes BOUGENT quand on ecrit sur les slots -- ET sous les MERGES des autres : le corpus
+  balaye contient les fiches et les tests de la tranche elle-meme (seul le probe est exclu de son
+  propre balayage). Mesure a REGIME CONSTANT : 45 -> 51 attestations sous nos seules ecritures,
+  puis 51 -> 60 au rebase sur #477-r22-r1 (qui RESOUT le slot 0x21, et dont les citations neuves
+  passent toutes le cliquet). Les RE-DERIVER (`--courbe`, `--ventiler`), jamais les citer.
+  CE QU'IL FAUT : les **50** sont le gisement, et il est BORNE -- les quatre relachements mesures
+  en sec. 6ter n'en sortent que **18** couples, dont **10 justes** (dont 1 deja recupere par le
+  cran FLECHE) et **8 artefacts du relachement**. DEUX crans gagneraient sans bruit mesure, et ce
+  sont des axes de FORME, pas de fenetre : (a) le nom COLLE au numero (« slot 0x3c AttackDamage »)
+  -- 2 couples, 0 artefact ; (b) la forme A tolerant un APPEL avant le `=` (« processor.<slot
+  0x12>(); // -> ... ») -- 3 justes pour 1 artefact, donc a durcir avant de l'armer.
+  Cote `probe_477r25`, les ~640 lignes restantes ne sont PAS ventilees : la courbe y est plate et
+  elles n'ont pas de nom appariable. Les ECHANTILLONNER reste le volet ouvert (la premiere lecture
+  du gisement precedent en a sorti une citation fausse, puis l'outillage en a sorti 8).
   NB annexe, non mesure comme gisement : le mot `slot` lui-meme reste sensible a la casse (seul
   son qualificatif ne l'est plus) -- « Slot 0x12 = ... » ne serait pas vu.
-  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6bis et Residus.
+  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6ter et Residus.
 
 - **#477-r21-r2 : la SELECTION et l'ORDRE de l'arbre d'activation.** `[opus]`
   Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.

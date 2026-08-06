@@ -10,10 +10,20 @@ Ce que ce fichier empeche de revenir :
   a tranches, mesures a la conversion. Il n'est pas redondant avec l'etage 1 : celui-ci compare
   l'entree versionnee a elle-meme et redevient vert des qu'on la regenere, alors que les valeurs
   ECRITES dans les fiches, elles, auraient change sans que personne ne le voie ;
-* qu'un corpus vide passe pour un vert (etage 0 : le balayage assertionne son propre NON-VIDE).
+* qu'un corpus vide passe pour un vert (etage 0 : le balayage assertionne son propre NON-VIDE) ;
+* que l'appariement RETOMBE de la FENETRE a la LIGNE (etage 3bis, #477-r32). Le regime « slot et
+  nom ADJACENTS » ecartait 166 lignes du meme patron ; les crans qui l'ouvrent sont gardes UN PAR
+  UN, et le mutant `enjambants-decales` est INERTE a `fenetre=1` -- c'est ce qui prouve qu'il
+  garde l'ELARGISSEMENT et pas l'appariement en general ;
+* qu'un slot designe par son NOM SEUL nomme une methode qui n'existe pas (etage 5, #477-r32).
+  C'est cette forme-la qui portait la seule faute du corpus : `components.py` ecrivait
+  « le slot `ApplyStatModifiers` de l'`OperationProcessor` »  [slot-attribution:refute]
+  alors que le slot est `TransformUnit` (0x66), et qu'`ApplyStatModifiers` est ce que
+  l'Operation appelle DEUX niveaux plus bas.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -46,11 +56,31 @@ COUPLES_FIGES = {
     0x26: ("AddTrait", 3),
     0x51: ("EvaluateAbilities", 5),
     0x7E: ("SetUnitPosition", 3),               # corrige `revive.py` (y disait `MoveUnit`)
+    #: #477-r32 : la seule faute du corpus. `components.py` nommait ce slot `ApplyStatModifiers`,
+    #: qui n'est a AUCUN des 150. La chaine est LUE au decompile, sur TROIS call-sites qui
+    #: prennent tous le meme slot : `ReviveUnitOperation$$SetHealth`,
+    #: `SetupGameOperation$$ApplyModifiers` et `TransformActorToConfigIdOperation$$UpdateStats`
+    #: -> `Core.Services.OperationProcessor$$TransformUnit(entity, statModifiers, isHidden)`
+    #: -> `TransformUnitOperation$$Execute` -> `UnitExtensions$$ApplyStatModifiers`.
+    0x66: ("TransformUnit", 3),
 }
 
 #: Nombre de slots de l'interface sur ce build. Fige : une table qui RETRECIT en silence est
 #: exactement ce qui ferait passer une citation hors bornes pour « slot inconnu, on ignore ».
 NB_SLOTS = 150
+
+
+class _MethodDefSimulee:
+    """Le strict minimum que `P.jouer` lit d'une `MethodDef` : slot, nom, arite.
+
+    Il sert a rendre l'etage 2 observable HORS metadata (le jeu n'est pas forcement installe).
+    Ce n'est pas un substitut de la derivation -- l'etage 4, lui, confronte la VRAIE.
+    """
+
+    __slots__ = ("slot", "name", "param_count")
+
+    def __init__(self, slot: int, name: str, param_count: int) -> None:
+        self.slot, self.name, self.param_count = slot, name, param_count
 
 
 @pytest.fixture(scope="module")
@@ -59,9 +89,25 @@ def table() -> dict[int, tuple[str, int]]:
 
 
 @pytest.fixture(scope="module")
-def citations() -> list[P.Citation]:
-    cits, _autre, _sans, _exempt = P.recolter()
-    return cits
+def recolte():
+    """La recolte au regime EN SERVICE (fenetre = `P.FENETRE`)."""
+    return P.recolter()
+
+
+@pytest.fixture(scope="module")
+def citations(recolte) -> list[P.Citation]:
+    return recolte[0]
+
+
+@pytest.fixture(scope="module")
+def noms_seuls(recolte) -> list[P.CitationNom]:
+    return recolte[1]
+
+
+@pytest.fixture(scope="module")
+def recolte_fenetre1():
+    """La recolte a `fenetre=1` -- le regime d'avant #477-r32, garde comme REFERENCE."""
+    return P.recolter(fenetre=1)
 
 
 @pytest.fixture(scope="module")
@@ -162,16 +208,265 @@ def test_etage3_aucune_citation_fausse(table: dict[int, tuple[str, int]],
 
 @pytest.mark.parametrize("mutant", sorted(P.MUTANTS))
 def test_etage3_la_garde_mord(table: dict[int, tuple[str, int]],
-                              citations: list[P.Citation], mutant: str) -> None:
+                              citations: list[P.Citation],
+                              noms_seuls: list[P.CitationNom], mutant: str) -> None:
     """Contre-epreuve : chaque mutant doit faire bouger au moins un compteur.
 
     Une garde qu'on n'a jamais vue ROUGE ne prouve rien. `slot-decale` et `table-tronquee`
     frappent l'appariement, `nom-permute` l'attribution (sur des slots DERIVES des citations
-    reelles, sinon le mutant serait inerte), `arite-fausse` la signature.
+    reelles, sinon le mutant serait inerte), `arite-fausse` la signature, `enjambants-decales`
+    l'ELARGISSEMENT lui-meme.
     """
-    base = P.jouer(table, citations, None)
-    mute = P.jouer(P.muter(table, mutant, citations), citations, None)
+    base = P.jouer(table, citations, None, noms_seuls)
+    mt, mc = P.muter(table, mutant, citations)
+    mute = P.jouer(mt, mc, None, noms_seuls)
     assert mute != base, "le mutant `%s` n'a RIEN change (%s) -- il est inerte" % (mutant, base)
+
+
+def test_etage3_chaque_etage_a_son_mutant(table: dict[int, tuple[str, int]],
+                                          citations: list[P.Citation],
+                                          noms_seuls: list[P.CitationNom]) -> None:
+    """Chacun des QUATRE compteurs de `jouer` doit etre bouge par AU MOINS un mutant.
+
+    Sans ce test, un etage neuf peut entrer sans contre-epreuve : les mutants existants
+    continueraient de « mordre » sur les autres colonnes et la garde passerait pour complete.
+    Mesure #477-r32 : l'etage 5 (NOM SEUL) est arrive ainsi, et n'etait garde par rien tant
+    qu'il n'etait pas dans le tuple rendu par `jouer`.
+
+    ⚠ LA DERIVATION EST SIMULEE DEPUIS L'ENTREE VERSIONNEE, et c'est ce qui rend la colonne 0
+    (l'ecart derivation/versionne) observable SANS le jeu installe. Passer `None` la fige a 0
+    et le test se lirait « aucun mutant ne garde l'etage 2 » alors que tous le gardent.
+    """
+    derive = [_MethodDefSimulee(s, n, k) for s, (n, k) in sorted(table.items())]
+    base = P.jouer(table, citations, derive, noms_seuls)
+    bouges = set()
+    for mutant in P.MUTANTS:
+        mt, mc = P.muter(table, mutant, citations)
+        mute = P.jouer(mt, mc, derive, noms_seuls)
+        bouges |= {i for i, (a, b) in enumerate(zip(base, mute)) if a != b}
+    assert bouges == set(range(len(base))), (
+        "les colonnes %s de `jouer` ne sont bougees par AUCUN mutant -- elles n'ont pas de "
+        "contre-epreuve" % sorted(set(range(len(base))) - bouges))
+
+
+# ------------------------------------ etage 3bis : la FENETRE elle-meme (#477-r32)
+
+
+def test_etage3bis_la_fenetre_APPORTE_des_couples_enjambants(
+        citations: list[P.Citation]) -> None:
+    """La fenetre doit voir ce que `fenetre=1` ne voyait pas -- sinon elle ne sert a rien."""
+    assert P.FENETRE >= 2, "la fenetre est retombee a 1 -- le gisement de #477-r32 se rouvre"
+    enjambants = [c for c in citations if c.ligne != c.ligne_nom]
+    assert len(enjambants) >= 12, (
+        "seulement %d couple(s) ENJAMBANT(S) sur %d -- l'appariement en fenetre ne mord plus "
+        "(mesure a 16 le 2026-08-06)" % (len(enjambants), len(citations)))
+    assert len({c.fichier for c in enjambants}) >= 10, (
+        "les couples enjambants sont concentres sur %d fichier(s) -- ce n'est plus un gisement"
+        % len({c.fichier for c in enjambants}))
+
+
+def test_etage3bis_la_fenetre_RETRECIT_la_zone_aveugle(recolte, recolte_fenetre1) -> None:
+    """Un cliquet dont la zone aveugle ne retrecit pas est un inventaire, pas une garde."""
+    _ref_cits, _ref_noms, ref = recolte_fenetre1
+    _cits, _noms, ecartees = recolte
+    assert ecartees.sans_couple < ref.sans_couple, (
+        "zone aveugle INCHANGEE : %d ligne(s) sans couple a fenetre=1 comme a fenetre=%d"
+        % (ref.sans_couple, P.FENETRE))
+    assert ref.sans_couple - ecartees.sans_couple >= 5, (
+        "la fenetre ne recupere que %d ligne(s) (%d -> %d) -- mesure a 8 le 2026-08-06"
+        % (ref.sans_couple - ecartees.sans_couple, ref.sans_couple, ecartees.sans_couple))
+
+
+def test_etage3bis_fenetre1_reste_le_regime_precedent(recolte_fenetre1) -> None:
+    """`fenetre=1` doit RESTER exactement l'ancien regime : 0 couple enjambant.
+
+    Sans cette assertion, un elargissement accidentel du regime de base passerait pour un gain
+    de la fenetre, et la comparaison des deux regimes ne voudrait plus rien dire.
+    """
+    ref_cits, _ref_noms, _ref = recolte_fenetre1
+    assert all(c.ligne == c.ligne_nom for c in ref_cits), (
+        "a fenetre=1, un couple s'etale sur deux lignes -- le regime de base a fui")
+
+
+def test_etage3bis_le_mutant_des_enjambants_est_INERTE_a_fenetre1(
+        table, citations: list[P.Citation], noms_seuls, recolte_fenetre1) -> None:
+    """Le mutant qui garde la fenetre doit MORDRE en fenetre et NE RIEN FAIRE a fenetre=1.
+
+    C'est ce qui prouve qu'il garde bien l'ELARGISSEMENT, et pas l'appariement en general : les
+    quatre mutants herites mordent dans les deux regimes, donc aucun d'eux ne dirait qu'on a
+    perdu la fenetre.
+    """
+    ref_cits, _ref_noms, _ref = recolte_fenetre1
+    mt, mc = P.muter(table, "enjambants-decales", citations)
+    assert P.jouer(mt, mc, None, noms_seuls) != P.jouer(table, citations, None, noms_seuls), (
+        "le mutant `enjambants-decales` ne mord PAS en fenetre -- la fenetre n'est pas gardee")
+    with pytest.raises(SystemExit, match="IMPOSSIBLE"):
+        #: A `fenetre=1` il n'existe AUCUN couple enjambant : le mutant n'a rien a muter, et il
+        #: REFUSE au lieu de rendre une mutation vide qui passerait pour appliquee.
+        P.muter(table, "enjambants-decales", ref_cits)
+
+
+def test_etage3bis_le_bloc_ne_franchit_pas_une_ligne_VIDE() -> None:
+    """Une ligne vide est une frontiere de paragraphe -- cran mesure par #477-r30.
+
+    ⚠ Le couple d'exemple est VRAI (`0x65` = `MoveUnit`), et ce n'est pas cosmetique : ce
+    fichier EST dans le corpus balaye. Un exemple faux y ferait rougir le probe sur son propre
+    cliquet le jour ou un cran s'ouvrirait -- exactement le vice que l'exclusion du probe
+    lui-meme evite pour ses regex de documentation.
+    """
+    lignes = ["processor slot 0x65 =", "", "`OperationProcessor$$MoveUnit`"]
+    hauteurs = {len(off) for i0, _b, off in P._blocs(lignes, 3) if i0 == 0}
+    assert hauteurs == {1}, (
+        "le bloc demarrant sur la ligne du slot franchit la ligne vide (hauteurs %s)"
+        % sorted(hauteurs))
+
+
+def test_etage3bis_la_coupure_entre_QUALIFICATEUR_et_NOM_est_franchie() -> None:
+    """La forme REELLE de ce corpus : le qualificateur finit la ligne, le nom ouvre la suivante.
+
+    `turnflow.py` et `runner.py` ecrivent « slot `IOperationProcessor` 0x21 =
+    `Core.Services.OperationProcessor$$` » puis, ligne suivante, `VerifyUnitsTurnFinished`.
+    C'est une coupure DIFFERENTE de celle mesuree par #477-r30 (qui tombait entre le signe egal
+    et le qualificateur) : elle a son propre cran, et il faut donc son propre test.
+    """
+    bloc = ("# invoque le slot `IOperationProcessor` 0x21 = `Core.Services.OperationProcessor$$\n"
+            "# VerifyUnitsTurnFinished` (AUCUN argument)")
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(bloc)}
+    assert (0x21, "VerifyUnitsTurnFinished") in vus, (
+        "le couple a cheval sur la coupure qualificateur/nom n'est pas capte -- vus : %s"
+        % sorted(vus))
+    mono = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+            for k, rx in enumerate(P.RE_COUPLES) for m in rx.finditer(bloc)}
+    assert (0x21, "VerifyUnitsTurnFinished") not in mono, (
+        "le regime mono-ligne voit le couple a cheval -- la comparaison des deux regimes ne "
+        "mesure plus rien")
+
+
+def test_etage3bis_le_recepteur_entre_slot_et_numero_est_reconnu() -> None:
+    """« slot `IOperationProcessor` 0x21 », « slot processor 0x76 » sont des SLOTS.
+
+    Sans ce cran le motif ne voyait meme pas le NUMERO : la ligne partait en `sans_couple` et
+    AUCUNE fenetre n'aurait pu la rattraper. C'est le pendant exact du « slot d'INTERFACE »
+    mesure par #477-r30 sur l'autre cliquet.
+    """
+    for texte, attendu in (("slot `IOperationProcessor` 0x21", 0x21),
+                           ("slot IOperationProcessor 0x46", 0x46),
+                           ("slot processor 0x76", 0x76),
+                           ("slot `Core.Services.OperationProcessor` 0x23", 0x23),
+                           ("slot d'interface 0x4c", 0x4C),
+                           ("slot d'INTERFACE 0x4c", 0x4C),
+                           ("slot +6", 6),
+                           ("vslot 0x60", 0x60)):
+        m = re.search(P._SLOT % 0, texte)
+        assert m is not None and int(m.group("n0"), 0) == attendu, (
+            "« %s » n'est pas reconnu comme le slot 0x%x" % (texte, attendu))
+
+
+def test_etage3bis_la_FLECHE_reste_licite_dans_le_sens_slot_PUIS_nom() -> None:
+    """La FLECHE n'est un RENVOI que dans le sens « nom PUIS slot ».
+
+    #477-r25 l'excluait des DEUX sens, et ce cran, importe tel quel, faisait PERDRE une citation
+    JUSTE de ce corpus (`backlog.md` : « `FinishAttack` slot 0x3b -> le meme nom qualifie »).
+    Dans « slot PUIS nom » la fleche marque une RESOLUTION, donc exactement l'attribution
+    cherchee ; dans l'autre sens elle marque un ENCHAINEMENT d'appels, et le cran tient.
+    """
+    resolution = "`FinishAttack` slot 0x3b → `OperationProcessor$$FinishAttack` → suite"
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(resolution)}
+    assert (0x3B, "FinishAttack") in vus, (
+        "le sens « slot PUIS nom » perd son couple a cause de la fleche -- vus : %s"
+        % sorted(vus))
+    #: ... et le sens INVERSE doit rester bloque : la fleche y designe l'APPELE.
+    enchainement = "`OperationProcessor$$FinishAttack` -> slot 0x3c"
+    vus_b = {(int(m.group("n2"), 0), m.group("nom2"))
+             for m in P.RE_COUPLES_ML[2].finditer(enchainement)}
+    assert (0x3C, "FinishAttack") not in vus_b, (
+        "la forme « nom PUIS slot » franchit la fleche -- elle attribue au slot APPELE le nom "
+        "de la methode APPELANTE")
+
+
+def test_etage3bis_un_segment_de_chemin_nest_pas_un_nom_de_methode() -> None:
+    """`slot 0x46 -> `IdunBattle.Operations.DiscardHitOperation`` ne nomme PAS `IdunBattle`.
+
+    Le qualificateur etant OPTIONNEL en forme A, le moteur y renonce et attrape la TETE DU
+    NAMESPACE. Mesure #477-r32 : 4 sites, tous artefacts, tous ranges parmi les « noms inconnus
+    de l'interface » -- exactement la ou une VRAIE citation fausse doit sortir.
+    """
+    bloc = "-> slot IOperationProcessor 0x46 -> `IdunBattle.Operations.DiscardHitOperation$$Execute`"
+    vus = {m.group("nom%d" % k) for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(bloc)}
+    assert "IdunBattle" not in vus, "la tete du namespace est prise pour un nom de methode"
+
+
+def test_etage3bis_le_residu_est_VENTILE_et_la_somme_vaut_le_total(table) -> None:
+    """Un compte qui ne dit pas SA CAUSE est un inventaire (#477-r34).
+
+    Les trois causes forment une PARTITION : leur somme doit valoir `sans_couple`, sinon une
+    ligne tomberait dans un tas que personne ne regarde -- exactement le vice qu'un recenseur a
+    liste blanche de motifs reproduit a chaque fois.
+    """
+    _cits, _noms, ecartees = P.recolter(
+        noms_interface=frozenset(v[0] for v in table.values()))
+    vent = ecartees.ventilation
+    assert vent is not None, "ventilation PAS MESUREE alors que la table est fournie"
+    assert set(vent) == set(P.CAUSES), "les causes ne sont pas celles declarees : %s" % sorted(vent)
+    assert sum(len(v) for v in vent.values()) == ecartees.sans_couple, (
+        "la somme des causes (%d) ne vaut PAS le total ecarte (%d) -- ce n'est plus une partition"
+        % (sum(len(v) for v in vent.values()), ecartees.sans_couple))
+    assert vent["nom_ecarte_par_un_cran"], (
+        "aucune ligne dans le tas qui est LE gisement -- soit il est ferme (le dire), soit le "
+        "critere ne mesure plus rien")
+
+
+def test_etage3bis_la_ventilation_est_TRI_ETAT() -> None:
+    """Sans table de noms, la ventilation vaut `None` -- PAS MESUREE, jamais un dict vide.
+
+    Un dictionnaire de listes vides se lirait « aucune ligne dans aucune cause », c'est-a-dire
+    « residu ferme », alors que rien n'aurait ete mesure.
+    """
+    _cits, _noms, ecartees = P.recolter(fenetre=1)
+    assert ecartees.ventilation is None
+
+
+# ------------------------------------- etage 5 : les citations par NOM SEUL (#477-r32)
+
+
+def test_etage5_les_citations_par_nom_seul_nomment_une_vraie_methode(
+        table: dict[int, tuple[str, int]], noms_seuls: list[P.CitationNom]) -> None:
+    """« le slot `X` de l'`OperationProcessor` » : `X` doit etre une des 150 methodes."""
+    assert noms_seuls, ("aucune citation par NOM SEUL recoltee -- le motif ne matche plus, et "
+                        "un etage qui ne visite rien rend 0 faute et se lit comme un vert")
+    faux = P.confronter_noms(noms_seuls, table)
+    assert not faux, "slot(s) nomme(s) qui n'existent PAS sur l'interface :\n  " + "\n  ".join(faux)
+
+
+def test_etage5_la_PROSE_en_capitales_nest_pas_une_citation() -> None:
+    """Le discriminant est la tournure « de l'<recepteur> », PAS le mot en capitale.
+
+    Un motif qui se contente de `slot <Mot>` recolte « slot SANS ARGUMENT », « slot SOIT
+    `FinishUnitTurn` », « slots AUTRES que ». Mesure #477-r32 : 5 faux positifs pour 7 citations
+    reelles -- un etage qui rougit sur de la prose fait renoncer a une mesure juste.
+    """
+    for prose in ("la lambda appelle UN slot SANS ARGUMENT ; `OperationProcessor$$StartMatch`",
+                  "Que ce slot SOIT `FinishUnitTurn` est PROUVE -- `OperationProcessor` le dit",
+                  "CLIQUET des slots d'interface AUTRES que `Core.Services.IOperationProcessor`"):
+        assert not P.RE_NOM_SEUL_ML.search(prose), "prose prise pour une citation : %s" % prose
+    for vraie in ("il passe au slot `MoveUnit` de l'`IOperationProcessor` -- d'ou",
+                  "le slot `RefreshEffects` de l'`OperationProcessor`",
+                  "le slot `KillUnit` de l'`IOperationProcessor`, c'est-a-dire"):
+        assert P.RE_NOM_SEUL_ML.search(vraie), "citation reelle NON vue : %s" % vraie
+
+
+def test_etage5_apply_stat_modifiers_nest_PAS_un_slot(table) -> None:
+    """La faute que cette tranche a trouvee, ecrite comme une assertion.
+
+    `components.py` nommait le slot `ApplyStatModifiers`. Ce nom n'est a AUCUN des 150 slots :
+    c'est `IdunBattle.Entities.UnitExtensions$$ApplyStatModifiers`, atteint DEUX niveaux plus
+    bas par `TransformUnitOperation$$Execute`. Le slot, lui, est `TransformUnit` (0x66).
+    """
+    noms = {v[0] for v in table.values()}
+    assert "ApplyStatModifiers" not in noms
+    assert table[0x66] == ("TransformUnit", 3)
 
 
 # ------------------------------- etage 4 : la derivation depuis le metadata, si elle est la

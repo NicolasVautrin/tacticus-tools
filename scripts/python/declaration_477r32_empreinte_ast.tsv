@@ -1,0 +1,17 @@
+# DECLARATION #477-r32 -- les fichiers dont le CODE EXECUTABLE change legitimement dans
+# cette tranche, et pourquoi. Passee en ENTREE a l'empreinte AST :
+#
+#   python scripts/python/probe_477r30_empreinte_ast.py \
+#          --attendu scripts/python/declaration_477r32_empreinte_ast.tsv
+#
+# Elle est PROPRE A LA TRANCHE, et c'est ce qui la rend relisable avec le diff : une
+# declaration figee dans l'instrument accuse la branche suivante (cf. #477-r30-r2).
+# Tout divergent hors de ce fichier est un ROUGE.
+#
+# La tranche ne touche qu'UN fichier de PORT (`engine/runner/components.py`), et il doit
+# rester IDENTIQUE AST -- il n'est donc PAS declare ici : sa correction est une CITATION,
+# elle n'a pas le droit d'emporter du code.
+#
+#chemin	raison
+scripts/python/probe_477r24r1_slots_interface.py	l'instrument : appariement du couple (slot, nom) sur une FENETRE de lignes, etage NOM SEUL, ventilation du residu par cause
+scripts/python/tests/engine/test_477r24r1_slots_interface_offline.py	le cliquet de la fenetre, de l'etage NOM SEUL et du cran FLECHE : 8 etages neufs
