@@ -166,6 +166,19 @@ Deux sites (`operations/damage.py`, `operations/damage_ops/normal.py`) portaient
 plus — exactement la famille #429-r1 que cette tranche visait à ne pas rouvrir. Les trois sites
 sont réparés **en forme B**.
 
+### Ce que `morsure` rend sur l'arbre LIVRÉ — et le seul qui reste
+
+`DEJA_INERTE` **30** · `DIFFERE_MORDANT` **8** · `HISSAGE_DESARMERAIT` **1** · sans liaison
+`from` **181** · total **220**.
+
+Le `HISSAGE_DESARMERAIT` restant est `runner.abilities.targeting.targeting_options_for`, différé
+depuis `playbook/nonattack.py:183`. Il est **GRATUIT** au sens du cliquet (aucun cycle) et
+pourtant **non hissable**, pour deux raisons indépendantes : il est sous `try/except` (raison
+déjà déclarée), **et** son symbole est substitué par un test offline et deux probes. Ce n'est pas
+un dégât — le différé est en place, donc le patch mord — mais c'est une **bombe conditionnelle**
+pour le prochain agent qui suivra le cliquet. Elle est désormais **déclarée au site**, avec la
+forme (B) à employer si la première raison tombait un jour.
+
 **Bonus** : `existe_module` était **insensible à la CASSE** sous Windows. `from ... import
 EFFECT_TRIGGERS` (une constante) répondait « module » à cause d'`effect_triggers.py` voisin, ce
 qui classait le couple en forme B — « point fixe, rien à faire » — et liait le nom à un

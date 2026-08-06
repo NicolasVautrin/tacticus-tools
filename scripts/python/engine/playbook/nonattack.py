@@ -178,7 +178,20 @@ class NonAttackComparablePlaybook(ComparablePlaybook):
         `eligible_targets` choisit un domaine au lieu de concatener (case-302 §1.1).
 
         Import LOCAL : `engine.runner.abilities.targeting` tire tout le registre d'abilities, dont
-        cette couche n'a pas besoin au chargement."""
+        cette couche n'a pas besoin au chargement.
+
+        ⚠ DIFFERE **GRATUIT** au sens de `probe_485_imports_differes` (aucun cycle), et pourtant
+        NON HISSABLE, pour DEUX raisons independantes -- la seconde n'est visible d'aucun cliquet
+        d'import :
+          1. il est SOUS `try/except` : hisser deplacerait l'echec du site d'appel, ou il est
+             rattrape, vers le CHARGEMENT du module ;
+          2. `targeting_options_for` est SUBSTITUE par `test_433_..._caster_reason_offline.py:59`
+             et deux probes. Hisser en forme A (`from X import foo`) gelerait le nom au
+             chargement et rendrait ces stubs INERTES, EN SILENCE. C'est le seul
+             `HISSAGE_DESARMERAIT` que `migrate_485r1_barils_reexport.py morsure` rend encore
+             sur cet arbre, et il est ici DECLARE plutot que laisse a decouvrir.
+        Si un jour la raison 1 tombe, hisser doit se faire en forme B (`from ..runner.abilities
+        import targeting as _tg` puis `_tg.targeting_options_for(...)`), jamais en forme A."""
         try:
             from ..runner.abilities.targeting import targeting_options_for
             opts = targeting_options_for(ability_id)
