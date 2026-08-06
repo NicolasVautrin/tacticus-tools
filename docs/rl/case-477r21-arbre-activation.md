@@ -251,9 +251,17 @@ ne mord pas sur le cas nominal.
 - **#477-r21-r2** — **la SÉLECTION et l'ORDRE** : quels effets et quelles abilities déclenchées
   s'activent, sur quelles unités, dans quel ordre. C'est `AOperation.AbilityAndEffectCache.<slot 3>`
   parcouru par `EvaluateTriggerOperation$$ExecuteInternal`, plus les gardes de
-  `RefreshEffectsOperation` (`ShouldBeActive`, `GetTargetsToAdd`, `GetTargetsToRemove`,
-  `UpdateEffectTargets`) et les deux d'`EvaluateAbilityTrigger` (§ 1). C'est le plus gros, et le
-  seul qui ne soit pas une face stream.
+  `RefreshEffectsOperation` (~~`ShouldBeActive`, `GetTargetsToAdd`, `GetTargetsToRemove`,
+  `UpdateEffectTargets`~~ — **VOLET A LIVRÉ**) et les deux d'`EvaluateAbilityTrigger` (§ 1). C'est
+  le plus gros, et le seul qui ne soit pas une face stream.
+  ⚠ **LE VOLET A EST LIVRÉ ET N'A PAS BOUGÉ LE CHIFFRE DU § 5, CE QUI EST LE RÉSULTAT.** Les quatre
+  gardes sont portées 1:1 et confrontées sur **289** sous-arbres `Effect_Refresh` (0 contre-exemple,
+  0 divergence sur 273 + 265 actions re-dérivées) : elles décident ce qui se passe **une fois
+  l'effet choisi**, elles ne le choisissent pas. `Effect_Refresh` AUTONOMES **re-mesuré à 0/0/0**
+  après livraison. Restent ouverts ici le cache (volet B), les deux gardes d'`EvaluateAbilityTrigger`
+  (volet C) et la séquence de création (volet D) — plus les **données** que les gardes consomment et
+  que le port n'a pas (**#477-r26**). Détail :
+  `docs/rl/case-477r21r2a-gardes-refresh-effects.md`.
   ⚠ **Il a GROSSI de la SÉQUENCE DE CRÉATION des entités d'effet** (l'ordre des appels à
   `AddEffectOperation$$Execute`, **créations muettes comprises**) : #477-r21-r3 a mesuré que
   l'allocateur devient exact dès qu'on la lui donne. La condition d'allocation est lue —
