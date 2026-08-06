@@ -270,7 +270,11 @@ RULE_ROLE = {
     "CasterHas7Tiles": Role(
         "GATE_CASTER", READERS["CASTER"], SELF, "`GetFeetCount(caster) != 7` -> refus."),
     "CasterHas2TurnsLeft": Role(
-        "GATE_CASTER", READERS["CASTER"], SELF, "`<IBattleQuery slot 0x1b>(caster, 2)` requis."),
+        "GATE_CASTER", READERS["CASTER"], SELF,
+        "`<IBattleQuery slot 0x1b>(caster, 2)` requis -- le slot 0x1b est 27 "
+        "`BattleQuery$$HasMinimumRemainingTurns` (arite 2, table de metadonnee). Ce module ecrivait "
+        "DEJA le bon slot quand `targeting.py` et `astramilitarum.py` ecrivaient `0x1a` : c'est "
+        "cette CONCORDANCE INTERNE rompue qui signalait le decalage de UN (#287-r11-r1-r1)."),
     "CasterIsMachine": Role(
         "GATE_CASTER", READERS["CASTER"], SELF, "`EntityExtensions$$IsMachine(caster)` requis."),
     "CasterHasNoTile": Role(

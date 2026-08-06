@@ -72,15 +72,34 @@ deux fautes sont silencieuses (ni erreur, ni test de degat rouge), d'ou le test 
 `IdunBattle.Operations.MoveUnitOperation$$EvaluatePreMoveTriggers` construit son `AbilityEntities`
 avec `caster = actor = target = l'unite qui bouge` et passe la MEME liste `position` a la fois en
 `casterTiles` (7e arg du ctor nomme) ET en `targetTiles` (10e) -- c'est la DESTINATION. Le slot
-`DSLSelectors+0x78` est un selecteur de TUILES resolu contre cet `AbilityEntities` ; qu'il lise
-`TargetTiles` ou `CasterTiles`, l'emetteur y a mis la MEME valeur, donc la semantique du gate est la
-meme des deux cotes : **« la destination differe de la tuile courante »**, c'est-a-dire un vrai
-deplacement. C'est ce que le port evalue, via `TriggerEvent.dest_tile` (threade par
+`DSLSelectors+0x78` est le selecteur `TargetTile` (resolu, cf. plus bas), donc il lit `TargetTiles` ;
+et comme l'emetteur a mis la MEME valeur dans `CasterTiles`, la semantique du gate ne dependait de
+toute facon pas de l'appariement : **« la destination differe de la tuile courante »**, c'est-a-dire
+un vrai deplacement. C'est ce que le port evalue, via `TriggerEvent.dest_tile` (threade par
 `MoveUnitOperation.execute`, qui est le seul emetteur du vecteur).
 
-RESIDU NOMME : le nom exact de la classe derriere `DSLSelectors+0x78` n'est pas resolu (les slots de
-`DSLSelectors` ne sont instancies que dans `InitializeShared`, donc aucun xref discriminant). Il
-n'est pas load-bearing ICI -- il le deviendrait sur un vecteur ou `CasterTiles != TargetTiles`.
+RESOLU (#287-r11-r1-r1) : **`DSLSelectors+0x78` est le selecteur `TargetTile`**. Le nom de la
+CLASSE reste inconnu (les slots ne sont instancies que dans `DSLSelectors$$InitializeShared`, ou
+Ghidra mislabelle les 12 ctors sur un corps dedupplique), mais le ROLE se lit par un systeme
+d'equations entre les getters NOMMES de `DSLTriggers`, dont chaque corps entier est un `AreEqual` :
+
+    get_OwnerIsActor      = AreEqual(+0x30, +0x40)      get_CasterIsCasterTile = AreEqual(+0x48, +0x50)
+    get_OwnerIsCaster     = AreEqual(+0x30, +0x48)      get_CasterIsTarget     = AreEqual(+0x48, +0x60)
+    get_OwnerIsCasterTile = AreEqual(+0x30, +0x50)      get_OwnerTileIsTarget  = AreEqual(MainTileOfUnits(+0x30), +0x60)
+    get_OwnerIsTargetTile = AreEqual(+0x78, +0x30)
+
+Les six premieres se recoupent et FIXENT `+0x30 = Owner`, `+0x40 = Actor`, `+0x48 = Caster`,
+`+0x50 = CasterTile`, `+0x60 = Target` -- `get_OwnerTileIsTarget` etant le temoin decisif, puisqu'il
+prend `MainTileOfUnits(+0x30)`, donc `+0x30` est une ENTITE. La septieme met alors en presence
+`{Owner, TargetTile}` avec `+0x30` deja pris : il reste `+0x78 = TargetTile`.
+
+⚠ **L'ORDRE DES ARGUMENTS NE TRANCHE PAS**, et c'est ce qui rend le systeme necessaire : il suit le
+nom dans six cas sur sept et l'INVERSE dans `get_OwnerIsTargetTile` -- sans surprise, `AreEqual` est
+SYMETRIQUE, donc le compilateur n'avait aucune raison de le preserver. Conclure « le 1er argument
+porte le 1er mot du nom » aurait rendu `+0x78 = Owner`, l'exact contraire.
+
+Sans consequence ICI (le vecteur passe la MEME liste en `casterTiles` et `targetTiles`), mais la
+resolution devient load-bearing des qu'un vecteur les separe.
 
 ## Faces
 
@@ -206,7 +225,7 @@ class HatefulAssaultAttackAbility(TriggeredAbility):
         if state.effects is not None and state.effects.has_effect(int(mover_id),
                                                                   effect_type=ALREADY_ATTACKED):
             return False
-        # `NOT AreEqual(Tiles(Actor), <tuiles @DSLSelectors+0x78>)` -- la destination differe de la
+        # `NOT AreEqual(Tiles(Actor), <TargetTile @DSLSelectors+0x78>)` -- la destination differe de la
         # tuile courante = c'est un VRAI deplacement. `dest_tile` est threade par
         # `MoveUnitOperation.execute` (seul emetteur du vecteur) ; None = destination non renseignee
         # (construction directe hors runner) -> on ne peut pas evaluer le terme, on le laisse PASSER

@@ -1592,14 +1592,20 @@ class TheLionsWrathPlaybook(NonAttackComparablePlaybook):
     qui est la contre-epreuve du decodage. Recopier `> 0` par analogie aurait pose un gate que le
     natif n'a pas. Reste `HasMinimumRemainingTurns(unit, 2)`, dont
     `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` **n'utilise pas** son parametre
-    `unit` : `limit = <config>[1]` ; `if (!limit.HasValue) return true` ; sinon
-    `turns <= limit - TurnComponent$$GetAmountOfTurnsEndedByPlayer(...)`. Gate GLOBAL au match,
-    neutre au porteur, et VRAI des que la limite de tours est absente. Le PLAFOND DE TOURS DU MATCH
-    n'a aucun substrat cote port -- meme constat, et meme mot, que le bit `CasterHas2TurnsLeft` de
-    1160 (`runner/abilities/tau.py`), qui appelle le MEME natif. Le gate se reduit donc a `True`,
-    c.-a-d. exactement le defaut de `NonAttackComparablePlaybook.should_evaluate` : l'overrider pour
-    rendre `True` inconditionnellement serait du code mort. RESIDU NOMME `#27-r4-g` -- il ne pourra
-    mordre que dans un match A PLAFOND DE TOURS, regime qu'aucun runner d'arene ne monte.
+    `unit` : `limit = <victoryConfig @+0xb0>.<+0x18>[MainPlayerRoundLimitation]` ;
+    `if (!limit.HasValue) return true` ; sinon
+    `turns <= limit - TurnComponent$$GetAmountOfTurnsEndedByPlayer(GetPlayerTurnOrder()[0])`. Gate
+    GLOBAL au match, neutre au porteur, et VRAI des que la limite de rounds est absente.
+    ⚠ FICHE CORRIGEE (#287-r11-r1-r1) : « le PLAFOND DE TOURS DU MATCH n'a aucun substrat cote
+    port » est PERIME. Le dictionnaire est `BC.Victory.VictoryConditions`, que le port lit
+    (`engine.services.victory_config.get_max_rounds`, defaut DERIVE de `data/seed-bc.json`), et le
+    mirror complet est `engine.services.battle_query.has_minimum_remaining_turns` -- desormais
+    branche sur le bit `CasterHas2TurnsLeft` de 1160/1142/1188. Ce qui manque n'est plus le plafond
+    mais le COMPTEUR `TurnComponent+0x40` du SECOND bras (residu `#287-r11-r1-r1-r1`). Le gate se
+    reduit donc a `True` PAR LECTURE sur toute BC sans `MainPlayerRoundLimitation`, c.-a-d.
+    exactement le defaut de `NonAttackComparablePlaybook.should_evaluate` : l'overrider pour rendre
+    `True` inconditionnellement serait du code mort. RESIDU NOMME `#27-r4-g` -- il ne pourra mordre
+    que dans un match A PLAFOND DE ROUNDS, regime qu'aucun runner d'arene ne monte a ce jour.
 
     Porteur `darkaBossLion` [npc] -> GREFFE sur une unite du pool ; la greffe ne couvre pas ses
     stats/traits/armes, ce qui est legitime ICI puisque la formule n'en lit aucun."""

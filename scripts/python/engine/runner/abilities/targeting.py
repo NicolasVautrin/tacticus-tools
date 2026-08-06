@@ -230,9 +230,12 @@ non-port converge, mais PAS pour la meme raison, et la nuance vaut d'etre ecrite
     la MoW etait le SEUL caster sans tuile ; depuis que `RemoveUnitFromTilesOperation` produit une
     UNITE ordinaire sans tuile, son absence etait une regression PERMISSIVE. La PERMISSION reste ce
     qui protege les MoW : les 17 abilities MoW du registre posent TOUTES le bit 30 (re-mesure).
-  * `CasterHas2TurnsLeft` (bit 52, 0x10000000000000, porteur 1142) refuse quand le slot 0x1a
-    d'`IBattleQuery` rend faux sur `(caster, 2)` — slot non resolu -> NON portee, degradation
-    PERMISSIVE ordinaire.
+  * `CasterHas2TurnsLeft` (bit 52, 0x10000000000000) refuse quand le slot **0x1b** d'`IBattleQuery`
+    (= 27 `HasMinimumRemainingTurns`, arite 2) rend faux sur `(caster, 2)`. **PORTEE depuis
+    #287-r11-r1-r1** : le slot etait mal LU (`0x1a` = 26 `ShouldPlayerSkipTurn`, arite 1 -- d'ou
+    l'incoherence avec les deux arguments du call-site), pas non resoluble. TROIS porteurs, tous
+    MACHINE OF WAR : 1142 `MalleusRocketLauncher` (`astraOrdnanceBattery`), 1160 `HeavyRailRifle`
+    (`tauBroadside`), 1188 `DevastatingRefrain` (`adeptExorcist`).
 Le bit 21 `CasterHasFreeAdjacentTile`, lui, EST une regle du filtre statique CIBLE (le natif y
 appelle le slot 0x51 sur le **CASTER**, juste apres le meme slot sur la CIBLE pour le bit 5, et
 avant `TargetTileIsFree`). Il a **DEUX** porteurs au registre, et pas un — 1028 `SupremeCommander`
@@ -3095,17 +3098,25 @@ def get_adjacent_friends(state: "State", tiles, unit_id) -> list:
 # La cascade
 # ------------------------------------------------------------------------------------------------
 
+#: Le 2e argument que `TargetingQuery$$GetInvalidCasterReason` passe au slot `0x1b`
+#: (`HasMinimumRemainingTurns`) sous le bit `CasterHas2TurnsLeft` : le litteral **2** du decompile
+#: (`<slot 0x1b>(this.<+0x18>, caster, 2)`). C'est un NOMBRE DE TOURS, pas un id -- il ne designe
+#: aucune entite du jeu et n'a donc pas d'enum ; c'est ce `2` qui donne son NOM au bit.
+CASTER_HAS_2_TURNS_LEFT_ARG = 2
+
+
 def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     """`IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason` — volet CASTER du meme
     filtre, evalue AVANT le volet cible par l'overload 5 arguments de
     `TargetingQuery$$GetInvalidTargetReason` (`if (casterReason.IsInvalid()) return casterReason;`).
 
-    DEUX de ses regles sont portees — `CasterHasNotMoved` (0x10) et, depuis #250,
-    `CasterMatchesDynamicRule` (0x4, le POINT D'EXTENSION du volet caster). La 1re tombe
-    gratuitement : le bit est deja dans les `TARGETING_OPTIONS` de l'ability et le predicat existe
-    deja (`unit_has_moved`). Mirror du decompile :
+    TROIS de ses regles sont portees — `CasterHasNotMoved` (0x10), `CasterMatchesDynamicRule`
+    (0x4, le POINT D'EXTENSION du volet caster, depuis #250) et `CasterHas2TurnsLeft` (bit 52,
+    depuis #287-r11-r1-r1). La 1re tombe gratuitement : le bit est deja dans les
+    `TARGETING_OPTIONS` de l'ability et le predicat existe deja (`unit_has_moved`). Mirror du
+    decompile :
 
-        if (battleQuery.<slot 0x34>(caster) && (rules & 0x10) != 0) {
+        if (battleQuery.<slot 0x35>(caster) && (rules & 0x10) != 0) {
             if (!UnitExtensions.DidMove(caster)
                 && GetTiles(caster).IsEquivalentTo(casterTiles)) -> ok
             return GenericBrokenTargetingRule(0x10);
@@ -3115,9 +3126,27 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     = exactement `unit_has_moved`. La 2e clause (`casterTiles` != les tuiles REELLES du caster)
     couvre une position de cast HYPOTHETIQUE ; sur le chemin `ExecuteInternal` le natif passe
     `EntityExtensions.GetTiles(caster, state)`, donc les deux listes sont toujours equivalentes ->
-    la clause se reduit a `DidMove`. Le prefixe `battleQuery.<slot 0x34>` n'est pas resolu : il ne
-    peut que DESARMER la regle, et la MESURE live le montre arme pour une unite de roster (probe
-    `probe_115_ability_reason.py` : apres un `move`, le natif rend
+    la clause se reduit a `DidMove`.
+
+    ⚠ LE PREFIXE EST `<slot 0x35>`, ET IL EST RESOLU (#287-r11-r1-r1) -- cette note ecrivait
+    `<slot 0x34>` « non resolu », soit un DECALAGE DE UN qui apparie `52 IsInMovementRange`
+    (arite 2) la ou le call-site ne passe qu'UN argument. Le slot `0x35` = 53 =
+    `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit` (arite 1,
+    `data/symbols/<build>/metadata/interface_slots.tsv`), confirme par la lambda
+    `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass86_0$$
+    u003CIsTurnOfUnitu003Eb__0`, qui relaie le MEME couple (slot, classe d'interface) et dont le NOM
+    donne la methode :
+
+        GetOriginalOwnerEntity(GetUnit(caster)).Id == StateExtensions.GetMatchTurn(state).CurrentPlayerId
+
+    Il est PORTE cote DECISION (`engine.services.ability_caster_gates`, champ
+    `CasterSubstrate.is_turn_of_unit`, mesure #433-r4-r2-r1-r2-r2-r1-r1-r1-r4 : 11 paires sur 42
+    ou le natif ACCEPTE une unite qui a bouge parce que ce n'est pas son tour). Il ne l'est PAS
+    ici : sur le chemin `ExecuteInternal` le caster est le joueur courant, donc le prefixe y est
+    vrai par construction -- mais les DEUX autres appelants du port (`turnflow`, `handler`)
+    interrogent des unites quelconques, ou l'omission rend le port RESTRICTIF. ECART NOMME, non
+    porte par cette tranche (residu `#287-r11-r1-r1-r2`), et la MESURE live le montre arme pour une
+    unite de roster (probe `probe_115_ability_reason.py` : apres un `move`, le natif rend
     `casterReason = {hex: 0x10, reasons: ["CasterHasNotMoved"]}`).
 
     ORDRE NATIF de la cascade CASTER, relu en entier (#250) -- il fixe la RAISON rendue quand
@@ -3131,9 +3160,26 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
             porter, ce serait du code mort.
         5. **`CasterMatchesDynamicRule` (0x4)**          PORTEE depuis #250 (regle-delegue
            `options+0x30` = slot vtable `+0x470` = `<X>Ability$$GetDynamicInvalidCasterReason`)
-        6. `CasterHas1/3/7Tiles` (bits 35/36/37), `CasterHas2TurnsLeft` (52), `CasterIsMachine` (53)
+        6. `CasterHas1/3/7Tiles` (bits 35/36/37), **`CasterHas2TurnsLeft` (52) PORTEE depuis
+           #287-r11-r1-r1**, `CasterIsMachine` (53)
 
-    NON PORTEES (memes motifs qu'en tete de module) : les points 2, 3, 4b et 6.
+    NON PORTEES (memes motifs qu'en tete de module) : les points 2, 3, 4b, et du point 6 les trois
+    filtres de `GetFeetCount` et `CasterIsMachine`.
+
+    `CasterHas2TurnsLeft` (bit 52) -- PORTEE PAR #287-r11-r1-r1. VERBATIM du decompile :
+
+        if ((rules >> 0x34 & 1) && !<IBattleQuery slot 0x1b>(this.<+0x18>, caster, 2))
+            return GenericBrokenTargetingRule(0x10000000000000);
+
+    Le slot `0x1b` = 27 = `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` (arite 2,
+    table de metadonnee + lambda `...u003Cu003Ec__DisplayClass68_0$$u003CHasMinimumRemainingTurns
+    u003Eb__0`). La note precedente ecrivait `0x1a` -- un DECALAGE DE UN, qui apparie
+    `26 ShouldPlayerSkipTurn` (arite **1**) alors que le call-site passe DEUX arguments : c'est
+    cette contradiction d'arite qui a rendu le slot « non resolu ». Mirror :
+    `engine.services.battle_query.has_minimum_remaining_turns`, dont le premier bras (**pas de
+    plafond de rounds -> `true`**) est LU dans `BC.Victory.VictoryConditions`, jamais suppose.
+    TROIS porteurs, tous MACHINE OF WAR : 1142 (`astraOrdnanceBattery`), 1160 (`tauBroadside`),
+    1188 (`adeptExorcist`).
 
     LA CLAUSE TUILE-NULLE (4a) -- PORTEE PAR #366-r1 tranche 1, et c'est un REVIREMENT MESURE.
     VERBATIM du decompile (`IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`,
@@ -3186,6 +3232,15 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
         reason = int(ability.get_dynamic_invalid_caster_reason(state, caster_id) or 0)
         if reason:
             return reason
+    # 6. `CasterHas2TurnsLeft` (bit 52) -- APRES la regle-delegue et APRES les trois filtres de
+    #    `GetFeetCount` dans le natif ; ces trois-la n'ont AUCUN porteur qui pose AUSSI le bit 52
+    #    (les trois porteurs du bit 52 sont des MoW dont les masques ne contiennent aucun
+    #    `CasterHasNTiles`), donc leur non-port ne peut pas voler la raison a celle-ci.
+    #    `has_minimum_remaining_turns` LEVE si le match a un plafond de rounds -- le port refuse de
+    #    rendre un verdict permissif silencieux (cf. son mirror).
+    if options.has(TR.CasterHas2TurnsLeft):
+        if not _bq.has_minimum_remaining_turns(caster_id, CASTER_HAS_2_TURNS_LEFT_ARG, state=state):
+            return int(TR.CasterHas2TurnsLeft)
     return 0
 
 

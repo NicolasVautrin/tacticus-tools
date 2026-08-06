@@ -505,13 +505,19 @@ class MalleusRocketLauncherAbility(ActiveAbility):
     # ⚠ PIEGE ECARTE : la config 1142 porte bien un `constants.range = 2`, mais le preset ne pose PAS
     # `useRangeFromConfig` -> `AActiveAbility$$SetConfigValuesInTargetingOptions` ne le recopie pas.
     # Ce `range` sert au barrage de PHASE 2 (`MalleusRocketLauncher_AttackAbility`), pas au ciblage.
-    # Les deux bits CASTER sont des regles de `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`,
-    # aucune n'est portee (cf. `targeting.py::get_invalid_caster_reason`), et pour un motif different :
+    # Les deux bits CASTER sont des regles de `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`
+    # (cf. `targeting.py::get_invalid_caster_reason`), et leur sort DIFFERE :
     #   * `AllowNullCasterTile` est une PERMISSION (elle DESARME le refus 0x40000000 « caster sans
-    #     tuile ») -- indispensable ici, la MoW `astraOrdnanceBattery` n'a AUCUNE position ; le port,
-    #     qui ne porte pas ce refus, converge trivialement ;
-    #   * `CasterHas2TurnsLeft` refuse quand le slot 0x1a d'`IBattleQuery` rend faux sur `(caster, 2)`
-    #     -- slot non resolu, donc NON portee : degradation PERMISSIVE, jamais un refus invente.
+    #     tuile ») -- indispensable ici, la MoW `astraOrdnanceBattery` n'a AUCUNE position ; le port
+    #     porte le refus depuis #366-r1 et sort par le meme premier terme que le natif ;
+    #   * `CasterHas2TurnsLeft` refuse quand le slot **0x1b** d'`IBattleQuery` rend faux sur
+    #     `(caster, 2)`. **PORTEE depuis #287-r11-r1-r1.** Ce commentaire ecrivait `0x1a` et en
+    #     concluait « slot non resolu » : c'etait un DECALAGE DE UN -- `0x1a` = 26
+    #     `ShouldPlayerSkipTurn` publie **1** parametre, quand le call-site en passe deux. Le slot
+    #     0x1b = 27 est `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` (arite 2),
+    #     dont le premier bras rend `true` des que `BC.Victory.VictoryConditions` ne porte pas
+    #     `MainPlayerRoundLimitation` -- ce qui est le cas de la seed versionnee, donc la regle est
+    #     INERTE sur les runners d'arene sans qu'aucune convention permissive n'y soit pour rien.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.CasterHas2TurnsLeft
         | TR.AllowNullCasterTile

@@ -768,8 +768,11 @@ class DevastatingRefrainAbility(ActiveAbility):
     #     rules            = 0x10000040000040
     #                      = TargetIsTile | AllowNullCasterTile | CasterHas2TurnsLeft
     # `CasterHas2TurnsLeft` (bit 52) et `AllowNullCasterTile` (bit 30) sont des regles du volet
-    # CASTER, NON portees (cf. `get_invalid_caster_reason`, seul `CasterHasNotMoved` l'est) ->
-    # degradation permissive. Cible TUILE, aucun test de portee.
+    # CASTER. Les DEUX sont desormais portees (`get_invalid_caster_reason` : la clause TUILE-NULLE
+    # depuis #366-r1, le bit 52 depuis #287-r11-r1-r1 via
+    # `engine.services.battle_query.has_minimum_remaining_turns`). Le bit 52 est INERTE tant que
+    # `BC.Victory.VictoryConditions` ne porte pas `MainPlayerRoundLimitation` -- et c'est une
+    # LECTURE de la BC, plus une convention permissive. Cible TUILE, aucun test de portee.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetIsTile
         | TR.AllowNullCasterTile
