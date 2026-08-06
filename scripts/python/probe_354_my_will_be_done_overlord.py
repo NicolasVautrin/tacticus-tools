@@ -129,7 +129,14 @@ def build(seed, board, p_units, a_units, state_file, stats=()):
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
            "--state-file", str(state_file), "--board", board,
-           "--p-units", ",".join(p_units)]
+           "--p-units", ",".join(p_units),
+           # Confonds NEUTRALISES AU BUILD (#419-r6). Ce montage lit QUI rejoue, et le discriminant
+           # est un ordre de preference -- il suppose donc que la sequence de combat se deroule
+           # comme prevu (l'allie survit et redevient jouable). Un crit change l'issue des coups,
+           # donc la sequence : mesure, le trigger natif cessait de fire (`aucune victime live`)
+           # une fois le canal crit/block ouvert. Les QUATRE faces.
+           "--crit", "0,0", "--crit-target", "0,0",
+           "--block-target", "0,0", "--block-player", "0,0"]
     if a_units:
         cmd += ["--a-units", ",".join(a_units)]
     for spec in stats:
