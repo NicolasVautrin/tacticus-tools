@@ -171,8 +171,13 @@ Fichiers du haut du classement NON traites, avec la raison :
 | `test_465_ledger_validite` | 78,2 s | idem, ~75 sous-processus git ; la fixture `scope="module"` est deja posee |
 | `test_431_build_pin` | 55,5 s | 5 lancements de `probe_431 --cliquet` en subprocess + un `git worktree add`. Les 3 mutations sont SEQUENTIELLES par construction (elles mutent l'arbre l'une apres l'autre). |
 | `test_step_ordinal_ratchet` | 43,9 s | `probe_274.sweep_py` : UN seul balayage, lecture deja parallele, et sa double passe `_Aliases` est deliberee (les cles de dict dependent des alias deja liees). Aucune redondance a retirer. |
-| `test_433r4r1r4r2r1r1_derivation_morte` | 63,0 s | **cout NON EXPLIQUE** -- fixture `scope="module"` deja posee, mecanisme non etabli. Nomme, pas optimise. |
-| `test_270r4r2r2r3_gardes_du_hissage` | 51,3 s | **cout NON EXPLIQUE** -- `OM.balayer` lit en serie (gain theorique ~2,4 s seulement) et son second `ast.parse` n'est arme que si `elargi=True`, ce qu'aucun appelant ne fait. Le reste des 51,3 s n'est pas localise. |
+| `test_433r4r1r4r2r1r1_derivation_morte` | 63,0 s (**65,7 s en ISOLATION** -- donc reel, pas de la contention) | **PISTE etablie, correction NON faite** : la fixture `arbres_reels` (`scope="module"`) ne couvre pas tout -- `G.main()` est appele **4 fois** et refait a chaque fois le balayage complet de `scripts/python/engine`, et `etape3`/`etape4` sont rejouees sur `arbres_reels` par plusieurs tests. ⚠ Le piege : `test_indisponible_porte_son_nom` substitue `subprocess.run` pour faire ECHOUER `git` -- memoiser `_fichiers` casserait ce test. Seul le PARSE est memoisable, et l'empreinte de l'arbre doit en etre la cle. |
+| `test_270r4r2r2r3_gardes_du_hissage` | 51,3 s (**33,0 s en isolation** -- l'ecart est de la contention) | **cout NON EXPLIQUE** -- `OM.balayer` lit en serie (gain theorique ~2,4 s seulement) et son second `ast.parse` n'est arme que si `elargi=True`, ce qu'aucun appelant ne fait. Le reste n'est pas localise. |
+
+⚠ **Le poids lu dans `457-durations.json` n'est PAS le cout en isolation.** Mesure sur ces deux
+fichiers : l'un rend 65,7 s isole pour 63,0 s dans la passe (cout REEL), l'autre 33,0 s isole pour
+51,3 s dans la passe (**+55 % de contention**). Un classement pris dans une passe chargee designe
+donc parfois le mauvais coupable -- confronter en isolation AVANT de toucher quoi que ce soit.
 
 ⚠ **Les residus laisses par ce dossier sont des couts NON EXPLIQUES, pas des optimisations
 identifiees.** La discipline retenue est celle du brief : un fichier dont le mecanisme n'est pas
