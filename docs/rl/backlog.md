@@ -3131,19 +3131,46 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `docs/rl/case-477r34-groupe-damage.md`) : **106 lignes** sur `MC1_67` a deux tours, avec
   `Action=Resurrect`, `Action=DirectlyKillUnit`, `Action=RemoveUnit`,
   `Action=RemoveUnitFromTiles`. Elle sort du pipeline de RESURRECTION, qui a sa propre tranche.
-  `probe_477r22` publie desormais la liste COMPLETE des formes qui la retiennent (23, dont 20
+  `probe_477r22` publie la liste COMPLETE des formes qui la retiennent (**23**, dont **17**
   `Tag=`) -- elle ne se re-derive plus a la main.
+  ⚠ **TOUT-OU-RIEN, MESURE (#477-r39)** : les 106 lignes sont **UN SEUL** sous-arbre. En ajoutant
+  au perimetre chaque famille separement (`ResurrectUnit`+`Resurrect` / `Ability_CustomGroup` /
+  les trois actions de kill), puis les trois ensemble, le hors-perimetre reste **106 / 106 /
+  106 / 106**. Aucune sous-tranche ne rapporte une seule ligne -- c'est l'inverse de #477-r39,
+  dont neuf lignes en liberaient quarante-sept.
+  ⚠ **LA RE EST DEJA ECRITE** (`docs/rl/case-477r39-pas-heal-info.md` sec. 6), chaine fermee de
+  `EnvAmbushResurrectAbility$$CreateBehaviour` a `RemoveUnitFromTilesOperation$$Execute`. Cinq
+  lectures acquises : (a) les DEUX groupes ont DEUX producteurs differents et aucun n'est celui
+  qu'on supposerait -- `Ability_CustomGroup` sort d'un NOEUD DSL (`DSLBehaviors$$Group`, litteral
+  `0x31` lisible dans le `CreateBehaviour`), `ResurrectUnit` de l'OPERATION, et
+  `ResurrectBehaviour$$Execute` n'ouvre RIEN ; (b) son `Source=` passe par `String.Empty`, pas
+  par le slot de litteral des deux autres groupes ; (c) les deux tests de source de
+  `GetResurrectUnitTags` sont INDEPENDANTS, pas une cascade, et sans branche `Effect` ;
+  (d) `UnitStats_ActionsAvailable` y est `HasFlag(unit, NoActionAvailable) ^ 1` mais DANS un
+  sous-arbre, donc invisible de la regle `_marque` ; (e) les trois `GetFullStateUpdateTags` sont
+  DEJA PORTES. **Reste a lire : `KillUnitOperation$$Execute` seul.**
 
-- **#477-r39 : `Action=HealInfo`, le pipeline de SOIN -- NEUF lignes qui en retiennent 47.**
-  `[opus]` Mesure de #477-r34 : le bloc de 47 lignes du roster 2v2, que `case-477r22` sec. 7.6
-  attribuait a `Group=Damage`, se decompose en **36** lignes de `Group=Damage` (desormais
-  reproduites a l'egalite brute par le foyer) et **11** d'un `Group=Ability_Power
-  Source=MedicusMinistorum` + `Action=HealInfo` (cles `Caster_Id`,
-  `UnitStats_WasWoundedBeforeHeal`, `UnitStats_RemovedNegativeUnitEffects`,
-  `UnitStats_RemainingHealth`, `UnitStats_NumberOfMembers`, `Amount`). C'est la regle « un
-  sous-arbre part hors perimetre EN ENTIER » qui retient les 36, pas le port.
+- ~~**#477-r39 : `Action=HealInfo`, le pipeline de SOIN**~~ -> **LIVRE**
+  (`docs/rl/case-477r39-pas-heal-info.md`). Les **47** lignes du roster 2v2 entrent EN ENTIER
+  (47 -> 0), dont **36** de `Group=Damage` que le foyer de #477-r34 reproduisait deja et que la
+  regle du sous-arbre retenait. Foyer `HealUnitOperation$$Execute` porte
+  (`engine/streams/heal_unit.py`), **5** contre-epreuves, cliquet offline (15 tests).
   ⚠ **NOMMER UN BLOC PAR L'UNE DES FORMES QU'IL PORTE SURESTIME CE QUE PORTER CETTE FORME
-  RAPPORTE** -- le chiffre de 47 a ete lu comme « du degat » pendant une tranche entiere.
+  RAPPORTE** -- le chiffre de 47 a ete lu comme « du degat » pendant une tranche entiere. Le
+  compteur du probe est corrige en consequence : le AVANT est desormais **RE-PARTITIONNE**
+  (`R21.FORMES_PAR_TRANCHE`), et il mesure la NECESSITE, pas l'apport -- deux tranches peuvent
+  etre necessaires au meme bloc, et les colonnes ne s'additionnent pas.
+  Residus : **#477-r41**.
+
+- **#477-r41 : les DEUX gardes d'emission de `HealUnitOperation$$Execute`.** `[opus]`
+  Toutes deux LUES, toutes deux de vrais `if` du source C# (elles rendent le `OperationResult`
+  par un `return` normal, ce qui est le discriminant avec les null-checks de codegen) :
+  `if (!AttackQuery.<slot 0x11>(caster, target, scope, removeEffects)) return result;` puis
+  `if (!wasWounded && healedAmount < 1 && removedNegativeUnitEffects < 1 &&
+  !UnitExtensions.HasFlag(caster, 0x17)) return result;`. La seconde est le seul endroit ou les
+  trois grandeurs du dictionnaire se relisent ENSEMBLE. Aucune n'est une face stream (elles
+  vivent dans l'ETAT ECS et dans `AttackQuery`) et aucune n'est atteinte par nos montages -- tous
+  nos soins passent. Meme forme que **#477-r22-r2**.
 
 - **#477-r40 : le `Group=Ability_Power` dont le `Source=` est un `EffectType`.** `[opus]`
   `engine/streams/evaluate_trigger.py` porte
