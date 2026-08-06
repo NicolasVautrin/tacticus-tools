@@ -280,6 +280,184 @@ class PsychicFortressNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
         return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
 
 
+class KardiocoreGalvanusNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`KardiocoreGalvanusNonOwnerPlaybook`
+    (`IdunBattle.AI.Playbook.Loki.KardiocoreGalvanusNonOwnerPlaybook$$.ctor` : litteral `0x5b1` =
+    1457 `KardiocoreGalvanus`, RELIQUE).
+
+    `IdunBattle.AI.Playbook.Loki.KardiocoreGalvanusNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`,
+    remis en C# depuis le decompile (champs de la SM LUS DANS LA METHODE-USINE
+    `$$CalculateMovementUtilityInSteps` : `case @+0x20, playbook @+0x28, owner @+0x30` -- c'est la
+    disposition d'`ECogSupport`, PAS celle de `PsychicFortress`) :
+
+        if (case.unit == null)                       { yield return Fix64.Zero; yield break; }
+        if (!UnitExtensions.IsMechanical(case.unit))   yield break;
+        if (Query.<slot 0x60 = AreEntitiesAdjacent, arite 2>(owner, case.MovementTile))
+            yield return GetUtilityValue("KardiocoreGalvanus_AdjacentFriendly");   // 20
+
+    ⚠⚠ **CE TERME DORMAIT DANS TOUTES NOS MESURES.** `admecMarshall` ET `admecRuststalker` portent
+    la relique 1457 **AU SEED** (`BC.Units[].TertiaryAbility = 1457`, niveau 1 -- etat 1 de la
+    ventilation des reliques), sans que personne l'ait demandee : tout montage qui les spawne
+    heritait donc de `+20` cote NATIF pendant que le port rendait 0. C'est exactement ce qui a rendu
+    `#477-r31` ROUGE a sa premiere mesure (`X_nat = 30` pour `X_port = 10`), et ce cas-la avait du
+    RETIRER la relique pour mesurer sa propre feuille. Depuis ce port, elle n'a plus besoin de l'etre.
+
+    ⚠ Le slot `0x60` est `AreEntitiesAdjacent` d'ARITE 2 -- trois surcharges partagent ce nom
+    (slots 96/97/98), et c'est le TYPE DES ARGUMENTS qui fixe la bonne : `(owner: IEntity,
+    movementTile: ITile)` ne laisse que `AreEntitiesAdjacent(entity1, entity2)`. **Ne PAS deduire du
+    NOM du slot ce que fait la methode** : c'est la faute que #477-r31 a du reparer sur un slot
+    voisin. Le foyer porte est `battle_query.are_entities_adjacent` (porte d'elevation + court-circuit
+    d'identite `a == b`, #433-r1), comme pour toute la famille.
+
+    ⚠ `IsMechanical` n'est PAS `HasTrait(Mechanical)` : c'est la chaine de trois `HasTrait` en OU
+    court-circuite (cf. `_is_mechanical`). Le gate est donc STRICTEMENT le meme que celui de la
+    feuille `DoctrinaImperatives_AttractMechanicals` (#477-r31) -- meme gate, meme camp, memes
+    tuiles : les deux termes sont INSEPARABLES par la geometrie, et seul le port des DEUX les rend
+    additivement justes.
+
+    AUCUN test `IsFriend` dans le corps : c'est le pre-gate `<slot 4> || IsFriend` d'`IterateAbilities`
+    qui l'apporte (cf. en-tete du module), comme pour `PsychicFortress`.
+
+    Porteurs (voie RELIQUE) : `admecMarshall`, `admecRuststalker` -- au pool ET **equipes au seed** ;
+    `admecDestroyer` -- au pool, relique non equipee."""
+
+    ABILITY_ID = int(TriggeredAbilityType.KardiocoreGalvanus)            # 0x5b1 = 1457
+    KEY = "KardiocoreGalvanus_AdjacentFriendly"                          # gameconfig vivant = 20
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        # `if (case.unit == null) { yield Fix64.Zero; yield break; }` -- le regime SPAWN est le seul
+        # ou le sujet manque, et le dispatcher y rend deja 0 (residu nomme).
+        if ctx.get("is_spawning"):
+            return 0.0
+        if not _is_mechanical(ctx):                          # IsMechanical(case.unit)
+            return 0.0
+        opos = (owner or {}).get("pos")
+        if not opos:                 # `AreEntitiesAdjacent` rend faux sur une entite sans tuile
+            return 0.0
+        if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
+                                        ctx.get("elev_by_pos"), bq.neigh_map(ctx)):
+            return 0.0
+        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+
+
+class BookOfFateNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`BookOfFateNonOwnerPlaybook`
+    (`IdunBattle.AI.Playbook.Loki.BookOfFateNonOwnerPlaybook$$.ctor` : litteral `0x5b5` = 1461
+    `BookOfFate`, RELIQUE).
+
+    `IdunBattle.AI.Playbook.Loki.BookOfFateNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`,
+    remis en C# depuis le decompile (champs de la SM LUS DANS LA METHODE-USINE
+    `$$CalculateMovementUtilityInSteps` : `playbook @+0x20, owner @+0x28, case @+0x30` -- c'est une
+    QUATRIEME disposition, distincte des trois deja mesurees par #433-r4-r3 et #433-r4-r3-r1. La
+    transposition depuis une classe voisine est morte a chaque fois ; elle le serait encore ici) :
+
+        if (Query.<slot 0x60 = AreEntitiesAdjacent, arite 2>(owner, case.MovementTile))
+            yield return GetUtilityValue("BookOfFate_AdjacentSummons");            // 5
+
+    C'est le corps le plus court de la famille avec `PsychicFortress` : **aucun gate**, pas meme
+    `case.unit == null` -- le corps ne lit JAMAIS `case.unit`. Le terme vaut donc 5 pour toute tuile
+    candidate adjacente au porteur AMI, quelle que soit l'unite qui bouge.
+
+    ⚠ Le « Summons » du nom de la cle N'EST PAS porte par ce corps : il n'y a AUCUN
+    `HasTrait(.., Summon)`. Le nom de cle decrit l'intention du designer, pas la condition -- le
+    lire comme un gate ajouterait un filtre que le natif n'a pas. Le « Friendly » implicite, lui,
+    vient ENTIEREMENT du pre-gate `<slot 4> || IsFriend` d'`IterateAbilities` (slot 4 = `false`).
+
+    Porteurs (voie RELIQUE) : `blackPossession`, `thousInfernalMaster`, `thousSorcerer` -- au pool,
+    relique NON equipee au seed (etat 2, montage `--equip-relic`)."""
+
+    ABILITY_ID = int(TriggeredAbilityType.BookOfFate)                    # 0x5b5 = 1461
+    KEY = "BookOfFate_AdjacentSummons"                                   # gameconfig vivant = 5
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        opos = (owner or {}).get("pos")
+        if not opos:
+            return 0.0
+        if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
+                                        (ctx or {}).get("elev_by_pos"), bq.neigh_map(ctx)):
+            return 0.0
+        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+
+
+class NornCrownNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`NornCrownNonOwnerPlaybook`
+    (`IdunBattle.AI.Playbook.Loki.NornCrownNonOwnerPlaybook$$.ctor` : litteral `0x5d7` = 1495
+    `NornCrown`, RELIQUE).
+
+    `IdunBattle.AI.Playbook.Loki.NornCrownNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`,
+    remis en C# depuis le decompile (champs de la SM LUS DANS LA METHODE-USINE
+    `$$CalculateMovementUtilityInSteps`, qui ecrit `case @+0x20, playbook @+0x28` et **N'ECRIT PAS
+    `owner`**) :
+
+        if (case.unit == null) yield break;
+        if (!UnitExtensions.HasTrait(case.unit, 0x3ea) &&                 // UnitTrait.Psyker
+            !UnitExtensions.HasTrait(case.unit, 0x2))   yield break;      // UnitTrait.Summon
+        units = Query.<slot 0x79 = GetSurroundingFriends, arite 4>(
+                    case.unit, TExtensions.ToList(case.MovementTile), 2, true);
+        if (Enumerable.Any(units, <>c.<CalculateMovementUtilityInSteps>b__2_0))
+            yield return GetUtilityValue("NornCrown_SummonsAndPsykers");  // 10
+
+    predicat -- `IdunBattle.AI.Playbook.Loki.NornCrownNonOwnerPlaybook.u003Cu003Ec$$u003CCalculateMovementUtilityInStepsu003Eb__2_0` :
+
+        return UnitExtensions.HasTrait(f, 0x7e8);                          // UnitTrait.Synapse
+
+    QUATRE lectures qui ne se devinent pas :
+
+    * **Le corps NE LIT PAS `owner`** -- la methode-usine ne stocke meme pas l'argument. Le terme ne
+      depend donc NI de la position du porteur NI de rien de lui : il ne pese que le voisinage du
+      MOVER. C'est le seul de la famille dans ce cas, et c'est ce qui le rend confrontable sans
+      deplacer le porteur.
+    * **Le gate est une DISJONCTION** (`Psyker` OU `Summon`), pas une conjonction -- a l'inverse de
+      `RelicOfLostCadiaNonOwnerPlaybook`, qui, lui, conjugue `Imperial ET Summon`.
+    * **`GetSurroundingFriends` est PUREMENT GEOMETRIQUE** : son itineraire
+      (`IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`) est le
+      DISQUE hex de rayon 2, **sans porte d'elevation** -- donc `battle_query.is_surrounding`, et
+      surtout PAS `are_entities_adjacent`, qui, lui, porte `|delta elev| < 2`.
+      `includeCenter = true` (litteral `1`) : la tuile candidate elle-meme compte.
+    * **L'ACTEUR N'EST PAS EXCLU.** `GetSurroundingFriends(actor, ...)` filtre « amis de `actor` » et
+      ne retire jamais `actor` (meme lecture que `GetAdjacentFriends` dans `friends_in_range.py`) ;
+      or pendant tout le sweep le mover est ENCORE SUR SON ORIGINE. Un mover Synapse se satisfait
+      donc LUI-MEME des que son origine est dans le disque de rayon 2 de la tuile candidate. Le port
+      l'inclut explicitement -- l'oublier rendrait 0 sur des tuiles ou le natif rend 10.
+
+    Porteur (voie RELIQUE) : `tyranNeurothrope` -- au pool, relique NON equipee au seed (etat 2).
+    Il est lui-meme `Synapse` ET `Psyker`, donc il peut servir a la fois de porteur et de source du
+    predicat."""
+
+    ABILITY_ID = int(TriggeredAbilityType.NornCrown)                     # 0x5d7 = 1495
+    KEY = "NornCrown_SummonsAndPsykers"                                  # gameconfig vivant = 10
+    RADIUS = 2                                                           # litteral du call-site
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        if ctx.get("is_spawning"):                       # `case.unit == null` -> yield break
+            return 0.0
+        if not (_has_trait(ctx, UnitTrait.Psyker)        # HasTrait(.., 0x3ea)
+                or _has_trait(ctx, UnitTrait.Summon)):   # HasTrait(.., 0x2)
+            return 0.0
+        tile = (tile[0], tile[1])
+        # `GetSurroundingFriends(case.unit, [MovementTile], 2, includeCenter: true)` -- les AMIS du
+        # mover, disque hex de rayon 2, SANS porte d'elevation. `friend_units` porte deja le filtre
+        # de camp, et ses `traits` sont des NOMS (`entity_trait_names`) la ou `ctx.unit_traits` sont
+        # des IDS (`entity_trait_ids`) : les deux substrats sont les memes, pas leur forme.
+        # L'ACTEUR, lui, est ABSENT de `friend_units` (self-exclu par construction du ctx) alors que
+        # le natif le GARDE -> il est re-injecte juste apres.
+        for u in (ctx.get("friend_units") or ()):
+            p = u.get("pos")
+            if p and bq.is_surrounding(tile, (p[0], p[1]), self.RADIUS, True) \
+                    and UnitTrait.Synapse.name in (u.get("traits") or ()):
+                return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+        sp = ctx.get("self_pos")
+        if sp and bq.is_surrounding(tile, (sp[0], sp[1]), self.RADIUS, True) \
+                and _has_trait(ctx, UnitTrait.Synapse):
+            return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+        return 0.0
+
+
 class AdjacentToOwnerNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
     """`IdunBattle.AI.Playbook.AdjacentToOwnerNonOwnerPlaybooku003C__Il2CppFullySharedGenericTypeu003E`
     -- base INTERMEDIAIRE, et le CORPS EST PARTAGE par ses 10 classes concretes (#433-r4-r3-r1).
@@ -607,10 +785,16 @@ class WatchedOverNonOwnerPlaybook(AdjacentToOwnerNonOwnerPlaybook):
 #   MOVE   24  (12 directes nommees + 2 directes sans suffixe + les 10 du corps partage)
 #   ATTACK  3  (`ShieldOfFaith`, `NoHidingFromTheWatchers`, `WayOfTheShortBlade`)
 #   REPAIR  1  (`VoltagheistFieldPlaybook`)
-# Au registre ci-dessous : **12** faces MOVE (3 de #433-r4-r3 + 9 de ce cas -- la 10e,
-# `RedemptionOfTheRisen`, est PORTEE mais delibrement HORS registre, zero porteur). Il reste **11**
-# faces MOVE non portees, toutes des derivees DIRECTES, listees dans
-# `docs/rl/case-433-r4-r3-non-owner-playbooks.md`.
+# ⚠ Le compte de 25 N'EST PAS le seul a s'etre re-glisse : le residu #477-r33 le citait a nouveau,
+# et sa liste de « 13 manquants » melangeait TROIS faces ATTACK (`ShieldOfFaith`,
+# `WayOfTheShortBlade`, `NoHidingFromTheWatchers`, qui ne passent PAS par cette feuille), oubliait
+# les DEUX concrets sans suffixe (`CabalOfSorcerers`, `WisdomOfTheAncients`) et attribuait
+# `MastersOfManoeuvre` a `orksRuntherd`, dont la relique du seed est en realite
+# `1475 SupaCyborkBody` -- laquelle n'a AUCUN playbook non-owner. RE-DERIVER, jamais recopier :
+# `probe_477r33_non_owner_registry_gaps.py --offline-only` rend le tableau complet.
+# Au registre ci-dessous : **15** faces MOVE (3 de #433-r4-r3 + 9 d'#433-r4-r3-r1 + 3 de #477-r33).
+# Il reste **8** faces MOVE non portees + `RedemptionOfTheRisen`, PORTEE mais deliberement HORS
+# registre (zero porteur), toutes des derivees DIRECTES.
 #
 # Absence du registre == `LoadPlaybookNonOwner` rend null == la paire n'est jamais yieldee : MEME
 # degradation que le natif, pas un trou.
@@ -630,6 +814,14 @@ NON_OWNER_MOVE_PLAYBOOKS: dict = {
     # mordait deja cote NATIF pendant que le port rendait 0.
     int(TriggeredAbilityType.EcogSupport): ECogSupportPlaybookNonOwnerPlaybook(),        # 1487
     int(TriggeredAbilityType.PsychicFortress): PsychicFortressNonOwnerPlaybook(),        # 1000
+    # #477-r33 -- trois derivees DIRECTES de plus, choisies par leur ATTEIGNABILITE (aucun port
+    # speculatif) : `1457` est **equipee au seed** sur `admecMarshall` ET `admecRuststalker`, donc
+    # elle armait un terme de +20 dans TOUT montage qui les spawne -- c'est le confond paye ROUGE
+    # par #477-r31 ; `1461` et `1495` sont des reliques de porteurs DU POOL (etat 2, `--equip-relic`).
+    # Recensement re-derive et decompte des confonds : `probe_477r33_non_owner_registry_gaps.py`.
+    int(TriggeredAbilityType.KardiocoreGalvanus): KardiocoreGalvanusNonOwnerPlaybook(),  # 1457
+    int(TriggeredAbilityType.BookOfFate): BookOfFateNonOwnerPlaybook(),                  # 1461
+    int(TriggeredAbilityType.NornCrown): NornCrownNonOwnerPlaybook(),                    # 1495
     # #433-r4-r3-r1 -- les DIX concrets d'`AdjacentToOwnerNonOwnerPlaybook<T>`, fermes d'un seul
     # geste parce qu'ils PARTAGENT leur `CalculateMovementUtilityInSteps` (un unique corps gshared)
     # et ne different QUE par `GetAdjacencyUtility`. Les cles sont resolues au litteral
