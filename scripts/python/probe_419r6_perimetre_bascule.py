@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import re
 import sys
 from collections import Counter
@@ -132,19 +133,53 @@ def _jouer_un(rel: str, regime: str | None) -> dict:
     return compte
 
 
-def _jouer(rels: list[str], regime: str | None, workers: int) -> list[dict]:
-    """4 au plus : le pump est PARTAGE avec les autres agents (cf. CLAUDE.md)."""
+def _jouer(rels: list[str], regime: str | None, workers: int,
+           journal: "Path | None" = None) -> list[dict]:
+    """4 au plus : le pump est PARTAGE avec les autres agents (cf. CLAUDE.md).
+
+    `journal` (JSONL) : chaque bilan y est ECRIT DES QU'IL EXISTE, et les fichiers deja
+    journalises sont SAUTES. Ce n'est pas une commodite -- mesure du 2026-08-06 : quatre shards
+    tues au bout de 10 min (le plafond du harnais qui les lancait) ont rendu **0 octet** apres
+    **1 h** de balayage, parce que la sortie n'etait produite qu'a la fin. Un balayage dont le
+    cout se compte en heures doit etre RE-ENTRANT."""
     from concurrent.futures import ThreadPoolExecutor
+    import threading
+
+    deja = {}
+    if journal is not None and journal.exists():
+        for ligne in journal.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                r = json.loads(ligne)
+            except Exception:
+                continue
+            if r.get("fichier"):
+                deja[r["fichier"]] = r
+    a_jouer = [r for r in rels if r not in deja]
+    if journal is not None:
+        print("  [journal] %s : %d deja mesure(s), %d a jouer"
+              % (journal.name, len(rels) - len(a_jouer), len(a_jouer)))
+        journal.parent.mkdir(parents=True, exist_ok=True)
+    verrou = threading.Lock()
+
+    def _un(rel):
+        r = _jouer_un(rel, regime)
+        if journal is not None:
+            with verrou, journal.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(r) + "\n")
+        return r
 
     with ThreadPoolExecutor(max_workers=max(1, min(workers, 4))) as ex:
-        return list(ex.map(lambda r: _jouer_un(r, regime), rels))
+        joues = list(ex.map(_un, a_jouer))
+    return [deja[r] for r in rels if r in deja] + joues
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--lister", choices=["propre", "neutralise", "dur", "live"],
+    ap.add_argument("--lister", choices=["propre", "neutralise", "dur", "live", "indifferent",
+                                         "indifferent_non_joue"],
                     help="imprime la liste des fichiers d'une categorie")
-    ap.add_argument("--jouer", choices=["propre", "neutralise", "dur"],
+    ap.add_argument("--jouer", choices=["propre", "neutralise", "dur", "indifferent",
+                                        "indifferent_non_joue"],
                     help="JOUE la categorie et rend son bilan par fichier")
     ap.add_argument("--fichiers", default=None,
                     help="JOUE une liste EXPLICITE (chemins relatifs a tests/, separes par des "
@@ -153,6 +188,10 @@ def main(argv=None) -> int:
     ap.add_argument("--regime", choices=["0", "1", "defaut"], default="defaut",
                     help="TACTICUS_BIS_ITEMS impose ; `defaut` = ce que le code porte")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--journal", default=None,
+                    help="JSONL de reprise : chaque bilan y est ecrit DES QU'IL EXISTE, et les "
+                         "fichiers deja mesures sont SAUTES (un balayage de plusieurs heures ne "
+                         "doit pas repartir de zero quand son porteur est tue)")
     ap.add_argument("--depuis", type=int, default=0, help="borner : index de depart")
     ap.add_argument("--jusqu-a", type=int, default=0, help="borner : index de fin (0 = tout)")
     a = ap.parse_args(argv)
@@ -163,7 +202,8 @@ def main(argv=None) -> int:
 
     fichiers = sorted(_TESTS.rglob("test_*.py"))
     cats: Counter = Counter()
-    par_cat: dict[str, list] = {"live": [], "propre": [], "neutralise": [], "dur": []}
+    par_cat: dict[str, list] = {"live": [], "propre": [], "neutralise": [], "dur": [],
+                                "indifferent": [], "indifferent_non_joue": []}
     durs: dict[str, list] = {}
 
     for p in fichiers:
@@ -184,11 +224,21 @@ def main(argv=None) -> int:
             par_cat["propre"].append(rel)
         else:
             cats["live_indifferent"] += 1
+            par_cat["indifferent"].append(rel)
         d = _valeurs_en_dur(p, src)
         if d:
             cats["expose_valeur_dure"] += 1
             par_cat["dur"].append(rel)
             durs[rel] = d
+
+    # `indifferent` et `dur` ne sont PAS disjoints : le canal (C) est evalue sur TOUS les live.
+    # #419-r6 a joue (A) et (C) integralement dans les deux regimes ; le reste a jouer est donc
+    # exactement `indifferent \ dur`. Le nommer evite de re-payer ce qui l'a deja ete.
+    _durs = set(par_cat["dur"])
+    par_cat["indifferent_non_joue"] = [r for r in par_cat["indifferent"] if r not in _durs]
+    cats["indifferent_non_joue"] = len(par_cat["indifferent_non_joue"])
+    cats["indifferent_deja_joue_par_C"] = (cats["live_indifferent"]
+                                           - cats["indifferent_non_joue"])
 
     print("=== PERIMETRE DERIVE de la bascule #419-r6 ===")
     print("  fichiers de test visites            : %d" % cats["fichiers"])
@@ -203,6 +253,10 @@ def main(argv=None) -> int:
     print("       ECARTES PAR CE SEUIL : les egalites a un entier <= %d (indices, compteurs,"
           % _SEUIL_ENTIER)
     print("       petits ordinaux), et toute comparaison qui n'est pas `==` dans un `assert`.")
+    print("  --- ce qui reste A JOUER (#419-r6-r1) ---")
+    print("   indifferents DEJA joues par le canal (C) : %d"
+          % cats["indifferent_deja_joue_par_C"])
+    print("   indifferents JAMAIS joues                : %d" % cats["indifferent_non_joue"])
     print("  --- CE QUE CE BALAYAGE NE VISITE PAS ---")
     print("   * les probes `scripts/python/probe_*.py` (ils mesurent, ils ne gardent rien) ;")
     print("   * ce qu'un test atteint via une fixture d'un AUTRE paquet ;")
@@ -227,7 +281,7 @@ def main(argv=None) -> int:
         regime = None if a.regime == "defaut" else a.regime
         print("=== JEU : %d fichier(s) (%s), regime TACTICUS_BIS_ITEMS=%s ==="
               % (len(rels), a.jouer or "liste explicite", a.regime))
-        res = _jouer(rels, regime, a.workers)
+        res = _jouer(rels, regime, a.workers, Path(a.journal) if a.journal else None)
         n_inerte = n_rouge = n_vert = 0
         for r in sorted(res, key=lambda x: x["fichier"]):
             if r["failed"] or r["error"] or r["rc"] not in (0, 1):

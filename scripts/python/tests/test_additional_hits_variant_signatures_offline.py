@@ -157,9 +157,88 @@ class _Tgt:
         return None
 
 
-def _run_one(impl, hit_interceptor, failed_block0=None):
+def _cles_d_etat_attaque_lues():
+    """Les cles que `damage_hits.attack_state_out` LIT sur le retour d'une substitution.
+
+    DERIVEES a l'AST du foyer, jamais recopiees : c'est le contrat de SORTIE du canal, au meme
+    titre que la signature est son contrat d'ENTREE. Si le port en ajoute une, cette garde la voit
+    sans qu'on y touche."""
+    src = (PYDIR / "engine" / "runner" / "operations" / "damage_hits.py").read_text(
+        encoding="utf-8")
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "attack_state_out":
+            cles = []
+            for n in ast.walk(node):
+                if (isinstance(n, ast.Subscript) and isinstance(n.value, ast.Name)
+                        and n.value.id == "src" and isinstance(n.slice, ast.Constant)
+                        and isinstance(n.slice.value, str)):
+                    cles.append(n.slice.value)
+            return tuple(sorted(set(cles)))
+    pytest.fail("`attack_state_out` introuvable dans `damage_hits.py` -- la garde ne peut plus "
+                "deriver le contrat de sortie, et un vert signifierait seulement qu'elle est "
+                "aveugle.")
+
+
+def test_le_contrat_de_SORTIE_est_bien_DERIVE_et_non_vide():
+    """Premisse : sans cette assertion, un `attack_state_out` renomme rendrait la garde suivante
+    VERTE A VIDE (ensemble de cles vide => aucune exigence)."""
+    cles = _cles_d_etat_attaque_lues()
+    assert cles, "aucune cle derivee -- la garde de sortie serait vacueuse"
+    assert "next_hit_index" in cles, cles
+
+
+def test_toute_substitution_expose_le_contrat_de_SORTIE():
+    """CLIQUET #419-r6-r1. Une substitution qui n'expose pas les cles d'etat d'attaque fait lever
+    `KeyError` a `attack_state_out`, appele par les DEUX vecteurs des qu'un groupe existe.
+
+    Ce n'est pas theorique : `probe_r6_round_materialize.additional_hits_variant` ne les posait
+    pas, et c'est la cause UNIQUE des **15** rouges des trois `test_additional_hits_*_live.py`
+    (7 + 5 + 3), mesures pre-existants par #419-r6 et jusque-la non diagnostiques. Le garde
+    voisin ne voyait rien : il verifie la signature d'ENTREE, pas le contrat de SORTIE."""
+    from engine.runner.operations.additional_hits import execute_additional_hits as _port
+    from engine.services.damage_modifiers import DamageModifiers
+    from probe_r6_round_materialize import additional_hits_variant
+    from probe_r6b_additional_hits_order import _extra_rolls_variant
+    attendues = set(_cles_d_etat_attaque_lues())
+    # Les substitutions EXERCABLES ici. Les autres sont NOMMEES plus bas plutot que tues : une
+    # liste blanche silencieuse ne peut pas montrer celle qu'elle a oubliee.
+    impls = [("engine/runner/operations/additional_hits.py", _port),
+             ("probe_r6_round_materialize.py",
+              additional_hits_variant("reduce_then_roll", None)),
+             ("probe_r6b_additional_hits_order.py", _extra_rolls_variant(0))]
+    bad = []
+    for nom, impl in impls:
+        out = _run_one(impl, None, retour=True,
+                       mods=DamageModifiers(), def_mods=DamageModifiers())
+        if out is None:
+            bad.append("%s : aucun groupe execute -- le harnais ne mesure rien" % nom)
+            continue
+        manquantes = sorted(attendues - set(out))
+        if manquantes:
+            bad.append("%s : cles d'etat d'attaque ABSENTES du retour = %s (=> `KeyError` dans "
+                       "`attack_state_out`)" % (nom, manquantes))
+    # PORTEE : ce que le scan trouve et que cet etage n'exerce PAS (factory non triviale, closure
+    # dont l'instanciation demande un contexte live...). Imprime, jamais tu.
+    exercees = {n.split("/")[-1] for n, _ in impls}
+    vues = {rel.split("/")[-1] for rel, _n, _l, _p, _s in _substitution_impls()}
+    non_exercees = sorted(vues - exercees)
+    if non_exercees:
+        print("[419-r6-r1] substitutions VUES mais NON exercees par cet etage : %s"
+              % non_exercees)
+    assert not bad, "\n  ".join([""] + bad)
+
+
+def _run_one(impl, hit_interceptor, failed_block0=None, retour=False,
+             mods=None, def_mods=None):
     """Fait passer UN groupe a travers `impl`, tout etage voisin neutralise, et rend les kwargs
-    vus par `AttackDamageOperation._run_hits`. Ce qu'on mesure ici est le CABLAGE, pas une valeur."""
+    vus par `AttackDamageOperation._run_hits` -- ou, si `retour`, le RETOUR de `impl` (le contrat
+    de sortie). Ce qu'on mesure ici est le CABLAGE, pas une valeur.
+
+    `mods`/`def_mods` : `None` suffit au volet CABLAGE (le stub de `_run_hits` court-circuite le
+    calcul), mais PAS au volet SORTIE -- la variante, elle, traverse `reduce_group_damage`, qui
+    deref `mods.pct_list`. On les rend donc fournissables plutot que de neutraliser un etage de
+    plus (ce qui ferait diverger le contrefactuel du port sur une TROISIEME variable)."""
     import gameconfig as GC
     from engine.runner.operations.damage import AttackDamageOperation as ADO
 
@@ -189,13 +268,18 @@ def _run_one(impl, hit_interceptor, failed_block0=None):
                       _target_limits=staticmethod(lambda *a, **k: None),
                       _deplete_shield=staticmethod(lambda *a, **k: None),
                       _apply_damage_pipeline=staticmethod(lambda *a, **k: False)):
-            impl(_Rng.__new__(type("S", (), {"rng": _Rng()})), 1, 2, _Tgt(), _Thc(),
-                 [{"profile": "Physical", "count": 1, "min": 10, "max": 10}],
-                 None, None, 0, 100, None, None,
-                 hit_interceptor=hit_interceptor, failed_block0=failed_block0)
+            # `get_entity` : le PORT LIVRE l'appelle (`unit_prevents_overkill`, #195) la ou la
+            # variante ne le fait pas. Le stub d'etat doit donc porter les DEUX contrats, sinon la
+            # garde ne peut pas exercer le port lui-meme -- et une garde qui n'exerce pas la
+            # reference ne peut pas dire qu'une substitution s'en ecarte.
+            _S = type("S", (), {"rng": _Rng(), "get_entity": staticmethod(lambda _i: None)})
+            res = impl(_Rng.__new__(_S), 1, 2, _Tgt(), _Thc(),
+                       [{"profile": "Physical", "count": 1, "min": 10, "max": 10}],
+                       mods, def_mods, 0, 100, None, None,
+                       hit_interceptor=hit_interceptor, failed_block0=failed_block0)
     finally:
         GC.damage_profile = orig_dp
-    return seen
+    return res if retour else seen
 
 
 @pytest.mark.parametrize("factory", ["additional_hits_variant", "_extra_rolls_variant"])

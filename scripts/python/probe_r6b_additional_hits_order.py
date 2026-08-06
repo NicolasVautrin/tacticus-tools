@@ -182,6 +182,15 @@ def _extra_rolls_variant(k):
                 out["total"] += r["total"]
             out["groups"] += 1
             out["profiles"].append(g_profile)
+        # #419-r6-r1 -- MEME gisement que `probe_r6_round_materialize` : les trois cles d'etat
+        # d'`OngoingAttack` que le port livre pose depuis #419-r3. Sans elles,
+        # `damage_hits.attack_state_out(r, ah)` leve `KeyError` des qu'un groupe existe -- et
+        # l'echec accuse le moteur au lieu du harnais. Ce contrefactuel-ci n'a pas encore de
+        # consommateur qui traverse ce chemin, donc il n'a jamais rougi ; c'est exactement le
+        # profil d'un defaut qui attend son premier appelant.
+        out["next_hit_index"] = int(hit_index0 or 0) + int(out.get("hits") or 0)
+        out["crit_allowed"] = bool(crit_allowed0)
+        out["failed_block"] = failed_block
         return out if out["groups"] else None
     return _exec
 
