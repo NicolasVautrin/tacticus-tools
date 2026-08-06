@@ -406,3 +406,69 @@ def test_get_priority_leve_quand_le_porteur_est_nul():
         SortedEffect(entity=None).get_priority()
     with pytest.raises(ValueError):
         SortedTriggeredAbility(entity=None, order=1).get_priority()
+
+
+# ================================================================ #477-r28 -- l'INSTRUMENT
+# Le probe live n'etait pas ISOLE : deux passages du MEME commit rendaient ROUGE puis VERT. Les
+# crans qui reparent cela sont des fonctions PURES, donc gardables ici -- et ils DOIVENT l'etre :
+# le live ne peut pas se prendre lui-meme en defaut, c'est precisement ce qu'il a fait.
+import probe_477r21r2b_activation_cache as P  # noqa: E402
+
+
+def _fire(seq, event=1, owner=1, raw=0, cls="A"):
+    return {"seq": seq, "event": event, "ownerId": owner, "rawType": raw, "cls": cls}
+
+
+def test_fenetre_enumere_ses_trous_au_lieu_de_les_deduire():
+    """`]depuis, total]` prive de ce qu'on a lu -- le compte est EXACT, pas une soustraction."""
+    w = P.Fenetre("f", [_fire(11), _fire(13)], depuis=10, total=13)
+    assert w.trous == [12]
+    assert w.perdus == 1 and w.mesuree is False
+    plein = P.Fenetre("f", [_fire(11), _fire(12), _fire(13)], depuis=10, total=13)
+    assert plein.trous == [] and plein.mesuree is True
+
+
+def test_une_fenetre_a_la_fois_amputee_ET_polluee_ne_rend_plus_ZERO_PERDU():
+    """LE VICE QUE LA SOUSTRACTION CACHAIT, et la raison d'etre de l'enumeration.
+
+    `attendus - len(fires)` additionne deux grandeurs de sens OPPOSE : un fire a nous evince du
+    ring (perte) et un fire ETRANGER entre dans la fenetre (contamination, qui GROSSIT `len`).
+    Ici 4 produits, on lit 2 fires a nous + 2 etrangers : l'ancienne formule rendait 4-4 = 0
+    PERDU sur un corpus pourtant ampute de moitie."""
+    w = P.Fenetre("f", [_fire(11), _fire(12), _fire(13), _fire(14)], depuis=10, total=18)
+    assert w.attendus - len(w.fires) == 4          # ce que l'ancienne formule aurait rendu
+    assert w.perdus == 4 and w.trous == [15, 16, 17, 18]
+    ancienne = P.Fenetre("f", [_fire(15), _fire(16), _fire(17), _fire(18)], depuis=10, total=14)
+    assert ancienne.attendus - len(ancienne.fires) == 0    # `0 PERDU` -- rassurant et FAUX
+    assert ancienne.perdus == 4                            # 11..14 manquent bel et bien
+
+
+def test_l_empreinte_ignore_ce_qu_on_a_LU_d_une_fenetre_ECARTEE():
+    """Combien un poll parvient a lire d'une fenetre qu'on va de toute facon ECARTER est un alea
+    d'ordonnancement, pas une propriete du corpus. L'y avoir fait peser a rendu DEUX scenarios
+    `NON REPRODUCTIBLE` dont les comptes PRODUITS etaient rigoureusement egaux."""
+    def res(lus):
+        return {"fenetres": [P.Fenetre("build", [_fire(s) for s in range(11, 11 + lus)],
+                                       depuis=10, total=1000)],
+                "evenements": [], "mutations": []}
+    a, b = P.empreinte(res(3)), P.empreinte(res(7))
+    assert a == b, "deux lectures partielles d'une fenetre ecartee ne sont pas une divergence"
+    assert P._termes_divergents(a, b) == []
+
+
+def test_l_empreinte_RETIENT_le_nombre_de_fires_PRODUITS():
+    """C'est LUI le detecteur : `attendus` compte aussi les fires ETRANGERS. Deux passages dont
+    les comptes produits different ont vu passer des voisins."""
+    def res(total):
+        return {"fenetres": [P.Fenetre("build", [_fire(11)], depuis=10, total=total)],
+                "evenements": [], "mutations": []}
+    assert P._termes_divergents(P.empreinte(res(211)), P.empreinte(res(236))) == ["fenetres"]
+
+
+def test_les_termes_divergents_sont_NOMMES():
+    """Un « les empreintes different » sans dire OU fait piloter a l'aveugle -- c'est ce qui a
+    fait chercher une pollution la ou il n'y en avait pas."""
+    base = {"fenetres": (1,), "evenements": (2,), "mutations": (3,)}
+    assert P._termes_divergents(base, {"fenetres": (1,), "evenements": (9,),
+                                       "mutations": (3,)}) == ["evenements"]
+    assert P._termes_divergents(base, dict(base)) == []

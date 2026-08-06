@@ -13,8 +13,41 @@ EXISTE DEJA : le hook `triggerTrace` (`frida/hooks/features/trigger-trace.ts`) i
 retenue du parcours, DANS L'ORDRE. Sa trace est donc la sequence `active[trigger]` observee.
 
   ⚠ AUCUN CAPTEUR NEUF N'EST POSE. Le hook est arme par defaut, en lecture seule, et ce probe ne
-    le remet JAMAIS a zero -- `triggerTraceReset` effacerait le ring des autres agents. Il lit
-    `totalFires` avant/apres et DIT ce qu'il a perdu quand une etape deborde le ring (200).
+    le remet JAMAIS a zero -- `triggerTraceReset` effacerait le ring des autres agents.
+
+CE QUI REND CE PROBE REPRODUCTIBLE (#477-r28) -- IL NE L'ETAIT PAS
+------------------------------------------------------------------
+Mesure : deux passages sur le MEME commit rendaient des verdicts OPPOSES (19 evenements,
+24 ruptures / 90 couples, 10 passes courtes hors sous-sequence, ROUGE ; puis 10, 1 / 9, 0, VERT).
+La cause n'etait PAS le seed -- il valait deja 777 -- mais la LECTURE UNIQUE sur un ring PARTAGE
+de 200 entrees : le `build` du scenario 5v5 produit 1333 fires, dont 1133 evinces avant lecture
+(85 %), et LESQUELS survivaient dependait du bruit des voisins. Un corpus ampute au hasard coupe
+les passes, ce qui FABRIQUE des (I4) hors sous-sequence et des (I2) qui n'existent pas.
+
+Trois crans, dans l'ordre ou ils mordent :
+
+  1. SEED EXPLICITE (`--seed`, defaut `R19.SEED`) -- imprime, plus suppose ;
+  2. COLLECTE SANS PERTE (`Collecteur`) -- poll continu pendant chaque etape. Les `seq` du hook
+     etant strictement croissants, ce qui manque s'ENUMERE : `Fenetre.trous` est l'intervalle
+     `]depuis, total]` prive de ce qu'on a lu. L'ancien `perdus = attendus - len(fires)`
+     additionnait deux grandeurs de sens oppose (perte et contamination) et pouvait rendre 0 sur
+     un corpus a la fois ampute et pollue ;
+  3. VERDICT TRI-ETAT -- une fenetre a trous est ECARTEE du corpus ; une contamination AVEREE
+     (`sonde_silence`) rend le scenario NON MESURE. Ni vert, ni rouge, et `rc=2` si aucun
+     scenario n'est exploitable. Meme discipline que le tri-etat d'`host_inputs.py` ;
+  4. CERTIFICATION PAR CONCORDANCE (`--repetitions`, defaut 2) -- et c'est le cran qui MORD, les
+     trois autres ne suffisant pas. Mesure : un scenario a rendu `0 fire etranger` a ses trois
+     sondes ET 23 evenements / 15 ruptures / 5 passes hors sous-sequence, soit trois fois le
+     corpus propre. La sonde n'echantillonne que quelques secondes sur une trentaine ; elle rate
+     donc les voisins a rafales. Le seul critere EXACT est que deux passages a seed identique
+     rendent la MEME empreinte -- sinon le corpus a ete pollue, et rien ne dit lequel des deux.
+
+  ⚠ CE QUI RESTE IRREDUCTIBLE SANS CAPTEUR NEUF : le hook n'emet AUCUN identifiant de runner, et
+    les identifiants d'entite sont attribues PAR MATCH (mesure : deux runners du meme board
+    portent tous deux `49`/`51`). Aucun champ d'un fire ne dit donc de quelle bataille il vient.
+    La sonde de silence DETECTE la contamination (delta non nul = preuve) mais ne peut pas
+    prouver son absence -- le probe rend « aucune activite etrangere DETECTEE par N sonde(s) »,
+    jamais « corpus propre ».
 
 TROIS INVARIANTS DERIVES, refutables par un seul contre-exemple :
 
@@ -61,6 +94,8 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -77,9 +112,30 @@ OUT = ROOT / "logs"
 
 MesureImpossible = R15A.MesureImpossible
 
-#: Le ring de `trigger-trace.ts` (`FIRE_LOG_MAX`). Au-dela, une etape PERD des fires -- et ce
-#: probe le DIT au lieu de mesurer sur un corpus tronque en silence.
+#: Le ring de `trigger-trace.ts` (`FIRE_LOG_MAX`). Il est PARTAGE entre tous les agents et ne
+#: garde que 200 entrees : une LECTURE UNIQUE apres une etape qui en produit davantage ne rend pas
+#: « un corpus tronque », elle rend UNE QUEUE ARBITRAIRE. Mesure du 2026-08-06, avant correctif :
+#: le `build` du scenario 5v5 produit 1333 fires, dont 1133 evinces avant lecture -- 85 % du
+#: corpus n'etait jamais vu, et QUELS 200 survivaient dependait du bruit des voisins.
+#:
+#: ⚠ C'EST UN REPLI, PAS LA VALEUR : le hook PUBLIE desormais sa taille (`ringMax`). Ce 200 ne
+#: sert que face a un hook anterieur, et le probe DIT alors qu'il l'a suppose.
 RING = 200
+
+#: Le seed du `rl_duel build`, EXPLICITE et parametrable (#477-r28). Il gouverne le RNG du match
+#: et, roster non impose, le tirage des unites : c'est lui qui rend deux passages COMPARABLES.
+#: Mesure a poll serre : a seed fixe, NOTRE runner produit exactement 211 fires au `build` de
+#: `C1_02` 2v2 et 73 a l'`aiturn` -- le corpus propre EST reproductible.
+SEED = R19.SEED
+
+#: Periode du poll continu de `Collecteur`. Le corpus reste COMPLET tant que le debit demeure sous
+#: la taille du ring par periode ; au-dela, les `seq` manquants sont ENUMERES, jamais devines.
+#: Mesure : a 0.10 s le `build` laissait 403 trous, a 0.02 s il en laisse 7. La latence RPC
+#: (20-50 ms) borne le gain d'une periode plus courte -- le vrai remede est le ring elargi.
+INTERVALLE = 0.02
+
+#: Duree d'une sonde de SILENCE (`sonde_silence`).
+SILENCE = 1.0
 
 BOARDS_DEFAUT = ("MC1_67", "C1_02")
 #: Le roster 2v2 crafte de #477-r21 : il tient sous le ring, la ou un 5v5 le deborde au build.
@@ -97,24 +153,171 @@ MUTATIONS = ("ordre_de_creation_ignore", "insertion_en_tete", "sans_pre_peupleme
 
 # --------------------------------------------------------------------------- capture
 class Fenetre:
-    """Une fenetre de trace : les fires produits entre deux lectures, et ce qu'on a PERDU."""
+    """Une fenetre de trace : les fires produits pendant UNE etape, et les `seq` qui MANQUENT.
 
-    def __init__(self, etiquette: str, fires: List[dict], attendus: int) -> None:
+    ⚠ `perdus` N'EST PLUS UNE SOUSTRACTION, et le changement n'est pas cosmetique. L'ancienne
+    version calculait `attendus - len(fires)`, ce qui ADDITIONNE deux grandeurs de sens OPPOSE :
+    un fire a nous evince du ring (une perte, qui doit compter) et un fire ETRANGER entre dans la
+    fenetre (une contamination, qui fait GROSSIR `len(fires)` et donc RABAISSE le compte, jusqu'a
+    l'annuler). Un corpus a la fois ampute et pollue pouvait ainsi s'annoncer `perdus 0`.
+    Les `seq` du hook etant strictement croissants, l'ensemble attendu est l'intervalle
+    `]depuis, total]` : ce qui manque s'ENUMERE au lieu de se deduire."""
+
+    def __init__(self, etiquette: str, fires: List[dict], depuis: int, total: int,
+                 tours: int = 0, duree: float = 0.0, ring: Optional[int] = None) -> None:
+        #: la taille de ring PUBLIEE par le hook, ou `None` si le hook ne la publie pas.
+        self.ring = ring
         self.etiquette = etiquette
-        self.fires = fires
-        self.attendus = attendus
-        #: fires produits par l'etape mais evinces du ring avant lecture.
-        self.perdus = max(0, attendus - len(fires))
+        self.fires = sorted(fires, key=lambda f: int(f.get("seq") or 0))
+        self.depuis = depuis
+        self.total = total
+        #: les unites APPARUES pendant CETTE fenetre (`None` = pas mesure). Le rattachement est
+        #: par fenetre, et non au scenario : le corpus ne retient que les fenetres SANS TROU, donc
+        #: un spawn survenu dans une fenetre ECARTEE n'est PAS dans ce qu'on mesure. L'attribuer au
+        #: scenario ferait afficher « REGIME EXERCE » au-dessus d'un corpus qui ne le contient pas
+        #: -- le vice meme que le tri-etat de ce probe existe pour interdire.
+        self.spawns: Optional[List[int]] = None
+        #: tours de poll EFFECTIVEMENT rendus pendant l'etape, et duree de l'etape. Les DEUX sont
+        #: imprimes : un poll qui n'a rendu que ses deux tours d'encadrement sur une etape de
+        #: plusieurs secondes ne s'est pas « fait doubler par le debit », il a ete BLOQUE -- et
+        #: c'est une cause differente, qui appelle un remede different.
+        self.tours = tours
+        self.duree = duree
+        vus = {int(f.get("seq") or 0) for f in fires}
+        self.trous = [s for s in range(depuis + 1, total + 1) if s not in vus]
+        self.perdus = len(self.trous)
+
+    @property
+    def attendus(self) -> int:
+        return max(0, self.total - self.depuis)
+
+    @property
+    def mesuree(self) -> bool:
+        """Une fenetre a trous N'EST PAS UNE MESURE -- elle n'est ni verte ni rouge."""
+        return not self.trous
 
 
-def lire_trace(session: int, depuis: int) -> Tuple[List[dict], int]:
-    """Les fires de `seq > depuis`, dans l'ordre CROISSANT, plus le `totalFires` courant."""
-    r = R15A.rpc(session, "triggerTrace", {"limit": RING})
+def lire_total(session: int) -> int:
+    """`totalFires` seul -- le compteur GLOBAL du hook, tous runners confondus."""
+    r = R15A.rpc(session, "triggerTrace", {"limit": 1})
     if not r.get("installed"):
         raise MesureImpossible("`triggerTrace` non installe -- le hook s'arme au register")
-    total = int(r.get("totalFires") or 0)
-    fires = [f for f in reversed(r.get("recent") or []) if int(f.get("seq") or 0) > depuis]
-    return fires, total
+    return int(r.get("totalFires") or 0)
+
+
+class Collecteur:
+    """Poll CONTINU de `triggerTrace` pendant une etape. Aucun reset, aucun capteur neuf.
+
+    C'EST LE CRAN QUI REND LE PROBE REPRODUCTIBLE (#477-r28). Le ring est un tampon PARTAGE de
+    `RING` entrees que ce probe n'a pas le droit de vider (`triggerTraceReset` effacerait la trace
+    des autres agents). Une lecture unique APRES l'etape ne peut donc voir que ses 200 derniers
+    fires, et lesquels survivent depend du bruit des voisins : c'est ce qui faisait BASCULER le
+    verdict entre deux passages du MEME commit (19 evenements / 24 ruptures / ROUGE, puis
+    10 / 1 / VERT). Poller PENDANT l'etape ramene la perte a zero tant que le debit reste sous
+    `RING` fires par periode, et la rend VISIBLE sinon."""
+
+    def __init__(self, session: int, intervalle: float = INTERVALLE) -> None:
+        self.session = session
+        self.intervalle = intervalle
+        self.fires: Dict[int, dict] = {}
+        self.total = 0
+        self.depuis = 0
+        self.tours = 0
+        #: taille du ring telle que le HOOK la publie -- `None` tant qu'aucun tour n'a repondu,
+        #: et tri-etat ensuite : `ring_publie is None` = hook anterieur, on RETOMBE sur `RING` en
+        #: le disant. Deviner cette valeur ferait lire 5 % d'un ring elargi en se croyant complet.
+        self.ring_publie: Optional[int] = None
+        self.erreur: Optional[BaseException] = None
+        self._stop = threading.Event()
+        self._th: Optional[threading.Thread] = None
+
+    @property
+    def ring(self) -> int:
+        return self.ring_publie if self.ring_publie else RING
+
+    def _tour(self) -> None:
+        r = R15A.rpc(self.session, "triggerTrace", {"limit": self.ring}, 60)
+        if not r.get("installed"):
+            raise MesureImpossible("`triggerTrace` non installe -- le hook s'arme au register")
+        rm = r.get("ringMax")
+        self.ring_publie = int(rm) if isinstance(rm, (int, float)) and rm else None
+        self.total = int(r.get("totalFires") or 0)
+        self.tours += 1
+        for f in (r.get("recent") or []):
+            self.fires[int(f.get("seq") or 0)] = f
+
+    def _boucle(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._tour()
+            except BaseException as e:                   # noqa: BLE001 -- rendue a l'appelant
+                self.erreur = e
+                return
+            self._stop.wait(self.intervalle)
+
+    def __enter__(self) -> "Collecteur":
+        self._tour()                    # amorce SYNCHRONE : `depuis` est pose AVANT l'etape
+        self.depuis = self.total
+        self.tours = 0
+        self._t0 = time.time()
+        self._th = threading.Thread(target=self._boucle, daemon=True)
+        self._th.start()
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        self._stop.set()
+        self.duree = time.time() - self._t0
+        if self._th is not None:
+            self._th.join(timeout=30)
+        if self.erreur is None:
+            try:
+                self._tour()            # dernier tour : ce qui a suivi le dernier poll
+            except BaseException as e:  # noqa: BLE001
+                self.erreur = e
+        return False
+
+    def fenetre(self, etiquette: str) -> Fenetre:
+        if self.erreur is not None:
+            raise MesureImpossible("collecte `%s` interrompue : %s" % (etiquette, self.erreur))
+        return Fenetre(etiquette, [f for s, f in self.fires.items() if s > self.depuis],
+                       self.depuis, self.total, self.tours, self.duree, self.ring_publie)
+
+
+def unites(session: int, rid: int) -> Optional[set]:
+    """L'ensemble des `squadId` d'unites VIVANTES du match, ou `None` si la lecture a echoue.
+
+    Sert au CONSTAT DE REGIME de #477-r27 : le residu suppose qu'une unite APPARUE en cours de
+    partie divergerait, son identifiant depassant ceux des entites d'effet deja creees. Un
+    scenario ou RIEN n'apparait n'exerce donc pas cet axe -- et un (I5) vert y serait le meme
+    vert qui ne mesure rien que le probe denonce deja pour les suites a moins de deux porteurs
+    communs. On CONSTATE le spawn, on ne le suppose pas du roster."""
+    try:
+        ob = R15A.rpc(session, "observeBattle", {"runnerId": rid}, 60)
+    except MesureImpossible:
+        return None
+    if not ob:
+        return None
+    return {u.get("squadId") for u in (ob.get("units") or []) if u.get("squadId") is not None}
+
+
+def sonde_silence(session: int, duree: float = SILENCE) -> int:
+    """Le ring bouge-t-il PENDANT QUE NOTRE RUNNER EST INERTE ? Rend le nombre de fires apparus.
+
+    C'est le SEUL discriminant de CONTAMINATION disponible sans capteur neuf. Le hook n'emet aucun
+    identifiant de runner, et les identifiants d'entite sont attribues PAR MATCH -- mesure du
+    2026-08-06 : deux runners du meme board portent tous deux `49`/`51`, donc AUCUN champ d'un fire
+    ne dit de quelle bataille il vient, et filtrer par « nos » entites ne separerait rien. Ce qu'on
+    peut etablir, c'est qu'un fire apparait a un instant ou NOUS ne jouons rien : celui-la est
+    ETRANGER sans ambiguite.
+
+    ⚠ SENS UNIQUE, ET C'EST DECLARE : un delta non nul PROUVE la contamination ; un delta nul ne
+    prouve PAS son absence -- un voisin peut avoir tire pendant notre etape et s'etre tu pendant la
+    sonde. Le probe ne rend donc jamais « corpus propre », il rend « aucune activite etrangere
+    DETECTEE par N sonde(s) de M s », en imprimant N et M. Meme discipline que le tri-etat
+    d'`host_inputs.py` : ne jamais rendre pour une MESURE ce qui n'est qu'une ABSENCE DE SIGNAL."""
+    t0 = lire_total(session)
+    time.sleep(duree)
+    return max(0, lire_total(session) - t0)
 
 
 def registre_du_port(session: int, rid: int) -> Optional[Dict[int, List[int]]]:
@@ -161,30 +364,49 @@ def registre_du_port(session: int, rid: int) -> Optional[Dict[int, List[int]]]:
     return par_event
 
 
-def capturer(session: int, board: str, tours: int, p_units: str,
-             a_units: str) -> Tuple[List[Fenetre], int, Optional[Dict[int, List[int]]]]:
+def capturer(session: int, board: str, tours: int, p_units: str, a_units: str,
+             seed: int = SEED, intervalle: float = INTERVALLE,
+             silence: float = SILENCE) -> Tuple[List[Fenetre], int,
+                                                Optional[Dict[int, List[int]]], int, int,
+                                                Optional[List[int]]]:
     """Monte un runner, joue `tours` tour(s), rend les fenetres de trace de CHAQUE etape.
 
-    On lit la trace APRES CHAQUE etape courte plutot qu'une fois a la fin : le ring est partage
-    avec les autres agents et ne garde que 200 entrees. Chaque fenetre porte son propre compte de
-    PERDUS."""
+    Chaque etape est encadree par un `Collecteur` (poll continu, aucune perte tant que le debit
+    tient) et suivie d'une `sonde_silence` -- notre runner etant alors inerte, tout fire qui
+    apparait est ETRANGER. Rend `(fenetres, runnerId, registre_du_port, fires_etrangers, sondes)`.
+
+    ⚠ LA SONDE PASSE AVANT `registre_du_port` : celui-ci appelle `decisionView`/`combatSnapshot`,
+    qui font tourner du natif et donc peuvent tirer des `ShouldTrigger`. Sonder apres imputerait
+    a un voisin ce que le probe a lui-meme produit."""
     state = OUT / ("state-477r21r2b-%s.json" % board)
     state.parent.mkdir(parents=True, exist_ok=True)
-    _, avant = lire_trace(session, 0)
     fenetres: List[Fenetre] = []
-    rid = R19.build(board, state, p_units, a_units)
+    etrangers, sondes = sonde_silence(session, silence), 1
+    with Collecteur(session, intervalle) as c:
+        rid = R19.build(board, state, p_units, a_units, seed=seed)
+    fenetres.append(c.fenetre("build"))
     try:
-        fires, total = lire_trace(session, avant)
-        fenetres.append(Fenetre("build", fires, total - avant))
-        avant = total
+        # Les lectures du CONSTAT DE REGIME encadrent CHAQUE tour, et chacune est faite AVANT la
+        # sonde qui suit : leurs propres fires sont ainsi deja comptes quand la sonde lit son
+        # `total` de depart, donc jamais imputes a un voisin.
+        avant_u = unites(session, rid)
+        etrangers += sonde_silence(session, silence)
+        sondes += 1
         for i in range(tours):
-            q = subprocess.run([sys.executable, "rl_duel.py", "aiturn",
-                                "--state-file", str(state)],
-                               cwd=str(HERE), capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=900)
-            fires, total = lire_trace(session, avant)
-            fenetres.append(Fenetre("aiturn-%d" % (i + 1), fires, total - avant))
-            avant = total
+            with Collecteur(session, intervalle) as c:
+                q = subprocess.run([sys.executable, "rl_duel.py", "aiturn",
+                                    "--state-file", str(state)],
+                                   cwd=str(HERE), capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", timeout=900)
+            w = c.fenetre("aiturn-%d" % (i + 1))
+            apres_u = unites(session, rid)
+            # tri-etat : `None` = pas mesure (une lecture a echoue), jamais une liste vide.
+            w.spawns = (sorted(apres_u - avant_u)
+                        if avant_u is not None and apres_u is not None else None)
+            avant_u = apres_u
+            fenetres.append(w)
+            etrangers += sonde_silence(session, silence)
+            sondes += 1
             if q.returncode != 0:
                 break
         port = registre_du_port(session, rid)
@@ -193,7 +415,7 @@ def capturer(session: int, board: str, tours: int, p_units: str,
     if not any(f.fires for f in fenetres):
         raise MesureImpossible("`triggerTrace` n'a rendu AUCUN fire -- hook muet ou ring sature "
                                "par un autre agent")
-    return fenetres, rid, port
+    return fenetres, rid, port, etrangers, sondes
 
 
 # --------------------------------------------------------------------------- decoupe en passes
@@ -458,15 +680,44 @@ class _muter:
 
 
 # --------------------------------------------------------------------------- scenario
-def scenario(session: int, board: str, tours: int, p_units: str, a_units: str) -> dict:
-    fenetres, rid, port = capturer(session, board, tours, p_units, a_units)
-    tous = [f for w in fenetres for f in w.fires]
+def scenario_une_fois(session: int, board: str, tours: int, p_units: str, a_units: str,
+                      seed: int = SEED, intervalle: float = INTERVALLE,
+                      silence: float = SILENCE) -> dict:
+    fenetres, rid, port, etrangers, sondes = capturer(session, board, tours, p_units, a_units,
+                                                      seed, intervalle, silence)
+    # ⚠ LE CORPUS N'EST FAIT QUE DES FENETRES SANS TROU. Une fenetre amputee n'est pas « un peu
+    # moins de donnees » : les passes y sont coupees arbitrairement, ce qui FABRIQUE des passes
+    # courtes hors sous-sequence (I4) et des ruptures (I2) qui n'existent pas dans le natif.
+    # L'ecarter est ce qui distingue « pas mesure » de « mesure a zero ».
+    retenues = [w for w in fenetres if w.mesuree]
+    tous = [f for w in retenues for f in w.fires]
     perdus = sum(w.perdus for w in fenetres)
+    # ⚠ LE REGIME SE LIT SUR LES FENETRES RETENUES, PAS SUR LE SCENARIO. Mesure du 2026-08-06 : le
+    # roster 5v5 spawne au TOUR 2, dont la fenetre deborde le ring et est donc ECARTEE, tandis que
+    # le tour 1 -- seule fenetre retenue -- n'en contient aucun. Rattacher les spawns au scenario
+    # affichait « REGIME EXERCE » au-dessus d'un corpus qui n'en portait aucune trace.
+    if any(w.spawns is None for w in retenues):
+        apparues = None                             # tri-etat : une lecture a manque
+    else:
+        apparues = sorted({u for w in retenues for u in (w.spawns or ())})
     evenements = sorted({int(f.get("event") or -1) for f in tous})
 
-    res = {"board": board, "runner": rid, "fenetres": fenetres, "fires": len(tous),
-           "perdus": perdus, "evenements": [], "mutations": [],
-           "port_charge": port is not None}
+    # Les DEUX causes de non-mesure, nommees separement -- elles n'ont ni la meme portee ni le
+    # meme remede. Un corpus vide de fenetres retenues n'est pas un corpus.
+    causes: List[str] = []
+    if etrangers:
+        causes.append("CONTAMINATION AVEREE : %d fire(s) etranger(s) vu(s) alors que ce runner "
+                      "etait inerte (%d sonde(s) de %.1f s). Le ring est partage et n'emet aucun "
+                      "identifiant de runner : ces fires sont dans le corpus et rien ne les en "
+                      "distingue." % (etrangers, sondes, silence))
+    if not retenues:
+        causes.append("AUCUNE fenetre sans trou : le poll continu n'a pas suivi le debit.")
+
+    res = {"board": board, "runner": rid, "fenetres": fenetres, "retenues": len(retenues),
+           "fires": len(tous), "perdus": perdus, "etrangers": etrangers, "sondes": sondes,
+           "silence": silence, "seed": seed, "causes": causes, "mesure": not causes,
+           "apparues": apparues,
+           "evenements": [], "mutations": [], "port_charge": port is not None}
     for ev in evenements:
         ps = passes(tous, ev)
         modele, _n, n_completes = passe_modale(ps)
@@ -527,6 +778,108 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str) -
     return res
 
 
+def empreinte(res: dict) -> Dict[str, tuple]:
+    """TOUT ce qui ENTRE dans le verdict d'un passage, canonicalise, par TERME NOMME.
+
+    Sert au seul critere EXACT de proprete du corpus dont ce probe dispose (cf. `scenario`). La
+    portee est prise LARGE a dessein -- une liste de champs choisis ne peut pas montrer le champ
+    qu'elle a oublie -- mais elle s'arrete a ce qui PESE dans le verdict, et le reglage de cette
+    frontiere a ete impose par la mesure :
+
+    ⚠ `len(fires)` D'UNE FENETRE ECARTEE N'EN FAIT PAS PARTIE, et l'y avoir mis a rendu DEUX
+      scenarios `NON REPRODUCTIBLE` alors que leurs comptes PRODUITS etaient rigoureusement egaux
+      (`build 1333 / aiturn 202` des deux cotes). Combien de fires un poll parvient a lire d'une
+      fenetre qu'on va de toute facon ECARTER est un alea d'ordonnancement, pas une propriete du
+      corpus : le faire peser accuse de pollution deux passages qui n'en portent aucune trace.
+
+    Ce qui EST retenu de chaque fenetre : son nombre de fires PRODUITS (`attendus`) -- c'est LUI
+    le detecteur, car il compte aussi les fires ETRANGERS -- et le fait qu'elle soit mesuree."""
+    return {
+        "fenetres": tuple((w.etiquette, w.attendus, w.mesuree) for w in res["fenetres"]),
+        "evenements": tuple(
+            (e["nom"], e["longueur"], e["passes"], e["completes"], e["divergentes"],
+             e["i2_exerces"], tuple(e["i2_ruptures"]), e["i4_courtes"], e["i4_prefixes"],
+             e["i4_non_sous_seq"], e["bloc_contigu"], e["i3_ok"], e["i3_longueur"],
+             tuple(e["i5_port"] or ()), tuple(e["i5_natif"]))
+            for e in res["evenements"]),
+        "mutations": tuple((m[0], m[1], m[2]) for m in res["mutations"]),
+        # le REGIME exerce fait partie de ce qui pese : deux passages dont l'un a vu un spawn et
+        # l'autre non ne mesurent pas la meme chose, et le vert de l'un ne couvre pas l'autre.
+        "apparues": tuple(res.get("apparues") or ()),
+    }
+
+
+def _termes_divergents(a: Dict[str, tuple], b: Dict[str, tuple]) -> List[str]:
+    """Les TERMES qui different, nommes. Un « les empreintes different » sans dire OU fait
+    piloter a l'aveugle -- c'est ce qui a fait chercher une pollution la ou il n'y en avait pas."""
+    return sorted(k for k in a if a[k] != b.get(k))
+
+
+def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
+             seed: int = SEED, intervalle: float = INTERVALLE, silence: float = SILENCE,
+             repetitions: int = 2) -> dict:
+    """Joue le scenario `repetitions` fois et n'en rend une MESURE que si elles CONCORDENT.
+
+    ⚠ C'EST LE SEUL CRITERE EXACT DISPONIBLE, ET LA MESURE A DU L'IMPOSER. La `sonde_silence`
+    detecte une contamination quand elle tombe dessus, mais elle n'echantillonne que quelques
+    secondes sur une trentaine : mesure du 2026-08-06, un scenario a rendu `0 fire etranger` a ses
+    trois sondes ET 23 evenements / 15 ruptures / 5 passes hors sous-sequence -- soit trois fois le
+    corpus propre, donc massivement pollue, et un ROUGE qui n'accusait pas le port. C'est
+    exactement le faux rouge que ce residu devait faire disparaitre.
+
+    Ce qui tranche vraiment : a seed fixe, NOTRE runner produit un nombre DETERMINISTE de fires
+    (mesure : 211 au `build` de `C1_02` 2v2 et 73 a l'`aiturn`, reproduits a deux instants
+    differents). Deux passages qui CONCORDENT sur toute l'empreinte n'ont donc pas ete pollues ;
+    deux passages qui divergent l'ont ete, et on ne sait pas lequel -- donc AUCUN n'est retenu.
+
+    ⚠ SENS UNIQUE, LUI AUSSI : la concordance ne PROUVE pas la proprete (deux passages pourraient
+    subir la meme pollution), elle la rend improbable. Le probe rend « CONCORDANT sur N passage(s) »
+    et imprime N, il ne rend jamais « corpus propre »."""
+    passages = []
+    for i in range(max(1, repetitions)):
+        r = scenario_une_fois(session, board, tours, p_units, a_units, seed, intervalle, silence)
+        r["passage"] = i + 1
+        passages.append(r)
+    base = passages[0]
+    base["passages"] = len(passages)
+    if len(passages) > 1:
+        empreintes = [empreinte(p) for p in passages]
+        discordants = [(p["passage"], _termes_divergents(empreintes[0], e))
+                       for p, e in zip(passages[1:], empreintes[1:]) if e != empreintes[0]]
+        base["concordant"] = not discordants
+        if discordants:
+            # ⚠ DEUX CAUSES, ET LES CONFONDRE SERAIT AFFIRMER CE QU'ON N'A PAS LU. Le nombre de
+            # fires PRODUITS pendant une fenetre (`attendus`) compte aussi les etrangers :
+            #   * `attendus` DIFFERENT  -> POLLUTION AVEREE, des fires etrangers ont traverse la
+            #     fenetre d'un passage et pas de l'autre ;
+            #   * `attendus` EGAUX      -> le corpus produit est le MEME (mesure : 211 au `build`
+            #     de `C1_02` 2v2, 73 a l'`aiturn`, a chaque passage). Ce qui a bouge est ce que le
+            #     poll a REUSSI A LIRE d'une fenetre qui deborde le ring -- un ALEA DE COLLECTE,
+            #     pas une pollution. Les deux empechent de mesurer ; une seule accuse les voisins.
+            produits = [tuple((w.etiquette, w.attendus) for w in p["fenetres"]) for p in passages]
+            pollue = len(set(produits)) > 1
+            base["causes"] = list(base["causes"]) + [
+                "NON REPRODUCTIBLE (%s) : a seed IDENTIQUE (%d), le(s) passage(s) %s divergent du "
+                "1er sur le(s) terme(s) %s. %s Fires PRODUITS par fenetre : %s"
+                % ("POLLUTION AVEREE" if pollue else "ALEA DE COLLECTE",
+                   base["seed"],
+                   ", ".join(str(n) for n, _t in discordants),
+                   ", ".join(sorted({t for _n, ts in discordants for t in ts})),
+                   "Le ring est PARTAGE et les comptes PRODUITS different : des fires etrangers "
+                   "ont traverse au moins un des deux passages, et rien ne dit lequel."
+                   if pollue else
+                   "Les comptes PRODUITS sont IDENTIQUES -- le corpus de ce runner est donc bien "
+                   "deterministe, et ce qui a bouge est ce que le poll a pu lire d'une fenetre "
+                   "qui deborde le ring. Remede : le ring elargi, pas un re-jeu.",
+                   " | ".join("passage %d = %s"
+                              % (p["passage"], [(w.etiquette, w.attendus) for w in p["fenetres"]])
+                              for p in passages))]
+            base["mesure"] = False
+    else:
+        base["concordant"] = None
+    return base
+
+
 def _nom_event(ev: int) -> str:
     try:
         return EventTriggerType(int(ev)).name
@@ -535,16 +888,40 @@ def _nom_event(ev: int) -> str:
 
 
 def imprimer(res: dict) -> None:
-    print("  runner %s : %d fire(s) lu(s) sur %d fenetre(s)"
-          % (res["runner"], res["fires"], len(res["fenetres"])))
+    print("  runner %s : seed %d ; %d fire(s) RETENU(s) sur %d fenetre(s) mesuree(s) / %d"
+          % (res["runner"], res["seed"], res["fires"], res["retenues"], len(res["fenetres"])))
     for w in res["fenetres"]:
-        print("      fenetre %-10s %4d lu(s) / %4d produit(s)%s"
-              % (w.etiquette, len(w.fires), w.attendus,
-                 "   PERDUS %d (ring de %d)" % (w.perdus, RING) if w.perdus else ""))
-    if res["perdus"]:
-        print("      ! %d fire(s) PERDU(s) au total -- le corpus est partiel, et c'est dit."
-              % res["perdus"])
-    print("  SEQUENCES par `EventTriggerType` (la passe MODALE de chaque) :")
+        anneau = ("ring %d publie" % w.ring) if w.ring else ("ring SUPPOSE %d -- le hook ne le "
+                                                             "publie pas" % RING)
+        print("      fenetre %-10s %4d lu(s) / %4d produit(s)  %3d poll(s) en %5.1f s   %s%s"
+              % (w.etiquette, len(w.fires), w.attendus, w.tours, w.duree,
+                 "NON MESUREE -- %d seq manquant(s), %s" % (w.perdus, anneau)
+                 if w.perdus else "complete",
+                 ("   SPAWN %s" % w.spawns) if w.spawns else ""))
+    print("      sonde(s) de silence : %d de %.1f s ; %d fire(s) etranger(s) DETECTE(s)%s"
+          % (res["sondes"], res["silence"], res["etrangers"],
+             "" if res["etrangers"] else " (absence de signal, PAS une preuve de proprete)"))
+    if res.get("concordant") is None:
+        print("      repetitions : 1 -- corpus NON CERTIFIE par concordance (`--repetitions 2`).")
+    else:
+        print("      repetitions : %d -- empreintes %s"
+              % (res["passages"], "CONCORDANTES" if res["concordant"] else "DIVERGENTES"))
+    ap = res.get("apparues")
+    if ap is None:
+        print("      REGIME SPAWN : NON MESURE -- l'inventaire des unites n'a pas pu etre lu.")
+    elif ap:
+        print("      REGIME SPAWN : EXERCE DANS LE CORPUS -- %d unite(s) apparue(s) pendant une "
+              "fenetre RETENUE : %s" % (len(ap), ap))
+    else:
+        print("      REGIME SPAWN : NON EXERCE dans le corpus RETENU. Un (I5) vert ne dit donc "
+              "RIEN de l'axe que #477-r27 met en cause.")
+    for c in res["causes"]:
+        print("      ! %s" % c)
+    if not res["mesure"]:
+        print("      => SCENARIO NON MESURE : ni vert ni rouge.")
+        return
+    print("  SEQUENCES par `EventTriggerType` (la passe MODALE de chaque ; (I5) `*` = exerce mais "
+          "NON DISCRIMINANT, moins de 2 porteurs communs) :")
     for e in res["evenements"]:
         i3 = "OK" if e["i3_ok"] else ("ROUGE" if e["bloc_contigu"] else "HORS REGIME")
         print("      %-28s longueur %-3d passes %-3d completes %-3d "
@@ -573,8 +950,18 @@ def imprimer(res: dict) -> None:
                   "modale -- le cache aurait ete REORDONNE, ce que ni `AddSorted` ni les retraits "
                   "ne font." % e["i4_non_sous_seq"])
         if e["i5_port"]:
-            etat = "CONFORME" if e["i5_port"] == e["i5_natif"] else "DIVERGENT"
-            print("          (I5) registre du PORT %-9s port=%s natif=%s"
+            # ⚠ LE MEME CRITERE QUE LE VERDICT, ET C'EST TOUT LE POINT. Cette ligne comparait a
+            # l'EGALITE pendant que le verdict, lui, compte par SOUS-SEQUENCE : `port=[77]` vs
+            # `natif=[77, 81]` s'affichait donc `DIVERGENT` au-dessus d'un verdict qui n'y voyait
+            # aucune divergence -- le port ne couvre qu'une fraction du registre natif, sa suite
+            # est un SOUS-ENSEMBLE, et l'accuser a l'egalite est la faute deja corrigee au verdict
+            # (4 divergences sur 5, dont 3 fausses). Deux criteres pour une meme grandeur, c'est un
+            # lecteur qui croit voir un rouge la ou l'outil n'en compte pas.
+            communs = [p for p in e["i5_port"] if p in e["i5_natif"]]
+            etat = ("CONFORME" if _sous_sequence(communs, e["i5_natif"]) else "DIVERGENT")
+            if len(communs) < 2:
+                etat += "*"          # exerce mais NON DISCRIMINANT : une suite d'un seul porteur
+            print("          (I5) registre du PORT %-10s port=%s natif=%s"
                   % (etat, e["i5_port"][:8], e["i5_natif"][:8]))
         if not e["i3_ok"]:
             print("          (I3) attendu %s" % (e["i3_attendu"][:12],))
@@ -605,6 +992,17 @@ def main() -> int:
     ap.add_argument("--p-units", default=ROSTER_2V2[0])
     ap.add_argument("--a-units", default=ROSTER_2V2[1])
     ap.add_argument("--sans-roster-large", action="store_true")
+    ap.add_argument("--seed", type=int, default=SEED,
+                    help="seed du `rl_duel build` -- fixe le RNG du match ET, roster non impose, "
+                         "le tirage des unites. C'est lui qui rend deux passages comparables.")
+    ap.add_argument("--intervalle", type=float, default=INTERVALLE,
+                    help="periode du poll continu de `triggerTrace`, en secondes.")
+    ap.add_argument("--silence", type=float, default=SILENCE,
+                    help="duree d'une sonde de silence, en secondes (detection de contamination).")
+    ap.add_argument("--repetitions", type=int, default=2,
+                    help="passages par scenario. 2 = le corpus n'est retenu que si les deux "
+                         "rendent la MEME empreinte a seed identique -- le seul critere EXACT de "
+                         "non-pollution du ring PARTAGE. 1 desarme ce cran et le DIT.")
     args = ap.parse_args()
 
     try:
@@ -622,14 +1020,17 @@ def main() -> int:
         # seul regime du corpus ou (I5) mord. Le garder en option ferait passer un vert qui ne
         # mesure rien pour une confrontation.
         plans.append(("C1_02", "", "", "C1_02-5v5"))
-    print("[477-r21-r2b] session=%d  scenarios=%s  tours=%d"
-          % (session, ",".join(p[3] for p in plans), args.tours))
+    print("[477-r21-r2b] session=%d  scenarios=%s  tours=%d  seed=%d  poll=%.2fs  silence=%.1fs "
+          "repetitions=%d"
+          % (session, ",".join(p[3] for p in plans), args.tours, args.seed,
+             args.intervalle, args.silence, args.repetitions))
     resultats = []
     for board, pu, au, etiquette in plans:
         print("")
         print("=== SCENARIO %s ===" % etiquette)
         try:
-            res = scenario(session, board, args.tours, pu, au)
+            res = scenario(session, board, args.tours, pu, au,
+                           args.seed, args.intervalle, args.silence, args.repetitions)
         except MesureImpossible as e:
             print("  MESURE IMPOSSIBLE : %s" % e)
             return 2
@@ -641,6 +1042,13 @@ def main() -> int:
     print("=== VERDICT (corpus = %d board(s)) ===" % len(resultats))
     rc = 0
     for res in resultats:
+        # ⚠ TRI-ETAT : un scenario NON MESURE ne compte NI dans le vert NI dans le rouge. Le
+        # rabattre sur l'un ou l'autre est exactement la faute que ce cran repare -- un corpus
+        # ampute rendait un (I4) ROUGE pour une cause etrangere au port, et un corpus contamine
+        # aurait pu rendre un VERT sur des fires qui ne sont pas les notres.
+        if not res["mesure"]:
+            print("  %-8s NON MESURE -- %s" % (res["board"], res["causes"][0]))
+            continue
         evs = res["evenements"]
         i1 = sum(e["divergentes"] for e in evs)
         i1_ex = sum(e["completes"] for e in evs)
@@ -690,6 +1098,12 @@ def main() -> int:
                 print("           NON DISCRIMINE : aucune suite du port n'a 2 porteurs communs "
                       "avec le natif -- aucune ne peut reveler un ordre faux. Ce vert ne mesure "
                       "rien.")
+            ap = res.get("apparues")
+            print("           REGIME SPAWN (#477-r27) : %s"
+                  % ("NON MESURE" if ap is None else
+                     ("EXERCE -- unite(s) apparue(s) %s" % ap) if ap else
+                     "NON EXERCE -- aucune unite apparue ; ce (I5) ne porte PAS sur l'axe du "
+                     "residu, quel que soit son verdict"))
             if i5_inconnus:
                 print("           %d porteur(s) inscrit(s) par le PORT et absent(s) de la trace "
                       "native : %s -- compte SEPARE, ce n'est pas un defaut d'ordre "
@@ -709,6 +1123,13 @@ def main() -> int:
         if i2:
             print("      (I2) %d rupture(s) -- cf. le detail ci-dessus pour la cause "
                   "DISCRIMINEE par (I4). Ce n'est pas un echec du port." % i2)
+    mesures = [r for r in resultats if r["mesure"]]
+    print("  %d scenario(s) MESURE(s) / %d ; %d NON MESURE(s)"
+          % (len(mesures), len(resultats), len(resultats) - len(mesures)))
+    if not mesures:
+        # Aucun corpus exploitable : ce n'est ni un VERT ni un ROUGE, et le rc doit le dire.
+        print("  NON MESURE -- aucun scenario exploitable. Rien n'est confirme, rien n'est refute.")
+        return 2
     print("  %s" % ("VERT" if rc == 0 else "ROUGE"))
     return rc
 

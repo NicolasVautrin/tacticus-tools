@@ -232,10 +232,17 @@ MUTATIONS_TEXTE = ("enveloppe", "entite", "source", "contenu", "garde")
 MUTATIONS_ANCRAGE = ("position", "barriere")
 
 
-def build(board: str, state_file: Path, p_units: str, a_units: str) -> int:
+#: Le seed du `rl_duel build`. Il gouverne le RNG du match ET, quand le roster n'est pas impose,
+#: le tirage des unites (`rl_duel.py` : `rng = random.Random(a.seed)`). Le fixer est ce qui rend
+#: deux runs COMPARABLES ; le rendre PARAMETRABLE est ce qui permet de le dire au lieu de le
+#: supposer (#477-r28).
+SEED = 777
+
+
+def build(board: str, state_file: Path, p_units: str, a_units: str, seed: int = SEED) -> int:
     """`rl_duel build`. La CAUSE d'un echec porte son nom (#477-r18-r5 § 5) : une queue brute
     noie la ligne `[error]` sous le rapport de re-synthese du seed BC."""
-    cmd = [sys.executable, "rl_duel.py", "build", "--seed", "777", "--board", board,
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
            "--record-replay", "--no-ai", "--state-file", str(state_file)]
     if p_units:
         cmd += ["--p-units", p_units]
