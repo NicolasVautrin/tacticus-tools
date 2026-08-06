@@ -100,10 +100,20 @@ TARGET_FOE = "necroWarden"           # la CIBLE melee, sans DoctrinaImperatives 
 #:     (4,6) (4,8) -> adjacentes a aucun des deux (temoin)
 #: Zone STRICTEMENT PLATE (meme elevation sur les 9 tuiles) : la porte `|dElev| < 2`
 #: d'`IterateAdjacentTiles` ne peut pas introduire d'asymetrie entre les deux bras.
-POS_CARRIER = (4, 5)
-POS_MARSHAL_ALLY = (2, 7)
-POS_MARSHAL_FOE = (6, 7)
-POS_TARGET = (4, 7)
+#: `board -> (carrier, marshal ALLIE, marshal ENNEMI, cible neutre)`. Les geometries sont
+#: CHERCHEES, pas devinees : sur chaque board on enumere les triplets `(cible, A, E)` tels que les
+#: voisines de la cible portent >= 2 tuiles « A seul », >= 2 tuiles « E seul » et >= 1 temoin, la
+#: zone entiere etant a elevation CONSTANTE et `A` non adjacent a `E`. Deux boards sur quatre
+#: essayes en admettent une (`C1_25` et `C1_02` n'en ont AUCUNE : c'est une contrainte de terrain,
+#: pas un choix).
+LAYOUTS = {
+    "MC1_67": {"carrier": (4, 5), "ally": (2, 7), "foe": (6, 7), "target": (4, 7)},
+    "C4_09":  {"carrier": (4, 2), "ally": (2, 2), "foe": (5, 1), "target": (3, 1)},
+}
+POS_CARRIER = LAYOUTS["MC1_67"]["carrier"]
+POS_MARSHAL_ALLY = LAYOUTS["MC1_67"]["ally"]
+POS_MARSHAL_FOE = LAYOUTS["MC1_67"]["foe"]
+POS_TARGET = LAYOUTS["MC1_67"]["target"]
 
 
 def _slot_table(build: str) -> dict:
@@ -280,16 +290,32 @@ def _seed_bc_greffe(out_path: Path) -> Path:
     return out_path
 
 
-def _build(seed, board, seed_bc: Path, state: Path):
-    argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
-            "--seed-bc", str(seed_bc), "--state-file", str(state),
+def build_extra(board: str) -> list:
+    """Les arguments `rl_duel build` du montage -- FOYER UNIQUE, partage avec la garde.
+
+    Refuse un board sans geometrie plutot que de replier sur celle d'un autre : un placement
+    hors zone plate reintroduirait l'asymetrie d'elevation que le montage exclut."""
+    lay = LAYOUTS.get(board)
+    if lay is None:
+        raise SystemExit("[477-r29] aucune geometrie pour le board %r (connus : %s). En chercher "
+                         "une : triplet (cible, ALLIE, ENNEMI) a elevation CONSTANTE tel que les "
+                         "voisines de la cible portent >= 2 tuiles 'ALLIE seul', >= 2 'ENNEMI "
+                         "seul' et >= 1 temoin." % (board, ", ".join(sorted(LAYOUTS))))
+    return ["--seed-bc", "<pose par l'appelant>",
             "--p-units", "%s,%s" % (GRAFT, MARSHAL_UNIT),
             "--a-units", "%s,%s" % (MARSHAL_UNIT, TARGET_FOE),
-            "--place", "%s:%d,%d" % (GRAFT, POS_CARRIER[0], POS_CARRIER[1]),
-            "--place", "%s:%d,%d" % (MARSHAL_UNIT, POS_MARSHAL_ALLY[0], POS_MARSHAL_ALLY[1]),
-            "--a-place", "%s:%d,%d" % (MARSHAL_UNIT, POS_MARSHAL_FOE[0], POS_MARSHAL_FOE[1]),
-            "--a-place", "%s:%d,%d" % (TARGET_FOE, POS_TARGET[0], POS_TARGET[1]),
+            "--place", "%s:%d,%d" % (GRAFT, lay["carrier"][0], lay["carrier"][1]),
+            "--place", "%s:%d,%d" % (MARSHAL_UNIT, lay["ally"][0], lay["ally"][1]),
+            "--a-place", "%s:%d,%d" % (MARSHAL_UNIT, lay["foe"][0], lay["foe"][1]),
+            "--a-place", "%s:%d,%d" % (TARGET_FOE, lay["target"][0], lay["target"][1]),
             "--hp-player", "100000", "--hp-target", "100000"]
+
+
+def _build(seed, board, seed_bc: Path, state: Path):
+    extra = build_extra(board)
+    extra[1] = str(seed_bc)
+    argv = ([sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
+             "--state-file", str(state)] + extra)
     p = subprocess.run(argv, cwd=str(PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if not state.exists():

@@ -98,6 +98,13 @@ Mesure `MC1_67` / seed 777, `X = Tile(7) − Elevation − TileEffects` aux hook
 tout — seul le camp du Marshal adjacent diffère. **⇒ le natif compte les ALLIÉS.** `0` désaccord
 `X_nat` vs `X_port` sur 8 tuiles.
 
+**GÉNÉRALISATION — second couple board/seed, géométrie CHERCHÉE et non devinée.** `C4_09` / 31337 :
+9 tuiles hookées, **10** sur les deux du bras ALLIÉ ((2,1), (3,2)), **0** sur les cinq du bras
+ENNEMI, 0 sur les deux témoins, `0` désaccord sur 9. Ce board est plus dur — élévations 20/30/50 et
+un effet de tuile à 9 dans le `X_nat` brut — ce qui exerce le retranchement `− Elevation −
+TileEffects` au lieu de le laisser à zéro. Sur quatre boards essayés, **deux** admettent la
+géométrie exigée (`C1_25` et `C1_02` n'en ont **aucune** : contrainte de terrain, pas un choix).
+
 ## 4. Le CONFOND, qui rend la question non rhétorique — et le résidu qu'il ouvre
 
 Le **même** prédicat `HasActiveAbility(0x45e)` est lu par une **autre** feuille du même composite,
@@ -166,19 +173,19 @@ doctrine interdit. Condition de réouverture, explicite : **que ce poids devienn
 
 ## 7. Contre-épreuve — `a_mordu` rendu SÉPARÉMENT du verdict
 
-Sept modèles confrontés à la MÊME mesure (8 tuiles) :
+Sept modèles confrontés à la MÊME mesure, sur les deux couples board/seed :
 
-| modèle | divergences | a_mordu |
-|---|--:|---|
-| `PORT (allies)` | 0 / 8 | — (c'est le verdict) |
-| `DEUX-CAMPS` (la spec de `case-26`) | 4 / 8 | OUI |
-| `ENNEMIS` (camp inverse) | 6 / 8 | OUI |
-| `SANS-PREDICAT` | 1 / 8 | OUI |
-| `POIDS -25` (le multiplicateur de `case-26`) | 2 / 8 | OUI |
-| `ABSENT (avant)` = l'état du port avant cette tranche | **2 / 8** | OUI |
-| `SELF-EXCLU` | 0 / 8 | NON — **inerte PAR ALGÈBRE**, assertionné dans les deux sens |
+| modèle | `MC1_67`/777 | `C4_09`/31337 | a_mordu |
+|---|--:|--:|---|
+| `PORT (allies)` | 0 / 8 | 0 / 9 | — (c'est le verdict) |
+| `DEUX-CAMPS` (la spec de `case-26`) | 4 / 8 | 5 / 9 | OUI |
+| `ENNEMIS` (camp inverse) | 6 / 8 | 7 / 9 | OUI |
+| `SANS-PREDICAT` | 1 / 8 | 3 / 9 | OUI |
+| `POIDS -25` (le multiplicateur de `case-26`) | 2 / 8 | 2 / 9 | OUI |
+| `ABSENT (avant)` = l'état du port avant cette tranche | **2 / 8** | **2 / 9** | OUI |
+| `SELF-EXCLU` | 0 / 8 | 0 / 9 | NON — **inerte PAR ALGÈBRE**, assertionné dans les deux sens |
 
-La ligne `ABSENT (avant)` **chiffre le bug corrigé** : 2 tuiles sur 8, de 10 exactement.
+La ligne `ABSENT (avant)` **chiffre le bug corrigé** : 2 tuiles par montage, de 10 exactement.
 
 Et la garde a été vue ROUGE sur une VRAIE mutation du port : en faisant compter les deux camps à
 `calculate_movement_utility_in_steps`, `test_le_natif_suit_le_modele_ALLIES` tombe avec 4 tuiles en

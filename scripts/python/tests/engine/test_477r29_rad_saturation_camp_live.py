@@ -59,27 +59,28 @@ ROOT = Path(__file__).resolve().parents[4]
 MAX_STEPS = 25
 
 
-@pytest.fixture(scope="module")
-def rad_case(rpc, build_runner):
+#: DEUX couples board/seed, pour que le verdict ne tienne pas a UNE geometrie. Les positions sont
+#: CHERCHEES par board (cf. `P.LAYOUTS`) : deux boards sur quatre essayes admettent une zone plate
+#: ou les voisines de la cible se ventilent en trois groupes miroir.
+CASES = [("MC1_67", "777"), ("C4_09", "31337")]
+
+
+@pytest.fixture(scope="module", params=CASES, ids=lambda c: "%s-%s" % (c[0], c[1]))
+def rad_case(request, rpc, build_runner):
     """La mesure du pas ou les DEUX bras (ALLIE / ENNEMI) sont HOOKES, hooks armes UNE fois.
 
-    Le montage vit dans le probe (`P.mesurer`, `call` INJECTE) : un seul foyer, deux
-    consommateurs -- la garde ne re-code pas le pilotage des positions."""
+    Le montage vit dans le probe (`P.build_extra` + `P.mesurer`, `call` INJECTE) : un seul foyer,
+    deux consommateurs -- la garde ne re-code ni les placements ni la marche."""
+    board, seed = request.param
     tag = uuid.uuid4().hex[:8]
     seed_bc = ROOT / "logs" / "runners" / ("test477r29-seedbc-%s.json" % tag)
     bc = P.catalog_inject._load_seed(None)
     P.catalog_inject.graft_passive_ability(bc, P.GRAFT, "RadSaturation", replace=True)
     seed_bc.parent.mkdir(parents=True, exist_ok=True)
     seed_bc.write_text(json.dumps(bc), encoding="utf-8")
-    extra = ["--seed-bc", str(seed_bc),
-             "--p-units", "%s,%s" % (P.GRAFT, P.MARSHAL_UNIT),
-             "--a-units", "%s,%s" % (P.MARSHAL_UNIT, P.TARGET_FOE),
-             "--place", "%s:%d,%d" % (P.GRAFT, P.POS_CARRIER[0], P.POS_CARRIER[1]),
-             "--place", "%s:%d,%d" % (P.MARSHAL_UNIT, P.POS_MARSHAL_ALLY[0], P.POS_MARSHAL_ALLY[1]),
-             "--a-place", "%s:%d,%d" % (P.MARSHAL_UNIT, P.POS_MARSHAL_FOE[0], P.POS_MARSHAL_FOE[1]),
-             "--a-place", "%s:%d,%d" % (P.TARGET_FOE, P.POS_TARGET[0], P.POS_TARGET[1]),
-             "--hp-player", "100000", "--hp-target", "100000"]
-    rid = build_runner("777", extra=extra, board="MC1_67")["rid"]
+    extra = P.build_extra(board)                       # FOYER UNIQUE du montage (cf. le probe)
+    extra[1] = str(seed_bc)
+    rid = build_runner(seed, extra=extra, board=board)["rid"]
     mes = P.mesurer(lambda m, b, t=90: rpc(m, b, t), rid, MAX_STEPS, trace=lambda *_a: None)
     try:
         seed_bc.unlink()
