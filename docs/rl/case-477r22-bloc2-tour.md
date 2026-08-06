@@ -454,8 +454,14 @@ quatre. Elles ouvrent **#477-r34**.
   la ventilation mesurée par `#477-r34` y trouve **36** lignes de `Group=Damage` et **11** d'une
   `Action=HealInfo` — c'est cette dernière, neuf lignes, qui retient tout le bloc. Nommer un bloc
   par l'une des formes qu'il porte surestime ce que porter cette forme rapporte.
-  Restent ouverts : **#477-r38** (`Group=ResurrectUnit` / `Ability_CustomGroup`, 106 l.),
-  **#477-r39** (`Action=HealInfo`) et **#477-r40** (`Group=Ability_Power` à `Source=` d'`EffectType`).
+  Restent ouverts : **#477-r38** (`Group=ResurrectUnit` / `Ability_CustomGroup`, 106 l., dont la
+  RE est écrite et qui est **TOUT-OU-RIEN** — aucune sous-tranche ne libère une ligne) et
+  **#477-r40** (`Group=Ability_Power` à `Source=` d'`EffectType`).
+- **#477-r39** — **LIVRÉ** (`docs/rl/case-477r39-pas-heal-info.md`) : le pipeline de SOIN
+  (`HealUnitOperation$$Execute`, une `Action=` **nue** sans groupe). Le roster 2v2 passe de
+  **47 à 0** lignes hors périmètre, dont **36** de `Group=Damage` que le foyer de `#477-r34`
+  reproduisait déjà. Résidu : **#477-r41** (les deux gardes d'émission, qui ne sont pas une face
+  stream).
 - **#477-r22-r2** — **les gardes d'état de `ContinueTurnPhaseOperation$$HandleNextTurn`.** Trois,
   toutes lues : le match terminé (`match.<+0x24> == 2`), la décision de drafting en attente au stage
   `Draft`, et les quatre conditions de la branche `Prepare`. Aucune n'est atteinte par nos montages ;

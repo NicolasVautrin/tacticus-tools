@@ -230,12 +230,15 @@ lève toujours si un appelant court-circuite la partition — les deux sont gard
   `Action=DirectlyKillUnit`, `Action=RemoveUnit`, `Action=RemoveUnitFromTiles`. Elle sort du
   pipeline de RÉSURRECTION, qui a sa propre tranche. Le probe publie désormais la liste
   **complète** des formes qui la retiennent (23 formes, dont 20 `Tag=`).
-- **#477-r39** — **`Action=HealInfo`, le pipeline de SOIN.** Neuf lignes qui en retiennent
-  quarante-sept sur le roster 2v2 (`Group=Ability_Power Source=MedicusMinistorum` →
-  `Action=HealInfo` + `Tag=Caster_Id` / `UnitStats_WasWoundedBeforeHeal` /
-  `UnitStats_RemovedNegativeUnitEffects` / `UnitStats_RemainingHealth` /
-  `UnitStats_NumberOfMembers` / `Amount`). **36** des 47 lignes sont déjà reproduites par le
-  foyer de `#477-r34` : c'est la règle du sous-arbre qui les retient, pas le port.
+- ~~**#477-r39** — **`Action=HealInfo`, le pipeline de SOIN**~~ → **LIVRÉ**
+  (`docs/rl/case-477r39-pas-heal-info.md`). Les neuf lignes du sous-arbre de soin en retenaient
+  quarante-sept ; le roster 2v2 passe de **47 à 0**, dont **36** lignes de `Group=Damage` que ce
+  foyer-ci reproduisait déjà.
+  ⚠ **LE COMPTE « AVANT » DE CETTE FICHE ÉTAIT CALCULÉ EN LISTANT LES SOUS-ARBRES PORTÉS QUI
+  CONTIENNENT UN `Group=Damage`** — juste pour cette famille-là, faux dès qu'un bloc en porte
+  deux. `#477-r39` le remplace par une **RE-PARTITION** (`R21.FORMES_PAR_TRANCHE`), qui mesure
+  la NÉCESSITÉ et non l'apport : sur le bloc de 47 lignes, retirer `#477-r34` **ou** `#477-r39`
+  le remet dehors en entier, donc les deux colonnes affichent 47 et **ne s'additionnent pas**.
 - **#477-r40** — **le `Group=Ability_Power` dont le `Source=` est un `EffectType`.**
   `evaluate_trigger.py` porte `EvaluateTriggerOperation$$EvaluateAbilityTrigger`, qui écrit
   `((TriggeredAbilityType)order).ToString()`. Or `EvaluateTriggerOperation$$ExecuteInternal`
