@@ -521,8 +521,9 @@ def substitutes_normal_attack(passive_name: str, passive_abilities=None, visual_
 #: L'attaque normale dont l'`ExecuteBehaviour` pose `useSpecial = 1`, et le gate qui l'y amene.
 #: LU au decompile (#419-r1-tr14-r4-r2-r1). L'AUTRE poseur, `OptimizedGait_NormalAttack`, N'EST PAS
 #: ici -- son gate est `EntityExtensions$$HasEffect(<entite du champ +8 des AbilityEntities>, state,
-#: 0x4e2, null)` et l'ANCRE (caster ou cible) n'est pas tranchee : l'inscrire au jugé ecrirait un
-#: `Use_Special` faux sur un porteur reel. Residu nomme, pas oubli.
+#: 0x4e2, null)` et l'ANCRE (caster ou cible) n'est pas tranchee : l'inscrire au juge ecrirait un
+#: `Use_Special` faux sur un porteur reel (`admecRuststalker`). Residu `#419-r1-tr14-r4-r2-r1-r2`,
+#: pas un oubli.
 _USE_SPECIAL_NORMAL_ATTACK = "FeederTendrils_NormalAttack"
 
 
