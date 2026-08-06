@@ -135,7 +135,31 @@ l'appui.
 avec le `rid`, qui doit exister même si le build a levé — sinon `NameError`, avalé par le
 `except`, donc désarmement **muet**.
 
-## 6. Ce qui reste OUVERT
+## 6. Le contrôle qui pouvait invalider toute la tranche
+
+Un armement **nominatif** ne capture que si `getTraceOrigin()` vaut ce runner **au moment du
+fire**. Or seuls certains RPC posent l'origine. Un probe qui armerait pour `rid` puis
+piloterait le natif par un RPC **qui ne la pose pas** verrait sa capture — qui marchait en
+armement global — devenir **VIDE**. Ce serait une régression introduite par le correctif.
+
+Contrôle fait, en dérivant les deux côtés : **29 RPC posent l'origine**
+(`setTraceOrigin`, apparié au `ctx.rpc.<nom>` qui le précède), et chacun des **16 probes
+migrés** a été confronté à cette liste sur ses RPC de pilotage.
+
+**Résultat : aucun probe ne devient aveugle.** Les chemins employés sont `aiStepDryRun`,
+`aiDryRunAllUnits`, `applyAction`, `decisionView`, `aiMovableTiles`, `aiPlaybookPredict`,
+`combatSnapshot`, `boardGraph`, `unitAbilityStates`, `dumpRng` — **tous poseurs**. Le seul
+non-poseur relevé est `observeBattle`, une lecture d'état projeté qui ne fait firer aucun
+hook de trace. `scorer_trace_capture.py`, qui semblait n'appeler aucun poseur, pilote par
+`predict_samples._drive_into_range` → `decisionView` / `applyAction` / `aiMovableTiles`,
+tous avec `runnerId` : indirection, pas trou.
+
+⚠ **Changement de comportement RÉEL, et voulu** : un armement **nominatif** ne capture plus
+ce qui fire **hors de toute fenêtre d'origine** — l'IA du jeu **live**, ou un chemin non
+instrumenté (origine `null`). C'est exactement ce qu'on veut d'un armement par runner. Qui
+veut capter l'IA live arme en **GLOBAL** (`On {}`), ce qui reste disponible et inchangé.
+
+## 7. Ce qui reste OUVERT
 
 - **L'isolation LIVE n'est pas confrontée.** Le probe est écrit
   (`probe_483_isolation_armement_live.py`) : témoin de non-vacuité (A armé **seul** doit
