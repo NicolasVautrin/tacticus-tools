@@ -1,6 +1,6 @@
 # #486-r2 — Le discriminant d'USAGE des probes, et l'élagage
 
-**Verdict : 0 suppression.** Aucun des ~826 probes de premier niveau n'est *prouvablement mort*.
+**Verdict : 0 suppression.** Aucun des ~830 probes de premier niveau n'est *prouvablement mort*.
 Ce qui manquait n'était pas une liste à couper, c'était l'**instrument qui permet de couper** —
 il existe maintenant, il sait rougir, et il est sous cliquet.
 
@@ -81,8 +81,9 @@ penche du côté sûr : **on ne supprime jamais sur un doute**.
   mieux gardés du dépôt.
 
 **LE SOL** (`--confronter-import`, hors passage courant, ~6 min, purement offline) : chaque probe
-est **réellement importé** en process frais. Mesure du 2026-08-06 : **824 réussis / 1 échec / 1
-écarté**. L'unique échec est `probe_enum_dump_width`, qui lève `HostInputUnavailable` — une entrée
+est **réellement importé** en process frais. Mesure du 2026-08-06 (rejouée après rebase sur
+`f1cdd32e`) : **827 réussis / 1 échec / 1 écarté**. L'unique échec est `probe_enum_dump_width`,
+qui lève `HostInputUnavailable` — une entrée
 gitignorée qu'un worktree ne voit pas (invariant 3, troisième catégorie) : **MONTAGE**, pas mort.
 L'écarté (`probe_287r8_regles_battlequery_live`) lie du RPC live au niveau module et est
 pré-filtré. **Le verdict statique ne ment donc pas** — c'est ce qui autorise à conclure que
@@ -90,26 +91,27 @@ pré-filtré. **Le verdict statique ne ment donc pas** — c'est ce qui autorise
 
 ## 5. La partition (exhaustive, re-dérivable)
 
-Mesure du 2026-08-06, population **dérivée de `git ls-files`** (`scripts/python/probe_*.py` sans
-sous-répertoire — **0** `probe_*.py` écarté ailleurs dans l'arbre) :
+Mesure du 2026-08-06 sur `f1cdd32e`, population **dérivée de `git ls-files`**
+(`scripts/python/probe_*.py` sans sous-répertoire — **0** `probe_*.py` écarté ailleurs) :
 
 | seau | n | usage |
 |---|---:|---|
-| CLIQUET (banque) | 35 | 35 vivants |
+| CLIQUET (banque) | 36 | 36 vivants |
 | JOUÉ PAR TEST | 329 | 329 vivants |
 | JOUÉ PAR SCRIPT | 67 | 67 vivants |
-| PROSE SEULE | 368 | 368 vivants |
+| PROSE SEULE | 370 | 370 vivants |
 | ORPHELIN | 27 | 27 vivants |
-| **SOMME** | **826** | **0 mort, 0 indéterminé** |
+| **SOMME** | **829** | **0 mort, 0 indéterminé** |
 
 **PROSE SEULE est le seau le plus peuplé** (44,6 %) : une case-doc cite son probe *pour toujours*,
 la citation en prose enregistre l'**histoire**, pas l'**usage**. C'est pourquoi la règle « garder
 ce qui est cité dans un document » ne coupe rien — et pourquoi elle n'est pas le critère.
 
-**Mention ≠ exécution**, et le cran se paie : en comptant toute mention dans `tests/`, on obtenait
-**442** probes « joués par un test » contre **329** réellement — **113 de trop**, nommés dans un
-commentaire ou une docstring. La citation exécutable exclut donc tout `Expr(Constant(str))`
-(docstrings et chaînes flottantes) ; les commentaires `#` ne sont pas dans l'AST.
+**Mention ≠ exécution**, et le cran se paie : en comptant toute mention dans `tests/` plutôt que
+la citation exécutable, la mesure d'ouverture de #486-r2 rendait **442** probes « joués par un
+test » contre **319** réellement — **123 de trop**, nommés dans un commentaire ou une docstring.
+La citation exécutable exclut donc tout `Expr(Constant(str))` (docstrings et chaînes flottantes) ;
+les commentaires `#` ne sont pas dans l'AST.
 
 ## 6. La portée du critère de MENTION — quatre corpus, mesurés
 
