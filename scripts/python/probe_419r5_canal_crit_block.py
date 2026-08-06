@@ -178,8 +178,8 @@ def etape_4(sid: int, rank: int, state_file: str, board: str,
     argv = [sys.executable, "rl_duel.py", "build", "--seed", seed,
             "--state-file", state_file, "--rank", str(rank), "--board", board,
             "--p-units", porteur, "--a-units", adverse]
-    if sans_items:
-        argv.append("--no-items")
+    if not sans_items:
+        argv.append("--bis-items")
     p = subprocess.run(argv, cwd=str(_HERE), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if p.returncode != 0:
@@ -217,7 +217,7 @@ def main(argv=None) -> int:
     ap.add_argument("--state-file", default=None,
                     help="chemin ABSOLU pour l'etage live (sinon l'etage est saute)")
     ap.add_argument("--sans-items", action="store_true",
-                    help="etage live : monte le runner avec --no-items (TEMOIN)")
+                    help="etage live : monte le runner SANS --bis-items (TEMOIN)")
     ap.add_argument("--verbeux", action="store_true")
     a = ap.parse_args(argv)
 
