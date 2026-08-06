@@ -7,19 +7,27 @@ les cliquets dont on a **ETABLI** que le verdict est LOCAL.
 
 ## 0. Le gain, mesure
 
-⚠ **La mesure est ALTERNEE, et c'est la seule qui vaille sur cette machine.** Onze worktrees
-d'agents y travaillent en meme temps : une passe « avant » suivie d'une passe « apres » mesure
-surtout la charge du moment (premiere tentative : `probe_273`, qui n'a AUCUN cache, passait de
-50,7 s a 85,8 s). On alterne donc cache ON / cache OFF (`TACTICUS_SANS_CACHE_CLIQUET=1`) sur le
-MEME arbre, et on retient le **min de 3 repetitions**.
+⚠ **UN CHIFFRE SANS SA CHARGE NE VEUT RIEN DIRE, et ce depot l'a mesure ailleurs** (#486-r5 :
+51,3 s au classement contre 33,0 s reels, **+55 % de contention**). Les mesures ci-dessous sont
+prises sur une machine **CALME** -- **1 worktree** d'agent (le mien), **0** process python demarre
+dans les 5 minutes, **22** CPU logiques, charge moyenne **0 %** -- et l'arbre est celui de la PR
+apres rebase sur `922fcd14`.
 
 ```
-cliquet          SANS CACHE   AVEC CACHE   gain
-probe_477r24r1       30,1 s        2,3 s     92 %
-probe_477r25         41,2 s        5,1 s     88 %
-probe_313            14,6 s        3,9 s     73 %
-TOTAL                85,9 s       11,3 s     87 %
+cliquet          SANS CACHE     FROID     CHAUD    gain
+probe_477r24r1       26,6 s     25,9 s     2,4 s    91 %
+probe_477r25         31,0 s     37,2 s     3,1 s    90 %
+probe_313            13,2 s     16,0 s     4,5 s    66 %
+TOTAL                70,8 s     79,1 s    10,0 s    86 %
 ```
+
+Les memes cliquets, mesures **sous 11 worktrees actifs** quelques heures plus tot : 30,1 / 41,2 /
+14,6 s sans cache pour 2,3 / 5,1 / 3,9 s a chaud. **Le gain relatif est stable (87 % vs 86 %) ; les
+absolus bougent de ~20 %** -- c'est exactement pourquoi la charge est declaree ici.
+
+⚠ **La colonne FROID est parfois PLUS LENTE que SANS CACHE** (37,2 contre 31,0 sur `477r25`) : le
+run froid calcule *et* ecrit 6 682 entrees. Ce n'est pas du bruit, c'est le cout du premier
+remplissage -- et il se paie une fois.
 
 ⚠ **Les deux premieres lignes ont d'abord plafonne a 16,1 et 19,1 s** -- le residu etant
 integralement `deriver()`, declare NON cachable a tort (cf. §5, corrige sur intervention de
@@ -130,20 +138,33 @@ agents qui touchent des fichiers differents ecrivent a des endroits differents. 
 **garde par le test offline** : c'est lui qui rend le diff proportionnel aux fichiers touches.
 En cas de conflit : **REGENERER** (rejouer le cliquet), jamais fusionner.
 
-### 4.3 Le churn
+### 4.3 Le churn d'historique -- LA question qui decide si le cache survit
 
-**MESURE, sur un commit qui touche UN fichier du perimetre** (`probe_313_enum_mirror_bijection.py`) :
+**13 094 lignes / 3,87 Mo versionnes en 3 fichiers.** Si toucher UN fichier en reecrivait des
+milliers, le cache polluerait chaque PR et se ferait desactiver -- c'est le mecanisme social qui a
+fait retirer la banque de cliquets. **MESURE, par regeneration reelle puis `git diff --stat`** :
 
-```
-scripts/cliquets-cache/probe_477r24r1_slots_interface.tsv       | 8 ++++----   (4 lignes)
-scripts/cliquets-cache/probe_477r25_slots_autres_interfaces.tsv | 6 +++---     (3 lignes)
-```
+| fichier touche (1 ligne ajoutee) | 477r24r1 | 477r25 | 313 | TOTAL | part des 13 094 |
+|---|---|---|---|---|---|
+| `case-100-...md` -- **SANS `slot`** (255 des `docs/rl/*.md`) | 0 | **1** | 0 | **1 ligne** | **0,008 %** |
+| `wiki.md` -- 2 occurrences de `slot` | 4 | 4 | 0 | **8 lignes** | 0,06 % |
+| `backlog.md` -- **307** occurrences (pire cas) | 4 | 4 | 0 | **8 lignes** | 0,06 % |
 
-Soit exactement **une ligne par appel de recolte** -- 4 pour `477r24r1`, 3 pour `477r25` (4 depuis
-que `_compter_autre_casse` est cache). Le cache ne porte QUE les fichiers dont le calcul est cher :
-le pre-filtre bon marche du cliquet (`"slot" not in texte`, `any(cls in texte)`) reste JOUE a
-chaque run et n'entre pas au cache. Tailles : **1,20 / 2,00 / 0,65 Mo** pour **4 957 / 6 668 /
-1 438** entrees.
+**Le churn ne depend PAS de la taille du fichier ni du nombre de citations** : il vaut **une ligne
+par APPEL** qui visite ce fichier. `477r24r1` en fait 4, `477r25` 4 (dont `autre_casse`, le SEUL
+qui couvre tout le perimetre -- d'ou la ligne unique du cas median), `313` 0 pour un `docs/rl/`.
+La restauration ramene le cache **bit-a-bit** au commit dans les trois cas.
+
+C'est le pre-filtre bon marche du cliquet (`"slot" not in texte`, `any(cls in texte)`) qui tient
+ce chiffre : il reste JOUE a chaque run et n'entre pas au cache, donc les ~2 600 fichiers qu'il
+ecarte n'ont **aucune** ligne. Tailles : **1,20 / 2,00 / 0,65 Mo** pour **4 965 / 6 682 / 1 447**
+entrees.
+
+**L'AUTRE BOUT DE L'ECHELLE, mesure au rebase de cette PR** : 12 fichiers du perimetre apportes
+par `922fcd14` -> **42 insertions / 33 suppressions**, et la regeneration coute **3,4 / 6,2 /
+3,3 s** au lieu du plein tarif. Un rebase plus large (490 fichiers, mesure precedente) donne
+2 616 / 2 599 lignes, soit ~5,3 par fichier -- la proportionnalite tient sur deux ordres de
+grandeur.
 
 ⚠ **`autre_casse` est le seul appel qui couvre TOUT le perimetre** (son pre-filtre n'existe pas :
 il compte des lignes que `RE_SLOT` ne voit justement pas), d'ou +2 947 entrees sur `477r25`. C'est
@@ -156,19 +177,31 @@ perimetre modifies** : les trois caches bougent de **2 616 insertions / 2 599 su
 12,4 s contre 35,3 / 38,2 / 14,6 s sans cache) : les 2 457 fichiers non touches restent chauds.
 C'est le regime pour lequel le cache est VERSIONNE.
 
-### 4.4 Le changement de build
+### 4.4 Le changement de build -- et ce que devient le fichier VERSIONNE
 
-Le contexte (en-tete du fichier) porte le sha du SOURCE du cliquet **et** celui des entrees
-externes qui gouvernent le calcul cache -- table de slots comprise. Simulation d'un changement de
-la table versionnee :
+Le contexte (en-tete du fichier) porte le sha du SOURCE du cliquet, celui d'`il2cpp_metadata.py`
+**et** celui de la table de slots versionnee. Simulation d'un changement de build (la table
+versionnee change, ce que produit un `--regenerer` sur un nouveau build) :
 
 ```
-477r24r1  AVANT  hits=4944 recalculs=0    APRES  hits=0 recalculs=4944   22,5 s -> 48,2 s
-477r25    AVANT  hits=3708 recalculs=0    APRES  hits=0 recalculs=3708   30,3 s -> 64,5 s
+                    AVANT                              APRES
+477r24r1   hits=4965 recalculs=0    2,1 s     hits=0 recalculs=4965   27,4 s
+477r25     hits=6682 recalculs=0    2,2 s     hits=0 recalculs=6682   32,3 s
 ```
 
-**100 % des entrees manquent**, cout plein une fois. Il n'y a pas d'entrees multi-builds : un
-contexte different vide le fichier, et la reecriture integrale fait le menage.
+**100 % des entrees MANQUENT** -- `hits=0`, cout plein, une fois.
+
+**Ce que devient le fichier : il est REECRIT EN ENTIER, et il ne porte QU'UN SEUL BUILD.**
+Mesure : **1 seule en-tete `# format=`** avant comme apres, contexte passe de `b89e7785…` a
+`3826032b…` (`477r24r1`) et de `b10fc11b…` a `78b82878…` (`477r25`), pour le **meme nombre
+d'entrees** (4 965 / 6 682 -- c'est le contexte qui change, pas le perimetre). **Aucune entree de
+l'ancien build n'est conservee** : `_charger` refuse un fichier dont le contexte differe (il ne lit
+RIEN, plutot que de deviner), et `enregistrer` reecrit exactement les entrees VUES par le run. Il
+n'y a donc ni empilement multi-builds, ni commande de menage a se rappeler de lancer.
+
+Le retour au build precedent est symetrique et complet : contexte revenu a l'identique, 4 965 /
+6 682 entrees. Le prix a payer est un aller-retour a plein tarif, ce qui est la contrepartie
+assumee d'un fichier mono-build.
 
 ⚠ `probe_313` est **BUILD-INDEPENDANT** sur ses deux balayages caches (le build n'entre que par
 `enum_natif`, hors cache) : son contexte ne porte donc pas le build. Ce n'est pas un raccourci,
@@ -204,7 +237,7 @@ cout du hachage : 0,05 s pour 21,6 Mo   (vs ~14 s de derivation)   rapport 280:1
 RECALCULE au lieu de servir une attestation qu'aucune machine n'a produite ici. Mesure :
 `sha_gros_fichiers(<absent>)` rend `None`, jamais une chaine.
 
-Reste ouvert, sur un autre axe : **`#486-r7`** -- alleger `locate` lui-meme (10,1 s de `tottime`,
+Reste ouvert, sur un autre axe : **`#486-r10`** -- alleger `locate` lui-meme (10,1 s de `tottime`,
 778 `bytes.find`). Ce n'est plus le plancher du regime normal, mais c'est encore le cout du run
 FROID et de chaque changement de build.
 
@@ -250,6 +283,19 @@ FROID et de chaque changement de build.
   l'autre satisfaire le `any`. Corrige une fois en passant a « un contexte par appel », le critere
   restait aveugle a la mutation qui **RETIRE** l'appel -- un critere qui n'enumere que ce qu'il
   trouve ne peut pas voir ce qui a ete retire. Enumerer les CONSTRUCTIONS ferme les deux.
+
+## 6bis. DEUX collisions de numero dans la MEME tranche -- l'angle mort de `--suggere`, vecu
+
+`probe_468 --suggere 486` a rendu `#486-r6` puis `#486-r7`. Les deux ont ete pris entre-temps par
+d'autres agents (`#486-r3` puis `#486-r5`, mergees pendant ce chantier), et `probe_468` les a
+attrapees **au re-jeu d'apres rebase**, jamais avant. Renumerotes en `#486-r9` et `#486-r10`.
+
+Ce n'est pas une defaillance du cliquet : c'est exactement l'angle mort que sa `PORTEE DE LA
+MESURE` nomme -- *un numero pris et pas encore ecrit est invisible de toute lecture de l'arbre*.
+Ce qui est neuf, c'est la **frequence** : deux fois en une tranche, parce qu'un chantier long
+alloue tot et livre tard. La parade praticable n'est pas de reserver (ce qui serialiserait
+l'allocation) : c'est de **re-jouer `probe_468` APRES chaque rebase**, ce que cette PR a fait
+deux fois -- et de ne pas s'etonner d'un rouge la.
 
 ## 7. Non couvert
 
