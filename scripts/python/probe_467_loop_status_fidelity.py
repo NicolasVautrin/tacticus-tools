@@ -112,8 +112,10 @@ class FauxSources(LS.Sources):
         pass
 
 
-def _agent(nom: str, wt: str = "") -> dict:
-    return {"name": nom, "wt": wt, "state": "vif"}
+def _agent(nom: str, wt: str = "", depth: int = 1, parent: str = "") -> dict:
+    #: `depth` 1 = tranche DISPATCHEE (compte au plafond) ; >= 2 = sous-agent lance par un
+    #: solveur (n'y compte PAS). Le champ vient du meta ecrit par le harnais.
+    return {"name": nom, "wt": wt, "state": "vif", "depth": depth, "parent": parent}
 
 
 def _statut_v2(branche="master", upstream="origin/master", avance=0,
@@ -380,6 +382,59 @@ def etape_6_plafond() -> None:
     fl = LS.etat(FauxSources(status_v2=_statut_v2(), rows=[]), 5)["flotte"]
     verifie(fl["en_vol"].valeur == 0 and fl["libres"].valeur == 5,
             "flotte vide -> 0 en vol, 5 libres")
+
+
+# =====================================================================================
+#  8. LE PLAFOND PORTE SUR LES TRANCHES, PAS SUR LES AGENTS VIVANTS (#467-r7)
+# =====================================================================================
+def etape_8_sous_agents() -> None:
+    """Un sous-agent lance par un solveur ne consomme PAS un slot de dispatch.
+
+    MESURE QUI L'A IMPOSE (2026-08-06) : la flotte affichait `6 / 6` -- donc « plafond atteint,
+    0 slot libre » -- pour **5** tranches reellement dispatchees. Le sixieme etait un sous-agent
+    (`spawnDepth = 2`, `parentAgentId` renseigne) lance par le solveur de `#419-r5`, a qui le
+    brief demandait EXPLICITEMENT ce recensement. Un slot etait donc retenu sans raison, et
+    l'orchestrateur s'est interdit un dispatch qui etait libre.
+
+    ⚠ LE DISCRIMINANT EST LA PROFONDEUR, PAS L'ABSENCE DE WORKTREE. Un agent de TETE lance sans
+    `isolation: worktree` n'a pas de worktree non plus ; le compter comme un enfant rendrait le
+    plafond faux dans l'autre sens -- et silencieusement, puisque personne ne verifie a la main.
+    C'est la meme faute que le `git worktree lock` du fleet-board, aveugle des la 1re reprise.
+
+    ⚠ ET LE FILTRE DOIT SE DIRE. Un compte filtre qui ne publie pas ce qu'il ecarte fait diverger
+    la sortie de ce que l'utilisateur voit dans son interface, sans rien pour l'expliquer.
+    """
+    print("\n[8] Les SOUS-AGENTS ne consomment pas de slot, et sont PUBLIES (#467-r7)")
+    base = dict(status_v2=_statut_v2(), worktrees="", mergees="", prs=[],
+                http={"/api/admin/status": {"session": {"id": 1, "status": "running"},
+                                            "tacticus": {"running": True}},
+                      "/api/admin/drain": {"enabled": False, "liveRunners": 0,
+                                           "liveRunnersSource": "hooks"}})
+
+    # la scene MESUREE : 5 tranches + 1 sous-agent, plafond 6 -> 5 en vol, 1 LIBRE
+    rows = [_agent("tranche-%d" % i) for i in range(5)]
+    rows.append(_agent("sous-agent", depth=2, parent="a08344cf9ecf7510f"))
+    fl = LS.etat(FauxSources(rows=rows, **base), 6)["flotte"]
+    verifie(fl["en_vol"].valeur == 5, "5 tranches + 1 sous-agent -> en vol = 5 (et non 6)")
+    verifie(fl["libres"].valeur == 1, "le slot du sous-agent reste LIBRE")
+    verifie("sous-agent" not in fl["noms"].valeur, "le sous-agent n'est pas dans les tranches")
+    verifie(fl["enfants"].mesuree and fl["enfants"].valeur == ["sous-agent"],
+            "le sous-agent est PUBLIE a part, jamais tu")
+
+    # CONTRE-EPREUVE : sans le cran, ces memes donnees rendaient 6/6. Le mutant est la scene
+    # elle-meme -- si le filtre disparait, la 1re assertion tombe. On verifie ici que le cran
+    # a bien un DOMAINE : sans sous-agent, rien ne doit changer.
+    fl2 = LS.etat(FauxSources(rows=[_agent("t%d" % i) for i in range(5)], **base), 6)["flotte"]
+    verifie(fl2["en_vol"].valeur == 5 and fl2["libres"].valeur == 1,
+            "sans sous-agent : 5 tranches -> 5 en vol, 1 libre (le cran est INERTE, et c'est bon)")
+    verifie(not fl2["enfants"].valeur, "aucun enfant a publier quand il n'y en a pas")
+
+    # profondeur ABSENTE (meta d'un vieil agent, ou harnais qui ne l'ecrit pas) -> compte comme
+    # une TRANCHE. Le defaut prudent est de RETENIR un slot, pas d'en liberer un a tort.
+    vieux = {"name": "sans-profondeur", "wt": "", "state": "vif"}
+    fl3 = LS.etat(FauxSources(rows=[vieux], **base), 6)["flotte"]
+    verifie(fl3["en_vol"].valeur == 1,
+            "profondeur ABSENTE -> compte comme une tranche (defaut prudent)")
 
 
 # =====================================================================================
@@ -710,7 +765,7 @@ def _age_gh_de(lv: dict) -> str:
 def main() -> int:
     print("probe_467 -- fidelite de loop_status (100 % offline, sources substituees)")
     for etape in (etape_1_tri_etat, etape_2_raccourci_flotte, etape_3_silence,
-                  etape_4_parole, etape_6_plafond, etape_7_gh_muet):
+                  etape_4_parole, etape_6_plafond, etape_7_gh_muet, etape_8_sous_agents):
         etape()
     print("")
     if ECHECS:

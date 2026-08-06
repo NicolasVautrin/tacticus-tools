@@ -257,7 +257,16 @@ def collect(include_done: bool, only_alive: bool = False) -> list[dict]:
             # ni la date ni le brief ne sont dans le meta.json : le lancement est le PREMIER
             # horodatage du transcript, l'atterrissage le DERNIER, le brief le 1er message `user`.
             born=s["first_ts"], land=s["last_ts"], agent_type=meta.get("agentType") or "",
-            branch=meta.get("worktreeBranch") or "", brief=s["brief"]))
+            branch=meta.get("worktreeBranch") or "", brief=s["brief"],
+            # LA PARENTE, publiee telle qu'elle est ECRITE dans le meta -- elle ne se devine pas.
+            # `spawnDepth` 1 = tranche DISPATCHEE ; >= 2 = sous-agent lance par un solveur (il
+            # porte alors `parentAgentId`). Mesure du 2026-08-06 : 5 tranches a `depth=1` avec
+            # worktree, 1 sous-agent a `depth=2` sans worktree.
+            # ⚠ Ne PAS deriver la parente de l'absence de worktree : un agent de tete lance sans
+            # `isolation: worktree` n'en a pas non plus, et serait pris pour un enfant. La
+            # profondeur, elle, dit ce qu'elle dit.
+            depth=int(meta.get("spawnDepth") or 1),
+            parent=meta.get("parentAgentId") or ""))
     rows.sort(key=lambda r: (RANG[r["state"]], -r["ctx"]))
     return rows
 

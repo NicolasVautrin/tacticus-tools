@@ -384,13 +384,30 @@ def mesurer_flotte(src: Sources, plafond: int) -> dict:
                 "noms": _ko("fleet_board", str(e)[:120]),
                 "libres": _ko("fleet_board", str(e)[:120]),
                 "plafond": plafond, "chemins": set()}
-    n = len(rows)
+    # LE PLAFOND PORTE SUR LES TRANCHES DISPATCHEES, PAS SUR LES AGENTS VIVANTS (correction de
+    # l'utilisateur, 2026-08-06). Un solveur peut lancer ses propres sous-agents -- c'est meme
+    # souhaitable, et un brief le demande parfois explicitement (`#419-r5` : « recense les accords
+    # qui deviennent re-evaluables »). Les compter dans la flotte faisait afficher `6 / 6` pour
+    # 5 tranches, donc RETENAIT un slot qui etait libre.
+    #
+    # Le discriminant est `spawnDepth`, LU dans le meta, jamais devine. Ne PAS le deriver de
+    # l'absence de worktree : un agent de tete lance sans `isolation: worktree` n'en a pas non
+    # plus, et serait pris pour un enfant.
+    tranches = [r for r in rows if int(r.get("depth") or 1) <= 1]
+    enfants = [r for r in rows if int(r.get("depth") or 1) > 1]
+    n = len(tranches)
     return {
-        "en_vol": _ok(n, "fleet_board.collect(only_alive)"),
-        "noms": _ok([r["name"] for r in rows], "fleet_board"),
+        "en_vol": _ok(n, "fleet_board.collect(only_alive), spawnDepth <= 1"),
+        "noms": _ok([r["name"] for r in tranches], "fleet_board"),
         "libres": _ok(max(0, plafond - n), "plafond - en_vol"),
         "plafond": plafond,
-        # sert a NE PAS proposer au nettoyage le worktree d'un agent qui travaille encore
+        # PUBLIE, jamais tu : un compte filtre dit ce qu'il filtre, sinon le total affiche se
+        # met a diverger de ce que l'utilisateur voit dans son interface sans que rien ne
+        # l'explique.
+        "enfants": _ok([r["name"] for r in enfants], "spawnDepth > 1"),
+        # sert a NE PAS proposer au nettoyage le worktree d'un agent qui travaille encore.
+        # ⚠ Les ENFANTS y restent : un sous-agent qui aurait son propre worktree ne doit pas
+        # voir celui-ci propose au nettoyage sous pretexte qu'il ne compte pas au plafond.
         "chemins": {str(Path(r["wt"]).resolve()).lower() for r in rows if r.get("wt")},
     }
 
@@ -826,6 +843,12 @@ def rendu_complet(e: dict, sig: list[Signal], ctx: list[str]) -> str:
              % (fl["en_vol"].txt(), fl["plafond"], fl["libres"].txt()))
     if fl["noms"].mesuree:
         for n in fl["noms"].valeur:
+            L.append("             . %s" % n[:64])
+    # Les sous-agents sont AFFICHES et NE COMPTENT PAS -- publier ce qu'on filtre est ce qui
+    # empeche l'ecart avec l'interface de passer pour un bug de comptage.
+    if fl.get("enfants") is not None and fl["enfants"].mesuree and fl["enfants"].valeur:
+        L.append("           + %d sous-agent(s), HORS plafond :" % len(fl["enfants"].valeur))
+        for n in fl["enfants"].valeur:
             L.append("             . %s" % n[:64])
     L.append("LIVRAISON  %s commit(s) non pousse(s) sur origin/master" % lv["avance"].txt())
     if lv["suivis_sales"].mesuree:
