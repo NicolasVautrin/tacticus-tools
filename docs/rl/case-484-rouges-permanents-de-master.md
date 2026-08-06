@@ -88,8 +88,8 @@ re-differer les imports rouvrirait le gisement que `492c722f` a ferme, et le cli
 | **4** | DETTE d'import differe rouverte par notre cadence | 270r4r2r2 etage1, 270r4r2r2r3 etages 1 et 6, 270r4r2r2 etage3 | **3 REPARES, 1 NOMME (#484-r2)** |
 | **2** | RECENSEMENT non tenu a jour | 337 (attestation), 366-r1 (trou de couverture) | **REPARE** |
 | **5** | ENTREE de donnees devenue muette | `test_enum_ordinal_ratchet` | **REPARE** |
-| **1** | NON REPRODUIT en isolation | 480r8 | **A CONFIRMER** |
-| **42** | | **13 fichiers** | |
+| **1** | CONTENTION, pas un verdict | 480r8 | **NON REPRODUIT** (2 re-jeux) |
+| **42** | | **13 fichiers** | **41 fermes, 1 nomme (#484-r2)** |
 
 Aucun des 42 n'accuse un **defaut de calcul du port**. C'est le resultat le plus important de
 cette tranche, et il n'etait pas acquis d'avance : la moitie des messages ressemblait a des
@@ -155,6 +155,59 @@ Nomme dans `_COVERAGE_HOLES` avec sa perte mesuree. Le point saillant : **la reg
 que `AbilityVariableType.dmg.name` n'est pas un litteral. Le patron va donc se repandre. Deux
 crans a poser : la semantique syntaxique de `<Enum>.<membre>.name` (qui vaut `"<membre>"` sans
 aucun import), et un env CROSS-MODULE (le second appelant ecrit `M._VAR_DAMAGE`).
+
+## 3bis. CE QUE LE RE-JEU APRES REBASE A TROUVE -- y compris contre moi
+
+Le rebase sur `origin/master` (6 commits arrives pendant la tranche) suivi d'un re-jeu COMPLET
+des 8 shards a produit **26** rouges, dont **23 causes par MOI**. C'est la mesure qui justifie a
+elle seule la regle « rebaser puis RE-JOUER ».
+
+**La faute.** `probe_270r4r2r2` etage 1 dit : « differes GRATUIT(s) : leur **cible** est DEJA
+importee au niveau module dans le preambule du meme fichier ». J'ai lu « cible » = **les noms**,
+et j'ai SUPPRIME les instructions. Or « cible » y designe le **MODULE** -- c'est ce qui etablit
+qu'il n'y a ni cycle possible ni cout evite, donc que le differe ne se justifie pas. Les NOMS,
+eux, n'etaient lies nulle part ailleurs : `Caster`, `CasterTile`, `Enemies`,
+`MovableTilesInRange`, `SelectTile`, `Sub`, `unit_of_entity`, `get_feet_count`,
+`has_effect_of_type`. Le geste que le probe prescrit est **HISSER** (« hisser l'instruction est
+sans effet de bord »), pas supprimer.
+
+Deux gardes que j'avais pourtant en main n'ont PAS suffi :
+
+* le grep « un test monkeypatche-t-il ce nom ? » -- il repondait `0`, et c'etait vrai ; la faute
+  n'etait pas la ;
+* le re-jeu des fichiers de test **du gisement** (`test_270r4r2r2*`) -- ils sont passes au VERT,
+  puisqu'ils comptent des differes, pas des `NameError`.
+
+Ce qui l'a trouvee est le re-jeu du **PERIMETRE ENTIER**, avec un **temoin sur `origin/master`
+PUR** (`git archive` + pytest) qui rend les memes fichiers VERTS. Sans ce temoin, les 23 rouges
+etaient indistinguables des rouges apportes par les 6 commits du rebase.
+
+**Distinguer les deux formes**, parce qu'une seule autorise la suppression :
+
+| forme | critere | geste |
+| --- | --- | --- |
+| differe **GRATUIT** | le MODULE cible est deja importe en tete | **HISSER** l'instruction |
+| differe **OMBRAGE** | le **NOM** est deja lie en tete | **SUPPRIMER** (l'ombre rend le nom local) |
+
+Un seul des six sites d'`engine/` etait un ombrage (`quickening:292 entities_from_state`), plus
+un septieme apparu **avec le rebase** (`genestealer:210 import gameconfig as GC`, laisse par le
+hissage de `#419-r5`), tous deux supprimes ; les cinq autres sont hisses.
+
+### Deux rouges NEUFS, arrives pendant la tranche
+
+* `genestealer:210` ci-dessus -- **REPARE**.
+* `test_477r25::test_etage3_aucune_citation_fausse` -- **NON REPARE, hors perimetre**. Deux
+  citations de slot `IBattleQuery` de `docs/rl/case-287r11-trois-regles-a-triggers-deja-portes.md`
+  (lignes 39-40) sont contredites par le metadata. Introduit par `58a9c183` (PR #737), rebase
+  pendant la tranche ; aucun fichier touche par #484 n'entre dans ce que ce test lit.
+  Il n'appartient pas aux 42 (mesures a `959189f2`, avant ce merge) -- **a re-attribuer a #737**.
+
+### `test_480r8` -- rouge de CONTENTION, pas de gisement
+
+Rouge au run 1 (`rc = 0xFFFFFFFF` du sous-processus = terminaison anormale, jamais un verdict :
+le test traite deja `rc=2` comme « capteur casse » mais pas celui-la), **vert en isolation** et
+**vert au run 2** sous la meme charge de 8 shards. Signature de contention (8 shards + les
+processus des autres agents), pas du depot.
 
 ## 4. La lecon transportable
 
