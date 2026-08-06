@@ -448,11 +448,14 @@ quatre. Elles ouvrent **#477-r34**.
 
 ## Résidus
 
-- **#477-r34** — **les deux familles que `#477-r22-r1` n'a PAS fermées, et que son énoncé n'avait
-  pas énumérées.** Un sous-arbre `Group=ResurrectUnit` / `Group=Ability_CustomGroup` (106 l. sur
-  `MC1_67`, avec `Action=Resurrect`, `Action=DirectlyKillUnit`, `Action=RemoveUnit`), et un
-  `Group=Damage` (47 l. sur le roster 2v2, 36 l. sur les 6 tours). Les deux sortent de pipelines
-  entiers — résurrection et dégât — qui ont leurs propres tranches.
+- **#477-r34** — **LIVRÉ pour sa moitié `Group=Damage`** (`docs/rl/case-477r34-groupe-damage.md`) :
+  61 groupes reproduits à l'égalité brute sur tout le flux, 8 contre-épreuves.
+  ⚠ **Le « 47 lignes sur le roster 2v2 » du § 7.6 ci-dessus est SURESTIMÉ pour cette famille** :
+  la ventilation mesurée par `#477-r34` y trouve **36** lignes de `Group=Damage` et **11** d'une
+  `Action=HealInfo` — c'est cette dernière, neuf lignes, qui retient tout le bloc. Nommer un bloc
+  par l'une des formes qu'il porte surestime ce que porter cette forme rapporte.
+  Restent ouverts : **#477-r38** (`Group=ResurrectUnit` / `Ability_CustomGroup`, 106 l.),
+  **#477-r39** (`Action=HealInfo`) et **#477-r40** (`Group=Ability_Power` à `Source=` d'`EffectType`).
 - **#477-r22-r2** — **les gardes d'état de `ContinueTurnPhaseOperation$$HandleNextTurn`.** Trois,
   toutes lues : le match terminé (`match.<+0x24> == 2`), la décision de drafting en attente au stage
   `Draft`, et les quatre conditions de la branche `Prepare`. Aucune n'est atteinte par nos montages ;

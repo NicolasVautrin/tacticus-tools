@@ -3125,17 +3125,35 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   #477-r21) et son garde-fou les a REFUSEES ; le meme garde est desormais dans `probe_477r22`.
   cf. `docs/rl/case-477r22-bloc2-tour.md` sec. 7. Residu : **#477-r34**.
 
-- **#477-r34 : les DEUX familles que l'enonce de #477-r22-r1 n'avait PAS enumerees.** `[opus]`
-  Il nommait deux motifs ; le flux en portait QUATRE. Restent, dans les couples
-  `Action=PrepareTurn` + `Group=StartTurn` : un sous-arbre `Group=ResurrectUnit` /
-  `Group=Ability_CustomGroup` (**106 lignes** sur `MC1_67`, avec `Action=Resurrect`,
-  `Action=DirectlyKillUnit`, `Action=RemoveUnit`, `Action=RemoveUnitFromTiles`), et un
-  `Group=Damage` (**47 lignes** sur le roster 2v2, **36** sur les 6 tours de `C1_02`).
-  ⚠ **CE N'EST PAS UNE TRANCHE DE `StartTurn`** : les deux sortent de pipelines entiers --
-  resurrection et degat -- qui ont leurs propres tranches ; les porter ici serait une erreur de
-  cadrage. Ce qui est UTILE de ce residu est le CHIFFRE : c'est tout ce qui reste hors perimetre
-  dans un `Group=StartTurn` une fois #477-r22-r1 livre.
-  cf. `docs/rl/case-477r22-bloc2-tour.md` sec. 7.6.
+- **#477-r38 : la famille `Group=ResurrectUnit` / `Ability_CustomGroup`.** `[opus]`
+  L'autre moitie de **#477-r34** (`Group=Damage` est LIVRE, cf.
+  `docs/rl/case-477r34-groupe-damage.md`) : **106 lignes** sur `MC1_67` a deux tours, avec
+  `Action=Resurrect`, `Action=DirectlyKillUnit`, `Action=RemoveUnit`,
+  `Action=RemoveUnitFromTiles`. Elle sort du pipeline de RESURRECTION, qui a sa propre tranche.
+  `probe_477r22` publie desormais la liste COMPLETE des formes qui la retiennent (23, dont 20
+  `Tag=`) -- elle ne se re-derive plus a la main.
+
+- **#477-r39 : `Action=HealInfo`, le pipeline de SOIN -- NEUF lignes qui en retiennent 47.**
+  `[opus]` Mesure de #477-r34 : le bloc de 47 lignes du roster 2v2, que `case-477r22` sec. 7.6
+  attribuait a `Group=Damage`, se decompose en **36** lignes de `Group=Damage` (desormais
+  reproduites a l'egalite brute par le foyer) et **11** d'un `Group=Ability_Power
+  Source=MedicusMinistorum` + `Action=HealInfo` (cles `Caster_Id`,
+  `UnitStats_WasWoundedBeforeHeal`, `UnitStats_RemovedNegativeUnitEffects`,
+  `UnitStats_RemainingHealth`, `UnitStats_NumberOfMembers`, `Amount`). C'est la regle « un
+  sous-arbre part hors perimetre EN ENTIER » qui retient les 36, pas le port.
+  ⚠ **NOMMER UN BLOC PAR L'UNE DES FORMES QU'IL PORTE SURESTIME CE QUE PORTER CETTE FORME
+  RAPPORTE** -- le chiffre de 47 a ete lu comme « du degat » pendant une tranche entiere.
+
+- **#477-r40 : le `Group=Ability_Power` dont le `Source=` est un `EffectType`.** `[opus]`
+  `engine/streams/evaluate_trigger.py` porte
+  `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger`, qui ecrit
+  `((TriggeredAbilityType)order).ToString()`. Or `$$ExecuteInternal` appelle
+  `EvaluateAbilityOrEffectTrigger` -- le nom dit « **Ability OR Effect** » -- et le flux montre
+  `Source=TerminatorArmour_Visual` / `TerminatorArmour_ReduceDmg`, deux membres d'`EffectType`.
+  La seconde branche n'est pas portee ; elle retient **36 lignes** sur `C1_02` a six tours, deja
+  reproduites par le foyer de #477-r34. Trouve parce que la partition, jusqu'a #477-r34, ne
+  jugeait QUE le symbole de la forme : le `Source=` non resoluble faisait LEVER l'emission au
+  milieu de la mesure (rc 2, plus rien de publie).
 
 - **#477-r22-r2 : les gardes d'ETAT de `ContinueTurnPhaseOperation$$HandleNextTurn`.** `[opus]`
   TROIS, toutes LUES : le match deja termine (`match.<+0x24> == 2`), la decision de drafting en
