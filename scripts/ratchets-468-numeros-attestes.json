@@ -7,6 +7,7 @@
     "217|case-217-stormcaller.md": "MEME DOSSIER -- item de la tache-parapluie P0 : Stormcaller.",
     "217|case-217-thequickening.md": "MEME DOSSIER -- item de la tache-parapluie P0 : TheQuickening.",
     "270r1|case-270r1-cles-de-dict-en-enum.md": "la fiche documente le VOLET 1 LIVRE (169 cles a enum unique) ; la ligne backlog reste OUVERTE pour les 128 cles ambigues, qui demandent une lecture par site et dependent de 270-c",
+    "287r11|case-287r11-trois-regles-a-triggers-deja-portes.md": "la ligne backlog reste OUVERTE pour les 7 dettes restantes du MEME gisement ; la case-doc documente la tranche de 3 ids livree (1200, 1168, 1179)",
     "369|case-369-oracle-triggered-playbook.md": "MEME DOSSIER -- meme sujet mot pour mot (ncPlaybookPredict indexe sur le mauvais key-space) ; ligne non barree car le correctif est LIVRE mais INERTE tant que le reinject n a pas eu lieu.",
     "419r1tr12r2|case-419-r1-tr12-r2-stats-npc-summon.md": "le DEBLOQUEUR est livre et documente par cette case-doc, mais le residu reste OUVERT : le chemin arme exige une fenetre de reinject (frida/hooks) et le montage des 4 crans sur admecNpc3Electropriest:33 n'est pas joue",
     "419r1tr14r5r2r1r1r1|case-419-r1-tr14-r5-r2-r1-r1-r1-kill-gate.md": "MEME DOSSIER -- la case-doc ferme 15 des 43 classes ShouldExecute, la ligne garde les restantes.",
