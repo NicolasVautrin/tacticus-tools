@@ -183,27 +183,95 @@ def _esp(traverse: bool) -> str:
     return _CONT if traverse else r"\s*"
 
 
-def _regex_couples(traverse: bool):
-    """LES TROIS FORMES DE COUPLE (slot, nom) RETENUES COMME ATTESTATION.
+#: UN SLOT S'ECRIT SOUS FORME D'APPEL, ET SA LISTE D'ARGUMENTS EST UN BLOC ATOMIQUE (#477-r36).
+#: `processor.<slot 0x16>(TurnStage.Start /*3*/, forceEndTurn: false, isManual: true);` -- la
+#: liste porte les `(`, `)`, `,`, `:`, `;` que `_entre` exclut, si bien que la resolution ecrite
+#: JUSTE APRES etait hors d'atteinte des formes A, B et C. MESURE : c'est la premiere cause du
+#: gisement `nom_ecarte_par_un_cran` (23 des 50 lignes portent un appel entre le slot et son nom).
+#:
+#: ⚠ CE N'EST PAS LE RELACHEMENT « la parenthese fermante ne bloque plus » de #477-r32 (6 couples
+#: neufs, 4 artefacts) : on ABSORBE une paire EQUILIBREE et COLLEE, on n'IGNORE pas la fermeture.
+#: Hors de ce bloc, `_entre` garde TOUTES ses exclusions -- c'est ce qui empeche `slot 0x3a` de
+#: sauter par-dessus une fermeture pour attraper le nom de la proposition SUIVANTE. Les deux crans
+#: (colle, equilibre) sont RELACHABLES separement et mesures (`--relacher`).
+#:
+#: Le motif est « deroule » (`[^()]*(?:\([^()]*\)[^()]*)*`) et non `(?:[^()]|\(...\))*` : la
+#: seconde forme est ambigue et backtracke exponentiellement sur une ligne longue de `backlog.md`.
+def _appel(k: int, colle: bool = True, equilibre: bool = True, actif: bool = True) -> str:
+    if not actif:
+        return ""
+    avant = r"[`*>]{0,2}" if colle else r"[^\n(]{0,20}?"
+    corps = (r"\([^()\n]*(?:\([^()\n]*\)[^()\n]*)*\)" if equilibre else r"\([^\n]*")
+    return r"(?:%s(?P<appel%d>%s)[`*]{0,2}[ \t]*;?)?" % (avant, k, corps)
+
+
+#: LE MARQUEUR DE COMMENTAIRE -- `#` (Python), `//` (TS/pseudo-code). Volontairement PAS `--` :
+#: le corpus ecrit « processor.<slot 0x2f>(...);  -- AVANT ContinueTurnPhase », ou ce qui suit est
+#: de la PROSE et non une resolution (le mot `AVANT` passerait pour un nom de methode).
+_MARQ_COMMENT = r"[ \t]*(?:\#+|//+)[ \t]*"
+
+
+def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: bool = False):
+    """LES CINQ FORMES DE COUPLE (slot, nom) RETENUES COMME ATTESTATION.
 
     Un nom simplement PRESENT sur la ligne ne compte pas : il faut qu'il soit ADJACENT au slot.
     Sans cette contrainte, une ligne de `backlog.md` fournit trente « noms » et le controle
     devient du bruit (mesure #477-r24-r1 : 32 desaccords, 30 faux).
+
+    `relaches` desarme un cran NOMME (cf. `CRANS`) pour la duree d'une mesure. Le regime EN
+    SERVICE est `relaches = ()` ; toute autre valeur sert a publier ce que le cran CACHE.
+
+    `historique = True` rend le regime d'AVANT #477-r36 : les trois formes A/B/C, sans absorption
+    d'appel. Il joue ici le role que `fenetre = 1` joue pour #477-r32 -- une REFERENCE mesurable,
+    et le seul regime ou le mutant des formes neuves doit etre INERTE.
     """
     esp = _esp(traverse)
     coupure = _COUPURE if traverse else ""
+    colle = "appel-colle" not in relaches
+    equilibre = "appel-equilibre" not in relaches
+    if historique:
+        return (
+            re.compile((_SLOT % 0) + esp + r"(?:=|->|:)" + esp + r"[`*]{0,2}(?:" + _QUAL + r")?"
+                       + coupure + (_NOM % 0)),
+            re.compile(_QUAL + (_NOM % 1) + _entre(40, False) + (_SLOT % 1)),
+            re.compile((_SLOT % 2) + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM)
+                       + _QUAL + coupure + (_NOM % 2)),
+        )
+    qual_c = r"(?:" + _QUAL + r")?" if "qualificateur-forme-c" in relaches else _QUAL
+    #: Le conditionnel `(?(eq3)|...)` : SI le commentaire porte un `=` avant le nom, rien de plus
+    #: n'est exige ; SINON le nom doit etre suivi d'un enchainement (`->`, `→`) ou de sa SIGNATURE
+    #: (`(`). C'est ce cran qui separe « # = MarkUnitAsNoActionAvailable (POSE) » (une resolution)
+    #: de « # RemoveEffectOperation » (le nom de la CLASSE vers laquelle le slot aiguille, qui
+    #: n'est a AUCUN slot -- il sortirait en citation FAUSSE, et ce serait un artefact).
+    marq = "" if "resolution-marquee" in relaches else r"(?(eq3)|(?=[ \t]*(?:\(|->|→)))"
+    ouvre = "" if "placeholder-ferme" in relaches else r"<"
+    ferme = r"[ \t]*" if "placeholder-ferme" in relaches else r"[ \t]*>"
     return (
         #: A -- `slot 0x7e = MoveUnit`, `slot **0x43** = `OperationProcessor$$ApplyDamage``
-        re.compile((_SLOT % 0) + esp + r"(?:=|->|:)" + esp + r"[`*]{0,2}(?:" + _QUAL + r")?"
-                   + coupure + (_NOM % 0)),
+        re.compile((_SLOT % 0) + _appel(0, colle, equilibre) + esp + r"(?:=|->|:)" + esp
+                   + r"[`*]{0,2}(?:" + _QUAL + r")?" + coupure + (_NOM % 0)),
         #: B -- `processor.FinishAttack` slot 0x3b   (nom PUIS slot, colles)
         #: ⚠ ELLE NE FRANCHIT JAMAIS LE SAUT DE LIGNE, meme en regime fenetre. Dans une
         #: enumeration verticale, le nom ecrit AVANT appartient a l'item precedent, pas au slot
         #: qui suit -- cran mesure par #477-r30, conserve ici a l'identique.
-        re.compile(_QUAL + (_NOM % 1) + _entre(40, False) + (_SLOT % 1)),
+        re.compile(_QUAL + (_NOM % 1) + _appel(1, colle, equilibre) + _entre(40, False)
+                   + (_SLOT % 1)),
         #: C -- slot 0x3a ... `OperationProcessor$$StartAttack`   (slot PUIS nom, colles)
-        re.compile((_SLOT % 2) + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM)
-                   + _QUAL + coupure + (_NOM % 2)),
+        re.compile((_SLOT % 2) + _appel(2, colle, equilibre)
+                   + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM)
+                   + qual_c + coupure + (_NOM % 2)),
+        #: D -- LA RESOLUTION COMMENTEE : `<IOperationProcessor slot 0x76>(unit)  # = MarkUnitAs…`
+        #: Le qualificateur n'y est PAS exige, et c'est ce qui la distingue de C : le marqueur de
+        #: commentaire joue son role -- apres `#`/`//`, en fin de ligne de pseudo-code, ce qui est
+        #: ecrit RESOUT ce qui precede. Le cran `resolution-marquee` (ci-dessus) est ce qui
+        #: empeche cette forme de recolter n'importe quel commentaire.
+        re.compile((_SLOT % 3) + _appel(3, colle, equilibre) + _MARQ_COMMENT
+                   + r"(?:(?P<eq3>=)[ \t]*)?[`*]{0,2}" + (_NOM % 3) + r"[`*]{0,2}" + marq),
+        #: E -- LE NOM DANS LE PLACEHOLDER : `processor.<slot 0x3c AttackDamage>(caster, …)`.
+        #: Tout ce qui est ENTRE les chevrons designe le slot -- c'est la cause du cran, et non
+        #: « le nom est colle au numero » : sans la fermeture, `slot SANS ARGUMENT` et `slot SOIT`
+        #: rentrent (meme faux positif de PROSE que celui mesure sur l'etage NOM SEUL).
+        re.compile(ouvre + (_SLOT % 4) + r"[ \t]+[`*]{0,2}" + (_NOM % 4) + r"[`*]{0,2}" + ferme),
     )
 
 
@@ -226,6 +294,24 @@ def _regex_nom_seul(traverse: bool) -> re.Pattern[str]:
     esp = _esp(traverse)
     return re.compile(_NOM_SEUL % (esp, esp))
 
+
+#: LES CRANS CONSERVATEURS RELACHABLES, chacun avec sa CAUSE. `--relacher` les desarme UN PAR UN
+#: et publie les couples que chacun CACHE, avec leur verdict. Un zero ne vaut que releve ainsi :
+#: c'est la methode qui a montre, sur #477-r32, que les 8 couples douteux etaient TOUS des
+#: artefacts du relachement et non des fautes du depot.
+CRANS = {
+    "appel-colle": "la liste d'arguments absorbee doit etre COLLEE au slot (sinon un appel "
+                   "quelconque de la ligne sert de pont vers un nom qui n'est pas le sien)",
+    "appel-equilibre": "elle doit etre une paire de parentheses EQUILIBREE (sinon on retombe sur "
+                       "le relachement « la fermeture ne bloque plus », 4 artefacts en #477-r32)",
+    "resolution-marquee": "le nom commente doit porter un marqueur de RESOLUTION (`=` avant, "
+                          "`->`/`→` ou sa signature apres) -- sinon tout commentaire est recolte",
+    "placeholder-ferme": "le nom du slot doit etre DANS les chevrons (sinon la PROSE `slot SANS "
+                         "ARGUMENT`, `slot SOIT` entre, comme sur l'etage NOM SEUL)",
+    "qualificateur-forme-c": "la forme C exige un qualificateur (`OperationProcessor$$`, "
+                             "`processor.`, `$$`) devant le nom -- CRAN HERITE, jamais relache "
+                             "en service",
+}
 
 #: Les deux jeux, construits UNE fois. `RE_COUPLES` = le regime mono-ligne (l'etat d'avant
 #: #477-r32, garde comme REFERENCE mesurable) ; `RE_COUPLES_ML` = le regime fenetre.
@@ -272,6 +358,12 @@ class Citation:
     #: La ligne ou le NOM est ecrit. `ligne_nom != ligne` <=> le couple ENJAMBE un saut de
     #: ligne, donc il n'existe que grace a la fenetre (#477-r32).
     ligne_nom: int = 0
+    #: L'index de la FORME qui l'a capte (0=A, 1=B, 2=C, 3=D resolution commentee, 4=E
+    #: placeholder) et si son appel a ete ABSORBE. `forme >= 3 or appel_absorbe` <=> le couple
+    #: n'existe que grace a #477-r36 -- c'est ce que son mutant mute, et ce qui le rend INERTE
+    #: dans le regime historique.
+    forme: int = 0
+    appel_absorbe: bool = False
 
 
 @dataclass(frozen=True)
@@ -480,7 +572,8 @@ def _regex_noms(noms: frozenset[str]) -> re.Pattern[str]:
 
 
 def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
-             noms_interface: frozenset[str] | None = None
+             noms_interface: frozenset[str] | None = None,
+             relaches: tuple[str, ...] = (), historique: bool = False
              ) -> tuple[list[Citation], list[CitationNom], Ecartees]:
     """(couples (slot, nom), citations par NOM SEUL, ce qui est ecarte et compte).
 
@@ -488,12 +581,16 @@ def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
     formes A et C ont le droit de franchir le saut de ligne ; par defaut, oui des que la fenetre
     depasse 1. `noms_interface` n'est utile qu'a la VENTILATION du residu : sans lui, le champ
     `ventilation` reste `None` -- PAS MESURE, jamais un dictionnaire vide qui se lirait « aucune
-    ligne dans cette cause ».
+    ligne dans cette cause ». `relaches` desarme des crans NOMMES (cf. `CRANS`) : c'est une
+    MESURE, jamais un regime de service.
     """
     if traverse is None:
         traverse = fenetre > 1
     rx_un_nom = _regex_noms(noms_interface) if noms_interface else None
-    couples = RE_COUPLES_ML if traverse else RE_COUPLES
+    if relaches or historique:
+        couples = _regex_couples(traverse, relaches, historique)
+    else:
+        couples = RE_COUPLES_ML if traverse else RE_COUPLES
     rx_nom_seul = RE_NOM_SEUL_ML if traverse else RE_NOM_SEUL
     retenues: list[Citation] = []
     noms_seuls: list[CitationNom] = []
@@ -549,9 +646,19 @@ def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
                     couvertes.add(no)
                     queue = bloc[m.end():]
                     args = _compter_args(queue) if RE_APPEL.match(queue) else None
+                    #: ⚠ L'APPEL ABSORBE REND L'ETAGE ARITE APPLICABLE AUX FORMES OU L'APPEL EST
+                    #: ECRIT AVANT LE NOM (#477-r36). Jusqu'ici l'arite ne se confrontait que
+                    #: quand le site montrait ses arguments APRES le couple : la forme B
+                    #: (`processor.AddUnit(a, b, c, d, e)  // slot 5`) et la forme D
+                    #: (`<slot 0x76>(unit)  # MarkUnitAsNoActionAvailable`) etaient hors de
+                    #: portee du cran qui a trouve la faute de #477-r24-r2. Elles y entrent.
+                    capte = m.groupdict().get("appel%d" % k)
+                    if args is None and capte:
+                        args = _compter_args(capte)
                     retenues.append(Citation(
                         fichier=rel, ligne=no, slot=slot, noms=(nom,), args=args,
-                        ligne_nom=no_nom, texte=lignes[no - 1].strip()[:150]))
+                        ligne_nom=no_nom, forme=k, appel_absorbe=bool(capte),
+                        texte=lignes[no - 1].strip()[:150]))
             #: LES CITATIONS PAR NOM SEUL, sur le MEME bloc. Elles ne portent pas de numero,
             #: donc la ligne qu'elles couvrent n'est pas forcement une ligne a slot chiffre --
             #: mais elle cesse de compter comme « slot cite sans nom ».
@@ -672,7 +779,30 @@ MUTANTS = {
     #: `fenetre = 1` puisqu'il n'y a alors aucun couple a cheval.
     "enjambants-decales": "attribue au couple qui ENJAMBE une ligne le nom du slot VOISIN -- "
                           "inerte a fenetre=1, doit MORDRE au-dela",
+    #: ⚠ MEME RAISON, UN CRAN PLUS LOIN (#477-r36). Les cinq mutants ci-dessus mordent DEJA sans
+    #: les trois formes neuves : aucun ne dit quoi que ce soit de l'appel absorbe, de la
+    #: resolution commentee ni du placeholder. Celui-ci porte sur les couples que SEULES ces
+    #: formes rapportent (`forme >= 3 or appel_absorbe`) et il est INERTE dans le regime
+    #: `historique` -- ou il REFUSE, plutot que de rendre une mutation vide qui passerait pour
+    #: appliquee.
+    "formes-r36-decalees": "attribue au couple capte par une forme NEUVE (appel absorbe, "
+                           "resolution commentee, placeholder) le nom du slot VOISIN -- inerte "
+                           "en regime historique, doit MORDRE en service",
 }
+
+
+def _voisin_different(table: dict[int, tuple[str, int]], slot: int) -> str | None:
+    """Le nom d'un slot voisin qui DIFFERE du sien, ou `None`.
+
+    ⚠ LE VOISIN DOIT PORTER UN NOM DIFFERENT. L'interface a des SURCHARGES a des slots adjacents
+    (`0x2e`/`0x2f` = `RefreshEffects`, `0x34`/`0x35` = `ComputerAction`) : prendre le voisin
+    immediat rendrait une mutation NULLE qui passerait pour appliquee.
+    """
+    for d in (1, -1, 2, -2):
+        v = table.get(slot + d)
+        if v is not None and v[0] != table[slot][0]:
+            return v[0]
+    return None
 
 
 def muter(table: dict[int, tuple[str, int]], nom: str,
@@ -705,31 +835,39 @@ def muter(table: dict[int, tuple[str, int]], nom: str,
         #: VOISIN. Si l'appariement en fenetre disparait, il n'y a plus aucun couple enjambant,
         #: la mutation ne porte sur rien, et le mutant devient INERTE -- c'est exactement ce
         #: qu'on veut pouvoir constater.
-        #: ⚠ LE VOISIN DOIT PORTER UN NOM DIFFERENT. L'interface a des SURCHARGES a des slots
-        #: adjacents (`0x2e`/`0x2f` = `RefreshEffects`, `0x34`/`0x35` = `ComputerAction`) : y
-        #: prendre le voisin immediat rendrait une mutation NULLE qui passerait pour appliquee.
-        def _voisin(slot: int) -> str | None:
-            for d in (1, -1, 2, -2):
-                v = table.get(slot + d)
-                if v is not None and v[0] != table[slot][0]:
-                    return v[0]
-            return None
-
-        mutees: list[Citation] = []
-        touchees = 0
-        for c in cits:
-            autre = _voisin(c.slot) if (c.ligne != c.ligne_nom and c.slot in table) else None
-            if autre is None:
-                mutees.append(c)
-                continue
-            touchees += 1
-            mutees.append(replace(c, noms=(autre,)))
-        if not touchees:
-            raise SystemExit("contre-epreuve IMPOSSIBLE : aucun couple ENJAMBANT a muter -- ce "
-                             "mutant ne peut pas discriminer la fenetre, et on ne fait pas "
-                             "semblant qu'il mord.")
-        return table, mutees
+        #: ⚠ LE VOISIN DOIT PORTER UN NOM DIFFERENT (cf. `_voisin_different`).
+        return table, _decaler(table, cits, lambda c: c.ligne != c.ligne_nom, "ENJAMBANT",
+                               "la fenetre")
+    if nom == "formes-r36-decalees":
+        return table, _decaler(table, cits, lambda c: c.forme >= 3 or c.appel_absorbe,
+                               "capte par une forme NEUVE (#477-r36)",
+                               "l'appel absorbe / la resolution commentee / le placeholder")
     raise SystemExit("mutant inconnu : %s" % nom)
+
+
+def _decaler(table: dict[int, tuple[str, int]], cits: list[Citation], porte, quoi: str,
+             cran: str) -> list[Citation]:
+    """Reecrit le NOM des citations retenues par `porte` avec celui d'un slot VOISIN.
+
+    Si aucune citation ne porte le cran mesure, le module REFUSE : un mutant qui n'a rien a
+    muter rend une mutation VIDE qui passe pour appliquee, et c'est precisement ce qu'il ne
+    faut pas laisser croire.
+    """
+    mutees: list[Citation] = []
+    touchees = 0
+    for c in cits:
+        autre = (_voisin_different(table, c.slot)
+                 if (porte(c) and c.slot in table) else None)
+        if autre is None:
+            mutees.append(c)
+            continue
+        touchees += 1
+        mutees.append(replace(c, noms=(autre,)))
+    if not touchees:
+        raise SystemExit("contre-epreuve IMPOSSIBLE : aucun couple %s a muter -- ce mutant ne "
+                         "peut pas discriminer %s, et on ne fait pas semblant qu'il mord."
+                         % (quoi, cran))
+    return mutees
 
 
 def jouer(table: dict[int, tuple[str, int]], cits: list[Citation],
@@ -765,6 +903,10 @@ def main() -> int:
                     help="re-derive le CHOIX de la fenetre : gain et bruit pour N = 1..8")
     ap.add_argument("--ventiler", action="store_true",
                     help="detaille CE QUI RESTE hors couverture, par CAUSE (residu #477-r34)")
+    ap.add_argument("--relacher", action="store_true",
+                    help="desarme CHAQUE cran conservateur separement et publie ce qu'il CACHE")
+    ap.add_argument("--historique", action="store_true",
+                    help="rejoue le regime d'AVANT #477-r36 (formes A/B/C, sans appel absorbe)")
     args = ap.parse_args()
 
     print("=== #477-r24-r1 -- slots de Core.Services.IOperationProcessor ===")
@@ -799,8 +941,34 @@ def main() -> int:
         print("  bouger, elargir n'apporte plus -- et le cout en temps, lui, continue.")
         return 0
 
+    if args.relacher:
+        print()
+        print("=== CE QUE CHAQUE CRAN CACHE (il est desarme SEPAREMENT) ===")
+        base, _bns, _be = recolter(fenetre=args.fenetre)
+        connus = {(c.fichier, c.ligne, c.slot, c.noms[0]) for c in base}
+        connus_nat = {v[0] for v in versionne.values()}
+        for cran, quoi in CRANS.items():
+            try:
+                lot, _ns, _e = recolter(fenetre=args.fenetre, relaches=(cran,))
+            except re.error as exc:                                       # noqa: BLE001
+                print("  %-22s PAS MESURE -- motif invalide (%s)" % (cran, exc))
+                continue
+            neufs = [c for c in lot if (c.fichier, c.ligne, c.slot, c.noms[0]) not in connus]
+            faux = [c for c in neufs if versionne.get(c.slot, ("", 0))[0] != c.noms[0]]
+            print("  %-22s %3d couple(s) neuf(s), dont %d au NOM qui ne concorde PAS"
+                  % (cran, len(neufs), len(faux)))
+            print("      cause du cran : %s" % quoi)
+            for c in neufs:
+                verdict = ("CONCORDE" if versionne.get(c.slot, ("", 0))[0] == c.noms[0]
+                           else ("nom INCONNU de l'interface"
+                                 if c.noms[0] not in connus_nat else "nom d'un AUTRE slot"))
+                print("        %-8s %s:%d slot 0x%x -> %s | %s"
+                      % (verdict if verdict == "CONCORDE" else "DOUTEUX", c.fichier, c.ligne,
+                         c.slot, c.noms[0], c.texte[:90]))
+        return 0
+
     cits, noms_seuls, ecartees = recolter(
-        fenetre=args.fenetre,
+        fenetre=args.fenetre, historique=args.historique,
         noms_interface=frozenset(v[0] for v in versionne.values()))
     enjambantes = sum(1 for c in cits if c.ligne != c.ligne_nom)
     print("[3] CITATIONS : %d attestation(s) sur %d fichier(s), appariees sur une FENETRE de "
@@ -815,6 +983,15 @@ def main() -> int:
               "%d ligne(s) sans couple" % (len(ref_cits), ref.sans_couple))
         print("      RETRECISSEMENT de la zone aveugle : %d -> %d ligne(s) sans couple (-%d)"
               % (ref.sans_couple, ecartees.sans_couple, ref.sans_couple - ecartees.sans_couple))
+    if not args.historique:
+        #: La seconde REFERENCE : le regime d'avant #477-r36, a fenetre EGALE. Sans elle, le
+        #: gain des trois formes neuves se confondrait avec celui de la fenetre.
+        h_cits, _h_noms, h_ec = recolter(fenetre=args.fenetre, historique=True)
+        neuves = sum(1 for c in cits if c.forme >= 3 or c.appel_absorbe)
+        print("      REFERENCE historique (l'etat d'avant #477-r36, meme fenetre) : %d "
+              "attestation(s), %d ligne(s) sans couple" % (len(h_cits), h_ec.sans_couple))
+        print("      dont %d couple(s) que SEULES les formes de #477-r36 rapportent "
+              "(appel absorbe, resolution commentee, placeholder)" % neuves)
     print("      ECARTEES, et c'est DIT :")
     print("        %5d ligne(s) dont le recepteur ne designe pas cet OperationProcessor "
           "(autre interface -- residu #477-r25)" % ecartees.autre_interface)
