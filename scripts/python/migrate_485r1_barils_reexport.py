@@ -613,6 +613,8 @@ class Risque(enum.Enum):
     SANS_CONSOMMATEUR_DIFFERE = ("le patch vise le baril mais AUCUN consommateur n'y resout "
                                  "tardivement : la re-ecriture ne peut pas lui retirer sa "
                                  "morsure (elle passe par un acces attributaire, intouche)")
+    COUVERT_PAR_DOUBLE_PATCH = ("le MEME fichier patche AUSSI le module d'ORIGINE, avec le "
+                                "meme nom : la morsure survit par ce second bout")
 
 
 _APPELS_SUBSTITUTION = {
@@ -668,15 +670,17 @@ def recenser_substitutions(racine: Path, barils: dict[str, Baril], exclure: set[
     faux positif."""
     tardifs: set[tuple[str, str]] = {(s.baril, nom) for s in sites_reecrits if s.differe
                                      for nom, _ in s.symboles}
-    #: (baril, symbole exporte)      -> module d'origine        : patch AVANT la re-ecriture
-    origines: dict[tuple[str, str], str] = {}
+    #: (baril, symbole expose)       -> (module d'origine, nom AMONT) : patch AVANT re-ecriture.
+    #: Le nom amont, pas le nom expose : un baril peut re-exporter sous un ALIAS, et c'est le
+    #: nom amont qui existera cote enfant.
+    origines: dict[tuple[str, str], tuple[str, str]] = {}
     #: (module d'origine, nom amont) -> baril qui le re-exporte  : patch APRES la re-ecriture
     enfants: dict[tuple[str, str], str] = {}
     for nom, b in barils.items():
         if nom in exclure:
             continue
         for sym, org in b.exports.items():
-            origines[(nom, sym)] = org.module
+            origines[(nom, sym)] = (org.module, org.nom_amont)
             enfants[(org.module, org.nom_amont)] = nom
     sites = []
     for p in sorted(racine.rglob("*.py")):
@@ -725,11 +729,24 @@ def recenser_substitutions(racine: Path, barils: dict[str, Baril], exclure: set[
                         cible = _resoudre_cible(t.value)
                         if cible and cible.split(".")[0] == "engine":
                             vus.append((n.lineno, cible, t.attr))
+        #: ⚠ CEINTURE ET BRETELLES : un fichier peut patcher LES DEUX bouts -- le baril ET le
+        #: module d'origine -- parce que son auteur ne savait pas lequel mordrait. Mesure
+        #: (`test_389r2_kill_unit_remove_effects_offline.py`) : `MD.unit_death_triggers` ET
+        #: `T.unit_death_triggers`. La re-ecriture retire la morsure du premier bout, le second
+        #: continue de mordre, et le test MESURE toujours. Le compter en `PERD_LA_MORSURE`
+        #: enverrait reparer ce qui n'est pas casse -- et surtout, ferait passer pour du risque
+        #: silencieux ce qui n'en est pas.
+        poses = {(m, a) for _, m, a in vus}
         for ligne, cible_mod, attr in vus:
             if (cible_mod, attr) in origines:
-                r = (Risque.PERD_LA_MORSURE if (cible_mod, attr) in tardifs
-                     else Risque.SANS_CONSOMMATEUR_DIFFERE)
-                sites.append((p, ligne, cible_mod, attr, r, origines[(cible_mod, attr)]))
+                org, amont = origines[(cible_mod, attr)]
+                if (org, amont) in poses:
+                    r = Risque.COUVERT_PAR_DOUBLE_PATCH
+                elif (cible_mod, attr) in tardifs:
+                    r = Risque.PERD_LA_MORSURE
+                else:
+                    r = Risque.SANS_CONSOMMATEUR_DIFFERE
+                sites.append((p, ligne, cible_mod, attr, r, "%s.%s" % (org, amont)))
             elif (cible_mod, attr) in enfants:
                 sites.append((p, ligne, cible_mod, attr, Risque.GAGNE_LA_MORSURE,
                               enfants[(cible_mod, attr)]))

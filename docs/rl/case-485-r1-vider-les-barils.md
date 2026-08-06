@@ -36,24 +36,27 @@ réclamé.
 
 ## Mesuré sur une copie (`git archive HEAD`, arbre complet)
 
+Chiffres **re-joués après rebase sur `origin/master`** (l'arbre témoin bouge : `master` était
+passé de 262 à 260 porteurs pendant la tranche).
+
 | | témoin | réécrit + vidé |
 |---|---:|---:|
-| différés recensés | 314 | 319 |
-| **PORTEURS** | **262** | **167** |
-| GRATUITS | 52 | 152 |
-| modules portant ≥ 1 porteur | 91 | 62 |
+| différés recensés | 307 | 309 |
+| **PORTEURS** | **260** | **166** |
+| GRATUITS | 47 | 143 |
+| modules portant ≥ 1 porteur | 90 | 61 |
 
-**95 porteurs sur 262 (36 %) deviennent gratuits**, et **29 modules sont intégralement libérés**.
-Le total monte de 5 parce que la réécriture **éclate** un différé multi-symboles en plusieurs
+**94 porteurs sur 260 (36 %) deviennent gratuits**, et **29 modules sont intégralement libérés**.
+Le total monte de 2 parce que la réécriture **éclate** un différé multi-symboles en plusieurs
 imports — d'où l'appariement **par module source**, seul stable.
 
 ⚠ **Une première mesure rendait 114 (43,5 %) — elle était FAUSSE**, et de 19 porteurs. Elle avait
-été prise avec un `TRIGGERED_ABILITY_DELAYED_BEHAVIOURS` vidé (cf. section suivante) : 19 de ces
+été prise avec un `TRIGGERED_ABILITY_DELAYED_BEHAVIOURS` vidé (cf. plus bas) : 19 de ces
 « libérations » étaient payées par un registre mort. Le gain d'un allègement de cascade et le coût
 d'un registre cassé se ressemblent parfaitement dans ce compte — seul l'étage [3] du probe les
 sépare.
 
-Réécriture : **2 005 symboles dans 425 fichiers**. Vidange : **283 ré-exports sur 16 barils**
+Réécriture : **2 010 symboles dans 425 fichiers**. Vidange : **283 ré-exports sur 16 barils**
 (dont `entities.effects.loki` −166).
 
 ## La preuve, et ce qu'elle ne prouve pas
@@ -66,8 +69,9 @@ Réécriture : **2 005 symboles dans 425 fichiers**. Vidange : **283 ré-exports
    aussi (c'est du code, et le vider le réécrit par construction).
 3. **Liaisons**, en process frais, portée large (attributs de module **et** de classe) :
    - réécriture seule : **431 modules, 241 221 attributs, 0 divergence** ;
-   - après vidange : **12 677 divergences**, dont **12 593 déplacements acquittés**,
-     **84 attributs sous-module**, **0 perte réelle**. Un acquittement exige les trois :
+   - après vidange : **433 modules, 241 628 attributs, 12 678 divergences**, dont **12 593
+     déplacements acquittés**, **85 attributs sous-module**, **0 perte réelle**, et
+     **2 077 fichiers à AST identique hors imports**. Un acquittement exige les trois :
      disparition (jamais mutation), couple présent dans la table, et **même identité au module
      d'origine**. C'est la 3ᵉ condition qui fait la preuve : « le symbole a disparu du baril » et
      « le symbole est encore joignable » sont deux affirmations distinctes.
@@ -82,37 +86,82 @@ Réécriture : **2 005 symboles dans 425 fichiers**. Vidange : **283 ré-exports
 
 ## La population à risque est énumérée, pas découverte après coup
 
-`migrate_485r1_barils_reexport.py substitutions` : **73 sites** croisent la table.
+`migrate_485r1_barils_reexport.py substitutions` : **72 sites** croisent la table.
 
-- **27 `PERD_LA_MORSURE`** — le patch vise le baril **et** un consommateur y résout tardivement.
+- **25 `PERD_LA_MORSURE`** — le patch vise le baril **et** un consommateur y résout tardivement.
   Ce sont ceux à traiter **avant** le sweep.
-- **46 `GAGNE_LA_MORSURE`** — le patch vise l'enfant ; le consommateur lisait la copie du baril et
+- **45 `GAGNE_LA_MORSURE`** — le patch vise l'enfant ; le consommateur lisait la copie du baril et
   lira désormais l'enfant. Le stub se met à mordre : visible, mais à nommer.
+- **2 `COUVERT_PAR_DOUBLE_PATCH`** — le même fichier patche **les deux** bouts (baril *et* module
+  d'origine), parce que son auteur ne savait pas lequel mordrait. La morsure survit par le second.
 
-Le classement lit la **voie** de consommation ; sans ce cran on surestime (un patch sur un baril
-qu'aucun consommateur ne résout tardivement ne peut pas perdre sa morsure — il mord par accès
-attributaire, que la réécriture ne touche pas).
+Deux crans évitent de surestimer, et chacun a été **imposé par une mesure** :
+la **voie** de consommation (un patch sur un baril qu'aucun consommateur ne résout tardivement ne
+peut pas perdre sa morsure — il mord par accès attributaire, intouché), et le **double patch**
+ci-dessus, découvert en jouant les tests : `test_389r2_kill_unit_remove_effects_offline.py` était
+compté « désarmé en silence » alors qu'il mesure toujours.
 
 **Le correctif est structurel** : un patch doit viser le module qui **consomme**, pas celui qui
 **définit** — c'est le consommateur qui porte la liaison. Et le seul contrôle qui voit le
 désarmement *silencieux* est la contre-épreuve : empoisonner l'attribut réel et vérifier que le
 test **rougit**. Un test qui reste vert quand on casse ce qu'il prétend substituer ne mesure plus.
 
+### Le risque n'est pas théorique — il est joué
+
+Les **9** fichiers de test offline portant un site à risque ont été joués dans les deux arbres et
+comparés bilan par bilan :
+
+| | n |
+|---|---:|
+| rouges **FRANCS** (le test assertionne que son stub a mordu) | **3** |
+| désarmements **silencieux** réels | **0** |
+| apparents, mais couverts par un double patch | 1 fichier (2 sites) |
+
+Le mécanisme est confirmé, et le test le **documente lui-même** :
+
+```python
+# tests/engine/runner/test_448_r1_r1_r2_r1_dsl_after_move_offline.py
+"""... paresseux `from .triggers import after_move_triggers` -> attribut du package `triggers`."""
+from engine.runner.operations import triggers as T
+monkeypatch.setattr(T, "after_move_triggers", fake)
+...
+assert len(spy) == 1          # -> `assert 0 == 1` apres re-ecriture
+```
+
+Le patch vise le **baril** ; la réécriture pointe `triggers.dispatch.move_death` ; le stub ne mord
+plus. Le test **rougit franchement** — parce qu'il assertionne que son stub a mordu. C'est la
+bonne écriture, et c'est ce qui le rend réparable.
+
+Les 3 rouges : `test_448_r1_r1_r2_r1_dsl_after_move_offline.py` (16 → 3 F / 13 P),
+`test_ctx_traits_substrat_ventilation_offline.py` (12 → 1 F / 11 P),
+`test_448_r1_stormboyz_port_offline.py` (14 → 3 F / 11 P).
+
+**Ce qui n'est PAS couvert par ce contrôle, et doit l'être avant le sweep** :
+
+- les fichiers `_live.py` portant un site à risque — non joués (100 % offline dans cette tranche) ;
+- les **probes** portant un site à risque — on ne les *joue* pas (ce sont des mesures), mais un
+  stub désarmé y fausserait silencieusement une future mesure ;
+- les 46 `GAGNE_LA_MORSURE` : un stub qui se met à mordre change un résultat sans qu'aucun
+  compteur ne le dise ;
+- la **banque offline complète** (`probe_457`, dé-obligé mais jouable, 8 shards) : le contrôle
+  ci-dessus ne joue que les fichiers portant un site **recensé** — un désarmement par une forme
+  de substitution que le recenseur ne lit pas resterait invisible.
+
 ## HISSER n'est pas SUPPRIMER — mesuré 376 contre 1
 
 `migrate_485r1_barils_reexport.py gestes` qualifie **377** différés (compte **par alias** ; les
 314 de `probe_485` sont comptés **par nœud** — un `from X import a, b` y vaut 1) :
 
-| geste | n |
-|---|---:|
-| `HISSER` — aucun import top-level ne lie déjà ce nom | **376** |
-| `OMBRAGE_MEME_SOURCE` — nom déjà lié, même source : la ligne se supprime | **1** |
-| `OMBRAGE_AUTRE_SOURCE` — nom déjà lié depuis ailleurs : ni l'un ni l'autre sans lire | **0** |
+| geste | avant rebase | après rebase |
+|---|---:|---:|
+| `HISSER` — aucun import top-level ne lie déjà ce nom | 376 | **362** |
+| `OMBRAGE_MEME_SOURCE` — nom déjà lié, même source : la ligne se supprime | 1 | **0** |
+| `OMBRAGE_AUTRE_SOURCE` — nom déjà lié depuis ailleurs : ni l'un ni l'autre sans lire | 0 | **0** |
 
 ⚠ **« La cible est déjà importée » désigne le MODULE, pas chaque NOM.** Qu'un module fasse déjà
 `from engine.services.damage import a` en tête n'implique pas que `b`, importé tardivement depuis
 le même module, y soit lié — supprimer rend alors `b` introuvable, tandis que **hisser est
-toujours correct**. Sur ce dépôt, supprimer au lieu de hisser serait faux **376 fois sur 377**.
+toujours correct**. Sur ce dépôt, supprimer au lieu de hisser serait faux dans **362 cas sur 362**.
 (#484 s'est fait 23 rouges de sa propre main sur cette exacte confusion.)
 
 ## Les barils à REGISTRE — et les deux qu'on croyait tels
@@ -145,12 +194,12 @@ déplacé la faute, pas supprimé sa signature. (Même forme que `probe_313` ét
 
 ## Ce que l'outil ne sait PAS réécrire — partition exhaustive
 
-**1 427 refus**, motifs en `enum` (pas en chaînes libres), un cas non classé sortant en `AUTRE` :
+**1 439 refus**, motifs en `enum` (pas en chaînes libres), un cas non classé sortant en `AUTRE` :
 
 | motif | n | commentaire |
 |---|---:|---|
-| `SOUS_MODULE` | 887 | `from engine import move` demande le **module**, pas un symbole : déjà à sa forme la plus précise. Rien à réécrire — seule la vidange l'allège. |
-| `BARIL_A_REGISTRE` | 439 | les 4 barils ci-dessus, exclus |
+| `SOUS_MODULE` | 898 | `from engine import move` demande le **module**, pas un symbole : déjà à sa forme la plus précise. Rien à réécrire — seule la vidange l'allège. |
+| `BARIL_A_REGISTRE` | 440 | les 4 barils ci-dessus, exclus |
 | `DEFINI_DANS_LE_BARIL` | 100 | symbole `def`/`class`/assigné dans l'`__init__` (ex. `get_playbook_or_default`) : il n'a pas d'enfant |
 | `IMPORT_ETOILE` | 1 | `engine/dsl/nodes.py` → `from ...entities.selectors import *` |
 | `AUTRE` | 0 | — |
@@ -183,7 +232,8 @@ bord.
 Correctif : `_cibles_chargeuses_de_registre()` protège les barils à registre **et tous leurs
 ancêtres qui sont des barils**. Un import chargeur reste intact même si plus personne ne lui
 réclame de symbole : **c'est son exécution qui compte, pas ce qu'il expose**. Effet sur la
-vidange : 287 → **283** ré-exports (`runner.abilities` −8 → −4).
+vidange : 287 → **283** ré-exports (`runner.abilities` −8 → −4), et le vidage **dit** ce qu'il
+garde (`imports GARDES parce qu'ils CHARGENT un registre : engine.runner.abilities.loki`).
 
 ## Trois pièges mesurés, que rien n'annonçait
 
@@ -202,12 +252,12 @@ vidange : 287 → **283** ré-exports (`runner.abilities` −8 → −4).
 
 ## Découpage du sweep — **trois** commits, ni un ni seize
 
-1. **Re-cibler les 27 `PERD_LA_MORSURE`** sur le module consommateur, avec contre-épreuve
+1. **Re-cibler les 25 `PERD_LA_MORSURE`** sur le module consommateur, avec contre-épreuve
    (empoisonner la source, vérifier que le test rougit). Aucun autre changement.
-2. **Réécriture seule** — 2 005 symboles / 425 fichiers. Empreinte **strictement nulle**
+2. **Réécriture seule** — 2 010 symboles / 425 fichiers. Empreinte **strictement nulle**
    (0 divergence sur 241 221 attributs), aucun baril modifié.
-3. **Vidange** — 287 ré-exports / 16 barils. Empreinte **volontairement** non nulle ; c'est ce
-   commit qui libère les 114 porteurs et retire les 91 attributs sous-module.
+3. **Vidange** — 283 ré-exports / 16 barils. Empreinte **volontairement** non nulle ; c'est ce
+   commit qui libère les 94 porteurs et retire les 85 attributs sous-module.
 
 **Pourquoi cette coupe** : elle sépare le changement à empreinte **nulle** de celui à empreinte
 **non nulle**. Les deux régimes de preuve sont différents (`--vidange` du probe), et les fusionner
