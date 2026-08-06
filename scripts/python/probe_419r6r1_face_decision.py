@@ -45,6 +45,11 @@ import uuid
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
+#: RACINE du depot. Les sorties de run vont dans `<racine>/logs/`, JAMAIS dans
+#: `scripts/python/logs/` -- `_HERE / "logs"` fabriquait ce second arbre, que `probe_273`
+#: rougit a bon droit (il ne peut pas distinguer une SORTIE d'une entree gitignoree lue
+#: depuis une racine inattendue). Les 40+ autres probes ecrivent tous `ROOT / "logs" / "runners"`.
+_ROOT = _HERE.parents[1]
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
@@ -222,7 +227,7 @@ def _dmg_tri_du_runner(a_units: str, regime_items: str, seed: str, board: str) -
     from engine.runner.snapshot import load_state
 
     sid = R._resolve_session()
-    state_file = _HERE / "logs" / "runners" / ("419r6r1-reco-%s.json" % uuid.uuid4().hex[:6])
+    state_file = _ROOT / "logs" / "runners" / ("419r6r1-reco-%s.json" % uuid.uuid4().hex[:6])
     state_file.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
             "--roster", "1", "--p-units", CASTER, "--a-units", a_units,
@@ -275,7 +280,7 @@ def etage_live(regime: dict, a_units: str, regime_items: str, seed: str, board: 
     Live = PA.Live                                        # le meme client RPC, pas un second
 
     sid = R._resolve_session()
-    state_file = _HERE / "logs" / "runners" / ("419r6r1-%s-%s.json" % (regime_items,
+    state_file = _ROOT / "logs" / "runners" / ("419r6r1-%s-%s.json" % (regime_items,
                                                                       uuid.uuid4().hex[:6]))
     state_file.parent.mkdir(parents=True, exist_ok=True)
     noms = [s.strip() for s in a_units.split(",") if s.strip()]
