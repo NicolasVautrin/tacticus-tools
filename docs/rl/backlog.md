@@ -614,16 +614,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   (**JAMAIS MESURÉS** — catégorie **syntaxique**, à ne pas lire comme triée), 43 `TYPE_CHECKING`,
   22 `placement` (mesurés hissables en FIN de fichier, mais chaque arête rendrait le graphe déclaré
   cyclique).
-  Résidu : **#270-r4-r2-r2-r2** — **l'empreinte RAPPORTE un nom disparu, elle n'ÉCHOUE PAS dessus**.
-  Mesuré à la relecture de #694 : un hissage cassé (import **supprimé** au lieu d'être déplacé,
-  `services/movement_query.py` → `is_like_flying`) ne fait rougir **NI** la garde offline (6 passed)
-  **NI** `probe_270r4r2_empreinte_valeurs` (rc 0), pour deux raisons distinctes — la garde vérifie
-  que les modules **s'importent**, pas qu'ils **tournent**, et un nom absent ne mord qu'à l'**appel** ;
-  l'empreinte **voit** la disparition (197 116 → 197 115, et elle l'imprime) mais son `rc` ne dépend
-  **que** des divergences de VALEUR (`return 1` sur `val` seul). C'est un filet qui exige un lecteur
-  humain, ce qu'une garde ne doit jamais exiger. ⚠ Ne met pas en cause #694 : sur l'arbre livré,
-  `NOMS disparus = 0`, re-mesuré. Fermer = faire échouer sur un nom disparu, avec échappatoire
-  explicite pour les suppressions VOULUES (sinon toute suppression légitime rougira).
+  Résidus : ~~**#270-r4-r2-r2-r2**~~ (l'empreinte rapporte un nom disparu sans échouer dessus) et
+  ~~**#270-r4-r2-r2-r3**~~ (rien ne voit un différé qui OMBRAGE son import module-level) —
+  **LIVRÉS (2026-08-06)**, `case-270r4r2r2r3-les-gardes-du-hissage-rapportaient.md` (voir l'entrée
+  dédiée ci-dessous).
   Texte d'origine, conservé pour la mesure qu'il porte :
   Ouvert par
   `case-270r4-trois-roles-jamais-tries.md` §9, **mesuré** (3 imports posés puis vus échouer, arbre
@@ -644,6 +638,43 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   garde déportée au test), **2** contournés par import différé (`dsl/base` — `StatType.HEALTH`,
   `entities/triggers` — `NORMAL_ATTACK_KIND`). ⚠ **Ne pas dispatcher tant que plusieurs agents
   éditent `engine/`** : une restructuration d'imports les casse tous.
+
+- ~~**`#270-r4-r2-r2-r2` + `#270-r4-r2-r2-r3` — les gardes du hissage RAPPORTAIENT au lieu
+  d'ÉCHOUER**~~ — **LIVRÉ (2026-08-06)**, `case-270r4r2r2r3-les-gardes-du-hissage-rapportaient.md`.
+  Deux trous de la même famille ; le second avait laissé passer un **rouge réel sur `master`**
+  (`test_death_queue_ordering_live.py` : 15 failed / 7 passed).
+  **A** — `probe_270r4r2_empreinte_valeurs` **imprimait** `NOMS disparus = 1` et rendait `rc 0`
+  (`return 1` sur `val` seul). Quatre catégories désormais, **trois** échouent : VALEUR, DISPARU
+  non déclaré, et **IMPORT cassé** — la clé `!IMPORT!<mod>` **APPARAISSAIT**, et un *apparu* ne
+  comptait pas, donc une régression d'import était **structurellement invisible** de cette sonde.
+  Les APPARUS restent listés : c'est ce que **produit** un hissage réussi. Échappatoire
+  `--disparition-voulue <nom>` — comptée, imprimée, et **périmable** (une déclaration qui ne
+  correspond à aucune disparition échoue elle aussi).
+  **B** — un `import` dans un corps de fonction rend le nom **local à TOUTE la fonction** ; rien ne
+  regardait si le nom était **déjà lié au module**. `probe_270r4r2r2r3_import_ombre.py`, invariant
+  à **0** sur `engine/` (412 fichiers, 3 746 fonctions, 469 différés).
+  ⚠ **Le « 12 armés sur 14 » du rapport de #477-r24 était FAUX** : il comptait les
+  **conditionnels**. Re-dérivé (`--historique 492c722f`), avec une dominance calculée sur **l'union
+  des binders du nom** et non sur l'import seul : **14 sites, 1 SEUL ARMÉ** — `status.py:241
+  StatType`, exactement celui qui a crashé. `state_bridge:427` ne lit le nom que **dans** sa
+  branche ; `components:2388/2393` sont **deux** imports couvrant **chacun sa** branche.
+  ⚠ **Le critère de la garde est donc la REDONDANCE, pas l'armement** : 3 des 14 changent de camp
+  selon le critère, un site inoffensif est à **une édition** d'être armé, et la redondance
+  n'apporte rien. L'armement reste **imprimé**, en **trois** sévérités (`ARME` /
+  `INDETERMINE` — lecture en portée imbriquée, l'ordre d'appel n'est pas structurel / `REDONDANT`) :
+  « armé / pas armé » ne sait pas dire *je ne sais pas*.
+  Contre-épreuves : 8 mutants (MORDENT **et** sont bien classés) + **7 témoins négatifs** (0 faux
+  positif) — module-level sous `TYPE_CHECKING`, corps de classe, `global`, portée imbriquée, alias.
+  Les deux gardes **vues rouges sur les fautes historiques réelles**, arbre restauré (diff vide) ;
+  `--historique 492c722f` (14/1) et `d450c362` (0) les rejouent sans rien muter.
+  ⚠ **Un `ast.walk` par instruction est quadratique** : 33,9 s sur 1 969 fichiers ; en s'arrêtant
+  aux sous-instructions et en fusionnant les 3 traversées, `engine/` passe de 10,6 s à **2,4 s**.
+  Résidu : **#270-r4-r2-r2-r3-r1** — **15** ombrages **hors `engine/`** (0 ARMÉ, 2 `INDETERMINE`,
+  13 `REDONDANT`) : `tests/conftest.py` (4), `test_350_prediction_average_forms_offline` (3),
+  `unit_map.py`, `probe_192`, `probe_326`, `probe_446_r2`, `probe_brazier_radbombardment`,
+  `test_ability_target_gate_live`, `test_389_ramming_speed`, `test_433_r4_r2_r1_r2`. Sous
+  **plafond** (15, nommé comme tel) et non sous invariant : ces fichiers appartiennent à d'autres
+  tranches. Le probe DÉCLARE sa portée à chaque run et mesure sur `--portee`.
 
 - ~~**`#468-r10` — l'allocateur de numéros est AVEUGLE aux réservations des agents EN VOL, et son
   mode de défaillance est un `PASS` RASSURANT**~~ — **LIVRÉ (2026-08-05)**,
