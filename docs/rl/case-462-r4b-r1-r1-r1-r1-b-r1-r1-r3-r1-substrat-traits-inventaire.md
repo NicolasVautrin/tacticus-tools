@@ -58,6 +58,22 @@ légitimes au lieu de « probablement sans effet ».
 | **`INDÉCIDABLE`** | **2** | appelants non énumérés — **non convertis**, résidu `#462-…-r3-r1-r1` |
 | **`ATTEIGNABLE`** | **2** | → convertis par cette tranche |
 
+⚠ **Ces comptes se re-dérivent (`--step ventilation`), ils ne se citent pas** — et le garde a
+effectivement rougi **133 commits durant** sur un site neuf que personne n'avait ventilé :
+`runner/operations/turnflow.py::_can_move`, introduit par `a1e372d3` (port de
+`VerifyUnitsTurnFinishedOperation`, 2026-08-05), ventilé le 2026-08-06 en **`INERTE-VIVANT`**.
+Sa chaîne d'appel est **FERMÉE** (`_can_move` est privé ; son unique appelant est
+`has_tiles_to_move_to`, lui-même appelé par `_can_act` et `has_action_available`, tous deux sous
+`VerifyUnitsTurnFinishedOperation.verify_unit_turn_ended`), et le gate vivant y est le **NATIF
+lui-même** : `IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded` teste
+`TryGetComponent<HealthComponent>(out hp) && hp.IsDead()` **avant** `HasTilesToMoveTo`, et
+`$$Execute` n'itère que `PlayerComponent$$get_CurrentlyOwnedUnitIds`, dont le `RemoveAll(<défait>)`
+est porté en `if uc is None or not uc.alive: continue`. Le seul cas franchissant le premier gate
+(`uc is None`) sort de `_can_move` par `return None` **deux lignes avant** la lecture.
+Direction si le gate sautait : `traits is None` ⇒ le test `Stationary` ne mord pas ⇒ `return True`,
+soit la **même** sur-estimation permissive que le résidu `MovementComponent$$IsAllowedToMove` déjà
+nommé au site — jamais un refus à tort.
+
 ## 4. Les deux sites atteignables — et pourquoi la conversion NAÏVE était une régression
 
 * `runner/operations/triggers/genestealer.py::_valid_dead_decoys`

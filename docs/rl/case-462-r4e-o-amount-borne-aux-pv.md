@@ -603,13 +603,14 @@ fidélité** : l'opération entière était déjà portée, seul l'APPEL manquai
 ⚠ **RÉSIDU OUVERT `#462-r4e-o-r2-r1-r1-r1`** — `turnflow.find_next_player` ne mirrore pas
 `IdunBattle.Operations.ChangeTurnOperation$$FindNextPlayer`. Le port cycle sur les ids de joueur
 croissants ; le natif indexe un ORDRE DE TOUR rendu par le slot `0x18` de l'`IBattleQuery` et saute
-les joueurs qu'écarte le slot `0x1a`. **Mesuré** sur ce montage : le natif fait jouer le joueur 3
-**deux tours d'affilée** puis le 4 puis le 3 (`turnsStarted` de l'attaquant 2 : `1 -> 2 -> 2 -> 3`,
-`currentPlayer` `3 -> 3 -> 4 -> 3`) là où `find_next_player` alterne 4 puis 3. Le probe prend donc
-l'**alternance MESURÉE** (`decisionView.currentPlayer` après chaque `endturn`) au lieu de
-`advance=True` : c'est ce qui sépare « l'ÉTAT après un changement de tour » (l'objet de cette
-tranche) de « QUI joue ensuite » (le résidu). Le supposer `[adverse, moi]` aurait figé un rejeu à
-deux tours là où le natif en joue trois — un décalage qu'aucun scalaire ne trahit.
+les joueurs qu'écarte le slot `0x1a`. Le probe prend donc l'**alternance MESURÉE**
+(`decisionView.currentPlayer` après chaque `endturn`) au lieu de `advance=True`.
+
+> ⚠⚠ **La MESURE citée ici pour justifier ce contournement — « le natif fait jouer le joueur 3 deux
+> tours d'affilée » — est FAUSSE : elle a été RÉFUTÉE par la re-mesure de `#462-r4e-o-r2-r1-r1-r1`
+> (§10), qui a aussi retiré le contournement.** Le paragraphe est conservé tel quel parce que c'est
+> lui qui a envoyé la tranche suivante chasser au mauvais endroit : le défaut n'était pas dans
+> `find_next_player`, il était dans l'**instant de lecture** de cette trace.
 
 ### 9.6 Mesures et gardes
 
@@ -631,7 +632,7 @@ deux tours là où le natif en joue trois — un décalage qu'aucun scalaire ne 
 
 ### 9.7 Non couvert, nommé
 
-* **`find_next_player`** — résidu `#462-r4e-o-r2-r1-r1-r1` ci-dessus.
+* **`find_next_player`** — résidu `#462-r4e-o-r2-r1-r1-r1`, **traité en §10** (et sa prémisse réfutée).
 * **`GetOriginalOwnerEntityId`** : le natif lit le propriétaire d'**ORIGINE**
   (`OriginalOwnerComponent+0x10`) ; le port n'a pas ce composant et lit l'`OwnerComponent.player`
   **courant**. Les deux coïncident tant qu'aucune unité n'a changé de camp (Mind Control). Nommé, non porté.
@@ -643,3 +644,177 @@ deux tours là où le natif en joue trois — un décalage qu'aucun scalaire ne 
 * **Le cycle n'est confronté qu'à la phase `k = 0`** (StormOfFire, round 3 du montage). Les phases 1
   et 2 sont traversées par le rejeu et cohérentes avec le seed live (round 1 = SenseOfStone), mais
   aucun régime dédié ne les mesure isolément.
+
+---
+
+## 10. `#462-r4e-o-r2-r1-r1-r1` — QUI joue ensuite : la prémisse était fausse, le port l'était aussi
+
+**Livré le 2026-08-06**, build `rnca9r7q6c`.
+Probe : `scripts/python/probe_462r4eor2r1r1r1_cycle_de_tour.py` (offline + live, 3 mutations).
+Garde : `tests/engine/runner/test_462r4eor2r1r1r1_cycle_de_tour_offline.py` (8).
+
+### 10.1 La question binaire, et ses DEUX réponses
+
+> *Dans quel ordre le natif choisit-il le joueur suivant, et le port le reproduit-il ?*
+
+1. **Le natif ALTERNE.** Il ne fait jamais jouer le même joueur deux fois dans le régime mesuré :
+   la prémisse héritée de §9.5 est **RÉFUTÉE**.
+2. **Le port était néanmoins FAUX** — pas sur le résultat, sur la **structure**. Il fondait en un
+   seul geste quatre étages que le natif sépare, et cette fusion produit un résultat divergent dès
+   qu'il y a **au moins trois joueurs et que le joueur courant n'a plus d'unité vivante**.
+
+### 10.2 Le corps natif, lu
+
+```
+ChangeTurnOperation$$FindNextPlayer(matchEntity) :
+    if (StateExtensions.IsMatchFinished(state))          return null
+    turn    = matchEntity.GetComponent<TurnComponent>()
+    players = matchEntity.<IMatchEntity>.<+0x10 : List<...>>          # la BORNE de la boucle
+    current = turn.get_CurrentPlayerId()                              # BEntityId
+    order   = query.<IBattleQuery 0x18 = GetPlayerTurnOrder, arite 0>  # IList<PlayerId>
+    index   = FindTurnIndex(current)          # INLINE : order.IndexOf(PlayerComponent+0x10)
+    i = (index.HasValue ? index.Value : -1)
+    for (offset = 1 ; offset <= players.Count ; offset++) {
+        pid    = order[(i + offset) % order.Count]
+        player = StateExtensions.GetPlayer(state, pid)
+        if (!query.<IBattleQuery 0x1a = ShouldPlayerSkipTurn, arite 1>(player))  break
+    }
+    return player.Id                                    # null quand la borne est atteinte
+
+ChangeTurnOperation$$Execute() :
+    next = FindNextPlayer(matchEntity) ; if (next == 0)  return
+    prev = turn.get_CurrentPlayerId()
+    turn.SetCurrentPlayer(next)                                       # NO-OP si next == prev
+    if (next.GetPlayerComponent().<+0x20 : PlayerType> == 2)          # Environment
+        { Execute(this) ; turn.<+0x18 : previousPlayerId> = prev }    # RECURSION
+    return processor.<IOperationProcessor 0x14 = VerifyMatchEnd>()
+```
+
+Les deux slots sont lus dans `data/symbols/rnca9r7q6c/metadata/interface_slots.tsv` — **nom ET
+arité**, car un nom désigne un ensemble de slots. `probe_477r25_slots_autres_interfaces.py` garde
+ces citations à chaque passe.
+
+**`GetPlayerTurnOrder` est un pur accesseur de CONFIG** :
+`BattleQuery+0xa0 = BattleConfiguration`, `+0x30`, `+0x18` — soit **`BC.Player.TurnOrder`**, que le
+seed BC porte à `[11, 12, 13]`, c'est-à-dire les trois entrées de `BC.Player.Players` : `player`
+(`PlayerType` 0), `enemy_1` (1) et **`Environment` (2)**. **L'ordre de tour CONTIENT l'Environment** ;
+ce n'est pas `FindNextPlayer` qui l'écarte, c'est la **récursion** d'`Execute`.
+
+Recoupement indépendant du rôle de `ShouldPlayerSkipTurn` : son **second** appelant,
+`IdunBattle.Entities.Formulas.TurnsUntilUnitOwnerTurnFormula$$GetTurnsUntilUnitOwnerTurn`, met les
+deux gardes **côte à côte** — `pc.<+0x20> != 2 && !query.ShouldPlayerSkipTurn(p)` — donc « être
+l'Environment » et « devoir être sauté » sont **deux prédicats distincts**.
+
+### 10.3 La réfutation, et l'anti-confond qui manquait
+
+Re-mesure du 2026-08-06, **même seed (777) et même board (MC1_67)** que §9, montage
+`astraBullgryn,tauAunShi` vs `genesPrimus,necroWarden` :
+
+| régime | suite native des `currentPlayer` |
+|---|---|
+| montage frais, 14 changements de tour | `[3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3]` |
+| **après** la sur-tuerie de `genesPrimus` (decoy `Ambush` posé), 12 de plus | `[4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4, 3, 4]` |
+
+**Alternance stricte des deux côtés.** Le terme surnuméraire de §9.5 venait d'un changement de tour
+que personne n'avait attribué : `IdunBattle.Operations.VerifyAutomaticTurnEndOperation$$Execute`
+(slot `IOperationProcessor` **0x20**) termine le tour du joueur attaquant **dès que toutes ses
+unités ont fini** — donc **l'attaque 1 elle-même** fait déjà passer `currentPlayer` de 3 à 4.
+La trace de §9.5 ne relisant `currentPlayer` qu'**après chaque `endturn`**, ce changement n'y
+figurait pas, et son effet était imputé au `endturn` suivant. D'où la lecture « 3 -> 3 ».
+
+⚠ **Le compteur ne trahissait rien non plus** : `turnsStarted 1 -> 2 -> 2 -> 3` est *exactement* ce
+que produit l'alternance `[auto: 3->4], [4->3], [3->4], [4->3]`. Un scalaire cohérent avec les deux
+hypothèses ne peut pas les séparer — seule la lecture de `currentPlayer` **au bon instant** le fait.
+
+Le decoy n'y est pour rien : `genesSmnDecoy` reste possédé par le **summoner** (`owner = 4`),
+jamais par l'Environment.
+
+### 10.4 Ce qui était quand même faux — et le régime qui le sépare
+
+Le port fondait les quatre étages en `sorted(joueurs ayant >= 1 unité vivante)` puis cycle. Il
+mélangeait donc l'**ORDRE** (config, où un joueur n'entre ni ne sort jamais) et le **SKIP** (évalué
+dans la boucle). La différence se voit quand le joueur **COURANT** est celui qui n'a plus d'unité :
+l'ancien port ne le trouvait plus dans son ordre et repartait de `order[0]` ; `FindTurnIndex`, qui
+ne consulte **aucun** skip, le trouve et avance depuis **sa** position.
+
+| régime (offline) | natif | port | ancien port |
+|---|---|---|---|
+| 3 joueurs, **courant `4` entièrement mort** | `5` | **`5`** | `3` |
+| 4 joueurs, **courant `4` mort, `5` mort** | `6` | **`6`** | `3` |
+
+Les 9 autres régimes de la table (duel, camp éliminé, courant hors ordre, tous morts, un seul
+joueur, 3 joueurs vivants…) sont **value-preserving** : `11 régimes, 0 désaccord port/natif,
+2 corrigés`.
+
+⚠ **Ce régime n'est PAS confrontable live** : `rl_duel build` ne monte que deux camps, et l'unique
+troisième joueur (`Environment`) n'a jamais d'unité. La correction est donc établie **par le
+décompilé** et exercée **offline** ; le live confirme le seul régime qu'il sait monter (accord sur
+14 changements de tour).
+
+### 10.5 Ce que le retrait du contournement a fait apparaître
+
+Le probe de §9 prenait l'alternance **dans la trace**. Il la **calcule** désormais
+(`EndTurnOperation.execute(advance=True)`), la trace n'étant plus que le **témoin** confronté — et
+le verdict **exige** leur concordance. Premier re-jeu : `mesures=[3,4,3]` vs `calculés=[4,3,4]`,
+un **déphasage d'un cran**, pas une erreur de choix.
+
+Cause : `VerifyAutomaticTurnEndOperation` n'est **pas porté**, donc le rejeu du port démarrait un
+tour en arrière. Le contournement le masquait en posant `current_player_id` à la valeur mesurée à
+chaque pas. Le changement automatique compte désormais comme **un tour à rejouer**, sous condition
+d'**ÉTAT** (le joueur a-t-il changé entre la capture et l'après-attaque ?), jamais par supposition.
+
+| | avant la tranche | après |
+|---|---|---|
+| joueurs entrants rejoués | `[3, 4, 3]` (**mesurés**) | `[4, 3, 4, 3]` (**calculés**), `== mesurés` |
+| rejeu bout-en-bout, volet (b) | `[1044, 886, 70, 0, 0]` | **`[1044, 886, 70, 0, 0]`** (inchangé) |
+| `unit_turns_started` du port | `3` | `3` (`== live`) |
+| flags du ressuscité | `[1, 3, 4, 14]` | `[1, 3, 4, 14]` |
+
+Le rejeu couvre donc **quatre** changements de tour au lieu de trois — il est plus fidèle qu'avant,
+à observable constant.
+
+### 10.6 Contre-épreuves
+
+| mutation | foyer visé | observable déclaré | effet mesuré |
+|---|---|---|---|
+| `ordre-par-joueurs-vivants` | `find_next_player` (les 4 étages re-fondus) | `offline` | **2 régimes** divergent |
+| `index-sans-valeur-a-zero` | le `-1` LU quand `FindTurnIndex` rend `Nullable` vide | `offline` | **1 régime** diverge |
+| `skip-jamais` | `should_player_skip_turn` | `offline` | **4 régimes** divergent |
+| `changement-auto-ignore` | le harnais de §9 (comptage du tour automatique) | `concordance` | `[3,4,3]` vs `[4,3,4]` |
+| `rotation-absente`, `avance-de-tour-mimee` | (héritées §9.6) | `bout_en_bout` | `[214, 281, 255, 227, 286]` |
+
+`a_mordu` est **séparé du verdict**, et chaque mutation **déclare son observable** : les trois
+premières sont inertes en live (alternance stricte à deux camps) et la quatrième est inerte sur
+`etat_egal` / `bout_en_bout`. Les juger sur le mauvais axe rendrait un « n'a pas mordu » qui
+accuserait le probe.
+
+### 10.7 Non porté, nommé
+
+* **`should_player_skip_turn` est un STAND-IN.**
+  `IdunBattle.Core.Services.BattleQuery$$ShouldPlayerSkipTurn` n'a **aucun corps propre** dans le
+  binaire — absent de `ghidra/functions.tsv` (voisins immédiats en adresse :
+  `BattleQuery$$ShouldIgnoreSpecialMovementInDangerZone`, puis
+  `BattleQuery$$u003CGetBestWeaponu003Eb__316_0`) **et** de `frida/methods.tsv`. Signature d'un corps
+  trivial dédupliqué par IL2CPP ⇒ **on n'en conclut RIEN** : le prédicat reste **illisible**. Seul le
+  décorateur `RecordedSimulationRequestsBattleQuery$$ShouldPlayerSkipTurn` est lisible, et il relaie
+  le slot `0x1a` de son `inner`. Le port écrit « aucune unité vivante ⇒ sauté » — ce que l'ancien
+  code faisait déjà, mais en amont et en silence. **Direction** : si le natif saute AUSSI pour une
+  autre raison, le port fait jouer un joueur que le natif saute — jamais l'inverse.
+  Résidu **`#462-r4e-o-r2-r1-r1-r1-r2`** ; point d'ancrage à hooker : le slot `0x1a` de
+  l'`IBattleQuery` du runner.
+* **L'ORDRE est reconstruit, pas lu.** Aucun RPC ne publie `BC.Player.TurnOrder` ni la table
+  `PlayerId -> BEntityId` : `decisionView` ne donne que `units[].owner` (un `BEntityId`). Le port
+  trie les ids d'entité des joueurs porteurs d'unités. Les deux coïncident sur le seed BC
+  (`TurnOrder` trié par `PlayerId`, entités joueur créées dans cet ordre — mesuré : joueurs `3` et
+  `4`, `counts.player = 3`), et **rien ne le garantit** pour une BC dont le `TurnOrder` ne serait pas
+  trié. Résidu **`#462-r4e-o-r2-r1-r1-r1-r1`**, même capteur que le point suivant.
+* **La RÉCURSION Environment n'est pas portée** — elle serait *structurellement inerte* : le port
+  dérive son ordre des propriétaires d'unités, et l'Environment n'en a aucune. La porter exigerait
+  `PlayerComponent.<+0x20 : PlayerType>`, qu'aucun RPC ne publie. Même résidu `…-r1`.
+* **`IsMatchFinished` n'est pas porté** (pas de substrat de condition de victoire) : `find_next_player`
+  rend un joueur là où le natif rendrait `null` sur un match fini. Sans conséquence sur le runner.
+* **La BORNE de la boucle** est `players.Count` côté natif, `len(order)` côté port. Les deux valent 3
+  dans toute BC du runner ; `len(order)` est la borne **prudente** (elle ne peut que sous-estimer le
+  nombre de tentatives).
+* **`VerifyAutomaticTurnEndOperation` n'est pas porté** — c'est ce que §10.5 a mis au jour. Le
+  harnais le compense par une condition d'état ; le moteur, lui, ne termine pas de tour tout seul.
