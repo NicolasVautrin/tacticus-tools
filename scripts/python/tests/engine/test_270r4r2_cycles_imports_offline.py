@@ -95,11 +95,11 @@ def test_etage3_chaque_module_s_importe_en_premier():
     """
     mods = IP._modules_sous(IP.PAQUETS_DEFAUT)
     assert len(mods) >= 100, "portee derisoire : %d modules" % len(mods)
-    echecs = []
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        for mod, rc, err in ex.map(IP._essayer, mods):
-            if rc != 0:
-                echecs.append("  %s\n     %s" % (mod, err))
+    # `essayer_tous` (#486-r5) : MEME mesure, meme parallelisme, mais elle ne re-lance PAS un
+    # interpreteur pour un module deja essaye sur le MEME etat de l'arbre. Les 201 modules d'ici
+    # sont un SOUS-ENSEMBLE des 437 de `test_270r4r2r2_differes_offline.py` : dans une passe
+    # complete, ces 44,1 s etaient payes deux fois.
+    echecs = ["  %s\n     %s" % (mod, err)
+              for mod, rc, err in IP.essayer_tous(mods) if rc != 0]
     assert not echecs, "\n".join(
         ["%d/%d module(s) ne s'importent pas EN PREMIER :" % (len(echecs), len(mods))] + echecs)

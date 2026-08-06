@@ -255,3 +255,61 @@ def test_index448_ne_parse_chaque_fichier_QU_UNE_FOIS(tmp_path, monkeypatch):
     assert sorted(p.name for p in vus) == ["a.py", "b.py"], [p.name for p in vus]
     assert ("b", "g") in idx["graph"], sorted(idx["graph"])
     assert ("a", "f") in idx["graph"][("b", "g")], idx["graph"][("b", "g")]
+
+
+# --- 6. probe_270-r4-r2 : un interpreteur par module, UNE SEULE FOIS ----------------------------
+
+def test_essayer_tous_ne_relance_PAS_un_interpreteur_deja_lance(monkeypatch):
+    """`_essayer` lance UN interpreteur par module -- 0,54 s piece, 131,6 s pour les 437 modules
+    d'`engine/` a 8 workers. Deux fichiers de test balaient dans la MEME passe, et leurs
+    perimetres se recouvrent a 201 modules : 44,1 s payes deux fois."""
+    import probe_270r4r2_import_en_premier as IP
+
+    lances = []
+    monkeypatch.setattr(IP, "_essayer", lambda m: (lances.append(m), (m, 0, ""))[1])
+    monkeypatch.setattr(IP, "_ESSAIS", {})
+    monkeypatch.setattr(IP, "empreinte_engine", lambda: ("EMPREINTE-TEMOIN",))
+
+    a = IP.essayer_tous(["engine.x", "engine.y"])
+    b = IP.essayer_tous(["engine.y", "engine.z"])
+    assert lances == ["engine.x", "engine.y", "engine.z"], lances
+    assert a == [("engine.x", 0, ""), ("engine.y", 0, "")], a
+    assert b == [("engine.y", 0, ""), ("engine.z", 0, "")], b
+
+
+def test_essayer_tous_RE_ESSAIE_quand_l_arbre_a_CHANGE(monkeypatch):
+    """LE piege inverse du cache : un verdict perime, et perime dans le sens VERT. La cle porte
+    l'empreinte de l'arbre `engine/`, donc une source modifiee la fait tomber d'elle-meme."""
+    import probe_270r4r2_import_en_premier as IP
+
+    lances = []
+    etat = {"emp": ("V1",)}
+    monkeypatch.setattr(IP, "_essayer", lambda m: (lances.append(m), (m, 0, ""))[1])
+    monkeypatch.setattr(IP, "_ESSAIS", {})
+    monkeypatch.setattr(IP, "empreinte_engine", lambda: etat["emp"])
+
+    IP.essayer_tous(["engine.x"])
+    IP.essayer_tous(["engine.x"])
+    assert lances == ["engine.x"], "le cache ne mord pas : %s" % lances
+    etat["emp"] = ("V2",)                                  # une source a change
+    IP.essayer_tous(["engine.x"])
+    assert lances == ["engine.x", "engine.x"], (
+        "un verdict d'import a survecu a une modification de l'arbre : %s" % lances)
+
+
+def test_l_empreinte_de_l_arbre_engine_est_NON_VIDE_et_BOUGE(tmp_path, monkeypatch):
+    """Une empreinte vide (ou constante) rendrait la garde ci-dessus tautologique."""
+    import probe_270r4r2_import_en_premier as IP
+
+    avant = IP.empreinte_engine()
+    assert len(avant) >= 300, "empreinte derisoire : %d entree(s)" % len(avant)
+    # ... et elle est SENSIBLE : sur une racine jetable, ecrire un fichier la fait changer.
+    monkeypatch.setattr(IP, "RACINE", tmp_path)
+    (tmp_path / "engine").mkdir()
+    e0 = IP.empreinte_engine()
+    (tmp_path / "engine" / "m.py").write_text("X = 1\n", encoding="utf-8")
+    e1 = IP.empreinte_engine()
+    (tmp_path / "engine" / "m.py").write_text("X = 2222\n", encoding="utf-8")
+    e2 = IP.empreinte_engine()
+    assert e0 != e1, "un fichier AJOUTE ne change pas l'empreinte"
+    assert e1 != e2, "un fichier MODIFIE ne change pas l'empreinte"

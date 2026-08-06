@@ -532,14 +532,19 @@ def _signatures_positionnelles(arbres: dict) -> dict:
     que si TOUTES ses definitions du perimetre s'accordent sur le meme (index, enum)."""
     vus: dict = {}
     for rel, tree in arbres.items():
-        classe_de = {}
+        # UNE SEULE passe de `ast.walk` (#486-r5) : il y en avait DEUX, la premiere ne servant
+        # qu'a construire `classe_de`. Sur ce corpus (2090 fichiers, 3,9 M de noeuds), le walk
+        # complet coute ~7 s -- soit ~11 s des 22,3 s de cette fonction, mesure du 2026-08-06.
+        # Les `def` sont accumules puis traites APRES la boucle : le resultat ne depend donc
+        # d'AUCUNE hypothese sur l'ordre de parcours de `ast.walk`.
+        classe_de, defs = {}, []
         for m in ast.walk(tree):
             if isinstance(m, ast.ClassDef):
                 for st in m.body:
                     classe_de[id(st)] = m.name
-        for n in ast.walk(tree):
-            if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
+            elif isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defs.append(m)
+        for n in defs:
             args = [a.arg for a in (n.args.posonlyargs + n.args.args)]
             lie = 1 if (args and args[0] in ("self", "cls")) else 0
             # un ctor s'appelle par le nom de la CLASSE, et `self` ne compte pas
