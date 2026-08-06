@@ -1413,6 +1413,31 @@ class DamageHandler:
                     self.last["primary_fold"] = _adds["primary_fold"]
                 if _adds.get("additional_targets"):
                     self.last["additional_targets"] = _adds["additional_targets"]
+        # --- #419-r1-tr14-r4 le SECOND VOLET de `TemplarInitiateNormalAttackAbility` : le COUP DE
+        # PISTOLET de `HeavyBoltPistol` (1083). Ce n'est PAS un trigger d'evenement -- l'ability n'a
+        # AUCUN `$$CreateTrigger` (verifie dans les DEUX tables de symboles) : elle est appelee en
+        # dur par l'attaque normale qu'elle substitue.
+        #     ExecuteBehaviour = ExecuteAtomic( Group(<ExecuteNormalAttack>, 0x20)      -> coups d'ARME
+        #                                     & Group(<ExecuteBonusAttack>,  0x20),     -> TriggerAbility(1083)
+        #                                       GroupType.TemplarInitiateNormalAttack_AtomicGroup = 0x52 )
+        # Le rang est donc celui du natif : APRES les coups d'arme (et apres le cleave #478, dont le
+        # dispatch est EXCLUSIF de celui-ci -- la cascade `UnitFactory$$AddNormalAttackAbility` rend
+        # UN seul passif substituant) et AVANT `ExecuteTriggerAbilities` (`On(0x26)`), joue juste en
+        # dessous par `after_hit_normal_attack`. La gate `IsMeleeAttack` et l'arbre :
+        # `abilities/loki/heavy_bolt_pistol.py`.
+        # ⚠ Ce site est le JUMEAU de ceux de MV71 et du cleave : comme eux il ne couvre que la voie
+        # MESSAGE, pas les portes qui appellent `AttackDamageOperation.execute` directement
+        # (overwatch, `UseActiveAbility`, summon AI) -- meme residu `#478-r3`, meme cause (le natif
+        # n'a qu'un site parce que l'ability EST le corps de l'attaque normale).
+        if self.last is not None and _uc is not None:
+            from ..abilities.loki.heavy_bolt_pistol import (has_bonus_attack,
+                                                            execute_bonus_attack)
+            if has_bonus_attack(_apas, active_abilities=_aact, visual_id=_uc.visual_id,
+                                traits=_atra, config_active_abilities=_acfg):
+                _bonus = execute_bonus_attack(self.state, msg.attacker_id,
+                                              self.last.get("target", msg.target_id))
+                if _bonus is not None:
+                    self.last["bonus_attack"] = _bonus
         # VECTEUR AFTER-HIT : dispatcher GÉNÉRIQUE de triggers (mirror `EvaluateAfterHitTriggers` →
         # `EvaluateTriggerOperation`). Itère le registre des triggers (traits/effets) ; chaque entrée
         # scope elle-même via sa condition (ex. Psyker OwnerIsActor). No-op si aucun trigger ne matche.
