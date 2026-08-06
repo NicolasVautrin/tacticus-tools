@@ -276,7 +276,7 @@ from typing import TYPE_CHECKING, Optional
 from .targeting_rule import TargetingRule as TR
 from ...dsl.base import Const                                       # #287-r11-r1 (hisse, #485)
 from ...entities.selectors import (Caster, CasterTile, Enemies, SelectTile,   # idem
-                                   SortReverse, TargetTile, TilesBehindInLine, Units)
+                                   SortReverse, Target, TargetTile, TilesBehindInLine, Units)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType   # #270-r1-r1-r3
 from ...entities.heal_type import HealType   # #287-r5
@@ -1609,8 +1609,6 @@ def charge_tiles_count(state: "State", caster_id: int, target_id, ability_id: st
 
     `None` = SUBSTRAT ABSENT (cible non resolue, `constants.range` illisible) -- l'appelant rend
     alors `0`, la degradation permissive du module ; jamais un refus fabrique."""
-    from ...dsl.base import Const
-    from ...entities.selectors import Caster, CasterTile, SelectTile, Target
     from ...entities.selectors.tiles import tiles_unit_can_move_to_charge_target
     from .behaviours import entities_from_state
     import gameconfig as GC
