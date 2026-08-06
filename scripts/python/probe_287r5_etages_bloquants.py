@@ -63,28 +63,27 @@ CORPS_DE_BASE = "Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId"
 # L'ETAGE bloquant, id par id -- LU dans le decompile de la surcharge native, jamais devine. Un id
 # absent de cette table alors que son symbole existe fait ROUGIR l'etape 2 : le recensement ne peut
 # pas se taire sur un corps qu'il voit.
+# `AActiveAbility+0x20` est `IdunBattle.Core.Services.BattleQuery` -- etabli par
+# `IdunBattle.Core.Services.TargetingQuery$$Init`, qui le pose en `+0x18`, et par le second site de
+# `TargetingQuery$$GetTilesInRange`. Les etages sont GROUPES par leur libelle : c'est ce groupement
+# qui repond a « quel etage debloque le plus d'ids », et non le detail par ability.
 ETAGE_BLOQUANT = {
-    # --- PORTES par #287-r5 : plus aucun etage ne manque -------------------------------------
-    ActiveAbilityType.ForwardObservers: "(porte #287-r5) effets de l'entite cible",
-    ActiveAbilityType.AttemptedPossession: "(porte #287-r5) effets + enfants d'entite",
-    # --- etages REELLEMENT manquants ---------------------------------------------------------
-    ActiveAbilityType.SendInTheNextWave: "selecteur de tuiles par slot d'interface",
-    ActiveAbilityType.SkyStrike: "DidMove + GetMainTile + deux slots battleQuery",
-    ActiveAbilityType.MV71SniperDroneSquadAttack: "IsMeleeAttack + PickTile",
-    ActiveAbilityType.ExemplarOfTheKauyon: "IsFreeTile + predicat LINQ sur selecteur",
-    ActiveAbilityType.AlphaWarrior: "trigger DSL IsInTeamSynapseRange",
-    ActiveAbilityType.TheQuickening: "tuiles de mouvement (MovableTilesInRange - Enemies)",
-    ActiveAbilityType.MindControl: "slot 0x7c + FilterInPlace generique",
-    ActiveAbilityType.EntropyCannons: "triggers IsInTeamContagionsOfNurgleAura + HasNegativeModifier",
-    ActiveAbilityType.BloodChalice: "adjacence de tuiles (slot 0x62) + IsAffectedByHealType",
-    ActiveAbilityType.LightOfSanguinius: "GetNumberConstant(0x16) + Enumerable.Any",
-    ActiveAbilityType.CultDemagogue: "trois slots battleQuery + GetStringConstant",
-    ActiveAbilityType.HeroicFusillade: "slots 0x67/0x6f + Where/ToList",
-    ActiveAbilityType.ExcruciatingFrequencies: "selecteur DSL GetAttackTargets",
-    ActiveAbilityType.SquigLaunchas: "triggers DSL HasMinimumAdjacent{Orks,FriendlyUnits}",
-    ActiveAbilityType.VigilanceEternal: "tuiles de mouvement (GetPossibleMovementTiles) + slot 0x62",
-    ActiveAbilityType.LeadingTheCharge: "tuiles de mouvement (GetPossibleMoveTiles) + slot 2",
-    ActiveAbilityType.DeathOnTheWind: "compteur d'attaques recues ce tour -- SEEDING absent",
+    ActiveAbilityType.TheQuickening: "tuiles de mouvement du caster",
+    ActiveAbilityType.VigilanceEternal: "tuiles de mouvement du caster",
+    ActiveAbilityType.LeadingTheCharge: "tuiles de mouvement du caster",
+    ActiveAbilityType.AlphaWarrior: "trigger DSL (IsInTeamSynapseRange)",
+    ActiveAbilityType.EntropyCannons: "trigger DSL (ContagionsOfNurgleAura + HasNegativeModifier)",
+    ActiveAbilityType.SquigLaunchas: "trigger DSL (HasMinimumAdjacent{Orks,FriendlyUnits})",
+    ActiveAbilityType.ExcruciatingFrequencies: "selecteur DSL (GetAttackTargets)",
+    ActiveAbilityType.SendInTheNextWave: "selecteur DSL (GetSurroundingTiles + GetUnitMaxRange)",
+    ActiveAbilityType.HeroicFusillade: "pathfinding (MovementQuery$$IsInMovementRange)",
+    ActiveAbilityType.SkyStrike: "battleQuery (DidMove + AreEntitiesAdjacent + GetAdjacentTiles)",
+    ActiveAbilityType.CultDemagogue: "battleQuery (trois slots + GetStringConstant)",
+    ActiveAbilityType.ExemplarOfTheKauyon: "battleQuery (IsFreeTile + GetAdjacentUnits)",
+    ActiveAbilityType.MV71SniperDroneSquadAttack: "methodes de sa classe (IsMeleeAttack + PickTile)",
+    ActiveAbilityType.AttemptedPossession: "SIMULATION d'effet (GetChildren + SimulateEffects)",
+    ActiveAbilityType.MindControl: "ILLISIBLE -- predicat statique a corps DEDUPLIQUE",
+    ActiveAbilityType.DeathOnTheWind: "SEEDING absent, pas l'etage (cf. case-doc 9.3)",
 }
 
 
