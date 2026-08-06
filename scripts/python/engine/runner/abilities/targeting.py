@@ -1499,12 +1499,90 @@ def _dynamic_rule_blood_chalice(state: "State", caster_id: int, target_id) -> in
     return 0 if int(caster_id) == int(target_id) else int(TR.TargetMatchesDynamicRule)
 
 
+def charge_tiles_count(state: "State", caster_id: int, target_id, ability_id: str,
+                       ignore_flags: bool) -> Optional[int]:
+    """`<X>Ability$$GetPossibleMove[ment]Tiles` -> `ITargetsSelector` slot 2 `Count`/1, le corps
+    PARTAGE par les regles dynamiques « tuiles de mouvement du caster » (#287-r5-r1).
+
+    L'ARBRE natif, identique aux deux call-sites qui l'empruntent :
+
+        DSLSelectors$$TilesUnitCanMoveToChargeTarget( caster@0x48, casterTiles@0x50, target@0x78,
+                                                      <formule>(GetNumberConstant(0x16 range)),
+                                                      ignoreFlags )
+        = CanAddUnit(AdjacentTiles(target))  op_BitwiseAnd  MovableTilesInRange(caster, casterTile,
+                                                                                range, ignoreFlags,
+                                                                                ignoreUnitsOnTiles=0)
+
+    `IdunBattleLogic.Entities.DSLFormulas$$Direct` (VigilanceEternal) et `$$Get` (LeadingTheCharge)
+    ont le MEME corps -- les deux allouent la meme classe de formule et l'initialisent par
+    `(amount, 0)`. La difference de nom ne porte donc AUCUNE difference de valeur ; c'est LU, pas
+    suppose.
+
+    ⚠ CE N'EST PAS UN COLLAPSE IMPERATIF : on evalue l'ARBRE DSL
+    (`tiles_unit_can_move_to_charge_target`, mirror 1:1 deja porte), exactement comme
+    `WaaaghAbility.get_dynamic_invalid_target_reason`. `Count(entities)` = `Select(entities).Count`
+    (`IdunBattle.DSL.TargetsSelector$$Count`, qui appelle le vslot `Select` puis
+    `ICollection.get_Count`) et, le selecteur etant `ReturnsOnlyTiles`, il coincide avec le
+    `SelectTiles(entities).Count` qu'emprunte VigilanceEternal.
+
+    `None` = SUBSTRAT ABSENT (cible non resolue, `constants.range` illisible) -- l'appelant rend
+    alors `0`, la degradation permissive du module ; jamais un refus fabrique."""
+    from ....entities.selectors import Caster, CasterTile, SelectTile, Target
+    from ....entities.effects.magnitude import Const
+    from ....entities.selectors.tiles import tiles_unit_can_move_to_charge_target
+    from .behaviours import entities_from_state
+    import gameconfig as GC
+    if target_id is None or state.get_entity(int(target_id)) is None:
+        return None
+    raw = ((GC.ability(ability_id) or {}).get("constants") or {}).get(ABILITY_CONSTANT_RANGE)
+    if raw is None:
+        return None
+    try:
+        rng = int(raw)                                  # GetNumberConstant(0x16 = range)
+    except (TypeError, ValueError):
+        return None
+    # `MovableTilesInRangeSelector$$Select` resout son `unitTileSelector` (+0x28) par
+    # `TargetsSelector$$SelectTile` -- UNE tuile de depart, pas l'empreinte (#459).
+    sel = tiles_unit_can_move_to_charge_target(Caster(), SelectTile(CasterTile()), Target(),
+                                               Const(rng), ignore_flags=ignore_flags)
+    return len(sel.evaluate(entities_from_state(state, int(caster_id), int(target_id))))
+
+
+def _dynamic_rule_leading_the_charge(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.LeadingTheChargeAbility$$GetDynamicInvalidTargetReason`
+    (1204, `bloodDante` MoW `mowDreadnought`) -- MIRROR du decompile, qui tient en deux lignes :
+
+        ents = AbilityEntities(caster, caster, target, caster, ..., casterTiles, ..., targetTiles, ...)
+        return LeadingTheChargeAbility$$GetPossibleMoveTiles().<slot 2 Count/1>(ents) > 0
+               ? 0 : 0x8000000;                          // TargetingRule.TargetIsInRange
+
+    `GetPossibleMoveTiles` = `TilesUnitCanMoveToChargeTarget(caster@0x48, casterTiles@0x50,
+    target@0x78, Get(GetNumberConstant(0x16 range)), ignoreFlags = 0)` -- l'octet `ignoreFlags` est
+    NUL au call-site (`in_stack << 8`), CONTRASTE avec VigilanceEternal qui passe 1.
+
+    SEMANTIQUE, avec le masque `0x102004032` : Dante charge sa cible, donc il faut qu'une tuile
+    LIBRE adjacente a la cible soit atteignable en <= `range` pas. `TargetIsNotAdjacent` (0x100000000)
+    du volet STATIQUE ecarte deja la cible au contact ; cette regle-ci exige la CHARGEABILITE.
+
+    ⚠ AUCUN court-circuit d'adjacence, a la difference de VigilanceEternal : le natif appelle le
+    selecteur inconditionnellement. Les deux regles ne sont donc PAS interchangeables, alors qu'elles
+    partagent le meme etage.
+
+    Cible non resolue / `range` illisible -> `0` : on ne fabrique pas un refus sur un substrat que le
+    port n'a pas mesure (convention permissive du module)."""
+    n = charge_tiles_count(state, caster_id, target_id, "LeadingTheCharge", ignore_flags=False)
+    if n is None:
+        return 0
+    return 0 if n > 0 else int(TR.TargetIsInRange)
+
+
 DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.AdaptiveStrategy: _dynamic_rule_adaptive_strategy,      # 1005
     ActiveAbilityType.FoulInfusion: _dynamic_rule_foul_infusion,              # 1038
     ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
     ActiveAbilityType.LightOfSanguinius: _dynamic_rule_light_of_sanguinius,   # 1177
     ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
+    ActiveAbilityType.LeadingTheCharge: _dynamic_rule_leading_the_charge,     # 1204
 }
 
 

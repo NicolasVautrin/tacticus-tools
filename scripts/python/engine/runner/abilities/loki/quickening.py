@@ -238,6 +238,89 @@ class TheQuickeningAbility(ActiveAbility):
         | TR.CasterHas1Tiles
     ), range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
 
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetDynamicInvalidTargetReason`
+        (#287-r5-r1) -- MIRROR du decompile :
+
+            range = Configuration.GetNumberConstant(0x16 range);
+            sel   = DSLSelectors$$MovableTilesInRange(caster@0x48, casterTile@0x50, Direct(range),
+                                                      ignoreFlags = 1, ignoreUnitsOnTiles = 1);
+            sel   = sel op_Subtraction DSLSelectors$$Enemies(caster@0x48, sel, 3);
+            ents  = AbilityEntities(caster, caster, target, ..., casterTiles, ...);
+            if (!sel.SelectTiles(ents).<ICollection slot 4 Contains>(target)) return 0x8000000;
+            unit = UnitExtensions$$GetUnit(target, state@0x18);
+            if (unit == null) return 0;
+            if (GetFeetCount(unit) != GetFeetCount(caster)) return 2;
+            return 0;
+
+        `0x8000000` = `TargetingRule.TargetIsInRange`, `2` = `TargetingRule.TargetMatchesDynamicRule`.
+        Les deux slots sont LUS dans `data/symbols/<build>/metadata/interface_slots.tsv`
+        (`ITargetsSelector 10 SelectTiles 1`, et `ICollection<T>` slot 4 = `Contains`).
+
+        SEMANTIQUE, avec le masque TILE-TARGET `0x806000042` : le caster ne peut se teleporter que
+        sur une tuile atteignable en `range` = 2 pas ; et s'il y a quelqu'un dessus, l'ECHANGE exige
+        la MEME EMPREINTE des deux cotes (`GetFeetCount` = `GetUnitFeetIds(unit).Count`, le NOMBRE de
+        pieds -- pas une taille de stat). Un heros a 1 pied ne peut donc pas echanger sa place avec
+        une MoW multi-hex, et inversement.
+
+        ⚠ `ignoreUnitsOnTiles = 1`, LU au call-site (`CONCAT71(..., 1)` en 6e argument) -- c'est le
+        SEUL des call-sites portes qui le pose. Il desarme le `IsFreeTile(allowAnyUnit)` du
+        `RemoveAll` de `MovementQuery$$AnyOrFillMoveableTiles`, donc l'ensemble rendu inclut les
+        tuiles OCCUPEES : sans lui, aucune tuile d'echange ne serait jamais ciblable. Le port le
+        propage au noeud `MovableTilesInRange` (qui rend alors le `visited` du BFS, cf. sa docstring).
+
+        ⚠ LE `op_Subtraction` DES ENNEMIS EST INERTE, ET C'EST UNE LECTURE, PAS UN OUBLI.
+        `IdunBattleLogic.Entities.DSLSelectors$$Enemies(of, entities, 3)` construit un
+        `UnitsByTeamSelector` dont `$$CountOrAdd` alimente son resultat par
+        `TargetsSelector$$SelectAllActors` -- lequel RESOUT chaque entite-tuile en son OCCUPANT et
+        ajoute l'UNITE. Le membre droit est donc un ensemble d'entites UNITE, tandis que le gauche
+        (`MovableTilesInRange`) est un ensemble d'entites TUILE ; or
+        `IdunBattle.DSL.CombinedSelector$$SelectExclusion` compare par identite d'entite
+        (`ICollection.Contains` sur la liste de droite). Aucune tuile n'y est donc retiree.
+        Cote port l'inertie EMERGE de la meme cause -- `Enemies.select` filtre `isinstance(u, dict)`
+        et les ids de tuile n'en sont pas -- au lieu d'etre codee : le jour ou le natif changerait de
+        domaine, l'arbre porte changerait avec lui. Le `3` est `onlyAlive = true`
+        (`DSLSelectors$$Enemies(this, of, entities, onlyAlive)` delegue en `(onlyAlive & 0xff) + 2`).
+
+        `target_id` est un id de TUILE (cast tile-target) : `Contains` se lit donc directement sur
+        l'ensemble d'ids que rend le noeud. Tuile hors board / `range` illisible -> `0` (convention
+        permissive du module ; le natif, lui, n'atteint cette regle que sur une tuile enumeree)."""
+        from ....entities.effects.magnitude import Const
+        from ....entities.selectors import (Caster, CasterTile, Enemies, MovableTilesInRange,
+                                            SelectTile, Sub)
+        from ..behaviours import entities_from_state
+        from ..targeting import unit_of_entity
+        from ...components import get_feet_count
+        board = getattr(state, "board", None)
+        if target_id is None or board is None or int(target_id) not in getattr(board, "by_id", {}):
+            return 0
+        raw = ((GC.ability(self.ABILITY_ID) or {}).get("constants") or {}).get("range")
+        if raw is None:
+            return 0
+        try:
+            rng = int(raw)                              # GetNumberConstant(0x16 = range)
+        except (TypeError, ValueError):
+            return 0
+        # `MovableTilesInRangeSelector$$Select` resout son `unitTileSelector` (+0x28) par
+        # `TargetsSelector$$SelectTile` -- UNE tuile de depart, pas l'empreinte (#459).
+        pool = MovableTilesInRange(Caster(), SelectTile(CasterTile()), Const(rng),
+                                   ignore_flags=True, ignore_units_on_tiles=True)
+        # Le natif re-utilise LA MEME instance des deux cotes du `op_Subtraction` (`pvVar6`).
+        sel = Sub(pool, Enemies(pool))
+        ents = entities_from_state(state, int(caster_id), None)
+        if int(target_id) not in {int(t) for t in sel.evaluate(ents)}:
+            return int(TR.TargetIsInRange)
+        # `UnitExtensions$$GetUnit(target, state@0x18)` : sur une TUILE le natif rend son OCCUPANT
+        # (foyer `targeting.unit_of_entity`). Le CASTER lui-meme en fait partie -- le natif ne
+        # l'exclut pas, et sur sa propre tuile les deux `GetFeetCount` coincident donc a `0`.
+        occupant = unit_of_entity(state, int(target_id))
+        if occupant is None:                            # `GetUnit(target) == null` -> 0
+            return 0
+        if get_feet_count(state, occupant) != get_feet_count(state, int(caster_id)):
+            return int(TR.TargetMatchesDynamicRule)
+        return 0
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         board = getattr(state, "board", None)

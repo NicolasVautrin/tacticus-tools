@@ -34,7 +34,8 @@ from ...utilities.utility_type import UtilityType
 from ..components import OwnerComponent, PositionComponent, UnitComponent, StatsComponent
 from ..operations.spawn import spawn_decoy, _spawn_config_grot
 from .base import ActiveAbility
-from .targeting import RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions,
+                        are_entities_adjacent, charge_tiles_count, entity_tiles)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, MoveUnit, ChangeStat,
                          PerformAIAction, LiveUnit)
@@ -663,6 +664,48 @@ class VigilanceEternalAbility(ActiveAbility):
         | TR.AllowObscuredTargetByWalls
         | TR.TargetIsNotAnObject
     ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetDynamicInvalidTargetReason`
+        (#287-r5-r1) -- MIRROR du decompile :
+
+            if (battleQuery.<slot 0x62 AreEntitiesAdjacent/2>(casterTiles, targetTiles)) return 0;
+            sel = VigilanceEternalAbility$$GetPossibleMovementTiles();
+            return sel.<slot 10 SelectTiles/1>(ents).Count < 1 ? 0x8000000 : 0;
+
+        `0x8000000` = `TargetingRule.TargetIsInRange` ; `battleQuery` = `AActiveAbility+0x20` ; les
+        deux slots sont LUS dans `data/symbols/<build>/metadata/interface_slots.tsv`
+        (`IBattleQuery 98 AreEntitiesAdjacent 2`, `ITargetsSelector 10 SelectTiles 1`).
+
+        SEMANTIQUE : Tyrith accepte une cible DEJA au contact (le `Not(IsAdjacent)` de la behaviour
+        saute alors le MOVE) ; sinon il faut qu'elle soit CHARGEABLE ce tour-ci, c'est-a-dire qu'une
+        tuile libre adjacente a la cible soit atteignable en <= `range` = 2 pas.
+
+        LE COURT-CIRCUIT D'ADJACENCE EST PROPRE A 1202 -- `LeadingTheChargeAbility` (1204) partage le
+        MEME etage sans lui, et son masque porte en prime `TargetIsNotAdjacent`. Les deux regles ne
+        sont donc pas interchangeables.
+
+        `GetPossibleMovementTiles` passe `ignoreFlags = 1` (`CONCAT71(..., 1)` au call-site), la ou
+        1204 passe `0`. ⚠ TERME NON EXERCE, cause MESUREE : `ignore_flags` ne touche que la garde
+        d'entree `UnitFlagsComponent$$Has(unitFlags, 1)` de
+        `MovementQuery$$FindAnyOrAllMoveableTiles`, et `unitFlags` n'a AUCUN substrat cote port
+        (residu #381, deja nomme dans `MovableTilesInRange`) -- les deux valeurs rendent donc le meme
+        ensemble ici. Le parametre est PROPAGE quand meme : le jour ou le substrat existe, les deux
+        call-sites divergeront comme le natif.
+
+        `are_entities_adjacent` prend les DEUX EMPREINTES (`AreEntitiesAdjacent(IList, IList)`), pas
+        deux MainTiles -- meme foyer que `_dynamic_rule_blood_chalice`. Cible non resolue -> `0`
+        (convention permissive du module)."""
+        if target_id is None or state.get_entity(int(target_id)) is None:
+            return 0
+        if are_entities_adjacent(state.board, entity_tiles(state, int(caster_id)),
+                                 entity_tiles(state, int(target_id))):
+            return 0
+        n = charge_tiles_count(state, caster_id, target_id, self.ABILITY_ID, ignore_flags=True)
+        if n is None:
+            return 0
+        return int(TR.TargetIsInRange) if n < 1 else 0
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
