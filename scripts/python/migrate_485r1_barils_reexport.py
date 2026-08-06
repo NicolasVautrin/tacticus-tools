@@ -65,6 +65,19 @@ EX_VERT, EX_ROUGE, EX_PAS_MESURE = 0, 1, 2
 LARGEUR = 99
 
 
+def lignes_de(src: str) -> list[str]:
+    """Decoupe en lignes AU SENS DE `ast`, c'est-a-dire sur `\\n` SEULEMENT.
+
+    ⚠ NE JAMAIS EMPLOYER `str.splitlines()` ICI, et c'est une panne MESUREE (2026-08-06) :
+    `splitlines()` coupe AUSSI sur le form feed `\\x0c`, la tabulation verticale, `\\x1c`,
+    `\\u2028`... `ast`, lui, ne compte que les `\\n`. Un seul `\\f` -- il y en a un dans un
+    commentaire d'`engine/runner/abilities/blacklegion.py` -- decale donc de +1 TOUS les
+    `lineno` suivants, et la re-ecriture remplace la mauvaise plage. Effet mesure :
+    **7 fichiers** rendus non parsables, dont un << unterminated string literal >> qui
+    n'accusait rien de ce qui etait reellement en cause."""
+    return src.split("\n")
+
+
 class Refus(enum.Enum):
     """Motifs de NON-reecriture. Un ENUM, pas une chaine libre : le compte par motif est une
     PARTITION du refus, et un cas inconnu sort en `AUTRE` plutot que de disparaitre."""
@@ -159,9 +172,16 @@ def existe_module(mod: str, racine: Path) -> bool:
     return hit
 
 
-def _noms_references(arbre: ast.Module) -> set[str]:
-    """Noms REFERENCES dans le fichier hors des imports eux-memes, plus le contenu litteral
-    d'`__all__`. Sert a distinguer un import UTILISE d'un import a EFFET DE BORD PUR."""
+def _noms_references(arbre: ast.Module, avec_all: bool = True) -> set[str]:
+    """Noms REFERENCES dans le fichier hors des imports eux-memes, plus, si `avec_all`, le
+    contenu litteral d'`__all__`.
+
+    ⚠ LES DEUX APPELANTS N'ONT PAS BESOIN DU MEME PERIMETRE, et les confondre a failli annuler
+    la tranche. Pour classer un import a EFFET DE BORD PUR, `__all__` compte : un nom qui y
+    figure est bien SERVI par le baril. Pour la VIDANGE, il ne compte pas -- sinon tout symbole
+    exporte se declare << utilise >> par le seul fait d'etre exporte, et le baril ne peut
+    JAMAIS se vider. Mesure : **8** re-exports retirables avec `__all__` compte, contre des
+    centaines sans."""
     vus: set[str] = set()
     for n in ast.walk(arbre):
         if isinstance(n, (ast.Import, ast.ImportFrom)):
@@ -174,14 +194,15 @@ def _noms_references(arbre: ast.Module) -> set[str]:
                 racine = racine.value
             if isinstance(racine, ast.Name):
                 vus.add(racine.id)
-    for n in arbre.body:
-        cibles = n.targets if isinstance(n, ast.Assign) else ([n.target] if isinstance(
-            n, ast.AnnAssign) else [])
-        if any(isinstance(t, ast.Name) and t.id == "__all__" for t in cibles):
-            val = n.value
-            if isinstance(val, (ast.List, ast.Tuple)):
-                vus |= {e.value for e in val.elts
-                        if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+    if avec_all:
+        for n in arbre.body:
+            cibles = n.targets if isinstance(n, ast.Assign) else ([n.target] if isinstance(
+                n, ast.AnnAssign) else [])
+            if any(isinstance(t, ast.Name) and t.id == "__all__" for t in cibles):
+                val = n.value
+                if isinstance(val, (ast.List, ast.Tuple)):
+                    vus |= {e.value for e in val.elts
+                            if isinstance(e, ast.Constant) and isinstance(e.value, str)}
     return vus
 
 
@@ -461,7 +482,7 @@ def reecrire_fichier(p: Path, sites: list[Site], barils: dict[str, Baril],
                      racine: Path) -> tuple[list[str] | None, list[tuple[int, str, Refus]]]:
     """Rend (lignes reecrites | None si rien a faire, refus supplementaires)."""
     src = p.read_text(encoding="utf-8")
-    lignes = src.splitlines()
+    lignes = lignes_de(src)
     refus: list[tuple[int, str, Refus]] = []
     edits: list[tuple[int, int, list[str]]] = []
     for s in sorted(sites, key=lambda x: -x.ligne):
@@ -470,7 +491,7 @@ def reecrire_fichier(p: Path, sites: list[Site], barils: dict[str, Baril],
         indent = seg[:len(seg) - len(seg.lstrip())]
         fin_com, intercale = _commentaires("\n".join(
             l[len(indent):] if l.startswith(indent) else l.lstrip()
-            for l in seg.splitlines()))
+            for l in lignes_de(seg)))
         if intercale:
             refus.append((s.ligne, s.baril, Refus.COMMENTAIRE_INTERCALE))
             continue
@@ -676,6 +697,15 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
             if isinstance(n, ast.ImportFrom):
                 cible = cible_absolue(mod, n, racine)
                 if cible in barils:
+                    #: ⚠ UN `import *` RECLAME TOUT LE BARIL, et l'oublier ne rate pas un cas
+                    #: rare : c'est un vidage qui compile parfaitement et casse a l'IMPORT.
+                    #: Mesure -- `engine/dsl/nodes.py` fait `from ...entities.selectors
+                    #: import *` ; vider les 100 re-exports de ce baril a fait tomber
+                    #: `dsl.Damageable`, donc 6 modules non chargeables, dont tout
+                    #: `engine.playbook`. Le refus cote CONSOMMATEUR (on ne reecrit pas une
+                    #: etoile) ne suffisait pas : il faut aussi la compter cote VIDANGE.
+                    if any(a.name == "*" for a in n.names):
+                        reclames[cible] |= set(barils[cible].exports)
                     reclames[cible] |= {a.name for a in n.names}
             elif isinstance(n, ast.Import):
                 # `import engine.entities as E` puis `E.StatType` : l'acces est ATTRIBUTAIRE,
@@ -691,13 +721,13 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
             continue
         src = b.chemin.read_text(encoding="utf-8")
         arbre = ast.parse(src)
-        utilises = _noms_references(arbre)
+        utilises = _noms_references(arbre, avec_all=False)
         demandes = reclames.get(nom, set())
         retirables = {s for s in b.exports if s not in demandes and s not in utilises}
         if not retirables:
             bilan.append((nom, 0, len(b.exports)))
             continue
-        lignes = src.splitlines()
+        lignes = lignes_de(src)
         edits: list[tuple[int, int, list[str]]] = []
         for n in arbre.body:
             if not isinstance(n, ast.ImportFrom):
@@ -732,7 +762,9 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
         for deb, fin, neuf in sorted(edits, key=lambda e: -e[0]):
             out[deb:fin] = neuf
         if appliquer:
-            b.chemin.write_text("\n".join(out) + "\n", encoding="utf-8")
+            # `lignes_de` garde le dernier element VIDE d'un fichier termine par `\n` : le
+            # rajouter ici creerait une ligne blanche a chaque passage.
+            b.chemin.write_text("\n".join(out), encoding="utf-8")
         bilan.append((nom, len(retirables), len(b.exports) - len(retirables)))
     return bilan
 
@@ -822,6 +854,10 @@ def main(argv: list[str]) -> int:
                          "`charger_tout()` deja cablee -- sinon le registre se vide en SILENCE.")
     ap.add_argument("--refus", action="store_true", help="liste INTEGRALE des refus et de la "
                                                          "table")
+    ap.add_argument("--baril", action="append", default=None, metavar="engine.X",
+                    help="ne traiter QUE ce(s) baril(s). Repetable. Sert a mesurer si le "
+                         "sweep est ADDITIF baril par baril -- il ne l'est pas, et c'est "
+                         "cette option qui l'etablit plutot qu'un avis.")
     a = ap.parse_args(argv)
 
     racine = a.racine.resolve()
@@ -835,6 +871,12 @@ def main(argv: list[str]) -> int:
         print("  recensement VIDE -- ce n'est pas un zero, c'est un capteur muet.")
         return EX_PAS_MESURE
     exclure = set() if a.inclure_registres else {k for k, v in barils.items() if v.registre}
+    if a.baril:
+        inconnus = [x for x in a.baril if x not in barils]
+        if inconnus:
+            print("PAS MESURE : baril(s) inconnu(s) : %s" % ", ".join(inconnus))
+            return EX_PAS_MESURE
+        exclure |= set(barils) - set(a.baril)
 
     _imprimer_inventaire(barils, exclure, a.refus)
     if a.commande == "inventaire":
@@ -889,7 +931,7 @@ def main(argv: list[str]) -> int:
         total_sym += sum(len(s.symboles) for s in lot)
         ecrits += 1
         if a.appliquer:
-            p.write_text("\n".join(neuf) + "\n", encoding="utf-8")
+            p.write_text("\n".join(neuf), encoding="utf-8")
     print("\n  RE-ECRITURE : %d symbole(s) dans %d fichier(s)%s"
           % (total_sym, ecrits, " -- ECRIT" if a.appliquer else " -- marche a blanc"))
     _imprimer_refus(refus, "REFUS cote consommateur", a.refus)
