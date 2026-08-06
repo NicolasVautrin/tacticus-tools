@@ -27,6 +27,16 @@ natif rend `0x4000 | 0x2` teste donc les DEUX etages a la fois -- c'est voulu, e
 qu'un test du bit isole. Les cibles ou le natif refuse SANS le bit dynamique sont comptees a part
 (`hors_regle`) : elles ne disent rien de cette tranche.
 
+⚠ ET L'ORACLE PEUT NE PAS AVOIR TRAVERSE LA CASCADE DU TOUT (#287-r6). `abilityReason` appelle
+`IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason`, qui refuse EN AMONT -- code `1`,
+`TargetingRule.ValidRequest` -- des que l'ability est indisponible. Le port, lui, mirror
+`IdunBattle.Operations.ActiveAbilityOperation$$IsInvalidTarget`, qui n'a pas cet etage. Confronter
+les deux dans ce regime compare deux fonctions natives differentes : c'est ce qui avait fait
+compter QUATRE violations `SquigMine` (natif `0x1`, port `0x1000`) alors que la cascade, une fois
+traversee, rend `0x1000` DES DEUX COTES. Le module `oracle_targeting` porte le cran : le
+discriminant est `casterReason`, qui porte le meme etage sans dependre de la cible, et la parade
+est de laisser RETOMBER le cooldown initial -- pas d'exclure la mesure.
+
 Usage (session warmee ; le probe monte et DISPOSE son propre runner) :
     python scripts/python/probe_287r4r1_generalisation_live.py
     python scripts/python/probe_287r4r1_generalisation_live.py --board C1_02 --p-mow tyranBiovore
@@ -44,6 +54,7 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+import oracle_targeting as O                                               # noqa: E402
 import probe_27_custom_utility_inventory as INV                            # noqa: E402
 import probe_287r4r1_dynamic_target_rules as P                             # noqa: E402
 from engine.entities.active_ability_type import ActiveAbilityType          # noqa: E402
@@ -122,11 +133,20 @@ def mesurer(rid: int, ctx=None) -> dict:
 
     state = load_state(dec, ob, snap, board=board)
     out = {"exact": [], "permissif": [], "viol": [], "hors_regle": [], "accord_zero": [],
-           "absents": [], "cibles": 0}
+           "absents": [], "court_circuite": [], "cibles": 0}
     for at, vis in PORTEES:
         caster = by_vis.get(vis)
         if caster is None:
             out["absents"].append((at, vis))
+            continue
+        # CRAN D'ORACLE (#287-r6), AVANT toute cible et une SEULE fois : `casterReason` porte le
+        # meme etage amont qu'`AttackQuery$$GetInvalidTargetReason` sans dependre de la cible. S'il
+        # a mordu, les `targetReason` de ce couple valent `ValidRequest` pour TOUTE cible et ne
+        # disent rien du ciblage -- les confronter au port compte des violations qui n'existent pas.
+        r0 = _rpc("abilityReason", {"runnerId": rid, "casterId": caster["id"],
+                                    "abilityType": at}, 60000) or {}
+        if O.oracle_court_circuite(r0):
+            out["court_circuite"].append((at, vis, O.cause_du_court_circuit(r0)))
             continue
         ab = P._porteur(at)
         for tid, libelle in _cibles_pour(at, alive, bg_tiles, occupees):
@@ -176,7 +196,22 @@ def main() -> int:
         print("[287r4r1-gen] PAS MESURE : build KO (state-file absent)")
         return 2
     rid = int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"])
+    debloc = "non necessaire"
     try:
+        # DEBLOCAGE PREALABLE (#287-r6) -- avant de figer le contexte. Les ids a
+        # `constants.initialCooldownTurns >= 1` (15 au registre, dont `1201 SquigMine`) demarrent
+        # avec `ActiveAbility.Cooldown >= 1` : `AttackQuery` refuse alors EN AMONT et l'oracle ne
+        # traverse jamais la cascade, quel que soit le board. On laisse RETOMBER le cooldown --
+        # exclure ces couples les laisserait non confrontes pour toujours (un zero de METHODE).
+        # Le tour n'est joue QUE si un porteur present est reellement concerne : sans cela, le
+        # substrat des couples deja mesurables changerait pour rien.
+        dec0 = _rpc("decisionView", {"runnerId": rid, "allAbilities": True})
+        vus = {u.get("visualId") for u in (dec0.get("units") or [])}
+        vus |= {m.get("visualId") for m in (dec0.get("mows") or [])}
+        bloques = [(at, vis) for at, vis in PORTEES
+                   if vis in vus and (O.cooldown_initial(at) or 0) >= 1]
+        if bloques:
+            debloc = O.rendre_oracle_passant(_rpc, rid) or "OK (un tour joue)"
         ctx = _contexte(rid)
         res = mesurer(rid, ctx)
         # ATTRIBUTION, systematique et non optionnelle. On re-mesure les QUATRE regles DESARMEES :
@@ -200,9 +235,13 @@ def main() -> int:
 
     print("[287r4r1-gen] board=%s seed=%d runner=%d -- %d couples (caster, cible) confrontes"
           % (a.board, a.seed, rid, res["cibles"]))
+    print("  deblocage prealable du cooldown initial (#287-r6) : %s" % debloc)
     for at, vis in res["absents"]:
         print("  PORTEUR ABSENT de ce montage : %d (%s) -- non confronte ICI, pas 'non confrontable'"
               % (at, vis))
+    for at, vis, cause in res["court_circuite"]:
+        print("  ORACLE COURT-CIRCUITE EN AMONT : %d (%s) -- %s. `AttackQuery` rend ValidRequest "
+              "pour TOUTE cible : NON CONFRONTE, et surtout pas une violation" % (at, vis, cause))
     print("  accord sur ZERO (natif accepte, port accepte)      : %d" % len(res["accord_zero"]))
     print("  REFUS REPRODUITS A L'IDENTIQUE, bit dynamique POSE : %d" % len(res["exact"]))
     for r in res["exact"][:10]:
@@ -232,7 +271,15 @@ def main() -> int:
     if not non_vide:
         print("  !! le bit dynamique n'a mordu sur AUCUNE cible : ce montage ne teste pas la "
               "tranche -- deplacer les unites ou changer de porteur, ne PAS lire ce vert")
-    ok = not imputables and non_vide and len(temoin["exact"]) < len(res["exact"])
+    # UN COUPLE PRESENT MAIS NON CONFRONTE FAIT ROUGIR (#287-r6), et ce n'est pas une severite
+    # gratuite : le deblocage a justement pour but de le rendre mesurable. S'il en reste un, la
+    # mesure N'A PAS EU LIEU -- l'ecarter en silence rendrait le meme vert trompeur que celui qui
+    # comptait ces couples en violations. Un porteur ABSENT du montage, lui, reste hors verdict.
+    if res["court_circuite"]:
+        print("  !! %d couple(s) present(s) restent NON CONFRONTES apres deblocage : la mesure "
+              "n'a pas eu lieu pour eux, ne PAS lire ce vert" % len(res["court_circuite"]))
+    ok = (not imputables and non_vide and len(temoin["exact"]) < len(res["exact"])
+          and not res["court_circuite"])
     print("[287r4r1-gen] VERDICT : %s" % ("OK" if ok else "FAUTES"))
     return 0 if ok else 1
 
