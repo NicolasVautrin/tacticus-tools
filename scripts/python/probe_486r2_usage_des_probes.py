@@ -771,6 +771,30 @@ def mentions_du_texte(txt: str, idx: dict) -> set:
     return out
 
 
+#: Un chemin de script cite dans une chaine EXECUTABLE (argv de subprocess, chemin construit).
+RE_CIBLE_PY = re.compile(r"[A-Za-z_][A-Za-z0-9_.\-/\\]*\.py")
+
+
+def cibles_py_absentes(tree: ast.AST, moi: str, noms_py: set) -> set:
+    """Les `.py` qu'une chaine EXECUTABLE de ce module designe et que l'arbre ne porte PAS.
+
+    QUATRIEME mode de mort exploré : un probe dont le script appele par `subprocess` a disparu ne
+    peut plus rien faire, quels que soient ses imports. NON FATAL, et la mesure dit pourquoi : sur
+    le depot reel, les seuls noms introuvables sont les fichiers SYNTHETIQUES des auto-epreuves
+    (`x.py`, `cible.py`, `mutant_ampute.py`...), qui n'existent que dans un tmpdir a l'execution.
+    En faire un critere fabriquerait des rouges sur les cliquets les mieux gardes du depot.
+    """
+    exclus = _ids_docstrings(tree)
+    out = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in exclus:
+            for m in RE_CIBLE_PY.finditer(n.value):
+                base = m.group(0).replace("\\", "/").rsplit("/", 1)[-1]
+                if base != moi and base not in noms_py:
+                    out.add(m.group(0))
+    return out
+
+
 def _ids_docstrings(tree: ast.AST) -> set:
     """`id()` des `Constant` str qui sont des DOCSTRINGS ou des chaines FLOTTANTES.
 
@@ -1096,6 +1120,148 @@ def contre_epreuve_reelle(probes, arbre: Arbre, ctx: Contexte, verbeux: bool) ->
     return ko, rapport
 
 
+#: Appels de NIVEAU MODULE tenus pour sans effet de bord -- le pre-filtre de `--confronter-import`.
+#: Tout le reste ECARTE le probe de la confrontation et le fait NOMMER : importer un module qui
+#: monte un runner au niveau module laisserait un runner orphelin.
+APPELS_SURS = ("sys.path.insert", "sys.path.append", "print", "warnings.filterwarnings",
+               "logging.basicConfig", "sys.setrecursionlimit", "sys.stdout.reconfigure",
+               "os.environ.setdefault")
+
+
+def _effets_de_module(tree: ast.AST) -> list:
+    """Les appels de niveau module qui ne sont PAS dans `APPELS_SURS`."""
+    mauvais = []
+
+    def visiter(corps):
+        for n in corps:
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            if isinstance(n, ast.If) and "__name__" in _src(n.test):
+                continue
+            if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call):
+                nom = _dotted(n.value.func) or "?"
+                if nom not in APPELS_SURS:
+                    mauvais.append(nom)
+            for champ in ("body", "orelse", "finalbody"):
+                s = getattr(n, champ, None)
+                if isinstance(s, list):
+                    visiter(s)
+            for h in getattr(n, "handlers", []) or []:
+                visiter(h.body)
+
+    visiter(getattr(tree, "body", []))
+    return mauvais
+
+
+def confronter_import(probes, arbre: Arbre, usages: dict, workers: int = 8) -> int:
+    """LE SOL du discriminant : `python -c "import <stem>"` dans un process FRAIS.
+
+    C'est la seule chose qui puisse dire si le verdict STATIQUE ment. Elle n'est PAS jouee a
+    chaque passage -- 800+ process, plusieurs minutes -- mais elle est ICI, dans le probe, et pas
+    dans un scratchpad : une mesure qui ne se rejoue pas n'est plus une mesure au bout d'une
+    semaine.
+
+    Le corps de module s'execute ; `main()` reste sous `if __name__ == "__main__"`, donc rien
+    n'est joue. C'est PUREMENT OFFLINE : aucun runner, aucun RPC -- d'ou le pre-filtre.
+    """
+    import concurrent.futures as cf
+
+    a_faire, ecartes = [], []
+    for rel in probes:
+        tree = arbre.arbre(REPO / rel)
+        if tree is None:
+            ecartes.append((Path(rel).stem, ["source illisible"]))
+            continue
+        m = _effets_de_module(tree)
+        (ecartes if m else a_faire).append((Path(rel).stem, sorted(set(m))[:2]))
+
+    #: Ce qui, dans une trace d'import, accuse le MONTAGE et non le depot -- une entree
+    #: gitignoree qu'un worktree ne voit PAS (invariant 3, troisieme categorie). `host_inputs`
+    #: leve exactement pour ca, et son tri-etat fait son travail : le confondre avec une mort
+    #: ferait accuser le depot d'une panne d'hote. Le motif se cherche dans la trace ENTIERE --
+    #: la derniere ligne d'un message multi-ligne ne porte PAS le nom de l'exception (mesure).
+    MONTAGE = ("HostInputUnavailable", "host_inputs", "TACTICUS_HOST_DATA_ROOT")
+
+    def _un(stem):
+        try:
+            p = subprocess.run([sys.executable, "-c", "import %s" % stem], cwd=str(PYDIR),
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=180)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            return stem, "PANNE", str(exc)[:120], False
+        if p.returncode == 0:
+            return stem, "OK", "", False
+        err = p.stderr or ""
+        lignes = [l for l in err.splitlines() if l.strip()]
+        return stem, "KO", (lignes[-1][:130] if lignes else "?"), any(m in err for m in MONTAGE)
+
+    print("[486r2] CONFRONTATION SOL : %d probe(s) importes en process frais, %d ECARTE(s) "
+          "(effet de module)" % (len(a_faire), len(ecartes)))
+    for stem, m in ecartes:
+        print("        ECARTE  %-54s %s" % (stem, ", ".join(m)))
+    ok, ko = 0, []
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        for stem, etat, msg, montage in ex.map(_un, [s for s, _ in a_faire]):
+            if etat == "OK":
+                ok += 1
+            else:
+                ko.append((stem, etat, msg, montage))
+    print("        %d import(s) REUSSI(s), %d ECHEC(s)" % (ok, len(ko)))
+    desaccords = 0
+    for stem, etat, msg, montage in ko:
+        statique = usages.get(stem, Usage(INDETERMINE)).etat
+        # DESACCORD = le statique dit VIVANT et l'import echoue POUR UNE CAUSE DU DEPOT.
+        marque = "MONTAGE" if montage else "DESACCORD"
+        if not montage and statique == VIVANT:
+            desaccords += 1
+        print("        %-10s %-46s statique=%-12s %s" % (marque, stem, statique, msg))
+    if desaccords:
+        print("  ROUGE  %d desaccord(s) statique/reel : le discriminant MENT." % desaccords)
+    return desaccords
+
+
+def croiser(seaux: dict, usages: dict) -> list:
+    """LA REGLE DU CLIQUET, isolee pour etre TESTABLE : ORPHELIN *et* NON EXECUTABLE.
+
+    C'est le seul croisement qui prouve la mort. << Rien ne le joue >> ne suffit pas : un probe
+    est un instrument A MAIN, et PROSE SEULE est le seau le plus peuple du depot.
+    """
+    return sorted(s for s in seaux[ORPHELIN] if usages[s].etat == MORT)
+
+
+#: Scenarios de la regle du cliquet. Les DEUX sens, pour la meme raison qu'a l'etape 0 : une
+#: regle qui rendrait tout (ou rien) passerait une epreuve unilaterale. `probe_439` garde
+#: << ce cliquet PEUT-il rendre non nul ? >> ; ceci garde << rougit-il sur SON gisement ? >>.
+CAS_REGLE = [
+    ("orphelin ET mort -> ROUGE", {ORPHELIN: ["a"]}, {"a": MORT}, ["a"]),
+    ("orphelin mais VIVANT -> garde (un instrument a main se garde)",
+     {ORPHELIN: ["a"]}, {"a": VIVANT}, []),
+    ("orphelin et INDETERMINE -> garde (on ne supprime jamais sur un doute)",
+     {ORPHELIN: ["a"]}, {"a": INDETERMINE}, []),
+    ("mort mais CITE en prose -> garde (la citation le rend retrouvable)",
+     {ORPHELIN: []}, {"a": MORT}, []),
+]
+
+
+def auto_epreuve_regle(verbeux: bool) -> int:
+    ko = 0
+    for nom, seaux, etats, attendu in CAS_REGLE:
+        obtenu = croiser({ORPHELIN: seaux.get(ORPHELIN, [])},
+                         {k: Usage(v) for k, v in etats.items()})
+        if obtenu != attendu:
+            ko += 1
+            print("  ROUGE  AUTO-EPREUVE (regle) %-58s attendu=%s obtenu=%s"
+                  % (nom[:58], attendu, obtenu))
+        elif verbeux:
+            print("  epreuve ok   (regle) %s" % nom)
+    if not ko:
+        print("[486r2] etape 0b : regle du cliquet -- %d/%d scenarios (%d attendus ROUGES). "
+              "<< Peut rendre non nul >> n'est pas << rougit sur son gisement >> : ceci garde "
+              "le second." % (len(CAS_REGLE), len(CAS_REGLE),
+                              sum(1 for c in CAS_REGLE if c[3])))
+    return ko
+
+
 def auto_epreuve(verbeux: bool) -> int:
     ko = 0
     for nom, fichiers, attendu in CAS:
@@ -1149,9 +1315,12 @@ def main(argv=None) -> int:
     ap.add_argument("--csv", default=None, help="ecrit la ventilation complete (hors data/)")
     ap.add_argument("--sans-pr", action="store_true",
                     help="ne pas interroger `gh` (le corps des PR sort alors NON MESURE)")
+    ap.add_argument("--confronter-import", action="store_true",
+                    help="CONFRONTATION SOL : importe reellement chaque probe en process frais "
+                         "(offline, plusieurs minutes). Hors passage courant.")
     a = ap.parse_args(argv)
 
-    ko = auto_epreuve(a.verbose or a.self_test)
+    ko = auto_epreuve(a.verbose or a.self_test) + auto_epreuve_regle(a.verbose or a.self_test)
     if a.self_test:
         print("[486r2] VERDICT: %s" % ("PASS" if ko == 0 else "FAIL (%d)" % ko))
         return 0 if ko == 0 else 1
@@ -1203,10 +1372,22 @@ def main(argv=None) -> int:
     ko += ko_ce
     for l in rapport_ce:
         print(l)
+    if a.confronter_import:
+        ko += confronter_import(probes, arbre, usages)
 
     # ---- CITATION ----------------------------------------------------------------------
     citants_exec: dict = {s: set() for s in stems}
-    mentionne: set = set()
+    #: QUATRE corpus de mention, pour que la PORTEE du critere soit une mesure et non une
+    #: affirmation. Deux axes : la FORME du nom (prefixe a la frontiere de composant vs stem
+    #: PLEIN) et la SOURCE (l'arbre seul vs l'arbre + ce qui n'y est pas -- messages de commit et
+    #: corps de PR). Le critere retenu est le plus LARGE des quatre : c'est celui qui rend le
+    #: moins d'orphelins, donc celui qui supprime le moins.
+    mentionne: set = set()                # prefixe, arbre + hors-arbre  (retenu)
+    mentionne_plein: set = set()          # stem PLEIN, arbre + hors-arbre
+    ment_arbre: set = set()               # prefixe, arbre seul
+    ment_arbre_plein: set = set()         # stem PLEIN, arbre seul
+    cibles_absentes: dict = {}
+    noms_py = {Path(r).name for r in suivis if r.endswith(".py")}
     chemins = [REPO / r for r in suivis]
     textes = repo_read.read_bytes_many(chemins)
     illisibles = 0
@@ -1225,6 +1406,11 @@ def main(argv=None) -> int:
         moi = Path(rel).stem
         vus.discard(moi)
         mentionne |= vus
+        ment_arbre |= vus
+        for s in vus:
+            if s != moi and s in txt:
+                mentionne_plein.add(s)
+                ment_arbre_plein.add(s)
         if not rel.endswith(".py"):
             if rel.endswith(".ps1"):            # un script PowerShell : pas d'AST, le texte fait foi
                 for s in vus:
@@ -1238,13 +1424,20 @@ def main(argv=None) -> int:
         ex.discard(moi)
         for s in ex:
             citants_exec[s].add(rel)
+        if rel in set(probes):
+            abs_py = cibles_py_absentes(tree, Path(rel).name, noms_py)
+            if abs_py:
+                cibles_absentes[Path(rel).stem] = sorted(abs_py)
     mentionne |= mentions_du_texte(commits, idx)
+    mentionne_plein |= {s for s in mentions_du_texte(commits, idx) if s in commits}
 
     prs, panne_pr = _pull_requests(not a.sans_pr)
     if prs is not None:
         for pr in prs:
-            mentionne |= mentions_du_texte("%s\n%s" % (pr.get("title") or "",
-                                                       pr.get("body") or ""), idx)
+            txt_pr = "%s\n%s" % (pr.get("title") or "", pr.get("body") or "")
+            vus = mentions_du_texte(txt_pr, idx)
+            mentionne |= vus
+            mentionne_plein |= {s for s in vus if s in txt_pr}
 
     seaux = {CLIQUET: [], PAR_TEST: [], PAR_SCRIPT: [], PROSE: [], ORPHELIN: []}
     for s in stems:
@@ -1259,14 +1452,40 @@ def main(argv=None) -> int:
         else:
             seaux[ORPHELIN].append(s)
 
+    print("[486r2] etape 2d : QUATRIEME mode de mort explore -- un `.py` cite dans une chaine "
+          "EXECUTABLE et absent de l'arbre : %d probe(s) concerne(s)%s"
+          % (len(cibles_absentes),
+             (" (%s)" % ", ".join(sorted(cibles_absentes)[:3])) if cibles_absentes else ""))
+    print("           NON FATAL, et la mesure dit pourquoi : ces noms sont les fichiers "
+          "SYNTHETIQUES des auto-epreuves, ecrits dans un tmpdir a l'execution.")
     print("[486r2] etape 3 : CITATION -- corpus = %d fichier(s) suivi(s) (%d illisible(s)), "
           "messages de commit (`--all`), corps des PR : %s"
           % (len(suivis), illisibles,
              ("%d PR lues" % len(prs)) if prs is not None else ("NON MESURE -- %s" % panne_pr)))
+    def _orphelins(corpus) -> list:
+        return sorted(s for s in stems
+                      if s not in banque and not citants_exec[s] and s not in corpus)
+
+    portee = [("PREFIXE + hors-arbre (RETENU)", mentionne),
+              ("PREFIXE, arbre seul", ment_arbre),
+              ("stem PLEIN + hors-arbre", mentionne_plein),
+              ("stem PLEIN, arbre seul", ment_arbre_plein)]
+    print("        PORTEE DU CRITERE DE MENTION -- deux axes, quatre corpus. Le RETENU est le")
+    print("        plus large, donc celui qui rend le MOINS d'orphelins, donc qui supprime le")
+    print("        moins. Un critere plus etroit ne prouve pas une mort, il fabrique un suspect :")
+    for libelle, corpus in portee:
+        print("           %-32s -> %3d orphelin(s)" % (libelle, len(_orphelins(corpus))))
+    orph_strict = _orphelins(ment_arbre_plein)
+    supplement = [s for s in orph_strict if s not in set(seaux[ORPHELIN])]
+    if supplement:
+        print("        les %d probe(s) que seul le critere le plus ETROIT accuse sont LISTES, "
+              "jamais supprimes :" % len(supplement))
+        for s in supplement:
+            print("           suspect sans preuve  %-56s %s" % (s, usages[s].etat))
     _resume(seaux, len(probes))
 
     # ---- CROISEMENT ---------------------------------------------------------------------
-    morts_orphelins = sorted(set(seaux[ORPHELIN]) & set(par_etat[MORT]))
+    morts_orphelins = croiser(seaux, usages)
     print("")
     print("[486r2] etape 4 : CROISEMENT usage x citation")
     for cle in (CLIQUET, PAR_TEST, PAR_SCRIPT, PROSE, ORPHELIN):
@@ -1302,7 +1521,19 @@ def main(argv=None) -> int:
         print("   ventilation ecrite : %s" % dest)
 
     # ---- CLIQUET ------------------------------------------------------------------------
+    #  TRI-ETAT, et son ASYMETRIE, qui est le point : ne pas lire le corps des PR ne peut
+    #  qu'AJOUTER des mentions, donc RETRECIR l'ensemble des orphelins. Un PASS calcule sans `gh`
+    #  reste donc valide -- mais une ACCUSATION, elle, ne l'est pas : le probe accuse pourrait
+    #  n'etre nomme que dans une PR en vol. Un rouge sans `gh` sort en NON MESURE.
     print("")
+    if morts_orphelins and prs is None:
+        print("[486r2] NON MESURE -- %d probe(s) seraient ORPHELIN(s) et MORT(s), mais le corps "
+              "des PR n'a PAS ete lu (%s)." % (len(morts_orphelins), panne_pr))
+        print("        Un probe nomme SEULEMENT dans une PR en vol serait accuse a tort : le")
+        print("        squash-merge ne recopie pas le corps d'une PR dans l'arbre (#468-r11).")
+        for s in morts_orphelins:
+            print("        candidat : %-52s %s" % (s, "; ".join(usages[s].motifs)[:90]))
+        return EX_NON_MESURE
     if morts_orphelins:
         ko += len(morts_orphelins)
         print("[486r2] ROUGE -- %d probe(s) a la fois ORPHELIN(s) et NON EXECUTABLE(s) :"
