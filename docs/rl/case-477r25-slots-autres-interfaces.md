@@ -818,8 +818,8 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
   le second commentaire **et** le nom pleinement qualifié — chacun seul rend **0**. Et
   `probe_477r25` a désormais un **RECENSEUR** : partition **assertionnée** de **651** lignes,
   `autre (<forme>)` **atteignable** (4 lignes), portée chiffrée (**171** lignes en autre casse,
-  invisibles au balayage). Résidu : **#477-r43**.
-- **#477-r43 — les DEUX plus gros tas du recenseur, et l'étage NOM SEUL qui manque à `r25`.**
+  invisibles au balayage). Résidu : **#477-r46**.
+- **#477-r46 — les DEUX plus gros tas du recenseur, et l'étage NOM SEUL qui manque à `r25`.**
   `[opus]` Le recenseur (§ 6quinquies) chiffre pour la première fois ce que `probe_477r25` écarte.
   Trois volets, tous **offline** :
   * **202** lignes `nom_ecarte_par_un_cran` — un nom **de l'interface appariée** est dans la
@@ -861,7 +861,7 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
   Sur les autres interfaces, ces lignes sont **VENTILÉES depuis `#477-r42`** (§ 6quinquies) — et la
   phrase qui figurait ici, « elles n'ont **pas** de nom appariable », était **fausse** : **202**
   d'entre elles en portent un. C'est ce que « pas de recenseur » veut dire, et ce que le suivant
-  reprend sous **#477-r43**.
+  reprend sous **#477-r46**.
 - **Le mot `slot` lui-même reste sensible à la casse** (seul son qualificatif ne l'est plus). Une
   ligne commençant par « Slot 0x12 = … » ne serait pas vue — **171** lignes du dépôt sont dans ce
   cas, chiffrées depuis `#477-r42` par la section `PORTEE DE LA MESURE` du cliquet. Non traité

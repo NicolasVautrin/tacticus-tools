@@ -3126,9 +3126,9 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   **REFUTE par la mesure du regime qu'il decrivait** (l'enumeration reelle est HORIZONTALE). La
   localite du commentaire avait une cause **DOUBLE** (second commentaire **et** nom pleinement
   qualifie ; chacune seule rend **0**). Et `probe_477r25` a enfin un **RECENSEUR**. Residu :
-  **#477-r43**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater et 6quinquies.
+  **#477-r46**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater et 6quinquies.
 
-- **#477-r43 : les DEUX plus gros tas du recenseur neuf, et l'etage NOM SEUL qui manque a `r25`.**
+- **#477-r46 : les DEUX plus gros tas du recenseur neuf, et l'etage NOM SEUL qui manque a `r25`.**
   `[opus]` Tranche 100 % OFFLINE. Le recenseur de `probe_477r25` (ne en #477-r42) chiffre pour la
   premiere fois ce que ce cliquet ecarte -- **651** lignes, partition ASSERTIONNEE. Trois volets :
   (a) **202** lignes `nom_ecarte_par_un_cran` : un nom **de l'interface appariee** est dans la
