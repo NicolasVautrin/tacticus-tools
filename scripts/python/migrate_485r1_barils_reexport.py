@@ -1,0 +1,902 @@
+#!/usr/bin/env python
+"""#485-r1 -- VIDER les barils de re-export d'`engine/`, en marche a blanc par defaut.
+
+LE PROBLEME N'EST PAS LES 262 DIFFERES, C'EST L'UNIQUE CAUSE QUI LES PRODUIT
+---------------------------------------------------------------------------
+Mesure #485 : 314 imports DIFFERES vers `engine.*` ecrits dans `engine/**`, dont 262 PORTEURS.
+Re-mesure de leur RAISON : ~100 % ferment leur boucle par une cascade d'`__init__.py`, une seule
+par une dependance mutuelle REELLE. Python execute l'`__init__` de CHAQUE paquet ancetre avant
+d'atteindre une feuille : `import engine.entities.stats` execute `engine/entities/__init__.py`,
+qui tire `effects` -> `loki` -> ... Toucher une feuille traine donc un millier de modules, et le
+differe est ce qui evite la boucle ainsi creee. Il y a UN probleme, pas 262.
+
+CE QUE CET OUTIL FAIT, DANS CET ORDRE
+-------------------------------------
+    inventaire  derive la table `symbole -> module d'origine` DEPUIS LES BARILS EUX-MEMES
+                (elle y est deja ecrite : c'est ce que chaque `__init__.py` re-exporte),
+                et ENUMERE tout ce qu'il ne sait pas faire.
+    reecrire    `from engine.X import Y` -> `from engine.X.enfant import Y` chez les
+                CONSOMMATEURS. Marche a blanc ; `--appliquer` pour ecrire.
+    vider       retire du baril les re-exports que PLUS PERSONNE ne reclame, et ajuste
+                `__all__`. C'est CE pas qui allege la cascade -- reecrire seul ne change RIEN
+                au graphe, puisque Python execute le paquet parent quoi qu'on ecrive.
+
+⚠ L'ORDRE EST CONTRAIGNANT, et ce n'est pas une preference : `vider` avant `reecrire` casse
+tous les consommateurs. `vider` REFUSE de retirer un symbole encore reclame par un fichier du
+perimetre -- c'est ce refus, et non l'ordre des sous-commandes, qui tient l'invariant.
+
+CE QU'IL NE SAIT PAS FAIRE EST ENUMERE, JAMAIS AVALE
+----------------------------------------------------
+Un outil qui rend << 784 reecrits >> en ayant saute 30 cas en silence est pire qu'un outil qui
+en rend 754 et NOMME les 30. Chaque refus sort avec son motif et son site (`--refus` pour la
+liste integrale). Les motifs sont un ENUM (`Refus`), pas des chaines libres : une liste blanche
+de motifs ne peut pas montrer le motif qu'elle a oublie -- un cas non classe sort en
+`Refus.AUTRE` avec le noeud AST, il ne disparait pas.
+
+LES BARILS A REGISTRE SONT EXCLUS, ET IDENTIFIES MECANIQUEMENT
+--------------------------------------------------------------
+Certains `__init__.py` importent leurs enfants POUR L'EFFET DE BORD : l'enfant s'enregistre au
+chargement (`@register(...)`, `REGISTRY[x] = ...`). Court-circuiter le baril ne leve alors AUCUNE
+erreur -- le registre reste vide et `.get(cle)` rend `None`, exactement la panne que `probe_313`
+etape 5 a mesuree ailleurs. Ils sont donc EXCLUS du remplacement naif, et l'exclusion est
+DERIVEE (imports a effet de bord pur + modules enregistreurs), jamais une liste en dur.
+
+ASCII only (console Windows cp1252).
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import enum
+import io
+import sys
+import tokenize
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+
+#: Racine RESOLUE DEPUIS `__file__`, jamais depuis le CWD -- meme cran que `probe_485`
+#: (`probe_457` a rendu un FAUX `FAIL` pour avoir lu son perimetre depuis le repertoire courant).
+ICI = Path(__file__).resolve().parent
+
+EX_VERT, EX_ROUGE, EX_PAS_MESURE = 0, 1, 2
+
+#: Largeur de ligne visee a la re-ecriture. Au-dela, on passe en forme parenthesee.
+LARGEUR = 99
+
+
+class Refus(enum.Enum):
+    """Motifs de NON-reecriture. Un ENUM, pas une chaine libre : le compte par motif est une
+    PARTITION du refus, et un cas inconnu sort en `AUTRE` plutot que de disparaitre."""
+
+    IMPORT_ETOILE = "from X import * -- la table du baril devient indeterminee"
+    DEFINI_DANS_LE_BARIL = "symbole def/class/assigne DANS l'__init__, il n'a pas d'enfant"
+    BARIL_A_REGISTRE = "baril dont l'import empresse est FONCTIONNEL (registre)"
+    CONFLIT_DE_NOMS = "deux enfants du meme baril exportent ce nom"
+    CHAINE_NON_RESOLUE = "re-export d'un re-export dont le maillon casse"
+    ORIGINE_HORS_ENGINE = "le baril re-exporte un symbole venu de la stdlib / d'un tiers"
+    IMPORT_CONDITIONNEL = "import sous `if`/`try` dans le baril -- l'origine n'est pas garantie"
+    SOUS_MODULE = "le nom importe EST un sous-module, pas un symbole"
+    INCONNU_DU_BARIL = "symbole absent de la table du baril (dynamique ? perime ?)"
+    COMMENTAIRE_INTERCALE = "commentaire a l'interieur de l'import multi-ligne"
+    AUTRE = "cas non classe -- a examiner"
+
+
+@dataclass
+class Origine:
+    """Ou vit REELLEMENT un symbole re-exporte."""
+
+    module: str                      #: module feuille, ex. `engine.entities.stats`
+    nom_amont: str                   #: nom PORTE PAR le module d'origine (avant tout alias)
+    profondeur: int = 1              #: 1 = enfant direct ; >1 = re-export d'un re-export
+
+
+@dataclass
+class Baril:
+    module: str
+    chemin: Path
+    exports: dict[str, Origine] = field(default_factory=dict)
+    refuses: dict[str, Refus] = field(default_factory=dict)
+    definis_ici: set[str] = field(default_factory=set)
+    sous_modules: set[str] = field(default_factory=set)
+    effets_de_bord: list[str] = field(default_factory=list)
+    enregistreurs: list[str] = field(default_factory=list)
+
+    @property
+    def registre(self) -> bool:
+        return bool(self.effets_de_bord or self.enregistreurs)
+
+
+@dataclass
+class Site:
+    """Un import de consommateur vise par la re-ecriture."""
+
+    fichier: Path
+    ligne: int
+    fin: int
+    baril: str
+    symboles: list[tuple[str, str | None]]   #: (nom, asname)
+    differe: bool                            #: ecrit dans un corps de fonction
+    node: ast.ImportFrom
+
+
+# --------------------------------------------------------------------------------------- outils
+
+def nom_module(p: Path, racine: Path) -> str:
+    parts = list(p.relative_to(racine).with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def cible_absolue(mod: str, node: ast.ImportFrom | ast.Import, racine: Path) -> str | None:
+    """Module ABSOLU vise par `node`, `None` si ce n'est pas un `ImportFrom` resoluble.
+
+    ⚠ Pour un `__init__.py`, le module EST son propre paquet : `from .x import Y` y vise
+    `<mod>.x`, pas `<parent>.x`. Le discriminant est l'existence du REPERTOIRE, pas le nom."""
+    if isinstance(node, ast.Import):
+        return None
+    if not node.level:
+        return node.module or None
+    base = mod.split(".")
+    pkg = base if (racine / Path(*base)).is_dir() else base[:-1]
+    if node.level > 1:
+        pkg = pkg[: len(pkg) - (node.level - 1)]
+    return ".".join(pkg + ([node.module] if node.module else []))
+
+
+#: Memoire de `existe_module`. Sans elle, le recenseur de substitutions fait un acces disque
+#: par alias importe et depasse les 120 s sur ~1 200 fichiers -- mesure du 2026-08-06.
+_CACHE_MODULES: dict[tuple[str, str], bool] = {}
+
+
+def existe_module(mod: str, racine: Path) -> bool:
+    cle = (str(racine), mod)
+    hit = _CACHE_MODULES.get(cle)
+    if hit is None:
+        p = racine / Path(*mod.split("."))
+        hit = _CACHE_MODULES[cle] = p.is_dir() or p.with_suffix(".py").is_file()
+    return hit
+
+
+def _noms_references(arbre: ast.Module) -> set[str]:
+    """Noms REFERENCES dans le fichier hors des imports eux-memes, plus le contenu litteral
+    d'`__all__`. Sert a distinguer un import UTILISE d'un import a EFFET DE BORD PUR."""
+    vus: set[str] = set()
+    for n in ast.walk(arbre):
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            continue
+        if isinstance(n, ast.Name):
+            vus.add(n.id)
+        elif isinstance(n, ast.Attribute):
+            racine = n
+            while isinstance(racine, ast.Attribute):
+                racine = racine.value
+            if isinstance(racine, ast.Name):
+                vus.add(racine.id)
+    for n in arbre.body:
+        cibles = n.targets if isinstance(n, ast.Assign) else ([n.target] if isinstance(
+            n, ast.AnnAssign) else [])
+        if any(isinstance(t, ast.Name) and t.id == "__all__" for t in cibles):
+            val = n.value
+            if isinstance(val, (ast.List, ast.Tuple)):
+                vus |= {e.value for e in val.elts
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+    return vus
+
+
+def _est_enregistreur(arbre: ast.Module) -> bool:
+    """Le TOP-LEVEL du module mute-t-il un objet du MOTEUR venu d'AILLEURS ?
+
+    Trois formes, toutes mesurables a l'AST :
+      * appel top-level d'un nom importe d'`engine`   `register(1009, X)`
+      * decorateur dont la racine vient d'`engine`    `@register(...)`
+      * ecriture dans un conteneur d'`engine`         `REGISTRY[k] = v`, `TABLE.update(...)`
+    Un module qui ne fait qu'ecrire ses PROPRES globales n'est pas enregistreur : le retirer de
+    la cascade ne prive personne.
+
+    ⚠ LE FILTRE SUR L'ORIGINE `engine` N'EST PAS COSMETIQUE. Sans lui, `@dataclass` et
+    `@lru_cache` -- des decorateurs de la STDLIB, donc bien << une racine importee >> -- font
+    classer enregistreur a peu pres tout le moteur : premiere mesure, **17 barils sur 25**
+    exclus, dont `engine` lui-meme. Un detecteur qui exclut tout ne protege plus rien, il
+    annule juste la tranche."""
+    importes: set[str] = set()
+    for n in arbre.body:
+        if isinstance(n, ast.ImportFrom):
+            interne = bool(n.level) or (n.module or "").split(".")[0] == "engine"
+            if interne:
+                importes |= {a.asname or a.name for a in n.names}
+        elif isinstance(n, ast.Import):
+            importes |= {(a.asname or a.name.split(".")[0]) for a in n.names
+                         if a.name.split(".")[0] == "engine"}
+
+    def _racine(node) -> str | None:
+        while isinstance(node, (ast.Attribute, ast.Subscript, ast.Call)):
+            node = node.value if not isinstance(node, ast.Call) else node.func
+        return node.id if isinstance(node, ast.Name) else None
+
+    for n in arbre.body:
+        if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call):
+            if _racine(n.value.func) in importes:
+                return True
+        if isinstance(n, (ast.Assign, ast.AugAssign)):
+            cibles = n.targets if isinstance(n, ast.Assign) else [n.target]
+            for t in cibles:
+                if isinstance(t, (ast.Subscript, ast.Attribute)) and _racine(t) in importes:
+                    return True
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            for d in n.decorator_list:
+                if _racine(d) in importes:
+                    return True
+    return False
+
+
+# --------------------------------------------------------- derivation de la table depuis engine
+
+def derive_barils(racine: Path, paquet: str = "engine") -> dict[str, Baril]:
+    """La table `symbole -> module d'origine`, LUE dans les barils. Deux passes : la premiere
+    remplit les origines DIRECTES, la seconde resout transitivement les re-exports de
+    re-exports (un baril qui re-exporte depuis un autre baril)."""
+    racine_pkg = racine / paquet
+    barils: dict[str, Baril] = {}
+    for init in sorted(racine_pkg.rglob("__init__.py")):
+        if "__pycache__" in str(init):
+            continue
+        mod = nom_module(init, racine)
+        src = init.read_text(encoding="utf-8")
+        arbre = ast.parse(src)
+        b = Baril(module=mod, chemin=init)
+        references = _noms_references(arbre)
+
+        #: les imports NON top-level (sous `if TYPE_CHECKING`, `try`) ne fondent pas d'origine :
+        #: leur execution n'est pas garantie.
+        conditionnels = {id(n) for parent in ast.walk(arbre)
+                         if not isinstance(parent, ast.Module)
+                         for n in ast.iter_child_nodes(parent)
+                         if isinstance(n, (ast.Import, ast.ImportFrom))}
+
+        for n in ast.walk(arbre):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                b.definis_ici.add(n.name)
+        for n in arbre.body:
+            cibles = n.targets if isinstance(n, ast.Assign) else ([n.target] if isinstance(
+                n, ast.AnnAssign) else [])
+            b.definis_ici |= {t.id for t in cibles if isinstance(t, ast.Name)}
+
+        for n in ast.walk(arbre):
+            if not isinstance(n, (ast.Import, ast.ImportFrom)):
+                continue
+            conditionnel = id(n) in conditionnels
+            cible = cible_absolue(mod, n, racine)
+            if isinstance(n, ast.Import):
+                # `import engine.p.x` / `import engine.p.x as y` : effet de bord si le nom lie
+                # n'est reference nulle part ailleurs.
+                for a in n.names:
+                    lie = a.asname or a.name.split(".")[0]
+                    if a.name.startswith(paquet) and lie not in references:
+                        b.effets_de_bord.append(a.name)
+                continue
+            for a in n.names:
+                if a.name == "*":
+                    b.refuses["*"] = Refus.IMPORT_ETOILE
+                    continue
+                expose = a.asname or a.name
+                if cible is None:
+                    continue
+                plein = "%s.%s" % (cible, a.name)
+                if existe_module(plein, racine) and not (racine / Path(*cible.split("."))
+                                                         ).is_file():
+                    # `from . import loki_custom` : le nom EST un sous-module.
+                    b.sous_modules.add(expose)
+                    if expose not in references:
+                        b.effets_de_bord.append(plein)
+                    continue
+                if conditionnel:
+                    b.refuses[expose] = Refus.IMPORT_CONDITIONNEL
+                    continue
+                if cible.split(".")[0] != paquet:
+                    b.refuses[expose] = Refus.ORIGINE_HORS_ENGINE
+                    continue
+                if expose in b.exports and b.exports[expose].module != cible:
+                    b.refuses[expose] = Refus.CONFLIT_DE_NOMS
+                    b.exports.pop(expose, None)
+                    continue
+                b.exports[expose] = Origine(module=cible, nom_amont=a.name)
+
+        for s in b.definis_ici:
+            b.exports.pop(s, None)
+            b.refuses.setdefault(s, Refus.DEFINI_DANS_LE_BARIL)
+        barils[mod] = b
+
+    # ---- modules ENREGISTREURS : un enfant qui mute un objet d'ailleurs au chargement
+    for p in sorted(racine_pkg.rglob("*.py")):
+        if "__pycache__" in str(p) or p.name == "__init__.py":
+            continue
+        try:
+            if not _est_enregistreur(ast.parse(p.read_text(encoding="utf-8"))):
+                continue
+        except SyntaxError:
+            continue
+        mod = nom_module(p, racine)
+        parent = mod.rsplit(".", 1)[0]
+        if parent in barils:
+            barils[parent].enregistreurs.append(mod)
+
+    # ---- passe 2 : re-export d'un re-export -> resolution transitive vers la FEUILLE
+    for b in barils.values():
+        for sym, org in list(b.exports.items()):
+            vus, cur, prof = {b.module}, org, org.profondeur
+            while cur.module in barils and cur.module not in vus:
+                vus.add(cur.module)
+                amont = barils[cur.module]
+                if amont.registre:
+                    # on ne court-circuite PAS un registre : la chaine s'arrete ici, et le
+                    # symbole reste servi par le baril intermediaire.
+                    break
+                suivant = amont.exports.get(cur.nom_amont)
+                if suivant is None:
+                    b.refuses[sym] = (Refus.SOUS_MODULE if cur.nom_amont in amont.sous_modules
+                                      else Refus.CHAINE_NON_RESOLUE)
+                    b.exports.pop(sym, None)
+                    cur = None
+                    break
+                prof += 1
+                cur = Origine(module=suivant.module, nom_amont=suivant.nom_amont,
+                              profondeur=prof)
+            if cur is not None:
+                b.exports[sym] = cur
+    return barils
+
+
+# ------------------------------------------------------------------------- sites consommateurs
+
+def recenser_sites(racine: Path, barils: dict[str, Baril],
+                   exclure: set[str]) -> tuple[list[Site], list[tuple[Path, int, str, Refus]]]:
+    """Tous les `from <baril> import ...` du perimetre. Rend (sites, refus)."""
+    sites: list[Site] = []
+    refus: list[tuple[Path, int, str, Refus]] = []
+    for p in sorted(racine.rglob("*.py")):
+        if "__pycache__" in str(p) or p.resolve() == Path(__file__).resolve():
+            continue
+        try:
+            src = p.read_text(encoding="utf-8")
+            arbre = ast.parse(src)
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        mod = nom_module(p, racine)
+        dans_fonction = {id(n) for f in ast.walk(arbre)
+                         if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+                         for n in ast.walk(f) if isinstance(n, ast.ImportFrom)}
+        for n in ast.walk(arbre):
+            if not isinstance(n, ast.ImportFrom):
+                continue
+            cible = cible_absolue(mod, n, racine)
+            if cible is None or cible not in barils or cible == mod:
+                continue
+            b = barils[cible]
+            if any(a.name == "*" for a in n.names):
+                refus.append((p, n.lineno, "%s.*" % cible, Refus.IMPORT_ETOILE))
+                continue
+            if cible in exclure:
+                for a in n.names:
+                    refus.append((p, n.lineno, "%s.%s" % (cible, a.name),
+                                  Refus.BARIL_A_REGISTRE))
+                continue
+            gardables, deplacables = [], []
+            for a in n.names:
+                if a.name in b.exports:
+                    deplacables.append((a.name, a.asname))
+                else:
+                    motif = b.refuses.get(a.name)
+                    if motif is None:
+                        #: ⚠ `from engine import move` ne demande PAS un symbole du baril : il
+                        #: demande le MODULE `engine.move`. Le site est deja a sa forme la plus
+                        #: precise -- il n'y a rien a reecrire, et le compter en
+                        #: `INCONNU_DU_BARIL` gonflait le refus de **867 faux** a la premiere
+                        #: mesure (887 -> 20). Rien ne peut lui epargner l'`__init__` du
+                        #: paquet, que Python execute quoi qu'on ecrive : seule la VIDANGE
+                        #: l'allege.
+                        sous = "%s.%s" % (cible, a.name)
+                        motif = (Refus.SOUS_MODULE
+                                 if a.name in b.sous_modules or existe_module(sous, racine)
+                                 else Refus.INCONNU_DU_BARIL)
+                    refus.append((p, n.lineno, "%s.%s" % (cible, a.name), motif))
+                    gardables.append((a.name, a.asname))
+            if deplacables:
+                sites.append(Site(fichier=p, ligne=n.lineno, fin=n.end_lineno or n.lineno,
+                                  baril=cible, symboles=deplacables,
+                                  differe=id(n) in dans_fonction, node=n))
+                if gardables:
+                    # import MIXTE : on garde une ligne residuelle vers le baril.
+                    sites[-1].symboles = deplacables
+                    sites[-1].node = n
+    return sites, refus
+
+
+# --------------------------------------------------------------------------------- re-ecriture
+
+def _commentaires(segment: str) -> tuple[str | None, bool]:
+    """(commentaire de FIN de segment, y a-t-il un commentaire INTERCALE ?).
+
+    Un `# noqa: F401` ou une raison `(#27)` accrochee a un import doit SURVIVRE a la
+    re-ecriture ; un commentaire au milieu d'un import parenthese, lui, ne peut pas etre
+    reattache mecaniquement -- on refuse le site plutot que de le perdre."""
+    trouves: list[tuple[int, str]] = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(segment).readline):
+            if tok.type == tokenize.COMMENT:
+                trouves.append((tok.start[0], tok.string))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return None, True
+    if not trouves:
+        return None, False
+    dernier_ligne = max(l for l, _ in trouves)
+    fin = " ".join(s for l, s in trouves if l == dernier_ligne)
+    intercale = len(trouves) > sum(1 for l, _ in trouves if l == dernier_ligne)
+    return fin, intercale
+
+
+def _ligne_import(indent: str, module: str, level: int,
+                  noms: list[tuple[str, str | None]], suffixe: str = "") -> list[str]:
+    pts = "." * level
+    membres = ", ".join(n if a is None else "%s as %s" % (n, a) for n, a in noms)
+    tete = "%sfrom %s%s import " % (indent, pts, module)
+    plat = tete + membres + suffixe
+    if len(plat) <= LARGEUR:
+        return [plat]
+    out = ["%s(" % tete]
+    ligne = indent + "    "
+    for i, (n, a) in enumerate(noms):
+        bout = (n if a is None else "%s as %s" % (n, a)) + ("," if i < len(noms) - 1 else "")
+        if len(ligne) + len(bout) + 1 > LARGEUR and ligne.strip():
+            out.append(ligne.rstrip())
+            ligne = indent + "    "
+        ligne += bout + " "
+    out.append(ligne.rstrip())
+    out.append("%s)%s" % (indent, suffixe))
+    return out
+
+
+def reecrire_fichier(p: Path, sites: list[Site], barils: dict[str, Baril],
+                     racine: Path) -> tuple[list[str] | None, list[tuple[int, str, Refus]]]:
+    """Rend (lignes reecrites | None si rien a faire, refus supplementaires)."""
+    src = p.read_text(encoding="utf-8")
+    lignes = src.splitlines()
+    refus: list[tuple[int, str, Refus]] = []
+    edits: list[tuple[int, int, list[str]]] = []
+    for s in sorted(sites, key=lambda x: -x.ligne):
+        seg = "\n".join(lignes[s.ligne - 1:s.fin])
+        # de-indenter pour tokenize (un import differe est indente)
+        indent = seg[:len(seg) - len(seg.lstrip())]
+        fin_com, intercale = _commentaires("\n".join(
+            l[len(indent):] if l.startswith(indent) else l.lstrip()
+            for l in seg.splitlines()))
+        if intercale:
+            refus.append((s.ligne, s.baril, Refus.COMMENTAIRE_INTERCALE))
+            continue
+        b = barils[s.baril]
+        par_module: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
+        for nom, asname in s.symboles:
+            org = b.exports[nom]
+            expose = asname or nom
+            par_module[org.module].append(
+                (org.nom_amont, None if expose == org.nom_amont else expose))
+        restants = [(a.name, a.asname) for a in s.node.names
+                    if not any(a.name == n for n, _ in s.symboles)]
+
+        base_mod = s.node.module or ""
+        neuf: list[str] = []
+        if restants:
+            neuf += _ligne_import(indent, base_mod, s.node.level, restants)
+        for m in sorted(par_module):
+            #: ⚠ L'ORIGINE N'EST PAS TOUJOURS SOUS LE BARIL. Un baril peut re-exporter un
+            #: symbole venu d'une AUTRE branche (`runner.operations.triggers` sert ainsi du
+            #: `services.damage_prediction`, par une chaine transitive). Le suffixe relatif
+            #: n'existe alors pas, et la forme correcte est l'import ABSOLU. Sans ce cas, deux
+            #: sites sortaient en `AUTRE` -- un motif fourre-tout qui, laisse tel quel, aurait
+            #: fait passer pour << non classe >> ce qui etait simplement non traite.
+            if m.startswith(s.baril + "."):
+                neuf += _ligne_import(indent, (base_mod + "." if base_mod else "")
+                                      + m[len(s.baril) + 1:], s.node.level,
+                                      sorted(par_module[m]))
+            else:
+                neuf += _ligne_import(indent, m, 0, sorted(par_module[m]))
+        if fin_com:
+            neuf[-1] = neuf[-1] + "  " + fin_com
+        edits.append((s.ligne - 1, s.fin, neuf))
+
+    if not edits:
+        return None, refus
+    out = list(lignes)
+    for deb, fin, neuf in sorted(edits, key=lambda e: -e[0]):
+        out[deb:fin] = neuf
+    return out, refus
+
+
+# ------------------------------------------------------------------- sites de SUBSTITUTION (#484)
+
+class Risque(enum.Enum):
+    """Ce qu'une re-ecriture fait a un `monkeypatch` / `mock.patch` deja pose.
+
+    ⚠ CE N'EST PAS LE CALCUL QUI EST EN JEU, C'EST LA LIAISON DU NOM. Mesure #484 (PR #741) :
+    hisser 624 differes a rendu **0 divergence sur 197 017 attributs** -- et **28 fichiers de
+    tests rouges**. Une substitution posee sur le module SOURCE mord tant que le nom est resolu
+    A L'APPEL (import differe) et cesse de mordre des qu'il est lie AU CHARGEMENT. Les tests
+    n'ont pas mesure FAUX : ils ont CESSE DE MESURER, ce qui ne rougit pas."""
+
+    PERD_LA_MORSURE = ("le patch vise le BARIL et un consommateur y resout TARDIVEMENT : il "
+                       "resoudra l'ENFANT -- le stub ne mord plus, EN SILENCE")
+    GAGNE_LA_MORSURE = ("le patch vise l'ENFANT ; un consommateur differe lisait la COPIE du "
+                        "baril, il lira desormais l'enfant -- le stub se met a mordre")
+    SANS_CONSOMMATEUR_DIFFERE = ("le patch vise le baril mais AUCUN consommateur n'y resout "
+                                 "tardivement : la re-ecriture ne peut pas lui retirer sa "
+                                 "morsure (elle passe par un acces attributaire, intouche)")
+
+
+_APPELS_SUBSTITUTION = {
+    ("monkeypatch", "setattr"), ("monkeypatch", "delattr"), ("mock", "patch"),
+    ("patch", "object"), ("mock", "patch.object"),
+}
+
+
+def _nom_pointe(node) -> str | None:
+    bouts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        bouts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    bouts.append(node.id)
+    return ".".join(reversed(bouts))
+
+
+def _table_modules(arbre: ast.Module, mod: str, racine: Path) -> dict[str, str]:
+    """Noms LOCAUX qui designent un module, -> nom de module absolu."""
+    t: dict[str, str] = {}
+    for n in ast.walk(arbre):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                t[a.asname or a.name.split(".")[0]] = a.name if a.asname else \
+                    a.name.split(".")[0]
+                if a.asname is None and "." in a.name:
+                    t[a.name] = a.name
+        elif isinstance(n, ast.ImportFrom):
+            cible = cible_absolue(mod, n, racine)
+            if not cible:
+                continue
+            for a in n.names:
+                plein = "%s.%s" % (cible, a.name)
+                if existe_module(plein, racine):
+                    t[a.asname or a.name] = plein
+    return t
+
+
+def recenser_substitutions(racine: Path, barils: dict[str, Baril], exclure: set[str],
+                           sites_reecrits: list[Site]):
+    """Tout site qui SUBSTITUE un attribut de module, classe par ce que la re-ecriture lui fait.
+
+    Formes lues : `monkeypatch.setattr(mod, "n", v)`, `monkeypatch.setattr("a.b.n", v)`,
+    `mock.patch("a.b.n")`, `patch.object(mod, "n")`, `setattr(mod, "n", v)`, `mod.n = v`.
+
+    ⚠ LA VOIE DE CONSOMMATION DISCRIMINE, ET NE PAS LA LIRE SURESTIME. Un patch sur le baril
+    ne perd sa morsure que s'il existe un consommateur qui resout le nom TARDIVEMENT (import
+    dans un corps de fonction). Si tous les consommateurs le lient au chargement, le patch ne
+    mordait deja pas par cette voie -- il mord par un acces attributaire, que la re-ecriture ne
+    touche pas. Premiere mesure sans ce cran : 27 `PERD_LA_MORSURE`, dont une part etait du
+    faux positif."""
+    tardifs: set[tuple[str, str]] = {(s.baril, nom) for s in sites_reecrits if s.differe
+                                     for nom, _ in s.symboles}
+    #: (baril, symbole exporte)      -> module d'origine        : patch AVANT la re-ecriture
+    origines: dict[tuple[str, str], str] = {}
+    #: (module d'origine, nom amont) -> baril qui le re-exporte  : patch APRES la re-ecriture
+    enfants: dict[tuple[str, str], str] = {}
+    for nom, b in barils.items():
+        if nom in exclure:
+            continue
+        for sym, org in b.exports.items():
+            origines[(nom, sym)] = org.module
+            enfants[(org.module, org.nom_amont)] = nom
+    sites = []
+    for p in sorted(racine.rglob("*.py")):
+        if "__pycache__" in str(p) or p.resolve() == Path(__file__).resolve():
+            continue
+        try:
+            src = p.read_text(encoding="utf-8")
+            arbre = ast.parse(src)
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        mod = nom_module(p, racine)
+        table = _table_modules(arbre, mod, racine)
+
+        def _resoudre_cible(expr) -> str | None:
+            pointe = _nom_pointe(expr)
+            if pointe is None:
+                return None
+            bouts = pointe.split(".")
+            for i in range(len(bouts), 0, -1):
+                prefixe = ".".join(bouts[:i])
+                if prefixe in table:
+                    return ".".join([table[prefixe]] + bouts[i:])
+            return pointe
+
+        vus: list[tuple[int, str, str]] = []
+        for n in ast.walk(arbre):
+            if isinstance(n, ast.Call):
+                f = _nom_pointe(n.func) or ""
+                bouts = f.split(".")
+                cle = (bouts[-2] if len(bouts) > 1 else "", bouts[-1])
+                if cle in _APPELS_SUBSTITUTION or f == "setattr":
+                    args = n.args
+                    if len(args) >= 2 and isinstance(args[1], ast.Constant) and isinstance(
+                            args[1].value, str):
+                        cible = _resoudre_cible(args[0])
+                        if cible:
+                            vus.append((n.lineno, cible, args[1].value))
+                    elif args and isinstance(args[0], ast.Constant) and isinstance(
+                            args[0].value, str) and "." in args[0].value:
+                        chemin = args[0].value
+                        vus.append((n.lineno, chemin.rsplit(".", 1)[0],
+                                    chemin.rsplit(".", 1)[1]))
+            elif isinstance(n, ast.Assign):
+                for t in n.targets:
+                    if isinstance(t, ast.Attribute):
+                        cible = _resoudre_cible(t.value)
+                        if cible and cible.split(".")[0] == "engine":
+                            vus.append((n.lineno, cible, t.attr))
+        for ligne, cible_mod, attr in vus:
+            if (cible_mod, attr) in origines:
+                r = (Risque.PERD_LA_MORSURE if (cible_mod, attr) in tardifs
+                     else Risque.SANS_CONSOMMATEUR_DIFFERE)
+                sites.append((p, ligne, cible_mod, attr, r, origines[(cible_mod, attr)]))
+            elif (cible_mod, attr) in enfants:
+                sites.append((p, ligne, cible_mod, attr, Risque.GAGNE_LA_MORSURE,
+                              enfants[(cible_mod, attr)]))
+    return sites
+
+
+# ------------------------------------------------------------------------------------- vidange
+
+def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
+                 appliquer: bool) -> list[tuple[str, int, int]]:
+    """Retire d'un baril les re-exports que PLUS AUCUN fichier du perimetre ne reclame ET que
+    le baril lui-meme n'utilise pas. Rend [(baril, retires, gardes)].
+
+    ⚠ C'est ce pas -- pas la re-ecriture -- qui allege la cascade. Reecrire seul ne change RIEN
+    au graphe : Python execute l'`__init__` du paquet parent quoi qu'on ecrive."""
+    reclames: dict[str, set[str]] = defaultdict(set)
+    for p in sorted(racine.rglob("*.py")):
+        if "__pycache__" in str(p) or p.resolve() == Path(__file__).resolve():
+            continue
+        try:
+            arbre = ast.parse(p.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        mod = nom_module(p, racine)
+        for n in ast.walk(arbre):
+            if isinstance(n, ast.ImportFrom):
+                cible = cible_absolue(mod, n, racine)
+                if cible in barils:
+                    reclames[cible] |= {a.name for a in n.names}
+            elif isinstance(n, ast.Import):
+                # `import engine.entities as E` puis `E.StatType` : l'acces est ATTRIBUTAIRE,
+                # invisible d'un recensement d'`ImportFrom`. On reclame alors TOUT le baril
+                # plutot que de vider sous les pieds d'un acces qu'on ne sait pas suivre.
+                for al in n.names:
+                    if al.name in barils:
+                        reclames[al.name] |= set(barils[al.name].exports)
+
+    bilan: list[tuple[str, int, int]] = []
+    for nom, b in sorted(barils.items()):
+        if nom in exclure or not b.exports:
+            continue
+        src = b.chemin.read_text(encoding="utf-8")
+        arbre = ast.parse(src)
+        utilises = _noms_references(arbre)
+        demandes = reclames.get(nom, set())
+        retirables = {s for s in b.exports if s not in demandes and s not in utilises}
+        if not retirables:
+            bilan.append((nom, 0, len(b.exports)))
+            continue
+        lignes = src.splitlines()
+        edits: list[tuple[int, int, list[str]]] = []
+        for n in arbre.body:
+            if not isinstance(n, ast.ImportFrom):
+                continue
+            gardes = [(a.name, a.asname) for a in n.names
+                      if (a.asname or a.name) not in retirables]
+            if len(gardes) == len(n.names):
+                continue
+            seg = "\n".join(lignes[n.lineno - 1:n.end_lineno])
+            fin_com, intercale = _commentaires(seg)
+            if intercale:
+                continue
+            if gardes:
+                neuf = _ligne_import("", n.module or "", n.level, gardes)
+                if fin_com:
+                    neuf[-1] += "  " + fin_com
+            else:
+                neuf = []
+            edits.append((n.lineno - 1, n.end_lineno, neuf))
+        # `__all__` suit
+        for n in arbre.body:
+            cibles = n.targets if isinstance(n, ast.Assign) else []
+            if not any(isinstance(t, ast.Name) and t.id == "__all__" for t in cibles):
+                continue
+            if not isinstance(n.value, (ast.List, ast.Tuple)):
+                continue
+            gardes = [e.value for e in n.value.elts
+                      if isinstance(e, ast.Constant) and e.value not in retirables]
+            neuf = _ligne_all(gardes)
+            edits.append((n.lineno - 1, n.end_lineno, neuf))
+        out = list(lignes)
+        for deb, fin, neuf in sorted(edits, key=lambda e: -e[0]):
+            out[deb:fin] = neuf
+        if appliquer:
+            b.chemin.write_text("\n".join(out) + "\n", encoding="utf-8")
+        bilan.append((nom, len(retirables), len(b.exports) - len(retirables)))
+    return bilan
+
+
+def _ligne_all(noms: list[str]) -> list[str]:
+    if not noms:
+        return ["__all__ = []"]
+    plat = "__all__ = [" + ", ".join('"%s"' % n for n in noms) + "]"
+    if len(plat) <= LARGEUR:
+        return [plat]
+    out, ligne = ["__all__ = ["], "    "
+    for n in noms:
+        bout = '"%s",' % n
+        if len(ligne) + len(bout) + 1 > LARGEUR and ligne.strip():
+            out.append(ligne.rstrip())
+            ligne = "    "
+        ligne += bout + " "
+    out.append(ligne.rstrip())
+    out.append("]")
+    return out
+
+
+# ------------------------------------------------------------------------------------ rapports
+
+def _imprimer_inventaire(barils: dict[str, Baril], exclure: set[str], verbeux: bool) -> None:
+    tot_sym = sum(len(b.exports) for b in barils.values())
+    reels = {k: v for k, v in barils.items() if v.exports or v.effets_de_bord}
+    print("  barils (`__init__.py` qui re-exportent) : %d   symboles re-exportes : %d"
+          % (len(reels), tot_sym))
+    print("  barils a REGISTRE (exclus du remplacement naif) : %d" % len(exclure))
+    for nom in sorted(exclure):
+        b = barils[nom]
+        print("      %-44s effets de bord: %-2d  enregistreurs: %d"
+              % (nom, len(b.effets_de_bord), len(b.enregistreurs)))
+        if verbeux:
+            for m in b.effets_de_bord:
+                print("          effet de bord PUR   %s" % m)
+            for m in b.enregistreurs:
+                print("          enregistreur        %s" % m)
+    prof = defaultdict(int)
+    for b in barils.values():
+        for o in b.exports.values():
+            prof[o.profondeur] += 1
+    print("  profondeur des origines : %s"
+          % ", ".join("%d maillon(s) x%d" % (k, v) for k, v in sorted(prof.items())))
+    if verbeux:
+        for nom, b in sorted(reels.items()):
+            marque = "  [REGISTRE]" if nom in exclure else ""
+            print("\n  %s%s -- %d symbole(s)" % (nom, marque, len(b.exports)))
+            for s, o in sorted(b.exports.items()):
+                print("      %-46s -> %s%s" % (s, o.module,
+                                               "" if o.nom_amont == s else " (%s)" % o.nom_amont))
+
+
+def _imprimer_refus(refus, entete: str, verbeux: bool) -> None:
+    par_motif = defaultdict(list)
+    for item in refus:
+        par_motif[item[-1]].append(item)
+    total = sum(len(v) for v in par_motif.values())
+    print("\n  %s : %d" % (entete, total))
+    for motif in Refus:
+        lot = par_motif.get(motif)
+        if not lot:
+            continue
+        print("      %-24s x%-4d  %s" % (motif.name, len(lot), motif.value))
+        if verbeux:
+            for item in sorted(lot, key=lambda x: str(x[0])):
+                print("          %s:%s  %s" % (item[0], item[1], item[2]))
+    inconnus = set(par_motif) - set(Refus)
+    if inconnus:
+        print("      *** motifs HORS ENUM : %s ***" % inconnus)
+
+
+# ----------------------------------------------------------------------------------------- cli
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("commande", choices=("inventaire", "reecrire", "vider", "substitutions"))
+    ap.add_argument("--racine", type=Path, default=ICI,
+                    help="repertoire qui CONTIENT `engine/` (defaut : celui de ce fichier). "
+                         "Pointe un arbre TEMOIN pour mesurer sans toucher au depot.")
+    ap.add_argument("--appliquer", action="store_true",
+                    help="ECRIT les fichiers. Sans lui, marche a blanc.")
+    ap.add_argument("--inclure-registres", action="store_true",
+                    help="ne PAS exclure les barils a registre. A n'employer qu'avec la forme "
+                         "`charger_tout()` deja cablee -- sinon le registre se vide en SILENCE.")
+    ap.add_argument("--refus", action="store_true", help="liste INTEGRALE des refus et de la "
+                                                         "table")
+    a = ap.parse_args(argv)
+
+    racine = a.racine.resolve()
+    if not (racine / "engine").is_dir():
+        print("PAS MESURE : `%s` ne contient pas `engine/`." % racine)
+        return EX_PAS_MESURE
+
+    print("[485-r1] barils de re-export d'`engine/` -- racine %s" % racine)
+    barils = derive_barils(racine)
+    if not barils:
+        print("  recensement VIDE -- ce n'est pas un zero, c'est un capteur muet.")
+        return EX_PAS_MESURE
+    exclure = set() if a.inclure_registres else {k for k, v in barils.items() if v.registre}
+
+    _imprimer_inventaire(barils, exclure, a.refus)
+    if a.commande == "inventaire":
+        return EX_VERT
+
+    if a.commande == "substitutions":
+        subs = recenser_substitutions(racine, barils, exclure,
+                                      recenser_sites(racine, barils, exclure)[0])
+        print("\n  SITES DE SUBSTITUTION croisant la table de re-ecriture : %d" % len(subs))
+        print("      Ce n'est PAS le calcul qui est en jeu (mesure #484 : 0 divergence sur")
+        print("      197 017 attributs), c'est la LIAISON DU NOM. Un stub qui cesse de mordre")
+        print("      ne rougit pas -- le test cesse de mesurer.")
+        par_risque = defaultdict(list)
+        for s in subs:
+            par_risque[s[4]].append(s)
+        for r in Risque:
+            lot = par_risque.get(r)
+            if not lot:
+                continue
+            print("\n      %-18s x%d  %s" % (r.name, len(lot), r.value))
+            for p, ligne, cible, attr, _, autre in sorted(lot, key=lambda x: str(x[0])):
+                print("          %s:%d" % (p, ligne))
+                print("              patch %s.%s   (autre bout : %s)" % (cible, attr, autre))
+        if not subs:
+            print("      AUCUN. Ce zero est une MESURE, pas un silence : le recenseur visite")
+            print("      `monkeypatch.setattr/delattr`, `mock.patch`, `patch.object`,")
+            print("      `setattr(mod, ...)` et l'affectation `mod.nom = ...`.")
+        return EX_VERT
+
+    sites, refus = recenser_sites(racine, barils, exclure)
+    par_fichier: dict[Path, list[Site]] = defaultdict(list)
+    for s in sites:
+        par_fichier[s.fichier].append(s)
+
+    if a.commande == "vider":
+        bilan = vider_barils(racine, barils, exclure, a.appliquer)
+        retires = sum(r for _, r, _ in bilan)
+        print("\n  VIDANGE : %d re-export(s) retirable(s) sur %d baril(s)%s"
+              % (retires, len([b for b in bilan if b[1]]),
+                 " -- ECRIT" if a.appliquer else " -- marche a blanc"))
+        for nom, r, g in bilan:
+            if r:
+                print("      %-46s -%-4d  restent %d" % (nom, r, g))
+        return EX_VERT
+
+    total_sym, ecrits, refus_ecriture = 0, 0, []
+    for p, lot in sorted(par_fichier.items()):
+        neuf, r = reecrire_fichier(p, lot, barils, racine)
+        refus_ecriture += [(p, l, m, mo) for l, m, mo in r]
+        if neuf is None:
+            continue
+        total_sym += sum(len(s.symboles) for s in lot)
+        ecrits += 1
+        if a.appliquer:
+            p.write_text("\n".join(neuf) + "\n", encoding="utf-8")
+    print("\n  RE-ECRITURE : %d symbole(s) dans %d fichier(s)%s"
+          % (total_sym, ecrits, " -- ECRIT" if a.appliquer else " -- marche a blanc"))
+    _imprimer_refus(refus, "REFUS cote consommateur", a.refus)
+    if refus_ecriture:
+        _imprimer_refus(refus_ecriture, "REFUS a l'ecriture", a.refus)
+    return EX_VERT
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
