@@ -24,10 +24,19 @@ from _combat_replay import replay_normal_attack     # noqa: E402
 ATTACKER = "necroDestroyer"
 TARGET = "ultraInceptorSgt"      # Hero/Flying/MkXGravis
 
+# Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : le mecanisme mesure ici est
+# `hit_mult=2` SUR UN COUP NON-CRIT -- le natif EXEMPTE explicitement le crit
+# (`HasTrait(0x3f5) && !isCrit`). Un coup crite ne teste donc pas la double-armure, il la
+# DESACTIVE, et le fichier ne sait qu'en skipper. Depuis que le defaut equipe (#419-r6), le crit
+# est possible sur toute unite et ce fichier tombait a 0 passed / 1 skipped -- inerte (garde
+# #455). Les QUATRE faces, car `--crit`/`--block-player` n'epinglent que les p-units.
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+
 
 def test_normal_attack_mkxgravis_double_armor(live_session, rpc, build_runner):
     """Attaque normale multi-coups sur cible MkXGravis -> per-coup bit-exact (double-armure non-crit)."""
-    r = replay_normal_attack(rpc, build_runner, ATTACKER, target=TARGET)
+    r = replay_normal_attack(rpc, build_runner, ATTACKER, target=TARGET, extra=_NO_NOISE)
     if not r["ok"]:
         pytest.skip("%s->%s: %s" % (ATTACKER, TARGET, r["reason"]))
     if r["did_crit"] or r["did_block"] or r["did_evade"]:

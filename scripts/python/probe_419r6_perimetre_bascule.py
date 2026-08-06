@@ -146,6 +146,10 @@ def main(argv=None) -> int:
                     help="imprime la liste des fichiers d'une categorie")
     ap.add_argument("--jouer", choices=["propre", "neutralise", "dur"],
                     help="JOUE la categorie et rend son bilan par fichier")
+    ap.add_argument("--fichiers", default=None,
+                    help="JOUE une liste EXPLICITE (chemins relatifs a tests/, separes par des "
+                         "virgules) -- sert au TEMOIN : rejouer les seuls degrades dans l'autre "
+                         "regime est ce qui etablit la CAUSALITE, un rouge pouvant preexister")
     ap.add_argument("--regime", choices=["0", "1", "defaut"], default="defaut",
                     help="TACTICUS_BIS_ITEMS impose ; `defaut` = ce que le code porte")
     ap.add_argument("--workers", type=int, default=4)
@@ -215,13 +219,14 @@ def main(argv=None) -> int:
             else:
                 print("  %s" % rel)
 
-    if a.jouer:
-        rels = par_cat[a.jouer]
+    if a.jouer or a.fichiers:
+        rels = ([s.strip() for s in a.fichiers.split(",") if s.strip()]
+                if a.fichiers else par_cat[a.jouer])
         fin = a.jusqu_a or len(rels)
         rels = rels[a.depuis:fin]
         regime = None if a.regime == "defaut" else a.regime
-        print("=== JEU : %d fichier(s) de la categorie %s, regime TACTICUS_BIS_ITEMS=%s ==="
-              % (len(rels), a.jouer, a.regime))
+        print("=== JEU : %d fichier(s) (%s), regime TACTICUS_BIS_ITEMS=%s ==="
+              % (len(rels), a.jouer or "liste explicite", a.regime))
         res = _jouer(rels, regime, a.workers)
         n_inerte = n_rouge = n_vert = 0
         for r in sorted(res, key=lambda x: x["fichier"]):

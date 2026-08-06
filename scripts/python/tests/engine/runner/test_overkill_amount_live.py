@@ -57,9 +57,22 @@ ATTACKER = "astraBullgryn"       # 4 coups melee, profil vanilla (aucun modifica
 TARGET = "eldarFarseer"          # cible vanille du catalogue #462-r4e
 
 
+# Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : ce fichier ne skippe pas sur un coup non
+# propre -- il ECHOUE, en disant lui-meme que « le regime mesure n'est plus celui que ce fichier
+# garde ». C'est exact : ce qu'il verrouille est la BORNE de `Amount` aux PV restants, et cette
+# borne se lit sur l'egalite `sum(live_ph) == hp_before`, donc sur des montants NUS. Il obtenait
+# ses coups propres SANS RIEN DEMANDER tant que le canal crit/block etait globalement muet, et
+# depuis que le defaut equipe (#419-r6) les 4 tests tombaient. Les QUATRE faces
+# (`--crit`/`--block-player` n'epinglent que les p-units, `--crit-target`/`--block-target` que
+# les a-units).
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+
+
 def _replay(build_runner, rpc, board, seed, extra=None):
     r = replay_normal_attack(rpc, build_runner, ATTACKER, target=TARGET,
-                             extra=(["--board", board] + list(extra or [])), seed=seed)
+                             extra=(["--board", board] + _NO_NOISE + list(extra or [])),
+                             seed=seed)
     if not r["ok"]:
         pytest.fail(f"montage KO ({board}/{seed}): {r['reason']}", pytrace=False)
     if r["did_crit"] or r["did_block"] or r["did_evade"]:

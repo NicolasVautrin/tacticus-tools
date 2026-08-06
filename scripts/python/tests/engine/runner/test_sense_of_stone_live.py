@@ -44,6 +44,16 @@ TARGET = "necroOverlord"       # cible VANILLE tanky (armure > 0, `effects` vide
                                # `RelentlessMarch_DangerZone` qui brouillerait l'attribution)
 SENSE_OF_STONE = 1169
 
+# Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : le fichier isole 1169 comme SEUL
+# modificateur DEFENSEUR, et son discriminant est le montant per-coup avec/sans l'effet. Un crit
+# est un facteur ATTAQUANT qui s'applique par-dessus : il ne teste pas l'absence de gate, il
+# ajoute un terme -- et le fichier ne sait qu'en skipper. Depuis que le defaut equipe (#419-r6),
+# il tombait a 0 passed / 2 skipped (inerte, garde #455). Les QUATRE faces, car
+# `--crit`/`--block-player` n'epinglent que les p-units et `--crit-target`/`--block-target` que
+# les a-units -- ici le PORTEUR et la CIBLE sont tous deux des a-units.
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+
 
 def _ok(r):
     return isinstance(r, dict) and r.get("ok")
@@ -98,7 +108,7 @@ def _run(rpc, build_runner, dist, seed="777"):
     """Monte le scenario et rejoue l'attaque normale live vs offline. Renvoie la classification de
     `_do_replay` enrichie de `carries_1169`, ou {ok:False,reason}."""
     b = build_runner(seed, extra=["--roster", "1", "--p-units", ATTACKER,
-                                  "--a-units", "%s,%s" % (CARRIER, TARGET)])
+                                  "--a-units", "%s,%s" % (CARRIER, TARGET), *_NO_NOISE])
     rid = b["rid"]
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     if not (isinstance(bg, dict) and "tiles" in bg):
