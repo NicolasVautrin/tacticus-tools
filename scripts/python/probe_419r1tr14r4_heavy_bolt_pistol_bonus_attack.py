@@ -115,12 +115,12 @@ import probe_419r1tr14r1_heavy_bolt_pistol_real_carriers as R1       # noqa: E40
 from engine.entities.ability_variable_type import AbilityVariableType  # noqa: E402
 from engine.entities.effects.magnitude import ability_var            # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType  # noqa: E402
-from engine.runner.board import Board                                # noqa: E402
+from engine.entities.pathfinding.board import Board                  # noqa: E402
 from engine.runner.components import HealthComponent, StatsComponent  # noqa: E402
 from engine.runner.messages import AttackUnitMessage                 # noqa: E402
+from engine.runner.prng import IntBasedMersenneTwister               # noqa: E402
 from engine.runner.runner import Runner                              # noqa: E402
 from engine.runner.snapshot import load_state                        # noqa: E402
-from engine.utilities.random import IntBasedMersenneTwister          # noqa: E402
 
 MontageError = P.MontageError
 ABILITY = P.ABILITY                       # `TriggeredAbilityType.HeavyBoltPistol` = 1083
@@ -202,10 +202,96 @@ def snapshot_bundle(rpc, rid: int, cid: int, tid: int) -> dict:
             "cid": int(cid), "tid": int(tid)}
 
 
-def port_replay(bundle: dict) -> dict:
+#: Les SIX contre-epreuves : chacune MUTE le port LIVRE d'une faute PLAUSIBLE et doit DEPLACER le
+#: resultat la ou la faute serait observable. Le critere est le deplacement par rapport au port NON
+#: MUTE, JAMAIS l'ecart au natif (piege #441/#446).
+MUTANTS = ("no_gate", "gate_off", "no_dispatch", "profile_weapon", "amount_half", "hits_two")
+
+
+def _mutate(mutant: str, host_visual: str):
+    """Rend `(patches, restore)` -- les attributs du module LIVRE a remplacer, et de quoi les
+    remettre. On mute le PORT, jamais le probe : une contre-epreuve qui muterait sa propre mesure
+    ne prouverait rien."""
+    import engine.runner.abilities.loki.heavy_bolt_pistol as M
+    from engine.entities.selectors import Target
+    from engine.entities.behaviours import op_add
+    from engine.runner.abilities.behaviours import AttackWithAttackDamage, InformWeapon
+    saved = {k: getattr(M, k) for k in ("is_melee_attack", "has_bonus_attack", "profile_name",
+                                        "bonus_attack_tree")}
+
+    def restore():
+        for k, v in saved.items():
+            setattr(M, k, v)
+
+    if mutant == "no_gate":                 # la gate `IsMeleeAttack` ne coupe JAMAIS
+        M.is_melee_attack = lambda *a, **k: True
+    elif mutant == "gate_off":              # elle coupe TOUJOURS (== le port d'avant la tranche)
+        M.is_melee_attack = lambda *a, **k: False
+    elif mutant == "no_dispatch":           # le passif n'est jamais reconnu comme substituant
+        M.has_bonus_attack = lambda *a, **k: False
+    elif mutant == "profile_weapon":        # le profil serait celui de l'ARME du caster
+        ws = (GC.unit(host_visual) or {}).get("weapons") or []
+        ranged = [w for w in ws if w.get("Range")]
+        wp = ((ranged or ws)[0] or {}).get("DamageProfile") or ""
+        M.profile_name = lambda: wp
+    elif mutant == "amount_half":           # `GetVariableForLevel(0xb)` / 2
+        def _half(profile):
+            return op_add(InformWeapon(profile),
+                          AttackWithAttackDamage(
+                              Target(), M.PASSIVE, profile, is_melee=True,
+                              min_key=M._VAR_DAMAGE, max_key=M._VAR_DAMAGE,
+                              hits_key=M._CONST_HITS, level_slot="passive", multi=False,
+                              damage_override=lambda s, c, t, a, b: (a // 2, b // 2)))
+        M.bonus_attack_tree = _half
+    elif mutant == "hits_two":              # `GetNumberConstant(0x2f)` force a 2
+        def _two(profile):
+            return op_add(InformWeapon(profile),
+                          AttackWithAttackDamage(
+                              Target(), M.PASSIVE, profile, is_melee=True,
+                              min_key=M._VAR_DAMAGE, max_key=M._VAR_DAMAGE,
+                              hits_key=M._CONST_HITS, level_slot="passive", multi=False, hits=2))
+        M.bonus_attack_tree = _two
+    else:
+        restore()
+        raise ValueError(f"mutant inconnu : {mutant!r}")
+    return restore
+
+
+def weapon_profile_of(host_visual: str) -> str:
+    ws = (GC.unit(host_visual) or {}).get("weapons") or []
+    ranged = [w for w in ws if w.get("Range")]
+    return ((ranged or ws)[0] or {}).get("DamageProfile") or ""
+
+
+def profile_equivalence(host_visual: str) -> dict:
+    """⚠ Le PIEGE de la tranche precedente, ATTESTE plutot que suppose : sur le porteur REEL l'arme
+    est `Chain` et l'ability porte `Bolter`, or les DEUX ont `PiercingRatio = 20` -- le mutant
+    `profile_weapon` y est donc ALGEBRIQUEMENT INERTE, et le taire laisserait sans garde la lecture
+    « le profil vient de l'ABILITY ». Sur la GREFFE (`tauMarksman`, arme `Piercing` ratio 80) il
+    MORD. Le probe MESURE l'equivalence et en DEDUIT ce qu'il doit exiger du mutant."""
+    ab = ((GC.ability("HeavyBoltPistol") or {}).get("constants") or {}).get("damageProfile") or ""
+    wp = weapon_profile_of(host_visual)
+    return {"ability": ab, "weapon": wp,
+            "ability_piercing": profile_pierce_pct(ab), "weapon_piercing": profile_pierce_pct(wp),
+            "equivalent": profile_pierce_pct(ab) == profile_pierce_pct(wp)}
+
+
+def port_replay(bundle: dict, mutant: "str | None" = None,
+                host_visual: "str | None" = None) -> dict:
     """Rejoue l'attaque normale OFFLINE sur le bundle PRE-CAST : `{degat_cible, coups, bonus}`.
 
     Aucun runner, aucun cast live -> une contre-epreuve coute ZERO montage."""
+    restore = None
+    if mutant is not None:
+        restore = _mutate(mutant, host_visual or "")
+    try:
+        return _port_replay_inner(bundle)
+    finally:
+        if restore is not None:
+            restore()
+
+
+def _port_replay_inner(bundle: dict) -> dict:
     board = Board(bundle["bg"]["tiles"], adjacency="native_sym")
     state = load_state(bundle["dv"], bundle["ob"], bundle["snap"], board=board,
                        ability_states=bundle["ast"])
@@ -277,6 +363,24 @@ def measure_arm(sid, rpc, case: dict, spot: str, expect_ability: bool) -> dict:
             "natif": nat, "port": port, "bundle": bundle}
 
 
+def run_mutants(bundle: dict, ref: int, host_visual: str) -> list:
+    """Rejoue les six contre-epreuves sur le bundle PRE-CAST du bras GREFFE.
+
+    `a_mordu` est rendu SEPARE du verdict : un mutant peut etre legitimement inerte sur un montage
+    (cf. `profile_equivalence`) et ce n'est pas un echec -- c'est une BORNE, qui doit etre DITE."""
+    out = []
+    for m in MUTANTS:
+        try:
+            r = port_replay(bundle, mutant=m, host_visual=host_visual)
+            d = (r["degat_cible"] or 0) - ref
+            out.append({"mutant": m, "degat_cible": r["degat_cible"], "shift": d,
+                        "a_mordu": bool(abs(d) >= EPS), "erreur": None})
+        except Exception as exc:                                   # noqa: BLE001 -- diagnostic
+            out.append({"mutant": m, "degat_cible": None, "shift": None, "a_mordu": None,
+                        "erreur": f"{type(exc).__name__}: {exc}"})
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--montage", choices=MONTAGES, default="npc")
@@ -341,6 +445,17 @@ def main() -> int:
         print(f"  TERME natif (graft - base) = {terme_nat:+d} PV | coups {n_nat_b} -> {n_nat_g}")
         print(f"  TERME porte (graft - base) = {terme_port:+d} PV")
         print(f"  ecart port - natif = {terme_port - terme_nat:+d}")
+        pe = profile_equivalence(host)
+        print(f"  PROFILS : ability={pe['ability']}(PiercingRatio {pe['ability_piercing']}) "
+              f"arme={pe['weapon']}(PiercingRatio {pe['weapon_piercing']}) -> "
+              + ("EQUIVALENTS : `profile_weapon` est ALGEBRIQUEMENT INERTE sur cet hote"
+                 if pe["equivalent"] else "DISTINCTS : `profile_weapon` est discriminant"))
+        for m in run_mutants(rg["bundle"], rg["port"]["degat_cible"], host):
+            if m["erreur"]:
+                print(f"  [mutant {m['mutant']:<14}] ERREUR {m['erreur']}")
+                continue
+            print(f"  [mutant {m['mutant']:<14}] degat_cible={m['degat_cible']} "
+                  f"deplacement={m['shift']:+d} a_mordu={m['a_mordu']}")
         return 0
     finally:
         R1._dispose(sf_g)
