@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import struct
 import subprocess
 import sys
 import uuid
@@ -123,154 +122,47 @@ SLOT4_ATTENDU = {
     "MawClawsOfThyraxNonOwnerPlaybook": False,
     "PurgeResponseNonOwnerPlaybook": False,
 }
-#: les deux corps TRIVIAUX d'UN octet que l'ICF a fondus et qui portent le predicat. Ils sont
-#: designes par leur SYMBOLE (leur proprietaire nomme unique), jamais par une adresse.
-_SLOT4_TRUE = "UnityEngine.U2D.IK.Solver2D$$DoValidate"          # `return 1`
-_SLOT4_FALSE = "Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId"   # `return 0`
 
 
 def step0b(build: str, verbeux: bool = True) -> int:
-    """Le `<slot 4>` de chaque classe portee, RELU classe par classe dans le PE.
+    """Le `<slot 4>` -- DELEGUE a `probe_477r37_slot4_et_faces_restantes.step0a` (#477-r37).
 
-    ⚠⚠ **LE PREMIER CRITERE ETAIT FAUX ET RENDAIT VERT.** Il postulait que le bloc `methodPointers`
-    d'une classe COMMENCE a son `.ctor`, et concluait « aucun override » de la seule presence de
-    `.ctor` + `Calculate*` + les six corps de la state machine. Les SIX classes le satisfaisaient,
-    `HaywireMine` comprise -- alors que la mesure live la contredit (-30 manquants, cf. le cas).
+    ⚠⚠ **LE CRITERE QUI VIVAIT ICI EST RETIRE : IL ETAIT FAUX DES DEUX COTES.** Il lisait l'entree
+    qui PRECEDE le `.ctor` dans le bloc `methodPointers` et en tirait la valeur du `<slot 4>` :
 
-    Le discriminant est l'entree QUI PRECEDE le `.ctor` :
-      * un corps TRIVIAL d'un octet fondu par l'ICF -> c'est le `<slot 4>` de la classe, et sa
-        VALEUR se lit dans ce corps (`return 1` / `return 0`) ;
-      * un corps NOMME appartenant a une autre classe -> la classe ne surcharge rien et herite le
-        `false` de la base.
+      * **faux NEGATIF** -- `NoHidingFromTheWatchersNonOwnerPlaybook` declare le getter APRES son
+        `.ctor` ; le critere ne pouvait pas la voir, et elle vaut `true` ;
+      * **faux POSITIF** -- il attribuait a `ECogSupportPlaybookNonOwnerPlaybook` et
+        `KustomForceFieldReworkedNonOwnerPlaybook` un override explicite `return 0`
+        (`Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId`). Le `global-metadata.dat` dit
+        qu'elles ne DECLARENT rien : cette entree appartient au TYPE PRECEDENT de la table.
 
-    Les deux corps triviaux sont identifies par leur SYMBOLE, pas par une adresse : l'ICF leur a
-    donne un proprietaire nomme unique (`Solver2D$$DoValidate` = `return 1`,
-    `UnityAdsIdentifier$$get_UserId` = `return 0`) et c'est ce nom qui survit au changement de
-    build -- l'adresse, non."""
-    fns = _fonctions(build)
-    par_va = {}
-    for sym, va in fns.items():
-        par_va.setdefault(va, sym)
-    cibles = {
-        "HaywireMineNonOwnerPlaybook":
-            "IdunBattle.AI.Playbook.Loki.HaywireMineNonOwnerPlaybook$$CalculateMovementUtilityInSteps",
-        "ECogSupportPlaybookNonOwnerPlaybook":
-            "IdunBattle.AI.Playbook.Loki.ECogSupportPlaybookNonOwnerPlaybook$$CalculateMovementUtilityInSteps",
-        "KustomForceFieldReworkedNonOwnerPlaybook":
-            "IdunBattle.AI.Playbook.Loki.KustomForceFieldReworkedNonOwnerPlaybook$$CalculateMovementUtilityInSteps",
-        "PsychicFortressNonOwnerPlaybook":
-            "IdunBattle.AI.Playbook.Loki.PsychicFortressNonOwnerPlaybook$$CalculateMovementUtilityInSteps",
-        "MawClawsOfThyraxNonOwnerPlaybook":
-            "IdunBattle.AI.Playbook.Loki.MawClawsOfThyraxNonOwnerPlaybook$$CalculateMovementUtilityInSteps",
-        "PurgeResponseNonOwnerPlaybook":
-            "IdunBattle.AI.Playbook.Loki.PurgeResponseNonOwnerPlaybook$$CalculateMovementUtilityInSteps",
-    }
-    va_true, va_false = fns.get(_SLOT4_TRUE), fns.get(_SLOT4_FALSE)
-    if va_true is None or va_false is None:
-        print("[0b] ROUGE : les corps triviaux du predicat sont introuvables par leur symbole "
-              "(%r / %r) -- le build a bouge, RIEN ne peut etre conclu du slot 4"
-              % (_SLOT4_TRUE, _SLOT4_FALSE))
-        return 1
+    Il rendait donc la bonne VALEUR pour la mauvaise RAISON -- et l'avoir garde aurait re-enseigne
+    la mauvaise lecture. Le remplacant lit le NOM du slot (`get_ShouldIncludingEnemiesWhenCalculate`)
+    dans le metadata, sur les VINGT-HUIT concrets, et recoupe par trois sources. Le point de
+    doctrine que ce cas a etabli est intact : le `<slot 4>` est une donnee PAR CLASSE.
 
-    rc, mesures = 0, {}
-    for nom, sym in cibles.items():
-        va = fns.get(sym)
-        if va is None:
-            print("[0b] ROUGE : symbole introuvable dans `ghidra/functions.tsv` : %s" % sym)
-            return 1
-        # -2 = l'entree qui PRECEDE le `.ctor` ; -1 = le `.ctor` ; 0 = la methode-usine.
-        bloc = _bloc_methodptr(build, va, avant=2, apres=0)
-        avant_ctor, ctor = bloc[0], bloc[1]
-        attendu_ctor = fns.get(sym.replace("$$CalculateMovementUtilityInSteps", "$$.ctor"))
-        if ctor != attendu_ctor:
-            print("[0b] ROUGE : %s -- l'entree qui precede la methode-usine n'est PAS son `.ctor` ; "
-                  "la structure du bloc a change, le critere ne tient plus" % nom)
-            return 1
-        if avant_ctor == va_true:
-            val, source = True, "override `return 1` (%s)" % _SLOT4_TRUE
-        elif avant_ctor == va_false:
-            val, source = False, "override `return 0` (%s)" % _SLOT4_FALSE
-        else:
-            val = False
-            source = "AUCUN override -- herite de la base (l'entree precedente est `%s`)" \
-                     % par_va.get(avant_ctor, "0x%x" % avant_ctor).rsplit(".", 1)[-1]
-        mesures[nom] = val
-        att = SLOT4_ATTENDU.get(nom)
-        etat = "OK" if att == val else "ECART (attendu %s)" % att
-        if att != val:
+    `build` n'est plus lu (le delegue le re-derive lui-meme) ; il reste dans la signature pour ne
+    pas casser les deux appelants."""
+    del build                                  # le delegue re-derive le build lui-meme
+    from probe_477r37_slot4_et_faces_restantes import step0a as _step0a
+    rc, table = _step0a(call=None, verbeux=verbeux)
+    for nom, att in sorted(SLOT4_ATTENDU.items()):
+        lu = table.get(nom)
+        if lu is None:
+            print("[0b] ROUGE : %s a disparu du recensement des concrets" % nom)
             rc = 1
-        if verbeux:
-            print("[0b] %-44s slot4 = %-5s  %s  [%s]" % (nom, val, source, etat))
-
-    from engine.playbook.non_owner import NON_OWNER_MOVE_PLAYBOOKS as REG
-    from engine.entities.triggered_ability_type import TriggeredAbilityType as T
-    # le port DOIT porter la meme valeur, classe par classe : c'est ce qui pilote le pre-gate du
-    # dispatcher. Un ECART ici est EXACTEMENT le bug que cette tranche a trouve.
-    for aid, nom in ((int(T.HaywireMine), "HaywireMineNonOwnerPlaybook"),
-                     (int(T.MawClawsOfThyrax), "MawClawsOfThyraxNonOwnerPlaybook"),
-                     (int(T.PurgeResponse), "PurgeResponseNonOwnerPlaybook"),
-                     (int(T.EcogSupport), "ECogSupportPlaybookNonOwnerPlaybook"),
-                     (int(T.PsychicFortress), "PsychicFortressNonOwnerPlaybook"),
-                     (int(T.KustomForceFieldReworked),
-                      "KustomForceFieldReworkedNonOwnerPlaybook")):
-        pb = REG.get(aid)
-        if pb is None:
-            continue
-        porte = bool(getattr(pb, "SLOT_4", False))
-        if porte != mesures.get(nom):
-            print("[0b] ROUGE : le port dit SLOT_4=%s pour %s, le binaire dit %s. Le pre-gate du "
-                  "dispatcher est alors FAUX -- et il ne leve rien : il ECARTE (ou GARDE) des "
-                  "porteurs en silence." % (porte, nom, mesures.get(nom)))
+        elif bool(lu["valeur"]) != bool(att):
+            print("[0b] ROUGE : %s vaut %s au binaire, %s attendu par #477-r35"
+                  % (nom, lu["valeur"], att))
             rc = 1
-    if mesures.get("HaywireMineNonOwnerPlaybook"):
-        print("[0b] VERDICT : `HaywireMineNonOwnerPlaybook` est la SEULE de la famille dont le")
+    if verbeux and (table.get("HaywireMineNonOwnerPlaybook") or {}).get("valeur"):
+        print("[0b] VERDICT : `HaywireMineNonOwnerPlaybook` est la seule face **MOVE** dont le")
         print("[0b]   `<slot 4>` vaut `true` => le dispatcher lui yielde AUSSI les porteurs")
         print("[0b]   ENNEMIS, donc sa branche `HaywireMine_EnemyAvoidMine` (-30) est ATTEIGNABLE.")
+        print("[0b]   (`NoHidingFromTheWatchersNonOwnerPlaybook` le vaut aussi -- face ATTACK, hors")
+        print("[0b]    de cette feuille : cf. #477-r37.)")
     return rc
-
-
-def _fonctions(build: str) -> dict:
-    out = {}
-    p = ROOT / "data" / "symbols" / build / "ghidra" / "functions.tsv"
-    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-        cells = line.split("\t")
-        if len(cells) >= 2:
-            try:
-                out[cells[1]] = int(cells[0], 16)
-            except ValueError:
-                pass
-    return out
-
-
-def _va_de(fns: dict, sym: str):
-    return fns.get(sym)
-
-
-def _bloc_methodptr(build: str, va: int, avant: int = 1, apres: int = 6) -> list:
-    """Les qwords du bloc `methodPointers` autour de l'entree qui pointe `va`.
-
-    Re-implemente la lecture de `probe_8889_methodptr_vtable.py` pour rendre une LISTE
-    exploitable (le probe historique n'imprime que du texte)."""
-    import build_pin
-    dll = Path(build_pin.dll_path_du_build(build)) if hasattr(build_pin, "dll_path_du_build") \
-        else Path("C:/Users/nicolasv/AppData/Local/tacticus/games/%s/GameAssembly.dll" % build)
-    data = dll.read_bytes()
-    cible = va.to_bytes(8, "little")
-    off = data.find(cible)
-    if off < 0 or off % 8:
-        # alignement : on cherche la premiere occurrence ALIGNEE
-        off = -1
-        for i in range(0, len(data) - 8, 8):
-            if data[i:i + 8] == cible:
-                off = i
-                break
-    if off < 0:
-        raise LookupError("VA 0x%x absente du bloc methodPointers" % va)
-    out = []
-    for k in range(-avant, apres + 1):
-        o = off + 8 * k
-        out.append(struct.unpack_from("<Q", data, o)[0])
-    return out
 
 
 def step0c(verbeux: bool = True) -> int:
