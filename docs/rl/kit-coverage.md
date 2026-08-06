@@ -23,8 +23,8 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **47** ; kits avec du travail : **80**
-- Volume total : **98** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **48** ; kits avec du travail : **79**
+- Volume total : **97** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -32,13 +32,13 @@
 | faction | kits | items |
 |---|---:|---:|
 | EmperorsChildren | 5 | 8 |
-| BlackTemplars | 5 | 6 |
 | BloodAngels | 5 | 6 |
 | Necrons | 5 | 6 |
 | ThousandSons | 4 | 6 |
 | WorldEaters | 5 | 6 |
 | Aeldari | 4 | 5 |
 | AstraMilitarum | 4 | 5 |
+| BlackTemplars | 4 | 5 |
 | Custodes | 4 | 5 |
 | DarkAngels | 4 | 5 |
 | LeaguesOfVotann | 5 | 5 |
@@ -97,7 +97,7 @@
 | blackHaarken | 1 | HeraldOfTheApocalypse(1020) [CD] OK | HeadClaimer | - |
 | blackPossession | 1 | Incursion(1021) [CD] OK | Possession | - |
 
-### BlackTemplars — 5 kits, 6 items
+### BlackTemplars — 4 kits, 5 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
@@ -105,7 +105,6 @@
 | templAncient | 1 | UnbreakableDuty(1061) [--] NO-OP EFFECT/BUFF | - | - |
 | templChampion | 1 | HolyDuel(1050) [-D] NO-OP EFFECT/BUFF | - | - |
 | templHelbrecht | 1 | CrusadeOfWrath(1049) [--] NO-OP EFFECT/BUFF | - | - |
-| templSwordBrother | 1 | ThunderousAssault(1043) [C-] OK | ChampionOfTheFeast | - |
 
 ### BloodAngels — 5 kits, 6 items
 
@@ -246,9 +245,9 @@
 | worldKharn | 1 | KillMaimBurn(1132) [-D] NO-OP DAMAGE(Piercing) | - | - |
 | worldTerminator | 2 | BloodyFury(1129) [-D] NO-OP DAMAGE(Chain) | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (47)
+## Kits lineup COMPLETS (48)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraCreed, astraOrdnanceBattery, blackForgefiend, blackObliterator, blackTerminator, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathRotbone, deathTyphus, eldarFarseer, eldarMauganRa, genesKelermorph, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, thousAhriman, thousInfernalMaster, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTitus
+adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraCreed, astraOrdnanceBattery, blackForgefiend, blackObliterator, blackTerminator, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathRotbone, deathTyphus, eldarFarseer, eldarMauganRa, genesKelermorph, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, templSwordBrother, thousAhriman, thousInfernalMaster, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTitus
 
 ## HORS total — voies conditionnelles (42 abilities non portees)
 
