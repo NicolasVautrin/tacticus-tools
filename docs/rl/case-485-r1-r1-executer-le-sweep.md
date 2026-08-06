@@ -197,6 +197,18 @@ C'est ce module qui fermait la boucle. Conséquences actées :
 - les mirrors **restent** sous `engine/entities/` : c'est désormais un choix, pas une obligation.
   Le `CLAUDE.md` est corrigé en conséquence.
 
+## Ce que la cascade coûte en moins — et le chiffre qu'il ne faut PAS citer
+
+| `import <module>` | `origin/master` | après le sweep |
+|---|---:|---:|
+| `engine.entities` — modules `engine.*` chargés | 94 | **2** |
+| `engine.runner.snapshot` — modules `engine.*` chargés | 128 | **114** |
+
+Ces comptes sont **déterministes**. Le **temps** ne l'est pas : mesuré sur machine chargée, une
+seule répétition, `engine.runner.snapshot` rend 0,92 s côté `master` et 0,99 s côté sweep —
+c'est-à-dire **rien du tout**, le bruit domine. Une accélération n'est affirmable qu'à froid et
+répétée ; le compte de modules, lui, se re-dérive à l'identique.
+
 ## La contre-épreuve, et ce qu'elle vaut
 
 Le seul contrôle qui voit un désarmement **silencieux** n'est ni l'empreinte ni le compte : c'est
