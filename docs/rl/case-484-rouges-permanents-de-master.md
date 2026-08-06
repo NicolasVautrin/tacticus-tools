@@ -10,6 +10,11 @@
 | tests en echec | **42** |
 | fichiers porteurs | **13** |
 
+**Etat APRES la tranche**, meme outil, meme protocole, rebase sur `origin/master` (`58a9c183`) :
+**2917** tests offline joues sur 8 shards, **2 rouges** -- `test_270r4r2r2::etage3` (le seuil,
+NOMME `#484-r2`) et `test_477r25::etage3` (arrive PENDANT la tranche par la PR #737, hors des 42,
+et **faux positif** -- cf. §3bis). Des **42** mesures au depart, **41 sont fermes**.
+
 Le compte rapporte par l'agent de `#477-r33` etait **40**. L'ecart de **+2** n'est pas une
 derive de mesure : ce sont deux gisements a SEUIL (`test_270r4r2r2::etage3`,
 `test_270r4r2r2r3::etage6`) que des PR mergees entre-temps ont fait franchir. Les rouges se
