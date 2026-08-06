@@ -858,8 +858,7 @@ class SquigLaunchasAbility(ActiveAbility):
     # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
     #     0x2          TargetMatchesDynamicRule -> `SquigLaunchasAbility$$GetDynamicInvalidTargetReason`
     #                  (>= 1 Ork allie OU >= 2 allies adjacents a la cible ; cf. la docstring de la classe).
-    #                  NON surcharge cote port -> defaut 0 = pas de refus dynamique (PERMISSIF assume :
-    #                  le port n'a pas de face DECISION pour les MoW, cf. case-mow §4).
+    #                  PORTE depuis #287-r11 -- cf. la surcharge ci-dessous.
     #     0x4000       TargetIsEnemy      -> PORTE (refus sur un allie)
     #     0x40000000   AllowNullCasterTile -> permissif : le caster est une MACHINE OF WAR HORS PLATEAU
     #                  (ni Position ni Health), donc SANS tuile — sans ce bit le volet CASTER refuserait
@@ -891,6 +890,49 @@ class SquigLaunchasAbility(ActiveAbility):
         return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
                 "attacks": attacks, "summon_criteria": criteria, "spawned": spawned,
                 "orks_min": orks_min, "friends_min": friends_min, "dsl": True}
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile, ligne a ligne (#287-r11) :
+
+            if (!EntityExtensions.IsUnit(target)) return 0;
+            entities = new AbilityEntities(caster, caster, target, caster, ...);
+            a = HasMinimumAdjacentOrks(         Direct(GetNumberConstant(0x78 nrOfUnits)) )
+                    .ShouldTrigger(entities, 0x20);
+            b = HasMinimumAdjacentFriendlyUnits(Direct(GetNumberConstant(0x79 nrOfUnits_2)) )
+                    .ShouldTrigger(entities, 0x20);
+            return (b || a) ? 0 : 2;                    // 2 = TargetingRule.TargetMatchesDynamicRule
+
+        LES DEUX PREDICATS ETAIENT DEJA PORTES, et c'est ce qu'il fallait verifier avant d'ecrire
+        quoi que ce soit : `squig_launchas_has_minimum_adjacent_orks` /
+        `..._has_minimum_adjacent_friendly_units` servent deja `FulfillsSummonCriteria` dans
+        l'`ExecuteBehaviour`. SEULS LES SEUILS CHANGENT -- et c'est le piege de cette surcharge :
+        le CIBLAGE lit `0x78`/`0x79` (`nrOfUnits` = 1 Ork, `nrOfUnits_2` = 2 amis), le SUMMON lit
+        `0x81`/`0x82` (`nrOfUnits_3` = 2 Orks, `nrOfUnits_4` = 4 amis). Reutiliser
+        `squig_launchas_fulfills_summon_criteria` ici poserait les seuils DU SUMMON sur le ciblage
+        -- un SUR-refus systematique (plus strict que le natif), l'inverse exact de la degradation
+        que cette tranche vient corriger.
+
+        `AbilityEntities(caster, actor: caster, target, owner: caster, ...)` (signature LUE dans
+        `frida/methods.tsv` : `caster, actor, target, owner, casterTile, activePlayer, ...`) -> le
+        referent `Owner` de `Friends` EST le caster, exactement comme dans l'`ExecuteBehaviour`.
+        `entities_from_state(state, caster_id, target_id)` produit le meme contexte.
+
+        `IsUnit(target)` : cote port `state.entities` ne contient que des unites/MoW, donc un
+        `target_id` qui n'y resout pas N'EST PAS une unite (tuile du board, id inconnu) -> `0`,
+        mirror exact du garde d'entree natif (permissif, pas un refus)."""
+        if target_id is None:
+            return 0
+        ents = entities_from_state(state, int(caster_id), int(target_id))
+        if ents.target is None:
+            return 0                                   # !EntityExtensions.IsUnit(target) -> 0
+        consts = (GC.ability(self.ABILITY_ID) or {}).get("constants") or {}
+        orks_min = int(consts.get(CONST_SL_ORKS_TARGET.name) or 0)        # GetNumberConstant(0x78)
+        friends_min = int(consts.get(CONST_SL_FRIENDS_TARGET.name) or 0)  # GetNumberConstant(0x79)
+        a = bool(squig_launchas_has_minimum_adjacent_orks(orks_min).should_trigger(ents))
+        b = bool(squig_launchas_has_minimum_adjacent_friendly_units(friends_min).should_trigger(ents))
+        return 0 if (b or a) else int(TR.TargetMatchesDynamicRule)
 
 
 # =================================================================================================== #
