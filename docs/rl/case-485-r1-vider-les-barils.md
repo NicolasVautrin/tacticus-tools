@@ -4,17 +4,17 @@
 cinq agents y éditaient pendant la tranche. Le sweep se fait dans une fenêtre calme, avec le
 découpage proposé en fin de fiche.
 
-## Il n'y a pas 262 problèmes, il y en a UN
+## Il n'y a pas 261 problèmes, il y en a UN
 
-Re-dérivé (`probe_485_imports_differes.py`) : **314** imports différés vers `engine.*` dans
-`engine/**`, dont **262 PORTEURS**. Leur cause est unique : Python exécute l'`__init__.py` de
+Re-dérivé (`probe_485_imports_differes.py`) : **308** imports différés vers `engine.*` dans
+`engine/**`, dont **261 PORTEURS**. Leur cause est unique : Python exécute l'`__init__.py` de
 **chaque paquet ancêtre** avant d'atteindre une feuille. `import engine.entities.stats` exécute
 `engine/entities/__init__.py`, qui tire `effects` → `loki` → … Toucher une feuille traîne un
 millier de modules ; le différé est ce qui évite la boucle ainsi créée.
 
 ## L'outil
 
-`scripts/python/migrate_485r1_barils_reexport.py` — quatre sous-commandes, **marche à blanc par
+`scripts/python/migrate_485r1_barils_reexport.py` — cinq sous-commandes, **marche à blanc par
 défaut**, `--appliquer` explicite.
 
 | commande | ce qu'elle fait |
@@ -23,6 +23,7 @@ défaut**, `--appliquer` explicite.
 | `reecrire` | `from engine.X import Y` → `from engine.X.enfant import Y` chez les consommateurs |
 | `vider` | retire du baril les ré-exports que plus personne ne réclame, ajuste `__all__` |
 | `substitutions` | recense les `monkeypatch`/`mock.patch` que le sweep désarmerait (#484) |
+| `gestes` | dit de chaque différé s'il se **hisse** ou se **supprime** — ce n'est pas le même geste |
 
 `--baril <nom>` restreint le traitement — c'est ce qui permet de **mesurer** l'additivité du
 découpage plutôt que d'en avoir un avis.
@@ -36,17 +37,18 @@ réclamé.
 
 ## Mesuré sur une copie (`git archive HEAD`, arbre complet)
 
-Chiffres **re-joués après rebase sur `origin/master`** (l'arbre témoin bouge : `master` était
-passé de 262 à 260 porteurs pendant la tranche).
+Chiffres **re-joués après deux rebases sur `origin/master`** (10 commits intégrés ; l'arbre témoin
+bouge sous les pieds — le compte des porteurs est passé de 262 à 261 pendant la tranche, et
+`probe_485` lui-même a changé de critère).
 
 | | témoin | réécrit + vidé |
 |---|---:|---:|
-| différés recensés | 307 | 309 |
-| **PORTEURS** | **260** | **166** |
-| GRATUITS | 47 | 143 |
-| modules portant ≥ 1 porteur | 90 | 61 |
+| différés recensés | 308 | 310 |
+| **PORTEURS** | **261** | **166** |
+| GRATUITS | 47 | 144 |
+| modules portant ≥ 1 porteur | 91 | 61 |
 
-**94 porteurs sur 260 (36 %) deviennent gratuits**, et **29 modules sont intégralement libérés**.
+**95 porteurs sur 261 (36 %) deviennent gratuits**, et **30 modules sont intégralement libérés**.
 Le total monte de 2 parce que la réécriture **éclate** un différé multi-symboles en plusieurs
 imports — d'où l'appariement **par module source**, seul stable.
 
@@ -56,7 +58,7 @@ imports — d'où l'appariement **par module source**, seul stable.
 d'un registre cassé se ressemblent parfaitement dans ce compte — seul l'étage [3] du probe les
 sépare.
 
-Réécriture : **2 010 symboles dans 425 fichiers**. Vidange : **283 ré-exports sur 16 barils**
+Réécriture : **2 022 symboles dans 426 fichiers**. Vidange : **284 ré-exports sur 16 barils**
 (dont `entities.effects.loki` −166).
 
 ## La preuve, et ce qu'elle ne prouve pas
@@ -69,14 +71,14 @@ Réécriture : **2 010 symboles dans 425 fichiers**. Vidange : **283 ré-exports
    aussi (c'est du code, et le vider le réécrit par construction).
 3. **Liaisons**, en process frais, portée large (attributs de module **et** de classe) :
    - réécriture seule : **431 modules, 241 221 attributs, 0 divergence** ;
-   - après vidange : **433 modules, 241 628 attributs, 12 678 divergences**, dont **12 593
+   - après vidange : **435 modules, 243 455 attributs, 12 745 divergences**, dont **12 660
      déplacements acquittés**, **85 attributs sous-module**, **0 perte réelle**, et
-     **2 077 fichiers à AST identique hors imports**. Un acquittement exige les trois :
+     **2 081 fichiers à AST identique hors imports**. Un acquittement exige les trois :
      disparition (jamais mutation), couple présent dans la table, et **même identité au module
      d'origine**. C'est la 3ᵉ condition qui fait la preuve : « le symbole a disparu du baril » et
      « le symbole est encore joignable » sont deux affirmations distinctes.
 
-**431/431 modules s'importent seuls** dans les deux arbres.
+**435/435 modules s'importent seuls** dans les deux arbres — aucun muet d'un seul côté.
 
 > **Un vert ici ne dit PAS que la banque survit.** Mesure #484 (PR #741) : hisser 624 différés a
 > rendu **0 divergence sur 197 017 attributs** — et **28 fichiers de tests rouges**. Hisser ne
@@ -154,14 +156,14 @@ Les 3 rouges : `test_448_r1_r1_r2_r1_dsl_after_move_offline.py` (16 → 3 F / 13
 
 | geste | avant rebase | après rebase |
 |---|---:|---:|
-| `HISSER` — aucun import top-level ne lie déjà ce nom | 376 | **362** |
+| `HISSER` — aucun import top-level ne lie déjà ce nom | 376 | **363** |
 | `OMBRAGE_MEME_SOURCE` — nom déjà lié, même source : la ligne se supprime | 1 | **0** |
 | `OMBRAGE_AUTRE_SOURCE` — nom déjà lié depuis ailleurs : ni l'un ni l'autre sans lire | 0 | **0** |
 
 ⚠ **« La cible est déjà importée » désigne le MODULE, pas chaque NOM.** Qu'un module fasse déjà
 `from engine.services.damage import a` en tête n'implique pas que `b`, importé tardivement depuis
 le même module, y soit lié — supprimer rend alors `b` introuvable, tandis que **hisser est
-toujours correct**. Sur ce dépôt, supprimer au lieu de hisser serait faux dans **362 cas sur 362**.
+toujours correct**. Sur ce dépôt, supprimer au lieu de hisser serait faux dans **363 cas sur 363**.
 (#484 s'est fait 23 rouges de sa propre main sur cette exacte confusion.)
 
 ## Les barils à REGISTRE — et les deux qu'on croyait tels
@@ -232,7 +234,7 @@ bord.
 Correctif : `_cibles_chargeuses_de_registre()` protège les barils à registre **et tous leurs
 ancêtres qui sont des barils**. Un import chargeur reste intact même si plus personne ne lui
 réclame de symbole : **c'est son exécution qui compte, pas ce qu'il expose**. Effet sur la
-vidange : 287 → **283** ré-exports (`runner.abilities` −8 → −4), et le vidage **dit** ce qu'il
+vidange : 287 → **284** ré-exports (`runner.abilities` −8 → −4), et le vidage **dit** ce qu'il
 garde (`imports GARDES parce qu'ils CHARGENT un registre : engine.runner.abilities.loki`).
 
 ## Trois pièges mesurés, que rien n'annonçait
@@ -254,10 +256,10 @@ garde (`imports GARDES parce qu'ils CHARGENT un registre : engine.runner.abiliti
 
 1. **Re-cibler les 25 `PERD_LA_MORSURE`** sur le module consommateur, avec contre-épreuve
    (empoisonner la source, vérifier que le test rougit). Aucun autre changement.
-2. **Réécriture seule** — 2 010 symboles / 425 fichiers. Empreinte **strictement nulle**
+2. **Réécriture seule** — 2 022 symboles / 426 fichiers. Empreinte **strictement nulle**
    (0 divergence sur 241 221 attributs), aucun baril modifié.
-3. **Vidange** — 283 ré-exports / 16 barils. Empreinte **volontairement** non nulle ; c'est ce
-   commit qui libère les 94 porteurs et retire les 85 attributs sous-module.
+3. **Vidange** — 284 ré-exports / 16 barils. Empreinte **volontairement** non nulle ; c'est ce
+   commit qui libère les 95 porteurs et retire les 85 attributs sous-module.
 
 **Pourquoi cette coupe** : elle sépare le changement à empreinte **nulle** de celui à empreinte
 **non nulle**. Les deux régimes de preuve sont différents (`--vidange` du probe), et les fusionner
