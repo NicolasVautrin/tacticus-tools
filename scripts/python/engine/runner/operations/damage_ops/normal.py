@@ -14,7 +14,7 @@ import hexgeo
 from ....services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
 from ....services.damage_config import resolve_spread_pct
 from ....services.damage_modifiers import apply_all_modifiers
-from ....services.battle_query import are_tiles_adjacent
+from ....services.battle_query import are_tiles_adjacent, weapon_is_melee
 from ....services.attack_hits_formula import attack_hits_with_modifiers
 from ....entities.stats import StatType
 from ...state import State
@@ -25,7 +25,7 @@ from ...damage_model import (select_weapon, select_weapon_pierce, attacker_modif
                              defender_modifiers, build_hits_board, apply_elevation_bonus,
                              apply_trench_reduction, ice_crit_damage_addition,
                              target_trait_names, getstuckin_combat_chance, defender_fixed_armor,
-                             tile_status_effects_by_pos)
+                             tile_status_effects_by_pos, battle_query_is_charging)
 from ....entities.effects import hits_bonus_from_effects
 from ....entities.effects.loki import LIGHT_COVER_TILE_ID
 from ....entities.traits import target_hit_multiplier
@@ -241,16 +241,30 @@ class _Normal:
         # `Attack_Weapon_DamageProfile`, premier enfant du `Group=Ability_Power ...
         # Source=Loki_NormalAttack`.
         #
-        # `useSpecial = 0` est LU au litteral de CE site (les huit attaques normales derivees le
-        # posent aussi a 0, SAUF `FeederTendrils` et `OptimizedGait`, qui passent `1` dans leur
-        # branche SPECIALE -- ni l'une ni l'autre n'emprunte ce foyer-ci, elles ont leur propre
-        # `ExecuteBehaviour`).
+        # `useSpecial` n'est PAS toujours `0` : sur les NEUF appelants d'`ExecuteInformWeapon`, sept
+        # posent le litteral `0` et DEUX posent `1` dans une branche gardee. Le port n'a qu'UN foyer
+        # d'attaque normale (celui-ci) la ou le natif a un `ExecuteBehaviour` par classe : la
+        # decision est donc DELEGUEE au foyer unique `custom_normal_attack.inform_weapon_use_special`,
+        # qui porte le gate LU de `FeederTendrils` (`IsCharging(caster,target) & weapon.IsMelee`) et
+        # DECLARE `OptimizedGait` non porte. MESURE LIVE du 2026-08-06 (tyranDeathleaper en charge,
+        # MC1_67) : le flux natif ecrit bien `Tag=Attack_Weapon_Use_Special:1` dans ce regime.
         #
         # COMBAT-INERTE PAR CONSTRUCTION : `InformBehaviour$$Execute` ne mute rien et
         # `InformOperation$$Execute` ne fait que dispatcher un pas `StepType.Info` -- aucun tirage,
         # donc l'ordre `state.rng` de l'attaque qui suit est INCHANGE (bit-exactness preservee).
         from ...abilities.behaviours.combat import InformWeapon   # lazy : cycle damage<->abilities
-        _iw_tags = InformWeapon.from_weapon(_w, use_special=False).tags()
+        from ...abilities.targeting import normal_attack_type_for  # lazy : meme cycle
+        from ....services.custom_normal_attack import inform_weapon_use_special
+        from ....entities.active_ability_type import ActiveAbilityType
+        _na_type = normal_attack_type_for(state, attacker_id)
+        _na_name = (ActiveAbilityType(_na_type).name
+                    if _na_type is not None and _na_type in set(int(x) for x in ActiveAbilityType)
+                    else None)
+        _use_special = inform_weapon_use_special(
+            _na_name,
+            is_charging=battle_query_is_charging(state, attacker_id, target_id),
+            weapon_melee=weapon_is_melee(_w))
+        _iw_tags = InformWeapon.from_weapon(_w, use_special=_use_special).tags()
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),

@@ -57,7 +57,10 @@ import stream_events as SE  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 from engine.entities.pathfinding.board import Board  # noqa: E402
 from engine.runner.abilities.behaviours.combat import InformWeapon  # noqa: E402
-from engine.services.battle_query import get_attack_weapon_for_default_normal_attack  # noqa: E402
+from engine.services.battle_query import (get_attack_weapon_for_default_normal_attack,  # noqa: E402
+                                          weapon_is_melee)
+from engine.services.custom_normal_attack import (custom_normal_attack,  # noqa: E402
+                                                  inform_weapon_use_special)
 from engine.streams import StreamCache, StreamDispatcher  # noqa: E402
 from engine.streams.group_type import GroupType  # noqa: E402
 from engine.streams.inform_ops import inform  # noqa: E402
@@ -67,23 +70,36 @@ PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 BOARD = "MC1_67"
 
-#: (visualId, distance VOULUE, profil attendu, is_melee attendu) -- le triplet est choisi pour que
-#: `astraBullgryn` et `admecDestroyer` partagent le profil `Physical` (0) avec des `IsMelee`
-#: OPPOSES : c'est le temoin qui interdit de deriver `isMelee` du profil.
+#: (visualId, distance VOULUE, charge). Le corpus est choisi pour que TROIS pieges soient fermes :
+#:   * `astraBullgryn` et `admecDestroyer` partagent le profil `Physical` (0) avec des `IsMelee`
+#:     OPPOSES -> `isMelee` ne peut pas se deriver du profil ;
+#:   * `admecDestroyer` a DEUX armes -> `isMelee` depend de la DISTANCE, pas de l'unite ;
+#:   * `tyranDeathleaper` (passif `FeederTendrils`) attaque EN CHARGE -> c'est le SEUL regime du
+#:     corpus ou le natif pose `Attack_Weapon_Use_Special`, et il n'avait JAMAIS ete confronte.
+#: `charge` = le caster est deplace AU CONTACT de la cible avant d'attaquer (`UpdateCharging`).
+#: `dist` = ou la CIBLE est posee ; `dist_att` = la distance AU MOMENT de l'attaque (elle differe
+#: quand le caster charge : il vient au contact). En mode LIVE, `dist_att` est MESUREE et remplace
+#: cette valeur ; elle ne sert qu'a la contre-epreuve hors ligne.
 PORTEURS = [
-    {"vis": "deathBlightlord", "dist": 1, "nom": "deathBlightlord@1"},
-    {"vis": "astraBullgryn", "dist": 1, "nom": "astraBullgryn@1"},
-    {"vis": "admecDestroyer", "dist": 3, "nom": "admecDestroyer@3"},
+    {"vis": "deathBlightlord", "dist": 1, "dist_att": 1, "nom": "deathBlightlord@1",
+     "charge": False},
+    {"vis": "astraBullgryn", "dist": 1, "dist_att": 1, "nom": "astraBullgryn@1", "charge": False},
+    {"vis": "admecDestroyer", "dist": 3, "dist_att": 3, "nom": "admecDestroyer@3",
+     "charge": False},
+    {"vis": "tyranDeathleaper", "dist": 3, "dist_att": 1, "nom": "tyranDeathleaper@charge",
+     "charge": True},
 ]
 
 #: MESURE LIVE du 2026-08-06 (runner MC1_67, seed 41902, session Frida 1) -- figee pour que la
-#: CONTRE-EPREUVE s'exerce sans re-monter un runner. `Use_Special` est ABSENTE des trois : c'est la
-#: PREDICTION `useSpecial == 0` du foyer `ALoki_NormalAttackAbility$$ExecuteBehaviour`, verifiee et
-#: non contournee (etape [3]).
+#: CONTRE-EPREUVE s'exerce sans re-monter un runner. `Use_Special` est ABSENTE des trois premiers
+#: (PREDICTION `useSpecial == 0` du foyer `ALoki_NormalAttackAbility$$ExecuteBehaviour`, verifiee et
+#: non contournee) et PRESENTE a `1` sur le quatrieme.
 MESURE_NATIVE = {
     "deathBlightlord@1": {"Attack_Weapon_IsMelee": 1, "Attack_Weapon_DamageProfile": 14},
     "astraBullgryn@1": {"Attack_Weapon_IsMelee": 1, "Attack_Weapon_DamageProfile": 0},
     "admecDestroyer@3": {"Attack_Weapon_IsMelee": 0, "Attack_Weapon_DamageProfile": 0},
+    "tyranDeathleaper@charge": {"Attack_Weapon_IsMelee": 1, "Attack_Weapon_DamageProfile": 22,
+                                "Attack_Weapon_Use_Special": 1},
 }
 
 
@@ -159,17 +175,71 @@ def _place(rpc, rid, board, dv, caster, dist_voulue: int):
         rpc("applyAction", {"runnerId": rid, "action": {
             "kind": "move", "unitId": e["id"],
             "to": {"col": board.coord(ft)[0], "row": board.coord(ft)[1]}}}, 60)
-    cands = [t for t in sorted(board.by_id)
-             if board.walkable(t) and hexgeo.distance(board.coord(t), cpos) == dist_voulue]
-    for t in cands:
+    def _poser(depuis):
+        for t in [x for x in sorted(board.by_id)
+                  if board.walkable(x) and hexgeo.distance(board.coord(x), depuis) == dist_voulue]:
+            tc = board.coord(t)
+            rpc("applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": tgt["id"], "to": {"col": tc[0], "row": tc[1]}}}, 60)
+            dv2 = rpc("decisionView", {"runnerId": rid}, 90)
+            t2 = next((u for u in (dv2.get("units") or []) if u.get("id") == tgt["id"]), None)
+            if t2 is not None and _pos(t2) == tc:
+                return tgt["id"], hexgeo.distance(tc, depuis)
+        return None, None
+
+    tid, d = _poser(cpos)
+    if tid is not None:
+        return tid, d
+    # REPLI : la geometrie de spawn peut boucher TOUS les voisins du caster (les trois porteurs
+    # sont deployes cote a cote). On DEPLACE alors le CASTER vers une zone degagee, puis on repose
+    # la cible autour de sa NOUVELLE position -- « deplacer les unites », jamais « bloque par la
+    # geometrie ». Le caster est deplace AVANT la cible : il n'arrive donc adjacent a personne, et
+    # aucune CHARGE parasite n'est creee.
+    dvc = rpc("decisionView", {"runnerId": rid}, 90)
+    occupes = {_pos(u) for u in (dvc.get("units") or []) if u.get("alive")}
+    tpos_act = next((_pos(u) for u in (dvc.get("units") or []) if u.get("id") == tgt["id"]), None)
+    for t in sorted(board.by_id):
         tc = board.coord(t)
+        if not board.walkable(t) or tc in occupes:
+            continue
+        # jamais adjacent a la cible : le caster arriverait au contact et CHARGERAIT, ce qui
+        # polluerait la cle conditionnelle sur un porteur ou elle doit rester absente.
+        if tpos_act is not None and hexgeo.distance(tc, tpos_act) <= 1:
+            continue
+        libres = sum(1 for n in board.neighbours(t)
+                     if board.walkable(n) and board.coord(n) not in occupes)
+        if libres < 3:
+            continue
         rpc("applyAction", {"runnerId": rid, "action": {
-            "kind": "move", "unitId": tgt["id"], "to": {"col": tc[0], "row": tc[1]}}}, 60)
-        dv2 = rpc("decisionView", {"runnerId": rid}, 90)
-        t2 = next((u for u in (dv2.get("units") or []) if u.get("id") == tgt["id"]), None)
-        if t2 is not None and _pos(t2) == tc:
-            return tgt["id"], hexgeo.distance(tc, cpos)
+            "kind": "move", "unitId": caster["id"], "to": {"col": tc[0], "row": tc[1]}}}, 60)
+        dv3 = rpc("decisionView", {"runnerId": rid}, 90)
+        c3 = next((u for u in (dv3.get("units") or []) if u.get("id") == caster["id"]), None)
+        if c3 is None or _pos(c3) != tc:
+            continue
+        tid, d = _poser(tc)
+        if tid is not None:
+            return tid, d
     return None, None
+
+
+def _charger(rpc, rid, board, caster, target_id):
+    """DEPLACE le caster sur une tuile ADJACENTE a la cible -- c'est ce pas qui remplit
+    `UnitComponent.ChargedUnitIds@+0x190` (`IdunBattle.Operations.MoveUnitOperation$$UpdateCharging`
+    ajoute les unites NOUVELLEMENT adjacentes). Rend `(decisionView, caster, dist)`."""
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
+    tgt = next((u for u in (dv.get("units") or []) if u.get("id") == target_id), None)
+    if tgt is None:
+        return None, None, None
+    ttile = board.id_at(*_pos(tgt))
+    for n in [x for x in board.neighbours(ttile) if board.walkable(x)]:
+        nc = board.coord(n)
+        rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "move", "unitId": caster["id"], "to": {"col": nc[0], "row": nc[1]}}}, 60)
+        dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
+        c2 = next((u for u in (dv2.get("units") or []) if u.get("id") == caster["id"]), None)
+        if c2 is not None and _pos(c2) == nc:
+            return dv2, c2, hexgeo.distance(nc, _pos(tgt))
+    return None, None, None
 
 
 def _tags_info_du_cast(cast) -> list:
@@ -180,14 +250,22 @@ def _tags_info_du_cast(cast) -> list:
             if "Attack_Weapon_DamageProfile" in t]
 
 
-def _tags_du_port(vis: str, dist: int) -> dict:
-    """Ce que le PORT pose pour cette unite a cette distance. Chaine ENTIEREMENT independante du
-    flux : gameconfig -> selection d'arme -> derivation -> dict de tags."""
+def _tags_du_port(vis: str, dist: int, charge: bool) -> dict:
+    """Ce que le PORT pose pour cette unite a cette distance et dans cet etat de charge. Chaine
+    ENTIEREMENT independante du flux : gameconfig -> selection d'arme -> derivation -> dict de tags.
+
+    `charge` n'est PAS lu du flux : c'est le MONTAGE (le probe a lui-meme deplace le caster au
+    contact), au meme titre que la distance."""
     w, _ranged = get_attack_weapon_for_default_normal_attack(vis, is_adjacent=(dist <= 1),
                                                              dist=dist)
     if w is None:
         return {}
-    return dict(InformWeapon.from_weapon(w, use_special=False).tags())
+    # Le MEME foyer que le runner : la cascade `custom_normal_attack` dit quelle attaque normale
+    # l'unite porte, `inform_weapon_use_special` dit si son `ExecuteBehaviour` pose la 3e cle.
+    na = custom_normal_attack(passive_abilities=None, active_abilities=None, visual_id=vis,
+                              traits=None)
+    us = inform_weapon_use_special(na, is_charging=charge, weapon_melee=weapon_is_melee(w))
+    return dict(InformWeapon.from_weapon(w, use_special=us).tags())
 
 
 def _lignes_info_du_flux(flux: str) -> list:
@@ -246,13 +324,28 @@ def _confronter(natif: dict, porte: dict, prefixe: str = "iwna", bavard: bool = 
             ko += (etat == "KO")
             if bavard:
                 print(f"[{prefixe}][1] {nom:20s} {cle.name:30s} natif={v_nat} port={v_port} {etat}")
+    # [3] LA CLE CONDITIONNELLE, dans les DEUX SENS. Elle etait « absente des deux cotes » tant
+    # qu'aucun montage ne l'exercait ; depuis #419-r1-tr14-r4-r2-r1 le corpus porte un regime ou le
+    # natif la POSE (`FeederTendrils` en charge), donc on compare presence ET valeur.
+    n_pose = p_pose = 0
     for nom in sorted(natif):
-        n_abs = TagKey.Attack_Weapon_Use_Special.name not in natif[nom]
-        p_abs = TagKey.Attack_Weapon_Use_Special not in (porte.get(nom) or {})
-        etat = "OK" if (n_abs and p_abs) else "KO"
+        v_nat = natif[nom].get(TagKey.Attack_Weapon_Use_Special.name)
+        v_port = (porte.get(nom) or {}).get(TagKey.Attack_Weapon_Use_Special)
+        n_pose += (v_nat is not None)
+        p_pose += (v_port is not None)
+        etat = "OK" if ((v_nat is None) == (v_port is None)
+                        and (v_nat is None or int(v_nat) == int(v_port))) else "KO"
         ko += (etat == "KO")
         if bavard:
-            print(f"[{prefixe}][3] {nom:20s} Use_Special absente natif={n_abs} port={p_abs} {etat}")
+            print(f"[{prefixe}][3] {nom:24s} Use_Special natif={v_nat} port={v_port} {etat}")
+    # TEMOIN DU CONDITIONNEL : le corpus doit l'exercer DANS LES DEUX ETATS, sinon « conditionnel »
+    # n'est pas teste -- un port qui la poserait toujours, ou jamais, passerait.
+    etat = "OK" if 0 < n_pose < len(natif) else "KO"
+    ko += (etat == "KO")
+    if bavard:
+        print(f"[{prefixe}][3b] temoin du conditionnel : natif la pose sur {n_pose}/{len(natif)} "
+              f"porteur(s), le port sur {p_pose}/{len(natif)} (il faut STRICTEMENT entre 0 et N) "
+              f"{etat}")
     # [2] anti-regime-degenere.
     vals = {n: int(t.get(TagKey.Attack_Weapon_IsMelee.name, -99)) for n, t in natif.items()}
     if len(natif) < 2:
@@ -280,7 +373,7 @@ def _confronter(natif: dict, porte: dict, prefixe: str = "iwna", bavard: bool = 
 
 
 def _porte_courant() -> dict:
-    return {p["nom"]: _tags_du_port(p["vis"], p["dist"]) for p in PORTEURS}
+    return {p["nom"]: _tags_du_port(p["vis"], p["dist_att"], p["charge"]) for p in PORTEURS}
 
 
 def contre_epreuve() -> int:
@@ -317,12 +410,21 @@ def contre_epreuve() -> int:
         s[TagKey.Attack_Weapon_Use_Special] = 0
         return _mute(nom, tags=s)
 
+    def _sans_use_special(nom):
+        s = {k: v for k, v in base[nom].items() if k != TagKey.Attack_Weapon_Use_Special}
+        return _mute(nom, tags=s)
+
     mutations = [
         ("M1 IsMelee constant 1 partout", _cst_melee(1), True),
         ("M2 IsMelee constant 0 partout", _cst_melee(0), True),
         ("M3 IsMelee DEDUIT du profil", _du_profil(), True),
         ("M4 Use_Special inconditionnelle (deathBlightlord@1)",
          _use_special("deathBlightlord@1"), True),
+        # M4b -- LE GATE `FeederTendrils` LUI-MEME : sans lui, la cle disparait du seul porteur qui
+        # la porte. C'est la mutation qui distingue « la cle est portee » de « la cle est absente
+        # partout », etat du port AVANT cette tranche.
+        ("M4b gate FeederTendrils desarme (charge)",
+         _sans_use_special("tyranDeathleaper@charge"), True),
         ("M5 interversion 0x92/0x93 (deathBlightlord@1)", _interversion("deathBlightlord@1"), True),
         # ⚠ INERTE PAR ALGEBRE, et c'est MESURE, pas subi : sur `admecDestroyer@3` le profil
         # `Physical` vaut **0** ET `isMelee` vaut **0** -- intervertir les deux cles n'y change
@@ -376,6 +478,14 @@ def main(argv) -> int:
             if tid is None:
                 print(f"[iwna] {p['nom']}: NON CONFRONTE -- distance {p['dist']} non montable")
                 continue
+            if p["charge"]:
+                # DEPLACER LE CASTER au contact : c'est ce pas qui remplit
+                # `UnitComponent.ChargedUnitIds` (`MoveUnitOperation$$UpdateCharging`). Le
+                # repositionnement de la CIBLE, lui, ne fait charger personne.
+                dv, caster, dist = _charger(rpc, rid, board, caster, tid)
+                if caster is None:
+                    print(f"[iwna] {p['nom']}: NON CONFRONTE -- charge non montable")
+                    continue
             na = next((a for a in (caster.get("abilities") or [])
                        if a.get("kind") == "normal"), None)
             if na is None:
@@ -392,8 +502,8 @@ def main(argv) -> int:
                 print(f"[iwna] {p['nom']}: NON CONFRONTE -- aucun pas Info porteur")
                 continue
             natif[p["nom"]] = infos[0]
-            dists[p["nom"]] = dist
-            print(f"[iwna] {p['nom']} (dist={dist}) natif -> "
+            dists[p["nom"]] = (dist, p["charge"])
+            print(f"[iwna] {p['nom']} (dist={dist}, charge={p['charge']}) natif -> "
                   f"{json.dumps(infos[0], sort_keys=True)}")
         flux = (rpc("replayOutputStream", {"runnerId": rid, "maxChars": 8000000})
                 .get("outputStream") or "")
@@ -406,8 +516,8 @@ def main(argv) -> int:
             Path(sf).unlink(missing_ok=True)
 
     # Le port est evalue A LA DISTANCE REELLEMENT MONTEE, pas a celle qu'on voulait.
-    porte = {n: _tags_du_port(next(p["vis"] for p in PORTEURS if p["nom"] == n), d)
-             for n, d in dists.items()}
+    porte = {n: _tags_du_port(next(p["vis"] for p in PORTEURS if p["nom"] == n), d, c)
+             for n, (d, c) in dists.items()}
     ko = _confronter(natif, porte)
 
     # --- [4] SECOND CANAL : le TEXTE canonique du flux, ligne a ligne.

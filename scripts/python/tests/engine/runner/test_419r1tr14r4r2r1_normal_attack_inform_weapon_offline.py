@@ -74,15 +74,22 @@ def test_etage1_les_neuf_appelants_sont_lus_et_deux_posent_use_special():
         assert USE_SPECIAL_PAR_APPELANT[nom][1], "%s doit porter sa garde nommee" % nom
 
 
-def test_etage1_le_foyer_porte_ne_pose_use_special_sur_AUCUNE_attaque_normale():
-    """Le port n'a qu'UN foyer d'attaque normale (`damage_ops/normal.py`), mirror
-    d'`ALoki_NormalAttackAbility$$ExecuteBehaviour` -- dont le litteral est `0`. Les deux
-    branches SPECIALES vivent dans d'autres `ExecuteBehaviour`, non portes : le port ne doit donc
-    JAMAIS emettre `Attack_Weapon_Use_Special` sur cette voie."""
-    src = (_PYDIR / "engine" / "runner" / "operations" / "damage_ops" / "normal.py").read_text(
-        encoding="utf-8")
-    assert "InformWeapon.from_weapon(_w, use_special=False)" in src, (
-        "le foyer d'attaque normale doit poser le litteral `0` du natif, EXPLICITEMENT")
+def test_etage1_le_gate_useSpecial_porte_exige_LES_DEUX_termes():
+    """`(charging & isMelee) == 0` -> branche generique. Le second terme est
+    `WeaponProfile.get_IsMelee(weapon)`, PAS un second predicat de charge : le lire comme un
+    `IsCharging` seul poserait la cle sur un TIR de charge, que le natif ne pose pas.
+
+    Et le foyer ne repond `1` que pour `FeederTendrils_NormalAttack` : `OptimizedGait_NormalAttack`
+    (l'autre poseur natif) est DECLARE non porte, son ancre `HasEffect` n'etant pas tranchee."""
+    from engine.services.custom_normal_attack import inform_weapon_use_special
+    assert inform_weapon_use_special("FeederTendrils_NormalAttack", True, True) is True
+    assert inform_weapon_use_special("FeederTendrils_NormalAttack", True, False) is False
+    assert inform_weapon_use_special("FeederTendrils_NormalAttack", False, True) is False
+    assert inform_weapon_use_special("FeederTendrils_NormalAttack", False, False) is False
+    # les sept autres appelants, et le repli generique : litteral `0`, quel que soit l'etat.
+    for nom in (None, "Loki_NormalAttack", "Boltstorm_NormalAttack",
+                "OptimizedGait_NormalAttack"):
+        assert inform_weapon_use_special(nom, True, True) is False, nom
 
 
 # =============================================================================================
@@ -153,7 +160,7 @@ def _board():
     return Board(tiles, adjacency="evenq")
 
 
-def _scene(cible_pos):
+def _scene(cible_pos, attaquant=None, charge: bool = False):
     from engine.entities.effects_state import EffectsState
     from engine.entities.stats import StatType, UnitStats
     from engine.entities.unit_context import UnitContext
@@ -184,14 +191,20 @@ def _scene(cible_pos):
             ability_variables_multiplier=100, stats=stats)))
         return e.id
 
-    att = _unit(_ATTAQUANT, (4, 4), 2)
+    att = _unit(attaquant or _ATTAQUANT, (4, 4), 2)
     tgt = _unit(_CIBLE, cible_pos, 1)
+    if charge:
+        # `UnitComponent.ChargedUnitIds@+0x190` -- la liste que `MoveUnitOperation$$UpdateCharging`
+        # remplit des unites NOUVELLEMENT adjacentes du pas. La poser directement est le montage
+        # ECRIT de l'etat « a charge cette cible ce tour ».
+        from engine.runner.components import UnitComponent
+        st.get_entity(att).get_component(UnitComponent).charged_unit_ids = [tgt]
     return st, att, tgt
 
 
-def _attaque(cible_pos) -> dict:
+def _attaque(cible_pos, attaquant=None, charge: bool = False) -> dict:
     from engine.runner.operations.damage import AttackDamageOperation
-    st, att, tgt = _scene(cible_pos)
+    st, att, tgt = _scene(cible_pos, attaquant, charge)
     r = AttackDamageOperation.execute(st, att, tgt)
     assert r is not None, "montage incomplet : l'attaque normale n'a pas tourne"
     return r
@@ -241,6 +254,31 @@ def test_etage3_le_gate_darme_precede_la_pose_des_tags():
 # =============================================================================================
 # ETAGE 4 -- la cle CONDITIONNELLE
 # =============================================================================================
+
+_DEATHLEAPER = "tyranDeathleaper"        # passif `FeederTendrils` -> `FeederTendrils_NormalAttack`
+
+
+def test_etage3_useSpecial_EXECUTE_deathleaper_en_charge_pose_la_cle():
+    """LE CRAN QUE SEULE L'EXECUTION VOIT : la cle n'est posee que si le foyer sait, DANS l'ECS,
+    (a) que l'attaque normale de l'entite est `FeederTendrils_NormalAttack` -- ce qui passe par la
+    cascade `custom_normal_attack` -- et (b) qu'elle a CHARGE cette cible. Le natif ecrit alors
+    `Tag=Attack_Weapon_Use_Special:1` (MESURE live du 2026-08-06, `tyranDeathleaper` sur MC1_67).
+
+    Les deux bras temoins isolent chacun un terme : sans charge, et sur une autre unite."""
+    from engine.streams.tag_key import TagKey
+    charge = _attaque((4, 3), attaquant=_DEATHLEAPER, charge=True)["inform_weapon_tags"]
+    assert charge.get(TagKey.Attack_Weapon_Use_Special) == 1, dict(charge)
+    # profil `Bio` = 22, mesure dans le flux natif du meme montage.
+    assert charge[TagKey.Attack_Weapon_DamageProfile] == 22, dict(charge)
+
+    sans = _attaque((4, 3), attaquant=_DEATHLEAPER, charge=False)["inform_weapon_tags"]
+    assert TagKey.Attack_Weapon_Use_Special not in sans, (
+        "sans charge, le natif prend la branche generique (`useSpecial = 0`) -- %r" % (dict(sans),))
+    autre = _attaque((4, 3), charge=True)["inform_weapon_tags"]
+    assert TagKey.Attack_Weapon_Use_Special not in autre, (
+        "une unite SANS `FeederTendrils` ne pose jamais la cle, meme en charge -- %r"
+        % (dict(autre),))
+
 
 def test_etage4_use_special_est_absente_a_zero_et_presente_a_un():
     from engine.runner.abilities.behaviours.combat import InformWeapon

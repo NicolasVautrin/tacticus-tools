@@ -516,3 +516,45 @@ def substitutes_normal_attack(passive_name: str, passive_abilities=None, visual_
                                 active_abilities=active_abilities,
                                 visual_id=visual_id, traits=traits,
                                 config_active_abilities=config_active_abilities) == substitutes
+
+
+#: L'attaque normale dont l'`ExecuteBehaviour` pose `useSpecial = 1`, et le gate qui l'y amene.
+#: LU au decompile (#419-r1-tr14-r4-r2-r1). L'AUTRE poseur, `OptimizedGait_NormalAttack`, N'EST PAS
+#: ici -- son gate est `EntityExtensions$$HasEffect(<entite du champ +8 des AbilityEntities>, state,
+#: 0x4e2, null)` et l'ANCRE (caster ou cible) n'est pas tranchee : l'inscrire au jugé ecrirait un
+#: `Use_Special` faux sur un porteur reel. Residu nomme, pas oubli.
+_USE_SPECIAL_NORMAL_ATTACK = "FeederTendrils_NormalAttack"
+
+
+def inform_weapon_use_special(normal_attack_name, is_charging: bool, weapon_melee: bool) -> bool:
+    """Le 4e argument d'`ALoki_NormalAttackAbility$$ExecuteInformWeapon`, LU au call-site de chaque
+    `<X>_NormalAttackAbility$$ExecuteBehaviour` -- **sept** posent le litteral `0`, **deux** posent
+    `1` dans une branche gardee. FOYER UNIQUE de cette decision (le runner ET les probes l'appellent).
+
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteBehaviour`,
+    lu verbatim :
+
+        weapon = FindAttackWeapon(entities);
+        if (weapon == null) return 0;
+        charging = DSLTriggers.IsCharging(sel.Caster@+0x30, sel.Target@+0x60)
+                              .Evaluate(entities, 0x20, ...);            // slot +0x188
+        isMelee  = WeaponProfile.get_IsMelee(weapon);
+        if ((charging & isMelee) == 0)
+            return ALoki_NormalAttackAbility.ExecuteBehaviour(this, abilityState, entities);
+        ExecuteInformWeapon(this, weapon, entities, useSpecial: 1);      <- LE SEUL SITE PORTE
+        ... Heal(ConfigVar 0x20) & AddEffect(0x429) ... ExecuteNormalAttack ... ExecuteTriggerAbilities
+
+    ⚠ LE SECOND TERME DU `&` EST `get_IsMelee(weapon)`, PAS UN SECOND PREDICAT DE CHARGE. Le lire
+    comme un `IsCharging` seul poserait `Use_Special` sur un tir de charge -- que le natif ne pose
+    pas. Les deux termes sont donc exiges.
+
+    ⚠ CE QUE CE FOYER NE PORTE PAS, ET QUI VIT DANS LA MEME BRANCHE : le `Heal` et l'`AddEffect
+    (0x429)` de `FeederTendrils`. Le tag devient JUSTE ; le reste de la branche reste NON PORTE
+    (residu `#419-r1-tr14-r4-r2-r1-r1`). Ne pas lire « FeederTendrils est porte » : seul son
+    `useSpecial` l'est.
+
+    `normal_attack_name` = le nom d'`ActiveAbilityType` rendu par la cascade `custom_normal_attack`
+    (`None` = repli generique `Loki_NormalAttack`, dont le litteral est `0`)."""
+    if normal_attack_name != _USE_SPECIAL_NORMAL_ATTACK:
+        return False
+    return bool(is_charging) and bool(weapon_melee)
