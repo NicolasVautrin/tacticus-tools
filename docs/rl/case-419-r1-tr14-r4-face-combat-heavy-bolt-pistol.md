@@ -75,12 +75,16 @@ Quatre lectures qui ne se devinent pas :
    (`multi=False`), sans l'`OrderBy` d'`AttackBehaviour$$Execute`.
 2. **`isMelee: true` d'`InformWeapon` est un LITTÉRAL, et il nomme la nature du coup.**
    `DSLBehaviors$$InformWeapon(damageProfileType, isMelee, useSpecial)` inscrit trois clés :
-   `0x93` = weaponId **dérivé du profil** (`-1` si le profil est nul), `0x92` = **le 2ᵉ argument
-   `isMelee`**, `0x94` = `useSpecial`, ajoutée **seulement s'il est non nul**. Le natif DÉCLARE donc
-   ce coup MÊLÉE — c'est ce qui fixe `is_melee=True` sur la feuille (axe `ExtraPierceMelee` vs
-   `ExtraPierceRanged` de `profile_pierce`), et non une déduction depuis la géométrie.
-   ⚠ La docstring de `runner/abilities/behaviours/combat.py::InformWeapon` décrit `0x92` comme
-   « damageProfile » : c'est **FAUX** au décompilé du build courant (résidu `#419-r1-tr14-r4-r2`).
+   `0x93` = `TagKey.Attack_Weapon_DamageProfile` — l'**ORDINAL du `DamageProfileType`** (`-1` =
+   `DamageProfileType.None_` si le `Nullable` est vide), `0x92` = `TagKey.Attack_Weapon_IsMelee` =
+   **le 2ᵉ argument `isMelee`**, `0x94` = `TagKey.Attack_Weapon_Use_Special`, ajoutée **seulement
+   s'il est non nul**. Le natif DÉCLARE donc ce coup MÊLÉE — c'est ce qui fixe `is_melee=True` sur
+   la feuille (axe `ExtraPierceMelee` vs `ExtraPierceRanged` de `profile_pierce`), et non une
+   déduction depuis la géométrie.
+   ⚠ Cette fiche écrivait « `0x93` = weaponId dérivé du profil » : **FAUX**, et mesuré live —
+   le flux rend `0` pour `Physical` et `14` pour `Power`, c'est-à-dire l'ordinal de l'enum.
+   La docstring du foyer, elle, intervertissait `0x92` et `0x93`. Corrigé par
+   **`#419-r1-tr14-r4-r2`** (`docs/rl/case-419-r1-tr14-r4-r2-inform-weapon-tags.md`).
 3. **Le montant est la variable `dmg` SEULE** (`AbilityVariableType` **11 = `dmg`**), passée par un
    `Direct(v)` — un montant à valeur UNIQUE, pas un couple `minDmg`/`maxDmg`. Le nombre de coups est
    `GetNumberConstant(0x2f)` = `AbilityConstantType.nrOfHits` (= 1 au gameconfig courant).
@@ -265,13 +269,10 @@ Aucun compteur n'est rouvert par cette tranche — vérifié, pas supposé.
   est donc INERTE sur ce montage ; son sens reste à lire dans
   `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (il transite `AttackDamageBehaviour+0x98`).
   Débloqueur : un régime où la cible peut mourir, ou porte un bouclier.
-* **`#419-r1-tr14-r4-r2` — `InformWeapon` : deux arguments non portés, et une lecture FAUSSE dans la
-  docstring du foyer.** Le port `runner/abilities/behaviours/combat.py::InformWeapon` ne prend que le
-  profil ; il n'expose ni `isMelee` (clé `0x92`, le 2ᵉ argument — que sa docstring nomme à tort
-  « damageProfile ») ni `useSpecial` (clé `0x94`). Le canal est COMBAT-INERTE (pose de métadonnée,
-  aucun tirage, aucune mutation), donc aucun nombre porté n'en dépend — mais ses consommateurs sont
-  les triggers on-attack spécifiques à l'arme (ex. `HazeOfCorruption`), qui liraient `0x92`. Non
-  corrigé ici : `combat.py` est un foyer partagé et l'édition sortait du périmètre de la tranche.
+* ~~**`#419-r1-tr14-r4-r2` — `InformWeapon` : deux arguments non portés, et une lecture FAUSSE dans
+  la docstring du foyer.**~~ **RÉSOLU** — `docs/rl/case-419-r1-tr14-r4-r2-inform-weapon-tags.md`.
+  Les deux clés sont portées et confrontées LIVE (le canal n'est pas un « no-op » : il part en
+  `StepType.Info`), et la docstring est corrigée — elle se trompait sur **quatre** points, pas un.
 * **`#419-r1-tr14-r4-r3` — l'ancrage `casterPosition` de la gate est LU mais NON EXERCÉ.**
   `BattleQuery$$IsMeleeAttack` évalue `AreEntitiesAdjacent(casterPosition, target)`, où
   `casterPosition` vient de l'`AbilityEntities` **hérité** de l'attaque normale (`TriggerAbility` ne
