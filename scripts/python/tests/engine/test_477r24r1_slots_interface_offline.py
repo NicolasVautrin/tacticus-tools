@@ -375,6 +375,36 @@ def test_etage3bis_un_segment_de_chemin_nest_pas_un_nom_de_methode() -> None:
     assert "IdunBattle" not in vus, "la tete du namespace est prise pour un nom de methode"
 
 
+def test_etage3bis_le_residu_est_VENTILE_et_la_somme_vaut_le_total(table) -> None:
+    """Un compte qui ne dit pas SA CAUSE est un inventaire (#477-r34).
+
+    Les trois causes forment une PARTITION : leur somme doit valoir `sans_couple`, sinon une
+    ligne tomberait dans un tas que personne ne regarde -- exactement le vice qu'un recenseur a
+    liste blanche de motifs reproduit a chaque fois.
+    """
+    _cits, _noms, ecartees = P.recolter(
+        noms_interface=frozenset(v[0] for v in table.values()))
+    vent = ecartees.ventilation
+    assert vent is not None, "ventilation PAS MESUREE alors que la table est fournie"
+    assert set(vent) == set(P.CAUSES), "les causes ne sont pas celles declarees : %s" % sorted(vent)
+    assert sum(len(v) for v in vent.values()) == ecartees.sans_couple, (
+        "la somme des causes (%d) ne vaut PAS le total ecarte (%d) -- ce n'est plus une partition"
+        % (sum(len(v) for v in vent.values()), ecartees.sans_couple))
+    assert vent["nom_ecarte_par_un_cran"], (
+        "aucune ligne dans le tas qui est LE gisement -- soit il est ferme (le dire), soit le "
+        "critere ne mesure plus rien")
+
+
+def test_etage3bis_la_ventilation_est_TRI_ETAT() -> None:
+    """Sans table de noms, la ventilation vaut `None` -- PAS MESUREE, jamais un dict vide.
+
+    Un dictionnaire de listes vides se lirait « aucune ligne dans aucune cause », c'est-a-dire
+    « residu ferme », alors que rien n'aurait ete mesure.
+    """
+    _cits, _noms, ecartees = P.recolter(fenetre=1)
+    assert ecartees.ventilation is None
+
+
 # ------------------------------------- etage 5 : les citations par NOM SEUL (#477-r32)
 
 

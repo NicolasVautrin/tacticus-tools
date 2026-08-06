@@ -4,6 +4,7 @@
     python scripts/python/probe_477r24r1_slots_interface.py --regenerer
     python scripts/python/probe_477r24r1_slots_interface.py --mutants
     python scripts/python/probe_477r24r1_slots_interface.py --courbe
+    python scripts/python/probe_477r24r1_slots_interface.py --ventiler
 
 CE QUE CE PROBE TRANCHE
 -----------------------
@@ -272,6 +273,18 @@ class CitationNom:
     texte: str
 
 
+#: LA VENTILATION DU RESIDU. Un compte qui ne dit pas SA CAUSE est un inventaire ; sa cause en
+#: fait une tache. Trois causes, exhaustives par construction (leur somme est `sans_couple`).
+CAUSES = {
+    "sans_numero": "la ligne nomme un slot sans le CHIFFRER (prose, ou tournure que l'etage 5 "
+                   "ne reconnait pas)",
+    "numero_sans_nom": "le slot est chiffre, AUCUN nom de methode de l'interface n'est ecrit "
+                       "dans la fenetre -- rien a contredire",
+    "nom_ecarte_par_un_cran": "le slot est chiffre ET un nom de l'interface est dans la fenetre, "
+                              "mais un cran conservateur l'ecarte -- LE gisement restant",
+}
+
+
 @dataclass(frozen=True)
 class Ecartees:
     """Ce que l'etage 3 n'a PAS retenu. Un compte filtre DIT ce qu'il filtre.
@@ -286,6 +299,9 @@ class Ecartees:
     autre_interface: int = 0
     sans_couple: int = 0
     exemptees: int = 0
+    #: `{cause: [(fichier, ligne, texte), ...]}` pour les `sans_couple`. La somme des trois
+    #: causes VAUT `sans_couple` -- c'est une partition, pas une liste blanche de motifs.
+    ventilation: dict[str, tuple[tuple[str, int, str], ...]] | None = None
 
 
 # ------------------------------------------------------------------ etage 1 : DERIVATION
@@ -446,22 +462,33 @@ def _blocs(lignes: list[str], fenetre: int):
             yield i0, "\n".join(vues), offsets
 
 
-def recolter(fenetre: int = FENETRE,
-             traverse: bool | None = None) -> tuple[list[Citation], list[CitationNom], Ecartees]:
+def _regex_noms(noms: frozenset[str]) -> re.Pattern[str]:
+    """Un motif qui reconnait N'IMPORTE QUEL nom de methode de l'interface, isole."""
+    return re.compile(r"(?<![A-Za-z0-9_$])(?:%s)(?![A-Za-z0-9$])"
+                      % "|".join(re.escape(n) for n in sorted(noms)))
+
+
+def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
+             noms_interface: frozenset[str] | None = None
+             ) -> tuple[list[Citation], list[CitationNom], Ecartees]:
     """(couples (slot, nom), citations par NOM SEUL, ce qui est ecarte et compte).
 
     `fenetre` = nombre de LIGNES sur lesquelles un couple peut s'etaler. `traverse` dit si les
     formes A et C ont le droit de franchir le saut de ligne ; par defaut, oui des que la fenetre
-    depasse 1.
+    depasse 1. `noms_interface` n'est utile qu'a la VENTILATION du residu : sans lui, le champ
+    `ventilation` reste `None` -- PAS MESURE, jamais un dictionnaire vide qui se lirait « aucune
+    ligne dans cette cause ».
     """
     if traverse is None:
         traverse = fenetre > 1
+    rx_un_nom = _regex_noms(noms_interface) if noms_interface else None
     couples = RE_COUPLES_ML if traverse else RE_COUPLES
     rx_nom_seul = RE_NOM_SEUL_ML if traverse else RE_NOM_SEUL
     retenues: list[Citation] = []
     noms_seuls: list[CitationNom] = []
     vus_noms: set[tuple[str, int, str]] = set()
     autre_iface = sans_couple = exemptees = 0
+    ventile: dict[str, list[tuple[str, int, str]]] = {c: [] for c in CAUSES}
     for path in fichiers_balayes():
         rel = path.relative_to(REPO).as_posix()
         if rel in EXCLUS:
@@ -541,6 +568,18 @@ def recolter(fenetre: int = FENETRE,
                 exemptees += 1
             else:
                 sans_couple += 1
+                #: VENTILATION -- la cause est DERIVEE de la ligne et de son voisinage, jamais
+                #: d'une liste de motifs : un slot non chiffre, un slot chiffre sans nom
+                #: appariable dans la fenetre, ou un slot chiffre AVEC un nom que seul un cran
+                #: conservateur ecarte. C'est ce dernier tas qui est le gisement (#477-r34).
+                if rx_un_nom is not None:
+                    if not re.search(_SLOT % 0, ligne):
+                        quoi = "sans_numero"
+                    else:
+                        autour = "\n".join(lignes[max(0, no - fenetre):no - 1 + fenetre])
+                        quoi = ("nom_ecarte_par_un_cran" if rx_un_nom.search(autour)
+                                else "numero_sans_nom")
+                    ventile[quoi].append((rel, no, ligne.strip()[:120]))
     #: Deduplication : plusieurs formes -- et, en fenetre, plusieurs BLOCS -- peuvent capter le
     #: MEME couple. La cle inclut la ligne du NOM : deux noms identiques a deux endroits
     #: differents sont deux citations.
@@ -552,8 +591,10 @@ def recolter(fenetre: int = FENETRE,
             continue
         deja_vu.add(cle)
         uniques.append(c)
-    return uniques, noms_seuls, Ecartees(autre_interface=autre_iface, sans_couple=sans_couple,
-                                         exemptees=exemptees)
+    return uniques, noms_seuls, Ecartees(
+        autre_interface=autre_iface, sans_couple=sans_couple, exemptees=exemptees,
+        ventilation=None if rx_un_nom is None
+        else {c: tuple(v) for c, v in ventile.items()})
 
 
 def confronter_noms(cits: list[CitationNom],
@@ -711,6 +752,8 @@ def main() -> int:
                          "(defaut %d ; 1 = l'etat d'avant #477-r32)" % FENETRE)
     ap.add_argument("--courbe", action="store_true",
                     help="re-derive le CHOIX de la fenetre : gain et bruit pour N = 1..8")
+    ap.add_argument("--ventiler", action="store_true",
+                    help="detaille CE QUI RESTE hors couverture, par CAUSE (residu #477-r34)")
     args = ap.parse_args()
 
     print("=== #477-r24-r1 -- slots de Core.Services.IOperationProcessor ===")
@@ -745,7 +788,9 @@ def main() -> int:
         print("  bouger, elargir n'apporte plus -- et le cout en temps, lui, continue.")
         return 0
 
-    cits, noms_seuls, ecartees = recolter(fenetre=args.fenetre)
+    cits, noms_seuls, ecartees = recolter(
+        fenetre=args.fenetre,
+        noms_interface=frozenset(v[0] for v in versionne.values()))
     enjambantes = sum(1 for c in cits if c.ligne != c.ligne_nom)
     print("[3] CITATIONS : %d attestation(s) sur %d fichier(s), appariees sur une FENETRE de "
           "%d ligne(s)" % (len(cits), len({c.fichier for c in cits}), args.fenetre))
@@ -768,6 +813,23 @@ def main() -> int:
     print("        %5d ligne(s) exemptees au site par %s" % (ecartees.exemptees,
                                                             MARQUEUR_REFUTE))
     print("        %5d fichier(s) EXCLU(S) et nomme(s) : %s" % (len(EXCLUS), ", ".join(EXCLUS)))
+    #: ⚠ LE RESIDU SE PUBLIE AVEC SA CAUSE. Un compte seul est un inventaire ; c'est la cause qui
+    #: en fait une tache, et qui dit lequel des trois tas est reellement un gisement (#477-r34).
+    vent = ecartees.ventilation
+    if vent is None:
+        print("      VENTILATION du residu : PAS MESUREE (pas de table de noms fournie)")
+    else:
+        assert sum(len(v) for v in vent.values()) == ecartees.sans_couple
+        print("      VENTILATION de ces %d lignes -- la somme des causes VAUT le total :"
+              % ecartees.sans_couple)
+        for cause, quoi in CAUSES.items():
+            print("        %5d  %-24s %s" % (len(vent[cause]), cause, quoi))
+        if args.ventiler:
+            for cause in CAUSES:
+                print()
+                print("      --- %s ---" % cause)
+                for rel, no, txt in vent[cause]:
+                    print("        %s:%d %s" % (rel, no, txt))
     faux_nom, faux_arite = confronter(cits, versionne)
     print("      %d citation(s) au NOM faux" % len(faux_nom))
     for f in faux_nom:

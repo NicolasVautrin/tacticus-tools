@@ -318,6 +318,120 @@ quatre mutants hérités mordent dans les deux régimes : **aucun d'eux ne dirai
 fenêtre**. Premier jet **rejeté par son propre test** — il visait tous les slots enjambants, dont
 certains cités aussi sur une ligne, et mordait donc **aussi à `fenetre=1`** (63 désaccords).
 
+## 6ter. `#477-r32` — l'étage qui manquait n'était pas la FENÊTRE, c'était le NOM SEUL
+
+**LIVRÉ.** La fenêtre a été portée telle quelle de `probe_477r25` à
+`probe_477r24r1_slots_interface.py` (le cliquet d'`IOperationProcessor`, resté au régime « slot et
+nom ADJACENTS », qui écartait **166** lignes du même patron).
+
+### La courbe, re-dérivée sur CE corpus (`--courbe`)
+
+| W | citations | enjambantes | nom seul | `sans_couple` | désaccords | arités fausses |
+|--:|--:|--:|--:|--:|--:|--:|
+| **1** (régime précédent) | 48 | 0 | 9 | 177 | 0 | 0 |
+| **2** | 68 | **16** | 10 | 169 | 0 | 0 |
+| **3** *(en service)* | 68 | 16 | 10 | 169 | 0 | 0 |
+| 4 … 8 | 68 | 16 | 10 | 169 | 0 | 0 |
+
+Même forme que la courbe de `#477-r30` : **gain intégralement capté à W = 2, plat ensuite**. `3`
+est pris comme marge à coût mesuré nul.
+
+⚠ **Le corpus contient la tranche elle-même** — cette fiche, le backlog et le fichier de test en
+font partie (seul le *probe* est exclu de son propre balayage). Écrire sur les slots fait donc
+bouger les compteurs : mesuré, **45 → 48** attestations et **166 → 177** lignes sans nom entre le
+commit de départ et l'état livré, à régime constant. Les chiffres se **re-dérivent**
+(`--courbe`), ils ne se citent pas. Corollaire pratique : les exemples écrits dans le test et dans
+les fiches doivent être des couples **VRAIS** — un exemple faux ferait rougir le cliquet sur son
+propre artefact, et c'est à cela que sert le marqueur `[slot-attribution:refute]` (3 sites).
+
+### La réponse à la question binaire : **0** citation fausse sur l'axe (slot, nom)
+
+Les **16** couples enjambants sont **tous justes**, relus un par un contre
+`data/symbols/rnca9r7q6c/metadata/ioperationprocessor_slots.tsv`. Contrairement à `#477-r30`
+(8 fautes sur 59), **le corpus d'`IOperationProcessor` était sain sur cet axe** — et ce n'est pas
+une conclusion par absence : chacun des crans conservateurs a été **relâché séparément** pour voir
+ce qu'il cachait.
+
+| relâchement | couples neufs | dont douteux | verdict |
+|---|--:|--:|---|
+| la parenthèse fermante ne bloque plus le remplissage | 6 | 4 | **artefacts** : `slot 0x3a` saute la fermeture et attrape le `FinishAttack` de la proposition suivante — le faux positif que ce cran a été créé pour bloquer |
+| forme « récepteur COLLÉ au slot, puis le nom » (la forme D de `#477-r25`) | 6 | 4 | **artefacts** : `processor.<slot 0x55>` en fin de ligne + `L1997` (une étiquette) au début de la suivante |
+| le nom COLLÉ au numéro (`slot 0x3c AttackDamage`) | 2 | **0** | **2 couples justes**, aucun faux positif |
+| forme A tolérant un appel avant le `=` (`processor.<slot 0x12>(); // -> …`) | 4 | 1 | 3 justes, 1 artefact (`// DeactivateEffect -> REVERT`) |
+
+**Aucun des 8 douteux n'est une faute du dépôt** : tous sont fabriqués par le relâchement
+lui-même. Les deux crans qui gagneraient sans bruit (nom collé au numéro, forme A après appel)
+sont laissés au résidu — ils relèvent des FORMES, pas de la fenêtre.
+
+### La faute était sur un axe que le probe ne visitait PAS
+
+`components.py` écrivait « le slot `ApplyStatModifiers` de l'`OperationProcessor` » <!-- [slot-attribution:refute] -->
+— un slot désigné par son **nom seul**, sans numéro. Ce nom n'est à **aucun** des 150 slots.
+
+Chaîne LUE au décompilé, sur les **trois** call-sites que la fiche cite elle-même —
+`IdunBattle.Operations.ReviveUnitOperation$$SetHealth`,
+`IdunBattle.Operations.SetupGameOperation$$ApplyModifiers` et
+`IdunBattle.Operations.TransformActorToConfigIdOperation$$UpdateStats` : **tous les trois** invoquent
+le **slot 0x66** de l'`IOperationProcessor`, c'est-à-dire
+`Core.Services.OperationProcessor$$TransformUnit(entity, statModifiers, isHidden)` (3 arguments,
+exacts) → `IdunBattle.Operations.TransformUnitOperation$$Execute` →
+`IdunBattle.Entities.UnitExtensions$$ApplyStatModifiers`, **deux niveaux plus bas**. Contrôle
+croisé gratuit : le même corps invoque aussi le slot `0x2f` avec `{5, 0}`, que la table donne pour
+`RefreshEffects` — l'interface visée est bien la bonne.
+
+⚠ **La correction est REFORMULÉE pour rester confrontable** (« slot 0x66 = `TransformUnit` »)
+plutôt que rangée dans l'angle mort. Écrire « slot `TransformUnit` (0x66) » aurait été *juste* et
+**invisible des deux étages** : le numéro ne suit pas le mot `slot`, et la tournure « de l'… » est
+rompue par la parenthèse. Corriger une citation sans la rendre **vérifiable** ne ferme rien.
+
+⚠ **Le discriminant de l'étage 5 est la tournure « de l'<récepteur> », pas le mot en capitale.**
+Un motif qui se contente de `slot <Mot>` récolte la prose — « slot **SANS** ARGUMENT », « que ce
+slot **SOIT** `FinishUnitTurn` », « slots **AUTRES** que » : mesure, **5 faux positifs pour
+7 citations réelles**. La tournure les dissout toutes sans en perdre une.
+
+### Deux crans de RECONNAISSANCE, mesurés sur ce corpus
+
+1. **le RÉCEPTEUR a le droit de s'écrire entre `slot` et le numéro** — « slot `IOperationProcessor`
+   0x21 », « slot processor 0x76 », « le slot 0x23 de `Core.Services.OperationProcessor` ». Sans ce
+   cran le motif ne reconnaissait même pas le **SLOT** : la ligne partait en `sans_couple` et
+   **aucune fenêtre** n'aurait pu la rattraper. C'est la forme exacte du gisement « slot
+   d'INTERFACE » de `#477-r30`, sur un autre qualificatif ;
+2. **un nom suivi d'un POINT PUIS D'UNE LETTRE est un segment de chemin, pas une méthode.** Le
+   qualificateur étant optionnel en forme A, le moteur y renonce et attrape la **tête du
+   namespace** : `slot 0x46 -> `IdunBattle.Operations.DiscardHitOperation`` rendait le nom
+   `IdunBattle`. **4 sites**, tous artefacts — et tous rangés là où une vraie citation fausse doit
+   sortir. Avec le cran, `fenetre=1` redevient **exactement** le régime précédent.
+
+Une **coupure** propre à ce corpus a aussi dû être ouverte : `Core.Services.OperationProcessor$$`
+finit la ligne et le nom ouvre la suivante (`turnflow.py`, `runner.py`). C'est une position de
+rupture **différente** de celle mesurée par `#477-r30` (qui tombait entre le signe égal et le
+qualificateur), donc son propre cran et son propre test.
+
+### Le mutant qui garde la fenêtre NE PEUT PAS porter sur la table ici
+
+`enjambants-decales` de `#477-r30` permute le nom des slots que **seuls** des couples enjambants
+citent. **Ce mutant est inconstructible sur ce corpus, et c'est une mesure** : les 16 couples
+enjambants tiennent sur **8** slots (`0x06`, `0x21`, `0x3c`, `0x43`, `0x51`, `0x71`, `0x76`,
+`0x77`), et **les 8 sont aussi cités sur une seule ligne ailleurs** — toute mutation de la TABLE
+mordrait donc dans les deux régimes, exactement comme les quatre mutants hérités.
+
+La mutation porte donc sur la **CITATION** : « un couple à cheval se voit attribuer le nom du slot
+VOISIN ». C'est précisément la faute que l'élargissement existe pour trouver, elle n'a **aucun
+porteur** à `fenetre = 1`, et le module **REFUSE** (`contre-épreuve IMPOSSIBLE`) plutôt que de
+rendre une mutation vide. Mesuré : **16** désaccords en fenêtre, refus à `fenetre=1`.
+⚠ Le voisin choisi doit porter un **nom différent** — l'interface a des surcharges à des slots
+adjacents (`0x2e`/`0x2f` = `RefreshEffects`, `0x34`/`0x35` = `ComputerAction`), et prendre le
+voisin immédiat rendrait une mutation **nulle** qui passerait pour appliquée.
+
+### Un étage absent du tuple rendu par `jouer` est un étage SANS contre-épreuve
+
+L'étage 5 est entré ainsi : les cinq mutants continuaient de « mordre » sur les autres colonnes, et
+la garde passait pour complète. `test_etage3_chaque_etage_a_son_mutant` exige désormais que
+**chacune** des 4 colonnes de `jouer` soit bougée par au moins un mutant — c'est ce qui l'a montré.
+Sa dérivation est **simulée depuis l'entrée versionnée** pour que la colonne « écart
+dérivation/versionné » reste observable **sans le jeu installé** ; la passer à `None` la fige à 0 et
+le test se lirait « aucun mutant ne garde l'étage 2 » alors que tous le gardent.
+
 ## 7. Un apport hors périmètre, non appliqué
 
 `docs/rl/backlog.md` porte le résidu **`#443-r2-b1-r2` : « slot `0x13` de
@@ -345,14 +459,29 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
   lequel la couverture est acquise.
 - **Les ~5 260 lignes sans récepteur reconnu** restent hors garde. Le recensement (`--recenser`) les
   ventile par récepteur ; aucune ne porte de couple (slot, nom) appariable sans lire le site.
-- **#477-r32 — les 641 lignes qui citent un slot sans qu'AUCUN nom ne lui soit appariable, même sur
-  trois lignes.** C'est ce que `#477-r30` laisse ouvert, et le nombre est désormais **publié avec
-  son rétrécissement** (666 → 641). Élargir davantage n'y fera rien : la courbe est plate de W=2 à
-  W=12, donc ces lignes ne sont pas « trop loin de leur nom » — elles n'en ont **pas**, ou il n'est
-  pas reconnaissable (récepteur non couvert, nom en minuscules, slot cité seul dans une
-  énumération). Deux volets : *(a)* échantillonner ce résidu comme `#477-r30` l'a fait des 665 —
-  la première lecture du gisement précédent en a sorti une citation fausse ; *(b)* **porter la
-  fenêtre à `probe_477r24r1_slots_interface.py`**, qui écarte **162** lignes du même patron sur
-  `IOperationProcessor` et n'a **pas** été élargi.
+- ~~**#477-r32**~~ → **CLOS le 2026-08-06.** La fenêtre est portée à
+  `probe_477r24r1_slots_interface.py` (§ 6ter). Sur `IOperationProcessor` : **16** couples
+  enjambants, zone aveugle **177 → 169**, et **0 citation fausse** sur l'axe (slot, nom) —
+  vérifié en relâchant chacun des crans un par un, les 8 douteux qui en sortent étant **tous**
+  des artefacts du relâchement. La faute trouvée était sur un **autre axe** : le slot cité par son
+  **nom seul**. cf. § 6ter.
+  Le volet *(a)* — échantillonner les ~640 lignes de `probe_477r25` — reste ouvert sous
+  **#477-r34** ci-dessous.
+- **#477-r34 — ce qui reste hors couverture, VENTILÉ PAR CAUSE, sur les DEUX cliquets.** Le compte
+  seul est un inventaire ; sa cause en fait une tâche. Sur `IOperationProcessor` (**169** lignes,
+  mesurées) :
+  * **43** ne portent **aucun numéro** — elles nomment le slot en prose (« un slot de
+    l'`OperationProcessor` qui pose des modificateurs de stat ») ou le désignent par une tournure
+    que l'étage 5 ne reconnaît pas (« prennent le slot `MoveUnit` (4 arguments…) », sans « de
+    l'… ») ;
+  * **76** portent un numéro et **aucun nom de méthode dans la fenêtre** — rien à contredire ;
+  * **50** portent un numéro **et** un nom de l'interface dans la fenêtre, mais un cran
+    conservateur les écarte. C'est **là** que se trouve le gisement restant, et il est **borné** :
+    les quatre relâchements mesurés en § 6ter n'y sortent que **18** couples, dont **10 justes** et
+    **8 artefacts**. Deux crans gagneraient sans bruit mesuré (**nom collé au numéro** : 2 couples,
+    0 artefact ; **forme A tolérant un appel avant le `=`** : 3 justes pour 1 artefact) — ce sont
+    des axes de FORME, pas de fenêtre, et ils n'ont pas été appliqués dans cette tranche.
+  Sur les autres interfaces, les ~640 lignes de `probe_477r25` restent non ventilées : la courbe y
+  est plate et elles n'ont **pas** de nom appariable ; les échantillonner reste le volet ouvert.
 - **Le mot `slot` lui-même reste sensible à la casse** (seul son qualificatif ne l'est plus). Une
   ligne commençant par « Slot 0x12 = … » ne serait pas vue. Non mesuré comme gisement.
