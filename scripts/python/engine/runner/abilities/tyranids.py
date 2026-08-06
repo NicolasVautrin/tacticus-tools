@@ -35,7 +35,8 @@ import gameconfig as GC
 from .base import ActiveAbility, convert_rounds_to_turns
 from .behaviours import (entities_from_state, AddEffect, RemoveAllForcedAttackTargets,
                          RemoveUnitFromItsTiles, TriggerAbility)
-from .targeting import RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import (RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions,
+                        has_steppable_unit, unit_of_entity, units_are_enemies)
 from .targeting_rule import TargetingRule as TR
 from ..components import OwnerComponent, StatsComponent, get_unit_feet, is_teleporting
 from ...dsl.base import Const
@@ -178,6 +179,37 @@ class SporeMineLauncherAbility(ActiveAbility):
         | TR.AllowNullCasterTile
         | TR.TargetIsNotAdjacentToEnemy),
         range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile, ligne a ligne (#287-r4-r1) :
+
+            if (TileExtensions.HasSteppableUnit(target, state)) {
+                unit = UnitExtensions.GetUnit(target, state);
+                return UnitExtensions.IsEnemy(unit, caster, state) ? 2 : 0;
+            }
+            return 0;                       // 2 = TargetingRule.TargetMatchesDynamicRule
+
+        SEMANTIQUE : la tuile est refusee UNIQUEMENT si elle porte une unite `Steppable` ENNEMIE du
+        caster. Une tuile vide passe ; une tuile portant un allie steppable passe aussi -- c'est bien
+        `IsEnemy` que le natif teste, pas « occupee ». Le premier terme est donc une GARDE : sans
+        unite steppable, la regle ne dit rien, quel que soit l'occupant non-steppable.
+
+        ⚠ NE PAS confondre avec le bit 42 `TargetIsNotAdjacentToEnemy` du meme masque, deja porte
+        (#243) : celui-la regarde les VOISINES de la tuile et compte tout ennemi ; celle-ci regarde
+        la tuile ELLE-MEME et n'y voit que les `Steppable`. Les deux coexistent dans la cascade.
+
+        `IsEnemy(a, b, state)` = `GetCurrentPlayer(a).Player.Team != GetCurrentPlayer(b).Player.Team`
+        (rabats a `0` quand un maillon manque) = `units_are_enemies`, et surtout PAS
+        `not units_are_friendly` -- cf. la docstring de `units_are_enemies`, qui l'etablit."""
+        if target_id is None:
+            return 0
+        if not has_steppable_unit(state, int(target_id)):
+            return 0
+        occupant = unit_of_entity(state, int(target_id))
+        return (int(TR.TargetMatchesDynamicRule)
+                if units_are_enemies(state, occupant, caster_id) else 0)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

@@ -1259,6 +1259,88 @@ class _NormalAttackTargeting:
         return 0
 
 
+# ------------------------------------------------------------------------------------------------
+# REGLES DYNAMIQUES DE CIBLE des abilities dont la BEHAVIOUR n'est pas portee (#287-r4-r1)
+# ------------------------------------------------------------------------------------------------
+# OU VIT LA REGLE, COTE NATIF. Le corps est le slot de vtable `+0x480` de la SOUS-CLASSE d'ability
+# (`<X>Ability$$GetDynamicInvalidTargetReason`), qu'`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor`
+# publie en delegue a `options+0x38` et que la surcharge 7 arguments de
+# `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` invoque SANS GARDE sous le bit
+# `TargetingRule.TargetMatchesDynamicRule`.
+#
+# OU ELLE VIT COTE PORT. Une ability dont la behaviour EST portee ecrit sa regle en SURCHARGE dans sa
+# classe (`WaaaghAbility`, `SquigMineAbility`, ...) : c'est le mirror 1:1 naturel. Une ability SANS
+# classe n'a pas de sous-classe ou l'ecrire -- sa regle vit donc ICI, indexee par `ActiveAbilityType`,
+# exactement comme son MASQUE vit dans `TARGETING_OPTIONS_UNPORTED`. Les deux tables sont le meme
+# objet natif vu par ses deux champs (`options+0x28` = les regles, `options+0x38` = le delegue).
+#
+# ⚠ UNE ABSENCE N'EST PAS UN « LE NATIF NE REFUSE RIEN ». C'est « le port n'a pas porte CE corps ».
+# La degradation reste `0` (permissive -- cf. le bloc DEGRADATION de `UnportedAbilityTargeting`), et
+# chaque corps natif NON porte est RECENSE avec son symbole dans
+# `docs/rl/case-287r4r1-regles-dynamiques-de-ciblage.md` (residu ouvert #287-r5). Une entree de cette
+# table est un mirror 1:1 d'UN corps natif NOMME, jamais une regle deduite d'un nom d'ability.
+
+def _dynamic_rule_adaptive_strategy(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$GetDynamicInvalidTargetReason`
+    (1005, `necroWarden`) -- MIRROR du decompile, qui tient en une ligne :
+
+        return UnitExtensions.HasTrait(target, 0x10) ? 2 : 0;   // 0x10 = UnitTrait.Hero
+                                                               // 2    = TargetMatchesDynamicRule
+
+    SEMANTIQUE, avec le masque `0x402` (`TargetMatchesDynamicRule | TargetIsFriendly`) : la cible doit
+    etre un ALLIE **qui n'est pas un heros**. En bataille de lineup -- ou toute unite deployee porte
+    `Hero` -- la regle refuse donc TOUTES les cibles, et l'unite se retrouve sans action : c'est
+    exactement la divergence mesuree (`C1_02`/seed 28704, `necroWarden` : natif `targetReason =
+    TargetMatchesDynamicRule` + `UnitFlag.NoActionAvailable` POSE ; port `0`, flag absent).
+
+    ⚠ `IdunBattle.Entities.UnitExtensions$$HasTrait(unit, trait)` =
+    `GetBaseUnitComponent(unit)?.HasTrait(trait) ?? false` : il lit le composant de l'entite CIBLE
+    ELLE-MEME et ne resout PAS une tuile en son occupant. Le mirror est donc `_unit_traits(state,
+    target)` -- surtout PAS `unit_of_entity`, qui est le mirror de `GetUnit` et que
+    `has_steppable_unit` consomme, lui, precisement parce que SON argument natif y transite.
+
+    Cible non resolue (`None`) -> `0` : le natif appelle `HasTrait(null)`, dont
+    `GetBaseUnitComponent(null)` rend null, donc `false`. Ce n'est pas une degradation permissive du
+    port, c'est le verdict du natif."""
+    if target_id is None:
+        return 0
+    if state.get_entity(int(target_id)) is None:
+        return 0
+    return (int(TR.TargetMatchesDynamicRule)
+            if UnitTrait.Hero.name in (_unit_traits(state, int(target_id)) or ()) else 0)
+
+
+def _dynamic_rule_foul_infusion(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.FoulInfusionAbility$$GetDynamicInvalidTargetReason`
+    (1038, `deathPutrifier`) -- MIRROR du decompile. Le natif est le MIROIR EXACT d'AdaptiveStrategy
+    ci-dessus, trait et sens de test changes :
+
+        return UnitExtensions.HasTrait(target, 0x7ea) ? 0 : 2;  // 0x7ea = UnitTrait.Chaos
+                                                               // 2     = TargetMatchesDynamicRule
+
+    SEMANTIQUE, avec le masque `0x482` (`TargetMatchesDynamicRule | AddCaster | TargetIsFriendly`) :
+    la cible doit etre un allie **de la grande alliance Chaos**. `Chaos` (2026) est un pseudo-trait
+    d'ALLIANCE, absent des `traits` gameconfig d'une unite -- il n'existe que dans le substrat
+    d'entite (`entity_trait_names`), que `_unit_traits` lit deja (#264). Le lire par le kit seul
+    rendrait la regle constamment refusante.
+
+    Cible non resolue -> `0` (`HasTrait(null)` = `false` ferait rendre `2` au natif, MAIS la cascade
+    n'atteint cette regle que sur une cible enumeree, donc resolue ; on ne fabrique pas un refus sur
+    un substrat que le port n'a pas mesure -- convention permissive du module)."""
+    if target_id is None:
+        return 0
+    if state.get_entity(int(target_id)) is None:
+        return 0
+    return (0 if UnitTrait.Chaos.name in (_unit_traits(state, int(target_id)) or ())
+            else int(TR.TargetMatchesDynamicRule))
+
+
+DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
+    ActiveAbilityType.AdaptiveStrategy: _dynamic_rule_adaptive_strategy,      # 1005
+    ActiveAbilityType.FoulInfusion: _dynamic_rule_foul_infusion,              # 1038
+}
+
+
 class UnportedAbilityTargeting:
     """Porteur MINIMAL des `TargetingOptions` d'une ability dont la BEHAVIOUR n'est pas portee
     (masque lu -> `TARGETING_OPTIONS_UNPORTED`), pour reutiliser TELLE QUELLE la cascade
@@ -1277,11 +1359,15 @@ class UnportedAbilityTargeting:
     slot vtable `+0x480`), et la surcharge 7 arguments de
     `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` le lit sans garde -- un delegue
     NUL y fait LEVER (l'appel s'y termine par le stub de NullReferenceException), il ne degrade pas.
-    Le port, lui, ne PEUT pas evaluer ce delegue : c'est precisement le corps de la sous-classe qui
-    n'est pas porte. Les deux methodes ci-dessous rendent donc `0` = « pas de refus dynamique »,
-    la degradation PERMISSIVE de tout ce module (aucun refus invente). Elle est du meme cote que le
-    defaut de `ActiveAbility.get_dynamic_invalid_target_reason` (base), qu'une sous-classe portee
-    posant le bit sans surcharger recevrait aussi.
+    Le port, lui, ne peut evaluer ce delegue que s'il en a porte le CORPS : depuis #287-r4-r1, ceux
+    qui le sont vivent dans `DYNAMIC_TARGET_RULE_UNPORTED` ci-dessus (mirror 1:1 par
+    `ActiveAbilityType`, pendant exact de `TARGETING_OPTIONS_UNPORTED` pour le MASQUE), et la methode
+    ci-dessous les CONSULTE. A defaut d'entree, elle rend `0` = « pas de refus dynamique », la
+    degradation PERMISSIVE de tout ce module (aucun refus invente) -- du meme cote que le defaut de
+    `ActiveAbility.get_dynamic_invalid_target_reason` (base), qu'une sous-classe portee posant le bit
+    sans surcharger recevrait aussi. Ce `0`-la reste une DETTE NOMMEE, pas une mesure : les corps
+    natifs qu'il couvre sont recenses dans `docs/rl/case-287r4r1-regles-dynamiques-de-ciblage.md`
+    (residu #287-r5).
 
     `ABILITY_ID` est la cle GAMECONFIG (une chaine, ex. `"Executioner"`), pas l'ordinal : c'est ce
     que `_ability_config_range` passe a `GC.ability(...)` pour resoudre
@@ -1299,9 +1385,13 @@ class UnportedAbilityTargeting:
         self.ABILITY_ID = ability_id
 
     def get_dynamic_invalid_target_reason(self, state, caster_id, target_id) -> int:
-        """Regle-delegue CIBLE (`options+0x38`) : NON EVALUABLE pour une behaviour non portee.
-        Cf. le bloc DEGRADATION de la docstring de classe."""
-        return 0
+        """Regle-delegue CIBLE (`options+0x38`) -- le corps du slot vtable `+0x480` de la sous-classe
+        native, quand le port l'a mirrore. Cf. le bloc DEGRADATION de la docstring de classe pour le
+        `0` rendu a defaut d'entree."""
+        regle = DYNAMIC_TARGET_RULE_UNPORTED.get(int(self.ABILITY_TYPE))
+        if regle is None:
+            return 0
+        return int(regle(state, caster_id, target_id) or 0)
 
     def get_dynamic_invalid_caster_reason(self, state, caster_id) -> int:
         """Regle-delegue CASTER (`options+0x30`, bit `CasterMatchesDynamicRule`) : meme motif de
