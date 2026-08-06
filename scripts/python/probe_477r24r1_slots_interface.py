@@ -109,9 +109,19 @@ BALAYAGE_GLOBS = ("docs/rl/*.md", "docs/*.md", "scripts/python/*.py",
 #: 0x21 » (14 sites), « slot processor 0x76 », « le slot 0x23 de `Core.Services.
 #: OperationProcessor` ». Sans ce cran le motif ne reconnaissait meme pas le SLOT -- la ligne
 #: partait dans `sans_couple` et AUCUNE fenetre n'aurait pu la rattraper (#477-r32).
+#: ⚠ ET IL A AUSSI LE DROIT DE S'ECRIRE APRES LE NUMERO (#477-r36) : « le slot 0x66 DE L'
+#: `IOperationProcessor` ». C'est la SYMETRIQUE exacte du cran precedent, et c'est la tournure
+#: meme dont l'etage NOM SEUL a fait son discriminant (« de l'<recepteur> »). Sans elle, la
+#: resolution qui SUIT le recepteur est hors d'atteinte : le remplissage doit traverser
+#: « de l'`IOperationProcessor`, » et bute sur la virgule. Mesure : c'est ce qui cachait
+#: l'attribution du slot 0x66 = `TransformUnit`, celle-la meme que #477-r32 declarait avoir
+#: rendue CONFRONTABLE.
+_SUFFIXE_RECEP = (r"(?:[ \t]*(?:de|of)[ \t]*(?:l['`'’][ \t]*)?[`*]{0,2}"
+                  r"(?:Core\.Services\.)?I?OperationProcessor[`*]{0,2})?")
+
 _SLOT = (r"v?slot\s*(?i:d'interface\s*|itf\s*)?"
          r"(?:[`*]{0,2}(?:Core\.Services\.)?(?:I?OperationProcessor|processor|proc)[`*]{0,2}\s*)?"
-         r"[`*]{0,2}\+?(?P<n%d>0x[0-9a-fA-F]+|\d+)[`*]{0,2}")
+         r"[`*]{0,2}\+?(?P<n%d>0x[0-9a-fA-F]+|\d+)[`*]{0,2}") + _SUFFIXE_RECEP
 
 #: Le RECEPTEUR ecrit au site -- seul discriminant fiable de l'interface visee.
 RE_RECEVEUR = re.compile(r"IOperationProcessor|OperationProcessor|(?<![A-Za-z])processor\s*\.")
@@ -153,14 +163,19 @@ _RENVOIS = ("slot", "que ", "qu'", "interrog", "invoq", "appel", "utilis", "eval
 _RENVOIS_SLOT_PUIS_NOM = tuple(r for r in _RENVOIS if r not in ("->", "→"))
 
 
-def _entre(n: int, traverse: bool, renvois: tuple[str, ...] = _RENVOIS) -> str:
+def _entre(n: int, traverse: bool, renvois: tuple[str, ...] = _RENVOIS,
+           sans_virgule: bool = True) -> str:
     """Le remplissage tolere entre les deux membres d'un couple, borne a `n` caracteres.
 
     `traverse` dit si ce remplissage a le droit de franchir un SAUT DE LIGNE. C'est le SEUL
     parametre par lequel la fenetre agit sur les formes B et C ; la forme A, elle, separe ses
     membres par un separateur qui traverse deja (cf. `_esp`).
+
+    `sans_virgule = False` desarme le cran VIRGULE (cf. `CRANS`) -- c'est une MESURE, pas un
+    regime de service.
     """
-    classe = "[^);:,]" if traverse else r"[^\n);:,]"
+    exclus = ");:," if sans_virgule else ");:"
+    classe = "[^%s]" % exclus if traverse else r"[^\n%s]" % exclus
     return r"(?:(?!%s)%s){0,%d}?" % ("|".join(renvois), classe, n)
 
 
@@ -246,6 +261,8 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
     marq = "" if "resolution-marquee" in relaches else r"(?(eq3)|(?=[ \t]*(?:\(|->|→)))"
     ouvre = "" if "placeholder-ferme" in relaches else r"<"
     ferme = r"[ \t]*" if "placeholder-ferme" in relaches else r"[ \t]*>"
+    bt = r"[`*]{0,2}" if "nom-en-backticks" in relaches else r"`"
+    virg = "virgule-dans-le-remplissage" not in relaches
     return (
         #: A -- `slot 0x7e = MoveUnit`, `slot **0x43** = `OperationProcessor$$ApplyDamage``
         re.compile((_SLOT % 0) + _appel(0, colle, equilibre) + esp + r"(?:=|->|:)" + esp
@@ -254,11 +271,11 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
         #: ⚠ ELLE NE FRANCHIT JAMAIS LE SAUT DE LIGNE, meme en regime fenetre. Dans une
         #: enumeration verticale, le nom ecrit AVANT appartient a l'item precedent, pas au slot
         #: qui suit -- cran mesure par #477-r30, conserve ici a l'identique.
-        re.compile(_QUAL + (_NOM % 1) + _appel(1, colle, equilibre) + _entre(40, False)
-                   + (_SLOT % 1)),
+        re.compile(_QUAL + (_NOM % 1) + _appel(1, colle, equilibre)
+                   + _entre(40, False, _RENVOIS, virg) + (_SLOT % 1)),
         #: C -- slot 0x3a ... `OperationProcessor$$StartAttack`   (slot PUIS nom, colles)
         re.compile((_SLOT % 2) + _appel(2, colle, equilibre)
-                   + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM)
+                   + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM, virg)
                    + qual_c + coupure + (_NOM % 2)),
         #: D -- LA RESOLUTION COMMENTEE : `<IOperationProcessor slot 0x76>(unit)  # = MarkUnitAs…`
         #: Le qualificateur n'y est PAS exige, et c'est ce qui la distingue de C : le marqueur de
@@ -272,6 +289,27 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
         #: « le nom est colle au numero » : sans la fermeture, `slot SANS ARGUMENT` et `slot SOIT`
         #: rentrent (meme faux positif de PROSE que celui mesure sur l'etage NOM SEUL).
         re.compile(ouvre + (_SLOT % 4) + r"[ \t]+[`*]{0,2}" + (_NOM % 4) + r"[`*]{0,2}" + ferme),
+        #: F -- LA RESOLUTION EN PROSE : `processor.<slot 0x16>(TurnStage.Start, …)` c'est-a-dire
+        #: `ContinueTurnPhase`. Le qualificateur n'y est pas ecrit non plus ; ce qui tient lieu de
+        #: cran, c'est le couple (marqueur de RESOLUTION, nom entre BACKTICKS). Relacher `_QUAL`
+        #: en forme C rendrait les memes couples, mais avec **88 artefacts** pour 4 justes
+        #: (`--relacher qualificateur-forme-c`) : c'est le delimiteur de code qui fait la
+        #: difference, pas la tolerance.
+        #: ⚠ SON SEPARATEUR EST `_COUPURE`, PAS `_CONT`, ET C'EST UNE MESURE. `_CONT` est une
+        #: BOUCLE dont le corps peut matcher a vide ; place derriere un marqueur aussi peu
+        #: contraint que `-{2,}`, elle backtracke exponentiellement sur les tableaux de
+        #: `backlog.md` (mesure : le relachement `nom-en-backticks` n'a pas rendu en 120 s).
+        #: Une continuation SUFFIT -- la seule forme reelle qui traverse est
+        #: « …, c'est-a-dire\n   `ContinueTurnPhase` ».
+        re.compile((_SLOT % 5) + _appel(5, colle, equilibre) + r"[`*]{0,2}[ \t]*,?[ \t]*"
+                   #: ⚠ SEUL LE DELIMITEUR OUVRANT EST EXIGE. Le fermant vient APRES la signature
+                   #: quand le site l'ecrit (« `…$$TransformUnit(entity, statModifiers,
+                   #: isHidden)` ») : l'exiger colle au nom rejetait la citation la plus
+                   #: complete du corpus. C'est l'OUVERTURE qui discrimine la prose
+                   #: (« -- AVANT ContinueTurnPhase » n'en a pas), et le relachement
+                   #: `nom-en-backticks` le verifie.
+                   + r"(?:c'est-[àa]-dire|-{2,}|=|->|→)[ \t]*" + coupure + bt
+                   + r"(?:" + _QUAL + r")?" + (_NOM % 5) + r"[`*]{0,2}"),
     )
 
 
@@ -308,9 +346,16 @@ CRANS = {
                           "`->`/`→` ou sa signature apres) -- sinon tout commentaire est recolte",
     "placeholder-ferme": "le nom du slot doit etre DANS les chevrons (sinon la PROSE `slot SANS "
                          "ARGUMENT`, `slot SOIT` entre, comme sur l'etage NOM SEUL)",
+    "nom-en-backticks": "la resolution EN PROSE (forme F) n'accepte le nom que dans un "
+                        "delimiteur de code -- c'est ce qui separe « c'est-a-dire "
+                        "`ContinueTurnPhase` » de « -- AVANT ContinueTurnPhase »",
     "qualificateur-forme-c": "la forme C exige un qualificateur (`OperationProcessor$$`, "
                              "`processor.`, `$$`) devant le nom -- CRAN HERITE, jamais relache "
                              "en service",
+    "virgule-dans-le-remplissage": "la VIRGULE arrete le remplissage des formes B et C (cran "
+                                   "herite de #477-r25 : une enumeration verticale apparie le "
+                                   "nom d'un item au slot du SUIVANT) -- jamais chiffre sur CE "
+                                   "corpus avant #477-r36",
 }
 
 #: Les deux jeux, construits UNE fois. `RE_COUPLES` = le regime mono-ligne (l'etat d'avant
@@ -566,8 +611,17 @@ def _blocs(lignes: list[str], fenetre: int):
 
 
 def _regex_noms(noms: frozenset[str]) -> re.Pattern[str]:
-    """Un motif qui reconnait N'IMPORTE QUEL nom de methode de l'interface, isole."""
-    return re.compile(r"(?<![A-Za-z0-9_$])(?:%s)(?![A-Za-z0-9$])"
+    """Un motif qui reconnait N'IMPORTE QUEL nom de methode de l'interface, isole.
+
+    ⚠ LE `$` EST HORS DU LOOKBEHIND, ET C'EST UNE CORRECTION DE #477-r36. Avec
+    `(?<![A-Za-z0-9_$])`, ce motif ne voyait PAS un nom QUALIFIE -- `OperationProcessor$$RemoveUnit`
+    lui etait invisible, alors que c'est la forme la plus courante du corpus. Consequence
+    MESUREE : la VENTILATION rangeait ces lignes en `numero_sans_nom` (« rien a contredire »)
+    alors qu'elles portaient un nom appariable, et le gisement etait donc SOUS-COMPTE. C'est le
+    vice « un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas », sur le recenseur
+    lui-meme. Le lookbehind garde son role -- refuser un SUFFIXE de mot (`XRemoveUnit`).
+    """
+    return re.compile(r"(?<![A-Za-z0-9_])(?:%s)(?![A-Za-z0-9$])"
                       % "|".join(re.escape(n) for n in sorted(noms)))
 
 
