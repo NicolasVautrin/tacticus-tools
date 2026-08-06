@@ -428,6 +428,186 @@ def test_etage3bis_la_ventilation_est_TRI_ETAT() -> None:
     assert ecartees.ventilation is None
 
 
+# ------------------------- etage 3ter : les QUATRE formes de #477-r36 et leurs crans
+
+
+def test_etage3ter_les_formes_r36_APPORTENT_des_couples(citations: list[P.Citation]) -> None:
+    """Les formes neuves doivent rapporter ce que A/B/C ne voyaient pas -- sinon elles ne
+    servent a rien, et le mutant qui les garde n'aurait rien a muter.
+    """
+    neuves = [c for c in citations if c.forme >= 3 or c.appel_absorbe]
+    assert len(neuves) >= 20, (
+        "seulement %d couple(s) propre(s) a #477-r36 sur %d -- l'appel absorbe / la resolution "
+        "commentee / le placeholder ne mordent plus (mesure a 30 le 2026-08-06)"
+        % (len(neuves), len(citations)))
+    assert len({c.forme for c in neuves}) >= 3, (
+        "les couples neufs sortent tous des memes formes (%s) -- les autres sont mortes"
+        % sorted({c.forme for c in neuves}))
+
+
+def test_etage3ter_le_regime_historique_ne_porte_AUCUNE_forme_neuve() -> None:
+    """`historique=True` doit rendre EXACTEMENT l'etat d'avant : ni forme D/E/F, ni appel absorbe.
+
+    Sans cette assertion, la REFERENCE fuit : le gain des formes neuves se confondrait avec
+    celui de la fenetre, et le mutant qui doit y etre inerte mordrait quand meme.
+    """
+    cits, _ns, _ec = P.recolter(historique=True)
+    assert cits, "le regime historique ne rend AUCUN couple -- il ne peut servir de reference"
+    assert all(c.forme <= 2 and not c.appel_absorbe for c in cits), (
+        "le regime historique porte une forme neuve : %s"
+        % sorted({(c.forme, c.appel_absorbe) for c in cits}))
+
+
+def test_etage3ter_le_mutant_des_formes_r36_est_INERTE_en_regime_historique(
+        table, citations: list[P.Citation], noms_seuls) -> None:
+    """Il doit MORDRE en service et REFUSER en regime historique.
+
+    C'est ce qui prouve qu'il garde l'ELARGISSEMENT et non l'appariement en general : les cinq
+    mutants herites mordent dans les deux regimes, donc aucun ne dirait qu'on a perdu les formes
+    de #477-r36 (meme mesure que celle de #477-r30 sur ses quatre mutants).
+    """
+    hist, _hn, _he = P.recolter(historique=True)
+    mt, mc = P.muter(table, "formes-r36-decalees", citations)
+    assert P.jouer(mt, mc, None, noms_seuls) != P.jouer(table, citations, None, noms_seuls), (
+        "le mutant `formes-r36-decalees` ne mord PAS -- les formes neuves ne sont pas gardees")
+    with pytest.raises(SystemExit, match="IMPOSSIBLE"):
+        #: Aucun couple ne porte le cran : le mutant REFUSE plutot que de rendre une mutation
+        #: vide qui passerait pour appliquee.
+        P.muter(table, "formes-r36-decalees", hist)
+
+
+def test_etage3ter_lappel_du_slot_est_absorbe_dun_BLOC() -> None:
+    """Un slot s'ecrit sous forme d'APPEL, et sa liste d'arguments porte les `(`, `)`, `,`, `:`,
+    `;` que le remplissage exclut. Elle est absorbee d'un bloc EQUILIBRE et COLLE.
+
+    Le couple d'exemple est VRAI (`5` = `AddUnit`, 5 arguments) -- ce fichier EST dans le corpus
+    balaye, un exemple faux y ferait rougir le cliquet sur son propre artefact.
+    """
+    bloc = ("processor.AddUnit(unitId, unitFeetTileIds, playerId, spawnSource, options);"
+            "   // slot 5 d'IOperationProcessor")
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(bloc)}
+    assert (5, "AddUnit") in vus, (
+        "la liste d'arguments n'est pas absorbee -- vus : %s" % sorted(vus))
+    hist = P._regex_couples(True, historique=True)
+    vus_h = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+             for k, rx in enumerate(hist) for m in rx.finditer(bloc)}
+    assert (5, "AddUnit") not in vus_h, (
+        "le regime historique voit deja ce couple -- la reference ne mesure plus rien")
+
+
+def test_etage3ter_la_resolution_commentee_exige_son_MARQUEUR() -> None:
+    """Apres `#`/`//`, un nom ne RESOUT le slot que s'il porte un marqueur : `=` avant, `->`/`→`
+    ou sa signature apres.
+
+    Sans ce cran, `processor.<slot 0x11>(...)  # RemoveEffectOperation` -- ou le commentaire
+    nomme la CLASSE vers laquelle le slot aiguille -- sortirait en citation FAUSSE. C'est un
+    site REEL (`engine/runner/operations/remove_effects.py`), et le seul couple que le
+    relachement `resolution-marquee` fait apparaitre.
+    """
+    captes = ("<IOperationProcessor slot 0x76>(unit)   # = MarkUnitAsNoActionAvailable (POSE)",
+              "<IOperationProcessor slot 0x77>(unit);  // MarkUnitAsActionAvailable -> RETRAIT",
+              "IOperationProcessor.<slot 0x23>(spawned, true)   # FinishUnitTurn(u, isTerminated)")
+    for bloc in captes:
+        vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+               for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(bloc)}
+        assert any(s in {0x76, 0x77, 0x23} for s, _n in vus), (
+            "la resolution commentee n'est pas captee sur « %s » -- vus : %s" % (bloc, sorted(vus)))
+    #: ... et le commentaire SANS marqueur ne resout rien.
+    nu = "processor.<slot 0x11>(matchState.GetEntity(effectId))   # RemoveEffectOperation"
+    vus_nu = {m.group("nom%d" % k)
+              for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(nu)}
+    assert "RemoveEffectOperation" not in vus_nu, (
+        "un commentaire libre est pris pour une resolution -- il nomme la CLASSE appelee")
+
+
+def test_etage3ter_le_nom_du_placeholder_exige_sa_FERMETURE() -> None:
+    """`<slot 0x3c AttackDamage>` : tout ce qui est ENTRE les chevrons designe le slot.
+
+    Le cran n'est pas « le nom est colle au numero » mais « le placeholder est FERME » : c'est
+    la fermeture qui empeche la prose d'entrer, exactement comme la tournure « de l'<recepteur> »
+    sur l'etage NOM SEUL.
+    """
+    bloc = "result.Combine( processor.<slot 0x3c AttackDamage>(caster, t, abilityOrEffect, opts) )"
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(bloc)}
+    assert (0x3C, "AttackDamage") in vus, (
+        "le nom ecrit dans le placeholder n'est pas capte -- vus : %s" % sorted(vus))
+    ouvert = "le slot 0x3c AttackDamage est celui du degat"
+    vus_o = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+             for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(ouvert)}
+    assert (0x3C, "AttackDamage") not in vus_o, (
+        "le placeholder NON FERME est accepte -- la prose « slot 0x12 SANS ARGUMENT » entrerait")
+
+
+def test_etage3ter_la_resolution_en_prose_exige_le_DELIMITEUR_de_code() -> None:
+    """« <slot 0x16>(…) c'est-a-dire `ContinueTurnPhase` » est une attribution ; « -- AVANT
+    ContinueTurnPhase » n'en est pas une.
+
+    Le discriminant est le delimiteur de code OUVRANT, et c'est une MESURE : sans lui, le mot en
+    capitales `AVANT` d'un site REEL (`case-477r22-bloc2-tour.md`) devient un « nom de methode »
+    absent de l'interface, donc une citation FAUSSE.
+    """
+    resolu = "`processor.<slot 0x16>(TurnStage.Start, false, true)` c'est-a-dire `ContinueTurnPhase`."
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(resolu)}
+    assert (0x16, "ContinueTurnPhase") in vus, (
+        "la resolution en prose n'est pas captee -- vus : %s" % sorted(vus))
+    prose = "processor.<slot 0x2f>(RefreshEffectOptions{8, null});   -- AVANT ContinueTurnPhase"
+    vus_p = {m.group("nom%d" % k)
+             for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(prose)}
+    assert "AVANT" not in vus_p, (
+        "un mot de PROSE en capitales est pris pour un nom de methode -- vus : %s" % sorted(vus_p))
+
+
+def test_etage3ter_le_recepteur_APRES_le_numero_est_reconnu() -> None:
+    """« le slot 0x66 DE L'`IOperationProcessor` » -- la symetrique du cran de #477-r32.
+
+    C'est la tournure meme dont l'etage NOM SEUL a fait son discriminant. Sans elle, la
+    resolution qui SUIT le recepteur reste hors d'atteinte, et c'est ce qui cachait
+    l'attribution du slot `0x66`, celle-la meme que #477-r32 declarait CONFRONTABLE.
+    """
+    for texte in ("le slot 0x66 de l'`IOperationProcessor`",
+                  "le slot 0x66 de `Core.Services.OperationProcessor`",
+                  "slot 0x66 of IOperationProcessor"):
+        m = re.search(P._SLOT % 0, texte)
+        assert m is not None and int(m.group("n0"), 0) == 0x66, (
+            "« %s » n'est pas reconnu comme le slot 0x66" % texte)
+        assert m.end() == len(texte), (
+            "le recepteur ecrit APRES le numero n'est pas absorbe : « %s » s'arrete a %d"
+            % (texte, m.end()))
+
+
+def test_etage3ter_larite_se_confronte_sur_lappel_ABSORBE(citations: list[P.Citation]) -> None:
+    """L'appel absorbe rend l'etage ARITE applicable aux formes ou l'appel PRECEDE le nom.
+
+    C'est le cran qui a trouve la faute de #477-r24-r2 (`RemoveUnit`, 3 arguments, 2 au site) ;
+    jusqu'ici il ne pouvait juger que les sites montrant leurs arguments APRES le couple.
+    """
+    par_absorption = [c for c in citations if c.appel_absorbe and c.args is not None]
+    assert len(par_absorption) >= 10, (
+        "seulement %d citation(s) dont l'arite vient de l'appel ABSORBE -- l'etage 4 ne s'est pas "
+        "elargi (mesure a 25 le 2026-08-06)" % len(par_absorption))
+
+
+def test_etage3ter_le_recenseur_voit_les_noms_QUALIFIES(table) -> None:
+    """Le RECENSEUR de la ventilation avait `$` dans son lookbehind : un nom QUALIFIE lui etait
+    invisible.
+
+    Consequence MESUREE : `OperationProcessor$$RemoveUnit` etait range en « aucun nom dans la
+    fenetre, rien a contredire », et le gisement etait sous-compte de 24 lignes (50 annoncees,
+    74 reelles). C'est « un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas »,
+    applique au recenseur lui-meme.
+    """
+    rx = P._regex_noms(frozenset(v[0] for v in table.values()))
+    assert rx.search("`Core.Services.OperationProcessor$$RemoveUnit`"), (
+        "le recenseur ne voit pas un nom QUALIFIE par `$$` -- il sous-compte le gisement")
+    assert rx.search("processor.MoveUnit(u, tiles)"), (
+        "le recenseur ne voit pas un nom qualifie par un point")
+    assert not rx.search("XRemoveUnit"), (
+        "le recenseur prend un SUFFIXE de mot pour un nom -- le lookbehind a saute")
+
+
 # ------------------------------------- etage 5 : les citations par NOM SEUL (#477-r32)
 
 
