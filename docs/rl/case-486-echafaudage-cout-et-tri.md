@@ -135,7 +135,44 @@ numérotation `468`, locks git `474`, pin de build `431`, identité conftest `39
 scripts frères `464`, priorité de la banque de fond `469`, ledger `465`, adresses `475`),
 contre **693** sous `tests/engine/` pour le port.
 
-## 7. Le programme
+## 7. Le coût des tests offline : une poignée de fichiers, pas une lenteur diffuse
+
+⚠ **Deux mesures PARTIELLES qui ne décrivent pas la même chose — ne pas les mélanger.** Une
+passe complète le 2026-08-06 : **3 004 tests, 1 608 s**. Un fichier de poids par test du
+2026-08-04 (`logs/ratchets/457-durations.json`) : **128 fichiers, 831 s**. Le dépôt en porte
+**709**.
+
+Forme du coût, d'après le second :
+
+    208,1 s  test_380_seed_bc_patch_survival_offline.py
+    175,4 s  test_additional_hits_variant_signatures_offline.py
+     88,4 s  test_ability_registry_ratchet.py
+     61,6 s  test_enum_ordinal_ratchet_offline.py
+     61,0 s  test_431_build_pin_offline.py
+
+    50 % du temps dans  3 fichiers (2,3 %) · 80 % dans 7 · 90 % dans 11
+    98 des 128 fichiers (77 %) sont sous 1 s et pèsent 9 s A EUX TOUS
+
+**Trois hypothèses RÉFUTÉES par la mesure** — ne pas les rouvrir :
+- ce n'est **pas** le chargement d'`engine` (`import engine.runner.snapshot` = 1,24 s payé UNE
+  fois, `sys.modules` met en cache ; puis 0,00 s) ;
+- ce n'est **pas** le gameconfig (`GC.ability()` : 0,474 s au 1er appel, **0,000 s** au 2e) ;
+- ce n'est **pas** l'absence de fixtures à portée : **485** `scope="module"` + **58**
+  `scope="session"`, dans **337 des 709** fichiers (47,5 %).
+
+**Deux mécanismes établis :**
+- **(A) un balayage AST de TOUT le corpus, à l'intérieur d'un test** —
+  `test_additional_hits_variant_signatures` fait `rglob("*.py")` + `ast.walk` sur l'arbre entier,
+  175 s pour 6 tests. Même gisement que les cliquets (§2).
+- **(B) un calcul dérivé lourd répété par test** — `test_380` : 208 s pour 9 tests, **aucun
+  `subprocess`**, et une fixture `scope="module"` qui met en cache le *montage* mais pas les ~8
+  appels à `check_seed_bc` dispersés dans les tests.
+
+⚠ La contrainte : on change le **coût**, jamais le **verdict**. Contrôle exigé — la liste des
+nodeids `passed` avant == après, pas seulement le `rc` (ce dépôt a déjà été mordu par le vert
+vacueux et par le fichier intégralement skippé, cf. `probe_455`).
+
+## 8. Le programme
 
 | tranche | objet | état |
 |---|---|---|
@@ -143,6 +180,7 @@ contre **693** sous `tests/engine/` pour le port.
 | `#486-r2` | discriminant d'**usage** correct, ventilation exhaustive, élagage des orphelins non exécutables, cliquet de garde | EN VOL |
 | `#486-r3` | séparer les rôles par **répertoire** (`gardes/` = la banque · `mesures/` = les instruments), dérivable et gardé | OUVERT |
 | `#486-r4` | renommer par **objet**, numéro en métadonnée — passe par `probe_468`, qui lit des positions dans `docs/rl` | OUVERT |
+| `#486-r5` | le **coût des tests offline** (§7) : mesure à jour, mécanisme établi fichier par fichier, sur le haut du classement seulement | EN VOL |
 
 Ordre contraint : **r2 avant r3/r4** — on ne renomme pas ce qu'on va supprimer.
 
