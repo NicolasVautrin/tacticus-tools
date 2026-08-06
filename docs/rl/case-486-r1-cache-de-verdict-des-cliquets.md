@@ -5,6 +5,31 @@ passage alors que la mediane par commit est de **5 fichiers touches**. On memois
 **PAR FICHIER**, sous une cle qui contient le **hash de son contenu** -- mais **seulement** pour
 les cliquets dont on a **ETABLI** que le verdict est LOCAL.
 
+## 0. Le gain, mesure
+
+⚠ **La mesure est ALTERNEE, et c'est la seule qui vaille sur cette machine.** Onze worktrees
+d'agents y travaillent en meme temps : une passe « avant » suivie d'une passe « apres » mesure
+surtout la charge du moment (premiere tentative : `probe_273`, qui n'a AUCUN cache, passait de
+50,7 s a 85,8 s). On alterne donc cache ON / cache OFF (`TACTICUS_SANS_CACHE_CLIQUET=1`) sur le
+MEME arbre, et on retient le **min de 3 repetitions**.
+
+```
+cliquet          SANS CACHE   AVEC CACHE   gain
+probe_477r24r1       35,3 s       16,1 s     54 %
+probe_477r25         38,2 s       19,1 s     50 %
+probe_313            14,6 s        3,9 s     73 %
+TOTAL                88,0 s       39,1 s     56 %
+```
+
+**Le residu de 16,1 et 19,1 s est a ~14 s pres celui de `deriver()`** (lecture du
+`global-metadata.dat` du build installe), qui n'est PAS cachable -- cf. §5. Hors ce plancher, le
+BALAYAGE des deux cliquets #477 passe de ~21 et ~24 s a ~2 et ~5 s.
+
+⚠ La colonne SANS CACHE porte deja la LECTURE MUTUALISEE du perimetre (une seule traversee pour
+les 3 a 4 recoltes de chaque cliquet, au lieu d'une par recolte) : elle n'est donc pas l'etat
+d'avant la PR, elle isole le gain du CACHE SEUL. Reference du debut de session, avant toute
+modification, en serie : `477r24r1` 52,6 s, `477r25` 65,7 s, `313` 20,6 s.
+
 ## 1. La regle, et pourquoi elle est la seule qui compte
 
 **Un cache incremental sur un cliquet dont le verdict est GLOBAL fabrique des FAUX VERTS.**
@@ -104,10 +129,16 @@ scripts/cliquets-cache/probe_477r24r1_slots_interface.tsv       | 8 ++++----   (
 scripts/cliquets-cache/probe_477r25_slots_autres_interfaces.tsv | 6 +++---     (3 lignes)
 ```
 
-Soit exactement **une ligne par appel de recolte** -- 4 pour `477r24r1`, 3 pour `477r25`. Le cache
-ne porte QUE les fichiers dont le calcul est cher : le pre-filtre bon marche du cliquet
-(`"slot" not in texte`, `any(cls in texte)`) reste JOUE a chaque run et n'entre pas au cache.
-Tailles : 1,2 / 1,6 / 0,65 Mo pour 4 944 / 3 708 / 1 433 entrees.
+Soit exactement **une ligne par appel de recolte** -- 4 pour `477r24r1`, 3 pour `477r25` (4 depuis
+que `_compter_autre_casse` est cache). Le cache ne porte QUE les fichiers dont le calcul est cher :
+le pre-filtre bon marche du cliquet (`"slot" not in texte`, `any(cls in texte)`) reste JOUE a
+chaque run et n'entre pas au cache. Tailles : **1,20 / 2,00 / 0,65 Mo** pour **4 957 / 6 668 /
+1 438** entrees.
+
+⚠ **`autre_casse` est le seul appel qui couvre TOUT le perimetre** (son pre-filtre n'existe pas :
+il compte des lignes que `RE_SLOT` ne voit justement pas), d'ou +2 947 entrees sur `477r25`. C'est
+le seul endroit ou la taille de l'artefact a ete arbitree contre un gain : ~13 s a chaud pour
+~0,4 Mo versionne.
 
 ### 4.4 Le changement de build
 
@@ -139,9 +170,15 @@ critere.
 
 ## 6. Controles livres
 
-- **FIDELITE** -- sortie a chaud **IDENTIQUE bit pour bit** a la sortie a froid, pour les trois
-  cliquets (comparaison des sorties COMPLETES, pas du seul `rc`). Corollaire de conception : le
-  cache **n'imprime rien** dans le regime normal, sinon les deux sorties differeraient.
+- **FIDELITE** -- sur les trois cliquets, **TROIS regimes rendent la meme sortie, bit pour bit** :
+  cache DESACTIVE (`TACTICUS_SANS_CACHE_CLIQUET=1`), cache FROID, cache CHAUD. Sorties COMPLETES
+  comparees, pas le seul `rc`. Corollaire de conception : le cache **n'imprime rien** dans le
+  regime normal, sinon les deux sorties differeraient.
+  ⚠ **C'est ce controle, et lui seul, qui a trouve la faute la plus grave du chantier.** En
+  cablant `_compter_autre_casse`, `probe_477r25` s'est mis a cacher DEUX FORMES de valeur (des
+  citations, et un simple entier) sous UN seul encodeur : le run SANS cache passait, le run AVEC
+  cache levait `TypeError`. Aucun test ne le voyait -- le contrat `encoder(valeur, appel)` est
+  desormais FIGE par `test_l_encodeur_recoit_l_APPEL_et_pas_seulement_la_valeur`.
 - **CONTRE-EPREUVE** -- 3 mutations sur des sites REELS ; les 3 mordent, le cache MANQUE (le sha
   stocke change), le site est NOMME, et la remise en etat restaure le vert :
 
@@ -155,7 +192,7 @@ critere.
   le MONTAGE, pas le cache : ce cliquet range un nom hors interface en **INDECIDABLE**, « ni vert
   ni rouge », par critere. Le cache avait bien MANQUE. Sur une contre-epreuve, le VERT est le
   resultat suspect : il faut trouver POURQUOI avant de conclure.
-- **TEST OFFLINE** : `scripts/python/tests/test_486_r1_cache_verdict_offline.py`, 34 verts,
+- **TEST OFFLINE** : `scripts/python/tests/test_486_r1_cache_verdict_offline.py`, 36 verts,
   montage 100 % jetable (`tmp_path`). Il garde la peremption, la fidelite, le contexte, le menage,
   les pannes, **et la regle** (`test_aucun_cliquet_a_verdict_GLOBAL_n_est_cache` : les quatre
   non-cachables ne doivent pas importer `verdict_cache`, chacun avec SA raison ecrite). Il fige

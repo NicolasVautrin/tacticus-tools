@@ -725,7 +725,7 @@ def textes_balayes() -> list[tuple[str, str]]:
 _CACHE: verdict_cache.CacheCliquet | None = None
 
 
-def _encoder(v: tuple) -> list:
+def _encoder(v: tuple, _appel: str = "") -> list:
     #: ⚠ LES CAUSES VIDES NE SONT PAS ECRITES. `recolter` accumule par `ventile[cause] += v` :
     #: une cle absente ajoute exactement ce qu'ajoute une liste vide, donc l'omission est
     #: VALEUR-PRESERVANTE (verifie par le controle de fidelite froid == chaud). Sur un artefact
@@ -738,7 +738,7 @@ def _encoder(v: tuple) -> list:
             {k: [list(x) for x in vs] for k, vs in ventile.items() if vs}]
 
 
-def _decoder(b: list) -> tuple:
+def _decoder(b: list, _appel: str = "") -> tuple:
     cits = [Citation(fichier=x[0], ligne=x[1], slot=x[2], noms=tuple(x[3]), args=x[4],
                      texte=x[5], ligne_nom=x[6], forme=x[7], appel_absorbe=x[8],
                      franchit_virgule=x[9]) for x in b[0]]

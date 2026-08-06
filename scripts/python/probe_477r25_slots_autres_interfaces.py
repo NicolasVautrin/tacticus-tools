@@ -499,7 +499,13 @@ def textes_balayes() -> list[tuple[str, str]]:
 _CACHE: verdict_cache.CacheCliquet | None = None
 
 
-def _encoder(v: tuple) -> list:
+def _encoder(v, appel: str = ""):
+    #: ⚠ DEUX FORMES DE VALEUR DANS LE MEME CACHE, et c'est pourquoi l'encodeur recoit l'APPEL :
+    #: `autre_casse` est un simple entier, les recoltes sont des nonuplets. Un encodeur qui ne
+    #: regardait que la valeur levait `TypeError` -- faute attrapee par le controle de fidelite
+    #: (le run SANS cache passait, celui AVEC cache plantait), pas par un test.
+    if appel == "autre_casse":
+        return v
     #: Les cles vides ne sont pas ecrites -- `recolter` accumule par `+=`, donc l'omission est
     #: VALEUR-PRESERVANTE, et l'artefact est VERSIONNE.
     cits, sans_iface, deja, multi, sans_couple, exempt, nom_absent, recense, ventile = v
@@ -509,7 +515,9 @@ def _encoder(v: tuple) -> list:
             {k: [list(x) for x in vs] for k, vs in ventile.items() if vs}]
 
 
-def _decoder(b: list) -> tuple:
+def _decoder(b, appel: str = ""):
+    if appel == "autre_casse":
+        return b
     cits = [Citation(fichier=x[0], ligne=x[1], iface=x[2], slot=x[3], nom=x[4], args=x[5],
                      texte=x[6], ligne_nom=x[7], franchit_virgule=x[8]) for x in b[0]]
     return (cits, b[1], b[2], b[3], b[4], b[5], b[6], b[7],
@@ -647,12 +655,17 @@ def _compter_autre_casse() -> int:
     ensemble incomplet se lit comme exhaustive, et c'est precisement le vice que ce recenseur
     existe pour ne pas commettre.
     """
-    n = 0
-    for _rel, texte in textes_balayes():
-        for ligne in texte.splitlines():
-            if _RE_SLOT_AUTRE_CASSE.search(ligne) and not RE_SLOT.search(ligne):
-                n += 1
-    return n
+    #: LOCAL par fichier -- le compte d'un fichier ne depend que de son texte -- donc cache
+    #: (#486-r1). Mesure : ce balayage seul pesait ~13 s a chaud, la moitie du residu du cliquet.
+    cch = cache()
+    return sum(cch.contribution(rel, "autre_casse", verdict_cache.sha_texte(texte),
+                                lambda t=texte: _compter_autre_casse_fichier(t))
+               for rel, texte in textes_balayes())
+
+
+def _compter_autre_casse_fichier(texte: str) -> int:
+    return sum(1 for ligne in texte.splitlines()
+               if _RE_SLOT_AUTRE_CASSE.search(ligne) and not RE_SLOT.search(ligne))
 
 
 def _cause_ecartee(ligne: str, autour: str, rx_noms: re.Pattern[str] | None) -> str:

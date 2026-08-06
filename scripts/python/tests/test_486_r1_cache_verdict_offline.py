@@ -145,6 +145,32 @@ def test_un_cache_corrompu_se_degrade_en_RECALCUL(tmp_path, contenu):
         "une panne du CACHE ne rend jamais un verdict : elle fait recalculer")
 
 
+def test_l_encodeur_recoit_l_APPEL_et_pas_seulement_la_valeur(tmp_path):
+    """Un meme cliquet cache des valeurs de FORMES DIFFERENTES selon l'appel.
+
+    Faute REELLE de #486-r1 : `probe_477r25` cache des citations (nonuplet) ET un simple entier
+    (`autre_casse`). Un encodeur qui ne regardait que la valeur levait `TypeError` sur la seconde
+    forme -- et ce n'est pas un test qui l'a vu, c'est le controle de FIDELITE : le run SANS cache
+    passait, celui AVEC cache plantait. Le contrat est donc FIGE ici."""
+    vus = []
+
+    def enc(v, appel):
+        vus.append(appel)
+        return {"n": v} if appel == "entier" else list(v)
+
+    def dec(b, appel):
+        return b["n"] if appel == "entier" else tuple(b)
+
+    c = VC.CacheCliquet("essai_486", "ctx-1", encoder=enc, decoder=dec, dossier=tmp_path)
+    c.poser("a.py", "entier", VC.sha_texte("v1"), 7)
+    c.poser("a.py", "tuple", VC.sha_texte("v1"), (1, 2))
+    assert vus == ["entier", "tuple"], vus
+    c.enregistrer()
+    d = VC.CacheCliquet("essai_486", "ctx-1", encoder=enc, decoder=dec, dossier=tmp_path)
+    assert d.obtenir("a.py", "entier", VC.sha_texte("v1")) == 7
+    assert d.obtenir("a.py", "tuple", VC.sha_texte("v1")) == (1, 2)
+
+
 def test_un_cache_NON_UTF8_se_degrade_en_RECALCUL(tmp_path):
     #: `read_text` leve `UnicodeDecodeError`, pas `OSError` : c'est un chemin d'echec distinct,
     #: et le confondre ferait remonter l'exception jusqu'au cliquet -- une panne du cache

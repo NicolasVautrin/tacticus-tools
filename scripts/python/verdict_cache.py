@@ -126,14 +126,19 @@ class CacheCliquet:
     """
 
     def __init__(self, nom: str, contexte: str,
-                 encoder: Callable[[Any], Any] | None = None,
-                 decoder: Callable[[Any], Any] | None = None,
+                 encoder: Callable[[Any, str], Any] | None = None,
+                 decoder: Callable[[Any, str], Any] | None = None,
                  dossier: Path | None = None, actif: bool | None = None,
                  relire: bool = True):
         self.nom = nom
         self.contexte = contexte
-        self._encoder = encoder or (lambda v: v)
-        self._decoder = decoder or (lambda v: v)
+        #: ⚠ L'ENCODEUR RECOIT L'APPEL, et ce n'est pas un ornement : un meme cliquet cache des
+        #: valeurs de FORMES DIFFERENTES selon l'appel (`probe_477r25` y met des citations ET un
+        #: simple entier). Un encodeur qui ne connait que la valeur plantait sur la seconde forme
+        #: -- faute reelle, attrapee par le controle de fidelite (le run SANS cache passait, celui
+        #: AVEC cache levait `TypeError`), pas par un test.
+        self._encoder = encoder or (lambda v, _appel: v)
+        self._decoder = decoder or (lambda v, _appel: v)
         self.chemin = (dossier or DOSSIER) / ("%s.tsv" % nom)
         if actif is None:
             actif = os.environ.get(ENV_SANS_CACHE, "") not in ("1", "true", "TRUE")
@@ -223,12 +228,12 @@ class CacheCliquet:
             return MANQUE
         self._vues[(rel, appel)] = vu
         self.hits += 1
-        return self._decoder(vu[1])
+        return self._decoder(vu[1], appel)
 
     def poser(self, rel: str, appel: str, sha: str, valeur: Any) -> None:
         self.recalculs += 1
         if self.actif:
-            self._vues[(rel, appel)] = (sha, self._encoder(valeur))
+            self._vues[(rel, appel)] = (sha, self._encoder(valeur, appel))
 
     def contribution(self, rel: str, appel: str, sha: str,
                      calcul: Callable[[], Any]) -> Any:
