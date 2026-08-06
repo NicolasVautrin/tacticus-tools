@@ -23,6 +23,7 @@ import argparse
 import json
 import sys
 
+import oracle_targeting as O
 import rl_collect_batch as R
 
 from engine.entities.pathfinding.board import Board
@@ -59,6 +60,41 @@ def main() -> int:
         return _unwrap(R._rpc(sid, method, [body], timeout=timeout))
 
     rid = a.runner
+
+    def _acteurs(d):
+        out = {}
+        for u in (d.get("units") or []):
+            out.setdefault(u.get("visualId"), u)
+        # MACHINES OF WAR : hors `decisionView.units` (`decisionView.mows`, cf. `_machine_rows`) ;
+        # la cle d'acteur est `casterId` (entite Machine Type=6), c'est elle que `abilityReason` /
+        # `applyAction{kind:"ability", casterId}` attendent.
+        for m in (d.get("mows") or []):
+            if m.get("casterId") is not None:
+                out.setdefault(m.get("visualId"), {"id": m["casterId"],
+                                                   "visualId": m.get("visualId")})
+        return out
+
+    # ---------------------------------------------------------------- PASSE 1 : LE DEBLOCAGE
+    # ⚠ L'ORDRE COMPTE, et le mettre APRES la capture d'etat serait un BUG (#287-r9). Le deblocage
+    # joue des `endturn` : l'etat natif AVANCE. Un `State` offline fige AVANT serait alors confronte
+    # a un natif d'APRES -- une divergence introduite par l'outil de mesure lui-meme, du meme genre
+    # que celle qu'on corrige. On debloque donc TOUTES les abilities d'abord, on capture ENSUITE.
+    dec0 = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True})
+    bloques = []
+    for at, vis, name in CARRIERS:
+        src = _acteurs(dec0).get(vis)
+        if src is None:
+            continue
+        # ⚠ `rpc` local compte ses timeouts en SECONDES, le foyer les passe en MILLISECONDES.
+        # `jouer_adverse=False` : ce probe recoit un runner EXTERNE (`--runner`), il ne le
+        # construit pas -- faire jouer l'IA adverse y deplacerait les unites de l'appelant.
+        empeche = O.debloquer_oracle(lambda m, b, t=60000: rpc(m, b, max(30, int(t) // 1000)),
+                                     rid, int(src["id"]), at, jouer_adverse=False)
+        if empeche:
+            print("  !! %-22s (%d) ORACLE COURT-CIRCUITE, NON MESURE : %s" % (name, at, empeche))
+            bloques.append((name, at, empeche))
+
+    # ---------------------------------------------------------------- PASSE 2 : LA MESURE
     dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True})
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
@@ -66,21 +102,15 @@ def main() -> int:
     board = Board(bg["tiles"], adjacency="evenq")
     units = dec.get("units") or []
     alive = [u for u in units if u.get("alive")]
-    by_vis = {}
-    for u in units:
-        by_vis.setdefault(u.get("visualId"), u)
-    # MACHINES OF WAR : hors `decisionView.units` (`decisionView.mows`, cf. `_machine_rows`) ; la
-    # cle d'acteur est `casterId` (entite Machine Type=6), c'est elle que `abilityReason`/
-    # `applyAction{kind:"ability", casterId}` attendent.
-    for m in (dec.get("mows") or []):
-        if m.get("casterId") is not None:
-            by_vis.setdefault(m.get("visualId"), {"id": m["casterId"],
-                                                  "visualId": m.get("visualId")})
+    by_vis = _acteurs(dec)
     print("[probe] runner=%d units=%d alive=%d" % (rid, len(units), len(alive)))
     print("[probe] visualIds: %s" % sorted(by_vis))
 
     wrong, exact, permissive = [], [], []
+    bloques_at = {at for _n, at, _w in bloques}
     for at, vis, name in CARRIERS:
+        if at in bloques_at:
+            continue
         caster = by_vis.get(vis)
         if caster is None:
             print("  -- %-22s (%d) : porteur %s absent de ce runner" % (name, at, vis))
@@ -89,6 +119,13 @@ def main() -> int:
         opts = getattr(klass, "TARGETING_OPTIONS", None)
         print("  == %-22s (%d) caster u%s rules=%s"
               % (name, at, caster["id"], "None" if opts is None else hex(opts.rules)))
+        # LE CRAN D'ORACLE est en PASSE 1 ci-dessus (#287-r9). `casterReason` etait DEJA lu plus bas
+        # (`natc`) -- et seulement IMPRIME : aucune ligne de verdict ne le consultait. Or il ne
+        # depend PAS de la cible : quand il vaut `TargetingRule.ValidRequest`,
+        # `AttackQuery$$GetInvalidTargetReason` a refuse EN AMONT de la cascade et TOUS les
+        # `targetReason` de la boucle qui suit valent `1`, quel que soit le masque.
+        # `1150 PlasmaCannon` porte `initialCooldownTurns = 1` : au tour 1 ce probe confrontait donc
+        # un etage que le port ne traverse pas.
         for tgt in alive:
             r = rpc("abilityReason", {"runnerId": rid, "casterId": caster["id"],
                                       "abilityType": at, "targetId": tgt["id"]}, 60) or {}
@@ -121,7 +158,12 @@ def main() -> int:
     for r in wrong:
         print("   %-22s tgt u%-4s %-20s natif=%s %s port=%s"
               % (r[0], r[1], r[2], r[3], r[4], r[6]))
-    return 1 if wrong else 0
+    # #287-r9 : une ability NON MESUREE ne peut pas sortir en vert. Le deblocage a echoue, donc le
+    # masque n'a ete confronte sur AUCUNE cible -- ce n'est ni un accord ni un desaccord.
+    print("[probe] ABILITIES NON MESUREES (oracle court-circuite en amont) : %d" % len(bloques))
+    for nom, at, why in bloques:
+        print("   %-22s (%d) : %s" % (nom, at, why))
+    return 1 if (wrong or bloques) else 0
 
 
 if __name__ == "__main__":

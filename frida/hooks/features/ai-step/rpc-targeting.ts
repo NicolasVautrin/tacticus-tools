@@ -572,14 +572,28 @@ export function registerViewTargeting(ctx: Ctx): void {
         // laisse croire l'ability castable alors qu'elle est en recharge. null =
         // ability absente des actives (attaque normale, ou ability-machine
         // Primary/Secondary dont le cooldown n'est pas porté par un ActiveAbility).
-        let abilityState:
-            { usable?: boolean; cooldown?: number | null; disabled?: boolean } | null = null;
+        // ⚠ `ammoCost`/`hasAmmo` SONT DANS CE PAYLOAD DEPUIS #287-r9, et ce n'est pas cosmétique.
+        // `AttackQuery$$GetInvalidTargetReason` court-circuite AUSSI sur `*(int*)(ability+0x44) == 0`,
+        // qui est le terme MUNITIONS d'une MACHINE OF WAR. MESURÉ le 2026-08-06 sur
+        // `ultraDreadnought` / `DutyEternal` (1158) : avec `MachineOfWarAmmo = 0`, `casterReason`
+        // reste `ValidRequest` APRÈS 4 tours alors que `cooldown` est retombé à `0` — le lecteur
+        // voyait donc un court-circuit dont AUCUN champ publié ne donnait la cause, et
+        // `oracle_targeting.cause_du_court_circuit` le rangeait en `indeterminee`. Avec
+        // `MachineOfWarAmmo = 9`, le même couple bascule à `0`. Les deux champs sont déjà lus par
+        // `readAbilityState` (`ActiveAbility+<abAmmoCostOff>` / `+<abHasAmmoOff>`) et publiés par
+        // `decisionView` : ils ne coûtaient qu'une recopie ici.
+        let abilityState: {
+            usable?: boolean; cooldown?: number | null; disabled?: boolean;
+            ammoCost?: number | null; hasAmmo?: boolean;
+        } | null = null;
         try {
             const ab = unitAbilityTypes(caster, true).find((x) => x.id === body.abilityType);
             if (ab && (ab.usable !== undefined || ab.cooldown !== undefined
-                       || ab.disabled !== undefined)) {
+                       || ab.disabled !== undefined || ab.hasAmmo !== undefined
+                       || ab.ammoCost !== undefined)) {
                 abilityState = {
                     usable: ab.usable, cooldown: ab.cooldown ?? null, disabled: ab.disabled,
+                    ammoCost: ab.ammoCost ?? null, hasAmmo: ab.hasAmmo,
                 };
             }
         } catch { /* best-effort */ }

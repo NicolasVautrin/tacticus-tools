@@ -24,6 +24,7 @@ import sys
 import uuid
 from pathlib import Path
 
+import oracle_targeting as O
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
 from engine.services import spawn_tile_shape as STS
@@ -94,6 +95,9 @@ def main() -> int:
     board = Board(g["tiles"])
 
     # attendre que 1158 soit castable ET que ce soit le tour du proprietaire
+    # ⚠ `initialCooldownTurns = 2` sur 1158 : cette boucle N'EST PAS un confort, c'est ce qui rend
+    # l'etage A mesurable. `for ... else` OBLIGATOIRE -- avant #287-r9 elle pouvait EXPIRER et la
+    # mesure partait quand meme, a travers un oracle court-circuite.
     for _ in range(16):
         v = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
         ab = next((x for x in (v["mows"][0].get("abilities") or [])
@@ -102,6 +106,29 @@ def main() -> int:
         if ready and (owner is None or v.get("currentPlayer") == owner):
             break
         rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}})
+    else:
+        print("PAS MESURE : 1158 jamais castable en 16 fins de tour (dernier etat : %s)"
+              % json.dumps(ab))
+        return 2
+
+    # LE CRAN D'ORACLE (#287-r9). La boucle ci-dessus regarde `decisionView`, qui n'est PAS
+    # l'oracle : `usable` y vaut `true` pendant que `AttackQuery$$GetInvalidTargetReason` refuse
+    # (mesure #287-r6). Le seul canal qui dit si l'etage A est ATTEINT est `casterReason`, et il
+    # est INDEPENDANT de la cible -- une lecture couvre les 4x N tuiles de la boucle qui suit.
+    # LA PARADE EST DE DEBLOQUER, PAS D'EXCLURE : `debloquer_oracle` fait tourner des tours JUSQU'A
+    # ce que l'oracle traverse, et rend une PHRASE s'il n'y arrive pas.
+    def _rpc3(method, body, timeout=90000):
+        return rpc(sid, method, body, timeout=max(30, int(timeout) // 1000))
+
+    # `jouer_adverse=False` : le runner est bati `--no-ai` et l'etage A lit les OCCUPANTS du
+    # plateau (`STS.get_area`). Un tour d'IA adverse deplacerait des unites entre la mesure de
+    # l'aire et celle de l'oracle -- le desaccord se lirait alors comme un ecart de port.
+    empeche = O.debloquer_oracle(_rpc3, rid, caster, DUTY_ETERNAL, jouer_adverse=False)
+    if empeche:
+        print("PAS MESURE (oracle court-circuite en AMONT de la cascade) : %s" % empeche)
+        print("  -> tout `abilityReason` lu ici rendrait `%s` pour TOUTE tuile, et l'etage A "
+              "comparerait deux fonctions natives differentes." % O.CODE_AMONT)
+        return 2
 
     occ = occupants(sid, rid)
     pre_dv = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
@@ -112,7 +139,7 @@ def main() -> int:
 
     # ---------------------------------------------------------------- A. regle dynamique
     print("\n=== A. GetDynamicInvalidTargetReason : natif vs port, tuile par tuile ===")
-    print("pos        tile  area   port  native")
+    print("pos        tile  area   port  natif    reasons")
     agree = disagree = 0
     first_valid = None
     for pos in sorted(board.by_coord):
@@ -123,14 +150,23 @@ def main() -> int:
         pv = probe.get_dynamic_invalid_target_reason(pre_state, caster, tid)
         nat = rpc(sid, "abilityReason", {"runnerId": rid, "casterId": caster,
                                          "abilityType": DUTY_ETERNAL, "targetId": tid})
-        names = " ".join(str(x) for x in (nat.get("reasons") or []))
-        ok = bool(names.strip()) == bool(pv)
+        # ⚠ #287-r9 -- LE CHAMP EST DANS `targetReason`, PAS A LA RACINE. La version d'avant lisait
+        # `nat.get("reasons")` : ce champ N'EXISTE PAS au premier niveau de la reponse
+        # (`{ok, casterId, targetId, abilityType, resolved, casterReason, targetReason,
+        # abilityState, mutated}`), donc `names` valait "" pour TOUTE tuile -- et l'etage A
+        # comparait le port a un oracle STRUCTURELLEMENT MUET, qui « acceptait » tout.
+        # ⚠ C'est de la que vient la phrase « `abilityReason` est un canal AVEUGLE sur une
+        # cible-TUILE de MoW », recopiee dans `test_multihex_dutyeternal_live` et utilisee pour
+        # ABANDONNER cet oracle au profit du cast. Le canal n'etait pas aveugle : le LECTEUR
+        # regardait a cote. Meme signature que #444 (un champ absent lu comme « cible valide »).
+        tr = (nat or {}).get("targetReason") or {}
+        names = ",".join(str(x) for x in (tr.get("reasons") or [])) or "-"
+        nv = O._hex_de(tr)
+        ok = (nv > 0) == bool(pv)
         agree, disagree = agree + int(ok), disagree + int(not ok)
-        if not area and first_valid is None:
-            pass
         if area and first_valid is None:
             first_valid = pos
-        print(f"{str(pos):10s} {tid:5d} {len(area):5d} {pv:5d}  '{names}'"
+        print(f"{str(pos):10s} {tid:5d} {len(area):5d} {pv:5d}  {hex(nv):8s} {names}"
               + ("" if ok else "   <-- DESACCORD"))
     print(f"[A] accord={agree} desaccord={disagree}")
 

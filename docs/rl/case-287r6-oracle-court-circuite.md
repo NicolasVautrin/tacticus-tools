@@ -57,9 +57,22 @@ publierait en `hex: "0x0"` avec sa `ruleClass`.
 
 Foyer unique **`scripts/python/oracle_targeting.py`** : `oracle_court_circuite(réponse)`,
 `cause_du_court_circuit`, `cooldown_initial` (tri-état `None` / `0` / `>= 1`),
-`ids_a_cooldown_initial()`, `rendre_oracle_passant(rpc, rid)`. **59** fichiers citent
-`abilityReason` ; **2** consomment ce cran ; **24** ne lisent même pas `casterReason` (re-dériver,
-ne pas citer).
+`ids_a_cooldown_initial()`, `rendre_oracle_passant(rpc, rid, tours)`, **`debloquer_oracle`** et
+**`cycler_sans_ia`** (#287-r9).
+
+⚠ **Préférer `debloquer_oracle`** : `rendre_oracle_passant` COMPTE des tours, il ne MESURE pas — et
+un tour ne suffit pas pour tout le gisement (mesuré sur `1158`, `initialCooldownTurns = 2`).
+`debloquer_oracle` boucle jusqu'à ce que `casterReason` tombe à `0` et rend une PHRASE sinon, ce qui
+couvre aussi les causes que `abilityState` ne publie pas.
+⚠ `jouer_adverse=False` (`cycler_sans_ia`) sur tout montage GÉOMÉTRIQUE : faire jouer l'IA adverse
+déplace les unités et détruit la configuration qu'on vient d'établir.
+⚠ **DÉBLOQUER PUIS FIGER, jamais l'inverse** : le déblocage joue des `endturn`, donc l'état natif
+AVANCE. Un `State` offline capturé AVANT serait confronté à un natif d'APRÈS — divergence introduite
+par l'outil de mesure lui-même (mesurée sur `probe_115_targeting_masks`, corrigée en deux passes).
+
+Recensement des consommateurs, ventilation en trois états, mesure live de l'exposition et
+correctifs : **`case-287r9-consommateurs-de-l-oracle.md`** (chiffres à re-dériver, jamais à citer :
+`python scripts/python/probe_287r9_consommateurs_oracle.py`).
 
 `probe_287r4r1_generalisation_live.py` lit désormais `casterReason` **une fois par couple, avant
 toute cible**, et **laisse retomber le cooldown** (fin de tour + tour adverse) quand un porteur
@@ -83,12 +96,23 @@ Les 4 tuiles OCCUPÉES passent de `natif 0x1 / port 0x1000` à **`0x1000` des de
 `orksRukkatrukk` (déblocage joué) **et** avec `tyranBiovore` (`1145`, `initialCooldownTurns = 0` :
 « déblocage non nécessaire » — le probe ne joue le tour que s'il le faut).
 
-## 5. Généralisation : 15 ids du registre sont dans ce régime
+## 5. Généralisation : 21 ids sont dans ce régime, pas 15
 
-`initialCooldownTurns >= 1` sur **15** des 104 entrées d'`ABILITY_CLASSES` — re-dérivé du
-gameconfig, jamais écrit en dur (`oracle_targeting.ids_a_cooldown_initial()`) : 1025, 1115, 1142,
-1143, 1148, 1150, 1158, 1159, 1160, 1169, 1187, 1188, 1200, 1201, 1232. Pour chacune, **tout**
+`initialCooldownTurns >= 1` sur **15** des 104 entrées d'`ABILITY_CLASSES` : 1025, 1115, 1142, 1143,
+1148, 1150, 1158, 1159, 1160, 1169, 1187, 1188, 1200, 1201, 1232. Pour chacune, **tout**
 `abilityReason` pris au tour 1 court-circuite, quel que soit le board et quel que soit le porteur.
+
+⚠ **Mais le registre n'est PAS le gisement (#287-r9).** `ids_a_cooldown_initial()` sans argument ne
+visite qu'`ABILITY_CLASSES` ; l'étage amont natif, lui, est INDIFFÉRENT à notre registre Python — il
+mord sur l'`ActiveAbilityType`, porté ou non. Balayé sur l'enum COMPLET (260 membres), le gisement
+est de **21** : `1087 ExemplarOfTheKauyon`, `1144 BioMinefield`, `1152 UnstoppableMomentumReworked`,
+`1208 AetherStride`, `1209 InfernalCannon`, `1231 TitanhammerSquad` s'y ajoutent. Passer la liste
+explicite est ce qui les rend visibles :
+`ids_a_cooldown_initial(sorted(set(int(m) for m in ActiveAbilityType)))`.
+
+⚠ **Et le cooldown initial n'est pas la seule cause.** `1143`, `1144` et `1158` portent **deux**
+tours — un seul `endturn` ne les débloque pas. Et le terme `*(int*)(ability+0x44) == 0` (§7) est
+celui des MUNITIONS d'une Machine of War : **aucun** nombre de tours ne le lève.
 
 ## 6. La garde
 
@@ -105,14 +129,20 @@ référence verte à 8 passed.
 
 ## 7. Ce qui n'est PAS couvert
 
-- **Résidu #287-r9 — les 57 autres consommateurs d'`abilityReason` ne consultent pas le cran.**
-  Le foyer existe ; deux fichiers l'appellent. Les ids exposés sont connus (§5) : par exemple
-  `probe_91_duty_eternal.py` / `test_multihex_dutyeternal_live.py` (1158, deux tours) et
-  `probe_589r1r1r1_empyric_ambush_pose_live.py` (1232). Aucun n'est démontré faux ici — ils sont
-  **non vérifiés**.
-- **Les deux autres termes amont ne sont pas exercés** : `*(int*)(ability+0x44) == 0` et
-  `IsDamagedMachine && !IsMachinePrimaryAbilityType`. `abilityState` ne les publie pas ; le cran les
-  range en `indéterminée` plutôt que de supposer.
+- ~~**Résidu #287-r9 — les 57 autres consommateurs ne consultent pas le cran.**~~ — **RECENSÉ ET
+  VENTILÉ (#287-r9)**, `case-287r9-consommateurs-de-l-oracle.md`. Sur **61** consommateurs :
+  34 SAINS (ids fixés hors gisement), 8 crantés, 7 débloquant sous garde, 1 réfuté par lecture,
+  4 indéterminables offline, **7 exposés non vérifiés** → résidu **`#287-r10`**. Deux couples
+  MESURÉS `EXPOSÉ ET VÉRIFIÉ` : `1158`/`ultraDreadnought` et `1232`/`eldarLhykhis`.
+- ~~**Le terme `*(int*)(ability+0x44) == 0` n'est pas exercé.**~~ — **IL L'EST (#287-r9)** : c'est le
+  terme MUNITIONS d'une Machine of War. Avec `MachineOfWarAmmo = 0`, `casterReason` reste
+  `ValidRequest` après 4 tours alors que `cooldown` est retombé à `0` ; à `9`, le même couple
+  bascule. Le hook publie désormais `hasAmmo`/`ammoCost` dans `abilityState`
+  (`rpc-targeting.ts`) — **en attente d'une fenêtre de reinject** ; d'ici là
+  `cause_du_court_circuit` dit explicitement que le capteur manque.
+- **Le troisième terme amont n'est toujours pas exercé** :
+  `IsDamagedMachine && !IsMachinePrimaryAbilityType`. Aucun champ ne le publie ; le cran le range en
+  `indéterminée` plutôt que de supposer.
 - **`InFogOfWarBrokenTargetingRule` n'est pas décodée par le hook** — elle sortirait en
   `hex: "0x0"`, donc « cible valide », pour un refus. Même signature que le défaut fermé par #444
   sur `ObscuredTerrainBrokenTargetingRule`. Non rencontrée sur `MC1_67`/`C1_02` ; la corriger

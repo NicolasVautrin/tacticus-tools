@@ -48,6 +48,7 @@ from pathlib import Path
 
 import pytest
 
+import oracle_targeting as O
 from engine.entities.pathfinding.board import Board
 from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.abilities.targeting import is_invalid_target
@@ -127,6 +128,21 @@ def _measure(rpc, rid: int, cases: list) -> dict:
                         f"(visualIds vus : {sorted(casters)})", pytrace=False)
         state = load_state(dec, ob, snap, board=board)
         klass = ABILITY_CLASSES[at]
+        # LE CRAN D'ORACLE (#287-r9), lu UNE fois par ability : `casterReason` ne depend pas de la
+        # cible, donc il couvre les N lignes qui suivent. `_advance` a compte des `endturn` sans
+        # rien verifier -- et compter n'est pas mesurer : `1150 PlasmaCannon` porte
+        # `initialCooldownTurns = 1`, `1143`/`1158` en portent DEUX, et une MACHINE OF WAR sans
+        # munitions n'est JAMAIS debloquee par des tours (terme `ability+0x44`, mesure #287-r9 sur
+        # `ultraDreadnought`). C'est ce que le compteur ne pouvait pas dire.
+        cr = rpc("abilityReason", {"runnerId": rid, "casterId": caster_id,
+                                   "abilityType": at}, 60) or {}
+        if O.oracle_court_circuite(cr):
+            pytest.fail(
+                f"ability {at} ({vis}) : `AttackQuery$$GetInvalidTargetReason` refuse EN AMONT de "
+                f"la cascade apres {WARMUP_ENDTURNS} fins de tour -- `casterReason` = "
+                f"TargetingRule.ValidRequest. Tous les `targetReason` vaudraient `1` pour TOUTE "
+                f"cible : le masque ne serait PAS confronte, et un vert ici ne mesurerait RIEN. "
+                f"Cause lisible : {O.cause_du_court_circuit(cr)}", pytrace=False)
         for tgt in alive:
             r = rpc("abilityReason", {"runnerId": rid, "casterId": caster_id,
                                       "abilityType": at, "targetId": tgt["id"]}, 60) or {}
