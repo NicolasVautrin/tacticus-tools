@@ -2787,24 +2787,56 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `engine/entities/active_abilities.py` (foyer `entity_active_ability_ids`), cles
   `{friend,enemy}_units[].active` + `unit_active_abilities` dans les TROIS producteurs de `ctx`,
   `probe_477r29_rad_saturation_camp.py`, `test_477r29_rad_saturation_camp_live.py` (9 verts).
-  Residu : **#477-r31**.
+  Residu **#477-r31** : **FERME par #477-r31**.
+  ⚠ Ce cas a laisse une affirmation FAUSSE dans sa fiche (sec. 4) : « la feuille voisine
+  `AttractMechanicalsUtility` interroge `GetAdjacentUnits`, DONC les deux camps ». Meme faute que
+  celle qu'il reprochait a `case-26` -- deduire le camp d'un NOM. Corrigee par #477-r31.
   cf. `docs/rl/case-477r29-radsaturation-camp.md`.
 
-- **#477-r31 : `AttractMechanicalsUtility` (`DoctrinaImperatives_AttractMechanicals`) est INERTE
-  cote port -- et c'est le MODELE « deux camps » que `case-26` decrivait.** `[opus]`
-  **MESURE, pas redoute** : `meta.attract_mechanicals_neighbor` n'est produit par AUCUN des trois
-  `*_tile_leaf_ctx`, donc la feuille rend 0 partout. Le natif, lui, met **+10** (`Marshal_Attract
-  Mechanicals`, une SEULE fois -- `Enumerable.Any`, pas `Count`) pour tout mover **Mechanical**
-  ayant a ring-1 de la tuile candidate une unite **de n'importe quel camp** (slot `0x7a` =
-  `GetAdjacentUnits`, 4 arguments, `u != case.Unit` explicite) portant `DoctrinaImperatives`.
-  ⚠ Le VRAI porteur de `RadSaturation` (`admecSmnVanguard`) est Mechanical : il lui manque donc ce
-  terme EN PLUS de celui que #477-r29 vient de porter, et les deux valent 10 sur les MEMES tuiles.
-  CE QU'IL FAUT : ecrire la feuille -- le substrat qu'elle reclame existe depuis #477-r29
-  (`{friend,enemy}_units[].active`), **aucun capteur neuf n'est necessaire**, contrairement a ce
-  qu'annonce l'en-tete de `engine/utilities/tile.py` (« metadata PAR TUILE qu'AUCUN RPC ne remonte »).
-  Le CONFOND est symetrique au moment de confronter : sur un mover Mechanical adjacent a un Marshal
-  ALLIE, `X_nat` porte les DEUX +10 -- il faut donc un bras a Marshal ENNEMI SEUL pour separer.
-  cf. `docs/rl/case-477r29-radsaturation-camp.md` sec. 4.
+- ~~**#477-r31**~~ : **LIVRE (2026-08-06) -- le terme `AttractMechanicals` compte les AMIS, pas les
+  deux camps, et le port n'en produisait AUCUN.** `meta.attract_mechanicals_neighbor` n'etait
+  construit nulle part : la feuille `DoctrinaImperatives_AttractMechanicals` rendait 0 partout.
+  **La question binaire du cas recoit NON** : la signature reelle est
+  `GetAdjacentUnits(from, friendsOf, enemiesOf, ignoreSteppables)` (lue dans `frida/methods.tsv`),
+  le call-site passe `friendsOf = case.Unit`, et `BattleQuery$$CountOrGetUnitsOnTiles` ne garde que
+  les AMIS -- **le nom du slot designe l'ensemble AVANT filtrage, le camp est un ARGUMENT**.
+  Ce qui separe reellement cette feuille de `RadSaturationPlaybook` : gate `Mechanical`, self EXCLU
+  (`f != case.Unit`), agregation `Any` (+10 UNE fois, pas x n).
+  **Aucune greffe pour le porteur** : le gate est un TRAIT, 13 heros du pool sont Mechanical.
+  DEUX montages A/B (`camp` = miroirs de camp ; `agreg` = 2 Marshals amis, seul montage qui separe
+  `Any` de `Count`), x 2 couples board/seed : **0 desaccord** sur 11/12/8/8 tuiles. Contre-epreuve
+  par montage (les mutants exiges sont DERIVES du montage, pas recopies) : DEUX-CAMPS 3 et 4 sur
+  `camp`, COUNT(xn) 1 et 1 sur `agreg`, SANS-PREDICAT 3 et 2, ABSENT (etat d'avant) 3 partout ;
+  SELF-INCLUS inerte PAR ALGEBRE, assertionne dans les deux sens et EXERCE offline.
+  ⚠ **CONFOND paye par une mesure rouge** : `admecMarshall` porte au seed la relique
+  `KardiocoreGalvanus`, dont la face NON-OWNER pose **+20** sous le MEME gate `IsMechanical` et sur
+  les MEMES tuiles (`X_nat = 30` pour `X_port = 10`). Le montage la desequipe. Gap revele : residu
+  **#477-r33**. Il DORMAIT sous #477-r29 (carrier non Mechanical).
+  Livre : `_attract_mechanicals_neighbor` + derivation dans `apply_tile_attributes`
+  (`engine/utilities/tile.py`), `catalog_inject.unequip_relic`,
+  `probe_477r31_attract_mechanicals_camp.py`, `test_477r31_attract_mechanicals_camp_live.py`
+  (27 verts ; garde vue ROUGE sur 3 mutations reelles, dont une qui ne tombe que sur #477-r29).
+  cf. `docs/rl/case-477r31-attract-mechanicals-camp.md`.
+
+- **#477-r33 : 13 des 25 `*NonOwnerPlaybook` natifs manquent au registre du port.** `[opus]`
+  **MESURE, pas redoute** : `engine/playbook/non_owner.NON_OWNER_MOVE_PLAYBOOKS` porte **12**
+  entrees, le binaire en a **25**. Manquants (ids `TriggeredAbilityType`) : `1064 FirstAmongTraitors`,
+  `1453 ShieldOfFaith`, `1457 KardiocoreGalvanus`, `1461 BookOfFate`, `1469 MawClawsOfThyrax`,
+  `1478 SabreOfSacrifice`, `1495 NornCrown`, `1500 WayOfTheShortBlade`, `1508 MastersOfManoeuvre`,
+  `1522 RedemptionOfTheRisen`, `1523 NoHidingFromTheWatchers`, `1526 PurgeResponse`, `1531 HaywireMine`.
+  Ce n'est pas un port speculatif : `1457` est **mesure a +20** (#477-r31, `MC1_67`/777 --
+  `X_nat = 30` pour `X_port = 10`, l'ecart tombe exactement en desequipant la relique). Son corps :
+  `IdunBattle.AI.Playbook.Loki.KardiocoreGalvanusNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`
+  = gate `IsMechanical(case.Unit)`, puis `GetUtilityValue("KardiocoreGalvanus_AdjacentFriendly")`
+  (BC = 20) si la tuile candidate est adjacente au porteur.
+  ⚠ **QUATRE unites du seed portent une relique sans que personne l'ait demandee** -- `admecMarshall`
+  et `admecRuststalker` (`KardiocoreGalvanus`), `necroSpyder` (`NetherRealmCasket`), `orksRuntherd`
+  (`MastersOfManoeuvre`) : tout montage qui les spawne herite du terme, et il se REVEILLE selon le
+  mover (le gate est `Mechanical`). Un montage vert ne dit donc rien du montage voisin.
+  CE QU'IL FAUT : porter les faces non-owner manquantes, en commencant par `1457` (deja RE'd), et
+  verifier au passage que le poids de chacune est non nul avant de porter.
+  Outil ecrit pour isoler : `catalog_inject.unequip_relic`.
+  cf. `docs/rl/case-477r31-attract-mechanicals-camp.md` sec. 5.
 
 - **#477-r30 : le cliquet des slots exige slot ET nom ADJACENTS -- 659 lignes restent hors
   couverture, et il s'y trouve deja une citation FAUSSE.** `[opus]`
