@@ -95,6 +95,18 @@ def recolte_fenetre1(tables):
 
 
 @pytest.fixture(scope="module")
+def recolte_complete(tables):
+    """La recolte de SERVICE, ventilation comprise -- une seule fois (elle coute ~20 s)."""
+    return P.recolter(tables)
+
+
+@pytest.fixture(scope="module")
+def recolte_virgule_bloquante(tables):
+    """Le regime d'AVANT #477-r42 : la virgule ARRETAIT le remplissage. REFERENCE mesurable."""
+    return P.recolter(tables, virgule_bloquante=True, ventiler=False)
+
+
+@pytest.fixture(scope="module")
 def lecteur():
     """Un `MetadataReader` deja localise (grille des methodes ET des types) -- ~12 s, UNE fois."""
     import build_pin
@@ -396,6 +408,165 @@ def test_etage3ter_le_cran_est_IMPORTE_pas_recopie() -> None:
     assert P._appel is R24._appel, (
         "l'absorption d'appel n'est plus le foyer unique -- elle a ete recopiee")
     assert P.PROFONDEUR_APPEL is R24.PROFONDEUR_APPEL
+
+
+# ----------- etage 3quater : la VIRGULE n'est plus un renvoi, la LOCALITE la remplace (r42)
+
+
+def test_etage3quater_le_franchissement_de_virgule_APPORTE_sans_rien_perdre(
+        tables, recolte_complete, recolte_virgule_bloquante) -> None:
+    """La virgule arretait le remplissage ; elle cachait des citations JUSTES et rien d'autre.
+
+    Ce que le cran remplace, c'est un PROXY : dans « slot N1 `X`, slot N2 `Y` », ce qui rend
+    `(N2, X)` faux n'est pas la virgule mais le fait que `X` est deja apparie a `N1`, a sa
+    gauche IMMEDIATE. Le test garde les deux moities : le franchissement APPORTE, et il ne
+    PERD rien.
+    """
+    cits, _ec, _r = recolte_complete
+    ref, _ref_ec, _ref_r = recolte_virgule_bloquante
+    cle = lambda c: (c.fichier, c.ligne, c.iface, c.slot, c.nom, c.ligne_nom)   # noqa: E731
+    neufs = {cle(c) for c in cits} - {cle(c) for c in ref}
+    perdus = {cle(c) for c in ref} - {cle(c) for c in cits}
+    assert neufs, ("le franchissement de virgule n'apporte plus rien -- soit le gisement est "
+                   "ferme (le dire), soit le cran ne mesure plus le bon regime")
+    assert not perdus, ("le franchissement de virgule PERD des couples : %s"
+                        % sorted(perdus)[:5])
+    #: Et aucun des neufs ne doit contredire la table -- c'est la moitie qui compte.
+    faux = [k for k in neufs if tables.get(k[2], {}).get(k[3], ("",))[0] != k[4]]
+    assert not faux, "le franchissement de virgule fait entrer des couples FAUX : %s" % faux[:5]
+
+
+def test_etage3quater_lenumeration_horizontale_CEDE_au_plus_local() -> None:
+    """« slot 0x14 `X`, slot 0x13 `Y` » : `X` ne doit PAS se voir attribuer `0x13`.
+
+    ⚠ CETTE ENUMERATION EST HORIZONTALE, ET C'EST LA MESURE QUI L'ETABLIT. La fiche parlait
+    d'une enumeration VERTICALE ; les deux sites reels du depot
+    (`test_433_r4_r2_r1_r1_c_caster_gates_{live,offline}.py`) ecrivent tout sur UNE ligne. C'est
+    pourquoi le discriminant « la virgule ne bloque que si le remplissage traverse un saut de
+    ligne » n'aide NI ce regime NI la citation juste qu'il fallait liberer.
+    """
+    bloc = ("gates mord : slot 0x14 `AActiveAbility$$CanStillBeUsed`, "
+            "slot 0x13 `AActiveAbility$$IsDisabled`,")
+    rxs = P._COUPLES_ML["IActiveAbility"][0]
+    vus = []
+    for k, rx in enumerate(rxs):
+        for m in rx.finditer(bloc):
+            vus.append(P.Citation(
+                fichier="x", ligne=1, iface="IActiveAbility", slot=int(m.group("n%d" % k), 0),
+                nom=m.group("nom%d" % k), args=None, texte="", ligne_nom=1,
+                franchit_virgule="," in (m.groupdict().get("rem%d" % k) or "")))
+    couples = {(c.slot, c.nom) for c in vus}
+    assert (0x13, "CanStillBeUsed") in couples, (
+        "le motif ne franchit plus la virgule -- le test ne mesure plus rien")
+    gardes, cedes = P.ceder_aux_locaux(
+        vus, lambda c: c.franchit_virgule, lambda c: (c.fichier, c.ligne, c.iface, c.slot),
+        lambda c: (c.fichier, c.ligne_nom, c.iface, c.nom))
+    assert (0x13, "CanStillBeUsed") in {(c.slot, c.nom) for c in cedes}, (
+        "le couple de l'enumeration n'a PAS cede -- cedes : %s"
+        % sorted((c.slot, c.nom) for c in cedes))
+    for juste in ((0x14, "CanStillBeUsed"), (0x13, "IsDisabled")):
+        assert juste in {(c.slot, c.nom) for c in gardes}, (
+            "la regle a retire un couple JUSTE (%s) : elle doit etre CONSERVATRICE" % (juste,))
+
+
+def test_etage3quater_le_cran_de_localite_est_IMPORTE_pas_recopie() -> None:
+    """Meme exigence que pour l'absorption d'appel : un FOYER, pas deux motifs jumeaux.
+
+    Les quatre objets ci-dessous sont partages avec `probe_477r24r1`. `_RENVOIS` en fait partie :
+    les deux tuples etaient IDENTIQUES en valeur et DUPLIQUES en source, ce qui est exactement
+    la configuration ou l'un derive sans l'autre.
+    """
+    import probe_477r24r1_slots_interface as R24                            # noqa: PLC0415
+
+    for nom in ("_entre", "_regex_noms", "ceder_aux_locaux", "_RENVOIS"):
+        assert getattr(P, nom) is getattr(R24, nom), (
+            "`%s` n'est plus le foyer unique -- il a ete recopie" % nom)
+
+
+def test_etage3quater_le_mutant_des_franchissants_REFUSE_en_regime_bloquant(
+        tables, recolte_virgule_bloquante) -> None:
+    """Un mutant qui n'a rien a muter doit REFUSER, pas rendre une mutation vide.
+
+    En `--virgule-bloquante` aucun couple n'a franchi de virgule : le mutant ne peut rien
+    discriminer, et une mutation vide passerait pour appliquee.
+    """
+    ref, _ec, _r = recolte_virgule_bloquante
+    assert not any(c.franchit_virgule for c in ref), (
+        "le regime de reference contient des franchissants : il ne mesure pas ce qu'il dit")
+    with pytest.raises(SystemExit) as exc:
+        P.muter(tables, "franchissants-decales", ref)
+    assert "IMPOSSIBLE" in str(exc.value)
+
+
+# ---------------------- etage 6 : LE RECENSEUR -- la ventilation qui n'existait pas (r42)
+
+
+def test_etage6_la_ventilation_est_une_PARTITION(recolte_complete) -> None:
+    """La somme des causes VAUT le total. C'est ce qui separe une PARTITION d'une liste blanche.
+
+    Ce probe n'avait AUCUN recenseur : ses ~647 lignes ecartees sortaient sous un compte NU, qui
+    se lit « rien a signaler » alors que c'est la zone ou une citation fausse peut dormir.
+    """
+    _cits, ecartees, _r = recolte_complete
+    assert ecartees.ventilation is not None, "la ventilation est PAS MESUREE alors qu'on la joue"
+    total = sum(len(v) for v in ecartees.ventilation.values())
+    assert total == ecartees.sans_couple, (
+        "la somme des causes (%d) ne vaut PAS le total ecarte (%d)" % (total,
+                                                                       ecartees.sans_couple))
+    assert ecartees.sans_couple > 0, "plus rien n'est ecarte -- le test ne mesure plus rien"
+
+
+def test_etage6_la_ventilation_NON_JOUEE_rend_None_pas_un_dict_vide(
+        recolte_virgule_bloquante) -> None:
+    """`None` = PAS MESURE. Un dictionnaire vide se lirait « aucune ligne dans aucune cause »."""
+    _cits, ecartees, _r = recolte_virgule_bloquante
+    assert ecartees.ventilation is None
+
+
+def test_etage6_la_cause_est_DERIVEE_et_autre_est_ATTEIGNABLE() -> None:
+    """Une liste blanche de motifs ne peut pas montrer le motif qu'elle a oublie.
+
+    La cause est derivee de la FORME de la mention de slot ; ce que `RE_SLOT` reconnait sans
+    qu'aucune forme nommee ne le decrive sort sous `autre (<extrait>)`. Ce test PROUVE que cette
+    sortie est atteignable -- une branche par defaut qu'on ne peut pas atteindre ne garde rien.
+    """
+    inconnue = P._cause_ecartee("le fichier interface_slots.tsv est versionne", "", None)
+    assert inconnue.startswith("autre ("), (
+        "une mention de slot que AUCUNE forme ne decrit doit sortir sous `autre (...)`, "
+        "rendu : %s" % inconnue)
+    assert inconnue not in P.CAUSES
+    #: Et les formes NOMMEES, elles, doivent rendre leur cause -- sinon tout finirait en `autre`.
+    assert P._cause_ecartee("processor.<slot 0x12>(x)", "", None) == "numero_sans_aucun_nom"
+    assert P._cause_ecartee("le slot `KillUnit` de l'interface", "", None) \
+        == "nom_seul_sans_numero"
+    assert P._cause_ecartee("les slots de cette interface", "", None) == "sans_numero"
+
+
+def test_etage6_le_recenseur_voit_un_nom_QUALIFIE() -> None:
+    """Le motif du recenseur doit voir `BattleQuery$$GetSurroundingTiles`, pas seulement le nom nu.
+
+    C'est la faute que #477-r36 a corrigee sur l'autre cliquet (le `$` etait DANS le lookbehind) :
+    un nom qualifie y etait invisible, et le gisement sous-compte de **48 %**. Le motif est ici
+    IMPORTE ; ce test fige qu'il n'a pas ete recopie dans son etat d'avant.
+    """
+    rx = P._regex_noms(frozenset({"GetSurroundingTiles"}))
+    assert rx.search("IdunBattle.Core.Services.BattleQuery$$GetSurroundingTiles"), (
+        "le recenseur ne voit pas un nom QUALIFIE -- il sous-comptera son gisement")
+    assert not rx.search("XGetSurroundingTiles"), (
+        "le lookbehind ne refuse plus un SUFFIXE de mot")
+
+
+def test_etage6_la_PORTEE_de_la_mesure_est_CHIFFREE() -> None:
+    """Une partition exacte d'un ensemble INCOMPLET se lit comme exhaustive.
+
+    `RE_SLOT` est sensible a la casse : une ligne qui ecrit « Slot 0x12 » n'entre dans AUCUNE
+    cause -- elle est INVISIBLE, pas ecartee. Le recenseur la CHIFFRE au lieu de la taire.
+    """
+    assert P._RE_SLOT_AUTRE_CASSE.search("Slot 0x12 = GetSurroundingTiles")
+    assert not P.RE_SLOT.search("Slot 0x12 = GetSurroundingTiles")
+    assert P._compter_autre_casse() > 0, (
+        "aucune ligne en autre casse -- soit le corpus a change, soit le compteur est casse ; "
+        "dans les deux cas, un zero muet serait pire que le chiffre")
 
 
 # ------------------------------- etages 4-5 : la derivation, si le metadata est la

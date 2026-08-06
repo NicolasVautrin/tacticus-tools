@@ -310,10 +310,12 @@ def _marq_commentaire(traverse: bool, contigu: bool = True) -> str:
     """Le marqueur de la forme D, prolonge au bloc de commentaire CONTIGU en regime fenetre."""
     if not traverse:
         return _MARQ_COMMENT
-    #: `contigu = False` desarme la LOCALITE : la ligne suivante n'a plus a etre un commentaire.
-    #: C'est une MESURE (`--relacher commentaire-contigu`), jamais un regime de service.
-    marq_suite = r"(?:\#+|//+)" if contigu else r"(?:\#+|//+)?"
-    return _MARQ_COMMENT + r"(?:[^\n]*\r?\n[ \t]*%s[ \t]*)?" % marq_suite
+    #: `contigu = False` desarme la LOCALITE : la ligne suivante n'a plus a etre ELLE-MEME un
+    #: commentaire -- du CODE peut la preceder. C'est une MESURE (`--relacher
+    #: commentaire-contigu`), jamais un regime de service : c'est precisement ce franchissement
+    #: qui perdrait ce que `appel-colle` tient.
+    suite = (r"[ \t]*(?:\#+|//+)[ \t]*" if contigu else r"[^\n]*?(?:\#+|//+)?[ \t]*")
+    return _MARQ_COMMENT + r"(?:[^\n]*\r?\n%s)?" % suite
 
 
 def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: bool = False,
