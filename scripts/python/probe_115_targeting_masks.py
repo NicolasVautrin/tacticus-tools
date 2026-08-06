@@ -23,6 +23,7 @@ import argparse
 import json
 import sys
 
+import oracle_targeting as O
 import rl_collect_batch as R
 
 from engine.entities.pathfinding.board import Board
@@ -79,7 +80,7 @@ def main() -> int:
     print("[probe] runner=%d units=%d alive=%d" % (rid, len(units), len(alive)))
     print("[probe] visualIds: %s" % sorted(by_vis))
 
-    wrong, exact, permissive = [], [], []
+    wrong, exact, permissive, bloques = [], [], [], []
     for at, vis, name in CARRIERS:
         caster = by_vis.get(vis)
         if caster is None:
@@ -89,6 +90,20 @@ def main() -> int:
         opts = getattr(klass, "TARGETING_OPTIONS", None)
         print("  == %-22s (%d) caster u%s rules=%s"
               % (name, at, caster["id"], "None" if opts is None else hex(opts.rules)))
+        # LE CRAN D'ORACLE (#287-r9). `casterReason` etait DEJA lu plus bas (`natc`) -- et
+        # seulement IMPRIME : aucune ligne de verdict ne le consultait. Or il ne depend PAS de la
+        # cible : quand il vaut `TargetingRule.ValidRequest`, `AttackQuery$$GetInvalidTargetReason`
+        # a refuse EN AMONT de la cascade et TOUS les `targetReason` de la boucle qui suit valent
+        # `1`, quel que soit le masque. `1150 PlasmaCannon` porte `initialCooldownTurns = 1` : au
+        # tour 1 ce probe confrontait donc un etage que le port ne traverse pas.
+        # LA PARADE EST DE DEBLOQUER, PAS D'EXCLURE -- et l'echec du deblocage COMPTE comme faute.
+        # ⚠ `rpc` local compte ses timeouts en SECONDES, le foyer les passe en MILLISECONDES.
+        empeche = O.debloquer_oracle(lambda m, b, t=60000: rpc(m, b, max(30, int(t) // 1000)),
+                                     rid, int(caster["id"]), at, jouer_adverse=False)
+        if empeche:
+            print("     ORACLE COURT-CIRCUITE, NON MESURE : %s" % empeche)
+            bloques.append((name, at, empeche))
+            continue
         for tgt in alive:
             r = rpc("abilityReason", {"runnerId": rid, "casterId": caster["id"],
                                       "abilityType": at, "targetId": tgt["id"]}, 60) or {}
@@ -121,7 +136,12 @@ def main() -> int:
     for r in wrong:
         print("   %-22s tgt u%-4s %-20s natif=%s %s port=%s"
               % (r[0], r[1], r[2], r[3], r[4], r[6]))
-    return 1 if wrong else 0
+    # #287-r9 : une ability NON MESUREE ne peut pas sortir en vert. Le deblocage a echoue, donc le
+    # masque n'a ete confronte sur AUCUNE cible -- ce n'est ni un accord ni un desaccord.
+    print("[probe] ABILITIES NON MESUREES (oracle court-circuite en amont) : %d" % len(bloques))
+    for nom, at, why in bloques:
+        print("   %-22s (%d) : %s" % (nom, at, why))
+    return 1 if (wrong or bloques) else 0
 
 
 if __name__ == "__main__":

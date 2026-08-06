@@ -66,8 +66,9 @@ RPC = "abilityReason"
 FOYER = "oracle_targeting"
 
 # Les fonctions du foyer qui, appelees, valent consultation du cran.
-FOYER_APPELS = ("oracle_court_circuite", "rendre_oracle_passant", "cause_du_court_circuit",
-                "ids_a_cooldown_initial", "cooldown_initial")
+FOYER_APPELS = ("oracle_court_circuite", "rendre_oracle_passant", "debloquer_oracle",
+                "cycler_sans_ia", "cause_du_court_circuit", "ids_a_cooldown_initial",
+                "cooldown_initial")
 
 # Les ids d'`ActiveAbilityType` reconnaissables a l'etat de LITTERAL NU. Sert a distinguer « le
 # fichier FIXE son ability, et elle est hors gisement » (SAIN demontre) de « il ne la fixe pas »
@@ -92,9 +93,77 @@ IDS_ECARTES = sorted(int(m) for m in ActiveAbilityType if int(m) not in TOUS_IDS
 #   "REPARE"       -- il consulte le foyer et debloque. Le cran B verifie qu'il continue.
 #   "SAIN_MESURE"  -- expose par ses ids, mais il DEBLOQUE deja par une voie propre (attente
 #                     explicite du cooldown), verifiee A LA MAIN et citee dans `pourquoi`.
+#   "SAIN_LU"      -- le recenseur STATIQUE le croit expose, la LECTURE du site montre que l'id du
+#                     gisement n'atteint jamais l'oracle (il est dans une liste DOCUMENTAIRE, pas
+#                     dans celle qui est confrontee). C'est une limite ASSUMEE du recensement par
+#                     litteraux : il voit ce qui est ECRIT, pas ce qui est PASSE au RPC.
 #   "NON_VERIFIE"  -- expose, ne debloque pas ; personne n'a mesure. `pourquoi` dit ce qui manque.
 # ------------------------------------------------------------------------------------------------
-DETTE = {}
+DETTE = {
+    # ---- REPARES par #287-r9 (le cran pose, contre-epreuve live dans le rapport) ----------------
+    "probe_91_duty_eternal.py": (
+        "REPARE",
+        "1158/1159 sur la MoW `ultraDreadnought`. MESURE : au tour 1, casterReason=ValidRequest, "
+        "cooldown=2. La boucle d'attente n'avait PAS de `else` -- elle pouvait expirer et la "
+        "mesure partait quand meme. `for/else` + `debloquer_oracle` desormais."),
+    "probe_589r1r1r1_empyric_ambush_pose_live.py": (
+        "REPARE",
+        "1232 sur `eldarLhykhis`. MESURE : au tour 1, casterReason=ValidRequest, cooldown=1 ; 0 un "
+        "tour plus tard. `face_decision` lisait `targetReason` sans le discriminant -- sur les "
+        "ENNEMIS (le bras qui compte) la branche « permissif » avalait le 0x1 : vert vide."),
+    "probe_targeting_masks_lot4.py": (
+        "REPARE",
+        "1200/1201. `_wait_castable` IMPRIMAIT son echec puis rendait la main, et le verdict final "
+        "ignorait `n_skip` : les lignes court-circuitees etaient ecartees en silence. Le compteur "
+        "`n_bloque` les fait ROUGIR, et le discriminant est `casterReason`, pas `targetReason`."),
+    "probe_115_targeting_masks.py": (
+        "REPARE",
+        "1150 PlasmaCannon (cd initial 1). `casterReason` etait deja LU (`natc`) et seulement "
+        "IMPRIME : aucune ligne de verdict ne le consultait."),
+    "test_targeting_masks_live.py": (
+        "REPARE",
+        "1150. `_advance` COMPTAIT 6 `endturn` sans rien verifier -- et compter n'est pas mesurer "
+        "(1143/1158 demandent deux tours ; une MoW sans munitions n'est JAMAIS debloquee par des "
+        "tours). Le cran lit `casterReason` une fois par ability, avant les cibles."),
+
+    # ---- SAINS etablis par LECTURE, la ou le recenseur statique se trompe -----------------------
+    "test_targeting_options_masks_live.py": (
+        "SAIN_LU",
+        "1200/1201 sont dans `LOT` (liste DOCUMENTAIRE des 13 abilities de la tranche) mais PAS "
+        "dans `POOL_CASES`, la seule liste passee a `abilityReason` : les 5 cas confrontes (1009, "
+        "1006, 1179, 1180, 1202) sont tous hors gisement. RESIDU tout de meme : son "
+        "`if nt == 0x1: continue` ecarte en silence, sans lire `casterReason` -- inoffensif "
+        "aujourd'hui, faux vert des qu'un id du gisement entrera dans `POOL_CASES`."),
+
+    # ---- EXPOSES, NON VERIFIES -- ce qui manque est NOMME, pas suppose ---------------------------
+    "probe_249_deathguard_targeting.py": (
+        "NON_VERIFIE",
+        "1169 PlagueburstMortar (cd initial 1) sur la MoW `deathCrawler` -- donc DEUX termes amont "
+        "possibles (cooldown ET munitions). Manque : une mesure de `casterReason` sur ce montage "
+        "(`probe_287r9_expose_mesure_live.py --ability 1169 --mow deathCrawler`)."),
+    "probe_250_blacklegion_targeting.py": (
+        "NON_VERIFIE",
+        "1148 DaemonicOrdnance (cd initial 1). Manque : la meme mesure sur son porteur."),
+    "probe_253_astramilitarum_targeting.py": (
+        "NON_VERIFIE",
+        "1142 MalleusRocketLauncher (cd 1) et 1143 ForwardSpotter (cd 2 -- le plus long du "
+        "gisement avec 1158). Manque : la meme mesure, et un deblocage a DEUX tours."),
+    "probe_447_add_caster_dynamic_rule.py": (
+        "NON_VERIFIE",
+        "1115 FearOfTheUnseen (cd initial 1). Manque : la meme mesure."),
+    "probe_433_r4_r2_r1_r2_r2_r1_r1_r1_r4_caster_reason.py": (
+        "NON_VERIFIE",
+        "ITERE `ABILITY_CLASSES`, donc il balaye les 15 ids du gisement presents au registre. "
+        "Manque : savoir lesquels ses porteurs portent reellement -- indeterminable offline."),
+    "probe_444_obscured_targeting.py": (
+        "NON_VERIFIE",
+        "ITERE `ABILITY_CLASSES`. Meme angle mort. ⚠ Ce probe est de plus le seul a exercer la "
+        "LIGNE DE VUE : `InFogOfWarBrokenTargetingRule` n'est PAS decodee par le hook et sortirait "
+        "en `hex: \"0x0\"` (« cible valide ») pour un REFUS -- distinct du court-circuit amont."),
+    "test_ability_target_gate_live.py": (
+        "NON_VERIFIE",
+        "ITERE `ABILITY_CLASSES`. Meme angle mort."),
+}
 
 
 def gisement() -> dict:
@@ -121,6 +190,58 @@ def _nom_appele(noeud) -> str:
     if isinstance(f, ast.Attribute):
         return f.attr
     return ""
+
+
+# Ce qui, dans le `else` d'une boucle d'attente, SIGNALE que le deblocage a echoue au lieu de
+# laisser la mesure partir quand meme.
+SORTIES_TERMINALES = ("fail", "skip", "exit", "SystemExit")
+
+
+def _est_terminal(corps) -> bool:
+    """Ce bloc INTERROMPT-il ? (`raise`, `return`, `pytest.fail`, `pytest.skip`, `sys.exit`)"""
+    for n in ast.walk(ast.Module(body=list(corps), type_ignores=[])):
+        if isinstance(n, (ast.Raise, ast.Return)):
+            return True
+        if isinstance(n, ast.Call) and _nom_appele(n) in SORTIES_TERMINALES:
+            return True
+    return False
+
+
+def _deblocage(arbre) -> tuple:
+    """(debloque, garde) -- la BOUCLE D'ATTENTE et son filet.
+
+    UNE BOUCLE D'ATTENTE est un `for`/`while` qui contient un `endturn` : c'est la seule voie pour
+    faire retomber un `initialCooldownTurns`. Elle est GARDEE si son echec est SIGNALE -- soit par
+    le `else` de la boucle (`for ... else: pytest.fail(...)`), soit par un `assert`/`raise`/`return`
+    qui la SUIT immediatement.
+
+    ⚠ C'EST TOUTE LA DIFFERENCE MESUREE ENTRE `test_multihex_dutyeternal_live` ET
+    `probe_91_duty_eternal` : boucle d'attente IDENTIQUE sur 1158, `for ... else: pytest.fail` d'un
+    cote, RIEN de l'autre. Une boucle non gardee qui expire laisse la mesure partir a travers un
+    oracle court-circuite, sans un mot. Ce n'est donc pas « il debloque » qui vaut cran, c'est
+    « il debloque ET il rougit quand le deblocage n'a pas eu lieu »."""
+    debloque = garde = False
+    for n in ast.walk(arbre):
+        if not isinstance(n, (ast.For, ast.While)):
+            continue
+        corps = ast.Module(body=list(n.body), type_ignores=[])
+        if not any(isinstance(c, ast.Constant) and c.value == "endturn"
+                   for c in ast.walk(corps)):
+            continue
+        debloque = True
+        if n.orelse and _est_terminal(n.orelse):
+            garde = True
+            continue
+        # Pas de `else` : un `assert`/`raise`/`return` dans les lignes qui SUIVENT immediatement
+        # la boucle tient le meme role (`assert window, "fenetre jamais ouverte"`).
+        fin = getattr(n, "end_lineno", None)
+        if fin is None:
+            continue
+        for m in ast.walk(arbre):
+            if isinstance(m, (ast.Assert, ast.Raise)) and fin < getattr(m, "lineno", 0) <= fin + 12:
+                garde = True
+                break
+    return debloque, garde
 
 
 def analyser(chemin: Path, gis: dict) -> dict:
@@ -215,6 +336,7 @@ def analyser(chemin: Path, gis: dict) -> dict:
     #   HORS      -- des ids FIXES, aucun dans le gisement. C'est un SAIN DEMONTRE.
     #   DYNAMIQUE -- aucun id fixe : ils viennent du runner (`decisionView[].abilities`) ou de la
     #                ligne de commande. Indeterminable OFFLINE -> jamais rabattu sur SAIN.
+    debloque, garde = _deblocage(arbre)
     if balaye_registre:
         portee = "REGISTRE" + ("+GISEMENT" if ids else "")
     elif ids:
@@ -233,6 +355,8 @@ def analyser(chemin: Path, gis: dict) -> dict:
         "caster_reason": lit_caster,
         "portee": portee,
         "caste": caste,
+        "debloque": debloque,
+        "garde": garde,
         "ids_fixes": sorted(fixes),
         "ids_exposes": {i: v for i, v in sorted(ids.items())},
     }
@@ -261,6 +385,10 @@ def etat_de(row: dict) -> str:
         return declare[0]
     if row["portee"] == "HORS GISEMENT":
         return "SAIN"
+    if row["debloque"] and row["garde"]:
+        # Il ne consulte pas le foyer, mais il DEBLOQUE et son deblocage rougit s'il echoue :
+        # l'oracle est passant quand il mesure. C'est un SAIN, par une autre voie.
+        return "SAIN_MESURE"
     if row["portee"] == "DYNAMIQUE":
         return "INDETERMINE"
     return "EXPOSE_NON_DECLARE"
@@ -307,7 +435,8 @@ def main() -> int:
     par_etat = {}
     for r in conso:
         par_etat.setdefault(r["etat"], []).append(r)
-    ordre = ("EXPOSE_NON_DECLARE", "NON_VERIFIE", "INDETERMINE", "SAIN_MESURE", "REPARE", "SAIN")
+    ordre = ("EXPOSE_NON_DECLARE", "NON_VERIFIE", "INDETERMINE", "SAIN_MESURE", "SAIN_LU",
+             "REPARE", "SAIN")
     assert set(par_etat) <= set(ordre), "etat non imprime : %s" % (set(par_etat) - set(ordre))
     for etat in ordre:
         lot = par_etat.get(etat, [])
@@ -316,8 +445,9 @@ def main() -> int:
             continue
         for r in sorted(lot, key=lambda x: x["fichier"]):
             ids = ", ".join("%d(%s)" % (i, v) for i, v in r["ids_exposes"].items()) or "-"
-            print("     %-58s cran=%-5s caster=%-5s caste=%-5s portee=%-18s ids=%s"
-                  % (r["fichier"], r["cran"], r["caster_reason"], r["caste"], r["portee"], ids))
+            print("     %-58s cran=%-5s caster=%-5s debloque=%-5s garde=%-5s portee=%-18s ids=%s"
+                  % (r["fichier"], r["cran"], r["caster_reason"], r["debloque"], r["garde"],
+                     r["portee"], ids))
             decl = DETTE.get(r["fichier"])
             if decl:
                 print("        %s" % decl[1])

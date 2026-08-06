@@ -370,9 +370,35 @@ def face_decision(h, rec):
 
     C'est le masque `0x6004020` qui est en jeu -- `TargetIsEnemy` (bit 14) et surtout
     `TargetHasFreeAdjacentTile` (bit 5), le pendant DECISION du `CanAddUnit(AdjacentTiles(cible))`
-    du behaviour."""
+    du behaviour.
+
+    ⚠ LE CRAN D'ORACLE EST OBLIGATOIRE ICI (#287-r9), et le contrat ci-dessus explique pourquoi il
+    ne se voyait pas : `EmpyricAmbush` porte `constants.initialCooldownTurns = 1`, donc au TOUR 1
+    `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason` sort EN AMONT de la cascade et
+    rend `TargetingRule.ValidRequest` pour TOUTE unite. Sur les ALLIES le port oppose
+    `TargetIsEnemy` -> `port not in (0, natif)` -> le probe rougissait, donc le defaut se serait vu.
+    Mais sur les ENNEMIS -- le bras qui compte -- le port rend `0`, la branche « permissif » avale
+    le `0x1`, et le probe rendait un VERT QUI N'A RIEN MESURE. Mesure du 2026-08-06 :
+    `casterReason = ValidRequest`, `abilityState = {"usable": true, "cooldown": 1}` au tour 1,
+    `0` un tour plus tard.
+    ⚠ Et `usable` n'est PAS `CanCurrentlyBeUsed` : il valait `true` pendant le refus."""
+    import oracle_targeting as O
     from engine.runner.abilities.handler import ABILITY_CLASSES
     from engine.runner.abilities.targeting import is_invalid_target
+    # DEBLOQUER, PAS EXCLURE : on fait tomber le cooldown initial plutot que d'ecarter la mesure.
+    # `stage`/`stage_encercle` passent deja par `reach_my_turn(force_cycle=True)`, qui suffit en
+    # general -- mais « en general » n'est pas une garantie : selon qui a la main au montage, le
+    # cycle peut n'etre qu'un `endturn` adverse. Ce cran le MESURE au lieu de l'esperer.
+    # ⚠ `jouer_adverse=False` : le montage est GEOMETRIQUE (cible bien entouree, ou ENCERCLEE au
+    # hexagone pres). Un tour d'IA adverse deplacerait les boucheurs et la mesure porterait sur une
+    # AUTRE configuration que celle que `stage` vient d'etablir.
+    # ⚠ `h.rpc` compte ses timeouts en SECONDES, le foyer les passe en MILLISECONDES -> adaptateur.
+    empeche = O.debloquer_oracle(lambda m, b, t=60000: h.rpc(m, b, max(30, int(t) // 1000)),
+                                 h.rid, rec["caster"], ABILITY_TYPE, jouer_adverse=False)
+    if empeche:
+        return None, ("oracle court-circuite EN AMONT de la cascade -- %s. Tout `targetReason` lu "
+                      "ici vaudrait `%s` pour TOUTE cible et ne dirait rien du masque."
+                      % (empeche, O.CODE_AMONT))
     st = h.offline_state(rec)
     ability = ABILITY_CLASSES[ABILITY_TYPE]()
     rows, fautes, vus = [], [], 0

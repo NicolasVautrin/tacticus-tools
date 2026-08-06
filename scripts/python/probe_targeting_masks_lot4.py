@@ -30,6 +30,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import oracle_targeting as O
 import rl_collect_batch as R
 
 PYDIR = Path(__file__).resolve().parent
@@ -322,29 +323,39 @@ def _wait_castable(rpc, rid, caster_vis, ability_id, max_turns=12):
     ciblage (`comp == null || !CanCurrentlyBeUsed || comp+0x44 == 0`) et rend `ValidRequest` (0x1).
     Tant que ce court-circuit s'applique -- typiquement une MACHINE OF WAR au tour 1, dont l'ability
     n'est pas encore chargee -- AUCUNE regle de cible n'est evaluee et la mesure ne prouve rien.
-    On ne conclut donc pas « pas de gate » : on attend que l'ability murisse."""
-    for _ in range(max_turns):
-        dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-        rows = list(dec.get("mows") or []) + [u for u in (dec.get("units") or [])]
-        src = next((r for r in rows if r.get("visualId") == caster_vis), None)
-        if src is None:
-            return
-        cid = int(src.get("casterId") if src.get("casterId") is not None else src.get("id"))
-        probe_tgt = next((u for u in (dec.get("units") or [])
-                          if u.get("alive") and int(u["id"]) != cid), None)
-        if probe_tgt is None:
-            return
-        nat = rpc("abilityReason", {"runnerId": rid, "casterId": cid,
-                                    "abilityType": int(ability_id),
-                                    "targetId": int(probe_tgt["id"])}, 60)
-        hexv = _hex_to_int(((nat or {}).get("targetReason") or {}).get("hex"))
-        if hexv != 0x1:
-            print("    [wait-castable] %s / %d castable (targetReason=0x%x)"
-                  % (caster_vis, int(ability_id), hexv))
-            return
-        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-    print("    [wait-castable] %s / %d TOUJOURS ValidRequest apres %d tours"
-          % (caster_vis, int(ability_id), max_turns))
+    On ne conclut donc pas « pas de gate » : on attend que l'ability murisse.
+
+    ⚠ #287-r9 -- DEUX CORRECTIFS, et le second est celui qui comptait :
+
+      1. le DISCRIMINANT est `casterReason`, pas `targetReason`. Le litteral `1` est reutilise a
+         DEUX rangs par le natif (`ValidRequest` en amont, et la branche `TargetIsTile` pour une
+         tuile non marchable) : attendre sur `targetReason != 0x1` melangeait les deux. Le foyer
+         `oracle_targeting.debloquer_oracle` lit le seul canal qui les separe, et il BOUCLE JUSQU'A
+         mesure -- ce que le comptage de tours d'ici ne faisait pas (`1158` demande DEUX tours).
+      2. l'echec est RENDU, plus imprime. La version d'avant PRINTAIT « TOUJOURS ValidRequest » puis
+         rendait la main : la mesure partait quand meme, a travers l'oracle court-circuite, et le
+         verdict final ne voyait rien. Un signalement sans consequence est un vert trompeur.
+
+    `jouer_adverse=False` : le montage a pu etre prepare par `_close_in`/`_allies_to_enemy` (les
+    unites sont placees), un tour d'IA adverse le deferait.
+
+    Rend "" si l'oracle traverse, sinon une PHRASE qui nomme ce qui a manque."""
+    dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    rows = list(dec.get("mows") or []) + [u for u in (dec.get("units") or [])]
+    src = next((r for r in rows if r.get("visualId") == caster_vis), None)
+    if src is None:
+        return "porteur %s absent du deploiement" % (caster_vis,)
+    cid = int(src.get("casterId") if src.get("casterId") is not None else src.get("id"))
+    empeche = O.debloquer_oracle(lambda m, b, t=60000: rpc(m, b, max(30, int(t) // 1000)),
+                                 rid, cid, int(ability_id), max_tours=max_turns,
+                                 jouer_adverse=False)
+    if empeche:
+        print("    [wait-castable] %s / %d NON DEBLOQUE : %s"
+              % (caster_vis, int(ability_id), empeche))
+    else:
+        print("    [wait-castable] %s / %d castable (casterReason=0)"
+              % (caster_vis, int(ability_id)))
+    return empeche
 
 
 def run_group(sid, name, cfg, board, seed, tmpdir):
@@ -378,14 +389,19 @@ def run_group(sid, name, cfg, board, seed, tmpdir):
     def rpc(m, b, t=90):
         return _unwrap(R._rpc(sid, m, [b], timeout=t))
 
-    n_ok = n_false = n_bit = n_both = n_perm = n_skip = 0
+    n_ok = n_false = n_bit = n_both = n_perm = n_skip = n_bloque = 0
     try:
         bg = rpc("boardGraph", {"runnerId": rid}, 60)
         board_obj = Board(bg["tiles"], adjacency="evenq")
         if cfg.get("close_in"):
             _close_in(rpc, rid, cfg["cases"][0][0], cfg["cases"][0][1])
         if cfg.get("wait_ready"):
-            _wait_castable(rpc, rid, cfg["cases"][0][0], cfg["cases"][0][1])
+            # Le retour n'est plus jete (#287-r9) : un deblocage rate ne laisse plus la mesure
+            # partir. La boucle par cible le re-mesure de toute facon couple par couple -- ce
+            # signalement-ci est ce qui le rend LISIBLE au bon endroit.
+            if _wait_castable(rpc, rid, cfg["cases"][0][0], cfg["cases"][0][1]):
+                print("    -> les lignes de ce groupe seront comptees NON MESUREES, pas « pas de "
+                      "gate »")
         if cfg.get("escort_in"):
             _allies_to_enemy(rpc, rid, cfg["cases"][0][0], cfg["cases"][0][1])
         dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
@@ -476,10 +492,26 @@ def run_group(sid, name, cfg, board, seed, tmpdir):
                 # pas castable par ce caster a cet instant. AUCUNE regle de ciblage n'a ete evaluee
                 # -> la ligne n'est PAS exploitable, ni comme accord ni comme desaccord. La compter
                 # « valide » fabriquerait de faux FAUX-REFUS (mesure MoW : 2 lignes).
+                # ⚠ #287-r9 -- le DISCRIMINANT est `casterReason`, et il change le VERDICT.
+                # `casterReason == ValidRequest` = `AttackQuery` a refuse EN AMONT, pour TOUTES les
+                # cibles a la fois : la ligne n'est pas « non exploitable », elle est NON MESUREE
+                # apres un deblocage qui a echoue -> elle doit ROUGIR (`n_bloque`). L'ecarter en
+                # silence rendait exactement le vert trompeur qu'on corrige.
+                # Un `targetReason == 0x1` avec `casterReason == 0` est AUTRE CHOSE : c'est la
+                # branche `TargetIsTile` de `TargetingQuery$$GetInvalidTargetReason`, le meme
+                # ordinal a un autre rang. Celle-la reste non exploitable sans etre une faute.
+                if nc == O.CODE_AMONT:
+                    n_bloque += 1
+                    print("    u%-4d %-16s ally=%-5s ORACLE COURT-CIRCUITE (casterReason="
+                          "ValidRequest) -- NON MESUREE, pas « pas de gate » : %s"
+                          % (uid, str(u.get("visualId"))[:16],
+                             str(u.get("owner") == src.get("owner")),
+                             O.cause_du_court_circuit(nat)))
+                    continue
                 if nt == 0x1:
                     n_skip += 1
-                    print("    u%-4d %-16s ally=%-5s natif=ValidRequest (ability non castable ICI)"
-                          " -- ligne non exploitable"
+                    print("    u%-4d %-16s ally=%-5s natif=0x1 avec casterReason=0 -- rang "
+                          "`TargetIsTile`, ligne non exploitable"
                           % (uid, str(u.get("visualId"))[:16],
                              str(u.get("owner") == src.get("owner"))))
                     continue
@@ -515,7 +547,7 @@ def run_group(sid, name, cfg, board, seed, tmpdir):
         except Exception:
             pass
         state_file.unlink(missing_ok=True)
-    return (n_ok, n_false, n_bit, n_both, n_perm, n_skip)
+    return (n_ok, n_false, n_bit, n_both, n_perm, n_skip, n_bloque)
 
 
 def main() -> int:
@@ -526,7 +558,7 @@ def main() -> int:
     args = ap.parse_args()
 
     sid = R._resolve_session()
-    tot = [0, 0, 0, 0, 0, 0]
+    tot = [0, 0, 0, 0, 0, 0, 0]
     with tempfile.TemporaryDirectory(prefix="tgtmask_") as tmpdir:
         for name in args.groups.split(","):
             name = name.strip()
@@ -538,9 +570,18 @@ def main() -> int:
             res = run_group(sid, name, cfg, args.board, args.seed, tmpdir)
             tot = [a + b for a, b in zip(tot, res)]
     print("\n== TOTAL == lignes_ok=%d FAUX_REFUS=%d BIT_DIFF=%d refus_concordants=%d "
-          "permissifs=%d non_exploitables=%d" % tuple(tot))
+          "permissifs=%d non_exploitables=%d ORACLE_COURT_CIRCUITE=%d" % tuple(tot))
     if tot[1] or tot[2]:
         print("ECHEC : le port refuse ce que le natif accepte, ou pas la meme regle.")
+        return 1
+    # #287-r9 : une ligne COURT-CIRCUITEE n'est pas une ligne verte. Le deblocage a echoue, donc le
+    # masque n'a PAS ete confronte sur ce couple -- et l'ancien verdict n'en tenait aucun compte
+    # (`n_skip` etait imprime puis oublie). Un couple PRESENT mais non confronte doit ROUGIR.
+    if tot[6]:
+        print("ECHEC : %d ligne(s) mesuree(s) a travers un oracle COURT-CIRCUITE "
+              "(`AttackQuery$$GetInvalidTargetReason` a refuse EN AMONT de la cascade). Le "
+              "deblocage a echoue : ce n'est ni un accord ni un desaccord, c'est une NON-MESURE."
+              % tot[6])
         return 1
     if tot[3] == 0:
         print("ECHEC : AUCUN refus concordant -- le lot n'a rien prouve (annotation, pas gate).")
