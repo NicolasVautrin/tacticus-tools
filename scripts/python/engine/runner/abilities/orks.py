@@ -16,7 +16,7 @@ from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions, entity_tiles, has_steppable_unit)
 from .targeting_rule import TargetingRule as TR
-from ..components import PositionComponent, StatsComponent
+from ..components import PositionComponent, StatsComponent, has_effect_of_type   # #484 : hisse
 from ...services.battle_query import are_entities_adjacent
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
@@ -1062,7 +1062,6 @@ class SquigMineAbility(ActiveAbility):
         que fait `TileExtensions$$HasSteppableUnit` -- son argument natif y transite deja."""
         if target_id is None:
             return 0
-        from ..components import has_effect_of_type
         if has_effect_of_type(state, int(target_id), int(EffectType.SquigMine_Tile)):
             return int(TR.TargetMatchesDynamicRule)
         if has_steppable_unit(state, int(target_id)):

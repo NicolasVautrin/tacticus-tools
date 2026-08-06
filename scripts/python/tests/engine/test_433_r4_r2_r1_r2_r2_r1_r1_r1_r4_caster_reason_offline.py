@@ -33,8 +33,22 @@ GETEMRUNTZ = 1045
 
 @pytest.fixture
 def masque(monkeypatch):
-    """Pose un masque CRAFTE sur `FAUX_ID`. Le foyer reste UNIQUE : on substitue
-    `targeting_options_for` dans son module, exactement la ou `invalid_caster_reason` l'importe."""
+    """Pose un masque CRAFTE sur `FAUX_ID`.
+
+    ⚠ LE SITE D'INJECTION EST LE MODULE **CONSOMMATEUR**, PAS LE MODULE SOURCE (#484). Tant que
+    `ability_caster_gates` importait `targeting_options_for` DANS le corps de la fonction, le nom
+    etait re-resolu sur `targeting` a chaque appel et patcher `TGT` suffisait. `492c722f`
+    (« hisser 624 imports differes d'engine/ au niveau module ») l'a hisse : le nom est desormais
+    COPIE dans le namespace d'`acg` a l'import, et un patch pose sur la source ne mord plus
+    JAMAIS. Les 21 tests de ce fichier ne mesuraient plus rien -- `invalid_caster_reason` rendait
+    `None` partout, faute de voir le masque crafte.
+
+    On patche donc `acg.targeting_options_for` -- exactement la ou le nom est LU (`acg` l'appelle
+    non qualifie, et c'est le meme binding pour `invalid_caster_reason` et `caster_gate_reason`).
+    `TGT` reste patche AUSSI : le foyer `targeting_options_for` est unique, et couvrir les deux
+    bindings rend ce montage insensible au sens dans lequel un futur refactor bougera l'import.
+    Aucune assertion, aucune valeur attendue n'a change.
+    """
     orig = TGT.targeting_options_for
 
     def poser(rules):
@@ -43,6 +57,12 @@ def masque(monkeypatch):
                 return TargetingOptions(rules=int(rules))
             return orig(aid)
         monkeypatch.setattr(TGT, "targeting_options_for", _f)
+        monkeypatch.setattr(acg, "targeting_options_for", _f)
+        # GARDE D'INERTIE : sans elle, un nouveau deplacement de l'import rendrait ces tests
+        # silencieusement vacueux -- c'est EXACTEMENT ce qui vient de se produire.
+        assert acg.targeting_options_for(FAUX_ID).rules == int(rules), (
+            "le masque crafte n'atteint pas `ability_caster_gates` : le site d'injection est "
+            "perime (cf. #484)")
     return poser
 
 

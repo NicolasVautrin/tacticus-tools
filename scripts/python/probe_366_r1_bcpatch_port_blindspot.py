@@ -113,6 +113,22 @@ _COVERAGE_HOLES = {
         "`build_summon_context.sv(key + key_suffix)` : la variable est une CONCATENATION "
         "(`summonDmg` + suffixe d'ability) et l'ability vient d'un `execute` resolu au runtime. "
         "Les variables concernees sont toutes du prefixe `summon*`, qu'aucune fixture ne patche."),
+    "scripts/python/engine/runner/abilities/base.py": (
+        "#484. `ability_attack_params` est un RELAIS, et le point fixe le resolvait entierement "
+        "jusqu'au 2026-08-06 : le rouge est APPARU au merge de la PR #707 (`c919fdd9`, "
+        "#419-r1-tr14-r4), BISECTE (vert a `0b8982a9`, rouge a `c919fdd9`). Cause : ses deux "
+        "nouveaux appelants passent leurs cles par une CONSTANTE DERIVEE D'ENUM -- "
+        "`_VAR_DAMAGE = AbilityVariableType.dmg.name` -- au lieu d'un litteral, et le resolveur "
+        "l'ignore deux fois : `_strings` ne connait pas la semantique de `<Enum>.<membre>.name` "
+        "(qui vaut pourtant `\"<membre>\"` par pure syntaxe), et l'env est PAR MODULE, donc le "
+        "second appelant (`operations/damage.py`, `min_key=M._VAR_DAMAGE`) est hors de portee "
+        "meme si la premiere lacune etait fermee. "
+        "CE N'EST PAS UN SITE INTRINSEQUEMENT INDETERMINABLE -- c'est une lacune de l'outil, et "
+        "elle va CROITRE : ecrire le membre d'enum plutot que le litteral est ce que CLAUDE.md "
+        "prescrit, donc ce patron se repandra. Residu #484-r1 (etendre le resolveur). "
+        "PERTE MESUREE, bornee : l'axe est MIXTE, donc `_emit` continue d'emettre tous les "
+        "couples LITTERAUX du foyer et n'ajoute qu'`ANY` -- seuls les couples "
+        "`(HeavyBoltPistol, dmg)` et `(HeavyBoltPistol, nrOfHits)` cessent d'etre nommes."),
 }
 
 _LIGHTIMUP_WHY = (

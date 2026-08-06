@@ -20,7 +20,8 @@ from ....entities.stats import StatType
 from ...state import State
 from ...components import (StatsComponent, HealthComponent, PositionComponent,
                            persistent_data_keys, unit_prevents_overkill,
-                           can_be_overkilled, unit_is_overkilled)
+                           can_be_overkilled, unit_is_overkilled,
+                           has_effect_of_type)                              # #484 : hisse
 from ...damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                              defender_modifiers, build_hits_board, apply_elevation_bonus,
                              apply_trench_reduction, ice_crit_damage_addition,
@@ -264,7 +265,6 @@ class _Normal:
                                                        feeder_tendrils_special_applies,
                                                        USE_SPECIAL_GATE_EFFECT)
         from ...abilities.loki.feeder_tendrils import execute_feeder_tendrils_special
-        from ...components import has_effect_of_type
         from ....entities.active_ability_type import ActiveAbilityType
         _na_type = normal_attack_type_for(state, attacker_id)
         _na_name = (ActiveAbilityType(_na_type).name

@@ -423,7 +423,6 @@ def test_caster_has_not_moved_rule_matches_live(caster_moved115):
     INERTE sur tout etat charge -- une degradation PERMISSIVE (le port acceptait un cast que le natif
     REFUSE), exactement le trou qu'un entrainement irait exploiter. Le contrefactuel est desormais
     construit par RETRAIT explicite du flag."""
-    from engine.entities.pathfinding.board import Board
     from engine.runner.components import set_moved_flag, UnitFlagsComponent
 
     d = caster_moved115

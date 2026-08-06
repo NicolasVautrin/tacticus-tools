@@ -37,12 +37,7 @@
     "engine.weights": 1
   },
   "engine.runner.abilities.loki.quickening": {
-    "engine.dsl.base": 1,
-    "engine.entities.selectors": 1,
-    "engine.runner.components": 1
-  },
-  "engine.runner.abilities.orks": {
-    "engine.runner.components": 1
+    "engine.dsl.base": 1
   },
   "engine.runner.abilities.targeting": {
     "engine.dsl.base": 1,

@@ -212,7 +212,6 @@ def test_a_read_range_is_never_a_range_without_its_mask():
     import json
     from pathlib import Path
     import gameconfig as GC
-    from engine.entities.active_ability_type import ActiveAbilityType
     seed = Path(__file__).resolve().parents[4] / "data" / "seed-bc.json"
     bc = json.loads(seed.read_text(encoding="utf-8"))
     actives = set()

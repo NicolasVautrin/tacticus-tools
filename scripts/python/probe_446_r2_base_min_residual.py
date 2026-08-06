@@ -269,7 +269,6 @@ def both_faces(sid, rpc, case: dict) -> dict:
 
     ATTENTION DEPLACE les unites -- a jouer EN DERNIER."""
     import hexgeo
-    from engine import battle_query as bq
     elev, walk, ids = case["elev"], case["walk"], case["ids"]
     te = case["ctx"].scene.tile_effects_by_pos or {}
     thorns = sorted((tuple(p) for p, names in te.items()

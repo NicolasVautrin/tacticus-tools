@@ -86,16 +86,26 @@ def _build(caster_vis: str, caster_pos, target_pos):
 
 @contextmanager
 def _no_gate():
-    """L'etat d'AVANT `#381-r4` : le gate d'expansion #131 desarme. Le foyer resout
-    `make_can_continue` a CHAQUE appel (import fonction-local), donc patcher l'attribut du module
-    suffit."""
+    """L'etat d'AVANT `#381-r4` : le gate d'expansion #131 desarme.
+
+    ⚠ LE SITE D'INJECTION EST LE MODULE **CONSOMMATEUR** (#484). La redaction d'origine disait
+    « le foyer resout `make_can_continue` a CHAQUE appel (import fonction-local), donc patcher
+    l'attribut du module suffit » -- vrai jusqu'a `492c722f` (« hisser 624 imports differes »),
+    qui a hisse cet import dans `engine/services/movement_query.py`. Le nom y est desormais lie a
+    l'import, le patch sur `tile_blocking` ne l'atteint plus, et les trois tests ci-dessous
+    mesuraient `gated == raw` : leurs assertions AUTO-DISCRIMINANTES ont mordu, comme prevu.
+
+    On patche les DEUX (source + consommateur), et on VERIFIE que la mutation a mordu -- une
+    contre-epreuve muette est pire qu'absente."""
     from engine.entities.pathfinding import tile_blocking as TB
-    saved = TB.make_can_continue
-    TB.make_can_continue = lambda *a, **k: None
+    from engine.services import movement_query as MQ
+    saved, saved_mq = TB.make_can_continue, MQ.make_can_continue
+    TB.make_can_continue = MQ.make_can_continue = lambda *a, **k: None
     try:
+        assert MQ.make_can_continue() is None, "le desarmement du gate n'a pas mordu (cf. #484)"
         yield
     finally:
-        TB.make_can_continue = saved
+        TB.make_can_continue, MQ.make_can_continue = saved, saved_mq
 
 
 #: CHARGE -- cible de colonne 2 : son ring-1 porte des tuiles de colonne >= 2, que le port

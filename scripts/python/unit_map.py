@@ -346,7 +346,6 @@ def cmd_kit(query: str):
     k = kit(uid)
     if k is None:
         print(f"unité introuvable: {query}"); return
-    import json
     print(json.dumps(k, indent=1, ensure_ascii=False))
 
 

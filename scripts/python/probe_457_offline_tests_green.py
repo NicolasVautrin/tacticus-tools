@@ -709,7 +709,6 @@ def _prechauffer_cache_pytest(perimetre: list, prefixe: str) -> int:
     module -- on PERDRAIT les lectures globales legitimes d'un test-BALAYAGE qui ouvre
     `data/symbols/**` a l'import. Le cache se partage par le disque ; l'etat du process, non.
     """
-    import os
     import subprocess as _sp
 
     env = dict(os.environ)
@@ -741,7 +740,6 @@ def _prechauffer_bytecode(perimetre=None) -> tuple:
     VERIFIE le resultat, jamais l'inverse.
     """
     import compileall
-    import os
 
     prefixe = str(_pycache_prefix())
     sys.pycache_prefix = prefixe
@@ -854,7 +852,6 @@ _ENV_ECHAPPATOIRE = "TACTICUS_457_ACCEPTE_PY_GLOBAUX"
 
 
 def _echappatoire_regime() -> bool:
-    import os
     return bool(os.environ.get(_ENV_ECHAPPATOIRE))
 
 

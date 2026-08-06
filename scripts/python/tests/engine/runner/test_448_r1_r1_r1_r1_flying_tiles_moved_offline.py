@@ -225,6 +225,13 @@ def test_contre_epreuve_le_port_davant_diverge(monkeypatch):
     monkeypatch.setattr(MV, "is_like_flying", lambda traits: False, raising=False)
     import engine.entities.pathfinding.fly_pathfinder as _F
     monkeypatch.setattr(_F, "is_like_flying", lambda traits: False)
+    # ⚠ LE BINDING QUI DECIDE (#484). `_num_tiles_moved` ne lit pas `is_like_flying` : il passe par
+    # `movement_query.get_pathfinder_type_for_unit`, qui l'importait DANS sa fonction jusqu'a
+    # `492c722f` (« hisser 624 imports differes »). Hisse, le nom est copie dans le namespace de
+    # `movement_query` et NI `MV` NI `_F` ne l'atteignent : le mutant rendait la MEME valeur, donc
+    # la contre-epreuve ne prouvait plus que le fix #448-r1-r1-r1-r1 sert a quelque chose.
+    from engine.services import movement_query as _MQ
+    monkeypatch.setattr(_MQ, "is_like_flying", lambda traits: False)
     avant = _num_tiles_moved(P._synth_state(b, ["Flying"], src), 1, src, dst)
     assert fixed == 2
     assert avant != fixed, "le mutant rend la MEME valeur : le test ne mesure rien"
