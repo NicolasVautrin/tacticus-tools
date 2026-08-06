@@ -10,6 +10,39 @@ PORTEURS. Un cliquet qui se lirait << aucun cycle >> serait un faux certificat.
     PORTEUR   hisser l'import FERMERAIT un cycle -> legitime, il RESTE
     GRATUIT   hissable, aucun cycle              -> scorie, il DOIT partir
 
+⚠⚠ HISSER, OUI -- MAIS PAS DANS N'IMPORTE QUELLE FORME, ET CETTE LIGNE-CI A PRESCRIT LA MAUVAISE.
+Elle disait << il DOIT partir >> sans dire OU il arrive. Trois formes, MESUREES le 2026-08-06 sous
+`monkeypatch.setattr("src_x.foo", stub)` :
+
+    A  from X import foo   (au niveau module)     NE MORD PAS   <- ce que << hisser >> produit par defaut
+    B  import X ; X.foo()                         MORD
+    C  from X import foo   (dans la fonction)     MORD          <- le differe qu'on retire
+
+    avant patch  A=VRAI  B=VRAI    C=VRAI
+    apres patch  A=VRAI  B=PATCHE  C=PATCHE
+
+**HISSER EN FORME A FAIT PASSER DE C A A, c'est-a-dire de MORD a NE MORD PAS.** Les differes
+rendaient le patch robuste par accident : la forme C est re-executee a chaque appel, donc elle relit
+l'attribut du module. C'est TOUTE l'explication des 25 sites `PERD_LA_MORSURE` de #485-r1 -- ce ne
+sont pas des tests mal ecrits, ce sont des tests prives d'une propriete que le hissage leur retire.
+
+⚠ ET LE VICE NE S'ARRETE PAS AU PATCH : IL REND LE VERDICT ORDRE-DEPENDANT. Un differe protege son
+propre site, mais la CASCADE qu'il declenche cree des bindings de forme A dans les modules
+traverses, GELES des le premier chargement pour toute la session pytest :
+
+    ORDRE 1  un test charge SANS patch, puis un autre patche  ->  patch IGNORE
+    ORDRE 2  le test qui patche passe EN PREMIER              ->  patch MORD
+
+Le meme test rend donc un verdict different selon `-k`, `--deselect`, un fichier ajoute avant dans
+la passe, ou la redistribution xdist. La forme B eteint les DEUX couches (forme et ordre) : un
+binding de MODULE n'est jamais gele, l'attribut est resolu a l'appel. La forme A n'en eteint aucune.
+
+⚠ La cascade d'`__init__` est IDENTIQUE entre A et B (`from pkg.sub import mod` charge exactement
+`pkg`, `pkg.sub`, `pkg.sub.mod`). B ne coute donc RIEN en chargement et ne rouvre aucun cycle -- son
+seul cout est au SITE D'APPEL (`foo()` -> `X.foo()`).
+⚠ B ne resout PAS les cycles : un PORTEUR reste un porteur dans les deux formes. Monkeypatch
+fragile et cycle d'import sont deux problemes distincts qui se ressemblent.
+
 POURQUOI UN CLIQUET ET PAS UNE REGLE ECRITE
 -------------------------------------------
 `CLAUDE.md` porte la doctrine depuis le 2026-08-06, mais la prose n'arrete pas un comportement --
