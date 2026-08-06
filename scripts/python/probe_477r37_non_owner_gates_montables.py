@@ -50,7 +50,7 @@ ROOT = PYDIR.parents[1]
 sys.path.insert(0, str(PYDIR))
 
 from build_pin import BuildPinRefused                                          # noqa: E402
-from rl_collect_batch import _resolve_session, _rpc                            # noqa: E402
+from rl_collect_batch import _resolve_session, bind_ambient_rpc                # noqa: E402
 from probe_193c_move_playbook_terms import (_r, _by_tile, _one, _port_leaves,  # noqa: E402
                                             _exiger_build_des_rva, x_port)
 from probe_212_spiritual_leader_tile_term import _apply_native_via             # noqa: E402
@@ -250,7 +250,16 @@ def step0c(verbeux: bool = True) -> int:
 # ETAPE 1 -- les montages
 # ================================================================================================
 #: mover de `purge` : HERO `LeaguesOfVotann` HORS pool (les 9 Votann le sont) -> injection catalogue.
-PURGE_MOVER = "votanUthar"
+#: ⚠ CE CHOIX A ETE PAYE PAR UNE MESURE ROUGE, comme celui de #477-r33. Le premier essaye etait
+#: `votanUthar` : son passif `GrimEfficiency` a un
+#: `IdunBattle.AI.Playbook.Loki.GrimEfficiencyPlaybook$$CalculateMovementUtilityInStepsInternal`
+#: que le port ne rend pas -> **+5 sur 5 des 11 tuiles hookees**, terme ORTHOGONAL au mesurande
+#: mais qui interdit l'accord absolu. Le critere est DERIVE (balayage de `ghidra/functions.tsv`
+#: sur les abilities des 5 heros Votann) : aucun `*Playbook` a face `CalculateMovementUtilityInSteps*`.
+#: Restent `votanBeserk` (`AugmentedAssaultPlaybook` -- `EvaluateNonComparable` SEULEMENT),
+#: `votanIronmaster` (`GravitonRiflePlaybook`, idem) et `votanMemnyr` (`IronkinSteeljackPlaybook`,
+#: idem) ; `votanUthar` et `votanChampion` ont, eux, une face MOUVEMENT.
+PURGE_MOVER = "votanBeserk"
 #: mover de controle : meme geometrie, faction NON Votann.
 PURGE_MOVER_NOGATE = "eldarAutarch"
 #: porteur GREFFE de `PurgeResponse` -- ses seuls porteurs natifs sont npc/summon, et le corps ne
@@ -269,6 +278,12 @@ HW_MOVER = "eldarAutarch"
 HW_MINE = "astarSmnHaywireMine"
 #: le CONTROLE : un steppable qui N'EST PAS la mine -> `HasUnitId` coupe, le reste est identique.
 HW_MINE_NOGATE = "genesSmnDecoy"
+
+#: la cible ENNEMIE neutre et l'AMI neutre -- repris VERBATIM de la geometrie `camp` de #477-r33.
+#: `orksNob` en ami neutre y est MESURE sans effet sur le tier comparable (0 desaccord sur 5
+#: montages) ; c'est en MOVER qu'il pollue (`SmashaEadPlaybook`), pas en voisin.
+TARGET_FOE = "necroWarden"
+NEUTRAL_FRIEND = "orksNob"
 
 MONTAGES = ("purge", "purge-gate", "mawclaws", "mawclaws-gate", "haywire", "haywire-gate")
 #: les montages dont le gate DOIT couper -- l'inertie qui en decoule est DECLAREE et assertionnee.
@@ -311,25 +326,31 @@ def build_extra(board: str, montage: str) -> list:
     `IsFriend` -- sans un bras ennemi, le mutant `CAMP-DEUX` ne peut rien separer."""
     lay = _layout(board)
     mover, owner = _mover(montage), _owner(montage)
-    p_units, a_units = [mover, owner], [owner, "necroWarden"]
+    foe_target = "orksNob" if owner == TARGET_FOE else TARGET_FOE
+    p_units, a_units = [mover, owner], [owner, foe_target]
     places = [("--place", "%s:%d,%d" % (mover, lay["carrier"][0], lay["carrier"][1])),
               ("--place", "%s:%d,%d" % (owner, lay["ally"][0], lay["ally"][1])),
               ("--a-place", "%s:%d,%d" % (owner, lay["foe"][0], lay["foe"][1])),
-              ("--a-place", "%s:%d,%d" % ("necroWarden", lay["target"][0], lay["target"][1]))]
-    if owner == "necroWarden":
-        a_units = [owner, "orksNob"]
-        places[3] = ("--a-place", "%s:%d,%d" % ("orksNob", lay["target"][0], lay["target"][1]))
-    out = ["--seed-bc", "<pose par l'appelant>",
-           "--p-units", ",".join(p_units), "--a-units", ",".join(a_units)]
+              ("--a-place", "%s:%d,%d" % (foe_target, lay["target"][0], lay["target"][1]))]
+    extra = []
     if montage.startswith("haywire"):
         # La MINE occupe la tuile `neutral` -- une tuile CANDIDATE du mover : `Steppable` veut dire
         # qu'on peut marcher DESSUS, donc elle reste dans `action_tiles`. `--explicit-stats` amene
         # le summon avec SES traits (dont `Steppable`), ce qu'un spawn de hero ne ferait pas.
         mine = _mine(montage)
-        out += ["--explicit-stats", mine]
         p_units.append(mine)
-        out[out.index(",".join(p_units[:-1]))] = ",".join(p_units)
+        extra += ["--explicit-stats", mine]
         places.append(("--place", "%s:%d,%d" % (mine, lay["neutral"][0], lay["neutral"][1])))
+    else:
+        # L'AMI NEUTRE n'est PAS decoratif : #477-r33 l'a MESURE -- sans lui la trajectoire native
+        # ne hooke qu'un seul bras (2 puis 5 tuiles, toutes du bras ENNEMI), et un montage dont un
+        # bras n'est pas observe ne separe rien. Re-mesure ici sur `purge` : sans ami neutre,
+        # 4 tuiles hookees, bras AMI = 0.
+        p_units.append(NEUTRAL_FRIEND)
+        places.insert(2, ("--place", "%s:%d,%d"
+                          % (NEUTRAL_FRIEND, lay["neutral"][0], lay["neutral"][1])))
+    out = ["--seed-bc", "<pose par l'appelant>",
+           "--p-units", ",".join(p_units), "--a-units", ",".join(a_units)] + extra
     for flag, val in places:
         out += [flag, val]
     return out + ["--hp-player", "100000", "--hp-target", "100000"]
@@ -720,7 +741,13 @@ def main() -> int:
         return 2
 
     sid = _resolve_session()
-    call = lambda m, b, t=90: _rpc(sid, m, b, t)          # noqa: E731
+    call = (lambda m, b, t=90: _r(sid, m, b, t))          # noqa: E731
+    # ⚠ OBLIGATOIRE dans tout montage qui GREFFE (#448-r3-r1-r1) : sans transport ambiant lie,
+    # `load_state` ne seede pas `UnitContext.*_abilities` et le port retombe sur le gameconfig, qui
+    # ne porte PAS la greffe. Le terme mesure serait alors nul cote PORT et l'accord se lirait comme
+    # un desaccord -- ou pire, une assertion NEGATIVE passerait a vide, en VERT. Deux des trois
+    # montages de ce cas greffent (`purge`, `haywire`).
+    bind_ambient_rpc(sid)
     rid = a.runner
     tmp = None
     if rid is None:
