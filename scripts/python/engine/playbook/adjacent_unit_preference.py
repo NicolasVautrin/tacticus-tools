@@ -521,6 +521,7 @@ from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case
 from .modified_exoarmour import ModifiedExoarmourPlaybook    # noqa: E402  (#304 : corps propre, PAR TUILE)
 from .savior_protocols import SaviorProtocolsPlaybook        # noqa: E402  (#443-r1 : face MOVE, cf. module)
 from .serene_unifier import SereneUnifierPlaybook            # noqa: E402  (#456-r1 : corps propre, 101/ami)
+from .rad_saturation import RadSaturationPlaybook            # noqa: E402  (#477-r29 : corps propre, +10/marshal)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
@@ -569,6 +570,14 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # `friends_in_range` le compte pour lui-meme. Porteur POOL-HERO : `tauAunShi` (kit NATIF verifie
     # par `unitAbilityStates`, pas deduit du gameconfig).
     int(TriggeredAbilityType.SereneUnifier): SereneUnifierPlaybook(),            # 1145 (101 / ami adjacent)
+    # #477-r29 -- la PREMIERE feuille du registre dont le predicat porte sur le KIT ACTIF du voisin
+    # (`HasActiveAbility(f, 0x45e = DoctrinaImperatives)`), et non sur un trait ou une faction.
+    # `case-26` l'avait declaree AI-INERTE (« TriggeredAbilitiesUtility enregistree-mais-morte ») :
+    # ce verdict est REFUTE par les mesures live de la MEME feuille (case-36 30/90 exacts, #212,
+    # #242, #271). Porteur : `admecSmnVanguard` (SUMMON) et deux npc Vanguard -- confronte par
+    # GREFFE du passif sur un heros du pool (`catalog_inject.graft_passive_ability`), le corps ne
+    # lisant ni stats ni traits du caster.
+    int(TriggeredAbilityType.RadSaturation): RadSaturationPlaybook(),            # 1202 (10 / marshal adjacent)
 }
 
 

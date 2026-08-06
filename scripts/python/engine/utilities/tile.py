@@ -89,6 +89,10 @@ from ..entities.traits.unit_trait import entity_trait_names
 from ..entities.triggered_ability_type import entity_triggered_ability_ids
 from ..entities.triggered_ability_type import kit_triggered_ability_ids
 from ..entities.triggered_ability_type import triggered_ability_ids
+# #477-r29 : le pendant ACTIF du precedent -- ce qu'`IdunBattle.Entities.UnitExtensions$$
+# HasActiveAbility` interroge (l'`ActiveAbilityComponent`), lu par le predicat de
+# `RadSaturationPlaybook` sur les AMIS ADJACENTS et sur le MOVER lui-meme.
+from ..entities.active_abilities import entity_active_ability_ids
 
 # UtilityType des 29 feuilles de Tile(7) (ordre runtime). name = catégorie BC `Default.<name>`.
 # #158 : ids bruts -> membres `UtilityType` nommés (l'ordre est la sequence runtime native).
@@ -1200,6 +1204,10 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
                # derivees d'un TRAIT y etaient invisibles.
                "triggered": tuple(entity_triggered_ability_ids(
                    sc.ctx if sc is not None else None, vis)),
+               # #477-r29 : kit ACTIF du voisin -- l'argument du predicat
+               # `RadSaturationPlaybook.<>c.<CalculateMovementUtilityInStepsInternal>b__2_0`
+               # (`HasActiveAbility(f, 0x45e = DoctrinaImperatives)`), applique aux amis adjacents.
+               "active": tuple(entity_active_ability_ids(sc.ctx if sc is not None else None, vis)),
                # #225 : substrat d'ENTITE (kit + traits accordes en bataille par le leaf `AddTrait`),
                # pas le kit gameconfig cache par visualId -- c'est ce que `HasTrait` interroge.
                "traits": entity_trait_names(sc.ctx if sc is not None else None, vis),
@@ -1227,6 +1235,12 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             # (mesure : 3 unites sur 4 divergentes, dont une ou le port iterait un id que la
             # bataille n'avait pas monte).
             "unit_triggered_abilities": entity_triggered_ability_ids(
+                msc.ctx if msc is not None else None, my_vis),
+            # #477-r29 : kit ACTIF du MOVER. `GetAdjacentFriends(tile, case.Unit)` n'exclut PAS
+            # `case.Unit` (cf. `playbook/friends_in_range.py`), et l'unite est encore SUR SON ORIGINE
+            # pendant tout le sweep : elle entre donc dans son propre voisinage des que l'origine est
+            # ring-1 de la tuile candidate, et le predicat la teste comme les autres.
+            "unit_active_abilities": entity_active_ability_ids(
                 msc.ctx if msc is not None else None, my_vis),
             # #225 : substrat d'ENTITE (cf. `entity_trait_ids`) -- le sujet peut s'etre vu accorder
             # un trait EN BATAILLE (`AddTrait`), que le kit gameconfig par visualId ignore.
@@ -1342,6 +1356,8 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
                # `UnitContext` que `snapshot._load_triggered_abilities` seede (meme objet, cf.
                # `Scene.from_state`), donc ce jumeau se ferme par le MEME foyer, sans canal propre.
                "triggered": tuple(entity_triggered_ability_ids(scene.ctx(uid), vis)),
+               # #477-r29 : cf. `runner_tile_leaf_ctx` -- predicat de `RadSaturationPlaybook`.
+               "active": tuple(entity_active_ability_ids(scene.ctx(uid), vis)),
                "traits": entity_trait_names(scene.ctx(uid), vis),
                "effects": _effect_names(uid)}
         if my_team is not None and u.get("team") == my_team:
@@ -1358,6 +1374,8 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
             walkable_by_pos[pp] = bool(t.get("walkable"))
             neigh_by_pos[pp] = [board.coord(n) for n in board.neighbours_native(tid)]
     return {"unit_triggered_abilities": entity_triggered_ability_ids(scene.ctx(unit_id), my_vis),
+            # #477-r29 : cf. `runner_tile_leaf_ctx` -- le mover compte pour lui-meme.
+            "unit_active_abilities": entity_active_ability_ids(scene.ctx(unit_id), my_vis),
             "unit_traits": entity_trait_ids(scene.ctx(unit_id), my_vis),
             "uid": unit_id,
             "unit_faction": faction_value(my_vis),
@@ -1411,6 +1429,11 @@ def _adjacent_units(ctx, uid):
                "vis": u.get("visualId"),
                "id": u.get("id"),
                "triggered": tuple(_trig),
+               # #477-r29 : kit ACTIF du voisin -- l'argument du predicat de `RadSaturationPlaybook`
+               # (`HasActiveAbility(f, 0x45e = DoctrinaImperatives)`). Meme substrat d'ENTITE que
+               # `traits` juste en dessous (`Scene.ctx(id).active_abilities`, seede par
+               # `playbook.scene._seed_measured_actives`), avec repli kit gameconfig.
+               "active": tuple(entity_active_ability_ids(_uctx, u.get("visualId"))),
                "traits": entity_trait_names(_uctx, u.get("visualId")),
                "effects": tuple(e.get("name") if isinstance(e, dict) else e
                                 for e in (u.get("effects") or ()))}
@@ -1471,6 +1494,10 @@ def tile_leaf_ctx(ctx) -> dict:
         if _live:
             kit = _live                     # l'AbilitiesComponent REEL, tel que le natif l'itere
     return {"unit_triggered_abilities": kit,
+            # #477-r29 : kit ACTIF du MOVER -- `GetAdjacentFriends(tile, case.Unit)` n'exclut pas
+            # `case.Unit`, qui est encore sur son origine pendant le sweep (cf.
+            # `runner_tile_leaf_ctx`).
+            "unit_active_abilities": entity_active_ability_ids(_me_ctx, me.get("visualId")),
             # Face DECISION : le `case.unit` est TOUJOURS le mover (le sweep part d'une unite
             # existante), donc jamais le regime `IsSpawning` du call-site SUMMON (case-205).
             "is_spawning": False,
