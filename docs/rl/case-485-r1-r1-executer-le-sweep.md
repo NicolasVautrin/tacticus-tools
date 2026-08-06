@@ -218,6 +218,11 @@ mesures), et un test live coûte un runner. C'est nommé, pas comblé.
 - **#485-r1-r3** — passer en forme B les **49 modules / 75 liaisons** qui rendent la banque
   **ordre-dépendante**. Compte re-dérivable ; le gisement préexiste au sweep (**32** couples sur
   `master`, **29** après).
+- **#485-r1-r1-r2** — une **contre-épreuve morte**, préexistante à `master` et mise au jour par
+  l'étage [3] du cliquet neuf : `probe_462_..._crush_steppable.py:259` substitue
+  `_kill_steppable_remove_effects`, qui n'existe plus dans `movement.py`. Un `setattr` **crée**
+  l'attribut : ni erreur, ni rouge, et la mutation ne mord sur rien. **1 sur 521** écritures
+  recensées — c'est une partition, pas un échantillon.
 - **#485-r1-r4** — les **166 porteurs restants**. Chiffré, non exécuté
   (`probe_485r1r1_leviers_des_porteurs.py`), partition exhaustive :
 
