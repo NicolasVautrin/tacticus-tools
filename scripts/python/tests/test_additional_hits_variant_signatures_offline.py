@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import ast
 import inspect
-import io
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -39,6 +38,7 @@ import pytest
 PYDIR = Path(__file__).resolve().parents[1]          # scripts/python
 sys.path.insert(0, str(PYDIR))
 
+import repo_read                                                            # noqa: E402
 from engine.runner.operations.additional_hits import execute_additional_hits  # noqa: E402
 
 # Les SIX premiers parametres du canal : signature structurelle d'une substitution.
@@ -68,16 +68,51 @@ def _params_of(node):
     return tuple(names), star
 
 
+#: RESULTAT du balayage, memoise pour la duree du PROCESS (#486-r5).
+#:
+#: POURQUOI. `_substitution_impls` lit et `ast.parse` TOUT `scripts/python/**` -- 2089 fichiers,
+#: 37 Mo. Mesure du 2026-08-06 : 18 a 26 s par appel, et le 2e appel ne coute PAS moins que le
+#: premier (rien n'etait mis en cache). Trois tests de ce fichier l'appelaient, soit ~66 s de
+#: balayage pour UNE seule information.
+#:
+#: SUR A PARTAGER, et c'est ce qui autorise le cache : la valeur est un `tuple` de `tuple`s de
+#: scalaires (`str`, `int`, `tuple[str]`, `bool`) -- IMMUABLE de bout en bout. Aucun test ne peut
+#: la muter pour le suivant, donc aucun etat ne fuit. On ne garde PAS les ASTs : mesure du
+#: 2026-08-06, les retenir couterait **1013 Mo** de tas Python pour ce seul corpus.
+#:
+#: Un `pytest.fail` du premier appel ne peuple pas le cache : les appels suivants re-balaient et
+#: re-echouent, exactement comme avant.
+_IMPLS_CACHE: tuple | None = None
+
+
 def _substitution_impls():
-    """Toute fonction dont les 6 premiers parametres sont ceux du canal -> [(rel, nom, ligne,
-    params, star)]. Inclut le port lui-meme (qui matche trivialement sa propre reference)."""
+    """Toute fonction dont les 6 premiers parametres sont ceux du canal -> ((rel, nom, ligne,
+    params, star), ...). Inclut le port lui-meme (qui matche trivialement sa propre reference)."""
+    global _IMPLS_CACHE
+    if _IMPLS_CACHE is None:
+        _IMPLS_CACHE = tuple(_balayer_substitutions())
+    return _IMPLS_CACHE
+
+
+def _balayer_substitutions():
+    """LE balayage, sans cache -- meme perimetre et meme critere qu'avant #486-r5.
+
+    Lecture PARALLELE (`repo_read`, 16 threads) : l'OUVERTURE d'un fichier sous `scripts/` pese
+    ~7 ms (filtre systeme sur les extensions executables), soit ~3 s en serie contre ~0,9 s en
+    parallele sur ce corpus. Le texte rendu est celui de `io.open(..., encoding='utf-8')` --
+    meme decodage strict, meme traduction universelle des fins de ligne, donc memes `lineno`.
+    Les deux echecs restent traites comme avant : `UnicodeDecodeError` remonte telle quelle
+    (elle remontait de `fh.read()`), `OSError` aussi (elle remontait de `io.open`).
+    """
     out = []
-    for path in _iter_py_files():
-        with io.open(path, encoding="utf-8") as fh:
-            try:
-                tree = ast.parse(fh.read(), filename=str(path))
-            except SyntaxError as e:                  # un fichier illisible est un vrai probleme
-                pytest.fail("%s : source non analysable (%s)" % (path, e))
+    fichiers = list(_iter_py_files())
+    for path, data in zip(fichiers, repo_read.read_bytes_many([str(p) for p in fichiers])):
+        if data is None:
+            raise OSError("illisible : %s" % path)
+        try:
+            tree = ast.parse(repo_read.to_text(data), filename=str(path))
+        except SyntaxError as e:                      # un fichier illisible est un vrai probleme
+            pytest.fail("%s : source non analysable (%s)" % (path, e))
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
