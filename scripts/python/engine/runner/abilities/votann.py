@@ -395,7 +395,9 @@ def _ancestral_fortune_attack_target(state: "State", caster_id: int) -> Optional
     # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result(., 0)` = `Fix64.Round` demi-vers-le-PAIR.
     # #344 : c'etait une TRONCATURE, fausse d'exactement 1 quand `bmin + bmax` vaut 3 mod 4.
     avg = _round_fix64(Fraction(bmin + bmax, 2), 0)
-    return first_by_damage_utility(state, cands, avg, avg)
+    # `owner_id` = l'OWNER du selecteur (`this+0x18`) = le caster : il porte le `MightCrit` de la
+    # prediction (#419-r6-r1). Argument OBLIGATOIRE, pas de defaut muet.
+    return first_by_damage_utility(state, cands, avg, avg, caster_id)
 
 
 def ancestral_fortune_tree(attack_target: Optional[int]) -> object:

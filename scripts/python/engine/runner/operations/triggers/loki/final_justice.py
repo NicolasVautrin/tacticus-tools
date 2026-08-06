@@ -83,7 +83,9 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
     dmin, dmax = rng_pred
     # `First(SortUnitsByDamageUtility(…), 1)` — étage de tri PARTAGÉ (port du sélecteur natif) : argmax du
     # composite Damage(34), tie-break `id` croissant. Bit-identique à l'ancien corps inline (mêmes champs).
-    return first_by_damage_utility(state, cands, dmin, dmax)
+    # `owner_id` = l'OWNER du sélecteur (`this+0x18`), porteur du `MightCrit` de la prédiction
+    # (#419-r6-r1). Argument OBLIGATOIRE, pas de défaut muet.
+    return first_by_damage_utility(state, cands, dmin, dmax, owner_id)
 
 
 def _finaljustice_attack(state: State, owner_id: int) -> Optional[dict]:

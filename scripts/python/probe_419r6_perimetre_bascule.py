@@ -142,9 +142,11 @@ def _jouer(rels: list[str], regime: str | None, workers: int) -> list[dict]:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--lister", choices=["propre", "neutralise", "dur", "live"],
+    ap.add_argument("--lister", choices=["propre", "neutralise", "dur", "live", "indifferent",
+                                         "indifferent_non_joue"],
                     help="imprime la liste des fichiers d'une categorie")
-    ap.add_argument("--jouer", choices=["propre", "neutralise", "dur"],
+    ap.add_argument("--jouer", choices=["propre", "neutralise", "dur", "indifferent",
+                                        "indifferent_non_joue"],
                     help="JOUE la categorie et rend son bilan par fichier")
     ap.add_argument("--fichiers", default=None,
                     help="JOUE une liste EXPLICITE (chemins relatifs a tests/, separes par des "
@@ -163,7 +165,8 @@ def main(argv=None) -> int:
 
     fichiers = sorted(_TESTS.rglob("test_*.py"))
     cats: Counter = Counter()
-    par_cat: dict[str, list] = {"live": [], "propre": [], "neutralise": [], "dur": []}
+    par_cat: dict[str, list] = {"live": [], "propre": [], "neutralise": [], "dur": [],
+                                "indifferent": [], "indifferent_non_joue": []}
     durs: dict[str, list] = {}
 
     for p in fichiers:
@@ -184,11 +187,21 @@ def main(argv=None) -> int:
             par_cat["propre"].append(rel)
         else:
             cats["live_indifferent"] += 1
+            par_cat["indifferent"].append(rel)
         d = _valeurs_en_dur(p, src)
         if d:
             cats["expose_valeur_dure"] += 1
             par_cat["dur"].append(rel)
             durs[rel] = d
+
+    # `indifferent` et `dur` ne sont PAS disjoints : le canal (C) est evalue sur TOUS les live.
+    # #419-r6 a joue (A) et (C) integralement dans les deux regimes ; le reste a jouer est donc
+    # exactement `indifferent \ dur`. Le nommer evite de re-payer ce qui l'a deja ete.
+    _durs = set(par_cat["dur"])
+    par_cat["indifferent_non_joue"] = [r for r in par_cat["indifferent"] if r not in _durs]
+    cats["indifferent_non_joue"] = len(par_cat["indifferent_non_joue"])
+    cats["indifferent_deja_joue_par_C"] = (cats["live_indifferent"]
+                                           - cats["indifferent_non_joue"])
 
     print("=== PERIMETRE DERIVE de la bascule #419-r6 ===")
     print("  fichiers de test visites            : %d" % cats["fichiers"])
@@ -203,6 +216,10 @@ def main(argv=None) -> int:
     print("       ECARTES PAR CE SEUIL : les egalites a un entier <= %d (indices, compteurs,"
           % _SEUIL_ENTIER)
     print("       petits ordinaux), et toute comparaison qui n'est pas `==` dans un `assert`.")
+    print("  --- ce qui reste A JOUER (#419-r6-r1) ---")
+    print("   indifferents DEJA joues par le canal (C) : %d"
+          % cats["indifferent_deja_joue_par_C"])
+    print("   indifferents JAMAIS joues                : %d" % cats["indifferent_non_joue"])
     print("  --- CE QUE CE BALAYAGE NE VISITE PAS ---")
     print("   * les probes `scripts/python/probe_*.py` (ils mesurent, ils ne gardent rien) ;")
     print("   * ce qu'un test atteint via une fixture d'un AUTRE paquet ;")
