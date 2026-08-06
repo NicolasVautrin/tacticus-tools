@@ -101,6 +101,9 @@ from ..entities.triggered_ability_type import triggered_ability_ids
 # HasActiveAbility` interroge (l'`ActiveAbilityComponent`), lu par le predicat de
 # `RadSaturationPlaybook` sur les AMIS ADJACENTS et sur le MOVER lui-meme.
 from ..entities.active_abilities import entity_active_ability_ids
+# `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` -- foyer UNIQUE (#477-r35), re-exporte
+# plus bas sous son ancien nom `_steppable_occupant` pour les appelants existants.
+from ..entities.tile_extensions import get_steppable_unit
 
 # UtilityType des 29 feuilles de Tile(7) (ordre runtime). name = catégorie BC `Default.<name>`.
 # #158 : ids bruts -> membres `UtilityType` nommés (l'ordre est la sequence runtime native).
@@ -1749,9 +1752,13 @@ def _attract_mechanicals_neighbor(pos, lc: dict) -> bool:
 #: n'est pas cosmetique : `engine.playbook.non_owner` en a besoin pour la face `1531 HaywireMine`,
 #: et il ne peut pas importer CE module (c'est `tile` qui importe `non_owner`, pas l'inverse). Une
 #: seconde lecture du meme natif aurait pu diverger sans que rien ne le dise.
-def _steppable_occupant(pos, lc: dict) -> "dict | None":
-    from .. import battle_query as _bq                # lazy : utilities <- battle_query
-    return _bq.get_steppable_unit(pos, lc)
+#: ⚠ DEUX emplacements ont ete essayes et MESURES avant `engine/entities/` : `engine/battle_query.py`
+#: (casse `python -c "import engine.battle_query"`) puis `engine/tile_extensions.py` a la racine
+#: (casse son propre import isole, par une arete RETOUR qui passe par CE fichier). La chaine
+#: complete est dans la docstring d'`engine/entities/tile_extensions.py`, et le garde est
+#: `probe_477r35r1_import_isole.py`. L'import est au NIVEAU MODULE (ci-dessus), jamais differe :
+#: un differe aurait retarde le cycle au lieu de le supprimer.
+_steppable_occupant = get_steppable_unit
 
 
 def _attract_to_decoys_friend_count(lc: dict) -> int:

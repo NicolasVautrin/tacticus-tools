@@ -141,6 +141,31 @@ def test_le_slot4_est_une_donnee_PAR_CLASSE_et_le_port_porte_la_MEME():
         "silence -- c'est exactement le bug que #477-r35 a trouve")
 
 
+def test_chaque_module_engine_s_importe_SEUL_en_process_frais():
+    """CLIQUET (#477-r35) : `en_echec == 0`, et il aurait attrape CETTE PR.
+
+    Un cycle d'import Python est SENSIBLE A L'ORDRE : il se dissout des qu'un appelant importe
+    `engine.entities` en premier, ce que font toutes nos passes pytest. La premiere version de
+    cette tranche a mis `from .entities.traits.unit_trait import UnitTrait` dans
+    `engine/battle_query.py` et a rendu `python -c "import engine.battle_query"` IMPOSSIBLE --
+    avec **165 tests verts**. Seul un import ISOLE, en process NEUF, le voit.
+
+    ⚠ Un vert ici ne dit PAS « le graphe est propre » : le 430/430 est tenu par 262 imports
+    differes PORTEURS (residu #485). Il dit « aucun module ne CESSE de s'importer seul »."""
+    import probe_477r35_import_isole as IMP
+    mods = IMP.modules_de(IMP.PYDIR)
+    assert len(mods) > 300, (
+        "%d modules `engine.*` recenses : le rglob ne visite plus l'arbre, et un recenseur qui "
+        "rend presque zero ne peut rien garder" % len(mods))
+    res = IMP.balayer(IMP.PYDIR, mods, jobs=12)
+    casses = {m: v for m, v in res.items() if v[0] != 0}
+    assert not casses, (
+        "%d module(s) `engine.*` ne s'importent PAS seuls en process frais : %r. C'est un cycle "
+        "sensible a l'ordre -- il ne casse aucune passe pytest, mais il casse les probes VERSIONNES "
+        "qui importent ce module en tete (mesure : `probe_433_r1_identity_shortcircuit.py`)."
+        % (len(casses), {m: v[1][:120] for m, v in sorted(casses.items())}))
+
+
 def test_le_recensement_et_les_cles_sont_RE_DERIVES():
     """Le compte ne se CITE pas et les cles non plus.
 

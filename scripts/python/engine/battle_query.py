@@ -10,61 +10,20 @@ from __future__ import annotations
 
 import hexgeo
 
-from .entities.traits.unit_trait import UnitTrait
 from .hex_corner import Corner
 
-
-def get_steppable_unit(pos, lc: dict) -> "dict | None":
-    """`IdunBattle.Entities.TileExtensions$$GetSteppableUnit(tile, matchState, out steppableUnit)`
-    cote offline : l'OCCUPANT de `pos` s'il porte `UnitTrait.Steppable` (0x1b), sinon `None`.
-
-        unit = UnitExtensions.GetUnit(tile, matchState);      // TileContentComponent.IsFilled
-        return unit != null && unit.BaseUnitComponent?.HasTrait(0x1b) == true;
-
-    Une tuile n'a qu'UN occupant (le `TileContentComponent` porte un seul id) : trouver une unite
-    NON steppable sur `pos` fait donc rendre `None`, pas continuer a chercher.
-
-    Rend `{is_friend, is_enemy, is_decoy, triggered, vis}` :
-      * les quatre premieres cles sont les lectures que `SteppableUnitUtility` fait ensuite sur `u`
-        (`IsFriend`/`IsEnemy` contre `case.unit`, `HasTrait(0x41d)`, `HasTriggeredAbility`).
-        `is_friend`/`is_enemy` sont DEUX booleens et non l'un la negation de l'autre par principe :
-        le natif interroge des predicats DIFFERENTS selon la branche. Ici ils sont complementaires,
-        comme le natif quand `case.unit != null` ;
-      * `vis` (#477-r35) est l'id d'unite de l'occupant, l'argument de
-        `IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, unitId, state)` que lit
-        `HaywireMineNonOwnerPlaybook`. Ce champ ne coute rien aux deux feuilles historiques (elles
-        ne le lisent pas) et il est le SEUL canal par lequel un playbook peut IDENTIFIER
-        l'occupant ; sans lui la face 1531 rendrait 0 partout.
-
-    Le MOVER est traite a part : `_adjacent_units` l'EXCLUT de `friend_units` (self-exclu), or sur
-    sa tuile d'ORIGINE c'est lui l'occupant -- `IsFriend(self, self)` est vrai (meme playerId).
-
-    ⚠ FOYER UNIQUE (#477-r35) : ce corps vivait dans `engine.utilities.tile._steppable_occupant` et
-    a ete DEPLACE ici parce qu'un second consommateur est apparu dans `engine.playbook.non_owner`,
-    qui ne peut pas importer `tile` (c'est `tile` qui importe `non_owner`). Le dupliquer aurait
-    donne deux lectures du meme natif libres de diverger ; `tile` le re-exporte sous son ancien nom
-    pour ses appelants."""
-    if lc.get("self_pos") == pos:
-        traits = set(lc.get("unit_traits") or ())            # ids (`entity_trait_ids`)
-        if int(UnitTrait.Steppable) not in traits:
-            return None
-        return {"is_friend": True, "is_enemy": False,
-                "is_decoy": int(UnitTrait.Decoy) in traits,
-                "triggered": tuple(lc.get("unit_triggered_abilities") or ()),
-                "vis": lc.get("self_vis")}
-    for units, is_friend in ((lc.get("friend_units") or (), True),
-                             (lc.get("enemy_units") or (), False)):
-        for u in units:
-            if u.get("pos") != pos:
-                continue
-            names = u.get("traits") or ()                    # noms (`entity_trait_names`)
-            if UnitTrait.Steppable.name not in names:
-                return None                                  # occupant NON steppable -> false
-            return {"is_friend": is_friend, "is_enemy": not is_friend,
-                    "is_decoy": UnitTrait.Decoy.name in names,
-                    "triggered": tuple(u.get("triggered") or ()),
-                    "vis": u.get("vis")}
-    return None
+# ⚠ CE MODULE NE DOIT IMPORTER NI `engine.entities` NI RIEN QUI L'EXECUTE (#477-r35).
+# C'est ce qui le rend importable EN PREMIER, et plusieurs probes VERSIONNES en dependent
+# (`probe_433_r1_identity_shortcircuit.py` fait `from engine.battle_query import ...` en tete).
+# MESURE : y avoir ajoute `from .entities.traits.unit_trait import UnitTrait` a rendu
+# `python -c "import engine.battle_query"` IMPOSSIBLE en process frais --
+# `entities/__init__` -> `effects_state` -> `effects/__init__` -> `factory` -> `loki/__init__`
+# -> `ability_modifications` -> `selectors/units.py` -> `from ...battle_query import
+# is_target_tile_obscured`, sur un `battle_query` PARTIELLEMENT initialise. Le cycle est
+# SENSIBLE A L'ORDRE : il disparait des qu'un appelant importe `entities` d'abord, donc aucune
+# passe pytest ne le voit. Le foyer `GetSteppableUnit`, qui a besoin d'`UnitTrait`, vit pour
+# cette raison dans `engine/entities/tile_extensions.py` -- ou il porte AUSSI le bon nom natif.
+# Garde de cet invariant : `probe_477r35r1_import_isole.py`.
 
 # --- `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape(tile, direction)` -----------
 # Rend `new List<>(new HashSet{tile, t1, t2})` = l'ancre PUIS les deux tuiles de la direction

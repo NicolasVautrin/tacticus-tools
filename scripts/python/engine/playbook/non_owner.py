@@ -75,6 +75,7 @@ ASCII only dans les sorties ; les accents restent dans les docstrings non imprim
 from __future__ import annotations
 
 from .. import battle_query as bq
+from ..entities.tile_extensions import get_steppable_unit
 from ..entities.ability_constant_type import AbilityConstantType
 from ..entities.traits.unit_trait import UnitTrait
 from ..entities.triggered_ability_type import TriggeredAbilityType
@@ -1006,7 +1007,7 @@ class HaywireMineNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
         ctx = ctx or {}
         if ctx.get("is_spawning"):                   # `case.unit == null` -> yield break
             return 0.0
-        occ = bq.get_steppable_unit((tile[0], tile[1]), ctx)   # GetSteppableUnit(case.MovementTile)
+        occ = get_steppable_unit((tile[0], tile[1]), ctx)   # GetSteppableUnit(case.MovementTile)
         if occ is None:
             return 0.0
         vis = occ.get("vis")
