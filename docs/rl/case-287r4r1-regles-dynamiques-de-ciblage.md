@@ -172,19 +172,17 @@ l'étage le plus répandu — mais éclaté en slots, pas en une primitive uniqu
 | 1087 | `ExemplarOfTheKauyon` | `IsFreeTile` + `GetAdjacentUnits` + prédicat LINQ |
 | 1101 | `AttemptedPossession` | `GetChildren` + un étage de **SIMULATION** (`SimulateEffects`) |
 | 1112 | `AlphaWarrior` | trigger DSL `IsInTeamSynapseRange` |
-| 1151 | `TheQuickening` | tuiles de mouvement (`MovableTilesInRange` − `Enemies`) |
 | 1164 | `MindControl` | slot 0x7c + un **prédicat statique illisible** (corps dédupliqué) |
 | 1168 | `EntropyCannons` | triggers `IsInTeamContagionsOfNurgleAura` + `HasNegativeModifier` |
 | 1179 | `CultDemagogue` | trois slots `battleQuery` + `GetStringConstant` |
 | 1180 | `HeroicFusillade` | **pathfinding** (`MovementQuery$$IsInMovementRange` + `overrideRange`) |
 | 1197 | `ExcruciatingFrequencies` | sélecteur DSL `GetAttackTargets` |
 | 1200 | `SquigLaunchas` | triggers DSL `HasMinimumAdjacent{Orks,FriendlyUnits}` |
-| 1202 | `VigilanceEternal` | tuiles de mouvement (`GetPossibleMovementTiles`) |
-| 1204 | `LeadingTheCharge` | tuiles de mouvement (`GetPossibleMoveTiles`) |
 | 1213 | `DeathOnTheWind` | **le SEEDING**, pas l'étage — cf. 9.3 |
 
-Regroupés : **tuiles de mouvement 3** (1151, 1202, 1204), **triggers DSL 3** (1112, 1168, 1200),
-**sélecteurs DSL 2**, **pathfinding 1**, le reste isolé.
+Regroupés : **triggers DSL 3** (1112, 1168, 1200), **battleQuery 3** (1025, 1087, 1179),
+**sélecteurs DSL 2** (1016, 1197), **pathfinding 1** (1180), le reste isolé.
+L'étage **tuiles de mouvement** (1151, 1202, 1204) est fermé par #287-r5-r1, §9.6.
 
 ### 9.3 `1213 DeathOnTheWind` — l'étage est PORTÉ, c'est le seeding qui manque
 
@@ -231,9 +229,91 @@ invocateur au catalogue (l'ability `ATemptingTrap` qui le déclare n'est portée
 
 ### 9.5 Chiffres, re-dérivés des deux côtés
 
-| | avant #287-r5 | après |
-|---|---|---|
-| entrées de `DYNAMIC_TARGET_RULE_UNPORTED` | 2 | **5** |
-| aucune règle (`0` permissif) | 46 | **43** |
-| dont dette réelle (surcharge native lisible) | 19 | **16** |
-| dont `0` coïncidant avec le corps de base | 27 | 27 |
+| | avant #287-r5 | après #287-r5 | après #287-r5-r1 |
+|---|---|---|---|
+| entrées de `DYNAMIC_TARGET_RULE_UNPORTED` | 2 | 5 | **6** |
+| surcharges dans une classe portée | 17 | 17 | **19** |
+| aucune règle (`0` permissif) | 46 | 43 | **40** |
+| dont dette réelle (surcharge native lisible) | 19 | 16 | **13** |
+| dont `0` coïncidant avec le corps de base | 27 | 27 | 27 |
+
+### 9.6 #287-r5-r1 — l'étage « tuiles de mouvement », et ce qu'il a révélé sous lui
+
+**L'ÉTAGE ÉTAIT DÉJÀ PORTÉ.** `entities/selectors/tiles.py::tiles_unit_can_move_to_charge_target`
+est le mirror 1:1 de `IdunBattleLogic.Entities.DSLSelectors$$TilesUnitCanMoveToChargeTarget`, et son
+`MovableTilesInRange` porte déjà les cinq arguments, `ignoreUnitsOnTiles` compris. Ce qui manquait
+était le **call-site** des trois règles — d'où la vérification que la consigne « porter l'étage »
+impose dans les deux sens : chercher ce qui existe avant de re-porter.
+
+| id | corps natif, verbatim | code rendu | canal |
+|---|---|---|---|
+| 1204 `LeadingTheCharge` | `Count(GetPossibleMoveTiles) > 0 ? 0 : 0x8000000` | `0x8000000` | table |
+| 1202 `VigilanceEternal` | `AreEntitiesAdjacent(casterTiles, targetTiles) ? 0 : (SelectTiles(GetPossibleMovementTiles).Count < 1 ? 0x8000000 : 0)` | `0x8000000` | surcharge |
+| 1151 `TheQuickening` | `!(MovableTilesInRange(ignoreUnitsOnTiles: 1) − Enemies).SelectTiles().Contains(target) ? 0x8000000 : (GetUnit(target) == null ? 0 : (GetFeetCount(unit) != GetFeetCount(caster) ? 2 : 0))` | `0x8000000` / `0x2` | surcharge |
+
+`0x8000000` = `TargetingRule.TargetIsInRange`, `0x2` = `TargetMatchesDynamicRule`. Les slots sont LUS
+dans `data/symbols/<build>/metadata/interface_slots.tsv` : `IBattleQuery 98 AreEntitiesAdjacent 2`,
+`ITargetsSelector 2 Count 1`, `ITargetsSelector 10 SelectTiles 1`, `ICollection<T>` slot 4 `Contains`.
+
+Quatre points que la RE a tranchés, et qu'un mirror naïf rate :
+
+- **Les deux règles qui partagent l'étage ne sont PAS interchangeables.** 1202 court-circuite sur
+  `AreEntitiesAdjacent` (une cible au contact est acceptée sans consulter le sélecteur) ; 1204 non,
+  et son masque porte en prime `TargetIsNotAdjacent`. Un test dédié garde cette différence.
+- **`DSLFormulas$$Direct` (1202) et `$$Get` (1204) ont le MÊME corps** — mêmes allocation et ctor
+  `(amount, 0)`. La différence de nom ne porte aucune différence de valeur : c'est lu, pas supposé.
+- **Le `op_Subtraction` des ennemis de 1151 est INERTE, par DOMAINE.**
+  `DSLSelectors$$Enemies(of, entities, 3)` alimente son résultat par
+  `TargetsSelector$$SelectAllActors`, qui **résout chaque entité-tuile en son occupant** et ajoute
+  l'UNITÉ ; le membre gauche, lui, est un ensemble d'entités TUILE. Or
+  `CombinedSelector$$SelectExclusion` compare par identité d'entité. Aucune tuile n'en sort. Côté
+  port, l'inertie **émerge** de la même cause (`Enemies.select` filtre `isinstance(u, dict)`, et un
+  id de tuile n'en est pas) au lieu d'être codée. Le `3` est `onlyAlive = true` — la surcharge bool
+  délègue en `(onlyAlive & 0xff) + 2`.
+- **`ignoreFlags` diverge entre les deux call-sites (1 pour 1202, 0 pour 1204) et reste NON EXERCÉ**,
+  cause mesurée : il ne touche que la garde d'entrée `UnitFlagsComponent$$Has(unitFlags, 1)` de
+  `MovementQuery$$FindAnyOrAllMoveableTiles`, et `unitFlags` n'a aucun substrat côté port (résidu
+  #381). Le paramètre est propagé quand même, pour que les deux call-sites divergent le jour où le
+  substrat existera.
+
+**LE CRAN TROUVÉ SOUS L'ÉTAGE — la tuile de DÉPART.** `1151` est le premier call-site porté à poser
+`ignoreUnitsOnTiles = 1`, et il a rendu observable un écart qui dormait : le `visited` du port
+**inclut** la tuile de départ, quand `GetReachableTiles` ne l'émet pas —
+`BasePathfinder.u003CIterateReachableTilesu003Ed__12$$MoveNext` rend, dans sa branche `depth == 1`,
+`GetValidNeighbours(start, unit, null)` et rien d'autre, et amorce `visited` VIDE dans la branche
+générale. Mesuré live sur `MC1_67` : natif `0x8000000` sur la tuile du caster, port `0`. Corrigé au
+nœud, dans la seule branche `ignore_units_on_tiles` — les call-sites `False` (tous les autres)
+sortaient déjà le départ par le stop-set, donc rayon de souffle nul.
+
+**CONFRONTATION LIVE** (`probe_287r5r1_charge_tiles_live.py`, géométrie PILOTÉE par `--place` /
+`--a-place` : sans elle tous les couples tombent du même côté et le vert ne prouve rien).
+
+| board | couples | refus reproduits à l'identique | bascule (3 règles) | mutants `a_morde` | imputables | sous-refus |
+|---|---|---|---|---|---|---|
+| `MC1_67` | 54 | 34 | 3/3 DISCRIMINENT | 5 / 2 / 2 | **0** | **0** |
+| `C1_02` | 47 | 19 | 3/3 DISCRIMINENT | 4 / 1 / 1 | **0** | **0** |
+
+Deux corrections de MESURE que ce probe a imposées, toutes deux trouvées en le jouant :
+
+- **le SOUS-REFUS compte.** Le probe frère range le `permissif` en dette non portée — ici les trois
+  ids SONT la tranche, donc un refus natif non reproduit est une faute du même rang qu'un sur-refus.
+  C'est par ce bras qu'a été trouvée la tuile de départ.
+- **l'occupation se lit par EMPREINTE et depuis le `state`**, pas par `decisionView.units[].pos` :
+  une MoW n'est pas dans `units` et occupe plusieurs tuiles. Le recensement d'origine la rendait
+  invisible et déclarait « non exercé » un bras que la MoW aurait pu exercer.
+
+**Ce qui n'est PAS couvert en live** : le bras `GetFeetCount(occupant) != GetFeetCount(caster)` de
+1151. Cause **mesurée**, pas supposée : il exige un occupant MULTI-HEX *dans le pool de mouvement*,
+or le pathfinding ne traverse que les alliés et le seul allié multi-hex possible est une MoW — qui
+arrive au runner **non déployée** (`decisionView.mows[].pos is None`, mesuré sur `MC1_67` /
+`ultraDreadnought`). Le bras « empreintes ÉGALES → 0 » est, lui, confronté live (deux alliés à
+1 pied, natif `0x0`). Les deux bras sont tenus offline
+(`tests/engine/test_287r5r1_charge_tiles_offline.py`), et le probe live **imprime** ce trou au lieu
+de se compter vert.
+
+**La garde** : cinq étages (recensement bi-canal, bascule, mutants en DELTA, clause d'empreinte,
+tuile de départ à deux niveaux — le call-site et le nœud). Vue rouge sur l'arbre témoin
+(`git archive` du commit d'avant la tranche) : **8 failed / 2 passed** ; **10 passed** après.
+⚠ Le mutant de 1151 a dû être RE-CIBLÉ : une tuile à `d = 8` est déjà refusée par le volet PORTÉE
+statique (`RANGE_FROM_CONFIG` → `overrideRange = 2`), donc le désarmement ne retirait rien et le
+mutant accusait le protocole. Le couple qui isole la règle est la tuile du caster.

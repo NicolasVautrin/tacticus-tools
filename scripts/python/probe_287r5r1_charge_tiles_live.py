@@ -280,11 +280,18 @@ def main() -> int:
           % len(occupees_vues))
     for r in sorted(occupees_vues, key=lambda x: x[2]):
         print("     tgt %-5s %-34s natif=%-12s %-28s port=%s" % (r[2], r[3], r[4], r[5], r[6]))
-    empreinte_exercee = any(int(r[4], 16) & int(TR.TargetMatchesDynamicRule)
-                            for r in occupees_vues)
-    if not empreinte_exercee:
-        print("     !! `GetFeetCount(occupant) != GetFeetCount(caster)` NON EXERCE sur ce montage : "
-              "aucune tuile occupee n'est dans le pool de mouvement (il faut un ALLIE a portee)")
+    # DEUX bras, publies separement : « empreintes EGALES -> 0 » (occupant dans le pool, accepte)
+    # et « empreintes DIFFERENTES -> TargetMatchesDynamicRule ».
+    bras_egal = [r for r in occupees_vues if int(r[4], 16) == 0]
+    bras_diff = [r for r in occupees_vues if int(r[4], 16) & int(TR.TargetMatchesDynamicRule)]
+    print("     bras EMPREINTES EGALES (natif accepte)     : %d" % len(bras_egal))
+    print("     bras EMPREINTES DIFFERENTES (natif = 0x2)  : %d" % len(bras_diff))
+    if not bras_diff:
+        print("     !! bras DIFFERENTES **NON EXERCE ICI**, cause MESUREE : il exige un occupant "
+              "MULTI-HEX dans le pool de mouvement, or le pathfinding ne traverse que les ALLIES "
+              "et le seul allie multi-hex possible est une MoW -- qui arrive au runner NON "
+              "DEPLOYEE (`decisionView.mows[].pos is None`). Couvert OFFLINE par "
+              "`tests/engine/test_287r5r1_charge_tiles_offline.py`, PAS compte vert ici.")
 
     # BASCULE : chaque regle doit avoir REFUSE au moins une cible ET en avoir LAISSE PASSER une.
     print("[287r5r1] BASCULE -- chaque regle DISCRIMINE-t-elle sur ce montage ?")
