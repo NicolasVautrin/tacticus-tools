@@ -670,7 +670,7 @@ def _ms_pick_geometry(state, board, caster, target, pool_fn, range_fn):
 
 def _br_pool(state, caster, target, mr):
     from engine.runner.abilities.loki.strike import black_rage_possible_movement_tiles_selector
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     return black_rage_possible_movement_tiles_selector(mr).evaluate(
         entities_from_state(state, caster, target))
 
@@ -682,7 +682,7 @@ def _br_range(state, caster):
 
 def _wa_pool(state, caster, target, mr):
     from engine.runner.abilities.orks import waaagh_possible_movement_tiles_selector
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     return waaagh_possible_movement_tiles_selector(mr).evaluate(
         entities_from_state(state, caster, target))
 

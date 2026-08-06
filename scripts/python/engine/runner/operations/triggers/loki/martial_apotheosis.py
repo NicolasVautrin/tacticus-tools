@@ -74,13 +74,14 @@ from typing import Optional
 
 from .....dsl.base import Const
 from .....dsl.event_trigger_type import EventTriggerType
-from .....entities.selectors import (Damageable, Enemies, AdjacentUnits, OwnerTile, UnitSet)
+from .....entities.selectors.accessors import OwnerTile
+from .....entities.selectors.units import AdjacentUnits, Damageable, Enemies, UnitSet
 from ....state import State
 from ....components import OwnerComponent
 from ..base import TriggeredAbility, TriggerEvent
 from .....dsl.effects import ExecutionContext
-from ....abilities.behaviours import AttackWithAttackDamage
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.combat import AttackWithAttackDamage
+from ....abilities.behaviours.context import entities_from_state
 from ....abilities.loki import _pick_randomly_n
 
 

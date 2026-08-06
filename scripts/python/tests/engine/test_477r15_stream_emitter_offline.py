@@ -31,8 +31,12 @@ if str(PY) not in sys.path:
 from engine.entities.entity_type import EntityType  # noqa: E402
 from engine.entities.traits.unit_trait import UnitTrait  # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType  # noqa: E402
-from engine.streams import (BEntityId, GroupType, StepType, StreamCache,  # noqa: E402
-                            StreamDispatcher, TagKey, format_enum_value)
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.entity_id import BEntityId, format_enum_value
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.stream_cache import StreamCache
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.divergence_registry import KNOWN_DIVERGENCES  # noqa: E402
 from engine.streams.game_setup import (GameSetup, PlayerSetup, TileSetup,  # noqa: E402

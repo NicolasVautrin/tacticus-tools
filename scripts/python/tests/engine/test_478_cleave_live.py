@@ -224,8 +224,10 @@ def test_ce_ancrer_boltstorm_sur_un_owner_nul_fait_diverger(case_boltstorm, monk
     pas se re-perdre en silence."""
     import engine.runner.abilities.loki.additional_targets as AT
     from engine.dsl.base import Const, TargetsSelector
-    from engine.entities.selectors import (AdjacentUnits, And, Enemies, SurroundingEnemies,
-                                           Target, Unobscured)
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.units import (
+        AdjacentUnits, And, Enemies, SurroundingEnemies, Unobscured
+    )
 
     class _NullOwner(TargetsSelector):
         def select(self, ctx):

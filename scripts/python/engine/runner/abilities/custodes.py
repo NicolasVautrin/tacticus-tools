@@ -45,7 +45,7 @@ from typing import Optional, TYPE_CHECKING
 
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_and
-from ...entities.selectors import Caster
+from ...entities.selectors.tiles import Caster
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
@@ -54,7 +54,9 @@ from ..components import StatsComponent
 from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import RANGE_SELF, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, AddDynamicStatModifierEffect, AddEffect, Heal)
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddDynamicStatModifierEffect, AddEffect
+from .behaviours.stats import Heal
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 

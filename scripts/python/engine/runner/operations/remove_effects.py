@@ -140,7 +140,7 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
       5. `On(EffectRemoved = 0x40)` APRES tout ce qui precede.
     """
     from .ability_modifications import revert_ability_modifications
-    from .triggers import pre_effect_removed_triggers, effect_removed_triggers
+    from .triggers.dispatch.move_death import effect_removed_triggers, pre_effect_removed_triggers
 
     if eff is None or eff.consumed:
         return False                       # gates `+0x5f` / `+0x5e`

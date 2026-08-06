@@ -186,8 +186,11 @@ from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.effect_type import EffectType
 from .....entities.formulas import (Count, EntityId, StatAmount,
                                     percentage_of_attack_capped_at_max)
-from .....entities.selectors import (AdjacentFriends, Filter, First, Otherwise, SortByFormula,
-                                     Subject, Tiles, ValidNormalAttackTargets)
+from .....entities.selectors.accessors import Subject
+from .....entities.selectors.geometry import Otherwise
+from .....entities.selectors.units import (
+    AdjacentFriends, Filter, First, SortByFormula, Tiles, ValidNormalAttackTargets
+)
 from .....entities.selectors.tiles import Caster
 from .....entities.stats import StatPart, StatType
 from .....entities.traits.unit_trait import UnitTrait
@@ -203,10 +206,13 @@ from .....dsl.effects import OperationResult
 from .....entities.behaviours import Seq
 from .....entities.effects.magnitude import ability_var
 from ....abilities.base import convert_rounds_to_turns
-from ....abilities.behaviours import (AddDynamicStatModifierEffect, AddStatOverrideEffect,
-                                          AddToPersistentDataList, PerformAIAttack, RemoveEffect)
-from ....abilities.behaviours import entities_from_state
-from ....abilities.behaviours import entities_from_state, ClearAllPersistentData
+from ....abilities.behaviours.effects import AddDynamicStatModifierEffect, RemoveEffect
+from ....abilities.behaviours.persistent_data import AddToPersistentDataList
+from ....abilities.behaviours.stats import AddStatOverrideEffect
+from ....abilities.behaviours.summon import PerformAIAttack
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.persistent_data import ClearAllPersistentData
 
 ABILITY_ID = "MyWillBeDoneOverlord"
 # `AbilityOrEffect(this.Id)` = `BaseTriggeredAbility+0x10` (`get_Count` mislabel de ghidra =

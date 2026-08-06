@@ -74,7 +74,7 @@ class HammerOfWrathPlaybook(_PlanTargetPlaybook):
     def evaluate_non_comparable(self, tile, target, ctx):
         if tile is None or ctx.scene is None:
             return None
-        from engine.playbook.prediction import make_hammer_wrath_events
+        from engine.playbook.prediction.abilities import make_hammer_wrath_events
         from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
         events = make_hammer_wrath_events(ctx.scene, ctx.uid, target, tile)
         if not events:

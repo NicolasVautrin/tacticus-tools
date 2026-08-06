@@ -100,7 +100,7 @@ class BlackRagePlaybook(_PlanTargetPlaybook):
     def evaluate_non_comparable(self, tile, target, ctx: NCContext):
         if ctx.scene is None or target is None:
             return None
-        from engine.playbook.prediction import make_normal_attack_predictions
+        from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
         from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
         best = None
         for cpos in self._charge_tiles(target, ctx):

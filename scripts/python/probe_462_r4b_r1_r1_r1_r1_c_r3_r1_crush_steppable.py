@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import unit_map as UM                                                    # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
-from engine.entities.traits import UnitTrait                             # noqa: E402
+from engine.entities.traits.unit_trait import UnitTrait  # noqa: E402
 from engine.runner.state import State                                    # noqa: E402
 from engine.runner.components import (UnitComponent, HealthComponent,    # noqa: E402
                                       PositionComponent, StatsComponent)
@@ -215,7 +215,7 @@ def _make_state_crush(effect_types: list[int]):
     """`State` synthetique : un mover VIVANT et un decoy `Steppable` VIVANT, co-localises apres le
     move, le decoy portant un effet par `effect_type` demande."""
     from engine.entities.effects_state import EffectsState
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     from engine.entities.unit_context import UnitContext
     st = State()
     st.effects = EffectsState()

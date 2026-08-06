@@ -49,7 +49,7 @@ def test_l_instance_d_effet_porte_le_champ_bonded():
     """`DefaultBondEffectBuilder` ecrit `bondedEntityId` dans le composant de bond de l'entite-effet.
     Le port doit le stocker sur l'instance, et `AddEffectOperation` doit savoir le recevoir."""
     import inspect
-    from engine.entities.effects import BaseEffect
+    from engine.entities.effects.base import BaseEffect
     from engine.runner.operations.effects import AddEffectOperation
     assert BaseEffect.bonded is None, "defaut = effet non-bond"
     assert "bonded" in inspect.signature(AddEffectOperation.execute).parameters, \
@@ -60,7 +60,7 @@ def test_la_feuille_add_bond_effect_a_son_5e_argument():
     """`IdunBattleLogic.Entities.DSLFactory$$AddBondEffect(effectType, abilityState, source, targets,
     **bondedEntity**, options)` : le 5e argument est un SELECTEUR, resolu a l'execution par
     `AddEffectBehaviour$$GetEffectBuilder`. La feuille portee doit l'exposer."""
-    from engine.runner.abilities.behaviours import AddBondEffect
+    from engine.runner.abilities.behaviours.effects import AddBondEffect
     assert "bonded_ref" in AddBondEffect.__slots__
 
 
@@ -91,7 +91,7 @@ def test_le_bonded_discrimine_deux_porteurs_du_meme_passif():
     le coup fatal vient de Maladus B (qui porte le MEME passif). Le natif compare des ENTITES
     (`AreEqual(Actor@0x158, bonded)`) -> refus ; l'inference « le tueur porte HazeOfCorruption »
     disait OUI."""
-    from engine.entities.effects import BaseEffect
+    from engine.entities.effects.base import BaseEffect
     from engine.entities.effects_state import EffectsState
     from engine.runner.components import UnitComponent
     from engine.runner.state import State

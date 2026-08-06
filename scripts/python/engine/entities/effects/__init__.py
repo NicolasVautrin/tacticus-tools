@@ -29,15 +29,12 @@ from ...services.damage_modifiers import (
 from ...services.effect_bonus import for_armor_penetration
 from .base import BaseEffect, SubEffectSpec, SAME_TURNS
 from .factory import EFFECT_CLASSES, EffectFactory
-from .loki import (
-    CrushingStrikeEffect,
-    KanOpenerEffect,
-    PowerTripFullHealthEffect,
-    PowerTripIgnoreArmorEffect,
-    RapidAssaultExtraDamageEffect,
-    SquigHoundAdditionalHitsEffect,
-    StunnedEffect,
+from .loki.extra_damage import CrushingStrikeEffect, RapidAssaultExtraDamageEffect
+from .loki.hits import (
+    KanOpenerEffect, PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
+    SquigHoundAdditionalHitsEffect
 )
+from .loki.status import StunnedEffect
 
 __all__ = [
     "BaseEffect", "SubEffectSpec", "SAME_TURNS", "EffectFactory", "EFFECT_CLASSES",

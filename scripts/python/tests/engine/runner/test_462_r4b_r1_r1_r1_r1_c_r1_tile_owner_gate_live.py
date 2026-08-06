@@ -52,7 +52,7 @@ from engine.runner.state import State                                      # noq
 from engine.runner.components import HealthComponent, PositionComponent    # noqa: E402
 from engine.entities.pathfinding.board import Board                        # noqa: E402
 from engine.entities.effects_state import EffectsState                     # noqa: E402
-from engine.entities.effects import EffectFactory                          # noqa: E402
+from engine.entities.effects.factory import EffectFactory  # noqa: E402
 from engine.runner.operations.triggers.base import (EffectTrigger,         # noqa: E402
                                                     TriggerEvent, TileEffectTrigger)
 from engine.runner.operations.triggers.dispatch import core as CORE        # noqa: E402

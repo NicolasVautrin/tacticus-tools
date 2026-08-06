@@ -162,7 +162,7 @@ def main() -> int:
 
 
 def _run(rpc, rid) -> int:
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     from engine.playbook.prediction import _shared
     bad = 0
     dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 200) or {}

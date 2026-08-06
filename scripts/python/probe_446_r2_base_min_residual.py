@@ -137,7 +137,7 @@ def port_stage(ctx, tgt, tile) -> tuple:
     l'AbilitiesComponent -- il folderait donc la ou le natif ne folde plus, et la comparaison ne
     porterait plus sur la meme chose. La neutralisation est LOCALE et RESTAUREE."""
     import engine.playbook.prediction.normal_attack as NA
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     saved = NA._RANGED_FOLLOWUP_PASSIVES
     NA._RANGED_FOLLOWUP_PASSIVES = ()
     try:

@@ -73,7 +73,7 @@ def _seed_effect(state, owner_id: int, name: str, effect_type: int, *, active: b
     `EffectFactory.create`, qui lit la cle `active` publiee par le canal
     `decisionView { includeInactive: true }` (#219)."""
     if state.effects is None:                      # aucun effet au seed -> `load_state` laisse None
-        from engine.entities import EffectsState
+        from engine.entities.effects_state import EffectsState
         state.effects = EffectsState.seed({})
     inst = EffectFactory.create({"name": name, "effectType": int(effect_type),
                                  "active": bool(active), "source": source})

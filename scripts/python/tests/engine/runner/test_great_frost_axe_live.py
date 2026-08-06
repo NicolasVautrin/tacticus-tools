@@ -58,9 +58,11 @@ from engine.entities.pathfinding.board import Board
 from engine.runner.abilities.spacewolves import (GreatFrostAxeAbility, great_frost_axe_ice_tiles,
                                                  ICE_TILE)
 from engine.entities.behaviours import op_and, If
-from engine.entities.selectors import Target
+from engine.entities.selectors.accessors import Target
 from engine.entities.triggers import IsAlive
-from engine.runner.abilities.behaviours import AttackWithAttackDamage, AddEffect, entities_from_state
+from engine.runner.abilities.behaviours.combat import AttackWithAttackDamage
+from engine.runner.abilities.behaviours.context import entities_from_state
+from engine.runner.abilities.behaviours.effects import AddEffect
 from engine.dsl.effects import ExecutionContext
 
 PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python

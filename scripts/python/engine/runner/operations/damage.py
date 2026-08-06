@@ -321,7 +321,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
         if uc is not None:
             uc.alive = False
-        from .triggers import pending_death_added_triggers
+        from .triggers.dispatch.move_death import pending_death_added_triggers
         # #178 — le `didOverkill` du chemin COMBAT est la surcharge d'INSTANCE de
         # `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, inlinee par
         # `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation` : elle applique DEUX gates
@@ -533,12 +533,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
              traversent `Execute` : degat (drain), crush (`_kill_steppable_kill_unit`, donc move ET
              revive/resurrect/spiritual_leader) et `KillUnitBehaviour` (feuille DSL `Kill`).
         """
-        from .triggers import (after_death_triggers, unit_defeated_triggers,
-                               post_unit_kill_triggers, pre_unit_death_2_triggers,
-                               unit_death_triggers)
+        # PORTEUR (cycle `operations` <-> `triggers`) ET forme MODULE : les cinq vecteurs sont
+        # relus a l'appel, donc une substitution posee sur `move_death` mord quelle que soit la
+        # forme finale de cet import. `probe_485r1r1_formes_dimport.py` mesure les trois formes ;
+        # un `from ... import unit_death_triggers` hisse deviendrait INERTE, en silence.
+        from .triggers.dispatch import move_death
         from .revive import kill_unit_revive_gate
         from .remove_effects import KillUnitStep
-        out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        out = move_death.after_death_triggers(state, target_id, attacker_id, overkill=overkill)
         # GARDE @`KillUnitOperation$$Execute+0x81c` : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
         # consommateur d'`On(PreUnitDeath)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est
         # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(PreUnitDeath_2), NI On(UnitDeath), NI On(UnitDefeated) — et AUCUN des trois `RemoveEffects`.
@@ -548,11 +550,12 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # s'applique... et l'execution REJOINT le tronc commun, ou `On(0x35)` est publie @+0x10ac.
             # C'est le SEUL des cinq events que la garde revive n'annule pas (pile d'accolades ci-dessus).
             return ((out or []) + [{"kill_cancelled_by_revive": revived}]
-                    + post_unit_kill_triggers(state, target_id, attacker_id))
+                    + move_death.post_unit_kill_triggers(state, target_id, attacker_id))
         # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion. Il PRECEDE
         # tout retrait : c'est pourquoi `ExplodesAbility$$GetDamage` voit encore les effets du mort
         # (`HasEffect(Owner, 1098)` de RammingSpeed, #389).
-        out = (out or []) + pre_unit_death_2_triggers(state, target_id, attacker_id, overkill=overkill)
+        out = (out or []) + move_death.pre_unit_death_2_triggers(state, target_id, attacker_id,
+                                                            overkill=overkill)
         # `RemoveEffects(killed, PreUnitRemove)` puis `RemoveEffects(killed, AfterUnitRemove)` — les
         # deux premiers des TROIS appels natifs, tous deux AVANT `On(UnitDeath)`. Le natif intercale
         # entre eux le retrait de l'unite du plateau (`processor.<slot 6>` + `matchState.<slot 0x31>`),
@@ -565,10 +568,10 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AfterUnitRemove)}}]
         # `On(UnitDeath = 0)` — consommateur : TerrifyingCrescendo branche OVERKILL
         # (cf. loki/terrifying_crescendo.py).
-        out = out + unit_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        out = out + move_death.unit_death_triggers(state, target_id, attacker_id, overkill=overkill)
         # #G3 : `On(UnitDefeated=54)` (event DISTINCT de 1, 2 et 0) -> Ambush_SummonAbility (mort -> decoy +
         # record turn_defeated). L'unité est déjà alive=False (fire-on-death).
-        out = out + unit_defeated_triggers(state, target_id, attacker_id)
+        out = out + move_death.unit_defeated_triggers(state, target_id, attacker_id)
         # GARDE HEAL @`KillUnitOperation$$Execute+0xf35` : le natif relit le `HealthComponent` du mort
         # (dont il avait mis les PV a 0 en tete d'operation) et RETOURNE si `hp > 0`. Un consommateur
         # de `On(UnitDeath)`/`On(UnitDefeated)` qui SOIGNE le mourant annule donc le 3e retrait.
@@ -584,7 +587,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # `On(PostUnitKill = 0x35 = 53)` @`KillUnitOperation$$Execute+0x10ac` -- 5e et DERNIER event,
         # publie sous le seul null-check du dispatcher (`if (dispatcher != null)` @L2033), hors de la
         # garde revive. Consommateur porte : `CosmicHorrorOnMoveAbility`.
-        out = out + post_unit_kill_triggers(state, target_id, attacker_id)
+        out = out + move_death.post_unit_kill_triggers(state, target_id, attacker_id)
         return out
 
     @staticmethod
@@ -668,10 +671,11 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # le degat demande) -- d'ou `applied > 0` ici. AVANT `_fire_death_if_killed` : cote natif la mort
         # n'est traitee qu'ensuite (`VerifyDeaths` -> `KillUnitOperation`), donc une victime tombee a 0 PV
         # est encore vivante quand l'event part. Seul consommateur porte : ThrillSeekers (branche 2).
-        from .triggers.dispatch import (damage_taken_triggers,       # lazy : cycle damage<->triggers
-                                        damage_dealt_triggers)
+        # lazy : cycle damage<->triggers. Forme MODULE : l'attribut est relu a l'appel, donc une
+        # substitution posee sur `dispatch.attack` mord quelle que soit la forme finale.
+        from .triggers.dispatch import attack as attack_dispatch
         if applied > 0:
-            damage_taken_triggers(state, attacker_id, target_id, profile=profile)
+            attack_dispatch.damage_taken_triggers(state, attacker_id, target_id, profile=profile)
         # `On(DamageDealt=0x10)` (#85) — le TROISIEME et DERNIER event de
         # `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `0x3a` -> `0xf` -> `0x10`).
         #
@@ -700,8 +704,9 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # bus 6/6 vs ordre imperatif 3/6, cf. la docstring de `damage_dealt_triggers`).
             # `is_first_hit` = « CE groupe de degat contient le coup d'index 0 » -> reproduit le gate
             # natif `IsFirstHitInSeries` sans derouler les coups.
-            damage_dealt_triggers(state, attacker_id, target_id, profile=profile,
-                                  is_first_hit=is_first_hit, triggering_effect=triggering_effect)
+            attack_dispatch.damage_dealt_triggers(
+                state, attacker_id, target_id, profile=profile,
+                is_first_hit=is_first_hit, triggering_effect=triggering_effect)
         death = AttackDamageOperation._fire_death_if_killed(
             state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=total,
             # `AbilityOrEffect` de la `DamageSource` du coup letal (`GetDamageSourceAbility`) : ce que
@@ -1452,7 +1457,7 @@ class DamageHandler:
         # `EvaluateTriggerOperation`). Itère le registre des triggers (traits/effets) ; chaque entrée
         # scope elle-même via sa condition (ex. Psyker OwnerIsActor). No-op si aucun trigger ne matche.
         if self.last is not None:
-            from .triggers import after_hit_normal_attack
+            from .triggers.dispatch.attack import after_hit_normal_attack
             # #437 : `profiles` / `health_damage` NE sont plus threades ici -- ils appartenaient au
             # seul `On(9)`, desormais emis a la SORTIE de `AttackDamageOperation.execute`
             # (`finish_attack_triggers`), le foyer natif (`AttackBehaviour$$Execute` -> FinishAttack).

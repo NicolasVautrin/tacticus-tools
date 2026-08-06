@@ -31,11 +31,13 @@ from . import plagueburst_mortar  # noqa: F401  (#302) 1169 -> route non-attaque
 from . import daemonic_ordnance  # noqa: F401  (#302 tranche 3) 1148 -> meme route, domaine TUILE
 from . import static_threshold_gate  # noqa: F401  (#419-r1-tr14-r5-r2-r1-r1-r1-r2) gate `utility > <static>` x10
 from .noncomparable import (
-    NonComparablePlaybook, NCContext, choose_action as nc_choose_action,
-    is_noncomp, is_summon, playbook_for as nc_playbook_for,
-    BloodyFuryPlaybook, VexillaMagnificaPlaybook,
-    FightingRetreatPlaybook, AberrantHypermorphPlaybook,
+    choose_action as nc_choose_action, is_noncomp, is_summon, playbook_for as nc_playbook_for
 )
+from .noncomparable._base import NCContext, NonComparablePlaybook
+from .noncomparable.aberrant_hypermorph import AberrantHypermorphPlaybook
+from .noncomparable.bloody_fury import BloodyFuryPlaybook
+from .noncomparable.fighting_retreat import FightingRetreatPlaybook
+from .noncomparable.vexilla_magnifica import VexillaMagnificaPlaybook
 
 
 def get_playbook_or_default(ability_id: int) -> ComparablePlaybook:

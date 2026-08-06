@@ -243,15 +243,17 @@ from ..entities.effects import calculate_attacker_modifiers_for_prediction
 from ..entities.effects.magnitude import ability_var
 from ..entities.formulas import _round_fix64
 from ..entities.stats import ARMOR_STAT_TYPES
-from ..entities.traits import TraitFactory, target_hit_multiplier
+from ..entities.traits import target_hit_multiplier
+from ..entities.traits.factory import TraitFactory
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..services.battle_query import is_melee_attack as _is_melee_attack
 from ..services.damage_prediction import get_attack_prediction
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
-from .prediction import (prediction_has_moved, prediction_has_teleported,
-                                 _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
-from .prediction import make_normal_attack_predictions
+from .prediction._shared import (
+    _PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
+    _entity_traits, _target_damage_limits, prediction_has_moved, prediction_has_teleported
+)
+from .prediction.normal_attack import make_normal_attack_predictions
 from .prediction._shared import _prediction_is_charging, defender_prediction_block_amount
 
 # Cle gameconfig de l'ability : le membre d'enum EST le nom de config. Le passer par

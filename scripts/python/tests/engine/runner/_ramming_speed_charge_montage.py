@@ -91,7 +91,7 @@ def build_charge_montage(enemy2_pos: tuple, move_range: int = 5) -> ChargeMontag
     candidates sont atteignables et le pool est le ring COMPLET prive des tuiles occupees."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.orks import ramming_speed_charge_tiles_selector
 
     if hexgeo.distance(tuple(enemy2_pos), TARGET_POS) != 1:

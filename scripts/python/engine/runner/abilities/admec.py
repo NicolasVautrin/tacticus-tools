@@ -17,9 +17,10 @@ from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, op_add
 from ...entities.formulas import (Const as _AmountConst, RoundsStarted, Sum,
                                   TotalRepairActionsAmount)
-from ...entities.selectors import (AdjacentUnits, AllUnits, Blocking, Caster, CasterTile,
-                                   FixedTileIds, Friends, SelectTile, SortReverse, Sub, Subject,
-                                   Target, TilesBehindInLine, Union, Units, UnitsWithTrait)
+from ...entities.selectors.accessors import CasterTile, FixedTileIds, SelectTile, Subject, Target
+from ...entities.selectors.geometry import Blocking, SortReverse, TilesBehindInLine
+from ...entities.selectors.tiles import AllUnits, Caster
+from ...entities.selectors.units import AdjacentUnits, Friends, Sub, Union, Units, UnitsWithTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.traits.unit_trait import UnitTrait
@@ -29,8 +30,10 @@ from .base import ActiveAbility
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions, custom_range)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon,
-                         Repair)
+from .behaviours.combat import AttackWithAttackDamage, InformWeapon
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect
+from .behaviours.stats import Repair
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 from ..components import PositionComponent
 from .targeting import units_are_enemies, valid_normal_attack_targets

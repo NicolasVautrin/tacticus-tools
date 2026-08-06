@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import pytest
 
-from engine.entities.pathfinding import (
-    Board, get_movable_positions, get_reachable_levels,
-)
+from engine.entities.pathfinding.board import Board
+from engine.entities.pathfinding.walk_pathfinder import get_movable_positions, get_reachable_levels
 
 MODES = ["native", "native_sym", "evenq"]
 

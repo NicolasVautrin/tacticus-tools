@@ -252,7 +252,9 @@ def test_le_plan_se_lie_a_la_couche_d_emission_sans_import_a_rebours():
 
     Il verifie aussi le point le plus facile a rater : les tags `ReceiveEffect` sont calcules UNE
     fois et PARTAGES (mirror d'`AddTargetsToEffect`, qui les hisse hors de son `foreach`)."""
-    from engine.streams import GroupType, StreamCache, StreamDispatcher
+    from engine.streams.dispatcher import StreamDispatcher
+    from engine.streams.group_type import GroupType
+    from engine.streams.stream_cache import StreamCache
     from engine.streams.refresh_effects import (EffectSetup, bind_refresh_actions,
                                                 generate_event_group)
 

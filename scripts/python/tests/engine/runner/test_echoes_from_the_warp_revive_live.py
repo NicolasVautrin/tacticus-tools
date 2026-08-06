@@ -98,7 +98,7 @@ def _pos(st, uid):
 
 
 def _move(st, uid, to):
-    from engine.runner.operations.triggers import after_move_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     MoveUnitOperation(uid, to).execute(st, EventBus())
     after_move_triggers(st, uid)
 

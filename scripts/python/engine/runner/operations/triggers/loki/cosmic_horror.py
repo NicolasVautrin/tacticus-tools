@@ -104,11 +104,14 @@ import hexgeo
 
 from ....state import State
 from ....components import (OwnerComponent, UnitComponent, PositionComponent, StatsComponent)
-from ....abilities.behaviours import AddEffect, Heal, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
+from ....abilities.behaviours.stats import Heal
 from .....entities.traits.unit_trait import UnitTrait, has_trait
 from .....entities.effect_type import EffectType
 from .....entities.effects.magnitude import ability_var
-from .....entities.selectors import Target, Caster
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.tiles import Caster
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent

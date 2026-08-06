@@ -124,14 +124,16 @@ from .....entities.behaviours import Seq, If as BIf
 from .....entities.effect_type import EffectType
 from .....entities.effects.magnitude import ability_var
 from .....entities.formulas import Count
-from .....entities.selectors import (AdjacentEnemies, Cache, Caster, Damageable, Otherwise,
-                                     PickRandomly, UnitsWithoutTrait)
+from .....entities.selectors.geometry import Cache, Otherwise, PickRandomly
+from .....entities.selectors.tiles import Caster
+from .....entities.selectors.units import AdjacentEnemies, Damageable, UnitsWithoutTrait
 from .....entities.stats import StatType
-from .....entities.traits import UnitTrait
+from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import AmountIsZero, IsAlive, Not, OwnerIsActor, TriggerAnd
-from ....abilities.behaviours import (AddStaticStatModifierEffect, AttackWithAttackDamage,
-                                      entities_from_state)
+from ....abilities.behaviours.combat import AttackWithAttackDamage
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddStaticStatModifierEffect
 from ....components import StatsComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent

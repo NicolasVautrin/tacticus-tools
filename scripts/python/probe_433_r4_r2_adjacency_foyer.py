@@ -319,7 +319,7 @@ def _nc_context(sid, rid, dv, uid):
     from engine import weights as W
     from engine.ai import context as _ai_ctx
     from engine.playbook import scene as _scene
-    from engine.playbook.noncomparable import NCContext
+    from engine.playbook.noncomparable._base import NCContext
     wt = W.load()
     mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 90)
     mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}

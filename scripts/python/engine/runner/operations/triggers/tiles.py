@@ -9,7 +9,7 @@ from __future__ import annotations
 from ...state import State
 from ...components import (PositionComponent, UnitComponent, OwnerComponent, StatsComponent,
                           HealthComponent)
-from ....entities.traits import UnitTrait, has_trait, has_any_trait
+from ....entities.traits.unit_trait import UnitTrait, has_any_trait, has_trait
 from .loki import FIRE_TILE
 from ....entities.effect_type import EffectType
 from ....entities.effects.loki.hits import LIGHT_COVER_TILE_ID

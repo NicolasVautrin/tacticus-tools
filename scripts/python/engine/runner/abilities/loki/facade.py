@@ -77,9 +77,13 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from ..base import ActiveAbility
-from ..behaviours import (AddEffect, KillDeadUnits, SwitchPosition, TriggerAbilityDelayed,
-                          UseActiveAbility, entities_from_state,
-                          TRIGGERED_ABILITY_DELAYED_BEHAVIOURS)
+from ..behaviours.combat import UseActiveAbility
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddEffect
+from ..behaviours.lifecycle import (
+    KillDeadUnits, TRIGGERED_ABILITY_DELAYED_BEHAVIOURS, TriggerAbilityDelayed
+)
+from ..behaviours.movement import SwitchPosition
 from ..targeting import RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from ..targeting_rule import TargetingRule as TR
 from ....dsl.base import Const
@@ -89,8 +93,12 @@ from ....entities.effect_type import EffectType
 from ....entities.triggered_ability_type import TriggeredAbilityType
 from ....entities.behaviours import If, op_add, op_and
 from ....entities.formulas import Count
-from ....entities.selectors import (Cache, Caster, CanAddUnit, First, SortByDistance, Target, Tiles,
-                                    Union, ValidNormalAttackTargets)
+from ....entities.selectors.accessors import Target
+from ....entities.selectors.geometry import Cache
+from ....entities.selectors.tiles import CanAddUnit, Caster
+from ....entities.selectors.units import (
+    First, SortByDistance, Tiles, Union, ValidNormalAttackTargets
+)
 from ....entities.triggers import AmountIsGreater, IsAlive, Not, TriggerAnd, TriggerOr
 from ....entities.traits.unit_trait import UnitTrait, has_trait
 from ...components import StatsComponent

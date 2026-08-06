@@ -26,7 +26,7 @@ from typing import Optional
 from ..state import State
 from ..components import (UnitComponent, PositionComponent, HealthComponent, UnitFlagsComponent)
 from ...entities.unit_flag import UnitFlag
-from .triggers.dispatch import unit_resurrected_triggers
+from .triggers.dispatch.move_death import unit_resurrected_triggers
 
 
 def update_flags_on_resurrect(fl: UnitFlagsComponent) -> None:

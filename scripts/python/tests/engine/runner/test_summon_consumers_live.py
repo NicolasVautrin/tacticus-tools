@@ -258,7 +258,7 @@ def test_waaagh_counter_case_without_perform_ai_action(waaagh):
     restent a distance 1. Sans ce contraste, « il a bouge » ne prouve rien."""
     from engine.dsl.effects import ExecutionContext
     from engine.runner.abilities.orks import waaagh_spawn_tree
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     d = waaagh
     if not d["res"]["spawned"]:
         pytest.skip("port n'a spawn aucun Ork Boy")

@@ -297,7 +297,7 @@ def phase_full(sid, args):
     eff = st.effects.by_unit.get(ally["id"], []) if st.effects is not None else []
     print("[full] OFFLINE effets de l'allie =",
           [(type(e).__name__, e.effect_type, e.source, e.active_ability_level) for e in eff])
-    from engine.runner.operations.triggers.dispatch import collect_triggered_abilities
+    from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
     reg = [type(t).__name__ for t in collect_triggered_abilities(st)]
     print("[full] OFFLINE registre triggers =", sorted(set(reg)))
     res = AttackDamageOperation.execute(st, ally["id"], foe["id"])
@@ -404,7 +404,7 @@ def _one_attack(sid, rid, tag, attacker, target, nid, mutate=False, sweep=None):
         # tirages RNG BRULES avant le coup. Le 1er localise un etage "valeur", le 2e un etage
         # "consommation RNG" -- les deux sont des localisateurs, ils ne DECIDENT de rien.
         # --- DIAG maillon (b) : le trigger 1507 est-il collecte, et son `matches` passe-t-il ? -----
-        from engine.runner.operations.triggers.dispatch import collect_triggered_abilities
+        from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
         from engine.runner.operations.triggers.base import TriggerEvent
         from engine.dsl.event_trigger_type import EventTriggerType
         from engine.runner.components import OwnerComponent, UnitComponent, StatsComponent

@@ -101,14 +101,17 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....abilities.behaviours import (AttackWithAbilityDamage, RefreshDynamicStatModifierValue,
-                                      entities_from_state)
+from ....abilities.behaviours.combat import AttackWithAbilityDamage
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.stats import RefreshDynamicStatModifierValue
 from .....entities.stats import StatType, StatPart
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.effect_type import EffectType
 from .....entities.formulas import PercentageOf, StatAmount, Sum, ConditionalAmount, Get
-from .....entities.selectors import Caster, CasterTile, AdjacentUnits, Sub, UnitsFromFaction
+from .....entities.selectors.accessors import CasterTile
+from .....entities.selectors.tiles import Caster
+from .....entities.selectors.units import AdjacentUnits, Sub, UnitsFromFaction
 from .....entities.triggers import HasEffect
 from .....entities.behaviours import op_and
 from .....entities.effects.magnitude import trait_var, ability_var

@@ -45,14 +45,14 @@ from __future__ import annotations
 import pytest
 
 from engine.dsl.event_trigger_type import EventTriggerType
-from engine.entities.effects import EffectFactory
+from engine.entities.effects.factory import EffectFactory
 from engine.entities.effects.base import BaseEffect
 from engine.entities.effects_state import EffectsState
 from engine.entities.pathfinding.board import Board
 from engine.runner.components import HealthComponent, UnitComponent
 from engine.runner.operations.damage import AttackDamageOperation
 from engine.runner.operations.revive import kill_unit_revive_gate
-from engine.runner.operations.triggers import after_death_triggers
+from engine.runner.operations.triggers.dispatch.move_death import after_death_triggers
 from engine.runner.operations.triggers.base import (EffectTrigger, TileEffectTrigger,
                                                     TriggerEvent, TriggeredAbility)
 from engine.runner.operations.triggers.dispatch import core as CORE

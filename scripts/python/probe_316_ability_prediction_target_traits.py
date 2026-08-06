@@ -339,7 +339,7 @@ def ported_ability_pred(scene, cid, tid, here, ability=(MARTIAL_INSPIRATION, ABI
 def ported_normal_pred(scene, cid, tid, here):
     """Prediction PORTEE de l'attaque NORMALE -- le TEMOIN de contraste (elle threade deja
     `target_traits`)."""
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     ev = make_normal_attack_predictions(scene, cid, tid, here)
     if ev is None:
         return None

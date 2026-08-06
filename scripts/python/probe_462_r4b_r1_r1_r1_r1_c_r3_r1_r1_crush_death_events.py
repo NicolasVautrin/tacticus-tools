@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
 from engine.entities.damage_reason import DamageReason                   # noqa: E402
-from engine.entities.traits import UnitTrait                             # noqa: E402
+from engine.entities.traits.unit_trait import UnitTrait  # noqa: E402
 from engine.runner.components import (HealthComponent, OwnerComponent,   # noqa: E402
                                       PositionComponent, StatsComponent, UnitComponent)
 from engine.runner.operations.triggers.base import EffectTrigger, TriggerEvent   # noqa: E402
@@ -120,7 +120,7 @@ def step_emission(mutate: str | None = None) -> int:
     `--mutate sans-emission` remet `_kill_steppable_kill_unit` a l'etat d'AVANT la tranche (les
     trois `RemoveEffects` SEULS, aucun evenement, aucune `RecordDeathReason`) : il DOIT rendre
     `vus=[]` et `death_source=None`, sinon la mesure ne discrimine rien."""
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     from engine.runner.operations import movement as MV
     if mutate == "sans-emission":
         def _retrait_seul(state, dead_id, killer_id):

@@ -45,10 +45,14 @@ from ...dsl.base import Const, resolve_unit
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.behaviours import op_add, op_and, AtomicGroup
 from ...entities.formulas import If as FormulaIf
-from ...entities.selectors import (Caster, CasterTile, AdjacentEnemies, AdjacentUnits, FixedTileIds,
-                                   Friends, TilesInTriangleShape, TilesOnSameElevation, Union,
-                                   UnitsWithTrait, Sub, Unique, Target, Walkable, ActiveTarget,
-                                   ThreeTileUnitSpawnShape)
+from ...entities.selectors.accessors import ActiveTarget, CasterTile, FixedTileIds, Target
+from ...entities.selectors.geometry import (
+    ThreeTileUnitSpawnShape, TilesInTriangleShape, TilesOnSameElevation, Walkable
+)
+from ...entities.selectors.tiles import Caster
+from ...entities.selectors.units import (
+    AdjacentEnemies, AdjacentUnits, Friends, Sub, Union, Unique, UnitsWithTrait
+)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
@@ -60,9 +64,14 @@ from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_WHOLE_BOARD,
                         RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, AddEffect, Heal, healable_heal_type_0,
-                         AttackWithAttackDamage, PushUnit, Spawn, RemoveMachine, AddTrait,
-                         AddTriggeredAbility, first_triggered_ability_of)
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect
+from .behaviours.grants import AddTrait, AddTriggeredAbility, first_triggered_ability_of
+from .behaviours.lifecycle import RemoveMachine
+from .behaviours.movement import PushUnit
+from .behaviours.stats import Heal, healable_heal_type_0
+from .behaviours.summon import Spawn
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 # #270-r4 : 	ag de DSLBehaviors.Inform, type DECLARE lu dans rida/methods.tsv.
 from ...streams.tag_key import TagKey
@@ -72,7 +81,7 @@ from ...entities.behaviours import If as IfBehaviour, Inform
 from ...entities.triggers import IsCharging
 from ..operations.spawn import _free_tiles_adjacent
 from ..operations.spawn import _spawn_config_grot
-from .behaviours import ChangeStat
+from .behaviours.stats import ChangeStat
 
 if TYPE_CHECKING:
     from ..state import State

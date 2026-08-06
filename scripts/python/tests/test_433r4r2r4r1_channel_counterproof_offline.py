@@ -175,7 +175,7 @@ def test_the_real_2026_08_04_regression_is_now_attributed_to_the_counterproof():
     qui parlait du port. APRES : `InertCounterproof` nomme `neigh_by_pos` a la premiere ligne.
 
     Le contexte est celui du fichier de gardes de `#433-r4-r2` -- pas une maquette."""
-    from engine.playbook.noncomparable import NCContext
+    from engine.playbook.noncomparable._base import NCContext
     from engine.playbook.noncomparable.early_warning_override import EarlyWarningOverridePlaybook
 
     haut = _voisins()[1]

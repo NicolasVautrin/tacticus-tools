@@ -37,7 +37,7 @@ from engine.runner.runner import Runner
 from engine.runner.messages import MoveUnitMessage
 from engine.runner.snapshot import load_state
 from engine.entities.effects_state import EffectsState
-from engine.entities.effects import EffectFactory
+from engine.entities.effects.factory import EffectFactory
 from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
 from engine.runner.operations.turnflow import EndTurnOperation

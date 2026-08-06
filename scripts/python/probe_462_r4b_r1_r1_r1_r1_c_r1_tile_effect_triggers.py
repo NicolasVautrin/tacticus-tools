@@ -77,7 +77,7 @@ def _state_avec_tuile(effect_type: int, tile_id: int = 900001, avec_board: bool 
     Le BOARD est ce qui rend la tuile RECONNAISSABLE (`board.by_id`) -- sans lui, un id
     introuvable reste un id introuvable, et c'est voulu."""
     from engine.entities.effects_state import EffectsState
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     from engine.entities.pathfinding.board import Board
     st = State()
     st.effects = EffectsState()

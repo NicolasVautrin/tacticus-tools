@@ -365,9 +365,9 @@ def run(seed: int = 8501, board_id: str = "MC1_67", foe: str = FOE,
         # BANDE de reference = celle que le NOEUD DSL lui-meme lit (`StatAmount(Target(), Health=5,
         # Maximum=2)`), PAS le `hpMax` de `decisionView` : c'est cette stat-la que
         # `PercentageOf(..., EffectConfig(9|10))` multiplie cote natif comme cote port.
-        from engine.runner.abilities.behaviours import entities_from_state as _efs
+        from engine.runner.abilities.behaviours.context import entities_from_state as _efs
         from engine.entities.formulas import StatAmount as _SA
-        from engine.entities.selectors import Target as _Tg
+        from engine.entities.selectors.accessors import Target as _Tg
         _tile_of_victim = _board_d.id_at(*pos_of(tgt_a)) if _board_d is not None else None
         dsl_max = None
         try:

@@ -166,7 +166,7 @@ def apply_action(state: State, uid: int, action: dict) -> dict:
       2. attaque normale (ability == 17) -> `AttackDamageOperation.execute` + vecteur after-hit (mirror
          exact du handler `visit_AttackUnitMessage`) ; ability ACTIVE -> handler (SLICE 2 ; 4 abilities portees).
     Re-check `alive` apres le move (l'overwatch peut tuer le summon avant qu'il n'attaque)."""
-    from .triggers import after_hit_normal_attack
+    from .triggers.dispatch.attack import after_hit_normal_attack
 
     e = state.get_entity(uid)
     pc = e.get_component(PositionComponent) if e is not None else None

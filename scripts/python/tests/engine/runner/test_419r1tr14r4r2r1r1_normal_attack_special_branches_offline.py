@@ -31,8 +31,10 @@ if str(_PYDIR) not in sys.path:
 
 from engine.entities.behaviours import AtomicGroup, Seq  # noqa: E402
 from engine.entities.effect_type import EffectType  # noqa: E402
-from engine.entities.selectors import Caster, Target  # noqa: E402
-from engine.runner.abilities.behaviours import AddEffect, Heal  # noqa: E402
+from engine.entities.selectors.accessors import Target
+from engine.entities.selectors.tiles import Caster  # noqa: E402
+from engine.runner.abilities.behaviours.effects import AddEffect
+from engine.runner.abilities.behaviours.stats import Heal  # noqa: E402
 from engine.runner.abilities.behaviours.stats import healable_heal_type_0  # noqa: E402
 from engine.runner.abilities.loki.feeder_tendrils import (  # noqa: E402
     ATOMIC_GROUP, CONFIG_ID, PINNED, feeder_tendrils_special_tree)

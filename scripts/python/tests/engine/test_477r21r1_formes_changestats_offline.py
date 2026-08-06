@@ -43,8 +43,11 @@ if str(PY) not in sys.path:
 
 from engine.dsl.event_trigger_type import EventTriggerType  # noqa: E402
 from engine.entities.stats import StatPart, StatType  # noqa: E402
-from engine.streams import (GroupType, StepType, StreamCache,  # noqa: E402
-                            StreamDispatcher, TagKey)
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.stream_cache import StreamCache
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.active_ability_ops import (AddedActiveAbility,  # noqa: E402
                                                add_active_ability,

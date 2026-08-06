@@ -206,11 +206,12 @@ import hexgeo
 
 from ...state import State
 from ...components import UnitComponent
-from ...abilities.behaviours import RemoveEffect, entities_from_state
+from ...abilities.behaviours.context import entities_from_state
+from ...abilities.behaviours.effects import RemoveEffect
 from ....dsl.effects import ExecutionContext
 from ....dsl.event_trigger_type import EventTriggerType
 from ....entities.effect_type import EffectType
-from ....entities.selectors import Caster
+from ....entities.selectors.tiles import Caster
 from .base import EffectTrigger, TriggerEvent
 from ...components import PositionComponent
 

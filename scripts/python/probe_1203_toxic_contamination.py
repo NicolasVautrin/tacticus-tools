@@ -141,7 +141,7 @@ def _mesure_a(sid, rid, board):
     from engine.runner.components import UnitComponent, OwnerComponent
     # DE-FORK : le canal 1203 n'est plus une fonction appelee imperativement, c'est un consommateur du
     # vecteur `On(DamageDealt = 0x10)` (registre `GLOBAL_TRIGGERS`). On l'exerce donc par son VECTEUR.
-    from engine.runner.operations.triggers.dispatch import damage_dealt_triggers
+    from engine.runner.operations.triggers.dispatch.attack import damage_dealt_triggers
 
     dv = _rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 150)
     ob = _rpc(sid, "observeBattle", {"runnerId": rid}, 60)

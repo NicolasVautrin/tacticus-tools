@@ -7,9 +7,13 @@ from typing import Optional
 
 from ....state import State
 from ....components import OwnerComponent, UnitComponent
-from ....abilities.behaviours import AttackWithAttackDamage, MoveUnit, AddEffect, entities_from_state
+from ....abilities.behaviours.combat import AttackWithAttackDamage
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
+from ....abilities.behaviours.movement import MoveUnit
 from .....entities.effect_type import EffectType
-from .....entities.selectors import Caster, Target, FixedTiles
+from .....entities.selectors.accessors import FixedTiles, Target
+from .....entities.selectors.tiles import Caster
 from .....entities.behaviours import Seq, If, Inform
 from .....entities.triggers import IsAdjacent, Not
 from .....services.movement_query import get_movable_tiles_for

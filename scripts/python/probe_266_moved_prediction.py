@@ -154,7 +154,7 @@ def native_utility(sid, rid, cid, tid, coord=None):
 def port_pred(sid, rid, cid, tid, dv, coord):
     from engine.playbook import scene as SC
     from engine.playbook.scene import Scene
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     predictor = SC.build_predictor(lambda m, b=None, t=120: rpc(sid, m, b, t), rid)
     sctx = SC.step_context(predictor, dv)
     scene = Scene.from_predictor_sctx(predictor, sctx, None)

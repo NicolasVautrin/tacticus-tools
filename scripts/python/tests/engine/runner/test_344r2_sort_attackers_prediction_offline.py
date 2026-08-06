@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import pytest
 
-from engine.entities import UnitContext
+from engine.entities.unit_context import UnitContext
 from engine.entities.effects_state import EffectsState
 from engine.entities.stats import StatType, UnitStats
 from engine.runner.abilities.darkangels import (_exemplar_of_hate_attackers,

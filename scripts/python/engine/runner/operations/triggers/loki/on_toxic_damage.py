@@ -77,11 +77,13 @@ from typing import Optional
 import gameconfig as GC
 
 from ....state import State
-from ....abilities.behaviours import AddEffect, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
 from .....entities.behaviours import If
 from .....entities.damage_trait import DamageTrait
 from .....entities.effect_type import EffectType
-from .....entities.selectors import Target, Tiles
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.units import Tiles
 from .....entities.triggers import IsFirstHitInSeries, MaybeTrigger, TriggerAnd
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext

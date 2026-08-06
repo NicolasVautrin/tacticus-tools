@@ -25,7 +25,7 @@ from typing import Optional
 
 from ..components import ActiveAbilityModificationsComponent
 from ..state import State
-from ..abilities.behaviours import entities_from_state
+from ..abilities.behaviours.context import entities_from_state
 
 
 class AddUnitActiveAbilityModificationOperation:

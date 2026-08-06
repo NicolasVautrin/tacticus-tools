@@ -73,7 +73,7 @@ from engine.dsl.effects import ExecutionContext
 from engine.entities.behaviours import Emit, Seq
 from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
-from engine.entities.selectors import Target
+from engine.entities.selectors.accessors import Target
 from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.abilities.behaviours.effects import AddEffect
 from engine.runner.abilities.darkangels import ExemplarOfHateAbility

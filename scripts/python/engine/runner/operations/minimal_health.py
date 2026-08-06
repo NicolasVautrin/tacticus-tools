@@ -27,7 +27,7 @@ from typing import Optional
 
 from ..state import State
 from ..components import UnitComponent, OwnerComponent, HealthComponent
-from ...entities.effects.loki import HypersensoryMinimalHealthEffect
+from ...entities.effects.loki.status import HypersensoryMinimalHealthEffect
 from ...entities.effect_type import EffectType
 
 # Flag once/turn du passif (G6b) : `HypersensoryAbilities_HasBeenAttacked` (0x57f=1407), posé par

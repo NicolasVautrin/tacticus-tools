@@ -38,8 +38,8 @@ from rl_collect_batch import _resolve_session, _rpc                        # noq
 from engine.runner.snapshot import load_state                              # noqa: E402
 from engine.runner.prng import IntBasedMersenneTwister                     # noqa: E402
 from engine.runner.components import UnitComponent, HealthComponent        # noqa: E402
-from engine.runner.operations.triggers import (pre_unit_death_2_triggers,  # noqa: E402
-                                               unit_is_overkill)
+from engine.runner.operations.triggers.dispatch.move_death import pre_unit_death_2_triggers
+from engine.services.damage_prediction import unit_is_overkill  # noqa: E402
 
 STATE = Path(r"C:\Users\nicolasv\AppData\Local\Temp\claude"
              r"\C--Users-nicolasv-tacticus-tools\b2170732-95be-4660-9594-e3e86a19af08"

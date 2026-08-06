@@ -25,7 +25,7 @@ from engine.ai import context as _ai_ctx  # noqa: E402
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
 from engine.entities.stats import StatType, StatPart  # noqa: E402
 from engine_agreement_stages import _fields_from_native_event  # noqa: E402
-from engine.playbook.prediction import defender_prediction_block_amount  # noqa: E402
+from engine.playbook.prediction._shared import defender_prediction_block_amount  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]

@@ -33,7 +33,7 @@ import gameconfig as _gc
 import hexgeo
 
 import engine.playbook.prediction as prediction   # sous-paquet FRERE, pas `from . import` (#270-r4-r2)
-from .prediction import make_secondary_multihit_event
+from .prediction.abilities import make_secondary_multihit_event
 from .common import DefaultActiveAbilityPlaybook
 from .base import NO_ACTION, register, tile_utility, tile_utility_for_unit
 from .nonattack import NonAttackComparablePlaybook, register_nonattack

@@ -36,9 +36,13 @@ from .components import (
 )
 from ..entities.entity_type import EntityType   # #270-r1-r1-r3
 from ..entities.stats import StatType           # #462-r4e-o-r2-r1-r1 (`_load_turn_counts`)
-from ..entities import EffectsState, EffectFactory
-from ..entities import UnitContext, EffectFactory
-from ..entities import UnitContext, EffectsState, EffectFactory, baked_ability_state
+from ..entities.effects.factory import EffectFactory
+from ..entities.effects_state import EffectsState
+from ..entities.effects.factory import EffectFactory
+from ..entities.unit_context import UnitContext
+from ..entities.effects.factory import EffectFactory
+from ..entities.effects_state import EffectsState, baked_ability_state
+from ..entities.unit_context import UnitContext
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.traits.unit_trait import trait_names_from_ids
 from ..entities.triggered_ability_type import TriggeredAbilityType

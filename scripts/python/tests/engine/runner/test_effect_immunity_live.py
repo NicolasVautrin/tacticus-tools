@@ -46,10 +46,10 @@ import pytest
 import stream_events as SE
 import probe_112_darkangels as PR
 import probe_224_effect_immunity as IM
-from engine.entities.effects import EffectFactory
+from engine.entities.effects.factory import EffectFactory
 from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
-from engine.entities.traits import UnitTrait
+from engine.entities.traits.unit_trait import UnitTrait
 from engine.runner.abilities.admec import SentinelDirectivesAbility
 from engine.runner.abilities.darkangels import ExemplarOfHateAbility
 from engine.runner.components import unit_state_for_effects

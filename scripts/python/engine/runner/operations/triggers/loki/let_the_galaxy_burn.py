@@ -96,7 +96,7 @@ from typing import Optional
 
 from ....state import State
 from ....components import PositionComponent, PersistentDataComponent
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.context import entities_from_state
 from .....entities.effects.loki.hits import LET_THE_GALAXY_BURN_PERSISTENT_KEY
 from .....entities.effects.magnitude import trait_var
 from .....entities.triggers import MaybeTrigger

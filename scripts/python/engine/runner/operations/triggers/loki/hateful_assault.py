@@ -121,13 +121,14 @@ from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.behaviours import op_add
 from .....entities.damage_profile_type import DamageProfileType
 from .....entities.effect_type import EffectType
-from .....entities.selectors import UnitSet
+from .....entities.selectors.units import UnitSet
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....components import OwnerComponent, PositionComponent, UnitComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent, _unit_tile
-from ....abilities.behaviours import AddEffect, AttackWithAttackDamage
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.combat import AttackWithAttackDamage
+from ....abilities.behaviours.effects import AddEffect
+from ....abilities.behaviours.context import entities_from_state
 from ....abilities.targeting import is_targetable
 
 ABILITY_ID = "HatefulAssault"                                        # cle gameconfig (minDmg/maxDmg/nrOfHits)

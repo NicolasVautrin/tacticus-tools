@@ -119,10 +119,11 @@ from typing import Optional
 from .....battle_query import are_entities_adjacent
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
-from .....entities.selectors import Owner
+from .....entities.selectors.accessors import Owner
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....abilities.attack_type import is_normal_attack
-from ....abilities.behaviours import ResetActiveAbility, entities_from_state
+from ....abilities.behaviours.ability_state import ResetActiveAbility
+from ....abilities.behaviours.context import entities_from_state
 from ....components import (OwnerComponent, PositionComponent, UnitComponent,
                             UnitFlagsComponent)
 from ....state import State

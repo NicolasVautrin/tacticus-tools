@@ -34,7 +34,7 @@ if str(PYDIR) not in sys.path:
     sys.path.insert(0, str(PYDIR))
 
 import hexgeo                                                              # noqa: E402
-from engine.entities.effects import BaseEffect                             # noqa: E402
+from engine.entities.effects.base import BaseEffect  # noqa: E402
 from engine.entities.effects_state import EffectsState                     # noqa: E402
 from engine.runner.components import HealthComponent, UnitComponent        # noqa: E402
 from engine.runner.operations.damage import AttackDamageOperation          # noqa: E402

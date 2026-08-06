@@ -37,8 +37,8 @@ if str(PYDIR) not in sys.path:
 
 import hexgeo                                                              # noqa: E402
 from engine.dsl.base import DslContext                                     # noqa: E402
-from engine.entities.selectors import (Caster, FilterTilesIfCanAttackTargetTileFrom,  # noqa: E402
-                                       FixedTileIds, Target)
+from engine.entities.selectors.accessors import FixedTileIds, Target
+from engine.entities.selectors.tiles import Caster, FilterTilesIfCanAttackTargetTileFrom  # noqa: E402
 
 
 class _Board:

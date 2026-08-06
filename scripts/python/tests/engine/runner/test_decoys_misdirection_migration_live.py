@@ -136,7 +136,7 @@ def test_g2_enemy_step_blast(g2_state):
     `DamageEnemies` fire un Blast sur le stepper (crush + dégâts). On(0x1d), AreEnemies(Isaak, stepper)."""
     from engine.runner.operations.spawn import spawn_decoy
     from engine.runner.operations.movement import MoveUnitOperation
-    from engine.runner.operations.triggers.dispatch import after_move_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     from engine.runner.events import EventBus
     from engine.runner.components import UnitComponent
     state = g2_state["build_state"]()
@@ -173,7 +173,7 @@ def test_g2_friendly_step_buff_and_decoy(g2_state):
     AreFriends(Isaak, stepper)."""
     from engine.runner.operations.spawn import spawn_decoy
     from engine.runner.operations.movement import MoveUnitOperation
-    from engine.runner.operations.triggers.dispatch import after_move_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     from engine.runner.events import EventBus
     from engine.runner.components import UnitComponent
     state = g2_state["build_state"]()
@@ -206,7 +206,7 @@ def test_g2_no_trigger_without_dead_decoy(g2_state):
     """GARDE : un move ordinaire (sans decoy ami crushé) ne déclenche NI DamageEnemies NI BuffFriends
     (`AmountIsGreaterThanZero(GetValidDeadDecoys)` = 0). Confirme que le vecteur On(0x1d) ne sur-fire pas."""
     from engine.runner.operations.movement import MoveUnitOperation
-    from engine.runner.operations.triggers.dispatch import after_move_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     from engine.runner.events import EventBus
     state = g2_state["build_state"]()
     board = g2_state["board"]

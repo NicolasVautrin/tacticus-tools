@@ -139,7 +139,7 @@ def test_un_coup_sur_une_cible_deja_overkillee_n_applique_ni_n_emet_rien():
     fl = e.add_component(UnitFlagsComponent())
     fl.add(UnitFlagsComponent.OVERKILLED)
     fired = []
-    import engine.runner.operations.triggers.dispatch as _D
+    import engine.runner.operations.triggers.dispatch.attack as _D
     _orig = _D.damage_dealt_triggers
     try:
         _D.damage_dealt_triggers = lambda *a, **k: fired.append(a) or []

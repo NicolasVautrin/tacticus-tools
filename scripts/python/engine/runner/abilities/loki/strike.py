@@ -19,14 +19,18 @@ from ....dsl.base import Const, _round_fix64
 from ....dsl.effects import ExecutionContext
 from ....dsl.event_trigger_type import EventTriggerType   # #209 : EvaluateAbilities(EventTriggerType) node
 from ....entities.behaviours import AtomicGroup, op_add, op_and
-from ....entities.selectors import (Caster, Target, CasterTile, TargetTile, Union, UnitsFromFaction,
-                                    AdjacentFriends, Alive, Cache, FixedTiles, SelectTile,
-                                    tiles_unit_can_move_to_charge_target)
+from ....entities.selectors.accessors import CasterTile, FixedTiles, SelectTile, Target, TargetTile
+from ....entities.selectors.geometry import Cache
+from ....entities.selectors.tiles import Caster, tiles_unit_can_move_to_charge_target
+from ....entities.selectors.units import AdjacentFriends, Alive, Union, UnitsFromFaction
 from ....utilities.tile import first_tile_by_utility
 from ....utilities.utility_type import UtilityType
-from ..behaviours import (AttackWithAttackDamage, AddEffect, EvaluateAbilities, PushUnit, MoveUnit,
-                          KillDeadUnits, AddBondEffect, Heal, SetHealth, UseActiveAbility,
-                          entities_from_state)
+from ..behaviours.combat import AttackWithAttackDamage, EvaluateAbilities, UseActiveAbility
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddBondEffect, AddEffect
+from ..behaviours.lifecycle import KillDeadUnits
+from ..behaviours.movement import MoveUnit, PushUnit
+from ..behaviours.stats import Heal, SetHealth
 
 if TYPE_CHECKING:
     from ...state import State

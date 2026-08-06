@@ -33,7 +33,9 @@ from __future__ import annotations
 
 import pytest
 
-from engine.entities import EffectFactory, EffectsState, UnitContext
+from engine.entities.effects.factory import EffectFactory
+from engine.entities.effects_state import EffectsState
+from engine.entities.unit_context import UnitContext
 from engine.entities.effects.magnitude import ability_var
 from engine.entities.stats import StatType, CAPTURED_SOURCE
 from engine.runner.components import OwnerComponent, StatsComponent, UnitComponent

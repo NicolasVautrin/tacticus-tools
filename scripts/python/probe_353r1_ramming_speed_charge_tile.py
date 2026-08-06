@@ -209,9 +209,11 @@ def _load(sid, rid):
 def _three_arms(state, board, caster, target):
     """Les trois bras, sur le MEME etat : port LIVRE / bucket ampute / operandes intervertis."""
     from engine.dsl.base import Const
-    from engine.entities.selectors import (AdjacentTiles, CanAddUnit, Caster, CasterTile,
-                                           MovableTilesInRange, Target, TileIntersect)
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.entities.selectors.accessors import CasterTile, Target
+    from engine.entities.selectors.tiles import (
+        AdjacentTiles, CanAddUnit, Caster, MovableTilesInRange, TileIntersect
+    )
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.orks import (RAMMING_SPEED_TILE_UTILITY,
                                               ramming_speed_charge_tiles_selector,
                                               ramming_speed_tile_to_move_to)

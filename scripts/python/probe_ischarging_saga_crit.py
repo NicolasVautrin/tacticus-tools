@@ -51,7 +51,7 @@ def _crit_face(mode):
     """Court-circuite le GATE de la face CRIT de 1223 -- et RIEN d'autre (ni magnitude, ni canal).
     `off` = jamais de contribution (etat PRE-FIX) ; `always` = contribution inconditionnelle ;
     `count` = livre, mais on TRACE chaque appel `(is_charging_recu, contribution)`."""
-    from engine.entities.effects.loki import SagaOfTheWarriorBornOwnerEffect as C
+    from engine.entities.effects.loki.hits import SagaOfTheWarriorBornOwnerEffect as C
     orig = C.create_effect_crit_damage_bonus_for_attack
     calls = []
     if mode == "off":

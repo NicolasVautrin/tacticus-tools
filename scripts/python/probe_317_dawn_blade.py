@@ -87,7 +87,7 @@ MUTATIONS = ("heal",)
 def _board():
     """Board REEL (`MC1_67`), en adjacence `evenq` -- la meme construction que `probe_120`."""
     import board as B
-    from engine.entities.pathfinding import Board as EngineBoard
+    from engine.entities.pathfinding.board import Board as EngineBoard
     p = _ROOT / "data" / "boards" / "global" / (BOARD_ID + ".json")
     dump = json.loads(p.read_text(encoding="utf-8"))
     bd = B.Board({"Board": dump["board"], "SpawnPointSetIndex": dump.get("spawnPointsSet", 0)})
@@ -123,7 +123,7 @@ def _scene(carrier_hp, carrier_max, victim_col, victim_row, effects=()):
     `alive = False` -- meme choix que `probe_301` (le montage teste le TRIGGER, pas le pipeline de
     degat qui l'emet)."""
     from engine.runner.state import State
-    from engine.entities import EffectsState
+    from engine.entities.effects_state import EffectsState
     state = State()
     state.board = _board()
     state.effects = EffectsState.seed({})
@@ -131,7 +131,7 @@ def _scene(carrier_hp, carrier_max, victim_col, victim_row, effects=()):
     victim = _add_unit(state, VICTIM, victim_col, victim_row, team=2, player=4,
                        hp=0, hp_max=10000, alive=False)
     for name, etype, level in effects:
-        from engine.entities.effects import EffectFactory
+        from engine.entities.effects.factory import EffectFactory
         state.effects.add_effect(carrier, EffectFactory.create(
             {"name": name, "effectType": etype, "level": level, "source": carrier},
             ability_variables_multiplier=100))
@@ -140,7 +140,7 @@ def _scene(carrier_hp, carrier_max, victim_col, victim_row, effects=()):
 
 def _fire(state, carrier, victim) -> list:
     """Emet `On(UnitDeath = 0)` avec `actor = killer = carrier`, `target = dying = victim`."""
-    from engine.runner.operations.triggers import unit_death_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import unit_death_triggers
     return unit_death_triggers(state, victim, carrier) or []
 
 

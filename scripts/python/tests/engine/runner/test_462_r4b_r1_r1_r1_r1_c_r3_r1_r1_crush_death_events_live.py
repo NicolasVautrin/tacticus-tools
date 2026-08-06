@@ -49,7 +49,7 @@ import hexgeo
 from engine.entities import formulas as F
 from engine.entities.damage_reason import DamageReason
 from engine.entities.pathfinding.board import Board
-from engine.entities.traits import UnitTrait, has_trait
+from engine.entities.traits.unit_trait import UnitTrait, has_trait
 from engine.runner.components import (HealthComponent, PositionComponent, StatsComponent,
                                       UnitComponent)
 from engine.runner.messages import MoveUnitMessage
@@ -413,7 +413,7 @@ def test_le_crush_publie_les_quatre_evenements_de_mort():
     c'etait l'ecart d'ORDRE que la fiche nommait, et il est ferme. Le foyer publie desormais les
     CINQ, ici meme -- donc ce montage SYNTHETIQUE (appel direct de `_kill_steppable_units`, sans
     pipeline de move) les voit tous les cinq, alors qu'il n'en voyait que quatre."""
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     from engine.runner.operations import movement as MV
     from engine.runner.operations.triggers.dispatch import registry as REG
     et = PR._effect_type_libre()

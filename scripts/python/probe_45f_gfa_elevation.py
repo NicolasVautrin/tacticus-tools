@@ -46,10 +46,11 @@ from engine.runner.prng import IntBasedMersenneTwister            # noqa: E402
 from engine.entities.pathfinding.board import Board               # noqa: E402
 from engine.runner.abilities.spacewolves import great_frost_axe_ice_tiles, ICE_TILE  # noqa: E402
 from engine.entities.behaviours import op_and, If                 # noqa: E402
-from engine.entities.selectors import Target                      # noqa: E402
+from engine.entities.selectors.accessors import Target  # noqa: E402
 from engine.entities.triggers import IsAlive                      # noqa: E402
-from engine.runner.abilities.behaviours import (AttackWithAttackDamage, AddEffect,
-                                                entities_from_state)  # noqa: E402
+from engine.runner.abilities.behaviours.combat import AttackWithAttackDamage
+from engine.runner.abilities.behaviours.context import entities_from_state
+from engine.runner.abilities.behaviours.effects import AddEffect  # noqa: E402
 from engine.dsl.effects import ExecutionContext                   # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent

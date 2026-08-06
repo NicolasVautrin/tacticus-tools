@@ -34,7 +34,7 @@ from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
 from engine.runner.components import PositionComponent, OwnerComponent, StatsComponent
 from engine.runner.operations.effects import AddEffectOperation, default_amount_of_rounds
-from engine.runner.operations.triggers.dispatch import after_hit_normal_attack
+from engine.runner.operations.triggers.dispatch.attack import after_hit_normal_attack
 from engine.runner.operations.turnflow import StartTurnOperation
 from engine.runner.abilities.base import convert_rounds_to_turns
 

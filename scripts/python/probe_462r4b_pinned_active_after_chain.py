@@ -50,7 +50,7 @@ import probe_n5_chain_after_refused_addeffect as N5
 import rl_collect_batch as R
 from engine.dsl.effects import ExecutionContext
 from engine.entities.pathfinding.board import Board
-from engine.entities.selectors import Target
+from engine.entities.selectors.accessors import Target
 from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.abilities.behaviours.effects import AddEffect
 from engine.runner.abilities.darkangels import ExemplarOfHateAbility
@@ -156,7 +156,7 @@ def run(sid, victim_visual, layout):
         if "--trace" in sys.argv:
             import traceback
 
-            from engine.entities.effects import EffectFactory
+            from engine.entities.effects.factory import EffectFactory
             from engine.entities.effects.loki.status import PinnedEffect
 
             class _TracingPinned(PinnedEffect):

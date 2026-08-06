@@ -12,23 +12,31 @@ Découpage fidèle au namespace natif :
 from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrigger,
                    PHASE_TRIGGER_CAP, triggered_ability_state,
                    _unit_tile, _hex_dist, _adjacent_enemies, _is_adjacent_units)
-from .dispatch import (
-    TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS, EFFECT_TRIGGERS,
-    collect_triggered_abilities, collect_effect_triggers, evaluate_trigger_operation,
-    after_death_triggers, is_overkill, unit_is_overkill, start_turn_triggers,
-    turn_start_other_triggers, tile_tick_triggers,
-    unit_finished_turn_triggers, unit_finished_turn_normally_triggers,
-    pre_attack_triggers, pre_unit_ability_triggers, unit_post_ability_triggers,
-    after_hit_normal_attack, after_hit_ability_attack, after_move_triggers, displace_triggers,
-    attack_damage_attack_triggers, finish_attack_triggers,
-    end_turn_summon_triggers, unit_defeated_triggers, unit_death_triggers,
-    unit_resurrected_triggers, pre_unit_death_2_triggers, pre_effect_added_triggers,
-    pre_effect_removed_triggers, effect_removed_triggers,
-    unit_revived_triggers, pending_death_added_triggers,
-    post_unit_kill_triggers, arrived_at_final_tile_triggers,
-    pre_move_triggers, unit_position_changed_1_triggers, unit_position_changed_2_triggers,
-    unit_removed_triggers, phase_end_triggers,
+from .dispatch.ability import pre_unit_ability_triggers, unit_post_ability_triggers
+from .dispatch.attack import (
+    after_hit_ability_attack, after_hit_normal_attack, attack_damage_attack_triggers,
+    finish_attack_triggers, pre_attack_triggers
 )
+from .dispatch.core import (
+    collect_effect_triggers, collect_triggered_abilities, evaluate_trigger_operation
+)
+from .dispatch.move_death import (
+    after_death_triggers, after_move_triggers, arrived_at_final_tile_triggers, displace_triggers,
+    effect_removed_triggers, pending_death_added_triggers, post_unit_kill_triggers,
+    pre_effect_added_triggers, pre_effect_removed_triggers, pre_move_triggers,
+    pre_unit_death_2_triggers, unit_death_triggers, unit_defeated_triggers,
+    unit_position_changed_1_triggers, unit_position_changed_2_triggers, unit_removed_triggers,
+    unit_resurrected_triggers, unit_revived_triggers
+)
+from .dispatch.phase import phase_end_triggers
+from .dispatch.registry import (
+    ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS, EFFECT_TRIGGERS, TRAIT_TRIGGERS
+)
+from .dispatch.turn import (
+    end_turn_summon_triggers, start_turn_triggers, tile_tick_triggers, turn_start_other_triggers,
+    unit_finished_turn_normally_triggers, unit_finished_turn_triggers
+)
+from engine.services.damage_prediction import is_overkill, unit_is_overkill
 from .loki import (
     _fire_of_absolution_after_attack, OnFireDamageAbility, OnToxicDamageAbility,
     THEBETRAYER_EFFECT, ACTOFFAITH_EFFECT,

@@ -65,7 +65,7 @@ def test_neutered_arm_condition_of_validity():
 
     Le critere est DERIVE du registre, jamais saisi : la presence d'une des deux entrees suffit a
     invalider le montage."""
-    from engine.entities.effects import EFFECT_CLASSES
+    from engine.entities.effects.factory import EFFECT_CLASSES
     ported = [EffectType(e).name for e in _COMBAT_EFFECTS
               if EffectType(e).name in EFFECT_CLASSES]
     assert not ported, (

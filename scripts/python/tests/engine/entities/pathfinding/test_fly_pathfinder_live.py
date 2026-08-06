@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 import gameconfig as GC
-from engine.entities.pathfinding import Board
+from engine.entities.pathfinding.board import Board
 from engine.entities.pathfinding.fly_pathfinder import (
     get_movable_positions as fly_gmp, is_like_flying)
 from engine.entities.pathfinding.walk_pathfinder import get_movable_positions as walk_gmp

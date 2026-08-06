@@ -48,9 +48,10 @@ from _charge_regime import charge_regime                          # noqa: E402,F
 
 from engine.entities.effects import block_hits_reduction_from_effects   # noqa: E402
 from engine.entities.effects.factory import EFFECT_CLASSES        # noqa: E402
-from engine.entities.effects.loki import (                        # noqa: E402
+from engine.entities.effects.loki.inescapable_accuracy import (
     InescapableAccuracyExtraCritChanceEffect, InescapableAccuracyExtraCritDamageEffect,
-    InescapableAccuracyOverrideHitsEffect)
+    InescapableAccuracyOverrideHitsEffect
+)  # noqa: E402
 from engine.services.attack_hits_formula import attack_hits_with_modifiers   # noqa: E402
 from probe_366_r1_inescapable_accuracy_override_hits import (     # noqa: E402
     AURA_CARRIER, EFFECT_NAME, EFFECT_TYPE, EXPECTED_HITS, MAUGAN, TARGET_AURA, TARGET_MELEE,

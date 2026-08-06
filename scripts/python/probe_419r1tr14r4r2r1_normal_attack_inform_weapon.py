@@ -61,7 +61,8 @@ from engine.services.battle_query import (get_attack_weapon_for_default_normal_a
                                           weapon_is_melee)
 from engine.services.custom_normal_attack import (custom_normal_attack,  # noqa: E402
                                                   inform_weapon_use_special)
-from engine.streams import StreamCache, StreamDispatcher  # noqa: E402
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.stream_cache import StreamCache  # noqa: E402
 from engine.streams.group_type import GroupType  # noqa: E402
 from engine.streams.inform_ops import inform  # noqa: E402
 from engine.streams.tag_key import TagKey  # noqa: E402

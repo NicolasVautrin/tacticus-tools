@@ -69,7 +69,7 @@ def cpb(rpc, live_session):
 def test_cpb_trigger_registered(cpb):
     """(A) Le passif `CursedPlagueBell` enregistre le trigger MOUVEMENT sur Corrodius (voie
     `passiveAbilities` du registre), sur l'event `On(TurnStart_Other=0x13=19)`."""
-    from engine.runner.operations.triggers.dispatch import collect_triggered_abilities
+    from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
     from engine.runner.operations.triggers.loki.cursed_plague_bell import (
         CursedPlagueBellMovementAbility)
     from engine.runner.snapshot import load_state

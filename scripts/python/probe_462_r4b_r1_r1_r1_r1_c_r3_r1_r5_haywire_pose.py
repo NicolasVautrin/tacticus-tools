@@ -294,7 +294,7 @@ def _diagnostic(st, cid: int) -> None:
     on cherche le PREMIER etage ou le port cesse de mirrorer."""
     from engine.runner.components import (PositionComponent, StatsComponent,
                                           UnitFlagsComponent, persistent_data)
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
     from engine.runner.operations.triggers.loki.haywire_mine import (haywire_mine_tiles,
                                                                      HAYWIRE_MINE_ID,

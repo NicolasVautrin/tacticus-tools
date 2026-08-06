@@ -77,9 +77,9 @@ from _dotgg_aura_regime import (ADJACENT, CARRIER, FAR, RING2_NON_TAU,       # n
 
 from engine.entities.effects.factory import EFFECT_CLASSES                   # noqa: E402
 from engine.entities.effects.magnitude import ability_var                    # noqa: E402
-from engine.entities.effects.loki import (                                   # noqa: E402
-    DefenderOfTheGreaterGoodExtraDmgDroneEffect,
-    DefenderOfTheGreaterGoodExtraDmgEffect)
+from engine.entities.effects.loki.extra_damage_aura import (
+    DefenderOfTheGreaterGoodExtraDmgDroneEffect, DefenderOfTheGreaterGoodExtraDmgEffect
+)  # noqa: E402
 
 _EFFECT_NAME = "DefenderOfTheGreaterGood_ExtraDmg"
 _BENEF_NON_TAU = "darkaHellblaster"     # Imperial, arme RANGED non-Psychic -> tier ADJACENT

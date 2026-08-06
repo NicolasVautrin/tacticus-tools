@@ -91,10 +91,10 @@ from .....entities.behaviours import Seq
 from .....entities.damage_profile_type import DamageProfileType
 from .....entities.effect_type import EffectType
 from .....entities.effects.magnitude import ability_var
-from .....entities.selectors import Caster
+from .....entities.selectors.tiles import Caster
 from .....entities.stats import StatType
 from ....components import OwnerComponent, StatsComponent, UnitComponent
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddStaticStatModifierEffect
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent

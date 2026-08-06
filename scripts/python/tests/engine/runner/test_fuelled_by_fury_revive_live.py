@@ -26,9 +26,10 @@ import pytest
 
 from engine.runner.snapshot import load_state
 from engine.runner.operations.damage import AttackDamageOperation
-from engine.runner.operations.triggers import TriggerEvent, evaluate_trigger_operation
-from engine.runner.operations.triggers.dispatch import (pending_death_added_triggers,
-                                                        tile_tick_triggers)
+from engine.runner.operations.triggers.base import TriggerEvent
+from engine.runner.operations.triggers.dispatch.core import evaluate_trigger_operation
+from engine.runner.operations.triggers.dispatch.move_death import pending_death_added_triggers
+from engine.runner.operations.triggers.dispatch.turn import tile_tick_triggers
 from engine.runner.operations.triggers.loki.fuelled_by_fury import (
     FUELLED_BY_FURY_CAN_REVIVE, FUELLED_BY_FURY_ABILITY, _can_revive_is_armed,
     _set_can_revive_active)

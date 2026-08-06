@@ -46,8 +46,8 @@ PYDIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(PYDIR))
 
 from rl_collect_batch import _resolve_session, _rpc                      # noqa: E402
-from engine.entities.pathfinding import (                               # noqa: E402
-    Board, get_movable_positions, get_reachable_levels)
+from engine.entities.pathfinding.board import Board
+from engine.entities.pathfinding.walk_pathfinder import get_movable_positions, get_reachable_levels  # noqa: E402
 
 ROOT = PYDIR.parents[1]
 STATE = ROOT / "logs" / "runners" / "agent205-probe.json"

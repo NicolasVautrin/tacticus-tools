@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 
-from engine.entities import seed_unit_stats, compare_unit_stats
+from engine.entities.stats import compare_unit_stats, seed_unit_stats
 
 
 def test_getstat_offline_matches_native(rpc, build_runner):

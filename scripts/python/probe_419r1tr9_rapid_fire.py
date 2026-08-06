@@ -310,7 +310,7 @@ def _attest_damage_bounds(ctx, cid, ab, tile, foes) -> dict:
     AUTRE cible (en-tete du port, point 5). Sans cette lecture, un residu de prediction d'un point
     de degat se lirait comme un bug du playbook. Bornes natives = `decisionView.attackPlans`,
     `ranked[].dmgMin/dmgMax` (= `AccurateHealthDamage`, le meme champ que le port publie)."""
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     from engine.services.min_max_damage import min_max_avg
     out = {}
     plan = (ctx.plans.get(cid) or {})
@@ -415,7 +415,7 @@ def build_case(sid, rpc, rid: int, regime: str) -> dict:
     # suppose des PV poses au build.
     verdicts = {}
     if regime in ("kill", "remove"):
-        from engine.playbook.prediction import make_normal_attack_predictions
+        from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
         for t in foes:
             pev = make_normal_attack_predictions(ctx.scene, cid, t, C)
             pr = getattr(pev, "prediction", None) if pev is not None else None
@@ -570,7 +570,7 @@ def _mutant_class(mutant: str, ctx_ab: int):
                 targets = [t for t in targets if t != case_tgt_id]
                 if not targets:
                     return 0.0
-            from engine.playbook.prediction import make_normal_attack_predictions
+            from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
             ev = make_normal_attack_predictions(sc, attacker_uid, case_tgt_id, attack_tile)
             pred = getattr(ev, "prediction", None) if ev is not None else None
             if pred is None:

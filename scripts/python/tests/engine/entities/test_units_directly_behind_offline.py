@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import hexgeo
 from engine.dsl.base import DslContext
-from engine.entities.selectors import UnitsDirectlyBehind
+from engine.entities.selectors.units import UnitsDirectlyBehind
 
 
 def _u(uid, col, row, team):

@@ -51,7 +51,7 @@ from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
 from engine.runner.components import HealthComponent, PositionComponent, UnitComponent
 from engine.runner.messages import AttackUnitMessage
-from engine.runner.operations.triggers.dispatch import damage_dealt_triggers
+from engine.runner.operations.triggers.dispatch.attack import damage_dealt_triggers
 from engine.runner.operations.triggers.loki.on_toxic_damage import TOXIC_CHANCE_KEY
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.runner import Runner

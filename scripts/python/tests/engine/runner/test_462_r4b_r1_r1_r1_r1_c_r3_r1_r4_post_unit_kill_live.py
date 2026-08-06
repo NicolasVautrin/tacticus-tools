@@ -162,7 +162,7 @@ def test_le_heal_du_patermine_part_du_crush_et_une_seule_fois(env, monkeypatch):
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
     from engine.runner.operations.spawn import spawn_decoy
-    from engine.runner.operations.triggers.dispatch import after_move_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     from engine.runner.operations.triggers.loki import cosmic_horror as CH
     from engine.runner.components import PositionComponent
 

@@ -40,7 +40,9 @@ sys.path.insert(0, os.path.dirname(__file__))      # helpers siblings
 from _charge_regime import charge_regime                          # noqa: E402,F401  (fixture)
 
 from engine.entities.effects.factory import EFFECT_CLASSES        # noqa: E402
-from engine.entities.effects.loki import InescapableAccuracyExtraCritChanceEffect  # noqa: E402
+from engine.entities.effects.loki.inescapable_accuracy import (
+    InescapableAccuracyExtraCritChanceEffect
+)  # noqa: E402
 from probe_366_r1_inescapable_accuracy_crit_chance import (       # noqa: E402
     EFFECT_NAME, EFFECT_TYPE, MAUGAN, neutralized_seed_bc, replay, stage, strike)
 
@@ -121,8 +123,9 @@ def test_registry_binds_dedicated_class():
     MEME corps de `$$.ctor` (dedup IL2CPP) : le ctor « fondu » ne fait PAS une classe commune. Les
     volets 1115 et 1116 sont desormais TOUS DEUX portes, mais chacun par SA classe -- les fondre en
     une seule referait l'erreur que le slot refute."""
-    from engine.entities.effects.loki import (InescapableAccuracyExtraCritDamageEffect,
-                                              InescapableAccuracyOverrideHitsEffect)
+    from engine.entities.effects.loki.inescapable_accuracy import (
+        InescapableAccuracyExtraCritDamageEffect, InescapableAccuracyOverrideHitsEffect
+    )
     assert EFFECT_CLASSES.get(EFFECT_NAME) is InescapableAccuracyExtraCritChanceEffect
     assert (EFFECT_CLASSES.get("InescapableAccuracy_extraCritDmg")
             is InescapableAccuracyExtraCritDamageEffect)

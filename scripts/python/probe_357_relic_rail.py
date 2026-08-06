@@ -226,7 +226,7 @@ def _port_repair(dv, ob, snap, board, ability_states, carrier_vis: str, victim_v
     deviendrait un vert qui ment. C'est `False`, et lui seul, qui exprime le refus.
     Rend `{repaired, amount, events, level, mult, tertiary}`."""
     from engine.runner.components import HealthComponent, StatsComponent, UnitComponent
-    from engine.runner.operations.triggers import unit_death_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import unit_death_triggers
     from engine.runner.operations.triggers.loki.dawn_blade import hp_to_heal
     from engine.runner.snapshot import load_state
 

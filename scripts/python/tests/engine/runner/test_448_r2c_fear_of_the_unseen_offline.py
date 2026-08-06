@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 
 import hexgeo                                                            # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
-from engine.entities import EffectsState                                 # noqa: E402
+from engine.entities.effects_state import EffectsState  # noqa: E402
 from engine.entities.effect_type import EffectType                       # noqa: E402
 from engine.entities.pathfinding.board import Board                      # noqa: E402
 from engine.runner.components import set_unit_feet                       # noqa: E402

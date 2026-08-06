@@ -125,12 +125,14 @@ from typing import Optional
 from ....state import State
 from ....components import OwnerComponent, StatsComponent, unit_state_for_effects
 from ....abilities.base import turns_until_unit_owner_turn
-from ....abilities.behaviours import (ActivateEffect, AddStaticStatModifierEffect, RemoveEffect,
-                                      entities_from_state)
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import (
+    ActivateEffect, AddStaticStatModifierEffect, RemoveEffect
+)
 from .....entities.behaviours import op_and
 from .....entities.damage_reason import DamageReason
 from .....entities.effect_type import EffectType
-from .....entities.selectors import Caster
+from .....entities.selectors.tiles import Caster
 from .....entities.stats import StatType
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext

@@ -40,7 +40,8 @@ from __future__ import annotations
 
 from ....state import State
 from .....entities.traits.unit_trait import UnitTrait
-from .....entities.selectors import Caster, Target
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.tiles import Caster
 from .....entities.triggers import IsAdjacent
 from ..base import TriggerEvent
 from ..revive_effect import ReviveEffectAbility, are_friends

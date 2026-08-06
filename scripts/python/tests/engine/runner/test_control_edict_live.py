@@ -293,7 +293,7 @@ def test_control_edict_protector_summon_offline_agreement(live_session, rpc, bui
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
     from engine.runner.operations.spawn import build_summon_context
-    from engine.runner.operations.triggers.dispatch import after_hit_normal_attack
+    from engine.runner.operations.triggers.dispatch.attack import after_hit_normal_attack
     import hexgeo
 
     rid = build_runner("777", extra=BUILD)["rid"]
@@ -364,7 +364,7 @@ def test_control_edict_cap_offline(live_session, rpc, build_runner):
     from engine.runner.components import StatsComponent, UnitComponent, OwnerComponent
     from engine.entities.effects.magnitude import ability_var
     from engine.runner.operations.spawn import (_spawn_config_grot, _free_tiles_adjacent, _occupied_tiles)
-    from engine.runner.operations.triggers.dispatch import after_hit_normal_attack
+    from engine.runner.operations.triggers.dispatch.attack import after_hit_normal_attack
 
     rid = build_runner("777", extra=BUILD)["rid"]
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
@@ -434,7 +434,7 @@ def test_control_edict_conqueror_summons_attack_offline_agreement(live_session, 
     from engine.runner.components import StatsComponent, HealthComponent, PositionComponent, OwnerComponent
     from engine.runner.abilities.loki import DoctrinaImperativesAbility
     from engine.runner.operations.spawn import _spawn_config_grot, _occupied_tiles
-    from engine.runner.operations.triggers.dispatch import after_hit_normal_attack
+    from engine.runner.operations.triggers.dispatch.attack import after_hit_normal_attack
     import hexgeo
 
     rid = build_runner("777", extra=BUILD)["rid"]

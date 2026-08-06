@@ -140,7 +140,7 @@ def _je(state):
 def test_g6b_passive_registers_trigger(g6b_state):
     """(A) Le passif HypersensoryAbilities enregistre le trigger MoveAndSpawnDecoy sur Judh (voie
     passiveAbilities du registre AbilityAndEffectCache)."""
-    from engine.runner.operations.triggers.dispatch import collect_triggered_abilities
+    from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
     from engine.runner.operations.triggers.genestealer import HypersensoryMoveAndSpawnDecoyAbility
     state = g6b_state["build_state"]()
     judh, _ = _je(state)
@@ -156,7 +156,7 @@ def test_g6b_passive_registers_trigger(g6b_state):
 def test_g6b_reaction_move_decoy_flag(g6b_state):
     """(B) 1re attaque du tour ennemi : Judh MOVE vers une tuile adjacente libre + DECOY sur la tuile QUITTEE
     + flag 1407 pose. On drive : ennemi adjacent, compteur Judh=1 (post-1re-attaque), puis On(9)."""
-    from engine.runner.operations.triggers.dispatch import evaluate_trigger_operation
+    from engine.runner.operations.triggers.dispatch.core import evaluate_trigger_operation
     from engine.runner.operations.triggers.base import TriggerEvent
     from engine.dsl.event_trigger_type import EventTriggerType
     from engine.runner.components import UnitComponent
@@ -190,7 +190,7 @@ def test_g6b_reaction_move_decoy_flag(g6b_state):
 
 def test_g6b_counter_attack_in_range(g6b_state):
     """(C) L'attaquant a <= range(2) hex apres le move -> contre-attaque 3x Projectile : ses PV baissent."""
-    from engine.runner.operations.triggers.dispatch import evaluate_trigger_operation
+    from engine.runner.operations.triggers.dispatch.core import evaluate_trigger_operation
     from engine.runner.operations.triggers.base import TriggerEvent
     from engine.dsl.event_trigger_type import EventTriggerType
     state = g6b_state["build_state"]()
@@ -215,7 +215,7 @@ def test_g6b_counter_attack_in_range(g6b_state):
 def test_g6b_once_per_turn_then_rearm(g6b_state):
     """(D) 2e attaque du meme tour -> AUCUNE reaction (flag 1407 + compteur>=2). reset_times_attacked
     (start_turn) efface le flag ET le compteur -> Judh se re-arme."""
-    from engine.runner.operations.triggers.dispatch import evaluate_trigger_operation
+    from engine.runner.operations.triggers.dispatch.core import evaluate_trigger_operation
     from engine.runner.operations.triggers.base import TriggerEvent
     from engine.runner.operations.minimal_health import reset_times_attacked
     from engine.dsl.event_trigger_type import EventTriggerType
@@ -250,7 +250,7 @@ def test_g6b_on9_emitted_from_normal_attack(g6b_state):
     `finish_attack_triggers`, emis a la SORTIE de `AttackDamageOperation.execute` -- mirror du noeud
     DSL `Attack(...)` natif (`AttackBehaviour$$Execute` -> `processor.FinishAttack` slot 0x3b ->
     `FinishAttackOperation$$Execute`). Le test suit le foyer ; l'observable est inchange."""
-    from engine.runner.operations.triggers.dispatch import finish_attack_triggers
+    from engine.runner.operations.triggers.dispatch.attack import finish_attack_triggers
     state = g6b_state["build_state"]()
     board = g6b_state["board"]
     judh, enemy = _je(state)

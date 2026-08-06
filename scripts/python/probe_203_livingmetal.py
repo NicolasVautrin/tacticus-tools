@@ -31,7 +31,7 @@ sys.path.insert(0, str(PYDIR))
 
 from rl_collect_batch import _resolve_session, _rpc                       # noqa: E402
 from engine.runner.snapshot import load_state                            # noqa: E402
-from engine.runner.operations.triggers import turn_start_other_triggers  # noqa: E402
+from engine.runner.operations.triggers.dispatch.turn import turn_start_other_triggers  # noqa: E402
 from engine.runner.operations.triggers.loki.living_metal import (        # noqa: E402
     living_metal_pct, _round_half_even)
 

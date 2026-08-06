@@ -33,7 +33,7 @@ from ..services.battle_query import are_entities_adjacent
 from ..services.movement_query import get_min_distance
 from .formulas import AuraEffectRange, MinDistance
 from .formulas import Count
-from .selectors import MechanicalUnits
+from .selectors.units import MechanicalUnits
 from .selectors._shared import _entity_pos
 from .selectors.tiles import CanAddUnit
 

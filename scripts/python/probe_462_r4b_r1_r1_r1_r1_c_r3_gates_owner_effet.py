@@ -135,7 +135,7 @@ def _effect_type_libre() -> int:
 
 def _state_unite_avec_effet(effect_type: int, *, vivant: bool, hp: int = 10):
     from engine.entities.effects_state import EffectsState
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     from engine.runner.components import HealthComponent
     st = State()
     st.effects = EffectsState()
@@ -224,7 +224,7 @@ def step_gate() -> int:
         resultats.append((libelle, len(_Sonde.vus)))
     # porteur INTROUVABLE : une cle de `by_unit` qui n'est ni une entite ni une tuile
     from engine.entities.effects_state import EffectsState
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     st = State()
     st.effects = EffectsState()
     orphelin = 987654

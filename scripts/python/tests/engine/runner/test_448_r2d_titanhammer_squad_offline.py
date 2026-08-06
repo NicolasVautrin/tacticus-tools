@@ -43,9 +43,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 
 import hexgeo                                                            # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
-from engine.entities import EffectsState                                 # noqa: E402
+from engine.entities.effects_state import EffectsState  # noqa: E402
 from engine.entities.effect_type import EffectType                       # noqa: E402
-from engine.entities.effects import EffectFactory                        # noqa: E402
+from engine.entities.effects.factory import EffectFactory  # noqa: E402
 from engine.entities.pathfinding.board import Board                      # noqa: E402
 from engine.runner.components import _TELEPORT_MOVE_EFFECTS              # noqa: E402
 from engine.runner.operations.effects import AddEffectOperation          # noqa: E402

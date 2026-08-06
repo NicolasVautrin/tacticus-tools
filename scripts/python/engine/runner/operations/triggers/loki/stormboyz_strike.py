@@ -136,13 +136,18 @@ from typing import Optional
 
 from ....state import State
 from ....components import StatsComponent, PositionComponent, unit_has_moved
-from ....abilities.behaviours import (AddEffect, Kill, MoveUnit, OverrideUnitMovementTarget,
-                                      RemoveEffect, RemoveUnitFromItsTiles, TriggerAbility,
-                                      entities_from_state)
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect, RemoveEffect
+from ....abilities.behaviours.lifecycle import Kill, RemoveUnitFromItsTiles, TriggerAbility
+from ....abilities.behaviours.movement import MoveUnit, OverrideUnitMovementTarget
 from .....entities.behaviours import Seq, If, Inform
 from .....entities.formulas import Count
-from .....entities.selectors import (AdjacentTiles, AllTiles, CanAddUnit, Caster, FixedTile,
-                                     PickFirstN, PickRandomly, SortTilesByUtility, Tiles)
+from .....entities.selectors.accessors import FixedTile
+from .....entities.selectors.geometry import PickFirstN, PickRandomly
+from .....entities.selectors.tiles import (
+    AdjacentTiles, AllTiles, CanAddUnit, Caster, SortTilesByUtility
+)
+from .....entities.selectors.units import Tiles
 from .....entities.triggers import AmountIsEqual, MaybeTrigger
 from .....entities.effect_type import EffectType
 from .....entities.stats import StatType

@@ -301,7 +301,7 @@ def replay_offline(rec, board, with_effect):
     (mirror de l'`AddEffect(0x49d, ..., Caster, Caster)` du natif).
 
     Rend `{weapon, extra, effects}`."""
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     from engine.runner.messages import AttackUnitMessage
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.runner import Runner

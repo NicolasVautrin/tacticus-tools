@@ -194,10 +194,14 @@ import gameconfig as GC
 from ....dsl.base import Const
 from ....dsl.effects import ExecutionContext
 from ....entities.behaviours import AtomicGroup, Foreach
-from ....entities.selectors import (AdjacentEnemies, AdjacentFriends, AdjacentUnits, And, Caster,
-                                    CasterTile, Enemies, Owner, Sub, Subject, SurroundingEnemies,
-                                    Target, TargetTile, Unobscured)
-from ..behaviours import AttackWithAttackDamage, entities_from_state
+from ....entities.selectors.accessors import CasterTile, Owner, Subject, Target, TargetTile
+from ....entities.selectors.tiles import Caster
+from ....entities.selectors.units import (
+    AdjacentEnemies, AdjacentFriends, AdjacentUnits, And, Enemies, Sub, SurroundingEnemies,
+    Unobscured
+)
+from ..behaviours.combat import AttackWithAttackDamage
+from ..behaviours.context import entities_from_state
 from ....services.battle_query import are_tiles_adjacent
 from ....services.custom_normal_attack import substitutes_normal_attack
 from ...components import PositionComponent

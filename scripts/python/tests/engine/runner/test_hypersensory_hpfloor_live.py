@@ -65,7 +65,7 @@ def _uc(state, uid):
 
 
 def _minimal_effect(state, uid):
-    from engine.entities.effects.loki import HypersensoryMinimalHealthEffect
+    from engine.entities.effects.loki.status import HypersensoryMinimalHealthEffect
     for e in (state.effects.by_unit.get(int(uid), []) if state.effects is not None else []):
         if isinstance(e, HypersensoryMinimalHealthEffect) and not e.consumed:
             return e

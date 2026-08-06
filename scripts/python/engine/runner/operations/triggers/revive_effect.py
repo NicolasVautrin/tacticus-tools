@@ -84,17 +84,18 @@ from typing import Optional
 
 from ...state import State
 from ...components import StatsComponent, OwnerComponent, UnitComponent, HealthComponent
-from ...abilities.behaviours import entities_from_state
+from ...abilities.behaviours.context import entities_from_state
 from ...abilities.behaviours.stats import is_mechanical
 from ....entities.behaviours import op_add, Maybe
-from ....entities.selectors import Caster, Target
+from ....entities.selectors.accessors import Target
+from ....entities.selectors.tiles import Caster
 from ....entities.traits.unit_trait import UnitTrait
 from ....entities.effects.magnitude import ability_var
 from ....dsl.base import _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult, ExecutionContext
 from ....dsl.event_trigger_type import EventTriggerType
 from .base import TriggeredAbility, EffectTrigger, TriggerEvent
-from ....entities.selectors import _tile_positions
+from ....entities.selectors._shared import _tile_positions
 
 PERMADEATH = int(UnitTrait.PermaDeath)                     # 0x41a=1050 (NOT HasTrait -> CanBeRevived)
 AFFECTED_BY_HEAL = int(UnitTrait.AffectedByHealAndRepair)  # 0x421=1057 (IsAffectedByHealType)

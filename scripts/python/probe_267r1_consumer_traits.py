@@ -186,7 +186,7 @@ def etage2(runner_id) -> int:
     import rl_collect_batch as R                                               # noqa: E402
     from engine.playbook import scene as SC                                    # noqa: E402
     from engine.playbook.scene import Scene                                    # noqa: E402
-    from engine.playbook.prediction import _entity_traits                      # noqa: E402
+    from engine.playbook.prediction._shared import _entity_traits  # noqa: E402
     from engine.entities.traits.unit_trait import trait_names_from_ids         # noqa: E402
 
     sid = R._resolve_session()

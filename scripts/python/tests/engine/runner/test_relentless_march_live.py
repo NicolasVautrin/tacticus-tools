@@ -79,7 +79,7 @@ def test_rm_tree_filter_applies_to_addeffect_only():
     Lu au desassemblage de `...RelentlessMarchAbility$$CreateBehaviour` : le resultat de
     `DSLSelectors$$UnitsWithoutTrait` part en 4e argument d'`AddEffect`, tandis que `Repair` recoit
     le meme `Friends(AdjacentUnits(Owner))` que ce filtre CONSOMME."""
-    from engine.entities.selectors import Friends, UnitsWithoutTrait
+    from engine.entities.selectors.units import Friends, UnitsWithoutTrait
     from engine.entities.traits.unit_trait import UnitTrait
     from engine.runner.operations.triggers.loki.relentless_march import (
         relentless_march_behaviour_tree)
@@ -103,7 +103,7 @@ def test_rm_custom_branch_subtracts_heroes():
     decompile. Branche SANS appelant cote port (`AdaptiveStrategy` 1005 n'est pas portee) : elle est
     exercee ICI, offline, plutot que laissee muette."""
     from engine.dsl.event_trigger_type import EventTriggerType
-    from engine.entities.selectors import Friends, Sub, UnitsWithTrait
+    from engine.entities.selectors.units import Friends, Sub, UnitsWithTrait
     from engine.runner.operations.triggers.loki.relentless_march import relentless_march_targets
     normal = relentless_march_targets(int(EventTriggerType.TurnStart_Other))
     assert isinstance(normal, Friends), "hors Custom : l'arbre est le Friends(AdjacentUnits(Owner))"
@@ -121,7 +121,7 @@ def test_rm_trigger_registered(rm):
     """(A) Le passif `RelentlessMarch` enregistre le trigger sur Makhotep (voie `passiveAbilities`
     du registre), sur l'event `On(TurnStart_Other = 0x13 = 19)`."""
     from engine.dsl.event_trigger_type import EventTriggerType
-    from engine.runner.operations.triggers.dispatch import collect_triggered_abilities
+    from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
     from engine.runner.operations.triggers.loki.relentless_march import RelentlessMarchAbility
     from engine.runner.snapshot import load_state
     row = rm["rows"][0]

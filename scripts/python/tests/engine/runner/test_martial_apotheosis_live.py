@@ -92,7 +92,7 @@ from engine.runner.snapshot import load_state
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.operations.damage import AttackDamageOperation
 from engine.runner.abilities.base import ability_attack_params
-from engine.runner.operations.triggers import start_turn_triggers
+from engine.runner.operations.triggers.dispatch.turn import start_turn_triggers
 from engine.runner.operations.triggers.base import TriggerEvent
 from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
 from engine.runner.operations.triggers.loki.martial_apotheosis import MartialApotheosisAttackAbility

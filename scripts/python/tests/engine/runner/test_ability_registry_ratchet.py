@@ -46,7 +46,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from engine.runner.abilities import ABILITY_CLASSES
+from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 

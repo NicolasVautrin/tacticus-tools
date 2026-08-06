@@ -51,7 +51,7 @@ PYDIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(PYDIR))
 
 from rl_collect_batch import _resolve_session, _rpc                            # noqa: E402
-from engine.entities import EffectsState                                       # noqa: E402
+from engine.entities.effects_state import EffectsState  # noqa: E402
 from engine.runner.components import (effects_prevent_overkill,                # noqa: E402
                                       PREVENT_OVERKILL_EFFECT)
 from probe_r34_overkill_decision import (build, view, by_visual, place_ring,    # noqa: E402

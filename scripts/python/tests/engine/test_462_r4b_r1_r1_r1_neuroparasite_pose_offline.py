@@ -32,14 +32,15 @@ if _PY not in sys.path:
     sys.path.insert(0, _PY)
 
 from engine.dsl.event_trigger_type import EventTriggerType                    # noqa: E402
-from engine.entities import UnitContext                                       # noqa: E402
+from engine.entities.unit_context import UnitContext  # noqa: E402
 from engine.entities.effect_type import EffectType                            # noqa: E402
 from engine.entities.effects.magnitude import ability_var                     # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType       # noqa: E402
 from engine.runner.abilities.behaviours.effects import AddBondEffect          # noqa: E402
 from engine.runner.components import StatsComponent                           # noqa: E402
 from engine.runner.state import Entity, State                                 # noqa: E402
-from engine.entities.selectors import Caster, Target                          # noqa: E402
+from engine.entities.selectors.accessors import Target
+from engine.entities.selectors.tiles import Caster  # noqa: E402
 from engine.runner.operations.triggers.dispatch.registry import (             # noqa: E402
     ABILITY_TRIGGERS, EFFECT_TRIGGERS)
 from engine.runner.operations.triggers.loki.neuroparasite import (            # noqa: E402

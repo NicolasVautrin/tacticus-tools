@@ -51,8 +51,9 @@ sys.path.insert(0, str(PYDIR))
 from engine.entities.effect_type import EffectType                              # noqa: E402
 from engine.runner.operations.triggers.bond_removal import (                    # noqa: E402
     BOND_REMOVAL_GATES, BondRemoveOnBondedEntityDeath)
-from engine.runner.operations.triggers.dispatch import (                        # noqa: E402
-    pre_unit_death_2_triggers, unit_removed_triggers)
+from engine.runner.operations.triggers.dispatch.move_death import (
+    pre_unit_death_2_triggers, unit_removed_triggers
+)  # noqa: E402
 from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS  # noqa: E402
 
 NEUROPARASITE = int(EffectType.Neuroparasite)                 # 1218 = 0x4c2

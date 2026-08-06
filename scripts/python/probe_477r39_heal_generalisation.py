@@ -43,7 +43,8 @@ import probe_477r15a_stream_conformance as R15A  # noqa: E402
 import probe_477r19_process_removals as R19  # noqa: E402
 import probe_477r21_activation_tree as R21  # noqa: E402
 import probe_477r22_turn_phase as R22  # noqa: E402
-from engine.streams import StepType, TagKey  # noqa: E402
+from engine.streams.step_type import StepType
+from engine.streams.tag_key import TagKey  # noqa: E402
 
 ROOT = HERE.parents[1]
 OUT = ROOT / "logs"

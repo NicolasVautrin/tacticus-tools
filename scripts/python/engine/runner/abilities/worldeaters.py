@@ -102,14 +102,17 @@ from typing import Optional, TYPE_CHECKING
 
 from ...entities.behaviours import op_and, AtomicGroup
 from ...entities.formulas import Count, Get, If
-from ...entities.selectors import (Target, CasterTile, TargetTile, AdjacentUnits, AdjacentEnemies,
-                                   And, Caster)
+from ...entities.selectors.accessors import CasterTile, Target, TargetTile
+from ...entities.selectors.tiles import Caster
+from ...entities.selectors.units import AdjacentEnemies, AdjacentUnits, And
 from ...entities.triggers import AmountIsGreater
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ...dsl.effects import ExecutionContext
 from .base import ActiveAbility
-from .behaviours import entities_from_state, AttackWithAttackDamage, SubtractHealthPercent
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.stats import SubtractHealthPercent
 from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from ..components import StatsComponent

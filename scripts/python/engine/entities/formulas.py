@@ -17,7 +17,7 @@ from ..services.movement_query import get_distance
 from .active_ability_type import ActiveAbilityType
 from .effects.aura import aura_trait, aura_current_range, aura_next_turn_range
 from .effects.magnitude import ability_var
-from .selectors import _tile_positions
+from .selectors._shared import _tile_positions
 from .stats import StatType
 
 

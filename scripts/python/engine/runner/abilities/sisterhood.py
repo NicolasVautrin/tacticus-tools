@@ -19,11 +19,17 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, op_add, op_and, If
 from ...entities.formulas import ConditionalAmount, Const as _AmountConst, Count, StatAmount, Sum
-from ...entities.selectors import (Target, TargetTile, Caster, AdjacentUnits, Enemies,
-                                   FilterContinuous, FixedTileIds, PickFirstN, SortByFormula,
-                                   Subject, Sub, SurroundingTiles, SurroundingUnits, Tiles,
-                                   TilesBehindInLine, Units, UnitsWithTrait,
-                                   TileFromVector, TileUnique, Unobscured, FixedTiles, Union)
+from ...entities.selectors.accessors import (
+    FixedTileIds, FixedTiles, Subject, SurroundingTiles, Target, TargetTile
+)
+from ...entities.selectors.geometry import (
+    FilterContinuous, PickFirstN, TileFromVector, TilesBehindInLine
+)
+from ...entities.selectors.tiles import Caster, TileUnique
+from ...entities.selectors.units import (
+    AdjacentUnits, Enemies, SortByFormula, Sub, SurroundingUnits, Tiles, Union, Units,
+    UnitsWithTrait, Unobscured
+)
 from ...entities.triggers import (Not, AreEnemies, HasFaction, HasTrait, HasUnit, IsAlive, IsAdjacent,
                                   OwnerIsAlive, TriggerAnd, IsPositionMachineForCurrentPlayer)
 from ...entities.active_ability_type import ActiveAbilityType
@@ -39,7 +45,10 @@ from .base import ActiveAbility
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions, are_entities_adjacent, entity_tiles, get_adjacent_tiles)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddBondEffect, AddEffect
+from .behaviours.movement import MoveUnit
 from .base import convert_rounds_to_turns
 
 if TYPE_CHECKING:

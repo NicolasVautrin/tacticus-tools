@@ -55,8 +55,9 @@ from typing import Optional
 
 from ....state import State
 from ....components import OwnerComponent
-from ....abilities.behaviours import AddEffect, entities_from_state
-from .....entities.selectors import Target
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
+from .....entities.selectors.accessors import Target
 from .....entities.effect_type import EffectType
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType

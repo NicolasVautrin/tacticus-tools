@@ -298,7 +298,7 @@ def test_perform_ai_attack_leaf_dispatches_after_hit(live_session, rpc, build_ru
     `On(9)`. Sonde identique (Judh). Avant le de-fork, la feuille dupliquait cible+gate+attaque SANS le
     vecteur after-hit : aucun trigger post-attaque ne partait des grots/Poxwalkers/Cadians."""
     from engine.runner.abilities.deathguard import spawn_poxwalkers_tree
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.dsl.effects import ExecutionContext
     state, board, dv = _setup(rpc, build_runner, "2468", BLIGHT, f"{JUDH},{FILLER}")
     taken = set()
@@ -363,7 +363,7 @@ def _replica_run(state, scarab_id):
     PEUT se deplacer avant d'attaquer (`+0x78 moveAmount = null`), donc sa position finale n'est
     plus sa tuile de spawn : lire la position APRES coup mesurerait l'approche, pas le placement."""
     from engine.runner.abilities.loki import scarab_summon_tree
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.dsl.effects import ExecutionContext
     ectx = ExecutionContext(state=state, rng=state.rng)
     scarab_summon_tree().execute(entities_from_state(state, scarab_id), ectx)

@@ -86,8 +86,9 @@ def _build(swamps=(), occupants=()):
 def _pool(state, board, swamps=(), occupants=(), move_range=MOVE_RANGE) -> set:
     """Le pool NU du noeud DSL, en (col,row)."""
     from engine.dsl.base import Const
-    from engine.entities.selectors import Caster, CasterTile, MovableTilesInRange
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.entities.selectors.accessors import CasterTile
+    from engine.entities.selectors.tiles import Caster, MovableTilesInRange
+    from engine.runner.abilities.behaviours.context import entities_from_state
     ents = entities_from_state(state, CASTER_ID, CASTER_ID)
     sel = MovableTilesInRange(Caster(), CasterTile(), Const(int(move_range)),
                               ignore_flags=False, ignore_units_on_tiles=False)
@@ -193,9 +194,11 @@ def test_l_intersection_de_charge_est_inchangee_sur_un_board_sans_blocage():
     c'est ce qui garantit que le datapoint d'ORDRE de `case-353` sec.5bis n'a pas bouge."""
     from ._ramming_speed_charge_montage import build_charge_montage
     from engine.dsl.base import Const
-    from engine.entities.selectors import (AdjacentTiles, CanAddUnit, Caster, CasterTile,
-                                           MovableTilesInRange, Target, TileIntersect)
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.entities.selectors.accessors import CasterTile, Target
+    from engine.entities.selectors.tiles import (
+        AdjacentTiles, CanAddUnit, Caster, MovableTilesInRange, TileIntersect
+    )
+    from engine.runner.abilities.behaviours.context import entities_from_state
 
     m = build_charge_montage((2, 3), move_range=5)
     ents = entities_from_state(m.state, m.caster_id, m.target_id)
@@ -226,8 +229,9 @@ def test_le_pool_nu_lui_a_bien_change():
     from ._ramming_speed_charge_montage import (CASTER_ID as MC_CASTER, CASTER_POS as MC_POS,
                                                 TARGET_ID as MC_TARGET, build_charge_montage)
     from engine.dsl.base import Const
-    from engine.entities.selectors import Caster, CasterTile, MovableTilesInRange
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.entities.selectors.accessors import CasterTile
+    from engine.entities.selectors.tiles import Caster, MovableTilesInRange
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.components import PositionComponent, UnitComponent
 
     m = build_charge_montage((2, 3), move_range=5)

@@ -88,7 +88,11 @@ import probe_477r19_process_removals as R19  # noqa: E402
 import probe_477r20_start_match as R20  # noqa: E402
 from engine.entities.effect_type import EffectType  # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType  # noqa: E402
-from engine.streams import GroupType, StepType, StreamCache, StreamDispatcher, TagKey  # noqa: E402
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.stream_cache import StreamCache
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.evaluate_trigger import evaluate_ability_trigger  # noqa: E402
 from engine.streams.inform_ops import (get_inform_tags,  # noqa: E402

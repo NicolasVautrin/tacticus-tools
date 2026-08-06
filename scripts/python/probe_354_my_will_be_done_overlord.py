@@ -367,8 +367,11 @@ def _patched_tree(mutate):
       `nomechanical`: retire le gate `HasTrait(it, 0x05 = Mechanical)`."""
     import engine.runner.operations.triggers.loki.my_will_be_done_overlord as M
     from engine.entities.formulas import Count, EntityId, StatAmount
-    from engine.entities.selectors import (AdjacentFriends, Filter, First, Otherwise, SortByFormula,
-                                           Subject, Tiles, ValidNormalAttackTargets)
+    from engine.entities.selectors.accessors import Subject
+    from engine.entities.selectors.geometry import Otherwise
+    from engine.entities.selectors.units import (
+        AdjacentFriends, Filter, First, SortByFormula, Tiles, ValidNormalAttackTargets
+    )
     from engine.entities.selectors.tiles import Caster
     from engine.entities.stats import StatPart, StatType
     from engine.entities.triggers import (AmountIsGreaterThanZero, HasFaction, HasTrait,

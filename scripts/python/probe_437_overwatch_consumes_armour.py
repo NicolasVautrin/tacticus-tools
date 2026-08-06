@@ -198,11 +198,13 @@ def _replay_move(cap, board, mover_id, to_tile, mutate=False):
 
     saved = None
     if mutate:
-        # Neutralise le FOYER de `On(9)` a la sortie de l'operation. ⚠ PATCH-POINT : `damage_ops.
-        # normal.execute` fait `from ..triggers.dispatch import ... finish_attack_triggers`, donc il
-        # lit l'attribut du PACKAGE `dispatch` -- patcher le module `dispatch.attack` serait un
-        # NO-OP SILENCIEUX (mesure : la contre-epreuve rendait VERT, donc « pas mordu »).
-        from engine.runner.operations.triggers import dispatch as _disp
+        # Neutralise le FOYER de `On(9)` a la sortie de l'operation. PATCH-POINT = le module de
+        # DEFINITION `dispatch.attack` : depuis #485-r1-r1, `damage_ops.normal.execute` appelle
+        # en forme MODULE (`attack_dispatch.finish_attack_triggers(...)`), donc l'attribut est
+        # relu A L'APPEL et ce patch mord quelle que soit la forme de l'import du consommateur.
+        # (Avant, il fallait viser le PACKAGE `dispatch` -- une adresse de COMMODITE fabriquee
+        # par le baril, qu'un hissage aurait rendue inerte en silence.)
+        from engine.runner.operations.triggers.dispatch import attack as _disp
         saved = _disp.finish_attack_triggers
         _disp.finish_attack_triggers = lambda *a, **k: []
     try:
@@ -210,7 +212,7 @@ def _replay_move(cap, board, mover_id, to_tile, mutate=False):
         runner.apply(MoveUnitMessage(int(mover_id), board.coord(int(to_tile))))
     finally:
         if saved is not None:
-            from engine.runner.operations.triggers import dispatch as _disp2
+            from engine.runner.operations.triggers.dispatch import attack as _disp2
             _disp2.finish_attack_triggers = saved
     assert _normal_mod is not None                    # module charge (patch-point documente)
     return {"hp_before": hp_before, "hp_after": int(hc.hp),

@@ -59,8 +59,10 @@ from ..components import (OwnerComponent, UnitComponent, ShieldComponent, StatsC
                           UnitFlagsComponent, PositionComponent, reset_tiles_moved_this_turn,
                           is_machine_of_war, ActiveAbilitiesComponent)
 from ...entities.stats import StatType
-from .triggers import (start_turn_triggers, turn_start_other_triggers, tile_tick_triggers,
-                       first_aid_heal)
+from .triggers.dispatch.turn import (
+    start_turn_triggers, tile_tick_triggers, turn_start_other_triggers
+)
+from .triggers.tiles import first_aid_heal
 # #270-r4-r2 : les SIX imports de ce fichier qui etaient DIFFERES sont HISSES. Aucun ne brise
 # de cycle -- mesure `probe_270r4r2_import_en_premier.py`, depuis 8 ordres d'entree distincts
 # (un cycle ne se voit que dans UN sens, un seul ordre ne prouverait rien). Le seul motif qui
@@ -77,8 +79,8 @@ from ...ai.state_bridge import _move_tiles
 from .effects import revert_stat_mods_of_removed_effects
 from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
 from .summon_ai import run_ai_control_pass
-from .triggers import end_turn_summon_triggers
-from .triggers import unit_finished_turn_triggers
+from .triggers.dispatch.turn import end_turn_summon_triggers
+from .triggers.dispatch.turn import unit_finished_turn_triggers
 
 
 class MarkUnitAsNoActionAvailableOperation:
@@ -197,7 +199,7 @@ class FinishUnitTurnOperation:
         # thousSorcerer -- c'est PAR ICI que Thaumachus obtient son bouclier quand il ne bouge pas).
         # No-op si personne n'ecoute.
         if newly_arrived and not forced:
-            from .triggers import arrived_at_final_tile_triggers
+            from .triggers.dispatch.move_death import arrived_at_final_tile_triggers
             out["arrived_triggers"] = arrived_at_final_tile_triggers(
                 state, int(unit_id), gate_already_consumed=True)
         # `Add(TurnFinished=3)` nouvellement pose -> le natif publie `On(0x28 = UnitFinishedTurn)`
@@ -212,7 +214,7 @@ class FinishUnitTurnOperation:
         if newly_finished:
             out["finished_triggers"] = unit_finished_turn_triggers(state, int(unit_id))
         if newly_finished and not forced:
-            from .triggers import unit_finished_turn_normally_triggers
+            from .triggers.dispatch.turn import unit_finished_turn_normally_triggers
             out["finished_normally_triggers"] = unit_finished_turn_normally_triggers(
                 state, int(unit_id))
         # #287-r1 -- DERNIERE instruction du corps natif, INCONDITIONNELLE (aucun gate `forced`,

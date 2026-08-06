@@ -175,7 +175,7 @@ def measure_without_the_effect(rid: int, damage: int) -> dict:
     Elle sert deux fois : (a) elle prouve que le montage EXERCE reellement le regime (sans l'effet,
     le port re-diverge du natif exactement comme avant le portage) ; (b) elle fournit le port
     SANS-EFFET, donc l'ecart imputable a CE seul effet, tuile par tuile."""
-    from engine.entities.effects.loki import ModifiedExoarmourExtraDmgEffect as _E
+    from engine.entities.effects.loki.extra_damage import ModifiedExoarmourExtraDmgEffect as _E
     orig = _E.create_effect_damage_bonus_for_attack
     _E.create_effect_damage_bonus_for_attack = (
         lambda self, *a, **k: None)                # le port comme si l'effet n'existait pas

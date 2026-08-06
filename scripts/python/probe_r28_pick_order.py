@@ -472,7 +472,7 @@ def main():
 
         # POOL resolu par le selecteur DSL, AVANT le tirage -- c'est LUI qui porte l'ordre source.
         from engine.runner.snapshot import load_state
-        from engine.runner.abilities.behaviours import entities_from_state
+        from engine.runner.abilities.behaviours.context import entities_from_state
         from engine.runner.abilities.blacklegion import bringer_of_despair_tree
         st0 = load_state(reg["dv"], reg["ob"], reg["snap"], board=reg["board"])
         ents0 = entities_from_state(st0, reg["cid"], reg["target"])

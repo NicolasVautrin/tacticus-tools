@@ -283,7 +283,7 @@ def _mk_state(board, owner_pos, dying_pos, traits=None):
 
 def _filter_verdict(kind, d):
     """Le verdict du site `kind` quand le mourant est a distance hex `d` du porteur."""
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.operations.triggers.base import TriggerEvent
     from engine.dsl.event_trigger_type import EventTriggerType
 

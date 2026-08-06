@@ -248,7 +248,7 @@ def port_spawn_positions(d) -> dict:
     mesure : dist 3 du caster alors que le spawn est un hex ADJACENT.)"""
     import gameconfig as GC
     from engine.dsl.effects import ExecutionContext
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.orks import waaagh_spawn_tree
     st = d["fresh"]()
     n = int(((GC.ability("Waaagh") or {}).get("constants") or {}).get("nrOfSummons") or 0)

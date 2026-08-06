@@ -160,8 +160,9 @@ from .....entities.selectors.units import (AdjacentFriends, EntitiesFromPersiste
                                                First, SortByFormula, UnitsFromFaction)
 from .....entities.triggers import Contains
 from .....entities.triggers import IsAlive
-from ....abilities.behaviours import AddEffect, AddToPersistentDataList
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
+from ....abilities.behaviours.persistent_data import AddToPersistentDataList
+from ....abilities.behaviours.context import entities_from_state
 from ...damage import AttackDamageOperation
 
 # `TriggeredAbilityType.PrimarchOfTheFirstLegion` = 0x5e7 ; l'effet pose vaut `EffectType` 0x5f3.

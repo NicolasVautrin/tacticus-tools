@@ -153,9 +153,9 @@ def etape_a(fails: list) -> None:
 
 def _titanhammer_stage(elev_by_pos=None):
     """Etat jouet portant `1573` sur un porteur et N tuiles marquees `1571` de MEME source."""
-    from engine.entities import EffectsState
+    from engine.entities.effects_state import EffectsState
     from engine.entities.effect_type import EffectType
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     from engine.runner.operations.effects import AddEffectOperation
     from engine.runner.snapshot import load_state
 

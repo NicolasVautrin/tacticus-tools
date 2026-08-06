@@ -99,7 +99,7 @@ def _confront(rpc, build_runner, seed_bc: Path) -> dict:
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
     from engine.runner.prng import IntBasedMersenneTwister
-    from engine.runner.operations.triggers import unit_finished_turn_triggers
+    from engine.runner.operations.triggers.dispatch.turn import unit_finished_turn_triggers
 
     rid = build_runner(SEED, extra=["--p-units", ",".join([GRAFT, ALLY]),
                                     "--a-units", FOE, "--no-ai",

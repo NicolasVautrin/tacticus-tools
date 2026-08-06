@@ -11,7 +11,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
                                        for_percent_subtraction_capped)
 from ..base import BaseEffect, SubEffectSpec, SAME_TURNS, is_melee_attack
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
-from ...traits import UnitTrait, has_any_trait, has_trait
+from ...traits.unit_trait import UnitTrait, has_any_trait, has_trait
 from ...effect_type import EffectType   # #270-r3 : cles de `ContagionsOfNurgle...CTOR_ARGS`
 # `StatType` etait importe UNIQUEMENT dans le corps de quelques methodes ; `630fb33e`
 # (#270-r1-r1-r3) a converti des litteraux en `StatType.<MEMBRE>` dans des methodes qui n'ont PAS

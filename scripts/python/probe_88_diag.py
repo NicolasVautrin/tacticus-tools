@@ -28,9 +28,10 @@ def main() -> int:
     from engine.entities.pathfinding.board import Board
     from engine.runner.components import UnitComponent, HealthComponent
     from engine.runner.operations.damage import AttackDamageOperation
-    from engine.runner.operations.triggers import (TriggerEvent, evaluate_trigger_operation,
-                                                   collect_effect_triggers,
-                                                   collect_triggered_abilities)
+    from engine.runner.operations.triggers.base import TriggerEvent
+    from engine.runner.operations.triggers.dispatch.core import (
+        collect_effect_triggers, collect_triggered_abilities, evaluate_trigger_operation
+    )
     from engine.runner.operations.triggers.loki.fuelled_by_fury import (
         FUELLED_BY_FURY_CAN_REVIVE, _can_revive_is_armed, FuelledByFuryReviveAbility)
     from engine.dsl.event_trigger_type import EventTriggerType

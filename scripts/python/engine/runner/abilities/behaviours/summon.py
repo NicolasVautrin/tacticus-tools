@@ -129,7 +129,7 @@ class Spawn(AbilityBehaviour):
         if self.pick_n is not None:                       # fold `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(tiles, n)
             from ..loki.splash import _pick_randomly_n
             tiles = _pick_randomly_n(state, tiles, int(self.pick_n))
-        from ...operations.triggers.dispatch import ability_init_triggers   # lazy : cycle spawn<->triggers
+        from ...operations.triggers.dispatch.ability import ability_init_triggers  # lazy : cycle spawn<->triggers
         # `SpawnUnitBehaviour$$Execute` branche `options+0x60` : soit une unite PAR tuile (defaut),
         # soit UNE unite sur `GetTileIds(tiles)` (toutes les tuiles = ses PIEDS). Le port exprime les
         # deux par la MEME boucle : la 2e branche n'a qu'UNE iteration, dont l'ancre est `tiles[0]`

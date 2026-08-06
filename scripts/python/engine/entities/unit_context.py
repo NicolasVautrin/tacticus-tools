@@ -179,7 +179,7 @@ class UnitContext:
         """Traits matérialisés de l'unité (instances `BaseTrait` via la factory) — innés/statiques, exploités
         par le contrat raw-prediction §17.17 (hit-twice, ignore-armure, GetStuckIn, Resilient/Impervious…).
         `self.traits` = noms gameconfig. Lazy import (entities.traits)."""
-        from .traits import TraitFactory
+        from .traits.factory import TraitFactory
         return TraitFactory.create_many(self.traits)
 
     # #344 — `normal_base` (= `(normal_min + normal_max) // 2`) RETIRÉE : elle ne citait AUCUN symbole

@@ -9,170 +9,106 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from .base import BaseEffect
-from .loki import (
-    ActOfFaithBuffEffect,
-    RealityUnboundMovementEffect,
-    RealityUnboundRangeEffect,
-    RealityUnboundExtraMaxDamageEffect,
-    AnvilShieldAdditionalBlockEffect,
-    AnvilShieldBlockChanceBelowHealthCapEffect,
-    AnvilShieldFrozenAttackerAdvantageEffect,
-    AstartesBannerExtraHitEffect,
-    BeaconOfRageExtraDamageEffect,
-    BeaconOfRageFriendlyExtraDamageEffect,
-    TerrifyingCrescendoExtraDmgEffect,
-    FuelledByFuryExtraDamageEffect,
-    ModifiedExoarmourExtraDmgEffect,
-    BlessingsOfKhorneModifiersEffect,
-    ContaminatedEffect,
-    ContaminatedUnitEffect,
-    ContagionsOfNurgleArmorReductionEffect,
-    DespoiledGroundEffect,
-    DespoiledGroundExtraDamagePctEffect,
-    OverwhelmingWrathRangeDmgReductionEffect,
-    FireAndRepositionReduceDmgEffect,
-    WireweaveNetCounterAttackEffect,
-    SereneUnifierSenseOfStoneEffect,
-    SereneUnifierStormOfFireEffect,
-    UnbreakableDutyHealthEffect,
-    UnbreakableDutyDamageEffect,
-    ShockAssaultBuffEffect,
-    VexillaMagnificaDmgReductionEffect,
-    StunnedDamageModifierEffect,
-    BigTargetAdjacentEffect,
-    CrushingStrikeEffect,
-    DaughterOfTheAbyssExtraDamagePctEffect,
-    PsychicStalkExtraAttackDamageEffect,
-    PsychicStalkFriendlyChaosExtraDamageEffect,
-    PsychicStalkVisualEffect,
-    DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
-    DaughterOfTheAbyssOwnerDmgReductionEffect,
-    DecoysAndMisdirectionExtraDamageEffect,
-    FeederTendrilsExtraDamageEffect,
-    PrimarchOfTheFirstLegionExtraDamageEffect,
-    AvalancheOfMuscleExtraDamageEffect,
-    LordOfTempestsExtraDamageEffect,
-    FightingRetreatDmgReductionEffect,
-    FightingRetreatHitReductionEffect,
-    GuardianOrganismDamageReductionEffect,
-    HeavyWeaponExtraDmgEffect,
-    HypersensoryMinimalHealthEffect,
-    KanOpenerEffect,
-    ShroudPsalmEffect,
-    VoltagheistFieldExtraHitEffect,
-    LegendaryCommanderExtraHitsEffect,
-    LightCoverEffect,
-    MartialKatahDmgReductionEffect,
-    MarkerlightEffect,
-    ExemplarOfHateTargetEffect,
-    ChronometronExtraDamageEffect,
-    SuperchargeExtraPiercingEffect,
-    MasterOfTheTutelariesEffect,
-    MV71InitialDmgEffect,
-    MV71ResetInitialDmgEffect,
-    BeastSlayerExtraDmgEffect,
-    MartialKatahDmgBonusEffect,
-    CondemnorStakeExtraDmgEffect,
-    BeastSlayerExtraBlockEffect,
-    DaemonExtraBlockEffect,
-    MasterAnnihilatorAdditionalHitEffect,
-    LetTheGalaxyBurnEffect,
-    CamouflageHitReductionEffect,
-    DiminutiveHitReductionEffect,
-    NeuroparasiteEffect,
-    NightshroudDmgReductionEffect,
-    PsychicFortressDmgReductionEffect,
-    PsychicFortressExtraBlockEffect,
-    CamoCloakDmgReductionEffect,
-    ParryEffect,
-    PathOfCommandExtraCritEffect,
-    PathOfCommandExtraDmgEffect,
-    RangedSpecialistEffect,
-    PinnedEffect,
-    PowerTripFullHealthEffect,
-    SagaOfTheWarriorBornOwnerEffect,
-    UnstoppableFerocityOwnerEffect,
-    PowerTripIgnoreArmorEffect,
-    RapidAssaultExtraDamageEffect,
-    PrioritisedEfficiencyExtraDmgEffect,
-    PrioritisedEfficiencyDmgReductionEffect,
-    RitesOfBattleExtraDmgEffect,
-    ShadowInTheWarpLessDmgEffect,
-    SmashaEadExtraDamageEffect,
-    SquigHoundAdditionalHitsEffect,
-    SorcerousFacadeAdditionalHitsEffect,
-    CordClawAdditionalHitsEffect,
-    FearOfTheUnseenExtraDamageEffect,
-    FoulInfusionExtraHitsEffect,
-    CyclicIonBlasterAdditionalHitsEffect,
-    ExemplarOfTheKauyonAdditionalHitsEffect,
-    FleshmetalGunsFocusedMaliceEffect,
-    FleshmetalGunsRuinousSalvoEffect,
-    FleshmetalGunsWarpHailEffect,
-    Swarm_HitReductionEffect,
-    ExplosiveMaladiesExtraRangedAttackEffect,
-    ExplosiveMaladiesExtraMeleeAttackEffect,
-    InfernalPactsAdditionalHitsEffect,
-    LordOfTheHostExtraDamageEffect,
-    DoomExtraDmgEffect,
-    SpotterReworkedExtraDamageEffect,
-    SpotterReworkedHeavyWeaponEffect,
-    DefenderOfTheGreaterGoodExtraDmgEffect,
-    DefenderOfTheGreaterGoodExtraDmgDroneEffect,
-    DefenderOfTheGreaterGoodExtraHitsEffect,
-    DefenderOfTheGreaterGoodExtraHitsDroneEffect,
-    StandVigilExtraArmorEffect,
-    StunnedEffect,
-    TauntedEffect,
-    ThrillSeekersEffect,
-    TerminatorArmourReduceDmgEffect,
-    TerrifyingExtraDefenseEffect,
-    ProtectorImperativeEffect,
-    ConquerorImperativeEffect,
-    ListenUpMaggotsEffect,
-    BlackRageExtraMoveEffect,
-    BlackRageExtraDamageEffect,
-    BlackRageAutomaticUnitEffect,
-    WaaaghExtraMovementEffect,
-    WaaaghExtraDamageEffect,
-    WaaaghExtraHitsEffect,
-    ChampionOfTheFeastReduceArmorEffect,
-    AugmentedAssaultReduceArmorEffect,
-    AncestralFortuneExtraCritChanceEffect,
-    AncestralFortuneExtraBlockChanceEffect,
-    MomentShackleExtraBlockChanceEffect,
-    MomentShackleExtraBlockDamageEffect,
-    GravitonRifleExtraPierceEffect,
-    WallOfMirrorsEffect,
-    PurgeResponseEffect,
-    HailstrikeExtraPierceEffect,
-    VisionsOfHeresyExtraPierceMeleeEffect,
-    VisionsOfHeresyExtraPierceRangedEffect,
-    WarHowlExtraDamageUnstoppableEffect,
-    InescapableAccuracyExtraCritChanceEffect,
-    InescapableAccuracyExtraCritDamageEffect,
-    InescapableAccuracyOverrideHitsEffect,
-    EmpyricAmbushEffect,
-    AmuletOfTheVoidwyrmCritDamageReductionEffect,
-    UntilOfEndTurnEffect,
-    StructuralAnalyserVisualEffect,
-    MartialSuperiorityVisualEffect,
-    HeavyGravCannonEffect,
-    DestroyTheWitchExtraMoveEffect,
-    DestroyTheWitchExtraDamageEffect,
-    ReinforcedHiveNodeExtraArmorEffect,
-    ReinforcedHiveNodeExtraBlockEffect,
-    CursedPlagueBellExtraMoveEffect,
-    RelentlessMarchExtraMoveEffect,
-    LionHelmExtraDmgEffect,
-    LionHelmExtraBlockDamageEffect,
-    LionHelmExtraBlockChanceEffect,
-    FearedInterrogatorOwnerEffect,
-    FearedInterrogatorTargetEffect,
-    HammerOfWrathConditionalDamageEffect,
-    MyWillBeDoneOverlordExtraDamageEffect,
-    TunnelingHorrorPendingSummonEffect,
+from .loki.ability_modifications import ListenUpMaggotsEffect
+from .loki.amulet_of_the_voidwyrm import AmuletOfTheVoidwyrmCritDamageReductionEffect
+from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
+from .loki.counter_attack import WireweaveNetCounterAttackEffect
+from .loki.crit_aura import PathOfCommandExtraCritEffect
+from .loki.cursed_plague_bell import CursedPlagueBellExtraMoveEffect
+from .loki.custodes import MomentShackleExtraBlockChanceEffect, MomentShackleExtraBlockDamageEffect
+from .loki.damage_reduction import (
+    CamoCloakDmgReductionEffect, ChronometronExtraDamageEffect,
+    DaughterOfTheAbyssFriendlyDmgReductionPctEffect, DaughterOfTheAbyssOwnerDmgReductionEffect,
+    ExemplarOfHateTargetEffect, FightingRetreatDmgReductionEffect,
+    FireAndRepositionReduceDmgEffect, GuardianOrganismDamageReductionEffect, MarkerlightEffect,
+    MartialKatahDmgReductionEffect, NeuroparasiteEffect, NightshroudDmgReductionEffect,
+    OverwhelmingWrathRangeDmgReductionEffect, PrioritisedEfficiencyDmgReductionEffect,
+    PsychicFortressDmgReductionEffect, SereneUnifierSenseOfStoneEffect,
+    ShadowInTheWarpLessDmgEffect, SuperchargeExtraPiercingEffect, TerminatorArmourReduceDmgEffect,
+    TerrifyingExtraDefenseEffect, VexillaMagnificaDmgReductionEffect
 )
+from .loki.dark_angels_passives import (
+    FearedInterrogatorOwnerEffect, FearedInterrogatorTargetEffect, LionHelmExtraBlockChanceEffect,
+    LionHelmExtraBlockDamageEffect, LionHelmExtraDmgEffect
+)
+from .loki.darkangels import HailstrikeExtraPierceEffect
+from .loki.destroy_the_witch import (
+    DestroyTheWitchExtraDamageEffect, DestroyTheWitchExtraMoveEffect
+)
+from .loki.empyric_ambush import EmpyricAmbushEffect
+from .loki.extra_damage import (
+    AvalancheOfMuscleExtraDamageEffect, BeaconOfRageExtraDamageEffect, BeastSlayerExtraDmgEffect,
+    CondemnorStakeExtraDmgEffect, CrushingStrikeEffect, DecoysAndMisdirectionExtraDamageEffect,
+    FeederTendrilsExtraDamageEffect, FuelledByFuryExtraDamageEffect, HeavyGravCannonEffect,
+    HeavyWeaponExtraDmgEffect, LordOfTempestsExtraDamageEffect, MartialKatahDmgBonusEffect,
+    ModifiedExoarmourExtraDmgEffect, PrimarchOfTheFirstLegionExtraDamageEffect,
+    PrioritisedEfficiencyExtraDmgEffect, RangedSpecialistEffect, RapidAssaultExtraDamageEffect,
+    SmashaEadExtraDamageEffect, TerrifyingCrescendoExtraDmgEffect
+)
+from .loki.extra_damage_aura import (
+    BeaconOfRageFriendlyExtraDamageEffect, DaughterOfTheAbyssExtraDamagePctEffect,
+    DefenderOfTheGreaterGoodExtraDmgDroneEffect, DefenderOfTheGreaterGoodExtraDmgEffect,
+    DoomExtraDmgEffect, LordOfTheHostExtraDamageEffect, PathOfCommandExtraDmgEffect,
+    PsychicStalkExtraAttackDamageEffect, PsychicStalkFriendlyChaosExtraDamageEffect,
+    PsychicStalkVisualEffect, RitesOfBattleExtraDmgEffect, SpotterReworkedExtraDamageEffect,
+    SpotterReworkedHeavyWeaponEffect
+)
+from .loki.hits import (
+    AnvilShieldAdditionalBlockEffect, AnvilShieldBlockChanceBelowHealthCapEffect,
+    AnvilShieldFrozenAttackerAdvantageEffect, AstartesBannerExtraHitEffect,
+    BeastSlayerExtraBlockEffect, BigTargetAdjacentEffect, CamouflageHitReductionEffect,
+    CordClawAdditionalHitsEffect, CyclicIonBlasterAdditionalHitsEffect, DaemonExtraBlockEffect,
+    DefenderOfTheGreaterGoodExtraHitsDroneEffect, DefenderOfTheGreaterGoodExtraHitsEffect,
+    DiminutiveHitReductionEffect, ExemplarOfTheKauyonAdditionalHitsEffect,
+    ExplosiveMaladiesExtraMeleeAttackEffect, ExplosiveMaladiesExtraRangedAttackEffect,
+    FearOfTheUnseenExtraDamageEffect, FightingRetreatHitReductionEffect,
+    FleshmetalGunsFocusedMaliceEffect, FleshmetalGunsRuinousSalvoEffect,
+    FleshmetalGunsWarpHailEffect, FoulInfusionExtraHitsEffect, InfernalPactsAdditionalHitsEffect,
+    KanOpenerEffect, LegendaryCommanderExtraHitsEffect, LetTheGalaxyBurnEffect, LightCoverEffect,
+    MasterAnnihilatorAdditionalHitEffect, ParryEffect, PowerTripFullHealthEffect,
+    PowerTripIgnoreArmorEffect, PsychicFortressExtraBlockEffect, SagaOfTheWarriorBornOwnerEffect,
+    ShroudPsalmEffect, SorcerousFacadeAdditionalHitsEffect, SquigHoundAdditionalHitsEffect,
+    Swarm_HitReductionEffect, UnstoppableFerocityOwnerEffect, VoltagheistFieldExtraHitEffect
+)
+from .loki.imperative import ConquerorImperativeEffect, ProtectorImperativeEffect
+from .loki.inescapable_accuracy import (
+    InescapableAccuracyExtraCritChanceEffect, InescapableAccuracyExtraCritDamageEffect,
+    InescapableAccuracyOverrideHitsEffect
+)
+from .loki.martial_superiority import MartialSuperiorityVisualEffect
+from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
+from .loki.reality_unbound import (
+    RealityUnboundExtraMaxDamageEffect, RealityUnboundMovementEffect, RealityUnboundRangeEffect
+)
+from .loki.reinforced_hive_node import (
+    ReinforcedHiveNodeExtraArmorEffect, ReinforcedHiveNodeExtraBlockEffect
+)
+from .loki.relentless_march import RelentlessMarchExtraMoveEffect
+from .loki.serene_unifier import SereneUnifierStormOfFireEffect
+from .loki.shock_assault import ShockAssaultBuffEffect
+from .loki.status import (
+    ActOfFaithBuffEffect, BlackRageAutomaticUnitEffect, BlackRageExtraDamageEffect,
+    BlackRageExtraMoveEffect, BlessingsOfKhorneModifiersEffect,
+    ContagionsOfNurgleArmorReductionEffect, ContaminatedEffect, ContaminatedUnitEffect,
+    DespoiledGroundEffect, DespoiledGroundExtraDamagePctEffect,
+    HammerOfWrathConditionalDamageEffect, HypersensoryMinimalHealthEffect, MV71InitialDmgEffect,
+    MV71ResetInitialDmgEffect, MasterOfTheTutelariesEffect, PinnedEffect,
+    StandVigilExtraArmorEffect, StunnedDamageModifierEffect, StunnedEffect, TauntedEffect,
+    ThrillSeekersEffect, TunnelingHorrorPendingSummonEffect, WaaaghExtraDamageEffect,
+    WaaaghExtraHitsEffect, WaaaghExtraMovementEffect
+)
+from .loki.structural_analyser import StructuralAnalyserVisualEffect
+from .loki.unbreakable_duty import UnbreakableDutyDamageEffect, UnbreakableDutyHealthEffect
+from .loki.until_of_end_turn import UntilOfEndTurnEffect
+from .loki.visions_of_heresy import (
+    VisionsOfHeresyExtraPierceMeleeEffect, VisionsOfHeresyExtraPierceRangedEffect
+)
+from .loki.votann import (
+    AncestralFortuneExtraBlockChanceEffect, AncestralFortuneExtraCritChanceEffect,
+    AugmentedAssaultReduceArmorEffect, GravitonRifleExtraPierceEffect, PurgeResponseEffect
+)
+from .loki.wall_of_mirrors import WallOfMirrorsEffect
+from .loki.war_howl import WarHowlExtraDamageUnstoppableEffect
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
 EFFECT_CLASSES: dict[str, type[BaseEffect]] = {

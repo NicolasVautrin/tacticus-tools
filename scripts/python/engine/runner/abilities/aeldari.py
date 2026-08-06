@@ -158,17 +158,22 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_and, If, AtomicGroup
 from ...entities.effect_type import EffectType
-from ...entities.selectors import (Target, TargetTile, CasterTile, AdjacentUnits, AdjacentEnemies,
-                                   Enemies, SurroundingUnits, And, Damageable, Alive,
-                                   AdjacentTiles, CanAddUnit, Caster, First, Owner, Randomize,
-                                   SortTilesByUtility, Sub)
+from ...entities.selectors.accessors import CasterTile, Owner, Target, TargetTile
+from ...entities.selectors.geometry import Randomize
+from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster, SortTilesByUtility
+from ...entities.selectors.units import (
+    AdjacentEnemies, AdjacentUnits, Alive, And, Damageable, Enemies, First, Sub, SurroundingUnits
+)
 from ...entities.triggers import IsDead, OwnerIsAlive
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatType
 from ...utilities.utility_type import UtilityType
 from ..components import StatsComponent, unit_has_moved
 from .base import ActiveAbility
-from .behaviours import entities_from_state, AddEffect, AttackWithAttackDamage, FlyUnit
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect
+from .behaviours.movement import FlyUnit
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR

@@ -106,7 +106,7 @@ def _state_with_grots(n_grots: int, player: int = 0, rng=None) -> State:
 def test_pilein_gate_rolls_once_per_candidate(n_grots):
     """`If(Maybe(chance), Spawn, Nothing)` : UN `next_bool` par grot candidat.
     ROUGE sur le port d'avant (gate `Maybe` non modelise -> 0 tirage, fire deterministe)."""
-    from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
+    from engine.runner.operations.triggers.dispatch.turn import end_turn_summon_triggers
     r = _CountingRng(4242)
     st = _state_with_grots(n_grots, rng=r)
     end_turn_summon_triggers(st, 0)
@@ -117,7 +117,7 @@ def test_pilein_gate_rolls_once_per_candidate(n_grots):
 def test_pilein_gate_verdict_matches_native_next_bool():
     """Le verdict du gate est celui de `NextBool(75 - 5*n)` sur le MEME etat MT -- pas une
     reimplementation approchee (`next_internal(0,100) <`, borne 100, en serait une)."""
-    from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
+    from engine.runner.operations.triggers.dispatch.turn import end_turn_summon_triggers
     import gameconfig as GC
     consts = (GC.ability("PileIn") or {}).get("constants") or {}
     chance = int(consts.get("chance") or 75)        # n = 0 autre grot -> pas de decote
@@ -213,7 +213,7 @@ def test_pilein_endturn_roll_count_matches_live(rpc, seed):
     +3 et un grot FANTOME quand il echoue (`Randomize` paye + spawn deterministe)."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
-    from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
+    from engine.runner.operations.triggers.dispatch.turn import end_turn_summon_triggers
 
     sf = ROOT / "logs" / "runners" / ("o4a-pilein-test-%s.json" % uuid.uuid4().hex[:8])
     sf.parent.mkdir(parents=True, exist_ok=True)

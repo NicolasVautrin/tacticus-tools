@@ -116,12 +116,14 @@ from typing import Optional
 
 from ....state import State
 from ....components import OwnerComponent, UnitComponent
-from ....abilities.behaviours import (AddEffect, AddStaticStatModifierEffect,
-                                      entities_from_state)
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect, AddStaticStatModifierEffect
 from .....entities.behaviours import op_add, If as IfBehaviour
 from .....entities.formulas import PlayerTurnsStarted
-from .....entities.selectors import (Caster, AdjacentFriends, SurroundingFriends,
-                                     UnitsFromFaction, Sub, Union)
+from .....entities.selectors.tiles import Caster
+from .....entities.selectors.units import (
+    AdjacentFriends, Sub, SurroundingFriends, Union, UnitsFromFaction
+)
 from .....entities.triggers import Modulo
 from .....entities.effect_type import EffectType
 from .....entities.triggered_ability_type import TriggeredAbilityType

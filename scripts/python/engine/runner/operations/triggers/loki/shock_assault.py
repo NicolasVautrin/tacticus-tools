@@ -69,9 +69,10 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....abilities.behaviours import RemoveEffect, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import RemoveEffect
 from .....entities.effect_type import EffectType
-from .....entities.selectors import Caster
+from .....entities.selectors.tiles import Caster
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import EffectTrigger, TriggerEvent

@@ -75,7 +75,8 @@ def test_O1_l_arbre_du_fallback_partage_UN_SEUL_noeud_selecteur():
     trompeur."""
     from engine.runner.operations.triggers.loki.stormboyz_strike import (
         stormboyz_strike_fallback_tree)
-    from engine.runner.abilities.behaviours import AddEffect, MoveUnit
+    from engine.runner.abilities.behaviours.effects import AddEffect
+    from engine.runner.abilities.behaviours.movement import MoveUnit
     from engine.entities.behaviours import Seq, If
 
     tree = stormboyz_strike_fallback_tree()
@@ -100,8 +101,9 @@ def test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE():
 
     On neutralise le classement (`sort_tiles_by_utility` = identite) pour isoler la seule variable
     qui compte ici : l'occupation."""
-    from engine.entities.selectors import AllTiles, CanAddUnit, Caster, PickFirstN
-    from engine.entities.selectors import SortTilesByUtility
+    from engine.entities.selectors.geometry import PickFirstN
+    from engine.entities.selectors.tiles import AllTiles, CanAddUnit, Caster
+    from engine.entities.selectors.tiles import SortTilesByUtility
     from engine.dsl.base import Const, DslContext
     from engine.utilities.utility_type import UtilityType
 
@@ -144,7 +146,7 @@ def test_O3_l_override_devie_le_mouvement():
             OverrideMovementTargetOperation.execute(state, unit_id, [self.to])
             return []
 
-    import engine.runner.operations.triggers as T
+    import engine.runner.operations.triggers.dispatch.move_death as T
     orig = T.pre_move_triggers
     T.pre_move_triggers = _Vec((2, 2))
     try:
@@ -182,7 +184,7 @@ def test_O5_la_relance_ne_re_emet_pas_les_pre_move_triggers():
             OverrideMovementTargetOperation.execute(state, unit_id, [(2, 2)])
         return []
 
-    import engine.runner.operations.triggers as T
+    import engine.runner.operations.triggers.dispatch.move_death as T
     orig = T.pre_move_triggers
     T.pre_move_triggers = _vec
     try:
@@ -205,7 +207,7 @@ def test_O5b_l_unite_TUEE_par_un_trigger_pre_move_ne_bouge_pas():
         state.get_entity(unit_id).get_component(UnitComponent).alive = False
         return []
 
-    import engine.runner.operations.triggers as T
+    import engine.runner.operations.triggers.dispatch.move_death as T
     orig = T.pre_move_triggers
     T.pre_move_triggers = _vec
     try:
@@ -233,8 +235,9 @@ def test_O6_Kill_tue_et_respecte_ses_gates():
     """O6 -- `KillUnitBehaviour$$Execute` : les trois `HasFlag` (`9 Fled`, `6 Dead` -> collapse
     `alive`, `0x1a Removed`) sont des CONTINUE, pas des exceptions. Et une unite deja morte n'est
     pas re-tuee (sans quoi les death-triggers double-firent)."""
-    from engine.runner.abilities.behaviours import Kill, entities_from_state
-    from engine.entities.selectors import Caster
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.runner.abilities.behaviours.lifecycle import Kill
+    from engine.entities.selectors.tiles import Caster
     from engine.dsl.effects import ExecutionContext
 
     board = _grid()
@@ -270,7 +273,7 @@ def test_O7_FullThrottle_est_au_registre_de_TriggerAbility():
     `dispatched: False` : un gap VISIBLE, mais un gap. La chance vient du gameconfig, jamais d'un
     litteral en dur."""
     import gameconfig as GC
-    from engine.runner.abilities.behaviours import TRIGGERED_ABILITY_BEHAVIOURS
+    from engine.runner.abilities.behaviours.lifecycle import TRIGGERED_ABILITY_BEHAVIOURS
     import engine.runner.operations.triggers.dispatch.registry  # noqa: F401 (inscription import-time)
 
     assert FULL_THROTTLE in TRIGGERED_ABILITY_BEHAVIOURS
@@ -285,7 +288,7 @@ def test_O7b_FullThrottle_tue_a_100_pourcent_et_jamais_a_0():
     """O7b -- les DEUX bras du `If(Maybe(chance), Kill(Caster), null)`, en forcant le tirage.
     Le bras `chance = 0` est le contre-bras qui prouve que le `Maybe` gate REELLEMENT le kill."""
     from engine.runner.operations.triggers.loki.full_throttle import full_throttle_tree
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.dsl.effects import ExecutionContext
 
     class _RNG:
@@ -320,9 +323,10 @@ def test_O7c_TriggerAbility_n_execute_QUE_sur_une_cible_QUI_PORTE_l_ability():
 
     Les deux bras sont ici : PORTEUR -> execute ; NON PORTEUR -> zero tirage, cible listee dans
     `notCarrying`."""
-    from engine.runner.abilities.behaviours import TriggerAbility, entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.runner.abilities.behaviours.lifecycle import TriggerAbility
     from engine.runner.components import StatsComponent
-    from engine.entities.selectors import Caster
+    from engine.entities.selectors.tiles import Caster
     from engine.dsl.effects import ExecutionContext
 
     class _Ctx:
@@ -409,7 +413,7 @@ def test_O9_le_miss_bati_sans_destination_ne_leve_pas():
     deviation, mais les TROIS autres termes de l'arbre s'executent quand meme. Le port ne doit ni
     lever ni sortir en no-op silencieux."""
     from engine.runner.operations.triggers.loki.stormboyz_strike import stormboyz_strike_miss_tree
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.dsl.effects import ExecutionContext
 
     class _RNG:

@@ -47,7 +47,7 @@ class Runner:
         from .operations.movement import MovementHandler
         from .operations.damage import DamageHandler
         from .operations.turnflow import TurnFlowHandler
-        from .abilities import AbilityHandler
+        from .abilities.handler import AbilityHandler
         self.movement_handler = MovementHandler(self.state, self.bus)  # after_move (overwatch…)
         self.post_handlers.append(self.movement_handler)
         self.damage_handler = DamageHandler(self.state, spread_pct)

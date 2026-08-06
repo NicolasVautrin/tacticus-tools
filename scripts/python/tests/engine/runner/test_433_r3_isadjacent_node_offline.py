@@ -47,7 +47,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 import hexgeo                                                            # noqa: E402
 from engine.dsl.base import DslContext                                   # noqa: E402
 from engine.entities.pathfinding.board import Board                      # noqa: E402
-from engine.entities.selectors import AllUnits, Caster, Target           # noqa: E402
+from engine.entities.selectors.accessors import Target
+from engine.entities.selectors.tiles import AllUnits, Caster  # noqa: E402
 from engine.entities.triggers import IsAdjacent                          # noqa: E402
 
 COLS, ROWS = 7, 7

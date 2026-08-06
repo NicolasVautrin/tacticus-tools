@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 
 import hexgeo                                                            # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
-from engine.entities import EffectsState                                 # noqa: E402
+from engine.entities.effects_state import EffectsState  # noqa: E402
 from engine.entities.active_ability_type import ActiveAbilityType        # noqa: E402
 from engine.entities.effect_type import EffectType                       # noqa: E402
 from engine.entities.pathfinding.board import Board                      # noqa: E402
@@ -164,7 +164,8 @@ def test_the_tree_is_a_sequence_of_the_two_native_leaves():
     """STRUCTURE (#149) : l'`op_BitwiseAnd` natif est une SEQUENCE de deux feuilles, dans cet ordre.
     Le retrait de tuiles DOIT preceder la pose -- l'effet est pose sur une unite deja sans tuile."""
     from engine.entities.behaviours import Seq
-    from engine.runner.abilities.behaviours import AddEffect, RemoveUnitFromItsTiles
+    from engine.runner.abilities.behaviours.effects import AddEffect
+    from engine.runner.abilities.behaviours.lifecycle import RemoveUnitFromItsTiles
     t = stormboyz_strike_teleport_tree()
     assert isinstance(t, Seq)
     assert isinstance(t.left, RemoveUnitFromItsTiles) and t.left.remove_tile_from_unit is True

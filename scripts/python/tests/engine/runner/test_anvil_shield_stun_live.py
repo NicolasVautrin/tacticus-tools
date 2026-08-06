@@ -41,9 +41,10 @@ from engine.entities.pathfinding.board import Board
 from engine.entities.stats import StatType
 from engine.runner.snapshot import load_state
 from engine.runner.components import PositionComponent, StatsComponent, HealthComponent
-from engine.runner.operations.triggers.dispatch import (after_hit_normal_attack,
-                                                        pre_unit_ability_triggers,
-                                                        unit_post_ability_triggers)
+from engine.runner.operations.triggers.dispatch.ability import (
+    pre_unit_ability_triggers, unit_post_ability_triggers
+)
+from engine.runner.operations.triggers.dispatch.attack import after_hit_normal_attack
 from engine.runner.operations.refresh_effects import refresh_stat_modifier_effects
 from engine.runner.abilities.base import convert_rounds_to_turns
 

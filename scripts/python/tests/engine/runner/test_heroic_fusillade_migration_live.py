@@ -304,8 +304,10 @@ def test_g5_crit_buff_observable_at_roll(g5_state):
     cible STRICTEMENT PLUS que la MEME attaque splash SANS le buff (crit_damage = base). Isole le seul effet
     du buff (memes positions Judh-adjacent -> pas de move, memes tirages rng)."""
     from engine.runner.abilities.genestealer import HeroicFusilladeAbility, heroic_fusillade_tree
-    from engine.runner.abilities.behaviours import AttackWithAttackDamage, entities_from_state
-    from engine.entities.selectors import Union, Alive, SurroundingEnemies, Target, TargetTile
+    from engine.runner.abilities.behaviours.combat import AttackWithAttackDamage
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.entities.selectors.accessors import Target, TargetTile
+    from engine.entities.selectors.units import Alive, SurroundingEnemies, Union
     from engine.dsl.base import Const
     from engine.dsl.effects import ExecutionContext
     from engine.entities.stats import StatType

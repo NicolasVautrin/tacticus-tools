@@ -33,7 +33,8 @@ champ `player` des unites. ASCII only.
 from __future__ import annotations
 
 from engine.dsl.base import DslContext
-from engine.entities.selectors import FixedTiles, Owner, Units
+from engine.entities.selectors.accessors import FixedTiles, Owner
+from engine.entities.selectors.units import Units
 from engine.entities.triggers import IsTurnOf
 
 ME, FOE = 1, 2

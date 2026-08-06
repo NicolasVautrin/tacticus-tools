@@ -22,7 +22,9 @@ Usage : depuis `scripts/python`, `python probe_118_seeded_statmod_revert.py`.
 """
 from __future__ import annotations
 
-from engine.entities import EffectFactory, EffectsState, UnitContext
+from engine.entities.effects.factory import EffectFactory
+from engine.entities.effects_state import EffectsState
+from engine.entities.unit_context import UnitContext
 from engine.runner.components import StatsComponent
 from engine.runner.operations.effects import revert_stat_mods_of_removed_effects
 from engine.runner.state import State

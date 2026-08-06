@@ -233,8 +233,8 @@ def _drive_adjacent(rpc, rid, board):
 
 
 def _offline_count(st, cid):
-    from engine.entities.selectors import Caster, CanAddUnit, AdjacentTiles
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+    from engine.runner.abilities.behaviours.context import entities_from_state
     return len(CanAddUnit(AdjacentTiles(Caster())).evaluate(entities_from_state(st, cid, cid)))
 
 
