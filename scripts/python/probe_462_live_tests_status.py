@@ -102,7 +102,8 @@ TESTS_DIR = "scripts/python/tests"
 #: peuvent faire basculer la gate.
 DECLENCHEUR = {
     "chemins": ("scripts/python/tests/*", "scripts/python/tests/**",
-                "scripts/ratchets-462-live-attestations.json"),
+                "scripts/ratchets-462-live-attestations.json",
+                "scripts/python/probe_462_live_tests_status.py"),
     "build": False,
     "toujours": False,
     "raison": "La gate croise le diff depuis le MERGE-BASE avec `git ls-files "
