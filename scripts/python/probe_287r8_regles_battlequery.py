@@ -57,7 +57,23 @@ from engine.runner.abilities.targeting_rule import TargetingRule as TR         #
 from probe_287r4r1_dynamic_target_rules import (_porteur, desarme,             # noqa: E402
                                                 evaluabilite, substrat)
 
-CASTER, CIBLE, ALLIE, ENNEMI = 1, 2, 3, 4
+def _ids_hors_board():
+    """Ids d'UNITE garantis DISJOINTS de ceux des TUILES.
+
+    ⚠ CE N'EST PAS DE LA COSMETIQUE, ET UN SUBSTRAT NAIF EST FAUX. Deux des trois regles de la
+    tranche sont TILE-TARGET : la cible qu'on leur passe est un id de TUILE, et
+    `EntityExtensions$$GetTiles` (mirror `entity_tiles`) commence par chercher une UNITE de cet id.
+    Avec `CASTER, CIBLE, ALLIE, ENNEMI = 1, 2, 3, 4` -- les valeurs d'un substrat fabrique a la main
+    -- la tuile `id=4` resolvait sur les PIEDS de l'unite 4, et la cascade rendait `TargetTileIsFree`
+    au lieu de la regle mesuree. Le port a RAISON de confondre : le natif garantit que les deux
+    espaces d'ids sont disjoints (`boardGraph` et `decisionView` projettent le meme `MatchState`),
+    c'est le SUBSTRAT qui violait l'invariant. On le derive donc du board."""
+    from probe_287r4r1_dynamic_target_rules import _board
+    base = max(_board().by_id) + 1000
+    return base, base + 1, base + 2, base + 3
+
+
+CASTER, CIBLE, ALLIE, ENNEMI = _ids_hors_board()
 
 # `substrat()` monte le board `MC1_67` (cf. `probe_287r4r1._board`). Les bascules de cette tranche
 # sont SPATIALES : elles ont besoin d'un couple ADJACENT et d'une tuile ELOIGNEE (au-dela de la
@@ -115,6 +131,13 @@ def verifier_geometrie() -> list:
         out.append((nom, c, tid is not None, tid is not None and b.walkable(tid)))
     out.append(("d(A,B)", (hexgeo.distance(A, B),), hexgeo.distance(A, B) == 1, True))
     out.append(("d(A,LOIN)", (hexgeo.distance(A, LOIN),), hexgeo.distance(A, LOIN) > 2, True))
+    # L'invariant que le natif garantit et qu'un substrat fabrique peut violer (cf. `_ids_hors_board`).
+    ids = {CASTER, CIBLE, ALLIE, ENNEMI}
+    out.append(("ids unite hors board", (min(ids), max(ids)), not (ids & set(b.by_id)), True))
+    # Le voisinage de la tuile cible doit exister : sans lui, le bras « allie adjacent » de 1087
+    # serait vrai par vacuite (les deux cotes rendraient le meme refus).
+    vt = [n for n in b.neighbours(b.id_at(*LOIN)) if b.walkable(n)]
+    out.append(("voisins de LOIN", (len(vt),), len(vt) >= 1, True))
     return out
 
 
@@ -226,7 +249,7 @@ def mesurer_tuile_sans_voisin() -> tuple:
          (CIBLE, "necroWarden", 2, LOIN[0], LOIN[1], [])]
     for i, n in enumerate(voisins):
         c = b.coord(n)
-        u.append((100 + i, "necroWarden", 2, c[0], c[1], []))
+        u.append((ENNEMI + 10 + i, "necroWarden", 2, c[0], c[1], []))     # ids hors board
     st = substrat(u)
     return _regle(int(ActiveAbilityType.SkyStrike), st), int(TR.TargetHasFreeAdjacentTile), len(voisins)
 
