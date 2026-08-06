@@ -762,9 +762,15 @@ MUTATIONS = ("effect_id", "effect_source", "ability_source", "placement", "step_
              "tags_activate", "sans_source_id", "ouverture_vide",
              # `#477-r21-r1`
              "stat_table", "sans_transformed", "modifier_entity", "remove_step",
-             "ability_tags_ammo",
-             # `#477-r22-r1` -- les deux decisions de la forme `Action=Info`
-             "info_entite", "info_tag_arme")
+             "ability_tags_ammo")
+
+#: LES MUTATIONS QUE CE MODULE SAIT EMETTRE MAIS QUE CE PROBE NE JOUE PAS -- elles portent sur la
+#: forme `Action=Info` (`#477-r22-r1`), et le BLOC 1 n'en contient AUCUNE : leur domaine y est NUL
+#: sur les QUATRE scenarios. Les laisser dans `MUTATIONS` faisait rougir ce probe par son propre
+#: garde-fou (« rien ne les confronte »), et c'est la bonne reponse : une mutation qu'aucun
+#: scenario n'exerce ne mesure rien ICI. Elles sont jouees par `probe_477r22_turn_phase.py`, dont
+#: le corpus -- le contenu du `Group=StartTurn` -- porte 3 `Action=Info` sur deux scenarios.
+MUTATIONS_RELAYEES = ("info_entite", "info_tag_arme")
 
 
 def derivations(portes: List[dict]) -> dict:
@@ -929,8 +935,9 @@ def domaines(portes: List[dict]) -> Dict[str, int]:
     def _visiter(obs) -> None:
         if isinstance(obs, ActionObs):
             if obs.step == StepType.Info.name:
-                d["info_entite"] += 1
-                d["info_tag_arme"] += 1
+                # domaine des mutations RELAYEES : compte tenu ici, joue par #477-r22
+                for nom in MUTATIONS_RELAYEES:
+                    d[nom] = d.get(nom, 0) + 1
             elif obs.step == StepType.ChangeAbility.name:
                 d["ability_tags_ammo"] += 1
             elif _est_retrait_ability(obs):

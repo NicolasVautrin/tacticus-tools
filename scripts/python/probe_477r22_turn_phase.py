@@ -76,6 +76,7 @@ from engine.streams.turn_phase import (START_TURN_SOURCE_ID,  # noqa: E402
                                        continue_turn_phase, prepare_turn, start_turn)
 from engine.streams.verify_turn_finished import (FLAG,  # noqa: E402
                                                  NoActionAvailableFlags, UnitTurnState,
+                                                 mark_unit_as_no_action_available,
                                                  verify_units_turn_finished)
 
 ROOT = HERE.parents[1]
@@ -767,6 +768,53 @@ def derivations(couples: List[TurnObs]) -> dict:
             "d9_info": d9_info}
 
 
+def conformite_du_foyer(flux: str) -> dict:
+    """LE FOYER `MarkUnitAsNoActionAvailableOperation$$Execute` CONFRONTE SUR TOUT LE FLUX
+    -- la generalisation de cette tranche, et le SEUL endroit ou la valeur `0` est exercee.
+
+    Le `Group=StartTurn` n'exerce qu'une des deux branches de `VerifyUnitTurnEnded` : dans nos
+    trois scenarios, TOUTES ses marques valent `1` (le drapeau y est RETIRE). La valeur `0` --
+    celle que le natif ecrit quand il POSE le drapeau -- n'y apparait jamais, parce qu'une unite
+    qui commence son tour a toujours une tuile ou aller. Elle apparait EN NOMBRE ailleurs dans le
+    flux (`FinishUnitTurnOperation$$Execute`, `ActiveAbilityOperation$$ExecuteInternal`,
+    `MoveUnitOperation`), qui appellent le MEME slot `0x76` et donc le MEME foyer.
+
+    Ce controle rejoue donc le flux ENTIER : pour chaque emission du foyer, il DERIVE le sens
+    (`reverse = <le drapeau est-il pose ?>`, lu dans le registre construit par les emissions
+    PRECEDENTES) puis emet avec le port et confronte le texte.
+
+    ⚠ CE N'EST PAS CIRCULAIRE, ET C'EST CE QUI LE REND UTILE. Le registre a l'instant `k` ne
+    connait que les lignes `1..k-1` ; la valeur de la ligne `k` est une PREDICTION. Une
+    prediction fausse se voit de deux facons : une VALEUR differente, ou -- si le port croit le
+    drapeau deja dans l'etat demande -- une ligne MANQUANTE, le gate d'`Add`/`Remove` ayant
+    supprime l'emission."""
+    lignes = [l for l in flux.split("\n") if l != ""]
+    flags = NoActionAvailableFlags()
+    valeurs: Dict[int, int] = {}
+    egales = 0
+    divergences: List[str] = []
+    for i, ligne in enumerate(lignes):
+        m = _marque(lignes, i)
+        if m is None:
+            continue
+        entite, valeur = m
+        valeurs[valeur] = valeurs.get(valeur, 0) + 1
+        cache = StreamCache()
+        capture = Capture()
+        cache.add_listener(capture)
+        events = StreamDispatcher()
+        events.subscribe(cache)
+        mark_unit_as_no_action_available(events, flags, entite, flags.has(entite))
+        emis = [l.strip() for l in "".join(capture.racines).split("\n") if l.strip()]
+        attendu = [lignes[i].strip(), lignes[i + 1].strip()]
+        if emis == attendu:
+            egales += 1
+        else:
+            divergences.append("L%d natif=%s port=%s" % (i, attendu, emis or ["<RIEN>"]))
+    return {"emissions": sum(valeurs.values()), "egales": egales,
+            "divergences": divergences, "valeurs": dict(sorted(valeurs.items()))}
+
+
 def effect_refresh_recoltes(couples: List[TurnObs]) -> dict:
     """CE QUE LA TRANCHE DEBLOQUE POUR `Effect_Refresh`, mesure -- le fil de #477-r19-r2.
 
@@ -915,6 +963,7 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
             "dedans": dedans, "dehors": dehors, "resultats": resultats,
             "derivations": der, "contre_epreuve": ce, "rapport": rap_bloc2,
             "effect_refresh": effect_refresh_recoltes(couples),
+            "foyer": conformite_du_foyer(flux),
             "voc_porte": R19.vocabulaire(attendu0)}
 
 
@@ -987,6 +1036,13 @@ def imprimer(res: dict) -> None:
             if not r["rapport"].conforme:
                 print("          ROUGE couple #%d (racine=%s) : %d divergence(s)"
                       % (r["index"], r["obs"].racine, len(r["rapport"].divergences)))
+    foy = res["foyer"]
+    print("      FOYER `MarkUnitAsNoActionAvailableOperation$$Execute` sur TOUT le flux : "
+          "%d / %d emission(s) reproduite(s) ; valeurs exercees %s"
+          % (foy["egales"], foy["emissions"],
+             ",".join("%d x%d" % (v, n) for v, n in foy["valeurs"].items()) or "-"))
+    for d in foy["divergences"][:6]:
+        print("          ROUGE %s" % d)
     eff = res["effect_refresh"]
     print("      `%s` DANS LES COUPLES : %d REPRODUIT(s) a l'egalite brute (donnees fournies), "
           "%d hors perimetre ; AUTONOMES : %d"
@@ -1109,6 +1165,18 @@ def main() -> int:
         print("  ATTENTION : %d mutation(s) HORS DOMAINE sur tout un scenario -- la faute "
               "qu'elles testent n'y est pas exprimable, leur silence ne dit donc rien : %s"
               % (len(ce_vides), ", ".join("%s/%s" % (b, n) for b, n in ce_vides)))
+    # ⚠ HORS DOMAINE SUR **TOUS** LES SCENARIOS, C'EST UN ROUGE, PAS UNE ATTENTION -- et c'est une
+    # MESURE qui l'a impose (#477-r22-r1) : les deux mutations `info_*`, ajoutees d'abord a
+    # `probe_477r21`, y avaient un domaine NUL sur les QUATRE scenarios du BLOC 1 ; le garde-fou
+    # homologue de ce probe-la les a refusees. Une mutation qu'AUCUN scenario n'exerce ne mesure
+    # rien du tout : elle appartient au probe dont le corpus la porte, ou a personne.
+    partout_vides = [nom for nom in MUTATIONS
+                     if all(m + mu == 0 for r in resultats
+                            for n, m, mu, _ro, _hd in r["contre_epreuve"] if n == nom)]
+    if partout_vides:
+        print("  ROUGE : %d mutation(s) au domaine NUL sur TOUS les scenarios -- rien ne les "
+              "confronte : %s" % (len(partout_vides), ", ".join(partout_vides)))
+        rc = 1
     # --- #477-r22-r1 : les TROIS recoupements de la queue, chacun ROUGE a part entiere. Ils ne
     # portent pas sur le TEXTE (que l'egalite brute couvre deja) mais sur la DERIVATION : une
     # unite marquee hors des candidats derives, une valeur qui ne suit pas le registre, ou un
@@ -1127,6 +1195,17 @@ def main() -> int:
         print("  ROUGE : la VALEUR emise ne suit pas le registre `%s` sur %s -- (D7) fausse."
               % (FLAG.name, ",".join(d7_ko)))
         rc = 1
+    foyer_ko = [(r["etiquette"], len(r["foyer"]["divergences"])) for r in resultats
+                if r["foyer"]["divergences"]]
+    if foyer_ko:
+        print("  ROUGE : le foyer `MarkUnitAsNoActionAvailableOperation$$Execute` ne reproduit "
+              "pas %d emission(s) du flux : %s"
+              % (sum(n for _b, n in foyer_ko), ", ".join("%s:%d" % (b, n) for b, n in foyer_ko)))
+        rc = 1
+    foyer_une_valeur = [r["etiquette"] for r in resultats if len(r["foyer"]["valeurs"]) < 2]
+    if foyer_une_valeur:
+        print("  ATTENTION : le foyer n'exerce QU'UNE valeur sur %s -- la correspondance "
+              "`reverse -> 0/1` n'y est alors pas separee." % ",".join(foyer_une_valeur))
     d8_ko = [r["etiquette"] for r in resultats
              if r["derivations"]["d8_couples_ordonnes"]
              != r["derivations"]["d8_couples_avec_marques"]]
