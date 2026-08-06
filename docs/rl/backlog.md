@@ -3012,18 +3012,37 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   SEQUENCE DE CREATION -- **c'est #477-r21-r2**, pas un residu de plus.
   cf. `docs/rl/case-477r21r3-allocation-entites-effet.md`.
 
-- **#477-r22-r1 : le CONTENU du `Group=StartTurn` hors des formes portees.** `[opus]`
-  DEUX motifs, comptes sur tout le flux : les `Action=ChangeStats` + `Tag=UnitStats_ActionsAvailable`
-  emises par le **slot `0x21`** de `Core.Services.IOperationProcessor` juste avant le `FinishGroup`
-  (13 occurrences sur `C1_02`, 13 sur `MC1_67`, 0 sur le roster 2v2), et les `Group=Ability_Power` a
-  `Action=Info` / `Tag=Custom_Data` (3). Les premieres sortent d'un slot **NON IDENTIFIE** -- l'ordre
-  des slots d'une interface IL2CPP ne se lit nulle part hors du metadata (mesure : **0** methode
-  declaree par `Core.Services.IOperationProcessor` dans les 121 502 lignes de `frida/methods.tsv`) ;
-  les secondes d'un `Ability_Power` que #477-r21 sait ouvrir mais dont le corps `Info` n'est porte
-  par rien.
-  RETOURNEMENT **DEJA MESURE** : sur le roster 2v2 ce residu vaut **0 ligne** dans le bloc 2, et le
-  groupe `System_StartMatch` y est alors INTEGRALEMENT porte (142 / 142).
-  cf. `docs/rl/case-477r22-bloc2-tour.md` sec. 6.
+- ~~**#477-r22-r1**~~ : **LIVRE (2026-08-06) -- le slot `0x21` est RESOLU, et son operation portee.**
+  `Core.Services.IOperationProcessor` slot **33** = `VerifyUnitsTurnFinished`, **arite 0** -- lu dans
+  `data/symbols/<build>/metadata/interface_slots.tsv` (livree par #477-r25) et recoupe par le
+  call-site, qui l'invoque SANS AUCUN ARGUMENT : ses deux voisins homonymes sont a 2 (slot 32
+  `VerifyAutomaticTurnEnd`) et 1 (slot 34 `VerifyAndRefreshUnitTurnFinished`) arguments.
+  `engine/streams/verify_turn_finished.py` porte la chaine entiere ; `inform_ops.get_inform_tags`
+  ferme le second motif (`Action=Info` / `Tag=Custom_Data`, la surcharge A UNE CLE de
+  `DSLBehaviors$$Inform`, identifiee par ses XREFS entrantes -- le build en porte SIX du meme nom).
+  MESURE, 5 scenarios : **28 / 28** couples a l'egalite brute, **1 359** lignes egales ; les
+  **63 marques** et les **12 `Action=Info`** entrent au perimetre. Hors perimetre **38 -> 0** sur
+  `C1_02`.
+  ⚠ **TROIS lecons chiffrees.** (a) La VALEUR est l'INVERSE du sens du drapeau (`MarkUnitAs**No**
+  ActionAvailable` ecrit `0`) et l'emission est GATEE par le retour d'`UnitFlagsComponent$$Add`
+  /`Remove` -- deux appels de meme sens n'ecrivent qu'UNE ligne. (b) Le `Group=StartTurn` n'exerce
+  QU'UNE des deux valeurs (**63/63** marques valent `1`) : la generalisation confronte le foyer sur
+  le flux ENTIER -- **157 / 157** emissions reproduites, valeurs `0` **x92** et `1` **x65**.
+  (c) DEUX mutations avaient ete mises dans le MAUVAIS probe (domaine NUL sur les 4 scenarios de
+  #477-r21) et son garde-fou les a REFUSEES ; le meme garde est desormais dans `probe_477r22`.
+  cf. `docs/rl/case-477r22-bloc2-tour.md` sec. 7. Residu : **#477-r34**.
+
+- **#477-r34 : les DEUX familles que l'enonce de #477-r22-r1 n'avait PAS enumerees.** `[opus]`
+  Il nommait deux motifs ; le flux en portait QUATRE. Restent, dans les couples
+  `Action=PrepareTurn` + `Group=StartTurn` : un sous-arbre `Group=ResurrectUnit` /
+  `Group=Ability_CustomGroup` (**106 lignes** sur `MC1_67`, avec `Action=Resurrect`,
+  `Action=DirectlyKillUnit`, `Action=RemoveUnit`, `Action=RemoveUnitFromTiles`), et un
+  `Group=Damage` (**47 lignes** sur le roster 2v2, **36** sur les 6 tours de `C1_02`).
+  ⚠ **CE N'EST PAS UNE TRANCHE DE `StartTurn`** : les deux sortent de pipelines entiers --
+  resurrection et degat -- qui ont leurs propres tranches ; les porter ici serait une erreur de
+  cadrage. Ce qui est UTILE de ce residu est le CHIFFRE : c'est tout ce qui reste hors perimetre
+  dans un `Group=StartTurn` une fois #477-r22-r1 livre.
+  cf. `docs/rl/case-477r22-bloc2-tour.md` sec. 7.6.
 
 - **#477-r22-r2 : les gardes d'ETAT de `ContinueTurnPhaseOperation$$HandleNextTurn`.** `[opus]`
   TROIS, toutes LUES : le match deja termine (`match.<+0x24> == 2`), la decision de drafting en
@@ -3037,6 +3056,9 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   decouper comme un port d'emission serait une erreur de cadrage. Le PREALABLE est un montage qui
   arme une decision de drafting, qu'aucun de nos cinq scenarios n'atteint.
   cf. `docs/rl/case-477r22-bloc2-tour.md` sec. 1 et 6.
+  ⚠ **CE RESIDU N'A PAS BOUGE avec #477-r22-r1** : celui-la portait le CONTENU du groupe, celui-ci
+  porte la DECISION de l'ouvrir. Les deux se lisent dans la meme fonction et ne sont pas la meme
+  face.
 
 - **#477-r23 : le groupe `RarityCapTransform`, LU mais JAMAIS exerce.** `[opus]`
   `StepType.PlayerInitialRarity` (`0x3d`) dans un `Group=RarityCapTransform` (`0x2e`), emis par
