@@ -75,6 +75,8 @@ if str(HERE) not in sys.path:
 ROOT = HERE.parents[1]
 PY_ROOT = ROOT / "scripts" / "python"
 
+import repo_read                                                            # noqa: E402
+
 
 class SeedBcPatchOverwritten(RuntimeError):
     """Un patch delibere du seed BC sera ECRASE par `_load_seed_bc`, en silence."""
@@ -222,10 +224,15 @@ class _Sweep(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def scan_file(path: Path) -> dict | None:
-    """Rend le releve d'un module, ou `None` s'il n'a aucun rapport avec un seed BC."""
+def scan_file(path: Path, texte: str | None = None) -> dict | None:
+    """Rend le releve d'un module, ou `None` s'il n'a aucun rapport avec un seed BC.
+
+    `texte` : source deja lue (le balayage la lit en PARALLELE). Absente, elle est relue ici --
+    c'est la voie des appelants qui n'ont qu'un chemin.
+    """
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        src = path.read_text(encoding="utf-8") if texte is None else texte
+        tree = ast.parse(src, filename=str(path))
     except (SyntaxError, UnicodeDecodeError) as exc:       # pragma: no cover - diagnostic
         return {"path": path, "parse_error": str(exc), "risky": [], "benign": [],
                 "disk": [], "consumes": []}
@@ -239,12 +246,52 @@ def scan_file(path: Path) -> dict | None:
             "disk": sorted(set(sw.disk)), "consumes": sorted(set(sw.consumes))}
 
 
+#: RESULTAT du balayage, memoise PAR RACINE pour la duree du process (#486-r5).
+#:
+#: POURQUOI. `scan()` lit et `ast.parse` tout `scripts/python/**` (2089 fichiers, 37 Mo).
+#: Ventilation mesuree le 2026-08-06 : `ast.parse` 27,8 s, `_Sweep().visit` 10,4 s, lecture en
+#: SERIE 3,2 s, `p.resolve()` par fichier 2,3 s -- soit ~32 s par appel. `tests/
+#: test_380_seed_bc_patch_survival_offline.py` l'appelle DEUX fois, pour deux assertions
+#: differentes sur le MEME releve.
+#:
+#: On ne garde PAS les ASTs (mesure : 1013 Mo de tas pour ce corpus) : seul le RELEVE est
+#: memoise -- 180 records. Il est rendu en COPIE PROFONDE a chaque appel, donc aucun appelant ne
+#: peut muter ce que verra le suivant ; le cout de cette copie est negligeable devant le
+#: balayage.
+_SCAN_CACHE: dict = {}
+
+
 def scan(root: Path = PY_ROOT) -> list:
+    cle = str(Path(root).resolve())
+    if cle not in _SCAN_CACHE:
+        _SCAN_CACHE[cle] = _balayer(Path(root))
+    return copy.deepcopy(_SCAN_CACHE[cle])
+
+
+def _balayer(root: Path) -> list:
+    """LE balayage, sans cache -- meme perimetre et meme critere qu'avant #486-r5.
+
+    Deux couts retires sans toucher au critere : `Path(__file__).resolve()` etait recalcule A
+    CHAQUE fichier (il est desormais hors boucle), et la lecture passe par `repo_read`
+    (16 threads : 0,83 s contre 3,24 s en serie -- l'ouverture sous `scripts/` pese ~7 ms par
+    fichier). Le texte rendu est celui de `read_text(encoding='utf-8')`, donc memes `lineno` ;
+    un fichier illisible ou non-UTF-8 reste rapporte en `parse_error`, comme avant.
+    """
+    moi = Path(__file__).resolve()
+    fichiers = [p for p in sorted(root.rglob("*.py")) if p.resolve() != moi]
     out = []
-    for p in sorted(root.rglob("*.py")):
-        if p.resolve() == Path(__file__).resolve():
+    for p, data in zip(fichiers, repo_read.read_bytes_many([str(q) for q in fichiers])):
+        if data is None:                                   # pragma: no cover - diagnostic
+            out.append({"path": p, "parse_error": "illisible", "risky": [], "benign": [],
+                        "disk": [], "consumes": []})
             continue
-        rec = scan_file(p)
+        try:
+            texte = repo_read.to_text(data)
+        except UnicodeDecodeError as exc:                  # pragma: no cover - diagnostic
+            out.append({"path": p, "parse_error": str(exc), "risky": [], "benign": [],
+                        "disk": [], "consumes": []})
+            continue
+        rec = scan_file(p, texte)
         if rec is not None:
             out.append(rec)
     return out
