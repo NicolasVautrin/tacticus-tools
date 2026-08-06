@@ -363,12 +363,40 @@ def test_les_noms_du_flux_sont_TOUS_des_membres_des_mirrors():
                 assert m.group("source") in TriggeredAbilityType.__members__, m.group("source")
 
 
-def test_le_probe_REFUSE_un_Source_absent_du_mirror():
+#: LE FRAGMENT QUE NI LA PARTITION NI L'EMISSION NE DOIVENT LAISSER PASSER.
+_SOURCE_INCONNUE = ("    Group=Effect_Refresh Entity=69 Source=CeNomNExistePas InitialTarget=\n"
+                    "        Action=ActivateEffect Entity=12\n"
+                    "            Tag=Effect_Id:69\n"
+                    "    Finish_Group\n")
+
+
+def test_la_PARTITION_ecarte_un_Source_absent_du_mirror():
+    """LE REFUS A CHANGE DE PORTE AVEC `#477-r34`, ET C'EST UN DURCISSEMENT, PAS UN
+    RELACHEMENT.
+
+    Jusque-la, un `Source=` hors mirror passait la PARTITION (qui ne lisait que le symbole de
+    la forme) et n'etait refuse qu'a l'EMISSION, par un `MesureImpossible` -- ce qui TUE la
+    mesure : le probe rend 2 et ne publie plus rien. Mesure du 2026-08-06 : sur `C1_02` a six
+    tours, un `Group=Ability_Power Source=TerminatorArmour_Visual` (un nom d'`EffectType`, pas
+    de `TriggeredAbilityType`) a fait exactement cela.
+
+    Depuis, `formes_etrangeres` juge DEUX axes -- la forme ET la resolubilite du `Source=` --
+    donc le sous-arbre part hors perimetre, ENUMERE, et la mesure continue. Le test suivant
+    garde l'AUTRE cran : l'emission, elle, leve toujours."""
+    par = P.parser_bloc1(_bloc1(_SOURCE_INCONNUE))
+    assert not par["portes"]
+    assert len(par["hors"]) == 1
+    assert "CeNomNExistePas" in par["hors"][0]["forme"]
+    assert EffectType.__name__ in par["hors"][0]["forme"]
+
+
+def test_l_EMISSION_REFUSE_encore_un_Source_absent_du_mirror():
+    """LE CRAN DU DESSOUS : meme si un appelant force le sous-arbre dans l'emetteur (en
+    court-circuitant la partition), `_setup` leve. Les deux gardes sont independants."""
+    lignes = [l for l in _SOURCE_INCONNUE.split("\n") if l != ""]
     with pytest.raises(P.MesureImpossible):
-        _emis("    Group=Effect_Refresh Entity=69 Source=CeNomNExistePas InitialTarget=\n"
-              "        Action=ActivateEffect Entity=12\n"
-              "            Tag=Effect_Id:69\n"
-              "    Finish_Group\n")
+        P.emettre([{"obs": P._lire_sous_arbre(lignes), "lignes": len(lignes),
+                    "texte": lignes}])
 
 
 # --- 8. `evaluate_abilities` : le REFUS qui evite un flux ampute -------------

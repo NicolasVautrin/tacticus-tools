@@ -104,6 +104,11 @@ from engine.streams.refresh_effects import (EffectSetup,  # noqa: E402
                                             add_receive_effect_action,
                                             generate_event_group,
                                             get_refresh_effect_tags)
+from engine.streams.apply_damage import DAMAGE_SOURCE_ID, apply_damage  # noqa: E402
+from engine.streams.damage_result import (AbilityOrEffect,  # noqa: E402
+                                          DamageAppliedResult, DamageSource)
+from engine.streams.stream_helper import (ADDITIONAL_HIT_SOURCE_TAGS,  # noqa: E402
+                                          SOURCE_TAGS, get_damage_tags)
 from engine.streams.transform_unit import (FILL_STAT_TRANSFORM_CONFIG,  # noqa: E402
                                            MOD_STAT_TRANSFORM_CONFIG,
                                            StatModifierSetup, build_transform_tags,
@@ -143,11 +148,33 @@ BOARDS_DEFAUT = ("C1_02", "MC1_67")
 #: `IdunBattleLogic.Entities.DSLBehaviors$$Inform`. Seule la surcharge A UNE CLE est portee
 #: (`get_inform_tags`), donc seul `Tag=Custom_Data` entre au perimetre : une `Action=Info` qui
 #: porterait les cles d'ARME (`Attack_Weapon_*`, l'autre foyer) reste HORS, ENUMEREE.
+#:
+#: ⚠ `UnitDamaged` / `Group=Damage` Y SONT ENTREES AVEC `#477-r34`. Elles sortent d'une
+#: CINQUIEME operation, `IdunBattle.Operations.ApplyDamageOperation$$Execute`, qui n'a rien a
+#: voir avec le tour : c'est le pipeline de DEGAT. Son helper de tags est
+#: `IdunBattle.Core.Services.StreamHelper$$GetDamageTags` (`engine/streams/stream_helper.py`) et
+#: sa face stream `engine/streams/apply_damage.py`. Les AUTRES groupes du meme pipeline --
+#: `MachineDamage` (28), `DamageChain` (29), `TileDamage` (27) -- restent HORS, ENUMERES.
 ACTIONS_PORTEES = frozenset((StepType.ActivateEffect.name, StepType.ReceiveEffect.name,
                              StepType.LoseEffect.name, StepType.DeactivateEffect.name,
                              StepType.ChangeStats.name, StepType.ChangeAbility.name,
-                             StepType.Info.name))
-GROUPES_PORTES = frozenset((GroupType.Ability_Power.name, GroupType.Effect_Refresh.name))
+                             StepType.Info.name, StepType.UnitDamaged.name))
+GROUPES_PORTES = frozenset((GroupType.Ability_Power.name, GroupType.Effect_Refresh.name,
+                            GroupType.Damage.name))
+
+#: LES QUINZE `TagKey` QUE `StreamHelper$$GetDamageTags` SAIT ECRIRE, DERIVEES DU PORT --
+#: `SOURCE_TAGS` et `ADDITIONAL_HIT_SOURCE_TAGS` en sont les deux cascades. Comme partout dans
+#: ce probe, la liste vient du PORT et non du flux : un tag qu'un `Action=UnitDamaged` porterait
+#: en plus sortirait du perimetre au lieu d'etre absorbe.
+TAGS_DAMAGE = ((TagKey.UnitStats_RemainingHealth, TagKey.UnitStats_RemainingArmor,
+                TagKey.Shields_RemainingAmount, TagKey.UnitStats_NumberOfMembers,
+                TagKey.UnitStats_NumberOfMembers_Change,
+                TagKey.Attack_DidCrit, TagKey.Attack_DidBlock, TagKey.Attack_DidEvade,
+                TagKey.Attack_WasOverkill, TagKey.Attack_Is_First_Hit,
+                TagKey.Attack_WasMemberKilled, TagKey.Attacker_Id, TagKey.Target_Id,
+                TagKey.Amount, TagKey.DamageProfileType)
+               + tuple(cle for _champ, cle in SOURCE_TAGS)
+               + tuple(cle for _champ, cle in ADDITIONAL_HIT_SOURCE_TAGS))
 
 #: Les SIX tags qu'`AddActiveAbilityOperation$$Execute` inline, nommes par le port.
 TAGS_ADD_ACTIVE = (TagKey.UnitStats_ActiveAbility_Id, TagKey.UnitStats_ActiveAbility_Level,
@@ -245,6 +272,27 @@ class AbilityPowerObs:
     enfants: List[EffectRefreshObs] = field(default_factory=list)
 
 
+@dataclass
+class DamageObs:
+    """Un `Group=Damage` observe (#477-r34).
+
+    ⚠ L'ENTITE DE L'ENTETE EST GARDEE A PART DE CELLE DE L'ACTION, ET LES DEUX SONT GARDEES A
+    PART DU `Tag=Target_Id`. Le port n'a qu'UN parametre d'entite ; le probe lui donne celle du
+    TAG et EXIGE que les deux autres coincident (recoupement (DD1)). Les confondre au parsage
+    rendrait le recoupement impossible."""
+
+    groupe_entity: int
+    source: str
+    initial_target: str
+    action_entity: int
+    tags: List[Tuple[str, int]] = field(default_factory=list)
+    """DANS L'ORDRE DU FLUX -- jamais donne au port ainsi."""
+    enfants: List[object] = field(default_factory=list)
+    """LE CORPS du groupe : les sous-arbres emis ENTRE l'`Action=UnitDamaged` et le
+    `Finish_Group`. Le flux en montre (`Group=Effect_Refresh` d'effets qui expirent sur le
+    coup) ; ils passent par le parametre `corps` d'`apply_damage`."""
+
+
 def _bloc(lignes: List[str], i: int) -> int:
     """Indice de la ligne `Finish_Group` qui ferme le groupe ouvert en `i`."""
     pile, j = 0, i
@@ -326,8 +374,7 @@ def parser_bloc1(bloc1: List[str]) -> dict:
             continue
         j = _bloc(bloc1, i)
         sous = bloc1[i:j + 1]
-        formes = _formes(sous)
-        etrangeres = sorted(formes - _formes_portees())
+        etrangeres = formes_etrangeres(sous)
         if etrangeres:
             hors.append({"raison": "forme(s) non portee(s)", "forme": ",".join(etrangeres),
                          "lignes": len(sous), "texte": sous})
@@ -355,11 +402,57 @@ def _formes_portees() -> frozenset:
                # qu'aucun producteur de ce paquet ne l'ecrit a cet endroit-la.
                TagKey.Custom_Data.name]
             + [t.name for t in TAGS_ADD_ACTIVE]
+            # #477-r34 : les quinze cles de `GetDamageTags`. Elles n'entrent QUE parce que
+            # `Group=Damage` + `Action=UnitDamaged` entrent avec elles : une `Action=ChangeStats`
+            # qui porterait un `Tag=Amount` resterait hors perimetre, sa forme d'action etant
+            # jugee a part.
+            + [t.name for t in TAGS_DAMAGE]
             + [TagKey(o).name for o in _tags_de_transformation()])
     return frozenset(["Group=%s" % g for g in GROUPES_PORTES]
                      + ["Action=%s" % a for a in ACTIONS_PORTEES]
                      + ["Finish_Group"]
                      + ["Tag=%s" % t for t in tags])
+
+
+def _sources_non_resolubles(lignes: List[str]) -> frozenset:
+    """LES `Source=` QU'AUCUN MIRROR DU PORT NE SAIT PRODUIRE (#477-r34).
+
+    ⚠ LE SYMBOLE DE LA FORME NE SUFFIT PAS A DIRE QU'ELLE EST PORTEE, ET C'EST UNE MESURE QUI
+    L'A IMPOSE. `_formes` ne lit que le `Group=` / `Action=` / `Tag=` ; le `Source=`, lui, est
+    une CHAINE que l'emetteur natif tire d'un enum, et le port ne sait la reproduire que si son
+    mirror porte le membre. Sur `C1_02` a six tours, un `Group=Damage` porte dans son corps un
+    `Group=Ability_Power Source=TerminatorArmour_Visual` -- un nom qui vit dans `EffectType`,
+    PAS dans `TriggeredAbilityType` (verifie sur `data/symbols/<build>/frida/enums.tsv` :
+    `TriggeredAbilityType` n'a que `TerminatorArmour` = 1142). Le producteur de ce
+    `Group=Ability_Power`-la n'est donc pas `EvaluateAbilitiesOperation`, et aucun foyer lu de
+    ce paquet ne l'ecrit.
+
+    Sans ce test, `emettre_sous_arbre` LEVE au milieu de la mesure : le probe rend `2` et ne
+    publie plus rien. Avec lui, le sous-arbre part HORS PERIMETRE, ENUMERE -- c'est la meme
+    regle que pour une forme etrangere, appliquee a l'axe des SOURCES.
+
+    ⚠ ELLE EST DERIVEE DU PORT, comme `_formes_portees`. Un mirror complete demain fait entrer
+    le sous-arbre tout seul ; aucune liste de noms n'est ecrite ici."""
+    out = set()
+    for l in lignes:
+        m = CONF.RE_GROUP.match(l)
+        if not m:
+            continue
+        sym, src = m.group("sym"), m.group("source")
+        if sym == GroupType.Ability_Power.name and src not in TriggeredAbilityType.__members__:
+            out.add("Group=%s Source=%s <hors mirror TriggeredAbilityType>" % (sym, src))
+        elif sym == GroupType.Effect_Refresh.name and src not in EffectType.__members__:
+            out.add("Group=%s Source=%s <hors mirror EffectType>" % (sym, src))
+        elif sym == GroupType.Damage.name and src != DAMAGE_SOURCE_ID:
+            out.add("Group=%s Source=%s <le litteral lu est vide>" % (sym, src))
+    return frozenset(out)
+
+
+def formes_etrangeres(sous: List[str]) -> List[str]:
+    """CE QUI MET UN SOUS-ARBRE HORS PERIMETRE : une forme qu'aucun module de `engine/streams`
+    ne produit, OU un `Source=` qu'aucun mirror ne sait ecrire. Les deux axes sont derives du
+    PORT, jamais du flux."""
+    return sorted((_formes(sous) - _formes_portees()) | _sources_non_resolubles(sous))
 
 
 def _formes(lignes: List[str]) -> frozenset:
@@ -383,9 +476,58 @@ def _entite(txt: str) -> int:
     return 0 if txt == "NO_ENTITY" else int(txt)
 
 
-def _lire_sous_arbre(sous: List[str]):
-    """Rend un `AbilityPowerObs` ou un `EffectRefreshObs`."""
+def _lire_groupe_damage(sous: List[str]) -> DamageObs:
+    """LA DECOUPE D'UN `Group=Damage`, structurelle et VERIFIEE (#477-r34).
+
+    Elle est LUE dans `IdunBattle.Operations.ApplyDamageOperation$$Execute` : le `StartGroup`,
+    puis IMMEDIATEMENT l'`Events.Action(StepType.UnitDamaged, ...)`, puis ce que le reste de
+    l'operation emet, puis le `FinishGroup`. Trois refus l'arment :
+
+      * la 1re ligne du groupe est une `Action=UnitDamaged` -- si le natif emettait autre chose
+        en premier, ce serait un producteur qu'on n'a pas lu ;
+      * ses tags sont TOUS dans `TAGS_DAMAGE` -- une cle de plus sortirait d'un autre foyer ;
+      * la somme est exacte : `1 + (1 + tags) + corps + 1 == len(sous)`."""
     m = CONF.RE_GROUP.match(sous[0])
+    ma = CONF.RE_ACTION.match(sous[1])
+    if not ma or ma.group("sym") != StepType.UnitDamaged.name:
+        raise MesureImpossible("la 1re ligne du `Group=%s` n'est pas `Action=%s` : [%s]"
+                               % (GroupType.Damage.name, StepType.UnitDamaged.name, sous[1]))
+    obs = DamageObs(groupe_entity=_entite(m.group("entity")), source=m.group("source"),
+                    initial_target=m.group("target"),
+                    action_entity=_entite(ma.group("entity")))
+    k = 2
+    while k < len(sous) - 1 and CONF.RE_TAG.match(sous[k]):
+        mt = CONF.RE_TAG.match(sous[k])
+        obs.tags.append((mt.group("sym"), int(mt.group("value"))))
+        k += 1
+    connues = {t.name for t in TAGS_DAMAGE}
+    etrangeres = sorted({n for n, _v in obs.tags} - connues)
+    if etrangeres:
+        raise MesureImpossible("`Action=%s` porte %s -- aucune n'est ecrite par "
+                               "`StreamHelper$$GetDamageTags`"
+                               % (StepType.UnitDamaged.name, ",".join(etrangeres)))
+    lignes_corps = 0
+    while k < len(sous) - 1:
+        me = CONF.RE_GROUP.match(sous[k])
+        if not me:
+            raise MesureImpossible("enfant inattendu dans `Group=%s` : [%s]"
+                                   % (GroupType.Damage.name, sous[k]))
+        fin = _bloc(sous, k)
+        obs.enfants.append(_lire_sous_arbre(sous[k:fin + 1]))
+        lignes_corps += fin + 1 - k
+        k = fin + 1
+    attendu = 1 + (1 + len(obs.tags)) + lignes_corps + 1
+    if attendu != len(sous):
+        raise MesureImpossible("somme du `Group=%s` FAUSSE : %d != %d"
+                               % (GroupType.Damage.name, attendu, len(sous)))
+    return obs
+
+
+def _lire_sous_arbre(sous: List[str]):
+    """Rend un `AbilityPowerObs`, un `EffectRefreshObs` ou un `DamageObs`."""
+    m = CONF.RE_GROUP.match(sous[0])
+    if m.group("sym") == GroupType.Damage.name:
+        return _lire_groupe_damage(sous)
     if m.group("sym") == GroupType.Ability_Power.name:
         ap = AbilityPowerObs(unit_entity=_entite(m.group("entity")),
                              triggered_ability_name=m.group("source"),
@@ -622,6 +764,204 @@ def emettre_action_info(events: StreamDispatcher, act: ActionObs, entite_groupe:
     inform(events, tags)
 
 
+#: LES MUTATIONS DE LA FAMILLE `Group=Damage` (#477-r34). Elles vivent ici parce que c'est ICI
+#: qu'on emet, mais leur corpus est celui du FOYER (tout le flux), pas celui du BLOC 1 : c'est
+#: `probe_477r22` qui les JOUE. Meme separation que `MUTATIONS_RELAYEES` (#477-r22-r1).
+#:
+#: ⚠ UNE NEUVIEME A ETE ECRITE PUIS RETIREE, ET C'EST UNE MESURE QUI L'A IMPOSE.
+#: `Attack_WasMemberKilled` sort de `numMembersDied > 0` ; la faute naturelle serait d'y ecrire
+#: le COMPTE. Mesure sur les 72 `Group=Damage` du corpus : `UnitStats_NumberOfMembers_Change`
+#: vaut **1** dans ses **5** occurrences, et rien d'autre -- `1` et `True` s'ecrivent tous deux
+#: `1`, donc cette mutation serait INERTE PAR CONSTRUCTION sur 72 / 72. Le garde-fou de
+#: `probe_477r22` la refuserait ; elle est remplacee par `damage_membre_tue`, qui INVERSE le
+#: booleen et mord partout.
+MUTATIONS_DAMAGE = ("damage_entite_groupe", "damage_ordre_action", "damage_source_groupe",
+                    "damage_voie_source", "damage_voie_additionnelle",
+                    "damage_change_inconditionnel", "damage_premier_hit",
+                    "damage_membre_tue")
+
+
+def applicable_damage(nom: str, obs: DamageObs) -> bool:
+    """LE DOMAINE DE DEFINITION D'UNE MUTATION `damage_*`, derive des DONNEES du groupe.
+
+    Meme regle qu'`applicable` de `probe_477r22`, et pour la meme raison : sans ce calcul, une
+    mutation qui ne mord pas faute de DONNEE se lirait comme une mutation INERTE PAR
+    CONSTRUCTION -- et le garde-fou la refuserait a tort.
+
+    Les quatre domaines etroits sont MESURES sur les 72 `Group=Damage` du corpus :
+    `damage_ordre_action` **3** (les seuls a avoir un corps), `damage_voie_source` **9**,
+    `damage_voie_additionnelle` **5**, `damage_change_inconditionnel` **67**."""
+    d = dict(obs.tags)
+    if nom == "damage_ordre_action":
+        # elle deplace `corps`, et `corps` est `None` quand le groupe est reduit a son action
+        return bool(obs.enfants)
+    if nom in ("damage_voie_source", "damage_voie_additionnelle"):
+        # permuter les 2e et 3e cles d'une cascade ne change rien si c'est la 1re qui est
+        # ecrite -- ni, a plus forte raison, si la cascade n'ecrit aucun tag
+        table = SOURCE_TAGS if nom == "damage_voie_source" else ADDITIONAL_HIT_SOURCE_TAGS
+        return any(cle.name in d for _champ, cle in table[1:])
+    if nom == "damage_change_inconditionnel":
+        # retirer la garde `> 0` ne change rien quand le tag est DEJA ecrit
+        return TagKey.UnitStats_NumberOfMembers_Change.name not in d
+    return True
+
+
+def entrees_damage(obs: DamageObs, mutation: str = "") -> dict:
+    """`DamageObs` -> les entrees de `get_damage_tags` / `apply_damage`. LA PARTIE COPIEE.
+
+    C'est le pendant exact de `TAG_VERS_CHAMP` : le port choisit quelle grandeur produit quelle
+    cle, ce parseur refait le chemin en sens inverse. Il ne mesure donc RIEN par lui-meme -- il
+    rend les DERIVATIONS confrontables. Ce qui reste DERIVE, et que le texte confronte :
+
+      (DD1) L'ENTITE. Le probe ne donne au port QUE la valeur du `Tag=Target_Id`, et le port en
+            produit TROIS occurrences (l'entete du groupe, l'entite de l'action, et le tag
+            lui-meme). Les deux premieres sont donc des PREDICTIONS : un flux ou elles
+            differeraient du tag ferait rougir le diff ;
+      (DD2) `Attack_WasMemberKilled`, derive de `numMembersDied > 0` -- et `numMembersDied` est
+            pris du seul `UnitStats_NumberOfMembers_Change`, ABSENT quand il vaut zero. Le
+            booleen n'est donc jamais copie : il est reconstruit depuis la PRESENCE d'un autre
+            tag. Mesure du corpus : 5 presences, 5 `Attack_WasMemberKilled:1`, 67 absences,
+            67 `:0` ;
+      (DD3) LA CONDITIONNALITE de `UnitStats_NumberOfMembers_Change` elle-meme : le port ne
+            l'ecrit que si `> 0`, ce que la mutation `damage_change_inconditionnel` confronte ;
+      (DD4) L'APPARIEMENT champ -> cle des deux cascades. Il est COPIE ici (le probe remplit le
+            champ que la cle designe), et ce sont `damage_voie_source` /
+            `damage_voie_additionnelle` qui le confrontent -- pas le vert du scenario sain.
+
+    ⚠ `hit_index` EST POSE AU MINIMUM QUI REPRODUIT, comme les deux predicats de mobilite de
+    `#477-r22-r1`. Le flux ne publie pas l'indice du coup, seulement le booleen `hitIndex == 0`
+    qu'il en tire ; le probe pose donc `0` ou `1`. Ce qui reste mesure de ce champ est la
+    FORME du test (`== 0`), que `damage_premier_hit` confronte.
+
+    ⚠ `caster_entity_id` N'EST JAMAIS `None` SUR CE CORPUS (72 / 72 portent `Attacker_Id`). La
+    branche `if (caster != null)` du natif est donc portee mais NON EXERCEE, et c'est declare
+    plutot que compte comme un vert."""
+    d = dict(obs.tags)
+    manquants = [c.name for c in (TagKey.DamageProfileType, TagKey.Attack_Is_First_Hit,
+                                  TagKey.Attack_DidBlock, TagKey.Attack_DidEvade,
+                                  TagKey.Attack_DidCrit, TagKey.Attack_WasOverkill,
+                                  TagKey.Target_Id, TagKey.Amount,
+                                  TagKey.UnitStats_RemainingHealth,
+                                  TagKey.UnitStats_RemainingArmor,
+                                  TagKey.Shields_RemainingAmount,
+                                  TagKey.UnitStats_NumberOfMembers)
+                 if c.name not in d]
+    if manquants:
+        raise MesureImpossible("`Action=%s` sans %s -- `GetDamageTags` les ecrit sans aucune "
+                               "garde" % (StepType.UnitDamaged.name, ",".join(manquants)))
+
+    def _premier(cascade) -> Optional[AbilityOrEffect]:
+        for champ, cle in cascade:
+            if cle.name in d:
+                return AbilityOrEffect(**{champ: d[cle.name]})
+        return None
+
+    resultat = DamageAppliedResult(
+        damage_profile_type=d[TagKey.DamageProfileType.name],
+        hit_index=0 if d[TagKey.Attack_Is_First_Hit.name] else 1,
+        did_block=bool(d[TagKey.Attack_DidBlock.name]),
+        did_evade=bool(d[TagKey.Attack_DidEvade.name]),
+        did_crit=bool(d[TagKey.Attack_DidCrit.name]),
+        did_overkill=bool(d[TagKey.Attack_WasOverkill.name]),
+        source=DamageSource(source=_premier(SOURCE_TAGS),
+                            additional_hit_source=_premier(ADDITIONAL_HIT_SOURCE_TAGS)))
+    return {"target_entity_id": d[TagKey.Target_Id.name],
+            "damage_result": resultat,
+            "num_members_died": d.get(TagKey.UnitStats_NumberOfMembers_Change.name, 0),
+            "caster_entity_id": d.get(TagKey.Attacker_Id.name),
+            "amount": d[TagKey.Amount.name],
+            "remaining_health": d[TagKey.UnitStats_RemainingHealth.name],
+            "remaining_armor": d[TagKey.UnitStats_RemainingArmor.name],
+            "total_shield": d[TagKey.Shields_RemainingAmount.name],
+            "number_of_members": d[TagKey.UnitStats_NumberOfMembers.name]}
+
+
+def _tags_damage_mutes(entrees: dict, mutation: str) -> Dict[int, int]:
+    """LES CONTRE-EPREUVES DU DICTIONNAIRE -- chacune reproduit
+    `IdunBattle.Core.Services.StreamHelper$$GetDamageTags` AVEC UNE FAUTE PRECISE, lue comme la
+    faute naturelle a cet endroit. Ce n'est PAS un chemin du port.
+
+    Les trois premieres re-appellent le port puis REECRIVENT la cle fautive : la faute porte
+    alors sur UNE cle et une seule, donc son rouge designe quelque chose. Les deux cascades,
+    elles, se mutent en PERMUTANT la table du port, ce qui est exactement la confusion qu'on
+    veut exclure."""
+    if mutation in ("damage_voie_source", "damage_voie_additionnelle"):
+        table = SOURCE_TAGS if mutation == "damage_voie_source" else ADDITIONAL_HIT_SOURCE_TAGS
+        # `triggered_ability` <-> `effect` : la confusion NATURELLE, puisque le champ
+        # `AbilityOrEffect.TriggeredAbility` produit la cle `Passive_Ability_Type` (le nom du
+        # champ et celui de la cle ne se ressemblent pas), et que `TriggeredAbilityType` partage
+        # 458 ordinaux avec `EffectType`.
+        permutee = tuple((champ, {table[1][1]: table[2][1],
+                                  table[2][1]: table[1][1]}.get(cle, cle))
+                         for champ, cle in table)
+        source = (entrees["damage_result"].source.source
+                  if mutation == "damage_voie_source"
+                  else entrees["damage_result"].source.additional_hit_source)
+        tags = get_damage_tags(**entrees)
+        for _champ, cle in table:
+            tags.pop(int(cle), None)
+        if source is not None:
+            for champ, cle in permutee:
+                if getattr(source, champ) is not None:
+                    tags[int(cle)] = int(getattr(source, champ))
+                    break
+        return tags
+    tags = get_damage_tags(**entrees)
+    if mutation == "damage_change_inconditionnel":
+        # la garde `if (numMembersDied > 0)` omise -- le tag ecrit meme a zero
+        tags[int(TagKey.UnitStats_NumberOfMembers_Change)] = int(entrees["num_members_died"])
+    elif mutation == "damage_premier_hit":
+        # `hitIndex` a la place de `hitIndex == 0` : le `== 0` oublie, la faute naturelle sur un
+        # getter dont le corps DEDUPLIQUE s'appelle `ProductCost$$get_IsFree`
+        tags[int(TagKey.Attack_Is_First_Hit)] = int(entrees["damage_result"].hit_index)
+    elif mutation == "damage_membre_tue":
+        # le booleen INVERSE. ⚠ La faute plus naturelle -- ecrire le COMPTE -- est INERTE sur ce
+        # corpus (`_Change` vaut toujours 1), cf. `MUTATIONS_DAMAGE`.
+        tags[int(TagKey.Attack_WasMemberKilled)] = \
+            0 if int(entrees["num_members_died"]) > 0 else 1
+    return tags
+
+
+def emettre_groupe_damage(events: StreamDispatcher, obs: DamageObs,
+                          mutation: str = "") -> None:
+    """Emet un `Group=Damage` AVEC LE PORT (#477-r34)."""
+    entrees = entrees_damage(obs, mutation)
+    tags = _tags_damage_mutes(entrees, mutation)
+    entite = entrees["target_entity_id"]
+    corps = None
+    if obs.enfants:
+        def corps() -> None:  # noqa: E306
+            for e in obs.enfants:
+                emettre_sous_arbre(events, e, mutation)
+    if mutation == "damage_entite_groupe":
+        # l'entete du groupe et l'action DESSOLIDARISEES : le decompile appelle DEUX fois
+        # l'accesseur d'identifiant sur le MEME `target`, donc les deux ne peuvent pas differer
+        events.start_group(GroupType.Damage, int(entite) + 1, DAMAGE_SOURCE_ID, None)
+        events.action(StepType.UnitDamaged, int(entite), tags)
+        if corps is not None:
+            corps()
+        events.finish_group()
+        return
+    if mutation == "damage_source_groupe":
+        # `Source=` non vide : le slot de litteral resolu en index 0 (`""`) est ce qui le vide
+        events.start_group(GroupType.Damage, int(entite), GroupType.Damage.name, None)
+        events.action(StepType.UnitDamaged, int(entite), tags)
+        if corps is not None:
+            corps()
+        events.finish_group()
+        return
+    if mutation == "damage_ordre_action":
+        # le contenu AVANT l'action, alors que le decompile place l'`Events.Action` juste apres
+        # le `StartGroup` et tout le reste de l'operation APRES elle
+        events.start_group(GroupType.Damage, int(entite), DAMAGE_SOURCE_ID, None)
+        if corps is not None:
+            corps()
+        events.action(StepType.UnitDamaged, int(entite), tags)
+        events.finish_group()
+        return
+    apply_damage(events, entite, tags, corps)
+
+
 def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> None:
     """Re-emet un sous-arbre observe AVEC LE PORT. `mutation` est le levier des contre-epreuves.
 
@@ -630,6 +970,9 @@ def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> Non
     conteneur, donc elle n'aurait jamais mordu -- elle aurait mesure #477-r15a, pas ce port.
     Une mutation qui force un corps sur un `Ability_Power` deja vide a ete retiree pour la meme
     raison : elle n'ajoute aucune ligne, donc aucun verdict qu'elle rendrait n'aurait de sens."""
+    if isinstance(obs, DamageObs):
+        emettre_groupe_damage(events, obs, mutation)
+        return
     if isinstance(obs, AbilityPowerObs):
         if obs.triggered_ability_name not in TriggeredAbilityType.__members__:
             raise MesureImpossible("`Source=%s` du `Group=%s` n'est pas un membre du mirror "
