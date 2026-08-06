@@ -178,6 +178,35 @@ Un régime qu'aucun roster n'atteint est **publié** comme non exercé ; un corp
 **aucun** soin fait ROUGIR — c'est le signe que le montage ne tient plus, pas que le port serait
 faux.
 
+### 5.1 Le résultat, et ce qu'il a coûté de le rendre non trivial
+
+⚠ **LE NOMBRE DE TOURS EST UNE VARIABLE DE LA MESURE, ET IL A DÛ ÊTRE MESURÉ.** À **deux** tours,
+les cinq rosters ne rendent que **2** actions, toutes du **même** producteur : les trois autres
+soigneurs n'en produisent **aucune**, parce que leur ability de soin est **ACTIVE**
+(`RevitalizingMalignancy`, `BloodChalice`, `AberrantHypermorph`, `RitesOfRestoration`) et que
+l'IA ne l'avait pas encore castée — seul `MedicusMinistorum` est un **passif** qui se déclenche
+tout seul. Le corpus restait donc à **un** producteur, et le probe l'a dit au lieu de rendre un
+vert : `ATTENTION : un SEUL producteur enveloppant sur tout le corpus`.
+
+À **quatre** tours, `SanguinaryPriest` (le passif de `bloodSanguinary`) entre à son tour :
+
+| roster | tours | `Action=HealInfo` | producteur |
+|---|---:|---:|---|
+| `hospitaller-2v2` | 4 | **2 / 2** | `MedicusMinistorum` |
+| `sanguinary-2v2` | 4 | **1 / 1** | `SanguinaryPriest` |
+| `rotbone-2v2` | 4 | 0 | — |
+| `biophagus-2v2` | 3 | 0 | — |
+
+**3 / 3 reproduites à l'égalité brute, sur DEUX producteurs distincts**, et les cinq
+contre-épreuves mordent et rougissent sur chacune. Le défaut du probe est passé à 4 pour cette
+raison-là.
+
+**Quatre régimes restent NON EXERCÉS**, et le probe les nomme : `auto-soin`,
+`cible NON blessée`, `effets retirés > 0`, `membres > 1`. Le premier a été **cherché** (le 1v1
+`adeptHospitaller`) et n'est pas venu : ce montage ne produit aucun soin du tout, ce qui suggère
+que `MedicusMinistorum` ne cible pas son propre porteur — mais cela reste une **hypothèse**, la
+RE de son arbre de ciblage n'ayant pas été faite. Le second est structurellement rare (§ 7).
+
 ## 6. `#477-r38` — la RE est écrite, le port ne l'est PAS, et la tranche est TOUT-OU-RIEN
 
 **NON PORTÉ, mesuré.** Les 106 lignes de `MC1_67` sont **UN SEUL sous-arbre**, et il porte
@@ -240,7 +269,16 @@ IdunBattle.Operations.RemoveUnitOperation$$Execute(unit, removeEffects, keepActi
     tags.Add(Unit_IsDying /*0x88*/,       UnitExtensions.HasFlag(unit, 6));
     tags.Add(Unit_WasOverkilled /*0x89*/, UnitExtensions.HasFlag(unit, 8));
     Events.Action(StepType.RemoveUnit /*0xb*/, <IEntity slot 0>(unit), tags);
+
+IdunBattle.Operations.RemoveUnitFromTilesOperation$$Execute(unit, removeTileFromUnit)
+    tags.Add(Clear_Unit_Tiles /*0x85*/, removeTileFromUnit);      // UN SEUL `Add`
+    Events.Action(StepType.RemoveUnitFromTiles /*0x1b*/, <IEntity slot 0>(unit), tags);
 ```
+
+⚠ **`RemoveUnitFromTilesOperation$$Execute` A DEUX SURCHARGES**, et le build les distingue par
+leur premier paramètre (`units` vs `unit`). Celle ci-dessus est celle qui **émet** ; le flux la
+montre **deux fois** sur la même entité, avec la même valeur — l'appelant l'appelle deux fois, ce
+n'est pas une boucle de l'opération.
 
 **Trois lectures déjà acquises**, qui font gagner du temps à qui reprendra :
 
@@ -260,10 +298,17 @@ IdunBattle.Operations.RemoveUnitOperation$$Execute(unit, removeEffects, keepActi
    triggered — exactement les deux boucles du décompilé.
 
 **Ce qui reste à lire** : `KillUnitOperation$$Execute` (l'`Action=DirectlyKillUnit` et son
-`Tag=Unit_WasOverkilled`) et les deux surcharges de `RemoveUnitFromTilesOperation$$Execute`
-(l'`Action=RemoveUnitFromTiles` et son `Tag=Clear_Unit_Tiles`, émise **deux fois** dans le flux),
-plus le producteur du `Group=ResurrectUnit` lui-même — probablement le même `GroupBehaviour`, dont
-le `groupType` est un paramètre de ctor, mais ce n'est **pas** établi.
+`Tag=Unit_WasOverkilled`), et le producteur du `Group=ResurrectUnit` lui-même — probablement le
+même `GroupBehaviour`, dont le `groupType` est un paramètre de ctor, mais ce n'est **pas**
+établi. Tout le reste de la chaîne est lu ci-dessus.
+
+**Ce qu'il faudra ÉCRIRE** : `engine/streams/group_behaviour.py` (le producteur générique de
+groupes DSL, qui couvre les deux `Group=`), `engine/streams/resurrect_unit.py`
+(`GetResurrectUnitTags` + `SendStreamEvents`), les trois opérations de `KillSteppableUnits`, et
+l'extension du périmètre aux **17 `Tag=`** — dont la plupart sont déjà produits par
+`unit_extensions.get_full_state_update_tags`, mais ne sont pas encore **déclarés** dans
+`_formes_portees` (qui ne connaît, pour l'axe `ChangeStats`, que les clés de
+`_tags_de_transformation()`).
 
 ## 7. Ce qui n'est PAS couvert
 

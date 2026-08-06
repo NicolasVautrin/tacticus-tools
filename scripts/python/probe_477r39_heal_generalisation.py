@@ -60,6 +60,12 @@ MesureImpossible = R15A.MesureImpossible
 #: ⚠ LE 1v1 EST LE MONTAGE DE L'AUTO-SOIN, ET IL EST DERIVE, PAS ESPERE : avec une seule unite
 #: dans l'equipe, la seule cible possible du soin EST le soigneur. S'il ne se soigne pas, le
 #: probe le DIT (regime `auto` a zero) au lieu de compter un vert.
+#:
+#: ⚠ LE NOMBRE DE TOURS EST UNE VARIABLE DE LA MESURE, ET IL A ETE MESURE. A DEUX tours, un seul
+#: de ces rosters produit un soin (`MedicusMinistorum`, le passif d'`adeptHospitaller`) : le
+#: corpus reste alors a UN producteur, et la forme n'est confrontee que sous cette ability-la. A
+#: QUATRE, `SanguinaryPriest` (le passif de `bloodSanguinary`) entre a son tour -- **2**
+#: producteurs distincts, **3** actions. C'est pourquoi le defaut est 4 et non 2.
 PLANS = (
     ("hospitaller-2v2", "MC1_67", "adeptHospitaller,astraBullgryn",
      "blackTerminator,worldJakhal"),
@@ -134,7 +140,7 @@ def scenario(session: int, etiquette: str, board: str, p_units: str, a_units: st
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", type=int, default=None)
-    ap.add_argument("--tours", type=int, default=2)
+    ap.add_argument("--tours", type=int, default=4)
     ap.add_argument("--plans", default="")
     args = ap.parse_args()
 
