@@ -335,8 +335,40 @@ def deriver() -> dict[str, dict[int, tuple[str, int, int]]] | None:
     except build_pin.BuildPinRefused as exc:
         print("[1] DERIVATION : PAS MESURE -- %s" % str(exc).splitlines()[0])
         return None
-    reader = il2cpp_metadata.read(meta_path)
     methods_tsv = build_dir() / "frida" / "methods.tsv"
+    #: ⚠ MEMOISATION, PAS TAUTOLOGIE (#486-r1) -- meme raisonnement que dans #477-r24-r1 : la cle
+    #: contient le HASH DU BINAIRE DU JEU (`global-metadata.dat` + `frida/methods.tsv`), donc
+    #: l'entree n'est reutilisee que si la source de la derivation est bit-a-bit identique. Les
+    #: deux cotes de la confrontation de l'etage 2 restent INDEPENDANTS : ce qui est cache est
+    #: le cote METADATA, jamais l'entree versionnee a laquelle il est confronte.
+    #: 0,05 s de hachage pour ~14 s de derivation ; `None` -> on recalcule, jamais on n'atteste.
+    sha = verdict_cache.sha_gros_fichiers(meta_path, methods_tsv)
+    if sha is None:
+        out, refus, lay = _deriver_vraiment(meta_path, methods_tsv)
+    else:
+        out, refus, lay = cache().contribution(
+            "<global-metadata>", "deriver", sha,
+            lambda: _deriver_vraiment(meta_path, methods_tsv))
+    print("[1] DERIVATION : grille des types pas=%d, methodStart=+%d, method_count=+%d "
+          "(%d ancres controlees par leurs noms)"
+          % (lay[0], lay[1], lay[2], lay[3]))
+    print("      %d interface(s) lues, %d slot(s) au total"
+          % (len(out), sum(len(v) for v in out.values())))
+    for r in refus:
+        print("      REFUS : %s" % r)
+    if refus:
+        raise SystemExit("ROUGE : %d interface(s) declaree(s) ne se lisent pas dans le "
+                         "metadata -- ont-elles change de nom ?" % len(refus))
+    return out
+
+
+def _deriver_vraiment(meta_path: Path, methods_tsv: Path) -> tuple[dict, list[str], tuple]:
+    """La lecture REELLE du metadata. `(tables, refus, (pas, methodStart, method_count, ancres))`.
+
+    Les quatre chiffres de la grille sont rendus parce que la ligne imprimee les cite : une
+    sortie a chaud doit etre celle d'un run a froid, bit pour bit.
+    """
+    reader = il2cpp_metadata.read(meta_path)
     reader.locate(il2cpp_metadata.class_method_order(
         methods_tsv, "%s.%s" % ANCRES_TYPES[0]))
     ancres = [(ns, nm, il2cpp_metadata.class_method_order(methods_tsv, "%s.%s" % (ns, nm)))
@@ -351,17 +383,7 @@ def deriver() -> dict[str, dict[int, tuple[str, int, int]]] | None:
             refus.append("%s : %s" % (nom, str(exc).splitlines()[0]))
             continue
         out[nom] = {m.slot: (m.name, m.param_count, m.flags) for m in table}
-    print("[1] DERIVATION : grille des types pas=%d, methodStart=+%d, method_count=+%d "
-          "(%d ancres controlees par leurs noms)"
-          % (lay.step, lay.off_method_start, lay.off_method_count, len(lay.ancres)))
-    print("      %d interface(s) lues, %d slot(s) au total"
-          % (len(out), sum(len(v) for v in out.values())))
-    for r in refus:
-        print("      REFUS : %s" % r)
-    if refus:
-        raise SystemExit("ROUGE : %d interface(s) declaree(s) ne se lisent pas dans le "
-                         "metadata -- ont-elles change de nom ?" % len(refus))
-    return out
+    return out, refus, (lay.step, lay.off_method_start, lay.off_method_count, len(lay.ancres))
 
 
 # --------------------------------------------------------------------- etage 2 : CLIQUET
@@ -506,6 +528,10 @@ def _encoder(v, appel: str = ""):
     #: (le run SANS cache passait, celui AVEC cache plantait), pas par un test.
     if appel == "autre_casse":
         return v
+    if appel == "deriver":
+        out, refus, lay = v
+        return [{k: [[s, n, pc, fl] for s, (n, pc, fl) in sorted(t.items())]
+                 for k, t in out.items()}, list(refus), list(lay)]
     #: Les cles vides ne sont pas ecrites -- `recolter` accumule par `+=`, donc l'omission est
     #: VALEUR-PRESERVANTE, et l'artefact est VERSIONNE.
     cits, sans_iface, deja, multi, sans_couple, exempt, nom_absent, recense, ventile = v
@@ -518,6 +544,9 @@ def _encoder(v, appel: str = ""):
 def _decoder(b, appel: str = ""):
     if appel == "autre_casse":
         return b
+    if appel == "deriver":
+        return ({k: {x[0]: (x[1], x[2], x[3]) for x in t} for k, t in b[0].items()},
+                list(b[1]), tuple(b[2]))
     cits = [Citation(fichier=x[0], ligne=x[1], iface=x[2], slot=x[3], nom=x[4], args=x[5],
                      texte=x[6], ligne_nom=x[7], franchit_virgule=x[8]) for x in b[0]]
     return (cits, b[1], b[2], b[3], b[4], b[5], b[6], b[7],
@@ -530,8 +559,8 @@ def cache() -> verdict_cache.CacheCliquet:
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_477r25_slots_autres_interfaces",
             contexte=verdict_cache.sha_fichiers(
-                Path(__file__).resolve(),
-                HERE / "probe_477r24r1_slots_interface.py", tsv_path()),
+                Path(__file__).resolve(), HERE / "probe_477r24r1_slots_interface.py",
+                HERE / "il2cpp_metadata.py", tsv_path()),
             encoder=_encoder, decoder=_decoder)
     return _CACHE
 
@@ -1186,8 +1215,8 @@ def main() -> int:
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_477r25_slots_autres_interfaces",
             contexte=verdict_cache.sha_fichiers(
-                Path(__file__).resolve(),
-                HERE / "probe_477r24r1_slots_interface.py", tsv_path()),
+                Path(__file__).resolve(), HERE / "probe_477r24r1_slots_interface.py",
+                HERE / "il2cpp_metadata.py", tsv_path()),
             encoder=_encoder, decoder=_decoder, relire=False)
 
     print("=== #477-r25 -- slots des AUTRES interfaces (hors IOperationProcessor) ===")

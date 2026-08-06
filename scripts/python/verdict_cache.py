@@ -118,6 +118,29 @@ def sha_fichiers(*chemins: Path) -> str:
     return h.hexdigest()
 
 
+def sha_gros_fichiers(*chemins: Path) -> str | None:
+    """Empreinte de fichiers VOLUMINEUX, lus par BLOCS. `None` si l'un manque -- jamais un sha.
+
+    C'est la cle des entrees dont la source n'est PAS dans l'arbre : le `global-metadata.dat` du
+    build installe (21,6 Mo) et la table `frida/methods.tsv` (22,9 Mo). Mesure : **0,05 s** pour
+    hacher le metadata, contre ~14 s pour la derivation qu'il gouverne.
+
+    ⚠ `None` EST LE TRI-ETAT. Un fichier absent veut dire « je ne peux pas mesurer », pas « le
+    contenu est vide » : l'appelant doit alors REFUSER de servir une entree, sans quoi un depot
+    sans le jeu installe se verrait attester une derivation qu'il n'a pas pu faire.
+    """
+    h = hashlib.sha256()
+    for p in chemins:
+        try:
+            with open(p, "rb") as fh:
+                for bloc in iter(lambda f=fh: f.read(1 << 20), b""):
+                    h.update(bloc)
+        except OSError:
+            return None
+        h.update(b"\0")
+    return h.hexdigest()
+
+
 class CacheCliquet:
     """Le cache d'UN cliquet. Cle de ligne : (fichier relatif, appel). Validation : sha du contenu.
 

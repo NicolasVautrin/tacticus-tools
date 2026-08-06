@@ -15,15 +15,16 @@ MEME arbre, et on retient le **min de 3 repetitions**.
 
 ```
 cliquet          SANS CACHE   AVEC CACHE   gain
-probe_477r24r1       35,3 s       16,1 s     54 %
-probe_477r25         38,2 s       19,1 s     50 %
+probe_477r24r1       30,1 s        2,3 s     92 %
+probe_477r25         41,2 s        5,1 s     88 %
 probe_313            14,6 s        3,9 s     73 %
-TOTAL                88,0 s       39,1 s     56 %
+TOTAL                85,9 s       11,3 s     87 %
 ```
 
-**Le residu de 16,1 et 19,1 s est a ~14 s pres celui de `deriver()`** (lecture du
-`global-metadata.dat` du build installe), qui n'est PAS cachable -- cf. §5. Hors ce plancher, le
-BALAYAGE des deux cliquets #477 passe de ~21 et ~24 s a ~2 et ~5 s.
+⚠ **Les deux premieres lignes ont d'abord plafonne a 16,1 et 19,1 s** -- le residu etant
+integralement `deriver()`, declare NON cachable a tort (cf. §5, corrige sur intervention de
+l'utilisateur). C'est ce second etage qui fait passer le regime normal de « moitie moins cher » a
+« quelques secondes ».
 
 ⚠ La colonne SANS CACHE porte deja la LECTURE MUTUALISEE du perimetre (une seule traversee pour
 les 3 a 4 recoltes de chaque cliquet, au lieu d'une par recolte) : elle n'est donc pas l'etat
@@ -71,7 +72,7 @@ Le poste dominant (`ast.parse` + `_FileInfo`) **est** local -- mais son produit 
 serialisable : `_Eval` consomme des noeuds AST, et `frags` porte des `id()` de noeuds. Le cacher
 demanderait de re-implementer `_Eval` sur une representation intermediaire, c'est-a-dire de
 **changer ce qui est calcule** par le cliquet qui garde l'invariant 3. Les deux etages locaux
-serialisables (0b, 1,8 s) ne rachetent pas leur propre cle. **Residu `#486-r6`** : un cache A
+serialisables (0b, 1,8 s) ne rachetent pas leur propre cle. **Residu `#486-r9`** : un cache A
 DEPENDANCES, cle `(sha du fichier, sha des modules dont il emprunte une racine)`, qui stockerait
 `envs[f]` (des `Path`, serialisables) au lieu des noeuds.
 
@@ -113,6 +114,15 @@ recalcule tout en mode ESPION (le fichier est charge, jamais servi) et confronte
 entree. rc **3** DEDIE -- ce n'est pas le verdict du cliquet sur le depot, c'est le cache qui ment,
 et les confondre ferait corriger le code a la place de l'artefact.
 
+⚠ **UNE ENTREE FALSIFIEE EST AUTO-PERSISTANTE, et la reparation n'est PAS un rejeu.** Le run
+suivant la RELIT (le sha correspond) et la REECRIT telle quelle -- mesure. Rejouer le cliquet ne
+lave donc rien : il faut `--verifier-cache` pour la NOMMER, puis **supprimer le fichier** et
+regenerer. Le test offline fige ce fait.
+
+⚠ **Toutes les entrees ne portent pas le meme risque.** Une entree de BALAYAGE falsifiee produit
+un faux **VERT** (silencieux) ; une entree `deriver` falsifiee produit un faux **ROUGE** (bruyant),
+parce que l'autre cote de la confrontation -- l'entree versionnee -- reste intact. Voir §5.
+
 ### 4.2 Les conflits de merge
 
 TSV, **une ligne par (fichier, appel)**, **triee par (fichier, appel)** -- pas par le sha. Deux
@@ -140,6 +150,12 @@ il compte des lignes que `RE_SLOT` ne voit justement pas), d'ou +2 947 entrees s
 le seul endroit ou la taille de l'artefact a ete arbitree contre un gain : ~13 s a chaud pour
 ~0,4 Mo versionne.
 
+**L'AUTRE BOUT DE L'ECHELLE, mesure au rebase de cette PR** -- 8 commits amont, **490 fichiers du
+perimetre modifies** : les trois caches bougent de **2 616 insertions / 2 599 suppressions**, soit
+~5,3 lignes par fichier touche. Le cout du rejeu reste tres en dessous du froid (26,3 / 31,8 /
+12,4 s contre 35,3 / 38,2 / 14,6 s sans cache) : les 2 457 fichiers non touches restent chauds.
+C'est le regime pour lequel le cache est VERSIONNE.
+
 ### 4.4 Le changement de build
 
 Le contexte (en-tete du fichier) porte le sha du SOURCE du cliquet **et** celui des entrees
@@ -158,15 +174,39 @@ contexte different vide le fichier, et la reecriture integrale fait le menage.
 `enum_natif`, hors cache) : son contexte ne porte donc pas le build. Ce n'est pas un raccourci,
 c'est la mesure de ce dont ses entrees dependent reellement.
 
-## 5. Ce qui NE peut PAS etre cache, et qui reste le plancher
+## 5. LA DERIVATION DEPUIS LE BINAIRE DU JEU -- cachee, et pourquoi ce n'est PAS tautologique
 
-`deriver()` -> `il2cpp_metadata.locate()` coute **~14 s** dans CHACUN des deux cliquets #477.
-Son verdict ne depend que du build : il **aurait** l'air cachable. Il ne l'est pas -- le cacher
-dans un artefact VERSIONNE rendrait l'etage 2 **tautologique**, puisque `cliquet(table,
-versionne)` confronte precisement cette derivation a l'entree versionnee `interface_slots.tsv`.
-Deux artefacts censes etre independants deviendraient copiables l'un de l'autre. **Residu
-`#486-r7`** : alleger `locate` (10,1 s de `tottime`, 778 `bytes.find`), ce qui ne touche a aucun
-critere.
+`deriver()` -> `il2cpp_metadata.locate()` coutait **~14 s** dans CHACUN des deux cliquets #477 :
+c'etait le plancher, et il a d'abord ete declare **non cachable**. Ce verdict etait FAUX, et la
+correction vient de l'utilisateur : *« on pourrait quand meme hasher `global-metadata.dat` et
+decider s'il est encore a recroiser avec le repo »*.
+
+**Ce que le premier verdict confondait.** Le danger reel serait de cacher l'entree VERSIONNEE et
+de la comparer a elle-meme -- l'etage 2 deviendrait un miroir. Mais ce qui est memoise ici est
+l'**AUTRE COTE** de la confrontation : le resultat d'une lecture reelle du binaire du jeu, sous
+une cle qui contient le **hash de ce binaire** (`global-metadata.dat` + `frida/methods.tsv`).
+L'entree n'est reutilisee que si la source de la derivation est **bit-a-bit identique**. Les deux
+cotes restent donc INDEPENDANTS.
+
+**Et c'est verifiable, pas seulement argumentable** : falsifier l'entree `deriver` (table tronquee
+a 40 slots, hash laisse JUSTE) rend le cliquet **ROUGE** -- `[2] CLIQUET : 110 ecart(s) derivation
+vs entree versionnee`, `rc=1`. Un cote falsifie DIVERGE de l'autre. **Cette famille d'entrees ne
+peut donc produire qu'un faux ROUGE, bruyant -- jamais un faux VERT, silencieux.**
+
+```
+cout du hachage : 0,05 s pour 21,6 Mo   (vs ~14 s de derivation)   rapport 280:1
+477r24r1  30,1 s sans cache -> 2,3 s a chaud   (-92 %)
+477r25    41,2 s sans cache -> 5,1 s a chaud   (-88 %)
+```
+
+**Le tri-etat est preserve** : sans le jeu installe, `build_pin.global_metadata()` leve deja
+(PAS MESURE) ; et si le hash n'est pas calculable, `sha_gros_fichiers` rend **`None`** -- on
+RECALCULE au lieu de servir une attestation qu'aucune machine n'a produite ici. Mesure :
+`sha_gros_fichiers(<absent>)` rend `None`, jamais une chaine.
+
+Reste ouvert, sur un autre axe : **`#486-r7`** -- alleger `locate` lui-meme (10,1 s de `tottime`,
+778 `bytes.find`). Ce n'est plus le plancher du regime normal, mais c'est encore le cout du run
+FROID et de chaque changement de build.
 
 ## 6. Controles livres
 
@@ -192,12 +232,18 @@ critere.
   le MONTAGE, pas le cache : ce cliquet range un nom hors interface en **INDECIDABLE**, « ni vert
   ni rouge », par critere. Le cache avait bien MANQUE. Sur une contre-epreuve, le VERT est le
   resultat suspect : il faut trouver POURQUOI avant de conclure.
-- **TEST OFFLINE** : `scripts/python/tests/test_486_r1_cache_verdict_offline.py`, 36 verts,
+- **CONTRE-EPREUVE DE L'ETAGE `deriver`** -- trois epreuves, les trois mordent :
+  **(A)** la SOURCE change (`frida/methods.tsv` mute) -> le sha passe de `2867918942357a4c` a
+  `cd99ee1253c16be9`, l'entree MANQUE, et le sha revient a l'identique apres restauration ;
+  **(B)** fichier ABSENT -> `sha_gros_fichiers` rend `None`, donc RECALCUL, jamais une attestation ;
+  **(C)** entree FALSIFIEE de facon coherente (table tronquee a 40, sha JUSTE) -> le cliquet rend
+  **ROUGE** (`110 ecart(s) derivation vs entree versionnee`, rc=1) et `--verifier-cache` la NOMME.
+- **TEST OFFLINE** : `scripts/python/tests/test_486_r1_cache_verdict_offline.py`, 39 verts,
   montage 100 % jetable (`tmp_path`). Il garde la peremption, la fidelite, le contexte, le menage,
   les pannes, **et la regle** (`test_aucun_cliquet_a_verdict_GLOBAL_n_est_cache` : les quatre
   non-cachables ne doivent pas importer `verdict_cache`, chacun avec SA raison ecrite). Il fige
   aussi la LIMITE : `test_une_entree_falsifiee_de_facon_COHERENTE_est_SERVIE`.
-- **CONTRE-EPREUVE DU TEST** : 7 mutants, **7 mordent**.
+- **CONTRE-EPREUVE DU TEST** : 9 mutants, **9 mordent**.
   ⚠ **Deux ne mordaient pas au premier passage, et la cause est instructive** : le critere
   enumerait les appels a `sha_fichiers` au lieu des **constructions de `CacheCliquet`**. Un
   cliquet en construit DEUX (le normal, l'espion), donc muter le contexte de l'un laissait

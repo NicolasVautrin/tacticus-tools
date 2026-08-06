@@ -589,14 +589,37 @@ def deriver() -> list[il2cpp_metadata.MethodDef] | None:
     except build_pin.BuildPinRefused as exc:
         print("[1] DERIVATION : PAS MESURE -- %s" % str(exc).splitlines()[0])
         return None
-    reader = il2cpp_metadata.read(meta_path)
-    order = il2cpp_metadata.class_method_order(
-        build_dir() / "frida" / "methods.tsv", KLASS)
-    reader.locate(order)
-    table = reader.interface_table(ANCRES)
+    methods_tsv = build_dir() / "frida" / "methods.tsv"
+    #: ⚠ CETTE MEMOISATION N'EST PAS TAUTOLOGIQUE, ET LA DISTINCTION EST TOUT (#486-r1).
+    #: L'etage 2 confronte CETTE derivation a l'entree VERSIONNEE `ioperationprocessor_slots.tsv`.
+    #: Cacher la TABLE VERSIONNEE et la comparer a elle-meme detruirait le critere -- c'est
+    #: precisement ce qu'on ne fait pas. Ce qui est memoise ici, c'est le resultat d'une VRAIE
+    #: lecture du binaire du jeu, sous une cle qui contient le HASH DE CE BINAIRE : elle n'est
+    #: reutilisee que si le `global-metadata.dat` ET `frida/methods.tsv` sont bit-a-bit
+    #: identiques. Les deux cotes de la confrontation restent donc INDEPENDANTS.
+    #: ⚠ ET LE TRI-ETAT TIENT : sans le jeu installe, `global_metadata()` a deja leve
+    #: (PAS MESURE ci-dessus) ; si le hash n'est pas calculable, `sha` vaut `None` et on
+    #: RECALCULE au lieu de servir une attestation qu'aucune machine n'a produite ici.
+    #: Mesure : 0,05 s de hachage pour ~14 s de derivation.
+    sha = verdict_cache.sha_gros_fichiers(meta_path, methods_tsv)
+    if sha is None:
+        table, pas = _deriver_vraiment(meta_path, methods_tsv)
+    else:
+        table, pas = cache().contribution(
+            "<global-metadata>", "deriver", sha,
+            lambda: _deriver_vraiment(meta_path, methods_tsv))
     print("[1] DERIVATION : %d slots lus dans le metadata (pas=%d octets), %d ancres concordantes"
-          % (len(table), reader.entry_size or 0, len(ANCRES)))
+          % (len(table), pas, len(ANCRES)))
     return table
+
+
+def _deriver_vraiment(meta_path: Path,
+                      methods_tsv: Path) -> tuple[list[il2cpp_metadata.MethodDef], int]:
+    """La lecture REELLE du metadata. `(table, pas de la grille)` -- le pas est rendu parce que
+    la ligne imprimee le cite, et qu'une sortie a chaud doit etre celle d'un run a froid."""
+    reader = il2cpp_metadata.read(meta_path)
+    reader.locate(il2cpp_metadata.class_method_order(methods_tsv, KLASS))
+    return reader.interface_table(ANCRES), reader.entry_size or 0
 
 
 # --------------------------------------------------------------------- etage 2 : CLIQUET
@@ -725,7 +748,10 @@ def textes_balayes() -> list[tuple[str, str]]:
 _CACHE: verdict_cache.CacheCliquet | None = None
 
 
-def _encoder(v: tuple, _appel: str = "") -> list:
+def _encoder(v: tuple, appel: str = "") -> list:
+    if appel == "deriver":
+        table, pas = v
+        return [[[m.name, m.slot, m.param_count, m.flags, m.file_offset] for m in table], pas]
     #: ⚠ LES CAUSES VIDES NE SONT PAS ECRITES. `recolter` accumule par `ventile[cause] += v` :
     #: une cle absente ajoute exactement ce qu'ajoute une liste vide, donc l'omission est
     #: VALEUR-PRESERVANTE (verifie par le controle de fidelite froid == chaud). Sur un artefact
@@ -738,7 +764,10 @@ def _encoder(v: tuple, _appel: str = "") -> list:
             {k: [list(x) for x in vs] for k, vs in ventile.items() if vs}]
 
 
-def _decoder(b: list, _appel: str = "") -> tuple:
+def _decoder(b: list, appel: str = "") -> tuple:
+    if appel == "deriver":
+        return ([il2cpp_metadata.MethodDef(name=x[0], slot=x[1], param_count=x[2],
+                                           flags=x[3], file_offset=x[4]) for x in b[0]], b[1])
     cits = [Citation(fichier=x[0], ligne=x[1], slot=x[2], noms=tuple(x[3]), args=x[4],
                      texte=x[5], ligne_nom=x[6], forme=x[7], appel_absorbe=x[8],
                      franchit_virgule=x[9]) for x in b[0]]
@@ -752,7 +781,8 @@ def cache() -> verdict_cache.CacheCliquet:
     if _CACHE is None:
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_477r24r1_slots_interface",
-            contexte=verdict_cache.sha_fichiers(Path(__file__).resolve(), tsv_path()),
+            contexte=verdict_cache.sha_fichiers(Path(__file__).resolve(),
+                                                HERE / "il2cpp_metadata.py", tsv_path()),
             encoder=_encoder, decoder=_decoder)
     return _CACHE
 
@@ -1248,7 +1278,8 @@ def main() -> int:
         global _CACHE
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_477r24r1_slots_interface",
-            contexte=verdict_cache.sha_fichiers(Path(__file__).resolve(), tsv_path()),
+            contexte=verdict_cache.sha_fichiers(Path(__file__).resolve(),
+                                                HERE / "il2cpp_metadata.py", tsv_path()),
             encoder=_encoder, decoder=_decoder, relire=False)
 
     print("=== #477-r24-r1 -- slots de Core.Services.IOperationProcessor ===")

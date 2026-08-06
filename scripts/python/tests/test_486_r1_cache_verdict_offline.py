@@ -200,6 +200,46 @@ def test_une_ecriture_impossible_n_est_PAS_un_verdict(tmp_path):
     assert c.enregistrer() is False
 
 
+# ------------------------------- la SOURCE HORS ARBRE : le binaire du jeu (`deriver`)
+
+def test_sha_gros_fichiers_rend_NONE_sur_un_absent(tmp_path):
+    """TRI-ETAT : un fichier absent n'a pas de sha, il a un « pas mesure ».
+
+    C'est ce qui empeche un depot SANS le jeu installe de se voir servir une derivation qu'aucune
+    machine n'a produite ici. Un sha fabrique (chaine vide, zeros) serait exactement le vice que
+    `host_inputs` combat sur l'autre gisement d'entrees."""
+    assert VC.sha_gros_fichiers(tmp_path / "absent.dat") is None
+    p = tmp_path / "present.dat"
+    p.write_bytes(b"x" * (3 << 20))                     # 3 Mo : plusieurs blocs de lecture
+    assert VC.sha_gros_fichiers(p) is not None
+    q = tmp_path / "autre.dat"
+    q.write_bytes(b"x" * (3 << 20) + b"y")
+    assert VC.sha_gros_fichiers(p) != VC.sha_gros_fichiers(q)
+    #: L'ordre et le nombre de fichiers comptent : deux jeux differents ne se confondent pas.
+    assert VC.sha_gros_fichiers(p, q) != VC.sha_gros_fichiers(q, p)
+
+
+@pytest.mark.parametrize("mod", ["probe_477r24r1_slots_interface",
+                                 "probe_477r25_slots_autres_interfaces"])
+def test_la_derivation_est_clee_sur_le_BINAIRE_DU_JEU(mod):
+    """La memoisation de `deriver()` n'est pas tautologique -- et voici pourquoi, mecaniquement.
+
+    L'etage 2 confronte la derivation (cote METADATA) a l'entree versionnee (cote DEPOT). Ce qui
+    est cache est le seul cote METADATA, sous une cle qui contient le hash du `global-metadata.dat`
+    ET de `frida/methods.tsv`. Les deux cotes restent donc INDEPENDANTS, et c'est ce qui fait que
+    falsifier l'entree ne peut produire qu'un faux ROUGE (bruyant), jamais un faux VERT (mesure
+    #486-r1 : table tronquee a 40 -> 110 ecarts, rc=1).
+
+    Si un jour la cle cessait de porter le binaire, ce test rougirait -- avant que quiconque
+    n'ait le temps de croire un vert."""
+    src = _source(mod)
+    corps = src.split("def deriver(")[1].split("\ndef ")[0]
+    assert "sha_gros_fichiers(meta_path, methods_tsv)" in corps, (
+        "la cle de `deriver` doit contenir le HASH DU BINAIRE DU JEU, pas seulement le build")
+    assert "if sha is None:" in corps, (
+        "sha non calculable => RECALCUL, jamais une attestation servie")
+
+
 # ------------------------------------------------- la LIMITE : falsification COHERENTE
 
 def test_une_entree_falsifiee_de_facon_COHERENTE_est_SERVIE(tmp_path):
@@ -212,6 +252,14 @@ def test_une_entree_falsifiee_de_facon_COHERENTE_est_SERVIE(tmp_path):
     d = _cache(tmp_path)
     assert d.obtenir("a.py", "ap", VC.sha_texte("v1")) == ["FAUX"], (
         "si ceci change, la conception du cache a change : re-lire #486-r1 avant d'y toucher")
+    #: ⚠ ET ELLE EST AUTO-PERSISTANTE : le run suivant la RELIT (le sha correspond) et la
+    #: REECRIT telle quelle. Rejouer le cliquet ne la repare donc PAS -- mesure #486-r1. La
+    #: seule sortie est `--verifier-cache` (qui la NOMME) puis SUPPRESSION du fichier.
+    d.enregistrer()
+    e = _cache(tmp_path)
+    assert e.obtenir("a.py", "ap", VC.sha_texte("v1")) == ["FAUX"], (
+        "un rejeu ne lave pas une entree falsifiee -- c'est pourquoi la reparation est une "
+        "SUPPRESSION, et pourquoi ce fait doit rester ecrit")
 
 
 def test_verifier_NOMME_l_entree_falsifiee(tmp_path):
