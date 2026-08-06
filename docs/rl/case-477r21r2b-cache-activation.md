@@ -3,9 +3,12 @@
 **PORTÉ ET MESURÉ, PAS FERMÉ.** Build `rnca9r7q6c`, ghidra-mcp, session Frida **1** (chaude, aucun
 reinject, **aucun capteur neuf**). La structure et les règles d'`IdunBattleLogic.Core.Services.Caches.AbilityAndEffectCache`
 sont portées 1:1 dans `engine/runner/caches/ability_and_effect_cache.py`. Sa **séquence** est
-confrontée au natif sur **312 passes complètes** de **30 `EventTriggerType`**, trois scénarios :
-**0** divergence de stabilité, **0** re-dérivation fausse sur 25 événements applicables, **0** ordre
+confrontée au natif sur **316 passes complètes** de **32 `EventTriggerType`**, trois scénarios :
+**0** divergence de stabilité, **0** re-dérivation fausse sur 27 événements applicables, **0** ordre
 divergent côté registre du port.
+⚠ **Ces comptes se RE-DÉRIVENT, ils ne se citent pas** : le corpus dépend de ce que l'IA joue et le
+ring de trace est partagé — deux runs consécutifs rendent 9 à 11 événements sur le même board. Ce
+qui est stable et vaut verdict, ce sont les **zéros**.
 **`Effect_Refresh` AUTONOMES reste 0/0/0**, et le § 7 dit pourquoi — ce volet ne pouvait pas le
 bouger.
 
@@ -175,10 +178,10 @@ le ring de 200 (mesuré : 18 à 90 fires perdus au `build`).
 
 | | invariant | `MC1_67` 2v2 | `C1_02` 2v2 | `C1_02` 5v5 |
 |---|---|---|---|---|
-| | événements observés | 10 | 9 | 11 |
-| (I1) | **STABILITÉ** — deux publications du même trigger parcourent la même séquence | **0** divergente / **136** passes complètes | **0** / **135** | **0** / **41** |
-| (I2) | **MONOTONIE inter-entité** — les identifiants porteurs sont non décroissants | **1** rupture / 9 couples | **1** / 4 | **3** / 20 |
-| (I3) | **RE-DÉRIVATION** par le port, alimenté dans l'ordre des identifiants | **0 ROUGE** / 9 applicables (+1 hors régime) | **0** / 8 (+1) | **0** / 8 (+3) |
+| | événements observés | 10 | 11 | 11 |
+| (I1) | **STABILITÉ** — deux publications du même trigger parcourent la même séquence | **0** divergente / **136** passes complètes | **0** / **139** | **0** / **41** |
+| (I2) | **MONOTONIE inter-entité** — les identifiants porteurs sont non décroissants | **1** rupture / 9 couples | **1** / 5 | **3** / 20 |
+| (I3) | **RE-DÉRIVATION** par le port, alimenté dans l'ordre des identifiants | **0 ROUGE** / 9 applicables (+1 hors régime) | **0** / 10 (+1) | **0** / 8 (+3) |
 | (I4) | **CROISSANCE** — les passes courtes sont des sous-séquences de la modale | **0** hors sous-séquence | **0** | **0** |
 | (I5) | l'ORDRE du **registre du port** est une sous-séquence du natif | 4 exercés, **0 discriminant** | 4, **0** | 5 exercés, **3 discriminants**, **0 divergent** |
 
@@ -194,7 +197,7 @@ tiennent toutes en un seul, et une suite d'un élément ne peut révéler aucun 
 
 ## 5. (I2) A ROMPU — et (I4) DIT POURQUOI, au lieu de le supposer
 
-**Cinq** ruptures sur les trois scénarios (1 + 1 + 3, pour 33 couples inter-entité). La plus nette,
+**Cinq** ruptures sur les trois scénarios (1 + 1 + 3, pour 34 couples inter-entité). La plus nette,
 sur `SpecificAbilityInit` :
 
 ```
