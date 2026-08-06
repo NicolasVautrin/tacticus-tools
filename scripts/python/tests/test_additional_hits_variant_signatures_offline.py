@@ -199,10 +199,14 @@ def test_toute_substitution_expose_le_contrat_de_SORTIE():
     from engine.runner.operations.additional_hits import execute_additional_hits as _port
     from engine.services.damage_modifiers import DamageModifiers
     from probe_r6_round_materialize import additional_hits_variant
+    from probe_r6b_additional_hits_order import _extra_rolls_variant
     attendues = set(_cles_d_etat_attaque_lues())
+    # Les substitutions EXERCABLES ici. Les autres sont NOMMEES plus bas plutot que tues : une
+    # liste blanche silencieuse ne peut pas montrer celle qu'elle a oubliee.
     impls = [("engine/runner/operations/additional_hits.py", _port),
              ("probe_r6_round_materialize.py",
-              additional_hits_variant("reduce_then_roll", None))]
+              additional_hits_variant("reduce_then_roll", None)),
+             ("probe_r6b_additional_hits_order.py", _extra_rolls_variant(0))]
     bad = []
     for nom, impl in impls:
         out = _run_one(impl, None, retour=True,
@@ -214,6 +218,14 @@ def test_toute_substitution_expose_le_contrat_de_SORTIE():
         if manquantes:
             bad.append("%s : cles d'etat d'attaque ABSENTES du retour = %s (=> `KeyError` dans "
                        "`attack_state_out`)" % (nom, manquantes))
+    # PORTEE : ce que le scan trouve et que cet etage n'exerce PAS (factory non triviale, closure
+    # dont l'instanciation demande un contexte live...). Imprime, jamais tu.
+    exercees = {n.split("/")[-1] for n, _ in impls}
+    vues = {rel.split("/")[-1] for rel, _n, _l, _p, _s in _substitution_impls()}
+    non_exercees = sorted(vues - exercees)
+    if non_exercees:
+        print("[419-r6-r1] substitutions VUES mais NON exercees par cet etage : %s"
+              % non_exercees)
     assert not bad, "\n  ".join([""] + bad)
 
 
