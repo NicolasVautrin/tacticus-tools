@@ -100,16 +100,45 @@ def _etat_minimal() -> State:
     return st
 
 
+class sans_volet_caster:
+    """Neutralise le VOLET CASTER de `_has_valid_targets` le temps d'une mesure.
+
+    POURQUOI, ET POURQUOI CE N'EST PAS UNE TRICHE. Sur l'etat minimal le caster n'a AUCUNE tuile,
+    donc `get_invalid_caster_reason` rend legitimement `TargetingRule.AllowNullCasterTile` (la clause
+    tuile-nulle de `TargetingQuery$$GetInvalidCasterReason`, portee par #366-r1) pour 39 des 47 ids
+    a classe portee. `_has_valid_targets` sortirait alors AVANT la cascade, et les mesures 2 et 3 --
+    qui portent sur le PORTEUR, pas sur le volet caster -- deviendraient vraies par VACUITE : un vert
+    qui ne visite rien. On isole donc l'etage mesure, et le volet caster a son propre temoin
+    (`temoin_volet_caster`), avec un substrat ou il DISCRIMINE.
+
+    Sur un arbre ou `turnflow` n'importe pas encore ce nom, le remplacement est un NO-OP et la
+    restauration retire l'attribut : la mesure reste jouable des deux cotes du correctif."""
+
+    def __enter__(self):
+        self._avait = hasattr(TF, "get_invalid_caster_reason")
+        self._origine = getattr(TF, "get_invalid_caster_reason", None)
+        TF.get_invalid_caster_reason = lambda state, caster_id, ability: 0
+        return self
+
+    def __exit__(self, *exc):
+        if self._avait:
+            TF.get_invalid_caster_reason = self._origine
+        else:
+            del TF.get_invalid_caster_reason
+        return False
+
+
 def mesurer_appel(ids: list) -> dict:
     """MESURE 2 -- `_has_valid_targets` par id ; rend {aid: None | "<Type>: <message>"}."""
     st = _etat_minimal()
     out = {}
-    for aid in ids:
-        try:
-            TF._has_valid_targets(st, 1, aid)
-            out[aid] = None
-        except Exception as exc:                                   # noqa: BLE001 -- c'est la mesure
-            out[aid] = "%s: %s" % (type(exc).__name__, exc)
+    with sans_volet_caster():
+        for aid in ids:
+            try:
+                TF._has_valid_targets(st, 1, aid)
+                out[aid] = None
+            except Exception as exc:                               # noqa: BLE001 -- c'est la mesure
+                out[aid] = "%s: %s" % (type(exc).__name__, exc)
     return out
 
 
@@ -129,29 +158,69 @@ def mesurer_porteur(ids: list) -> dict:
         captures.append(ability)
         return 0
 
+    out = {}
     origine = TF.get_invalid_target_reason
     TF.get_invalid_target_reason = espion
     try:
-        out = {}
-        for aid in ids:
-            captures.clear()
-            TF._has_valid_targets(st, 1, aid)
-            if not captures:
-                out[aid] = ("<aucun porteur construit>", "absente", False)
-                continue
-            ab = captures[0]
-            attr = getattr(ab, "get_dynamic_invalid_target_reason", None)
-            if attr is None:
-                etat = "absente"
-            elif inspect.ismethod(attr):
-                etat = "liee"
-            else:
-                etat = "non_liee"
-            nom = ab.__name__ if isinstance(ab, type) else type(ab).__name__
-            out[aid] = (nom, etat, est_instance_de_classe_nommee(ab))
-        return out
+        with sans_volet_caster():
+            for aid in ids:
+                captures.clear()
+                TF._has_valid_targets(st, 1, aid)
+                if not captures:
+                    out[aid] = ("<aucun porteur construit>", "absente", False)
+                    continue
+                ab = captures[0]
+                attr = getattr(ab, "get_dynamic_invalid_target_reason", None)
+                if attr is None:
+                    etat = "absente"
+                elif inspect.ismethod(attr):
+                    etat = "liee"
+                else:
+                    etat = "non_liee"
+                nom = ab.__name__ if isinstance(ab, type) else type(ab).__name__
+                out[aid] = (nom, etat, est_instance_de_classe_nommee(ab))
     finally:
         TF.get_invalid_target_reason = origine
+    return out
+
+
+def temoin_volet_caster() -> dict:
+    """LE VOLET CASTER, mesure par un couple de masques qui ne different QUE d'un bit.
+
+    `TargetingQuery$$GetValidTargets` -- la fonction dont `_has_valid_targets` est le mirror --
+    ouvre par `GetInvalidCasterReason` et rend `ValidTargets.Empty` si le caster est refuse, AVANT
+    toute enumeration. Ses QUATRE surcharges convergent vers ce corps.
+
+    SUBSTRAT DISCRIMINANT, et 100 % offline : sur l'etat minimal le caster n'a AUCUNE tuile, donc la
+    clause tuile-nulle du volet caster rend `AllowNullCasterTile` -- sauf si le masque POSE ce bit,
+    qui la desarme (`(rules & AllowNullCasterTile) == 0 && ...`). Deux masques a un bit d'ecart
+    donnent donc deux verdicts opposes, sans board ni RPC.
+
+    MESURE LIVE qui a impose cet etage (C1_02 / seed 28704, `orksWarboss` apres un pas) : natif
+    `abilityReason.casterReason = CasterHasNotMoved`, `UnitFlag.NoActionAvailable` POSE ; le port
+    sans cet etage trouvait `Waaagh` castable et laissait l'unite jouable."""
+    from engine.runner.abilities.base import ActiveAbility
+    from engine.runner.abilities.targeting import TargetingOptions
+
+    aid = max(set(ABILITY_CLASSES) | set(TARGETING_OPTIONS_UNPORTED)) + 3
+    rules = int(TR.TargetMatchesDynamicRule)
+
+    class _CasterRefuse(ActiveAbility):
+        TARGETING_OPTIONS = TargetingOptions(rules=rules)
+
+    class _CasterTolere(ActiveAbility):
+        TARGETING_OPTIONS = TargetingOptions(rules=rules | int(TR.AllowNullCasterTile))
+
+    out = {}
+    for etiquette, klass in (("refuse", _CasterRefuse), ("tolere", _CasterTolere)):
+        ABILITY_CLASSES[aid] = klass
+        try:
+            out[etiquette] = TF._has_valid_targets(_etat_minimal(), 1, aid)
+        except Exception as exc:                                   # noqa: BLE001 -- c'est la mesure
+            out[etiquette] = "%s: %s" % (type(exc).__name__, exc)
+        finally:
+            del ABILITY_CLASSES[aid]
+    return out
 
 
 def temoin_non_degenere() -> dict:
@@ -184,7 +253,11 @@ def temoin_non_degenere() -> dict:
     for etiquette, klass in (("permissif", _TemoinPermissif), ("refus", _TemoinRefus)):
         ABILITY_CLASSES[aid_temoin] = klass
         try:
-            out[etiquette] = TF._has_valid_targets(st, 1, aid_temoin)
+            # Volet caster ISOLE : ce temoin mesure la REGLE DYNAMIQUE. Le caster de l'etat minimal
+            # n'a aucune tuile, donc sans cette isolation le volet sortirait en tete et les deux
+            # bras rendraient `False` -- une bascule qui ne discriminerait plus rien.
+            with sans_volet_caster():
+                out[etiquette] = TF._has_valid_targets(st, 1, aid_temoin)
         except Exception as exc:                                   # noqa: BLE001 -- c'est la mesure
             # Sur un arbre FAUTIF le temoin leve avant de rendre un verdict : on RAPPORTE
             # l'exception au lieu de la propager, pour que la sortie reste lisible des deux cotes.
@@ -276,6 +349,12 @@ def main() -> int:
     tem_np = temoin_non_porte()
     print("  voie non portee      -> porteur %s, exception %s"
           % (tem_np["porteur"], tem_np["exception"]))
+    tem_c = temoin_volet_caster()
+    print("[287-r4] VOLET CASTER -- consulte EN TETE, comme `GetValidTargets` ?")
+    print("  caster REFUSE (tuile nulle)      -> _has_valid_targets = %s (attendu False)"
+          % tem_c["refuse"])
+    print("  meme masque + AllowNullCasterTile -> _has_valid_targets = %s (attendu True)"
+          % tem_c["tolere"])
 
     if args.ids:
         print("[287-r4] DETAIL")
@@ -285,7 +364,8 @@ def main() -> int:
 
     ok = (not fautes and not mauvais
           and tem["permissif"] is True and tem["refus"] is False and tem["args"]
-          and tem_np["est_la_classe_nommee"] and tem_np["exception"] is None)
+          and tem_np["est_la_classe_nommee"] and tem_np["exception"] is None
+          and tem_c["refuse"] is False and tem_c["tolere"] is True)
     print("[287-r4] VERDICT : %s" % ("OK" if ok else "FAUTES"))
     if not ok and (fautes or mauvais):
         for a in sorted(set(fautes) | set(mauvais))[:10]:

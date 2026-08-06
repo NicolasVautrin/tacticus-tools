@@ -96,6 +96,33 @@ def _nom(aid: int) -> str:
         return "<hors ActiveAbilityType>"
 
 
+class sans_volet_caster:
+    """Neutralise le VOLET CASTER de `_has_valid_targets` le temps d'une mesure.
+
+    POURQUOI, ET POURQUOI CE N'EST PAS UNE TRICHE. Sur l'etat minimal le caster n'a AUCUNE tuile,
+    donc `get_invalid_caster_reason` rend legitimement `AllowNullCasterTile` (la clause tuile-nulle,
+    portee par #366-r1) pour 39 des 47 ids a classe portee : `_has_valid_targets` sortirait AVANT la
+    cascade, et les etages 1-2 -- qui portent sur le PORTEUR -- deviendraient vrais par VACUITE.
+    On isole donc l'etage mesure ; le volet caster a son PROPRE etage, avec un substrat ou il
+    discrimine.
+
+    Sur un arbre ou `turnflow` n'importe pas ce nom (l'etat d'avant correctif), le remplacement est
+    un NO-OP et la restauration retire l'attribut : la mesure reste jouable des deux cotes."""
+
+    def __enter__(self):
+        self._avait = hasattr(TF, "get_invalid_caster_reason")
+        self._origine = getattr(TF, "get_invalid_caster_reason", None)
+        TF.get_invalid_caster_reason = lambda state, caster_id, ability: 0
+        return self
+
+    def __exit__(self, *exc):
+        if self._avait:
+            TF.get_invalid_caster_reason = self._origine
+        else:
+            del TF.get_invalid_caster_reason
+        return False
+
+
 def _porteur_de(aid: int, fabrique=None):
     """L'objet REELLEMENT passe a la cascade pour `aid`.
 
@@ -111,7 +138,8 @@ def _porteur_de(aid: int, fabrique=None):
     origine = TF.get_invalid_target_reason
     TF.get_invalid_target_reason = espion
     try:
-        (fabrique or TF._has_valid_targets)(_etat_minimal(), 1, aid)
+        with sans_volet_caster():
+            (fabrique or TF._has_valid_targets)(_etat_minimal(), 1, aid)
     finally:
         TF.get_invalid_target_reason = origine
     return captures[0] if captures else None
@@ -160,11 +188,12 @@ def test_has_valid_targets_ne_leve_pour_aucun_porteur_du_bit():
     `UnitFlag.NoActionAvailable` -- une exception y remonte jusqu'au tour."""
     fautes = {}
     st = _etat_minimal()
-    for aid in _ids_portant_le_bit():
-        try:
-            TF._has_valid_targets(st, 1, aid)
-        except Exception as exc:                                  # noqa: BLE001 -- c'est la mesure
-            fautes[aid] = "%s: %s" % (type(exc).__name__, exc)
+    with sans_volet_caster():          # sinon 39/47 sortent AVANT la cascade -> vert par vacuite
+        for aid in _ids_portant_le_bit():
+            try:
+                TF._has_valid_targets(st, 1, aid)
+            except Exception as exc:                              # noqa: BLE001 -- c'est la mesure
+                fautes[aid] = "%s: %s" % (type(exc).__name__, exc)
     assert not fautes, "%d id(s) font lever le gate de ciblage : %s" % (
         len(fautes), [(a, _nom(a), fautes[a]) for a in sorted(fautes)[:5]])
 
@@ -212,11 +241,14 @@ def _paire_de_temoins():
     return TemoinPermissif, TemoinRefus, recu
 
 
-def _joue_avec(klass, aid=None, fabrique=None):
+def _joue_avec(klass, aid=None, fabrique=None, volet_caster=False):
     aid = aid or (max(set(ABILITY_CLASSES) | set(TARGETING_OPTIONS_UNPORTED)) + 1)
     ABILITY_CLASSES[aid] = klass
     try:
-        return (fabrique or TF._has_valid_targets)(_etat_minimal(), 1, aid)
+        if volet_caster:
+            return (fabrique or TF._has_valid_targets)(_etat_minimal(), 1, aid)
+        with sans_volet_caster():
+            return (fabrique or TF._has_valid_targets)(_etat_minimal(), 1, aid)
     finally:
         del ABILITY_CLASSES[aid]
 
@@ -262,9 +294,53 @@ def test_la_voie_non_portee_porte_une_regle_dynamique_nommee():
         assert ab.get_dynamic_invalid_target_reason(_etat_minimal(), 1, 2) == 0, (
             "la degradation de la voie non portee doit etre PERMISSIVE (aucun refus invente)")
         # et le chemin complet ne leve pas
-        TF._has_valid_targets(_etat_minimal(), 1, aid)
+        with sans_volet_caster():
+            TF._has_valid_targets(_etat_minimal(), 1, aid)
     finally:
         del TARGETING_OPTIONS_UNPORTED[aid]
+
+
+# ------------------------------------------------------------------------------------------------
+# Etage 5 -- le VOLET CASTER, consulte EN TETE
+# ------------------------------------------------------------------------------------------------
+
+def _paire_de_masques_caster():
+    """Deux masques a UN BIT d'ecart, donc deux verdicts opposes sur le meme substrat.
+
+    Sur l'etat minimal le caster n'a AUCUNE tuile : la clause tuile-nulle du volet caster
+    (`GetInvalidCasterReason`) rend `AllowNullCasterTile` -- SAUF si le masque pose ce bit, qui la
+    desarme (`(rules & AllowNullCasterTile) == 0 && (rules & CasterHasNoTile) == 0 &&
+    IsNullOrEmpty(casterTiles)`). Le discriminant est donc entierement OFFLINE."""
+    rules = BIT
+
+    class CasterRefuse(ActiveAbility):
+        TARGETING_OPTIONS = TargetingOptions(rules=rules)
+
+    class CasterTolere(ActiveAbility):
+        TARGETING_OPTIONS = TargetingOptions(rules=rules | int(TR.AllowNullCasterTile))
+
+    return CasterRefuse, CasterTolere
+
+
+def test_le_volet_caster_est_consulte_avant_toute_enumeration():
+    """`TargetingQuery$$GetValidTargets` -- la fonction dont `_has_valid_targets` est le mirror --
+    OUVRE par `GetInvalidCasterReason` et rend `ValidTargets.Empty` si le caster est refuse, AVANT
+    `GetRange` et avant la boucle. Ses QUATRE surcharges convergent vers ce corps, donc le volet est
+    dans le chemin quel que soit l'overload.
+
+    Ce n'est PAS en contradiction avec `apply_self_cast_switch=False` : la surcharge 7 arguments
+    n'a pas le volet caster ; c'est son APPELANTE qui le porte. Deux etages distincts.
+
+    MESURE LIVE qui a impose cet etage (C1_02 / seed 28704, `orksWarboss` apres un pas) : natif
+    `abilityReason.casterReason = CasterHasNotMoved` et `UnitFlag.NoActionAvailable` POSE ; sans cet
+    etage le port trouvait `Waaagh` castable et laissait l'unite jouable a tort."""
+    refuse, tolere = _paire_de_masques_caster()
+    assert _joue_avec(tolere, volet_caster=True) is True, (
+        "regime DEGENERE : meme le masque TOLERANT ne trouve aucune cible, "
+        "la bascule ci-dessous ne prouverait rien")
+    assert _joue_avec(refuse, volet_caster=True) is False, (
+        "le volet caster REFUSE (aucune tuile) et pourtant le gate trouve une cible : "
+        "`get_invalid_caster_reason` n'est PAS consulte en tete de `_has_valid_targets`")
 
 
 # ------------------------------------------------------------------------------------------------
@@ -340,6 +416,34 @@ def test_mutant_B_desarmer_le_bit_fait_rougir_le_temoin():
     assert verdict is True, (
         "etage 3 INERTE : le mutant rend %r au lieu de True -- la bascule ne discriminerait rien"
         % (verdict,))
+
+
+def _mutant_sans_volet_caster(state, unit_id, ability_type):
+    """MUTANT D -- le site AVEC l'instanciation mais SANS le volet caster (l'etat intermediaire de
+    cette tranche). Les etages 1 a 4 le declarent vert ; seul l'etage 5 le voit."""
+    opts = targeting_options_for(int(ability_type))
+    if opts is None:
+        return None
+    klass = ABILITY_CLASSES.get(int(ability_type))
+    ability = klass() if klass is not None else None
+    if ability is None:
+        return None
+    for tid in list(state.entities.keys()):
+        if TF.get_invalid_target_reason(state, int(unit_id), int(tid), ability,
+                                        apply_self_cast_switch=False) == 0:
+            return True
+    return False
+
+
+def test_mutant_D_omettre_le_volet_caster_fait_rougir_l_etage_5():
+    """Le mutant qui garde l'etage 5. Il instancie correctement -- donc les etages 1 a 4 sont verts
+    sur lui -- et se contente d'omettre le volet caster. L'etage 5 doit le voir rendre `True` la ou
+    le natif rend un ensemble VIDE."""
+    refuse, _ = _paire_de_masques_caster()
+    verdict = _joue_avec(refuse, fabrique=_mutant_sans_volet_caster, volet_caster=True)
+    assert verdict is True, (
+        "etage 5 INERTE : le mutant sans volet caster rend %r au lieu de True -- la bascule ne "
+        "discriminerait rien" % (verdict,))
 
 
 def test_mutant_C_une_regle_dynamique_absente_fait_rougir_l_etage_4():

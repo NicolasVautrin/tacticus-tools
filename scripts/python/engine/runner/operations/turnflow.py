@@ -64,8 +64,8 @@ from .triggers import (start_turn_triggers, turn_start_other_triggers, tile_tick
 # chemin d'execution. Le cout d'import, lui, se paie une fois.
 from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ..abilities.targeting import (valid_normal_attack_targets, normal_attack_type_for,
-                                   get_invalid_target_reason, targeting_options_for,
-                                   UnportedAbilityTargeting)
+                                   get_invalid_target_reason, get_invalid_caster_reason,
+                                   targeting_options_for, UnportedAbilityTargeting)
 from ..abilities.handler import ABILITY_CLASSES
 from .repair import _is_boss
 from ...ai.state_bridge import _move_tiles
@@ -797,6 +797,10 @@ def _has_valid_targets(state: State, unit_id: int, ability_type: int) -> Optiona
         options = <ITargetingOptionsProvider slot 0>(activeAbilityType)
         return <ITargetingQuery>.<...>(attacker, attackerPosition, <predicat sur options>)
 
+    DEUX ETAGES, et le port n'en portait qu'UN (#287-r4). `TargetingQuery$$GetValidTargets` ouvre par
+    le volet CASTER et rend `ValidTargets.Empty` s'il est rompu, AVANT toute enumeration ; ce n'est
+    qu'ensuite qu'elle filtre chaque cible par la surcharge 7 arguments. Detail au site.
+
     Le predicat terminal est la MEME cascade que `TargetingQuery$$GetValidTargets` : la surcharge
     **7 arguments** de `GetInvalidTargetReason`, la CASCADE SEULE (ni aiguillage self-cast, ni volet
     caster -- mais la regle DYNAMIQUE, elle, y est bien : cf. le commentaire au site ci-dessous et
@@ -837,6 +841,22 @@ def _has_valid_targets(state: State, unit_id: int, ability_type: int) -> Optiona
         # la classe -- meme procede que `_NormalAttackTargeting`.
         ability = UnportedAbilityTargeting(int(ability_type), opts,
                                            ability_id=getattr(klass, "ABILITY_ID", None))
+    # LE VOLET CASTER, EN TETE (#287-r4). `TargetingQuery$$GetValidTargets` -- la fonction dont
+    # cette boucle est le mirror -- COMMENCE par lui, et sort AVANT toute enumeration :
+    #     reason = GetInvalidCasterReason(caster, casterTiles, options);
+    #     if (reason.IsInvalid())  return ValidTargets.Empty;      // aucune cible, pas « toutes »
+    #     range = GetRange(...); foreach (t in GetPossibleTargetsForOptions(...)) { <la 7 args> }
+    # Les QUATRE surcharges de `GetValidTargets` convergent vers ce corps, donc le volet caster est
+    # dans le chemin quel que soit l'overload emprunte. Ce n'est PAS en contradiction avec le
+    # `apply_self_cast_switch=False` ci-dessous : la 7 arguments, elle, n'a pas le volet -- c'est son
+    # APPELANTE qui le porte. Les deux etages sont distincts et tous deux necessaires.
+    # MESURE qui l'a impose (C1_02 / seed 28704, `orksWarboss` apres un pas) : le natif rend
+    # `casterReason = CasterHasNotMoved` et pose `UnitFlag.NoActionAvailable` ; sans cet etage le
+    # port trouvait `Waaagh` castable et NE posait PAS le flag -- l'unite restait jouable a tort.
+    # `False` et non `None` : un caster refuse est une MESURE (l'ensemble natif est vide), pas une
+    # indetermination.
+    if get_invalid_caster_reason(state, int(unit_id), ability):
+        return False
     for tid in list(state.entities.keys()):
         if get_invalid_target_reason(state, int(unit_id), int(tid), ability,
                                      apply_self_cast_switch=False) == 0:
