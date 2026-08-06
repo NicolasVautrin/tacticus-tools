@@ -387,7 +387,7 @@ def mesurer(call, rid, max_steps=25, trace=print) -> dict:
             continue
 
         # --- regime realise : on arme les hooks pour UN SEUL dry-run ------------------------
-        call("scorerDamageTraceOn", {}, 90)
+        call("scorerDamageTraceOn", {"runnerId": rid}, 90)
         call("scorerDamageTraceClear", {"runnerId": rid, "stacks": 0}, 60)
         try:
             call("aiStepDryRun", {"runnerId": rid}, 90)
@@ -395,7 +395,7 @@ def mesurer(call, rid, max_steps=25, trace=print) -> dict:
             elev = call("scorerElevTraceDump", {"runnerId": rid, "max": 4000}, 90)
             leaf = call("scorerLeafTraceDump", {"runnerId": rid, "max": 4000}, 90)
         finally:
-            call("scorerDamageTraceOff", {}, 60)
+            call("scorerDamageTraceOff", {"runnerId": rid}, 60)
 
         tt = _by_tile(tterm.get("entries") or [], "casterCol", "casterRow", "tileTerm")
         el = _by_tile(elev.get("entries") or [], "col", "row", "leaf")

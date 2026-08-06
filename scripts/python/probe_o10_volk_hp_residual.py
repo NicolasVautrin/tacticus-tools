@@ -150,7 +150,7 @@ def main(argv):
                 [e.get("name") for e in (tg.get("effects") or [])],))
 
             rpc("hitTraceReset", {"runnerId": rid}, 20)
-            rpc("hitTraceArm", {}, 30)
+            rpc("hitTraceArm", {"runnerId": rid}, 30)
             res = rpc("applyAction", {"runnerId": rid, "action": {
                 "kind": "ability", "casterId": me_id, "targetId": tgt_id,
                 "abilityType": norm_id}}, 60)

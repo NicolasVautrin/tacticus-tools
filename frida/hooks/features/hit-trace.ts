@@ -36,6 +36,9 @@
 import { Ctx } from "../controller.js";
 import { findClassAnywhere, findMethodByParamCount, methodEntry } from "../il2cpp/helpers.js";
 import { OriginBuffers, getTraceOrigin } from "../game/trace-origin.js";
+import {
+    arm, disarm, capturing, armedReport, onDisarmed,
+} from "../game/armed-runners.js";
 import { log } from "../runtime/diag.js";
 
 /** entityId / entityType sur une base Entity (cf. forEachEntity, match-state.ts). */
@@ -69,9 +72,13 @@ interface Layout {
 
 const buffers = new OriginBuffers<Hit>(CAP_PER_ORIGIN, "ring");
 
+// ⚠ PAS de `enabled` ici (#483). La porte de capture vit dans `game/armed-runners.ts`,
+// armee PAR RUNNER : un `hitTraceDisarm` d'un probe voisin ne peut plus couper la capture
+// d'un autre acteur. Ce qui reste ici est l'etat PHYSIQUE du hook (`installed`), qui lui
+// est bien global — le detachement est differe au moment ou PLUS PERSONNE n'est arme
+// (`onDisarmed`, cf. plus bas).
 const state = {
     installed: false,
-    enabled: true,
     seq: 0,
     fires: 0,
     listener: null as InvocationListener | null,
@@ -122,7 +129,7 @@ function ensureInstalled(): boolean {
     try {
         state.listener = Interceptor.attach(entry, {
             onEnter(args) {
-                if (!state.enabled) return;
+                if (!capturing("hit")) return;
                 state.fires++;
                 if (!state.layout) {
                     state.layout = calibrate(args);
@@ -162,33 +169,73 @@ function ensureInstalled(): boolean {
 export function register(ctx: Ctx): void {
     // AUCUN auto-arm : chemin de dégât ultra-chaud (cf. en-tête).
 
-    /** Arme le hook. À appeler sur état STABLE (post-warmup). */
-    ctx.rpc.hitTraceArm = (): unknown =>
-        ({ ok: ensureInstalled(), installed: state.installed });
-
-    /** Désarme et détache. Le buffer est conservé (hitTraceDump reste lisible). */
-    ctx.rpc.hitTraceDisarm = (): unknown => {
+    // Le DÉTACHEMENT physique est différé au moment où plus AUCUN acteur n'est armé — sinon
+    // le `hitTraceDisarm` d'un probe arracherait l'`Interceptor` sous les pieds d'un autre,
+    // qui dumperait un seau tronqué sans erreur (#483). Appelé aussi quand un runner armé
+    // est disposé (`purgeArmedForRunner`).
+    onDisarmed("hit", () => {
         try { state.listener?.detach(); } catch { /* best effort */ }
         state.listener = null;
         state.installed = false;
-        return { ok: true, installed: false, fires: state.fires };
+    });
+
+    /** Arme le hook. À appeler sur état STABLE (post-warmup).
+     *  `runnerId` → armement NOMINATIF ; sans lui → GLOBAL (comportement historique). */
+    ctx.rpc.hitTraceArm = (body?: { runnerId?: number }): unknown => {
+        const ok = ensureInstalled();
+        if (ok) arm("hit", body?.runnerId);
+        return { ok, installed: state.installed, ...armedReport("hit", body?.runnerId) };
+    };
+
+    /** Désarme. Le buffer est conservé (hitTraceDump reste lisible). Détache SEULEMENT si
+     *  plus personne n'est armé — sans `runnerId`, seul le GLOBAL est désarmé. */
+    ctx.rpc.hitTraceDisarm = (body?: { runnerId?: number }): unknown => {
+        disarm("hit", body?.runnerId);
+        return {
+            ok: true, installed: state.installed, fires: state.fires,
+            ...armedReport("hit", body?.runnerId),
+        };
     };
 
     /** Coups capturés. body: { runnerId?, limit?=200 } */
     ctx.rpc.hitTrace = (body?: { runnerId?: number; limit?: number }): unknown => {
         const lim = typeof body?.limit === "number" ? body.limit : 200;
         const all = buffers.entries(body?.runnerId);
+        const report = armedReport("hit", body?.runnerId);
         return {
-            ok: true, installed: state.installed, enabled: state.enabled,
+            ok: true, installed: state.installed,
+            ...report,
+            // `enabled` : alias historique de `on`. Il DIT désormais « la capture était-elle
+            // ouverte POUR L'ORIGINE INTERROGÉE » — un booléen global s'y lisait comme une
+            // garantie qu'il ne donnait pas. `armedRunners` publie l'état réel.
+            enabled: report.on,
             fires: state.fires, captured: all.length,
             layout: state.layout, calibrationFailures: state.calibrationFailures,
             hits: all.slice(-Math.max(0, lim)),
         };
     };
 
-    ctx.rpc.hitTraceSetEnabled = (body?: { on?: boolean }): unknown => {
-        state.enabled = body?.on !== false;
-        return { ok: true, enabled: state.enabled };
+    /** Ouvre/ferme la capture SANS toucher au hook physique. `runnerId` porte la même
+     *  sémantique que sur `hitTraceArm`/`hitTraceDisarm`. */
+    ctx.rpc.hitTraceSetEnabled = (
+        body?: { on?: boolean; runnerId?: number },
+    ): unknown => {
+        if (body?.on !== false) {
+            // Réinstalle si besoin : un `SetEnabled(false)` qui a fait tomber le dernier
+            // acteur a détaché le hook (cf. `onDisarmed`) ; sans ce `ensureInstalled`, le
+            // ré-armement rendrait `ok: true` sur un hook ABSENT — un vert qui ment.
+            const ok = ensureInstalled();
+            if (ok) arm("hit", body?.runnerId);
+            return {
+                ok, installed: state.installed,
+                ...armedReport("hit", body?.runnerId),
+            };
+        }
+        disarm("hit", body?.runnerId);
+        return {
+            ok: true, installed: state.installed,
+            ...armedReport("hit", body?.runnerId),
+        };
     };
 
     ctx.rpc.hitTraceReset = (body?: { runnerId?: number }): unknown => {

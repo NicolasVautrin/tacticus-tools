@@ -601,8 +601,8 @@ def _collect(s: int, rid: int, essais: bool = False) -> dict:
     `essais=True` essaie PLUSIEURS declencheurs et rapporte lequel fait firer le hook (E1) : c'est
     l'information dont #443-r1 manquait. Sinon on ne joue que le declencheur qui MORD, mesure
     (`aiDryRunAllUnits`) -- le sweep de mouvement n'est parcouru que par un tour d'IA."""
-    rpc(s, "triggeredMoveTraceClear", {}, 30)
-    rpc(s, "triggeredMoveTraceOn", {}, 60)
+    rpc(s, "triggeredMoveTraceClear", {"runnerId": rid}, 30)
+    rpc(s, "triggeredMoveTraceOn", {"runnerId": rid}, 60)
     firing = []
     if essais:
         avant = 0
@@ -692,6 +692,9 @@ def main() -> int:
             print("   greffe 1120 INDISPONIBLE (%s) -- on continue sans, E4 sera skip" % e)
 
     verdicts: list = []
+    # #483 : le `finally` desarme AVEC le runnerId -> il doit exister meme si le
+    # build a leve (sinon NameError avale par le `except`, donc desarmement muet).
+    rid = None
     state2 = "%s.double.json" % a.state_file
     try:
         # ═══ MONTAGE MONO -- E1 (declencheur), E2 (attribution), E5 (valeur) ═══════════════════
@@ -774,7 +777,7 @@ def main() -> int:
         return 1
     finally:
         try:
-            rpc(s, "triggeredMoveTraceOff", {}, 30, tolerate_unknown=True)
+            rpc(s, "triggeredMoveTraceOff", {"runnerId": rid}, 30, tolerate_unknown=True)
         except Exception:                                              # noqa: BLE001
             pass
         if not a.keep:

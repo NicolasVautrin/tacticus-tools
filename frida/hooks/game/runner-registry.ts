@@ -21,6 +21,7 @@
 import { RunnerHandle } from "./runner.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { purgeTracesForRunner } from "./trace-origin.js";
+import { purgeArmedForRunner } from "./armed-runners.js";
 
 interface Entry extends RunnerHandle {
     runnerId: number;
@@ -148,5 +149,10 @@ export function disposeRunner(runnerId: number): boolean {
     // aiUtilityTrace / bucketAudit) — même hygiène que purgeLogForOrigin
     // côté recorder. cf. game/trace-origin.ts.
     try { purgeTracesForRunner(runnerId); } catch { /* best effort */ }
+    // ... et son ARMEMENT (#483). Sans ça, un runner mort laisserait sa porte
+    // ouverte pour toujours : `anyArmed()` resterait vrai et les Interceptor des
+    // features à détachement paresseux (hit-trace, bucket-audit) ne se
+    // détacheraient jamais. cf. game/armed-runners.ts.
+    try { purgeArmedForRunner(runnerId); } catch { /* best effort */ }
     return byId.delete(runnerId);
 }

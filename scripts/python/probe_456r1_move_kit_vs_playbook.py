@@ -299,8 +299,8 @@ def main() -> int:
                 rpc(s, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90,
                     tolerate_unknown=True)
 
-        rpc(s, "triggeredMoveTraceClear", {}, 30)
-        rpc(s, "triggeredMoveTraceOn", {}, 60)
+        rpc(s, "triggeredMoveTraceClear", {"runnerId": rid}, 30)
+        rpc(s, "triggeredMoveTraceOn", {"runnerId": rid}, 60)
         rpc(s, "aiDryRunAllUnits", {"runnerId": rid}, 180, tolerate_unknown=True)
         dump = rpc(s, "triggeredMoveTraceDump", {"runnerId": rid, "max": 4000}, 60) or {}
         entries = dump.get("entries") or []
@@ -422,7 +422,7 @@ def main() -> int:
         return 0
     finally:
         try:
-            rpc(s, "triggeredMoveTraceOff", {}, 30, tolerate_unknown=True)
+            rpc(s, "triggeredMoveTraceOff", {"runnerId": rid}, 30, tolerate_unknown=True)
         except Exception:                                                 # noqa: BLE001
             pass
         if not a.keep:

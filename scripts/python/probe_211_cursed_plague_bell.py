@@ -250,7 +250,7 @@ def run_live(sid, rid, seed, board, max_steps, max_arm, herd=()):
             print("pas %-3d activation #%d de %s (u%s) : terme du port sur les candidates = %s"
                   % (step, seen, CARRIER, uid, vals))
             if len(vals) > 1:
-                _r(sid, "scorerDamageTraceOn", {}, 90)
+                _r(sid, "scorerDamageTraceOn", {"runnerId": rid}, 90)
                 _r(sid, "scorerDamageTraceClear", {"runnerId": rid, "stacks": 0}, 60)
                 try:
                     dry = _r(sid, "aiStepDryRun", {"runnerId": rid}, 90)
@@ -258,7 +258,7 @@ def run_live(sid, rid, seed, board, max_steps, max_arm, herd=()):
                     ev = _r(sid, "scorerElevTraceDump", {"runnerId": rid, "max": 4000}, 90)
                     lf = _r(sid, "scorerLeafTraceDump", {"runnerId": rid, "max": 4000}, 90)
                 finally:
-                    _r(sid, "scorerDamageTraceOff", {}, 60)
+                    _r(sid, "scorerDamageTraceOff", {"runnerId": rid}, 60)
                 n = _confront(sid, rid, dv, ctx, uid, tterm, ev, lf, cases, rows)
                 print("        tuiles confrontees a ce pas : %d" % n)
                 if n:

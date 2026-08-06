@@ -179,7 +179,7 @@ def run(sid, rid, carrier, max_steps, drive=True, max_arm=6):
 
 def _measure(sid, rid, ctx, dv, uid, names, wt, occ, id19, id64):
     """Arme les hooks pour UN dry-run, puis rend la table par tuile. Desarmement garanti."""
-    _r(sid, "scorerDamageTraceOn", {}, 90)
+    _r(sid, "scorerDamageTraceOn", {"runnerId": rid}, 90)
     _r(sid, "scorerDamageTraceClear", {"runnerId": rid, "stacks": 0}, 60)
     try:
         _r(sid, "aiStepDryRun", {"runnerId": rid}, 90)
@@ -187,7 +187,7 @@ def _measure(sid, rid, ctx, dv, uid, names, wt, occ, id19, id64):
         elev = _r(sid, "scorerElevTraceDump", {"runnerId": rid, "max": 4000}, 90)
         leaf = _r(sid, "scorerLeafTraceDump", {"runnerId": rid, "max": 4000}, 90)
     finally:
-        _r(sid, "scorerDamageTraceOff", {}, 60)
+        _r(sid, "scorerDamageTraceOff", {"runnerId": rid}, 60)
 
     tt = _by_tile(tterm.get("entries") or [], "casterCol", "casterRow", "tileTerm")
     el = _by_tile(elev.get("entries") or [], "col", "row", "leaf")

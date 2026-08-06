@@ -208,7 +208,7 @@ def run(sid, rid, carrier, ability, max_steps, max_arm=6):
             # sous-ensemble. On arme, on regarde, et on CONTINUE de marcher si c'est plat.
             if len(vals) > 1 and armed < max_arm:
                 armed += 1
-                _r(sid, "scorerDamageTraceOn", {}, 90)
+                _r(sid, "scorerDamageTraceOn", {"runnerId": rid}, 90)
                 _r(sid, "scorerDamageTraceClear", {"runnerId": rid, "stacks": 0}, 60)
                 try:
                     dry = _r(sid, "aiStepDryRun", {"runnerId": rid}, 90)
@@ -216,7 +216,7 @@ def run(sid, rid, carrier, ability, max_steps, max_arm=6):
                     elev = _r(sid, "scorerElevTraceDump", {"runnerId": rid, "max": 4000}, 90)
                     leaf = _r(sid, "scorerLeafTraceDump", {"runnerId": rid, "max": 4000}, 90)
                 finally:
-                    _r(sid, "scorerDamageTraceOff", {}, 60)
+                    _r(sid, "scorerDamageTraceOff", {"runnerId": rid}, 60)
                 hooked = {(e.get("casterCol"), e.get("casterRow"))
                           for e in (tterm.get("entries") or []) if (e.get("casterCol") or -1) >= 0}
                 hvals = sorted({round(pb0.calculate_movement_utility_in_steps(

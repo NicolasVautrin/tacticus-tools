@@ -28,6 +28,7 @@ import { queueOnMainThread } from "../runtime/queue.js";
 import { state } from "../game/state.js";
 import { aiControlClass } from "../game/ai-control.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
+import { arm, disarm, capturing, armedReport } from "../game/armed-runners.js";
 // #283 — la table etait INLINE ici, figee sur `gqfc5mff6c`, donc hors de la garde #252 :
 // `AttackTile` (insere en 8 par `rnca9r7q6c`) manquait, et les 37 ids suivants nommaient leur
 // VOISIN. Elle n'est pas decorative — `prePopulateKnownConfigs` APPELLE
@@ -307,7 +308,10 @@ function getOwnerType(dictPtr: NativePointer): string | null {
  * runtime class ptr after a Tacticus restart) or when the AI uses a Dict
  * type we haven't catalogued yet. Capped at sampleCap to avoid log spam. */
 const diagSampler = {
-    enabled: false,
+    // Porte PAR RUNNER (#483) — cf. game/armed-runners.ts. Ses `samples` restent une Map
+    // GLOBALE (ce capteur ne construit pas de seau par origine) : ce que l'armement par
+    // runner ferme ici, c'est le `Disable` d'un voisin qui éteignait la mesure en cours.
+    get enabled(): boolean { return capturing("aiUtilityDiagSampler"); },
     sampleCap: 30,
     samples: new Map<string, { friendlyName: string; count: number }>(),
 };
@@ -363,7 +367,9 @@ interface AccessEntry {
 }
 
 interface TraceState {
-    enabled: boolean;
+    /** Porte de capture PAR RUNNER (#483) — accesseur sur `game/armed-runners.ts`, plus un
+     *  booléen de module. Lecture seule : on arme/désarme par `arm()`/`disarm()`. */
+    readonly enabled: boolean;
     seq: number;
     /** Ring buffers PAR ORIGINE (cf. game/trace-origin.ts) — drop oldest when
      * full, cap PAR BUCKET. Sized for ~1 turn of AI scoring
@@ -408,7 +414,11 @@ const trace: TraceState = {
     // is unconditional at boot, so any RUN AI TURN immediately captures
     // dict accesses without manual setup. Disable via aiUtilityTraceDisable
     // if the overhead becomes a problem.
-    enabled: true,
+    // ⚠ Le « par défaut » est désormais posé par un `arm("aiUtility")` GLOBAL au register
+    // (#483) — c'est ce qui préserve exactement l'ancien comportement. La porte elle-même
+    // consulte l'origine courante, donc un `Disable({runnerId})` d'un acteur ne coupe plus
+    // que le sien.
+    get enabled(): boolean { return capturing("aiUtility"); },
     seq: 0,
     buffer: new OriginBuffers<AccessEntry>(20000, "ring"),
     listeners: [],
@@ -783,10 +793,15 @@ export function register(ctx: Ctx): void {
     //      flips true during sim-engine.buildMirrorFromLive
     ensureUtilitiesDbCapture();
     installHooks();
+    // Armement GLOBAL au boot — c'est ce qui reproduit à l'identique l'ancien
+    // `enabled: true` par défaut (#483). Un acteur qui veut s'isoler coupe le global
+    // (`aiUtilityTraceDisable {}`) puis arme le sien (`aiUtilityTraceEnable {runnerId}`).
+    arm("aiUtility");
 
     /** Install hooks (idempotent) and start collecting. Returns method
-     * resolution diagnostics so the front knows what's hooked. */
-    ctx.rpc.aiUtilityTraceEnable = (): Promise<unknown> =>
+     * resolution diagnostics so the front knows what's hooked.
+     * `runnerId` → armement NOMINATIF ; sans lui → GLOBAL (historique). */
+    ctx.rpc.aiUtilityTraceEnable = (body?: { runnerId?: number }): Promise<unknown> =>
         queueOnMainThread(() => {
             const ok = installHooks();
             // Pre-populate knownConfigs by iterating GetUtilityConfig over
@@ -794,9 +809,10 @@ export function register(ctx: Ctx): void {
             // hooks would skip every call (their filter requires the dict
             // ptr to be in knownConfigs).
             const populate = prePopulateKnownConfigs();
-            trace.enabled = ok;
+            if (ok) arm("aiUtility", body?.runnerId);
             return {
-                ok, enabled: trace.enabled,
+                ok, ...armedReport("aiUtility", body?.runnerId),
+                enabled: armedReport("aiUtility", body?.runnerId).on,
                 getUtilityConfigResolved:
                     !!getUtilityConfigMi && !getUtilityConfigMi.ptr.isNull(),
                 tryGetValueResolved:
@@ -815,9 +831,15 @@ export function register(ctx: Ctx): void {
             };
         });
 
-    ctx.rpc.aiUtilityTraceDisable = (): unknown => {
-        trace.enabled = false;
-        return { ok: true, listeners: trace.listeners.length };
+    /** DÉSARME. Sans `runnerId` : le GLOBAL seulement — les armements nominatifs des
+     *  autres acteurs survivent (#483). Les hooks restent posés (l'install est
+     *  inconditionnel au boot, comme avant). */
+    ctx.rpc.aiUtilityTraceDisable = (body?: { runnerId?: number }): unknown => {
+        disarm("aiUtility", body?.runnerId);
+        return {
+            ok: true, listeners: trace.listeners.length,
+            ...armedReport("aiUtility", body?.runnerId),
+        };
     };
 
     ctx.rpc.aiUtilityTraceClear = (body?: { runnerId?: number }): unknown => {
@@ -851,8 +873,9 @@ export function register(ctx: Ctx): void {
         let filtered = trace.buffer.entries(body?.runnerId);
         if (since > 0) filtered = filtered.filter((e) => e.seq > since);
         const slice = filtered.slice(-max);
+        const report = armedReport("aiUtility", body?.runnerId);
         return {
-            enabled: trace.enabled,
+            ...report, enabled: report.on,
             totalSeq: trace.seq,
             bufferSize: trace.buffer.size(),
             knownConfigs: knownConfigs.size,
@@ -886,7 +909,7 @@ export function register(ctx: Ctx): void {
         }
         out.sort((a, b) => b.count - a.count);
         return {
-            enabled: trace.enabled,
+            ...armedReport("aiUtility"), enabled: armedReport("aiUtility").on,
             uniqueKeys: out.length,
             counters: out,
             hookDiag: trace.diag,
@@ -917,17 +940,23 @@ export function register(ctx: Ctx): void {
      * fire that misses the trackedClasses allowlist samples its class qualified
      * name (capped at sampleCap to bound log spam). Call …DiagDump to read. */
     ctx.rpc.aiUtilityTraceDiagSamplerEnable = (
-        body?: { sampleCap?: number },
+        body?: { sampleCap?: number; runnerId?: number },
     ): unknown => {
-        diagSampler.enabled = true;
+        arm("aiUtilityDiagSampler", body?.runnerId);
         if (body?.sampleCap) diagSampler.sampleCap = body.sampleCap;
         diagSampler.samples.clear();
-        return { ok: true, sampleCap: diagSampler.sampleCap };
+        return {
+            ok: true, sampleCap: diagSampler.sampleCap,
+            ...armedReport("aiUtilityDiagSampler", body?.runnerId),
+        };
     };
 
-    ctx.rpc.aiUtilityTraceDiagSamplerDisable = (): unknown => {
-        diagSampler.enabled = false;
-        return { ok: true };
+    /** DÉSARME. Sans `runnerId` : le GLOBAL seulement (#483). */
+    ctx.rpc.aiUtilityTraceDiagSamplerDisable = (
+        body?: { runnerId?: number },
+    ): unknown => {
+        disarm("aiUtilityDiagSampler", body?.runnerId);
+        return { ok: true, ...armedReport("aiUtilityDiagSampler", body?.runnerId) };
     };
 
     /** Dump the diag sampler's collected (classPtr → friendlyName, count). */
@@ -937,7 +966,8 @@ export function register(ctx: Ctx): void {
         }));
         out.sort((a, b) => b.count - a.count);
         return {
-            enabled: diagSampler.enabled,
+            ...armedReport("aiUtilityDiagSampler"),
+            enabled: armedReport("aiUtilityDiagSampler").on,
             sampleCap: diagSampler.sampleCap,
             distinctClasses: out.length,
             trackedClasses: [...trackedClasses.entries()].map(([ptr, name]) => ({

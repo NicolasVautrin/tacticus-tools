@@ -133,7 +133,7 @@ def run(sid, rid, target_step):
     plans = {p.get("unitId"): p for p in (dv.get("attackPlans") or [])}
 
     # --- ARME les hooks RVA le temps d'UN SEUL dry-run ------------------------
-    on = _r(sid, "scorerDamageTraceOn", {}, 90)
+    on = _r(sid, "scorerDamageTraceOn", {"runnerId": rid}, 90)
     print("scorerDamageTraceOn:", json.dumps(on)[:200])
     _r(sid, "scorerDamageTraceClear", {"runnerId": rid, "stacks": 0}, 60)
     try:
@@ -144,7 +144,7 @@ def run(sid, rid, target_step):
         leaf = _r(sid, "scorerLeafTraceDump", {"runnerId": rid, "max": 4000}, 90)
         comp = _r(sid, "scorerComposedDump", {}, 90)
     finally:
-        _r(sid, "scorerDamageTraceOff", {}, 60)
+        _r(sid, "scorerDamageTraceOff", {"runnerId": rid}, 60)
 
     uid = dry.get("activatedUnitId")
     msgs = (dry.get("action") or {}).get("messages") or []

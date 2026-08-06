@@ -793,11 +793,21 @@ def channel(seed=P.SEED, board=P.BOARD, dmg_target=None, budget=4000) -> dict:
         if method == "disposeRunner" and not cap.get("done"):
             cap["dump"] = base("effectBonusTraceDump",
                                {"runnerId": (body or {}).get("runnerId")}, 180)
+            # ⚠ ARMEMENT GLOBAL ASSUME (#483) : ce `Off` APPAIRE l'armement global pose
+            # avant le build (cf. `channel`). Un desarmement doit porter le MEME scope que
+            # son armement -- le passer avec `rid` ne desarmerait rien et laisserait le
+            # global ouvert pour la session entiere.
             base("effectBonusTraceOff", {}, 60)
             cap["done"] = True
         return base(method, body, timeout)
 
     g = globals()
+    # ⚠ ARMEMENT GLOBAL ASSUME (#483). Ce site arme AVANT que le runner existe -- `capture()`
+    # construit le runner plus bas, et son `runnerId` n'apparait qu'au `disposeRunner` (cf.
+    # `wrapper`). Il n'y a donc rien a scoper ici : contrairement aux 16 sites convertis, le
+    # `rid` n'est PAS sous la main. Consequence, nommee plutot que masquee : cette capture
+    # reste eteignable par le `effectBonusTraceOff {}` d'un autre acteur. Elle ne peut plus,
+    # elle, eteindre une capture NOMINATIVE -- c'est l'asymetrie que le foyer garantit.
     cap["on"] = base("effectBonusTraceOn", {"budget": int(budget)}, 60)
     if not (cap["on"] or {}).get("ok"):
         return {"error": "capteur effect-bonus-trace absent ou non arme : %s"
@@ -810,6 +820,8 @@ def channel(seed=P.SEED, board=P.BOARD, dmg_target=None, budget=4000) -> dict:
     finally:
         g["_mkrpc"] = orig_mk
         if not cap.get("done"):
+            # ⚠ ARMEMENT GLOBAL ASSUME (#483) : meme appairage que ci-dessus -- filet quand
+            # le `disposeRunner` n'a pas eu lieu (montage casse). Scope GLOBAL des deux cotes.
             base("effectBonusTraceOff", {}, 60)
     if "error" in blob:
         return {"error": "montage KO : %s" % blob["error"]}

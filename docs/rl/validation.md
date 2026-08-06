@@ -41,9 +41,19 @@
   `runnerId` → bucket direct, clears scopables, et le **dispose d'un runner
   purge automatiquement ses buckets** (même hygiène que le purge du log
   recorder) → la capture/lecture CONCURRENTE par plusieurs acteurs est
-  autorisée, sans orphelins. Restent EXCLUSIFS : (a) l'ARMEMENT/extinction
-  des traces (`trace.on` global : `scorer*On/Off`,
-  `aiUtilityTraceEnable/Disable`…) et le clear GLOBAL (sans `runnerId`) ;
+  autorisée, sans orphelins.
+  ⚠ **L'ARMEMENT ne l'était PAS, et c'est ce que #483 a fermé** — les seaux
+  étaient par runner, la PORTE restait un booléen de MODULE. Comme les probes
+  appellent leur `*Off` dans un `finally`, il s'exécute TOUJOURS : le premier
+  des 4-en-parallèle qui finissait désarmait la capture des autres, qui
+  dumpaient un seau **TRONQUÉ sans aucune erreur**. Depuis #483
+  (`game/armed-runners.ts`), les six familles arment PAR RUNNER :
+  `On/Arm/Enable {runnerId}` = nominatif, sans `runnerId` = global
+  (historique) ; **`Off/Disarm/Disable` sans `runnerId` ne désarme que le
+  GLOBAL** et laisse vivre les armements nominatifs des autres. **Passe donc
+  TON `runnerId`** — et fais porter au désarmement le MÊME scope qu'à
+  l'armement. Restent EXCLUSIFS : (a) le clear GLOBAL (sans `runnerId`) et
+  l'armement GLOBAL, que deux acteurs se disputent toujours ;
   (b) les opérations de session (reinject, warmup, restart host) — personne
   d'autre sur le live pendant ; (c) les chemins UI BUILD/LOAD du front
   (`initRunner`/`loadFromSavedBundle`, sémantique replace conservée).
