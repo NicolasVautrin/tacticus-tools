@@ -3426,6 +3426,18 @@ def is_invalid_target(state: "State", caster_id: int, target_id: Optional[int], 
     `ability = None` (ability non portee : `ABILITY_CLASSES` ne la connait pas) -> 0 : ses
     `TargetingOptions` sont inconnues, on ne peut pas decider -> aucun gate.
 
+    ⚠ CETTE FONCTION N'EST PAS CELLE QUE L'ORACLE `abilityReason` APPELLE (#287-r6). Le RPC passe
+    par `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason`, qui place DEUX etages EN
+    AMONT de la cascade : disponibilite de l'ability (`ActiveAbilityComponent.GetOrNull` /
+    `ActiveAbility.CanCurrentlyBeUsed` / `ability+0x44`) puis `IsDamagedMachine`, tous deux rendant
+    `GenericBrokenTargetingRule(1)` = `TargetingRule.ValidRequest`. `ActiveAbilityOperation$$IsInvalidTarget`
+    n'a AUCUN de ces etages -- il resout la config d'ability et appelle DIRECTEMENT le meme slot
+    d'`ITargetingQuery`. Confronter les deux quand l'etage amont mord compare deux fonctions natives
+    differentes : le natif rend `1` pour TOUTE cible, et le desaccord se lit a tort comme un bug de
+    ce module (mesure : 4 couples `SquigMine`, natif `0x1` / port `0x1000`, alors que la cascade
+    traversee rend `0x1000` DES DEUX COTES). Le cran est `oracle_targeting.oracle_court_circuite`,
+    qui lit `casterReason` -- meme etage amont, sans dependre de la cible.
+
     ORDRE natif (overload 5 args de `TargetingQuery$$GetInvalidTargetReason`) : volet CASTER
     d'abord (`GetInvalidCasterReason`, dont seul `CasterHasNotMoved` est porte), volet CIBLE
     ensuite. Le natif renvoie la raison CASTER telle quelle si elle est rompue — d'ou le meme code

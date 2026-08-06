@@ -91,12 +91,19 @@ imputée à la tranche.
 
 | board | couples | refus reproduits à l'identique (bit dynamique) | imputables | préexistantes |
 |---|---|---|---|---|
-| `MC1_67` | 18 | **2** (→ 0 désarmées) | **0** | 4 |
+| `MC1_67` | 18 | **2** (→ 0 désarmées) | **0** | **0** |
 | `C1_02` | 18 | **2** (→ 0 désarmées) | **0** | **0** |
 
 Les deux refus reproduits sont `1005` sur `deathPutrifier` (héros) et `1038` sur `necroWarden`
 (non-Chaos), `0x2` des deux côtés — et ils **tombent à 0** quand on désarme, donc le témoin est bien
 porté par ces règles et non par un autre étage du masque.
+
+⚠ **Le probe lit d'abord `casterReason`, et DÉBLOQUE le cooldown initial avant de mesurer**
+(#287-r6). Sans ce cran, un couple dont `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason`
+refuse EN AMONT rend `ValidRequest` pour **toute** cible : les 4 « préexistantes » de `MC1_67`
+étaient exactement cela, et la cascade, une fois traversée, rend `0x1000` des deux côtés. Un couple
+présent qui reste court-circuité après déblocage fait désormais **rougir** — la mesure n'a pas eu
+lieu. Détail : `case-287r6-oracle-court-circuite.md`.
 
 Deux corrections de MESURE que ce probe a imposées, toutes deux trouvées en le jouant :
 
@@ -128,10 +135,11 @@ après : **16 passed**, `rc=0`.
   (`powup*`, npc, posés par le BC) : aucun sur `C1_02`/`MC1_67`. Couvert **offline** (bascule +
   mutant, un bras par terme du `||`). Ce n'est pas « non confrontable » — un board portant des
   power-ups le ferait mordre.
-- **Écart PRÉEXISTANT, hors tranche** : `SquigMine` sur une tuile OCCUPÉE — natif `0x1`
-  (`ValidRequest`, que le natif réutilise comme code de refus), port `0x1000` (`TargetTileIsFree`).
-  **4 couples sur `MC1_67`**, mesurés survivants au désarmement des quatre règles. Gisement distinct
-  (domaine TILE), à ouvrir séparément.
+- ~~**Écart PRÉEXISTANT** : `SquigMine` sur une tuile OCCUPÉE — natif `0x1`, port `0x1000`.~~
+  **RÉSOLU (#287-r6)** — et le port avait raison : le `0x1` venait de
+  `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason`, qui refuse **avant** la cascade
+  quand l'ability est indisponible (`SquigMine.constants.initialCooldownTurns = 1`). Oracle rendu
+  passant, natif == port == `0x1000` sur les 4 tuiles. `case-287r6-oracle-court-circuite.md`.
 - Le volet **caster** (`options+0x30`, `CasterMatchesDynamicRule`) : inchangé, aucune règle portée.
 
 ## 9. Recensement du résidu #287-r5 — état APRÈS la tranche #287-r5
