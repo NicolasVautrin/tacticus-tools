@@ -271,10 +271,20 @@ Le montant, le profil et le nombre de coups, eux, coïncident entre les deux fac
   sur un slot qui converge vers le même slot 10 ; `light_im_up` et ce module gardent le défaut).
   Débloqueur : un montage où la cible peut mourir — `kill`/`overkill` sont des paliers sur les bornes,
   donc le spread y devient observable.
-* **`#419-r1-tr14-r4` — la face COMBAT n'est pas portée.** `HeavyBoltPistolAbility$$CreateBehaviour`
-  n'a **aucun** mirror dans `engine/runner` : une attaque de mêlée d'un `Initiate` ne fait donc pas
-  partir le coup de pistolet côté exécution. Même forme que `#419-r1-tr9-r4-r3`, `#419-r1-tr10-r3`,
-  `#419-r1-tr12-r3` et `#419-r1-tr13-r3`. La face DÉCISION livrée ne dit rien de l'exécution.
+* ~~**`#419-r1-tr14-r4`**~~ — **LIVRÉ**
+  (`docs/rl/case-419-r1-tr14-r4-face-combat-heavy-bolt-pistol.md`). Le trou valait **299 PV par
+  attaque**, et le canal n'était pas celui qu'on cherchait : `HeavyBoltPistolAbility` n'a **aucun**
+  `$$CreateTrigger` — elle est appelée EN DUR par l'attaque normale qu'elle substitue
+  (`TemplarInitiateNormalAttackAbility$$ExecuteBehaviour` = `Group(<ExecuteNormalAttack>) &
+  Group(<ExecuteBonusAttack>)` sous `ExecuteAtomic(0x52)`, le second volet étant
+  `TriggerAbility(1083)`). La gate `IsMeleeAttack` est la branche **`Normal(3)`** (adjacence) :
+  contact `+299`, 2 hex `+0` sur le MÊME montage — et le seed BC porte `AttackRangeType: 0` pour
+  cette ability, ce qui aurait fait conclure « dead code » à une lecture sans mesure. **L'écart de
+  gate annoncé au §6 est donc à nuancer** : les deux faces ne partagent aucun prédicat, mais leurs
+  verdicts coïncident sur ce montage (l'une lit `IsAdjacent(caster, target)`, l'autre
+  `AreEntitiesAdjacent(casterPosition, target)` — deux ancres qui ne se séparent que si la tuile
+  d'attaque diffère de la position réelle, régime que la voie COMBAT n'atteint pas :
+  `#419-r1-tr14-r4-r3`).
 * **`#419-r1-tr14-r5` — FERMÉ** (`docs/rl/case-419-r1-tr14-r5-dispatch-attaque-normale.md`). Les deux
   termes n'en font qu'un : le port dispatchait l'attaque normale sur le **KIT gameconfig** là où
   `IdunBattle.Entities.Factories.UnitFactory$$GetCustomNormalAttackTypeFromPassive` lit
