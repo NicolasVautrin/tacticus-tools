@@ -121,6 +121,14 @@ param(
 #  LA BANQUE. Une entree = un cliquet. `Seul` dit ce que ce cliquet est SEUL a voir : c'est
 #  le critere d'admission, avec le cout MARGINAL en parallele (jamais le cout absolu).
 #
+#  UN CLIQUET NEUF DECLARE AUSSI SON `DECLENCHEUR` (#486-r12) -- pas ici, dans SON PROPRE
+#  fichier, au niveau module : << qu'est-ce qui doit changer pour qu'il puisse changer d'avis ? >>
+#  Contrat et matcher : `scripts/python/declencheur_cliquet.py` (source UNIQUE, ne pas recopier).
+#  Le defaut est `toujours: True` avec sa raison -- un declencheur trop LARGE est sain, trop
+#  ETROIT est un faux vert. `probe_486r12_declencheurs.py` derive son perimetre de CETTE banque
+#  et confronte chaque declaration a une MESURE (les fichiers reellement ouverts).
+#  ⚠ La SELECTION n'est pas encore cablee ici : les declarations se posent d'abord.
+#
 #  `Rougit` est FACULTATIF et n'a qu'une valeur admise : 'compteur'. Il DECLARE qu'une entree
 #  est structurellement incapable de rendre un code non nul -- elle est la pour le contexte,
 #  pas pour garder. C'est une declaration MACHINE, lue par `probe_439`, qui garde les DEUX

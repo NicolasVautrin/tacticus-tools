@@ -66,6 +66,20 @@ if str(_HERE) not in sys.path:
 REPO = _HERE.parents[1]
 SYMBOLS = REPO / "data" / "symbols"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 105 fichiers, dont `data/seed-bc.json` (cascade d'import) et les DEUX tables
+#: `data/symbols/<build>/frida/{classes,methods}.tsv`.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/**/*.py", "data/seed-bc.json"),
+    "build": True,
+    "toujours": False,
+    "raison": "Il confronte DEUX cotes. Cote NATIF : la chaine de parents de `classes.tsv` et "
+              "la classe declarante de `methods.tsv` -- donc un changement de build peut "
+              "renverser un verdict SANS qu'une ligne du depot bouge (`build: True`). Cote "
+              "PORT : le SOURCE des classes d'effet, lu par `inspect` apres import, donc la "
+              "fermeture d'import de `PORT_CHANNELS` -- prise a tout `scripts/python/**`.",
+}
+
 #: Slot natif -> accumulateur. Les deux premiers sont les slots INVOQUES par les builders ; les
 #: deux derniers sont les abstraits que les forwarders de famille delegent.
 SLOT_FACE = {

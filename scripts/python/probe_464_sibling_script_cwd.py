@@ -53,6 +53,20 @@ import repo_read                                            # noqa: E402
 #: serait absurde qu'il le porte.
 _PYDIR = Path(__file__).resolve().parent
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 2 098 fichiers, tous `scripts/python/**/*.py` (tests compris) -- aucune autre
+#: lecture, aucune table.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/**/*.py",),
+    "build": False,
+    "toujours": False,
+    "raison": "La portee la plus etroite des balayeurs : le verdict d'un fichier ne depend QUE "
+              "de son contenu. `sites(rel, src)` parse le fichier et decide seul -- aucune "
+              "resolution d'import, aucun croisement inter-fichiers, aucune table. Perimetre "
+              "DERIVE de `git ls-files scripts/python` (#434), `tests/` compris par "
+              "construction : un test qui invoque un script frere a le meme defaut.",
+}
+
 #: Les fabriques de sous-processus dont le premier argument est un argv.
 _SUBPROC_FN = {"run", "Popen", "check_output", "check_call", "call"}
 

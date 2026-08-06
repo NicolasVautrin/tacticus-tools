@@ -56,6 +56,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 213 fichiers -- 212 `.ts` sous `frida/**` et son propre source. RIEN d'autre : ni
+#: `engine/`, ni `data/`.
+DECLENCHEUR = {
+    "chemins": ("frida/**", ".gitignore", "**/.gitignore"),
+    "build": False,
+    "toujours": False,
+    "raison": "Il resout les imports RELATIFS de chaque `.ts` SUIVI sous `frida/`, donc source "
+              "et cible vivent toutes deux la. Les `.gitignore` s'y ajoutent parce que le "
+              "verdict central EST `git check-ignore` : une regle modifiee bascule un import "
+              "de vert a rouge sans qu'un seul `.ts` change. Reste hors de portee de toute "
+              "declaration -- `.git/info/exclude` et le gitignore GLOBAL de la machine, qui "
+              "ne sont dans aucun arbre.",
+}
+
 # `from "..."` / `import "..."` / `export ... from "..."`, guillemets simples ou doubles, et
 # uniquement les chemins RELATIFS (un import de paquet npm n'a rien a voir avec le depot).
 IMPORT_RE = re.compile(r"""(?:from|import)\s*\(?\s*['"](\.[^'"]+)['"]""")
