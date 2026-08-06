@@ -335,16 +335,36 @@ HW_MINE_NOGATE = "genesSmnDecoy"
 TARGET_FOE = "necroWarden"
 NEUTRAL_FRIEND = "orksNob"
 
-MONTAGES = ("purge", "purge-gate", "mawclaws", "mawclaws-gate", "haywire", "haywire-gate")
-#: les montages dont le gate DOIT couper -- l'inertie qui en decoule est DECLAREE et assertionnee.
-MONTAGES_GATE_COUPE = ("purge-gate", "mawclaws-gate", "haywire-gate")
+#: ⚠ DEUX montages annonces au depart ne sont PAS ici, et chacun pour une raison MESUREE :
+#:
+#: * `mawclaws` / `mawclaws-gate` -- VERROU STRUCTUREL. Le gate de 1469 est `HasTrait(mover,
+#:   Summon)`, or `IdunBattle.Entities.UnitExtensions$$IsAutomatic(unit)` est exactement
+#:   `HasTrait(0x2 Summon) || HasTrait(0xd Object)`, SANS aucune exemption (pas meme `Hero`), et
+#:   c'est le seul filtre de `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute`. Toute
+#:   unite qui franchit le gate de 1469 est donc, PAR CONSTRUCTION, jouee au turn-start par cette
+#:   operation et n'entre JAMAIS dans la trajectoire d'activation que `aiStepDryRun` marche.
+#:   MESURE : trait `Summon` accorde a `eldarAutarch` (pose VERIFIEE, `traitsAfter` le porte),
+#:   25 pas, **0 activation du carrier**. Ce n'est ni un porteur non confrontable ni un montage
+#:   rate : c'est le harnais qui n'observe pas ce regime. Le gate est exerce OFFLINE, dans les
+#:   deux sens, par la garde.
+#: * `haywire-gate` -- le CONTROLE du gate `HasUnitId` ne se monte pas en live : la greffe de
+#:   `HaywireMine` fait SPAWNER la mine (c'est l'objet de l'ability), des deux cotes, donc des
+#:   tuiles minees apparaissent partout ; et le steppable temoin (`genesSmnDecoy`), place a la
+#:   position `neutral`, n'a ete hooke a AUCUN des 4 pas mesures -- la trajectoire du carrier
+#:   s'en eloigne. Exerce OFFLINE lui aussi. ⚠ Corollaire mesure sur `haywire` : la tuile qui
+#:   porte la mesure est une mine SPAWNEE (2,7), pas celle posee a la main en (5,5).
+MONTAGES = ("purge", "purge-gate", "haywire")
+#: les montages dont le gate DOIT couper PARTOUT -- l'inertie qui en decoule est DECLAREE et
+#: assertionnee dans les deux sens. ⚠ `haywire-gate` n'en fait PAS partie, et ce n'est pas un oubli :
+#: la greffe fait spawner des mines sur le plateau, donc le gate PASSE ailleurs. Son controle porte
+#: sur la TUILE du decoy (`_bras`), pas sur la decision entiere.
+MONTAGES_GATE_COUPE = ("purge-gate", "mawclaws-gate")
 #: le mutant qui EST la question de chaque montage. S'il ne mord pas : REGIME DEGENERE.
 #: ⚠ `haywire` ne se separe PAS sur l'axe du camp : son `<slot 4>` vaut `true`, donc les DEUX
 #: camps sont yieldes et `CAMP-DEUX` n'existe pas comme mutant. Son mutant separateur est
 #: `SLOT4-OFF` -- l'etat EXACT du port avant la mesure live qui a renverse le verdict.
 MUTANT_SEPARATEUR = {"purge": "CAMP-DEUX", "purge-gate": "SANS-GATE",
-                     "mawclaws": "CAMP-DEUX", "mawclaws-gate": "SANS-GATE",
-                     "haywire": "SLOT4-OFF", "haywire-gate": "SANS-GATE"}
+                     "haywire": "SLOT4-OFF"}
 
 
 def _layout(board: str) -> dict:
@@ -588,7 +608,13 @@ def _bras(prof, tiles, montage):
         return ([t for t in tiles if prof[t]["gate"]],
                 [t for t in tiles if not prof[t]["gate"]])
     if montage == "haywire-gate":
-        return ([t for t in tiles if prof[t]["steppable"]],
+        # ⚠ MESURE : la greffe de `HaywireMine` fait SPAWNER la mine en bataille (c'est ce que
+        # l'ability fait), des DEUX cotes -- 4 mines pour UNE posee a la main. Un controle
+        # « aucune mine sur le plateau » est donc IMPOSSIBLE par ce montage, et le premier essaye
+        # a rendu ROUGE en croyant mesurer le decoy alors qu'il mesurait une mine spawnee.
+        # Le controle porte donc sur la TUILE : celle qui porte un steppable qui N'EST PAS la mine
+        # (le decoy `genesSmnDecoy`) -- c'est la, et seulement la, que `HasUnitId` doit couper.
+        return ([t for t in tiles if prof[t]["steppable"] and not prof[t]["gate"]],
                 [t for t in tiles if not prof[t]["steppable"]])
     return ([t for t in tiles if prof[t]["na"] > 0 and prof[t]["ne"] == 0],
             [t for t in tiles if prof[t]["ne"] > 0 and prof[t]["na"] == 0])
@@ -679,6 +705,7 @@ def mesurer(call, rid, montage="purge", max_steps=25, trace=print) -> dict:
             x = (vt - ve - vf) if None not in (vt, ve, vf) else None
             rows.append({"tile": t, "x_nat": x, "x_port": x_port(leaves), "models": mods,
                          "na": p["na"], "ne": p["ne"], "gate": p["gate"],
+                         "steppable": p.get("steppable", False),
                          "tile7": vt, "elev": ve, "tile_eff": vf,
                          "leaves": {k: v for k, v in leaves.items() if abs(v) > 1e-9}})
         _l0 = _port_leaves(ctx, tiles[0])[1]
@@ -779,7 +806,19 @@ def run(call, rid, montage="purge", max_steps=25) -> int:
                   " peuvent PAS mordre, et c'est ASSERTIONNE ; seul `SANS-GATE` separe ici"
                   % ", ".join(sorted(inertes)))
     else:
-        if not all(r["gate"] for r in rows):
+        if montage == "haywire-gate":
+            # le CONTROLE : sur la tuile qui porte un steppable NON-mine, le gate `HasUnitId` doit
+            # couper et le terme natif doit valoir 0. Assertionne DANS LES DEUX SENS -- si aucune
+            # telle tuile n'est hookee, le controle n'a rien controle et c'est un ROUGE.
+            ctrl = [r for r in rows if r["steppable"] and not r["gate"]]
+            if not ctrl:
+                print("  GATE : ROUGE -- aucune tuile hookee ne porte un steppable NON-mine : le "
+                      "controle du gate `HasUnitId` n'a rien exerce")
+                rc = 1
+            else:
+                print("  GATE : %d tuile(s) portent un steppable NON-mine ; le gate y COUPE "
+                      "(assertionne) -- c'est `SANS-GATE` qui les separe" % len(ctrl))
+        elif not all(r["gate"] for r in rows):
             n_ok = sum(1 for r in rows if r["gate"])
             if montage.startswith("haywire"):
                 # ATTENDU ici : le gate de 1531 porte sur la TUILE (l'occupant), pas sur le mover --

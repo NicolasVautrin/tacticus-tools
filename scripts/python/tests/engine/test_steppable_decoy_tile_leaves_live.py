@@ -321,7 +321,16 @@ def _u(pos, traits, triggered=()):
 
 def test_branch_table_of_the_steppable_occupant():
     """`_steppable_occupant` = `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` + les lectures
-    que la feuille 19 fait ensuite sur l'occupant."""
+    que la feuille 19 fait ensuite sur l'occupant.
+
+    ⚠ #477-r37 : le foyer a DEMENAGE dans `engine.battle_query.get_steppable_unit` (un second
+    consommateur est apparu, `HaywireMineNonOwnerPlaybook`, qui ne peut pas importer `tile`) et rend
+    desormais une cle de PLUS -- `vis`, l'id d'unite de l'occupant, l'argument d'
+    `IdunBattle.Entities.UnitExtensions$$HasUnitId`. L'ajout est ADDITIF : les quatre lectures de la
+    feuille 19 sont inchangees, et ce test compare par EGALITE STRICTE, donc il a rougi -- c'est
+    exactement ce qu'on lui demande. Les attendus sont etendus, pas relaches : `vis` est ASSERTIONNE
+    sur chaque branche, y compris celle du mover-sur-son-origine, ou il vient d'une autre cle du
+    `ctx` (`self_vis`) et ou une regression le rendrait `None` en silence."""
     from engine.utilities.tile import _steppable_occupant
     T = (2, 3)
     # occupant NON steppable -> pas d'occupant steppable (le natif rend false), meme s'il est Decoy
@@ -330,18 +339,19 @@ def test_branch_table_of_the_steppable_occupant():
     assert _steppable_occupant(T, _lc(friend_units=[_u((9, 9), ("Steppable",))])) is None
     # ami steppable non decoy / ami steppable decoy
     assert _steppable_occupant(T, _lc(friend_units=[_u(T, ("Steppable",))])) == {
-        "is_friend": True, "is_enemy": False, "is_decoy": False, "triggered": ()}
+        "is_friend": True, "is_enemy": False, "is_decoy": False, "triggered": (), "vis": "x"}
     assert _steppable_occupant(T, _lc(friend_units=[_u(T, ("Steppable", "Decoy"), (77,))])) == {
-        "is_friend": True, "is_enemy": False, "is_decoy": True, "triggered": (77,)}
+        "is_friend": True, "is_enemy": False, "is_decoy": True, "triggered": (77,), "vis": "x"}
     # ennemi steppable decoy
     assert _steppable_occupant(T, _lc(enemy_units=[_u(T, ("Steppable", "Decoy"))])) == {
-        "is_friend": False, "is_enemy": True, "is_decoy": True, "triggered": ()}
+        "is_friend": False, "is_enemy": True, "is_decoy": True, "triggered": (), "vis": "x"}
     # le MOVER sur son ORIGINE : self-exclu de `friend_units`, donc branche dediee. `unit_traits`
     # est une liste d'IDS (27 = Steppable, 1053 = Decoy), pas de noms.
     assert _steppable_occupant(T, _lc(self_pos=T, unit_traits=(16,))) is None      # hero -> rien
     assert _steppable_occupant(T, _lc(self_pos=T, unit_traits=(27, 1053),
-                                      unit_triggered_abilities=(1304,))) == {
-        "is_friend": True, "is_enemy": False, "is_decoy": True, "triggered": (1304,)}
+                                      unit_triggered_abilities=(1304,),
+                                      self_vis="moi")) == {
+        "is_friend": True, "is_enemy": False, "is_decoy": True, "triggered": (1304,), "vis": "moi"}
 
 
 def test_leaf_19_branch_order_shortcircuits_before_the_decoy_trait():
