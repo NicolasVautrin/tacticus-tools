@@ -1,0 +1,352 @@
+"""#287-r4 -- GARDE offline : le gate de ciblage recoit une INSTANCE, jamais une CLASSE.
+
+Le probe `probe_287r4_targeting_needs_instance.py` MESURE ; ce fichier GARDE. Aucun runner, aucune
+session Frida : le defaut est STRUCTUREL (un typage), il se reproduit sur un etat de deux entites
+nues.
+
+CE QUE CE FICHIER GARDE :
+
+1. AUCUNE EXCEPTION -- `operations/turnflow._has_valid_targets` ne leve pour aucun des
+   `ActiveAbilityType` dont le masque EFFECTIF porte `TargetingRule.TargetMatchesDynamicRule`.
+   Mesure du 2026-08-06 sur l'arbre d'avant correctif : 65 ids, 65 exceptions -- 47 `TypeError`
+   (voie « classe du registre » : methode NON LIEE, `state` se liait a `self`) et 18
+   `AttributeError` (voie « ability non portee » : le type anonyme `_UnportedTargeting` n'avait pas
+   du tout la methode).
+
+2. LE PORTEUR -- l'objet reellement passe a `get_invalid_target_reason` est une INSTANCE dont le
+   type est une classe NOMMEE de son module, et sa `get_dynamic_invalid_target_reason` est une
+   methode LIEE. Cet etage-la est EXHAUSTIF : il intercepte la cascade, donc il ne depend pas de la
+   profondeur que l'etat minimal permet d'atteindre.
+
+3. LA MECANIQUE EST BIEN CONSULTEE (temoin non degenere) -- une surcharge qui REFUSE fait basculer
+   le verdict de `True` a `False`, et elle recoit `(state, caster_id, target_id)`. Sans cet etage,
+   les etages 1-2 seraient satisfaits par un `try/except` -- ou par le RETRAIT pur et simple de
+   l'appel a la regle dynamique, ce qui supprimerait la mecanique au lieu de la reparer.
+
+POURQUOI CETTE MECANIQUE EXISTE (la RE qui decide le correctif). Relue a l'octet sur le build
+courant, la surcharge **7 arguments** de `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`
+-- celle qu'appelle `IdunBattle.Core.Services.TargetingQuery$$GetValidTargets`, et que le port nomme
+`apply_self_cast_switch=False` -- INVOQUE le delegue `options+0x38` sous le bit
+`TargetMatchesDynamicRule`, entre `TargetIsNotAdjacentToEnemy` et `TargetIsCasterOrEnemy`, et SANS
+garde de nullite (un delegue nul y leve). « Filtre statique pur » ne qualifiait donc que l'absence
+de l'aiguillage self-cast et du volet caster -- lesquels vivent dans les surcharges 5 arguments, en
+amont. Le port avait un bug de TYPAGE, pas de CADRAGE : la reponse est d'instancier, pas de retirer
+l'evaluation.
+
+ETAGE MUTANTS. Chaque invariant est re-joue contre une version DELIBEREMENT FAUSSE du site, et l'on
+EXIGE que le critere rougisse. Une garde qu'aucun mutant ne fait rougir est INERTE.
+
+ASCII only (console cp1252).
+"""
+from __future__ import annotations
+
+import inspect
+import pathlib
+import sys
+
+import pytest
+
+HERE = pathlib.Path(__file__).resolve().parents[2]
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+
+import engine.runner.operations.turnflow as TF                                     # noqa: E402
+from engine.entities.active_ability_type import ActiveAbilityType                  # noqa: E402
+from engine.runner.abilities.base import ActiveAbility                             # noqa: E402
+from engine.runner.abilities.handler import ABILITY_CLASSES                        # noqa: E402
+from engine.runner.abilities.targeting import (                                    # noqa: E402
+    TARGETING_OPTIONS_UNPORTED, TargetingOptions, targeting_options_for,
+)
+from engine.runner.abilities.targeting_rule import TargetingRule as TR             # noqa: E402
+from engine.runner.state import State                                              # noqa: E402
+
+BIT = int(TR.TargetMatchesDynamicRule)
+
+
+# ------------------------------------------------------------------------------------------------
+# Substrat
+# ------------------------------------------------------------------------------------------------
+
+def _etat_minimal() -> State:
+    """Deux entites NUES : la cascade y degrade en permissif a chaque regle qu'elle ne sait pas
+    mesurer, donc elle DESCEND jusqu'au bit dynamique. Le regime le plus court qui atteigne le
+    site."""
+    st = State()
+    st.add_entity(1)
+    st.add_entity(2)
+    return st
+
+
+def _ids_portant_le_bit() -> list:
+    """Les ids dont le masque EFFECTIF porte le bit -- lu au FOYER UNIQUE `targeting_options_for`.
+
+    Ce n'est PAS « les classes qui surchargent la regle dynamique » : le bit se lit sur le MASQUE,
+    et c'est lui seul qui fait entrer la cascade dans la branche. Mesure du 2026-08-06 : sur les 65
+    ids concernes, plusieurs (dont `MultiThreatEliminator`, `ArmoriumCherub`, `SkyStrike`) NE
+    surchargent pas -- ils levaient sur le defaut herite d'`ActiveAbility`. Un recensement par
+    surcharge en aurait manque la majeure partie."""
+    return [int(a) for a in sorted(set(ABILITY_CLASSES) | set(TARGETING_OPTIONS_UNPORTED))
+            if (o := targeting_options_for(a)) is not None and o.has(TR.TargetMatchesDynamicRule)]
+
+
+def _nom(aid: int) -> str:
+    try:
+        return ActiveAbilityType(int(aid)).name
+    except ValueError:
+        return "<hors ActiveAbilityType>"
+
+
+def _porteur_de(aid: int, fabrique=None):
+    """L'objet REELLEMENT passe a la cascade pour `aid`.
+
+    On substitue `get_invalid_target_reason` DANS `turnflow` (le nom qu'il a importe) par un espion
+    qui capture et rend 0 : la mesure est independante de la profondeur atteinte. `fabrique` permet
+    de jouer un MUTANT du site a la place de `_has_valid_targets`."""
+    captures = []
+
+    def espion(state, caster_id, target_id, ability, **kwargs):
+        captures.append(ability)
+        return 0
+
+    origine = TF.get_invalid_target_reason
+    TF.get_invalid_target_reason = espion
+    try:
+        (fabrique or TF._has_valid_targets)(_etat_minimal(), 1, aid)
+    finally:
+        TF.get_invalid_target_reason = origine
+    return captures[0] if captures else None
+
+
+def _est_instance_de_classe_nommee(obj) -> bool:
+    """DEUX refus, tous deux observes sur l'arbre d'avant correctif : le porteur EST une classe
+    (jamais instanciee), ou son type est fabrique au site (`type("_X", (), {...})` dans un corps de
+    fonction n'est reference par aucun attribut de son module)."""
+    if isinstance(obj, type):
+        return False
+    t = type(obj)
+    module = sys.modules.get(t.__module__)
+    return module is not None and getattr(module, t.__name__, None) is t
+
+
+def _regle_dynamique_est_liee(obj) -> bool:
+    attr = getattr(obj, "get_dynamic_invalid_target_reason", None)
+    return attr is not None and inspect.ismethod(attr)
+
+
+# ------------------------------------------------------------------------------------------------
+# Etage 0 -- le recensement, et son propre NON-VIDE
+# ------------------------------------------------------------------------------------------------
+
+def test_le_recensement_du_bit_dynamique_n_est_pas_vide():
+    """Un recensement vide rendrait TOUS les etages suivants vrais par vacuite -- un vert qui ment.
+    On assertionne donc son non-vide, et la presence des DEUX voies (classe / non portee) : c'est
+    ce qui garantit que les deux faces du defaut restent couvertes."""
+    ids = _ids_portant_le_bit()
+    assert ids, "aucun id ne porte TargetMatchesDynamicRule -- le recensement ne visite rien"
+    classes = [a for a in ids
+               if getattr(ABILITY_CLASSES.get(a), "TARGETING_OPTIONS", None) is not None]
+    non_portes = [a for a in ids if a not in set(classes)]
+    assert classes, "voie 'classe du registre' VIDE -- la face TypeError n'est plus couverte"
+    assert non_portes, "voie 'non portee' VIDE -- la face AttributeError n'est plus couverte"
+
+
+# ------------------------------------------------------------------------------------------------
+# Etage 1 -- aucune exception
+# ------------------------------------------------------------------------------------------------
+
+def test_has_valid_targets_ne_leve_pour_aucun_porteur_du_bit():
+    """LE ROUGE DU JOUR. Avant correctif : 65 ids, 65 exceptions (47 TypeError + 18 AttributeError).
+    `_has_valid_targets` est le predicat de `HasActionAvailable`, donc du flag
+    `UnitFlag.NoActionAvailable` -- une exception y remonte jusqu'au tour."""
+    fautes = {}
+    st = _etat_minimal()
+    for aid in _ids_portant_le_bit():
+        try:
+            TF._has_valid_targets(st, 1, aid)
+        except Exception as exc:                                  # noqa: BLE001 -- c'est la mesure
+            fautes[aid] = "%s: %s" % (type(exc).__name__, exc)
+    assert not fautes, "%d id(s) font lever le gate de ciblage : %s" % (
+        len(fautes), [(a, _nom(a), fautes[a]) for a in sorted(fautes)[:5]])
+
+
+# ------------------------------------------------------------------------------------------------
+# Etage 2 -- le porteur est une INSTANCE d'une classe NOMMEE, methode LIEE
+# ------------------------------------------------------------------------------------------------
+
+def test_le_porteur_passe_a_la_cascade_est_une_instance_a_regle_liee():
+    """EXHAUSTIF sur les 65 : l'espion court-circuite la cascade, donc aucun id n'echappe a la
+    mesure parce que l'etat minimal l'aurait fait sortir plus tot."""
+    mauvais = []
+    for aid in _ids_portant_le_bit():
+        ab = _porteur_de(aid)
+        if ab is None:
+            mauvais.append((aid, _nom(aid), "aucun porteur construit"))
+        elif not _est_instance_de_classe_nommee(ab):
+            mauvais.append((aid, _nom(aid), "pas une instance de classe nommee: %r" % (ab,)))
+        elif not _regle_dynamique_est_liee(ab):
+            mauvais.append((aid, _nom(aid), "regle dynamique non liee sur %s" % type(ab).__name__))
+    assert not mauvais, "%d porteur(s) fautif(s) : %s" % (len(mauvais), mauvais[:5])
+
+
+# ------------------------------------------------------------------------------------------------
+# Etage 3 -- la regle dynamique est CONSULTEE (temoin non degenere)
+# ------------------------------------------------------------------------------------------------
+
+def _paire_de_temoins():
+    """Deux classes de meme masque (le bit SEUL), l'une permissive, l'autre qui REFUSE.
+
+    Le masque ne porte QUE `TargetMatchesDynamicRule` : aucune autre regle ne peut donc expliquer un
+    refus, et l'ecart entre les deux verdicts ne peut venir QUE de la regle dynamique."""
+    recu = []
+
+    class TemoinPermissif(ActiveAbility):
+        TARGETING_OPTIONS = TargetingOptions(rules=BIT)
+
+    class TemoinRefus(ActiveAbility):
+        TARGETING_OPTIONS = TargetingOptions(rules=BIT)
+
+        def get_dynamic_invalid_target_reason(self, state, caster_id, target_id) -> int:
+            recu.append((state, caster_id, target_id))
+            return BIT
+
+    return TemoinPermissif, TemoinRefus, recu
+
+
+def _joue_avec(klass, aid=None, fabrique=None):
+    aid = aid or (max(set(ABILITY_CLASSES) | set(TARGETING_OPTIONS_UNPORTED)) + 1)
+    ABILITY_CLASSES[aid] = klass
+    try:
+        return (fabrique or TF._has_valid_targets)(_etat_minimal(), 1, aid)
+    finally:
+        del ABILITY_CLASSES[aid]
+
+
+def test_la_regle_dynamique_de_la_sous_classe_est_effectivement_consultee():
+    """LE TEMOIN. Sans lui, les etages 1-2 seraient verts sur un code qui aurait simplement RETIRE
+    l'evaluation de la regle dynamique -- or le natif, lui, l'evalue (surcharge 7 arguments,
+    `options+0x38`). On exige la BASCULE de verdict, pas seulement l'absence d'erreur."""
+    permissif, refus, recu = _paire_de_temoins()
+    assert _joue_avec(permissif) is True, (
+        "regime DEGENERE : le temoin permissif ne trouve deja aucune cible, "
+        "la bascule ci-dessous ne prouverait rien")
+    assert _joue_avec(refus) is False, (
+        "la surcharge REFUSE toute cible et pourtant le gate en trouve une : "
+        "la regle dynamique n'est PAS consultee")
+    assert recu, "la surcharge n'a jamais ete appelee"
+    state, caster_id, target_id = recu[0]
+    assert isinstance(state, State), "1er argument attendu = l'etat, recu %r" % (state,)
+    assert int(caster_id) == 1, "2e argument attendu = le caster (1), recu %r" % (caster_id,)
+    assert target_id is not None, "3e argument attendu = la cible, recu None"
+
+
+# ------------------------------------------------------------------------------------------------
+# Etage 4 -- la voie « ability non portee »
+# ------------------------------------------------------------------------------------------------
+
+def test_la_voie_non_portee_porte_une_regle_dynamique_nommee():
+    """Masque LU sans classe de behaviour. Le porteur doit etre une classe NOMMEE exposant la
+    regle-delegue -- et non un type fabrique au site, qui la laissait absente.
+
+    La methode rend 0 : degradation PERMISSIVE, NOMMEE dans la classe. Le natif, lui, a toujours un
+    delegue (`AActiveAbility$$.ctor` l'ecrit) et LEVE s'il est nul ; le port ne peut pas evaluer un
+    corps qu'il n'a pas porte, et n'invente donc aucun refus."""
+    aid = max(set(ABILITY_CLASSES) | set(TARGETING_OPTIONS_UNPORTED)) + 2
+    TARGETING_OPTIONS_UNPORTED[aid] = TargetingOptions(rules=BIT)
+    try:
+        ab = _porteur_de(aid)
+        assert ab is not None, "aucun porteur construit pour la voie non portee"
+        assert _est_instance_de_classe_nommee(ab), (
+            "porteur fabrique au site (%r) -- une classe NOMMEE est requise" % (ab,))
+        assert _regle_dynamique_est_liee(ab), (
+            "%s n'expose pas de regle dynamique LIEE" % type(ab).__name__)
+        assert ab.get_dynamic_invalid_target_reason(_etat_minimal(), 1, 2) == 0, (
+            "la degradation de la voie non portee doit etre PERMISSIVE (aucun refus invente)")
+        # et le chemin complet ne leve pas
+        TF._has_valid_targets(_etat_minimal(), 1, aid)
+    finally:
+        del TARGETING_OPTIONS_UNPORTED[aid]
+
+
+# ------------------------------------------------------------------------------------------------
+# Etage 5 -- MUTANTS : chaque critere doit MORDRE
+# ------------------------------------------------------------------------------------------------
+
+def _mutant_passe_la_classe(state, unit_id, ability_type):
+    """MUTANT A -- le site tel qu'il etait sur `master` pour la voie « classe du registre » :
+    `ABILITY_CLASSES.get(...)` passe TEL QUEL, sans instanciation."""
+    opts = targeting_options_for(int(ability_type))
+    if opts is None:
+        return None
+    ability = ABILITY_CLASSES.get(int(ability_type))
+    if ability is None or getattr(ability, "TARGETING_OPTIONS", None) is None:
+        ability = type("_UnportedTargeting", (), {"TARGETING_OPTIONS": opts,
+                                                  "ABILITY_ID": int(ability_type)})
+    for tid in list(state.entities.keys()):
+        if TF.get_invalid_target_reason(state, int(unit_id), int(tid), ability,
+                                        apply_self_cast_switch=False) == 0:
+            return True
+    return False
+
+
+def _mutant_regle_dynamique_retiree(state, unit_id, ability_type):
+    """MUTANT B -- le correctif PARESSEUX qu'il fallait ecarter : instancier, mais desarmer le bit
+    pour que la cascade n'atteigne jamais la regle dynamique. Les etages 1 et 2 le laissent passer ;
+    seul le temoin de l'etage 3 le voit."""
+    from dataclasses import replace
+    opts = targeting_options_for(int(ability_type))
+    if opts is None:
+        return None
+    klass = ABILITY_CLASSES.get(int(ability_type))
+    ability = klass() if klass is not None else None
+    if ability is None or getattr(ability, "TARGETING_OPTIONS", None) is None:
+        return None
+    ability.__class__ = type(type(ability).__name__, (type(ability),),
+                             {"TARGETING_OPTIONS": replace(
+                                 opts, rules=int(opts.rules) & ~BIT)})
+    for tid in list(state.entities.keys()):
+        if TF.get_invalid_target_reason(state, int(unit_id), int(tid), ability,
+                                        apply_self_cast_switch=False) == 0:
+            return True
+    return False
+
+
+def test_mutant_A_le_site_qui_passe_la_classe_fait_rougir_les_etages_1_et_2():
+    """Sans ce mutant, les etages 1-2 pourraient etre verts pour une raison etrangere au correctif
+    (par exemple si plus aucun id ne portait le bit). Ils doivent MORDRE sur le code d'avant."""
+    ids = _ids_portant_le_bit()
+    leve = 0
+    for aid in ids:
+        try:
+            _mutant_passe_la_classe(_etat_minimal(), 1, aid)
+        except Exception:                                         # noqa: BLE001 -- c'est la mesure
+            leve += 1
+    assert leve == len(ids), (
+        "etage 1 INERTE : le site d'avant correctif ne leve que %d fois sur %d" % (leve, len(ids)))
+    # etage 2 : le porteur du mutant n'est jamais une instance a regle liee
+    ab = _porteur_de(ids[0], fabrique=_mutant_passe_la_classe)
+    assert not _est_instance_de_classe_nommee(ab) or not _regle_dynamique_est_liee(ab), (
+        "etage 2 INERTE : il accepte le porteur du site d'avant correctif")
+
+
+def test_mutant_B_desarmer_le_bit_fait_rougir_le_temoin():
+    """Le mutant qui compte le plus. Il ne leve pas, et son porteur est une instance en bonne et due
+    forme : les etages 1 et 2 le declarent VERT. C'est le temoin de l'etage 3 -- et lui seul -- qui
+    voit que la regle dynamique n'est plus consultee."""
+    _, refus, recu = _paire_de_temoins()
+    verdict = _joue_avec(refus, fabrique=_mutant_regle_dynamique_retiree)
+    assert verdict is not False or not recu, (
+        "le mutant B est cense NE PAS consulter la regle dynamique, or il l'a fait")
+    assert not recu, "etage 3 INERTE : la surcharge a ete appelee alors que le bit est desarme"
+    assert verdict is True, (
+        "etage 3 INERTE : le mutant rend %r au lieu de True -- la bascule ne discriminerait rien"
+        % (verdict,))
+
+
+def test_mutant_C_une_regle_dynamique_absente_fait_rougir_l_etage_4():
+    """Le porteur « non porte » sans la methode -- exactement le type anonyme d'avant correctif."""
+    faux = type("_UnportedTargeting", (), {"TARGETING_OPTIONS": TargetingOptions(rules=BIT),
+                                           "ABILITY_ID": 1})
+    assert not _est_instance_de_classe_nommee(faux)
+    assert not _regle_dynamique_est_liee(faux)
+    with pytest.raises(AttributeError):
+        faux.get_dynamic_invalid_target_reason(_etat_minimal(), 1, 2)
