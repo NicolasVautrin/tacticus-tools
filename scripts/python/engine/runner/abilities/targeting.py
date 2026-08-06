@@ -1371,10 +1371,60 @@ def _dynamic_rule_forward_observers(state: "State", caster_id: int, target_id) -
             if has_effect_of_type(state, int(target_id), int(EffectType.Markerlight)) else 0)
 
 
+def _dynamic_rule_light_of_sanguinius(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$GetDynamicInvalidTargetReason`
+    (1177, `bloodDante`) -- MIRROR du decompile, avec son lambda
+    (`...LightOfSanguiniusAbility.u003Cu003Ec__DisplayClass2_0$$u003CGetDynamicInvalidTargetReasonu003Eb__0`) :
+
+        range = Configuration.GetNumberConstant(0x16 range);
+        tiles = battleQuery.GetFreeAdjacentTiles(targetTiles);       // this+0x20, slot 0x53
+        if (tiles.Count == 0) return 0x20;                           // TargetHasFreeAdjacentTile
+        return tiles.Any(t => battleQuery.GetDistance(t, casterTile) <= range) ? 0 : 0x20;
+
+    ⚠ LE CODE RENDU N'EST PAS `TargetMatchesDynamicRule`. Cette regle refuse par `0x20`
+    (`TargetHasFreeAdjacentTile`) -- un bit que le masque de 1177 (`0x102004032`) porte DEJA au volet
+    STATIQUE. Ce n'est pas une redite : le volet statique demande « la cible a-t-elle une tuile
+    adjacente libre ? », la regle dynamique ajoute « ET l'une d'elles est-elle a `range` du
+    CASTER ? ». Un port qui n'aurait retenu que le bit 0x2 aurait donc rate cette regle entierement
+    -- c'est pourquoi le recensement se fait sur le BIT POSE AU MASQUE, jamais sur le code rendu.
+
+    SEMANTIQUE (`range` = 5 au gameconfig) : Dante saute sur une tuile libre a cote de sa cible ; il
+    faut donc qu'une telle tuile existe ET qu'elle soit a portee de son point de depart.
+
+    `get_free_adjacent_tiles` est le mirror deja porte de
+    `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles`, et `get_distance` celui de
+    `...$$GetDistance` (minimum sur toutes les paires de pieds -- ce qui compte pour un caster
+    multi-hex). Le natif appelle la surcharge `(IEntity tuile, IList casterTiles)` : cote port,
+    `[t]` contre l'empreinte COMPLETE du caster, pas sa seule MainTile.
+
+    Cible non resolue -> `0`, et `range` absent du gameconfig -> `0` : on ne fabrique pas un refus
+    sur un substrat que le port n'a pas mesure (convention permissive du module)."""
+    if target_id is None or state.get_entity(int(target_id)) is None:
+        return 0
+    import gameconfig as GC
+    raw = ((GC.ability("LightOfSanguinius") or {}).get("constants") or {}).get(
+        ABILITY_CONSTANT_RANGE)
+    if raw is None:
+        return 0
+    try:
+        rng = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    tiles = get_free_adjacent_tiles(state, int(target_id))
+    if not tiles:
+        return int(TR.TargetHasFreeAdjacentTile)
+    caster_tiles = entity_tiles(state, int(caster_id))
+    for t in tiles:
+        if get_distance([t], caster_tiles) <= rng:
+            return 0
+    return int(TR.TargetHasFreeAdjacentTile)
+
+
 DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.AdaptiveStrategy: _dynamic_rule_adaptive_strategy,      # 1005
     ActiveAbilityType.FoulInfusion: _dynamic_rule_foul_infusion,              # 1038
     ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
+    ActiveAbilityType.LightOfSanguinius: _dynamic_rule_light_of_sanguinius,   # 1177
 }
 
 
