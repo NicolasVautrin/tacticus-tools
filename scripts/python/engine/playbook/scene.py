@@ -12,7 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import gameconfig as GC
-from engine.entities import UnitContext, EffectsState
+from engine.entities.effects_state import EffectsState
+from engine.entities.unit_context import UnitContext
 from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effect_type import EffectType
 from ..entities.effects.factory import (EffectFactory, EFFECT_CLASSES,

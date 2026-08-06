@@ -48,12 +48,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..abilities.behaviours import entities_from_state
+from ..abilities.behaviours.context import entities_from_state
 from ..components import OwnerComponent, PositionComponent, UnitComponent, UnitFlagsComponent
-from .triggers import TriggeredAbility, _hex_dist
+from .triggers.base import TriggeredAbility, _hex_dist
 from ...dsl.event_trigger_type import EventTriggerType
 from ...entities.effect_type import EffectType
-from ...entities.selectors import Caster, Target
+from ...entities.selectors.accessors import Target
+from ...entities.selectors.tiles import Caster
 from ...entities.triggers import IsAdjacent, is_object_or_steppable
 from ...entities.pathfinding.walk_pathfinder import get_movable_positions
 from .remove_unit import RemoveUnitOperation

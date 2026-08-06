@@ -42,8 +42,11 @@ import probe_477r21_activation_tree as P  # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType  # noqa: E402
 from engine.entities.effect_type import EffectType  # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType  # noqa: E402
-from engine.streams import (GroupType, StepType, StreamCache,  # noqa: E402
-                            StreamDispatcher, TagKey)
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.stream_cache import StreamCache
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.evaluate_trigger import (evaluate_ability_trigger,  # noqa: E402
                                              execute_internal)

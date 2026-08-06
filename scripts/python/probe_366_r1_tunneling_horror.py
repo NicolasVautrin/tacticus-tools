@@ -189,8 +189,8 @@ def legal_tiles(rid, caster, ability):
 def e0_offline(fails):
     """E0 -- structure du port (aucun live) : registre, absence MESUREE de trigger, knobs."""
     from engine.entities.effects.factory import EFFECT_CLASSES
-    from engine.entities.effects.loki import TunnelingHorrorPendingSummonEffect as T
-    from engine.runner.operations.triggers import EFFECT_TRIGGERS
+    from engine.entities.effects.loki.status import TunnelingHorrorPendingSummonEffect as T
+    from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
 
     cls = EFFECT_CLASSES.get("TunnelingHorror_PendingSummon")
     if cls is not T:
@@ -212,7 +212,7 @@ def e2_offline_seed(rid, target, fails):
     """E2 -- le canal de CHARGEMENT materialise l'effet avec la CLASSE du registre."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
-    from engine.entities.effects.loki import TunnelingHorrorPendingSummonEffect as T
+    from engine.entities.effects.loki.status import TunnelingHorrorPendingSummonEffect as T
 
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     board = Board(bg["tiles"], adjacency="evenq")

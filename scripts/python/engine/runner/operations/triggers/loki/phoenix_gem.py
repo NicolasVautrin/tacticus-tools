@@ -49,11 +49,11 @@ from typing import Optional
 from ....state import State
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
-from .....entities.selectors import Caster
+from .....entities.selectors.tiles import Caster
 from ...effects import BaseEffect  # noqa: F401  (documente le type materialise dans state.effects)
 from ..base import EffectTrigger, TriggerEvent
 from ..revive_effect import Revive, RemoveReviveEffect, can_be_revived
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.context import entities_from_state
 from .....entities.effects.magnitude import ability_var
 from .....entities.effect_type import EffectType   # #270-r1-r1-r3
 from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3

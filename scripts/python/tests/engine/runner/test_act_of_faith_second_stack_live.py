@@ -29,7 +29,8 @@ from engine.entities.stats import StatType
 from engine.entities.effects.magnitude import ability_var
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.formulas import UnitNormalAttackType, ConfigVarForEntity
-from engine.entities.selectors import Actor, Caster
+from engine.entities.selectors.accessors import Actor
+from engine.entities.selectors.tiles import Caster
 from engine.entities.triggers import HasGrandAlliance, AreFriends
 from engine.runner.snapshot import load_state
 from engine.runner.components import StatsComponent
@@ -37,7 +38,7 @@ from engine.dsl.event_trigger_type import EventTriggerType
 from engine.runner.operations.triggers.base import TriggerEvent
 from engine.runner.operations.triggers.loki import (
     ActOfFaithAccumulateAbility, IMPERIAL_FACTIONS)
-from engine.runner.abilities.behaviours import entities_from_state
+from engine.runner.abilities.behaviours.context import entities_from_state
 
 MORVENN_VIS = "adeptMorvenn"        # passive RighteousRepugnance -> normal-attack concret 1182
 SISTER_VIS = "adeptCanoness"        # porteuse ActOfFaith ; --crit -> cd != 0 (gate accumulate)

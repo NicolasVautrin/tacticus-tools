@@ -71,7 +71,8 @@ import gameconfig as GC
 
 from ...entities.effect_type import EffectType
 from ...entities.formulas import ConditionalAmount, Get, PercentageOf, StatAmount, Sum
-from ...entities.selectors import AdjacentUnits, Enemies, FixedTile, Friends, Owner
+from ...entities.selectors.accessors import FixedTile, Owner
+from ...entities.selectors.units import AdjacentUnits, Enemies, Friends
 from ...entities.stats import StatPart, StatType
 from ...entities.triggers import HasEffect
 from ...dsl.base import Const, DslContext

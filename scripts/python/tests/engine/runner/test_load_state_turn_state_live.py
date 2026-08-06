@@ -41,7 +41,7 @@ from engine.runner.components import (PositionComponent,               # noqa: E
                                       UnitComponent)
 from engine.runner.events import EventBus                              # noqa: E402
 from engine.runner.operations.movement import MoveUnitOperation        # noqa: E402
-from engine.runner.operations.triggers import after_move_triggers      # noqa: E402
+from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers  # noqa: E402
 from engine.runner.operations.triggers.loki.ghost_revive import (              # noqa: E402
     TIME_FLUX_GHOST_EFFECT as GHOST_EFFECT)
 from engine.runner.prng import IntBasedMersenneTwister                 # noqa: E402

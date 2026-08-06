@@ -39,7 +39,7 @@ import gameconfig as GC
 from engine import weights as W
 from engine.dsl.effects import ExecutionContext
 from engine.entities.pathfinding.board import Board
-from engine.entities.selectors import Target
+from engine.entities.selectors.accessors import Target
 from engine.entities.traits.unit_trait import (UnitTrait, entity_trait_ids, entity_trait_names,
                                                unit_trait_ids, unit_trait_names)
 from engine.runner.abilities.behaviours.context import entities_from_state

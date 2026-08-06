@@ -45,7 +45,7 @@ class VigilanceEternalPlaybook(_PlanTargetPlaybook):
         """`GetDamageFormula(position)` + `GetDamageProfile` + `GetHits` -> le `DamagePredictionResult`
         que `CalculateUtilityFromDamageEvent` score. Foyer UNIQUE, partage par `damage_predictions`
         (trace de construction) et `evaluate_non_comparable` (utilite) -- pas de derive possible."""
-        from engine.playbook.prediction import generate_multi_hit_attack_prediction
+        from engine.playbook.prediction.abilities import generate_multi_hit_attack_prediction
         return generate_multi_hit_attack_prediction(ctx.scene, ctx.uid, target, self.ABILITY_ID,
                                                     _ABILITY_NAME, attack_pos=tile)
 

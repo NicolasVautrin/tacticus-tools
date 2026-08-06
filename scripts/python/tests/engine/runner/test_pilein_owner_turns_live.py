@@ -68,7 +68,7 @@ def test_gate_closed_for_young_grot_even_when_player_is_old(n_grots):
     """`GetTurnsFinished(grot) = 1 < 2` -> AUCUN candidat, donc AUCUN tirage -- et cela quel que
     soit le nombre de tours finis par le JOUEUR (ici 9). Sur le port d'avant (gate lu sur
     `turn_counts`) ce cas rendait 1 tirage par grot et un dedoublement 3 fois sur 4."""
-    from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
+    from engine.runner.operations.triggers.dispatch.turn import end_turn_summon_triggers
     r = CountingRng(4242)
     st = _state(n_grots, turn_counts={0: 9}, turns_finished=1, rng=r)
     out = end_turn_summon_triggers(st, 0)
@@ -81,7 +81,7 @@ def test_gate_open_at_two_finished_turns_without_any_turn_counts(n_grots):
     """`GetTurnsFinished(grot) = 2 >= 2` -> UN `next_bool` par grot, MEME avec `turn_counts` VIDE.
     C'est exactement l'etat d'un runner monte par `load_state` (qui ne seede pas le compteur
     JOUEUR) : sur le port d'avant, PileIn y etait purement et simplement mort."""
-    from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
+    from engine.runner.operations.triggers.dispatch.turn import end_turn_summon_triggers
     r = CountingRng(4242)
     st = _state(n_grots, turn_counts=None, turns_finished=2, rng=r)
     assert st.turn_counts == {}, "le montage doit reproduire l'etat non seede de `load_state`"

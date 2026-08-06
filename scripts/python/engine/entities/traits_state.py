@@ -9,7 +9,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from .traits import BaseTrait, TraitFactory
+from .traits.base import BaseTrait
+from .traits.factory import TraitFactory
 
 
 @dataclass

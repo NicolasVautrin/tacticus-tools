@@ -6,11 +6,13 @@ from typing import Optional
 
 from ....state import State
 from ....components import StatsComponent, HealthComponent
-from ....abilities.behaviours import UseActiveAbility, entities_from_state
+from ....abilities.behaviours.combat import UseActiveAbility
+from ....abilities.behaviours.context import entities_from_state
 from ....damage_model import select_weapon_pierce, attacker_modifiers
 from .....entities.stats import StatType
 from .....entities.effects import hits_bonus_from_effects
-from .....entities.selectors import Caster, Target
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.tiles import Caster
 from .....services.damage_prediction import get_attack_prediction
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType

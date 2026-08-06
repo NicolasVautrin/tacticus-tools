@@ -465,28 +465,34 @@ class AbilityHandler:
         `AbilityHasAttackType` des consommateurs (cf. `abilities/attack_type.py`). `ranged` =
         `DSLFactory$$IsRangedAttack` (position-based, `_is_ranged_position`) — False si la cible est
         une TUILE ou si les positions manquent, comme partout ailleurs dans le port."""
-        from ..operations.triggers.dispatch import pre_unit_ability_triggers
-        pre_unit_ability_triggers(self.state, int(msg.caster_id), msg.target_id,
-                                  ranged=self._ranged(msg), profile=None,
-                                  ability_type=int(msg.ability_type))
+        # Forme MODULE : l'attribut est relu a l'appel, donc une substitution posee sur
+        # `dispatch.ability` mord quelle que soit la forme finale de cet import. Ce differe-ci
+        # est mesure GRATUIT (`probe_485_imports_differes.py`) : hisse en `from ... import X`
+        # il serait INERTE, exactement le gisement des 12 rouges de la famille #429-r1.
+        from ..operations.triggers.dispatch import ability as ability_dispatch
+        ability_dispatch.pre_unit_ability_triggers(self.state, int(msg.caster_id), msg.target_id,
+                                                   ranged=self._ranged(msg), profile=None,
+                                                   ability_type=int(msg.ability_type))
 
     def _unit_active_ability(self, msg) -> None:
         """`FUN_1800280e0(0x4d, .., 0xc)` d'`ExecuteInternal`, emis SOUS LE GATE
         `StaticBattleRules.ActiveAbility$$IsActiveAbility(abilityType)` (le gate est applique dans le
         vecteur). Emis depuis la SEULE voie ABILITY : l'attaque normale est un `IsRegularAttack`, donc
         exclue par le gate natif -- la voie normale (`damage.py`) n'a rien a emettre."""
-        from ..operations.triggers.dispatch import unit_active_ability_triggers
-        unit_active_ability_triggers(self.state, int(msg.caster_id), msg.target_id,
-                                     ranged=self._ranged(msg), profile=None,
-                                     ability_type=int(msg.ability_type))
+        from ..operations.triggers.dispatch import ability as ability_dispatch   # forme MODULE
+        ability_dispatch.unit_active_ability_triggers(
+            self.state, int(msg.caster_id), msg.target_id,
+            ranged=self._ranged(msg), profile=None,
+            ability_type=int(msg.ability_type))
 
     def _post_unit_ability(self, msg) -> None:
         """`FUN_1800280e0(0x4d, .., 0xe)` en queue d'`ExecuteInternal` (apres
         `AddFlagsAfterAbilityExecution`)."""
-        from ..operations.triggers.dispatch import unit_post_ability_triggers
-        unit_post_ability_triggers(self.state, int(msg.caster_id), msg.target_id,
-                                   ranged=self._ranged(msg), profile=None,
-                                   ability_type=int(msg.ability_type))
+        from ..operations.triggers.dispatch import ability as ability_dispatch   # forme MODULE
+        ability_dispatch.unit_post_ability_triggers(
+            self.state, int(msg.caster_id), msg.target_id,
+            ranged=self._ranged(msg), profile=None,
+            ability_type=int(msg.ability_type))
 
     def _ranged(self, msg) -> bool:
         """`IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack` = adjacence caster/cible (mirror

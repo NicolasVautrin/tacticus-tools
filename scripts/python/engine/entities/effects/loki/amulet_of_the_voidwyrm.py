@@ -160,7 +160,8 @@ def adjacent_friendly_summons_and_decoys_selector():
     le package `entities/effects` (garde anti-cycle, meme convention que les autres modules d'effet).
     """
     from ...formulas import Count
-    from ...selectors import AdjacentFriends, Owner, Union, UnitsWithTrait
+    from ...selectors.accessors import Owner
+    from ...selectors.units import AdjacentFriends, Union, UnitsWithTrait
     from ...traits.unit_trait import UnitTrait
     from ....dsl.base import Const
 

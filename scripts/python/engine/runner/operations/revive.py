@@ -69,8 +69,10 @@ from ..components import PositionComponent, record_tiles_moved
 from ..components import UnitFlagsComponent
 from ...entities.unit_flag import UnitFlag
 from .movement import _kill_steppable_units
-from .triggers import unit_position_changed_1_triggers, unit_position_changed_2_triggers
-from .triggers import unit_revived_triggers
+from .triggers.dispatch.move_death import (
+    unit_position_changed_1_triggers, unit_position_changed_2_triggers
+)
+from .triggers.dispatch.move_death import unit_revived_triggers
 
 # `Revive(..., healType, sourceId, ?, priority, ?)` -- priorite par defaut des consommateurs
 # (`IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour` et `FuelledByFury_ReviveAbility.CreateBehaviour

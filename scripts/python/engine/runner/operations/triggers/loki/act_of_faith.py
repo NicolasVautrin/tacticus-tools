@@ -7,13 +7,15 @@ from typing import Optional
 
 from ....state import State
 from ....components import StatsComponent, OwnerComponent
-from ....abilities.behaviours import AddEffect, RemoveEffect, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect, RemoveEffect
 from .....entities.stats import StatType
 from .....entities.effect_type import EffectType
 from .....entities.behaviours import op_add, If, Maybe
 from .....entities.triggers import TriggerAnd, HasGrandAlliance, AreFriends, AreEqual, IsMeleeAttack
 from .....entities.formulas import UnitNormalAttackType, ConfigVarForEntity
-from .....entities.selectors import Caster, Actor
+from .....entities.selectors.accessors import Actor
+from .....entities.selectors.tiles import Caster
 from .....entities.active_ability_type import ActiveAbilityType
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext

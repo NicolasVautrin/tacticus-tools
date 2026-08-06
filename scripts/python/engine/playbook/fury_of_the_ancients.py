@@ -52,7 +52,8 @@ import gameconfig as GC
 
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.stats import ARMOR_STAT_TYPES
-from ..entities.traits import target_hit_multiplier, TraitFactory
+from ..entities.traits import target_hit_multiplier
+from ..entities.traits.factory import TraitFactory
 from ..entities.effects import calculate_attacker_modifiers_for_prediction
 from ..entities.effects.magnitude import ability_var
 from ..services.damage_prediction import get_attack_prediction
@@ -61,9 +62,11 @@ from ..services.damage_prediction import get_attack_prediction
 from ..entities.abilities.triggered_ability import triggered_prediction_damage
 from .. import battle_query as bq
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
-from .prediction import (_add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
-from .prediction import prediction_has_moved, prediction_has_teleported
+from .prediction._shared import (
+    _PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
+    _entity_traits, _target_damage_limits
+)
+from .prediction._shared import prediction_has_moved, prediction_has_teleported
 
 _ABILITY_NAME = "FuryOfTheAncients"
 

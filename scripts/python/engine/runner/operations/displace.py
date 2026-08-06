@@ -397,7 +397,7 @@ class PullUnitOneTileOperation(Operation):
                           emit_after_move=False).execute(state, bus)
         n = _add_tiles_moved(state, self.puller_id, self.pulled_id, prev_tiles, dest,
                              self.record_tiles)
-        from .triggers import displace_triggers
+        from .triggers.dispatch.move_death import displace_triggers
         res = {"moved": True, "to": dest}
         if kbs:
             res["knockback"] = kbs
@@ -507,7 +507,7 @@ class SwitchPositionOperation(Operation):
         res["switched"] = res["caster_to"] is not None or res["target_to"] is not None
         # `EventAndAbilitiesAndEffects` (le MEME appel que la queue du push) : le vecteur
         # `On(UnitDisplaced)`, une fois par unite REELLEMENT deplacee, dans l'ordre natif.
-        from .triggers import displace_triggers
+        from .triggers.dispatch.move_death import displace_triggers
         trg = []
         if res["target_to"] is not None:
             trg += displace_triggers(state, self.caster_id, self.target_id) or []
@@ -620,7 +620,7 @@ class DisplaceUnitOperation(Operation):
         # natif emet On(UnitDisplaced) {actor=pusher, target=pushed}. On dispatche ce vecteur -> RadSaturation
         # branche 2 (`OwnerIsTarget`) : un Skitarii Vanguard POUSSE contamine sa tuile d'atterrissage. Import
         # lazy (evite le cycle triggers<->operations). No-op si aucun trigger UnitDisplaced ne matche.
-        from .triggers import displace_triggers
+        from .triggers.dispatch.move_death import displace_triggers
         res = {"moved": True, "to": dest}
         if n:
             res["tiles_moved"] = {self.pushed_id: n}

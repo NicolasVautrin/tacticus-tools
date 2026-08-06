@@ -66,8 +66,9 @@ def _native(rpc, rid, override_range: int) -> dict:
 
 def _pool(state, board, uid: int, rng: int, ignore_units_on_tiles: bool = False) -> set:
     from engine.dsl.base import Const
-    from engine.entities.selectors import Caster, CasterTile, MovableTilesInRange
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.entities.selectors.accessors import CasterTile
+    from engine.entities.selectors.tiles import Caster, MovableTilesInRange
+    from engine.runner.abilities.behaviours.context import entities_from_state
     sel = MovableTilesInRange(Caster(), CasterTile(), Const(int(rng)), ignore_flags=False,
                               ignore_units_on_tiles=ignore_units_on_tiles)
     return {board.coord(t) for t in sel.evaluate(entities_from_state(state, int(uid), int(uid)))}
@@ -78,7 +79,7 @@ def test_le_pool_du_noeud_dsl_egale_aiMovableTiles_live(live_session, rpc, build
     """Sur CHAQUE unite WALK dont le natif rend un pool non vide : egalite EXACTE."""
     from engine.entities.pathfinding.fly_pathfinder import is_like_flying
     from engine.entities.traits.unit_trait import unit_trait_names
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
 
     rng = 5
     rid = build_runner("3811", board=board_id)["rid"]
@@ -123,7 +124,7 @@ def test_le_gate_d_expansion_mord_sur_le_noeud_dsl_live(live_session, rpc, build
     from engine.entities.pathfinding.fly_pathfinder import is_like_flying
     from engine.entities.pathfinding.tile_blocking import tile_blocks_entering
     from engine.entities.traits.unit_trait import unit_trait_names
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
 
     rng = 5
     rid = build_runner("3811", board="MC1_67")["rid"]

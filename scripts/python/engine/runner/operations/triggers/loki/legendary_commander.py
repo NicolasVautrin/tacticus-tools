@@ -84,11 +84,11 @@ from ....damage_model import build_hits_board
 from ....abilities.behaviours.persistent_data import AddToPersistentDataList
 from .....entities.effects.loki.hits import (LEGENDARY_COMMANDER_EXTRA_HITS,
                                              legendary_commander_marked_key)
-from .....entities.selectors import Caster
+from .....entities.selectors.tiles import Caster
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import EffectTrigger, TriggerEvent
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.context import entities_from_state
 
 
 def _owner_ctx(state: State, owner_id: int, ev: TriggerEvent) -> Optional[dict]:

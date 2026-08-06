@@ -37,9 +37,9 @@ from ..components import (StatsComponent, OwnerComponent, PositionComponent,
                           HealthComponent, UnitComponent)
 from ...entities.effect_type import EffectType
 from ...dsl.event_trigger_type import EventTriggerType
-from ...entities import EffectsState
-from ...entities import UnitContext
-from ...entities.effects import EffectFactory
+from ...entities.effects_state import EffectsState
+from ...entities.unit_context import UnitContext
+from ...entities.effects.factory import EffectFactory
 from ...entities.effects.factory import (get_derived_abilities_for_trait,
                                              get_owner_effects_added_on_ability_init)
 from ...entities.effects.factory import (get_owner_effects_added_on_ability_init,
@@ -595,7 +595,8 @@ def on_unit_added(state: State, unit_id: Optional[int]) -> list:
         out.append(r)
     # DISPATCH GENERIQUE `On(UnitAdded = 0x32 = 50)` : `AbilityEntities.ctor(added, added, added)`
     # -> actor = caster = target = l'unite qui vient d'apparaitre.
-    from .triggers import TriggerEvent, evaluate_trigger_operation
+    from .triggers.base import TriggerEvent
+    from .triggers.dispatch.core import evaluate_trigger_operation
     out += evaluate_trigger_operation(
         state, TriggerEvent(EventTriggerType.UnitAdded, int(unit_id), int(unit_id),
                             ranged=False, profile=None))

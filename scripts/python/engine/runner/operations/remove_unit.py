@@ -99,7 +99,7 @@ class RemoveUnitOperation:
         uc.alive = False                                       # 8. retrait des TUILES (collapse)
         fl.add(UnitFlagsComponent.REMOVED)                     # 9. `UnitFlagsComponent.Add(0x1a)`
         # 13. `On(UnitRemoved = 0x25)` -- AVANT la consommation des effets (etape 14).
-        from .triggers.dispatch import unit_removed_triggers
+        from .triggers.dispatch.move_death import unit_removed_triggers
         downstream = unit_removed_triggers(state, int(unit_id))
         consumed = []
         if remove_effects and state.effects is not None:       # 14. `RemoveUnitOperation$$RemoveEffects`

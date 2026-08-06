@@ -115,7 +115,7 @@ def etape0() -> int:
 
 
 def _behaviour_registered(aid: int) -> bool:
-    from engine.runner.abilities.behaviours import TRIGGERED_ABILITY_BEHAVIOURS
+    from engine.runner.abilities.behaviours.lifecycle import TRIGGERED_ABILITY_BEHAVIOURS
     return aid in TRIGGERED_ABILITY_BEHAVIOURS
 
 

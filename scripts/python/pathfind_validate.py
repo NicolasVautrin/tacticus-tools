@@ -28,7 +28,8 @@ import sys
 from pathlib import Path
 
 import rl_collect_batch as R
-from engine.entities.pathfinding import Board, get_reachable_levels, get_movable_positions
+from engine.entities.pathfinding.board import Board
+from engine.entities.pathfinding.walk_pathfinder import get_movable_positions, get_reachable_levels
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / "logs" / "runners" / "duel_state.json"

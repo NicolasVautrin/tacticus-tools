@@ -28,10 +28,13 @@ from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, If, op_add, op_and
 from ...entities.effect_type import EffectType
 from ...entities.formulas import AngleBetweenLines, Count, percentage_of_attack_capped_at_max
-from ...entities.selectors import (AdjacentTiles, Alive, Cache, Caster, Enemies, FilterContinuous,
-                                   FixedTileIds, PickFirstN, SortByDistance, SortByFormula, Subject,
-                                   SurroundingTiles, Target, Tiles, TilesBehindInLine, UnitSet,
-                                   Union, Units, UnitsDirectlyBehind)
+from ...entities.selectors.accessors import FixedTileIds, Subject, SurroundingTiles, Target
+from ...entities.selectors.geometry import Cache, FilterContinuous, PickFirstN, TilesBehindInLine
+from ...entities.selectors.tiles import AdjacentTiles, Caster
+from ...entities.selectors.units import (
+    Alive, Enemies, SortByDistance, SortByFormula, Tiles, Union, UnitSet, Units,
+    UnitsDirectlyBehind
+)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatPart, StatType
 from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAlliance, HasUnit,
@@ -41,8 +44,10 @@ from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAllia
 # verifiable sur l'objet importe (garde #344), et non sur le texte du fichier.
 from ...services.min_max_damage import min_max_avg
 from .base import ActiveAbility
-from .behaviours import (AddEffect, AddStatOverrideEffect, AttackWithAttackDamage, RemoveEffect,
-                         UseActiveAbility, entities_from_state)
+from .behaviours.combat import AttackWithAttackDamage, UseActiveAbility
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect, RemoveEffect
+from .behaviours.stats import AddStatOverrideEffect
 from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
                         RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR

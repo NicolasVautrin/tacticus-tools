@@ -54,15 +54,15 @@ import gameconfig as GC
 import hexgeo
 
 from ..base import ActiveAbility, convert_rounds_to_turns
-from ..behaviours import entities_from_state
+from ..behaviours.context import entities_from_state
 from ..targeting import (RANGE_ADJACENT_IF_MELEE_CASTER, RANGED_BOOL_IF_RANGED_CASTER,
                          TargetingOptions)
 from ..targeting_rule import TargetingRule as TR
 from ...components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                            HealthComponent)
 from ....dsl.base import DslContext
-from ....entities.selectors import (Caster, FilterTilesIfCanAttackTargetTileFrom, FixedTileIds,
-                                    Target)
+from ....entities.selectors.accessors import FixedTileIds, Target
+from ....entities.selectors.tiles import Caster, FilterTilesIfCanAttackTargetTileFrom
 from ...operations.damage import AttackDamageOperation
 from ...operations.effects import AddEffectOperation
 from ...operations.spawn import _spawn_config_grot, _occupied_tiles
@@ -507,7 +507,7 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
             atk = AttackDamageOperation.execute(state, caster_id, target_id)
             after = []
             if atk is not None:
-                from ...operations.triggers import after_hit_normal_attack
+                from ...operations.triggers.dispatch.attack import after_hit_normal_attack
                 # `finish_attack` (#437) = le vecteur `On(9)`, desormais emis DANS l'operation ;
                 # remis EN TETE (ordre natif) pour garder le canal observable.
                 after = (atk.get("finish_attack") or []) + after_hit_normal_attack(

@@ -26,7 +26,7 @@ STATE = ROOT / "logs" / "runners" / "_66_revive_state.json"
 
 import rl_collect_batch as R
 from engine.runner.snapshot import load_state
-from engine.runner.operations.triggers import after_death_triggers
+from engine.runner.operations.triggers.dispatch.move_death import after_death_triggers
 from engine.runner.operations.revive import reset_revive_gates, kill_unit_revive_gate
 from engine.runner.components import (UnitComponent, HealthComponent, OwnerComponent,
                                       PositionComponent, StatsComponent)
@@ -295,7 +295,7 @@ def main():
         sc_ch = st.get_entity(ids["chaos"]).get_component(StatsComponent)
         sc_ch.ctx.traits = list(getattr(sc_ch.ctx, "traits", None) or []) + ["Mechanical"]
         # sanity : le port doit voir Mechanical (via ctx.has_trait) -> CanBeRevived False
-        from engine.runner.abilities.behaviours import entities_from_state
+        from engine.runner.abilities.behaviours.context import entities_from_state
         from engine.runner.abilities.behaviours.stats import is_mechanical as _ismech
         ent7 = entities_from_state(st, ids["dr"], ids["chaos"])
         mech_seen = _ismech(ent7.has_trait, ent7.target)

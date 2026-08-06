@@ -38,9 +38,9 @@ from __future__ import annotations
 import pytest
 
 from engine.dsl.event_trigger_type import EventTriggerType
-from engine.entities.effects import EffectFactory
+from engine.entities.effects.factory import EffectFactory
 from engine.entities.pathfinding.board import Board
-from engine.entities.traits import UnitTrait, has_trait
+from engine.entities.traits.unit_trait import UnitTrait, has_trait
 from engine.runner.components import (HealthComponent, OwnerComponent, PositionComponent,
                                       StatsComponent, UnitComponent)
 from engine.runner.messages import MoveUnitMessage

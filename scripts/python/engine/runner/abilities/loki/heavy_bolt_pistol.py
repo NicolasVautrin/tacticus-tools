@@ -114,12 +114,13 @@ from ....dsl.effects import ExecutionContext
 from ....entities.ability_constant_type import AbilityConstantType
 from ....entities.ability_variable_type import AbilityVariableType
 from ....entities.behaviours import op_add
-from ....entities.selectors import Target
+from ....entities.selectors.accessors import Target
 from ....entities.triggered_ability_type import TriggeredAbilityType
 from ....entities.unit_flag import UnitFlag
 from ....services.battle_query import is_melee_attack as _is_melee_attack
 from ....services.custom_normal_attack import substitutes_normal_attack
-from ..behaviours import AttackWithAttackDamage, InformWeapon, entities_from_state
+from ..behaviours.combat import AttackWithAttackDamage, InformWeapon
+from ..behaviours.context import entities_from_state
 from ...components import PositionComponent, UnitFlagsComponent
 
 if TYPE_CHECKING:

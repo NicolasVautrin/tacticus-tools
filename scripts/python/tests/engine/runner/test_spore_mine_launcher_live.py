@@ -121,7 +121,7 @@ def _mow(dec):
 def _fabricate_caster(state, team, player, level, mult):
     """Cree l'entite caster (Biovore) que load_state n'a pas creee (MoW), avec owner/level/mult LIVE reels.
     Le port ne lit que OwnerComponent + StatsComponent.ctx (level/mult) -> pas de position necessaire."""
-    from engine.entities import UnitContext
+    from engine.entities.unit_context import UnitContext
     from engine.entities.stats import UnitStats
     ctx = UnitContext(entity_id=0, visual_id=CARRIER, active_ability_level=level,
                       ability_variables_multiplier=mult, traits=[], range=0, faction=None,

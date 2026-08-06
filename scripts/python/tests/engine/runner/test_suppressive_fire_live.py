@@ -301,7 +301,7 @@ def test_suppressive_fire_non_carrier_no_pin_offline(live_session, rpc):
     from engine.runner.runner import Runner
     from engine.runner.messages import AttackUnitMessage
     from engine.runner.components import PositionComponent
-    from engine.runner.operations.triggers.dispatch import TRAIT_TRIGGERS
+    from engine.runner.operations.triggers.dispatch.registry import TRAIT_TRIGGERS
 
     # garde-fou structurel : le trait accorde bien le trigger SuppressiveFire (et lui seul ne se declenche
     # QUE pour un porteur du trait via collect_triggered_abilities).

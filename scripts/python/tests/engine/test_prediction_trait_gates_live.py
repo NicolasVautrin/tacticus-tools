@@ -39,7 +39,7 @@ import hexgeo                                                                  #
 from engine.entities.traits.unit_trait import (UnitTrait,                      # noqa: E402
                                                trait_names_from_ids)
 from engine.playbook import scene as SC                                        # noqa: E402
-from engine.playbook.prediction import _entity_traits                          # noqa: E402
+from engine.playbook.prediction._shared import _entity_traits  # noqa: E402
 from engine.playbook.scene import Scene                                        # noqa: E402
 
 KATAH = "custoTrajann"          # porte le trait MartialKatah (+100 % vs Summon)
@@ -215,7 +215,7 @@ def montage_katah(rpc, build_runner):
 
 
 def _degat(scene, aid, tid, apos):
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     ev = make_normal_attack_predictions(scene, aid, tid, apos)
     assert ev is not None, "aucune prediction d'attaque normale"
     r = ev.prediction.raw_health_damage

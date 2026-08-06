@@ -35,7 +35,7 @@ import gameconfig as GC  # noqa: E402
 import hexgeo  # noqa: E402
 from engine import weights  # noqa: E402
 from engine.playbook import scene as scene_mod  # noqa: E402
-from engine.playbook.prediction import (_PROFILE_INDEX, _target_damage_limits)  # noqa: E402
+from engine.playbook.prediction._shared import _PROFILE_INDEX, _target_damage_limits  # noqa: E402
 from engine.playbook.probable_damage_event import (ProbableDamageEvent,  # noqa: E402
                                                    calculate_utility_from_damage_event)
 from engine.services.damage_prediction import get_attack_prediction  # noqa: E402

@@ -60,8 +60,10 @@ from engine.runner.snapshot import load_state
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.dsl.effects import ExecutionContext
 from engine.entities.behaviours import AtomicGroup, op_and
-from engine.entities.selectors import Target, UnitSet
-from engine.runner.abilities.behaviours import AttackWithAttackDamage, entities_from_state
+from engine.entities.selectors.accessors import Target
+from engine.entities.selectors.units import UnitSet
+from engine.runner.abilities.behaviours.combat import AttackWithAttackDamage
+from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.abilities.darkangels import (SuperchargeAbility, ExemplarOfHateAbility,
                                                 CalibaniteGreatswordAbility, supercharge_tree,
                                                 _supercharge_behind, _exemplar_of_hate_attackers,

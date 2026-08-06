@@ -20,10 +20,15 @@ from typing import Optional, TYPE_CHECKING
 
 from .base import (ActiveAbility, convert_rounds_to_turns,
                    turns_until_end_of_current_players_next_turn)
-from .behaviours import (ActivateEffect, AddEffect, AddStatOverrideEffect, AttackWithAttackDamage,
-                         ChangeEffectTurns, FinishTurn, Heal, PerformAIAttack, Repair,
-                         ResetActiveAbility, ResetTurn, Spawn, entities_from_state,
-                         healable_heal_type_0, repairable_heal_type_1)
+from .behaviours.ability_state import ResetActiveAbility
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import ActivateEffect, AddEffect, ChangeEffectTurns
+from .behaviours.stats import (
+    AddStatOverrideEffect, Heal, Repair, healable_heal_type_0, repairable_heal_type_1
+)
+from .behaviours.summon import PerformAIAttack, Spawn
+from .behaviours.turnflow import FinishTurn, ResetTurn
 from .targeting import (RANGE_ADJACENT, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
@@ -32,15 +37,19 @@ from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import Foreach, op_add, op_and, If as IfBehaviour
 from ...entities.effect_type import EffectType
-from ...entities.selectors import (ActiveTarget, AdjacentEnemies, AdjacentFriends, AllUnits, Caster,
-                                   Enemies, EntitiesWithAnyEffect, FixedTileIds, OwnerTile, Sub,
-                                   Subject, Target, Union, UnitsThatCanHaveActiveAbilityReset,
-                                   non_steppable_or_object_units)
+from ...entities.selectors.accessors import ActiveTarget, FixedTileIds, OwnerTile, Subject, Target
+from ...entities.selectors.geometry import EntitiesWithAnyEffect
+from ...entities.selectors.tiles import AllUnits, Caster
+from ...entities.selectors.units import (
+    AdjacentEnemies, AdjacentFriends, Enemies, Sub, Union, UnitsThatCanHaveActiveAbilityReset,
+    non_steppable_or_object_units
+)
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.triggers import AmountIsGreater, HasEffect, HasTrait, IsRepairable
 from ...entities.effects.magnitude import ability_var
-from ...entities.selectors import AdjacentTiles, CanAddUnit, PickFirstN
+from ...entities.selectors.geometry import PickFirstN
+from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit
 from ..components import ActiveAbilitiesComponent, StatsComponent
 from ..components import StatsComponent
 from ..operations.ability_reset import entity_can_have_active_ability_reset

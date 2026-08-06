@@ -13,15 +13,17 @@ import gameconfig as GC
 
 from ....state import State
 from ....components import UnitComponent
-from ....abilities.behaviours import (AttackWithAbilityDamage, AttackWithAttackDamage, AddEffect,
-                                       SetOnFire, entities_from_state)
+from ....abilities.behaviours.combat import AttackWithAbilityDamage, AttackWithAttackDamage
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect, SetOnFire
 from .....entities.stats import StatType, StatPart
-from .....entities.traits import UnitTrait, has_any_trait
+from .....entities.traits.unit_trait import UnitTrait, has_any_trait
 from .....entities.damage_trait import DamageTrait
 from .....entities.effect_type import EffectType
 from .....entities.formulas import PercentageOf, StatAmount
-from .....entities.selectors import (Target, Tiles, Alive, Sub, AdjacentUnits, TargetTile, Caster,
-                                      AdjacentTiles)
+from .....entities.selectors.accessors import Target, TargetTile
+from .....entities.selectors.tiles import AdjacentTiles, Caster
+from .....entities.selectors.units import AdjacentUnits, Alive, Sub, Tiles
 from .....entities.behaviours import Foreach, Maybe, Inform, op_and
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext

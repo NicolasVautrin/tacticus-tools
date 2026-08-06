@@ -83,9 +83,10 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....abilities.behaviours import (Kill, TRIGGERED_ABILITY_BEHAVIOURS, entities_from_state)
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.lifecycle import Kill, TRIGGERED_ABILITY_BEHAVIOURS
 from .....entities.behaviours import If
-from .....entities.selectors import Caster
+from .....entities.selectors.tiles import Caster
 from .....entities.triggers import MaybeTrigger
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....dsl.base import Const

@@ -39,7 +39,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import probe_429_targeting_rule_inventory as P  # noqa: E402
-from engine.runner.abilities import ABILITY_CLASSES  # noqa: E402
+from engine.runner.abilities.handler import ABILITY_CLASSES  # noqa: E402
 from engine.runner.abilities.targeting_rule import TargetingRule as TR  # noqa: E402
 from engine.runner.abilities.targeting_rule_inventory import RULE_ROLE  # noqa: E402
 

@@ -213,9 +213,9 @@ def _mutate(mutant: str, host_visual: str):
     remettre. On mute le PORT, jamais le probe : une contre-epreuve qui muterait sa propre mesure
     ne prouverait rien."""
     import engine.runner.abilities.loki.heavy_bolt_pistol as M
-    from engine.entities.selectors import Target
+    from engine.entities.selectors.accessors import Target
     from engine.entities.behaviours import op_add
-    from engine.runner.abilities.behaviours import AttackWithAttackDamage, InformWeapon
+    from engine.runner.abilities.behaviours.combat import AttackWithAttackDamage, InformWeapon
     saved = {k: getattr(M, k) for k in ("is_melee_attack", "has_bonus_attack", "profile_name",
                                         "bonus_attack_tree")}
 

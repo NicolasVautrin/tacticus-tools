@@ -811,7 +811,7 @@ class EvaluateAbilities(AbilityBehaviour):
         self.event, self.ranged = int(event), ranged
 
     def execute(self, entities, ectx):
-        from ...operations.triggers.dispatch import evaluate_abilities_for_event
+        from ...operations.triggers.dispatch.ability import evaluate_abilities_for_event
         state = ectx.state
         caster = (entities.caster or {}).get("id")
         target = (entities.target or {}).get("id")

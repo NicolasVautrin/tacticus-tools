@@ -30,7 +30,7 @@ from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.components import StatsComponent, HealthComponent
 from engine.runner.operations.damage import AttackDamageOperation
 from engine.runner.operations.effects import AddEffectOperation
-from engine.runner.operations.triggers import ACTOFFAITH_EFFECT
+from engine.runner.operations.triggers.loki import ACTOFFAITH_EFFECT
 
 SISTER_VIS = "adeptCanoness"        # trait ActOfFaith ; --crit 100,250 → cd != 0 (gate) + crite toujours
 ENEMY_VIS = "necroDestroyer"

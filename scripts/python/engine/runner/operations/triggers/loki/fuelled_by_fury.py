@@ -183,8 +183,9 @@ from typing import Optional
 from ....state import State
 from ....components import OwnerComponent, StatsComponent
 from ....abilities.attack_type import is_normal_attack
-from ....abilities.behaviours import add_effect_or_increase_level, entities_from_state
-from .....entities.selectors import Caster
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import add_effect_or_increase_level
+from .....entities.selectors.tiles import Caster
 from .....entities.active_ability_type import ActiveAbilityType   # #270-r1-r1
 from .....entities.effect_type import EffectType
 from .....entities.traits.unit_trait import UnitTrait

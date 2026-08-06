@@ -141,7 +141,7 @@ def _run(rpc, seed: str, board: str, build_runner, passive_level: int | None) ->
     from engine.entities.pathfinding.board import Board
     from engine.entities.stats import StatType, CAPTURED_SOURCE
     from engine.runner.components import StatsComponent
-    from engine.runner.operations.triggers import attack_damage_attack_triggers
+    from engine.runner.operations.triggers.dispatch.attack import attack_damage_attack_triggers
     from engine.runner.snapshot import load_state
 
     if build_runner is not None:

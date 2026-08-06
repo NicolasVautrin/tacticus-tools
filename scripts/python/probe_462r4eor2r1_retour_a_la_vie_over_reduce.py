@@ -566,7 +566,7 @@ def _avance_de_tour_mimee(st, entrants):
     Il ne CALCULE aucun joueur (c'est le propre du mime) : il rend `entrants` inchange, donc la
     concordance calcule/mesure est trivialement vraie sous cette mutation -- ce qui est correct,
     puisqu'elle vise `bout_en_bout`, pas le choix du joueur."""
-    from engine.runner.operations.triggers import start_turn_triggers
+    from engine.runner.operations.triggers.dispatch.turn import start_turn_triggers
     joues = []
     for pj in entrants:
         if pj is None:

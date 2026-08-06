@@ -156,7 +156,8 @@ def test_mwbd_target_tree_groups_and_sort():
     Le sens du tri est le LITTERAL `xor r9d, r9d` du call-site (`ascending = 0` -> DESCENDANT) : un
     `ascending=True` eluerait l'allie le plus FAIBLE du groupe."""
     from engine.entities.formulas import StatAmount
-    from engine.entities.selectors import First, Otherwise, SortByFormula, Filter
+    from engine.entities.selectors.geometry import Otherwise
+    from engine.entities.selectors.units import Filter, First, SortByFormula
     from engine.entities.stats import StatPart, StatType
     from engine.runner.operations.triggers.loki.my_will_be_done_overlord import (
         my_will_be_done_target_friend)
@@ -219,7 +220,7 @@ def test_mwbd_base_predicate_gates():
     `ResurrectionOrb` emploie sur la MEME unite : recopier ce voisin aurait elargi le pool aux
     porteurs de `LivingMetal`/`Vehicle` sans trait 5."""
     from engine.entities.formulas import Count, EntityId
-    from engine.entities.selectors import AdjacentFriends, Tiles, ValidNormalAttackTargets
+    from engine.entities.selectors.units import AdjacentFriends, Tiles, ValidNormalAttackTargets
     from engine.entities.traits.unit_trait import UnitTrait
     from engine.entities.triggers import (AmountIsGreaterThanZero, HasTrait,
                                           IsInPersistentDataList, Not, TriggerAnd)
@@ -256,9 +257,12 @@ def test_mwbd_behaviour_tree_shape():
     lecture, pas un oubli."""
     from engine.entities.behaviours import Seq
     from engine.entities.stats import StatType
-    from engine.runner.abilities.behaviours import (AddDynamicStatModifierEffect,
-                                                    AddStatOverrideEffect, AddToPersistentDataList,
-                                                    PerformAIAttack, RemoveEffect)
+    from engine.runner.abilities.behaviours.effects import (
+        AddDynamicStatModifierEffect, RemoveEffect
+    )
+    from engine.runner.abilities.behaviours.persistent_data import AddToPersistentDataList
+    from engine.runner.abilities.behaviours.stats import AddStatOverrideEffect
+    from engine.runner.abilities.behaviours.summon import PerformAIAttack
     from engine.runner.operations.triggers.loki.my_will_be_done_overlord import (
         EXTRA_DAMAGE_EFFECT, MY_WILL_BE_DONE_OVERLORD, TEMPORARY_STAT_OVERRIDE,
         my_will_be_done_attack_tree, my_will_be_done_target_friend)
@@ -335,7 +339,7 @@ def test_mwbd_registered_on_unit_finished_turn_normally():
     """(D) Les DEUX branches du `CreateTrigger` sont au registre `ABILITY_TRIGGERS`, sur les DEUX
     events LUS (`0x29` pour l'attaque, `0x12` pour la purge)."""
     from engine.dsl.event_trigger_type import EventTriggerType
-    from engine.runner.operations.triggers.dispatch import ABILITY_TRIGGERS
+    from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
     from engine.runner.operations.triggers.loki.my_will_be_done_overlord import (
         MyWillBeDoneOverlordAttackAbility, MyWillBeDoneOverlordClearAbility)
     entries = ABILITY_TRIGGERS["MyWillBeDoneOverlord"]
@@ -519,7 +523,9 @@ def test_mwbd_extra_damage_effect_is_registered():
     d'enum que la pose (et `decisionView`) publie. Sans cette entree, l'effet retombe sur `BaseEffect`
     nu : present mais SANS stat-mod -- exactement l'etat que #354-r1 avait laisse en residu."""
     from engine.entities.effects.factory import EFFECT_CLASSES
-    from engine.entities.effects.loki import MyWillBeDoneOverlordExtraDamageEffect
+    from engine.entities.effects.loki.my_will_be_done_overlord import (
+        MyWillBeDoneOverlordExtraDamageEffect
+    )
     assert EFFECT_CLASSES["MyWillBeDoneOverlord_ExtraDamage"] is \
         MyWillBeDoneOverlordExtraDamageEffect
 

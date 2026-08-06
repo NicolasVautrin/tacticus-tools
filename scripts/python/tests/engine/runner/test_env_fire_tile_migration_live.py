@@ -35,7 +35,7 @@ from engine.runner.components import HealthComponent, StatsComponent, UnitCompon
 from engine.runner.damage_model import defender_fixed_armor
 from engine.runner.operations.triggers.loki import (env_fire_tile_tree, FIRE_PROFILE,
                                                     FIRE_DMG_PCT_KEY)
-from engine.runner.abilities.behaviours import entities_from_state
+from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.abilities.base import profile_pierce
 from engine.dsl.effects import ExecutionContext
 from engine.entities.pathfinding.board import Board

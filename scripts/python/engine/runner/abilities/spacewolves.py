@@ -18,9 +18,12 @@ from typing import Optional, TYPE_CHECKING
 
 from ...entities.behaviours import op_and, op_add, If
 from ...entities.formulas import Count, Get, Multiply
-from ...entities.selectors import (Target, Tiles, AdjacentTiles, Union, UnitsWithTrait,
-                                   AllDeadOrResurrectedUnits, Caster, Owner, Units, First,
-                                   CanAddUnit, PickRandomly, Cache)
+from ...entities.selectors.accessors import Owner, Target
+from ...entities.selectors.geometry import Cache, PickRandomly
+from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+from ...entities.selectors.units import (
+    AllDeadOrResurrectedUnits, First, Tiles, Union, Units, UnitsWithTrait
+)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.triggers import (IsAlive, IsDead, AreEqual, Not, TriggerAnd, IsCanAddUnit,
                                   AmountIsGreaterThanZero)
@@ -33,8 +36,11 @@ from .base import ActiveAbility
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (AttackWithAttackDamage, AddEffect, entities_from_state, PullUnitOneTile,
-                         FlyUnit, KillDeadUnits, RemoveUnitFromItsTiles)
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect
+from .behaviours.lifecycle import KillDeadUnits, RemoveUnitFromItsTiles
+from .behaviours.movement import FlyUnit, PullUnitOneTile
 
 if TYPE_CHECKING:
     from ..state import State

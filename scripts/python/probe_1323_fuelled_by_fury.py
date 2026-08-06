@@ -61,7 +61,7 @@ from engine.runner.snapshot import load_state                              # noq
 from engine.runner.runner import Runner                                    # noqa: E402
 from engine.runner.messages import AttackUnitMessage                       # noqa: E402
 from engine.runner.prng import IntBasedMersenneTwister                     # noqa: E402
-from engine.runner.operations.triggers.dispatch import unit_post_ability_triggers   # noqa: E402
+from engine.runner.operations.triggers.dispatch.ability import unit_post_ability_triggers  # noqa: E402
 
 TITUS = "ultraTitus"              # SEUL porteur de `FuelledByFury` (hero du pool, rank 17)
 # 2 heros ALLIES (trait `Hero` = le << Character >> de l'i2) a active ENNEMI-ciblee de portee 2, sans

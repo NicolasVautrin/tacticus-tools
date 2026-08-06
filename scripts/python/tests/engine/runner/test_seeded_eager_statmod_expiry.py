@@ -44,7 +44,9 @@ from __future__ import annotations
 
 import pytest
 
-from engine.entities import EffectFactory, EffectsState, UnitContext
+from engine.entities.effects.factory import EffectFactory
+from engine.entities.effects_state import EffectsState
+from engine.entities.unit_context import UnitContext
 from engine.entities.effects.magnitude import ability_var
 from engine.entities.stats import StatType, CAPTURED_SOURCE
 from engine.runner.components import OwnerComponent, StatsComponent, UnitComponent
@@ -135,8 +137,9 @@ def test_expiry_after_explicit_removal_is_a_noop():
     `IdunBattle.Entities.Components.ValueModification$$ReverseModification` retire UNE cle (donc un
     2e passage est structurellement un no-op)."""
     from engine.dsl.effects import ExecutionContext
-    from engine.entities.selectors import Caster
-    from engine.runner.abilities.behaviours import RemoveEffect, entities_from_state
+    from engine.entities.selectors.tiles import Caster
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.runner.abilities.behaviours.effects import RemoveEffect
 
     st, ctx, amt = _waaagh_state(remaining=3)
     base = BASE["movement"]

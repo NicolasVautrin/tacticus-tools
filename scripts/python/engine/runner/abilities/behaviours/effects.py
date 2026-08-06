@@ -12,7 +12,7 @@ from ....dsl.base import Const
 from ....entities.behaviours import Foreach, If as IfBehaviour
 from ....entities.behaviours import If as IfBehaviour, op_and
 from ....entities.formulas import CurrentStatModifierAmount
-from ....entities.selectors import Subject
+from ....entities.selectors.accessors import Subject
 from ....entities.triggers import HasEffect
 from ....entities.triggers import Not, AmountIsEqual
 from ...components import ShieldComponent

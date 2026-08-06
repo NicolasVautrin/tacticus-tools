@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 
 from engine.runner.snapshot import load_state
-from engine.runner.operations.triggers import after_death_triggers
+from engine.runner.operations.triggers.dispatch.move_death import after_death_triggers
 from engine.runner.operations.revive import reset_revive_gates, kill_unit_revive_gate
 from engine.runner.components import (UnitComponent, HealthComponent,
                                       PositionComponent, StatsComponent)
@@ -224,7 +224,7 @@ def test_adjacency_is_strict(nar_env, dist):
 def test_can_be_revived_mechanical(nar_env):
     """CanBeRevived : un allie Mechanical (toggle sur ctx.traits) -> PAS de revive -- c'est de LA que vient
     le « non-Mechanical » de l'i2 (le filtre IdunBattle.Entities.Effects.Loki.Narthecium_ReviveEffect$$CreateTargetFilter ne le contient pas)."""
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.behaviours.stats import is_mechanical
     env = nar_env
     st = _fresh(env)

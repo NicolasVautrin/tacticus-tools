@@ -25,7 +25,7 @@ from engine.ai import context as _ai_ctx  # noqa: E402
 from engine.playbook import scene as _scene  # noqa: E402
 from engine.playbook import noncomparable as playbooks  # noqa: E402
 from engine.playbook.noncomparable.hammer_of_wrath import HammerOfWrathPlaybook  # noqa: E402
-from engine.playbook.prediction import make_hammer_wrath_events  # noqa: E402
+from engine.playbook.prediction.abilities import make_hammer_wrath_events  # noqa: E402
 from engine.playbook.probable_damage_event import calculate_utility_from_damage_event  # noqa: E402
 from engine.playbook.noncomparable._base import _traits  # noqa: E402
 from engine import battle_query as bq  # noqa: E402

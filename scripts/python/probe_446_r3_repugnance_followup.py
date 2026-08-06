@@ -109,7 +109,7 @@ def native_fields(rpc, rid, cid, tgt, ab, tile) -> dict:
 
 
 def port_fields(scene, cid, tgt, tile) -> dict:
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     ev = make_normal_attack_predictions(scene, cid, tgt, tile)
     if ev is None:
         raise MontageError(f"le port ne produit AUCUNE prediction depuis {tile} sur {tgt}")
@@ -326,7 +326,7 @@ def measure(rpc, case: dict) -> list[dict]:
 def _followup_of(case: dict, tile) -> dict | None:
     """Le fold que le PORT calcule pour cette tuile, isole (None = pas de fold). Sert a dire si le
     cran `ranged` est bien un cran SANS fold, et a chiffrer le fold du cran `melee`."""
-    from engine.playbook.prediction import get_additional_damage_prediction
+    from engine.playbook.prediction.normal_attack import get_additional_damage_prediction
     from engine.services.battle_query import are_tiles_adjacent
     scene = case["ctx"].scene
     tgt = case["ids"]["T"]
@@ -396,7 +396,7 @@ def mods_of(case: dict, tile) -> list:
     """Les %-modifiers de l'ATTAQUE PORTEUSE a cette tuile -- ce que le fold recoit. Sert a DIRE si
     un bras `no_mods` vert est vert parce que le port est bon ou parce que le regime n'a AUCUN
     modifier a perdre (mesure, pas supposition)."""
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     ev = make_normal_attack_predictions(case["ctx"].scene, case["cid"], case["ids"]["T"], tile,
                                         meta=True)
     return (ev[1] or {}).get("mods") if isinstance(ev, tuple) else None

@@ -136,7 +136,7 @@ def audit(board_ids) -> int:
     annonce 10 `Swamp` et le board deploye n'en a AUCUN (`Unplayable/Grass/Block/DryBush`). C'est
     cette confusion qui avait fait ecrire, dans `test_block_entering_tiles_live`, que la pose etait
     << conditionnelle >> et qu'un gate terrain serait sur-bloquant."""
-    from engine.entities.pathfinding import Board
+    from engine.entities.pathfinding.board import Board
     from engine.entities.pathfinding.tile_blocking import (TERRAIN_BLOCK_ENTERING,
                                                            TILE_MOVEMENT_BLOCKING_EFFECT_TYPES)
     sid = _resolve_session()
@@ -210,7 +210,7 @@ def main(argv) -> int:
                          "EXACTEMENT : un Swamp sans effet ferait SUR-BLOQUER le port.")
     a = ap.parse_args(argv)
 
-    from engine.entities.pathfinding import Board
+    from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
     if a.audit:
         return audit(a.audit.split(","))
@@ -321,7 +321,7 @@ def main(argv) -> int:
         if detail_units:
             print("--- diagnostic des ecarts, PAR REGIME ---")
             nd = _native_dist(sid, rid, sorted({d[1] for d in detail_units})) if a.dist else {}
-            from engine.entities.pathfinding import get_reachable_levels
+            from engine.entities.pathfinding.walk_pathfinder import get_reachable_levels
             from engine.runner.components import PositionComponent, OwnerComponent
             stA = states["A_non_hydrate"]
             occ = {}

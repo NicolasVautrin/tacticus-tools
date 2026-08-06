@@ -28,8 +28,9 @@ from .base import ActiveAbility
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGED_BOOL_FALSE,
                         RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect,
-                         AddDynamicStatModifierEffect)
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddDynamicStatModifierEffect, AddEffect
 from .loki import perform_ai_attack_from_current_position
 from ..components import OwnerComponent, StatsComponent, UnitComponent, PositionComponent
 from ...entities.active_ability_type import ActiveAbilityType
@@ -37,7 +38,8 @@ from ...entities.effect_type import EffectType
 from ...entities.stats import StatType, StatPart
 from ...entities.behaviours import op_and, op_add, If as IfBehaviour
 from ...entities.effects.magnitude import ability_var
-from ...entities.selectors import Caster, Target
+from ...entities.selectors.accessors import Target
+from ...entities.selectors.tiles import Caster
 from ...dsl.base import _round_fix64   # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result`
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.formulas import StatAmount, Count

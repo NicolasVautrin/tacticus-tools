@@ -35,11 +35,11 @@ from __future__ import annotations
 
 from ....dsl.base import Const
 from ....entities.formulas import Difference, Min, Negative, StatAmount
-from ....entities.selectors import Caster
+from ....entities.selectors.tiles import Caster
 from ....entities.stats import StatPart, StatType
 from ....entities.effects.loki.hits import SWARM_HIT_REDUCTION_SOURCE
 from ...components import HealthComponent, StatsComponent, UnitComponent
-from ..behaviours import entities_from_state
+from ..behaviours.context import entities_from_state
 
 
 def swarm_hit_reduction_formula() -> Negative:

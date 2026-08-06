@@ -202,7 +202,7 @@ def move_range_of(kind, state, caster):
 
 
 def pool_of(kind, state, caster, target, move_range):
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     if kind == "waaagh":
         from engine.runner.abilities.orks import waaagh_possible_movement_tiles_selector as sel
     else:

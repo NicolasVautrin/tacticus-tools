@@ -175,7 +175,7 @@ def test_le_port_passe_par_le_foyer_partage():
     l'identite de l'objet : si quelqu'un remplace le noeud par une recopie locale, le test rougit
     meme si le comportement coincide, parce que c'est la DIVERGENCE FUTURE qu'on previent."""
     from engine.runner.operations.triggers.loki import barbed_ovipositor as B
-    from engine.entities.selectors import Target
+    from engine.entities.selectors.accessors import Target
     from engine.entities.traits.unit_trait import UnitTrait
     from engine.entities.triggers import is_object_or_steppable
 

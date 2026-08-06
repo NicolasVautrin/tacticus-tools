@@ -62,8 +62,9 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....abilities.behaviours import add_effect_or_increase_level, entities_from_state
-from .....entities.selectors import Caster
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import add_effect_or_increase_level
+from .....entities.selectors.tiles import Caster
 from .....entities.effect_type import EffectType
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext

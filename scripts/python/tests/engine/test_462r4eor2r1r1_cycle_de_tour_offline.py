@@ -43,7 +43,7 @@ from engine.runner.operations.triggers.loki.serene_unifier import (
     SereneUnifierRotationAbility, PHASE_STORM_OF_FIRE, PHASE_SENSE_OF_STONE,
     PHASE_ZEPHYRS_GRACE, VISUAL_CYCLE, serene_unifier_tree)
 from engine.entities.formulas import PlayerTurnsStarted, UnitTurnsStarted
-from engine.entities.selectors import Caster
+from engine.entities.selectors.tiles import Caster
 from engine.entities.effect_type import EffectType
 from engine.entities.stats import StatType
 from engine.dsl.base import DslContext
@@ -81,7 +81,7 @@ def test_PlayerTurnsStarted_degrade_a_zero_quand_le_canal_est_ABSENT():
 def test_le_canal_player_turns_started_lit_bien_turn_counts_du_PROPRIETAIRE():
     """Le canal cable par `entities_from_state` : `State.turn_counts[OwnerComponent.player]`.
     Deux joueurs a des compteurs DIFFERENTS -> regime separant."""
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     st = State()
     ids = []
     for player in (3, 4):

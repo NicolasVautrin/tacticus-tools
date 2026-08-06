@@ -233,7 +233,7 @@ def test_counter_case_without_state_ref_push(cult_demagogue):
     l'a rendu non vide."""
     from engine.dsl.effects import ExecutionContext
     from engine.runner.abilities.genestealer import cult_demagogue_ai_tree
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     d = cult_demagogue
     if not d["res"]["neophytes"]:
         pytest.skip("pas de Neophyte porte")

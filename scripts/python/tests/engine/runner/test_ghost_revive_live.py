@@ -87,7 +87,7 @@ def _move(st, uid, to):
     (`On(0x24)` / `On(4)` / `On(0x1d)` / `On(0x1c)`). Le natif fait les deux dans le MEME
     `MoveUnitOperation$$Execute` ; le port a scinde en deux foyers -- un test qui n'appellerait que
     l'Operation raterait donc les retraits de ghost branches sur `On(0x24)`."""
-    from engine.runner.operations.triggers import after_move_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     MoveUnitOperation(uid, to).execute(st, EventBus())
     after_move_triggers(st, uid)
 

@@ -30,7 +30,7 @@ import pytest
 
 from engine.runner.snapshot import load_state
 from engine.runner.operations import triggers as T
-from engine.runner.operations.triggers import after_death_triggers
+from engine.runner.operations.triggers.dispatch.move_death import after_death_triggers
 from engine.runner.components import (UnitComponent, HealthComponent,
                                       OwnerComponent, PositionComponent)
 from engine.runner.prng import IntBasedMersenneTwister

@@ -46,9 +46,10 @@ from .base import TriggeredAbility, _faction_id, _pick_randomly
 
 import hexgeo
 from ....dsl.effects import ExecutionContext
-from ....entities.selectors import Target
+from ....entities.selectors.accessors import Target
 from ...abilities.base import profile_pierce
-from ...abilities.behaviours import AttackWithAttackDamage, entities_from_state
+from ...abilities.behaviours.combat import AttackWithAttackDamage
+from ...abilities.behaviours.context import entities_from_state
 from ...events import EventBus
 from ..damage import AttackDamageOperation
 from ..effects import AddEffectOperation

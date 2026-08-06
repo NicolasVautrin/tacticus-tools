@@ -80,13 +80,15 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....abilities.behaviours import AttackWithAbilityDamage, AddEffect, entities_from_state
+from ....abilities.behaviours.combat import AttackWithAbilityDamage
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
 from .....entities.stats import StatType, StatPart
-from .....entities.traits import UnitTrait, has_any_trait
+from .....entities.traits.unit_trait import UnitTrait, has_any_trait
 from .....entities.effect_type import EffectType
 from .....entities.effects.magnitude import bc_effect_config
 from .....entities.formulas import PercentageOf, StatAmount, RandomAmount
-from .....entities.selectors import Target
+from .....entities.selectors.accessors import Target
 from .....entities.behaviours import op_add, If as IfBehaviour
 from .....entities.triggers import TriggerAnd, Not, HasTrait, IsTurnOf
 from .....dsl.base import Const

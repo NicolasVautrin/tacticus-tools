@@ -76,7 +76,7 @@ from engine.entities.effect_type import EffectType                         # noq
 from engine.entities.pathfinding.board import Board                        # noqa: E402
 from engine.runner.snapshot import load_state                              # noqa: E402
 from engine.runner.components import HealthComponent                       # noqa: E402
-from engine.runner.operations.triggers import turn_start_other_triggers    # noqa: E402
+from engine.runner.operations.triggers.dispatch.turn import turn_start_other_triggers  # noqa: E402
 from engine.runner.operations.turnflow import _bump_turns_started          # noqa: E402
 
 ROOT = PYDIR.parents[1]
@@ -288,8 +288,10 @@ def _patched_tree(mutate):
     import engine.runner.operations.triggers.loki.relentless_march as M
     from engine.dsl.base import Const
     from engine.entities.behaviours import Seq
-    from engine.entities.selectors import (AdjacentUnits, Caster, Friends, UnitsWithoutTrait)
-    from engine.runner.abilities.behaviours import AddEffect, Repair
+    from engine.entities.selectors.tiles import Caster
+    from engine.entities.selectors.units import AdjacentUnits, Friends, UnitsWithoutTrait
+    from engine.runner.abilities.behaviours.effects import AddEffect
+    from engine.runner.abilities.behaviours.stats import Repair
 
     def patched(amount, trigger_type=None):
         owner = Caster()

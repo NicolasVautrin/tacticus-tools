@@ -49,9 +49,9 @@ import hexgeo                                                            # noqa:
 from engine.battle_query import (                                        # noqa: E402
     are_entities_adjacent as pb_entities_adjacent, is_adjacent as pb_is_adjacent)
 from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
-from engine.entities import EffectsState                                 # noqa: E402
+from engine.entities.effects_state import EffectsState  # noqa: E402
 from engine.entities.effect_type import EffectType                       # noqa: E402
-from engine.entities.effects import EffectFactory                        # noqa: E402
+from engine.entities.effects.factory import EffectFactory  # noqa: E402
 from engine.entities.pathfinding.board import Board                      # noqa: E402
 from engine.runner.abilities.targeting import (                          # noqa: E402
     are_entities_adjacent, are_tiles_adjacent)

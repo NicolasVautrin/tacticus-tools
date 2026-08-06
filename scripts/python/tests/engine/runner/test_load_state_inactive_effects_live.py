@@ -46,7 +46,7 @@ import probe_112_darkangels as PR
 import probe_224_effect_immunity as IM
 from engine.dsl.event_trigger_type import EventTriggerType
 from engine.entities.effect_type import EffectType
-from engine.entities.effects import EffectFactory
+from engine.entities.effects.factory import EffectFactory
 from engine.entities.pathfinding.board import Board
 from engine.runner.components import (OwnerComponent, PositionComponent, UnitComponent,
                                       unit_state_for_effects)

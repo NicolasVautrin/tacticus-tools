@@ -131,7 +131,7 @@ from engine.entities.effects.factory import (
     ABILITY_INIT_OWNER_EFFECTS, ABILITY_OWNER_EFFECTS, EFFECT_CLASSES,
 )
 from engine.runner.abilities.handler import ABILITY_CLASSES
-from engine.runner.operations.triggers.dispatch import ABILITY_TRIGGERS, EFFECT_TRIGGERS
+from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS, EFFECT_TRIGGERS
 
 OUT = os.path.join(_REPO, "docs", "rl", "passive-ability-coverage.md")
 ENGINE_DIR = os.path.join(_PYROOT, "engine")

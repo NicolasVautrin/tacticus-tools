@@ -22,9 +22,9 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import AtomicGroup, Inform, op_add
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
-from ...entities.selectors import (ActiveTarget, AdjacentTiles, CanAddUnit, Caster, CasterTile,
-                                   FixedTileIds, Sub, SurroundingFriends, Target, Units,
-                                   UnitsWithIds)
+from ...entities.selectors.accessors import ActiveTarget, CasterTile, FixedTileIds, Target
+from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+from ...entities.selectors.units import Sub, SurroundingFriends, Units, UnitsWithIds
 from ...entities.stats import StatType
 from ...utilities.tile import sort_tiles_by_utility
 from ... import battle_query
@@ -32,8 +32,11 @@ from ...services import battle_query as _svc_bq   # `BattleQuery$$GetUnitMaxRang
 from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_SELF,
                         RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (AddBondEffect, AddEffect, AttackWithAttackDamage, Spawn, PerformAIAction,
-                         PerformAIAttack, SortedAttackSeries, UseActiveAbility, entities_from_state)
+from .behaviours.ai_control import PerformAIAction
+from .behaviours.combat import AttackWithAttackDamage, SortedAttackSeries, UseActiveAbility
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddBondEffect, AddEffect
+from .behaviours.summon import PerformAIAttack, Spawn
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 from ..components import OwnerComponent, UnitComponent

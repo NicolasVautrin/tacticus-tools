@@ -103,7 +103,7 @@ from __future__ import annotations
 
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.formulas import Half, If, Multiply, Sum
-from ...entities.selectors import Target
+from ...entities.selectors.accessors import Target
 from ...entities.traits.unit_trait import UnitTrait, trait_name as _trait_name
 from ...entities.triggers import HasTrait
 from ...dsl.base import AAmountFormula, Const, DslContext

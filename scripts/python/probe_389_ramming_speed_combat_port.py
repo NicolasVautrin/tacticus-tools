@@ -200,7 +200,7 @@ def _apply_mutation(mutate: str):
     sur des symboles resolus AU NIVEAU MODULE par `ramming_speed_tree`, donc un patch d'attribut
     suffit -- aucune copie de code moteur dans le probe."""
     from engine.runner.abilities import orks as O
-    from engine.runner.operations.triggers import EFFECT_TRIGGERS
+    from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
     saved = {k: getattr(O, k) for k in ("ramming_speed_tree", "MoveUnit", "AddEffect",
                                         "OwnerIsAlive", "op_add")}
     saved_reg = list(EFFECT_TRIGGERS.get(EXTRA_EXPLODE) or [])
@@ -266,7 +266,7 @@ def _apply_mutation(mutate: str):
     elif mutate == "self-attack-on-target":
         # Le contrecoup dirige sur la CIBLE au lieu du CASTER (`Owner@0x30` lu comme `Target@0x60`).
         def _on_target(dest, profile):
-            from engine.entities.selectors import Target
+            from engine.entities.selectors.accessors import Target
             tree = _orig(dest, profile)
             tree.right.then.right.target_sel = Target()
             return tree

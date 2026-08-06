@@ -14,8 +14,8 @@ from pathlib import Path
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
-from engine.runner.abilities.behaviours import entities_from_state
-from engine.entities.selectors import UnitsDirectlyBehind
+from engine.runner.abilities.behaviours.context import entities_from_state
+from engine.entities.selectors.units import UnitsDirectlyBehind
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]

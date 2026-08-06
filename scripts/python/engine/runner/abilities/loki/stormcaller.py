@@ -54,10 +54,16 @@ from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effect_type import EffectType
 from ....entities.traits.unit_trait import UnitTrait
 from ....entities.behaviours import op_add
-from ....entities.selectors import (Target, Tiles, AdjacentTiles, Union, Cache, Enemies, AllUnits,
-                                    UnitsWithTrait, UnitsOnTilesWithEffect)
+from ....entities.selectors.accessors import Target
+from ....entities.selectors.geometry import Cache
+from ....entities.selectors.tiles import AdjacentTiles, AllUnits
+from ....entities.selectors.units import (
+    Enemies, Tiles, Union, UnitsOnTilesWithEffect, UnitsWithTrait
+)
 from ....dsl.effects import ExecutionContext
-from ..behaviours import AttackWithAttackDamage, AddEffect, entities_from_state
+from ..behaviours.combat import AttackWithAttackDamage
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddEffect
 
 if TYPE_CHECKING:
     from ...state import State

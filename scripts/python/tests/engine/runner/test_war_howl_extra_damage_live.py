@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.dirname(__file__))      # helpers siblings
 from _charge_regime import charge_regime                          # noqa: E402,F401  (fixture)
 
 from engine.entities.effects.factory import EFFECT_CLASSES        # noqa: E402
-from engine.entities.effects.loki import WarHowlExtraDamageUnstoppableEffect   # noqa: E402
+from engine.entities.effects.loki.war_howl import WarHowlExtraDamageUnstoppableEffect  # noqa: E402
 from probe_366_r1_war_howl_extra_damage import (ALIGNED_MULT, EFFECT_NAME, RAGNAR,  # noqa: E402
                                                 stage, strike)
 

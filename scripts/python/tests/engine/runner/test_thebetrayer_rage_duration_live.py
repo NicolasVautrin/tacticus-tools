@@ -17,7 +17,7 @@ import pytest
 
 from engine.runner.snapshot import load_state
 from engine.runner.components import UnitComponent, StatsComponent
-from engine.runner.operations.triggers import THEBETRAYER_EFFECT, _add_betrayer_effect
+from engine.runner.operations.triggers.loki import THEBETRAYER_EFFECT, _add_betrayer_effect
 
 KHARN = "worldKharn"
 BUILD = ["--roster", "1", "--p-units", "worldKharn",

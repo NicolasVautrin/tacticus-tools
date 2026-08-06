@@ -19,7 +19,7 @@ if str(ICI) not in sys.path:
     sys.path.insert(0, str(ICI))
 
 import probe_477r18_deroule_perimetre as P  # noqa: E402
-from engine.streams import TagKey  # noqa: E402
+from engine.streams.tag_key import TagKey  # noqa: E402
 
 #: VERBATIM de `IdunBattle.Operations.TransformUnitOperation$$.cctor` -- les deux entrees de la
 #: table `Dictionary<StatType, ModStatTransformConfig>` qui portent les six `TagKey` que le flux

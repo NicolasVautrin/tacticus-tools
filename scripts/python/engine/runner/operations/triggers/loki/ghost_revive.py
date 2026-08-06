@@ -138,9 +138,10 @@ from .....entities.effect_type import EffectType
 from .....entities.formulas import StatAmount
 from .....entities.stats import StatType, StatPart
 from .....entities.triggered_ability_type import TriggeredAbilityType
-from .....entities.traits import UnitTrait, has_trait
-from .....entities.selectors import Caster, Target
-from ....abilities.behaviours import entities_from_state
+from .....entities.traits.unit_trait import UnitTrait, has_trait
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.tiles import Caster
+from ....abilities.behaviours.context import entities_from_state
 from ..base import TriggeredAbility, TileEffectTrigger, TriggerEvent, _unit_trait_names
 from ..revive_effect import Revive, can_be_revived
 from ....components import StatsComponent

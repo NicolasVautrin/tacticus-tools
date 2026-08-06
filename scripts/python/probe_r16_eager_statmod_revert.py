@@ -40,7 +40,9 @@ Usage : depuis `scripts/python`, `python probe_r16_eager_statmod_revert.py`.
 """
 from __future__ import annotations
 
-from engine.entities import EffectFactory, EffectsState, UnitContext
+from engine.entities.effects.factory import EffectFactory
+from engine.entities.effects_state import EffectsState
+from engine.entities.unit_context import UnitContext
 from engine.entities.effects.magnitude import ability_var, global_value
 from engine.entities.stats import StatType
 from engine.runner.components import StatsComponent
@@ -191,7 +193,8 @@ def inventory() -> bool:
     """INVENTAIRE du gisement : toute classe du registre qui OVERRIDE `applied_stat_mods` doit rendre
     une cle de source retirable (`effect_stat_mod_key != None`) meme SEEDEE, sinon son buff resterait
     colle. Balaye `EFFECT_CLASSES` pour eviter de ne fermer que les deux porteurs mesures ci-dessus."""
-    from engine.entities.effects import EFFECT_CLASSES, effect_stat_mod_key
+    from engine.entities.effects import effect_stat_mod_key
+    from engine.entities.effects.factory import EFFECT_CLASSES
     from engine.entities.effects.base import BaseEffect
 
     print("== inventaire des classes a `applied_stat_mods` (forme OVERRIDE d'ApplyModification)")

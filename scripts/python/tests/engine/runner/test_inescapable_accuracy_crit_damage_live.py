@@ -44,8 +44,9 @@ sys.path.insert(0, os.path.dirname(__file__))      # helpers siblings
 from _charge_regime import charge_regime                          # noqa: E402,F401  (fixture)
 
 from engine.entities.effects.factory import EFFECT_CLASSES        # noqa: E402
-from engine.entities.effects.loki import (                        # noqa: E402
-    InescapableAccuracyExtraCritChanceEffect, InescapableAccuracyExtraCritDamageEffect)
+from engine.entities.effects.loki.inescapable_accuracy import (
+    InescapableAccuracyExtraCritChanceEffect, InescapableAccuracyExtraCritDamageEffect
+)  # noqa: E402
 from probe_366_r1_inescapable_accuracy_crit_chance import (       # noqa: E402
     MAUGAN, neutralized_seed_bc, stage, strike)
 from probe_366_r1_inescapable_accuracy_crit_damage import (       # noqa: E402
@@ -144,7 +145,9 @@ def test_registry_binds_dedicated_class():
     assert InescapableAccuracyExtraCritDamageEffect is not InescapableAccuracyExtraCritChanceEffect
     # `1117` a DEPUIS ete porte (TROISIEME canal, `BaseEffect$$BlockHitsReduction`) et il a sa
     # PROPRE classe : ce qui compte ici reste que les trois soient DISTINCTES.
-    from engine.entities.effects.loki import InescapableAccuracyOverrideHitsEffect
+    from engine.entities.effects.loki.inescapable_accuracy import (
+        InescapableAccuracyOverrideHitsEffect
+    )
     assert EFFECT_CLASSES.get("InescapableAccuracy_overrideHits") \
         is InescapableAccuracyOverrideHitsEffect
     assert InescapableAccuracyOverrideHitsEffect is not InescapableAccuracyExtraCritDamageEffect

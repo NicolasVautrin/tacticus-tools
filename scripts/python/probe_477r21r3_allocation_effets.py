@@ -52,7 +52,10 @@ import probe_477r16_allocation_entites_ecs as R16  # noqa: E402
 import probe_477r19_process_removals as R19  # noqa: E402
 import probe_477r21_activation_tree as R21  # noqa: E402
 from engine.entities.entity_type import EntityType  # noqa: E402
-from engine.streams import BEntityId, GroupType, NO_ENTITY, StepType, TagKey  # noqa: E402
+from engine.streams.entity_id import BEntityId, NO_ENTITY
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams.entity_allocator import (MatchComponent, add_effect,  # noqa: E402
                                              add_unit, new_match_after_setup)
 from engine.streams.game_setup import PLATFORM_POSITIONS  # noqa: E402

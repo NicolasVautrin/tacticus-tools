@@ -112,11 +112,15 @@ from typing import Optional
 
 from ....state import State
 from ....components import OwnerComponent, UnitComponent
-from ....abilities.behaviours import Spawn, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.summon import Spawn
 from .....dsl.base import TargetsSelector
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
-from .....entities.selectors import AdjacentTiles, CanAddUnit, Otherwise, Target, Tiles
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.geometry import Otherwise
+from .....entities.selectors.tiles import AdjacentTiles, CanAddUnit
+from .....entities.selectors.units import Tiles
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggers import HasTrait, is_object_or_steppable
 from ..base import TriggeredAbility, TriggerEvent

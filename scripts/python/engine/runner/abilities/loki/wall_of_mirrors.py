@@ -88,7 +88,10 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from ..base import ActiveAbility
-from ..behaviours import AddEffect, FlyUnit, RemoveEffect, UseActiveAbility, entities_from_state
+from ..behaviours.combat import UseActiveAbility
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddEffect, RemoveEffect
+from ..behaviours.movement import FlyUnit
 from ..targeting import RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from ..targeting_rule import TargetingRule as TR
 from ....dsl.base import Const
@@ -96,9 +99,11 @@ from ....dsl.effects import ExecutionContext
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.behaviours import If as IfBehaviour, op_and
 from ....entities.effect_type import EffectType
-from ....entities.selectors import (ActiveTarget, CanAddUnit, Caster, Filter,
-                                    FilterTilesIfCanAttackTargetTileFrom, First, Owner,
-                                    SortTilesByUtility, Sub, SurroundingTiles, Target)
+from ....entities.selectors.accessors import ActiveTarget, Owner, SurroundingTiles, Target
+from ....entities.selectors.tiles import (
+    CanAddUnit, Caster, FilterTilesIfCanAttackTargetTileFrom, SortTilesByUtility
+)
+from ....entities.selectors.units import Filter, First, Sub
 from ....entities.triggers import HasEffect, IsObscured, Not, OwnerIsAlive
 from ....utilities.utility_type import UtilityType
 

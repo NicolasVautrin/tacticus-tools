@@ -26,9 +26,10 @@ from engine.entities.stats import StatType
 from engine.runner.snapshot import load_state
 from engine.runner.components import StatsComponent, HealthComponent
 from engine.runner.operations.effects import AddEffectOperation
-from engine.runner.operations.triggers import (
-    ACTOFFAITH_EFFECT, after_hit_ability_attack, finish_attack_triggers,
+from engine.runner.operations.triggers.dispatch.attack import (
+    after_hit_ability_attack, finish_attack_triggers
 )
+from engine.runner.operations.triggers.loki import ACTOFFAITH_EFFECT
 
 SISTER_VIS = "adeptCanoness"        # trait ActOfFaith ; --crit 100,250 -> cd != 0 (gate) + crite toujours
 ENEMY_VIS = "necroDestroyer"

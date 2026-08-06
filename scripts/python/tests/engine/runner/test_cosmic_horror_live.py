@@ -197,7 +197,7 @@ def test_cosmic_horror_on_kill_spawns_decoy_and_pins(live_session, rpc, build_ru
       (a) un decoy `genesSmnDecoy` est pose sur la tuile du mort (`FreeTilesOrAdjacentFreeTiles(
           Tiles(target))` : la victime est `alive=False` donc sa tuile est libre) ;
       (b) l'ennemi de l'anneau (dist 1 de la victime) recoit `Pinned` (1065) -- le `Maybe` passe."""
-    from engine.runner.operations.triggers.dispatch import unit_defeated_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import unit_defeated_triggers
     state, board, pat, victim, bystander, tile_b = _prep_kill(rpc, build_runner, roll=True)
     before = set(_decoys(state))
     assert not state.effects.has_effect(bystander, effect_type=PINNED), "bystander deja Pinned (pre-cond KO)"
@@ -227,7 +227,7 @@ def test_cosmic_horror_on_kill_skipped_when_victim_is_steppable(live_session, rp
     Le natif emet la MEME sequence de morts pour un steppable ecrase (`KillUnitOperation$$Execute`) :
     sans ce gate, achever/ecraser un decoy re-declencherait le passif. Ici la victime est un DECOY
     (trait Steppable) -> `matches` doit refuser : aucun nouveau decoy, aucun Pinned."""
-    from engine.runner.operations.triggers.dispatch import unit_defeated_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import unit_defeated_triggers
     from engine.runner.operations.spawn import spawn_decoy
     state, board, pat, victim, bystander, tile_b = _prep_kill(rpc, build_runner, roll=True)
     # DRIVE : la victime devient un DECOY (steppable) pose sur la meme tuile B, l'ancien ennemi degage.
@@ -255,7 +255,7 @@ def test_cosmic_horror_on_kill_single_maybe_covers_both_volets(live_session, rpc
       * le decoy EST quand meme pose (le `Spawn` est HORS du `Maybe`, en op_BitwiseAnd du `Foreach`) ;
       * AUCUN Pinned n'est applique (les deux volets tombent ENSEMBLE).
     C'est ce qui distingue le decompile de la prose i2 (« 60 % ... et 60 % ... », deux tirages)."""
-    from engine.runner.operations.triggers.dispatch import unit_defeated_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import unit_defeated_triggers
     state, board, pat, victim, bystander, tile_b = _prep_kill(rpc, build_runner, roll=False)
     before = set(_decoys(state))
 
@@ -297,7 +297,7 @@ def test_cosmic_horror_on_kill_retriggers_battle_fatigue_only_on_carriers(live_s
     2026-08-05, boards MC1_67 et C1_74). Le gate `IfAlive` MORD donc sur un porteur qui vient de
     fuir. Il etait deja ecrit cote port ; il ne pouvait pas mordre parce que la fuite portee ne
     sortait pas l'unite du plateau."""
-    from engine.runner.operations.triggers.dispatch import unit_defeated_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import unit_defeated_triggers
     from engine.runner.operations.spawn import _spawn_config_grot
     from engine.runner.components import OwnerComponent, UnitFlagsComponent
     state, board, pat, victim, bystander, tile_b = _prep_kill(rpc, build_runner, roll=True)
@@ -401,7 +401,7 @@ def test_cosmic_horror_on_move_heals_when_stepping_on_friendly_decoy(live_sessio
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
     from engine.runner.operations.spawn import spawn_decoy
-    from engine.runner.operations.triggers.dispatch import after_move_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     state, board, pat, tile_a, tile_b, hc = _prep_move(rpc, build_runner)
     did = spawn_decoy(state, tile_b, pat)               # decoy ALLIE (CopyOwner du caster)
     assert did is not None, "spawn decoy KO (pre-cond)"
@@ -432,7 +432,7 @@ def test_cosmic_horror_on_move_no_heal_on_enemy_decoy(live_session, rpc, build_r
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
     from engine.runner.operations.spawn import spawn_decoy
-    from engine.runner.operations.triggers.dispatch import after_move_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     from engine.runner.components import OwnerComponent, UnitComponent
     state, board, pat, tile_a, tile_b, hc = _prep_move(rpc, build_runner)
     foes = _enemy_ids(state, pat)

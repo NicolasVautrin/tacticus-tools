@@ -97,7 +97,8 @@ import probe_477r16_allocation_entites_ecs as R16  # noqa: E402
 from engine.entities.entity_type import EntityType  # noqa: E402
 from engine.entities.traits.unit_trait import UnitTrait  # noqa: E402
 from engine.entities.unit_flag import UnitFlag  # noqa: E402
-from engine.streams import StreamCache, StreamDispatcher  # noqa: E402
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.stream_cache import StreamCache  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.game_setup import (GameSetup, PlayerSetup, TileSetup,  # noqa: E402
                                        UnitSetup, emit_game_setup)

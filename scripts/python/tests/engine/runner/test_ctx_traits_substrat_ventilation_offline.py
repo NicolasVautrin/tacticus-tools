@@ -251,7 +251,7 @@ def test_le_crush_refuse_le_cadavre_au_chargement(vivant, avec_stats, attendu, m
     `_kill_unit_operation` le resout, par import tardif) : on mesure la SELECTION, pas ce que les
     triggers aval produisent -- ils rendraient `[]` dans les trois regimes et le test ne
     discriminerait rien (accord en regime degenere)."""
-    from engine.runner.operations import triggers as TRG
+    from engine.runner.operations.triggers.dispatch import move_death as TRG
     from engine.runner.operations.movement import _kill_steppable_units
     vus = []
 

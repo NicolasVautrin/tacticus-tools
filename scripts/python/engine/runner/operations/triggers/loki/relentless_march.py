@@ -166,13 +166,17 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.behaviours import Seq
 from .....entities.effect_type import EffectType
-from .....entities.selectors import (AdjacentUnits, Caster, Friends, Sub, UnitsWithoutTrait,
-                                     hero_units)
+from .....entities.selectors.tiles import Caster
+from .....entities.selectors.units import (
+    AdjacentUnits, Friends, Sub, UnitsWithoutTrait, hero_units
+)
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....components import OwnerComponent, StatsComponent
 from ....state import State
-from ....abilities.behaviours import AddEffect, Repair, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
+from ....abilities.behaviours.stats import Repair
 from ..base import TriggeredAbility, TriggerEvent
 from .....entities.effects.magnitude import ability_var
 

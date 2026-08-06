@@ -59,7 +59,7 @@ from _charge_regime import (CHARGE, STEP_ADJACENT,                 # noqa: E402,
                             charge_regime)
 
 from engine.entities.effects.factory import EFFECT_CLASSES         # noqa: E402
-from engine.entities.effects.loki import SagaOfTheWarriorBornOwnerEffect   # noqa: E402
+from engine.entities.effects.loki.hits import SagaOfTheWarriorBornOwnerEffect  # noqa: E402
 from probe_366_r1_saga_other_space_wolves import execute_hero      # noqa: E402
 
 _ALLY = "spaceWulfen"               # <<Ulf>>, Space Wolf du pool, RECEVEUR de 1224

@@ -20,14 +20,18 @@ from ....entities.active_ability_type import ActiveAbilityType
 from ....dsl.base import Const
 from ....dsl.effects import ExecutionContext
 from ....entities.behaviours import Foreach, If, AtomicGroup, op_add, op_and
-from ....entities.selectors import (Subject, Caster, Target, CasterTile, TargetTile, AdjacentEnemies,
-                                    AdjacentUnits, And, Sub, UnitsWithoutTrait, AdjacentFriends, Alive,
-                                    SurroundingEnemies, Unobscured, Unique, AdjacentTiles, Tiles,
-                                    Friends, Units)
+from ....entities.selectors.accessors import CasterTile, Subject, Target, TargetTile
+from ....entities.selectors.tiles import AdjacentTiles, Caster
+from ....entities.selectors.units import (
+    AdjacentEnemies, AdjacentFriends, AdjacentUnits, Alive, And, Friends, Sub, SurroundingEnemies,
+    Tiles, Unique, Units, UnitsWithoutTrait, Unobscured
+)
 from ....entities.triggers import IsAlive
 from ....entities.traits.unit_trait import UnitTrait
-from ..behaviours import (AttackWithAttackDamage, AddEffect, AddBondEffect, PushUnit,
-                          entities_from_state)
+from ..behaviours.combat import AttackWithAttackDamage
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddBondEffect, AddEffect
+from ..behaviours.movement import PushUnit
 
 if TYPE_CHECKING:
     from ...state import State

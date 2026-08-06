@@ -22,7 +22,7 @@ import pytest
 from engine.runner.snapshot import load_state
 from engine.runner.components import OwnerComponent, UnitComponent, PositionComponent, StatsComponent
 from engine.runner.operations.effects import AddEffectOperation
-from engine.runner.operations.triggers.dispatch import damage_dealt_triggers
+from engine.runner.operations.triggers.dispatch.attack import damage_dealt_triggers
 from engine.runner.operations.triggers.loki import FIRE_TILE
 from engine.entities.damage_trait import DamageTrait
 from engine.entities.effect_type import EffectType

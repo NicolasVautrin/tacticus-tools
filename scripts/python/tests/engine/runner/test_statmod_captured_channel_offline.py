@@ -29,7 +29,7 @@ from __future__ import annotations
 import pytest
 
 import probe_366r1_statmod_rederivation_census as CENSUS
-from engine.entities import EffectFactory
+from engine.entities.effects.factory import EffectFactory
 from engine.entities.effects.magnitude import ability_var
 
 STORM_OF_FIRE = 1171                      # 0x493 SereneUnifierStormOfFire

@@ -33,8 +33,11 @@ if str(PY) not in sys.path:
     sys.path.insert(0, str(PY))
 
 from engine.entities.unit_flag import UnitFlag  # noqa: E402
-from engine.streams import (GroupType, StepType, StreamCache,  # noqa: E402
-                            StreamDispatcher, TagKey)
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.stream_cache import StreamCache
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams.inform_ops import (get_inform_tags,  # noqa: E402
                                        get_inform_weapon_tags, inform)
 from engine.streams.turn_phase import start_turn  # noqa: E402

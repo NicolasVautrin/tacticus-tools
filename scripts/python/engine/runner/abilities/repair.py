@@ -95,15 +95,19 @@ from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.formulas import percentage_of_attack_capped_at_max
-from ...entities.selectors import Caster, Sub, Subject, Target
+from ...entities.selectors.accessors import Subject, Target
+from ...entities.selectors.tiles import Caster
+from ...entities.selectors.units import Sub
 from ...entities.stats import StatPart, StatType
 from .base import ActiveAbility
-from .behaviours import AddStatOverrideEffect, RemoveEffect, Repair, entities_from_state
+from .behaviours.context import entities_from_state
+from .behaviours.effects import RemoveEffect
+from .behaviours.stats import AddStatOverrideEffect, Repair
 from .targeting import (RANGE_ADJACENT, RANGED_BOOL_IF_RANGED_CASTER, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ...entities.effects.magnitude import ability_var
-from ...entities.selectors import UnitSet
-from ...entities.selectors import UnitsAffectedByHealType
+from ...entities.selectors.units import UnitSet
+from ...entities.selectors.units import UnitsAffectedByHealType
 from ...predict import repair_amount_weapon
 from ..components import StatsComponent
 from .targeting import (_resolves_to_unit, units_are_enemies,

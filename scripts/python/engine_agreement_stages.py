@@ -80,7 +80,7 @@ from engine.playbook import noncomparable as playbooks  # noqa: E402
 from engine.playbook import scene as _scene  # noqa: E402
 from engine.playbook import get_playbook_or_default, tile_utility  # noqa: E402
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
-from engine.playbook.prediction import defender_prediction_block_amount  # noqa: E402  (#54A)
+from engine.playbook.prediction._shared import defender_prediction_block_amount  # noqa: E402  (#54A)
 from engine.predict import (heal_amount_config, heal_utility,  # noqa: E402  (#45 confrontation
                             heal_amount_weapon,                # #45c : branche ARME REELLE
                             predict_heal_effective,            # heal/repair : familles 2 et 4 de

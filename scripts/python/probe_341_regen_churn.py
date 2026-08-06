@@ -71,7 +71,7 @@ def _diff_size(a: list[str], b: list[str]) -> int:
 def main():
     from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES
     from engine.runner.abilities.handler import ABILITY_CLASSES
-    from engine.runner.operations.triggers.dispatch import ABILITY_TRIGGERS
+    from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
 
     tmpdir = tempfile.mkdtemp(prefix="probe341_")
 

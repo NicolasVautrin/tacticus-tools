@@ -101,13 +101,17 @@ from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.triggered_ability_type import TriggeredAbilityType
-from .....entities.selectors import (Owner, AdjacentFriends, UnitsAffectedByHealType, Repairable,
-                                     UnitsWithNegativeEffects, PickRandomly, Otherwise)
+from .....entities.selectors.accessors import Owner
+from .....entities.selectors.geometry import Otherwise, PickRandomly
+from .....entities.selectors.units import (
+    AdjacentFriends, Repairable, UnitsAffectedByHealType, UnitsWithNegativeEffects
+)
 from .....entities.triggers import AmountIsZero, Not, OwnerIsActor, TriggerAnd
 from .....entities.formulas import Count
 from ....components import StatsComponent
 from ....state import State
-from ....abilities.behaviours import Repair, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.stats import Repair
 from ..base import TriggeredAbility, TriggerEvent
 from .....entities.effects.magnitude import ability_var
 

@@ -68,7 +68,9 @@ sys.path.insert(0, str(HERE))
 import probe_477r15a_stream_conformance as R15A  # noqa: E402
 import probe_477r16_allocation_entites_ecs as R16  # noqa: E402
 from engine.entities.spawn_source import SpawnSource  # noqa: E402
-from engine.streams import GroupType, StreamCache, StreamDispatcher  # noqa: E402
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.group_type import GroupType
+from engine.streams.stream_cache import StreamCache  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.game_setup import UnitSetup, add_unit  # noqa: E402
 from engine.streams.input_messages import visit_add_unit_message  # noqa: E402

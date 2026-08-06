@@ -328,7 +328,7 @@ def native_fields(rpc, rid, cid, tgt, ab, tile) -> dict:
 
 
 def port_fields(scene, cid, tgt, tile) -> dict:
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     ev = make_normal_attack_predictions(scene, cid, tgt, tile)
     if ev is None:
         raise MontageError(f"le port ne produit AUCUNE prediction depuis {tile} sur {tgt}")

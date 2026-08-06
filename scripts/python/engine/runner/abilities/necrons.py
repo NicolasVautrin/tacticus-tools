@@ -33,10 +33,12 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import Foreach, If as IfBehaviour, op_and
 from ...entities.formulas import Count, Min, StatAmount, Sum
-from ...entities.selectors import (Target, Caster, CasterTile, SurroundingEnemies, Unobscured,
-                                    Damageable, Sub, Union, UnitSet, ActiveTarget, AdjacentTiles,
-                                    AdjacentUnits, AllDeadOrResurrectedUnits, And, CanAddUnit,
-                                    Enemies, Friends, FixedTileIds, SurroundingUnits, UnitsWithTrait)
+from ...entities.selectors.accessors import ActiveTarget, CasterTile, FixedTileIds, Target
+from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+from ...entities.selectors.units import (
+    AdjacentUnits, AllDeadOrResurrectedUnits, And, Damageable, Enemies, Friends, Sub,
+    SurroundingEnemies, SurroundingUnits, Union, UnitSet, UnitsWithTrait, Unobscured
+)
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.triggers import HasTrait
@@ -47,13 +49,16 @@ from .base import ActiveAbility
 from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
                         RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, AddBondEffect, AddEffect, AttackWithAttackDamage,
-                         ChainLeftOverHitsAttackDamage, RemoveAllForcedAttackTargets,
-                         RemoveUnitFromItsTiles, Spawn)
+from .behaviours.combat import AttackWithAttackDamage, ChainLeftOverHitsAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddBondEffect, AddEffect
+from .behaviours.lifecycle import RemoveAllForcedAttackTargets, RemoveUnitFromItsTiles
+from .behaviours.summon import Spawn
 from .loki import _pick_randomly_n
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.formulas import Difference, If as IfAmount
-from ...entities.selectors import AllDeadUnits, Filter, Subject
+from ...entities.selectors.accessors import Subject
+from ...entities.selectors.units import AllDeadUnits, Filter
 from ...entities.triggers import AmountIsGreaterThanZero
 from ...entities.triggers import TriggerAnd, is_mechanical
 from ...entities.triggers import is_mechanical

@@ -140,13 +140,16 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.behaviours import If, Inform, Seq
 from .....entities.effect_type import EffectType
-from .....entities.selectors import (Actor, Caster, First, MovableTilesInRange, SortByDistance,
-                                     Tiles)
+from .....entities.selectors.accessors import Actor
+from .....entities.selectors.tiles import Caster, MovableTilesInRange
+from .....entities.selectors.units import First, SortByDistance, Tiles
 from .....entities.traits.unit_trait import UnitTrait, has_trait
 from .....entities.triggers import IsAdjacent, Not
 from ....components import PositionComponent, UnitComponent
-from ....abilities.behaviours import (AddEffect, MoveUnit, RemoveEffect, TriggerAbilityDelayed,
-                                      entities_from_state)
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect, RemoveEffect
+from ....abilities.behaviours.lifecycle import TriggerAbilityDelayed
+from ....abilities.behaviours.movement import MoveUnit
 from ....state import State
 from ..base import EffectTrigger, TriggerEvent, TriggeredAbility, _unit_trait_names
 from .....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1-r3

@@ -34,7 +34,7 @@ from engine.runner.runner import Runner
 from engine.runner.messages import ActiveAbilityMessage
 from engine.runner.components import PositionComponent, HealthComponent, StatsComponent
 from engine.runner.abilities.ultramarines import CombatRestorativesAbility, _heal_amounts
-from engine.runner.abilities.behaviours import healable_heal_type_0, is_mechanical
+from engine.runner.abilities.behaviours.stats import healable_heal_type_0, is_mechanical
 from engine.entities.pathfinding.board import Board
 
 CASTER = "ultraApothecary"       # 1002 CombatRestoratives (Ultramarines, GrandAlliance Imperial)
@@ -172,7 +172,7 @@ def test_combatrest_healable_guard_fullhp_and_mechanical(combatrest_state):
     """Garde Healable (pure) : un allie FULL-HP -> non soignable ; un allie mechanical -> non soignable
     (IsMechanical = Mechanical|LivingMetal|Vehicle)."""
     from engine.dsl.effects import ExecutionContext
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     state, ids = combatrest_state["state"], combatrest_state["ids"]
     ectx = ExecutionContext(state=state, rng=state.rng)
     ent = entities_from_state(state, ids["apo"], ids["apo"])

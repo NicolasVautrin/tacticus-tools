@@ -105,14 +105,14 @@ from __future__ import annotations
 from typing import Optional
 
 from .....dsl.event_trigger_type import EventTriggerType
-from .....entities.selectors import Actor
+from .....entities.selectors.accessors import Actor
 from ....state import State
 from ....components import OwnerComponent, UnitComponent
 from ....abilities.attack_type import ability_is_direct_target_attack
 from ..base import TriggeredAbility, TriggerEvent, _is_adjacent_units
 from .....dsl.effects import ExecutionContext
-from ....abilities.behaviours import AttackWithAttackDamage
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.combat import AttackWithAttackDamage
+from ....abilities.behaviours.context import entities_from_state
 
 MARTIAL_SUPERIORITY = "MartialSuperiority"
 _ON_PRE_UNIT_ABILITY = int(EventTriggerType.PreUnitAbility)     # On(0x2b = 43, 1)

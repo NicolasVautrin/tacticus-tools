@@ -36,7 +36,7 @@ from engine.runner.prng import IntBasedMersenneTwister            # noqa: E402
 from engine.entities.pathfinding.board import Board               # noqa: E402
 from engine.runner.abilities.spacewolves import great_frost_axe_tree  # noqa: E402
 from engine.runner.abilities.loki.stormcaller import stormcaller_tree  # noqa: E402
-from engine.runner.abilities.behaviours import entities_from_state  # noqa: E402
+from engine.runner.abilities.behaviours.context import entities_from_state  # noqa: E402
 from engine.dsl.effects import ExecutionContext                   # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent

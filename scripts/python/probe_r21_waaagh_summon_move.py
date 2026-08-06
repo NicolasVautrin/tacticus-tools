@@ -128,7 +128,7 @@ def main() -> int:
         # Rejoue les 4 premiers etages puis inspecte CHAQUE Ork Boy AVANT `PerformAIAction`.
         st2 = d["fresh"]()
         from engine.dsl.effects import ExecutionContext
-        from engine.runner.abilities.behaviours import entities_from_state
+        from engine.runner.abilities.behaviours.context import entities_from_state
         from engine.runner.abilities.orks import (waaagh_spawn_tree, waaagh_buff_tree,
                                                   waaagh_move_range, waaagh_charge_tile,
                                                   waaagh_move_tree, waaagh_attack_tree)

@@ -326,7 +326,7 @@ def test_l_effet_1523_est_ENREGISTRE_et_additif_sans_gate_de_prediction():
     `SmashaEad` / `FeederTendrils`, qui portent en plus `IsNormalAttack` et rendent donc `None` en
     prediction. Recopier leur `if is_prediction: return None` ici serait la faute inverse."""
     from engine.entities.effects.factory import EFFECT_CLASSES
-    from engine.entities.effects.loki import PrimarchOfTheFirstLegionExtraDamageEffect
+    from engine.entities.effects.loki.extra_damage import PrimarchOfTheFirstLegionExtraDamageEffect
     assert EFFECT_CLASSES["PrimarchOfTheFirstLegion_ExtraDamage"] is \
         PrimarchOfTheFirstLegionExtraDamageEffect
     eff = PrimarchOfTheFirstLegionExtraDamageEffect(

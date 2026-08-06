@@ -42,7 +42,7 @@ from engine.runner.snapshot import load_state
 from engine.runner.runner import Runner
 from engine.runner.messages import AttackUnitMessage
 from engine.runner.prng import IntBasedMersenneTwister
-from engine.runner.operations.triggers.dispatch import unit_post_ability_triggers
+from engine.runner.operations.triggers.dispatch.ability import unit_post_ability_triggers
 
 TITUS = "ultraTitus"              # SEUL porteur de `FuelledByFury` (HERO du pool, rank 17)
 CASTERS = ("ultraTigurius", "astraPrimarisPsy")

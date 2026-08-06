@@ -51,8 +51,8 @@ from engine.entities.effect_type import EffectType                   # noqa: E40
 from engine.entities.effects import (                                # noqa: E402
     block_hits_reduction_from_effects, board_effect_carriers)
 from engine.entities.effects.factory import EFFECT_CLASSES           # noqa: E402
-from engine.entities.effects.loki import (                           # noqa: E402
-    InescapableAccuracyOverrideHitsEffect, PurgeResponseEffect)
+from engine.entities.effects.loki.inescapable_accuracy import InescapableAccuracyOverrideHitsEffect
+from engine.entities.effects.loki.votann import PurgeResponseEffect  # noqa: E402
 from engine.entities.pathfinding.board import Board                  # noqa: E402
 from engine.services.attack_hits_formula import attack_hits_with_modifiers   # noqa: E402
 from probe_366_r1_blockhits_purgeresponse import (                   # noqa: E402

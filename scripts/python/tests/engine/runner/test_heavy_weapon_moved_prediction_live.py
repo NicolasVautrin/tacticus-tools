@@ -214,7 +214,7 @@ def _port_scene(rpc, rid):
 
 
 def _port_pred(scene, cid, tid):
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     ev = make_normal_attack_predictions(scene, cid, tid, attack_pos=scene.pos(cid))
     if ev is None:
         pytest.skip("make_normal_attack_predictions rend None")

@@ -596,7 +596,7 @@ def test_port_cast_transfers_no_triggered_ability_when_caster_has_none(galatian)
     collection est donc vide et NI le natif NI le port ne transferent quoi que ce soit. Ce test
     VERROUILLE la degradation : `transferred_ability is None` -> aucune ability inventee sur le
     summon. La branche « non vide » reste NON CONFRONTEE LIVE (residu nomme, case-91 §7)."""
-    from engine.runner.abilities.behaviours import first_triggered_ability_of
+    from engine.runner.abilities.behaviours.grants import first_triggered_ability_of
     from engine.runner.components import TriggeredAbilityComponent
     state, diag = _port_cast(galatian)
     assert first_triggered_ability_of(state, galatian["caster"]) is None, \
@@ -679,8 +679,8 @@ def test_every_foot_blocks_the_dsl_can_add_unit_selector(galatian):
 
     Sans la lecture par empreinte, deux tuiles sur trois resteraient « libres » cote port et un
     summon s'y poserait -- une divergence qui ne se voit dans AUCUN test de DutyEternal lui-meme."""
-    from engine.entities.selectors import AllTiles, CanAddUnit
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.entities.selectors.tiles import AllTiles, CanAddUnit
+    from engine.runner.abilities.behaviours.context import entities_from_state
     state, diag = _port_cast(galatian)
     free = set(CanAddUnit(AllTiles()).evaluate(entities_from_state(state, galatian["caster"])))
     for f in galatian["predicted"]:
@@ -696,9 +696,9 @@ def test_footprint_blocks_a_second_three_tile_shape(galatian):
 
     C'est le scenario que seul le multi-hex distingue : une aire qui ne toucherait QUE `feet[1]` ou
     `feet[2]` serait acceptee par un port mono-tuile."""
-    from engine.entities.selectors import ThreeTileUnitSpawnShape
-    from engine.entities.selectors import FixedTileIds
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.entities.selectors.geometry import ThreeTileUnitSpawnShape
+    from engine.entities.selectors.accessors import FixedTileIds
+    from engine.runner.abilities.behaviours.context import entities_from_state
     state, _diag = _port_cast(galatian)
     entities = entities_from_state(state, galatian["caster"])
     feet = set(galatian["predicted"])

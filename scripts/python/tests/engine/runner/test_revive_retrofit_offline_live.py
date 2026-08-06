@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from engine.runner.snapshot import load_state
-from engine.runner.operations.triggers import after_death_triggers
+from engine.runner.operations.triggers.dispatch.move_death import after_death_triggers
 from engine.runner.operations.revive import reset_revive_gates, kill_unit_revive_gate
 from engine.runner.components import (UnitComponent, HealthComponent, OwnerComponent,
                                       StatsComponent, PositionComponent)
@@ -154,7 +154,7 @@ def test_beam_heal_type_is_repair(env):
     Face NEGATIVE opposee : avec healType=0 (celui de Narthecium/RitesOfMorkai), la MEME cible est
     rejetee -- on l'oppose directement via `is_affected_by_heal_type`."""
     from engine.runner.operations.triggers.revive_effect import is_affected_by_heal_type
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     st, beam, tgt = _setup_beam(env)
     ent = entities_from_state(st, beam, tgt)
     assert is_affected_by_heal_type(ent.has_trait, ent.target, 1), "healType=1 rejette un Mechanical"

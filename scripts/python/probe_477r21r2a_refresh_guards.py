@@ -71,7 +71,8 @@ import probe_477r19_process_removals as R19  # noqa: E402
 import probe_477r20_start_match as R20  # noqa: E402
 import probe_477r21_activation_tree as R21  # noqa: E402
 from engine.runner.operations import refresh_effects as RE  # noqa: E402
-from engine.streams import GroupType, StepType  # noqa: E402
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 
 ROOT = HERE.parents[1]

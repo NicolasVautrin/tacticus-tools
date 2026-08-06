@@ -25,7 +25,7 @@ ASCII only.
 """
 from __future__ import annotations
 
-from engine.entities import EffectsState
+from engine.entities.effects_state import EffectsState
 from engine.entities.effects import effect_stat_overrides, stat_overrides_by_stat
 from engine.entities.effects.factory import EffectFactory
 from engine.entities.effect_type import EffectType

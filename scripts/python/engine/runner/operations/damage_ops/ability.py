@@ -24,7 +24,7 @@ from ...damage_model import (attacker_modifiers, defender_modifiers, build_hits_
                              ice_crit_damage_addition, target_trait_names,
                              getstuckin_combat_chance, defender_fixed_armor,
                              tile_status_effects_by_pos)
-from ....entities.effects.loki import LIGHT_COVER_TILE_ID
+from ....entities.effects.loki.hits import LIGHT_COVER_TILE_ID
 from ....entities.traits import target_hit_multiplier
 from ..additional_hits import collect_additional_hit_groups, execute_additional_hits
 from ..damage_hits import HitDamage, attack_state_out as _attack_state_out
@@ -239,7 +239,7 @@ class _AbilityAttack:
         #   avant tout degat, comme le natif. `ability_type` threade (l'`AbilityOrEffect` du coup).
         #   COUT pour une unite NON porteuse : nul -- aucun autre trigger porte n'ecoute l'event 5
         #   (cf. `pre_attack_triggers`), donc 0 conso RNG et 0 mutation.
-        from ..triggers.dispatch import pre_attack_triggers       # lazy : cycle damage<->triggers
+        from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
         if is_attack_damage_op:
             pre_attack_triggers(state, attacker_id, target_id,
                                 ranged=not bool(is_melee) if is_melee is not None else False,
@@ -247,7 +247,7 @@ class _AbilityAttack:
         # `On(PreAttackHit=6)` — `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` emet le MEME
         # trio d'events {6, 8, 0x3d} que la voie normale (verdict RE #147/#150), donc ThrillSeekers se
         # declenche aussi sur une attaque d'ABILITY du porteur contre une cible a pleine vie.
-        from ..triggers.dispatch import pre_attack_hit_triggers   # lazy : cycle damage<->triggers
+        from ..triggers.dispatch.attack import pre_attack_hit_triggers  # lazy : cycle damage<->triggers
         pre_attack_hit_triggers(state, attacker_id, target_id,
                                 ranged=not bool(is_melee) if is_melee is not None else False,
                                 profile=damage_profile, is_first_hit=True, ability_type=ability_type)
@@ -594,7 +594,7 @@ class _AbilityAttack:
         # imperatif 3/6, cf. la docstring de `damage_dealt_triggers`). Les deux abilities sont
         # desormais des consommatrices GLOBALES du bus (`GLOBAL_TRIGGERS`), donc couvertes pour les
         # DEUX familles d'attaque sans cablage par famille.
-        from ..triggers import after_hit_ability_attack          # lazy : cycle damage<->triggers
+        from ..triggers.dispatch.attack import after_hit_ability_attack  # lazy : cycle damage<->triggers
         # VECTEUR AFTER-HIT (ability/splash) : dispatch générique — reset ActOfFaith au crit (#138) + tout
         # after-hit trigger (#140 : splash Psyker sur ability/splash psychique, chain borné par le cap).
         # `ranged` = POSITION-based (calculé dans after_hit_ability_attack, mirror IsRangedAttack).
@@ -613,7 +613,7 @@ class _AbilityAttack:
         # Execute`. Emis pour les DEUX familles (`is_attack_damage_op` ou non) : la fonction est sur la
         # base commune `ADamageOperation` et les deux `Execute` l'appellent — contraste avec `On(10)`
         # ci-dessous, qui est bien gate par famille.
-        from ..triggers.dispatch import final_damage_triggers
+        from ..triggers.dispatch.attack import final_damage_triggers
         from ..triggers.base import _is_ranged_position as _irp
         final_damage_triggers(state, attacker_id, target_id,
                               ranged=_irp(state, attacker_id, target_id), profile=damage_profile)
@@ -623,7 +623,7 @@ class _AbilityAttack:
         # factory : `AttackWithAttackDamage` vs `AttackWithAbilityDamage`). Une attaque d'ability de la
         # famille ABILITY n'emet donc RIEN ici, comme le natif.
         if is_attack_damage_op:
-            from ..triggers.dispatch import attack_damage_attack_triggers
+            from ..triggers.dispatch.attack import attack_damage_attack_triggers
             from ..triggers.base import _is_ranged_position
             # `ranged` POSITION-based, comme le vecteur frere `after_hit_ability_attack` (mirror
             # `IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack`) — aucun consommateur d'`On(10)` ne

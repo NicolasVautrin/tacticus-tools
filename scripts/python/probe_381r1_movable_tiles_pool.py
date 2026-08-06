@@ -127,8 +127,9 @@ def _port_pool(state, board, uid: int, override_range: int) -> set:
     """Le pool du NOEUD DSL pour `uid`, en (col,row). `Caster()`/`CasterTile()` sont les DEUX
     selecteurs que tous les call-sites natifs lui passent (`factory+0x48` / `+0x50`)."""
     from engine.dsl.base import Const
-    from engine.entities.selectors import Caster, CasterTile, MovableTilesInRange
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.entities.selectors.accessors import CasterTile
+    from engine.entities.selectors.tiles import Caster, MovableTilesInRange
+    from engine.runner.abilities.behaviours.context import entities_from_state
     ents = entities_from_state(state, int(uid), int(uid))
     sel = MovableTilesInRange(Caster(), CasterTile(), Const(int(override_range)),
                               ignore_flags=False, ignore_units_on_tiles=False)
@@ -237,7 +238,7 @@ def run(board: str = DEFAULT_BOARD, seed: int = 3811, override_range: int = DEFA
         try:
             from engine.entities.pathfinding.fly_pathfinder import is_like_flying
             from engine.entities.traits.unit_trait import unit_trait_names
-            from engine.runner.abilities.behaviours import entities_from_state
+            from engine.runner.abilities.behaviours.context import entities_from_state
             for uid in sorted(nat):
                 n = nat[uid]
                 if not n:

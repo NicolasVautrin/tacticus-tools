@@ -32,7 +32,7 @@ import pytest
 import hexgeo
 from counterproof import assert_channel_counterproof_ctx
 from engine import battle_query as bq
-from engine.playbook.noncomparable import NCContext
+from engine.playbook.noncomparable._base import NCContext
 from engine.playbook.noncomparable.early_warning_override import (EarlyWarningOverridePlaybook,
                                                                   _ranged_weapon_threshold)
 from engine.services import ability_range

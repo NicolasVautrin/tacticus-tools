@@ -66,7 +66,7 @@ from pathlib import Path
 import board as B
 import gameconfig as GC
 import hexgeo
-from engine.entities import EffectsState
+from engine.entities.effects_state import EffectsState
 from engine.entities.effect_type import EffectType
 from engine.entities.unit_context import UnitContext
 from engine.runner.abilities.handler import AbilityHandler
@@ -125,7 +125,7 @@ def _board():
         t = bd.tile(col, row) or {}
         tiles.append({"id": i + 1, "col": col, "row": row, "walkable": True,
                       "tileDefId": t.get("tileId"), "elevation": t.get("elevation")})
-    from engine.entities.pathfinding import Board as EngineBoard
+    from engine.entities.pathfinding.board import Board as EngineBoard
     return EngineBoard(tiles, adjacency="evenq")
 
 
@@ -370,7 +370,9 @@ def main() -> int:
     cp = state.get_entity(creed).get_component(PositionComponent)
     fp.col, fp.row = cp.col, cp.row - 1 if cp.row > 0 else cp.row + 1
     emits = []
-    import engine.runner.operations.triggers.dispatch as D
+    # forme MODULE du consommateur (damage_ops.normal) : l'attribut est relu a l'appel,
+    # donc ce patch mord quelle que soit la forme de son import (#485-r1-r1).
+    import engine.runner.operations.triggers.dispatch.ability as D
     o_pre = D.pre_unit_ability_triggers
     try:
         D.pre_unit_ability_triggers = lambda st, c, t, **kw: (emits.append(t), o_pre(st, c, t, **kw))[1]

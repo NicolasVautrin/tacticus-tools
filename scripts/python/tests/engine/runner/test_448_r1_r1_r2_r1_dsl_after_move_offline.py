@@ -135,10 +135,13 @@ def test_arrived_at_final_tile_pose_le_flag_seulement_si_ouvert(seq):
 # ================================================ 2. le vecteur est joue PAR L'OPERATION, UNE fois
 @pytest.fixture()
 def spy(monkeypatch):
-    """Espionne `after_move_triggers` au point ou `MoveUnitOperation.execute` le resout (import
-    paresseux `from .triggers import after_move_triggers` -> attribut du package `triggers`)."""
+    """Espionne `after_move_triggers` sur son module de DEFINITION.
+
+    `MoveUnitOperation.execute` l'appelle en forme MODULE (`move_death.after_move_triggers(...)`,
+    #485-r1-r1), donc l'attribut est relu A L'APPEL : ce stub mord quelle que soit la forme de
+    l'import du consommateur. Il visait auparavant le package `triggers` -- une adresse de
+    COMMODITE fabriquee par le baril, qu'un hissage aurait desarmee EN SILENCE."""
     calls: list = []
-    from engine.runner.operations import triggers as T
 
     def fake(state, mover_id, movement_steps=None, *, is_interim_step=False,
              arrive_at_final_tile=True):
@@ -146,7 +149,7 @@ def spy(monkeypatch):
                       "interim": is_interim_step, "arrive": arrive_at_final_tile})
         return [{"spy": mover_id}]
 
-    monkeypatch.setattr(T, "after_move_triggers", fake)
+    monkeypatch.setattr(MD, "after_move_triggers", fake)
     monkeypatch.setattr(MV, "refresh_effects_after_move_triggers", lambda state: [])
     return calls
 
@@ -183,13 +186,12 @@ def test_relance_apres_override_remonte_le_vecteur_de_la_relance(monkeypatch, sp
     joue AUCUN. Un seul appel, sur la destination DEVIEE."""
     st = _state()
     e = st.get_entity(1)
-    from engine.runner.operations import triggers as T
 
     def fake_pre(state, mover_id, dest_tile=None):
         e.get_component(UnitComponent).movement_target_override = (3, 3)
         return []
 
-    monkeypatch.setattr(T, "pre_move_triggers", fake_pre)
+    monkeypatch.setattr(MD, "pre_move_triggers", fake_pre)
     op = MV.MoveUnitOperation(1, (1, 2))
     op.execute(st, EventBus())
     assert len(spy) == 1

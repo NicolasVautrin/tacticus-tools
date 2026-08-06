@@ -31,7 +31,7 @@ from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, EFFECT_C
 from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS
 from engine.playbook.noncomparable import PLAYBOOKS
 from engine.runner.abilities.handler import ABILITY_CLASSES
-from engine.runner.operations.triggers.dispatch import ABILITY_TRIGGERS
+from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
 
 # Les voies que `audit_kit_coverage.collect()` lit sur le gameconfig d'une unite.
 AUDIT_VOIES = ("activeAbilities", "passiveAbilities", "traits")

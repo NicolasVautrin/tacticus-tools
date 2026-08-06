@@ -224,7 +224,7 @@ def _raw_traits(state, eid) -> set:
 
 def _dsl_traits(state, owner_id, eid) -> set:
     """Ce que publie le contexte DSL (`_traits`) -- le substrat que lisent les noeuds du foyer."""
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     ctx = entities_from_state(state, owner_id, eid)
     return set((ctx.target or {}).get("_traits") or ())
 
@@ -481,7 +481,7 @@ def mesurer_cadavre_live(rpc, rid: int) -> dict:
     from engine.entities.pathfinding.board import Board
     from engine.runner.components import StatsComponent, UnitComponent, HealthComponent
     from engine.runner.snapshot import load_state
-    from engine.runner.operations.triggers.dispatch import unit_death_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import unit_death_triggers
     from engine.runner.operations.triggers.loki import barbed_ovipositor as B
 
     dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)

@@ -21,11 +21,11 @@ from ..entities.effects.loki.amulet_of_the_voidwyrm import (
         adjacent_friendly_summons_and_decoys_selector)
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
 from ..entities.stats import StatType
-from ..entities.traits import UnitTrait as _UT, has_trait as _has_trait
+from ..entities.traits.unit_trait import UnitTrait as _UT, has_trait as _has_trait
 from ..entities.traits.unit_trait import UnitTrait, has_trait
 
 if TYPE_CHECKING:
-    from ..entities import UnitContext
+    from ..entities.unit_context import UnitContext
 
 
 class UnitComponent(Component):
@@ -2275,7 +2275,7 @@ def adjacent_friendly_summons_and_decoys_count(state, unit_id: int) -> Optional[
     pc = ent.get_component(PositionComponent) if ent is not None else None
     if oc is None or oc.team is None or pc is None:
         return None
-    from .abilities.behaviours import entities_from_state
+    from .abilities.behaviours.context import entities_from_state
     return int(adjacent_friendly_summons_and_decoys_selector()
                .calculate(entities_from_state(state, int(unit_id))))
 
