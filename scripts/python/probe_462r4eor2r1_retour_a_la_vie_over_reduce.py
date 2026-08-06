@@ -446,6 +446,11 @@ MUTATION_CIBLE = {
     "rotation-absente":         ("resurrect",  "bout_en_bout"),  # le port d'AVANT (pas de rotation)
     "turn-counts-non-seede":    ("resurrect",  "bout_en_bout"),  # `turn_counts == {}` d'avant
     "avance-de-tour-mimee":     ("resurrect",  "bout_en_bout"),  # le MIME de tour d'avant
+    # --- #462-r4e-o-r2-r1-r1-r1 : la contre-epreuve du CLIQUET NEUF ------------------------
+    # Le joueur entrant etant desormais CALCULE et la trace live n'en etant plus que le temoin,
+    # il faut une mutation qui casse leur CONCORDANCE -- sans elle, rien ne prouverait que le
+    # cliquet est arme. Elle vise donc l'observable `concordance`, et elle seule.
+    "changement-auto-ignore":   ("resurrect",  "concordance"),
 }
 
 
@@ -500,7 +505,21 @@ def _mutation(nom):
         _avance_de_tour_portee = _avance_de_tour_mimee
         return ("le rejeu du changement de tour repasse par le MIME d'avant "
                 "(`turn_counts += 1` + `start_turn_triggers` seuls, sans EndTurn/StartTurn)")
+    if nom == "changement-auto-ignore":
+        # FOYER : le harnais. Le changement de tour AUTOMATIQUE declenche par l'attaque 1
+        # (`VerifyAutomaticTurnEndOperation$$Execute`, NON PORTE) n'est plus compte comme un tour a
+        # rejouer -- l'etat d'avant ce correctif. Le port prend alors UN TOUR DE RETARD et sa suite
+        # calculee se dephase de la mesure : c'est la contre-epreuve du cliquet de concordance.
+        global _COMPTER_CHANGEMENT_AUTO
+        _COMPTER_CHANGEMENT_AUTO = False
+        return ("le changement de tour AUTOMATIQUE de l'attaque 1 n'est plus compte : le rejeu "
+                "porte demarre un tour en arriere")
     raise SystemExit(f"mutation inconnue: {nom}")
+
+
+#: Compter, ou non, le changement de tour AUTOMATIQUE que l'attaque 1 declenche cote natif.
+#: Toujours vrai hors contre-epreuve (`--mutate changement-auto-ignore`).
+_COMPTER_CHANGEMENT_AUTO = True
 
 
 def _avance_de_tour_portee(st, entrants):
@@ -690,7 +709,7 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
             # UN TOUR DE RETARD sur le live -- ce que le contournement retire masquait, en posant
             # `current_player_id` a la valeur mesuree a chaque pas. La condition est un test
             # d'ETAT (le joueur a-t-il change ?), pas une supposition sur le comportement natif.
-            entrants = [cur_apres_att1] if auto else []
+            entrants = [cur_apres_att1] if (auto and _COMPTER_CHANGEMENT_AUTO) else []
             vu_autre = False
             for _i in range(8):
                 _endturn(rid)
@@ -863,25 +882,27 @@ def _verdict(volet, r, mutate):
     # NOMINAL : les DEUX observables sont exigees. Sous mutation : SEULE celle que la mutation
     # DECLARE viser (l'autre est inerte par construction et son « n'a pas mordu » accuserait le
     # probe au lieu de dire ce qu'il en est).
-    observable = MUTATION_CIBLE.get(mutate, (None, "etat_egal"))[1] if mutate else "les deux"
-    if observable == "etat_egal":
-        accord = (attendu == live)
-    elif observable == "bout_en_bout":
-        accord = (e2e == live)
-    else:
-        accord = (attendu == live) and (e2e == live)
-    # TROISIEME observable, NOMINAL SEULEMENT (#462-r4e-o-r2-r1-r1-r1) : le joueur entrant est
-    # desormais CALCULE par `ChangeTurnOperation$$FindNextPlayer`, et la trace live n'en est plus
-    # que le TEMOIN. Exiger la concordance est ce qui remplace le contournement retire -- sans elle,
-    # le rejeu redeviendrait muet sur QUI joue. Hors nominal on ne l'exige pas : les mutations ne
-    # visent pas cet axe (le mime, en particulier, ne calcule rien et la rendrait vraie pour rien).
+    # TROISIEME OBSERVABLE (#462-r4e-o-r2-r1-r1-r1) : le joueur entrant est desormais CALCULE par
+    # `ChangeTurnOperation$$FindNextPlayer`, et la trace live n'en est plus que le TEMOIN. Exiger
+    # leur concordance est ce qui REMPLACE le contournement retire -- sans elle, le rejeu
+    # redeviendrait muet sur QUI joue.
     mes, calc = r.get("entrants_mesures"), r.get("entrants_calcules")
     concorde = None
     if calc is not None:
         concorde = ([None if x is None else int(x) for x in (mes or [])]
                     == [None if x is None else int(x) for x in calc])
-        if mutate is None:
-            accord = accord and concorde
+    observable = MUTATION_CIBLE.get(mutate, (None, "etat_egal"))[1] if mutate else "les trois"
+    if observable == "etat_egal":
+        accord = (attendu == live)
+    elif observable == "bout_en_bout":
+        accord = (e2e == live)
+    elif observable == "concordance":
+        # Une mutation qui vise la concordance est INERTE sur les deux autres observables (elle ne
+        # touche ni la purge ni l'etat rejoue a joueur egal) : la juger sur elles rendrait un
+        # << n'a pas mordu >> qui accuserait le probe au lieu de dire ce qu'il en est.
+        accord = bool(concorde)
+    else:
+        accord = (attendu == live) and (e2e == live) and (concorde is not False)
     diag = (f"live={live} | port A ETAT EGAL={attendu} (over_reduce porte={porte}) | "
             f"purge={h_purge} transport(over_reduce={accum})={h_transp} | "
             f"bout-en-bout={e2e}")
