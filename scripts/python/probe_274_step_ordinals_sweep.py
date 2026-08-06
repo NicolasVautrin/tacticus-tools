@@ -59,6 +59,24 @@ from symbols_layout import current_build  # noqa: E402
 STEP_ENUM = SE.STEP_ENUM
 GROUP_ENUM = SE.GROUP_ENUM
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("*.py", "**/*.py", "frida/public/src/battle-log.js"),
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Son perimetre est le DEPOT ENTIER en `.py` -- `os.walk(REPO)` elague `.git`, "
+        "`node_modules`, `logs`, `sources_win`, `dist`, `.venv` et `.claude/worktrees`, et RIEN "
+        "d'autre : les 2096 `.py` de `scripts/` mais aussi les 3 de `lib/` et `hooks-legacy/` "
+        "(inventorie a part, hors verdict). Un glob borne a `scripts/python/**` serait un FAUX VERT "
+        "sur le reste. L'etape 2 lit en plus la table de labels POSITIONNELLE du frontend, d'ou le "
+        "`.js` nomme. `build: True` est le coeur du critere et pas un accessoire : les deux tables "
+        "de reference sont `data/symbols/<build>/frida/enums.tsv` pour le build COURANT et pour le "
+        "PRECEDENT (le diff est ce qui donne, litteral par litteral, ce qu'il designait AVANT) -- "
+        "un ordinal juste aujourd'hui devient faux au prochain build SANS qu'aucun `.py` ne bouge, "
+        "et c'est precisement le gisement (`StepType.RestoreArmorInfo` retire entre deux builds)."),
+}
+
 # Fichiers exemptes du cliquet, avec la RAISON. Un fichier n'entre ici que s'il ne peut PAS
 # resoudre par nom -- jamais « parce que c'est vieux ».
 ALLOWLIST = {

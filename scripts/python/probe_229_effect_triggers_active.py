@@ -38,6 +38,29 @@ from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS 
 from engine.runner.operations.triggers.base import EffectTrigger                 # noqa: E402
 
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/probe_229_effect_triggers_active.py",
+                "scripts/python/engine/*.py", "scripts/python/engine/**/*.py",
+                "scripts/python/*.py",
+                "data/seed-bc.json"),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Il importe EFFECT_TRIGGERS et relit par `inspect.getsource` le `matches` de chaque classe "
+        "portee -- resolu par la MRO, donc n'importe ou sous engine/ -- plus les helpers du MEME "
+        "module. Ses trois tables (RAIL, EXPECTED_GAPS, ARRAYSET_READS_BY_TREE) vivent dans son "
+        "propre source. Le glob racine `scripts/python/*.py` n'est pas decoratif : la fermeture "
+        "d'imports MESUREE est de 274 modules engine/ PLUS `gameconfig.py` et `hexgeo.py`, et un "
+        "import casse la-haut change le rc. `data/seed-bc.json` non plus : "
+        "`engine/services/damage_modifiers.py` le lit AU NIVEAU MODULE (`_DMG_CFG`), donc toute "
+        "cascade qui traverse `engine.entities.effects` l'ouvre -- fait MESURE par trace d'audit, "
+        "et invisible a une lecture des imports. Rien du build : le verdict est purement "
+        "syntaxique (aucun ordinal, aucun `enums.tsv`), et `gameconfig` est lazy (`lru_cache`) -- "
+        "jamais atteint, verifie a la trace."),
+}
+
+
 # --- RAIL NATIF par classe portee -----------------------------------------------------------
 # TARGETS      : `<Effect>$$CreateTargetTrigger`                -> gate IsActive NATIF -> DOIT lire
 # ARRAYSET     : `<Effect>$$CreateHandleTriggerAbilitiesInternal`

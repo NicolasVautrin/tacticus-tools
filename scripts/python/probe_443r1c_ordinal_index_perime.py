@@ -87,6 +87,23 @@ import repo_read  # noqa: E402
 from probe_283_enum_ordinal_sweep import (  # noqa: E402
     _ignore, _prose_par_ligne, all_enums, current_build, previous_build)
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Il balaie `(REPO/'scripts'/'python').rglob('*.py')` -- perimetre ecrit dans `main()`, donc "
+        "borne ; le pre-filtre `_noms_a_risque` est EXACT (une ligne ne peut rougir que si elle "
+        "cite un membre decale) et ne retire donc aucun chemin du declencheur. Il importe "
+        "`probe_283` (perimetre, prose token-aware, lecture d'enums.tsv) et `repo_read`, tous deux "
+        "sous ce meme glob. `build: True` est constitutif : le critere confronte l'ordinal ARCHIVE "
+        "au COURANT, donc il lit `data/symbols/<courant>` ET `data/symbols/<archive>` -- et "
+        "l'ensemble meme des enums surveilles se DERIVE de ce diff. Sans archive il rend 1 en le "
+        "disant (rien mesure), jamais un vert : le changement de build est le seul evenement qui "
+        "peut, a `.py` constants, faire rougir ou verdir chaque site."),
+}
+
 # Accesseurs de dict qui portent une CLE en 1er argument. `probe_283 --step exec` ne visite que
 # `ast.Subscript` : ces trois formes sont son angle mort syntaxique.
 ACCESSEURS = ("get", "pop", "setdefault")

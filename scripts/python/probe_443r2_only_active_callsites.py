@@ -74,6 +74,24 @@ PYDIR = Path(__file__).resolve().parent
 REPO = PYDIR.parents[1]
 ENGINE = PYDIR / "engine"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/probe_443r2_only_active_callsites.py",
+                "scripts/python/engine/*.py", "scripts/python/engine/**/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Il ne lit RIEN hors d'`engine/` : l'inventaire est `ENGINE.rglob('*.py')` et les vecteurs "
+        "d'inactivite aussi. Aucun import du moteur (il ne fait que le PARSER), donc pas de "
+        "fermeture d'imports a couvrir -- d'ou l'absence du glob racine, contrairement aux cliquets "
+        "voisins qui, eux, importent. Le verdict est la somme de l'auto-test (sources SYNTHETIQUES "
+        "de son propre source) et de la conformite substrat/litteral, laquelle se decide FICHIER "
+        "PAR FICHIER : une declaration `onlyActive` s'attache toujours dans la portee du call-site. "
+        "Le vocabulaire (SUBSTRATS, NOEUDS_NATIFS, LITTERAL_REGIME) vit dans son propre source. "
+        "Rien du build : les effectTypes sont lus par MEMBRE (`EffectType.<Nom>`), jamais par "
+        "ordinal, donc `enums.tsv` n'entre pas au verdict."),
+}
+
 # ------------------------------------------------------------------------------------------
 #  Les DEUX substrats du port, et ce qu'ils mirrorent. Table de VOCABULAIRE, pas de perimetre :
 #  le perimetre se derive du balayage AST.

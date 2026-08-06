@@ -78,6 +78,23 @@ ROOT = HERE.parents[1]
 PY_ROOT = ROOT / "scripts" / "python"
 ENGINE_ROOT = PY_ROOT / "engine"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Il croise DEUX balayages statiques dont les racines sont ecrites dans le module : le cote "
+        "PATCH est `PY_ROOT.rglob('*.py')` -- TOUT `scripts/python/**`, tests et probes compris, "
+        "parce qu'une fixture qui patche un seed BC peut vivre n'importe ou -- et le cote PORT est "
+        "`ENGINE_ROOT.rglob('*.py')`, qui en est un sous-ensemble. S'y ajoute l'etape 0, qui lit "
+        "`engine/entities/effects/magnitude.py`, et le point fixe des RELAIS, qui indexe les "
+        "SIGNATURES de tout le corpus : un defaut change dans une fonction sans rapport peut "
+        "resoudre ou rendre indetermine un axe. Le perimetre ne se borne donc pas en dessous de "
+        "`scripts/python/**`. Rien du build : aucune lecture d'enums.tsv, et le cote port lit "
+        "`gameconfig` par SYMBOLE (`ability_var`), jamais un ordinal."),
+}
+
 #: Le foyer de lecture cote port. Un renommage doit faire ROUGIR l'etape 0, pas rendre un zero.
 READER = "ability_var"
 READER_MODULE = ENGINE_ROOT / "entities" / "effects" / "magnitude.py"
