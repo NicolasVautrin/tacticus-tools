@@ -407,7 +407,7 @@ class AlphaWarriorAbility(ActiveAbility):
         TILE-TARGET portees passent aujourd'hui leur `target_id` a `entities_from_state` (1017
         FragBomb, 1018 ValkyrieStrike, 1026 BasiliskBarrage, 1148 DaemonicOrdnance, 1169
         PlagueburstMortar) et lisent donc un `Target()` NUL ; le remplir depuis le foyer changerait
-        leurs arbres sans que cette tranche l'ait confronte. RESIDU NOMME, pas un oubli.
+        leurs arbres sans que cette tranche l'ait confronte. RESIDU `#287-r12`, pas un oubli.
 
         Cote natif il n'y a pas d'ecart : le selecteur n'est PAS le role `Target()` mais
         `DSLSelectors$$Entity(<l'entite cible capturee>)` -- un selecteur FERME sur l'entite, que
