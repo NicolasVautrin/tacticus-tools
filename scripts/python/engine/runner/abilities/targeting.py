@@ -1499,6 +1499,62 @@ def _dynamic_rule_blood_chalice(state: "State", caster_id: int, target_id) -> in
     return 0 if int(caster_id) == int(target_id) else int(TR.TargetMatchesDynamicRule)
 
 
+def _dynamic_rule_exemplar_of_the_kauyon(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility$$GetDynamicInvalidTargetReason`
+    (1087, `tauShadowsun`) -- MIRROR du decompile, avec son lambda
+    (`...ExemplarOfTheKauyonAbility.u003Cu003Ec__DisplayClass2_0$$u003CGetDynamicInvalidTargetReasonu003Eb__0`
+    = `UnitExtensions.IsEnemy(unit, closure.caster, ability.state)`) :
+
+        if (!TileExtensions.IsFreeTile(target, state, allowSteppable: true,
+                                       allowTemporaryTile: false, allowAnyUnit: false))
+            return 2;                                          // TargetMatchesDynamicRule
+        units = battleQuery.GetAdjacentUnits(target, friendsOf: null, enemiesOf: null,
+                                             ignoreSteppables: false);      // slot 122
+        units.RemoveAll(u => UnitExtensions.IsEnemy(u, caster, state));
+        return units.Count() == 0 ? 2 : 0;
+
+    SEMANTIQUE, avec le masque `0x6001042`
+    (`TargetMatchesDynamicRule | TargetIsTile | TargetTileIsFree | AllowObscuredTargetByElevation
+    | AllowObscuredTargetByWalls`) : Shadowsun disparait et REAPPARAIT sur une tuile libre
+    « adjacent to an allied unit ». Le `RemoveAll` retire les ENNEMIS -- ce qui reste, et qu'on
+    exige non vide, ce sont les unites NON ennemies adjacentes. Le sens du filtre est donc INVERSE
+    de sa lecture naive (« il faut un ennemi adjacent ») : c'est `RemoveAll`, pas un `Where`.
+
+    ⚠ LE PREMIER TERME EST UNE REDITE DU VOLET STATIQUE, ET IL EST INERTE ICI.
+    `TileExtensions$$IsFreeTile(tile, state, allowSteppable, allowTemporaryTile, allowAnyUnit)` a
+    le MEME CORPS que `TileExtensions$$CanAddUnit(tile, state, allowSteppable, ignoreReserved,
+    ignoreContent)` -- lu, pas suppose : memes quatre rejets dans le meme ordre (composant tuile,
+    Blocker `+0x40/+0x10`, `Position.NotWalkable +0x40`, contenu vide-ou-`Steppable` 0x1b), meme
+    sortie de queue `Position+0x2c == 0` sous le flag. Les deux triplets coincident ici
+    (`allowSteppable=1, allowTemporaryTile=0, allowAnyUnit=0` == `(1, 0, 0)`), donc ce terme
+    demande EXACTEMENT ce que le bit `TargetTileIsFree` du masque a deja demande en amont dans la
+    cascade : une tuile qui le romprait n'atteint jamais la regle dynamique. Il est porte quand
+    meme (le natif l'ecrit) mais ne peut pas mordre -- le seul terme DISCRIMINANT de 1087 est
+    l'ALLIE ADJACENT.
+
+    `tile_can_add_unit` est le mirror deja porte de ce corps pour ce triplet ; on ne re-ecrit pas
+    un second exemplaire sous l'autre nom.
+
+    Cible non resolue -> `0` : le natif y rendrait `2` (`IsFreeTile(null)` est faux), mais la
+    cascade n'atteint cette regle que sur une cible enumeree, donc resolue -- meme convention que
+    `_dynamic_rule_blood_chalice`. Board absent -> `0` : on ne fabrique pas un refus sur un substrat
+    non mesure."""
+    if target_id is None:
+        return 0
+    board = state.board
+    if board is None:
+        return 0
+    tiles = entity_tiles(state, int(target_id))
+    if not tiles:
+        return 0
+    if not tile_can_add_unit(state, tiles[0]):
+        return int(TR.TargetMatchesDynamicRule)
+    units = get_adjacent_units(state, int(target_id))
+    # `List<T>.RemoveAll(u => IsEnemy(u, caster, state))` -- ce qui RESTE est le non-ennemi.
+    restants = [u for u in units if not units_are_enemies(state, int(caster_id), u.id)]
+    return 0 if len(restants) > 0 else int(TR.TargetMatchesDynamicRule)
+
+
 def charge_tiles_count(state: "State", caster_id: int, target_id, ability_id: str,
                        ignore_flags: bool) -> Optional[int]:
     """`<X>Ability$$GetPossibleMove[ment]Tiles` -> `ITargetsSelector` slot 2 `Count`/1, le corps
@@ -1583,6 +1639,7 @@ DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.LightOfSanguinius: _dynamic_rule_light_of_sanguinius,   # 1177
     ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
     ActiveAbilityType.LeadingTheCharge: _dynamic_rule_leading_the_charge,     # 1204
+    ActiveAbilityType.ExemplarOfTheKauyon: _dynamic_rule_exemplar_of_the_kauyon,  # 1087
 }
 
 
@@ -2683,6 +2740,73 @@ def get_free_adjacent_tiles(state: "State", entity_id) -> list:
     return out
 
 
+def get_adjacent_tiles(state: "State", entity_id, only_empty_or_steppable: bool,
+                       only_walkable_tiles: bool, allow_temporary: bool) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(IList from, bool onlyEmptyOrSteppable,
+    bool onlyWalkableTiles, bool allowTemporary)` — la surcharge LISTE, slot 81 d'`IBattleQuery`
+    (arite 4, LU dans `data/symbols/<build>/metadata/interface_slots.tsv`). Mirror du decompile :
+
+        set = new OrderedSet<IEntity>();
+        foreach (tile in from)                                   # UNION des ring-1 de l'empreinte
+            set.AddRange(BattleQuery$$IterateAdjacentTiles(tile, onlyEmptyOrSteppable,
+                                                           onlyWalkableTiles, allowTemporary));
+        return set;                                              # DEDUPLIQUE, ordre d'insertion
+
+    `IterateAdjacentTiles` delegue par tuile a `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`,
+    dont la boucle est deja lue mot pour mot dans `engine/battle_query.get_adjacent_tiles` :
+
+        foreach (neighbour in tile.Neighbours)
+            if (tile == null)                                              continue
+            if (!allowTemporary   && TileExtensions.IsTemporary(tile))     continue
+            if (onlyWalkableTiles && !TileExtensions.IsWalkable(tile, 1))  continue
+            if (onlyEmptyOrSteppable && !IsEmptyOrSteppable(tile, state))  continue
+            if (|elev(src) - elev(tile)| < 2) yield tile                   # porte INCONDITIONNELLE
+
+    ⚠ CE N'EST PAS `get_free_adjacent_tiles`, bien que les deux COINCIDENT offline pour
+    `(onlyEmptyOrSteppable=1, onlyWalkableTiles=1)`. `GetFreeAdjacentTiles` est un natif DISTINCT
+    (slots 82/83, arite 1) qui appelle celui-ci puis lui applique en plus
+    `ListExtensions$$FilterInPlace(t => TileExtensions.CanAddUnit(t, state, 1, 0, 0))` — un filtre
+    qui, offline, ne retire rien de plus (`CanAddUnit` re-teste vide-ou-steppable + walkable, et son
+    seul terme supplementaire, la tuile RESERVEE `Position+0x2c`, n'est capte par aucun RPC). La
+    coincidence est donc MESUREE sur ce que le port modelise, pas supposee — et les deux fonctions
+    restent separees parce que les deux natifs le sont.
+
+    `allow_temporary` est PROPAGE mais INERTE : `TileExtensions$$IsTemporary` n'a aucun substrat
+    offline (meme limitation, deja nommee, que `get_free_adjacent_tiles`). Le declarer plutot que le
+    taire fait diverger le jour ou le substrat existera.
+
+    `only_empty_or_steppable=False` / `only_walkable_tiles=False` LEVENT : le seul call-site porte
+    est `SkyStrikeAbility$$GetDynamicInvalidTargetReason`, qui passe `(1, 1, 0)`. Mentir sur un flag
+    non mirrore serait pire que refuser.
+
+    Rend des `(col,row)`, dedupliques, dans l'ordre d'insertion."""
+    if not only_empty_or_steppable or not only_walkable_tiles:
+        raise NotImplementedError(
+            "get_adjacent_tiles: seule la combinaison du call-site porte "
+            "(only_empty_or_steppable=True, only_walkable_tiles=True) est mirroree")
+    board = state.board
+    if board is None:
+        return []
+    out: list = []
+    for t in (entity_tiles(state, entity_id) or ()):
+        tid = board.id_at(int(t[0]), int(t[1]))
+        if tid is None:
+            continue
+        elev = board.elevation(tid)
+        for nid in board.neighbours(tid):
+            if abs(elev - board.elevation(nid)) >= 2:
+                continue                       # porte d'ELEVATION de `TileQuery$$IterateAdjacentTiles`
+            coord = board.coord(nid)
+            if coord in out:
+                continue                       # `OrderedSet` : deduplication
+            if not board.walkable(nid):
+                continue                       # `onlyWalkableTiles` -> `TileExtensions$$IsWalkable`
+            if not tile_is_empty_or_steppable(state, coord):
+                continue                       # `onlyEmptyOrSteppable` -> `IsEmptyOrSteppable`
+            out.append(coord)
+    return out
+
+
 def get_adjacent_enemies(state: "State", tiles, unit_id,
                          only_non_steppable: bool = False) -> list:
     """`IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(IList<Tile> tiles, IEntity unit,
@@ -2743,6 +2867,68 @@ def get_adjacent_enemies(state: "State", tiles, unit_id,
             if only_non_steppable and UnitTrait.Steppable.name in (_unit_traits(state, occ.id) or ()):
                 continue
             if not units_are_enemies(state, unit_id, occ.id):
+                continue                                   # `IsEnemy(u, enemyOf)`
+            if occ not in out:
+                out.append(occ)                            # `OrderedSet.Add` (dedup)
+    return out
+
+
+def get_adjacent_units(state: "State", entity_id, friends_of=None, enemies_of=None,
+                       ignore_steppables: bool = False) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAdjacentUnits(IEntity from, IEntity friendsOf,
+    IEntity enemiesOf, bool ignoreSteppables)` — slot 122 d'`IBattleQuery` (arite 4, LU dans
+    `data/symbols/<build>/metadata/interface_slots.tsv`). Mirror du decompile, qui tient en une
+    ligne :
+
+        return GetUnitsOnTiles( IterateAdjacentTiles(from, requireEmptyOrSteppable: false,
+                                                           requireWalkable: true,
+                                                           allowTemporary: true),
+                                friendsOf, enemiesOf, ignoreSteppables );
+
+    C'est le MEME etage que `get_adjacent_enemies` / `get_adjacent_friends` ci-dessus — memes trois
+    flags d'iterateur, meme `CountOrGetUnitsOnTiles` en aval :
+
+        foreach (tile in tiles) {
+            u = UnitExtensions.GetUnit(tile, state);        if (u == null) continue;
+            if (onlyNonSteppable && IsSteppable(u))         continue;
+            if (friendOf != null && !IsFriend(u, friendOf)) continue;
+            if (enemyOf  != null && !IsEnemy(u, enemyOf))   continue;
+            set.Add(u);
+        }
+
+    La difference avec ses deux voisins est qu'ici les DEUX filtres sont des PARAMETRES : le
+    call-site porte (`ExemplarOfTheKauyonAbility$$GetDynamicInvalidTargetReason`) les passe NULS
+    tous les deux, donc TOUTE unite adjacente est rendue, amie comme ennemie, steppable comprise
+    (`ignoreSteppables = false`). C'est le seul des trois natifs qui sache rendre cet ensemble-la.
+
+    Comme ses voisins : la tuile SOURCE n'est jamais rendue (l'iterateur parcourt l'adjacence
+    STOCKEE), la porte d'ELEVATION `|dElev| < 2` s'applique, `state.unit_at` mirror
+    `UnitExtensions$$GetUnit(tile, state)`, et l'absence de board rend `[]` (aucun refus invente).
+
+    ⚠ `from` est une ENTITE, pas une liste : le port passe par `entity_tiles`, qui rend `[la tuile]`
+    quand l'entite EST une tuile — le regime exact du call-site porte (1087 cible une TUILE)."""
+    board = state.board
+    if board is None or entity_id is None:
+        return []
+    out: list = []
+    for t in (entity_tiles(state, int(entity_id)) or ()):
+        tid = board.id_at(int(t[0]), int(t[1]))
+        if tid is None:
+            continue
+        elev = board.elevation(tid)
+        for nid in board.neighbours(tid):
+            if abs(elev - board.elevation(nid)) >= 2:
+                continue                                   # porte d'ELEVATION (|dElev| < 2)
+            if not board.walkable(nid):
+                continue                                   # `requireWalkable = true`
+            occ = state.unit_at(board.coord(nid))          # `UnitExtensions$$GetUnit(tile, state)`
+            if occ is None:
+                continue
+            if ignore_steppables and UnitTrait.Steppable.name in (_unit_traits(state, occ.id) or ()):
+                continue
+            if friends_of is not None and not units_are_friends(state, friends_of, occ.id):
+                continue                                   # `IsFriend(u, friendOf)`
+            if enemies_of is not None and not units_are_enemies(state, enemies_of, occ.id):
                 continue                                   # `IsEnemy(u, enemyOf)`
             if occ not in out:
                 out.append(occ)                            # `OrderedSet.Add` (dedup)
