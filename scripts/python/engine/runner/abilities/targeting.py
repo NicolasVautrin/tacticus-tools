@@ -295,6 +295,7 @@ from ..components import StatsComponent, UnitComponent
 from ..components import UnitComponent
 from ..components import UnitFlagsComponent
 from ..components import get_unit_feet
+from ..components import has_effect_of_type
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1335,9 +1336,45 @@ def _dynamic_rule_foul_infusion(state: "State", caster_id: int, target_id) -> in
             else int(TR.TargetMatchesDynamicRule))
 
 
+def _dynamic_rule_forward_observers(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility$$GetDynamicInvalidTargetReason`
+    (1185, `tauNpc5StealthSuit` / `tauSmnStealthSuit`) -- MIRROR du decompile, qui tient en deux
+    lignes :
+
+        if (target != null && EntityExtensions.HasEffect(target, state, 0x462, onlyActive: false))
+            return 2;                            // 0x462 = EffectType.Markerlight
+        return <corps de base>;                  // 2     = TargetingRule.TargetMatchesDynamicRule
+
+    ⚠ LE `return` DE QUEUE EST LE CORPS DE BASE, ET C'EST LA QU'ON LE LIT. Le natif appelle
+    explicitement `AActiveAbility$$GetDynamicInvalidTargetReason` -- que Ghidra mislabelle
+    `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId` (IL2CPP deduplique les corps triviaux
+    et n'attribue qu'UN proprietaire). Ce corps decompile en `return 0`. C'est le SEUL call-site qui
+    NOMME ce corps, et il vaut bien au-dela de 1185 : il etablit ce que rend le delegue des ids dont
+    la classe ne surcharge pas -- cf. `probe_287r5_etages_bloquants.py`.
+
+    SEMANTIQUE, avec le masque `0x200004002`
+    (`TargetMatchesDynamicRule | TargetIsEnemy | TargetIsNotAnObject`) : on ne re-marque pas une
+    cible qui porte DEJA `Markerlight`. Une seconde pose serait sans effet -- le natif l'interdit au
+    CIBLAGE, pas a l'execution.
+
+    `onlyActive` vaut `0` a ce call-site, exactement comme celui de `SquigMineAbility` : le mirror
+    est donc `has_effect_of_type` (`EffectsState.has_effect`, qui ne filtre que `consumed`), et
+    surtout pas `active_effects`.
+
+    Cible non resolue -> `0` : le natif teste `target != null` AVANT le `HasEffect`, donc c'est son
+    propre verdict, pas une degradation du port."""
+    if target_id is None:
+        return 0
+    if state.get_entity(int(target_id)) is None:
+        return 0
+    return (int(TR.TargetMatchesDynamicRule)
+            if has_effect_of_type(state, int(target_id), int(EffectType.Markerlight)) else 0)
+
+
 DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.AdaptiveStrategy: _dynamic_rule_adaptive_strategy,      # 1005
     ActiveAbilityType.FoulInfusion: _dynamic_rule_foul_infusion,              # 1038
+    ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
 }
 
 
