@@ -92,6 +92,9 @@ def main() -> int:
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--state-file", default="rs_287r5_bc_live.json")
+    # Position du bras B (LOINTAIN), explicite : `MC1_67` est 7x9, `C1_02` est 5x7 (col 0..4 /
+    # row 0..6) et un `--place` hors board fait REFUSER le build. Sur C1_02 : `--far 4,6`.
+    ap.add_argument("--far", default="5,7", help="position du bras B (allie LOINTAIN)")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
 
@@ -99,8 +102,8 @@ def main() -> int:
     args = ["build", "--seed", str(a.seed), "--board", a.board, "--rank", "17",
             "--p-units", ",".join(u for u, _p, _l in ROSTER),
             "--a-units", "tyranNeurothrope", "--state-file", str(state_file)]
-    for u, pos, _l in ROSTER:
-        args += ["--place", "%s:%s" % (u, pos)]
+    for u, pos, lib in ROSTER:
+        args += ["--place", "%s:%s" % (u, a.far if lib.startswith("B") else pos)]
     _run(args)
     if not state_file.exists():
         print("[287r5-bc] PAS MESURE : build KO (state-file absent)")

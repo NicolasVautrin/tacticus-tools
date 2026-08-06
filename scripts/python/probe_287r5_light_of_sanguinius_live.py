@@ -76,15 +76,21 @@ def main() -> int:
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--state-file", default="rs_287r5_los_live.json")
+    # Les positions sont EXPLICITES parce que les boards n'ont pas la meme taille : `MC1_67` est
+    # 7x9, `C1_02` est 5x7 (col 0..4 / row 0..6) et un `--place` hors board fait REFUSER le build.
+    # Generalisation sur C1_02 : `--near 2,1 --far 4,6`.
+    ap.add_argument("--caster-pos", default="0,0")
+    ap.add_argument("--near", default="2,1", help="cible PROCHE -- attendu 0")
+    ap.add_argument("--far", default="6,8", help="cible LOINTAINE -- attendu 0x20")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
 
     state_file = LOGS / a.state_file
     _run(["build", "--seed", str(a.seed), "--board", a.board, "--rank", "17",
           "--p-units", PORTEUR, "--a-units", "orksWarboss,thousTzaangor",
-          "--place", "%s:0,0" % PORTEUR,
-          "--a-place", "orksWarboss:2,1",        # PROCHE  -> attendu 0
-          "--a-place", "thousTzaangor:6,8",      # LOINTAIN -> attendu 0x20
+          "--place", "%s:%s" % (PORTEUR, a.caster_pos),
+          "--a-place", "orksWarboss:%s" % a.near,
+          "--a-place", "thousTzaangor:%s" % a.far,
           "--state-file", str(state_file)])
     if not state_file.exists():
         print("[287r5-los] PAS MESURE : build KO (state-file absent)")
