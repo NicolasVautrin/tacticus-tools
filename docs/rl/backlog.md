@@ -2921,21 +2921,86 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   une **cascade d'`__init__.py`** (barils de re-export), **1** seul est une dependance mutuelle
   reelle -- d'ou `#485-r1`, le generateur de reecriture des barils.
 
-- **#477-r37 : les 5 faces MOVE restantes, le regime AUTOMATIQUE, et le `<slot 4>` des 22 AUTRES
-  classes.** `[opus]` Trois volets independants, du moins au plus proche du gisement ouvert :
-  (a) **5 faces** -- `1064 FirstAmongTraitors` (gate `HasTrait(Chaos)`, **0 unite sur 1083** :
-  terme inerte, NON CONFRONTABLE et c'est un resultat) ; `1451` / `1496` / `1508` (gates sur la
-  **rarete** du mover, `HasRarity(u, Mythic)` -- **aucun canal `rarity` dans le `ctx`**, verrou
-  pre-existant, une tranche a soi seule) ; `1478 SabreOfSacrifice` (gate = selecteur DSL
-  `SabreOfSacrificeAbility$$IsAffectedSummon`, invoque par vtable sur une struct de 0x128 octets) ;
-  (b) **le regime AUTOMATIQUE** (`IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute`) --
-  c'est le SEUL regime ou la face `1469` pese, et `aiStepDryRun` ne le marche pas. Sans lui, tout
-  gate en `HasTrait(mover, Summon)` restera exerce offline seulement ;
-  (c) **le `<slot 4>` des 22 autres classes du registre n'a PAS ete relu** -- #477-r35 n'en a lu
-  que 6. Rien ne dit qu'une autre ne vaut pas `true`, et c'est exactement l'erreur que #477-r35
-  vient de corriger, transposee d'un cran. Le lecteur existe deja
-  (`probe_477r35_non_owner_gates_montables.py`, etape 0b) : l'etendre aux 28 concrets est mecanique.
-  cf. `docs/rl/case-477r35-slot4-par-classe.md` sec. 8.
+- ~~**#477-r37**~~ : **LIVRE (2026-08-06) -- le `<slot 4>` a un NOM, et « terme inerte » avait
+  compte dans le MAUVAIS substrat.** Le slot est
+  `get_ShouldIncludingEnemiesWhenCalculate`, 5e methode d'`ITriggeredAbilityNonOwnerPlaybook`, LUE
+  dans le `global-metadata.dat`. Sur les **28** concrets, **2** la surchargent -- `HaywireMine`
+  (MOVE) et **`NoHidingFromTheWatchers`** (ATTACK), les deux a `true` ; les 26 autres heritent le
+  `false` de la base. **Le port etait JUSTE** : ce cas corrige la LECTURE, pas une valeur, et rend
+  le zero ratchetable (`data/symbols/<build>/metadata/non_owner_slot4.tsv`, versionnee).
+  ⚠ **Le critere de #477-r35 (« l'entree qui PRECEDE le `.ctor` ») etait FAUX DES DEUX COTES** :
+  faux NEGATIF sur `NoHidingFromTheWatchers` (qui declare APRES son `.ctor`), faux POSITIF sur
+  `ECogSupport`/`KustomForceFieldReworked` (l'entree lue appartenait au TYPE PRECEDENT). Il rendait
+  la bonne VALEUR pour la mauvaise RAISON -- retire, pas commente : `step0b` DELEGUE.
+  ⚠ **Une vtable runtime NON BORNEE ment** (#218) : `RelicOfLostCadia`, non initialisee, rendait le
+  getter a l'index 42 -- la vtable de la classe VOISINE, juste par chance. Garde = slots 0..3 == les
+  4 virtuels d'`Object`. 3 sources, chacune DIT son angle mort (metadata 28/28, PE 2/2 declarants,
+  runtime **13/28**).
+  ⚠⚠ **`1064 FirstAmongTraitors` N'EST PAS INERTE** : le « 0 unite sur 1083 » comptait
+  `gameconfig.unit().traits`, la source dont `unit_trait.py` ecrit qu'elle NE CONTIENT JAMAIS le
+  pseudo-trait de GRANDE-ALLIANCE. Substrat reel (`entity_trait_ids`) : **127 sur 683**. PORTEE et
+  CONFRONTEE LIVE -- porteur `blackAbaddon`, HERO **du pool**, passif de kit : ni greffe ni
+  injection (le SEUL confond arme sans montage du recensement). Son rayon n'est PAS l'adjacence :
+  `GetDistance(tile, ownerTiles) <= GetNumberConstant(range)` = disque de **2**. Registre
+  **18 -> 19**. 2 montages, **0 desaccord** sur 4 + 8 tuiles ; `ADJACENCE` mord 1, `RAYON+1` 1,
+  `CAMP-DEUX` 2, `ABSENT` (l'etat d'avant) **2** -- le bug chiffre.
+  Residus : **#477-r43**, **#477-r44**, **#477-r45**.
+  cf. `docs/rl/case-477r37-slot4-des-28-et-la-face-dite-inerte.md`.
+
+- **#419-r6-r3 : le montage `norncrown` de #477-r33 ne survit pas a la bascule des items.**
+  `[opus]` TROUVE au re-jeu apres rebase de #477-r37, ATTRIBUE par un TEMOIN : le meme montage
+  echoue **a l'identique sur `origin/master` PUR** (memes pas 2 / 12 / 16, meme
+  `trajectoire native epuisee au pas 17 (stage Finished)`), donc c'est un rouge PRE-EXISTANT, pas
+  une regression. Le symptome n'est PAS un desaccord : `X_nat` vs `X_port` n'est jamais evalue --
+  la bataille se TERMINE avant qu'un pas discriminant soit atteint, parce que
+  `_EQUIP_ITEMS_PAR_DEFAUT = True` (#419-r6) rend crit/block non nuls et raccourcit les combats.
+  Re-joue sous `TACTICUS_BIS_ITEMS=0` : **VERT, 0 desaccord sur 13 tuiles** (`CAMP-DEUX` 1,
+  `RAYON-1` 7, `PRE-GATE-OFF` 10, `ABSENT` 10).
+  ⚠ **NE PAS ajouter `--no-bis-items` a l'aveugle** : ce serait un vert achete en RESTAURANT le
+  regime degenere que #419-r6 a supprime. L'autre cote -- rallonger la bataille (`--hp-*`) ou
+  re-crafter la geometrie pour que le pas discriminant tombe plus tot -- coute une re-mesure du
+  montage. L'arbitrage appartient a qui possede le regime de mesure de #477-r33.
+  cf. `docs/rl/case-477r37-slot4-des-28-et-la-face-dite-inerte.md` sec. 8bis.
+
+- **#477-r43 : le canal `rarity`, et le piege du MEME OFFSET dans deux structures.** `[opus]`
+  Trois faces MOVE l'attendent (`1451 WisdomOfTheAncients`, `1496 CabalOfSorcerers`,
+  `1508 MastersOfManoeuvre`) ; leurs gates sont `HasRarity(u, Mythic)` =
+  `BaseUnitComponent.<+0x74> == 5`, EGALITE STRICTE, sur le mover ET sur les unites du voisinage.
+  **Le MONTAGE est disponible** : le seed BC porte deja **10 unites `Rarity == 5`**, `rl_duel build`
+  ne pose PAS `targetRarity`, et `--unit-stat "<vis>:Rarity=5"` ecrit le champ verbatim (a
+  VERIFIER comme #342 l'a fait pour `Shield` : que `UnitFactory$$Build` recopie bien
+  `UnitConfiguration.Rarity` dans le composant -- un champ ecrit et jamais lu est un montage MUET).
+  **Le CAPTEUR manque** et exige une FENETRE DE REINJECT : `combatSnapshot.units[].rarity` <-
+  `IdunBattle.Entities.Components.BaseUnitComponent.Rarity` via `getFieldOffset`.
+  ⚠ **NE PAS le prendre sur `UnitConfiguration`** : le canal `unitConfig` existe et lit
+  `UnitConfiguration@0x74`... qui est `AbilityVariablesMultiplierPercentage`. Deux structures, deux
+  champs differents au MEME offset -- un capteur pose la rendrait un multiplicateur deguise en
+  rarete, sans erreur. cf. `docs/rl/case-477r37-slot4-des-28-et-la-face-dite-inerte.md` sec. 6.
+
+- **#477-r44 : le regime AUTOMATIQUE se lit peut-etre SANS aucun hook.** `[opus]` #477-r35 a conclu
+  « `aiStepDryRun` ne marche pas ce regime » -- vrai, et c'est la MAUVAISE FRONTIERE. Decompile
+  d'`IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute` : chaque unite automatique passe
+  par `Processor.<slot 0x34>` = **`ComputerAction`** (slot **52**, LU dans
+  `metadata/ioperationprocessor_slots.tsv`), jusqu'a 5 fois, puis `<slot 0x23>` = `FinishUnitTurn`
+  (35). C'est le MEME `ComputerAction` que pour une unite normale -- donc le scorer tourne dedans,
+  et `scorerTileTermTrace` est arme au niveau de la SESSION, pas de la trajectoire d'activation.
+  PROTOCOLE A JOUER : armer `scorerDamageTraceOn(runnerId)`, faire **DEMARRER** le tour de l'equipe
+  proprietaire (finir celui d'en face) au lieu d'appeler `aiStepDryRun`, puis vider
+  `scorerTileTermTraceDump`. ⚠ Ce n'est PAS une mesure, c'est une piste DERIVEE du decompile. Si
+  elle tient, tout gate en `HasTrait(mover, Summon)` -- dont `1469 MawClawsOfThyrax`, exerce offline
+  seulement -- devient confrontable sans capteur neuf.
+  cf. `docs/rl/case-477r37-slot4-des-28-et-la-face-dite-inerte.md` sec. 7.
+
+- **#477-r45 : `1478 SabreOfSacrifice`, en ARBRE DSL et pas autrement.** `[opus]` L'artefact natif
+  est un ARBRE (#149) : `SabreOfSacrificeAbility$$IsAffectedSummon` ne teste rien, il CONSTRUIT
+  `AreEqual(DSLSelectors.Parent(unit, root: false), <caster>) & IsUnitWithVisualId(unit,
+  GetStringConstant(0))` -- `AbilityConstantType.unitId` = `"astraNpc5DeathRider"` -- que le
+  playbook execute par vtable `+0x188` sur une struct de contexte de **0x128 octets** (`owner` a
+  `+0x18`). Le vocabulaire existe cote port (`entities/triggers.py` : `AreEqual`,
+  `IsUnitWithVisualId`) ; manquent le canal `UtilityMovementCase$$StaysOnTile` (1re sortie du
+  corps) et le montage du contexte DSL de ce call-site. Recabler le gate a la main dans un
+  `execute_*` serait exactement ce que #149 interdit.
+  cf. `docs/rl/case-477r37-slot4-des-28-et-la-face-dite-inerte.md` sec. 6.
 
 - ~~**#477-r30**~~ : **LIVRE (2026-08-06) -- l'appariement slot<->nom passe de la LIGNE a une
   FENETRE de 3 lignes, et y trouve 8 citations FAUSSES de plus.** La taille est MESUREE, pas

@@ -212,11 +212,17 @@ que le montage a `na == ne == 1`, donc `we + wa == wa + we` — dit, pas tu ; il
 
 ## 8. Ce qui n'est PAS couvert
 
-* **Les 5 faces MOVE restantes** (résidu **#477-r37**) : `1064 FirstAmongTraitors` (gate
+* **Les 5 faces MOVE restantes** (résidu **#477-r37**, LIVRÉ) : `1064 FirstAmongTraitors` (gate
   `HasTrait(Chaos)`, **0 unité sur 1083** — terme inerte) ; `1451`, `1496`, `1508` (gates sur la
   **rareté** du mover, aucun canal `rarity` dans le `ctx`) ; `1478 SabreOfSacrifice` (gate =
   sélecteur DSL `SabreOfSacrificeAbility$$IsAffectedSummon`, invoqué par vtable sur une struct de
   0x128 octets).
+  ⚠⚠ **Le « 0 unité sur 1083 » de `1064` est FAUX, et #477-r37 l'a mesuré.** Ce compte portait sur
+  `gameconfig.unit(vis).traits` — la source dont `engine/entities/traits/unit_trait.py` écrit
+  qu'elle **ne contient jamais** le pseudo-trait de grande-alliance. Le substrat que
+  `BaseUnitComponent$$HasTrait` interroge en donne **127 sur 683** : la face est vivante, elle est
+  portée depuis #477-r37, et son porteur `blackAbaddon` est un héros **du pool**. Il en reste
+  **4**. Détail : `docs/rl/case-477r37-slot4-des-28-et-la-face-dite-inerte.md`.
 * **La branche SPAWN de 1469** — le `ctx` de spawn ne produit aucune clé de sujet ni de parent.
   Résidu pré-existant de la feuille, inchangé.
 * **Le régime automatique** (`PlayAutomaticUnitsOperation`) — c'est le seul régime où la face 1469
@@ -226,6 +232,13 @@ que le montage a `na == ne == 1`, donc `we + wa == wa + we` — dit, pas tu ; il
 * **Le `<slot 4>` des 22 autres classes** du registre n'a PAS été relu : seules 6 le sont. Rien ne
   dit qu'une autre ne vaut pas `true` — et c'est exactement l'erreur que ce cas vient de corriger,
   transposée d'un cran.
+  ⚠ **RELU par #477-r37, sur les 28, et le CRITÈRE de ce cas-ci était FAUX DES DEUX CÔTÉS.** Le
+  `<slot 4>` est `get_ShouldIncludingEnemiesWhenCalculate` (nom LU dans le `global-metadata.dat`) ;
+  `NoHidingFromTheWatchersNonOwnerPlaybook` le déclare **APRÈS** son `.ctor` et vaut `true` (faux
+  négatif), tandis qu'`ECogSupport` / `KustomForceFieldReworked` ne déclarent **RIEN** là où le
+  §2 lit un override `return 0` — cette entrée appartient au **type précédent** (faux positif). Le
+  tableau du §2 rendait donc les bonnes valeurs pour la mauvaise raison. `step0b` **délègue**
+  désormais au lecteur complet.
 
 ## 9. Le déplacement du foyer a cassé un artefact versionné — trouvé à la relecture de PR
 
@@ -268,9 +281,13 @@ dette, et le lire comme un certificat serait exactement le faux positif que ce d
 
 ## Résidus
 
-- **#477-r37 — les 5 faces MOVE restantes, le régime AUTOMATIQUE, et le `<slot 4>` des 22 autres
-  classes** (§8). Trois volets indépendants ; le troisième est le plus proche du gisement que ce
-  cas vient d'ouvrir.
+- ~~**#477-r37**~~ — **LIVRÉ**. Les trois volets sont tranchés :
+  `<slot 4>` relu sur les **28** (2 surchargent, les deux à `true` ; le port était juste, le
+  critère de ce cas-ci ne l'était pas) ; `1064` **portée et confrontée live** (le « terme inerte »
+  comptait dans le mauvais substrat) ; le régime automatique est **ouvrable sans hook**
+  (`PlayAutomaticUnitsOperation` passe par `ComputerAction`). Résidus ouverts là-bas : **#477-r43**
+  (canal `rarity`), **#477-r44** (régime automatique), **#477-r45** (`1478` en arbre DSL).
+  cf. `docs/rl/case-477r37-slot4-des-28-et-la-face-dite-inerte.md`.
 - **#485 — les 314 imports différés d'`engine/**`, ventilés** (§9). **262 porteurs** (hisser
   fermerait un cycle) dont **212 sans raison écrite** : un lecteur ne peut pas distinguer
   « structurel, n'y touche pas » d'une scorie — et c'est vraisemblablement par imitation que les

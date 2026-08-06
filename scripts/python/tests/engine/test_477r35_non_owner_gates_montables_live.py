@@ -13,8 +13,13 @@ CE QUE CETTE GARDE PROTEGE, et pourquoi ce n'est pas un detail :
     il manquait exactement `HaywireMine_EnemyAvoidMine` (-30).
   * **Et le premier critere de lecture rendait VERT.** Il postulait que le bloc `methodPointers`
     d'une classe COMMENCE a son `.ctor` ; les SIX classes relues le satisfaisaient, y compris
-    celle qui surcharge. Le discriminant est l'entree QUI PRECEDE le `.ctor`. Cette garde le
-    RE-DERIVE du binaire (etage 1) au lieu de citer un verdict.
+    celle qui surcharge.
+    ⚠ **Son REMPLACANT (« l'entree qui PRECEDE le `.ctor` ») etait FAUX AUSSI, dans les deux
+    sens** -- #477-r37 : faux negatif sur `NoHidingFromTheWatchersNonOwnerPlaybook` (qui declare
+    APRES son `.ctor`), faux positif sur `ECogSupport`/`KustomForceFieldReworked` (l'entree lue
+    appartenait au TYPE PRECEDENT). La lecture CORRECTE passe par le NOM du slot
+    (`get_ShouldIncludingEnemiesWhenCalculate`) dans le `global-metadata.dat`, sur les VINGT-HUIT
+    concrets. L'etage 1 y DELEGUE, il ne cite aucun verdict.
 
 LES TROIS CORPS, au decompile du build courant :
 
@@ -129,8 +134,9 @@ def _rows(r37_case) -> list:
 def test_le_slot4_est_une_donnee_PAR_CLASSE_et_le_port_porte_la_MEME():
     """Ce test est le coeur de la tranche : il aurait rougi sur `origin/master`.
 
-    Il RE-DERIVE le `<slot 4>` de six classes depuis le PE (l'entree qui PRECEDE le `.ctor`) et
-    confronte au port. Deux assertions, dans les deux sens :
+    Il RE-DERIVE le `<slot 4>` des VINGT-HUIT concrets (metadata + PE + runtime, #477-r37) et
+    confronte au port, puis re-verifie les six classes de ce cas. Deux assertions, dans les deux
+    sens :
       * `HaywireMineNonOwnerPlaybook` vaut `true` -- sinon la branche ENNEMI serait morte et la cle
         `HaywireMine_EnemyAvoidMine` n'aurait aucun consommateur ;
       * les cinq autres valent `false` -- sinon le dispatcher garderait des porteurs ennemis que le
@@ -177,10 +183,12 @@ def test_le_recensement_et_les_cles_sont_RE_DERIVES():
     assert len(rec["move"]) == 24, (
         "%d faces MOVE au lieu de 24 : le build a bouge, ou la lecture des tables est cassee "
         "(un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas)" % len(rec["move"]))
-    assert len(rec["portes"]) == 18, (
-        "%d faces MOVE couvertes par le registre au lieu de 18" % len(rec["portes"]))
-    assert len(rec["reste"]) == 5, (
-        "%d faces MOVE restent non portees au lieu de 5 (hors `RedemptionOfTheRisen`, ecrite mais "
+    # 18 apres #477-r35, **19** depuis #477-r37 (`1064 FirstAmongTraitors`, que #477-r35 avait
+    # classe « terme inerte » sur un compte de traits fait dans le MAUVAIS substrat).
+    assert len(rec["portes"]) == 19, (
+        "%d faces MOVE couvertes par le registre au lieu de 19" % len(rec["portes"]))
+    assert len(rec["reste"]) == 4, (
+        "%d faces MOVE restent non portees au lieu de 4 (hors `RedemptionOfTheRisen`, ecrite mais "
         "volontairement hors registre)" % len(rec["reste"]))
     assert P.step0c(verbeux=False) == 0, "une cle BC ne vaut plus son litteral au gameconfig vivant"
 
