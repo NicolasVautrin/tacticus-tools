@@ -1412,7 +1412,7 @@ def main(argv=None) -> int:
                 mentionne_plein.add(s)
                 ment_arbre_plein.add(s)
         if not rel.endswith(".py"):
-            if rel.endswith(".ps1"):            # un script PowerShell : pas d'AST, le texte fait foi
+            if rel.endswith(".ps1"):        # script PowerShell : pas d'AST, le texte fait foi
                 for s in vus:
                     citants_exec[s].add(rel)
             continue
