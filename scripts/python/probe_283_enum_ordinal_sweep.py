@@ -292,9 +292,39 @@ def _by_name(m: dict) -> dict:
     return {v: k for k, v in m.items()}
 
 
+#: Table dont TOUT ce probe depend. Un repertoire de build qui ne la porte pas ne peut RIEN
+#: dire des enums -- c'est un archivage fait pour un AUTRE usage.
+_TABLE_ENUMS = ("frida", "enums.tsv")
+
+
+def builds_sans_table_enums() -> list:
+    """Les builds archives qui n'ont PAS `frida/enums.tsv`. Rendus pour etre DITS, pas ignores."""
+    return [b for b in archived_builds()
+            if not (REPO / "data" / "symbols" / b).joinpath(*_TABLE_ENUMS).is_file()]
+
+
 def previous_build() -> "str | None":
-    arch = archived_builds()
-    return arch[-1] if arch else None
+    """Le build archive le PLUS RECENT QUI PORTE LA TABLE DES ENUMS, ou `None`.
+
+    ⚠ CE N'EST PAS << le dernier repertoire de `data/symbols` >>, et le raccourci a coute
+    (#484). `630a9c59` (#482-r3, 2026-08-06) archive `kqkbjqfb6c` pour un usage TOUT AUTRE --
+    conserver l'empreinte STRUCTURELLE d'un binaire avant sa disparition -- donc ce repertoire
+    ne porte que `BUILD`, `fingerprints/functions.tsv` et `ghidra/functions.tsv`. Aucun
+    `frida/enums.tsv` : le binaire n'etait plus la pour le produire.
+
+    `arch[-1]` le designait pourtant comme << le build precedent >>, et `enum_map` rendait `{}`
+    pour les QUATRE enums, sans erreur. Effet mesure : **5 tests** de
+    `test_enum_ordinal_ratchet_offline.py` rouges sur `master` -- dont trois auto-controles qui
+    disaient exactement << le detecteur ne mord plus : l'exemption ne prouverait rien >>.
+
+    Le filtre porte sur la TABLE, pas sur une liste de hashs a la main : un futur archivage
+    partiel (meme motif, autre binaire) sera ecarte tout seul. Et ce qui est ecarte est
+    ENUMERABLE (`builds_sans_table_enums`) -- un filtre muet redeviendrait le meme faux vert.
+    """
+    for b in reversed(archived_builds()):
+        if (REPO / "data" / "symbols" / b).joinpath(*_TABLE_ENUMS).is_file():
+            return b
+    return None
 
 
 # ------------------------------------------------------------------------------------------
