@@ -817,6 +817,125 @@ def conformite_du_foyer(flux: str) -> dict:
             "divergences": divergences, "valeurs": dict(sorted(valeurs.items()))}
 
 
+def _porte_un_damage(obs) -> bool:
+    """« ce sous-arbre PORTE contient-il un `Group=Damage` ? » -- pour le compte AVANT/APRES du
+    verdict. Recursif parce que le flux les montre imbriques sous un `Group=Ability_Power`."""
+    if isinstance(obs, R21.DamageObs):
+        return True
+    if isinstance(obs, R21.AbilityPowerObs):
+        return any(_porte_un_damage(e) for e in obs.enfants)
+    return False
+
+
+def _groupes_damage(flux: str) -> List[Tuple[int, List[str], "R21.DamageObs"]]:
+    """TOUS les `Group=Damage` du flux, dans l'ordre : `(ligne, texte, obs)`.
+
+    Le parcours ne suppose RIEN de leur place : ils apparaissent sous `User_UseAbility`, sous
+    `System_ProcessDeaths` et -- c'est ce qui ouvre `#477-r34` -- sous `StartTurn`."""
+    lignes = [l for l in flux.split("\n") if l != ""]
+    out = []
+    for i, ligne in enumerate(lignes):
+        mg = CONF.RE_GROUP.match(ligne)
+        if not mg or mg.group("sym") != GroupType.Damage.name:
+            continue
+        fin = R21._bloc(lignes, i)
+        sous = lignes[i:fin + 1]
+        out.append((i, sous, R21._lire_groupe_damage(sous)))
+    return out
+
+
+def _emettre_damage(obs: "R21.DamageObs", mutation: str = "") -> str:
+    """Emet UN `Group=Damage` avec le port, sans indentation d'enveloppe."""
+    cache = StreamCache()
+    capture = Capture()
+    cache.add_listener(capture)
+    events = StreamDispatcher()
+    events.subscribe(cache)
+    R21.emettre_sous_arbre(events, obs, mutation)
+    return "".join(capture.racines)
+
+
+def _nu(lignes) -> List[str]:
+    """Le texte sans son indentation -- un `Group=Damage` du flux est imbrique, celui du port
+    part de la profondeur 0. C'est la SEULE difference qu'on neutralise, et elle est de mise en
+    forme : `StreamCache` la produit deja, elle a ete confrontee par `#477-r15a`."""
+    if isinstance(lignes, str):
+        lignes = lignes.split("\n")
+    return [l.strip() for l in lignes if l.strip()]
+
+
+def conformite_du_groupe_damage(flux: str) -> dict:
+    """LE FOYER `IdunBattle.Operations.ApplyDamageOperation$$Execute` CONFRONTE SUR TOUT LE FLUX
+    -- la GENERALISATION de `#477-r34`, et la raison pour laquelle ses contre-epreuves vivent
+    ici plutot que dans la boucle des couples.
+
+    ⚠ LES COUPLES N'EN PORTENT QUE TROIS, ET AUCUN SUR LA MOITIE DES SCENARIOS. Le
+    `Group=StartTurn` ne contient un `Group=Damage` que lorsqu'un effet de TUILE frappe au debut
+    du tour (`EnvFireTileDamage`, `EnvDespoiledGroundTileDamage`) ; sur `C1_02` a 2 tours il n'y
+    en a aucun. Des mutations jouees sur ce seul corpus auraient donc un domaine NUL sur
+    plusieurs scenarios -- exactement le vice que le garde-fou de ce probe refuse. Elles sont
+    jouees sur TOUTES les occurrences du flux, dont le compte est PUBLIE.
+
+    ⚠ CE N'EST PAS LE MEME REGIME QUE `conformite_du_foyer` (le slot `0x76`), ET LA DIFFERENCE
+    EST DECLAREE. Le foyer des marques DERIVE sa valeur d'un registre construit par les lignes
+    PRECEDENTES : sa valeur est une prediction. Ici, les quinze tags sont des ENTREES lues dans
+    le flux (borne (c)) ; ce que le port DERIVE est enumere par `R21.entrees_damage` --
+    l'ENTITE (une valeur, trois occurrences produites), le booleen `Attack_WasMemberKilled`
+    (derive de la PRESENCE d'un autre tag), la conditionnalite de
+    `UnitStats_NumberOfMembers_Change`, la FORME du groupe et l'ordre de ses lignes."""
+    groupes = _groupes_damage(flux)
+    egales = 0
+    divergences: List[str] = []
+    # (DD1) les TROIS occurrences de l'entite coincident-elles dans le NATIF ?
+    dd1 = sum(1 for _i, _t, o in groupes
+              if o.groupe_entity == o.action_entity == dict(o.tags).get(TagKey.Target_Id.name))
+    # (DD2) `Attack_WasMemberKilled` suit-il la PRESENCE de `UnitStats_NumberOfMembers_Change` ?
+    dd2 = dd2_tues = 0
+    for _i, _t, o in groupes:
+        d = dict(o.tags)
+        tue = TagKey.UnitStats_NumberOfMembers_Change.name in d
+        dd2_tues += 1 if tue else 0
+        if bool(d[TagKey.Attack_WasMemberKilled.name]) == tue:
+            dd2 += 1
+    voies: Dict[str, int] = {}
+    for _i, _t, o in groupes:
+        d = dict(o.tags)
+        for _champ, cle in R21.SOURCE_TAGS + R21.ADDITIONAL_HIT_SOURCE_TAGS:
+            if cle.name in d:
+                voies[cle.name] = voies.get(cle.name, 0) + 1
+    avec_corps = sum(1 for _i, _t, o in groupes if o.enfants)
+    for i, texte, obs in groupes:
+        emis = _nu(_emettre_damage(obs))
+        if emis == _nu(texte):
+            egales += 1
+        elif len(divergences) < 6:
+            divergences.append("L%d natif=%d lignes port=%d lignes" % (i, len(_nu(texte)),
+                                                                       len(emis)))
+    ce = []
+    for nom in R21.MUTATIONS_DAMAGE:
+        mordus = muets = rouges = hors_domaine = 0
+        for _i, texte, obs in groupes:
+            if not R21.applicable_damage(nom, obs):
+                hors_domaine += 1
+                continue
+            sain = _emettre_damage(obs)
+            try:
+                mute = _emettre_damage(obs, nom)
+            except (MesureImpossible, ValueError):
+                mute = sain
+            if mute == sain:
+                muets += 1
+                continue
+            mordus += 1
+            if _nu(mute) != _nu(texte):
+                rouges += 1
+        ce.append((nom, mordus, muets, rouges, hors_domaine))
+    return {"groupes": len(groupes), "egales": egales, "divergences": divergences,
+            "dd1": dd1, "dd2": dd2, "dd2_tues": dd2_tues, "voies": voies,
+            "avec_corps": avec_corps, "contre_epreuve": ce,
+            "lignes": sum(len(_nu(t)) for _i, t, _o in groupes)}
+
+
 def effect_refresh_recoltes(couples: List[TurnObs]) -> dict:
     """CE QUE LA TRANCHE DEBLOQUE POUR `Effect_Refresh`, mesure -- le fil de #477-r19-r2.
 
@@ -966,6 +1085,7 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
             "derivations": der, "contre_epreuve": ce, "rapport": rap_bloc2,
             "effect_refresh": effect_refresh_recoltes(couples),
             "foyer": conformite_du_foyer(flux),
+            "damage": conformite_du_groupe_damage(flux),
             "voc_porte": R19.vocabulaire(attendu0)}
 
 
@@ -1050,6 +1170,28 @@ def imprimer(res: dict) -> None:
           "%d hors perimetre ; AUTONOMES : %d"
           % (GroupType.Effect_Refresh.name, eff["reproduits"], eff["hors_perimetre"],
              eff["autonomes"]))
+    dmg = res["damage"]
+    print("      FOYER `ApplyDamageOperation$$Execute` sur TOUT le flux : %d / %d `Group=%s` "
+          "reproduit(s) (%d lignes) ; %d avec un corps"
+          % (dmg["egales"], dmg["groupes"], GroupType.Damage.name, dmg["lignes"],
+             dmg["avec_corps"]))
+    for d in dmg["divergences"][:6]:
+        print("          ROUGE %s" % d)
+    print("          (DD1) les TROIS occurrences de l'entite (entete, action, `Tag=%s`) "
+          "coincident : %d / %d" % (TagKey.Target_Id.name, dmg["dd1"], dmg["groupes"]))
+    print("          (DD2) `%s` suit la PRESENCE de `%s` : %d / %d ; %d groupe(s) avec mort"
+          % (TagKey.Attack_WasMemberKilled.name,
+             TagKey.UnitStats_NumberOfMembers_Change.name, dmg["dd2"], dmg["groupes"],
+             dmg["dd2_tues"]))
+    print("          voies de source exercees : %s"
+          % (", ".join("%s x%d" % (k, v) for k, v in sorted(dmg["voies"].items())) or "AUCUNE"))
+    print("      CONTRE-EPREUVE `%s` (%d mutations ; sur son DOMAINE, chacune doit MORDRE puis "
+          "ROUGIR) :" % (GroupType.Damage.name, len(R21.MUTATIONS_DAMAGE)))
+    for nom, mordus, muets, rouges, hors_domaine in dmg["contre_epreuve"]:
+        etat = ("HORS DOMAINE" if mordus + muets == 0
+                else "OK" if (muets == 0 and rouges == mordus) else "ROUGE")
+        print("          %-30s domaine=%-3d mord=%-3d INERTE=%-2d rougit=%d/%-3d %s"
+              % (nom, mordus + muets, mordus, muets, rouges, mordus, etat))
     print("  VOCABULAIRE du natif PORTE : %d GroupType, %d StepType, %d TagKey -- %s"
           % (len(res["voc_porte"]["GroupType"]), len(res["voc_porte"]["StepType"]),
              len(res["voc_porte"]["TagKey"]), ",".join(sorted(res["voc_porte"]["StepType"]))))
@@ -1204,6 +1346,65 @@ def main() -> int:
               "pas %d emission(s) du flux : %s"
               % (sum(n for _b, n in foyer_ko), ", ".join("%s:%d" % (b, n) for b, n in foyer_ko)))
         rc = 1
+    # --- #477-r34 : la famille `Group=Damage`, confrontee sur TOUT le flux.
+    dmg_ko = [(r["etiquette"], len(r["damage"]["divergences"])) for r in resultats
+              if r["damage"]["divergences"]]
+    if dmg_ko:
+        print("  ROUGE : le foyer `ApplyDamageOperation$$Execute` ne reproduit pas %d "
+              "`Group=%s` : %s" % (sum(n for _b, n in dmg_ko), GroupType.Damage.name,
+                                   ", ".join("%s:%d" % (b, n) for b, n in dmg_ko)))
+        rc = 1
+    dd1_ko = [r["etiquette"] for r in resultats
+              if r["damage"]["dd1"] != r["damage"]["groupes"]]
+    if dd1_ko:
+        print("  ROUGE : l'entete, l'action et le `Tag=%s` ne portent pas la MEME entite sur "
+              "%s -- (DD1) fausse." % (TagKey.Target_Id.name, ",".join(dd1_ko)))
+        rc = 1
+    dd2_ko = [r["etiquette"] for r in resultats
+              if r["damage"]["dd2"] != r["damage"]["groupes"]]
+    if dd2_ko:
+        print("  ROUGE : `%s` ne suit pas la PRESENCE de `%s` sur %s -- (DD2) fausse."
+              % (TagKey.Attack_WasMemberKilled.name,
+                 TagKey.UnitStats_NumberOfMembers_Change.name, ",".join(dd2_ko)))
+        rc = 1
+    dmg_muettes = [(r["etiquette"], nom) for r in resultats
+                   for nom, _m, muets, _ro, _hd in r["damage"]["contre_epreuve"] if muets > 0]
+    if dmg_muettes:
+        print("  ROUGE : %d mutation(s) `damage_*` INERTES PAR CONSTRUCTION : %s"
+              % (len(dmg_muettes), ", ".join("%s/%s" % (b, n) for b, n in dmg_muettes)))
+        rc = 1
+    dmg_ce_ko = [(r["etiquette"], nom) for r in resultats
+                 for nom, mordus, _mu, rouges, _hd in r["damage"]["contre_epreuve"]
+                 if mordus > 0 and rouges != mordus]
+    if dmg_ce_ko:
+        print("  ROUGE : %d mutation(s) `damage_*` ONT MORDU SANS ROUGIR : %s"
+              % (len(dmg_ce_ko), ", ".join("%s/%s" % (b, n) for b, n in dmg_ce_ko)))
+        rc = 1
+    # ⚠ MEME CRAN QUE POUR LES MUTATIONS DU COUPLE : un domaine NUL sur TOUS les scenarios est
+    # un ROUGE, pas une attention -- rien ne confronte alors la faute que la mutation teste.
+    dmg_partout_vides = [nom for nom in R21.MUTATIONS_DAMAGE
+                         if all(m + mu == 0 for r in resultats
+                                for n, m, mu, _ro, _hd in r["damage"]["contre_epreuve"]
+                                if n == nom)]
+    if dmg_partout_vides:
+        print("  ROUGE : %d mutation(s) `damage_*` au domaine NUL sur TOUS les scenarios -- "
+              "rien ne les confronte : %s"
+              % (len(dmg_partout_vides), ", ".join(dmg_partout_vides)))
+        rc = 1
+    dmg_vides = [r["etiquette"] for r in resultats if r["damage"]["groupes"] == 0]
+    if dmg_vides:
+        print("  ATTENTION : aucun `Group=%s` sur %s -- la famille de `#477-r34` n'y est pas "
+              "exercee." % (GroupType.Damage.name, ",".join(dmg_vides)))
+    voies_totales = {}
+    for r in resultats:
+        for k, v in r["damage"]["voies"].items():
+            voies_totales[k] = voies_totales.get(k, 0) + v
+    voies_mortes = [cle.name for _champ, cle in R21.SOURCE_TAGS + R21.ADDITIONAL_HIT_SOURCE_TAGS
+                    if cle.name not in voies_totales]
+    if voies_mortes:
+        print("  ATTENTION : %d voie(s) des DEUX cascades de `GetDamageTags` qu'aucune donnee "
+              "du corpus n'exerce -- le vert ne dit rien sur elles : %s"
+              % (len(voies_mortes), ", ".join(voies_mortes)))
     foyer_une_valeur = [r["etiquette"] for r in resultats if len(r["foyer"]["valeurs"]) < 2]
     if foyer_une_valeur:
         print("  ATTENTION : le foyer n'exerce QU'UNE valeur sur %s -- la correspondance "
@@ -1230,9 +1431,19 @@ def main() -> int:
         marques = sum(r["derivations"]["d6_marques"] for r in resultats)
         print("  QUEUE DU SLOT 0x21 : %d marque(s) AU PERIMETRE (%d lignes) ; contenu encore HORS "
               "PERIMETRE : %d ligne(s)." % (marques, 2 * marques, hors_total))
+        dmg_total = sum(r["damage"]["groupes"] for r in resultats)
+        dmg_lignes = sum(r["damage"]["lignes"] for r in resultats)
+        print("  FAMILLE `Group=%s` (#477-r34) : %d groupe(s) reproduit(s) sur TOUT le flux "
+              "(%d lignes), dont %d DANS un `Group=%s`."
+              % (GroupType.Damage.name, dmg_total, dmg_lignes,
+                 sum(1 for r in resultats for c in r["couples"] for p in c.portes
+                     if _porte_un_damage(p["obs"])), GroupType.StartTurn.name))
         print("  NON COUVERT : la DECISION de `VerifyUnitTurnEnded` (les deux predicats de "
-              "mobilite), les gardes de `HandleNextTurn` (`#477-r22-r2`), et la SELECTION des "
-              "effets (`#477-r21-r2`).")
+              "mobilite), les gardes de `HandleNextTurn` (`#477-r22-r2`), la SELECTION des "
+              "effets (`#477-r21-r2`), la DECISION qu'un coup produise un `Group=%s` (elle vit "
+              "dans le pipeline de degat amont), et la famille `Group=ResurrectUnit` "
+              "(`#477-r34` ne porte QUE `Group=%s`)."
+              % (GroupType.Damage.name, GroupType.Damage.name))
     return rc
 
 
