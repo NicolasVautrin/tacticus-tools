@@ -25,6 +25,7 @@ from typing import Optional
 
 from ..state import State
 from ..components import (UnitComponent, PositionComponent, HealthComponent, UnitFlagsComponent)
+from ...entities.unit_flag import UnitFlag
 from .triggers.dispatch import unit_resurrected_triggers
 
 
@@ -73,10 +74,26 @@ class ResurrectUnitOperation:
         fl = e.get_component(UnitFlagsComponent)
         if fl is None:
             fl = e.add_component(UnitFlagsComponent())
-        # Remove(0x1a = Removed) : une unité RETIRÉE du plateau qui revient n'est plus « retirée »
-        # (`RemoveUnitOperation` pose ce flag, cf. `operations/remove_unit.py`). Le natif l'appelle
-        # dans la même rafale que Remove(6)/Remove(0xf)/Remove(8)/Remove(9).
-        fl.remove(UnitFlagsComponent.REMOVED)
+        # `IdunBattle.Operations.ResurrectUnitOperation$$UpdateFlags` — RAFALE COMPLETE, relue
+        # VERBATIM au build `rnca9r7q6c` (#462-r4e-o-r2-r1) :
+        #     Remove(6) ; Remove(0xf) ; Remove(8) ; Remove(0x1a) ; Remove(9) ; Add(2) ; Add(0xe)
+        # Le port n'en portait qu'UN (`Remove(0x1a)`), et l'omission de `Remove(8)` est
+        # LOAD-BEARING : `UnitFlag.Overkilled` est le gate du SITE (A)
+        # (`IdunBattle.Operations.ApplyDamageOperation$$Execute` -- porte dans `damage.py`, qui sort
+        # en tete quand le flag est pose). Une unite RESSUSCITEE apres avoir ete overkillee restait
+        # donc INFRAPPABLE cote port : l'attaque suivante n'emettait AUCUN evenement, la ou le natif
+        # les emet tous. Mesure #462-r4e-o-r2-r1 (montage Ambush) : port `[]` vs natif pleine
+        # cardinalite.
+        for _f in (UnitFlagsComponent.DEAD,          # Remove(6)  -- UnitFlag.Dead
+                   UnitFlag.Downed,                  # Remove(0xf) -- UnitFlag.Downed (aucun poseur porte)
+                   UnitFlagsComponent.OVERKILLED,    # Remove(8)  -- UnitFlag.Overkilled
+                   UnitFlagsComponent.REMOVED,       # Remove(0x1a) -- UnitFlag.Removed
+                   UnitFlagsComponent.FLED):         # Remove(9)  -- UnitFlag.Fled (pose par `behaviour.py`)
+            fl.remove(_f)
+        # ⚠ `Add(2 = UnitFlag.ActiveAbilityUsed)` du natif reste NON PORTE : aucune mesure ne
+        # l'exerce ici (il gouverne la face DECISION -- `HasOwnersActiveAbilityBeenUsed` -- pas la
+        # cardinalite d'attaque), et le poser sans confrontation changerait le tour immediat que
+        # `immediate_turn` vient d'ouvrir. Residu nomme, cf. `case-462-r4e-o-amount-borne-aux-pv.md`.
         fl.add(UnitFlagsComponent.AMBUSH_CONSUMED)      # Add(0xe) — one-shot
         # tour immédiat : RemoveTurnFlags(1,1) -> l'unité redevient actionnable (retire NoAction + turn-flags)
         if immediate_turn:
