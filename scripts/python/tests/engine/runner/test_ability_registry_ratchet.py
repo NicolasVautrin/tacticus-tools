@@ -46,6 +46,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import repo_read
 from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
@@ -536,8 +537,6 @@ def _balayer_ciblage(racine: Path = PY_ROOT) -> tuple:
 
     `racine` : PARAMETRE, pour que la garde du cache exerce ce balayage sur un corpus synthetique
     minuscule. Le defaut est le corpus complet -- critere INCHANGE."""
-    import repo_read
-
     par_nom = {m.name.upper(): int(m) for m in TargetingRule}
     par_nom["ALLOWOBSCUREDTARGET"] = int(TargetingRule.AllowObscuredTarget)   # composite, non itere
 
