@@ -46,6 +46,21 @@ def _genrands_to_reach(mt: IntBasedMersenneTwister, target_mt, target_mti, cap=6
     return None
 
 
+# Confonds NEUTRALISES AU BUILD (#419-r5). Ce fichier mesure le TIRAGE DE DEGAT nu : il ne
+# retient qu'une attaque << propre >> (`PV.sample_is_clean`), donc sans crit ni block. Il
+# trouvait cette attaque SANS RIEN DEMANDER tant que le canal crit/block etait globalement
+# muet -- les 4 stats `CritChance`/`CritDamage`/`BlockChance`/`BlockDamage` valaient 0 sur
+# TOUTE unite, faute d'items equipes a la normalisation. Ce n'etait pas une propriete du
+# montage, c'etait un ACCIDENT GLOBAL : le fichier reposait sur un regime degenere sans le
+# dire. Une fois le canal ouvert, plus aucun coup n'est propre et les deux tests partaient en
+# skip -- 0 passed / 2 skipped, soit precisement le fichier INERTE que le garde #455 refuse.
+# On rend donc le regime EXPLICITE, comme le fait deja `NO_NOISE` de
+# `test_dakka_dakka_dakka_live.py` : les quatre faces, parce que `--crit`/`--block-player`
+# n'epinglent que les p-units et `--crit-target`/`--block-target` que les a-units.
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+
+
 @pytest.fixture(scope="session")
 def damage_roll_case(live_session, rpc, build_runner):
     """Trouve + applique UNE attaque normale mono-coup propre, encadrée par dumpRng.
@@ -57,7 +72,7 @@ def damage_roll_case(live_session, rpc, build_runner):
     sid = live_session
 
     for seed in _SEEDS:
-        b = build_runner(seed)
+        b = build_runner(seed, extra=_NO_NOISE)
         rid, my_team = b["rid"], b["my_team"]
 
         probe = rpc("dumpRng", {"runnerId": rid}, 30)

@@ -1335,6 +1335,13 @@ def _normalize_and_extract_pool(
     choisis (meme forme que `previewBis.itemSpecs` :
     `{unitId: [{configId, level}]}`).
     """
+    # Echappatoire GLOBALE, pour BISECTER : `TACTICUS_BIS_ITEMS=0` rend le regime d'avant
+    # #419-r5 (canal crit/block MUET) a tout le harnais d'un coup, sans toucher au code. Elle
+    # sert a etablir un TEMOIN -- << ce rouge existait-il deja ? >> -- pas a vivre en
+    # permanence : sous cette variable, `CouldCrit` est faux partout et tout accord natif-port
+    # sur le crit ou le block est un accord en REGIME DEGENERE.
+    if os.environ.get("TACTICUS_BIS_ITEMS") == "0":
+        equip_items = False
     if item_specs is None and equip_items:
         # Le cap de rarete des items est le MEME que la rarete cible de la
         # normalisation -- il n'y a qu'un seul regime cible, pas deux. Les
