@@ -597,7 +597,8 @@ def cmd_build(sid: int, a) -> int:
     # --board fixe : swap au moment de la normalisation (buildNormalizedBC boardJson+spawnPointSetIndex).
     template_bc, pool, pool_mow = _normalize_and_extract_pool(
         sid, seed_bc, a.rank, board_dump=fixed_board_dump,
-        explicit_stats=explicit_patch or None)
+        explicit_stats=explicit_patch or None,
+        equip_items=not getattr(a, "no_items", False))
     for uid, ability, lvl in relic_specs:
         try:
             rep = catalog_inject.equip_relic(
@@ -2585,6 +2586,17 @@ def main(argv: list[str]) -> int:
                          "Sans --end, le tour se finit SEUL quand toutes tes units ont agi.")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--rank", type=int, default=17)
+    ap.add_argument("--no-items", action="store_true",
+                    help="build: N'EQUIPE PAS les items Best-In-Slot avant la "
+                         "formule de stats. TEMOIN de non-regression uniquement "
+                         "(#419-r5) : les 4 stats CritChance/CritDamage/"
+                         "BlockChance/BlockDamage ne vivent QUE dans les items, "
+                         "donc sans eux `IdunBattle.Core.Services."
+                         "DamageCalculations$$CouldCrit` (GetStat(9) > 0 && "
+                         "GetStat(10) > 0) est FAUX pour toute unite -- cote "
+                         "natif comme cote port. Le crit et le block deviennent "
+                         "structurellement inertes, et tout accord natif-port "
+                         "sur ces chemins est un accord en REGIME DEGENERE.")
     ap.add_argument("--record-replay", action="store_true",
                     help="build: ARME l'enregistreur de replay NATIF sur le runner "
                          "(#477-r1). Sans lui, `IdunBattle.Runner.IdunRunner$$Initialize` "

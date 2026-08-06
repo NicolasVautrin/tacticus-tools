@@ -1205,8 +1205,15 @@ def _load_board_pool(kind: str, roster_size: int,
 
 _BIS_CACHE: dict[tuple, dict] = {}
 
+# Rarete cible de la normalisation -- `ItemRarity` du build : 0 Common,
+# 1 Uncommon, 2 Rare, 3 Epic, 4 Legendary, 5 Mythic (`ITEM_RARITY_NAMES` de
+# `frida/hooks/features/normalize-bc/items-catalog.ts`). Sert AUX DEUX
+# usages : `targetRarity` de `buildNormalizedBC` et le plafond du picker
+# d'items -- un seul regime cible, une seule constante.
+_TARGET_RARITY = 5
 
-def _bis_item_specs(sid: int, base_bc: dict, rarity_cap: int = 5,
+
+def _bis_item_specs(sid: int, base_bc: dict, rarity_cap: int = _TARGET_RARITY,
                     exclude_relics: bool = True) -> dict:
     """`itemSpecs` Best-In-Slot pour les unites du BC, via le RPC `previewBis`.
 
@@ -1313,13 +1320,17 @@ def _normalize_and_extract_pool(
     `{unitId: [{configId, level}]}`).
     """
     if item_specs is None and equip_items:
-        item_specs = _bis_item_specs(sid, base_bc)
+        # Le cap de rarete des items est le MEME que la rarete cible de la
+        # normalisation -- il n'y a qu'un seul regime cible, pas deux. Les
+        # dupliquer laisserait deriver un heros `targetRarity=5` equipe
+        # d'items plafonnes ailleurs, en silence.
+        item_specs = _bis_item_specs(sid, base_bc, rarity_cap=_TARGET_RARITY)
     base_json = json.dumps(base_bc)
     args: dict = {
         "baseBcJson": base_json,
         "targetRank": target_rank,
         "targetProgressionIndex": target_rank,
-        "targetRarity": 5,
+        "targetRarity": _TARGET_RARITY,
         "targetLevel": 50,
         "targetStarLevel": 5,
         "targetAbilityLevel": 50,
