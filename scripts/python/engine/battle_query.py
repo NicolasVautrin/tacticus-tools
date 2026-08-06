@@ -841,7 +841,7 @@ def connecting_edge(src: tuple, dst: tuple) -> int | None:
 
 
 def get_vector(a: tuple | None, b: tuple | None) -> int:
-    """`IdunBattle.Core.Services.BattleQuery$$GetVector(a, b)` en domaine POSITION (slot 0x70) :
+    """`IdunBattle.Core.Services.BattleQuery$$GetVector(a, b)` en domaine POSITION (slot 0x71) :
 
         tileA = GetMainTile(a) ; tileB = GetMainTile(b)
         if (tileA == tileB)                    return <static IdunVector par defaut>
@@ -858,7 +858,7 @@ def get_vector(a: tuple | None, b: tuple | None) -> int:
 
 
 def get_angle_between_vectors(v1: int, v2: int) -> int:
-    """`IdunBattle.Core.Services.BattleQuery$$GetAngleBetweenVectors(vectorA, vectorB)` (slot 0x71),
+    """`IdunBattle.Core.Services.BattleQuery$$GetAngleBetweenVectors(vectorA, vectorB)` (slot 0x72),
     dont le corps EST `IdunBattle.Utils.Hex.EdgeExtensions$$GetAngleTo(edge, edge2)` (MIRROR EXACT) :
 
         d = |e1 - e2| ; a = d * 60 ; if (a > 120) a = (6 - d) * 60 ; return a

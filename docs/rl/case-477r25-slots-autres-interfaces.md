@@ -571,25 +571,51 @@ désaccord partout). `3` est pris comme marge à coût mesuré nul, comme `FENET
 impose au moins 3 vient du corpus **voisin** :
 `battleQuery.GetAllAliveUnits(Nullable<int>(GetCurrentOwnerEntityId(caster)))`.
 
-### `master` était ROUGE sur `probe_477r25`, et la cause est exactement ce cran
+### `master` était ROUGE sur `probe_477r25` — et le cran, porté là-bas, y trouve **5 citations FAUSSES**
 
 Mesuré au rebase du 2026-08-06 : la PR **#737** (`#287-r11`) apporte
 `docs/rl/case-287r11-trois-regles-a-triggers-deja-portes.md`, dont trois lignes écrivent
 `battleQuery.<Nom>(<args>);   # slot <n>` — **les trois attributions sont JUSTES**. `probe_477r25`,
-qui n'a pas l'absorption d'appel, ne peut apparier aucun de ces noms à son propre slot ; sa forme C
-part alors du slot et attrape le nom de la **ligne suivante** : **2 couples FAUX**, verdict ROUGE.
+qui n'avait pas l'absorption d'appel, ne pouvait apparier aucun de ces noms à son propre slot ; sa
+forme C partait alors du slot et attrapait le nom de la **ligne suivante** : **2 couples FAUX**,
+verdict ROUGE. **On ne plie pas un contenu correct pour satisfaire un outil cassé** : c'est
+l'outil qui a été corrigé.
 
-Diagnostic chiffré sur ce bloc (hors périmètre de cette tranche, non appliqué) :
+Trois crans, tous mesurés nécessaires sur ce seul bloc :
 
 | régime | couples justes | couples faux |
 |---|--:|--:|
 | en service sur `master` | 0 | **2** |
-| + appel absorbé | 2 | 2 |
-| + priorité au mono-ligne (un couple enjambant cède si le slot est déjà apparié sur sa ligne) | 2 | **1** |
+| + appel absorbé (profondeur 1) | 2 | 2 |
+| + priorité au mono-ligne (un enjambant cède si le slot est déjà apparié sur sa ligne) | 2 | 1 |
+| + profondeur **3** (`GetAllAliveUnits(Nullable<int>(GetCurrentOwnerEntityId(caster)))`) | 3 | **0** |
 
-Le faux qui subsiste tient à la profondeur (3 niveaux). Le correctif complet demande donc **trois**
-crans, dont un que la présente tranche vient seulement d'établir : c'est une tranche à part, pas un
-« pendant que j'y suis ». Elle est ouverte sous **#477-r38**.
+⚠ **Le cran est IMPORTÉ, pas recopié** (`from probe_477r24r1_slots_interface import _appel`) : les
+deux cliquets balaient le **même** dépôt, et deux motifs jumeaux qui dérivent l'un de l'autre
+rouvriraient ici le gisement que l'autre vient de fermer. Un test fige le foyer unique.
+
+**Et l'élargissement a trouvé ce que `master` cachait** : en rendant appariables les noms écrits sur
+la ligne de leur slot, il a fait sortir **5 citations FAUSSES du dépôt**, sur **4 fichiers**, toutes
+décalées de **+1** :
+
+| site | écrit | table (`interface_slots.tsv`) |
+|---|---|---|
+| `engine/battle_query.py` | `GetVector` slot `0x70` | `0x71` (`0x70` = `GetAverageDistance`) |
+| `engine/battle_query.py` | `GetAngleBetweenVectors` slot `0x71` | `0x72` |
+| `engine/entities/effects/loki/status.py` | `GetEffectConfig` slot `0xbe` | `0xbf` (`0xbe` = `get_HasAnimatorRecoveryDisabled`) |
+| `engine/playbook/aggressive_onslaught.py` | `GetFreeAdjacentTiles` slot `0x51` | `0x52`/`0x53` |
+| `engine/runner/abilities/targeting.py` | `GetFreeAdjacentTiles` slots `0x51`/`0x52` | `0x52`/`0x53` |
+
+**La table fait foi, et ce n'est pas un postulat** : elle porte **272** attestations dont **5**
+fausses — un décalage de la *table* les rougirait toutes. Et la cause du décalage est **écrite au
+site** par `targeting.py` lui-même : l'index avait été pris sur
+`…u003Cu003Ec__DisplayClass101_0$$u003CGetFreeAdjacentTilesu003Eb__0`, c'est-à-dire par une lecture
+**indirecte** — exactement la grandeur intermédiaire dont `#477-r24-r1` a montré qu'elle n'indexe
+RIEN. `0x51` est `GetAdjacentTiles`, que le corps de `GetFreeAdjacentTiles` **appelle** : le
+décalage se lit comme une **chaîne d'appel prise pour une identité**.
+
+Les cinq sont corrigés, tous en docstring : l'empreinte AST rend les **4** fichiers de port
+**identiques**.
 
 ### Le mutant qui garde les formes neuves
 
@@ -639,8 +665,11 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
   prose) rendent **35** couples — attestations **81 → 116**, gisement **81 → 47** —, **0 citation
   fausse**, chacun des **7** crans relâché séparément et chiffré. L'étage ARITÉ passe de **8 à 39**
   citations confrontées. Non-régression mécanique : **0** citation perdue. Restent **2** justes
-  hors couverture, nommées. Résidu : **#477-r38**.
-- **#477-r38 — les DEUX crans hérités qui coûtent encore une citation juste chacun, et les
+  hors couverture, nommées. **Le cran, porté à `probe_477r25`, y a réparé `master`** (ROUGE depuis
+  la PR #737) **et fait sortir 5 citations FAUSSES** de plus, sur 4 fichiers, toutes décalées de
+  **+1** — cause écrite au site : un index pris par lecture **indirecte**.
+  Résidu : **#477-r42**.
+- **#477-r42 — les DEUX crans hérités qui coûtent encore une citation juste chacun, et les
   ~640 lignes de `probe_477r25`.** `[opus]` Le premier est la **VIRGULE** dans le remplissage
   (cran de `#477-r25`, mesuré sur l'AUTRE corpus : une énumération VERTICALE apparie le nom d'un
   item au slot du suivant) — sur celui-ci il cache « le slot 5 de `Core.Services.IOperationProcessor`,

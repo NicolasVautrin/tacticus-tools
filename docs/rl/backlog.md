@@ -2981,11 +2981,28 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   ⚠ **Une affirmation de #477-r32 est DEMENTIE** : la correction du slot `0x66` « reformulee pour
   rester confrontable » l'est dans `backlog.md`, **pas** dans le corps de sa fiche. Le cran
   suffixe-recepteur la recupere.
-  52 verts (42 + 10) ; 6 mutants sur 6 mordants ; `probe_477r25` VERT et ses 57 verts inchanges ;
-  empreinte AST VERTE (2 divergents, 2 declares, **aucun fichier de PORT touche**).
-  Residu : **#477-r38**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater.
+  ⚠ **LE CRAN, PORTE A `probe_477r25`, A REPARE `master` ET Y A TROUVE 5 CITATIONS FAUSSES.**
+  `master` etait ROUGE depuis la PR #737 (`#287-r11`) : le site ecrit trois
+  `battleQuery.<Nom>(<args>);   # slot <n>` dont les **trois attributions sont JUSTES**, mais
+  faute d'absorption d'appel le cliquet partait du slot pour attraper le nom de la LIGNE SUIVANTE.
+  **On ne plie pas un contenu correct pour satisfaire un outil casse** -- c'est l'outil qui est
+  corrige, par TROIS crans tous mesures necessaires sur ce seul bloc (0 juste/2 faux -> 2/2 ->
+  2/1 -> **3/0**), le dernier etant la PROFONDEUR d'imbrication a 3 niveaux. Le cran est
+  **IMPORTE, pas recopie** (foyer unique `probe_477r24r1._appel`, fige par un test) : deux motifs
+  jumeaux qui derivent l'un de l'autre rouvriraient ici le gisement que l'autre vient de fermer.
+  Et l'elargissement a fait sortir **5 citations FAUSSES du depot**, sur **4 fichiers**, toutes
+  decalees de **+1** (`GetVector` 0x70->0x71, `GetAngleBetweenVectors` 0x71->0x72,
+  `GetEffectConfig` 0xbe->0xbf, `GetFreeAdjacentTiles` 0x51->0x52/0x53 sur DEUX fichiers).
+  La table fait foi et ce n'est pas un postulat : **272** attestations pour **5** fausses -- un
+  decalage de la TABLE les rougirait toutes. La cause est **ecrite au site** par `targeting.py` :
+  l'index avait ete pris sur un `u003Cu003Ec__DisplayClass...`, une lecture INDIRECTE, exactement
+  la grandeur que #477-r24-r1 a montree n'indexer RIEN ; `0x51` est `GetAdjacentTiles`, que le
+  corps APPELLE -- une chaine d'appel prise pour une identite.
+  53 + 60 = **113 verts** ; 6 mutants sur 6 mordants ; les deux cliquets VERTS ;
+  empreinte AST VERTE (3 divergents, 3 declares, **4 fichiers de PORT touches et AST-IDENTIQUES**).
+  Residu : **#477-r42**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater.
 
-- **#477-r38 : les DEUX crans herites qui coutent encore une citation JUSTE, et les ~640 lignes
+- **#477-r42 : les DEUX crans herites qui coutent encore une citation JUSTE, et les ~640 lignes
   de `probe_477r25` que personne n'a ventilees.** `[opus]`
   (a) La **VIRGULE** dans le remplissage -- cran de #477-r25, mesure sur l'AUTRE corpus (une
   enumeration VERTICALE apparie le nom d'un item au slot du suivant). Sur celui-ci il cache
@@ -2996,18 +3013,11 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   (b) La **LOCALITE DU COMMENTAIRE** : `engine/streams/turn_phase.py` ecrit la resolution dans le
   **second** commentaire de la ligne (`// -- `verifier`` puis `// = `...$$VerifyUnitsTurnFinished``).
   Sauter le premier commentaire perdrait exactement ce que le cran `appel-colle` tient.
-  (c) ⚠ **`master` est ROUGE sur `probe_477r25` depuis la PR #737 (`#287-r11`), et la cause est
-  exactement le cran de #477-r36.** Le site `case-287r11-...md` ecrit trois
-  `battleQuery.<Nom>(<args>);   # slot <n>` dont les **trois attributions sont JUSTES** ; faute
-  d'absorption d'appel, `probe_477r25` ne peut apparier aucun nom a son slot, et sa forme C part
-  du slot pour attraper le nom de la LIGNE SUIVANTE -- **2 couples FAUX**. Diagnostic chiffre sur
-  ce bloc : en service **0 juste / 2 faux** ; + appel absorbe **2 / 2** ; + priorite au mono-ligne
-  **2 / 1**. Le faux restant tient a la PROFONDEUR d'imbrication (3 niveaux). Le correctif complet
-  demande donc **trois** crans -- non applique ici, hors perimetre, mais `master` ne peut pas
-  rester rouge.
-  (d) Les ~**640** lignes de `probe_477r25` ne sont toujours PAS ventilees. ⚠ **Verifier d'abord
-  que son recenseur ne porte pas le MEME defaut de lookbehind** que celui corrige par #477-r36 --
-  sans quoi tout comptage y sera sous-estime de la meme facon.
+  (c) Les ~**640** lignes de `probe_477r25` ne sont toujours PAS ventilees. ⚠ **Il n'y a RIEN a
+  verifier cote lookbehind : ce probe n'a AUCUN recenseur** -- pas de ventilation du tout. Ecrire
+  la ventilation, c'est ecrire le recenseur, et il devra naitre avec le lookbehind CORRIGE
+  (`(?<![A-Za-z0-9_])`, pas `(?<![A-Za-z0-9_$])`) -- sans quoi il repetera d'emblee le
+  sous-comptage de 48 % que #477-r36 vient de mesurer sur l'autre.
   NB annexe, non mesure comme gisement : le mot `slot` lui-meme reste sensible a la casse (seul
   son qualificatif ne l'est plus) -- « Slot 0x12 = ... » ne serait pas vu.
   cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater et Residus.

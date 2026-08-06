@@ -23,8 +23,9 @@ Chaine native mirroree (VAs base 0x180000000) :
          [PORTE PARTIEL : target vivant/targetable ; la portee summon melee (bloodSmnIntercessor,
           jump-pack, place ADJACENT a la cible) est trivialement satisfaite sur board sans elevation
           -> non modelisee ici. Cf. residus du rapport.]
-      3. tiles = `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(target)` (slot itf 0x51 =
-         `GetAdjacentTiles(target,1,1,0)` + FilterInPlace) ; pour chaque tuile :
+      3. tiles = `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(target)` (slot itf 0x52,
+         et sa surcharge 0x53 ; son corps est `GetAdjacentTiles(target,1,1,0)` -- slot itf 0x51 --
+         suivi d'un FilterInPlace) ; pour chaque tuile :
          `TileExtensions.CanAddUnit(tile, summonUnitType, ...)`. => tuiles LIBRES placables ring-1 de
          la cible = `battle_query.adjacent_addable_count(target_pos)` (MEME primitive que ScarabHive,
          GetAdjacentTiles + CanAddUnit).

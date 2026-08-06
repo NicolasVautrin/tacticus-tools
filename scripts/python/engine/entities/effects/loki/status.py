@@ -266,7 +266,7 @@ class ContaminatedUnitEffect(BaseEffect):
     Cote port : le vecteur tile-effect (#128, `ContaminatedTileEffect`) calcule le delta a l'apply et le stocke
     dans `self.value` -> `get_stat_modification_amount` renvoie `self.value`.
 
-    >>> MAGNITUDE (#132 RESOLUE 2026-07-14, RE re-expert decompile) : `IdunBattle.Entities.Effects.Loki.ContaminatedStatModifierEffect$$GetDynamicStatModificationAmount` = `-BattleQuery.GetEffectConfig(EffectType=6)` (interface IBattleQuery slot 0xbe, arg 6 =
+    >>> MAGNITUDE (#132 RESOLUE 2026-07-14, RE re-expert decompile) : `IdunBattle.Entities.Effects.Loki.ContaminatedStatModifierEffect$$GetDynamicStatModificationAmount` = `-BattleQuery.GetEffectConfig(EffectType=6)` (interface IBattleQuery slot 0xbf, arg 6 =
     EffectType litteral). `IdunBattle.Core.Services.BattleQuery$$GetEffectConfig` = lookup `Dict<EffectType,int>@+0xd0`
     peuple par `IdunBattle.Core.Services.BattleQuery$$InitEffectConfig` depuis `BattleConfiguration.Effect` ; l'entree EffectType=6
     (offset +0x28) = **`ContaminatedArmorReductionPct` = 30**. => -30 % du FixedArmor cible. Source = section
