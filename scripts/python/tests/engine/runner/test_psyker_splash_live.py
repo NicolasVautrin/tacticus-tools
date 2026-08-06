@@ -33,7 +33,14 @@ from engine.runner.components import HealthComponent, StatsComponent
 CASTER_VIS = "astraPrimarisPsy"
 # cluster mêlée : ennemis qui spawnent groupés (adjacents entre eux en evenq), tanky => survivent au coup.
 ENEMIES = "darkaCompanion,tyranWingedPrime,ultraInceptorSgt,spaceBlackmane,necroSpyder"
-BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", ENEMIES]
+# Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : le montant du splash est `round(Attack x
+# psykerExtraDmg%)`, PLAT (aucune variance d'arme) -- c'est ce qui le rend confrontable a l'unite.
+# Un crit y ajoute un facteur qui n'appartient pas a ce montant, et le fichier ne sait qu'en
+# skipper : depuis que le defaut equipe (#419-r6), il tombait a 0 passed / 1 skipped (inerte,
+# garde #455). Les QUATRE faces.
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", ENEMIES, *_NO_NOISE]
 
 
 def _ok(r):

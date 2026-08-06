@@ -133,7 +133,14 @@ def test_great_frost_axe_live(live_session, rpc):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "31337", "--state-file", str(state_file),
-         "--board", "MC1_67", "--roster", "1", "--p-units", CASTER_VIS, "--a-units", A_UNITS],
+         "--board", "MC1_67", "--roster", "1", "--p-units", CASTER_VIS, "--a-units", A_UNITS,
+         # Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : le volet (C) confronte le degat
+         # BIT-EXACT PAR COUP de l'ability ; un crit y ajoute un facteur hors axe et le fichier ne
+         # sait qu'en skipper -- depuis que le defaut equipe, il tombait a 0 passed / 1 skipped
+         # (inerte, garde #455). Les QUATRE faces : `--crit`/`--block-player` n'epinglent que les
+         # p-units, `--crit-target`/`--block-target` que les a-units.
+         "--crit", "0,0", "--crit-target", "0,0",
+         "--block-target", "0,0", "--block-player", "0,0"],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not state_file.exists():
         pytest.skip(f"build runner KO: {(proc.stderr or proc.stdout or '')[-300:]}")

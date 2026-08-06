@@ -59,7 +59,13 @@ MAX_CHIP = 40                          # coups max pour descendre Lucien sous le
 # --------------------------------------------------------------------------- build
 def build_args(axis: str, board: str, armor: int) -> list:
     """Arguments `rl_duel build`. Une seule variable bouge (le percage) :
-      * `--crit 0,0` / `--block-target 0,0` : aucun aleas crit/block ;
+      * `--crit 0,0` / `--crit-target 0,0` / `--block-target 0,0` / `--block-player 0,0` : aucun
+        aleas crit/block, sur les QUATRE faces. Les deux dernieres ont ete AJOUTEES par #419-r6 :
+        `--crit`/`--block-player` n'epinglent que les p-units et `--crit-target`/`--block-target`
+        que les a-units, or ce montage PILONNE Lucien (p-unit) avec la cible (a-unit) pour le
+        descendre sous le seuil -- les deux camps frappent. Tant que le canal crit/block etait
+        globalement muet, poser deux faces sur quatre suffisait PAR ACCIDENT ; depuis que le
+        defaut equipe (#419-r6), le bras RANGED tombait en rouge sur ce seul manque ;
       * `--hp-target 300000` PUIS `--armor-target N` : dans `rl_duel.py` le bloc `--armor-target`
         s'execute APRES celui de `--hp-target` (qui met l'armure a 0), donc l'armure CHOISIE
         SURVIT -- c'est elle qui arme la branche PERCAGE. Les PV enormes evitent l'ecretage letal
@@ -69,7 +75,8 @@ def build_args(axis: str, board: str, armor: int) -> list:
         le percage mesure est celui de LUCIEN CONTRE la cible, son armure a lui n'y entre pas.
     """
     return ["--p-units", CARRIER, "--a-units", FOE,
-            "--crit", "0,0", "--block-target", "0,0",
+            "--crit", "0,0", "--crit-target", "0,0",
+            "--block-target", "0,0", "--block-player", "0,0",
             "--hp-target", "300000", "--hp-player", "20000",
             "--armor-target", str(armor),
             "--board", board]

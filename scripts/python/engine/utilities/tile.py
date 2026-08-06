@@ -101,6 +101,9 @@ from ..entities.triggered_ability_type import triggered_ability_ids
 # HasActiveAbility` interroge (l'`ActiveAbilityComponent`), lu par le predicat de
 # `RadSaturationPlaybook` sur les AMIS ADJACENTS et sur le MOVER lui-meme.
 from ..entities.active_abilities import entity_active_ability_ids
+# `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` -- foyer UNIQUE (#477-r35), re-exporte
+# plus bas sous son ancien nom `_steppable_occupant` pour les appelants existants.
+from ..entities.tile_extensions import get_steppable_unit
 
 # UtilityType des 29 feuilles de Tile(7) (ordre runtime). name = catégorie BC `Default.<name>`.
 # #158 : ids bruts -> membres `UtilityType` nommés (l'ordre est la sequence runtime native).
@@ -823,13 +826,26 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
         # RE-TESTE dans son propre corps natif, et le port mirrore ce corps.
         for units, is_friend in ((ctx.get("friend_units") or (), True),
                                  (ctx.get("enemy_units") or (), False)):
-            if not is_friend:                 # `!<slot 4> && !IsFriend` = IsInvalidEntityForPlaybook
-                continue
             for u in units:
                 for ab in (u.get("triggered") or ()):
                     pb = load_playbook_non_owner(ab)
-                    if pb is not None:
-                        total += pb.calculate_movement_utility_in_steps(tile, u, is_friend, ctx, wt)
+                    if pb is None:
+                        continue
+                    # PRE-GATE `playbook.<slot 4> || IsFriend(sujet, owner)`. Le `<slot 4>` se lit
+                    # SUR LE PLAYBOOK, jamais sur la famille : il vaut `true` pour
+                    # `HaywireMineNonOwnerPlaybook` (corps `return 1`) et `false` pour toutes les
+                    # autres. Avant #477-r35 le dispatcher ecartait TOUS les porteurs ennemis d'un
+                    # bloc, avant meme de charger le playbook -- ce qui rendait structurellement
+                    # inatteignable la branche ENNEMI de 1531. MESURE : -30 manquants sur la tuile
+                    # minee du montage `haywire`.
+                    # Acces DIRECT, jamais `getattr(..., False)` : `TriggeredAbilityNonOwnerPlaybook`
+                    # declare `SLOT_4 = False`, donc les 21 classes de la famille le portent toutes
+                    # et le defaut serait mort. Un objet ETRANGER a la famille doit lever ici, pas
+                    # se faire silencieusement traiter comme un `false` -- le residu #477-r37 porte
+                    # justement la relecture du `<slot 4>` des 22 autres classes.
+                    if not (pb.SLOT_4 or is_friend):
+                        continue          # `!<slot 4> && !IsFriend` = IsInvalidEntityForPlaybook
+                    total += pb.calculate_movement_utility_in_steps(tile, u, is_friend, ctx, wt)
         return total
 
 
@@ -1735,43 +1751,20 @@ def _attract_mechanicals_neighbor(pos, lc: dict) -> bool:
     return False
 
 
-def _steppable_occupant(pos, lc: dict) -> "dict | None":
-    """`IdunBattle.Entities.TileExtensions$$GetSteppableUnit(tuile, ctx, out u)` cote offline :
-    l'OCCUPANT de `pos` s'il porte `UnitTrait.Steppable` (0x1b), sinon `None`.
-
-        unit = UnitExtensions.GetUnit(tile, ctx);            // TileContentComponent.IsFilled
-        return unit != null && unit.BaseUnitComponent?.HasTrait(0x1b) == true;
-
-    Une tuile n'a qu'UN occupant (le `TileContentComponent` porte un seul id) : trouver une unite
-    NON steppable sur `pos` fait donc rendre `None`, pas continuer a chercher.
-
-    Rend `{is_friend, is_enemy, is_decoy, triggered}` -- les quatre lectures que la feuille 19 fait
-    ensuite sur `u` (`IsFriend`/`IsEnemy` contre `case.unit`, `HasTrait(0x41d)`,
-    `HasTriggeredAbility`). `is_friend`/`is_enemy` sont DEUX booleens et non l'un la negation de
-    l'autre par principe : le natif interroge des predicats DIFFERENTS selon la branche (cf.
-    `SteppableUnitUtility`). Ici ils sont complementaires, comme le natif quand `case.unit != null`.
-
-    Le MOVER est traite a part : `_adjacent_units` l'EXCLUT de `friend_units` (self-exclu), or sur sa
-    tuile d'ORIGINE c'est lui l'occupant -- `IsFriend(self, self)` est vrai (meme playerId)."""
-    if lc.get("self_pos") == pos:
-        traits = set(lc.get("unit_traits") or ())            # ids (`entity_trait_ids`)
-        if int(UnitTrait.Steppable) not in traits:
-            return None
-        return {"is_friend": True, "is_enemy": False,
-                "is_decoy": int(UnitTrait.Decoy) in traits,
-                "triggered": tuple(lc.get("unit_triggered_abilities") or ())}
-    for units, is_friend in ((lc.get("friend_units") or (), True),
-                             (lc.get("enemy_units") or (), False)):
-        for u in units:
-            if u.get("pos") != pos:
-                continue
-            names = u.get("traits") or ()                    # noms (`entity_trait_names`)
-            if UnitTrait.Steppable.name not in names:
-                return None                                  # occupant NON steppable -> false
-            return {"is_friend": is_friend, "is_enemy": not is_friend,
-                    "is_decoy": UnitTrait.Decoy.name in names,
-                    "triggered": tuple(u.get("triggered") or ())}
-    return None
+#: `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` -- FOYER DEPLACE dans
+#: `engine.entities.tile_extensions` par #477-r35, et re-exporte ici sous son ancien nom pour les
+#: appelants
+#: (`apply_tile_attributes` et la garde `test_steppable_decoy_tile_leaves_live`). Le deplacement
+#: n'est pas cosmetique : `engine.playbook.non_owner` en a besoin pour la face `1531 HaywireMine`,
+#: et il ne peut pas importer CE module (c'est `tile` qui importe `non_owner`, pas l'inverse). Une
+#: seconde lecture du meme natif aurait pu diverger sans que rien ne le dise.
+#: ⚠ DEUX emplacements ont ete essayes et MESURES avant `engine/entities/` : `engine/battle_query.py`
+#: (casse `python -c "import engine.battle_query"`) puis `engine/tile_extensions.py` a la racine
+#: (casse son propre import isole, par une arete RETOUR qui passe par CE fichier). La chaine
+#: complete est dans la docstring d'`engine/entities/tile_extensions.py`, et le garde est
+#: `probe_477r35_import_isole.py`. L'import est au NIVEAU MODULE (ci-dessus), jamais differe :
+#: un differe aurait retarde le cycle au lieu de le supprimer.
+_steppable_occupant = get_steppable_unit
 
 
 def _attract_to_decoys_friend_count(lc: dict) -> int:

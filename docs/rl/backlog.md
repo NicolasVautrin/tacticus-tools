@@ -35,7 +35,8 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 |---|---|---|---|
 | #484-r1 | **Le recenseur de `probe_366_r1` est aveugle aux clés dérivées d'un ENUM — et le gisement va CROÎTRE.** `_VAR_DAMAGE = AbilityVariableType.dmg.name` n'est pas un littéral : `_strings` ne connaît pas la sémantique de `<Enum>.<membre>.name` (qui vaut pourtant `"<membre>"` **par pure syntaxe**, sans aucun import), et son env est **PAR MODULE**, donc le second appelant (`operations/damage.py`, `min_key=M._VAR_DAMAGE`) reste hors de portée même si la première lacune est fermée. Effet **mesuré** : `ability_attack_params` était intégralement résolu par le point fixe jusqu'au merge de la PR #707 (bisecté : vert à `0b8982a9`, rouge à `c919fdd9`) ; le trou est aujourd'hui NOMMÉ dans `_COVERAGE_HOLES`, ce qui coûte les couples `(HeavyBoltPistol, dmg)` et `(HeavyBoltPistol, nrOfHits)`. ⚠ **La cause est une règle du dépôt** : écrire le membre d'enum plutôt que le littéral est ce que `CLAUDE.md` prescrit — donc ce patron se répandra et le trou s'élargira en silence. Les 6 contre-épreuves de `test_366_r1` sont le garde-fou à re-jouer après tout élargissement du résolveur. | `[opus]` | `case-484-rouges-permanents-de-master.md` §3 ; `probe_366_r1_bcpatch_port_blindspot.py::_strings` |
 | #484-r2 | **`test_270r4r2r2::etage3` — un SEUIL que notre propre cadence dépasse, et rien n'est mécaniquement retirable.** `349` instructions différées sous `engine/` pour un plafond de `346`. Delta re-dérivé depuis `492c722f` (`git archive` + re-collecte) : **+15 / -13**, net **+2** sur un arbre de référence à **347** — le plafond ayant été BAISSÉ à 346 par `dda52692`, comme sa docstring le prescrit. L'INVARIANT du même fichier (étage 1, « 0 différé GRATUIT ») est VERT depuis #484 : chacun des 349 restants a donc une cible qui n'est **pas** déjà importée au niveau module, et les 15 entrants portent leur motif en clair (`# lazy : cycle damage<->abilities`, `# lazy : utilities <- battle_query`). Le seuil dit lui-même qu'il attrape « une REPRISE DE MASSE, pas un site isolé » : `+3` (0,9 %) n'est pas ce phénomène. **Mais re-baser un seuil chaque fois qu'il mord en fait un tampon** — c'est la dégradation silencieuse que la doctrine proscrit. Trancher : re-baser en le DISANT, ou remplacer le seuil par un invariant (le rapport `différés justifiés / différés totaux`, qui ne dérive pas avec la taille du dépôt). | `[opus]` | `case-484-rouges-permanents-de-master.md` §3 ; `tests/engine/test_270r4r2r2_differes_offline.py` |
-| #287-r11 | **7 ids qui posent `TargetMatchesDynamicRule` ont une surcharge native LISIBLE et pas de règle portée** — le port rend `0` (permissif). Le chiffre est tranché depuis #287-r5 : les **27 autres** n'ont AUCUNE surcharge, leur délégué pointe le corps de base `AActiveAbility$$GetDynamicInvalidTargetReason` = **`return 0`** (lu par le fallback explicite de `ForwardObserversAbility`, que Ghidra mislabelle `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId`), donc le `0` du port y **coïncide**. Étages fermés : « tuiles de mouvement » (#287-r5-r1, 3 ids), `battleQuery` + « aura Synapse » (#287-r8, 3 ids), « triggers déjà portés » (#287-r11, 3 ids : `1200`, `1168`, `1179`). Restent : **sélecteurs DSL 2** (`1016 SendInTheNextWave`, `1197 ExcruciatingFrequencies` — dont la RE est faite : `case-287r11` et le décompilé de `GetAttackTargets`/`GetAffectedTiles`), **pathfinding 1** (`1180 HeroicFusillade` — `IsInMovementRange`, MÊME étage que celui employé par #287-r11, donc coût baissé), `1076 MV71SniperDroneSquadAttack` (`IsMeleeAttack` + `PickTile`), `1213 DeathOnTheWind` (SEEDING, cf. #287-r5-r2), `1164 MindControl` **bloqué au décompilé** (prédicat statique dédupliqué), `1101 AttemptedPossession` (étage de SIMULATION). **Prendre l'étage AVANT l'ability, et VÉRIFIER D'ABORD S'IL EXISTE** — TROIS tranches de suite l'ont trouvé déjà porté, seul le call-site manquant. ⚠ Re-dériver (`probe_287r5_etages_bloquants.py`), le cliquet d'appariement rougit si un symbole bouge. | `[opus]` | `case-287r11-trois-regles-a-triggers-deja-portes.md` §9 ; `probe_287r5_etages_bloquants.py` |
+| #287-r11 | **4 ids qui posent `TargetMatchesDynamicRule` ont une surcharge native LISIBLE et pas de règle portée** — le port rend `0` (permissif). Le chiffre est tranché depuis #287-r5 : les **27 autres** n'ont AUCUNE surcharge, leur délégué pointe le corps de base `AActiveAbility$$GetDynamicInvalidTargetReason` = **`return 0`** (lu par le fallback explicite de `ForwardObserversAbility`, que Ghidra mislabelle `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId`), donc le `0` du port y **coïncide**. Étages fermés : « tuiles de mouvement » (#287-r5-r1, 3 ids), `battleQuery` + « aura Synapse » (#287-r8, 3 ids), « triggers déjà portés » (#287-r11, 3 ids), **sélecteur DSL + pathfinding** (#287-r11-r1, 3 ids : `1016`, `1180`, `1197`). Restent : `1076 MV71SniperDroneSquadAttack` (`IsMeleeAttack` + `PickTile`), `1213 DeathOnTheWind` (SEEDING, cf. #287-r5-r2), `1164 MindControl` **bloqué au décompilé** (prédicat statique dédupliqué), `1101 AttemptedPossession` (étage de SIMULATION) — soit **aucun** dont l'étage soit connu comme déjà porté : les quatre demandent une RE neuve, le filon « il ne manquait que le call-site » est ÉPUISÉ. **Prendre l'étage AVANT l'ability, et VÉRIFIER D'ABORD S'IL EXISTE** — QUATRE tranches de suite l'ont trouvé déjà porté ou à un bras près. ⚠ Re-dériver (`probe_287r5_etages_bloquants.py`), le cliquet d'appariement rougit si un symbole bouge. | `[opus]` | `case-287r11r1-selecteur-pathfinding-et-slot-mal-lu.md` §9 ; `probe_287r5_etages_bloquants.py` |
+| #287-r11-r1-r1 | **Des slots d'interface déclarés « NON RÉSOLUS » le sont par `data/symbols/<build>/metadata/interface_slots.tsv` — et deux d'entre eux laissent une règle NON PORTÉE.** La voie d'attribution employée dans les docstrings est le **PROXY** (`RecordedSimulationRequestsBattleQuery.<>c__DisplayClassNNN$$<X>b__0`), qui ne rend un nom que si le décorateur a un site pour ce slot ; son silence se lit à tort comme « non résoluble ». C'est exactement ce qui a fait écrire « `1016` n'est PAS surchargée » pendant une tranche entière. **4 sites** : le bit 52 `CasterHas2TurnsLeft` (`IBattleQuery` `0x1a`, cité DEUX fois — `targeting.py` et `astramilitarum.py` — règle non portée, dégradation permissive) ; `CasterHasNotMoved` (`IBattleQuery` `0x34` → la table dit `52 IsInMovementRange/2`, cohérent) ; `hateful_assault.py` (`DSLSelectors+0x78` → **résolu** par #287-r11-r1 : `TargetTile`, via `DSLTriggers$$get_OwnerIsTargetTile`). ⚠ **Pas mécanique** : sur `0x1a` la table CONTREDIT la lecture (`ShouldPlayerSkipTurn/1` contre 2 arguments lus) — c'est le slot ou l'interface qui est mal lu, il faut y retourner au décompilé. ⚠ Le zéro n'est PAS la cible : `movement_query.py` et `stream_cache.py` portent des « non résolu » **structurels** (une interface IL2CPP n'a pas de corps ; `ISPSet<T>` n'est pas nommée). | `[opus]` | `case-287r11r1-selecteur-pathfinding-et-slot-mal-lu.md` §10 |
 | #287-r13 | **Un `--place`/`--a-place` dont l'unité n'arrive pas en bataille est SILENCIEUX.** `rl_duel build` refuse ET logue un placement hors board / sur tuile occupée ou non marchable ; mais une unité simplement NON MONTÉE (mesuré : un 4ᵉ `necroWarden` demandé au roster adverse sur `C1_02`) ne produit **aucun message**. La géométrie mesurée n'est alors pas celle demandée et un côté de bascule disparaît sans trace — c'est ainsi qu'un bras du prédicat de `1200` a manqué au premier jet de `probe_287r11`. Parade appliquée côté probe (impression du substrat monté) ; la parade qui manque est en amont : `build` doit **nommer** les `--place` qu'il n'a pas honorés. | `[opus]` | `case-287r11-trois-regles-a-triggers-deja-portes.md` §10 ; `scripts/python/rl_duel.py` |
 | #287-r12 | **Le rôle `target` d'une entité TUILE n'est pas matérialisé par `entities_from_state`.** Le foyer construit un caster minimal quand `caster_id` désigne une tuile (sans lui, toute feuille lisant `entities.caster` devenait un no-op silencieux) mais rend `None` sur le rôle `target` — et `Entity(Target())` avec lui. `1112 AlphaWarrior` le matérialise **localement** (#287-r8), et ce choix est MESURÉ : **5** abilities TILE-TARGET portées passent aujourd'hui leur `target_id` au foyer (`1017` FragBomb, `1018` ValkyrieStrike, `1026` BasiliskBarrage, `1148` DaemonicOrdnance, `1169` PlagueburstMortar) et lisent donc un `Target()` **nul**. Élargir le foyer changerait leurs arbres — à faire avec la confrontation live des 5, pas « pendant qu'on y est ». | `[opus]` | `case-287r8-etage-battlequery-et-aura-synapse.md` §10 ; `engine/runner/abilities/behaviours/context.py` |
 | #287-r5-r2 | **`1213 DeathOnTheWind` — l'étage est PORTÉ, seul le SEEDING manque.** `EntityExtensions$$GetNumAttacksReceivedThisTurn` lit `ActorStatisticsComponent+0x38` ; le port a déjà `UnitComponent.times_attacked_this_turn` **et** son reset au turn-start (mirror de `ResetAttacksReceivedThisTurn`). Mais `load_state` ne le seede pas : sur un état chargé après une attaque le port rendrait `0` là où le natif rend `>= 1`, donc **refuserait des cibles que le natif ACCEPTE** — régression permissive-inversée. Demande d'exposer le compteur dans `combatSnapshot`/`decisionView`, donc **une fenêtre de reinject** (capteur `frida/hooks/*`). | `[opus]` | `case-287r4r1-regles-dynamiques-de-ciblage.md` §9.3 ; `engine/runner/components.py` |
@@ -351,7 +352,9 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 | ~~#419-r3~~ | ~~**Le port ne modelise aucune `OngoingAttack`, donc `isOutsideAttack = false` est INEXPRIMABLE**~~ | **PORTE + CONFRONTE LIVE (2026-08-06)** | `case-419-r3-is-outside-attack-inexprimable.md`. Le balayage annonce comme NON FAIT est fait : **18 call-sites** de `IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` (22 xrefs, dont 4 DATA), **15 posent `0`** — la premisse de `#419-r1-tr14-r4-r1` (« tous posent 1 ») etait FAUSSE, et sa justification (« le port ne modelise aucune `OngoingAttack` ») aussi : le port thread deja `hit_index0` (`+0x30`), `crit_allowed0` (`+0x40`) et `failed_block0` (`+0x48`). Ce qui manquait etait une feuille d'attaque **NUE** : `DSLFactory$$AttackWithAttackDamage` finit par `AttackBehaviour$$.ctor`, donc pousse un `OngoingAttack` neuf par cible. Sur 13 des 15 sites `false` c'est sans effet (la feuille est PREMIERE de son propre `Attack(...)`) ; le regime qui MORD est le FOLD primaire de `Boltstorm`/`RighteousRepugnance` (`$$GetCustomNormalAttackBehaviour` rend `If(cond, feuille)` SANS `Attack`, compose par `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` entre les coups d'arme et `ExecuteAdditionalHitsWithDamageProfileType`). Porte par `attack_state0` (feuille) + `fold_inherits_attack_state()` (point de mutation). Mesure live `adeptMorvenn` : natif `506, 557, 614` = port avec heritage ; port SANS heritage `506, 563, 526`, PV primaire **3893 vs 3975**. Le canal est le FLUX RNG (gate « never crit » = 0 tirage). Deux fausses pistes NOMMEES par la garde de montage (mutation mordant cote natif seul ; `CouldCrit` conjonction -> `cd = 0`). | `probe_419r3_fold_attack_state.py` |
 | #419-r4 | **Les AUTRES feuilles nues ne sont pas threadees** — `attack_state0` n'est cable que sur le FOLD. Restent `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTriggerBehaviour` (N feuilles nues, une par `LeftOverDamage`, dans UN seul `Attack(...)` : le port n'y passe que le booleen `is_first_hit` de case-221, jamais l'etat complet) et les deux abilities de TEST (`TestTwoHitGroupsAttackDamageAbility`, `TestMultipleHitGroupsWithDifferentDamageProfileTypesAttackDamageAbility`, sans porteur). Le canal `hit_group_index` (`OngoingAttack+0x34`, lu par `IsFirstHitGroupInAttack`) n'est threade NULLE PART : son INCREMENTEUR n'a pas ete localise — `ADamageOperation$$UpdateCurrentAttackAfterHit` n'ecrit que `+0x30`. Debloqueur : trouver l'ecrivain de `+0x34`. | `[opus]` | `case-419-r3-is-outside-attack-inexprimable.md` §9 |
 | ~~#419-r5~~ | ~~**Le port lit `CritDamage = 0` la ou le seed BC porte 352**~~ | **CAUSE ETABLIE + OUTIL LIVRE (2026-08-06)** | `case-419-r5-canal-crit-block-muet.md`. Question binaire TRANCHEE par un canal INDEPENDANT du snapshot (le template que `buildNormalizedBC` RENVOIE) : c'est **`buildNormalizedBC`**, et `combatSnapshot` est **innocente par la mesure** (template `2727` -> snapshot `2727`). Il ecrase les 8 stats du seed par `IdunMetaLogic.Formulas.StatsFormula$$StatsUsingProgressionIndexFor`, appelee avec une liste d'items **VIDE** ; or les 4 stats crit/block ne sont PAS dans la base d'un heros (`adeptMorvenn` : `stats = {Health, Damage, FixedArmor}`, `itemSlots = [I_Crit, I_Block, I_Booster_Block]`) -- elles n'arrivent QUE par les ITEMS, fusionnes par `IdunMetaLogic.Formulas.UnitDynamicStats$$Merge`. Layout **verifie** et non suppose : `Merge` compose les indices 4/6/8/10 en PROBABILITE (`p += (1-p/100)*q`) et les autres additivement. AMPLEUR : `could_crit` **0/106**, `could_block` **0/106** au rank 17 -- general, pas un cas particulier ; donc `CouldCrit` (`GetStat(9) > 0 && GetStat(10) > 0`) etait FAUX partout, cote natif COMME port, et tout accord sur `RollCritical` / le gate << never crit >> / le block etait un accord en REGIME DEGENERE. Correctif **100 % Python** (l'outillage hooks existait sans aucun appelant : RPC `previewBis` + `itemSpecs`) : `rl_duel build --bis-items`, `_normalize_and_extract_pool(equip_items=)`, `TACTICUS_BIS_ITEMS=0|1` -> **98/106** et **46/106**. Defaut laisse a << ne pas equiper >> par ARBITRAGE MESURE (8 fichiers joues dans les DEUX regimes : 4 inchangés, 3 se degradent, 1 repare) -> residu `#419-r6`. | `probe_419r5_canal_crit_block.py` ; `test_419r5_canal_crit_ouvert_live.py` (3 verts, dont un volet ANTI-TAUTOLOGIE) |
-| #419-r6 | **Basculer le defaut a << equiper >> (`_EQUIP_ITEMS_PAR_DEFAUT = True`) et reparer les fichiers qui reposaient sur le regime degenere** — le geste est d'UNE LIGNE, le travail est la reparation. Mesure des DEUX regimes (#419-r5) : `test_damage_normal_armored_live` 3 passed -> **3 skipped** (fichier inerte, garde #455), `test_damage_ability_live` 1 passed -> **1 FAILED** (ecart natif-port de **904 PV** : `live_ph == off_ph`, donc l'ecart porte sur l'ETAT DE DEPART, pas sur le calcul — premier ecart reel que l'ouverture revele), `test_damage_catalog_live` 5 passed -> 1 passed + 4 skipped. Tous de la MEME famille : ils ne retiennent qu'un coup << propre >> (sans crit ni block) et le trouvaient SANS RIEN DEMANDER tant que le canal etait muet — leur vert reposait sur un ACCIDENT GLOBAL. Remede-type etabli et applique une fois (`test_damage_roll_live` : `NO_NOISE` sur les **QUATRE** faces, `--crit`/`--block-player` n'epinglant que les p-units). Non couvert : les ~20 fichiers << indirectement exposes >> non joues, et la face DECISION (`MightCrit@+0xB1` = `CouldCrit(attaquant)` valait `False` sur TOUTES les predictions). | `[opus]` | `case-419-r5-canal-crit-block-muet.md` §7, §9 |
+| ~~#419-r6~~ | ~~**Basculer le defaut a << equiper >> et reparer les fichiers qui reposaient sur le regime degenere**~~ | **BASCULE + 11 REPARATIONS (2026-08-06)** | `case-419-r6-bascule-du-defaut.md`. `_EQUIP_ITEMS_PAR_DEFAUT = True`. **Les 904 PV sont DIAGNOSTIQUES, et la bascule ne les a PAS causes -- elle les a rendus VISIBLES.** L'ETAT DE DEPART est HORS DE CAUSE (7629 sur les QUATRE canaux : `observeBattle`, `combatSnapshot`, `decisionView`, `load_state`) : le natif retire DEUX paquets, le coup de l'ability (5543) PUIS le **KNOCKBACK du push bloque** (`DisplaceUnitOperation$$ApplyKnockbackTo` = `ceil(maxHealth x BC.Damage.KnockbackPercentage/100)` = `ceil(9037 x 20%)` = **1808**, au chiffre pres). Ce paquet est **PORTE depuis #47**, mais il exige `state.board` -- que le test ne passait pas, et sans lui `PushUnit`/`MoveUnit` sont des **no-op SILENCIEUSES** (meme vice que l'ELEVATION de #63). Puis le cast TERMINE le tour (roster 1v1) et `applyAction` rend un etat qui a deja traverse le turn-start adverse, ou `LivingMetal` regenere 10 % des PV max (**+904** sur `Health = 9037`) : le test comparait deux INSTANTS. **Pourquoi c'etait invisible** : sans items la `FixedArmor` de la cible vaut 1110 au lieu de 1764, le coup principal fait 6700, le knockback ACHEVE la cible et la garde `if live_after > 0` SAUTE l'assertion. **PERIMETRE RE-DERIVE** (`probe_419r6_perimetre_bascule.py`) : **387 fichiers LIVE** sur 700, ventiles par TROIS canaux -- (A) coup propre exige **38**, (B) deja neutralises **34**, (C) **valeur en dur 25** (equiper change `FixedArmor` sur **49/106** et `Health` sur **4** : ce canal n'a rien a voir avec le crit et un balayage << cherche le mot crit >> le raterait). Les 38 de (A) joues : 23 vert, 7 INERTE, 8 ROUGE ; les 15 degrades **REJOUES en `TACTICUS_BIS_ITEMS=0`** -> **11 CAUSES** (repares, chaque compte apres reparation IDENTIQUE au temoin) et **4 PREEXISTANTS** non touches. Puis les **23** fichiers de (C) que (A) ne couvrait pas, memes deux passages : **17 vert, 6 ROUGE** -> **3 CAUSES** (repares) et **3 PREEXISTANTS**. **Total de la tranche : 17 fichiers repares** (3 nommes par #419-r5, 11 en (A), 3 en (C)) et **7 rouges preexistants** mesures, laisses tels quels. ⚠ Les 3 causes de (C) **ne portent AUCUN marqueur `did_crit`** : ils ROUGISSENT au lieu de skipper, donc un balayage qui ne cherche que le mot << crit >> les aurait manques -- c'est la justification empirique du 3e canal. ⚠ DEUX montages posaient DEJA `--crit`/`--block-target` mais **pas les deux autres faces** (`probe_366`, `_pierce_floor_regime`) : deux faces sur quatre suffisaient PAR ACCIDENT. Outillage : `rl_duel build --no-bis-items` (apres la bascule, le drapeau UTILE est le NEGATIF). | `probe_419r6_ecart_pv_ability.py` ; `probe_419r6_perimetre_bascule.py` |
+| #419-r6-r1 | **Les 315 fichiers live << indifferents aux deux marqueurs >> ne sont pas joues**, ni la **face DECISION hors tests** (`engine_validate.py`, `predict_sweep.py`, qui montent pourtant des runners). Les canaux (A) 38 et (C) 25 l'ont ete INTEGRALEMENT, dans les deux regimes ; ces 315 non, et l'extrapolation n'est pas une mesure — le canal (C) vient justement de montrer qu'un canal neglige cachait **3 casses reelles** dont AUCUNE ne porte de marqueur `did_crit` (elles ROUGISSENT, elles ne skippent pas). C'est aussi la que vit le plus gros : `MightCrit@+0xB1` = `CouldCrit(attaquant)` valait `False` sur TOUTES les predictions, donc `engine_agreement_stages` et les tests d'overkill concluaient eux aussi en regime degenere. **7 ROUGES PREEXISTANTS** sont par ailleurs mesures et NON traites (ils rougissent IDENTIQUEMENT dans les deux regimes, ce ne sont pas les defauts de #419-r6) : `test_additional_hits_{after_hit_maybe,roll_order,rounding}_live` (7/5/3 failed), `test_psychic_stalk_extra_attack_damage_live` (2), `test_429r1r3r1r2_unit_extensions_is_alive_live` (2), `test_endturn_order_live` (1), `test_harlequins_panoply_live` (2). | `[opus]` | `case-419-r6-bascule-du-defaut.md` §5, §7 |
+| #419-r6-r2 | **`ChampionOfTheFeast` (`TriggeredAbilityType` 1086) n'est porte par AUCUN des quatre registres de trigger** (`ABILITY_TRIGGERS` 38, `ACTIVE_ABILITY_TRIGGERS` 2, `EFFECT_TRIGGERS` 32, `TRAIT_TRIGGERS` 11). i2 : « After moving, deals {nrOfHits}x {minDmg}-{maxDmg} Power Damage to an adjacent enemy and reduces this enemy's Armour for the rest of the battle ». Il frappe a CHAQUE deplacement du caster : mesure sur le montage de `test_damage_ability_live`, il a retire **1408** PV a la cible et fait passer son armure de **2761 a 1764** pendant la seule approche. Sans effet sur ce test (l'etat est capture APRES l'approche et les deux cotes lisent le meme snapshot), mais c'est une divergence d'etat REELLE en self-play. L'audit `combat-ability-coverage.md` ne le voit pas : il ne couvre que les `activeAbilities` -- il n'existe aucun audit equivalent pour les TRIGGERED. | `[opus]` | `case-419-r6-bascule-du-defaut.md` §7 |
 | ~~#446~~ | ~~**`Boltstorm` (1090) — quatrieme des residus ATTACK de #419-r1 (5 porteurs)**~~ | **PORTE + CONFRONTE LIVE (2026-08-01)** | `case-446-boltstorm-playbook.md`. Corps LU : **DEUX** sorties — 0 si `BattleQuery.FindRangedWeapon(case.Caster)` rend null, sinon `GetUtilityValue("BOLTSTORM_AdjacentEnemies")` (**10**) **MULTIPLIE** par le cardinal de `BoltstormAbility.GetAllTargets(dsl, Direct(weapon.Range))`. **PREMIER playbook attack porte dont la sortie est un PRODUIT poids x CARDINAL** (les cinq autres sont des termes plats) — et le cardinal **COMPTE LA CIBLE elle-meme** (`op_Addition` avec `Target@0x60`), donc toute cible vaut deja 10. Le `range` vient de l'**ARME** (surcharge a UN argument de `FindRangedWeapon`, identifiee par son proxy `RecordedSimulationRequestsBattleQuery.<FindRangedWeapon>b__0` ; champ `Nullable<int>` @ `WeaponProfile+0x24`, qualifie par un 3e site qui le nomme, `AttackWeaponRangeFormula$$Calculate`). ⚠ `WeaponProfile$$get_IsMelee` n'est PAS « Range absent » : c'est `!HasValue \|\| Value < 2`. Le terme **ne depend PAS de la tuile d'attaque** (la struct `AbilityEntities` du corps est memset a 0 et ne recoit que Caster/Target/Owner — ni `CasterTile` ni `TargetTile`). Mesure (`MC1_67`/41504, `templAggressor` HERO au pool) : `port - port_mute` = **exactement 30 / 10** pour les cardinaux 3 / 1, et un BALAYAGE isolant (seule la distance au caster d'un voisin qui reste voisin change) donne **dNatif = dPort = +10.000000 par cran**, ecart natif-port INVARIANT. ⚠ **DEUX pieges MESURES** : (a) chercher les voisins de la cible avec `hexgeo.neighbors` NU laisse la porte d'ELEVATION exclure le temoin -> le gate de PORTEE n'etait pas exerce et l'accord etait parfait POUR RIEN ; (b) declarer une contre-epreuve « mordante » sur `abs(port - natif) > EPS` est FAUX des que la paire porte un residu (le critere est le deplacement vs le port NON MUTE). 3 contre-epreuves + 2 mutants du port joues — tous MORDENT. | `probe_446_boltstorm_pair_term.py` ; `test_446_boltstorm_pair_term_live.py` |
 | ~~#446-r1~~ | ~~**Ecart CONSTANT natif-port sur les paires de `templAggressor`**~~ | **ETAGE LOCALISE + FIX LIVRE (2026-08-02)** | `case-446-r1-boltstorm-followup.md`. **L'etage d'abord, le correctif ensuite** : la formule offline nourrie des champs NATIFS reproduit `pairUtility` **au chiffre pres** sur les deux cibles (38.219589 / 20.974451) -> l'etage UTILITE est EXACT, tout l'ecart est en PREDICTION, et le diff champ-a-champ le nomme : `appliedHits` **natif 6, port 3**. **Cause : un etage PORTE et INERTE.** L'attaque normale de `templAggressor` n'est pas la generique 69 mais **`1128 Boltstorm_NormalAttack`**, instanciee sur la sous-classe qui surcharge `PredictAttack` = base + `GetAdditionalDamagePrediction`, sommes par `DamagePredictionResult$$Add` sous la gate « arme choisie non melee ». Le mold etait porte depuis **#57c-C** mais son registre `_RANGED_FOLLOWUP_PASSIVES` etait **VIDE** faute de porteur identifie — le porteur est l'ability qui donne son nom au mold (5 porteurs : `templAggressor` HERO au pool + 4 npc). **DEUX corrections, chacune necessaire** : (a) le **slot 4** de l'eval n'est pas « le MIN » mais `AAmountFormula$$CalculateAverage` (`(min+max)/2` ENTIERE) — deja documente par le port DSL (#339/#350-r3b) : 1496/2194 -> **1845** ; (b) les **modifiers de l'attaquant sont APPLIQUES** (aucun argument ne les transporte, le service les recalcule). **Mesure** : ecart `-4.159792` -> **`-0.007500`** (cible entouree) et `-5.639718` -> **`0.000000`** avec prediction IDENTIQUE champ a champ (cible isolee). **Generalise** sur `C2_02`/31337 (regime SANS bonus d'elevation, avec/sans `--armor-target`) : **exact**. **3 contre-epreuves mordent chacune seule** (dispatch retire -4.15/-5.64, montant=minDmg -0.79/-2.27, mods retires -1.38/-1.88) et la GATE est exercee (au contact : natif ET port retombent a 3 coups). ⚠ **Le deblocage n'est pas venu d'un fit** : tant que `base_natif` etait SUPPOSEE egale a `base_port`, aucun triplet (montant, coups, profil) ne satisfaisait les deux cibles. C'est le **controle appariee** (meme board/seed/layout, `PassiveAbilities=[]`) qui a mesure la base NATIVE et rendu les minima requis identiques. **Candidats REFUTES par mesure** : `CrushingStrike` et `MkXGravis` — controle appariee `Traits=["Hero"]`, le natif rend EXACTEMENT les memes valeurs sans eux ; le `x1.5` est le bonus d'**ELEVATION** de la tuile de tir. | `probe_446_r1_pair_residual.py` ; `test_446_r1_boltstorm_followup_live.py` |
 | ~~#446-r2~~ | ~~**3 points de degat sur la cible entouree, ANTERIEURS au fold de #446-r1**~~ | **ETAGE LOCALISE + FIX LIVRE (2026-08-02)** | `case-446-r2-arrondi-inter-faces.md`. **Ni un montant ni une operation : un ARRONDI, et il est STRUCTUREL.** `CalculateBaseDamageWithAllModifiers` consomme SEPAREMENT les modifiers ATTAQUANT et DEFENSEUR et intercale entre eux un `Fix64.Round(., AwayFromZero)` INCONDITIONNEL (`CalculateBaseDamageWithModifiers`, slot 0x10, une fois par face — donc **meme a multiplicateur neutre**) ; le port fusionnait les deux faces dans une seule `%-list`, donc un seul arrondi. Cause du cas : la cible est sur la tuile **Thorns** de `MC1_67` (modification de stat DEFENSE `-50` -> `x1.5` cote DEFENSEUR, `statModSources`) et le caster tire d'en BAS (elevation 3 < 4, donc **pas** d'elevation cote ATTAQUANT) — `Round(Round(288.99999993) x 1.5)` = `434` contre `Round(288.99999993 x 1.5)` = `433`. **REFUTES par mesure** : l'armure (`--armor-target 3513` egalise, l'ecart PERSISTE), le trait `BigTarget`, le passif `AvalancheOfMuscle`, et les deux ensemble. Balayage (12 tuiles x 5 cibles) **60/60 exact** apres fix ; la paire de #446-r1 tombe a **0.000000** sur les deux cibles. Le capteur `IndividualHitDamage@0x80` reste souhaitable mais n'a PAS ete necessaire. Gardes : `test_446_r2_inter_face_rounding_offline.py` + `..._live.py` ; probe `probe_446_r2_base_min_residual.py`. |
@@ -2864,25 +2867,73 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `probe_477r33_non_owner_registry_gaps.py`, `test_477r33_non_owner_playbooks_live.py`.
   Residu : **#477-r35**. cf. `docs/rl/case-477r33-non-owner-manquants.md`.
 
-- **#477-r35 : 8 faces MOVE `*NonOwnerPlaybook` restent non portees.** `[opus]`
-  `1064 FirstAmongTraitors` (porteur `blackAbaddon` AU POOL en passif, mais gate `HasTrait(Chaos)`
-  et **0 unite sur 1083** porte ce trait au gameconfig), `1451 WisdomOfTheAncients`,
-  `1469 MawClawsOfThyrax`, `1478 SabreOfSacrifice` (corps DSL `IsAffectedSummon`),
-  `1496 CabalOfSorcerers`, `1508 MastersOfManoeuvre`, `1526 PurgeResponse` (aucun mover
-  `LeaguesOfVotann` au pool), `1531 HaywireMine`. **Aucune n'est armee sans montage** -- le
-  decompte des confonds est a 1, et celui-la est inerte.
-  DEUX VERROUS a lever d'abord, tous deux nommes : (a) le `ctx` des feuilles de tuile ne porte
-  **aucun canal `rarity`**, dont `1451` / `1496` / `1508` dependent (`HasRarity(u, 5)` =
-  `idun.meta.Rarity.Mythic`) ; (b) le `<slot 4>` de `HaywireMineNonOwnerPlaybook` doit etre RELU
-  sur CETTE classe -- son corps branche `IsFriend(case.unit, owner)` vers DEUX cles distinctes
-  (`HaywireMine_FriendlyAvoidMine` = **-50**, `HaywireMine_EnemyAvoidMine` = **-30**), or si le slot
-  valait `false` ici comme sur les 3 classes lues par #433-r4-r3, la branche ENNEMI serait
-  INATTEIGNABLE et sa cle n'existerait pas. C'est le SEUL cas de la famille ou le corps rend le
-  slot observable.
-  Le recensement complet (poids BC resolus au litteral, gate, porteurs, voie d'atteignabilite) est
-  rendu par `python scripts/python/probe_477r33_non_owner_registry_gaps.py --offline-only` -- le
-  RE-DERIVER, ne pas recopier cette ligne.
-  cf. `docs/rl/case-477r33-non-owner-manquants.md` sec. 3 et 8.
+- ~~**#477-r35**~~ : **LIVRE (2026-08-06) -- le `<slot 4>` n'est pas une constante de FAMILLE, et
+  le dispatcher en avait fait une.** #433-r4-r3 l'avait lu `false` sur TROIS classes ; le port
+  ecartait depuis TOUS les porteurs ennemis d'un bloc, avant meme de charger le playbook. Or
+  `HaywireMineNonOwnerPlaybook` vaut **`true`** (corps trivial `UnityEngine.U2D.IK.Solver2D$$
+  DoValidate` = `return 1`, la ou les deux classes qui surchargent en `false` portent
+  `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId` = `return 0`). **Mesure** : tuile
+  minee du montage `haywire`, `X_nat` **-130** pour un port a **-100** -- il manquait exactement
+  `HaywireMine_EnemyAvoidMine` (**-30**).
+  ⚠ **Le premier critere de lecture rendait VERT** : il postulait que le bloc `methodPointers`
+  COMMENCE au `.ctor`, et les SIX classes relues le satisfaisaient. Le discriminant est l'entree
+  qui **PRECEDE** le `.ctor`. C'est la MESURE LIVE qui a renverse un verdict offline deja commite.
+  ⚠ Le `d__5` de la state machine ne signalait PAS la methode en plus (compteur du compilateur).
+  PORTES : `1526 PurgeResponse` (20) et `1531 HaywireMine` (-50 / -30) **CONFRONTES LIVE** ;
+  `1469 MawClawsOfThyrax` (5) porte + gate exerce OFFLINE -- **verrou STRUCTUREL mesure** :
+  `UnitExtensions$$IsAutomatic` = `HasTrait(Summon) || HasTrait(Object)` sans exemption, donc tout
+  mover franchissant son gate est joue par `PlayAutomaticUnitsOperation` au turn-start et n'entre
+  JAMAIS dans la trajectoire d'`aiStepDryRun` (trait accorde, 25 pas, **0 activation**).
+  Registre **15 -> 18**. 3 montages (dont 1 controle de gate), 0 desaccord sur 7 + 8 + 10 tuiles ;
+  `SLOT4-OFF` mord 1 tuile (le bug chiffre), `ABSENT` 1 / 0 / 1. Mirror **neuf**
+  `UnitTeamSelectionType` (3e argument d'`AreFriends`, slot `0x92`), inscrit a `probe_313` dans le
+  meme commit. Foyer `GetSteppableUnit` DEPLACE dans `engine.battle_query` (+ champ `vis`).
+  165 verts (18 + 64 + 83, aucune regression).
+  ⚠ **La PR a d'abord CASSE un artefact versionne**, trouve a la relecture : le foyer
+  `GetSteppableUnit` avait ete pose dans `engine/battle_query.py`, qui ne doit dependre de RIEN
+  d'`engine.entities` -- `python -c "import engine.battle_query"` et
+  `probe_433_r1_identity_shortcircuit.py` passaient sur master et LEVAIENT sur la branche, **avec
+  165 tests verts** (un cycle Python est sensible a l'ORDRE, et toutes nos passes entrent par un
+  ordre qui le dissout). REPARE PAR PLACEMENT -- `engine/entities/tile_extensions.py`, apres DEUX
+  emplacements mesures et rejetes -- **pas** par un import differe : le cas etait dans la classe
+  GRATUITE. Cliquet ne de la : `probe_477r35_import_isole.py` (chaque module `engine.*` importe
+  SEUL en process frais, 430 modules, `en_echec == 0` inconditionnel, ~13 s offline).
+  Residus : **#477-r37**, **#485**. cf. `docs/rl/case-477r35-slot4-par-classe.md`.
+
+- **#485 : les 314 imports DIFFERES d'`engine/**`, ventiles -- 212 porteurs SANS raison ecrite.**
+  `[opus]` Le `430/430` du cliquet `probe_477r35_import_isole.py` est un acquis **adosse a une
+  dette** : il est tenu par **262** differes PORTEURS (hisser fermerait un cycle), dont **212 ne
+  portent AUCUNE raison ecrite**. Un lecteur ne peut donc pas distinguer « structurel, n'y touche
+  pas » d'une scorie -- et c'est vraisemblablement par IMITATION de ceux-la que les **52 GRATUITS**
+  (hissables, aucun cycle ; **3** seulement documentes) sont apparus. Deux volets, le second borne :
+  (a) ECRIRE la raison des 212 porteurs (ou au moins les marquer d'un motif cherchable) ;
+  (b) HISSER les 52 gratuits -- offline pur, ratchette a **0**, et le cliquet ci-dessus garde le
+  resultat. ⚠ Ne pas lire un vert du cliquet comme « le graphe est propre » : il mesure « aucun
+  module ne CESSE de s'importer seul », pas « aucun cycle ». Mesure a RE-DERIVER (AST + un process
+  frais par cible), jamais recopier ces chiffres.
+  ⚠ **DEJA EN PLACE, ne pas le re-ecrire** : `probe_485_imports_differes.py` classe
+  porteur/gratuit (process frais par cible) et **refuse tout gratuit NEUF**, base versionnee
+  `scripts/ratchets-485-differes-attestes.json` qui ne peut que DECROITRE (une declaration
+  perimee rougit). Le volet (b) est donc « faire decroitre la base a 0 », pas « batir le
+  cliquet ». La CAUSE est mesuree et UNIQUE : **261 des 262 porteurs** ferment leur boucle par
+  une **cascade d'`__init__.py`** (barils de re-export), **1** seul est une dependance mutuelle
+  reelle -- d'ou `#485-r1`, le generateur de reecriture des barils.
+
+- **#477-r37 : les 5 faces MOVE restantes, le regime AUTOMATIQUE, et le `<slot 4>` des 22 AUTRES
+  classes.** `[opus]` Trois volets independants, du moins au plus proche du gisement ouvert :
+  (a) **5 faces** -- `1064 FirstAmongTraitors` (gate `HasTrait(Chaos)`, **0 unite sur 1083** :
+  terme inerte, NON CONFRONTABLE et c'est un resultat) ; `1451` / `1496` / `1508` (gates sur la
+  **rarete** du mover, `HasRarity(u, Mythic)` -- **aucun canal `rarity` dans le `ctx`**, verrou
+  pre-existant, une tranche a soi seule) ; `1478 SabreOfSacrifice` (gate = selecteur DSL
+  `SabreOfSacrificeAbility$$IsAffectedSummon`, invoque par vtable sur une struct de 0x128 octets) ;
+  (b) **le regime AUTOMATIQUE** (`IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute`) --
+  c'est le SEUL regime ou la face `1469` pese, et `aiStepDryRun` ne le marche pas. Sans lui, tout
+  gate en `HasTrait(mover, Summon)` restera exerce offline seulement ;
+  (c) **le `<slot 4>` des 22 autres classes du registre n'a PAS ete relu** -- #477-r35 n'en a lu
+  que 6. Rien ne dit qu'une autre ne vaut pas `true`, et c'est exactement l'erreur que #477-r35
+  vient de corriger, transposee d'un cran. Le lecteur existe deja
+  (`probe_477r35_non_owner_gates_montables.py`, etape 0b) : l'etendre aux 28 concrets est mecanique.
+  cf. `docs/rl/case-477r35-slot4-par-classe.md` sec. 8.
 
 - ~~**#477-r30**~~ : **LIVRE (2026-08-06) -- l'appariement slot<->nom passe de la LIGNE a une
   FENETRE de 3 lignes, et y trouve 8 citations FAUSSES de plus.** La taille est MESUREE, pas
@@ -2952,32 +3003,77 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   **41 verts** (33 + 8 neufs) ; `probe_477r25` et ses 57 verts inchanges.
   Residu : **#477-r36**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6ter.
 
-- **#477-r36 : ce qui reste HORS COUVERTURE sur les deux cliquets de slots, VENTILE PAR CAUSE.**
-  `[opus]`
-  Un compte seul est un inventaire ; sa cause en fait une tache. Sur `IOperationProcessor`, apres
-  #477-r32, il reste **173** lignes, mesurees et ventilees (`--ventiler`) : **44** sans aucun
-  NUMERO (le slot est nomme en prose, ou par une tournure que l'etage NOM SEUL ne reconnait pas --
-  « prennent le slot `MoveUnit` (4 arguments...) », sans « de l'... ») ; **79** avec un numero et
-  AUCUN nom de methode dans la fenetre (rien a contredire) ; **50** avec un numero ET un nom de
-  l'interface dans la fenetre, qu'un cran conservateur ecarte. La somme des trois VAUT le total --
-  c'est une partition, assertionnee, pas une liste blanche de motifs.
-  ⚠ Ces comptes BOUGENT quand on ecrit sur les slots -- ET sous les MERGES des autres : le corpus
-  balaye contient les fiches et les tests de la tranche elle-meme (seul le probe est exclu de son
-  propre balayage). Mesure a REGIME CONSTANT : 45 -> 51 attestations sous nos seules ecritures,
-  puis 51 -> 60 au rebase sur #477-r22-r1 (qui RESOUT le slot 0x21, et dont les citations neuves
-  passent toutes le cliquet). Les RE-DERIVER (`--courbe`, `--ventiler`), jamais les citer.
-  CE QU'IL FAUT : les **50** sont le gisement, et il est BORNE -- les quatre relachements mesures
-  en sec. 6ter n'en sortent que **18** couples, dont **10 justes** (dont 1 deja recupere par le
-  cran FLECHE) et **8 artefacts du relachement**. DEUX crans gagneraient sans bruit mesure, et ce
-  sont des axes de FORME, pas de fenetre : (a) le nom COLLE au numero (« slot 0x3c AttackDamage »)
-  -- 2 couples, 0 artefact ; (b) la forme A tolerant un APPEL avant le `=` (« processor.<slot
-  0x12>(); // -> ... ») -- 3 justes pour 1 artefact, donc a durcir avant de l'armer.
-  Cote `probe_477r25`, les ~640 lignes restantes ne sont PAS ventilees : la courbe y est plate et
-  elles n'ont pas de nom appariable. Les ECHANTILLONNER reste le volet ouvert (la premiere lecture
-  du gisement precedent en a sorti une citation fausse, puis l'outillage en a sorti 8).
+- ~~**#477-r36**~~ : **LIVRE (2026-08-06) -- le gisement tenait a l'APPEL, et le compte annonce
+  etait FAUX de 48 % parce que le RECENSEUR ne voyait pas les noms QUALIFIES.**
+  `_regex_noms` portait `$` dans son lookbehind : `Core.Services.OperationProcessor$$RemoveUnit`,
+  la forme la plus courante du corpus, lui etait invisible, et ces lignes partaient en
+  `numero_sans_nom` (« rien a contredire »). Re-mesure a regime CONSTANT sur l'arbre de depart :
+  le gisement n'etait pas de **50** lignes mais de **74**. C'est « un recenseur ne peut pas rendre
+  zero sur ce qu'il ne visite pas », applique au recenseur lui-meme -- et il n'etait visible qu'en
+  faisant entrer des couples qu'il declarait inexistants.
+  **LA CAUSE DOMINANTE EST UNE SEULE** : un slot s'ecrit sous forme d'APPEL, et sa liste
+  d'arguments porte precisement les `(`, `)`, `,`, `:`, `;` que le remplissage exclut -- la
+  resolution ecrite juste apres etait donc structurellement hors d'atteinte. Quatre formes :
+  **appel ABSORBE** d'un bloc equilibre et colle (A/B/C), **resolution COMMENTEE** (D, gardee par
+  un marqueur `=`/`->`/signature), **placeholder** (E, gardee par la fermeture des chevrons),
+  **resolution EN PROSE** (F, gardee par le delimiteur de code ouvrant). Plus la SYMETRIQUE du
+  cran de #477-r32 : le recepteur a aussi le droit de s'ecrire APRES le numero.
+  Re-derive (`--historique` vs service, meme arbre, meme fenetre) : attestations **81 -> 116**,
+  zone aveugle **186 -> 152**, gisement **81 -> 47**, **35** couples propres a la tranche,
+  **0 citation fausse**. ⚠ **L'apport qui ne se lit dans aucun de ces comptes** : l'etage ARITE
+  passe de **8 a 39** citations confrontees (x4,9) -- le cran qui a trouve la faute de #477-r24-r2
+  ne pouvait juger que les sites montrant leurs arguments APRES le couple, or l'ecriture dominante
+  les met AVANT.
+  Le zero est ADVERSARIAL : **7** crans relaches SEPAREMENT (`--relacher`). `qualificateur-forme-c`
+  est REFUSE et chiffre (**2 justes pour 97 artefacts**) ; `placeholder-ferme` est **gratuit**
+  (0 neuf) ; les autres ne sortent que des artefacts. ⚠ **« Concorde » ne veut pas dire
+  « citation »** : relacher la virgule fabrique `(0x65, MoveUnit)` depuis la **syntaxe d'une liste
+  Python** d'un test -- un tableau qui ne compte que les noms faux aurait conclu « la virgule ne
+  rapporte rien ». Non-regression MECANIQUE (master vs branche, meme arbre, rejouee apres rebase) :
+  **0** citation perdue a fenetre 1 comme a fenetre 3.
+  ⚠ **Une affirmation de #477-r32 est DEMENTIE** : la correction du slot `0x66` « reformulee pour
+  rester confrontable » l'est dans `backlog.md`, **pas** dans le corps de sa fiche. Le cran
+  suffixe-recepteur la recupere.
+  ⚠ **LE CRAN, PORTE A `probe_477r25`, A REPARE `master` ET Y A TROUVE 5 CITATIONS FAUSSES.**
+  `master` etait ROUGE depuis la PR #737 (`#287-r11`) : le site ecrit trois
+  `battleQuery.<Nom>(<args>);   # slot <n>` dont les **trois attributions sont JUSTES**, mais
+  faute d'absorption d'appel le cliquet partait du slot pour attraper le nom de la LIGNE SUIVANTE.
+  **On ne plie pas un contenu correct pour satisfaire un outil casse** -- c'est l'outil qui est
+  corrige, par TROIS crans tous mesures necessaires sur ce seul bloc (0 juste/2 faux -> 2/2 ->
+  2/1 -> **3/0**), le dernier etant la PROFONDEUR d'imbrication a 3 niveaux. Le cran est
+  **IMPORTE, pas recopie** (foyer unique `probe_477r24r1._appel`, fige par un test) : deux motifs
+  jumeaux qui derivent l'un de l'autre rouvriraient ici le gisement que l'autre vient de fermer.
+  Et l'elargissement a fait sortir **5 citations FAUSSES du depot**, sur **4 fichiers**, toutes
+  decalees de **+1** (`GetVector` 0x70->0x71, `GetAngleBetweenVectors` 0x71->0x72,
+  `GetEffectConfig` 0xbe->0xbf, `GetFreeAdjacentTiles` 0x51->0x52/0x53 sur DEUX fichiers).
+  La table fait foi et ce n'est pas un postulat : **272** attestations pour **5** fausses -- un
+  decalage de la TABLE les rougirait toutes. La cause est **ecrite au site** par `targeting.py` :
+  l'index avait ete pris sur un `u003Cu003Ec__DisplayClass...`, une lecture INDIRECTE, exactement
+  la grandeur que #477-r24-r1 a montree n'indexer RIEN ; `0x51` est `GetAdjacentTiles`, que le
+  corps APPELLE -- une chaine d'appel prise pour une identite.
+  53 + 60 = **113 verts** ; 6 mutants sur 6 mordants ; les deux cliquets VERTS ;
+  empreinte AST VERTE (3 divergents, 3 declares, **4 fichiers de PORT touches et AST-IDENTIQUES**).
+  Residu : **#477-r42**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater.
+
+- **#477-r42 : les DEUX crans herites qui coutent encore une citation JUSTE, et les ~640 lignes
+  de `probe_477r25` que personne n'a ventilees.** `[opus]`
+  (a) La **VIRGULE** dans le remplissage -- cran de #477-r25, mesure sur l'AUTRE corpus (une
+  enumeration VERTICALE apparie le nom d'un item au slot du suivant). Sur celui-ci il cache
+  « le slot 5 de `Core.Services.IOperationProcessor`, **dont** l'implementation `...$$AddUnit(...)` ».
+  Le discriminant candidat -- « la virgule ne bloque QUE lorsque le remplissage traverse un saut de
+  ligne », qui colle a la cause mesuree -- **n'aide ni cette citation ni l'autre** (toutes deux
+  traversent) : a instruire, pas a appliquer au jugé.
+  (b) La **LOCALITE DU COMMENTAIRE** : `engine/streams/turn_phase.py` ecrit la resolution dans le
+  **second** commentaire de la ligne (`// -- `verifier`` puis `// = `...$$VerifyUnitsTurnFinished``).
+  Sauter le premier commentaire perdrait exactement ce que le cran `appel-colle` tient.
+  (c) Les ~**640** lignes de `probe_477r25` ne sont toujours PAS ventilees. ⚠ **Il n'y a RIEN a
+  verifier cote lookbehind : ce probe n'a AUCUN recenseur** -- pas de ventilation du tout. Ecrire
+  la ventilation, c'est ecrire le recenseur, et il devra naitre avec le lookbehind CORRIGE
+  (`(?<![A-Za-z0-9_])`, pas `(?<![A-Za-z0-9_$])`) -- sans quoi il repetera d'emblee le
+  sous-comptage de 48 % que #477-r36 vient de mesurer sur l'autre.
   NB annexe, non mesure comme gisement : le mot `slot` lui-meme reste sensible a la casse (seul
   son qualificatif ne l'est plus) -- « Slot 0x12 = ... » ne serait pas vu.
-  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6ter et Residus.
+  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater et Residus.
 
 - **#477-r21-r2 : la SELECTION et l'ORDRE de l'arbre d'activation.** `[opus]`
   Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.

@@ -1208,29 +1208,25 @@ def _load_board_pool(kind: str, roster_size: int,
 # pas dans le jeu. Equiper est donc le regime FIDELE, et l'ancien comportement
 # reste joignable par `equip_items=False` (temoin, non-regression).
 
-# LE DEFAUT EST << NE PAS EQUIPER >>, ET C'EST UN ARBITRAGE MESURE, PAS UNE PRUDENCE.
+# LE DEFAUT EST << EQUIPER >> DEPUIS #419-r6 -- c'est le regime FIDELE, et l'ancien etait
+# DEGENERE, pas seulement different.
 #
-# Equiper est le regime FIDELE -- un heros rank 17 / level 50 / 5 etoiles SANS aucun item
-# n'existe pas dans le jeu. Mais basculer le defaut change l'etat de TOUS les runners, et le
-# rayon de souffle a ete mesure sur 8 fichiers de degat joues dans les deux regimes :
+# Un heros rank 17 / level 50 / 5 etoiles SANS aucun item n'existe pas dans le jeu. Tant que le
+# defaut etait `False`, `CouldCrit` (`GetStat(9) > 0 && GetStat(10) > 0`) etait FAUX sur les 106
+# unites du seed, cote NATIF COMME PORT : tout accord sur `RollCritical`, sur le gate
+# << never crit >> et sur le block etait un accord en regime degenere -- les deux cotes rendaient
+# zero. Voir `docs/rl/case-419-r5-canal-crit-block-muet.md`.
 #
-#   test_damage_roll_live          3 passed -> 2 skipped  (REPARE ici : montage rendu explicite)
-#   test_damage_normal_armored     3 passed -> 3 skipped  (fichier INERTE, garde #455)
-#   test_damage_ability_live       1 passed -> 1 FAILED   (ecart natif-port de 904 PV)
-#   test_damage_catalog_live       5 passed -> 1 passed + 4 skipped
-#   test_damage_crit / _block / _decomp / test_runner_attack : INCHANGES
+# La bascule a un rayon de souffle MESURE (les deux regimes joues sur le meme fichier, temoin
+# `TACTICUS_BIS_ITEMS=0`), documente dans `docs/rl/case-419-r6-bascule-du-defaut.md`. Les
+# fichiers qui se degradaient ne retenaient qu'un coup << propre >> (sans crit ni block) et le
+# trouvaient SANS RIEN DEMANDER tant que le canal etait muet : leur montage est desormais
+# EXPLICITE (`NO_NOISE` sur les QUATRE faces -- `--crit`/`--block-player` n'epinglent que les
+# p-units, `--crit-target`/`--block-target` que les a-units).
 #
-# Les fichiers qui se degradent sont ceux qui ne retiennent qu'un coup << propre >> (sans crit
-# ni block) : ils trouvaient ce coup SANS RIEN DEMANDER tant que le canal etait muet. Leur
-# verdict reposait donc sur un ACCIDENT GLOBAL, et c'est exactement ce que #419-r5 nomme --
-# mais les REPARER un par un excede cette tranche, et chacun demande un arbitrage propre
-# (viser le regime crit, ou le neutraliser explicitement).
-#
-# On livre donc l'OUTIL et la MESURE, defaut inchange : aucun verdict existant ne bouge, et le
-# canal s'ouvre pour qui le demande (`equip_items=True`, `rl_duel --bis-items`, ou
-# `TACTICUS_BIS_ITEMS=1` pour mesurer une bascule globale d'un coup). Le jour ou la bascule
-# est faite, c'est CETTE constante qui passe a True.
-_EQUIP_ITEMS_PAR_DEFAUT = False
+# Le regime d'AVANT reste joignable, et c'est ce qui rend la bascule mesurable :
+# `equip_items=False`, ou `TACTICUS_BIS_ITEMS=0` pour l'imposer globalement sans toucher au code.
+_EQUIP_ITEMS_PAR_DEFAUT = True
 
 _BIS_CACHE: dict[tuple, dict] = {}
 

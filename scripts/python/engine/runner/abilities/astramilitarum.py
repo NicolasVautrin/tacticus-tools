@@ -28,6 +28,7 @@ from ...entities.selectors import (ActiveTarget, AdjacentTiles, CanAddUnit, Cast
 from ...entities.stats import StatType
 from ...utilities.tile import sort_tiles_by_utility
 from ... import battle_query
+from ...services import battle_query as _svc_bq   # `BattleQuery$$GetUnitMaxRange` (#287-r11-r1)
 from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_SELF,
                         RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
@@ -37,6 +38,7 @@ from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 from ..components import OwnerComponent, UnitComponent
 from .targeting import unit_of_entity
+from .targeting import tile_is_empty_or_steppable   # `TileExtensions$$IsEmptyOrSteppable` (#287-r11-r1)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -190,15 +192,31 @@ class SupremeCommanderAbility(ActiveAbility):
 #     AActiveAbility.Execute(this, Spawn(caster@0x160, tiles, unitId, opts), entities)
 # UN SEUL `Execute` top-level (PAS d'ExecuteAtomic, PAS de Group) et AUCUN `PerformAIAction` : les Cadians
 # tirent via le sous-behaviour ON-APPEARANCE embarque dans les options de spawn.
-CONST_SITNW_UNIT_ID = 0x00      # GetStringConstant(0)      -> "unitId"      = astraSmnGuardsman
+SITNW_ID = "SendInTheNextWave"
+CONST_SITNW_UNIT_ID = AbilityConstantType.unitId          # GetStringConstant(0x0)    -> "unitId"      = astraSmnGuardsman
 CONST_SITNW_NR_SUMMONS = AbilityConstantType.nrOfSummons   # GetNumberConstant(0x10)   -> "nrOfSummons" = 2  (MEME index que 1028)
 VAR_SITNW_MAX_SUMMONS = AbilityVariableType.maxSummons    # GetVariableForLevel(0x31) -> "maxSummons"  (case-38 : 0x31 = 49)
-SITNW_SPAWNED_UNIT_RANGE = 2    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnedUnitRange` = portee d'arme du summon spawne
-                                # (service `ability+0x20`, vslot 0xaa, sur GetStringConstant(0)) ;
-                                # gameconfig `astraSmnGuardsman.weapons[1].Range == 2`. CONSTANTE ici :
-                                # le service de config d'unites n'est pas expose offline (residu documente
-                                # -- si un autre porteur de 1016 apparaissait avec un summon de portee
-                                # differente, il faudrait lire la portee de l'arme du summon).
+
+
+def send_in_the_next_wave_spawned_unit_range() -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetSpawnedUnitRange`
+    -- MIRROR, qui tient en une ligne :
+
+        return battleQuery.GetUnitMaxRange( GetStringConstant(0x0 unitId) );   // slot 171
+
+    ⚠ ETAIT UNE CONSTANTE EN DUR (`SITNW_SPAWNED_UNIT_RANGE = 2`), sur le motif « le service de
+    config d'unites n'est pas expose offline ». C'etait vrai du SERVICE et faux de la SOURCE : le
+    natif passe par `BattleQuery$$GetUnitConfig`, donc par le CATALOGUE, que `gameconfig` porte.
+    Le mirror `services/battle_query.get_unit_max_range` le lit ; il n'y a plus qu'UN foyer, celui
+    que la regle dynamique de ciblage (#287-r11-r1) partage avec `GetSpawnTilesSelector`.
+    Sur le gameconfig courant : `astraSmnGuardsman.weapons = [Physical(sans portee), Las(Range 2)]`
+    -> `max(1, 2)` = **2**, la valeur que la constante portait (garde offline `etage 1` de
+    `test_287r11r1_regles_ciblage_offline.py`, qui FIGE la valeur mesuree a la conversion).
+
+    Unite du summon inconnue du catalogue -> `0` (mirror du `return 0` natif) : le disque de
+    `GetSurroundingTiles` se reduit alors a la tuile centre, il n'est jamais fabrique plus large."""
+    unit_id = ((GC.ability(SITNW_ID) or {}).get("constants") or {}).get(CONST_SITNW_UNIT_ID.name)
+    return _svc_bq.get_unit_max_range(unit_id)
 
 
 def send_in_the_next_wave_num_summons(state: "State", caster_id: int) -> int:
@@ -272,7 +290,7 @@ def send_in_the_next_wave_spawn_tiles(state: "State", caster_id: int, target_id:
         if t is not None:
             occ.add(t)
     possible = []
-    for (col, row) in hexgeo.disk(tpc.col, tpc.row, SITNW_SPAWNED_UNIT_RANGE):
+    for (col, row) in hexgeo.disk(tpc.col, tpc.row, send_in_the_next_wave_spawned_unit_range()):
         if (col, row) == (tpc.col, tpc.row):                 # SurroundingTiles(includeCenter=0)
             continue
         t = board.id_at(col, row)
@@ -326,17 +344,69 @@ class SendInTheNextWaveAbility(ActiveAbility):
     #   forceMeleeTarget = param_4 = 1 = RangedBool.False (aucun clamp a 1 au contact)
     # ⚠ `constants.range` n'existe pas pour 1016 et le preset ne pose PAS `useRangeFromConfig` :
     # `AActiveAbility$$SetConfigValuesInTargetingOptions` ne touche donc a rien ici.
-    # RESIDU NOMME (non porte, degradation PERMISSIVE) :
-    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetDynamicInvalidTargetReason`
-    # exige qu'il RESTE au moins une tuile de spawn autour de la cible -- il appelle le slot 0x66 de
-    # `IBattleQuery` avec `(target, GetSpawnedUnitRange(), 1, 1, 0, 1)` et rend
-    # `TargetMatchesDynamicRule` (2) quand le compte est < 1. Le slot 0x66 n'est pas resolu (aucune
-    # lambda du decorateur `RecordedSimulationRequestsBattleQuery` ne l'a donne), donc la methode
-    # n'est PAS surchargee : le defaut de `ActiveAbility` rend 0, jamais un refus invente.
+    # `TargetMatchesDynamicRule` -> PORTE depuis #287-r11-r1 (surcharge ci-dessous).
+    # ⚠ LE SLOT ETAIT MAL LU, ET LE « NON RESOLU » VENAIT DE LA. La note precedente disait
+    # « slot 0x66 d'`IBattleQuery`, non resolu (aucune lambda du decorateur
+    # `RecordedSimulationRequestsBattleQuery` ne l'a donne) » : le decompile du build courant montre
+    # `+ 0x67`, et la table de METADONNEE (`data/symbols/<build>/metadata/interface_slots.tsv`, lue
+    # dans le champ `slot` d'`Il2CppMethodDefinition`) donne `IBattleQuery 103 GetSurroundingTiles/6`.
+    # Chercher une lambda de proxy n'etait pas la bonne voie : la table le dit directement, et elle
+    # departage aussi les homonymes (le slot 111 est `GetMinDistance`, PAS `GetDistance`).
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetIsEnemy
         | TR.TargetMatchesDynamicRule
     ), range=RANGE_ADJACENT_IF_MELEE_CASTER, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile, ligne a ligne (#287-r11-r1) :
+
+            range = GetSpawnedUnitRange();                      // GetUnitMaxRange(unitId), slot 171
+            tiles = battleQuery.GetSurroundingTiles(targetTiles, range,
+                                                    onlyEmptyOrSteppable: 1, onlyWalkable: 1,
+                                                    onlyMovable: 0, includeCenter: 1);   // slot 103
+            return tiles.Count() < 1 ? 2 : 0;                   // ICollection<ITile>.get_Count, slot 0
+
+        SEMANTIQUE : « la vague suivante doit avoir OU se poser ». Yarrick ne peut pas designer une
+        cible entierement encerclee : il faut au moins une tuile VIDE-OU-STEPPABLE et MARCHABLE dans
+        le disque de rayon `range` autour d'elle.
+
+        ⚠ `includeCenter = 1` ET `onlyEmptyOrSteppable = 1` VONT ENSEMBLE, et le second est ce qui
+        rend le premier inoffensif : le centre est la tuile de la CIBLE, donc occupee, donc rejetee
+        par `IsEmptyOrSteppable` -- sauf si la cible est `Steppable`, auquel cas le natif la compte
+        VRAIMENT. Retirer le centre « parce qu'il est occupe » aurait ete une simplification FAUSSE.
+
+        ⚠ CE N'EST PAS LE MEME ENSEMBLE QUE `GetSpawnTilesSelector` (l'ExecuteBehaviour), et les
+        confondre aurait produit un SUR-refus. Le selecteur de spawn, lui, passe par
+        `CanAddUnit(SurroundingTiles(target, includeCenter=0, r))` -- `CanAddUnit` ajoute trois
+        rejets (blocker, `NotWalkable`, tuile RESERVEE) et EXCLUT le centre. Le gate de ciblage est
+        donc STRICTEMENT PLUS PERMISSIF que ce que l'ability saura utiliser ; il existe une
+        configuration ou le cast est LEGAL et ne pose rien (cible `Steppable` seule tuile libre).
+        Le natif l'assume ; le port aussi.
+
+        SUBSTRAT : `tile_is_empty_or_steppable` est le mirror deja porte d'`IsEmptyOrSteppable`
+        (`runner/abilities/targeting.py`) ; `board.walkable` porte `IsTileValidForList(checkWalkable
+        = 1, checkElevation = 0)`. Cible non resolue / board absent -> `0`, la convention permissive
+        du module (on ne fabrique pas un refus sur un substrat non mesure)."""
+        if target_id is None:
+            return 0
+        board = state.board
+        te = state.get_entity(int(target_id))
+        tpc = te.get_component(PositionComponent) if te is not None else None
+        if board is None or tpc is None:
+            return 0
+        tpos = (tpc.col, tpc.row)
+        tiles = battle_query.get_surrounding_tiles(
+            tpos, radius=send_in_the_next_wave_spawned_unit_range(),
+            include_center=True,                               # `includeCenter = 1`
+            check_walkable=True,                               # `onlyWalkable = 1`
+            only_empty_or_steppable=True,                      # `onlyEmptyOrSteppable = 1`
+            empty_or_steppable_at=lambda p: tile_is_empty_or_steppable(state, p),
+            walkable_at=lambda p: board.walkable(board.id_at(p[0], p[1])),
+            elevation_at=lambda p: board.elevation(board.id_at(p[0], p[1])),
+            tile_exists=lambda p: board.id_at(p[0], p[1]) is not None)
+        return 0 if len(tiles) >= 1 else int(TR.TargetMatchesDynamicRule)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

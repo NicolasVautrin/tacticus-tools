@@ -77,11 +77,28 @@ def _rpc(sid, method, body=None, timeout=90):
     return out.get("result") if isinstance(out, dict) and "result" in out else out
 
 
+def build_extra(enemy: str = ENEMY) -> list:
+    """Arguments `rl_duel build` du montage -- FOYER UNIQUE (#419-r6).
+
+    Le probe et `test_exemplar_of_the_kauyon_hits_live.py` construisaient la MEME liste, chacun de
+    son cote. La duplication n'est pas cosmetique : neutraliser ici laissait le test intact, et la
+    mutation ne mordait pas -- constate a la mesure, pas a la relecture.
+
+    Confonds NEUTRALISES : ce montage compare des coups au chiffre pres (`A - B` doit valoir
+    exactement `nrOfHits`, et les 2 coups surnumeraires doivent etre EGAUX entre eux -- cellule
+    degeneree `min == max`, donc AUCUN tirage). Un crit est un facteur qui s'applique APRES : il ne
+    teste rien ici et deplace tout. Les QUATRE faces, car `--crit`/`--block-player` n'epinglent que
+    les p-units et `--crit-target`/`--block-target` que les a-units.
+    """
+    return ["--p-units", "%s,%s" % (CARRIER, ALLY), "--a-units", enemy,
+            "--hp-target", "300000", "--hp-player", "300000", "--no-ai",
+            "--crit", "0,0", "--crit-target", "0,0",
+            "--block-target", "0,0", "--block-player", "0,0"]
+
+
 def build(seed, board, state_file):
     argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
-            "--state-file", state_file,
-            "--p-units", "%s,%s" % (CARRIER, ALLY), "--a-units", ENEMY,
-            "--hp-target", "300000", "--hp-player", "300000", "--no-ai"]
+            "--state-file", state_file, *build_extra()]
     p = subprocess.run(argv, cwd=PYDIR, capture_output=True, text=True)
     if p.returncode != 0:
         print("[build] rc=%s\n%s\n%s" % (p.returncode, p.stdout[-1500:], p.stderr[-1500:]))

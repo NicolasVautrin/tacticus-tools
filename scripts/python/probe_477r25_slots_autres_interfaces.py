@@ -74,6 +74,11 @@ if str(HERE) not in sys.path:
 
 import build_pin                                                        # noqa: E402
 import il2cpp_metadata                                                  # noqa: E402
+#: ⚠ FOYER UNIQUE DE L'ABSORPTION D'APPEL (#477-r36). Le cran est IMPORTE, jamais recopie : les
+#: deux cliquets balayent le MEME depot, et deux motifs jumeaux qui derivent l'un de l'autre
+#: rouvriraient ici le gisement que l'autre vient de fermer. `probe_477r24r1` ne fait rien de
+#: couteux a l'import (il compile ses regex, c'est tout).
+from probe_477r24r1_slots_interface import _appel, PROFONDEUR_APPEL      # noqa: E402
 from symbols_layout import build_dir, current_build                     # noqa: E402
 
 REPO = HERE.parent.parent
@@ -263,6 +268,9 @@ class Ecartees:
     sans_couple: int = 0
     exemptees: int = 0
     nom_absent: tuple[str, ...] = ()
+    #: Les couples ENJAMBANTS ecartes parce que le MEME slot, a la MEME ligne, est deja apparie
+    #: SUR SA LIGNE (#477-r36). Un compte filtre dit ce qu'il filtre : ils sont listes, pas tus.
+    cedes_au_mono_ligne: tuple[str, ...] = ()
 
 
 # ------------------------------------------------------------------ etage 1 : DERIVATION
@@ -418,8 +426,15 @@ def _regex_couples(alias: tuple[str, ...], qualificateur_obligatoire: bool,
     #: sur le bloc entier, sans avoir a rejouer un second jeu de regex (#477-r30).
     a_qual = ("(?P<q0>%s)" % qual) if qualificateur_obligatoire else "(?P<q0>%s)?" % qual
     esp = _esp(traverse)
+    #: ⚠ L'APPEL DU SLOT EST ABSORBE D'UN BLOC (cran IMPORTE de #477-r36). Sa liste d'arguments
+    #: porte les `(`, `)`, `,`, `:`, `;` que `_entre` exclut : sans ce cran, le nom ECRIT SUR LA
+    #: MEME LIGNE que son slot reste bloque par ses propres arguments, et la forme C part alors du
+    #: slot pour attraper le nom de la ligne SUIVANTE. Le degat n'est donc PAS « un couple
+    #: manquant » mais un couple FAUX. Mesure (`case-287r11`, PR #737) : trois citations JUSTES du
+    #: depot, aucune appariable, **2 couples faux** et `master` ROUGE.
     return (
-        re.compile((_SLOT % 0) + esp + r"(?:=|->|:)" + esp + r"[`*]{0,2}" + a_qual + (_NOM % 0)),
+        re.compile((_SLOT % 0) + _appel(0) + esp + r"(?:=|->|:)" + esp
+                   + r"[`*]{0,2}" + a_qual + (_NOM % 0)),
         #: Forme D -- `battleQuery.<slot 0x7d> GetAdjacentEnemies(...)`. LE RECEPTEUR PRECEDE
         #: LE SLOT, et le nom suit sans qualificateur ni signe egal. C'est la forme qu'ecrit
         #: le cas nomme (`case-250`), et aucune des trois autres ne la capte -- mesure : les
@@ -435,9 +450,9 @@ def _regex_couples(alias: tuple[str, ...], qualificateur_obligatoire: bool,
         #: saut de ligne. Mesure : sur 3 couples que ce franchissement propose, 3 sont FAUX
         #: (`probe_433_..._c_caster_gates.py` : « = AActiveAbility$$CanStillBeUsed » (slot 0x14
         #: de la ligne d'avant) rattache au « slot 0x13 » de la ligne d'apres).
-        re.compile(qual + (_NOM % 2) + _entre(40, False) + (_SLOT % 2)),
+        re.compile(qual + (_NOM % 2) + _appel(2) + _entre(40, False) + (_SLOT % 2)),
         #: Forme C -- slot 0x7d ... `BattleQuery$$GetAdjacentEnemies`   (slot PUIS nom)
-        re.compile((_SLOT % 3) + _entre(60, traverse) + qual + (_NOM % 3)),
+        re.compile((_SLOT % 3) + _appel(3) + _entre(60, traverse) + qual + (_NOM % 3)),
     )
 
 
@@ -666,7 +681,23 @@ def recolter(tables: dict[str, dict[int, tuple[str, int, int]]],
             continue
         deja_vu.add(cle)
         uniques.append(c)
+    #: ⚠ PRIORITE AU MONO-LIGNE (#477-r36). Un couple ENJAMBANT cede si le MEME slot, ecrit a la
+    #: MEME ligne, est deja apparie SUR SA LIGNE : la citation la plus LOCALE gagne. C'est le
+    #: symetrique du cran deja ecrit pour la forme B (« dans une enumeration verticale, le nom
+    #: ecrit AVANT appartient a l'item precedent ») -- ici, le nom ecrit APRES appartient a
+    #: l'item SUIVANT. La regle est CONSERVATRICE : elle ne peut que RETIRER des enjambants, et
+    #: seulement la ou une attribution locale existe deja pour le meme slot.
+    locaux = {(c.fichier, c.ligne, c.iface, c.slot) for c in uniques if c.ligne == c.ligne_nom}
+    cedes = [c for c in uniques
+             if c.ligne != c.ligne_nom and (c.fichier, c.ligne, c.iface, c.slot) in locaux]
+    if cedes:
+        gardes = {id(c) for c in cedes}
+        uniques = [c for c in uniques if id(c) not in gardes]
     return uniques, Ecartees(sans_interface=sans_iface, deja_gardee=deja,
+                             cedes_au_mono_ligne=tuple(
+                                 "%s:%d [%s] slot 0x%x = %s (nom lu ligne %d) | %s"
+                                 % (c.fichier, c.ligne, c.iface, c.slot, c.nom, c.ligne_nom,
+                                    c.texte[:100]) for c in cedes),
                              multi_non_qualifie=multi, sans_couple=sans_couple,
                              exemptees=exempt, nom_absent=tuple(nom_absent)), recense
 
@@ -892,6 +923,10 @@ def main() -> int:
     print("        %5d couple(s) dont le NOM est absent de l'interface appariee "
           "(indecidable -- listes, ni verts ni rouges)" % len(ecartees.nom_absent))
     for f in ecartees.nom_absent:
+        print("            %s" % f)
+    print("        %5d couple(s) ENJAMBANT(S) ayant CEDE a une attribution locale du meme slot "
+          "(#477-r36)" % len(ecartees.cedes_au_mono_ligne))
+    for f in ecartees.cedes_au_mono_ligne:
         print("            %s" % f)
 
     faux_nom, faux_arite, autre = confronter(cits, versionne)

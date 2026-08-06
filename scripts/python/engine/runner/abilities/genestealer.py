@@ -31,10 +31,12 @@ from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatType
 from ...entities.effects.magnitude import ability_var
-from ...services.movement_query import get_movable_tiles_for
+from ...services.movement_query import get_movable_tiles_for, get_min_distance
+from ... import battle_query                       # `BattleQuery$$GetSurroundingTiles` (#287-r11-r1)
 from ...utilities.tile import first_tile_by_utility
 from ...utilities.utility_type import UtilityType
-from ..components import OwnerComponent, PositionComponent, UnitComponent, StatsComponent
+from ..components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
+                          get_unit_feet)   # `EntityExtensions$$GetTiles` (#287-r11-r1)
 from ..operations.spawn import spawn_decoy, _spawn_config_grot
 from .base import ActiveAbility
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions,
@@ -666,6 +668,94 @@ class HeroicFusilladeAbility(ActiveAbility):
         return {"ability": "HeroicFusillade", "caster": caster_id, "target": target_id,
                 "move": moved, "main_attack": main, "splash": splash,
                 "crit_bonus": crit_bonus, "dsl": True}
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile, avec son lambda
+        (`...HeroicFusilladeAbility.u003Cu003Ec__DisplayClass2_0$$u003CGetDynamicInvalidTargetReasonu003Eb__0`)
+        (#287-r11-r1) :
+
+            dc.ability = this ; dc.caster = caster ;
+            dc.range   = GetNumberConstant(0x16 range);                          // = 2
+            tiles = battleQuery.GetSurroundingTiles(targetTiles, 1,
+                                                    onlyEmptyOrSteppable: 0, onlyWalkable: 1,
+                                                    onlyMovable: 0, includeCenter: 1);   // slot 103
+            list  = tiles.Where(t => movementQuery.IsInMovementRange(dc.caster, t,
+                                                                     ignoreUnitFlags: 1,
+                                                                     { overrideRange = dc.range }))
+                         .ToList();                                              // IMovementQuery slot 13
+            if (battleQuery.GetMinDistance(targetTiles, casterTiles) < 2) return 0;       // slot 111
+            return list.Count == 0 ? 2 : 0;                                      // TargetMatchesDynamicRule
+
+        SEMANTIQUE : c'est la CHARGEABILITE, et elle a un COURT-CIRCUIT. Judh tire apres s'etre
+        colle a la cible ; si elle est DEJA au contact (`GetMinDistance < 2`) il n'a rien a
+        parcourir et la cible est valide sans autre test. Sinon il faut qu'une tuile du ring-1 de
+        la cible soit dans son stop-set de mouvement a `range` pas.
+
+        ⚠ TROIS LECTURES QUI SE RATENT SI ON RECOPIE LE POOL DE CHARGE DE L'`ExecuteBehaviour`.
+        `_charge_candidate_tiles` (ci-dessus) est un ensemble DIFFERENT, et le substituer ici
+        fabriquerait des refus :
+          * le gate de ciblage passe `onlyEmptyOrSteppable = 0` -- les tuiles OCCUPEES ENTRENT dans
+            le disque, seul `IsInMovementRange` les elimine ; le pool de charge, lui, applique
+            `CanAddUnit`, strictement plus severe (blocker / `NotWalkable` / tuile RESERVEE) ;
+          * le gate passe `includeCenter = 1` (la tuile de la CIBLE reste candidate ; elle ne survit
+            au filtre que si elle est dans le stop-set, ce qu'une tuile occupee n'est pas) alors que
+            `CanAddUnit(SurroundingTiles(...))` exclut le centre ;
+          * l'ORDRE des deux termes est inverse au decompile : le `Where`/`ToList` est calcule AVANT
+            le court-circuit de distance, qui ne le lit pas. Aucune consequence sur le VERDICT (le
+            natif jette la liste), mais le port ne doit pas en tirer que la distance est un filtre
+            du pool.
+
+        ⚠ `GetMinDistance` (slot **111**, LU dans
+        `data/symbols/<build>/metadata/interface_slots.tsv`) N'EST PAS `GetDistance` (slots 108-110,
+        homonymes) : il prend le MIN sur toutes les paires des deux EMPREINTES, et rend **-1** quand
+        aucune paire n'est mesurable. `-1 < 2` -> `return 0`, donc un substrat vide DESARME la
+        regle -- la degradation permissive du module, ici obtenue par le mirror lui-meme
+        (`services/movement_query.get_min_distance`), pas par une garde ajoutee.
+
+        ⚠ `IsInMovementRange(unit, tile, ignoreUnitFlags, options)` =
+        `GetMovableTilesFor(unit, ignoreUnitFlags, options).Contains(tile)` -- c'est le FOYER
+        `services/movement_query.get_movable_tiles_for`, DEJA porte (dispatch de pathfinder + gate
+        d'expansion `IsValidContinuePathTile`), et c'est celui que `_charge_candidate_tiles` emploie
+        deja. `options.overrideRange = range` est le seul champ pose (la struct de 0x30 octets est
+        remise a zero au site) ; `ignoreUnitFlags = 1` ne touche que la garde d'entree
+        `UnitFlagsComponent$$Has`, sans substrat cote port (residu deja nomme par le foyer).
+
+        Cible non resolue / board absent -> `0` : convention permissive du module."""
+        if target_id is None:
+            return 0
+        board = state.board
+        cpos = _pos_of(state, int(caster_id))
+        tpos = _pos_of(state, int(target_id))
+        if board is None or cpos is None or tpos is None:
+            return 0
+        # `GetMinDistance(targetTiles, casterTiles) < 2` -- EMPREINTES des deux entites (#433-r3-r1).
+        if get_min_distance(get_unit_feet(state, int(target_id)),
+                            get_unit_feet(state, int(caster_id))) < 2:
+            return 0
+        # `GetNumberConstant(0x16 range)` -- ILLISIBLE => `0`, la convention permissive du module
+        # (surtout pas un `or 2` de repli : un defaut invente ferait REFUSER sur un substrat non
+        # mesure, exactement la degradation inverse de celle qu'on assume partout ailleurs).
+        raw = ability_var(self.ABILITY_ID, AbilityConstantType.range.name, is_constant=True)
+        ctile = board.id_at(cpos[0], cpos[1])
+        if raw is None or ctile is None:
+            return 0
+        move_range = int(raw)
+        # `GetSurroundingTiles(targetTiles, 1, oEoS=0, oW=1, oM=0, incC=1)` : disque ring-1 + centre,
+        # tuiles OCCUPEES comprises (aucun filtre de contenu ici).
+        disque = battle_query.get_surrounding_tiles(
+            tpos, radius=SURROUND_RADIUS, include_center=True, check_walkable=True,
+            walkable_at=lambda p: board.walkable(board.id_at(p[0], p[1])),
+            elevation_at=lambda p: board.elevation(board.id_at(p[0], p[1])),
+            tile_exists=lambda p: board.id_at(p[0], p[1]) is not None)
+        # `.Where(t => IsInMovementRange(caster, t, 1, {overrideRange = range}))`
+        reach = get_movable_tiles_for(board, state, int(caster_id), ctile, move_range,
+                                      _living_occupants_map(state), _team_of(state, int(caster_id)))
+        for p in disque:
+            if board.id_at(p[0], p[1]) in reach:
+                return 0                                    # `list.Count != 0`
+        return int(TR.TargetMatchesDynamicRule)
 
 
 # ===================== VigilanceEternal (Tyrith custoKyrus, actif 1202) =====================

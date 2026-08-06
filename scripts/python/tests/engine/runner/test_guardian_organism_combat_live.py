@@ -60,7 +60,15 @@ def _go_effects(active):
 @pytest.fixture(scope="session")
 def go_combat(live_session, rpc, build_runner):
     from engine.entities.pathfinding.board import Board
-    b = build_runner("777", extra=["--roster", "1", "--p-units", ATTACKER, "--a-units", TARGET])
+    # Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : le fichier verrouille que la reduction
+    # DEFENSEUR est un FLAT unique soustrait APRES le tirage de chaque coup -- le discriminant est
+    # donc l'ECART constant entre `live_ph` et le degat nu. Le crit et le block sont des termes
+    # ATTAQUANT/DEFENSEUR supplementaires qui s'ajoutent par-dessus ce flat : ils ne l'exercent
+    # pas, ils le noient. Les QUATRE faces (`--crit`/`--block-player` n'epinglent que les p-units,
+    # `--crit-target`/`--block-target` que les a-units).
+    b = build_runner("777", extra=["--roster", "1", "--p-units", ATTACKER, "--a-units", TARGET,
+                                   "--crit", "0,0", "--crit-target", "0,0",
+                                   "--block-target", "0,0", "--block-player", "0,0"])
     rid, my_player = b["rid"], None
     if not _ok(rpc("dumpRng", {"runnerId": rid}, 30)):
         pytest.skip("dumpRng indispo")

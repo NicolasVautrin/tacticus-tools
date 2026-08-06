@@ -273,7 +273,14 @@ def _capture(live, board):
 
 
 def _mk_runner(build_runner, rpc, seed, board_id, hp_target):
-    extra = ["--p-units", f"{ABADDON},{HAARKEN}", "--a-units", ENEMIES, "--board", board_id]
+    # Confonds NEUTRALISES AU BUILD (#419-r6). Ce fichier confronte des coups a des BORNES
+    # (`live t77 [5200, 2461]` contre la borne haute du port) : un crit sort de la plage par
+    # construction et fait rougir un port pourtant juste -- mesure, le 1er coup live valait 5200
+    # pour une borne haute de 2592. Les QUATRE faces (`--crit`/`--block-player` n'epinglent que
+    # les p-units, `--crit-target`/`--block-target` que les a-units).
+    extra = ["--p-units", f"{ABADDON},{HAARKEN}", "--a-units", ENEMIES, "--board", board_id,
+             "--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
     if hp_target:
         extra += ["--hp-target", hp_target]
     rid = build_runner(seed, extra=extra)["rid"]

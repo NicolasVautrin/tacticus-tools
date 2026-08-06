@@ -165,8 +165,17 @@ def _cast_and_capture(rpc, build_runner, votann_bc, p_units, a_units,
     """Monte un runner, amene le caster au contact, CAPTURE l'etat-avant (dv/ob/snap/rng), joue le
     coup LIVE, et rend de quoi rejouer EXACTEMENT le meme coup dans le port."""
     from engine.entities.pathfinding.board import Board
+    # Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : le discriminant de ce fichier est
+    # l'ECART POST/PRE par coup (149 a 203 sur la cible a armure basse) -- il se lit sur des
+    # montants NUS. Un crit multiplie le coup APRES l'etage teste : il deplace les deux bras a la
+    # fois et noie l'ecart, sans jamais exercer la question. Les QUATRE faces
+    # (`--crit`/`--block-player` n'epinglent que les p-units, `--crit-target`/`--block-target`
+    # que les a-units) : ici le caster est p-unit et la cible a-unit, mais les deux camps
+    # frappent pendant le drive.
     args = ["--seed-bc", votann_bc, "--board", BOARD,
-            "--p-units", p_units, "--a-units", a_units]
+            "--p-units", p_units, "--a-units", a_units,
+            "--crit", "0,0", "--crit-target", "0,0",
+            "--block-target", "0,0", "--block-player", "0,0"]
     rid = build_runner(SEED, extra=args)["rid"]
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     if not (isinstance(bg, dict) and bg.get("tiles")):

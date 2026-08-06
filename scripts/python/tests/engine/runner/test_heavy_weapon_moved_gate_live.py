@@ -82,7 +82,13 @@ def _build(seed):
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
          "--board", "MC1_67", "--roster", "1", "--p-units", CASTER_VIS,
-         "--a-units", f"{TARGET_VIS},necroWarden", "--hp-target", "300000"],
+         "--a-units", f"{TARGET_VIS},necroWarden", "--hp-target", "300000",
+         # Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : le discriminant est le RAPPORT
+         # entre les deux bras (a bouge / n'a pas bouge), soit +25 % ou rien. Un crit s'applique
+         # par-dessus et ne dit rien du gate ; le fichier ne sait qu'en skipper, et depuis que le
+         # defaut equipe il tombait a 0 passed / 2 skipped (inerte, garde #455). Les QUATRE faces.
+         "--crit", "0,0", "--crit-target", "0,0",
+         "--block-target", "0,0", "--block-player", "0,0"],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not sf.exists():
         return None, None, (proc.stderr or proc.stdout or "")[-300:]

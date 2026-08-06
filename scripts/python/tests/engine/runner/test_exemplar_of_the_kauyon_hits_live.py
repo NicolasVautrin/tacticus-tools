@@ -62,8 +62,9 @@ def kauyon_case(rpc, build_runner, live_session):
         key = (board_id, seed, enemy)
         if key in cache:
             return cache[key]
-        extra = ["--p-units", "%s,%s" % (P.CARRIER, P.ALLY), "--a-units", enemy,
-                 "--hp-target", "300000", "--hp-player", "300000", "--no-ai"]
+        # FOYER UNIQUE du montage (#419-r6) : cette liste etait DUPLIQUEE ici et dans le probe,
+        # et c'est ce qui a fait qu'une neutralisation posee cote probe ne mordait PAS ici.
+        extra = P.build_extra(enemy)
         ra = build_runner(seed, extra=extra, board=board_id)["rid"]
         bg = rpc("boardGraph", {"runnerId": ra}, 90)
         if not (isinstance(bg, dict) and bg.get("tiles")):

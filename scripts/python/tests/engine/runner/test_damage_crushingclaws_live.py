@@ -43,7 +43,15 @@ TARGET_VIS = "necroOverlord"         # cible vanille tanky (hp~8536, effects=[] 
 ABILITY = 1105
 TAUNTED = 27                         # EffectType.Taunted_OnlySpecificTargets (composite 25/26/1237)
 PINNED = 1065                        # EffectType.Pinned (« Suppressed »)
-BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", TARGET_VIS]
+# Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : ce fichier confronte le PER-COUP d'une
+# ability (sourcing config + profil + nrOfHits) sur un coup propre, et skippe des que le live
+# crite ou bloque. Il trouvait ce coup SANS RIEN DEMANDER tant que le canal crit/block etait
+# globalement muet ; depuis que le defaut equipe (#419-r6) il tombait a 0 passed / 1 skipped --
+# inerte (garde #455). L'axe CRIT a son fichier dedie (`test_damage_crit_live.py`). Les QUATRE
+# faces, car `--crit`/`--block-player` n'epinglent que les p-units.
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", TARGET_VIS, *_NO_NOISE]
 
 
 def _ok(r):
