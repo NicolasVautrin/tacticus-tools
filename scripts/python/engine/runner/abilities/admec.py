@@ -45,7 +45,7 @@ def sentinel_directives_tree() -> "op_add":
     """Arbre de `SentinelDirectivesAbility$$IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour` (id 1139, admecDestroyer
     « Sy-Gex » — MIRROR du DECOMPILE) :
         Execute( op_Addition( op_Addition(
-            InformWeapon(GetDamageProfile=Physical),                                          # metadata arme
+            InformWeapon(GetDamageProfile=Physical, isMelee: 0, useSpecial: 0),               # tags de flux
             AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
                                    GetDamageProfile=Physical, nrOfHits=ConfigConst(0x2f)=1) ),  # attaque 1x
             AddEffect(0x429=Pinned, source=AbilityStateReference, target@0x178, dureeNode=0) ) )  # Pin cible
@@ -68,10 +68,13 @@ def sentinel_directives_tree() -> "op_add":
       JAMAIS `AttackWithAbilityDamage`, contraste SpiritLeech "ability" ; tip #2). Attaque MONO-COUP (1x) ->
       non concernee par le desync per-hit de toute facon (le flag est correct par XREF ET no-op ici).
     - `InformWeapon` = `op_Addition` volet GAUCHE (execute EN PREMIER) : canal weapon-inform
-      (`ActivateEffectBehaviour`, metadata) COMBAT-INERTE (0 RNG, 0 mutation PV/stat) -> n'altere PAS l'ordre
+      (`InformBehaviour`, TAGS DE FLUX) COMBAT-INERTE (0 RNG, 0 mutation PV/stat) -> n'altere PAS l'ordre
       `state.rng` de l'attaque : bit-exact BY CONSTRUCTION. (== FlailSwing, mais FlailSwing utilisait
       `op_BitwiseAnd` ; ici le natif utilise `op_Addition` — memes observables pour des noeuds PURS,
       l'operateur porte mirror le natif.)
+      ⚠ Le 2e argument DIFFERE de FlailSwing : ici le decompile passe `isMelee: 0` (litteral `(void *)0x0`)
+      et `useSpecial: 0` -> `TagKey.Attack_Weapon_IsMelee` vaut **0**, `..._Use_Special` est ABSENT. Porte
+      litteralement (`is_melee=False`) ; concorde avec l'`attackRangeType=Ranged`, mais il est LU, pas deduit.
     - `AddEffect(0x429=1065 Pinned, source=AbilityStateReference(=caster), target@0x178, dureeNode=0)` :
       pose Pinned/« Suppressed » sur la cible, source=caster (la feuille assigne implicitement
       `entities.caster`), duree DEFAUT (`DefaultAmountOfRounds`, mirror de l'arg natif `0` SANS
@@ -87,14 +90,15 @@ def sentinel_directives_tree() -> "op_add":
     tgt = Target()
     attack = AttackWithAttackDamage(tgt, "SentinelDirectives", "Physical", is_melee=False)  # 1x Physical ranged
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                            # AddEffect(0x429), duree DEFAUT
-    return op_add(op_add(InformWeapon("Physical"), attack), pin)                            # ((Inform + Attack) + Pin)
+    inform = InformWeapon("Physical", is_melee=False)   # `InformWeapon(profile, isMelee: 0, useSpecial: 0)`
+    return op_add(op_add(inform, attack), pin)                                              # ((Inform + Attack) + Pin)
 
 
 class SentinelDirectivesAbility(ActiveAbility):
     """`SentinelDirectivesAbility$$IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour` (id 1139, admecDestroyer « Sy-Gex »,
     AdeptusMechanicus) — MIRROR du DECOMPILE, arbre DSL (`sentinel_directives_tree`) :
         Execute( op_Addition( op_Addition(
-            InformWeapon(Physical),                                                            # metadata arme
+            InformWeapon(Physical, isMelee: 0, useSpecial: 0),                                  # tags de flux
             AttackWithAttackDamage(caster, target, MinMaxDamage, Physical, nrOfHits=1) ),      # attaque 1x
             AddEffect(0x429=1065 Pinned, source=caster, target, dureeNode=0) ) )               # Pin « Suppressed »
 

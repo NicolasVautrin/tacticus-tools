@@ -7,7 +7,9 @@ from __future__ import annotations
 from typing import Optional
 
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of, _pos, _is_alive
+from ....entities.damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
 from ....services.damage_config import resolve_spread_pct
+from ....streams.tag_key import TagKey
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import StatsComponent
 from ..base import ability_attack_params
@@ -671,29 +673,70 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         return OperationResult.ok()
 
 
+# Table INVERSE nom -> ordinal de `IdunBattle.Entities.Enum.DamageProfileType`, DERIVEE de l'enum
+# (source unique `PROFILE_NAME_BY_INDEX`) -- jamais une seconde table transcrite a la main.
+_PROFILE_INDEX_BY_NAME: dict[str, int] = {n: i for i, n in PROFILE_NAME_BY_INDEX.items()}
+
+
 class InformWeapon(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$InformWeapon` -> `ActivateEffectBehaviour` (IdunBattle.Entities.Behaviours.ActivateEffectBehaviour$$Execute) :
-    POSE une metadata d'arme (dict {key 0x93 = weaponId derive du profil->nom d'arme, 0x92 = damageProfile,
-    0x94 = flag optionnel}) via l'operation 0x2c (`ActivateEffectBehaviour.Execute` itere le dict et applique
-    l'op 0x2c a chaque entree). C'est le CANAL weapon-inform : PAS un degat, PAS un stat-mod, PAS un effet
-    de combat, AUCUN tirage RNG, AUCUNE mutation de PV/stat -> COMBAT-INERTE (verifie decompile
-    `IdunBattle.Entities.Behaviours.ActivateEffectBehaviour$$Execute` = pose de metadata, pas de HealthComponent/StatComponent).
+    """`IdunBattleLogic.Entities.DSLBehaviors$$InformWeapon(damageProfileType, isMelee, useSpecial)`
+    -> `IdunBattle.Entities.Behaviours.InformBehaviour` : construit un `Dictionary<TagKey,int>` de
+    TAGS DE FLUX et l'emballe dans un `InformBehaviour`. Les trois cles sont des
+    `IdunBattle.Streams.TagKey`, LUS dans `data/symbols/<build>/frida/enums.tsv` :
 
-    Consommateurs de ce canal = les triggers on-attack SPECIFIQUES a l'arme (ex. `HazeOfCorruption` du
-    deathBlightlord, passif SEPARE hors face COMBAT) + la couche VISUELLE (`FlailSwingVisuals`). Porte pour
-    MIRRORER la structure de l'arbre (`op_BitwiseAnd(InformWeapon, AttackWithAttackDamage)`, FlailSwing
-    IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour) — precedent structurel-no-op : `KillDeadUnits` (ThunderousAssault, mort deja finalisee inline).
-    Deterministe et sans effet observable -> n'altere PAS l'ordre `state.rng` de l'attaque qui le suit dans le
-    `op_and` : bit-exactness de l'attaque preservee BY CONSTRUCTION. Emet 'InformWeapon' (diagnostic). PUR."""
-    __slots__ = ("profile",)
+        0x93 TagKey.Attack_Weapon_DamageProfile = damageProfileType.HasValue ? (int)value : -1
+                                                 (`-1` == `DamageProfileType.None_`)  -- INCONDITIONNEL
+        0x92 TagKey.Attack_Weapon_IsMelee       = le 2e argument `isMelee`             -- INCONDITIONNEL
+        0x94 TagKey.Attack_Weapon_Use_Special   = le 3e argument `useSpecial`
+                                                 -- pose SEULEMENT si non nul (`if ((char)useSpecial != 0)`)
 
-    def __init__(self, profile: str):
+    ⚠ Ce n'est NI un `ActivateEffectBehaviour`, NI l'operation `0x2c` : la docstring qui l'affirmait
+    etait FAUSSE sur les deux points (et intervertissait 0x92/0x93). `ActivateEffectBehaviour$$.ctor`
+    n'a aucune surcharge prenant un `Dictionary` (ses deux ctors : `(ITargetsSelector)` et
+    `(ITargetsSelector, EffectType)`) ; et `InformWeapon` instancie le MEME `Il2CppClass*` que
+    `IdunBattleLogic.Entities.DSLBehaviors$$Inform(Dictionary<TagKey,Int32>)` -- meme site de
+    construction, meme ctor a 3 arguments. C'est donc `InformBehaviour`, le noeud DSL de TAGS.
+
+    La surcharge a DEUX arguments `DSLBehaviors$$InformWeapon(weapon: WeaponProfile, useSpecial)`
+    ne fait que DERIVER les deux premiers de l'arme puis deleguer : `damageProfileType =
+    Nullable(weapon->{+0x10})`, `isMelee = IdunShared.Battle.WeaponProfile$$get_IsMelee(weapon)`.
+
+    COMBAT-INERTE, et voici PAR QUOI : `IdunBattle.Entities.Behaviours.InformBehaviour$$Execute`
+    itere le dictionnaire, evalue chaque `IAmountFormula` sur les entities et remplit le dict de tags
+    de SORTIE du behaviour -- il n'appelle AUCUNE Operation mutante (ni HealthComponent, ni
+    StatsComponent, ni pose d'effet), et ne consomme AUCUN tirage. L'emission, elle, se fait par
+    `IdunBattle.Operations.InformOperation$$Execute`, qui ne fait QUE dispatcher un pas de flux
+    `StepType.Info` (29) portant ces tags. Donc : invisible de la face COMBAT (HP/degat/effets),
+    mais BIEN VISIBLE dans le flux de replay -- ce n'est pas un no-op, c'est un canal STREAM.
+    Deterministe et sans tirage -> n'altere PAS l'ordre `state.rng` de l'attaque qui le suit dans le
+    `op_and`/`op_add` : bit-exactness de l'attaque preservee BY CONSTRUCTION.
+
+    `is_melee` / `use_special` sont LUS au litteral de CHAQUE porteur, jamais deduits du profil ni du
+    nom de l'ability -- ils DIFFERENT d'un porteur a l'autre (cf. `docs/rl/case-419-r1-tr14-r4-r2-*`).
+    Emet 'InformWeapon' (profil + les deux bits + le dict de tags). PUR."""
+    __slots__ = ("profile", "is_melee", "use_special")
+
+    def __init__(self, profile: Optional[str], is_melee: bool = False, use_special: bool = False):
         self.profile = profile
+        self.is_melee = bool(is_melee)
+        self.use_special = bool(use_special)
 
     def execute(self, entities, ectx):
-        # Canal weapon-inform (metadata) : no-op pour la face COMBAT (HP/degat/effets). Le trigger
-        # consommateur (Haze) est un passif separe, hors scope de ce behaviour.
-        ectx.emit("InformWeapon", profile=self.profile)
+        # Mirror 1:1 de l'ORDRE D'INSERTION natif : 0x93, puis 0x92, puis 0x94 SOUS CONDITION.
+        # (l'ordre d'ECRITURE du flux est celui des ordinaux -- `StreamCache$$Action` retrie par
+        #  `SortedDictionary<TagKey,int>` -- donc seul le CONTENU du dict est observable.)
+        if self.profile is None:            # `Nullable<DamageProfileType>` vide -> le natif ecrit -1
+            profile_index = int(DamageProfileType.None_)
+        else:                               # nom inconnu -> KeyError : un bug de port, jamais un -1 muet
+            profile_index = _PROFILE_INDEX_BY_NAME[self.profile]
+        tags: dict[TagKey, int] = {
+            TagKey.Attack_Weapon_DamageProfile: profile_index,      # 0x93 -- inconditionnel
+            TagKey.Attack_Weapon_IsMelee: int(self.is_melee),       # 0x92 -- inconditionnel
+        }
+        if self.use_special:                                        # `if ((char)useSpecial != '\0')`
+            tags[TagKey.Attack_Weapon_Use_Special] = int(self.use_special)   # 0x94 -- CONDITIONNEL
+        ectx.emit("InformWeapon", profile=self.profile, is_melee=self.is_melee,
+                  use_special=self.use_special, tags=tags)
         return OperationResult.ok()
 
 

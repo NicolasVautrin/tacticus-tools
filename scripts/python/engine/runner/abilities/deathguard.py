@@ -169,10 +169,13 @@ def flail_swing_tree() -> "op_and":
       `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille attack, VERIFIE par la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour =
       symbole `DSLFactory$$AttackWithAttackDamage`, JAMAIS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` ; tip #2 /
       rngcrit-1202). Attaque MULTI-COUPS (3x) -> classification par XREF OBLIGATOIRE, faite ici.
-    - `InformWeapon` = `op_BitwiseAnd` volet GAUCHE (execute EN PREMIER) : canal weapon-inform (metadata,
-      `ActivateEffectBehaviour`) COMBAT-INERTE (0 RNG, 0 mutation PV/stat) -> n'altere PAS l'ordre `state.rng`
+    - `InformWeapon` = `op_BitwiseAnd` volet GAUCHE (execute EN PREMIER) : canal weapon-inform (TAGS DE
+      FLUX, `InformBehaviour`) COMBAT-INERTE (0 RNG, 0 mutation PV/stat) -> n'altere PAS l'ordre `state.rng`
       de l'attaque : bit-exact BY CONSTRUCTION. Le trigger consommateur (`HazeOfCorruption`) est un passif
       SEPARE (hors face COMBAT) -- le declenchement Haze n'est PAS dans cet ExecuteBehaviour.
+      Le decompile passe `isMelee: 1` (2e argument, `CONCAT71(..., 1)`) et `useSpecial: 0` -> le tag
+      `TagKey.Attack_Weapon_IsMelee` vaut **1** et `..._Use_Special` est ABSENT. Porte litteralement
+      (`is_melee=True`) ; il CONCORDE avec l'`attackRangeType=Melee` de l'attaque, mais il est LU, pas deduit.
     - **`alwaysOverkilled` (Nullable=true) PORTE via `force_overkill=True`** : le 8e arg de
       `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (`&local_198` = `Nullable<bool>` HasValue=1, cf. `local_1e8=0x100000000`
       + `System.Nullable<...>.ctor`) = flag « always overkilled » passe a `AttackDamageBehaviour` puis a l'etage
@@ -181,7 +184,7 @@ def flail_swing_tree() -> "op_and":
       `overkill=True` a chaque coup. VALIDE LIVE (deathBlightlord vs custoKyrus Resilient HP 10000 : live tue
       [5070,4555,375] sum=10000 == PV full ; le port SANS le flag laissait 1 PV [5070,4555,374] sum=9999 -> le
       flag est le seul ecart). No-op sur cible non-Resilient -> coeur 3x Power bit-exact partout."""
-    return op_and(InformWeapon("Power"),
+    return op_and(InformWeapon("Power", is_melee=True),   # `InformWeapon(profile, isMelee: 1, useSpecial: 0)`
                   AttackWithAttackDamage(Target(), "FlailSwing", "Power", is_melee=True, force_overkill=True))
 
 
@@ -189,7 +192,7 @@ class FlailSwingAbility(ActiveAbility):
     """`FlailSwingAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour` (id 1042, deathBlightlord — Death Guard/Chaos, namespace
     natif `Abilities.Active.Loki`). Arbre DSL `flail_swing_tree()` (MIRROR 1:1 du decompile) :
         Execute( op_BitwiseAnd(
-            InformWeapon(Power),                                                    # metadata arme (no-op combat)
+            InformWeapon(Power, isMelee: 1, useSpecial: 0),                          # tags de flux (inerte combat)
             AttackWithAttackDamage(caster, target, MinMaxDamage, Power, nrOfHits=3, alwaysOverkilled=1) ) )
 
     Attaque MELEE MONO-CIBLE : 3 coups Power (PiercingRatio 40) sur la cible du message. PAS de splash, PAS de

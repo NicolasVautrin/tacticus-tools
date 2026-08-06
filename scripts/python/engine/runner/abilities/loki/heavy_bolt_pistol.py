@@ -57,10 +57,12 @@ L'ORDRE est donc ARME puis BONUS, dans le meme groupe atomique -- et c'est le ra
   (`targetSelectionType = 2 OnlyTargetable`), la ou `$$AttackWithAttackDamage` l'enveloppe d'un
   `AttackBehaviour` : c'est la meme feuille portee, en mono-cible (`multi=False`).
 * `isMelee: true` d'`InformWeapon` est LU, pas deduit -- `DSLBehaviors$$InformWeapon(profile,
-  isMelee, useSpecial)` inscrit la cle `0x92` depuis son 2e argument (`0x93` = weaponId derive du
-  profil, `0x94` = useSpecial, pose seulement s'il est non nul). Le natif DECLARE donc ce coup
-  MELEE, et c'est ce qui fixe `is_melee=True` sur la feuille (l'axe `ExtraPierceMelee` vs
-  `ExtraPierceRanged` de `profile_pierce`).
+  isMelee, useSpecial)` inscrit la cle `0x92` = `TagKey.Attack_Weapon_IsMelee` depuis son 2e
+  argument. Les deux autres cles sont `0x93` = `TagKey.Attack_Weapon_DamageProfile` (l'ORDINAL du
+  `DamageProfileType`, ou `-1` = `None_` si le `Nullable` est vide -- ce n'est PAS un « weaponId »)
+  et `0x94` = `TagKey.Attack_Weapon_Use_Special`, posee seulement si non nulle. Le natif DECLARE
+  donc ce coup MELEE, et c'est ce qui fixe `is_melee=True` sur la feuille (l'axe `ExtraPierceMelee`
+  vs `ExtraPierceRanged` de `profile_pierce`) ET le tag du flux.
 
 ## LA GATE -- geometrique, et MESUREE (elle n'etait pas devinable)
 
@@ -187,7 +189,7 @@ def bonus_attack_tree(profile: str):
     `Nullable<AttackDamageBehaviourOptions>` sont a ZERO au call-site (la struct 0x20 est memset,
     seul l'octet **+0** est pose a 1 -- semantique NON RESOLUE, cf. le residu de la case-doc)."""
     return op_add(
-        InformWeapon(profile),
+        InformWeapon(profile, is_melee=True),   # `InformWeapon(profile, isMelee: 1, useSpecial: 0)`
         AttackWithAttackDamage(Target(), PASSIVE, profile,
                                is_melee=True,                    # `InformWeapon(..., isMelee: true)`
                                min_key=_VAR_DAMAGE, max_key=_VAR_DAMAGE,
