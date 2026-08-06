@@ -63,10 +63,19 @@ REPO = Path(__file__).resolve().parents[2]
 # de `nettoyer_livraison.PREFIXE_AGENT`, qui les supprime.
 BRANCHE_AGENT_GLOB = "worktree-agent-*"
 
-# PARAMETRE, pas mesure. Source : la conduite de campagne (« Profondeur de dispatch : 5 agents »,
-# elle-meme bornee par le partage du pump Frida). Rien dans le depot ne le DERIVE -- l'ecrire ici
-# le rend au moins visible et surchargeable, au lieu de vivre dans la tete de l'orchestrateur.
-PLAFOND_DISPATCH = 5
+# PARAMETRE, pas mesure. Source : la conduite de campagne, elle-meme bornee par le partage du
+# pump Frida. Rien dans le depot ne le DERIVE -- l'ecrire ici le rend au moins visible et
+# surchargeable, au lieu de vivre dans la tete de l'orchestrateur.
+#
+# 5 -> 6 le 2026-08-06, sur DECISION de l'utilisateur.
+# ⚠ CE PLAFOND N'EST PAS CELUI DES RUNNERS, et les confondre est la faute a eviter : le budget
+# des tests live reste **4 en parallele** (mesure : rendement a 23 % des 6 workers), et il est
+# PARTAGE entre tous les agents. Monter la flotte a 6 augmente donc la contention sur un budget
+# INCHANGE -- c'est jouable parce qu'une part des tranches est offline pure (recensements,
+# cliquets, empreintes AST), pas parce que le harnais encaisserait 6 agents tous en live.
+# Corollaire de dispatch : au-dela de 4 agents, preferer une tranche OFFLINE pour le slot
+# supplementaire.
+PLAFOND_DISPATCH = 6
 
 # Le host tourne en local ; le littéral est celui de tous les probes du depot.
 HOST_DEFAUT = "http://127.0.0.1:8765"

@@ -457,8 +457,13 @@ nettoyables, PR ouvertes, session Frida, drain, et **`liveRunners`** (le budget 
   corrigée, `HEAD` ayant changé deux fois entre-temps ; re-mesuré à froid, **48 commits** d'écart.
   Un verdict **PÉRIMÉ** reste **AFFICHÉ** avec les deux commits — il change d'**accusé** (contexte,
   pas signal), pas d'existence, et n'est rabattu **ni sur un vert ni sur un rouge**.
-- ⚠ **Le chiffre du plafond (5) est le SEUL qui ne soit pas une mesure** : c'est un paramètre
-  d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#467-r1`.
+- ⚠ **Le chiffre du plafond (6 depuis le 2026-08-06) est le SEUL qui ne soit pas une mesure** :
+  c'est un paramètre d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#467-r1`.
+  ⚠ **Ce n'est PAS le budget des RUNNERS**, et les confondre est la faute à éviter : les tests
+  live restent à **4 en parallèle**, budget **partagé** entre tous les agents et inchangé. Passer
+  la flotte à 6 augmente donc la contention sur un budget constant — jouable parce qu'une part
+  des tranches est **offline pure**, pas parce que le harnais encaisserait 6 agents en live.
+  Corollaire : au-delà de 4 agents, donner au slot supplémentaire une tranche **offline**.
 - ⚠ **Une panne de capteur doit porter son NOM (#467-r6).** `gh` rendait `rc=127` pour ses trois
   pannes — binaire absent, délai dépassé, `OSError` — parce que toutes retombaient sur la même
   sentinelle. Résultat **mesuré** : l'incident a été diagnostiqué « `gh` absent du PATH » alors que
