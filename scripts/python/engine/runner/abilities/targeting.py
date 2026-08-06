@@ -276,6 +276,7 @@ from typing import TYPE_CHECKING, Optional
 from .targeting_rule import TargetingRule as TR
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType   # #270-r1-r1-r3
+from ...entities.heal_type import HealType   # #287-r5
 from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 from ...entities.traits.unit_trait import UnitTrait   # #270-r1-r1-r3
 from ...entities.stats import StatType
@@ -295,6 +296,7 @@ from ..components import StatsComponent, UnitComponent
 from ..components import UnitComponent
 from ..components import UnitFlagsComponent
 from ..components import get_unit_feet
+from ..components import has_effect_of_type
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1335,9 +1337,174 @@ def _dynamic_rule_foul_infusion(state: "State", caster_id: int, target_id) -> in
             else int(TR.TargetMatchesDynamicRule))
 
 
+def _dynamic_rule_forward_observers(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility$$GetDynamicInvalidTargetReason`
+    (1185, `tauNpc5StealthSuit` / `tauSmnStealthSuit`) -- MIRROR du decompile, qui tient en deux
+    lignes :
+
+        if (target != null && EntityExtensions.HasEffect(target, state, 0x462, onlyActive: false))
+            return 2;                            // 0x462 = EffectType.Markerlight
+        return <corps de base>;                  // 2     = TargetingRule.TargetMatchesDynamicRule
+
+    ⚠ LE `return` DE QUEUE EST LE CORPS DE BASE, ET C'EST LA QU'ON LE LIT. Le natif appelle
+    explicitement `AActiveAbility$$GetDynamicInvalidTargetReason` -- que Ghidra mislabelle
+    `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId` (IL2CPP deduplique les corps triviaux
+    et n'attribue qu'UN proprietaire). Ce corps decompile en `return 0`. C'est le SEUL call-site qui
+    NOMME ce corps, et il vaut bien au-dela de 1185 : il etablit ce que rend le delegue des ids dont
+    la classe ne surcharge pas -- cf. `probe_287r5_etages_bloquants.py`.
+
+    SEMANTIQUE, avec le masque `0x200004002`
+    (`TargetMatchesDynamicRule | TargetIsEnemy | TargetIsNotAnObject`) : on ne re-marque pas une
+    cible qui porte DEJA `Markerlight`. Une seconde pose serait sans effet -- le natif l'interdit au
+    CIBLAGE, pas a l'execution.
+
+    `onlyActive` vaut `0` a ce call-site, exactement comme celui de `SquigMineAbility` : le mirror
+    est donc `has_effect_of_type` (`EffectsState.has_effect`, qui ne filtre que `consumed`), et
+    surtout pas `active_effects`.
+
+    Cible non resolue -> `0` : le natif teste `target != null` AVANT le `HasEffect`, donc c'est son
+    propre verdict, pas une degradation du port."""
+    if target_id is None:
+        return 0
+    if state.get_entity(int(target_id)) is None:
+        return 0
+    return (int(TR.TargetMatchesDynamicRule)
+            if has_effect_of_type(state, int(target_id), int(EffectType.Markerlight)) else 0)
+
+
+def _dynamic_rule_light_of_sanguinius(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$GetDynamicInvalidTargetReason`
+    (1177, `bloodDante`) -- MIRROR du decompile, avec son lambda
+    (`...LightOfSanguiniusAbility.u003Cu003Ec__DisplayClass2_0$$u003CGetDynamicInvalidTargetReasonu003Eb__0`) :
+
+        range = Configuration.GetNumberConstant(0x16 range);
+        tiles = battleQuery.GetFreeAdjacentTiles(targetTiles);       // this+0x20, slot 0x53
+        if (tiles.Count == 0) return 0x20;                           // TargetHasFreeAdjacentTile
+        return tiles.Any(t => battleQuery.GetDistance(t, casterTile) <= range) ? 0 : 0x20;
+
+    ⚠ LE CODE RENDU N'EST PAS `TargetMatchesDynamicRule`. Cette regle refuse par `0x20`
+    (`TargetHasFreeAdjacentTile`) -- un bit que le masque de 1177 (`0x102004032`) porte DEJA au volet
+    STATIQUE. Ce n'est pas une redite : le volet statique demande « la cible a-t-elle une tuile
+    adjacente libre ? », la regle dynamique ajoute « ET l'une d'elles est-elle a `range` du
+    CASTER ? ». Un port qui n'aurait retenu que le bit 0x2 aurait donc rate cette regle entierement
+    -- c'est pourquoi le recensement se fait sur le BIT POSE AU MASQUE, jamais sur le code rendu.
+
+    SEMANTIQUE (`range` = 5 au gameconfig) : Dante saute sur une tuile libre a cote de sa cible ; il
+    faut donc qu'une telle tuile existe ET qu'elle soit a portee de son point de depart.
+
+    `get_free_adjacent_tiles` est le mirror deja porte de
+    `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles`, et `get_distance` celui de
+    `...$$GetDistance` (minimum sur toutes les paires de pieds -- ce qui compte pour un caster
+    multi-hex). Le natif appelle la surcharge `(IEntity tuile, IList casterTiles)` : cote port,
+    `[t]` contre l'empreinte COMPLETE du caster, pas sa seule MainTile.
+
+    Cible non resolue -> `0`, et `range` absent du gameconfig -> `0` : on ne fabrique pas un refus
+    sur un substrat que le port n'a pas mesure (convention permissive du module)."""
+    if target_id is None or state.get_entity(int(target_id)) is None:
+        return 0
+    import gameconfig as GC
+    raw = ((GC.ability("LightOfSanguinius") or {}).get("constants") or {}).get(
+        ABILITY_CONSTANT_RANGE)
+    if raw is None:
+        return 0
+    try:
+        rng = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    tiles = get_free_adjacent_tiles(state, int(target_id))
+    if not tiles:
+        return int(TR.TargetHasFreeAdjacentTile)
+    caster_tiles = entity_tiles(state, int(caster_id))
+    for t in tiles:
+        if get_distance([t], caster_tiles) <= rng:
+            return 0
+    return int(TR.TargetHasFreeAdjacentTile)
+
+
+def is_mechanical(state: "State", unit_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsMechanical` -- MIRROR :
+
+        return HasTrait(unit, 0x5)   || HasTrait(unit, 0x3e8) || HasTrait(unit, 0x405);
+               // Mechanical=5         LivingMetal=1000         Vehicle=0x405=1029
+
+    Les trois `GetBaseUnitComponent(unit)?.HasTrait(...)` du natif lisent l'entite ELLE-MEME (pas
+    son occupant si c'est une tuile) : le mirror est `_unit_traits`, comme
+    `_dynamic_rule_adaptive_strategy`. Pendant `runner/abilities/behaviours/stats.py::is_mechanical`,
+    qui porte le MEME natif sur le substrat DSL (`entities.has_trait`) -- un noeud natif, deux
+    substrats."""
+    tr = _unit_traits(state, int(unit_id)) or ()
+    return (UnitTrait.Mechanical.name in tr or UnitTrait.LivingMetal.name in tr
+            or UnitTrait.Vehicle.name in tr)
+
+
+def is_affected_by_heal_type(state: "State", unit_id, heal_type: int) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType` -- MIRROR du decompile :
+
+        if (GetBaseUnitComponent(unit)?.HasTrait(0x421) == true) return true;  // AffectedByHealAndRepair
+        if (healType == 0 &&  IsMechanical(unit)) return false;                // HealType.NonMechanical
+        if (healType == 1 && !IsMechanical(unit)) return false;                // HealType.Mechanical
+        return true;                                                          // HealType.Any
+
+    Le trait `AffectedByHealAndRepair` COURT-CIRCUITE le discriminant : une unite qui le porte est
+    soignable ET reparable. C'est ce court-circuit que le nom de l'enum rend lisible -- lu comme un
+    ordinal, `0` se lirait « pas de type » alors qu'il DESIGNE le heal biologique.
+
+    Entite non resolue -> aucun trait -> `not is_mechanical` = `True` pour `NonMechanical` : c'est le
+    verdict du natif (`GetBaseUnitComponent(null)` rend null, donc `HasTrait` faux partout), pas une
+    degradation du port."""
+    if UnitTrait.AffectedByHealAndRepair.name in (_unit_traits(state, int(unit_id)) or ()):
+        return True
+    if int(heal_type) == int(HealType.NonMechanical):
+        return not is_mechanical(state, int(unit_id))
+    if int(heal_type) == int(HealType.Mechanical):
+        return is_mechanical(state, int(unit_id))
+    return True
+
+
+def _dynamic_rule_blood_chalice(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$GetDynamicInvalidTargetReason`
+    (1175, `bloodSanguinary`) -- MIRROR du decompile :
+
+        tiles = EntityExtensions.GetTiles(target, state);
+        if (battleQuery.AreEntitiesAdjacent(tiles, casterTiles)          // this+0x20, slot 0x62
+            && UnitExtensions.IsAffectedByHealType(target, 0))           // HealType.NonMechanical
+            return 0;
+        return (caster != target) ? 2 : 0;   // 2 = TargetingRule.TargetMatchesDynamicRule
+
+    SEMANTIQUE, avec le masque `0xc02`
+    (`TargetMatchesDynamicRule | TargetIsFriendly | AddCasterIfAtLeastOneTarget`) : le calice soigne
+    un allie ADJACENT et NON MECANIQUE. Le `caster != target` de la queue est ce qui laisse le
+    CASTER lui-meme passer sans condition -- exactement ce que `AddCasterIfAtLeastOneTarget` ajoute
+    au masque : le caster est adjoint a l'ensemble des cibles, et cette regle ne doit pas l'en
+    sortir.
+
+    ⚠ LA SURCHARGE D'ADJACENCE COMPTE. Le natif prend `AreEntitiesAdjacent(IList, IList)` -- deux
+    EMPREINTES, pas deux MainTiles -- dont le port a deja le mirror `are_entities_adjacent`, qui
+    delegue a `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent(IList, IList)` : vrai des
+    qu'UNE paire de pieds est adjacente (meme tuile incluse + gate d'elevation). Sur une unite
+    multi-hex, la MainTile seule rendrait un verdict FAUX.
+
+    Cible non resolue -> `0` : le natif y rendrait `2` (`caster != null`), mais la cascade n'atteint
+    cette regle que sur une cible enumeree, donc resolue -- meme convention que `_dynamic_rule_foul_infusion`.
+    Board absent -> `0` : on ne fabrique pas un refus sur un substrat non mesure."""
+    if target_id is None or state.get_entity(int(target_id)) is None:
+        return 0
+    if state.board is None:
+        return 0
+    adjacent = are_entities_adjacent(state.board, entity_tiles(state, int(target_id)),
+                                     entity_tiles(state, int(caster_id)))
+    if adjacent and is_affected_by_heal_type(state, int(target_id),
+                                             int(HealType.NonMechanical)):
+        return 0
+    return 0 if int(caster_id) == int(target_id) else int(TR.TargetMatchesDynamicRule)
+
+
 DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.AdaptiveStrategy: _dynamic_rule_adaptive_strategy,      # 1005
     ActiveAbilityType.FoulInfusion: _dynamic_rule_foul_infusion,              # 1038
+    ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
+    ActiveAbilityType.LightOfSanguinius: _dynamic_rule_light_of_sanguinius,   # 1177
+    ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
 }
 
 

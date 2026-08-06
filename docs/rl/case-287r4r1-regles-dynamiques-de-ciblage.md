@@ -134,37 +134,106 @@ après : **16 passed**, `rc=0`.
   (domaine TILE), à ouvrir séparément.
 - Le volet **caster** (`options+0x30`, `CasterMatchesDynamicRule`) : inchangé, aucune règle portée.
 
-## 9. Recensement du résidu #287-r5
+## 9. Recensement du résidu #287-r5 — état APRÈS la tranche #287-r5
 
-**19 des 46** ont une surcharge native lisible dans `data/symbols/<build>/ghidra/functions.tsv`
-(toutes `IdunBattleLogic.Entities.Abilities.…$$GetDynamicInvalidTargetReason`) :
+Le recensement n'est plus une table écrite : il est **dérivé** de
+`data/symbols/<build>/ghidra/functions.tsv` par `probe_287r5_etages_bloquants.py`, qui apparie par
+nom de classe et **rougit** si un id à surcharge native perd son étage, ou si une entrée d'étage
+perd son symbole. Le re-dériver, ne pas citer les chiffres ci-dessous.
 
-| id | ability | ce qui bloque le port |
+### 9.1 Le « 46 » mélangeait deux populations
+
+**Le corps de BASE `IdunBattle.Entities.Abilities.AActiveAbility$$GetDynamicInvalidTargetReason` est
+`return 0`.** Il n'apparaît sous ce nom nulle part : IL2CPP déduplique les corps triviaux et Ghidra
+l'attribue à `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId`. Ce qui l'identifie sans
+supposition, c'est le **fallback explicite** de
+`...ForwardObserversAbility$$GetDynamicInvalidTargetReason`, qui l'appelle en queue.
+
+| population | compte | ce que vaut le `0` du port |
 |---|---|---|
-| 1016 | `SendInTheNextWave` | sélecteur de tuiles par slot d'interface |
-| 1025 | `SkyStrike` | `DidMove` + `GetMainTile` + deux slots `battleQuery` |
-| 1076 | `MV71SniperDroneSquadAttack` | `IsMeleeAttack` + `PickTile` |
-| 1087 | `ExemplarOfTheKauyon` | `IsFreeTile` + prédicat LINQ sur un sélecteur |
-| 1101 | `AttemptedPossession` | `GetChildren` (deux appels) + `GetPreferredAttackTarget` |
-| 1112 | `AlphaWarrior` | `DSLTriggers$$IsInTeamSynapseRange` — **trigger non porté** |
-| 1151 | `TheQuickening` | `MovableTilesInRange` − `Enemies`, puis `GetFeetCount` |
-| 1164 | `MindControl` | slot 0x7c + `FilterInPlace` générique |
-| 1168 | `EntropyCannons` | `IsInTeamContagionsOfNurgleAura` + `HasNegativeModifier` |
-| 1175 | `BloodChalice` | slot 0x62 + `IsAffectedByHealType` |
-| 1177 | `LightOfSanguinius` | `GetNumberConstant(0x16)` + `Enumerable.Any` |
+| surcharge native **lisible**, non portée | 16 | **dette réelle** |
+| **aucune** surcharge dans la table | 27 | le délégué pointe le corps de base ⇒ le port **coïncide** |
+
+⚠ (b) ne **prouve** pas le non-override — une table indexée par adresse ne le peut pas. Il dit que
+le port n'a **rien à lire**, et que la seule lecture disponible concorde. Trancher demanderait le
+slot `+0x480` sur l'**instance**, au runtime.
+
+### 9.2 Les étages qui restent, et ce qu'ils retiennent
+
+`AActiveAbility+0x20` est **`IdunBattle.Core.Services.BattleQuery`** (établi par
+`TargetingQuery$$Init`, qui le pose en `+0x18`, et par le second site de `GetTilesInRange`). C'est
+l'étage le plus répandu — mais éclaté en slots, pas en une primitive unique.
+
+| id | ability | étage qui bloque encore |
+|---|---|---|
+| 1016 | `SendInTheNextWave` | `GetSurroundingTiles` + `GetUnitMaxRange(unitId)` |
+| 1025 | `SkyStrike` | `DidMove` + `GetMainTile` + `AreEntitiesAdjacent` + `GetAdjacentTiles` |
+| 1076 | `MV71SniperDroneSquadAttack` | `IsMeleeAttack` + `PickTile` (méthodes de sa classe) |
+| 1087 | `ExemplarOfTheKauyon` | `IsFreeTile` + `GetAdjacentUnits` + prédicat LINQ |
+| 1101 | `AttemptedPossession` | `GetChildren` + un étage de **SIMULATION** (`SimulateEffects`) |
+| 1112 | `AlphaWarrior` | trigger DSL `IsInTeamSynapseRange` |
+| 1151 | `TheQuickening` | tuiles de mouvement (`MovableTilesInRange` − `Enemies`) |
+| 1164 | `MindControl` | slot 0x7c + un **prédicat statique illisible** (corps dédupliqué) |
+| 1168 | `EntropyCannons` | triggers `IsInTeamContagionsOfNurgleAura` + `HasNegativeModifier` |
 | 1179 | `CultDemagogue` | trois slots `battleQuery` + `GetStringConstant` |
-| 1180 | `HeroicFusillade` | slots 0x67/0x6f + `Where`/`ToList` |
-| 1185 | `ForwardObservers` | (non décompilé — porteur summon) |
-| 1197 | `ExcruciatingFrequencies` | `GetAttackTargets` |
-| 1200 | `SquigLaunchas` | (non décompilé) |
-| 1202 | `VigilanceEternal` | slot 0x62 + `GetPossibleMovementTiles` |
-| 1204 | `LeadingTheCharge` | `GetPossibleMoveTiles` + slot 2 |
-| 1213 | `DeathOnTheWind` | `GetNumAttacksReceivedThisTurn` — **absent des canaux de mesure** |
+| 1180 | `HeroicFusillade` | **pathfinding** (`MovementQuery$$IsInMovementRange` + `overrideRange`) |
+| 1197 | `ExcruciatingFrequencies` | sélecteur DSL `GetAttackTargets` |
+| 1200 | `SquigLaunchas` | triggers DSL `HasMinimumAdjacent{Orks,FriendlyUnits}` |
+| 1202 | `VigilanceEternal` | tuiles de mouvement (`GetPossibleMovementTiles`) |
+| 1204 | `LeadingTheCharge` | tuiles de mouvement (`GetPossibleMoveTiles`) |
+| 1213 | `DeathOnTheWind` | **le SEEDING**, pas l'étage — cf. 9.3 |
 
-Les **27 autres** (1006, 1014, 1027, 1035, 1036, 1041, 1044, 1048, 1051, 1062, 1063, 1066, 1067,
-1069, 1078, 1080, 1088, 1093, 1097, 1098, 1103, 1104, 1113, 1150, 1169, 1171, 1206) n'ont **aucune**
-surcharge dans la table de symboles.
+Regroupés : **tuiles de mouvement 3** (1151, 1202, 1204), **triggers DSL 3** (1112, 1168, 1200),
+**sélecteurs DSL 2**, **pathfinding 1**, le reste isolé.
 
-⚠ Cela **ne prouve pas** qu'elles ne surchargent pas : IL2CPP déduplique les corps triviaux et
-n'attribue qu'**un** propriétaire (cf. CLAUDE.md, « l'ABSENCE d'une méthode dans les tables ne prouve
-RIEN »). Conclure demanderait le slot `+0x480` sur l'instance, au runtime.
+### 9.3 `1213 DeathOnTheWind` — l'étage est PORTÉ, c'est le seeding qui manque
+
+`EntityExtensions$$GetNumAttacksReceivedThisTurn(unit)` lit `ActorStatisticsComponent+0x38`. Le port
+a **déjà** ce compteur (`UnitComponent.times_attacked_this_turn`) et **déjà** son reset au turn-start
+(`operations/minimal_health.py::reset_times_attacked`, mirror de
+`ActorStatisticsComponent$$ResetAttacksReceivedThisTurn`). Ce qui manque est que `load_state` ne
+le **seede** pas : sur un état chargé après une attaque, le port rendrait `0` là où le natif rend
+`>= 1`, donc **refuserait des cibles que le natif ACCEPTE**. Point d'ancrage à exposer :
+`GetNumAttacksReceivedThisTurn` dans `combatSnapshot`/`decisionView` — un capteur, donc une fenêtre
+de reinject.
+
+### 9.4 Ce que #287-r5 a porté et CONFRONTÉ
+
+| id | corps natif, verbatim | code rendu | confrontation live |
+|---|---|---|---|
+| 1185 `ForwardObservers` | `HasEffect(target, 0x462) ? 2 : <base>` | `0x2` | bascule TEMPORELLE, `MC1_67` + `C1_02` |
+| 1177 `LightOfSanguinius` | `GetFreeAdjacentTiles(target).Any(t => GetDistance(t, casterTiles) <= range)` | **`0x20`** | bascule SPATIALE, `MC1_67` + `C1_02` |
+| 1175 `BloodChalice` | `AreEntitiesAdjacent && IsAffectedByHealType(target, NonMechanical)` | `0x2` | 4 bras, `MC1_67` + `C1_02` |
+
+`0x462` = `EffectType.Markerlight`. Primitives mirrorées au passage :
+`UnitExtensions$$IsMechanical`, `UnitExtensions$$IsAffectedByHealType`, et le mirror d'enum
+`IdunBattle.Entities.Enum.HealType` (au registre de `probe_313` dans le même commit).
+
+Trois points que la mesure a imposés, et qu'aucune lecture n'aurait donnés :
+
+- **`1177` ne rend PAS `TargetMatchesDynamicRule`** mais `0x20 TargetHasFreeAdjacentTile`, un bit
+  que son masque statique porte déjà. Le recensement se fait donc sur le **bit posé au masque**,
+  jamais sur le code rendu — un port qui n'aurait cherché que `0x2` aurait raté la règle entière.
+  Le probe sépare les deux origines du `0x20` par désarmement **et** par décomposition (tuiles
+  libres / distance minimale).
+- **`1185` exige DEUX porteurs.** `AttackQuery$$GetInvalidTargetReason` résout l'instance par
+  `ActiveAbilityComponent$$GetOrNull` et rend `0x1` (`ValidRequest` en code de refus) dès que
+  l'ability est consommée — **en amont** de la règle. Avec un porteur unique, le natif rendait `0x1`
+  après son propre cast et le rouge accusait le PROTOCOLE. L'un caste, l'autre observe.
+- **Le terme ADJACENCE de `1175` est NON EXERCÉ**, et sa cause est *assertée* : le ctor pose
+  `OverrideRange = 1`, donc l'étage PORTÉE refuse en amont (`0x8000000`, identique des deux côtés).
+  Si un build change cette portée, le probe re-exige le terme.
+
+Le porteur de `1185` arrive par le **chemin de stats explicite** (`--explicit-stats
+tauNpc5StealthSuit:5`) : le vrai npc, avec ses stats, ses traits et son arme — la greffe de
+`case-92 §5bis` n'a pas été nécessaire. Son jumeau summon `tauSmnStealthSuit` n'a **aucun**
+invocateur au catalogue (l'ability `ATemptingTrap` qui le déclare n'est portée par personne).
+
+### 9.5 Chiffres, re-dérivés des deux côtés
+
+| | avant #287-r5 | après |
+|---|---|---|
+| entrées de `DYNAMIC_TARGET_RULE_UNPORTED` | 2 | **5** |
+| aucune règle (`0` permissif) | 46 | **43** |
+| dont dette réelle (surcharge native lisible) | 19 | **16** |
+| dont `0` coïncidant avec le corps de base | 27 | 27 |
