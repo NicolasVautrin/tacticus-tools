@@ -668,27 +668,85 @@ def test_etage5_une_confusion_des_deux_index_serait_silencieuse_en_ORDINAL():
 # ─────────────────────────────────────────────────────────── ETAGE 6 : PLACEMENT DES MIRRORS
 
 def test_etage6_les_deux_index_vivent_hors_du_paquet_abilities():
-    """Le placement N'EST PAS cosmetique : `entities/abilities/` rend les modules INIMPORTABLES.
+    """ETAGE 6 -- l'emplacement des deux mirrors : la CONTRAINTE A DISPARU, et cet etage l'ACTE.
 
-    Mesure : importer quoi que ce soit de `engine.entities.abilities` execute son `__init__.py`,
-    qui tire `active_ability` -> `services.damage_prediction` -> `ImportError` sur un module
-    partiellement initialise (`cannot import name 'get_default_attack_hits'`). Le test REPRODUIT la
-    contrainte -- et se RETOURNE tout seul le jour ou le cycle disparaitrait."""
+    CE QU'IL GARDAIT. `entities/abilities/__init__.py` re-exportait `active_ability`, donc
+    importer QUOI QUE CE SOIT de ce paquet executait cet `__init__`, qui tirait
+    `services.damage_prediction` -> `ImportError` sur un module partiellement initialise
+    (`cannot import name 'get_default_attack_hits'`). Les deux mirrors devaient donc vivre sous
+    `entities/`, et cet etage refusait qu'on les range sous `entities/abilities/`. Il etait
+    ecrit pour SE RETOURNER le jour ou le cycle disparaitrait. Ce jour est arrive.
+
+    CE QUI L'A RETOURNE (#485-r1-r1) : la vidange des barils a vide cet `__init__.py`. Mesure,
+    et non supposition -- l'etage DEPLACE reellement les deux mirrors dans une copie de l'arbre,
+    reecrit leurs deux consommateurs `entities/effects/loki/*`, et importe : ca PASSE.
+
+    ⚠ CE QU'IL GARDE MAINTENANT, ET POURQUOI CE N'EST PAS RIEN. L'emplacement sous `entities/`
+    n'est plus IMPOSE, il est CHOISI -- on ne deplace pas 2 modules et leurs importeurs pour du
+    rangement. Ce qui reste exigible est le FAIT qui l'a libere : ces mirrors sont des FEUILLES,
+    et le paquet `entities.abilities` ne doit plus tirer la couche `services`. Si un
+    re-export y revenait, l'import de la copie deplacee re-echouerait et cet etage rougirait --
+    il faudrait alors retablir la prescription d'emplacement, pas le desarmer.
+    """
     for cls in ("AbilityConstantType", "AbilityVariableType"):
         mod = ENUMS[cls].__module__
         assert mod.startswith("engine.entities."), mod
-        assert not mod.startswith("engine.entities.abilities."), (
-            "%s est retourne sous `entities/abilities/` : l'`__init__.py` de ce paquet tire "
-            "`active_ability` -> `services.damage_prediction` et rend le mirror inimportable "
-            "depuis `entities/effects/loki/*`" % cls)
 
     init = ENGINE / "entities" / "abilities" / "__init__.py"
     assert init.is_file()
     tire = [n for n in ast.walk(ast.parse(init.read_text(encoding="utf-8")))
             if isinstance(n, ast.ImportFrom) and "active_ability" in (n.module or "")]
-    assert tire, ("`entities/abilities/__init__.py` n'importe plus `active_ability` : le cycle a "
-                  "peut-etre disparu -- re-tenter d'y ranger les deux mirrors, et supprimer cet "
-                  "etage si l'import passe")
+    assert not tire, (
+        "`entities/abilities/__init__.py` re-importe `active_ability` : la contrainte "
+        "d'emplacement de #270-r1-r1-r3 est de retour. Retablir le refus (les deux mirrors "
+        "HORS de `entities/abilities/`) plutot que de desarmer cet etage.")
+
+    # ── LA MESURE : le deplacement PASSE-T-IL vraiment ? On le fait, on ne le suppose pas. ────
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+    #: ⚠ ON REECRIT **TOUS** LES IMPORTEURS, pas une liste choisie. Une liste ecrite a la main
+    #: rate celui qu'on n'a pas vu -- mesure : `entities/abilities/triggered_ability.py` importe
+    #: `ability_variable_type`, et l'oublier faisait echouer la mutation par un
+    #: `ModuleNotFoundError` de MONTAGE, que l'assertion aurait impute au cycle.
+    with tempfile.TemporaryDirectory() as tmp:
+        arbre = Path(tmp) / "arbre"
+        shutil.copytree(ENGINE, arbre / "engine", ignore=shutil.ignore_patterns("__pycache__"))
+        for f in ("gameconfig.py", "hexgeo.py"):
+            if (PYDIR / f).exists():
+                shutil.copy2(PYDIR / f, arbre / f)
+        for nom in ("ability_constant_type", "ability_variable_type"):
+            src = arbre / "engine" / "entities" / (nom + ".py")
+            assert src.is_file(), src
+            shutil.move(str(src), str(arbre / "engine" / "entities" / "abilities" / (nom + ".py")))
+        touches = []
+        for p in sorted((arbre / "engine").rglob("*.py")):
+            avant = p.read_text(encoding="utf-8")
+            apres = avant
+            for nom in ("ability_constant_type", "ability_variable_type"):
+                apres = apres.replace("entities.%s import" % nom,
+                                      "entities.abilities.%s import" % nom)
+            if apres != avant:
+                p.write_text(apres, encoding="utf-8")
+                touches.append(p.relative_to(arbre).as_posix())
+        assert len(touches) >= 10, (
+            "moins d'importeurs reecrits qu'attendu (%d) -- la mutation ne mesure peut-etre "
+            "plus le deplacement reel : %r" % (len(touches), touches))
+        env = dict(os.environ, PYTHONPATH=str(arbre) + os.pathsep + str(PYDIR))
+        rendus = {}
+        for m in ("engine.entities.abilities.ability_constant_type",
+                  "engine.entities.abilities.ability_variable_type",
+                  "engine.entities.effects.loki.ability_modifications",
+                  "engine.entities.effects.loki.cursed_plague_bell",
+                  "engine.entities.abilities.triggered_ability"):
+            rendus[m] = subprocess.run([sys.executable, "-c", "import " + m],
+                                       capture_output=True, text=True, cwd=str(arbre), env=env)
+    casses = {m: r.stderr[-300:] for m, r in rendus.items() if r.returncode != 0}
+    assert not casses, (
+        "LE DEPLACEMENT SOUS `entities/abilities/` NE PASSE PLUS : la contrainte de "
+        "#270-r1-r1-r3 est revenue. Retablir le refus d'emplacement dans cet etage ET dans le "
+        "`CLAUDE.md`. %r" % casses)
 
 
 # ────────────────────────── CE QUI RESTE EN LITTERAL, ET QUI A ETE VU (pas un oubli)

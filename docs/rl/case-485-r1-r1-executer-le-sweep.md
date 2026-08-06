@@ -111,6 +111,92 @@ tests `_live.py`. En forme B, il est hissable **et** mordant.
 **Le périmètre B complet est chiffré, pas exécuté** : rendre la banque ordre-indifférente
 demanderait **49 modules / 75 liaisons** — borné, mais hors de cette tranche. Résidu `#485-r1-r3`.
 
+## Ce que le sweep a CASSÉ, et les trois angles morts qui l'ont laissé passer
+
+Le sweep a fait rougir **4 tests**. Aucun ne vient d'un choix de la tranche : les quatre viennent
+d'un **recenseur qui ne visitait pas la voie concernée** — ou d'un étage qui faisait exactement ce
+pour quoi il était écrit.
+
+### Angle mort 1 — la vidange ne comptait pas l'ACCÈS ATTRIBUTAIRE
+
+`vider_barils` réclamait tout un baril pour `import X as E` (l'accès y est attributaire, on ne sait
+pas le suivre), **mais pas pour `from pkg import sous_module`** — qui lie pourtant un module lui
+aussi. `NC.NATIVE_PRIORITY` était donc invisible : le recenseur n'y voyait qu'une réclamation du
+nom `noncomparable` au baril PARENT.
+
+Dégât mesuré : **4 couples**, dont **deux lus par `engine/**` lui-même** —
+`ai/action_generators.py` → `noncomparable._has_valid_targets`, et
+`playbook/{tile_targets,loki_custom,resurrection_orb}.py` → `dsl.DslContext`. **Aucun des tests
+tombés ne les montrait.**
+
+Cliquet : **`probe_485r1r1_acces_attributaires.py`**, qui résout chaque accès contre le module
+RÉELLEMENT importé (il voit l'`AttributeError` avant qu'il soit joué). VERT sur `origin/master`,
+ROUGE sur la branche avant réparation. Contre-épreuve du correctif : sans lui, la vidange
+re-propose ces 4 mêmes ré-exports ; avec, **0**.
+
+### Angle mort 2 — `DEJA_INERTE` absorbait `HISSAGE_DESARMERAIT`
+
+Dans `recenser_morsure`, `DEJA_INERTE` était testé **en premier** et faisait `continue`. Dès
+qu'UNE liaison de forme A existait quelque part — fût-ce dans un baril que personne n'appelle — le
+couple sortait « rien à faire », et le site de forme C **qu'on s'apprêtait à hisser** n'était plus
+examiné. `phase_end_triggers` avait A dans `runner/operations/triggers/__init__.py` **et** C dans
+`runner/runner.py`, son consommateur RÉEL.
+
+### Angle mort 3 — la base des GRATUITS était en retard d'une vidange
+
+`morsure` lisait `ratchets-485-differes-attestes.json`, une base **attestée**. Or un différé est
+gratuit **par rapport à un arbre** : sur `master`, charger `dispatch.phase` tirait `runner.runner`
+(donc PORTEUR, donc absent de la base) ; **après** la vidange le même différé devient GRATUIT. La
+mesure est désormais prise à FRAIS, et la commande **dit** sur quoi elle s'appuie.
+
+### Ce que les trois corrections changent, mesuré
+
+Sur l'arbre **post-vidange / pré-hissage**, `morsure` passe de **5** à **10**
+`HISSAGE_DESARMERAIT`. Les 5 visibles à l'époque avaient été traités (forme B). Des 5 autres,
+**deux** étaient restés en forme A pure :
+
+| couple | patcheur | visible ? |
+|---|---|---|
+| `dispatch.phase.phase_end_triggers` | `test_389_ramming_speed_combat_offline` | test ROUGE |
+| `active_ability.is_dead_unit_and_not_allowed_by_ability` | `probe_429r1r1r1` | **silencieux** |
+
+Le second est le cas qui compte : son patcheur est un **probe**, que la banque ne joue jamais.
+Deux sites (`operations/damage.py`, `operations/damage_ops/normal.py`) portaient le commentaire
+`# lazy : cycle` sur `master` ; le hissage les a passés en forme A et la mesure du probe ne mord
+plus — exactement la famille #429-r1 que cette tranche visait à ne pas rouvrir. Les trois sites
+sont réparés **en forme B**.
+
+**Bonus** : `existe_module` était **insensible à la CASSE** sous Windows. `from ... import
+EFFECT_TRIGGERS` (une constante) répondait « module » à cause d'`effect_triggers.py` voisin, ce
+qui classait le couple en forme B — « point fixe, rien à faire » — et liait le nom à un
+pseudo-module qu'un lecteur ne peut pas importer.
+
+## Les deux étages qui se sont RETOURNÉS — et c'est la preuve que le sweep marche
+
+`test_270r1r1_container_enum_offline::etage4` et `test_270r1r1r3_role_enum_offline::etage6`
+déplaçaient un mirror dans un arbre temporaire et **exigeaient l'`ImportError`**. Ils étaient
+écrits pour se retourner le jour où le cycle disparaîtrait. Ce jour est celui de cette tranche.
+
+**La mesure**, et non la supposition :
+
+| | `origin/master` | après la vidange |
+|---|---:|---:|
+| modules `engine.*` chargés par `import engine.entities` | 94 | **2** |
+| `entities/effects/loki/hits.py` chargé | VRAI | **FAUX** |
+
+C'est ce module qui fermait la boucle. Conséquences actées :
+
+- `services/static_battle_rules.py` : ses deux imports d'enum sont **remontés en tête** ;
+  l'étage 4 exige désormais qu'ils y soient, que la copie mutée **s'importe**, et que la cascade
+  du paquet reste **courte** (il rougira si elle ré-enfle).
+- l'étage 6 **déplace pour de vrai** les deux mirrors sous `entities/abilities/`, réécrit **tous**
+  leurs importeurs (17 fichiers — une liste écrite à la main ratait
+  `entities/abilities/triggered_ability.py`, et l'échec de MONTAGE aurait été imputé au cycle) et
+  exige que ça **passe**. Contre-épreuve : avec l'`__init__.py` de `master`, le même montage
+  rend l'`ImportError` de module partiellement initialisé.
+- les mirrors **restent** sous `engine/entities/` : c'est désormais un choix, pas une obligation.
+  Le `CLAUDE.md` est corrigé en conséquence.
+
 ## La contre-épreuve, et ce qu'elle vaut
 
 Le seul contrôle qui voit un désarmement **silencieux** n'est ni l'empreinte ni le compte : c'est

@@ -14,23 +14,27 @@ Constantes statiques du jeu (LUES au cctor natif, VA citées) :
 from __future__ import annotations
 
 import engine.services.fix64 as _fx   # module FRERE, pas `from . import` (#270-r4-r2)
+from ..entities.effect_type import EffectType
+from ..entities.traits.unit_trait import UnitTrait
 
-# ─── #270-r4-r2 : LES ORDINAUX SONT CONVERTIS -- LA CONDITION QU'ON CROYAIT NECESSAIRE ETAIT FAUSSE
+# ─── #485-r1-r1 : LA CONTRAINTE DE PLACEMENT A DISPARU -- MESUREE, PAS SUPPOSEE
 #
-# #270-r1-r1 avait ANNULE cette conversion, avec pour motif un `ImportError` REEL : `engine/services/`
-# est la couche que `engine/entities/` et `engine/runner/` importent tous deux, et un
-# `from ..entities.effect_type import EffectType` EN TETE initialise le paquet `engine.entities`, qui
-# tire `effects/loki/hits.py`, qui ré-importe ce module partiellement initialise.
+# Ces deux imports vivaient plus bas, sous `TILE_STATUS_EFFECT_NAMES`, et c'etait FONCTIONNEL :
+# `from ..entities.effect_type import EffectType` EN TETE initialisait le paquet `engine.entities`,
+# qui tirait `effects/loki/hits.py`, qui re-importait CE module partiellement initialise ->
+# `ImportError` reel. #270-r4-r2 avait trouve le placement qui l'evitait (la boucle ne lit qu'UN
+# symbole, defini au-dessus des imports), et l'etage 4 de
+# `tests/engine/test_270r1r1_container_enum_offline.py` gardait cette place.
 #
-# La condition de retournement alors ecrite -- « le jour ou `engine/entities/__init__.py` n'importe
-# plus l'arbre des effets » -- etait TROP FORTE. Elle est toujours vraie (le paquet tire encore cet
-# arbre), et la conversion est pourtant faite : la boucle ne lit qu'UN symbole de ce module,
-# `TILE_STATUS_EFFECT_NAMES`, et il suffit que les imports soient places APRES lui. Cf. l'encadre
-# devant ces imports, plus bas. Mesure : 11 ordres d'entree, 0 echec.
+# La vidange des barils de #485-r1-r1 a SUPPRIME la boucle, et la mesure le dit :
+#     `import engine.entities`  ->  94 modules `engine.*` sur `origin/master`,  2 apres la vidange
+#     `engine.entities.effects.loki.hits` charge : VRAI avant, FAUX apres
+# L'`__init__` du paquet ne tire plus l'arbre des effets : il n'y a plus de boucle a eviter, donc
+# plus de place a garder. L'etage 4 mesure DESORMAIS l'inverse (les imports sont en tete ET le
+# module s'importe), et il se re-retournera si la cascade revenait.
 #
-# Ce qui garde ces valeurs contre un renumerotage du build reste inchange : les membres sont
-# desormais ECRITS ici, et `tests/engine/test_270r1r1_container_enum_offline.py` (etage 4) garde en
-# plus la PLACE des imports -- il rougit si on les remonte en tete.
+# Ce qui garde ces valeurs contre un renumerotage du build est inchange : les membres sont ECRITS
+# ici, sous cliquet `probe_313`.
 
 # Bonus de perçage LasCannon — static_field[0] de `StaticBattleRules.DamageTrait` écrit à 0x32 par sa cctor
 # idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.DamageTrait$$.cctor (`**(int **)(cls + 0xb8) = 0x32`), lu par `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetPiercingRatio`. VALEUR NATIVE = 50.
@@ -57,24 +61,11 @@ W_LASCANNON_PIERCE_BONUS = 50
 # seed elle porte la VRAIE liste native, donc le filtre est OBLIGATOIRE.
 # MEMES membres, par NOM : le canal PREDICTION (`tileMeta.tiles[].effects[].name` ->
 # `Scene.tile_effects_by_pos`) ne transporte que des noms, pas des EffectType.
-# ⚠ CE SYMBOLE EST DEFINI AVANT LES DEUX IMPORTS CI-DESSOUS, ET C'EST FONCTIONNEL (#270-r4-r2) :
-# c'est le SEUL que la boucle d'import lit (`entities/effects/loki/hits.py`). Le descendre sous
-# les imports rouvre l'`ImportError` que l'encadre en tete de module decrit.
+# `TILE_STATUS_EFFECT_NAMES` etait le SEUL symbole que l'ancienne boucle d'import lisait
+# (`entities/effects/loki/hits.py`), ce qui imposait de le definir AVANT les deux imports d'enum.
+# Cette boucle n'existe plus (encadre en tete de module) : sa place n'est plus contrainte.
 TILE_STATUS_EFFECT_NAMES: frozenset = frozenset(
     {"Darkness", "Fire", "Ice", "Contaminated", "DespoiledGround"})
-
-# ── #270-r4-r2 : LES ORDINAUX SONT CONVERTIS, ET LA PLACE DE CES DEUX IMPORTS EST LE PRIX ──────
-#
-# L'encadre en tete de module disait « conversion impossible, cycle mesure ». C'etait vrai d'un
-# import EN TETE, pas de la conversion : la boucle
-#     services.static_battle_rules -> engine.entities (init) -> effects_state -> effects
-#     -> factory -> effects.loki -> hits.py -> `from ....services.static_battle_rules import
-#        TILE_STATUS_EFFECT_NAMES`
-# ne lit QU'UN symbole de ce module, et il est defini juste au-dessus. Place ICI, l'import trouve
-# donc un module deja complet POUR CE QUE LA BOUCLE DEMANDE. Mesure : 11 ordres d'entree distincts,
-# 0 echec (`probe_270r4r2_import_en_premier.py`) ; remonter ces lignes en tete fait rougir.
-from ..entities.effect_type import EffectType            # noqa: E402
-from ..entities.traits.unit_trait import UnitTrait       # noqa: E402
 
 TILE_STATUS_EFFECT_TYPES: frozenset = frozenset({
     EffectType.Darkness, EffectType.Fire, EffectType.Ice,
