@@ -249,6 +249,22 @@ REGISTRE: list[Mirror] = [
     # seul le NOM les separe.
     Mirror("TurnStage", "engine/entities/turn_stage.py",
            "IdunBattle.Entities.Enum.TurnStage"),
+    # #477-r21-r2 volet A : les DEUX mirrors NEUFS de la tranche, inscrits DANS LE COMMIT QUI LES
+    # CREE. Ce sont les deux champs d'`IdunBattle.Operations.RefreshEffectOptions`, donc les deux
+    # premiers arguments d'`IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` -- leurs
+    # types sont LUS dans `frida/methods.tsv` (`refreshTrigger:IdunBattle.Operations
+    # .RefreshEffectTrigger, refreshType:IdunBattle.Operations.RefreshEffectType`), pas deduits.
+    # Le namespace est `IdunBattle.Operations`, comme `KillUnitStep` et `DamageReason`, et les
+    # mirrors vivent avec la garde qui les consomme (`engine/runner/operations/refresh_effects.py`,
+    # meme convention que `KillUnitStep` dans `remove_effects.py`).
+    # ⚠ Le nom court NE TRANCHE PAS : `enums.tsv` porte cinq autres enums dont le nom commence par
+    # `Refresh` (`RefreshWithAdsResult`, `RefreshResult`, `RefreshAndLoginResult`,
+    # `RefreshMerchantProductsResult`, `ReflectionProbeRefreshMode`), tous a 3 ou 6 valeurs -- dont
+    # DEUX a exactement 3 valeurs, la cardinalite de `RefreshEffectType`.
+    Mirror("RefreshEffectType", "engine/runner/operations/refresh_effects.py",
+           "IdunBattle.Operations.RefreshEffectType"),
+    Mirror("RefreshEffectTrigger", "engine/runner/operations/refresh_effects.py",
+           "IdunBattle.Operations.RefreshEffectTrigger"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune

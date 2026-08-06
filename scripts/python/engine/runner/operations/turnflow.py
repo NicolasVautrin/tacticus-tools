@@ -69,7 +69,7 @@ from ..abilities.handler import ABILITY_CLASSES
 from .repair import _is_boss
 from ...ai.state_bridge import _move_tiles
 from .effects import revert_stat_mods_of_removed_effects
-from .refresh_effects import refresh_stat_modifier_effects
+from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
 from .summon_ai import run_ai_control_pass
 from .triggers import end_turn_summon_triggers
 from .triggers import unit_finished_turn_triggers
@@ -418,7 +418,10 @@ class StartTurnOperation:
         # avec le `TurnsStarted` du PORTEUR d'aura : une unite jusque-la hors du disque y entre au
         # tour ou l'aura grandit, et prend le debuff SANS avoir bouge.
         # Idempotent pour tout autre effet declaratif a stat-mod (`Modify` = replace par-source).
-        refresh_stat_modifier_effects(state)
+        # ⚠ Le declencheur est PASSE depuis #477-r21-r2 volet A (il n'etait qu'en commentaire) :
+        # `RefreshEffectsOperation$$ShouldBeActive` le consomme via
+        # `BaseEffect$$ShouldRefreshForTrigger`.
+        refresh_stat_modifier_effects(state, refresh_trigger=RefreshEffectTrigger.TurnChanged)
         out = start_turn_triggers(state, player)
         out = tile_ticks + first_aid + living_metal + out + run_ai_control_pass(state, player)
         return out
