@@ -96,6 +96,8 @@ from ..operations.active_ability import (execute_for_replaced_target, get_tiles,
                                                  resolve_replaced_target)
 from ..operations.active_ability import is_dead_unit_and_not_allowed_by_ability
 from .base import sets_end_turn_flags_for, sets_active_ability_used_flag_for
+from ..operations.triggers.base import _is_ranged_position
+from ..operations.triggers.dispatch import ability as ability_dispatch
 
 # Registre ActiveAbilityType (int) -> classe d'ability portée. À ÉTENDRE au roster.
 ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
@@ -469,7 +471,6 @@ class AbilityHandler:
         # `dispatch.ability` mord quelle que soit la forme finale de cet import. Ce differe-ci
         # est mesure GRATUIT (`probe_485_imports_differes.py`) : hisse en `from ... import X`
         # il serait INERTE, exactement le gisement des 12 rouges de la famille #429-r1.
-        from ..operations.triggers.dispatch import ability as ability_dispatch
         ability_dispatch.pre_unit_ability_triggers(self.state, int(msg.caster_id), msg.target_id,
                                                    ranged=self._ranged(msg), profile=None,
                                                    ability_type=int(msg.ability_type))
@@ -479,7 +480,6 @@ class AbilityHandler:
         `StaticBattleRules.ActiveAbility$$IsActiveAbility(abilityType)` (le gate est applique dans le
         vecteur). Emis depuis la SEULE voie ABILITY : l'attaque normale est un `IsRegularAttack`, donc
         exclue par le gate natif -- la voie normale (`damage.py`) n'a rien a emettre."""
-        from ..operations.triggers.dispatch import ability as ability_dispatch   # forme MODULE
         ability_dispatch.unit_active_ability_triggers(
             self.state, int(msg.caster_id), msg.target_id,
             ranged=self._ranged(msg), profile=None,
@@ -488,7 +488,6 @@ class AbilityHandler:
     def _post_unit_ability(self, msg) -> None:
         """`FUN_1800280e0(0x4d, .., 0xe)` en queue d'`ExecuteInternal` (apres
         `AddFlagsAfterAbilityExecution`)."""
-        from ..operations.triggers.dispatch import ability as ability_dispatch   # forme MODULE
         ability_dispatch.unit_post_ability_triggers(
             self.state, int(msg.caster_id), msg.target_id,
             ranged=self._ranged(msg), profile=None,
@@ -498,7 +497,6 @@ class AbilityHandler:
         """`IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack` = adjacence caster/cible (mirror
         `_is_ranged_position`). Cible-TUILE / entite absente -> False (melee, le defaut conservateur
         deja retenu par le helper)."""
-        from ..operations.triggers.base import _is_ranged_position
         if msg.target_id is None:
             return False
         return _is_ranged_position(self.state, int(msg.caster_id), int(msg.target_id))

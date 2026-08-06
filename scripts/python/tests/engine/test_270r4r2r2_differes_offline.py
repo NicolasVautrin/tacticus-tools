@@ -45,8 +45,10 @@ import probe_270r4r2r2_tri_differes as TR       # noqa: E402
 # Plafonds MESURES a la livraison de #270-r4-r2-r2 : 971 -> 346 instructions differees, dont
 # 928 -> 219 inconditionnelles. C'est un SEUIL, pas un invariant : il attrape une reprise de
 # MASSE. Le BAISSER quand une tranche descend -- un plafond qu'on ne descend pas cesse de mordre.
-PLAFOND_DIFFERES = 346
-PLAFOND_INCONDITIONNELS = 219
+# #485-r1-r1 : le sweep des barils a fait tomber les GRATUITS (47 -> 3, les 3 restants etant des
+# imports OPTIONNELS sous `try/except` que hisser denaturerait). Plafonds re-MESURES apres coup.
+PLAFOND_DIFFERES = 211
+PLAFOND_INCONDITIONNELS = 136
 
 
 @pytest.fixture(scope="module")

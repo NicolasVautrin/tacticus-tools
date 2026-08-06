@@ -26,6 +26,7 @@ from __future__ import annotations
 from ..base import BaseEffect
 from ..magnitude import ability_var
 from ....services.effect_bonus import EffectBonus, for_addition
+from ...stats import StatType
 
 _ABILITY = "DoctrinaImperatives"
 
@@ -58,7 +59,6 @@ class ProtectorImperativeEffect(BaseEffect):
         """DATA du `ChangeStat` (part 5/9) pose a l'application : FixedArmor += extraArmor[level] x mult.
         Symetrique de `reverted_stats()`. `stats_ctx` = `StatsComponent.ctx` du porteur (self-cast : porteur ==
         caster == la source du niveau)."""
-        from ...stats import StatType
         lvl, mult = _active_level_mult(stats_ctx)
         amt = ability_var(_ABILITY, "extraArmor", lvl, multiplier_pct=mult)
         if not amt:
@@ -68,7 +68,6 @@ class ProtectorImperativeEffect(BaseEffect):
     def reverted_stats(self) -> "list":
         """`RevertInternal` — annule le ChangeStat FixedArmor (lu par la feuille `RemoveEffect` pour
         `revert_change_stat(..., stat_mod_source)` par-source, au toggle vers Conqueror)."""
-        from ...stats import StatType
         return [StatType.FIXED_ARMOR]
 
     def create_aura_fixed_armor_bonus_for_defense(self, ctx=None) -> "int | None":

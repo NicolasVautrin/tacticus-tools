@@ -56,6 +56,7 @@ from ...entities.triggered_ability_type import TriggeredAbilityType
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ..operations.spawn import _spawn_config_grot
+from .loki import perform_ai_attack_from_current_position
 
 if TYPE_CHECKING:
     from ..state import State
@@ -263,7 +264,6 @@ class SpawnAlphaWarrior(AbilityBehaviour):
         self.tile_id = tile_id
 
     def execute(self, entities, ectx):
-        from .loki import perform_ai_attack_from_current_position
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
         if state is None or caster_id is None or self.tile_id is None:

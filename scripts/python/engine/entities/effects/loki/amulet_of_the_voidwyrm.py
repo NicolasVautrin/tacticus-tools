@@ -135,6 +135,10 @@ from collections.abc import Mapping
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ....dsl.base import Const
+from ...selectors.accessors import Owner
+from ...selectors.units import AdjacentFriends, Union, UnitsWithTrait
+from ...traits.unit_trait import UnitTrait
 
 _ABILITY_ID = "AmuletOfTheVoidwyrm"      # TriggeredAbilityType 0x5b8 = 1464 (la CONFIG de la relique)
 _VAR_KEY = "critDmgReduction"            # AbilityVariableType 0x97 = 151
@@ -160,10 +164,6 @@ def adjacent_friendly_summons_and_decoys_selector():
     le package `entities/effects` (garde anti-cycle, meme convention que les autres modules d'effet).
     """
     from ...formulas import Count
-    from ...selectors.accessors import Owner
-    from ...selectors.units import AdjacentFriends, Union, UnitsWithTrait
-    from ...traits.unit_trait import UnitTrait
-    from ....dsl.base import Const
 
     def _adjacent_friends():
         # `DSLSelectors$$AdjacentFriends(this, unit = Owner@+0x30, unique = 1, selectionType = 3)`

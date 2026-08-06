@@ -104,6 +104,8 @@ from ..entities.active_abilities import entity_active_ability_ids
 # `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` -- foyer UNIQUE (#477-r35), re-exporte
 # plus bas sous son ancien nom `_steppable_occupant` pour les appelants existants.
 from ..entities.tile_extensions import get_steppable_unit
+from .. import battle_query as _bq
+from ..weights import load as _load_weights
 
 # UtilityType des 29 feuilles de Tile(7) (ordre runtime). name = catégorie BC `Default.<name>`.
 # #158 : ids bruts -> membres `UtilityType` nommés (l'ordre est la sequence runtime native).
@@ -1135,7 +1137,6 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     global _SORT_WEIGHTS
     if wt is None:
         if _SORT_WEIGHTS is None:
-            from ..weights import load as _load_weights
             _SORT_WEIGHTS = _load_weights()
         wt = _SORT_WEIGHTS
     definition = (utility_definition if utility_definition is not None
@@ -1671,7 +1672,6 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
             meta["tile_effect_type_ids"] = ids
     friends = lc.get("friend_units")
     if friends:
-        from .. import battle_query as _bq            # lazy : utilities <- battle_query
         import hexgeo as _hex
         elev = lc.get("elev_by_pos")
         neigh = _bq.neigh_map(lc)
@@ -1740,7 +1740,6 @@ def _attract_mechanicals_neighbor(pos, lc: dict) -> bool:
     `|delta| < 2` -- c'est `battle_query.is_adjacent`, pas `hexgeo.distance == 1`.
 
     `ignoreSteppables = false` : les occupants steppables COMPTENT (aucun filtre de trait)."""
-    from .. import battle_query as _bq                # lazy : utilities <- battle_query
     elev = lc.get("elev_by_pos")
     neigh = _bq.neigh_map(lc)
     di = int(ActiveAbilityType.DoctrinaImperatives)                # 0x45e = 1118

@@ -38,6 +38,8 @@ from ..services.min_max_damage import min_max_avg
 from ..weights import Weights
 from .base import BaseUtility, ComposedUtility
 from .utility_type import UtilityType
+from ..services.trait_damage_limits import (is_overkill, _overkill_threshold_pct,
+                                            _allow_overkill)
 
 W_DAMAGE = 80.0       # Fix64(0x50), DamageUtility.cctor
 W_REMAINING = 20.0    # Fix64(0x14), DamageUtility.cctor
@@ -140,8 +142,6 @@ def will_be_overkill(pred) -> bool:
     compte les predictions `WillBeOverkill` (playbook/loki_custom.py)."""
     if not pred:
         return False
-    from ..services.trait_damage_limits import (is_overkill, _overkill_threshold_pct,
-                                            _allow_overkill)
     hp = pred.get("hpBefore") or 0
     if hp <= 0:
         return False
@@ -169,8 +169,6 @@ def might_be_overkill(pred) -> bool:
     (`IsOverkill` sur le degat sante BRUT MAX @0x28, SANS block)."""
     if not pred:
         return False
-    from ..services.trait_damage_limits import (is_overkill, _overkill_threshold_pct,
-                                            _allow_overkill)
     hp = pred.get("hpBefore") or 0
     if hp <= 0:
         return False

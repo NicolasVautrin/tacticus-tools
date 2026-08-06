@@ -13,6 +13,7 @@ from ...operations.displace import SwitchPositionOperation
 from ...operations.displace import _occupied
 from ...operations.movement import MoveUnitOperation
 from ...operations.movement import OverrideMovementTargetOperation
+from ....entities.pathfinding import pathfinders as _pf
 
 # `MoveUnitOptions+0x10` d'une feuille DSL de mouvement A OPTIONS NULLES (#448-r1-r1-r2-r1).
 # LU au decompile d'`IdunBattle.Entities.Behaviours.MoveUnitBehaviour$$Execute` : il empaquette les
@@ -198,7 +199,6 @@ class FlyUnit(AbilityBehaviour):
                 continue
             # `options[+0x08] = Nullable<PathfinderType>(3 = Fly)` -- le SEUL champ que
             # `DSLBehaviors$$FlyUnit` pose, et ce qui separe cette feuille de `MoveUnit`.
-            from ....entities.pathfinding import pathfinders as _pf
             op = MoveUnitOperation(sid, pos,
                                    pathfinder_type_override=int(_pf.PathfinderType.Fly),
                                    arrive_at_final_tile=_DSL_ARRIVE_AT_FINAL_TILE)

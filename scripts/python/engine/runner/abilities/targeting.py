@@ -305,6 +305,7 @@ from ..components import UnitComponent
 from ..components import UnitFlagsComponent
 from ..components import get_unit_feet
 from ..components import has_effect_of_type
+from ..components import unit_has_moved
 
 if TYPE_CHECKING:
     from ..state import State
@@ -3220,7 +3221,6 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     if options is None:
         return 0
     if options.has(TR.CasterHasNotMoved):
-        from ..components import unit_has_moved
         if unit_has_moved(state, int(caster_id)):
             return int(TR.CasterHasNotMoved)
     # CLAUSE TUILE-NULLE (4a) -- placee ici, au rang NATIF : APRES `CasterHasNotMoved`, AVANT

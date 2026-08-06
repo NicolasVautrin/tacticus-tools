@@ -1128,6 +1128,11 @@ def main(argv: list[str]) -> int:
                          "`charger_tout()` deja cablee -- sinon le registre se vide en SILENCE.")
     ap.add_argument("--refus", action="store_true", help="liste INTEGRALE des refus et de la "
                                                          "table")
+    ap.add_argument("--sortie", metavar="tri.json",
+                    help="`gestes` : ECRIT le tri des differes GRATUITS (mesures par "
+                         "`probe_485_imports_differes`) au format attendu par "
+                         "`migrate_270r4r2r2_hisser_differes.py`. Le hissage a son propre "
+                         "foyer -- on ne le re-implemente pas ici.")
     ap.add_argument("--baril", action="append", default=None, metavar="engine.X",
                     help="ne traiter QUE ce(s) baril(s). Repetable. Sert a mesurer si le "
                          "sweep est ADDITIF baril par baril -- il ne l'est pas, et c'est "
@@ -1151,6 +1156,45 @@ def main(argv: list[str]) -> int:
             print("PAS MESURE : baril(s) inconnu(s) : %s" % ", ".join(inconnus))
             return EX_PAS_MESURE
         exclure |= set(barils) - set(a.baril)
+
+    if a.commande == "gestes" and a.sortie:
+        if racine != ICI:
+            print("PAS MESURE : `--sortie` classe par `probe_485_imports_differes`, qui lit")
+            print("SON PROPRE arbre. Joue cette commande depuis l'arbre a hisser.")
+            return EX_PAS_MESURE
+        try:
+            import json
+
+            import probe_485_imports_differes as P485
+        except ImportError:
+            print("PAS MESURE : `probe_485_imports_differes` introuvable.")
+            return EX_PAS_MESURE
+        differes = P485.recenser()
+        classe = P485.classer(differes) if differes else None
+        if classe is None:
+            print("PAS MESURE : la classification porteur/gratuit n'a pas abouti -- on ne")
+            print("hisse RIEN sur une mesure absente (un ensemble vide serait un faux zero).")
+            return EX_PAS_MESURE
+        porteurs, gratuits = classe
+        #: une instruction peut viser PLUSIEURS cibles ; le hissage raisonne par INSTRUCTION,
+        #: donc on regroupe par (module, ligne) et on unit les cibles.
+        par_site: dict[tuple[str, int], set[str]] = defaultdict(set)
+        for mod, cible, ligne, _ in gratuits:
+            par_site[(mod, ligne)].add(cible)
+        sites = [{"module": m, "ligne": l, "cibles": sorted(c)}
+                 for (m, l), c in sorted(par_site.items())]
+        cats = {"%s:%d" % (s["module"], s["ligne"]): {"categorie": "hissable"} for s in sites}
+        Path(a.sortie).write_text(json.dumps({"sites": sites, "categories": cats}, indent=1),
+                                  encoding="utf-8")
+        print("\n  TRI ECRIT : %s -- %d instruction(s) GRATUITE(S) sur %d differe(s) recense(s)"
+              % (a.sortie, len(sites), len(differes)))
+        print("      (%d porteurs restent, et RESTERONT : hisser fermerait leur cycle.)"
+              % len(porteurs))
+        print("      A donner a `migrate_270r4r2r2_hisser_differes.py --tri <f> --ecrire`, qui")
+        print("      porte les gardes du hissage -- dont le filtre ACYCLIQUE avec l'arete vers")
+        print("      le paquet PARENT, sans lequel un lot a casse l'import de 405/409 modules.")
+        print("      ⚠ AVANT d'ecrire : `morsure` dit lesquels desarmeraient un `monkeypatch`.")
+        return EX_VERT
 
     if a.commande == "morsure":
         gratuits = _gratuits_attestes(racine)

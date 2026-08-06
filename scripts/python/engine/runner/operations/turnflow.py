@@ -81,6 +81,8 @@ from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
 from .summon_ai import run_ai_control_pass
 from .triggers.dispatch.turn import end_turn_summon_triggers
 from .triggers.dispatch.turn import unit_finished_turn_triggers
+from .triggers.dispatch.move_death import arrived_at_final_tile_triggers
+from .triggers.dispatch.turn import unit_finished_turn_normally_triggers
 
 
 class MarkUnitAsNoActionAvailableOperation:
@@ -199,7 +201,6 @@ class FinishUnitTurnOperation:
         # thousSorcerer -- c'est PAR ICI que Thaumachus obtient son bouclier quand il ne bouge pas).
         # No-op si personne n'ecoute.
         if newly_arrived and not forced:
-            from .triggers.dispatch.move_death import arrived_at_final_tile_triggers
             out["arrived_triggers"] = arrived_at_final_tile_triggers(
                 state, int(unit_id), gate_already_consumed=True)
         # `Add(TurnFinished=3)` nouvellement pose -> le natif publie `On(0x28 = UnitFinishedTurn)`
@@ -214,7 +215,6 @@ class FinishUnitTurnOperation:
         if newly_finished:
             out["finished_triggers"] = unit_finished_turn_triggers(state, int(unit_id))
         if newly_finished and not forced:
-            from .triggers.dispatch.turn import unit_finished_turn_normally_triggers
             out["finished_normally_triggers"] = unit_finished_turn_normally_triggers(
                 state, int(unit_id))
         # #287-r1 -- DERNIERE instruction du corps natif, INCONDITIONNELLE (aucun gate `forced`,

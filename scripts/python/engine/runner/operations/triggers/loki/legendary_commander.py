@@ -89,6 +89,7 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import EffectTrigger, TriggerEvent
 from ....abilities.behaviours.context import entities_from_state
+from ....components import PersistentDataComponent
 
 
 def _owner_ctx(state: State, owner_id: int, ev: TriggerEvent) -> Optional[dict]:
@@ -180,7 +181,6 @@ class LegendaryCommanderExtraHitsMarkCaster(EffectTrigger):
         if inst is None or what is None:
             return None
         if what == "clear":
-            from ....components import PersistentDataComponent
             src = inst.source if inst.source is not None else int(self.owner_id)
             e = state.get_entity(int(src))
             c = e.get_component(PersistentDataComponent) if e is not None else None

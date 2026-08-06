@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 
 import hexgeo
+from ..entities.pathfinding.board import adjacent_neigh_by_pos
+from ..entities.pathfinding.board import elevations_by_pos
 
 
 # --- Bases DSL par FAMILLE (mirror 1:1 des bases abstraites natives ; une methode d'eval chacune). La
@@ -388,10 +390,8 @@ class DslContext:
         liste stockee (mesure : 4 aretes dirigees sur `C1_74`, 38 sur `C3_14`, 0 restrictive), donc
         le laisser non branche etait la MEME degradation permissive."""
         if self.elev_by_pos is None and self.board is not None:
-            from ..entities.pathfinding.board import elevations_by_pos   # lazy : anti-circulaire
             self.elev_by_pos = elevations_by_pos(self.board)
         if self.neigh_by_pos is None and self.board is not None:
-            from ..entities.pathfinding.board import adjacent_neigh_by_pos   # lazy : anti-circulaire
             self.neigh_by_pos = adjacent_neigh_by_pos(self.board)
 
 

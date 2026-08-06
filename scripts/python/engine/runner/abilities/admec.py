@@ -37,6 +37,8 @@ from .behaviours.stats import Repair
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 from ..components import PositionComponent
 from .targeting import units_are_enemies, valid_normal_attack_targets
+from .attack_query import entity_can_be_repaired, is_affected_by_heal_type
+from .repair import galvanic_field_attack_behavior
 
 if TYPE_CHECKING:
     from ..state import State
@@ -601,7 +603,6 @@ class DefendTheDivineWorkAbility(ActiveAbility):
         suffit a justifier le cast) ; sinon on retombe sur le gate de reparation standard.
 
         N'est consulte que sous le bit `TargetMatchesDynamicRule` (0x2), qui EST pose."""
-        from .attack_query import entity_can_be_repaired, is_affected_by_heal_type
         if target_id is None:
             return 0                # `target == null` : GetUnitPosition/IsEnemy faux -> branche B, 0
         tid, cid = int(target_id), int(caster_id)
@@ -637,7 +638,6 @@ class DefendTheDivineWorkAbility(ActiveAbility):
 
         `target_id` est INDIFFERENT au behaviour (tout est ancre sur `Caster`/`CasterTile`) ; il n'est
         remonte que pour la trace."""
-        from .repair import galvanic_field_attack_behavior
         amount = self._hp_to_repair(state, caster_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, caster_id, target_id)

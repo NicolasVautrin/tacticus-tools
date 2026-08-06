@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import List
 
 from .base import DslContext
+from ..runner.events import EventBus
 
 
 @dataclass
@@ -52,7 +53,6 @@ class ExecutionContext:
         self.state = state
         self.rng = rng
         if bus is None:
-            from ..runner.events import EventBus
             bus = EventBus()
         self.bus = bus
         self.emitted: List = []

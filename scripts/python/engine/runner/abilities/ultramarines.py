@@ -82,6 +82,7 @@ from ...entities.triggers import IsCharging
 from ..operations.spawn import _free_tiles_adjacent
 from ..operations.spawn import _spawn_config_grot
 from .behaviours.stats import ChangeStat
+from .loki import _summon_on_appearance_attack
 
 if TYPE_CHECKING:
     from ..state import State
@@ -333,7 +334,6 @@ class SpawnInceptors(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         import gameconfig as GC
-        from .loki import _summon_on_appearance_attack
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
         tu = resolve_unit(self.target_ref, entities)          # Target@0x178

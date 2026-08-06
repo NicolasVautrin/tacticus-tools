@@ -17,6 +17,8 @@ from engine.services.custom_normal_attack import substitutes_normal_attack
 from engine.runner.abilities.loki.mv71 import pick_tile_scene
 from engine.services.battle_query import get_attack_weapon_for_default_normal_attack
 from engine.services.damage_modifiers import DamageModifiers
+from engine.runner.abilities.loki import mv71 as _mv71
+from engine.services.damage_prediction import DamagePredictionResult
 
 
 # ── #57c-C : overrides `<Boss>_NormalAttackAbility.PredictAttack` (attaque normale + follow-up) ──
@@ -409,7 +411,6 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
     tile_pos = pick_tile_scene(scene, att_id, tgt_id, unit_id, max_summons,
                                parent_pos=attack_pos or scene.pos(att_id))
     if tile_pos is None:
-        from engine.services.damage_prediction import DamagePredictionResult
         ev = ProbableDamageEvent(target=tgt_id, prediction=DamagePredictionResult())
         return (ev, {"mv71": True, "tile": None}) if meta else ev
     # hits (delegue « m860 ») = ExtraHits CURRENT du CASTER + 1 — PAS la formule arme
@@ -503,10 +504,11 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # delegation TOTALE a ALoki.PredictAttack AVEC les modifiers d'origine = on RESTE ici (chemin
     # arme) ; DISTANCE -> chemin drone (config du drone, degat StatAmount(caster), widget mods zeroe).
     if is_adjacent is not True:
-        from engine.runner.abilities.loki.mv71 import is_mv71_normal_attacker
+        # forme MODULE : is_mv71_normal_attacker est SUBSTITUE (probe_419r1tr14r5) -- lie au
+        # chargement, le stub cesserait de mordre en silence (#485-r1-r1).
         # #419-r1-tr14-r5 : la cle de dispatch est `UnitConfiguration.PassiveAbilities` (fait
         # d'ENTITE), pas le kit — cf. `engine.services.custom_normal_attack`.
-        if is_mv71_normal_attacker(
+        if _mv71.is_mv71_normal_attacker(
                 scene.vis_by_id.get(att_id),
                 passive_abilities=getattr(ctx, "passive_abilities", None),
                 active_abilities=getattr(ctx, "active_abilities", None),
@@ -537,7 +539,6 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _w, _ = get_attack_weapon_for_default_normal_attack(
         ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits, dist=_dist)
     if _w is None:
-        from engine.services.damage_prediction import DamagePredictionResult
         ev = ProbableDamageEvent(target=tgt_id, prediction=DamagePredictionResult(applied_hits=1))
         return (ev, {"no_weapon": True, "dist": _dist, "is_adjacent": is_adjacent}) if meta else ev
     pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)

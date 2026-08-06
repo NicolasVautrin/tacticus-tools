@@ -153,6 +153,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ..base import BaseEffect
+from ....dsl.base import _round_fix64
+from ...stats import StatPart, StatType
+from ...stats import StatType
 
 REINFORCED_HIVE_NODE = "ReinforcedHiveNode"
 
@@ -180,7 +183,6 @@ class ReinforcedHiveNodeExtraArmorEffect(BaseEffect):
         return ((int(unit_state.get("turns_started") or 0) + 1) & 1) == 1
 
     def get_stat_modification_stat(self) -> "int | None":
-        from ...stats import StatType
         return int(StatType.FIXED_ARMOR)          # statType 0x10 de la feuille native
 
     def applied_stat_mods(self, stats_ctx) -> "list":
@@ -200,8 +202,6 @@ class ReinforcedHiveNodeExtraArmorEffect(BaseEffect):
         devinee (degradation fidele, cf. `effect_stat_modifications`)."""
         from fractions import Fraction
 
-        from ....dsl.base import _round_fix64
-        from ...stats import StatPart, StatType
         from ..magnitude import ability_var
         if stats_ctx is None:
             return []
@@ -217,7 +217,6 @@ class ReinforcedHiveNodeExtraArmorEffect(BaseEffect):
 
     def reverted_stats(self) -> "list":
         """`AStatModifierEffect$$RevertModification` -- meme stat que l'apply (part 6)."""
-        from ...stats import StatType
         return [StatType.FIXED_ARMOR]
 
 
@@ -269,7 +268,6 @@ class ReinforcedHiveNodeExtraBlockEffect(BaseEffect):
 
         Constante illisible -> `[]` (rien n'est devine ; l'effet est alors INERTE, jamais approche
         par une valeur inventee)."""
-        from ...stats import StatType
         from ..magnitude import ability_var
         val = ability_var(REINFORCED_HIVE_NODE, "blockChance", is_constant=True)
         if val is None:

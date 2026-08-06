@@ -61,6 +61,8 @@ from ..components import PositionComponent
 from ..components import StatsComponent
 from ..damage_model import attacker_modifiers, select_weapon_pierce
 from .base import convert_rounds_to_turns
+from ...ai.action_generators import _faction
+from .loki import _pick_randomly_n
 
 if TYPE_CHECKING:
     from ..state import State
@@ -712,7 +714,6 @@ def _supercharge_behind(state: "State", caster_id: int, target_id: int) -> list:
     `SurroundingTiles(target,1,1)`, portee par le noeud) et NON id-trie -- `PickRandomAmountSelector$$Select`
     ne trie jamais son `candidates` ; l'`OrderBy` natif est celui d'`AttackBehaviour$$Execute`, APRES la
     resolution du selecteur, et il vit deja dans la feuille (`multi=True`)."""
-    from .loki import _pick_randomly_n
     ents = entities_from_state(state, caster_id, target_id)
     cands = [u for u in UnitsDirectlyBehind().evaluate(ents) if u.get("id") is not None]
     return _pick_randomly_n(state, cands, 2)
@@ -955,7 +956,6 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
     `sort_attackers_by_damage_prediction_key`. Le residu restant est donc le seul `block_raw_min`.)
 
     Rend la liste ORDONNEE (le `First(...,1)` est applique par l'appelant)."""
-    from ...ai.action_generators import _faction
     import gameconfig as GC
     ce = state.get_entity(caster_id)
     te = state.get_entity(target_id)

@@ -19,6 +19,7 @@ from ...components import StatsComponent
 from ...operations.damage import AttackDamageOperation
 from ...operations.remove_unit import RemoveUnitOperation
 from ...operations.remove_unit_from_tiles import RemoveUnitFromTilesOperation
+from ....dsl.event_trigger_type import EventTriggerType
 
 
 class KillDeadUnits(AbilityBehaviour):
@@ -458,7 +459,6 @@ class TriggerAbilityDelayed(AbilityBehaviour):
         if queued:
             from ...operations.triggers.dispatch.pending import add_pending_triggered_ability
             from ...operations.triggers.base import TriggerEvent
-            from ....dsl.event_trigger_type import EventTriggerType
             # L'`AbilityEntities` que le natif recopie dans la file est REJOUE tel quel au drain
             # (`TriggerTriggeredAbilityOperation$$Execute` n'y rafraichit que les tuiles, le joueur
             # courant et `+0x18 = entity`). Cote port on memorise le couple (actor, target) du

@@ -71,6 +71,7 @@ from ....entities.selectors.units import Enemies, Sub
 from ....dsl.effects import ExecutionContext
 from ..targeting import unit_of_entity                             # #484 : hisse, cf. ci-dessous
 from ...components import get_feet_count                           # #484 : hisse, cf. ci-dessous
+from ....dsl.base import Const
 
 if TYPE_CHECKING:
     from ...state import State
@@ -291,7 +292,6 @@ class TheQuickeningAbility(ActiveAbility):
         `target_id` est un id de TUILE (cast tile-target) : `Contains` se lit donc directement sur
         l'ensemble d'ids que rend le noeud. Tuile hors board / `range` illisible -> `0` (convention
         permissive du module ; le natif, lui, n'atteint cette regle que sur une tuile enumeree)."""
-        from ....dsl.base import Const
         # #484 : les quatre differes qui vivaient ici etaient GRATUITS au sens de
         # `probe_270r4r2r2` -- leur MODULE cible est deja importe au niveau de CE fichier, donc
         # ni cycle possible ni cout evite. Ils sont HISSES (en tete), pas supprimes : « la cible

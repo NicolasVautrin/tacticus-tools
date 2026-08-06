@@ -30,6 +30,7 @@ from .damage_modifiers import (
 from .trait_damage_limits import (apply_trait_damage_limits_to_damage,  # noqa: F401 (re-export #178)
                                   compute_prediction_overkill,
                                   is_overkill, unit_is_overkill)
+from .damage_combat import could_crit
 
 # StatType ids : utiliser l'enum `entities.stats.StatType` (complet #157). Les constantes STAT_* hex
 # eparses (mortes) ont ete retirees.
@@ -535,7 +536,6 @@ def attacker_could_crit(attacker_ctx) -> bool:
     flag pré-calculé. `None` (harnais/probes sans ctx) -> False, comme avant #R34."""
     if attacker_ctx is None:
         return False
-    from .damage_combat import could_crit
     return bool(could_crit(int(getattr(attacker_ctx, "crit_chance", 0) or 0),
                            int(getattr(attacker_ctx, "crit_damage", 0) or 0)))
 

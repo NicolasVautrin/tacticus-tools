@@ -114,6 +114,7 @@ from __future__ import annotations
 from ..base import BaseEffect
 from ..magnitude import ability_var
 from ....entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
+from ...stats import StatType
 
 CURSED_PLAGUE_BELL = "CursedPlagueBell"
 CONST_EXTRA_MOVEMENT = AbilityConstantType.extraMovement          # AbilityConstantType.extraMovement (GetNumberConstant(cfg, 0xe))
@@ -131,7 +132,6 @@ class CursedPlagueBellExtraMoveEffect(BaseEffect):
     avec `Stat(Movement, ResetModification)` et la MEME `Entity(effect)` en source."""
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        from ...stats import StatType
         # `Direct(AbilityConfiguration.GetNumberConstant(cfg, 0xe))` = constante gameconfig
         # `extraMovement` de l'ability `CursedPlagueBell` (= 1). CONSTANTE : hors
         # `variablesAffectedByRarityBonus`, donc ni niveau ni multiplier de rarete.
@@ -139,5 +139,4 @@ class CursedPlagueBellExtraMoveEffect(BaseEffect):
         return [(int(StatType.MOVEMENT), int(amt))] if amt else []
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.MOVEMENT]                      # Stat(1 = Movement, 6 = ResetModification)

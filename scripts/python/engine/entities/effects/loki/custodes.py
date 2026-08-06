@@ -44,6 +44,7 @@ from __future__ import annotations
 from ..base import BaseEffect
 from ..magnitude import ability_var
 from .votann import _source_level_mult
+from ...stats import StatType
 
 _MOMENT_SHACKLE = "MomentShackle"       # ActiveAbilityType 0x4a0 = 1184 (custoTrajann / Trajann)
 
@@ -67,7 +68,6 @@ class MomentShackleExtraBlockChanceEffect(BaseEffect):
     stat_mod_source = None   # cle de source ChangeStat (revert par-source via la feuille RemoveEffect)
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        from ...stats import StatType
         lvl, mult = _source_level_mult(self, stats_ctx)
         amt = ability_var(_MOMENT_SHACKLE, "blockChance", lvl, multiplier_pct=mult)
         if not amt:
@@ -75,7 +75,6 @@ class MomentShackleExtraBlockChanceEffect(BaseEffect):
         return [(int(StatType.BLOCK_CHANCE), int(amt))]      # isNegative = 0 -> +amount
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.BLOCK_CHANCE]
 
 
@@ -92,7 +91,6 @@ class MomentShackleExtraBlockDamageEffect(BaseEffect):
     stat_mod_source = None
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        from ...stats import StatType
         lvl, mult = _source_level_mult(self, stats_ctx)
         amt = ability_var(_MOMENT_SHACKLE, "blockDmg", lvl, multiplier_pct=mult)
         if not amt:
@@ -100,5 +98,4 @@ class MomentShackleExtraBlockDamageEffect(BaseEffect):
         return [(int(StatType.BLOCK_DAMAGE), int(amt))]
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.BLOCK_DAMAGE]

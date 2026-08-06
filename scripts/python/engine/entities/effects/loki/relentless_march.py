@@ -53,6 +53,7 @@ de vie est portee par le `turns = 1` du vecteur `AddEffect`.
 from __future__ import annotations
 
 from ..base import BaseEffect
+from ...stats import StatType
 
 # `DSLFormulas$$Direct(1)` -- LITTERAL du decompile, pas une constante gameconfig (cf. l'en-tete).
 RELENTLESS_MARCH_EXTRA_MOVEMENT = 1
@@ -68,9 +69,7 @@ class RelentlessMarchExtraMoveEffect(BaseEffect):
     (== `$$RevertStatModifier`), qui rejoue le MEME appel avec `Stat(Movement, ResetModification)`."""
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        from ...stats import StatType
         return [(int(StatType.MOVEMENT), RELENTLESS_MARCH_EXTRA_MOVEMENT)]
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.MOVEMENT]              # Stat(1 = Movement, 6 = ResetModification)
