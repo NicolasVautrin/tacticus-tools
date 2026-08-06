@@ -219,7 +219,14 @@ def _regex(glob: str) -> re.Pattern:
 def couvre(globs, rel: str) -> str | None:
     """Le PREMIER glob qui couvre `rel`, ou None. Rendre le glob (pas un booleen) : quand le
     garde rougit, il doit pouvoir dire par quoi une lecture etait censee etre couverte."""
-    q = str(rel).replace("\\", "/").lstrip("./")
+    # ⚠ JAMAIS `lstrip("./")` : `str.lstrip` prend un ENSEMBLE DE CARACTERES, donc il mange le
+    # point de `.gitignore` et rend `gitignore` -- qu'aucun glob ne couvre plus. Mesure : la
+    # premiere confrontation des onze a rendu UN rouge, `probe_319 LU hors perimetre :
+    # .gitignore`, alors que `.gitignore` etait bel et bien DECLARE. Faute du normalisateur,
+    # pas du critere -- et elle penchait du cote BRUYANT (faux rouge), donc elle s'est vue.
+    q = str(rel).replace("\\", "/")
+    while q.startswith("./"):
+        q = q[2:]
     for g in globs:
         if _regex(g).match(q):
             return g

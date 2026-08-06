@@ -60,6 +60,12 @@ import probe_486r12_declencheurs as G         # noqa: E402
     # `?` = un caractere, hors separateur.
     ("data/i2_??.json", "data/i2_en.json", True),
     ("data/i2_??.json", "data/i2_e/n.json", False),
+    # UN FICHIER DONT LE NOM COMMENCE PAR UN POINT. `lstrip("./")` prend un ENSEMBLE de
+    # caracteres : il rendait `gitignore`, que plus aucun glob ne couvrait. Trouve par la
+    # premiere confrontation reelle des onze (faux rouge sur `probe_319`).
+    (".gitignore", ".gitignore", True),
+    ("**/.gitignore", "frida/.gitignore", True),
+    ("./scripts/x.py", "scripts/x.py", False),        # un glob ne s'ecrit pas `./`
 ])
 def test_le_glob_a_la_semantique_git_pathspec(glob, rel, attendu):
     assert (DC.couvre([glob], rel) is not None) is attendu
