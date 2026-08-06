@@ -1415,7 +1415,8 @@ class DamageHandler:
                     # GetAttackDamageBehaviour`), et son call-site pose `isOutsideAttack = false`.
                     # Il lit donc l'`OngoingAttack` que les coups d'arme viennent de muter, pas une
                     # neuve. `fold_inherits_attack_state()` est le point de MUTATION de la
-                    # contre-epreuve (`probe_419r3_fold_attack_state.py --mutate isolate`).
+                    # contre-epreuve : `probe_419r3_fold_attack_state.py` SUBSTITUE cet attribut
+                    # de module et joue les deux regimes en une passe (aucun drapeau a passer).
                     attack_state0=(self.last.get("attack_state")
                                    if fold_inherits_attack_state() else None))
                 if _adds.get("primary_fold"):

@@ -384,7 +384,9 @@ def fold_inherits_attack_state() -> bool:
     """#419-r3 -- le FOLD primaire herite-t-il de l'`OngoingAttack` de l'attaque primaire ?
 
     Fonction de MODULE, et pas une expression inline, pour une seule raison : c'est le point de
-    MUTATION des probes/cliquets (`probe_419r3_fold_attack_state.py --mutate isolate`). La rendre
+    MUTATION des probes/cliquets : `probe_419r3_fold_attack_state.py` SUBSTITUE cet attribut de
+    module (`AT.fold_inherits_attack_state = lambda: False`) et joue les DEUX regimes en une seule
+    passe -- il n'y a pas de drapeau de ligne de commande a passer. La rendre
     fausse restaure exactement le port d'AVANT #419-r3 (fold sur une attaque NEUVE) -- une
     contre-epreuve qui DOIT diverger du live. Meme pattern que `crit_gate_open` pour #366-r1 et
     qu'`apply_all_modifiers` pour #131.
