@@ -21,12 +21,17 @@ mesurerait qu'un seul porteur ne pourrait pas distinguer « le port lit le litte
 ecrit une constante » : l'etape [3] ASSERTIONNE donc que les deux valeurs natives DIFFERENT
 (anti-regime-degenere), et rougit si le montage rend deux fois la meme chose.
 
-Ce que le probe ne peut PAS montrer : un porteur a `useSpecial != 0`. Sur les 6 xrefs de la
-surcharge a 3 arguments, **6/6** passent le litteral `0` -- la clé `0x94` est donc ABSENTE du flux
-de tout porteur a litteral constant, et le seul appelant qui la POSE
+Ce que CE probe ne montre pas : un porteur a `useSpecial != 0`. Sur les 6 xrefs de la surcharge a
+3 arguments, **5** passent le litteral `0` et la sixieme
 (`OptimizedGait_TriggerAttackAbility$$CreateBehaviour`, `useSpecial = HasEffect(target, 0x4e2)`)
-est dynamique. L'absence de `0x94` est donc VERIFIEE ici comme une PREDICTION du port, pas
-contournee : etape [2c].
+est DYNAMIQUE et non portee -- la cle `0x94` est donc ABSENTE du flux des deux porteurs mesures
+ici, et cette absence est VERIFIEE comme une PREDICTION du port, pas contournee : etape [2c].
+
+⚠ « Le probe ne peut PAS montrer » ne veut PAS dire « le natif ne la pose jamais » : sur l'AUTRE
+voie (`ALoki_NormalAttackAbility$$ExecuteInformWeapon`, 9 appelants), **DEUX** sites la posent au
+litteral `1`, et `FeederTendrils` en charge a ete CONFRONTE -- le flux ecrit alors
+`Tag=Attack_Weapon_Use_Special:1`. Detail et port : `probe_419r1tr14r4r2r1_normal_attack_
+inform_weapon.py`, `case-419-r1-tr14-r4-r2-inform-weapon-tags.md` §6.
 
 ASCII only (cp1252). Usage: python probe_419r1tr14r4r2_inform_weapon_tags.py [--seed N]
 """

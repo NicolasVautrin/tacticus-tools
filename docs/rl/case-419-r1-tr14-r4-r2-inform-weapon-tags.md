@@ -1,11 +1,16 @@
-# #419-r1-tr14-r4-r2 — `InformWeapon` : deux clés portées, et une docstring fausse sur QUATRE points
+# #419-r1-tr14-r4-r2 — `InformWeapon` : les trois clés portées, sur les DEUX voies
 
-**Résolu.** Build `rnca9r7q6c`, ghidra-mcp sur le binaire installé, session Frida 1.
+**Résolu**, résidu `-r1` inclus. Build `rnca9r7q6c`, ghidra-mcp sur le binaire installé, session
+Frida 1.
 
 ```powershell
 python scripts/python/probe_419r1tr14r4r2_inform_weapon_tags.py                  # cast live x2
 python scripts/python/probe_419r1tr14r4r2_inform_weapon_tags.py --contre-epreuve # 5 mutations, 0 runner
 python -m pytest scripts/python/tests/engine/runner/test_419r1tr14r4r2_inform_weapon_tags_offline.py -q
+# la voie ATTAQUE NORMALE (#419-r1-tr14-r4-r2-r1)
+python scripts/python/probe_419r1tr14r4r2r1_normal_attack_inform_weapon.py                  # 4 porteurs live
+python scripts/python/probe_419r1tr14r4r2r1_normal_attack_inform_weapon.py --contre-epreuve # 7 mutations, 0 runner
+python -m pytest scripts/python/tests/engine/runner/test_419r1tr14r4r2r1_normal_attack_inform_weapon_offline.py -q
 ```
 
 ## 1. Le décompilé
@@ -51,6 +56,13 @@ a rendu la confrontation live possible. Lecture indépendante concordante :
 tr5) — `combat.py` (le foyer, les 4 erreurs), `loki/heavy_bolt_pistol.py`, `admec.py`,
 `deathguard.py`, `case-419-r1-tr14-r4-face-combat-heavy-bolt-pistol.md`, `backlog.md`. Tous corrigés.
 
+## 2bis. Les DEUX voies, et pourquoi la seconde est la plus fréquente
+
+La surcharge à **trois** arguments a **6** xrefs nommées ; celle à **deux** en a **une seule** —
+`ALoki_NormalAttackAbility$$ExecuteInformWeapon`, qui est elle-même appelée par **9**
+`<X>_NormalAttackAbility`. La voie ATTAQUE NORMALE est donc la plus fréquente, et c'est la seule
+où `isMelee` n'est **pas** un littéral (§5).
+
 ## 3. `isMelee` est un LITTÉRAL D'APPELANT, et il DIFFÈRE — c'est ce qui rend le port vérifiable
 
 Les **6** xrefs de la surcharge à 3 arguments, lues une par une :
@@ -94,20 +106,87 @@ porte l'ordinal de l'enum et non un weaponId.
 assertionnée **dans les deux sens** (test 5), donc sa disparition rougira au lieu de passer.
 Même forme que l'inertie `Chain`/`Bolter` (ratio 20) du parent.
 
-## 6. Ce qui n'est PAS couvert
+## 5. La voie ATTAQUE NORMALE (`-r1`) — dérivée, pas littérale
 
-* **`useSpecial != 0` n'est confronté nulle part.** Lus : **8 littéraux `0` sur 8** (5 des 6 xrefs
-  à 3 arguments + 3 des 9 xrefs de `ALoki_NormalAttackAbility$$ExecuteInformWeapon`), **1**
-  dynamique, **6** non lus. Le seul chemin pouvant poser `0x94` est `OptimizedGait_Trigger
-  AttackAbility$$CreateBehaviour` — **non porté**. Le port pose la clé si `use_special`, et c'est
-  gardé structurellement (test 2), mais jamais observé à `1` dans le flux.
-* **Les trois porteurs non portés** (`StranglethornCannon`, `IncendiaryShells`, `OptimizedGait`)
-  ne sont pas dans `engine/` : rien à corriger, rien à confronter.
-* **Résidu `#419-r1-tr14-r4-r2-r1` — le chemin ATTAQUE NORMALE ne pose pas ces tags côté port.**
-  `ALoki_NormalAttackAbility$$ExecuteInformWeapon` est le porteur le plus fréquent (9 appelants),
-  et son `isMelee` est **dérivé de l'arme** (`WeaponProfile$$get_IsMelee`), pas d'un littéral.
-  Notre attaque normale n'émet aucun `InformWeapon`. `probe_477r15a` reste VERT (204/204,
-  316/316), donc rien ne diverge sur son périmètre — mais ce n'est pas une preuve que le tag est
-  produit : il peut être hors du périmètre confronté. Débloqueur : vérifier si
-  `Attack_Weapon_IsMelee` figure parmi les tags qu'une attaque normale PORTÉE doit émettre, et
-  lire les 6 xrefs restantes pour clore le chiffre de `useSpecial`.
+`ALoki_NormalAttackAbility$$ExecuteBehaviour` :
+
+```
+weapon = FindAttackWeapon(entities);                     // slot 0xaf d'IBattleQuery
+if (weapon == null) return default;                      // NI Inform, NI attaque, NI triggers
+ExecuteInformWeapon(this, weapon, entities, /*useSpecial*/ 0);
+ExecuteNormalAttack(this, abilityState, entities, weapon);
+return ExecuteTriggerAbilities(this, entities, weapon);
+```
+
+Le flux natif porte donc ces tags sur **chaque** attaque normale — mesuré, forme exacte :
+
+```
+Group=Ability_Power Entity=83 Source=Loki_NormalAttack InitialTarget=77
+    Action=Info Entity=NO_ENTITY
+        Tag=Attack_Weapon_IsMelee:1
+        Tag=Attack_Weapon_DamageProfile:14
+    Group=NormalAttack_AtomicDamage ...
+```
+
+⚠ **Le vert de `probe_477r15a` était HONNÊTE MAIS MUET, et c'est un TROU DE PÉRIMÈTRE de
+l'oracle.** Il ne compare que le groupe racine `System_GameSetup` (le déploiement) ; ces lignes
+vivent sous un groupe racine `User_UseAbility`, jamais visité. Son 204/204 + 316/316 ne disait
+donc **rien** de ce morceau — et il reste vert après le port, à l'identique.
+
+**Ce qui est porté** : `InformWeapon.from_weapon(weapon, useSpecial)` (surcharge à 2 arguments —
+`damageProfileType = weapon.DamageProfile`, `isMelee = battle_query.weapon_is_melee`, le prédicat
+`Range is None || Range < 2` déjà en place) ; `streams/inform_ops.py` (foyer **unique** des trois
+clés + mirror d'`InformOperation$$Execute` → `Action=Info Entity=NO_ENTITY`) ; et l'appel dans
+`damage_ops/normal.py`, au point exact du natif (juste après le gate d'arme).
+
+**Confrontation live** (MC1_67, seed 41902), 4 porteurs, port == natif **8/8** clés
+inconditionnelles + **4/4** conditionnelle, et le **texte** du flux reproduit ligne à ligne 4/4 :
+
+| porteur | régime | flux natif | port |
+|---|---|---|---|
+| `deathBlightlord` | contact | `{IsMelee: 1, Profile: 14}` | idem |
+| `astraBullgryn` | contact | `{IsMelee: 1, Profile: 0}` | idem |
+| `admecDestroyer` | distance 3 | `{IsMelee: 0, Profile: 0}` | idem |
+| `tyranDeathleaper` | **charge** | `{IsMelee: 1, Profile: 22, Use_Special: 1}` | idem |
+
+Trois pièges sont fermés par ce corpus, chacun par un porteur qu'aucun autre ne remplace : les
+`IsMelee` **diffèrent** (constante impossible) ; `astraBullgryn` et `admecDestroyer` partagent le
+profil `0` avec des `IsMelee` **opposés** (dériver `isMelee` du profil impossible) ; et
+`admecDestroyer` porte **deux** armes, donc son `isMelee` dépend de la **distance**, pas de l'unité.
+
+## 6. `useSpecial` : le chiffre est CLOS, et deux sites posent `1`
+
+Les **15** sites qui fixent l'argument sont lus — **12** littéraux `0`, **2** littéraux `1`,
+**1** dynamique :
+
+| voie | site | `useSpecial` |
+|---|---|---|
+| 3 args | `HeavyBoltPistol` / `FlailSwing` / `SentinelDirectives` / `StranglethornCannon` / `IncendiaryShells` | `0` (×5) |
+| 3 args | `OptimizedGait_TriggerAttackAbility$$CreateBehaviour` | `HasEffect(target, 0x4e2)` |
+| `ExecuteInformWeapon` | `ALoki` / `ProperKilly` / `RighteousRepugnance` / `TalonOfHorus` / `Boltstorm`×2 / `Fealty` | `0` (×7) |
+| `ExecuteInformWeapon` | **`FeederTendrils_NormalAttackAbility$$ExecuteBehaviour`** | **`1`** sous `IsCharging(caster,target) & weapon.IsMelee` |
+| `ExecuteInformWeapon` | **`OptimizedGait_NormalAttackAbility$$ExecuteBehaviour`** | **`1`** sous `HasEffect(<?>, 0x4e2)` |
+
+⚠ **Le second terme du `&` de `FeederTendrils` est `WeaponProfile$$get_IsMelee(weapon)`, pas un
+second prédicat de charge.** Le lire comme un `IsCharging` seul poserait la clé sur un *tir* de
+charge, que le natif ne pose pas.
+
+**Confronté** : `tyranDeathleaper` déplacé au contact (donc `UpdateCharging`) écrit bel et bien
+`Tag=Attack_Weapon_Use_Special:1` dans le flux. C'est la **première** observation de cette clé.
+Le port la reproduit via le foyer unique `custom_normal_attack.inform_weapon_use_special`.
+
+## 7. Ce qui n'est PAS couvert
+
+* **Résidu `#419-r1-tr14-r4-r2-r1-r1` — la branche SPÉCIALE de `FeederTendrils` n'est portée que
+  pour son TAG.** La même branche exécute aussi `Heal(ConfigVar 0x20)` et `AddEffect(0x429)`, que
+  le port ne joue pas. Ne pas lire « `FeederTendrils` est porté » : seul son `useSpecial` l'est.
+* **Résidu `#419-r1-tr14-r4-r2-r1-r2` — `OptimizedGait_NormalAttack` : l'ANCRE du gate n'est pas
+  tranchée.** `EntityExtensions$$HasEffect(<entité du champ `+8` des `AbilityEntities`>, state,
+  0x4e2, null)` : caster ou cible ? L'inscrire au jugé écrirait un `Use_Special` faux sur un
+  porteur réel (`admecRuststalker`, dans le pool). Débloqueur : lire le layout d'`AbilityEntities`,
+  ou monter les deux régimes (effet `0x4e2` sur le caster / sur la cible) et mesurer.
+* **Les trois porteurs non portés** de la surcharge à 3 arguments (`StranglethornCannon`,
+  `IncendiaryShells`, `OptimizedGait_TriggerAttack`) ne sont pas dans `engine/` : rien à corriger.
+* **Le reste du groupe `Ability_Power` de l'attaque normale** (`NormalAttack_AtomicDamage`,
+  `Group=Damage`, `UnitDamaged`) n'est pas émis par `engine.streams` — hors périmètre de cette
+  tranche, qui ne porte que le pas `Action=Info`.
