@@ -317,8 +317,11 @@ Aucun compteur n'est rouvert par cette tranche — vérifié, pas supposé.
   `--place` détourné par le trait `Summon`, plus aucune tuile d'action, bras apparié rompu). Ce que
   la face COMBAT ajoute ne change rien à ces bornes. Le npc partage avec lui `visualId`, arme,
   `Movement`, passifs, actifs et attaque normale.
-* **Le régime KILL / OVERKILL** : `Health = 10000`, personne ne meurt. `force_overkill`,
-  `force_crit` et l'octet `+0` (r1) restent donc non discriminés.
+* **Le régime KILL / OVERKILL** : `Health = 10000`, personne ne meurt — `force_overkill` et
+  `force_crit` (octets `+4` et `+5`) restent donc non discriminés **sur la face COMBAT**.
+  ⚠ L'octet `+0`, lui, **n'a plus besoin de ce régime** : il s'est résolu au décompilé (§8), et le
+  débloqueur qu'on lui prêtait était une fausse piste. Le régime kill/overkill a bien été monté,
+  mais sur la face DÉCISION (`#419-r1-tr14-r3`) et pour une autre question — le spread ±20 %.
 * **`ExtraPierceMelee` vs `ExtraPierceRanged`** : le coup est déclaré MÊLÉE (lecture 2), mais aucun
   des deux hôtes ne porte l'un ou l'autre — le mutant qui inverserait `is_melee` serait inerte sur
   ce montage. Débloqueur : un hôte porteur d'un `ExtraPierceMelee ≠ ExtraPierceRanged`.
