@@ -38,7 +38,14 @@ from engine.runner.components import StatsComponent
 CASTER_VIS = "tyranNeurothrope"          # Psyker + RangedSpecialist, arme ranged R3 Psychic pierce100
 # cluster melee : ennemis qui spawnent groupes (adjacents entre eux en evenq), tanky => survivent au coup.
 ENEMIES = "darkaCompanion,tyranWingedPrime,ultraInceptorSgt,spaceBlackmane,necroSpyder"
-BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", ENEMIES]
+# Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : l'axe est la NATURE DU COUP (melee/ranged)
+# threadee jusqu'aux gates `IsMeleeAttack`/`IsRangedAttack`, et le discriminant est le montant du
+# splash avec/sans les +33 % de `RangedSpecialist`. Un crit multiplie ce montant APRES le gate :
+# il ne l'exerce pas, il brouille le discriminant -- et le fichier ne sait qu'en skipper. Depuis
+# que le defaut equipe, il tombait a 0 passed / 2 skipped (inerte, garde #455). Les QUATRE faces.
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", ENEMIES, *_NO_NOISE]
 
 
 def _ok(r):

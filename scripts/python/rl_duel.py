@@ -519,6 +519,25 @@ def _verify_unit_modifiers(sid: int, rid: int,
     return problems
 
 
+def _equip_items_choisi(a):
+    """Tri-etat de l'equipement d'items (#419-r6) : `True` / `False` / `None` = le defaut.
+
+    Depuis #419-r6 le defaut est « EQUIPER » (`_EQUIP_ITEMS_PAR_DEFAUT`), donc le drapeau
+    UTILE est le NEGATIF : `--no-bis-items` restitue le regime d'avant #419-r5, ou
+    `CritChance`/`CritDamage`/`BlockChance`/`BlockDamage` valent 0 sur toute unite et ou le
+    crit est structurellement impossible. `--bis-items` reste accepte (il demandait deja ce
+    qui est desormais le defaut) : c'est un no-op explicite, pas une erreur.
+
+    Rendre `None` quand aucun des deux n'est pose est ce qui laisse `TACTICUS_BIS_ITEMS`
+    trancher -- un `False` en dur ici ecraserait la bascule d'environnement en silence.
+    """
+    if getattr(a, "no_bis_items", False):
+        return False
+    if getattr(a, "bis_items", False):
+        return True
+    return None
+
+
 def cmd_build(sid: int, a) -> int:
     # Board swap (--board id fixe / --board-pool aleatoire) — mirror rl_collect_batch.
     if getattr(a, "board", None) and getattr(a, "board_pool", None):
@@ -598,7 +617,7 @@ def cmd_build(sid: int, a) -> int:
     template_bc, pool, pool_mow = _normalize_and_extract_pool(
         sid, seed_bc, a.rank, board_dump=fixed_board_dump,
         explicit_stats=explicit_patch or None,
-        equip_items=True if getattr(a, "bis_items", False) else None)
+        equip_items=_equip_items_choisi(a))
     for uid, ability, lvl in relic_specs:
         try:
             rep = catalog_inject.equip_relic(
@@ -2588,18 +2607,22 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--rank", type=int, default=17)
     ap.add_argument("--bis-items", action="store_true",
                     help="build: EQUIPE chaque unite de ses items Best-In-Slot "
-                         "avant la formule de stats (#419-r5). C'est ce qui OUVRE "
-                         "le canal crit/block : les 4 stats CritChance/CritDamage/"
-                         "BlockChance/BlockDamage ne vivent QUE dans les items "
-                         "(cf. `itemSlots` du gameconfig), donc sans eux "
+                         "avant la formule de stats (#419-r5). C'est DESORMAIS LE "
+                         "DEFAUT (#419-r6) -- le drapeau reste accepte comme no-op "
+                         "explicite. Les 4 stats CritChance/CritDamage/BlockChance/"
+                         "BlockDamage ne vivent QUE dans les items (cf. `itemSlots` du "
+                         "gameconfig) : sans eux "
                          "`IdunBattle.Core.Services.DamageCalculations$$CouldCrit` "
                          "(GetStat(9) > 0 && GetStat(10) > 0) est FAUX pour toute "
-                         "unite -- cote natif COMME cote port, et tout accord "
-                         "natif-port sur le crit ou le block est alors un accord en "
-                         "REGIME DEGENERE. C'est la voie NATIVE (equiper), a "
-                         "preferer a `--crit`/`--block-*`, qui reecrivent le "
-                         "scalaire APRES la normalisation. Mesure au rank 17 : "
+                         "unite -- cote natif COMME cote port. Mesure au rank 17 : "
                          "could_crit 0/106 -> 98/106, could_block 0/106 -> 46/106.")
+    ap.add_argument("--no-bis-items", action="store_true",
+                    help="build: N'EQUIPE PAS -- restitue le regime d'AVANT #419-r5, ou "
+                         "le crit et le block sont structurellement impossibles sur "
+                         "TOUTE unite. C'est le TEMOIN de la bascule #419-r6, pas un "
+                         "mode de travail : un heros rank 17 / level 50 / 5 etoiles sans "
+                         "aucun item n'existe pas dans le jeu. Equivalent global sans "
+                         "toucher a la ligne de commande : TACTICUS_BIS_ITEMS=0.")
     ap.add_argument("--record-replay", action="store_true",
                     help="build: ARME l'enregistreur de replay NATIF sur le runner "
                          "(#477-r1). Sans lui, `IdunBattle.Runner.IdunRunner$$Initialize` "

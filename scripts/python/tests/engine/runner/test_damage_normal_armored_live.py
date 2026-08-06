@@ -25,10 +25,21 @@ from _combat_replay import replay_normal_attack, replay_attack_driven   # noqa: 
 ATTACKER = "necroDestroyer"
 TARGET = "necroOverlord"
 
+# Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : ce fichier mesure l'ORDRE
+# reduce-then-roll, et c'est le PER-COUP qui le discrimine (`[514,582,514,578,642,603]` contre
+# `[520,519,532,441,493,589]`). Un crit multiplie le coup APRES ce point : il ne testerait pas
+# l'ordre, il masquerait le discriminant -- et le fichier ne sait rien en faire, il SKIPPE
+# (`did_crit` -> skip). Sur une salve de 6 coups avec `CritChance = 41` cote cible et un
+# attaquant equipe, un coup propre devenait improbable : 3 passed -> 3 skipped, soit le fichier
+# INERTE que le garde #455 refuse. On neutralise donc sur les QUATRE faces plutot que de viser le
+# regime crit, qui a son fichier dedie (`test_damage_crit_live.py`).
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+
 
 def test_normal_attack_armored_reduce_then_roll(live_session, rpc, build_runner):
     """Attaque normale multi-coups sur cible armurée → per-coup bit-exact (reduce-then-roll)."""
-    r = replay_normal_attack(rpc, build_runner, ATTACKER, target=TARGET)
+    r = replay_normal_attack(rpc, build_runner, ATTACKER, target=TARGET, extra=_NO_NOISE)
     if not r["ok"]:
         pytest.skip(f"{ATTACKER}->{TARGET}: {r['reason']}")
     if r["did_crit"] or r["did_block"] or r["did_evade"]:
@@ -64,7 +75,8 @@ def test_normal_attack_ranged_from_elevation_bitexact(live_session, rpc, build_r
     ET les positions Psychic etaient plates -> faux discriminant). Avec le board charge (_do_replay #63),
     on exige off_ph == live_ph sur un tir armor-sensitive depuis un surplomb (discriminant : armor>0 ET
     a_elev>t_elev)."""
-    r = replay_attack_driven(rpc, build_runner, attacker, target, want_dist=2, require_higher_elev=True)
+    r = replay_attack_driven(rpc, build_runner, attacker, target, want_dist=2,
+                             require_higher_elev=True, extra=_NO_NOISE)
     if not r["ok"]:
         pytest.skip(f"{attacker}->{target}: {r['reason']}")
     if r["did_crit"] or r["did_block"] or r["did_evade"]:
