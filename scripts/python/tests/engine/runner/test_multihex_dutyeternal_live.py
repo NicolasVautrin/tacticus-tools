@@ -36,6 +36,7 @@ import uuid
 from pathlib import Path
 
 import hexgeo
+import oracle_targeting as O
 import pytest
 
 from engine.entities.pathfinding.board import Board
@@ -228,18 +229,28 @@ def galatian(rpc, build_runner):
             continue
         native = rpc("abilityReason", {"runnerId": rid, "casterId": caster,
                                        "abilityType": DUTY_ETERNAL, "targetId": tid})
+        # ⚠ #287-r9 -- `reasons` VIT DANS `targetReason`, PAS A LA RACINE. La reponse du RPC est
+        # `{ok, casterId, targetId, abilityType, resolved, casterReason, targetReason,
+        # abilityState, mutated}` : `native.get("reasons")` rendait `None` pour TOUTE tuile, donc
+        # `"native"` valait "" partout et l'oracle etait STRUCTURELLEMENT MUET. C'est de ce
+        # `None` -- pas d'une propriete du natif -- qu'etait tiree la phrase « `abilityReason` est
+        # un canal AVEUGLE sur une cible-TUILE de MoW ». RE-MESURE le 2026-08-06 avec le bon champ,
+        # sur le meme montage : 63 tuiles, ACCORD 63 / DESACCORD 0, le natif refusant les tuiles
+        # sans aire par `TargetMatchesDynamicRule` (0x2) exactement comme le port.
+        tr = (native or {}).get("targetReason") or {}
         reasons.append({
             "pos": pos, "tile": tid,
-            "native": " ".join(str(x) for x in (native.get("reasons") or [])),
+            "native": " ".join(str(x) for x in (tr.get("reasons") or [])),
+            "native_hex": O._hex_de(tr),
             "port": probe.get_dynamic_invalid_target_reason(pre_state, caster, tid),
             "area": STS.get_area(board, occ_now, pos),
         })
 
-    # L'ORACLE de la regle dynamique n'est PAS `abilityReason` (mesure probe_91 : il rend
-    # `reasons: []` pour TOUTE tuile, y compris celles que le natif refuse -> canal aveugle sur une
-    # cible-TUILE de MoW). L'oracle est le CAST lui-meme : un refus rend `actionConsumed = False`
-    # (case-111). On tente donc un cast sur une tuile SANS aire -- inoffensif par construction
-    # puisqu'il est refuse, ce que ce test verifie justement.
+    # SECOND ORACLE, INDEPENDANT du premier : le CAST lui-meme. Un refus rend
+    # `actionConsumed = False` et ne spawne rien (case-111). Il n'est plus un PIS-ALLER depuis que
+    # `abilityReason` est lu au bon champ -- il reste parce que deux canaux independants qui
+    # concordent valent mieux qu'un. On tente un cast sur une tuile SANS aire -- inoffensif par
+    # construction puisqu'il est refuse, ce que ce test verifie justement.
     dead_tile = next((p for p in sorted(board.by_coord)
                       if board.id_at(p[0], p[1]) is not None
                       and not STS.get_area(board, occ_now, p)), None)
@@ -383,7 +394,25 @@ def test_range_is_measured_from_the_whole_footprint(rpc, galatian):
     # 1) VERDICT NATIF : GetInvalidTargetReason ne doit PAS invoquer la portee.
     reason = rpc("abilityReason", {"runnerId": galatian["rid"], "casterId": attacker["id"],
                                    "targetId": galatian["uid"], "abilityType": normal})
-    names = " ".join(str(x) for x in (reason.get("reasons") or []))
+    # ⚠ #287-r9 -- MEME FAUTE DE CHAMP QU'AILLEURS DANS CE FICHIER, mais ici elle portait une
+    # ASSERTION : `reason.get("reasons")` rend `None` (le champ vit dans `targetReason`), donc
+    # `names` valait "" et `"TargetIsInRange" not in ""` etait VRAI QUOI QU'IL ARRIVE. Cette
+    # assertion ne pouvait pas rougir -- un vert structurellement vide.
+    tr = (reason or {}).get("targetReason") or {}
+    names = " ".join(str(x) for x in (tr.get("reasons") or []))
+    # LE CRAN D'ORACLE : si `AttackQuery$$GetInvalidTargetReason` a refuse EN AMONT de la cascade,
+    # `targetReason` ne porte AUCUN nom de regle de cible et l'assertion repasserait au vert pour la
+    # mauvaise raison. `casterReason` ne depend pas de la cible : il tranche.
+    assert not O.oracle_court_circuite(reason), (
+        "oracle COURT-CIRCUITE (casterReason = TargetingRule.ValidRequest) : la cascade de ciblage "
+        "n'a pas ete atteinte, ce test ne mesurerait pas la portee. Cause : "
+        + O.cause_du_court_circuit(reason))
+    # ⚠ « aucun nom » est le verdict NORMAL ici (le natif ACCEPTE la cible) : ce qu'il faut exiger
+    # n'est pas un nom, c'est que le canal ait REPONDU. Un `targetReason` absent laisserait `names`
+    # vide et l'assertion suivante redeviendrait vacue -- la faute qu'on corrige.
+    assert tr.get("hex") is not None or tr.get("ruleClass"), (
+        "`abilityReason` n'a rendu AUCUN `targetReason` lisible -- l'assertion suivante serait "
+        f"vacue : {json.dumps(reason)[:300]}")
     assert "TargetIsInRange" not in names, \
         f"le natif refuse la portee alors que l'attaquant touche un pied : {json.dumps(reason)[:300]}"
 
@@ -598,22 +627,46 @@ def test_dynamic_rule_refusal_is_confirmed_by_the_native_cast(galatian):
     assert galatian["actions"][0].get("spawned"), "la face positive du predicat n'a pas ete exercee"
 
 
-def test_ability_reason_is_blind_to_the_dynamic_rule_here(galatian):
-    """CONSTAT D'OUTILLAGE, verrouille pour que personne ne re-tente cet oracle : sur une cible
-    TUILE avec un caster MACHINE, `abilityReason` rend `reasons: []` -- y compris sur les tuiles
-    que le natif REFUSE (test precedent). Il ne descend donc PAS jusqu'a
-    `GetDynamicInvalidTargetReason`, et un port valide contre lui serait valide contre rien.
+def test_ability_reason_reproduces_the_dynamic_rule_tile_by_tile(galatian):
+    """CONFRONTATION TUILE PAR TUILE de la regle dynamique contre l'oracle natif -- plus fine que
+    le cast, qui ne rend qu'un booleen sur UNE tuile.
 
-    Si ce test se met a ECHOUER, c'est une BONNE nouvelle : le canal s'est mis a rendre la raison,
-    et la confrontation tuile-par-tuile redevient possible (elle serait plus fine que le cast)."""
+    ⚠ CE TEST DISAIT L'INVERSE, ET IL AVAIT TORT (#287-r9). Il s'appelait
+    `test_ability_reason_is_blind_to_the_dynamic_rule_here` et VERROUILLAIT le constat « sur une
+    cible TUILE avec un caster MACHINE, `abilityReason` rend `reasons: []` » -- constat produit par
+    un `native.get("reasons")` lu A LA RACINE de la reponse, ou ce champ N'EXISTE PAS (il vit dans
+    `targetReason`). L'oracle n'etait pas aveugle : le lecteur regardait a cote, et l'assertion
+    `all(not r["native"].strip() ...)` etait donc VRAIE PAR CONSTRUCTION -- elle ne pouvait pas
+    rougir. Sa propre docstring annoncait « si ce test echoue, c'est une bonne nouvelle » : c'est
+    arrive, par correction du lecteur.
+
+    RE-MESURE (2026-08-06, meme montage, `ultraDreadnought` / 1158) : 63 tuiles, ACCORD 63 /
+    DESACCORD 0. Le natif rend `TargetMatchesDynamicRule` (0x2) exactement sur les tuiles ou
+    `ThreeUnitSpawnTileShapeSelector$$GetArea` rend une liste vide.
+
+    CONTRAT (le meme que partout ailleurs) : le port refuse SSI le natif refuse. Les tuiles que le
+    natif refuse au rang `TargetIsTile` (`ValidRequest`, meme ordinal a un autre rang -- une tuile
+    non marchable) comptent comme un refus des deux cotes, pas comme un desaccord de bit."""
     rows = galatian["reasons"]
     assert rows, "aucun verdict collecte"
     refused_by_port = [r for r in rows if r["port"]]
     assert refused_by_port, \
-        f"echantillon non discriminant : aucune tuile refusee -- augmenter DYNAMIC_RULE_SAMPLE"
-    assert all(not r["native"].strip() for r in rows), \
-        ("`abilityReason` rend desormais une raison -- re-brancher la confrontation tuile-par-tuile "
-         + json.dumps([(r["pos"], r["native"]) for r in rows if r["native"].strip()])[:300])
+        "echantillon non discriminant : aucune tuile refusee -- augmenter DYNAMIC_RULE_SAMPLE"
+    accepted_by_port = [r for r in rows if not r["port"]]
+    assert accepted_by_port, \
+        "echantillon non discriminant : aucune tuile ACCEPTEE -- le contrat serait vacu d'un cote"
+    # TEMOIN DE NON-VACUITE : sans une seule raison native lue, ce test redeviendrait celui qu'il
+    # remplace -- un accord entre un port qui parle et un oracle qui se tait.
+    parlantes = [r for r in rows if r["native"].strip()]
+    assert parlantes, (
+        "`abilityReason` ne rend AUCUNE raison sur les %d tuiles interrogees -- le canal est muet "
+        "et l'accord ci-dessous ne prouverait rien (c'est exactement le regime que #287-r9 a "
+        "corrige : verifier que `targetReason` est bien le champ lu)" % len(rows))
+    desaccords = [(r["pos"], hex(r["native_hex"]), r["port"], r["native"])
+                  for r in rows if (r["native_hex"] > 0) != bool(r["port"])]
+    assert not desaccords, (
+        "le port et le natif ne refusent pas les memes tuiles (pos, natif, port, noms) : "
+        + json.dumps(desaccords)[:400])
 
 
 # ------------------------------------ GENERALISATION : ce que l'empreinte change EN AVAL du cast

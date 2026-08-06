@@ -139,7 +139,7 @@ def main() -> int:
 
     # ---------------------------------------------------------------- A. regle dynamique
     print("\n=== A. GetDynamicInvalidTargetReason : natif vs port, tuile par tuile ===")
-    print("pos        tile  area   port  native")
+    print("pos        tile  area   port  natif    reasons")
     agree = disagree = 0
     first_valid = None
     for pos in sorted(board.by_coord):
@@ -150,14 +150,23 @@ def main() -> int:
         pv = probe.get_dynamic_invalid_target_reason(pre_state, caster, tid)
         nat = rpc(sid, "abilityReason", {"runnerId": rid, "casterId": caster,
                                          "abilityType": DUTY_ETERNAL, "targetId": tid})
-        names = " ".join(str(x) for x in (nat.get("reasons") or []))
-        ok = bool(names.strip()) == bool(pv)
+        # ⚠ #287-r9 -- LE CHAMP EST DANS `targetReason`, PAS A LA RACINE. La version d'avant lisait
+        # `nat.get("reasons")` : ce champ N'EXISTE PAS au premier niveau de la reponse
+        # (`{ok, casterId, targetId, abilityType, resolved, casterReason, targetReason,
+        # abilityState, mutated}`), donc `names` valait "" pour TOUTE tuile -- et l'etage A
+        # comparait le port a un oracle STRUCTURELLEMENT MUET, qui « acceptait » tout.
+        # ⚠ C'est de la que vient la phrase « `abilityReason` est un canal AVEUGLE sur une
+        # cible-TUILE de MoW », recopiee dans `test_multihex_dutyeternal_live` et utilisee pour
+        # ABANDONNER cet oracle au profit du cast. Le canal n'etait pas aveugle : le LECTEUR
+        # regardait a cote. Meme signature que #444 (un champ absent lu comme « cible valide »).
+        tr = (nat or {}).get("targetReason") or {}
+        names = ",".join(str(x) for x in (tr.get("reasons") or [])) or "-"
+        nv = O._hex_de(tr)
+        ok = (nv > 0) == bool(pv)
         agree, disagree = agree + int(ok), disagree + int(not ok)
-        if not area and first_valid is None:
-            pass
         if area and first_valid is None:
             first_valid = pos
-        print(f"{str(pos):10s} {tid:5d} {len(area):5d} {pv:5d}  '{names}'"
+        print(f"{str(pos):10s} {tid:5d} {len(area):5d} {pv:5d}  {hex(nv):8s} {names}"
               + ("" if ok else "   <-- DESACCORD"))
     print(f"[A] accord={agree} desaccord={disagree}")
 
