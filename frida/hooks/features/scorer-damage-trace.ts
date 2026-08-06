@@ -64,6 +64,7 @@ import { pinnedAddress, PinnedAddress } from "../il2cpp/build-pin.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
+import { arm, disarm, capturing, armedReport } from "../game/armed-runners.js";
 import { readDamagePredictionResult } from "../game/damage-prediction.js";
 import { readTileCoord } from "./ai-step/internals.js";
 
@@ -383,8 +384,16 @@ let curCaster: { col: number; row: number } | null = null;
 // (sur le chemin de prédiction par construction) là où curCaster (via CalculateActionUtility) est découplé.
 let curPredTile: { col: number; row: number } | null = null;
 
-const trace: { on: boolean; seq: number; buf: OriginBuffers<DmgEvent> } = {
-    on: false, seq: 0, buf: new OriginBuffers<DmgEvent>(CAP, "dropNew"),
+// LA PORTE N'EST PLUS UN BOOLEEN DE MODULE (#483). `trace.on` est un ACCESSEUR qui
+// consulte l'armement PAR RUNNER (`capturing`) contre l'origine COURANTE
+// (`getTraceOrigin`). Les ~20 gardes `if (!trace.on) return;` de ce fichier n'ont pas
+// bougé d'un caractère : c'est ce que le point de lecture DÉCIDE qui a changé.
+// Pourquoi ça compte : les probes appellent `scorerDamageTraceOff` dans un `finally`,
+// donc en 4-en-parallèle le premier qui finissait désarmait la capture des autres,
+// qui dumpaient un seau TRONQUÉ sans erreur. Cf. game/armed-runners.ts.
+const trace: { readonly on: boolean; seq: number; buf: OriginBuffers<DmgEvent> } = {
+    get on(): boolean { return capturing("scorerDamage"); },
+    seq: 0, buf: new OriginBuffers<DmgEvent>(CAP, "dropNew"),
 };
 
 // DamagePrediction.CalculateBaseDamageWithAllModifiers @18102d3f0 (méthode NOMMÉE, findMethod —
@@ -1266,7 +1275,10 @@ export function register(ctx: Ctx): void {
     // RVA build-spécifiques sont armés à la demande par scorerDamageTraceOn (cf. installRvaHooks).
     installHook();   // buffer reste gated par trace.on (défaut false)
 
-    ctx.rpc.scorerDamageTraceOn = (): Promise<unknown> =>
+    /** ARME la capture. `runnerId` → armement NOMINATIF (seuls les events de CE
+     *  runner sont capturés) ; sans lui → armement GLOBAL, le comportement
+     *  historique. Cf. game/armed-runners.ts pour l'asymétrie arm/disarm. */
+    ctx.rpc.scorerDamageTraceOn = (body?: { runnerId?: number }): Promise<unknown> =>
         queueOnMainThread(() => {
             const ok = installHook();
             installAllModsHook();   // findMethod (nommé) — survit au hash
@@ -1276,13 +1288,25 @@ export function register(ctx: Ctx): void {
             installModifyHook();    // ValueModification.Modify + backtrace — le GATE du toggle +1298 (#49)
             installPredictBaseHook(); // base pré-spread fed to PredictAttackRaw (context+0x58) (#49)
             installRvaHooks();   // arme les RVA build-spécifiques (l'utilisateur confirme le hash en armant)
-            trace.on = ok;
-            return { ok, on: trace.on, installed, rvaInstalled, allModsInstalled };
+            // L'échec d'installation ne doit PAS armer : la porte reflète ce qui est
+            // réellement hooké (comportement conservé de `trace.on = ok`).
+            if (ok) arm("scorerDamage", body?.runnerId);
+            return {
+                ok, ...armedReport("scorerDamage", body?.runnerId),
+                installed, rvaInstalled, allModsInstalled,
+            };
         });
 
-    ctx.rpc.scorerDamageTraceOff = (): unknown => {
-        trace.on = false;
-        return { ok: true, bufferSize: trace.buf.size() };
+    /** DÉSARME. `runnerId` → désarme CE runner seulement ; sans lui → désarme le
+     *  GLOBAL et **laisse intacts** les armements nominatifs des autres acteurs.
+     *  C'est cette asymétrie qui empêche un `finally` d'un probe voisin de tronquer
+     *  la capture d'un autre (#483). */
+    ctx.rpc.scorerDamageTraceOff = (body?: { runnerId?: number }): unknown => {
+        disarm("scorerDamage", body?.runnerId);
+        return {
+            ok: true, ...armedReport("scorerDamage", body?.runnerId),
+            bufferSize: trace.buf.size(),
+        };
     };
 
     ctx.rpc.scorerDamageTraceClear = (
@@ -1315,7 +1339,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 2000;
         return {
-            on: trace.on, elevInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), elevInstalled,
             bufferSize: elevTrace.buf.size(),
             entries: elevTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1327,7 +1351,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 2000;
         return {
-            on: trace.on, tileTermInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), tileTermInstalled,
             bufferSize: tileTermTrace.buf.size(),
             entries: tileTermTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1339,7 +1363,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 2000;
         return {
-            on: trace.on, leafInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), leafInstalled,
             bufferSize: leafTrace.buf.size(),
             entries: leafTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1351,7 +1375,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 2000;
         return {
-            on: trace.on, bonusInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), bonusInstalled,
             bufferSize: bonusTrace.buf.size(),
             entries: bonusTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1363,7 +1387,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 8000;
         return {
-            on: trace.on, predBaseInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), predBaseInstalled,
             bufferSize: predBaseTrace.buf.size(),
             entries: predBaseTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1375,7 +1399,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 4000;
         return {
-            on: trace.on, attModInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), attModInstalled,
             bufferSize: attModTrace.buf.size(),
             entries: attModTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1387,7 +1411,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 8000;
         return {
-            on: trace.on, statModsInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), statModsInstalled,
             bufferSize: statModsTrace.buf.size(),
             entries: statModsTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1399,7 +1423,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 4000;
         return {
-            on: trace.on, modifyInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), modifyInstalled,
             bufferSize: modifyTrace.buf.size(),
             entries: modifyTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1407,14 +1431,14 @@ export function register(ctx: Ctx): void {
 
     /** #49 : dump les VA concrètes résolues des délégués d'override de base (b__0 vtable / b__1 iface). */
     ctx.rpc.scorerBaseOverrideDump = (): unknown => {
-        return { on: trace.on, baseOverrideInstalled, resolved: Array.from(baseOverrideResolved) };
+        return { ...armedReport("scorerDamage"), baseOverrideInstalled, resolved: Array.from(baseOverrideResolved) };
     };
 
     /** Dump les enfants (noms de classe) de chaque ComposedUtility vu — identifie les feuilles du composite. */
     ctx.rpc.scorerComposedDump = (): unknown => {
         const composites = Array.from(composedChildren.seen.entries())
             .map(([ptr, children]) => ({ ptr, count: children.length, children }));
-        return { on: trace.on, composedInstalled, composites };
+        return { ...armedReport("scorerDamage"), composedInstalled, composites };
     };
 
     /** Dump des appels CalculateBaseDamageWithAllModifiers (input/isCrit/isMelee/output/site). */
@@ -1423,7 +1447,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 2000;
         return {
-            on: trace.on, allModsInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), allModsInstalled,
             bufferSize: allModsTrace.buf.size(),
             entries: allModsTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1435,7 +1459,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 2000;
         return {
-            on: trace.on, utilInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), utilInstalled,
             bufferSize: utilTrace.buf.size(),
             entries: utilTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1448,7 +1472,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 2000;
         return {
-            on: trace.on, scenarioInstalled,
+            ...armedReport("scorerDamage", body?.runnerId), scenarioInstalled,
             bufferSize: scenarioTrace.buf.size(),
             entries: scenarioTrace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -1463,7 +1487,7 @@ export function register(ctx: Ctx): void {
         let filtered = trace.buf.entries(body?.runnerId);
         if (since > 0) filtered = filtered.filter((e) => e.seq > since);
         return {
-            on: trace.on, installed, totalSeq: trace.seq,
+            ...armedReport("scorerDamage", body?.runnerId), installed, totalSeq: trace.seq,
             bufferSize: trace.buf.size(), returned: Math.min(filtered.length, max),
             entries: filtered.slice(-max),
         };

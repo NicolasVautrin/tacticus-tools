@@ -86,6 +86,7 @@ import {
 } from "../il2cpp/helpers.js";
 import { classFieldsDump } from "./ai-step/projection.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
+import { arm, disarm, capturing, extinguish, armedReport } from "../game/armed-runners.js";
 import { log } from "../runtime/diag.js";
 
 // Cap PAR ORIGINE de chaque famille (meme convention que scorer-damage-trace).
@@ -177,21 +178,47 @@ let curFace: "attacker" | "defender" | null = null;
  *  efface la face de son englobant. */
 const faceStack: Array<"attacker" | "defender"> = [];
 
-const trace: { on: boolean; seq: number; budget: number; spent: number } = {
-    on: false, seq: 0, budget: DEFAULT_BUDGET, spent: 0,
+// LA PORTE N'EST PLUS UN BOOLEEN DE MODULE (#483) : `trace.on` est un ACCESSEUR qui
+// consulte l'armement PAR RUNNER contre l'origine COURANTE. Cf. game/armed-runners.ts.
+const trace: { readonly on: boolean; seq: number; budget: number } = {
+    get on(): boolean { return capturing("effectBonus"); },
+    seq: 0, budget: DEFAULT_BUDGET,
 };
 
-/** Un evenement consomme le budget ; a l'epuisement la capture s'ETEINT (elle ne se contente pas
- *  de jeter). C'est ce qui empeche un capteur oublie de peser sur une session partagee. */
+/** Budget DEPENSE PAR ORIGINE (#483). Il l'etait globalement, ce qui rouvrait le meme mode de
+ *  panne par une autre porte : deux acteurs en parallele partageaient un compteur, et
+ *  l'epuisement de l'un ETEIGNAIT la capture de l'autre — silencieusement. Meme raison que le
+ *  CAP par bucket d'`OriginBuffers` : « un acteur bavard ne peut plus affamer les autres ». */
+const spentByOrigin = new Map<number | null, number>();
+
+/** Un evenement consomme le budget DE SON ORIGINE ; a l'epuisement la capture s'ETEINT POUR
+ *  ELLE (elle ne se contente pas de jeter). C'est ce qui empeche un capteur oublie de peser
+ *  sur une session partagee, sans emporter les autres acteurs avec lui. */
 function spend(): boolean {
     if (!trace.on) return false;
-    if (trace.spent >= trace.budget) {
-        trace.on = false;
-        log("[effect-bonus-trace] budget epuise (" + trace.budget + ") — capture ETEINTE");
+    const k = getTraceOrigin();
+    const spent = spentByOrigin.get(k) ?? 0;
+    if (spent >= trace.budget) {
+        // `extinguish` garantit `capturingFor(k) === false` — sans quoi le test ci-dessus se
+        // rejouerait a chaque evenement (extinction sterile). Il retire l'armement NOMINATIF
+        // de k et, si c'est le GLOBAL qui couvrait k, le global : c'est le prix de la
+        // post-condition, et le regime cible (chaque appelant passe son runnerId) ne le paie pas.
+        extinguish("effectBonus", k);
+        log("[effect-bonus-trace] budget epuise (" + trace.budget + ") pour origine "
+            + (k === null ? "live" : String(k)) + " — capture ETEINTE pour ELLE");
         return false;
     }
-    trace.spent++;
+    spentByOrigin.set(k, spent + 1);
     return true;
+}
+
+/** Depense de l'origine INTERROGEE (compte-rendu). Sans `runnerId` : total toutes origines —
+ *  un chiffre agrege qui ne doit pas se lire comme celui d'un acteur. */
+function spentFor(runnerId?: number): number {
+    if (typeof runnerId === "number") return spentByOrigin.get(runnerId) ?? 0;
+    let n = 0;
+    for (const v of spentByOrigin.values()) n += v;
+    return n;
 }
 
 /** Ce que rend la FABRIQUE (ancrage 1) : le `Nullable<EffectBonus>` brut + son layout. */
@@ -565,7 +592,11 @@ function installAddHooks(): boolean {
 // ── Armement ──────────────────────────────────────────────────────────────────────────────────
 
 let armed = false;
-function arm(): { factory: boolean; face: boolean; add: boolean } {
+/** INSTALLE les trois familles de hooks (idempotent). Renomme depuis `arm()` (#483) :
+ *  l'INSTALLATION physique et l'ARMEMENT de la capture sont deux choses distinctes
+ *  depuis que la seconde est par runner — les confondre sous un meme nom invitait la
+ *  faute que ce module corrige. */
+function installAllHooks(): { factory: boolean; face: boolean; add: boolean } {
     const r = {
         factory: installFactoryHook(),
         face: installFaceHooks(),
@@ -580,11 +611,17 @@ export function register(ctx: Ctx): void {
      *  body: { budget? } — nombre total d'evenements avant auto-extinction (defaut 4000).
      *  ⚠ A n'appeler que sur session STABLE (post-warmup) : ces hooks sont sur le chemin de
      *  degat. Le register n'arme RIEN de lui-meme, par construction. */
-    ctx.rpc.effectBonusTraceOn = (body?: { budget?: number }): unknown => {
-        const r = arm();
+    ctx.rpc.effectBonusTraceOn = (
+        body?: { budget?: number; runnerId?: number },
+    ): unknown => {
+        const r = installAllHooks();
         trace.budget = (typeof body?.budget === "number" && body.budget > 0)
             ? (body.budget | 0) : DEFAULT_BUDGET;
-        trace.spent = 0;
+        // Le budget se remet a zero POUR L'ORIGINE ARMEE seulement (#483) : un `On` d'un
+        // acteur ne doit pas recharger — ni remettre a zero le compteur publie — d'un autre.
+        // Armement GLOBAL (pas de runnerId) : on repart de zero partout, comme avant.
+        if (typeof body?.runnerId === "number") spentByOrigin.delete(body.runnerId);
+        else spentByOrigin.clear();
         // Repart d'une pile de faces VIDE. Un `Off` (ou une extinction par budget) survenu au
         // milieu d'une fenetre native laisse au pire une entree orpheline ; l'heriter ferait
         // porter a la capture suivante une face qui n'est pas la sienne.
@@ -592,20 +629,29 @@ export function register(ctx: Ctx): void {
         curFace = null;
         faceEnters.attacker = 0;
         faceEnters.defender = 0;
-        trace.on = true;
-        return { ok: true, armed, hooks: r, budget: trace.budget };
+        arm("effectBonus", body?.runnerId);
+        return {
+            ok: true, armed, hooks: r, budget: trace.budget,
+            ...armedReport("effectBonus", body?.runnerId),
+        };
     };
 
-    ctx.rpc.effectBonusTraceOff = (): unknown => {
-        trace.on = false;
-        return { ok: true, spent: trace.spent, budget: trace.budget };
+    /** DESARME. Sans `runnerId` : le GLOBAL seulement — les armements nominatifs des autres
+     *  acteurs survivent (#483). C'est CE `finally`-la qui tronquait les mesures voisines. */
+    ctx.rpc.effectBonusTraceOff = (body?: { runnerId?: number }): unknown => {
+        disarm("effectBonus", body?.runnerId);
+        return {
+            ok: true, spent: spentFor(body?.runnerId), budget: trace.budget,
+            ...armedReport("effectBonus", body?.runnerId),
+        };
     };
 
     ctx.rpc.effectBonusTraceClear = (body?: { runnerId?: number }): unknown => {
         const rid = typeof body?.runnerId === "number" ? body.runnerId : undefined;
         factoryTrace.clear(rid);
         addTrace.clear(rid);
-        if (rid === undefined) { trace.seq = 0; trace.spent = 0; }
+        if (rid === undefined) { trace.seq = 0; spentByOrigin.clear(); }
+        else spentByOrigin.delete(rid);
         return { ok: true };
     };
 
@@ -614,7 +660,8 @@ export function register(ctx: Ctx): void {
         const rid = typeof body?.runnerId === "number" ? body.runnerId : undefined;
         return {
             ok: true,
-            on: trace.on, armed, spent: trace.spent, budget: trace.budget,
+            ...armedReport("effectBonus", rid), armed,
+            spent: spentFor(rid), budget: trace.budget,
             // Ce que les hooks de face ONT POSE, et combien de fois chaque fenetre a ete
             // FRANCHIE — sans ces deux-la, un `0 defender` dans `adds` ne separe pas
             // « fenetre non traversee » de « hook non pose ». Cf. le bloc de declaration.

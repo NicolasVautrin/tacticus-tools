@@ -83,6 +83,7 @@ import {
 import { log } from "../runtime/diag.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
+import { arm, disarm, capturing, armedReport } from "../game/armed-runners.js";
 import { readTileCoord } from "./ai-step/internals.js";
 
 // Cap PAR BUCKET (par origine). Un sweep de mouvement balaie quelques dizaines de tuiles par
@@ -239,8 +240,13 @@ interface MoveEvalEvent {
     steps: number;
 }
 
-const trace: { on: boolean; seq: number; buf: OriginBuffers<MoveEvalEvent> } = {
-    on: false, seq: 0, buf: new OriginBuffers<MoveEvalEvent>(CAP, "dropNew"),
+// LA PORTE N'EST PLUS UN BOOLEEN DE MODULE (#483) : `trace.on` est un ACCESSEUR qui
+// consulte l'armement PAR RUNNER contre l'origine COURANTE. Les gardes du hot path
+// (`if (!trace.on) return;`) n'ont pas bougé — c'est ce qu'elles LISENT qui change.
+// Cf. game/armed-runners.ts.
+const trace: { readonly on: boolean; seq: number; buf: OriginBuffers<MoveEvalEvent> } = {
+    get on(): boolean { return capturing("triggeredMove"); },
+    seq: 0, buf: new OriginBuffers<MoveEvalEvent>(CAP, "dropNew"),
 };
 
 // État PAR INSTANCE de state machine, accumulé entre les `MoveNext`. Clé = pointeur de la SM.
@@ -586,16 +592,25 @@ export function register(ctx: Ctx): void {
     // Le register n'attache RIEN : ce `MoveNext` est sur le hot path du sweep de mouvement de
     // l'IA (un appel par tuile candidate ET par step). L'armement est explicite.
 
-    ctx.rpc.triggeredMoveTraceOn = (): Promise<unknown> =>
+    /** ARME. `runnerId` -> armement NOMINATIF ; sans lui -> GLOBAL (historique). */
+    ctx.rpc.triggeredMoveTraceOn = (body?: { runnerId?: number }): Promise<unknown> =>
         queueOnMainThread(() => {
             const ok = install();
-            trace.on = ok;
-            return { ok, on: trace.on, installed, resolved: resolvedInfo };
+            if (ok) arm("triggeredMove", body?.runnerId);
+            return {
+                ok, ...armedReport("triggeredMove", body?.runnerId),
+                installed, resolved: resolvedInfo,
+            };
         });
 
-    ctx.rpc.triggeredMoveTraceOff = (): unknown => {
-        trace.on = false;
-        return { ok: true, bufferSize: trace.buf.size() };
+    /** DÉSARME. Sans `runnerId` : le GLOBAL seulement — les armements nominatifs des
+     *  autres acteurs survivent (#483). */
+    ctx.rpc.triggeredMoveTraceOff = (body?: { runnerId?: number }): unknown => {
+        disarm("triggeredMove", body?.runnerId);
+        return {
+            ok: true, ...armedReport("triggeredMove", body?.runnerId),
+            bufferSize: trace.buf.size(),
+        };
     };
 
     ctx.rpc.triggeredMoveTraceClear = (body?: { runnerId?: number }): unknown => {
@@ -612,7 +627,7 @@ export function register(ctx: Ctx): void {
     ): unknown => {
         const max = body?.max ?? 2000;
         return {
-            on: trace.on, installed,
+            ...armedReport("triggeredMove", body?.runnerId), installed,
             bufferSize: trace.buf.size(),
             entries: trace.buf.entries(body?.runnerId).slice(-max),
         };
@@ -622,7 +637,7 @@ export function register(ctx: Ctx): void {
      *  trouvé (`fallbacks`). Un capteur dont un offset est retombé sur son repli n'est pas faux,
      *  mais il n'est plus auto-vérifiant : il faut le SAVOIR avant d'exploiter une mesure. */
     ctx.rpc.triggeredMoveTraceStatus = (): unknown => ({
-        on: trace.on, installDone, installed, resolved: resolvedInfo,
+        ...armedReport("triggeredMove"), installDone, installed, resolved: resolvedInfo,
         liveStateMachines: live.size, bufferSize: trace.buf.size(),
     });
 }
