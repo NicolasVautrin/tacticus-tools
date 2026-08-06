@@ -260,15 +260,38 @@ Aucun compteur n'est rouvert par cette tranche — vérifié, pas supposé.
 
 ## 8. Résidus NOMMÉS
 
-* **`#419-r1-tr14-r4-r1` — l'octet `+0` du `Nullable<AttackDamageBehaviourOptions>` est posé à `1`,
-  sémantique NON RÉSOLUE.** Le call-site `memset` la struct de 0x20 octets puis écrit `1` à l'offset
-  **0** avant de la passer en 8ᵉ argument. Les trois octets dont le port connaît le sens sont `+4`
-  (`alwaysOverkilled`), `+5` (`alwaysCrit`) et `+6` (le drapeau « attaque normale », qui pilote le
-  spread) — tous **à zéro** ici, ce que la mesure confirme (le bonus vaut exactement
-  `round(dmg × PiercingRatio)`, déterministe, identique sur deux hôtes et deux seeds). L'octet `+0`
-  est donc INERTE sur ce montage ; son sens reste à lire dans
-  `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (il transite `AttackDamageBehaviour+0x98`).
-  Débloqueur : un régime où la cible peut mourir, ou porte un bouclier.
+* ~~**`#419-r1-tr14-r4-r1` — l'octet `+0` du `Nullable<AttackDamageBehaviourOptions>` est posé à `1`,
+  sémantique NON RÉSOLUE.**~~ **RÉSOLU — c'est `isOutsideAttack`**, et le débloqueur annoncé (« un
+  régime où la cible peut mourir ») **n'était pas le bon** : la question s'est tranchée par le seul
+  décompilé, sans aucun montage. Le NOM est **LU dans les métadonnées IL2CPP**, pas déduit —
+  `IdunBattle.Operations.ADamageOperation$$GetCurrentAttackOrDefault` déclare
+  `isOutsideAttack:System.Boolean`, et son corps route sur **deux slots d'`IBattleQuery`** :
+
+  | valeur | slot | corps |
+  |---|---|---|
+  | `false` | 200 `GetCurrentAttackOrDefault` | l'`OngoingAttack` **en cours** si un contexte d'attaque existe, sinon une neuve |
+  | `true` | 201 `GetDefaultAttack` | `new OngoingAttack()` **inconditionnel** |
+
+  Le chemin de l'octet, LU de bout en bout : `AttackDamageBehaviour$$.ctor` recopie les 0x20 octets
+  d'options à `+0x98` (`GetValueOrDefault` du `Nullable`, dont la VALEUR est en `+0` et le `hasValue`
+  en `+0x20` — l'octet `+0` est donc bien un CHAMP, pas le drapeau du `Nullable`) ;
+  `$$ExecuteTarget` les re-sérialise dans `IdunBattle.Operations.AttackDamageOptions`, où `+0` du
+  behaviour atterrit en **`+0x2e`** (les sept octets y sont RÉORDONNÉS) ; `$$Execute` passe
+  `options+0x2e` en 1ᵉʳ argument de `GetCurrentAttackOrDefault`, et
+  `AttackDamageOperation$$ExecuteHit` le repasse encore à l'opération finale.
+
+  **Ce que `true` change** — trois canaux, tous médiés par l'`OngoingAttack` : le `hitGroupIndex`
+  (`attack+0x34`) passé à `$$GetAttackHits` (qui le pose dans l'`AbilityEntities` où les effets
+  « coups supplémentaires » le lisent) ; l'éligibilité à
+  `$$ExecuteAdditionalHitsWithoutDamageProfileType` (gardée par `attack+0x34 == 1`) ; et les
+  accumulateurs de l'attaque (`+0x28` dégât refusé, `+0x38`/`+0x39` drapeaux, `+0x40`), plus
+  `RegisterFinalDamage`. Le coup bonus est tiré **depuis l'intérieur** de l'attaque normale : le
+  drapeau l'en **sort**.
+
+  **Ce que le port en fait : rien, et c'est le comportement JUSTE.** Il ne modélise aucune
+  `OngoingAttack` partagée — chaque `execute_ability_attack` part d'un état d'attaque neuf, ce qui
+  **est** la sémantique `isOutsideAttack = true`. Poser le drapeau serait un no-op. Ce qui reste
+  ouvert n'est donc pas cet octet mais l'ÉCART DE MODÈLE qu'il désigne : `#419-r3` ci-dessous.
 * ~~**`#419-r1-tr14-r4-r2` — `InformWeapon` : deux arguments non portés, et une lecture FAUSSE dans
   la docstring du foyer.**~~ **RÉSOLU** — `docs/rl/case-419-r1-tr14-r4-r2-inform-weapon-tags.md`.
   Les deux clés sont portées et confrontées LIVE (le canal n'est pas un « no-op » : il part en
