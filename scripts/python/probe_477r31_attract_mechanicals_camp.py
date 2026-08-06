@@ -112,13 +112,21 @@ ROOT = PYDIR.parents[1]
 CARRIER = "admecDominus"
 MARSHAL_UNIT = "admecMarshall"       # porte l'ACTIVE DoctrinaImperatives (0x45e = 1118)
 TARGET_FOE = "necroWarden"           # la CIBLE neutre, sans DoctrinaImperatives
+#: UN AMI SANS `DoctrinaImperatives`, place a cote de tuiles candidates SANS Marshal. Il n'est pas
+#: decoratif : sans lui, le SEUL ami adjacent a une tuile candidate est le Marshal, si bien que
+#: « les amis porteurs du predicat » et « les amis » coincident -- le mutant `SANS-PREDICAT` ne peut
+#: alors pas mordre, et un port qui aurait OUBLIE `HasActiveAbility` passerait le test.
+NEUTRAL_FRIEND = "orksNob"
 
-#: MONTAGE `camp` -- `board -> (carrier, marshal ALLIE, marshal ENNEMI, cible neutre)`.
+#: MONTAGE `camp` -- `board -> (carrier, marshal ALLIE, marshal ENNEMI, cible neutre, ami neutre)`.
 #: Geometrie de `probe_477r29` (re-verifiee par le chercheur de ce probe : zone plate, >= 2 tuiles
-#: « ALLIE seul », >= 2 « ENNEMI seul », >= 1 temoin parmi les voisines de la cible).
+#: « ALLIE seul », >= 2 « ENNEMI seul », >= 1 temoin parmi les voisines de la cible). `neutral` est
+#: CHERCHE en plus : une case adjacente a >= 1 tuile TEMOIN et a AUCUNE tuile de bras.
 LAYOUTS_CAMP = {
-    "MC1_67": {"carrier": (4, 5), "ally": (2, 7), "foe": (6, 7), "target": (4, 7)},
-    "C4_09":  {"carrier": (4, 2), "ally": (2, 2), "foe": (5, 1), "target": (3, 1)},
+    "MC1_67": {"carrier": (4, 5), "ally": (2, 7), "foe": (6, 7), "target": (4, 7),
+               "neutral": (5, 5)},
+    "C4_09":  {"carrier": (4, 2), "ally": (2, 2), "foe": (5, 1), "target": (3, 1),
+               "neutral": (1, 0)},
 }
 
 #: MONTAGE `agreg` -- `board -> (carrier, marshal ALLIE 1, marshal ALLIE 2, cible neutre)`.
@@ -350,10 +358,11 @@ def build_extra(board: str, montage: str) -> list:
         raise SystemExit("[477-r31] aucune geometrie %r pour le board %r (connus : %s)."
                          % (montage, board, ", ".join(sorted(MONTAGES.get(montage) or {}))))
     if montage == "camp":
-        p_units = "%s,%s" % (CARRIER, MARSHAL_UNIT)
+        p_units = "%s,%s,%s" % (CARRIER, MARSHAL_UNIT, NEUTRAL_FRIEND)
         a_units = "%s,%s" % (MARSHAL_UNIT, TARGET_FOE)
         places = [("--place", "%s:%d,%d" % (CARRIER, lay["carrier"][0], lay["carrier"][1])),
                   ("--place", "%s:%d,%d" % (MARSHAL_UNIT, lay["ally"][0], lay["ally"][1])),
+                  ("--place", "%s:%d,%d" % (NEUTRAL_FRIEND, lay["neutral"][0], lay["neutral"][1])),
                   ("--a-place", "%s:%d,%d" % (MARSHAL_UNIT, lay["foe"][0], lay["foe"][1])),
                   ("--a-place", "%s:%d,%d" % (TARGET_FOE, lay["target"][0], lay["target"][1]))]
     else:
@@ -380,16 +389,43 @@ MARSHAL2_UNIT = "admecManipulus"
 
 
 def _seed_bc_montage(out_path: Path, montage: str) -> Path:
-    """Le seed BC du montage. `camp` : le seed nu. `agreg` : `MARSHAL2_UNIT` recoit l'ACTIVE
-    `DoctrinaImperatives` en plus de la sienne (greffe ADDITIVE -- `replace=False`)."""
+    """Le seed BC du montage.
+
+    ⚠ DEUX ECRITURES, et la premiere a ete PAYEE PAR UNE MESURE ROUGE.
+
+    1. `unequip_relic(admecMarshall)` -- LE CONFOND. `admecMarshall` porte au seed la relique
+       `TertiaryAbility = 1457` (`TriggeredAbilityType.KardiocoreGalvanus`), dont le NATIF a une
+       face NON-OWNER : `IdunBattle.AI.Playbook.Loki.KardiocoreGalvanusNonOwnerPlaybook.
+       u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext` rend
+       `GetUtilityValue("KardiocoreGalvanus_AdjacentFriendly")` = **20** sur les tuiles adjacentes
+       a son porteur, **gate `UnitExtensions.IsMechanical(case.Unit)`**. C'est le MEME gate, le MEME
+       camp et LES MEMES TUILES que le terme mesure ici -- inseparables. Premiere mesure
+       (`MC1_67`/777) : `X_nat = 30` la ou le port met `10`, sur les 3 tuiles du bras allie.
+       Ce n'est pas un bug de cette tranche : `1457` MANQUE au registre
+       `engine/playbook/non_owner.NON_OWNER_MOVE_PLAYBOOKS` (12 entrees portees, 25 playbooks
+       non-owner dans le binaire). Residu **#477-r33**.
+       ⚠ C'est aussi pourquoi `probe_477r29` ne l'avait pas vu : son carrier (`orksNob`) n'est PAS
+       Mechanical, donc le gate coupait -- un confond peut dormir sous un montage et se reveiller
+       sous le suivant.
+    2. `agreg` seulement : `MARSHAL2_UNIT` recoit l'ACTIVE `DoctrinaImperatives` en plus de la
+       sienne (greffe ADDITIVE, `replace=False`), faute d'un second porteur au gameconfig."""
     import catalog_inject
     bc = catalog_inject._load_seed(None)
+    rep = catalog_inject.unequip_relic(bc, MARSHAL_UNIT)
+    print("  relique retiree : %s TertiaryAbility %s -> None%s"
+          % (rep["unitId"], rep["tertiaryBefore"], "  [RIEN A FAIRE]" if rep["rien_a_faire"] else ""))
+    if rep["rien_a_faire"]:
+        print("  ATTENTION : le seed ne porte plus la relique attendue -- le CONFOND a peut-etre "
+              "change de forme ; relire `_seed_bc_montage` avant de croire la mesure")
     if montage == "agreg":
         rep = catalog_inject.graft_active_ability(bc, MARSHAL2_UNIT, "DoctrinaImperatives",
                                                   replace=False)
         print("  greffe : %s actifs %s -> %s (config ajoutee: %s)"
               % (rep["unitId"], rep["activeAbilitiesBefore"], rep["activeAbilitiesAfter"],
                  rep["configAdded"]))
+        rep2 = catalog_inject.unequip_relic(bc, MARSHAL2_UNIT)
+        print("  relique retiree : %s TertiaryAbility %s -> None" % (rep2["unitId"],
+                                                                     rep2["tertiaryBefore"]))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(bc), encoding="utf-8")
     return out_path
@@ -505,9 +541,16 @@ def mesurer(call, rid, montage="camp", max_steps=25, trace=print) -> dict:
                          "models": _models(t, leaves, lc, wt),
                          "na": prof[t][0], "ne": prof[t][1],
                          "self": _self_is_marshal(t, lc),
-                         "tile7": vt, "elev": ve, "tile_eff": vf})
+                         "tile7": vt, "elev": ve, "tile_eff": vf,
+                         # #477-r31 : la VENTILATION du port par feuille. Sans elle, un desaccord
+                         # ne dit que son AMPLITUDE ; avec elle, on lit tout de suite si le port a
+                         # mis le terme attendu et si un AUTRE terme manque -- c'est la
+                         # decomposition par etage, cote port.
+                         "leaves": {k: v for k, v in leaves.items() if abs(v) > 1e-9}})
         return {"rows": rows, "prof": prof, "step": step, "uid": carrier_id,
-                "bras_a": ha, "bras_b": hb, "montage": montage}
+                "bras_a": ha, "bras_b": hb, "montage": montage,
+                "friend_units": list(_port_leaves(ctx, tiles[0])[1].get("friend_units") or ()),
+                "enemy_units": list(_port_leaves(ctx, tiles[0])[1].get("enemy_units") or ())}
 
     return {"erreur": "aucun pas DISCRIMINANT en %d pas (%d activations du carrier)"
                       % (max_steps, seen)}
@@ -550,6 +593,32 @@ def run(call, rid, montage="camp", max_steps=25) -> int:
         print("  %-10s %2d %2d %4d | %-9s %-5s %-8s %-6s | %-7.4g %s"
               % (r["tile"], r["na"], r["ne"], r["self"], r["tile7"], r["elev"], r["tile_eff"],
                  r["x_nat"], r["x_port"], ("%.4g" % d) if d is not None else "?"))
+
+    # DECOMPOSITION PAR ETAGE -- on ne rend JAMAIS un desaccord comme un simple scalaire : on
+    # imprime la ventilation du port par FEUILLE (nom d'`UtilityType`) sur les tuiles concernees,
+    # plus le kit des voisins. C'est ce qui permet de dire QUELLE feuille manque, et non « il
+    # manque 20 ».
+    if bad:
+        from engine.utilities.utility_type import UtilityType
+        print("\n  VENTILATION du port sur les tuiles en DESACCORD (feuilles non nulles) :")
+        for r in rows:
+            d = (r["x_nat"] - r["x_port"]) if r["x_nat"] is not None else None
+            if d is None or abs(d) <= 1e-6:
+                continue
+            noms = []
+            for k, v in sorted(r["leaves"].items()):
+                try:
+                    noms.append("%s=%g" % (UtilityType(k).name, v))
+                except ValueError:
+                    noms.append("<%d>=%g" % (k, v))
+            print("    %-10s manque %+.4g | %s" % (r["tile"], d, ", ".join(noms) or "(aucune)"))
+        print("  VOISINS vus par le port (pos / actives / triggered / effets) :")
+        for camp, us in (("ami", mes.get("friend_units") or ()),
+                         ("ennemi", mes.get("enemy_units") or ())):
+            for u in us:
+                print("    %-6s %-22s @%-8s act=%s trg=%s eff=%s"
+                      % (camp, u.get("vis"), u.get("pos"), list(u.get("active") or ()),
+                         list(u.get("triggered") or ()), list(u.get("effects") or ())))
 
     mordu = divergences(rows)
     print("\n  CONTRE-EPREUVE (X_nat vs X_<modele>, sur les %d tuiles hookees) :" % len(rows))
