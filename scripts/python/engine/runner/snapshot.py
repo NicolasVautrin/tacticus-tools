@@ -34,6 +34,7 @@ from .components import (
     set_unit_feet,
 )
 from ..entities.entity_type import EntityType   # #270-r1-r1-r3
+from ..entities.stats import StatType           # #462-r4e-o-r2-r1-r1 (`_load_turn_counts`)
 from ..entities import EffectsState, EffectFactory
 from ..entities import UnitContext, EffectFactory
 from ..entities import UnitContext, EffectsState, EffectFactory, baked_ability_state
@@ -388,6 +389,10 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # seeds ci-dessus -- une ENTREE de gate que rien ne peuplait sur un etat recharge, le port
         # la RECONSTRUISANT depuis gameconfig au lieu de lire la source -- cf. `_load_unit_traits`.
         _load_unit_traits(state, snapshot)
+        # APRES `_load_stats_and_effects` : cette passe LIT la stat 12 (`TURNS_STARTED`) que la
+        # precedente vient de seeder. Meme nature que les seeds ci-dessus -- une ENTREE de gate,
+        # cf. `_load_turn_counts`.
+        _load_turn_counts(state)
     # MEME nature que les deux seeds ci-dessus, mais son canal est un RPC DISTINCT (`actorStats`,
     # pas `combatSnapshot`) -> il est gate par son propre argument, jamais par `snapshot`.
     if actor_stats is not None:
@@ -764,6 +769,63 @@ def _load_unit_turn_state(state: State, snapshot: dict) -> None:
         charged = su.get("chargedUnitIds")
         if isinstance(charged, list):
             uc.charged_unit_ids = [int(i) for i in charged]
+
+
+def _load_turn_counts(state: State) -> None:
+    """Seede `State.turn_counts` -- le dict PAR JOUEUR `TurnComponent+0x38`, que rend
+    `IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsStartedByPlayer` -- DERIVE du
+    compteur PER-UNITE deja capte (stat 12 = `TURNS_STARTED`, `UnitComponent+0x58`).
+
+    POURQUOI UNE DERIVATION ET PAS UNE LECTURE : le dict natif n'est expose par AUCUN RPC. Le
+    capteur `readTurnInfo` (`frida/hooks/game/match-state.ts`) l'invoque bien, mais seulement pour
+    le joueur COURANT et seulement vers `recorder`/`cheat`/`move-options` -- ni `decisionView` ni
+    `combatSnapshot` ne le publient. Le brancher exigerait un reinject.
+
+    LA DERIVATION EST EXACTE, ET SA DIRECTION EST CONNUE. `IdunBattle.Operations.StartTurnOperation
+    $$Execute` incremente `turnsStarted@+0x58` de CHAQUE unite VIVANTE de
+    `PlayerComponent.CurrentlyOwnedUnitIds` a CHAQUE demarrage de tour -- le MEME evenement qui
+    incremente `TurnComponent+0x38[player]` (mirror porte : `_bump_turns_started` puis
+    `state.turn_counts[player] += 1`, meme fonction). Donc :
+
+      * aucune unite ne peut porter PLUS de bumps que le nombre de tours demarres par son joueur
+        -> `max(...)` ne SUR-ESTIME jamais ;
+      * une unite presente et vivante depuis le 1er tour en porte EXACTEMENT autant
+        -> `max(...)` est EXACT des qu'il en existe une.
+
+    Il ne SOUS-ESTIME que si toutes les unites du joueur sont apparues apres le debut (summons) ou
+    ont manque des tours en etant mortes. Les unites MORTES sont exclues (le natif les retire de
+    `CurrentlyOwnedUnitIds` par le `RemoveAll` de `PlayerComponent$$get_CurrentlyOwnedUnitIds`,
+    donc leur compteur est GELE et fausserait le max vers le bas s'il etait le seul).
+
+    LECTEURS DU CHAMP, et pourquoi le zero d'avant etait faux : le noeud DSL `PlayerTurnsStarted`
+    (`IdunBattle.Entities.Formulas.UnitsPlayerTurnsStartedFormula$$Calculate`), qui indexe le cycle
+    a 3 temps de `SereneUnifierAbility` -- un `turn_counts` vide y rendait `0 % 3 == 0` pour tout le
+    monde, donc la phase `StormOfFire` a chaque rejeu, quel que soit le vrai round ; et le gate
+    `AmountIsEqual(Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)), 1)` d'`EnvAmbushResurrect`
+    (celui-la etait deja juste par COMPENSATION -- `turn_defeated` est pose depuis le MEME dict, donc
+    la DIFFERENCE etait bonne meme avec deux zeros).
+
+    Tri-etat : un joueur sans aucune unite vivante portant la stat n'entre PAS au dict (on ne
+    fabrique pas un `0` qui se lirait comme une mesure)."""
+    per_player: dict[int, int] = {}
+    for e in state.entities.values():
+        oc = e.get_component(OwnerComponent)
+        if oc is None or oc.player is None:
+            continue
+        uc = e.get_component(UnitComponent)
+        if uc is not None and not uc.alive:        # `RemoveAll(<defait>)` de CurrentlyOwnedUnitIds
+            continue
+        sc = e.get_component(StatsComponent)
+        us = getattr(sc.ctx, "stats", None) if sc is not None else None
+        if us is None:
+            continue
+        n = us.get_stat(int(StatType.TURNS_STARTED), 0)
+        if n is None:
+            continue
+        p = int(oc.player)
+        per_player[p] = max(per_player.get(p, 0), int(n))
+    for p, n in per_player.items():
+        state.turn_counts[p] = n
 
 
 def _load_unit_parent(state: State, snapshot: dict) -> None:

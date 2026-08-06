@@ -249,6 +249,20 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return group_unit_stat_part(int(variant), int(hc.hp_max), n, int(hc.hp))
         return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
 
+    # `ctx.player_turns_started` (mirror `IdunBattle.Entities.Formulas.UnitsPlayerTurnsStartedFormula
+    # $$Calculate`) : `TurnComponent.GetAmountOfTurnsStartedByPlayer(turn, GetOriginalOwnerEntityId(
+    # unit))` = le dict PAR JOUEUR `TurnComponent+0x38`, cote port `State.turn_counts`. Lu par le
+    # noeud `PlayerTurnsStarted` (cycle a 3 temps de `SereneUnifierAbility`). L'owner ORIGINAL du
+    # natif est approxime par l'owner COURANT (`OwnerComponent.player`) -- approximation nommee dans
+    # la docstring du noeud. Unite sans `OwnerComponent` -> 0.
+    def _player_turns_started(unit):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        oc = e.get_component(OwnerComponent) if e is not None else None
+        if oc is None or oc.player is None:
+            return 0
+        return int(state.turn_counts.get(int(oc.player), 0) or 0)
+
     # `ctx.get_ability_level` (mirror du niveau d'ability lu par `ConfigVar` sur une unite TIERCE) : le noeud
     # `ConfigVarForEntity(RighteousRepugnance, chance, killer)` lit le niveau PASSIF/ACTIF capte de l'unite
     # (`StatsComponent.ctx.passive_ability_level`/`active_ability_level`, seede depuis unitConfig).
@@ -529,6 +543,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       # `TurnComponent.CurrentPlayer` -> noeud `IsTurnOf` (#85). Le runner le tient
                       # dans `state.current_player_id` (pose par `ChangeTurnOperation.execute`).
                       current_player_id=getattr(state, "current_player_id", None),
+                      player_turns_started=_player_turns_started,
                       units_damaged_this_phase=_units_damaged_this_phase,
                       charged_units=_charged_units,
                       valid_normal_attack_targets=_valid_normal_attack_targets,

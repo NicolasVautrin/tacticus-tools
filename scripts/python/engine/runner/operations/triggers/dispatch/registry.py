@@ -162,6 +162,7 @@ from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (r
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
+from ..loki.serene_unifier import SereneUnifierRotationAbility        # #462-r4e-o-r2-r1-r1 (tauAunShi)
 from ..loki.neuroparasite import (NeuroparasiteAddBondEffectAbility,     # #462-r4b-r1-r1-r1
                                   NeuroparasiteIncreaseLevelOnPsychicHit,
                                   NeuroparasiteIncreaseLevelOnPinned,
@@ -544,6 +545,21 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/my_will_be_done_overlord.py (`...MyWillBeDoneOverlordAbility$$CreateTrigger` /
     # `$$CreateBehaviour` / `$$GetTargetFriend`).
     "MyWillBeDoneOverlord": [MyWillBeDoneOverlordAttackAbility, MyWillBeDoneOverlordClearAbility],
+    # SereneUnifier (passif `tauAunShi`, `TriggeredAbilityType` 0x479 = 1145 -- #462-r4e-o-r2-r1-r1) :
+    # `On(TurnStart_Other=0x13, ownerNeedsToBeAlive=1) & <DSLTriggers+0x28 = IsTurnOf(Owner)> &
+    #  get_OwnerIsCaster` -> les SIX `If(Modulo(PlayerTurnsStarted(Self), 3, k))` qui posent, sur
+    # self + amis adjacents + amis T'au a <= `range`, l'effet de la phase courante :
+    #   k = 0 -> 0x493 = 1171 StormOfFire  (stat 0 ATTACK, ConfigVar(8 = extraDmg))
+    #   k = 1 -> 0x491 = 1169 SenseOfStone (classe bespoke : reduction de degat)
+    #   k = 2 -> 0x492 = 1170 ZephyrsGrace (stat 1 MOVEMENT, ConfigConst(0xe = extraMovement))
+    #   + les trois `*_Visual` (0x49a / 0x498 / 0x499), `NoneEffect` inertes.
+    # ⚠ Le compteur est `PlayerTurnsStarted` (`TurnComponent+0x38` = `State.turn_counts`), PAS
+    # `UnitTurnsStarted` (`UnitComponent+0x58`) qu'indexe le cycle jumeau de `FleshmetalGuns` --
+    # deux compteurs natifs distincts, et les confondre decale la phase.
+    # Les EFFETS etaient portes depuis longtemps, la ROTATION ne l'etait pas : un rejeu offline
+    # multi-tours gardait donc a vie l'effet SEEDE au chargement. Cf. loki/serene_unifier.py et
+    # `docs/rl/case-462-r4e-o-amount-borne-aux-pv.md` SS 9.
+    "SereneUnifier": [SereneUnifierRotationAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
