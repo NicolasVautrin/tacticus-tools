@@ -1259,6 +1259,56 @@ class _NormalAttackTargeting:
         return 0
 
 
+class UnportedAbilityTargeting:
+    """Porteur MINIMAL des `TargetingOptions` d'une ability dont la BEHAVIOUR n'est pas portee
+    (masque lu -> `TARGETING_OPTIONS_UNPORTED`), pour reutiliser TELLE QUELLE la cascade
+    `get_invalid_target_reason`. Pendant exact de `_NormalAttackTargeting` ci-dessus, du meme
+    procede, mais pour un `ActiveAbilityType` du catalogue.
+
+    POURQUOI UNE CLASSE NOMMEE, ET PAS UN `type(...)` FABRIQUE AU SITE (#287-r4). La cascade
+    consomme DEUX membres sur son argument `ability` : le masque `TARGETING_OPTIONS`, et -- sous le
+    bit `TargetMatchesDynamicRule` -- la METHODE `get_dynamic_invalid_target_reason`. Un porteur qui
+    n'apporte que le premier fait lever la cascade (`AttributeError`) des que le masque porte le
+    bit ; c'etait le cas du type anonyme `_UnportedTargeting` fabrique par
+    `operations/turnflow._has_valid_targets`, sur 18 des 65 ids qui posent ce bit.
+
+    DEGRADATION -- NOMMEE, jamais un `getattr` defensif. Le natif a TOUJOURS un delegue quand le bit
+    est pose : `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` l'ecrit a `options+0x38` (lie au
+    slot vtable `+0x480`), et la surcharge 7 arguments de
+    `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` le lit sans garde -- un delegue
+    NUL y fait LEVER (l'appel s'y termine par le stub de NullReferenceException), il ne degrade pas.
+    Le port, lui, ne PEUT pas evaluer ce delegue : c'est precisement le corps de la sous-classe qui
+    n'est pas porte. Les deux methodes ci-dessous rendent donc `0` = « pas de refus dynamique »,
+    la degradation PERMISSIVE de tout ce module (aucun refus invente). Elle est du meme cote que le
+    defaut de `ActiveAbility.get_dynamic_invalid_target_reason` (base), qu'une sous-classe portee
+    posant le bit sans surcharger recevrait aussi.
+
+    `ABILITY_ID` est la cle GAMECONFIG (une chaine, ex. `"Executioner"`), pas l'ordinal : c'est ce
+    que `_ability_config_range` passe a `GC.ability(...)` pour resoudre
+    `AbilityConfiguration.GetNumberConstant(range)`. `None` quand elle n'est pas resolue -> le
+    volet `UseRangeFromConfig` de `set_config_values_in_targeting_options` reste inerte, ce qui est
+    le comportement DEJA en place (l'ancien site posait un `int`, que `GC.ability` ne peut pas
+    resoudre non plus)."""
+
+    __slots__ = ("TARGETING_OPTIONS", "ABILITY_ID", "ABILITY_TYPE")
+
+    def __init__(self, ability_type: int, options: "TargetingOptions",
+                 ability_id: Optional[str] = None):
+        self.TARGETING_OPTIONS = options
+        self.ABILITY_TYPE = int(ability_type)
+        self.ABILITY_ID = ability_id
+
+    def get_dynamic_invalid_target_reason(self, state, caster_id, target_id) -> int:
+        """Regle-delegue CIBLE (`options+0x38`) : NON EVALUABLE pour une behaviour non portee.
+        Cf. le bloc DEGRADATION de la docstring de classe."""
+        return 0
+
+    def get_dynamic_invalid_caster_reason(self, state, caster_id) -> int:
+        """Regle-delegue CASTER (`options+0x30`, bit `CasterMatchesDynamicRule`) : meme motif de
+        non-evaluabilite que son pendant CIBLE ci-dessus."""
+        return 0
+
+
 def valid_normal_attack_targets(state: "State", caster_id: int) -> list:
     """`IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select` (MIRROR du decompile) :
 
@@ -2620,8 +2670,17 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
         commence par l'aiguillage self-cast et BRANCHE sur `GetCasterNotAddedReason` -- c'est le
         defaut ici, et le comportement de tous les appelants historiques ;
       * la surcharge **7 arguments** (celle que `TargetingQuery$$GetValidTargets` appelle dans sa
-        boucle d'enumeration, avec `range` deja calcule) est le FILTRE STATIQUE PUR : aucun
-        aiguillage, la cible est jugee par la cascade meme quand elle EST le caster.
+        boucle d'enumeration, avec `range` deja calcule) est la CASCADE SEULE : aucun aiguillage,
+        aucun volet caster, la cible est jugee par la cascade meme quand elle EST le caster.
+
+    ⚠ « CASCADE SEULE » N'EST PAS « SANS REGLE DYNAMIQUE » (#287-r4). Relue a l'octet sur le build
+    courant, la surcharge 7 arguments INVOQUE le delegue `options+0x38` sous le bit
+    `TargetMatchesDynamicRule`, entre `TargetIsNotAdjacentToEnemy` et `TargetIsCasterOrEnemy` --
+    exactement la place ou ce port la met. Ce que les 5 arguments ajoutent, et qu'elle n'a pas,
+    c'est l'aiguillage self-cast et l'appel prealable a `GetInvalidCasterReason` ; rien de plus.
+    Donc TOUT appelant de cette fonction, `apply_self_cast_switch` a `False` compris, doit fournir
+    une INSTANCE portant `get_dynamic_invalid_target_reason` -- une classe rendrait la methode NON
+    LIEE (`TypeError`), un porteur minimal sans la methode ferait `AttributeError`.
 
     Le port n'a qu'un corps ; ce drapeau NOMME la surcharge. `False` = la 7 arguments -- reserve aux
     mirrors d'ENUMERATION (`caster_is_valid_target`), jamais au chemin du cast.

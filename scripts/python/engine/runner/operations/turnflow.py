@@ -64,7 +64,8 @@ from .triggers import (start_turn_triggers, turn_start_other_triggers, tile_tick
 # chemin d'execution. Le cout d'import, lui, se paie une fois.
 from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ..abilities.targeting import (valid_normal_attack_targets, normal_attack_type_for,
-                                   get_invalid_target_reason, targeting_options_for)
+                                   get_invalid_target_reason, get_invalid_caster_reason,
+                                   targeting_options_for, UnportedAbilityTargeting)
 from ..abilities.handler import ABILITY_CLASSES
 from .repair import _is_boss
 from ...ai.state_bridge import _move_tiles
@@ -799,9 +800,14 @@ def _has_valid_targets(state: State, unit_id: int, ability_type: int) -> Optiona
         options = <ITargetingOptionsProvider slot 0>(activeAbilityType)
         return <ITargetingQuery>.<...>(attacker, attackerPosition, <predicat sur options>)
 
+    DEUX ETAGES, et le port n'en portait qu'UN (#287-r4). `TargetingQuery$$GetValidTargets` ouvre par
+    le volet CASTER et rend `ValidTargets.Empty` s'il est rompu, AVANT toute enumeration ; ce n'est
+    qu'ensuite qu'elle filtre chaque cible par la surcharge 7 arguments. Detail au site.
+
     Le predicat terminal est la MEME cascade que `TargetingQuery$$GetValidTargets` : la surcharge
-    **7 arguments** de `GetInvalidTargetReason`, le FILTRE STATIQUE PUR (ni aiguillage self-cast, ni
-    volet caster). C'est exactement ce que le port nomme `apply_self_cast_switch=False`, et c'est
+    **7 arguments** de `GetInvalidTargetReason`, la CASCADE SEULE (ni aiguillage self-cast, ni volet
+    caster -- mais la regle DYNAMIQUE, elle, y est bien : cf. le commentaire au site ci-dessous et
+    #287-r4). C'est exactement ce que le port nomme `apply_self_cast_switch=False`, et c'est
     pour cela qu'on n'appelle PAS `is_invalid_target` (qui, lui, ajoute le volet caster de la
     surcharge 5 arguments — il refuserait des cibles que `GetValidTargets` garde, donc SUR-FERMERAIT).
 
@@ -814,11 +820,46 @@ def _has_valid_targets(state: State, unit_id: int, ability_type: int) -> Optiona
     opts = targeting_options_for(int(ability_type))
     if opts is None:
         return None
-    ability = ABILITY_CLASSES.get(int(ability_type))
-    if ability is None or getattr(ability, "TARGETING_OPTIONS", None) is None:
-        # Masque LU mais behaviour non portee (`TARGETING_OPTIONS_UNPORTED`) : on porte un objet
-        # MINIMAL qui ne transporte que le masque — meme procede que `_NormalAttackTargeting`.
-        ability = type("_UnportedTargeting", (), {"TARGETING_OPTIONS": opts, "ABILITY_ID": int(ability_type)})
+    # UNE INSTANCE, jamais la CLASSE (#287-r4). Le natif charge ici un OBJET --
+    # `attacker.GetComponent<ActiveAbilityComponent>().GetOrNull(activeAbilityType)` -- et la
+    # cascade qu'il appelle ensuite (surcharge 7 arguments de
+    # `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`) INVOQUE le delegue dynamique
+    # de cet objet sous le bit `TargetMatchesDynamicRule` :
+    #     if ((options.Rules & 2) != 0) {
+    #         d = options.<+0x38>;            // pose par `AActiveAbility$$.ctor`, slot vtable +0x480
+    #         if (d == null) <NullReferenceException>;
+    #         rule = d.Invoke(caster, casterTiles, target, targetTiles);
+    #         if (rule != 0) return GenericBrokenTargetingRule(rule);
+    #     }
+    # « filtre STATIQUE pur » ne qualifie donc que l'ABSENCE de l'aiguillage self-cast et du volet
+    # caster (tous deux dans les surcharges 5 arguments, en AMONT) -- la regle DYNAMIQUE, elle, est
+    # bien dans la 7 arguments. Passer la classe rendait la methode NON LIEE : `state` se liait a
+    # `self` et il manquait un argument (`TypeError`, 47 des 65 ids qui posent le bit).
+    klass = ABILITY_CLASSES.get(int(ability_type))
+    if klass is not None and getattr(klass, "TARGETING_OPTIONS", None) is not None:
+        ability = klass()                      # meme construction que `abilities/handler.py`
+    else:
+        # Masque LU mais behaviour non portee (`TARGETING_OPTIONS_UNPORTED`) : porteur MINIMAL qui
+        # transporte le masque ET les deux regles-delegues, dont la non-evaluabilite est NOMMEE dans
+        # la classe -- meme procede que `_NormalAttackTargeting`.
+        ability = UnportedAbilityTargeting(int(ability_type), opts,
+                                           ability_id=getattr(klass, "ABILITY_ID", None))
+    # LE VOLET CASTER, EN TETE (#287-r4). `TargetingQuery$$GetValidTargets` -- la fonction dont
+    # cette boucle est le mirror -- COMMENCE par lui, et sort AVANT toute enumeration :
+    #     reason = GetInvalidCasterReason(caster, casterTiles, options);
+    #     if (reason.IsInvalid())  return ValidTargets.Empty;      // aucune cible, pas « toutes »
+    #     range = GetRange(...); foreach (t in GetPossibleTargetsForOptions(...)) { <la 7 args> }
+    # Les QUATRE surcharges de `GetValidTargets` convergent vers ce corps, donc le volet caster est
+    # dans le chemin quel que soit l'overload emprunte. Ce n'est PAS en contradiction avec le
+    # `apply_self_cast_switch=False` ci-dessous : la 7 arguments, elle, n'a pas le volet -- c'est son
+    # APPELANTE qui le porte. Les deux etages sont distincts et tous deux necessaires.
+    # MESURE qui l'a impose (C1_02 / seed 28704, `orksWarboss` apres un pas) : le natif rend
+    # `casterReason = CasterHasNotMoved` et pose `UnitFlag.NoActionAvailable` ; sans cet etage le
+    # port trouvait `Waaagh` castable et NE posait PAS le flag -- l'unite restait jouable a tort.
+    # `False` et non `None` : un caster refuse est une MESURE (l'ensemble natif est vide), pas une
+    # indetermination.
+    if get_invalid_caster_reason(state, int(unit_id), ability):
+        return False
     for tid in list(state.entities.keys()):
         if get_invalid_target_reason(state, int(unit_id), int(tid), ability,
                                      apply_self_cast_switch=False) == 0:
