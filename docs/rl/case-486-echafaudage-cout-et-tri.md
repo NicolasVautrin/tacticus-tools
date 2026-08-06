@@ -55,6 +55,25 @@ seule.
 La localité s'**établit**, elle ne se suppose pas. « Non cachable, voici pourquoi » est un
 résultat.
 
+### Le cache est VERSIONNÉ — sinon il ne sert jamais
+
+⚠ **Pas dans `logs/`.** Tout agent travaille dans un **worktree frais parti de `origin/master`** :
+`logs/` est gitignoré, il y naît vide et meurt avec le worktree. Un cache non versionné serait
+donc toujours froid **exactement là où il doit servir** — la validation d'une PR — et ne
+réchaufferait que la boucle locale de l'orchestrateur. C'est ce coût-là qu'on vise : la banque
+retirée mesurait **~891 s par agent et par PR**.
+
+⚠ **Pas dans `data/` non plus** : `data/` est réservé aux ENTRÉES (« `data/` = ce qu'on LIT »),
+et `probe_273 --only-scan` étape 0c rougit à bon droit sur un chemin `data/<x>` construit qui ne
+désigne pas une entrée versionnée. Le cache est un **dérivé de l'arbre source**, même famille que
+`kit-coverage.md` : généré, versionné, et dont un conflit se **régénère** au lieu de se fusionner.
+
+**Ce que le versionnement introduit, et qui doit être traité :** un cache versionné est une
+**attestation qui peut mentir** — la parade est structurelle, la clé DOIT être le **hash du
+contenu** (+ le hash de build là où le verdict en dépend), pour qu'une entrée périmée ne puisse
+que MANQUER ; les **conflits de merge** à 6 agents ; le **churn d'historique** ; et le
+**changement de build**, où tout doit manquer.
+
 ## 4. Les 825 probes : la moitié n'est jouée par rien, et on ne peut pas les distinguer
 
 Ventilation par citation **EXÉCUTABLE** (AST du citant : `import`, ou `ast.Constant` str
