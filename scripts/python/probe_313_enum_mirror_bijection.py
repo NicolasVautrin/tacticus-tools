@@ -196,6 +196,16 @@ REGISTRE: list[Mirror] = [
            "IdunBattle.Configuration.AbilityConstantType"),
     Mirror("AbilityVariableType", "engine/entities/ability_variable_type.py",
            "IdunBattle.Configuration.AbilityVariableType"),
+    # #477-r21-r2 volet B -- `AbilityPriority`, le critere de tri du cache d'activation
+    # (`IdunBattleLogic.Core.Services.Caches.SortedTriggered$$CompareTo`). Il entre au registre DANS
+    # LE COMMIT QUI LUI DONNE UN MIRROR. Sa cle est LUE : c'est le TYPE DE RETOUR declare des trois
+    # `get_Priority` que `frida/methods.tsv` nomme, et son namespace est `IdunBattle.Entities.
+    # Abilities` -- pas `IdunBattle.Entities.Enum`, ou le nom court aurait cherche en vain.
+    # ⚠ LE MEME ENUM SERT A DEUX AXES QU'IL NE FAUT PAS CONFONDRE : le tier de PLAYBOOK (`IPlaybook`
+    # slot 0, table `engine/playbook/noncomparable/_base.py::NATIVE_PRIORITY`, case-170) et la
+    # priorite de CACHE (slot 7 d'une ability, slot 9 d'un effet). Deux slots, deux objets.
+    Mirror("AbilityPriority", "engine/entities/ability_priority.py",
+           "IdunBattle.Entities.Abilities.AbilityPriority"),
     # #477-r15 tranche A -- le vocabulaire du FLUX DE REPLAY. Les trois enums entrent au registre
     # DANS LE COMMIT QUI LEUR DONNE UN MIRROR, parce que ce gisement s'est deja rouvert QUATRE fois
     # par notre propre cadence (`PathfinderType`, `KillUnitStep`, `DamageReason`, `Edge`). Leur cle

@@ -2786,11 +2786,46 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   confrontees sur **289** sous-arbres `Effect_Refresh` du flux temoin (0 contre-exemple, 0
   divergence sur 273 + 265 actions rederivees). Elles decident ce qui se passe **une fois l'effet
   choisi** ; elles ne le choisissent pas. `Effect_Refresh` AUTONOMES **re-mesure a 0/0/0**.
-  RESTE DONC OUVERT ICI : le cache `AbilityAndEffectCache.<slot 3>` (volet B), les deux gardes
-  d'`EvaluateAbilityTrigger` (volet C), la sequence de creation (volet D).
+  ⚠ **SON VOLET B EST LIVRE, ET IL A SCINDE CE RESIDU EN DEUX TERMES QUI N'ETAIENT PAS DISTINGUES.**
+  La STRUCTURE et les REGLES du cache sont portees 1:1 (`engine/runner/caches/ability_and_effect_cache.py` :
+  7 conteneurs, `AddSorted` = insertion decroissante STABLE par `SortedTriggered$$CompareTo`, les 4
+  peupleurs, les 2 retraits ; mirror neuf `AbilityPriority` au registre `probe_313`). Sa SEQUENCE
+  est confrontee au natif sur **178 passes completes** de **21 `EventTriggerType`**, via le hook
+  EXISTANT `triggerTrace` (`BaseTriggeredAbility$$ShouldTrigger`, **aucun capteur neuf**) : **0**
+  divergence de stabilite, **0** re-derivation fausse, **0** ordre divergent cote registre du port
+  (3 evenements discriminants). L'ORDRE cesse donc d'etre une inconnue.
+  RESTE : la **SELECTION** -- quels effets/abilities ecoutent quel trigger. C'est
+  `ITriggeredAbility.<slot 3>` et `IEffect.<slot 0x12>`/`<slot 0x2d>`, **meme cause que #477-r26**
+  (corps dedupliques + blobs `RuntimeHelpers.InitializeArray` dans `global-metadata.dat`). C'est
+  ELLE, et elle seule, qui tient `Effect_Refresh` AUTONOMES a **0/0/0**.
+  ⚠ **UNE RUPTURE DE MONOTONIE A ETE MESUREE PUIS DISCRIMINEE** (4 occurrences) : une entite revient
+  en queue de liste. Cause **(b) AJOUT TARDIF** par `RefreshEntity` -- **pas** une priorite != Normal.
+  Le discriminant est l'HISTOIRE (**toutes** les passes courtes sont des PREFIXES de la passe
+  finale, **0** hors sous-sequence sur les deux boards), pas la sequence finale, que les deux
+  causes rendent identique.
+  RESTE DONC OUVERT ICI : la SELECTION (ci-dessus), les deux gardes d'`EvaluateAbilityTrigger`
+  (volet C), la sequence de creation (volet D), et l'ordre INTRA-entite
+  (`UnitFactory$$AddConfiguredAbilities` : passives -> relique -> actives, la ou le port met la
+  relique EN DERNIER -- lu, non confronte).
   cf. `docs/rl/case-477r21-arbre-activation.md` sec. 1 et 5,
-  `docs/rl/case-477r21r2a-gardes-refresh-effects.md`, et
+  `docs/rl/case-477r21r2a-gardes-refresh-effects.md`,
+  `docs/rl/case-477r21r2b-cache-activation.md`, et
   `docs/rl/case-477r21r3-allocation-entites-effet.md` sec. 4.
+
+- **#477-r27 : CABLER le cache d'activation dans `evaluate_trigger_operation`.** `[opus]`
+  **CONDITIONNE A UNE MESURE, pas une tache en attente.** `engine/runner/operations/triggers/dispatch/core.py`
+  RECONSTRUIT son registre a chaque evenement (`abilites(par entite) + globals + effets(par unite)`)
+  la ou le natif LIT une liste persistante `AbilityAndEffectCache.active[trigger]`. Les deux ordres
+  n'ont aucune raison structurelle de coincider -- et pourtant, mesure sur `MC1_67` 2v2 et `C1_02`
+  5v5 (`probe_477r21r2b`, invariant (I5)) : **0 divergence d'ordre**, 3 evenements discriminants.
+  Brancher le cache aujourd'hui changerait l'ordre d'execution des triggers -- donc le RNG, donc les
+  cascades -- pour un gain **mesure nul**. Le declencheur est une divergence (I5) MESUREE.
+  DEUX REGIMES CANDIDATS, identifies par la STRUCTURE et absents du corpus actuel : (1) une **unite
+  SPAWNEE** en cours de partie -- son identifiant depasse ceux des entites d'effet deja creees, donc
+  le natif la place APRES elles alors que le port place toutes les abilites avant tous les effets ;
+  (2) un porteur dont la priorite de cache n'est pas `AbilityPriority.Normal`. **Monter ces deux
+  scenarios EST la tranche** -- si (I5) reste vert dessus, le residu se ferme par la mesure.
+  cf. `docs/rl/case-477r21r2b-cache-activation.md` sec. 6 et Residus.
 
 - **#477-r26 : les DONNEES que les gardes de `RefreshEffectsOperation` consomment.** `[opus]`
   Le volet A a porte les quatre gardes ; trois entrees qu'elles LISENT manquent au port, et tant
