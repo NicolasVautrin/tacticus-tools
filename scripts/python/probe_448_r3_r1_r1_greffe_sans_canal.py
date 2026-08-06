@@ -47,7 +47,11 @@ import sys
 from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
+if str(PYDIR) not in sys.path:
+    sys.path.insert(0, str(PYDIR))
 CATALOG = PYDIR / "catalog_inject.py"
+
+import repo_read                                                            # noqa: E402
 
 #: Cles de `BC.Units[]` dont le port ne peut lire l'ecart QUE par le canal `unitAbilityStates`.
 #: Ce sont exactement les trois que monte `IdunBattle.Entities.Factories.UnitFactory$$
@@ -72,9 +76,16 @@ INHERITED_AMBIENT_DIR = "tests"
 
 # ─────────────────────────────────────────────────────────────────── outillage AST
 
-def parse(path: Path):
+def parse(path: Path, texte: str | None = None):
+    """AST du fichier, ou `None` s'il ne parse pas.
+
+    `texte` : source deja lue -- l'INDEX la lit en parallele et la passe, ce qui evite de rouvrir
+    le meme fichier trois fois (#486-r5). Absente, elle est lue ici, comme avant.
+    """
     try:
-        return ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
+        if texte is None:
+            texte = path.read_text(encoding="utf-8", errors="replace")
+        return ast.parse(texte, filename=str(path))
     except SyntaxError:
         return None
 
@@ -258,12 +269,15 @@ def _resolve_relative(mod: str, level: int, base_pkg: str) -> str:
     return ".".join([p for p in parts + ([mod] if mod else []) if p])
 
 
-def file_symbols(path: Path, root: Path) -> dict:
+def file_symbols(path: Path, root: Path, tree=None) -> dict:
     """Table de resolution du fichier : `{nom local: ('mod', <module>) | ('fn', <module>, <nom>)}`.
 
     C'est ce qui QUALIFIE les appels. Les imports relatifs sont resolus contre le package du
-    fichier ; les imports hors corpus restent dans la table et ne matchent simplement jamais."""
-    tree = parse(path)
+    fichier ; les imports hors corpus restent dans la table et ne matchent simplement jamais.
+
+    `tree` : AST deja construit -- passe par `index` (#486-r5)."""
+    if tree is None:
+        tree = parse(path)
     if tree is None:
         return {}
     mod = module_name(path, root)
@@ -282,7 +296,8 @@ def file_symbols(path: Path, root: Path) -> dict:
     return syms
 
 
-def resolve_calls(path: Path, root: Path, own_fns: set, conditional: dict | None = None) -> dict:
+def resolve_calls(path: Path, root: Path, own_fns: set, conditional: dict | None = None,
+                  tree=None) -> dict:
     """`{fonction du fichier (ou '<module>'): {(module, nom) appeles ou REFERENCES}}` -- QUALIFIE.
 
     Trois formes resolues : `M.f` via l'alias de module, `f` importe via `from X import f`, et `f`
@@ -291,13 +306,16 @@ def resolve_calls(path: Path, root: Path, own_fns: set, conditional: dict | None
     IGNOREE ici et comptee a l'etage 5.
 
     `conditional = {(module, nom): <parametre>}` : arete posee SEULEMENT si le site passe ce
-    keyword -- c'est la primitive dont la divergence depend de l'argument."""
-    tree = parse(path)
+    keyword -- c'est la primitive dont la divergence depend de l'argument.
+
+    `tree` : AST deja construit -- passe par `index` (#486-r5)."""
+    if tree is None:
+        tree = parse(path)
     if tree is None:
         return {}
     conditional = conditional or {}
     mod = module_name(path, root)
-    syms = file_symbols(path, root)
+    syms = file_symbols(path, root, tree)
     out: dict = {}
     unresolved = 0
 
@@ -364,20 +382,38 @@ def resolve_calls(path: Path, root: Path, own_fns: set, conditional: dict | None
 
 
 def index(files: list, root: Path, conditional: dict | None = None) -> dict:
-    """`{graph, mods, bad, unresolved, per_file}` -- graphe d'appels QUALIFIE du corpus."""
+    """`{graph, mods, bad, unresolved, per_file}` -- graphe d'appels QUALIFIE du corpus.
+
+    UN SEUL `ast.parse` PAR FICHIER (#486-r5). Il y en avait TROIS : ici, puis `resolve_calls`
+    re-parsait, puis `file_symbols` re-parsait encore -- avec, chaque fois, une relecture disque.
+    Mesure du 2026-08-06 : `ast.parse` de tout `scripts/python/**` coute 27,8 s, donc ~83 s pour
+    ce seul index, sur les 107,8 s du fichier de test qui l'appelle.
+
+    L'arbre est passe en ARGUMENT, jamais memoise : retenir les 2089 arbres de ce corpus coute
+    **1013 Mo** de tas Python (mesure du meme jour). Ici la memoire reste celle d'UN arbre --
+    celui de l'iteration courante.
+
+    Lecture PARALLELE (`repo_read`, 16 threads) : l'ouverture d'un fichier sous `scripts/` pese
+    ~7 ms (filtre systeme sur les extensions executables), soit 3,2 s en serie contre 0,8 s en
+    parallele -- et elle etait payee TROIS fois. Le texte rendu est celui de
+    `read_text(encoding='utf-8', errors='replace')`, donc memes `lineno` et meme tolerance aux
+    octets invalides.
+    """
     graph: dict = {}
     mods: dict = {}
     bad: list = []
     unresolved = 0
     per_file: dict = {}
-    for p in files:
-        tree = parse(p)
+    octets = repo_read.read_bytes_many([str(p) for p in files])
+    for p, data in zip(files, octets):
+        texte = None if data is None else repo_read.to_text(data, errors="replace")
+        tree = parse(p, texte)
         if tree is None:
             bad.append(p)
             continue
         own = {n.name for n in ast.walk(tree)
                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
-        res = resolve_calls(p, root, own, conditional)
+        res = resolve_calls(p, root, own, conditional, tree)
         unresolved += res.pop("<unresolved>", 0)
         mod = module_name(p, root)
         mods[p] = mod

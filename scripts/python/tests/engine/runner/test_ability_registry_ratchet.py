@@ -495,8 +495,11 @@ def _nom_normalise(ident: str) -> str:
     return ident.replace("_", "")
 
 
-def _sources_python() -> list:
-    return [p for p in PY_ROOT.rglob("*.py") if p != MODULE_GENERE]
+def _sources_python(racine: Path = PY_ROOT) -> list:
+    """`racine` : PARAMETRE depuis #486-r5, pour que la garde du cache puisse exercer le balayage
+    REEL sur un corpus synthetique minuscule. Le defaut est le corpus complet -- le perimetre des
+    tests de ce fichier est INCHANGE."""
+    return [p for p in racine.rglob("*.py") if p != MODULE_GENERE]
 
 
 #: LES DEUX RELEVES, produits par UNE SEULE passe de lecture + `ast.parse` (#486-r5).
@@ -523,20 +526,23 @@ def _releves_de_ciblage() -> tuple:
     return _RELEVES_CACHE
 
 
-def _balayer_ciblage() -> tuple:
+def _balayer_ciblage(racine: Path = PY_ROOT) -> tuple:
     """LE balayage, sans cache. Lecture PARALLELE (`repo_read`, 16 threads) : l'ouverture d'un
     fichier sous `scripts/` pese ~7 ms (filtre systeme sur les extensions executables), soit
     3,2 s en serie contre 0,8 s en parallele sur ce corpus. Le texte rendu est celui de
     `read_text(encoding='utf-8')`, donc memes `lineno` ; un fichier illisible ou non-UTF-8 reste
     ECARTE en silence, exactement comme le faisait le `except (SyntaxError, UnicodeDecodeError)`
-    de chacun des deux tests."""
+    de chacun des deux tests.
+
+    `racine` : PARAMETRE, pour que la garde du cache exerce ce balayage sur un corpus synthetique
+    minuscule. Le defaut est le corpus complet -- critere INCHANGE."""
     import repo_read
 
     par_nom = {m.name.upper(): int(m) for m in TargetingRule}
     par_nom["ALLOWOBSCUREDTARGET"] = int(TargetingRule.AllowObscuredTarget)   # composite, non itere
 
     constantes, bits = [], []
-    chemins = _sources_python()
+    chemins = _sources_python(racine)
     for chemin, data in zip(chemins, repo_read.read_bytes_many([str(p) for p in chemins])):
         if data is None:
             continue
@@ -559,7 +565,7 @@ def _balayer_ciblage() -> tuple:
                     homonyme = par_nom.get(_nom_normalise(ident)) == valeur.value
                     if prefixe or homonyme:
                         constantes.append("%s:%d  %s = %#x"
-                                          % (chemin.relative_to(PY_ROOT).as_posix(),
+                                          % (chemin.relative_to(racine).as_posix(),
                                              cible.lineno, ident, valeur.value))
             elif (isinstance(noeud, ast.Call) and isinstance(noeud.func, ast.Attribute)
                     and noeud.func.attr == "has"):
@@ -570,7 +576,7 @@ def _balayer_ciblage() -> tuple:
                     if (isinstance(arg, ast.Constant) and isinstance(arg.value, int)
                             and not isinstance(arg.value, bool)):
                         bits.append("%s:%d  options.has(%#x)"
-                                    % (chemin.relative_to(PY_ROOT).as_posix(),
+                                    % (chemin.relative_to(racine).as_posix(),
                                        noeud.lineno, arg.value))
     return tuple(constantes), tuple(bits)
 

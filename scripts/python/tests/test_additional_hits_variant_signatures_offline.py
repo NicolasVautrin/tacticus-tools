@@ -52,8 +52,11 @@ def _reference_params():
     return tuple(inspect.signature(execute_additional_hits).parameters)
 
 
-def _iter_py_files():
-    for path in sorted(PYDIR.rglob("*.py")):
+def _iter_py_files(racine: Path = PYDIR):
+    """`racine` : PARAMETRE depuis #486-r5, pour que la garde du cache puisse exercer le
+    balayage REEL sur un corpus synthetique minuscule. Le defaut est le corpus complet -- le
+    perimetre des tests de ce fichier est INCHANGE."""
+    for path in sorted(racine.rglob("*.py")):
         if any(part in _SKIP_DIRS for part in path.parts):
             continue
         yield path
@@ -94,7 +97,7 @@ def _substitution_impls():
     return _IMPLS_CACHE
 
 
-def _balayer_substitutions():
+def _balayer_substitutions(racine: Path = PYDIR):
     """LE balayage, sans cache -- meme perimetre et meme critere qu'avant #486-r5.
 
     Lecture PARALLELE (`repo_read`, 16 threads) : l'OUVERTURE d'un fichier sous `scripts/` pese
@@ -105,7 +108,7 @@ def _balayer_substitutions():
     (elle remontait de `fh.read()`), `OSError` aussi (elle remontait de `io.open`).
     """
     out = []
-    fichiers = list(_iter_py_files())
+    fichiers = list(_iter_py_files(racine))
     for path, data in zip(fichiers, repo_read.read_bytes_many([str(p) for p in fichiers])):
         if data is None:
             raise OSError("illisible : %s" % path)
@@ -118,7 +121,7 @@ def _balayer_substitutions():
                 continue
             names, star = _params_of(node)
             if names[:len(_HEAD)] == _HEAD:
-                rel = path.relative_to(PYDIR).as_posix()
+                rel = path.relative_to(racine).as_posix()
                 out.append((rel, node.name, node.lineno, names, star))
     return out
 
