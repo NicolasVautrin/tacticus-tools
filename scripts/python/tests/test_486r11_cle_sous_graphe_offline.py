@@ -243,6 +243,28 @@ def test_etage4_temoin_la_fermeture_reelle_est_NON_VIDE_et_PLUS_PETITE_que_l_arb
         "reinvaliderait pas son paquet")
 
 
+# ================================================================= 4bis. LE RECENSEUR DES ANGLES MORTS
+
+def test_etage4bis_le_recenseur_des_formes_VOIT_encore():
+    """`probe_486r11 --formes` rend **0 site dynamique** et **0 import optionnel** sur `engine/`.
+
+    Un ZERO ne prouve RIEN si le detecteur ne voit plus rien -- et c'est exactement le regime ou
+    ce zero serait cite comme « aucun angle mort ». Le probe porte donc son propre temoin, sur un
+    corpus jouet ; cet etage garde que le temoin est NON VIDE et que le verdict sur `engine/`
+    reste zero. Balayer les 2 000 fichiers de `scripts/python/` couterait ~28 s pour la meme chose.
+    """
+    import probe_486r11_fermeture_imports as P
+
+    t_dyn, t_opt = P.temoin_formes()
+    assert t_dyn >= 1 and t_opt >= 1, (
+        "le detecteur de formes dynamiques est AVEUGLE (%d, %d) : son zero sur engine/ serait "
+        "vacueux" % (t_dyn, t_opt))
+    dyn, opt = P.formes(PYDIR / "engine")
+    assert dyn == [] and opt == [], (
+        "une forme que le calcul statique ne suit pas est apparue dans engine/ : %r / %r"
+        % (dyn[:5], opt[:5]))
+
+
 # ================================================================= 5. LE CACHE, DANS LES DEUX SENS
 
 @pytest.fixture
@@ -272,15 +294,18 @@ def bac(arbre, monkeypatch):
     monkeypatch.setattr(IP, "_GEN_HORS", {})
     monkeypatch.setattr(IP, "_CACHE", verdict_cache.CacheCliquet(
         "jouet_486r11", "contexte-jouet", dossier=arbre / "cache"))
-    return arbre, lances, fermetures_rendues
-
-
-TOUS = ["engine.gauche.a", "engine.gauche.feuille", "engine.droite.b", "engine.socle"]
+    #: LE PERIMETRE COMPLET du jouet, DERIVE comme le fait le cliquet -- pas une liste ecrite a
+    #: la main. `_enregistrer_si_complet` refuse d'ecrire tant que tout `engine/` n'est pas vu :
+    #: une liste partielle ferait rendre `False` et les etages du cache seraient rouges pour une
+    #: raison de montage, pas de mecanisme.
+    tous = IP._modules_sous(("engine",))
+    assert len(tous) >= 6, "arbre jouet derisoire : %s" % tous
+    return arbre, lances, fermetures_rendues, tous
 
 
 def test_etage5_toucher_un_fichier_DANS_la_fermeture_RELANCE_le_module(bac):
     """SENS 1 -- le seul dont l'echec serait un FAUX VERT : un verdict perime servi comme frais."""
-    arbre, lances, _ = bac
+    arbre, lances, _, TOUS = bac
     IP.essayer_tous(TOUS)
     assert sorted(lances) == sorted(TOUS), lances
     del lances[:]
@@ -298,7 +323,7 @@ def test_etage5_toucher_un_fichier_HORS_fermeture_NE_relance_PAS(bac):
     Et la mutation doit avoir MORDU : on verifie qu'elle relance bien SON propre module, sans
     quoi ce vert dirait seulement « rien n'a change », ce qui est le vert suspect.
     """
-    arbre, lances, _ = bac
+    arbre, lances, _, TOUS = bac
     IP.essayer_tous(TOUS)
     del lances[:]
 
@@ -315,7 +340,7 @@ def test_etage5_toucher_un_fichier_HORS_fermeture_NE_relance_PAS(bac):
 def test_etage5_le_verdict_traverse_un_process_par_le_cache_VERSIONNE(bac):
     """Le gain vise le regime « PR touchant 0 fichier » : un process FRAIS doit demarrer CHAUD.
     Un cache de process seul rendrait les trois regimes identiques."""
-    arbre, lances, _ = bac
+    arbre, lances, _, TOUS = bac
     IP.essayer_tous(TOUS)
     assert IP._enregistrer_si_complet(), "le cache versionne n'a pas ete ecrit"
     del lances[:]
@@ -332,7 +357,7 @@ def test_etage5_le_verdict_traverse_un_process_par_le_cache_VERSIONNE(bac):
 def test_etage5_un_CONTEXTE_different_fait_tout_recalculer(bac):
     """Invalider trop est toujours sur ; invalider trop peu serait faux. Le contexte porte les
     sources qui PRODUISENT la cle -- si `import_closure` change, aucune entree ne vaut plus."""
-    arbre, lances, _ = bac
+    arbre, lances, _, TOUS = bac
     IP.essayer_tous(TOUS)
     IP._enregistrer_si_complet()
     del lances[:]
@@ -353,7 +378,7 @@ def test_etage6_une_fermeture_MESUREE_qui_deborde_fait_RETOMBER_sur_la_cle_gross
     Le controle n'est pas une heuristique : l'interpreteur rend ce qu'il A CHARGE, et le
     debordement se lit. Le module concerne n'entre alors JAMAIS au cache versionne.
     """
-    arbre, lances, rendues = bac
+    arbre, lances, rendues, TOUS = bac
     rendues["engine.gauche.a"] = frozenset(
         {"engine", "engine.gauche", "engine.gauche.a", "engine.gauche.feuille", "engine.socle",
          "engine.droite.differee"})                     # <- charge en plus, invisible du calcul
@@ -376,7 +401,7 @@ def test_etage6_une_fermeture_MESUREE_qui_deborde_fait_RETOMBER_sur_la_cle_gross
 def test_etage6_une_fermeture_NON_MESUREE_declenche_le_MEME_repli(bac):
     """TRI-ETAT : `None` = « pas mesure », jamais « rien de plus ». Les confondre attesterait un
     verdict sur une base inconnue."""
-    arbre, lances, _ = bac
+    arbre, lances, _, TOUS = bac
     monkey = {}
 
     def _muet(mod):
@@ -402,7 +427,7 @@ def test_etage6_une_fermeture_NON_MESUREE_declenche_le_MEME_repli(bac):
 def test_etage6_un_ECHEC_n_est_jamais_cache(bac):
     """Un import qui echoue laisse `sys.modules` a mi-chemin : sa fermeture n'est pas celle du
     verdict. Attester un ROUGE le rendrait peremptoire -- et un rouge doit se recalculer."""
-    arbre, lances, _ = bac
+    arbre, lances, _, TOUS = bac
 
     def _rouge(mod):
         lances.append(mod)
@@ -431,7 +456,7 @@ def test_etage7_un_run_PARTIEL_n_ecrase_pas_le_cache_complet(bac):
     """`CacheCliquet.enregistrer` reecrit avec EXACTEMENT les entrees vues. Un run sur un
     sous-ensemble (un seul des deux fichiers de test, `--modules a,b`) RETRECIRAIT donc le
     fichier versionne, et le run suivant repaierait plein tarif."""
-    arbre, lances, _ = bac
+    arbre, lances, _, TOUS = bac
     IP.essayer_tous(TOUS)
     assert IP._enregistrer_si_complet()
     complet = (arbre / "cache" / "jouet_486r11.tsv").read_text(encoding="utf-8")

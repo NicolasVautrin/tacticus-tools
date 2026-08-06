@@ -60,7 +60,10 @@ def formes(racine_paquet: Path) -> tuple[list, list]:
             arbre = ast.parse(texte, filename=str(f))
         except (OSError, UnicodeDecodeError, SyntaxError):             # pragma: no cover
             continue
-        rel = f.relative_to(RACINE).as_posix()
+        try:
+            rel = f.relative_to(RACINE).as_posix()
+        except ValueError:                                             # racine JETABLE (temoin)
+            rel = f.name
         for n in ast.walk(arbre):
             if isinstance(n, ast.Call):
                 nom = _nom_appele(n.func)
@@ -83,6 +86,41 @@ def formes(racine_paquet: Path) -> tuple[list, list]:
                                 "engine",):
                             optionnels.append((rel, sous.lineno, c))
     return dyn, optionnels
+
+
+_TEMOIN_DYN = '''\
+import importlib
+
+
+def charge(nom):
+    return importlib.import_module("engine." + nom)
+'''
+
+_TEMOIN_OPT = '''\
+try:
+    from engine.ce_module_n_existe_pas import X
+except ImportError:
+    X = None
+'''
+
+
+def temoin_formes() -> tuple[int, int]:
+    """`formes()` VOIT-il encore ? Rend `(sites dynamiques, imports optionnels)` sur un corpus JOUET.
+
+    Un recenseur qui rend ZERO sur `engine/` ne prouve RIEN s'il ne voit plus rien nulle part --
+    et c'est precisement le regime ou son zero serait cite comme « aucun angle mort ». Le temoin
+    est SYNTHETIQUE : balayer les 2 000 fichiers de `scripts/python/` couterait ~28 s pour la
+    meme information.
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        racine = Path(d)
+        (racine / "dyn.py").write_text(_TEMOIN_DYN, encoding="utf-8")
+        (racine / "opt.py").write_text(_TEMOIN_OPT, encoding="utf-8")
+        (racine / "sain.py").write_text("import os\n\n\ndef f():\n    return os.sep\n",
+                                        encoding="utf-8")
+        dyn, opt = formes(racine)
+    return len(dyn), len(opt)
 
 
 def granularite(mods) -> None:
@@ -164,6 +202,13 @@ def main() -> int:
     if a.granularite:
         granularite(mods)
     if a.formes:
+        t_dyn, t_opt = temoin_formes()
+        print("[486-r11] TEMOIN du detecteur (corpus jouet) : %d dynamique(s), %d optionnel(s)"
+              % (t_dyn, t_opt))
+        if not (t_dyn and t_opt):
+            print("[486-r11] ECHEC : le detecteur ne voit plus rien -- son ZERO sur engine/ ne")
+            print("          prouverait RIEN, et se lirait pourtant comme « aucun angle mort »")
+            return 2
         dyn, opt = formes(RACINE / "engine")
         print("[486-r11] sites d'import DYNAMIQUE dans engine/ : %d" % len(dyn))
         for rel, ligne, nom in dyn[:20]:
