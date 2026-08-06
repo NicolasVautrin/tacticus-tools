@@ -212,6 +212,13 @@ REGISTRE: list[Mirror] = [
     # est LUE dans `enums.tsv` : le namespace est `IdunBattle.Streams`, pas `IdunBattle.Entities.Enum`.
     # Ils sont le PERIMETRE d'un comparateur de flux : un membre qui glisse rendrait un flux emis
     # faux SANS erreur -- le nom ecrit apres `Group=` / `Action=` / `Tag=` EST le membre.
+    # #287-r5 -- `HealType`, mirror NEUF, inscrit DANS LE COMMIT QUI LE CREE (cinquieme fois que ce
+    # gisement se rouvre par notre propre cadence). Sa cle est le TYPE DECLARE du parametre
+    # `healType` d'`IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType`, LU dans
+    # `frida/methods.tsv` -- la regle dynamique de 1175 `BloodChalice` appelle cette fonction avec
+    # `NonMechanical`, et l'ordinal nu (`0`) est aussi un membre de `DamageReason`/`KillUnitStep`.
+    Mirror("HealType", "engine/entities/heal_type.py",
+           "IdunBattle.Entities.Enum.HealType"),
     Mirror("GroupType", "engine/streams/group_type.py",
            "IdunBattle.Streams.GroupType"),
     Mirror("StepType", "engine/streams/step_type.py",
