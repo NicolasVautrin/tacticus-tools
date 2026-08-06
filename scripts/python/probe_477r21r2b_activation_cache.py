@@ -604,6 +604,7 @@ def main() -> int:
     ap.add_argument("--tours", type=int, default=1)
     ap.add_argument("--p-units", default=ROSTER_2V2[0])
     ap.add_argument("--a-units", default=ROSTER_2V2[1])
+    ap.add_argument("--sans-roster-large", action="store_true")
     args = ap.parse_args()
 
     try:
@@ -612,18 +613,27 @@ def main() -> int:
         print("[477-r21-r2b] MESURE IMPOSSIBLE : %s" % e)
         return 2
 
-    boards = [b.strip() for b in args.boards.split(",") if b.strip()]
-    print("[477-r21-r2b] session=%d  boards=%s  tours=%d" % (session, ",".join(boards),
-                                                             args.tours))
+    plans = [(b.strip(), args.p_units, args.a_units, b.strip())
+             for b in args.boards.split(",") if b.strip()]
+    if not args.sans_roster_large:
+        # LE SCENARIO LARGE, et il n'est pas decoratif : sur le roster 2v2 l'invariant (I5) N'EST
+        # PAS DISCRIMINANT (mesure -- aucune suite du port n'y atteint DEUX porteurs communs avec
+        # le natif, donc aucune ne peut reveler un ordre faux). Le roster par defaut (5v5) est le
+        # seul regime du corpus ou (I5) mord. Le garder en option ferait passer un vert qui ne
+        # mesure rien pour une confrontation.
+        plans.append(("C1_02", "", "", "C1_02-5v5"))
+    print("[477-r21-r2b] session=%d  scenarios=%s  tours=%d"
+          % (session, ",".join(p[3] for p in plans), args.tours))
     resultats = []
-    for board in boards:
+    for board, pu, au, etiquette in plans:
         print("")
-        print("=== BOARD %s ===" % board)
+        print("=== SCENARIO %s ===" % etiquette)
         try:
-            res = scenario(session, board, args.tours, args.p_units, args.a_units)
+            res = scenario(session, board, args.tours, pu, au)
         except MesureImpossible as e:
             print("  MESURE IMPOSSIBLE : %s" % e)
             return 2
+        res["board"] = etiquette
         resultats.append(res)
         imprimer(res)
 

@@ -3,13 +3,14 @@
 **PORTÉ ET MESURÉ, PAS FERMÉ.** Build `rnca9r7q6c`, ghidra-mcp, session Frida **1** (chaude, aucun
 reinject, **aucun capteur neuf**). La structure et les règles d'`IdunBattleLogic.Core.Services.Caches.AbilityAndEffectCache`
 sont portées 1:1 dans `engine/runner/caches/ability_and_effect_cache.py`. Sa **séquence** est
-confrontée au natif sur **178 passes complètes** de **21 `EventTriggerType`** : **0 divergence**.
+confrontée au natif sur **312 passes complètes** de **30 `EventTriggerType`**, trois scénarios :
+**0** divergence de stabilité, **0** re-dérivation fausse sur 25 événements applicables, **0** ordre
+divergent côté registre du port.
 **`Effect_Refresh` AUTONOMES reste 0/0/0**, et le § 7 dit pourquoi — ce volet ne pouvait pas le
 bouger.
 
 ```powershell
-python scripts/python/probe_477r21r2b_activation_cache.py            # live, 2 boards
-python scripts/python/probe_477r21r2b_activation_cache.py --boards C1_02 --p-units "" --a-units ""
+python scripts/python/probe_477r21r2b_activation_cache.py            # live, 3 scenarios
 python -m pytest scripts/python/tests/engine/test_477r21r2b_activation_cache_offline.py -q
 ```
 
@@ -172,21 +173,29 @@ le ring de 200 (mesuré : 18 à 90 fires perdus au `build`).
 
 ## 4. LES CINQ INVARIANTS, et ce que chacun a eu à trancher
 
-| | invariant | `MC1_67` 2v2 | `C1_02` 5v5 |
-|---|---|---|---|
-| (I1) | **STABILITÉ** — deux publications du même trigger parcourent la même séquence | **0** divergente / 136 passes complètes | **0** / 41 |
-| (I2) | **MONOTONIE inter-entité** — les identifiants porteurs sont non décroissants | **1** rupture / 9 couples | **3** / 20 |
-| (I3) | **RE-DÉRIVATION** par le port, alimenté dans l'ordre des identifiants | **0 ROUGE** / 9 applicables (+1 hors régime) | **0** / 8 (+3) |
-| (I4) | **CROISSANCE** — les passes courtes sont des préfixes de la modale | 1 courte, 1 préfixe | 78 courtes, 78 préfixes |
-| (I5) | l'ORDRE du **registre du port** est une sous-séquence du natif | non discriminant (1 porteur) | **0** divergent / **3** discriminants |
+| | invariant | `MC1_67` 2v2 | `C1_02` 2v2 | `C1_02` 5v5 |
+|---|---|---|---|---|
+| | événements observés | 10 | 9 | 11 |
+| (I1) | **STABILITÉ** — deux publications du même trigger parcourent la même séquence | **0** divergente / **136** passes complètes | **0** / **135** | **0** / **41** |
+| (I2) | **MONOTONIE inter-entité** — les identifiants porteurs sont non décroissants | **1** rupture / 9 couples | **1** / 4 | **3** / 20 |
+| (I3) | **RE-DÉRIVATION** par le port, alimenté dans l'ordre des identifiants | **0 ROUGE** / 9 applicables (+1 hors régime) | **0** / 8 (+1) | **0** / 8 (+3) |
+| (I4) | **CROISSANCE** — les passes courtes sont des sous-séquences de la modale | **0** hors sous-séquence | **0** | **0** |
+| (I5) | l'ORDRE du **registre du port** est une sous-séquence du natif | 4 exercés, **0 discriminant** | 4, **0** | 5 exercés, **3 discriminants**, **0 divergent** |
 
 (I1) ne copie **rien** : c'est ce que « cache » veut dire, et le port actuel — qui **reconstruit**
 son registre à chaque événement (`dispatch/core.py`) — n'a aucune raison structurelle de rendre deux
 fois la même séquence. Il la rend quand même : mesuré.
 
+⚠ **LE ROSTER 2v2 NE DISCRIMINE PAS (I5), ET LE PROBE LE DIT AU LIEU DE LE COMPTER VERT.** Sur les
+deux scénarios 2v2, aucune suite du port n'atteint **deux** porteurs communs avec le natif : elles
+tiennent toutes en un seul, et une suite d'un élément ne peut révéler aucun ordre faux. Le roster
+**5v5** est le seul régime du corpus où (I5) mord — c'est pourquoi il est joué **par défaut**
+(`--sans-roster-large` pour l'écarter), et non laissé en option.
+
 ## 5. (I2) A ROMPU — et (I4) DIT POURQUOI, au lieu de le supposer
 
-Quatre ruptures sur les deux boards. La plus nette, sur `SpecificAbilityInit` :
+**Cinq** ruptures sur les trois scénarios (1 + 1 + 3, pour 33 couples inter-entité). La plus nette,
+sur `SpecificAbilityInit` :
 
 ```
 77/1142, 77/1142, 79/1217, 79/1216, 83/1028, 83/1030, 77/1482, 77/1037
@@ -202,9 +211,9 @@ Deux causes **rendent la même séquence finale**, et une seule est vraie :
 
 ⚠ **Ce qui les sépare est l'HISTOIRE, pas la séquence finale** : sous (b), une passe **antérieure**
 à l'ajout est un **préfixe strict** ; sous (a), toutes les passes sont identiques dès la première.
-C'est (I4). Mesuré : **toutes** les passes courtes sont des préfixes (1/1 et 78/78, **0** hors
-sous-séquence). ⇒ **cause (b), AJOUT TARDIF**. La donnée qui manque au port est la **séquence
-d'appels**, pas la priorité.
+C'est (I4). Mesuré : **toutes** les passes courtes sont des préfixes de la passe finale — **0** hors
+sous-séquence sur les trois scénarios. ⇒ **cause (b), AJOUT TARDIF**. La donnée qui manque au port
+est la **séquence d'appels**, pas la priorité.
 
 ⚠ **Sans (I4), le probe AFFIRMAIT une priorité qu'il n'avait pas lue.** Sa première version
 imprimait « un porteur dont `get_Priority` ne rend pas `Normal` — c'est une DÉCOUVERTE ». C'était
@@ -221,7 +230,8 @@ son aîné.
 
 `evaluate_trigger_operation` concatène `abilities(par entité) + globals + effets(par unité)` là où
 le natif **lit** une liste persistante. Les deux ordres n'ont aucune raison de coïncider ; sur ce
-corpus ils coïncident : **3 événements discriminants, 0 ordre divergent**.
+corpus ils coïncident : **3 événements discriminants, 0 ordre divergent** — et les trois viennent du
+seul scénario **5v5**, les deux 2v2 étant non discriminants (§ 4).
 
 ⚠ **LE PREMIER CRITÈRE ACCUSAIT LE PORT À TORT, et le chiffre le disait sans le dire** : comparé à
 l'**égalité**, le registre du port rendait **4 divergences sur 5** — dont **trois** n'étaient que
@@ -238,12 +248,17 @@ changerait l'ordre d'exécution des triggers — donc le RNG, donc les cascades 
 mesurée ; il n'y en a pas. Le câblage devient donc un résidu **conditionné à une mesure**, pas une
 tâche en attente (§ 8).
 
-## 7. `Effect_Refresh` AUTONOMES : toujours **0 / 0 / 0** — et ce volet ne pouvait pas le bouger
+## 7. `Effect_Refresh` AUTONOMES : toujours **0 / 0 / 0 / 0** — et ce volet ne pouvait pas le bouger
 
-`probe_477r21_activation_tree.py` re-joué après cette tranche : inchangé. Ce n'est pas un
-maquillage, c'est la conséquence de ce que le § 2 énumère. Pour qu'un `Effect_Refresh` devienne
-autonome, il faut que le port **choisisse** l'effet : savoir **quels effets écoutent
-`MatchInit`/`MatchStart`**. Cette donnée est `effect.<slot 0x12>` / `<slot 0x2d>` — non lisible.
+`probe_477r21_activation_tree.py` re-joué **après rebase** sur `5d5fad32` (qui livre #477-r21-r1) :
+**VERT**, 4 scénarios, `447/447`, `491/491`, `131/131`, `199/199`, **0 ligne hors périmètre**,
+`Effect_Refresh` reproduits 40 / 42 / 12 / 18 — et **AUTONOMES 0 / 0 / 0 / 0**, inchangé.
+`probe_477r15a_stream_conformance.py` : **VERT**, `204/204` et `316/316`, registre à jour.
+
+Ce n'est pas un maquillage, c'est la conséquence de ce que le § 2 énumère. Pour qu'un
+`Effect_Refresh` devienne autonome, il faut que le port **choisisse** l'effet : savoir **quels
+effets écoutent `MatchInit`/`MatchStart`**. Cette donnée est `effect.<slot 0x12>` / `<slot 0x2d>` —
+non lisible.
 
 Ce que ce volet apporte, et qui n'est pas rien : la **règle** d'ordonnancement est portée et
 **mesurée**, et l'entrée copiée en borne (c) se **ventile** désormais en deux termes qui n'étaient
@@ -260,16 +275,16 @@ Le second terme cesse d'être une inconnue. Le premier reste, et c'est lui qui t
 
 **Live** (5 mutants, cible = l'événement au plus grand nombre de couples inter-entité) :
 
-| mutant | seam | `MC1_67` | `C1_02` |
-|---|---|---|---|
-| `ordre_de_creation_ignore` | l'ordre d'appel d'`AddEntity` | mord, rougit | mord, rougit |
-| `insertion_en_tete` | `add_sorted` (module) | mord, rougit | mord, rougit |
-| `sans_pre_peuplement` | le ctor | mord, rougit | mord, rougit |
-| `comparaison_inversee` | `add_sorted` | **NON MORDANT** | **NON MORDANT** |
-| `append_nu` | `add_sorted` | **NON MORDANT** | **NON MORDANT** |
+| mutant | seam | verdict (3 scénarios) |
+|---|---|---|
+| `ordre_de_creation_ignore` | l'ordre d'appel d'`AddEntity` | mord, rougit |
+| `insertion_en_tete` | `add_sorted` (module) | mord, rougit |
+| `sans_pre_peuplement` | le ctor | mord, rougit |
+| `comparaison_inversee` | `add_sorted` | **NON MORDANT** |
+| `append_nu` | `add_sorted` | **NON MORDANT** |
 
 ⚠ **Les deux derniers sont inertes PAR LES DONNÉES, pas par construction, et c'est déclaré** : sur
-les deux boards, toutes les priorités valent `Normal`, donc `AddSorted` **dégénère exactement en
+les trois scénarios, toutes les priorités valent `Normal`, donc `AddSorted` **dégénère exactement en
 `append`** et `compare_to` ne rend jamais `-1`. Aucun verdict qu'ils rendraient n'aurait de sens.
 Le tri est donc gardé **offline**, avec des priorités hétérogènes — le seul endroit où il est
 exerçable.
