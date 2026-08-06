@@ -307,8 +307,14 @@ def test_etage3bis_le_mutant_des_enjambants_est_INERTE_a_fenetre1(
 
 
 def test_etage3bis_le_bloc_ne_franchit_pas_une_ligne_VIDE() -> None:
-    """Une ligne vide est une frontiere de paragraphe -- cran mesure par #477-r30."""
-    lignes = ["processor slot 0x40 =", "", "`OperationProcessor$$MoveUnit`"]
+    """Une ligne vide est une frontiere de paragraphe -- cran mesure par #477-r30.
+
+    ⚠ Le couple d'exemple est VRAI (`0x65` = `MoveUnit`), et ce n'est pas cosmetique : ce
+    fichier EST dans le corpus balaye. Un exemple faux y ferait rougir le probe sur son propre
+    cliquet le jour ou un cran s'ouvrirait -- exactement le vice que l'exclusion du probe
+    lui-meme evite pour ses regex de documentation.
+    """
+    lignes = ["processor slot 0x65 =", "", "`OperationProcessor$$MoveUnit`"]
     hauteurs = {len(off) for i0, _b, off in P._blocs(lignes, 3) if i0 == 0}
     assert hauteurs == {1}, (
         "le bloc demarrant sur la ligne du slot franchit la ligne vide (hauteurs %s)"
