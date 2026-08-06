@@ -80,10 +80,13 @@ from typing import Optional
 
 from ....state import State
 from ....components import OwnerComponent
-from ....abilities.behaviours import AddEffect, RemoveEffect, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect, RemoveEffect
 from .....entities.behaviours import op_add, If as IfBehaviour
 from .....entities.formulas import UnitTurnsStarted
-from .....entities.selectors import Caster, Target, Tiles
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.tiles import Caster
+from .....entities.selectors.units import Tiles
 from .....entities.triggers import Modulo
 from .....entities.effect_type import EffectType
 from .....dsl.base import Const

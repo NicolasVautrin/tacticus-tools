@@ -67,6 +67,7 @@ from engine.runner.abilities.targeting import refuses_all_enemy_targets, targeti
 from engine.runner.components import EffectsOwnedComponent, is_machine_of_war
 from engine.runner.components import is_machine_of_war
 from engine.weights import load as _load
+from engine.runner.abilities.targeting_rule import TargetingRule as _TR
 
 
 def _is_untargetable(state, uid: int) -> bool:
@@ -424,7 +425,6 @@ def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
     pas portee -> l'ensemble rendu est un SUR-ENSEMBLE des allies, degradation permissive assumee."""
     c = cfg.get("constants") or {}
     if _refuses_all_enemy_targets(ability_id):
-        from engine.runner.abilities.targeting_rule import TargetingRule as _TR
         _opts = targeting_options_for(ability_id)
         if _opts is not None and _opts.has(_TR.TargetIsFriendly):
             return "ally"

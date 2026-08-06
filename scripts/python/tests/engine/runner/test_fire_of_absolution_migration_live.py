@@ -25,11 +25,13 @@ from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.components import StatsComponent, OwnerComponent, UnitComponent, PositionComponent
 from engine.runner.operations.damage import AttackDamageOperation
 from engine.runner.operations.effects import AddEffectOperation
-from engine.runner.operations.triggers import _fire_of_absolution_after_attack
+from engine.runner.operations.triggers.loki import _fire_of_absolution_after_attack
 from engine.runner.operations.triggers.loki import FIRE_TILE, FIRE_OF_ABSOLUTION_IGNITE_CHANCE
 from engine.runner.abilities.base import ability_attack_params
-from engine.runner.abilities.behaviours import entities_from_state
-from engine.entities.selectors import AdjacentUnits, Sub, Caster, Target, TargetTile, Alive
+from engine.runner.abilities.behaviours.context import entities_from_state
+from engine.entities.selectors.accessors import Target, TargetTile
+from engine.entities.selectors.tiles import Caster
+from engine.entities.selectors.units import AdjacentUnits, Alive, Sub
 from engine.entities.pathfinding.board import Board
 
 CASTER_VIS = "adeptRetributor"              # «Vindicta» : porte FireOfAbsolution (passif)

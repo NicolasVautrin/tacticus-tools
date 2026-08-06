@@ -20,6 +20,7 @@ from ...damage_model import (attacker_modifiers, defender_modifiers, apply_eleva
                              apply_trench_reduction, ice_crit_damage_addition,
                              defender_fixed_armor)
 from ..damage_hits import HitDamage
+from ....services.trait_damage_limits import apply_group_unit_damage_limit
 
 
 class _NormalLike:
@@ -106,7 +107,7 @@ class _NormalLike:
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
         # `On(PreAttackHit=6)` — meme vecteur per-coup natif (ExecuteHit, en tete du coup, avant le crit).
-        from ..triggers.dispatch import pre_attack_hit_triggers   # lazy : cycle damage<->triggers
+        from ..triggers.dispatch.attack import pre_attack_hit_triggers  # lazy : cycle damage<->triggers
         pre_attack_hit_triggers(state, attacker_id, target_id,
                                 ranged=not bool(is_melee) if is_melee is not None else False,
                                 profile=damage_profile, is_first_hit=True, ability_type=ability_type)
@@ -216,7 +217,7 @@ class _NormalLike:
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).
-        from ..triggers import after_hit_ability_attack
+        from ..triggers.dispatch.attack import after_hit_ability_attack
         # #432 : `health_damage` = `HealthDamageFromEvent()` (part SANTE seule) ; `profiles` = le SET
         # des profils de l'attaque (ici le seul profil d'arme -- cette voie n'a pas de groupe #179).
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
@@ -269,7 +270,6 @@ class _NormalLike:
             import gameconfig as GC
             n = int((GC.unit(tuc.visual_id) or {}).get("nrOfMembers") or 1)
             if n > 1:
-                from ....services.trait_damage_limits import apply_group_unit_damage_limit
                 dmg = apply_group_unit_damage_limit(dmg, False, n, int(thc.hp_max), int(thc.hp))
         hp_before = thc.hp
         # Chokepoint partage (#202), `is_attack=False` : PAS de `_record_attacked` (un DoT n'est PAS une

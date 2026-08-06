@@ -61,10 +61,12 @@ from _dotgg_aura_regime import (ADJACENT, CARRIER, FAR, RING2_NON_TAU,       # n
                                 RING2_TAU, dotgg_aura_regime)
 
 from engine.entities.effects.factory import EFFECT_CLASSES                   # noqa: E402
-from engine.entities.effects.loki import (                                   # noqa: E402
-    DefenderOfTheGreaterGoodExtraDmgDroneEffect,
-    DefenderOfTheGreaterGoodExtraHitsDroneEffect,
-    DefenderOfTheGreaterGoodExtraHitsEffect)
+from engine.entities.effects.loki.extra_damage_aura import (
+    DefenderOfTheGreaterGoodExtraDmgDroneEffect
+)
+from engine.entities.effects.loki.hits import (
+    DefenderOfTheGreaterGoodExtraHitsDroneEffect, DefenderOfTheGreaterGoodExtraHitsEffect
+)  # noqa: E402
 
 _EFFECT_NAME = "DefenderOfTheGreaterGood_ExtraHits"
 _BENEF_NON_TAU = "darkaHellblaster"     # Imperial, arme RANGED, aucun effet de coups parasite

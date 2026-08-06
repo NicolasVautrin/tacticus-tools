@@ -385,7 +385,7 @@ def port_fields(scene, cid, tgt, tile, *, fold: bool = True) -> dict:
     du mold natif. Vider le seul registre RANGED laisserait le fold MELEE en place et rendrait, dans
     le regime `melee`, une « base » qui est en fait le total."""
     import engine.playbook.prediction.normal_attack as NA
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
     saved_r, saved_m = NA._RANGED_FOLLOWUP_PASSIVES, NA._MELEE_FOLLOWUP_PASSIVES
     if not fold:
         NA._RANGED_FOLLOWUP_PASSIVES = NA._MELEE_FOLLOWUP_PASSIVES = ()

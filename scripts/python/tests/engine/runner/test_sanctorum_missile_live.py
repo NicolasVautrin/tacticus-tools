@@ -70,10 +70,12 @@ from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.abilities.sisterhood import SanctorumMissileAbility
-from engine.runner.abilities.behaviours import entities_from_state
+from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.abilities.base import ability_attack_params
 from engine.runner.operations.damage import AttackDamageOperation
-from engine.entities.selectors import AdjacentUnits, Sub, Caster, TargetTile, Unobscured
+from engine.entities.selectors.accessors import TargetTile
+from engine.entities.selectors.tiles import Caster
+from engine.entities.selectors.units import AdjacentUnits, Sub, Unobscured
 
 PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python
 ROOT = PYDIR.parents[1]                                     # racine repo

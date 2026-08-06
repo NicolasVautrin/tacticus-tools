@@ -55,7 +55,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import probe_477r15a_stream_conformance as R15A  # noqa: E402
-from engine.streams import GroupType, StepType, StreamCache, StreamDispatcher, TagKey  # noqa: E402
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.stream_cache import StreamCache
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.game_setup import MATCH_ENTITY_ID  # noqa: E402
 from engine.streams.input_messages import (PHASE_BARRIER_GROUPS,  # noqa: E402

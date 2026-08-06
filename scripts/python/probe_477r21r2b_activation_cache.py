@@ -105,7 +105,7 @@ sys.path.insert(0, str(HERE))
 import probe_477r15a_stream_conformance as R15A  # noqa: E402
 import probe_477r19_process_removals as R19  # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType  # noqa: E402
-from engine.runner.caches import AbilityAndEffectCache  # noqa: E402
+from engine.runner.caches.ability_and_effect_cache import AbilityAndEffectCache  # noqa: E402
 
 ROOT = HERE.parents[1]
 OUT = ROOT / "logs"

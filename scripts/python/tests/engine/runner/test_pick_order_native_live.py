@@ -38,7 +38,8 @@ import pytest
 import hexgeo
 from engine.dsl.base import DslContext, _tile_enum_rank
 from engine.entities.pathfinding.board import Board
-from engine.entities.selectors import AdjacentEnemies, CasterTile
+from engine.entities.selectors.accessors import CasterTile
+from engine.entities.selectors.units import AdjacentEnemies
 from engine.dsl.base import Const
 
 

@@ -245,7 +245,7 @@ def run(mutate: Optional[str] = None, verbose: bool = False, add_only: bool = Fa
         if not add_only:
             from engine.runner.abilities.behaviours.effects import RemoveEffect
             from engine.runner.abilities.behaviours.context import entities_from_state
-            from engine.entities.selectors import Caster
+            from engine.entities.selectors.tiles import Caster
             from engine.dsl.effects import ExecutionContext
             ectx = ExecutionContext(state=state, rng=None)
             RemoveEffect(EFFECT_TYPE, Caster()).execute(entities_from_state(state, 2, 2), ectx)

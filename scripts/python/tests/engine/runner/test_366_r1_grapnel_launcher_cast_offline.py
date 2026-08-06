@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 
 import hexgeo                                                            # noqa: E402
 from engine.battle_query import get_minimum_tiles_180_front              # noqa: E402
-from engine.entities import EffectsState                                 # noqa: E402
+from engine.entities.effects_state import EffectsState  # noqa: E402
 from engine.entities.effects.magnitude import _lookup_config_key, ability_var  # noqa: E402
 from engine.entities.pathfinding.board import Board                      # noqa: E402
 from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE, AbilityAttackType  # noqa: E402

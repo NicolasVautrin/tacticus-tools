@@ -290,7 +290,7 @@ def replay(blob: dict, mutate=False) -> dict:
 
     saved_disp = None
     if mutate:
-        from engine.runner.operations.triggers import dispatch as _disp
+        from engine.runner.operations.triggers.dispatch import attack as _disp
         saved_disp = _disp.finish_attack_triggers
         _disp.finish_attack_triggers = lambda *a, **k: []
     AttackDamageOperation._run_hits = staticmethod(_spy)
@@ -305,7 +305,7 @@ def replay(blob: dict, mutate=False) -> dict:
         _nm.attacker_modifiers, _nm.apply_elevation_bonus = _g_attmods, _g_elev
         _nm.apply_trench_reduction, _nm.defender_modifiers = _g_trench, _g_defmods
         if saved_disp is not None:
-            from engine.runner.operations.triggers import dispatch as _disp2
+            from engine.runner.operations.triggers.dispatch import attack as _disp2
             _disp2.finish_attack_triggers = saved_disp
     return {"hp_before": hp_before, "hp_after": int(hc.hp), "hp_delta": hp_before - int(hc.hp),
             "stages": stages, "sub": sub, "draws": draws}

@@ -22,8 +22,9 @@ from engine.entities.effects import (
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
     hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups,
     aura_additional_hits_from_allies)
-from engine.entities.effects.loki import LIGHT_COVER_TILE_ID
-from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
+from engine.entities.effects.loki.hits import LIGHT_COVER_TILE_ID
+from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier
+from engine.entities.traits.factory import TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names
 from engine.entities.damage_trait import DamageTrait
 from engine.entities.stats import StatType, StatPart, ARMOR_STAT_TYPES

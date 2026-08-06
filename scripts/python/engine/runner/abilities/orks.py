@@ -24,30 +24,41 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import If, SetCache, op_add, op_and
 from ...entities.effect_type import EffectType
 from ...entities.formulas import Count, Get, VisualUnitIdFromUnitId
-from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles, AdjacentUnits,
-                                   AllUnits, Cache, CanAddUnit, Caster, CasterTile, Damageable,
-                                   EntitiesWithoutEffects, FixedTileIds, FixedTiles, Friends,
-                                   MovableTilesInRange, Owner, SelectTile, SurroundingEnemies,
-                                   SurroundingTiles,
-                                   Target, TargetTile, TileIntersect, Union, Unique, UnitSet,
-                                   UnitsFromFaction, UnitsWithVisualId, Unobscured,
-                                   non_steppable_or_object_units,
-                                   tiles_unit_can_move_to_charge_target)
+from ...entities.selectors.accessors import (
+    ActiveTarget, CasterTile, FixedTileIds, FixedTiles, Owner, SelectTile, SurroundingTiles,
+    Target, TargetTile
+)
+from ...entities.selectors.geometry import Cache, EntitiesWithoutEffects, UnitsWithVisualId
+from ...entities.selectors.tiles import (
+    AdjacentTiles, AllUnits, CanAddUnit, Caster, MovableTilesInRange, TileIntersect,
+    tiles_unit_can_move_to_charge_target
+)
+from ...entities.selectors.units import (
+    AdjacentFriends, AdjacentUnits, Damageable, Friends, SurroundingEnemies, Union, Unique,
+    UnitSet, UnitsFromFaction, Unobscured, non_steppable_or_object_units
+)
 from ...entities.stats import StatType
 from ...entities.triggers import (AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, Not,
                                   OwnerIsAlive, TriggerOr)
 from ...utilities.decider import UtilityBucket, UtilityDefinition, WeightedUtility
 from ...utilities.tile import first_tile_by_utility
 from ...utilities.utility_type import UtilityType
-from .behaviours import (AddEffect, AttackWithAttackDamage, KillDeadUnits, MoveUnit, PerformAIAction,
-                         Spawn, UseActiveAbility, entities_from_state)
+from .behaviours.ai_control import PerformAIAction
+from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage,
+                                UseActiveAbility)
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect
+from .behaviours.lifecycle import KillDeadUnits
+from .behaviours.movement import MoveUnit
+from .behaviours.summon import Spawn
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 from ...dsl.base import _is_alive
 from ...entities.effects.magnitude import ability_var
 from ...entities.stats import StatPart
 from ..components import unit_has_moved
-from .behaviours import SubtractHealthPercent
+from .behaviours.stats import SubtractHealthPercent
+from .loki.splash import _pick_randomly_n
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1070,7 +1081,6 @@ class SquigMineAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from .loki.splash import _pick_randomly_n
         board = state.board
         tile_id = target_id if (board is not None and target_id in board.by_id) else None
         if tile_id is None:
@@ -1268,8 +1278,6 @@ class DakkaDakkaDakkaAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        from .loki.splash import _pick_randomly_n
-        from .behaviours.combat import ChainLeftOverHitsAttackDamage
 
         n_hits, extra_hits, max_hits, range_2 = self._params(state, caster_id)
         # `TimesRepaired(caster@0x160)` : compteur runtime non capte offline -> 0 (cf. `dakka_num_hits`).

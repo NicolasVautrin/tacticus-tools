@@ -121,9 +121,12 @@ from typing import Optional
 from ....state import State
 from ....components import OwnerComponent, UnitComponent, PositionComponent, HealthComponent
 from ....abilities.attack_type import is_normal_attack
-from ....abilities.behaviours import AddEffect, RemoveEffect, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect, RemoveEffect
 from ....abilities.base import convert_rounds_to_turns
-from .....entities.selectors import Tiles, Target, Caster
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.tiles import Caster
+from .....entities.selectors.units import Tiles
 from .....entities.effect_type import EffectType
 from .....entities.traits.unit_trait import UnitTrait, has_trait
 from .....dsl.effects import ExecutionContext

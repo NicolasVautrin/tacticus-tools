@@ -46,6 +46,7 @@ from ...effect_type import EffectType
 from ..base import BaseEffect
 from ..magnitude import ability_var
 from ....entities.active_ability_type import ActiveAbilityType   # #270-r1-r1-r3
+from ...stats import StatType
 
 _AUGMENTED_ASSAULT = "AugmentedAssault"       # ActiveAbilityType 0x4c5 = 1221 (votanBeserk / Havyr)
 _ANCESTRAL_FORTUNE = "AncestralFortune"       # ActiveAbilityType 0x4b7 = 1207 (votanUthar / Uthar)
@@ -104,7 +105,6 @@ class AugmentedAssaultReduceArmorEffect(BaseEffect):
     def applied_stat_mods(self, stats_ctx) -> "list":
         """DATA du `ChangeStat` (StatPart 5 = MODIFICATION) pose a l'application : FixedArmor -=
         armorReduction[level source] x mult. Execute par `AddEffectOperation._apply_stat_mods`."""
-        from ...stats import StatType
         lvl, mult = _source_level_mult(self, stats_ctx)
         amt = ability_var(_AUGMENTED_ASSAULT, "armorReduction", lvl, multiplier_pct=mult)
         if not amt:
@@ -113,7 +113,6 @@ class AugmentedAssaultReduceArmorEffect(BaseEffect):
 
     def reverted_stats(self) -> "list":
         """Stats annulees par `RevertModification` (lu par la feuille `RemoveEffect`)."""
-        from ...stats import StatType
         return [StatType.FIXED_ARMOR]
 
 
@@ -132,7 +131,6 @@ class AncestralFortuneExtraCritChanceEffect(BaseEffect):
     stat_mod_source = None
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        from ...stats import StatType
         lvl, mult = _source_level_mult(self, stats_ctx)
         amt = ability_var(_ANCESTRAL_FORTUNE, "extraCritChance", lvl, multiplier_pct=mult)
         if not amt:
@@ -140,7 +138,6 @@ class AncestralFortuneExtraCritChanceEffect(BaseEffect):
         return [(int(StatType.CRIT_CHANCE), int(amt))]
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.CRIT_CHANCE]
 
 
@@ -155,7 +152,6 @@ class AncestralFortuneExtraBlockChanceEffect(BaseEffect):
     stat_mod_source = None
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        from ...stats import StatType
         lvl, mult = _source_level_mult(self, stats_ctx)
         amt = ability_var(_ANCESTRAL_FORTUNE, "extraBlockChance", lvl, multiplier_pct=mult)
         if not amt:
@@ -163,7 +159,6 @@ class AncestralFortuneExtraBlockChanceEffect(BaseEffect):
         return [(int(StatType.BLOCK_CHANCE), int(amt))]
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.BLOCK_CHANCE]
 
 

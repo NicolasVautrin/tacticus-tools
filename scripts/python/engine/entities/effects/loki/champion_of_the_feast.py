@@ -63,6 +63,7 @@ from __future__ import annotations
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ...stats import StatType
 
 _ABILITY_ID = "ChampionOfTheFeast"
 _ARMOR_REDUCTION_KEY = "armorReduction"     # `AbilityVariableType` 0x30 = 48
@@ -115,7 +116,6 @@ class ChampionOfTheFeastReduceArmorEffect(BaseEffect):
         """`AStatModifierEffect$$GetStatModificationStat` = `StatModifierComponent+0x10` -- lu au canal
         capte, repli sur le litteral `0x10 = 16 FixedArmor` du `CreateBehaviour` (meme valeur : le
         natif n'a qu'UNE feuille de pose pour 1083)."""
-        from ...stats import StatType
         native = self.captured_stat_mod_stat()
         return native if native is not None else int(StatType.FIXED_ARMOR)
 

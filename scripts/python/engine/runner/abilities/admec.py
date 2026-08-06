@@ -17,9 +17,10 @@ from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, op_add
 from ...entities.formulas import (Const as _AmountConst, RoundsStarted, Sum,
                                   TotalRepairActionsAmount)
-from ...entities.selectors import (AdjacentUnits, AllUnits, Blocking, Caster, CasterTile,
-                                   FixedTileIds, Friends, SelectTile, SortReverse, Sub, Subject,
-                                   Target, TilesBehindInLine, Union, Units, UnitsWithTrait)
+from ...entities.selectors.accessors import CasterTile, FixedTileIds, SelectTile, Subject, Target
+from ...entities.selectors.geometry import Blocking, SortReverse, TilesBehindInLine
+from ...entities.selectors.tiles import AllUnits, Caster
+from ...entities.selectors.units import AdjacentUnits, Friends, Sub, Union, Units, UnitsWithTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.traits.unit_trait import UnitTrait
@@ -29,11 +30,15 @@ from .base import ActiveAbility
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions, custom_range)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon,
-                         Repair)
+from .behaviours.combat import AttackWithAttackDamage, InformWeapon
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect
+from .behaviours.stats import Repair
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 from ..components import PositionComponent
 from .targeting import units_are_enemies, valid_normal_attack_targets
+from .attack_query import entity_can_be_repaired, is_affected_by_heal_type
+from .repair import galvanic_field_attack_behavior
 
 if TYPE_CHECKING:
     from ..state import State
@@ -598,7 +603,6 @@ class DefendTheDivineWorkAbility(ActiveAbility):
         suffit a justifier le cast) ; sinon on retombe sur le gate de reparation standard.
 
         N'est consulte que sous le bit `TargetMatchesDynamicRule` (0x2), qui EST pose."""
-        from .attack_query import entity_can_be_repaired, is_affected_by_heal_type
         if target_id is None:
             return 0                # `target == null` : GetUnitPosition/IsEnemy faux -> branche B, 0
         tid, cid = int(target_id), int(caster_id)
@@ -634,7 +638,6 @@ class DefendTheDivineWorkAbility(ActiveAbility):
 
         `target_id` est INDIFFERENT au behaviour (tout est ancre sur `Caster`/`CasterTile`) ; il n'est
         remonte que pour la trace."""
-        from .repair import galvanic_field_attack_behavior
         amount = self._hp_to_repair(state, caster_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, caster_id, target_id)

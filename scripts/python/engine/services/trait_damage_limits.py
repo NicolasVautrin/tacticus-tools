@@ -41,6 +41,7 @@ from __future__ import annotations
 import math
 
 from ..entities.stats import StatPart
+from .damage_config import resolve_damage_field
 
 # Ability/trait ids (hex natifs). #157 : TRAIT_RESILIENT=1009 / TRAIT_IMPERVIOUS=28 (morts) retirés — la logique
 # gate par bool name-based (target_has_resilient/impervious) ; ids dans `entities.traits.UnitTrait` (#146).
@@ -396,7 +397,6 @@ def _overkill_threshold_pct(state=None) -> int:
     defaut DERIVE de la seed).
     ⚠ Cette correction n'est pas MESURABLE aujourd'hui, precisement parce que les deux tables
     coincident : elle est justifiee par le decompile, pas par un ecart observe."""
-    from .damage_config import resolve_damage_field
     return int(resolve_damage_field("overkill_dmg_pct_of_health", state=state))
 
 
@@ -410,7 +410,6 @@ def _allow_overkill(state=None) -> int:
     ecrit bien `1` en dur dans les BC qu'IL construit -- ce chemin-la n'est pas le seul par lequel
     une BC arrive (les runners partent d'une seed sur disque, dont la section `Damage` est
     modifiable)."""
-    from .damage_config import resolve_damage_field
     return 1 if resolve_damage_field("allow_overkill", state=state) else 0
 
 

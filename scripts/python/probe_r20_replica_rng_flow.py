@@ -112,7 +112,7 @@ def _make_scarab(state, spyder_id):
 
 def _run_replica(state, scarab_id):
     from engine.dsl.effects import ExecutionContext
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.loki import scarab_summon_tree
     ectx = ExecutionContext(state=state, rng=state.rng)
     scarab_summon_tree().execute(entities_from_state(state, scarab_id), ectx)

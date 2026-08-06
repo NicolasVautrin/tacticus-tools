@@ -22,7 +22,7 @@ from _config_oracle import global_constant          # noqa: E402
 from engine.runner.snapshot import load_state
 from engine.runner.components import (HealthComponent, PositionComponent, OwnerComponent,
                                       UnitComponent)
-from engine.runner.operations.triggers import first_aid_heal
+from engine.runner.operations.triggers.tiles import first_aid_heal
 from engine.entities.pathfinding.board import Board
 
 FIRSTAID = "FirstAid"

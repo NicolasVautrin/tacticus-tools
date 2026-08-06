@@ -47,7 +47,7 @@ import pytest
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.entities.effects.base import BaseEffect
-from engine.entities.effects.loki import LET_THE_GALAXY_BURN_PERSISTENT_KEY
+from engine.entities.effects.loki.hits import LET_THE_GALAXY_BURN_PERSISTENT_KEY
 from engine.runner.snapshot import load_state
 from engine.runner.runner import Runner
 from engine.runner.messages import AttackUnitMessage

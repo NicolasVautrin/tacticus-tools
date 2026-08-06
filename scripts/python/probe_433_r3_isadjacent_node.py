@@ -123,7 +123,8 @@ def _ctx(units, caster=None, target=None, board=None):
 
 def etape_a(fails: list) -> None:
     """(Q) : DEUX paires, une seule adjacente. `exists` -> VRAI, `forall` -> FAUX."""
-    from engine.entities.selectors import AllUnits, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import AllUnits
     from engine.entities.triggers import IsAdjacent
 
     board = _toy_board()
@@ -151,7 +152,8 @@ def etape_a(fails: list) -> None:
 
 def etape_b(fails: list) -> None:
     """(E) : la porte d'elevation de la primitive, vue DEPUIS le noeud."""
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     from engine.entities.triggers import IsAdjacent
 
     print("=== etape B -- (E) porte d'elevation |dElev| < 2 ===")
@@ -183,7 +185,8 @@ def etape_b(fails: list) -> None:
 
 def etape_c(fails: list) -> None:
     """(I) identite + les DEUX bornes de listes vides."""
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     from engine.entities.triggers import IsAdjacent
 
     print("=== etape C -- (I) identite, et le vide ===")
@@ -215,7 +218,8 @@ def etape_c(fails: list) -> None:
 def etape_d(fails: list) -> None:
     """Le 3e argument de la factory est INERTE pour le predicat -- c'est la faute que la fiche
     #433-r1 anticipait ("ne le cable pas dans la comparaison")."""
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     from engine.entities.triggers import IsAdjacent
 
     print("=== etape D -- le 3e argument (`UnitSelectionType`) ne touche PAS le predicat ===")
@@ -244,7 +248,8 @@ def _pospair(u):
 
 def etape_e(fails: list) -> None:
     """Degradation SANS board : adjacence hex pure. On NOMME les sites qui y retombent."""
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     from engine.entities.triggers import IsAdjacent
 
     print("=== etape E -- degradation SANS board (adjacence hex pure) ===")
@@ -374,9 +379,10 @@ def etape_f(board_id: str, seed_value: str, fails: list, want_gap: bool = True) 
     pas decoratif : sans lui, un port qui rendrait TOUJOURS `False` passerait le cran.
     Rend True si le regime a ete CONFRONTE."""
     import probe_165b_sky_strike_border as H              # harnais #165b (jamais recopie)
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     from engine.entities.triggers import IsAdjacent
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.sisterhood import _sky_strike_dest_tile
 
     kind = "CRAN (|dElev| >= 2)" if want_gap else "TEMOIN (voisines PLATES)"

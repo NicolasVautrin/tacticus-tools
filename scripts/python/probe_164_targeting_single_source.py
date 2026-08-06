@@ -96,7 +96,7 @@ def main() -> int:
     args = ap.parse_args()
 
     from engine.entities.pathfinding.board import Board
-    from engine.runner.abilities import ABILITY_CLASSES
+    from engine.runner.abilities.handler import ABILITY_CLASSES
     from engine.runner.abilities.targeting import is_invalid_target
     from engine.runner.snapshot import load_state
 

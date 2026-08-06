@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from ...services.effect_bonus import EffectBonus
+from ..traits.unit_trait import UnitTrait, has_trait
 
 # Sentinelle de durée d'un sous-effet : MÊME nombre de tours que le parent (mirror natif
 # `AddSubEffectWithSameTurns`). Distinct de None (= permanent, lié au cycle de vie du parent).
@@ -1074,7 +1075,6 @@ class BaseEffect:
         `trait_names` = les NOMS de traits gameconfig de la cible (`StatsComponent.ctx.traits`) ; une
         entité SANS composant d'unité (tuile) rend `[]` ⇒ jamais immune — mirror de
         `UnitExtensions.HasTrait` qui passe par `GetBaseUnitComponent` (null ⇒ faux)."""
-        from ..traits import UnitTrait, has_trait          # lazy : entities.traits n'importe pas effects
         return bool(self.can_be_immune_to) and has_trait(trait_names, UnitTrait.Immune)
 
     # ── cycle de vie ────────────────────────────────────────────────────────────────────────────────

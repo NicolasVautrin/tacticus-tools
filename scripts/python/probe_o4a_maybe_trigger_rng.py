@@ -271,7 +271,7 @@ def _port_replay_endturn(dv, ob, snap, board, player, rng_before, ages, determin
     (`TurnComponent + 0x38`) n'est PAS non plus seede, mais il n'entre plus dans ce gate."""
     from engine.runner.snapshot import load_state
     from engine.runner.components import UnitComponent
-    from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
+    from engine.runner.operations.triggers.dispatch.turn import end_turn_summon_triggers
 
     st = load_state(dv, ob, snap, board=board)
     for uid, age in (ages or {}).items():                  # cf. docstring : gap de `load_state`

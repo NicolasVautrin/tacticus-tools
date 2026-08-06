@@ -127,7 +127,7 @@ def free_adjacent(state, board, anchor_uid, taken):
 
 # ----------------------------------------------------------------------------------------------
 def item1_master_annihilator(state, dec, board):
-    from engine.runner.operations.triggers.dispatch import after_hit_normal_attack
+    from engine.runner.operations.triggers.dispatch.attack import after_hit_normal_attack
     from engine.runner.operations.effects import AddEffectOperation
     from engine.entities.effect_type import EffectType
     MARK = int(EffectType.MasterAnnihilator_extraHit)
@@ -228,7 +228,7 @@ def item2_fleshmetal(state, dec, board):
 # ----------------------------------------------------------------------------------------------
 def item3_crescendo(state, dec, board):
     from engine.runner.operations.effects import AddEffectOperation
-    from engine.runner.operations.triggers.dispatch import after_hit_normal_attack
+    from engine.runner.operations.triggers.dispatch.attack import after_hit_normal_attack
     from engine.entities.effect_type import EffectType
     from engine.runner.operations.triggers.loki.terrifying_crescendo import crescendo_max_level
     CRESC = int(EffectType.TerrifyingCrescendo_ExtraDmg)
@@ -280,7 +280,7 @@ def item3_crescendo(state, dec, board):
 
 # ----------------------------------------------------------------------------------------------
 def item4_anvilshield(state, dec, board):
-    from engine.runner.operations.triggers.dispatch import after_hit_normal_attack
+    from engine.runner.operations.triggers.dispatch.attack import after_hit_normal_attack
     from engine.runner.components import PositionComponent
     from engine.entities.effect_type import EffectType
     ICE = int(EffectType.Ice)
@@ -313,7 +313,7 @@ def item5_adversarial(state, dec, board):
     """CONTRE-SCENARIOS : chaque gate du trigger doit REFUSER quand sa condition tombe. Un port qui
     << marche >> sur le happy path mais ignore ses gates echoue ICI."""
     from engine.runner.operations.turnflow import StartTurnOperation
-    from engine.runner.operations.triggers.dispatch import after_hit_normal_attack
+    from engine.runner.operations.triggers.dispatch.attack import after_hit_normal_attack
     from engine.runner.components import OwnerComponent, UnitComponent, PositionComponent
     from engine.entities.effect_type import EffectType
     MARK, ICE = int(EffectType.MasterAnnihilator_extraHit), int(EffectType.Ice)

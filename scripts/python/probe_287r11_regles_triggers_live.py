@@ -282,7 +282,7 @@ def _diagnostic(state, caster, tid: int, at: int) -> str:
     """DECOMPOSITION PAR ETAGE d'un desaccord : ce que chaque etage du corps natif rend cote port,
     pas seulement le verdict final. Jamais fitter un scalaire."""
     try:
-        from engine.runner.abilities.behaviours import entities_from_state
+        from engine.runner.abilities.behaviours.context import entities_from_state
         ents = entities_from_state(state, int(caster["id"]), int(tid))
         if at == SQUIG:
             import gameconfig as GC
@@ -298,7 +298,8 @@ def _diagnostic(state, caster, tid: int, at: int) -> str:
                 c.get("nrOfUnits_2"), b.should_trigger(ents))
         if at == ENTROPY:
             from engine.entities.effect_type import EffectType
-            from engine.entities.selectors import Caster, Target
+            from engine.entities.selectors.accessors import Target
+            from engine.entities.selectors.tiles import Caster
             from engine.entities.stats import StatPart, StatType
             from engine.entities.formulas import StatAmount
             from engine.entities.triggers import (AmountIsGreaterThanZero, HasNegativeModifier,

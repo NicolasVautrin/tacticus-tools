@@ -28,12 +28,20 @@ from ...damage_model import (select_weapon, select_weapon_pierce, attacker_modif
                              target_trait_names, getstuckin_combat_chance, defender_fixed_armor,
                              tile_status_effects_by_pos, battle_query_is_charging)
 from ....entities.effects import hits_bonus_from_effects
-from ....entities.effects.loki import LIGHT_COVER_TILE_ID
+from ....entities.effects.loki.hits import LIGHT_COVER_TILE_ID
 from ....entities.traits import target_hit_multiplier
 from ..additional_hits import collect_additional_hit_groups, execute_additional_hits
 from ..damage_hits import HitDamage, attack_state_out as _attack_state_out
 from ._channel import _normal_attack_kind
 from ...components import unit_is_dead
+from ....entities.active_ability_type import ActiveAbilityType
+from ....services import custom_normal_attack as _cna
+from ..active_ability import (execute_for_replaced_target, get_tiles,
+                                     resolve_replaced_target)
+#: FORME B : `probe_429r1r1r1_ability_attack_dead_target.py` substitue
+#: `active_ability.is_dead_unit_and_not_allowed_by_ability` ; hisse en forme A le stub serait
+#: INERTE (gisement mesure de la famille #429-r1). L'import de module relit a l'appel.
+from .. import active_ability as _active_ability
 
 
 class _Normal:
@@ -92,8 +100,7 @@ class _Normal:
         # AUCUNE derogation cote CIBLE, contrairement a l'axe CASTER : le decompile du gate ne lit
         # AUCUN champ d'`AbilityOptions` (pas d'equivalent du `options@+0x4a` que `UseActiveAbility`
         # force a 1) -- d'ou l'absence de parametre `allow_dead_target`.
-        from ..active_ability import is_dead_unit_and_not_allowed_by_ability   # lazy : cycle
-        if is_dead_unit_and_not_allowed_by_ability(state, None, target_id):
+        if _active_ability.is_dead_unit_and_not_allowed_by_ability(state, None, target_id):
             return None
         if state.rng is None:
             raise ValueError("state.rng non calé (seed depuis dumpRng avant un replay-diff)")
@@ -157,16 +164,19 @@ class _Normal:
         # satisfait structurellement : il est PORTE (`abilities/attack_type.is_normal_attack`), et c'est
         # `ability_type = 0x3f5 = 1013` (le marqueur « kind attaque-normale » du `DirectAbilitySelector`
         # natif, cf. `attack_type.NORMAL_ATTACK_KIND`) qui le satisfait sur CETTE voie.
-        from ..triggers.dispatch import pre_unit_ability_triggers   # lazy : cycle damage<->triggers
+        # lazy : cycle damage<->triggers. Forme MODULE : l'attribut est relu a l'appel, donc une
+        # substitution posee sur `dispatch.ability` mord quelle que soit la forme finale de cet
+        # import (`probe_485r1r1_formes_dimport.py`). Hisse en `from ... import X`, il serait
+        # INERTE -- et ce differe-ci est mesure GRATUIT, donc le cliquet #485 le prescrit.
+        from ..triggers.dispatch import ability as ability_dispatch
         # #120bis SNAPSHOT DE TUILE de la cible (AVANT l'emission) — `IdunBattle.Operations.
         # ActiveAbilityOperation$$GetAbilityEntities` fige `AbilityEntities@+0x38 =
         # EntityExtensions.GetTiles(finalTarget)` en amont du `0x2b` ; la re-resolution qui SUIT
         # l'emission confronte ce fige a l'occupation reelle.
-        from ..active_ability import (execute_for_replaced_target, get_tiles,
-                                     resolve_replaced_target)
         _target_tiles = get_tiles(state, target_id)
-        pre_unit_ability_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
-                                  profile=_profile, ability_type=1013)
+        ability_dispatch.pre_unit_ability_triggers(state, attacker_id, target_id,
+                                                   ranged=bool(_ranged), profile=_profile,
+                                                   ability_type=1013)
         # #133 GATE ACTEUR-MORT **POST-`On(0x2a = PreUnitAbility)`** — mirror du test qui suit IMMEDIATEMENT
         # l'evenement dans `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (lu
         # verbatim au decompile) :
@@ -261,11 +271,9 @@ class _Normal:
         # donc l'ordre `state.rng` de l'attaque qui suit est INCHANGE (bit-exactness preservee).
         from ...abilities.behaviours.combat import InformWeapon   # lazy : cycle damage<->abilities
         from ...abilities.targeting import normal_attack_type_for  # lazy : meme cycle
-        from ....services.custom_normal_attack import (inform_weapon_use_special,
-                                                       feeder_tendrils_special_applies,
-                                                       USE_SPECIAL_GATE_EFFECT)
+        # forme MODULE : les trois noms sont SUBSTITUES (probe_419r1tr14r4r2r1r1) -- lies au
+        # chargement, ces mesures cesseraient de mordre en silence (#485-r1-r1).
         from ...abilities.loki.feeder_tendrils import execute_feeder_tendrils_special
-        from ....entities.active_ability_type import ActiveAbilityType
         _na_type = normal_attack_type_for(state, attacker_id)
         _na_name = (ActiveAbilityType(_na_type).name
                     if _na_type is not None and _na_type in set(int(x) for x in ActiveAbilityType)
@@ -279,10 +287,10 @@ class _Normal:
         # CASTER (`AbilityEntities` `+8`, cf. la RE dans `custom_normal_attack.py`). `onlyActive` est
         # `null` au call-site natif, donc PAS de filtre `IsActive` : c'est exactement ce que fait
         # `has_effect_of_type` (`EffectsState.has_effect`, qui ne filtre que `consumed`).
-        _use_special = inform_weapon_use_special(
+        _use_special = _cna.inform_weapon_use_special(
             _na_name, is_charging=_charging, weapon_melee=_melee,
             caster_has_gate_effect=has_effect_of_type(state, attacker_id,
-                                                      USE_SPECIAL_GATE_EFFECT))
+                                                      _cna.USE_SPECIAL_GATE_EFFECT))
         _iw_tags = InformWeapon.from_weapon(_w, use_special=_use_special).tags()
         # #419-r1-tr14-r4-r2-r1-r1 : `FeederTendrils_NormalAttackAbility$$ExecuteBehaviour` execute,
         # ENTRE `ExecuteInformWeapon` et `ExecuteNormalAttack`, un `ExecuteAtomic(Heal(caster) +
@@ -290,7 +298,8 @@ class _Normal:
         # `Pinned` porte un malus de degat ATTAQUANT, donc il ne touche pas l'attaque qui suit -- mais
         # on mirrore la position, pas l'observable du jour. Feuilles PURES (0 tirage) -> l'ordre
         # `state.rng` de l'attaque est INCHANGE, bit-exactness preservee.
-        if feeder_tendrils_special_applies(_na_name, is_charging=_charging, weapon_melee=_melee):
+        if _cna.feeder_tendrils_special_applies(_na_name, is_charging=_charging,
+                                                weapon_melee=_melee):
             execute_feeder_tendrils_special(state, attacker_id, target_id)
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
@@ -322,7 +331,7 @@ class _Normal:
         # pour toute unite non-porteuse. Emis APRES la selection d'arme (le natif connait deja la nature
         # du coup) et AVANT la formule, comme le natif.
         if tp is not None:
-            from ..triggers.dispatch import pre_attack_triggers   # lazy : cycle damage<->triggers
+            from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
             pre_attack_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
         # #227 SNAPSHOT DES ENTREES D'ETAT DU GATE `LetTheGalaxyBurn`, pris ICI = juste apres
         # `On(PreAttack=5)` et AVANT le premier coup. C'est l'etat que le natif voit : la tuile de la
@@ -421,7 +430,7 @@ class _Normal:
         # « cible a pleine vie ») pose un stat-mod CRIT_CHANCE que `_crit_params` (ligne suivante) DOIT
         # voir sur CETTE attaque -- le router apres serait un no-op silencieux. `is_first_hit=True` =
         # le coup 0 (le port n'a pas de boucle de coups au niveau trigger ; cf. l'en-tete du vecteur).
-        from ..triggers.dispatch import pre_attack_hit_triggers   # lazy : cycle damage<->triggers
+        from ..triggers.dispatch.attack import pre_attack_hit_triggers  # lazy : cycle damage<->triggers
         pre_attack_hit_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
                                 profile=_profile, is_first_hit=True, ability_type=1013)
         # crit = GetStat(9/10) [DÉJÀ effet-inclusif : les effets StatModification sur la crit sont
@@ -633,15 +642,18 @@ class _Normal:
         # JAMAIS pour un DoT ni un knockback. Place a la SORTIE de l'operation d'attaque, donc APRES
         # les coups additionnels (le compteur `received_damage_this_turn` que lisent ses consommateurs
         # est deja incremente) et AVANT `On(9)`/`On(10)` de `FinishAttackOperation`.
-        from ..triggers.dispatch import (final_damage_triggers, attack_damage_attack_triggers,
-                                         finish_attack_triggers)  # lazy
+        # lazy. Forme MODULE, meme raison qu'au site de `pre_unit_ability_triggers` ci-dessus :
+        # `finish_attack_triggers` est SUBSTITUE par `probe_437*` -- un hissage en forme
+        # `from ... import` desarmerait ces mesures en silence.
+        from ..triggers.dispatch import attack as attack_dispatch
         # #366-r1 : retrait du marqueur 1227 a la CLOTURE de l'attaque, MEME place que `On(9)`/`On(10)`
         # (les deux events de `FinishAttackOperation$$Execute`) et pour la MEME raison : une attaque
         # declenchee par un trigger (overwatch) ne traverse pas le niveau MESSAGE.
         # IDEMPOTENT avec `EFFECT_TRIGGERS[1227]`. Cf. `HitInterceptor.finish`.
         if _hit_icept is not None:
             _hit_icept.finish()
-        final_damage_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
+        attack_dispatch.final_damage_triggers(state, attacker_id, target_id,
+                                             ranged=bool(_ranged), profile=_profile)
         # `On(Attack = 9)` (#437) — 1er event de `FinishAttackOperation$$Execute`, INCONDITIONNEL, et
         # emis ICI (sortie de l'operation) et non plus au niveau MESSAGE. Le foyer natif est le noeud
         # DSL `Attack(...)` (`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` : StartAttack
@@ -656,12 +668,14 @@ class _Normal:
         # donc un tir d'overwatch ne consommait pas l'armure alors que le natif la consomme.
         _fa_profiles = {_profile} - {None}
         _fa_profiles |= set((_ah or {}).get("profiles") or [])
-        _fa = finish_attack_triggers(state, attacker_id, target_id,
-                                     ranged=bool(_ranged), profile=_profile,
-                                     is_crit=bool(r["did_crit"]), profiles=_fa_profiles,
-                                     health_damage=int(r["total"] or 0),
-                                     was_block=bool(r["did_block"]))
-        attack_damage_attack_triggers(state, attacker_id, target_id,
+        _fa = attack_dispatch.finish_attack_triggers(
+            state, attacker_id, target_id,
+            ranged=bool(_ranged), profile=_profile,
+            is_crit=bool(r["did_crit"]), profiles=_fa_profiles,
+            health_damage=int(r["total"] or 0),
+            was_block=bool(r["did_block"]))
+        attack_dispatch.attack_damage_attack_triggers(
+                                      state, attacker_id, target_id,
                                       ranged=bool(_ranged), profile=_profile,
                                       # vecteur NORMAL : `IsNormalAttack(CurrentAbility@0x88)` VRAI,
                                       # MEME donnee que le `is_normal_attack` (defaut True) passe a

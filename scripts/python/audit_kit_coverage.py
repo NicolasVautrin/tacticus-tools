@@ -85,7 +85,7 @@ from engine.entities.abilities.active_ability import (   # 3e registre de decisi
 from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS   # comparables a override CalculateCustomUtility
 from engine.playbook.noncomparable import PLAYBOOKS
 from engine.runner.abilities.handler import ABILITY_CLASSES
-from engine.runner.operations.triggers.dispatch import ABILITY_TRIGGERS, TRAIT_TRIGGERS
+from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS, TRAIT_TRIGGERS
 
 OUT = os.path.join(_REPO, "docs", "rl", "kit-coverage.md")
 

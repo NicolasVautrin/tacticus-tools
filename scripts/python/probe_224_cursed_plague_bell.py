@@ -58,7 +58,7 @@ from rl_collect_batch import _resolve_session, _rpc                        # noq
 from engine.entities.effect_type import EffectType                         # noqa: E402
 from engine.entities.pathfinding.board import Board                        # noqa: E402
 from engine.runner.snapshot import load_state                              # noqa: E402
-from engine.runner.operations.triggers import turn_start_other_triggers    # noqa: E402
+from engine.runner.operations.triggers.dispatch.turn import turn_start_other_triggers  # noqa: E402
 from engine.runner.operations.turnflow import _bump_turns_started          # noqa: E402
 
 ROOT = PYDIR.parents[1]
@@ -231,8 +231,10 @@ def offline_fire(cap, player, mutate=None):
     saved = M.cursed_plague_bell_targets_selector
     if mutate is not None:
         from engine.dsl.base import Const
-        from engine.entities.selectors import (Caster, SurroundingFriends, SurroundingEnemies,
-                                               UnitsWithoutTrait, UnitsWithTrait)
+        from engine.entities.selectors.tiles import Caster
+        from engine.entities.selectors.units import (
+            SurroundingEnemies, SurroundingFriends, UnitsWithTrait, UnitsWithoutTrait
+        )
 
         def patched(is_danger_zone=False):
             owner = Caster()

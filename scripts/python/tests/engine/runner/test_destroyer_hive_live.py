@@ -153,7 +153,7 @@ def dh_state(rpc, build_runner):
 
 def test_dh_trigger_registered(dh_state):
     """(A) Le passif DestroyerHive enregistre le trigger sur Typhus (voie passiveAbilities du registre)."""
-    from engine.runner.operations.triggers.dispatch import collect_triggered_abilities
+    from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
     from engine.runner.operations.triggers.loki.destroyer_hive import DestroyerHiveAbility
     state = dh_state["build_state"]()
     mine = [t for t in collect_triggered_abilities(state)
@@ -166,7 +166,7 @@ def test_dh_trigger_registered(dh_state):
 
 
 def _fire_offline(dh_state, player):
-    from engine.runner.operations.triggers.dispatch import start_turn_triggers
+    from engine.runner.operations.triggers.dispatch.turn import start_turn_triggers
     state = dh_state["build_state"]()
     res = start_turn_triggers(state, player)
     dh = [x for x in res if isinstance(x, dict) and x.get("type") == "destroyer_hive"]
@@ -251,7 +251,7 @@ def test_dh_scoping_owner_turn(dh_state):
 
 def test_dh_gate_no_adjacent(dh_state):
     """(E) GATE AmountIsGreaterThanZero(GetValidTargets) : ennemi rendu NON adjacent -> pas de fire."""
-    from engine.runner.operations.triggers.dispatch import start_turn_triggers
+    from engine.runner.operations.triggers.dispatch.turn import start_turn_triggers
     from engine.runner.components import PositionComponent
     state = dh_state["build_state"]()
     # eloigner l'ennemi de Typhus (offline) : le rendre non adjacent -> GetValidTargets vide.

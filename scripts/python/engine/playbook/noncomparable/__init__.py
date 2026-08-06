@@ -56,11 +56,13 @@ publique (`noncomparable.NCContext`, `.is_noncomp`, `.choose_action`, `.is_summo
 """
 from __future__ import annotations
 
-from ._base import (
-    NCContext, NonComparablePlaybook, _PlanTargetPlaybook,
-    NATIVE_PRIORITY, native_priority,
-    _unit_cfg, _traits, _has_valid_targets, _sweep_origin_first,
-)
+#: `NATIVE_PRIORITY`, `native_priority` et `_has_valid_targets` sont lus par ACCES ATTRIBUTAIRE
+#: (`from engine.playbook import noncomparable as NC` puis `NC.NATIVE_PRIORITY`) : `ai/
+#: action_generators.py` pour le troisieme, `test_nc_priority_tiers_offline` et
+#: `probe_170_playbook_priority` pour les deux premiers. Voie invisible d'un recensement
+#: d'`ImportFrom` -- #485-r1-r1 les a retires, cliquet `probe_485r1r1_acces_attributaires.py`.
+from ._base import NCContext, NonComparablePlaybook, NATIVE_PRIORITY, native_priority, \
+    _has_valid_targets
 from .bloody_fury import BloodyFuryPlaybook
 from .vexilla_magnifica import VexillaMagnificaPlaybook
 from .fighting_retreat import FightingRetreatPlaybook
@@ -68,14 +70,13 @@ from .aberrant_hypermorph import AberrantHypermorphPlaybook
 from .nova_boost import NovaBoostPlaybook
 from .nova_shield import NovaShieldPlaybook
 from .heals import (
-    RitesOfRestorationPlaybook, CombatRestorativesPlaybook,
-    DefendTheDivineWorkPlaybook, RevitalizingMalignancyPlaybook,
-    InspiredToGreatnessPlaybook, _active_ability_levels,
+    RitesOfRestorationPlaybook, CombatRestorativesPlaybook, DefendTheDivineWorkPlaybook,
+    RevitalizingMalignancyPlaybook, InspiredToGreatnessPlaybook
 )
 from .scarab_summon import ScarabSummonPlaybook
 from .get_em_runtz import GetEmRuntzPlaybook
 from .gauntlets_of_ultramar import GauntletsOfUltramarPlaybook
-from .hammer_of_wrath import HammerOfWrathPlaybook, _enemy_killed_by_normal_attack
+from .hammer_of_wrath import HammerOfWrathPlaybook
 from .heroic_fusillade import HeroicFusilladePlaybook
 from .doctrina_imperatives import DoctrinaImperativesPlaybook
 from .stormcaller import StormcallerPlaybook
@@ -232,23 +233,19 @@ def choose_action(abilities: list, ctx: NCContext, priority: int | None = None) 
 # consommes hors package : `_has_valid_targets` (action_generators.galvanic), et les helpers/bases
 # accessibles via `noncomparable.X` pour compat. Marque-les "used" (pyflakes).
 __all__ = [
-    "NCContext", "NonComparablePlaybook", "_PlanTargetPlaybook",
-    "NATIVE_PRIORITY", "native_priority",
-    "PLAYBOOKS", "playbook_for", "is_noncomp", "is_summon", "choose_action",
-    "_unit_cfg", "_traits", "_has_valid_targets", "_sweep_origin_first",
-    "_active_ability_levels", "_enemy_killed_by_normal_attack",
-    "BloodyFuryPlaybook", "VexillaMagnificaPlaybook", "FightingRetreatPlaybook",
+    "NCContext", "NonComparablePlaybook", "NATIVE_PRIORITY", "native_priority",
+    "_has_valid_targets",
+    "PLAYBOOKS", "playbook_for", "is_noncomp", "is_summon",
+    "choose_action", "BloodyFuryPlaybook", "VexillaMagnificaPlaybook", "FightingRetreatPlaybook",
     "AberrantHypermorphPlaybook", "NovaBoostPlaybook", "NovaShieldPlaybook",
     "RitesOfRestorationPlaybook", "CombatRestorativesPlaybook", "DefendTheDivineWorkPlaybook",
     "RevitalizingMalignancyPlaybook", "InspiredToGreatnessPlaybook", "ScarabSummonPlaybook",
     "GetEmRuntzPlaybook", "GauntletsOfUltramarPlaybook", "HammerOfWrathPlaybook",
-    "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook",
-    "StormcallerPlaybook", "ItItchesPlaybook", "TheQuickeningPlaybook",
-    "BlackRagePlaybook", "VigilanceEternalPlaybook", "KillMaimBurnPlaybook",
-    "ScarabHivePlaybook", "CordClawPlaybook",
-    "SpawnPoxwalkersPlaybook", "FoulInfusionPlaybook", "HolyDuelPlaybook",
-    "GrapnelLauncherPlaybook", "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
-    "ThriceBlessedConflagrationPlaybook",
-    "SendInTheNextWavePlaybook", "IncursionPlaybook", "MasterOfTheTutelariesPlaybook",
-    "SupremeCommanderPlaybook",
+    "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook", "StormcallerPlaybook",
+    "ItItchesPlaybook", "TheQuickeningPlaybook", "BlackRagePlaybook", "VigilanceEternalPlaybook",
+    "KillMaimBurnPlaybook", "ScarabHivePlaybook", "CordClawPlaybook", "SpawnPoxwalkersPlaybook",
+    "FoulInfusionPlaybook", "HolyDuelPlaybook", "GrapnelLauncherPlaybook",
+    "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
+    "ThriceBlessedConflagrationPlaybook", "SendInTheNextWavePlaybook", "IncursionPlaybook",
+    "MasterOfTheTutelariesPlaybook", "SupremeCommanderPlaybook",
 ]

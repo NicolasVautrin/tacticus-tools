@@ -86,7 +86,7 @@ class KillMaimBurnPlaybook(_PlanTargetPlaybook):
         """`GetDamage(state, isPrediction: TRUE)` + `GetDamageProfile` + `GetHitsFormula` -> le
         `DamagePredictionResult` que `CalculateUtilityFromDamageEvent` score. Foyer UNIQUE, partage
         par `damage_predictions` (trace de construction) et `evaluate_non_comparable` (utilite)."""
-        from engine.playbook.prediction import generate_multi_hit_attack_prediction
+        from engine.playbook.prediction.abilities import generate_multi_hit_attack_prediction
         return generate_multi_hit_attack_prediction(ctx.scene, ctx.uid, target, self.ABILITY_ID,
                                                     _ABILITY_NAME, attack_pos=tile)
 
@@ -107,7 +107,7 @@ class KillMaimBurnPlaybook(_PlanTargetPlaybook):
             ordre."""
         if tile is None or ctx.scene is None or target is None:
             return []
-        from engine.playbook.prediction import make_normal_attack_predictions
+        from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
         seq = []
         na = make_normal_attack_predictions(ctx.scene, ctx.uid, target, tile)
         if na is not None:

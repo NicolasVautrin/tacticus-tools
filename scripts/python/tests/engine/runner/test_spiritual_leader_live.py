@@ -122,7 +122,9 @@ def test_spiritual_leader_summons_neophyte_when_two_adjacent_decoys(live_session
     (RE-EVALUE apres le spawn : le decoy neuf COMPTE, DSL lazy) -> un `genesSmnNeophyte` est invoque
     sur l'un des decoys adjacents, qui est CRUSHE (`AddUnitOperation$$KillSteppableUnits`)."""
     from engine.runner.operations.spawn import spawn_decoy
-    from engine.runner.operations.triggers.dispatch import arrived_at_final_tile_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import (
+        arrived_at_final_tile_triggers
+    )
     from engine.runner.components import UnitComponent, StatsComponent
     state, board, magus, tile, free = _prep(rpc, build_runner, min_free_neighbours=2)
     pre = spawn_decoy(state, free[0], magus)             # 1 decoy ALLIE deja adjacent
@@ -158,7 +160,9 @@ def test_spiritual_leader_no_summon_with_single_decoy(live_session, rpc, build_r
     """NEGATIF -- gate `AmountIsEqualOrGreater(GetAdjacentDecoys(), Direct(2))`. Xybia n'a AUCUN
     decoy adjacent au depart : elle pose le sien (volet 1, HORS du gate), le compte tombe a 1 ->
     AUCUN Neophyte. C'est ce gate qui distingue le passif d'un summon inconditionnel."""
-    from engine.runner.operations.triggers.dispatch import arrived_at_final_tile_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import (
+        arrived_at_final_tile_triggers
+    )
     state, board, magus, tile, free = _prep(rpc, build_runner, min_free_neighbours=1)
     assert not _units_of_vis(state, DECOY_VIS), "des decoys preexistent (pre-cond KO)"
 
@@ -180,7 +184,9 @@ def test_spiritual_leader_fires_once_per_activation(live_session, rpc, build_run
     """NEGATIF -- gate ONE-SHOT. Le natif ne publie `On(0x1c)` que si `UnitFlagsComponent.Add(
     ArrivedAtFinalTile)` a rendu VRAI. Un second passage dans la MEME activation ne doit donc RIEN
     faire (sinon Xybia poserait un decoy par appel du vecteur : move puis fin de tour)."""
-    from engine.runner.operations.triggers.dispatch import arrived_at_final_tile_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import (
+        arrived_at_final_tile_triggers
+    )
     state, board, magus, tile, free = _prep(rpc, build_runner, min_free_neighbours=2)
 
     out1 = arrived_at_final_tile_triggers(state, magus)

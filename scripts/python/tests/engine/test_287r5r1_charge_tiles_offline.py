@@ -240,9 +240,10 @@ def test_le_noeud_movable_tiles_in_range_n_emet_pas_le_depart():
     """Le meme cran, UN ETAGE PLUS BAS -- sur le noeud lui-meme, pour que la garde survive a une
     refonte du call-site. Sous `ignore_units_on_tiles`, le pool s'ELARGIT (les tuiles occupees y
     entrent) mais le DEPART reste dehors."""
-    from engine.entities.selectors import Caster, CasterTile, MovableTilesInRange, SelectTile
+    from engine.entities.selectors.accessors import CasterTile, SelectTile
+    from engine.entities.selectors.tiles import Caster, MovableTilesInRange
     from engine.dsl.base import Const
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     b = _board()
     st = _state(b, [(1, (2, 2), 1, None), (2, (3, 2), 1, None)])
     ents = entities_from_state(st, 1, None)

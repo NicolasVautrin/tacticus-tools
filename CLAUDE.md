@@ -177,12 +177,21 @@ dérivés sont des positions **isolées** (`_STAT = 8`, `return 7`, un argument,
 voisin ne les contraint. Le tri se fait **site par site**, par le **NOM déjà écrit** ou le **TYPE
 DÉCLARÉ** lu dans `frida/methods.tsv` — et « hors règle, c'est un scalaire » reste un résultat.
 
-⚠ **UN MIRROR D'ENUM EST UNE FEUILLE — son EMPLACEMENT est fonctionnel, pas cosmétique.** Ranger
-`AbilityConstantType`/`AbilityVariableType` sous `engine/entities/abilities/` a été **essayé** et
-les rend **inimportables** : y toucher exécute l'`__init__.py` du paquet, qui tire `active_ability`
-→ `services.damage_prediction` → `ImportError` sur module partiellement initialisé. Ils vivent donc
-sous `engine/entities/`, comme `effect_type.py`. Cycle **mesuré**, même forme que celui de
-`services/static_battle_rules.py` — et gardé par un étage qui se **retourne** si le cycle disparaît.
+⚠ **UN MIRROR D'ENUM EST UNE FEUILLE — son EMPLACEMENT se MESURE, il ne se décrète pas ; et la
+contrainte qui vivait ici A DISPARU.** Ranger `AbilityConstantType`/`AbilityVariableType` sous
+`engine/entities/abilities/` les rendait **inimportables** (l'`__init__.py` du paquet tirait
+`active_ability` → `services.damage_prediction` → `ImportError` sur module partiellement
+initialisé), tout comme la place des deux imports d'enum de `services/static_battle_rules.py`
+était contrainte par la même forme de boucle. La **vidange des barils** (#485-r1-r1) a supprimé
+les deux : `import engine.entities` charge **94** modules `engine.*` avant, **2** après, et
+`entities/effects/loki/hits.py` n'est plus tiré du tout. Les deux étages qui gardaient ces
+prescriptions **se sont retournés**, comme ils étaient écrits pour le faire, et mesurent
+désormais l'inverse — le déplacement est **effectué dans une copie** de l'arbre et doit
+**passer** (`test_270r1r1r3_role_enum_offline` étage 6), les deux imports sont **en tête** et la
+cascade du paquet doit rester **courte** (`test_270r1r1_container_enum_offline` étage 4). Les
+mirrors restent sous `engine/entities/` : c'est désormais un **choix**, pas une obligation. Ce
+qui reste prescriptif : un emplacement de mirror s'établit en **déplaçant pour de vrai** dans un
+arbre témoin, jamais en recopiant une ligne comme celle-ci.
 
 ⚠ **Une confusion d'enums peut être SILENCIEUSE EN ORDINAL, et c'est ce qui rend le NOM obligatoire.**
 Mesuré (#270-r1-r1-r3) : les **19/19** ordinaux `AbilityConstantType` utilisés par le port sont
@@ -285,17 +294,45 @@ l'architecture. La PR #738 a ajouté une arête `battle_query -> entities.traits
 compte est tombé à 429 et `probe_433_r1_identity_shortcircuit.py`, **versionné**, est passé de
 `rc 0` à `rc 1`. Trouvé à la relecture, par flair — aucun cliquet ne le voyait.
 
-⚠ **Le 430/430 est TENU PAR les différés — ce n'est pas un certificat de graphe sain.** Mesuré :
-**314** différés vers `engine.*` dans `engine/**`, dont **262 PORTEURS** et **52 GRATUITS**.
-« Pas de différés » est donc inatteignable, et le prescrire serait de la prose contre un fait. Ce
-qui est exigible : **chaque différé DÉCLARE sa classe**, et le compte des gratuits ratchette à
-**0**. Le cliquet d'import isolé garde « **aucun NOUVEAU cycle** », jamais « aucun cycle ».
+⚠ **Le 430/430 est TENU PAR les différés — ce n'est pas un certificat de graphe sain.** Mesuré
+après le sweep #485-r1-r1 : **169** différés vers `engine.*` dans `engine/**` (contre 314 avant),
+dont **166 PORTEURS** et **3 GRATUITS**. « Pas de différés » est donc inatteignable, et le
+prescrire serait de la prose contre un fait. Ce qui est exigible : **chaque différé DÉCLARE sa
+classe**, et le compte des gratuits ratchette au plus bas atteint. Le cliquet d'import isolé garde
+« **aucun NOUVEAU cycle** », jamais « aucun cycle ».
+⚠ **Les 3 gratuits restants ne sont pas un reliquat à finir** : ce sont des imports OPTIONNELS
+sous `try/except` (`entities/effects/magnitude.py`, `playbook/nonattack.py`,
+`services/custom_normal_attack.py`). Les hisser déplacerait l'échec du site d'appel — où il est
+rattrapé — vers le chargement du module.
 
-⚠ **Le gisement se propage par IMITATION, et c'est mesuré** : **32 des 52 gratuits (62 %)** vivent
-dans un module qui porte DÉJÀ un différé légitime (`abilities/targeting.py` 4 porteurs / 4
-gratuits ; `utilities/tile.py` 5 / 3). S'y ajoute que **212 des 262 porteurs n'écrivent AUCUNE
-raison** : un lecteur ne peut pas distinguer « structurel, n'y touche pas » de « scorie », donc il
-recopie. Écrire la raison n'est pas de la politesse — c'est ce qui arrête la propagation.
+⚠ **HISSER, OUI — MAIS EN FORME B, ET C'EST LA SEULE DES TROIS QUI TIENNE.** Mesuré sous
+`monkeypatch.setattr("src_x.foo", stub)` : **A** `from X import foo` au niveau module **NE MORD
+PAS** ; **B** `import X` puis `X.foo()` **mord** ; **C** `from X import foo` dans la fonction
+**mord, par accident** (l'instruction est re-exécutée à chaque appel). Hisser en forme A fait donc
+passer de MORD à NE MORD PAS — c'est la cause exacte des 28 fichiers rouges de #484 et des 12 de
+la famille #429-r1, et elle a **récidivé** dans #485-r1-r1 même (deux couples, dont un désarmé
+SILENCIEUSEMENT parce que son patcheur est un probe que la banque ne joue pas). B ne coûte rien en
+cascade (`from pkg.sub import mod` charge les mêmes modules que `from pkg.sub.mod import nom` —
+écart 0) et éteint aussi l'ordre-dépendance : un binding de module n'est jamais gelé.
+⚠ **Avant tout hissage, jouer `migrate_485r1_barils_reexport.py morsure`** : il dit lesquels
+désarmeraient un patch déjà posé. Il ne le disait pas — deux angles morts, tous deux réparés :
+`DEJA_INERTE` était testé AVANT `HISSAGE_DESARMERAIT` et faisait `continue` (une liaison A dans un
+module tiers masquait le site C qu'on allait hisser), et sa base de gratuits était **ATTESTÉE**,
+donc en retard d'une vidange — or un différé est gratuit **par rapport à un arbre**.
+
+⚠ **Le gisement se propage par IMITATION, et c'est mesuré** : avant le sweep, **32 des 52
+gratuits (62 %)** vivaient dans un module portant DÉJÀ un différé légitime. S'y ajoute que
+**126 des 166 porteurs n'écrivent AUCUNE raison** : un lecteur ne peut pas distinguer
+« structurel, n'y touche pas » de « scorie », donc il recopie. Écrire la raison n'est pas de la
+politesse — c'est ce qui arrête la propagation.
+
+⚠ **VIDER UN BARIL : l'ACCÈS ATTRIBUTAIRE est une voie de consommation, et il ne laisse AUCUNE
+trace dans un recensement d'`ImportFrom`.** `from engine.playbook import noncomparable as NC` lie
+un **module** ; tout `NC.X` qui suit est attributaire. Mesuré (#485-r1-r1) : le recenseur
+couvrait `import X as E` et pas cette écriture-là — 4 couples vidés sous les pieds de leurs
+lecteurs, dont **deux dans `engine/**` lui-même**, qu'aucun des tests tombés ne montrait. Cliquet
+exécutable : `probe_485r1r1_acces_attributaires.py` (il résout chaque accès contre le module
+RÉELLEMENT importé, donc il voit l'`AttributeError` avant qu'il soit joué).
 
 ⚠ **L'incitation joue CONTRE la réparation**, et elle vient du brief : « reste borné, ne touche
 pas aux foyers des autres » rend le différé rationnel, puisque déplacer un foyer touche un fichier

@@ -23,9 +23,9 @@ from engine.runner.components import (UnitComponent, OwnerComponent, PositionCom
                                       StatsComponent, HealthComponent,
                                       get_ability_stat_modification, parent_of, children_of)
 from engine.runner.prng import IntBasedMersenneTwister
-from engine.entities import EffectsState
+from engine.entities.effects_state import EffectsState
 from engine.entities.unit_context import UnitContext
-from engine.runner.operations.triggers.dispatch import pre_unit_ability_triggers
+from engine.runner.operations.triggers.dispatch.ability import pre_unit_ability_triggers
 from engine.runner.abilities.astramilitarum import SupremeCommanderAbility, CONST_NR_OF_SUMMONS, CONST_RANGE
 
 BOARD_ID = "MC1_67"
@@ -43,7 +43,7 @@ def _board():
         t = bd.tile(col, row) or {}
         tiles.append({"id": i + 1, "col": col, "row": row, "walkable": True,
                       "tileDefId": t.get("tileId"), "elevation": t.get("elevation")})
-    from engine.entities.pathfinding import Board as EngineBoard
+    from engine.entities.pathfinding.board import Board as EngineBoard
     return EngineBoard(tiles, adjacency="evenq")
 
 

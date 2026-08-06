@@ -19,6 +19,18 @@ from typing import Callable, List, Optional
 from .state import State
 from .events import EventBus
 from .messages import Message
+from .abilities.handler import AbilityHandler
+from .operations.damage import DamageHandler
+from .operations.movement import MovementHandler
+from .operations.triggers.dispatch.pending import process_pending_triggered_abilities
+#: FORME B (import de MODULE), et pas `from ...phase import phase_end_triggers` : le differe
+#: est mesure GRATUIT une fois les barils vides, mais hisse en forme A il rendrait INERTE le
+#: `monkeypatch.setattr(phase_mod, "phase_end_triggers", ...)` de
+#: `test_389_ramming_speed_combat_offline::test_runner_apply_closes_the_phase` -- mesure du
+#: 2026-08-06, ce test est TOMBE ainsi. Un import de module relit l'attribut A L'APPEL.
+from .operations.triggers.dispatch import phase as phase_dispatch
+from .operations.turnflow import TurnFlowHandler
+from .operations.turnflow import verify_units_turn_finished
 
 
 class Runner:
@@ -44,10 +56,6 @@ class Runner:
         Le foyer est `engine.services.damage_config.resolve_spread_pct` — aucun `20` en dur ici
         (c'était le résidu `#449-r2-r4` : le natif le lit dans la BC, cf.
         `IdunBattle.Core.Services.DamageCalculations$$get_DamageSpreadPercentageFix64`)."""
-        from .operations.movement import MovementHandler
-        from .operations.damage import DamageHandler
-        from .operations.turnflow import TurnFlowHandler
-        from .abilities import AbilityHandler
         self.movement_handler = MovementHandler(self.state, self.bus)  # after_move (overwatch…)
         self.post_handlers.append(self.movement_handler)
         self.damage_handler = DamageHandler(self.state, spread_pct)
@@ -98,7 +106,6 @@ class Runner:
         # position exacte est ICI, entre les post-handlers et `phase_end_triggers`.
         # RE + residus (2e drain natif du bloc de fin de tour, `VerifyTurnEnd`) :
         # `operations/triggers/dispatch/pending.py`.
-        from .operations.triggers.dispatch.pending import process_pending_triggered_abilities
         process_pending_triggered_abilities(self.state)
         # #287-r1-r1 : ARBITRAGE DE `UnitFlag.NoActionAvailable`. Toujours dans la branche
         # `isInternalPhase == false` de `IdunBattle.Messages.InputMessageProcessor$$RunPhase`, et
@@ -113,7 +120,5 @@ class Runner:
         # intercale entre les deux ne sont pas joues ici, l'operation est idempotente, et le second
         # appel couterait un second pathfinding par unite (residu nomme dans
         # `operations/turnflow.verify_units_turn_finished`).
-        from .operations.turnflow import verify_units_turn_finished
         self.last_verify_turn_finished = verify_units_turn_finished(self.state)
-        from .operations.triggers.dispatch.phase import phase_end_triggers   # lazy : circular import
-        phase_end_triggers(self.state)
+        phase_dispatch.phase_end_triggers(self.state)

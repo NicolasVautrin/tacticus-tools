@@ -242,7 +242,7 @@ def test_counter_case_without_perform_ai_action(supreme_commander):
     -> TOUS les gardes restent a distance 1 du caster. Sans ce contraste, « il a bouge » ne prouve rien."""
     from engine.dsl.effects import ExecutionContext
     from engine.runner.abilities.astramilitarum import supreme_commander_spawn_tree
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     d = supreme_commander
     if not d["res"]["spawned"]:
         pytest.skip("port n'a spawn aucun garde")

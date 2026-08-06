@@ -53,7 +53,7 @@ from engine.entities.pathfinding.board import Board
 from engine.entities.triggered_ability_type import TriggeredAbilityType
 from engine.runner.components import HealthComponent, StatsComponent
 from engine.runner.messages import AttackUnitMessage
-from engine.runner.operations.triggers.dispatch import ACTIVE_ABILITY_TRIGGERS
+from engine.runner.operations.triggers.dispatch.registry import ACTIVE_ABILITY_TRIGGERS
 from engine.runner.operations.triggers.loki.hailstrike import HailstrikeAttackAbility
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.runner import Runner

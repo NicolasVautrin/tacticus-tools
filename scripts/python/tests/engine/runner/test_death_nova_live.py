@@ -44,7 +44,7 @@ from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.components import UnitComponent, HealthComponent, StatsComponent
-from engine.runner.operations.triggers import pre_unit_death_2_triggers
+from engine.runner.operations.triggers.dispatch.move_death import pre_unit_death_2_triggers
 from engine.runner.operations.triggers.loki.death_nova import (
     ExplodesAbility, PutridExplosionAbility, EXPLODES_PROFILE)
 from engine.runner.operations.triggers.base import TriggerEvent

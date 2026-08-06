@@ -77,6 +77,7 @@ from __future__ import annotations
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ...stats import StatType
 
 #: `AbilityType.op_Implicit(0x614 = 1556)` de la lambda -- l'ability dont la config est lue.
 MY_WILL_BE_DONE_OVERLORD = "MyWillBeDoneOverlord"
@@ -121,7 +122,6 @@ class MyWillBeDoneOverlordExtraDamageEffect(BaseEffect):
         `AStatModifierEffect$$ApplyModification` : Attack += `extraDmg[level source] x mult`.
         Execute par `AddEffectOperation._apply_stat_mods`. Montant nul/absent -> aucun stat-mod
         (degradation fidele « present != applique »)."""
-        from ...stats import StatType
         lvl, mult = _source_level_mult(self, stats_ctx)
         amt = ability_var(MY_WILL_BE_DONE_OVERLORD, EXTRA_DMG_KEY, lvl, multiplier_pct=mult)
         if not amt:
@@ -132,5 +132,4 @@ class MyWillBeDoneOverlordExtraDamageEffect(BaseEffect):
         """Stats annulees par `AStatModifierEffect$$RevertModification`
         (`Stat(0 = Attack, 6 = ResetModification)`), lu par la feuille `RemoveEffect` et par
         l'expiration du timer (`revert_stat_mods_of_removed_effects`)."""
-        from ...stats import StatType
         return [StatType.ATTACK]

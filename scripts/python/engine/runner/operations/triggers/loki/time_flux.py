@@ -64,8 +64,8 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.formulas import LastHitDamageTakenLastTurn, Min, Sum
 from .....entities.effects.magnitude import ability_var
-from .....entities.selectors import Caster
-from ....abilities.behaviours import entities_from_state
+from .....entities.selectors.tiles import Caster
+from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.stats import Heal
 from ....components import OwnerComponent, StatsComponent
 from ....state import State

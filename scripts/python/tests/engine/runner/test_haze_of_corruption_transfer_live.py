@@ -73,7 +73,7 @@ def _etat_avec_bond_1077():
     """Etat MINIMAL portant un bond 1077 pret a reporter : le relais porte l'effet, sa `source` est
     l'unite qui meurt, son `bonded` est le porteur du passif (= l'auteur du coup fatal). Rend
     `(state, trigger, event, instance)`."""
-    from engine.entities.effects import BaseEffect
+    from engine.entities.effects.base import BaseEffect
     from engine.entities.effects_state import EffectsState
     from engine.runner.components import UnitComponent
     from engine.runner.state import State

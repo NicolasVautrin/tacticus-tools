@@ -320,7 +320,8 @@ def test_etage5_inform_ecrit_action_Info_sur_NO_ENTITY():
             Tag=Attack_Weapon_DamageProfile:14
     """
     from engine.runner.abilities.behaviours.combat import InformWeapon
-    from engine.streams import StreamCache, StreamDispatcher
+    from engine.streams.dispatcher import StreamDispatcher
+    from engine.streams.stream_cache import StreamCache
     from engine.streams.group_type import GroupType
     from engine.streams.inform_ops import inform
 

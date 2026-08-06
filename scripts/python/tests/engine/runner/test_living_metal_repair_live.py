@@ -41,7 +41,7 @@ import pytest
 
 from engine.runner.snapshot import load_state
 from engine.runner.components import HealthComponent, StatsComponent
-from engine.runner.operations.triggers import turn_start_other_triggers
+from engine.runner.operations.triggers.dispatch.turn import turn_start_other_triggers
 from engine.runner.operations.triggers.base import TriggerEvent
 from engine.runner.operations.triggers.loki.living_metal import (
     LivingMetalRepairAbility, living_metal_pct, _round_half_even,

@@ -55,9 +55,11 @@ from _ramming_speed_charge_montage import build_charge_montage   # noqa: E402
 
 from engine import weights as W                                  # noqa: E402
 from engine.dsl.base import Const                                # noqa: E402
-from engine.entities.selectors import (AdjacentTiles, CanAddUnit, Caster,   # noqa: E402
-                                       CasterTile, MovableTilesInRange, Target, TileIntersect)
-from engine.runner.abilities.behaviours import entities_from_state          # noqa: E402
+from engine.entities.selectors.accessors import CasterTile, Target
+from engine.entities.selectors.tiles import (
+    AdjacentTiles, CanAddUnit, Caster, MovableTilesInRange, TileIntersect
+)  # noqa: E402
+from engine.runner.abilities.behaviours.context import entities_from_state  # noqa: E402
 from engine.runner.abilities.orks import (RAMMING_SPEED_CONST_RANGE,        # noqa: E402
                                           RAMMING_SPEED_TILE_UTILITY,
                                           ramming_speed_charge_tiles_selector,

@@ -33,7 +33,7 @@ import pytest
 import probe_433_r4_r1_r1_wall_of_mirrors as P
 from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
-from engine.runner.abilities.behaviours import entities_from_state
+from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.abilities.loki import wall_of_mirrors_possible_tiles, wall_of_mirrors_range
 from engine.runner.abilities.targeting_rule import TargetingRule as TR

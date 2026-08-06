@@ -316,7 +316,7 @@ def _mk_state(target_traits):
     from engine.runner.components import (UnitComponent, OwnerComponent, PositionComponent,
                                           HealthComponent, StatsComponent)
     from engine.entities.unit_context import UnitContext
-    from engine.entities import EffectsState
+    from engine.entities.effects_state import EffectsState
     from engine.runner.operations.effects import AddEffectOperation
 
     st = State()
@@ -591,7 +591,7 @@ def jouer_bras(sid, bras: str) -> dict:
         from engine.runner.operations.effects import AddEffectOperation
         from engine.runner.operations.triggers.base import TriggerEvent
         from engine.runner.operations.triggers.loki import master_of_the_tutelaries as M
-        from engine.runner.abilities.behaviours import entities_from_state
+        from engine.runner.abilities.behaviours.context import entities_from_state
         from engine.dsl.event_trigger_type import EventTriggerType
         bg = PR.rpc(sid, "boardGraph", {"runnerId": rid}, 60)
         cs = PR.rpc(sid, "combatSnapshot", {"runnerId": rid}, 60)

@@ -153,7 +153,7 @@ def port_utility(ctx, target: int, ab: int, tile):
 
 
 def _pred_tiles_moved(ctx, caster: int, tile) -> int:
-    from engine.playbook.prediction import prediction_tiles_moved_this_turn
+    from engine.playbook.prediction._shared import prediction_tiles_moved_this_turn
     return prediction_tiles_moved_this_turn(ctx.scene, caster, (int(tile[0]), int(tile[1])))
 
 

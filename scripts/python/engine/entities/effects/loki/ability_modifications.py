@@ -18,7 +18,7 @@ from __future__ import annotations
 import gameconfig as GC
 
 from ..base import BaseEffect
-from ...selectors import Parent, Caster
+from ...selectors.tiles import Caster, Parent
 from ....entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 
 # Index des constantes lues par `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$ApplyInternal`

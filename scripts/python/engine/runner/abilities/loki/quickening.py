@@ -54,7 +54,8 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from ..base import ActiveAbility
-from ..behaviours import AddEffect, RemoveEffect, entities_from_state
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddEffect, RemoveEffect
 from ..targeting import RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions
 from ..targeting_rule import TargetingRule as TR
 from .summon import perform_ai_attack_from_current_position
@@ -64,11 +65,13 @@ from ....entities.stats import StatType
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effect_type import EffectType
 from ....entities.effects.magnitude import ability_var
-from ....entities.selectors import (Caster, CasterTile, Enemies, MovableTilesInRange, SelectTile,
-                                    Sub, Target)
+from ....entities.selectors.accessors import CasterTile, SelectTile, Target
+from ....entities.selectors.tiles import Caster, MovableTilesInRange
+from ....entities.selectors.units import Enemies, Sub
 from ....dsl.effects import ExecutionContext
 from ..targeting import unit_of_entity                             # #484 : hisse, cf. ci-dessous
 from ...components import get_feet_count                           # #484 : hisse, cf. ci-dessous
+from ....dsl.base import Const
 
 if TYPE_CHECKING:
     from ...state import State
@@ -289,7 +292,6 @@ class TheQuickeningAbility(ActiveAbility):
         `target_id` est un id de TUILE (cast tile-target) : `Contains` se lit donc directement sur
         l'ensemble d'ids que rend le noeud. Tuile hors board / `range` illisible -> `0` (convention
         permissive du module ; le natif, lui, n'atteint cette regle que sur une tuile enumeree)."""
-        from ....dsl.base import Const
         # #484 : les quatre differes qui vivaient ici etaient GRATUITS au sens de
         # `probe_270r4r2r2` -- leur MODULE cible est deja importe au niveau de CE fichier, donc
         # ni cycle possible ni cout evite. Ils sont HISSES (en tete), pas supprimes : « la cible

@@ -43,8 +43,9 @@ import hexgeo                                                                   
 from engine import battle_query as bq                                            # noqa: E402
 from engine.dsl.base import DslContext                                           # noqa: E402
 from engine.entities.pathfinding.board import Board, elevations_by_pos           # noqa: E402
-from engine.entities.selectors import (Caster, FilterTilesIfCanAttackTargetTileFrom,  # noqa: E402
-                                       FixedTileIds, Target, UnitsDirectlyBehind)
+from engine.entities.selectors.accessors import FixedTileIds, Target
+from engine.entities.selectors.tiles import Caster, FilterTilesIfCanAttackTargetTileFrom
+from engine.entities.selectors.units import UnitsDirectlyBehind  # noqa: E402
 
 COLS, ROWS = 7, 7
 

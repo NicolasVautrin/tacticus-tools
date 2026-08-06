@@ -57,14 +57,14 @@ from pathlib import Path
 
 import board as B
 import gameconfig as GC
-from engine.entities import EffectsState
+from engine.entities.effects_state import EffectsState
 from engine.entities.unit_context import UnitContext
 from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE, AbilityAttackType
 from engine.runner.abilities.handler import AbilityHandler
 from engine.runner.components import (HealthComponent, OwnerComponent, PositionComponent,
                                       StatsComponent, UnitComponent, children_of)
 from engine.runner.messages import ActiveAbilityMessage
-from engine.runner.operations.triggers.dispatch import pre_unit_ability_triggers
+from engine.runner.operations.triggers.dispatch.ability import pre_unit_ability_triggers
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.state import State
 
@@ -85,7 +85,7 @@ def _board():
         t = bd.tile(col, row) or {}
         tiles.append({"id": i + 1, "col": col, "row": row, "walkable": True,
                       "tileDefId": t.get("tileId"), "elevation": t.get("elevation")})
-    from engine.entities.pathfinding import Board as EngineBoard
+    from engine.entities.pathfinding.board import Board as EngineBoard
     return EngineBoard(tiles, adjacency="evenq")
 
 

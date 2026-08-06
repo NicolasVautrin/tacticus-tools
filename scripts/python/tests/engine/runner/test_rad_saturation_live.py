@@ -164,7 +164,7 @@ def _find_open_push_triple(board, occupied):
 def test_rad_saturation_after_move_contaminates_own_tile(live_session, rpc, build_runner):
     """Branche 1 (`On(4)&OwnerIsActor`) : quand le Skitarii bouge, `after_move_triggers(sid)` pose Contaminated
     (1244) sur SA tuile courante (== `Tiles(Caster())`)."""
-    from engine.runner.operations.triggers.dispatch import after_move_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     state, board, sid, tile, _player = _prep(rpc, build_runner)
     assert not state.effects.has_effect(tile, effect_type=CONTAMINATED_TILE), "tuile deja contaminee (pre-cond KO)"
 
@@ -181,7 +181,7 @@ def test_rad_saturation_after_move_contaminates_own_tile(live_session, rpc, buil
 def test_rad_saturation_turn_end_no_move_contaminates(live_session, rpc, build_runner):
     """Branche 3 (`On(0x17=TurnEnd)&NOT moved`) : sans avoir bouge, `end_turn_summon_triggers(player)` pose
     Contaminated (1244) sur la tuile du Skitarii."""
-    from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
+    from engine.runner.operations.triggers.dispatch.turn import end_turn_summon_triggers
     state, board, sid, tile, player = _prep(rpc, build_runner)
     _set_moved(state, sid, False)                         # n'a PAS bouge ce tour (flag natif absent)
     assert not state.effects.has_effect(tile, effect_type=CONTAMINATED_TILE), "tuile deja contaminee (pre-cond KO)"
@@ -198,7 +198,7 @@ def test_rad_saturation_turn_end_no_move_contaminates(live_session, rpc, build_r
 def test_rad_saturation_turn_end_gate_skips_if_moved(live_session, rpc, build_runner):
     """Gate branche 3 : s'il a BOUGE ce tour (flag natif `UnitFlag.Moved` pose sur lui), la fin de tour NE
     re-contamine PAS (la branche 1 l'a deja fait a la destination) -> `NOT(HasFlag moved)` refute."""
-    from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
+    from engine.runner.operations.triggers.dispatch.turn import end_turn_summon_triggers
     state, board, sid, tile, player = _prep(rpc, build_runner)
     _set_moved(state, sid, True)                          # a BOUGE ce tour -> branche 3 gatee
     assert not state.effects.has_effect(tile, effect_type=CONTAMINATED_TILE), "tuile deja contaminee (pre-cond KO)"
@@ -216,7 +216,8 @@ def test_rad_saturation_arms_contaminated_tile_effect(live_session, rpc, build_r
     """Aval arme : apres que RadSaturation contamine la tuile, `collect_effect_triggers` expose desormais un
     `ContaminatedTileEffect` (owner = la tuile) -> la machinerie #132 (Contaminated_Unit -30% armure) est
     alimentee (elle etait DORMANTE, aucun poseur de 1244 avant ce port)."""
-    from engine.runner.operations.triggers.dispatch import after_move_triggers, collect_effect_triggers
+    from engine.runner.operations.triggers.dispatch.core import collect_effect_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import after_move_triggers
     from engine.runner.operations.triggers.effect_triggers import ContaminatedTileEffect
     state, board, sid, tile, _player = _prep(rpc, build_runner)
 

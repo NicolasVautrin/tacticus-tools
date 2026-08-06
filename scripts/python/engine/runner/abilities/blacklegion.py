@@ -29,12 +29,17 @@ from ...entities.behaviours import (AtomicGroup, ChainBehaviour, If as IfBehavio
                                     op_add, op_and)
 from ...entities.formulas import (If as FormulaIf, Min, Multiply, StatAmount, Sum,
                                   TotalActiveAbilityUsed)
-from ...entities.selectors import (ActiveTarget, AdjacentTiles, AdjacentUnits, CanAddUnit, Caster,
-                                   CasterTile, Damageable, Enemies, Filter, FixedTileIds, Friends,
-                                   Nothing, Null, PickFirstN, SelectTile, SortByDistance, Sub,
-                                   Subject,
-                                   SurroundingUnits, Target, Tiles, TilesBehindInLine,
-                                   TilesInTriangleShape, TilesOnSameElevation, Union, Units)
+from ...entities.selectors.accessors import (
+    ActiveTarget, CasterTile, FixedTileIds, SelectTile, Subject, Target
+)
+from ...entities.selectors.geometry import (
+    Nothing, Null, PickFirstN, TilesBehindInLine, TilesInTriangleShape, TilesOnSameElevation
+)
+from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+from ...entities.selectors.units import (
+    AdjacentUnits, Damageable, Enemies, Filter, Friends, SortByDistance, Sub, SurroundingUnits,
+    Tiles, Union, Units
+)
 from ...entities.triggers import (HasEffect, IsAlive, IsInRange, IsPositionMachineForCurrentPlayer,
                                   TriggerAnd)
 from ...entities.effect_type import EffectType
@@ -42,9 +47,12 @@ from ...entities.stats import StatPart, StatType
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.triggered_ability_type import TriggeredAbilityType
 from .base import ActiveAbility
-from .behaviours import (entities_from_state, AddEffect, AttackWithAttackDamage, ChangeStat, SetHealth,
-                         Spawn, TriggerAbility, UseActiveAbility,
-                         add_or_update_static_stat_modifier_effect)
+from .behaviours.combat import AttackWithAttackDamage, UseActiveAbility
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect, add_or_update_static_stat_modifier_effect
+from .behaviours.lifecycle import TriggerAbility
+from .behaviours.stats import ChangeStat, SetHealth
+from .behaviours.summon import Spawn
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD,
                         RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE,
                         TargetingOptions)
@@ -55,9 +63,11 @@ from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1
 # rida/methods.tsv (IdunBattleLogic.Utils.Hex.Corner, pas l'un des cinq homonymes Unity).
 from ...hex_corner import Corner
 from ...entities.effects.magnitude import ability_var
-from ...entities.selectors import SurroundingUnits, TargetTile, Tiles, Units, UnitsWithTrait
+from ...entities.selectors.accessors import TargetTile
+from ...entities.selectors.units import SurroundingUnits, Tiles, Units, UnitsWithTrait
 from ...entities.traits.unit_trait import UnitTrait
 from ..components import StatsComponent
+from ..abilities.loki.splash import _pick_randomly_n
 
 if TYPE_CHECKING:
     from ..state import State
@@ -212,7 +222,6 @@ def incursion_next_spawn_tile(state: "State", entities):
     Le predicat reste du DSL (`IsAlive`/`IsInRange`/`TriggerAnd`) et le selecteur de tuiles aussi
     (`CanAddUnit(AdjacentTiles(Target()))`) ; seul le couple `ConditionalAmount`+`PickRandomly` est FOLDE
     (le tirage vit la ou l'on voit `state.rng`, meme doctrine que le `pick_n` de `Spawn`)."""
-    from ..abilities.loki.splash import _pick_randomly_n
     rng_const = int(((GC.ability("Incursion") or {}).get("constants") or {}).get("range") or 0)
     cond = TriggerAnd(TriggerAnd(IsAlive(Caster()), IsAlive(Target())),
                       IsInRange(Caster(), Target(), Const(rng_const)))

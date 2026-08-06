@@ -48,15 +48,19 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..abilities.behaviours import entities_from_state
+from ..abilities.behaviours.context import entities_from_state
 from ..components import OwnerComponent, PositionComponent, UnitComponent, UnitFlagsComponent
-from .triggers import TriggeredAbility, _hex_dist
+from .triggers.base import TriggeredAbility, _hex_dist
 from ...dsl.event_trigger_type import EventTriggerType
 from ...entities.effect_type import EffectType
-from ...entities.selectors import Caster, Target
+from ...entities.selectors.accessors import Target
+from ...entities.selectors.tiles import Caster
 from ...entities.triggers import IsAdjacent, is_object_or_steppable
 from ...entities.pathfinding.walk_pathfinder import get_movable_positions
 from .remove_unit import RemoveUnitOperation
+from ...services.damage_combat import roll_critical
+from ..events import EventBus
+from .movement import MoveUnitOperation
 
 IGNORE_BATTLE_FATIGUE = int(EffectType.IgnoreBattleFatigue)  # 1079 (immunite ; posee p.ex. par SquigHound 1078) #158
 # 3e argument d'`DSLTriggers$$IsAdjacent` = `UnitSelectionType`, PAS un rayon (cf. en-tete du module).
@@ -109,8 +113,6 @@ class FleeOperation:
         fl.add(UnitFlagsComponent.FLED)                       # UnitFlag 9 = a fui
         to = FleeOperation._safest_tile(state, unit_id, movement)
         if to is not None:
-            from .movement import MoveUnitOperation
-            from ..events import EventBus
             # `emit_after_move=False` : `IdunBattle.Operations.FleeOperation$$Execute` n'appelle NI
             # le slot `MoveUnit` NI `SetUnitPosition` -- son deplacement n'est PAS porte (la
             # destination ci-dessus est une approximation best-effort, cf. docstring). Jouer le
@@ -219,7 +221,6 @@ class BattleFatigueAbility(TriggeredAbility):
                     "eligible": True, "flee": None, "note": "deja fui (flag 9)"}
         chance = getattr(state, "battle_fatigue_flee_chance", None)
         if chance is not None and state.rng is not None:
-            from ...services.damage_combat import roll_critical  # NextBool(chance) reutilise
             if not roll_critical(state.rng, int(chance)):
                 return {"trait": "BattleFatigue", "owner": self.owner_id, "dying": ev.dying_id,
                         "eligible": True, "flee": None, "note": "maybe-flee rate (no flee)"}

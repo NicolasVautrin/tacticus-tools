@@ -41,6 +41,8 @@ from typing import Callable, Optional
 from . import teleport_pathfinder as _tp
 from . import beeline_pathfinder as _bl
 from .walk_pathfinder import get_movable_positions as _walk
+from . import fly_pathfinder as _fly
+from . import fly_pathfinder as _fly_mod
 
 
 class PathfinderType(IntEnum):
@@ -172,12 +174,15 @@ def find_reachable_tiles(board, pathfinder_type: int, start_id: int, depth: int,
     le `PathfinderType = 1` litteral de `MinDistanceToClosestEnemyUtility`, porte a part dans
     `ignore_terrain_pathfinder`) -> ils retombent ici sur la base marche, comme le port l'a
     toujours fait, et sont hors perimetre de ce foyer."""
-    from .fly_pathfinder import get_movable_positions as _fly
+    # forme MODULE : get_movable_positions est SUBSTITUE (probe_381r1, probe_403_c2_26 et
+    # deux tests _live.py). Hisse en rom ... import, ce nom serait lie AU CHARGEMENT et
+    # les quatre mesures cesseraient de mordre, EN SILENCE (#485-r1-r1).
     t = int(pathfinder_type)
     base = base_type_of(t)
     if base == int(PathfinderType.Fly):
         # `FlyPathfinder` : arete propre, et AUCUN gate d'expansion (`continue_gate_for`).
-        visited, stop = _fly(board, int(start_id), int(depth), occupants, moving_team)
+        visited, stop = _fly_mod.get_movable_positions(board, int(start_id), int(depth),
+                                                       occupants, moving_team)
     else:
         visited, stop = _walk(board, int(start_id), int(depth), occupants, moving_team,
                               can_continue=continue_gate_for(t, can_continue))
@@ -209,7 +214,6 @@ def find_path(board, pathfinder_type: int, from_id, to_id,
     Les appelants du port ne demandent donc jamais le chemin de marche a ce foyer-ci ; celui qui
     le ferait doit lire cette ligne plutot que d'interpreter le `None` comme la branche degeneree
     du natif. Les types 1/4/5 ne sont atteignables par aucun `GetPathfinderTypeForUnit`."""
-    from . import fly_pathfinder as _fly
     t = int(pathfinder_type)
     if is_teleport_type(t):
         return _tp.find_path(board, from_id, to_id)

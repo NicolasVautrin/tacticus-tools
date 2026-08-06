@@ -93,7 +93,8 @@ def test_unit_predicate_radius_equals_team_radius_offline():
     Detail de la tension decompile/mesure : docstring d'`IsInUnitAura`."""
     from engine.entities.effects.aura import aura_range_on_owner_turn
     from engine.entities.triggers import IsInUnitAura
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     from engine.dsl.base import DslContext
     node = IsInUnitAura(Target(), AURA, Caster())
     for turns in range(0, 8):
@@ -175,15 +176,16 @@ def _turns_started(state, uid):
 
 
 def _port_team_verdict(state, mow_id, enemy_id) -> bool:
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.entities.triggers import IsInTeamAura
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     ctx = entities_from_state(state, caster_id=mow_id, target_id=enemy_id)
     return bool(IsInTeamAura(Target(), AURA, Caster()).should_trigger(ctx))
 
 
 def _port_unit_verdict(state, carrier_id, enemy_id) -> bool:
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.deathguard import is_in_contagions_of_nurgle_range
     ctx = entities_from_state(state, caster_id=carrier_id, target_id=enemy_id, actor_id=enemy_id)
     return bool(is_in_contagions_of_nurgle_range().should_trigger(ctx))

@@ -134,8 +134,10 @@ from ....state import State
 from ....components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                             parent_of, children_of)
 from ....abilities.attack_type import ability_is_attack
-from ....abilities.behaviours import Spawn, entities_from_state
-from .....entities.selectors import AdjacentTiles, CanAddUnit, Caster, First
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.summon import Spawn
+from .....entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+from .....entities.selectors.units import First
 from .....entities.effect_type import EffectType
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType

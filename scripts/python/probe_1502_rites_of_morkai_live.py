@@ -51,7 +51,7 @@ from engine.runner.snapshot import load_state                  # noqa: E402
 from engine.runner.prng import IntBasedMersenneTwister         # noqa: E402
 from engine.runner.components import (UnitComponent, HealthComponent,      # noqa: E402
                                       PositionComponent)
-from engine.runner.operations.triggers import after_death_triggers          # noqa: E402
+from engine.runner.operations.triggers.dispatch.move_death import after_death_triggers  # noqa: E402
 from engine.runner.operations.revive import kill_unit_revive_gate           # noqa: E402
 from engine.runner.operations.triggers.loki.rites_of_morkai import (        # noqa: E402
     RITES_OF_MORKAI_EFFECT)

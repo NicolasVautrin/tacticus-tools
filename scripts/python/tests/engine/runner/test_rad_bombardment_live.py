@@ -468,7 +468,7 @@ def test_rad_bombardment_line_order_is_not_id_order():
     apres `SortReverse` c'est [200, 100]. Un port qui aurait garde `multi=True` (qui folde l'`OrderBy` de
     la famille ATTACK) rendrait [100, 200] et TOMBERAIT ici."""
     from engine.dsl.base import DslContext
-    from engine.entities.selectors import Units
+    from engine.entities.selectors.units import Units
     from engine.runner.abilities.admec import rad_bombardment_affected_tiles
     tiles = [{"id": r * 10 + c, "col": c, "row": r, "walkable": True, "elevation": 0}
              for r in range(6) for c in range(6)]

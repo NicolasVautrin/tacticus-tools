@@ -33,7 +33,7 @@ import gameconfig as _gc
 import hexgeo
 
 import engine.playbook.prediction as prediction   # sous-paquet FRERE, pas `from . import` (#270-r4-r2)
-from .prediction import make_secondary_multihit_event
+from .prediction.abilities import make_secondary_multihit_event
 from .common import DefaultActiveAbilityPlaybook
 from .base import NO_ACTION, register, tile_utility, tile_utility_for_unit
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
@@ -50,6 +50,7 @@ from ..runner.abilities.deathguard import mortarions_plague_wind_psyker_selector
 from ..services.battle_query import find_melee_weapon, weapon_hits
 from ..utilities.damage import will_be_overkill
 from ..utilities.utility_type import UtilityType
+from ..ai.utilities import get_movement_utility
 
 # `_PROFILE_NONE` VIVAIT ICI (le `param_8` VIDE du call-site `GenerateMultiHitAttackPredictions` de
 # 1100). Il a MIGRE dans `prediction.abilities._PLAYBOOK_PROFILE_OVERRIDE[1100]` avec la fin du fork
@@ -1073,7 +1074,6 @@ class SorcerousFacadePlaybook(NonAttackComparablePlaybook):
         """`IUtilitiesDatabase.GetUtility(UtilityType.Tile).EvaluateMovement(UtilityMovementCase(
         caster, pos))` — l'appel PARTAGE avec `Playbook<T>.GetMovementUtility`, pas un evaluateur
         neuf. Import paresseux : `engine.ai.utilities` retire `engine.playbook.base` a la volee."""
-        from ..ai.utilities import get_movement_utility
         return get_movement_utility(ctx, pos, UtilityType.Tile)
 
     def _get_target(self, ctx, caster_tile):

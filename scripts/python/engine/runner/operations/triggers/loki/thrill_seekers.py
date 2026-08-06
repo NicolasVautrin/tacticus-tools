@@ -99,9 +99,9 @@ from typing import Optional
 
 from ....state import State
 from ....components import HealthComponent
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.context import entities_from_state
 from .....entities.behaviours import If as IfBehaviour
-from .....entities.selectors import Caster
+from .....entities.selectors.tiles import Caster
 from .....entities.triggers import IsAlive, HasEffect
 from .....entities.effect_type import EffectType
 from .....entities.stats import StatType

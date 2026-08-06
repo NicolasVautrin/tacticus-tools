@@ -44,8 +44,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from engine.entities.effect_type import EffectType                      # noqa: E402
 from engine.entities.effects.factory import EFFECT_CLASSES, EffectFactory  # noqa: E402
 from engine.entities.effects.base import BaseEffect                     # noqa: E402
-from engine.entities.effects.loki import TunnelingHorrorPendingSummonEffect  # noqa: E402
-from engine.runner.operations.triggers import EFFECT_TRIGGERS           # noqa: E402
+from engine.entities.effects.loki.status import TunnelingHorrorPendingSummonEffect  # noqa: E402
+from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[4]
 SYMBOLS = ROOT / "data" / "symbols"

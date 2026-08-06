@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Iterator, Optional, TypeVar
 
 if TYPE_CHECKING:
-    from ..entities import EffectsState
+    from ..entities.effects_state import EffectsState
     from .prng import IntBasedMersenneTwister
 
 C = TypeVar("C", bound="Component")

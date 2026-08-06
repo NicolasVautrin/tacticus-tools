@@ -157,9 +157,11 @@ def main() -> int:
               % (lvl, mult, amount))
 
         # --- E2 TRIGGER (etage par etage du selecteur) ----------------------------------------------
-        from engine.runner.abilities.behaviours import entities_from_state
-        from engine.entities.selectors import (Owner, AdjacentFriends, UnitsAffectedByHealType,
-                                               Repairable)
+        from engine.runner.abilities.behaviours.context import entities_from_state
+        from engine.entities.selectors.accessors import Owner
+        from engine.entities.selectors.units import (
+            AdjacentFriends, Repairable, UnitsAffectedByHealType
+        )
         from engine.dsl.base import Const
         ents = entities_from_state(state, cid, None, actor_id=cid)
         adj = AdjacentFriends(Owner(), Const(1), reference=Owner()).select(ents)

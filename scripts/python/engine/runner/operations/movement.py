@@ -30,12 +30,15 @@ from ...entities.damage_reason import DamageReason
 from ...entities.pathfinding import pathfinders as _pf
 from ...entities.pathfinding.fly_pathfinder import is_like_flying
 from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
-from ...entities.traits import UnitTrait, has_trait
+from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ...services.movement_query import (get_connected_path_to, get_num_tiles_moved,
                                             get_pathfinder_type_for_unit, unit_has_effect_fn)
 from .aura_stat_mods import refresh_aura_stat_modifiers
 from .damage import AttackDamageOperation
 from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
+from ...entities.effects.aura_selectors import hex_distance
+from ..components import save_previous_position
+from ..components import set_unit_feet
 
 
 def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
@@ -279,7 +282,6 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None
     if _is_like_flying(traits, pathfinder_type_override):
-        from ...entities.effects.aura_selectors import hex_distance
         d = hex_distance(from_pos, to_pos) if (from_pos is not None and to_pos is not None) else None
         return int(d) if d is not None else 0
     n = _num_tiles_moved(state, mover_id, from_pos, to_pos)
@@ -607,8 +609,13 @@ class MoveUnitOperation(Operation):
         if uc0 is not None:
             uc0.movement_target_override = (int(self.to[0]), int(self.to[1]))      # (a)
         if not self.skip_pre_move_triggers:
-            from .triggers import pre_move_triggers
-            pre_move_triggers(state, self.unit_id, dest_tile=tuple(self.to))       # (b)
+            # PORTEUR (cycle `operations` <-> `triggers`) ET forme MODULE : l'attribut est relu
+            # a l'appel, donc une substitution posee sur `move_death` mord quelle que soit la
+            # forme finale de cet import. Cf. `probe_485r1r1_formes_dimport.py` -- un
+            # `from ... import pre_move_triggers` hisse deviendrait INERTE, en silence.
+            from .triggers.dispatch import move_death
+            move_death.pre_move_triggers(state, self.unit_id,
+                                         dest_tile=tuple(self.to))                # (b)
         if uc0 is not None:                                                        # (c)
             ovr = uc0.movement_target_override
             uc0.movement_target_override = None                # CONSOMME (le natif remet a zero)
@@ -652,7 +659,6 @@ class MoveUnitOperation(Operation):
             # `feet == []` et reste INVISIBLE a l'occupation (`CanAddUnit`, `_occupied`), qui lisent
             # l'empreinte. Strictement equivalent a l'ancien `add_component` quand `feet` etait
             # deja `None` (le cas du spawn) -- c'est un sur-ensemble, pas un changement de chemin.
-            from ..components import set_unit_feet
             set_unit_feet(state, self.unit_id, [(int(self.to[0]), int(self.to[1]))])
         else:
             # `IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition(unit,
@@ -668,7 +674,6 @@ class MoveUnitOperation(Operation):
             # (il est porte dans `save_previous_position`), et l'unite SANS position (branche
             # ci-dessus, spawn ou retour sur le plateau) n'en a pas -> `previous` reste vide, ce qui
             # est exactement le `Nullable` VIDE du natif.
-            from ..components import save_previous_position
             uc_prev = e.get_component(UnitComponent)
             feet_prev = list(getattr(uc_prev, "feet", None) or ()) if uc_prev is not None else []
             save_previous_position(state, self.unit_id, feet_prev or [old_pos])
@@ -755,8 +760,9 @@ class MoveUnitOperation(Operation):
         # `On(0x1c = ArrivedAtFinalTile)` est en QUEUE du vecteur porte (le natif le publie apres
         # `EvaluateAfterMoveTriggers`, gate par le `bool` qu'a rendu `UnitFlagsComponent.Add(1)`).
         if self.emit_after_move:
-            from .triggers import after_move_triggers
-            self.last_after_move = after_move_triggers(
+            # forme MODULE, meme raison qu'en (b) : l'attribut est relu a l'appel.
+            from .triggers.dispatch import move_death
+            self.last_after_move = move_death.after_move_triggers(
                 state, self.unit_id, movement_steps=self.last_movement_steps,
                 is_interim_step=self.is_interim_step,
                 arrive_at_final_tile=self.arrive_at_final_tile)

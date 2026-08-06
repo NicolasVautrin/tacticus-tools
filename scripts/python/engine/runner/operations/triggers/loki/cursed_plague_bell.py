@@ -143,18 +143,20 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.damage_profile_type import DamageProfileType
 from .....entities.effect_type import EffectType
-from .....entities.selectors import (Actor, Caster, SurroundingFriends, UnitsWithoutTrait,
-                                     UnitsWithTrait)
+from .....entities.selectors.accessors import Actor
+from .....entities.selectors.tiles import Caster
+from .....entities.selectors.units import SurroundingFriends, UnitsWithTrait, UnitsWithoutTrait
 from .....entities.stats import StatType
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
-from ....abilities.behaviours import AddEffect, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
 from ....components import OwnerComponent, StatsComponent, UnitComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
 from .....entities.effects.magnitude import ability_var
 from .....entities.formulas import Get
-from ....abilities.behaviours import AttackWithAttackDamage
+from ....abilities.behaviours.combat import AttackWithAttackDamage
 from ....abilities.deathguard import contagions_of_nurgle_range_for_turns
 from ....abilities.deathguard import cursed_plague_bell_damage_profile
 from ....abilities.deathguard import is_in_contagions_of_nurgle_range

@@ -54,15 +54,15 @@ import gameconfig as GC
 import hexgeo
 
 from ..base import ActiveAbility, convert_rounds_to_turns
-from ..behaviours import entities_from_state
+from ..behaviours.context import entities_from_state
 from ..targeting import (RANGE_ADJACENT_IF_MELEE_CASTER, RANGED_BOOL_IF_RANGED_CASTER,
                          TargetingOptions)
 from ..targeting_rule import TargetingRule as TR
 from ...components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                            HealthComponent)
 from ....dsl.base import DslContext
-from ....entities.selectors import (Caster, FilterTilesIfCanAttackTargetTileFrom, FixedTileIds,
-                                    Target)
+from ....entities.selectors.accessors import FixedTileIds, Target
+from ....entities.selectors.tiles import Caster, FilterTilesIfCanAttackTargetTileFrom
 from ...operations.damage import AttackDamageOperation
 from ...operations.effects import AddEffectOperation
 from ...operations.spawn import _spawn_config_grot, _occupied_tiles
@@ -74,6 +74,8 @@ from ....services.battle_query import are_tiles_adjacent
 from ....services.custom_normal_attack import substitutes_normal_attack
 from ....entities.triggered_ability_type import triggered_ability_ids
 from ....utilities.tile import tile_composite
+from ....utilities.tile import terrain_tile_effects
+from ....weights import load
 
 if TYPE_CHECKING:
     from ...state import State
@@ -142,7 +144,6 @@ _WT = None    # cache module du Weights BC (statique par bataille, comme magnitu
 def _wt():
     global _WT
     if _WT is None:
-        from ....weights import load
         _WT = load()
     return _WT
 
@@ -306,7 +307,6 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
             return cands[0][0]                              # gate GetDynamicInvalidTargetReason (1er candidat)
         elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
         emm = (min(elevs), max(elevs)) if elevs else (None, None)
-        from ....utilities.tile import terrain_tile_effects
         best_tid, best_u = None, None
         for tid, pos in cands:                              # max stable (ordre des candidats au tie)
             adj = [(t, v) for _e, t, v in _adjacent_occupants(state, board, tid)]
@@ -403,7 +403,6 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
             return cands[0][1]
         elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
         emm = (min(elevs), max(elevs)) if elevs else (None, None)
-        from ....utilities.tile import terrain_tile_effects
         best_pos, best_u = None, None
         for tid, pos in cands:
             adj = _adj(tid)
@@ -507,7 +506,7 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
             atk = AttackDamageOperation.execute(state, caster_id, target_id)
             after = []
             if atk is not None:
-                from ...operations.triggers import after_hit_normal_attack
+                from ...operations.triggers.dispatch.attack import after_hit_normal_attack
                 # `finish_attack` (#437) = le vecteur `On(9)`, desormais emis DANS l'operation ;
                 # remis EN TETE (ordre natif) pour garder le canal observable.
                 after = (atk.get("finish_attack") or []) + after_hit_normal_attack(

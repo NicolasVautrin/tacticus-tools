@@ -39,8 +39,9 @@ from typing import Optional
 
 from ....state import State
 from ....components import parent_of
-from ....abilities.behaviours import AddEffect, entities_from_state
-from .....entities.selectors import Caster
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
+from .....entities.selectors.tiles import Caster
 from .....entities.effect_type import EffectType
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType

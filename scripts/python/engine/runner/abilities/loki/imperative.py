@@ -40,8 +40,9 @@ from ..targeting_rule import TargetingRule as TR
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effect_type import EffectType
 from ....dsl.effects import ExecutionContext
-from ....entities.selectors import Caster
-from ..behaviours import AddEffect, RemoveEffect, entities_from_state
+from ....entities.selectors.tiles import Caster
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddEffect, RemoveEffect
 from ...components import StatsComponent
 
 if TYPE_CHECKING:

@@ -6,9 +6,10 @@ from typing import Optional
 
 from ....state import State
 from ....components import StatsComponent, OwnerComponent, UnitComponent
-from ....abilities.behaviours import CreateShield, entities_from_state
-from .....entities.traits import UnitTrait, has_trait
-from .....entities.selectors import Target
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import CreateShield
+from .....entities.traits.unit_trait import UnitTrait, has_trait
+from .....entities.selectors.accessors import Target
 from .....entities.effects.magnitude import ability_var
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType

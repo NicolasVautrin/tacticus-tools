@@ -52,7 +52,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine.dsl.event_trigger_type import EventTriggerType               # noqa: E402
-from engine.entities.traits import UnitTrait                             # noqa: E402
+from engine.entities.traits.unit_trait import UnitTrait  # noqa: E402
 from engine.runner.components import (HealthComponent, StatsComponent,   # noqa: E402
                                       UnitComponent)
 from engine.runner.operations.triggers.base import EffectTrigger         # noqa: E402
@@ -120,7 +120,7 @@ class _SondeQuiSoigne(_Sonde):
 
 def _pose_sonde(st, porteur, classe=_Sonde):
     """Inscrit `classe` au registre des effet-triggers et la pose sur `porteur`. Rend l'effect_type."""
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     et = PR._effect_type_libre()
     REG.EFFECT_TRIGGERS[et] = [classe]
     st.effects.add_effect(porteur, EffectFactory.create(
@@ -178,9 +178,10 @@ def _voie_kill_behaviour():
     -- un rouge qui accuse le MONTAGE, pas le port (mesure faite, puis corrigee)."""
     from engine.entities.effects_state import EffectsState
     from engine.runner.abilities.behaviours.lifecycle import Kill
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.dsl.effects import ExecutionContext
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     from engine.runner.state import State
     st = State()
     st.effects = EffectsState()
@@ -209,7 +210,7 @@ def step_rang(mutate: str | None = None) -> int:
     `--mutate rang-move` remet l'etat d'AVANT : le foyer ne publie plus `On(0x35)`, seul le chemin
     MOVE le fait, APRES coup. Il DOIT faire tomber la 5e valeur sur les trois voies -- sinon la
     mesure ne discrimine rien."""
-    import engine.runner.operations.triggers as TRG
+    import engine.runner.operations.triggers.dispatch.move_death as TRG
     vrai = TRG.post_unit_kill_triggers
     if mutate == "rang-move":
         # Le foyer resout `post_unit_kill_triggers` par import TARDIF depuis le PACKAGE `triggers` :
@@ -248,7 +249,7 @@ def step_revive(mutate: str | None = None) -> int:
     """La branche `else` de la garde revive publie `On(0x35)` -- et lui seul.
 
     `--mutate revive-sec` remet le `return` sec d'avant la tranche (aucun event apres `On(1)`)."""
-    import engine.runner.operations.triggers as TRG
+    import engine.runner.operations.triggers.dispatch.move_death as TRG
     from engine.runner.operations import revive as RV
     vus_attendus = [int(EventTriggerType.PreUnitDeath), POST_UNIT_KILL]
     orig_gate = RV.kill_unit_revive_gate

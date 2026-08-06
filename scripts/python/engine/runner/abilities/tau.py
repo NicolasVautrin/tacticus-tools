@@ -20,10 +20,15 @@ from typing import Optional, TYPE_CHECKING
 
 from .base import (ActiveAbility, convert_rounds_to_turns,
                    turns_until_end_of_current_players_next_turn)
-from .behaviours import (ActivateEffect, AddEffect, AddStatOverrideEffect, AttackWithAttackDamage,
-                         ChangeEffectTurns, FinishTurn, Heal, PerformAIAttack, Repair,
-                         ResetActiveAbility, ResetTurn, Spawn, entities_from_state,
-                         healable_heal_type_0, repairable_heal_type_1)
+from .behaviours.ability_state import ResetActiveAbility
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import ActivateEffect, AddEffect, ChangeEffectTurns
+from .behaviours.stats import (
+    AddStatOverrideEffect, Heal, Repair, healable_heal_type_0, repairable_heal_type_1
+)
+from .behaviours.summon import PerformAIAttack, Spawn
+from .behaviours.turnflow import FinishTurn, ResetTurn
 from .targeting import (RANGE_ADJACENT, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
@@ -32,19 +37,26 @@ from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import Foreach, op_add, op_and, If as IfBehaviour
 from ...entities.effect_type import EffectType
-from ...entities.selectors import (ActiveTarget, AdjacentEnemies, AdjacentFriends, AllUnits, Caster,
-                                   Enemies, EntitiesWithAnyEffect, FixedTileIds, OwnerTile, Sub,
-                                   Subject, Target, Union, UnitsThatCanHaveActiveAbilityReset,
-                                   non_steppable_or_object_units)
+from ...entities.selectors.accessors import ActiveTarget, FixedTileIds, OwnerTile, Subject, Target
+from ...entities.selectors.geometry import EntitiesWithAnyEffect
+from ...entities.selectors.tiles import AllUnits, Caster
+from ...entities.selectors.units import (
+    AdjacentEnemies, AdjacentFriends, Enemies, Sub, Union, UnitsThatCanHaveActiveAbilityReset,
+    non_steppable_or_object_units
+)
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.triggers import AmountIsGreater, HasEffect, HasTrait, IsRepairable
 from ...entities.effects.magnitude import ability_var
-from ...entities.selectors import AdjacentTiles, CanAddUnit, PickFirstN
+from ...entities.selectors.geometry import PickFirstN
+from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit
 from ..components import ActiveAbilitiesComponent, StatsComponent
 from ..components import StatsComponent
 from ..operations.ability_reset import entity_can_have_active_ability_reset
 from .targeting import entity_tiles, get_adjacent_enemies, get_adjacent_friends
+from .attack_query import (_has_trait, entity_can_be_healed, entity_can_be_repaired,
+                                   health_is_readable)
+from .attack_query import get_owned_effect_is_active
 
 if TYPE_CHECKING:
     from ..state import State
@@ -383,7 +395,6 @@ def _has_deactivated_ranged_specialist(state: "State", unit_id) -> bool:
     reconstruite par `attack_query.get_owned_effect_is_active(..., has_trait_effect_source=1060)`,
     qui rend le TERNAIRE natif : `None` = pas porteur du trait (pas d'entite-effet), `True` = effet
     present et actif, `False` = trait porte mais instance absente du seed = DESACTIVEE."""
-    from .attack_query import get_owned_effect_is_active
     return get_owned_effect_is_active(state, unit_id, RANGED_SPECIALIST_EFFECT,
                                       has_trait_effect_source=RANGED_SPECIALIST_TRAIT) is False
 
@@ -895,8 +906,6 @@ class InspiredToGreatnessAbility(ActiveAbility):
             fabriquerait le refus a lui seul.
         Les mesures de #247 sont faites avec `allAbilities: True` et un `combatSnapshot` complet,
         donc sur des verdicts REELS -- les gardes ne masquent aucune de ces lignes."""
-        from .attack_query import (_has_trait, entity_can_be_healed, entity_can_be_repaired,
-                                   health_is_readable)
         if target_id is None:
             return 0                                    # cible non resolue -> le port ne decide pas
         if int(target_id) == int(caster_id):

@@ -59,7 +59,7 @@ def native_events(rpc, rid, cid, tgt, ab, tile) -> list:
 def decompose(rpc, case: dict, key: str) -> dict:
     """Decompose la paire (caster@tile, cible `key`) en ses deux etages."""
     import engine_agreement_stages as EAS
-    from engine.playbook.prediction import defender_prediction_block_amount
+    from engine.playbook.prediction._shared import defender_prediction_block_amount
     from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
     from engine.utilities.tile import triggered_abilities_attack_utility
 
@@ -110,8 +110,9 @@ def followup_probe(case: dict, key: str, passive: str) -> dict:
     registre de dispatch `_RANGED_FOLLOWUP_PASSIVES` est VIDE : l'etage est porte et INERTE. Ce
     bras calcule le fold A LA MAIN (sans toucher au registre) et rend les champs resultants, pour
     que la comparaison au natif tranche AVANT tout branchement."""
-    from engine.playbook.prediction import (get_additional_damage_prediction,
-                                            make_normal_attack_predictions)
+    from engine.playbook.prediction.normal_attack import (
+        get_additional_damage_prediction, make_normal_attack_predictions
+    )
     ctx, tile = case["ctx"], case["tile"]
     uid = case["ids"][key]
     scene = ctx.scene
@@ -172,7 +173,7 @@ def melee_regime(sid, rpc, case: dict) -> dict:
     import hexgeo
     import probe_124_line_elevation_decision as P124
     from engine import battle_query as bq
-    from engine.playbook.prediction import make_normal_attack_predictions
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
 
     ctx, elev, walk, ids = case["ctx"], case["elev"], case["walk"], case["ids"]
     tpos = ctx.scene.pos(ids["T"])

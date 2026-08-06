@@ -16,15 +16,20 @@ from typing import Optional, TYPE_CHECKING
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import Foreach, If as IfBehaviour, AtomicGroup, op_add
-from ...entities.selectors import (Target, TargetTile, Caster, ActiveTarget, Damageable,
-                                    AdjacentEnemies, Union, UnitSet, UnitsDamagedThisPhase)
+from ...entities.selectors.accessors import ActiveTarget, Target, TargetTile
+from ...entities.selectors.tiles import Caster
+from ...entities.selectors.units import (
+    AdjacentEnemies, Damageable, Union, UnitSet, UnitsDamagedThisPhase
+)
 from ...entities.stats import StatType
 from ...entities.triggers import IsDead, HasUnitFlag, TriggerAnd
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
-from .behaviours import entities_from_state, AttackWithAttackDamage, AddStaticStatModifierEffect
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddStaticStatModifierEffect
 from .loki import _pick_randomly_n
 from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR

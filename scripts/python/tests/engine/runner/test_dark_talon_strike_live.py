@@ -51,9 +51,11 @@ from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
 from engine.runner.abilities.darkangels import (DarkTalonStrikeAbility, dark_talon_strike_tree,
                                                 dark_talon_get_tiles_in_best_line)
-from engine.runner.abilities.behaviours import entities_from_state
+from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.snapshot import load_state
-from engine.entities.selectors import Enemies, FixedTileIds, TilesBehindInLine, Units
+from engine.entities.selectors.accessors import FixedTileIds
+from engine.entities.selectors.geometry import TilesBehindInLine
+from engine.entities.selectors.units import Enemies, Units
 
 PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python
 ROOT = PYDIR.parents[1]                                      # racine repo

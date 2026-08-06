@@ -29,7 +29,7 @@ import pytest
 
 import gameconfig as GC
 from engine.dsl.event_trigger_type import EventTriggerType
-from engine.runner.abilities.behaviours import TRIGGERED_ABILITY_BEHAVIOURS
+from engine.runner.abilities.behaviours.lifecycle import TRIGGERED_ABILITY_BEHAVIOURS
 from engine.runner.operations.triggers.base import TriggerEvent
 from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
 from engine.runner.operations.triggers.loki.full_throttle import (FULL_THROTTLE,

@@ -59,7 +59,7 @@ from _bloodletter_montage import (EFFECT_ID, EFFECT_NAME, SAFE_ENEMIES,   # noqa
                                   replay_attack_offline, summon_bloodletters)
 
 from engine.entities.effects.factory import EFFECT_CLASSES        # noqa: E402
-from engine.entities.effects.loki import UnstoppableFerocityOwnerEffect   # noqa: E402
+from engine.entities.effects.loki.hits import UnstoppableFerocityOwnerEffect  # noqa: E402
 
 _PSYKER_TRAIT = "Psyker"                             # UnitTrait 0x3ea -- gate de l'effet 1192
 _ALT_ENEMIES = "admecMarshall,astraBullgryn"         # generalisation : ni Psyker ni Overwatch

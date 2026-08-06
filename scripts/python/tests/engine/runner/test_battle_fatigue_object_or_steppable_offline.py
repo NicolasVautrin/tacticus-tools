@@ -118,7 +118,7 @@ def test_le_port_passe_par_le_foyer_partage():
     noeud par une recopie locale, le test rougit meme si le comportement coincide -- parce que
     c'est la DIVERGENCE FUTURE qu'on previent, pas la valeur d'aujourd'hui."""
     from engine.runner.operations import behaviour as B
-    from engine.entities.selectors import Target
+    from engine.entities.selectors.accessors import Target
     from engine.entities.triggers import is_object_or_steppable
 
     attendu = is_object_or_steppable(Target())

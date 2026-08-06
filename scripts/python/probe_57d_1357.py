@@ -29,7 +29,7 @@ from engine import weights as W  # noqa: E402
 from engine.ai import context as _ai_ctx  # noqa: E402
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
 from engine_agreement_stages import _fields_from_native_event  # noqa: E402
-from engine.playbook.prediction import defender_prediction_block_amount  # noqa: E402
+from engine.playbook.prediction._shared import defender_prediction_block_amount  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
@@ -149,7 +149,7 @@ def main() -> int:
             print(f"[57d] scene stats KO: {exc!r}")
 
         # decomposition OFF complete (meta=True) : base/pierce/armor/hits/pct-mods/effets
-        from engine.playbook.prediction import make_normal_attack_predictions
+        from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
         _m = make_normal_attack_predictions(ctx.scene, uid, tgt, tile, meta=True)
         if _m is not None:
             _ev, _meta = _m

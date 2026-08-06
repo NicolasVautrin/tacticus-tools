@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 
 from engine.runner.snapshot import load_state
-from engine.runner.operations.triggers import after_death_triggers
+from engine.runner.operations.triggers.dispatch.move_death import after_death_triggers
 from engine.runner.operations.revive import (reset_revive_gates, ReviveUnitOperation,
                                              post_pending_revive, kill_unit_revive_gate)
 from engine.runner.components import (UnitComponent, HealthComponent, OwnerComponent,
@@ -242,7 +242,7 @@ def test_adjacency_is_strict(rev_env, dist):
 def test_can_be_revived_mechanical(rev_env):
     """CanBeRevived : un allie Chaos Mechanical (toggle sur ctx.traits) -> PAS de revive
     (IsAffectedByHealType = HasTrait(AffectedByHealAndRepair) OR NOT IsMechanical)."""
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.behaviours.stats import is_mechanical
     env = rev_env
     st = _fresh(env, _seed_bool(env["chance"], True))

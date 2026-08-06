@@ -70,7 +70,11 @@ import probe_477r19_process_removals as R19  # noqa: E402
 import probe_477r20_start_match as R20  # noqa: E402
 import probe_477r21_activation_tree as R21  # noqa: E402
 from engine.entities.turn_stage import TurnStage  # noqa: E402
-from engine.streams import GroupType, StepType, StreamCache, StreamDispatcher, TagKey  # noqa: E402
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.stream_cache import StreamCache
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.turn_phase import (START_TURN_SOURCE_ID,  # noqa: E402
                                        continue_turn_phase, prepare_turn, start_turn)

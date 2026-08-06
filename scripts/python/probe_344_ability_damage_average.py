@@ -297,7 +297,7 @@ def _nc_context(scene, ctx, cid, here):
     """`NCContext` MINIMAL (uid + position + scene + poids + units) : c'est tout ce que
     `damage_predictions` consomme. Construit explicitement plutot que de faire passer l'
     `AiDecisionContext` pour un `NCContext` par duck-typing."""
-    from engine.playbook.noncomparable import NCContext
+    from engine.playbook.noncomparable._base import NCContext
     return NCContext(uid=int(cid), origin=here, reach_nc=[here], epos=[], fpos=[], plan={},
                      hp_cur_by_id={}, scene=scene, wt=ctx.wt, units=ctx.units)
 

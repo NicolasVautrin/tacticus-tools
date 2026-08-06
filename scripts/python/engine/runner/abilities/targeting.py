@@ -278,8 +278,10 @@ from typing import TYPE_CHECKING, Optional
 
 from .targeting_rule import TargetingRule as TR
 from ...dsl.base import Const                                       # #287-r11-r1 (hisse, #485)
-from ...entities.selectors import (Caster, CasterTile, Enemies, SelectTile,   # idem
-                                   SortReverse, Target, TargetTile, TilesBehindInLine, Units)
+from ...entities.selectors.accessors import CasterTile, SelectTile, Target, TargetTile
+from ...entities.selectors.geometry import SortReverse, TilesBehindInLine
+from ...entities.selectors.tiles import Caster, tiles_unit_can_move_to_charge_target
+from ...entities.selectors.units import Enemies, Units  # idem
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType   # #270-r1-r1-r3
 from ...entities.heal_type import HealType   # #287-r5
@@ -303,6 +305,7 @@ from ..components import UnitComponent
 from ..components import UnitFlagsComponent
 from ..components import get_unit_feet
 from ..components import has_effect_of_type
+from ..components import unit_has_moved
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1612,8 +1615,7 @@ def charge_tiles_count(state: "State", caster_id: int, target_id, ability_id: st
 
     `None` = SUBSTRAT ABSENT (cible non resolue, `constants.range` illisible) -- l'appelant rend
     alors `0`, la degradation permissive du module ; jamais un refus fabrique."""
-    from ...entities.selectors.tiles import tiles_unit_can_move_to_charge_target
-    from .behaviours import entities_from_state
+    from .behaviours.context import entities_from_state
     import gameconfig as GC
     if target_id is None or state.get_entity(int(target_id)) is None:
         return None
@@ -1720,7 +1722,7 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
     # `entities_from_state` reste DIFFERE : `behaviours` re-importe `targeting` (cycle reel, meme
     # raison que `charge_tiles_count`). Les noeuds DSL, eux, sont HISSES au niveau module -- le
     # cliquet `probe_485_imports_differes.py` a MESURE qu'aucun cycle ne les justifie.
-    from .behaviours import entities_from_state                         # noqa: PLC0415
+    from .behaviours.context import entities_from_state  # noqa: PLC0415
     import gameconfig as GC                                             # noqa: PLC0415
     if target_id is None:
         return 0
@@ -3219,7 +3221,6 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     if options is None:
         return 0
     if options.has(TR.CasterHasNotMoved):
-        from ..components import unit_has_moved
         if unit_has_moved(state, int(caster_id)):
             return int(TR.CasterHasNotMoved)
     # CLAUSE TUILE-NULLE (4a) -- placee ici, au rang NATIF : APRES `CasterHasNotMoved`, AVANT

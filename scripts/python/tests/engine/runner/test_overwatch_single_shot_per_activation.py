@@ -28,7 +28,8 @@ from engine.runner.state import State
 from engine.runner.components import UnitComponent, OwnerComponent, UnitFlagsComponent
 from engine.entities.effects_state import EffectsState
 from engine.runner.operations.turnflow import EndTurnOperation
-from engine.runner.operations.triggers import TriggerEvent, evaluate_trigger_operation
+from engine.runner.operations.triggers.base import TriggerEvent
+from engine.runner.operations.triggers.dispatch.core import evaluate_trigger_operation
 from engine.dsl.event_trigger_type import EventTriggerType
 from engine.runner.operations.triggers.effect_triggers import (
     OVERWATCH_AUTO_ATTACK, RangedAutoAttackDeactivateOnAttack,

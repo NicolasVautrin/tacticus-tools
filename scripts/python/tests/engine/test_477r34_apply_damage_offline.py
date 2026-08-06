@@ -27,7 +27,11 @@ if str(RACINE) not in sys.path:
     sys.path.insert(0, str(RACINE))
 
 import probe_477r21_activation_tree as R21  # noqa: E402
-from engine.streams import GroupType, StepType, StreamCache, StreamDispatcher, TagKey  # noqa: E402
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.stream_cache import StreamCache
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams.apply_damage import DAMAGE_SOURCE_ID, apply_damage  # noqa: E402
 from engine.streams.damage_result import (AbilityOrEffect,  # noqa: E402
                                           DamageAppliedResult, DamageSource)

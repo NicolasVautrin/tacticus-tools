@@ -155,17 +155,23 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....abilities.behaviours import AddBondEffect, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddBondEffect
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.effect_type import EffectType
 from .....entities.triggered_ability_type import TriggeredAbilityType
-from .....entities.selectors import (AdjacentEnemies, AdjacentFriends, And, Caster, Damageable,
-                                     Target, UnitSet)
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.tiles import Caster
+from .....entities.selectors.units import (
+    AdjacentEnemies, AdjacentFriends, And, Damageable, UnitSet
+)
 from ..base import EffectTrigger, TriggeredAbility, TriggerEvent
 from ....abilities.base import ability_attack_params
-from ....abilities.behaviours import AttackWithAttackDamage, RemoveEffect, entities_from_state
+from ....abilities.behaviours.combat import AttackWithAttackDamage
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import RemoveEffect
 from ....abilities.loki.splash import _pick_randomly_n
 from ....components import StatsComponent, UnitComponent
 from ....components import UnitComponent

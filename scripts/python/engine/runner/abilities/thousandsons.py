@@ -86,8 +86,10 @@ import gameconfig as GC
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, AtomicGroup
-from ...entities.selectors import (AllTiles, Caster, CasterTile, Damageable, EntitiesWithAnyEffect,
-                                   SurroundingEnemies, Unobscured, UnitSet)
+from ...entities.selectors.accessors import CasterTile
+from ...entities.selectors.geometry import EntitiesWithAnyEffect
+from ...entities.selectors.tiles import AllTiles, Caster
+from ...entities.selectors.units import Damageable, SurroundingEnemies, UnitSet, Unobscured
 from ...entities.formulas import Count, Min, Sum
 from ...entities.effect_type import EffectType
 from ...entities.active_ability_type import ActiveAbilityType
@@ -95,7 +97,8 @@ from ...entities.effects.magnitude import ability_var
 from ..components import StatsComponent
 from ..operations.damage_utility import sort_units_by_damage_utility
 from .base import ActiveAbility
-from .behaviours import entities_from_state, AttackWithAttackDamage
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
 from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 

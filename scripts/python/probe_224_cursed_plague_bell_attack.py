@@ -311,7 +311,7 @@ def _port_aura_stage(state, carrier_id, actor_id) -> dict:
     """Les DEUX entrees du predicat, cote port : `MinDistance(Actor, Owner)` et
     `AuraEffectRange(Owner)`, plus le verdict du noeud. Decomposition par etage -- si le natif et le
     port divergent, c'est ici qu'on voit LEQUEL des deux etages devie."""
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.deathguard import is_in_contagions_of_nurgle_range
     ctx = entities_from_state(state, int(carrier_id), None, int(actor_id))
     node = is_in_contagions_of_nurgle_range()

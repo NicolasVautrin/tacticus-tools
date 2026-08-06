@@ -36,15 +36,20 @@ from .components import (
 )
 from ..entities.entity_type import EntityType   # #270-r1-r1-r3
 from ..entities.stats import StatType           # #462-r4e-o-r2-r1-r1 (`_load_turn_counts`)
-from ..entities import EffectsState, EffectFactory
-from ..entities import UnitContext, EffectFactory
-from ..entities import UnitContext, EffectsState, EffectFactory, baked_ability_state
+from ..entities.effects.factory import EffectFactory
+from ..entities.effects_state import EffectsState
+from ..entities.effects.factory import EffectFactory
+from ..entities.unit_context import UnitContext
+from ..entities.effects.factory import EffectFactory
+from ..entities.effects_state import EffectsState, baked_ability_state
+from ..entities.unit_context import UnitContext
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.traits.unit_trait import trait_names_from_ids
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from .components import ForcedAttackTargetsComponent
 from .operations.aura_stat_mods import attribute_aura_stat_modifiers
 from .operations.spawn import _seed_ability_owner_effects, TELEPORT_STRIKE_TELEPORTING_IN
+from ..services.damage_config import DAMAGE_FIELDS
 
 
 # `EntityType.Machine` — l'enum d'entité du `MatchState` natif, projeté tel quel par les capteurs
@@ -342,7 +347,6 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # #449-r2-r4-r4 : toute la section, pas seulement les deux champs de la variance. La liste
         # est DERIVEE de `DAMAGE_FIELDS` -- un champ qui entre dans la table est pose ici sans
         # qu'on ait a y penser, et ne peut donc pas rester silencieusement non transporte.
-        from ..services.damage_config import DAMAGE_FIELDS
         for _name in DAMAGE_FIELDS:
             setattr(state, _name, getattr(_dmgcfg, _name))
     # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du

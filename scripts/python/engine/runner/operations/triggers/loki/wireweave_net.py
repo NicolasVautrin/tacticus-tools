@@ -141,14 +141,14 @@ from typing import Optional
 
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.effect_type import EffectType
-from .....entities.selectors import Actor
+from .....entities.selectors.accessors import Actor
 from ....state import State
 from ....components import OwnerComponent, UnitComponent
 from ....abilities.attack_type import is_normal_attack
 from ..base import EffectTrigger, TriggerEvent, _is_adjacent_units
 from .....dsl.effects import ExecutionContext
-from ....abilities.behaviours import AttackWithAttackDamage
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.combat import AttackWithAttackDamage
+from ....abilities.behaviours.context import entities_from_state
 
 WIREWEAVE_NET_COUNTER_ATTACK = int(EffectType.WireweaveNet_CounterAttack)   # 0x457 = 1111
 WIREWEAVE_NET = "WireweaveNet"          # nom gameconfig de l'ability SOURCE (passif d'`eldarRanger`)

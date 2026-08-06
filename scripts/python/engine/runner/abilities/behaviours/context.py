@@ -21,6 +21,8 @@ from ...components import persistent_data as _pd
 from ...components import persistent_data_list as _pdl
 from ...components import previous_tiles as _pt
 from ...operations.ability_reset import entity_can_have_active_ability_reset
+from ....services.trait_damage_limits import group_unit_stat_part
+from ...components import MachineComponent
 
 
 # Trait d'ALLIANCE derive de la GrandAlliance : la resolution CANONIQUE vit desormais dans
@@ -245,7 +247,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             hc = e.get_component(HealthComponent) if e is not None else None
             if hc is None or hc.hp is None or hc.hp_max is None:
                 return n if int(variant) in (0, 2, 3) else 0
-            from ....services.trait_damage_limits import group_unit_stat_part
             return group_unit_stat_part(int(variant), int(hc.hp_max), n, int(hc.hp))
         return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
 
@@ -347,7 +348,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # qui n'a valide que la face DECISION.
     mow_pos = None
     if state.current_player_id is not None:
-        from ...components import MachineComponent
         for _e, _mc in state.with_component(MachineComponent):
             _oc = _e.get_component(OwnerComponent)
             if _oc is not None and _oc.player == state.current_player_id:

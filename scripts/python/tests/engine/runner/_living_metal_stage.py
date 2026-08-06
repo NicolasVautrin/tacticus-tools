@@ -149,7 +149,7 @@ def make_effect(name: str, effect_type: int, level, source, multiplier_pct: int 
     Sert aux regimes R2/R3 : poser sur l'etat CAPTURE l'effet dont on veut mesurer l'influence,
     sans dependre d'un poseur present dans la bataille (`necroReanimator` est hors du pool
     spawnable -- il faut `catalog_inject`, cf. `runner.md` §1bis)."""
-    from engine.entities.effects import EffectFactory
+    from engine.entities.effects.factory import EffectFactory
     return EffectFactory.create({"name": name, "effectType": effect_type, "level": level,
                                  "source": source},
                                 ability_variables_multiplier=multiplier_pct)

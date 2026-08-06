@@ -157,7 +157,7 @@ def test_fragstorm_migration_enemies_only(live_session, rpc, build_runner):
     ally_hp0 = state.get_entity(ally).get_component(HealthComponent).hp
 
     # === R28-2 : le POOL du PickRandomly est en HEXES (deterministe, evalue AVANT tout tirage) ===
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.loki.splash import fragstorm_tree
     ents = entities_from_state(state, caster_id, target)
     leaf = fragstorm_tree().child.right                       # op_BitwiseAnd(main, splash) -> feuille splash

@@ -233,7 +233,7 @@ def _rippers(state):
 
 def _fire_death(state, victim, killer):
     """Emet le vecteur `On(UnitDeath=0)` a sa place exacte (3e event de `KillUnitOperation$$Execute`)."""
-    from engine.runner.operations.triggers.dispatch import unit_death_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import unit_death_triggers
     return unit_death_triggers(state, victim, killer_id=killer)
 
 

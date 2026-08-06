@@ -88,6 +88,18 @@ from ..components import (OwnerComponent, StatsComponent, UnitComponent,
                                   adjacent_friendly_summons_and_decoys_count)
 from ..components import UnitComponent, unit_state_for_effects
 from ..components import is_alive_and_not_fled
+from ..components import unit_has_moved, unit_tiles_moved_this_turn
+from ..damage_model import _unit_gameconfig
+from ..damage_model import battle_query_is_charging
+#: FORME B : `probe_429r1r1r1_ability_attack_dead_target.py` substitue
+#: `active_ability.is_dead_unit_and_not_allowed_by_ability` ; hisse en forme A le stub serait
+#: INERTE (gisement mesure de la famille #429-r1). L'import de module relit a l'appel.
+from . import active_ability as _active_ability
+from .left_over_damage import record_left_over_damages
+from .minimal_health import record_attacked
+from .refresh_effects import refresh_stat_modifier_effects
+from .remove_effects import KillUnitStep
+from .remove_effects import remove_effects_operation
 
 
 def _kill_unit_remove_effects(state: State, dead_id: int, step: int) -> list:
@@ -96,7 +108,6 @@ def _kill_unit_remove_effects(state: State, dead_id: int, step: int) -> list:
     slot 0x5a de `Core.Services.OperationProcessor`). Le travail vit dans
     `operations/remove_effects.py` (`RemoveEffectsOperation$$Execute` + `RemoveEffectOperation$$
     Execute`), foyer partage avec la feuille DSL `RemoveEffect`."""
-    from .remove_effects import remove_effects_operation
     return remove_effects_operation(state, int(dead_id), step=int(step))
 
 
@@ -321,7 +332,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
         if uc is not None:
             uc.alive = False
-        from .triggers import pending_death_added_triggers
+        from .triggers.dispatch.move_death import pending_death_added_triggers
         # #178 — le `didOverkill` du chemin COMBAT est la surcharge d'INSTANCE de
         # `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, inlinee par
         # `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation` : elle applique DEUX gates
@@ -533,12 +544,13 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
              traversent `Execute` : degat (drain), crush (`_kill_steppable_kill_unit`, donc move ET
              revive/resurrect/spiritual_leader) et `KillUnitBehaviour` (feuille DSL `Kill`).
         """
-        from .triggers import (after_death_triggers, unit_defeated_triggers,
-                               post_unit_kill_triggers, pre_unit_death_2_triggers,
-                               unit_death_triggers)
+        # PORTEUR (cycle `operations` <-> `triggers`) ET forme MODULE : les cinq vecteurs sont
+        # relus a l'appel, donc une substitution posee sur `move_death` mord quelle que soit la
+        # forme finale de cet import. `probe_485r1r1_formes_dimport.py` mesure les trois formes ;
+        # un `from ... import unit_death_triggers` hisse deviendrait INERTE, en silence.
+        from .triggers.dispatch import move_death
         from .revive import kill_unit_revive_gate
-        from .remove_effects import KillUnitStep
-        out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        out = move_death.after_death_triggers(state, target_id, attacker_id, overkill=overkill)
         # GARDE @`KillUnitOperation$$Execute+0x81c` : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
         # consommateur d'`On(PreUnitDeath)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est
         # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(PreUnitDeath_2), NI On(UnitDeath), NI On(UnitDefeated) — et AUCUN des trois `RemoveEffects`.
@@ -548,11 +560,12 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # s'applique... et l'execution REJOINT le tronc commun, ou `On(0x35)` est publie @+0x10ac.
             # C'est le SEUL des cinq events que la garde revive n'annule pas (pile d'accolades ci-dessus).
             return ((out or []) + [{"kill_cancelled_by_revive": revived}]
-                    + post_unit_kill_triggers(state, target_id, attacker_id))
+                    + move_death.post_unit_kill_triggers(state, target_id, attacker_id))
         # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion. Il PRECEDE
         # tout retrait : c'est pourquoi `ExplodesAbility$$GetDamage` voit encore les effets du mort
         # (`HasEffect(Owner, 1098)` de RammingSpeed, #389).
-        out = (out or []) + pre_unit_death_2_triggers(state, target_id, attacker_id, overkill=overkill)
+        out = (out or []) + move_death.pre_unit_death_2_triggers(state, target_id, attacker_id,
+                                                            overkill=overkill)
         # `RemoveEffects(killed, PreUnitRemove)` puis `RemoveEffects(killed, AfterUnitRemove)` — les
         # deux premiers des TROIS appels natifs, tous deux AVANT `On(UnitDeath)`. Le natif intercale
         # entre eux le retrait de l'unite du plateau (`processor.<slot 6>` + `matchState.<slot 0x31>`),
@@ -565,10 +578,10 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             "removed": _kill_unit_remove_effects(state, target_id, KillUnitStep.AfterUnitRemove)}}]
         # `On(UnitDeath = 0)` — consommateur : TerrifyingCrescendo branche OVERKILL
         # (cf. loki/terrifying_crescendo.py).
-        out = out + unit_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        out = out + move_death.unit_death_triggers(state, target_id, attacker_id, overkill=overkill)
         # #G3 : `On(UnitDefeated=54)` (event DISTINCT de 1, 2 et 0) -> Ambush_SummonAbility (mort -> decoy +
         # record turn_defeated). L'unité est déjà alive=False (fire-on-death).
-        out = out + unit_defeated_triggers(state, target_id, attacker_id)
+        out = out + move_death.unit_defeated_triggers(state, target_id, attacker_id)
         # GARDE HEAL @`KillUnitOperation$$Execute+0xf35` : le natif relit le `HealthComponent` du mort
         # (dont il avait mis les PV a 0 en tete d'operation) et RETOURNE si `hp > 0`. Un consommateur
         # de `On(UnitDeath)`/`On(UnitDefeated)` qui SOIGNE le mourant annule donc le 3e retrait.
@@ -584,7 +597,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # `On(PostUnitKill = 0x35 = 53)` @`KillUnitOperation$$Execute+0x10ac` -- 5e et DERNIER event,
         # publie sous le seul null-check du dispatcher (`if (dispatcher != null)` @L2033), hors de la
         # garde revive. Consommateur porte : `CosmicHorrorOnMoveAbility`.
-        out = out + post_unit_kill_triggers(state, target_id, attacker_id)
+        out = out + move_death.post_unit_kill_triggers(state, target_id, attacker_id)
         return out
 
     @staticmethod
@@ -628,7 +641,6 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # nominale). AVANT la mutation de PV, parce que le re-jeu part de `hp_before`. Purement
         # additif : aucune branche existante n'en depend, seul `HazeOfCorruption_DamageTransferEffect`
         # relit la liste.
-        from .left_over_damage import record_left_over_damages     # lazy : cycle damage<->ops
         record_left_over_damages(state, target_id, tgt, hp_before, total, profile, hits_result,
                                  (hits_result or {}).get("base_nominal"))
         # SITE (A) d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` -- RELU VERBATIM :
@@ -668,10 +680,11 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # le degat demande) -- d'ou `applied > 0` ici. AVANT `_fire_death_if_killed` : cote natif la mort
         # n'est traitee qu'ensuite (`VerifyDeaths` -> `KillUnitOperation`), donc une victime tombee a 0 PV
         # est encore vivante quand l'event part. Seul consommateur porte : ThrillSeekers (branche 2).
-        from .triggers.dispatch import (damage_taken_triggers,       # lazy : cycle damage<->triggers
-                                        damage_dealt_triggers)
+        # lazy : cycle damage<->triggers. Forme MODULE : l'attribut est relu a l'appel, donc une
+        # substitution posee sur `dispatch.attack` mord quelle que soit la forme finale.
+        from .triggers.dispatch import attack as attack_dispatch
         if applied > 0:
-            damage_taken_triggers(state, attacker_id, target_id, profile=profile)
+            attack_dispatch.damage_taken_triggers(state, attacker_id, target_id, profile=profile)
         # `On(DamageDealt=0x10)` (#85) — le TROISIEME et DERNIER event de
         # `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `0x3a` -> `0xf` -> `0x10`).
         #
@@ -700,8 +713,9 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # bus 6/6 vs ordre imperatif 3/6, cf. la docstring de `damage_dealt_triggers`).
             # `is_first_hit` = « CE groupe de degat contient le coup d'index 0 » -> reproduit le gate
             # natif `IsFirstHitInSeries` sans derouler les coups.
-            damage_dealt_triggers(state, attacker_id, target_id, profile=profile,
-                                  is_first_hit=is_first_hit, triggering_effect=triggering_effect)
+            attack_dispatch.damage_dealt_triggers(
+                state, attacker_id, target_id, profile=profile,
+                is_first_hit=is_first_hit, triggering_effect=triggering_effect)
         death = AttackDamageOperation._fire_death_if_killed(
             state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=total,
             # `AbilityOrEffect` de la `DamageSource` du coup letal (`GetDamageSourceAbility`) : ce que
@@ -725,7 +739,6 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # peuvent basculer. Cas porte : `AnvilShield_BlockChanceBelowHealthCap` (1200) dont la
         # contribution BLOCK_CHANCE (+20) doit ENTRER quand Arjac tombe sous 35 % PV (et sortir s'il
         # repasse au-dessus). Idempotent/no-op pour tout autre effet (cf. refresh_effects.py).
-        from .refresh_effects import refresh_stat_modifier_effects
         refresh_stat_modifier_effects(state, target_id)
         return death
 
@@ -837,7 +850,6 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         `execute_normal_like` ; PAS un DoT `execute_direct`) -> incremente son compteur d'attaques du tour +
         re-eval l'ActiveCondition du HP-floor Hypersensory (attacked>=1 -> RevertInternal efface le plancher ->
         le coup SUIVANT peut tuer). Lazy import (cycle damage<->minimal_health)."""
-        from .minimal_health import record_attacked
         record_attacked(state, target_id)
 
     @staticmethod
@@ -1007,11 +1019,9 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                    "att_id": att_id, "tgt_id": tgt_id}
         carriers = [(att_id, attacker_effects)]
         if state is not None and att_id is not None:
-            from ..components import unit_has_moved, unit_tiles_moved_this_turn
             att_ctx["has_moved"] = unit_has_moved(state, int(att_id))
             att_ctx["tiles_moved_this_turn"] = unit_tiles_moved_this_turn(state, int(att_id))
         if state is not None and att_id is not None and tgt_id is not None:
-            from ..damage_model import battle_query_is_charging
             att_ctx["is_charging"] = battle_query_is_charging(state, int(att_id), int(tgt_id))
         if state is not None:
             att_ctx.update(AttackDamageOperation._crit_board(state, att_id, tgt_id))
@@ -1043,7 +1053,6 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             TERTIAIRE pour une relique EQUIPEE, etat PASSIF pour un kit npc. Sans lui, une relique
             de niveau 3 lirait le niveau des PASSIFS du porteur (50 en runner normalise), donc le
             dernier palier -- un ecart SILENCIEUX de magnitude."""
-        from ..damage_model import _unit_gameconfig
         from .triggers.base import triggered_ability_state
         team_by_id: dict = {}
         for uid, e in state.entities.items():
@@ -1317,8 +1326,8 @@ class DamageHandler:
         # cadavre spawnerait le drone puis n'attaquerait pas, alors que le natif ne fait RIEN.
         # Meme dedoublement, et pour la meme raison, que le gate acteur-mort (#70 au rang du message,
         # #133 au rang de l'operation).
-        from .active_ability import is_dead_unit_and_not_allowed_by_ability   # lazy : cycle
-        if is_dead_unit_and_not_allowed_by_ability(self.state, None, msg.target_id):
+        if _active_ability.is_dead_unit_and_not_allowed_by_ability(
+                self.state, None, msg.target_id):
             self.last = None
             self.after_hit = []
             return
@@ -1332,8 +1341,9 @@ class DamageHandler:
         _ae = self.state.get_entity(msg.attacker_id)
         _uc = _ae.get_component(UnitComponent) if _ae is not None else None
         if _uc is not None:
-            from ..abilities.loki.mv71 import (is_mv71_normal_attacker,
-                                               MV71SniperDroneSquadAttackAbility)
+            # forme MODULE : is_mv71_normal_attacker est SUBSTITUE (probe_419r1tr14r5) --
+            # lie au chargement, le stub cesserait de mordre en silence (#485-r1-r1).
+            from ..abilities.loki import mv71 as _mv71
             # #419-r1-tr14-r5 : la cle de dispatch est `UnitConfiguration.PassiveAbilities` (fait
             # d'ENTITE, mesure `UnitContext.passive_abilities` par `snapshot._load_passive_
             # abilities`), pas le KIT — MEME predicat et MEME source que la face DECISION, sans quoi
@@ -1353,10 +1363,10 @@ class DamageHandler:
             # l'etat APRES. Meme motif que ci-dessus : les deux faces decident de la MEME cascade.
             _acfg = getattr(_actx, "config_active_abilities", None)
             _atra = entity_trait_names(_actx, _uc.visual_id)
-            if is_mv71_normal_attacker(_uc.visual_id, passive_abilities=_apas,
+            if _mv71.is_mv71_normal_attacker(_uc.visual_id, passive_abilities=_apas,
                                        active_abilities=_aact, traits=_atra,
                                        config_active_abilities=_acfg):
-                res = MV71SniperDroneSquadAttackAbility().execute_behaviour(
+                res = _mv71.MV71SniperDroneSquadAttackAbility().execute_behaviour(
                     self.state, msg.attacker_id, msg.target_id) or {}
                 self.last = res.get("attack")
                 self.after_hit = res.get("after_hit") or []
@@ -1452,7 +1462,7 @@ class DamageHandler:
         # `EvaluateTriggerOperation`). Itère le registre des triggers (traits/effets) ; chaque entrée
         # scope elle-même via sa condition (ex. Psyker OwnerIsActor). No-op si aucun trigger ne matche.
         if self.last is not None:
-            from .triggers import after_hit_normal_attack
+            from .triggers.dispatch.attack import after_hit_normal_attack
             # #437 : `profiles` / `health_damage` NE sont plus threades ici -- ils appartenaient au
             # seul `On(9)`, desormais emis a la SORTIE de `AttackDamageOperation.execute`
             # (`finish_attack_triggers`), le foyer natif (`AttackBehaviour$$Execute` -> FinishAttack).

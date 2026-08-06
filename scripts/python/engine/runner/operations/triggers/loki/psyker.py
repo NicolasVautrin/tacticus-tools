@@ -9,11 +9,13 @@ import gameconfig as GC
 
 from ....state import State
 from ....components import is_effect_target
-from ....abilities.behaviours import AttackWithAttackDamage, entities_from_state
+from ....abilities.behaviours.combat import AttackWithAttackDamage
+from ....abilities.behaviours.context import entities_from_state
 from .....entities.effect_type import EffectType
 from .....entities.stats import StatType
 from .....entities.formulas import StatAmount, PercentageOf
-from .....entities.selectors import Caster, Target
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.tiles import Caster
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType

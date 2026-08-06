@@ -88,10 +88,13 @@ from ....dsl.effects import ExecutionContext
 from ....entities.behaviours import AtomicGroup, op_add
 from ....entities.effect_type import EffectType
 from ....entities.effects.magnitude import ability_var
-from ....entities.selectors import Caster, Target
+from ....entities.selectors.accessors import Target
+from ....entities.selectors.tiles import Caster
 from ....streams.group_type import GroupType
 from ...components import StatsComponent
-from ..behaviours import AddEffect, Heal, entities_from_state, healable_heal_type_0
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddEffect
+from ..behaviours.stats import Heal, healable_heal_type_0
 
 if TYPE_CHECKING:
     from ...state import State

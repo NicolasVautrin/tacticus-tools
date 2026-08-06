@@ -91,11 +91,12 @@ from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.behaviours import If, op_add, op_and
 from .....entities.damage_reason import DamageReason
 from .....entities.formulas import RandomAmount
-from .....entities.selectors import Actor, Owner
+from .....entities.selectors.accessors import Actor, Owner
 from .....entities.traits.unit_trait import UnitTrait, has_trait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import HasTrait
-from ....abilities.behaviours import AttackWithAbilityDamage, entities_from_state
+from ....abilities.behaviours.combat import AttackWithAbilityDamage
+from ....abilities.behaviours.context import entities_from_state
 from ....components import OwnerComponent, StatsComponent, UnitComponent
 from ....state import State
 from ..base import (TriggeredAbility, TriggerEvent, triggered_ability_state,
@@ -104,12 +105,17 @@ from .reactivate_overwatch import has_death_reason
 from .....utilities.utility_type import UtilityType   # #270-r1-r1-r3
 from .....entities.effects.magnitude import ability_var
 from .....entities.formulas import Count as CountF
-from .....entities.selectors import (AdjacentTiles, Cache, CanAddUnit, First, PreviousTile,
-                                         Randomize, SelectIf, SortTilesByUtility)
+from .....entities.selectors.geometry import Cache, Randomize, SelectIf
+from .....entities.selectors.tiles import (
+    AdjacentTiles, CanAddUnit, PreviousTile, SortTilesByUtility
+)
+from .....entities.selectors.units import First
 from .....entities.triggers import AmountIsGreaterThanZero
 from .....entities.triggers import AmountIsGreaterThanZero, HasUnitFlag, TriggerAnd
-from ....abilities.behaviours import (AddPersistentData, Spawn, TriggerAbilityDelayed)
-from ....abilities.behaviours import ClearPersistentData
+from ....abilities.behaviours.lifecycle import TriggerAbilityDelayed
+from ....abilities.behaviours.persistent_data import AddPersistentData
+from ....abilities.behaviours.summon import Spawn
+from ....abilities.behaviours.persistent_data import ClearPersistentData
 from ....components import UnitFlagsComponent
 from ....components import persistent_data
 

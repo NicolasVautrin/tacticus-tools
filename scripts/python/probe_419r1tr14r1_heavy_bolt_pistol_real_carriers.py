@@ -353,7 +353,7 @@ def foreign_profile() -> str:
     """Un profil de degat dont le `PiercingRatio` DIFFERE de celui de l'ability -- CHOISI PAR
     MESURE sur le gameconfig, jamais ecrit en dur : un littéral deviendrait faux au changement de
     build, et en silence."""
-    from engine.playbook.prediction import _PROFILE_INDEX
+    from engine.playbook.prediction._shared import _PROFILE_INDEX
     ref = _piercing(ability_profile_name())
     for name in sorted(_PROFILE_INDEX):
         if name == "None":
@@ -429,7 +429,7 @@ def attest_traits(scene, cid: int, carrier: str) -> list:
     2 coups, meme `Movement` 3, meme `visualId`). Confondre les deux confondrait un mirror de
     catalogue avec un montage post-spawn.
     """
-    from engine.playbook.prediction import _entity_traits
+    from engine.playbook.prediction._shared import _entity_traits
     got = list(_entity_traits(scene, cid) or ())
     want = CARRIERS[carrier]["trait"]
     if want is not None and want not in got:

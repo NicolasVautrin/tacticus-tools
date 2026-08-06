@@ -21,12 +21,15 @@ from ....entities.active_ability_type import ActiveAbilityType
 from ....dsl.base import Const
 from ....dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ....entities.behaviours import Seq, Foreach, If, AtomicGroup, op_add
-from ....entities.selectors import (Cache, Target, Subject, get_spawn_tile_selector, Children,
-                                    LastUnitAttackedBy, Caster)
+from ....entities.selectors.accessors import Subject, Target
+from ....entities.selectors.composites import get_spawn_tile_selector
+from ....entities.selectors.geometry import Cache
+from ....entities.selectors.tiles import Caster, Children, LastUnitAttackedBy
 from ....entities.formulas import TotalAttacksMade, UnitTurnsStarted
 from ....entities.triggers import AmountIsGreaterThanZero, AmountIsEqual, IsAlive, TriggerAnd
-from ..behaviours import (Spawn, SpawnSummon, SpawnReplica, PerformAIAttack, AddBondEffect,
-                          AddEffect, entities_from_state)
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddBondEffect, AddEffect
+from ..behaviours.summon import PerformAIAttack, Spawn, SpawnReplica, SpawnSummon
 from ...components import UnitComponent as _UC, PositionComponent as _PC
 from ...events import EventBus
 from ...messages import MoveUnitMessage
@@ -300,7 +303,7 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     # ci-dessus (`finish_attack_triggers`), qui est le foyer natif (`AttackBehaviour$$Execute` ->
     # `FinishAttack`). La cascade est donc DEJA jouee quand on arrive ici ; ce vecteur ne porte plus
     # que `On(0x26)` / `On(8)` / `On(0x3c)` / `On(0xe)`.
-    from ...operations.triggers import after_hit_normal_attack
+    from ...operations.triggers.dispatch.attack import after_hit_normal_attack
     after = (r.get("finish_attack") or []) + after_hit_normal_attack(
         state, unit_id, tgt, bool(r.get("ranged")),
         r.get("profile"), is_crit=bool(r.get("did_crit")),

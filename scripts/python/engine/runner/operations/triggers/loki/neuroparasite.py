@@ -138,13 +138,15 @@ from typing import Optional
 
 from ....state import State
 from ....components import StatsComponent, UnitComponent
-from ....abilities.behaviours import AddBondEffect, IncreaseEffectLevel, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddBondEffect, IncreaseEffectLevel
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.damage_profile_type import DamageProfileType
 from .....entities.effect_type import EffectType
 from .....entities.effects.magnitude import ability_var
-from .....entities.selectors import Caster, Target
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.tiles import Caster
 from .....entities.triggered_ability_type import (TriggeredAbilityType,
                                                   entity_triggered_ability_ids)
 from ..base import EffectTrigger, TriggerEvent, TriggeredAbility

@@ -28,10 +28,13 @@ from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, If, op_add, op_and
 from ...entities.effect_type import EffectType
 from ...entities.formulas import AngleBetweenLines, Count, percentage_of_attack_capped_at_max
-from ...entities.selectors import (AdjacentTiles, Alive, Cache, Caster, Enemies, FilterContinuous,
-                                   FixedTileIds, PickFirstN, SortByDistance, SortByFormula, Subject,
-                                   SurroundingTiles, Target, Tiles, TilesBehindInLine, UnitSet,
-                                   Union, Units, UnitsDirectlyBehind)
+from ...entities.selectors.accessors import FixedTileIds, Subject, SurroundingTiles, Target
+from ...entities.selectors.geometry import Cache, FilterContinuous, PickFirstN, TilesBehindInLine
+from ...entities.selectors.tiles import AdjacentTiles, Caster
+from ...entities.selectors.units import (
+    Alive, Enemies, SortByDistance, SortByFormula, Tiles, Union, UnitSet, Units,
+    UnitsDirectlyBehind
+)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatPart, StatType
 from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAlliance, HasUnit,
@@ -41,8 +44,10 @@ from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAllia
 # verifiable sur l'objet importe (garde #344), et non sur le texte du fichier.
 from ...services.min_max_damage import min_max_avg
 from .base import ActiveAbility
-from .behaviours import (AddEffect, AddStatOverrideEffect, AttackWithAttackDamage, RemoveEffect,
-                         UseActiveAbility, entities_from_state)
+from .behaviours.combat import AttackWithAttackDamage, UseActiveAbility
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect, RemoveEffect
+from .behaviours.stats import AddStatOverrideEffect
 from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
                         RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
@@ -56,6 +61,8 @@ from ..components import PositionComponent
 from ..components import StatsComponent
 from ..damage_model import attacker_modifiers, select_weapon_pierce
 from .base import convert_rounds_to_turns
+from ...ai.action_generators import _faction
+from .loki import _pick_randomly_n
 
 if TYPE_CHECKING:
     from ..state import State
@@ -707,7 +714,6 @@ def _supercharge_behind(state: "State", caster_id: int, target_id: int) -> list:
     `SurroundingTiles(target,1,1)`, portee par le noeud) et NON id-trie -- `PickRandomAmountSelector$$Select`
     ne trie jamais son `candidates` ; l'`OrderBy` natif est celui d'`AttackBehaviour$$Execute`, APRES la
     resolution du selecteur, et il vit deja dans la feuille (`multi=True`)."""
-    from .loki import _pick_randomly_n
     ents = entities_from_state(state, caster_id, target_id)
     cands = [u for u in UnitsDirectlyBehind().evaluate(ents) if u.get("id") is not None]
     return _pick_randomly_n(state, cands, 2)
@@ -950,7 +956,6 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
     `sort_attackers_by_damage_prediction_key`. Le residu restant est donc le seul `block_raw_min`.)
 
     Rend la liste ORDONNEE (le `First(...,1)` est applique par l'appelant)."""
-    from ...ai.action_generators import _faction
     import gameconfig as GC
     ce = state.get_entity(caster_id)
     te = state.get_entity(target_id)

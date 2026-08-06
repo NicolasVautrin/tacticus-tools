@@ -28,10 +28,16 @@ import hexgeo
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, op_and, AtomicGroup, Group
-from ...entities.selectors import (ActiveTarget, Actor, Cache, Caster, CasterTile, AdjacentTiles,
-                                   AdjacentUnits, adjacent_units, Enemies, Filter, FixedTileIds,
-                                   Friends, Sub, Subject, Union, Unique, Units, UnitsWithoutTrait,
-                                   UnitsWithTrait, Target)
+from ...entities.selectors.accessors import (
+    ActiveTarget, Actor, CasterTile, FixedTileIds, Subject, Target
+)
+from ...entities.selectors.composites import adjacent_units
+from ...entities.selectors.geometry import Cache
+from ...entities.selectors.tiles import AdjacentTiles, Caster
+from ...entities.selectors.units import (
+    AdjacentUnits, Enemies, Filter, Friends, Sub, Union, Unique, Units, UnitsWithTrait,
+    UnitsWithoutTrait
+)
 from ...entities.triggers import (AmountIsGreaterThanZero, HasNegativeModifier, IsInTeamAura,
                                   IsInUnitAura, TriggerAnd, TriggerOr)
 from ...entities.formulas import StatAmount
@@ -45,11 +51,15 @@ from .base import ActiveAbility
 from .targeting import (custom_range_func, RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD,
                         RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, Heal, healable_heal_type_0, AddEffect,
-                        AttackWithAttackDamage, InformWeapon, PerformAIAttack, Spawn)
+from .behaviours.combat import AttackWithAttackDamage, InformWeapon
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect
+from .behaviours.stats import Heal, healable_heal_type_0
+from .behaviours.summon import PerformAIAttack, Spawn
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 # #270-r4 : groupType de DSLBehaviors.Group, type DECLARE lu dans rida/methods.tsv.
 from ...streams.group_type import GroupType
+from .loki.splash import _pick_randomly_n
 
 if TYPE_CHECKING:
     from ..state import State
@@ -709,7 +719,6 @@ class SpawnPoxwalkersAbility(ActiveAbility):
         radius = contagions_of_nurgle_range(state, caster_id)
         tiles = poxwalkers_spawn_tiles(state, caster_id, radius)
         n = poxwalkers_count(state, caster_id, len(tiles))
-        from .loki.splash import _pick_randomly_n
         picked = _pick_randomly_n(state, tiles, n)          # PickRandomly(tiles, amount)
         ectx = ExecutionContext(state=state, rng=state.rng)
         spawn_poxwalkers_tree(picked).execute(
@@ -888,7 +897,6 @@ def plagueburst_contaminated_tiles(state: "State", target_id: int, n_tiles: int)
     if board is None or tid is None:
         return []
     pool = list(board.neighbours(tid))
-    from .loki.splash import _pick_randomly_n
     return _pick_randomly_n(state, pool, max(0, int(n_tiles) - 1))
 
 

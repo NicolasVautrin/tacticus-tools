@@ -425,28 +425,34 @@ def test_etage3_lookup_par_int_brut_et_accesseurs_publics():
 
 def test_etage4_static_battle_rules_membres_et_place_des_imports():
     """ETAGE 4 -- `services/static_battle_rules.py` : les membres sont ECRITS AU SITE, et la
-    PLACE de ses deux imports d'enum est ce qui le permet.
+    contrainte de PLACEMENT qui l'imposait A DISPARU -- l'etage s'est RETOURNE, comme prevu.
 
-    CE QUI A CHANGE (#270-r4-r2), et pourquoi cet etage a change de NATURE. La version
-    precedente gardait un COMPROMIS : ce fichier conservait ses ordinaux, la garde etait
-    deportee ici, et la condition de retournement ecrite etait « le jour ou `engine.entities`
-    n'importera plus `services.static_battle_rules` ». Cette condition etait TROP FORTE -- elle
-    est TOUJOURS FAUSSE (le paquet tire toujours cet arbre, et l'assertion `DEPEND` qui le
-    mesurait passerait encore), et la conversion est pourtant FAITE.
-
-    Ce qui l'a debloquee n'est pas la disparition du cycle mais sa LECTURE : la boucle
+    CE QU'IL GARDAIT (#270-r4-r2). La boucle
         services.static_battle_rules -> engine.entities (init) -> effects_state -> effects
         -> factory -> effects.loki -> hits.py -> `from ....services.static_battle_rules import
            TILE_STATUS_EFFECT_NAMES`
-    ne lit QU'UN symbole de ce module. Il suffit donc que les deux imports d'enum soient places
-    APRES sa definition -- ce qui reste un import MODULE-LEVEL (deterministe a l'import), pas un
-    import differe (paye a chaque appel, et dont l'echec dependrait du chemin d'execution).
+    ne lisait QU'UN symbole de ce module ; il suffisait que les deux imports d'enum soient
+    places APRES sa definition. Cet etage gardait cette place en MUTANT une copie du module
+    (imports remontes en tete) et en exigeant l'`ImportError`.
 
-    Le test garde donc DEUX choses, et la seconde est ce qui rend la premiere durable :
+    CE QUI L'A RETOURNE (#485-r1-r1) -- et la mesure, pas la supposition :
+        `import engine.entities` charge  94 modules `engine.*` sur `origin/master`
+                                          2 apres la vidange des barils
+        `engine.entities.effects.loki.hits` charge : VRAI avant, FAUX apres
+    La vidange a retire de l'`__init__` du paquet les re-exports qui tiraient tout l'arbre des
+    effets : la boucle n'existe plus. Les deux imports sont donc REMONTES en tete du module, et
+    l'etage mesure DESORMAIS L'INVERSE.
+
+    ⚠ IL RESTE UN CRAN, ET C'EST LUI QUI COMPTE : un etage qui n'affirmerait plus rien serait
+    du bruit. La contre-epreuve est CONSERVEE, retournee -- la copie mutee (imports en tete)
+    doit s'importer SANS ERREUR, et la cascade du paquet doit rester COURTE. Le jour ou un
+    `__init__` re-tirerait l'arbre des effets, cet etage rougirait a nouveau et la prescription
+    de placement serait a retablir. Un acquis se garde ; il ne se declare pas.
+
+    Le test garde donc TROIS choses :
       * les valeurs sont des MEMBRES (un renumerotage du build fait rougir) ;
-      * remonter ces imports EN TETE du fichier casse -- verifie EN MUTANT une copie du module
-        dans un interpreteur NEUF. Sans cette contre-epreuve, l'etage serait vert meme si la
-        contrainte de placement avait disparu, et personne ne saurait qu'elle est encore la.
+      * les deux imports sont EN TETE (ecrits juste apres le preambule) ;
+      * la copie mutee s'importe, et `import engine.entities` ne traine pas l'arbre des effets.
     """
     assert SBR.TILE_STATUS_EFFECT_TYPES == {EffectType.Darkness, EffectType.Fire,
                                             EffectType.Ice, EffectType.Contaminated,
@@ -477,10 +483,11 @@ def test_etage4_static_battle_rules_membres_et_place_des_imports():
         == SBR._DARKNESS_EXEMPT_TRAIT_IDS
     assert SBR.not_blocking_movement_of_traits(int(EffectType.Markerlight_Visual)) == ()
 
-    # ── CONTRE-EPREUVE : la contrainte de PLACEMENT est-elle encore reelle ? ──────────────────
-    # On MUTE le fichier (les deux imports remontes juste apres `from __future__`) dans un
-    # arbre temporaire, et on exige l'ImportError. Un vert ici voudrait dire que la contrainte a
-    # disparu -> l'encadre du module et cette docstring sont a reecrire, pas a garder tels quels.
+    # ── LES DEUX IMPORTS SONT EN TETE, et la mutation qui les y remonte est un NO-OP ──────────
+    # C'est le retournement de #485-r1-r1 : on MUTE toujours une copie (imports remontes juste
+    # apres `from __future__`), mais on exige desormais que l'import PASSE. Si la boucle
+    # revenait, cette copie mutee re-echouerait -- et l'etage redeviendrait la garde de
+    # placement qu'il etait.
     import subprocess, shutil, tempfile, ast, os
     src = (PYDIR / "engine/services/static_battle_rules.py").read_text(encoding="utf-8")
     lignes = src.splitlines(keepends=True)
@@ -490,6 +497,13 @@ def test_etage4_static_battle_rules_membres_et_place_des_imports():
     assert len(a_deplacer) == 2, (
         "les deux imports d'enum ne sont plus ecrits au niveau module dans "
         "`static_battle_rules.py` -- la contre-epreuve ne mesure plus rien : %r" % a_deplacer)
+    #: LA PLACE ELLE-MEME : ils doivent etre dans le PREAMBULE, avant toute definition. Sans ce
+    #: cran, redescendre les imports sous `TILE_STATUS_EFFECT_NAMES` laisserait l'etage vert.
+    i_prem_def = next(i for i, l in enumerate(lignes)
+                      if l.startswith(("TILE_STATUS_EFFECT_NAMES", "W_LASCANNON_PIERCE_BONUS")))
+    assert all(lignes.index(l) < i_prem_def for l in a_deplacer), (
+        "les deux imports d'enum ne sont plus en TETE : la boucle d'import est-elle revenue ? "
+        "Si oui, retablir la prescription de placement (#270-r4-r2) plutot que ce cran.")
     reste = [l for l in lignes if l not in a_deplacer]
     i_fut = next(i for i, l in enumerate(reste) if l.startswith("from __future__"))
     mute = "".join(reste[:i_fut + 1] + ["\n"] + a_deplacer + reste[i_fut + 1:])
@@ -506,13 +520,27 @@ def test_etage4_static_battle_rules_membres_et_place_des_imports():
         env = dict(os.environ, PYTHONPATH=str(arbre) + os.pathsep + str(PYDIR))
         r = subprocess.run([sys.executable, "-c", "import engine.services.static_battle_rules"],
                            capture_output=True, text=True, cwd=str(arbre), env=env)
-    assert r.returncode != 0, (
-        "LES IMPORTS SONT REMONTABLES EN TETE : la contrainte de placement de "
-        "`static_battle_rules.py` a disparu. Remonter les deux imports et reecrire l'encadre du "
-        "module ET cette docstring -- ne pas laisser une prescription perimee. stdout=%r" % r.stdout)
-    assert "ImportError" in r.stderr or "circular" in r.stderr, (
-        "l'import mute echoue, mais PAS pour la cause attendue (cycle) -- la contre-epreuve "
-        "accuse peut-etre le montage : %r" % r.stderr[-500:])
+        #: LA CAUSE de la disparition, mesuree et non supposee : l'`__init__` du paquet ne tire
+        #: plus l'arbre des effets. C'est CE fait qui a libere la place des imports -- le garder
+        #: ici, c'est garder la RAISON, pas seulement son effet.
+        r2 = subprocess.run(
+            [sys.executable, "-c", "import sys, engine.entities; "
+             "print(len([m for m in sys.modules if m.startswith('engine')])); "
+             "print('engine.entities.effects.loki.hits' in sys.modules)"],
+            capture_output=True, text=True, cwd=str(arbre), env=env)
+    assert r.returncode == 0, (
+        "LA CONTRAINTE DE PLACEMENT EST REVENUE : remonter les deux imports en tete casse a "
+        "nouveau. Retablir la prescription de #270-r4-r2 (imports sous "
+        "`TILE_STATUS_EFFECT_NAMES`) et re-retourner cet etage. stderr=%r" % r.stderr[-600:])
+    assert r2.returncode == 0, "la sonde de cascade n'a pas abouti : %r" % r2.stderr[-400:]
+    n_modules, hits_charge = r2.stdout.split()
+    assert hits_charge == "False", (
+        "`import engine.entities` re-tire `effects/loki/hits.py` -- la boucle qui imposait la "
+        "place des imports est de retour (94 modules sur origin/master, 2 apres la vidange).")
+    assert int(n_modules) < 20, (
+        "`import engine.entities` charge %s modules `engine.*` : la cascade du paquet a "
+        "re-enfle (2 a la vidange de #485-r1-r1, 94 avant). C'est le terrain sur lequel les "
+        "cycles repoussent." % n_modules)
 
 
 #: Les structures de cette tranche, par leur NOM tel qu'il s'ecrirait a un site de mutation.

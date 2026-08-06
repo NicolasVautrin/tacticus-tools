@@ -61,10 +61,10 @@ from typing import Optional
 
 from .....entities.effect_type import EffectType
 from .....entities.damage_profile_type import DamageProfileType
-from .....entities.selectors import Target
+from .....entities.selectors.accessors import Target
 from .....entities.triggers import is_object_or_steppable
 from .....dsl.event_trigger_type import EventTriggerType
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.context import entities_from_state
 from ....state import State
 from ....components import UnitComponent, OwnerComponent
 from ..base import EffectTrigger, TriggerEvent

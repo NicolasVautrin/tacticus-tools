@@ -25,7 +25,7 @@ from engine.runner.messages import MoveUnitMessage
 from engine.runner.components import PositionComponent, OwnerComponent, UnitComponent, HealthComponent, StatsComponent
 from engine.runner.operations.spawn import spawn_decoy, build_decoy_context
 from engine.runner.operations.movement import _kill_steppable_units
-from engine.entities.traits import UnitTrait, has_trait
+from engine.entities.traits.unit_trait import UnitTrait, has_trait
 
 
 def _state_with_board(rpc, build_runner):

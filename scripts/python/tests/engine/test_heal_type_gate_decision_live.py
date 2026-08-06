@@ -44,9 +44,9 @@ import hexgeo
 from engine.ai.state_bridge import build_from_state
 from engine.dsl.effects import ExecutionContext
 from engine.entities.pathfinding.board import Board
-from engine.entities.selectors import Target
+from engine.entities.selectors.accessors import Target
 from engine.entities.traits.unit_trait import UnitTrait, unit_trait_names
-from engine.playbook.noncomparable import NCContext
+from engine.playbook.noncomparable._base import NCContext
 from engine.playbook.noncomparable._base import _traits
 from engine.playbook.noncomparable.heals import (RitesOfRestorationPlaybook,
                                                  _affected_by_heal_type)

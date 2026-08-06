@@ -25,7 +25,7 @@ from engine.runner.components import StatsComponent, OwnerComponent, UnitCompone
 from engine.runner.abilities.loki import ArmoriumCherubAbility, _adjacent_enemies_of
 from engine.runner.abilities.base import ability_attack_params
 from engine.runner.operations.damage import AttackDamageOperation
-from engine.runner.operations.triggers import _fire_of_absolution_after_attack
+from engine.runner.operations.triggers.loki import _fire_of_absolution_after_attack
 from engine.entities.pathfinding.board import Board
 
 CASTER_VIS = "adeptRetributor"              # «Vindicta» : porte FireOfAbsolution (passif) + ArmoriumCherub (actif)

@@ -35,10 +35,10 @@ if str(PYDIR) not in sys.path:
 import hexgeo                                                              # noqa: E402
 from engine.dsl.effects import ExecutionContext                            # noqa: E402
 from engine.entities.triggers import OwnerIsAlive                          # noqa: E402
-from engine.runner.abilities import ABILITY_CLASSES                        # noqa: E402
+from engine.runner.abilities.handler import ABILITY_CLASSES  # noqa: E402
 from engine.runner.abilities.attack_type import (AbilityAttackType,        # noqa: E402
                                                  ABILITY_ATTACK_TYPE)
-from engine.runner.abilities.behaviours import entities_from_state         # noqa: E402
+from engine.runner.abilities.behaviours.context import entities_from_state  # noqa: E402
 from engine.runner.abilities.orks import (RammingSpeedAbility,             # noqa: E402
                                           ramming_speed_tree)
 from engine.runner.abilities.targeting import (RANGE_FROM_CONFIG,          # noqa: E402
@@ -265,7 +265,7 @@ def test_dynamic_reason_refuses_a_caster_that_already_moved():
 def _state_with_effects(**kw):
     """`_state()` + un `EffectsState` VIDE : sans lui, `AddEffect` emet mais ne materialise rien, et
     tout cliquet sur la duree de vie de l'instance serait vacant."""
-    from engine.entities import EffectsState
+    from engine.entities.effects_state import EffectsState
     st = _state(**kw)
     st.effects = EffectsState()
     return st
@@ -290,7 +290,7 @@ def test_the_removal_trigger_is_registered_on_phase_end():
     Un port qui la retirerait -- ou la re-brancherait sur `TurnEnd` (0x17), l'autre valeur du meme
     couple de classes soeurs `UntilOfEndTurnEffect`/`UntilOfEndPhaseEffect` -- rougit ici."""
     from engine.dsl.event_trigger_type import EventTriggerType
-    from engine.runner.operations.triggers import EFFECT_TRIGGERS
+    from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
     from engine.runner.operations.triggers.loki.ramming_speed import RammingSpeedExtraExplodeRemove
     entries = EFFECT_TRIGGERS.get(1098) or []
     assert RammingSpeedExtraExplodeRemove in entries
@@ -338,7 +338,7 @@ def test_stripping_the_registry_entry_keeps_1098_alive(monkeypatch):
     d'AVANT `#389-r1` -- `AddEffect` options ZERO -> `remaining = 0` = PERMANENT. Ce cliquet garantit
     que le test ci-dessus mesure bien le RETRAIT, et pas une non-pose."""
     from engine.runner.components import has_effect_of_type
-    from engine.runner.operations.triggers import EFFECT_TRIGGERS
+    from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
     monkeypatch.setitem(EFFECT_TRIGGERS, 1098, [])
     st = _cast_via_runner(_state_with_effects())
     left = _instances_1098(st)
@@ -359,7 +359,7 @@ def test_a_nova_after_the_cast_reads_the_BASE_percentage_only(monkeypatch):
     Bras DISCRIMINANT par construction : l'assertion finale exige que les deux montants DIFFERENT."""
     import gameconfig as GC
     from engine.dsl.effects import ExecutionContext
-    from engine.runner.operations.triggers import EFFECT_TRIGGERS
+    from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
     from engine.runner.operations.triggers.loki.death_nova import explodes_tree
     base = int(((GC.trait("Explodes") or {}).get("variables") or {}).get("explodesDmg"))
     extra = int(((GC.ability("RammingSpeed") or {}).get("constants") or {}).get("extraDmgPct"))

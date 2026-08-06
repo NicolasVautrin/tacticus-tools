@@ -69,8 +69,12 @@ from ..components import PositionComponent, record_tiles_moved
 from ..components import UnitFlagsComponent
 from ...entities.unit_flag import UnitFlag
 from .movement import _kill_steppable_units
-from .triggers import unit_position_changed_1_triggers, unit_position_changed_2_triggers
-from .triggers import unit_revived_triggers
+from .triggers.dispatch.move_death import (
+    unit_position_changed_1_triggers, unit_position_changed_2_triggers
+)
+from .triggers.dispatch.move_death import unit_revived_triggers
+from ...battle_query import get_distance
+from ..abilities.loki.swarm import on_group_unit_hp_changed
 
 # `Revive(..., healType, sourceId, ?, priority, ?)` -- priorite par defaut des consommateurs
 # (`IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour` et `FuelledByFury_ReviveAbility.CreateBehaviour
@@ -203,7 +207,6 @@ def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
     # `record_tiles_moved` re-applique par ailleurs son propre `< 1 -> no-op`, ce qui neutralise le
     # cas « meme tuile » (distance 0).
     if main_tile_before is not None:
-        from ...battle_query import get_distance
         record_tiles_moved(state, unit_id, get_distance([main_tile_before], [to]))
     # `On(0x24 = UnitPositionChanged_1)` puis `On(0x1d = UnitPositionChanged_2)`, {actor = target =
     # l'unite ressuscitee} (`AbilityEntities.ctor(unit, unit, unit, …)` lu au decompile).
@@ -290,7 +293,6 @@ class ReviveUnitOperation:
         # #60 : re-eval du stat-mod EXTRA_HITS du trait Swarm au retour a la vie (bras On(UnitRevived=45) du
         # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger), comme ResurrectUnitOperation.
         if hc is not None and set_hp is not None:
-            from ..abilities.loki.swarm import on_group_unit_hp_changed
             on_group_unit_hp_changed(state, unit_id)
         # `On(UnitRevived = 0x2d = 45)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 -- emis AVANT la purge du champ (ordre natif lu).
         # Consommateurs portes : `PhoenixGem_CanReviveEffect` (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : retrait du marqueur 1451 sous

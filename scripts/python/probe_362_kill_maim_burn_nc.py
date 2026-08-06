@@ -116,8 +116,8 @@ def _measure(sid, sf, seed, level, victim_hp, label) -> dict:
                 for e in (nat.get("captured") or [])]
 
         # -- PORT : les DEUX predictions que le natif peut construire pour la cible principale ----
-        from engine.playbook.prediction import (generate_multi_hit_attack_prediction,
-                                                make_normal_attack_predictions)
+        from engine.playbook.prediction.abilities import generate_multi_hit_attack_prediction
+        from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
         na = make_normal_attack_predictions(scene, cid, tid, here)
         na_t = None
         na_kill = None
@@ -179,7 +179,7 @@ def _argmax_arm(sid, sf, seed, level, hp_survivor, label) -> dict:
                                             "abilityType": ABILITY, "via": "evaluate"}, 240)
 
         from engine.playbook import noncomparable as NCPB
-        from engine.playbook.prediction import make_normal_attack_predictions
+        from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
         from engine.playbook.probable_damage_event import (ProbableDamageEvent,
                                                            calculate_utility_from_damage_event)
         pb = NCPB.playbook_for(ABILITY)

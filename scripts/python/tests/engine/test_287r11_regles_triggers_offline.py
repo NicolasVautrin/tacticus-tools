@@ -150,7 +150,7 @@ def test_1200_lit_les_seuils_du_CIBLAGE_pas_ceux_du_SUMMON():
     import gameconfig as GC
     from engine.runner.abilities.orks import (CONST_SL_FRIENDS_TARGET, CONST_SL_ORKS_TARGET,
                                               squig_launchas_fulfills_summon_criteria)
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     # (a) l'ORDINAL ecrit au site -- fige, pas re-derive du mirror (un renumerotage rendrait
     #     `probe_313` vert alors que la valeur lue aurait change).
     assert (int(CONST_SL_ORKS_TARGET), CONST_SL_ORKS_TARGET.name) == (0x78, "nrOfUnits")
@@ -205,11 +205,12 @@ def test_1168_lit_INITIAL_et_non_la_valeur_courante():
     port lirait `CURRENT`, la production coinciderait avec le mutant et cette assertion rougirait."""
     from engine.entities.effect_type import EffectType
     from engine.entities.formulas import StatAmount
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     from engine.entities.stats import StatPart
     from engine.entities.triggers import (AmountIsGreaterThanZero, HasNegativeModifier,
                                           IsInTeamAura, TriggerAnd, TriggerOr)
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.deathguard import entropy_cannons_is_valid_target_trigger
     st, comp = _substrat_1168(initial=10, modification=-10)
     assert comp.get_current_value() == 0, "le substrat ne met pas la valeur COURANTE a zero"

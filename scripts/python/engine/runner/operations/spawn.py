@@ -37,9 +37,9 @@ from ..components import (StatsComponent, OwnerComponent, PositionComponent,
                           HealthComponent, UnitComponent)
 from ...entities.effect_type import EffectType
 from ...dsl.event_trigger_type import EventTriggerType
-from ...entities import EffectsState
-from ...entities import UnitContext
-from ...entities.effects import EffectFactory
+from ...entities.effects_state import EffectsState
+from ...entities.unit_context import UnitContext
+from ...entities.effects.factory import EffectFactory
 from ...entities.effects.factory import (get_derived_abilities_for_trait,
                                              get_owner_effects_added_on_ability_init)
 from ...entities.effects.factory import (get_owner_effects_added_on_ability_init,
@@ -50,6 +50,10 @@ from ...entities.stats import UnitStats, StatType
 from ...utilities.tile import sort_tiles_by_utility
 from ..components import UnitFlagsComponent
 from engine.battle_query import is_adjacent
+from ..components import set_unit_feet
+from .aura_stat_mods import refresh_aura_stat_modifiers
+from engine.entities.pathfinding.board import (adjacent_neigh_by_pos,
+                                                           elevations_by_pos)
 
 
 def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
@@ -547,7 +551,6 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
         # `AddUnitOperation$$Execute` : `ClearFeet` puis un `AddFoot` PAR tuile recue, dans l'ordre.
         # `set_unit_feet` est l'ECRIVAIN UNIQUE de l'empreinte (il recale la `PositionComponent` sur
         # `feet[0]` = la main tile) ; une liste d'UN element repose `feet = None` -> mono-pied nominal.
-        from ..components import set_unit_feet
         coords = [(bt["col"], bt["row"]) for bt in
                   (board.by_id.get(t) for t in feet_tiles) if bt is not None]
         if coords:
@@ -595,7 +598,8 @@ def on_unit_added(state: State, unit_id: Optional[int]) -> list:
         out.append(r)
     # DISPATCH GENERIQUE `On(UnitAdded = 0x32 = 50)` : `AbilityEntities.ctor(added, added, added)`
     # -> actor = caster = target = l'unite qui vient d'apparaitre.
-    from .triggers import TriggerEvent, evaluate_trigger_operation
+    from .triggers.base import TriggerEvent
+    from .triggers.dispatch.core import evaluate_trigger_operation
     out += evaluate_trigger_operation(
         state, TriggerEvent(EventTriggerType.UnitAdded, int(unit_id), int(unit_id),
                             ranged=False, profile=None))
@@ -746,7 +750,6 @@ def initialize_deferred_actor_abilities(state: State, unit_id: int) -> list:
         # UnitStats_CritChance_Modification_Change=20`. Sans ce refresh la pose etait INERTE cote
         # stats (l'effet apparaissait chez le porteur, la cible ne gagnait rien) -- le volet
         # `create_aura_*` du jumeau ATTACK, lui, est un canal de LECTURE, donc il ne le voyait pas.
-        from .aura_stat_mods import refresh_aura_stat_modifiers
         refresh_aura_stat_modifiers(state)
     return added
 
@@ -1126,8 +1129,6 @@ class SpawnUnitOperation:
             # #433-r4-r1-r4-r2-r1 : le voisinage NATIF (liste STOCKEE) est le PREMIER etage
             # d'`IterateAdjacentTiles`, l'elevation le second -- n'en deriver qu'un laisse le
             # predicat plus PERMISSIF que le natif sur toute arete que la connectivite refuse.
-            from engine.entities.pathfinding.board import (adjacent_neigh_by_pos,
-                                                           elevations_by_pos)
             elev = elevations_by_pos(board) or {}
             neigh = adjacent_neigh_by_pos(board)
         def _can_attack_from(tid) -> bool:

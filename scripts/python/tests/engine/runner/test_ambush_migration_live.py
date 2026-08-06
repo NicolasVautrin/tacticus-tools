@@ -138,7 +138,7 @@ def _kill(state, uid, killer_id):
     """SIMULE la mort de `uid` EXACTEMENT comme `DamageCalculations._fire_death_if_killed` : hp=0 + alive=False
     PUIS `unit_defeated_triggers` (On UnitDefeated=54) -> Ambush_SummonAbility (decoy + turn_defeated)."""
     from engine.runner.components import UnitComponent, HealthComponent
-    from engine.runner.operations.triggers import unit_defeated_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import unit_defeated_triggers
     e = state.get_entity(uid)
     hc = e.get_component(HealthComponent)
     uc = e.get_component(UnitComponent)
@@ -152,7 +152,7 @@ def _start_turn(state, player, force_delta=None):
     """Avance au debut de tour de `player` : incremente `turn_counts[player]` (mirror StartTurnOperation) puis
     tire `start_turn_triggers` (On 22) -> EnvAmbushResurrect. `force_delta` (optionnel) force
     `turn_counts[player]` a `turn_defeated + force_delta` pour tester le gate de delai."""
-    from engine.runner.operations.triggers import start_turn_triggers
+    from engine.runner.operations.triggers.dispatch.turn import start_turn_triggers
     state.turn_counts[player] = state.turn_counts.get(player, 0) + 1
     return start_turn_triggers(state, player)
 
@@ -289,7 +289,7 @@ def test_g3_delay_gate_only_next_turn(g3_state):
     assert _turn_defeated(state, judh) == 5
 
     # delta 0 : meme tour (turn_counts reste 5 sans start_turn) -> pas de resurrection
-    from engine.runner.operations.triggers import start_turn_triggers
+    from engine.runner.operations.triggers.dispatch.turn import start_turn_triggers
     # on force un start_turn SANS incrementer (simule un dispatch a delta 0)
     r0 = start_turn_triggers(state, player)
     assert _alive(state, judh) is False, "delta 0 : ne doit PAS ressusciter"

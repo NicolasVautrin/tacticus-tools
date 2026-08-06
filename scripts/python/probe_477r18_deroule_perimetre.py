@@ -254,7 +254,9 @@ def deriver_dat_interface(gh: Ghidra) -> tuple[str, dict]:
 
 def charger_mirrors():
     sys.path.insert(0, str(REPO / "scripts" / "python"))
-    from engine.streams import GroupType, StepType, TagKey  # noqa: E402
+    from engine.streams.group_type import GroupType
+    from engine.streams.step_type import StepType
+    from engine.streams.tag_key import TagKey  # noqa: E402
     return GroupType, StepType, TagKey
 
 

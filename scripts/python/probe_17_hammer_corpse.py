@@ -259,7 +259,7 @@ def _secondary_event(scene, caster_id, tgt_id, attack_pos):
     import gameconfig as GC
     from engine.entities.abilities.ability_configuration import AbilityConfiguration
     from engine.entities.abilities.active_ability import active_ability_for
-    from engine.playbook.prediction import generate_multi_hit_attack_prediction
+    from engine.playbook.prediction.abilities import generate_multi_hit_attack_prediction
     from engine.playbook.probable_damage_event import ProbableDamageEvent
     name = "HammerOfWrath"
     ctx0 = scene.ctx(caster_id)
@@ -328,7 +328,7 @@ def run(case: str = "witness", seed: int = 17153, board: str = BOARD, center=CEN
     """Monte le cas, mesure, dispose. Rend un dict (ou `{"error": ...}` si le montage ne s'installe
     pas -- un montage NON INSTALLE doit ROUGIR chez l'appelant, jamais passer pour un vert)."""
     from engine import weights
-    from engine.playbook.prediction import make_hammer_wrath_events
+    from engine.playbook.prediction.abilities import make_hammer_wrath_events
     from engine.entities.pathfinding.board import Board
 
     if case not in CASES:

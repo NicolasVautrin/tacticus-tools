@@ -44,7 +44,7 @@ from _charge_regime import (CHARGE, NO_STEP, STEP_ADJACENT,       # noqa: E402,F
                             charge_regime)
 
 from engine.entities.effects.factory import EFFECT_CLASSES        # noqa: E402
-from engine.entities.effects.loki import SagaOfTheWarriorBornOwnerEffect   # noqa: E402
+from engine.entities.effects.loki.hits import SagaOfTheWarriorBornOwnerEffect  # noqa: E402
 
 _CASTER = "spaceBlackmane"          # <<Ragnar>>, HERO du pool, porteur du passif SagaOfTheWarriorBorn
 _EFFECT_NAME = "SagaOfTheWarriorBorn_Owner"

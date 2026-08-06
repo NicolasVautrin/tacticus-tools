@@ -50,8 +50,9 @@ from engine.entities.stats import StatType               # noqa: E402
 from engine.runner.snapshot import load_state            # noqa: E402
 from engine.runner.components import (PositionComponent, StatsComponent,   # noqa: E402
                                       HealthComponent)
-from engine.runner.operations.triggers.dispatch import (pre_unit_ability_triggers,   # noqa: E402
-                                                        unit_post_ability_triggers)
+from engine.runner.operations.triggers.dispatch.ability import (
+    pre_unit_ability_triggers, unit_post_ability_triggers
+)  # noqa: E402
 
 ARJAC = "spaceRockfist"
 ATTACKER = "templSwordBrother"                     # MELEE -> il bloque/est bloque au contact

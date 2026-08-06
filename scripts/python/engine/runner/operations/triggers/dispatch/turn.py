@@ -13,7 +13,7 @@ from ..tiles import dry_bush_fire_spread
 from .core import evaluate_trigger_operation
 from .....dsl.base import Const
 from .....entities.triggers import MaybeTrigger
-from ....abilities.behaviours import entities_from_state
+from ....abilities.behaviours.context import entities_from_state
 from ...minimal_health import reset_times_attacked, evaluate_minimal_health
 from ...spawn import SpawnUnitOperation
 

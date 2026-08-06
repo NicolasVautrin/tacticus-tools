@@ -40,8 +40,11 @@ if str(PY) not in sys.path:
     sys.path.insert(0, str(PY))
 
 import probe_477r20_start_match as P  # noqa: E402
-from engine.streams import (GroupType, StepType, StreamCache,  # noqa: E402
-                            StreamDispatcher, TagKey)
+from engine.streams.dispatcher import StreamDispatcher
+from engine.streams.group_type import GroupType
+from engine.streams.step_type import StepType
+from engine.streams.stream_cache import StreamCache
+from engine.streams.tag_key import TagKey  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.game_setup import MATCH_ENTITY_ID  # noqa: E402
 from engine.streams.input_messages import (PHASE_BARRIER_GROUPS,  # noqa: E402

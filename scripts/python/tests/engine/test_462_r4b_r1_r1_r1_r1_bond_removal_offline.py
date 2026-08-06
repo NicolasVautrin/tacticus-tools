@@ -27,9 +27,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from engine.entities.effect_type import EffectType                          # noqa: E402
-from engine.entities.selectors import Caster                                # noqa: E402
+from engine.entities.selectors.tiles import Caster  # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType                  # noqa: E402
-from engine.runner.abilities.behaviours import RemoveEffect                 # noqa: E402
+from engine.runner.abilities.behaviours.effects import RemoveEffect  # noqa: E402
 from engine.runner.operations.triggers.bond_removal import (                # noqa: E402
     BOND_REMOVAL_GATES, BondRemoveOnBondedEntityDeath, BondRemoveOnRangeExceeded,
     bond_removal_tree, bond_removal_registry_entries, assert_pending_gate_consistency)

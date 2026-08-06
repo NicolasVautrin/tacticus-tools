@@ -16,7 +16,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from .effects import BaseEffect, EffectFactory
+from .effects.base import BaseEffect
+from .effects.factory import EffectFactory
 
 #: `(multiplier %, abilityLevel, activeAbilityLevel)` — l'`AbilityState` applique a UN effet.
 AbilityStateTriple = tuple

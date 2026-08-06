@@ -171,10 +171,11 @@ def _port_verdicts(state, mow_id, carrier_id, enemy_id):
     """Verdicts du PORT sur la MEME scene : version EQUIPE (le predicat que le natif expose par
     `abilityTargets`) ET version UNITE (le predicat de case-224). Les deux sont INCLUSIFS (#293),
     donc ils doivent s'accorder sur toute scene ou le TRAIT du porteur est le meme."""
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.deathguard import is_in_contagions_of_nurgle_range
     from engine.entities.triggers import IsInTeamAura
-    from engine.entities.selectors import Caster, Target
+    from engine.entities.selectors.accessors import Target
+    from engine.entities.selectors.tiles import Caster
     team_ctx = entities_from_state(state, caster_id=mow_id, target_id=enemy_id)
     team = IsInTeamAura(Target(), AURA, Caster()).should_trigger(team_ctx)
     unit_ctx = entities_from_state(state, caster_id=carrier_id, target_id=enemy_id,

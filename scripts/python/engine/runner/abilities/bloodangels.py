@@ -30,8 +30,9 @@ import hexgeo
 from ...dsl.base import AbilityTrigger, Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_and, If, AtomicGroup
-from ...entities.selectors import (Target, Caster, CanAddUnit, AdjacentTiles, AdjacentUnits,
-                                   Enemies, FixedTiles)
+from ...entities.selectors.accessors import FixedTiles, Target
+from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+from ...entities.selectors.units import AdjacentUnits, Enemies
 from ...entities.abilities.active_ability import SavageEchoesAbility as SavageEchoesAbilityDecision
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
@@ -41,7 +42,11 @@ from ..components import HealthComponent, PositionComponent, StatsComponent, Uni
 from .base import ActiveAbility
 from .targeting import RANGE_ADJACENT, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
-from .behaviours import entities_from_state, AttackWithAttackDamage, AddEffect, Heal, MoveUnit
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect
+from .behaviours.movement import MoveUnit
+from .behaviours.stats import Heal
 from ...utilities.tile import first_tile_by_utility
 
 if TYPE_CHECKING:

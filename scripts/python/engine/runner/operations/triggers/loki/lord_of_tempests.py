@@ -46,8 +46,10 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....abilities.behaviours import AddEffect, entities_from_state
-from .....entities.selectors import Tiles, Target
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.effects import AddEffect
+from .....entities.selectors.accessors import Target
+from .....entities.selectors.units import Tiles
 from .....entities.effect_type import EffectType
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType

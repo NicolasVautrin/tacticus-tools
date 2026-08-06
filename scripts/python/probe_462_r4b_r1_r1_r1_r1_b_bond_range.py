@@ -646,7 +646,7 @@ def death_bras(sid, taunter_hp):
         PR.dispose(sid, ctx["rid"])
     # --- face PORT, sur l'etat capture avant la frag : `On(2 = PreUnitDeath_2)` par ses deux
     # vecteurs. La TIERCE (le Bullgryn) est le CONTROLE du conjoint `IsEntityWithIdTarget`.
-    from engine.runner.operations.triggers.dispatch import pre_unit_death_2_triggers
+    from engine.runner.operations.triggers.dispatch.move_death import pre_unit_death_2_triggers
     # signature : `(state, dying_id, killer_id)` -- le PREMIER est celui qui MEURT, c'est-a-dire le
     # `target_id` de l'event que lit `IsEntityWithIdTarget`.
     pre_unit_death_2_triggers(st_tierce, ctx["pusher"], ctx["victim"])

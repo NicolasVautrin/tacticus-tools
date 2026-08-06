@@ -133,14 +133,16 @@ from .. import battle_query as bq
 from ..entities.effects import calculate_attacker_modifiers_for_prediction
 from ..entities.effects.magnitude import ability_var
 from ..entities.stats import ARMOR_STAT_TYPES
-from ..entities.traits import TraitFactory, target_hit_multiplier
+from ..entities.traits import target_hit_multiplier
+from ..entities.traits.factory import TraitFactory
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..services.battle_query import select_weapon_pierce
 from ..services.damage_prediction import get_attack_prediction
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
-from .prediction import (prediction_has_moved, prediction_has_teleported,
-                                 _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
+from .prediction._shared import (
+    _PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
+    _entity_traits, _target_damage_limits, prediction_has_moved, prediction_has_teleported
+)
 from .prediction._shared import _prediction_is_charging
 
 # Cle gameconfig de l'ability : l'enum membre EST le nom de config.

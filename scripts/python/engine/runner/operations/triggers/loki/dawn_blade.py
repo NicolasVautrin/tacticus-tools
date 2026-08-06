@@ -110,11 +110,12 @@ from typing import Optional
 
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
-from .....entities.selectors import Owner
+from .....entities.selectors.accessors import Owner
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....components import StatsComponent, UnitComponent
 from ....state import State
-from ....abilities.behaviours import Repair, entities_from_state
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.stats import Repair
 from ..base import (TriggeredAbility, TriggerEvent, triggered_ability_state,
                     _is_ranged_position)
 from .....entities.effects.magnitude import ability_var

@@ -155,7 +155,7 @@ from __future__ import annotations
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..runner.abilities.attack_type import is_regular_attack
-from .prediction import make_normal_attack_predictions
+from .prediction.normal_attack import make_normal_attack_predictions
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
 
 # Le LITTERAL `0x45` du call-site `GetValidTargets` -- l'attaque normale GENERIQUE, jamais le

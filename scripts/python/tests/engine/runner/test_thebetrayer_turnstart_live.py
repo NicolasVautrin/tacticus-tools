@@ -23,8 +23,8 @@ from __future__ import annotations
 import pytest
 
 from engine.runner.snapshot import load_state
-from engine.runner.operations.triggers import (
-    start_turn_triggers, THEBETRAYER_EFFECT, _add_betrayer_effect)
+from engine.runner.operations.triggers.dispatch.turn import start_turn_triggers
+from engine.runner.operations.triggers.loki import THEBETRAYER_EFFECT, _add_betrayer_effect
 from engine.runner.prng import IntBasedMersenneTwister
 
 KHARN = "worldKharn"

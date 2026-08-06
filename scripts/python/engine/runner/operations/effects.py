@@ -49,7 +49,8 @@ from typing import Optional
 from ..state import State
 from ..components import EffectsOwnedComponent, StatsComponent
 from ...entities.effect_type import EffectType
-from ...entities.effects import BaseEffect, EffectFactory, SAME_TURNS
+from ...entities.effects.base import BaseEffect, SAME_TURNS
+from ...entities.effects.factory import EffectFactory
 from ...entities.effects import effect_stat_mod_key
 from ...entities.stats import StatType
 from ..components import ForcedAttackTargetsComponent
@@ -164,7 +165,7 @@ class AddEffectOperation:
         # le gate cible-nulle, AVANT le gate « déjà présent » et AVANT le gate d'immunité : l'événement
         # fire même si la pose est finalement abandonnée (sémantique « would have », cf.
         # TerrifyingCrescendo « would have Suppressed »). Émis ICI, à la MÊME place.
-        from .triggers import pre_effect_added_triggers
+        from .triggers.dispatch.move_death import pre_effect_added_triggers
         pre_effect_added_triggers(state, source, target, int(effect_type))
         # GATE : pas de cible → abandon (Execute log "couldn't apply, no target" puis return 0).
         if target is None:

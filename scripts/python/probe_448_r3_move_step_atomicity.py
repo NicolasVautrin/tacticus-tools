@@ -170,7 +170,9 @@ def play_step_instrumented(st, uid: int, dest) -> dict:
     module les capte."""
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation
-    import engine.runner.operations.triggers as TRG
+    # module de DEFINITION, pas le baril : operations.movement appelle en forme MODULE
+    # (move_death.after_move_triggers(...)), donc l'attribut est relu a l'appel (#485-r1-r1).
+    import engine.runner.operations.triggers.dispatch.move_death as TRG
 
     seen: list = []
     pre: list = []

@@ -98,7 +98,7 @@ def test_baked_state_is_source_not_carrier_offline():
       * source == porteur (owner-effect) -> l'etat du porteur, inchange ;
       * source absente / non entiere / non chargee -> REPLI sur le porteur, jamais un neutre
         (un neutre `(100, None, None)` ecraserait le multiplicateur de rarete du porteur)."""
-    from engine.entities import baked_ability_state as B
+    from engine.entities.effects_state import baked_ability_state as B
 
     carrier = (180, 50, 50)
     table = {81: (200, 1, 7)}
@@ -116,7 +116,7 @@ def test_seed_defaults_are_unchanged_offline():
     ce qu'il rendait -- l'etat du PORTEUR, `active_ability_level` a None. TOUTES les entrees passent par
     la, et tous les appelants historiques (playbook `scene`, probes, tests) appellent la forme a
     trois arguments."""
-    from engine.entities import EffectsState
+    from engine.entities.effects_state import EffectsState
 
     cap = [{"name": "Ice", "effectType": 5, "source": 7}]
     st = EffectsState.seed({9: cap}, {9: 180, 7: 200}, {9: 50, 7: 1})
@@ -127,7 +127,7 @@ def test_seed_defaults_are_unchanged_offline():
 
 def test_seed_reads_the_source_when_table_is_given_offline():
     """La MEME entree, avec la table : l'instance porte l'etat de la SOURCE (u7), pas du porteur."""
-    from engine.entities import EffectsState
+    from engine.entities.effects_state import EffectsState
 
     cap = [{"name": "Ice", "effectType": 5, "source": 7}]
     st = EffectsState.seed({9: cap}, {9: 180}, {9: 50}, {7: (200, 1, 7), 9: (180, 50, 50)})

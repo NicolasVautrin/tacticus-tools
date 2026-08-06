@@ -187,8 +187,9 @@ def control_variant(ability, dec1, ob1, snap1, bg, s_cast, cid, tid):
     """
     from engine.dsl.effects import ExecutionContext
     from engine.entities.behaviours import AtomicGroup, Group, op_add, op_and
-    from engine.entities.selectors import UnitSet
-    from engine.runner.abilities.behaviours import AttackWithAttackDamage, entities_from_state
+    from engine.entities.selectors.units import UnitSet
+    from engine.runner.abilities.behaviours.combat import AttackWithAttackDamage
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities import deathguard as DG
     from engine.runner.abilities import thousandsons as TS
     from functools import reduce

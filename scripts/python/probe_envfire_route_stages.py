@@ -29,10 +29,10 @@ from engine.runner.abilities.base import profile_pierce  # noqa: E402
 from engine.entities.traits import target_hit_multiplier  # noqa: E402
 from engine.entities.pathfinding.board import Board  # noqa: E402
 from engine.entities.stats import StatType, StatPart  # noqa: E402
-from engine.entities.selectors import Target  # noqa: E402
+from engine.entities.selectors.accessors import Target  # noqa: E402
 from engine.entities.formulas import PercentageOf, StatAmount  # noqa: E402
 from engine.dsl.base import Const  # noqa: E402
-from engine.runner.abilities.behaviours import entities_from_state  # noqa: E402
+from engine.runner.abilities.behaviours.context import entities_from_state  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]

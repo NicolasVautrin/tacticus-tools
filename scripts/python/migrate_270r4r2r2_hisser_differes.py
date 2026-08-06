@@ -63,29 +63,48 @@ def _noms_lies(noeud) -> list[str]:
     return out
 
 
-def _source(noeud) -> tuple:
+def _absolu(mod: str, noeud) -> str:
+    """Le module ABSOLU vise par un `ImportFrom`, `level` resolu."""
+    if not isinstance(noeud, ast.ImportFrom):
+        return ""
+    if not noeud.level:
+        return noeud.module or ""
+    base = mod.split(".")
+    pkg = base if (RACINE / Path(*base)).is_dir() else base[:-1]
+    if noeud.level > 1:
+        pkg = pkg[: len(pkg) - (noeud.level - 1)]
+    return ".".join(pkg + ([noeud.module] if noeud.module else []))
+
+
+def _source(noeud, mod: str = "") -> tuple:
     """La SOURCE d'un import, independante du texte ecrit.
 
     Deux instructions `from X import a, b` et `from X import b` ont des SEGMENTS differents
     mais la meme source pour `b`. Comparer les segments declarait un conflit la ou il n'y en
     a aucun -- 67 refus, tous faux, a la premiere mesure.
+
+    ⚠ ET LE MEME VICE EXISTE UN CRAN PLUS BAS : `(level, module)` est encore du TEXTE. Depuis
+    `engine.runner.abilities`, `from ..abilities.loki.splash import X` et
+    `from .loki.splash import X` designent LE MEME module et rendaient pourtant deux sources
+    differentes -- donc un `conflit-de-nom` FAUX, qui bloquait deux hissages parfaitement surs
+    (mesure 2026-08-06, `abilities/astramilitarum.py:280` et `:976`). On resout le `level`.
     """
     if isinstance(noeud, ast.ImportFrom):
-        return ("from", noeud.level, noeud.module or "")
-    return ("import", 0, "")
+        return ("from", _absolu(mod, noeud) or noeud.module or "")
+    return ("import", "")
 
 
-def _liaisons(noeud) -> dict[str, tuple]:
+def _liaisons(noeud, mod: str = "") -> dict[str, tuple]:
     """nom lie -> (source, nom d'origine). C'est la cle d'identite d'une liaison."""
     out = {}
     for alias in noeud.names:
         if alias.name == "*":
             return {}
-        out[alias.asname or alias.name.split(".")[0]] = (_source(noeud), alias.name)
+        out[alias.asname or alias.name.split(".")[0]] = (_source(noeud, mod), alias.name)
     return out
 
 
-def _imports_preambule(arbre: ast.Module) -> dict[str, tuple]:
+def _imports_preambule(arbre: ast.Module, mod: str = "") -> dict[str, tuple]:
     """nom -> (source, origine) pour les imports du PREAMBULE (avant la 1re def/class).
 
     Un import place APRES une definition (recette du PLACEMENT) n'y entre pas : supprimer
@@ -96,7 +115,7 @@ def _imports_preambule(arbre: ast.Module) -> dict[str, tuple]:
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             break
         if isinstance(n, (ast.Import, ast.ImportFrom)):
-            out.update(_liaisons(n))
+            out.update(_liaisons(n, mod))
     return out
 
 
@@ -155,6 +174,45 @@ def _stores(portee) -> set[str]:
         elif isinstance(n, (ast.Global, ast.Nonlocal)):
             out.update(n.names)
     return out
+
+
+#: Structures de CONTROLE que l'on peut remonter pour trouver la fonction englobante. Un
+#: import place sous un `if`/`for`/`while` DANS une fonction est bien un import de fonction :
+#: le hisser lie le nom au module, ce qui est le geste voulu. `Try` en est EXCLU (voir plus
+#: bas), et `ClassDef` aussi -- la, hisser changerait vraiment le SCOPE du nom.
+_CONTROLE_TRAVERSABLE = (ast.If, ast.For, ast.AsyncFor, ast.While)
+
+
+def _est_type_checking(test) -> bool:
+    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
+        return True
+    return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+
+
+def _fonction_englobante(noeud, parents: dict[int, ast.AST]):
+    """(fonction englobante, motif de refus). L'un des deux est toujours `None`.
+
+    ⚠ LE PARENT DIRECT NE SUFFIT PAS COMME CRITERE, et s'y tenir refusait 47 sites sur 141
+    (mesure 2026-08-06 : 43 sous un `if`/`for`, 3 sous un `try`, 1 sous un `for`). Le refus
+    utile n'est pas << le parent n'est pas une fonction >>, c'est ce que la structure
+    traversee CHANGE si on hisse :
+
+      `if` / `for` / `while`  -- rien : le nom devient module-level, ce qui EST le but ;
+      `try`  -- un `try/except ImportError` est un import OPTIONNEL. Le hisser fait lever
+                l'echec au chargement du module au lieu de le rattraper : refus `sous-try` ;
+      `if TYPE_CHECKING` -- jamais execute au runtime : le hisser le rendrait REEL ;
+      `ClassDef` -- le nom passerait du corps de classe au module : vrai changement de scope.
+    """
+    cur = parents.get(id(noeud))
+    while isinstance(cur, _CONTROLE_TRAVERSABLE):
+        if isinstance(cur, ast.If) and _est_type_checking(cur.test):
+            return None, "sous-TYPE_CHECKING"
+        cur = parents.get(id(cur))
+    if isinstance(cur, (ast.Try, ast.ExceptHandler)):
+        return None, "sous-try"
+    if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return cur, None
+    return None, "parent-non-fonction"
 
 
 class _Parents(ast.NodeVisitor):
@@ -217,7 +275,7 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
         if isinstance(n, (ast.Import, ast.ImportFrom)):
             par_ligne[n.lineno] = n
 
-    pre = _imports_preambule(arbre)
+    pre = _imports_preambule(arbre, module)
     retenus = []
     lies_par_nom: dict[str, set[tuple]] = defaultdict(set)
     for s in sites:
@@ -225,15 +283,16 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
         if noeud is None:
             refus["site-introuvable"].append("%s:%d" % (module, s["ligne"]))
             continue
-        liaisons = _liaisons(noeud)
+        liaisons = _liaisons(noeud, module)
         noms = list(liaisons)
         if not noms:
             refus["import-etoile"].append("%s:%d" % (module, s["ligne"]))
             continue
-        parent = p.parent.get(id(noeud))
-        if not isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            refus["parent-non-fonction"].append("%s:%d (%s)"
-                                                % (module, s["ligne"], type(parent).__name__))
+        parent, motif = _fonction_englobante(noeud, p.parent)
+        if parent is None:
+            refus[motif].append("%s:%d (%s)"
+                                % (module, s["ligne"],
+                                   type(p.parent.get(id(noeud))).__name__))
             continue
         # DEJA au module : identite comparee sur la SOURCE, pas sur le texte. Si toutes les
         # liaisons sont deja produites A L'IDENTIQUE par le preambule, l'instruction est un
@@ -264,9 +323,18 @@ def traiter(module: str, sites: list[dict], refus: dict) -> tuple[str, int] | No
         if lignes[noeud.lineno - 1][: noeud.col_offset].strip():
             refus["ligne-partagee"].append("%s:%d (avant l'import)" % (module, s["ligne"]))
             continue
-        # corps qui se viderait ?
-        restant = [x for x in parent.body
-                   if not (x.lineno == noeud.lineno and x.end_lineno == noeud.end_lineno)]
+        # corps qui se viderait ? ⚠ LE BLOC A REGARDER EST LE PLUS PROCHE, pas la fonction :
+        # depuis qu'on traverse `if`/`for`, l'import peut etre le SEUL statement d'un `if`, et
+        # le retirer laisserait un `if:` vide -- une `SyntaxError` que seul le controle final
+        # attraperait, en emportant tout le fichier.
+        direct = p.parent.get(id(noeud))
+        bloc = None
+        for attr in ("body", "orelse", "finalbody"):
+            liste = getattr(direct, attr, None)
+            if isinstance(liste, list) and any(x is noeud for x in liste):
+                bloc = liste
+                break
+        restant = [x for x in (bloc if bloc is not None else parent.body) if x is not noeud]
         if not restant:
             refus["corps-viderait"].append("%s:%d" % (module, s["ligne"]))
             continue
@@ -438,6 +506,12 @@ def main() -> int:
     print("[270-r4-r2-r2/hisser] %s : %d site(s) hisse(s) sur %d fichier(s) ; %d refus"
           % ("ECRIT" if args.ecrire else "SIMULE", hisses, ecrits, n_refus))
     for motif in sorted(refus):
+        # ⚠ `refus` est un `defaultdict` : `_filtrer_acyclique` CREE l'entree
+        # `fermerait-une-boucle` rien qu'en lisant son `len`. Un motif a zero est donc normal,
+        # et l'indexer levait un `IndexError` qui emportait TOUT le bilan -- le compte des
+        # refus, la partition, et jusqu'au code de retour.
+        if not refus[motif]:
+            continue
         print("   refus %-22s %4d   ex. %s" % (motif, len(refus[motif]), refus[motif][0]))
     print("   PARTITION : %d hisses + %d refus = %d (candidats : %d) -> %s"
           % (hisses, n_refus, hisses + n_refus, n_sites,

@@ -23,8 +23,10 @@ import gameconfig as GC
 from ...dsl.base import resolve_unit, Const
 from ...dsl.effects import AbilityBehaviour, OperationResult, ExecutionContext
 from ...entities.behaviours import op_add, op_and, If
-from ...entities.selectors import (Target, Caster, TargetTile, FixedTiles, Alive, SurroundingEnemies,
-                                   Union, UnitsWithId)
+from ...entities.selectors.accessors import FixedTiles, Target, TargetTile
+from ...entities.selectors.geometry import UnitsWithId
+from ...entities.selectors.tiles import Caster
+from ...entities.selectors.units import Alive, SurroundingEnemies, Union
 from ...entities.triggers import Not, IsAlive, IsSurrounding, IsAdjacent, TriggerAnd
 from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
@@ -42,8 +44,11 @@ from .base import ActiveAbility
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions,
                         are_entities_adjacent, charge_tiles_count, entity_tiles)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, AttackWithAttackDamage, MoveUnit, ChangeStat,
-                         PerformAIAction, LiveUnit)
+from .behaviours.ai_control import PerformAIAction
+from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.context import LiveUnit, entities_from_state
+from .behaviours.movement import MoveUnit
+from .behaviours.stats import ChangeStat
 
 from .loki import _pick_randomly_n
 

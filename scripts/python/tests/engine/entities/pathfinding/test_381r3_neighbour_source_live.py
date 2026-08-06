@@ -101,9 +101,10 @@ def _pools(rpc, rid):
     contre `aiMovableTiles`, sur TOUTES les unites listees (les deux camps)."""
     from engine.dsl.base import Const
     from engine.entities.pathfinding.fly_pathfinder import is_like_flying
-    from engine.entities.selectors import Caster, CasterTile, MovableTilesInRange
+    from engine.entities.selectors.accessors import CasterTile
+    from engine.entities.selectors.tiles import Caster, MovableTilesInRange
     from engine.entities.traits.unit_trait import unit_trait_names
-    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.behaviours.context import entities_from_state
 
     state, board, _dv = _load(rpc, rid)
     nat = rpc("aiMovableTiles", {"runnerId": rid, "side": "all",

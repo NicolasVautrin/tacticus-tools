@@ -39,13 +39,14 @@ def _predict(scene, uid, tgt, tile, hits, channel):
     import gameconfig as GC
     from engine.entities.effects.magnitude import ability_var
     from engine.entities.stats import ARMOR_STAT_TYPES
-    from engine.entities.traits import target_hit_multiplier, TraitFactory
+    from engine.entities.traits import target_hit_multiplier
+    from engine.entities.traits.factory import TraitFactory
     from engine.entities.effects import calculate_attacker_modifiers_for_prediction
     from engine.services.damage_prediction import get_attack_prediction
-    from engine.playbook.prediction import (_add_positional_and_defender_mods,
-                                            _apply_ally_attack_dmg_bonus,
-                                            _target_damage_limits, _PROFILE_INDEX,
-                                            prediction_has_moved, prediction_has_teleported)
+    from engine.playbook.prediction._shared import (
+        _PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
+        _target_damage_limits, prediction_has_moved, prediction_has_teleported
+    )
     lvl = (scene.ablvl_by_id or {}).get(uid)
     mult = int((scene.mult_by_id or {}).get(uid) or 100)
     dmin = ability_var("FuryOfTheAncients", "minDmg", lvl, multiplier_pct=mult)
