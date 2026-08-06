@@ -41,6 +41,27 @@ import build_pin  # noqa: E402
 import probe_431_build_literals as P431  # noqa: E402
 
 
+#: Ce qui doit changer pour que cette contre-epreuve puisse changer d'avis.
+#:
+#: MESURE, contre l'apparence : ce fichier RESSEMBLE a une contre-epreuve de portee 4 (il monte
+#: un arbre isole, il mute, il restaure), mais son arbre isole est
+#: `git worktree add --detach HEAD` -- c'est-a-dire LE DEPOT, a HEAD. Et
+#: `test_le_cliquet_est_VERT_sur_l_arbre_intact` y assertionne `rc == 0` : tout fichier
+#: versionne qui ferait rougir `probe_431` (une extension hors seau, une RESOLUTION d'artefact)
+#: fait donc rougir CE FICHIER AUSSI. Sa portee est celle de `probe_431` -- le depot entier --
+#: plus sa propre source. Le worktree isole ces tests des ECRITURES concurrentes de la banque
+#: (#457-r6 / #468-r6) ; il ne les isole PAS du CONTENU de l'arbre.
+#: Cout ISOLE mesure le 2026-08-07 : 81,7 s (38 tests, sous-process + un worktree).
+DECLENCHEUR = {
+    "chemins": ("*", "**"),
+    "build": True,
+    "toujours": True,
+    "raison": "Son arbre << isole >> est un worktree de HEAD, et le test exige que `probe_431` y "
+              "soit VERT : tout fichier versionne peut donc le faire basculer. Il enumere en "
+              "outre `data/symbols/` et confronte `build_pin` au binaire installe.",
+}
+
+
 def _sha(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 

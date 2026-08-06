@@ -24,6 +24,26 @@ import pytest
 
 import probe_462_live_tests_status as P
 
+#: Ce qui doit changer pour que cette contre-epreuve puisse changer d'avis.
+#:
+#: PORTEE 4 PURE -- la plus etroite du groupe C, et la seule des trois contre-epreuves nommees
+#: qui le soit vraiment. Verifie fichier par fichier : aucun test n'ouvre le depot. Le depot est
+#: FABRIQUE (`tmp_path_factory`), `probe_462.repo_root` est SUBSTITUE par `monkeypatch`, et les
+#: ~75 sous-process `git` ne parlent qu'a cet arbre jetable. Son verdict ne depend donc que de
+#: {la source de `probe_462`, la sienne} -- plus le harnais pytest qui la collecte.
+#: Cout ISOLE mesure le 2026-08-07 : 73,9 s (25 tests), pour un declencheur de DEUX fichiers.
+#: C'est le meilleur rapport du lot, et il n'etait exploite par rien.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/probe_462_live_tests_status.py",
+                "scripts/python/tests/test_465_ledger_validite_offline.py",
+                "scripts/python/tests/conftest.py", "scripts/python/pytest.ini"),
+    "build": False,
+    "toujours": False,
+    "raison": "Elle eprouve `verdict_effectif` / `_verdict` de `probe_462` sur un depot git "
+              "JETABLE avec `repo_root` substitue : rien du contenu du depot reel n'entre dans "
+              "son verdict.",
+}
+
 _CIBLE = "tests/engine/runner/test_x_live.py"
 
 #: Tous les verdicts que `_verdict` peut produire, plus ceux que le ledger peut porter.
