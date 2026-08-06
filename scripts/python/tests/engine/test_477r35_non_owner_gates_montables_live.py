@@ -1,4 +1,4 @@
-"""GARDE #477-r37 -- trois `*NonOwnerPlaybook` de plus, et le `<slot 4>` qui n'est PAS une constante
+"""GARDE #477-r35 -- trois `*NonOwnerPlaybook` de plus, et le `<slot 4>` qui n'est PAS une constante
 de famille.
 
 CE QUE CETTE GARDE PROTEGE, et pourquoi ce n'est pas un detail :
@@ -77,7 +77,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-import probe_477r37_non_owner_gates_montables as P     # noqa: E402
+import probe_477r35_non_owner_gates_montables as P     # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[4]
 MAX_STEPS = 40
@@ -101,7 +101,7 @@ def r37_case(request, rpc, build_runner):
     INJECTE) : un seul foyer, deux consommateurs."""
     board, seed, montage = request.param
     tag = uuid.uuid4().hex[:8]
-    seed_bc = ROOT / "logs" / "runners" / ("test477r37-seedbc-%s.json" % tag)
+    seed_bc = ROOT / "logs" / "runners" / ("test477r35-seedbc-%s.json" % tag)
     P._seed_bc_montage(seed_bc, montage)
     extra = P.build_extra(board, montage)
     extra[1] = str(seed_bc)
@@ -138,7 +138,7 @@ def test_le_slot4_est_une_donnee_PAR_CLASSE_et_le_port_porte_la_MEME():
     assert P.step0b(P._build_hash(), verbeux=False) == 0, (
         "le `<slot 4>` re-derive du binaire ne concorde plus avec `SLOT4_ATTENDU` ou avec le port. "
         "Un ecart ici ne leve RIEN a l'execution : il fait ECARTER (ou GARDER) des porteurs en "
-        "silence -- c'est exactement le bug que #477-r37 a trouve")
+        "silence -- c'est exactement le bug que #477-r35 a trouve")
 
 
 def test_le_recensement_et_les_cles_sont_RE_DERIVES():
@@ -259,7 +259,7 @@ def test_HAYWIRE_le_gate_HasUnitId_et_les_DEUX_cles_sont_exerces_OFFLINE():
 
     assert _terme(HM, T, owner, lc(une_mine), wt, is_friend=True) == pytest.approx(wa)
     assert _terme(HM, T, owner, lc(une_mine), wt, is_friend=False) == pytest.approx(we), (
-        "la branche ENNEMI rend 0 : c'est l'etat du port AVANT #477-r37, et il coutait -30 par "
+        "la branche ENNEMI rend 0 : c'est l'etat du port AVANT #477-r35, et il coutait -30 par "
         "tuile minee cote natif")
     assert _terme(HM, T, owner, lc("genesSmnDecoy"), wt) == 0, (
         "un steppable qui n'est PAS la mine arme le terme : `HasUnitId` n'est pas lu")
@@ -273,7 +273,7 @@ def test_HAYWIRE_le_gate_HasUnitId_et_les_DEUX_cles_sont_exerces_OFFLINE():
 def test_le_DISPATCHER_lit_le_slot4_du_PLAYBOOK_et_pas_de_la_FAMILLE():
     """Le pre-gate `playbook.<slot 4> || IsFriend(sujet, owner)`, exerce sur les DEUX cas.
 
-    C'est le foyer que #477-r37 a corrige : il ecartait tous les porteurs ennemis d'un bloc. Deux
+    C'est le foyer que #477-r35 a corrige : il ecartait tous les porteurs ennemis d'un bloc. Deux
     assertions symetriques -- un porteur ENNEMI de 1531 DOIT etre yielde (slot 4 vrai), un porteur
     ENNEMI de 1526 NE DOIT PAS l'etre (slot 4 faux). Les deux sur le MEME dispatcher."""
     from engine import weights as W

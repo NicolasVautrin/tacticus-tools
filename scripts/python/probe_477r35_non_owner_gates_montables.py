@@ -1,12 +1,12 @@
-"""#477-r37 -- les trois faces MOVE `*NonOwnerPlaybook` dont le GATE est MONTABLE.
+"""#477-r35 -- les trois faces MOVE `*NonOwnerPlaybook` dont le GATE est MONTABLE.
 
-    python probe_477r37_non_owner_gates_montables.py --offline-only
-    python probe_477r37_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage purge
-    python probe_477r37_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage purge-gate
-    python probe_477r37_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage mawclaws
-    python probe_477r37_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage mawclaws-gate
-    python probe_477r37_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage haywire
-    python probe_477r37_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage haywire-gate
+    python probe_477r35_non_owner_gates_montables.py --offline-only
+    python probe_477r35_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage purge
+    python probe_477r35_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage purge-gate
+    python probe_477r35_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage mawclaws
+    python probe_477r35_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage mawclaws-gate
+    python probe_477r35_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage haywire
+    python probe_477r35_non_owner_gates_montables.py --board MC1_67 --seed 777 --montage haywire-gate
 
 #477-r33 a laisse **8** faces MOVE non portees. Elles ne se distinguent PAS par leur difficulte de
 RE -- les huit corps se lisent -- mais par la MONTABILITE de leur gate. Ce cas porte les trois dont
@@ -370,7 +370,7 @@ MUTANT_SEPARATEUR = {"purge": "CAMP-DEUX", "purge-gate": "SANS-GATE",
 def _layout(board: str) -> dict:
     lay = LAYOUTS_CAMP.get(board)
     if lay is None:
-        raise SystemExit("[477-r37] aucune geometrie `camp` pour le board %r (connus : %s)"
+        raise SystemExit("[477-r35] aucune geometrie `camp` pour le board %r (connus : %s)"
                          % (board, ", ".join(sorted(LAYOUTS_CAMP))))
     return lay
 
@@ -881,7 +881,7 @@ def main() -> int:
     tmp = None
     if rid is None:
         state = Path(a.state_file) if a.state_file else \
-            (ROOT / "logs" / ("477r37-%s.json" % uuid.uuid4().hex[:8]))
+            (ROOT / "logs" / ("477r35-%s.json" % uuid.uuid4().hex[:8]))
         seed_bc = _seed_bc_montage(state.with_suffix(".bc.json"), a.montage)
         print("\n[1] montage %r / board %s / seed %s" % (a.montage, a.board, a.seed))
         rid = _build(a.seed, a.board, a.montage, seed_bc, state)

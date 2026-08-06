@@ -323,7 +323,7 @@ def test_branch_table_of_the_steppable_occupant():
     """`_steppable_occupant` = `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` + les lectures
     que la feuille 19 fait ensuite sur l'occupant.
 
-    ⚠ #477-r37 : le foyer a DEMENAGE dans `engine.battle_query.get_steppable_unit` (un second
+    ⚠ #477-r35 : le foyer a DEMENAGE dans `engine.battle_query.get_steppable_unit` (un second
     consommateur est apparu, `HaywireMineNonOwnerPlaybook`, qui ne peut pas importer `tile`) et rend
     desormais une cle de PLUS -- `vis`, l'id d'unite de l'occupant, l'argument d'
     `IdunBattle.Entities.UnitExtensions$$HasUnitId`. L'ajout est ADDITIF : les quatre lectures de la

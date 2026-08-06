@@ -831,7 +831,7 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
                     # PRE-GATE `playbook.<slot 4> || IsFriend(sujet, owner)`. Le `<slot 4>` se lit
                     # SUR LE PLAYBOOK, jamais sur la famille : il vaut `true` pour
                     # `HaywireMineNonOwnerPlaybook` (corps `return 1`) et `false` pour toutes les
-                    # autres. Avant #477-r37 le dispatcher ecartait TOUS les porteurs ennemis d'un
+                    # autres. Avant #477-r35 le dispatcher ecartait TOUS les porteurs ennemis d'un
                     # bloc, avant meme de charger le playbook -- ce qui rendait structurellement
                     # inatteignable la branche ENNEMI de 1531. MESURE : -30 manquants sur la tuile
                     # minee du montage `haywire`.
@@ -1744,7 +1744,7 @@ def _attract_mechanicals_neighbor(pos, lc: dict) -> bool:
 
 
 #: `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` -- FOYER DEPLACE dans
-#: `engine.battle_query` par #477-r37, et re-exporte ici sous son ancien nom pour les appelants
+#: `engine.battle_query` par #477-r35, et re-exporte ici sous son ancien nom pour les appelants
 #: (`apply_tile_attributes` et la garde `test_steppable_decoy_tile_leaves_live`). Le deplacement
 #: n'est pas cosmetique : `engine.playbook.non_owner` en a besoin pour la face `1531 HaywireMine`,
 #: et il ne peut pas importer CE module (c'est `tile` qui importe `non_owner`, pas l'inverse). Une

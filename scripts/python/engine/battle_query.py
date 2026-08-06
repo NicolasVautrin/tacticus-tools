@@ -30,7 +30,7 @@ def get_steppable_unit(pos, lc: dict) -> "dict | None":
         `is_friend`/`is_enemy` sont DEUX booleens et non l'un la negation de l'autre par principe :
         le natif interroge des predicats DIFFERENTS selon la branche. Ici ils sont complementaires,
         comme le natif quand `case.unit != null` ;
-      * `vis` (#477-r37) est l'id d'unite de l'occupant, l'argument de
+      * `vis` (#477-r35) est l'id d'unite de l'occupant, l'argument de
         `IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, unitId, state)` que lit
         `HaywireMineNonOwnerPlaybook`. Ce champ ne coute rien aux deux feuilles historiques (elles
         ne le lisent pas) et il est le SEUL canal par lequel un playbook peut IDENTIFIER
@@ -39,7 +39,7 @@ def get_steppable_unit(pos, lc: dict) -> "dict | None":
     Le MOVER est traite a part : `_adjacent_units` l'EXCLUT de `friend_units` (self-exclu), or sur
     sa tuile d'ORIGINE c'est lui l'occupant -- `IsFriend(self, self)` est vrai (meme playerId).
 
-    ⚠ FOYER UNIQUE (#477-r37) : ce corps vivait dans `engine.utilities.tile._steppable_occupant` et
+    ⚠ FOYER UNIQUE (#477-r35) : ce corps vivait dans `engine.utilities.tile._steppable_occupant` et
     a ete DEPLACE ici parce qu'un second consommateur est apparu dans `engine.playbook.non_owner`,
     qui ne peut pas importer `tile` (c'est `tile` qui importe `non_owner`). Le dupliquer aurait
     donne deux lectures du meme natif libres de diverger ; `tile` le re-exporte sous son ancien nom

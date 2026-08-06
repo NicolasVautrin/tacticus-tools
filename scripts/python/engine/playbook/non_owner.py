@@ -119,7 +119,7 @@ class TriggeredAbilityNonOwnerPlaybook:
 
     #: `<slot 4>` de `ITriggeredAbilityNonOwnerPlaybook` -- le predicat SANS argument du pre-gate
     #: `playbook.<slot 4> || IsFriend(sujet, owner)` d'`IterateAbilities`. C'est une donnee PAR
-    #: CLASSE, jamais une constante de famille (#477-r37) : voir la docstring de tete du module.
+    #: CLASSE, jamais une constante de famille (#477-r35) : voir la docstring de tete du module.
     SLOT_4 = False
 
     def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
@@ -1041,9 +1041,9 @@ class HaywireMineNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
 # `1475 SupaCyborkBody` -- laquelle n'a AUCUN playbook non-owner. RE-DERIVER, jamais recopier :
 # `probe_477r33_non_owner_registry_gaps.py --offline-only` rend le tableau complet.
 # Au registre ci-dessous : **18** faces MOVE (3 de #433-r4-r3 + 9 d'#433-r4-r3-r1 + 3 de #477-r33
-# + 3 de #477-r37). Il reste **5** faces MOVE non portees + `RedemptionOfTheRisen`, PORTEE mais
+# + 3 de #477-r35). Il reste **5** faces MOVE non portees + `RedemptionOfTheRisen`, PORTEE mais
 # deliberement HORS registre (zero porteur), toutes des derivees DIRECTES.
-# Ces 5 restantes, et POURQUOI elles restent (residu #477-r37-r1) :
+# Ces 5 restantes, et POURQUOI elles restent (residu #477-r35-r1) :
 #   `1064 FirstAmongTraitors`  -- porteur `blackAbaddon` AU POOL, mais gate `HasTrait(mover, Chaos)`
 #                                 et 0 unite sur 1083 porte ce trait au gameconfig : terme INERTE ;
 #   `1451`, `1496`, `1508`     -- gates sur la RARETE du mover (`HasRarity(u, Mythic)`), et le `ctx`
@@ -1103,7 +1103,7 @@ NON_OWNER_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.PropheticSentinel): PropheticSentinelNonOwnerPlaybook(),             # 1543
     int(TriggeredAbilityType.IconOfObstinacy): IconOfObstinacyNonOwnerPlaybook(),                 # 1552
     int(TriggeredAbilityType.MyWillBeDoneOverlord): MyWillBeDoneOverlordNonOwnerPlaybook(),       # 1556
-    # #477-r37 -- trois derivees DIRECTES de plus, choisies par leur ATTEIGNABILITE, chacune par
+    # #477-r35 -- trois derivees DIRECTES de plus, choisies par leur ATTEIGNABILITE, chacune par
     # une voie de montage DIFFERENTE (aucun port speculatif) : `1526` greffe son passif npc-only sur
     # une unite du pool et amene un mover Votann par injection catalogue ; `1469` pose sa relique sur
     # un porteur du pool et ACCORDE le trait `Summon` au mover ; `1531` amene sa mine

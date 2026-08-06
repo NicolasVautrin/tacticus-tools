@@ -2862,25 +2862,45 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `probe_477r33_non_owner_registry_gaps.py`, `test_477r33_non_owner_playbooks_live.py`.
   Residu : **#477-r35**. cf. `docs/rl/case-477r33-non-owner-manquants.md`.
 
-- **#477-r35 : 8 faces MOVE `*NonOwnerPlaybook` restent non portees.** `[opus]`
-  `1064 FirstAmongTraitors` (porteur `blackAbaddon` AU POOL en passif, mais gate `HasTrait(Chaos)`
-  et **0 unite sur 1083** porte ce trait au gameconfig), `1451 WisdomOfTheAncients`,
-  `1469 MawClawsOfThyrax`, `1478 SabreOfSacrifice` (corps DSL `IsAffectedSummon`),
-  `1496 CabalOfSorcerers`, `1508 MastersOfManoeuvre`, `1526 PurgeResponse` (aucun mover
-  `LeaguesOfVotann` au pool), `1531 HaywireMine`. **Aucune n'est armee sans montage** -- le
-  decompte des confonds est a 1, et celui-la est inerte.
-  DEUX VERROUS a lever d'abord, tous deux nommes : (a) le `ctx` des feuilles de tuile ne porte
-  **aucun canal `rarity`**, dont `1451` / `1496` / `1508` dependent (`HasRarity(u, 5)` =
-  `idun.meta.Rarity.Mythic`) ; (b) le `<slot 4>` de `HaywireMineNonOwnerPlaybook` doit etre RELU
-  sur CETTE classe -- son corps branche `IsFriend(case.unit, owner)` vers DEUX cles distinctes
-  (`HaywireMine_FriendlyAvoidMine` = **-50**, `HaywireMine_EnemyAvoidMine` = **-30**), or si le slot
-  valait `false` ici comme sur les 3 classes lues par #433-r4-r3, la branche ENNEMI serait
-  INATTEIGNABLE et sa cle n'existerait pas. C'est le SEUL cas de la famille ou le corps rend le
-  slot observable.
-  Le recensement complet (poids BC resolus au litteral, gate, porteurs, voie d'atteignabilite) est
-  rendu par `python scripts/python/probe_477r33_non_owner_registry_gaps.py --offline-only` -- le
-  RE-DERIVER, ne pas recopier cette ligne.
-  cf. `docs/rl/case-477r33-non-owner-manquants.md` sec. 3 et 8.
+- ~~**#477-r35**~~ : **LIVRE (2026-08-06) -- le `<slot 4>` n'est pas une constante de FAMILLE, et
+  le dispatcher en avait fait une.** #433-r4-r3 l'avait lu `false` sur TROIS classes ; le port
+  ecartait depuis TOUS les porteurs ennemis d'un bloc, avant meme de charger le playbook. Or
+  `HaywireMineNonOwnerPlaybook` vaut **`true`** (corps trivial `UnityEngine.U2D.IK.Solver2D$$
+  DoValidate` = `return 1`, la ou les deux classes qui surchargent en `false` portent
+  `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId` = `return 0`). **Mesure** : tuile
+  minee du montage `haywire`, `X_nat` **-130** pour un port a **-100** -- il manquait exactement
+  `HaywireMine_EnemyAvoidMine` (**-30**).
+  ⚠ **Le premier critere de lecture rendait VERT** : il postulait que le bloc `methodPointers`
+  COMMENCE au `.ctor`, et les SIX classes relues le satisfaisaient. Le discriminant est l'entree
+  qui **PRECEDE** le `.ctor`. C'est la MESURE LIVE qui a renverse un verdict offline deja commite.
+  ⚠ Le `d__5` de la state machine ne signalait PAS la methode en plus (compteur du compilateur).
+  PORTES : `1526 PurgeResponse` (20) et `1531 HaywireMine` (-50 / -30) **CONFRONTES LIVE** ;
+  `1469 MawClawsOfThyrax` (5) porte + gate exerce OFFLINE -- **verrou STRUCTUREL mesure** :
+  `UnitExtensions$$IsAutomatic` = `HasTrait(Summon) || HasTrait(Object)` sans exemption, donc tout
+  mover franchissant son gate est joue par `PlayAutomaticUnitsOperation` au turn-start et n'entre
+  JAMAIS dans la trajectoire d'`aiStepDryRun` (trait accorde, 25 pas, **0 activation**).
+  Registre **15 -> 18**. 3 montages (dont 1 controle de gate), 0 desaccord sur 7 + 8 + 10 tuiles ;
+  `SLOT4-OFF` mord 1 tuile (le bug chiffre), `ABSENT` 1 / 0 / 1. Mirror **neuf**
+  `UnitTeamSelectionType` (3e argument d'`AreFriends`, slot `0x92`), inscrit a `probe_313` dans le
+  meme commit. Foyer `GetSteppableUnit` DEPLACE dans `engine.battle_query` (+ champ `vis`).
+  165 verts (18 + 64 + 83, aucune regression).
+  Residu : **#477-r37**. cf. `docs/rl/case-477r35-slot4-par-classe.md`.
+
+- **#477-r37 : les 5 faces MOVE restantes, le regime AUTOMATIQUE, et le `<slot 4>` des 22 AUTRES
+  classes.** `[opus]` Trois volets independants, du moins au plus proche du gisement ouvert :
+  (a) **5 faces** -- `1064 FirstAmongTraitors` (gate `HasTrait(Chaos)`, **0 unite sur 1083** :
+  terme inerte, NON CONFRONTABLE et c'est un resultat) ; `1451` / `1496` / `1508` (gates sur la
+  **rarete** du mover, `HasRarity(u, Mythic)` -- **aucun canal `rarity` dans le `ctx`**, verrou
+  pre-existant, une tranche a soi seule) ; `1478 SabreOfSacrifice` (gate = selecteur DSL
+  `SabreOfSacrificeAbility$$IsAffectedSummon`, invoque par vtable sur une struct de 0x128 octets) ;
+  (b) **le regime AUTOMATIQUE** (`IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute`) --
+  c'est le SEUL regime ou la face `1469` pese, et `aiStepDryRun` ne le marche pas. Sans lui, tout
+  gate en `HasTrait(mover, Summon)` restera exerce offline seulement ;
+  (c) **le `<slot 4>` des 22 autres classes du registre n'a PAS ete relu** -- #477-r35 n'en a lu
+  que 6. Rien ne dit qu'une autre ne vaut pas `true`, et c'est exactement l'erreur que #477-r35
+  vient de corriger, transposee d'un cran. Le lecteur existe deja
+  (`probe_477r35_non_owner_gates_montables.py`, etape 0b) : l'etendre aux 28 concrets est mecanique.
+  cf. `docs/rl/case-477r35-slot4-par-classe.md` sec. 8.
 
 - ~~**#477-r30**~~ : **LIVRE (2026-08-06) -- l'appariement slot<->nom passe de la LIGNE a une
   FENETRE de 3 lignes, et y trouve 8 citations FAUSSES de plus.** La taille est MESUREE, pas

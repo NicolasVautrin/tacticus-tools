@@ -122,7 +122,7 @@ REGISTRE: list[Mirror] = [
            "IdunBattle.Entities.Enum.UnitTrait"),
     Mirror("UnitFaction", "engine/entities/unit_faction.py",
            "IdunBattle.Entities.Enum.UnitFaction"),
-    # #477-r37 -- selecteur d'equipe des surcharges a 3 args d'`AreFriends`/`IsFriend`. Inscrit
+    # #477-r35 -- selecteur d'equipe des surcharges a 3 args d'`AreFriends`/`IsFriend`. Inscrit
     # DANS LE MEME COMMIT que le mirror, comme l'exige le cliquet : un mirror neuf non apparie est
     # invisible de la bijection, et c'est par ce trou que quatre mirrors sont deja passes.
     Mirror("UnitTeamSelectionType", "engine/entities/unit_team_selection_type.py",
