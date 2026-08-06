@@ -82,8 +82,17 @@ WARMUP_ENDTURNS = 6                     # purge `initialCooldownTurns` de 1142 (
 #: Le 2e argument du call-site (`<slot 0x1b>(caster, 2)`) -- c'est lui qui NOMME le bit.
 TURNS_ARG = 2
 
-#: Les trois bras. `None` = la cle est ABSENTE du dictionnaire (le `Nullable` vide du natif).
+#: Les trois bras STATIQUES. `None` = la cle est ABSENTE du dictionnaire (`Nullable` vide natif).
 BRAS = (("temoin", None), ("plafond1", 1), ("plafond20", 20))
+
+#: 4e bras, DYNAMIQUE -- il separe la formule native d'un modele plausible mais FAUX.
+#: Les trois bras ci-dessus sont TOUS compatibles avec `turns <= limit` (sans le terme `- ended`) :
+#: `2 <= 1` faux, `2 <= 20` vrai, plafond absent -> vrai. Un port qui aurait oublie
+#: `GetAmountOfTurnsEndedByPlayer` y serait passe. Le bras `bascule` pose `limit = 3` et mesure
+#: `casterReason` APRES CHAQUE `endturn` : le refus doit APPARAITRE quand `ended >= limit - 2 = 1`,
+#: et le RANG de la bascule est alors une MESURE indirecte du compteur `TurnComponent+0x40`.
+BASCULE_ROUNDS = 3
+BASCULE_ENDTURNS = 8
 
 _seq = itertools.count()
 
@@ -245,6 +254,50 @@ def _run_bras(sid, label, rounds, seed, board):
             print("[cleanup] dispose KO: %s" % e)
 
 
+# --------------------------------------------------------------------------- bras DYNAMIQUE
+
+def _run_bascule(sid, seed, board):
+    """`MainPlayerRoundLimitation = 3` + un `casterReason` APRES CHAQUE `endturn`.
+
+    Le refus doit apparaitre quand `ended >= limit - TURNS_ARG = 1`, et JAMAIS revenir a `0`
+    ensuite (`ended` est monotone croissant). C'est ce qui etablit que la formule porte bien le
+    terme `- GetAmountOfTurnsEndedByPlayer(...)` : sans lui, `2 <= 3` serait vrai a jamais."""
+    seed_bc = _seed_bc(BASCULE_ROUNDS)
+    rid, state_file = _build(sid, seed, board, seed_bc)
+    suite = []
+    try:
+        for step in range(BASCULE_ENDTURNS + 1):
+            d = _dv(sid, rid)
+            mow = _mow_by_vis(d, BATTERY)
+            if mow is None:
+                break
+            mid = int(mow["casterId"])
+            ab = next((a for a in (mow.get("abilities") or [])
+                       if a.get("id") == MALLEUS_ROCKET_LAUNCHER), None)
+            usable = bool((ab or {}).get("usable")) and not ((ab or {}).get("cooldown") or 0)
+            code, reasons, _st, err = _native_caster(sid, rid, mid, MALLEUS_ROCKET_LAUNCHER)
+            suite.append({"step": step, "usable": usable, "nat": code,
+                          "reasons": reasons, "err": err})
+            print("    [bascule step=%d] usable=%s casterReason=%s %s"
+                  % (step, usable, "-" if code is None else hex(code),
+                     ",".join(reasons) or "(valide)"))
+            if step == BASCULE_ENDTURNS:
+                break
+            r = _act(sid, rid, {"kind": "endturn"}, 60)
+            if isinstance(r, dict) and r.get("error"):
+                print("    [bascule] endturn refuse (%s) -- arret" % r.get("error"))
+                break
+        return suite
+    finally:
+        try:
+            _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=30)
+            state_file.unlink(missing_ok=True)
+            seed_bc.unlink(missing_ok=True)
+            print("[cleanup] runner %d dispose (bras bascule)" % rid)
+        except Exception as e:                                       # noqa: BLE001
+            print("[cleanup] dispose KO: %s" % e)
+
+
 # --------------------------------------------------------------------------- main
 
 def main() -> int:
@@ -303,7 +356,47 @@ def main() -> int:
               "discrimine rien." % len(res))
         return 1
 
-    ok = True
+    # ---------------------------------------------------------------- 4e bras, DYNAMIQUE
+    print("\n--- BRAS bascule (MainPlayerRoundLimitation = %d, un casterReason par endturn) ---"
+          % BASCULE_ROUNDS)
+    suite = _run_bascule(sid, a.seed, a.board)
+    refus = int(TR.CasterHas2TurnsLeft)
+    # ⚠ Les pas COURT-CIRCUITES sont ECARTES, et pour une raison NOMMEE, pas pour faire passer le
+    # critere : tant que `CanCurrentlyBeUsed` est faux (`initialCooldownTurns` de 1142 = 1),
+    # `AttackQuery$$GetInvalidCasterReason` rend `broken(ValidRequest)` AVANT la cascade -- la regle
+    # n'a PAS ete evaluee, donc ce pas ne dit rien d'elle. Ils sont COMPTES et affiches.
+    ecartes = [s["step"] for s in suite if s["nat"] == int(TR.ValidRequest)]
+    evalues = [s for s in suite if s["nat"] is not None and s["nat"] != int(TR.ValidRequest)]
+    codes = [s["nat"] for s in evalues]
+    # Le refus doit APPARAITRE (il n'etait pas la au 1er pas EVALUE) et ne plus DISPARAITRE.
+    a_bascule = bool(codes) and codes[0] == 0 and refus in codes
+    monotone = True
+    vu_refus = False
+    for c in codes:
+        if c == refus:
+            vu_refus = True
+        elif vu_refus:
+            monotone = False
+    rang = next((s["step"] for s in evalues if s["nat"] == refus), None)
+    print("  pas ECARTES (court-circuit `broken(ValidRequest)`, regle NON evaluee) : %s" % ecartes)
+    print("  suite des casterReason EVALUES : %s" % [hex(c) for c in codes])
+    print("  bascule 0x0 -> CasterHas2TurnsLeft au pas %s ; monotone : %s"
+          % (rang, monotone))
+    if rang is not None:
+        # `refus <=> turns > limit - ended <=> ended > limit - turns <=> ended >= limit-turns+1`.
+        # Le rang donne donc une MESURE indirecte du compteur natif `TurnComponent+0x40` : au PAS
+        # DE BASCULE (le premier refus), `ended` vaut exactement `limit - turns + 1`, soit le
+        # nombre de tours que `GetPlayerTurnOrder()[0]` a termines. C'est le seul canal par lequel
+        # ce compteur soit observable a ce jour (`decisionView.turnsEnded` en publie la SOMME).
+        print("  => au pas %d, `GetAmountOfTurnsEndedByPlayer(turnOrder[0])` vaut %d "
+              "(deduit de `ended >= limit - turns + 1`), pour %d `endturn` emis -- coherent avec "
+              "l'ALTERNANCE stricte des tours mesuree par #462-r4e-o-r2-r1-r1-r1."
+              % (rang, BASCULE_ROUNDS - TURNS_ARG + 1, rang))
+    print("  => le terme `- GetAmountOfTurnsEndedByPlayer(...)` est %s : sans lui, `2 <= %d` "
+          "resterait VRAI a tous les pas." % ("MESURE" if a_bascule else "NON MESURE",
+                                              BASCULE_ROUNDS))
+
+    ok = a_bascule and monotone
     for r in res:
         att = attendu[r["label"]]
         nat_ok = (r.get("nat") == att)
@@ -317,7 +410,7 @@ def main() -> int:
                  "OK" if port_ok else "MISMATCH",
                  r["port_leve"], "OK" if leve_ok else "MISMATCH"))
     print("[VERDICT] %s" % ("PASS" if ok else "FAIL"))
-    print("[RAW] " + json.dumps(res))
+    print("[RAW] " + json.dumps({"statiques": res, "bascule": suite}))
     return 0 if ok else 1
 
 
