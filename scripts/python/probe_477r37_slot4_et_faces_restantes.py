@@ -275,7 +275,8 @@ def runtime(call) -> tuple[dict, list]:
         if tete != OBJET4:
             # GARDE #218 : la vtable d'une classe NON INITIALISEE est vide, et un balayage qui
             # continue lit l'`Il2CppClass` VOISINE -- avec des `MethodInfo` parfaitement nommes.
-            refus.append((nom, "vtable NON INITIALISEE (tete=%s)" % ",".join(tete) or "vide"))
+            refus.append((nom, "vtable NON INITIALISEE (tete=%s)"
+                          % (",".join(x for x in tete if x) or "vide")))
             continue
         propre = []
         for s in slots:

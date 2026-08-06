@@ -238,6 +238,31 @@ offline seulement — devient confrontable sans le moindre capteur neuf.
   pas commenté ;
 * `test_477r37_slot4_et_faces_restantes_live.py` — 4 étages offline + 2 × 4 cas live (16 passed).
 
+## 8bis. Ce que le REBASE a trouvé, et qui n'est PAS de cette tranche
+
+Le re-jeu après rebase a fait rougir **`test_477r33_non_owner_playbooks_live.py`** sur son seul
+montage `norncrown` (6 failed / 35 passed) — il était à **41/41** juste avant. Trois mesures
+l'attribuent, dans cet ordre :
+
+1. **Le symptôme n'est PAS un désaccord.** Le probe s'arrête sur
+   `trajectoire native epuisee au pas 17 (stage Finished) apres 3 activation(s)` : la bataille se
+   **termine** avant qu'un pas discriminant soit atteint. `X_nat` vs `X_port` n'est jamais évalué.
+2. **La cause est `#419-r6`** (PR #745, mergée pendant la tranche) : `_EQUIP_ITEMS_PAR_DEFAUT`
+   bascule à `True`, donc `CritChance`/`CritDamage`/`BlockChance`/`BlockDamage` ne sont plus nuls et
+   les combats **finissent plus vite**. Re-joué sous le régime d'avant (`TACTICUS_BIS_ITEMS=0`), le
+   même montage rend **VERT — 0 désaccord sur 13 tuiles**, `CAMP-DEUX` 1, `RAYON-1` 7,
+   `PRE-GATE-OFF` 10, `ABSENT` 10.
+3. **TÉMOIN** : le même montage joué depuis un worktree détaché sur `origin/master` **PUR** échoue
+   **à l'identique** (mêmes pas 2 / 12 / 16, même `stage Finished` au pas 17). Ce rouge est donc
+   **PRÉ-EXISTANT à cette PR**, pas une régression qu'elle introduit.
+
+**Ce qu'il ne faut PAS faire à l'aveugle** : ajouter `--no-bis-items` au montage. Ça le rendrait
+vert en restaurant exactement le régime dégénéré (crit/block structurellement nuls) que #419-r6 a
+supprimé — un vert acheté en éteignant le canal. L'autre côté (rallonger la bataille : `--hp-*`
+plus haut, ou re-crafter la géométrie pour que le pas discriminant tombe plus tôt) coûte une
+re-mesure du montage. **L'arbitrage appartient à qui possède le régime de mesure de #477-r33** ;
+il est nommé, chiffré et laissé ouvert — résidu **#419-r6-r3**.
+
 ## 9. Ce qui n'est PAS couvert
 
 * **le `<slot 4>` de 15 des 28 classes n'est pas lisible au RUNTIME** (non initialisées dans la
@@ -262,3 +287,6 @@ offline seulement — devient confrontable sans le moindre capteur neuf.
   marcher `aiStepDryRun`. Débloquerait `1469 MawClawsOfThyrax`, exercé offline seulement.
 - **#477-r45 — `1478 SabreOfSacrifice`, en ARBRE DSL** (§6). Le vocabulaire existe ; manquent le
   canal `StaysOnTile` et le montage du contexte DSL du call-site.
+- **#419-r6-r3 — le montage `norncrown` de #477-r33 ne survit pas à la bascule des items** (§8bis).
+  Rouge sur `origin/master` PUR (témoin joué), vert sous `TACTICUS_BIS_ITEMS=0`. Les deux réponses
+  sont écrites avec leur coût ; aucune n'est prise ici.

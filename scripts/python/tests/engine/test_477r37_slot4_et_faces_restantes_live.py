@@ -311,7 +311,12 @@ def test_live_le_gate_coupe_vraiment_sur_le_montage_de_CONTROLE(r37_case):
     rows = _rows(r37_case)
     assert not any(r["gate"] for r in rows), (
         "le mover du montage de controle franchit `HasTrait(Chaos)` : le controle ne controle rien")
-    assert all(abs(r["x_port"]) < 1e-9 or True for r in rows)
+    # Le controle ne vaut que s'il y a QUELQUE CHOSE a couper : au moins une tuile doit avoir un
+    # porteur AMI en portee, sinon `SANS-GATE` serait inerte pour une raison de GEOMETRIE et non
+    # de gate -- un vert vide.
+    assert any(r["na"] > 0 for r in rows), (
+        "aucune tuile hookee n'a de porteur AMI en portee : le mutant `SANS-GATE` ne peut pas "
+        "mordre, et l'inertie mesuree n'accuse pas le gate mais la geometrie")
     mordu = P.divergences(rows)
     actifs = [m for m, n in mordu.items()
               if n and m not in ("SANS-GATE", "PORT")]

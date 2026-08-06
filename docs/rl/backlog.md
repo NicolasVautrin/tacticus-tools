@@ -2946,6 +2946,21 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   Residus : **#477-r43**, **#477-r44**, **#477-r45**.
   cf. `docs/rl/case-477r37-slot4-des-28-et-la-face-dite-inerte.md`.
 
+- **#419-r6-r3 : le montage `norncrown` de #477-r33 ne survit pas a la bascule des items.**
+  `[opus]` TROUVE au re-jeu apres rebase de #477-r37, ATTRIBUE par un TEMOIN : le meme montage
+  echoue **a l'identique sur `origin/master` PUR** (memes pas 2 / 12 / 16, meme
+  `trajectoire native epuisee au pas 17 (stage Finished)`), donc c'est un rouge PRE-EXISTANT, pas
+  une regression. Le symptome n'est PAS un desaccord : `X_nat` vs `X_port` n'est jamais evalue --
+  la bataille se TERMINE avant qu'un pas discriminant soit atteint, parce que
+  `_EQUIP_ITEMS_PAR_DEFAUT = True` (#419-r6) rend crit/block non nuls et raccourcit les combats.
+  Re-joue sous `TACTICUS_BIS_ITEMS=0` : **VERT, 0 desaccord sur 13 tuiles** (`CAMP-DEUX` 1,
+  `RAYON-1` 7, `PRE-GATE-OFF` 10, `ABSENT` 10).
+  ⚠ **NE PAS ajouter `--no-bis-items` a l'aveugle** : ce serait un vert achete en RESTAURANT le
+  regime degenere que #419-r6 a supprime. L'autre cote -- rallonger la bataille (`--hp-*`) ou
+  re-crafter la geometrie pour que le pas discriminant tombe plus tot -- coute une re-mesure du
+  montage. L'arbitrage appartient a qui possede le regime de mesure de #477-r33.
+  cf. `docs/rl/case-477r37-slot4-des-28-et-la-face-dite-inerte.md` sec. 8bis.
+
 - **#477-r43 : le canal `rarity`, et le piege du MEME OFFSET dans deux structures.** `[opus]`
   Trois faces MOVE l'attendent (`1451 WisdomOfTheAncients`, `1496 CabalOfSorcerers`,
   `1508 MastersOfManoeuvre`) ; leurs gates sont `HasRarity(u, Mythic)` =
