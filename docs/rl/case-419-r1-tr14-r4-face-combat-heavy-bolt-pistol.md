@@ -168,15 +168,29 @@ cesse, la ligne rougit.
 De même, `no_gate` est inerte partout où la gate est déjà vraie : il ne mord qu'à 2 hex. Les
 inerties attendues sont gardées **à l'envers** (on EXIGE l'inertie) plutôt que tues.
 
-### La garde a été vue ROUGE avant le fix
+### La garde a été vue ROUGE — par mutation du mécanisme LIVRÉ
 
-Mutation adversariale du mécanisme livré (`is_melee_attack -> False`, c'est-à-dire exactement le
-port d'avant la tranche), garde rejouée — message VERBATIM :
+`is_melee_attack -> False` posé **dans le port livré** (c'est-à-dire exactement l'état d'avant la
+tranche), garde rejouée sur le cran `npc_adj` : **3 failed, 1 passed**. Messages VERBATIM :
 
 ```
 [npc_adj] TERME porte +0 != TERME natif +299 (ecart -299 PV) -- la face COMBAT de HeavyBoltPistol
 ne reproduit pas l'execution native
+
+[npc_adj] le natif emet 3 coups [537, 524, 299] et le port en joue 2 (arme [537, 524] + bonus [])
+-- meme total de degats, la ventilation differe
+
+[npc_adj] contre-epreuves en desaccord : ['no_gate: a_mordu=True (attendu False), deplacement=+299',
+'gate_off: a_mordu=False (attendu True), deplacement=+0', 'no_dispatch: a_mordu=False (attendu
+True), deplacement=+0', 'amount_half: a_mordu=False (attendu True), deplacement=+0', 'hits_two:
+a_mordu=False (attendu True), deplacement=+0']
 ```
+
+Le **1 passed** est `test_terme_natif_est_celui_attendu` : l'étage qui arbitre le NATIF reste vert.
+C'est ce qui établit que la garde accuse le PORT et non le montage — une garde qui rougirait des
+deux côtés ne distinguerait pas les deux causes.
+
+Restauration → **13 passed** (les trois crans, sur l'arbre rebasé incluant #703 et #704).
 
 ## 6. Le port
 
@@ -213,6 +227,24 @@ substituée avec le `triggeredAbilityState`.
 `1083 in passives` : une unité qui porte `HeavyBoltPistol` **derrière** un autre passif substituant
 reçoit l'attaque normale de l'AUTRE, n'exécute donc pas `TemplarInitiateNormalAttackAbility`, et ne
 tire pas le coup de pistolet.
+
+### Non-régression, rejouée APRÈS rebase
+
+`master` a avancé pendant la tranche, et **#703 (`#419-r1-tr14-r1-r1`) touche l'attaque normale**
+elle-même (sélection d'arme gatée sur la portée depuis la tuile d'attaque). Tout a donc été rejoué
+sur l'arbre rebasé, pas sur celui de départ :
+
+| rejoué | résultat |
+|---|---|
+| `test_419r1tr14r4_heavy_bolt_pistol_live.py` (cette tranche) | **13 passed** |
+| `test_478_cleave_live.py` (le site JUMEAU dans `damage.py`) | **13 passed** |
+| `test_419r1tr14r1_heavy_bolt_pistol_real_carriers_live.py` (même ability, face DÉCISION) | **11 passed** |
+| `test_419r1tr14_heavy_bolt_pistol_live.py` (tranche mère) | **6 passed** |
+| `test_419r1tr14r5_normal_attack_dispatch_live.py` (le dispatch dont dépend le volet) | **6 passed** |
+| `test_419r1tr14r1r1_range_gate_generalisation_live.py` (#703, la gate de portée juste en amont) | **5 passed** |
+| `probe_477r15a_stream_conformance.py` (oracle : le volet ÉMET un coup de plus) | **VERT** — `C1_02` 204/204, `MC1_67` 316/316, registre à jour |
+| `probe_181_targeting_gaps.py` / `probe_120_pre_unit_ability_fork.py --step 0` | **0 manquante** / `litteral de ctor manquant: aucun` |
+| `probe_449r2_spread_inventory.py` | **VERT** (ce volet n'ouvre aucun call-site en mode `amount`) |
 
 ## 7. Registre `ABILITY_CLASSES` : sans objet
 
