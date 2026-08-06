@@ -2662,35 +2662,57 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   nommes, cliquet `probe_477r24_phase_attribution.py`.
   cf. `docs/rl/case-477r24-le-revive-na-pas-de-phase.md`.
 
-- **#477-r24-r1 : le mapping slot d'interface -> methode de `Core.Services.IOperationProcessor`
-  n'est pas derivable, il est reconstruit par recoupement -- et DEUX lectures se contredisent.**
-  `[opus]`
-  Les methodes d'une INTERFACE n'ont aucun corps, donc aucune ligne dans `frida/methods.tsv`
-  (indexee par adresse) : l'ordre des slots ne se lit nulle part hors metadata. #477-r24 a mesure
-  un decalage slot->classe **local** de 12 dans la zone 96-99, sur TROIS ancrages concordants
-  (`HealBehaviour$$Execute` slot 0x57 -> `HealUnit`, 6 args ; `<VerifyDeaths>b__0` slot 0x60 ->
-  `KillUnit`, 3 args ; slot 0x61 -> `DestroyMachine`, 2 args), et de **0** a la position 38
-  (`AddTraitBehaviour$$Execute` slot 0x26 -> `AddTrait`, 3 args). `case-477r20` affirme de son cote
-  `ContinueTurnPhase` au slot 0x16 pour la position 26 et `VerifyAutomaticTurnEnd` au slot 0x20
-  pour la position 134 : **incompatible** avec les trois ancrages ci-dessus. Une des deux lectures
-  est fausse, et rien ne dit laquelle.
-  CE QU'IL FAUDRAIT : dumper `Il2CppClass.interfaceOffsets` + la table de methodes de l'interface
-  (une passe Frida), ou balayer tous les call-sites par ARITE pour reconstruire l'ordre.
-  RETOURNEMENT : un dump qui rend l'ordre des slots -- les deux lectures deviennent verifiables
-  d'un `diff`. Aucune conclusion de #477-r24 n'en depend (le slot 99 = `ReviveUnit` est verrouille
-  par l'arite de ses voisins immediats : 110 = `RecordKill` 3 args, 112 = `ResurrectUnit` 6 args).
-  cf. `docs/rl/case-477r24-le-revive-na-pas-de-phase.md` sec. 3 et Residus.
+- ~~**#477-r24-r1**~~ : **LIVRE (2026-08-06) -- le mapping SE LIT, et les DEUX lectures qui se
+  contredisaient etaient JUSTES.**
+  `case-477r24r1-mapping-slot-interface.md`. Ce residu demandait « laquelle des deux est
+  fausse ? » : **aucune**. `#477-r24` (0x57 `HealUnit`, 0x60 `KillUnit`, 0x61 `DestroyMachine`,
+  99 `ReviveUnit`) est juste 4/4 ; `#477-r20` (0x16 `ContinueTurnPhase`, 0x20
+  `VerifyAutomaticTurnEnd`, 0x12 `StartMatch`) est juste 3/3 ; **les sept sont dans la meme
+  table**. Ce qui etait faux, c'est le PONT : un « decalage » entre le slot et une *position dans
+  la classe*, deux ordres que rien ne lie -- et cette position n'est meme pas definie
+  (`frida/methods.tsv` est indexee par ADRESSE, donc perd les surcharges a corps deduplique :
+  **149** lignes pour **150** entrees, l'ecart s'installant a l'index 87, au milieu de la zone
+  mesuree). **Un desaccord entre deux mesures justes accuse la GRANDEUR qui les relie** -- trois
+  tranches ont cherche quelle lecture retirer, il fallait retirer le pont.
+  DERIVE, pas reconstruit : le champ `slot` d'`Il2CppMethodDefinition` dans `global-metadata.dat`.
+  Le header (`version = 39`, layout inconnu) n'est PAS lu -- les tables sont localisees PAR
+  CONTENU (differences de `nameIndex`) et la localisation n'est retenue que si elle se VERIFIE
+  (nom + arite sur un prefixe >= 40). **150 slots** (0..149), table auto-delimitee par ses flags.
+  Confronte a **9** call-sites de `KillUnitOperation$$Execute` (9/9 arites concordantes) et aux
+  **43** attestations deja ecrites dans le depot (1 seule fausse, corrigee : `revive.py` citait
+  `slot 0x7e = MoveUnit`, c'est `SetUnitPosition`). Ghidra imprime le slot du revive en **DECIMAL**
+  (`99`), d'ou son invisibilite a toute recherche sur `0x63`.
+  Livre : `il2cpp_metadata.py`, `build_pin.global_metadata()` (tri-etat),
+  `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv` (entree VERSIONNEE),
+  `probe_477r24r1_slots_interface.py` (4 etages, 4 mutants/4 mordent),
+  `test_477r24r1_slots_interface_offline.py` (22 verts). Residu : **#477-r25**.
 
-- **#477-r24-r2 : l'attribution du slot `0x55` de `<VerifyRemovedUnits>b__0` n'est pas reproduite.**
-  `[opus]`
-  `case-477r19` sec. 4 le lit comme `RemoveUnit(unit, removeEffects, keepActive)`. Avec le decalage
-  de 12 mesure par #477-r24, le slot 85 tomberait sur la position 97 (`RotateUnit`), qui n'a aucun
-  sens dans une phase de RETRAITS -- le decalage y est donc plus petit, sans que #477-r24 ait pu le
-  fixer. `DRAIN_MESURE[ProcessRemovals] = {RemoveUnit}` du cliquet reprend la lecture de #477-r19
-  telle quelle : si elle est fausse, le cliquet garde une table fausse (mais il ne rougirait a tort
-  que sur un site citant la VRAIE operation).
-  Meme dependance et meme parade que **#477-r24-r1**.
-  cf. `docs/rl/case-477r24-le-revive-na-pas-de-phase.md` sec. Residus.
+- ~~**#477-r24-r2**~~ : **LIVRE (2026-08-06) -- le slot `0x55` n'est AUCUNE des deux propositions.**
+  Ni `RemoveUnit` (lecture de `#477-r19` ; slot **6**, **3** arguments) ni `RotateUnit` (crainte de
+  `#477-r24` ; slot **0x86**) : c'est **`UnregisterEntityFromTriggers`**, 2 parametres -- exactement
+  ce que `<VerifyRemovedUnits>b__0` passe. `DRAIN_MESURE[ProcessRemovals]` corrige, `case-477r19`
+  corrige (sec. 1, 4 et 6).
+  **EFFET DE BORD : `#477-r19-r1` est DISSOUS** -- il postulait un contenu
+  (`Action=RemoveUnit` + `Unit_IsDying` + `Unit_WasOverkilled`) masque par quatre gardes, et
+  cherchait le montage qui le revelerait. Il n'y a pas de contenu :
+  `UnregisterEntityFromTriggers` n'emet aucune action de flux. Les **11 occurrences vides**
+  mesurees etaient JUSTES, et le port de l'enveloppe seule etait deja complet.
+  A noter : `case-227` decrivait la MEME lambda et avait laisse ce slot **non identifie** plutot
+  que devine -- ne pas nommer valait mieux que mal nommer.
+  cf. `docs/rl/case-477r24r1-mapping-slot-interface.md` sec. 4.
+
+- **#477-r25 : les slots des AUTRES interfaces ne sont gardes par rien.** `[opus]`
+  Le cliquet de #477-r24-r1 ne couvre que `Core.Services.IOperationProcessor`. Le depot cite
+  couramment `battleQuery.<slot 0x7f>`, `attackQuery.<slot 0x11>`, `matchState.<slot 0x31>`, des
+  slots d'effets et d'`IStreamDispatcher` : **5 684** lignes ecartees par l'etage 3, dont aucune
+  n'est confrontee a quoi que ce soit. Le mecanisme livre est GENERIQUE
+  (`il2cpp_metadata.interface_table` prend l'interface en parametre) ; il ne manque que
+  l'appariement `nom d'interface <-> recepteur ecrit au site`, qui n'est PAS mecanique
+  (`battleQuery` -> `IBattleQuery`, mais `aq`, `def`, `effectAction` demandent une lecture).
+  RETOURNEMENT : une seule citation fausse trouvee sur ces interfaces prouve que le gisement
+  merite le meme traitement -- et le taux mesure sur `IOperationProcessor` (1 fausse sur 43)
+  suggere qu'il y en a.
+  cf. `docs/rl/case-477r24r1-mapping-slot-interface.md` Residus.
 
 - **#477-r21-r1 : les formes `ChangeStats` / `ChangeAbility` du bloc 1 de `System_StartMatch`.**
   `[opus]`

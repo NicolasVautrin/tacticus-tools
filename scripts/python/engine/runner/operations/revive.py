@@ -150,7 +150,7 @@ def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
         ResetPreviousTileIfStillOwned(unit, feet)           > liberation des tuiles occupees
         ResetFeet(unit)                                    /
         newTiles = BattleQuery.<slot 0x8d>(pos)
-        processor.<slot 0x7e = MoveUnit>(unit, pos, false)  <- ECRITURE de la position
+        processor.<slot 0x7e = SetUnitPosition>(unit, pos, false)  <- ECRITURE de la position
         KillSteppableUnits(unit, newTiles)                  <- ce qui trainait sur la tuile est ecrase
         if (mainTile != null && pos.MainTile != null)                                   # <- #347
             RecordTilesMoved(unit, BattleQuery.GetDistance(mainTile, pos.MainTile), state)

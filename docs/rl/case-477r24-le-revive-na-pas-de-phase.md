@@ -64,8 +64,11 @@ if (*pcVar26 == '\0') {
 // puis, DANS LES DEUX BRANCHES : purge des 9 qwords +0xa8 .. +0xe8
 ```
 
-**Le slot `99` est `ReviveUnit`.** L'attribution est établie par recoupement fermé, comme celle du
-slot `0x12` = `StartMatch` de `case-477r20` § « LE SLOT `0x12` » :
+**Le slot `99` est `ReviveUnit`** — et Ghidra l'imprime en **décimal**, ce qui le rend invisible à
+toute recherche portant sur `0x63`. ✅ **CONFIRMÉ depuis, par lecture DIRECTE du champ `slot` du
+metadata IL2CPP** (`#477-r24-r1`, `case-477r24r1-mapping-slot-interface.md`) : slot 99 =
+`ReviveUnit(killed)`, 1 paramètre. Le recoupement ci-dessous reste exact ; il n'est simplement
+plus la seule voie.
 
 - l'appel passe **exactement un** argument (`killed`) — le helper d'invocation utilisé est celui à
   un argument, le même que pour `FUN_180003c00(4, DAT_183364c10, ..., killed)` ;
@@ -81,11 +84,25 @@ slot `0x12` = `StartMatch` de `case-477r20` § « LE SLOT `0x12` » :
 - il n'existe aucun autre lecteur du champ `+0xa8` avec cette garde, et la purge des 9 qwords qui
   suit consomme précisément la `ReviveData`.
 
-⚠ Le décalage slot↔classe n'est **pas** constant sur toute l'interface (il vaut 0 à la position 38 —
-`AddTraitBehaviour$$Execute` → slot `0x26` = `AddTrait`, 3 args — et 12 dans la zone 96-99). Il est
-donc mesuré **localement**, jamais extrapolé. `case-477r20` §  « LE SLOT `0x12` » signale le même
-piège, avec un couple (`ContinueTurnPhase` slot `0x16`) que cette tranche n'a pas pu reproduire :
-c'est le seul point du dossier resté **ouvert** (§ 6).
+⚠ **LE « DÉCALAGE SLOT↔CLASSE » N'EXISTE PAS — cette grandeur était une ILLUSION, et c'est
+`#477-r24-r1` qui l'a démontré.** Ce paragraphe disait le décalage « non constant, donc mesuré
+localement », et concluait que le couple `ContinueTurnPhase` / slot `0x16` de `case-477r20` était
+**incompatible** avec les trois ancrages ci-dessus. **Cette conclusion est FAUSSE : les deux
+lectures sont justes, et tiennent ensemble.** <!-- [slot-attribution:refute] -->
+
+Le slot d'interface est un rang dans la table de l'**interface** ; la « position » à laquelle on
+le comparait est celle d'une méthode dans le dump de la **classe**. Deux ordres différents, qu'aucune
+relation ne lie — le « décalage » n'était que leur soustraction, et il n'avait aucune raison d'être
+constant. Pire, la « position » n'est même pas bien définie : `frida/methods.tsv` est indexée par
+adresse, donc elle **perd les surcharges à corps dédupliqué** (mesuré : 149 lignes pour 150 entrées
+réelles, l'écart s'installant dès l'index 87). Comparer deux décalages locaux ne pouvait donc rien
+prouver, ni dans un sens ni dans l'autre.
+
+Ce qu'il fallait lire est le champ `slot` d'`Il2CppMethodDefinition`, dans `global-metadata.dat` :
+`0x26` = `AddTrait` (3 args), `0x57` = `HealUnit` (6), `0x60` = `KillUnit` (3), `0x61` =
+`DestroyMachine` (2), `0x63` = `ReviveUnit` (1) — **et** `0x16` = `ContinueTurnPhase` (3),
+`0x20` = `VerifyAutomaticTurnEnd` (2), `0x12` = `StartMatch` (0). Les huit sont dans la **même**
+table. Table complète : `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`.
 
 ⇒ **Le revive s'exécute synchroniquement à l'intérieur du kill**, donc dans la phase de l'action
 qui a provoqué ce kill : `PhaseType.ProcessDeaths` quand le kill vient du drain de `VerifyDeaths`,
@@ -156,20 +173,17 @@ jamais vertes en silence) ; les fichiers hors `scripts/python/**` et `docs/rl/**
 
 ## Résidus
 
-- **#477-r24-r1 — le mapping slot d'interface ↔ méthode de `Core.Services.IOperationProcessor`
-  n'est pas dérivable, il est reconstruit par recoupement.** Les méthodes d'une interface n'ont
-  aucun corps, donc aucune ligne dans `frida/methods.tsv` (indexée par adresse) ; l'ordre des slots
-  ne se lit nulle part hors metadata. Cette tranche a mesuré un décalage **local** de 12 dans la
-  zone 96-99 (trois ancrages concordants) et de **0** à la position 38 — il n'est donc **pas**
-  constant. `case-477r20` affirme par ailleurs `ContinueTurnPhase` au slot `0x16` pour la position
-  26 (décalage 4) et `VerifyAutomaticTurnEnd` au slot `0x20` pour la position 134 : **ces deux
-  couples sont incompatibles avec les trois ancrages de cette tranche**, et le point reste ouvert.
-  Ce qu'il faudrait : un dump du `interfaceOffsets` / de la table de méthodes de l'interface, ou un
-  balayage systématique des call-sites par arité. Aucune conclusion de cette tranche n'en dépend
-  (l'identification du slot 99 est verrouillée par l'arité de ses voisins immédiats).
-- **#477-r24-r2 — l'attribution du slot `0x55` de `<VerifyRemovedUnits>b__0` n'a pas pu être
-  reproduite.** `case-477r19` § 4 le lit comme `RemoveUnit(unit, removeEffects, keepActive)` ; avec
-  le décalage de 12 mesuré ici, le slot 85 tomberait sur la position 97 (`RotateUnit`), qui n'a
-  aucun sens dans une phase de retraits — donc le décalage y est **plus petit**, sans que cette
-  tranche ait pu le fixer. `DRAIN_MESURE[ProcessRemovals] = {RemoveUnit}` reprend donc la lecture de
-  `#477-r19` telle quelle. Même dépendance que `#477-r24-r1`, et même parade.
+- ~~**#477-r24-r1**~~ — **FERMÉ (2026-08-06) : le mapping EST dérivable, et les deux lectures
+  publiées étaient JUSTES toutes les deux.** Ce résidu affirmait que les couples de `case-477r20`
+  « sont incompatibles avec les trois ancrages de cette tranche » — **c'était faux**. Le champ
+  `slot` d'`Il2CppMethodDefinition` donne le mapping directement ; la « position dans la classe »
+  par laquelle on comparait n'indexe rien (cf. l'avertissement du § 3). Les **150** slots sont
+  désormais une entrée versionnée, et un cliquet interdit qu'une citation fausse revienne.
+  `case-477r24r1-mapping-slot-interface.md`.
+- ~~**#477-r24-r2**~~ — **FERMÉ (2026-08-06), et la réponse n'était AUCUNE des deux proposées.**
+  Le slot `0x55` n'est ni `RemoveUnit` (lecture de `#477-r19`, slot 6, **3** arguments) ni
+  `RotateUnit` (crainte de cette tranche, slot `0x86`) : c'est
+  **`UnregisterEntityFromTriggers`**, 2 paramètres — exactement ce que le site passe. La lecture
+  de `#477-r19` a été corrigée, ainsi que `DRAIN_MESURE[ProcessRemovals]`. Effet de bord :
+  `#477-r19-r1` (« le contenu de `System_ProcessRemovals` n'est pas porté ») est **dissous** — il
+  n'y a pas de contenu, cette opération n'émet rien.

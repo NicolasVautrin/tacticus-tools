@@ -98,15 +98,28 @@ ORDINAUX_ECRITS = {
 #:       appelle `KillUnit(killer, killed, options)` (slot a 3 arguments, apres
 #:       `KillUnitOperationOptions.ForDefault()`) ou `DestroyMachine(killer, killed)` (2 arguments).
 #:   ProcessRemovals (0xd) : la lambda `<VerifyRemovedUnits>b__0` copie la file dans une `List`,
-#:       la `Clear()`, ouvre `GroupType.System_ProcessRemovals` et retire chaque entite (#477-r19).
+#:       la `Clear()`, ouvre `GroupType.System_ProcessRemovals` puis, pour chaque entite non
+#:       nulle, appelle le slot `0x55` avec DEUX arguments -- `UnregisterEntityFromTriggers`.
+#:
+#: ⚠ CE N'EST PAS `RemoveUnit`, ET LA CORRECTION VIENT DE #477-r24-r1. `#477-r19` avait lu ce
+#: slot comme `RemoveUnit(unit, removeEffects, keepActive)` ; `#477-r24` avait soupconne l'erreur
+#: sans pouvoir la trancher, et propose `RotateUnit`. Les deux sont faux : le slot `0x55` de
+#: `Core.Services.IOperationProcessor` est `UnregisterEntityFromTriggers`, lu dans le champ
+#: `slot` du metadata IL2CPP (`data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`),
+#: et l'ARITE le confirme -- le site passe 2 arguments, `RemoveUnit` en prend 3 (slot 6),
+#: `RotateUnit` est au slot 0x86. Consequence : cette phase n'invoque AUCUNE operation qui
+#: emette du flux, ce qui explique le groupe TOUJOURS VIDE observe par `#477-r19` (son residu
+#: `-r1`) sans avoir besoin des gardes de tete de `RemoveUnitOperation`.
 #:
 #: ⚠ `ReviveUnit` N'EST DANS AUCUN ENSEMBLE, ET C'EST LE RESULTAT DE LA TRANCHE :
 #: `Core.Services.OperationProcessor$$ReviveUnit(killed)` n'a AUCUNE xref CODE, et son unique site
 #: d'invocation est la branche `else` de la garde `pendingRevive.HasValue`, DANS
 #: `IdunBattle.Operations.KillUnitOperation$$Execute`. Le revive n'a donc pas de phase du tout.
+#: Ce point est CONFIRME par #477-r24-r1 : le slot y est ecrit `99` en DECIMAL par Ghidra
+#: (d'ou son invisibilite a toute recherche sur `0x63`), et le slot 99 est bien `ReviveUnit`.
 DRAIN_MESURE = {
     int(PhaseType.ProcessDeaths): {"KillUnit", "DestroyMachine"},
-    int(PhaseType.ProcessRemovals): {"RemoveUnit"},
+    int(PhaseType.ProcessRemovals): {"UnregisterEntityFromTriggers"},
 }
 
 #: `RunPhase(` puis, en sautant un eventuel `this,`, l'argument de phase.
