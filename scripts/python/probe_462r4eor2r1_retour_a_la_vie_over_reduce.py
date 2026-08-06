@@ -304,17 +304,33 @@ def _uc(state, uid):
 
 
 def _effets(state, uid):
-    """Noms des effets portes par `uid` dans `state` (canal `EffectsState`, sinon le composant)."""
+    """Noms des effets ACTIFS portes par `uid` dans `state` (canal `EffectsState`, sinon le
+    composant).
+
+    ⚠ LES CONSOMMES/EXPIRES SONT EXCLUS, et c'est ce qui rend la comparaison JUSTE : `EffectsState`
+    garde l'instance apres le tick de duree (`consumed = True`) alors que `decisionView.effects`,
+    d'ou vient l'etat live compare, ne publie que les ACTIFS. Sans ce filtre le diagnostic accusait
+    un ecart la ou il n'y en avait pas -- le rejeu d'un cycle a 3 temps laisse derriere lui les DEUX
+    phases precedentes, consommees."""
     out = []
     es = getattr(state, "effects", None)
+    vivants = set()
     if es is not None:
         for e in (es.by_unit.get(uid) or []):
+            if getattr(e, "consumed", False) or getattr(e, "expired", False):
+                continue
             out.append(str(getattr(e, "effect_type", "?")))
+            n = getattr(e, "name", None)
+            if n:
+                vivants.add(str(n))
     e = state.get_entity(uid)
     from engine.runner.components import EffectsOwnedComponent
     c = e.get_component(EffectsOwnedComponent) if e is not None else None
     if c is not None:
-        out += [str(x) for x in (c.effects or [])]
+        # La liste de NOMS du composant n'est pas purgee au tick -> on ne garde que les noms dont
+        # une instance ACTIVE existe encore (ou, faute d'`EffectsState`, tout, comme avant).
+        noms = [str(x) for x in (c.effects or [])]
+        out += [n for n in noms if es is None or n in vivants]
     return sorted(set(out))
 
 
@@ -322,6 +338,48 @@ def _flags(state, uid):
     e = state.get_entity(uid)
     fl = e.get_component(UnitFlagsComponent) if e is not None else None
     return sorted(fl.flags) if fl is not None else []
+
+
+def _cycle_live(snap, uid):
+    """Le MEME etage, cote LIVE : la stat 0xc (`TURNS_STARTED`, `UnitComponent+0x58`) telle que
+    `combatSnapshot` la publie, pour `uid`. C'est le seul compteur de tour que le harnais expose --
+    le dict PAR JOUEUR `TurnComponent+0x38` que lit `PlayerTurnsStarted` n'est publie par AUCUN RPC
+    (cf. `snapshot._load_turn_counts`). Confronter les deux est ce qui separe « le seed est faux »
+    de « la derivation seed -> dict est fausse »."""
+    for u in (snap.get("units") or []):
+        if u.get("entityId") != uid:
+            continue
+        stats = u.get("stats") or {}
+        return {"turnsStarted": stats.get("turnsStarted"),
+                "turnsFinished": u.get("turnsFinished"),
+                "effects": sorted(u.get("effects") or []) or None}
+    return None
+
+
+def _cycle(state, uid):
+    """DECOMPOSITION PAR ETAGE du cycle de tour (#462-r4e-o-r2-r1-r1) -- jamais un scalaire fitte.
+    Rend, pour `uid` : le compteur PAR JOUEUR (`TurnComponent+0x38` = `State.turn_counts`, ce que lit
+    `PlayerTurnsStarted`), le joueur dont c'est le tour, le compteur PER-UNITE (stat 0xc, ce que lit
+    `UnitTurnsStarted`), et la DUREE RESTANTE de chaque effet porte (l'etage qui decide de
+    l'expiration au tick d'`EndTurnOperation$$RefreshEffects`)."""
+    from engine.runner.components import OwnerComponent, StatsComponent
+    from engine.entities.stats import StatType
+    e = state.get_entity(uid)
+    oc = e.get_component(OwnerComponent) if e is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    us = getattr(sc.ctx, "stats", None) if sc is not None else None
+    effs = []
+    es = getattr(state, "effects", None)
+    if es is not None:
+        for f in (es.by_unit.get(uid) or []):
+            effs.append((int(getattr(f, "effect_type", -1) or -1),
+                         getattr(f, "remaining", None), bool(getattr(f, "consumed", False))))
+    return {"player": (oc.player if oc is not None else None),
+            "turn_counts": dict(state.turn_counts),
+            "current_player": getattr(state, "current_player_id", None),
+            "unit_turns_started": (us.get_stat(int(StatType.TURNS_STARTED), 0)
+                                   if us is not None else None),
+            "effets_remaining": sorted(effs)}
 
 
 def _attaque_port(state, att, tgt):
@@ -374,6 +432,13 @@ MUTATION_CIBLE = {
     "revive-sans-purge":        ("revive",     "etat_egal"),   # le port d'AVANT #462-r4e-o-r2-r1
     "fillup-sans-purge":        ("resurrect",  "etat_egal"),   # la queue de FillUp retiree
     "resurrect-flags-partiels": ("resurrect",  "bout_en_bout"),  # rafale de flags d'avant
+    # --- #462-r4e-o-r2-r1-r1 : les TROIS foyers du rejeu MULTI-TOURS -----------------------
+    # Les trois portent sur l'ETAT que le rejeu construit -> INERTES par construction sur
+    # `etat_egal` (qui recharge l'etat live). Elles VISENT donc `bout_en_bout`, et le declarer
+    # est ce qui empeche leur « n'a pas mordu » d'accuser le probe.
+    "rotation-absente":         ("resurrect",  "bout_en_bout"),  # le port d'AVANT (pas de rotation)
+    "turn-counts-non-seede":    ("resurrect",  "bout_en_bout"),  # `turn_counts == {}` d'avant
+    "avance-de-tour-mimee":     ("resurrect",  "bout_en_bout"),  # le MIME de tour d'avant
 }
 
 
@@ -405,7 +470,75 @@ def _mutation(nom):
         _res.update_flags_on_resurrect = lambda fl: fl.remove(UnitFlagsComponent.REMOVED)
         return ("ResurrectUnitOperation ne retire plus que `Remove(0x1a)` "
                 "(rafale d'avant #462-r4e-o-r2-r1)")
+    if nom == "rotation-absente":
+        # FOYER : l'entree de registre de `SereneUnifierRotationAbility`. C'est LITTERALEMENT le
+        # port d'avant #462-r4e-o-r2-r1-r1 -- les effets portes, la rotation qui les pose absente.
+        from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
+        ABILITY_TRIGGERS.pop("SereneUnifier", None)
+        return ("`ABILITY_TRIGGERS['SereneUnifier']` retire : la rotation "
+                "`SereneUnifierAbility$$CreateBehaviour` n'est plus posee au turn-start")
+    if nom == "turn-counts-non-seede":
+        # FOYER : `snapshot._load_turn_counts`. Sans lui `State.turn_counts` reste VIDE sur tout
+        # etat recharge -> `PlayerTurnsStarted` rend 0 -> `0 % 3 == 0` -> la rotation pose la phase
+        # `StormOfFire` a CHAQUE rejeu, quel que soit le vrai round. C'est l'etat d'avant #462-...-r1.
+        from engine.runner import snapshot as _snap
+        _snap._load_turn_counts = lambda st: None
+        return ("`snapshot._load_turn_counts` neutralise : `turn_counts` reste VIDE, "
+                "donc `PlayerTurnsStarted` rend 0 et la phase du cycle est fausse")
+    if nom == "avance-de-tour-mimee":
+        # FOYER : le HARNAIS lui-meme (pas le code produit) -- `_avance_de_tour_portee` reprend le
+        # MIME d'avant (`turn_counts += 1` + le SEUL vecteur `On(0x16)`) au lieu des Operations.
+        # Declaree comme telle : c'est la contre-epreuve du choix de rejeu, pas d'un foyer moteur.
+        global _avance_de_tour_portee
+        _avance_de_tour_portee = _avance_de_tour_mimee
+        return ("le rejeu du changement de tour repasse par le MIME d'avant "
+                "(`turn_counts += 1` + `start_turn_triggers` seuls, sans EndTurn/StartTurn)")
     raise SystemExit(f"mutation inconnue: {nom}")
+
+
+def _avance_de_tour_portee(st, entrants):
+    """Rejoue, cote PORT, les changements de tour que le LIVE vient de faire -- par les OPERATIONS,
+    pas par un mime. Un tour rejoue = les TROIS operations natives, dans l'ordre du corps natif :
+
+        IdunBattle.Operations.EndTurnOperation$$Execute   (turnsFinished, boucliers, FinishUnitTurn,
+                                                           vecteur On(0x17), puis RefreshEffects)
+        IdunBattle.Operations.ChangeTurnOperation$$Execute  -> TurnComponent$$SetCurrentPlayer
+        IdunBattle.Operations.StartTurnOperation$$Execute  (turn_counts + turnsStarted per-unite +
+                                                           RemoveTurnFlags + events 0x12..0x16)
+
+    `entrants` = la suite des JOUEURS ENTRANTS, **MESUREE** sur le live (`decisionView.currentPlayer`
+    apres chaque `applyAction endturn`), et non calculee.
+
+    ⚠ POURQUOI MESUREE, ET CE QUE CA LAISSE OUVERT. `advance=True` ferait choisir le joueur entrant
+    par `turnflow.find_next_player`, mirror APPROXIMATIF d'`IdunBattle.Operations.
+    ChangeTurnOperation$$FindNextPlayer` : le port cycle sur les ids de joueur croissants, le natif
+    indexe un ORDRE DE TOUR rendu par le slot 0x18 de l'`IBattleQuery` et saute les joueurs que le
+    slot 0x1a ecarte. MESURE de ce montage (seed 777, MC1_67) : le natif fait jouer le joueur 3
+    **DEUX TOURS D'AFFILEE** puis le 4 puis le 3 (`turnsStarted` de l'attaquant 2 : 1 -> 2 -> 2 ->
+    3), la ou `find_next_player` alterne 4 puis 3. Ce n'est PAS l'objet de cette tranche -- qui porte
+    sur l'ETAT apres un changement de tour, pas sur QUI joue ensuite -- et le corriger demande de
+    resoudre deux slots de vtable d'interface. Prendre l'alternance de la MESURE isole exactement
+    l'un de l'autre ; le second est un residu NOMME."""
+    from engine.runner.operations.turnflow import EndTurnOperation, StartTurnOperation
+    for pj in entrants:
+        if pj is None:
+            continue
+        EndTurnOperation.execute(st, advance=False)
+        st.current_player_id = int(pj)            # `ChangeTurnOperation` -> `SetCurrentPlayer`
+        StartTurnOperation.execute(st, int(pj))
+
+
+def _avance_de_tour_mimee(st, entrants):
+    """LE MIME D'AVANT #462-r4e-o-r2-r1-r1, conserve UNIQUEMENT comme contre-epreuve : il bumpe le
+    compteur et tire le SEUL vecteur `On(0x16 = TurnStart_Actions)`, sautant le tick de duree des
+    effets, le bump PER-UNITE de `turnsStarted`, le reset des UnitFlags de tour et les quatre autres
+    events de la sequence native 0x12..0x16 -- dont `On(0x13)`, celui qu'ecoute la rotation."""
+    from engine.runner.operations.triggers import start_turn_triggers
+    for pj in entrants:
+        if pj is None:
+            continue
+        st.turn_counts[int(pj)] = st.turn_counts.get(int(pj), 0) + 1
+        start_turn_triggers(st, int(pj))
 
 
 # ----------------------------------------------------------------- volet (a)
@@ -480,6 +613,8 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
     """LIVE et PORT jouent la MEME sequence. `avance_de_tour` = le retour a la vie n'a lieu qu'au
     tour SUIVANT du joueur de la victime (volet RESURRECT) au lieu de la mort meme (volet REVIVE)."""
     att1, att2, vic = ids["att1"], ids["att2"], ids["victime"]
+    cycle_avant = cycle_apres = None
+    trace_live = None
 
     cap0 = _capture(rid, board)
     if cap0 is None:
@@ -508,29 +643,51 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
 
         # --- RETOUR A LA VIE ---------------------------------------------------------
         if avance_de_tour:
-            # LIVE : fin de mon tour -> le tour du joueur de la victime demarre -> `On(TurnStart)`.
-            _endturn(rid)
-            dv_adv = _dv(rid)
-            joueur_vic = (_unit(dv_adv, uid=vic) or {}).get("owner")
-            _endturn(rid)
-            _mon_tour(rid, mon_player)
-            # PORT : mirror de `StartTurnOperation` (cf. `test_ambush_migration_live`) -- le
-            # compteur de tours du joueur de la victime avance de 1, puis `On(TurnStart = 22)`.
-            from engine.runner.operations.triggers import start_turn_triggers
-            e_vic = st.get_entity(vic)
-            from engine.runner.components import OwnerComponent
-            oc = e_vic.get_component(OwnerComponent) if e_vic is not None else None
-            pj = oc.player if oc is not None else joueur_vic
-            st.turn_counts[pj] = st.turn_counts.get(pj, 0) + 1
-            start_turn_triggers(st, pj)
-            # ⚠ ET LE TURN-START DE **MON** JOUEUR, que le live vient lui aussi de jouer. L'oublier
-            # n'est pas neutre : mesure du 2026-08-06, `tauAunShi` porte `SereneUnifier`, qui pose
-            # au debut de SON tour un buff dependant du ROUND (round 3 = +582 Damage). Le rejeu
-            # bout-en-bout rendait alors `[214, ...]` la ou le natif rend `[1044, ...]` -- un
-            # facteur 4,2 qui n'a RIEN a voir avec l'accumulateur, et qui aurait ete lu comme une
-            # divergence de la purge si le verdict n'etait pas calcule A ETAT EGAL.
-            st.turn_counts[mon_player] = st.turn_counts.get(mon_player, 0) + 1
-            start_turn_triggers(st, mon_player)
+            # LIVE : fin de mon tour -> le tour du joueur de la victime demarre -> `On(TurnStart)` ;
+            # puis fin de SON tour -> le mien redemarre.
+            # ON MESURE L'ALTERNANCE, ON NE LA SUPPOSE PAS. `applyAction endturn` jusqu'a ce que le
+            # joueur de la VICTIME ait joue un tour (c'est la que `EnvAmbushResurrect` fire) ET que
+            # ce soit de nouveau le mien. Chaque etape enregistre le JOUEUR ENTRANT annonce par le
+            # natif -- c'est cette suite que le port rejouera.
+            #
+            # ⚠ ELLE N'EST PAS `[adverse, moi]`. Mesure de ce montage : le natif fait jouer mon
+            # joueur DEUX TOURS D'AFFILEE avant de passer la main (`turnsStarted` de l'attaquant 2 :
+            # 1 -> 2 -> 2 -> 3, `currentPlayer` 3 -> 3 -> 4 -> 3). Le supposer aurait fige un rejeu
+            # a DEUX tours la ou le natif en joue TROIS, et le cycle a 3 temps de `SereneUnifier`
+            # aurait rendu la phase 2 au lieu de la phase 0 -- un decalage qu'aucun scalaire ne
+            # trahit et que seule cette trace montre.
+            trace_live = []
+            entrants = []
+            vu_autre = False
+            for _i in range(8):
+                _endturn(rid)
+                _d = _dv(rid)
+                cur = (_d or {}).get("currentPlayer")
+                _s = _rpc("combatSnapshot", {"runnerId": rid}, 60)
+                entrants.append(cur)
+                trace_live.append({"endturn": _i + 1, "entrant": cur,
+                                   "att2": _cycle_live(_s if _ok(_s) else {}, att2)})
+                if cur is not None and int(cur) != int(mon_player):
+                    vu_autre = True
+                elif vu_autre:
+                    break
+            # PORT : les MEMES DEUX changements de tour, par l'OPERATION, pas par un mime.
+            #
+            # ⚠ C'ETAIT LE DEFAUT (#462-r4e-o-r2-r1-r1). Le rejeu incrementait `turn_counts` a la
+            # main et ne tirait QUE le vecteur `On(0x16 = TurnStart_Actions)` -- il sautait donc
+            # TOUT le reste de la sequence native `IdunBattle.Operations.EndTurnOperation$$Execute`
+            # -> `ChangeTurnOperation` -> `StartTurnOperation$$Execute` : le tick de duree des
+            # effets (`RefreshEffects`), le bump PER-UNITE de `turnsStarted@+0x58`, le reset des
+            # UnitFlags de tour, et les QUATRE autres events de la sequence 0x12..0x16 -- dont
+            # `On(0x13 = TurnStart_Other)`, celui que la rotation `SereneUnifierAbility` ecoute.
+            # Consequence MESUREE : `tauAunShi` gardait a vie le `SereneUnifierSenseOfStone` seede
+            # au round 1 la ou le natif passait a `SereneUnifierStormOfFire` (round 3, +582
+            # Damage), et le rejeu bout-en-bout rendait `[214, 281, 255, 227, 286]` contre
+            # `[1044, 886, 70, 0, 0]` cote natif -- un facteur 4,9 qui n'a RIEN a voir avec
+            # l'accumulateur.
+            cycle_avant = _cycle(st, att2)
+            _avance_de_tour_portee(st, entrants)
+            cycle_apres = _cycle(st, att2)
 
     cap1 = _capture(rid, board)
     if cap1 is None:
@@ -550,7 +707,11 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
             "vivante_live": vivante_live, "vivante_port": vivante_port,
             "hp_apres_retour_live": hp1b_live, "hp_apres_retour_port": hp_port,
             "over_reduce_port": over_port,
-            "flags_port": flags_port, "flags_live": flags_live}
+            "flags_port": flags_port, "flags_live": flags_live,
+            "cycle_avant": cycle_avant, "cycle_apres": cycle_apres,
+            "cycle_live_avant": _cycle_live(cap0["snap"], att2),
+            "cycle_live_apres": _cycle_live(cap1["snap"], att2),
+            "trace_live": trace_live}
     if not vivante_live:
         base.update({"ok": False, "raison": "PAS de retour a la vie LIVE (tirage 75 % ? gate ?)"})
         return base
@@ -640,8 +801,12 @@ def _verdict(volet, r, mutate):
       * opposer le port a `over_reduce = 0` devient une TAUTOLOGIE des que le port purge (les deux
         branches deviennent le meme calcul) -- le probe se serait tu apres le correctif.
 
-    Le VERDICT, lui, est l'accord `port == live`. Sous mutation il s'INVERSE (la mutation doit
-    MORDRE), et `a_mordu` est rapporte separement."""
+    Le VERDICT, lui, est l'accord `port == live`, et depuis #462-r4e-o-r2-r1-r1 il porte sur les
+    DEUX observables a la fois -- l'ETAT EGAL **et** le BOUT-EN-BOUT. L'ecart bout-en-bout etait
+    jusqu'ici seulement RAPPORTE (« hors perimetre de la purge ») : c'est ce qui a laisse vivre
+    `[214, 281, 255, 227, 286]` contre `[1044, 886, 70, 0, 0]` sans qu'aucun verdict ne rougisse.
+    Il est desormais EXIGE. Sous mutation le verdict s'INVERSE sur l'observable que la mutation
+    DECLARE viser, et `a_mordu` est rapporte separement."""
     if not r.get("ok"):
         return None, f"NON CONCLUANT -- {r.get('raison')}"
     live, e2e = r["ph2_live"], r["ph2_port"]
@@ -660,8 +825,16 @@ def _verdict(volet, r, mutate):
     # A ETAT EGAL, laquelle des deux le port REALISE-t-il ? (`over_reduce` qu'il porte apres son
     # propre rejeu du retour a la vie -- 0 = il purge, `accum` = il transporte.)
     attendu = h_purge if not porte else h_transp
-    observable = MUTATION_CIBLE.get(mutate, (None, "etat_egal"))[1] if mutate else "etat_egal"
-    accord = ((attendu == live) if observable == "etat_egal" else (e2e == live))
+    # NOMINAL : les DEUX observables sont exigees. Sous mutation : SEULE celle que la mutation
+    # DECLARE viser (l'autre est inerte par construction et son « n'a pas mordu » accuserait le
+    # probe au lieu de dire ce qu'il en est).
+    observable = MUTATION_CIBLE.get(mutate, (None, "etat_egal"))[1] if mutate else "les deux"
+    if observable == "etat_egal":
+        accord = (attendu == live)
+    elif observable == "bout_en_bout":
+        accord = (e2e == live)
+    else:
+        accord = (attendu == live) and (e2e == live)
     diag = (f"live={live} | port A ETAT EGAL={attendu} (over_reduce porte={porte}) | "
             f"purge={h_purge} transport(over_reduce={accum})={h_transp} | "
             f"bout-en-bout={e2e}")
@@ -671,14 +844,15 @@ def _verdict(volet, r, mutate):
         sens = "le NATIF s'aligne sur `over_reduce TRANSPORTE`"
     else:
         sens = "le NATIF ne s'aligne sur AUCUNE des deux hypotheses"
-    # Le rejeu de bout en bout traverse aussi l'avance de tour ; son ecart est un ecart d'ETAT,
-    # rapporte SEPAREMENT et jamais confondu avec le verdict de la purge.
+    # Le rejeu de bout en bout traverse aussi l'avance de tour. Son ecart est un ecart d'ETAT et il
+    # est ATTRIBUE (les effets de l'attaquant 2 sont le canal par lequel un buff de turn-start
+    # entre) -- mais il n'est plus TOLERE : depuis #462-r4e-o-r2-r1-r1 il compte dans le verdict.
     if e2e != live:
         ee, el = r.get("effets_att2_e2e"), r.get("effets_att2_live")
         cause = (f" -- EFFETS de l'attaquant 2 : bout-en-bout={ee} vs etat live={el}"
                  if ee != el else " -- effets de l'attaquant 2 IDENTIQUES (cause ailleurs)")
         sens += (" ; ECART D'ETAT du rejeu bout-en-bout (le port ne mirrore pas tout le tour "
-                 "intercalaire)" + cause + " -- hors perimetre de la purge")
+                 "intercalaire)" + cause)
     if mutate is None:
         return accord, (("OK -- " if accord else "DIVERGENCE DU PORT -- ") + diag + " ; " + sens)
     vise_ce_volet = (MUTATION_CIBLE.get(mutate, (volet, None))[0] == volet)
@@ -717,6 +891,20 @@ def _dump(volet, r):
         if r.get("effets_att2_e2e") != r.get("effets_att2_live"):
             print(f"  effets ATTAQUANT 2      : bout-en-bout={r.get('effets_att2_e2e')}")
             print(f"                            etat live   ={r.get('effets_att2_live')}")
+    for quand in ("cycle_live_avant", "cycle_live_apres"):
+        c = r.get(quand)
+        if c:
+            print(f"  {quand:<23} : {c}")
+    for etape in (r.get("trace_live") or []):
+        print(f"  trace LIVE              : {etape}")
+    for quand in ("cycle_avant", "cycle_apres"):
+        c = r.get(quand)
+        if c:
+            print(f"  {quand:<23} : turn_counts={c['turn_counts']} "
+                  f"current_player={c['current_player']} joueur_att2={c['player']} "
+                  f"unit_turns_started={c['unit_turns_started']}")
+            print(f"                            effets (type, remaining, consumed) = "
+                  f"{c['effets_remaining']}")
     if not r.get("ok"):
         print("  KO:", r.get("raison"))
 
