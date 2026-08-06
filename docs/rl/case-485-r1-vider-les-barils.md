@@ -37,9 +37,11 @@ réclamé.
 
 ## Mesuré sur une copie (`git archive HEAD`, arbre complet)
 
-Chiffres **re-joués après deux rebases sur `origin/master`** (10 commits intégrés ; l'arbre témoin
-bouge sous les pieds — le compte des porteurs est passé de 262 à 261 pendant la tranche, et
-`probe_485` lui-même a changé de critère).
+Chiffres **re-joués après chaque rebase sur `origin/master`** — 11 commits intégrés en trois
+passes. L'arbre témoin bouge sous les pieds : le compte des porteurs est passé de 262 à 261
+pendant la tranche, et `probe_485` lui-même a changé de critère (`fix(#485)`, union des deux
+critères). **La mesure ci-dessous vaut pour le commit `609edf4f`** — la re-dériver, ne pas la
+citer.
 
 | | témoin | réécrit + vidé |
 |---|---:|---:|
@@ -71,14 +73,14 @@ Réécriture : **2 022 symboles dans 426 fichiers**. Vidange : **284 ré-exports
    aussi (c'est du code, et le vider le réécrit par construction).
 3. **Liaisons**, en process frais, portée large (attributs de module **et** de classe) :
    - réécriture seule : **431 modules, 241 221 attributs, 0 divergence** ;
-   - après vidange : **435 modules, 243 455 attributs, 12 745 divergences**, dont **12 660
+   - après vidange : **437 modules, 243 625 attributs, 12 746 divergences**, dont **12 661
      déplacements acquittés**, **85 attributs sous-module**, **0 perte réelle**, et
-     **2 081 fichiers à AST identique hors imports**. Un acquittement exige les trois :
+     **2 085 fichiers à AST identique hors imports**. Un acquittement exige les trois :
      disparition (jamais mutation), couple présent dans la table, et **même identité au module
      d'origine**. C'est la 3ᵉ condition qui fait la preuve : « le symbole a disparu du baril » et
      « le symbole est encore joignable » sont deux affirmations distinctes.
 
-**435/435 modules s'importent seuls** dans les deux arbres — aucun muet d'un seul côté.
+**437/437 modules s'importent seuls** dans les deux arbres — aucun muet d'un seul côté.
 
 > **Un vert ici ne dit PAS que la banque survit.** Mesure #484 (PR #741) : hisser 624 différés a
 > rendu **0 divergence sur 197 017 attributs** — et **28 fichiers de tests rouges**. Hisser ne
@@ -196,11 +198,11 @@ déplacé la faute, pas supprimé sa signature. (Même forme que `probe_313` ét
 
 ## Ce que l'outil ne sait PAS réécrire — partition exhaustive
 
-**1 439 refus**, motifs en `enum` (pas en chaînes libres), un cas non classé sortant en `AUTRE` :
+**1 445 refus**, motifs en `enum` (pas en chaînes libres), un cas non classé sortant en `AUTRE` :
 
 | motif | n | commentaire |
 |---|---:|---|
-| `SOUS_MODULE` | 898 | `from engine import move` demande le **module**, pas un symbole : déjà à sa forme la plus précise. Rien à réécrire — seule la vidange l'allège. |
+| `SOUS_MODULE` | 904 | `from engine import move` demande le **module**, pas un symbole : déjà à sa forme la plus précise. Rien à réécrire — seule la vidange l'allège. |
 | `BARIL_A_REGISTRE` | 440 | les 4 barils ci-dessus, exclus |
 | `DEFINI_DANS_LE_BARIL` | 100 | symbole `def`/`class`/assigné dans l'`__init__` (ex. `get_playbook_or_default`) : il n'a pas d'enfant |
 | `IMPORT_ETOILE` | 1 | `engine/dsl/nodes.py` → `from ...entities.selectors import *` |
