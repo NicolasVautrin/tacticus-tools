@@ -178,7 +178,7 @@ vacueux et par le fichier intégralement skippé, cf. `probe_455`).
 |---|---|---|
 | `#486-r1` | cache de verdict `(hash fichier, hash build)` sur les cliquets **locaux** | EN VOL |
 | `#486-r2` | discriminant d'**usage** correct, ventilation exhaustive, élagage des orphelins non exécutables, cliquet de garde | EN VOL |
-| `#486-r3` | séparer les rôles par **répertoire** (`gardes/` = la banque · `mesures/` = les instruments), dérivable et gardé | OUVERT |
+| `#486-r3` | séparer les rôles par **répertoire** — **TROIS** destinations, cf. §9 | OUVERT |
 | `#486-r4` | renommer par **objet**, numéro en métadonnée — passe par `probe_468`, qui lit des positions dans `docs/rl` | OUVERT |
 | `#486-r5` | le **coût des tests offline** (§7) : mesure à jour, mécanisme établi fichier par fichier, sur le haut du classement seulement | EN VOL |
 
@@ -202,7 +202,52 @@ fichier à zéro test collecté et le vert vacueux — les deux premiers sont **
 « outillage », parce qu'un test `_live.py` pilote le runner **par RPC** et n'importe donc jamais
 le moteur. Tout tri des tests par leurs imports est faux par construction.
 
+## 9. Le rangement : le NOM et le RÔLE sont décorrélés
+
+⚠ **Il n'y a RIEN à jeter — `#486-r2` l'a établi** : sur 829 probes, l'intersection
+orphelin × non-exécutable est **VIDE** (827 s'importent en process frais, 1 échoue sur son
+*montage*, et **27/27** des orphelins s'importent). L'élagage est mort comme stratégie ; tout le
+sujet devient le rangement.
+
+Rôles **cumulés** (un fichier peut en porter plusieurs) :
+
+    INSTRUMENT (rien ne le joue)        434   52,4 %
+    BIBLIOTHEQUE                        279   33,7 %
+    BIBLIOTHEQUE + OUTIL LANCE           50    6,0 %
+    OUTIL LANCE                          30    3,6 %
+    GARDE + BIBLIOTHEQUE                 12    1,4 %
+    GARDE                                12    1,4 %
+    GARDE + BIBLIOTHEQUE + OUTIL LANCE    7    0,8 %
+    GARDE + OUTIL LANCE                   5    0,6 %      SOMME 829
+
+    IMPORTE au moins une fois : 348 · LANCE : 92 · BANQUE : 36
+
+⚠ **348 fichiers sur 829 (42 %) nommés `probe_*` sont IMPORTÉS par du code : ce sont des
+BIBLIOTHÈQUES, pas des sondes.** Le préfixe ment. C'est aussi ce qui rendait le seau « joué par un
+test » trompeusement rassurant — ces fichiers ne sont pas *joués*, ils sont *consommés*.
+
+**Trois destinations, pas deux** (l'esquisse `gardes/` + `mesures/` était fausse) :
+
+| destination | qui | n |
+|---|---|---:|
+| `lib/` | importé par du code — et **perd** le préfixe `probe_` | 348 |
+| `gardes/` | joué par la banque — doit pouvoir rougir | 36 |
+| `mesures/` | instrument à main + outil lancé en sous-process | 434 + 92 |
+
+**Précédence sur les recouvrements** (57 sont bibliothèque ET outil, 24 aussi gardes) :
+**bibliothèque l'emporte** — son chemin est une dépendance d'autrui, son lancement ne l'est pas.
+
+⚠ **Ce n'est pas cosmétique, c'est une MIGRATION** : déplacer 348 fichiers importés casse tous
+leurs importateurs. Et les probes bâtissent leur `sys.path` par `Path(__file__).parents[k]`, donc
+les descendre d'un niveau **casse silencieusement** ce calcul. Le filet existe et il est
+antérieur à la chute : `probe_486r2_usage_des_probes.py` **évalue symboliquement** ces `sys.path`
+— c'est lui qui vérifie que chaque probe résout encore APRÈS le déplacement.
+
+Le cliquet qui empêche le mélange de revenir est **dérivable** : un fichier sous `lib/` que
+personne n'importe, ou sous `gardes/` absent de la banque, est mal rangé.
+
 ## Re-dériver
 
     pwsh -File scripts/ratchets.ps1 -List           # composition de la banque
+    python scripts/python/probe_486r2_usage_des_probes.py    # la partition par usage
     python scripts/python/probe_468_collision_numeros.py --suggere 486
