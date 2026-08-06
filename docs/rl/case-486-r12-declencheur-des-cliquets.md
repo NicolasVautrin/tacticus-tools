@@ -86,6 +86,26 @@ La mesure borne par le BAS ; elle ne dit jamais qu'un declencheur est suffisant.
    insubstituable et le test ne pouvait pas monter de depot jetable (cf. CLAUDE.md, formes
    A/B/C).
 
+## 3bis. Contre-epreuves livrees
+
+- **Sur l'arbre REEL, pas en synthetique.** Retirer `data/seed-bc.json` du declencheur de
+  `probe_181`, re-mesurer, et le garde le **NOMME** : `LU hors perimetre : data/seed-bc.json`,
+  `1 de fidelite`, `rc=1`. Restauration -> `0 de fidelite`, et `probe_181` revient **bit-a-bit**
+  (`git diff` vide).
+- **Le rouge du normalisateur est venu de la mesure elle-meme** (cf. SS3.5), pas d'un test :
+  la premiere confrontation des onze a accuse `probe_319` de lire `.gitignore` alors qu'il le
+  DECLARAIT.
+- **56 tests offline** (`scripts/python/tests/test_486r12_declencheurs_offline.py`), montage
+  100 % jetable : semantique du glob dans les deux sens, 9 fautes de forme chacune NOMMEE,
+  lecture par AST d'un module qui `raise` en tete, et les cinq verdicts du garde -- VERT,
+  ROUGE de fidelite, ROUGE de declaration, `toujours: True` non confronte, et les trois
+  chemins de `99` (banque illisible, empreinte absente, empreinte perimee, zero process trace).
+
+⚠ **Toucher un cliquet PERIME son empreinte**, par construction (la cle est le sha de son
+source). Le garde rend alors `99 NON MESUREE` -- pas un vert, pas un rouge -- et dit quoi
+rejouer : `--mesurer --only <id>`. C'est le comportement voulu : un declencheur qu'on vient de
+modifier n'a pas encore ete confronte.
+
 ## 4. Les onze du groupe A
 
 Cout **ISOLE**, mesure en serie le 2026-08-07 sur machine partagee (8 process python d'autres
@@ -116,6 +136,15 @@ l'unicite n'a pas de voisinage).
 Deux entrees `.gitignore` / `data/**` sont declarees **sans etre mesurables** : elles sont lues
 par `git check-ignore` et `git ls-files data`, hors de portee du hook. Elles viennent de la
 lecture du CRITERE, et c'est le sens de << un declencheur se prend large >>.
+
+**Etat a la livraison** : `11 declares / 0 mal formes / 10 bornes`, **0 faute de fidelite**, et
+**6 des onze marques MESURE INCOMPLETE** (ils lancent `git`). Les **25 scripts restants** de la
+banque sont la dette des groupes B et C, et le garde les NOMME un par un.
+
+⚠ **Le cout de la MESURE n'est pas le cout du cliquet** : sous audit hook et machine chargee,
+`probe_273` passe de 69,8 a 122,4 s et `probe_313` de 15,1 a 76,4 s -- ce dernier surtout parce
+que poser sa declaration a invalide son cache (SS7). La mesure se paie une fois par cliquet et
+par modification de son source, jamais a chaque run.
 
 ## 5. Le seul `toujours: True` : `probe_391`, et ce n'est pas un renoncement
 
