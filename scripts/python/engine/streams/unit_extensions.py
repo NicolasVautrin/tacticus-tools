@@ -243,5 +243,3 @@ def get_full_state_update_tags_for_triggered(
         TagKey.UnitStats_TriggeredAbility_VariableMultiplierPercentage: int(
             state.variable_multiplier_percentage),
     }
-
-# TEMP mesure #486-r11

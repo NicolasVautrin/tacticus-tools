@@ -150,6 +150,13 @@ qui existait et qui n'existe plus.
   passe, cache chaud compris. Il est memoisable par fichier (sha -> cibles) dans un second cache
   versionne ; non fait, le rapport gain/complexite ne le justifiait pas a ce stade.
 
+⚠ **Le montage est GENERALISABLE, et un residu ouvert le decrit deja.** `#486-r9` (`probe_273`)
+nomme exactement la meme forme : « une cle A DEPENDANCES -- `(sha du fichier, sha des modules dont
+il emprunte)` », parce que 58 fichiers sur 2 090 empruntent une racine a un AUTRE module. C'est le
+meme objet que `import_closure` : un verdict local a un SOUS-GRAPHE, pas a un fichier. Ce dossier
+en fournit l'implementation de reference (calcul groupe par composantes fortement connexes,
+controle runtime de la sous-approximation, repli nomme) ; le cabler ailleurs n'est pas fait ici.
+
 ## 8. Ce qui a ete refuse
 
 * **Stocker la fermeture MESUREE dans le cache** au lieu de la recalculer : 437 x ~173 noms

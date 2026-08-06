@@ -320,7 +320,7 @@ def test_etage5_le_verdict_traverse_un_process_par_le_cache_VERSIONNE(bac):
     assert IP._enregistrer_si_complet(), "le cache versionne n'a pas ete ecrit"
     del lances[:]
 
-    #: process « frais » : memoire vidée, le fichier TSV est la seule survivance.
+    #: process « frais » : memoire videe, le fichier TSV est la seule survivance.
     IP._ESSAIS.clear()
     IP._CACHE = verdict_cache.CacheCliquet("jouet_486r11", "contexte-jouet",
                                            dossier=arbre / "cache")
