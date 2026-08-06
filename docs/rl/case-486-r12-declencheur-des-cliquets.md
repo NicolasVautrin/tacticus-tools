@@ -18,10 +18,11 @@ DECLENCHEUR = {
 }
 ```
 
-Contrat, matcher et validation : `scripts/python/declencheur_cliquet.py`. **Trois ajouts sont
+Contrat, matcher et validation : `scripts/python/declencheur_cliquet.py`. **Deux ajouts sont
 faits par le foyer, jamais par le declarant** : le **source du cliquet lui-meme** (l'ecrire 46
-fois serait 46 occasions de l'oublier), **`data/symbols/**` quand `build: True`**, et rien
-d'autre -- la banque ne change aucun verdict, elle choisit qui court.
+fois serait 46 occasions de l'oublier) et **`data/symbols/**` quand `build: True`**. Rien de
+plus -- en particulier pas `scripts/ratchets.ps1`, qui ne change aucun verdict : elle choisit
+qui court.
 
 **`**/` vaut ZERO segment ou plus** (semantique git pathspec), donc `scripts/python/**/*.py`
 couvre `scripts/python/probe_x.py`. C'est deliberement l'inverse de `pathlib` : ce depot a paye
@@ -156,6 +157,24 @@ de pytest renverse son verdict sans qu'une ligne du depot bouge.
 
 C'est exactement la forme de `build: True`, **moins le `data/symbols/CURRENT` versionne** qui
 rend celui-la bornable : un changement de build SE VOIT dans un diff, un upgrade de pytest NON.
+
+## 5bis. Pour les groupes B et C -- le geste, en trois lignes
+
+```powershell
+python probe_486r12_declencheurs.py                       # qui ne declare pas encore
+python probe_486r12_declencheurs.py --mesurer --only probe_XXX   # ce qu'il LIT vraiment
+#   -> poser le bloc DECLENCHEUR, puis RE-mesurer (le sha du source a change)
+```
+
+Ecrire le bloc **APRES** avoir lu la mesure, jamais avant : les cinq surprises de la SS3 ne se
+devinent pas. Le contrat complet (les quatre cles, la semantique des globs, ce que le foyer
+ajoute) est dans la **docstring de `scripts/python/declencheur_cliquet.py`** -- source unique,
+ne pas la recopier.
+
+⚠ **`scripts/declencheurs-empreinte.tsv` est un artefact GENERE et VERSIONNE**, et les trois
+groupes y ecrivent. Les blocs sont **tries par id**, donc disjoints entre groupes -- sauf
+l'en-tete `# commit=`. En cas de conflit : **REGENERER** (`--mesurer --only <ses ids>`), jamais
+fusionner a la main. Meme regle que `docs/rl/kit-coverage.md`.
 
 ## 6. Non couvert
 
