@@ -3120,27 +3120,34 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   corps APPELLE -- une chaine d'appel prise pour une identite.
   53 + 60 = **113 verts** ; 6 mutants sur 6 mordants ; les deux cliquets VERTS ;
   empreinte AST VERTE (3 divergents, 3 declares, **4 fichiers de PORT touches et AST-IDENTIQUES**).
-  Residu : **#477-r42**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater.
+  Residu : ~~**#477-r42**~~ -> **CLOS le 2026-08-06** (sec. 6quinquies). Le discriminant de la
+  VIRGULE n'etait pas la virgule mais la **LOCALITE** (`ceder_aux_locaux`, foyer partage) : +6 / +23
+  couples JUSTES, 0 perdu, les 2 faux de l'enumeration dissous -- et le candidat ecrit au residu est
+  **REFUTE par la mesure du regime qu'il decrivait** (l'enumeration reelle est HORIZONTALE). La
+  localite du commentaire avait une cause **DOUBLE** (second commentaire **et** nom pleinement
+  qualifie ; chacune seule rend **0**). Et `probe_477r25` a enfin un **RECENSEUR**. Residu :
+  **#477-r43**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater et 6quinquies.
 
-- **#477-r42 : les DEUX crans herites qui coutent encore une citation JUSTE, et les ~640 lignes
-  de `probe_477r25` que personne n'a ventilees.** `[opus]`
-  (a) La **VIRGULE** dans le remplissage -- cran de #477-r25, mesure sur l'AUTRE corpus (une
-  enumeration VERTICALE apparie le nom d'un item au slot du suivant). Sur celui-ci il cache
-  « le slot 5 de `Core.Services.IOperationProcessor`, **dont** l'implementation `...$$AddUnit(...)` ».
-  Le discriminant candidat -- « la virgule ne bloque QUE lorsque le remplissage traverse un saut de
-  ligne », qui colle a la cause mesuree -- **n'aide ni cette citation ni l'autre** (toutes deux
-  traversent) : a instruire, pas a appliquer au jugé.
-  (b) La **LOCALITE DU COMMENTAIRE** : `engine/streams/turn_phase.py` ecrit la resolution dans le
-  **second** commentaire de la ligne (`// -- `verifier`` puis `// = `...$$VerifyUnitsTurnFinished``).
-  Sauter le premier commentaire perdrait exactement ce que le cran `appel-colle` tient.
-  (c) Les ~**640** lignes de `probe_477r25` ne sont toujours PAS ventilees. ⚠ **Il n'y a RIEN a
-  verifier cote lookbehind : ce probe n'a AUCUN recenseur** -- pas de ventilation du tout. Ecrire
-  la ventilation, c'est ecrire le recenseur, et il devra naitre avec le lookbehind CORRIGE
-  (`(?<![A-Za-z0-9_])`, pas `(?<![A-Za-z0-9_$])`) -- sans quoi il repetera d'emblee le
-  sous-comptage de 48 % que #477-r36 vient de mesurer sur l'autre.
-  NB annexe, non mesure comme gisement : le mot `slot` lui-meme reste sensible a la casse (seul
-  son qualificatif ne l'est plus) -- « Slot 0x12 = ... » ne serait pas vu.
-  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quater et Residus.
+- **#477-r43 : les DEUX plus gros tas du recenseur neuf, et l'etage NOM SEUL qui manque a `r25`.**
+  `[opus]` Tranche 100 % OFFLINE. Le recenseur de `probe_477r25` (ne en #477-r42) chiffre pour la
+  premiere fois ce que ce cliquet ecarte -- **628** lignes, partition ASSERTIONNEE. Trois volets :
+  (a) **191** lignes `nom_ecarte_par_un_cran` : un nom **de l'interface appariee** est dans la
+  fenetre, un cran conservateur l'ecarte. C'est **3,8x** le gisement que #477-r36 a traite sur
+  l'autre corpus (47 apres). ⚠ Le trier exige d'abord l'OUTILLAGE : `probe_477r25` n'a pas de
+  `--relacher` **par cran** (il n'en a qu'un, celui de #477-r42) ; les rendre relachables un par
+  un, comme `probe_477r24r1`, est la premiere etape -- sans quoi le tri se fait au juge.
+  (b) **257** lignes `numero_nom_hors_interface` : un nom capitalise est ecrit, mais il n'est a
+  aucun slot de l'interface appariee. Un echantillon de 12 montre du bruit VARIE (membre d'enum,
+  type, identifiant de tache) **et au moins une attestation reelle** -- « `battleQuery` slot 0x91
+  de `UnitsCanAttackEachOther` », exactement la tournure de l'etage NOM SEUL. Le tas n'est donc
+  PAS homogene. ⚠ Ne rien conclure de l'echantillon : ce gisement a ete sous-compte 3 fois.
+  (c) **50** lignes `nom_seul_sans_numero` : `probe_477r25` n'a PAS l'etage NOM SEUL de #477-r32,
+  celui-la meme qui avait trouve, sur l'autre corpus, la SEULE faute que l'axe (slot, nom) ne
+  voyait pas. Meilleur rendement attendu des trois.
+  NB annexe, chiffre mais non traite : **160** lignes ecrivent `Slot` avec une autre casse et sont
+  INVISIBLES du balayage (`RE_SLOT` est sensible a la casse). Les faire entrer changerait la
+  taille du corpus, donc TOUS les comptes -- a faire avec la re-mesure, jamais en passant.
+  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quinquies et Residus.
 
 - **#477-r21-r2 : la SELECTION et l'ORDRE de l'arbre d'activation.** `[opus]`
   Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.
