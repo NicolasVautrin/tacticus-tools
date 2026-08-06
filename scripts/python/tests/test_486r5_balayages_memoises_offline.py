@@ -259,42 +259,67 @@ def test_index448_ne_parse_chaque_fichier_QU_UNE_FOIS(tmp_path, monkeypatch):
 
 # --- 6. probe_270-r4-r2 : un interpreteur par module, UNE SEULE FOIS ----------------------------
 
-def test_essayer_tous_ne_relance_PAS_un_interpreteur_deja_lance(monkeypatch):
+#: Trois modules REELS d'`engine/`, aux fermetures differentes. Depuis #486-r11 la cle n'est plus
+#: une empreinte d'arbre substituable : c'est la FERMETURE du module, qui n'existe que pour un
+#: module qui existe. Des noms fictifs (`engine.x`) partiraient en recalcul a chaque appel, et le
+#: test serait vert a vide.
+_REELS = ["engine.entities.stats", "engine.playbook.psyker", "engine.runner.snapshot"]
+
+
+def _bac(monkeypatch, tmp_path, lances):
+    import probe_270r4r2_import_en_premier as IP
+    import verdict_cache
+
+    def _faux(mod):
+        lances.append(mod)
+        return mod, 0, "", (IP.IC.CLOTURE.fermeture(mod) or frozenset())
+
+    monkeypatch.setattr(IP, "_essayer", _faux)
+    monkeypatch.setattr(IP, "_ESSAIS", {})
+    monkeypatch.setattr(IP, "_OPAQUES", {})
+    monkeypatch.setattr(IP, "_VUS", set())
+    monkeypatch.setattr(IP, "_LANCES", [0])
+    monkeypatch.setattr(IP, "_CACHE", verdict_cache.CacheCliquet(
+        "jouet_486r5", "contexte-jouet", dossier=tmp_path))
+    return IP
+
+
+def test_essayer_tous_ne_relance_PAS_un_interpreteur_deja_lance(monkeypatch, tmp_path):
     """`_essayer` lance UN interpreteur par module -- 0,54 s piece, 131,6 s pour les 437 modules
     d'`engine/` a 8 workers. Deux fichiers de test balaient dans la MEME passe, et leurs
     perimetres se recouvrent a 201 modules : 44,1 s payes deux fois."""
-    import probe_270r4r2_import_en_premier as IP
-
     lances = []
-    monkeypatch.setattr(IP, "_essayer", lambda m: (lances.append(m), (m, 0, ""))[1])
-    monkeypatch.setattr(IP, "_ESSAIS", {})
-    monkeypatch.setattr(IP, "empreinte_engine", lambda: ("EMPREINTE-TEMOIN",))
+    IP = _bac(monkeypatch, tmp_path, lances)
 
-    a = IP.essayer_tous(["engine.x", "engine.y"])
-    b = IP.essayer_tous(["engine.y", "engine.z"])
-    assert lances == ["engine.x", "engine.y", "engine.z"], lances
-    assert a == [("engine.x", 0, ""), ("engine.y", 0, "")], a
-    assert b == [("engine.y", 0, ""), ("engine.z", 0, "")], b
+    a = IP.essayer_tous(_REELS[:2])
+    b = IP.essayer_tous(_REELS[1:])
+    assert lances == _REELS, lances
+    assert a == [(m, 0, "") for m in _REELS[:2]], a
+    assert b == [(m, 0, "") for m in _REELS[1:]], b
 
 
-def test_essayer_tous_RE_ESSAIE_quand_l_arbre_a_CHANGE(monkeypatch):
-    """LE piege inverse du cache : un verdict perime, et perime dans le sens VERT. La cle porte
-    l'empreinte de l'arbre `engine/`, donc une source modifiee la fait tomber d'elle-meme."""
-    import probe_270r4r2_import_en_premier as IP
+def test_essayer_tous_RE_ESSAIE_quand_SA_FERMETURE_a_CHANGE(monkeypatch, tmp_path):
+    """LE piege inverse du cache : un verdict perime, et perime dans le sens VERT.
 
+    #486-r11 : la cle n'est plus l'empreinte de l'arbre ENTIER mais celle de la FERMETURE du
+    module. Ce que cet etage garde reste le meme invariant -- un changement de cle DOIT relancer.
+    Que la cle bouge sur le bon perimetre (et PAS sur le reste) est garde, dans les deux sens,
+    par `test_486r11_cle_sous_graphe_offline.py`.
+    """
     lances = []
-    etat = {"emp": ("V1",)}
-    monkeypatch.setattr(IP, "_essayer", lambda m: (lances.append(m), (m, 0, ""))[1])
-    monkeypatch.setattr(IP, "_ESSAIS", {})
-    monkeypatch.setattr(IP, "empreinte_engine", lambda: etat["emp"])
+    IP = _bac(monkeypatch, tmp_path, lances)
+    cible = _REELS[0]
+    vraies = IP.IC.CLOTURE.cles([cible])
 
-    IP.essayer_tous(["engine.x"])
-    IP.essayer_tous(["engine.x"])
-    assert lances == ["engine.x"], "le cache ne mord pas : %s" % lances
-    etat["emp"] = ("V2",)                                  # une source a change
-    IP.essayer_tous(["engine.x"])
-    assert lances == ["engine.x", "engine.x"], (
-        "un verdict d'import a survecu a une modification de l'arbre : %s" % lances)
+    IP.essayer_tous([cible])
+    IP.essayer_tous([cible])
+    assert lances == [cible], "le cache ne mord pas : %s" % lances
+
+    monkeypatch.setattr(IP, "_cles", lambda mods: {m: "CLE-V2" for m in mods})
+    IP.essayer_tous([cible])
+    assert lances == [cible, cible], (
+        "un verdict d'import a survecu a un changement de sa fermeture : %s" % lances)
+    assert vraies[cible] != "CLE-V2"
 
 
 # --- 7. probe_457 : le graphe d'imports, FIGE et memoise ----------------------------------------
@@ -335,7 +360,13 @@ def test_le_graphe_d_imports_457_est_FIGE_et_memoise(monkeypatch, tmp_path):
 
 
 def test_l_empreinte_de_l_arbre_engine_est_NON_VIDE_et_BOUGE(tmp_path, monkeypatch):
-    """Une empreinte vide (ou constante) rendrait la garde ci-dessus tautologique."""
+    """Une empreinte vide (ou constante) rendrait la garde ci-dessus tautologique.
+
+    #486-r11 : `empreinte_engine` n'est plus la CLE du cache, c'est le DETECTEUR DE GENERATION --
+    il dit « l'arbre a bouge, les fermetures calculees sont peremees » pour ~437 `stat` sous
+    0,2 s, la ou re-parser tout l'arbre coute ~3,9 s. Il reste AUSSI la cle grossiere de repli
+    des modules opaques. Les deux usages exigent la meme chose de lui : etre non vide et sensible.
+    """
     import probe_270r4r2_import_en_premier as IP
 
     avant = IP.empreinte_engine()

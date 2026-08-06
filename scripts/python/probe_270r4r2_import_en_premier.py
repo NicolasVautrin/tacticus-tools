@@ -22,9 +22,19 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent
+if str(RACINE) not in sys.path:
+    sys.path.insert(0, str(RACINE))
+
+import import_closure as IC                                            # noqa: E402
+import verdict_cache                                                   # noqa: E402
+
 # Paquets dont la coupe #270-r4-r2 a change les imports, PLUS ceux qui les consomment
 # de pres (le sens d'entree compte : un cycle ne se voit que d'un cote).
 PAQUETS_DEFAUT = ("engine.services", "engine.playbook", "engine.entities", "engine.dsl")
+
+#: Compteur d'INTERPRETEURS reellement lances. C'est la mesure du gain -- un chronometre, lui,
+#: melange le cout du cliquet et la charge de la machine.
+_LANCES = [0]
 
 
 def _modules_sous(prefixes: tuple[str, ...]) -> list[str]:
@@ -41,23 +51,33 @@ def _modules_sous(prefixes: tuple[str, ...]) -> list[str]:
     return out
 
 
-def _essayer(mod: str) -> tuple[str, int, str]:
-    r = subprocess.run([sys.executable, "-c", "import %s" % mod],
+def _essayer(mod: str) -> tuple[str, int, str, frozenset | None]:
+    """Importe `mod` EN PREMIER dans un interpreteur FRAIS. Rend AUSSI ce qu'il a charge.
+
+    La 4e valeur est la fermeture MESUREE (`sys.modules` filtre sur cet arbre), ou `None` si
+    l'interpreteur n'a pas pu la rendre -- tri-etat « pas mesure », jamais un ensemble vide.
+    C'est elle qui confronte la fermeture CALCULEE (#486-r11) : le seul controle qui puisse voir
+    une sous-approximation, donc le seul qui empeche un faux vert.
+    """
+    _LANCES[0] += 1
+    r = subprocess.run([sys.executable, "-c", IC.code_sonde(mod, RACINE)],
                        cwd=str(RACINE), capture_output=True, text=True, timeout=180)
     err = ""
     if r.returncode != 0:
         lignes = [l for l in (r.stderr or "").strip().splitlines() if l.strip()]
         err = lignes[-1] if lignes else "(stderr vide)"
-    return mod, r.returncode, err
+    return mod, r.returncode, err, IC.lire_fermeture_mesuree(r.stdout)
 
 
 def empreinte_engine() -> tuple:
     """Etat de l'arbre `engine/` : `(chemin, mtime_ns, taille)` pour chaque `.py`, trie.
 
-    C'est la CLE du cache de `essayer_tous`. Un cache indexe seulement par nom de module
-    mentirait des qu'un test aurait modifie une source entre deux mesures -- et le mensonge
-    serait dans le sens VERT, le seul qui ne se voit pas. Cout mesure : ~437 `stat`, sous 0,2 s,
-    contre 0,54 s pour UN SEUL essai.
+    Ce n'est PLUS la cle du cache (#486-r11 l'a descendue au SOUS-GRAPHE, cf. `_cles`) : c'est
+    le DETECTEUR DE GENERATION. Il dit « l'arbre a bouge, les fermetures calculees sont
+    peremees » pour ~437 `stat` sous 0,2 s, la ou re-parser tout l'arbre coute ~3,9 s.
+
+    Il reste AUSSI la cle GROSSIERE de repli : un module dont la fermeture calculee s'est revelee
+    SOUS-APPROXIMEE (cf. `_OPAQUES`) n'est memoise que sous elle.
     """
     out = []
     for f in sorted((RACINE / "engine").rglob("*.py")):
@@ -70,29 +90,204 @@ def empreinte_engine() -> tuple:
     return tuple(out)
 
 
-#: `{(empreinte de l'arbre, module): (module, rc, message)}` -- memoise pour la duree du process.
+def empreinte_hors_engine() -> dict:
+    """`{module: (mtime_ns, taille)}` pour les fichiers HORS `engine/` deja entres dans une fermeture.
+
+    Mesure a la livraison : ils sont DEUX (`gameconfig`, `hexgeo`), et `hexgeo` gouverne le
+    verdict de 351 modules sur 437. La cle grossiere de #486-r5 ne les regardait pas du tout --
+    modifier `hexgeo.py` ne reinvalidait donc RIEN. Les compter ici n'est pas une precaution,
+    c'est un trou refere.
+    """
+    out = {}
+    for nom in IC.CLOTURE.noms_lus():
+        if nom == "engine" or nom.startswith("engine."):
+            continue
+        chemin = IC.CLOTURE.resoudre(nom)
+        if chemin is None:
+            out[nom] = None
+            continue
+        try:
+            st = chemin.stat()
+            out[nom] = (st.st_mtime_ns, st.st_size)
+        except OSError:                                # pragma: no cover - course disque
+            out[nom] = None
+    return out
+
+
+def empreinte_generation() -> tuple:
+    """L'etat COMPLET de ce qui gouverne les fermetures -- la cle GROSSIERE de repli."""
+    return empreinte_engine() + tuple(sorted(empreinte_hors_engine().items()))
+
+
+#: `{(cle, module): (module, rc, message)}` -- memoise pour la duree du process.
 #:
 #: POURQUOI (#486-r5). `_essayer` lance UN interpreteur par module : 0,54 s piece, 131,6 s pour
 #: les 437 modules a 8 workers. DEUX fichiers de test appellent ce balayage dans la MEME passe,
 #: et leurs perimetres se recouvrent a **201 modules sur 437** -- soit 44,1 s payes deux fois.
 #:
-#: SUR A PARTAGER : la valeur est un `tuple` de scalaires, IMMUABLE. Et la cle porte l'EMPREINTE
-#: de l'arbre `engine/`, donc une source modifiee entre deux mesures invalide le cache d'elle-meme
-#: au lieu de rendre un verdict perime.
+#: SUR A PARTAGER : la valeur est un `tuple` de scalaires, IMMUABLE.
 _ESSAIS: dict = {}
+
+#: Modules dont la fermeture MESUREE deborde la fermeture CALCULEE : `import M` a charge un
+#: fichier que le calcul statique n'avait pas vu (import dynamique, differe execute au
+#: chargement parce que sa fonction est appelee au niveau module). Leur cle FINE ne les decrit
+#: pas -- ils retombent sur la cle GROSSIERE en memoire, et n'entrent JAMAIS au cache disque.
+#: Un repli NOMME (`main` les imprime) ; un repli silencieux serait le vice.
+_OPAQUES: dict[str, frozenset] = {}
+
+#: Les modules dont ce process a etabli un verdict -- sert a decider si le cache VERSIONNE peut
+#: etre reecrit sans RETRECIR (cf. `_enregistrer_si_complet`).
+_VUS: set = set()
+
+#: Nom de l'appel dans le cache versionne. Un seul ici, mais la cle du TSV est `(rel, appel)`.
+APPEL = "import-en-premier"
+
+_CACHE = None
+#: L'etat d'arbre sur lequel les fermetures en cache ont ete calculees. `None` = rien calcule.
+_GEN_ENGINE = None
+_GEN_HORS: dict = {}
+
+
+def _cles(mods) -> dict:
+    """`{module: cle de sous-graphe}`, fermetures recalculees SEULEMENT si l'arbre a bouge.
+
+    Le detecteur est en DEUX morceaux, et ce n'est pas de la coquetterie : la partie `engine/`
+    est un balayage COMPLET (un fichier AJOUTE la fait bouger), la partie hors-`engine` ne peut
+    porter que ce qui est DEJA entre dans une fermeture -- on ne va pas `stat` les 2 000 fichiers
+    de `scripts/python/`. Un fichier hors-`engine` qui entre pour la premiere fois vient d'etre
+    lu, donc il est frais ; il ne peut entrer que parce qu'un fichier `engine/` a change, ce que
+    la premiere partie voit.
+    """
+    global _GEN_ENGINE, _GEN_HORS
+    eng = empreinte_engine()
+    hors = empreinte_hors_engine()
+    bouge = (eng != _GEN_ENGINE) or any(_GEN_HORS[n] != v for n, v in hors.items()
+                                        if n in _GEN_HORS)
+    if bouge:
+        IC.CLOTURE.vider()
+    cles = IC.CLOTURE.cles(mods)
+    if bouge or _GEN_ENGINE is None:
+        _GEN_ENGINE = eng
+        _GEN_HORS = {}
+    _GEN_HORS.update(empreinte_hors_engine())
+    return cles
+
+
+#: L'en-tete generique de `verdict_cache` annonce « sha256 du CONTENU ». Ici la cle n'est PAS le
+#: sha d'un fichier : c'est celui de la FERMETURE. Un lecteur qui croirait pouvoir la recalculer
+#: depuis `engine/ai/__init__.py` seul se tromperait -- un artefact versionne qui se decrit de
+#: travers fait ecrire des outils qui recalculent la mauvaise chose.
+_NOTES = ("# CE CLIQUET-CI cle par SOUS-GRAPHE (#486-r11) : le sha ci-dessous couvre la",
+          "# FERMETURE transitive des imports du module (son contenu ET sa composition),",
+          "# pas le seul fichier nomme en 1ere colonne. Regenerer, jamais fusionner.")
+
+
+def _cache():
+    """Le cache VERSIONNE, un par process.
+
+    Le CONTEXTE porte tout ce qui gouverne le calcul hors des fichiers balayes : les trois
+    sources qui produisent la cle et le verdict, l'interpreteur, la plateforme. Un contexte
+    different fait MANQUER toutes les entrees -- cout plein une fois, ce qui est voulu.
+
+    ⚠ L'expression du contexte est ECRITE EN TOUTES LETTRES ici ET dans le mode espion de
+    `main`, jamais factorisee : `test_486_r1_cache_verdict_offline` compare les deux SOURCES.
+    Un helper partage rendrait ce controle aveugle a une divergence entre les deux caches.
+    """
+    global _CACHE
+    if _CACHE is None:
+        _CACHE = verdict_cache.CacheCliquet(
+            nom="probe_270r4r2_import_en_premier",
+            contexte="%s-py%d%d-%s" % (verdict_cache.sha_fichiers_texte(
+                Path(__file__).resolve(), RACINE / "import_closure.py",
+                RACINE / "probe_270r4r2_cycles_imports.py")[:16],
+                sys.version_info[0], sys.version_info[1], sys.platform),
+            notes=_NOTES)
+    return _CACHE
+
+
+def _enregistrer_si_complet() -> bool:
+    """Reecrit le cache versionne SEULEMENT si ce process a couvert TOUT `engine/`.
+
+    `CacheCliquet.enregistrer` reecrit avec EXACTEMENT les entrees vues -- c'est ce qui fait le
+    menage, et c'est ce qui RETRECIRAIT le fichier si un run partiel (un seul des deux fichiers
+    de test, `--modules a,b`) l'ecrivait. Un cache retreci ne ment pas, mais il fait repayer le
+    plein tarif au run suivant : le refus d'ecrire est ici le comportement CONSERVATEUR.
+    """
+    cache = _cache()
+    if not cache.relire or not set(_modules_sous(("engine",))) <= _VUS:
+        #: `relire=False` = MODE ESPION : le run sert a CONFRONTER le disque, pas a le refaire.
+        return False
+    return cache.enregistrer()
 
 
 def essayer_tous(mods, jobs: int = 8) -> list:
-    """`[(module, rc, message)]` pour `mods`, en parallele, SANS re-essayer ce qui l'a deja ete
-    sur le MEME etat de l'arbre. L'ordre du retour suit `mods`."""
+    """`[(module, rc, message)]` pour `mods`, en parallele, SANS relancer un interpreteur pour un
+    module dont la FERMETURE est inchangee. L'ordre du retour suit `mods`."""
     mods = list(mods)
-    emp = empreinte_engine()
-    manquants = [m for m in mods if (emp, m) not in _ESSAIS]
+    cles = _cles(mods)
+    cache = _cache()
+    grossiere = None
+    resultats: dict = {}
+    manquants: list = []
+
+    for m in mods:
+        cle = cles.get(m)
+        if cle is None:                                # module introuvable : l'essai reel tranche
+            manquants.append(m)
+            continue
+        if m in _OPAQUES:
+            if grossiere is None:
+                grossiere = ("GROSSIERE", empreinte_generation())
+            vu = _ESSAIS.get((grossiere, m))
+            if vu is not None:
+                resultats[m] = vu
+            else:
+                manquants.append(m)
+            continue
+        brut = cache.obtenir(m, APPEL, cle)
+        if brut is not verdict_cache.MANQUE:
+            vu = (m, int(brut[0]), str(brut[1]))
+            _ESSAIS[(cle, m)] = vu
+            _VUS.add(m)
+            resultats[m] = vu
+            continue
+        vu = _ESSAIS.get((cle, m))
+        if vu is not None:
+            cache.poser(m, APPEL, cle, [vu[1], vu[2]])   # peupler `_vues` : sans quoi l'entree
+            _VUS.add(m)                                  # disparaitrait a la reecriture
+            resultats[m] = vu
+            continue
+        manquants.append(m)
+
     if manquants:
         with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(manquants)))) as ex:
-            for res in ex.map(_essayer, manquants):
-                _ESSAIS[(emp, res[0])] = res
-    return [_ESSAIS[(emp, m)] for m in mods]
+            for mod, rc, err, mesuree in ex.map(_essayer, manquants):
+                vu = (mod, rc, err)
+                resultats[mod] = vu
+                _VUS.add(mod)
+                cle = cles.get(mod)
+                if cle is None:
+                    continue
+                #: TRI-ETAT sur la fermeture mesuree. `None` = l'interpreteur n'a PAS rendu sa
+                #: liste (echec d'import, sortie tronquee) : on ne sait donc pas si la cle fine
+                #: decrit ce module, et on refuse de s'en servir. Un ensemble VIDE serait une
+                #: mesure, pas une absence -- les confondre ferait attester sur une base inconnue.
+                if mesuree is None or IC.CLOTURE.sous_approximation(mod, mesuree):
+                    if mesuree is not None:
+                        _OPAQUES[mod] = IC.CLOTURE.sous_approximation(mod, mesuree)
+                    if grossiere is None:
+                        grossiere = ("GROSSIERE", empreinte_generation())
+                    _ESSAIS[(grossiere, mod)] = vu
+                    continue
+                _ESSAIS[(cle, mod)] = vu
+                #: On ne CACHE que les SUCCES. Un echec laisse `sys.modules` a mi-chemin : sa
+                #: fermeture n'est pas celle du verdict, et l'attester ferait servir un rouge
+                #: peremptoire. Un rouge se recalcule -- c'est le sens sur de l'asymetrie.
+                if rc == 0:
+                    cache.poser(mod, APPEL, cle, [rc, err])
+        _enregistrer_si_complet()
+
+    return [resultats[m] for m in mods]
 
 
 def main() -> int:
@@ -100,7 +295,25 @@ def main() -> int:
     ap.add_argument("--tous", action="store_true", help="les 408 modules d'engine/")
     ap.add_argument("--modules", default="", help="liste separee par des virgules")
     ap.add_argument("--jobs", type=int, default=8)
+    ap.add_argument("--resume-cache", action="store_true",
+                    help="etat du cache versionne et nombre d'interpreteurs lances (#486-r11) -- "
+                         "HORS du regime normal, dont la sortie doit etre identique froid/chaud")
+    ap.add_argument("--verifier-cache", action="store_true",
+                    help="RECALCULE tout en ignorant le cache versionne et le confronte entree "
+                         "par entree (#486-r1) -- le seul controle qui voie une entree falsifiee "
+                         "de facon coherente")
     args = ap.parse_args()
+
+    global _CACHE
+    if args.verifier_cache:
+        #: MODE ESPION : le fichier est charge, jamais servi -- ce run recalcule donc TOUT.
+        _CACHE = verdict_cache.CacheCliquet(
+            nom="probe_270r4r2_import_en_premier",
+            contexte="%s-py%d%d-%s" % (verdict_cache.sha_fichiers_texte(
+                Path(__file__).resolve(), RACINE / "import_closure.py",
+                RACINE / "probe_270r4r2_cycles_imports.py")[:16],
+                sys.version_info[0], sys.version_info[1], sys.platform),
+            notes=_NOTES, relire=False)
 
     if args.modules:
         mods = [m.strip() for m in args.modules.split(",") if m.strip()]
@@ -118,6 +331,36 @@ def main() -> int:
         return 2
 
     echecs = [(mod, err) for mod, rc, err in essayer_tous(mods, args.jobs) if rc != 0]
+
+    #: LE REPLI SE DIT -- et il est STABLE entre froid et chaud, sans quoi il casserait le
+    #: controle de fidelite. Un module opaque n'entre JAMAIS au cache versionne : il est relance
+    #: a chaque passe, donc re-detecte a chaque passe. Le taire ferait passer un cout pour un gain.
+    if _OPAQUES:
+        print("[270-r4-r2/import] REPLI sur la cle GROSSIERE : %d module(s) dont l'import charge "
+              "des fichiers que le calcul de fermeture ne voit pas" % len(_OPAQUES))
+        for mod in sorted(_OPAQUES):
+            print("   %s  <- %s" % (mod, ", ".join(sorted(_OPAQUES[mod])[:5])))
+
+    if args.resume_cache:
+        #: HORS du regime normal : ces chiffres DIFFERENT entre froid et chaud par construction,
+        #: et la sortie du regime normal doit rester identique aux deux (discipline #486-r1).
+        print("[270-r4-r2/import] %s (cle = SOUS-GRAPHE, #486-r11)" % _cache().resume())
+        print("[270-r4-r2/import] interpreteurs lances ce run : %d ; modules opaques : %d"
+              % (_LANCES[0], len(_OPAQUES)))
+
+    if args.verifier_cache:
+        divergences = verdict_cache.verifier(_cache())
+        print("")
+        print("=== VERIFICATION DU CACHE VERSIONNE (#486-r1, cle #486-r11) ===")
+        print("  entrees sur disque : %d   recalculees : %d"
+              % (len(_cache()._sur_disque), len(_cache()._vues)))
+        for d in divergences:
+            print("  DIVERGENCE %s" % d)
+        if divergences:
+            print("  rc=3 -- le cache versionne n'atteste PAS ce que le calcul rend. Le")
+            print("  REGENERER : python scripts/python/probe_270r4r2_import_en_premier.py --tous")
+            return 3
+        print("  OK -- chaque entree du cache vaut ce que le recalcul integral produit.")
 
     if echecs:
         print("[270-r4-r2/import] ECHEC : %d module(s) sur %d ne s'importent pas EN PREMIER"

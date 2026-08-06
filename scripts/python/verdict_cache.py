@@ -118,6 +118,35 @@ def sha_fichiers(*chemins: Path) -> str:
     return h.hexdigest()
 
 
+def sha_fichiers_texte(*chemins: Path) -> str:
+    """`sha_fichiers`, mais sur le TEXTE -- la variante PORTABLE, pour un contexte de sources.
+
+    ⚠ MESURE (#486-r11), et c'est un vice VECU, pas redoute : `sha_fichiers` hache les OCTETS,
+    donc un simple `git rebase` suffit a changer le contexte d'un cliquet dont les sources
+    passent de LF a CRLF (`core.autocrlf=true`). Constate le 2026-08-07 : le cache de
+    `probe_270r4r2_import_en_premier` est reparti a ZERO apres un rebase qui n'avait touche
+    AUCUNE de ses trois sources -- 119 s au lieu de 20 s. Sur une autre plateforme, un cache
+    VERSIONNE serait ainsi froid en permanence, c'est-a-dire inutile la ou il existe.
+
+    C'est exactement le piege que `sha_texte` documente pour la cle de LIGNE ; le contexte y
+    echappait. Un fichier absent entre dans l'empreinte comme tel : son absence est une donnee.
+
+    ⚠ Les trois cliquets de #486-r1 utilisent encore `sha_fichiers` pour leur contexte : ils
+    portent donc toujours ce defaut. Bascule NON faite ici (hors perimetre) -- elle coute une
+    invalidation unique de leurs caches, et rien d'autre.
+    """
+    h = hashlib.sha256()
+    for p in chemins:
+        h.update(str(p.name).encode("utf-8"))
+        h.update(b"\0")
+        try:
+            h.update(sha_texte(Path(p).read_text(encoding="utf-8")).encode("ascii"))
+        except (OSError, UnicodeDecodeError):
+            h.update(b"ABSENT")
+        h.update(b"\0")
+    return h.hexdigest()
+
+
 def sha_gros_fichiers(*chemins: Path) -> str | None:
     """Empreinte de fichiers VOLUMINEUX, lus par BLOCS. `None` si l'un manque -- jamais un sha.
 
@@ -152,9 +181,14 @@ class CacheCliquet:
                  encoder: Callable[[Any, str], Any] | None = None,
                  decoder: Callable[[Any, str], Any] | None = None,
                  dossier: Path | None = None, actif: bool | None = None,
-                 relire: bool = True):
+                 relire: bool = True, notes: tuple[str, ...] = ()):
         self.nom = nom
         self.contexte = contexte
+        #: Lignes de commentaire PROPRES a ce cliquet, ecrites dans l'en-tete. L'en-tete
+        #: generique dit « sha256 du CONTENU » ; un cliquet qui cle autrement (par SOUS-GRAPHE,
+        #: #486-r11) doit pouvoir le DIRE dans son propre fichier -- un artefact versionne qui
+        #: se decrit de travers fait ecrire des outils qui recalculent la mauvaise chose.
+        self.notes = tuple(notes)
         #: ⚠ L'ENCODEUR RECOIT L'APPEL, et ce n'est pas un ornement : un meme cliquet cache des
         #: valeurs de FORMES DIFFERENTES selon l'appel (`probe_477r25` y met des citations ET un
         #: simple entier). Un encodeur qui ne connait que la valeur plantait sur la seconde forme
@@ -225,8 +259,9 @@ class CacheCliquet:
                   "# CACHE DE VERDICT PAR FICHIER (#486-r1) -- artefact GENERE ET VERSIONNE.",
                   "# Cle de validation = sha256 du CONTENU : une entree perimee MANQUE, elle ne",
                   "# ment pas. En cas de conflit de merge : NE PAS FUSIONNER, REGENERER en",
-                  "# rejouant le cliquet (python scripts/python/%s.py)." % self.nom,
-                  "# rel\tappel\tsha256\tvaleur"]
+                  "# rejouant le cliquet (python scripts/python/%s.py)." % self.nom]
+        lignes.extend(self.notes)
+        lignes.append("# rel\tappel\tsha256\tvaleur")
         for (rel, appel) in sorted(self._vues):
             sha, brut = self._vues[(rel, appel)]
             lignes.append("%s\t%s\t%s\t%s"
