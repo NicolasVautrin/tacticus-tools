@@ -40,8 +40,6 @@
     "engine.dsl.base": 1
   },
   "engine.runner.abilities.targeting": {
-    "engine.dsl.base": 1,
-    "engine.entities.selectors": 1,
     "engine.entities.selectors.tiles": 1,
     "engine.runner.components": 1
   },
