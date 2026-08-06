@@ -1,0 +1,228 @@
+#!/usr/bin/env python
+"""#485 -- CLIQUET des imports DIFFERES vers `engine.*` ecrits DANS `engine/**`.
+
+CE QU'IL GARDE, ET CE QU'IL NE GARDE PAS
+----------------------------------------
+Il refuse tout NOUVEAU differe GRATUIT. Il ne pretend PAS que le graphe d'imports est sain :
+mesure du 2026-08-06, les 430/430 modules qui s'importent seuls le sont **grace a** 262 differes
+PORTEURS. Un cliquet qui se lirait << aucun cycle >> serait un faux certificat.
+
+    PORTEUR   hisser l'import FERMERAIT un cycle -> legitime, il RESTE
+    GRATUIT   hissable, aucun cycle              -> scorie, il DOIT partir
+
+POURQUOI UN CLIQUET ET PAS UNE REGLE ECRITE
+-------------------------------------------
+`CLAUDE.md` porte la doctrine depuis le 2026-08-06, mais la prose n'arrete pas un comportement --
+un en-tete se lit APRES la decision (mesure : `probe_457`, de-oblige la veille et joue quand meme).
+Et le gisement se propage par IMITATION, mesuree : **32 des 52 gratuits (62 %)** vivent dans un
+module qui porte DEJA un differe legitime. Un agent ouvre `abilities/targeting.py`, y voit
+4 porteurs, et ecrit le 5e sans se poser la question. Seul un REFUS executable coupe la boucle.
+
+LE TEST QUI CLASSE -- et il ne demande AUCUNE reecriture
+--------------------------------------------------------
+Pour un differe `M -> X` : charger `X` SEUL dans un process FRAIS, et regarder si `M` atterrit
+dans `sys.modules`. Oui ⇒ l'arete `M -> X` fermerait une boucle ⇒ PORTEUR. Non ⇒ GRATUIT.
+Mesure de calibrage : **0 indecis sur 314**.
+
+⚠ ON NE CLASSE PAS SUR LE GRAPHE STATIQUE, et c'est deliberе. Le graphe des imports DECLARES est
+aveugle aux boucles passant par un paquet ANCETRE, que Python execute quoi qu'on ecrive : mesure
+anterieure, `dsl.base -> engine.entities (init) -> ... -> dsl.base` leve un `ImportError` REEL
+sans apparaitre dans aucun SCC. Le process frais, lui, mesure ce que Python FAIT.
+
+TRI-ETAT
+--------
+    rc 0   VERT   -- aucun gratuit hors base, aucune declaration morte
+    rc 1   ROUGE  -- gratuit neuf, ou declaration perimee
+    rc 2   PAS MESURE -- le recensement ou la classification n'a pas abouti. JAMAIS un verdict
+                        sur le depot : un capteur muet ne rend pas un zero.
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import json
+import subprocess
+import sys
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+#: Racine RESOLUE DEPUIS `__file__`, jamais depuis le CWD. `probe_457` a rendu un FAUX `FAIL`
+#: pour avoir lu son perimetre depuis le repertoire courant (#457-r7) ; on supprime la question.
+ICI = Path(__file__).resolve().parent
+ENGINE = ICI / "engine"
+BASE = ICI.parent / "ratchets-485-differes-attestes.json"
+
+EX_VERT, EX_ROUGE, EX_PAS_MESURE = 0, 1, 2
+
+#: Heuristique de << raison ecrite >> : mots-cles cherches dans les 4 lignes qui PRECEDENT
+#: l'import. Volontairement grossiere, et c'est pourquoi l'etage 3 est INFORMATIF : un mot-cle
+#: absent ne prouve pas qu'aucune raison n'est donnee, il dit qu'aucune n'est REPERABLE.
+_MOTS_RAISON = ("cycle", "circulaire", "lazy", "tardif", "differe", "import retarde")
+
+
+def _nom_module(p: Path) -> str:
+    parts = list(p.relative_to(ICI).with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _resoudre(mod: str, node: ast.AST) -> list[str]:
+    """Rend les modules ABSOLUS `engine.*` vises par `node`, [] sinon."""
+    if isinstance(node, ast.Import):
+        return [a.name for a in node.names if a.name.split(".")[0] == "engine"]
+    base = mod.split(".")
+    if node.level:
+        pkg = base if (ICI / Path(*base)).is_dir() else base[:-1]
+        pkg = pkg[: len(pkg) - (node.level - 1)] if node.level > 1 else pkg
+        cible = ".".join(pkg + ([node.module] if node.module else []))
+    else:
+        cible = node.module or ""
+    return [cible] if cible.split(".")[0] == "engine" else []
+
+
+def recenser() -> list[tuple[str, str, int, bool]]:
+    """Tout import `engine.*` ecrit DANS un corps de fonction de `engine/**`."""
+    out: list[tuple[str, str, int, bool]] = []
+    for p in sorted(ENGINE.rglob("*.py")):
+        if "__pycache__" in str(p):
+            continue
+        mod = _nom_module(p)
+        src = p.read_text(encoding="utf-8")
+        lignes = src.splitlines()
+        arbre = ast.parse(src)
+        for fn in [n for n in ast.walk(arbre)
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+            for node in ast.walk(fn):
+                if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                    continue
+                ctx = " ".join(lignes[max(0, node.lineno - 4):node.lineno]).lower()
+                raison = any(m in ctx for m in _MOTS_RAISON)
+                for cible in _resoudre(mod, node):
+                    out.append((mod, cible, node.lineno, raison))
+    return out
+
+
+def _atteints(cible: str) -> set[str] | None:
+    """Modules `engine.*` charges par `import <cible>` dans un process FRAIS. `None` = echec."""
+    code = ("import sys, %s\n"
+            "print('\\n'.join(m for m in sys.modules if m.startswith('engine')))" % cible)
+    try:
+        r = subprocess.run([sys.executable, "-c", code], cwd=str(ICI), capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=180)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0 or r.stdout is None:
+        return None
+    return set(r.stdout.split())
+
+
+def classer(differes) -> tuple[list, list] | None:
+    """(porteurs, gratuits). `None` si une seule cible n'a pas pu etre chargee."""
+    cibles = sorted({c for _, c, _, _ in differes})
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        table = dict(zip(cibles, ex.map(_atteints, cibles)))
+    if any(v is None for v in table.values()):
+        muettes = sorted(k for k, v in table.items() if v is None)
+        print("  cible(s) NON CHARGEABLE(s), classification impossible : %s"
+              % ", ".join(muettes[:6]))
+        return None
+    porteurs, gratuits = [], []
+    for mod, cible, ligne, raison in differes:
+        (porteurs if mod in table[cible] else gratuits).append((mod, cible, ligne, raison))
+    return porteurs, gratuits
+
+
+def _compter(entrees) -> dict[str, dict[str, int]]:
+    """Cle (module, cible) -> compte. PAS la ligne : elle bouge a chaque edition voisine."""
+    d: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for mod, cible, _, _ in entrees:
+        d[mod][cible] += 1
+    return {m: dict(v) for m, v in sorted(d.items())}
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--ecrire", action="store_true",
+                    help="REGENERE la base attestee depuis la mesure courante. A n'employer "
+                         "qu'en connaissance de cause : la base est VERSIONNEE et ne doit que "
+                         "DECROITRE.")
+    a = ap.parse_args(argv)
+
+    print("[485] imports DIFFERES vers `engine.*` ecrits dans `engine/**`")
+    differes = recenser()
+    if not differes:
+        print("  recensement VIDE -- ce n'est pas un zero, c'est un capteur muet.")
+        print("[485] rc=%d -- PAS MESURE." % EX_PAS_MESURE)
+        return EX_PAS_MESURE
+
+    classe = classer(differes)
+    if classe is None:
+        print("[485] rc=%d -- PAS MESURE : la classification n'a pas abouti." % EX_PAS_MESURE)
+        return EX_PAS_MESURE
+    porteurs, gratuits = classe
+
+    print("  recenses : %d   PORTEURS : %d   GRATUITS : %d"
+          % (len(differes), len(porteurs), len(gratuits)))
+
+    courant = _compter(gratuits)
+    if a.ecrire:
+        BASE.write_text(json.dumps(courant, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("  base REGENEREE : %s (%d module(s), %d entree(s))"
+              % (BASE.name, len(courant), len(gratuits)))
+        return EX_VERT
+
+    if not BASE.exists():
+        print("  base attestee ABSENTE (%s) -- rien a confronter." % BASE.name)
+        print("[485] rc=%d -- PAS MESURE." % EX_PAS_MESURE)
+        return EX_PAS_MESURE
+    atteste = json.loads(BASE.read_text(encoding="utf-8"))
+
+    neufs, perimes = [], []
+    for mod, cibles in courant.items():
+        for cible, n in cibles.items():
+            ref = atteste.get(mod, {}).get(cible, 0)
+            if n > ref:
+                neufs.append((mod, cible, n - ref))
+    for mod, cibles in atteste.items():
+        for cible, n in cibles.items():
+            vu = courant.get(mod, {}).get(cible, 0)
+            if vu < n:
+                perimes.append((mod, cible, n - vu))
+
+    if neufs:
+        print("\n  [1] GRATUITS NEUFS -- hors base attestee :")
+        for mod, cible, n in sorted(neufs):
+            print("      %-52s -> %-38s x%d" % (mod, cible, n))
+        print("      Un differe GRATUIT est HISSABLE : aucun cycle ne le justifie. Hisse-le au")
+        print("      niveau module. Si tu crois qu'un cycle l'impose, la mesure dit le contraire")
+        print("      -- re-joue `python probe_485_imports_differes.py` apres avoir hisse.")
+
+    if perimes:
+        print("\n  [2] DECLARATIONS PERIMEES -- la base attend plus que ce qui existe :")
+        for mod, cible, n in sorted(perimes):
+            print("      %-52s -> %-38s -%d" % (mod, cible, n))
+        print("      C'est le cas NORMAL apres une reparation : retire ces entrees de %s"
+              % BASE.name)
+        print("      DANS LE MEME COMMIT. Une base qui ne decroit pas n'est plus un cliquet.")
+
+    sans_raison = [x for x in porteurs if not x[3]]
+    print("\n  [3] INFORMATIF -- porteurs sans raison REPERABLE : %d / %d"
+          % (len(sans_raison), len(porteurs)))
+    print("      Non bloquant : la detection est une heuristique par mots-cles, un manque ne")
+    print("      prouve pas qu'aucune raison n'est donnee. Mais c'est par eux que l'imitation")
+    print("      se propage -- un lecteur ne distingue pas << structurel >> de << scorie >>.")
+
+    if neufs or perimes:
+        print("\n[485] rc=%d -- ROUGE (%d neuf(s), %d perime(s))."
+              % (EX_ROUGE, len(neufs), len(perimes)))
+        return EX_ROUGE
+    print("\n[485] rc=%d -- VERT : aucun gratuit hors base, aucune declaration morte." % EX_VERT)
+    print("      Ce vert dit << aucun NOUVEAU cycle contourne >>, PAS << aucun cycle >>.")
+    return EX_VERT
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

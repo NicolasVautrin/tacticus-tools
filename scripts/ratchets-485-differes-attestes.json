@@ -1,0 +1,104 @@
+{
+  "engine.ai.state_bridge": {
+    "engine.runner.abilities.targeting_rule": 1
+  },
+  "engine.entities.effects.magnitude": {
+    "engine": 1
+  },
+  "engine.entities.pathfinding.pathfinders": {
+    "engine.entities.pathfinding": 1,
+    "engine.entities.pathfinding.fly_pathfinder": 1
+  },
+  "engine.playbook.nonattack": {
+    "engine.runner.abilities.targeting": 1
+  },
+  "engine.playbook.prediction.normal_attack": {
+    "engine.runner.abilities.loki.mv71": 1,
+    "engine.services.damage_prediction": 2
+  },
+  "engine.playbook.scene": {
+    "engine.entities.pathfinding.board": 1
+  },
+  "engine.runner.abilities.behaviours.context": {
+    "engine.runner.components": 1,
+    "engine.services.trait_damage_limits": 2
+  },
+  "engine.runner.abilities.behaviours.lifecycle": {
+    "engine.dsl.event_trigger_type": 1
+  },
+  "engine.runner.abilities.behaviours.movement": {
+    "engine.entities.pathfinding": 1
+  },
+  "engine.runner.abilities.behaviours.summon": {
+    "engine.runner.operations.spawn": 1
+  },
+  "engine.runner.abilities.loki.mv71": {
+    "engine.utilities.tile": 2,
+    "engine.weights": 1
+  },
+  "engine.runner.abilities.loki.quickening": {
+    "engine.dsl.base": 1,
+    "engine.entities.selectors": 1,
+    "engine.runner.components": 1
+  },
+  "engine.runner.abilities.orks": {
+    "engine.runner.components": 1
+  },
+  "engine.runner.abilities.targeting": {
+    "engine.dsl.base": 1,
+    "engine.entities.selectors": 1,
+    "engine.entities.selectors.tiles": 1,
+    "engine.runner.components": 1
+  },
+  "engine.runner.components": {
+    "engine.entities.stats": 1
+  },
+  "engine.runner.operations.behaviour": {
+    "engine.runner.events": 1,
+    "engine.runner.operations.movement": 1,
+    "engine.services.damage_combat": 1
+  },
+  "engine.runner.operations.damage_ops.normal": {
+    "engine.entities.active_ability_type": 1,
+    "engine.services.custom_normal_attack": 1
+  },
+  "engine.runner.operations.damage_ops.normal_like": {
+    "engine.services.trait_damage_limits": 1
+  },
+  "engine.runner.operations.movement": {
+    "engine.entities.effects.aura_selectors": 1,
+    "engine.runner.components": 2
+  },
+  "engine.runner.operations.resurrect": {
+    "engine.runner.abilities.loki.swarm": 1,
+    "engine.runner.operations.movement": 1
+  },
+  "engine.runner.operations.revive": {
+    "engine.battle_query": 1,
+    "engine.runner.abilities.loki.swarm": 1
+  },
+  "engine.runner.operations.spawn": {
+    "engine.entities.pathfinding.board": 1,
+    "engine.runner.components": 1,
+    "engine.runner.operations.aura_stat_mods": 1
+  },
+  "engine.runner.operations.triggers.loki.legendary_commander": {
+    "engine.runner.components": 1
+  },
+  "engine.runner.operations.turnflow": {
+    "engine.runner.operations.triggers": 2
+  },
+  "engine.runner.snapshot": {
+    "engine.services.damage_config": 1
+  },
+  "engine.services.ability_range": {
+    "engine.entities.pathfinding.board": 1
+  },
+  "engine.services.custom_normal_attack": {
+    "engine.entities.traits.unit_trait": 1
+  },
+  "engine.utilities.tile": {
+    "engine": 2,
+    "engine.weights": 1
+  }
+}
