@@ -233,6 +233,24 @@ class _Normal:
         # `pierce = 100`, `weapon_hits = 1` et `profile = None` -- pire que l'ancien repli melee.
         if _w is None:
             return None
+        # #419-r1-tr14-r4-r2-r1 -- `ExecuteInformWeapon(this, weapon, entities, useSpecial: 0)`, la
+        # ligne qui suit IMMEDIATEMENT le gate d'arme dans
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$ExecuteBehaviour`
+        # (avant `ExecuteNormalAttack`, avant `ExecuteTriggerAbilities`). Elle POSE deux tags de flux,
+        # MESURES sur MC1_67 : `Action=Info Entity=NO_ENTITY` / `Attack_Weapon_IsMelee` +
+        # `Attack_Weapon_DamageProfile`, premier enfant du `Group=Ability_Power ...
+        # Source=Loki_NormalAttack`.
+        #
+        # `useSpecial = 0` est LU au litteral de CE site (les huit attaques normales derivees le
+        # posent aussi a 0, SAUF `FeederTendrils` et `OptimizedGait`, qui passent `1` dans leur
+        # branche SPECIALE -- ni l'une ni l'autre n'emprunte ce foyer-ci, elles ont leur propre
+        # `ExecuteBehaviour`).
+        #
+        # COMBAT-INERTE PAR CONSTRUCTION : `InformBehaviour$$Execute` ne mute rien et
+        # `InformOperation$$Execute` ne fait que dispatcher un pas `StepType.Info` -- aucun tirage,
+        # donc l'ordre `state.rng` de l'attaque qui suit est INCHANGE (bit-exactness preservee).
+        from ...abilities.behaviours.combat import InformWeapon   # lazy : cycle damage<->abilities
+        _iw_tags = InformWeapon.from_weapon(_w, use_special=False).tags()
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),
@@ -620,6 +638,12 @@ class _Normal:
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"],
                 "ranged": _ranged, "profile": _profile,
+                # #419-r1-tr14-r4-r2-r1 : les tags que `ExecuteInformWeapon` a poses pour CETTE
+                # attaque. Canal d'OBSERVATION du port (le runner Python n'a pas de
+                # `StreamDispatcher` : la face qui ECRIT le flux est `engine.streams`, alimentee
+                # par des canaux independants). Les valeurs, elles, sont celles du natif -- c'est
+                # ce que confronte `probe_419r1tr14r4r2r1_normal_attack_inform_weapon.py`.
+                "inform_weapon_tags": _iw_tags,
                 "additional_hits": _ah,          # #202-B : sous-operations #179 (None = aucun groupe)
                 # #437 : les resultats du vecteur `On(9)` emis ci-dessus. CANAL DE DIAGNOSTIC pur --
                 # avant #437 ils remontaient dans `DamageHandler.after_hit` (le vecteur vivait au

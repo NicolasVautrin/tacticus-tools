@@ -8,7 +8,9 @@ from typing import Optional
 
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of, _pos, _is_alive
 from ....entities.damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
+from ....services.battle_query import weapon_is_melee
 from ....services.damage_config import resolve_spread_pct
+from ....streams.inform_ops import get_inform_weapon_tags
 from ....streams.tag_key import TagKey
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import StatsComponent
@@ -713,7 +715,13 @@ class InformWeapon(AbilityBehaviour):
 
     `is_melee` / `use_special` sont LUS au litteral de CHAQUE porteur, jamais deduits du profil ni du
     nom de l'ability -- ils DIFFERENT d'un porteur a l'autre (cf. `docs/rl/case-419-r1-tr14-r4-r2-*`).
-    Emet 'InformWeapon' (profil + les deux bits + le dict de tags). PUR."""
+    Emet 'InformWeapon' (profil + les deux bits + le dict de tags). PUR.
+
+    ⚠ SUR LA VOIE ATTAQUE NORMALE, `is_melee` N'EST PAS UN LITTERAL -- il est DERIVE de l'arme, et
+    c'est `from_weapon` qui porte cette derivation (#419-r1-tr14-r4-r2-r1). Le porteur le plus
+    FREQUENT de ce noeud est `ALoki_NormalAttackAbility$$ExecuteInformWeapon` (**9** appelants,
+    contre 6 pour la surcharge a trois arguments) : ecrire une constante y serait faux d'une unite
+    a l'autre ET d'une DISTANCE a l'autre pour la meme unite."""
     __slots__ = ("profile", "is_melee", "use_special")
 
     def __init__(self, profile: Optional[str], is_melee: bool = False, use_special: bool = False):
@@ -721,22 +729,51 @@ class InformWeapon(AbilityBehaviour):
         self.is_melee = bool(is_melee)
         self.use_special = bool(use_special)
 
-    def execute(self, entities, ectx):
-        # Mirror 1:1 de l'ORDRE D'INSERTION natif : 0x93, puis 0x92, puis 0x94 SOUS CONDITION.
-        # (l'ordre d'ECRITURE du flux est celui des ordinaux -- `StreamCache$$Action` retrie par
-        #  `SortedDictionary<TagKey,int>` -- donc seul le CONTENU du dict est observable.)
+    @classmethod
+    def from_weapon(cls, weapon: Optional[dict], use_special: bool = False) -> "InformWeapon":
+        """`IdunBattleLogic.Entities.DSLBehaviors$$InformWeapon(weapon: WeaponProfile, useSpecial)`
+        -- la surcharge a DEUX arguments, qui DERIVE les deux premiers de l'arme puis delegue :
+
+            if (weapon == null) throw;                              // FUN_1801f51f0
+            damageProfileType = new Nullable<DamageProfileType>(weapon->{+0x10});
+            isMelee           = WeaponProfile.get_IsMelee(weapon);
+            return InformWeapon(damageProfileType, isMelee, useSpecial);
+
+        C'est LA voie de l'attaque normale (son unique appelant est
+        `ALoki_NormalAttackAbility$$ExecuteInformWeapon`), et les deux grandeurs y sont DYNAMIQUES :
+        la MEME unite rend `IsMelee=1` au contact et `IsMelee=0` a distance, parce que
+        `BattleQuery$$GetAttackWeaponForDefaultNormalAttack` (slot `0xaf`) lui a choisi une AUTRE
+        arme. Un port qui ecrirait une constante passerait sur un seul montage.
+
+        `weapon` = le dict de profil d'arme du gameconfig, tel que `select_weapon` /
+        `battle_query.get_attack_weapon_for_default_normal_attack` le rend. `weapon+0x10` = sa cle
+        `DamageProfile` (le NOM, converti en ordinal a l'emission) ; `get_IsMelee` = le predicat
+        PARTAGE `battle_query.weapon_is_melee` (`Range is None || Range < 2`), pas un test local.
+
+        ⚠ `weapon is None` LEVE, comme le natif -- et ce n'est pas de la severite gratuite : le
+        gate `if (weapon == null) return default;` vit EN AMONT, dans `ExecuteBehaviour`. Une arme
+        nulle arrivee jusqu'ici signale que l'appelant a saute ce gate, pas qu'il faut ecrire -1."""
+        if weapon is None:
+            raise ValueError("InformWeapon.from_weapon : arme nulle -- le gate `if (weapon == null) "
+                             "return default;` d'ALoki_NormalAttackAbility$$ExecuteBehaviour "
+                             "n'a pas ete joue en amont")
+        return cls(profile=weapon.get("DamageProfile"), is_melee=weapon_is_melee(weapon),
+                   use_special=use_special)
+
+    def tags(self) -> dict:
+        """Le `Dictionary<TagKey,int>` de ce noeud -- DELEGUE au foyer unique
+        `engine.streams.inform_ops.get_inform_weapon_tags`, que partage la face STREAM
+        (`InformOperation$$Execute`). Une seconde table de cles ici pourrait diverger de celle
+        qu'emet le flux sans que rien ne le dise."""
         if self.profile is None:            # `Nullable<DamageProfileType>` vide -> le natif ecrit -1
             profile_index = int(DamageProfileType.None_)
         else:                               # nom inconnu -> KeyError : un bug de port, jamais un -1 muet
             profile_index = _PROFILE_INDEX_BY_NAME[self.profile]
-        tags: dict[TagKey, int] = {
-            TagKey.Attack_Weapon_DamageProfile: profile_index,      # 0x93 -- inconditionnel
-            TagKey.Attack_Weapon_IsMelee: int(self.is_melee),       # 0x92 -- inconditionnel
-        }
-        if self.use_special:                                        # `if ((char)useSpecial != '\0')`
-            tags[TagKey.Attack_Weapon_Use_Special] = int(self.use_special)   # 0x94 -- CONDITIONNEL
+        return get_inform_weapon_tags(profile_index, self.is_melee, self.use_special)
+
+    def execute(self, entities, ectx):
         ectx.emit("InformWeapon", profile=self.profile, is_melee=self.is_melee,
-                  use_special=self.use_special, tags=tags)
+                  use_special=self.use_special, tags=self.tags())
         return OperationResult.ok()
 
 
