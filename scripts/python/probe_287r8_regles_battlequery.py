@@ -163,7 +163,12 @@ def _cas_exemplar():
               (ENNEMI, "necroWarden", 2, cv[0], cv[1], [])]
     allie = [(CASTER, "tauShadowsun", 1, A[0], A[1], []),
              (ALLIE, "tauCrisis", 1, cv[0], cv[1], [])]
-    return substrat(ennemi), substrat(allie), tid
+    # TROISIEME bras : le SEUL voisin est le CASTER lui-meme. Le natif le RETIRE explicitement
+    # (`units.Remove(caster)`, slot 6 d'`ICollection<T>`) AVANT le `RemoveAll(IsEnemy)`, qui ne
+    # l'aurait pas retire (`IsEnemy(caster, caster)` est faux). Ce bras a ete trouve par la mesure
+    # LIVE, en SOUS-REFUS -- aucune bascule ami/ennemi ne pouvait l'exhiber.
+    seul_caster = [(CASTER, "tauShadowsun", 1, cv[0], cv[1], [])]
+    return substrat(ennemi), substrat(allie), tid, substrat(seul_caster)
 
 
 def _cas_alpha_warrior():
@@ -193,10 +198,13 @@ def mesurer_bascule() -> list:
                 int(TR.CasterHasNotMoved), _regle(aid, st_moved), _regle(aid, st_adj)))
 
     aid = int(ActiveAbilityType.ExemplarOfTheKauyon)
-    st_enn, st_all, tuile = _cas_exemplar()
+    st_enn, st_all, tuile, st_seul = _cas_exemplar()
     out.append((aid, "1087 tuile libre : voisin ENNEMI vs voisin ALLIE",
                 int(TR.TargetMatchesDynamicRule),
                 _regle(aid, st_enn, CASTER, tuile), _regle(aid, st_all, CASTER, tuile)))
+    out.append((aid, "1087 SEUL voisin = le CASTER (Remove) vs un ALLIE tiers",
+                int(TR.TargetMatchesDynamicRule),
+                _regle(aid, st_seul, CASTER, tuile), _regle(aid, st_all, CASTER, tuile)))
 
     aid = int(ActiveAbilityType.AlphaWarrior)
     st, dedans, dehors = _cas_alpha_warrior()
@@ -231,7 +239,7 @@ def mesurer_mutants() -> list:
     """Rend [(aid, libelle, a_morde, avant, apres)] -- `a_morde` = `avant == refus ET apres == 0`."""
     out = []
     st_moved, _libre, _adj = _cas_sky_strike()
-    st_enn, _all, tuile = _cas_exemplar()
+    st_enn, _all, tuile, _seul = _cas_exemplar()
     st_aw, _dedans, dehors = _cas_alpha_warrior()
     cas = [(int(ActiveAbilityType.SkyStrike), "1025", st_moved, CIBLE, int(TR.CasterHasNotMoved)),
            (int(ActiveAbilityType.ExemplarOfTheKauyon), "1087", st_enn, tuile,

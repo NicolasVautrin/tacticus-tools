@@ -1510,8 +1510,9 @@ def _dynamic_rule_exemplar_of_the_kauyon(state: "State", caster_id: int, target_
             return 2;                                          // TargetMatchesDynamicRule
         units = battleQuery.GetAdjacentUnits(target, friendsOf: null, enemiesOf: null,
                                              ignoreSteppables: false);      // slot 122
+        units.Remove(caster);                                  // ICollection<T> slot 6
         units.RemoveAll(u => UnitExtensions.IsEnemy(u, caster, state));
-        return units.Count() == 0 ? 2 : 0;
+        return units.Count() == 0 ? 2 : 0;                     // ICollection<T> slot 0
 
     SEMANTIQUE, avec le masque `0x6001042`
     (`TargetMatchesDynamicRule | TargetIsTile | TargetTileIsFree | AllowObscuredTargetByElevation
@@ -1519,6 +1520,20 @@ def _dynamic_rule_exemplar_of_the_kauyon(state: "State", caster_id: int, target_
     « adjacent to an allied unit ». Le `RemoveAll` retire les ENNEMIS -- ce qui reste, et qu'on
     exige non vide, ce sont les unites NON ennemies adjacentes. Le sens du filtre est donc INVERSE
     de sa lecture naive (« il faut un ennemi adjacent ») : c'est `RemoveAll`, pas un `Where`.
+
+    ⚠ LE `Remove(caster)` EST UN TERME A PART ENTIERE, ET IL A ETE TROUVE PAR LA MESURE LIVE.
+    `IsEnemy(caster, caster)` est FAUX, donc le `RemoveAll` ne retire PAS le caster : sans ce
+    premier retrait, une tuile dont le SEUL voisin est Shadowsun elle-meme passerait. C'est
+    exactement le SOUS-REFUS mesure sur `MC1_67` (natif `0x2`, port `0` ; le diagnostic par etage
+    imprimait `GetAdjacentUnits=[u<caster>(ami)]`). Il est logique : l'ability TELEPORTE Shadowsun,
+    donc elle ne peut pas etre son propre voisin a l'arrivee.
+    ⚠ ET IL N'ETAIT PAS LISIBLE AU PREMIER PASSAGE : Ghidra rend l'appel `FUN_180003c00(6, <MI>,
+    liste, caster)`, un invoke d'interface generique sans nom. Le `6` est le slot `Remove` d'
+    `ICollection<T>` (`get_Count` 0, `get_IsReadOnly` 1, `Add` 2, `Clear` 3, `Contains` 4, `CopyTo`
+    5, `Remove` 6), et ce qui l'ETABLIT sans le deviner est un second call-site du MEME motif dont
+    le nom dit ce qu'il fait :
+    `idun.Idun.Source.IdunMeta.View.Hud.Screens.GuildProjects.GuildProjectWidget$$HandleCheatRemoveTapped`,
+    dont le corps ENTIER est ce seul appel. Le `Count` de queue est le slot 0 de la meme interface.
 
     ⚠ LE PREMIER TERME EST UNE REDITE DU VOLET STATIQUE, ET IL EST INERTE ICI.
     `TileExtensions$$IsFreeTile(tile, state, allowSteppable, allowTemporaryTile, allowAnyUnit)` a
@@ -1550,8 +1565,10 @@ def _dynamic_rule_exemplar_of_the_kauyon(state: "State", caster_id: int, target_
     if not tile_can_add_unit(state, tiles[0]):
         return int(TR.TargetMatchesDynamicRule)
     units = get_adjacent_units(state, int(target_id))
-    # `List<T>.RemoveAll(u => IsEnemy(u, caster, state))` -- ce qui RESTE est le non-ennemi.
-    restants = [u for u in units if not units_are_enemies(state, int(caster_id), u.id)]
+    # `units.Remove(caster)` puis `RemoveAll(u => IsEnemy(u, caster, state))` -- ce qui RESTE est
+    # un allie adjacent AUTRE que le caster.
+    restants = [u for u in units
+                if u.id != int(caster_id) and not units_are_enemies(state, int(caster_id), u.id)]
     return 0 if len(restants) > 0 else int(TR.TargetMatchesDynamicRule)
 
 
