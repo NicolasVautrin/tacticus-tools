@@ -586,6 +586,27 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#483-r1` — les 6 endpoints host de trace arment encore en GLOBAL.**
+  `frida/host/router.ts` appelle `aiUtilityTrace{Enable,Disable}`,
+  `bucketAudit{Enable,Disable}` et `aiUtilityTraceDiagSampler{Enable,Disable}` **sans
+  argument** ⇒ armement/désarmement global, comme avant #483. Pas une régression (la
+  compat ascendante est exacte), mais la dernière porte par laquelle un acteur peut couper
+  un armement **global** voisin. **Non fait délibérément** : toucher `host/` imposerait un
+  **restart host** en plus de la fenêtre de reinject, pour un gain nul sur le défaut
+  mesuré, qui porte sur les probes. À faire *dans la même fenêtre* qu'un autre changement
+  host. Cf. `case-483-armement-par-runner.md` §6.
+
+- **`#483-r2` — le régime d'armement GLOBAL reste disputé entre acteurs.**
+  #483 rend le désarmement **nominatif** incapable de traverser la frontière d'un autre
+  acteur, et un `Off {}` incapable d'éteindre un armement **nominatif**. Restent
+  mutuellement destructibles : deux acteurs armés tous deux en GLOBAL. Deux sites y sont
+  encore (`probe_437r1.channel()`, `probe_462r4ar1 --wide`) parce qu'ils arment **avant que
+  le runner existe** — le `rid` n'y est pas disponible. Ils portent le marqueur
+  `ARMEMENT GLOBAL ASSUME`, que l'étage E4 de `probe_483_armement_par_runner.py` exige :
+  la dette est **visible**, pas invisible. Fermeture possible : ré-armer nominativement dès
+  que le premier `runnerId` apparaît dans un body, puis désarmer le global — code de probe
+  non trivial, à peser contre le gain.
+
 - ~~**`#270-r4-r1` — les `__init__.py` RÉ-EXPORTATEURS sont la cause ENTIÈRE des cycles d'import
   d'`engine/`**~~ — **LIVRÉ (2026-08-05)** sous **`#270-r4-r2`**,
   `case-270r4r2-couper-les-deux-cycles.md`. **Les deux SCC sont morts** (2 → **0**), et le

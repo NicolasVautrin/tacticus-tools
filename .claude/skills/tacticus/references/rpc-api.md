@@ -276,8 +276,32 @@ Outils de RE / observabilité — aucun hook live ne les APPELLE, mais leur code
   `{ runnerId }` → bucket direct ; clears scopables
   (`scorerDamageTraceClear`/`aiUtilityTraceClear`/`bucketAuditReset`
   `{ runnerId }`) ; `disposeRunner` PURGE automatiquement les buckets du
-  runner. Capture/lecture concurrente OK ; armement on/off et clear global
-  restent exclusifs (cf. validation.md §0).
+  runner.
+- **L'ARMEMENT aussi est par runner (#483) — passe TON `runnerId`.** Les seaux
+  étaient par runner mais la PORTE ne l'était pas : un booléen de module,
+  session-global. Comme les probes appellent leur `*Off` dans un `finally`, le
+  premier des 4-en-parallèle qui finissait **désarmait la capture des autres**,
+  qui dumpaient un seau **TRONQUÉ sans aucune erreur**. Foyer :
+  `game/armed-runners.ts`, six familles (`scorerDamageTrace*`,
+  `triggeredMoveTrace*`, `effectBonusTrace*`, `hitTrace*`, `aiUtilityTrace*`,
+  `bucketAudit*`).
+  - `On/Arm/Enable {runnerId}` → armement **NOMINATIF** ; sans `runnerId` →
+    armement **GLOBAL** (comportement historique, préservé).
+  - `Off/Disarm/Disable {runnerId}` → désarme CE runner ; **sans `runnerId`,
+    seul le GLOBAL est désarmé — les armements nominatifs des autres acteurs
+    SURVIVENT.** C'est l'asymétrie : un `On` de trop ne coûte que de la perf,
+    un `Off` de trop détruisait une mesure en silence.
+  - **Un désarmement doit porter le MÊME scope que son armement** : un
+    `Off {runnerId}` sur un armement global ne désarme rien et laisse le global
+    ouvert pour la session.
+  - Les `*Dump` publient `armedGlobal` + `armedRunners` (état réel) et un `on`
+    qui répond « la capture était-elle ouverte **pour l'origine interrogée** ».
+    `traceArmedStatus` (`status.ts`) donne l'état des six familles d'un coup.
+  - Cliquet offline : `probe_483_armement_par_runner.py` (périmètre **dérivé**
+    de `new OriginBuffers<`). Isolation live :
+    `probe_483_isolation_armement_live.py`.
+  Capture/lecture concurrente OK ; le clear global (sans `runnerId`) reste
+  exclusif (cf. validation.md §0).
 - **`overwatch*`/`overwatchFix*`** (`overwatch-fix/`) : anti-suicide overwatch.
 - **`whatifTrigger*`** (`whatif-trigger.ts`) : simulation « et si » de triggers.
 - **`dispatchObserve*`** (`dispatch-observe.ts`), **`modifierObserve*`**
