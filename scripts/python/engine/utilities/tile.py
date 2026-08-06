@@ -553,13 +553,17 @@ class AttractMechanicalsUtility(BaseUtility):
 
     Gate + donnee : `ctx.unit_traits` + `meta.attract_mechanicals_neighbor`."""
     UTILITY_TYPE = int(UtilityType.DoctrinaImperatives_AttractMechanicals)
+    #: FOYER UNIQUE des deux moities de la cle BC, pour que le probe et la garde citent la MEME
+    #: chose que le code evalue (une chaine recopiee ailleurs ne suit pas un renommage de build).
+    WEIGHT_CATEGORY = "DoctrinaImperatives_AttractMechanicals"
+    WEIGHT_KEY = "Marshal_AttractMechanicals"
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not _has(ctx, "unit_traits", int(UnitTrait.Mechanical)):    # HasTrait(case.Unit, 5)
             return 0.0
         if not (meta or {}).get("attract_mechanicals_neighbor"):       # Enumerable.Any(...)
             return 0.0
-        return wt.sub("DoctrinaImperatives_AttractMechanicals", "Marshal_AttractMechanicals")
+        return wt.sub(self.WEIGHT_CATEGORY, self.WEIGHT_KEY)
 
 
 class AttractToDecoysUtility(BaseUtility):
