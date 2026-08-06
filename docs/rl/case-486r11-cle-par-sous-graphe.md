@@ -131,9 +131,23 @@ Le VERT est le resultat suspect sur une contre-epreuve : chaque mutation doit av
   un verdict perime servi comme frais. Garde : `test_486r11_cle_sous_graphe_offline.py` etage 5.
 * **HORS de la fermeture** -> il ne doit PAS l'etre, **et son verdict doit etre inchange**. Le
   test exige d'abord que le fichier touche relance **son propre** module -- sans quoi le vert
-  dirait seulement « rien n'a change ». Verifie a la main sur l'arbre reel : toucher
-  `engine/droite/b.py` (jouet) laisse la cle de `engine.gauche.a` **identique**, et le run
-  complet rend le meme verdict.
+  dirait seulement « rien n'a change ».
+
+⚠ **Sur l'ARBRE REEL, avec une mutation DESTRUCTIVE.** Un commentaire ajoute ne prouve rien : il
+change le sha, rien de plus. La contre-epreuve insere un `raise ImportError` en tete du fichier
+touche, puis recalcule les verdicts A LA MAIN (interpreteur frais, hors de tout cache) :
+
+| cible touchee | dans sa fermeture | SENS 1 (temoin de morsure) | SENS 2 (6 modules hors fermeture) |
+| --- | ---: | --- | --- |
+| `engine/ai/tactic.py` (rayon 1) | 1 / 437 | `engine.ai.tactic` **rc 0 -> 1**, cle changee | verdict inchange **6/6**, cle inchangee **6/6** |
+| `.../triggers/loki/phoenix_gem.py` (rayon 181) | 181 / 437 | `engine.ai.action_generators` **rc 0 -> 1**, cle changee | verdict inchange **6/6**, cle inchangee **6/6** |
+
+Le SENS 1 est ce qui rend le SENS 2 lisible : sans temoin de morsure, « 6/6 inchanges » dirait
+seulement que la mutation n'a rien casse nulle part.
+
+Et la RE-VERIFICATION integrale (`--verifier-cache`, mode espion, 128,4 s) : **437 entrees sur
+disque, 437 recalculees, 0 divergence**. C'est le seul controle qui verrait une entree FALSIFIEE
+de facon coherente -- aucune cle ne le peut, par construction.
 
 Sont gardes en plus : le passage par le cache VERSIONNE (un process frais demarre chaud), un
 contexte different qui vide tout, un ECHEC jamais cache (`sys.modules` est a mi-chemin, sa
