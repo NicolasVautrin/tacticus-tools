@@ -142,6 +142,7 @@ from .serene_unifier import SereneUnifierStormOfFireEffect              # passif
 from .unbreakable_duty import (UnbreakableDutyHealthEffect,             # active templAncient, 1251/1256
                                UnbreakableDutyDamageEffect)
 from .shock_assault import ShockAssaultBuffEffect                       # passif ultraInceptorSgt, 1000
+from .champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect  # passif templSwordBrother, 1083
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 from .ability_modifications import ListenUpMaggotsEffect
 from .votann import (AugmentedAssaultReduceArmorEffect, AncestralFortuneExtraCritChanceEffect,
@@ -268,6 +269,8 @@ __all__ = [
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
     # ability_modifications (ecriture dans `ActiveAbilityModificationsComponent`)
     "ListenUpMaggotsEffect",
+    # champion_of_the_feast (#419-r6-r2) -- jumeau STATIC de l'`AugmentedAssault_ReduceArmor` ci-dessous
+    "ChampionOfTheFeastReduceArmorEffect",
     # votann (#113)
     "AugmentedAssaultReduceArmorEffect", "AncestralFortuneExtraCritChanceEffect",
     "AncestralFortuneExtraBlockChanceEffect", "GravitonRifleExtraPierceEffect",

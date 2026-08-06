@@ -158,6 +158,7 @@ from ..loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif 
 from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif genesMagus (GS Cults)
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
 from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
+from ..loki.champion_of_the_feast import ChampionOfTheFeastAbility    # #419-r6-r2 (passif templSwordBrother)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
@@ -511,6 +512,23 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/fabricator_claw_array.py (IdunBattleLogic.Entities.Abilities.Active.Loki.FabricatorClawArrayAbility$$CreateTrigger /
     # ...$$CreateBehaviour / ...$$GetTargetSelector).
     "FabricatorClawArray": [FabricatorClawArrayAbility],
+    # ChampionOfTheFeast (passif `templSwordBrother` << Sword Brother Godswyl >>, `TriggeredAbilityType`
+    # 0x43e = 1086 -- #419-r6-r2) = MEME event `On(0x1c = ArrivedAtFinalTile)` que FabricatorClawArray
+    # ci-dessus, MEME forme de gate :
+    #   `On(0x1c) & get_OwnerIsActor & !AmountIsZero(Damageable(AdjacentEnemies(Caster@+0x48,1,3)))`
+    #   -> `AttackWithAttackDamage(Owner@+0x30, <cible>, MinMaxDamage(abilityState),
+    #        GetDamageProfileOrDefault(DamageProfileType.Power = 0xe), GetHits(), ..., selectionType 2)
+    #      op_Addition
+    #      IfAlive(<cible>, AddStaticStatModifierEffect(<cible>, 0x43b = 1083, 0x10 = FixedArmor,
+    #                                                   Direct(-armorReduction[lvl]), turns = NULL))`
+    # ou `<cible>` = `Cache(Otherwise(PickRandomly(UnitsWithoutTrait(pool, 0x19 = Immune), 1),
+    #                                 PickRandomly(pool, 1)))` -- une PREFERENCE non-Immune, pas un
+    # filtre dur, et un `Cache` qui garantit UNE cible et UN tirage pour l'attaque ET le malus.
+    # `On(0x1c)` porte a lui seul les DEUX branches de l'i2 (« After moving » / « if he does not
+    # move, at the end of his turn ») : ce sont les deux emetteurs du MEME flag.
+    # Cf. loki/champion_of_the_feast.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ChampionOfTheFeastAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / ...$$GetTarget / ...$$GetPossibleTargets).
+    "ChampionOfTheFeast": [ChampionOfTheFeastAbility],
     # RelentlessMarch (passif `necroWarden` << Makhotep >>, `TriggeredAbilityType` 0x3ec = 1004 --
     # HOMONYME d'id avec `ActiveAbilityType` 1004 `MortisRound`, #328) :
     # `On(TurnStart_Other=0x13) & <DSLTriggers+0x28 = IsTurnOf(Owner)>` ->

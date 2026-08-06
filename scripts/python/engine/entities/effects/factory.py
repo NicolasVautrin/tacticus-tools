@@ -136,6 +136,7 @@ from .loki import (
     WaaaghExtraMovementEffect,
     WaaaghExtraDamageEffect,
     WaaaghExtraHitsEffect,
+    ChampionOfTheFeastReduceArmorEffect,
     AugmentedAssaultReduceArmorEffect,
     AncestralFortuneExtraCritChanceEffect,
     AncestralFortuneExtraBlockChanceEffect,
@@ -823,6 +824,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     #    `StaticBattleRules.Effect$$DefaultAmountOfRounds`).
     #  - 0x5cd=1485 / 0x5ce=1486 : ability 1207 AncestralFortune, vars 0x41=65 extraCritChance /
     #    0x3e=62 extraBlockChance, isNegative=0 -> stats 9 CritChance / 7 BlockChance sur le CASTER, 1 round.
+    # 0x43b=1083 (#419-r6-r2) : le JUMEAU **STATIC** du 0x605 ci-dessous -- meme observable
+    # (FixedArmor NEGATIF permanent sur la cible), mecanique native DIFFERENTE. Classe DEDIEE
+    # `IdunBattle.Entities.Effects.Loki.ChampionOfTheFeast_ReduceArmorEffect` derivant de
+    # `StaticStatModifierEffect`, posee par `ChampionOfTheFeastAbility$$CreateBehaviour` via
+    # `AddStaticStatModifierEffect(target, 0x43b, 0x10 FixedArmor, Direct(-armorReduction), turns=NULL)`.
+    # Le signe vient de la FORMULE (`Direct(-v)`), pas d'un flag `isNegative`. Detail :
+    # entities/effects/loki/champion_of_the_feast.py.
+    "ChampionOfTheFeast_ReduceArmor": ChampionOfTheFeastReduceArmorEffect,
     "AugmentedAssault_ReduceArmor": AugmentedAssaultReduceArmorEffect,
     "AncestralFortune_ExtraCritChance": AncestralFortuneExtraCritChanceEffect,
     "AncestralFortune_ExtraBlockChance": AncestralFortuneExtraBlockChanceEffect,
