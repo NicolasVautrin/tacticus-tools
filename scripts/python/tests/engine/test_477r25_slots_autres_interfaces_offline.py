@@ -425,14 +425,22 @@ def test_etage3quater_le_franchissement_de_virgule_APPORTE_sans_rien_perdre(
     cits, _ec, _r = recolte_complete
     ref, _ref_ec, _ref_r = recolte_virgule_bloquante
     cle = lambda c: (c.fichier, c.ligne, c.iface, c.slot, c.nom, c.ligne_nom)   # noqa: E731
+    juste = lambda k: tables.get(k[2], {}).get(k[3], ("",))[0] == k[4]         # noqa: E731
     neufs = {cle(c) for c in cits} - {cle(c) for c in ref}
     perdus = {cle(c) for c in ref} - {cle(c) for c in cits}
     assert neufs, ("le franchissement de virgule n'apporte plus rien -- soit le gisement est "
                    "ferme (le dire), soit le cran ne mesure plus le bon regime")
-    assert not perdus, ("le franchissement de virgule PERD des couples : %s"
-                        % sorted(perdus)[:5])
+    #: ⚠ LE CRITERE PORTE SUR LES JUSTES, PAS SUR LE COMPTE. Un « perdu » n'est pas une perte
+    #: quand la table le CONTREDIT : mesure, le regime bloquant laissait survivre le couple FAUX
+    #: (`astramilitarum.py` 0xab -> `GetSurroundingTiles`) precisement parce que la virgule
+    #: empechait d'apparier `battleQuery.GetUnitMaxRange` sur sa propre ligne. Le franchissement
+    #: cree l'attribution locale, et `ceder_aux_locaux` retire alors l'enjambant. Un test qui
+    #: interdirait TOUTE disparition interdirait au cran de faire son travail.
+    perdus_justes = [k for k in perdus if juste(k)]
+    assert not perdus_justes, ("le franchissement de virgule PERD des couples JUSTES : %s"
+                               % sorted(perdus_justes)[:5])
     #: Et aucun des neufs ne doit contredire la table -- c'est la moitie qui compte.
-    faux = [k for k in neufs if tables.get(k[2], {}).get(k[3], ("",))[0] != k[4]]
+    faux = [k for k in neufs if not juste(k)]
     assert not faux, "le franchissement de virgule fait entrer des couples FAUX : %s" % faux[:5]
 
 

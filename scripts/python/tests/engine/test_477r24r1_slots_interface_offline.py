@@ -645,11 +645,17 @@ def test_etage3quater_le_franchissement_de_virgule_APPORTE_sans_rien_perdre(tabl
     cits, _ns, _ec = P.recolter()
     ref, _rns, _rec = P.recolter(virgule_bloquante=True)
     cle = lambda c: (c.fichier, c.ligne, c.slot, c.noms[0], c.ligne_nom)      # noqa: E731
+    juste = lambda k: table.get(k[2], ("",))[0] == k[3]                       # noqa: E731
     neufs = {cle(c) for c in cits} - {cle(c) for c in ref}
     perdus = {cle(c) for c in ref} - {cle(c) for c in cits}
     assert neufs, "le franchissement de virgule n'apporte plus rien sur ce corpus"
-    assert not perdus, "le franchissement de virgule PERD des couples : %s" % sorted(perdus)[:5]
-    faux = [k for k in neufs if table.get(k[2], ("",))[0] != k[3]]
+    #: ⚠ LE CRITERE PORTE SUR LES JUSTES. Un couple que la table CONTREDIT a le droit de
+    #: disparaitre -- c'est meme ce que le cran de localite existe pour faire (mesure sur le
+    #: corpus voisin : `astramilitarum.py` 0xab -> `GetSurroundingTiles`, faux, retire).
+    perdus_justes = [k for k in perdus if juste(k)]
+    assert not perdus_justes, ("le franchissement de virgule PERD des couples JUSTES : %s"
+                               % sorted(perdus_justes)[:5])
+    faux = [k for k in neufs if not juste(k)]
     assert not faux, "le franchissement de virgule fait entrer des couples FAUX : %s" % faux[:5]
 
 

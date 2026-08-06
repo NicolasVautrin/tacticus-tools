@@ -362,7 +362,7 @@ class SendInTheNextWaveAbility(ActiveAbility):
         """`IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetDynamicInvalidTargetReason`
         -- MIRROR du decompile, ligne a ligne (#287-r11-r1) :
 
-            range = GetSpawnedUnitRange();                      // GetUnitMaxRange(unitId), slot 171
+            range = GetSpawnedUnitRange();          // battleQuery.GetUnitMaxRange(unitId), slot 171
             tiles = battleQuery.GetSurroundingTiles(targetTiles, range,
                                                     onlyEmptyOrSteppable: 1, onlyWalkable: 1,
                                                     onlyMovable: 0, includeCenter: 1);   // slot 103

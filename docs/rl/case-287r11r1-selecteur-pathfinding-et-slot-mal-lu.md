@@ -61,7 +61,11 @@ le sentinel **-1** qui désarme la règle sur substrat vide.
 
     entities = default(AbilityEntities);                 // memset 0x128
     entities.caster = caster; entities.target = target; entities.targetTiles = targetTiles;
-    return GetAttackTargets().<vslot 24 = ITargetsSelector.Count>(entities) > 0 ? 0 : 2;
+    return GetAttackTargets().<slot 2 = ITargetsSelector.Count>(entities) > 0 ? 0 : 2;
+    //                              ^ le SLOT D'INTERFACE (table ci-dessus). Le decompile montre
+    //                                l'index 24 de la VTABLE de la classe : une position dans la
+    //                                CLASSE n'indexe RIEN (#477-r24-r1) -- les ecrire sur la meme
+    //                                ligne rendait le cliquet ROUGE (corrige par #477-r42).
 
     GetAttackTargets = Enemies(Caster@0x48, Units(GetAffectedTiles(), unique: 1, type: 3), type: 3)
     GetAffectedTiles = SortReverse( TilesBehindInLine(CasterTile@0x50, TargetTile@0x78,
