@@ -936,6 +936,42 @@ def conformite_du_groupe_damage(flux: str) -> dict:
             "lignes": sum(len(_nu(t)) for _i, t, _o in groupes)}
 
 
+def ventilation_du_reste(couples: List[TurnObs]) -> List[dict]:
+    """CE QUI RESTE HORS PERIMETRE, ET **QUI** L'Y RETIENT (#477-r34).
+
+    ⚠ NOMMER UN BLOC PAR L'UNE DES FORMES QU'IL PORTE SURESTIME CE QUE PORTER CETTE FORME
+    RAPPORTE, ET C'EST MESURE. `case-477r22` § 7.6 attribue les 47 lignes du roster 2v2 a
+    `Group=Damage` ; la ventilation ci-dessous montre que **36** d'entre elles en sont, et que
+    les **11** autres sont un `Group=Ability_Power` + une `Action=HealInfo` (pipeline de SOIN,
+    `TagKey.Caster_Id` / `UnitStats_WasWoundedBeforeHeal` /
+    `UnitStats_RemovedNegativeUnitEffects`). La regle « un sous-arbre part hors perimetre EN
+    ENTIER » -- qui est juste -- fait donc que porter la famille `Damage` ne fait rien entrer de
+    ce bloc-la : la forme QUI BLOQUE est ailleurs.
+
+    Pour chaque bloc encore hors perimetre, cette fonction rend les formes ETRANGERES (celles
+    qu'aucun module de `engine/streams` ne produit) et le nombre de lignes qui appartiennent a
+    un `Group=Damage` -- c'est-a-dire ce que cette tranche sait deja reproduire mais que la
+    partition retient."""
+    out: List[dict] = []
+    for c in couples:
+        for h in c.hors:
+            lignes = h["texte"]
+            etrangeres = sorted(R21._formes(lignes) - R21._formes_portees())
+            en_damage = 0
+            i = 0
+            while i < len(lignes):
+                mg = CONF.RE_GROUP.match(lignes[i])
+                if mg and mg.group("sym") == GroupType.Damage.name:
+                    fin = R21._bloc(lignes, i)
+                    en_damage += fin + 1 - i
+                    i = fin + 1
+                    continue
+                i += 1
+            out.append({"racine": c.racine, "lignes": h["lignes"],
+                        "etrangeres": etrangeres, "lignes_damage": en_damage})
+    return out
+
+
 def effect_refresh_recoltes(couples: List[TurnObs]) -> dict:
     """CE QUE LA TRANCHE DEBLOQUE POUR `Effect_Refresh`, mesure -- le fil de #477-r19-r2.
 
@@ -1086,6 +1122,7 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
             "effect_refresh": effect_refresh_recoltes(couples),
             "foyer": conformite_du_foyer(flux),
             "damage": conformite_du_groupe_damage(flux),
+            "reste": ventilation_du_reste(couples),
             "voc_porte": R19.vocabulaire(attendu0)}
 
 
@@ -1229,23 +1266,31 @@ def main() -> int:
         print("[477-r22] MESURE IMPOSSIBLE : %s" % e)
         return 2
 
-    plans = [(b.strip(), args.p_units, args.a_units, b.strip())
+    plans = [(b.strip(), args.p_units, args.a_units, b.strip(), args.tours)
              for b in args.boards.split(",") if b.strip()]
     if not args.sans_roster_crafte and not args.p_units and not args.a_units:
         # LE SCENARIO CRAFTE : meme roster 2v2 qu'aux deux crans precedents, ou le contenu du
         # groupe tombe d'un facteur 3,7. Il DEPLACE le regime au lieu de rejouer le meme.
         plans.append(("MC1_67", "adeptHospitaller,astraBullgryn",
-                      "blackTerminator,worldJakhal", "MC1_67-2v2"))
-    print("[477-r22] session=%d  scenarios=%s  tours=%d"
-          % (session, ",".join(p[3] for p in plans), args.tours))
+                      "blackTerminator,worldJakhal", "MC1_67-2v2", args.tours))
+        # ⚠ LE SCENARIO LONG EST ENTRE AVEC `#477-r34`, ET C'EST UNE MESURE QUI L'A IMPOSE.
+        # A DEUX tours, AUCUN des trois scenarios ci-dessus ne porte de `Group=Damage` DANS un
+        # `Group=StartTurn` : un degat de debut de tour vient d'un effet de TUILE, qui exige
+        # qu'une unite ait eu le temps de s'y poser. La famille de `#477-r34` n'y serait donc
+        # jamais exercee A L'ENDROIT que cette tranche fait entrer au perimetre -- le foyer,
+        # lui, l'est en nombre sur tout le flux, mais ce n'est pas la meme mesure. A SIX tours
+        # sur `C1_02`, la mesure rend 1 couple porteur et 36 lignes qui entrent.
+        plans.append(("C1_02", "", "", "C1_02-6t", max(6, args.tours)))
+    print("[477-r22] session=%d  scenarios=%s"
+          % (session, ",".join("%s(%dt)" % (p[3], p[4]) for p in plans)))
 
     resultats = []
-    for board, pu, au, etiquette in plans:
+    for board, pu, au, etiquette, tours in plans:
         print("")
-        print("=== SCENARIO %s (board %s%s) ==="
-              % (etiquette, board, ", roster crafte" if pu or au else ""))
+        print("=== SCENARIO %s (board %s, %d tour(s)%s) ==="
+              % (etiquette, board, tours, ", roster crafte" if pu or au else ""))
         try:
-            res = scenario(session, board, args.tours, pu, au, etiquette)
+            res = scenario(session, board, tours, pu, au, etiquette)
         except MesureImpossible as e:
             print("  MESURE IMPOSSIBLE : %s" % e)
             return 2
@@ -1438,6 +1483,16 @@ def main() -> int:
               % (GroupType.Damage.name, dmg_total, dmg_lignes,
                  sum(1 for r in resultats for c in r["couples"] for p in c.portes
                      if _porte_un_damage(p["obs"])), GroupType.StartTurn.name))
+        print("  CE QUI RESTE HORS PERIMETRE, ET QUI L'Y RETIENT :")
+        for r in resultats:
+            if not r["reste"]:
+                print("      %-12s AUCUN -- les couple(s) sont INTEGRALEMENT au perimetre"
+                      % r["etiquette"])
+            for b in r["reste"]:
+                print("      %-12s %3d ligne(s), dont %d de `Group=%s` (deja reproduites par le "
+                      "foyer) ; BLOQUE PAR : %s"
+                      % (r["etiquette"], b["lignes"], b["lignes_damage"], GroupType.Damage.name,
+                         ",".join(b["etrangeres"])))
         print("  NON COUVERT : la DECISION de `VerifyUnitTurnEnded` (les deux predicats de "
               "mobilite), les gardes de `HandleNextTurn` (`#477-r22-r2`), la SELECTION des "
               "effets (`#477-r21-r2`), la DECISION qu'un coup produise un `Group=%s` (elle vit "
