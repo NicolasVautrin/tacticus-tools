@@ -204,7 +204,8 @@ def start_turn(events: StreamDispatcher, match_entity_id: int, previous_player_i
     qui met leurs emissions DANS le groupe. Le port place donc `corps` entre l'action et la
     fermeture, jamais avant l'action.
 
-    ⚠ `corps` ET `verifier` SONT DEUX PARAMETRES, PAS UN SEUL, ET L'ORDRE EST DERIVE ICI (#477-r22-r1).
+    ⚠ `corps` ET `verifier` SONT DEUX PARAMETRES, PAS UN SEUL, ET L'ORDRE EST DERIVE ICI
+    (#477-r22-r1).
     `corps` porte le `RefreshEffects` du slot `0x2f` et les CINQ `EvaluateAbilities(TurnStart_*)`
     du slot `0x4d` ; `verifier` porte le slot `0x21` = `VerifyUnitsTurnFinished`, que le
     decompile appelle APRES les six autres et AVANT `Events.FinishGroup()`. Les fusionner en un

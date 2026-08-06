@@ -304,7 +304,8 @@ def lire_couple(lignes: List[str], i_prepare: int, racine: str,
     contenu = groupe[k:-1]
     par = (_partitionner(contenu) if contenu
            else {"portes": [], "hors": [], "marques": []})
-    # LES CANDIDATS SONT DERIVES, PAS LUS DANS LA QUEUE : `PlayerComponent$$get_CurrentlyOwnedUnitIds`
+    # LES CANDIDATS SONT DERIVES, PAS LUS DANS LA QUEUE : c'est
+    # `PlayerComponent$$get_CurrentlyOwnedUnitIds`
     # du joueur COURANT, reconstruit par la carte `Action=AddUnit` -> `Tag=Unit_Owner_Id` et le
     # `Tag=Match_CurrentPlayerId` de l'`Action=PrepareTurn`. Les deux canaux ignorent totalement
     # les lignes que le slot `0x21` ecrit -- c'est ce qui rend (D6) falsifiable.
@@ -639,7 +640,8 @@ def emettre(obs: TurnObs, depart: TurnStage, mutation: str = "") -> str:
                     events, p["obs"],
                     mutation if mutation in ("info_entite", "info_tag_arme") else "")
 
-    # LA QUEUE DU GROUPE -- slot `0x21` = `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished`
+    # LA QUEUE DU GROUPE -- slot `0x21` =
+    # `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished`
     # (arite 0, LU dans `data/symbols/<build>/metadata/interface_slots.tsv`). Le registre est
     # RECONSTRUIT a chaque appel : `emettre` est jouee des dizaines de fois par couple (cinq
     # departs x N mutations), et un registre partage ferait dependre le resultat de l'ordre des
