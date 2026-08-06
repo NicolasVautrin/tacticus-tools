@@ -35,36 +35,53 @@ Le pre-gate `<slot 4> || IsFriend` est le complement de
 `ITriggeredAbilityNonOwnerPlaybook`, dont le corps est TRIVIAL (fondu par l'ICF, donc sans symbole
 propre).
 
-**IL EST DESORMAIS LU (#433-r4-r3), et il vaut `false`** -- le residu que cette docstring nommait
-est FERME, parce que deux playbooks SANS auto-gate entrent au registre ci-dessous. Chaine de
-lecture, en trois sources qui se recoupent :
+**LE `<slot 4>` A UN NOM, ET IL EST LU CLASSE PAR CLASSE (#477-r37).** C'est
+`get_ShouldIncludingEnemiesWhenCalculate` -- la 5e methode d'`ITriggeredAbilityNonOwnerPlaybook`,
+LUE dans le `global-metadata.dat` (`il2cpp_metadata.type_methods`, la meme voie que
+`data/symbols/<build>/metadata/interface_slots.tsv`), qui rend pour cette interface :
 
-  1. **Le slot est bien 4 dans l'interface, et les slots 0/1/2 sont les trois `Calculate*`.**
-     `FUN_180002590(slot, <Il2CppClass* de l'interface>, obj)` indexe
-     `klass->interfaceOffsets` (+0xb0, compte +0x12e) puis la vtable (+0x138, entrees de 0x10).
-     Le `DAT_` passe en 2e argument porte un token de metadata-usage de `kind == 1`
-     (`kIl2CppMetadataUsageTypeInfo`), donc c'est bien le TYPE de l'interface, pas un MethodInfo.
-     Les trois consommateurs nommes fixent le mapping : `<EvaluateMovementInSteps>d__0$$MoveNext`
-     invoque le slot **0** avec `(case, owner)`, `<EvaluateAttackInSteps>d__1$$MoveNext` le slot
-     **1**, `<EvaluateRepairInSteps>d__2$$MoveNext` le slot **2** -- et `IsInvalidEntityForPlaybook`
-     / `<IterateAbilities>d__3$$MoveNext` le slot **4**.
-  2. **Aucune classe concrete ne le surcharge.** Le bloc `methodPointers` du PE
-     (`probe_8889_methodptr_vtable.py`) donne, pour `KustomForceFieldReworkedNonOwnerPlaybook`,
-     `ECogSupportPlaybookNonOwnerPlaybook` et `PsychicFortressNonOwnerPlaybook`, EXACTEMENT deux
-     entrees chacune -- `.ctor` puis `CalculateMovementUtilityInSteps` -- immediatement suivies des
-     six corps de leur state machine `d__2`. Les trois heritent donc directement de
-     `TriggeredAbilityNonOwnerPlaybook<T>` (`data/symbols/<build>/frida/classes.tsv` le confirme
-     comme parent). C'est la lecture qui remplace « absent des tables donc pas d'override », que le
-     `CLAUDE.md` interdit a bon droit.
-  3. **Dans le bloc de la BASE, un seul corps rend un booleen, et il rend `false`.** Le bloc de
-     `TriggeredAbilityNonOwnerPlaybook<T>` compte 21 entrees ; 19 portent un symbole propre
-     (`.ctor`, les trois `Calculate*`, `GetUtilityValue`, `Init`, `get_LogSpamFilter`, `get_Logger`,
-     `get_Query`, `get_State`, `get_UtilitiesDatabase`, les huit `set_*`) et TOUTES rendent un objet,
-     `Fix64` ou `void`. Les deux restantes sont des corps fondus : l'un lit un champ objet (8 octets),
-     l'autre est `return 0` sur **UN** octet -- la seule signature possible pour ce predicat.
+    slot 0  CalculateMovementUtilityInSteps        slot 3  Init
+    slot 1  CalculateAttackUtilityInSteps          slot 4  get_ShouldIncludingEnemiesWhenCalculate
+    slot 2  CalculateRepairUtilityInSteps
 
-Consequence portee : le pre-gate se reduit exactement a `IsFriend(case.unit ?? case.parent, owner)`,
-et il est mirrore LA OU LE NATIF LE MET -- dans le dispatcher (`utilities/tile.py::
+Sur les **28** classes concretes de la famille, **2** le SURCHARGENT et **26** heritent :
+
+  * `HaywireMineNonOwnerPlaybook`             -> `true`  (face MOVE, portee ci-dessous) ;
+  * `NoHidingFromTheWatchersNonOwnerPlaybook` -> `true`  (face ATTACK, hors de cette feuille) ;
+  * les 26 autres n'ont AUCUNE entree de ce nom dans leur `Il2CppTypeDefinition` -> elles prennent
+    le corps de la base, mesure au runtime `xor eax,eax ; ret` = **`false`**.
+
+TROIS sources INDEPENDANTES, et c'est le probe `probe_477r37_slot4_et_faces_restantes.py` qui les
+re-derive (jamais cette docstring) :
+
+  1. **DECLARATION** -- `global-metadata.dat` : la liste des methodes DECLAREES par chaque type.
+     C'est la seule source COMPLETE (28/28) : elle ne depend ni de l'ICF ni de l'initialisation.
+  2. **VALEUR (offline)** -- le bloc `methodPointers` du PE, ancre sur le `.ctor` et INDEXE par la
+     position metadata. Les deux surcharges pointent le meme corps fondu
+     (`UnityEngine.U2D.IK.Solver2D$$DoValidate` = `b0 01 c3` = `mov al,1 ; ret`).
+  3. **VALEUR (runtime)** -- la vtable de la classe (`resolveVtableSlot`), BORNEE : on n'accepte que
+     les classes dont les slots 0..3 sont les quatre virtuels d'`Object`. 13 des 28 classes sont
+     initialisees dans la session ; le probe DIT les 15 autres au lieu d'en rendre un zero.
+
+⚠ **LE CRITERE DE #477-r35 ETAIT FAUX SUR LES DEUX BORDS, et il rendait la bonne reponse.** Il
+lisait l'entree qui **PRECEDE** le `.ctor` dans le bloc `methodPointers` :
+  * **faux negatif** -- `NoHidingFromTheWatchersNonOwnerPlaybook` declare le getter APRES son
+    `.ctor` ; le critere ne pouvait pas la voir, et elle vaut `true` ;
+  * **faux positif** -- il attribuait a `ECogSupportPlaybookNonOwnerPlaybook` et
+    `KustomForceFieldReworkedNonOwnerPlaybook` un override explicite `return 0`
+    (`Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId`). Le metadata dit qu'elles ne
+    declarent RIEN : cette entree appartient au TYPE PRECEDENT de la table. La valeur (`false`)
+    etait juste pour la mauvaise raison.
+Le point de doctrine reste entier : le `<slot 4>` est une donnee **PAR CLASSE**, jamais une
+constante de famille.
+
+⚠ **UNE VTABLE RUNTIME NON BORNEE MENT** (piege #218). Sans la garde « slots 0..3 = les quatre
+virtuels d'`Object` », `RelicOfLostCadiaNonOwnerPlaybook` -- classe NON initialisee -- rendait un
+`get_ShouldIncludingEnemiesWhenCalculate` a l'index 42 : c'etait la vtable de l'`Il2CppClass`
+VOISINE. Elle donnait la bonne valeur, par chance.
+
+Consequence portee : le pre-gate est `pb.SLOT_4 || IsFriend(case.unit ?? case.parent, owner)`, et il
+est mirrore LA OU LE NATIF LE MET -- dans le dispatcher (`utilities/tile.py::
 TriggeredAbilitiesNonOwnerUtility.evaluate`, mirror d'`IterateAbilities`), pas dans les corps de
 playbook. `KustomForceFieldReworkedNonOwnerPlaybook` garde son propre test `IsFriend` : son corps
 natif le porte VRAIMENT (redondant avec le pre-gate, mais present au decompile), et le port mirrore
@@ -936,27 +953,25 @@ class HaywireMineNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
         else
             yield return GetUtilityValue("HaywireMine_EnemyAvoidMine");      // -30
 
-    ⚠⚠ **CETTE CLASSE EST LA SEULE DE LA FAMILLE DONT LE `<slot 4>` VAUT `true`, ET C'EST CE QUI
-    REND SA BRANCHE ENNEMI ATTEIGNABLE.** Le pre-gate d'`IterateAbilities` est
-    `playbook.<slot 4> || IsFriend(case.unit ?? case.parent, owner)`. Relu dans le bloc
-    `methodPointers` du PE, l'entree qui PRECEDE immediatement le `.ctor` de cette classe est un
-    corps trivial d'UN octet -- `UnityEngine.U2D.IK.Solver2D$$DoValidate`, fondu par l'ICF, dont le
-    corps est `return 1`. Les classes de controle relues cote a cote portent, a la meme place,
-    `Unity.Services.Core.Device.UnityAdsIdentifier$$get_UserId` = `return 0`
-    (`ECogSupportPlaybookNonOwnerPlaybook`, `KustomForceFieldReworkedNonOwnerPlaybook`) ou bien le
-    `get_Current` d'une AUTRE classe, c'est-a-dire AUCUN override -- elles heritent alors le `false`
-    de la base (`PsychicFortressNonOwnerPlaybook`, `MawClawsOfThyraxNonOwnerPlaybook`,
-    `PurgeResponseNonOwnerPlaybook`).
+    ⚠⚠ **C'EST LA SEULE FACE **MOVE** DONT LE `<slot 4>` VAUT `true`, ET C'EST CE QUI REND SA
+    BRANCHE ENNEMI ATTEIGNABLE.** Le pre-gate d'`IterateAbilities` est
+    `playbook.<slot 4> || IsFriend(case.unit ?? case.parent, owner)`. Le `<slot 4>` est
+    `get_ShouldIncludingEnemiesWhenCalculate` (cf. l'en-tete du module) : cette classe le DECLARE
+    dans son `Il2CppTypeDefinition`, et son corps -- fondu par l'ICF sur
+    `UnityEngine.U2D.IK.Solver2D$$DoValidate` -- est `b0 01 c3` = `mov al,1 ; ret`. Balayage
+    COMPLET des 28 concrets (#477-r37) : elle et `NoHidingFromTheWatchersNonOwnerPlaybook` (face
+    ATTACK) sont les DEUX seules a surcharger ; les 26 autres heritent le `xor eax,eax ; ret` de la
+    base.
 
     ⚠ **Le premier critere essaye etait FAUX, et il rendait VERT.** Il postulait que le bloc d'une
     classe COMMENCE a son `.ctor` -- donc que « `.ctor` + `Calculate*` + les six corps de la SM »
-    valait « aucun override ». Les six classes le satisfaisaient toutes, y compris celle-ci. C'est
-    la MESURE LIVE qui l'a renverse : sur la tuile minee du montage `haywire`, `X_nat` valait
-    **-130** pour un port a **-100** -- il manquait exactement **-30**, la valeur de
+    valait « aucun override ». Les six classes de #477-r35 le satisfaisaient toutes, y compris
+    celle-ci. C'est la MESURE LIVE qui l'a renverse : sur la tuile minee du montage `haywire`,
+    `X_nat` valait **-130** pour un port a **-100** -- il manquait exactement **-30**, la valeur de
     `HaywireMine_EnemyAvoidMine`, et aucune autre ability du montage n'a de `*NonOwnerPlaybook`
-    (verifie sur les six ids presents). Le discriminant correct est donc l'entree QUI PRECEDE le
-    `.ctor`, pas celles qui le suivent. Corollaire de doctrine : `slot 4` est une donnee PAR CLASSE,
-    et « les trois classes lues valent `false` » n'autorisait rien sur les vingt-cinq autres.
+    (verifie sur les six ids presents). Le critere de REMPLACEMENT (« l'entree qui PRECEDE le
+    `.ctor` ») etait lui aussi faux, dans les deux sens -- cf. l'en-tete du module. Corollaire de
+    doctrine, seul acquis stable : `slot 4` est une donnee PAR CLASSE.
 
     Deux autres lectures qui ne se devinent pas :
 
@@ -1019,6 +1034,96 @@ class HaywireMineNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
                             self.KEY_FRIENDLY if is_friend else self.KEY_ENEMY))
 
 
+class FirstAmongTraitorsNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`FirstAmongTraitorsNonOwnerPlaybook`
+    (`IdunBattle.AI.Playbook.Loki.FirstAmongTraitorsNonOwnerPlaybook$$.ctor` : litteral `0x428` =
+    1064 `FirstAmongTraitors`, PASSIF d'unite).
+
+    `IdunBattle.AI.Playbook.Loki.FirstAmongTraitorsNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`,
+    remis en C# depuis le decompile (champs de la SM LUS DANS LA METHODE-USINE
+    `$$CalculateMovementUtilityInSteps` : `case @+0x20, playbook @+0x28, owner @+0x30` -- la
+    disposition d'`ECogSupport`/`Kardiocore`/`PurgeResponse`) :
+
+        if (case.unit == null) yield break;
+        if (!UnitExtensions.HasTrait(case.unit, 0x7ea)) yield break;      // UnitTrait.Chaos
+        ITile tile = case.MovementTile;
+        var ownerTiles = EntityExtensions.GetTiles(owner, State);
+        int d = Query.<slot 0x6d = GetDistance, arite 2>(tile, ownerTiles);
+        if (playbook.<+0x58> == null) yield break;                       // l'ability
+        if (d <= FirstAmongTraitorsAbility.GetRange(ability))
+            yield return GetUtilityValue("FIRSTAMONGTRAITORS_SurroundingOwner");   // 20
+
+    ⚠⚠ **CETTE FACE A ETE CLASSEE « TERME INERTE, 0 UNITE SUR 1083 » PAR #477-r35, ET C'EST FAUX.**
+    Le compte ne regardait que `gameconfig.unit(vis).traits`, c'est-a-dire exactement la source dont
+    `engine/entities/traits/unit_trait.py` ecrit qu'elle NE CONTIENT PAS le pseudo-trait de
+    GRANDE-ALLIANCE (« AUCUNE unite ne le porte : la couche META l'injecte dans la
+    BattleConfiguration »). Le substrat que `HasTrait` interroge est
+    `BaseUnitComponent+0x40`, ou le BC a DEJA pose le trait derive de la GrandAlliance -- mirror
+    `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` (`Chaos -> 0x7ea`). Re-mesure sur le foyer
+    porte (`entity_trait_ids`) : **127 unites sur 683** portent `UnitTrait.Chaos`. Le terme n'est
+    donc pas inerte -- il MORD, et il mordait deja cote NATIF pendant que le port rendait 0.
+
+    ⚠ `0x6d` est `GetDistance` d'ARITE 2 -- slot LU dans
+    `data/symbols/<build>/metadata/interface_slots.tsv` (`IBattleQuery` 108/109/110 partagent le
+    nom `GetDistance`). La surcharge est fixee par le TYPE des arguments : `(tileA: IEntity,
+    tilesB: IList<IEntity>)`. Les quatre surcharges de `BattleQuery$$GetDistance` delegent au MEME
+    corps `IdunBattle.Core.Services.MovementQuery$$GetDistance(originTiles, destinationTiles)` --
+    distance HEXAGONALE minimale entre deux ENSEMBLES de tuiles, sans pathfinding ni elevation, et
+    `int.MaxValue` sur un ensemble vide. Le foyer porte est `battle_query.get_distance`, deja
+    mirror 1:1 : le porteur sans tuile rend donc `DISTANCE_UNREACHABLE > range` -> 0, comme le natif.
+
+    ⚠ `GetRange` n'est PAS une variable de niveau : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    FirstAmongTraitorsAbility$$GetRange` est `AbilityConfiguration.GetNumberConstant(config, 0x16)`,
+    et `0x16` est un **`AbilityConstantType`** (`range`) -- type DECLARE lu dans `frida/methods.tsv`,
+    pas deduit de l'ordinal. Au gameconfig vivant `abilities.FirstAmongTraitors.constants.range`
+    vaut `2`. La comparaison est `<=`, donc un rayon de 2 INCLUS (la tuile du porteur comprise,
+    distance 0).
+
+    AUCUN test `IsFriend` dans le corps : le `<slot 4>` de cette classe vaut `false` (elle ne
+    declare pas `get_ShouldIncludingEnemiesWhenCalculate`), donc c'est le pre-gate
+    d'`IterateAbilities` qui restreint aux porteurs AMIS -- comme pour `PsychicFortress`.
+
+    Porteur (voie PASSIF d'unite) : `blackAbaddon` -- HERO **DU POOL**, passif de kit, donc
+    confrontable SANS AUCUN MONTAGE. C'est le seul confond arme sans montage que
+    `probe_477r33_non_owner_registry_gaps.py --offline-only` recense (etape 0bis)."""
+
+    ABILITY_ID = int(TriggeredAbilityType.FirstAmongTraitors)            # 0x428 = 1064
+    KEY = "FIRSTAMONGTRAITORS_SurroundingOwner"                          # gameconfig vivant = 20
+    CONFIG_ID = "FirstAmongTraitors"
+    #: `GetNumberConstant(config, 0x16)` -- la constante, PAS son ordinal nu.
+    RANGE_CONSTANT = AbilityConstantType.range                           # 0x16 = 22
+
+    def range_tiles(self):
+        """`FirstAmongTraitorsAbility$$GetRange` = `GetNumberConstant(config, AbilityConstantType.range)`.
+
+        `None` = constante absente -> `GetNumberConstant` LEVE cote natif ; le port se degrade en
+        « aucun terme » plutot que d'inventer un rayon."""
+        import gameconfig as GC
+        consts = (GC.ability(self.CONFIG_ID) or {}).get("constants") or {}
+        v = consts.get(self.RANGE_CONSTANT.name)
+        return None if v is None else int(v)
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        # `if (case.unit == null) yield break` -- le regime SPAWN est le seul ou le sujet manque, et
+        # le dispatcher y rend deja 0 (residu nomme, commun a toute la feuille).
+        if ctx.get("is_spawning"):
+            return 0.0
+        if not _has_trait(ctx, UnitTrait.Chaos):             # HasTrait(case.unit, 0x7ea)
+            return 0.0
+        rng = self.range_tiles()
+        if rng is None:
+            return 0.0
+        opos = (owner or {}).get("pos")
+        # `EntityExtensions.GetTiles(owner)` vide -> `GetDistance` rend `int.MaxValue` : jamais <= range.
+        d = bq.get_distance([(tile[0], tile[1])],
+                            [(opos[0], opos[1])] if opos else ())
+        if d > rng:
+            return 0.0
+        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+
+
 # `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner` : singleton par TYPE d'ability, cache
 # dict@0xa0 + factories dict@0x98.
 #
@@ -1041,17 +1146,24 @@ class HaywireMineNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
 # `MastersOfManoeuvre` a `orksRuntherd`, dont la relique du seed est en realite
 # `1475 SupaCyborkBody` -- laquelle n'a AUCUN playbook non-owner. RE-DERIVER, jamais recopier :
 # `probe_477r33_non_owner_registry_gaps.py --offline-only` rend le tableau complet.
-# Au registre ci-dessous : **18** faces MOVE (3 de #433-r4-r3 + 9 d'#433-r4-r3-r1 + 3 de #477-r33
-# + 3 de #477-r35). Il reste **5** faces MOVE non portees + `RedemptionOfTheRisen`, PORTEE mais
-# deliberement HORS registre (zero porteur), toutes des derivees DIRECTES.
-# Ces 5 restantes, et POURQUOI elles restent (residu #477-r35-r1) :
-#   `1064 FirstAmongTraitors`  -- porteur `blackAbaddon` AU POOL, mais gate `HasTrait(mover, Chaos)`
-#                                 et 0 unite sur 1083 porte ce trait au gameconfig : terme INERTE ;
-#   `1451`, `1496`, `1508`     -- gates sur la RARETE du mover (`HasRarity(u, Mythic)`), et le `ctx`
-#                                 des feuilles de tuile ne porte AUCUN canal `rarity` ;
-#   `1478 SabreOfSacrifice`    -- son gate est un SELECTEUR DSL
-#                                 (`SabreOfSacrificeAbility$$IsAffectedSummon` invoque par vtable
-#                                 sur une struct de 0x128 octets), pas un predicat lisible au corps.
+# Au registre ci-dessous : **19** faces MOVE (3 de #433-r4-r3 + 9 d'#433-r4-r3-r1 + 3 de #477-r33
+# + 3 de #477-r35 + 1 de #477-r37). Il reste **4** faces MOVE non portees + `RedemptionOfTheRisen`,
+# PORTEE mais deliberement HORS registre (zero porteur), toutes des derivees DIRECTES.
+# Ces 4 restantes, et POURQUOI elles restent (residu #477-r37-r1) :
+#   `1451`, `1496`, `1508`     -- gates sur la RARETE (`HasRarity(u, Mythic)` = `BaseUnitComponent
+#                                 +0x74 == 5`), et AUCUN canal `rarity` n'existe cote port. Le
+#                                 verrou est un CAPTEUR MANQUANT, pas une limite de montage : le
+#                                 seed BC porte deja 10 unites `Rarity == 5` et `--unit-stat
+#                                 "<vis>:Rarity=5"` l'ecrit par unite. Ce qu'il faudrait :
+#                                 `combatSnapshot.units[].rarity` <- `IdunBattle.Entities.Components.
+#                                 BaseUnitComponent.Rarity`, donc une fenetre de reinject ;
+#   `1478 SabreOfSacrifice`    -- son gate est un ARBRE DSL, pas un predicat imperatif :
+#                                 `SabreOfSacrificeAbility$$IsAffectedSummon` construit
+#                                 `AreEqual(Parent(mover), <caster>) & IsUnitWithVisualId(mover,
+#                                 GetStringConstant(unitId))` et le playbook l'EXECUTE par vtable
+#                                 `+0x188` sur une struct de contexte de 0x128 octets (owner a
+#                                 `+0x18`). Il doit donc sortir en arbre DSL (#149), et il lui
+#                                 manque en plus le canal `UtilityMovementCase$$StaysOnTile`.
 #
 # Absence du registre == `LoadPlaybookNonOwner` rend null == la paire n'est jamais yieldee : MEME
 # degradation que le natif, pas un trou.
@@ -1112,6 +1224,11 @@ NON_OWNER_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.MawClawsOfThyrax): MawClawsOfThyraxNonOwnerPlaybook(),               # 1469
     int(TriggeredAbilityType.PurgeResponse): PurgeResponseNonOwnerPlaybook(),                     # 1526
     int(TriggeredAbilityType.HaywireMine): HaywireMineNonOwnerPlaybook(),                         # 1531
+    # #477-r37 -- la face que #477-r35 avait classee « terme INERTE ». Elle ne l'est pas : le gate
+    # `HasTrait(mover, Chaos)` porte sur le pseudo-trait de GRANDE-ALLIANCE, que le BC pose et que
+    # `gameconfig.unit().traits` ne contient JAMAIS -- 127 unites sur 683 le portent. C'est le SEUL
+    # confond arme SANS MONTAGE du recensement (`blackAbaddon`, hero du pool, passif de kit).
+    int(TriggeredAbilityType.FirstAmongTraitors): FirstAmongTraitorsNonOwnerPlaybook(),           # 1064
 }
 
 
