@@ -33,11 +33,11 @@ from ...hex_edge import Edge   # `IdunBattle.Utils.Hex.Edge` -- directions de `G
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from ...utilities.tile import first_tile_by_utility
-from ..components import PositionComponent, UnitComponent, StatsComponent
+from ..components import PositionComponent, UnitComponent, StatsComponent, unit_has_moved
 from ..damage_model import select_weapon, select_weapon_pierce
 from .base import ActiveAbility
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
-                        TargetingOptions)
+                        TargetingOptions, are_entities_adjacent, entity_tiles, get_adjacent_tiles)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
 from .base import convert_rounds_to_turns
@@ -417,6 +417,63 @@ class SkyStrikeAbility(ActiveAbility):
         atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
         return {"ability": "SkyStrike", "caster": caster_id, "target": target_id,
                 "move": moved, "attack": atk, "dsl": True}
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$GetDynamicInvalidTargetReason`
+        (1025, `adeptCelestine`) -- MIRROR du decompile :
+
+            first    = casterTiles[0];
+            moved    = UnitExtensions.DidMove(caster)
+                       || EntityExtensions.GetMainTile(caster, state) != first;
+            adjacent = battleQuery.AreEntitiesAdjacent(casterTiles, targetTiles);   # slot 0x62
+            if (moved && !adjacent) return 0x10;                                    # CasterHasNotMoved
+            tiles = battleQuery.GetAdjacentTiles(targetTiles, 1, 1, 0);             # slot 0x51
+            if (adjacent) return 0;
+            return tiles.Count() > 0 ? 0 : 0x20;                                    # TargetHasFreeAdjacentTile
+
+        SEMANTIQUE, avec le masque `0x6004002`
+        (`TargetMatchesDynamicRule | TargetIsEnemy | AllowObscuredTarget`) : Celestine VOLE jusqu'a
+        sa cible, donc son ciblage n'a aucune contrainte de PORTEE (`RANGE_WHOLE_BOARD`) -- toute la
+        contrainte est ici. Deux refus DISTINCTS, et c'est le premier port de cette regle a les
+        separer : elle a deja bouge et n'est pas au contact -> elle ne peut plus charger
+        (`CasterHasNotMoved`) ; elle n'a pas bouge mais la cible n'offre aucune tuile d'atterrissage
+        -> `TargetHasFreeAdjacentTile`. Une cible DEJA au contact passe dans les deux cas : le
+        `adjacent` court-circuite les deux refus.
+
+        ⚠ LE CODE RENDU N'EST PAS `TargetMatchesDynamicRule`, et AUCUN des deux bits rendus n'est
+        dans le masque de 1025 -- c'est normal : la cascade retourne le code de la regle-delegue tel
+        quel (`GenericBrokenTargetingRule(reason)`), sans le confronter aux `Rules`. Le recensement,
+        lui, se fait sur le bit POSE AU MASQUE (`0x2`), jamais sur le code rendu.
+
+        ⚠ LE TERME `GetMainTile(caster) != casterTiles[0]` EST INERTE OFFLINE, PAR CONSTRUCTION, et
+        ce n'est pas une approximation : `EntityExtensions$$GetMainTileId` rend litteralement
+        `unit._feet[0]`, et `casterTiles` est `EntityExtensions$$GetTiles(caster, state)`, dont la
+        3e branche enumere ce meme `_feet` dans l'ordre -- les deux coincident des que le caster est
+        une unite posee. Le terme n'a de mordant que la ou le natif recoit des `casterTiles`
+        SIMULES (l'IA qui evalue « et si je castais depuis la-bas ? »), un regime que la signature
+        du port (`state, caster_id, target_id`) n'expose pas. `moved` se reduit donc a `DidMove`.
+
+        `are_entities_adjacent` est la surcharge (IList, IList) -- deux EMPREINTES, comme
+        `_dynamic_rule_blood_chalice` ; sur une multi-hex la MainTile seule rendrait un verdict FAUX.
+
+        Cible non resolue / board absent -> `0` : on ne fabrique pas un refus sur un substrat que le
+        port n'a pas mesure (convention permissive du module)."""
+        if target_id is None or state.get_entity(int(target_id)) is None:
+            return 0
+        if state.board is None:
+            return 0
+        caster_tiles = entity_tiles(state, int(caster_id))
+        target_tiles = entity_tiles(state, int(target_id))
+        moved = unit_has_moved(state, int(caster_id))
+        adjacent = are_entities_adjacent(state.board, caster_tiles, target_tiles)
+        if moved and not adjacent:
+            return int(TR.CasterHasNotMoved)
+        if adjacent:
+            return 0
+        tiles = get_adjacent_tiles(state, int(target_id), only_empty_or_steppable=True,
+                                   only_walkable_tiles=True, allow_temporary=False)
+        return 0 if len(tiles) > 0 else int(TR.TargetHasFreeAdjacentTile)
 
 
 # ============ BrazierOfHolyFire (1041, `adeptCanoness` -- Canoness, HERO Sisterhood) ==============

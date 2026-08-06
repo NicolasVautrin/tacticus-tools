@@ -44,9 +44,9 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import If as IfBehaviour, op_add
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
-from ...entities.selectors import (Caster, Enemies, SurroundingUnits,
+from ...entities.selectors import (Caster, Enemies, Entity, SurroundingUnits, Target,
                                    non_steppable_or_object_units)
-from ...entities.triggers import HasUnitFlag, Not
+from ...entities.triggers import HasUnitFlag, IsInTeamAura, Not
 from ...entities.triggered_ability_type import TriggeredAbilityType
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
@@ -358,6 +358,79 @@ class AlphaWarriorAbility(ActiveAbility):
                    for n, p in ectx.emitted if n == "SummonOnAppearance"]
         return {"summon": "tyranSmnWarrior", "spawned": spawned, "attacks": attacks,
                 "tile": tile_id, "dsl": True}
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$GetDynamicInvalidTargetReason`
+        (1112, `tyranWingedPrime`) -- MIRROR du decompile, qui tient en une ligne :
+
+            return IsInSynapseRange(caster, target) ? 0 : 2;   // TargetMatchesDynamicRule
+
+        et la surcharge d'`IsInSynapseRange` REELLEMENT appelee (celle qui EVALUE ; l'autre se
+        contente de FABRIQUER le trigger) :
+
+            trigger = DSLTriggers.IsInTeamSynapseRange( DSLSelectors.Entity(target),
+                                                        DSLSelectors.Entity(caster) );
+            return trigger.ShouldTrigger( AbilityEntities(caster, caster, target, ...) );
+
+        ⚠ LA SURCHARGE EST TRANCHEE PAR SES XREFS, pas par sa place dans le fichier : les deux
+        homonymes ont la MEME signature `(this, caster, target)` et Ghidra ne les distingue que par
+        adresse. Celle que `GetDynamicInvalidTargetReason` appelle est celle qui construit les deux
+        selecteurs `Entity`, monte l'`AbilityEntities` et invoque le trigger -- la seule des deux qui
+        rende un BOOL (l'autre rend l'objet trigger, dont l'octet bas du pointeur n'a aucun sens
+        comme predicat).
+
+        L'ETAGE ETAIT DEJA PORTE, et c'est ce qu'il fallait verifier avant d'ecrire quoi que ce soit.
+        `DSLTriggers$$IsInTeamSynapseRange(target, team)` n'est PAS un trigger dedie : son corps
+        alloue `IdunBattle.Entities.Triggers.IsInAuraRangeTrigger$$.ctor(state, query, 0x41c, target,
+        team)` -- le MEME trigger que `DSLFactory$$IsInTeamContagionsOfNurgleAura`, fige sur un autre
+        `EffectType`. Le mirror generique `entities/triggers.py::IsInTeamAura` le porte deja, avec
+        son etage de portee (`battle_query.get_in_range_aura_amount`, `entities/effects/aura.py`).
+        Seul le CALL-SITE manquait. `0x41c` = `EffectType.Synapse_Effect`.
+
+        SEMANTIQUE, avec le masque `0x6001052` : la TUILE visee doit etre dans la bulle synapse d'une
+        unite de l'equipe du caster -- le Winged Prime ne fait apparaitre un Warrior que sous synapse.
+        Le volet STATIQUE porte deja `CasterHasNotMoved` et `TargetTileIsFree` ; cette regle-ci ajoute
+        la seule contrainte SPATIALE de l'ability (sa portee est `RANGE_WHOLE_BOARD`).
+
+        ⚠ L'ARGUMENT `unit` DU TRIGGER EST LA CIBLE, pas le caster, et le `teamReference` est le
+        caster : `IsInTeamSynapseRange(Entity(target), Entity(caster))`, dans cet ordre. Les inverser
+        rendrait « le caster est-il dans la synapse de l'equipe de la tuile ? » -- une question dont
+        la reponse est presque toujours differente, et jamais fausse assez pour crasher.
+
+        ⚠ LA CIBLE EST UNE TUILE, ET LE ROLE `target` DE L'`AbilityEntities` NE LA MATERIALISE PAS.
+        `entities_from_state` construit un caster MINIMAL quand `caster_id` designe une entite-TUILE
+        (le commentaire y explique pourquoi : sans lui toute feuille lisant `entities.caster`
+        devenait un no-op silencieux) mais n'a PAS le pendant sur le role `target` -- il rend `None`,
+        et `Entity(Target())` avec lui. On materialise donc la tuile ICI, sous la meme forme, plutot
+        que d'elargir le foyer : le rayon de souffle a ete MESURE avant de choisir -- **5** abilities
+        TILE-TARGET portees passent aujourd'hui leur `target_id` a `entities_from_state` (1017
+        FragBomb, 1018 ValkyrieStrike, 1026 BasiliskBarrage, 1148 DaemonicOrdnance, 1169
+        PlagueburstMortar) et lisent donc un `Target()` NUL ; le remplir depuis le foyer changerait
+        leurs arbres sans que cette tranche l'ait confronte. RESIDU `#287-r12`, pas un oubli.
+
+        Cote natif il n'y a pas d'ecart : le selecteur n'est PAS le role `Target()` mais
+        `DSLSelectors$$Entity(<l'entite cible capturee>)` -- un selecteur FERME sur l'entite, que
+        l'`AbilityEntities` porte aussi en `+0x178`. Les deux chemins designent la meme entite.
+
+        Cible non resolue -> `0` : le natif y evaluerait le trigger sur un selecteur vide, dont le
+        `SelectSingle` rend null et `ShouldTrigger` false, donc `2` ; mais la cascade n'atteint cette
+        regle que sur une cible enumeree. Convention permissive du module."""
+        if target_id is None:
+            return 0
+        ents = entities_from_state(state, int(caster_id), int(target_id))
+        if ents.target is None:
+            board = state.board
+            if board is None or int(target_id) not in getattr(board, "by_id", {}):
+                return 0                       # ni unite ni tuile du board -> substrat non mesure
+            c = board.coord(int(target_id))
+            # MEME forme que le caster-tuile minimal d'`entities_from_state` (`dsl.base._pos` lit
+            # `pos.col`/`pos.row`). `GetInRangeAuraAmount` n'en lit que `pos` et `id`.
+            ents.target = {"id": int(target_id), "team": None, "player": None,
+                           "pos": {"col": int(c[0]), "row": int(c[1])},
+                           "alive": True, "hp": None, "visualId": None, "_traits": set()}
+        trigger = IsInTeamAura(Entity(Target()), int(EffectType.Synapse_Effect), Entity(Caster()))
+        return 0 if trigger.should_trigger(ents) else int(TR.TargetMatchesDynamicRule)
 
 
 # ================== FearOfTheUnseen (Deathleaper `tyranDeathleaper`, actif 1115) ==================
