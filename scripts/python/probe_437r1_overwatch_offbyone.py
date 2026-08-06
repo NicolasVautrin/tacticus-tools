@@ -798,6 +798,12 @@ def channel(seed=P.SEED, board=P.BOARD, dmg_target=None, budget=4000) -> dict:
         return base(method, body, timeout)
 
     g = globals()
+    # ⚠ ARMEMENT GLOBAL ASSUME (#483). Ce site arme AVANT que le runner existe -- `capture()`
+    # construit le runner plus bas, et son `runnerId` n'apparait qu'au `disposeRunner` (cf.
+    # `wrapper`). Il n'y a donc rien a scoper ici : contrairement aux 16 sites convertis, le
+    # `rid` n'est PAS sous la main. Consequence, nommee plutot que masquee : cette capture
+    # reste eteignable par le `effectBonusTraceOff {}` d'un autre acteur. Elle ne peut plus,
+    # elle, eteindre une capture NOMINATIVE -- c'est l'asymetrie que le foyer garantit.
     cap["on"] = base("effectBonusTraceOn", {"budget": int(budget)}, 60)
     if not (cap["on"] or {}).get("ok"):
         return {"error": "capteur effect-bonus-trace absent ou non arme : %s"

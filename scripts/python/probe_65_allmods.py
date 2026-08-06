@@ -74,7 +74,7 @@ def main(argv):
     print(f"[65am] runner={rid}")
     armed = False
     try:
-        r = rpc("scorerDamageTraceOn", {}, 30)
+        r = rpc("scorerDamageTraceOn", {"runnerId": rid}, 30)
         armed = bool(r.get("ok"))
         print(f"[65am] traceOn: {r}")
         if not armed:
@@ -127,7 +127,7 @@ def main(argv):
     finally:
         try:
             if armed:
-                _r(sid, "scorerDamageTraceOff", {}, 15)
+                _r(sid, "scorerDamageTraceOff", {"runnerId": rid}, 15)
         except Exception:
             pass
         try:

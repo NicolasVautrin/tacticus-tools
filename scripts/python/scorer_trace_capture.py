@@ -72,12 +72,12 @@ def capture(seed: str = "777", *, sid: int | None = None, max_turns: int = 6,
     sid = sid if sid is not None else R._resolve_session()
     rid, my_team = _build(seed, state_rel)
     try:
-        _rpc(sid, "scorerDamageTraceOn")                         # gotcha 3 : AVANT le scoring
+        _rpc(sid, "scorerDamageTraceOn", {"runnerId": rid})      # gotcha 3 : AVANT le scoring
         _rpc(sid, "scorerDamageTraceClear", {"runnerId": rid})
         final = PV._drive_into_range(sid, rid, my_team, max_turns)   # scoring FRAIS -> ctor fire
         ev = _rpc(sid, "scorerDamageTraceDump", {"runnerId": rid, "max": 8000}) or {}   # gotcha 2
         am = _rpc(sid, "scorerAllModsTraceDump", {"runnerId": rid, "max": 8000}) or {}
-        _rpc(sid, "scorerDamageTraceOff")
+        _rpc(sid, "scorerDamageTraceOff", {"runnerId": rid})
         events = ev.get("entries") or []
         if want is not None:
             events = [e for e in events if want(e)]

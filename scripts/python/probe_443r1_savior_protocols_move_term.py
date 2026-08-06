@@ -346,7 +346,7 @@ def measure(sid, rpc, case: dict) -> dict:
     for vis, uid in (case.get("ids") or {}).items():
         if vis in P_UNITS and vis != CARRIER:
             rpc("applyAction", {"runnerId": rid, "action": {"kind": "finish", "unitId": uid}}, 60)
-    _on = rpc("scorerDamageTraceOn", {}, 90)
+    _on = rpc("scorerDamageTraceOn", {"runnerId": rid}, 90)
     rpc("scorerDamageTraceClear", {"runnerId": rid, "stacks": 0}, 60)
     try:
         dry = rpc("aiDryRunAllUnits", {"runnerId": rid}, 240)
@@ -354,7 +354,7 @@ def measure(sid, rpc, case: dict) -> dict:
         elevd = rpc("scorerElevTraceDump", {"runnerId": rid, "max": 4000}, 90)
         leafd = rpc("scorerLeafTraceDump", {"runnerId": rid, "max": 4000}, 90)
     finally:
-        rpc("scorerDamageTraceOff", {}, 60)
+        rpc("scorerDamageTraceOff", {"runnerId": rid}, 60)
 
     dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
     mov = rpc("aiMovableTiles", {"runnerId": rid}, 90)

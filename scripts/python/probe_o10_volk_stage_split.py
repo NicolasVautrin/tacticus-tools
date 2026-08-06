@@ -286,7 +286,7 @@ def main(argv):
             print("[split]     ennemis ADJACENTS a Volk = %s  (gate RangedInMelee)" % (adj_foes,))
 
             rpc("hitTraceReset", {"runnerId": rid}, 20)
-            rpc("hitTraceArm", {}, 30)
+            rpc("hitTraceArm", {"runnerId": rid}, 30)
             res = rpc("applyAction", {"runnerId": rid, "action": {
                 "kind": "ability", "casterId": volk_id, "targetId": tgt_id,
                 "abilityType": norm["id"]}}, 60)

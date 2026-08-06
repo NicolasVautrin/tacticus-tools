@@ -120,13 +120,14 @@ def main() -> int:
         if method != "aiPlaybookPredict" or capture.get("done"):
             return _orig_r(sid_, method, body, timeout)
         rid = (body or {}).get("runnerId")
-        on = _orig_r(sid_, "effectBonusTraceOn", {"budget": a.budget}, 60)
-        _orig_r(sid_, "effectBonusTraceClear", {}, 60)
+        on = _orig_r(sid_, "effectBonusTraceOn",
+                     {"budget": a.budget, "runnerId": rid}, 60)
+        _orig_r(sid_, "effectBonusTraceClear", {"runnerId": rid}, 60)
         try:
             out = _orig_r(sid_, method, body, timeout)
         finally:
             dump = _orig_r(sid_, "effectBonusTraceDump", {"runnerId": rid}, 120)
-            _orig_r(sid_, "effectBonusTraceOff", {}, 60)
+            _orig_r(sid_, "effectBonusTraceOff", {"runnerId": rid}, 60)
         capture.update({"on": on, "dump": dump, "runnerId": rid, "done": True})
         return out
 
@@ -159,6 +160,12 @@ def main() -> int:
         return _orig_r(sid_, method, body, timeout)
 
     if a.wide:
+        # ⚠ ARMEMENT GLOBAL ASSUME en mode `--wide` (#483) : ce mode capte TOUT le montage,
+        # donc il arme AVANT que le runner existe (le `runnerId` n'apparait qu'au premier
+        # `aiPlaybookPredict`). Le mode par defaut (`_r_narrow`), lui, arme AUTOUR du seul
+        # `aiPlaybookPredict` du coup mesure et passe bien son `runnerId`. Consequence, nommee :
+        # en `--wide` la capture reste eteignable par le `Off {}` d'un autre acteur -- mais elle
+        # ne peut plus eteindre une capture NOMINATIVE.
         capture["on"] = _orig_r(sid, "effectBonusTraceOn", {"budget": a.budget}, 60)
         _orig_r(sid, "effectBonusTraceClear", {}, 60)
     P._r = _r_wide if a.wide else _r_narrow
