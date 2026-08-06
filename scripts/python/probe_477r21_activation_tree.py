@@ -91,6 +91,8 @@ from engine.entities.triggered_ability_type import TriggeredAbilityType  # noqa:
 from engine.streams import GroupType, StepType, StreamCache, StreamDispatcher, TagKey  # noqa: E402
 from engine.streams import conformance as CONF  # noqa: E402
 from engine.streams.evaluate_trigger import evaluate_ability_trigger  # noqa: E402
+from engine.streams.inform_ops import (get_inform_tags,  # noqa: E402
+                                       get_inform_weapon_tags, inform)
 from engine.entities.stats import StatPart, StatType  # noqa: E402
 from engine.streams.active_ability_ops import (AddedActiveAbility,  # noqa: E402
                                                add_active_ability,
@@ -133,9 +135,18 @@ BOARDS_DEFAUT = ("C1_02", "MC1_67")
 #: operations natives distinctes, dont aucune n'est `RefreshEffectsOperation` :
 #: `TransformUnitOperation$$Execute`, `RemoveActiveAbilityOperation$$Execute` et
 #: `AddActiveAbilityOperation$$Execute`.
+#:
+#: ⚠ `Info` Y EST ENTREE AVEC `#477-r21-r1-r1` (residu `#477-r22-r1`), et son PERIMETRE est le
+#: couple ACTION + CLE, jamais l'action seule. Elle sort d'une QUATRIEME operation --
+#: `IdunBattle.Operations.InformOperation$$Execute`, deja portee par `engine/streams/inform_ops.py`
+#: -- dont le dictionnaire est construit en amont par une surcharge de
+#: `IdunBattleLogic.Entities.DSLBehaviors$$Inform`. Seule la surcharge A UNE CLE est portee
+#: (`get_inform_tags`), donc seul `Tag=Custom_Data` entre au perimetre : une `Action=Info` qui
+#: porterait les cles d'ARME (`Attack_Weapon_*`, l'autre foyer) reste HORS, ENUMEREE.
 ACTIONS_PORTEES = frozenset((StepType.ActivateEffect.name, StepType.ReceiveEffect.name,
                              StepType.LoseEffect.name, StepType.DeactivateEffect.name,
-                             StepType.ChangeStats.name, StepType.ChangeAbility.name))
+                             StepType.ChangeStats.name, StepType.ChangeAbility.name,
+                             StepType.Info.name))
 GROUPES_PORTES = frozenset((GroupType.Ability_Power.name, GroupType.Effect_Refresh.name))
 
 #: Les SIX tags qu'`AddActiveAbilityOperation$$Execute` inline, nommes par le port.
@@ -334,7 +345,15 @@ def _formes_portees() -> frozenset:
     tags = (list(TAG_VERS_CHAMP)
             + [TagKey.Effect_Id.name, TagKey.Effect_State_Level.name,
                TagKey.Effect_State_VariableMultiplierPercentage.name,
-               TagKey.UnitStats_RemoveActiveAbility.name]
+               TagKey.UnitStats_RemoveActiveAbility.name,
+               # #477-r22-r1 : l'unique cle que la surcharge portee de `DSLBehaviors$$Inform`
+               # sait ecrire. Les `Attack_Weapon_*` de l'AUTRE foyer restent hors perimetre.
+               # ⚠ `UnitStats_ActionsAvailable` N'EST PAS ICI, ET C'EST VOULU : sa ligne n'est
+               # jamais dans un SOUS-ARBRE mais a la profondeur du groupe, et #477-r22-r1 la
+               # reconnait par une regle STRUCTURELLE (`_marque` de `probe_477r22`). L'ajouter
+               # ici declarerait « porte » tout sous-arbre qui en contiendrait une, alors
+               # qu'aucun producteur de ce paquet ne l'ecrit a cet endroit-la.
+               TagKey.Custom_Data.name]
             + [t.name for t in TAGS_ADD_ACTIVE]
             + [TagKey(o).name for o in _tags_de_transformation()])
     return frozenset(["Group=%s" % g for g in GROUPES_PORTES]
@@ -567,6 +586,42 @@ def emettre_action_stat(events: StreamDispatcher, act: ActionObs, entite_modific
     transform_unit(events, act.entity, setups)
 
 
+def emettre_action_info(events: StreamDispatcher, act: ActionObs, entite_groupe: int,
+                        mutation: str = "") -> None:
+    """Emet une `Action=Info` AVEC LE PORT -- `#477-r22-r1`, second motif.
+
+    DEUX foyers portes, l'un au-dessus de l'autre :
+      * `engine/streams/inform_ops.get_inform_tags(tag, amount)` = la surcharge A UNE CLE de
+        `IdunBattleLogic.Entities.DSLBehaviors$$Inform(TagKey, IAmountFormula)` ;
+      * `engine/streams/inform_ops.inform(tags)` = `IdunBattle.Operations.InformOperation$$Execute`,
+        qui ecrit `Entity=NO_ENTITY` (le litteral `0` du quatrieme argument) -- l'entite du
+        CASTER est portee par le `Group=Ability_Power` englobant, jamais par la ligne.
+
+    ⚠ LE PERIMETRE EST LE COUPLE ACTION + CLE. Une `Action=Info` a deux ou trois cles sort de
+    l'AUTRE surcharge (`DSLBehaviors$$InformWeapon`, cles `Attack_Weapon_*`) : le probe REFUSE
+    de l'emettre par ce foyer-ci plutot que de fabriquer un dictionnaire que le natif ne
+    construit pas la."""
+    if len(act.tags) != 1:
+        raise MesureImpossible(
+            "`Action=%s` a %d cle(s) (%s) -- la surcharge portee de `DSLBehaviors$$Inform` n'en "
+            "ecrit qu'UNE ; les cles d'ARME sortent d'un autre foyer"
+            % (StepType.Info.name, len(act.tags), ",".join(n for n, _v in act.tags)))
+    nom, valeur = act.tags[0]
+    if mutation == "info_tag_arme":
+        # l'AUTRE foyer d'`Inform` a la place du bon : `DSLBehaviors$$InformWeapon` ecrit DEUX
+        # cles obligatoires (`Attack_Weapon_DamageProfile`, `Attack_Weapon_IsMelee`) -- la
+        # confusion naturelle entre les deux surcharges homonymes
+        inform(events, get_inform_weapon_tags(int(valeur), True, False))
+        return
+    tags = get_inform_tags(int(TagKey[nom]), int(valeur))
+    if mutation == "info_entite":
+        # l'entite du CASTER a la place du litteral `0` : elle est disponible dans l'entete du
+        # `Group=Ability_Power`, et c'est exactement ce que le natif NE passe PAS
+        events.action(int(StepType.Info), int(entite_groupe), tags)
+        return
+    inform(events, tags)
+
+
 def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> None:
     """Re-emet un sous-arbre observe AVEC LE PORT. `mutation` est le levier des contre-epreuves.
 
@@ -588,6 +643,12 @@ def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> Non
             def corps() -> None:  # noqa: E306
                 for e in obs.enfants:
                     if isinstance(e, ActionObs):
+                        if e.step == StepType.Info.name:
+                            # #477-r22-r1 : le motif `StandVigil` -- une `Action=Info` directe,
+                            # emise par `InformOperation$$Execute` depuis le behaviour DSL de
+                            # l'ability, PAS par une operation de stat.
+                            emettre_action_info(events, e, obs.unit_entity, mutation)
+                            continue
                         # ⚠ ENTITE DU MODIFICATEUR : il n'y a PAS de `Group=Effect_Refresh`
                         # englobant ici, donc rien a en deriver -- et le motif confronte
                         # (`TwistedScience`) n'en a pas besoin : ses deux actions sont des
@@ -631,6 +692,15 @@ def emettre_sous_arbre(events: StreamDispatcher, obs, mutation: str = "") -> Non
         elif act.step == StepType.ReceiveEffect.name:
             actions.append(lambda c=act.entity, s=setup: add_receive_effect_action(
                 events, c, get_refresh_effect_tags(s, StepType.ReceiveEffect)))
+        elif act.step == StepType.Info.name:
+            # #477-r22-r1 : le perimetre d'`Action=Info` est le motif « enfant DIRECT d'un
+            # `Group=Ability_Power` » (le behaviour DSL de l'ability informe). Aucune des
+            # closures de `RefreshEffectsOperation$$UpdateEffectTargets` n'emet un `Info` -- si
+            # le flux en montrait un ICI, ce serait un producteur qu'on n'a pas lu, et le probe
+            # doit le DIRE plutot que de l'emettre par un foyer qui ne le produit pas.
+            raise MesureImpossible(
+                "`Action=%s` DANS un `Group=%s` -- aucun producteur lu de ce paquet ne l'y met"
+                % (StepType.Info.name, GroupType.Effect_Refresh.name))
         elif act.step in (StepType.ChangeStats.name, StepType.ChangeAbility.name):
             # ⚠ CE N'EST PAS `RefreshEffectsOperation` QUI L'EMET. C'est la DERNIERE closure de
             # la `List<Action>` construite par `UpdateEffectTargets` --
@@ -694,6 +764,14 @@ MUTATIONS = ("effect_id", "effect_source", "ability_source", "placement", "step_
              "stat_table", "sans_transformed", "modifier_entity", "remove_step",
              "ability_tags_ammo")
 
+#: LES MUTATIONS QUE CE MODULE SAIT EMETTRE MAIS QUE CE PROBE NE JOUE PAS -- elles portent sur la
+#: forme `Action=Info` (`#477-r22-r1`), et le BLOC 1 n'en contient AUCUNE : leur domaine y est NUL
+#: sur les QUATRE scenarios. Les laisser dans `MUTATIONS` faisait rougir ce probe par son propre
+#: garde-fou (« rien ne les confronte »), et c'est la bonne reponse : une mutation qu'aucun
+#: scenario n'exerce ne mesure rien ICI. Elles sont jouees par `probe_477r22_turn_phase.py`, dont
+#: le corpus -- le contenu du `Group=StartTurn` -- porte 3 `Action=Info` sur deux scenarios.
+MUTATIONS_RELAYEES = ("info_entite", "info_tag_arme")
+
 
 def derivations(portes: List[dict]) -> dict:
     """CE QUE LES DERIVATIONS ONT A MORDRE SUR CE CORPUS -- publie, jamais suppose.
@@ -701,7 +779,7 @@ def derivations(portes: List[dict]) -> dict:
     Une derivation qu'aucune donnee du corpus n'exerce ne prouve rien, quel que soit le verdict.
     Ce compte est ce qui distingue « (D3) tient » de « (D3) n'a rien eu a trancher »."""
     d1 = d2 = d3 = d4_vides = d4_pleins = 0
-    d6_transform = d7_entites = d9_retrait = d9_add = 0
+    d6_transform = d7_entites = d9_retrait = d9_add = d10_info = 0
     degeneres = exercees = 0
     noms_effect, noms_ability = set(), set()
     stats_exercees = set()
@@ -715,6 +793,10 @@ def derivations(portes: List[dict]) -> dict:
         noms = [n for n, _v in act.tags]
         if len(noms) > 1 and noms != sorted(noms):
             d2 += 1
+        if act.step == StepType.Info.name:
+            # #477-r22-r1 : `Action=Info` n'exerce AUCUNE des derivations de stat -- elle a la
+            # sienne (`d10`), comptee par `_visiter`.
+            return
         if act.step == StepType.ChangeAbility.name:
             d9_add += 1
             return
@@ -740,8 +822,14 @@ def derivations(portes: List[dict]) -> dict:
                     degeneres += 1
 
     def _visiter(obs) -> None:
-        nonlocal d1, d2, d3, d4_vides, d4_pleins
+        nonlocal d1, d2, d3, d4_vides, d4_pleins, d10_info
         if isinstance(obs, ActionObs):
+            if obs.step == StepType.Info.name:
+                # (D10) #477-r22-r1 : le port ecrit `Entity=NO_ENTITY` et UNE seule cle. Le
+                # parseur lui donne le couple (cle, valeur), jamais l'entite ni le nombre de
+                # cles -- ce sont les deux decisions que les mutations `info_*` visent.
+                d10_info += 1
+                return
             _compter_action_stat(obs)
             return
         if isinstance(obs, AbilityPowerObs):
@@ -777,7 +865,7 @@ def derivations(portes: List[dict]) -> dict:
             "d5_noms_effect": len(noms_effect), "d5_noms_ability": len(noms_ability),
             "d6_transformations": d6_transform, "d7_entites_reconstruites": d7_entites,
             "d8_stats_exercees": sorted(stats_exercees),
-            "d9_retraits": d9_retrait, "d9_ajouts": d9_add,
+            "d9_retraits": d9_retrait, "d9_ajouts": d9_add, "d10_info": d10_info,
             "r1_total_diff_change": degeneres, "r1_couples": exercees}
 
 
@@ -846,7 +934,11 @@ def domaines(portes: List[dict]) -> Dict[str, int]:
 
     def _visiter(obs) -> None:
         if isinstance(obs, ActionObs):
-            if obs.step == StepType.ChangeAbility.name:
+            if obs.step == StepType.Info.name:
+                # domaine des mutations RELAYEES : compte tenu ici, joue par #477-r22
+                for nom in MUTATIONS_RELAYEES:
+                    d[nom] = d.get(nom, 0) + 1
+            elif obs.step == StepType.ChangeAbility.name:
                 d["ability_tags_ammo"] += 1
             elif _est_retrait_ability(obs):
                 d["remove_step"] += 1
@@ -996,6 +1088,8 @@ def imprimer(res: dict) -> None:
     print("      (D9) aiguillage des 3 producteurs : %d retrait(s) d'ability, %d ajout(s), "
           "%d transformation(s)"
           % (der["d9_retraits"], der["d9_ajouts"], der["d6_transformations"]))
+    print("      (D10) `Action=%s` : %d occurrence(s) -- `Entity=NO_ENTITY` et UNE seule cle, "
+          "toutes deux derivees (`#477-r22-r1`)" % (StepType.Info.name, der["d10_info"]))
     if der["r1_couples"]:
         print("      REGIME : `_Modification` != `_Modification_Change` sur %d / %d couple(s) -- "
               "%s" % (der["r1_total_diff_change"], der["r1_couples"],

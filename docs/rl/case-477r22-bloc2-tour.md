@@ -1,15 +1,21 @@
 # #477-r22 — le BLOC 2 de `System_StartMatch` : le TOUR, et sa RÉCOLTE hors du groupe
 
 **LIVRÉ.** Build `rnca9r7q6c`, ghidra-mcp, session Frida **1** (chaude, aucun reinject).
-Le port reproduit à l'**égalité brute** **29 / 29** couples `Action=PrepareTurn` + `Group=StartTurn`
-sur **cinq** scénarios, **1 193 lignes** égales. **24 des 29 sont HORS du groupe
+Le port reproduit à l'**égalité brute** **28 / 28** couples `Action=PrepareTurn` + `Group=StartTurn`
+sur **cinq** scénarios, **1 359 lignes** égales. **23 des 28 sont HORS du groupe
 `System_StartMatch`** — c'est la mesure que la tranche devait rendre, et elle est **mesurée, pas
 déduite d'une ventilation**.
 Sur le roster 2v2 crafté, `System_StartMatch` devient **INTÉGRALEMENT porté : 142 / 142 lignes**.
 
+**`#477-r22-r1` a fermé le CONTENU du groupe** (§ 7) : le slot `0x21` est **résolu**
+(`Core.Services.IOperationProcessor` slot 33 = `VerifyUnitsTurnFinished`, **arité 0**), sa face
+stream est portée, et la forme `Action=Info` / `Tag=Custom_Data` aussi. Les **63 marques** et les
+**12 `Action=Info`** du corpus entrent au périmètre et s'y reproduisent.
+
 ```powershell
 python scripts/python/probe_477r22_turn_phase.py            # live, 3 scenarios
-python -m pytest scripts/python/tests/engine/test_477r22_turn_phase_offline.py -q
+python -m pytest scripts/python/tests/engine/test_477r22_turn_phase_offline.py \
+                scripts/python/tests/engine/test_477r22r1_verify_turn_finished_offline.py -q
 ```
 
 ## 1. La RE — de `StartMatchOperation` jusqu'aux deux émissions
@@ -136,12 +142,20 @@ slot `0x4d` : `EvaluateAbilities(trigger, entities: AbilityEntities)`, arité 2 
 
 | scénario | flux | groupe | BLOC 2 | couples | conformes | dont **HORS** groupe | lignes égales |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `C1_02`, 2 tours | 2 776 l. | 477 l. | 27 l. | 5 | **5** | **4 / 4** | 279 |
-| `MC1_67`, 2 tours | 2 930 l. | 521 l. | 27 l. | 5 | **5** | **4 / 4** | 261 |
-| `MC1_67`, **roster 2v2 crafté** | 1 169 l. | 142 l. | **8 l.** | 5 | **5** | **4 / 4** | 112 |
-| `C1_02`, **6 tours demandés (4 joués)** | 4 502 l. | 477 l. | 27 l. | 8 | **8** | **7 / 7** | 493 |
-| `C1_02`, **roster 1v1 crafté** | 623 l. | **65 l.** | **8 l.** | 6 | **6** | **5 / 5** | 48 |
-| **total** | | | | **29** | **29** | **24 / 24** | **1 193** |
+| `C1_02`, 2 tours | 2 776 l. | 477 l. | 27 l. | 5 | **5** | **4 / 4** | 317 |
+| `MC1_67`, 2 tours | 2 930 l. | 521 l. | 27 l. | 5 | **5** | **4 / 4** | 299 |
+| `MC1_67`, **roster 2v2 crafté** | 1 169 l. | 142 l. | **8 l.** | 5 | **5** | **4 / 4** | 124 |
+| `C1_02`, **6 tours demandés** | — | 477 l. | 27 l. | 8 | **8** | **7 / 7** | 555 |
+| `C1_02`, **roster crafté** (custo/blood vs genes/astra) | 1 031 l. | **214 l.** | **12 l.** | 5 | **5** | **4 / 4** | 64 |
+| **total** | | | | **28** | **28** | **23 / 23** | **1 359** |
+
+⚠ **Les lignes égales ont AUGMENTÉ de 150 sans qu'un seul couple change** : `#477-r22-r1` a fait
+entrer au périmètre les **63 marques** du slot `0x21` (126 lignes) et les **12 `Action=Info`**
+(48 lignes) — **174** lignes au total, dont **150** sur les quatre scénarios communs aux deux
+mesures (279→317, 261→299, 112→124, 493→555). Le 5ᵉ scénario n'est PAS le même qu'à la tranche
+précédente (le roster « 1v1 » qu'elle avait joué n'est écrit nulle part) : celui-ci est le roster
+crafté de `#477-r21`, et il exerce le même régime — **1 `Group=StartTurn` SANS contenu** sur ses
+5 couples.
 
 La découpe du groupe est confrontée à chaque run — `1 + 1 + bloc1 + bloc2 + 1 == total`, **OK sur
 5 / 5** — et le probe **exige** que la QUEUE de #477-r21 soit **exactement** le couple : si
@@ -242,14 +256,14 @@ dit explicitement.
 
 ## 6. Ce qui n'est PAS couvert
 
-- **Le CONTENU du `Group=StartTurn` hors des formes de #477-r21** → **#477-r22-r1**. Deux motifs
-  mesurés sur tout le flux : `Action=ChangeStats` + `Tag=UnitStats_ActionsAvailable` (13 occurrences
-  sur `MC1_67`), et `Group=Ability_Power` à `Action=Info` / `Tag=Custom_Data` (3).
+- ~~**Le CONTENU du `Group=StartTurn` hors des formes de #477-r21**~~ → **FERMÉ par `#477-r22-r1`**
+  (§ 7). Restent les familles que ce résidu n'avait **pas** énumérées : un sous-arbre
+  `Group=ResurrectUnit` / `Ability_CustomGroup` (106 l. sur `MC1_67`) et un `Group=Damage`
+  (47 l. sur le roster 2v2, 36 l. sur les 6 tours) → **#477-r34**.
 - **Les gardes de `HandleNextTurn`** → **#477-r22-r2**. Le port exécute **chaque** stage traversé ;
   sur un montage avec drafting en attente le natif s'arrêterait avant `Start` et le port émettrait
   un `Group=StartTurn` de trop. Non atteint par nos montages (aucun drafting en duel).
-- **Le slot `0x21`** : son émission est observée (`ChangeStats` / `UnitStats_ActionsAvailable`), son
-  **nom** ne l'est pas. Une interface IL2CPP n'a aucun corps, donc aucune ligne dans `methods.tsv`.
+- ~~**Le slot `0x21`**~~ : **RÉSOLU** par `#477-r22-r1` (§ 7) — `VerifyUnitsTurnFinished`, arité 0.
 - **`ChangeTurnOperation` et `EndTurnOperation`** : la première est LUE comme n'écrivant rien (aucun
   appel à `StreamDispatcher` dans son décompilé entier), la seconde n'est pas portée — et
   `execute_stage` **LÈVE** si la séquence la traverse, plutôt que d'émettre un flux amputé.
@@ -257,15 +271,188 @@ dit explicitement.
   call-sites confrontés passent tous deux une valeur).
 - **Le stage de départ** reste une entrée : `Change` et `End` sont indiscernables par le flux (§ 4).
 
+## 7. `#477-r22-r1` — le CONTENU du groupe : slot `0x21` RÉSOLU, et `Action=Info` portée
+
+**LIVRÉ.** Le résidu tenait à un « nulle part » qui n'était plus vrai : `#477-r25` a livré
+`data/symbols/<build>/metadata/interface_slots.tsv`, et `#477-r24-r1` y couvre
+`Core.Services.IOperationProcessor`.
+
+### 7.1 Le slot, lu — et son ARITÉ, qui fait partie de son identité
+
+| slot | méthode | `param_count` |
+|---|---|---:|
+| `0x21` (33) | `VerifyUnitsTurnFinished` | **0** |
+| `0x76` (118) | `MarkUnitAsNoActionAvailable` | 1 |
+| `0x77` (119) | `MarkUnitAsActionAvailable` | 1 |
+
+**Trois canaux concordent, et aucun ne suffit seul** : (a) la table du metadata ; (b) le
+call-site — `IdunBattle.Operations.StartTurnOperation$$Execute` invoque le slot `0x21` **sans
+aucun argument**, ce qui écarte ses deux voisins homonymes (`VerifyAutomaticTurnEnd` à 2
+arguments au slot 32, `VerifyAndRefreshUnitTurnFinished` à 1 au slot 34) ; (c) l'émission
+observée, qui est celle de `MarkUnitAsNoActionAvailableOperation$$Execute`, seule atteignable
+depuis `VerifyUnitsTurnFinishedOperation` à cet endroit.
+
+Les trois citations entrent au **cliquet** `probe_477r24r1_slots_interface.py` (49 → **52**
+attestations) — vérifié en **muant** le nom : le cliquet passe ROUGE et nomme le fichier, la
+ligne et le nom attendu.
+
+### 7.2 La chaîne, et ce que le port en DÉRIVE
+
+```
+Core.Services.OperationProcessor$$VerifyUnitsTurnFinished              <- slot 0x21, arite 0
+  -> IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$Execute
+       if (GetMatch(state).<+0x24> != 1) return;              // NON PORTE (meme champ que la
+                                                              //  garde `== 2` de ContinueTurnPhase)
+       foreach (id in PlayerComponent.get_CurrentlyOwnedUnitIds(player)) VerifyUnitTurnEnded(...)
+       VerifyMachineTurnEnded(player.<+0x78>)                  // INLINE dans Execute
+  -> $$VerifyUnitTurnEnded(unit)
+       if (UnitFlagsComponent.TurnEnded(comp))                            return;
+       if (TryGetComponent<HealthComponent>(out hp) && hp.IsDead())       return;
+       if (!Has(UnitFlag.NoActionAvailable)) { if (HasTilesToMoveTo || HasActionAvailable) return;
+                                               <slot 0x76>(unit); }      // POSE  -> valeur 0
+       else                                  { if (!HasTilesToMoveTo && !HasActionAvailable) return;
+                                               <slot 0x77>(unit); }      // RETIRE -> valeur 1
+  -> $$MarkUnitAsNoActionAvailableOperation$$Execute(unit, reverse)
+       change = reverse ? Remove(flag) : Add(flag);   if (!change) return;   // LE GATE
+       Events.Action(StepType.ChangeStats /*0xc*/, unit.Id,
+                     { TagKey.UnitStats_ActionsAvailable /*0x6f*/ : reverse ? 1 : 0 });
+```
+
+**Trois lectures qui n'auraient pas été devinables** :
+
+**(a) La VALEUR est l'INVERSE du sens du drapeau.** `MarkUnitAs**No**ActionAvailable` **pose** le
+drapeau et écrit **`0`** ; `MarkUnitAsActionAvailable` le **retire** et écrit **`1`**. Le nom de
+l'opération et le nom du tag s'opposent — écrire `int(<drapeau posé>)` était la faute naturelle.
+
+**(b) L'émission est GATÉE par le retour de la mutation.**
+`IdunBattle.Entities.Components.UnitFlagsComponent$$Add` rend `false` si le drapeau était **déjà**
+là, `$$Remove` `false` s'il n'y était **pas**, et l'opération **retourne** sur ce `false` sans
+même construire le dictionnaire. Deux appels de même sens n'écrivent donc **qu'une** ligne. C'est
+pour ce gate — et pour lui seul — que la face stream tient un registre du bit
+(`NoActionAvailableFlags`, un seul drapeau ; l'axe ECS complet reste dans
+`engine/runner/components.py`, #287-r1).
+
+**(c) L'entité écrite est celle de l'UNITÉ**, là où les deux autres émissions du même groupe
+(`Action=PrepareTurn`, `Action=StartTurn`) portent celle du MATCH. Les runners portent tous
+l'entité de match `1` : un port qui l'écrirait en dur passerait toutes les comparaisons live.
+
+**Le second motif** (`Group=Ability_Power Source=StandVigil` → `Action=Info` /
+`Tag=Custom_Data`) sort de
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.StandVigil_UpdateEffectRangeAbility$$CreateBehaviour`,
+qui appelle la surcharge **à UNE CLÉ** de `IdunBattleLogic.Entities.DSLBehaviors$$Inform(TagKey,
+IAmountFormula)` avec `TagKey.Custom_Data` — surcharge identifiée par ses **XREFS entrantes**, le
+build en portant **six** du même nom. `InformOperation$$Execute` était déjà porté
+(`engine/streams/inform_ops.py`) ; il ne manquait que le constructeur du dictionnaire
+(`get_inform_tags`). **Le périmètre est le couple ACTION + CLÉ** : une `Action=Info` portant les
+clés d'ARME (`Attack_Weapon_*`, l'autre foyer) reste HORS PÉRIMÈTRE, énumérée.
+
+### 7.3 Ce que le port dérive, et ce qu'il copie
+
+La face stream n'a ni pathfinding ni prédiction de dégât : les **deux prédicats de mobilité**
+(`HasTilesToMoveTo` → `MovementQuery$$HasAnyMovablePositionsFor`, `HasActionAvailable` →
+`DamagePredictionQuery$$CanAttackAnyUnitFromTilesWithAnyAbility`, identifiés par `#287-r1-r1`)
+sont des **ENTRÉES**, déclarées en borne (c). Ce qui est **MESURÉ** :
+
+| | dérivation | `C1_02` | `MC1_67` | 2v2 | 6 tours | crafté |
+|---|---|---:|---:|---:|---:|---:|
+| (D6) | marques / candidats **dérivés** de `Unit_Owner_Id` ; marques **hors** candidats | 13/26 ; **0** | 13/26 ; **0** | 6/10 ; **0** | 25/42 ; **0** | 6/10 ; **0** |
+| (D7) | VALEUR dérivée du registre `UnitFlag.NoActionAvailable` | 13/13 | 13/13 | 6/6 | 25/25 | 6/6 |
+| (D8) | ORDRE des marques = ordre des `Action=AddUnit` | 3/3 | 3/3 | 3/3 | 6/6 | 3/3 |
+| (D9) | `Action=Info` entrées au périmètre | 3 | 3 | 0 | 3 | 3 |
+
+**(D6) est la dérivation centrale.** Le port n'apprend pas de la queue quelles unités visiter :
+il les **dérive** de deux canaux qui l'ignorent — la carte `Action=AddUnit` → `Tag=Unit_Owner_Id`
+du flux, filtrée par le `Tag=Match_CurrentPlayerId` de l'`Action=PrepareTurn`. Une unité marquée
+qui ne serait pas candidate ferait rougir ; **0 sur 63**. La carte est **incrémentale** : sur
+`C1_02` l'entité `123` entre en cours de bataille, elle est bien candidate, et le natif ne la
+marque jamais.
+
+**`turn_ended` est LU, pas copié** : le slot `0x21` est appelé en **fin** de
+`StartTurnOperation$$Execute`, après la boucle qui applique
+`IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags` à chaque unité de
+`CurrentlyOwnedUnitIds` — et `RemoveTurnFlags` retire `UnitFlag.TurnFinished` **sans condition**.
+
+### 7.4 La GÉNÉRALISATION : le foyer confronté sur TOUT le flux
+
+⚠ **Le `Group=StartTurn` n'exerce QU'UNE des deux valeurs.** Sur les cinq scénarios, **63 marques
+sur 63** valent `1` : une unité qui commence son tour a toujours une tuile où aller, donc la
+branche qui écrit `0` n'y apparaît jamais. Un vert obtenu sur ce seul régime ne dirait rien de la
+correspondance `reverse → 0/1`.
+
+Le probe rejoue donc le flux **entier** : pour chaque émission du foyer — y compris celles des
+call-sites que cette tranche **ne porte pas** (`FinishUnitTurnOperation$$Execute`,
+`ActiveAbilityOperation$$ExecuteInternal`, `MoveUnitOperation`) — il **dérive** le sens depuis le
+registre construit par les émissions **précédentes**, émet avec le port, et confronte.
+
+| | `C1_02` | `MC1_67` | 2v2 | 6 tours | crafté | **total** |
+|---|---:|---:|---:|---:|---:|---:|
+| émissions reproduites | 33/33 | 34/34 | 14/14 | 59/59 | 17/17 | **157 / 157** |
+| valeur `0` / valeur `1` | 20 / 13 | 20 / 14 | 8 / 6 | 34 / 25 | 10 / 7 | **92 / 65** |
+
+Ce n'est **pas circulaire** : à l'instant `k` le registre ne connaît que les lignes `1..k-1`, donc
+la valeur de la ligne `k` est une **prédiction**. Une prédiction fausse se voit de deux façons —
+une VALEUR différente, ou une ligne **MANQUANTE** si le port croit le drapeau déjà dans l'état
+demandé. Contre-épreuve jouée : inverser `1 if reverse else 0` dans le port fait tomber le compte
+à **0 / 33**.
+
+### 7.5 Les SEPT contre-épreuves de la tranche
+
+`marque_valeur`, `marque_entite`, `marque_tag`, `marque_branche`, `marque_ordre`,
+`verif_avant_corps`, `info_entite`, `info_tag_arme` — **8 / 8 OK**, jouées sur chaque couple de
+leur domaine, `mord` séparé de `rougit`.
+
+⚠ **DEUX d'entre elles ont d'abord été mises dans le MAUVAIS PROBE, et le garde-fou de ce
+probe-là les a refusées.** `info_entite` / `info_tag_arme` avaient été ajoutées à
+`probe_477r21_activation_tree.py` : leur domaine y est **NUL sur les QUATRE scénarios** du BLOC 1,
+qui ne porte aucune `Action=Info`. Le verdict « `N` mutation(s) au domaine NUL sur TOUS les
+scénarios — rien ne les confronte » a rougi, et il avait raison : une mutation qu'aucun scénario
+n'exerce ne mesure rien. Elles vivent désormais en `MUTATIONS_RELAYEES` — le module sait les
+émettre, `probe_477r22` les **joue** (domaine 3) — et le **même garde est ajouté à
+`probe_477r22`**.
+
+⚠ **Le régime 2v2 est un TÉMOIN D'INERTIE ATTENDUE, et il est déclaré** : ce roster ne produit
+aucune `Action=Info`, donc `info_entite` / `info_tag_arme` y sont **HORS DOMAINE** — publié comme
+ATTENTION, jamais compté vert.
+
+### 7.6 Le compte AVANT / APRÈS, par scénario
+
+| scénario | hors périmètre AVANT | marques entrées | `Info` entrées | hors périmètre APRÈS |
+|---|---:|---:|---:|---:|
+| `C1_02`, 2 tours | 38 l. | 26 l. | 12 l. | **0** |
+| `MC1_67`, 2 tours | 144 l. | 26 l. | 12 l. | **106** (`ResurrectUnit`) |
+| `MC1_67`, 2v2 | 59 l. | 12 l. | 0 | **47** (`Damage`) |
+| `C1_02`, 6 tours | 98 l. | 50 l. | 12 l. | **36** (`Damage`) |
+| `C1_02`, crafté | 24 l. | 12 l. | 12 l. | **0** |
+
+**Le critère de la tranche est tenu** : les 13 + 13 lignes du résidu **entrent au périmètre et
+s'y reproduisent** — elles ne disparaissent pas du compte, elles changent de colonne. Les
+restes (`Group=ResurrectUnit` / `Ability_CustomGroup`, `Group=Damage`) sont **deux familles que
+le résidu #477-r22-r1 n'avait pas énumérées** : il nommait deux motifs, le flux en portait
+quatre. Elles ouvrent **#477-r34**.
+
+### 7.7 Ce que `#477-r22-r1` ne couvre PAS
+
+- **La DÉCISION** de `VerifyUnitTurnEnded` : les deux prédicats de mobilité restent des entrées.
+  Leur calcul existe côté ECS (`engine/runner/operations/turnflow.py`, #287-r1-r1) mais le flux
+  rejoué ne fournit aucun état à leur donner ;
+- **La garde `GetMatch(state).<+0x24> != 1`** : même champ que la garde `== 2` de
+  `ContinueTurnPhaseOperation$$Execute`, déjà non portée. **Aucun accesseur NOMMÉ du build ne lui
+  donne un type** — `frida/methods.tsv` ne publie aucune méthode de retour `MatchStage` — donc
+  l'attribuer à cet enum serait une hypothèse déguisée en mirror. Elle est citée par son OFFSET ;
+- **`VerifyMachineTurnEnded`** : portée (son prédicat est `MachineCanAttackAnyUnitWithAnyAbility`,
+  slot `IDamagePredictionQuery` 2, et elle n'a **pas** de test de mort) mais **NON EXERCÉE** —
+  aucun de nos montages n'amène de Machine of War. Gardée offline seulement ;
+- **La valeur `0` DANS un `Group=StartTurn`** : jamais observée. Elle exigerait une unité qui, au
+  début de son tour, ne peut ni bouger ni agir alors qu'elle n'est pas déjà marquée. Elle est
+  exercée **offline** (table de vérité) et **live hors du groupe** (92 occurrences, § 7.4).
+
 ## Résidus
 
-- **#477-r22-r1** — **le CONTENU du `Group=StartTurn` hors des formes portées.** Deux motifs, comptés
-  sur tout le flux : les `Action=ChangeStats` + `Tag=UnitStats_ActionsAvailable` du slot `0x21`
-  (13 occurrences sur `MC1_67`, 13 sur `C1_02`), et les `Group=Ability_Power` à `Action=Info` /
-  `Tag=Custom_Data` (3). Les premières sortent d'un slot **non identifié** ; les secondes d'un
-  `Ability_Power` que #477-r21 sait ouvrir mais dont le corps (`Info`) n'est porté par rien.
-  RETOURNEMENT **déjà mesuré** : sur le roster 2v2 ce résidu vaut **0 ligne** dans le bloc 2 — c'est
-  une propriété du roster, pas une limite du port.
+- **#477-r34** — **les deux familles que `#477-r22-r1` n'a PAS fermées, et que son énoncé n'avait
+  pas énumérées.** Un sous-arbre `Group=ResurrectUnit` / `Group=Ability_CustomGroup` (106 l. sur
+  `MC1_67`, avec `Action=Resurrect`, `Action=DirectlyKillUnit`, `Action=RemoveUnit`), et un
+  `Group=Damage` (47 l. sur le roster 2v2, 36 l. sur les 6 tours). Les deux sortent de pipelines
+  entiers — résurrection et dégât — qui ont leurs propres tranches.
 - **#477-r22-r2** — **les gardes d'état de `ContinueTurnPhaseOperation$$HandleNextTurn`.** Trois,
   toutes lues : le match terminé (`match.<+0x24> == 2`), la décision de drafting en attente au stage
   `Draft`, et les quatre conditions de la branche `Prepare`. Aucune n'est atteinte par nos montages ;

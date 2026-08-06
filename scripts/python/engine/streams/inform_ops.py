@@ -85,6 +85,33 @@ def get_inform_weapon_tags(damage_profile_type: Optional[int], is_melee: bool,
     return tags
 
 
+def get_inform_tags(tag_key: int, amount: int) -> Dict[int, int]:
+    """Le `Dictionary<TagKey, IAmountFormula>` que construit la surcharge A UNE CLE de
+    `IdunBattleLogic.Entities.DSLBehaviors$$Inform(TagKey tag, IAmountFormula value)` :
+
+        var dict = new Dictionary<TagKey, IAmountFormula>();
+        dict.Add(tag, value);                       // UN SEUL `Add`, INCONDITIONNEL
+        return new InformBehaviour(dict, null);
+
+    `IdunBattle.Entities.Behaviours.InformBehaviour$$Execute` evalue ensuite chaque formule et
+    passe le `Dictionary<TagKey,int>` resultant a `IdunBattle.Operations.InformOperation$$Execute`
+    -- c'est pourquoi le port prend l'ENTIER deja evalue : la formule est un arbre DSL, hors de
+    la face stream.
+
+    ⚠ CETTE SURCHARGE N'EST PAS LA SEULE : le build en porte SIX du meme nom. Celle-ci est
+    identifiee par ses XREFS ENTRANTES -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    StandVigil_UpdateEffectRangeAbility$$CreateBehaviour` l'appelle avec
+    `TagKey.Custom_Data /*0xcc*/`, ce que le flux confirme (`Action=Info Entity=NO_ENTITY` +
+    `Tag=Custom_Data:<amount>` dans le `Group=Ability_Power Source=StandVigil`). Les deux autres
+    surcharges a trois arguments enveloppent d'abord la valeur (`DSLFormulas$$ConditionalAmount`,
+    ou une constante) puis DELEGUENT a celle-ci : le dictionnaire produit est le meme.
+
+    ⚠ UNE SEULE CLE, TOUJOURS. La faute naturelle serait d'y ajouter les tags d'arme de
+    `get_inform_weapon_tags` : ce sont DEUX foyers distincts, appeles par deux surcharges
+    distinctes, et le natif n'en melange jamais les cles."""
+    return {int(tag_key): int(amount)}
+
+
 def inform(events: StreamDispatcher, tags: Mapping[int, int]) -> None:
     """`IdunBattle.Operations.InformOperation$$Execute(tags)` -- sa seule face, et elle tient en
     une ligne :
