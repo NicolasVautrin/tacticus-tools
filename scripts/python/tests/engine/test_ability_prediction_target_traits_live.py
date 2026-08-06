@@ -4,7 +4,7 @@
 
 `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` construit l'unique
 `IdunBattle.Entities.Abilities.AbilityEntities` de la chaine de prediction : son ctor recoit
-`target = request+0x50` -- le 3e argument que le playbook a passe au slot d'interface 0x28
+`target = request+0x50` -- le 3e argument que le playbook a passe au slot d'interface 0xb
 (`IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction`, qui l'ecrit VERBATIM dans la
 request ; les deux `IdunBattle.Core.Services.DamagePrediction$$PredictAttack` et
 `IdunBattleLogic.Core.Services.Caches.CachedDamagePrediction$$PredictAttack` la recopient sans

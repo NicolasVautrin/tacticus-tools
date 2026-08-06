@@ -87,7 +87,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # #316 : TRAITS DE LA CIBLE, sur le vecteur ABILITY comme sur la normale. Le natif n'a qu'UN
     # `AbilityEntities` pour ces deux chemins. `IdunBattle.Core.Services.DamagePrediction$$Predict
     # AttackRaw` appelle `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` avec
-    # `target = request+0x50` -- le 3e argument que le playbook a passe au slot 0x28
+    # `target = request+0x50` -- le 3e argument que le playbook a passe au slot 0xb
     # (`IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction`, qui l'ecrit VERBATIM
     # dans la request, recopiee sans re-derivation par les deux `DamagePrediction$$PredictAttack`)
     # -- puis transmet cet objet au slot 0xd `CalculateAttackerModifiersForPrediction`, lequel ne

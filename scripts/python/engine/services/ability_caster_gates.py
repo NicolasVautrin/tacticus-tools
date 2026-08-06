@@ -604,7 +604,7 @@ def invalid_caster_reason(ability_id, caster: "CasterSubstrate" = None) -> int |
 #: Nom du gate qui a mordu -- ce sont les symboles natifs, pas des etiquettes libres.
 REASON_CAN_STILL_BE_USED = "CanStillBeUsed"          # slot 0x14
 REASON_IS_DISABLED = "IsDisabled"                    # slot 0x13
-REASON_CAN_CURRENTLY_BE_USED = "CanCurrentlyBeUsed"  # AttackQuery$$GetInvalidCasterReason, marche d
+REASON_CAN_CURRENTLY_BE_USED = "CanCurrentlyBeUsed"  # slot 0xb `AttackQuery$$GetInvalidCasterReason`
 
 
 def caster_gate_reason(ability_id, ability_state=None,

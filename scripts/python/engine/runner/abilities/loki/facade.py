@@ -244,7 +244,10 @@ class SorcerousFacadeAbility(ActiveAbility):
           1. la cible porte le trait **Psyker** (0x3ea = 1002) ;
           2. le caster peut attaquer QUELQUE CHOSE a l'attaque normale depuis ses tuiles de cast --
              le slot 0x40 d'`IBattleQuery` est
-             `IdunBattle.Core.Services.BattleQuery$$CanAttackAnyUnitFromAnyTileWithAnyAbility`
+             `IdunBattle.Core.Services.BattleQuery$$HasValidTargets(caster, casterTiles, type)`
+             -- TROIS arguments, comme le call-site ci-dessus ;
+             `IdunBattle.Core.Services.BattleQuery$$CanAttackAnyUnitFromAnyTileWithAnyAbility` est
+             au slot 0x38 et ne prend QUE l'unite. La semantique est la meme ici, l'appel etant
              restreint a l'`ActiveAbilityType` de l'attaque normale du caster. Mirror : l'ensemble
              `valid_normal_attack_targets(state, caster)` est NON VIDE -- exactement la source que
              `sel` consomme dans l'arbre (un seul port de la cascade, pas deux).

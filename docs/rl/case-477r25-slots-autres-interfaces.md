@@ -175,9 +175,13 @@ d'origine :
         docs/rl/case-250-tau-targeting.md:313 [IBattleQuery] slot 0x7c : le site nomme
         GetAdjacentEnemies, le metadata dit GetAdjacentUnits ; GetAdjacentEnemies est aux
         slots 0x7d, 0x7e, 0x7f, 0x80 | adjEnemies = battleQuery.<slot 0x7c>
-        GetAdjacentEnemies(caster, owner, /*ignoreSteppables*/ false);
+        GetAdjacentEnemies(caster, owner, /*ignoreSteppables*/ false);    [slot-attribution:refute]
 VERDICT : ROUGE
 ```
+
+*(Le `[slot-attribution:refute]` de la dernière ligne est une ANNOTATION, pas une sortie du
+probe : depuis `#477-r30`, l'appariement enjambe le saut de ligne, donc ce bloc — qui reproduit
+une attribution RÉFUTÉE, coupée en deux par la mise en page — redeviendrait rouge sans lui.)*
 
 **Contre-épreuve : 4 mutants, 4 mordent** — `slot-decale` (cliquet 0→190, nom 0→91),
 `nom-permute` (0→2 / 0→9), `table-tronquee` (0→110 / 0→38), `arite-fausse` (0→513 / arité 0→37).
@@ -220,12 +224,99 @@ probe avant `git add` ne prouve rien sur ce qu'on vient d'écrire.**
 
 ### Ce que les gardes ÉCARTENT, compté et imprimé
 
-**5 114** lignes sans aucun récepteur d'interface couverte ; **200** citant `IOperationProcessor`
-(gardées par `#477-r24-r1`) ; **37** MULTI-interfaces dont le couple n'est pas qualifié ; **633**
-citant un slot sans lui accoler de nom ; **1** exemptée au site par `[slot-attribution:refute]` ;
-**1** fichier exclu et nommé (le probe lui-même) ; **4** couples dont le nom n'est à aucun slot de
-l'interface appariée — **indécidables mécaniquement**, donc listés, ni verts ni rouges (vérifiés à
-la main : les 4 sont JUSTES, le nom capté étant tronqué par un retour à la ligne ou un `:`).
+Les comptes se **re-dérivent** (`probe_477r25_slots_autres_interfaces.py`), ils ne se citent pas —
+ils bougent à chaque tranche. Ordre de grandeur au 2026-08-06, **après** l'élargissement `#477-r30` :
+~**5 260** lignes sans aucun récepteur d'interface couverte ; ~**200** citant `IOperationProcessor`
+(gardées par `#477-r24-r1`) ; **39** MULTI-interfaces dont le couple n'est pas qualifié ; **641**
+citant un slot sans lui accoler de nom **même sur trois lignes** ; **7** exemptées au site par
+`[slot-attribution:refute]` ; **1** fichier exclu et nommé (le probe lui-même) ; **12** couples dont
+le nom n'est à aucun slot de l'interface appariée — **indécidables mécaniquement**, donc listés, ni
+verts ni rouges. Le probe imprime **aussi** le rétrécissement (`666 -> 641`), pas seulement l'état :
+c'est ce qui distingue une garde d'un inventaire.
+
+## 6bis. `#477-r30` — la FENÊTRE : ce que « slot et nom ADJACENTS » ne pouvait pas voir
+
+**LIVRÉ.** `#477-r25` appariait le couple sur **une ligne**, et le disait (`665 lignes citant un
+slot SANS lui accoler de nom`). La première lecture de ce gisement en a sorti une citation
+**fausse** — le même slot `0x4c` donné au PUSH et au PULL dans le même paragraphe de
+`test_thunderous_assault_push_live.py` — corrigée à la main au merge de `#716`. **Un cliquet dont
+la zone aveugle ne rétrécit pas est un inventaire, pas une garde.**
+
+### Le choix de la fenêtre est MESURÉ (`--courbe` le re-dérive)
+
+| W | citations | enjambantes | `sans_couple` | indécidables | désaccords |
+|--:|--:|--:|--:|--:|--:|
+| **1** (état `#477-r25`) | 161 | 0 | 666 | 5 | 0 |
+| **2** | 230 | 59 | 641 | 12 | 0 |
+| **3** *(en service)* | 230 | 59 | 641 | 12 | 0 |
+| 4 … 8 | 230 | 59 | 641 | 12 | 0 |
+
+Le gain est **intégralement capté à W = 2**, et la courbe est **plate ensuite — jusqu'à W = 12,
+pas une citation, pas un indécidable, pas un désaccord de plus**. Ce plateau est un **effet du
+cran LIGNE VIDE** : aucun couple du corpus n'enjambe trois lignes *non vides*. `3` est donc pris
+comme **marge à coût mesuré nul**. Zone aveugle : **666 → 641** lignes (**−25**), attestations
+**161 → 230**.
+
+⚠ **Sans le cran ligne vide, élargir RÉTRÉCISSAIT la couverture** : à ne rendre que les blocs de
+taille maximale, `sans_couple` remontait de 642 (W=2) à 645 (W=4) — un bloc plus large voit plus
+d'interfaces, bascule en régime multi-interface et **perd** un couple que le bloc étroit voyait.
+La récolte est donc une **union sur toutes les tailles de 1 à W**, monotone par construction.
+
+### Quatre crans RETENUS, un REFUSÉ, un de RECONNAISSANCE
+
+1. **l'interface et le régime se jugent sur le SPAN du couple, pas sur le bloc.** Sinon
+   « `$$FinishAttack` (slot 0x3b) » <!-- [slot-attribution:refute] --> se voyait attribuer à
+   `IMatchState` **parce que la ligne suivante écrit `MatchState+0x60`** ;
+2. **une LIGNE VIDE est une frontière** — 2 faux positifs ne tenaient qu'à ce franchissement
+   (`case-433-…-a-gates-whole-board.md` : `# + slot 10` puis, *après une ligne vide*,
+   `AActiveAbility$$GetPossibleTargetTiles`) ;
+3. **la forme « nom PUIS slot » ne franchit JAMAIS la ligne.** Dans une énumération verticale le
+   nom écrit avant appartient à l'item précédent : c'est le vice du cran VIRGULE de `#477-r25`,
+   transposé de la virgule au saut de ligne. Mesure : **3 couples proposés, 3 faux** ;
+4. **la CONTINUATION de commentaire** (`#`, `//`, `*`, `>`, `|`, `-`) — `\s*` ne suffit pas. C'est
+   ce cran qui a fait apparaître la **jumelle exacte** de la citation motivante, dans `displace.py`
+   cette fois ;
+5. **REFUSÉ — interdire le `=` dans le remplissage.** Il supprimait le dernier faux positif
+   (`ability_caster_gates.py`, deux affectations consécutives), mais au prix de **20 lignes de
+   couverture pour 2 faux évités** ; re-mesuré sur l'état final : `sans_couple` **641 → 661**,
+   enjambantes **59 → 54**, pour **0** faux évité. Le site a été **reformulé** à la place ;
+6. **le qualificatif de slot est INSENSIBLE À LA CASSE.** Le dépôt écrit aussi
+   « slot d'INTERFACE » (**4 sites**) — sans ce cran le motif ne reconnaissait même pas le SLOT,
+   la ligne partait en `sans_couple` et **aucune fenêtre n'aurait pu la rattraper**.
+
+### 8 citations fausses trouvées, chacune vérifiée au DÉCOMPILÉ
+
+**58 couples enjambants proposés, 49 concordants — les 49 relus un par un, tous de VRAIS
+couples** (aucune coïncidence de proximité). Les 9 désaccords se sont ventilés en **8 fautes** et
+**1 faux positif de mise en page** :
+
+| site | écrit | mesuré | source |
+|---|---|---|---|
+| `playbook/noncomparable/_base.py` | slot `0x3f` | **`0x40`** `HasValidTargets` (3 args) | `RecordedSimulationRequestsBattleQuery$$HasValidTargets` |
+| `runner/abilities/loki/facade.py` | `0x40` = `CanAttackAnyUnitFromAnyTileWithAnyAbility` | **`0x40` = `HasValidTargets`** ; `CanAttackAny…` est au `0x38` (1 arg) | `…$$CanAttackAnyUnitFromAnyTileWithAnyAbility` (slot `0x38` littéral) |
+| `runner/operations/displace.py` (push) | slot `0x4c` = `…180Behind` | **`0x4d`** | table (`0x4c` = `…180Front`, 3 args) |
+| `runner/operations/displace.py` (pull) | `0xa6` = `…180Front`, « symbole DISPARU » | **`0x4c`**, et le symbole **existe** | `ghidra/functions.tsv` + metadata |
+| `playbook/noncomparable/cord_claw.py` | slot `0x41` | **`0x42`** (`IBattleQuery`, délègue à `AttackQuery`) | `RecordedSimulationRequestsBattleQuery$$GetValidTargets` |
+| `runner/abilities/astramilitarum.py` | slot `0x62` | **`0x63`** | `TilesAtDistanceSelector$$Select` (slot `99` littéral) + `…DisplayClass120_0$$…b__0` |
+| `playbook/prediction/abilities.py` | slot `0x28` | **`0xb`** d'`IDamagePredictionQuery` | `CachedDamagePredictionQuery$$GetAttackPrediction` + `BattleQuery$$GetAttackPrediction` |
+| `tests/…/test_ability_prediction_target_traits_live.py` | slot `0x28` | **`0xb`** | idem |
+
+⚠ **Deux d'entre elles sont des jumelles de fautes DÉJÀ corrigées par `#477-r25`**, restées dans
+le PORT parce qu'un saut de ligne les cachait : `facade.py` porte la faute de `case-287`, et
+`displace.py` celle du test de `#477-r30`. **Corriger la fiche ne corrige pas le port.**
+
+⚠ **Aucun code exécutable n'a bougé** : `probe_477r30_empreinte_ast.py` compare les AST
+**docstrings retirées** — 10 fichiers Python, **8 identiques**, 2 divergents **déclarés**
+(l'instrument et son cliquet). Il **REFUSE** de mesurer si le témoin n'est pas un ancêtre de
+`HEAD` : contre `origin/master` non rebasé, il rendait **17 « non déclarés »** qui étaient tous le
+travail des autres.
+
+### Le mutant qui garde la FENÊTRE, et pourquoi les quatre autres n'y suffisaient pas
+
+`enjambants-decales` permute le nom des slots que **seuls** des couples enjambants citent. Les
+quatre mutants hérités mordent dans les deux régimes : **aucun d'eux ne dirait qu'on a perdu la
+fenêtre**. Premier jet **rejeté par son propre test** — il visait tous les slots enjambants, dont
+certains cités aussi sur une ligne, et mordait donc **aussi à `fenetre=1`** (63 désaccords).
 
 ## 7. Un apport hors périmètre, non appliqué
 
@@ -252,5 +343,16 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
   cliquet, pas par des citations. Un renumérotage les ferait rougir ; une attribution fausse écrite
   demain sur `IEffect` ou `IPlaybook` serait, elle, immédiatement gardée — c'est le seul sens dans
   lequel la couverture est acquise.
-- **Les 5 114 lignes sans récepteur reconnu** restent hors garde. Le recensement (`--recenser`) les
+- **Les ~5 260 lignes sans récepteur reconnu** restent hors garde. Le recensement (`--recenser`) les
   ventile par récepteur ; aucune ne porte de couple (slot, nom) appariable sans lire le site.
+- **#477-r32 — les 641 lignes qui citent un slot sans qu'AUCUN nom ne lui soit appariable, même sur
+  trois lignes.** C'est ce que `#477-r30` laisse ouvert, et le nombre est désormais **publié avec
+  son rétrécissement** (666 → 641). Élargir davantage n'y fera rien : la courbe est plate de W=2 à
+  W=12, donc ces lignes ne sont pas « trop loin de leur nom » — elles n'en ont **pas**, ou il n'est
+  pas reconnaissable (récepteur non couvert, nom en minuscules, slot cité seul dans une
+  énumération). Deux volets : *(a)* échantillonner ce résidu comme `#477-r30` l'a fait des 665 —
+  la première lecture du gisement précédent en a sorti une citation fausse ; *(b)* **porter la
+  fenêtre à `probe_477r24r1_slots_interface.py`**, qui écarte **162** lignes du même patron sur
+  `IOperationProcessor` et n'a **pas** été élargi.
+- **Le mot `slot` lui-même reste sensible à la casse** (seul son qualificatif ne l'est plus). Une
+  ligne commençant par « Slot 0x12 = … » ne serait pas vue. Non mesuré comme gisement.

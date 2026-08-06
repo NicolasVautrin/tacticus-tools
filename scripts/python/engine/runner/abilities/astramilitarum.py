@@ -826,7 +826,7 @@ def basilisk_num_shells(state: "State", caster_id: int) -> tuple:
 
 def basilisk_tiles_at_distance(state: "State", pos: tuple, distance: int) -> list:
     """`IdunBattleLogic.Entities.DSLFactory$$TilesAtDistance(source, d)` ->
-    `IdunBattle.Entities.Selectors.TilesAtDistanceSelector$$Select` -> slot 0x62 =
+    `IdunBattle.Entities.Selectors.TilesAtDistanceSelector$$Select` -> slot 0x63 =
     `IdunBattle.Core.Services.BattleQuery$$GetTilesAtDistance(tile, d, false)` :
 
         surrounding = GetSurroundingTiles(tile, d, requireEmptyOrSteppable=false, checkWalkable=0,

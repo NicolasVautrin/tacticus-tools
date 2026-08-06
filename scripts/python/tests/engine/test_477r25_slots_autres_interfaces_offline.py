@@ -16,6 +16,7 @@ Ce que ce fichier empeche de revenir :
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -85,6 +86,12 @@ def tables() -> dict[str, dict[int, tuple[str, int, int]]]:
 def citations(tables) -> list[P.Citation]:
     cits, _ecartees, _recense = P.recolter(tables)
     return cits
+
+
+@pytest.fixture(scope="module")
+def recolte_fenetre1(tables):
+    """La recolte a `fenetre=1` -- l'etat de #477-r25, garde comme REFERENCE."""
+    return P.recolter(tables, fenetre=1)
 
 
 @pytest.fixture(scope="module")
@@ -223,6 +230,115 @@ def test_etage3_la_garde_mord(tables, citations: list[P.Citation], mutant: str) 
     base = P.jouer(tables, citations, None)
     mute = P.jouer(P.muter(tables, mutant, citations), citations, None)
     assert mute != base, "le mutant `%s` n'a RIEN change (%s) -- il est inerte" % (mutant, base)
+
+
+# ------------------------------------------ etage 3bis : la FENETRE elle-meme (#477-r30)
+
+
+def test_etage3bis_la_fenetre_APPORTE_des_couples_enjambants(
+        citations: list[P.Citation]) -> None:
+    """La fenetre doit voir ce que `fenetre=1` ne voyait pas -- sinon elle ne sert a rien.
+
+    C'est le cliquet du gisement de #477-r30 : `#477-r25` exigeait slot et nom ADJACENTS, et
+    une citation FAUSSE y a survecu (`test_thunderous_assault_push_live.py`, corrigee a la
+    main) uniquement parce qu'un saut de ligne les separait.
+    """
+    assert P.FENETRE >= 2, "la fenetre est retombee a 1 -- le gisement de #477-r30 se rouvre"
+    enjambants = [c for c in citations if c.ligne != c.ligne_nom]
+    assert len(enjambants) >= 40, (
+        "seulement %d couple(s) ENJAMBANT(S) sur %d -- l'appariement en fenetre ne mord plus"
+        % (len(enjambants), len(citations)))
+    assert len({c.fichier for c in enjambants}) >= 20, (
+        "les couples enjambants sont concentres sur %d fichier(s) -- ce n'est plus un gisement"
+        % len({c.fichier for c in enjambants}))
+
+
+def test_etage3bis_la_fenetre_RETRECIT_la_zone_aveugle(tables,
+                                                       recolte_fenetre1) -> None:
+    """Un cliquet dont la zone aveugle ne retrecit pas est un inventaire, pas une garde.
+
+    On compare les DEUX regimes sur le MEME corpus : le nombre de lignes qui citent un slot
+    sans qu'aucun nom ne lui soit appariable doit avoir BAISSE.
+    """
+    _ref_cits, ref, _ = recolte_fenetre1
+    _cits, ecartees, _ = P.recolter(tables)
+    assert ecartees.sans_couple < ref.sans_couple, (
+        "zone aveugle INCHANGEE : %d ligne(s) sans couple a fenetre=1 comme a fenetre=%d"
+        % (ref.sans_couple, P.FENETRE))
+    assert ref.sans_couple - ecartees.sans_couple >= 15, (
+        "la fenetre ne recupere que %d ligne(s) (%d -> %d) -- mesure a 24 le 2026-08-06"
+        % (ref.sans_couple - ecartees.sans_couple, ref.sans_couple, ecartees.sans_couple))
+
+
+def test_etage3bis_fenetre1_reste_le_regime_de_477r25(recolte_fenetre1) -> None:
+    """`fenetre=1` doit RESTER exactement l'ancien regime : 0 couple enjambant, 0 faux.
+
+    Sans cette assertion, un elargissement accidentel du regime de base passerait pour un
+    gain de la fenetre.
+    """
+    ref_cits, _ref, _ = recolte_fenetre1
+    assert all(c.ligne == c.ligne_nom for c in ref_cits), (
+        "a fenetre=1, un couple s'etale sur deux lignes -- le regime de base a fui")
+
+
+def test_etage3bis_le_mutant_des_enjambants_est_INERTE_a_fenetre1(
+        tables, citations: list[P.Citation], recolte_fenetre1) -> None:
+    """Le mutant qui garde la fenetre doit MORDRE en fenetre et NE RIEN FAIRE a fenetre=1.
+
+    C'est ce qui prouve qu'il garde bien l'ELARGISSEMENT, et pas l'appariement en general :
+    les quatre mutants herites de #477-r25 mordent dans les deux regimes, donc aucun d'eux
+    ne dirait qu'on a perdu la fenetre.
+    """
+    ref_cits, _ref, _ = recolte_fenetre1
+    mute = P.muter(tables, "enjambants-decales", citations)
+    assert P.jouer(mute, citations, None) != P.jouer(tables, citations, None), (
+        "le mutant `enjambants-decales` ne mord PAS en fenetre -- la fenetre n'est pas gardee")
+    assert P.jouer(mute, ref_cits, None) == P.jouer(tables, ref_cits, None), (
+        "le mutant `enjambants-decales` mord AUSSI a fenetre=1 : il ne discrimine pas les "
+        "couples que seule la fenetre voit, donc il ne garde pas l'elargissement")
+
+
+def test_etage3bis_le_bloc_ne_franchit_pas_une_ligne_VIDE() -> None:
+    """Une ligne vide est une frontiere de paragraphe -- mesure : 2 faux positifs tenaient a ce
+    seul franchissement (`case-433-...-a-gates-whole-board.md`, `formulas.py`)."""
+    lignes = ["slot 0x40 =", "", "`BattleQuery$$HasValidTargets`"]
+    hauteurs = {len(off) for _i0, _b, off in P._blocs(lignes, 3) if _i0 == 0}
+    assert hauteurs == {1}, (
+        "le bloc demarrant sur la ligne du slot franchit la ligne vide (hauteurs %s)"
+        % sorted(hauteurs))
+
+
+def test_etage3bis_la_continuation_de_commentaire_est_franchie() -> None:
+    """`\\s*` ne suffit pas : le depot reprend ses phrases derriere un `#`, un `//`, un `>`.
+
+    C'est ce qui cachait la citation fausse jumelle de celle de #477-r30 (`displace.py`
+    ecrivait « slot d'INTERFACE 0x4c = » puis, ligne suivante, `...GetMinimumTiles180Behind`).
+    """
+    bloc = ("#    ... rendue par le slot d'INTERFACE 0x4c =\n"      # [slot-attribution:refute]
+            "#    `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Behind+0x38` -> ...")
+    formes = P._COUPLES_ML["IBattleQuery"][0]
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(formes) for m in rx.finditer(bloc)}
+    assert (0x4C, "GetMinimumTiles180Behind") in vus, (
+        "le couple a cheval sur une continuation `#` n'est pas capte -- vus : %s" % sorted(vus))
+    #: Et le meme couple doit rester INVISIBLE au regime mono-ligne, sinon la mesure
+    #: comparative fenetre=1 / fenetre=N ne veut plus rien dire.
+    mono = P._COUPLES["IBattleQuery"][0]
+    vus1 = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+            for k, rx in enumerate(mono) for m in rx.finditer(bloc)}
+    assert (0x4C, "GetMinimumTiles180Behind") not in vus1
+
+
+def test_etage3bis_le_qualificatif_de_slot_est_insensible_a_la_CASSE() -> None:
+    """« slot d'INTERFACE 0x4c » doit etre reconnu comme un slot.
+
+    Sans ce cran le motif ne voyait meme pas le SLOT : la ligne partait en `sans_couple` et
+    AUCUNE fenetre n'aurait pu la rattraper. 4 sites du depot ecrivent la forme majuscule.
+    """
+    for texte in ("slot d'interface 0x4c", "slot d'INTERFACE 0x4c", "slot d'Interface 0x4c"):
+        m = re.search(P._SLOT % 0, texte)
+        assert m is not None and int(m.group("n0"), 0) == 0x4C, (
+            "« %s » n'est pas reconnu comme un slot" % texte)
 
 
 # ------------------------------- etages 4-5 : la derivation, si le metadata est la
