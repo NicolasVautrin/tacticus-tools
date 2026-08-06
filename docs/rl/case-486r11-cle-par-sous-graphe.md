@@ -77,14 +77,18 @@ Coût fixe a chaud : ~5 a 9 s (calcul des 437 fermetures ~3,9 s, lecture du cach
 Le nombre d'interpreteurs est instrumente (`--resume-cache`) : c'est le chiffre robuste, un
 chronometre melangeant le cout du cliquet et la charge de la machine.
 
-| regime | interpreteurs | duree | cle grossiere (#486-r5) |
+| regime (`--tous`) | interpreteurs | duree | cle grossiere (#486-r5) |
 | --- | ---: | ---: | ---: |
-| **0 fichier** d'`engine/` touche | **0** | **8,9 s** | 437 / ~130-180 s |
-| 1 fichier, rayon 1 (feuille) | 1 | 10,6 s | 437 |
-| 1 fichier, rayon median | 181 | 71,9 s | 437 |
-| 1 fichier, `engine/__init__.py` | 437 | 152,6 s | 437 |
+| **0 fichier** d'`engine/` touche | **0** | **7,0 s** | 437 / ~130-180 s |
+| 1 fichier, rayon 1 (feuille) | 1 | 11,1 s | 437 |
+| 1 fichier, rayon 181 (median) | 181 | 84,4 s | 437 |
+| 1 fichier, `engine/__init__.py` (rayon 437) | 437 | 143,3 s | 437 |
 | 5 fichiers de rayon 1 | 5 | 7,9 s | 437 |
-| 5 fichiers au hasard (median) | ~319 | -- | 437 |
+| 5 fichiers au hasard (union 324) | 324 | 153,3 s | 437 |
+
+Sur la PASSE des deux fichiers de test qui consomment ce cliquet
+(`test_270r4r2_cycles_imports_offline` + `test_270r4r2r2_differes_offline`) : **191,4 s** avant
+#486-r5, **127,9 s** apres, **19,4 s** ici.
 
 ⚠ **Le gain n'est PAS uniforme, et le moyenner le maquillerait.** Distribution du nombre de
 modules a re-tester quand on touche `k` fichiers pris au hasard (4 000 tirages, `--granularite`) :
@@ -99,6 +103,25 @@ Autrement dit : le regime « 0 fichier » gagne **tout** (437 -> 0), une PR d'un
 (fermeture mediane de **191** modules sur 437) : c'est une propriete du depot, pas une limite de
 la cle. Une cle plus fine que le sous-graphe n'existe pas -- au-dela, il faudrait changer le
 critere.
+
+## 4bis. Le CHURN du fichier versionne, et pourquoi il est acceptable
+
+Le cache vit dans `scripts/cliquets-cache/probe_270r4r2_import_en_premier.tsv` : **437 lignes,
+56 Ko**, une par module. Toucher un fichier de rayon `r` fait changer `r` lignes -- jusqu'a **437**
+pour `engine/__init__.py`. C'est plus que le churn des trois caches de #486-r1 (« au plus N lignes
+pour N fichiers touches »), et c'est structurel : la cle d'un module PORTE ses dependances, donc
+elle bouge quand elles bougent. C'est le prix exact du gain.
+
+Ce que cela n'entraine pas : un conflit de merge se resout en **REGENERANT** (`--tous`), jamais en
+fusionnant -- l'en-tete du fichier le dit, et le fichier porte en plus une note propre a ce
+cliquet, parce que l'en-tete generique de `verdict_cache` annonce « sha256 du CONTENU » et
+qu'un lecteur pourrait croire pouvoir recalculer la cle depuis le seul fichier nomme en 1re
+colonne. Un cache non regenere ne ment pas : ses entrees perimees MANQUENT, et le run repaie.
+
+⚠ **Un run PARTIEL n'ecrit pas.** `CacheCliquet.enregistrer` reecrit avec exactement les entrees
+vues -- c'est ce qui fait le menage, et c'est ce qui RETRECIRAIT le fichier si un run sur un
+sous-ensemble (un seul des deux fichiers de test, `--modules a,b`) l'ecrivait. Le refus est
+explicite (`_enregistrer_si_complet`) et garde par l'etage 7.
 
 ## 5. La contre-epreuve, dans les DEUX sens
 
@@ -130,10 +153,16 @@ serait FICTIVE).
 ## 6. Un trou HERITE qui se referme au passage
 
 La cle grossiere ne regardait que `engine/**`. Or **deux** modules freres de `scripts/python/`
-entrent dans les fermetures -- `gameconfig` et surtout **`hexgeo`, qui gouverne 351 modules sur
-437**. Les modifier ne reinvalidait donc **rien**. La fermeture, elle, ne filtre sur aucun prefixe
-(`_Visiteur(..., prefixes=None)`) et les porte. Ce n'est pas une precaution : c'est un faux vert
-qui existait et qui n'existe plus.
+entrent dans les fermetures -- **`gameconfig` (317 modules)** et **`hexgeo` (351)**. Les modifier
+ne reinvalidait donc **rien**. La fermeture, elle, ne filtre sur aucun prefixe
+(`_Visiteur(..., prefixes=None)`, parametre ajoute a `probe_270r4r2_cycles_imports` sans changer
+son defaut) et les porte. Ce n'est pas une precaution : c'est un faux vert qui existait et qui
+n'existe plus.
+
+Releve complet (`--granularite`) : **439** fichiers gouvernent au moins un module ; rayon
+`min=1 med=181 moy=172,5 max=437` ; **30** fichiers de rayon 1 ; les huit plus larges sont
+`effect_type=343, traits/unit_trait=344, entities/stats=345, entities/traits=349, hexgeo=351,
+services=353, entities=397, engine=437`.
 
 ## 7. Ce qui reste HORS de portee, et il faut le lire
 
