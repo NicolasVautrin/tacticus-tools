@@ -380,17 +380,53 @@ def cleave_for(passive_abilities, active_abilities=None, visual_id=None, traits=
 
 # ---------------------------------------------------------------- l'execution
 
-def _attack_damage_leaf(entry: "_Cleave", target_sel, is_melee: bool):
+def fold_inherits_attack_state() -> bool:
+    """#419-r3 -- le FOLD primaire herite-t-il de l'`OngoingAttack` de l'attaque primaire ?
+
+    Fonction de MODULE, et pas une expression inline, pour une seule raison : c'est le point de
+    MUTATION des probes/cliquets (`probe_419r3_fold_attack_state.py --mutate isolate`). La rendre
+    fausse restaure exactement le port d'AVANT #419-r3 (fold sur une attaque NEUVE) -- une
+    contre-epreuve qui DOIT diverger du live. Meme pattern que `crit_gate_open` pour #366-r1 et
+    qu'`apply_all_modifiers` pour #131.
+
+    VRAI est le natif : `<X>_NormalAttackAbility$$GetCustomNormalAttackBehaviour` rend un
+    `If(<cond>, <AttackDamage NU>)` -- aucun `IdunBattleLogic.Entities.DSLBehaviors$$Attack` --, et
+    `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` le compose dans le `Attack(...)` de
+    l'attaque primaire. Le call-site pose `isOutsideAttack = false`, donc
+    `IdunBattle.Operations.ADamageOperation$$GetCurrentAttackOrDefault` route sur le slot **200**
+    `GetCurrentAttackOrDefault` (arite 0) et rend l'attaque EN COURS."""
+    return True
+
+
+def _attack_damage_leaf(entry: "_Cleave", target_sel, is_melee: bool, attack_state0=None):
     """La feuille commune aux DEUX volets : `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour`
     -> `DSLBehaviors$$AttackDamage(caster, target, RandomAmount(var 0xc, var 0xd),
-    Direct(GetDamageProfile()), Direct(GetNumberConstant(0x2f)), source, options = ZEROEE)`.
+    Direct(GetDamageProfile()), Direct(GetNumberConstant(0x2f)), source, options)`.
 
     Un SEUL artefact natif, un SEUL port : le cleave l'appelle avec la cible courante du `Foreach`
     (`Subject()`), le fold primaire avec `Target@0x60` (`Target()`).
 
     `is_melee` = la nature de l'arme CHOISIE (`FindAttackWeapon(...).IsMelee`), threadee telle
     quelle : c'est elle qui pilote `ExtraPierceMelee` vs `ExtraPierceRanged` dans `profile_pierce`.
-    On ne la re-derive pas d'une adjacence."""
+    On ne la re-derive pas d'une adjacence.
+
+    `attack_state0` (#419-r3) = l'etat de l'`OngoingAttack` HERITEE, `None` si l'appelant en ouvre
+    une neuve. Les DEUX volets sont ici, et ils N'ONT PAS la meme reponse -- c'est ce qui interdit
+    de la poser dans cette fonction :
+
+      * **CLEAVE** -> `<X>$$GetAdditionalTargetsAttackBehavior` enveloppe la feuille dans son PROPRE
+        `IdunBattleLogic.Entities.DSLBehaviors$$Attack(caster, target, behaviour, source)`, donc
+        `StartAttackOperation$$Execute` pousse un `OngoingAttack` NEUF par cible -> `None` ;
+      * **FOLD** -> `<X>$$GetCustomNormalAttackBehaviour` rend `If(<cond>, <la feuille>)` SANS aucun
+        `Attack(...)`, et `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` le compose entre
+        l'`AttackDamage` d'ARME et `ExecuteAdditionalHitsWithDamageProfileType`, le tout DANS un seul
+        `Attack(...)`. La feuille lit donc l'`OngoingAttack` de l'attaque PRIMAIRE, deja mutee par
+        les coups d'arme -> l'appelant lui passe l'etat.
+
+    Les options du call-site du fold sont un `Nullable<AttackDamageBehaviourOptions>` **NUL**
+    (`hasValue = 0`), donc `GetValueOrDefault()` rend la struct zeroee : ni `alwaysOverkilled` (+4),
+    ni `alwaysCrit` (+5), et surtout `isOutsideAttack` (+0) = **false**. Balayage exhaustif des 18
+    call-sites : `docs/rl/case-419-r3-is-outside-attack-inexprimable.md`."""
     profile = ((GC.ability(entry.passive) or {}).get("constants") or {}).get("damageProfile") or ""
     return AttackWithAttackDamage(
         target_sel, entry.passive, profile, is_melee=bool(is_melee),
@@ -408,10 +444,11 @@ def _attack_damage_leaf(entry: "_Cleave", target_sel, is_melee: bool):
         # UNE cible resolue par appel (le `Foreach` pour le cleave, `Target` pour le fold) : surtout
         # PAS `multi=True`, qui trierait par id (l'`OrderBy` d'`AttackBehaviour$$Execute` ne
         # s'applique que quand UN behaviour porte N cibles -- ce n'est pas la forme d'ici).
-        multi=False)
+        multi=False,
+        attack_state0=attack_state0)     # #419-r3 : cf. docstring (None pour le CLEAVE)
 
 
-def primary_fold_tree(entry: "_Cleave", is_melee: bool):
+def primary_fold_tree(entry: "_Cleave", is_melee: bool, attack_state0=None):
     """`<X>_NormalAttackAbility$$GetCustomNormalAttackBehaviour` = `If(<cond>,
     GetAdditionalDamageBehaviour(abilityState, Target@0x60))`.
 
@@ -419,8 +456,13 @@ def primary_fold_tree(entry: "_Cleave", is_melee: bool):
     (`IsMeleePosition` / `IsRangedPosition`) est evaluee IMPERATIVEMENT par l'appelant, parce que
     son substrat natif est un slot d'`IBattleQuery` (`AreUnitsInMelee`) et non un predicat du DSL
     porte. Meme frontiere que partout ailleurs : le sous-arbre reste declaratif, le predicat
-    runner-couple est impératif."""
-    return _attack_damage_leaf(entry, Target(), is_melee)
+    runner-couple est impératif.
+
+    `attack_state0` (#419-r3) = l'etat de l'`OngoingAttack` de l'attaque PRIMAIRE en sortie de ses
+    coups d'arme (`{"attack_state": ...}` du retour d'`AttackDamageOperation.execute`). Ce volet-ci
+    tourne DANS le `Attack(...)` de la primaire ; le passer est ce qui rend `isOutsideAttack = false`
+    exprimable cote port."""
+    return _attack_damage_leaf(entry, Target(), is_melee, attack_state0=attack_state0)
 
 
 def cleave_tree(entry: "_Cleave", is_melee: bool, weapon_range: Optional[int] = None):
@@ -492,7 +534,8 @@ def is_melee_position(state: "State", caster_id: int, target_id: Optional[int]) 
 
 def execute_additional_targets_attacks(state: "State", caster_id: int, target_id: Optional[int],
                                        entry: "_Cleave", is_melee: bool,
-                                       weapon_range: Optional[int] = None) -> dict:
+                                       weapon_range: Optional[int] = None,
+                                       attack_state0=None) -> dict:
     """Joue les DEUX volets, DANS L'ORDRE NATIF, et rend
     `{"primary_fold": {...}|None, "additional_targets": [{"target": id, "attack": {...}}, ...]}`.
 
@@ -510,6 +553,10 @@ def execute_additional_targets_attacks(state: "State", caster_id: int, target_id
     Les deux volets ont des gates DISTINCTES et l'un peut partir sans l'autre : c'est pourquoi ils
     sont testes separement et non par un seul `if`. Aucun des deux ne part sans cible primaire.
 
+    `attack_state0` (#419-r3) = l'etat de l'`OngoingAttack` de l'attaque primaire, transmis au SEUL
+    volet FOLD : lui tourne dans le `Attack(...)` de la primaire, le CLEAVE ouvre le sien. Voir
+    `_attack_damage_leaf`.
+
     ⚠ L'ORDRE compte au-dela de l'affichage : chaque coup consomme le `state.rng`. Inverser les
     deux volets donnerait les BONS montants sur les MAUVAISES cibles -- exactement ce qu'un premier
     port a produit (le cleave d'`adeptMorvenn` recevait `502, 506, 557`, les rolls que le natif
@@ -521,7 +568,8 @@ def execute_additional_targets_attacks(state: "State", caster_id: int, target_id
     entities = entities_from_state(state, caster_id, target_id)
     if entry.primary_fold_when_melee_position is not None:
         if is_melee_position(state, caster_id, target_id) == entry.primary_fold_when_melee_position:
-            primary_fold_tree(entry, is_melee).execute(entities, ectx)
+            primary_fold_tree(entry, is_melee,
+                              attack_state0=attack_state0).execute(entities, ectx)
             hit = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
             if hit is not None:
                 out["primary_fold"] = {"target": hit.get("target"), "attack": hit.get("attack")}
@@ -536,6 +584,7 @@ def execute_additional_targets_attacks(state: "State", caster_id: int, target_id
 
 __all__ = ["NORMAL_ATTACK_CLEAVES", "cleave_for", "cleave_tree", "primary_fold_tree",
            "selected_weapon_range", "is_melee_position",
-           "execute_additional_targets_attacks", "fealty_additional_targets",
+           "execute_additional_targets_attacks", "fold_inherits_attack_state",
+           "fealty_additional_targets",
            "talon_of_horus_additional_targets", "righteous_repugnance_additional_targets",
            "boltstorm_additional_targets"]

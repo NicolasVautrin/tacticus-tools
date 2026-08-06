@@ -1393,7 +1393,8 @@ class DamageHandler:
         # de MV71 : le natif n'a qu'un site parce que l'ability EST le corps de l'attaque normale.
         if self.last is not None and _uc is not None:
             from ..abilities.loki.additional_targets import (cleave_for, selected_weapon_range,
-                                                             execute_additional_targets_attacks)
+                                                             execute_additional_targets_attacks,
+                                                             fold_inherits_attack_state)
             _cl = cleave_for(_apas, active_abilities=_aact, visual_id=_uc.visual_id,
                              traits=_atra, config_active_abilities=_acfg)
             if _cl is not None:
@@ -1408,7 +1409,15 @@ class DamageHandler:
                                                 self.last.get("target", msg.target_id), _actx)
                 _adds = execute_additional_targets_attacks(
                     self.state, msg.attacker_id, self.last.get("target", msg.target_id),
-                    _cl, is_melee=not bool(self.last.get("ranged")), weapon_range=_wr)
+                    _cl, is_melee=not bool(self.last.get("ranged")), weapon_range=_wr,
+                    # #419-r3 : le FOLD est un `DSLBehaviors$$AttackDamage` NU compose DANS le
+                    # `Attack(...)` de l'attaque primaire (`ALoki_NormalAttackAbility$$
+                    # GetAttackDamageBehaviour`), et son call-site pose `isOutsideAttack = false`.
+                    # Il lit donc l'`OngoingAttack` que les coups d'arme viennent de muter, pas une
+                    # neuve. `fold_inherits_attack_state()` est le point de MUTATION de la
+                    # contre-epreuve (`probe_419r3_fold_attack_state.py --mutate isolate`).
+                    attack_state0=(self.last.get("attack_state")
+                                   if fold_inherits_attack_state() else None))
                 if _adds.get("primary_fold"):
                     self.last["primary_fold"] = _adds["primary_fold"]
                 if _adds.get("additional_targets"):

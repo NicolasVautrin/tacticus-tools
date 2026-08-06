@@ -27,7 +27,7 @@ from ...damage_model import (attacker_modifiers, defender_modifiers, build_hits_
 from ....entities.effects.loki import LIGHT_COVER_TILE_ID
 from ....entities.traits import target_hit_multiplier
 from ..additional_hits import collect_additional_hit_groups, execute_additional_hits
-from ..damage_hits import HitDamage
+from ..damage_hits import HitDamage, attack_state_out as _attack_state_out
 from ._channel import hits_channel_is_melee
 
 
@@ -44,7 +44,9 @@ class _AbilityAttack:
                                is_attack_damage_op: bool = True,
                                force_overkill: bool = False,
                                force_crit: bool = False,
-                               round_materialize: bool = False) -> Optional[dict]:
+                               round_materialize: bool = False,
+                               hit_index0: int = 0, crit_allowed0: bool = True,
+                               failed_block0=None) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
@@ -69,7 +71,25 @@ class _AbilityAttack:
 
         `round_materialize` : REDONDANT depuis la campagne HeavyGravCannon (2026-07-26) — l'étage
         `Fix64.Round(·, AwayFromZero)` est désormais INCONDITIONNEL sur ce vecteur (cf. `_round_mat`
-        plus bas). Conservé pour la signature des callers existants ; ce n'est plus un knob."""
+        plus bas). Conservé pour la signature des callers existants ; ce n'est plus un knob.
+
+        `hit_index0` / `crit_allowed0` / `failed_block0` (#419-r3) = l'ETAT de l'`OngoingAttack` A
+        L'ENTREE de cette feuille : `OngoingAttack+0x30` (index de coup), `+0x40`
+        (`isCriticalDamageAllowed`) et `+0x48` (`FailedBlockIds`). Defauts = attaque NEUVE, ce qui
+        est la semantique `isOutsideAttack = true`
+        (`IdunBattle.Operations.ADamageOperation$$GetCurrentAttackOrDefault` -> slot 201
+        `GetDefaultAttack`, corps `new OngoingAttack()`), et c'est le cas de TOUTE feuille que le
+        natif emballe dans son PROPRE `IdunBattle.Entities.Behaviours.AttackBehaviour` -- donc de
+        `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, qui finit par
+        `AttackBehaviour$$.ctor` et fait donc pousser un `OngoingAttack` neuf par cible.
+
+        ⚠ Ils existent parce que ce n'est PAS le cas de `IdunBattleLogic.Entities.DSLBehaviors$$
+        AttackDamage`, qui rend un `AttackDamageBehaviour` NU (aucun `AttackBehaviour`) : compose
+        dans le `Attack(...)` d'une AUTRE attaque, il lit l'`OngoingAttack` DEJA MUTEE par les coups
+        precedents. **15 de ses 18 call-sites** posent `isOutsideAttack = false` (balayage exhaustif,
+        `docs/rl/case-419-r3-is-outside-attack-inexprimable.md`). Un appelant qui monte une telle
+        feuille DOIT donc threader l'etat -- sinon le crit se re-autorise, l'index de coup repart de
+        0 et les sources de block deja echouees sont RE-TIREES (tirages RNG en TROP)."""
         from ..damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
         # GARDE-FOU rng (PAS un mirror natif) : sans `state.rng` cale (replay effet-seul, etat
         # `load_state` sans dumpRng) on SKIP au lieu de lever. RAFFINE a la migration du DoT de tuile :
@@ -423,7 +443,13 @@ class _AbilityAttack:
         # emet `Core.Services.OperationProcessor$$StartAttack` (slot 0x3a) avant CHAQUE cible et
         # `$$FinishAttack` (0x3b) apres -- donc un `IdunBattle.Operations.StartAttackOperation$$
         # Execute` (= `new OngoingAttack` + `MatchState$$StartAttack` = Push sur `MatchState+0x60`)
-        # par cible. `hit_index0` reste donc son defaut 0, comme le vecteur normal.
+        # par cible. `hit_index0` vaut donc son DEFAUT 0 pour toute feuille montee par
+        # `DSLFactory$$AttackWithAttackDamage`, comme le vecteur normal.
+        # ⚠ #419-r3 : le defaut n'est JUSTE que parce que cette factory-la pousse son propre
+        # `OngoingAttack`. Une feuille `IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` NUE
+        # (sans `AttackBehaviour`) composee dans le `Attack(...)` d'une autre attaque herite, elle,
+        # de l'`OngoingAttack` en cours -- son appelant passe alors `hit_index0`/`crit_allowed0`/
+        # `failed_block0` explicitement (cf. docstring).
         _gsi = getstuckin_combat_chance(
             state, attacker_id, target_id,
             (_ap_h.col, _ap_h.row) if _ap_h is not None else None,
@@ -435,6 +461,11 @@ class _AbilityAttack:
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
                                             bonus_hit_chance=_gsi,
+                                            # #419-r3 : etat de l'`OngoingAttack` a l'entree de la
+                                            # feuille (cf. docstring). Defauts = attaque neuve.
+                                            hit_index0=int(hit_index0),
+                                            crit_allowed0=bool(crit_allowed0),
+                                            failed_block0=failed_block0,
                                             hit_interceptor=make_hit_interceptor(
                                                 state, attacker_id, target_id),
                                             post_roll=_reduce,
@@ -623,4 +654,9 @@ class _AbilityAttack:
                 # de tuile en a besoin pour son emit, et le total ne suffit pas des qu'un cap (Resilient)
                 # ou un bouclier s'interpose.
                 "per_hit_health": r["per_hit_health"], "hp_before": _hp_before_chain,
-                "hp_after": int(thc.hp or 0)}
+                "hp_after": int(thc.hp or 0),
+                # #419-r3 : l'etat de l'`OngoingAttack` EN SORTIE (`+0x30`, `+0x40`, `+0x48`), tel
+                # qu'une feuille `DSLBehaviors$$AttackDamage` NUE composee APRES celle-ci dans le
+                # MEME `Attack(...)` le lirait par `GetCurrentAttackOrDefault(isOutsideAttack: 0)`.
+                # Canal d'OBSERVATION + de CHAINAGE ; il ne branche rien par lui-meme.
+                "attack_state": _attack_state_out(r, _ah)}

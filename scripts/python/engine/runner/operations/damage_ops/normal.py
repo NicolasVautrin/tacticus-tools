@@ -30,7 +30,7 @@ from ....entities.effects import hits_bonus_from_effects
 from ....entities.effects.loki import LIGHT_COVER_TILE_ID
 from ....entities.traits import target_hit_multiplier
 from ..additional_hits import collect_additional_hit_groups, execute_additional_hits
-from ..damage_hits import HitDamage
+from ..damage_hits import HitDamage, attack_state_out as _attack_state_out
 from ._channel import _normal_attack_kind
 from ...components import unit_is_dead
 
@@ -692,4 +692,11 @@ class _Normal:
                 # ce qui est aussi l'ordre natif (`FinishAttack` precede l'`ExecuteTriggerAbilities`
                 # qui porte `On(0x26)`). Sans ce canal, un trigger `On(9)` FIRE sans etre observable.
                 "finish_attack": _fa,
+                # #419-r3 : l'etat de l'`OngoingAttack` EN SORTIE de l'attaque primaire (`+0x30`,
+                # `+0x40`, `+0x48`). C'est ce que lit toute feuille `IdunBattleLogic.Entities.
+                # DSLBehaviors$$AttackDamage` NUE composee APRES elle dans le MEME `Attack(...)` --
+                # au premier chef le FOLD de `<X>_NormalAttackAbility$$GetCustomNormalAttackBehaviour`,
+                # que `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` compose entre les coups
+                # d'arme et `ExecuteAdditionalHitsWithDamageProfileType`.
+                "attack_state": _attack_state_out(r, _ah),
                 "effects": [getattr(e, "name", None) for e in active]}
