@@ -94,7 +94,8 @@ sont adjacentes dans l'interface.
 ⇒ Ce qui bloque le port de `VerifyUnitTurnEnded` n'est donc **pas** l'ancrage, mais le **CORPS**.
 
 ⚠ **CE PARAGRAPHE A ETE ECRIT FAUX, et #287-r1-r1 l'a corrige.** Il disait : « `HasTilesToMoveTo` =
-`<IMovementQuery slot 3>` = `MovementQuery$$GetMovableTilesFor`, que le moteur offline ne CALCULE
+`<IMovementQuery slot 3>` = `MovementQuery$$GetMovableTilesFor` » <!-- [slot-attribution:refute] -->
+— « que le moteur offline ne CALCULE
 pas — il le RECOIT du RPC `aiMovableTiles` ». **Deux erreurs** : le slot 3 est
 `MovementQuery$$HasAnyMovablePositionsFor` (le mode ANY, pas le mode FILL), et le port CALCULE bien
 ce pathfinding (`engine/services/movement_query.get_movable_tiles_for`, complet depuis `#381-r4`).

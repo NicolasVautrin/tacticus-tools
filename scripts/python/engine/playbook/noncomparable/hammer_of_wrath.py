@@ -42,7 +42,7 @@ class HammerOfWrathPlaybook(_PlanTargetPlaybook):
       `make_hammer_wrath_events` (primary minDmg/nrOfHits/Power ; secondary minDmg_2/nrOfHits_2/Physical sur
       ennemis adjacents à la cible), Σ `calculate_utility_from_damage_event`.
     - +5·CanAddUnit (#116, RE re-expert) : `+5` par voisin ring-1 de la CIBLE où une unité peut être placée.
-      Le natif fait `IBattleQuery.slot0x4e(cible)` = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles` (prouvé slot 78 via
+      Le natif fait `IBattleQuery.slot0x4f(cible)` = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles` (prouvé slot 79 via
       `IdunBattle.Core.Services.MovementQuery$$IsAdjacent` + slot-map RecordedSimulationRequestsBattleQuery ; PAS GetTilesBehind
       = slot 0x53) puis `IdunBattle.Entities.TileExtensions$$CanAddUnit` (tuile walkable/non-wall ET VIDE). Biais du natif
       vers les cibles entourées d'ESPACE LIBRE (place pour le knock-back de la charge). Le terme dépend de la
@@ -96,7 +96,7 @@ class HammerOfWrathPlaybook(_PlanTargetPlaybook):
     @staticmethod
     def _displacement_bonus(target, ctx: NCContext) -> float:
         """`+5 · Σ_{n ∈ GetAdjacentTiles(cible)} CanAddUnit(n)` (#116). Voisins ring-1 de la CIBLE
-        (`IBattleQuery.GetAdjacentTiles` slot 0x4e IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles) où une unité peut être placée
+        (`IBattleQuery.GetAdjacentTiles` slot 0x4f IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles) où une unité peut être placée
         (`IdunBattle.Entities.TileExtensions$$CanAddUnit`). Occupation LIVE = TOUTES les unités vivantes
         (epos ∪ fpos ∪ origine, FRAÎCHE). Cible introuvable / sans position -> 0."""
         tu = next((u for u in (ctx.units or []) if u.get("id") == target), None)

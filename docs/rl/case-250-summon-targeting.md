@@ -139,7 +139,7 @@ La regle est dans le filtre statique, jumelle exacte du bit 5 :
 
 ```c
 if ((rules & 0x200000) != 0) {
-    tiles = battleQuery.<slot 0x51>GetFreeAdjacentTiles(caster);   // param_2, pas la cible
+    tiles = battleQuery.<slot 0x52>GetFreeAdjacentTiles(caster);   // param_2, pas la cible
     if (tiles.Count == 0) -> broken(0x200000);
 }
 ```

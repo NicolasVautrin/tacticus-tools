@@ -310,8 +310,8 @@ Modules restants (`probe_181_targeting_gaps.py`) : `splash` 6, `blacklegion` 5, 
 
 ```c
 owner      = OwnerComponent.GetCurrentPlayerEntityId(caster.OwnerComponent);   // param_2 = RDX
-adjEnemies = battleQuery.<slot 0x7c> GetAdjacentEnemies(caster, owner, /*ignoreSteppables*/ false);
-adjFriends = battleQuery.<slot 0x80> GetAdjacentFriends(caster, owner);
+adjEnemies = battleQuery.<slot 0x7d> GetAdjacentEnemies(caster, owner, /*ignoreSteppables*/ false);
+adjFriends = battleQuery.<slot 0x81> GetAdjacentFriends(caster, owner);
 if (Enumerable.Any(adjEnemies))                                        return 0;
 if (Enumerable.Any(adjFriends, this.HasDeactivatedRangedSpecialist))   return 0;
 return 2;                                          // TargetingRule.TargetMatchesDynamicRule

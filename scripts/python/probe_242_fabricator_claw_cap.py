@@ -15,7 +15,7 @@ TRANSPARENT. Aucun de leurs accords n'est donc contredit par cette mesure, dans 
 MONTAGE -- il n'existait pas, et c'est l'essentiel du travail. Deux verrous :
 
   1. Le filtre natif ne garde PAS « tout ami Mechanical ». Il fait
-     `HasTrait(u, 5) && IBattleQuery.<slot 0x2e = CanBeRepaired>(u, false)`, et
+     `HasTrait(u, 5) && IBattleQuery.<slot 0x2f = CanBeRepaired>(u, false)`, et
      `IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired` exige notamment que l'unite soit
      BLESSEE (`IdunBattle.Core.Services.AttackQuery$$IsDamagedUnit` -> `HealthComponent.IsWounded`).
      Un ami mecanique a PV PLEINS ne compte pas. On mesure donc DEUX comptages par tuile :

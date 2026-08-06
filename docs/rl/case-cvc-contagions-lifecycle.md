@@ -74,7 +74,7 @@ target = <sélecteur unit>.SelectSingle(entities);  if (target == null) return 0
 return battleQuery.<slot 0x95>(0x42f /* figé par le ctor */, teamId, target, returnFirst: false);
 ```
 
-et le slot `0x95` d'`IBattleQuery` est `IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount`
+et le slot `0x95` d'`IBattleQuery` est `IdunBattle.Core.Services.BattleQuery$$GetTeamActiveAuraAmount`, qui delegue a `IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount`
 (même signature `(effectType, team, target, returnFirst)`) — **déjà porté par case-224**. Deux
 conséquences **mesurables** par rapport au collapse de `case-dpw` (« porteurs ENNEMIS à distance
 `<= CalculateRange` ») :

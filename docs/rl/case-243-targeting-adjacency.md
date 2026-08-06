@@ -21,25 +21,25 @@ fonction elle calcule `targetTiles = IdunBattle.Entities.EntityExtensions$$GetTi
 
 ```c
 if ((rules >> 0x20) & 1) {
-    if (battleQuery.<slot 0x61>(targetTiles, casterTiles)) -> broken(0x100000000)
+    if (battleQuery.<slot 0x62>(targetTiles, casterTiles)) -> broken(0x100000000)
 }
 ```
 
-`slot 0x61` = la surcharge **LISTE × LISTE** d'`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent`
+`slot 0x62` = la surcharge **LISTE × LISTE** d'`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent`
 → `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent(IList, IList)`. Sémantique : « la cible
 est AU CONTACT du caster ⇒ REFUS ». C'est l'exact inverse du volet `only_adjacent` de la portée, qui
-utilise le **slot 0x60** (`(casterTiles, target)`).
+utilise le **slot 0x61** (`(casterTiles, target)`).
 
 ### bit 42 — `TargetIsNotAdjacentToEnemy` (`0x40000000000`)
 
 ```c
 if ((rules >> 0x2a) & 1) {
-    units = battleQuery.<slot 0x7f>(targetTiles, caster, false);
+    units = battleQuery.<slot 0x80>(targetTiles, caster, false);
     if (units.Count > 0) -> broken(0x40000000000)
 }
 ```
 
-`slot 0x7f` = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(IList<Tile>, IEntity, bool)` :
+`slot 0x80` = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(IList<Tile>, IEntity, bool)` :
 
 ```
 players = state.GetEntity(unit.OwnerComponent.CurrentPlayerEntityId)
@@ -61,11 +61,11 @@ Le décorateur `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery` 
 
 | lambda | slot |
 |---|---|
-| `…u003Cu003Ec__DisplayClass116_0$$u003CAreEntitiesAdjacentu003Eb__0` | 0x5f |
 | `…u003Cu003Ec__DisplayClass117_0$$u003CAreEntitiesAdjacentu003Eb__0` | 0x60 |
-| `…u003Cu003Ec__DisplayClass118_0$$u003CAreEntitiesAdjacentu003Eb__0` | **0x61** |
-| `…u003Cu003Ec__DisplayClass151_0..154_0$$u003CGetAdjacentEnemiesu003Eb__0` | 0x7c…**0x7f** |
-| `…u003Cu003Ec__DisplayClass101_0$$u003CGetFreeAdjacentTilesu003Eb__0` | **0x51** |
+| `…u003Cu003Ec__DisplayClass118_0$$u003CAreEntitiesAdjacentu003Eb__0` | 0x61 |
+| `…u003Cu003Ec__DisplayClass119_0$$u003CAreEntitiesAdjacentu003Eb__0` | **0x62** |
+| `…u003Cu003Ec__DisplayClass152_0..155_0$$u003CGetAdjacentEnemiesu003Eb__0` | 0x7d…**0x80** |
+| `…u003Cu003Ec__DisplayClass102_0$$u003CGetFreeAdjacentTilesu003Eb__0` | **0x52** |
 
 C'est la seule lecture qui donne l'index sans supposer l'ordre de déclaration de l'interface.
 
@@ -95,7 +95,7 @@ natif rend `0x20 TargetHasFreeAdjacentTile` (la cible est encerclée) et le port
 | maillon | position native | prédicat |
 |---|---|---|
 | branche `TargetIsTile` (tête du filtre) | **1ʳᵉ** règle de refus | `!IsWalkable(GetMainTile(target), true)` et pas `AllowUnwalkableTargetTile` → **littéral 1** |
-| bit 5 `TargetHasFreeAdjacentTile` | après portée/LoS | `battleQuery.<slot 0x51>(target).Count == 0` |
+| bit 5 `TargetHasFreeAdjacentTile` | après portée/LoS | `battleQuery.<slot 0x52>(target).Count == 0` |
 | bit 12 `TargetTileIsFree` | bloc TUILE | `!TileExtensions$$CanAddUnit(mainTile, state, 1, 0, 0)` |
 
 > ⚠ **`ValidRequest` (`0x1`) n'est pas toujours « ability indisponible ».** Le natif REUTILISE ce
@@ -115,7 +115,7 @@ natif rend `0x20 TargetHasFreeAdjacentTile` (la cible est encerclée) et le port
   non modélisé (dégradation permissive). C'est la **même** limitation, déjà assumée, que
   `engine/battle_query.py::can_add_unit`, le pendant DÉCISION du prédicat — pas un nouveau résidu.
 * **`TileExtensions$$IsTemporary`** — non modélisé côté `Board`. Conséquence bornée : les deux
-  surcharges natives de `GetFreeAdjacentTiles` (slots 0x51 et 0x52) ne diffèrent QUE par ce flag,
+  surcharges natives de `GetFreeAdjacentTiles` (slots 0x52 et 0x53) ne diffèrent QUE par ce flag,
   elles coïncident donc offline.
 
 ---

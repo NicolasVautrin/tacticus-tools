@@ -35,7 +35,7 @@ Destination (mirror partie commune de `Execute`) :
 
 SCOPE (1-hex simple) : push 1 tuile, stop sur mur/bord/occupee. La DISTANCE = 1 hex est TRANCHEE (cas
 #68, RE + live) : `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` choisit dans l'arc arriere DISTANCE-1 (`GetMinimumTiles180
-Behind IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Behind+0x38`, slot d'interface 0x4c) ; le `param_9=2` (+0x84 de DisplaceUnitBehaviour) N'EST PAS la
+Behind IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Behind+0x38`, slot d'interface 0x4d) ; le `param_9=2` (+0x84 de DisplaceUnitBehaviour) N'EST PAS la
 distance (n'atteint pas FindTileToPush) -> le "push MULTI-hex slice-21b" est REFUTE (cf. commentaire
 `_PUSH_MAX_DIST`). #47 : le KNOCKBACK DAMAGE du push BLOQUE est PORTE (`_apply_knockback_to`, mirror
 `IdunBattle.Operations.DisplaceUnitOperation$$ApplyKnockbackTo` — cf. docstring) : mur/bord -> degat a la poussee ; occupant non-steppable

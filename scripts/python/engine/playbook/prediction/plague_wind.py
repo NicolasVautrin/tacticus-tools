@@ -67,7 +67,7 @@ puis :
   * evalue la FORMULE `param_6` **une fois, hors boucle** (`local_res20`), sur cet `AbilityEntities` ;
   * evalue le SELECTEUR `param_5` sur le MEME objet -> la liste des entites a frapper ;
   * boucle sur cette liste, et n'y change QUE le `target` passe a
-    `DamagePredictionQuery$$GetAttackPrediction` (slot 0x28) et au `ProbableDamageEvent`.
+    `DamagePredictionQuery$$GetAttackPrediction` (slot 0xb) et au `ProbableDamageEvent`.
 
 Le `Target` du `HasTrait` est donc **la cible principale**, jamais l'unite frappee : si la cible
 est un `Summon`, **les trois vagues entieres** sont doublees, y compris sur des unites qui ne sont

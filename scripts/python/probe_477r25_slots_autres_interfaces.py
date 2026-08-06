@@ -121,7 +121,12 @@ INTERFACES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("IdunBattle.Entities.Pathfinding", "IPathfinders", ("IPathfinders",)),
     ("IdunBattle.Core.Services", "IUtilitiesDatabase", ("IUtilitiesDatabase",)),
     ("IdunBattle.Core.Services", "IEffectsDatabase", ("IEffectsDatabase",)),
-    ("IdunBattle.Entities.Abilities", "IActiveAbility", ("IActiveAbility",)),
+    #: `AActiveAbility` est la classe abstraite qui l'implemente, et c'est SOUS CE NOM que le
+    #: depot cite ses slots (`AActiveAbility$$IsDisabled` slot 0x13). L'omettre ne rendait pas
+    #: le probe muet : il RATTACHAIT ces slots a l'interface voisine citee sur la meme ligne,
+    #: et rendait FAUSSES deux citations JUSTES (mesure : 3 sites).
+    ("IdunBattle.Entities.Abilities", "IActiveAbility",
+     ("IActiveAbility", "AActiveAbility")),
 )
 
 #: L'interface deja gardee par `probe_477r24r1_slots_interface.py`. Ses citations sont
@@ -151,8 +156,20 @@ _NOM = r"(?P<nom%d>[A-Z][A-Za-z0-9_]{3,})(?![A-Za-z0-9$])"
 #: celui de la methode nommee -- et la citation est JUSTE (`0xe` =
 #: `GetCurrentAndMovablePositionsFor`, ce qu'une requete de portee interroge en effet).
 #: Mesure : 8 des 49 desaccords etaient de cette forme, tous FAUX.
-_RENVOIS = ("slot", "que ", "qu'", "interrog", "invoq", "appel", "utilis")
-_ENTRE = r"(?:(?!%s)[^\n)]){0,%%d}?" % "|".join(_RENVOIS)
+#: ⚠ NI UNE PONCTUATION FORTE. Un `:` ou un `;` ouvre une nouvelle proposition, et le slot qui
+#: suit ne qualifie plus la methode nommee avant : « `AttackQuery$$GetAllTilesInAbilityRange`
+#: surcharge 4 arguments : slot 0x14, slot 0x13 » enumere les GATES evalues, qui sont des slots
+#: d'`IActiveAbility`. Mesure : 2 sites, tous deux JUSTES, rendus faux sans ce cran.
+#: ⚠ NI UNE VIRGULE. Le depot ecrit ses chaines de gates en ENUMERATION -- « slot 0x14
+#: `AActiveAbility$$CanStillBeUsed`, slot 0x13 `AActiveAbility$$IsDisabled` » -- et sans ce
+#: cran la forme « nom PUIS slot » apparie le nom d'un element au slot du SUIVANT. Mesure :
+#: 2 sites, tous deux JUSTES, rendus faux par ce seul saut de virgule.
+#: ⚠ NI UNE FLECHE. Dans « nom PUIS slot », une fleche marque un ENCHAINEMENT d'appels --
+#: « `BattleQuery$$ReachedSummonCap` -> slot 0x52 » designe ce que la methode APPELLE. La
+#: fleche reste licite dans la forme A, ou elle joue le role du signe egal.
+_RENVOIS = ("slot", "que ", "qu'", "interrog", "invoq", "appel", "utilis", "evalu",
+            "->", "→")
+_ENTRE = r"(?:(?!%s)[^\n);:,]){0,%%d}?" % "|".join(_RENVOIS)
 
 #: L'arite n'est confrontee que si le site montre VRAIMENT ses arguments juste apres le couple.
 #: AUCUNE espace toleree : un appel s'ecrit `Nom(args)`, jamais `Nom (args)`.
@@ -365,9 +382,16 @@ _RE_DEJA_GARDEE = _regex_recepteur(DEJA_GARDEE)
 
 
 def _compter_args(texte: str) -> int | None:
-    """Nombre d'arguments du premier appel parenthese, ou None s'il n'y en a pas."""
+    """Nombre d'arguments du premier appel parenthese, ou None s'il n'y en a pas.
+
+    ⚠ `(...)` et `(…)` rendent `None`, pas `1` : l'ellipse DIT que les arguments ne sont pas
+    detailles. Les compter pour un ferait rougir une citation qui ne pretend rien sur l'arite.
+    """
     ouvre = texte.find("(")
     if ouvre < 0:
+        return None
+    ferme = texte.find(")", ouvre)
+    if 0 < ferme and texte[ouvre + 1:ferme].strip(". …") == "":
         return None
     prof, arg, vus = 0, 0, False
     for ch in texte[ouvre:]:

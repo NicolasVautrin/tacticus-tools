@@ -448,7 +448,7 @@ class FightingRetreatAbility(ActiveAbility):
     #            invoque le delegue `options+0x38` (= le slot vtable `+0x480`, ici
     #            `...FightingRetreatAbility$$GetDynamicInvalidTargetReason`). Son corps ne lit QUE le
     #            CASTER (`param_2`) : il rend `2` si le caster n'a NI ennemi adjacent
-    #            (`battleQuery.<slot 0x7c> GetAdjacentEnemies`) NI allie adjacent porteur d'un
+    #            (`battleQuery.<slot 0x7d> GetAdjacentEnemies`) NI allie adjacent porteur d'un
     #            `RangedSpecialist` DESACTIVE (`<slot 0x80> GetAdjacentFriends` + le predicat
     #            `FightingRetreatAbility$$HasDeactivatedRangedSpecialist`), sinon `0`.
     #            PORTE depuis #247 -- cf. `get_dynamic_invalid_target_reason` ci-dessous.
@@ -478,8 +478,8 @@ class FightingRetreatAbility(ActiveAbility):
         ce corps-ci **n'en lit QUE `caster` (`param_2` = RDX)** -- il ne touche jamais la cible :
 
             owner      = OwnerComponent.GetCurrentPlayerEntityId(caster.OwnerComponent);
-            adjEnemies = battleQuery.<slot 0x7c> GetAdjacentEnemies(caster, owner, false);
-            adjFriends = battleQuery.<slot 0x80> GetAdjacentFriends(caster, owner);
+            adjEnemies = battleQuery.<slot 0x7d> GetAdjacentEnemies(caster, owner, false);
+            adjFriends = battleQuery.<slot 0x81> GetAdjacentFriends(caster, owner);
             if (Enumerable.Any(adjEnemies))                                   return 0;
             if (Enumerable.Any(adjFriends, this.HasDeactivatedRangedSpecialist)) return 0;
             return 2;                       // == TargetingRule.TargetMatchesDynamicRule
@@ -868,7 +868,7 @@ class InspiredToGreatnessAbility(ActiveAbility):
             if (caster == target || UnitExtensions.HasTrait(target, 0x7e7 Boss)) return 1;
             healable   = attackQuery.<slot 0x11> EntityCanBeHealed  (caster, target, 0, true);
             repairable = attackQuery.<slot 0x12> EntityCanBeRepaired(caster, target, 0, false);
-            canReset   = battleQuery.<slot 0x31> EntityCanHaveActiveAbilityReset(target, false);
+            canReset   = battleQuery.<slot 0x32> EntityCanHaveActiveAbilityReset(target, false);
             return (!healable && !repairable && !canReset) ? 1 : 0;
 
         ⚠ LE CODE RENDU EST LE LITTERAL `1` = `TargetingRule.ValidRequest` : le natif REUTILISE

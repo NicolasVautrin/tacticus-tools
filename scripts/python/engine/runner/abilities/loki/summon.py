@@ -431,7 +431,7 @@ class ScarabHiveAbility(ActiveAbility):
     #     AActiveAbility..ctor(this, &opts, 1, 0)   # 3e arg = 1 = AbilityAttackType.SummonAndAttackTarget
     # Decomposition EXHAUSTIVE de 0x4020 (0x20 + 0x4000 = 0x4020, aucun bit residuel) :
     #     0x20    (bit 5)  TargetHasFreeAdjacentTile -> PORTE. Filtre statique :
-    #                      `if ((rules & 0x20) && battleQuery.<slot 0x51>GetFreeAdjacentTiles(target)
+    #                      `if ((rules & 0x20) && battleQuery.<slot 0x52>GetFreeAdjacentTiles(target)
     #                      .Count == 0) -> broken(0x20)`. C'est la precondition MECANIQUE de
     #                      l'ability : les deux necroSmnSwarm naissent sur des tuiles LIBRES
     #                      ADJACENTES A LA CIBLE (`First(SortByDistance(CanAddUnit(AdjacentTiles(
@@ -501,7 +501,7 @@ class ScarabSummonAbility(ActiveAbility):
     #                        ciblage (preview / IA). En faire un refus INVENTERAIT une regle.
     #     0x200000  (bit 21) CasterHasFreeAdjacentTile -> regle REELLE du filtre statique, jumelle
     #                        exacte du bit 5 mais appliquee au CASTER :
-    #                        `if ((rules & 0x200000) && battleQuery.<slot 0x51>GetFreeAdjacentTiles(
+    #                        `if ((rules & 0x200000) && battleQuery.<slot 0x52>GetFreeAdjacentTiles(
     #                        CASTER).Count == 0) -> broken(0x200000)` (immediatement APRES la clause
     #                        du bit 5, AVANT `TargetTileIsFree`). Semantiquement : le scarab ne peut se
     #                        dedoubler que s'il a une tuile libre au contact (`PickRandomly(CanAddUnit(

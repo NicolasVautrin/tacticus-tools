@@ -146,7 +146,7 @@ Aux tuiles de **spawn** de `MC1_67`, le caster est à **10-11 hex** des cibles :
 éligible, `GetEligibleTargetsSelectable` rend une liste vide, et le bucket vide est la **réponse
 juste** du natif. Le `capture=0` hérité mesurait donc le **montage**, pas le port.
 
-**Ce qui n'est PAS une preuve** : `ncEvaluate.hvt` (`IBattleQuery.HasValidTargets`, slot `0x3f`)
+**Ce qui n'est PAS une preuve** : `ncEvaluate.hvt` (`IBattleQuery.HasValidTargets`, slot `0x40`)
 valait **`true` aux 13/13 positions** de ce montage à éligibilité vide — ce gate ne traverse pas
 `GetDynamicInvalidTargetReason`. La preuve retenue est `abilityTargets` (`fromHere`/`targets` non
 vides) confirmée par `abilityReason`, dont le `targetReason.hex` **EST** le flag du décompilé

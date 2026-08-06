@@ -87,7 +87,7 @@ bespoke (mesuré : 1117 DefendTheDivineWork, 1122, 1123 en 31337 swappée). Elle
   gates `IsAbilityBlocked` (@180ed75f0, blocks par effets) / `get_CanCurrentlyBeUsed` (composite) /
   `CanStillBeUsed@0x28` / `!IsDisabled@0x35` / registry ; `LoadPlaybook(type, create=1)` ; `ShouldEvaluate`
   (base = probabilité 1 → déterministe pour 1180) ; puis **boucle PER-POSITION** : gate playbook slot 6 +
-  `IBattleQuery.slot 0x3f HasValidTargets(unit, pos, type)` (@181057540) → `Evaluate @18111df40`
+  `IBattleQuery.slot 0x40 HasValidTargets(unit, pos, type)` (@181057540) → `Evaluate @18111df40`
   (SetDisallowRandom autour) → `EvaluateInternal` (thunk vtbl+0x318) → `EvaluateNonComparable(unit, sweptPos)` ;
   `NullPosition` en fallback ; Merge dans UN bucket ; `ChooseAction` à l'épuisement des abilities.
 - **HeroicFusillade `EvaluateNonComparable @181144510`** : appelle l'overload **@18111ed80** (single-pos —

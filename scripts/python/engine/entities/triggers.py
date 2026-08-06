@@ -775,7 +775,7 @@ class IsInTeamAura(AbilityTrigger):
 
     -> « `unit` est-elle dans la PORTEE d'une aura `effectType` d'un porteur de l'equipe de `ref` ? ».
 
-    Le slot 0x92 EST `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange` =
+    Le slot 0x94 EST `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange` =
     `GetInRangeAuraAmount(effectType, team, target, returnFirst: true) > 0`, entierement lisible au
     decompile -> PORTE (case-224) dans `battle_query.get_in_range_aura_amount`, avec son etage de
     portee dans `entities/effects/aura.py`. Le noeud lit `ctx.is_in_team_aura(unit, effectType,

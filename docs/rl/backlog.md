@@ -1106,7 +1106,7 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   bundle **et une réinjection**. Point d'ancrage à traiter à la prochaine fenêtre d'inject.
 - **`FabricatorClawArray` (1006) : le gate `CanBeRepaired` du filtre, NON porté** (`case-242` §6.1).
   `IdunBattle.AI.Playbook.Loki.FabricatorClawArrayPlaybook$$FilterAdjacentFriends` fait
-  `HasTrait(u, 5) && IBattleQuery.<slot 0x2e = CanBeRepaired>(u, false)` : un ami Mechanical à PV
+  `HasTrait(u, 5) && IBattleQuery.<slot 0x2f = CanBeRepaired>(u, false)` : un ami Mechanical à PV
   PLEINS n'est PAS retenu (`IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired` ->
   `IsDamagedUnit` -> `HealthComponent.IsWounded`). Mesuré sur les DEUX couples board/seed :
   `nMech=1, nRep=0 -> X_nat = 0` alors que le port rend 30 — régime NORMAL en début de bataille.
@@ -2739,23 +2739,42 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   que devine -- ne pas nommer valait mieux que mal nommer.
   cf. `docs/rl/case-477r24r1-mapping-slot-interface.md` sec. 4.
 
-- **#477-r25 : les slots des AUTRES interfaces ne sont gardes par rien.** `[opus]`
-  Le cliquet de #477-r24-r1 ne couvre que `Core.Services.IOperationProcessor`. Le depot cite
-  couramment `battleQuery.<slot 0x7f>`, `attackQuery.<slot 0x11>`, `matchState.<slot 0x31>`, des
-  slots d'effets et d'`IStreamDispatcher` : **5 684** lignes ecartees par l'etage 3, dont aucune
-  n'est confrontee a quoi que ce soit. Le mecanisme livre est GENERIQUE
-  (`il2cpp_metadata.interface_table` prend l'interface en parametre) ; il ne manque que
-  l'appariement `nom d'interface <-> recepteur ecrit au site`, qui n'est PAS mecanique
-  (`battleQuery` -> `IBattleQuery`, mais `aq`, `def`, `effectAction` demandent une lecture).
-  RETOURNEMENT DEJA ACQUIS : le depot se CONTREDIT lui-meme sur `IBattleQuery` -- `case-27`
-  place `GetAdjacentEnemies` au slot 0x7f, `case-250` au slot 0x7c. Au moins une des deux est
-  fausse, independamment de toute table. Un sondage (219 slots lus) rend 2 concordances
-  (0x64 `GetTilesAtDistance`, 0x7f `GetAdjacentEnemies`) et 3 divergences, mais il n'est PAS
-  concluant : le decompile d'`IBattleQuery` n'a pas ete confronte, et un decalage global de -1
-  rendrait `case-250` juste en cassant `case-433`. **Ne pas citer ce sondage comme un verdict.**
-  CE QU'IL FAUT : des call-sites decompiles sur ces interfaces, comme les 9 qui ont verrouille
-  `IOperationProcessor`.
-  cf. `docs/rl/case-477r24r1-mapping-slot-interface.md` Residus.
+- ~~**#477-r25**~~ : **LIVRE (2026-08-06) -- un NOM ne designe pas UN slot mais un ENSEMBLE ;
+  `case-27` etait JUSTE, `case-250` PERIME D'UN BUILD.** `GetAdjacentEnemies` occupe QUATRE slots
+  (`0x7d..0x80`), `GetAdjacentFriends` quatre (`0x81..0x84`), `GetFreeAdjacentTiles` deux
+  (`0x52`/`0x53`) : le desaccord `0x7f` contre `0x7c` n'etait pas arbitrable par recoupement, les
+  deux valeurs etant a priori plausibles. `0x7c` est `GetAdjacentUnits` (4 arguments, amis
+  compris). L'hypothese « decalage global de -1 » est REFUTEE par trois lectures independantes du
+  decompile COURANT (`FightingRetreatAbility$$GetDynamicInvalidTargetReason` ecrit `0x7d` et
+  `0x81` litteralement ; les lambdas `DisplayClass152_0`/`155_0`/`102_0` du decorateur
+  enregistreur ; les ancres runtime de `case-27`) -- le glissement vient du BUILD
+  (`gqfc5mff6c` -> `rnca9r7q6c`), et il n'est PAS uniforme (`+0`, `+1`, `+2`, et **-8** pour
+  `IsTargetInAttackRangeForSummon`). Derivation par la grille `Il2CppTypeDefinition` (pas **82**,
+  `methodStart` **+30**, `method_count` **+58**, localises PAR CONTENU et controles par les NOMS
+  de 6 classes ancres) -- `il2cpp_metadata.locate_types` / `type_methods`, extension en ADDITION
+  pure. **18 interfaces, 513 slots** versionnes
+  (`data/symbols/<build>/metadata/interface_slots.tsv`) ; **7** sont effectivement citees.
+  **61 corrections** sur 24 groupes, **157 attestations confrontees, 0 fausse** (trajectoire du
+  probe : 59 -> 52 -> 46 -> 0). Trois corrections sont des erreurs de NOM, pas de numero, dont
+  une de SPECIFICATION (`case-26`, residu **#477-r27**). Controle croise : les deux derivations
+  (ancres de nom de #477-r24-r1 / grille des types) rendent la MEME table de 150 slots pour
+  `IOperationProcessor` ; et **137 noms / 168 slots d'`IBattleQuery` lus au DECOMPILE du
+  decorateur, 0 divergence**. `probe_477r25_slots_autres_interfaces.py` +
+  `test_477r25_slots_autres_interfaces_offline.py` (49 verts), 4 mutants, 4 mordent.
+  cf. `docs/rl/case-477r25-slots-autres-interfaces.md`.
+
+- **#477-r27 : `case-26` -- le terme d'adjacence de `RadSaturation` compte les ALLIES, et le PORT
+  n'a pas ete verifie.** `[opus]`
+  La fiche ecrivait « slot `0x82` = `GetAdjacentUnits` (ring-1, **both teams**) ». Le decompile de
+  `IdunBattle.AI.Playbook.Loki.RadSaturationPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`
+  appelle le slot **`0x83`**, qui est **`GetAdjacentFriends`** (2 arguments) : les ALLIES du
+  caster, pas les deux camps. La fiche disait deja la moitie du contraire -- son cousin y est
+  nomme `OptimizedGait_AdjacentFriends`, « partage slot 0x82 ». La CITATION est corrigee (#477-r25) ;
+  **le PORT ne l'est pas** : personne n'a lu ce que `engine/playbook/` fait de ce terme. S'il
+  compte les deux camps, il est faux, et aucun test ne le dit. CE QU'IL FAUT : lire le mirror,
+  confronter au decompile, et un A/B live qui DEPLACE un allie et un ennemi separement autour de
+  la tuile candidate -- un bras ou seul le camp change.
+  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 5 et Residus.
 
 - **#477-r21-r2 : la SELECTION et l'ORDRE de l'arbre d'activation.** `[opus]`
   Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.

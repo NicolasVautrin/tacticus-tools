@@ -842,7 +842,7 @@ def get_attack_prediction(
         extra_groups: "list[dict] | None" = None,
         defender_block_amount: int | None = None,
         attacker_effects=None, attacker_ctx=None) -> DamagePredictionResult:
-    """`BattleQuery.GetNormalAttackPrediction` / `GetAttackPrediction` (slot 14) — entrée attaque NORMALE
+    """`BattleQuery.GetNormalAttackPrediction` / `GetAttackPrediction` (slots 0x21/0x22 et 0x23..0x27 d'`IBattleQuery`) — entrée attaque NORMALE
     (whole-attack). Le natif route TOUTE attaque multi-coups par `GetMultiHitAttackPrediction` (boucle
     `PredictAttackRaw` par coup + `prev` déplété + `Add`) : on DÉLÈGUE donc à `get_multi_hit_attack_prediction`.
     Le `×hits`, le split bouclier et l'overkill sont désormais PER-COUP là-dedans (plus d'agrégat).

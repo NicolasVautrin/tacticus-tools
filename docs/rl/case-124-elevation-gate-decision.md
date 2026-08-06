@@ -306,8 +306,8 @@ POSITION, elles rejoignent `engine/battle_query.py` :
 | ajout | natif |
 |---|---|
 | `connecting_edge(src, dst)` | `AxialCoordinate$$ConnectingEdge` + `CubeDirections$$EdgeToNeighbor` |
-| `get_vector(a, b)` | `BattleQuery$$GetVector` (slot 0x70) |
-| `get_angle_between_vectors(v1, v2)` | `BattleQuery$$GetAngleBetweenVectors` (slot 0x71) = `EdgeExtensions$$GetAngleTo` |
+| `get_vector(a, b)` | `BattleQuery$$GetVector` (slot 0x71) |
+| `get_angle_between_vectors(v1, v2)` | `BattleQuery$$GetAngleBetweenVectors` (slot 0x72) = `EdgeExtensions$$GetAngleTo` |
 | `get_adjacent_tiles(pos, ...)` | `BattleQuery$$GetAdjacentTiles` (slot 0x4f) -> `TileQuery.<IterateAdjacentTiles>d__8` |
 
 `get_adjacent_tiles` ne mirrore QUE la combinaison de flags LUE au call-site et **leve** sur les

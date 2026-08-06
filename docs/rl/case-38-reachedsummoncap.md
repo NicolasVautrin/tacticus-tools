@@ -171,7 +171,7 @@ ssi ReachedSummonCap`. Deux corrections :
    (« GetAdjacentUnits TOUT CAMP », même lot de RE que le faux per-player #39) était FAUX :
    `GetAdjacentUnits` prend 3 params (from/friendsOf/enemiesOf) et ne matche pas le dispatch à
    **1 argument** du call-site (`FUN_180003bd0(0x51, itf, service, caster)`). Résolu LIVE via
-   `resolveVtableSlot` sur `BattleQuery` (ancre slot `0xc9`=ReachedSummonCap @181070f60 → slot `0x51`=
+   `resolveVtableSlot` sur `BattleQuery` (ancre slot `0xca`=ReachedSummonCap @181070f60 → slot `0x52`=
    `GetFreeAdjacentTiles`) ; corroboré par `aggressive_onslaught.py` (déjà porté slot 0x51 = free
    tiles). @181061650 = `GetAdjacentTiles(caster,1,1,1)` puis `FilterInPlace(CanAddUnit(tile,world,
    1,0,0))` = tuiles WALKABLE+VIDES+|dElev|<2 adjacentes. Mirror = `battle_query.adjacent_addable_count`.
