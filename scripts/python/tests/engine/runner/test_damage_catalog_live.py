@@ -66,6 +66,18 @@ from _combat_replay import replay_normal_attack  # noqa: E402
 TARGET = "eldarFarseer"          # cible vanille (aucune reduction de degat)
 RANK = 17                        # rank par defaut de `rl_duel build` (--rank), celui du pool
 
+# Confonds NEUTRALISES AU BUILD (#419-r6). ARBITRAGE : l'axe de ce catalogue est nomme dans
+# l'en-tete -- spread -> percage/armure -> MULTI-COUPS -- et l'en-tete dit deja que « les axes
+# crit/block/effet-crit ont leurs tests dedies ». Un coup crite est donc HORS AXE ici, et le
+# fichier le traite comme tel : il SKIPPE. Tant que le canal crit/block etait globalement muet il
+# n'avait jamais a le faire ; le defaut bascule a « equiper » (#419-r6) rend le crit possible sur
+# toute unite, et le fichier tombait a 1 passed + 4 skipped -- des profils d'arme entiers cessaient
+# d'etre mesures EN SILENCE, ce qui est exactement le vice que ce fichier a deja porte deux mois.
+# On neutralise donc sur les QUATRE faces : `--crit`/`--block-player` n'epinglent que les p-units
+# (ici l'attaquant), `--crit-target`/`--block-target` que les a-units (ici la cible).
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+
 
 def _profile(k):
     """(coups, percage) de l'arme de MELEE la plus multi-coups du kit -- les deux axes que ce
@@ -193,7 +205,7 @@ def _diag_overkill(r):
 @pytest.mark.parametrize("attacker", _UNITS)
 def test_normal_attack_bit_exact(attacker, live_session, rpc, build_runner):
     """L'attaque normale de `attacker` (vanilla melee-multihit) est reproduite bit-exact offline."""
-    r = replay_normal_attack(rpc, build_runner, attacker, target=TARGET)
+    r = replay_normal_attack(rpc, build_runner, attacker, target=TARGET, extra=_NO_NOISE)
     if not r["ok"]:
         pytest.skip(f"{attacker}: {r['reason']}")
     if r["did_crit"] or r["did_block"] or r["did_evade"]:

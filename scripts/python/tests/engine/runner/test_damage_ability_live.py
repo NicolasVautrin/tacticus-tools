@@ -9,6 +9,20 @@ Le pipeline par-coup (réduction perçage/armure/modifiers → tirage dans la pl
 est PARTAGÉ avec l'attaque normale (déjà bit-exact) ; ce test cible le SOURCING param-ability (min/max via
 `ability_var(level)`, pierce profil, hits) + le bon enchaînement RNG (le tirage de dégât = 1er conso, comme
 l'attaque normale ; le Stun est déterministe). On confronte le per-coup ET les PV cible.
+
+⚠ LES DEUX ASSERTIONS NE MESURENT PAS LA MÊME CHOSE, et #419-r6 l'a établi par la mesure. Le
+per-coup ne voit que les paquets estampillés `Active_Ability_Type == 1043` ; les PV, eux, voient
+TOUT ce que le cast retire. Sur ce montage le natif en retire DEUX : le coup de l'ability, puis le
+KNOCKBACK du push bloqué (`DisplaceUnitOperation$$ApplyKnockbackTo` =
+`ceil(maxHealth × BC.Damage.KnockbackPercentage/100)` = 1808 ici — ThunderousAssault pousse la
+cible, et elle est contre un obstacle). Ce second paquet est PORTÉ, mais il exige que `state.board`
+soit peuplé : `load_state(..., board=board)` est donc LOAD-BEARING, et son absence était SILENCIEUSE
+(le port rendait 2086 PV au lieu de 278). Même vice que le bonus d'ÉLÉVATION de #63.
+
+⚠ ET L'ORACLE DES PV EST PRIS AVANT LA BASCULE DE TOUR. Le roster est 1v1, donc le cast termine le
+tour du joueur et `applyAction` rend un état qui a déjà traversé le turn-start adverse — où le trait
+`LivingMetal` de la cible régénère 10 % de ses PV max (+904, mesuré). On lit donc les PV dans les
+tags du dernier paquet de dégât (`UnitStats_RemainingHealth`), pas dans `res.units[].hp`.
 """
 from __future__ import annotations
 
@@ -24,9 +38,21 @@ from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.components import HealthComponent, StatsComponent
 
 CASTER_VIS = "templSwordBrother"
-TARGET_VIS = "necroOverlord"         # cible vanille tanky (hp~8536, effects=[] : survit + 0 reduction/block)
+TARGET_VIS = "necroOverlord"         # cible tanky sans reduction de degat ni block (elle SURVIT au coup)
 ABILITY = 1043                       # ThunderousAssault
-BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", TARGET_VIS]
+
+# Confonds NEUTRALISES AU BUILD (#419-r6). Ce fichier mesure le SOURCING param-ability et
+# l'enchainement RNG : il ne retient qu'un coup « propre » et skippe des que le live crite ou
+# bloque. Il trouvait ce coup SANS RIEN DEMANDER tant que le canal crit/block etait globalement
+# muet (les 4 stats a 0 sur TOUTE unite, faute d'items a la normalisation). Une fois le defaut
+# bascule a « equiper », `templSwordBrother` porte `CritChance = 26` : le fichier partirait en
+# skip environ un run sur quatre, donc `0 passed / 1 skipped` -- le fichier INERTE que le garde
+# #455 refuse. On rend donc le regime EXPLICITE, sur les QUATRE faces (`--crit`/`--block-player`
+# n'epinglent que les p-units, `--crit-target`/`--block-target` que les a-units). L'axe CRIT a
+# son fichier dedie (`test_damage_crit_live.py`) ; il n'est pas perdu, il est ailleurs.
+_NO_NOISE = ["--crit", "0,0", "--crit-target", "0,0",
+             "--block-target", "0,0", "--block-player", "0,0"]
+BUILD = ["--roster", "1", "--p-units", CASTER_VIS, "--a-units", TARGET_VIS, *_NO_NOISE]
 
 
 def _ok(r):
@@ -98,7 +124,15 @@ def test_thunderous_assault_ability_damage_bit_exact(live_session, rpc, build_ru
     dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
-    state = load_state(dv, ob, snap)
+    # `board=` est LOAD-BEARING (#419-r6), et son absence etait SILENCIEUSE. ThunderousAssault
+    # POUSSE la cible d'un hex puis charge le caster dans la case liberee ; sans board, les
+    # feuilles geometriques de l'arbre DSL (`PushUnit`, `MoveUnit`) sont des no-op cote port,
+    # donc le KNOCKBACK du push BLOQUE (`DisplaceUnitOperation$$ApplyKnockbackTo`,
+    # `ceil(maxHealth x BC.Damage.KnockbackPercentage/100)`) ne s'appliquait pas non plus.
+    # MESURE : sur ce montage le natif pousse contre un obstacle -> knockback de 1808 ; le port
+    # rendait 2086 PV au lieu de 278, et l'assertion PV ne le voyait que par accident. Meme vice
+    # et meme parade que le bonus d'ELEVATION de #63 (cf. `_combat_replay._do_replay`).
+    state = load_state(dv, ob, snap, board=board)
     ae = state.get_entity(att)
     if ae is None or ae.get_component(StatsComponent) is None:
         pytest.skip("attaquant sans StatsComponent (stats non chargees)")
@@ -118,11 +152,19 @@ def test_thunderous_assault_ability_damage_bit_exact(live_session, rpc, build_ru
     if not (_ok(res) and a0.get("ok")):
         pytest.skip(f"cast KO: {str(res)[:160]}")
     live_ph, dc, db, de = [], False, False, False
+    live_hp_post_cast = None
     for e in (a0.get("events") or []):
         td = e.get("tags")
         if not td:
             continue
         td = json.loads(td) if isinstance(td, str) else td
+        if td.get("Target_Id") == tid and "Amount" in td:
+            # PV de la cible APRES ce paquet de degat, publies par le natif lui-meme. On les
+            # retient pour TOUT degat subi par la cible pendant le cast — pas seulement ceux de
+            # l'ability : c'est justement ce que le filtre `Active_Ability_Type` ci-dessous
+            # ecarte, et le knockback du push en fait partie.
+            if td.get("UnitStats_RemainingHealth") is not None:
+                live_hp_post_cast = td.get("UnitStats_RemainingHealth")
         if td.get("Target_Id") == tid and "Amount" in td and td.get("Active_Ability_Type") == ABILITY:
             live_ph.append(td.get("Amount"))
             dc = dc or bool(td.get("Attack_DidCrit"))
@@ -132,7 +174,14 @@ def test_thunderous_assault_ability_damage_bit_exact(live_session, rpc, build_ru
         pytest.skip(f"coup non propre (crit/block/evade live) hors axe param-ability: c={dc} b={db} e={de}")
     if not live_ph:
         pytest.skip("aucun event de degat live (cible hors portee / ability sans degat capte)")
-    live_after = next((u.get("hp") for u in (res.get("units") or []) if u.get("squadId") == tid), None)
+    # ⚠ ORACLE DES PV : `live_hp_post_cast` (tags du DERNIER degat subi), PAS `res.units[].hp`.
+    # Les deux ne sont PAS pris au meme instant, et l'ecart est MESURE (#419-r6) : le roster est
+    # 1v1, donc le cast TERMINE le tour du joueur et `applyAction` rend un etat qui a DEJA
+    # traverse le turn-start adverse. Le trait `LivingMetal` de `necroOverlord`
+    # (`livingMetalHp = 10`) y regenere 10 % des PV max — mesure : 278 -> 1182, soit +904 sur un
+    # `Health` normalise de 9037. Ce soin est HORS AXE (le fichier mesure UN cast), et le
+    # comparer a un port qui n'a simule aucun tour serait comparer deux instants differents.
+    live_after = live_hp_post_cast
 
     # OFFLINE via le wiring ability-exec (l'engine dérive l'attaque param-ability) :
     runner = Runner(state).install_default_handlers(20)
@@ -143,11 +192,20 @@ def test_thunderous_assault_ability_damage_bit_exact(live_session, rpc, build_ru
     off_after = state.get_entity(tid).get_component(HealthComponent).hp
     print(f"\n[ABILITY dmg] ThunderousAssault hits={atk['hits']} base=[{atk['base_min']},{atk['base_max']}] "
           f"pierce={atk['pierce']} armor={atk['armor']} live_ph={live_ph} off_ph={off_ph} "
-          f"live_after={live_after} off_after={off_after}")
+          f"live_after={live_after} off_after={off_after} (PV post-cast, hors turn-start)")
     assert off_ph == live_ph, f"per-coup offline {off_ph} != live {live_ph}"
     # PV cible : confronté SEULEMENT si la cible a survécu (live_after>0). Si elle meurt, le `Amount`
     # event reste le dégât NON capé (= per-coup, déjà confronté), mais `live_after` est capé à 0 et la
     # dérive multi-tours (tuiles hazard pendant l'approche) peut désaligner les PV de départ → on
     # n'asserte pas les PV sur une cible morte (le per-coup bit-exact est la validation).
+    #
+    # Cette assertion n'est PAS un doublon du per-coup : elle confronte TOUT ce que le cast retire
+    # à la cible, alors que `live_ph` ne retient que les paquets estampillés `Active_Ability_Type
+    # == ABILITY`. C'est elle, et elle seule, qui garde le KNOCKBACK du push bloqué (#419-r6).
     if live_after is not None and live_after > 0:
-        assert off_after == live_after, f"PV cible offline {off_after} != live {live_after}"
+        assert off_after == live_after, (
+            f"PV cible offline {off_after} != live {live_after} (post-cast, avant tout turn-start) "
+            f"-- le per-coup de l'ability est pourtant identique ({off_ph}), donc l'ecart porte sur "
+            f"un paquet de degat HORS `Active_Ability_Type` : le knockback du push bloque "
+            f"(`DisplaceUnitOperation$$ApplyKnockbackTo`) est le premier suspect, et il exige que "
+            f"`state.board` soit peuple.")
