@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Capture JETABLE (#477-r34) : monte un scenario, sauve le flux BRUT dans `logs/`, et imprime
-les sous-arbres HORS PERIMETRE des couples `Action=PrepareTurn` + `Group=StartTurn`.
+"""#477-r34 -- l'EXTRACTEUR : monte un scenario, sauve le flux BRUT dans `logs/`, et imprime les
+sous-arbres HORS PERIMETRE des couples `Action=PrepareTurn` + `Group=StartTurn`.
 
     python probe_477r34_capture.py --board MC1_67 --tours 2 \
         --p-units adeptHospitaller,astraBullgryn --a-units blackTerminator,worldJakhal \
         --etiquette MC1_67-2v2
 
-Il ne mesure RIEN : il sert a LIRE ce que la tranche #477-r22-r1 a laisse dehors. ASCII only.
+Il ne rend AUCUN verdict -- il sert a LIRE ce qu'une tranche a laisse dehors, et a le RELIRE
+sans re-monter de runner (le flux est mis en cache dans `logs/`, et `--flux <chemin>` rejoue un
+flux deja capture). C'est lui qui a servi a cadrer #477-r34 (quelles formes bloquent quoi) puis
+a CRAFTER le roster `adeptCanoness` du quatrieme scenario de `probe_477r22`.
+
+ASCII only (console Windows cp1252).
 """
 from __future__ import annotations
 
