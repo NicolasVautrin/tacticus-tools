@@ -482,7 +482,28 @@ def build_extra(board: str, montage: str) -> list:
            "--p-units", ",".join(p_units), "--a-units", ",".join(a_units)]
     for flag, val in places:
         out += [flag, val]
-    return out + ["--hp-player", "100000", "--hp-target", "100000"]
+    # #419-r6-r3 -- NEUTRALISATION du canal CRIT/BLOCK sur les QUATRE faces.
+    #
+    # L'axe de ce fichier est l'UTILITE DE MOUVEMENT des playbooks non-owner : ce qu'il mesure est
+    # une trajectoire native et un accord de tuiles, jamais un montant de degat. Le crit et le
+    # block y sont donc HORS AXE par construction -- et depuis la bascule du defaut a << equiper >>
+    # (#419-r6) ils raccourcissent la bataille, qui atteint `Finished` avant les pas discriminants
+    # (mesure : << trajectoire native epuisee au pas 17 >>, 6 failed / 35 passed).
+    #
+    # ⚠ Ce n'est PAS `--no-bis-items`, et la difference est le coeur de l'arbitrage. `--no-bis-items`
+    # restituerait le regime DEGENERE d'avant #419-r5 -- crit et block structurellement impossibles
+    # sur TOUTE unite, plus la perte des autres slots d'items (`FixedArmor` sur 49 unites du seed,
+    # `Health` sur 4) : ce serait acheter la couleur au prix de la mesure. Les quatre drapeaux
+    # ci-dessous epinglent QUATRE SCALAIRES sur CE montage, le reste de l'etat equipe demeurant.
+    # C'est le remede-type etabli par #419-r5 et applique 17 fois par #419-r6 : local, ecrit au
+    # build, et motive par l'AXE du fichier.
+    #
+    # Les QUATRE faces sont necessaires : `--crit`/`--block-player` n'epinglent que les p-units,
+    # `--crit-target`/`--block-target` que les a-units -- et ce montage a des porteurs des DEUX
+    # cotes (`NC_OWNER` allie ET ennemi), donc deux faces sur quatre laisseraient le canal ouvert.
+    return out + ["--hp-player", "100000", "--hp-target", "100000",
+                  "--crit", "0,0", "--crit-target", "0,0",
+                  "--block-player", "0,0", "--block-target", "0,0"]
 
 
 def _seed_bc_montage(out_path: Path, montage: str) -> Path:
