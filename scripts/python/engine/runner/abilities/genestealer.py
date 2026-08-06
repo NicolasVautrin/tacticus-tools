@@ -207,7 +207,9 @@ class SpawnNeophytesOnDecoys(AbilityBehaviour):
 
 
 def _const(ability_id: str, key: str):
-    import gameconfig as GC
+    # #484 : le `import gameconfig as GC` qui vivait ici OMBRAGEAIT son homonyme module-level
+    # (ligne 21), ce qui rend `GC` local a TOUTE la fonction. Retrait SUR ici -- contrairement aux
+    # differes multi-noms, c'est bien le MEME nom qui est deja lie en tete.
     return ((GC.ability(ability_id) or {}).get("constants") or {}).get(key)
 
 

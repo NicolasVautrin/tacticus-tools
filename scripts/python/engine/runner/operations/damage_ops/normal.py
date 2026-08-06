@@ -20,7 +20,8 @@ from ....entities.stats import StatType
 from ...state import State
 from ...components import (StatsComponent, HealthComponent, PositionComponent,
                            persistent_data_keys, unit_prevents_overkill,
-                           can_be_overkilled, unit_is_overkilled)
+                           can_be_overkilled, unit_is_overkilled,
+                           has_effect_of_type)                              # #484 : hisse
 from ...damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                              defender_modifiers, build_hits_board, apply_elevation_bonus,
                              apply_trench_reduction, ice_crit_damage_addition,
