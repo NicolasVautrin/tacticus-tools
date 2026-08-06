@@ -655,54 +655,38 @@ def _table_modules(arbre: ast.Module, mod: str, racine: Path) -> dict[str, str]:
     return t
 
 
-def recenser_substitutions(racine: Path, barils: dict[str, Baril], exclure: set[str],
-                           sites_reecrits: list[Site]):
-    """Tout site qui SUBSTITUE un attribut de module, classe par ce que la re-ecriture lui fait.
+def collecter_substitutions(racine: Path) -> dict[Path, list[tuple[int, str, str]]]:
+    """FOYER UNIQUE de la lecture des substitutions : fichier -> [(ligne, module vise, attribut)].
 
     Formes lues : `monkeypatch.setattr(mod, "n", v)`, `monkeypatch.setattr("a.b.n", v)`,
     `mock.patch("a.b.n")`, `patch.object(mod, "n")`, `setattr(mod, "n", v)`, `mod.n = v`.
 
-    ⚠ LA VOIE DE CONSOMMATION DISCRIMINE, ET NE PAS LA LIRE SURESTIME. Un patch sur le baril
-    ne perd sa morsure que s'il existe un consommateur qui resout le nom TARDIVEMENT (import
-    dans un corps de fonction). Si tous les consommateurs le lient au chargement, le patch ne
-    mordait deja pas par cette voie -- il mord par un acces attributaire, que la re-ecriture ne
-    touche pas. Premiere mesure sans ce cran : 27 `PERD_LA_MORSURE`, dont une part etait du
-    faux positif."""
-    tardifs: set[tuple[str, str]] = {(s.baril, nom) for s in sites_reecrits if s.differe
-                                     for nom, _ in s.symboles}
-    #: (baril, symbole expose)       -> (module d'origine, nom AMONT) : patch AVANT re-ecriture.
-    #: Le nom amont, pas le nom expose : un baril peut re-exporter sous un ALIAS, et c'est le
-    #: nom amont qui existera cote enfant.
-    origines: dict[tuple[str, str], tuple[str, str]] = {}
-    #: (module d'origine, nom amont) -> baril qui le re-exporte  : patch APRES la re-ecriture
-    enfants: dict[tuple[str, str], str] = {}
-    for nom, b in barils.items():
-        if nom in exclure:
-            continue
-        for sym, org in b.exports.items():
-            origines[(nom, sym)] = (org.module, org.nom_amont)
-            enfants[(org.module, org.nom_amont)] = nom
-    sites = []
+    ⚠ DEUX AXES LE PARTAGENT, ET C'EST DELIBERE : `recenser_substitutions` (axe BARIL -- ce que
+    la RE-ECRITURE fait a un patch) et `recenser_morsure` (axe HISSAGE -- ce que le HISSAGE lui
+    fait). Deux implementations jumelles du meme predicat divergeraient, et c'est exactement
+    ainsi que le volet LIVE du gisement #484 est passe inapercu : un recenseur rend zero sur ce
+    qu'il ne visite pas. La portee ici est TOUT `.py` de la racine -- tests offline, tests
+    `_live.py` et probes compris."""
+    out: dict[Path, list[tuple[int, str, str]]] = {}
     for p in sorted(racine.rglob("*.py")):
         if "__pycache__" in str(p) or p.resolve() == Path(__file__).resolve():
             continue
         try:
-            src = p.read_text(encoding="utf-8")
-            arbre = ast.parse(src)
+            arbre = ast.parse(p.read_text(encoding="utf-8"))
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         mod = nom_module(p, racine)
         table = _table_modules(arbre, mod, racine)
 
-        def _resoudre_cible(expr) -> str | None:
+        def _resoudre_cible(expr, _table=table) -> str | None:
             pointe = _nom_pointe(expr)
             if pointe is None:
                 return None
             bouts = pointe.split(".")
             for i in range(len(bouts), 0, -1):
                 prefixe = ".".join(bouts[:i])
-                if prefixe in table:
-                    return ".".join([table[prefixe]] + bouts[i:])
+                if prefixe in _table:
+                    return ".".join([_table[prefixe]] + bouts[i:])
             return pointe
 
         vus: list[tuple[int, str, str]] = []
@@ -729,6 +713,37 @@ def recenser_substitutions(racine: Path, barils: dict[str, Baril], exclure: set[
                         cible = _resoudre_cible(t.value)
                         if cible and cible.split(".")[0] == "engine":
                             vus.append((n.lineno, cible, t.attr))
+        if vus:
+            out[p] = vus
+    return out
+
+
+def recenser_substitutions(racine: Path, barils: dict[str, Baril], exclure: set[str],
+                           sites_reecrits: list[Site]):
+    """Tout site qui SUBSTITUE un attribut de module, classe par ce que la re-ecriture lui fait.
+
+    ⚠ LA VOIE DE CONSOMMATION DISCRIMINE, ET NE PAS LA LIRE SURESTIME. Un patch sur le baril
+    ne perd sa morsure que s'il existe un consommateur qui resout le nom TARDIVEMENT (import
+    dans un corps de fonction). Si tous les consommateurs le lient au chargement, le patch ne
+    mordait deja pas par cette voie -- il mord par un acces attributaire, que la re-ecriture ne
+    touche pas. Premiere mesure sans ce cran : 27 `PERD_LA_MORSURE`, dont une part etait du
+    faux positif."""
+    tardifs: set[tuple[str, str]] = {(s.baril, nom) for s in sites_reecrits if s.differe
+                                     for nom, _ in s.symboles}
+    #: (baril, symbole expose)       -> (module d'origine, nom AMONT) : patch AVANT re-ecriture.
+    #: Le nom amont, pas le nom expose : un baril peut re-exporter sous un ALIAS, et c'est le
+    #: nom amont qui existera cote enfant.
+    origines: dict[tuple[str, str], tuple[str, str]] = {}
+    #: (module d'origine, nom amont) -> baril qui le re-exporte  : patch APRES la re-ecriture
+    enfants: dict[tuple[str, str], str] = {}
+    for nom, b in barils.items():
+        if nom in exclure:
+            continue
+        for sym, org in b.exports.items():
+            origines[(nom, sym)] = (org.module, org.nom_amont)
+            enfants[(org.module, org.nom_amont)] = nom
+    sites = []
+    for p, vus in collecter_substitutions(racine).items():
         #: ⚠ CEINTURE ET BRETELLES : un fichier peut patcher LES DEUX bouts -- le baril ET le
         #: module d'origine -- parce que son auteur ne savait pas lequel mordrait. Mesure
         #: (`test_389r2_kill_unit_remove_effects_offline.py`) : `MD.unit_death_triggers` ET
@@ -751,6 +766,139 @@ def recenser_substitutions(racine: Path, barils: dict[str, Baril], exclure: set[
                 sites.append((p, ligne, cible_mod, attr, Risque.GAGNE_LA_MORSURE,
                               enfants[(cible_mod, attr)]))
     return sites
+
+
+# ------------------------------------------- MORSURE : ce que le HISSAGE fait a une substitution
+
+class Forme(enum.Enum):
+    """Les TROIS formes d'import, et ce qu'elles font a un `monkeypatch` pose sur la source.
+
+    Mesure (2026-08-06, banc `probe_485r1r1_formes_dimport.py`), meme symbole, meme patch :
+
+        A  `from X import foo` au NIVEAU MODULE   avant=VRAI  apres=VRAI     <- NE MORD PAS
+        B  `import X` / `from pkg import X`       avant=VRAI  apres=PATCHE   <- mord
+        C  `from X import foo` DANS la fonction   avant=VRAI  apres=PATCHE   <- mord
+
+    ⚠ C MORD PAR ACCIDENT. L'instruction differee est RE-EXECUTEE a chaque appel, donc elle
+    relit l'attribut du module -- le test en profite sans l'avoir demande. HISSER fait passer
+    de C a A, et A est la seule des trois qui ne morde pas : c'est la cause EXACTE des
+    28 fichiers rouges de #484 et des 12 rouges de la famille #429-r1, pas une maladresse
+    d'ecriture des tests.
+
+    ⚠ B EST LE SEUL POINT FIXE. Il ne differe rien (le nom est lie au chargement) et il mord
+    (l'attribut est relu a l'appel). Et il ne coute RIEN en cascade : mesure sur ce depot,
+    `from pkg.sub.mod import nom`, `from pkg.sub import mod` et `import pkg.sub.mod` chargent
+    les MEMES 272 modules `engine.*` -- ecart 0. B ne rouvre donc aucun cycle : il ne resout
+    pas non plus les cycles, un porteur reste un porteur quelle que soit sa forme."""
+
+    A = "from X import Y au niveau module -- nom GELE au chargement : le patch NE MORD PAS"
+    B = "import de MODULE -- l'attribut est relu a l'appel : le patch MORD, quel que soit l'ordre"
+    C = "from X import Y differe -- re-execute a chaque appel : le patch mord, PAR ACCIDENT"
+
+
+class Morsure(enum.Enum):
+    """Ce que le HISSAGE d'un differe fait a une substitution deja posee."""
+
+    HISSAGE_DESARMERAIT = ("le differe est GRATUIT (donc a hisser) et son symbole est "
+                           "SUBSTITUE : hisser en forme A rendrait le patch INERTE -- hisser "
+                           "en forme B (import de module) le garde mordant")
+    DIFFERE_MORDANT = ("le differe est PORTEUR : il reste, donc le patch mord encore. Fragile "
+                       "quand meme -- le jour ou le cycle disparait, hisser le desarme")
+    DEJA_INERTE = ("une liaison de forme A existe DEJA dans `engine/**` : pour CE module le "
+                   "patch ne mord pas, et selon l'ordre de chargement il capture le STUB")
+
+
+def classer_liaisons(racine: Path, paquet: str = "engine"):
+    """(module vise, nom) -> {Forme: [porteur:ligne]} pour tout `from` ecrit dans `<paquet>/**`.
+
+    Le discriminant de B n'est PAS la syntaxe (`import x` vs `from p import x`) mais le fait
+    que le nom importe SOIT un module : `from engine.runner import components` lie un MODULE,
+    donc tout acces y est attributaire -- c'est une forme B, et c'est ce que sont les
+    900+ refus `SOUS_MODULE` de la re-ecriture. Ils ne sont pas un obstacle a contourner : ils
+    sont deja la bonne reponse, et les reecrire vers A serait une regression."""
+    out: dict[tuple[str, str], dict[Forme, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for p in sorted((racine / paquet).rglob("*.py")):
+        if "__pycache__" in str(p):
+            continue
+        mod = nom_module(p, racine)
+        try:
+            arbre = ast.parse(p.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        differes = {id(n) for f in ast.walk(arbre)
+                    if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    for n in ast.walk(f) if isinstance(n, ast.ImportFrom)}
+        for n in ast.walk(arbre):
+            if not isinstance(n, ast.ImportFrom):
+                continue
+            cible = cible_absolue(mod, n, racine)
+            if not cible or cible.split(".")[0] != paquet:
+                continue
+            for al in n.names:
+                if al.name == "*":
+                    continue
+                if existe_module("%s.%s" % (cible, al.name), racine):
+                    forme = Forme.B
+                elif id(n) in differes:
+                    forme = Forme.C
+                else:
+                    forme = Forme.A
+                out[(cible, al.name)][forme].append("%s:%d" % (mod, n.lineno))
+    return out
+
+
+def recenser_morsure(racine: Path, gratuits: set[tuple[str, str]] | None,
+                     paquet: str = "engine"):
+    """Croise les SUBSTITUTIONS du depot avec les liaisons d'`engine/**`. Rend (lignes, bilan).
+
+    `gratuits` = les couples (module porteur, module cible) que `probe_485_imports_differes.py`
+    a mesures GRATUITS, donc destines au hissage. `None` = non fourni : on ne PRETEND alors
+    rien sur le hissage (tri-etat), on ne rabat pas sur l'ensemble vide."""
+    subs: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for p, vus in collecter_substitutions(racine).items():
+        for ligne, m, a in vus:
+            if m.split(".")[0] == paquet:
+                subs[(m, a)].append("%s:%d" % (p.name, ligne))
+    liaisons = classer_liaisons(racine, paquet)
+    lignes, bilan = [], defaultdict(int)
+    for (cible, nom), sites in sorted(subs.items()):
+        formes = liaisons.get((cible, nom))
+        if not formes:
+            bilan["sans liaison `from` dans %s/** (acces attributaire seul)" % paquet] += 1
+            continue
+        if formes.get(Forme.A):
+            lignes.append((Morsure.DEJA_INERTE, cible, nom, formes, sites))
+            bilan[Morsure.DEJA_INERTE.name] += 1
+            continue
+        porteurs_c = [s for s in formes.get(Forme.C, [])]
+        if not porteurs_c:
+            bilan["forme B seule -- point fixe, rien a faire"] += 1
+            continue
+        vise = [s for s in porteurs_c
+                if gratuits is not None and (s.split(":")[0], cible) in gratuits]
+        if vise:
+            lignes.append((Morsure.HISSAGE_DESARMERAIT, cible, nom, formes, sites))
+            bilan[Morsure.HISSAGE_DESARMERAIT.name] += 1
+        elif gratuits is None:
+            bilan["differe, classement du hissage NON MESURE (base absente)"] += 1
+        else:
+            lignes.append((Morsure.DIFFERE_MORDANT, cible, nom, formes, sites))
+            bilan[Morsure.DIFFERE_MORDANT.name] += 1
+    return lignes, bilan
+
+
+def _gratuits_attestes(racine: Path) -> set[tuple[str, str]] | None:
+    """Les couples (module, cible) declares GRATUITS par la base versionnee de `probe_485`.
+
+    ⚠ TRI-ETAT : base absente ou illisible -> `None`, jamais un ensemble vide. Un zero fabrique
+    ferait conclure << aucun hissage ne desarme rien >> sur une mesure qui n'a pas eu lieu."""
+    base = racine.parent / "ratchets-485-differes-attestes.json"
+    try:
+        import json
+        d = json.loads(base.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return {(mod, cible) for mod, cibles in d.items() for cible in cibles}
 
 
 # ------------------------------------------------------------------------------------- vidange
@@ -968,7 +1116,8 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("commande",
-                    choices=("inventaire", "reecrire", "vider", "substitutions", "gestes"))
+                    choices=("inventaire", "reecrire", "vider", "substitutions", "gestes",
+                             "morsure"))
     ap.add_argument("--racine", type=Path, default=ICI,
                     help="repertoire qui CONTIENT `engine/` (defaut : celui de ce fichier). "
                          "Pointe un arbre TEMOIN pour mesurer sans toucher au depot.")
@@ -1002,6 +1151,34 @@ def main(argv: list[str]) -> int:
             print("PAS MESURE : baril(s) inconnu(s) : %s" % ", ".join(inconnus))
             return EX_PAS_MESURE
         exclure |= set(barils) - set(a.baril)
+
+    if a.commande == "morsure":
+        gratuits = _gratuits_attestes(racine)
+        lignes, bilan = recenser_morsure(racine, gratuits)
+        print("\n  MORSURE -- ce que le HISSAGE fait aux substitutions deja posees")
+        print("      L'axe est DISTINCT de `substitutions` (qui mesure la RE-ECRITURE). Les")
+        print("      confondre laisse passer le gisement mesure sur la famille #429-r1 : un")
+        print("      hissage a rendu INERTE une mutation posee sur le module SOURCE, sur des")
+        print("      tests LIVE que le recensement 100 %% offline de #484 ne pouvait pas voir.")
+        if gratuits is None:
+            print("      /!\\ base des GRATUITS absente -> le volet hissage n'est PAS mesure")
+            print("          (tri-etat : on ne rend pas un zero pour une mesure absente).")
+        for m in Morsure:
+            lot = [x for x in lignes if x[0] is m]
+            if not lot:
+                continue
+            print("\n      %-22s x%-4d %s" % (m.name, len(lot), m.value))
+            for _, cible, nom, formes, sites in lot:
+                print("          %s . %s" % (cible, nom))
+                for f in Forme:
+                    for s in sorted(formes.get(f, [])):
+                        print("              [%s] %s" % (f.name, s))
+                print("              patche par : %s" % ", ".join(sorted(set(sites))))
+        print("\n      BILAN (partition des couples (module `engine`, attribut) substitues) :")
+        for k in sorted(bilan):
+            print("          %-62s %4d" % (k, bilan[k]))
+        print("          %-62s %4d" % ("TOTAL", sum(bilan.values())))
+        return EX_VERT
 
     if a.commande == "gestes":
         lot = qualifier_gestes(racine)
