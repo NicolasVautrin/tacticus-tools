@@ -297,6 +297,43 @@ def test_essayer_tous_RE_ESSAIE_quand_l_arbre_a_CHANGE(monkeypatch):
         "un verdict d'import a survecu a une modification de l'arbre : %s" % lances)
 
 
+# --- 7. probe_457 : le graphe d'imports, FIGE et memoise ----------------------------------------
+
+def test_le_graphe_d_imports_457_est_FIGE_et_memoise(monkeypatch, tmp_path):
+    """`_import_graph` lit et `ast.parse` tout `scripts/python/**` ; trois tests de
+    `test_457_r8_selection_par_diff_offline.py` l'exercent sur l'arbre REEL.
+
+    DEUX proprietes, et la premiere est celle qui evite le piege du cache : la valeur rendue est
+    FIGEE (`frozenset`), donc un appelant ne peut pas modifier ce que verra le suivant -- le
+    `defaultdict(set)` d'origine, lui, l'aurait laisse faire."""
+    import probe_457_offline_tests_green as P457
+
+    (tmp_path / "a.py").write_text("import b\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("X = 1\n", encoding="utf-8")
+    mods = {"a.py": "a", "b.py": "b"}
+    monkeypatch.setattr(P457, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(P457, "_GRAPHE_CACHE", {})
+
+    calculs = []
+    reel = P457._calculer_import_graph
+    monkeypatch.setattr(P457, "_calculer_import_graph",
+                        lambda m, r: (calculs.append(1), reel(m, r))[1])
+
+    inverse, incertains = P457._import_graph(mods)
+    assert inverse.get("b.py") == frozenset({"a.py"}), inverse
+    assert isinstance(incertains, frozenset)
+    assert all(isinstance(v, frozenset) for v in inverse.values()), inverse
+
+    P457._import_graph(mods)
+    assert len(calculs) == 1, "le graphe a ete recalcule %d fois pour 2 appels" % len(calculs)
+
+    # ... et une source MODIFIEE le fait recalculer : un graphe perime SOUS-selectionnerait,
+    # c'est-a-dire un FAUX VERT.
+    (tmp_path / "a.py").write_text("import b\nimport c\n", encoding="utf-8")
+    P457._import_graph(mods)
+    assert len(calculs) == 2, "un graphe d'imports a survecu a une modification de source"
+
+
 def test_l_empreinte_de_l_arbre_engine_est_NON_VIDE_et_BOUGE(tmp_path, monkeypatch):
     """Une empreinte vide (ou constante) rendrait la garde ci-dessus tautologique."""
     import probe_270r4r2_import_en_premier as IP
