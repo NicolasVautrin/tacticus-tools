@@ -66,6 +66,11 @@ except ImportError:
 # estampillée, et LÈVE sur un membre disparu.
 import stream_events as _SE  # noqa: E402
 import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
+# `gameconfig` au niveau MODULE, et c'est MESURE : il n'importe que la stdlib (aucun cycle avec
+# ce fichier) et son import coute 0,09 s -- ses tables sont chargees paresseusement. Un import
+# differe sans raison ecrite CACHE la question du cycle au lieu d'y repondre. Le `catalog_inject`
+# tardif du corps, lui, garde sa raison propre (il charge le gameconfig a l'import).
+import gameconfig as _gc  # noqa: E402
 
 
 def _enum_name(v: int | None, col: str) -> str | None:
@@ -1255,8 +1260,6 @@ def _bis_item_specs(sid: int, base_bc: dict, rarity_cap: int = _TARGET_RARITY,
     EXACTEMENT le regime degenere que ce chemin supprime, et un appelant
     lirait ce zero comme une mesure (cf. l'invariant `data/` tri-etat).
     """
-    import gameconfig as _gc
-
     ids = tuple(sorted(u["Id"] for u in (base_bc.get("Units") or [])
                        if u.get("Id")))
     key = (sid, ids, rarity_cap, exclude_relics)
