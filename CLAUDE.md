@@ -265,6 +265,45 @@ dans un **autre** enum ⇒ c'est l'**appariement** qui est faux). Détail :
 le natif verbatim, avec le nom en commentaire de fin de ligne. Et les offsets **relatifs**
 (`+0xa8`, slots de vtable), qui ne désignent aucun enum.
 
+### Règle de code : un import DIFFÉRÉ est un outil à CYCLE, pas un idiome
+
+**Face à un cycle d'import, dans cet ordre : (1) DÉPLACER le code partagé vers un module que la
+cascade ne ré-entre pas — ça supprime l'arête ; (2) ALLÉGER l'`__init__` du paquet, qui est la
+cause racine (`engine/entities/__init__.py` tire tout `effects` → `loki` → `selectors`, donc
+toucher une feuille énum traîne un millier de modules) ; (3) DIFFÉRER — en DERNIER, et le
+commentaire porte alors la MESURE qui établit que (1) et (2) échouent, pas le constat qu'un cycle
+existe.**
+
+**Classer, mécaniquement** : pour un différé `M -> X`, charger `X` seul dans un process FRAIS et
+regarder si `M` atterrit dans `sys.modules`. Oui ⇒ hisser fermerait un cycle, le différé est
+**PORTEUR**. Non ⇒ **GRATUIT**, à hisser.
+
+**Ce n'est pas une préférence de style.** Mesuré le 2026-08-06 : **430 modules sur 430** de
+`engine/**` s'importent SEULS en process frais. Nos ~500 probes entrent dans le paquet chacune par
+le module dont elle a besoin — l'import isolé n'est pas une commodité de test, c'est
+l'architecture. La PR #738 a ajouté une arête `battle_query -> entities.traits.unit_trait` : le
+compte est tombé à 429 et `probe_433_r1_identity_shortcircuit.py`, **versionné**, est passé de
+`rc 0` à `rc 1`. Trouvé à la relecture, par flair — aucun cliquet ne le voyait.
+
+⚠ **Le 430/430 est TENU PAR les différés — ce n'est pas un certificat de graphe sain.** Mesuré :
+**314** différés vers `engine.*` dans `engine/**`, dont **262 PORTEURS** et **52 GRATUITS**.
+« Pas de différés » est donc inatteignable, et le prescrire serait de la prose contre un fait. Ce
+qui est exigible : **chaque différé DÉCLARE sa classe**, et le compte des gratuits ratchette à
+**0**. Le cliquet d'import isolé garde « **aucun NOUVEAU cycle** », jamais « aucun cycle ».
+
+⚠ **Le gisement se propage par IMITATION, et c'est mesuré** : **32 des 52 gratuits (62 %)** vivent
+dans un module qui porte DÉJÀ un différé légitime (`abilities/targeting.py` 4 porteurs / 4
+gratuits ; `utilities/tile.py` 5 / 3). S'y ajoute que **212 des 262 porteurs n'écrivent AUCUNE
+raison** : un lecteur ne peut pas distinguer « structurel, n'y touche pas » de « scorie », donc il
+recopie. Écrire la raison n'est pas de la politesse — c'est ce qui arrête la propagation.
+
+⚠ **L'incitation joue CONTRE la réparation**, et elle vient du brief : « reste borné, ne touche
+pas aux foyers des autres » rend le différé rationnel, puisque déplacer un foyer touche un fichier
+partagé. Si ta tranche mesure qu'un déplacement est la bonne réponse, **fais-le et dis-le** — c'est
+une réparation, pas un débordement de périmètre.
+
+Re-dériver ces comptes, ne jamais citer ce paragraphe.
+
 ### L'ABSENCE d'une méthode dans les tables ne prouve RIEN
 
 **`frida/methods.tsv` et `ghidra/functions.tsv` sont indexées par ADRESSE**, et IL2CPP
