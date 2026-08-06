@@ -3130,13 +3130,13 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
 
 - **#477-r43 : les DEUX plus gros tas du recenseur neuf, et l'etage NOM SEUL qui manque a `r25`.**
   `[opus]` Tranche 100 % OFFLINE. Le recenseur de `probe_477r25` (ne en #477-r42) chiffre pour la
-  premiere fois ce que ce cliquet ecarte -- **639** lignes, partition ASSERTIONNEE. Trois volets :
-  (a) **194** lignes `nom_ecarte_par_un_cran` : un nom **de l'interface appariee** est dans la
+  premiere fois ce que ce cliquet ecarte -- **651** lignes, partition ASSERTIONNEE. Trois volets :
+  (a) **202** lignes `nom_ecarte_par_un_cran` : un nom **de l'interface appariee** est dans la
   fenetre, un cran conservateur l'ecarte. C'est **4x** le gisement que #477-r36 a traite sur
   l'autre corpus (48 aujourd'hui). ⚠ Le trier exige d'abord l'OUTILLAGE : `probe_477r25` n'a pas de
   `--relacher` **par cran** (il n'en a qu'un, celui de #477-r42) ; les rendre relachables un par
   un, comme `probe_477r24r1`, est la premiere etape -- sans quoi le tri se fait au juge.
-  (b) **262** lignes `numero_nom_hors_interface` : un nom capitalise est ecrit, mais il n'est a
+  (b) **261** lignes `numero_nom_hors_interface` : un nom capitalise est ecrit, mais il n'est a
   aucun slot de l'interface appariee. Un echantillon de 12 montre du bruit VARIE (membre d'enum,
   type, identifiant de tache) **et au moins une attestation reelle** -- « `battleQuery` slot 0x91
   de `UnitsCanAttackEachOther` », exactement la tournure de l'etage NOM SEUL. Le tas n'est donc
@@ -3144,7 +3144,7 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   (c) **50** lignes `nom_seul_sans_numero` : `probe_477r25` n'a PAS l'etage NOM SEUL de #477-r32,
   celui-la meme qui avait trouve, sur l'autre corpus, la SEULE faute que l'axe (slot, nom) ne
   voyait pas. Meilleur rendement attendu des trois.
-  NB annexe, chiffre mais non traite : **169** lignes ecrivent `Slot` avec une autre casse et sont
+  NB annexe, chiffre mais non traite : **171** lignes ecrivent `Slot` avec une autre casse et sont
   INVISIBLES du balayage (`RE_SLOT` est sensible a la casse). Les faire entrer changerait la
   taille du corpus, donc TOUS les comptes -- a faire avec la re-mesure, jamais en passant.
   cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6quinquies et Residus.

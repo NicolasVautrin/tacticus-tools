@@ -697,7 +697,7 @@ Mais elle refusait **aussi** le nom **pleinement qualifié** : `_NOM` interdit u
 elle-même une ligne de commentaire, jamais du code. Le cran est relâchable (`commentaire-contigu`)
 et il **garde quelque chose** : désarmé, il rend **7 couples, 7 FAUX**.
 
-### (c) Le recenseur qui n'existait pas — **639** lignes, une partition, et sa PORTÉE
+### (c) Le recenseur qui n'existait pas — **651** lignes, une partition, et sa PORTÉE
 
 `probe_477r25` écartait ~640 lignes sous un compte **nu**. Il n'y avait pas de ventilation fausse :
 il n'y en avait **aucune**. Écrire la ventilation, c'était écrire le recenseur — et il naît avec le
@@ -706,19 +706,19 @@ invisible et le gisement sous-compte de 48 %).
 
 | cause (DÉRIVÉE du contexte) | lignes |
 |---|--:|
-| `numero_nom_hors_interface` — un nom capitalisé est là, mais il n'est à aucun slot de l'interface | **262** |
-| `nom_ecarte_par_un_cran` — un nom **de l'interface** est dans la fenêtre : **LE gisement** | **194** |
-| `sans_numero` — le slot est mentionné sans être chiffré | 127 |
+| `numero_nom_hors_interface` — un nom capitalisé est là, mais il n'est à aucun slot de l'interface | **261** |
+| `nom_ecarte_par_un_cran` — un nom **de l'interface** est dans la fenêtre : **LE gisement** | **202** |
+| `sans_numero` — le slot est mentionné sans être chiffré | 129 |
 | `nom_seul_sans_numero` — « le slot `KillUnit` » : r25 n'a pas l'étage NOM SEUL de r24-r1 | 50 |
 | `numero_sans_aucun_nom` — rien à contredire | 2 |
-| `autre (…)` — **3 libellés, 4 lignes** : `interface_slots.tsv`, `slot_0xe(…)`, `slots.py` | 4 |
+| `autre (…)` — **6 libellés, 6 lignes** : `interface_slots.tsv` (4 formes), `slot_0xe(…)`, `slots.py` | 6 |
 
 La somme **vaut** le total, et c'est **assertionné**, pas affirmé. La branche `autre (<forme>)` est
-**atteignable** — les 4 lignes ci-dessus le prouvent, et un test la fige : une liste blanche de
+**atteignable** — les 6 lignes ci-dessus le prouvent, et un test la fige : une liste blanche de
 motifs ne peut pas montrer le motif qu'elle a oublié.
 
 ⚠ **Et la PORTÉE se publie avec la partition** : une partition exacte d'un ensemble **incomplet**
-se lit comme exhaustive. `RE_SLOT` est **sensible à la casse** — **169** lignes du dépôt écrivent
+se lit comme exhaustive. `RE_SLOT` est **sensible à la casse** — **171** lignes du dépôt écrivent
 `Slot`/`Slots` sans jamais écrire `slot`, et n'entrent donc dans **aucune** cause : elles sont
 **invisibles**, pas écartées. Le recenseur les chiffre au lieu de les taire.
 
@@ -759,9 +759,9 @@ service, donc à corpus **égal** :
 
 | | r24-r1 (`IOperationProcessor`) | r25 (autres interfaces) |
 |---|--:|--:|
-| attestations, avant → après | 122 → **128** | 281 → **305** |
-| zone aveugle (lignes sans couple) | 160 → **154** | 660 → **639** |
-| gisement `nom_ecarte_par_un_cran` | 52 → **48** | *aucun recenseur* → **194** |
+| attestations, avant → après | 122 → **128** | 289 → **313** |
+| zone aveugle (lignes sans couple) | 160 → **154** | 672 → **651** |
+| gisement `nom_ecarte_par_un_cran` | 52 → **48** | *aucun recenseur* → **202** |
 | citations fausses | 0 | 0 (dont **4** héritées de `master`, réparées) |
 
 ## 7. Un apport hors périmètre, non appliqué
@@ -816,18 +816,18 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
   décrivait** : l'énumération réelle est **horizontale**. Gain **+6** / **+23** couples justes,
   **0 perdu**, les 2 faux dissous. La localité du commentaire, elle, avait une cause **DOUBLE** :
   le second commentaire **et** le nom pleinement qualifié — chacun seul rend **0**. Et
-  `probe_477r25` a désormais un **RECENSEUR** : partition **assertionnée** de **639** lignes,
-  `autre (<forme>)` **atteignable** (4 lignes), portée chiffrée (**169** lignes en autre casse,
+  `probe_477r25` a désormais un **RECENSEUR** : partition **assertionnée** de **651** lignes,
+  `autre (<forme>)` **atteignable** (4 lignes), portée chiffrée (**171** lignes en autre casse,
   invisibles au balayage). Résidu : **#477-r43**.
 - **#477-r43 — les DEUX plus gros tas du recenseur, et l'étage NOM SEUL qui manque à `r25`.**
   `[opus]` Le recenseur (§ 6quinquies) chiffre pour la première fois ce que `probe_477r25` écarte.
   Trois volets, tous **offline** :
-  * **194** lignes `nom_ecarte_par_un_cran` — un nom **de l'interface appariée** est dans la
+  * **202** lignes `nom_ecarte_par_un_cran` — un nom **de l'interface appariée** est dans la
     fenêtre et un cran conservateur l'écarte. C'est le gisement, et il est **3,8×** celui que
     `#477-r36` a traité sur l'autre corpus (47 après). Le trier demande le même outillage :
     `probe_477r25` n'a **aucun** `--relacher` par cran (il n'en a qu'un, celui de `#477-r42`),
     donc la première étape est de rendre ses crans **relâchables un par un**, comme `r24-r1`.
-  * **262** lignes `numero_nom_hors_interface` — un nom capitalisé est écrit, mais il n'est à
+  * **261** lignes `numero_nom_hors_interface` — un nom capitalisé est écrit, mais il n'est à
     aucun slot de l'interface appariée. Un échantillon de 12 lignes montre du bruit **varié** (un
     membre d'enum `PostUnitKill`, un type `ITriggeredAbility`, un identifiant de tâche du
     backlog) **et au moins une attestation réelle** : `case-115-ability-target-gate.md` écrit
@@ -859,10 +859,10 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
     0 artefact ; **forme A tolérant un appel avant le `=`** : 3 justes pour 1 artefact) — ce sont
     des axes de FORME, pas de fenêtre, et ils n'ont pas été appliqués dans cette tranche.
   Sur les autres interfaces, ces lignes sont **VENTILÉES depuis `#477-r42`** (§ 6quinquies) — et la
-  phrase qui figurait ici, « elles n'ont **pas** de nom appariable », était **fausse** : **194**
+  phrase qui figurait ici, « elles n'ont **pas** de nom appariable », était **fausse** : **202**
   d'entre elles en portent un. C'est ce que « pas de recenseur » veut dire, et ce que le suivant
   reprend sous **#477-r43**.
 - **Le mot `slot` lui-même reste sensible à la casse** (seul son qualificatif ne l'est plus). Une
-  ligne commençant par « Slot 0x12 = … » ne serait pas vue — **169** lignes du dépôt sont dans ce
+  ligne commençant par « Slot 0x12 = … » ne serait pas vue — **171** lignes du dépôt sont dans ce
   cas, chiffrées depuis `#477-r42` par la section `PORTEE DE LA MESURE` du cliquet. Non traité
   comme gisement : les faire entrer changerait la taille du corpus, donc tous les comptes.
