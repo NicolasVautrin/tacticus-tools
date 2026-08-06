@@ -90,6 +90,33 @@ def test_une_declaration_MORTE_est_un_rouge():
         "les declarations MORTES doivent entrer dans le VERDICT, pas seulement etre imprimees"
 
 
+def test_la_capture_git_decode_en_utf8_EXPLICITE():
+    """PANNE MESUREE le 2026-08-06. `text=True` SEUL decode avec l'encodage de la LOCALE
+    (cp1252 ici) : un octet valide en UTF-8 mais indefini en cp1252 (`0x90`, present dans
+    `operations/damage.py`) fait lever `UnicodeDecodeError` DANS LE THREAD LECTEUR de
+    `subprocess`. L'exception n'est pas propagee -- `returncode` reste 0 et `stdout` devient
+    None. Une capture ratee se presentait comme une mesure reussie."""
+    src = inspect.getsource(P._git)
+    assert 'encoding="utf-8"' in src, ("`text=True` seul retombe sur la LOCALE -- une capture "
+                                       "ratee y rend rc=0 et stdout=None")
+    assert "errors=" in src
+
+    # le fichier qui a fait tomber l'instrument : il doit se lire, et se lire NON VIDE
+    rc, out = P._git("show", "HEAD:scripts/python/engine/runner/operations/damage.py")
+    if rc == 0:
+        assert isinstance(out, str) and out, "capture VIDE alors que git a rendu 0"
+
+
+def test_une_capture_VIDE_a_rc_zero_ne_rend_PAS_un_verdict():
+    """`rc == 0` avec une sortie absente doit sortir en ILLISIBLE, jamais etre lu comme un
+    fichier vide -- un vide a une empreinte VALIDE, donc rendrait un verdict sur une mesure qui
+    n'a pas eu lieu."""
+    src = inspect.getsource(P.main)
+    assert "base_src is None" in src, "la garde du None a disparu"
+    assert "illisibles.append" in src.split("base_src is None")[1][:400], \
+        "un `None` doit entrer dans les ILLISIBLES (donc dans le rouge), pas etre ignore"
+
+
 def test_l_empreinte_ignore_les_docstrings_mais_PAS_le_code():
     """Le coeur de l'instrument, teste sur son propre critere : reecrire une docstring ne bouge
     pas l'empreinte ; deplacer une ligne de code la bouge."""

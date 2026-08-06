@@ -117,13 +117,27 @@ def empreinte(source: str) -> str:
     return ast.dump(arbre, annotate_fields=True, include_attributes=False)
 
 
-def _git(*args: str) -> tuple[int, str]:
+def _git(*args: str):
+    """Rend `(rc, texte)`, ou `(rc, None)` quand la CAPTURE a echoue.
+
+    ⚠ `encoding="utf-8"` EXPLICITE, et ce n'est pas cosmetique -- c'est une panne MESUREE le
+    2026-08-06. `text=True` seul decode avec l'encodage de la LOCALE (cp1252 sur cette machine) ;
+    un octet parfaitement valide en UTF-8 mais indefini en cp1252 (`0x90`, rencontre dans
+    `operations/damage.py`) fait lever `UnicodeDecodeError` DANS LE THREAD LECTEUR de
+    `subprocess`. L'exception n'est pas propagee : `p.returncode` reste **0** et `p.stdout`
+    devient **None**. Une capture ratee se presentait donc comme une mesure reussie, et le probe
+    partait en `TypeError` trois etages plus loin -- symptome illisible pour la vraie cause.
+
+    ⚠ ET LE `None` EST GARDE PAR L'APPELANT, pas seulement evite ici : un `rc == 0` accompagne
+    d'une sortie absente doit sortir en NON MESURE, jamais etre lu comme un fichier vide -- un
+    fichier vide aurait une empreinte VALIDE, donc rendrait un verdict."""
     try:
         p = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True,
-                           timeout=60)
+                           encoding="utf-8", errors="replace", timeout=60)
     except (OSError, subprocess.SubprocessError) as exc:                # noqa: BLE001
-        raise SystemExit("PAS MESURE : git muet (%s) -- une empreinte qu'on ne peut pas "
-                         "calculer ne rend pas un vert." % exc)
+        # une panne de capteur doit porter son NOM, pas juste un code
+        print("  git muet sur `%s` : %s" % (" ".join(args), exc))
+        return 1, None
     return p.returncode, p.stdout
 
 
@@ -176,6 +190,12 @@ def main() -> int:
         rc_base, base_src = _git("show", "%s:%s" % (args.base, rel))
         if rc_base != 0:
             neufs.append(rel)
+            continue
+        if base_src is None:
+            # ⚠ `rc == 0` MAIS sortie absente : la capture a echoue sans le dire (cf. `_git`).
+            # Surtout PAS traite comme un fichier vide -- un vide a une empreinte VALIDE, donc
+            # rendrait un verdict sur une mesure qui n'a pas eu lieu.
+            illisibles.append((rel, "capture git VIDE alors que rc == 0"))
             continue
         if not courant.is_file():
             divergents.append((rel, "SUPPRIME"))
