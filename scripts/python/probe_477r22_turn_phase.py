@@ -228,7 +228,12 @@ def _partitionner(contenu: List[str]) -> dict:
             continue
         j = R21._bloc(contenu, i)
         sous = contenu[i:j + 1]
-        etrangeres = sorted(R21._formes(sous) - R21._formes_portees())
+        # ⚠ DEUX AXES, PAS UN (#477-r34) : la FORME et la RESOLUBILITE du `Source=`. Le second a
+        # ete ajoute apres qu'un `Group=Ability_Power Source=TerminatorArmour_Visual` -- un nom
+        # d'`EffectType`, pas de `TriggeredAbilityType` -- a fait LEVER l'emission au milieu de
+        # la mesure. Un sous-arbre qu'on ne sait pas ecrire sort du perimetre ; il ne fait pas
+        # taire le probe.
+        etrangeres = R21.formes_etrangeres(sous)
         if etrangeres:
             hors.append({"raison": "forme(s) non portee(s)", "forme": ",".join(etrangeres),
                          "lignes": len(sous), "texte": sous})
@@ -956,7 +961,7 @@ def ventilation_du_reste(couples: List[TurnObs]) -> List[dict]:
     for c in couples:
         for h in c.hors:
             lignes = h["texte"]
-            etrangeres = sorted(R21._formes(lignes) - R21._formes_portees())
+            etrangeres = R21.formes_etrangeres(lignes)
             en_damage = 0
             i = 0
             while i < len(lignes):
@@ -1273,14 +1278,21 @@ def main() -> int:
         # groupe tombe d'un facteur 3,7. Il DEPLACE le regime au lieu de rejouer le meme.
         plans.append(("MC1_67", "adeptHospitaller,astraBullgryn",
                       "blackTerminator,worldJakhal", "MC1_67-2v2", args.tours))
-        # ⚠ LE SCENARIO LONG EST ENTRE AVEC `#477-r34`, ET C'EST UNE MESURE QUI L'A IMPOSE.
-        # A DEUX tours, AUCUN des trois scenarios ci-dessus ne porte de `Group=Damage` DANS un
-        # `Group=StartTurn` : un degat de debut de tour vient d'un effet de TUILE, qui exige
-        # qu'une unite ait eu le temps de s'y poser. La famille de `#477-r34` n'y serait donc
-        # jamais exercee A L'ENDROIT que cette tranche fait entrer au perimetre -- le foyer,
-        # lui, l'est en nombre sur tout le flux, mais ce n'est pas la meme mesure. A SIX tours
-        # sur `C1_02`, la mesure rend 1 couple porteur et 36 lignes qui entrent.
-        plans.append(("C1_02", "", "", "C1_02-6t", max(6, args.tours)))
+        # ⚠ LE QUATRIEME SCENARIO EST ENTRE AVEC `#477-r34`, ET IL A ETE CRAFTE, PAS CHOISI.
+        # AUCUN des trois ci-dessus ne fait ENTRER de `Group=Damage` dans un `Group=StartTurn` :
+        # `C1_02` et `MC1_67` a deux tours n'en portent pas du tout a cet endroit (un degat de
+        # debut de tour vient d'un effet de TUILE, qui exige qu'une unite s'y soit posee), et le
+        # roster 2v2, qui en porte DEUX, les garde hors perimetre parce que le meme sous-arbre
+        # porte une `Action=HealInfo` -- le pipeline de SOIN, que cette tranche ne porte pas.
+        # Le roster ci-dessous est celui du 2v2 avec `adeptHospitaller` -> `adeptCanoness` : le
+        # degat de tuile est PRESERVE (meme board, meme seed, memes deux cibles), le soin
+        # DISPARAIT, et les 38 lignes du sous-arbre entrent. C'est la mesure de la tranche.
+        # ⚠ UN SCENARIO LONG (`C1_02` a SIX tours) A ETE ESSAYE ET ECARTE : il porte bien 36
+        # lignes de `Group=Damage` dans un couple, mais leur sous-arbre est retenu par un
+        # `Group=Ability_Power Source=TerminatorArmour_Visual` -- un nom d'`EffectType`, donc un
+        # producteur que `evaluate_trigger.py` ne couvre pas. Gain zero, pour six tours de jeu.
+        plans.append(("MC1_67", "adeptCanoness,astraBullgryn",
+                      "blackTerminator,worldJakhal", "MC1_67-2v2-sans-soin", args.tours))
     print("[477-r22] session=%d  scenarios=%s"
           % (session, ",".join("%s(%dt)" % (p[3], p[4]) for p in plans)))
 
@@ -1483,14 +1495,23 @@ def main() -> int:
               % (GroupType.Damage.name, dmg_total, dmg_lignes,
                  sum(1 for r in resultats for c in r["couples"] for p in c.portes
                      if _porte_un_damage(p["obs"])), GroupType.StartTurn.name))
+        print("  LE COMPTE AVANT / APRES, PAR SCENARIO -- le critere de la tranche : les lignes "
+              "ENTRENT, elles ne disparaissent pas.")
+        for r in resultats:
+            entrees = sum(p["lignes"] for c in r["couples"] for p in c.portes
+                          if _porte_un_damage(p["obs"]))
+            apres = sum(h["lignes"] for c in r["couples"] for h in c.hors)
+            print("      %-22s hors perimetre AVANT %3d -> APRES %3d  (%d ligne(s) ENTREES par "
+                  "`Group=%s`)"
+                  % (r["etiquette"], apres + entrees, apres, entrees, GroupType.Damage.name))
         print("  CE QUI RESTE HORS PERIMETRE, ET QUI L'Y RETIENT :")
         for r in resultats:
             if not r["reste"]:
-                print("      %-12s AUCUN -- les couple(s) sont INTEGRALEMENT au perimetre"
+                print("      %-22s AUCUN -- les couple(s) sont INTEGRALEMENT au perimetre"
                       % r["etiquette"])
             for b in r["reste"]:
-                print("      %-12s %3d ligne(s), dont %d de `Group=%s` (deja reproduites par le "
-                      "foyer) ; BLOQUE PAR : %s"
+                print("      %-22s %3d ligne(s), dont %d de `Group=%s` (deja reproduites par le "
+                      "foyer, retenues par la regle du sous-arbre) ; BLOQUE PAR : %s"
                       % (r["etiquette"], b["lignes"], b["lignes_damage"], GroupType.Damage.name,
                          ",".join(b["etrangeres"])))
         print("  NON COUVERT : la DECISION de `VerifyUnitTurnEnded` (les deux predicats de "

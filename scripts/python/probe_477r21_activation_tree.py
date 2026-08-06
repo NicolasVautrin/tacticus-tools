@@ -374,8 +374,7 @@ def parser_bloc1(bloc1: List[str]) -> dict:
             continue
         j = _bloc(bloc1, i)
         sous = bloc1[i:j + 1]
-        formes = _formes(sous)
-        etrangeres = sorted(formes - _formes_portees())
+        etrangeres = formes_etrangeres(sous)
         if etrangeres:
             hors.append({"raison": "forme(s) non portee(s)", "forme": ",".join(etrangeres),
                          "lignes": len(sous), "texte": sous})
@@ -413,6 +412,47 @@ def _formes_portees() -> frozenset:
                      + ["Action=%s" % a for a in ACTIONS_PORTEES]
                      + ["Finish_Group"]
                      + ["Tag=%s" % t for t in tags])
+
+
+def _sources_non_resolubles(lignes: List[str]) -> frozenset:
+    """LES `Source=` QU'AUCUN MIRROR DU PORT NE SAIT PRODUIRE (#477-r34).
+
+    ⚠ LE SYMBOLE DE LA FORME NE SUFFIT PAS A DIRE QU'ELLE EST PORTEE, ET C'EST UNE MESURE QUI
+    L'A IMPOSE. `_formes` ne lit que le `Group=` / `Action=` / `Tag=` ; le `Source=`, lui, est
+    une CHAINE que l'emetteur natif tire d'un enum, et le port ne sait la reproduire que si son
+    mirror porte le membre. Sur `C1_02` a six tours, un `Group=Damage` porte dans son corps un
+    `Group=Ability_Power Source=TerminatorArmour_Visual` -- un nom qui vit dans `EffectType`,
+    PAS dans `TriggeredAbilityType` (verifie sur `data/symbols/<build>/frida/enums.tsv` :
+    `TriggeredAbilityType` n'a que `TerminatorArmour` = 1142). Le producteur de ce
+    `Group=Ability_Power`-la n'est donc pas `EvaluateAbilitiesOperation`, et aucun foyer lu de
+    ce paquet ne l'ecrit.
+
+    Sans ce test, `emettre_sous_arbre` LEVE au milieu de la mesure : le probe rend `2` et ne
+    publie plus rien. Avec lui, le sous-arbre part HORS PERIMETRE, ENUMERE -- c'est la meme
+    regle que pour une forme etrangere, appliquee a l'axe des SOURCES.
+
+    ⚠ ELLE EST DERIVEE DU PORT, comme `_formes_portees`. Un mirror complete demain fait entrer
+    le sous-arbre tout seul ; aucune liste de noms n'est ecrite ici."""
+    out = set()
+    for l in lignes:
+        m = CONF.RE_GROUP.match(l)
+        if not m:
+            continue
+        sym, src = m.group("sym"), m.group("source")
+        if sym == GroupType.Ability_Power.name and src not in TriggeredAbilityType.__members__:
+            out.add("Group=%s Source=%s <hors mirror TriggeredAbilityType>" % (sym, src))
+        elif sym == GroupType.Effect_Refresh.name and src not in EffectType.__members__:
+            out.add("Group=%s Source=%s <hors mirror EffectType>" % (sym, src))
+        elif sym == GroupType.Damage.name and src != DAMAGE_SOURCE_ID:
+            out.add("Group=%s Source=%s <le litteral lu est vide>" % (sym, src))
+    return frozenset(out)
+
+
+def formes_etrangeres(sous: List[str]) -> List[str]:
+    """CE QUI MET UN SOUS-ARBRE HORS PERIMETRE : une forme qu'aucun module de `engine/streams`
+    ne produit, OU un `Source=` qu'aucun mirror ne sait ecrire. Les deux axes sont derives du
+    PORT, jamais du flux."""
+    return sorted((_formes(sous) - _formes_portees()) | _sources_non_resolubles(sous))
 
 
 def _formes(lignes: List[str]) -> frozenset:
