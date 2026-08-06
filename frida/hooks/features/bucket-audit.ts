@@ -38,6 +38,9 @@ import {
     method_get_return_type, type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
+import {
+    arm, disarm, capturing, armedReport, onDisarmed,
+} from "../game/armed-runners.js";
 
 // #475 : les quatre constantes `RVA` qui vivaient ici sont SUPPRIMÉES. Elles n'étaient plus
 // utilisées pour attacher (`void RVA;`) et elles étaient 4/4 PÉRIMÉES — mesuré le 2026-08-04,
@@ -91,7 +94,13 @@ interface ChooseEvent {
 }
 
 const audit = {
-    enabled: false,
+    // ⚠ PAS de `enabled` ici (#483). Ce module n'avait AUCUNE garde de capture : son
+    // « armement » était purement PHYSIQUE (`installHooks` / `detachAll`), donc un
+    // `bucketAuditDisable` arrachait les `Interceptor` de tout le monde. Deux crans
+    // ajoutés : une garde `capturing("bucketAudit")` avant chaque push, et un
+    // détachement DIFFÉRÉ au moment où plus personne n'est armé (`onDisarmed`).
+    // `installed` ne dit que l'état PHYSIQUE — la porte, elle, vit dans armed-runners.
+    installed: false,
     seq: 0,
     listeners: [] as InvocationListener[],
     // Buffers PAR ORIGINE (cf. game/trace-origin.ts) — ring, cap PAR BUCKET.
@@ -299,6 +308,7 @@ function installHooks(): boolean {
             audit.diag.addActionFires++;
             captureBacktraceOnce(this.context, "AddAction");
             try {
+                if (!capturing("bucketAudit")) return;   // #483 : porte PAR RUNNER
                 const bucket = args[0];
                 const action = args[1];
                 if (bucket.isNull() || action.isNull()) return;
@@ -332,6 +342,7 @@ function installHooks(): boolean {
             audit.diag.addActionToBucketFires++;
             captureBacktraceOnce(this.context, "AddActionToBucket");
             try {
+                if (!capturing("bucketAudit")) return;   // #483 : porte PAR RUNNER
                 const bucket = args[0];
                 const weight = args[1].toInt32();
                 const action = args[2];
@@ -381,6 +392,7 @@ function installHooks(): boolean {
             (this as { _bucketPtr?: string })._bucketPtr = args[0].toString();
         },
         onLeave(retval) {
+            if (!capturing("bucketAudit")) return;   // #483 : porte PAR RUNNER
             const bucketPtr = (this as { _bucketPtr?: string })._bucketPtr
                 ?? "?";
             try {
@@ -424,32 +436,57 @@ function detachAll(): void {
 // --- RPCs ---
 
 export function register(ctx: Ctx): void {
-    // Auto-install at boot — observability is on by default.
-    audit.enabled = installHooks();
+    // Le DÉTACHEMENT est différé au moment où plus AUCUN acteur n'est armé (#483) : un
+    // `bucketAuditDisable` d'un probe ne peut plus arracher les `Interceptor` sous les
+    // pieds d'un autre. Appelé aussi quand un runner armé est disposé.
+    onDisarmed("bucketAudit", () => { detachAll(); audit.installed = false; });
 
-    ctx.rpc.bucketAuditStatus = (): unknown => ({
-        enabled: audit.enabled,
-        listeners: audit.listeners.length,
-        added: audit.added.size(),
-        chosen: audit.chosen.size(),
-        diag: { ...audit.diag },
-        backtraceTags: Object.keys(audit.backtraces),
-    });
+    // Auto-install at boot — observability is on by default. L'armement GLOBAL est ce qui
+    // reproduit à l'identique l'ancien défaut (aucune garde ⇒ capture de tout).
+    audit.installed = installHooks();
+    if (audit.installed) arm("bucketAudit");
+
+    ctx.rpc.bucketAuditStatus = (body?: { runnerId?: number }): unknown => {
+        const report = armedReport("bucketAudit", body?.runnerId);
+        return {
+            ...report,
+            // `enabled` : alias historique de `on`. Il disait « les hooks sont posés » ;
+            // il dit désormais « la capture est ouverte pour l'origine interrogée ».
+            // `installed` porte l'état PHYSIQUE, qui lui reste global.
+            enabled: report.on, installed: audit.installed,
+            listeners: audit.listeners.length,
+            added: audit.added.size(),
+            chosen: audit.chosen.size(),
+            diag: { ...audit.diag },
+            backtraceTags: Object.keys(audit.backtraces),
+        };
+    };
 
     /** Return the captured first-fire backtraces (one per hook tag). */
     ctx.rpc.bucketAuditBacktraces = (): unknown => {
         return { backtraces: { ...audit.backtraces } };
     };
 
-    ctx.rpc.bucketAuditEnable = (): unknown => {
-        audit.enabled = installHooks();
-        return { ok: audit.enabled, listeners: audit.listeners.length };
+    /** ARME. `runnerId` → armement NOMINATIF ; sans lui → GLOBAL (historique). */
+    ctx.rpc.bucketAuditEnable = (body?: { runnerId?: number }): unknown => {
+        audit.installed = installHooks();
+        if (audit.installed) arm("bucketAudit", body?.runnerId);
+        return {
+            ok: audit.installed, listeners: audit.listeners.length,
+            ...armedReport("bucketAudit", body?.runnerId),
+        };
     };
 
-    ctx.rpc.bucketAuditDisable = (): unknown => {
-        audit.enabled = false;
-        detachAll();
-        return { ok: true };
+    /** DÉSARME. Sans `runnerId` : le GLOBAL seulement — les armements nominatifs des
+     *  autres acteurs survivent, et les hooks ne sont détachés que quand il ne reste
+     *  plus personne (#483). */
+    ctx.rpc.bucketAuditDisable = (body?: { runnerId?: number }): unknown => {
+        disarm("bucketAudit", body?.runnerId);
+        return {
+            ok: true, installed: audit.installed,
+            listeners: audit.listeners.length,
+            ...armedReport("bucketAudit", body?.runnerId),
+        };
     };
 
     ctx.rpc.bucketAuditReset = (body?: { runnerId?: number }): unknown => {

@@ -15,6 +15,7 @@ import { runnerOff } from "../game/runner.js";
 import { readBattleStatus } from "../game/match-state.js";
 import { install, ensureInstalled } from "../game/recorder.js";
 import { queueOnMainThread } from "../runtime/queue.js";
+import { armedStatusAll, ALL_TRACE_KINDS } from "../game/armed-runners.js";
 import { Ctx } from "../controller.js";
 
 // Strip ArrayBuffer from prng snapshot for JSON-safe return.
@@ -35,6 +36,15 @@ function sanitizeEntry(e: LogEntry): Record<string, unknown> {
 
 export function register(ctx: Ctx): void {
     ctx.rpc.ping = () => "pong";
+
+    /** ETAT REEL de l'armement des captures diagnostiques, famille par famille (#483).
+     *  Sans lui, « qui est armé » n'était lisible d'aucun endroit : chaque `*Dump`
+     *  publiait un booléen global qui ne disait pas POUR QUI la capture était ouverte.
+     *  Le recensement est EXHAUSTIF (`ALL_TRACE_KINDS`), pas limité aux familles déjà
+     *  armées — une famille désarmée doit pouvoir se lire comme telle, pas comme absente. */
+    ctx.rpc.traceArmedStatus = (): unknown => ({
+        ok: true, kinds: ALL_TRACE_KINDS, armed: armedStatusAll(),
+    });
 
     ctx.rpc.info = () => ({
         name: "frida",
