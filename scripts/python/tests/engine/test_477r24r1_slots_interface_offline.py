@@ -363,6 +363,29 @@ def test_etage3bis_le_recepteur_entre_slot_et_numero_est_reconnu() -> None:
             "« %s » n'est pas reconnu comme le slot 0x%x" % (texte, attendu))
 
 
+def test_etage3bis_la_FLECHE_reste_licite_dans_le_sens_slot_PUIS_nom() -> None:
+    """La FLECHE n'est un RENVOI que dans le sens « nom PUIS slot ».
+
+    #477-r25 l'excluait des DEUX sens, et ce cran, importe tel quel, faisait PERDRE une citation
+    JUSTE de ce corpus (`backlog.md` : « `FinishAttack` slot 0x3b -> le meme nom qualifie »).
+    Dans « slot PUIS nom » la fleche marque une RESOLUTION, donc exactement l'attribution
+    cherchee ; dans l'autre sens elle marque un ENCHAINEMENT d'appels, et le cran tient.
+    """
+    resolution = "`FinishAttack` slot 0x3b → `OperationProcessor$$FinishAttack` → suite"
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(resolution)}
+    assert (0x3B, "FinishAttack") in vus, (
+        "le sens « slot PUIS nom » perd son couple a cause de la fleche -- vus : %s"
+        % sorted(vus))
+    #: ... et le sens INVERSE doit rester bloque : la fleche y designe l'APPELE.
+    enchainement = "`OperationProcessor$$FinishAttack` -> slot 0x3c"
+    vus_b = {(int(m.group("n2"), 0), m.group("nom2"))
+             for m in P.RE_COUPLES_ML[2].finditer(enchainement)}
+    assert (0x3C, "FinishAttack") not in vus_b, (
+        "la forme « nom PUIS slot » franchit la fleche -- elle attribue au slot APPELE le nom "
+        "de la methode APPELANTE")
+
+
 def test_etage3bis_un_segment_de_chemin_nest_pas_un_nom_de_methode() -> None:
     """`slot 0x46 -> `IdunBattle.Operations.DiscardHitOperation`` ne nomme PAS `IdunBattle`.
 

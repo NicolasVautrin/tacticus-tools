@@ -137,21 +137,31 @@ _NOM = r"(?P<nom%d>[A-Z][A-Za-z0-9]{3,})(?![A-Za-z0-9$]|\.[A-Za-z])"
 #: `$$StartAttack` (slot 0x3a) avant CHAQUE cible / `$$FinishAttack`' saute par-dessus la
 #: fermeture et attrape le nom de la PROPOSITION SUIVANTE. Les deux faux positifs sont mesures.
 #: ⚠ NI UN RENVOI, NI UNE PONCTUATION FORTE, NI UNE VIRGULE -- crans MESURES par #477-r25 sur
-#: l'autre cliquet, et re-mesures ici : sans eux, l'elargissement sort 4 desaccords de plus,
-#: tous FAUX (« le slot 0x21 QUE `RunPhase` invoque » designe le slot APPELE, pas la methode
-#: nommee ; une enumeration verticale apparie le nom d'un item au slot du SUIVANT).
+#: l'autre cliquet : « le slot 0x21 QUE `RunPhase` invoque » designe le slot APPELE, pas la
+#: methode nommee ; une enumeration verticale apparie le nom d'un item au slot du SUIVANT.
 _RENVOIS = ("slot", "que ", "qu'", "interrog", "invoq", "appel", "utilis", "evalu", "->", "→")
 
+#: ⚠ LA FLECHE N'EST UN RENVOI QUE DANS LE SENS « NOM PUIS SLOT ». Elle y marque un
+#: ENCHAINEMENT (« `BattleQuery$$ReachedSummonCap` -> slot 0x52 » designe ce que la methode
+#: APPELLE) ; dans le sens « SLOT PUIS NOM » elle marque une RESOLUTION (« slot 0x3b ->
+#: `OperationProcessor$$FinishAttack` »), c'est-a-dire exactement l'attribution cherchee.
+#: `#477-r25` l'excluait des DEUX sens, et re-mesure ici, cran par cran, c'est le SEUL des dix
+#: renvois qui coute quelque chose : retirer `→` de la forme C rend **1 couple de plus, JUSTE**
+#: (`backlog.md` : « `FinishAttack` slot 0x3b -> `OperationProcessor$$FinishAttack` »), et
+#: retirer `->` n'en rend **aucun**. Les deux sont retires de la forme C par leur CAUSE -- pas
+#: parce que l'un rapporte : garder l'ASCII et lacher l'unicode serait un fit sur le corpus.
+_RENVOIS_SLOT_PUIS_NOM = tuple(r for r in _RENVOIS if r not in ("->", "→"))
 
-def _entre(n: int, traverse: bool) -> str:
+
+def _entre(n: int, traverse: bool, renvois: tuple[str, ...] = _RENVOIS) -> str:
     """Le remplissage tolere entre les deux membres d'un couple, borne a `n` caracteres.
 
     `traverse` dit si ce remplissage a le droit de franchir un SAUT DE LIGNE. C'est le SEUL
-    parametre par lequel la fenetre agit sur les formes B et C ; les formes A et D, elles,
-    separent leurs membres par un separateur qui traverse deja (cf. `_esp`).
+    parametre par lequel la fenetre agit sur les formes B et C ; la forme A, elle, separe ses
+    membres par un separateur qui traverse deja (cf. `_esp`).
     """
     classe = "[^);:,]" if traverse else r"[^\n);:,]"
-    return r"(?:(?!%s)%s){0,%d}?" % ("|".join(_RENVOIS), classe, n)
+    return r"(?:(?!%s)%s){0,%d}?" % ("|".join(renvois), classe, n)
 
 
 #: UNE CONTINUATION -- ce qui s'intercale la ou une espace suffirait, quand la phrase reprend a
@@ -192,7 +202,8 @@ def _regex_couples(traverse: bool):
         #: qui suit -- cran mesure par #477-r30, conserve ici a l'identique.
         re.compile(_QUAL + (_NOM % 1) + _entre(40, False) + (_SLOT % 1)),
         #: C -- slot 0x3a ... `OperationProcessor$$StartAttack`   (slot PUIS nom, colles)
-        re.compile((_SLOT % 2) + _entre(60, traverse) + _QUAL + coupure + (_NOM % 2)),
+        re.compile((_SLOT % 2) + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM)
+                   + _QUAL + coupure + (_NOM % 2)),
     )
 
 

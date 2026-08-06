@@ -328,21 +328,47 @@ nom ADJACENTS », qui écartait **166** lignes du même patron).
 
 | W | citations | enjambantes | nom seul | `sans_couple` | désaccords | arités fausses |
 |--:|--:|--:|--:|--:|--:|--:|
-| **1** (régime précédent) | 48 | 0 | 9 | 177 | 0 | 0 |
-| **2** | 68 | **16** | 10 | 169 | 0 | 0 |
-| **3** *(en service)* | 68 | 16 | 10 | 169 | 0 | 0 |
-| 4 … 8 | 68 | 16 | 10 | 169 | 0 | 0 |
+| **1** (régime précédent) | 51 | 0 | 9 | 178 | 0 | 0 |
+| **2** | 72 | **17** | 10 | 169 | 0 | 0 |
+| **3** *(en service)* | 72 | 17 | 10 | 169 | 0 | 0 |
+| 4 … 8 | 72 | 17 | 10 | 169 | 0 | 0 |
 
 Même forme que la courbe de `#477-r30` : **gain intégralement capté à W = 2, plat ensuite**. `3`
 est pris comme marge à coût mesuré nul.
 
 ⚠ **Le corpus contient la tranche elle-même** — cette fiche, le backlog et le fichier de test en
 font partie (seul le *probe* est exclu de son propre balayage). Écrire sur les slots fait donc
-bouger les compteurs : mesuré, **45 → 48** attestations et **166 → 177** lignes sans nom entre le
+bouger les compteurs : mesuré, **45 → 51** attestations et **166 → 178** lignes sans nom entre le
 commit de départ et l'état livré, à régime constant. Les chiffres se **re-dérivent**
 (`--courbe`), ils ne se citent pas. Corollaire pratique : les exemples écrits dans le test et dans
 les fiches doivent être des couples **VRAIS** — un exemple faux ferait rougir le cliquet sur son
 propre artefact, et c'est à cela que sert le marqueur `[slot-attribution:refute]` (3 sites).
+
+### Un cran hérité peut COÛTER une citation juste — la non-régression le dit, pas la relecture
+
+Porter la fenêtre, c'est aussi porter les **dix renvois** que `#477-r25` exclut du remplissage. Ils
+ont été mesurés **sur l'autre corpus**. Confrontation directe : la version de `master` et la
+version livrée jouées **sur le même arbre**, à `fenetre = 1` des deux côtés — le seul régime où la
+comparaison ait un sens. Résultat : **1 citation JUSTE perdue**, et le cran fautif isolé en
+retirant les renvois **un par un** :
+
+| renvoi retiré de la forme « slot PUIS nom » | couples neufs | justes | faux |
+|---|--:|--:|--:|
+| les 8 autres (`que`, `qu'`, `interrog`, `invoq`, `appel`, `utilis`, `evalu`, `slot`) | 0 | 0 | 0 |
+| `->` | 0 | 0 | 0 |
+| **`→`** | **1** | **1** | 0 |
+
+**La flèche n'est un renvoi que dans le sens « nom PUIS slot »**, où elle marque un *enchaînement*
+(« `…$$ReachedSummonCap` -> slot 0x52 » désigne ce que la méthode APPELLE). Dans le sens
+« slot PUIS nom » elle marque une **résolution** — « slot 0x3b → `OperationProcessor$$FinishAttack` »
+—, c'est-à-dire exactement l'attribution cherchée. Les **deux** flèches sont donc retirées de la
+forme C **par leur cause** : garder l'ASCII et lâcher l'unicode parce que seul l'unicode rapporte
+serait un *fit* sur le corpus, pas un cran.
+
+⚠ Un cran importé d'un corpus voisin doit être **re-mesuré**, pas recopié — et c'est une
+comparaison mécanique (ancienne version vs nouvelle, même arbre) qui l'a montré, pas une
+relecture. La seule autre perte est du **matériel de test** (une liste Python
+`["…slot 0x65 =", "", "…MoveUnit`"]` dont la virgule est écartée) : elle ne cite rien.
 
 ### La réponse à la question binaire : **0** citation fausse sur l'axe (slot, nom)
 
@@ -460,8 +486,8 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
 - **Les ~5 260 lignes sans récepteur reconnu** restent hors garde. Le recensement (`--recenser`) les
   ventile par récepteur ; aucune ne porte de couple (slot, nom) appariable sans lire le site.
 - ~~**#477-r32**~~ → **CLOS le 2026-08-06.** La fenêtre est portée à
-  `probe_477r24r1_slots_interface.py` (§ 6ter). Sur `IOperationProcessor` : **16** couples
-  enjambants, zone aveugle **177 → 169**, et **0 citation fausse** sur l'axe (slot, nom) —
+  `probe_477r24r1_slots_interface.py` (§ 6ter). Sur `IOperationProcessor` : **17** couples
+  enjambants, zone aveugle **178 → 169**, et **0 citation fausse** sur l'axe (slot, nom) —
   vérifié en relâchant chacun des crans un par un, les 8 douteux qui en sortent étant **tous**
   des artefacts du relâchement. La faute trouvée était sur un **autre axe** : le slot cité par son
   **nom seul**. cf. § 6ter.
@@ -470,14 +496,15 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
 - **#477-r34 — ce qui reste hors couverture, VENTILÉ PAR CAUSE, sur les DEUX cliquets.** Le compte
   seul est un inventaire ; sa cause en fait une tâche. Sur `IOperationProcessor` (**169** lignes,
   mesurées) :
-  * **43** ne portent **aucun numéro** — elles nomment le slot en prose (« un slot de
+  * **44** ne portent **aucun numéro** — elles nomment le slot en prose (« un slot de
     l'`OperationProcessor` qui pose des modificateurs de stat ») ou le désignent par une tournure
     que l'étage 5 ne reconnaît pas (« prennent le slot `MoveUnit` (4 arguments…) », sans « de
     l'… ») ;
-  * **76** portent un numéro et **aucun nom de méthode dans la fenêtre** — rien à contredire ;
-  * **50** portent un numéro **et** un nom de l'interface dans la fenêtre, mais un cran
+  * **77** portent un numéro et **aucun nom de méthode dans la fenêtre** — rien à contredire ;
+  * **48** portent un numéro **et** un nom de l'interface dans la fenêtre, mais un cran
     conservateur les écarte. C'est **là** que se trouve le gisement restant, et il est **borné** :
-    les quatre relâchements mesurés en § 6ter n'y sortent que **18** couples, dont **10 justes** et
+    les quatre relâchements mesurés en § 6ter n'y sortent que **18** couples, dont **10 justes**
+    (dont **1 déjà récupéré** par le cran flèche) et
     **8 artefacts**. Deux crans gagneraient sans bruit mesuré (**nom collé au numéro** : 2 couples,
     0 artefact ; **forme A tolérant un appel avant le `=`** : 3 justes pour 1 artefact) — ce sont
     des axes de FORME, pas de fenêtre, et ils n'ont pas été appliqués dans cette tranche.

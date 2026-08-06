@@ -2875,8 +2875,8 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
 - ~~**#477-r32**~~ : **LIVRE (2026-08-06)** -- **l'etage qui manquait n'etait pas la FENETRE,
   c'etait le slot cite par son NOM SEUL.** La fenetre est portee a `probe_477r24r1` : courbe
   RE-DERIVEE sur CE corpus (`--courbe`), meme forme que celle de #477-r30 -- gain integralement
-  capte a **W=2**, plat jusqu'a W=8 ; **16** couples enjambants, attestations **48 -> 68**, zone
-  aveugle **177 -> 169**, et **0 citation fausse** sur l'axe (slot, nom). Ce zero n'est PAS une
+  capte a **W=2**, plat jusqu'a W=8 ; **17** couples enjambants, attestations **51 -> 72**, zone
+  aveugle **178 -> 169**, et **0 citation fausse** sur l'axe (slot, nom). Ce zero n'est PAS une
   conclusion par absence : chacun des crans conservateurs a ete RELACHE separement (parenthese
   fermante, forme « recepteur colle au slot », nom colle au numero, forme A apres appel) -- **18**
   couples neufs, dont **8 douteux qui sont TOUS des artefacts du relachement**, aucune faute du
@@ -2899,27 +2899,36 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   CITATION, refuse (`contre-epreuve IMPOSSIBLE`) a fenetre=1, et mord a **16** au-dela. Test neuf
   `test_etage3_chaque_etage_a_son_mutant` : les 4 colonnes de `jouer` doivent etre bougees par au
   moins un mutant -- c'est ce qui a montre que l'etage NOM SEUL entrait SANS garde.
-  **38 verts** (33 + 5 neufs) ; `probe_477r25` et ses 57 verts inchanges.
+  ⚠ **UN CRAN HERITE PEUT COUTER UNE CITATION JUSTE, et seule une NON-REGRESSION MECANIQUE le
+  dit** : la version de `master` et la version livree jouees sur le MEME arbre a fenetre=1 ont
+  montre **1 citation JUSTE perdue**, et le retrait des dix renvois UN PAR UN a isole le
+  coupable -- la FLECHE. Elle n'est un renvoi que dans le sens « nom PUIS slot » (enchainement
+  d'appels) ; dans le sens « slot PUIS nom » elle marque une RESOLUTION, soit l'attribution
+  cherchee. Les DEUX fleches sont retirees de la forme C par leur CAUSE (garder l'ASCII et lacher
+  l'unicode parce que seul l'unicode rapporte serait un fit sur le corpus). Un cran importe d'un
+  corpus voisin se RE-MESURE, il ne se recopie pas.
+  **41 verts** (33 + 8 neufs) ; `probe_477r25` et ses 57 verts inchanges.
   Residu : **#477-r34**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6ter.
 
 - **#477-r34 : ce qui reste HORS COUVERTURE sur les deux cliquets de slots, VENTILE PAR CAUSE.**
   `[opus]`
   Un compte seul est un inventaire ; sa cause en fait une tache. Sur `IOperationProcessor`, apres
-  #477-r32, il reste **169** lignes, mesurees et ventilees : **43** sans aucun NUMERO (le slot est
-  nomme en prose, ou par une tournure que l'etage NOM SEUL ne reconnait pas -- « prennent le slot
-  `MoveUnit` (4 arguments...) », sans « de l'... ») ; **76** avec un numero et AUCUN nom de methode
-  dans la fenetre (rien a contredire) ; **50** avec un numero ET un nom de l'interface dans la
-  fenetre, qu'un cran conservateur ecarte.
+  #477-r32, il reste **169** lignes, mesurees et ventilees (`--ventiler`) : **44** sans aucun
+  NUMERO (le slot est nomme en prose, ou par une tournure que l'etage NOM SEUL ne reconnait pas --
+  « prennent le slot `MoveUnit` (4 arguments...) », sans « de l'... ») ; **77** avec un numero et
+  AUCUN nom de methode dans la fenetre (rien a contredire) ; **48** avec un numero ET un nom de
+  l'interface dans la fenetre, qu'un cran conservateur ecarte. La somme des trois VAUT le total --
+  c'est une partition, assertionnee, pas une liste blanche de motifs.
   ⚠ Ces comptes BOUGENT quand on ecrit sur les slots : le corpus balaye contient les fiches et les
   tests de la tranche elle-meme (seul le probe est exclu de son propre balayage). Mesure : 166 ->
-  177 lignes sans nom entre le commit de depart et l'etat livre, a REGIME CONSTANT. Les
-  RE-DERIVER (`--courbe`, et la ventilation), jamais les citer.
-  CE QU'IL FAUT : les **50** sont le gisement, et il est BORNE -- les quatre relachements mesures
-  en sec. 6ter n'en sortent que **18** couples, dont **10 justes** et **8 artefacts du
-  relachement**. DEUX crans gagneraient sans bruit mesure, et ce sont des axes de FORME, pas de
-  fenetre : (a) le nom COLLE au numero (« slot 0x3c AttackDamage ») -- 2 couples, 0 artefact ;
-  (b) la forme A tolerant un APPEL avant le `=` (« processor.<slot 0x12>(); // -> ... ») -- 3
-  justes pour 1 artefact, donc a durcir avant de l'armer.
+  178 lignes sans nom entre le commit de depart et l'etat livre, a REGIME CONSTANT. Les
+  RE-DERIVER (`--courbe`, `--ventiler`), jamais les citer.
+  CE QU'IL FAUT : les **48** sont le gisement, et il est BORNE -- les quatre relachements mesures
+  en sec. 6ter n'en sortent que **18** couples, dont **10 justes** (dont 1 deja recupere par le
+  cran FLECHE) et **8 artefacts du relachement**. DEUX crans gagneraient sans bruit mesure, et ce
+  sont des axes de FORME, pas de fenetre : (a) le nom COLLE au numero (« slot 0x3c AttackDamage »)
+  -- 2 couples, 0 artefact ; (b) la forme A tolerant un APPEL avant le `=` (« processor.<slot
+  0x12>(); // -> ... ») -- 3 justes pour 1 artefact, donc a durcir avant de l'armer.
   Cote `probe_477r25`, les ~640 lignes restantes ne sont PAS ventilees : la courbe y est plate et
   elles n'ont pas de nom appariable. Les ECHANTILLONNER reste le volet ouvert (la premiere lecture
   du gisement precedent en a sorti une citation fausse, puis l'outillage en a sorti 8).
