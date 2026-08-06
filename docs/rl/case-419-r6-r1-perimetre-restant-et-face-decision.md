@@ -153,13 +153,41 @@ charge `(1,2)` ». Mesuré ici :
 * `test_g5_move_splash_crit_wiring` : `Judh pas adjacent a la cible post-move: (1, 2) vs (0, 0)`.
 
 **Même foyer (`_hf_move_dest_tile`), même tuile `(1,2)`.** Le rapprochement est donc empirique, pas
-seulement thématique. ⚠ Il ne suit pas que la cause soit unique : `#484` (PR #741, ouverte)
-attribue les 3 de `test_381r4` au hissage d'imports `492c722f` (le `monkeypatch` posé sur le module
-source ne mord plus une fois le nom hissé), ce qui n'explique pas `test_g5`. **Deux causes possibles
-sur un même foyer** — à re-mesurer une fois #741 mergée, ce que le rebase de cette tranche fera.
+seulement thématique.
 
-⚠ Les 3 rouges de `test_381r4_imperative_collapses_offline` sont **OFFLINE** et vivent dans le
-périmètre de `probe_457` : ils sont réparés par #741, pas ici.
+**TRANCHÉ AU REBASE : ce sont bien DEUX causes, pas une.** `#484` (PR #741) a été mergée pendant
+cette tranche ; re-joué sur l'arbre rebasé, `test_381r4_imperative_collapses_offline` rend
+**4 passed** — sa cause était bien le hissage d'imports `492c722f` (le `monkeypatch` posé sur le
+module source ne mord plus une fois le nom hissé), et elle est fermée. `test_g5_move_splash_crit_wiring`,
+lui, **reste rouge** : la tuile partagée n'était donc pas une cause partagée. Le rapprochement valait
+la peine d'être fait — il coûtait un re-jeu et il a évité de traiter `test_381r4` deux fois.
+
+⚠ Corollaire de méthode : « deux rouges pointent le même foyer nommé » justifie de les **grouper
+pour les instruire**, jamais de conclure à une cause unique avant réparation. C'est le pendant exact
+de l'avertissement de `case-462-tests-live-rouges-invisibles.md` §3, qui portait dans l'autre sens
+(deux symptômes sans rapport, une seule cause).
+
+### 3.3 `#419-r6-r3` — le rouge de `norncrown`, tranché sur MESURE
+
+Signalé pendant cette tranche par `#477-r37` : `test_477r33_non_owner_playbooks_live` rend
+**6 failed / 35 passed** (« trajectoire native épuisée au pas 17 »), pour **41/41** avant la bascule.
+Cause mesurée par son auteur : crit et block non nuls ⇒ la bataille atteint `Finished` avant les pas
+discriminants. Témoin sous `TACTICUS_BIS_ITEMS=0` : vert. L'arbitrage était laissé ouvert entre
+`--no-bis-items` et une re-mesure des pas.
+
+**Il manquait une troisième voie, et c'est le remède-type de cette famille.** `--no-bis-items`
+restituerait le régime **dégénéré global** — crit et block impossibles sur *toute* unité, **plus** la
+perte des autres slots d'items (`FixedArmor` sur 49 unités du seed, `Health` sur 4) : payer la
+couleur au prix de la mesure. Les quatre drapeaux `--crit` / `--crit-target` / `--block-player` /
+`--block-target` épinglent **quatre scalaires sur CE montage**, le reste de l'état équipé demeurant.
+
+Posé au **foyer unique** du montage (`probe_477r33_non_owner_registry_gaps.build_extra`, partagé par
+le probe et la fixture — le piège de la duplication de #419-r6 §6.4 ne s'applique donc pas ici), et
+motivé par l'**axe** : ce fichier mesure une trajectoire et un accord de **tuiles**, jamais un
+montant de dégât. Les **quatre** faces sont nécessaires — le montage a des porteurs des deux côtés.
+
+**6 failed / 35 passed → 41 passed**, soit exactement le compte du témoin. Le critère n'est pas
+« c'est vert », c'est « le compte est celui du témoin ».
 
 ## 4. Résidus NOMMÉS
 
