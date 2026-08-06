@@ -328,21 +328,23 @@ nom ADJACENTS », qui écartait **166** lignes du même patron).
 
 | W | citations | enjambantes | nom seul | `sans_couple` | désaccords | arités fausses |
 |--:|--:|--:|--:|--:|--:|--:|
-| **1** (régime précédent) | 51 | 0 | 9 | 178 | 0 | 0 |
-| **2** | 72 | **17** | 10 | 169 | 0 | 0 |
-| **3** *(en service)* | 72 | 17 | 10 | 169 | 0 | 0 |
-| 4 … 8 | 72 | 17 | 10 | 169 | 0 | 0 |
+| **1** (régime précédent) | 60 | 0 | 9 | 181 | 0 | 0 |
+| **2** | 81 | **17** | 10 | 173 | 0 | 0 |
+| **3** *(en service)* | 81 | 17 | 10 | 173 | 0 | 0 |
+| 4 … 8 | 81 | 17 | 10 | 173 | 0 | 0 |
 
 Même forme que la courbe de `#477-r30` : **gain intégralement capté à W = 2, plat ensuite**. `3`
 est pris comme marge à coût mesuré nul.
 
-⚠ **Le corpus contient la tranche elle-même** — cette fiche, le backlog et le fichier de test en
-font partie (seul le *probe* est exclu de son propre balayage). Écrire sur les slots fait donc
-bouger les compteurs : mesuré, **45 → 51** attestations et **166 → 178** lignes sans nom entre le
-commit de départ et l'état livré, à régime constant. Les chiffres se **re-dérivent**
-(`--courbe`), ils ne se citent pas. Corollaire pratique : les exemples écrits dans le test et dans
-les fiches doivent être des couples **VRAIS** — un exemple faux ferait rougir le cliquet sur son
-propre artefact, et c'est à cela que sert le marqueur `[slot-attribution:refute]` (3 sites).
+⚠ **Le corpus contient la tranche elle-même — et il bouge aussi sous les MERGES des autres.**
+Cette fiche, le backlog et le fichier de test en font partie (seul le *probe* est exclu de son
+propre balayage) ; et chaque PR fusionnée pendant la tranche en ajoute. Mesuré, **à régime
+constant** : **45 → 51** attestations sous nos seules écritures, puis **51 → 60** au rebase sur
+`#477-r22-r1` — qui, lui, RÉSOUT le slot `0x21`, et dont les citations neuves passent toutes le
+cliquet. Les chiffres se **re-dérivent** (`--courbe`, `--ventiler`), ils ne se citent pas.
+Corollaire pratique : les exemples écrits dans le test et dans les fiches doivent être des couples
+**VRAIS** — un exemple faux ferait rougir le cliquet sur son propre artefact, et c'est à cela que
+sert le marqueur `[slot-attribution:refute]` (3 sites).
 
 ### Un cran hérité peut COÛTER une citation juste — la non-régression le dit, pas la relecture
 
@@ -449,6 +451,20 @@ rendre une mutation vide. Mesuré : **16** désaccords en fenêtre, refus à `fe
 adjacents (`0x2e`/`0x2f` = `RefreshEffects`, `0x34`/`0x35` = `ComputerAction`), et prendre le
 voisin immédiat rendrait une mutation **nulle** qui passerait pour appliquée.
 
+### L'empreinte AST : le seul fichier de PORT touché est resté IDENTIQUE
+
+`engine/runner/components.py` est le **seul** fichier du moteur que la tranche modifie, et
+l'empreinte le rend **AST-identique** : la correction de citation n'a **emporté aucun code
+exécutable**. Les deux autres divergents (l'instrument et son cliquet) sont **déclarés**.
+
+⚠ **La déclaration est une ENTRÉE, pas une constante de l'instrument** — et c'est `#477-r30-r2`,
+fusionné *pendant* cette tranche, qui l'a imposé : la table figée dans le module accusait la
+branche suivante de fautes qui étaient les siennes. Cette tranche a **adopté** ce mécanisme (sa
+propre correction du même défaut, écrite en parallèle, a été **abandonnée au rebase** — la
+version fusionnée est meilleure : elle rend le tri-état `PAS MESURÉ / ROUGE / VERT` au lieu de se
+contenter d'imprimer les déclarations périmées). La déclaration de la tranche vit dans
+`scripts/python/declaration_477r32_empreinte_ast.tsv`.
+
 ### Un étage absent du tuple rendu par `jouer` est un étage SANS contre-épreuve
 
 L'étage 5 est entré ainsi : les cinq mutants continuaient de « mordre » sur les autres colonnes, et
@@ -487,21 +503,22 @@ La ligne n'a **pas** été modifiée : elle appartient à un autre résidu.
   ventile par récepteur ; aucune ne porte de couple (slot, nom) appariable sans lire le site.
 - ~~**#477-r32**~~ → **CLOS le 2026-08-06.** La fenêtre est portée à
   `probe_477r24r1_slots_interface.py` (§ 6ter). Sur `IOperationProcessor` : **17** couples
-  enjambants, zone aveugle **178 → 169**, et **0 citation fausse** sur l'axe (slot, nom) —
+  enjambants, zone aveugle **181 → 173**, et **0 citation fausse** sur l'axe (slot, nom) —
   vérifié en relâchant chacun des crans un par un, les 8 douteux qui en sortent étant **tous**
   des artefacts du relâchement. La faute trouvée était sur un **autre axe** : le slot cité par son
   **nom seul**. cf. § 6ter.
   Le volet *(a)* — échantillonner les ~640 lignes de `probe_477r25` — reste ouvert sous
-  **#477-r34** ci-dessous.
-- **#477-r34 — ce qui reste hors couverture, VENTILÉ PAR CAUSE, sur les DEUX cliquets.** Le compte
-  seul est un inventaire ; sa cause en fait une tâche. Sur `IOperationProcessor` (**169** lignes,
-  mesurées) :
+  **#477-r36** ci-dessous.
+- **#477-r36 — ce qui reste hors couverture, VENTILÉ PAR CAUSE, sur les DEUX cliquets.** Le compte
+  seul est un inventaire ; sa cause en fait une tâche. Sur `IOperationProcessor` (**173** lignes,
+  mesurées ; `--ventiler`, et la somme des trois VAUT le total — c'est une partition
+  assertionnée, pas une liste blanche de motifs) :
   * **44** ne portent **aucun numéro** — elles nomment le slot en prose (« un slot de
     l'`OperationProcessor` qui pose des modificateurs de stat ») ou le désignent par une tournure
     que l'étage 5 ne reconnaît pas (« prennent le slot `MoveUnit` (4 arguments…) », sans « de
     l'… ») ;
-  * **77** portent un numéro et **aucun nom de méthode dans la fenêtre** — rien à contredire ;
-  * **48** portent un numéro **et** un nom de l'interface dans la fenêtre, mais un cran
+  * **79** portent un numéro et **aucun nom de méthode dans la fenêtre** — rien à contredire ;
+  * **50** portent un numéro **et** un nom de l'interface dans la fenêtre, mais un cran
     conservateur les écarte. C'est **là** que se trouve le gisement restant, et il est **borné** :
     les quatre relâchements mesurés en § 6ter n'y sortent que **18** couples, dont **10 justes**
     (dont **1 déjà récupéré** par le cran flèche) et

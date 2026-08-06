@@ -2875,8 +2875,8 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
 - ~~**#477-r32**~~ : **LIVRE (2026-08-06)** -- **l'etage qui manquait n'etait pas la FENETRE,
   c'etait le slot cite par son NOM SEUL.** La fenetre est portee a `probe_477r24r1` : courbe
   RE-DERIVEE sur CE corpus (`--courbe`), meme forme que celle de #477-r30 -- gain integralement
-  capte a **W=2**, plat jusqu'a W=8 ; **17** couples enjambants, attestations **51 -> 72**, zone
-  aveugle **178 -> 169**, et **0 citation fausse** sur l'axe (slot, nom). Ce zero n'est PAS une
+  capte a **W=2**, plat jusqu'a W=8 ; **17** couples enjambants, attestations **60 -> 81**, zone
+  aveugle **181 -> 173**, et **0 citation fausse** sur l'axe (slot, nom). Ce zero n'est PAS une
   conclusion par absence : chacun des crans conservateurs a ete RELACHE separement (parenthese
   fermante, forme « recepteur colle au slot », nom colle au numero, forme A apres appel) -- **18**
   couples neufs, dont **8 douteux qui sont TOUS des artefacts du relachement**, aucune faute du
@@ -2908,22 +2908,23 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   l'unicode parce que seul l'unicode rapporte serait un fit sur le corpus). Un cran importe d'un
   corpus voisin se RE-MESURE, il ne se recopie pas.
   **41 verts** (33 + 8 neufs) ; `probe_477r25` et ses 57 verts inchanges.
-  Residu : **#477-r34**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6ter.
+  Residu : **#477-r36**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6ter.
 
-- **#477-r34 : ce qui reste HORS COUVERTURE sur les deux cliquets de slots, VENTILE PAR CAUSE.**
+- **#477-r36 : ce qui reste HORS COUVERTURE sur les deux cliquets de slots, VENTILE PAR CAUSE.**
   `[opus]`
   Un compte seul est un inventaire ; sa cause en fait une tache. Sur `IOperationProcessor`, apres
-  #477-r32, il reste **169** lignes, mesurees et ventilees (`--ventiler`) : **44** sans aucun
+  #477-r32, il reste **173** lignes, mesurees et ventilees (`--ventiler`) : **44** sans aucun
   NUMERO (le slot est nomme en prose, ou par une tournure que l'etage NOM SEUL ne reconnait pas --
-  « prennent le slot `MoveUnit` (4 arguments...) », sans « de l'... ») ; **77** avec un numero et
-  AUCUN nom de methode dans la fenetre (rien a contredire) ; **48** avec un numero ET un nom de
+  « prennent le slot `MoveUnit` (4 arguments...) », sans « de l'... ») ; **79** avec un numero et
+  AUCUN nom de methode dans la fenetre (rien a contredire) ; **50** avec un numero ET un nom de
   l'interface dans la fenetre, qu'un cran conservateur ecarte. La somme des trois VAUT le total --
   c'est une partition, assertionnee, pas une liste blanche de motifs.
-  ⚠ Ces comptes BOUGENT quand on ecrit sur les slots : le corpus balaye contient les fiches et les
-  tests de la tranche elle-meme (seul le probe est exclu de son propre balayage). Mesure : 166 ->
-  178 lignes sans nom entre le commit de depart et l'etat livre, a REGIME CONSTANT. Les
-  RE-DERIVER (`--courbe`, `--ventiler`), jamais les citer.
-  CE QU'IL FAUT : les **48** sont le gisement, et il est BORNE -- les quatre relachements mesures
+  ⚠ Ces comptes BOUGENT quand on ecrit sur les slots -- ET sous les MERGES des autres : le corpus
+  balaye contient les fiches et les tests de la tranche elle-meme (seul le probe est exclu de son
+  propre balayage). Mesure a REGIME CONSTANT : 45 -> 51 attestations sous nos seules ecritures,
+  puis 51 -> 60 au rebase sur #477-r22-r1 (qui RESOUT le slot 0x21, et dont les citations neuves
+  passent toutes le cliquet). Les RE-DERIVER (`--courbe`, `--ventiler`), jamais les citer.
+  CE QU'IL FAUT : les **50** sont le gisement, et il est BORNE -- les quatre relachements mesures
   en sec. 6ter n'en sortent que **18** couples, dont **10 justes** (dont 1 deja recupere par le
   cran FLECHE) et **8 artefacts du relachement**. DEUX crans gagneraient sans bruit mesure, et ce
   sont des axes de FORME, pas de fenetre : (a) le nom COLLE au numero (« slot 0x3c AttackDamage »)
