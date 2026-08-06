@@ -1,4 +1,4 @@
-# format=1	contexte=b57b8f97c596f5132557ed33a154cc5f11e03671ca99599cb680bb4c9ddb0a2e	cliquet=probe_313_enum_mirror_bijection
+# format=1	contexte=434a1da39afbad60f1c3bdb0fbea927e64bd655f63f4ed08b7505d9e6f2ea167	cliquet=probe_313_enum_mirror_bijection
 # CACHE DE VERDICT PAR FICHIER (#486-r1) -- artefact GENERE ET VERSIONNE.
 # Cle de validation = sha256 du CONTENU : une entree perimee MANQUE, elle ne
 # ment pas. En cas de conflit de merge : NE PAS FUSIONNER, REGENERER en
@@ -633,7 +633,7 @@ scripts/python/probe_102_tile_effect_seed.py	refs	2c05ef5482adcb0fba79172bd5795d
 scripts/python/probe_1174_structural_analyser_visual.py	refs	fa7505e77e7f1c9c0d174313d4fe71ea165fd126536c24ee5ef8bf353843c545	[]
 scripts/python/probe_1175_hateful_assault_marker.py	refs	4bc45f98e85c2d5604386c6815afb5c530860ee18c9421989b579c551eb5322b	[]
 scripts/python/probe_118_seeded_statmod_revert.py	refs	bd202ba0ec147e66b6872682e90a43e86d151c5c9f7ffb9fb229dc80c8369d22	[]
-scripts/python/probe_120_pre_unit_ability_fork.py	refs	a370cc9a887fca1167a9af6109bae2db17724a0605535534f4a643195ff14d7d	[["scripts/python/probe_120_pre_unit_ability_fork.py",189,"EffectType","AnvilShield_FrozenAttackerAdvantage"]]
+scripts/python/probe_120_pre_unit_ability_fork.py	refs	15e70ccb150f73d833a4792ddf33a7f8f2db6de807e53a8376d5312b6b30f3f3	[["scripts/python/probe_120_pre_unit_ability_fork.py",204,"EffectType","AnvilShield_FrozenAttackerAdvantage"]]
 scripts/python/probe_120bis_execute_for_replaced_target.py	refs	4e52e7eefdaa1d6c7818bdba7512d38717cdbad51055fb419f33509ca8442572	[["scripts/python/probe_120bis_execute_for_replaced_target.py",203,"EffectType","Taunted_OnlySpecificTargets"]]
 scripts/python/probe_123_hailstrike_phase2.py	refs	d18445964d9e81e1472768bdc8f2362a73983b62194be5790feb76cc840567ae	[["scripts/python/probe_123_hailstrike_phase2.py",424,"EventTriggerType","Attack"]]
 scripts/python/probe_125_leftover_hits.py	refs	e64b2510f82ee1894b3af8ced93baf28d7d8c1b684673d4f4fce0c32bba2fcba	[]
@@ -775,7 +775,7 @@ scripts/python/probe_305_massdriver_splash.py	refs	58b3595ca3e528cdff4596d4ed293
 scripts/python/probe_306_effect_trigger_channels.py	refs	88b78da399172387590fae71857f7e560e9cc32df621681939718bee7226b210	[["scripts/python/probe_306_effect_trigger_channels.py",218,"EventTriggerType","PreEffectAdded"],["scripts/python/probe_306_effect_trigger_channels.py",361,"EventTriggerType","PreUnitDeath"],["scripts/python/probe_306_effect_trigger_channels.py",375,"EventTriggerType","PreEffectAdded"],["scripts/python/probe_306_effect_trigger_channels.py",465,"EventTriggerType","UnitBecameTargetable"],["scripts/python/probe_306_effect_trigger_channels.py",466,"EventTriggerType","PreEffectAdded"],["scripts/python/probe_306_effect_trigger_channels.py",467,"EventTriggerType","EffectAdded"],["scripts/python/probe_306_effect_trigger_channels.py",468,"EventTriggerType","PreEffectRemoved"],["scripts/python/probe_306_effect_trigger_channels.py",469,"EventTriggerType","EffectRemoved"],["scripts/python/probe_306_effect_trigger_channels.py",470,"EventTriggerType","UnitBecameUntargetable"],["scripts/python/probe_306_effect_trigger_channels.py",220,"EventTriggerType","PreEffectRemoved"],["scripts/python/probe_306_effect_trigger_channels.py",221,"EventTriggerType","EffectRemoved"]]
 scripts/python/probe_310_heal_vs_repair_callers.py	refs	86c1c3f794f4a67dec2e1c08316d032fb82130c980b455beae2ee995f7b423c5	[]
 scripts/python/probe_311_mow_declaration_control.py	refs	0e0da3997213d99663bec2a1dc3f47c5a1a8d03d4449d2735a9673a1ccf07805	[]
-scripts/python/probe_313_enum_mirror_bijection.py	refs	a7467141ecb3e7d941f0c75c29e01c11422506cb2ed82431d47a2684b693f588	[]
+scripts/python/probe_313_enum_mirror_bijection.py	refs	fb212d8281ac09a1f5541941b36165a1c5a5b62d90fe4ba21d35403d9860a264	[]
 scripts/python/probe_317_dawn_blade.py	refs	13f27fd4f5e7a5c3b12d9e7dc3e57a51a4c7afe2c7e90a800855c39db43a7bad	[]
 scripts/python/probe_317_repair_callers_inventory.py	refs	a22e367a7dcef628e64f2b579696a8bc848cf5f28c900af77e43d5f45697aefd	[]
 scripts/python/probe_320_movement_scoring_origin.py	refs	dfa40b6c594f313192fbee12def92a50d3d10ea9ed1aa888bd3add86678030ce	[]
@@ -908,7 +908,7 @@ scripts/python/probe_433_r4_r3_non_owner_playbooks.py	refs	bc961cd55201c842b8269
 scripts/python/probe_433_r4_r3_r1_adjacent_to_owner.py	refs	4466b3101fb94b342b3fde5f3b1261791faa547e045ac5f7f8c92f0ea818fa55	[]
 scripts/python/probe_433_r4_r3_r1_non_owner_registry.py	refs	f10230cffd87cf3b0997ecbf8ad3b17a669a509a5977c74fae209105fb28749f	[]
 scripts/python/probe_433r4r1r4r2_is_adjacent_substrat_live.py	refs	9a88c8cc7139f354b985eacf9fcad93b8dd05c4e38e7c59ed0ab14b4a94e4b5e	[]
-scripts/python/probe_433r4r1r4r2_neigh_channel_wired.py	refs	50eb724ca362a2bb4476b48b2534cb176574c3cb33b3b6a33eee4b41af61f690	[]
+scripts/python/probe_433r4r1r4r2_neigh_channel_wired.py	refs	9a6a474205a1f9a18f82d9985a850efe09ab4b89a2e90749cef9c83201545ca6	[]
 scripts/python/probe_433r4r1r4r2r1r1r1_ramming_speed_adjacence_live.py	refs	4a89791c2ab746573af37009149c562cf7ae150732648a872de1610fb8781e21	[]
 scripts/python/probe_436_taunt_targeting.py	refs	f613fecd4ad6b0437c533fccada2c9339f408831d5803bdb377cd71b40cadc22	[["scripts/python/probe_436_taunt_targeting.py",92,"EffectType","Taunted_OnlySpecificTargets"]]
 scripts/python/probe_437_on9_blast_radius.py	refs	a3595cc18f2d0b602813fef5b48931ef9dee92be2dcc9aa87921a54cee464c70	[["scripts/python/probe_437_on9_blast_radius.py",38,"EventTriggerType","Attack"]]
