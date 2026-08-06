@@ -54,7 +54,7 @@ vide est alors la REPONSE JUSTE du natif, pas un trou de port. Le probe DOIT don
   (a) MONTAGE non atteint  -> NON CONFRONTE, il le DIT ; ce n'est PAS un echec ;
   (b) PORT / HARNAIS       -> precondition PROUVEE et capture NULLE -> ECHEC.
 
-Ce que la preuve N'EST PAS : `ncEvaluate.hvt` (`IBattleQuery.HasValidTargets`, slot 0x3f) rendait
+Ce que la preuve N'EST PAS : `ncEvaluate.hvt` (`IBattleQuery.HasValidTargets`, slot 0x40) rendait
 **true aux 13/13 positions** du montage de spawn ou l'eligibilite etait VIDE (mesure 2026-07-31) --
 ce gate ne traverse pas `GetDynamicInvalidTargetReason`. La preuve utilisee ici est
 `abilityTargets` (`fromHere`/`targets` NON VIDES) confirmee par `abilityReason` (`targetReason.hex

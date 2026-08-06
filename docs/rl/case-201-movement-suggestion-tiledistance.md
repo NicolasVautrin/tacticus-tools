@@ -61,7 +61,7 @@ IEnumerator<Fix64> EvaluateMovementInSteps(UtilityMovementCase c) {
 Fix64 DistanceTo(UtilityMovementCase c, IEntity caseUnit) {
     ITile from = caseUnit.GetMainTile(this.entities);   // this+0x10
     ITile to   = c.position.MainTile;                   // case+0x18 = UnitPosition(tuile candidate)
-    int d = this.battleQuery.<slot 0x6b = GetDistance>(from, to);    // this+0x20
+    int d = this.battleQuery.<slot 0x6c = GetDistance>(from, to);    // this+0x20
     return Fix64.FromInt(-d) / Fix64.FromInt(10);
 }
 ```

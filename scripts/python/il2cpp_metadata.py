@@ -49,6 +49,8 @@ from __future__ import annotations
 import re
 import struct
 from array import array
+from collections import Counter
+from math import gcd as _gcd
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
@@ -58,6 +60,7 @@ __all__ = [
     "MetadataRefused",
     "MethodDef",
     "MetadataReader",
+    "TypeLayout",
     "class_method_order",
 ]
 
@@ -74,9 +77,24 @@ _ENTRY_SIZES = (28, 32, 36, 40, 44, 48)
 #: localisation soit acceptee. En dessous, on REFUSE plutot que de rendre une table douteuse.
 _MIN_CONCORDANCE = 40
 
+#: Tailles d'entree `Il2CppTypeDefinition` essayees pour la grille des TYPES. Ce build n'en
+#: porte AUCUNE des tailles publiees (mesure : 82 octets, non multiple de 4) -- d'ou la
+#: derivation par PGCD plutot qu'une liste. La constante ne borne que la recherche.
+_TYPE_STEP_MIN, _TYPE_STEP_MAX = 40, 200
+
+#: Facteur du crible de cardinalite : le compte lu doit valoir au moins ce que Frida
+#: attribue au type (jamais moins -- le dump PERD des surcharges), et rester du meme ordre.
+#: Il ne sert qu'a BORNER les candidats ; c'est le controle par les NOMS qui tranche.
+_MARGE_COUNT = 2
+
 
 class MetadataRefused(RuntimeError):
     """Lecture du metadata REFUSEE (fichier absent, table introuvable, ou non verifiable)."""
+
+
+def _dernier_segment(nom: str) -> str:
+    """`IFoo.Bar` -> `Bar`, `.ctor` -> `ctor`. La convention de `class_method_order`."""
+    return nom.rsplit(".", 1)[-1]
 
 
 @dataclass(frozen=True)
@@ -92,6 +110,23 @@ class MethodDef:
     @property
     def is_abstract(self) -> bool:
         return bool(self.flags & ATTR_ABSTRACT)
+
+
+@dataclass(frozen=True)
+class TypeLayout:
+    """Ce qu'on a DERIVE de la grille `Il2CppTypeDefinition` -- rien n'y est suppose.
+
+    `step` (pas de la grille), `off_method_start` / `off_method_count` (positions des deux
+    champs DANS l'entree) et `method_table_base` (offset fichier de la 1re entree de la table
+    des methodes) sont tous obtenus par INTERSECTION sur plusieurs types ancres, jamais par
+    un layout recopie d'une version d'IL2CPP.
+    """
+
+    step: int
+    off_method_start: int
+    off_method_count: int
+    method_table_base: int
+    ancres: tuple[str, ...]
 
 
 # --------------------------------------------------------------- l'ordre lu cote FRIDA
@@ -137,6 +172,7 @@ class MetadataReader:
         self.entry_size: int | None = None
         self.string_offset: int | None = None
         self._class_base: int | None = None
+        self._types: TypeLayout | None = None
 
     # ------------------------------------------------------------------ chaines
 
@@ -299,6 +335,217 @@ class MetadataReader:
         if not out:
             raise MetadataRefused("NON MESURE : table d'interface vide")
         return out
+
+    # ------------------------------------------------- la grille des TYPES (#477-r25)
+
+    def all_string_pos(self, name: str) -> list[int]:
+        """Toutes les positions ou `name` apparait comme chaine COMPLETE."""
+        needle = name.encode("utf-8") + b"\x00"
+        out: list[int] = []
+        pos = self.blob.find(needle)
+        while pos >= 0:
+            if pos > 0 and self.blob[pos - 1] == 0:
+                out.append(pos)
+            pos = self.blob.find(needle, pos + 1)
+        return out
+
+    def typedef_offsets(self, namespace: str, name: str) -> list[int]:
+        """Offsets fichier des entrees `Il2CppTypeDefinition` de ce type.
+
+        Le discriminant est la PAIRE ADJACENTE (`nameIndex`, `namespaceIndex`) -- les deux
+        premiers champs de la structure, tous deux relatifs au meme `string_offset` deja
+        derive. Chercher la paire, et non chaque index isolement, est ce qui rend
+        l'identification exacte : un `nameIndex` seul se retrouve dans des dizaines de
+        contextes (mesure : 19 430 entrees decodent sur la grille, mais chacun des types
+        cherches n'y apparait qu'UNE fois).
+        """
+        if self.string_offset is None:
+            raise MetadataRefused("locate() n'a pas ete appele")
+        so = self.string_offset
+        hits: list[int] = []
+        for np_ in self.all_string_pos(name):
+            for sp in self.all_string_pos(namespace):
+                pat = struct.pack("<ii", np_ - so, sp - so)
+                pos = self.blob.find(pat)
+                while pos >= 0:
+                    hits.append(pos)
+                    pos = self.blob.find(pat, pos + 1)
+        return sorted(set(hits))
+
+    def _typedef_unique(self, namespace: str, name: str) -> int:
+        hits = self.typedef_offsets(namespace, name)
+        if len(hits) != 1:
+            raise MetadataRefused(
+                "NON MESURE : `%s.%s` a %d entree(s) de type dans le metadata -- on ne DEVINE "
+                "pas laquelle." % (namespace, name, len(hits)))
+        return hits[0]
+
+    def locate_types(self, ancres: Sequence[tuple[str, str, Sequence[tuple[str, int]]]]) -> TypeLayout:
+        """Derive la grille des types, PUIS la CONFRONTE aux noms de methodes des ancres.
+
+        `ancres` : `(namespace, nom de type, ordre des methodes lu cote Frida)` -- des
+        CLASSES CONCRETES presentes dans `frida/methods.tsv`.
+
+        ⚠ CE QU'ON N'UTILISE PAS : L'ORDRE DU DUMP FRIDA. `methods.tsv` est triee par
+        ADRESSE, et l'ordre d'emission des corps ne suit l'ordre de declaration que par
+        accident (mesure : il concorde sur 87 methodes pour `Core.Services.OperationProcessor`
+        et sur 1 seule pour `IdunBattle.Core.Services.BattleQuery`). Un critere de PREFIXE
+        ordonne echoue donc sur 5 classes sur 6. On ne compare que des ENSEMBLES de noms.
+
+        TROIS derivations, aucune recopiee d'un layout publie :
+
+        1. `step` : PGCD des ecarts entre entrees de type. Au moins 3 ancres -- deux
+           rendraient leur ecart, qui peut etre un MULTIPLE du pas.
+        2. un CRIBLE de cardinalite : pour chaque couple (u32 `debut`, u16 `compte`), le
+           compte lu doit valoir AU MOINS ce que Frida attribue au type, et rester du meme
+           ordre. L'inegalite a un sens precis : `methods.tsv` est indexee par ADRESSE, donc
+           elle PERD des surcharges -- le metadata en a toujours autant ou plus, jamais moins.
+        3. le CONTROLE PAR LES NOMS, qui seul TRANCHE : `method_table_base` se deduit de
+           l'unique classe deja localisee par `locate()`, puis on exige que le bloc lu pour
+           chaque ancre CONTIENNE tous les noms que Frida lui attribue. Un couple qui ne le
+           fait pas est ECARTE ; s'il n'en reste aucun, ou plus d'un, on REFUSE.
+
+        ⚠ CE QU'ON N'UTILISE PAS NON PLUS : la relation `debut(t) + compte(t) == debut(t+1)`.
+        Elle parait ideale et elle est FAUSSE ici -- mesure : sur 599 paires consecutives,
+        67 la violent, la table des types n'etant pas strictement ordonnee par `methodStart`
+        (deux entrees voisines lues a 60723 puis 60726 puis 60724). S'en servir comme critere
+        aurait demande un seuil arbitraire ; le crible + les noms n'en demandent aucun.
+        """
+        if self.entry_size is None or self.string_offset is None or self._class_base is None:
+            raise MetadataRefused("locate() n'a pas ete appele")
+        if len(ancres) < 3:
+            raise MetadataRefused(
+                "NON MESURE : %d ancre(s) de type -- il en faut au moins 3 pour que le PGCD "
+                "des ecarts designe le PAS et non un de ses multiples." % len(ancres))
+
+        vus: list[tuple[str, str, str, int, Sequence[tuple[str, int]]]] = []
+        for ns, nom, ordre in ancres:
+            try:
+                toff = self._typedef_unique(ns, nom)
+            except MetadataRefused:
+                continue
+            vus.append(("%s.%s" % (ns, nom), ns, nom, toff, ordre))
+        if len(vus) < 3:
+            raise MetadataRefused(
+                "NON MESURE : seules %d ancre(s) sur %d ont une entree de type UNIQUE -- pas "
+                "assez pour deriver la grille." % (len(vus), len(ancres)))
+
+        offs = sorted(t for _, _, _, t, _ in vus)
+        step = 0
+        for a, b in zip(offs, offs[1:]):
+            step = _gcd(step, b - a)
+        if not _TYPE_STEP_MIN <= step <= _TYPE_STEP_MAX:
+            raise MetadataRefused(
+                "INCOHERENT : le PGCD des ecarts entre entrees de type vaut %d, hors des "
+                "bornes plausibles [%d, %d] -- la grille n'est pas reguliere."
+                % (step, _TYPE_STEP_MIN, _TYPE_STEP_MAX))
+
+        #: La classe dont `locate()` a fixe le bloc : c'est la SEULE dont on connaisse
+        #: l'offset FICHIER, donc la seule qui puisse convertir un index en offset.
+        t0 = vus[0][3]
+        size = self.entry_size
+        n = len(self.blob)
+
+        starts_ok: list[tuple[int, int]] = []               # (off_debut, table_base)
+        for o in range(0, step - 3):
+            valeurs = [struct.unpack_from("<i", self.blob, t + o)[0] for _, _, _, t, _ in vus]
+            if any(v < 0 for v in valeurs):
+                continue
+            table_base = self._class_base - valeurs[0] * size
+            if table_base < 0 or any(table_base + v * size + size > n for v in valeurs):
+                continue
+            starts_ok.append((o, table_base))
+        if not starts_ok:
+            raise MetadataRefused(
+                "NON MESURE : aucun champ u32 ne rend, pour les %d ancres, un index de "
+                "methode qui retombe dans le fichier." % len(vus))
+
+        couples: list[tuple[int, int, int]] = []            # (off_debut, off_compte, base)
+        for off_ms, table_base in starts_ok:
+            for c in range(0, step - 1):
+                ok = True
+                for _, _, _, t, ordre in vus:
+                    cnt = struct.unpack_from("<H", self.blob, t + c)[0]
+                    if not len(ordre) <= cnt <= _MARGE_COUNT * len(ordre) + _MARGE_COUNT:
+                        ok = False
+                        break
+                if ok:
+                    couples.append((off_ms, c, table_base))
+        if not couples:
+            raise MetadataRefused(
+                "NON MESURE : aucun champ u16 ne rend un compte de methodes compatible avec "
+                "ce que Frida attribue aux %d ancres." % len(vus))
+
+        retenus: list[TypeLayout] = []
+        for off_ms, off_cnt, table_base in couples:
+            lay = TypeLayout(step=step, off_method_start=off_ms, off_method_count=off_cnt,
+                             method_table_base=table_base,
+                             ancres=tuple(nom for nom, _, _, _, _ in vus))
+            if all(self._noms_concordent(lay, t, ordre) for _, _, _, t, ordre in vus):
+                retenus.append(lay)
+        if not retenus:
+            raise MetadataRefused(
+                "NON MESURE : aucun des %d couple(s) de champs ne rend, pour les %d ancres, "
+                "un bloc CONTENANT les noms que Frida leur attribue -- ce ne sont donc pas "
+                "les methodes." % (len(couples), len(vus)))
+        if len({(x.off_method_start, x.off_method_count) for x in retenus}) > 1:
+            raise MetadataRefused(
+                "AMBIGU : %d couples de champs se verifient (%s) -- ajouter des ancres."
+                % (len(retenus),
+                   ", ".join("%d/%d" % (x.off_method_start, x.off_method_count)
+                             for x in retenus)))
+        self._types = retenus[0]
+        return self._types
+
+    def _noms_concordent(self, lay: TypeLayout, toff: int,
+                         ordre: Sequence[tuple[str, int]]) -> bool:
+        """Le bloc lu pour ce type CONTIENT-il tous les noms que Frida lui attribue ?
+
+        Inclusion, jamais egalite : `methods.tsv` est indexee par ADRESSE, donc elle PERD
+        les surcharges a corps deduplique (mesure : 149 lignes pour 150 entrees reelles).
+        C'est le metadata qui en a plus, jamais l'inverse -- une inclusion violee accuse
+        donc le layout, pas le dump.
+
+        ⚠ Les deux cotes sont ramenes au segment APRES LE DERNIER POINT. Sans cela, le
+        constructeur ne concorde JAMAIS : le metadata l'ecrit `.ctor`, et le nom court que
+        `class_method_order` derive du dump vaut `ctor` -- une seule ancre suffit alors a
+        faire echouer une localisation JUSTE (mesure : 14 couples candidats, 0 retenu).
+        """
+        size = self.entry_size or 0
+        start = struct.unpack_from("<i", self.blob, toff + lay.off_method_start)[0]
+        count = struct.unpack_from("<H", self.blob, toff + lay.off_method_count)[0]
+        base = lay.method_table_base + start * size
+        if start < 0 or count == 0 or base < 0 or base + count * size > len(self.blob):
+            return False
+        try:
+            lus = [_dernier_segment(self.entry(base + k * size).name) for k in range(count)]
+        except (struct.error, MetadataRefused):
+            return False
+        return not (Counter(_dernier_segment(nm) for nm, _ in ordre) - Counter(lus))
+
+    def type_methods(self, namespace: str, name: str) -> list[MethodDef]:
+        """Les `method_count` methodes DECLAREES par ce type, dans l'ordre de la table.
+
+        Pour une INTERFACE, l'index dans cette liste est le SLOT (verifie : `slot == idx`
+        pour les 150 de `Core.Services.IOperationProcessor`) -- mais on rend le `slot` LU,
+        jamais l'index : une interface qui en ETEND une autre demarre au-dessus de 0, et
+        rendre l'index a sa place fabriquerait un mapping faux sans rien signaler.
+        """
+        if self._types is None:
+            raise MetadataRefused("locate_types() n'a pas ete appele")
+        lay = self._types
+        toff = self._typedef_unique(namespace, name)
+        start = struct.unpack_from("<i", self.blob, toff + lay.off_method_start)[0]
+        count = struct.unpack_from("<H", self.blob, toff + lay.off_method_count)[0]
+        if start < 0 or count == 0:
+            raise MetadataRefused(
+                "NON MESURE : `%s.%s` ne declare aucune methode (methodStart=%d, count=%d)."
+                % (namespace, name, start, count))
+        base = lay.method_table_base + start * (self.entry_size or 0)
+        if base < 0 or base + count * (self.entry_size or 0) > len(self.blob):
+            raise MetadataRefused(
+                "INCOHERENT : le bloc de `%s.%s` sort du fichier." % (namespace, name))
+        return [self.entry(base + k * (self.entry_size or 0)) for k in range(count)]
 
     def _entries_named(self, name: str) -> Iterator[MethodDef]:
         """Toutes les entrees de la table portant ce nom (alignees sur le pas de la table)."""

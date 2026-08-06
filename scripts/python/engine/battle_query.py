@@ -1256,7 +1256,7 @@ def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
                            walkable_by_pos: dict | None, occupied: set | None,
                            elev_by_pos: dict | None = None) -> int:
     """`|{ n ∈ GetAdjacentTiles(unit@tile) : CanAddUnit(n) }|` — nombre de voisins ring-1 de `tile` où
-    une unité peut être placée. `GetAdjacentTiles` = IBattleQuery slot 0x4e (IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles ; prouvé
+    une unité peut être placée. `GetAdjacentTiles` = IBattleQuery slot 0x4f (IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles ; prouvé
     re-expert #116 via `IdunBattle.Core.Services.MovementQuery$$IsAdjacent` + le slot-map du décorateur
     RecordedSimulationRequestsBattleQuery) -> `IterateAdjacentTiles` -> voisins `boardGraph.neighbours`
     avec la MÊME porte d'élévation `|Δelev| < 2` que `is_adjacent` (#45). Filtre chaque voisin par

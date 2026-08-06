@@ -144,6 +144,6 @@ airtight) : Skitarii (1202) live, verifier que sa decision de move est INSENSIBL
 ## VAs clefs
 RadSat MoveNext @181193c90 (MOVE) / @18118ece0 (ATTACK=0) ; factory @181186c40 / @181186bf0 ; .ctor @181186cc0 ;
 <>c cctor @18119b7a0 ; predicate MethodInfo = DAT_183224b80 (runtime) ; enum = DAT_18322a4c0=UtilityType.Contaminated(25) ;
-IBattleQuery = DAT_18327ff80, slot 0x82 = GetAdjacentUnits (ring-1, both teams) ; immunite @180f3a400 ;
+IBattleQuery = DAT_18327ff80, slot 0x83 = GetAdjacentFriends (ring-1, ALLIES du caster) ; immunite @180f3a400 ;
 cousins : RelentlessMarch @181192d50 (get_Count nu), ArchContaminator @181177b00, OptimizedGait_AdjacentFriends
-(partage slot 0x82). multiplier BC = Utilities.Default.Contaminated.AffectedUnit = -25.
+(partage slot 0x83). multiplier BC = Utilities.Default.Contaminated.AffectedUnit = -25.

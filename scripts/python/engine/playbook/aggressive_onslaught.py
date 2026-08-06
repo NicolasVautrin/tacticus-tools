@@ -16,7 +16,7 @@ Chaine native mirroree (VAs base 0x180000000) :
       1. casterTile = `UtilityAttackCase.get_CasterTile(case)` (= attack_tile) ;
          targetTiles = `EntityExtensions.GetTiles(case.target@0x20)`.
          GATE 1 : `TileExtensions.IsAdjacentTo(casterTile, targetTiles)` -> sinon 0.
-      2. GATE 2 : `IdunBattle.Core.Services.BattleQuery$$IsTargetInAttackRangeForSummon` (slot itf 0xcc sur
+      2. GATE 2 : `IdunBattle.Core.Services.BattleQuery$$IsTargetInAttackRangeForSummon` (slot itf 0xc4 sur
          IBattleQuery, args caster@0x10 / casterTile / target@0x20) -> bool. Le natif : target
          `IsTargetable` + la portee d'attaque du SUMMON (GetUnitConfig -> weapon range, RangedInMelee,
          CanMeleeAttackOverElevationDifference) couvre la cible depuis une tuile adjacente.
@@ -72,7 +72,7 @@ class AggressiveOnslaughtPlaybook:
 
     @staticmethod
     def _free_placeable_adjacent(scene, target_pos) -> int:
-        """slot 0x51 `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(target) + CanAddUnit -> #tuiles LIBRES placables
+        """slot 0x52 `IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(target) + CanAddUnit -> #tuiles LIBRES placables
         ring-1 de la cible, sur le board COURANT (le natif lit l'ECS live, caster a son origine).
         = `adjacent_addable_count` (GetAdjacentTiles + CanAddUnit ; porte |dElev|<2)."""
         board = getattr(scene, "board", None)

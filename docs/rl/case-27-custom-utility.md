@@ -3145,7 +3145,7 @@ is_mechanical` lit `+0x20 = Direct(1)`.)
 `ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` construit **UN SEUL** `AbilityEntities`
 AVANT sa boucle (`target = param_4`), puis (a) evalue la FORMULE `param_6` **une fois, hors
 boucle**, (b) evalue le SELECTEUR `param_5` sur le meme objet, (c) boucle en ne changeant QUE la
-cible passee au slot `0x28` (`DamagePredictionQuery$$GetAttackPrediction`) et au
+cible passee au slot `0xb` (`DamagePredictionQuery$$GetAttackPrediction`) et au
 `ProbableDamageEvent`. Donc le `Target` du `HasTrait` est **la cible principale**, jamais l'unite
 frappee : si la cible est un `Summon`, **les trois vagues entieres** doublent, y compris sur des
 unites qui n'en sont pas ; si elle ne l'est pas, aucune ne double, meme sur un summon frappe.

@@ -27,7 +27,7 @@ board/seed, seed BC SANS reliques) -- `X_nat` par (nMech, nRep) ou `nRep` = amis
 `X_nat` est PLAT de 1 a 3 amis retenus : le cap mord et vaut 1.
 
 CE QUE CETTE GARDE NE COUVRE PAS -- le second gate du filtre natif
-(`IBattleQuery.<slot 0x2e = CanBeRepaired>`, cf. la docstring de `FabricatorClawArrayPlaybook`) :
+(`IBattleQuery.<slot 0x2f = CanBeRepaired>`, cf. la docstring de `FabricatorClawArrayPlaybook`) :
 `(1,0) -> X_nat = 0` alors que le port rend 30. Le porter demande `hp`/`hp_max` dans les
 `friend_units` du `tile_leaf_ctx`, hors perimetre de #242. Les assertions ci-dessous portent donc sur
 la loi du PORT (`terme == w x [au moins un ami Mechanical adjacent]`), pas sur l'accord avec le natif

@@ -40,7 +40,7 @@ qu'on ne la re-tente pas. Ce qui reste utilisable ici : le MONTAGE (il produit b
 table par tuile, qui restent valables pour un futur re-etalonnage des hooks.
 
 ⚠ LE GATE `CanBeRepaired` COMMANDE LA DISCRIMINATION. Le filtre natif exige `HasTrait(u, 5)` **et**
-`IBattleQuery.<slot 0x2e = CanBeRepaired>` -- soit, sous ce montage (armure a 0), un ami BLESSE. Tant
+`IBattleQuery.<slot 0x2f = CanBeRepaired>` -- soit, sous ce montage (armure a 0), un ami BLESSE. Tant
 qu'aucune candidate n'atteint `nRep >= 2`, les deux hypotheses predisent la MEME chose cote natif et
 la mesure ne peut rien dire. C'est pour cela qu'on marche longtemps (`--max-steps`) : le levier n'est
 pas la geometrie (le DRIVE donne `nMech = 4` des le tour 1) mais le nombre d'allies BLESSES.

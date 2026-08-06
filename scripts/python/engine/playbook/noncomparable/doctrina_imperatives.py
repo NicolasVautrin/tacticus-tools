@@ -27,7 +27,7 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
         count = GetEligibleTargetsForNormalAttack(caster) = cibles d'attaque normale SANS bouger (fromHere).
         - count == 0 : emit ssi `HasEffect(caster, ConquerorImperative 0x4e0=1248)` -- en Conqueror et rien a
           taper depuis la position courante -> rebascule Protector (reprend tank/summon) ; en Protector -> rien.
-        - count > 0 : free = `GetFreeAdjacentTiles(caster)` (IBattleQuery slot 0x51 IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles,
+        - count > 0 : free = `GetFreeAdjacentTiles(caster)` (IBattleQuery slot 0x52 IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles,
           RESOLU LIVE vtable #38b -- l'ancien verdict case-31 "GetAdjacentUnits TOUT CAMP" etait
           FAUX ; slot 0x51 = TUILES LIBRES placables adjacentes, PAS des unites) ;
           - free == 0 : emit inconditionnel (Tan encercle : plus de place a summon -> toggle libre).
@@ -82,10 +82,10 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
         return False
 
     def _free_adjacent_tiles(self, ctx: NCContext) -> int:
-        """`GetFreeAdjacentTiles(caster)` (IBattleQuery slot 0x51 IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles) = nombre de TUILES
+        """`GetFreeAdjacentTiles(caster)` (IBattleQuery slot 0x52 IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles) = nombre de TUILES
         LIBRES placables adjacentes au caster.
 
-        RESOLU LIVE #38b (`resolveVtableSlot` sur BattleQuery, ancre slot 0xc9=IdunBattle.Core.Services.BattleQuery$$ReachedSummonCap -> slot 0x51 = `GetFreeAdjacentTiles`). CORRIGE le verdict case-31 (slot 0x51 =
+        RESOLU LIVE #38b (`resolveVtableSlot` sur BattleQuery, ancre slot 0xca=IdunBattle.Core.Services.BattleQuery$$ReachedSummonCap -> slot 0x52 = `GetFreeAdjacentTiles`). CORRIGE le verdict case-31 (slot 0x51 =
         "GetAdjacentUnits TOUT CAMP") -- MEME lot de RE que le faux "gate per-player" refute #39 :
         GetAdjacentUnits prend 3 params (from/friendsOf/enemiesOf) et ne matche PAS le dispatch a
         1 argument du call-site (`FUN_180003bd0(0x51, itf, service, caster)`). Le natif IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles =

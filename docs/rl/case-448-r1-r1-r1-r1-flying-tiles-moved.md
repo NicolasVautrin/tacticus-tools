@@ -34,7 +34,9 @@ dont le décompilé remis en C# est :
         cur = next;
     }
 
-Le slot 3 résout `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit(unit)` :
+Le `PathfinderType` que reçoit ce slot 3 d'`IPathfinders` (`GetPath`, 4 arguments) est résolu par
+`IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit(unit)` — slot `0xe`
+d'`IMovementQuery` :
 
     if (HasEffect(0x40b)) return IsLikeFlying ? 7  : 6;
     if (HasEffect(0x474)) return IsLikeFlying ? 9  : 8;

@@ -6,7 +6,7 @@ Le gate 1118 (`IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$Evaluate
 argument -> la methode au slot 0x51 a exactement 1 parametre ; or toutes les surcharges
 `GetAdjacentUnits` en prennent 3 (from, friendsOf, enemiesOf). Ce probe dump la vtable LIVE
 de BattleQuery (RPC resolveVtableSlot, lecture pointeurs only), ancre le bloc interface via
-IdunBattle.Core.Services.BattleQuery$$ReachedSummonCap (slot 0xc9 verifie) puis imprime les methodes aux slots vises.
+IdunBattle.Core.Services.BattleQuery$$ReachedSummonCap (slot 0xca verifie) puis imprime les methodes aux slots vises.
 """
 from __future__ import annotations
 

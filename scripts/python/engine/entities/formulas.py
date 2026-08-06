@@ -278,7 +278,7 @@ class AngleBetweenLines(AAmountFormula):
 
         v1 = BattleQuery.GetVector(a1, b1)          # slot iface 0x70
         v2 = BattleQuery.GetVector(a2, b2)
-        return BattleQuery.GetAngleBetweenVectors(v1, v2)    # slot 0x71 = EdgeExtensions.GetAngleTo
+        return BattleQuery.GetAngleBetweenVectors(v1, v2)    # slot 0x72 = EdgeExtensions.GetAngleTo
 
     - `IdunBattle.Core.Services.BattleQuery$$GetVector(a, b)` : `MainTile(a)` == `MainTile(b)` -> vecteur
       NUL ; sinon `AxialCoordinate.ConnectingEdge(coordA, coordB)` -> `Position(edge)` si le delta cube est
@@ -313,7 +313,7 @@ class AngleBetweenLines(AAmountFormula):
             pb = _tile_positions(nb, ctx, board)
             if not pa or not pb:
                 return 0
-            return _bq.get_vector(pa[0], pb[0])            # slot 0x70 = BattleQuery.GetVector
+            return _bq.get_vector(pa[0], pb[0])            # slot 0x71 = BattleQuery.GetVector
         # slot 0x71 = EdgeExtensions.GetAngleTo -- mirror UNIQUE partage avec la face DECISION
         return _bq.get_angle_between_vectors(_vec(self.a1, self.b1), _vec(self.a2, self.b2))
 
@@ -508,7 +508,7 @@ class UnitTurnsStarted(AAmountFormula):
 
 class TurnsFromRounds(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$TurnsFromRounds(rounds)` → `IdunBattle.Entities.Formulas.TurnsFromRoundsFormula$$Calculate`
-    = `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (interface slot 0x1b) = `count(joueurs du turnOrder,
+    = `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (interface slot 0x1c) = `count(joueurs du turnOrder,
     PlayerType != 2) * rounds` (RE #174 : PlayerType@+0x20 = config statique, Environment=2 exclu ;
     count = CONSTANTE de bataille). `rounds * ctx.turns_per_round` avec `turns_per_round = count(non-Env)`.
     Defaut 1 = CORRECT pour nos runners 1v1 (count=1 PROUVE par test_effect_stun_live : convert(1)=1) ;

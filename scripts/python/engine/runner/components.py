@@ -2121,7 +2121,7 @@ def contagions_of_nurgle_amount(state, unit_id: int, source_id) -> Optional[int]
         return battleQuery.<slot 0x95>(effectType /* fige a 0x42f par le ctor */, teamId, target,
                                        returnFirst: false)
 
-    Le slot `0x95` d'`IBattleQuery` est `IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount`
+    Le slot `0x95` d'`IBattleQuery` est `IdunBattle.Core.Services.BattleQuery$$GetTeamActiveAuraAmount`, qui delegue a `IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount`
     (signature `(effectType, team, target, returnFirst)`, MEME ordre d'arguments) — DEJA porte par
     case-224 dans `engine/battle_query.py`. Ce foyer DELEGUE donc, il ne re-derive rien :
 

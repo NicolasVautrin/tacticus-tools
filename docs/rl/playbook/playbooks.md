@@ -356,7 +356,7 @@ et `fill_armor = 0` au lieu de la vraie magnitude `RepairAmount` sur les DEUX st
 Clôt #77. `DefendTheDivineWorkPlaybook.EvaluateNonComparable @18112b9b0` (NonComparable, id 1117 ; admecManipulus/
 Actus) : la boucle sur HealTargets (self + amis adjacents) ajoute PAR CIBLE `(1 - RemainingPercentage_health)`
 + `Fix64.FromIntFraction(1,2)=0.5` SSI `IBattleQuery.HasValidTargets(cible, GetUnitPosition(cible),
-GetNormalAttackType(cible))` (slot 0x3f → `AttackQuery.HasValidTargets @181057540`). Gate MIN_UTILITY = 0.9
+GetNormalAttackType(cible))` (slot 0x40 d'`IBattleQuery` → `BattleQuery$$HasValidTargets`, qui delegue a `AttackQuery$$HasValidTargets @181057540`). Gate MIN_UTILITY = 0.9
 (cctor @18112c070). Le +0.5 = « la cible réparée peut-elle attaquer un ennemi DEPUIS SA POSITION FIXE » (combat-
 readiness). Le port l'OMETTAIT (borne inf, #37).
 
@@ -397,7 +397,7 @@ en 14 pas ; à seed-909 le port **matchait déjà** les 2 casts de `1119` (steps
   virtuels 0x328=ShouldExecute / 0x338=CustomUtility / 0x348=CasterPositionUtility) : (1) `RepairedAmountUtility`
   générique (`fill = min(M, manquant)` sur Health+Armor, `repair_utility`, cf. #83) **+** (2) `CalculateCustomUtility`
   bespoke = `M/(cible.maxHP+1) × 50`, **GATÉ** par `HasValidTargets(cible)` (même prédicat combat-readiness que
-  #77, slot 0x3f → `AttackQuery.HasValidTargets` → 0 si la cible ne peut pas attaquer depuis sa position) **+**
+  #77, slot 0x40 d'`IBattleQuery` → `BattleQuery$$HasValidTargets` → `AttackQuery$$HasValidTargets` → 0 si la cible ne peut pas attaquer depuis sa position) **+**
   termes de position/tuile (framework, communs à l'attaque).
 - **Ciblage** : ami + Mechanical. Le re-expert a lu une garde `target != caster` (pas de self), MAIS le
   **self-repair est OBSERVÉ LIVE** (seed-909 step 14, `1119` tgt=84=caster). → le port s'appuie sur `abilityTargets`

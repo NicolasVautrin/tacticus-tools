@@ -147,9 +147,9 @@ half-to-even le traversent ». Re-dérivé des **xrefs entrantes** du ctor, pas 
 ```
 state  = TriggeredAbilityPlaybook<T>$$GetAbilityState(this, case.caster)
 node   = MassiveScythingTalonsAbility$$GetAverageDamage(this.<+0x58 : ability>, state)   # corps DEDUPLIQUE
-damage = <IAmountFormula slot 1 = Calculate>(node)                                       # <-- half-to-even
+damage = node.<IAmountFormula slot 1 = Calculate>(...)                                   # <-- half-to-even
 profile= BaseTriggeredAbility$$GetDamageProfile(this.<+0x58>)
-pred   = <IBattleQuery slot 0x28 = GetAttackPrediction>(query, case.caster, case.target,
+pred   = <IBattleQuery slot 0x28 = GetMultiHitAttackPrediction>(query, case.caster, case.target,
                                                         case.<+0x18>, case.<+0xf0..+0x108>,
                                                         damage, profile, hits)
 ProbableDamageEvent$$.ctor(&pde, case.target, &pred, &probability, &weight)

@@ -96,7 +96,7 @@ if (HasTrait(target, 0x3ea = Psyker)) {
 return 2;                                  # TargetingRule.TargetMatchesDynamicRule
 ```
 
-Le slot 0x40 est `IdunBattle.Core.Services.BattleQuery$$CanAttackAnyUnitFromAnyTileWithAnyAbility`
+Le slot 0x40 est `IdunBattle.Core.Services.BattleQuery$$HasValidTargets`
 restreint a l'`ActiveAbilityType` de l'attaque normale du caster ; mirror = « l'ensemble
 `valid_normal_attack_targets(state, caster)` est NON VIDE », c'est-a-dire EXACTEMENT la source que
 `sel` consomme.

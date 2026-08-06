@@ -573,7 +573,7 @@ def step3_live(verbose: bool = True, keep: bool = False) -> dict:
 # d'ability (cf. etape 3bis). Le premier, lui, n'a AUCUNE gate :
 # `IdunBattle.AI.Playbook.Loki.LightImUpPlaybook$$CalculateAttackUtilityForMainTarget` va droit a
 # `MassiveScythingTalonsAbility$$GetAverageDamage` -> `<IAmountFormula slot 1 = Calculate>`
-# (= DEMI-VERS-LE-PAIR) -> `<IBattleQuery slot 0x28 = GetAttackPrediction>` -> `ProbableDamageEvent
+# (= DEMI-VERS-LE-PAIR) -> `<IBattleQuery slot 0x28 = GetMultiHitAttackPrediction>` -> `ProbableDamageEvent
 # $$.ctor`. Et c'est exactement le call-site que `...u003Ed__2$$MoveNext` appelle lui-meme.
 #
 # POURQUOI TROIS MONTAGES. La valeur demi-vers-le-pair n'apparait PAS telle quelle dans `captured` :

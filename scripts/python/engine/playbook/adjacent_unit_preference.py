@@ -230,7 +230,7 @@ class FabricatorClawArrayPlaybook(AdjacentToOwnerNonOwnerPlaybook):
 
     ⚠ RÉSIDU MESURÉ, NON PORTÉ — le filtre natif a un SECOND gate que ce port n'applique pas :
 
-        HasTrait(u, 5) && IBattleQuery.<slot 0x2e = CanBeRepaired>(u, false)
+        HasTrait(u, 5) && IBattleQuery.<slot 0x2f = CanBeRepaired>(u, false)
 
     `IdunBattle.Core.Services.BattleQuery$$CanBeRepaired` délègue à
     `IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired`, dont les branches ACTIVES sous ces

@@ -56,7 +56,7 @@ RE (decompile ghidra, build `rnca9r7q6c`)
     target = <selecteur unit>.SelectSingle(entities) ;  if (target == null) return 0
     return battleQuery.<slot 0x95>(0x42f, teamId, target, returnFirst: false)
 
-et le slot 0x95 est `IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount` (meme signature
+et le slot 0x95 est `IdunBattle.Core.Services.BattleQuery$$GetTeamActiveAuraAmount` (qui delegue a `GetInRangeAuraAmount`) (meme signature
 `(effectType, team, target, returnFirst)`), DEJA porte par case-224. Deux consequences MESURABLES
 par rapport au collapse precedent :
   * comparateur **INCLUSIF** `dist <= GetCurrentRange(porteur)` (la version d'EQUIPE).

@@ -189,8 +189,16 @@ qui, lui, n'est plus suivi de `$$` (mesuré : `FinishAttackOperatio`).
 
 ## Résidus
 
-- **#477-r25 — les slots des AUTRES interfaces ne sont pas gardés, et le gisement est
-  probablement fautif.** Le dépôt cite couramment `battleQuery.<slot 0x7f>`,
+- **#477-r25 — TRAITÉ (2026-08-06), cf. `docs/rl/case-477r25-slots-autres-interfaces.md`.**
+  Le sondage ci-dessous, explicitement déclaré NON CONCLUANT, a été refait : `case-27` est JUSTE,
+  `case-250` PÉRIMÉ D'UN BUILD, et l'hypothèse « décalage global de −1 » est **réfutée** par trois
+  lectures du décompilé courant. Le nom `GetAdjacentEnemies` désigne **quatre** slots
+  (`0x7d..0x80`) — c'est ce qui rendait le désaccord inarbitrable par recoupement. 18 interfaces
+  et 513 slots sont désormais versionnés et gardés ; 61 citations ont été corrigées.
+  Le texte d'origine est conservé tel quel ci-dessous.
+
+- **#477-r25 (énoncé d'origine) — les slots des AUTRES interfaces ne sont pas gardés, et le
+  gisement est probablement fautif.** Le dépôt cite couramment `battleQuery.<slot 0x7f>`,
   `attackQuery.<slot 0x11>`, `matchState.<slot 0x31>`, des slots d'effets et de
   `IStreamDispatcher` — **5 684** lignes écartées par l'étage 3 en portent la majeure partie, et
   **aucune** n'est confrontée à quoi que ce soit. Le mécanisme livré ici est générique
