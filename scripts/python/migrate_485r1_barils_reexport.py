@@ -161,14 +161,41 @@ def cible_absolue(mod: str, node: ast.ImportFrom | ast.Import, racine: Path) -> 
 #: Memoire de `existe_module`. Sans elle, le recenseur de substitutions fait un acces disque
 #: par alias importe et depasse les 120 s sur ~1 200 fichiers -- mesure du 2026-08-06.
 _CACHE_MODULES: dict[tuple[str, str], bool] = {}
+#: Memoire du contenu d'un repertoire, pour la verification de CASSE (voir ci-dessous).
+_CACHE_ENTREES: dict[Path, set[str]] = {}
+
+
+def _entrees(rep: Path) -> set[str]:
+    hit = _CACHE_ENTREES.get(rep)
+    if hit is None:
+        try:
+            hit = {e.name for e in rep.iterdir()}
+        except OSError:
+            hit = set()
+        _CACHE_ENTREES[rep] = hit
+    return hit
 
 
 def existe_module(mod: str, racine: Path) -> bool:
+    """`mod` designe-t-il un module (fichier ou paquet) sous `racine` ?
+
+    ⚠ LA CASSE EST LE DISCRIMINANT, et `Path.is_file()` NE LA VERIFIE PAS SOUS WINDOWS. Mesure
+    du 2026-08-06 : `from engine.runner.operations.triggers import EFFECT_TRIGGERS` importe une
+    CONSTANTE, mais `effect_triggers.py` existe a cote -- NTFS repond `True` a
+    `EFFECT_TRIGGERS.py`. Consequences en chaine, toutes silencieuses : `_table_modules` lie ce
+    nom a un pseudo-module (un lecteur qui l'importe se prend un `ModuleNotFoundError`), et
+    `classer_liaisons` classe le couple en forme B -- << point fixe, rien a faire >> -- alors
+    qu'il est en forme A ou C. Un symbole en MAJUSCULES homonyme d'un module est exactement le
+    cas que nos conventions produisent en masse (`EFFECT_TRIGGERS` / `effect_triggers`)."""
     cle = (str(racine), mod)
     hit = _CACHE_MODULES.get(cle)
     if hit is None:
-        p = racine / Path(*mod.split("."))
-        hit = _CACHE_MODULES[cle] = p.is_dir() or p.with_suffix(".py").is_file()
+        bouts = mod.split(".")
+        p = racine / Path(*bouts)
+        entrees = _entrees(p.parent)
+        hit = _CACHE_MODULES[cle] = (
+            (p.is_dir() and bouts[-1] in entrees)
+            or (p.with_suffix(".py").is_file() and bouts[-1] + ".py" in entrees))
     return hit
 
 
@@ -797,15 +824,26 @@ class Forme(enum.Enum):
 
 
 class Morsure(enum.Enum):
-    """Ce que le HISSAGE d'un differe fait a une substitution deja posee."""
+    """Ce que le HISSAGE d'un differe fait a une substitution deja posee.
+
+    ⚠ L'ORDRE DE PRIORITE EST LE CRAN, ET IL ETAIT INVERSE. `DEJA_INERTE` etait teste EN
+    PREMIER et faisait `continue` : des qu'UNE liaison de forme A existait quelque part --
+    fut-ce dans un baril que personne n'appelle -- le couple sortait << deja inerte >> et le
+    site de forme C qu'on s'appretait a HISSER n'etait plus examine. Mesure du 2026-08-06 :
+    `phase_end_triggers` avait une liaison A dans le baril `runner/operations/triggers/
+    __init__.py` ET un differe C dans `runner/runner.py`, son consommateur REEL. Le patch de
+    `test_389_ramming_speed_combat_offline::test_runner_apply_closes_the_phase` mordait par la
+    voie C ; le hissage la lui a retiree, et le recenseur qui devait le voir l'avait classe
+    << rien a faire >>. Une liaison A dans un module TIERS ne dit RIEN du module qu'on hisse."""
 
     HISSAGE_DESARMERAIT = ("le differe est GRATUIT (donc a hisser) et son symbole est "
                            "SUBSTITUE : hisser en forme A rendrait le patch INERTE -- hisser "
                            "en forme B (import de module) le garde mordant")
     DIFFERE_MORDANT = ("le differe est PORTEUR : il reste, donc le patch mord encore. Fragile "
                        "quand meme -- le jour ou le cycle disparait, hisser le desarme")
-    DEJA_INERTE = ("une liaison de forme A existe DEJA dans `engine/**` : pour CE module le "
-                   "patch ne mord pas, et selon l'ordre de chargement il capture le STUB")
+    DEJA_INERTE = ("une liaison de forme A existe DEJA dans `engine/**` et AUCUN site hissable "
+                   "ne subsiste : pour ce module le patch ne mord pas, et selon l'ordre de "
+                   "chargement il capture le STUB")
 
 
 def classer_liaisons(racine: Path, paquet: str = "engine"):
@@ -866,19 +904,22 @@ def recenser_morsure(racine: Path, gratuits: set[tuple[str, str]] | None,
         if not formes:
             bilan["sans liaison `from` dans %s/** (acces attributaire seul)" % paquet] += 1
             continue
-        if formes.get(Forme.A):
-            lignes.append((Morsure.DEJA_INERTE, cible, nom, formes, sites))
-            bilan[Morsure.DEJA_INERTE.name] += 1
-            continue
-        porteurs_c = [s for s in formes.get(Forme.C, [])]
-        if not porteurs_c:
-            bilan["forme B seule -- point fixe, rien a faire"] += 1
-            continue
+        porteurs_c = list(formes.get(Forme.C, []))
+        #: ⚠ LE SITE HISSABLE SE TESTE AVANT `DEJA_INERTE`, ET L'INVERSE ETAIT LE TROU
+        #: (cf. `Morsure`) : une liaison A ailleurs n'ote rien a la morsure que le site C
+        #: procure, et c'est CE site que le hissage va reecrire.
         vise = [s for s in porteurs_c
                 if gratuits is not None and (s.split(":")[0], cible) in gratuits]
         if vise:
             lignes.append((Morsure.HISSAGE_DESARMERAIT, cible, nom, formes, sites))
             bilan[Morsure.HISSAGE_DESARMERAIT.name] += 1
+            continue
+        if formes.get(Forme.A):
+            lignes.append((Morsure.DEJA_INERTE, cible, nom, formes, sites))
+            bilan[Morsure.DEJA_INERTE.name] += 1
+            continue
+        if not porteurs_c:
+            bilan["forme B seule -- point fixe, rien a faire"] += 1
         elif gratuits is None:
             bilan["differe, classement du hissage NON MESURE (base absente)"] += 1
         else:
@@ -899,6 +940,31 @@ def _gratuits_attestes(racine: Path) -> set[tuple[str, str]] | None:
     except (OSError, ValueError):
         return None
     return {(mod, cible) for mod, cibles in d.items() for cible in cibles}
+
+
+def _gratuits_frais(racine: Path) -> set[tuple[str, str]] | None:
+    """Les couples GRATUITS **mesures sur l'arbre courant**, par `probe_485_imports_differes`.
+
+    ⚠ LA BASE ATTESTEE EST EN RETARD D'UNE VIDANGE, ET C'EST LA SECONDE CAUSE DU RATE. Un
+    differe est GRATUIT ou PORTEUR *par rapport a un arbre* : vider les barils allege la
+    cascade et RETOURNE le verdict. Mesure du 2026-08-06 : sur `master`, charger
+    `runner.operations.triggers.dispatch.phase` tirait `runner.runner` -- donc PORTEUR, donc
+    absent de la base ; apres vidange le meme differe est devenu GRATUIT, a ete hisse, et a
+    desarme un patch. `morsure` jouee avec la base ATTESTEE ne pouvait pas le voir : elle
+    decrivait l'arbre d'AVANT. On mesure donc a FRAIS par defaut, et on ne se replie sur la
+    base attestee qu'en le DISANT."""
+    if racine != ICI:
+        return None            # `probe_485` lit SON PROPRE arbre : il ne mesurerait pas celui-la
+    try:
+        import probe_485_imports_differes as P485
+    except ImportError:
+        return None
+    differes = P485.recenser()
+    classe = P485.classer(differes) if differes else None
+    if classe is None:
+        return None
+    _porteurs, gratuits = classe
+    return {(mod, cible) for mod, cible, _l, _r in gratuits}
 
 
 # ------------------------------------------------------------------------------------- vidange
@@ -929,6 +995,24 @@ def _cibles_chargeuses_de_registre(barils: dict[str, Baril]) -> set[str]:
             if prefixe in barils:
                 protegees.add(prefixe)
     return protegees
+
+
+def _attributs_lus(arbre: ast.Module, local: str) -> tuple[set[str], bool]:
+    """Attributs demandes a `local`, et si le nom ECHAPPE (utilise autrement qu'en `local.x`).
+
+    Un nom qui echappe -- passe en argument, `getattr(M, ...)`, range dans une structure -- peut
+    etre interroge par une voie qu'aucune analyse statique ne suit. On rend alors `True`, et
+    l'appelant reclame TOUT le baril : le repli conservateur est le comportement DEJA en place
+    pour `import X as E` (l'autre forme de liaison de module)."""
+    bases = {id(n.value) for n in ast.walk(arbre)
+             if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+             and n.value.id == local}
+    attrs = {n.attr for n in ast.walk(arbre)
+             if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+             and n.value.id == local}
+    echappe = any(isinstance(n, ast.Name) and n.id == local and id(n) not in bases
+                  and isinstance(n.ctx, ast.Load) for n in ast.walk(arbre))
+    return attrs, echappe
 
 
 def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
@@ -968,6 +1052,21 @@ def vider_barils(racine: Path, barils: dict[str, Baril], exclure: set[str],
                 for al in n.names:
                     if al.name in barils:
                         reclames[al.name] |= set(barils[al.name].exports)
+        #: ⚠ LA MEME LIAISON DE MODULE EXISTE EN `ImportFrom`, ET ELLE ETAIT LE TROU. Le cas
+        #: ci-dessus (`import X as E`) ne couvre qu'UNE des deux ecritures : `from engine.playbook
+        #: import noncomparable as NC` lie AUSSI un module, et tout ce qu'on lui demande ensuite
+        #: (`NC.NATIVE_PRIORITY`) est ATTRIBUTAIRE -- donc invisible du recensement d'`ImportFrom`
+        #: ci-dessus, qui n'y voit qu'une reclamation du nom `noncomparable` au baril PARENT.
+        #: Mesure du 2026-08-06 : la vidange a retire `NATIVE_PRIORITY`, `native_priority` et
+        #: `_has_valid_targets` du baril `engine.playbook.noncomparable` et `DslContext` de
+        #: `engine.dsl` -- 4 couples, dont DEUX lus par `engine/**` lui-meme
+        #: (`ai/action_generators.py`, `playbook/tile_targets.py`), qu'aucun des tests tombes ne
+        #: montrait. Cliquet : `probe_485r1r1_acces_attributaires.py`.
+        for local, vise in _table_modules(arbre, mod, racine).items():
+            if vise not in barils:
+                continue
+            attrs, echappe = _attributs_lus(arbre, local)
+            reclames[vise] |= set(barils[vise].exports) if echappe else attrs
 
     chargeuses = _cibles_chargeuses_de_registre(barils)
     garde_registre: set[str] = set()
@@ -1197,8 +1296,12 @@ def main(argv: list[str]) -> int:
         return EX_VERT
 
     if a.commande == "morsure":
-        gratuits = _gratuits_attestes(racine)
+        gratuits, source = _gratuits_frais(racine), "MESUREE A FRAIS sur cet arbre"
+        if gratuits is None:
+            gratuits, source = _gratuits_attestes(racine), ("base ATTESTEE -- elle decrit "
+                                                            "l'arbre de sa DERNIERE ecriture")
         lignes, bilan = recenser_morsure(racine, gratuits)
+        print("\n  base des GRATUITS : %s" % source)
         print("\n  MORSURE -- ce que le HISSAGE fait aux substitutions deja posees")
         print("      L'axe est DISTINCT de `substitutions` (qui mesure la RE-ECRITURE). Les")
         print("      confondre laisse passer le gisement mesure sur la famille #429-r1 : un")

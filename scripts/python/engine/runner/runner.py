@@ -23,7 +23,12 @@ from .abilities.handler import AbilityHandler
 from .operations.damage import DamageHandler
 from .operations.movement import MovementHandler
 from .operations.triggers.dispatch.pending import process_pending_triggered_abilities
-from .operations.triggers.dispatch.phase import phase_end_triggers
+#: FORME B (import de MODULE), et pas `from ...phase import phase_end_triggers` : le differe
+#: est mesure GRATUIT une fois les barils vides, mais hisse en forme A il rendrait INERTE le
+#: `monkeypatch.setattr(phase_mod, "phase_end_triggers", ...)` de
+#: `test_389_ramming_speed_combat_offline::test_runner_apply_closes_the_phase` -- mesure du
+#: 2026-08-06, ce test est TOMBE ainsi. Un import de module relit l'attribut A L'APPEL.
+from .operations.triggers.dispatch import phase as phase_dispatch
 from .operations.turnflow import TurnFlowHandler
 from .operations.turnflow import verify_units_turn_finished
 
@@ -116,4 +121,4 @@ class Runner:
         # appel couterait un second pathfinding par unite (residu nomme dans
         # `operations/turnflow.verify_units_turn_finished`).
         self.last_verify_turn_finished = verify_units_turn_finished(self.state)
-        phase_end_triggers(self.state)
+        phase_dispatch.phase_end_triggers(self.state)

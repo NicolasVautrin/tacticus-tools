@@ -56,7 +56,13 @@ publique (`noncomparable.NCContext`, `.is_noncomp`, `.choose_action`, `.is_summo
 """
 from __future__ import annotations
 
-from ._base import NCContext, NonComparablePlaybook
+#: `NATIVE_PRIORITY`, `native_priority` et `_has_valid_targets` sont lus par ACCES ATTRIBUTAIRE
+#: (`from engine.playbook import noncomparable as NC` puis `NC.NATIVE_PRIORITY`) : `ai/
+#: action_generators.py` pour le troisieme, `test_nc_priority_tiers_offline` et
+#: `probe_170_playbook_priority` pour les deux premiers. Voie invisible d'un recensement
+#: d'`ImportFrom` -- #485-r1-r1 les a retires, cliquet `probe_485r1r1_acces_attributaires.py`.
+from ._base import NCContext, NonComparablePlaybook, NATIVE_PRIORITY, native_priority, \
+    _has_valid_targets
 from .bloody_fury import BloodyFuryPlaybook
 from .vexilla_magnifica import VexillaMagnificaPlaybook
 from .fighting_retreat import FightingRetreatPlaybook
@@ -227,7 +233,9 @@ def choose_action(abilities: list, ctx: NCContext, priority: int | None = None) 
 # consommes hors package : `_has_valid_targets` (action_generators.galvanic), et les helpers/bases
 # accessibles via `noncomparable.X` pour compat. Marque-les "used" (pyflakes).
 __all__ = [
-    "NCContext", "NonComparablePlaybook", "PLAYBOOKS", "playbook_for", "is_noncomp", "is_summon",
+    "NCContext", "NonComparablePlaybook", "NATIVE_PRIORITY", "native_priority",
+    "_has_valid_targets",
+    "PLAYBOOKS", "playbook_for", "is_noncomp", "is_summon",
     "choose_action", "BloodyFuryPlaybook", "VexillaMagnificaPlaybook", "FightingRetreatPlaybook",
     "AberrantHypermorphPlaybook", "NovaBoostPlaybook", "NovaShieldPlaybook",
     "RitesOfRestorationPlaybook", "CombatRestorativesPlaybook", "DefendTheDivineWorkPlaybook",

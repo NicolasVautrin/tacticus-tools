@@ -91,7 +91,10 @@ from ..components import is_alive_and_not_fled
 from ..components import unit_has_moved, unit_tiles_moved_this_turn
 from ..damage_model import _unit_gameconfig
 from ..damage_model import battle_query_is_charging
-from .active_ability import is_dead_unit_and_not_allowed_by_ability
+#: FORME B : `probe_429r1r1r1_ability_attack_dead_target.py` substitue
+#: `active_ability.is_dead_unit_and_not_allowed_by_ability` ; hisse en forme A le stub serait
+#: INERTE (gisement mesure de la famille #429-r1). L'import de module relit a l'appel.
+from . import active_ability as _active_ability
 from .left_over_damage import record_left_over_damages
 from .minimal_health import record_attacked
 from .refresh_effects import refresh_stat_modifier_effects
@@ -1323,7 +1326,8 @@ class DamageHandler:
         # cadavre spawnerait le drone puis n'attaquerait pas, alors que le natif ne fait RIEN.
         # Meme dedoublement, et pour la meme raison, que le gate acteur-mort (#70 au rang du message,
         # #133 au rang de l'operation).
-        if is_dead_unit_and_not_allowed_by_ability(self.state, None, msg.target_id):
+        if _active_ability.is_dead_unit_and_not_allowed_by_ability(
+                self.state, None, msg.target_id):
             self.last = None
             self.after_hit = []
             return

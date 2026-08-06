@@ -38,7 +38,10 @@ from ....entities.active_ability_type import ActiveAbilityType
 from ....services import custom_normal_attack as _cna
 from ..active_ability import (execute_for_replaced_target, get_tiles,
                                      resolve_replaced_target)
-from ..active_ability import is_dead_unit_and_not_allowed_by_ability
+#: FORME B : `probe_429r1r1r1_ability_attack_dead_target.py` substitue
+#: `active_ability.is_dead_unit_and_not_allowed_by_ability` ; hisse en forme A le stub serait
+#: INERTE (gisement mesure de la famille #429-r1). L'import de module relit a l'appel.
+from .. import active_ability as _active_ability
 
 
 class _Normal:
@@ -97,7 +100,7 @@ class _Normal:
         # AUCUNE derogation cote CIBLE, contrairement a l'axe CASTER : le decompile du gate ne lit
         # AUCUN champ d'`AbilityOptions` (pas d'equivalent du `options@+0x4a` que `UseActiveAbility`
         # force a 1) -- d'ou l'absence de parametre `allow_dead_target`.
-        if is_dead_unit_and_not_allowed_by_ability(state, None, target_id):
+        if _active_ability.is_dead_unit_and_not_allowed_by_ability(state, None, target_id):
             return None
         if state.rng is None:
             raise ValueError("state.rng non calé (seed depuis dumpRng avant un replay-diff)")
