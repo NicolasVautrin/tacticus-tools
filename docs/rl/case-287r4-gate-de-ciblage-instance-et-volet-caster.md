@@ -121,9 +121,16 @@ légitimement (`AllowNullCasterTile`, cf. #366-r1) sur 39 des 47. Les étages 1-
 volet (`sans_volet_caster`), sans quoi ils seraient verts **par vacuité** ; et l'étage 5 s'appuie
 au contraire sur ce refus, via deux masques à **un bit d'écart**.
 
-## 7. Résidu ouvert — #287-r4-r1
+## 7. Résidu — #287-r4-r1, RÉSOLU (voie (a))
 
-**La règle dynamique n'est évaluable que pour 15 des 65 ids.** Ventilation mesurée :
+> **Suite** : `case-287r4r1-regles-dynamiques-de-ciblage.md`. Quatre corps portés (1005, 1038,
+> 1201, 1145), le rouge `necroWarden` fermé en live (`port` passe de `[0,1]` à `[0,1,4]`), et un
+> foyer `DYNAMIC_TARGET_RULE_UNPORTED` pour les abilities sans classe. Reste ouvert : **#287-r5**
+> (46 ids sans règle, recensés avec leur symbole) et **#287-r6** (`SquigMine` refuse pour la
+> mauvaise raison — gisement du domaine TILE, mesuré indépendant de cette tranche).
+> La voie (b) décrite ci-dessous n'a **pas** été prise, et l'analyse qui la classe seconde tient.
+
+**La règle dynamique n'était évaluable que pour 15 des 65 ids.** Ventilation d'alors :
 
 | état de la règle dynamique | ids |
 |---|---|
