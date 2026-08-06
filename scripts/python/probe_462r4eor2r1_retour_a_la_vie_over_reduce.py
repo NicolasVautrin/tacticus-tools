@@ -678,10 +678,19 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
             # au credit du premier `endturn`, d'ou le faux diagnostic << le joueur 3 joue deux tours
             # d'affilee >> et le contournement qui prenait l'alternance dans la trace. La suite
             # native de ce montage est une ALTERNANCE STRICTE (re-mesure du 2026-08-06, 14 tours).
+            cur_avant_att1 = (cap0["dv"] or {}).get("currentPlayer")
             cur_apres_att1 = (_dv(rid) or {}).get("currentPlayer")
-            trace_live = [{"endturn": 0, "entrant": cur_apres_att1,
+            auto = (cur_avant_att1 is not None and cur_apres_att1 is not None
+                    and int(cur_avant_att1) != int(cur_apres_att1))
+            trace_live = [{"endturn": 0, "entrant": cur_apres_att1, "avant_attaque": cur_avant_att1,
+                           "changement_automatique": auto,
                            "note": "APRES l'attaque 1 (VerifyAutomaticTurnEnd), avant tout endturn"}]
-            entrants = []
+            # Le changement de tour AUTOMATIQUE compte comme un tour a rejouer : le port ne porte
+            # pas `VerifyAutomaticTurnEndOperation$$Execute`, donc sans ce cran son rejeu aurait
+            # UN TOUR DE RETARD sur le live -- ce que le contournement retire masquait, en posant
+            # `current_player_id` a la valeur mesuree a chaque pas. La condition est un test
+            # d'ETAT (le joueur a-t-il change ?), pas une supposition sur le comportement natif.
+            entrants = [cur_apres_att1] if auto else []
             vu_autre = False
             for _i in range(8):
                 _endturn(rid)
