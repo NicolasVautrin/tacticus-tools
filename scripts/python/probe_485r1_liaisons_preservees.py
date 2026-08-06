@@ -52,6 +52,13 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+#: Import TOP-LEVEL, et deliberement : #485-r1 livre l'outil et sa preuve ensemble, donc la
+#: table doit etre derivee par LE MEME code que celui qui a re-ecrit. `derive_barils` prend sa
+#: racine en argument -- lire le module voisin ne fait donc PAS lire le mauvais arbre. Un
+#: import differe ici serait ironique, et le seul argument en sa faveur (aller chercher la
+#: version de l'arbre temoin) est justement celui qu'il ne faut pas suivre.
+import migrate_485r1_barils_reexport as mig
+
 EX_VERT, EX_ROUGE, EX_PAS_MESURE = 0, 1, 2
 
 #: Le programme joue DANS l'arbre mesure : il ne peut donc pas etre importe depuis celui-ci.
@@ -336,8 +343,6 @@ def main(argv: list[str]) -> int:
     acquittees: list[str] = []
     if a.vidange and div:
         #: La table se derive de l'arbre TEMOIN : c'est la que les barils exportent encore.
-        sys.path.insert(0, str(ra))
-        import migrate_485r1_barils_reexport as mig                     # noqa: PLC0415
         barils = mig.derive_barils(ra)
         origines = {(nom, sym): (org.module, org.nom_amont)
                     for nom, b in barils.items() for sym, org in b.exports.items()}

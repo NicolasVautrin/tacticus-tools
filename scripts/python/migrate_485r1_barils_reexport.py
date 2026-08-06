@@ -534,6 +534,67 @@ def reecrire_fichier(p: Path, sites: list[Site], barils: dict[str, Baril],
     return out, refus
 
 
+# ------------------------------------------------- HISSABLE vs OMBRAGE : le geste n'est pas le meme
+
+class Geste(enum.Enum):
+    """Ce qu'il faut FAIRE d'un differe devenu GRATUIT. Les deux gestes ne sont pas
+    interchangeables, et les confondre a un cout MESURE (#484 : 23 rouges de sa propre main,
+    trouves au re-jeu apres rebase).
+
+    ⚠ << LA CIBLE EST DEJA IMPORTEE >> DESIGNE LE MODULE, PAS CHAQUE NOM. Qu'un module fasse
+    deja `from engine.services.damage import a` en tete n'implique pas que `b`, importe
+    tardivement depuis le meme module, y soit lie. Supprimer le differe rend alors `b`
+    introuvable -- alors que le HISSER est toujours correct."""
+
+    HISSER = "aucun import top-level ne lie deja ce NOM -- hisser la ligne au niveau module"
+    OMBRAGE_MEME_SOURCE = ("le nom est DEJA lie en top-level, depuis la MEME source : le "
+                           "differe est redondant, la ligne se supprime")
+    OMBRAGE_AUTRE_SOURCE = ("le nom est deja lie en top-level depuis une AUTRE source : le "
+                            "differe MASQUE volontairement -- ni hisser ni supprimer sans lire")
+
+
+def qualifier_gestes(racine: Path, paquet: str = "engine"):
+    """Pour chaque differe `engine.*` de `engine/**`, dit le GESTE qui le retirerait.
+
+    Ne classe PAS porteur/gratuit -- c'est le role de `probe_485_imports_differes.py`, qui le
+    mesure en process frais. Ici on ne repond qu'a : << si ce differe partait, comment ? >>"""
+    out = []
+    for p in sorted((racine / paquet).rglob("*.py")):
+        if "__pycache__" in str(p):
+            continue
+        try:
+            arbre = ast.parse(p.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        mod = nom_module(p, racine)
+        #: nom expose -> module source, POUR LES SEULS IMPORTS TOP-LEVEL
+        tete: dict[str, str] = {}
+        for n in arbre.body:
+            if isinstance(n, ast.ImportFrom):
+                cible = cible_absolue(mod, n, racine) or ""
+                for al in n.names:
+                    tete[al.asname or al.name] = cible
+        for f in ast.walk(arbre):
+            if not isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for n in ast.walk(f):
+                if not isinstance(n, ast.ImportFrom):
+                    continue
+                cible = cible_absolue(mod, n, racine)
+                if not cible or cible.split(".")[0] != paquet:
+                    continue
+                for al in n.names:
+                    expose = al.asname or al.name
+                    if expose not in tete:
+                        g = Geste.HISSER
+                    elif tete[expose] == cible:
+                        g = Geste.OMBRAGE_MEME_SOURCE
+                    else:
+                        g = Geste.OMBRAGE_AUTRE_SOURCE
+                    out.append((mod, cible, expose, n.lineno, g))
+    return out
+
+
 # ------------------------------------------------------------------- sites de SUBSTITUTION (#484)
 
 class Risque(enum.Enum):
@@ -843,7 +904,8 @@ def _imprimer_refus(refus, entete: str, verbeux: bool) -> None:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("commande", choices=("inventaire", "reecrire", "vider", "substitutions"))
+    ap.add_argument("commande",
+                    choices=("inventaire", "reecrire", "vider", "substitutions", "gestes"))
     ap.add_argument("--racine", type=Path, default=ICI,
                     help="repertoire qui CONTIENT `engine/` (defaut : celui de ce fichier). "
                          "Pointe un arbre TEMOIN pour mesurer sans toucher au depot.")
@@ -877,6 +939,22 @@ def main(argv: list[str]) -> int:
             print("PAS MESURE : baril(s) inconnu(s) : %s" % ", ".join(inconnus))
             return EX_PAS_MESURE
         exclure |= set(barils) - set(a.baril)
+
+    if a.commande == "gestes":
+        lot = qualifier_gestes(racine)
+        print("\n  DIFFERES `engine.*` dans `engine/**` : %d -- geste de retrait" % len(lot))
+        print("      Ce classement ne dit PAS porteur/gratuit (`probe_485_imports_differes.py`")
+        print("      le mesure en process frais). Il dit COMMENT retirer celui qui peut l'etre.")
+        par_geste = defaultdict(list)
+        for x in lot:
+            par_geste[x[4]].append(x)
+        for g in Geste:
+            gr = par_geste.get(g, [])
+            print("\n      %-22s x%-4d %s" % (g.name, len(gr), g.value))
+            if a.refus or g is not Geste.HISSER:
+                for mod, cible, sym, ligne, _ in sorted(gr):
+                    print("          %s:%d  %s <- %s" % (mod, ligne, sym, cible))
+        return EX_VERT
 
     _imprimer_inventaire(barils, exclure, a.refus)
     if a.commande == "inventaire":

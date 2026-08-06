@@ -91,6 +91,23 @@ attributaire, que la réécriture ne touche pas).
 désarmement *silencieux* est la contre-épreuve : empoisonner l'attribut réel et vérifier que le
 test **rougit**. Un test qui reste vert quand on casse ce qu'il prétend substituer ne mesure plus.
 
+## HISSER n'est pas SUPPRIMER — mesuré 376 contre 1
+
+`migrate_485r1_barils_reexport.py gestes` qualifie **377** différés (compte **par alias** ; les
+314 de `probe_485` sont comptés **par nœud** — un `from X import a, b` y vaut 1) :
+
+| geste | n |
+|---|---:|
+| `HISSER` — aucun import top-level ne lie déjà ce nom | **376** |
+| `OMBRAGE_MEME_SOURCE` — nom déjà lié, même source : la ligne se supprime | **1** |
+| `OMBRAGE_AUTRE_SOURCE` — nom déjà lié depuis ailleurs : ni l'un ni l'autre sans lire | **0** |
+
+⚠ **« La cible est déjà importée » désigne le MODULE, pas chaque NOM.** Qu'un module fasse déjà
+`from engine.services.damage import a` en tête n'implique pas que `b`, importé tardivement depuis
+le même module, y soit lié — supprimer rend alors `b` introuvable, tandis que **hisser est
+toujours correct**. Sur ce dépôt, supprimer au lieu de hisser serait faux **376 fois sur 377**.
+(#484 s'est fait 23 rouges de sa propre main sur cette exacte confusion.)
+
 ## Les barils à REGISTRE — et les deux qu'on croyait tels
 
 Identifiés **mécaniquement** (imports à effet de bord pur + modules qui mutent un objet du moteur
