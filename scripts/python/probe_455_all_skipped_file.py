@@ -75,6 +75,29 @@ sys.path.insert(0, str(PYDIR))
 import green_skip_guard as G                                        # noqa: E402
 import repo_read                                                    # noqa: E402
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/probe_455_all_skipped_file.py",
+                "scripts/python/green_skip_guard.py",
+                "scripts/python/repo_read.py",
+                "scripts/python/pytest.ini",
+                "scripts/python/tests/conftest.py",
+                "scripts/python/tests/*.py", "scripts/python/tests/**/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Quatre etapes, quatre lectures NOMMEES. 0 et 1 exercent `green_skip_guard` (auto-test sur "
+        "rapports synthetiques, puis pytest en sous-processus sur des fichiers ecrits en tmpdir "
+        "SYSTEME -- rien sous `scripts/python`, cf. #455-r5). 2 lit `tests/conftest.py` (les hooks "
+        "y sont-ils re-exportes, et le charge-t-il une fois copie dans un miroir) plus `pytest.ini` "
+        "(c'est lui qui fixe `rootdir`, donc `confcutdir`, donc si le conftest est charge du tout). "
+        "3 balaie le corpus de test VERSIONNE, dont le perimetre et les motifs sont LUS dans "
+        "`pytest.ini` (`testpaths`, `python_files`, `python_functions`) puis enumeres par "
+        "`git ls-files` : deplacer `testpaths` deplace le declencheur, et le glob "
+        "`scripts/python/tests/**` cesserait alors d'etre suffisant -- c'est la seule facon connue "
+        "de le rendre trop etroit. Rien du build : aucun ordinal, aucune session live."),
+}
+
 #: Les hooks que `tests/conftest.py` DOIT re-exporter. Derives du module, pas saisis : ajouter un
 #: hook au garde sans le brancher fait rougir l'etape 2.
 HOOKS = tuple(n for n in dir(G) if n.startswith("pytest_"))

@@ -39,7 +39,8 @@ DECLENCHEUR = {
     "chemins": ("scripts/python/probe_421_rail_covers_registry.py",
                 "scripts/python/probe_229_effect_triggers_active.py",
                 "scripts/python/engine/*.py", "scripts/python/engine/**/*.py",
-                "scripts/python/*.py"),
+                "scripts/python/*.py",
+                "data/seed-bc.json"),
     "build": False,
     "toujours": False,
     "raison": (
@@ -48,7 +49,9 @@ DECLENCHEUR = {
         "la seule liste de ce qu'il lit lui-meme. Ce n'est pas de la prudence -- il garde la "
         "COUVERTURE du 229, et un cliquet de couverture qui se rejouerait MOINS souvent que le "
         "cliquet couvert laisserait passer exactement son gisement : une classe entree au registre "
-        "sans entrer au RAIL (19 mesurees le 2026-08-01), sur laquelle le 229 est muet."),
+        "sans entrer au RAIL (19 mesurees le 2026-08-01), sur laquelle le 229 est muet. "
+        "`data/seed-bc.json` vient de la meme cascade que chez lui : "
+        "`engine/services/damage_modifiers.py` le lit AU NIVEAU MODULE (MESURE a la trace)."),
 }
 
 

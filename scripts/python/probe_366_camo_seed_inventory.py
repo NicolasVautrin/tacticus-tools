@@ -50,7 +50,8 @@ import sys
 DECLENCHEUR = {
     "chemins": ("scripts/python/probe_366_camo_seed_inventory.py",
                 "scripts/python/engine/*.py", "scripts/python/engine/**/*.py",
-                "scripts/python/*.py"),
+                "scripts/python/*.py",
+                "data/seed-bc.json"),
     "build": False,
     "toujours": False,
     "raison": (
@@ -61,7 +62,10 @@ DECLENCHEUR = {
         "(POSE_VECTOR) vit dans son propre source. Le glob n'est PAS borne a "
         "`engine/entities/effects/**` : une classe inscrite peut vivre ailleurs, et la fermeture "
         "d'imports MESUREE de `scan()` est de 99 modules engine/ plus `gameconfig.py` et "
-        "`hexgeo.py` a la racine. Rien du build : le critere est une identite de fonction Python."),
+        "`hexgeo.py` a la racine. `data/seed-bc.json` y entre parce que "
+        "`engine/services/damage_modifiers.py` le lit AU NIVEAU MODULE (`_DMG_CFG`) et que "
+        "`engine/entities/effects/__init__.py` tire ce module -- trouve a la TRACE d'audit, pas a "
+        "la lecture. Rien du build : le critere est une identite de fonction Python."),
 }
 
 # --------------------------------------------------------------------------------------------

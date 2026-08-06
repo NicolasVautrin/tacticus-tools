@@ -42,7 +42,8 @@ from engine.runner.operations.triggers.base import EffectTrigger                
 DECLENCHEUR = {
     "chemins": ("scripts/python/probe_229_effect_triggers_active.py",
                 "scripts/python/engine/*.py", "scripts/python/engine/**/*.py",
-                "scripts/python/*.py"),
+                "scripts/python/*.py",
+                "data/seed-bc.json"),
     "build": False,
     "toujours": False,
     "raison": (
@@ -51,8 +52,12 @@ DECLENCHEUR = {
         "module. Ses trois tables (RAIL, EXPECTED_GAPS, ARRAYSET_READS_BY_TREE) vivent dans son "
         "propre source. Le glob racine `scripts/python/*.py` n'est pas decoratif : la fermeture "
         "d'imports MESUREE est de 274 modules engine/ PLUS `gameconfig.py` et `hexgeo.py`, et un "
-        "import casse la-haut change le rc. Rien du build : le verdict est purement syntaxique "
-        "(aucun ordinal, aucun enums.tsv), et `gameconfig` est lazy (lru_cache) -- jamais atteint."),
+        "import casse la-haut change le rc. `data/seed-bc.json` non plus : "
+        "`engine/services/damage_modifiers.py` le lit AU NIVEAU MODULE (`_DMG_CFG`), donc toute "
+        "cascade qui traverse `engine.entities.effects` l'ouvre -- fait MESURE par trace d'audit, "
+        "et invisible a une lecture des imports. Rien du build : le verdict est purement "
+        "syntaxique (aucun ordinal, aucun `enums.tsv`), et `gameconfig` est lazy (`lru_cache`) -- "
+        "jamais atteint, verifie a la trace."),
 }
 
 

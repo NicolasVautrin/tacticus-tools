@@ -54,6 +54,28 @@ if str(_HERE) not in sys.path:
 
 ENGINE = _HERE / "engine"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/*.py",
+                "scripts/python/engine/*.py", "scripts/python/engine/**/*.py",
+                "data/seed-bc.json"),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Trois perimetres, tous ecrits dans le module. (1) Les etapes [A]-[D] EXECUTENT "
+        "`playbook.scene.step_context` et `runner.snapshot.active_only_rows` : fermeture d'imports "
+        "MESUREE de 340 modules engine/ plus `gameconfig.py` et `hexgeo.py`, d'ou le glob racine ; "
+        "s'y ajoute `data/seed-bc.json`, que `engine/services/damage_modifiers.py` lit AU NIVEAU "
+        "MODULE (`_DMG_CFG`) -- trouve a la TRACE d'audit, invisible a une lecture des imports. "
+        "(2) [E] lit `engine/ai/context.py` en AST. (3) [F] balaie `_HERE.glob('*.py')` -- la "
+        "RACINE de `scripts/python` seulement, NON recursif, probes et tests exclus : c'est le "
+        "cran qui garde notre propre cadence (un consommateur de PRODUCTION neuf qui capte son "
+        "`decisionView` sans passer par `decision_view_seed_body`), et il apparait par l'ajout "
+        "d'un fichier sous ce glob-la. L'inventaire AST d'`engine/**` reste hors verdict "
+        "(`--inventory`). Rien du build : les deux effectTypes temoins sont des litteraux du "
+        "montage synthetique, jamais resolus contre `enums.tsv`."),
+}
+
 #: Methodes d'`EffectsState` (et de `Scene`) classees par SUBSTRAT.
 _PRESENCE = {"has_effect", "by_unit"}
 _ACTIVITE = {"active_effects", "effects"}          # `Scene.effects` DELEGUE a `active_effects`
