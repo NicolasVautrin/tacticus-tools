@@ -14,7 +14,7 @@ import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
-                        TargetingOptions, entity_tiles)
+                        TargetingOptions, entity_tiles, has_steppable_unit)
 from .targeting_rule import TargetingRule as TR
 from ..components import PositionComponent, StatsComponent
 from ...services.battle_query import are_entities_adjacent
@@ -976,7 +976,7 @@ class SquigMineAbility(ActiveAbility):
     # Overload « flags DIRECTS » (5e argument -> `options+0x28`) : le litteral EST le masque effectif.
     # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
     #     0x2          TargetMatchesDynamicRule -> `SquigMineAbility$$GetDynamicInvalidTargetReason`
-    #                  (non porte -> defaut 0, PERMISSIF assume)
+    #                  PORTE depuis #287-r4-r1 -- cf. la surcharge ci-dessous
     #     0x40         TargetIsTile        -> cast TILE-TARGET (le domaine TILE n'est pas porte)
     #     0x1000       TargetTileIsFree    -> la tuile doit accepter une unite (`CanAddUnit`), NON PORTE
     #     0x6000000    AllowObscuredTarget -> permissif
@@ -995,6 +995,37 @@ class SquigMineAbility(ActiveAbility):
         | TR.AllowObscuredTargetByWalls
         | TR.AllowNullCasterTile
     ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile, ligne a ligne (#287-r4-r1) :
+
+            if (target == null) return 0;
+            if (EntityExtensions.HasEffect(target, state, 0x5a1, onlyActive: false)) return 2;
+            if (TileExtensions.HasSteppableUnit(target, state))                      return 2;
+            return 0;                       // 0x5a1 = EffectType.SquigMine_Tile
+                                            // 2     = TargetingRule.TargetMatchesDynamicRule
+
+        SEMANTIQUE : une mine ne se pose ni sur une tuile qui en porte DEJA une, ni sur une tuile
+        occupee par une unite `Steppable`. C'est le SEUL terme du gate qui morde sur ce cast : le
+        reste du masque (`TargetIsTile`, `TargetTileIsFree`) releve du domaine TILE, non porte.
+
+        `EntityExtensions$$HasEffect(entity, state, type, onlyActive)` =
+        `IsOwnerOfEffect(...) || IsTargetOfEffect(...)`, et `onlyActive` est passe a `false` par ce
+        call-site -> `has_effect_of_type`, dont la docstring etablit la meme non-consultation
+        d'`EffectComponent.IsActive` et la coincidence owned/targeted sur l'`EffectsState` du port.
+
+        `has_steppable_unit` resout la tuile en son OCCUPANT (`GetUnit`), ce qui est exactement ce
+        que fait `TileExtensions$$HasSteppableUnit` -- son argument natif y transite deja."""
+        if target_id is None:
+            return 0
+        from ..components import has_effect_of_type
+        if has_effect_of_type(state, int(target_id), int(EffectType.SquigMine_Tile)):
+            return int(TR.TargetMatchesDynamicRule)
+        if has_steppable_unit(state, int(target_id)):
+            return int(TR.TargetMatchesDynamicRule)
+        return 0
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
