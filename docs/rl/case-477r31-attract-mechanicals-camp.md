@@ -138,16 +138,23 @@ gate coupait. Un montage vert ne dit rien du montage voisin. Corollaire utile : 
 NON Mechanical » de `#477-r29` est devenu le **contrôle du gate** de cette feuille-ci — mesuré, en
 retirant le gate `Mechanical`, `probe_477r29` passe au rouge (−10 par tuile).
 
-> **Résidu #477-r33 — 13 des 25 `*NonOwnerPlaybook` natifs manquent au registre du port.**
-> `engine/playbook/non_owner.NON_OWNER_MOVE_PLAYBOOKS` en porte **12** ;
-> le binaire en a **25**. Manquants (ids `TriggeredAbilityType`) : `1064 FirstAmongTraitors`,
-> `1453 ShieldOfFaith`, `1457 KardiocoreGalvanus`, `1461 BookOfFate`, `1469 MawClawsOfThyrax`,
-> `1478 SabreOfSacrifice`, `1495 NornCrown`, `1500 WayOfTheShortBlade`, `1508 MastersOfManoeuvre`,
-> `1522 RedemptionOfTheRisen`, `1523 NoHidingFromTheWatchers`, `1526 PurgeResponse`,
-> `1531 HaywireMine`. Ce n'est pas un port spéculatif : `1457` est **mesuré à +20** ci-dessus, et
-> quatre unités du seed portent une relique **sans que personne l'ait demandé**
-> (`admecMarshall`/`admecRuststalker` → `KardiocoreGalvanus`, `necroSpyder` → `NetherRealmCasket`,
-> `orksRuntherd` → `MastersOfManoeuvre`) — donc tout montage qui les spawne hérite du terme.
+> **Résidu #477-r33 — FERMÉ par #477-r33.** `1457 KardiocoreGalvanus` est portée, inscrite au
+> registre et confrontée live sur cette géométrie même (montage `kardio`, la relique n'y est plus
+> retirée : le confond y est devenu le mesurande). Deux autres l'ont été avec elle
+> (`1461 BookOfFate`, `1495 NornCrown`) ; il reste **8** faces MOVE non portées, résidu **#477-r35**.
+>
+> ⚠ **Le compte annoncé ici — « 13 des 25 » — était FAUX de trois façons**, re-mesuré par
+> `probe_477r33_non_owner_registry_gaps.py --offline-only` : `25` est un compte par NOM (le filtre
+> correct est le PARENT : **28** concrets, **24 MOVE / 3 ATTACK / 1 REPAIR**) ; la liste des « 13 »
+> comptait trois faces **ATTACK** (`1453`, `1500`, `1523`), oubliait deux concrets sans suffixe
+> (`1496 CabalOfSorcerers`, `1451 WisdomOfTheAncients`) et incluait `1522 RedemptionOfTheRisen`,
+> déjà écrite et volontairement hors registre.
+>
+> ⚠ Et **`orksRuntherd` ne porte PAS `MastersOfManoeuvre`** : sa relique du seed est
+> `1475 SupaCyborkBody`, qui n'a **aucun** playbook non-owner — donc **zéro** confond. Sur les
+> quatre reliques que le seed équipe sans qu'on l'ait demandé, **une seule** armait un terme non
+> porté : `KardiocoreGalvanus`, sur `admecMarshall` **et** `admecRuststalker`. Détail :
+> `docs/rl/case-477r33-non-owner-manquants.md`.
 
 ## 6. L'A/B — DEUX montages, parce qu'un seul ne sépare pas tout
 
@@ -253,11 +260,13 @@ propre montage rend indifférent.
 * **Le terme sur le VRAI porteur** (`admecSmnVanguard`, Mechanical **et** porteur de 1202) : il
   cumule `AttractMechanicals` et `RadSaturation` sur les mêmes tuiles. Les deux termes sont portés
   et confrontés SÉPARÉMENT ; leur somme sur un summon observé ne l'est pas.
-* **Le résidu #477-r33** (13 `*NonOwnerPlaybook` manquants) : RE faite pour `1457`, aucun port.
+* **Le résidu #477-r33** : RE faite pour `1457` dans CE cas, aucun port — **fermé par #477-r33**.
 
 ## Résidus
 
-- **#477-r33 — 13 des 25 `*NonOwnerPlaybook` natifs manquent au registre du port** (§ 5). `1457
-  KardiocoreGalvanus` est **mesuré à +20** et affecte tout montage qui spawne `admecMarshall`,
-  `admecRuststalker`, `necroSpyder` ou `orksRuntherd` — les quatre unités que le seed équipe d'une
-  relique sans qu'on l'ait demandé.
+- ~~**#477-r33**~~ — **FERMÉ** (§ 5). `1457 KardiocoreGalvanus`, `1461 BookOfFate` et
+  `1495 NornCrown` sont portées, inscrites au registre et confrontées live — `1457` sur CETTE
+  géométrie même, la relique n'y étant plus retirée. Le compte annoncé au § 5 était faux de trois
+  façons, et `orksRuntherd` ne porte pas `MastersOfManoeuvre` : détail et recensement re-dérivé
+  dans `docs/rl/case-477r33-non-owner-manquants.md`. Il reste **8** faces MOVE non portées, aucune
+  armée sans montage → résidu **#477-r35**.
