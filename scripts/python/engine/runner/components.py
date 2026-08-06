@@ -23,6 +23,7 @@ from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_po
 from ..entities.stats import StatType
 from ..entities.traits.unit_trait import UnitTrait as _UT, has_trait as _has_trait
 from ..entities.traits.unit_trait import UnitTrait, has_trait
+from ..entities.stats import StatType as _ST
 
 if TYPE_CHECKING:
     from ..entities.unit_context import UnitContext
@@ -2382,7 +2383,6 @@ class UnitEffectStateView(Mapping):
         # `RoundsStarted(Owner@DSLSelectors+0x30)` (cf. la docstring de classe). EAGER : simple
         # lecture du `StatComponent` deja materialise, aucun balayage.
         if sc is not None and getattr(sc, "ctx", None) is not None:
-            from ..entities.stats import StatType as _ST
             eager["turns_started"] = int(sc.ctx.get_stat(int(_ST.TURNS_STARTED), 0) or 0)
         oc = ent.get_component(OwnerComponent) if ent is not None else None
         # `IsTurnOf(Owner)` (`<DSLTriggers+0x28>`) — MEME noeud natif que le canal

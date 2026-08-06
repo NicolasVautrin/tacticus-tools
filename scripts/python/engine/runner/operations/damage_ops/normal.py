@@ -34,6 +34,11 @@ from ..additional_hits import collect_additional_hit_groups, execute_additional_
 from ..damage_hits import HitDamage, attack_state_out as _attack_state_out
 from ._channel import _normal_attack_kind
 from ...components import unit_is_dead
+from ....entities.active_ability_type import ActiveAbilityType
+from ....services import custom_normal_attack as _cna
+from ..active_ability import (execute_for_replaced_target, get_tiles,
+                                     resolve_replaced_target)
+from ..active_ability import is_dead_unit_and_not_allowed_by_ability
 
 
 class _Normal:
@@ -92,7 +97,6 @@ class _Normal:
         # AUCUNE derogation cote CIBLE, contrairement a l'axe CASTER : le decompile du gate ne lit
         # AUCUN champ d'`AbilityOptions` (pas d'equivalent du `options@+0x4a` que `UseActiveAbility`
         # force a 1) -- d'ou l'absence de parametre `allow_dead_target`.
-        from ..active_ability import is_dead_unit_and_not_allowed_by_ability   # lazy : cycle
         if is_dead_unit_and_not_allowed_by_ability(state, None, target_id):
             return None
         if state.rng is None:
@@ -166,8 +170,6 @@ class _Normal:
         # ActiveAbilityOperation$$GetAbilityEntities` fige `AbilityEntities@+0x38 =
         # EntityExtensions.GetTiles(finalTarget)` en amont du `0x2b` ; la re-resolution qui SUIT
         # l'emission confronte ce fige a l'occupation reelle.
-        from ..active_ability import (execute_for_replaced_target, get_tiles,
-                                     resolve_replaced_target)
         _target_tiles = get_tiles(state, target_id)
         ability_dispatch.pre_unit_ability_triggers(state, attacker_id, target_id,
                                                    ranged=bool(_ranged), profile=_profile,
@@ -266,11 +268,9 @@ class _Normal:
         # donc l'ordre `state.rng` de l'attaque qui suit est INCHANGE (bit-exactness preservee).
         from ...abilities.behaviours.combat import InformWeapon   # lazy : cycle damage<->abilities
         from ...abilities.targeting import normal_attack_type_for  # lazy : meme cycle
-        from ....services.custom_normal_attack import (inform_weapon_use_special,
-                                                       feeder_tendrils_special_applies,
-                                                       USE_SPECIAL_GATE_EFFECT)
+        # forme MODULE : les trois noms sont SUBSTITUES (probe_419r1tr14r4r2r1r1) -- lies au
+        # chargement, ces mesures cesseraient de mordre en silence (#485-r1-r1).
         from ...abilities.loki.feeder_tendrils import execute_feeder_tendrils_special
-        from ....entities.active_ability_type import ActiveAbilityType
         _na_type = normal_attack_type_for(state, attacker_id)
         _na_name = (ActiveAbilityType(_na_type).name
                     if _na_type is not None and _na_type in set(int(x) for x in ActiveAbilityType)
@@ -284,10 +284,10 @@ class _Normal:
         # CASTER (`AbilityEntities` `+8`, cf. la RE dans `custom_normal_attack.py`). `onlyActive` est
         # `null` au call-site natif, donc PAS de filtre `IsActive` : c'est exactement ce que fait
         # `has_effect_of_type` (`EffectsState.has_effect`, qui ne filtre que `consumed`).
-        _use_special = inform_weapon_use_special(
+        _use_special = _cna.inform_weapon_use_special(
             _na_name, is_charging=_charging, weapon_melee=_melee,
             caster_has_gate_effect=has_effect_of_type(state, attacker_id,
-                                                      USE_SPECIAL_GATE_EFFECT))
+                                                      _cna.USE_SPECIAL_GATE_EFFECT))
         _iw_tags = InformWeapon.from_weapon(_w, use_special=_use_special).tags()
         # #419-r1-tr14-r4-r2-r1-r1 : `FeederTendrils_NormalAttackAbility$$ExecuteBehaviour` execute,
         # ENTRE `ExecuteInformWeapon` et `ExecuteNormalAttack`, un `ExecuteAtomic(Heal(caster) +
@@ -295,7 +295,8 @@ class _Normal:
         # `Pinned` porte un malus de degat ATTAQUANT, donc il ne touche pas l'attaque qui suit -- mais
         # on mirrore la position, pas l'observable du jour. Feuilles PURES (0 tirage) -> l'ordre
         # `state.rng` de l'attaque est INCHANGE, bit-exactness preservee.
-        if feeder_tendrils_special_applies(_na_name, is_charging=_charging, weapon_melee=_melee):
+        if _cna.feeder_tendrils_special_applies(_na_name, is_charging=_charging,
+                                                weapon_melee=_melee):
             execute_feeder_tendrils_special(state, attacker_id, target_id)
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,

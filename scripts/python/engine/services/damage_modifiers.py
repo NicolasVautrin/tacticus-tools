@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 import engine.services.fix64 as _fx   # module FRERE, pas `from . import` (#270-r4-r2)
 from .effect_bonus import EffectBonus
 from .. import weights as _weights
+from .battle_query import are_tiles_adjacent
 
 # Config `DamageCalculations` (section Damage de la BattleConfiguration) — le natif la charge via
 # `IdunBattle.Core.Services.DamageCalculations$$Init`. Ces constantes appartiennent au port de DamageCalculations (ce
@@ -503,7 +504,6 @@ def calculate_trench_reduction(
                 porte via hexgeo.line ; seule la ligne flag-0 decide, cf. docs/rl/case-182-trench-case3.md).
     Mesures live (board C2_19 bloodMephiston) : HORS-Trench non-adjacent -> APPLIQUE (natif 1002-1506) ;
     SUR-Trench + adjacent -> SKIP (natif 3009-4515) ; ligne-toute-Trench -> SKIP (natif 2006-3010, CASE3)."""
-    from .battle_query import are_tiles_adjacent
     # (0) profil exempte (IgnoreTrenchReduction) -> aucune reduction
     if profile_ignored:
         return None

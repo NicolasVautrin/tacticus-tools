@@ -67,6 +67,7 @@ from ...entities.selectors.accessors import TargetTile
 from ...entities.selectors.units import SurroundingUnits, Tiles, Units, UnitsWithTrait
 from ...entities.traits.unit_trait import UnitTrait
 from ..components import StatsComponent
+from ..abilities.loki.splash import _pick_randomly_n
 
 if TYPE_CHECKING:
     from ..state import State
@@ -221,7 +222,6 @@ def incursion_next_spawn_tile(state: "State", entities):
     Le predicat reste du DSL (`IsAlive`/`IsInRange`/`TriggerAnd`) et le selecteur de tuiles aussi
     (`CanAddUnit(AdjacentTiles(Target()))`) ; seul le couple `ConditionalAmount`+`PickRandomly` est FOLDE
     (le tirage vit la ou l'on voit `state.rng`, meme doctrine que le `pick_n` de `Spawn`)."""
-    from ..abilities.loki.splash import _pick_randomly_n
     rng_const = int(((GC.ability("Incursion") or {}).get("constants") or {}).get("range") or 0)
     cond = TriggerAnd(TriggerAnd(IsAlive(Caster()), IsAlive(Target())),
                       IsInRange(Caster(), Target(), Const(rng_const)))

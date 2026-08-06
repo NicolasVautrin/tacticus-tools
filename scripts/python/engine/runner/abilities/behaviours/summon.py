@@ -20,6 +20,7 @@ from .context import _unit_dict, LiveUnit
 from ...components import PositionComponent as _PC
 from ...operations.spawn import SpawnUnitOperation
 from ...operations.spawn import _spawn_config_grot
+from ...operations.spawn import trigger_spawned_unit_finish_turn
 
 
 class Spawn(AbilityBehaviour):
@@ -168,7 +169,6 @@ class Spawn(AbilityBehaviour):
                     # TERMINE (`FinishUnitTurn(spawned, isTerminated: true)`) APRES l'on-appearance,
                     # sauf `Steppable`/`Hero`. Le foyer porte le gate ; ici on ne fait que respecter
                     # l'ORDRE natif (l'autre branche l'a deja fait dans `_spawn_config_grot`).
-                    from ...operations.spawn import trigger_spawned_unit_finish_turn
                     trigger_spawned_unit_finish_turn(state, gid)
         return OperationResult.ok()
 

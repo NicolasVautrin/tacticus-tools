@@ -106,6 +106,7 @@ from collections.abc import Mapping
 from ....services.effect_bonus import EffectBonus, for_addition
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from ...stats import StatType
 
 DESTROY_THE_WITCH = "DestroyTheWitch"
 PSYKER_TRAIT = "Psyker"          # UnitTrait 0x3ea = 1002 (`UnitsWithTrait(AllUnits, 0x3ea)`)
@@ -140,7 +141,6 @@ class DestroyTheWitchExtraMoveEffect(BaseEffect):
         return _enemy_psyker_on_battlefield(unit_state)
 
     def get_stat_modification_stat(self) -> "int | None":
-        from ...stats import StatType
         return int(StatType.MOVEMENT)                       # statType 1 de la feuille native
 
     def get_stat_modification_amount(self) -> "int | None":
@@ -148,7 +148,6 @@ class DestroyTheWitchExtraMoveEffect(BaseEffect):
         return ability_var(DESTROY_THE_WITCH, "extraMovement", is_constant=True)
 
     def reverted_stats(self) -> "list":
-        from ...stats import StatType
         return [StatType.MOVEMENT]
 
 

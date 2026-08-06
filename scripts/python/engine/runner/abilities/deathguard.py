@@ -59,6 +59,7 @@ from .behaviours.summon import PerformAIAttack, Spawn
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 # #270-r4 : groupType de DSLBehaviors.Group, type DECLARE lu dans rida/methods.tsv.
 from ...streams.group_type import GroupType
+from .loki.splash import _pick_randomly_n
 
 if TYPE_CHECKING:
     from ..state import State
@@ -718,7 +719,6 @@ class SpawnPoxwalkersAbility(ActiveAbility):
         radius = contagions_of_nurgle_range(state, caster_id)
         tiles = poxwalkers_spawn_tiles(state, caster_id, radius)
         n = poxwalkers_count(state, caster_id, len(tiles))
-        from .loki.splash import _pick_randomly_n
         picked = _pick_randomly_n(state, tiles, n)          # PickRandomly(tiles, amount)
         ectx = ExecutionContext(state=state, rng=state.rng)
         spawn_poxwalkers_tree(picked).execute(
@@ -897,7 +897,6 @@ def plagueburst_contaminated_tiles(state: "State", target_id: int, n_tiles: int)
     if board is None or tid is None:
         return []
     pool = list(board.neighbours(tid))
-    from .loki.splash import _pick_randomly_n
     return _pick_randomly_n(state, pool, max(0, int(n_tiles) - 1))
 
 

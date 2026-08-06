@@ -20,6 +20,7 @@ from ...damage_model import (attacker_modifiers, defender_modifiers, apply_eleva
                              apply_trench_reduction, ice_crit_damage_addition,
                              defender_fixed_armor)
 from ..damage_hits import HitDamage
+from ....services.trait_damage_limits import apply_group_unit_damage_limit
 
 
 class _NormalLike:
@@ -269,7 +270,6 @@ class _NormalLike:
             import gameconfig as GC
             n = int((GC.unit(tuc.visual_id) or {}).get("nrOfMembers") or 1)
             if n > 1:
-                from ....services.trait_damage_limits import apply_group_unit_damage_limit
                 dmg = apply_group_unit_damage_limit(dmg, False, n, int(thc.hp_max), int(thc.hp))
         hp_before = thc.hp
         # Chokepoint partage (#202), `is_attack=False` : PAS de `_record_attacked` (un DoT n'est PAS une

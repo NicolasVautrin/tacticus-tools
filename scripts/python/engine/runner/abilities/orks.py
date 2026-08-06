@@ -58,6 +58,7 @@ from ...entities.effects.magnitude import ability_var
 from ...entities.stats import StatPart
 from ..components import unit_has_moved
 from .behaviours.stats import SubtractHealthPercent
+from .loki.splash import _pick_randomly_n
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1080,7 +1081,6 @@ class SquigMineAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
-        from .loki.splash import _pick_randomly_n
         board = state.board
         tile_id = target_id if (board is not None and target_id in board.by_id) else None
         if tile_id is None:
@@ -1278,7 +1278,6 @@ class DakkaDakkaDakkaAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
             return None
-        from .loki.splash import _pick_randomly_n
 
         n_hits, extra_hits, max_hits, range_2 = self._params(state, caster_id)
         # `TimesRepaired(caster@0x160)` : compteur runtime non capte offline -> 0 (cf. `dakka_num_hits`).

@@ -60,6 +60,7 @@ from ..runner.abilities.targeting_rule import TargetingRule as TR
 from .. import battle_query as bq
 from ..entities.traits.unit_trait import UnitTrait, has_trait
 from ..runner.abilities.targeting import targeting_options_for
+from ..entities.pathfinding.board import adjacent_neigh_by_pos
 
 
 def _options_of(ability_id):
@@ -830,7 +831,6 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
         if cfg is None:
             return False
         if elev_by_pos:
-            from ..entities.pathfinding.board import adjacent_neigh_by_pos
             return _free_adjacent_gate_allows(unit_pos, tile, int(cfg), elev_by_pos,
                                               adjacent_neigh_by_pos(board))
         # DEGRADATION NOMMEE : sans canal d'elevation, on ne garde du gate que sa consequence de

@@ -34,6 +34,7 @@ from engine.entities.pathfinding.board import Board
 from engine.entities.stats import StatComponent, ValueModification
 from engine.entities.stats import StatType as _ST
 from engine.entities.traits.unit_trait import trait_names_from_ids
+from ..entities.pathfinding.board import adjacent_neigh_by_pos
 
 
 @dataclass
@@ -207,7 +208,6 @@ class Scene:
         lieu de conclure « aucun voisin ». Memoise : le board est STATIQUE pour toute la bataille."""
         cached = getattr(self, "_neigh_by_pos_cache", "?")
         if cached == "?":
-            from ..entities.pathfinding.board import adjacent_neigh_by_pos
             cached = adjacent_neigh_by_pos(self.board)
             object.__setattr__(self, "_neigh_by_pos_cache", cached)
         return cached

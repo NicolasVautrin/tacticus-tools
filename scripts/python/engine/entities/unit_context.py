@@ -12,6 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .stats import UnitStats, StatType, seed_unit_stats
+from .effects import build_attacker_modifiers_from_effects
+from .effects import stat_modifications_by_source as _by_source
+from .effects import stat_modifications_by_source, stat_overrides_by_stat
+from .effects.loki.hits import SWARM_HIT_REDUCTION_SOURCE
+from .traits.factory import TraitFactory
 
 
 @dataclass
@@ -172,14 +177,12 @@ class UnitContext:
         les EFFETS actifs de l'unité (§17.8 ; vide si aucun = no-op). `active_effects` = instances
         `BaseEffect` (matérialisées/filtrées par EffectsState) OU dicts captés. Lazy import (entities.effects)
         ; re-évalué par-décision — ne pas figer."""
-        from .effects import build_attacker_modifiers_from_effects
         return build_attacker_modifiers_from_effects(self.active_effects)
 
     def trait_objects(self):
         """Traits matérialisés de l'unité (instances `BaseTrait` via la factory) — innés/statiques, exploités
         par le contrat raw-prediction §17.17 (hit-twice, ignore-armure, GetStuckIn, Resilient/Impervious…).
         `self.traits` = noms gameconfig. Lazy import (entities.traits)."""
-        from .traits.factory import TraitFactory
         return TraitFactory.create_many(self.traits)
 
     # #344 — `normal_base` (= `(normal_min + normal_max) // 2`) RETIRÉE : elle ne citait AUCUN symbole
@@ -291,7 +294,6 @@ class UnitContext:
         # aux DEUX passes de seed ci-dessous.
         _overrides = None
         if stat_ids and effects:
-            from .effects import stat_modifications_by_source, stat_overrides_by_stat
             attributed = stat_modifications_by_source(effects)
             _overrides = stat_overrides_by_stat(effects)
         # #60 : attribution du malus Swarm_HitReduction (effet 0x3fd=1021, trait Swarm) — la part
@@ -306,7 +308,6 @@ class UnitContext:
             _n_base = g("numberOfMembers") - _d_members
             _swarm_amt = -min(_n_base - 1, -_d_members) if (_n_base > 1 and _d_members < 0) else 0
             if _swarm_amt:
-                from .effects.loki.hits import SWARM_HIT_REDUCTION_SOURCE
                 _swarm = {int(StatType.EXTRA_HITS): {SWARM_HIT_REDUCTION_SOURCE: _swarm_amt}}
         # Garantit que les 8 stats de base (propriétés) sont seedées même si `stat_ids` est absent /
         # incomplet : `ensure_seeded` est idempotent (ne touche pas un composant déjà seedé par
@@ -389,7 +390,6 @@ class UnitContext:
         # CROSS-UNITÉ la capture ne dit pas le niveau de la SOURCE, on prend celui du porteur et le
         # résidu absorbe l'écart. Le revert retire alors la magnitude CALCULÉE — strictement mieux que
         # l'état antérieur, où il ne retirait RIEN (buff conservé à vie, écart de 100 %).
-        from .effects import stat_modifications_by_source as _by_source   # lazy (cycle entities.effects)
         full = _by_source(effects, stats_ctx=ctx)
         if full != (attributed or {}):
             for _idx, _d in _swarm.items():

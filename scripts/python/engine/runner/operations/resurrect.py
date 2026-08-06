@@ -27,6 +27,8 @@ from ..state import State
 from ..components import (UnitComponent, PositionComponent, HealthComponent, UnitFlagsComponent)
 from ...entities.unit_flag import UnitFlag
 from .triggers.dispatch.move_death import unit_resurrected_triggers
+from ..abilities.loki.swarm import on_group_unit_hp_changed
+from .movement import _kill_steppable_units
 
 
 def update_flags_on_resurrect(fl: UnitFlagsComponent) -> None:
@@ -81,7 +83,6 @@ class ResurrectUnitOperation:
         # non tuée elle-même). Le decoy MORT co-localisé -> source de G2 BuffFriends.
         crushed = []
         if dest_coord is not None:
-            from .movement import _kill_steppable_units
             crushed = _kill_steppable_units(state, (int(dest_coord[0]), int(dest_coord[1])), unit_id)
         # revive : alive + PV pleins + flag one-shot 0xe (Ambush consommé)
         uc.alive = True
@@ -98,7 +99,6 @@ class ResurrectUnitOperation:
             hc.fill_up(int(hp))
             # #60 : bras `On(UnitRevived=45) & OwnerIsTarget` du `SwarmAbility.CreateTrigger
             # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — re-evalue le stat-mod EXTRA_HITS du trait Swarm au retour a la vie.
-            from ..abilities.loki.swarm import on_group_unit_hp_changed
             on_group_unit_hp_changed(state, unit_id)
         fl = e.get_component(UnitFlagsComponent)
         if fl is None:

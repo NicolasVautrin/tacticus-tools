@@ -54,6 +54,9 @@ from ..components import ActiveAbilitiesComponent, StatsComponent
 from ..components import StatsComponent
 from ..operations.ability_reset import entity_can_have_active_ability_reset
 from .targeting import entity_tiles, get_adjacent_enemies, get_adjacent_friends
+from .attack_query import (_has_trait, entity_can_be_healed, entity_can_be_repaired,
+                                   health_is_readable)
+from .attack_query import get_owned_effect_is_active
 
 if TYPE_CHECKING:
     from ..state import State
@@ -392,7 +395,6 @@ def _has_deactivated_ranged_specialist(state: "State", unit_id) -> bool:
     reconstruite par `attack_query.get_owned_effect_is_active(..., has_trait_effect_source=1060)`,
     qui rend le TERNAIRE natif : `None` = pas porteur du trait (pas d'entite-effet), `True` = effet
     present et actif, `False` = trait porte mais instance absente du seed = DESACTIVEE."""
-    from .attack_query import get_owned_effect_is_active
     return get_owned_effect_is_active(state, unit_id, RANGED_SPECIALIST_EFFECT,
                                       has_trait_effect_source=RANGED_SPECIALIST_TRAIT) is False
 
@@ -904,8 +906,6 @@ class InspiredToGreatnessAbility(ActiveAbility):
             fabriquerait le refus a lui seul.
         Les mesures de #247 sont faites avec `allAbilities: True` et un `combatSnapshot` complet,
         donc sur des verdicts REELS -- les gardes ne masquent aucune de ces lignes."""
-        from .attack_query import (_has_trait, entity_can_be_healed, entity_can_be_repaired,
-                                   health_is_readable)
         if target_id is None:
             return 0                                    # cible non resolue -> le port ne decide pas
         if int(target_id) == int(caster_id):

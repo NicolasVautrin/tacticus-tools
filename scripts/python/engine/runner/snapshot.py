@@ -49,6 +49,7 @@ from ..entities.triggered_ability_type import TriggeredAbilityType
 from .components import ForcedAttackTargetsComponent
 from .operations.aura_stat_mods import attribute_aura_stat_modifiers
 from .operations.spawn import _seed_ability_owner_effects, TELEPORT_STRIKE_TELEPORTING_IN
+from ..services.damage_config import DAMAGE_FIELDS
 
 
 # `EntityType.Machine` — l'enum d'entité du `MatchState` natif, projeté tel quel par les capteurs
@@ -346,7 +347,6 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # #449-r2-r4-r4 : toute la section, pas seulement les deux champs de la variance. La liste
         # est DERIVEE de `DAMAGE_FIELDS` -- un champ qui entre dans la table est pose ici sans
         # qu'on ait a y penser, et ne peut donc pas rester silencieusement non transporte.
-        from ..services.damage_config import DAMAGE_FIELDS
         for _name in DAMAGE_FIELDS:
             setattr(state, _name, getattr(_dmgcfg, _name))
     # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du

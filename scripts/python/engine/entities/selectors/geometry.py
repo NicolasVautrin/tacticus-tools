@@ -15,6 +15,7 @@ from ...hex_edge import Edge          # `IdunBattle.Utils.Hex.Edge` (#270-r1-r1)
 from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
                          _effect_field, resolve_unit)
 from ._shared import _entity_pos, _tile_positions
+from ...services.spawn_tile_shape import get_area
 
 
 # --- Geometrie de TUILES par DIRECTION HEX (`IdunBattle.Utils.Hex`) -------------------------
@@ -126,7 +127,6 @@ class ThreeTileUnitSpawnShape(TargetsSelector):
         self.inner = inner
 
     def select(self, ctx):
-        from ...services.spawn_tile_shape import get_area
         board = getattr(ctx, "board", None)
         if board is None:
             return []

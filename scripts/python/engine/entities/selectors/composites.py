@@ -8,6 +8,7 @@ from __future__ import annotations
 from ...dsl.base import TargetsSelector
 from .units import Enemies, Sub, Units, UnitsWithoutTrait
 from .tiles import AdjacentTiles, AllUnits, CanAddUnit, Caster, TileIntersect, TileUnique
+from ..traits.unit_trait import UnitTrait
 
 
 def adjacent_units(source: TargetsSelector) -> TargetsSelector:
@@ -44,7 +45,6 @@ def get_spawn_tile_selector() -> TargetsSelector:
     = filtre TRAIT). **AUCUN noeud `Damageable`** : le natif n'en a pas (decompile + capture live
     tracer-v2 concordent) — l'exclusion des morts est portee par `AllUnits`=`AllAliveMachinesSelector`
     (#202). Enemies/UnitsWithoutTrait = meme module."""
-    from ..traits.unit_trait import UnitTrait
     caster_free = CanAddUnit(AdjacentTiles(Caster()))
     enemies = UnitsWithoutTrait(Enemies(AllUnits()), int(UnitTrait.Steppable))
     enemy_adj = TileUnique(AdjacentTiles(enemies))

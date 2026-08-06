@@ -113,6 +113,9 @@ from ..components import StatsComponent
 from .targeting import (_resolves_to_unit, units_are_enemies,
                                 valid_normal_attack_targets)
 from .targeting import _resolves_to_unit, units_are_enemies
+from .attack_query import entity_can_be_repaired
+from .attack_query import is_affected_by_heal_type
+from .loki.summon import perform_ai_attack_from_current_position
 
 if TYPE_CHECKING:
     from ...dsl.base import TargetsSelector
@@ -233,7 +236,6 @@ class RepairAbility(ActiveAbility):
         arguments, caster en tete) -- deja porte 1:1 dans `abilities/attack_query.py`, qui CITE ce
         call-site. `scope = 0` / `removeEffects = true` sont les LITTERAUX de l'appel, pas les
         options de la behaviour."""
-        from .attack_query import entity_can_be_repaired
         if target_id is None:
             return 0
         if units_are_enemies(state, int(target_id), int(caster_id)):
@@ -314,7 +316,6 @@ def galvanic_field_attack_behavior(state: "State", caster_id: int,
 
     `node is None` (config `GalvanicField` illisible) -> AUCUN override invente, aucune attaque :
     degradation fidele. Rend la liste des attaques declenchees."""
-    from .loki.summon import perform_ai_attack_from_current_position
     out: list = []
     node = galvanic_override_amount(state, caster_id)
     if node is None:
@@ -412,14 +413,12 @@ class Repair_GalvanicFieldAbility(RepairAbility):
         c'est-a-dire exactement `targetTiles[0]`. Le cooldown (`ActiveAbility$$get_CanCurrentlyBeUsed`
         sur le `GetOrNull(normalAttackType)` du natif) n'est pas modelise pour l'attaque normale ->
         degradation PERMISSIVE (le port peut prendre la branche A la ou le natif prendrait B)."""
-        from .attack_query import entity_can_be_repaired
         if target_id is None:
             return 0            # `target == null` : le natif tombe en branche B, `IsUnit`/`IsEnemy` faux
         tid, cid = int(target_id), int(caster_id)
         if tid != cid and _resolves_to_unit(state, tid) and valid_normal_attack_targets(state, tid):
             if units_are_enemies(state, tid, cid):
                 return int(TR.TargetIsFriendly)
-            from .attack_query import is_affected_by_heal_type
             return 0 if is_affected_by_heal_type(state, tid, 1) else int(TR.ValidRequest)
         if _resolves_to_unit(state, tid) and not entity_can_be_repaired(
                 state, None, tid, scope=0, remove_effects=True):

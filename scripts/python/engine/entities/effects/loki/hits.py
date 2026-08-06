@@ -24,6 +24,7 @@ from ...triggered_ability_type import TriggeredAbilityType
 # `StatType.<MEMBRE>` dans quatre `get_stat_modification_stat` qui n'avaient aucun import local ->
 # `NameError` au chargement d'etat. Import module-level (#448-r3-r1).
 from ...stats import StatPart, StatType
+from ....services.trait_damage_limits import group_unit_stat_part
 
 
 class SquigHoundAdditionalHitsEffect(BaseEffect):
@@ -1833,7 +1834,6 @@ class Swarm_HitReductionEffect(BaseEffect):
 
     def bind_group_state(self, current_hp: int, member_total_hp: int, member_count: int) -> None:
         """Évalue la formule native avec l'état PV du porteur : amount = −min(n−1, membres morts)."""
-        from ....services.trait_damage_limits import group_unit_stat_part
         n = int(member_count)
         if n < 2:
             self._bound_amount = None

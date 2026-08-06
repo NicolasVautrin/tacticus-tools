@@ -14,6 +14,13 @@ from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive
                          _effect_field, resolve_unit, _select_tile, _occupants_by_tile)
 from ._shared import _entity_pos, _tile_positions
 from ...utilities.utility_type import UtilityType   # #270-r1-r1-r3
+from ...services.static_battle_rules import not_blocking_movement_of_traits
+from ..effect_type import EffectType
+from ..pathfinding.pathfinders import movable_positions_for_unit
+from ..pathfinding.tile_blocking import (TILE_MOVEMENT_BLOCKING_EFFECT_TYPES,
+                                             terrain_blocks_entering)
+from ..traits.unit_trait import has_any_trait
+from ..traits.unit_trait import unit_trait_names
 
 
 # --- Selecteurs de TUILES (domaine TILE = ids de tuile ; lisent ctx.board). Pont unit->tile
@@ -492,10 +499,6 @@ def _movement_can_continue(ctx, board, mover_traits):
 
     Rend `None` quand aucun canal n'est disponible (pas de board) — soit « aucun gate », le
     comportement d'avant #131."""
-    from ...services.static_battle_rules import not_blocking_movement_of_traits
-    from ..pathfinding.tile_blocking import (TILE_MOVEMENT_BLOCKING_EFFECT_TYPES,
-                                             terrain_blocks_entering)
-    from ..traits.unit_trait import has_any_trait
     if board is None:
         return None
     tile_has_effect = getattr(ctx, "tile_has_effect", None)
@@ -523,7 +526,6 @@ def _synapse_tiles(ctx, board, moving_team):
     `FearOfTheUnseenPathfinder$$IsValidTeleportTile` (`Synapse_Effect` 0x41c + `GetSurroundingTiles
     (allie, 2, ..., includeCenter: true)`). `ctx.has_effect` absent -> `None` (NON MESURE), branche
     inerte. Meme mirror que `services.movement_query.synapse_tiles_for`, autre substrat."""
-    from ..effect_type import EffectType
     he = getattr(ctx, "has_effect", None)
     if he is None or board is None or moving_team is None:
         return None
@@ -645,8 +647,6 @@ class MovableTilesInRange(TargetsSelector):
         self.ignore_units_on_tiles = bool(ignore_units_on_tiles)
 
     def select(self, ctx):
-        from ..pathfinding.pathfinders import movable_positions_for_unit
-        from ..traits.unit_trait import unit_trait_names
         board = getattr(ctx, "board", None)
         if board is None:
             return []

@@ -74,6 +74,8 @@ from ....services.battle_query import are_tiles_adjacent
 from ....services.custom_normal_attack import substitutes_normal_attack
 from ....entities.triggered_ability_type import triggered_ability_ids
 from ....utilities.tile import tile_composite
+from ....utilities.tile import terrain_tile_effects
+from ....weights import load
 
 if TYPE_CHECKING:
     from ...state import State
@@ -142,7 +144,6 @@ _WT = None    # cache module du Weights BC (statique par bataille, comme magnitu
 def _wt():
     global _WT
     if _WT is None:
-        from ....weights import load
         _WT = load()
     return _WT
 
@@ -306,7 +307,6 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
             return cands[0][0]                              # gate GetDynamicInvalidTargetReason (1er candidat)
         elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
         emm = (min(elevs), max(elevs)) if elevs else (None, None)
-        from ....utilities.tile import terrain_tile_effects
         best_tid, best_u = None, None
         for tid, pos in cands:                              # max stable (ordre des candidats au tie)
             adj = [(t, v) for _e, t, v in _adjacent_occupants(state, board, tid)]
@@ -403,7 +403,6 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
             return cands[0][1]
         elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
         emm = (min(elevs), max(elevs)) if elevs else (None, None)
-        from ....utilities.tile import terrain_tile_effects
         best_pos, best_u = None, None
         for tid, pos in cands:
             adj = _adj(tid)
