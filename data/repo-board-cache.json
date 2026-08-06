@@ -625,6 +625,12 @@
    "last": "2026-07-18T00:17:15.074000+00:00",
    "turns": 18
   },
+  "a15eeada8433f4900": {
+   "ctx": 14324571,
+   "first": "2026-08-05T23:42:08.369000+00:00",
+   "last": "2026-08-05T23:53:59.653000+00:00",
+   "turns": 79
+  },
   "a16280e6c79c46ca9": {
    "ctx": 58770674,
    "first": "2026-07-27T17:41:25.530000+00:00",
@@ -1111,6 +1117,12 @@
    "last": "2026-07-28T06:15:34.517000+00:00",
    "turns": 247
   },
+  "a293bbbbd2bf3e1d4": {
+   "ctx": 2300894,
+   "first": "2026-08-05T23:33:31.935000+00:00",
+   "last": "2026-08-05T23:38:58.283000+00:00",
+   "turns": 25
+  },
   "a295c4dbbb6beb43d": {
    "ctx": 120689947,
    "first": "2026-08-04T23:04:59.725000+00:00",
@@ -1500,6 +1512,12 @@
    "first": "2026-07-25T13:07:41.724000+00:00",
    "last": "2026-07-25T15:12:11.293000+00:00",
    "turns": 329
+  },
+  "a39a746a5010dc214": {
+   "ctx": 2385241,
+   "first": "2026-08-06T00:48:35.525000+00:00",
+   "last": "2026-08-06T00:50:24.078000+00:00",
+   "turns": 24
   },
   "a39ac4438d4817894": {
    "ctx": 24897536,
@@ -2042,10 +2060,10 @@
    "turns": 313
   },
   "a4e8042046cc86792": {
-   "ctx": 3910357,
+   "ctx": 65956805,
    "first": "2026-08-05T22:57:14.799000+00:00",
-   "last": "2026-08-05T22:59:39.168000+00:00",
-   "turns": 31
+   "last": "2026-08-05T23:56:01.818000+00:00",
+   "turns": 227
   },
   "a4e82874416985d08": {
    "ctx": 132095916,
@@ -2078,10 +2096,10 @@
    "turns": 202
   },
   "a4f5c07d51b48d4cc": {
-   "ctx": 26348688,
+   "ctx": 78364028,
    "first": "2026-08-05T22:37:06.652000+00:00",
-   "last": "2026-08-05T22:59:32.914000+00:00",
-   "turns": 111
+   "last": "2026-08-05T23:44:29.876000+00:00",
+   "turns": 248
   },
   "a4ff026aa26851621": {
    "ctx": 84669690,
@@ -2533,6 +2551,12 @@
    "last": "2026-08-05T15:01:59.140000+00:00",
    "turns": 181
   },
+  "a5f3b013b8c2fddc1": {
+   "ctx": 41084515,
+   "first": "2026-08-06T00:51:33.989000+00:00",
+   "last": "2026-08-06T01:24:11.374000+00:00",
+   "turns": 154
+  },
   "a5f4b2cd390b5c50e": {
    "ctx": 6542258,
    "first": "2026-07-12T17:07:23.020000+00:00",
@@ -2678,10 +2702,10 @@
    "turns": 186
   },
   "a67caf2c06503958d": {
-   "ctx": 52388432,
+   "ctx": 53586166,
    "first": "2026-08-05T22:18:21.682000+00:00",
-   "last": "2026-08-05T22:59:35.637000+00:00",
-   "turns": 249
+   "last": "2026-08-05T23:00:27.476000+00:00",
+   "turns": 253
   },
   "a68cd4cafb39f19d5": {
    "ctx": 64733065,
@@ -2700,6 +2724,12 @@
    "first": "2026-07-11T19:40:45.391000+00:00",
    "last": "2026-07-11T19:47:51.882000+00:00",
    "turns": 61
+  },
+  "a6918d0854cb83ae9": {
+   "ctx": 55936852,
+   "first": "2026-08-06T00:06:52.072000+00:00",
+   "last": "2026-08-06T01:00:50.911000+00:00",
+   "turns": 201
   },
   "a69b5c5168876ecd6": {
    "ctx": 18562837,
@@ -2742,6 +2772,12 @@
    "first": "2026-08-04T15:01:51.773000+00:00",
    "last": "2026-08-04T16:37:48.186000+00:00",
    "turns": 218
+  },
+  "a6aa5782096c19b7c": {
+   "ctx": 99048502,
+   "first": "2026-08-05T23:28:25.381000+00:00",
+   "last": "2026-08-06T00:34:49.730000+00:00",
+   "turns": 294
   },
   "a6ad7acbdff29d97c": {
    "ctx": 8000265,
@@ -2868,6 +2904,12 @@
    "first": "2026-07-13T07:00:57.276000+00:00",
    "last": "2026-07-13T08:12:03.513000+00:00",
    "turns": 177
+  },
+  "a6ef4306389555a89": {
+   "ctx": 69740800,
+   "first": "2026-08-06T00:06:16.110000+00:00",
+   "last": "2026-08-06T01:02:14.048000+00:00",
+   "turns": 297
   },
   "a6f36a21f87ebba0c": {
    "ctx": 3962330,
@@ -3048,6 +3090,12 @@
    "first": "2026-07-15T20:01:29.350000+00:00",
    "last": "2026-07-15T20:30:25.313000+00:00",
    "turns": 132
+  },
+  "a76c3e9b4ff82aae3": {
+   "ctx": 6144276,
+   "first": "2026-08-06T01:14:11.846000+00:00",
+   "last": "2026-08-06T01:23:19.429000+00:00",
+   "turns": 45
   },
   "a7707f50083bf7540": {
    "ctx": 873114,
@@ -3534,6 +3582,12 @@
    "first": "2026-08-05T20:15:27.263000+00:00",
    "last": "2026-08-05T21:00:17.844000+00:00",
    "turns": 205
+  },
+  "a89bd0c4e1cffdc3e": {
+   "ctx": 73463827,
+   "first": "2026-08-05T23:17:23.125000+00:00",
+   "last": "2026-08-06T00:31:02.572000+00:00",
+   "turns": 270
   },
   "a89edcfeababc56aa": {
    "ctx": 101659600,
@@ -4453,6 +4507,12 @@
    "last": "2026-07-30T10:30:52.400000+00:00",
    "turns": 81
   },
+  "ab52a9742c4515100": {
+   "ctx": 54919132,
+   "first": "2026-08-05T23:16:42.773000+00:00",
+   "last": "2026-08-06T00:17:47.741000+00:00",
+   "turns": 220
+  },
   "ab5613c20aaa51b8d": {
    "ctx": 65121686,
    "first": "2026-07-29T22:22:53.410000+00:00",
@@ -5239,6 +5299,12 @@
    "last": "2026-07-25T13:04:13.164000+00:00",
    "turns": 293
   },
+  "ad837e1a88ff18ae6": {
+   "ctx": 22291372,
+   "first": "2026-08-06T00:47:36.088000+00:00",
+   "last": "2026-08-06T01:24:13.818000+00:00",
+   "turns": 116
+  },
   "ad858b64231460c28": {
    "ctx": 1485534,
    "first": "2026-07-14T08:07:24.970000+00:00",
@@ -5731,6 +5797,12 @@
    "last": "2026-08-04T06:03:31.974000+00:00",
    "turns": 60
   },
+  "aea98bc759c39582f": {
+   "ctx": 48026884,
+   "first": "2026-08-06T00:48:05.165000+00:00",
+   "last": "2026-08-06T01:21:45.356000+00:00",
+   "turns": 211
+  },
   "aeadec5e26c972b2a": {
    "ctx": 35388663,
    "first": "2026-08-02T14:58:19.566000+00:00",
@@ -5754,6 +5826,12 @@
    "first": "2026-07-31T17:50:53.915000+00:00",
    "last": "2026-07-31T18:30:30.017000+00:00",
    "turns": 219
+  },
+  "aeb66f9b6bdf1ae02": {
+   "ctx": 9431078,
+   "first": "2026-08-06T01:13:09.904000+00:00",
+   "last": "2026-08-06T01:23:24.080000+00:00",
+   "turns": 66
   },
   "aeb757635470999a6": {
    "ctx": 106497013,
@@ -6152,10 +6230,10 @@
    "turns": 278
   },
   "afa6de9ef0e305df8": {
-   "ctx": 61370516,
+   "ctx": 98921640,
    "first": "2026-08-05T22:06:44.772000+00:00",
-   "last": "2026-08-05T22:59:34.737000+00:00",
-   "turns": 189
+   "last": "2026-08-05T23:22:36.098000+00:00",
+   "turns": 263
   },
   "afa8602ae92c07436": {
    "ctx": 38522728,
@@ -6458,9 +6536,9 @@
    "turns": 26824
   },
   "2026-08-06": {
-   "agent_ctx": 321545922,
-   "ctx": 374150621,
-   "turns": 1333
+   "agent_ctx": 973454512,
+   "ctx": 1142530788,
+   "turns": 4231
   }
  },
  "files": {
@@ -6478,7 +6556,7 @@
   },
   "770b6b08-a8e1-4df4-99e5-9ea0bcf65487.jsonl": {
    "first": "",
-   "offset": 10177140
+   "offset": 10241405
   },
   "85ce3eaa-558f-4617-a07c-53d13aa4a1bc.jsonl": {
    "first": "",
@@ -6904,6 +6982,10 @@
    "first": "0946e7aa-8f7e-4de9-a860-d7f22278db53",
    "offset": 328234
   },
+  "agent-a15eeada8433f4900.jsonl": {
+   "first": "b63af7fb-774d-43e9-9250-8aa2b9163ca5",
+   "offset": 749006
+  },
   "agent-a16280e6c79c46ca9.jsonl": {
    "first": "f4551d45-2d4f-43f5-8e23-a9e73cf70fff",
    "offset": 1887018
@@ -7228,6 +7310,10 @@
    "first": "b2f7e545-a687-485e-97f3-aa23d88b3e8a",
    "offset": 1807027
   },
+  "agent-a293bbbbd2bf3e1d4.jsonl": {
+   "first": "174b4850-6bcb-4017-8270-64373307e8b5",
+   "offset": 269728
+  },
   "agent-a295c4dbbb6beb43d.jsonl": {
    "first": "8acee0bc-9643-454f-8ae2-2cdfcab3365f",
    "offset": 2210935
@@ -7487,6 +7573,10 @@
   "agent-a39a477e36421305f.jsonl": {
    "first": "430f91ed-90f5-4e2c-a531-24e94fd343c3",
    "offset": 2638581
+  },
+  "agent-a39a746a5010dc214.jsonl": {
+   "first": "94a3420e-f845-492d-bda1-96284e969265",
+   "offset": 276889
   },
   "agent-a39ac4438d4817894.jsonl": {
    "first": "47ccd0f0-a277-466b-a366-840c8f923a44",
@@ -7850,7 +7940,7 @@
   },
   "agent-a4e8042046cc86792.jsonl": {
    "first": "e6c9c7f9-4b2b-47d2-966c-1cff2bfaae21",
-   "offset": 298691
+   "offset": 1716666
   },
   "agent-a4e82874416985d08.jsonl": {
    "first": "5c854b6d-c4dc-4337-b5e1-d5949eedfae7",
@@ -7874,7 +7964,7 @@
   },
   "agent-a4f5c07d51b48d4cc.jsonl": {
    "first": "38c62b69-ba30-4919-a087-9c8d36de62d2",
-   "offset": 1062373
+   "offset": 1844377
   },
   "agent-a4ff026aa26851621.jsonl": {
    "first": "eae1ac68-5827-4572-a413-b6a47bc2f6ce",
@@ -8176,6 +8266,10 @@
    "first": "e6afe0d8-0b2f-47ab-886c-19feaddb6000",
    "offset": 1161482
   },
+  "agent-a5f3b013b8c2fddc1.jsonl": {
+   "first": "2c93e414-9eec-44b3-ac7e-cd35ac9201c9",
+   "offset": 1442209
+  },
   "agent-a5f4b2cd390b5c50e.jsonl": {
    "first": "f842d8a3-35fd-422a-ad22-625926c3e1d6",
    "offset": 539589
@@ -8274,7 +8368,7 @@
   },
   "agent-a67caf2c06503958d.jsonl": {
    "first": "e8515fcc-99e1-45fe-9d09-7bbef66ff79f",
-   "offset": 1292435
+   "offset": 1306099
   },
   "agent-a68cd4cafb39f19d5.jsonl": {
    "first": "dbbd6c50-7912-4726-9315-65effe1550e4",
@@ -8287,6 +8381,10 @@
   "agent-a68e55925705da807.jsonl": {
    "first": "7a7624a5-1054-4a73-9f95-a8e39a3e037f",
    "offset": 494929
+  },
+  "agent-a6918d0854cb83ae9.jsonl": {
+   "first": "bcab1869-2eb0-4bc2-b888-d08918dbb163",
+   "offset": 1636692
   },
   "agent-a69b5c5168876ecd6.jsonl": {
    "first": "0d441833-1f00-47fe-ba32-457d5e5b4f15",
@@ -8315,6 +8413,10 @@
   "agent-a6a996e977cf18b3f.jsonl": {
    "first": "9878875b-5dc5-4a39-9fcb-3701c9a80f77",
    "offset": 1234615
+  },
+  "agent-a6aa5782096c19b7c.jsonl": {
+   "first": "d8ccdf06-c76a-40c5-b5a1-2d9a793280d3",
+   "offset": 2135161
   },
   "agent-a6ad7acbdff29d97c.jsonl": {
    "first": "e8c8dd08-f420-4ff7-b184-bffa7acf2408",
@@ -8399,6 +8501,10 @@
   "agent-a6ec9ad2308518100.jsonl": {
    "first": "57a03a17-26f3-468d-9d99-9f6cee298782",
    "offset": 1218172
+  },
+  "agent-a6ef4306389555a89.jsonl": {
+   "first": "7572477b-fda4-449c-b7a1-7e1acd30844a",
+   "offset": 1728430
   },
   "agent-a6f36a21f87ebba0c.jsonl": {
    "first": "eacc56ee-2980-4d44-8882-43b3aa25dd77",
@@ -8519,6 +8625,10 @@
   "agent-a76b08f5afecaf046.jsonl": {
    "first": "c182a741-b046-4541-a3e3-728fc28ec25d",
    "offset": 715407
+  },
+  "agent-a76c3e9b4ff82aae3.jsonl": {
+   "first": "8c75ccf8-7bcf-4c76-aac3-9a180209984c",
+   "offset": 421706
   },
   "agent-a7707f50083bf7540.jsonl": {
    "first": "c3dee466-a670-4817-a982-59b3cbec7a54",
@@ -8843,6 +8953,10 @@
   "agent-a896f80818b560dac.jsonl": {
    "first": "da01ea2e-f85a-4598-81e7-019e4f79e8d0",
    "offset": 1539453
+  },
+  "agent-a89bd0c4e1cffdc3e.jsonl": {
+   "first": "23399edd-68e0-48d5-9765-1cba346a13f0",
+   "offset": 1712921
   },
   "agent-a89edcfeababc56aa.jsonl": {
    "first": "c41f82e9-198f-4094-9b77-f0c207b1e798",
@@ -9456,6 +9570,10 @@
    "first": "f7c736f7-fd28-4543-be83-8f71edd53cfc",
    "offset": 664591
   },
+  "agent-ab52a9742c4515100.jsonl": {
+   "first": "457e3e78-488e-4077-b8fa-60a860299614",
+   "offset": 1509328
+  },
   "agent-ab5613c20aaa51b8d.jsonl": {
    "first": "8afbdf54-f4f3-453a-aeb5-d2ba7c942ef4",
    "offset": 1794828
@@ -9980,6 +10098,10 @@
    "first": "aefbadd1-26ea-406e-9af7-8ff475ebbaea",
    "offset": 2725322
   },
+  "agent-ad837e1a88ff18ae6.jsonl": {
+   "first": "c8264380-34a0-4a92-b3da-7f9502819bdf",
+   "offset": 976507
+  },
   "agent-ad858b64231460c28.jsonl": {
    "first": "4b0783d6-d024-46ae-9b59-2f652e62bef2",
    "offset": 136792
@@ -10308,6 +10430,10 @@
    "first": "3cc46319-9613-4d72-a644-5b2cc701a4ea",
    "offset": 686840
   },
+  "agent-aea98bc759c39582f.jsonl": {
+   "first": "7bb791a2-a2b4-4c72-8b70-e607453f5de2",
+   "offset": 1314177
+  },
   "agent-aeadec5e26c972b2a.jsonl": {
    "first": "280df91a-a7ca-47ad-9537-244b33f6595f",
    "offset": 1093080
@@ -10323,6 +10449,10 @@
   "agent-aeb4f44a1ec0da607.jsonl": {
    "first": "1399b817-cfc0-46be-9219-802722040853",
    "offset": 1416440
+  },
+  "agent-aeb66f9b6bdf1ae02.jsonl": {
+   "first": "7b24ea9d-836f-446d-b54e-05236d51219c",
+   "offset": 542852
   },
   "agent-aeb757635470999a6.jsonl": {
    "first": "00958fad-902c-4059-a09a-3d1809c9e62f",
@@ -10590,7 +10720,7 @@
   },
   "agent-afa6de9ef0e305df8.jsonl": {
    "first": "25a82a76-9cc2-4531-9d6f-bd8f70ab209c",
-   "offset": 1852864
+   "offset": 2096810
   },
   "agent-afa8602ae92c07436.jsonl": {
    "first": "492d919a-faa2-4016-8c02-71dd02e1fc64",
@@ -10646,7 +10776,7 @@
   },
   "b2170732-95be-4660-9594-e3e86a19af08.jsonl": {
    "first": "",
-   "offset": 620572459
+   "offset": 626002160
   },
   "b3ddc32a-7528-4057-9d59-bf4ca0066ab3.jsonl": {
    "first": "",
@@ -10886,6 +11016,14 @@
    ],
    "dele": 77
   },
+  "0b8982a9fb668341671ad302652e25bb3087ed23": {
+   "add": 1401,
+   "commits": [
+    "78fa87d11fe3fa2b0a790f6715fb7d87b107a90b",
+    "517ddf013ca3aea6a683f13ceab2bfcda54869d5"
+   ],
+   "dele": 76
+  },
   "0bf1201fd38c3d60f970dca74ad9599741e82eaf": {
    "add": 1650,
    "commits": [
@@ -10941,6 +11079,13 @@
     "93699299742f76cfaeba694bff3f4e888376039b"
    ],
    "dele": 22
+  },
+  "0d1e01d965126c70b0d233dd85fc34de541f7390": {
+   "add": 1549,
+   "commits": [
+    "0d1e01d965126c70b0d233dd85fc34de541f7390"
+   ],
+   "dele": 17
   },
   "0d99c87020210e610435ffe23b825d6c1405b8a4": {
    "add": 1173,
@@ -11766,6 +11911,13 @@
    ],
    "dele": 52
   },
+  "305f2215d44ee364fc1744f2ca16503f84e766fd": {
+   "add": 1124,
+   "commits": [
+    "305f2215d44ee364fc1744f2ca16503f84e766fd"
+   ],
+   "dele": 10
+  },
   "30c0762ded5ac32c40bb669f0a3eade6be31c934": {
    "add": 743,
    "commits": [
@@ -12336,6 +12488,13 @@
    ],
    "dele": 150
   },
+  "4ad978c6a39130a3c98647598758bce7065f3376": {
+   "add": 1513,
+   "commits": [
+    "ac57cfeaa014680e83f605d533e0b0280fb89603"
+   ],
+   "dele": 34
+  },
   "4afa81b054f32ee6fba7edd36722f6d2dfe4a903": {
    "add": 1508,
    "commits": [
@@ -12564,6 +12723,15 @@
    ],
    "dele": 105
   },
+  "594ac8383c991d83115dcdf91ea65db3b0fbbfab": {
+   "add": 828,
+   "commits": [
+    "a9909d47e7bb235be3fb1a6e0936903e3bfb3ed3",
+    "f24f64d286525b7aa712b675b6e5386869713939",
+    "597fae6c36247c2abc3021fd6d10d68895484c6d"
+   ],
+   "dele": 54
+  },
   "5979cc54bd8727919bf49c0569eaf7765bb6ba4c": {
    "add": 1419,
    "commits": [
@@ -12579,6 +12747,15 @@
     "5aebd1cb5e22a36e83e15ef7a6cb641232c129dc"
    ],
    "dele": 87
+  },
+  "59a54b5f6376ffb9284a7da720fa7d5f3e73a655": {
+   "add": 1148,
+   "commits": [
+    "9ba798196f87074e8fcb094ed71a6fa43f3b99d2",
+    "9920460977947ce90283b93db512fe8336d9947f",
+    "feeb9bf463d8b32dd79666618ada59acaec93a94"
+   ],
+   "dele": 102
   },
   "59c8df4efa72da183d03f38e5090bcef700956c7": {
    "add": 716,
@@ -12802,6 +12979,15 @@
     "581a4ba716685675023f70d8022a329f95c3cfe1"
    ],
    "dele": 24
+  },
+  "627ca6c397176fd5f596014a9042512f2ac280b0": {
+   "add": 1883,
+   "commits": [
+    "3578b9a0e301d17af73264cba657aa8b98dd37d3",
+    "8b246f9404f605b785297a44166150000d060fd4",
+    "9f2d735abfa8d3ea28460a8d928f95bf887a9a92"
+   ],
+   "dele": 17
   },
   "628f08cc6cd0e012a8d9960a43f4e00c87a6fe3f": {
    "add": 1848,
@@ -14189,6 +14375,14 @@
    ],
    "dele": 17
   },
+  "998d7973cbb1b2c0584301eb08b8ded594cf5339": {
+   "add": 884,
+   "commits": [
+    "d450c3623a721dee0c4aec994f38905f3e996a7f",
+    "1909a499c11e076c49b152253c0d9e0ced4e1499"
+   ],
+   "dele": 80
+  },
   "99951cc12b758bf790b0e660a5467c2e0c28ea10": {
    "add": 2004,
    "commits": [
@@ -15329,6 +15523,17 @@
    ],
    "dele": 124
   },
+  "c919fdd9cf7a210cad12cc9eac1167f208c6f7bf": {
+   "add": 1298,
+   "commits": [
+    "42513368b96591185cd5341d62c5896b74cc1a13",
+    "565c78d0a631d0e1b08413bf4519bb65159ed564",
+    "824e2eb6b7eb51d53a9967dea91cba173da4979b",
+    "01ec38a799591b57f409cccf682fef498942b343",
+    "a0a48753432136bb26d01788de9f7d003dfa9113"
+   ],
+   "dele": 5
+  },
   "c9c1deab7c64aabf80cc7feaeb2424c3c11d14df": {
    "add": 368,
    "commits": [
@@ -16014,6 +16219,13 @@
     "e35528be940f2a1c2ceb059943c4cd9179f7aa26"
    ],
    "dele": 34
+  },
+  "e3aac12f56748e3b9d017bd9862164434e5d5080": {
+   "add": 1676,
+   "commits": [
+    "5acd55062a630bdb0a856e10b634516bff3fe007"
+   ],
+   "dele": 43
   },
   "e42c9c2bee7b006823cf7cccc3d8316d9ef167c1": {
    "add": 1249,
@@ -17083,6 +17295,11 @@
    "name": "RE after-move overwatch TheBetrayer",
    "type": "re-expert"
   },
+  "a15eeada8433f4900": {
+   "branch": "worktree-agent-a15eeada8433f4900",
+   "name": "Inventaire faces DECISION/COMBAT",
+   "type": "general-purpose"
+  },
   "a16280e6c79c46ca9": {
    "branch": "worktree-agent-a16280e6c79c46ca9",
    "name": "O3 dynamique des effets de tuile",
@@ -17488,6 +17705,11 @@
    "name": "Gisement -D : une ability de plus",
    "type": "opus-solver"
   },
+  "a293bbbbd2bf3e1d4": {
+   "branch": "",
+   "name": "Lire les slots dans KillUnitOperation",
+   "type": "general-purpose"
+  },
   "a295c4dbbb6beb43d": {
    "branch": "worktree-agent-a295c4dbbb6beb43d",
    "name": "OnlyAdjacent zone et 10 masques hors pool",
@@ -17811,6 +18033,11 @@
   "a39a477e36421305f": {
    "branch": "worktree-agent-a39a477e36421305f",
    "name": "Port canal ABILITY hits formula",
+   "type": "opus-solver"
+  },
+  "a39a746a5010dc214": {
+   "branch": "worktree-agent-a39a746a5010dc214",
+   "name": "270-b tables SQL ref_ enums",
    "type": "opus-solver"
   },
   "a39ac4438d4817894": {
@@ -18673,6 +18900,11 @@
    "name": "#477-r16-r1 : le seul terme non derive",
    "type": "re-expert"
   },
+  "a5f3b013b8c2fddc1": {
+   "branch": "worktree-agent-a5f3b013b8c2fddc1",
+   "name": "477-r21-r1 formes ChangeStats",
+   "type": "opus-solver"
+  },
   "a5f4b2cd390b5c50e": {
    "branch": "",
    "name": "RE generic DoT effect tick 1244",
@@ -18813,6 +19045,11 @@
    "name": "Resolve TraitType 1003 name",
    "type": "Explore"
   },
+  "a6918d0854cb83ae9": {
+   "branch": "worktree-agent-a6918d0854cb83ae9",
+   "name": "477-r21-r2 volet A gardes refresh",
+   "type": "opus-solver"
+  },
   "a69b5c5168876ecd6": {
    "branch": "",
    "name": "Classifier P2 DarkAngels",
@@ -18846,6 +19083,11 @@
   "a6a996e977cf18b3f": {
    "branch": "worktree-agent-a6a996e977cf18b3f",
    "name": "index.lock perime + rc=128 git",
+   "type": "opus-solver"
+  },
+  "a6aa5782096c19b7c": {
+   "branch": "worktree-agent-a6aa5782096c19b7c",
+   "name": "419-r1-tr14-r4 face COMBAT 1083",
    "type": "opus-solver"
   },
   "a6ad7acbdff29d97c": {
@@ -18952,6 +19194,11 @@
    "branch": "",
    "name": "RE Etape-0 refactor prediction PredictAttackRaw",
    "type": "re-expert"
+  },
+  "a6ef4306389555a89": {
+   "branch": "worktree-agent-a6ef4306389555a89",
+   "name": "Regle dynamique classe vs instance",
+   "type": "opus-solver"
   },
   "a6f36a21f87ebba0c": {
    "branch": "",
@@ -19102,6 +19349,11 @@
    "branch": "worktree-agent-a76b08f5afecaf046",
    "name": "Validate #178 MkXGravis fix",
    "type": "validator"
+  },
+  "a76c3e9b4ff82aae3": {
+   "branch": "worktree-agent-a76c3e9b4ff82aae3",
+   "name": "477-r21-r2 volet B cache selection",
+   "type": "opus-solver"
   },
   "a7707f50083bf7540": {
    "branch": "",
@@ -19506,6 +19758,11 @@
   "a896f80818b560dac": {
    "branch": "worktree-agent-a896f80818b560dac",
    "name": "477-r20 System_StartMatch",
+   "type": "opus-solver"
+  },
+  "a89bd0c4e1cffdc3e": {
+   "branch": "worktree-agent-a89bd0c4e1cffdc3e",
+   "name": "477-r24-r1 contradiction slots",
    "type": "opus-solver"
   },
   "a89edcfeababc56aa": {
@@ -20278,6 +20535,11 @@
    "name": "Etat du port pour 1009",
    "type": "Explore"
   },
+  "ab52a9742c4515100": {
+   "branch": "worktree-agent-ab52a9742c4515100",
+   "name": "garde du hissage : echouer pas rapporter",
+   "type": "opus-solver"
+  },
   "ab5613c20aaa51b8d": {
    "branch": "worktree-agent-ab5613c20aaa51b8d",
    "name": "Port #224-4 Contagions predicate",
@@ -20933,6 +21195,11 @@
    "name": "Port Waaagh contributions",
    "type": "opus-solver"
   },
+  "ad837e1a88ff18ae6": {
+   "branch": "worktree-agent-ad837e1a88ff18ae6",
+   "name": "477-r25 slots autres interfaces",
+   "type": "opus-solver"
+  },
   "ad858b64231460c28": {
    "branch": "",
    "name": "RE closure PredictAttackRaw aggregate",
@@ -21343,6 +21610,11 @@
    "name": "Classer les ctors par preset TargetingOptions",
    "type": "general-purpose"
   },
+  "aea98bc759c39582f": {
+   "branch": "worktree-agent-aea98bc759c39582f",
+   "name": "InformWeapon 0x92 0x94",
+   "type": "opus-solver"
+  },
   "aeadec5e26c972b2a": {
    "branch": "worktree-agent-aeadec5e26c972b2a",
    "name": "Perimetre aveugle de probe_431",
@@ -21361,6 +21633,11 @@
   "aeb4f44a1ec0da607": {
    "branch": "worktree-agent-aeb4f44a1ec0da607",
    "name": "Decodeur OrderedSet capteur 370",
+   "type": "opus-solver"
+  },
+  "aeb66f9b6bdf1ae02": {
+   "branch": "worktree-agent-aeb66f9b6bdf1ae02",
+   "name": "287-r4-r1 regles dynamiques manquantes",
    "type": "opus-solver"
   },
   "aeb757635470999a6": {
@@ -21765,18 +22042,18 @@
   }
  },
  "stat_merges": {
-  "interroges": 6,
-  "reutilises": 661
+  "interroges": 10,
+  "reutilises": 667
  },
  "stat_metas": {
-  "lus": 6,
-  "reutilises": 1034
+  "lus": 13,
+  "reutilises": 1040
  },
  "stat_tokens": {
-  "fichiers": 13,
+  "fichiers": 19,
   "fork": "",
-  "mo": 13.7,
-  "total": 1053
+  "mo": 21.6,
+  "total": 1066
  },
  "version": 2
 }
