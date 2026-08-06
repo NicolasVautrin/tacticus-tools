@@ -51,7 +51,7 @@ import stream_events as SE  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 from engine.entities.effect_type import EffectType  # noqa: E402
 from engine.entities.pathfinding.board import Board  # noqa: E402
-from engine.runner.abilities.loki.feeder_tendrils import feeder_tendrils_heal_amount  # noqa: E402
+from engine.entities.effects.magnitude import ability_var  # noqa: E402
 from engine.services.custom_normal_attack import (custom_normal_attack,  # noqa: E402
                                                   feeder_tendrils_special_applies,
                                                   inform_weapon_use_special)
@@ -179,6 +179,64 @@ def _amener_au_contact(rpc, rid, board, dv, caster_id, target_id) -> bool:
     return False
 
 
+def _blesser(rpc, rid, board, victime, min_total: int = 0, max_coups: int = 10) -> int:
+    """Fait ENCAISSER des attaques normales a `victime` par des adverses amenes au contact, jusqu'a
+    lui avoir retire AU MOINS `min_total` PV. Rend le total retire.
+
+    DEUX raisons, et la seconde n'est apparue qu'a la mesure :
+
+    1. la garde `Healable` du natif (`HealableUnitsSelector` = HP < max) rend le `Heal` INERTE sur
+       une unite pleine -- sans blessure, l'accord serait DEGENERE (400000 -> 400000 des deux cotes) ;
+    2. `HealUnitOperation` PLAFONNE le soin a `hp_max`. Une blessure INFERIEURE au montant soigne
+       ecrete donc la mesure et fait lire un « ecart de montant » qui n'existe pas : mesure du
+       2026-08-06, blessure de 1356 pour un `hpToHeal` de 3290 -> delta observe 1356. Il faut donc
+       CREUSER un trou plus profond que le soin attendu pour que le montant soit OBSERVABLE."""
+    hp_ini, _ = _hp(rpc, rid, victime)
+    if hp_ini is None:
+        return 0
+    total = 0
+    for _ in range(max_coups):
+        dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+        us = [x for x in (dv.get("units") or []) if x.get("alive")]
+        v = next((x for x in us if x["id"] == victime), None)
+        if v is None:
+            break
+        touche = False
+        for e in [x for x in us if x.get("owner") != v.get("owner")]:
+            dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+            if not _amener_au_contact(rpc, rid, board, dv2, victime, e["id"]):
+                continue
+            dv3, _u = _attendre_action(rpc, rid, None, uid=e["id"])
+            if dv3 is None:
+                continue
+            hp0, _ = _hp(rpc, rid, victime)
+            _attaque_normale(rpc, rid, e["id"], victime)
+            hp1, _ = _hp(rpc, rid, victime)
+            if hp0 is not None and hp1 is not None and hp1 < hp0:
+                total = int(hp_ini) - int(hp1)
+                touche = True
+                break
+        if not touche or total >= min_total:
+            break
+    if total:
+        print(f"    caster blesse de {total} PV au total (cible de {min_total})")
+    return total
+
+
+def _niveau_et_multiplier(rpc, rid, uid):
+    """`(level, multiplier_pct)` de l'attaque normale de l'unite, lus du `decisionView` -- les deux
+    entrees que `ability_var` indexe. Sert a calculer le montant que le PORT poserait, sans monter
+    de `State` offline."""
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    for u in (dv.get("units") or []):
+        if u.get("id") != uid:
+            continue
+        for a in (u.get("abilities") or []):
+            if a.get("level") is not None:
+                return a.get("level"), a.get("multiplier", 100)
+    return None, 100
+
+
 def _attaque_normale(rpc, rid, caster, target):
     """Joue l'attaque NORMALE de `caster` sur `target` et rend la reponse RPC."""
     at = None
@@ -244,10 +302,31 @@ def volet1(seed: int) -> int:
             print("  NON CONFRONTE -- boardGraph indisponible")
             return ko + 1
         board = Board(bg["tiles"], adjacency="native_sym")
+        moi = None
         for regime, dist, charge in (("CHARGE", 2, True), ("NO_STEP", 1, False)):
             dv, u = _mon_tour(rpc, rid, "tyranDeathleaper")
             if dv is None:
                 print(f"  [{regime}] mon tour non atteint")
+                ko += 1
+                continue
+            moi = u["id"]
+            # TEMOIN NON NUL du `Heal` : sans blessure, la garde `Healable` le rend inerte des DEUX
+            # cotes et l'accord serait DEGENERE.
+            # ⚠ INCONDITIONNEL : `decisionView.units[]` ne porte AUCUN champ de PV MAX (mesure --
+            # ses cles sont hp/pos/effects/abilities/...), donc `hp >= hp_max` ne peut pas servir de
+            # garde. Une garde branchee sur un champ ABSENT ne se declenche jamais, en silence :
+            # c'est ce qui a laisse la 1re passe mesurer un caster a PV pleins.
+            # La cible de blessure est 2x le montant attendu : le soin doit tenir ENTIER dans le
+            # trou, sinon `HealUnitOperation` l'ecrete a `hp_max` et le montant n'est pas observable.
+            _lvl0, _mult0 = _niveau_et_multiplier(rpc, rid, moi)
+            _vise = 2 * int(ability_var("FeederTendrils", "hpToHeal", _lvl0,
+                                        multiplier_pct=_mult0) or 0)
+            if not _blesser(rpc, rid, board, moi, min_total=_vise):
+                print(f"  [{regime}] AVERTISSEMENT : caster non blessable -- le `Heal` sera INERTE "
+                      f"et la mesure du soin ne prouvera rien")
+            dv, u = _mon_tour(rpc, rid, "tyranDeathleaper")
+            if dv is None:
+                print(f"  [{regime}] mon tour non re-atteint apres la blessure")
                 ko += 1
                 continue
             tid, d = _place(rpc, rid, board, dv, u, dist)
@@ -272,15 +351,34 @@ def volet1(seed: int) -> int:
             eff_ap = _effets(rpc, rid, tid)
             tags = _tags_use_special(res)
             us = any(TagKey.Attack_Weapon_Use_Special.name in t for t in tags)
-            print(f"  [{regime}] dist={d} caster hp {hp_av}/{hp_max} -> {hp_ap} "
+            delta = (int(hp_ap) - int(hp_av)) if (hp_av is not None and hp_ap is not None) else None
+            lvl, mult = _niveau_et_multiplier(rpc, rid, u["id"])
+            porte = int(ability_var("FeederTendrils", "hpToHeal", lvl,
+                                    multiplier_pct=mult) or 0)
+            print(f"  [{regime}] dist={d} caster hp {hp_av} -> {hp_ap} (delta={delta}) "
                   f"| Pinned(cible) {PINNED in eff_av} -> {PINNED in eff_ap} | Use_Special={us}")
             print(f"           effets cible avant={sorted(set(eff_av))} apres={sorted(set(eff_ap))}")
+            print(f"           HEAL : natif delta={delta}  |  port hpToHeal(lvl={lvl},"
+                  f"mult={mult})={porte}")
             attendu = (regime == "CHARGE")
             if us != attendu:
                 print(f"           KO : Use_Special attendu {attendu}")
                 ko += 1
             if (PINNED in eff_ap) != attendu:
                 print(f"           KO : Pinned sur la cible attendu {attendu}")
+                ko += 1
+            if attendu:
+                # Le caster ENCAISSE aussi la riposte/l'overwatch eventuels ; le delta est donc
+                # `heal - degats subis`. On exige que le SOIN ait eu lieu (delta > 0) et qu'il vaille
+                # EXACTEMENT ce que le port pose, faute de quoi on l'affiche sans le maquiller.
+                if delta is None or delta <= 0:
+                    print("           KO : le natif n'a PAS soigne le caster sous charge melee")
+                    ko += 1
+                elif delta != porte:
+                    print(f"           ECART DE MONTANT : natif={delta} port={porte}")
+                    ko += 1
+            elif delta:
+                print(f"           KO : soin HORS branche speciale (delta={delta})")
                 ko += 1
     finally:
         try:
