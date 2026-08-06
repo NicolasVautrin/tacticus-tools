@@ -46,6 +46,24 @@ from __future__ import annotations
 import argparse
 import sys
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/probe_366_camo_seed_inventory.py",
+                "scripts/python/engine/*.py", "scripts/python/engine/**/*.py",
+                "scripts/python/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Le verdict est `EFFECT_CLASSES` moins celles dont `is_active` est encore celui de "
+        "`BaseEffect` : il depend donc du registre (`engine/entities/effects/factory.py`), de la "
+        "BASE, de toute classe qui surcharge `is_active` OU QUI CESSE DE LE FAIRE, et des deux "
+        "tables de seed (ABILITY_INIT_OWNER_EFFECTS / ABILITY_OWNER_EFFECTS) ; la table de RE "
+        "(POSE_VECTOR) vit dans son propre source. Le glob n'est PAS borne a "
+        "`engine/entities/effects/**` : une classe inscrite peut vivre ailleurs, et la fermeture "
+        "d'imports MESUREE de `scan()` est de 99 modules engine/ plus `gameconfig.py` et "
+        "`hexgeo.py` a la racine. Rien du build : le critere est une identite de fonction Python."),
+}
+
 # --------------------------------------------------------------------------------------------
 # VERDICT DE RE, par classe d'effet qui surcharge `is_active`. Chaque entree est LUE au
 # decompile du `<X>Ability$$CreateBehaviour` (build rnca9r7q6c) -- jamais deduite du nom ni du

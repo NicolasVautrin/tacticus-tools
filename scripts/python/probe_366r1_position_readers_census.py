@@ -50,6 +50,21 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ENGINE = HERE / "engine"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/probe_366r1_position_readers_census.py",
+                "scripts/python/engine/*.py", "scripts/python/engine/**/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Balayage TEXTUEL pur (`os.walk(HERE/'engine')`, regex ligne a ligne) : il n'IMPORTE rien, "
+        "donc aucune fermeture d'imports a couvrir, et rien hors du sous-arbre `engine/` ne peut "
+        "produire ni resorber un site. Les deux directions du verdict y sont : un site NON EXPLIQUE "
+        "apparait quand un `.py` d'engine change, et une exemption PERIMEE quand le fragment de "
+        "code ancre disparait -- les deux sont des editions sous ces memes globs. Les cinq portes "
+        "(PORTS), la fenetre, les gardes et les EXEMPTIONS vivent dans son propre source."),
+}
+
 # Marqueurs de garde cherches dans la fenetre : ils couvrent le `if x is None`, le repli
 # `x or default`, le ternaire, le `continue`/`return` de boucle et le `getattr` defensif.
 GATES = ("is None", "is not None", " or ", " and ", "if not ", "getattr(", " else ",

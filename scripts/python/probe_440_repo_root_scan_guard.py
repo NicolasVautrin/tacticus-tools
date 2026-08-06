@@ -69,6 +69,32 @@ if str(PYDIR) not in sys.path:
     sys.path.insert(0, str(PYDIR))
 import repo_read  # noqa: E402
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: ⚠ IL EST BORNABLE, ET `scripts/ratchets.ps1` EN FAIT PARTIE. R1 et R2 balaient
+#: `(REPO/'scripts'/'python').rglob('*.py')` -- perimetre ecrit dans `balayer()`, donc borne. Mais
+#: R3 ne s'applique qu'aux entrees de la BANQUE, et ce perimetre-la est DERIVE de
+#: `scripts/ratchets.ps1` (via `probe_439.banque_par_texte`) : un probe deja present et deja
+#: fautif -- il ecrit sous `scripts/python` -- devient rouge le jour ou on l'INSCRIT a la banque,
+#: sans qu'aucun `.py` n'ait bouge. Omettre le `.ps1` rendrait donc ce cliquet SILENCIEUX sur
+#: l'entree neuve, c'est-a-dire exactement le regime ou la course de #455 se produit (banque en
+#: `ForEach-Object -Parallel`, `FileNotFoundError` chez `probe_391`, rouge attribue au mauvais
+#: cliquet). C'est un declencheur qui doit inclure ce que ce cliquet GARDE, pas seulement ce qu'il
+#: LIT -- meme forme que `probe_421` vis-a-vis de `probe_229`.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py", "scripts/ratchets.ps1"),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "R1/R2 balaient tout `scripts/python/**` en AST (le pre-filtre textuel `_TOKENS` ne change "
+        "pas le perimetre, il ecarte ce qui ne peut structurellement pas mordre) ; R3 n'est evalue "
+        "que sur les entrees de banque, DERIVEES de `scripts/ratchets.ps1`, qui doit donc figurer "
+        "ici sous peine de faux vert sur une entree neuve. Il n'enumere JAMAIS depuis la racine du "
+        "depot -- c'est la propriete qu'il garde chez les autres. Rien du build : les deux criteres "
+        "derivent du seul chemin canonique `.claude/worktrees`, et l'auto-test des detecteurs "
+        "(etape 0, dans le verdict) tourne sur des sources SYNTHETIQUES de son propre source."),
+}
+
 # LE chemin canonique des checkouts imbriques. Tout le reste en DERIVE -- rien n'est saisi.
 WORKTREES = ".claude/worktrees"
 # Segments de ce chemin : ce sont eux qu'une exclusion FAUTIVE teste contre `.parts` (R2).
