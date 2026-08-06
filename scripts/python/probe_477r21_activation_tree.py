@@ -553,8 +553,12 @@ def scenario(session: int, board: str, tours: int, p_units: str, a_units: str,
         "(`AOperation.AbilityAndEffectCache`, parcouru par "
         "`EvaluateTriggerOperation$$ExecuteInternal`), qui n'est pas porte (`#477-r21-r2`)",
         "les IDENTIFIANTS D'ENTITE ECS -- des effets (%d valeurs distinctes ici) comme des "
-        "unites. L'ordre d'allocation natif n'est pas retro-ingenierie (`#477-r16`, "
-        "`#477-r21-r1`)" % len(_ids_effet(par["portes"])),
+        "unites. CE N'EST PLUS LA REGLE QUI MANQUE : `engine/streams/entity_allocator.py` la "
+        "porte, et elle reproduit 63/63, 67/67 et 22/22 allocations une fois la SEQUENCE DE "
+        "CREATION donnee (`#477-r21-r3`). Ce qui manque est cette sequence -- le flux n'ordonne "
+        "que les APPARITIONS, qui en different, et il TAIT des creations entieres. C'est donc "
+        "la MEME entree que la premiere de cette liste, la SELECTION (`#477-r21-r2`)"
+        % len(_ids_effet(par["portes"])),
         "les VALEURS de chaque tag, et leur TRADUCTION en champs d'`EffectSetup` "
         "(table `TAG_VERS_CHAMP` de ce probe, copiee du port). Ce qui reste MESURE est enumere "
         "en (D1)..(D5) -- `Effect_Id` n'est PAS dans cette table",
@@ -727,8 +731,9 @@ def main() -> int:
               % ("/".join(str(len(r["partition"]["portes"])) for r in resultats),
                  GroupType.Ability_Power.name, GroupType.Effect_Refresh.name))
         print("  NON COUVERT : les formes `ChangeStats` / `ChangeAbility` du bloc "
-              "(`#477-r21-r1`), la SELECTION (`#477-r21-r2`) et l'ALLOCATION ECS des ids "
-              "(`#477-r21-r3`). `%s` AUTONOMES : %s -- mesure, pas deduite."
+              "(`#477-r21-r1`) et la SELECTION (`#477-r21-r2`) -- dont la SEQUENCE DE CREATION "
+              "des effets, seul terme qui manque encore a l'allocateur porte par `#477-r21-r3`. "
+              "`%s` AUTONOMES : %s -- mesure, pas deduite."
               % (GroupType.Effect_Refresh.name,
                  "/".join(str(r["effect_refresh"]["autonomes"]) for r in resultats)))
     return rc

@@ -26,21 +26,24 @@ CE QUE CE MODULE N'EST PAS. Ce n'est PAS un mirror de `SetupGameOperation` : tou
 construit reellement l'etat (creation d'entites, composants, pathfinding, salles, vagues) est
 hors sujet ici. Seule la FACE STREAM est portee -- l'ordre et le contenu de ce qui s'ecrit.
 
-L'HYPOTHESE QU'IL PREND, ET CE QU'ELLE LUI INTERDIT. Les identifiants d'entite ECS sont des
-ENTREES : ce module ne les calcule pas. L'ordre d'allocation natif (un compteur GLOBAL : 35
-tuiles => unites a 49/51/53..., 63 tuiles => 77/79/81...) n'est pas retro-ingenierie, c'est
-`#477-r16`. Consequence directe : un emetteur alimente par un etat OBSERVE reproduit les ids,
-un emetteur alimente par une simulation PURE ne le peut pas -- et dans ce second cas la
-comparaison doit se faire par POSITION, jamais par id.
+LES IDENTIFIANTS D'ENTITE ECS SE DERIVENT DESORMAIS -- `assign_entity_ids` ci-dessous.
+Ce module les acceptait comme de pures ENTREES tant que l'allocateur n'etait pas porte ; il
+l'est (`engine/streams/entity_allocator.py`, `#477-r21-r3`), et la mesure est exacte sur trois
+scenarios : 50 / 78 / 72 identifiants de deploiement produits sans en lire aucun. Les champs
+`entity_id` restent des entrees ACCEPTEES -- un appelant qui possede l'etat observe continue de
+les fournir -- mais un emetteur alimente par une simulation pure passe par `assign_entity_ids`
+et n'a plus a comparer par POSITION.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional, Sequence, Tuple
 
 from ..entities.spawn_source import SpawnSource
 from ..services.machine_of_war_position import MachineOfWarPosition
 from .dispatcher import StreamDispatcher
+from .entity_allocator import MATCH_ENTITY_ID as ALLOCATOR_MATCH_ENTITY_ID
+from .entity_allocator import MatchComponent, new_match_after_setup
 from .group_type import GroupType
 from .step_type import StepType
 from .stream_helper import get_add_unit_tags
@@ -50,8 +53,11 @@ from .unit_extensions import (ActiveAbilityState, TriggeredAbilityState, UnitFul
                               get_full_state_update_tags_for_active,
                               get_full_state_update_tags_for_triggered)
 
-#: L'entite du MATCH, argument en dur de `StartGroup` dans `SetupGameOperation$$Execute`.
-MATCH_ENTITY_ID = 1
+#: L'entite du MATCH, argument en dur de `StartGroup` dans `SetupGameOperation$$Execute`. Meme
+#: litteral que celui passe a `Blueprints$$Match` : le foyer est `entity_allocator`, qui porte
+#: la raison pour laquelle cette entite N'EST PAS allouee par `NextId`. Re-exporte ici parce que
+#: le nom fait partie de l'API de ce module depuis #477-r15.
+MATCH_ENTITY_ID = ALLOCATOR_MATCH_ENTITY_ID
 
 
 @dataclass(frozen=True)
@@ -214,9 +220,45 @@ class GameSetup:
     units: Sequence[UnitSetup] = field(default_factory=tuple)
     platform_entity_ids: Sequence[int] = field(default_factory=tuple)
     """Ids d'entite des DEUX plateformes de MoW, dans l'ordre de `PLATFORM_POSITIONS`. Vide =
-    ne pas emettre (le port ne SAIT pas encore predire ces ids -- `#477-r16`)."""
+    ne pas emettre. `assign_entity_ids` les REMPLIT toujours : les deux plateformes sont posees
+    inconditionnellement par `SetupGameOperation$$AddMachinePlatform`, donc un setup derive n'a
+    aucune raison de les taire."""
     use_group_for_add_unit: bool = True
     """`IdunBattle.Core.Services.BattleQuery$$get_UseGroupForAddUnit` -- cf. `add_unit`."""
+
+
+def assign_entity_ids(setup: GameSetup, *, environment_ability_count: int
+                      ) -> Tuple[GameSetup, MatchComponent]:
+    """DERIVE tous les identifiants d'entite du deploiement, et rend le compteur POUR LA SUITE.
+
+    C'est le raccord de `#477-r21-r3` : `entity_allocator` porte la regle, ce helper la branche
+    sur la structure que `emit_game_setup` consomme. Les `entity_id` du `setup` recu sont
+    IGNORES -- seule sa STRUCTURE compte (nombre de joueurs, de tuiles, d'unites, et le nombre
+    de pieds de chacune).
+
+    `environment_ability_count` est le SEUL terme qui ne se lit pas dans le `setup` : les
+    abilities d'environnement sont allouees entre les joueurs et les tuiles SANS emettre la
+    moindre ligne. Sa regle -- deux tables statiques du binaire et trois termes dedupliques --
+    est etablie et confrontee par `#477-r16` (`probe_477r16_allocation_entites_ecs.deriver_regle`).
+    Le passer FAUX decale tout ce qui suit ; c'est pourquoi il est explicite et sans defaut.
+
+    ⚠ LE COMPTEUR RENDU N'EST PAS UN DETAIL : c'est lui qui porte l'ANCRE du deroule. Le premier
+    `entity_allocator.add_effect(match)` d'apres rend exactement l'identifiant que le natif
+    donne au premier effet cree (mesure #477-r21-r3 : 59 / 87 / 81 sur trois scenarios)."""
+    match, alloc = new_match_after_setup(
+        player_count=len(setup.players),
+        environment_ability_count=int(environment_ability_count),
+        tile_count=len(setup.tiles),
+        machine_of_war_platform_count=len(PLATFORM_POSITIONS),
+        unit_foot_counts=[(len(u.foot_tile_ids) if u.foot_count is None else int(u.foot_count))
+                          for u in setup.units])
+    players = tuple(replace(p, entity_id=eid) for p, eid in zip(setup.players, alloc.players))
+    tiles = tuple(replace(t, entity_id=eid) for t, eid in zip(setup.tiles, alloc.tiles))
+    units = tuple(replace(u, entity_id=a.entity_id)
+                  for u, a in zip(setup.units, alloc.units))
+    return (replace(setup, players=players, tiles=tiles, units=units,
+                    platform_entity_ids=tuple(alloc.machine_of_war_platforms)),
+            match)
 
 
 def emit_game_setup(events: StreamDispatcher, setup: GameSetup) -> None:

@@ -109,8 +109,18 @@ class EffectSetup:
 
     entity_id: int
     """`effectEntity.<Id>` -- l'entite ECS de l'EFFET. C'est le `Entity=` du `Group=` et la
-    valeur du tag `Effect_Id`. Le port ne la CALCULE pas : l'ordre d'allocation ECS des
-    entites d'effet reste `#477-r16` / `#477-r21-r3`."""
+    valeur du tag `Effect_Id`.
+
+    IL SE DERIVE : `engine/streams/entity_allocator.add_effect(match)` rend exactement cet
+    identifiant, le compteur etant celui que `game_setup.assign_entity_ids` a laisse a la sortie
+    du deploiement (`#477-r21-r3`, regle SUFFISANTE sur 63/63, 67/67 et 22/22 allocations de
+    trois scenarios).
+
+    ⚠ MAIS L'APPELANT DOIT LE DEMANDER DANS L'ORDRE DE CREATION, PAS DANS L'ORDRE D'APPARITION.
+    Les deux DIFFERENT, et c'est mesure : 4 / 3 / 0 inversions selon le scenario, plus 2 / 4 / 5
+    entites d'effet ALLOUEES dont le flux n'ecrit aucune ligne. Alimente par le seul ordre du
+    flux, l'allocateur ne rend juste que 7 / 7 / 4 identifiants sur 61 / 63 / 17. Savoir quels
+    `AddEffectOperation` sont appeles, et dans quel ordre, est la SELECTION -- `#477-r21-r2`."""
 
     effect_type: int
     """`effectComponent.<+0x58>` -- l'`EffectType`. Le `Source=` du groupe en est le NOM, rendu

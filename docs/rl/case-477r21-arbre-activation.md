@@ -162,9 +162,21 @@ dessus** — le writer re-trie ses clés quel qu'en soit le conteneur.
 
 **Copié, et déclaré en borne (c)** : la sélection et l'ordre des sous-arbres (le cache
 `AbilityAndEffectCache`, #477-r21-r2) ; les identifiants d'entité ECS (33 / 35 / 12 valeurs
-distinctes d'effet, #477-r21-r3) ; les valeurs de chaque tag et leur traduction en champs
+distinctes d'effet) ; les valeurs de chaque tag et leur traduction en champs
 d'`EffectSetup` (table `TAG_VERS_CHAMP` du probe) ; les lignes hors périmètre.
 **`Effect_Id` n'est PAS dans cette table** — c'est ce qui fait de (D1) une mesure.
+
+⚠ **LES IDENTIFIANTS NE SONT PLUS UNE ENTRÉE DISTINCTE — ils FUSIONNENT avec la première.**
+#477-r21-r3 a porté la **règle** d'allocation (`engine/streams/entity_allocator.py`, mirror de
+`MatchComponent$$NextId` et de ses neuf sites) et l'a mesurée **suffisante** : alimentée par la
+suite des créations, elle reproduit **63/63, 67/67, 22/22** allocations du déroulé, et dérive
+**50 / 78 / 72** identifiants de déploiement plus l'ancre (**59 / 87 / 81**) sans en lire aucun.
+Ce qui reste copié n'est donc pas *la règle* mais *la séquence de création* — l'ordre des appels
+à `AddEffectOperation$$Execute`, **créations muettes comprises** (2 / 4 / 5 entités que le flux
+n'écrit **jamais**, type `Effect` confirmé par introspection ECS). C'est la **même** entrée que
+la sélection, **#477-r21-r2**. Alimenté par le seul ordre du flux, l'allocateur ne rend juste que
+**7 / 7 / 4** identifiants sur 61 / 63 / 17 : l'ordre d'apparition **n'est pas** l'ordre
+d'allocation (4 / 3 / 0 inversions). Détail : `docs/rl/case-477r21r3-allocation-entites-effet.md`.
 
 ## 5. `Effect_Refresh` — DEUX chiffres, et ils ne disent pas la même chose
 
@@ -174,10 +186,16 @@ la mesure** (0 / 42). Cette tranche ne réintroduit pas l'inférence — elle **
 > **REPRODUITS** à l'égalité brute, données fournies : **34 / 40**, **36 / 42**, **12 / 12**.
 > **AUTONOMES**, sans aucune entrée copiée du flux : **0 / 40**, **0 / 42**, **0 / 12**.
 
-Le second chiffre est **mesuré, pas déduit du premier**. Ce qui manque pour le lever est nommé et
-séparé : la **sélection** (quels effets s'activent, sur quelles unités, dans quel ordre —
-#477-r21-r2) et l'**allocation ECS** des identifiants d'effet (#477-r21-r3). Ni l'un ni l'autre
-n'est une face stream : les deux vivent dans l'état.
+Le second chiffre est **mesuré, pas déduit du premier**. Ce qui manque pour le lever est nommé :
+la **sélection** — quels effets s'activent, sur quelles unités, dans quel ordre (#477-r21-r2).
+Ce n'est pas une face stream : elle vit dans l'état.
+
+⚠ **CE MANQUE ÉTAIT ANNONCÉ EN DEUX TERMES, ET LA MESURE EN A DISSOUS UN.** #477-r21-r3 a porté
+l'allocation ECS et l'a trouvée **suffisante** (§ 4) : elle n'est plus un second verrou, seulement
+un **consommateur** du premier. La séquence de création d'effets — celle que la sélection
+produira — suffit à rendre **tous** les identifiants. Et cette mesure a **rouvert** un angle mort
+que ce document ne voyait pas : le natif crée des entités d'effet dont il **n'écrit aucune ligne**
+(2 / 4 / 5 selon le scénario), donc même le flux complet ne dicte pas la séquence.
 
 ⚠ Le contraste avec #477-r20 est le résultat de la tranche : la racine était **nécessaire et non
 suffisante**, et le chemin complet l'est désormais — mais un chemin émis ne suffit pas non plus
@@ -204,8 +222,9 @@ ne mord pas sur le cas nominal.
 ## 7. Ce qui n'est PAS couvert
 
 - **Les 84 / 99 lignes hors périmètre** (§ 3) → **#477-r21-r1**.
-- **La SÉLECTION et l'ORDRE** des sous-arbres → **#477-r21-r2**.
-- **L'ALLOCATION ECS** des identifiants d'effet → **#477-r21-r3**.
+- **La SÉLECTION et l'ORDRE** des sous-arbres → **#477-r21-r2**, qui porte désormais aussi la
+  **séquence de création** des entités d'effet (cf. § 4).
+- ~~**L'ALLOCATION ECS** des identifiants d'effet~~ → **PORTÉE** par **#477-r21-r3**.
 - **La queue du groupe** (27 lignes : `Action=PrepareTurn` + le `Group=StartTurn` complet de
   `ContinueTurnPhase`) — bloc 2 de #477-r20, hors de cette tranche.
   **PORTÉE depuis #477-r22** (`docs/rl/case-477r22-bloc2-tour.md`) : 23 des 27 lignes sur les deux
@@ -233,8 +252,15 @@ ne mord pas sur le cas nominal.
   s'activent, sur quelles unités, dans quel ordre. C'est `AOperation.AbilityAndEffectCache.<slot 3>`
   parcouru par `EvaluateTriggerOperation$$ExecuteInternal`, plus les gardes de
   `RefreshEffectsOperation` (`ShouldBeActive`, `GetTargetsToAdd`, `GetTargetsToRemove`,
-  `UpdateEffectTargets`) et les deux d'`EvaluateAbilityTrigger` (§ 1). C'est le plus gros des
-  trois, et le seul qui ne soit pas une face stream.
-- **#477-r21-r3** — **l'ALLOCATION ECS des entités d'effet** : 33 / 35 / 12 identifiants distincts
-  par scénario (69…113 sur `C1_02`). #477-r16 n'a porté que le versant unités / tuiles. C'est le
-  verrou qui rend `Effect_Refresh` non AUTONOME même quand tout son chemin est émis (§ 5).
+  `UpdateEffectTargets`) et les deux d'`EvaluateAbilityTrigger` (§ 1). C'est le plus gros, et le
+  seul qui ne soit pas une face stream.
+  ⚠ **Il a GROSSI de la SÉQUENCE DE CRÉATION des entités d'effet** (l'ordre des appels à
+  `AddEffectOperation$$Execute`, **créations muettes comprises**) : #477-r21-r3 a mesuré que
+  l'allocateur devient exact dès qu'on la lui donne. La condition d'allocation est lue —
+  quatre sorties anticipées d'`Execute`, dont `$$UpdateExistingEffect`, gardée par
+  `StaticBattleRules.Effect$$IsUpdatable`.
+- ~~**#477-r21-r3** — **l'ALLOCATION ECS des entités d'effet**~~ — **LIVRÉ**. La règle est portée
+  (`engine/streams/entity_allocator.py`) et **suffisante** : 63/63, 67/67, 22/22 allocations du
+  déroulé reproduites, 50 / 78 / 72 identifiants de déploiement et l'ancre 59 / 87 / 81 dérivés
+  sans en lire aucun. Ce n'était donc **pas** un second verrou.
+  Détail : `docs/rl/case-477r21r3-allocation-entites-effet.md`.

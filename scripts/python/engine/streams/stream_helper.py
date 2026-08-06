@@ -39,8 +39,9 @@ def get_add_unit_tags(owner_id: int, parent_id: int, source: int, is_boss: bool,
     """`IdunBattle.Core.Services.StreamHelper$$GetAddUnitTags(unit, unitComponent, source, feet,
     unitFeetTileIds)`.
 
-    Le natif lit ses valeurs sur des composants ECS ; le port les recoit deja resolues, parce
-    qu'il ne reproduit pas l'allocation d'entites (`#477-r16`) :
+    Le natif lit ses valeurs sur des composants ECS ; le port les recoit deja resolues. Ce sont
+    des donnees d'ETAT, pas des identifiants d'entite a allouer -- l'allocation, elle, est portee
+    depuis `#477-r21-r3` (`engine/streams/entity_allocator.py`) :
 
       `owner_id`   -- `unit.GetComponent<...>()+0x10`, le champ recopie dans `Unit_Owner_Id` ;
                       c'est un id d'ENTITE de joueur, pas un `PlayerId` (piege #477-r11) ;
