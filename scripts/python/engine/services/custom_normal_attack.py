@@ -564,7 +564,7 @@ _USE_SPECIAL_NORMAL_ATTACK_ON_EFFECT = "OptimizedGait_NormalAttack"
 
 #: L'effet teste par le gate ci-dessus. `0x4e2` = 1250 = `EffectType.CordClaw_AdditionHits`.
 #: ⚠ QUALIFIE par son enum : 1250 nomme autre chose dans `ActiveAbilityType`/`TriggeredAbilityType`.
-_USE_SPECIAL_GATE_EFFECT: int = int(EffectType.CordClaw_AdditionHits)   # 0x4e2
+USE_SPECIAL_GATE_EFFECT: int = int(EffectType.CordClaw_AdditionHits)   # 0x4e2
 
 
 def inform_weapon_use_special(normal_attack_name, is_charging: bool, weapon_melee: bool,
