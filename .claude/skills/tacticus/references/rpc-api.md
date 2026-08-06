@@ -47,6 +47,12 @@ Ordre obligatoire (détails CLAUDE.md « Workflow RL ») :
   `stopAfterCapture: true` (explicite) coupe après la capture et laisse le jeu en bataille.
   ⚠ Ne PAS l'appeler à la main après un `POST /api/admin/inject` : celui-ci l'enchaîne déjà.
   Session vivante mais froide → `POST /api/admin/warmup`.
+  **Se rattrape SEUL d'un wedge post-retraite (#390)** : si le nœud de campagne ne revient
+  pas, le cycle ferme les popups modaux puis invoque `IdunNavigation.ToCampaign` — 2 tentatives,
+  +40 s au pire, **0 s sur le chemin nominal**. Le rattrapage ne rend pas le wedge muet :
+  `steps` garde `wait-back-to-campaign` à `ok:false`, ajoute les `wedge-remedy-*`, et le
+  résultat porte **`recovered`** = le motif qui a porté. Un `ok:false` dit désormais lequel des
+  cinq motifs a échoué — dont `scene-meta-absente`, le seul qui exige encore de relancer le jeu.
 - **`buildNormalizedBC({ baseBcJson, target{Rank,ProgressionIndex,Rarity,Level,StarLevel,AbilityLevel}, boardJson?, spawnPointSetIndex? })`**
   (`normalize-bc.ts`) → `{ ok, configJson, normalized:[unitId], mow:[unitId] }`.
   Résout une BC seed au rank cible ; passage obligé (les UnitId `:pvp` bruts
@@ -152,10 +158,12 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` → Fix64 (Σ familles damage/heal/effect/repair,
   prob + modifs inclus) pour (ability, cible) depuis une position. ⚠ `ncEvaluate` AV @0x46
   sur les playbooks COMPARABLES hors tour natif — utiliser CE RPC pour l'utilité comparable.
-- **`navToCampaign()`** (`warmup-singletons.ts`) — levier de SECOURS : force la nav interne
-  (`IdunNavigation.ToCampaign`) pour débloquer une UI coincée en transition post-retreat
-  (écran figé, zéro bouton) sans relancer le jeu. Le warmup vérifie désormais lui-même le
-  retour campagne (step `wait-back-to-campaign`).
+- **`navToCampaign()`** (`warmup-singletons.ts`) — levier de SECOURS **MANUEL** : force la nav
+  interne (`IdunNavigation.ToCampaign`) pour débloquer une UI coincée sans relancer le jeu.
+  ⚠ **Ce n'est plus le recours nominal du warmup (#390)** : le cycle l'applique lui-même sur
+  wedge détecté, par le même foyer. Il reste utile hors cycle (diagnostic, UI trouvée coincée).
+  Il ne peut rien si la scène méta n'est pas chargée — il rend alors
+  `no live IdunNavigation instance`, et c'est un régime, pas une panne.
 - **`exposureView({ runnerId, unitId?, allAbilities?=true })`** — move-guard
   (inverse d'attackPlans) : dégât ennemi entrant au prochain tour + flag `exposed`.
   Même routing dégât que attackPlans (#103 : actives→playbook, normale→preview).

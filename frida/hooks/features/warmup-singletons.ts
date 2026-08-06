@@ -21,6 +21,10 @@ import {
     MethodRef,
 } from "../il2cpp/helpers.js";
 import { invokeMethod, createManagedString } from "../il2cpp/invoke.js";
+import {
+    runWedgeRemedy, NavOutcome, WedgeRemedyReason,
+    WEDGE_REMEDY_ATTEMPTS, WEDGE_REMEDY_NAV_WAIT_MS, WEDGE_REMEDY_POPUP_WAIT_MS,
+} from "./warmup-wedge-remedy.js";
 
 // --- Constants describing the in-game button paths we drive through ---
 
@@ -280,6 +284,48 @@ function invokeToCampaign(
         [argAnimated, argType, argId, argNullable]);
 }
 
+/** FOYER UNIQUE de « resoudre la nav vivante et l'envoyer sur la campagne Indomitus ».
+ * A executer sur le MAIN THREAD (queueOnMainThread).
+ *
+ * TROIS appelants, un seul corps : l'etape 2 du cycle (`animated: true`, on veut la
+ * transition normale), le RPC de secours `navToCampaign` et le remede automatique du
+ * cran 8 (`animated: false` tous deux — il n'y a rien a montrer, on veut l'ecran).
+ * C'est la lecon de #332 transposee : la chaine de retraite existait en DEUX copies, l'une
+ * a ete corrigee et l'autre a continue de tourner sur le mecanisme refute. Trois copies
+ * du triplet `ensureNavRefs` + `findLiveIdunNavigation` + `invokeToCampaign`
+ * divergeraient de la meme facon.
+ *
+ * Rend un `NavOutcome` a TROIS cas et non un booleen : « pas d'instance vivante » n'est
+ * pas une panne du remede, c'est le regime « scene meta non chargee » — cf.
+ * `thor.Loader$$LoadScene`, qui refuse en silence quand un chargement est deja en cours.
+ * Le confondre avec une levee ferait diagnostiquer la mauvaise cause. */
+function navToCampaignOnMainThread(animated: boolean): NavOutcome {
+    try {
+        const n = ensureNavRefs();
+        const inst = findLiveIdunNavigation(n);
+        if (inst === null) return { kind: "no-nav-instance" };
+        invokeToCampaign(n, inst, animated,
+            CAMPAIGN_TYPE_INDOMITUS, CAMPAIGN_ID_INDOMITUS);
+        return { kind: "ok", navInstance: inst.toString() };
+    } catch (e) {
+        return { kind: "error", err: (e as Error).message };
+    }
+}
+
+/** Le libelle historique de l'absence d'instance. Conserve mot pour mot : c'est ce que
+ * les commentaires de l'etape 1bis citent comme symptome connu. */
+const NO_NAV_INSTANCE_ERR = "no live IdunNavigation instance";
+
+/** Aplatit un `NavOutcome` vers la forme `{ ok, err?, navInstance? }` que le RPC
+ * `navToCampaign` publie depuis l'origine (cf. `rpc-api.md`). */
+function navOutcomeToRpc(
+    o: NavOutcome,
+): { ok: boolean; err?: string; navInstance?: string } {
+    if (o.kind === "ok") return { ok: true, navInstance: o.navInstance };
+    if (o.kind === "no-nav-instance") return { ok: false, err: NO_NAV_INSTANCE_ERR };
+    return { ok: false, err: o.err };
+}
+
 /** Walk active+interactable buttons, build the set of SafeCanvas roots
  * whose name matches the popup pattern. Returns one Blocker path per popup
  * (deduplicated by root) so the caller can click each in turn to dismiss. */
@@ -299,6 +345,34 @@ function findPopupBlockerPaths(r: UiRefs): string[] {
     return Object.values(blockersByRoot);
 }
 
+/** Ferme les popups modaux ouverts et rend les noms de ceux qui l'ont ete.
+ *
+ * UN SEUL exemplaire, appele par l'etape 1 du cycle (a l'ENTREE) et par le remede du
+ * cran 8 (a la SORTIE). C'est le meme geste dans les deux cas, et le dupliquer serait
+ * refaire l'erreur de #332.
+ *
+ * Boucle jusqu'a POPUP_DISMISS_ROUNDS fois : fermer un popup peut en reveler un second
+ * (interstitiel puis message systeme). Sortie anticipee des qu'il n'y a plus rien a
+ * fermer, donc le chemin nominal ne coute qu'un balayage. */
+const POPUP_DISMISS_ROUNDS = 3;
+async function dismissOpenPopups(r: UiRefs): Promise<string[]> {
+    const dismissed: string[] = [];
+    for (let i = 0; i < POPUP_DISMISS_ROUNDS; i++) {
+        const blockers = await queueOnMainThread(() => findPopupBlockerPaths(r));
+        if (blockers.length === 0) break;
+        for (const path of blockers) {
+            const c = await queueOnMainThread(() => clickByPath(r, path));
+            if (c.ok) {
+                dismissed.push(
+                    path.split("/SafeCanvas/")[1]?.split("/")[0] ?? path);
+            }
+        }
+        // Give the popup animations time to tear down.
+        await sleep(200);
+    }
+    return dismissed;
+}
+
 // --- Step types for traceable status reporting ---
 
 interface StepLog {
@@ -313,6 +387,14 @@ interface WarmupResult {
     capturedAt?: string;
     steps?: StepLog[];
     err?: string;
+    /** #390 — RENSEIGNE UNIQUEMENT quand le cycle a du se rattraper d'un wedge.
+     *
+     * Le remede rend le cycle autonome, mais il ne doit pas rendre le wedge INVISIBLE :
+     * un `ok: true` muet apres rattrapage transformerait un incident visible en succes
+     * silencieux, ce qui est exactement le vice qu'un retry non borne introduit. Ce
+     * champ porte le motif NOMME du remede qui a porte, et il est absent sur le chemin
+     * nominal — donc sa seule presence est le signal. */
+    recovered?: WedgeRemedyReason;
 }
 
 // --- Orchestration ---
@@ -356,19 +438,7 @@ async function warmupGameSingletons(
     //    Examples observed: Idun_UI_LiveEventInterstitialPopup (random ad),
     //    GenericMessagePopup (system message). They disable everything behind
     //    them so we can't find/click anything until they're gone.
-    //    Loop up to 3 times in case dismissing one reveals another.
-    let dismissed: string[] = [];
-    for (let i = 0; i < 3; i++) {
-        const blockers = await queueOnMainThread(
-            () => findPopupBlockerPaths(r));
-        if (blockers.length === 0) break;
-        for (const path of blockers) {
-            const c = await queueOnMainThread(() => clickByPath(r, path));
-            if (c.ok) dismissed.push(path.split("/SafeCanvas/")[1]?.split("/")[0] ?? path);
-        }
-        // Give the popup animations time to tear down.
-        await sleep(200);
-    }
+    const dismissed = await dismissOpenPopups(r);
     steps.push({
         step: "dismiss-popups", ok: true,
         info: dismissed.length === 0 ? "none" : dismissed.join(","),
@@ -457,20 +527,8 @@ async function warmupGameSingletons(
     const onCampaignAlready = await queueOnMainThread(
         () => findButtonBySuffix(r, NODE_SUFFIX) !== null);
 
-    const navResult = await queueOnMainThread(() => {
-        try {
-            const n = ensureNavRefs();
-            const inst = findLiveIdunNavigation(n);
-            if (inst === null) {
-                return { ok: false, err: "no live IdunNavigation instance" };
-            }
-            invokeToCampaign(n, inst, true,
-                CAMPAIGN_TYPE_INDOMITUS, CAMPAIGN_ID_INDOMITUS);
-            return { ok: true, navInstance: inst.toString() };
-        } catch (e) {
-            return { ok: false, err: (e as Error).message };
-        }
-    });
+    const navResult = navOutcomeToRpc(
+        await queueOnMainThread(() => navToCampaignOnMainThread(true)));
     if (!navResult.ok) {
         if (!onCampaignAlready) {
             return fail("to-campaign", navResult.err ?? "ToCampaign failed");
@@ -609,20 +667,74 @@ async function warmupGameSingletons(
     //    unnoticed — observed 2026-07-20: engine kept pumping (RPCs fine) but
     //    the UI was dead until a game relaunch. 45s: scene unload+reload can
     //    exceed 30s on a busy frame budget.
+    //
+    // CE QUE CE CRAN MESURE VRAIMENT DEPUIS #332 — et le message qu'il rendait etait
+    // FAUX. Son predicat (`findButtonBySuffix(r, NODE_SUFFIX)`) est EXACTEMENT celui qui
+    // valide deja le dernier clic de l'etape 7 (`retreatToCampaign`, maillon
+    // `RETREAT_CONFIRM_KEY` -> `expect: la campagne`). Atteindre cette ligne implique
+    // donc que le noeud de campagne A ETE VU quelques millisecondes plus tot. Le cran ne
+    // peut plus signaler « la campagne n'est jamais remontee » — ce regime-la est
+    // desormais attrape par l'etape 7, sous le nom `retreat-to-campaign`. Il ne reste
+    // qu'un seul regime possible ici : le noeud est revenu puis a CESSE d'etre
+    // actif+interactable, et il l'est reste pendant 45 s pleines (un seul poll positif
+    // suffirait a passer). D'ou le message reecrit ci-dessous.
     const backHome = await waitFor(
         () => findButtonBySuffix(r, NODE_SUFFIX), 45000, 500);
     if (backHome === null) {
-        // The ctor WAS captured (builder armed) — report the wedge precisely
-        // instead of pretending the cycle is healthy. `navToCampaign` (RPC
-        // below) is the recovery lever to try before relaunching the game.
-        steps.push({ step: "wait-back-to-campaign", ok: false });
-        log("[warmup-singletons] WEDGE: campaign screen did not remount 45s "
-            + "after retreat-confirm — try rpc navToCampaign");
+        // #390 — LE CYCLE APPLIQUE SON PROPRE REMEDE.
+        //
+        // Ce bloc rendait un echec dont le message disait « try rpc navToCampaign, else
+        // relaunch the game » : il NOMMAIT le remede et attendait qu'un humain le tape,
+        // alors que le RPC en question est enregistre vingt lignes plus bas. Le suivi de
+        // tache porte `navToCampaign 2/2` — il a debloque les deux fois ou il a ete
+        // essaye. Le cycle le tente donc lui-meme, en deux volets ordonnes et BORNES
+        // (cf. `warmup-wedge-remedy.ts` pour la RE qui l'autorise et le budget exact).
+        //
+        // CE QUI RESTE VISIBLE. Un remede qui reussit ne rend pas le wedge muet : le
+        // step `wait-back-to-campaign` reste a `ok: false`, les steps `wedge-remedy-*`
+        // tracent chaque volet, et `recovered` porte le motif. Un lecteur distingue donc
+        // trois etats, la ou il n'y en avait qu'un :
+        //   - aucun step `wedge-remedy-*`            -> remede NON TENTE
+        //   - steps presents + `ok: false`           -> remede tente et sans effet
+        //   - steps presents + `recovered` renseigne -> remede tente et il a porte
+        steps.push({
+            step: "wait-back-to-campaign", ok: false,
+            info: "noeud de campagne absent pendant 45 s apres retreat-confirm, alors "
+                + "que l'etape 7 l'avait vu -- il a donc DISPARU, pas jamais remonte",
+        });
+        log("[warmup-singletons] WEDGE post-retraite -- application du remede "
+            + `(max ${WEDGE_REMEDY_ATTEMPTS} tentatives, `
+            + `${WEDGE_REMEDY_POPUP_WAIT_MS} ms apres popup, `
+            + `${WEDGE_REMEDY_NAV_WAIT_MS} ms apres nav)`);
+
+        const remedy = await runWedgeRemedy({
+            dismissPopups: () => dismissOpenPopups(r),
+            navToCampaign: () => queueOnMainThread(
+                () => navToCampaignOnMainThread(false)),
+            campaignVisible: async (timeoutMs: number) =>
+                await waitFor(() => findButtonBySuffix(r, NODE_SUFFIX),
+                              timeoutMs, 500) !== null,
+            log,
+        });
+        for (const s of remedy.steps) steps.push(s);
+
+        if (remedy.recovered) {
+            log(`[warmup-singletons] wedge rattrape : ${remedy.reason}`);
+            return {
+                ok: true, capturedAt: captured.toString(), steps,
+                recovered: remedy.reason,
+            };
+        }
         return {
             ok: false, capturedAt: captured.toString(), steps,
-            err: "wait-back-to-campaign: campaign screen did not remount "
-                + "within 45s after retreat-confirm — UI likely stuck in "
-                + "transition; try rpc navToCampaign, else relaunch the game",
+            err: `wait-back-to-campaign: le noeud de campagne a disparu apres le `
+                + `retreat-confirm et n'est pas revenu ; remede applique `
+                + `(${remedy.attempts}/${WEDGE_REMEDY_ATTEMPTS} tentative(s)) `
+                + `sans succes : ${remedy.reason}`
+                + (remedy.reason === "scene-meta-absente"
+                    ? " -- la scene meta n'est pas chargee, relancer le jeu est le "
+                      + "seul recours"
+                    : " -- relancer le jeu si l'UI reste morte"),
         };
     }
     steps.push({ step: "wait-back-to-campaign", ok: true });
@@ -639,18 +751,12 @@ export function register(ctx: Ctx): void {
     // screen (same IL2CPP invoke the warmup nav uses, animated=false). Unsticks
     // a UI wedged in the post-retreat transition without relaunching the game.
     // No battle-state mutation; safe anytime.
-    ctx.rpc.navToCampaign = () => queueOnMainThread(() => {
-        try {
-            const n = ensureNavRefs();
-            const inst = findLiveIdunNavigation(n);
-            if (inst === null) {
-                return { ok: false, err: "no live IdunNavigation instance" };
-            }
-            invokeToCampaign(n, inst, false,
-                CAMPAIGN_TYPE_INDOMITUS, CAMPAIGN_ID_INDOMITUS);
-            return { ok: true, navInstance: inst.toString() };
-        } catch (e) {
-            return { ok: false, err: (e as Error).message };
-        }
-    });
+    //
+    // #390 — CE LEVIER N'EST PLUS LE RECOURS NOMINAL : le cycle l'applique lui-meme sur
+    // wedge detecte (cran 8). Il reste expose pour l'usage MANUEL — diagnostic, ou une
+    // UI trouvee coincee hors de tout cycle de warmup. Il passe par le MEME foyer
+    // (`navToCampaignOnMainThread`) que le remede automatique : deux corps distincts
+    // auraient fini par diverger, comme les deux chaines de retraite de #332.
+    ctx.rpc.navToCampaign = () => queueOnMainThread(
+        () => navOutcomeToRpc(navToCampaignOnMainThread(false)));
 }
