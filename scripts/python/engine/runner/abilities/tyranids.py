@@ -398,12 +398,37 @@ class AlphaWarriorAbility(ActiveAbility):
         rendrait « le caster est-il dans la synapse de l'equipe de la tuile ? » -- une question dont
         la reponse est presque toujours differente, et jamais fausse assez pour crasher.
 
+        ⚠ LA CIBLE EST UNE TUILE, ET LE ROLE `target` DE L'`AbilityEntities` NE LA MATERIALISE PAS.
+        `entities_from_state` construit un caster MINIMAL quand `caster_id` designe une entite-TUILE
+        (le commentaire y explique pourquoi : sans lui toute feuille lisant `entities.caster`
+        devenait un no-op silencieux) mais n'a PAS le pendant sur le role `target` -- il rend `None`,
+        et `Entity(Target())` avec lui. On materialise donc la tuile ICI, sous la meme forme, plutot
+        que d'elargir le foyer : le rayon de souffle a ete MESURE avant de choisir -- **5** abilities
+        TILE-TARGET portees passent aujourd'hui leur `target_id` a `entities_from_state` (1017
+        FragBomb, 1018 ValkyrieStrike, 1026 BasiliskBarrage, 1148 DaemonicOrdnance, 1169
+        PlagueburstMortar) et lisent donc un `Target()` NUL ; le remplir depuis le foyer changerait
+        leurs arbres sans que cette tranche l'ait confronte. RESIDU NOMME, pas un oubli.
+
+        Cote natif il n'y a pas d'ecart : le selecteur n'est PAS le role `Target()` mais
+        `DSLSelectors$$Entity(<l'entite cible capturee>)` -- un selecteur FERME sur l'entite, que
+        l'`AbilityEntities` porte aussi en `+0x178`. Les deux chemins designent la meme entite.
+
         Cible non resolue -> `0` : le natif y evaluerait le trigger sur un selecteur vide, dont le
         `SelectSingle` rend null et `ShouldTrigger` false, donc `2` ; mais la cascade n'atteint cette
         regle que sur une cible enumeree. Convention permissive du module."""
         if target_id is None:
             return 0
         ents = entities_from_state(state, int(caster_id), int(target_id))
+        if ents.target is None:
+            board = state.board
+            if board is None or int(target_id) not in getattr(board, "by_id", {}):
+                return 0                       # ni unite ni tuile du board -> substrat non mesure
+            c = board.coord(int(target_id))
+            # MEME forme que le caster-tuile minimal d'`entities_from_state` (`dsl.base._pos` lit
+            # `pos.col`/`pos.row`). `GetInRangeAuraAmount` n'en lit que `pos` et `id`.
+            ents.target = {"id": int(target_id), "team": None, "player": None,
+                           "pos": {"col": int(c[0]), "row": int(c[1])},
+                           "alive": True, "hp": None, "visualId": None, "_traits": set()}
         trigger = IsInTeamAura(Entity(Target()), int(EffectType.Synapse_Effect), Entity(Caster()))
         return 0 if trigger.should_trigger(ents) else int(TR.TargetMatchesDynamicRule)
 
