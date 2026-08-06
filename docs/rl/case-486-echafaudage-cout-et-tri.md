@@ -184,6 +184,24 @@ vacueux et par le fichier intégralement skippé, cf. `probe_455`).
 
 Ordre contraint : **r2 avant r3/r4** — on ne renomme pas ce qu'on va supprimer.
 
+### Portée de r2/r3 : les PROBES, pas les tests — et pourquoi
+
+Mesuré : la racine de `tests/` porte **40** fichiers (28 outillage, 7 mixtes, 5 ni l'un ni
+l'autre) et **0 test de port** ; les 669 autres sont sous `tests/engine/`. **L'arborescence des
+tests dit déjà l'essentiel du rôle**, contrairement aux 825 probes qui vivent à plat. Reste
+ouvert, non chiffré : quelques cliquets d'outillage sous `tests/engine/` (les gardes de cycles
+d'imports, `test_270r4r2r2_differes_offline.py` et sa famille).
+
+⚠ **Et il n'y a PAS de cadavres à élaguer côté tests** : un test est joué **par construction**
+(pytest les collecte tous). L'analogue du probe mort est le fichier intégralement skippé, le
+fichier à zéro test collecté et le vert vacueux — les deux premiers sont **déjà sous cliquet**
+(`probe_455`, ses deux volets).
+
+⚠ **PIÈGE MESURÉ — « importe `engine.*` » ne sépare PAS les rôles d'un test.** Ce critère classe
+**122** tests de port évidents (`burrowers`, `basilisk_barrage`, `additional_hits`…) en
+« outillage », parce qu'un test `_live.py` pilote le runner **par RPC** et n'importe donc jamais
+le moteur. Tout tri des tests par leurs imports est faux par construction.
+
 ## Re-dériver
 
     pwsh -File scripts/ratchets.ps1 -List           # composition de la banque
