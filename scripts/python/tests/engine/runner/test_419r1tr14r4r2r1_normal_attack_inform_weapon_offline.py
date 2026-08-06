@@ -79,14 +79,18 @@ def test_etage1_le_gate_useSpecial_porte_exige_LES_DEUX_termes():
     `WeaponProfile.get_IsMelee(weapon)`, PAS un second predicat de charge : le lire comme un
     `IsCharging` seul poserait la cle sur un TIR de charge, que le natif ne pose pas.
 
-    Et le foyer ne repond `1` que pour `FeederTendrils_NormalAttack` : `OptimizedGait_NormalAttack`
-    (l'autre poseur natif) est DECLARE non porte, son ancre `HasEffect` n'etant pas tranchee."""
+    Sur ce gate-ci, le foyer ne repond `1` que pour `FeederTendrils_NormalAttack`.
+    `OptimizedGait_NormalAttack` (l'autre poseur natif) est porte depuis #419-r1-tr14-r4-r2-r1-r2 --
+    son ANCRE est le CASTER -- mais par un gate d'EFFET, jamais par la charge : c'est ce que la
+    derniere boucle verifie (aucun etat de charge ne le fait repondre `1`)."""
     from engine.services.custom_normal_attack import inform_weapon_use_special
     assert inform_weapon_use_special("FeederTendrils_NormalAttack", True, True) is True
     assert inform_weapon_use_special("FeederTendrils_NormalAttack", True, False) is False
     assert inform_weapon_use_special("FeederTendrils_NormalAttack", False, True) is False
     assert inform_weapon_use_special("FeederTendrils_NormalAttack", False, False) is False
     # les sept autres appelants, et le repli generique : litteral `0`, quel que soit l'etat.
+    # `OptimizedGait_NormalAttack` y figure a DESSEIN : la CHARGE ne doit rien lui faire poser,
+    # meme depuis que son propre gate (l'EFFET sur le caster) est porte.
     for nom in (None, "Loki_NormalAttack", "Boltstorm_NormalAttack",
                 "OptimizedGait_NormalAttack"):
         assert inform_weapon_use_special(nom, True, True) is False, nom

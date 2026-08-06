@@ -245,26 +245,53 @@ class _Normal:
         # posent le litteral `0` et DEUX posent `1` dans une branche gardee. Le port n'a qu'UN foyer
         # d'attaque normale (celui-ci) la ou le natif a un `ExecuteBehaviour` par classe : la
         # decision est donc DELEGUEE au foyer unique `custom_normal_attack.inform_weapon_use_special`,
-        # qui porte le gate LU de `FeederTendrils` (`IsCharging(caster,target) & weapon.IsMelee`) et
-        # DECLARE `OptimizedGait` non porte. MESURE LIVE du 2026-08-06 (tyranDeathleaper en charge,
-        # MC1_67) : le flux natif ecrit bien `Tag=Attack_Weapon_Use_Special:1` dans ce regime.
+        # qui porte les DEUX gates LUS : `FeederTendrils` (`IsCharging(caster,target) &
+        # weapon.IsMelee`) et `OptimizedGait` (`HasEffect(caster, CordClaw_AdditionHits)`, ancre
+        # TRANCHEE #419-r1-tr14-r4-r2-r1-r2). MESURES LIVE du 2026-08-06 (MC1_67) : le flux natif
+        # ecrit `Tag=Attack_Weapon_Use_Special:1` dans CHACUN des deux regimes, et dans aucun autre.
+        #
+        # ⚠ CE `Use_Special`-CI EST COMBAT-INERTE, PAS LA BRANCHE QUI LE POSE. La ligne
+        # d'`InformWeapon` ne mute rien (`InformBehaviour$$Execute` -> pas `StepType.Info`) ; mais
+        # chez `FeederTendrils` le MEME gate ouvre AUSSI un `Heal` + un `AddEffect`, joues juste
+        # en dessous. Ne pas lire l'inertie du tag comme l'inertie de la branche.
         #
         # COMBAT-INERTE PAR CONSTRUCTION : `InformBehaviour$$Execute` ne mute rien et
         # `InformOperation$$Execute` ne fait que dispatcher un pas `StepType.Info` -- aucun tirage,
         # donc l'ordre `state.rng` de l'attaque qui suit est INCHANGE (bit-exactness preservee).
         from ...abilities.behaviours.combat import InformWeapon   # lazy : cycle damage<->abilities
         from ...abilities.targeting import normal_attack_type_for  # lazy : meme cycle
-        from ....services.custom_normal_attack import inform_weapon_use_special
+        from ....services.custom_normal_attack import (inform_weapon_use_special,
+                                                       feeder_tendrils_special_applies,
+                                                       USE_SPECIAL_GATE_EFFECT)
+        from ...abilities.loki.feeder_tendrils import execute_feeder_tendrils_special
+        from ...components import has_effect_of_type
         from ....entities.active_ability_type import ActiveAbilityType
         _na_type = normal_attack_type_for(state, attacker_id)
         _na_name = (ActiveAbilityType(_na_type).name
                     if _na_type is not None and _na_type in set(int(x) for x in ActiveAbilityType)
                     else None)
+        # Le gate est evalue UNE FOIS et sert DEUX consommateurs (le tag, puis la branche
+        # speciale) : le natif ne le teste qu'une fois non plus.
+        _charging = battle_query_is_charging(state, attacker_id, target_id)
+        _melee = weapon_is_melee(_w)
+        # #419-r1-tr14-r4-r2-r1-r2 : le gate de `OptimizedGait_NormalAttackAbility$$ExecuteBehaviour`
+        # est `EntityExtensions$$HasEffect(entities.caster, state, 0x4e2, null)` -- l'ANCRE est le
+        # CASTER (`AbilityEntities` `+8`, cf. la RE dans `custom_normal_attack.py`). `onlyActive` est
+        # `null` au call-site natif, donc PAS de filtre `IsActive` : c'est exactement ce que fait
+        # `has_effect_of_type` (`EffectsState.has_effect`, qui ne filtre que `consumed`).
         _use_special = inform_weapon_use_special(
-            _na_name,
-            is_charging=battle_query_is_charging(state, attacker_id, target_id),
-            weapon_melee=weapon_is_melee(_w))
+            _na_name, is_charging=_charging, weapon_melee=_melee,
+            caster_has_gate_effect=has_effect_of_type(state, attacker_id,
+                                                      USE_SPECIAL_GATE_EFFECT))
         _iw_tags = InformWeapon.from_weapon(_w, use_special=_use_special).tags()
+        # #419-r1-tr14-r4-r2-r1-r1 : `FeederTendrils_NormalAttackAbility$$ExecuteBehaviour` execute,
+        # ENTRE `ExecuteInformWeapon` et `ExecuteNormalAttack`, un `ExecuteAtomic(Heal(caster) +
+        # AddEffect(Pinned, cible), 0x2a)`. La POSITION est celle du natif (pas apres l'attaque) :
+        # `Pinned` porte un malus de degat ATTAQUANT, donc il ne touche pas l'attaque qui suit -- mais
+        # on mirrore la position, pas l'observable du jour. Feuilles PURES (0 tirage) -> l'ordre
+        # `state.rng` de l'attaque est INCHANGE, bit-exactness preservee.
+        if feeder_tendrils_special_applies(_na_name, is_charging=_charging, weapon_melee=_melee):
+            execute_feeder_tendrils_special(state, attacker_id, target_id)
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),
