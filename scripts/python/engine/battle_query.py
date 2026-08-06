@@ -23,7 +23,7 @@ from .hex_corner import Corner
 # SENSIBLE A L'ORDRE : il disparait des qu'un appelant importe `entities` d'abord, donc aucune
 # passe pytest ne le voit. Le foyer `GetSteppableUnit`, qui a besoin d'`UnitTrait`, vit pour
 # cette raison dans `engine/entities/tile_extensions.py` -- ou il porte AUSSI le bon nom natif.
-# Garde de cet invariant : `probe_477r35r1_import_isole.py`.
+# Garde de cet invariant : `probe_477r35_import_isole.py`.
 
 # --- `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape(tile, direction)` -----------
 # Rend `new List<>(new HashSet{tile, t1, t2})` = l'ancre PUIS les deux tuiles de la direction

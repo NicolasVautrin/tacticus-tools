@@ -838,7 +838,12 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
                     # bloc, avant meme de charger le playbook -- ce qui rendait structurellement
                     # inatteignable la branche ENNEMI de 1531. MESURE : -30 manquants sur la tuile
                     # minee du montage `haywire`.
-                    if not (getattr(pb, "SLOT_4", False) or is_friend):
+                    # Acces DIRECT, jamais `getattr(..., False)` : `TriggeredAbilityNonOwnerPlaybook`
+                    # declare `SLOT_4 = False`, donc les 21 classes de la famille le portent toutes
+                    # et le defaut serait mort. Un objet ETRANGER a la famille doit lever ici, pas
+                    # se faire silencieusement traiter comme un `false` -- le residu #477-r37 porte
+                    # justement la relecture du `<slot 4>` des 22 autres classes.
+                    if not (pb.SLOT_4 or is_friend):
                         continue          # `!<slot 4> && !IsFriend` = IsInvalidEntityForPlaybook
                     total += pb.calculate_movement_utility_in_steps(tile, u, is_friend, ctx, wt)
         return total
@@ -1747,7 +1752,8 @@ def _attract_mechanicals_neighbor(pos, lc: dict) -> bool:
 
 
 #: `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` -- FOYER DEPLACE dans
-#: `engine.battle_query` par #477-r35, et re-exporte ici sous son ancien nom pour les appelants
+#: `engine.entities.tile_extensions` par #477-r35, et re-exporte ici sous son ancien nom pour les
+#: appelants
 #: (`apply_tile_attributes` et la garde `test_steppable_decoy_tile_leaves_live`). Le deplacement
 #: n'est pas cosmetique : `engine.playbook.non_owner` en a besoin pour la face `1531 HaywireMine`,
 #: et il ne peut pas importer CE module (c'est `tile` qui importe `non_owner`, pas l'inverse). Une
@@ -1756,7 +1762,7 @@ def _attract_mechanicals_neighbor(pos, lc: dict) -> bool:
 #: (casse `python -c "import engine.battle_query"`) puis `engine/tile_extensions.py` a la racine
 #: (casse son propre import isole, par une arete RETOUR qui passe par CE fichier). La chaine
 #: complete est dans la docstring d'`engine/entities/tile_extensions.py`, et le garde est
-#: `probe_477r35r1_import_isole.py`. L'import est au NIVEAU MODULE (ci-dessus), jamais differe :
+#: `probe_477r35_import_isole.py`. L'import est au NIVEAU MODULE (ci-dessus), jamais differe :
 #: un differe aurait retarde le cycle au lieu de le supprimer.
 _steppable_occupant = get_steppable_unit
 

@@ -39,7 +39,7 @@ C'est exactement le patron que le `CLAUDE.md` documente deja pour `AbilityConsta
 `AbilityVariableType` : « leur EMPLACEMENT est fonctionnel, pas cosmetique [...] ils vivent donc
 sous `engine/entities/`, comme `effect_type.py` ». Meme cause, meme remede.
 
-⚠ Le garde de ce placement est `probe_477r35r1_import_isole.py` : il importe CHAQUE module
+⚠ Le garde de ce placement est `probe_477r35_import_isole.py` : il importe CHAQUE module
 `engine.*` SEUL, en process frais, et compare a un checkout TEMOIN. C'est le seul dispositif du
 depot qui voit ce gisement.
 

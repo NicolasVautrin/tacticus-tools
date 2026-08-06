@@ -2906,6 +2906,13 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   resultat. ⚠ Ne pas lire un vert du cliquet comme « le graphe est propre » : il mesure « aucun
   module ne CESSE de s'importer seul », pas « aucun cycle ». Mesure a RE-DERIVER (AST + un process
   frais par cible), jamais recopier ces chiffres.
+  ⚠ **DEJA EN PLACE, ne pas le re-ecrire** : `probe_485_imports_differes.py` classe
+  porteur/gratuit (process frais par cible) et **refuse tout gratuit NEUF**, base versionnee
+  `scripts/ratchets-485-differes-attestes.json` qui ne peut que DECROITRE (une declaration
+  perimee rougit). Le volet (b) est donc « faire decroitre la base a 0 », pas « batir le
+  cliquet ». La CAUSE est mesuree et UNIQUE : **261 des 262 porteurs** ferment leur boucle par
+  une **cascade d'`__init__.py`** (barils de re-export), **1** seul est une dependance mutuelle
+  reelle -- d'ou `#485-r1`, le generateur de reecriture des barils.
 
 - **#477-r37 : les 5 faces MOVE restantes, le regime AUTOMATIQUE, et le `<slot 4>` des 22 AUTRES
   classes.** `[opus]` Trois volets independants, du moins au plus proche du gisement ouvert :
