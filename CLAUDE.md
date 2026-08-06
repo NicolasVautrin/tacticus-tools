@@ -459,11 +459,16 @@ nettoyables, PR ouvertes, session Frida, drain, et **`liveRunners`** (le budget 
   pas signal), pas d'existence, et n'est rabattu **ni sur un vert ni sur un rouge**.
 - ⚠ **Le chiffre du plafond (6 depuis le 2026-08-06) est le SEUL qui ne soit pas une mesure** :
   c'est un paramètre d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#467-r1`.
-  ⚠ **Ce n'est PAS le budget des RUNNERS**, et les confondre est la faute à éviter : les tests
-  live restent à **4 en parallèle**, budget **partagé** entre tous les agents et inchangé. Passer
-  la flotte à 6 augmente donc la contention sur un budget constant — jouable parce qu'une part
-  des tranches est **offline pure**, pas parce que le harnais encaisserait 6 agents en live.
-  Corollaire : au-delà de 4 agents, donner au slot supplémentaire une tranche **offline**.
+  ⚠ **Ce n'est PAS le budget des RUNNERS** — mais l'inverse non plus : **rien n'oblige à donner
+  une tranche offline au-delà de 4 agents**, et la prescription qui le disait ici (2026-08-06) est
+  **RETIRÉE le même jour, sur correction de l'utilisateur**. Elle promouvait en plafond de
+  CAPACITÉ ce qui n'est qu'un **rendement décroissant** : le « pas plus de 4 » borne les *workers
+  d'une même passe pytest* (simultanés par construction), pas le nombre d'agents *capables* de
+  live (passes sporadiques et entrelacées). Les mesures vont dans l'autre sens — `MAX_RUNNERS`
+  = **50**, latence **plate à 10 runners** (#132), et sur la banque le throttle 4/6/8/16 rend
+  280 / 240 / **227** / 235 s : au-delà de 4, c'est encore plus RAPIDE, seulement moins efficient.
+  Ce qui reste vrai : le pump est **partagé**, donc une passe donnée ne prend pas plus de 4
+  workers. Le nombre d'agents en vol, lui, ne se dérive pas de là.
 - ⚠ **Une panne de capteur doit porter son NOM (#467-r6).** `gh` rendait `rc=127` pour ses trois
   pannes — binaire absent, délai dépassé, `OSError` — parce que toutes retombaient sur la même
   sentinelle. Résultat **mesuré** : l'incident a été diagnostiqué « `gh` absent du PATH » alors que
