@@ -199,12 +199,22 @@ def bonus_attack_tree(profile: str):
     `IdunBattle.Operations.AttackDamageOptions` (l'octet +0 y atterrit en **+0x2e**), et
     `AttackDamageOperation$$Execute` le passe en 1er argument de `GetCurrentAttackOrDefault`.
 
-    CE QUE LE PORT EN FAIT : rien, et c'est le comportement JUSTE ici. Le port ne modelise aucune
-    `OngoingAttack` partagee -- chaque `execute_ability_attack` part d'un etat d'attaque neuf, ce qui
-    EST la semantique `isOutsideAttack = true`. Poser le drapeau serait donc un no-op ; poser
-    l'INVERSE demanderait d'abord de porter l'`OngoingAttack` (compteur `hitGroupIndex`,
-    accumulateurs `deniedDamage`/drapeaux, branche `ExecuteAdditionalHitsWithoutDamageProfileType`),
-    qui n'existe pas cote port. Residu d'ECART DE MODELE nomme `#419-r3`, PAS un residu de ce volet."""
+    CE QUE LE PORT EN FAIT : rien, et c'est le comportement JUSTE **ici** -- ce call-site est l'un
+    des TROIS (sur 18) qui posent `1`. La feuille est montee par
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, qui finit par
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` et pousse donc un `OngoingAttack` NEUF
+    par cible : c'est exactement la semantique `isOutsideAttack = true`. Poser le drapeau serait un
+    no-op.
+
+    ⚠ Ne pas generaliser cette phrase : la version d'avant #419-r3 disait << le port ne modelise
+    AUCUNE `OngoingAttack` partagee >>, et c'etait FAUX des deux cotes. Cote natif, **15 des 18**
+    call-sites de `IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` posent `false` (balayage
+    exhaustif : `docs/rl/case-419-r3-is-outside-attack-inexprimable.md`) ; cote port, trois champs de
+    l'`OngoingAttack` sont threades depuis longtemps (`hit_index0` +0x30, `crit_allowed0` +0x40,
+    `failed_block0` +0x48). Ce qui manquait etait une feuille d'attaque NUE -- un
+    `AttackDamageBehaviour` SANS `AttackBehaviour` --, desormais exprimable par le champ
+    `attack_state0` d'`AttackWithAttackDamage`. Le regime ou l'ecart MORD est le FOLD primaire de
+    `Boltstorm`/`RighteousRepugnance` (`abilities/loki/additional_targets.py`), pas celui-ci."""
     return op_add(
         InformWeapon(profile, is_melee=True),   # `InformWeapon(profile, isMelee: 1, useSpecial: 0)`
         AttackWithAttackDamage(Target(), PASSIVE, profile,

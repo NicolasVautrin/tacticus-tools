@@ -100,7 +100,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
                  "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain",
-                 "force_crit", "is_first_hit", "amount_spread_pct")
+                 "force_crit", "is_first_hit", "amount_spread_pct", "attack_state0")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
@@ -108,7 +108,20 @@ class AttackWithAttackDamage(AbilityBehaviour):
                  ability_type=None, hits_add_key=None, native_factory: str = "attack",
                  force_overkill: bool = False, hits_override=None, level_slot: str = "active",
                  tile_domain: bool = False, force_crit: bool = False,
-                 is_first_hit: bool = True, amount_spread_pct: int = 0):
+                 is_first_hit: bool = True, amount_spread_pct: int = 0,
+                 attack_state0: Optional[dict] = None):
+        # #419-r3 : `attack_state0` = l'etat de l'`OngoingAttack` HERITEE (`+0x30` index de coup,
+        # `+0x40` `isCriticalDamageAllowed`, `+0x48` `FailedBlockIds`), au format rendu par
+        # `operations/damage_hits.attack_state_out`. `None` (defaut) = attaque NEUVE, ce qui est la
+        # semantique de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` : cette
+        # factory-la finit par `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor`, donc pousse
+        # un `OngoingAttack` neuf par cible (`StartAttackOperation$$Execute`).
+        # On le RENSEIGNE quand la feuille tient lieu d'un `IdunBattleLogic.Entities.DSLBehaviors$$
+        # AttackDamage` NU -- un `AttackDamageBehaviour` SANS `AttackBehaviour`, compose dans le
+        # `Attack(...)` d'une autre attaque, qui lit donc l'attaque en cours
+        # (`GetCurrentAttackOrDefault(isOutsideAttack: 0)`, slot 200, arite 0). C'est le meme
+        # gisement que le `is_first_hit` de case-221, dont ce champ est la forme COMPLETE.
+        self.attack_state0 = attack_state0
         # case-221 : `IsFirstHitInSeries()` = `AbilityEntities.IsFirstHit` = `hitIndex == 0`. Quand un
         # SEUL `IdunBattle.Entities.Behaviours.AttackBehaviour` porte N feuilles `AttackDamage`
         # (`HazeOfCorruption_DamageTransferEffect$$CreateTargetTriggerBehaviour` : une feuille par
@@ -285,12 +298,17 @@ class AttackWithAttackDamage(AbilityBehaviour):
                                if hasattr(self.hits_override, "evaluate") else self.hits_override)
                 if self.damage_override is not None:       # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
                     bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
+                _as0 = self.attack_state0 or {}
                 atk = AttackDamageOperation.execute_ability_attack(
                     state, caster, tgt, bmin, bmax, pierce, hits,
                     damage_profile=self.profile, is_melee=self.is_melee,
                     ability_type=self.ability_type,
                     is_attack_damage_op=(self.native_factory != "ability"),
-                    force_overkill=self.force_overkill, force_crit=self.force_crit)
+                    force_overkill=self.force_overkill, force_crit=self.force_crit,
+                    # #419-r3 : etat de l'`OngoingAttack` heritee (cf. `__init__`). Absent = neuve.
+                    hit_index0=int(_as0.get("next_hit_index", 0)),
+                    crit_allowed0=bool(_as0.get("crit_allowed", True)),
+                    failed_block0=_as0.get("failed_block"))
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()

@@ -288,10 +288,19 @@ Aucun compteur n'est rouvert par cette tranche — vérifié, pas supposé.
   `RegisterFinalDamage`. Le coup bonus est tiré **depuis l'intérieur** de l'attaque normale : le
   drapeau l'en **sort**.
 
-  **Ce que le port en fait : rien, et c'est le comportement JUSTE.** Il ne modélise aucune
-  `OngoingAttack` partagée — chaque `execute_ability_attack` part d'un état d'attaque neuf, ce qui
-  **est** la sémantique `isOutsideAttack = true`. Poser le drapeau serait un no-op. Ce qui reste
-  ouvert n'est donc pas cet octet mais l'ÉCART DE MODÈLE qu'il désigne : `#419-r3` ci-dessous.
+  **Ce que le port en fait : rien, et c'est le comportement JUSTE — POUR CE CALL-SITE.** La feuille
+  y est montée par `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, qui finit par
+  `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` et pousse donc un `OngoingAttack` **neuf**
+  par cible : c'est exactement `isOutsideAttack = true`. Poser le drapeau serait un no-op.
+
+  ⚠ **La justification écrite ici était FAUSSE, et `#419-r3` l'a mesurée.** Elle disait « le port ne
+  modélise aucune `OngoingAttack` partagée » et sous-entendait que tous les call-sites posaient `1`.
+  Les deux moitiés sont fausses : le balayage exhaustif des **18** call-sites en trouve **15 à
+  `false`** (`docs/rl/case-419-r3-is-outside-attack-inexprimable.md` §2), et le port thread déjà
+  trois champs de l'`OngoingAttack` (`hit_index0` `+0x30`, `crit_allowed0` `+0x40`, `failed_block0`
+  `+0x48`). Ce qui manquait était une feuille d'attaque **NUE**. Le régime où l'écart mord — le FOLD
+  primaire de `Boltstorm`/`RighteousRepugnance` — est porté et confronté live : port avant `506,
+  563, 526` / natif `506, 557, 614`, PV primaire 3893 vs 3975.
 * ~~**`#419-r1-tr14-r4-r2` — `InformWeapon` : deux arguments non portés, et une lecture FAUSSE dans
   la docstring du foyer.**~~ **RÉSOLU** — `docs/rl/case-419-r1-tr14-r4-r2-inform-weapon-tags.md`.
   Les deux clés sont portées et confrontées LIVE (le canal n'est pas un « no-op » : il part en

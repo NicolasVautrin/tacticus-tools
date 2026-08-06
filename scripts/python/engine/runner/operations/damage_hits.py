@@ -84,6 +84,28 @@ def crit_gate_open(crit_allowed: bool, is_attack_damage_op: bool) -> bool:
     return (not is_attack_damage_op) or crit_allowed
 
 
+def attack_state_out(r: dict, ah: Optional[dict] = None) -> dict:
+    """L'etat de l'`OngoingAttack` EN SORTIE d'une operation de degat (#419-r3) -- les trois champs
+    qu'une feuille composee APRES elle DANS LE MEME `IdunBattle.Entities.Behaviours.AttackBehaviour`
+    lirait par `IdunBattle.Operations.ADamageOperation$$GetCurrentAttackOrDefault(isOutsideAttack: 0)`
+    (slot **200** `GetCurrentAttackOrDefault` d'`IBattleQuery`, arite 0) :
+
+        `next_hit_index` = `OngoingAttack+0x30`   (`ADamageOperation$$UpdateCurrentAttackAfterHit`)
+        `crit_allowed`   = `OngoingAttack+0x40`   (`attack[+0x40] &= hitGroup[+0x3c]`)
+        `failed_block`   = `OngoingAttack+0x48`   (`FailedBlockIds`, semee par `SetupHitGroup`)
+
+    `ah` = le retour d'`execute_additional_hits` (None si aucun groupe). Quand il existe, c'est LUI
+    qui porte l'etat final : les sous-operations de groupe tournent sur la MEME `OngoingAttack` et
+    la mutent apres la phase d'arme.
+
+    ⚠ FONCTION D'OBSERVATION : elle ne branche rien. Ce qui BRANCHE, c'est l'appelant qui repasse
+    ces trois valeurs a la feuille suivante."""
+    src = ah if ah is not None else r
+    return {"next_hit_index": int(src["next_hit_index"]),
+            "crit_allowed": bool(src["crit_allowed"]),
+            "failed_block": set(src["failed_block"] or ())}
+
+
 def damage_amount_applied(health: int, shield: int, hp_left: int,
                           hp_floor: Optional[int] = None) -> tuple:
     """Le tag `Amount` (TagKey 225) de l'event `UnitDamaged` d'UN coup, et les PV restants APRES.
