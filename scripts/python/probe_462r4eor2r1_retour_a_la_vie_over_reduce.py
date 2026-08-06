@@ -41,6 +41,13 @@ purge lui aussi, par un QUATRIEME ecrivain du zero que sa table avait manque --
 `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier` `case 0`, atteint depuis
 `ReviveUnitOperation$$SetHealth` via `IdunBattle.Entities.UnitExtensions$$ApplyStatModifier`.
 
+TROISIEME OBSERVABLE, depuis #462-r4e-o-r2-r1-r1-r1 : le JOUEUR ENTRANT de chaque changement de
+tour rejoue est **CALCULE** par `IdunBattle.Operations.ChangeTurnOperation$$FindNextPlayer` et
+CONFRONTE a la trace live, qui n'en est plus que le TEMOIN. Le contournement precedent -- prendre
+l'alternance DANS la trace -- est retire : il reposait sur un diagnostic FAUX (<< le natif fait
+jouer le meme joueur deux tours d'affilee >>), ne du a l'absence d'anti-confond temporel autour de
+`IdunBattle.Operations.VerifyAutomaticTurnEndOperation$$Execute`.
+
 Usage :
     python scripts/python/probe_462r4eor2r1_retour_a_la_vie_over_reduce.py
         [--volet revive|resurrect|tous] [--state-file <ABSOLU>] [--seeds 777,31337,...]
@@ -506,39 +513,49 @@ def _avance_de_tour_portee(st, entrants):
         IdunBattle.Operations.StartTurnOperation$$Execute  (turn_counts + turnsStarted per-unite +
                                                            RemoveTurnFlags + events 0x12..0x16)
 
-    `entrants` = la suite des JOUEURS ENTRANTS, **MESUREE** sur le live (`decisionView.currentPlayer`
-    apres chaque `applyAction endturn`), et non calculee.
+    De `entrants` -- la suite des joueurs entrants mesuree sur le live -- ce rejeu ne prend plus que
+    le NOMBRE de changements de tour a rejouer. **QUI joue est CALCULE** (`advance=True` ->
+    `ChangeTurnOperation.execute` -> `find_next_player`) et RENDU, pour etre confronte a la mesure
+    par l'appelant : la trace live est passee d'ENTREE a TEMOIN.
 
-    ⚠ POURQUOI MESUREE, ET CE QUE CA LAISSE OUVERT. `advance=True` ferait choisir le joueur entrant
-    par `turnflow.find_next_player`, mirror APPROXIMATIF d'`IdunBattle.Operations.
-    ChangeTurnOperation$$FindNextPlayer` : le port cycle sur les ids de joueur croissants, le natif
-    indexe un ORDRE DE TOUR rendu par le slot 0x18 de l'`IBattleQuery` et saute les joueurs que le
-    slot 0x1a ecarte. MESURE de ce montage (seed 777, MC1_67) : le natif fait jouer le joueur 3
-    **DEUX TOURS D'AFFILEE** puis le 4 puis le 3 (`turnsStarted` de l'attaquant 2 : 1 -> 2 -> 2 ->
-    3), la ou `find_next_player` alterne 4 puis 3. Ce n'est PAS l'objet de cette tranche -- qui porte
-    sur l'ETAT apres un changement de tour, pas sur QUI joue ensuite -- et le corriger demande de
-    resoudre deux slots de vtable d'interface. Prendre l'alternance de la MESURE isole exactement
-    l'un de l'autre ; le second est un residu NOMME."""
-    from engine.runner.operations.turnflow import EndTurnOperation, StartTurnOperation
+    ⚠ ELLE ETAIT UNE ENTREE JUSQU'A #462-r4e-o-r2-r1-r1-r1, sur un diagnostic qui s'est revele FAUX.
+    #462-r4e-o-r2-r1-r1 avait lu dans cette trace << le natif fait jouer le joueur 3 DEUX TOURS
+    D'AFFILEE >> et en avait conclu que `find_next_player` divergeait. Re-mesure du 2026-08-06, meme
+    seed et meme board, sur 14 changements de tour : la suite native est une ALTERNANCE STRICTE
+    `[3, 4, 3, 4, ...]`, avant COMME APRES la mort. Le `3` surnumeraire venait d'un changement de
+    tour AUTOMATIQUE (`IdunBattle.Operations.VerifyAutomaticTurnEndOperation$$Execute`, slot
+    `IOperationProcessor` **0x20**) declenche par l'ATTAQUE 1 elle-meme : la trace ne relisant
+    `currentPlayer` qu'APRES chaque `endturn`, ce changement-la n'y figurait pas, et l'etat qu'il
+    laissait etait impute au `endturn` suivant. ANTI-CONFOND POSE : `cur_apres_attaque1` est
+    desormais releve juste APRES l'attaque, et la trace le porte comme premier terme."""
+    from engine.runner.operations.turnflow import EndTurnOperation
+    calcules = []
     for pj in entrants:
         if pj is None:
             continue
-        EndTurnOperation.execute(st, advance=False)
-        st.current_player_id = int(pj)            # `ChangeTurnOperation` -> `SetCurrentPlayer`
-        StartTurnOperation.execute(st, int(pj))
+        r = EndTurnOperation.execute(st, advance=True)   # ChangeTurn + StartTurn, joueur CALCULE
+        calcules.append(r.get("next_player"))
+    return calcules
 
 
 def _avance_de_tour_mimee(st, entrants):
     """LE MIME D'AVANT #462-r4e-o-r2-r1-r1, conserve UNIQUEMENT comme contre-epreuve : il bumpe le
     compteur et tire le SEUL vecteur `On(0x16 = TurnStart_Actions)`, sautant le tick de duree des
     effets, le bump PER-UNITE de `turnsStarted`, le reset des UnitFlags de tour et les quatre autres
-    events de la sequence native 0x12..0x16 -- dont `On(0x13)`, celui qu'ecoute la rotation."""
+    events de la sequence native 0x12..0x16 -- dont `On(0x13)`, celui qu'ecoute la rotation.
+
+    Il ne CALCULE aucun joueur (c'est le propre du mime) : il rend `entrants` inchange, donc la
+    concordance calcule/mesure est trivialement vraie sous cette mutation -- ce qui est correct,
+    puisqu'elle vise `bout_en_bout`, pas le choix du joueur."""
     from engine.runner.operations.triggers import start_turn_triggers
+    joues = []
     for pj in entrants:
         if pj is None:
             continue
         st.turn_counts[int(pj)] = st.turn_counts.get(int(pj), 0) + 1
         start_turn_triggers(st, int(pj))
+        joues.append(pj)
+    return joues
 
 
 # ----------------------------------------------------------------- volet (a)
@@ -615,6 +632,7 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
     att1, att2, vic = ids["att1"], ids["att2"], ids["victime"]
     cycle_avant = cycle_apres = None
     trace_live = None
+    entrants = entrants_calcules = None
 
     cap0 = _capture(rid, board)
     if cap0 is None:
@@ -645,18 +663,24 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
         if avance_de_tour:
             # LIVE : fin de mon tour -> le tour du joueur de la victime demarre -> `On(TurnStart)` ;
             # puis fin de SON tour -> le mien redemarre.
-            # ON MESURE L'ALTERNANCE, ON NE LA SUPPOSE PAS. `applyAction endturn` jusqu'a ce que le
-            # joueur de la VICTIME ait joue un tour (c'est la que `EnvAmbushResurrect` fire) ET que
-            # ce soit de nouveau le mien. Chaque etape enregistre le JOUEUR ENTRANT annonce par le
-            # natif -- c'est cette suite que le port rejouera.
+            # ON MESURE LE NOMBRE DE TOURS, ON NE LE SUPPOSE PAS. `applyAction endturn` jusqu'a ce
+            # que le joueur de la VICTIME ait joue un tour (c'est la que `EnvAmbushResurrect` fire)
+            # ET que ce soit de nouveau le mien. Le JOUEUR ENTRANT annonce par le natif est
+            # enregistre, mais depuis #462-r4e-o-r2-r1-r1-r1 il ne sert plus d'ENTREE au rejeu : le
+            # port le CALCULE (`ChangeTurnOperation$$FindNextPlayer`) et la mesure est le TEMOIN qui
+            # le confronte -- c'est le cliquet qui rougirait si le choix du joueur divergeait.
             #
-            # ⚠ ELLE N'EST PAS `[adverse, moi]`. Mesure de ce montage : le natif fait jouer mon
-            # joueur DEUX TOURS D'AFFILEE avant de passer la main (`turnsStarted` de l'attaquant 2 :
-            # 1 -> 2 -> 2 -> 3, `currentPlayer` 3 -> 3 -> 4 -> 3). Le supposer aurait fige un rejeu
-            # a DEUX tours la ou le natif en joue TROIS, et le cycle a 3 temps de `SereneUnifier`
-            # aurait rendu la phase 2 au lieu de la phase 0 -- un decalage qu'aucun scalaire ne
-            # trahit et que seule cette trace montre.
-            trace_live = []
+            # ⚠ ANTI-CONFOND TEMPOREL (#462-r4e-o-r2-r1-r1-r1). Le premier `currentPlayer` releve
+            # ici l'est APRES l'attaque 1, jamais avant : l'attaque termine deja le tour du joueur
+            # attaquant par `IdunBattle.Operations.VerifyAutomaticTurnEndOperation$$Execute` (slot
+            # `IOperationProcessor` 0x20) des que toutes ses unites ont fini. Le releve pris AVANT
+            # -- ce que faisait #462-r4e-o-r2-r1-r1 -- comptait donc un changement de tour de trop
+            # au credit du premier `endturn`, d'ou le faux diagnostic << le joueur 3 joue deux tours
+            # d'affilee >> et le contournement qui prenait l'alternance dans la trace. La suite
+            # native de ce montage est une ALTERNANCE STRICTE (re-mesure du 2026-08-06, 14 tours).
+            cur_apres_att1 = (_dv(rid) or {}).get("currentPlayer")
+            trace_live = [{"endturn": 0, "entrant": cur_apres_att1,
+                           "note": "APRES l'attaque 1 (VerifyAutomaticTurnEnd), avant tout endturn"}]
             entrants = []
             vu_autre = False
             for _i in range(8):
@@ -686,7 +710,7 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
             # `[1044, 886, 70, 0, 0]` cote natif -- un facteur 4,9 qui n'a RIEN a voir avec
             # l'accumulateur.
             cycle_avant = _cycle(st, att2)
-            _avance_de_tour_portee(st, entrants)
+            entrants_calcules = _avance_de_tour_portee(st, entrants)
             cycle_apres = _cycle(st, att2)
 
     cap1 = _capture(rid, board)
@@ -711,7 +735,9 @@ def _sequence(rid, board, ids, mon_player, *, avance_de_tour):
             "cycle_avant": cycle_avant, "cycle_apres": cycle_apres,
             "cycle_live_avant": _cycle_live(cap0["snap"], att2),
             "cycle_live_apres": _cycle_live(cap1["snap"], att2),
-            "trace_live": trace_live}
+            "trace_live": trace_live,
+            # Le CLIQUET du choix du joueur : mesure (temoin) contre calcul (`find_next_player`).
+            "entrants_mesures": entrants, "entrants_calcules": entrants_calcules}
     if not vivante_live:
         base.update({"ok": False, "raison": "PAS de retour a la vie LIVE (tirage 75 % ? gate ?)"})
         return base
@@ -835,9 +861,24 @@ def _verdict(volet, r, mutate):
         accord = (e2e == live)
     else:
         accord = (attendu == live) and (e2e == live)
+    # TROISIEME observable, NOMINAL SEULEMENT (#462-r4e-o-r2-r1-r1-r1) : le joueur entrant est
+    # desormais CALCULE par `ChangeTurnOperation$$FindNextPlayer`, et la trace live n'en est plus
+    # que le TEMOIN. Exiger la concordance est ce qui remplace le contournement retire -- sans elle,
+    # le rejeu redeviendrait muet sur QUI joue. Hors nominal on ne l'exige pas : les mutations ne
+    # visent pas cet axe (le mime, en particulier, ne calcule rien et la rendrait vraie pour rien).
+    mes, calc = r.get("entrants_mesures"), r.get("entrants_calcules")
+    concorde = None
+    if calc is not None:
+        concorde = ([None if x is None else int(x) for x in (mes or [])]
+                    == [None if x is None else int(x) for x in calc])
+        if mutate is None:
+            accord = accord and concorde
     diag = (f"live={live} | port A ETAT EGAL={attendu} (over_reduce porte={porte}) | "
             f"purge={h_purge} transport(over_reduce={accum})={h_transp} | "
             f"bout-en-bout={e2e}")
+    if concorde is not None:
+        diag += (f" | joueurs entrants mesures={mes} calcules={calc} "
+                 f"({'CONCORDENT' if concorde else 'DIVERGENT'})")
     if live == h_purge and live != h_transp:
         sens = "le NATIF s'aligne sur `over_reduce PURGE au retour a la vie`"
     elif live == h_transp:
@@ -897,6 +938,9 @@ def _dump(volet, r):
             print(f"  {quand:<23} : {c}")
     for etape in (r.get("trace_live") or []):
         print(f"  trace LIVE              : {etape}")
+    if r.get("entrants_calcules") is not None:
+        print(f"  joueurs entrants        : mesures={r.get('entrants_mesures')} "
+              f"calcules={r.get('entrants_calcules')}")
     for quand in ("cycle_avant", "cycle_apres"):
         c = r.get(quand)
         if c:
