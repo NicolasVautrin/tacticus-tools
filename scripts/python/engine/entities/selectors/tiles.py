@@ -695,7 +695,22 @@ class MovableTilesInRange(TargetsSelector):
             synapse_tiles=_synapse_tiles(ctx, board, u.get("team")))
         # `RemoveAll(t => !IsMovableTile(..., ignoreUnitsOnTiles))` : sans `ignoreUnitsOnTiles` le
         # natif ne garde que les tuiles LIBRES (`IsFreeTile`), depart compris — c'est le stop_set.
-        return sorted(visited if self.ignore_units_on_tiles else stop)
+        #
+        # ⚠ AVEC `ignoreUnitsOnTiles`, LA TUILE DE DEPART RESTE DEHORS (#287-r5-r1). Le port et le
+        # natif ne mettent pas la meme chose sous le mot « visited » : cote port c'est l'ensemble
+        # TRAVERSE (depart inclus, cf. `walk_pathfinder.get_movable_positions`, « le depart n'est
+        # jamais filtre »), cote natif `GetReachableTiles` = `BasePathfinder$$FindReachableTiles` =
+        # `ListPool(IterateReachableTiles(start, depth, unit))`, et
+        # `BasePathfinder.u003CIterateReachableTilesu003Ed__12$$MoveNext` ne l'EMET PAS : sa branche
+        # `depth == 1` rend `GetValidNeighbours(start, unit, null)` et rien d'autre, et sa branche
+        # generale amorce `visited` VIDE en ne mettant `start` que dans la FILE (le niveau 0).
+        # C'est donc l'etage PATHFINDING qui l'exclut, pas ce filtre-ci -- d'ou la soustraction ici.
+        # Tant que `ignore_units_on_tiles` valait `False` a TOUS les call-sites portes, l'ecart etait
+        # INOBSERVABLE (le stop_set retire le depart de toute facon) ; `TheQuickeningAbility$$
+        # GetDynamicInvalidTargetReason` est le premier a poser ce booleen, et il l'a rendu visible :
+        # sur `MC1_67`, le natif refuse la tuile du caster par `TargetIsInRange` la ou le port
+        # l'acceptait (mesure `probe_287r5r1_charge_tiles_live.py`).
+        return sorted((visited - {start}) if self.ignore_units_on_tiles else stop)
 
 
 def tiles_unit_can_move_to_charge_target(unit: TargetsSelector, from_tile: TargetsSelector,
