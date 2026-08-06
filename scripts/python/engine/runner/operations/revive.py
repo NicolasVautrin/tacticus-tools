@@ -239,19 +239,23 @@ class ReviveUnitOperation:
             set_hp = int(hp)
             if hc.hp_max is not None:
                 set_hp = min(set_hp, int(hc.hp_max))     # Min(amount, maxHP)
-            hc.hp = set_hp
-            # ⚠ QUIRK NATIF, NE PAS « CORRIGER » (#462-r4e-o-r2) : le revive ne purge PAS
-            # l'accumulateur de sur-reduction `FillUpStatComponent+0x24` (`HealthComponent.over_reduce`).
-            # `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` n'appelle NI
-            # `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` NI `$$Initialize` -- les deux
-            # SEULS ecrivains du zero (`$$ResetOverReduce` existe mais n'a aucun xref de code) : il pose
-            # les PV par un slot de l'`OperationProcessor` qui applique des modificateurs de stat, dont
-            # les deux autres call-sites sont `IdunBattle.Operations.SetupGameOperation$$ApplyModifiers`
-            # et `IdunBattle.Operations.TransformActorToConfigIdOperation$$UpdateStats`.
-            # CONSEQUENCE MIRROREE : une unite REVIVEE entre dans l'attaque suivante avec l'accumulateur
-            # de sa vie precedente, et `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`
-            # (surcharge d'instance) peut donc lui poser `UnitFlag.Overkilled` des le PREMIER coup recu,
-            # a pleine vie. Le RESURRECT, lui, purge (il passe par `FillUp`, cf. `resurrect.py`).
+            # ⚠ LE REVIVE PURGE L'ACCUMULATEUR DE SUR-REDUCTION -- et `#462-r4e-o-r2` disait le
+            # CONTRAIRE (« quirk natif, ne pas corriger »). MESURE LIVE #462-r4e-o-r2-r1 :
+            # apres un revive `TaintedNarthecium` NATIF, l'attaque suivante rend la cardinalite
+            # PLEINE (5 events), pas 1 ; le port rendait 1.
+            # POURQUOI le RE offline se trompait : `IdunBattle.Operations.ReviveUnitOperation$$SetHealth`
+            # n'appelle bien NI `IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` NI
+            # `$$Initialize` -- mais ce ne sont PAS les seuls ecrivains du zero. Il pose un
+            # modificateur `{StatType.Health, ModifierType 0, Min(amount, maxHP)}` qui descend par
+            # `IdunBattle.Entities.UnitExtensions$$ApplyStatModifiers` ->
+            # `IdunBattle.Entities.UnitExtensions$$ApplyStatModifier` ->
+            # `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier`, dont le `case 0`
+            # ecrit `Current` **ET** `this[0x24] = 0`. C'est le QUATRIEME ecrivain, et c'est
+            # exactement le vice que `-r2` reprochait a `-r1` : une table d'ecrivains reputee
+            # exhaustive qui ne l'etait pas.
+            # FOYER du mirror : `HealthComponent.apply_modifier_set_current` (ecriture ABSOLUE +
+            # purge), pendant du `fill_up` RELATIF que prennent soin/reparation/resurrection.
+            hc.apply_modifier_set_current(set_hp)
         # flags IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE.
         # Le port modelise l'etat de vie via `uc.alive` (les flags ECS 0xf/0x14 = internes non suivis) ;
         # `Remove(8)` est PORTE depuis que `UnitFlag.Overkilled` est materialise (pose par le pipeline de

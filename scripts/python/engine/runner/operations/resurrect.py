@@ -29,6 +29,35 @@ from ...entities.unit_flag import UnitFlag
 from .triggers.dispatch import unit_resurrected_triggers
 
 
+def update_flags_on_resurrect(fl: UnitFlagsComponent) -> None:
+    """`IdunBattle.Operations.ResurrectUnitOperation$$UpdateFlags` -- la RAFALE de retraits, relue
+    VERBATIM au build `rnca9r7q6c` (#462-r4e-o-r2-r1) :
+
+        Remove(6) ; Remove(0xf) ; Remove(8) ; Remove(0x1a) ; Remove(9) ; Add(2) ; Add(0xe)
+
+    Le port n'en portait qu'UN (`Remove(0x1a)`), et l'omission de `Remove(8)` est LOAD-BEARING :
+    `UnitFlag.Overkilled` est le gate du SITE (A) d'
+    `IdunBattle.Operations.ApplyDamageOperation$$Execute` (porte dans `damage.py`, qui sort en tete
+    quand le flag est pose). Une unite RESSUSCITEE apres avoir ete overkillee restait donc
+    INFRAPPABLE cote port : l'attaque suivante n'emettait AUCUN evenement la ou le natif les emet
+    tous. MESURE (#462-r4e-o-r2-r1, montage Ambush) : port `[]` vs natif pleine cardinalite.
+
+    Fonction de MODULE, sans etat, pour la meme raison que `damage_hits.overkill_hit_emits` :
+    c'est le point de MUTATION des contre-epreuves.
+
+    ⚠ `Add(2 = UnitFlag.ActiveAbilityUsed)` du natif reste NON PORTE : aucune mesure ne l'exerce ici
+    (il gouverne la face DECISION -- `HasOwnersActiveAbilityBeenUsed` --, pas la cardinalite d'une
+    attaque), et le poser sans confrontation contredirait le tour immediat que `immediate_turn`
+    vient d'ouvrir. Residu nomme dans `docs/rl/case-462-r4e-o-amount-borne-aux-pv.md` SS 8.
+    `Add(0xe)` reste chez l'appelant : c'est lui qui porte le sens « one-shot »."""
+    for f in (UnitFlagsComponent.DEAD,          # Remove(6)    -- UnitFlag.Dead
+              UnitFlag.Downed,                  # Remove(0xf)  -- UnitFlag.Downed (aucun poseur porte)
+              UnitFlagsComponent.OVERKILLED,    # Remove(8)    -- UnitFlag.Overkilled
+              UnitFlagsComponent.REMOVED,       # Remove(0x1a) -- UnitFlag.Removed
+              UnitFlagsComponent.FLED):         # Remove(9)    -- UnitFlag.Fled (pose par `behaviour.py`)
+        fl.remove(f)
+
+
 class ResurrectUnitOperation:
     """Mirror `IdunBattle.Operations.ResurrectUnitOperation$$Execute` (mutateur ECS). `dest_coord` = (col,row) de la
     tuile du decoy ; `hp` = PV à restaurer (PV pleins) ; `immediate_turn` = tour immédiat après résurrection."""
@@ -74,26 +103,9 @@ class ResurrectUnitOperation:
         fl = e.get_component(UnitFlagsComponent)
         if fl is None:
             fl = e.add_component(UnitFlagsComponent())
-        # `IdunBattle.Operations.ResurrectUnitOperation$$UpdateFlags` — RAFALE COMPLETE, relue
-        # VERBATIM au build `rnca9r7q6c` (#462-r4e-o-r2-r1) :
-        #     Remove(6) ; Remove(0xf) ; Remove(8) ; Remove(0x1a) ; Remove(9) ; Add(2) ; Add(0xe)
-        # Le port n'en portait qu'UN (`Remove(0x1a)`), et l'omission de `Remove(8)` est
-        # LOAD-BEARING : `UnitFlag.Overkilled` est le gate du SITE (A)
-        # (`IdunBattle.Operations.ApplyDamageOperation$$Execute` -- porte dans `damage.py`, qui sort
-        # en tete quand le flag est pose). Une unite RESSUSCITEE apres avoir ete overkillee restait
-        # donc INFRAPPABLE cote port : l'attaque suivante n'emettait AUCUN evenement, la ou le natif
-        # les emet tous. Mesure #462-r4e-o-r2-r1 (montage Ambush) : port `[]` vs natif pleine
-        # cardinalite.
-        for _f in (UnitFlagsComponent.DEAD,          # Remove(6)  -- UnitFlag.Dead
-                   UnitFlag.Downed,                  # Remove(0xf) -- UnitFlag.Downed (aucun poseur porte)
-                   UnitFlagsComponent.OVERKILLED,    # Remove(8)  -- UnitFlag.Overkilled
-                   UnitFlagsComponent.REMOVED,       # Remove(0x1a) -- UnitFlag.Removed
-                   UnitFlagsComponent.FLED):         # Remove(9)  -- UnitFlag.Fled (pose par `behaviour.py`)
-            fl.remove(_f)
-        # ⚠ `Add(2 = UnitFlag.ActiveAbilityUsed)` du natif reste NON PORTE : aucune mesure ne
-        # l'exerce ici (il gouverne la face DECISION -- `HasOwnersActiveAbilityBeenUsed` -- pas la
-        # cardinalite d'attaque), et le poser sans confrontation changerait le tour immediat que
-        # `immediate_turn` vient d'ouvrir. Residu nomme, cf. `case-462-r4e-o-amount-borne-aux-pv.md`.
+        # `IdunBattle.Operations.ResurrectUnitOperation$$UpdateFlags` — rafale de RETRAITS complete
+        # (foyer/point de mutation : `update_flags_on_resurrect`, cf. sa docstring).
+        update_flags_on_resurrect(fl)
         fl.add(UnitFlagsComponent.AMBUSH_CONSUMED)      # Add(0xe) — one-shot
         # tour immédiat : RemoveTurnFlags(1,1) -> l'unité redevient actionnable (retire NoAction + turn-flags)
         if immediate_turn:
