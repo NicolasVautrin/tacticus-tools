@@ -197,32 +197,49 @@ La forme retenue est celle que ce depot tient DEJA sur l'autre versant, le ledge
 sur le CONTENU. Une entree perimee MANQUE au lieu de mentir, et un sha mort n'invalide que
 lui-meme.
 
-CE QUE LA CLE D'UNE ENTREE PORTE, ET POURQUOI PAS LE SEUL FICHIER
-------------------------------------------------------------------
-Une empreinte peut changer SANS que le fichier de test change : il suffit qu'un module qu'il
-importe se mette a ouvrir un autre fichier. La cle est donc celle de **{le test, sa FERMETURE
-d'imports}** -- pour chaque module de la fermeture, son NOM et le sha256 de son TEXTE. Les deux
-sont necessaires : modifier un fichier deja present et FAIRE ENTRER un fichier neuf dans la
-fermeture sont deux changements distincts, et un hash de contenus seuls ne verrait pas le second.
+CE QUI REMPLACE LE TAMPON GLOBAL : RIEN. C'EST LE `git diff` QUI FAIT FOI
+--------------------------------------------------------------------------
+La question a laquelle l'empreinte repond est << ce diff touche-t-il ce test ? >>. Git rend deja
+la liste des chemins modifies ; on l'apparie aux deps mesurees et aux globs declares. Appariement
+de CHAINES, zero lecture, zero sha. Une cle de contenu par entree a ete ESSAYEE puis ECARTEE :
+elle repond a une autre question (<< ce contenu a-t-il change ? >>), que le diff a deja tranchee,
+et elle coute -- 4 001 ms pour hacher `scripts/python`, 2 643 ms pour un simple `stat()`, quand le
+plus petit test offline pese 80 ms.
 
-La fermeture est calculee sur le graphe que `impacted_files` utilise DEJA (`_import_graph`), donc
-TOUS les imports -- y compris ceux ecrits dans un corps de fonction, qui s'executent bel et bien
-pendant un test -- plus les aretes `conftest.py` de la semantique pytest. Elle n'est PAS la
-fermeture NIVEAU MODULE d'`import_closure.py` (#486-r11), qui repond a une autre question --
-<< que charge `import M` ? >> -- et qui, employee ici, SOUS-approximerait : un import differe
-execute par un test lui echappe, et une sous-approximation est un FAUX VERT. Mesure du
-2026-08-07 : fermetures de 12 / 95 / 171 modules (min / mediane / max) sur les 220 fichiers,
-calculees en **0,45 s** une fois le graphe en main.
+ET LA FRAICHEUR SE REPARE TOUTE SEULE, DES QUE LA MISE A JOUR PARTIELLE EXISTE. Le fichier de
+test change ? il est dans le diff, donc selectionne, donc joue, donc son entree est REECRITE. Un
+module de sa fermeture change ? le graphe d'imports le retient, meme chaine. Le seul cas
+reellement dangereux -- un module qui se met a LIRE une donnee que l'empreinte du test ignore --
+est donc couvert AU MOMENT MEME ou ce module change. C'est pour cela que la mise a jour partielle
+est le coeur de cette tranche, et que le `_commit` GLOBAL qui l'interdisait etait le vrai defaut.
 
 `_commit` et `_at` RESTENT dans chaque entree, en CONTEXTE INFORMATIF -- jamais comme critere.
 
 L'ABSENCE D'UNE ENTREE VEUT DIRE << PAS MESURE >>, ET ELLE REJOUE
 ------------------------------------------------------------------
 Avant #486-r15, un fichier absent de `par_test` etait lu << il n'ouvre aucun fichier du depot >>
-et SAUTE. C'etait le faux vert que `_footprints_path` decrit : une empreinte videe ne
-sur-selectionne pas, elle SOUS-selectionne. L'empreinte porte desormais une entree pour CHAQUE
-fichier joue, `dirs` VIDE compris, et une absence se lit << jamais mesure >> -> rejoue. Le mode de
-defaillance bascule ainsi du cote SUR : une empreinte videe rejoue TOUT.
+et SAUTE. C'est une AFFIRMATION qui n'a jamais ete gagnee : elle ne vaut que si le test a tourne
+au moins une fois sous le hook d'audit. Mesure sur `master` le 2026-08-07 : **88 entrees pour 220
+fichiers offline** -- 132 fichiers passaient par cette affirmation. C'est le faux vert que
+`_footprints_path` decrit : une empreinte videe ne sur-selectionne pas, elle SOUS-selectionne.
+L'empreinte porte desormais une entree pour CHAQUE fichier joue, `dirs` VIDE compris ; MESURE-ET-
+VIDE et JAMAIS-MESURE cessent donc de se confondre, et le second rejoue.
+
+LA MOITIE DECLAREE : `DECLENCHEUR` (#486-r15, forme partagee avec #486-r12)
+----------------------------------------------------------------------------
+Chaque FICHIER de test declare, au niveau module, ce qui doit changer pour qu'il puisse changer de
+verdict -- memes quatre cles et meme semantique de glob que les cliquets de la banque
+(`declencheur_cliquet.py`). La declaration est BON MARCHE (regex contre les chemins du diff, ni
+lecture ni AST pour les fichiers qui ne declarent pas) et elle exprime ce qu'aucune mesure ne
+voit : l'INTENTION. Elle ne vaut que parce qu'un cliquet la CONFRONTE a la mesure --
+`probe_486r15_declencheurs_tests.py`, qui verifie que rien de ce que le fichier IMPORTE ou OUVRE
+ne sort de son perimetre declare.
+
+Le grain est le FICHIER, pas le test, et c'est mesure : sur `test_477r24r1_slots_interface_offline`,
+UN test coute 15,0 s quand les 59 du fichier en coutent 49,7 -- le cout FIXE des fixtures est ~15 s
+et ne se divise pas. Et surtout, une selection INTRA-FICHIER casserait `probe_455` : un fichier
+dont tous les tests sont deselectionnes n'emet AUCUN report, donc devient structurellement
+invisible.
 
 ASCII only (cp1252).
 """
@@ -242,11 +259,8 @@ _PYDIR_POUR_IMPORT = Path(__file__).resolve().parent
 if str(_PYDIR_POUR_IMPORT) not in sys.path:
     sys.path.insert(0, str(_PYDIR_POUR_IMPORT))
 
+import declencheur_cliquet                                                  # noqa: E402
 import repo_read                                                            # noqa: E402
-#: FOYER UNIQUE du sha de contenu (#486-r1) : sur le TEXTE, jamais sur les octets -- `core.autocrlf`
-#: vaut `true` ici, donc les memes octets versionnes se materialisent en CRLF sous Windows et en LF
-#: ailleurs. En ecrire un second ici ferait deriver deux caches VERSIONNES l'un de l'autre.
-from verdict_cache import sha_texte                                         # noqa: E402
 
 #: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
 #:
@@ -311,9 +325,11 @@ EX_NON_MESURE = 99
 #: les durees ni l'empreinte, les fichiers ont bien ete joues.
 RC_PYTEST_SANS_MESURE = (2, 3, 4, 5)
 
-#: VERSION DU FORMAT DE L'EMPREINTE (#486-r15). `1` = un `_commit` GLOBAL et `par_test` = liste de
-#: repertoires ; `2` = un tampon PAR ENTREE (`_cle` sur la fermeture d'imports) et une entree pour
-#: CHAQUE fichier mesure, `dirs` vide compris.
+#: VERSION DU FORMAT DE L'EMPREINTE (#486-r15). `1` = un `_commit` GLOBAL comme critere de
+#: fraicheur, et `par_test[rel]` = simple liste de repertoires, ecrite SEULEMENT si non vide.
+#: `2` = une entree DICT par fichier MESURE (`dirs` VIDE compris, ce qui rend l'absence lisible
+#: comme << jamais mesure >>), un `_at`/`_commit` par entree en contexte INFORMATIF, et des
+#: `temoins` (chemins reels) pour la confrontation des `DECLENCHEUR`.
 #:
 #: Une empreinte d'un AUTRE format ne se devine pas : `impacted_files` refuse de s'en servir et
 #: rejoue TOUT en le disant. C'est le seul traitement sur -- lire une empreinte de format 1 avec
@@ -627,7 +643,38 @@ class _FilesPerTest:
         self.courant = None
 
 
-def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, globales: list,
+def _temoins(chemins, versionnable) -> list:
+    """DEUX chemins REELS par groupe (repertoire, extension) : le plus petit et le plus grand.
+
+    A QUOI CA SERT, ET POURQUOI PAS `dirs` (#486-r15). `dirs` sert la SELECTION, a la granularite
+    repertoire -- c'est le bon grain pour << un fichier NEUF de ce repertoire doit rejouer >>. La
+    CONFRONTATION d'un `DECLENCHEUR`, elle, apparie des GLOBS a des chemins : `docs/rl/*.md` ne
+    s'evalue pas contre le repertoire `docs/rl`, il s'evalue contre un fichier. Il faut donc des
+    chemins reels.
+
+    L'AGREGATION est une APPROXIMATION ASSUMEE, et elle borne PAR LE BAS : un glob discriminant
+    sur le nom de base peut couvrir les deux temoins d'un groupe sans couvrir un troisieme fichier
+    du meme groupe. Elle est reprise telle quelle de `probe_486r12_declencheurs.py`, qui la
+    documente pour les cliquets -- meme arbitrage, meme raison : garder le fichier versionne
+    lisible (l'empreinte a chemins COMPLETS pesait 961 Ko).
+    """
+    seaux: dict = {}
+    for c in chemins:
+        if not versionnable(c) or "/" not in c:
+            continue
+        base = c.rsplit("/", 1)
+        ext = base[1].rsplit(".", 1)[-1] if "." in base[1] else ""
+        cle = (base[0], ext)
+        mn, mx = seaux.get(cle, (c, c))
+        seaux[cle] = (min(mn, c), max(mx, c))
+    out: set = set()
+    for mn, mx in seaux.values():
+        out.add(mn)
+        out.add(mx)
+    return sorted(out)
+
+
+def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, globales: list,
                          commit, complete: bool, mods: dict) -> dict:
     """L'empreinte a ECRIRE : les entrees de CETTE passe, fusionnees dans celle du disque (#486-r15).
 
@@ -653,15 +700,19 @@ def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, globales: 
     garde = {} if complete else {r: e for r, e in (ancien_pt or {}).items()
                                  if isinstance(e, dict) and r not in mesures}
 
-    cles = _cles_fermeture(["scripts/python/" + r for r in mesures], mods)
     maintenant = int(time.time())
     neuves = {}
     for rel in sorted(mesures):
+        lus = lus_par_test.get(rel, ())
         neuves[rel] = {
             "_at": maintenant,
-            "_cle": cles.get("scripts/python/" + rel),
             "_commit": commit,
-            "dirs": dossiers(lus_par_test.get(rel, ())),
+            # LES DEPS SONT DES REPERTOIRES, et le diff fait foi : on les APPARIE aux chemins que
+            # `git diff --name-only` rend. Aucun hash, aucune lecture. Le repertoire s'apparie
+            # meme MIEUX qu'un fichier -- un fichier NEUF qui y apparait est couvert sans que
+            # l'empreinte bouge, et c'est exactement ce qu'un test-balayage exige.
+            "dirs": dossiers(lus),
+            "temoins": temoins(lus),
         }
 
     anciennes_glob = ancien.get("_globales") or []
@@ -765,6 +816,7 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
                 mesures=mesures,
                 lus_par_test=empreinte.par_test,
                 dossiers=_dossiers,
+                temoins=lambda c: _temoins(c, _versionnable),
                 globales=sorted(brutes),
                 commit=(tete.stdout or "").strip() or None,
                 complete=complete,
@@ -775,19 +827,12 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
             hors_py = sorted({r for r in emp["_globales"] if not r.endswith(".py")})
             hors_py_test = sorted({r for v in empreinte.par_test.values() for r in v
                                    if not r.endswith(".py")})
-            sans_cle = sorted(r for r, e in emp["par_test"].items() if not e.get("_cle"))
             print("[457] empreinte -> %s : %d entree(s) de test (%s ; %d rafraichie(s) par cette "
                   "passe), %d lecture(s) GLOBALE(s) (non attribuables -> impactent TOUT), dont %d "
                   "hors .py ; %d fichier(s) hors .py lus pendant les tests"
                   % (emp_path, len(emp["par_test"]),
                      "REECRITE en entier" if complete else "FUSION partielle",
                      len(mesures), len(emp["_globales"]), len(hors_py), len(hors_py_test)))
-            if sans_cle:
-                # Une entree sans cle ne peut pas prouver sa fraicheur : `impacted_files` la
-                # traitera comme PERIMEE (rejeu). Le DIRE tout de suite -- sinon la degradation ne
-                # se lit qu'au prochain `--since`, dans une ligne que personne ne relit.
-                print("[457] ATTENTION -- %d entree(s) SANS cle de fermeture (hors domaine du "
-                      "graphe ?) : %s" % (len(sans_cle), ", ".join(sans_cle[:5])))
     else:
         print("[457] empreinte NON INSTRUMENTEE par cette passe -- fichier versionne INCHANGE.")
 
@@ -1099,29 +1144,15 @@ def _empreinte_sources(mods: dict, racine) -> tuple:
     return tuple(out)
 
 
-def _graphe(mods: dict) -> tuple:
-    """`(inverse, incertains, direct, shas)` -- le calcul COMPLET, memoise (cf. `_GRAPHE_CACHE`).
+def _import_graph(mods: dict) -> tuple:
+    """(qui-importe-qui inverse, modules a resolution INCERTAINE). Purement statique.
 
-    UN SEUL passage de lecture et d'AST sert les DEUX usages (#486-r15) : la cloture ARRIERE, qui
-    dit quels tests un `.py` change impacte, et la cloture AVANT, qui donne la CLE de fraicheur
-    d'une entree d'empreinte. Les deriver separement doublerait le poste le plus cher du probe --
-    mesure du 2026-08-07 : 32,7 s d'`ast.parse` pour 2 096 modules, contre 0,45 s pour les 220
-    fermetures qui s'en deduisent.
-    """
+    Le resultat est FIGE et memoise -- cf. `_GRAPHE_CACHE`."""
     racine = repo_root()
     cle = (_empreinte_sources(mods, racine), tuple(sorted(mods.items())))
     if cle not in _GRAPHE_CACHE:
         _GRAPHE_CACHE[cle] = _calculer_import_graph(mods, racine)
     return _GRAPHE_CACHE[cle]
-
-
-def _import_graph(mods: dict) -> tuple:
-    """(qui-importe-qui inverse, modules a resolution INCERTAINE). Purement statique.
-
-    SEAM historique, conserve tel quel : c'est ce que les gardes offline substituent pour injecter
-    un graphe synthetique. La cloture AVANT passe par `_cles_fermeture`, son propre seam."""
-    inverse, incertains, _direct, _shas = _graphe(mods)
-    return inverse, incertains
 
 
 def _calculer_import_graph(mods: dict, racine) -> tuple:
@@ -1132,10 +1163,6 @@ def _calculer_import_graph(mods: dict, racine) -> tuple:
     `ast.parse`, comme le faisait `read_bytes()` -- l'echec de lecture (`None`) rejoint la meme
     branche `incertains` que l'`OSError` d'origine.
 
-    Rend QUATRE valeurs (#486-r15) : `inverse` (qui-importe-qui, cloture ARRIERE), `incertains`,
-    `direct` (les memes aretes dans l'autre sens, pour la cloture AVANT) et `shas` (le sha256 du
-    TEXTE de chaque module, la matiere de la cle de fraicheur). `direct` et `shas` sortent du meme
-    passage : ils ne coutent ni une lecture ni un `ast.parse` de plus.
     """
     import ast as _ast
     from collections import defaultdict
@@ -1145,21 +1172,10 @@ def _calculer_import_graph(mods: dict, racine) -> tuple:
         par_nom[m].add(rel)
 
     inverse = defaultdict(set)
-    direct = defaultdict(set)
-    shas: dict = {}
     incertains = set()
     ordre = list(mods)
     octets = repo_read.read_bytes_many([str(racine / rel) for rel in ordre])
     for rel, data in zip(ordre, octets):
-        # Le sha du TEXTE, pas des octets : `core.autocrlf` vaut `true` dans ce depot, donc les
-        # memes octets versionnes se materialisent en CRLF sous Windows et en LF ailleurs. Meme
-        # raison -- et meme foyer -- que `verdict_cache.sha_texte` (#486-r1).
-        if data is None:
-            # ABSENT est une DONNEE de la cle, pas un silence : un module illisible fait donc
-            # MANQUER l'entree qui en depend, il ne la laisse pas valide.
-            shas[rel] = SHA_ABSENT
-        else:
-            shas[rel] = sha_texte(repo_read.to_text(data, "replace"))
         try:
             if data is None:
                 raise OSError(rel)
@@ -1191,73 +1207,39 @@ def _calculer_import_graph(mods: dict, racine) -> tuple:
                 if cle in par_nom:
                     for cible in par_nom[cle]:
                         inverse[cible].add(rel)
-                        direct[rel].add(cible)
                     break
 
     # La semantique pytest, que l'AST ne peut PAS voir (aucun test n'importe son conftest).
     for conf, cibles in _conftest_edges(mods).items():
         inverse[conf].update(cibles)
-        for t in cibles:
-            direct[t].add(conf)
     # FIGE avant de sortir : la valeur est memoisee et partagee entre appels (#486-r5).
     # `impacted_files` ne fait que `inverse.get(...)` et `rel in incertains` -- les deux formes
     # marchent a l'identique sur un `dict` de `frozenset` et un `frozenset`.
-    return ({k: frozenset(v) for k, v in inverse.items()}, frozenset(incertains),
-            {k: frozenset(v) for k, v in direct.items()}, shas)
+    return {k: frozenset(v) for k, v in inverse.items()}, frozenset(incertains)
 
 
-#: Le sha porte par un module que la mesure n'a pas pu LIRE. Une valeur, pas un silence.
-SHA_ABSENT = "ABSENT"
-
-
-def _cles_fermeture(cibles, mods: dict) -> dict:
-    """`{chemin depot -> cle de fraicheur}` pour chaque cible, par sa FERMETURE D'IMPORTS.
-
-    SEAM de la cloture AVANT (#486-r15). Une cible hors du domaine est ABSENTE du retour, et
-    `impacted_files` traite cette absence comme << pas de cle >> -> impacte. Rendre une cle
-    arbitraire serait pretendre savoir.
-
-    LA CLE PORTE COMPOSITION ET CONTENU. Pour chaque module de la fermeture, son NOM puis le sha
-    de son texte. Sans les NOMS, ajouter une arete qui fait ENTRER un module neuf dans la
-    fermeture ne bougerait pas le digest -- et c'est exactement une des facons dont une empreinte
-    se perime sans que le fichier de test change.
-
-    CE QUE LA FERMETURE HERITE DU GRAPHE, et il faut le lire : les modules a resolution INCERTAINE
-    (import relatif, `import_module`, fichier illisible) sont dans le graphe mais leurs aretes
-    SORTANTES n'y sont pas. La fermeture peut donc etre trop PETITE. Mesure du 2026-08-07 :
-    **220/220** fichiers du perimetre en portent au moins un (372 modules incertains sur 2 096) --
-    refuser de cler dans ce cas rendrait la selection inutile. C'est EXACTEMENT l'approximation que
-    l'axe `.py` de `impacted_files` fait deja depuis #457-r8 (`touches` sort du meme graphe) : ce
-    n'est pas une regression introduite ici, c'est un trou herite, et il est NOMME.
-    """
-    _inv, _inc, direct, shas = _graphe(mods)
-    blocs: dict = {}
-
-    def bloc(rel: str) -> bytes:
-        b = blocs.get(rel)
-        if b is None:
-            b = (rel.encode("utf-8") + b"\0"
-                 + shas.get(rel, SHA_ABSENT).encode("ascii") + b"\0")
-            blocs[rel] = b
-        return b
-
-    out: dict = {}
-    for cible in cibles:
-        if cible not in mods:
-            continue
-        vus: set = set()
-        pile = [cible]
-        while pile:
-            x = pile.pop()
-            if x in vus:
-                continue
-            vus.add(x)
-            pile.extend(set(direct.get(x, ())) - vus)
-        h = hashlib.sha256()
-        for nom in sorted(vus):
-            h.update(bloc(nom))
-        out[cible] = h.hexdigest()
-    return out
+#: LE HASH PAR DEP A ETE ESSAYE PUIS ECARTE, et la mesure qui l'a tue vaut d'etre gardee.
+#:
+#: L'idee etait de faire porter a chaque dep son propre hash de contenu, pour decider par
+#: comparaison de hashes plutot que par un diff. Trois mesures du 2026-08-07 la refutent :
+#:
+#:   * les deps SONT des repertoires (1 226 sur 1 227) ; descendre au FICHIER pour les hacher
+#:     fait passer les 88 entrees de 1 227 a **59 592** couples -- x48,6, plusieurs Mo VERSIONNES ;
+#:   * hacher en LISANT coute 680 ms pour `engine/` et **4 001 ms** pour `scripts/python/`, quand
+#:     le plus petit test offline pese **80 ms** et les 165 plus legers **13,1 s a eux tous** ;
+#:   * `stat()` seul n'est pas un refuge (2 643 ms) : sous Windows c'est le NOMBRE d'appels
+#:     systeme qui coute, pas le volume lu.
+#:
+#: Et surtout, un hash repond a une question que le DIFF a deja tranchee. `git diff --name-only`
+#: rend la liste des chemins modifies ; on l'apparie aux globs declares et aux deps mesurees --
+#: appariement de CHAINES, zero lecture, zero sha. Un repertoire s'apparie meme MIEUX qu'un
+#: fichier : un fichier NEUF dans ce repertoire est couvert sans que rien ne bouge.
+#:
+#: LA FRAICHEUR SE REPARE ALORS TOUTE SEULE, a condition que la mise a jour PARTIELLE existe --
+#: c'est le coeur de #486-r15. Le fichier de test change ? il est dans le diff, donc selectionne,
+#: donc joue, donc son entree est REECRITE. Un module de ses deps change ? meme chaine. Le seul
+#: cas dangereux -- un module qui se met a lire une donnee que l'empreinte du test ignore -- est
+#: donc couvert AU MOMENT MEME ou ce module change.
 
 
 #: L'empreinte est VERSIONNEE, contrairement aux poids -- et l'asymetrie est le point.
@@ -1305,9 +1287,76 @@ def _changed(ref: str) -> list:
     return sorted({l.strip() for l in r.stdout.splitlines() if l.strip()})
 
 
+#: Marqueur cherche en SOUS-CHAINE avant tout `ast.parse` : un fichier qui ne l'ecrit pas ne
+#: declare rien, et n'est donc jamais parse. C'est ce qui rend l'evaluation bon marche.
+_MARQUEUR_DECL = declencheur_cliquet.NOM
+
+
+def declencheurs_du_perimetre(perimetre: list, racine=None) -> tuple:
+    """`({rel: globs effectifs}, {rel: pourquoi la declaration n'est PAS servie})`.
+
+    L'EVALUATION DOIT COUTER MOINS QUE LE TEST (#486-r15). Mesure du 2026-08-07 sur ce depot :
+    165 des 220 fichiers offline pesent **13,1 s A EUX TOUS** (moyenne 0,08 s). Un selecteur qui,
+    pour decider de les jouer, balaierait le corpus ou calculerait une fermeture d'imports
+    (32,7 s d'`ast.parse`) serait PERDANT par construction. D'ou les trois crans, dans cet ordre :
+
+      1. on ne lit QUE les fichiers du perimetre (220 petits fichiers, en parallele) ;
+      2. un PRE-FILTRE par SOUS-CHAINE ecarte tout fichier qui n'ecrit pas le mot `DECLENCHEUR` --
+         aucun AST pour lui ;
+      3. `ast.literal_eval` sur la seule affectation trouvee, jamais un `import` du module (le
+         patron de `declencheur_cliquet.lire` : un fichier dont l'import PLANTE doit pouvoir
+         declarer quand meme).
+
+    UNE DECLARATION MAL FORMEE N'EST PAS SERVIE, et la raison est rendue : le fichier retombe sur
+    le mecanisme MESURE. Servir une declaration douteuse serait le seul sens dangereux.
+    """
+    racine = racine or repo_root()
+    chemins = ["scripts/python/" + rel for rel in perimetre]
+    textes = repo_read.read_texts([str(racine / c) for c in chemins], errors="replace")
+    servis: dict = {}
+    ecartes: dict = {}
+    for rel, source_rel, texte in zip(perimetre, chemins, textes):
+        if texte is None:
+            ecartes[rel] = "fichier illisible"
+            continue
+        if _MARQUEUR_DECL not in texte:
+            ecartes[rel] = "aucune declaration"
+            continue
+        try:
+            # `lire` RE-OUVRE le fichier. C'est deliberé : on ne touche pas au foyer partage
+            # `declencheur_cliquet` (vendore a l'IDENTIQUE de #486-r12, pour qu'un conflit
+            # add/add se resolve trivialement), et le surcout ne porte que sur les fichiers qui
+            # ont DEJA passe le pre-filtre par sous-chaine -- c'est-a-dire ceux qui declarent.
+            d = declencheur_cliquet.lire(racine / source_rel)
+        except (declencheur_cliquet.DeclencheurAbsent, OSError, SyntaxError) as exc:
+            ecartes[rel] = str(exc)
+            continue
+        fautes = declencheur_cliquet.valider(d)
+        if fautes:
+            ecartes[rel] = "declaration MAL FORMEE : %s" % fautes[0]
+            continue
+        if d.get("toujours"):
+            ecartes[rel] = "`toujours: True` -- rien ne le borne"
+            continue
+        servis[rel] = declencheur_cliquet.perimetre(d, source_rel)
+    return servis, ecartes
+
+
 def impacted_files(perimetre: list, ref: str) -> tuple:
     """(sous-ensemble du perimetre a rejouer, raison). Retourne le perimetre ENTIER si un doute
-    subsiste -- et la raison le DIT, pour qu'un rejeu total ne se lise jamais comme une mesure."""
+    subsiste -- et la raison le DIT, pour qu'un rejeu total ne se lise jamais comme une mesure.
+
+    DEUX MOITIES, ET IL FAUT LES DEUX (#486-r15) :
+
+      * DECLAREE  -- le `DECLENCHEUR` du fichier de test, apparie au diff par simple regex. Bon
+        marche, lisible, et il exprime ce qu'aucune mesure ne voit : l'INTENTION. Il ne vaut que
+        parce qu'un cliquet le CONFRONTE a la mesure (`probe_486r15_declencheurs_tests.py`) ;
+      * MESUREE   -- graphe d'imports + empreinte des fichiers reellement ouverts. Elle voit ce
+        que la declaration oublie, et c'est elle qui decide pour tout fichier NON declare.
+
+    Le graphe est PARESSEUX : il n'est calcule que s'il reste au moins un fichier non declare.
+    C'est la ou passe le cout (32,7 s d'`ast.parse` sur 2 096 modules), et c'est ce que la
+    generalisation des declarations doit faire disparaitre."""
     changes = _changed(ref)
     if changes is None:
         return perimetre, "ref `%s` inconnue de git -- TOUT rejoue" % ref
@@ -1328,17 +1377,6 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
 
     racine = repo_root()
     mods = _modules_du_graphe(racine)
-
-    inverse, incertains = _import_graph(mods)
-
-    # Cloture arriere du graphe d'imports sur les .py changes.
-    touches, pile = set(), [c for c in changes if c in mods]
-    while pile:
-        x = pile.pop()
-        if x in touches:
-            continue
-        touches.add(x)
-        pile.extend(inverse.get(x, ()))
 
     # Les GLOBALES ne sont attribuables a personne -> tout changement les touchant impacte TOUT.
     # `.pyc` exclus : bytecode non versionne, jamais dans un diff.
@@ -1374,43 +1412,69 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
     # sans les ramener l'une a l'autre ne matcherait JAMAIS -- selection vide, donc faux vert.
     prefixe = "scripts/python/"
     changes_s = set(changes)
-    cles = _cles_fermeture([prefixe + rel for rel in perimetre], mods)
 
+    # ---------------------------------------------------------------- MOITIE DECLAREE
+    declares, _ecartes = declencheurs_du_perimetre(perimetre, racine)
     retenus = []
-    causes = {"diff": 0, "graphe": 0, "jamais mesure": 0, "empreinte perimee": 0, "hors .py": 0}
+    causes = {"declare": 0, "diff": 0, "graphe": 0, "jamais mesure": 0,
+              "empreinte perimee": 0, "hors .py": 0}
+    a_mesurer = []
     for rel in perimetre:
-        abs_rel = prefixe + rel
-        if abs_rel in changes_s:
-            retenus.append(rel)
-            causes["diff"] += 1
+        globs = declares.get(rel)
+        if globs is None:
+            a_mesurer.append(rel)
             continue
-        if abs_rel in touches or abs_rel in incertains:
+        if any(declencheur_cliquet.couvre(globs, c) for c in changes):
             retenus.append(rel)
-            causes["graphe"] += 1
-            continue
-        entree = par_test.get(rel)
-        if not isinstance(entree, dict):
-            # JAMAIS MESURE. Avant #486-r15 cette absence se lisait << aucune dependance hors-.py >>
-            # et le test etait SAUTE : c'est le faux vert qu'une empreinte videe fabriquait. Une
-            # entree est desormais ecrite pour CHAQUE fichier joue, `dirs` vide compris -- donc
-            # absent veut dire << pas de mesure >>, et cela rejoue.
-            retenus.append(rel)
-            causes["jamais mesure"] += 1
-            continue
-        cle = cles.get(abs_rel)
-        if cle is None or entree.get("_cle") != cle:
-            # La fermeture d'imports de ce test n'est plus celle qui a ete mesuree : ce que le test
-            # OUVRE a pu changer sans que son propre fichier bouge. L'entree ne prouve donc plus
-            # rien. Elle MANQUE, elle ne ment pas.
-            retenus.append(rel)
-            causes["empreinte perimee"] += 1
-            continue
-        if dirs_par_test[rel] & dirs_changes:
-            retenus.append(rel)
-            causes["hors .py"] += 1
-    raison = ("%d/%d fichier(s) impactes par %d changement(s) depuis %s [%s]"
-              % (len(retenus), len(perimetre), len(changes), ref,
-                 ", ".join("%s %d" % (k, v) for k, v in causes.items() if v)))
+            causes["declare"] += 1
+
+    # ---------------------------------------------------------------- MOITIE MESUREE
+    # PARESSEUX : le graphe (32,7 s d'`ast.parse`) n'est calcule que s'il reste un fichier a
+    # decider. C'est ce que la generalisation des declarations fait disparaitre.
+    if a_mesurer:
+        inverse, incertains = _import_graph(mods)
+        # Cloture arriere du graphe d'imports sur les .py changes.
+        touches, pile = set(), [c for c in changes if c in mods]
+        while pile:
+            x = pile.pop()
+            if x in touches:
+                continue
+            touches.add(x)
+            pile.extend(inverse.get(x, ()))
+        for rel in a_mesurer:
+            abs_rel = prefixe + rel
+            if abs_rel in changes_s:
+                retenus.append(rel)
+                causes["diff"] += 1
+                continue
+            if abs_rel in touches or abs_rel in incertains:
+                retenus.append(rel)
+                causes["graphe"] += 1
+                continue
+            entree = par_test.get(rel)
+            if not isinstance(entree, dict):
+                # TRI-ETAT : JAMAIS MESURE n'est PAS << mesure et vide >>. Avant #486-r15 les deux
+                # se confondaient dans une absence, lue << aucune dependance hors-.py >> -- une
+                # AFFIRMATION qui n'a jamais ete gagnee, puisqu'elle ne vaut que si le test a
+                # tourne au moins une fois sous le hook d'audit. Mesure sur `master` le
+                # 2026-08-07 : 88 entrees pour 220 fichiers, donc 132 fichiers passaient par cette
+                # affirmation-la. Une entree est desormais ecrite pour CHAQUE fichier joue, `dirs`
+                # VIDE compris -- une absence veut donc dire << pas de mesure >>, et cela rejoue.
+                retenus.append(rel)
+                causes["jamais mesure"] += 1
+                continue
+            if dirs_par_test[rel] & dirs_changes:
+                retenus.append(rel)
+                causes["hors .py"] += 1
+
+    # L'ordre du perimetre est CONSERVE : la partition en shards est deterministe, et deux shards
+    # d'un meme run doivent voir exactement la meme liste.
+    rang = {rel: i for i, rel in enumerate(perimetre)}
+    retenus.sort(key=lambda r: rang[r])
+    raison = ("%d/%d fichier(s) impactes par %d changement(s) depuis %s "
+              "[%d declare(s), %d mesure(s) ; %s]"
+              % (len(retenus), len(perimetre), len(changes), ref, len(declares), len(a_mesurer),
+                 ", ".join("%s %d" % (k, v) for k, v in causes.items() if v) or "aucun"))
     return retenus, raison
 
 
