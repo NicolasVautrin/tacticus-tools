@@ -529,7 +529,8 @@ def _models(tile, leaves, lc, wt, montage) -> tuple:
     from engine.entities.unit_faction import UnitFaction
     from engine.entities.traits.unit_trait import UnitTrait
     from engine.utilities.utility_type import UtilityType
-    from engine import battle_query as bq
+    from engine import battle_query as bq                        # noqa: F401
+    from engine.entities.tile_extensions import get_steppable_unit
     from engine.playbook.non_owner import (MawClawsOfThyraxNonOwnerPlaybook as MC,
                                            PurgeResponseNonOwnerPlaybook as PR,
                                            HaywireMineNonOwnerPlaybook as HM)
@@ -548,7 +549,7 @@ def _models(tile, leaves, lc, wt, montage) -> tuple:
         na, ne = _owners_adj(tile, lc, aid, "ami"), _owners_adj(tile, lc, aid, "ennemi")
     else:
         aid, key = int(T.HaywireMine), HM.KEY_FRIENDLY
-        occ = bq.get_steppable_unit(tile, lc)
+        occ = get_steppable_unit(tile, lc)
         vis = (occ or {}).get("vis")
         gate = bool(vis and str(vis).split(":")[0] in HM().mine_unit_ids())
         steppable = occ is not None

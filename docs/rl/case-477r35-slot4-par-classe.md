@@ -200,9 +200,10 @@ que le montage a `na == ne == 1`, donc `we + wa == wa + we` — dit, pas tu ; il
   (15 → **18**), et l'attribut `SLOT_4` **par classe** ;
 * `engine/utilities/tile.py` — le pré-gate du dispatcher lit `pb.SLOT_4` ; `_steppable_occupant`
   délègue au foyer déplacé ;
-* `engine/battle_query.py` — `get_steppable_unit` (mirror de
+* `engine/entities/tile_extensions.py` — `get_steppable_unit` (mirror de
   `IdunBattle.Entities.TileExtensions$$GetSteppableUnit`), **déplacé** depuis `tile.py` parce qu'un
   second consommateur est apparu qui ne peut pas importer `tile`, et **étendu** du champ `vis` ;
+* `probe_477r35_import_isole.py` — le **cliquet** né de la relecture de PR (§9) ;
 * `engine/entities/unit_team_selection_type.py` — mirror **neuf**, inscrit à `probe_313` dans le
   même commit ;
 * `probe_477r35_non_owner_gates_montables.py` — recensement re-dérivé, verdict du `<slot 4>`
@@ -226,8 +227,52 @@ que le montage a `na == ne == 1`, donc `we + wa == wa + we` — dit, pas tu ; il
   dit qu'une autre ne vaut pas `true` — et c'est exactement l'erreur que ce cas vient de corriger,
   transposée d'un cran.
 
+## 9. Le déplacement du foyer a cassé un artefact versionné — trouvé à la relecture de PR
+
+La première version posait `get_steppable_unit` dans `engine/battle_query.py`. Ce module a besoin
+d'`UnitTrait`, donc d'`engine.entities`, dont l'`__init__.py` cascade jusqu'à
+`selectors/units.py` → `from ...battle_query import is_target_tile_obscured`. Résultat :
+
+```
+python -c "import engine.battle_query"      master OK  /  branche ImportError
+probe_433_r1_identity_shortcircuit.py       master rc=0 /  branche rc=1
+```
+
+**165 tests verts ne l'ont pas vu.** Un cycle Python est *sensible à l'ordre* : il se dissout dès
+qu'un appelant importe `engine.entities` d'abord, ce que font toutes nos passes. Le seul
+consommateur qui l'a payé est un **probe versionné**, qui n'émet aucun report pytest.
+
+**Deux emplacements ont été essayés et mesurés avant le bon** — le second casse aussi, par une arête
+*retour* :
+
+| emplacement | `import` isolé | cause |
+|---|---|---|
+| `engine/battle_query.py` | **casse** | `battle_query` est ré-entré par la cascade d'`entities` |
+| `engine/tile_extensions.py` (racine) | **casse** | la cascade atteint `utilities/tile.py`, qui l'importe |
+| **`engine/entities/tile_extensions.py`** | **OK** | sous-module d'`entities` : chargé intégralement quand la cascade le demande |
+
+C'est le patron que le `CLAUDE.md` documente déjà pour `AbilityConstantType` (« leur emplacement est
+fonctionnel, pas cosmétique »). Le cycle est **supprimé, pas retardé** : les trois consommateurs
+importent au **niveau module**, aucun différé dans cette chaîne. Le cas était dans la classe
+**gratuite** — `get_steppable_unit` ne dépend que d'`UnitTrait` — donc un placement l'évitait ;
+un différé aurait ajouté un contournement là où une réparation existait.
+
+**Le cliquet qui manquait** : `probe_477r35_import_isole.py` importe **chaque** module `engine.*`
+seul, en process frais (430 modules, ~13 s, offline pur). Critère `en_echec == 0`, **inconditionnel** ;
+`--temoin` n'entre pas dans le verdict, il **attribue** (régression / pré-existant / neuf-cassé). Il
+est joué par la garde pytest de la tranche.
+
+⚠ **Un vert de ce cliquet ne dit PAS « le graphe est propre ».** Le 430/430 est tenu par **262**
+imports différés *porteurs* (sur 314, dont **212 sans raison écrite**) — c'est un acquis adossé à une
+dette, et le lire comme un certificat serait exactement le faux positif que ce dépôt chasse.
+
 ## Résidus
 
 - **#477-r37 — les 5 faces MOVE restantes, le régime AUTOMATIQUE, et le `<slot 4>` des 22 autres
   classes** (§8). Trois volets indépendants ; le troisième est le plus proche du gisement que ce
   cas vient d'ouvrir.
+- **#485 — les 314 imports différés d'`engine/**`, ventilés** (§9). **262 porteurs** (hisser
+  fermerait un cycle) dont **212 sans raison écrite** : un lecteur ne peut pas distinguer
+  « structurel, n'y touche pas » d'une scorie — et c'est vraisemblablement par imitation que les
+  **52 gratuits** (hissables, aucun cycle ; **3** seulement portent une raison) sont apparus. Les 52
+  sont un chantier borné, offline pur, qui ratchette à 0.

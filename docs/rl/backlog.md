@@ -2884,7 +2884,28 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `UnitTeamSelectionType` (3e argument d'`AreFriends`, slot `0x92`), inscrit a `probe_313` dans le
   meme commit. Foyer `GetSteppableUnit` DEPLACE dans `engine.battle_query` (+ champ `vis`).
   165 verts (18 + 64 + 83, aucune regression).
-  Residu : **#477-r37**. cf. `docs/rl/case-477r35-slot4-par-classe.md`.
+  ⚠ **La PR a d'abord CASSE un artefact versionne**, trouve a la relecture : le foyer
+  `GetSteppableUnit` avait ete pose dans `engine/battle_query.py`, qui ne doit dependre de RIEN
+  d'`engine.entities` -- `python -c "import engine.battle_query"` et
+  `probe_433_r1_identity_shortcircuit.py` passaient sur master et LEVAIENT sur la branche, **avec
+  165 tests verts** (un cycle Python est sensible a l'ORDRE, et toutes nos passes entrent par un
+  ordre qui le dissout). REPARE PAR PLACEMENT -- `engine/entities/tile_extensions.py`, apres DEUX
+  emplacements mesures et rejetes -- **pas** par un import differe : le cas etait dans la classe
+  GRATUITE. Cliquet ne de la : `probe_477r35_import_isole.py` (chaque module `engine.*` importe
+  SEUL en process frais, 430 modules, `en_echec == 0` inconditionnel, ~13 s offline).
+  Residus : **#477-r37**, **#485**. cf. `docs/rl/case-477r35-slot4-par-classe.md`.
+
+- **#485 : les 314 imports DIFFERES d'`engine/**`, ventiles -- 212 porteurs SANS raison ecrite.**
+  `[opus]` Le `430/430` du cliquet `probe_477r35_import_isole.py` est un acquis **adosse a une
+  dette** : il est tenu par **262** differes PORTEURS (hisser fermerait un cycle), dont **212 ne
+  portent AUCUNE raison ecrite**. Un lecteur ne peut donc pas distinguer « structurel, n'y touche
+  pas » d'une scorie -- et c'est vraisemblablement par IMITATION de ceux-la que les **52 GRATUITS**
+  (hissables, aucun cycle ; **3** seulement documentes) sont apparus. Deux volets, le second borne :
+  (a) ECRIRE la raison des 212 porteurs (ou au moins les marquer d'un motif cherchable) ;
+  (b) HISSER les 52 gratuits -- offline pur, ratchette a **0**, et le cliquet ci-dessus garde le
+  resultat. ⚠ Ne pas lire un vert du cliquet comme « le graphe est propre » : il mesure « aucun
+  module ne CESSE de s'importer seul », pas « aucun cycle ». Mesure a RE-DERIVER (AST + un process
+  frais par cible), jamais recopier ces chiffres.
 
 - **#477-r37 : les 5 faces MOVE restantes, le regime AUTOMATIQUE, et le `<slot 4>` des 22 AUTRES
   classes.** `[opus]` Trois volets independants, du moins au plus proche du gisement ouvert :
