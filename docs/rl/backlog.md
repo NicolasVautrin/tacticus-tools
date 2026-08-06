@@ -2807,20 +2807,49 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   ALLIE, `X_nat` porte les DEUX +10 -- il faut donc un bras a Marshal ENNEMI SEUL pour separer.
   cf. `docs/rl/case-477r29-radsaturation-camp.md` sec. 4.
 
-- **#477-r30 : le cliquet des slots exige slot ET nom ADJACENTS -- 659 lignes restent hors
-  couverture, et il s'y trouve deja une citation FAUSSE.** `[opus]`
-  **MESURE, pas redoute** : `probe_477r25` rend VERT (158 attestations, 0 fausse) et ecarte
-  `659 ligne(s) citant un slot SANS lui accoler de nom` -- il le DIT, donc rien n'est masque. Mais
-  la premiere lecture de ce gisement en sort une fausse : `test_thunderous_assault_push_live.py`
-  fait dire au PUSH « slot `0x4c` = `GetMinimumTiles180Behind` » et au PULL « slot `0x4c` =
-  `GetMinimumTiles180Front` » -- le MEME slot pour deux methodes, dans le MEME paragraphe. La table
-  livree par #477-r25 tranche (`0x4c` = `180Front` slot 76, `0x4d` = `180Behind` slot 77), et
-  `displace.py` dit bien `0x4d`. Seul un SAUT DE LIGNE entre le slot et le nom la rend invisible.
-  Corrigee a la main au merge de #716 ; **le gisement, lui, reste ouvert**.
-  CE QU'IL FAUT : apparier slot et nom sur une FENETRE de quelques lignes (pas sur la ligne seule),
-  et publier le compte de ce qui reste ecarte apres cet elargissement -- un cliquet dont la zone
-  aveugle ne retrecit pas est un inventaire, pas une garde.
-  cf. `docs/rl/case-477r25-slots-autres-interfaces.md`.
+- ~~**#477-r30**~~ : **LIVRE (2026-08-06) -- l'appariement slot<->nom passe de la LIGNE a une
+  FENETRE de 3 lignes, et y trouve 8 citations FAUSSES de plus.** La taille est MESUREE, pas
+  choisie (`probe_477r25 --courbe` la re-derive) : le gain est INTEGRALEMENT capte a W=2
+  (161 -> 230 attestations, 0 -> 59 couples ENJAMBANTS, zone aveugle **666 -> 641**), et la courbe
+  est PLATE de W=2 a W=12 -- pas une citation, pas un indecidable, pas un desaccord de plus. `3`
+  est pris comme MARGE a cout mesure NUL. ⚠ Sans le cran LIGNE VIDE, elargir RETRECISSAIT la
+  couverture (`sans_couple` 642 a W=2 -> 645 a W=4 : un bloc plus large voit plus d'interfaces,
+  bascule en regime multi et PERD un couple) -- la recolte est donc une UNION sur toutes les
+  tailles, monotone par construction. QUATRE crans retenus (interface et regime juges sur le SPAN
+  et non sur le bloc ; ligne vide = frontiere ; la forme « nom PUIS slot » ne franchit JAMAIS la
+  ligne -- 3 couples proposes, 3 faux ; la CONTINUATION de commentaire `#`/`//`/`*`/`>`), UN
+  REFUSE et chiffre (interdire le `=` : -20 lignes de couverture pour 2 faux evites), UN de
+  RECONNAISSANCE (« slot d'INTERFACE » en majuscules, 4 sites -- sans lui le motif ne voyait meme
+  pas le SLOT). **58 couples enjambants proposes, 49 concordants relus un par un, tous de VRAIS
+  couples** ; les 9 desaccords = 8 FAUTES + 1 faux positif de mise en page (site reformule).
+  Chaque faute verifiee au DECOMPILE : `_base.py` `0x3f`->`0x40` (`HasValidTargets`, 3 args) ;
+  `facade.py` `0x40` = `HasValidTargets`, pas `CanAttackAnyUnitFromAnyTileWithAnyAbility` (au
+  `0x38`) ; `displace.py` push `0x4c`->`0x4d` ET pull `0xa6` (build perime) -> `0x4c`, le symbole
+  `GetMinimumTiles180Front` n'ayant PAS disparu contrairement a ce que le commentaire affirmait ;
+  `cord_claw.py` `0x41`->`0x42` ; `astramilitarum.py` `0x62`->`0x63`
+  (`TilesAtDistanceSelector$$Select` ecrit `99` litteralement) ; `abilities.py` + son test
+  `0x28`->`0xb` d'`IDamagePredictionQuery`. ⚠ DEUX sont des JUMELLES de fautes deja corrigees par
+  #477-r25 et restees dans le PORT : **corriger la fiche ne corrige pas le port**. Empreinte AST
+  (`probe_477r30_empreinte_ast.py`) : 10 fichiers Python, **8 identiques docstrings retirees**,
+  2 divergents DECLARES -- et il REFUSE de mesurer contre un temoin qui n'est pas ancetre de HEAD
+  (il rendait sinon 17 « non declares » qui etaient le travail des AUTRES). 5e mutant
+  (`enjambants-decales`) INERTE a fenetre=1 et mordant au-dela -- les 4 herites mordent dans les
+  deux regimes, donc aucun ne gardait l'elargissement. 57 verts (49 + 8 neufs).
+  Residu : **#477-r32**. cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6bis.
+
+- **#477-r32 : les 641 lignes qui citent un slot sans qu'AUCUN nom ne lui soit appariable, meme
+  sur trois lignes -- et `probe_477r24r1` qui n'a PAS ete elargi.** `[opus]`
+  Ce que #477-r30 laisse ouvert, desormais publie AVEC son retrecissement (666 -> 641). Elargir
+  davantage n'y fera rien : la courbe est plate de W=2 a W=12, donc ces lignes ne sont pas « trop
+  loin de leur nom » -- elles n'en ont PAS, ou il n'est pas reconnaissable (recepteur hors des 18
+  interfaces couvertes, nom en minuscules, slot cite seul dans une enumeration).
+  CE QU'IL FAUT, deux volets : (a) ECHANTILLONNER ce residu comme #477-r30 l'a fait des 665 -- la
+  premiere lecture du gisement precedent en a sorti une citation fausse, puis l'outillage en a
+  sorti 8 ; (b) porter la fenetre a `probe_477r24r1_slots_interface.py`, qui ecarte **162** lignes
+  du MEME patron sur `IOperationProcessor` et reste au regime « slot et nom ADJACENTS ».
+  NB annexe, non mesure comme gisement : le mot `slot` lui-meme reste sensible a la casse (seul
+  son qualificatif ne l'est plus) -- « Slot 0x12 = ... » ne serait pas vu.
+  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 6bis et Residus.
 
 - **#477-r21-r2 : la SELECTION et l'ORDRE de l'arbre d'activation.** `[opus]`
   Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.

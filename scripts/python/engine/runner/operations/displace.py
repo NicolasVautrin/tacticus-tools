@@ -68,13 +68,13 @@ from .damage import AttackDamageOperation
 # hypothese. TRANCHE 1-vs-2 :
 #  - `IdunBattle.Operations.DisplaceUnitOperation$$Execute` case `Push` (= 0 sur `rnca9r7q6c`, 1 sur
 #    `gqfc5mff6c` -- cf. #283) = `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` appele avec
-#    `(this, pusher, pushed, 0)` -> la destination sort de la liste rendue par le slot d'INTERFACE 0x4c =
+#    `(this, pusher, pushed, 0)` -> la destination sort de la liste rendue par le slot d'INTERFACE 0x4d =
 #    `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Behind+0x38` -> `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180BehindFromTile` : un ARC de
 #    tuiles TOUTES a distance 1 (cas aligne melee -> 1 seule tuile straight-back). FindTileToPush filtre
 #    (predicat 0x5f) puis pick (1 tuile -> index 0 ; sinon random parmi les empty/steppable). Symetrie
-#    confirmatoire HISTORIQUE (build `gqfc5mff6c`) : le pull (`FindTileToPull`) utilisait le slot 0xa6 =
-#    arc AVANT (`IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Front`). Ce symbole a DISPARU du
-#    binaire courant avec le membre `DisplaceDirection.Pull` -- ne pas le rechercher, seul
+#    confirmatoire : l'arc AVANT est le slot 0x4c = `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Front`
+#    (3 arguments ; l'arriere en prend 2), et c'est lui que consomme le pull.
+#    ⚠ `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPull` n'existe PAS sur ce build -- seul
 #    `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPullOnce` subsiste. => la destination est TOUJOURS a 1 hex.
 #  - Le champ +0x84=2 de `DisplaceUnitBehaviour` (pose par `.IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour$$.ctor` 9e arg via
 #    `IdunBattleLogic.Entities.DSLFactory$$PushUnit`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce n'est

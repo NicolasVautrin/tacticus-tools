@@ -33,8 +33,9 @@ class CordClawPlaybook(NonComparablePlaybook):
       (mirror #32/#76 Bucket.AddAction keep-first, NullPosition/origine incluse). Confirme live (position
       EXACTE sur les 2 misses).
     - CIBLE au sein de la position gagnante (tie sur le count position-based) = 1er ennemi ELIGIBLE adjacent
-      a la tuile en ordre voisins NATIF FORWARD (`neigh_by_pos`, = ordre `GetValidTargets` slot 0x41 ->
-      `IdunBattle.Core.Services.AttackQuery$$GetValidTargets` qui scanne les tuiles d'attaque). Le `count` (util) compte TOUS
+      a la tuile en ordre voisins NATIF FORWARD (`neigh_by_pos`, = ordre du slot 0x42 d'`IBattleQuery` =
+      `IdunBattle.Core.Services.BattleQuery$$GetValidTargets`, qui delegue a
+      `IdunBattle.Core.Services.AttackQuery$$GetValidTargets` -- lequel scanne les tuiles d'attaque). Le `count` (util) compte TOUS
       les ennemis adjacents (summons inclus, ex. u140 decoy -> util 3), mais la cible filtre l'ensemble
       ELIGIBLE (`GetEligibleTargetsSelectable` = abilityTargets ; u140 non-eligible ecarte). VALIDE LIVE
       BIT-EXACT sur les 2 misses (u95 = (6,4) 2e voisin de (6,5) ; u83 = (2,6) 1er voisin de (2,5)).

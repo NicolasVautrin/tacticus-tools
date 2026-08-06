@@ -176,7 +176,7 @@ def _kit_spawn_visual_ids(visual_id) -> set:
 
 
 def _has_valid_targets(ctx: "NCContext", unit_id: int) -> bool:
-    """`IBattleQuery.HasValidTargets(unit, GetUnitPosition(unit), GetNormalAttackType(unit))` (slot 0x3f
+    """`IBattleQuery.HasValidTargets(unit, GetUnitPosition(unit), GetNormalAttackType(unit))` (slot 0x40
     -> `IdunBattle.Core.Services.BattleQuery$$HasValidTargets` -> `IdunBattle.Core.Services.AttackQuery$$HasValidTargets`) résolu OFFLINE :
     l'unité peut-elle attaquer >= 1 ennemi avec son attaque NORMALE DEPUIS SA POSITION ACTUELLE (SANS bouger) ?
     = `abilityTargets(unit, GetNormalAttackType(unit))` -> `usable` (CanCurrentlyBeUsed = cooldown/munitions)

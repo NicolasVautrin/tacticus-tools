@@ -61,6 +61,7 @@ ASCII only (console Windows cp1252).
 from __future__ import annotations
 
 import argparse
+import bisect
 import re
 import subprocess
 import sys
@@ -142,7 +143,12 @@ BALAYAGE_GLOBS = ("docs/rl/*.md", "docs/*.md", "scripts/python/*.py",
 
 #: Un slot cite. Toutes les formes que le depot ecrit (reprises de #477-r24-r1, qui les a
 #: mesurees) : `<slot 0x16>`, `slot 0x16`, `slot **0x16**`, `slot `0x16``, `slot +6`, `vslot`.
-_SLOT = r"v?slot\s*(?:d'interface\s*|itf\s*)?[`*]{0,2}\+?(?P<n%d>0x[0-9a-fA-F]+|\d+)[`*]{0,2}"
+#: ⚠ LE QUALIFICATIF EST INSENSIBLE A LA CASSE. Le depot ecrit aussi « slot d'INTERFACE »
+#: (4 sites), et sans ce cran le motif ne reconnaissait meme pas le SLOT -- la ligne partait
+#: dans `sans_couple` sans qu'aucune fenetre puisse rien y faire. Mesure : c'est ce qui cachait
+#: la citation fausse de `displace.py` (« slot d'INTERFACE 0x4c = ...180Behind »), jumelle de
+#: celle que #477-r30 a trouvee a la main dans le test (#477-r30).
+_SLOT = r"v?slot\s*(?i:d'interface\s*|itf\s*)?[`*]{0,2}\+?(?P<n%d>0x[0-9a-fA-F]+|\d+)[`*]{0,2}"
 
 #: Un nom de methode. Le lookahead doit interdire les CARACTERES DE MOT en plus du `$$`,
 #: faute de quoi le moteur backtracke et rend un nom TRONQUE qui, lui, n'est plus suivi de
@@ -169,7 +175,31 @@ _NOM = r"(?P<nom%d>[A-Z][A-Za-z0-9_]{3,})(?![A-Za-z0-9$])"
 #: fleche reste licite dans la forme A, ou elle joue le role du signe egal.
 _RENVOIS = ("slot", "que ", "qu'", "interrog", "invoq", "appel", "utilis", "evalu",
             "->", "→")
-_ENTRE = r"(?:(?!%s)[^\n);:,]){0,%%d}?" % "|".join(_RENVOIS)
+
+
+def _entre(n: int, traverse: bool) -> str:
+    """Le remplissage tolere entre les deux membres d'un couple, borne a `n` caracteres.
+
+    `traverse` dit si ce remplissage a le droit de franchir un SAUT DE LIGNE. C'est le SEUL
+    parametre par lequel la fenetre agit sur les formes B et C : les formes A et D, elles,
+    separent leurs membres par un `\\s*` qui traverse deja (#477-r30).
+    """
+    classe = "[^);:,]" if traverse else r"[^\n);:,]"
+    return r"(?:(?!%s)%s){0,%d}?" % ("|".join(_RENVOIS), classe, n)
+
+
+#: UNE CONTINUATION -- ce qui s'intercale la ou une espace suffirait, quand la phrase reprend
+#: a la ligne suivante. `\s*` ne suffit PAS : le depot commente en Python (`#`), en TS (`//`,
+#: `*` d'un bloc), et ecrit du markdown (`>`, `*`, `-`, `|` de tableau). Mesure : sans ce
+#: motif, `displace.py` ecrivait « slot d'INTERFACE 0x4c = » en fin de ligne et
+#: `BattleQuery$$GetMinimumTiles180Behind` sur la suivante -- une citation FAUSSE (0x4c est
+#: `...180Front`) que le seul `#` de continuation rendait invisible (#477-r30).
+_CONT = r"(?:[ \t]*\r?\n[ \t]*(?:\#+|//+|\*|>+|\||-)?[ \t]*)*[ \t]*"
+
+
+def _esp(traverse: bool) -> str:
+    """Le separateur « espace » des formes A et D. Il franchit la ligne en regime fenetre."""
+    return _CONT if traverse else r"\s*"
 
 #: L'arite n'est confrontee que si le site montre VRAIMENT ses arguments juste apres le couple.
 #: AUCUNE espace toleree : un appel s'ecrit `Nom(args)`, jamais `Nom (args)`.
@@ -189,6 +219,26 @@ _RE_RECEVEUR_CANDIDAT = re.compile(
     r"(?<![A-Za-z0-9_])(I[A-Z][A-Za-z0-9]{3,}|[A-Za-z][A-Za-z0-9_]{2,})\s*(?:\$\$|\.)")
 
 
+#: LA FENETRE, en LIGNES, sur laquelle un couple (slot, nom) est apparie. `1` = l'etat de
+#: #477-r25 : slot et nom sur la MEME ligne, ce qui ecartait 665 lignes.
+#:
+#: LA VALEUR EST MESUREE, PAS CHOISIE (`--courbe` la re-derive). Sur le corpus du 2026-08-06 :
+#:
+#:     W    citations   enjambantes   sans_couple   indecidables
+#:     1        161            0           664            5
+#:     2        230           59           641           12
+#:     3        230           59           641           12
+#:     6        230           59           641           12
+#:
+#: Le gain est INTEGRALEMENT capte a W=2, et la courbe est PLATE ensuite -- jusqu'a W=12,
+#: pas une citation, pas un indecidable, pas un desaccord de plus. Ce plateau est un EFFET
+#: DU CRAN LIGNE VIDE (cf. `_blocs`) : aucun couple du corpus n'enjambe trois lignes NON
+#: VIDES. `3` est donc pris comme MARGE a cout mesure NUL -- une continuation en deux temps
+#: (« slot 0x40 » / « est » / « `BattleQuery$$...` ») serait captee, et rien d'autre ne
+#: bouge. Au-dela, meme absence de gain et cout en temps croissant (6,5 s a W=1, 16 s a W=8).
+FENETRE = 3
+
+
 @dataclass(frozen=True)
 class Citation:
     fichier: str
@@ -198,6 +248,9 @@ class Citation:
     nom: str
     args: int | None
     texte: str
+    #: La ligne ou le NOM est ecrit. `ligne_nom != ligne` <=> le couple ENJAMBE un saut de
+    #: ligne, donc il n'existe que grace a la fenetre (#477-r30).
+    ligne_nom: int = 0
 
 
 @dataclass(frozen=True)
@@ -350,14 +403,23 @@ def _regex_recepteur(alias: tuple[str, ...]) -> re.Pattern[str]:
     return re.compile(r"(?<![A-Za-z0-9_])(?:%s)(?![A-Za-z0-9_])" % _motifs(alias))
 
 
-def _regex_couples(alias: tuple[str, ...], qualificateur_obligatoire: bool):
-    """Les trois formes de couple (slot, nom), instanciees pour un jeu de recepteurs."""
+def _regex_couples(alias: tuple[str, ...], qualificateur_obligatoire: bool,
+                   traverse: bool = False):
+    """Les quatre formes de couple (slot, nom), instanciees pour un jeu de recepteurs.
+
+    `traverse` n'agit que sur les formes B et C (cf. `_entre`) : A et D franchissent le saut
+    de ligne par construction, leur separateur etant un `\\s*`.
+    """
     qual = r"(?:(?:[A-Za-z0-9_.<>]*\.)?(?:%s)(?:\$\$|\.)|(?<![A-Za-z0-9_])\$\$)" % _motifs(alias)
     #: Forme A -- `slot 0x7e = MoveUnit`. Le qualificateur y est OPTIONNEL quand la ligne ne
     #: mentionne qu'UNE interface : sans cela, la forme la plus courante du depot est perdue.
-    a_qual = qual if qualificateur_obligatoire else "(?:%s)?" % qual
+    #: Il est CAPTURE (`q0`) pour que l'appelant puisse retrouver, apres coup, s'il etait la --
+    #: c'est ce qui permet de juger le regime multi-interface sur le SPAN du couple plutot que
+    #: sur le bloc entier, sans avoir a rejouer un second jeu de regex (#477-r30).
+    a_qual = ("(?P<q0>%s)" % qual) if qualificateur_obligatoire else "(?P<q0>%s)?" % qual
+    esp = _esp(traverse)
     return (
-        re.compile((_SLOT % 0) + r"\s*(?:=|->|:)\s*[`*]{0,2}" + a_qual + (_NOM % 0)),
+        re.compile((_SLOT % 0) + esp + r"(?:=|->|:)" + esp + r"[`*]{0,2}" + a_qual + (_NOM % 0)),
         #: Forme D -- `battleQuery.<slot 0x7d> GetAdjacentEnemies(...)`. LE RECEPTEUR PRECEDE
         #: LE SLOT, et le nom suit sans qualificateur ni signe egal. C'est la forme qu'ecrit
         #: le cas nomme (`case-250`), et aucune des trois autres ne la capte -- mesure : les
@@ -365,11 +427,17 @@ def _regex_couples(alias: tuple[str, ...], qualificateur_obligatoire: bool):
         #: L'attribution y est explicite (recepteur colle au slot), donc elle vaut AUSSI en
         #: regime multi-interface.
         re.compile(r"(?:%s)\s*\.\s*[`*<]{0,3}" % _motifs(alias) + (_SLOT % 1)
-                   + r"[`*>]{0,3}\s*" + (_NOM % 1)),
+                   + r"[`*>]{0,3}" + esp + (_NOM % 1)),
         #: Forme B -- `battleQuery.GetAdjacentEnemies` ... slot 0x7d   (nom PUIS slot)
-        re.compile(qual + (_NOM % 2) + (_ENTRE % 40) + (_SLOT % 2)),
+        #: ⚠ ELLE NE FRANCHIT JAMAIS LE SAUT DE LIGNE, meme en regime fenetre. Dans une
+        #: enumeration verticale, le nom ecrit AVANT appartient a l'item precedent, pas au slot
+        #: qui suit -- c'est le vice du cran VIRGULE (#477-r25), transpose de la virgule au
+        #: saut de ligne. Mesure : sur 3 couples que ce franchissement propose, 3 sont FAUX
+        #: (`probe_433_..._c_caster_gates.py` : « = AActiveAbility$$CanStillBeUsed » (slot 0x14
+        #: de la ligne d'avant) rattache au « slot 0x13 » de la ligne d'apres).
+        re.compile(qual + (_NOM % 2) + _entre(40, False) + (_SLOT % 2)),
         #: Forme C -- slot 0x7d ... `BattleQuery$$GetAdjacentEnemies`   (slot PUIS nom)
-        re.compile((_SLOT % 3) + (_ENTRE % 60) + qual + (_NOM % 3)),
+        re.compile((_SLOT % 3) + _entre(60, traverse) + qual + (_NOM % 3)),
     )
 
 
@@ -377,8 +445,12 @@ def _regex_couples(alias: tuple[str, ...], qualificateur_obligatoire: bool):
 #: ou non), selon que la ligne mentionne une seule interface ou plusieurs.
 _COUPLES = {iface: (_regex_couples(alias, False), _regex_couples(alias, True))
             for _, iface, alias in INTERFACES}
+#: Le meme, en regime FENETRE : les formes B et C ont le droit de franchir un saut de ligne.
+_COUPLES_ML = {iface: (_regex_couples(alias, False, True), _regex_couples(alias, True, True))
+               for _, iface, alias in INTERFACES}
 _RECEPTEURS = {iface: _regex_recepteur(alias) for _, iface, alias in INTERFACES}
 _RE_DEJA_GARDEE = _regex_recepteur(DEJA_GARDEE)
+RE_SLOT = re.compile(r"v?slot")
 
 
 def _compter_args(texte: str) -> int | None:
@@ -408,12 +480,57 @@ def _compter_args(texte: str) -> int | None:
     return None
 
 
-def recolter(tables: dict[str, dict[int, tuple[str, int, int]]]) -> tuple[
+def _blocs(lignes: list[str], fenetre: int):
+    """(index 0-based de la 1re ligne, texte joint, offsets de debut de chaque ligne du bloc).
+
+    A `fenetre = 1`, chaque bloc EST une ligne : le regime de #477-r25, a l'identique.
+
+    ⚠ TOUTES LES TAILLES de 1 a `fenetre` sont rendues, pas seulement `fenetre`, et un bloc
+    demarre a CHAQUE ligne. Les deux crans ont ete MESURES necessaires :
+    * ne demarrer qu'une ligne sur `fenetre` ferait dependre la couverture de la PARITE du
+      numero de ligne, ce qui n'est pas un critere ;
+    * ne rendre que la taille MAXIMALE casse la MONOTONIE -- un bloc plus large voit plus
+      d'interfaces, bascule en regime multi-interface (formes A et D seules) et PERD un couple
+      que le bloc etroit voyait. Mesure : `sans_couple` remontait de 642 (W=2) a 645 (W=4),
+      c'est-a-dire qu'ELARGIR RETRECISSAIT la couverture. Rendre toutes les tailles fait de la
+      recolte une UNION, donc monotone par construction, et le couple est alors juge dans le
+      plus PETIT contexte qui le porte.
+    """
+    for i0 in range(len(lignes)):
+        #: ⚠ UNE LIGNE VIDE EST UNE FRONTIERE, et le bloc s'y arrete. Un couple n'enjambe pas
+        #: un changement de paragraphe : mesure, 2 des faux positifs de l'elargissement
+        #: (`case-433-...-a-gates-whole-board.md` « # + slot 10 » puis, apres une ligne vide,
+        #: `AActiveAbility$$GetPossibleTargetTiles` ; `formulas.py` idem) ne tiennent qu'a ce
+        #: franchissement, et AUCUN couple juste ne le demande.
+        hauteur = min(fenetre, len(lignes) - i0)
+        for j in range(i0 + 1, i0 + hauteur):
+            if not lignes[j].strip():
+                hauteur = j - i0
+                break
+        for w in range(1, hauteur + 1):
+            vues = lignes[i0:i0 + w]
+            offsets = [0]
+            for l in vues[:-1]:
+                offsets.append(offsets[-1] + len(l) + 1)
+            yield i0, "\n".join(vues), offsets
+
+
+def recolter(tables: dict[str, dict[int, tuple[str, int, int]]],
+             fenetre: int = FENETRE, traverse: bool | None = None) -> tuple[
         list[Citation], Ecartees, dict[str, int]]:
-    """(citations retenues, ce qui est ecarte et compte, recensement des recepteurs)."""
+    """(citations retenues, ce qui est ecarte et compte, recensement des recepteurs).
+
+    `fenetre` = nombre de LIGNES sur lesquelles un couple peut s'etaler. `traverse` dit si les
+    formes B et C (nom et slot separes par du texte) ont le droit de franchir le saut de ligne ;
+    par defaut, oui des que la fenetre depasse 1.
+    """
+    if traverse is None:
+        traverse = fenetre > 1
+    couples = _COUPLES_ML if traverse else _COUPLES
     retenues: list[Citation] = []
     sans_iface = deja = multi = sans_couple = exempt = 0
     nom_absent: list[str] = []
+    vus_absents: set[tuple[str, int, str, int, str, int]] = set()
     recense: dict[str, int] = {}
     for path in fichiers_balayes():
         rel = path.relative_to(REPO).as_posix()
@@ -425,8 +542,104 @@ def recolter(tables: dict[str, dict[int, tuple[str, int, int]]]) -> tuple[
             continue
         if "slot" not in texte:
             continue
-        for no, ligne in enumerate(texte.splitlines(), 1):
-            if not re.search(r"v?slot", ligne):
+        lignes = texte.splitlines()
+        #: PRE-CALCUL PAR LIGNE. Sans lui, les 18 regex de recepteur sont rejouees sur chaque
+        #: bloc de chaque taille -- mesure : le balayage passait de 7 s a plus de 2 min.
+        a_slot = [bool(RE_SLOT.search(l)) for l in lignes]
+        #: Une ligne n'est examinee que si un slot est ecrit a moins de `fenetre` lignes d'elle
+        #: -- ailleurs, aucun bloc ne la joindra jamais a un slot.
+        utile = [any(a_slot[max(0, i - fenetre + 1):i + fenetre]) for i in range(len(lignes))]
+        ifaces_l = [frozenset(iface for _, iface, _ in INTERFACES
+                              if _RECEPTEURS[iface].search(l)) if u else frozenset()
+                    for l, u in zip(lignes, utile)]
+        garde_l = [bool(_RE_DEJA_GARDEE.search(l)) if u else False
+                   for l, u in zip(lignes, utile)]
+        #: Les lignes portant un slot d'ou SORT au moins un couple. C'est ce qui distingue
+        #: « ecartee » de « couverte », et c'est une propriete de LIGNE, pas de bloc : une
+        #: meme ligne est vue par `fenetre` blocs.
+        couvertes: set[int] = set()
+        exemptees_l: set[int] = set()
+        for i0, bloc, offsets in _blocs(lignes, fenetre):
+            fin = i0 + len(offsets)
+            if not any(a_slot[i0:fin]):
+                continue
+            union = frozenset().union(*ifaces_l[i0:fin])
+            if not union:
+                continue
+            #: L'ordre reste celui de `INTERFACES` -- une sortie qui depend de l'ordre d'un
+            #: `set` n'est pas relisible d'un run a l'autre.
+            vues = [iface for _, iface, _ in INTERFACES if iface in union]
+            for iface in vues:
+                table = tables.get(iface, {})
+                #: Les formes sont jouees en regime MONO (qualificateur OPTIONNEL en forme A) ;
+                #: le regime reel est tranche APRES coup, sur le SPAN du couple. Le groupe `q0`
+                #: dit si le qualificateur etait la, ce qu'exige le regime multi.
+                for k, rx in enumerate(couples[iface][0]):
+                    for m in rx.finditer(bloc):
+                        slot = int(m.group("n%d" % k), 0)
+                        nom = m.group("nom%d" % k)
+                        no = i0 + bisect.bisect_right(offsets, m.start("n%d" % k))
+                        no_nom = i0 + bisect.bisect_right(offsets, m.start("nom%d" % k))
+                        #: ⚠ L'INTERFACE ET LE REGIME SE JUGENT SUR LE SPAN DU COUPLE, PAS SUR
+                        #: LE BLOC. A `fenetre = 1` c'est la meme chose (span = ligne), mais des
+                        #: que le bloc s'elargit, une interface nommee TROIS LIGNES PLUS BAS
+                        #: n'a plus a s'attribuer un slot qu'elle ne porte pas -- mesure : c'est
+                        #: ainsi que « `$$FinishAttack` (slot 0x3b) » se voyait attribuer a
+                        #: `IMatchState` parce que la ligne suivante ecrit `MatchState+0x60`.
+                        #: Jugee sur le span, l'attribution redevient celle du site.
+                        a, b = min(no, no_nom), max(no, no_nom)
+                        span = frozenset().union(*ifaces_l[a - 1:b])
+                        if iface not in span:
+                            continue
+                        #: ⚠ EN REGIME MULTI-INTERFACE, SEULES LES FORMES A ET D SONT GARDEES.
+                        #: Les formes B et C rapprochent un nom et un slot SEPARES par du texte
+                        #: -- et quand le span parle de deux interfaces, ce texte est justement
+                        #: ce qui les separe : « `BattleQuery$$GetNormalAttackPrediction`
+                        #: invoque `IDamagePrediction` slot 9 » attribuerait le slot 9
+                        #: d'IDamagePrediction a la methode de BattleQuery. Mesure : 2 faux
+                        #: positifs sur 59 leves par ce seul cran. Les formes A et D restent :
+                        #: leur attribution est portee par un qualificateur ou un recepteur
+                        #: COLLE, pas par la proximite.
+                        if len(span) > 1 or any(garde_l[a - 1:b]):
+                            if k > 1 or (k == 0 and m.group("q0") is None):
+                                continue
+                        #: L'exemption au site vaut si elle est ecrite sur l'une OU l'autre
+                        #: des deux lignes du couple. A `fenetre = 1` c'est la meme.
+                        if (MARQUEUR_REFUTE in lignes[no - 1]
+                                or MARQUEUR_REFUTE in lignes[no_nom - 1]):
+                            #: La ligne du SLOT compte alors comme exemptee, meme si c'est la
+                            #: ligne du NOM qui porte le marqueur : sinon elle retomberait en
+                            #: `sans_couple` et se lirait comme une zone aveugle alors qu'elle
+                            #: est une exemption ASSUMEE.
+                            exemptees_l.add(no)
+                            continue
+                        couvertes.add(no)
+                        if nom not in {v[0] for v in table.values()}:
+                            #: ⚠ DEDUPLIQUE comme les citations : le meme couple est vu par
+                            #: chaque taille de bloc qui le contient. Sans cette cle, le compte
+                            #: des indecidables se lisait comme du bruit CROISSANT avec la
+                            #: fenetre (5 -> 33 -> 88 -> 168 a W=4) alors qu'il ne s'agissait
+                            #: que du MEME site recompte -- un compteur qui gonfle sans que
+                            #: rien n'apparaisse fait renoncer a un elargissement legitime.
+                            cle_abs = (rel, no, iface, slot, nom, no_nom)
+                            if cle_abs in vus_absents:
+                                continue
+                            vus_absents.add(cle_abs)
+                            nom_absent.append(
+                                "%s:%d [%s] slot 0x%x = %s -- ce nom n'est a AUCUN slot de "
+                                "cette interface | %s" % (rel, no, iface, slot, nom,
+                                                          lignes[no - 1].strip()[:120]))
+                            continue
+                        queue = bloc[m.end():]
+                        args = _compter_args(queue) if RE_APPEL.match(queue) else None
+                        retenues.append(Citation(fichier=rel, ligne=no, iface=iface, slot=slot,
+                                                 nom=nom, args=args, ligne_nom=no_nom,
+                                                 texte=lignes[no - 1].strip()[:150]))
+        #: CE QUI RESTE ECARTE se compte LIGNE PAR LIGNE -- une ligne, un verdict. Compter par
+        #: bloc melangerait les regimes et rendrait les chiffres incomparables d'une fenetre
+        #: a l'autre, alors que c'est justement ce qu'on veut mesurer.
+        for no, ligne in enumerate(lignes, 1):
+            if not RE_SLOT.search(ligne) or no in couvertes:
                 continue
             vues = [iface for _, iface, _ in INTERFACES if _RECEPTEURS[iface].search(ligne)]
             if not vues:
@@ -436,51 +649,19 @@ def recolter(tables: dict[str, dict[int, tuple[str, int, int]]]) -> tuple[
                     sans_iface += 1
                     for m in _RE_RECEVEUR_CANDIDAT.finditer(ligne):
                         recense[m.group(1)] = recense.get(m.group(1), 0) + 1
-                continue
-            if MARQUEUR_REFUTE in ligne:
+            elif MARQUEUR_REFUTE in ligne or no in exemptees_l:
                 exempt += 1
-                continue
-            multi_iface = len(vues) > 1 or bool(_RE_DEJA_GARDEE.search(ligne))
-            trouve = False
-            for iface in vues:
-                table = tables.get(iface, {})
-                #: ⚠ EN REGIME MULTI-INTERFACE, SEULE LA FORME A EST GARDEE. Les formes B et
-                #: C rapprochent un nom et un slot SEPARES par du texte -- et quand la ligne
-                #: parle de deux interfaces, ce texte est justement ce qui les separe :
-                #: « `BattleQuery$$GetNormalAttackPrediction` invoque `IDamagePrediction`
-                #: slot 9 » attribuerait le slot 9 d'IDamagePrediction a la methode de
-                #: BattleQuery. Mesure : 2 faux positifs sur 59 leves par ce seul cran.
-                #: Les formes A et D restent : leur attribution est portee par un
-                #: qualificateur ou un recepteur COLLE, pas par la proximite.
-                formes = _COUPLES[iface][1 if multi_iface else 0]
-                if multi_iface:
-                    formes = formes[:2]
-                for k, rx in enumerate(formes):
-                    for m in rx.finditer(ligne):
-                        slot = int(m.group("n%d" % k), 0)
-                        nom = m.group("nom%d" % k)
-                        trouve = True
-                        if nom not in {v[0] for v in table.values()}:
-                            nom_absent.append(
-                                "%s:%d [%s] slot 0x%x = %s -- ce nom n'est a AUCUN slot de "
-                                "cette interface | %s" % (rel, no, iface, slot, nom,
-                                                          ligne.strip()[:120]))
-                            continue
-                        queue = ligne[m.end():]
-                        args = _compter_args(queue) if RE_APPEL.match(queue) else None
-                        retenues.append(Citation(fichier=rel, ligne=no, iface=iface, slot=slot,
-                                                 nom=nom, args=args,
-                                                 texte=ligne.strip()[:150]))
-            if not trouve:
-                if multi_iface:
-                    multi += 1
-                else:
-                    sans_couple += 1
-    #: Deduplication : deux formes peuvent capter le MEME couple sur la meme ligne.
+            elif len(vues) > 1 or _RE_DEJA_GARDEE.search(ligne):
+                multi += 1
+            else:
+                sans_couple += 1
+    #: Deduplication : plusieurs formes -- et, en fenetre, plusieurs BLOCS -- peuvent capter le
+    #: MEME couple. La cle inclut la ligne du NOM : deux noms identiques a deux endroits
+    #: differents sont deux citations.
     uniques: list[Citation] = []
-    deja_vu: set[tuple[str, int, str, int, str]] = set()
+    deja_vu: set[tuple[str, int, str, int, str, int]] = set()
     for c in retenues:
-        cle = (c.fichier, c.ligne, c.iface, c.slot, c.nom)
+        cle = (c.fichier, c.ligne, c.iface, c.slot, c.nom, c.ligne_nom)
         if cle in deja_vu:
             continue
         deja_vu.add(cle)
@@ -539,6 +720,11 @@ MUTANTS = {
     "nom-permute": "permute deux noms REELLEMENT cites (etages 2 et 3 doivent MORDRE)",
     "table-tronquee": "coupe la plus grande interface a la moitie de ses slots (etage 3)",
     "arite-fausse": "ajoute 1 a tous les param_count (etage 4 doit MORDRE)",
+    #: ⚠ CELUI-CI MUTE LES SLOTS QUE SEULE LA FENETRE VOIT. Les quatre autres mordaient deja
+    #: avant #477-r30 : ils ne disent RIEN de l'elargissement. Un mutant qui ne peut pas
+    #: distinguer fenetre=1 de fenetre=N ne garde pas la fenetre.
+    "enjambants-decales": "decale les slots des couples qui ENJAMBENT une ligne -- inerte a "
+                          "fenetre=1, doit MORDRE au-dela",
 }
 
 
@@ -579,6 +765,27 @@ def muter(tables: dict[str, dict[int, tuple[str, int, int]]], nom: str,
         return out
     if nom == "arite-fausse":
         return {k: {s: (n, a + 1, f) for s, (n, a, f) in v.items()} for k, v in tables.items()}
+    if nom == "enjambants-decales":
+        #: On PERMUTE le nom du slot cite avec celui du slot voisin, pour chaque couple qui
+        #: enjambe une ligne. Si l'appariement en fenetre disparait, ce mutant devient INERTE
+        #: -- et c'est exactement ce qu'on veut pouvoir constater.
+        #: ⚠ SEULS LES SLOTS QUE PERSONNE NE CITE SUR UNE SEULE LIGNE sont vises, ET dont le
+        #: voisin permute ne l'est pas non plus. Sans ce filtre le mutant mord AUSSI a
+        #: fenetre=1 (mesure : 63 desaccords) : il gardait l'appariement en general, pas
+        #: l'ELARGISSEMENT -- et n'aurait donc rien dit d'une fenetre perdue.
+        mono = {(c.iface, c.slot) for c in cits if c.ligne == c.ligne_nom}
+        vises = [(c.iface, c.slot) for c in cits if c.ligne != c.ligne_nom
+                 and c.slot in tables.get(c.iface, {})
+                 and c.slot + 1 in tables.get(c.iface, {})
+                 and (c.iface, c.slot) not in mono
+                 and (c.iface, c.slot + 1) not in mono]
+        if not vises:
+            raise SystemExit("contre-epreuve IMPOSSIBLE : aucun couple ENJAMBANT atteste sur "
+                             "un slot que personne ne cite en une ligne -- ce mutant ne peut "
+                             "pas discriminer la fenetre.")
+        for iface, s in dict.fromkeys(vises):
+            out[iface][s], out[iface][s + 1] = out[iface][s + 1], out[iface][s]
+        return out
     raise SystemExit("mutant inconnu : %s" % nom)
 
 
@@ -605,6 +812,11 @@ def main() -> int:
                     help="imprime les recepteurs NON APPARIES (ce qui borne la tranche)")
     ap.add_argument("--mutants", action="store_true",
                     help="contre-epreuve : chaque mutant doit faire MORDRE un etage")
+    ap.add_argument("--fenetre", type=int, default=FENETRE, metavar="N",
+                    help="lignes sur lesquelles un couple (slot, nom) peut s'etaler "
+                         "(defaut %d ; 1 = l'etat de #477-r25)" % FENETRE)
+    ap.add_argument("--courbe", action="store_true",
+                    help="re-derive le CHOIX de la fenetre : gain et bruit pour N = 1..8")
     args = ap.parse_args()
 
     print("=== #477-r25 -- slots des AUTRES interfaces (hors IOperationProcessor) ===")
@@ -625,7 +837,21 @@ def main() -> int:
     versionne = lire_tsv()
     ecarts = cliquet(derive, versionne)
 
-    cits, ecartees, recense = recolter(versionne)
+    if args.courbe:
+        print()
+        print("=== LE CHOIX DE LA FENETRE, RE-DERIVE (fenetre en service : %d) ===" % FENETRE)
+        print("  W  citations  enjambantes  sans_couple  indecidables  desaccords")
+        for w in (1, 2, 3, 4, 5, 6, 8):
+            c, e, _ = recolter(versionne, fenetre=w)
+            fn, _fa, _au = confronter(c, versionne)
+            print("  %2d   %6d     %6d       %6d        %6d      %6d"
+                  % (w, len(c), sum(1 for x in c if x.ligne != x.ligne_nom),
+                     e.sans_couple, len(e.nom_absent), len(fn)))
+        print("  Lire : `citations` et `sans_couple` disent le GAIN, `indecidables` le BRUIT.")
+        print("  La ou les deux premieres colonnes cessent de bouger, elargir n'apporte plus.")
+        return 0
+
+    cits, ecartees, recense = recolter(versionne, fenetre=args.fenetre)
     par_iface: dict[str, int] = {}
     for c in cits:
         par_iface[c.iface] = par_iface.get(c.iface, 0) + 1
@@ -638,8 +864,19 @@ def main() -> int:
         if iface not in par_iface:
             print("      %-24s   0 attestation -- declaree, JAMAIS citee avec un nom" % iface)
 
-    print("[3] CITATIONS : %d attestation(s) (slot ET nom ADJACENTS) sur %d fichier(s)"
-          % (len(cits), len({c.fichier for c in cits})))
+    enjambantes = sum(1 for c in cits if c.ligne != c.ligne_nom)
+    print("[3] CITATIONS : %d attestation(s) sur %d fichier(s), appariees sur une FENETRE de "
+          "%d ligne(s)" % (len(cits), len({c.fichier for c in cits}), args.fenetre))
+    print("      dont %d couple(s) qui ENJAMBENT un saut de ligne -- invisibles a #477-r25, "
+          "qui exigeait slot et nom ADJACENTS" % enjambantes)
+    #: ⚠ LA ZONE AVEUGLE SE PUBLIE AVEC SON RETRECISSEMENT, pas seulement avec sa taille.
+    #: Un cliquet dont on ne sait pas si l'angle mort a bouge est un inventaire (#477-r30).
+    if args.fenetre > 1:
+        ref_cits, ref, _ = recolter(versionne, fenetre=1)
+        print("      REFERENCE fenetre=1 (l'etat de #477-r25) : %d attestation(s), "
+              "%d ligne(s) sans couple" % (len(ref_cits), ref.sans_couple))
+        print("      RETRECISSEMENT de la zone aveugle : %d -> %d ligne(s) sans couple (-%d)"
+              % (ref.sans_couple, ecartees.sans_couple, ref.sans_couple - ecartees.sans_couple))
     print("      ECARTEES, et c'est DIT :")
     print("        %5d ligne(s) sans aucun recepteur d'interface couverte"
           % ecartees.sans_interface)
@@ -647,7 +884,8 @@ def main() -> int:
           % ecartees.deja_gardee)
     print("        %5d ligne(s) MULTI-interfaces dont le couple n'est pas qualifie"
           % ecartees.multi_non_qualifie)
-    print("        %5d ligne(s) citant un slot SANS lui accoler de nom" % ecartees.sans_couple)
+    print("        %5d ligne(s) citant un slot SANS lui accoler de nom, MEME sur %d ligne(s)"
+          % (ecartees.sans_couple, args.fenetre))
     print("        %5d ligne(s) exemptees au site par %s" % (ecartees.exemptees,
                                                             MARQUEUR_REFUTE))
     print("        %5d fichier(s) EXCLU(S) et nomme(s) : %s" % (len(EXCLUS), ", ".join(EXCLUS)))
