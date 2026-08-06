@@ -80,8 +80,8 @@ MONTAGES = {
     # ⚠ `C1_02` fait 5 colonnes x 7 lignes (col 0..4, row 0..6). Toute tuile hors de ce rectangle
     # fait REFUSER le placement et le build ne construit AUCUN runner -- panne qui se lit comme un
     # « porteur absent » si on ne regarde pas la sortie du build.
-    SQUIG: dict(
-        board="C1_02", seed=4242, mow="orksRukkatrukk",
+    "1200": dict(
+        at=SQUIG, board="C1_02", seed=4242, mow="orksRukkatrukk",
         # UN Ork (`orksNob`) et TROIS non-Orks : les QUATRE bras du predicat ont chacun leur temoin.
         p_units="orksNob,ultraTitus,ultraTitus,ultraTitus",
         # ⚠ `necroWarden` n'existe qu'en TROIS exemplaires dans le seed BC : un 4e n'est pas
@@ -95,8 +95,8 @@ MONTAGES = {
         place=["orksNob:2,2", "ultraTitus:0,1", "ultraTitus:1,2", "ultraTitus:4,5"],
         a_place=["necroWarden:2,3", "necroWarden:1,1", "necroWarden:4,6", "necroDestroyer:0,6"],
     ),
-    ENTROPY: dict(
-        board="C1_02", seed=4242, mow="deathCrawler",
+    "1168": dict(
+        at=ENTROPY, board="C1_02", seed=4242, mow="deathCrawler",
         # `deathTyphus` est le porteur de l'aura `ContagionsOfNurgle_ArmorReduction1` du montage
         # MoW de `probe_249_deathguard_targeting` -- reutilise tel quel.
         p_units="deathTyphus,deathPutrifier",
@@ -106,12 +106,29 @@ MONTAGES = {
         # `TurnsStarted(porteur)` (case-224) : quel qu'il soit, il y a des cibles des DEUX cotes.
         a_place=["ultraTitus:2,4", "ultraTitus:2,5", "ultraTitus:2,6", "ultraTitus:4,0"],
     ),
-    DEMAGOGUE: dict(
-        board="C1_02", seed=4242, mow=None,
+    # ⚠ LA REGLE DE 1179 NE LIT PAS LA CIBLE (ses deux termes ne dependent que du caster) : sa
+    # bascule ne peut PAS s'exercer cible par cible, seulement entre DEUX MONTAGES. D'ou les deux
+    # entrees ci-dessous, jouees a la suite, et le critere de non-degenerescence qui porte alors sur
+    # la PAIRE et non sur un montage seul.
+    "1179-libre": dict(
+        at=DEMAGOGUE, board="C1_02", seed=4242, mow=None,
         p_units="genesPrimus,ultraTitus",
         a_units="necroWarden,necroWarden",
+        # caster au centre, tuiles libres tout autour -> `freeTiles` NON VIDE -> natif 0.
+        # Les deux cibles sont a d <= 2 = `constants.range`, pour que le refus mesure soit bien
+        # celui de la regle dynamique et non `TargetIsInRange`.
         place=["genesPrimus:2,3", "ultraTitus:0,0"],
-        a_place=["necroWarden:2,5", "necroWarden:4,0"],
+        a_place=["necroWarden:2,4", "necroWarden:2,5"],
+    ),
+    "1179-encercle": dict(
+        at=DEMAGOGUE, board="C1_02", seed=4242, mow=None,
+        p_units="genesPrimus,ultraTitus",
+        a_units="necroWarden,necroWarden,necroWarden",
+        # `genesPrimus` dans le COIN (0,0), dont les TROIS voisins portent un ennemi : le BFS ne
+        # sort pas (`WalkPathfinder$$UnitIsBlockedByEnemyUnit`) et aucune tuile occupee n'entre dans
+        # le stop_set -> `freeTiles` VIDE. Aucun `genesSmnDecoy` en jeu -> 2e terme faux -> natif 2.
+        place=["genesPrimus:0,0", "ultraTitus:4,6"],
+        a_place=["necroWarden:0,1", "necroWarden:1,0", "necroWarden:1,1"],
     ),
 }
 
@@ -304,10 +321,11 @@ def _diagnostic(state, caster, tid: int, at: int) -> str:
     return "-"
 
 
-def jouer(at: int, keep: bool) -> tuple:
-    m = MONTAGES[at]
+def jouer(nom: str, keep: bool) -> tuple:
+    m = MONTAGES[nom]
+    at = int(m["at"])
     tag = uuid.uuid4().hex[:8]
-    state_file = LOGS / f"rs_287r11_{at}_{tag}.json"
+    state_file = LOGS / f"rs_287r11_{nom}_{tag}.json"
     args = ["build", "--seed", str(m["seed"]), "--board", m["board"], "--rank", "17",
             "--p-units", m["p_units"], "--a-units", m["a_units"], "--no-ai",
             "--state-file", str(state_file)]
@@ -355,15 +373,19 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
 
-    ids = [a.only] if a.only else [SQUIG, ENTROPY, DEMAGOGUE]
-    ids = [i for i in ids if i in MONTAGES]
+    noms = [n for n, m in MONTAGES.items()
+            if a.only is None or int(m["at"]) == int(a.only)]
     rc = 0
-    for at in ids:
-        rid, debloc, res, temoin = jouer(at, a.keep)
+    # Verdicts NATIFS agreges PAR ID (et non par montage) : 1179 ne peut faire basculer sa regle
+    # qu'entre deux montages, donc son critere de non-degenerescence porte sur la PAIRE.
+    natif_par_id: dict = {}
+    for nomm in noms:
+        at = int(MONTAGES[nomm]["at"])
+        rid, debloc, res, temoin = jouer(nomm, a.keep)
         nom = ActiveAbilityType(at).name
         print("")
-        print("[287r11-live] %d %s -- porteur %s -- runner %s"
-              % (at, nom, PORTEUR_VIS[at], rid))
+        print("[287r11-live] %s -- %d %s -- porteur %s -- runner %s"
+              % (nomm, at, nom, PORTEUR_VIS[at], rid))
         if res is None:
             print("   %s" % debloc)
             rc = 2
@@ -384,7 +406,12 @@ def main() -> int:
         d, h = res["cotes"]["dedans"], res["cotes"]["dehors"]
         print("   cibles confrontees : %d   (geometrie : dedans=%d dehors=%d%s)"
               % (res["cibles"], d, h, "" if (d and h) or at == DEMAGOGUE else "  !! UN COTE VIDE"))
+        if res["cibles"] == 0:
+            print("   !! AUCUNE CIBLE : la mesure n'a pas eu lieu")
+            rc = 2
         print("   verdicts NATIFS observes : %s" % (res["natif"],))
+        for k, v in res["natif"].items():
+            natif_par_id.setdefault(at, {})[k] = natif_par_id.get(at, {}).get(k, 0) + v
         print("   refus reproduits A L'IDENTIQUE : %d" % len(res["exact"]))
         print("   accords sur 0 (cible legale des deux cotes) : %d" % len(res["accord_zero"]))
         print("   refus HORS regle dynamique (autre bit du masque) : %d" % len(res["hors_regle"]))
@@ -414,24 +441,32 @@ def main() -> int:
         if res["cibles"] == 0:
             print("   !! AUCUNE CIBLE : la mesure n'a pas eu lieu")
             rc = 2
-        # LE CRITERE DE NON-DEGENERESCENCE, et c'est LUI le vrai -- pas la ventilation
-        # geometrique. Celle-ci est un INDICE derive d'un rayon suppose (le rayon de l'aura
-        # Contagion vaut 1/2/3 selon `TurnsStarted`, on ne le connait pas d'avance) ; le fait
-        # qu'un accord ne soit pas vrai par vacuite se lit sur les verdicts NATIFS : si le natif
-        # n'a jamais rendu 0 ET jamais rendu un refus, le port n'a rien eu a discriminer.
-        if len([v for v in res["natif"] if int(v, 16) == 0]) == 0 or \
-           len([v for v in res["natif"] if int(v, 16) != 0]) == 0:
-            print("   !! REGIME DEGENERE : le natif n'a rendu qu'UN SEUL verdict (%s) -- "
-                  "l'accord ne prouve rien" % (res["natif"],))
-            rc = max(rc, 1)
         if imputables or res["sous_refus"]:
-            rc = 1
-        if not res["exact"] and at != DEMAGOGUE:
-            print("   !! AUCUN refus reproduit : la regle n'a pas mordu sur ce montage")
             rc = 1
         if temoin["exact"]:
             print("   !! le TEMOIN reproduit encore des refus : le verdict ne vient pas de la regle")
             rc = 1
+    # LE CRITERE DE NON-DEGENERESCENCE, et c'est LUI le vrai -- pas la ventilation geometrique.
+    # Celle-ci est un INDICE derive d'un rayon suppose (le rayon de l'aura Contagion vaut 1/2/3
+    # selon `TurnsStarted`, on ne le connait pas d'avance) ; le fait qu'un accord ne soit pas vrai
+    # par vacuite se lit sur les verdicts NATIFS. Il porte sur l'ID (tous montages confondus), parce
+    # que la regle de 1179 ne PEUT pas basculer a l'interieur d'un montage : elle ne lit pas la
+    # cible.
+    print("")
+    print("[287r11-live] NON-DEGENERESCENCE, par id (tous montages confondus) :")
+    for at, d in sorted(natif_par_id.items()):
+        zero = sum(v for k, v in d.items() if int(k, 16) == 0)
+        refus = sum(v for k, v in d.items() if int(k, 16) != 0)
+        ok = zero > 0 and refus > 0
+        print("   %-6d %-22s natif=%s  -> %s" % (
+            at, ActiveAbilityType(at).name, d,
+            "les DEUX verdicts sont exerces" if ok
+            else "!! REGIME DEGENERE : un seul verdict, l'accord ne prouve rien"))
+        if not ok:
+            rc = max(rc, 1)
+    if a.only is None and set(natif_par_id) != {SQUIG, ENTROPY, DEMAGOGUE}:
+        print("   !! un id n'a produit AUCUNE mesure : %s" % (sorted(natif_par_id),))
+        rc = max(rc, 2)
     print("")
     print("[287r11-live] VERDICT : %s" % ("OK" if rc == 0 else "ROUGE (rc=%d)" % rc))
     return rc
