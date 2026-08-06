@@ -264,7 +264,6 @@ class _Normal:
                                                        feeder_tendrils_special_applies,
                                                        USE_SPECIAL_GATE_EFFECT)
         from ...abilities.loki.feeder_tendrils import execute_feeder_tendrils_special
-        from ...components import has_effect_of_type
         from ....entities.active_ability_type import ActiveAbilityType
         _na_type = normal_attack_type_for(state, attacker_id)
         _na_name = (ActiveAbilityType(_na_type).name

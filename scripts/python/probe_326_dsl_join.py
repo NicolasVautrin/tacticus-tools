@@ -283,7 +283,6 @@ def stale_citations(build, rows, citations_path):
     if not os.path.exists(citations_path):
         return None
     import probe_326_dsl_primitive_inventory as INV
-    import symbols_layout
     current = {r["name"] for r in rows}
     archived = set()
     for b in symbols_layout.archived_builds():

@@ -238,7 +238,6 @@ def _hades_ctx(units, target_id):
     memes champs, meme substrat de traits (ici pose en dur par unite, la `Scene` etant hors-scope
     d'un test offline)."""
     from engine.dsl.nodes import DslContext
-    from engine.entities.abilities.ability_configuration import AbilityConfiguration
     cfg = AbilityConfiguration(name="HadesAutocannons", variables={},
                                constants={"range": _R1147})
     by_id = {u["id"]: u for u in units}
@@ -274,8 +273,6 @@ def test_1147_aoe_set_mirrors_its_native_selector():
     Le `range` n'est pas ecrit en dur : il est RELU du gameconfig et compare a la constante du test,
     pour qu'un changement de config fasse rougir ici plutot que de fausser le montage en silence."""
     from engine.entities.abilities.active_ability import HadesAutocannonsAbility
-    from engine.entities.unit_context import UnitContext
-    from engine.entities.abilities.ability_configuration import AbilityConfiguration
 
     assert int((GC.ability("HadesAutocannons") or {}).get("constants", {}).get("range")) == _R1147, (
         "`HadesAutocannons.constants.range` a change dans le gameconfig : le montage de ce test "

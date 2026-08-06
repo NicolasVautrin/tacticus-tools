@@ -1062,7 +1062,6 @@ class SquigMineAbility(ActiveAbility):
         que fait `TileExtensions$$HasSteppableUnit` -- son argument natif y transite deja."""
         if target_id is None:
             return 0
-        from ..components import has_effect_of_type
         if has_effect_of_type(state, int(target_id), int(EffectType.SquigMine_Tile)):
             return int(TR.TargetMatchesDynamicRule)
         if has_steppable_unit(state, int(target_id)):

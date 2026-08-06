@@ -287,11 +287,10 @@ class TheQuickeningAbility(ActiveAbility):
         l'ensemble d'ids que rend le noeud. Tuile hors board / `range` illisible -> `0` (convention
         permissive du module ; le natif, lui, n'atteint cette regle que sur une tuile enumeree)."""
         from ....dsl.base import Const
-        from ....entities.selectors import (Caster, CasterTile, Enemies, MovableTilesInRange,
-                                            SelectTile, Sub)
-        from ..behaviours import entities_from_state
-        from ..targeting import unit_of_entity
-        from ...components import get_feet_count
+        # #484 : les quatre differes qui suivaient etaient GRATUITS -- leurs cibles sont deja
+        # importees au niveau module dans ce fichier, donc ni cycle possible ni cout evite. L'un
+        # d'eux (`entities_from_state`) OMBRAGEAIT en plus son homonyme module-level, ce qui rend
+        # le nom local a TOUTE la fonction (`UnboundLocalError` sur tout chemin qui saute la ligne).
         board = getattr(state, "board", None)
         if target_id is None or board is None or int(target_id) not in getattr(board, "by_id", {}):
             return 0
