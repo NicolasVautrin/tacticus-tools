@@ -71,11 +71,56 @@ ASCII only (cp1252) : ces messages partent vers la console et vers le XML JUnit.
 """
 from __future__ import annotations
 
+import sys
+from contextlib import contextmanager
+
 MARKER_COUNTERPROOF = "CONTRE-CONTROLE INERTE"
 MARKER_SAMPLE = "ECHANTILLON NON CONFRONTABLE"
 
 # Les deux marqueurs, pour un balayage (le garde offline les derive d'ici, il ne les recopie pas).
 MARKERS = (MARKER_COUNTERPROOF, MARKER_SAMPLE)
+
+
+@contextmanager
+def substituer_partout(foyer, nom: str, valeur):
+    """Substitue `nom` DANS LE FOYER **ET DANS TOUS SES CONSOMMATEURS**, puis restaure a l'exact.
+
+    POURQUOI CE HELPER EXISTE (#419-r6-r1, meme gisement que #484)
+    --------------------------------------------------------------
+    Un contre-controle qui pose sa mutation sur le module SOURCE ne mord que si le consommateur
+    resout le nom A CHAQUE APPEL, c'est-a-dire s'il l'importe PARESSEUSEMENT. Des que l'import est
+    HISSE (`from X import f` en tete), le nom est COPIE dans le namespace du consommateur a
+    l'import : la mutation posee sur `X.f` ne l'atteint plus JAMAIS. Le test ne se met pas a
+    mesurer faux -- il CESSE de mesurer, et son message dit << la mutation n'a pas mordu >>.
+
+    `492c722f` (hissage de 624 imports differes) a produit ce gisement en masse. #484 l'a ferme
+    cote OFFLINE et a explicitement NON couvert le live ; le balayage #419-r6-r1 en a trouve le
+    prolongement LIVE (famille `#429-r1`, 5 fichiers).
+
+    Le geste prescrit par #484 est de deplacer le site d'injection vers le CONSOMMATEUR. Ce helper
+    le fait sans en ECRIRE la liste : il balaye `sys.modules` et substitue partout ou le nom est
+    lie A LA MEME VALEUR que dans le foyer. Une liste ecrite a la main se perimerait au prochain
+    consommateur -- exactement la faute que le gisement vient de commettre.
+
+    ⚠ Il ne remplace PAS un import paresseux la ou celui-ci est structurel : il rend seulement la
+    contre-epreuve INDEPENDANTE de la forme de l'import, dans les deux sens."""
+    original = getattr(foyer, nom)
+    cibles = [foyer]
+    for mod in list(sys.modules.values()):
+        if mod is None or mod is foyer:
+            continue
+        try:
+            if getattr(mod, nom, None) is original:
+                cibles.append(mod)
+        except Exception:                     # certains modules levent sur `getattr` (proxies)
+            continue
+    for m in cibles:
+        setattr(m, nom, valeur)
+    try:
+        yield cibles
+    finally:
+        for m in cibles:
+            setattr(m, nom, original)
 
 
 class ScenarioRed(AssertionError):

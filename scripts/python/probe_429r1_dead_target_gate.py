@@ -310,18 +310,16 @@ def scenario_live(state_file: str, seed: str, board: str, verbose: bool = True,
         #   bras B -- les DEUX neutralises          -> le port EXECUTE (la morsure).
         import engine.runner.components as C                        # noqa: PLC0415
         import engine.runner.operations.active_ability as OA        # noqa: PLC0415
-        garde_msg, garde_op = C.is_alive_and_not_fled, OA.is_dead_unit_and_not_allowed_by_ability
-        C.is_alive_and_not_fled = lambda *_a, **_k: True
-        try:
+        # #419-r6-r1 : substituer le module SOURCE ne suffit plus depuis `492c722f` (hissage de
+        # 624 imports differes) -- les consommateurs lient le nom A L'IMPORT. `substituer_partout`
+        # les DERIVE de `sys.modules` au lieu de les lister. Detail : `counterproof`.
+        from counterproof import substituer_partout                 # noqa: PLC0415
+        with substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
             res["port_sans_message_gate_last"], res["port_sans_message_gate_draws"] = \
                 _caster(_monter())
-            OA.is_dead_unit_and_not_allowed_by_ability = lambda *_a, **_k: False
-            try:
+            with substituer_partout(OA, "is_dead_unit_and_not_allowed_by_ability",
+                                    lambda *_a, **_k: False):
                 res["port_sans_gate_last"], res["port_sans_gate_draws"] = _caster(_monter())
-            finally:
-                OA.is_dead_unit_and_not_allowed_by_ability = garde_op
-        finally:
-            C.is_alive_and_not_fled = garde_msg
         res["why"] = ""
     finally:
         try:

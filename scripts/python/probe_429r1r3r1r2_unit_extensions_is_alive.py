@@ -340,23 +340,17 @@ def volet_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
         res["port_cast_nominal"] = _cast(_monter())
         import engine.runner.components as C                           # noqa: PLC0415
         import engine.runner.operations.active_ability as AA           # noqa: PLC0415
-        garde_msg = C.is_alive_and_not_fled
-        C.is_alive_and_not_fled = lambda *_a, **_k: True
-        try:
+        # #419-r6-r1 : le module SOURCE ne suffit plus (hissage `492c722f`) -- cf. `counterproof`.
+        from counterproof import substituer_partout                    # noqa: PLC0415
+        with substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
             # SEUL le gate de MESSAGE saute -> le gate d'OPERATION doit refuser (morsure de -r2).
             res["port_attaque_sans_gate_message"] = _frappe(_monter())
             res["port_cast_sans_gate_message"] = _cast(_monter())
             # CONTRE-EPREUVE : les DEUX gates sautent -> le port FRAPPE. Sans ce bras, un refus
             # ne prouverait pas que la mesure discrimine.
-            garde_op = AA.unit_extensions_is_alive
-            AA.unit_extensions_is_alive = lambda *_a, **_k: True
-            try:
+            with substituer_partout(AA, "unit_extensions_is_alive", lambda *_a, **_k: True):
                 res["port_attaque_sans_les_deux"] = _frappe(_monter())
                 res["port_cast_sans_les_deux"] = _cast(_monter())
-            finally:
-                AA.unit_extensions_is_alive = garde_op
-        finally:
-            C.is_alive_and_not_fled = garde_msg
 
         # ---------- ATTRIBUTION PAR BRANCHE, sur l'etat LIVE --------------------------------
         # Les trois branches d'`IsAlive` sont conjonctives : dire « le port refuse » ne dit pas
@@ -379,17 +373,15 @@ def volet_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
             """Le gate d'OPERATION seul, sur un etat MUTE -- pour voir la branche mordre/lacher."""
             st = _monter()
             mut(st.get_entity(int(fled_id)))
-            garde = C.is_alive_and_not_fled
-            C.is_alive_and_not_fled = lambda *_a, **_k: True
-            try:
+            # #419-r6-r1 : idem -- cf. `counterproof.substituer_partout`.
+            from counterproof import substituer_partout                # noqa: PLC0415
+            with substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
                 run = Runner(st).install_default_handlers(20)
                 try:
                     run.apply(AttackUnitMessage(obs, fled_id))
                 except Exception as e:                                 # noqa: BLE001
                     return {"leve": type(e).__name__ + ": " + str(e)[:120]}
                 return run.damage_handler.last
-            finally:
-                C.is_alive_and_not_fled = garde
 
         def _rentre(e):
             e.get_component(UnitComponent).alive = True

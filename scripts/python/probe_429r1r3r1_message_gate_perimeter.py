@@ -297,18 +297,12 @@ def scenario_caster(state_file: str, seed: str = "777", board: str = "MC1_67",
 
         import engine.runner.components as C                            # noqa: PLC0415
         res["port_nominal"] = _caster(_monter())
-        g_alive = C.is_alive_and_not_fled
-        C.is_alive_and_not_fled = lambda *_a, **_k: True
-        try:
+        # #419-r6-r1 : le module SOURCE ne suffit plus (hissage `492c722f`) -- cf. `counterproof`.
+        from counterproof import substituer_partout                     # noqa: PLC0415
+        with substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
             res["port_sans_gate_message"] = _caster(_monter())
-            g_dead = C.unit_is_dead
-            C.unit_is_dead = lambda *_a, **_k: False
-            try:
+            with substituer_partout(C, "unit_is_dead", lambda *_a, **_k: False):
                 res["port_sans_les_deux"] = _caster(_monter())
-            finally:
-                C.unit_is_dead = g_dead
-        finally:
-            C.is_alive_and_not_fled = g_alive
         res["why"] = ""
     finally:
         try:
@@ -386,20 +380,15 @@ def scenario_attaque(state_file: str, seed: str = "777", board: str = "MC1_67",
         import engine.runner.components as C                            # noqa: PLC0415
         import engine.runner.operations.active_ability as AA            # noqa: PLC0415
         res["port_nominal"] = _frappe(_monter())
-        g_alive = C.is_alive_and_not_fled
-        C.is_alive_and_not_fled = lambda *_a, **_k: True
-        try:
+        # #419-r6-r1 : idem -- cf. `counterproof.substituer_partout`.
+        from counterproof import substituer_partout                     # noqa: PLC0415
+        with substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
             res["port_sans_gate_message"] = _frappe(_monter())
-            g_op = AA.is_dead_unit_and_not_allowed_by_ability
-            AA.is_dead_unit_and_not_allowed_by_ability = lambda *_a, **_k: False
-            try:
+            with substituer_partout(AA, "is_dead_unit_and_not_allowed_by_ability",
+                                    lambda *_a, **_k: False):
                 sans = _frappe(_monter()) or {}
                 res["port_sans_les_deux_total"] = sans.get("total")
                 res["port_sans_les_deux_flags"] = bool(sans.get("flags"))
-            finally:
-                AA.is_dead_unit_and_not_allowed_by_ability = g_op
-        finally:
-            C.is_alive_and_not_fled = g_alive
         res["why"] = ""
     finally:
         try:
@@ -709,13 +698,11 @@ def scenario_fled(state_file: str, seed: str = "777", board: str = "MC1_67",
         res["port_attaque_nominal"] = _frappe(_monter())
         res["port_cast_nominal"] = _cast(_monter())
         import engine.runner.components as C                            # noqa: PLC0415
-        garde = C.is_alive_and_not_fled
-        C.is_alive_and_not_fled = lambda *_a, **_k: True
-        try:
+        # #419-r6-r1 : idem -- cf. `counterproof.substituer_partout`.
+        from counterproof import substituer_partout                     # noqa: PLC0415
+        with substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
             res["port_attaque_sans_gate"] = _frappe(_monter())
             res["port_cast_sans_gate"] = _cast(_monter())
-        finally:
-            C.is_alive_and_not_fled = garde
         res["why"] = ""
     finally:
         try:

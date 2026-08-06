@@ -280,12 +280,10 @@ def scenario_port(state_file: str, seed: str = "777", board: str = "MC1_67",
         res["port_gate_role"] = last.get("not_alive_and_not_fled")
         # --- CONTRE-EPREUVE : le FOYER neutralise (import paresseux -> la substitution MORD) ----
         import engine.runner.components as C                        # noqa: PLC0415
-        garde = C.is_alive_and_not_fled
-        C.is_alive_and_not_fled = lambda *_a, **_k: True
-        try:
+        # #419-r6-r1 : le module SOURCE ne suffit plus (hissage `492c722f`) -- cf. `counterproof`.
+        from counterproof import substituer_partout                 # noqa: PLC0415
+        with substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
             sans = _caster(_monter()) or {}
-        finally:
-            C.is_alive_and_not_fled = garde
         res["port_sans_gate_last"] = sans
         res["port_sans_gate_iced"] = len(sans.get("iced_tiles") or [])
         res["port_sans_gate_flags"] = bool(sans.get("flags"))
@@ -360,12 +358,10 @@ def scenario_couverture(state_file: str, seed: str = "777", board: str = "MC1_67
         res["registre"] = len(aids)
         res["refusees"] = sum(1 for a in aids if _refuse(_joue(a)))
         import engine.runner.components as C                        # noqa: PLC0415
-        garde = C.is_alive_and_not_fled
-        C.is_alive_and_not_fled = lambda *_a, **_k: True
-        try:
+        # #419-r6-r1 : idem -- cf. `counterproof.substituer_partout`.
+        from counterproof import substituer_partout                 # noqa: PLC0415
+        with substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
             passe = [a for a in aids if not _refuse(_joue(a))]
-        finally:
-            C.is_alive_and_not_fled = garde
         res["sans_message_gate_refusees"] = len(aids) - len(passe)
         res["sans_message_gate_rescapees"] = passe
         res["why"] = ""

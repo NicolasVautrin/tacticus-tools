@@ -323,19 +323,24 @@ def scenario_live(state_file: str, seed: str = "777", board: str = "MC1_67",
         if isinstance(bg, dict) and "tiles" in bg:
             st5.board = Board(bg["tiles"], adjacency="native_sym")
         _cale(st5)
-        garde_msg = C.is_alive_and_not_fled
-        C.is_alive_and_not_fled = lambda *_a, **_k: True
-        try:
+        from counterproof import substituer_partout                 # noqa: PLC0415
+        with substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
             r5 = Runner(st5).install_default_handlers(20)
             r5.apply(AttackUnitMessage(att, prime))
             res["port_sans_gate_message_last"] = (r5.damage_handler.last
                                                   if hasattr(r5, "damage_handler") else None)
-        finally:
-            C.is_alive_and_not_fled = garde_msg
         # --- 4. CONTRE-EPREUVE : le MEME coup, LES DEUX gates DEBRANCHES ------------------------
         # Un vert de l'etape 3 ne prouve rien tant qu'on n'a pas montre que SANS gate le port
-        # EXECUTAIT sur le cadavre. Les deux gates sont importes en LAZY dans leurs porteurs, donc
-        # substituer l'attribut de module les neutralise a TOUTES leurs poses.
+        # EXECUTAIT sur le cadavre.
+        # ⚠ #419-r6-r1 : ce commentaire disait << les deux gates sont importes en LAZY dans leurs
+        # porteurs, donc substituer l'attribut de module les neutralise a TOUTES leurs poses >>.
+        # La premisse est FAUSSE depuis `492c722f` (hissage de 624 imports differes) : les deux
+        # consommateurs (`operations/damage.py`, `abilities/handler.py`) lient le nom A L'IMPORT,
+        # donc la mutation posee sur le module SOURCE ne les atteignait plus -- le probe rendait
+        # `port_sans_gate_draws = 0` et le test disait << la mutation n'a pas mordu >>. C'est le
+        # gisement de #484, cote LIVE (que sa tranche avait explicitement laisse non couvert).
+        # `substituer_partout` substitue le foyer ET tous ses consommateurs, DERIVES de
+        # `sys.modules` -- pas une liste ecrite a la main, qui se perimerait au prochain.
         # #429-r1-r3-r1 : il faut desormais retirer LES DEUX -- retirer le seul gate d'operation
         # laisse le gate de message refuser (cf. 3ter), et la contre-epreuve rendrait `None`. Ce
         # n'est PAS un affaiblissement : la garantie du gate d'OPERATION sur cette porte est
@@ -346,11 +351,9 @@ def scenario_live(state_file: str, seed: str = "777", board: str = "MC1_67",
             st2.board = Board(bg["tiles"], adjacency="native_sym")
         mti1 = _cale(st2)
         import engine.runner.operations.active_ability as OA        # noqa: PLC0415
-        garde = OA.is_dead_unit_and_not_allowed_by_ability
-        OA.is_dead_unit_and_not_allowed_by_ability = lambda *_a, **_k: False
-        garde_msg = C.is_alive_and_not_fled
-        C.is_alive_and_not_fled = lambda *_a, **_k: True
-        try:
+        with substituer_partout(OA, "is_dead_unit_and_not_allowed_by_ability",
+                                lambda *_a, **_k: False), \
+             substituer_partout(C, "is_alive_and_not_fled", lambda *_a, **_k: True):
             r2 = Runner(st2).install_default_handlers(20)
             r2.apply(AttackUnitMessage(att, prime))
             last2 = r2.damage_handler.last if hasattr(r2, "damage_handler") else None
@@ -369,9 +372,6 @@ def scenario_live(state_file: str, seed: str = "777", board: str = "MC1_67",
             _op2 = AttackDamageOperation.execute(st4, att, prime)
             res["port_op_directe_sans_gate_total"] = (None if not isinstance(_op2, dict)
                                                       else _op2.get("total"))
-        finally:
-            OA.is_dead_unit_and_not_allowed_by_ability = garde
-            C.is_alive_and_not_fled = garde_msg
         res["why"] = ""
     finally:
         try:
