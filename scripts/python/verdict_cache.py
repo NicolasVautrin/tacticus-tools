@@ -157,7 +157,9 @@ class CacheCliquet:
     def _charger(self) -> None:
         try:
             lignes = self.chemin.read_text(encoding="utf-8").splitlines()
-        except OSError:
+        except (OSError, UnicodeDecodeError):
+            #: Un fichier absent OU illisible OU non-UTF-8 se degrade en cache VIDE, donc en
+            #: recalcul. Une panne du cache ne rend jamais un verdict.
             return
         entete_ok = False
         for ln in lignes:
