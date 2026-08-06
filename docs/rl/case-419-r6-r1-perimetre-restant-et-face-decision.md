@@ -108,7 +108,45 @@ qu'à la fin. `probe_419r6_perimetre_bascule` écrit désormais un **journal JSO
 
 ### 2.2 Ventilation des dégradés — VERDICT DU TÉMOIN
 
-<!-- TEMOIN -->
+**24 dégradés**, re-joués sur l'arbre REBASÉ en régime NOUVEAU puis en `TACTICUS_BIS_ITEMS=0` :
+
+| verdict | n | fichiers |
+|---|---|---|
+| **CAUSÉS** par la bascule (verts au témoin) | **13** | `test_462_r4b_r1_r1_r1_neuroparasite_pose_live` (6p/1f → 7p), `…_c_r1_tile_owner_gate_live` (6/1 → 7), `test_env_fire_tile_migration_live` (0/4 → 4), `test_hailstrike_phase2_live` (3/1 → 4), `test_harbinger_of_destruction_live` (4/1 → 5), `test_jakhal_stimms_live` (**INERTE** → 3p), `test_lion_helm_block_aura_live` (1/1 → 2), `test_load_state_inactive_effects_live` (8/2 → 10), `test_lord_of_tempests_ice_live` (2/1 → 3), `test_martial_apotheosis_live` (6/1 → 7), `test_sky_strike_live` (5/1 → 6), `test_summon_consumers_live` (28/1 → 29), `test_419r1tr5_light_im_up_live` (6/1 → 7) |
+| **PRÉEXISTANTS** (identiques dans les deux régimes) | **11** | `test_381r3_neighbour_source_live`, `test_381r4_imperative_collapses_live`, les **4** de la famille `#429-r1`, `test_448_r1_r1_r1_r1_flying_tiles_moved_live`, `test_heroic_fusillade_migration_live`, `test_loki_solo_targeting_live`, `test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live`, `test_433_…_r4_caster_reason_live` |
+
+**C'est le résultat du volet (a) : 13 fichiers live sont dégradés par la bascule, dans la catégorie
+qu'on avait déclarée indifférente.** Le canal (C) de #419-r6 avait montré qu'un canal négligé cachait
+3 casses ; la catégorie « pas de marqueur » en cachait **13** de plus, plus un fichier devenu
+**INERTE** (`test_jakhal_stimms_live` : `passed == 0 and skipped > 0`, garde #455 — invisible d'un
+`rc`). Ils ne sont **pas réparés** ici (chacun demande l'arbitrage par l'axe de son fichier, comme
+les 17 de #419-r6) ; ils sont **mesurés, ventilés et nommés**, ce qui est ce qui manquait.
+
+⚠ **Le témoin n'est pas une formalité** : sans lui, cette tranche se serait attribué **11 rouges**
+qu'elle n'a pas creusés — dont les 4 de la famille `#429-r1`, dont le §3.4 montre qu'ils viennent
+de `492c722f`, pas de la bascule.
+
+### 2.3 Ce que le balayage a trouvé et que personne ne cherchait — le volet LIVE de #484
+
+Les **4** fichiers `#429-r1` préexistants avaient tous la **même** cause, et elle n'a rien à voir
+avec le crit : leurs contre-contrôles posent leur mutation sur le module **SOURCE**
+(`C.is_alive_and_not_fled = lambda: True`), ce qui ne mord que si le consommateur résout le nom **à
+chaque appel**. `492c722f` (hissage de 624 imports différés) a lié le nom **à l'import** chez les
+deux consommateurs (`operations/damage.py`, `abilities/handler.py`) — la mutation ne les atteint
+plus, et le test dit « la mutation n'a pas mordu ». **C'est le gisement de #484, dont la tranche
+était 100 % offline et disait explicitement ne rien couvrir de live.**
+
+Le commentaire de `engine/runner/operations/damage.py` prescrivait même l'import paresseux « VOULU …
+ce qui fait MORDRE la mutation » : le hissage avait annulé l'intention, le commentaire est resté.
+
+Le geste est celui de #484 (déplacer le site d'injection vers le CONSOMMATEUR), **sans en écrire la
+liste** : `counterproof.substituer_partout` **dérive** les consommateurs de `sys.modules` (même
+valeur liée) et restaure à l'exact. Une liste écrite à la main se périmerait au prochain consommateur
+— la faute même que ce gisement vient de commettre.
+
+**11 des 12 rouges de la famille réparés** : `429r1` 4p/3f → **7p** ; `429r1r1` 6p/1f → **7p** ;
+`429r1r3` 9p/3f → **12p** ; `429r1r3r1` 9p/2f → **11p** ; `429r1r3r1r2` 2f → **1f** (un TROISIÈME
+gate refuse encore sur ce dernier bras — nommé en résidu, pas deviné).
 
 ## 3. Les rouges PRÉEXISTANTS — 15 sur 21 n'avaient qu'UNE cause
 
@@ -207,6 +245,16 @@ montant de dégât. Les **quatre** faces sont nécessaires — le montage a des 
   faite ici ne dit rien d'eux — elle ne porte que sur `MightCrit`.
 * **Quatre rouges préexistants restent ouverts** (`psychic_stalk`, `endturn_order`,
   `429r1r3r1r2`, `harlequins_panoply`), les deux premiers avec leur symptôme localisé.
+* **Les 13 fichiers CAUSÉS par la bascule (§2.2) ne sont pas réparés.** Chacun demande l'arbitrage
+  par l'AXE de son fichier — neutraliser sur les quatre faces, ou viser vraiment le régime crit —
+  exactement comme les 17 de #419-r6. Ils sont mesurés, ventilés, et le témoin est reproductible
+  (`probe_419r6_perimetre_bascule --fichiers <liste> --regime 0 --journal <path>`).
+* **`test_429r1r3r1r2_unit_extensions_is_alive_live` garde 1 failed** après la réparation du site
+  d'injection : « les deux gates neutralisés : le port doit frapper l'enfui, obtenu None ». Un
+  TROISIÈME gate refuse encore sur ce bras ; il n'est pas identifié — et le deviner serait pire que
+  de le nommer.
+* **Le balayage n'a pas visité les ~100 derniers fichiers** des 294. Le journal les distingue des
+  verts : ils sont **NON MESURÉS**.
 
 ## 5. Ce qui n'est PAS couvert
 
