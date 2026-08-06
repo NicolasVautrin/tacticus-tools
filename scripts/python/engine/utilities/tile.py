@@ -1735,43 +1735,15 @@ def _attract_mechanicals_neighbor(pos, lc: dict) -> bool:
     return False
 
 
+#: `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` -- FOYER DEPLACE dans
+#: `engine.battle_query` par #477-r37, et re-exporte ici sous son ancien nom pour les appelants
+#: (`apply_tile_attributes` et la garde `test_steppable_decoy_tile_leaves_live`). Le deplacement
+#: n'est pas cosmetique : `engine.playbook.non_owner` en a besoin pour la face `1531 HaywireMine`,
+#: et il ne peut pas importer CE module (c'est `tile` qui importe `non_owner`, pas l'inverse). Une
+#: seconde lecture du meme natif aurait pu diverger sans que rien ne le dise.
 def _steppable_occupant(pos, lc: dict) -> "dict | None":
-    """`IdunBattle.Entities.TileExtensions$$GetSteppableUnit(tuile, ctx, out u)` cote offline :
-    l'OCCUPANT de `pos` s'il porte `UnitTrait.Steppable` (0x1b), sinon `None`.
-
-        unit = UnitExtensions.GetUnit(tile, ctx);            // TileContentComponent.IsFilled
-        return unit != null && unit.BaseUnitComponent?.HasTrait(0x1b) == true;
-
-    Une tuile n'a qu'UN occupant (le `TileContentComponent` porte un seul id) : trouver une unite
-    NON steppable sur `pos` fait donc rendre `None`, pas continuer a chercher.
-
-    Rend `{is_friend, is_enemy, is_decoy, triggered}` -- les quatre lectures que la feuille 19 fait
-    ensuite sur `u` (`IsFriend`/`IsEnemy` contre `case.unit`, `HasTrait(0x41d)`,
-    `HasTriggeredAbility`). `is_friend`/`is_enemy` sont DEUX booleens et non l'un la negation de
-    l'autre par principe : le natif interroge des predicats DIFFERENTS selon la branche (cf.
-    `SteppableUnitUtility`). Ici ils sont complementaires, comme le natif quand `case.unit != null`.
-
-    Le MOVER est traite a part : `_adjacent_units` l'EXCLUT de `friend_units` (self-exclu), or sur sa
-    tuile d'ORIGINE c'est lui l'occupant -- `IsFriend(self, self)` est vrai (meme playerId)."""
-    if lc.get("self_pos") == pos:
-        traits = set(lc.get("unit_traits") or ())            # ids (`entity_trait_ids`)
-        if int(UnitTrait.Steppable) not in traits:
-            return None
-        return {"is_friend": True, "is_enemy": False,
-                "is_decoy": int(UnitTrait.Decoy) in traits,
-                "triggered": tuple(lc.get("unit_triggered_abilities") or ())}
-    for units, is_friend in ((lc.get("friend_units") or (), True),
-                             (lc.get("enemy_units") or (), False)):
-        for u in units:
-            if u.get("pos") != pos:
-                continue
-            names = u.get("traits") or ()                    # noms (`entity_trait_names`)
-            if UnitTrait.Steppable.name not in names:
-                return None                                  # occupant NON steppable -> false
-            return {"is_friend": is_friend, "is_enemy": not is_friend,
-                    "is_decoy": UnitTrait.Decoy.name in names,
-                    "triggered": tuple(u.get("triggered") or ())}
-    return None
+    from .. import battle_query as _bq                # lazy : utilities <- battle_query
+    return _bq.get_steppable_unit(pos, lc)
 
 
 def _attract_to_decoys_friend_count(lc: dict) -> int:

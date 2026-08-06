@@ -75,9 +75,11 @@ ASCII only dans les sorties ; les accents restent dans les docstrings non imprim
 from __future__ import annotations
 
 from .. import battle_query as bq
+from ..entities.ability_constant_type import AbilityConstantType
 from ..entities.traits.unit_trait import UnitTrait
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.unit_faction import UnitFaction
+from ..entities.unit_team_selection_type import UnitTeamSelectionType
 
 
 def _has_trait(ctx: dict, trait_id) -> bool:
@@ -770,6 +772,246 @@ class WatchedOverNonOwnerPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
 
 
+class PurgeResponseNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`PurgeResponseNonOwnerPlaybook`
+    (`IdunBattle.AI.Playbook.Loki.PurgeResponseNonOwnerPlaybook$$.ctor` : litteral `0x5f6` = 1526
+    `PurgeResponse`, PASSIF d'unite).
+
+    `IdunBattle.AI.Playbook.Loki.PurgeResponseNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`,
+    remis en C# depuis le decompile (champs de la SM LUS DANS LA METHODE-USINE
+    `$$CalculateMovementUtilityInSteps` : `case @+0x20, playbook @+0x28, owner @+0x30` -- la
+    disposition d'`ECogSupport`/`Kardiocore`, PAS celle de `BookOfFate`) :
+
+        if (case.unit == null) yield break;
+        if (!UnitExtensions.HasFaction(case.unit, 0x14)) yield break;        // UnitFaction.LeaguesOfVotann
+        if (Query.<slot 0x60 = AreEntitiesAdjacent, arite 2>(case.MovementTile, owner))
+            yield return GetUtilityValue("PurgeResponse_FriendlyVotannLikeSteeljack");   // 20
+
+    Trois lectures qui ne se devinent pas :
+
+    * **le gate porte sur la FACTION du MOVER**, pas sur celle du porteur ni sur un trait. C'est le
+      seul de la famille dans ce cas, et c'est ce qui le rend confrontable SANS toucher au porteur :
+      il suffit d'amener un mover `LeaguesOfVotann`. Le canal existait deja (`ctx.unit_faction`) ;
+    * **`0x14` est QUALIFIE contre `IdunBattle.Entities.Enum.UnitFaction`** -- le TYPE DECLARE de
+      l'argument, lu dans `frida/methods.tsv`
+      (`UnitExtensions.HasFaction(unit:IEntity, faction:IdunBattle.Entities.Enum.UnitFaction)`),
+      pas deduit de l'ordinal. La surcharge JUMELLE prend un `System.String` et n'est PAS celle-ci ;
+      le natif convertit d'ailleurs l'enum en son NOM (`System.Enum$$ToString`) avant de deleguer ;
+    * **l'ordre des arguments d'adjacence est INVERSE** de celui de `KardiocoreGalvanus`
+      (`(tile, owner)` ici, `(owner, tile)` la-bas). Sans effet -- `AreEntitiesAdjacent(entity1,
+      entity2)` est symetrique -- mais il interdit de conclure quoi que ce soit de la FORME du
+      call-site : c'est la SURCHARGE (le type des arguments) qui fixe le slot, jamais leur ordre.
+
+    AUCUN test `IsFriend` dans le corps : le « Friendly » de la cle vient ENTIEREMENT du pre-gate
+    `<slot 4> || IsFriend` d'`IterateAbilities` (slot 4 = `false`), comme pour `PsychicFortress`.
+
+    Porteurs (voie PASSIF d'unite) : `votanSmnSteeljack` (SUMMON) et `votanNpc2Steeljack` (npc) --
+    aucun hero. Le corps ne lit du porteur QUE sa position (aucune stat, aucun trait), donc
+    l'ability se GREFFE sur une unite du pool (`catalog_inject.graft_passive_ability`) : c'est la
+    voie du `CLAUDE.md` pour un porteur npc-only. Le MOVER, lui, doit etre `LeaguesOfVotann` : les
+    **9** unites de cette faction sont TOUTES hors pool, donc le montage passe par une injection
+    catalogue (etat 3)."""
+
+    ABILITY_ID = int(TriggeredAbilityType.PurgeResponse)                 # 0x5f6 = 1526
+    KEY = "PurgeResponse_FriendlyVotannLikeSteeljack"                    # gameconfig vivant = 20
+    FACTION = UnitFaction.LeaguesOfVotann                                # 0x14 = 20
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        # `if (case.unit == null) yield break` -- le regime SPAWN est le seul ou le sujet manque, et
+        # le dispatcher y rend deja 0 (residu nomme, commun a toute la feuille).
+        if ctx.get("is_spawning"):
+            return 0.0
+        fac = ctx.get("unit_faction")
+        if fac is None or int(fac) != int(self.FACTION):      # HasFaction(case.unit, LeaguesOfVotann)
+            return 0.0
+        opos = (owner or {}).get("pos")
+        if not opos:                 # `AreEntitiesAdjacent` rend faux sur une entite sans tuile
+            return 0.0
+        if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
+                                        ctx.get("elev_by_pos"), bq.neigh_map(ctx)):
+            return 0.0
+        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+
+
+class MawClawsOfThyraxNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`MawClawsOfThyraxNonOwnerPlaybook`
+    (`IdunBattle.AI.Playbook.Loki.MawClawsOfThyraxNonOwnerPlaybook$$.ctor` : litteral `0x5bd` =
+    1469 `MawClawsOfThyrax`, RELIQUE).
+
+    `IdunBattle.AI.Playbook.Loki.MawClawsOfThyraxNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`,
+    remis en C# depuis le decompile (champs de la SM LUS DANS LA METHODE-USINE
+    `$$CalculateMovementUtilityInSteps` : `case @+0x20, playbook @+0x28, owner @+0x30`) :
+
+        if (case.unit != null) {                                        // BRANCHE SUJET
+            if (Query.<slot 0x60 = AreEntitiesAdjacent, arite 2>(case.MovementTile, owner)
+                && UnitExtensions.HasTrait(case.unit, 0x2)              // UnitTrait.Summon
+                && Query.<slot 0x92 = AreFriends, arite 3>(case.unit, owner, 0))
+                yield return GetUtilityValue("MawClawsOfThyrax_AdjacentSummons");   // 5
+            yield break;
+        }
+        if (case.parent == null) yield break;                           // BRANCHE SPAWN
+        if (Query.<slot 0x60 = AreEntitiesAdjacent, arite 2>(case.MovementTile, owner)
+            && Query.<slot 0x92 = AreFriends, arite 3>(case.parent, owner, 0))
+            yield return GetUtilityValue("MawClawsOfThyrax_AdjacentSummons");       // 5
+
+    QUATRE lectures qui ne se devinent pas :
+
+    * **C'est le SEUL corps de la famille a porter DEUX branches**, et la branche SPAWN
+      (`case.unit == null && case.parent != null`) n'a PAS le gate `Summon` -- le sujet spawne est
+      presume l'etre, c'est le PARENT qu'elle teste. Le `ctx` de spawn du port ne portant aucune
+      cle de sujet, cette branche reste au residu NOMME de la feuille, comme partout ailleurs ;
+    * **le slot `0x92` est `AreFriends`, pas un predicat de position.** Resolu par la vtable RUNTIME
+      (`probe_27_4g_battlequery_slots.py --slots 0x92` : slot d'interface `0x92` + 4 = index `0x96`
+      = `AreFriends`). Le voisin `0x8e` est `GetAllEnemiesOf` : lire le slot a un pres ici aurait
+      donne un predicat de camp INVERSE ;
+    * **son 3e argument `0` est un `UnitTeamSelectionType`, pas un booleen.** Type DECLARE lu dans
+      `frida/methods.tsv` (`BattleQuery.AreFriends(unit1, unit2,
+      selectionType:IdunBattle.Entities.Enum.UnitTeamSelectionType)`) ; `0` = `ByCurrentTeam` ;
+    * **ce gate `AreFriends` est REDONDANT, et c'est MESURE, pas suppose.**
+      `BattleQuery$$AreFriends(a, b, sel)` delegue a `UnitExtensions$$IsFriend(a, b, sel, State)`,
+      dont la branche `sel == ByCurrentTeam` est mot pour mot le corps de la surcharge a trois
+      arguments `IsFriend(a, b, state)` -- celle du pre-gate d'`IterateAbilities`, applique au
+      MEME sujet (`case.unit ?? case.parent`). Il ne peut donc jamais couper. Le port le mirrore
+      quand meme (on mirrore le corps, pas l'economie qu'on pourrait en faire), via le `is_friend`
+      que le dispatcher passe deja.
+
+    Porteurs (voie RELIQUE, `catalog_inject.relic_carriers`) : `genesPatriarch`, `tyranParasite`,
+    `tyranTyrantGuard`, `tyranWingedPrime` -- les QUATRE au pool, relique NON equipee au seed
+    (etat 2, `--equip-relic`). Le MOVER, lui, doit porter `Summon` : les **59** unites qui le
+    portent au gameconfig sont TOUTES `kind == summons` et aucune n'est au pool, donc le montage
+    ACCORDE le trait (`catalog_inject.add_unit_trait`) -- c'est exactement le substrat qu'interroge
+    `HasTrait` (kit + traits accordes en bataille, cf. `_has_trait`)."""
+
+    ABILITY_ID = int(TriggeredAbilityType.MawClawsOfThyrax)              # 0x5bd = 1469
+    KEY = "MawClawsOfThyrax_AdjacentSummons"                             # gameconfig vivant = 5
+    #: 3e argument LITTERAL du call-site `AreFriends` -- `0`, qualifie contre le type declare.
+    TEAM_SELECTION = UnitTeamSelectionType.ByCurrentTeam
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        # BRANCHE SPAWN (`case.unit == null && case.parent != null`) : NON PORTEE -- le `ctx` de
+        # spawn ne produit aucune cle de sujet ni de parent. Residu nomme de la feuille, pas un
+        # ecart propre a cette classe.
+        if ctx.get("is_spawning"):
+            return 0.0
+        opos = (owner or {}).get("pos")
+        if not opos:
+            return 0.0
+        if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
+                                        ctx.get("elev_by_pos"), bq.neigh_map(ctx)):
+            return 0.0
+        if not _has_trait(ctx, UnitTrait.Summon):            # HasTrait(case.unit, 0x2)
+            return 0.0
+        # `AreFriends(case.unit, owner, ByCurrentTeam)` == `IsFriend(case.unit, owner, state)` : le
+        # dispatcher a deja calcule ce booleen pour le pre-gate, on le RELIT au lieu de le refaire.
+        if not is_friend:
+            return 0.0
+        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
+
+
+class HaywireMineNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
+    """`HaywireMineNonOwnerPlaybook`
+    (`IdunBattle.AI.Playbook.Loki.HaywireMineNonOwnerPlaybook$$.ctor` : litteral `0x5fb` = 1531
+    `HaywireMine`, PASSIF d'unite).
+
+    `IdunBattle.AI.Playbook.Loki.HaywireMineNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__5$$MoveNext`,
+    remis en C# depuis le decompile (champs de la SM LUS DANS LA METHODE-USINE
+    `$$CalculateMovementUtilityInSteps` : `case @+0x20, playbook @+0x28, owner @+0x30`) :
+
+        if (case.unit == null) yield break;
+        if (!TileExtensions.GetSteppableUnit(case.MovementTile, State, out u)) yield break;
+        cfg = playbook.<+0x58>.<+0x20>;                      // AbilityConfiguration du playbook
+        if (!UnitExtensions.HasUnitId(u, cfg.GetStringConstant(8), State)) yield break;
+        if (UnitExtensions.IsFriend(case.unit, owner, State))
+            yield return GetUtilityValue("HaywireMine_FriendlyAvoidMine");   // -50
+        else
+            yield return GetUtilityValue("HaywireMine_EnemyAvoidMine");      // -30
+
+    ⚠⚠ **LA BRANCHE ENNEMI EST INATTEIGNABLE, ET C'EST MESURE SUR CETTE CLASSE.** Le pre-gate
+    d'`IterateAbilities` est `playbook.<slot 4> || IsFriend(case.unit ?? case.parent, owner)`. Le
+    `<slot 4>` de CETTE classe a ete relu dans son bloc `methodPointers` du PE
+    (`probe_8889_methodptr_vtable.py`) : le bloc y compte EXACTEMENT deux entrees -- `.ctor` puis
+    `CalculateMovementUtilityInSteps` -- immediatement suivies des six corps de sa state machine
+    (`d__5`), dont les trois fondus (`<SM>.ctor`, `Dispose`, `get_Current<T>`) sont les MEMES corps
+    partages que dans les quatre classes de controle relues cote a cote. Elle ne surcharge donc
+    RIEN et herite le `return 0` de la base : **`slot 4 == false`**. Le corps ayant deja ecarte
+    `case.unit == null`, le sujet du pre-gate EST `case.unit`, et le `IsFriend(case.unit, owner)`
+    du corps est litteralement le meme predicat, deja exige vrai pour que la paire soit yieldee.
+    La cle `HaywireMine_EnemyAvoidMine` (-30) EXISTE au gameconfig et n'a **aucun** consommateur
+    atteignable : il n'y a pas de face OWNER (`HaywireMinePlaybook` n'existe pas dans le binaire),
+    ni de face ATTACK/REPAIR pour cette classe.
+    ⚠ Le numero `d__5` de la state machine ne signale PAS des methodes supplementaires : c'est un
+    compteur du compilateur C#, pas un compte de slots. Le deduire aurait fait chercher un override
+    qui n'existe pas -- et le deduire DES TROIS AUTRES CLASSES (comme le suggerait #433-r4-r3, qui
+    n'en avait lu que trois) aurait donne la bonne reponse pour la MAUVAISE raison : c'est la
+    lecture de CE bloc qui tranche.
+
+    Deux autres lectures qui ne se devinent pas :
+
+    * **le gate ne porte NI sur le mover NI sur le porteur, mais sur l'OCCUPANT de la tuile
+      candidate.** `GetSteppableUnit` = l'occupant unique de la tuile filtre sur `UnitTrait.Steppable`
+      (0x1b), puis `HasUnitId` compare son id d'unite -- via
+      `idun.shared.UnitNamingConventions$$GetUnitIdWithoutRarity`, c'est-a-dire le `split(':')[0]`,
+      donc SANS suffixe de rarete -- a la constante de config ;
+    * **`8` est un `AbilityConstantType`, pas un entier nu** : type DECLARE lu dans
+      `frida/methods.tsv` (`AbilityConfiguration.GetStringConstant(constantType:
+      IdunBattle.Configuration.AbilityConstantType)`), et `8` = `unitToSpawn`. Au gameconfig vivant
+      `abilities.HaywireMine.constants.unitToSpawn == "astarSmnHaywireMine"` -- la mine que pose
+      l'ability. Le terme est donc un REPOUSSOIR : le mover evite les tuiles minees de son camp.
+
+    Porteurs (voie PASSIF d'unite) : `astarCyrus` (HERO, hors pool) et `astarCyrus_LHE` (npc). Le
+    corps ne lit du porteur QUE le camp (`IsFriend`, deja garanti), donc l'ability se GREFFE sur
+    une unite du pool. Ce qu'il faut monter, c'est la MINE : `astarSmnHaywireMine` est un SUMMON
+    `Steppable`, amene par `rl_duel build --explicit-stats`."""
+
+    ABILITY_ID = int(TriggeredAbilityType.HaywireMine)                   # 0x5fb = 1531
+    KEY_FRIENDLY = "HaywireMine_FriendlyAvoidMine"                       # gameconfig vivant = -50
+    #: `HaywireMine_EnemyAvoidMine` (-30) : la SECONDE cle du corps, INATTEIGNABLE (cf. docstring).
+    #: Nommee ici pour que la garde puisse l'assertionner morte ; jamais lue par le port.
+    KEY_ENEMY = "HaywireMine_EnemyAvoidMine"
+    CONFIG_ID = "HaywireMine"
+    #: `GetStringConstant(config, 8)` -- la constante, PAS son ordinal nu.
+    MINE_CONSTANT = AbilityConstantType.unitToSpawn                      # 8
+
+    def mine_unit_ids(self) -> frozenset:
+        """`AbilityConfiguration.GetStringConstant(config, unitToSpawn)`, elargi a l'id VISUEL.
+
+        Meme lecture que `GeminaeSuperiaPlaybook.summon_unit_ids` (#165b) : le `visualId` offline
+        porte l'id de CONFIG pour les unites spawnees par le moteur et l'id VISUEL pour celles
+        seedees depuis le live, donc on matche les deux. `HasUnitId` compare l'id SANS suffixe de
+        rarete (`GetUnitIdWithoutRarity` = `split(':')[0]`), d'ou le meme decoupage ici."""
+        import gameconfig as GC
+        consts = (GC.ability(self.CONFIG_ID) or {}).get("constants") or {}
+        uid = consts.get(self.MINE_CONSTANT.name)
+        if not uid:
+            return frozenset()                       # cle absente -> `GetStringConstant` LEVE ;
+        uid = str(uid).split(":")[0]                 # le port se degrade a « aucun terme »
+        vis = (GC.unit(uid) or {}).get("visualId")
+        return frozenset(str(x).split(":")[0] for x in (uid, vis) if x)
+
+    def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
+                                            ctx: dict, wt) -> float:
+        ctx = ctx or {}
+        if ctx.get("is_spawning"):                   # `case.unit == null` -> yield break
+            return 0.0
+        occ = bq.get_steppable_unit((tile[0], tile[1]), ctx)   # GetSteppableUnit(case.MovementTile)
+        if occ is None:
+            return 0.0
+        vis = occ.get("vis")
+        if not vis or str(vis).split(":")[0] not in self.mine_unit_ids():   # HasUnitId(u, cst)
+            return 0.0
+        # `IsFriend(case.unit, owner, State)` -- le pre-gate `<slot 4 = false> || IsFriend` l'a deja
+        # exige vrai, donc SEULE la branche AMIE est atteignable. Le test est ecrit quand meme :
+        # il rend l'implication VISIBLE, et si un build futur faisait passer `<slot 4>` a vrai,
+        # c'est ici que la branche ennemi devrait revenir -- pas dans un correctif de derniere heure.
+        if not is_friend:
+            return 0.0
+        return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY_FRIENDLY))
+
+
 # `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner` : singleton par TYPE d'ability, cache
 # dict@0xa0 + factories dict@0x98.
 #
@@ -792,9 +1034,17 @@ class WatchedOverNonOwnerPlaybook(AdjacentToOwnerNonOwnerPlaybook):
 # `MastersOfManoeuvre` a `orksRuntherd`, dont la relique du seed est en realite
 # `1475 SupaCyborkBody` -- laquelle n'a AUCUN playbook non-owner. RE-DERIVER, jamais recopier :
 # `probe_477r33_non_owner_registry_gaps.py --offline-only` rend le tableau complet.
-# Au registre ci-dessous : **15** faces MOVE (3 de #433-r4-r3 + 9 d'#433-r4-r3-r1 + 3 de #477-r33).
-# Il reste **8** faces MOVE non portees + `RedemptionOfTheRisen`, PORTEE mais deliberement HORS
-# registre (zero porteur), toutes des derivees DIRECTES.
+# Au registre ci-dessous : **18** faces MOVE (3 de #433-r4-r3 + 9 d'#433-r4-r3-r1 + 3 de #477-r33
+# + 3 de #477-r37). Il reste **5** faces MOVE non portees + `RedemptionOfTheRisen`, PORTEE mais
+# deliberement HORS registre (zero porteur), toutes des derivees DIRECTES.
+# Ces 5 restantes, et POURQUOI elles restent (residu #477-r37-r1) :
+#   `1064 FirstAmongTraitors`  -- porteur `blackAbaddon` AU POOL, mais gate `HasTrait(mover, Chaos)`
+#                                 et 0 unite sur 1083 porte ce trait au gameconfig : terme INERTE ;
+#   `1451`, `1496`, `1508`     -- gates sur la RARETE du mover (`HasRarity(u, Mythic)`), et le `ctx`
+#                                 des feuilles de tuile ne porte AUCUN canal `rarity` ;
+#   `1478 SabreOfSacrifice`    -- son gate est un SELECTEUR DSL
+#                                 (`SabreOfSacrificeAbility$$IsAffectedSummon` invoque par vtable
+#                                 sur une struct de 0x128 octets), pas un predicat lisible au corps.
 #
 # Absence du registre == `LoadPlaybookNonOwner` rend null == la paire n'est jamais yieldee : MEME
 # degradation que le natif, pas un trou.
@@ -847,6 +1097,14 @@ NON_OWNER_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.PropheticSentinel): PropheticSentinelNonOwnerPlaybook(),             # 1543
     int(TriggeredAbilityType.IconOfObstinacy): IconOfObstinacyNonOwnerPlaybook(),                 # 1552
     int(TriggeredAbilityType.MyWillBeDoneOverlord): MyWillBeDoneOverlordNonOwnerPlaybook(),       # 1556
+    # #477-r37 -- trois derivees DIRECTES de plus, choisies par leur ATTEIGNABILITE, chacune par
+    # une voie de montage DIFFERENTE (aucun port speculatif) : `1526` greffe son passif npc-only sur
+    # une unite du pool et amene un mover Votann par injection catalogue ; `1469` pose sa relique sur
+    # un porteur du pool et ACCORDE le trait `Summon` au mover ; `1531` amene sa mine
+    # (`astarSmnHaywireMine`, summon `Steppable`) par `--explicit-stats` et greffe le passif.
+    int(TriggeredAbilityType.MawClawsOfThyrax): MawClawsOfThyraxNonOwnerPlaybook(),               # 1469
+    int(TriggeredAbilityType.PurgeResponse): PurgeResponseNonOwnerPlaybook(),                     # 1526
+    int(TriggeredAbilityType.HaywireMine): HaywireMineNonOwnerPlaybook(),                         # 1531
 }
 
 
