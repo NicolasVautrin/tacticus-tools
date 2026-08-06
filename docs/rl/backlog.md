@@ -2996,7 +2996,16 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   (b) La **LOCALITE DU COMMENTAIRE** : `engine/streams/turn_phase.py` ecrit la resolution dans le
   **second** commentaire de la ligne (`// -- `verifier`` puis `// = `...$$VerifyUnitsTurnFinished``).
   Sauter le premier commentaire perdrait exactement ce que le cran `appel-colle` tient.
-  (c) Les ~**640** lignes de `probe_477r25` ne sont toujours PAS ventilees. ⚠ **Verifier d'abord
+  (c) ⚠ **`master` est ROUGE sur `probe_477r25` depuis la PR #737 (`#287-r11`), et la cause est
+  exactement le cran de #477-r36.** Le site `case-287r11-...md` ecrit trois
+  `battleQuery.<Nom>(<args>);   # slot <n>` dont les **trois attributions sont JUSTES** ; faute
+  d'absorption d'appel, `probe_477r25` ne peut apparier aucun nom a son slot, et sa forme C part
+  du slot pour attraper le nom de la LIGNE SUIVANTE -- **2 couples FAUX**. Diagnostic chiffre sur
+  ce bloc : en service **0 juste / 2 faux** ; + appel absorbe **2 / 2** ; + priorite au mono-ligne
+  **2 / 1**. Le faux restant tient a la PROFONDEUR d'imbrication (3 niveaux). Le correctif complet
+  demande donc **trois** crans -- non applique ici, hors perimetre, mais `master` ne peut pas
+  rester rouge.
+  (d) Les ~**640** lignes de `probe_477r25` ne sont toujours PAS ventilees. ⚠ **Verifier d'abord
   que son recenseur ne porte pas le MEME defaut de lookbehind** que celui corrige par #477-r36 --
   sans quoi tout comptage y sera sous-estime de la meme facon.
   NB annexe, non mesure comme gisement : le mot `slot` lui-meme reste sensible a la casse (seul

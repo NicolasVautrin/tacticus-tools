@@ -560,6 +560,37 @@ Restent **deux** citations justes hors couverture, nommées plutôt que rattrap�
   commentaire, et un cran « sauter le premier commentaire » perdrait la localité que `appel-colle`
   existe pour tenir.
 
+### La PROFONDEUR de l'absorption est mesurée, et son défaut n'est pas un manque mais un FAUX
+
+`re` ne fait pas de récursion : le motif équilibré est **déroulé**, un niveau à la fois. Un appel
+plus profond que ce que le motif suit n'est pas absorbé — et le dégât n'est **pas** « un couple
+manquant » : le nom de la ligne reste bloqué, et le slot va chercher celui de la ligne **suivante**.
+
+`--profondeur` re-dérive la courbe : **plate dès p = 2** (+1 citation de 1 à 2, rien au-delà, 0
+désaccord partout). `3` est pris comme marge à coût mesuré nul, comme `FENETRE`. Le cas réel qui
+impose au moins 3 vient du corpus **voisin** :
+`battleQuery.GetAllAliveUnits(Nullable<int>(GetCurrentOwnerEntityId(caster)))`.
+
+### `master` était ROUGE sur `probe_477r25`, et la cause est exactement ce cran
+
+Mesuré au rebase du 2026-08-06 : la PR **#737** (`#287-r11`) apporte
+`docs/rl/case-287r11-trois-regles-a-triggers-deja-portes.md`, dont trois lignes écrivent
+`battleQuery.<Nom>(<args>);   # slot <n>` — **les trois attributions sont JUSTES**. `probe_477r25`,
+qui n'a pas l'absorption d'appel, ne peut apparier aucun de ces noms à son propre slot ; sa forme C
+part alors du slot et attrape le nom de la **ligne suivante** : **2 couples FAUX**, verdict ROUGE.
+
+Diagnostic chiffré sur ce bloc (hors périmètre de cette tranche, non appliqué) :
+
+| régime | couples justes | couples faux |
+|---|--:|--:|
+| en service sur `master` | 0 | **2** |
+| + appel absorbé | 2 | 2 |
+| + priorité au mono-ligne (un couple enjambant cède si le slot est déjà apparié sur sa ligne) | 2 | **1** |
+
+Le faux qui subsiste tient à la profondeur (3 niveaux). Le correctif complet demande donc **trois**
+crans, dont un que la présente tranche vient seulement d'établir : c'est une tranche à part, pas un
+« pendant que j'y suis ». Elle est ouverte sous **#477-r38**.
+
 ### Le mutant qui garde les formes neuves
 
 Les **cinq** mutants hérités mordent déjà sans elles : aucun ne dit quoi que ce soit de

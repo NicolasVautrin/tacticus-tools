@@ -212,11 +212,35 @@ def _esp(traverse: bool) -> str:
 #:
 #: Le motif est « deroule » (`[^()]*(?:\([^()]*\)[^()]*)*`) et non `(?:[^()]|\(...\))*` : la
 #: seconde forme est ambigue et backtracke exponentiellement sur une ligne longue de `backlog.md`.
-def _appel(k: int, colle: bool = True, equilibre: bool = True, actif: bool = True) -> str:
+#: LA PROFONDEUR D'IMBRICATION que l'absorption sait suivre. `re` ne fait pas de recursion : le
+#: motif est DEROULE, un niveau a la fois. La valeur est MESUREE (`--profondeur`), pas choisie --
+#: et elle n'est pas cosmetique : un appel plus profond que ce que le motif suit n'est PAS absorbe,
+#: le nom de sa ligne reste bloque, et le slot va chercher celui de la ligne SUIVANTE.
+#: Mesure sur le corpus voisin (`probe_477r25`, site `case-287r11`) :
+#: `GetAllAliveUnits(Nullable<int>(GetCurrentOwnerEntityId(caster)))` est a 3 niveaux.
+PROFONDEUR_APPEL = 3
+
+
+def _equilibre(profondeur: int) -> str:
+    """Une paire de parentheses equilibree, DEROULEE jusqu'a `profondeur` niveaux.
+
+    Le motif est ecrit en « boucle deroulee » (`[^()]*(?:\\(...\\)[^()]*)*`) et non
+    `(?:[^()]|\\(...\\))*` : la seconde forme est AMBIGUE et backtracke exponentiellement sur une
+    ligne longue de `backlog.md`. Mesure : le relachement `nom-en-backticks` n'a pas rendu en 120 s
+    avec un separateur ambigu en amont.
+    """
+    corps = r"[^()\n]*"
+    for _ in range(profondeur - 1):
+        corps = r"[^()\n]*(?:\(%s\)[^()\n]*)*" % corps
+    return r"\(%s\)" % corps
+
+
+def _appel(k: int, colle: bool = True, equilibre: bool = True, actif: bool = True,
+           profondeur: int = PROFONDEUR_APPEL) -> str:
     if not actif:
         return ""
     avant = r"[`*>]{0,2}" if colle else r"[^\n(]{0,20}?"
-    corps = (r"\([^()\n]*(?:\([^()\n]*\)[^()\n]*)*\)" if equilibre else r"\([^\n]*")
+    corps = _equilibre(profondeur) if equilibre else r"\([^\n]*"
     return r"(?:%s(?P<appel%d>%s)[`*]{0,2}[ \t]*;?)?" % (avant, k, corps)
 
 
@@ -226,7 +250,8 @@ def _appel(k: int, colle: bool = True, equilibre: bool = True, actif: bool = Tru
 _MARQ_COMMENT = r"[ \t]*(?:\#+|//+)[ \t]*"
 
 
-def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: bool = False):
+def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: bool = False,
+                   profondeur: int = PROFONDEUR_APPEL):
     """LES CINQ FORMES DE COUPLE (slot, nom) RETENUES COMME ATTESTATION.
 
     Un nom simplement PRESENT sur la ligne ne compte pas : il faut qu'il soit ADJACENT au slot.
@@ -265,16 +290,17 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
     virg = "virgule-dans-le-remplissage" not in relaches
     return (
         #: A -- `slot 0x7e = MoveUnit`, `slot **0x43** = `OperationProcessor$$ApplyDamage``
-        re.compile((_SLOT % 0) + _appel(0, colle, equilibre) + esp + r"(?:=|->|:)" + esp
+        re.compile((_SLOT % 0) + _appel(0, colle, equilibre, profondeur=profondeur)
+                   + esp + r"(?:=|->|:)" + esp
                    + r"[`*]{0,2}(?:" + _QUAL + r")?" + coupure + (_NOM % 0)),
         #: B -- `processor.FinishAttack` slot 0x3b   (nom PUIS slot, colles)
         #: ⚠ ELLE NE FRANCHIT JAMAIS LE SAUT DE LIGNE, meme en regime fenetre. Dans une
         #: enumeration verticale, le nom ecrit AVANT appartient a l'item precedent, pas au slot
         #: qui suit -- cran mesure par #477-r30, conserve ici a l'identique.
-        re.compile(_QUAL + (_NOM % 1) + _appel(1, colle, equilibre)
+        re.compile(_QUAL + (_NOM % 1) + _appel(1, colle, equilibre, profondeur=profondeur)
                    + _entre(40, False, _RENVOIS, virg) + (_SLOT % 1)),
         #: C -- slot 0x3a ... `OperationProcessor$$StartAttack`   (slot PUIS nom, colles)
-        re.compile((_SLOT % 2) + _appel(2, colle, equilibre)
+        re.compile((_SLOT % 2) + _appel(2, colle, equilibre, profondeur=profondeur)
                    + _entre(60, traverse, _RENVOIS_SLOT_PUIS_NOM, virg)
                    + qual_c + coupure + (_NOM % 2)),
         #: D -- LA RESOLUTION COMMENTEE : `<IOperationProcessor slot 0x76>(unit)  # = MarkUnitAs…`
@@ -282,7 +308,7 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
         #: commentaire joue son role -- apres `#`/`//`, en fin de ligne de pseudo-code, ce qui est
         #: ecrit RESOUT ce qui precede. Le cran `resolution-marquee` (ci-dessus) est ce qui
         #: empeche cette forme de recolter n'importe quel commentaire.
-        re.compile((_SLOT % 3) + _appel(3, colle, equilibre) + _MARQ_COMMENT
+        re.compile((_SLOT % 3) + _appel(3, colle, equilibre, profondeur=profondeur) + _MARQ_COMMENT
                    + r"(?:(?P<eq3>=)[ \t]*)?[`*]{0,2}" + (_NOM % 3) + r"[`*]{0,2}" + marq),
         #: E -- LE NOM DANS LE PLACEHOLDER : `processor.<slot 0x3c AttackDamage>(caster, …)`.
         #: Tout ce qui est ENTRE les chevrons designe le slot -- c'est la cause du cran, et non
@@ -301,7 +327,7 @@ def _regex_couples(traverse: bool, relaches: tuple[str, ...] = (), historique: b
         #: `backlog.md` (mesure : le relachement `nom-en-backticks` n'a pas rendu en 120 s).
         #: Une continuation SUFFIT -- la seule forme reelle qui traverse est
         #: « …, c'est-a-dire\n   `ContinueTurnPhase` ».
-        re.compile((_SLOT % 5) + _appel(5, colle, equilibre) + r"[`*]{0,2}[ \t]*,?[ \t]*"
+        re.compile((_SLOT % 5) + _appel(5, colle, equilibre, profondeur=profondeur) + r"[`*]{0,2}[ \t]*,?[ \t]*"
                    #: ⚠ SEUL LE DELIMITEUR OUVRANT EST EXIGE. Le fermant vient APRES la signature
                    #: quand le site l'ecrit (« `…$$TransformUnit(entity, statModifiers,
                    #: isHidden)` ») : l'exiger colle au nom rejetait la citation la plus
@@ -627,7 +653,8 @@ def _regex_noms(noms: frozenset[str]) -> re.Pattern[str]:
 
 def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
              noms_interface: frozenset[str] | None = None,
-             relaches: tuple[str, ...] = (), historique: bool = False
+             relaches: tuple[str, ...] = (), historique: bool = False,
+             profondeur: int = PROFONDEUR_APPEL
              ) -> tuple[list[Citation], list[CitationNom], Ecartees]:
     """(couples (slot, nom), citations par NOM SEUL, ce qui est ecarte et compte).
 
@@ -641,8 +668,8 @@ def recolter(fenetre: int = FENETRE, traverse: bool | None = None,
     if traverse is None:
         traverse = fenetre > 1
     rx_un_nom = _regex_noms(noms_interface) if noms_interface else None
-    if relaches or historique:
-        couples = _regex_couples(traverse, relaches, historique)
+    if relaches or historique or profondeur != PROFONDEUR_APPEL:
+        couples = _regex_couples(traverse, relaches, historique, profondeur)
     else:
         couples = RE_COUPLES_ML if traverse else RE_COUPLES
     rx_nom_seul = RE_NOM_SEUL_ML if traverse else RE_NOM_SEUL
@@ -959,6 +986,8 @@ def main() -> int:
                     help="detaille CE QUI RESTE hors couverture, par CAUSE (residu #477-r34)")
     ap.add_argument("--relacher", action="store_true",
                     help="desarme CHAQUE cran conservateur separement et publie ce qu'il CACHE")
+    ap.add_argument("--profondeur", action="store_true",
+                    help="re-derive le CHOIX de PROFONDEUR_APPEL : gain et bruit pour p = 1..5")
     ap.add_argument("--historique", action="store_true",
                     help="rejoue le regime d'AVANT #477-r36 (formes A/B/C, sans appel absorbe)")
     args = ap.parse_args()
@@ -993,6 +1022,22 @@ def main() -> int:
         print("  Lire : `citations` et `sans_couple` disent le GAIN, les deux dernieres ce que")
         print("  l'elargissement FAIT SORTIR. La ou les deux premieres colonnes cessent de")
         print("  bouger, elargir n'apporte plus -- et le cout en temps, lui, continue.")
+        return 0
+
+    if args.profondeur:
+        print()
+        print("=== LA PROFONDEUR D'IMBRICATION, RE-DERIVEE (en service : %d) ==="
+              % PROFONDEUR_APPEL)
+        print("   p  citations  absorbees  arite_confrontee  sans_couple  desaccords")
+        for p in (1, 2, 3, 4, 5):
+            c, _ns, e = recolter(fenetre=args.fenetre, profondeur=p)
+            fn, _fa = confronter(c, versionne)
+            print("  %2d   %6d     %6d            %6d       %6d      %6d"
+                  % (p, len(c), sum(1 for x in c if x.appel_absorbe),
+                     sum(1 for x in c if x.args is not None), e.sans_couple, len(fn)))
+        print("  Lire : un appel PLUS PROFOND que `p` n'est pas absorbe -- le nom de sa ligne")
+        print("  reste bloque, et le slot va chercher celui de la ligne SUIVANTE. La ou les")
+        print("  colonnes cessent de bouger, approfondir n'apporte plus.")
         return 0
 
     if args.relacher:

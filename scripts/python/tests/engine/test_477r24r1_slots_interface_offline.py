@@ -590,6 +590,30 @@ def test_etage3ter_larite_se_confronte_sur_lappel_ABSORBE(citations: list[P.Cita
         "elargi (mesure a 25 le 2026-08-06)" % len(par_absorption))
 
 
+def test_etage3ter_la_PROFONDEUR_dimbrication_est_suffisante() -> None:
+    """Un appel plus PROFOND que ce que le motif suit n'est PAS absorbe -- et le degat n'est pas
+    « un couple manquant » mais un couple FAUX : le nom de la ligne reste bloque, et le slot va
+    chercher celui de la ligne SUIVANTE.
+
+    Le cas est REEL et mesure sur le corpus voisin (`probe_477r25`, site `case-287r11`) :
+    `battleQuery.GetAllAliveUnits(Nullable<int>(GetCurrentOwnerEntityId(caster)))` compte
+    3 niveaux. `--profondeur` re-derive la courbe, plate des p = 2 sur CE corpus.
+    """
+    assert P.PROFONDEUR_APPEL >= 3, (
+        "la profondeur est retombee a %d -- un appel a deux niveaux d'arguments imbriques "
+        "n'est plus absorbe" % P.PROFONDEUR_APPEL)
+    trois = "processor.<slot 0x11>(matchState.GetEntity(GetId(effect)))   # = RemoveEffect"
+    vus = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+           for k, rx in enumerate(P.RE_COUPLES_ML) for m in rx.finditer(trois)}
+    assert (0x11, "RemoveEffect") in vus, (
+        "un appel a 3 niveaux n'est pas absorbe -- vus : %s" % sorted(vus))
+    peu = P._regex_couples(True, profondeur=1)
+    vus_p = {(int(m.group("n%d" % k), 0), m.group("nom%d" % k))
+             for k, rx in enumerate(peu) for m in rx.finditer(trois)}
+    assert (0x11, "RemoveEffect") not in vus_p, (
+        "la profondeur 1 suffit deja -- la courbe ne mesure plus rien")
+
+
 def test_etage3ter_le_recenseur_voit_les_noms_QUALIFIES(table) -> None:
     """Le RECENSEUR de la ventilation avait `$` dans son lookbehind : un nom QUALIFIE lui etait
     invisible.
