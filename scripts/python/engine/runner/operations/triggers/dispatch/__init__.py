@@ -46,55 +46,5 @@ un consommateur externe porte ; un REBIND ne porterait pas -- aucun site connu n
 """
 from __future__ import annotations
 
-from .....services.damage_prediction import OVERKILL_PCT_KEY, is_overkill, unit_is_overkill
-from .registry import (TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS,
-                       EFFECT_TRIGGERS, GLOBAL_TRIGGERS)
-from .core import (collect_triggered_abilities, collect_effect_triggers,
-                   collect_global_triggers, evaluate_trigger_operation, _trigger_phase_component)
-from .attack import (_squighound_after_attack, unit_blocked_triggers, final_damage_triggers,
-                     pre_attack_triggers, pre_attack_hit_triggers, damage_taken_triggers,
-                     damage_dealt_triggers,
-                     attack_damage_attack_triggers, finish_attack_triggers,
-                     after_hit_normal_attack, after_hit_ability_attack)
-from .ability import (ability_init_triggers, pre_unit_ability_triggers,
-                      unit_post_ability_triggers, unit_active_ability_triggers,
-                      evaluate_abilities_for_event)
-from .move_death import (after_move_triggers, post_unit_kill_triggers,
-                         arrived_at_final_tile_triggers,
-                         displace_triggers, after_death_triggers, pre_unit_death_2_triggers,
-                         unit_death_triggers, pre_effect_added_triggers,
-                         pre_effect_removed_triggers, effect_removed_triggers,
-                         unit_defeated_triggers, unit_revived_triggers,
-                         unit_resurrected_triggers, pending_death_added_triggers,
-                         pre_move_triggers, unit_position_changed_1_triggers,
-                         unit_position_changed_2_triggers, unit_removed_triggers)
-from .turn import (tile_tick_triggers, start_turn_triggers, turn_start_other_triggers,
-                   unit_finished_turn_triggers, unit_finished_turn_normally_triggers,
-                   PILEIN_MIN_OWNER_TURNS, end_turn_summon_triggers)
-from .phase import phase_end_triggers
 
-__all__ = [
-    "OVERKILL_PCT_KEY", "is_overkill", "unit_is_overkill",
-    "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "ACTIVE_ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
-    "GLOBAL_TRIGGERS", "collect_global_triggers",
-    "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",
-    "_trigger_phase_component", "_squighound_after_attack", "unit_blocked_triggers",
-    "final_damage_triggers", "pre_attack_triggers", "pre_attack_hit_triggers",
-    "damage_taken_triggers", "damage_dealt_triggers",
-    "attack_damage_attack_triggers", "finish_attack_triggers", "after_hit_normal_attack",
-    "after_hit_ability_attack", "ability_init_triggers", "pre_unit_ability_triggers",
-    "unit_post_ability_triggers", "unit_active_ability_triggers",
-    "evaluate_abilities_for_event", "after_move_triggers", "post_unit_kill_triggers",
-    "arrived_at_final_tile_triggers",
-    "displace_triggers", "after_death_triggers", "pre_unit_death_2_triggers",
-    "unit_death_triggers", "pre_effect_added_triggers",
-    "pre_effect_removed_triggers", "effect_removed_triggers", "unit_defeated_triggers",
-    "unit_revived_triggers", "unit_resurrected_triggers", "pending_death_added_triggers",
-    "pre_move_triggers", "unit_position_changed_1_triggers", "unit_position_changed_2_triggers",
-    "unit_removed_triggers",
-    "tile_tick_triggers",
-    "start_turn_triggers", "turn_start_other_triggers", "PILEIN_MIN_OWNER_TURNS",
-    "unit_finished_turn_triggers", "unit_finished_turn_normally_triggers",
-    "end_turn_summon_triggers",
-    "phase_end_triggers",
-]
+__all__ = []

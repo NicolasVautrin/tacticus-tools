@@ -28,7 +28,6 @@ sur le namespace de CE `__init__` ne change RIEN a ce que resolvent les vecteurs
 patch devient un NO-OP SILENCIEUX (le test reste vert en ne mesurant plus rien)."""
 from __future__ import annotations
 
-from ._channel import hits_channel_is_melee, _normal_attack_kind
 from .normal import _Normal
 from .ability import _AbilityAttack
 from .normal_like import _NormalLike
@@ -41,5 +40,4 @@ class _DamageOpsMixin(_Normal, _AbilityAttack, _NormalLike):
     __slots__ = ()
 
 
-__all__ = ["_DamageOpsMixin", "hits_channel_is_melee", "_normal_attack_kind",
-           "_Normal", "_AbilityAttack", "_NormalLike"]
+__all__ = ["_DamageOpsMixin", "_Normal", "_AbilityAttack", "_NormalLike"]
