@@ -196,11 +196,25 @@ hissage de `#419-r5`), tous deux supprimes ; les cinq autres sont hisses.
 ### Deux rouges NEUFS, arrives pendant la tranche
 
 * `genestealer:210` ci-dessus -- **REPARE**.
-* `test_477r25::test_etage3_aucune_citation_fausse` -- **NON REPARE, hors perimetre**. Deux
-  citations de slot `IBattleQuery` de `docs/rl/case-287r11-trois-regles-a-triggers-deja-portes.md`
-  (lignes 39-40) sont contredites par le metadata. Introduit par `58a9c183` (PR #737), rebase
-  pendant la tranche ; aucun fichier touche par #484 n'entre dans ce que ce test lit.
-  Il n'appartient pas aux 42 (mesures a `959189f2`, avant ce merge) -- **a re-attribuer a #737**.
+* `test_477r25::test_etage3_aucune_citation_fausse` -- **NON REPARE, hors perimetre, et c'est le
+  PROBE qui a tort.** Introduit par `58a9c183` (PR #737), rebase pendant la tranche ; aucun
+  fichier touche par #484 n'entre dans ce que ce test lit, et il n'appartient pas aux 42
+  (mesures a `959189f2`, avant ce merge).
+
+  La FENETRE d'appariement de `#477-r30`/`#477-r32` apparie le **slot** d'une ligne au **nom**
+  de la ligne SUIVANTE. Confronte au metadata, le document est **JUSTE sur les trois lignes** :
+
+  | ligne de `case-287r11` | nom cite | slot cite | metadata |
+  | --- | --- | ---: | --- |
+  | 39 | `GetFreeSurroundingTiles` | 104 = 0x68 | 0x68 = `GetFreeSurroundingTiles` ✔ |
+  | 40 | `GetAllAliveUnits` | 137 = 0x89 | 0x89 = `GetAllAliveUnits` ✔ |
+  | 41 | `GetSurroundingEnemies` | 120 = 0x78 | 0x78 = `GetSurroundingEnemies` ✔ |
+
+  Le probe accuse « slot 0x68 : le site nomme `GetAllAliveUnits` » -- le nom de la ligne 40 --
+  puis ajoute lui-meme « `GetAllAliveUnits` est aux slots 0x89 », ce qui **confirme** la ligne 40
+  et le decale d'un cran. Meme forme sur 0x89 -> `GetSurroundingEnemies`. **A re-attribuer a
+  `#477-r30`/`#477-r32`** (la fenetre), pas a #737 : c'est un FAUX POSITIF, et le corriger
+  cote document ecrirait des slots FAUX. Non touche ici -- deux tranches `#477-r*` sont en vol.
 
 ### `test_480r8` -- rouge de CONTENTION, pas de gisement
 
