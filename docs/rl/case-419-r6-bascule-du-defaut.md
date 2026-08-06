@@ -70,7 +70,10 @@ Le trou était là depuis toujours. Ce n'est pas la bascule qui l'a créé : c'e
 **survivre la cible**, donc exécuter l'assertion. Un test dont la garde « cible morte » sert de
 silencieux ne valide ses PV que par accident.
 
-## 4. Les trois réparations, arbitrées par fichier
+## 4. Les trois réparations de la §7 de #419-r5, arbitrées par fichier
+
+Ce sont les trois que #419-r5 avait nommées. **Elles ne sont pas tout le périmètre** — le §5 le
+dérive, et il en trouve **quatorze de plus**. Total de la tranche : **17 fichiers réparés**.
 
 | fichier | arbitrage | pourquoi | avant → après |
 |---|---|---|---|
@@ -161,6 +164,10 @@ Les 4 préexistants **ne sont pas touchés** : ce ne sont pas les défauts de ce
 critère n'est donc pas « c'est vert », c'est « le fichier mesure exactement ce qu'il mesurait
 avant que le canal s'ouvre ».
 
+⚠ Les trois de la §4 **ne sont pas dans ces 38** : réparés avant le recensement, ils portaient
+déjà leur `NO_NOISE` et le probe les classait donc en (B). Le total de la tranche est
+**3 + 11 + 3 = 17**.
+
 ⚠ **Deux montages posaient DÉJÀ `--crit` et `--block-target`, mais pas les deux autres faces** —
 `probe_366_visions_of_heresy.build_args` et (côté préexistants) `_pierce_floor_regime`. Deux faces
 sur quatre suffisaient **par accident** tant que le canal était muet ; c'est précisément la
@@ -196,6 +203,39 @@ crit n'est pas la cause, c'est un bug de port ». La réparation est donc d'abor
 (`build_extra(enemy)`, consommé par les deux) ; ensuite seulement la neutralisation mord, et le
 fichier revient à **6 passed**, le compte du témoin.
 
+### 6.5 La garde de #419-r5 a rougi — et c'est son propre message d'échec qui l'avait prévu
+
+`test_419r5_canal_crit_ouvert_live.py` gardait « `--bis-items` ouvre le canal, et **le même
+montage SANS le drapeau** le laisse fermé ». Après la bascule, le second bras est ouvert lui aussi :
+le volet anti-tautologie **rougit**, exactement comme son message le disait (« soit une autre voie
+équipe désormais les unités […], ce fichier ne garde plus rien et doit être réécrit »).
+
+**L'objet gardé change, et le nouveau est le bon** : ce n'est plus « le drapeau ouvre le canal »,
+c'est **« le DÉFAUT ouvre le canal »**. Le bras témoin devient `--no-bis-items`, seul chemin qui
+restitue encore le régime dégénéré — donc le volet 2 garde aussi **le témoin lui-même**, sans lequel
+aucune mesure de causalité de cette tranche ne serait reproductible. Un **volet 3** est ajouté :
+`--bis-items` demande désormais ce qui est le défaut, il doit rendre un état **identique** au montage
+nu et surtout ne pas échouer (des appelants le posent encore).
+
+**4 passed**, et la garde **mord** : re-jouée sous `TACTICUS_BIS_ITEMS=0`, elle rend **4 failed sur
+4**. Une garde qu'on ne sait pas faire échouer ne garde rien.
+
+## 6.6 Ce que la méthode retient, pour la prochaine bascule d'un DÉFAUT
+
+1. **Un témoin qui coûte une variable d'environnement doit être joué**, sinon la tranche
+   s'attribue des rouges qu'elle n'a pas creusés — ici **7 sur 21**.
+2. **Un recensement par un seul marqueur sous-compte.** Le canal (A) (`did_crit`) aurait laissé
+   passer **3 casses** qui *rougissent* au lieu de skipper.
+3. **Vérifier que la mutation a mordu** avant de conclure. Une neutralisation posée dans un montage
+   **dupliqué** laisse le test rigoureusement inchangé, et l'écart intact se lit alors comme un bug
+   de port.
+4. **Le critère de réparation n'est pas « c'est vert »** : c'est « le compte est celui du témoin ».
+   Un fichier qui passerait de 4 failed à 1 passed + 3 skipped serait vert et aurait perdu 3
+   mesures.
+5. **La garde de la tranche PRÉCÉDENTE est la première à rougir**, parce qu'elle gardait le régime
+   qu'on vient de changer. La rejouer fait partie du rayon de souffle — et sa réécriture doit
+   déplacer l'**objet** gardé, pas assouplir l'assertion.
+
 ## 7. Résidus NOMMÉS
 
 * **`#419-r6-r1` — les 315 fichiers live « indifférents aux deux marqueurs » ne sont pas joués**,
@@ -226,3 +266,10 @@ fichier revient à **6 passed**, le compte du témoin.
   est un accord, pas une couverture des deux branches.
 * **Le choix BiS n'est toujours pas confronté au choix du jeu** (résidu ouvert par #419-r5, inchangé).
 * **Le block n'a toujours pas d'étage live dédié** (idem).
+* **Le seuil `> 100` du canal (C) écarte des sites**, et il le dit : les égalités à un entier plus
+  petit (indices, compteurs, petits ordinaux) et toute comparaison qui n'est pas `==` dans un
+  `assert`. Le canal attrape aussi des **ids** d'ability, qui ne sont pas des valeurs de stat —
+  c'est un sur-ensemble volontaire, pas une mesure fine.
+* **Les 17 réparations neutralisent toutes le crit et le block.** Aucune ne *vise* le régime crit :
+  ce régime a son fichier dédié (`test_damage_crit_live`, inchangé par la bascule), et l'ouvrir
+  vraiment sur les autres axes est un travail à part — c'est le sens de `#419-r6-r1`.
