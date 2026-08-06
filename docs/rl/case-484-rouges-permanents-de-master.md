@@ -81,4 +81,92 @@ re-differer les imports rouvrirait le gisement que `492c722f` a ferme, et le cli
 
 ## 2. Ventilation des 42 -- la somme vaut le total
 
-(Section completee au fil du travail ; voir le rapport de la PR.)
+| # | famille | fichiers | verdict |
+| ---: | --- | --- | --- |
+| **28** | MONTAGE coupe par un hissage d'import (`492c722f`) | 433, 344r2, 381r4, 383, 448 | **REPARE** |
+| **2** | test PERIME par un changement DELIBERE | 381r1 (#287-r5-r1), 270r4 etage5 (#270-r4-r2) | **REPARE** (contrat change, dit) |
+| **4** | DETTE d'import differe rouverte par notre cadence | 270r4r2r2 etage1, 270r4r2r2r3 etages 1 et 6, 270r4r2r2 etage3 | **3 REPARES, 1 NOMME (#484-r2)** |
+| **2** | RECENSEMENT non tenu a jour | 337 (attestation), 366-r1 (trou de couverture) | **REPARE** |
+| **5** | ENTREE de donnees devenue muette | `test_enum_ordinal_ratchet` | **REPARE** |
+| **1** | NON REPRODUIT en isolation | 480r8 | **A CONFIRMER** |
+| **42** | | **13 fichiers** | |
+
+Aucun des 42 n'accuse un **defaut de calcul du port**. C'est le resultat le plus important de
+cette tranche, et il n'etait pas acquis d'avance : la moitie des messages ressemblait a des
+divergences (`assert None == 16`, `ordre observe [2, 3], attendu [3, 2]`).
+
+### 2.1. Vacuite -- ce que le compte de rouges SOUS-ESTIME
+
+Le rouge ne mesure pas le degat, il en mesure la partie **assertionnee**. Deux mesures :
+
+* `test_383` -- **trois** tests partagent le montage `_capture`, **un seul** rougit. Les deux
+  autres n'assertionnent que sur la valeur de retour, que le VRAI service continue de produire :
+  ils sont devenus des tests du **code reel** la ou ils devaient tester le **cablage**.
+* `test_344r2` -- deux des trois parametres de `test_each_test_is_read_on_its_own_prediction`
+  attendent `weak-first`, qui est aussi l'ordre des ids **a cle egale**. Ils passaient donc par
+  COINCIDENCE, avec un stub qui n'etait jamais appele.
+
+⇒ **42 rouges signalent un nombre inconnu et SUPERIEUR de tests devenus vacueux.** La parade
+posee ici est une **garde d'inertie** au montage (`test_433`, `test_381r4`) : le montage
+ASSERTIONNE que sa propre mutation a mordu, avant de mesurer quoi que ce soit.
+
+### 2.2. Datation -- deux regimes, deux traitements
+
+Toutes les causes sont **recentes** (2026-08-05 et 2026-08-06). Aucun rouge ne « traine depuis
+trois semaines » : ce gisement est **integralement produit par notre propre cadence de PR**, ce
+qui est cohérent avec le retrait de la banque de cliquets le 2026-08-05 -- plus rien ne les
+voyait.
+
+| cause | date | ce qu'elle a rougi |
+| --- | --- | --- |
+| `492c722f` hissage de 624 imports | 2026-08-05 | 28 |
+| `980173f9` fermeture du cycle sans conversion | 2026-08-05 | 1 |
+| `d696530f` (#722) tuile de depart hors du pool | 2026-08-06 | 1 (+4 differes gratuits) |
+| `c919fdd9` (#707) cles par constante d'enum | 2026-08-06 | 1 |
+| `630a9c59` (#699) archivage PARTIEL d'un build | 2026-08-06 | 5 |
+| accretion `#419-r3` / `#419-r1-tr14` | 2026-08-06 | 2 differes gratuits, +3 sur le seuil |
+
+Bisection reelle pour les deux datations non triviales : `test_366_r1` (vert a `0b8982a9`,
+rouge a `c919fdd9`) et le comptage des differes (`git archive` de `492c722f` re-collecte :
+**347**, contre **349** aujourd'hui).
+
+## 3. Ce qui n'est PAS repare, et pourquoi
+
+### `#484-r2` -- `test_270r4r2r2::etage3`, un SEUIL que notre cadence depasse
+
+`349` instructions differees sous `engine/` pour un plafond de `346`. Mesure du delta depuis
+`492c722f` : **+15 sites, -13 sites**, net **+2** (l'arbre de reference en portait 347, et le
+plafond a ete BAISSE a 346 par `dda52692`, comme sa docstring le prescrit).
+
+**Rien n'est mecaniquement retirable** : l'etage 1 du meme fichier -- l'INVARIANT « 0 differe
+GRATUIT » -- est desormais VERT, donc chacun des 349 restants a une cible qui n'est PAS deja
+importee au niveau module. Les 15 entrants portent d'ailleurs leur motif en clair
+(`# lazy : cycle damage<->abilities`, `# lazy : utilities <- battle_query`).
+
+Le seuil dit lui-meme qu'il attrape « une REPRISE DE MASSE, pas un site isole ». `+3` (0,9 %)
+n'est pas ce phenomene. **Mais re-baser un seuil chaque fois qu'il mord en fait un tampon**, et
+c'est la degradation silencieuse que la doctrine proscrit. Les deux cotes sont donc laisses au
+relecteur, sans que rien ne soit touche.
+
+### `#484-r1` -- le resolveur de `probe_366_r1` et les constantes derivees d'enum
+
+Nomme dans `_COVERAGE_HOLES` avec sa perte mesuree. Le point saillant : **la regle
+« un entier/nom qui DESIGNE passe par un ENUM » rend ce recenseur statique aveugle**, parce
+que `AbilityVariableType.dmg.name` n'est pas un litteral. Le patron va donc se repandre. Deux
+crans a poser : la semantique syntaxique de `<Enum>.<membre>.name` (qui vaut `"<membre>"` sans
+aucun import), et un env CROSS-MODULE (le second appelant ecrit `M._VAR_DAMAGE`).
+
+## 4. La lecon transportable
+
+**Un refactor value-preserving A L'EXECUTION peut casser des tests sans changer un seul
+resultat** -- il suffit qu'il change **ou un nom est LIE**. `492c722f` a mesure ce qu'il fallait
+mesurer (0 divergence de valeur sur 197 017 attributs, 409/409 modules important en premier) et
+n'a rien vu, parce que la propriete cassee n'est pas dans l'axe VALEUR : c'est
+l'**observabilite** du code par ses tests.
+
+Le seul signal qui a survecu est celui que les auteurs des montages avaient pose eux-memes --
+`« le montage ne teste rien »`, `« le mutant rend la MEME valeur »`, `« observe 0 »`. **Ecrire
+cette assertion-la est ce qui a transforme 28 faux verts en 28 rouges lisibles.** C'est la
+generalisation a retenir : un montage qui SUBSTITUE doit VERIFIER que sa substitution a mordu,
+et il doit le faire au montage, pas seulement dans l'assertion finale.
+
