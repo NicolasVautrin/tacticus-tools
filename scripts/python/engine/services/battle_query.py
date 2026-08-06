@@ -36,6 +36,7 @@ from .static_battle_rules import get_piercing_ratio
 from .. import battle_query as _bq
 from ..entities.damage_trait import DamageTrait
 from ..entities.traits.unit_trait import UnitTrait
+from .victory_config import get_max_rounds   # `BattleQuery$$GetMaxRounds` (#287-r11-r1-r1)
 
 
 def are_tiles_adjacent(a_pos, t_pos, board=None):
@@ -394,6 +395,72 @@ def get_unit_max_range(visual_id) -> int:
         r = (w or {}).get("Range")
         best = max(best, 1 if r is None else int(r))   # `HasValue ? Value : 1`
     return best
+
+
+def has_minimum_remaining_turns(unit_id, turns: int, state=None, victory_conditions=None,
+                                turns_ended_by_first_player=None) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns(unit, turns)` (slot **27**
+    d'`IBattleQuery`, arite **2**, LU dans `data/symbols/<build>/metadata/interface_slots.tsv`) --
+    MIRROR du decompile :
+
+        limit = <GetMaxRounds() INLINE>              # victoryConfig.<+0x18>.TryGetValue(1)
+        if (!limit.HasValue)                return true;
+        matchTurn = StateExtensions.GetMatchTurn(state);
+        first     = StateExtensions.GetPlayer(state, GetPlayerTurnOrder()[0]);
+        ended     = matchTurn.GetAmountOfTurnsEndedByPlayer(first.Id);
+        return turns <= limit.Value - ended;
+
+    ⚠ **LE PARAMETRE `unit` N'EST PAS LU.** Ce n'est pas une omission du port : le corps natif ne
+    le reference nulle part, et le joueur dont on compte les tours est `GetPlayerTurnOrder()[0]`,
+    pas le proprietaire du caster. Le gate est donc GLOBAL AU MATCH, neutre au porteur -- le meme
+    constat que `TheLionsWrathPlaybook$$ShouldEvaluate` (cf. `playbook/loki_custom.py`). Il est
+    garde ici parce qu'il fixe cette lecture : un port qui filtrerait par joueur serait faux sur
+    un match a plus de deux camps.
+
+    ⚠ **LE SLOT ETAIT MAL LU (#287-r11-r1-r1).** Quatre sites du port ecrivaient « slot 0x1a
+    d'`IBattleQuery` ... non resolu », c'est-a-dire un DECALAGE DE UN : `0x1a` = 26 =
+    `ShouldPlayerSkipTurn` (arite 1), et c'est cette arite qui ne collait pas avec les deux
+    arguments lus. Le vrai slot est `0x1b` = 27, et TROIS sources concordantes le disent :
+    le call-site de `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`
+    (`<slot 0x1b>(this.<+0x18>, caster, 2)`, cinq arguments) ; la lambda du decorateur
+    `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass68_0$$
+    u003CHasMinimumRemainingTurnsu003Eb__0`, qui relaie le MEME couple (slot 0x1b, classe
+    `IBattleQuery`) et dont le NOM donne la methode ; et la table de metadonnee, qui publie
+    `27 HasMinimumRemainingTurns 2`. La table ne se trompait pas -- le port si.
+
+    LES DEUX BRAS NE SONT PAS SYMETRIQUES, et c'est ce qui rend le port possible :
+
+    * **bras 1 (`limit` VIDE) -> `True`, MESURE.** Le natif ne lit RIEN d'autre. Le plafond vient
+      de `BC.Victory.VictoryConditions[MainPlayerRoundLimitation]`, que le port lit
+      (`engine.services.victory_config.get_max_rounds`, defaut DERIVE de `data/seed-bc.json` ou la
+      cle est ABSENTE). C'est donc une lecture, pas une convention permissive -- et c'est le
+      regime de TOUS les runners `rl_duel build` a ce jour.
+    * **bras 2 (`limit` PRESENT) -> LEVE**, faute du compteur `TurnComponent.<Dictionary @+0x40>`
+      qu'expose `IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEndedByPlayer`.
+      Le `State` porte `turn_counts` = les tours **DEMARRES** (`TurnComponent+0x38`,
+      `GetAmountOfTurnsStartedByPlayer`) : c'est un AUTRE dictionnaire, et l'assimiler serait
+      inventer. `decisionView.turnsEnded` publie bien `GetAmountOfTurnsEnded(matchTurn, 0)`, mais
+      c'est la **SOMME sur tous les joueurs** (`Sum(dict.Values)`), pas la ventilation.
+      Rendre ici un `True` silencieux serait un port PERMISSIF muet -- exactement le vice que
+      `get_surrounding_tiles` refuse pour `only_empty_or_steppable`. RESIDU `#287-r11-r1-r1-r1` ;
+      point d'ancrage a publier : le dictionnaire `TurnComponent+0x40`, ventile par joueur.
+
+    `turns_ended_by_first_player` est le SEUL moyen d'exercer le bras 2 : un appelant qui a MESURE
+    le compteur le fournit (c'est ce que fait la garde offline). Il n'a aucun defaut."""
+    limit = get_max_rounds(state=state, victory_conditions=victory_conditions)
+    if limit is None:
+        return True                                   # `if (!limit.HasValue) return true;`
+    if turns_ended_by_first_player is None:
+        raise NotImplementedError(
+            "HasMinimumRemainingTurns: le match porte un plafond de rounds "
+            "(VictoryConditionType.MainPlayerRoundLimitation = %d) mais le port n'a pas le "
+            "compteur `TurnComponent+0x40` que lit "
+            "`IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEndedByPlayer`. "
+            "`State.turn_counts` est le dictionnaire des tours DEMARRES (+0x38), pas celui-ci, et "
+            "`decisionView.turnsEnded` en publie la SOMME, pas la ventilation par joueur. "
+            "Le port REFUSE de rendre un verdict permissif silencieux (residu #287-r11-r1-r1-r1)."
+            % (int(limit),))
+    return int(turns) <= int(limit) - int(turns_ended_by_first_player)
 
 
 def find_melee_weapon(visual_id) -> dict | None:

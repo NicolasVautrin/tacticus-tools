@@ -134,13 +134,19 @@ class HeavyRailRifleAbility(ActiveAbility):
     #                       unite -- degradation PERMISSIVE, jamais un refus invente. Residu : sur une
     #                       cible MACHINE le port ne rejoue pas `TargetIsEnemy`.
     #     0x10000000000000  (bit 52) CasterHas2TurnsLeft   -> volet CASTER :
-    #                       `if ((rules >> 0x34) & 1 && !battleQuery.HasMinimumRemainingTurns(caster, 2))
+    #                       `if ((rules >> 0x34) & 1 && !<IBattleQuery slot 0x1b>(caster, 2))
     #                        -> broken(0x10000000000000)`.
     #                       `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns(unit, n)` =
-    #                       `maxTurns = BC.<+0xb0>.<+0x18>[1]` (Nullable) ; **si le match n'a PAS de
-    #                       plafond de tours -> `true`, donc AUCUN refus** ; sinon
-    #                       `n <= maxTurns - TurnComponent.GetAmountOfTurnsEndedByPlayer(matchTurn,
-    #                       team)`. NON PORTE : le port ne modelise pas le plafond de tours du match.
+    #                       `maxRounds = <victoryConfig @+0xb0>.<+0x18>[MainPlayerRoundLimitation]`
+    #                       (Nullable) ; **si le match n'a PAS de plafond de rounds -> `true`, donc
+    #                       AUCUN refus** ; sinon `n <= maxRounds -
+    #                       TurnComponent.GetAmountOfTurnsEndedByPlayer(matchTurn,
+    #                       GetPlayerTurnOrder()[0])`.
+    #                       **PORTE depuis #287-r11-r1-r1** : le dictionnaire est `BC.Victory.
+    #                       VictoryConditions`, que le port lit (`engine.services.victory_config`),
+    #                       et le premier bras est donc une LECTURE. Le second bras LEVE (le
+    #                       compteur `TurnComponent+0x40` n'a pas de substrat cote port -- residu
+    #                       `#287-r11-r1-r1-r1`), il ne degrade pas en silence.
     #                       Coherent avec la mecanique 2-PHASES de l'ability (le degat arrive au tour
     #                       SUIVANT : sans 2 tours restants, armer la phase 1 ne sert a rien).
     # PORTEE : `TargetingRange statics+0x48` = `RANGE_WHOLE_BOARD`

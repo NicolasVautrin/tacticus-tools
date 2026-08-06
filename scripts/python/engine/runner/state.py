@@ -105,7 +105,11 @@ class State:
                  "elevation_bonus", "trench_reduction_percentage",
                  "ranged_in_melee_reduction_percentage", "knockback_percentage",
                  "armor_percentage", "allow_overkill", "overkill_dmg_pct_of_health",
-                 "damaged_machine_destroy_chance_increase")
+                 "damaged_machine_destroy_chance_increase",
+                 # #287-r11-r1-r1 -- `BC.Victory.VictoryConditions`, le dictionnaire que
+                 # `IdunBattle.Core.Services.BattleQuery$$GetMaxRounds` interroge a la cle
+                 # `VictoryConditionType.MainPlayerRoundLimitation`.
+                 "victory_conditions")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -149,6 +153,16 @@ class State:
         self.allow_overkill: Optional[bool] = None
         self.overkill_dmg_pct_of_health: Optional[int] = None
         self.damaged_machine_destroy_chance_increase: Optional[int] = None
+        # #287-r11-r1-r1 -- `BattleConfiguration.Victory.VictoryConditions`, MEME nature que
+        # `enable_obscuring_terrain` et `BC.Damage` : un champ de la BATTLE CONFIGURATION, qui vit
+        # sur DISQUE et qu'AUCUN RPC ne publie. Le natif range la `victoryConfig` en
+        # `BattleQuery+0xb0` (14e parametre NOMME de `BattleQuery$$Initialize`) et son dictionnaire
+        # `+0x18` est ce que lit `BattleQuery$$GetMaxRounds` a la cle
+        # `VictoryConditionType.MainPlayerRoundLimitation`.
+        # TRI-ETAT STRICT : `None` = canal NON FOURNI -> le defaut DERIVE de `data/seed-bc.json`
+        # s'applique (`engine.services.victory_config`) ; `{}` = la BC a parle et ne pose AUCUNE
+        # condition. Les deux ne se confondent pas -- seule la seconde est une MESURE.
+        self.victory_conditions: Optional[dict] = None
         self.turn_counts: dict[int, int] = {}
         # #101 : le fait "a bouge ce tour" N'EST PLUS un set d'etat ici — il vit ou le natif le met, dans
         # le `UnitFlagsComponent` de l'unite (`UnitFlag.Moved=0`), pose par `set_moved_flag`

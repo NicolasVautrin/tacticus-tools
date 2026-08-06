@@ -26,6 +26,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .state import State
 from ..services.damage_config import DamageConfiguration
+from ..services.victory_config import victory_conditions_from_bc   # #287-r11-r1-r1
 from .components import (
     UnitComponent, OwnerComponent, PositionComponent, HealthComponent,
     EffectsOwnedComponent, StatsComponent, ShieldComponent, ShieldInstance,
@@ -220,7 +221,7 @@ def _machine_ability_state(m: dict) -> tuple:
 
 def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
                board=None, tiles=None, actor_stats=None, ability_states=None,
-               targeting_config=None, damage_config=None) -> State:
+               targeting_config=None, damage_config=None, victory_config=None) -> State:
     """Snapshot live → `State` ECS (entités + composants d'unité).
 
     `damage_config` (#449-r2-r4) : la section `BC.Damage` de la BattleConfiguration, MÊME nature
@@ -233,6 +234,16 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     `engine.services.damage_config`). Un champ ABSENT de la section fournie vaut `0`, comme le
     natif — le ctor `IdunBattle.Configuration.DamageConfiguration$$.ctor` n'initialise que
     `DamageProfiles`, donc rien ne fabrique 20 côté jeu non plus.
+
+    `victory_config` (#287-r11-r1-r1) : la section `BC.Victory` de la BattleConfiguration, MÊME
+    nature que `targeting_config` / `damage_config` (elle vit sur DISQUE, aucun RPC ne la publie).
+    Seul champ lu : `VictoryConditions` → `State.victory_conditions`, le dictionnaire qu'interroge
+    `IdunBattle.Core.Services.BattleQuery$$GetMaxRounds` à la clé
+    `VictoryConditionType.MainPlayerRoundLimitation`. C'est le seul substrat du bit
+    `CasterHas2TurnsLeft` (`IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns`).
+    `None` = canal non fourni → le défaut DÉRIVÉ de `data/seed-bc.json` s'applique (cf.
+    `engine.services.victory_config`) ; une section fournie SANS `VictoryConditions` pose `{}`,
+    c'est-à-dire « la BC a parlé : aucune condition ».
 
     `targeting_config` (#444) : la section `BC.Targeting` de la BattleConfiguration, si l'appelant
     la connaît (elle vit sur DISQUE, pas dans un RPC). Seul champ lu :
@@ -317,6 +328,15 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     state.current_player_id = decision.get("currentPlayer")
     if isinstance(targeting_config, dict) and "EnableObscuringTerrain" in targeting_config:
         state.enable_obscuring_terrain = bool(targeting_config["EnableObscuringTerrain"])
+    # #287-r11-r1-r1 : la section `BC.Victory`. MEME nature que `targeting_config` / `damage_config`
+    # (elle vit sur DISQUE, aucun RPC ne la publie). Seul champ lu : `VictoryConditions`, le
+    # dictionnaire qu'interroge `IdunBattle.Core.Services.BattleQuery$$GetMaxRounds` a la cle
+    # `VictoryConditionType.MainPlayerRoundLimitation` -- le PLAFOND DE ROUNDS, unique substrat du
+    # bit `CasterHas2TurnsLeft`. `None` = canal non fourni -> le defaut DERIVE de
+    # `data/seed-bc.json` s'applique (cf. `engine.services.victory_config`).
+    _vic = victory_conditions_from_bc(victory_config)
+    if _vic is not None:
+        state.victory_conditions = _vic
     _dmgcfg = DamageConfiguration.from_bc(damage_config)
     if _dmgcfg is not None:
         # #449-r2-r4-r4 : toute la section, pas seulement les deux champs de la variance. La liste

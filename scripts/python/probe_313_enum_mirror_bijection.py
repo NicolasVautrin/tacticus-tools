@@ -287,6 +287,15 @@ REGISTRE: list[Mirror] = [
            "IdunBattle.Operations.RefreshEffectType"),
     Mirror("RefreshEffectTrigger", "engine/runner/operations/refresh_effects.py",
            "IdunBattle.Operations.RefreshEffectTrigger"),
+    # #287-r11-r1-r1 : le mirror NEUF de la tranche, inscrit DANS LE COMMIT QUI LE CREE. C'est la
+    # CLE du dictionnaire `BC.Victory.VictoryConditions` qu'interroge
+    # `IdunBattle.Core.Services.BattleQuery$$GetMaxRounds` (litteral `1` du decompile =
+    # `MainPlayerRoundLimitation`), donc le substrat du bit `CasterHas2TurnsLeft`.
+    # ⚠ Le NAMESPACE est `idun.Shared.Battle`, pas `IdunBattle.Entities.Enum` : il est LU dans
+    # `enums.tsv`, jamais deduit du nom court -- ce mirror vit d'ailleurs sous `engine/entities/`
+    # comme les autres FEUILLES d'enum (un paquet a `__init__` lourd les rend inimportables).
+    Mirror("VictoryConditionType", "engine/entities/victory_condition_type.py",
+           "idun.Shared.Battle.VictoryConditionType"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune

@@ -361,6 +361,18 @@ class CasterSubstrate:
                              controle mental.
       * `feet_count`      -- `IdunBattle.Entities.UnitExtensions$$GetFeetCount`.
       * `is_machine`      -- `IdunBattle.Entities.EntityExtensions$$IsMachine`.
+      * `has_minimum_remaining_turns` -- la valeur du slot `0x1b` d'`IBattleQuery`, c'est-a-dire
+                             `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns
+                             (caster, 2)`, le substrat du bit `CasterHas2TurnsLeft` (#287-r11-r1-r1).
+                             ⚠ Le natif N'UTILISE PAS son parametre `unit` : le gate est GLOBAL au
+                             match (plafond de rounds vs tours termines par `GetPlayerTurnOrder()[0]`),
+                             donc ce champ ne depend PAS du caster interroge -- un appelant le
+                             calcule UNE fois par bataille. Le foyer de calcul est
+                             `engine.services.battle_query.has_minimum_remaining_turns` ; il rend
+                             `True` **par lecture** des que `BC.Victory.VictoryConditions` ne porte
+                             pas `MainPlayerRoundLimitation`, ce qui est le cas de la seed
+                             versionnee et donc de tous les runners `rl_duel build`. `None` = pas
+                             mesure (aucun canal DECISION ne publie `BC.Victory`) -> ne refuse pas.
       * `interrogated_pos` -- le `casterTiles` INTERROGE, c'est-a-dire la position que l'appelant
                              passe a la requete, PAS la tuile courante (`pos`). C'est la 2e clause
                              de `CasterHasNotMoved` qui le lit
@@ -382,6 +394,7 @@ class CasterSubstrate:
     interrogated_pos: tuple | None = None
     feet_count: int | None = None
     is_machine: bool | None = None
+    has_minimum_remaining_turns: bool | None = None
     team: int | None = None
     team_by_pos: dict | None = None
     walkable_by_pos: dict | None = None
@@ -589,8 +602,19 @@ def invalid_caster_reason(ability_id, caster: "CasterSubstrate" = None) -> int |
             return int(TR.CasterHas3Tiles)
         if (rules & int(TR.CasterHas7Tiles)) and int(feet) != 7:
             return int(TR.CasterHas7Tiles)
-    # 7. `CasterHas2TurnsLeft` (bit 52) -- `<IBattleQuery slot 0x1b>(caster, 2)` non resolu.
-    #    3 porteurs (1142, 1160, 1188). NON PORTEE, degradation permissive.
+    # 7. `CasterHas2TurnsLeft` (bit 52) -- PORTEE depuis #287-r11-r1-r1. Le slot `0x1b` est 27
+    #    `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` (arite 2, table de
+    #    metadonnee ; confirme par la lambda `...u003Cu003Ec__DisplayClass68_0$$
+    #    u003CHasMinimumRemainingTurnsu003Eb__0`). Il etait declare « non resolu » PARCE QUE
+    #    quatre sites du port ecrivaient `0x1a` (= 26 `ShouldPlayerSkipTurn`, arite **1**) : un
+    #    decalage de UN, pas une limite de lecture.
+    #    3 porteurs, tous MACHINE OF WAR (1142, 1160, 1188). Le champ est en TRI-ETAT : aucun canal
+    #    DECISION ne publie `BC.Victory`, donc `None` par ce chemin -> ne refuse pas, comme le reste
+    #    du module. Un appelant qui connait sa BC le calcule par
+    #    `engine.services.battle_query.has_minimum_remaining_turns`.
+    if rules & int(TR.CasterHas2TurnsLeft):
+        if caster is not None and caster.has_minimum_remaining_turns is False:
+            return int(TR.CasterHas2TurnsLeft)
     # 8. `CasterIsMachine` (bit 53). 1 porteur (1158 `DutyEternal`, une MoW -> INERTE chez lui).
     if rules & int(TR.CasterIsMachine):
         if caster is not None and caster.is_machine is False:
