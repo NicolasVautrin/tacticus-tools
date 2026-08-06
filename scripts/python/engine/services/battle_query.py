@@ -356,6 +356,46 @@ def select_max_range_weapon(weapons: list) -> dict | None:
     return best
 
 
+def get_unit_max_range(visual_id) -> int:
+    """`IdunBattle.Core.Services.BattleQuery$$GetUnitMaxRange(unitId)` (slot **171** d'`IBattleQuery`,
+    LU dans `data/symbols/<build>/metadata/interface_slots.tsv`) -- MIRROR du decompile :
+
+        config = GetUnitConfig(unitId);
+        if (config == null || config.Weapons == null) return 0;
+        max = 0;
+        for (i = 0; i < config.Weapons.Count; i++) {
+            w = config.Weapons[i];
+            r = w.Range.HasValue ? w.Range.Value : 1;   // `Nullable<int>` @ WeaponProfile+0x24
+            max = Math.Max(max, r);
+        }
+        return max;
+
+    ⚠ TROIS lectures qui ne se devinent pas :
+    * l'argument est un **unitId de CONFIG** (une chaine), pas une entite -- le natif passe par
+      `BattleQuery$$GetUnitConfig`, donc le substrat est le CATALOGUE, pas l'ECS. Le port lit donc
+      `GC.unit(visual_id)`, ce qui le rend disponible OFFLINE (l'ancienne note de
+      `SendInTheNextWaveAbility` disait « le service de config d'unites n'est pas expose offline » --
+      c'etait le cas tant qu'on visait le service ; le catalogue, lui, est la) ;
+    * le defaut d'une arme SANS portee est **1**, pas 0 ni « ignoree » -- c'est le litteral
+      `uVar6 = 1` de la branche `!HasValue`. Une unite purement corps-a-corps rend donc `1` ;
+    * mais une unite INCONNUE (ou sans liste d'armes) rend **0**, pas 1 : les deux zeros du haut de
+      corps sont des `return 0` distincts de la boucle. Le port garde la distinction.
+
+    Utilise par `SendInTheNextWaveAbility$$GetSpawnedUnitRange`
+    (`GetUnitMaxRange(GetStringConstant(0x0 unitId))`)."""
+    cfg = GC.unit(visual_id or "")
+    if cfg is None:
+        return 0                                  # `GetUnitConfig(unitId) == null`
+    weapons = cfg.get("weapons")
+    if not weapons:
+        return 0                                  # `config.Weapons == null`
+    best = 0
+    for w in weapons:
+        r = (w or {}).get("Range")
+        best = max(best, 1 if r is None else int(r))   # `HasValue ? Value : 1`
+    return best
+
+
 def find_melee_weapon(visual_id) -> dict | None:
     """`IdunBattle.Core.Services.BattleQuery$$FindMeleeWeapon(unit)` -- la surcharge a UN SEUL
     argument (celle que l'interface `IBattleQuery` expose au slot `0xb2`, identifie par son proxy

@@ -274,6 +274,9 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Optional
 
 from .targeting_rule import TargetingRule as TR
+from ...dsl.base import Const                                       # #287-r11-r1 (hisse, #485)
+from ...entities.selectors import (Caster, CasterTile, Enemies, SelectTile,   # idem
+                                   SortReverse, TargetTile, TilesBehindInLine, Units)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType   # #270-r1-r1-r3
 from ...entities.heal_type import HealType   # #287-r5
@@ -331,6 +334,12 @@ UNIT_TRAIT_STEPPABLE = UnitTrait.Steppable
 # `IdunBattle.Entities.Abilities.AActiveAbility$$SetConfigValuesInTargetingOptions` recopie dans
 # `options.Range.OverrideRange` quand `UseRangeFromConfig` est pose. Cle gameconfig : `constants.range`.
 ABILITY_CONSTANT_RANGE = "range"
+
+# `IdunBattle.Configuration.AbilityConstantType.nrOfTiles` = 0x17 — la LONGUEUR de ligne que
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAffectedTiles`
+# passe en `Direct(...)` au `maxAmount` de `TilesBehindInLine`. Cle gameconfig : `constants.nrOfTiles`.
+ABILITY_CONSTANT_NR_OF_TILES = "nrOfTiles"
+EXCRUCIATING_FREQUENCIES_ID = "ExcruciatingFrequencies"
 
 
 @dataclass(frozen=True)
@@ -1649,6 +1658,90 @@ def _dynamic_rule_leading_the_charge(state: "State", caster_id: int, target_id) 
     return 0 if n > 0 else int(TR.TargetIsInRange)
 
 
+def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetDynamicInvalidTargetReason`
+    (1197, `emperNoiseMarine` « Shiron ») -- MIRROR du decompile (#287-r11-r1) :
+
+        selector = GetAttackTargets();
+        entities = default(AbilityEntities);          // memset 0x128 octets
+        entities.caster      = caster;                // +0x08
+        entities.target      = target;                // +0x10
+        entities.targetTiles = targetTiles;           // +0x38
+        return selector.<vslot 24 = ITargetsSelector.Count>(entities) > 0 ? 0 : 2;
+
+    et les DEUX etages du selecteur, tous deux DEJA PORTES -- seul le call-site manquait :
+
+        GetAttackTargets  = Enemies( of = Caster@0x48,
+                                     Units(GetAffectedTiles(), unique: 1, selectionType: 3),
+                                     selectionType: 3 )
+        GetAffectedTiles  = SortReverse( TilesBehindInLine(origin    = CasterTile@0x50,
+                                                           direction = TargetTile@0x78,
+                                                           settings{+0x10 = 1, +0x11 = 1},
+                                                           Direct(GetNumberConstant(0x17 nrOfTiles))) )
+
+    SEMANTIQUE : Shiron vise une TUILE (masque `0x20000000042` = `TargetMatchesDynamicRule |
+    TargetIsTile | AllowUntargetableTarget`) et son rayon part de lui A TRAVERS cette tuile. La
+    regle exige simplement que le rayon TOUCHE au moins un ennemi -- sinon le cast serait un no-op.
+
+    ⚠ LES TROIS SLOTS DE `DSLSelectors` SONT LUS, PAS DEDUITS.
+    `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` alloue les selecteurs partages ; le
+    couple `+0x48` / `+0x50` est identifie sans ambiguite par
+    `IdunBattleLogic.Entities.DSLTriggers$$get_CasterIsCasterTile` = `AreEqual(+0x48, +0x50)`, donc
+    `+0x48` = **Caster** (l'ENTITE) et `+0x50` = **CasterTile** ; `+0x78` = **TargetTile**, identifie
+    de meme par `DSLTriggers$$get_OwnerIsTargetTile` = `AreEqual(+0x78, +0x30)`. Les prendre pour
+    des offsets de `DSLFactory` (`0x160 Caster`, `0x178 Target`) aurait interverti deux roles.
+
+    ⚠ LE VSLOT 24 EST `Count`, ET C'EST SA SIGNATURE QUI LE DIT. Ghidra rend l'appel comme un
+    dispatch virtuel anonyme sur `klass->vtable[0x18]` ; ce qui l'etablit, c'est que les SIX
+    call-sites de ce meme slot dans le binaire passent tous un `AbilityEntities` par valeur et
+    comparent le retour a `0`/`1` -- dont
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility$$GetDynamicInvalidCasterReason`,
+    dont le corps entier est `Count(GetTargets(), entities) < 1 ? TargetIsInRange : 0`. Et
+    `ITargetsSelector` n'expose qu'UNE methode a 1 parametre rendant un `int` : `Count` (slot 2 de
+    l'interface, cf. `data/symbols/<build>/metadata/interface_slots.tsv`).
+
+    ⚠ LA CIBLE EST UNE TUILE, ET LE ROLE `target` NE LA MATERIALISE PAS -- meme verrou et meme
+    parade locale que `AlphaWarriorAbility.get_dynamic_invalid_target_reason` (#287-r8), pour la
+    meme raison : elargir `entities_from_state` changerait les arbres des **5** abilities
+    TILE-TARGET portees qui lisent aujourd'hui un `Target()` nul, sans que cette tranche les ait
+    confrontees. RESIDU `#287-r12`, inchange.
+
+    ⚠ ET LE CONTEXTE NATIF EST VOLONTAIREMENT PAUVRE : `casterTiles` (+0x48) reste NUL, donc
+    `CasterTileSelector$$Select` retombe sur `GetTiles(entities.Caster)` -- l'empreinte COURANTE du
+    caster, ce que `CasterTile()` rend deja cote port hors balayage IA. Aucun ecart.
+
+    `nrOfTiles` illisible / cible non resolue / board absent -> `0`, la convention permissive du
+    module (on ne fabrique pas un refus sur un substrat non mesure)."""
+    # `entities_from_state` reste DIFFERE : `behaviours` re-importe `targeting` (cycle reel, meme
+    # raison que `charge_tiles_count`). Les noeuds DSL, eux, sont HISSES au niveau module -- le
+    # cliquet `probe_485_imports_differes.py` a MESURE qu'aucun cycle ne les justifie.
+    from .behaviours import entities_from_state                         # noqa: PLC0415
+    import gameconfig as GC                                             # noqa: PLC0415
+    if target_id is None:
+        return 0
+    raw = ((GC.ability(EXCRUCIATING_FREQUENCIES_ID) or {}).get("constants")
+           or {}).get(ABILITY_CONSTANT_NR_OF_TILES)
+    if raw is None:
+        return 0                                    # `GetNumberConstant(0x17)` non mesure
+    ents = entities_from_state(state, int(caster_id), int(target_id))
+    if ents.target is None:
+        board = state.board
+        if board is None or int(target_id) not in getattr(board, "by_id", {}):
+            return 0                                # ni unite ni tuile du board -> non mesure
+        c = board.coord(int(target_id))
+        # MEME forme que le caster-tuile minimal d'`entities_from_state` (`dsl.base._pos` lit
+        # `pos.col`/`pos.row`) : `SelectTile(TargetTile())` n'en lit que `pos`.
+        ents.target = {"id": int(target_id), "team": None, "player": None,
+                       "pos": {"col": int(c[0]), "row": int(c[1])},
+                       "alive": True, "hp": None, "visualId": None, "_traits": set()}
+    ligne = SortReverse(TilesBehindInLine(SelectTile(CasterTile()), SelectTile(TargetTile()),
+                                          max_count=Const(int(raw)),
+                                          check_walkable=True,        # settings +0x10 = 1
+                                          update_reference=True))     # settings +0x11 = 1
+    sel = Enemies(Units(ligne))
+    return 0 if len(sel.evaluate(ents)) > 0 else int(TR.TargetMatchesDynamicRule)
+
+
 DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.AdaptiveStrategy: _dynamic_rule_adaptive_strategy,      # 1005
     ActiveAbilityType.FoulInfusion: _dynamic_rule_foul_infusion,              # 1038
@@ -1657,6 +1750,7 @@ DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
     ActiveAbilityType.LeadingTheCharge: _dynamic_rule_leading_the_charge,     # 1204
     ActiveAbilityType.ExemplarOfTheKauyon: _dynamic_rule_exemplar_of_the_kauyon,  # 1087
+    ActiveAbilityType.ExcruciatingFrequencies: _dynamic_rule_excruciating_frequencies,  # 1197
 }
 
 

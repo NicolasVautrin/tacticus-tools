@@ -932,7 +932,9 @@ def get_adjacent_tiles(pos: tuple, walkable_at=None, elevation_at=None, tile_exi
 
 def get_surrounding_tiles(pos: tuple, radius: int = 1, include_center: bool = False,
                           check_walkable: bool = True,
-                          walkable_at=None, elevation_at=None, tile_exists=None) -> list:
+                          walkable_at=None, elevation_at=None, tile_exists=None,
+                          only_empty_or_steppable: bool = False,
+                          empty_or_steppable_at=None) -> list:
     """`IdunBattle.Core.Services.BattleQuery$$GetSurroundingTiles` (slot 0x65) en domaine POSITION.
     Le corps delegue a `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext` :
 
@@ -957,15 +959,39 @@ def get_surrounding_tiles(pos: tuple, radius: int = 1, include_center: bool = Fa
     FLAGS PORTES = ceux LUS a la chaine de call-sites (`IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select`
     -> slot 0x65 avec `(tile, radius, requireEmptyOrSteppable=0, checkWalkable=(sel+0x29 == 0),
     unitFilter=sel+0x28, includeSelf=1)`, ou `sel+0x28`/`+0x29` sont les 2 derniers arguments de
-    `IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles`). Les deux call-sites portes
+    `IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles`). Les deux call-sites de ce chemin-la
     (`GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector` r=2, `ThriceBlessedConflagrationAbility$$GetTilesInBestLine`
     r=1) passent `(..., 0, 0)` -> `requireEmptyOrSteppable=False` (les tuiles OCCUPEES passent),
     `checkWalkable=True`, `unitFilter=0`. `includeCenter=0` cote DSL est resolu par la branche
     `SurroundingTiles(entity, includeCenter=1, ...) - Tiles(entity)` -> meme ensemble, meme ordre.
 
+    `only_empty_or_steppable` = le 3e argument natif `onlyEmptyOrSteppable`, POSE par deux autres
+    call-sites (#287-r11-r1) qui empruntent l'AUTRE slot d'`IBattleQuery` (**103**, la surcharge
+    dont le `center` est une collection de tuiles ; le slot est LU dans
+    `data/symbols/<build>/metadata/interface_slots.tsv`, pas deduit) :
+
+      | regle dynamique de ciblage                                    | d     | oEoS | oW | oM | incC |
+      | `SendInTheNextWaveAbility$$GetDynamicInvalidTargetReason`     | range | 1    | 1  | 0  | 1    |
+      | `HeroicFusilladeAbility$$GetDynamicInvalidTargetReason`       | 1     | 0    | 1  | 0  | 1    |
+
+    Le filtre s'applique AVANT le test `includeCenter` et AVANT `IsTileValidForList`, exactement
+    comme au decompile. `empty_or_steppable_at` est l'accesseur (pos -> bool) mirror de
+    `IdunBattle.Entities.TileExtensions$$IsEmptyOrSteppable` -- ce module vit en domaine POSITION et
+    n'a AUCUN acces au contenu des tuiles, donc le substrat est INJECTE, comme `walkable_at`. Poser
+    le flag sans l'accesseur LEVE (meme choix que `get_adjacent_tiles`) : un filtre demande mais
+    inapplicable rendrait un ensemble TROP GRAND, donc un port PERMISSIF, en silence.
+
+    `only_movable` (4e argument natif) n'est PAS porte : aucun call-site lu ne le pose (les quatre
+    ci-dessus passent 0). Le natif y filtrerait par
+    `MovementQuery$$GetMovableTilesFor(unite-sur-le-centre, ignoreUnitFlags: 1, {overrideRange = d})`.
+
     `include_center=False` retire ici la SEULE tuile `pos` ; le natif retire `Tiles(entity)`,
     c'est-a-dire TOUTES les tuiles de l'entite. Identique pour une entite mono-tuile (le cas de tous
     les porteurs confrontes) — RESIDU documente pour une cible multi-tuiles."""
+    if only_empty_or_steppable and empty_or_steppable_at is None:
+        raise NotImplementedError(
+            "get_surrounding_tiles: `only_empty_or_steppable` demande sans `empty_or_steppable_at` "
+            "-- le filtre serait INERTE et le resultat TROP GRAND (port permissif silencieux)")
     cx, cy, cz = hexgeo.to_cube(pos[0], pos[1])
     key = (pos[0], pos[1])
     out = []
@@ -977,6 +1003,8 @@ def get_surrounding_tiles(pos: tuple, radius: int = 1, include_center: bool = Fa
             p = hexgeo.from_cube(x, z)
             if tile_exists is not None and not tile_exists(p):
                 continue                    # `GetTileEntityAt == null` -> hors board
+            if only_empty_or_steppable and not empty_or_steppable_at(p):
+                continue                    # `requireEmptyOrSteppable && !IsEmptyOrSteppable(tile)`
             if not include_center and (p[0], p[1]) == key:
                 continue                    # `includeSelf == 0` (ou `- Tiles(entity)` cote DSL)
             if not is_tile_valid_for_list(p, pos, check_walkable, walkable_at, elevation_at,
