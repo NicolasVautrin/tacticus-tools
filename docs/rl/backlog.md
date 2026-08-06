@@ -2827,6 +2827,22 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   scenarios EST la tranche** -- si (I5) reste vert dessus, le residu se ferme par la mesure.
   cf. `docs/rl/case-477r21r2b-cache-activation.md` sec. 6 et Residus.
 
+- **#477-r28 : `probe_477r21r2b` n'est pas ISOLE -- son verdict BASCULE avec l'activite des voisins.**
+  `[opus]` **MESURE, pas redoute** : deux passages sur le MEME commit (`dd569b5a`) rendent ROUGE puis
+  VERT. Sur `MC1_67`, passage 1 = 19 evenements, (I2) 24 ruptures / 90 couples, (I4) **10** passes
+  courtes HORS SOUS-SEQUENCE ; passage 2 = 10 evenements, (I2) 1/9, (I4) **0**. Deux causes, toutes
+  deux lisibles dans le code : `R19.build(...)` ne passe **aucun seed** (la bataille differe a chaque
+  run), et le ring `triggerTrace` est **PARTAGE, plafonne a 200 entrees** -- ce que le probe SAIT (il
+  compte ses `perdus` par fenetre) mais dont son VERDICT ne tient pas compte. Sous flotte chargee, des
+  fires etrangers entrent dans la fenetre et (I4) rougit pour une cause etrangere au port.
+  ⚠ La CONFORMITE tient sur les deux passages ((I1) 0 divergente sur 311 puis 315 passes completes,
+  deux corpus independants) -- ce n'est donc pas un defaut du port. Le danger est le REFLEXE qu'un tel
+  artefact installe : « rejoue-le, il est vert » est exactement comment un VRAI rouge finirait ecarte.
+  Deux crans a poser : un **seed explicite** (le corpus doit etre reproductible), et un verdict qui
+  **gate sur `perdus > 0`** -- une fenetre qui a perdu des entrees n'est pas une mesure, elle doit se
+  declarer NON MESUREE, jamais rendre un (I4) rouge ni un vert.
+  cf. `docs/rl/case-477r21r2b-cache-activation.md`.
+
 - **#477-r26 : les DONNEES que les gardes de `RefreshEffectsOperation` consomment.** `[opus]`
   Le volet A a porte les quatre gardes ; trois entrees qu'elles LISENT manquent au port, et tant
   qu'elles manquent le cablage du declencheur est **exact et INERTE** sous `Automatically` :
