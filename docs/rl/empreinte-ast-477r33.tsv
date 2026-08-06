@@ -1,0 +1,12 @@
+# #477-r33 -- DECLARATION des fichiers dont le CODE bouge legitimement dans cette tranche.
+# Format : chemin<TAB>raison. Tout divergent NON declare est un ROUGE.
+#   python scripts/python/probe_477r30_empreinte_ast.py --base origin/master \
+#          --attendu docs/rl/empreinte-ast-477r33.tsv
+scripts/python/engine/playbook/non_owner.py	LE PORT. Trois classes neuves (KardiocoreGalvanus 1457, BookOfFate 1461, NornCrown 1495) + leurs trois entrees de registre. C'est le livrable, pas un effet de bord.
+scripts/python/probe_433_r4_r3_non_owner_playbooks.py	MONTAGE. `run_ecog_support` spawne `admecRuststalker`, qui porte 1457 AU SEED : depuis que la face non-owner est PORTEE, la feuille rend legitimement EcogSupport(10)+KardiocoreGalvanus(20) la ou le modele n'attend que 10 (4 tuiles, MESUREES). On isole le confond par `unequip_relic`, comme #477-r31 sur le sien.
+scripts/python/probe_477r33_non_owner_registry_gaps.py	NEUF -- l'instrument de mesure de cette tranche (recensement re-derive + 5 montages live). Il n'existe pas dans le temoin, donc son AST diverge par construction.
+scripts/python/tests/engine/test_477r33_non_owner_playbooks_live.py	NEUF -- le cliquet de cette tranche (5 etages offline + 6 etages live x 6 cas). Idem : absent du temoin.
+# `scripts/python/probe_477r30_empreinte_ast.py` N'EST PLUS DECLARE, et c'est un RESULTAT : cette
+# tranche avait repare son `_git` (decodage a l'encodage de la LOCALE), #477-r30-r2 est arrive sur
+# master entre-temps avec le MEME correctif en mieux (il garde en plus le `stdout == None`), et le
+# conflit a ete tranche EN FAVEUR DE MASTER. Il ne reste qu'un ajout de docstring -> AST IDENTIQUE.

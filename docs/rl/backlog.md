@@ -2822,25 +2822,42 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   (27 verts ; garde vue ROUGE sur 3 mutations reelles, dont une qui ne tombe que sur #477-r29).
   cf. `docs/rl/case-477r31-attract-mechanicals-camp.md`.
 
-- **#477-r33 : 13 des 25 `*NonOwnerPlaybook` natifs manquent au registre du port.** `[opus]`
-  **MESURE, pas redoute** : `engine/playbook/non_owner.NON_OWNER_MOVE_PLAYBOOKS` porte **12**
-  entrees, le binaire en a **25**. Manquants (ids `TriggeredAbilityType`) : `1064 FirstAmongTraitors`,
-  `1453 ShieldOfFaith`, `1457 KardiocoreGalvanus`, `1461 BookOfFate`, `1469 MawClawsOfThyrax`,
-  `1478 SabreOfSacrifice`, `1495 NornCrown`, `1500 WayOfTheShortBlade`, `1508 MastersOfManoeuvre`,
-  `1522 RedemptionOfTheRisen`, `1523 NoHidingFromTheWatchers`, `1526 PurgeResponse`, `1531 HaywireMine`.
-  Ce n'est pas un port speculatif : `1457` est **mesure a +20** (#477-r31, `MC1_67`/777 --
-  `X_nat = 30` pour `X_port = 10`, l'ecart tombe exactement en desequipant la relique). Son corps :
-  `IdunBattle.AI.Playbook.Loki.KardiocoreGalvanusNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2$$MoveNext`
-  = gate `IsMechanical(case.Unit)`, puis `GetUtilityValue("KardiocoreGalvanus_AdjacentFriendly")`
-  (BC = 20) si la tuile candidate est adjacente au porteur.
-  ⚠ **QUATRE unites du seed portent une relique sans que personne l'ait demandee** -- `admecMarshall`
-  et `admecRuststalker` (`KardiocoreGalvanus`), `necroSpyder` (`NetherRealmCasket`), `orksRuntherd`
-  (`MastersOfManoeuvre`) : tout montage qui les spawne herite du terme, et il se REVEILLE selon le
-  mover (le gate est `Mechanical`). Un montage vert ne dit donc rien du montage voisin.
-  CE QU'IL FAUT : porter les faces non-owner manquantes, en commencant par `1457` (deja RE'd), et
-  verifier au passage que le poids de chacune est non nul avant de porter.
-  Outil ecrit pour isoler : `catalog_inject.unequip_relic`.
-  cf. `docs/rl/case-477r31-attract-mechanicals-camp.md` sec. 5.
+- ~~**#477-r33**~~ : **LIVRE (2026-08-06) -- le recensement etait faux de TROIS facons, et UN SEUL
+  confond etait arme au seed.** Le compte « 13 des 25 » melangeait 3 faces **ATTACK** (`1453`,
+  `1500`, `1523` -- elles passent par `<EvaluateAttackInSteps>d__1`, pas par la feuille MOUVEMENT),
+  oubliait 2 concrets sans suffixe `NonOwnerPlaybook` (`1496 CabalOfSorcerers`,
+  `1451 WisdomOfTheAncients`) et comptait `1522 RedemptionOfTheRisen`, deja ECRITE et volontairement
+  hors registre. RE-DERIVE par le PARENT : **28** concrets, **24 MOVE / 3 ATTACK / 1 REPAIR**.
+  ⚠ **`orksRuntherd` ne porte PAS `MastersOfManoeuvre`** : sa relique du seed est
+  `1475 SupaCyborkBody`, qui n'a **aucun** playbook non-owner -- **zero** confond. Sur les 4
+  reliques du seed, une seule armait un terme non porte : `1457 KardiocoreGalvanus`
+  (`admecMarshall` + `admecRuststalker`, +20).
+  PORTES + CONFRONTES LIVE : `1457 KardiocoreGalvanus` (20), `1461 BookOfFate` (5),
+  `1495 NornCrown` (10). Registre **12 -> 15**, confonds armes sans montage **3 -> 1**.
+  5 montages sur la geometrie `camp` de #477-r31 (dont deux CONTROLES de gate), 0 desaccord sur
+  11 + 8 + 11 + 13 + 8 tuiles ; `ABSENT` (l'etat d'avant) mord 3 / 3 / 10 tuiles.
+  `probe_477r33_non_owner_registry_gaps.py`, `test_477r33_non_owner_playbooks_live.py`.
+  Residu : **#477-r35**. cf. `docs/rl/case-477r33-non-owner-manquants.md`.
+
+- **#477-r35 : 8 faces MOVE `*NonOwnerPlaybook` restent non portees.** `[opus]`
+  `1064 FirstAmongTraitors` (porteur `blackAbaddon` AU POOL en passif, mais gate `HasTrait(Chaos)`
+  et **0 unite sur 1083** porte ce trait au gameconfig), `1451 WisdomOfTheAncients`,
+  `1469 MawClawsOfThyrax`, `1478 SabreOfSacrifice` (corps DSL `IsAffectedSummon`),
+  `1496 CabalOfSorcerers`, `1508 MastersOfManoeuvre`, `1526 PurgeResponse` (aucun mover
+  `LeaguesOfVotann` au pool), `1531 HaywireMine`. **Aucune n'est armee sans montage** -- le
+  decompte des confonds est a 1, et celui-la est inerte.
+  DEUX VERROUS a lever d'abord, tous deux nommes : (a) le `ctx` des feuilles de tuile ne porte
+  **aucun canal `rarity`**, dont `1451` / `1496` / `1508` dependent (`HasRarity(u, 5)` =
+  `idun.meta.Rarity.Mythic`) ; (b) le `<slot 4>` de `HaywireMineNonOwnerPlaybook` doit etre RELU
+  sur CETTE classe -- son corps branche `IsFriend(case.unit, owner)` vers DEUX cles distinctes
+  (`HaywireMine_FriendlyAvoidMine` = **-50**, `HaywireMine_EnemyAvoidMine` = **-30**), or si le slot
+  valait `false` ici comme sur les 3 classes lues par #433-r4-r3, la branche ENNEMI serait
+  INATTEIGNABLE et sa cle n'existerait pas. C'est le SEUL cas de la famille ou le corps rend le
+  slot observable.
+  Le recensement complet (poids BC resolus au litteral, gate, porteurs, voie d'atteignabilite) est
+  rendu par `python scripts/python/probe_477r33_non_owner_registry_gaps.py --offline-only` -- le
+  RE-DERIVER, ne pas recopier cette ligne.
+  cf. `docs/rl/case-477r33-non-owner-manquants.md` sec. 3 et 8.
 
 - ~~**#477-r30**~~ : **LIVRE (2026-08-06) -- l'appariement slot<->nom passe de la LIGNE a une
   FENETRE de 3 lignes, et y trouve 8 citations FAUSSES de plus.** La taille est MESUREE, pas

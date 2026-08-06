@@ -344,9 +344,24 @@ def run_ecog_support(seed=DEFAULT_SEED, board=DEFAULT_BOARD, verbose=False) -> d
         return {"error": "%s vaut 0 cote moteur" % KEY_ECOG}
 
     # seed BC AUGMENTE (le porteur est hors pool) -- ecrit sous `logs/` du checkout, jamais `data/`.
+    # ⚠ ET DESEQUIPE : la cible de reparation (`admecRuststalker`) porte AU SEED la relique
+    # `TertiaryAbility = 1457` (`TriggeredAbilityType.KardiocoreGalvanus`), dont la face non-owner
+    # verse **+20** sur les tuiles adjacentes a son porteur sous le gate
+    # `UnitExtensions.IsMechanical(case.Unit)` -- et l'E-Cog, qui est le MOVER de cette mesure, est
+    # justement mecanique. Depuis que `1457` est PORTEE (#477-r33), la feuille rend donc
+    # legitimement `EcogSupport(10) + KardiocoreGalvanus(20)` la ou le modele de cette mesure
+    # n'attend que le premier : MESURE, 4 tuiles divergentes (30 pour 10, et 20 pour 0 sur une
+    # tuile adjacente au seul Ruststalker). Ce n'est pas un ecart de port -- c'est un CONFOND de
+    # montage, et on l'isole comme #477-r31 l'a fait sur le sien.
+    bc = catalog_inject._load_seed(None)
+    rep = catalog_inject.unequip_relic(bc, ECOG_REPAIREE)
+    if verbose:
+        print("[etape3] relique retiree : %s TertiaryAbility %s -> None%s"
+              % (rep["unitId"], rep["tertiaryBefore"],
+                 "  [RIEN A FAIRE]" if rep["rien_a_faire"] else ""))
     bc_out = ROOT / "logs" / "runners" / ("probe433r4r3-bc-%s.json" % uuid.uuid4().hex[:8])
     bc_out.parent.mkdir(parents=True, exist_ok=True)
-    catalog_inject.write_augmented_seed_bc(str(bc_out), [CARRIER_ECOG])
+    catalog_inject.write_augmented_seed_bc(str(bc_out), [CARRIER_ECOG], seed_bc=bc)
 
     rid, _, err = _build(seed, board, ECOG_P_UNITS, ECOG_A_UNITS,
                          ["--seed-bc", str(bc_out),
