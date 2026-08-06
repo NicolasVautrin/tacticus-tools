@@ -154,6 +154,10 @@ def main() -> int:
                 capture["attack"] = _orig_r(sid_, "applyAction",
                                             {"runnerId": rid, "action": act}, 120)
             capture["dump"] = _orig_r(sid_, "effectBonusTraceDump", {"runnerId": rid}, 120)
+            # ⚠ ARMEMENT GLOBAL ASSUME (#483) : ce `Off` APPAIRE l'armement global du mode
+            # `--wide` (cf. le bloc `if a.wide` plus bas). Le passer avec `rid` ne
+            # desarmerait rien -- et laisserait le global ouvert pour la session entiere.
+            # Un desarmement doit porter le MEME scope que son armement.
             _orig_r(sid_, "effectBonusTraceOff", {}, 60)
             capture["runnerId"] = rid
             capture["done"] = True

@@ -793,6 +793,10 @@ def channel(seed=P.SEED, board=P.BOARD, dmg_target=None, budget=4000) -> dict:
         if method == "disposeRunner" and not cap.get("done"):
             cap["dump"] = base("effectBonusTraceDump",
                                {"runnerId": (body or {}).get("runnerId")}, 180)
+            # ⚠ ARMEMENT GLOBAL ASSUME (#483) : ce `Off` APPAIRE l'armement global pose
+            # avant le build (cf. `channel`). Un desarmement doit porter le MEME scope que
+            # son armement -- le passer avec `rid` ne desarmerait rien et laisserait le
+            # global ouvert pour la session entiere.
             base("effectBonusTraceOff", {}, 60)
             cap["done"] = True
         return base(method, body, timeout)
@@ -816,6 +820,8 @@ def channel(seed=P.SEED, board=P.BOARD, dmg_target=None, budget=4000) -> dict:
     finally:
         g["_mkrpc"] = orig_mk
         if not cap.get("done"):
+            # ⚠ ARMEMENT GLOBAL ASSUME (#483) : meme appairage que ci-dessus -- filet quand
+            # le `disposeRunner` n'a pas eu lieu (montage casse). Scope GLOBAL des deux cotes.
             base("effectBonusTraceOff", {}, 60)
     if "error" in blob:
         return {"error": "montage KO : %s" % blob["error"]}
