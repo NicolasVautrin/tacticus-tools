@@ -30,7 +30,10 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
   door : {linked:bool, closed:bool}                        (SummonDislikeDoorOpening 30 / HeroLikeDoorOpening 31)
   hero_door_nearest_cost : int                             (HeroLikeDoorOpening 31 branche B)
   phantasm_friendly_adjacent / ghost_friendly_adjacent : bool      (Phantasm 60 / Echoes 58)
-  attract_mechanicals_neighbor : bool                      (DoctrinaImperatives 57)
+  attract_mechanicals_neighbor : bool                      (DoctrinaImperatives_AttractMechanicals)
+                                                           [ACTIF #477-r31 — un AMI adjacent (self
+                                                            exclu) portant `DoctrinaImperatives`,
+                                                            via `apply_tile_attributes`]
   decoy_gate : bool, decoy_friend_count : int              (DecoysAndMisdirection 64) [ACTIF #241 —
                                                             occupant steppable NON ennemi + compte
                                                             des amis porteurs de 1304]
@@ -59,11 +62,16 @@ Statut de portage (cf. docs/rl/playbook-engine.md §13.8/§13.14 et docs/rl/case
   TriggeredAbilities(2) (dispatcher playbook, case-36 — via ctx.unit_triggered_abilities/friend_positions),
   DespoiledGround(29) et MoltenForm(24) (#175 — `ctx.unit_traits` + `meta.tile_effect_type_ids`),
   UnitEffects 10/11/12 (N13 — `meta.neighbor_effect_names`), SteppableUnit(20) et
-  DecoysAndMisdirection_AttractToDecoys(65) (#241 — occupant steppable de la tuile, cf. case-241).
+  DecoysAndMisdirection_AttractToDecoys(65) (#241 — occupant steppable de la tuile, cf. case-241),
+  DoctrinaImperatives_AttractMechanicals (#477-r31 — un AMI adjacent porteur de
+  `ActiveAbilityType.DoctrinaImperatives`, dérivé de `ctx.friend_units[].active`, cf. case-477r31).
 - PORTÉES FIDÈLE mais DORMANTES (gate sur metadata non encore plombée → 0) : les autres `*Utility`.
   ⚠ #175 : leur ctx de TRAIT est désormais peuplé — ce qui reste manquant est la metadata PAR TUILE
-  (`occupant_is_powerup`, `door`, `attract_mechanicals_neighbor`, `movetowards_hexdist`, …), qu'AUCUN
-  RPC ne remonte à ce jour. `is_territory` fait exception : il est plombé, mais vaut `False` partout
+  (`occupant_is_powerup`, `door`, `movetowards_hexdist`, …), qu'AUCUN RPC ne remonte à ce jour.
+  ⚠ #477-r31 : `attract_mechanicals_neighbor` FIGURAIT dans cette liste, et à tort — elle n'a jamais
+  demandé de RPC neuf, seulement `ctx.friend_units[].active` (posé par #477-r29). « Aucun RPC ne le
+  remonte » se re-dérive, ne se recopie pas : ici la phrase a survécu à sa cause pendant une tranche
+  entière. `is_territory` fait exception dans l'autre sens : il est plombé, mais vaut `False` partout
   tant que la BC n'est pas en ruleset Territories (mesuré : 0 tuile territoire sur les seeds arène).
 - NON portées comme simples leaves : RangedAdjacentEnemy(16)=0 dans Default ;
   UnitSpecificBehaviours(3) = dispatcher restant du moteur Playbook (séparé).
@@ -519,15 +527,37 @@ class EchoesFromTheWarp_FriendliesAvoidGhostUtility(BaseUtility):
 
 
 class AttractMechanicalsUtility(BaseUtility):
-    """`AttractMechanicalsUtility` (IdunBattle.AI.Utilities.AttractMechanicalsUtility$$.ctor ; UtilityType.DoctrinaImperatives_AttractMechanicals=58) ;
-    IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext : +10 si l'unité a le trait 5 ET un voisin (autour de la tuile) a l'active ability 1118
-    (0x45e). `ctx.unit_traits` + `meta.attract_mechanicals_neighbor`."""
-    UTILITY_TYPE = int(UtilityType.DoctrinaImperatives_AttractMechanicals)  # 58
+    """`AttractMechanicalsUtility` (IdunBattle.AI.Utilities.AttractMechanicalsUtility$$.ctor ;
+    UtilityType.DoctrinaImperatives_AttractMechanicals) ;
+    `IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`,
+    relu ligne a ligne sur le build courant (#477-r31) :
+
+        x = Fix64(0);
+        if (case.Unit == null)                            yield break;        // aucun yield
+        if (!UnitExtensions.HasTrait(case.Unit, 5))       yield return x;     // Mechanical
+        units = query.<slot 0x7a = GetAdjacentUnits, 4 args>(case.MovementTile, case.Unit, 0, 0);
+        if (Enumerable.Any(units, f => HasActiveAbility(f, 0x45e) && f != case.Unit))
+            x += GetUtilityValue("Marshal_AttractMechanicals");               // BC = 10
+        yield return x;
+
+    `0x45e` = 1118 = `ActiveAbilityType.DoctrinaImperatives`, l'ACTIVE du Skitarii Marshal
+    (`admecMarshall`). Le litteral BC est RESOLU (`probe_212_bc_key_literals.py --symbol ...`) :
+    `Utilities.Default.DoctrinaImperatives_AttractMechanicals.Marshal_AttractMechanicals` = 10.
+
+    ⚠ `Any`, pas `Count` : le terme vaut **+10 AU PLUS UNE FOIS**, quel que soit le nombre de
+    Marshals adjacents -- c'est ce qui le distingue du `+10 x n` de `RadSaturationPlaybook`.
+
+    ⚠ LE CAMP : **les AMIS**, pas les deux camps -- cf. `_attract_mechanicals_neighbor`, qui porte
+    la lecture du filtre (`friendsOf = case.Unit` dans `CountOrGetUnitsOnTiles`). Le nom du slot
+    (`GetAdjacentUnits`) ne dit PAS le camp ; les arguments si.
+
+    Gate + donnee : `ctx.unit_traits` + `meta.attract_mechanicals_neighbor`."""
+    UTILITY_TYPE = int(UtilityType.DoctrinaImperatives_AttractMechanicals)
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        if not _has(ctx, "unit_traits", int(UnitTrait.Mechanical)):    # trait 5
+        if not _has(ctx, "unit_traits", int(UnitTrait.Mechanical)):    # HasTrait(case.Unit, 5)
             return 0.0
-        if not (meta or {}).get("attract_mechanicals_neighbor"):
+        if not (meta or {}).get("attract_mechanicals_neighbor"):       # Enumerable.Any(...)
             return 0.0
         return wt.sub("DoctrinaImperatives_AttractMechanicals", "Marshal_AttractMechanicals")
 
@@ -1646,7 +1676,59 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
         if not occ["is_enemy"]:                                   # feuille AttractToDecoys(64)
             meta["decoy_gate"] = True
             meta["decoy_friend_count"] = _attract_to_decoys_friend_count(lc)
+    if lc.get("friend_units") is not None:                        # feuille DoctrinaImperatives(#477-r31)
+        meta["attract_mechanicals_neighbor"] = _attract_mechanicals_neighbor(pos, lc)
     return meta
+
+
+def _attract_mechanicals_neighbor(pos, lc: dict) -> bool:
+    """`Enumerable.Any(...)` de `IdunBattle.AI.Utilities.AttractMechanicalsUtility.
+    u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`, relu ligne a ligne (#477-r31) :
+
+        units = query.<slot 0x7a = GetAdjacentUnits, 4 args>(case.MovementTile, case.Unit, 0, 0)
+        Enumerable.Any(units, <>c__DisplayClass1_0.<EvaluateMovementInSteps>b__0)
+
+    et le predicat `IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003Cu003Ec__DisplayClass1_0$$
+    u003CEvaluateMovementInStepsu003Eb__0` :
+
+        return UnitExtensions.HasActiveAbility(f, 0x45e) && f != case.Unit;
+
+    ⚠ **LE CAMP EST UN ARGUMENT, PAS UNE PROPRIETE DU SLOT.** Le nom `GetAdjacentUnits` designe
+    l'ensemble AVANT filtrage ; la signature reelle est
+    `GetAdjacentUnits(from, friendsOf, enemiesOf, ignoreSteppables)` (lue dans
+    `frida/methods.tsv`, pas dans les noms de parametres de ghidra), et le call-site passe
+    `friendsOf = case.Unit`, `enemiesOf = null`. Le foyer terminal
+    `IdunBattle.Core.Services.BattleQuery$$CountOrGetUnitsOnTiles` fait alors :
+
+        if (friendsOf != null && !UnitExtensions.IsFriend(u, friendsOf, ctx))  continue;
+        if (enemiesOf != null && !UnitExtensions.IsEnemy(u, enemiesOf, ctx))   continue;
+
+    ⇒ **cette feuille compte les AMIS**, exactement comme le `GetAdjacentFriends` (slot `0x83`,
+    arite 2) de `RadSaturationPlaybook` -- lequel n'est d'ailleurs qu'un
+    `GetUnitsOnTiles(..., friendsOf=<entite JOUEUR de unit>, enemiesOf=null, ...)`. Les deux
+    feuilles interrogent le MEME ensemble ; ce qui les separe est le gate de trait, le predicat
+    (self exclu ici) et l'agregation (`Any` ici, `Count` la-bas).
+
+    SELF. `f != case.Unit` exclut le mover, qui EST dans l'ensemble tant qu'il occupe son origine
+    a ring-1 de la tuile candidate. `friend_units` etant deja self-exclu, l'iteration ci-dessous
+    reproduit l'ensemble FILTRE -- et c'est le mirror de l'exclusion, pas une coincidence : la
+    feuille voisine `RadSaturationPlaybook`, elle, n'ecrit AUCUN `f != case.Unit` et doit donc
+    rajouter `self_pos` a la main (cf. `engine/playbook/rad_saturation.py`).
+
+    ADJACENCE. `GetAdjacentUnits` passe par `IterateAdjacentTiles(from, onlyEmptyOrSteppable=false,
+    onlyWalkableTiles=true, allowTemporary=true)` : liste de voisinage STOCKEE + porte d'elevation
+    `|delta| < 2` -- c'est `battle_query.is_adjacent`, pas `hexgeo.distance == 1`.
+
+    `ignoreSteppables = false` : les occupants steppables COMPTENT (aucun filtre de trait)."""
+    from .. import battle_query as _bq                # lazy : utilities <- battle_query
+    elev = lc.get("elev_by_pos")
+    neigh = _bq.neigh_map(lc)
+    di = int(ActiveAbilityType.DoctrinaImperatives)                # 0x45e = 1118
+    for u in (lc.get("friend_units") or ()):
+        p = u.get("pos")
+        if p and _bq.is_adjacent(pos, p, elev, neigh) and di in (u.get("active") or ()):
+            return True
+    return False
 
 
 def _steppable_occupant(pos, lc: dict) -> "dict | None":
