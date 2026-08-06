@@ -141,3 +141,13 @@ rend celui-la bornable : un changement de build SE VOIT dans un diff, un upgrade
 - **Une empreinte peut vieillir sans que le cliquet change** : elle se perime au sha du SOURCE
   DU CLIQUET, pas a celui de ses helpers. Un helper qui se met a lire ailleurs n'invalide rien
   -- `--mesurer` reste la voie.
+
+## 7. Effet de bord a connaitre : poser un `DECLENCHEUR` dans un cliquet CACHE
+
+`probe_313` est l'un des trois cliquets a cache versionne (#486-r1), et son **contexte** porte le
+sha de son propre source : y ecrire une declaration **invalide le cache entier** et le fichier
+est reecrit. **Churn mesure : 4 insertions / 4 suppressions sur 1 447 entrees** -- le contenu se
+re-remplit a l'identique, seule la ligne de contexte et les entrees des fichiers reellement
+touches bougent. Le fichier regenere est commite avec la tranche, jamais fusionne a la main.
+Les groupes B et C toucheront `probe_477r24r1` et `probe_477r25` de la meme facon (4 965 et
+6 682 entrees) -- **s'attendre au meme geste, pas s'en alarmer**.
