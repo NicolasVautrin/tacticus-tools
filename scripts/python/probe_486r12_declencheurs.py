@@ -133,7 +133,14 @@ def par_script(bq: dict) -> dict:
 
 # ============================================================== empreinte : lecture/ecriture
 class Empreinte:
-    """`{id: {"sha": str, "lu": [(dossier, ext, n, t_min, t_max)], "proc": [..], "nproc": int}}`."""
+    """`{id: {"sha": str, "lu": [(dossier, ext, n, t_min, t_max)], "proc": [..], "nproc": int}}`.
+
+    ⚠ `commit` est INFORMATIF -- aucun verdict n'en depend, contrairement a `probe_457` qui
+    invalide son empreinte par l'AGE. Ici la peremption se joue entierement sur le `sha` du
+    source de chaque cliquet, ce qui la rend insensible a une reecriture d'historique : apres
+    un rebase, le commit note devient orphelin alors que les fichiers, eux, sont identiques.
+    Faire dependre un verdict de ce champ transformerait chaque rebase en `NON MESURE`.
+    """
 
     def __init__(self) -> None:
         self.par_id: dict = {}
