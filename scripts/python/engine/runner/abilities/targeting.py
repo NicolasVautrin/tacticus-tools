@@ -274,6 +274,9 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Optional
 
 from .targeting_rule import TargetingRule as TR
+from ...dsl.base import Const                                       # #287-r11-r1 (hisse, #485)
+from ...entities.selectors import (Caster, CasterTile, Enemies, SelectTile,   # idem
+                                   SortReverse, TargetTile, TilesBehindInLine, Units)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType   # #270-r1-r1-r3
 from ...entities.heal_type import HealType   # #287-r5
@@ -1709,9 +1712,9 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
 
     `nrOfTiles` illisible / cible non resolue / board absent -> `0`, la convention permissive du
     module (on ne fabrique pas un refus sur un substrat non mesure)."""
-    from ...dsl.base import Const                                       # noqa: PLC0415
-    from ...entities.selectors import (Caster, CasterTile, Enemies, SelectTile, SortReverse,
-                                       TargetTile, TilesBehindInLine, Units)   # noqa: PLC0415
+    # `entities_from_state` reste DIFFERE : `behaviours` re-importe `targeting` (cycle reel, meme
+    # raison que `charge_tiles_count`). Les noeuds DSL, eux, sont HISSES au niveau module -- le
+    # cliquet `probe_485_imports_differes.py` a MESURE qu'aucun cycle ne les justifie.
     from .behaviours import entities_from_state                         # noqa: PLC0415
     import gameconfig as GC                                             # noqa: PLC0415
     if target_id is None:

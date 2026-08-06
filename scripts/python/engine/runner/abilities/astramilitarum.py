@@ -38,6 +38,7 @@ from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 from ..components import OwnerComponent, UnitComponent
 from .targeting import unit_of_entity
+from .targeting import tile_is_empty_or_steppable   # `TileExtensions$$IsEmptyOrSteppable` (#287-r11-r1)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -388,7 +389,6 @@ class SendInTheNextWaveAbility(ActiveAbility):
         (`runner/abilities/targeting.py`) ; `board.walkable` porte `IsTileValidForList(checkWalkable
         = 1, checkElevation = 0)`. Cible non resolue / board absent -> `0`, la convention permissive
         du module (on ne fabrique pas un refus sur un substrat non mesure)."""
-        from .targeting import tile_is_empty_or_steppable      # noqa: PLC0415 (cycle targeting<->kits)
         if target_id is None:
             return 0
         board = state.board
