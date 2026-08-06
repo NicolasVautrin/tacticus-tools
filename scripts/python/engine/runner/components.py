@@ -488,8 +488,9 @@ class HealthComponent(Component):
 
     ⚠ **Le REVIVE, lui, ne le remet PAS a zero -- et c'est un QUIRK NATIF, pas un trou de port.**
     `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` n'appelle NI `FillUp` NI `Initialize` (il
-    passe par un slot de l'`OperationProcessor` qui pose des modificateurs de stat -- les deux autres
-    call-sites de ce meme slot sont `IdunBattle.Operations.SetupGameOperation$$ApplyModifiers` et
+    passe par le slot 0x66 = `TransformUnit` de l'`OperationProcessor`, qui pose des modificateurs de
+    stat -- les deux autres call-sites de ce meme slot sont
+    `IdunBattle.Operations.SetupGameOperation$$ApplyModifiers` et
     `IdunBattle.Operations.TransformActorToConfigIdOperation$$UpdateStats`). Une unite REVIVEE entre
     donc dans l'attaque suivante avec l'accumulateur de sa vie precedente, et peut franchir le seuil
     d'`IsOverkill` des son premier coup recu. `revive.py` le mirrore en NE reposant rien.
@@ -582,7 +583,9 @@ class HealthComponent(Component):
         CHAINE qui l'atteint depuis le revive, lue de bout en bout :
         `IdunBattle.Operations.ReviveUnitOperation$$SetHealth` construit le modificateur
         `{StatType.Health = 5, ModifierType = 0, Min(amount, GetStat(unit, Health, MAX)), 0}`,
-        l'emballe dans une liste et le passe au slot `ApplyStatModifiers` de l'`OperationProcessor`
+        l'emballe dans une liste et le passe au slot 0x66 = `TransformUnit` de l'`OperationProcessor`
+        (3 arguments : entity, statModifiers, isHidden)
+        -> `IdunBattle.Operations.TransformUnitOperation$$Execute`
         -> `IdunBattle.Entities.UnitExtensions$$ApplyStatModifiers` ->
         `IdunBattle.Entities.UnitExtensions$$ApplyStatModifier` (XREF **UNIQUE** d'`ApplyModifier`)
         -> `case 0`. Le revive n'appelle donc ni `FillUp` ni `Initialize` -- ce qui reste vrai -- et

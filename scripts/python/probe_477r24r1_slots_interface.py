@@ -72,7 +72,7 @@ import bisect
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -195,10 +195,32 @@ def _regex_couples(traverse: bool):
     )
 
 
+#: LA CITATION PAR NOM SEUL -- « le slot `KillUnit` de l'`IOperationProcessor` ». Elle ne porte
+#: AUCUN numero, donc il n'y a pas de couple a confronter ; mais le NOM, lui, doit etre une
+#: methode de l'interface. C'est ce cran qui a trouve la faute de #477-r32 : `components.py`
+#: ecrivait « le slot `ApplyStatModifiers` de l'`OperationProcessor` », et `ApplyStatModifiers`
+#: n'est a AUCUN des 150 slots -- c'est ce que l'Operation appelle DEUX NIVEAUX plus bas.
+#:
+#: ⚠ LE DISCRIMINANT EST LA TOURNURE « de l'<recepteur> », PAS LE MOT EN CAPITALE. Un motif qui
+#: se contente de `slot <Mot>` recolte la PROSE (`slot SANS ARGUMENT`, `slot SOIT`, `slots
+#: AUTRES que`) : mesure #477-r32, 5 faux positifs pour 7 citations reelles. La tournure les
+#: dissout toutes, sans en perdre une seule.
+_NOM_SEUL = (r"(?<![A-Za-z0-9_])v?slots?\s+[`*]{0,2}(?P<nomseul>[A-Z][A-Za-z0-9]{3,})[`*]{0,2}"
+             r"%s(?:de|of)%s(?:l[''’][ \t]*)?[`*]{0,2}(?:Core\.Services\.)?"
+             r"I?OperationProcessor")
+
+
+def _regex_nom_seul(traverse: bool) -> re.Pattern[str]:
+    esp = _esp(traverse)
+    return re.compile(_NOM_SEUL % (esp, esp))
+
+
 #: Les deux jeux, construits UNE fois. `RE_COUPLES` = le regime mono-ligne (l'etat d'avant
 #: #477-r32, garde comme REFERENCE mesurable) ; `RE_COUPLES_ML` = le regime fenetre.
 RE_COUPLES = _regex_couples(False)
 RE_COUPLES_ML = _regex_couples(True)
+RE_NOM_SEUL = _regex_nom_seul(False)
+RE_NOM_SEUL_ML = _regex_nom_seul(True)
 RE_SLOT = re.compile(r"v?slot")
 
 #: Le probe est EXCLU de son propre balayage : ses regex de documentation contiennent des
@@ -238,6 +260,16 @@ class Citation:
     #: La ligne ou le NOM est ecrit. `ligne_nom != ligne` <=> le couple ENJAMBE un saut de
     #: ligne, donc il n'existe que grace a la fenetre (#477-r32).
     ligne_nom: int = 0
+
+
+@dataclass(frozen=True)
+class CitationNom:
+    """Un slot designe par son NOM SEUL, sans numero (« le slot `KillUnit` de l'... »)."""
+
+    fichier: str
+    ligne: int
+    nom: str
+    texte: str
 
 
 @dataclass(frozen=True)
@@ -415,8 +447,8 @@ def _blocs(lignes: list[str], fenetre: int):
 
 
 def recolter(fenetre: int = FENETRE,
-             traverse: bool | None = None) -> tuple[list[Citation], Ecartees]:
-    """(citations retenues, ce qui est ecarte et compte).
+             traverse: bool | None = None) -> tuple[list[Citation], list[CitationNom], Ecartees]:
+    """(couples (slot, nom), citations par NOM SEUL, ce qui est ecarte et compte).
 
     `fenetre` = nombre de LIGNES sur lesquelles un couple peut s'etaler. `traverse` dit si les
     formes A et C ont le droit de franchir le saut de ligne ; par defaut, oui des que la fenetre
@@ -425,7 +457,10 @@ def recolter(fenetre: int = FENETRE,
     if traverse is None:
         traverse = fenetre > 1
     couples = RE_COUPLES_ML if traverse else RE_COUPLES
+    rx_nom_seul = RE_NOM_SEUL_ML if traverse else RE_NOM_SEUL
     retenues: list[Citation] = []
+    noms_seuls: list[CitationNom] = []
+    vus_noms: set[tuple[str, int, str]] = set()
     autre_iface = sans_couple = exemptees = 0
     for path in fichiers_balayes():
         rel = path.relative_to(REPO).as_posix()
@@ -479,6 +514,21 @@ def recolter(fenetre: int = FENETRE,
                     retenues.append(Citation(
                         fichier=rel, ligne=no, slot=slot, noms=(nom,), args=args,
                         ligne_nom=no_nom, texte=lignes[no - 1].strip()[:150]))
+            #: LES CITATIONS PAR NOM SEUL, sur le MEME bloc. Elles ne portent pas de numero,
+            #: donc la ligne qu'elles couvrent n'est pas forcement une ligne a slot chiffre --
+            #: mais elle cesse de compter comme « slot cite sans nom ».
+            for m in rx_nom_seul.finditer(bloc):
+                no = i0 + bisect.bisect_right(offsets, m.start("nomseul"))
+                if MARQUEUR_REFUTE in lignes[no - 1]:
+                    exemptees_l.add(no)
+                    continue
+                couvertes.add(no)
+                cle = (rel, no, m.group("nomseul"))
+                if cle in vus_noms:
+                    continue
+                vus_noms.add(cle)
+                noms_seuls.append(CitationNom(fichier=rel, ligne=no, nom=m.group("nomseul"),
+                                              texte=lignes[no - 1].strip()[:150]))
         #: CE QUI RESTE ECARTE se compte LIGNE PAR LIGNE -- une ligne, un verdict. Compter par
         #: bloc melangerait les regimes et rendrait les chiffres incomparables d'une fenetre a
         #: l'autre, alors que c'est justement ce qu'on veut mesurer.
@@ -502,8 +552,21 @@ def recolter(fenetre: int = FENETRE,
             continue
         deja_vu.add(cle)
         uniques.append(c)
-    return uniques, Ecartees(autre_interface=autre_iface, sans_couple=sans_couple,
-                             exemptees=exemptees)
+    return uniques, noms_seuls, Ecartees(autre_interface=autre_iface, sans_couple=sans_couple,
+                                         exemptees=exemptees)
+
+
+def confronter_noms(cits: list[CitationNom],
+                    table: dict[int, tuple[str, int]]) -> list[str]:
+    """Les citations par NOM SEUL dont le nom n'est a AUCUN slot de l'interface.
+
+    Il n'y a pas de numero a contredire : le seul verdict possible est l'APPARTENANCE. C'est
+    suffisant -- mesure #477-r32, la seule faute du corpus etait de cette forme.
+    """
+    connus = {v[0] for v in table.values()}
+    return ["%s:%d le slot nomme %s n'existe PAS sur l'interface (%d methodes) | %s"
+            % (c.fichier, c.ligne, c.nom, len(connus), c.texte)
+            for c in cits if c.nom not in connus]
 
 
 def confronter(cits: list[Citation], table: dict[int, tuple[str, int]]) -> tuple[list[str], list[str]]:
@@ -542,19 +605,33 @@ MUTANTS = {
     "nom-permute": "permute deux noms de la table (etages 2 et 3 doivent MORDRE)",
     "table-tronquee": "coupe la table a 40 slots (etage 3 doit MORDRE)",
     "arite-fausse": "ajoute 1 a tous les param_count (etage 4 doit MORDRE)",
-    #: ⚠ CELUI-CI MUTE LES SLOTS QUE SEULE LA FENETRE VOIT. Les quatre autres mordaient deja
-    #: avant #477-r32 : ils ne disent RIEN de l'elargissement. Un mutant qui ne peut pas
+    #: ⚠ CELUI-CI MUTE LES CITATIONS QUI ENJAMBENT, PAS LA TABLE. Les quatre autres mordaient
+    #: deja avant #477-r32 : ils ne disent RIEN de l'elargissement. Un mutant qui ne peut pas
     #: distinguer fenetre=1 de fenetre=N ne garde pas la fenetre (mesure #477-r30 : ses quatre
     #: mutants herites mordaient dans les DEUX regimes, donc aucun ne gardait le cran ajoute).
-    "enjambants-decales": "permute le nom des slots des couples qui ENJAMBENT une ligne -- "
+    #:
+    #: ⚠ ET IL NE PEUT PAS PORTER SUR LA TABLE, contrairement a celui de #477-r30 -- c'est une
+    #: MESURE de ce corpus, pas un choix : les 16 couples enjambants se repartissent sur 8 slots
+    #: (`0x06`, `0x21`, `0x3c`, `0x43`, `0x51`, `0x71`, `0x76`, `0x77`), et les 8 sont AUSSI
+    #: cites sur une seule ligne ailleurs. Toute mutation de la TABLE mordrait donc dans les deux
+    #: regimes, exactement comme les quatre mutants herites. La mutation porte donc sur la
+    #: CITATION -- « un couple a cheval se voit attribuer le nom du slot voisin » --, qui est
+    #: precisement la faute que l'elargissement existe pour trouver, et qui n'a aucun porteur a
+    #: `fenetre = 1` puisqu'il n'y a alors aucun couple a cheval.
+    "enjambants-decales": "attribue au couple qui ENJAMBE une ligne le nom du slot VOISIN -- "
                           "inerte a fenetre=1, doit MORDRE au-dela",
 }
 
 
 def muter(table: dict[int, tuple[str, int]], nom: str,
-          cits: list[Citation]) -> dict[int, tuple[str, int]]:
+          cits: list[Citation]) -> tuple[dict[int, tuple[str, int]], list[Citation]]:
+    """(table mutee, citations mutees). UN SEUL des deux bouge par mutant, jamais les deux.
+
+    La signature rend DEUX objets parce que le mutant de la fenetre ne peut pas porter sur la
+    table (cf. `MUTANTS`). Les quatre mutants herites rendent les citations INCHANGEES.
+    """
     if nom == "slot-decale":
-        return {s + 1: v for s, v in table.items()}
+        return {s + 1: v for s, v in table.items()}, cits
     if nom == "nom-permute":
         #: Les deux slots a permuter sont DERIVES des citations reelles, jamais choisis en dur :
         #: permuter deux slots que personne ne cite rend une contre-epreuve INERTE qui passe
@@ -566,42 +643,57 @@ def muter(table: dict[int, tuple[str, int]], nom: str,
         out = dict(table)
         a, b = attestes[0], attestes[1]
         out[a], out[b] = out[b], out[a]
-        return out
+        return out, cits
     if nom == "table-tronquee":
-        return {s: v for s, v in table.items() if s < 40}
+        return {s: v for s, v in table.items() if s < 40}, cits
     if nom == "arite-fausse":
-        return {s: (n, k + 1) for s, (n, k) in table.items()}
+        return {s: (n, k + 1) for s, (n, k) in table.items()}, cits
     if nom == "enjambants-decales":
-        #: On PERMUTE le nom du slot cite avec celui du slot voisin, pour chaque couple qui
-        #: enjambe une ligne. Si l'appariement en fenetre disparait, ce mutant devient INERTE --
-        #: et c'est exactement ce qu'on veut pouvoir constater.
-        #: ⚠ SEULS LES SLOTS QUE PERSONNE NE CITE SUR UNE SEULE LIGNE sont vises, ET dont le
-        #: voisin permute ne l'est pas non plus. Sans ce filtre le mutant mord AUSSI a
-        #: fenetre=1 : il garderait l'appariement en general, pas l'ELARGISSEMENT.
-        mono = {c.slot for c in cits if c.ligne == c.ligne_nom}
-        vises = [c.slot for c in cits if c.ligne != c.ligne_nom
-                 and c.slot in table and c.slot + 1 in table
-                 and c.slot not in mono and c.slot + 1 not in mono]
-        if not vises:
-            raise SystemExit("contre-epreuve IMPOSSIBLE : aucun couple ENJAMBANT atteste sur un "
-                             "slot que personne ne cite en une ligne -- ce mutant ne peut pas "
-                             "discriminer la fenetre, et on ne le fait pas semblant.")
-        out = dict(table)
-        for s in dict.fromkeys(vises):
-            out[s], out[s + 1] = out[s + 1], out[s]
-        return out
+        #: On reecrit le NOM de chaque couple qui enjambe une ligne, en y mettant celui du slot
+        #: VOISIN. Si l'appariement en fenetre disparait, il n'y a plus aucun couple enjambant,
+        #: la mutation ne porte sur rien, et le mutant devient INERTE -- c'est exactement ce
+        #: qu'on veut pouvoir constater.
+        #: ⚠ LE VOISIN DOIT PORTER UN NOM DIFFERENT. L'interface a des SURCHARGES a des slots
+        #: adjacents (`0x2e`/`0x2f` = `RefreshEffects`, `0x34`/`0x35` = `ComputerAction`) : y
+        #: prendre le voisin immediat rendrait une mutation NULLE qui passerait pour appliquee.
+        def _voisin(slot: int) -> str | None:
+            for d in (1, -1, 2, -2):
+                v = table.get(slot + d)
+                if v is not None and v[0] != table[slot][0]:
+                    return v[0]
+            return None
+
+        mutees: list[Citation] = []
+        touchees = 0
+        for c in cits:
+            autre = _voisin(c.slot) if (c.ligne != c.ligne_nom and c.slot in table) else None
+            if autre is None:
+                mutees.append(c)
+                continue
+            touchees += 1
+            mutees.append(replace(c, noms=(autre,)))
+        if not touchees:
+            raise SystemExit("contre-epreuve IMPOSSIBLE : aucun couple ENJAMBANT a muter -- ce "
+                             "mutant ne peut pas discriminer la fenetre, et on ne fait pas "
+                             "semblant qu'il mord.")
+        return table, mutees
     raise SystemExit("mutant inconnu : %s" % nom)
 
 
 def jouer(table: dict[int, tuple[str, int]], cits: list[Citation],
-          derive: list[il2cpp_metadata.MethodDef] | None) -> tuple[int, int, int]:
-    """(ecarts etage 2, noms faux etage 3, arites fausses etage 4) pour cette table."""
+          derive: list[il2cpp_metadata.MethodDef] | None,
+          noms_seuls: list[CitationNom] | tuple[()] = ()) -> tuple[int, int, int, int]:
+    """(ecarts etage 2, noms faux etage 3, arites fausses etage 4, noms seuls faux etage 5).
+
+    ⚠ L'ETAGE 5 EST DANS LE TUPLE, sinon aucun mutant ne le garderait : un mutant se juge sur
+    ce que `jouer` RESTITUE, et un etage absent du tuple est un etage sans contre-epreuve.
+    """
     if derive is None:
         ecarts = 0
     else:
         ecarts = sum(1 for m in derive if table.get(m.slot) != (m.name, m.param_count))
     faux_nom, faux_arite = confronter(cits, table)
-    return ecarts, len(faux_nom), len(faux_arite)
+    return ecarts, len(faux_nom), len(faux_arite), len(confronter_noms(list(noms_seuls), table))
 
 
 # ------------------------------------------------------------------------------- main
@@ -641,19 +733,19 @@ def main() -> int:
     if args.courbe:
         print()
         print("=== LE CHOIX DE LA FENETRE, RE-DERIVE (fenetre en service : %d) ===" % FENETRE)
-        print("  W  citations  enjambantes  sans_couple  desaccords  arites_fausses")
+        print("  W  citations  enjambantes  nom_seul  sans_couple  desaccords  arites_fausses")
         for w in (1, 2, 3, 4, 5, 6, 8):
-            c, e = recolter(fenetre=w)
+            c, ns, e = recolter(fenetre=w)
             fn, fa = confronter(c, versionne)
-            print("  %2d   %6d     %6d       %6d      %6d        %6d"
-                  % (w, len(c), sum(1 for x in c if x.ligne != x.ligne_nom),
+            print("  %2d   %6d     %6d     %6d     %6d      %6d        %6d"
+                  % (w, len(c), sum(1 for x in c if x.ligne != x.ligne_nom), len(ns),
                      e.sans_couple, len(fn), len(fa)))
         print("  Lire : `citations` et `sans_couple` disent le GAIN, les deux dernieres ce que")
         print("  l'elargissement FAIT SORTIR. La ou les deux premieres colonnes cessent de")
         print("  bouger, elargir n'apporte plus -- et le cout en temps, lui, continue.")
         return 0
 
-    cits, ecartees = recolter(fenetre=args.fenetre)
+    cits, noms_seuls, ecartees = recolter(fenetre=args.fenetre)
     enjambantes = sum(1 for c in cits if c.ligne != c.ligne_nom)
     print("[3] CITATIONS : %d attestation(s) sur %d fichier(s), appariees sur une FENETRE de "
           "%d ligne(s)" % (len(cits), len({c.fichier for c in cits}), args.fenetre))
@@ -662,7 +754,7 @@ def main() -> int:
     #: ⚠ LA ZONE AVEUGLE SE PUBLIE AVEC SON RETRECISSEMENT, pas seulement avec sa taille.
     #: Un cliquet dont on ne sait pas si l'angle mort a bouge est un inventaire (#477-r30).
     if args.fenetre > 1:
-        ref_cits, ref = recolter(fenetre=1)
+        ref_cits, _ref_noms, ref = recolter(fenetre=1)
         print("      REFERENCE fenetre=1 (l'etat d'avant #477-r32) : %d attestation(s), "
               "%d ligne(s) sans couple" % (len(ref_cits), ref.sans_couple))
         print("      RETRECISSEMENT de la zone aveugle : %d -> %d ligne(s) sans couple (-%d)"
@@ -684,19 +776,26 @@ def main() -> int:
           % len(faux_arite))
     for f in faux_arite:
         print("        %s" % f)
+    faux_seuls = confronter_noms(noms_seuls, versionne)
+    print("[5] NOM SEUL  : %d slot(s) designe(s) par leur NOM sans numero, dont %d dont le nom "
+          "n'est a AUCUN slot" % (len(noms_seuls), len(faux_seuls)))
+    for f in faux_seuls:
+        print("        %s" % f)
 
     if args.mutants:
         print()
         print("=== CONTRE-EPREUVE (a_mordu est rendu SEPAREMENT du verdict) ===")
-        base = jouer(versionne, cits, table)
+        base = jouer(versionne, cits, table, noms_seuls)
         for nom, quoi in MUTANTS.items():
-            mut = jouer(muter(versionne, nom, cits), cits, table)
+            mt, mc = muter(versionne, nom, cits)
+            mut = jouer(mt, mc, table, noms_seuls)
             mordu = mut != base
-            print("  %-16s a_mordu=%-5s  cliquet %d -> %d, nom %d -> %d, arite %d -> %d   (%s)"
+            print("  %-18s a_mordu=%-5s  cliquet %d -> %d, nom %d -> %d, arite %d -> %d, "
+                  "nom_seul %d -> %d   (%s)"
                   % (nom, str(mordu).upper(), base[0], mut[0], base[1], mut[1],
-                     base[2], mut[2], quoi))
+                     base[2], mut[2], base[3], mut[3], quoi))
 
-    rouge = bool(ecarts or faux_nom or faux_arite)
+    rouge = bool(ecarts or faux_nom or faux_arite or faux_seuls)
     print()
     print("VERDICT : %s" % ("ROUGE" if rouge else "VERT"))
     if table is None:
