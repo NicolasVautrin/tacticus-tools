@@ -597,7 +597,8 @@ def cmd_build(sid: int, a) -> int:
     # --board fixe : swap au moment de la normalisation (buildNormalizedBC boardJson+spawnPointSetIndex).
     template_bc, pool, pool_mow = _normalize_and_extract_pool(
         sid, seed_bc, a.rank, board_dump=fixed_board_dump,
-        explicit_stats=explicit_patch or None)
+        explicit_stats=explicit_patch or None,
+        equip_items=True if getattr(a, "bis_items", False) else None)
     for uid, ability, lvl in relic_specs:
         try:
             rep = catalog_inject.equip_relic(
@@ -2585,6 +2586,20 @@ def main(argv: list[str]) -> int:
                          "Sans --end, le tour se finit SEUL quand toutes tes units ont agi.")
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--rank", type=int, default=17)
+    ap.add_argument("--bis-items", action="store_true",
+                    help="build: EQUIPE chaque unite de ses items Best-In-Slot "
+                         "avant la formule de stats (#419-r5). C'est ce qui OUVRE "
+                         "le canal crit/block : les 4 stats CritChance/CritDamage/"
+                         "BlockChance/BlockDamage ne vivent QUE dans les items "
+                         "(cf. `itemSlots` du gameconfig), donc sans eux "
+                         "`IdunBattle.Core.Services.DamageCalculations$$CouldCrit` "
+                         "(GetStat(9) > 0 && GetStat(10) > 0) est FAUX pour toute "
+                         "unite -- cote natif COMME cote port, et tout accord "
+                         "natif-port sur le crit ou le block est alors un accord en "
+                         "REGIME DEGENERE. C'est la voie NATIVE (equiper), a "
+                         "preferer a `--crit`/`--block-*`, qui reecrivent le "
+                         "scalaire APRES la normalisation. Mesure au rank 17 : "
+                         "could_crit 0/106 -> 98/106, could_block 0/106 -> 46/106.")
     ap.add_argument("--record-replay", action="store_true",
                     help="build: ARME l'enregistreur de replay NATIF sur le runner "
                          "(#477-r1). Sans lui, `IdunBattle.Runner.IdunRunner$$Initialize` "
