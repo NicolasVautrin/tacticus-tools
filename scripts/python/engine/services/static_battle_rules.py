@@ -117,13 +117,11 @@ def not_blocking_movement_of_traits(effect_type) -> tuple:
     et = int(effect_type)
     if et in _MOVEMENT_BLOCKING_EFFECT_TYPES:
         return _MOVEMENT_EXEMPT_TRAIT_IDS
-    # #270-r4 : `0x3a` = `EffectType.Darkness`, et c'est le MEME ordinal que
-    # `TILE_STATUS_EFFECT_TYPES` porte deux fonctions plus haut. Il reste en litteral pour la
-    # MEME raison, mesuree, que les trois collections de ce module (cf. l'encadre #270-r1-r1 en
-    # tete) : importer `EffectType` ici initialise `engine.entities`, qui tire
-    # `effects/loki/hits.py`, qui re-importe ce module -> `ImportError`. Garde deportee au test
-    # `tests/engine/test_270r4_role_enum_offline.py` (le test, lui, importe les deux couches).
-    if et == 0x3a:                                  # EffectType.Darkness
+    # #484 : ce site portait le litteral `0x3a` parce que ce module NE POUVAIT PAS importer
+    # `EffectType` (cycle mesure). `980173f9` (#270-r4-r2) a ferme ce cycle et pose l'import en
+    # tete de ce fichier -- mais a laisse le litteral derriere, et la garde qui devait s'en
+    # apercevoir (`test_270r4::etage5`) rougissait depuis, sans lecteur.
+    if et == int(EffectType.Darkness):
         return _DARKNESS_EXEMPT_TRAIT_IDS
     return ()
 

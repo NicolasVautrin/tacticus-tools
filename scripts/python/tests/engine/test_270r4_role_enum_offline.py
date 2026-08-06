@@ -538,14 +538,19 @@ def test_etage4c_le_nom_court_du_mirror_neuf_n_a_aucun_homonyme_dans_le_build():
 # ───────────────────── ETAGE 5 : LA GARDE DEPORTEE de `services/static_battle_rules.py`
 
 def test_etage5_le_littéral_sous_cycle_d_import_vaut_toujours_son_membre():
-    """`services/static_battle_rules.py` ne PEUT PAS importer `EffectType` -- cycle MESURE.
+    """LE CYCLE A DISPARU, ET LA CONVERSION EST FAITE -- cet etage a change de sujet (#484).
 
-    Son `et == 0x3a` reste donc en littéral, et la garde est ICI : le test importe les deux
-    couches. Meme dispositif que celui de `TILE_STATUS_EFFECT_TYPES` (#270-r1-r1), etendu a la
-    COMPARAISON que ce module porte deux fonctions plus bas.
+    Redaction d'origine : « `services/static_battle_rules.py` ne PEUT PAS importer `EffectType`
+    -- cycle MESURE ; son `et == 0x3a` reste donc en littéral, et la garde est ICI ». L'etage
+    etait ecrit pour se RETOURNER le jour ou le cycle disparaitrait, et il l'a fait :
+    `980173f9` (#270-r4-r2) a ferme le cycle et pose l'import en tete du module, **sans**
+    convertir le littéral ni retirer l'etage. Il rougissait depuis, sur `master`, en disant
+    exactement quoi faire.
 
-    L'etage se RETOURNE si le cycle disparait : il verifie aussi que le module n'importe toujours
-    pas `EffectType` -- si un jour il le peut, la conversion doit etre FAITE, pas gardee de loin."""
+    L'etage garde desormais le RESULTAT de cette conversion, dans les deux sens :
+      * le module importe bien `EffectType` (le cycle est ferme, la garde deportee n'a plus
+        lieu d'etre) ;
+      * et il ne compare plus a un ORDINAL NU -- c'est le cliquet qui empeche la regression."""
     from engine.services.static_battle_rules import (_DARKNESS_EXEMPT_TRAIT_IDS,
                                                      not_blocking_movement_of_traits)
 
@@ -556,15 +561,30 @@ def test_etage5_le_littéral_sous_cycle_d_import_vaut_toujours_son_membre():
     # DISCRIMINE : un autre EffectType ne rend PAS la branche Darkness.
     assert not_blocking_movement_of_traits(EffectType.Contaminated) == ()
 
-    # Lu par AST, PAS par recherche de texte : le module CITE `from ..entities.effect_type import
-    # EffectType` dans son encadre de commentaire pour expliquer le cycle -- un `in src` y voyait un
-    # import et rougissait sur la prose meme qui documente l'absence d'import.
+    # Lu par AST, PAS par recherche de texte : le module CITE l'import dans sa prose (encadre
+    # explicatif) -- un `in src` ne distingue pas la citation de l'instruction.
     arbre = ast.parse((ENGINE / "services" / "static_battle_rules.py").read_text(encoding="utf-8"))
     importe = [al.name for n in ast.walk(arbre) if isinstance(n, (ast.Import, ast.ImportFrom))
                for al in n.names]
-    assert "EffectType" not in importe, (
-        "`services/static_battle_rules.py` importe desormais `EffectType` : le cycle a disparu, "
-        "il faut CONVERTIR son `et == 0x3a` et supprimer cet etage")
+    assert "EffectType" in importe, (
+        "`services/static_battle_rules.py` n'importe plus `EffectType` : si le cycle est revenu, "
+        "c'est la CAUSE qu'il faut traiter -- pas ce module qu'il faut re-litteraliser")
+
+    # LE CLIQUET, sur LE SITE dont cet etage a toujours parle. La portee est la FONCTION, pas le
+    # module : `get_piercing_ratio` y compare une valeur de degat a `0`, qui ne DESIGNE rien --
+    # « hors regle, c'est un scalaire » est un resultat valable, et un cliquet de module le
+    # rougirait a tort.
+    fn = next(n for n in ast.walk(arbre) if isinstance(n, ast.FunctionDef)
+              and n.name == "not_blocking_movement_of_traits")
+    nus = sorted({n.comparators[0].value
+                  for n in ast.walk(fn) if isinstance(n, ast.Compare)
+                  and len(n.comparators) == 1
+                  and isinstance(n.comparators[0], ast.Constant)
+                  and isinstance(n.comparators[0].value, int)
+                  and not isinstance(n.comparators[0].value, bool)})
+    assert nus == [], (
+        "`not_blocking_movement_of_traits` compare a des ordinaux NUS %r -- le cycle etant "
+        "ferme, ils doivent passer par leur membre d'enum" % (nus,))
 
 
 # ─────────────── ETAGE 6 : NON-DEGENERESCENCE de l'attribution `1013` (la faute EVITEE)

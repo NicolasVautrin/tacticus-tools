@@ -211,12 +211,24 @@ def test_l_intersection_de_charge_est_inchangee_sur_un_board_sans_blocage():
 
 def test_le_pool_nu_lui_a_bien_change():
     """Pendant du test precedent : l'egalite APRES intersection ne doit pas se lire « le correctif
-    ne fait rien ». Le pool NU, lui, perd le depart et les occupants."""
+    ne fait rien ». Le pool NU, lui, perd les OCCUPANTS.
+
+    ⚠ CE QUI DISCRIMINE A CHANGE, et c'est un changement DELIBERE (#287-r5-r1, `d696530f`).
+    Ce test opposait les deux pools par la tuile de DEPART : elle etait dans le `visited`
+    (`ignore_units_on_tiles=True`) et hors du `stop_set`. Depuis, elle est hors des DEUX --
+    `BasePathfinder.u003CIterateReachableTilesu003Ed__12$$MoveNext` ne l'EMET PAS, ce qui a ete
+    confronte live sur `MC1_67` (`probe_287r5r1_charge_tiles_live.py`) : le natif refuse la tuile
+    du caster par `TargetIsInRange` la ou le port l'acceptait.
+
+    Le discriminant devient donc le seul axe que `ignoreUnitsOnTiles` gouverne ENCORE -- les
+    tuiles OCCUPEES -- et l'assertion le NOMME au lieu de se contenter d'une inclusion stricte :
+    un `nu < disque` seul redeviendrait vrai pour n'importe quelle raison."""
     from ._ramming_speed_charge_montage import (CASTER_ID as MC_CASTER, CASTER_POS as MC_POS,
                                                 TARGET_ID as MC_TARGET, build_charge_montage)
     from engine.dsl.base import Const
     from engine.entities.selectors import Caster, CasterTile, MovableTilesInRange
     from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.components import PositionComponent, UnitComponent
 
     m = build_charge_montage((2, 3), move_range=5)
     ents = entities_from_state(m.state, MC_CASTER, MC_TARGET)
@@ -226,7 +238,20 @@ def test_le_pool_nu_lui_a_bien_change():
     disque = {m.board.coord(t) for t in MovableTilesInRange(
         Caster(), CasterTile(), Const(5), ignore_flags=False,
         ignore_units_on_tiles=True).evaluate(ents)}
-    assert MC_POS in disque and MC_POS not in nu
+
+    # 1. Le DEPART sort des deux -- c'est l'etage PATHFINDING qui l'exclut, pas le filtre
+    #    d'occupation (#287-r5-r1).
+    assert MC_POS not in nu and MC_POS not in disque
+
+    # 2. Ce qui les separe est EXACTEMENT de l'occupation, et il y en a (sinon rien n'est prouve).
+    occupees = set()
+    for uid, e in m.state.entities.items():
+        pc, uc = e.get_component(PositionComponent), e.get_component(UnitComponent)
+        if uid != MC_CASTER and pc is not None and uc is not None and uc.alive:
+            occupees.add((pc.col, pc.row))
+    ecart = disque - nu
+    assert ecart, "montage non discriminant : aucune tuile occupee dans le disque"
+    assert ecart <= occupees, sorted(ecart)
     assert nu < disque
 
 
