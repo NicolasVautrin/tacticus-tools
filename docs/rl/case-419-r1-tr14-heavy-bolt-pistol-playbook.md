@@ -264,13 +264,18 @@ Le montant, le profil et le nombre de coups, eux, coïncident entre les deux fac
   `melee_from_real` est donc inerte aux quatre crans. Un port qui ancrerait la prédiction sur la
   position réelle passerait ce montage. Débloqueur : un hôte porteur d'un effet gaté melee/ranged
   (ou d'un `ExtraPierceMelee ≠ ExtraPierceRanged`).
-* **`#419-r1-tr14-r3` — le spread ±20 % n'est pas discriminé.** Le mutant `spread0` est inerte aux
-  quatre crans : `HP = 10000`, aucun kill possible, et le composite ne consomme alors que la moyenne
-  des bornes — identique à spread 0 et à spread 20. Cette tranche ne tranche donc **ni dans un sens
-  ni dans l'autre** le résidu `#419-r1-tr5-r2` (`psyker`/`avalanche_of_muscle` posent `spread_pct=0`
-  sur un slot qui converge vers le même slot 10 ; `light_im_up` et ce module gardent le défaut).
-  Débloqueur : un montage où la cible peut mourir — `kill`/`overkill` sont des paliers sur les bornes,
-  donc le spread y devient observable.
+* ~~**`#419-r1-tr14-r3` — le spread ±20 % n'est pas discriminé.**~~ **RÉSOLU**
+  (`docs/rl/case-419-r1-tr14-r3-spread-paliers-kill.md`). L'inertie de `spread0` aux quatre crans
+  était **ALGÉBRIQUE**, pas expérimentale : à `HP = 10000` seule la feuille `DamageUtility` joue, et
+  elle lit la MOYENNE des bornes. Le même montage, avec pour seul degré de liberté ajouté les PV de
+  la cible **DÉRIVÉS des bornes mesurées**, rend deux régimes discriminants — `fenetre_kill`
+  (PV 299 : `kill` sans `killSure`) et `fenetre_overkill` (PV 149 : `MightBeOverkill` sans
+  `WillBeOverkill`, kill acquis des deux côtés, donc la feuille Overkill est ISOLÉE). Le natif y
+  arbitre : terme **+139.368771** et **+213.675497**, reproduits par le port au spread par défaut à
+  ≤ 9e-9, quand `spread_pct = 0` s'en écarte de **+59.966777** et **+25.000000**. Le résidu parent
+  `#419-r1-tr5-r2` est tranché DANS LE SENS DU SPREAD — et il l'était **déjà** par #449 (PR #498),
+  par un canal indépendant ; la RE y ajoute la raison structurelle : le slot **0x23 est un THUNK sur
+  le 0x24**, donc les deux familles de playbooks ne peuvent pas diverger.
 * ~~**`#419-r1-tr14-r4`**~~ — **LIVRÉ**
   (`docs/rl/case-419-r1-tr14-r4-face-combat-heavy-bolt-pistol.md`). Le trou valait **299 PV par
   attaque**, et le canal n'était pas celui qu'on cherchait : `HeavyBoltPistolAbility` n'a **aucun**

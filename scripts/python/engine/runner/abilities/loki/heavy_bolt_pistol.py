@@ -187,7 +187,24 @@ def bonus_attack_tree(profile: str):
 
     `force_overkill=False` / `force_crit=False` / mode bornes : les octets +4, +5 et +6 du
     `Nullable<AttackDamageBehaviourOptions>` sont a ZERO au call-site (la struct 0x20 est memset,
-    seul l'octet **+0** est pose a 1 -- semantique NON RESOLUE, cf. le residu de la case-doc)."""
+    seul l'octet **+0** est pose a 1).
+
+    L'octet **+0 est `isOutsideAttack`** (#419-r1-tr14-r4-r1, RESOLU) -- le NOM est LU dans les
+    metadonnees IL2CPP, pas deduit : `IdunBattle.Operations.ADamageOperation$$GetCurrentAttackOrDefault`
+    declare `isOutsideAttack:System.Boolean`, et son corps route sur DEUX slots d'`IBattleQuery` :
+    `false` -> slot 200 `GetCurrentAttackOrDefault` (l'`OngoingAttack` EN COURS si un contexte
+    d'attaque existe, sinon une neuve), `true` -> slot 201 `GetDefaultAttack`, dont le corps est
+    `new OngoingAttack()` INCONDITIONNEL. Le chemin : le ctor du behaviour recopie les 0x20 octets a
+    `AttackDamageBehaviour+0x98`, `$$ExecuteTarget` les re-serialise dans
+    `IdunBattle.Operations.AttackDamageOptions` (l'octet +0 y atterrit en **+0x2e**), et
+    `AttackDamageOperation$$Execute` le passe en 1er argument de `GetCurrentAttackOrDefault`.
+
+    CE QUE LE PORT EN FAIT : rien, et c'est le comportement JUSTE ici. Le port ne modelise aucune
+    `OngoingAttack` partagee -- chaque `execute_ability_attack` part d'un etat d'attaque neuf, ce qui
+    EST la semantique `isOutsideAttack = true`. Poser le drapeau serait donc un no-op ; poser
+    l'INVERSE demanderait d'abord de porter l'`OngoingAttack` (compteur `hitGroupIndex`,
+    accumulateurs `deniedDamage`/drapeaux, branche `ExecuteAdditionalHitsWithoutDamageProfileType`),
+    qui n'existe pas cote port. Residu d'ECART DE MODELE nomme `#419-r3`, PAS un residu de ce volet."""
     return op_add(
         InformWeapon(profile, is_melee=True),   # `InformWeapon(profile, isMelee: 1, useSpecial: 0)`
         AttackWithAttackDamage(Target(), PASSIVE, profile,

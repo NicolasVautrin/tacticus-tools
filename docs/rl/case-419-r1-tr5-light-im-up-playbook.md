@@ -213,15 +213,24 @@ discriminante) et le probe imprimait `-> OK`. Le probe compte désormais l'ancra
   qui ne mord que sur une attaque normale de type `Normal(3)` dont le porteur serait sous
   `ForceRangedAttack` **tout en étant adjacent**. Capteur manquant nommé : ajouter
   `"ForceRangedAttack"` à la liste de `scene._unit_flag_from_snapshot`.
-* **`#419-r1-tr5-r2`** — `psyker.py` et `avalanche_of_muscle.py` posent `spread_pct=0` sur le slot
-  0x23, qui converge pourtant vers le **même** slot 10 d'`IDamagePredictionQuery` que le 0x28 mesuré
-  ici (les deux surcharges `BattleQuery$$GetAttackPrediction` à montant, `…d5d0` et `…d9a0`, y
-  mènent ; `GetMultiHitAttackPrediction` passe par la seconde). Les deux lectures ne peuvent pas être
-  vraies ensemble. Celle-ci est mesurée **directement** sur les bornes capturées ; celle de `psyker`
-  l'est **indirectement** sur une utilité finale (accord à 4e-5, #45-s18). **Aucune des deux n'est
-  touchée par cette tranche** — le discriminant reste à trouver. Forme suggérée : capturer
-  `ProbableDamageEvent` sur le call-site psyker (`via` dédié ou hook `damage-prediction`) et lire
-  `healthDmgMin` vs `healthDmgMax`.
+* ~~**`#419-r1-tr5-r2`**~~ — **RÉSOLU, dans le sens du spread ±20 %** : c'est la lecture de CETTE
+  tranche qui était juste, et `spread_pct=0` qui était faux. Fermé en deux temps, par deux canaux
+  indépendants :
+  1. **#449 (PR #498)** a corrigé `psyker.py` et `avalanche_of_muscle.py` par capture DIRECTE des
+     bornes natives (`ProbableDamageEvent$$.ctor`) : montant 402 → natif `[322, 482]` = `{0.8, 1.2}`
+     × 402, là où `spread_pct=0` rendait `[402, 402]`. Les deux modules portent donc **déjà** le
+     spread par défaut — re-mesuré, `spread_pct = 0` n'apparaît dans **aucun** appel exécutable
+     d'`engine/playbook/`.
+  2. **`#419-r1-tr14-r3`** (`docs/rl/case-419-r1-tr14-r3-spread-paliers-kill.md`) le reconfirme par
+     un TROISIÈME canal — les **paliers** `kill`/`overkill` du composite, seuls sensibles au spread —
+     et lui donne sa raison STRUCTURELLE : la surcharge `casterPosition:IEntity` (slot **0x23**)
+     construit un `IdunBattle.Core.UnitPosition$$.ctor` puis **APPELLE** la surcharge
+     `casterPosition:UnitPosition` (slot **0x24**). C'est un **THUNK** : les deux slots sont le même
+     code, écrivent le même `request+0x6a = 1`, et ne peuvent donc pas diverger.
+
+  **Pourquoi l'accord de `psyker` à 4e-5 n'avait rien prouvé** : son montage ne franchissait aucun
+  palier, régime où la moyenne des bornes vaut `base` que le spread soit 0 ou 20. Le canal qui avait
+  « validé » la lecture fausse était **dégénéré**, pas approximatif.
 * **`#419-r1-tr5-r3`** — les branches `Melee(1)` / `Ranged(2)` d'`is_melee_attack` ne sont exercées
   par aucun montage, et c'est structurel : `IsRegularAttack` garantit une attaque **normale**, dont
   l'entrée n'existe pas au gameconfig (`ab_name_by_id[69] = "Loki_NormalAttack"`,

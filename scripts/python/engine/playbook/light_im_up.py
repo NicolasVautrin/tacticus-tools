@@ -141,13 +141,15 @@ Sept lectures qui ne se devinent pas, et dont AUCUNE ne se generalise depuis un 
    << predefini >> (min == max) ou un `RandomAmount(minDmg, maxDmg)` (`[1662, 2218] x p x 3 =
    [1122, 1497]`) sont l'un et l'autre REFUTES par ce couple. Le port laisse donc `spread_pct` a son
    defaut.
-   ⚠ RESIDU NOMME `#419-r1-tr5-r2` : `psyker.py` et `avalanche_of_muscle.py` posent `spread_pct=0`
-   sur le slot 0x23, qui converge pourtant vers le MEME slot 10 d'`IDamagePredictionQuery` (les deux
-   surcharges `BattleQuery$$GetAttackPrediction` a montant, `...d5d0` et `...d9a0`, y menent, et
-   `GetMultiHitAttackPrediction` passe par la seconde). Les deux lectures ne peuvent pas etre vraies
-   ensemble. Celle-ci est mesuree DIRECTEMENT sur les bornes capturees ; celle de `psyker` l'est
-   INDIREC- TEMENT sur une utilite finale (accord a 4e-5). Aucune des deux n'est touchee par cette
-   tranche -- le discriminant reste a trouver, et c'est un cas nomme, pas un arbitrage a l'oeil.
+   ⚠ `#419-r1-tr5-r2` -- FERME, dans CE sens : c'est la lecture ci-dessus qui est juste. `psyker.py`
+   et `avalanche_of_muscle.py` ont ete corriges par #449 (capture DIRECTE des bornes natives : 402 ->
+   `[322, 482]` la ou `spread_pct=0` rendait `[402, 402]`), et #419-r1-tr14-r3 l'a reconfirme par les
+   PALIERS du composite (seuls sensibles au spread) : terme natif +139.368771 en regime `kill`,
+   reproduit a 4e-9 au spread par defaut, contre +59.966777 d'ecart a `spread_pct=0`.
+   RAISON STRUCTURELLE, qui interdit toute divergence future entre les deux familles : la surcharge
+   `casterPosition:IEntity` (slot 0x23) construit un `IdunBattle.Core.UnitPosition$$.ctor` puis
+   APPELLE celle a `casterPosition:UnitPosition` (slot 0x24) -- c'est un THUNK, un seul code, un seul
+   `request+0x6a = 1`. Detail : `docs/rl/case-419-r1-tr14-r3-spread-paliers-kill.md`.
 
 4. **L'`ability` transmise a la prediction est `case.AbilityType`, JAMAIS 1103.** C'est l'attaque
    EVALUEE par le case (l'attaque normale, garantie par la gate `IsRegularAttack`). Consequence
