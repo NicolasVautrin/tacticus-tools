@@ -3952,3 +3952,5 @@ def caster_is_valid_target(state: "State", caster_id: int, ability,
         if not int(ability.get_dynamic_invalid_caster_reason(state, caster_id) or 0):
             return True
     return False
+
+# TEMP mesure #486-r11

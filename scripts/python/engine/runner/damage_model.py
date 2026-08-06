@@ -1016,3 +1016,5 @@ def normal_attack_per_hit_range(state: State, unit_id: int) -> Optional[dict]:
         "effects": [getattr(ef, "name", None) for ef in active],
         "hasMods": bool(mods is not None and (mods.pct_list or getattr(mods, "additive", 0))),
     }
+
+# TEMP mesure #486-r11

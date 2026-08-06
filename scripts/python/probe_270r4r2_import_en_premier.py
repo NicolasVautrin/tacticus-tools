@@ -26,7 +26,8 @@ if str(RACINE) not in sys.path:
     sys.path.insert(0, str(RACINE))
 
 import import_closure as IC                                            # noqa: E402
-from verdict_cache import MANQUE, CacheCliquet, sha_fichiers, verifier  # noqa: E402
+import verdict_cache                                                   # noqa: E402
+
 # Paquets dont la coupe #270-r4-r2 a change les imports, PLUS ceux qui les consomment
 # de pres (le sens d'entree compte : un cycle ne se voit que d'un cote).
 PAQUETS_DEFAUT = ("engine.services", "engine.playbook", "engine.entities", "engine.dsl")
@@ -172,28 +173,35 @@ def _cles(mods) -> dict:
     return cles
 
 
-def _cache(relire: bool = True):
+#: L'en-tete generique de `verdict_cache` annonce « sha256 du CONTENU ». Ici la cle n'est PAS le
+#: sha d'un fichier : c'est celui de la FERMETURE. Un lecteur qui croirait pouvoir la recalculer
+#: depuis `engine/ai/__init__.py` seul se tromperait -- un artefact versionne qui se decrit de
+#: travers fait ecrire des outils qui recalculent la mauvaise chose.
+_NOTES = ("# CE CLIQUET-CI cle par SOUS-GRAPHE (#486-r11) : le sha ci-dessous couvre la",
+          "# FERMETURE transitive des imports du module (son contenu ET sa composition),",
+          "# pas le seul fichier nomme en 1ere colonne. Regenerer, jamais fusionner.")
+
+
+def _cache():
     """Le cache VERSIONNE, un par process.
 
     Le CONTEXTE porte tout ce qui gouverne le calcul hors des fichiers balayes : les trois
     sources qui produisent la cle et le verdict, l'interpreteur, la plateforme. Un contexte
     different fait MANQUER toutes les entrees -- cout plein une fois, ce qui est voulu.
+
+    ⚠ L'expression du contexte est ECRITE EN TOUTES LETTRES ici ET dans le mode espion de
+    `main`, jamais factorisee : `test_486_r1_cache_verdict_offline` compare les deux SOURCES.
+    Un helper partage rendrait ce controle aveugle a une divergence entre les deux caches.
     """
     global _CACHE
     if _CACHE is None:
-        contexte = "%s-py%d%d-%s" % (
-            sha_fichiers(RACINE / "probe_270r4r2_import_en_premier.py",
-                         RACINE / "import_closure.py",
-                         RACINE / "probe_270r4r2_cycles_imports.py")[:16],
-            sys.version_info[0], sys.version_info[1], sys.platform)
-        _CACHE = CacheCliquet(
-            "probe_270r4r2_import_en_premier", contexte, relire=relire,
-            #: L'en-tete generique de `verdict_cache` annonce « sha256 du CONTENU ». Ici la cle
-            #: n'est PAS le sha d'un fichier : c'est celui de la FERMETURE. Un lecteur qui
-            #: croirait pouvoir la recalculer depuis `engine/ai/__init__.py` seul se tromperait.
-            notes=("# CE CLIQUET-CI cle par SOUS-GRAPHE (#486-r11) : le sha ci-dessous couvre la",
-                   "# FERMETURE transitive des imports du module (son contenu ET sa composition),",
-                   "# pas le seul fichier nomme en 1ere colonne. Regenerer, jamais fusionner."))
+        _CACHE = verdict_cache.CacheCliquet(
+            nom="probe_270r4r2_import_en_premier",
+            contexte="%s-py%d%d-%s" % (verdict_cache.sha_fichiers(
+                Path(__file__).resolve(), RACINE / "import_closure.py",
+                RACINE / "probe_270r4r2_cycles_imports.py")[:16],
+                sys.version_info[0], sys.version_info[1], sys.platform),
+            notes=_NOTES)
     return _CACHE
 
 
@@ -237,7 +245,7 @@ def essayer_tous(mods, jobs: int = 8) -> list:
                 manquants.append(m)
             continue
         brut = cache.obtenir(m, APPEL, cle)
-        if brut is not MANQUE:
+        if brut is not verdict_cache.MANQUE:
             vu = (m, int(brut[0]), str(brut[1]))
             _ESSAIS[(cle, m)] = vu
             _VUS.add(m)
@@ -296,9 +304,16 @@ def main() -> int:
                          "de facon coherente")
     args = ap.parse_args()
 
+    global _CACHE
     if args.verifier_cache:
         #: MODE ESPION : le fichier est charge, jamais servi -- ce run recalcule donc TOUT.
-        _cache(relire=False)
+        _CACHE = verdict_cache.CacheCliquet(
+            nom="probe_270r4r2_import_en_premier",
+            contexte="%s-py%d%d-%s" % (verdict_cache.sha_fichiers(
+                Path(__file__).resolve(), RACINE / "import_closure.py",
+                RACINE / "probe_270r4r2_cycles_imports.py")[:16],
+                sys.version_info[0], sys.version_info[1], sys.platform),
+            notes=_NOTES, relire=False)
 
     if args.modules:
         mods = [m.strip() for m in args.modules.split(",") if m.strip()]
@@ -334,7 +349,7 @@ def main() -> int:
               % (_LANCES[0], len(_OPAQUES)))
 
     if args.verifier_cache:
-        divergences = verifier(_cache())
+        divergences = verdict_cache.verifier(_cache())
         print("")
         print("=== VERIFICATION DU CACHE VERSIONNE (#486-r1, cle #486-r11) ===")
         print("  entrees sur disque : %d   recalculees : %d"

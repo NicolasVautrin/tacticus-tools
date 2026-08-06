@@ -124,3 +124,5 @@ class GroupType(IntEnum):
     CultDemagogue_SummonNeophyte = 101
     RevealFogOfWar = 102
     TerritoryCapture = 103
+
+# TEMP mesure #486-r11

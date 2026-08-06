@@ -47,6 +47,11 @@ CACHES = {
     "probe_477r24r1_slots_interface": "probe_477r24r1_slots_interface",
     "probe_477r25_slots_autres_interfaces": "probe_477r25_slots_autres_interfaces",
     "probe_313_enum_mirror_bijection": "probe_313_enum_mirror_bijection",
+    #: #486-r11 -- le SEUL dont la cle de ligne n'est PAS le sha d'un fichier : c'est celui de la
+    #: FERMETURE transitive des imports du module. La localite est la meme, elle porte juste sur
+    #: un SOUS-GRAPHE au lieu d'un fichier ; tout le reste du contrat (peremption, contexte,
+    #: menage, panne, re-verification) est identique, et c'est pourquoi il entre ICI.
+    "probe_270r4r2_import_en_premier": "probe_270r4r2_import_en_premier",
 }
 
 #: Les cliquets dont le verdict est GLOBAL ou dont la localite N'EST PAS ETABLIE. Ils ne doivent
@@ -58,7 +63,9 @@ NON_CACHABLES = {
         "l'une peut vivre dans un fichier NON touche",
     "probe_485_imports_differes":
         "le critere CYCLE charge la cible dans un process FRAIS : le verdict depend du "
-        "SOUS-GRAPHE d'imports atteignable, pas d'un fichier",
+        "SOUS-GRAPHE d'imports atteignable, pas d'un fichier. ATTENTION : #486-r11 a RENDU ce "
+        "critere cachable en prenant pour cle la FERMETURE (`import_closure`) -- ce probe-ci "
+        "n'y est pas cable et reste NON cache, ce qui est un RESIDU, pas une impossibilite",
     "probe_273_gitignored_inputs":
         "les etapes 0 et 0c resolvent leurs chemins par un POINT FIXE sur un `modenv` PARTAGE -- "
         "mesure #486-r1 : 58 fichiers sur 2090 empruntent une racine a un AUTRE module",

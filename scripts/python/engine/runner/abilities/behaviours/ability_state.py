@@ -39,3 +39,5 @@ class ResetActiveAbility(AbilityBehaviour):
             r = ResetActiveAbilityOperation.execute(state, int(uid), self.ignore_turn_flag)
             ectx.emit("ResetActiveAbility", unit=int(uid), reset=r["reset"], gate=r["gate"])
         return OperationResult.ok()
+
+# TEMP mesure #486-r11
