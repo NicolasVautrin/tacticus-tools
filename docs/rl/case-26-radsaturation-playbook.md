@@ -60,11 +60,15 @@ allies ») etait une deduction de PLAUSIBILITE sur un lambda gshared illisible. 
 faits faux d'un coup, et le seul qui ait ete corrige avant #477-r29 l'a ete au titre de la
 CITATION (#477-r25), pas de la specification.
 
-⚠ **La confusion avait un modele reel dans le meme build** : `IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`
+⚠ **La confusion avait un modele reel dans le meme build — mais PAS sur l'axe qu'on croyait.**
+`IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`
 (feuille `DoctrinaImperatives_AttractMechanicals`) lit le MEME predicat `0x45e` et interroge, LUI,
-le slot `0x7a` = `GetAdjacentUnits` a QUATRE arguments — donc les DEUX CAMPS, avec un `!= case.Unit`
-explicite. La specification ecrite ici decrivait en fait CETTE feuille-la. Elle est **inerte cote
-port** : residu **#477-r31**.
+le slot `0x7a` = `GetAdjacentUnits` a QUATRE arguments, avec un `f != case.Unit` explicite. Ce que
+`#477-r29` en avait conclu — « donc les DEUX CAMPS » — est **FAUX** : cette feuille compte elle
+aussi **les AMIS** (`friendsOf = case.Unit`, cf. `case-477r31`). Elle ne differe de celle-ci que par
+son gate (`Mechanical`), son exclusion du self et son agregation (`Any`, donc `+10` UNE fois).
+**Aucune feuille de ce build ne realise la specification « les deux camps » qui etait ecrite ici.**
+Cette feuille est PORTEE et CONFRONTEE depuis **#477-r31**.
 
 ## Porteurs et confrontation
 
@@ -95,4 +99,4 @@ port** : residu **#477-r31**.
 cousins : `IdunBattle.AI.Utilities.OptimizedGait_AdjacentFriendsUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext`
 (meme slot `0x83`, poids BC **0** — cf. `case-477r29` sec. 5) et
 `IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`
-(slot `0x7a`, les deux camps).
+(slot `0x7a`, `friendsOf = case.Unit` — **les AMIS aussi**, cf. `case-477r31`).

@@ -21,16 +21,23 @@ LE CONTRASTE QUI REND LA QUESTION NON RHETORIQUE. Le MEME predicat `HasActiveAbi
 utilise par une AUTRE feuille du meme composite -- `IdunBattle.AI.Utilities.
 AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` (UtilityType
 `DoctrinaImperatives_AttractMechanicals`) -- et celle-la interroge le slot **`0x7a` =
-`GetAdjacentUnits`, 4 arguments**, donc LES DEUX CAMPS (plus une exclusion explicite de
-`case.Unit`, que `RadSaturation` n'a pas). Les deux slots portent des noms differents et des
-arites differentes (`data/symbols/<build>/metadata/interface_slots.tsv`) : confondre les deux
-etait exactement la faute de specification de `case-26`.
+`GetAdjacentUnits`, 4 arguments** (plus une exclusion explicite de `case.Unit`, que `RadSaturation`
+n'a pas). Les deux slots portent des noms differents et des arites differentes
+(`data/symbols/<build>/metadata/interface_slots.tsv`).
 
-⚠ CETTE FEUILLE-LA EST LE CONFOND DE CETTE MESURE, et elle est gatee `HasTrait(case.Unit, 5)` =
-Mechanical. Le greffon est donc REFUSE s'il est Mechanical (etape 0) : sinon `X_nat` porterait
-DEUX termes de +10 sur les memes tuiles et la mesure ne trancherait rien. Le VRAI porteur
-(`admecSmnVanguard`) est Mechanical -- c'est le residu **#477-r31**, la feuille 57 etant INERTE
-cote port (`meta.attract_mechanicals_neighbor` n'est produit par aucun des trois `*_tile_leaf_ctx`).
+⚠ CE PROBE A UN TEMPS ECRIT ICI « donc LES DEUX CAMPS ». C'EST FAUX, et #477-r31 l'a mesure :
+la signature reelle est `GetAdjacentUnits(from, friendsOf, enemiesOf, ignoreSteppables)`, le
+call-site passe `friendsOf = case.Unit`, et cette feuille compte donc **les AMIS elle aussi**. Le
+nom du slot designe l'ensemble AVANT filtrage -- deduire le camp du NOM etait exactement la faute
+de specification de `case-26`, repetee un cran plus loin. Ce qui separe reellement les deux
+feuilles : le gate (`Mechanical`), le self (exclu la, inclus ici) et l'agregation (`Any` la,
+`Count` ici). Detail : `docs/rl/case-477r31-attract-mechanicals-camp.md`.
+
+⚠ CETTE FEUILLE-LA RESTE LE CONFOND DE CETTE MESURE -- pas par son camp, mais parce qu'elle vaut
+AUSSI +10 sur les memes tuiles. Elle est gatee `HasTrait(case.Unit, 5)` = Mechanical, et le greffon
+est donc REFUSE s'il est Mechanical (etape 0). Le VRAI porteur (`admecSmnVanguard`) l'est : il
+cumule les deux termes. La feuille est PORTEE depuis #477-r31, si bien que ce refus est desormais
+ce qui garde le GATE -- retirer le gate `Mechanical` rend CE probe rouge (-10 par tuile, mesure).
 
 MONTAGE -- ON PILOTE LES POSITIONS (`--place` / `--a-place`, #477-r5), on ne subit pas la
 geometrie : le carrier est pose sur une tuile choisie, un `admecMarshall` ALLIE et un

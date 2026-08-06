@@ -953,6 +953,36 @@ def equip_relic(bc: dict, unit_id: str, ability_name: str, level: int = 1,
     }
 
 
+def unequip_relic(bc: dict, unit_id: str) -> dict:
+    """DESEQUIPE la relique de `unit_id` DANS `bc` (mute en place). Rend un rapport.
+
+    Pendant exact d'`equip_relic`, et pour la raison SYMETRIQUE : **QUATRE unites du seed portent
+    une `TertiaryAbility` sans que personne l'ait demandee** (`admecMarshall` et `admecRuststalker`
+    partagent `KardiocoreGalvanus`, `necroSpyder` a `NetherRealmCasket`, `orksRuntherd`
+    `MastersOfManoeuvre`). Un montage qui spawne l'une d'elles herite donc de sa relique -- et une
+    relique porte souvent un `*NonOwnerPlaybook`, c.-a-d. un terme de tuile sur les VOISINS de son
+    porteur, pas sur lui. Mesure #477-r31 : `admecMarshall` pose ainsi `+20` sur ses tuiles
+    adjacentes (`KardiocoreGalvanus_AdjacentFriendly`) des que le mover est Mechanical -- soit
+    exactement le meme profil que le terme mesure, sur exactement les memes tuiles.
+
+    L'ecriture est SYMETRIQUE des deux du montage (`TertiaryAbility` + `TertiaryAbilityLevel`) : le
+    niveau retombe a `0` = « verrouille » (`Idun.Shared.Level$$CreateValidOrLockedLevel`), ce que
+    porte toute entree sans relique. La config d'ability laissee dans `BC.Abilities.PassiveAbilities`
+    est INOFFENSIVE (elle n'est lue que si une unite la reference) et n'est donc pas retiree.
+
+    `rien_a_faire=True` quand l'unite n'en portait pas : desequiper est IDEMPOTENT, mais un
+    montage qui croit avoir retire une relique inexistante doit pouvoir le lire."""
+    hits = [u for u in (bc.get("Units") or []) if u.get("Id") == unit_id]
+    if not hits:
+        raise KeyError(f"{unit_id!r} absent de BC.Units")
+    before = [u.get("TertiaryAbility") for u in hits]
+    for u in hits:
+        u["TertiaryAbility"] = None
+        u["TertiaryAbilityLevel"] = 0
+    return {"unitId": unit_id, "unitsPatched": len(hits), "tertiaryBefore": before,
+            "rien_a_faire": not any(before)}
+
+
 def parse_relic_spec(spec: str) -> tuple[str, str, int]:
     """`'unitId:AbilityName[:level]'` -> `(unitId, ability, level)`. Niveau par defaut 1."""
     parts = [p.strip() for p in spec.split(":")]

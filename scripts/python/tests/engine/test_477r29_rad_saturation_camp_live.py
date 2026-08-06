@@ -16,11 +16,15 @@ build courant, et le decompile les remplace un par un :
 ⚠ LE CONFOND, et c'est lui qui rend la question NON RHETORIQUE : le MEME predicat `0x45e` est lu
 par `IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$
 MoveNext` (feuille `DoctrinaImperatives_AttractMechanicals`), qui, LUI, interroge le slot `0x7a` =
-`GetAdjacentUnits` a QUATRE arguments -- les DEUX CAMPS. Deux slots, deux noms, deux arites : la
-specification de `case-26` decrivait en fait la SECONDE. Cette feuille-la est gatee
-`HasTrait(case.Unit, Mechanical)` et reste INERTE cote port (residu **#477-r31**) : le greffon de
-ce montage est donc choisi NON Mechanical, sans quoi `X_nat` porterait deux `+10` sur les memes
-tuiles et la mesure ne trancherait rien.
+`GetAdjacentUnits` a QUATRE arguments. Deux slots, deux noms, deux arites.
+⚠ Ce fichier a ecrit ici « -- les DEUX CAMPS ». **FAUX**, mesure par #477-r31 : le call-site passe
+`friendsOf = case.Unit`, donc cette feuille compte les AMIS elle aussi ; le nom du slot ne dit pas
+le camp, ses ARGUMENTS si. Ce qui separe reellement les deux feuilles est le gate (`Mechanical`),
+le self (exclu la, INCLUS ici) et l'agregation (`Any` la, `Count` ici).
+Cette feuille est PORTEE et CONFRONTEE depuis #477-r31 -- et le greffon de CE montage reste choisi
+NON Mechanical, sans quoi `X_nat` porterait deux `+10` sur les memes tuiles et la mesure ne
+trancherait rien. Ce choix est donc devenu le CONTROLE du gate `Mechanical` de la feuille voisine :
+mesure du 2026-08-06, retirer ce gate rend `test_le_natif_suit_le_modele_ALLIES` rouge (-10/tuile).
 
 MONTAGE -- ON PILOTE LES POSITIONS (`--place`/`--a-place`) : une CIBLE NEUTRE au milieu, un Marshal
 ALLIE et un Marshal ENNEMI a distance 2 d'elle, de part et d'autre, sur une zone STRICTEMENT PLATE.
@@ -114,8 +118,9 @@ def test_le_slot_du_playbook_est_un_getadjacentfriends():
         "(tile, case.Unit) -- si ce n'est plus un GetAdjacentFriends, c'est la RE qu'il faut "
         "refaire, pas le port" % (tbl.get(("IBattleQuery", 0x83)),))
     assert tbl.get(("IBattleQuery", 0x7a)) == ("GetAdjacentUnits", 4), (
-        "slot 0x7a = %r : c'est celui de AttractMechanicalsUtility (les DEUX camps). Le contraste "
-        "avec 0x83 est ce qui rend la question du camp decidable" % (tbl.get(("IBattleQuery", 0x7a)),))
+        "slot 0x7a = %r : c'est celui de AttractMechanicalsUtility. Le contraste d'ARITE avec 0x83 "
+        "est reel ; ce qu'il ne dit PAS, c'est le camp -- celui-la est un ARGUMENT du call-site "
+        "(#477-r31)" % (tbl.get(("IBattleQuery", 0x7a)),))
 
 
 def test_le_poids_bc_est_positif_et_sous_sa_vraie_cle():

@@ -107,30 +107,52 @@ géométrie exigée (`C1_25` et `C1_02` n'en ont **aucune** : contrainte de terr
 
 ## 4. Le CONFOND, qui rend la question non rhétorique — et le résidu qu'il ouvre
 
+> ⚠ **CE PARAGRAPHE A ÉTÉ FAUX SUR LE CAMP, ET DE LA MÊME FAÇON QUE `case-26` L'AVAIT ÉTÉ.**
+> Il concluait « slot nommé `GetAdjacentUnits` ⇒ les DEUX CAMPS ». **`#477-r31` l'a réfuté** : la
+> signature réelle est `GetAdjacentUnits(from, friendsOf, enemiesOf, ignoreSteppables)`, le
+> call-site passe `friendsOf = case.Unit`, et `BattleQuery$$CountOrGetUnitsOnTiles` ne garde alors
+> que les **AMIS**. Le nom du slot désigne l'ensemble AVANT filtrage : **le camp est un ARGUMENT**.
+> Ce qui suit est l'état FINAL. Détail et mesure : `docs/rl/case-477r31-attract-mechanicals-camp.md`.
+
 Le **même** prédicat `HasActiveAbility(0x45e)` est lu par une **autre** feuille du même composite,
 `IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`
 (`UtilityType.DoctrinaImperatives_AttractMechanicals`) — et celle-là interroge le slot **`0x7a` =
-`GetAdjacentUnits`, QUATRE arguments**, donc **LES DEUX CAMPS** :
+`GetAdjacentUnits`, QUATRE arguments** :
 
 ```
 if (!HasTrait(case.Unit, 5 /* Mechanical */))            yield Fix64(0);
 units = query.<slot 0x7a = GetAdjacentUnits>(case.MovementTile, case.Unit, false, false);
+//                                            from         friendsOf  enemiesOf  ignoreSteppables
 if (Enumerable.Any(units, u => HasActiveAbility(u, 0x45e) && u != case.Unit))
     x += GetUtilityValue("Marshal_AttractMechanicals");   // 10, et UNE seule fois (`Any`)
 ```
 
-Deux slots, deux noms, deux arités, deux camps : **la spécification de `case-26` décrivait en fait
-CETTE feuille-là**. C'est le contre-exemple qui interdit de raisonner « la mécanique parle
-d'adjacence, donc c'est les deux camps ».
+Les deux feuilles interrogent donc le **MÊME ensemble** — les amis adjacents à la tuile candidate ;
+`GetAdjacentFriends(from, unit)` n'est lui-même qu'un `GetUnitsOnTiles(…, friendsOf=<entité JOUEUR
+de unit>, enemiesOf=null, …)`. Ce qui les sépare est ailleurs, et vaut d'être lu :
 
-Conséquences opérationnelles :
+| axe | `RadSaturationPlaybook` (1202) | `AttractMechanicalsUtility` |
+|---|---|---|
+| gate | aucun | `HasTrait(case.Unit, Mechanical)` |
+| self | **INCLUS** (aucun `RemoveAll`) | **EXCLU** (`f != case.Unit`) |
+| agrégation | `Count` → `+10 × n` | `Any` → `+10` au plus une fois |
+| camp | les AMIS | **les AMIS aussi** |
+
+**Ce qui reste vrai de ce paragraphe** : la spécification de `case-26` ne décrit **aucune** des deux
+feuilles telle quelle — elle a mélangé le prédicat de l'une, un slot mal attribué et un poids d'une
+troisième mécanique. Et le CONFOND opérationnel, lui, est réel :
+
 * le greffon de l'A/B est choisi **NON Mechanical** (l'étape 0 du probe le REFUSE sinon) — sans quoi
   `X_nat` porterait DEUX `+10` sur les mêmes tuiles et la mesure ne trancherait rien ;
-* cette feuille est **INERTE côté port** : `meta.attract_mechanicals_neighbor` n'est produit par
-  aucun des trois `*_tile_leaf_ctx`. Le VRAI porteur (`admecSmnVanguard`) étant **Mechanical**, il
-  lui manque donc encore ce terme-là. Résidu **#477-r31** — et il est désormais à portée : le
-  substrat qu'il réclame (`{friend,enemy}_units[].active`) est exactement celui que cette tranche
-  ajoute. Aucun RPC neuf n'est nécessaire, contrairement à ce qu'annonce l'en-tête de `tile.py`.
+* cette feuille était **INERTE côté port** (`meta.attract_mechanicals_neighbor` produit par aucun
+  des trois `*_tile_leaf_ctx`). Elle est **PORTÉE et CONFRONTÉE depuis #477-r31**, sur le substrat
+  `{friend,enemy}_units[].active` que cette tranche-ci ajoute — aucun RPC neuf, contrairement à ce
+  qu'annonçait l'en-tête de `tile.py`.
+
+⚠ Et le montage de CE cas cachait un second confond, que seul un carrier **Mechanical** réveille :
+`admecMarshall` porte au seed la relique `KardiocoreGalvanus`, dont la face NON-OWNER pose `+20` sur
+ses tuiles adjacentes sous le gate `IsMechanical(case.Unit)`. Il n'a rien changé ici (`orksNob`
+n'est pas Mechanical) — mais « mon montage est vert » ne dit rien du montage voisin.
 
 ## 5. Le cousin `OptimizedGait_AdjacentFriends` — ne partage PAS le défaut
 
@@ -193,14 +215,9 @@ désaccord ; en retirant 1202 du registre, six gardes tombent (dont celle qui NO
 
 ## Résidus
 
-- **#477-r31 — `AttractMechanicalsUtility` (`DoctrinaImperatives_AttractMechanicals`) est INERTE
-  côté port.** `meta.attract_mechanicals_neighbor` n'est produit nulle part, alors que le natif y
-  met `+10` pour tout mover **Mechanical** ayant, à ring-1 de la tuile candidate, une unité **de
-  n'importe quel camp** (self exclu) portant `DoctrinaImperatives`. Le VRAI porteur de
-  `RadSaturation` étant Mechanical, ce terme lui manque **en plus** de celui-ci. Le substrat requis
-  existe désormais (`{friend,enemy}_units[].active`) : c'est une feuille à écrire, pas un capteur à
-  poser. ⚠ Attention au CONFOND inverse au moment de le confronter : sur un mover Mechanical, les
-  deux termes valent 10 et s'ajoutent sur les mêmes tuiles.
+- ~~**#477-r31**~~ — **FERMÉ** (`docs/rl/case-477r31-attract-mechanicals-camp.md`).
+  `AttractMechanicalsUtility` est portée et confrontée live. Le résidu était écrit « une unité **de
+  n'importe quel camp** » : c'est cette phrase-là qui était fausse, pas l'inertie qu'elle signalait.
 - **Le poids du cousin `OptimizedGait_AdjacentFriends` est nul** (capture ET gameconfig vivant).
   Pas de résidu ouvert : porter un terme identiquement nul serait spéculatif. La condition de
   réouverture est écrite au § 5.
