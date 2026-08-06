@@ -141,7 +141,14 @@ def _install_triplets(monkeypatch, *triplets):
     puis le slot 4, puis le slot 3, et batit les predictions dans cet ordre). La boucle du port
     itere les entites par id CROISSANT, donc triplet[0] = l'attaquant FAIBLE.
 
-    Rend la liste des `initial_damage` recus (pour compter les evaluations)."""
+    Rend la liste des `initial_damage` recus (pour compter les evaluations).
+
+    ⚠ LE SITE D'INJECTION EST LE MODULE **CONSOMMATEUR** (#484). `darkangels` importait
+    `get_attack_prediction` DANS le corps de la fonction ; `492c722f` (« hisser 624 imports
+    differes ») l'a hisse au niveau module, donc le nom est copie dans le namespace de
+    `darkangels` a l'import et le patch pose sur `damage_prediction` ne l'atteint plus. Effet
+    mesure : `seen` restait VIDE, et les deux cas `weak-first` passaient par COINCIDENCE (a cle
+    egale, le tri retombe sur l'ordre des ids, et la fixture exige `weak_id < strong_id`)."""
     seq = [p for t in triplets for p in t]
     seen: list[int] = []
 
@@ -150,6 +157,7 @@ def _install_triplets(monkeypatch, *triplets):
         return seq[len(seen) - 1]
 
     monkeypatch.setattr("engine.services.damage_prediction.get_attack_prediction", _stub)
+    monkeypatch.setattr("engine.runner.abilities.darkangels.get_attack_prediction", _stub)
     return seen
 
 

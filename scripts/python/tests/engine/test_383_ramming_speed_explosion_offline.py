@@ -125,7 +125,16 @@ def _capture(monkeypatch, kill_self: bool):
                       "hits": hits_override, "profile": profile_override})
         return _Rec(kill=(kill_self and tgt == uid))
 
+    # ⚠ DEUX bindings, et il en manquait un (#484). Les batchs 1/2 sont emis par `PA` lui-meme,
+    # mais les batchs d'EXPLOSION (3/4) le sont par `playbook/prediction/ramming_speed.py`, qui
+    # importait `generate_multi_hit_attack_prediction` DANS sa fonction jusqu'a `492c722f`
+    # (« hisser 624 imports differes »). Hisse, le nom vit dans le namespace de `RS` et le patch
+    # pose sur `PA` ne l'atteint plus : `calls` s'arretait a 2 entrees alors que `evs` en portait
+    # davantage -- les explosions passaient par le VRAI service. Un seul test l'a vu (celui qui
+    # lit `calls`) ; les deux autres, qui n'assertionnent que sur `evs`, etaient devenus des
+    # tests du code reel au lieu du CABLAGE.
     monkeypatch.setattr(PA, "generate_multi_hit_attack_prediction", _fake)
+    monkeypatch.setattr(RS, "generate_multi_hit_attack_prediction", _fake)
     return calls
 
 
