@@ -34,6 +34,11 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+#: Import de MODULE (forme B) et au NIVEAU MODULE : la table des noms locaux est le FOYER de
+#: `migrate_485r1_barils_reexport`, jamais recopiee ici -- deux implementations jumelles du meme
+#: predicat divergent (lecon #332). Aucun cycle : ce module n'importe rien de celui-ci.
+import migrate_485r1_barils_reexport as MIG
+
 ICI = Path(__file__).resolve().parent
 
 EX_VERT, EX_ROUGE, EX_PAS_MESURE = 0, 1, 2
@@ -83,8 +88,6 @@ def recenser(racine: Path = ICI) -> tuple[list[tuple[str, str, str]],
     `--mutate sans-retrait` est morte, en silence. Signale, non bloquant (dette anterieure).
 
     Un acces garde par `hasattr` / `getattr(..., defaut)` est ecarte : l'absence y est PREVUE."""
-    import migrate_485r1_barils_reexport as MIG   # foyer UNIQUE de la table des noms locaux
-
     lectures: list[tuple[str, str, str]] = []
     ecritures: list[tuple[str, str, str]] = []
     for p in _fichiers(racine):
