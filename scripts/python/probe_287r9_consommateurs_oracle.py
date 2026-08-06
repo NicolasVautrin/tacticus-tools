@@ -108,9 +108,13 @@ DETTE = {
         "mesure partait quand meme. `for/else` + `debloquer_oracle` desormais."),
     "probe_589r1r1r1_empyric_ambush_pose_live.py": (
         "REPARE",
-        "1232 sur `eldarLhykhis`. MESURE : au tour 1, casterReason=ValidRequest, cooldown=1 ; 0 un "
-        "tour plus tard. `face_decision` lisait `targetReason` sans le discriminant -- sur les "
-        "ENNEMIS (le bras qui compte) la branche « permissif » avalait le 0x1 : vert vide."),
+        "1232 sur `eldarLhykhis`. LE REGIME EXISTE, MESURE : au tour 1, casterReason=ValidRequest, "
+        "cooldown=1 ; 0 un tour plus tard. MAIS -- et il faut le dire -- le montage y ECHAPPAIT "
+        "deja : `stage` passe par `reach_my_turn(force_cycle=True)`, qui joue un cycle complet. "
+        "Re-mesure apres cran : natif 0x0 / 0x4000, oracle passant, memes verdicts. Le cran ne "
+        "CORRIGE donc pas un resultat, il GARANTIT ce qui n'etait qu'un heureux effet de bord du "
+        "cycle -- selon qui a la main au montage, ce cycle peut n'etre qu'un `endturn` adverse. "
+        "Sans lui, sur les ENNEMIS (le bras qui compte) la branche « permissif » avalerait un 0x1."),
     "probe_targeting_masks_lot4.py": (
         "REPARE",
         "1200/1201. `_wait_castable` IMPRIMAIT son echec puis rendait la main, et le verdict final "
