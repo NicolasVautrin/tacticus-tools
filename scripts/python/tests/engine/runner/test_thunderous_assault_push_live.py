@@ -20,7 +20,7 @@ son spawn). Board+stats REELS, seules les positions controlees -> validation rob
 feuille->Operation->geometrie->MoveUnit pour push ET charge.
 
 DISTANCE : push d'1 HEX (`_PUSH_MAX_DIST=1`, cf. displace.py) — TRANCHE (cas #68, RE + live). La
-destination sort de `GetMinimumTiles180Behind` (arc arriere DISTANCE-1, slot d'interface 0x4c de
+destination sort de `GetMinimumTiles180Behind` (arc arriere DISTANCE-1, slot d'interface 0x4d de
 `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush`), PAS de `IdunBattle.Core.Services.BattleQuery$$GetTilesBehind` (ligne multi-hex, reservee aux AoE
 ligne/cone) ; le `param_9=2` (+0x84 de DisplaceUnitBehaviour) n'est PAS la distance. Le discriminant
 LIVE `test_thunderous_assault_push_distance_live` (dans ce fichier) place C,T,B1,B2 collineaires libres
@@ -152,7 +152,7 @@ def _cast_push(rpc, rid, caster, target, t_coord):
 def test_thunderous_assault_push_distance_live(live_session, rpc, build_runner):
     """DISCRIMINANT LIVE 1-vs-2 hex du PUSH (slice-21a, cas #68 : hardcode-mesure tranche).
 
-    RE (decompile = verite) : `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` (case 1 de `IdunBattle.Operations.DisplaceUnitOperation$$Execute`) choisit la destination dans la liste rendue par le slot d'interface 0x4c =
+    RE (decompile = verite) : `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` (case 1 de `IdunBattle.Operations.DisplaceUnitOperation$$Execute`) choisit la destination dans la liste rendue par le slot d'interface 0x4d =
     `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Behind+0x38`->`IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180BehindFromTile` (arc ARRIERE,
     tuiles TOUTES a distance 1 ; cas aligne melee = 1 seule tuile straight-back). Le pull symetrique
     (`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPull`) utilise le slot 0x4c = arc AVANT (`IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Front`).

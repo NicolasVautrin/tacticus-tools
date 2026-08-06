@@ -2758,15 +2758,19 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   (`data/symbols/<build>/metadata/interface_slots.tsv`) ; **7** sont effectivement citees.
   **61 corrections** sur 24 groupes, **157 attestations confrontees, 0 fausse** (trajectoire du
   probe : 59 -> 52 -> 46 -> 0). Trois corrections sont des erreurs de NOM, pas de numero, dont
-  une de SPECIFICATION (`case-26`, residu **#477-r27**). Controle croise : les deux derivations
+  une de SPECIFICATION (`case-26`, residu **#477-r29**). Controle croise : les deux derivations
   (ancres de nom de #477-r24-r1 / grille des types) rendent la MEME table de 150 slots pour
   `IOperationProcessor` ; et **137 noms / 168 slots d'`IBattleQuery` lus au DECOMPILE du
   decorateur, 0 divergence**. `probe_477r25_slots_autres_interfaces.py` +
   `test_477r25_slots_autres_interfaces_offline.py` (49 verts), 4 mutants, 4 mordent.
   cf. `docs/rl/case-477r25-slots-autres-interfaces.md`.
 
-- **#477-r27 : `case-26` -- le terme d'adjacence de `RadSaturation` compte les ALLIES, et le PORT
+- **#477-r29 : `case-26` -- le terme d'adjacence de `RadSaturation` compte les ALLIES, et le PORT
   n'a pas ete verifie.** `[opus]`
+  ⚠ RENUMEROTE de `#477-r27` a `#477-r29` au merge : COLLISION -- l'agent de la PR #713 avait pris
+  `#477-r27` pour un residu sans rapport, les deux etant EN VOL au meme instant. C'est l'angle mort
+  que `probe_468 --suggere` nomme lui-meme (un numero pris et pas encore ecrit est invisible de
+  toute lecture de l'arbre) ; ni l'un ni l'autre agent n'a fauté.
   La fiche ecrivait « slot `0x82` = `GetAdjacentUnits` (ring-1, **both teams**) ». Le decompile de
   `IdunBattle.AI.Playbook.Loki.RadSaturationPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`
   appelle le slot **`0x83`**, qui est **`GetAdjacentFriends`** (2 arguments) : les ALLIES du
@@ -2777,6 +2781,21 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   confronter au decompile, et un A/B live qui DEPLACE un allie et un ennemi separement autour de
   la tuile candidate -- un bras ou seul le camp change.
   cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 5 et Residus.
+
+- **#477-r30 : le cliquet des slots exige slot ET nom ADJACENTS -- 659 lignes restent hors
+  couverture, et il s'y trouve deja une citation FAUSSE.** `[opus]`
+  **MESURE, pas redoute** : `probe_477r25` rend VERT (158 attestations, 0 fausse) et ecarte
+  `659 ligne(s) citant un slot SANS lui accoler de nom` -- il le DIT, donc rien n'est masque. Mais
+  la premiere lecture de ce gisement en sort une fausse : `test_thunderous_assault_push_live.py`
+  fait dire au PUSH « slot `0x4c` = `GetMinimumTiles180Behind` » et au PULL « slot `0x4c` =
+  `GetMinimumTiles180Front` » -- le MEME slot pour deux methodes, dans le MEME paragraphe. La table
+  livree par #477-r25 tranche (`0x4c` = `180Front` slot 76, `0x4d` = `180Behind` slot 77), et
+  `displace.py` dit bien `0x4d`. Seul un SAUT DE LIGNE entre le slot et le nom la rend invisible.
+  Corrigee a la main au merge de #716 ; **le gisement, lui, reste ouvert**.
+  CE QU'IL FAUT : apparier slot et nom sur une FENETRE de quelques lignes (pas sur la ligne seule),
+  et publier le compte de ce qui reste ecarte apres cet elargissement -- un cliquet dont la zone
+  aveugle ne retrecit pas est un inventaire, pas une garde.
+  cf. `docs/rl/case-477r25-slots-autres-interfaces.md`.
 
 - **#477-r21-r2 : la SELECTION et l'ORDRE de l'arbre d'activation.** `[opus]`
   Quels effets et quelles abilities declenchees s'activent, sur quelles unites, dans quel ordre.
