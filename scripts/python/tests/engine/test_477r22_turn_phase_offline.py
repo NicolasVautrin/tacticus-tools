@@ -50,13 +50,19 @@ from engine.streams.refresh_effects import (EffectSetup,  # noqa: E402
                                             add_receive_effect_action,
                                             generate_event_group,
                                             get_refresh_effect_tags)
+from engine.streams.evaluate_trigger import evaluate_ability_trigger  # noqa: E402
+from engine.streams.inform_ops import get_inform_tags, inform  # noqa: E402
+from engine.entities.triggered_ability_type import TriggeredAbilityType  # noqa: E402
 from engine.streams.turn_phase import (OPERATION_PAR_STAGE,  # noqa: E402
                                        STAGES_PORTES, START_TURN_SOURCE_ID,
                                        continue_turn_phase, execute_stage,
                                        get_next_turn_stage, prepare_turn, start_turn)
 
-# --- FRAGMENT 1 : le BLOC 2 de `System_StartMatch`, C1_02, AMPUTE des seules formes non portees
-# (le sous-arbre `Group=Ability_Power` / `Action=Info` / `Tag=Custom_Data`, residu #477-r22-r1).
+# --- FRAGMENT 1 : le BLOC 2 de `System_StartMatch`, C1_02, VERBATIM ET COMPLET.
+# ⚠ IL L'EST DEVENU AVEC #477-r22-r1 : il etait AMPUTE de son troisieme sous-arbre
+# (`Group=Ability_Power Source=StandVigil` / `Action=Info` / `Tag=Custom_Data`), la seule forme
+# du bloc que #477-r22 ne portait pas. Elle est desormais emise par
+# `engine/streams/inform_ops.py` (`get_inform_tags` + `inform`), et le fragment n'ampute plus rien.
 FRAGMENT_PLEIN = (
     "    Action=PrepareTurn Entity=1\n"
     "        Tag=Match_CurrentPlayerId:3\n"
@@ -79,6 +85,10 @@ FRAGMENT_PLEIN = (
     "                Tag=Effect_SourceId:49\n"
     "                Tag=Effect_SourceTriggeredAbility:1011\n"
     "                Tag=Effect_Id:81\n"
+    "        Finish_Group\n"
+    "        Group=Ability_Power Entity=59 Source=StandVigil InitialTarget=\n"
+    "            Action=Info Entity=NO_ENTITY\n"
+    "                Tag=Custom_Data:1\n"
     "        Finish_Group\n"
     "    Finish_Group\n"
 )
@@ -145,7 +155,8 @@ def _monter(imbrique: bool):
 
 
 def _effets_du_fragment_plein(events):
-    """Les DEUX `Effect_Refresh` du fragment, emis par les mirrors de #477-r21.
+    """Les DEUX `Effect_Refresh` du fragment ET son `Ability_Power`, emis par les mirrors de
+    #477-r21 et, pour le dernier, par `inform_ops` (#477-r22-r1).
 
     Leurs donnees sont COPIEES du fragment natif (borne (c)) ; ce que ce test garde ici, c'est
     que le contenu passe bien par la couture `corps` de `start_turn`, DANS le groupe."""
@@ -162,6 +173,12 @@ def _effets_du_fragment_plein(events):
             lambda: add_receive_effect_action(
                 events, 49, get_refresh_effect_tags(e81, StepType.ReceiveEffect)),
         ], e81)
+        # #477-r22-r1 -- le troisieme sous-arbre : `EvaluateAbilityTrigger` ouvre le
+        # `Group=Ability_Power`, et le behaviour DSL de `StandVigil_UpdateEffectRangeAbility`
+        # y informe une cle unique via `InformOperation$$Execute`.
+        evaluate_ability_trigger(
+            events, 59, int(TriggeredAbilityType.StandVigil), None,
+            lambda: inform(events, get_inform_tags(int(TagKey.Custom_Data), 1)))
 
     return corps
 
@@ -190,7 +207,9 @@ def test_le_bloc2_PLEIN_est_reproduit_a_l_egalite_brute():
     emis = rendre()
     assert emis == FRAGMENT_PLEIN, "\n--- natif ---\n%s\n--- port ---\n%s" % (FRAGMENT_PLEIN, emis)
     rap = CONF.comparer(FRAGMENT_PLEIN, emis)
-    assert rap.conforme and rap.egales == 23
+    assert rap.conforme and rap.egales == 27, \
+        "27 = les 23 lignes de #477-r22 + les 4 du `Group=Ability_Power` / `Action=Info` que " \
+        "#477-r22-r1 fait entrer au perimetre"
 
 
 def test_le_bloc2_VIDE_s_ouvre_quand_meme_ouverture_INCONDITIONNELLE():

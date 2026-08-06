@@ -97,8 +97,14 @@ Ne sont PAS portees non plus, et elles sont NOMMEES :
     etat autre que 3/0, un drapeau statique, `isManual`, ou `forceEndTurn`) -- sinon elle poste un
     message et rend `false`. `StartMatchOperation` passe `isManual: true` EN DUR, ce qui la rend
     vraie : c'est ce littéral qui garantit que `Action=PrepareTurn` est emise ;
-  * le CONTENU du `Group=StartTurn` : le `RefreshEffects` du slot `0x2f`, les CINQ
-    `EvaluateAbilities(TurnStart_*)` du slot `0x4d`, et le slot `0x21`. Ils passent par `corps`.
+  * le CONTENU du `Group=StartTurn` : le `RefreshEffects` du slot `0x2f` et les CINQ
+    `EvaluateAbilities(TurnStart_*)` du slot `0x4d`. Ils passent par `corps`.
+
+LE SLOT `0x21`, LUI, N'EST PLUS DANS CETTE LISTE (#477-r22-r1). Il est RESOLU --
+`Core.Services.IOperationProcessor` slot 33, `VerifyUnitsTurnFinished`, ARITE 0, lu dans
+`data/symbols/<build>/metadata/interface_slots.tsv` -- et sa face stream est portee par
+`engine/streams/verify_turn_finished.py`. `start_turn` le recoit par le parametre `verifier`,
+SEPARE de `corps` pour que l'ordre « corps puis verification » reste une decision du PORT.
 """
 from __future__ import annotations
 
@@ -164,7 +170,8 @@ START_TURN_SOURCE_ID = ""
 
 
 def start_turn(events: StreamDispatcher, match_entity_id: int, previous_player_id: int,
-               corps: Optional[Callable[[], None]] = None) -> None:
+               corps: Optional[Callable[[], None]] = None,
+               verifier: Optional[Callable[[], None]] = None) -> None:
     """`IdunBattle.Operations.StartTurnOperation$$Execute` -- sa face STREAM.
 
     LES TROIS EMISSIONS, lues verbatim, dans l'ordre du decompile :
@@ -182,7 +189,8 @@ def start_turn(events: StreamDispatcher, match_entity_id: int, previous_player_i
         processor.<slot 0x4d>(EventTriggerType.TurnStart_EnvironmentEffects /*0x14*/, entities);
         processor.<slot 0x4d>(EventTriggerType.TurnStart_DelayedAttacks /*0x15*/, entities);
         processor.<slot 0x4d>(EventTriggerType.TurnStart_Actions        /*0x16*/, entities);
-        processor.<slot 0x21>();
+        processor.<slot 0x21>();                                       // -- `verifier`
+                                  // = `Core.Services.OperationProcessor$$VerifyUnitsTurnFinished`
         Events.FinishGroup();
 
     ⚠ L'OUVERTURE EST INCONDITIONNELLE, ET C'EST L'INVERSE D'`Effect_Refresh`.
@@ -195,6 +203,13 @@ def start_turn(events: StreamDispatcher, match_entity_id: int, previous_player_i
     delegues (`0x2f`, `0x4d`, `0x21`) viennent APRES elle et AVANT le `FinishGroup` -- c'est ce
     qui met leurs emissions DANS le groupe. Le port place donc `corps` entre l'action et la
     fermeture, jamais avant l'action.
+
+    ⚠ `corps` ET `verifier` SONT DEUX PARAMETRES, PAS UN SEUL, ET L'ORDRE EST DERIVE ICI (#477-r22-r1).
+    `corps` porte le `RefreshEffects` du slot `0x2f` et les CINQ `EvaluateAbilities(TurnStart_*)`
+    du slot `0x4d` ; `verifier` porte le slot `0x21` = `VerifyUnitsTurnFinished`, que le
+    decompile appelle APRES les six autres et AVANT `Events.FinishGroup()`. Les fusionner en un
+    seul callable rendrait cet ordre a l'APPELANT ; les separer le rend au PORT, ou le decompile
+    l'a lu. C'est ce qui fait que la contre-epreuve `verif_avant_corps` a quelque chose a mordre.
 
     ⚠ L'ENTITE EST LUE DEUX FOIS, PAR DEUX APPELS DISTINCTS a
     `IdunBattle.Entities.StateExtensions$$GetMatchEntity(state)` suivis chacun de l'accesseur
@@ -215,6 +230,8 @@ def start_turn(events: StreamDispatcher, match_entity_id: int, previous_player_i
                   {int(TagKey.Match_PreviousPlayerId): int(previous_player_id)})
     if corps is not None:
         corps()
+    if verifier is not None:
+        verifier()
     events.finish_group()
 
 
