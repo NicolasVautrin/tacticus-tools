@@ -152,9 +152,14 @@ class CacheCliquet:
                  encoder: Callable[[Any, str], Any] | None = None,
                  decoder: Callable[[Any, str], Any] | None = None,
                  dossier: Path | None = None, actif: bool | None = None,
-                 relire: bool = True):
+                 relire: bool = True, notes: tuple[str, ...] = ()):
         self.nom = nom
         self.contexte = contexte
+        #: Lignes de commentaire PROPRES a ce cliquet, ecrites dans l'en-tete. L'en-tete
+        #: generique dit « sha256 du CONTENU » ; un cliquet qui cle autrement (par SOUS-GRAPHE,
+        #: #486-r11) doit pouvoir le DIRE dans son propre fichier -- un artefact versionne qui
+        #: se decrit de travers fait ecrire des outils qui recalculent la mauvaise chose.
+        self.notes = tuple(notes)
         #: ⚠ L'ENCODEUR RECOIT L'APPEL, et ce n'est pas un ornement : un meme cliquet cache des
         #: valeurs de FORMES DIFFERENTES selon l'appel (`probe_477r25` y met des citations ET un
         #: simple entier). Un encodeur qui ne connait que la valeur plantait sur la seconde forme
@@ -225,8 +230,9 @@ class CacheCliquet:
                   "# CACHE DE VERDICT PAR FICHIER (#486-r1) -- artefact GENERE ET VERSIONNE.",
                   "# Cle de validation = sha256 du CONTENU : une entree perimee MANQUE, elle ne",
                   "# ment pas. En cas de conflit de merge : NE PAS FUSIONNER, REGENERER en",
-                  "# rejouant le cliquet (python scripts/python/%s.py)." % self.nom,
-                  "# rel\tappel\tsha256\tvaleur"]
+                  "# rejouant le cliquet (python scripts/python/%s.py)." % self.nom]
+        lignes.extend(self.notes)
+        lignes.append("# rel\tappel\tsha256\tvaleur")
         for (rel, appel) in sorted(self._vues):
             sha, brut = self._vues[(rel, appel)]
             lignes.append("%s\t%s\t%s\t%s"

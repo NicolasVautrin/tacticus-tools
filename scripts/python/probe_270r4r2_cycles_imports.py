@@ -44,9 +44,14 @@ class _Visiteur(ast.NodeVisitor):
                      differe aussi (jamais execute au runtime).
     """
 
-    def __init__(self, mod: str, pkg: str) -> None:
+    def __init__(self, mod: str, pkg: str, prefixes: tuple[str, ...] | None = (PAQUET,)) -> None:
         self.mod = mod
         self.pkg = pkg
+        #: Prefixes de cible RETENUS. `None` = tout retenir -- c'est ce que demande le calcul de
+        #: FERMETURE (#486-r11) : `engine.x` peut importer `gameconfig`, un frere de
+        #: `scripts/python/`, et ce fichier-la gouverne aussi le verdict d'`import engine.x`.
+        #: Le defaut `("engine",)` preserve exactement ce que ce cliquet-ci mesure.
+        self.prefixes = prefixes
         self.module_level: set[str] = set()
         self.differe: list[tuple[str, int, str]] = []   # (cible, ligne, cause)
         self._profondeur_fn = 0
@@ -86,7 +91,10 @@ class _Visiteur(ast.NodeVisitor):
     # -- visite ---------------------------------------------------------------
     def _enregistrer(self, cibles: list[str], ligne: int, cause: str) -> None:
         differe = self._profondeur_fn > 0 or self._profondeur_tc > 0
-        garde = [c for c in cibles if c.startswith(PAQUET)]
+        if self.prefixes is None:
+            garde = list(cibles)
+        else:
+            garde = [c for c in cibles if any(c.startswith(p) for p in self.prefixes)]
         if not garde:
             return
         if differe:
