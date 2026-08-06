@@ -453,6 +453,22 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
             out["per_hit"] += r["per_hit"]
             out["rolls"] += r["rolls"]
             out["profiles"].append(g_profile)
+        # #419-r6-r1 -- LES TROIS CLES D'ETAT D'ATTAQUE, que le port livre pose depuis #419-r3.
+        #
+        # Sans elles, `damage_hits.attack_state_out(r, ah)` -- appele par les DEUX vecteurs
+        # (`damage_ops/normal.py`, `damage_ops/ability.py`) des que `ah` existe -- leve
+        # `KeyError: 'next_hit_index'`. C'est la cause UNIQUE des 15 rouges des trois fichiers
+        # `test_additional_hits_*_live.py`, mesures pre-existants par #419-r6 : un contrefactuel
+        # qui n'expose pas le contrat de SORTIE du port qu'il remplace ne remplace pas ce port,
+        # il le casse -- et l'echec accuse alors le moteur, pas le harnais.
+        #
+        # ⚠ Ce sont bien les valeurs de CE contrefactuel, pas des constantes : `next_hit_index`
+        # avance de `hit_index0` par les coups reellement executes, `crit_allowed`/`failed_block`
+        # sont ceux que la boucle a chaines. Poser des valeurs FIGEES ferait taire l'erreur en
+        # introduisant une TROISIEME variable silencieuse -- exactement ce que l'en-tete interdit.
+        out["next_hit_index"] = int(hit_index0 or 0) + int(out["hits"])
+        out["crit_allowed"] = bool(crit_allowed0)
+        out["failed_block"] = failed_block
         return out if out["groups"] else None
     return _exec
 
