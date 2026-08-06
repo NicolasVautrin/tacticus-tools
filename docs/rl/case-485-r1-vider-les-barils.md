@@ -40,8 +40,9 @@ réclamé.
 Chiffres **re-joués après chaque rebase sur `origin/master`** — 11 commits intégrés en trois
 passes. L'arbre témoin bouge sous les pieds : le compte des porteurs est passé de 262 à 261
 pendant la tranche, et `probe_485` lui-même a changé de critère (`fix(#485)`, union des deux
-critères). **La mesure ci-dessous vaut pour le commit `609edf4f`** — la re-dériver, ne pas la
-citer.
+critères). Les chiffres se sont révélés **stables d'une passe à l'autre** (±2 sur les refus, 0 sur
+les porteurs). **La re-dériver, ne pas la citer** :
+`migrate_485r1_barils_reexport.py` + `probe_485r1_liaisons_preservees.py --vidange`.
 
 | | témoin | réécrit + vidé |
 |---|---:|---:|
