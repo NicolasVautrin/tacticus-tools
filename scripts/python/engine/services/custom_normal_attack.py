@@ -86,6 +86,7 @@ from __future__ import annotations
 
 import gameconfig as GC
 from engine.entities.active_ability_type import ActiveAbilityType
+from engine.entities.effect_type import EffectType
 
 # Le dictionnaire statique de `StaticBattleRules.TriggeredAbility$$GetCustomNormalAttack`,
 # {`TriggeredAbilityType` -> `ActiveAbilityType`} -- QUATORZE entrees, transcrites du `.cctor`.
@@ -518,16 +519,56 @@ def substitutes_normal_attack(passive_name: str, passive_abilities=None, visual_
                                 config_active_abilities=config_active_abilities) == substitutes
 
 
-#: L'attaque normale dont l'`ExecuteBehaviour` pose `useSpecial = 1`, et le gate qui l'y amene.
-#: LU au decompile (#419-r1-tr14-r4-r2-r1). L'AUTRE poseur, `OptimizedGait_NormalAttack`, N'EST PAS
-#: ici -- son gate est `EntityExtensions$$HasEffect(<entite du champ +8 des AbilityEntities>, state,
-#: 0x4e2, null)` et l'ANCRE (caster ou cible) n'est pas tranchee : l'inscrire au juge ecrirait un
-#: `Use_Special` faux sur un porteur reel (`admecRuststalker`). Residu `#419-r1-tr14-r4-r2-r1-r2`,
-#: pas un oubli.
+#: L'attaque normale dont l'`ExecuteBehaviour` pose `useSpecial = 1` sur un gate de CHARGE.
+#: LU au decompile (#419-r1-tr14-r4-r2-r1).
 _USE_SPECIAL_NORMAL_ATTACK = "FeederTendrils_NormalAttack"
 
+#: Le SECOND poseur de `useSpecial = 1`, sur un gate d'EFFET (#419-r1-tr14-r4-r2-r1-r2 -- l'ANCRE
+#: etait le residu, elle est TRANCHEE).
+#: `IdunBattleLogic.Entities.Abilities.Active.Loki.OptimizedGait_NormalAttackAbility$$ExecuteBehaviour`,
+#: lu verbatim :
+#:
+#:     weapon = FindAttackWeapon(entities);
+#:     if (weapon == null) return 0;
+#:     if (!EntityExtensions.HasEffect(entities@+8, this@+0x18 /*state*/, 0x4e2, null))
+#:         return ALoki_NormalAttackAbility.ExecuteBehaviour(this, abilityState, entities);
+#:     ExecuteInformWeapon(this, weapon, entities, useSpecial: 1);
+#:     ExecuteNormalAttack(...); return ExecuteTriggerAbilities(...);
+#:
+#: ## L'ANCRE est le CASTER -- trois lectures INDEPENDANTES, aucune deduite d'une autre
+#:
+#: 1. STRUCTURELLE. `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` ecrit ses champs avec les
+#:    noms de parametres du dump : `+0x00 = actor`, **`+0x08 = caster`**, `+0x10 = target`,
+#:    `+0x18 = owner`, `+0x20 = activeTarget`, `+0x30 = targetTile`, `+0x40 = casterTile`,
+#:    `+0x7c = parentAbilityOrEffect`, `+0x98 = triggerAbilityOrEffect`. L'appariement nom<->offset
+#:    de ghidra est VERIFIE par SIX getters de la meme classe, tous concordants :
+#:    `get_ParentAbilityType` lit `+0x7c`, `get_TriggerAbilityType` lit `+0x98`, `get_IsFirstHit`
+#:    lit `+0x108` (= `hitIndex`), `get_IsFirstHitGroup` lit `+0x110` (= `hitGroupIndex`),
+#:    `get_HasCasterPosition` lit `+0x48`/`+0x40`, `get_HasTargetPosition` lit `+0x38`/`+0x30`.
+#:    La struct fait 0x128 octets, ce qui est EXACTEMENT la taille que l'`ExecuteBehaviour` recopie
+#:    (0x25 qwords) -- donc les offsets sont bien ceux de la struct, sans header.
+#: 2. SEMANTIQUE. `0x4e2` = `EffectType.CordClaw_AdditionHits`, et son SEUL poseur est
+#:    `IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility$$ExecuteBehaviour`, qui fait
+#:    `AddEffect(0x4e2, AbilityStateReference, <selecteur +0x30>, TurnsFromRounds(2))`. Ce meme
+#:    selecteur `+0x30` est le PREMIER argument d'`IsCharging(caster, target)` chez `FeederTendrils`
+#:    (`DSLTriggers$$IsCharging(this, caster, target)` -- noms du dump), donc `+0x30` = CASTER et
+#:    `+0x60` = TARGET. CordClaw est un SELF-BUFF : seul le caster peut porter cet effet. Ancre a la
+#:    cible, le gate ne mordrait JAMAIS dans le regime naturel.
+#: 3. PORT DEJA VALIDE LIVE. `engine/runner/abilities/loki/strike.py` porte ce meme `AddEffect` en
+#:    `AddEffect(CORD_CLAW_ADDITION_HITS, "CordClaw_AdditionHits", Caster(), duration_rounds=2)`.
+#:
+#: ⚠ NE PAS confondre avec `OptimizedGait_TriggerAttackAbility$$CreateBehaviour` (la surcharge a 3
+#: arguments d'`InformWeapon`), qui ancre SON `HasEffect` sur la CIBLE. Deux abilities, deux ancres :
+#: l'une n'autorise rien sur l'autre.
+_USE_SPECIAL_NORMAL_ATTACK_ON_EFFECT = "OptimizedGait_NormalAttack"
 
-def inform_weapon_use_special(normal_attack_name, is_charging: bool, weapon_melee: bool) -> bool:
+#: L'effet teste par le gate ci-dessus. `0x4e2` = 1250 = `EffectType.CordClaw_AdditionHits`.
+#: ⚠ QUALIFIE par son enum : 1250 nomme autre chose dans `ActiveAbilityType`/`TriggeredAbilityType`.
+_USE_SPECIAL_GATE_EFFECT: int = int(EffectType.CordClaw_AdditionHits)   # 0x4e2
+
+
+def inform_weapon_use_special(normal_attack_name, is_charging: bool, weapon_melee: bool,
+                              caster_has_gate_effect: bool | None = None) -> bool:
     """Le 4e argument d'`ALoki_NormalAttackAbility$$ExecuteInformWeapon`, LU au call-site de chaque
     `<X>_NormalAttackAbility$$ExecuteBehaviour` -- **sept** posent le litteral `0`, **deux** posent
     `1` dans une branche gardee. FOYER UNIQUE de cette decision (le runner ET les probes l'appellent).
@@ -549,13 +590,39 @@ def inform_weapon_use_special(normal_attack_name, is_charging: bool, weapon_mele
     comme un `IsCharging` seul poserait `Use_Special` sur un tir de charge -- que le natif ne pose
     pas. Les deux termes sont donc exiges.
 
-    ⚠ CE QUE CE FOYER NE PORTE PAS, ET QUI VIT DANS LA MEME BRANCHE : le `Heal` et l'`AddEffect
-    (0x429)` de `FeederTendrils`. Le tag devient JUSTE ; le reste de la branche reste NON PORTE
-    (residu `#419-r1-tr14-r4-r2-r1-r1`). Ne pas lire « FeederTendrils est porte » : seul son
-    `useSpecial` l'est.
+    La MEME branche execute aussi `Heal(ConfigVar hpToHeal)` et `AddEffect(Pinned)` -- portes depuis
+    #419-r1-tr14-r4-r2-r1-r1 dans `engine/runner/abilities/loki/feeder_tendrils.py`, joues par le
+    foyer d'attaque normale au point exact du natif (entre `ExecuteInformWeapon` et
+    `ExecuteNormalAttack`). Ce foyer-ci ne porte que le TAG ; les deux vivent sous le MEME gate, et
+    `feeder_tendrils_special_applies` en est le predicat partage.
+
+    `caster_has_gate_effect` = `EntityExtensions$$HasEffect(entities.caster, state,
+    EffectType.CordClaw_AdditionHits, null)`, le gate de `OptimizedGait_NormalAttack`
+    (cf. `_USE_SPECIAL_NORMAL_ATTACK_ON_EFFECT` pour la RE de l'ANCRE). TRI-ETAT : `None` = canal
+    muet -> `False`, c'est-a-dire STRICTEMENT le comportement d'avant (on ne devine pas un effet
+    qu'on n'a pas mesure). Une unite qui ne porte pas cette attaque normale n'atteint jamais ce test.
 
     `normal_attack_name` = le nom d'`ActiveAbilityType` rendu par la cascade `custom_normal_attack`
     (`None` = repli generique `Loki_NormalAttack`, dont le litteral est `0`)."""
-    if normal_attack_name != _USE_SPECIAL_NORMAL_ATTACK:
-        return False
-    return bool(is_charging) and bool(weapon_melee)
+    if normal_attack_name == _USE_SPECIAL_NORMAL_ATTACK:
+        return bool(is_charging) and bool(weapon_melee)
+    if normal_attack_name == _USE_SPECIAL_NORMAL_ATTACK_ON_EFFECT:
+        return bool(caster_has_gate_effect)
+    return False
+
+
+def feeder_tendrils_special_applies(normal_attack_name, is_charging: bool,
+                                    weapon_melee: bool) -> bool:
+    """« La branche SPECIALE de `FeederTendrils_NormalAttackAbility$$ExecuteBehaviour` s'execute-t-elle ? »
+    -- le gate `(IsCharging(caster, target) & WeaponProfile.get_IsMelee(weapon))`, FOYER UNIQUE.
+
+    C'est le MEME gate que celui qui pose `useSpecial = 1` ci-dessus, et c'est voulu : le natif ne le
+    teste QU'UNE FOIS, puis execute `ExecuteInformWeapon(useSpecial: 1)` PUIS le bloc
+    `Heal + AddEffect(Pinned)` PUIS `ExecuteNormalAttack`. Deux predicats separes pourraient diverger ;
+    un seul ne le peut pas.
+
+    ⚠ LE SECOND TERME DU `&` EST `get_IsMelee(weapon)`, PAS UN SECOND PREDICAT DE CHARGE -- le lire
+    comme un `IsCharging` seul declencherait la branche sur un TIR de charge, que le natif ne joue
+    pas. Les deux termes sont exiges."""
+    return (normal_attack_name == _USE_SPECIAL_NORMAL_ATTACK
+            and bool(is_charging) and bool(weapon_melee))
