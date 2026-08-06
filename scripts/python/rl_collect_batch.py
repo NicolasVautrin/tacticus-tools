@@ -1267,6 +1267,22 @@ def _bis_item_specs(sid: int, base_bc: dict, rarity_cap: int = _TARGET_RARITY,
             f"capture, faire un warmup ; pour assumer le regime sans items, "
             f"passer equip_items=False.")
     specs = res.get("itemSpecs") or {}
+    # Un `ok: true` NE SUFFIT PAS -- `previewBis` rend `ok: true` avec des specs VIDES quand le
+    # catalogue est la mais qu'aucun slot n'est pourvu (`gameConfig.units.lineup` non resolu,
+    # cap de rarete trop bas, filtres de faction). Accepter ce vide, ce serait retomber dans le
+    # regime degenere EXACTEMENT comme avant, sans la moindre trace : un zero se lirait comme
+    # une mesure. On exige donc qu'au moins une unite reparte AVEC des items.
+    pourvues = sum(1 for v in specs.values() if v)
+    if pourvues == 0:
+        raisons = sorted({it.get("reason") for p in (res.get("perUnit") or [])
+                          for it in (p.get("items") or [])
+                          if it.get("configId") is None and it.get("reason")})
+        raise RuntimeError(
+            f"previewBis a rendu ok=true mais AUCUNE unite equipee "
+            f"({len(specs)} entree(s), 0 pourvue) -- raisons : {raisons}. "
+            f"Le canal CritChance/CritDamage/BlockChance/BlockDamage resterait "
+            f"MUET et le crit structurellement impossible (#419-r5). Pour "
+            f"assumer explicitement ce regime, passer equip_items=False.")
     _BIS_CACHE[key] = specs
     return specs
 
@@ -1335,6 +1351,8 @@ def _normalize_and_extract_pool(
         "targetStarLevel": 5,
         "targetAbilityLevel": 50,
     }
+    if item_specs:
+        args["itemSpecs"] = item_specs
     if board_dump is not None:
         inner = board_dump.get("board")
         if not inner:
