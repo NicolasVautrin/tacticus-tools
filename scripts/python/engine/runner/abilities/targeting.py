@@ -1527,9 +1527,9 @@ def charge_tiles_count(state: "State", caster_id: int, target_id, ability_id: st
 
     `None` = SUBSTRAT ABSENT (cible non resolue, `constants.range` illisible) -- l'appelant rend
     alors `0`, la degradation permissive du module ; jamais un refus fabrique."""
-    from ....entities.selectors import Caster, CasterTile, SelectTile, Target
-    from ....entities.effects.magnitude import Const
-    from ....entities.selectors.tiles import tiles_unit_can_move_to_charge_target
+    from ...dsl.base import Const
+    from ...entities.selectors import Caster, CasterTile, SelectTile, Target
+    from ...entities.selectors.tiles import tiles_unit_can_move_to_charge_target
     from .behaviours import entities_from_state
     import gameconfig as GC
     if target_id is None or state.get_entity(int(target_id)) is None:

@@ -286,7 +286,7 @@ class TheQuickeningAbility(ActiveAbility):
         `target_id` est un id de TUILE (cast tile-target) : `Contains` se lit donc directement sur
         l'ensemble d'ids que rend le noeud. Tuile hors board / `range` illisible -> `0` (convention
         permissive du module ; le natif, lui, n'atteint cette regle que sur une tuile enumeree)."""
-        from ....entities.effects.magnitude import Const
+        from ....dsl.base import Const
         from ....entities.selectors import (Caster, CasterTile, Enemies, MovableTilesInRange,
                                             SelectTile, Sub)
         from ..behaviours import entities_from_state
