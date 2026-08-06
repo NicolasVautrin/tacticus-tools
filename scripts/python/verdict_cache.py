@@ -69,7 +69,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 #: `scripts/python/verdict_cache.py` -> `parents[2]` = racine du depot.
 RACINE = Path(__file__).resolve().parents[2]
@@ -128,7 +128,8 @@ class CacheCliquet:
     def __init__(self, nom: str, contexte: str,
                  encoder: Callable[[Any], Any] | None = None,
                  decoder: Callable[[Any], Any] | None = None,
-                 dossier: Path | None = None, actif: bool | None = None):
+                 dossier: Path | None = None, actif: bool | None = None,
+                 relire: bool = True):
         self.nom = nom
         self.contexte = contexte
         self._encoder = encoder or (lambda v: v)
@@ -137,6 +138,10 @@ class CacheCliquet:
         if actif is None:
             actif = os.environ.get(ENV_SANS_CACHE, "") not in ("1", "true", "TRUE")
         self.actif = actif
+        #: MODE ESPION (`relire=False`) : le fichier est CHARGE mais jamais servi -- tout est
+        #: recalcule, et `verifier` confronte le recalcul aux entrees du disque. C'est le seul
+        #: chemin qui voie une entree FALSIFIEE de facon coherente.
+        self.relire = relire
         #: {(rel, appel): (sha, valeur_json)} -- ce qui a ete LU du disque.
         self._sur_disque: dict[tuple[str, str], tuple[str, Any]] = {}
         #: {(rel, appel): (sha, valeur_json)} -- ce que ce run a VU (hit ou recalcul). C'est lui
@@ -209,7 +214,7 @@ class CacheCliquet:
 
     def obtenir(self, rel: str, appel: str, sha: str) -> Any:
         """La valeur cachee pour ce contenu exact, ou `MANQUE`."""
-        if not self.actif:
+        if not self.actif or not self.relire:
             return MANQUE
         vu = self._sur_disque.get((rel, appel))
         if vu is None or vu[0] != sha:
@@ -239,29 +244,30 @@ class CacheCliquet:
                    self.hits, self.recalculs))
 
 
-def verifier(cache: CacheCliquet, refaire: Callable[[], Iterable[tuple[str, str, str, Any]]]
-             ) -> list[str]:
-    """Confronte le cache SUR DISQUE a un recalcul integral. Rend les divergences, en clair.
+def verifier(cache: CacheCliquet) -> list[str]:
+    """Confronte les entrees SUR DISQUE a ce que le run vient de RECALCULER. Rend les divergences.
 
-    C'est le SEUL controle qui voie une entree FALSIFIEE DE FACON COHERENTE (valeur fausse en face
-    du hash juste) -- la cle ne peut pas la voir, par construction. `refaire` rend les quadruplets
-    `(rel, appel, sha, valeur)` d'un calcul mene SANS cache.
+    A n'appeler qu'apres un run en MODE ESPION (`relire=False`), ou tout a ete recalcule : le
+    `_vues` est alors un calcul integral, jamais une relecture du disque.
+
+    C'est le SEUL controle qui voie une entree FALSIFIEE DE FACON COHERENTE -- un verdict faux
+    ecrit en face du hash JUSTE du contenu. La cle ne peut pas la voir, par construction : aucun
+    cache ne le peut. Ce qui la ferme est la re-verification, pas la cle.
     """
     ecarts: list[str] = []
-    attendu: dict[tuple[str, str], tuple[str, Any]] = {}
-    for rel, appel, sha, valeur in refaire():
-        attendu[(rel, appel)] = (sha, cache._encoder(valeur))
     for cle, (sha, brut) in sorted(cache._sur_disque.items()):
-        vrai = attendu.get(cle)
+        vrai = cache._vues.get(cle)
         if vrai is None:
             ecarts.append("ENTREE ORPHELINE %s [%s] -- plus aucun calcul ne la produit"
                           % (cle[0], cle[1]))
         elif vrai[0] != sha:
             ecarts.append("SHA PERIME %s [%s]" % (cle[0], cle[1]))
-        elif json.dumps(vrai[1], sort_keys=True) != json.dumps(brut, sort_keys=True):
+        elif (json.dumps(vrai[1], sort_keys=True, ensure_ascii=True)
+              != json.dumps(brut, sort_keys=True, ensure_ascii=True)):
             ecarts.append("VALEUR FALSIFIEE %s [%s] -- le cache atteste autre chose que le calcul"
                           % (cle[0], cle[1]))
-    for cle in sorted(attendu):
+    for cle in sorted(cache._vues):
         if cle not in cache._sur_disque:
-            ecarts.append("ENTREE ABSENTE %s [%s]" % (cle[0], cle[1]))
+            ecarts.append("ENTREE ABSENTE %s [%s] -- le cache versionne ne la porte pas"
+                          % (cle[0], cle[1]))
     return ecarts

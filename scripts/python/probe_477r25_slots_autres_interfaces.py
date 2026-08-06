@@ -90,6 +90,9 @@ from probe_477r24r1_slots_interface import (                             # noqa:
     _appel, _entre, _regex_noms, _RENVOIS, ceder_aux_locaux, PROFONDEUR_APPEL)
 from symbols_layout import build_dir, current_build                     # noqa: E402
 
+import repo_read                                                        # noqa: E402
+import verdict_cache                                                    # noqa: E402
+
 REPO = HERE.parent.parent
 
 #: Les CLASSES CONCRETES qui ancrent la grille des types. Elles ne servent qu'a fixer
@@ -439,14 +442,99 @@ def cliquet(derive: dict[str, dict[int, tuple[str, int, int]]] | None,
 # ------------------------------------------------------- etages 0 et 3 : CITATIONS
 
 
+_FICHIERS: list[Path] | None = None
+_TEXTES: list[tuple[str, str]] | None = None
+
+
 def fichiers_balayes() -> list[Path]:
+    """Le perimetre, DERIVE de `git ls-files`. Memoise : `recolter` est appele TROIS fois, plus
+    `_compter_autre_casse` -- quatre traversees du meme perimetre, pour le meme resultat.
+    Une panne de git reste un `SystemExit` PAS MESURE, jamais un perimetre vide.
+    """
+    global _FICHIERS
+    if _FICHIERS is not None:
+        return _FICHIERS
     try:
         out = subprocess.run(["git", "-C", str(REPO), "ls-files", "-z", *BALAYAGE_GLOBS],
                              capture_output=True, text=True, timeout=60, check=True)
     except (OSError, subprocess.SubprocessError) as exc:                # noqa: BLE001
         raise SystemExit("PAS MESURE : `git ls-files` muet (%s) -- le perimetre du balayage "
                          "ne peut pas etre DERIVE, et on n'en invente pas un." % exc)
-    return [REPO / rel for rel in out.stdout.split("\0") if rel]
+    _FICHIERS = [REPO / rel for rel in out.stdout.split("\0") if rel]
+    return _FICHIERS
+
+
+def textes_balayes() -> list[tuple[str, str]]:
+    """`[(chemin relatif, texte)]` -- lecture PARALLELE, UNE fois pour les quatre traversees.
+
+    Meme traitement d'erreur qu'avant : un fichier illisible ou non-UTF-8 est ABSENT (l'ancien
+    `except (OSError, UnicodeDecodeError): continue`), donc les denominateurs ne bougent pas.
+    """
+    global _TEXTES
+    if _TEXTES is not None:
+        return _TEXTES
+    chemins = [p for p in fichiers_balayes()
+               if p.relative_to(REPO).as_posix() not in EXCLUS]
+    out: list[tuple[str, str]] = []
+    for p, texte in zip(chemins, repo_read.read_texts(chemins)):
+        if texte is not None:
+            out.append((p.relative_to(REPO).as_posix(), texte))
+    _TEXTES = out
+    return _TEXTES
+
+
+# ------------------------------------------------- le CACHE de verdict par fichier (#486-r1)
+#
+# LOCALITE ETABLIE. `_contribution` ne lit QUE le texte d'UN fichier : dans l'ancienne boucle,
+# les seules variables partagees etaient des ACCUMULATEURS (`retenues`, les cinq compteurs,
+# `nom_absent`, `recense` qui est purement additif, `ventile`), et le `vus_absents` de
+# deduplication portait une cle COMMENCANT par `rel` -- intra-fichier par construction. Tout ce
+# qui relie deux fichiers (dedup global, priorite au mono-ligne, `ceder_aux_locaux`,
+# `confronter`) reste HORS cache et se rejoue integralement.
+#
+# Le CONTEXTE porte le source de CE cliquet, celui de #477-r24-r1 (dont il importe `_appel`,
+# `_entre`, `_regex_noms`, `ceder_aux_locaux`) et l'entree versionnee des slots : editer une
+# regex de l'un ou l'autre, ou changer de build, fait MANQUER toutes les entrees.
+
+_CACHE: verdict_cache.CacheCliquet | None = None
+
+
+def _encoder(v: tuple) -> list:
+    #: Les cles vides ne sont pas ecrites -- `recolter` accumule par `+=`, donc l'omission est
+    #: VALEUR-PRESERVANTE, et l'artefact est VERSIONNE.
+    cits, sans_iface, deja, multi, sans_couple, exempt, nom_absent, recense, ventile = v
+    return [[[c.fichier, c.ligne, c.iface, c.slot, c.nom, c.args, c.texte, c.ligne_nom,
+              c.franchit_virgule] for c in cits],
+            sans_iface, deja, multi, sans_couple, exempt, list(nom_absent), recense,
+            {k: [list(x) for x in vs] for k, vs in ventile.items() if vs}]
+
+
+def _decoder(b: list) -> tuple:
+    cits = [Citation(fichier=x[0], ligne=x[1], iface=x[2], slot=x[3], nom=x[4], args=x[5],
+                     texte=x[6], ligne_nom=x[7], franchit_virgule=x[8]) for x in b[0]]
+    return (cits, b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+            {k: [(x[0], x[1], x[2], x[3]) for x in vs] for k, vs in b[8].items()})
+
+
+def cache() -> verdict_cache.CacheCliquet:
+    global _CACHE
+    if _CACHE is None:
+        _CACHE = verdict_cache.CacheCliquet(
+            nom="probe_477r25_slots_autres_interfaces",
+            contexte=verdict_cache.sha_fichiers(
+                Path(__file__).resolve(),
+                HERE / "probe_477r24r1_slots_interface.py", tsv_path()),
+            encoder=_encoder, decoder=_decoder)
+    return _CACHE
+
+
+def _id_appel(fenetre: int, traverse: bool, relaches: tuple[str, ...],
+              virgule_bloquante: bool, ventiler: bool) -> str:
+    """Identifiant LISIBLE et deterministe du jeu de parametres d'une recolte."""
+    return "w%d%s%s%s%s" % (
+        fenetre, "+t" if traverse else "", "+vb" if virgule_bloquante else "",
+        "+n" if ventiler else "",
+        "+r:" + ",".join(sorted(relaches)) if relaches else "")
 
 
 def _motifs(alias: tuple[str, ...]) -> str:
@@ -560,13 +648,7 @@ def _compter_autre_casse() -> int:
     existe pour ne pas commettre.
     """
     n = 0
-    for path in fichiers_balayes():
-        if path.relative_to(REPO).as_posix() in EXCLUS:
-            continue
-        try:
-            texte = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
+    for _rel, texte in textes_balayes():
         for ligne in texte.splitlines():
             if _RE_SLOT_AUTRE_CASSE.search(ligne) and not RE_SLOT.search(ligne):
                 n += 1
@@ -653,6 +735,154 @@ def _blocs(lignes: list[str], fenetre: int):
             yield i0, "\n".join(vues), offsets
 
 
+def _contribution(rel: str, texte: str, tables, fenetre: int, couples, rx_noms) -> tuple:
+    """LA CONTRIBUTION D'UN SEUL FICHIER a l'etage 3 -- verdict LOCAL, donc cachable (#486-r1).
+
+    Elle ne lit QUE `texte`. Etabli avant de poser le cache : les seules variables partagees de
+    l'ancienne boucle etaient des ACCUMULATEURS, `recense` est purement ADDITIF, et le
+    `vus_absents` de deduplication portait une cle COMMENCANT par `rel` -- donc intra-fichier par
+    construction. Aucun canal ne courait d'un fichier a l'autre.
+
+    Rend `(citations, sans_interface, deja_gardee, multi, sans_couple, exemptees, noms absents,
+    recensement partiel, ventilation partielle)`. Tout ce qui est INTER-fichier -- deduplication
+    globale, priorite au mono-ligne, priorite au non-franchissement, confrontation aux tables --
+    reste chez `recolter`, hors cache.
+    """
+    retenues: list[Citation] = []
+    sans_iface = deja = multi = sans_couple = exempt = 0
+    nom_absent: list[str] = []
+    vus_absents: set[tuple[str, int, str, int, str, int]] = set()
+    recense: dict[str, int] = {}
+    ventile: dict[str, list[tuple[str, int, str, str]]] = {c: [] for c in CAUSES}
+    lignes = texte.splitlines()
+    #: PRE-CALCUL PAR LIGNE. Sans lui, les 18 regex de recepteur sont rejouees sur chaque
+    #: bloc de chaque taille -- mesure : le balayage passait de 7 s a plus de 2 min.
+    a_slot = [bool(RE_SLOT.search(l)) for l in lignes]
+    #: Une ligne n'est examinee que si un slot est ecrit a moins de `fenetre` lignes d'elle
+    #: -- ailleurs, aucun bloc ne la joindra jamais a un slot.
+    utile = [any(a_slot[max(0, i - fenetre + 1):i + fenetre]) for i in range(len(lignes))]
+    ifaces_l = [frozenset(iface for _, iface, _ in INTERFACES
+                          if _RECEPTEURS[iface].search(l)) if u else frozenset()
+                for l, u in zip(lignes, utile)]
+    garde_l = [bool(_RE_DEJA_GARDEE.search(l)) if u else False
+               for l, u in zip(lignes, utile)]
+    #: Les lignes portant un slot d'ou SORT au moins un couple. C'est ce qui distingue
+    #: « ecartee » de « couverte », et c'est une propriete de LIGNE, pas de bloc : une
+    #: meme ligne est vue par `fenetre` blocs.
+    couvertes: set[int] = set()
+    exemptees_l: set[int] = set()
+    for i0, bloc, offsets in _blocs(lignes, fenetre):
+        fin = i0 + len(offsets)
+        if not any(a_slot[i0:fin]):
+            continue
+        union = frozenset().union(*ifaces_l[i0:fin])
+        if not union:
+            continue
+        #: L'ordre reste celui de `INTERFACES` -- une sortie qui depend de l'ordre d'un
+        #: `set` n'est pas relisible d'un run a l'autre.
+        vues = [iface for _, iface, _ in INTERFACES if iface in union]
+        for iface in vues:
+            table = tables.get(iface, {})
+            #: Les formes sont jouees en regime MONO (qualificateur OPTIONNEL en forme A) ;
+            #: le regime reel est tranche APRES coup, sur le SPAN du couple. Le groupe `q0`
+            #: dit si le qualificateur etait la, ce qu'exige le regime multi.
+            for k, rx in enumerate(couples[iface][0]):
+                for m in rx.finditer(bloc):
+                    slot = int(m.group("n%d" % k), 0)
+                    nom = m.group("nom%d" % k)
+                    no = i0 + bisect.bisect_right(offsets, m.start("n%d" % k))
+                    no_nom = i0 + bisect.bisect_right(offsets, m.start("nom%d" % k))
+                    #: ⚠ L'INTERFACE ET LE REGIME SE JUGENT SUR LE SPAN DU COUPLE, PAS SUR
+                    #: LE BLOC. A `fenetre = 1` c'est la meme chose (span = ligne), mais des
+                    #: que le bloc s'elargit, une interface nommee TROIS LIGNES PLUS BAS
+                    #: n'a plus a s'attribuer un slot qu'elle ne porte pas -- mesure : c'est
+                    #: ainsi que « `$$FinishAttack` (slot 0x3b) » se voyait attribuer a
+                    #: `IMatchState` parce que la ligne suivante ecrit `MatchState+0x60`.
+                    #: Jugee sur le span, l'attribution redevient celle du site.
+                    a, b = min(no, no_nom), max(no, no_nom)
+                    span = frozenset().union(*ifaces_l[a - 1:b])
+                    if iface not in span:
+                        continue
+                    #: ⚠ EN REGIME MULTI-INTERFACE, SEULES LES FORMES A ET D SONT GARDEES.
+                    #: Les formes B et C rapprochent un nom et un slot SEPARES par du texte
+                    #: -- et quand le span parle de deux interfaces, ce texte est justement
+                    #: ce qui les separe : « `BattleQuery$$GetNormalAttackPrediction`
+                    #: invoque `IDamagePrediction` slot 9 » attribuerait le slot 9
+                    #: d'IDamagePrediction a la methode de BattleQuery. Mesure : 2 faux
+                    #: positifs sur 59 leves par ce seul cran. Les formes A et D restent :
+                    #: leur attribution est portee par un qualificateur ou un recepteur
+                    #: COLLE, pas par la proximite.
+                    if len(span) > 1 or any(garde_l[a - 1:b]):
+                        if k > 1 or (k == 0 and m.group("q0") is None):
+                            continue
+                    #: L'exemption au site vaut si elle est ecrite sur l'une OU l'autre
+                    #: des deux lignes du couple. A `fenetre = 1` c'est la meme.
+                    if (MARQUEUR_REFUTE in lignes[no - 1]
+                            or MARQUEUR_REFUTE in lignes[no_nom - 1]):
+                        #: La ligne du SLOT compte alors comme exemptee, meme si c'est la
+                        #: ligne du NOM qui porte le marqueur : sinon elle retomberait en
+                        #: `sans_couple` et se lirait comme une zone aveugle alors qu'elle
+                        #: est une exemption ASSUMEE.
+                        exemptees_l.add(no)
+                        continue
+                    couvertes.add(no)
+                    if nom not in {v[0] for v in table.values()}:
+                        #: ⚠ DEDUPLIQUE comme les citations : le meme couple est vu par
+                        #: chaque taille de bloc qui le contient. Sans cette cle, le compte
+                        #: des indecidables se lisait comme du bruit CROISSANT avec la
+                        #: fenetre (5 -> 33 -> 88 -> 168 a W=4) alors qu'il ne s'agissait
+                        #: que du MEME site recompte -- un compteur qui gonfle sans que
+                        #: rien n'apparaisse fait renoncer a un elargissement legitime.
+                        cle_abs = (rel, no, iface, slot, nom, no_nom)
+                        if cle_abs in vus_absents:
+                            continue
+                        vus_absents.add(cle_abs)
+                        nom_absent.append(
+                            "%s:%d [%s] slot 0x%x = %s -- ce nom n'est a AUCUN slot de "
+                            "cette interface | %s" % (rel, no, iface, slot, nom,
+                                                      lignes[no - 1].strip()[:120]))
+                        continue
+                    queue = bloc[m.end():]
+                    args = _compter_args(queue) if RE_APPEL.match(queue) else None
+                    retenues.append(Citation(
+                        fichier=rel, ligne=no, iface=iface, slot=slot, nom=nom, args=args,
+                        ligne_nom=no_nom,
+                        franchit_virgule="," in (m.groupdict().get("rem%d" % k) or ""),
+                        texte=lignes[no - 1].strip()[:150]))
+    #: CE QUI RESTE ECARTE se compte LIGNE PAR LIGNE -- une ligne, un verdict. Compter par
+    #: bloc melangerait les regimes et rendrait les chiffres incomparables d'une fenetre
+    #: a l'autre, alors que c'est justement ce qu'on veut mesurer.
+    for no, ligne in enumerate(lignes, 1):
+        if not RE_SLOT.search(ligne) or no in couvertes:
+            continue
+        vues = [iface for _, iface, _ in INTERFACES if _RECEPTEURS[iface].search(ligne)]
+        if not vues:
+            if _RE_DEJA_GARDEE.search(ligne):
+                deja += 1
+            else:
+                sans_iface += 1
+                for m in _RE_RECEVEUR_CANDIDAT.finditer(ligne):
+                    recense[m.group(1)] = recense.get(m.group(1), 0) + 1
+        elif MARQUEUR_REFUTE in ligne or no in exemptees_l:
+            exempt += 1
+        elif len(vues) > 1 or _RE_DEJA_GARDEE.search(ligne):
+            multi += 1
+        else:
+            sans_couple += 1
+            #: LE RECENSEUR (#477-r42) -- la cause est DERIVEE de la ligne et de son
+            #: voisinage, jamais cherchee dans une liste blanche. `rx_noms` porte les noms
+            #: de l'interface REELLEMENT appariee a cette ligne (`vues[0]`, unique ici par
+            #: construction : le cas multi est parti dans `multi` juste au-dessus).
+            if rx_noms is not None:
+                autour = "\n".join(lignes[max(0, no - fenetre):no - 1 + fenetre])
+                ventile.setdefault(
+                    _cause_ecartee(ligne, autour, rx_noms.get(vues[0])), []
+                ).append((rel, no, vues[0], ligne.strip()[:120]))
+
+    return (retenues, sans_iface, deja, multi, sans_couple, exempt, nom_absent,
+            recense, ventile)
+
+
 def recolter(tables: dict[str, dict[int, tuple[str, int, int]]],
              fenetre: int = FENETRE, traverse: bool | None = None,
              relaches: tuple[str, ...] = (), virgule_bloquante: bool = False,
@@ -681,146 +911,30 @@ def recolter(tables: dict[str, dict[int, tuple[str, int, int]]],
     #: importe de #477-r24-r1) -- pas d'une copie qui reproduirait son ancien lookbehind.
     rx_noms = ({iface: _regex_noms(frozenset(v[0] for v in t.values()))
                 for iface, t in tables.items() if t} if ventiler else None)
-    retenues: list[Citation] = []
-    sans_iface = deja = multi = sans_couple = exempt = 0
-    nom_absent: list[str] = []
-    vus_absents: set[tuple[str, int, str, int, str, int]] = set()
-    recense: dict[str, int] = {}
     ventile: dict[str, list[tuple[str, int, str, str]]] = {c: [] for c in CAUSES}
-    for path in fichiers_balayes():
-        rel = path.relative_to(REPO).as_posix()
-        if rel in EXCLUS:
-            continue
-        try:
-            texte = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
+    retenues, nom_absent, recense = [], [], {}
+    sans_iface = deja = multi = sans_couple = exempt = 0
+    appel = _id_appel(fenetre, traverse, relaches, virgule_bloquante, rx_noms is not None)
+    cch = cache()
+    for rel, texte in textes_balayes():
+        #: ⚠ LE PRE-FILTRE RESTE JOUE A CHAQUE RUN, ET N'ENTRE PAS AU CACHE : il coute une
+        #: recherche de sous-chaine sur un texte deja lu.
         if "slot" not in texte:
             continue
-        lignes = texte.splitlines()
-        #: PRE-CALCUL PAR LIGNE. Sans lui, les 18 regex de recepteur sont rejouees sur chaque
-        #: bloc de chaque taille -- mesure : le balayage passait de 7 s a plus de 2 min.
-        a_slot = [bool(RE_SLOT.search(l)) for l in lignes]
-        #: Une ligne n'est examinee que si un slot est ecrit a moins de `fenetre` lignes d'elle
-        #: -- ailleurs, aucun bloc ne la joindra jamais a un slot.
-        utile = [any(a_slot[max(0, i - fenetre + 1):i + fenetre]) for i in range(len(lignes))]
-        ifaces_l = [frozenset(iface for _, iface, _ in INTERFACES
-                              if _RECEPTEURS[iface].search(l)) if u else frozenset()
-                    for l, u in zip(lignes, utile)]
-        garde_l = [bool(_RE_DEJA_GARDEE.search(l)) if u else False
-                   for l, u in zip(lignes, utile)]
-        #: Les lignes portant un slot d'ou SORT au moins un couple. C'est ce qui distingue
-        #: « ecartee » de « couverte », et c'est une propriete de LIGNE, pas de bloc : une
-        #: meme ligne est vue par `fenetre` blocs.
-        couvertes: set[int] = set()
-        exemptees_l: set[int] = set()
-        for i0, bloc, offsets in _blocs(lignes, fenetre):
-            fin = i0 + len(offsets)
-            if not any(a_slot[i0:fin]):
-                continue
-            union = frozenset().union(*ifaces_l[i0:fin])
-            if not union:
-                continue
-            #: L'ordre reste celui de `INTERFACES` -- une sortie qui depend de l'ordre d'un
-            #: `set` n'est pas relisible d'un run a l'autre.
-            vues = [iface for _, iface, _ in INTERFACES if iface in union]
-            for iface in vues:
-                table = tables.get(iface, {})
-                #: Les formes sont jouees en regime MONO (qualificateur OPTIONNEL en forme A) ;
-                #: le regime reel est tranche APRES coup, sur le SPAN du couple. Le groupe `q0`
-                #: dit si le qualificateur etait la, ce qu'exige le regime multi.
-                for k, rx in enumerate(couples[iface][0]):
-                    for m in rx.finditer(bloc):
-                        slot = int(m.group("n%d" % k), 0)
-                        nom = m.group("nom%d" % k)
-                        no = i0 + bisect.bisect_right(offsets, m.start("n%d" % k))
-                        no_nom = i0 + bisect.bisect_right(offsets, m.start("nom%d" % k))
-                        #: ⚠ L'INTERFACE ET LE REGIME SE JUGENT SUR LE SPAN DU COUPLE, PAS SUR
-                        #: LE BLOC. A `fenetre = 1` c'est la meme chose (span = ligne), mais des
-                        #: que le bloc s'elargit, une interface nommee TROIS LIGNES PLUS BAS
-                        #: n'a plus a s'attribuer un slot qu'elle ne porte pas -- mesure : c'est
-                        #: ainsi que « `$$FinishAttack` (slot 0x3b) » se voyait attribuer a
-                        #: `IMatchState` parce que la ligne suivante ecrit `MatchState+0x60`.
-                        #: Jugee sur le span, l'attribution redevient celle du site.
-                        a, b = min(no, no_nom), max(no, no_nom)
-                        span = frozenset().union(*ifaces_l[a - 1:b])
-                        if iface not in span:
-                            continue
-                        #: ⚠ EN REGIME MULTI-INTERFACE, SEULES LES FORMES A ET D SONT GARDEES.
-                        #: Les formes B et C rapprochent un nom et un slot SEPARES par du texte
-                        #: -- et quand le span parle de deux interfaces, ce texte est justement
-                        #: ce qui les separe : « `BattleQuery$$GetNormalAttackPrediction`
-                        #: invoque `IDamagePrediction` slot 9 » attribuerait le slot 9
-                        #: d'IDamagePrediction a la methode de BattleQuery. Mesure : 2 faux
-                        #: positifs sur 59 leves par ce seul cran. Les formes A et D restent :
-                        #: leur attribution est portee par un qualificateur ou un recepteur
-                        #: COLLE, pas par la proximite.
-                        if len(span) > 1 or any(garde_l[a - 1:b]):
-                            if k > 1 or (k == 0 and m.group("q0") is None):
-                                continue
-                        #: L'exemption au site vaut si elle est ecrite sur l'une OU l'autre
-                        #: des deux lignes du couple. A `fenetre = 1` c'est la meme.
-                        if (MARQUEUR_REFUTE in lignes[no - 1]
-                                or MARQUEUR_REFUTE in lignes[no_nom - 1]):
-                            #: La ligne du SLOT compte alors comme exemptee, meme si c'est la
-                            #: ligne du NOM qui porte le marqueur : sinon elle retomberait en
-                            #: `sans_couple` et se lirait comme une zone aveugle alors qu'elle
-                            #: est une exemption ASSUMEE.
-                            exemptees_l.add(no)
-                            continue
-                        couvertes.add(no)
-                        if nom not in {v[0] for v in table.values()}:
-                            #: ⚠ DEDUPLIQUE comme les citations : le meme couple est vu par
-                            #: chaque taille de bloc qui le contient. Sans cette cle, le compte
-                            #: des indecidables se lisait comme du bruit CROISSANT avec la
-                            #: fenetre (5 -> 33 -> 88 -> 168 a W=4) alors qu'il ne s'agissait
-                            #: que du MEME site recompte -- un compteur qui gonfle sans que
-                            #: rien n'apparaisse fait renoncer a un elargissement legitime.
-                            cle_abs = (rel, no, iface, slot, nom, no_nom)
-                            if cle_abs in vus_absents:
-                                continue
-                            vus_absents.add(cle_abs)
-                            nom_absent.append(
-                                "%s:%d [%s] slot 0x%x = %s -- ce nom n'est a AUCUN slot de "
-                                "cette interface | %s" % (rel, no, iface, slot, nom,
-                                                          lignes[no - 1].strip()[:120]))
-                            continue
-                        queue = bloc[m.end():]
-                        args = _compter_args(queue) if RE_APPEL.match(queue) else None
-                        retenues.append(Citation(
-                            fichier=rel, ligne=no, iface=iface, slot=slot, nom=nom, args=args,
-                            ligne_nom=no_nom,
-                            franchit_virgule="," in (m.groupdict().get("rem%d" % k) or ""),
-                            texte=lignes[no - 1].strip()[:150]))
-        #: CE QUI RESTE ECARTE se compte LIGNE PAR LIGNE -- une ligne, un verdict. Compter par
-        #: bloc melangerait les regimes et rendrait les chiffres incomparables d'une fenetre
-        #: a l'autre, alors que c'est justement ce qu'on veut mesurer.
-        for no, ligne in enumerate(lignes, 1):
-            if not RE_SLOT.search(ligne) or no in couvertes:
-                continue
-            vues = [iface for _, iface, _ in INTERFACES if _RECEPTEURS[iface].search(ligne)]
-            if not vues:
-                if _RE_DEJA_GARDEE.search(ligne):
-                    deja += 1
-                else:
-                    sans_iface += 1
-                    for m in _RE_RECEVEUR_CANDIDAT.finditer(ligne):
-                        recense[m.group(1)] = recense.get(m.group(1), 0) + 1
-            elif MARQUEUR_REFUTE in ligne or no in exemptees_l:
-                exempt += 1
-            elif len(vues) > 1 or _RE_DEJA_GARDEE.search(ligne):
-                multi += 1
-            else:
-                sans_couple += 1
-                #: LE RECENSEUR (#477-r42) -- la cause est DERIVEE de la ligne et de son
-                #: voisinage, jamais cherchee dans une liste blanche. `rx_noms` porte les noms
-                #: de l'interface REELLEMENT appariee a cette ligne (`vues[0]`, unique ici par
-                #: construction : le cas multi est parti dans `multi` juste au-dessus).
-                if rx_noms is not None:
-                    autour = "\n".join(lignes[max(0, no - fenetre):no - 1 + fenetre])
-                    ventile.setdefault(
-                        _cause_ecartee(ligne, autour, rx_noms.get(vues[0])), []
-                    ).append((rel, no, vues[0], ligne.strip()[:120]))
+        lot = cch.contribution(rel, appel, verdict_cache.sha_texte(texte),
+                               lambda r=rel, t=texte: _contribution(
+                                   r, t, tables, fenetre, couples, rx_noms))
+        retenues += lot[0]
+        sans_iface += lot[1]
+        deja += lot[2]
+        multi += lot[3]
+        sans_couple += lot[4]
+        exempt += lot[5]
+        nom_absent += lot[6]
+        for nomrec, k in lot[7].items():
+            recense[nomrec] = recense.get(nomrec, 0) + k
+        for cause, v in lot[8].items():
+            ventile.setdefault(cause, []).extend(v)
     #: Deduplication : plusieurs formes -- et, en fenetre, plusieurs BLOCS -- peuvent capter le
     #: MEME couple. La cle inclut la ligne du NOM : deux noms identiques a deux endroits
     #: differents sont deux citations.
@@ -1047,7 +1161,21 @@ def main() -> int:
                     help="rejoue le regime d'AVANT #477-r42 (la virgule ARRETE le remplissage)")
     ap.add_argument("--relacher", action="store_true",
                     help="desarme le cran `priorite-non-franchissement` et publie ce qu'il CACHE")
+    ap.add_argument("--verifier-cache", action="store_true",
+                    help="RECALCULE tout en ignorant le cache versionne et le confronte entree "
+                         "par entree (#486-r1) -- le seul controle qui voie une entree falsifiee "
+                         "de facon coherente")
     args = ap.parse_args()
+
+    if args.verifier_cache:
+        #: MODE ESPION : le fichier est charge, jamais servi. Le run recalcule donc TOUT.
+        global _CACHE
+        _CACHE = verdict_cache.CacheCliquet(
+            nom="probe_477r25_slots_autres_interfaces",
+            contexte=verdict_cache.sha_fichiers(
+                Path(__file__).resolve(),
+                HERE / "probe_477r24r1_slots_interface.py", tsv_path()),
+            encoder=_encoder, decoder=_decoder, relire=False)
 
     print("=== #477-r25 -- slots des AUTRES interfaces (hors IOperationProcessor) ===")
     print("build qui fait foi : %s" % current_build())
@@ -1229,6 +1357,28 @@ def main() -> int:
             print("  %-16s a_mordu=%-5s  cliquet %d -> %d, nom %d -> %d, arite %d -> %d   (%s)"
                   % (nom, str(mut != base).upper(), base[0], mut[0], base[1], mut[1],
                      base[2], mut[2], quoi))
+
+    #: LE CACHE (#486-r1) -- muet dans le regime normal : la sortie avec cache chaud doit etre
+    #: BIT POUR BIT celle d'un run a froid. Ecrit uniquement dans le regime CANONIQUE ; un
+    #: `--fenetre N` ou un `--virgule-bloquante` produirait d'autres jeux de parametres, et les
+    #: ecrire chasserait du fichier les entrees que la boucle de merge utilise.
+    canonique = args.fenetre == FENETRE and not args.virgule_bloquante
+    if args.verifier_cache:
+        divergences = verdict_cache.verifier(cache())
+        print()
+        print("=== VERIFICATION DU CACHE VERSIONNE (#486-r1) ===")
+        print("  entrees sur disque : %d   recalculees : %d"
+              % (len(cache()._sur_disque), len(cache()._vues)))
+        for d in divergences:
+            print("  DIVERGENCE %s" % d)
+        if divergences:
+            #: rc DEDIE : ce n'est pas le verdict du cliquet sur le depot, c'est le CACHE qui ment.
+            print("  rc=3 -- le cache versionne n'atteste PAS ce que le calcul rend. Le")
+            print("  REGENERER : python scripts/python/probe_477r25_slots_autres_interfaces.py")
+            return 3
+        print("  OK -- chaque entree du cache vaut ce que le recalcul integral produit.")
+    elif canonique:
+        cache().enregistrer()
 
     rouge = bool(ecarts or faux_nom or faux_arite)
     print()
