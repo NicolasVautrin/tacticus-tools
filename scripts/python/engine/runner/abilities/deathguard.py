@@ -514,6 +514,43 @@ def entropy_cannons_tree() -> AttackWithAttackDamage:
                                   ability_type=int(ActiveAbilityType.EntropyCannons))
 
 
+def entropy_cannons_is_valid_target_trigger() -> TriggerOr:
+    """Predicat de CIBLAGE de 1168 -- MIRROR du corps de
+    `IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason`,
+    dont les deux termes sont montes sur les selecteurs memoises du `DSLSelectors` de l'ability :
+
+        aura  = DSLTriggers.IsInTeamContagionsOfNurgleAura(sel+0x60 = Target, sel+0x48 = Caster)
+                    .ShouldTrigger(entities, 0x20)
+        neg   = DSLTriggers.HasNegativeModifier(sel+0x60 = Target, 0x10 = StatType.FixedArmor)
+                    .ShouldTrigger(entities, 0x20)
+        comp  = target.GetComponent<FixedArmorComponent>()
+        return aura || (comp.<+0x48> > 0 && neg)
+
+    STRUCTURELLEMENT IDENTIQUE a `plagueburst_is_valid_adjacent_enemy_trigger` (meme famille Death
+    Guard, meme couple aura/armure), a UN detail pres : le sujet est ici `Target()` (le
+    `AbilityEntities+0x178` de la cible evaluee), pas le `Subject()` lie par un `Filter`.
+
+    ⚠ `comp.<+0x48>` EST `StatPart.Initial`, PAS la valeur courante. Lu au decompile, deux fois :
+    `IdunBattle.Entities.Components.StatComponent$$GetStatPart` `case 3: return *(uint*)(this+0x48)`,
+    et `IdunBattle.Entities.Components.StatComponent$$get_CurrentValue` qui vaut
+    `*(this+0x48) + *(this+0x10)` (initial + total des modifications), clampe. Consequence NON
+    triviale : une cible dont le FixedArmor a ete reduit A ZERO par un modificateur reste VALIDE --
+    c'est l'armure de BASE qui doit etre non nulle. Lire la valeur COURANTE fabriquerait un
+    SUR-refus exactement dans le regime que l'ability vise.
+
+    ⚠ Le composant est identifie par la PAIRE de globales du call-site, croisee avec
+    `IdunBattle.Entities.UnitExtensions$$GetStatComponent` : `case 0x10` (StatType.FixedArmor) y
+    appelle le MEME `GetComponent` generique avec le MEME `FixedArmorComponent.ComponentId`. Ce
+    n'est donc pas un composant tiers -- c'est le composant de stat de `FixedArmor`, et le port le
+    lit par `StatAmount(., FIXED_ARMOR, INITIAL)` comme son jumeau Plagueburst."""
+    aura = IsInTeamAura(Target(), int(EffectType.ContagionsOfNurgle_ArmorReduction1), Caster())
+    armor = TriggerAnd(
+        HasNegativeModifier(Target(), (int(StatType.FIXED_ARMOR),)),
+        AmountIsGreaterThanZero(StatAmount(Target(), int(StatType.FIXED_ARMOR),
+                                           int(StatPart.INITIAL))))
+    return TriggerOr(aura, armor)
+
+
 class EntropyCannonsAbility(ActiveAbility):
     """`EntropyCannonsAbility$$IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$ExecuteBehaviour` (id 1168, `deathCrawler` « Plagueburst
     Crawler », MACHINE OF WAR Death Guard). Arbre DSL `entropy_cannons_tree()` (mirror 1:1) : 2 coups
@@ -549,14 +586,11 @@ class EntropyCannonsAbility(ActiveAbility):
     #
     # `TargetMatchesDynamicRule` : la regle-delegue est
     # `IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason`
-    # (deja RE-lue et documentee en tete de section) -- elle rend `2` sauf si la cible est sous aura
-    # Contagion ALLIEE ou porte une modification NEGATIVE de FixedArmor. NON PORTEE : le port n'a pas
-    # de face DECISION pour les MoW (elles sont hors de `decisionView.units`, case-mow §4) ->
-    # `get_dynamic_invalid_target_reason` garde son defaut 0 (permissif), et l'ecart est MESURE, pas
-    # suppose (cf. case-249). NB : le motif historique de ce non-port (« la branche AURA n'est pas
-    # materialisable offline ») N'EST PLUS VALIDE depuis case-224 -- les DEUX branches sont
-    # desormais portables (cf. `plagueburst_is_valid_adjacent_enemy_trigger`, qui les evalue). C'est
-    # d'ailleurs CE predicat natif qui sert d'ORACLE LIVE au port de l'aura
+    # -- elle rend `2` sauf si la cible est sous aura Contagion ALLIEE ou porte une modification
+    # NEGATIVE de FixedArmor sur une armure de BASE non nulle. PORTEE depuis #287-r11 (cf. la
+    # surcharge ci-dessous) : les DEUX branches etaient portables depuis case-224
+    # (`plagueburst_is_valid_adjacent_enemy_trigger`, qui evalue exactement le meme couple), seul le
+    # call-site manquait. C'est d'ailleurs CE predicat natif qui sert d'ORACLE LIVE au port de l'aura
     # (`tests/engine/runner/test_contagions_aura_range_live.py`, via `abilityTargets`).
     TARGETING_OPTIONS = TargetingOptions(
         rules=(TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowNullCasterTile),
@@ -582,6 +616,34 @@ class EntropyCannonsAbility(ActiveAbility):
                    for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         return {"ability": ENTROPY_CANNONS_ID, "caster": caster_id, "target": target_id,
                 "attacks": attacks, "dsl": True}
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile, ligne a ligne (#287-r11) :
+
+            if (!EntityExtensions.IsUnit(target)) return 0;
+            entities = new AbilityEntities(caster, caster, target, null, ...);
+            ... cf. `entropy_cannons_is_valid_target_trigger` ...
+            return (aura || (fixedArmor.Initial > 0 && hasNegativeModifier)) ? 0 : 2;
+
+        `2` = `TargetingRule.TargetMatchesDynamicRule`.
+
+        ⚠ Le 4e argument de l'`AbilityEntities` (`owner`) est **NUL** ici -- contraste avec
+        `SquigLaunchas`, qui y passe le caster. C'est sans effet sur CE predicat : les deux
+        selecteurs memoises qu'il utilise sont `Target` (`sel+0x60`) et `Caster` (`sel+0x48`),
+        jamais `Owner` (`sel+0x30`). L'ecrire evite de croire que le role est libre.
+
+        `IsUnit(target)` : cote port `state.entities` ne contient que des unites/MoW, donc un
+        `target_id` qui n'y resout pas n'est pas une unite -> `0`, mirror du garde d'entree natif
+        (permissif, pas un refus)."""
+        if target_id is None:
+            return 0
+        ents = entities_from_state(state, int(caster_id), int(target_id))
+        if ents.target is None:
+            return 0                                   # !EntityExtensions.IsUnit(target) -> 0
+        ok = bool(entropy_cannons_is_valid_target_trigger().should_trigger(ents))
+        return 0 if ok else int(TR.TargetMatchesDynamicRule)
 
 
 def spawn_poxwalkers_tree(tiles: list) -> Spawn:
