@@ -269,6 +269,13 @@ def _jouer_457(base: Path) -> tuple:
     # service >> pourrait tomber sur un depot parent et repondre rc=0 -- la contre-epreuve
     # mesurerait alors autre chose que ce qu'elle annonce.
     env["GIT_CEILING_DIRECTORIES"] = str(base.parent)
+    # `probe_457` REFUSE de tourner depuis le retrait de la banque de la doctrine (`d82ec527`) et
+    # rend alors 99 -- le MEME code que << rien mesure >>. Sans cette echappatoire, les TROIS
+    # scenarios recevaient 99 quel que soit leur montage : aucune mutation ne pouvait mordre, et le
+    # cliquet rougissait sur son propre montage. C'est l'usage CONSCIENT que la variable prevoit
+    # (depot jetable, contre-epreuve), pas un contournement de la doctrine -- le vrai depot n'est
+    # jamais touche.
+    env["TACTICUS_ALLOW_RATCHETS"] = "1"
     proc = subprocess.run([sys.executable, PROBE_457.name, "--shard", "0/1"],
                           cwd=str(py), env=env, capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
@@ -289,8 +296,8 @@ def _verifier(nom: str, rc: int, sortie: str, rc_attendu: int, doit_porter: list
             ko.append("la sortie porte %r, ce qui ne devrait plus arriver" % m)
     if ko:
         print("  ROUGE  CONTRE-EPREUVE %s : %s" % (nom, " ; ".join(ko)))
-        for ligne in [l for l in sortie.splitlines() if l.strip()][-6:]:
-            print("         | %s" % l[:110])
+        for ligne in [x for x in sortie.splitlines() if x.strip()][-6:]:
+            print("         | %s" % ligne[:110])
         return 1
     if verbeux:
         print("  ok     contre-epreuve %-22s rc=%d" % (nom, rc))
