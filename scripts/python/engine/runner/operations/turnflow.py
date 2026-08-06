@@ -31,7 +31,12 @@ durees d'effet, triggers de debut de tour) :
                        a duree de TOUTES les unites ; retire les instances a 0).
   * EndTurn         -> `turnsFinished@+0x5c += 1` PER-UNITE du joueur FINISSANT (`_bump_turns_finished`),
                        AVANT le vecteur `On(0x17)` (gate `OwnerHasFinishedMinTurns` de PileIn).
-  * ChangeTurn      -> `find_next_player` (prochain joueur cyclique actif).
+  * ChangeTurn      -> `find_next_player` : QUATRE etages natifs SEPARES (#462-r4e-o-r2-r1-r1-r1) —
+                       l'ORDRE vient de la config (`player_turn_order` = `BC.Player.TurnOrder`, slot
+                       `IBattleQuery` 0x18), l'INDEX du courant s'y cherche sans filtre
+                       (`find_turn_index`), et le SKIP (`should_player_skip_turn`, slot 0x1a) est
+                       evalue DANS la boucle bornee. L'Environment fait partie de l'ordre ; c'est la
+                       RECURSION d'`Execute` qui l'ecarte (non portee, cf. `ChangeTurnOperation`).
   * StartTurn       -> incremente `state.turn_counts[player]` (compteur GLOBAL, TurnComponent+0x38) +
                        `turnsStarted@+0x58 += 1` PER-UNITE du joueur courant (stat 12, `_bump_turns_started`,
                        mig #123) + `start_turn_triggers(player)`.
@@ -245,43 +250,187 @@ def add_flags_after_ability_execution(state: State, caster_id: int,
     return out
 
 
-def _active_players(state: State) -> list[int]:
-    """Joueurs (`OwnerComponent.player`) ayant >=1 unite VIVANTE = membres actifs de la file de tour.
-    Mirror NET du test `FindNextPlayer` `turnQueue.Contains(player)` IdunBattle.Operations.ChangeTurnOperation$$FindNextPlayer : l'Environment/neutre
-    (sans unite) et les equipes eliminees (toutes mortes) en sont naturellement exclus. Ordre = ids
-    croissants (le natif utilise un tableau d'ordre des joueurs ; equivalent pour 2 equipes = le cas du
-    runner ; >2 joueurs = raffinement a valider)."""
+def player_turn_order(state: State) -> list[int]:
+    """`IdunBattle.Core.Services.BattleQuery$$GetPlayerTurnOrder` = le slot `IBattleQuery` **0x18**
+    (arite **0**, lu dans `data/symbols/<build>/metadata/interface_slots.tsv` -- un NOM designe un
+    ENSEMBLE de slots, c'est le couple nom+arite qui l'identifie). Son corps est un pur accesseur de
+    CONFIG :
+
+        return this.<+0xa0 : BattleConfiguration>.<+0x30>.<+0x18>      # IList<PlayerId>
+
+    soit, cote BC, **`BC.Player.TurnOrder`** -- que le seed porte a `[11, 12, 13]`, c'est-a-dire les
+    ids des trois entrees de `BC.Player.Players` : `player` (PlayerType 0), `enemy_1` (1) et
+    **`Environment` (2)**. L'ORDRE DE TOUR CONTIENT DONC L'ENVIRONMENT ; ce n'est pas
+    `FindNextPlayer` qui l'ecarte, c'est la RECURSION d'`Execute` (cf. `ChangeTurnOperation`).
+
+    ⚠ STAND-IN NOMME, et sa portee est bornee. Le port ne recoit NI la liste `TurnOrder` NI la table
+    `PlayerId -> BEntityId` : `decisionView` ne publie que `units[].owner`, un **BEntityId** de
+    joueur. L'ordre est donc RECONSTRUIT par les ids d'entite CROISSANTS des joueurs porteurs
+    d'unites. Les deux coincident sur le seed BC (`TurnOrder` trie par `PlayerId`, entites joueur
+    creees dans cet ordre -- MESURE du 2026-08-06 : joueurs `3` et `4`, `observeBattle.counts.player`
+    = 3), et rien ne le garantit pour une BC dont le `TurnOrder` ne serait pas trie. Residu
+    `#462-r4e-o-r2-r1-r1-r1-r1` : le publier demanderait un capteur sur `GetPlayerTurnOrder`.
+
+    ⚠ LE FILTRE `alive` A DISPARU, ET C'EST LE CORRECTIF. `TurnOrder` est une donnee de
+    CONFIGURATION : un joueur n'en sort JAMAIS, meme toutes ses unites mortes. L'ancien port le
+    retirait de l'ordre, ce qui melangeait deux etages natifs distincts -- l'ORDRE (config) et le
+    SKIP (`ShouldPlayerSkipTurn`, evalue DANS la boucle). La difference se voit des que le joueur
+    COURANT est celui qui n'a plus d'unite : l'ancien port ne le trouvait plus dans l'ordre et
+    repartait de `order[0]`, la ou `FindTurnIndex` -- qui ne consulte AUCUN skip -- le trouve et
+    avance depuis SA position."""
     players: set[int] = set()
     for e in state.entities.values():
         oc = e.get_component(OwnerComponent)
-        uc = e.get_component(UnitComponent)
         if oc is None or oc.player is None:
-            continue
-        if uc is not None and not uc.alive:
             continue
         players.add(int(oc.player))
     return sorted(players)
 
 
+def find_turn_index(state: State, player: Optional[int]) -> Optional[int]:
+    """`IdunBattle.Operations.ChangeTurnOperation$$FindTurnIndex(playerEntityId)`, MIRROR du
+    decompile (le corps est aussi INLINE dans `FindNextPlayer`, a l'identique) :
+
+        if (playerEntityId == 0)                      return null
+        order  = query.GetPlayerTurnOrder()
+        player = state.<slot 0x29 = GetEntity>(playerEntityId)
+        pc     = player.GetPlayerComponent()          # throw si absent
+        for (i = 0 ; i < order.Count ; i++)
+            if (order[i] == pc.<+0x10 : PlayerId>)    return i
+        return null                                   # Nullable<int> SANS valeur
+
+    Rend un `Optional[int]` -- le `Nullable<int>` natif -- et **jamais** un `-1` : c'est
+    l'APPELANT qui rabat l'absence sur `-1` (cf. `find_next_player`), et les deux ne se confondent
+    pas (un `-1` rendu ici entrerait dans un `%` comme un index valide).
+
+    ⚠ AUCUN filtre de skip ici : `FindTurnIndex` cherche la POSITION du joueur courant dans l'ordre
+    de configuration, que ce joueur soit jouable ou non."""
+    if player is None or int(player) == 0:
+        return None
+    order = player_turn_order(state)
+    for i, pid in enumerate(order):
+        if int(pid) == int(player):
+            return i
+    return None
+
+
+def should_player_skip_turn(state: State, player: int) -> bool:
+    """`IdunBattle.Core.Services.IBattleQuery.ShouldPlayerSkipTurn` = le slot **0x1a** (arite **1**),
+    le predicat de SKIP de la boucle de `FindNextPlayer`.
+
+    ⚠ NON PORTE, ET NOMME PLUTOT QUE DEVINE. `IdunBattle.Core.Services.BattleQuery$$ShouldPlayerSkipTurn`
+    n'a **aucun corps propre** dans le binaire : il est absent de `ghidra/functions.tsv` (voisins
+    immediats en adresse : `BattleQuery$$ShouldIgnoreSpecialMovementInDangerZone` puis
+    `BattleQuery$$u003CGetBestWeaponu003Eb__316_0`) **et** de `frida/methods.tsv` -- signature d'un
+    corps TRIVIAL dedupplique par IL2CPP. On ne conclut donc RIEN de cette absence (cf. CLAUDE.md,
+    << l'absence d'une methode dans les tables ne prouve rien >>) : le predicat reste ILLISIBLE. Seul
+    le decorateur `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery$$ShouldPlayerSkipTurn`
+    est lisible, et il ne fait que RELAYER le slot 0x1a de son `inner`.
+
+    Ce qui est ecrit ici est donc un STAND-IN : << un joueur dont aucune unite n'est vivante ne joue
+    pas >>. C'est ce que l'ancien `_active_players` faisait DEJA, mais en amont et en silence ; le
+    changement est qu'il est desormais A SA PLACE NATIVE (predicat de la boucle) et DECLARE.
+    Direction du residu : si le natif skippait AUSSI pour une autre raison, le port ferait jouer un
+    joueur que le natif saute -- jamais l'inverse. Residu `#462-r4e-o-r2-r1-r1-r1-r2` ; point
+    d'ancrage a hooker : le slot 0x1a de l'`IBattleQuery` du runner.
+
+    Le second usage natif du meme slot le confirme comme un predicat de JOUABILITE, et montre qu'il
+    est DISTINCT du test d'Environment -- `IdunBattle.Entities.Formulas.TurnsUntilUnitOwnerTurnFormula$$GetTurnsUntilUnitOwnerTurn`
+    compte les tours intercalaires avec les DEUX gardes cote a cote :
+
+        if (pc.<+0x20 : PlayerType> != 2)  &&  !query.ShouldPlayerSkipTurn(p)   ->  count++
+    """
+    for e in state.entities.values():
+        oc = e.get_component(OwnerComponent)
+        if oc is None or oc.player is None or int(oc.player) != int(player):
+            continue
+        uc = e.get_component(UnitComponent)
+        if uc is None or uc.alive:
+            return False                   # au moins une unite jouable -> le joueur n'est pas saute
+    return True
+
+
 def find_next_player(state: State) -> Optional[int]:
-    """`IdunBattle.Operations.ChangeTurnOperation$$FindNextPlayer : prochain joueur CYCLIQUE (apres le courant) dans
-    l'ordre des joueurs, present dans la file de tour active (ici = a >=1 unite vivante). Renvoie None si
-    aucun (match fini / plus de joueur actif). 1 seul joueur actif -> lui-meme (le natif boucle aussi)."""
-    order = _active_players(state)
+    """`IdunBattle.Operations.ChangeTurnOperation$$FindNextPlayer(matchEntity)`, MIRROR du
+    decompile :
+
+        if (StateExtensions.IsMatchFinished(state))            return null
+        turn    = matchEntity.GetComponent<TurnComponent>()
+        players = matchEntity.<IMatchEntity>.<+0x10 : List<...>>          # la BORNE de la boucle
+        current = turn.get_CurrentPlayerId()                              # BEntityId
+        order   = query.GetPlayerTurnOrder()                              # slot 0x18, arite 0
+        index   = FindTurnIndex(current)                                  # INLINE, a l'identique
+        i = (index.HasValue ? index.Value : -1)
+        for (offset = 1 ; offset <= players.Count ; offset++) {
+            pid    = order[(i + offset) % order.Count]
+            player = StateExtensions.GetPlayer(state, pid)
+            if (!query.ShouldPlayerSkipTurn(player))           break      # slot 0x1a, arite 1
+        }
+        if (offset > players.Count)                            return null
+        return player.Id
+
+    QUATRE etages, tous LUS, et c'est leur SEPARATION qui est le correctif -- l'ancien port les
+    avait fondus dans un unique << cycle sur les joueurs a unites vivantes, tries >> :
+
+      1. l'ORDRE vient de la CONFIG (`player_turn_order`), pas de qui est vivant ;
+      2. l'INDEX du courant se cherche dans cet ordre COMPLET (`find_turn_index`), sans skip ;
+      3. l'absence d'index vaut **-1**, donc le premier candidat est `order[0]` ;
+      4. le SKIP (`should_player_skip_turn`) est evalue DANS la boucle, candidat par candidat, et
+         la boucle est BORNEE : tous skippes -> `None` (le natif ne boucle pas indefiniment).
+
+    ⚠ `IsMatchFinished` n'est PAS porte (le port n'a pas de substrat de condition de victoire) : la
+    fonction rend donc un joueur la ou le natif aurait rendu `null` sur un match deja fini. Sans
+    consequence sur le runner, dont `Runner.apply` n'appelle plus rien apres la fin de match.
+
+    ⚠ CE QUI A ETE MESURE, ET CE QUI NE L'A PAS ETE (2026-08-06, seed 777 / MC1_67, montage
+    `astraBullgryn,tauAunShi` vs `genesPrimus,necroWarden`) : la suite native des `currentPlayer` sur
+    14 changements de tour est une ALTERNANCE STRICTE `[3, 4, 3, 4, ...]`, et elle le reste apres la
+    mort d'une unite (le decoy `Ambush` reste possede par le SUMMONER, pas par l'Environment). Les
+    quatre etages ci-dessus ne se separent donc PAS dans le regime confrontable a deux camps : ils
+    n'y sont exerces qu'OFFLINE (>= 3 joueurs, joueur entierement mort, joueur courant hors ordre --
+    cf. `tests/engine/runner/test_462r4eor2r1r1r1_cycle_de_tour_offline.py`)."""
+    order = player_turn_order(state)
     if not order:
         return None
-    cur = state.current_player_id
-    if cur not in order:
-        return order[0]
     n = len(order)
-    i = order.index(cur)
-    return order[(i + 1) % n]      # cyclique : prochain joueur actif (n==1 -> lui-meme)
+    idx = find_turn_index(state, state.current_player_id)
+    i = idx if idx is not None else -1          # `Nullable<int>` sans valeur -> -1 (LU)
+    # BORNE native = `players.Count`, le nombre de joueurs du match. Le port ne connait que les
+    # joueurs de l'ordre de tour, donc `n` : les deux valent 3 dans toute BC du runner (seed BC :
+    # `Players` = 11/12/13, `TurnOrder` = [11, 12, 13]), et `n` est la borne PRUDENTE (elle ne peut
+    # que sous-estimer le nombre de tentatives, jamais boucler plus que le natif).
+    for offset in range(1, n + 1):
+        pid = int(order[(i + offset) % n])
+        if not should_player_skip_turn(state, pid):
+            return pid
+    return None                                 # tous skippes -> le natif rend `null`
 
 
 class ChangeTurnOperation:
-    """`IdunBattle.Operations.ChangeTurnOperation$$Execute : `current_player = FindNextPlayer`. Le natif recurse si
-    le nouveau joueur est de type 2 (neutre/Environment) pour le SKIP ; ici l'Environment est deja exclu
-    de `_active_players` (aucune unite) -> pas de recursion. Renvoie le nouveau joueur (ou None)."""
+    """`IdunBattle.Operations.ChangeTurnOperation$$Execute()`, MIRROR du decompile :
+
+        next = FindNextPlayer(matchEntity) ; if (next == 0)          return
+        prev = turn.get_CurrentPlayerId()
+        turn.SetCurrentPlayer(next)                                   # NO-OP si next == prev
+        if (state.GetEntity(next).GetPlayerComponent().<+0x20 : PlayerType> == 2) {
+            Execute(this)                                             # RECURSION : l'Environment
+            turn.<+0x18 : previousPlayerId> = prev                    #   ne joue jamais un tour
+        }
+        return processor.<IOperationProcessor slot 0x14 = VerifyMatchEnd>()
+
+    ⚠ LA RECURSION ENVIRONMENT N'EST PAS PORTEE, et ce n'est pas un oubli : elle serait
+    STRUCTURELLEMENT INERTE. Le port derive son ordre de tour des PROPRIETAIRES D'UNITES
+    (`player_turn_order`) ; or l'Environment n'a aucune unite -- le decoy pose par `Ambush` reste
+    possede par son SUMMONER (MESURE du 2026-08-06 : `genesSmnDecoy` `owner = 4`, celui de
+    `genesPrimus`). Il n'entre donc jamais dans l'ordre du port, et la branche ne pourrait jamais
+    fire. La porter demanderait le `PlayerComponent.<+0x20 : PlayerType>`, qu'aucun RPC ne publie :
+    residu `#462-r4e-o-r2-r1-r1-r1-r1`, meme capteur que celui de l'ordre de tour.
+
+    ⚠ `SetCurrentPlayer` est un NO-OP quand le joueur ne change pas (`if (cur == next) return`, LU
+    dans `IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer`) : rendre le joueur
+    COURANT n'est donc pas une anomalie cote natif, c'est un tour de plus pour lui.
+
+    Renvoie le nouveau joueur (ou None)."""
     __slots__ = ()
 
     @staticmethod
