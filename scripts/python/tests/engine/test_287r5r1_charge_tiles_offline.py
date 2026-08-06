@@ -1,0 +1,272 @@
+"""#287-r5-r1 -- la garde OFFLINE des trois regles « tuiles de mouvement du caster ».
+
+Le probe live (`probe_287r5r1_charge_tiles_live.py`) confronte au natif ; ce fichier GARDE ce que la
+confrontation a etabli, et couvre le SEUL bras que le live ne peut pas exercer.
+
+CINQ ETAGES :
+
+ 1. RECENSEMENT BI-CANAL -- les trois ids sont EVALUABLES, chacun par son canal (surcharge de classe
+    pour 1151/1202, entree de `DYNAMIC_TARGET_RULE_UNPORTED` pour 1204, qui n'a pas de classe).
+ 2. BASCULE -- chaque regle DISCRIMINE : un substrat qui refuse, un substrat qui passe. Les deux ne
+    different que par la grandeur que le corps natif LIT (la distance, l'adjacence, l'empreinte).
+ 3. MUTANTS, en DELTA -- la regle DESARMEE doit LACHER le refus qu'elle produisait
+    (`avant == refus` ET `apres == 0`). Le seul `apres == 0` serait vert sur un port qui n'evalue
+    rien.
+ 4. LA CLAUSE D'EMPREINTE DE 1151, que le LIVE N'EXERCE PAS -- cause MESUREE, pas supposee : le seul
+    occupant multi-hex atteignable serait une MoW, et une MoW arrive au runner NON DEPLOYEE
+    (`decisionView.mows[].pos is None`, mesure du 2026-08-06 sur `MC1_67` / `ultraDreadnought`),
+    donc elle n'occupe aucune tuile. Le bras « empreintes EGALES -> 0 » est, lui, confronte live
+    (deux allies a 1 pied, `natif = 0x0` et port `0x0`). Ici on tient les DEUX bras.
+ 5. LA TUILE DE DEPART, hors du pool sous `ignoreUnitsOnTiles` -- le cran trouve PAR le live :
+    `BasePathfinder.u003CIterateReachableTilesu003Ed__12$$MoveNext` n'emet pas le depart (sa branche
+    `depth == 1` rend `GetValidNeighbours` et rien d'autre), la ou le `visited` du port l'incluait.
+    L'ecart etait INOBSERVABLE tant qu'aucun call-site ne posait ce booleen.
+
+ASCII only.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve()
+PY = HERE.parents[2]
+if str(PY) not in sys.path:
+    sys.path.insert(0, str(PY))
+
+import probe_287r4r1_dynamic_target_rules as P                             # noqa: E402
+from engine.entities.active_ability_type import ActiveAbilityType          # noqa: E402
+from engine.entities.pathfinding.board import Board                        # noqa: E402
+from engine.runner.abilities.targeting import (DYNAMIC_TARGET_RULE_UNPORTED,  # noqa: E402
+                                               is_invalid_target)
+from engine.runner.abilities.targeting_rule import TargetingRule as TR     # noqa: E402
+from engine.runner.abilities.handler import ABILITY_CLASSES                # noqa: E402
+from engine.runner.snapshot import load_state                              # noqa: E402
+import hexgeo                                                              # noqa: E402
+
+QUICKENING = int(ActiveAbilityType.TheQuickening)          # 1151
+VIGILANCE = int(ActiveAbilityType.VigilanceEternal)        # 1202
+LEADING = int(ActiveAbilityType.LeadingTheCharge)          # 1204
+TRIO = (QUICKENING, VIGILANCE, LEADING)
+
+
+COLS, ROWS = 9, 9
+
+
+def _tid(col: int, row: int) -> int:
+    return col * ROWS + row + 1
+
+
+def _board(cols=COLS, rows=ROWS) -> Board:
+    """Un plateau PLAT et entierement marchable -- aucun terrain ne doit departager : ce que ces
+    etages mesurent est la DISTANCE, l'ADJACENCE et l'EMPREINTE, pas le pathfinding (deja garde
+    ailleurs)."""
+    out = []
+    for col in range(cols):
+        for row in range(rows):
+            nb = [_tid(c, r) for (c, r) in hexgeo.neighbors(col, row)
+                  if 0 <= c < cols and 0 <= r < rows]
+            out.append({"id": _tid(col, row), "col": col, "row": row, "elevation": 0,
+                        "walkable": True, "isWall": False, "neighbours": nb})
+    return Board(out, adjacency="evenq")
+
+
+def _state(board, unites):
+    """`unites` = [(id, (col,row), team, feet|None)] -> `State` runner, monte par le MEME chemin que
+    le live (`snapshot.load_state`), donc avec les memes composants et les memes conventions.
+
+    `feet` non nul = unite MULTI-HEX : les pieds passent par le canal `observeBattle` (UNE LIGNE PAR
+    PIED, cf. `snapshot._load_feet`), le seul que le port lit -- pas par une ecriture directe du
+    composant, qui court-circuiterait le recalage de la `PositionComponent` sur `feet[0]`."""
+    dv = {"currentPlayer": 1, "units": [
+        {"id": uid, "visualId": "u%d" % uid, "alive": True, "team": team, "owner": team,
+         "pos": {"col": pos[0], "row": pos[1]}, "effects": []}
+        for (uid, pos, team, _feet) in unites]}
+    ob_units = []
+    for uid, pos, _team, feet in unites:
+        if feet:
+            for i, (c, r) in enumerate(feet):
+                ob_units.append({"squadId": uid, "entityId": uid * 100 + i,
+                                 "col": c, "row": r, "hp": 100, "hpMax": 100})
+        else:
+            ob_units.append({"squadId": uid, "entityId": uid * 100,
+                             "col": pos[0], "row": pos[1], "hp": 100, "hpMax": 100})
+    snap = {"units": [{"entityId": uid, "traits": []} for (uid, _p, _t, _f) in unites]}
+    return load_state(dv, {"units": ob_units}, snap, board=board)
+
+
+def _reason(st, caster, cible, aid) -> int:
+    return int(is_invalid_target(st, caster, cible, P._porteur(aid)) or 0)
+
+
+# ================================================================================================
+# 1. RECENSEMENT BI-CANAL
+# ================================================================================================
+
+def test_les_trois_ids_sont_evaluables_chacun_par_son_canal():
+    assert P.evaluabilite(QUICKENING) == "surcharge"
+    assert P.evaluabilite(VIGILANCE) == "surcharge"
+    # 1204 n'a AUCUNE classe portee : sa regle ne peut vivre que dans la table.
+    assert ABILITY_CLASSES.get(LEADING) is None
+    assert P.evaluabilite(LEADING) == "table"
+    assert LEADING in DYNAMIC_TARGET_RULE_UNPORTED
+
+
+# ================================================================================================
+# 2. BASCULE + 3. MUTANTS (en DELTA)
+# ================================================================================================
+
+def _bascule_portee(aid: int, d_proche: int, d_loin: int):
+    """Deux substrats a UNE grandeur d'ecart : la DISTANCE caster -> cible. Le caster est en (0,0)."""
+    b = _board()
+    proche = _state(b, [(1, (0, 0), 1, None), (2, (d_proche, 0), 2, None)])
+    loin = _state(b, [(1, (0, 0), 1, None), (2, (d_loin, 0), 2, None)])
+    return _reason(proche, 1, 2, aid), _reason(loin, 1, 2, aid)
+
+
+def test_bascule_vigilance_1202_par_la_distance():
+    # `range` = 2 : une cible a 2 est chargeable (tuile libre adjacente atteignable), une cible a 8
+    # ne l'est pas -> `TargetIsInRange`.
+    ok, ko = _bascule_portee(VIGILANCE, 2, 8)
+    assert ok == 0, "cible chargeable : la regle doit laisser passer, rendu %s" % hex(ok)
+    assert ko & int(TR.TargetIsInRange), "cible hors d'atteinte : %s" % hex(ko)
+
+
+def test_bascule_leading_1204_par_la_distance():
+    # `range` = 4 : meme forme, seuil plus large -- et AUCUN court-circuit d'adjacence.
+    ok, ko = _bascule_portee(LEADING, 4, 8)
+    assert ok == 0, "cible chargeable : %s" % hex(ok)
+    assert ko & int(TR.TargetIsInRange), "cible hors d'atteinte : %s" % hex(ko)
+
+
+def test_le_court_circuit_d_adjacence_est_PROPRE_a_1202():
+    """La difference STRUCTURELLE entre les deux regles qui partagent l'etage, mesuree sur le MEME
+    substrat : une cible ADJACENTE mais dont AUCUNE tuile adjacente n'est libre.
+
+    1202 rend `0` par son court-circuit `AreEntitiesAdjacent(casterTiles, targetTiles)` -- le natif
+    retourne AVANT d'appeler le selecteur. 1204, lui, n'a pas ce court-circuit ; son verdict passe
+    donc par l'etage TUILES, et le masque `TargetIsNotAdjacent` l'ecarte de toute facon en amont.
+    Si un jour les deux regles etaient fusionnees « puisqu'elles partagent l'etage », ce test
+    rougirait."""
+    b = _board(3, 3)
+    # caster (1,1), cible (1,0) ADJACENTE, et TOUTES les autres tuiles du 3x3 occupees par des
+    # bloqueurs -> aucune tuile de charge libre.
+    unites = [(1, (1, 1), 1, None), (2, (1, 0), 2, None)]
+    uid = 10
+    for c in range(3):
+        for r in range(3):
+            if (c, r) in {(1, 1), (1, 0)}:
+                continue
+            unites.append((uid, (c, r), 2, None))
+            uid += 1
+    st = _state(b, unites)
+    assert _reason(st, 1, 2, VIGILANCE) == 0, "1202 doit court-circuiter sur une cible adjacente"
+    assert _reason(st, 1, 2, LEADING) != 0, "1204 n'a PAS de court-circuit d'adjacence"
+
+
+def test_mutants_en_delta_les_trois_regles_mordent():
+    """`avant == refus` ET `apres == 0` -- le seul `apres == 0` serait vert sur un port inerte.
+
+    ⚠ LE COUPLE DOIT ETRE CELUI OU **SEULE** LA REGLE DECIDE, et c'est ce que la premiere ecriture de
+    ce test avait rate : pour 1151 une tuile a d=8 est deja refusee par le volet PORTEE STATIQUE
+    (`RANGE_FROM_CONFIG` -> `overrideRange = constants.range = 2`), donc desarmer la regle ne
+    retirait RIEN et le mutant accusait le protocole au lieu du port. On vise donc la tuile du
+    CASTER : elle est DANS la portee statique (d = 0), et seule la regle la refuse -- exactement le
+    couple que le live a mesure (`natif = 0x8000000` sur `tgt d=0 occupee:bloodMephiston`)."""
+    b = _board()
+    cas = [(VIGILANCE, _state(b, [(1, (0, 0), 1, None), (2, (8, 0), 2, None)]), 2),
+           (LEADING, _state(b, [(1, (0, 0), 1, None), (2, (8, 0), 2, None)]), 2),
+           (QUICKENING, _state(b, [(1, (2, 2), 1, None)]), b.id_at(2, 2))]
+    for aid, st, cible in cas:
+        avant = _reason(st, 1, cible, aid)
+        assert avant & int(TR.TargetIsInRange), "%d : pas de refus AVANT (%s)" % (aid, hex(avant))
+        with P.desarme(aid):
+            apres = _reason(st, 1, cible, aid)
+        assert apres == 0, "%d : la mutation n'a RIEN retire (apres=%s)" % (aid, hex(apres))
+
+
+# ================================================================================================
+# 4. LA CLAUSE D'EMPREINTE DE 1151 -- le bras que le live n'exerce pas
+# ================================================================================================
+
+def test_quickening_1151_empreinte_egale_accepte_differente_refuse():
+    """`GetFeetCount(GetUnit(target)) != GetFeetCount(caster) -> TargetMatchesDynamicRule`.
+
+    Deux substrats a UNE grandeur d'ecart : le NOMBRE DE PIEDS de l'occupant ALLIE de la tuile visee
+    (le pathfinding traverse les allies, pas les ennemis -- c'est pour cela que l'occupant doit etre
+    ami). Meme position, meme distance, meme camp : seule l'empreinte change.
+
+    Le bras EGAL est aussi confronte LIVE (`natif = 0x0` sur deux allies a 1 pied, `MC1_67`) ; le
+    bras DIFFERENT ne l'est pas, faute d'occupant multi-hex atteignable au runner."""
+    b = _board()
+    # caster (0,0) 1 pied ; allie sur (1,0), a portee de mouvement (`range` = 2).
+    egal = _state(b, [(1, (0, 0), 1, None), (2, (1, 0), 1, None)])
+    diff = _state(b, [(1, (0, 0), 1, None), (2, (1, 0), 1, [(1, 0), (1, 1), (2, 0)])])
+    cible = b.id_at(1, 0)
+    r_egal = _reason(egal, 1, cible, QUICKENING)
+    r_diff = _reason(diff, 1, cible, QUICKENING)
+    assert r_egal == 0, "empreintes EGALES : l'echange doit passer, rendu %s" % hex(r_egal)
+    assert r_diff & int(TR.TargetMatchesDynamicRule), \
+        "empreintes DIFFERENTES : %s" % hex(r_diff)
+    # ... et c'est bien LA REGLE qui le produit, pas un autre etage du masque.
+    with P.desarme(QUICKENING):
+        assert _reason(diff, 1, cible, QUICKENING) == 0
+
+
+def test_quickening_1151_une_tuile_LIBRE_a_portee_passe():
+    """Contre-epreuve de non-vacuite du test precedent : sans occupant, la meme tuile passe. Sans
+    lui, un port qui refuserait TOUTE tuile rendrait le bras `diff` vert par accident."""
+    b = _board()
+    st = _state(b, [(1, (0, 0), 1, None)])
+    assert _reason(st, 1, b.id_at(1, 0), QUICKENING) == 0
+
+
+# ================================================================================================
+# 5. LA TUILE DE DEPART, HORS DU POOL SOUS `ignoreUnitsOnTiles`
+# ================================================================================================
+
+def test_la_tuile_du_caster_est_refusee_par_1151():
+    """Le cran trouve PAR la confrontation live : le natif refuse la tuile du caster par
+    `TargetIsInRange` (mesure `MC1_67`, `tgt d=0 occupee:bloodMephiston`), parce que
+    `BasePathfinder.u003CIterateReachableTilesu003Ed__12$$MoveNext` n'emet pas le depart. Le
+    `visited` du port l'incluait -- il ne l'inclut plus SOUS `ignore_units_on_tiles`."""
+    b = _board()
+    st = _state(b, [(1, (2, 2), 1, None)])
+    r = _reason(st, 1, b.id_at(2, 2), QUICKENING)
+    assert r & int(TR.TargetIsInRange), "la tuile du caster doit etre refusee, rendu %s" % hex(r)
+
+
+def test_le_noeud_movable_tiles_in_range_n_emet_pas_le_depart():
+    """Le meme cran, UN ETAGE PLUS BAS -- sur le noeud lui-meme, pour que la garde survive a une
+    refonte du call-site. Sous `ignore_units_on_tiles`, le pool s'ELARGIT (les tuiles occupees y
+    entrent) mais le DEPART reste dehors."""
+    from engine.entities.selectors import Caster, CasterTile, MovableTilesInRange, SelectTile
+    from engine.dsl.base import Const
+    from engine.runner.abilities.behaviours import entities_from_state
+    b = _board()
+    st = _state(b, [(1, (2, 2), 1, None), (2, (3, 2), 1, None)])
+    ents = entities_from_state(st, 1, None)
+    depart = b.id_at(2, 2)
+    voisin_occupe = b.id_at(3, 2)
+    large = MovableTilesInRange(Caster(), SelectTile(CasterTile()), Const(2),
+                                ignore_flags=True, ignore_units_on_tiles=True).evaluate(ents)
+    etroit = MovableTilesInRange(Caster(), SelectTile(CasterTile()), Const(2),
+                                 ignore_flags=True, ignore_units_on_tiles=False).evaluate(ents)
+    assert depart not in large, "le DEPART ne doit pas entrer dans le pool"
+    assert depart not in etroit
+    # non-vacuite : le booleen elargit REELLEMENT quelque chose (sinon le test ci-dessus serait vrai
+    # pour une mauvaise raison).
+    assert voisin_occupe in large and voisin_occupe not in etroit, \
+        "ignore_units_on_tiles doit faire entrer les tuiles OCCUPEES"
+
+
+# ================================================================================================
+# NON-REGRESSION : les entrees deja portees n'ont pas bouge
+# ================================================================================================
+
+def test_le_recensement_reste_bi_canal_et_non_vide():
+    portees = [a for a in P.ids_portant_le_bit() if P.evaluabilite(a) != "aucune"]
+    assert len(portees) >= 25, "recensement des regles evaluables : %d" % len(portees)
+    assert all(a in portees for a in TRIO)
+    assert any(P.evaluabilite(a) == "table" for a in portees)
+    assert any(P.evaluabilite(a) == "surcharge" for a in portees)
