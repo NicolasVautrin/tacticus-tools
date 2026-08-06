@@ -2767,22 +2767,42 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `test_477r25_slots_autres_interfaces_offline.py` (49 verts), 4 mutants, 4 mordent.
   cf. `docs/rl/case-477r25-slots-autres-interfaces.md`.
 
-- **#477-r29 : `case-26` -- le terme d'adjacence de `RadSaturation` compte les ALLIES, et le PORT
-  n'a pas ete verifie.** `[opus]`
-  ⚠ RENUMEROTE de `#477-r27` a `#477-r29` au merge : COLLISION -- l'agent de la PR #713 avait pris
-  `#477-r27` pour un residu sans rapport, les deux etant EN VOL au meme instant. C'est l'angle mort
-  que `probe_468 --suggere` nomme lui-meme (un numero pris et pas encore ecrit est invisible de
-  toute lecture de l'arbre) ; ni l'un ni l'autre agent n'a fauté.
-  La fiche ecrivait « slot `0x82` = `GetAdjacentUnits` (ring-1, **both teams**) ». Le decompile de
-  `IdunBattle.AI.Playbook.Loki.RadSaturationPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`
-  appelle le slot **`0x83`**, qui est **`GetAdjacentFriends`** (2 arguments) : les ALLIES du
-  caster, pas les deux camps. La fiche disait deja la moitie du contraire -- son cousin y est
-  nomme `OptimizedGait_AdjacentFriends`, « partage slot 0x82 ». La CITATION est corrigee (#477-r25) ;
-  **le PORT ne l'est pas** : personne n'a lu ce que `engine/playbook/` fait de ce terme. S'il
-  compte les deux camps, il est faux, et aucun test ne le dit. CE QU'IL FAUT : lire le mirror,
-  confronter au decompile, et un A/B live qui DEPLACE un allie et un ennemi separement autour de
-  la tuile candidate -- un bras ou seul le camp change.
-  cf. `docs/rl/case-477r25-slots-autres-interfaces.md` sec. 5 et Residus.
+- ~~**#477-r29**~~ : **LIVRE (2026-08-06) -- le port ne comptait NI les allies NI les deux camps :
+  il ne comptait RIEN.** `TriggeredAbilityType.RadSaturation` (1202) etait ABSENTE de
+  `TRIGGERED_MOVE_PLAYBOOKS`, sur la foi du verdict « face DECISION AI-inerte » de `case-26` --
+  verdict REFUTE par les mesures live de la MEME feuille (`case-36` 30/90 exacts, #212, #242,
+  #271) et par celle-ci. Trois faits de la fiche meurent ensemble : le slot (`0x83` =
+  `GetAdjacentFriends`, arite 2, les ALLIES), le multiplicateur (`RadSaturation_AdjacentMarshals`
+  = **+10**, litteral RESOLU par `probe_212_bc_key_literals`, et non `Contaminated.AffectedUnit`
+  = -25) et le predicat (`HasActiveAbility(0x45e = DoctrinaImperatives)` -- le lambda `<>c.b__2_0`
+  a desormais un SYMBOLE, il n'en avait pas sur `gqfc5mff6c`).
+  **A/B ou seul le CAMP change** (`--place`/`--a-place` : cible neutre au centre, un Marshal ALLIE
+  et un Marshal ENNEMI a distance 2 de part et d'autre, zone plate) : `X_nat` = **10** sur les deux
+  tuiles du bras ALLIE, **0** sur les quatre du bras ENNEMI, **0 desaccord** `X_nat` vs `X_port`
+  sur 8 tuiles. Contre-epreuve : DEUX-CAMPS 4/8, ENNEMIS 6/8, SANS-PREDICAT 1/8, POIDS -25 2/8,
+  ABSENT (etat d'avant) **2/8** ; SELF-EXCLU 0/8, declare INERTE PAR ALGEBRE et assertionne dans
+  les deux sens. Livre : `engine/playbook/rad_saturation.py`,
+  `engine/entities/active_abilities.py` (foyer `entity_active_ability_ids`), cles
+  `{friend,enemy}_units[].active` + `unit_active_abilities` dans les TROIS producteurs de `ctx`,
+  `probe_477r29_rad_saturation_camp.py`, `test_477r29_rad_saturation_camp_live.py` (9 verts).
+  Residu : **#477-r31**.
+  cf. `docs/rl/case-477r29-radsaturation-camp.md`.
+
+- **#477-r31 : `AttractMechanicalsUtility` (`DoctrinaImperatives_AttractMechanicals`) est INERTE
+  cote port -- et c'est le MODELE « deux camps » que `case-26` decrivait.** `[opus]`
+  **MESURE, pas redoute** : `meta.attract_mechanicals_neighbor` n'est produit par AUCUN des trois
+  `*_tile_leaf_ctx`, donc la feuille rend 0 partout. Le natif, lui, met **+10** (`Marshal_Attract
+  Mechanicals`, une SEULE fois -- `Enumerable.Any`, pas `Count`) pour tout mover **Mechanical**
+  ayant a ring-1 de la tuile candidate une unite **de n'importe quel camp** (slot `0x7a` =
+  `GetAdjacentUnits`, 4 arguments, `u != case.Unit` explicite) portant `DoctrinaImperatives`.
+  ⚠ Le VRAI porteur de `RadSaturation` (`admecSmnVanguard`) est Mechanical : il lui manque donc ce
+  terme EN PLUS de celui que #477-r29 vient de porter, et les deux valent 10 sur les MEMES tuiles.
+  CE QU'IL FAUT : ecrire la feuille -- le substrat qu'elle reclame existe depuis #477-r29
+  (`{friend,enemy}_units[].active`), **aucun capteur neuf n'est necessaire**, contrairement a ce
+  qu'annonce l'en-tete de `engine/utilities/tile.py` (« metadata PAR TUILE qu'AUCUN RPC ne remonte »).
+  Le CONFOND est symetrique au moment de confronter : sur un mover Mechanical adjacent a un Marshal
+  ALLIE, `X_nat` porte les DEUX +10 -- il faut donc un bras a Marshal ENNEMI SEUL pour separer.
+  cf. `docs/rl/case-477r29-radsaturation-camp.md` sec. 4.
 
 - **#477-r30 : le cliquet des slots exige slot ET nom ADJACENTS -- 659 lignes restent hors
   couverture, et il s'y trouve deja une citation FAUSSE.** `[opus]`
