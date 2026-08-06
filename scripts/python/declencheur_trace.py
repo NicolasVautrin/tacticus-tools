@@ -47,7 +47,10 @@ ENV_TRACE = "TACTICUS_DECLENCHEUR_TRACE"
 #: Ce qu'on ne compte JAMAIS comme une entree : nos propres sorties et la plomberie git.
 _EXCLUS = ("logs/", ".git/", "scripts/python/logs/", "frida/dist/", "node_modules/")
 
-_RX_PYC = re.compile(r"^(?P<base>.*/)?__pycache__/(?P<mod>[^/]+?)\.[^./]+\.pyc$")
+#: `mod` est NON GREEDY et le suffixe accepte des POINTS : le nom d'un bytecode optimise est
+#: `mod.cpython-311.opt-1.pyc`, donc un suffixe sans point (`[^./]+`) ne le reconnaissait pas --
+#: et le fichier serait alors compte comme une entree `.pyc` que nul glob ne couvre.
+_RX_PYC = re.compile(r"^(?P<base>.*/)?__pycache__/(?P<mod>[^/.]+)\.[^/]+\.pyc$")
 
 _ETAT = None
 
