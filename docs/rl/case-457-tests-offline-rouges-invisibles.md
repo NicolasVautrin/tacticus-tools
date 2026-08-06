@@ -400,18 +400,33 @@ case.
 | dans le depot (`logs/`) | **15,29** ms/fichier | 0,72 |
 | hors depot (`%TEMP%`) | **12,50** ms/fichier | 0,52 |
 
-Facteur ~20 sur l'extension, ~1,2 sur le chemin. Signature d'un **scanner on-first-read a cache**.
-⚠ Ce n'est pas la protection temps reel de Defender (`RealTimeProtectionEnabled: False`), mais ce
-champ NE SUFFIT PAS a conclure : `AMRunningMode` (`Passive Mode` / `EDR Block Mode` = un autre
-produit est primaire) n'a jamais ete lu. Cause exacte NON identifiee, `fltmc filters` exigeant
-l'elevation :
+Facteur ~20 sur l'extension, ~1,2 sur le chemin. Signature d'un **scanner on-first-read a cache**
+— autrement dit un **minifilter** (pilote de filtre du Filter Manager), seule couche qui voie
+l'EXTENSION : ni le disque ni NTFS ne la connaissent.
+
+**SUSPECT NOMME le 2026-08-06 : `PSINFile` / `PSINAflt` (Panda Security), et l'elevation n'etait
+PAS requise pour le nommer.** `Win32_SystemDriver` + `root/SecurityCenter2` repondent sans console
+elevee :
 
 ```powershell
-fltmc filters                 # tout nom hors bindflt/FsDepends/WdFilter/storqosflt/wcifs/
-fltmc instances -v C:         #   CldFlt/FileCrypt/luafv/npsvctrig/Wof/FileInfo = le suspect
+Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct   # produit primaire
+Get-CimInstance Win32_SystemDriver | Where-Object Name -match '^PSIN'         # ses minifilters
 Get-MpComputerStatus | Format-List AMRunningMode, RealTimeProtectionEnabled
-Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct
 ```
+
+Mesure : produit primaire = **Panda « Security Protection »** (`PSNWSC.exe`, `productState`
+462848 = `0x071000`, octet scanner `0x10` = temps reel **ACTIF**) ; minifilters **RUNNING**
+`PSINFile`, `PSINAflt`, `PSINProc`, `PSINReg`, `PSINProt`, `PSINKNC`. Et **Defender est HORS DE
+CAUSE, cette fois etabli** : `AMRunningMode: Not running`, `AntivirusEnabled: False` — c'est le
+champ `AMRunningMode` que la redaction precedente disait n'avoir jamais lu.
+
+⚠ **NOMMER N'EST PAS PROUVER.** Le lien filtre -> facteur ~20 reste une INFERENCE (le seul on-access
+scanner arme sur la machine). La preuve est une **exclusion + re-mesure dos-a-dos** de la banque, et
+elle exige la console Panda = **geste UTILISATEUR**. `fltmc filters` / `fltmc instances -v C:`
+(altitude, attachement sur `C:`) restent elevees, mais ne servent plus qu'a confirmer.
+⚠ **Lecon de methode : un capteur qui exige l'elevation n'est pas LE capteur.** Le diagnostic est
+reste « cause NON identifiee » trois jours parce qu'une seule voie avait ete essayee. La reponse
+tenait dans une requete WMI non elevee.
 
 ⚠ **REFUTE le 2026-08-03 : le cout n'est PAS par PROCESSUS.** Cette section a d'abord conclu
 « deux PROCESS consecutifs donnent 16,8 s et 16,8 s ». Mesure sur l'arbre reel (1605 `.py`), trois
