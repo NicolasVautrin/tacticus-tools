@@ -958,8 +958,10 @@ def unequip_relic(bc: dict, unit_id: str) -> dict:
 
     Pendant exact d'`equip_relic`, et pour la raison SYMETRIQUE : **QUATRE unites du seed portent
     une `TertiaryAbility` sans que personne l'ait demandee** (`admecMarshall` et `admecRuststalker`
-    partagent `KardiocoreGalvanus`, `necroSpyder` a `NetherRealmCasket`, `orksRuntherd`
-    `MastersOfManoeuvre`). Un montage qui spawne l'une d'elles herite donc de sa relique -- et une
+    partagent `KardiocoreGalvanus` 1457, `necroSpyder` a `NetherRealmCasket` 1462, `orksRuntherd`
+    a **`SupaCyborkBody` 1475** -- et surtout PAS `MastersOfManoeuvre`, ce que #477-r31 avait ecrit
+    a tort : `1475` n'a AUCUN `*NonOwnerPlaybook`, donc `orksRuntherd` n'arme rien). Un montage qui
+    spawne l'une d'elles herite donc de sa relique -- et une
     relique porte souvent un `*NonOwnerPlaybook`, c.-a-d. un terme de tuile sur les VOISINS de son
     porteur, pas sur lui. Mesure #477-r31 : `admecMarshall` pose ainsi `+20` sur ses tuiles
     adjacentes (`KardiocoreGalvanus_AdjacentFriendly`) des que le mover est Mechanical -- soit
