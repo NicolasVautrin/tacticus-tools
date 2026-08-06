@@ -216,6 +216,30 @@ pas le porteur).
   mordre. Le volet self est donc **exercé offline**
   (`test_NORNCROWN_gate_DISJONCTIF_rayon_2_et_self_INCLUS`, branches `self_syn` / `self_loin`).
 
+## 6bis. Une contrainte PRÉ-EXISTANTE, trouvée par le re-jeu : `scorerDamageTrace` est SESSION-GLOBAL
+
+`scorerDamageTraceOn` / `scorerDamageTraceOff` sont des interrupteurs **session-globaux** (seuls les
+`*Dump` filtrent par `runnerId`). Deux processus pytest qui les arment et les désarment en même
+temps se coupent l'un l'autre : le perdant de la course mesure avec les hooks **désarmés**, son
+`X_nat` est tronqué, et le rouge tombe sur un cas **aléatoire**. Trois passes successives ont ainsi
+accusé trois victimes différentes (`MC1_67-777-kardio`, puis `C4_09-31337-kardio`, puis
+`477r29/MC1_67-777`), toutes **vertes en solo** — le symptôme classique d'une ressource partagée,
+qu'on aurait pu prendre pour une interaction avec du code mergé pendant le rebase.
+
+**A/B à un seul facteur**, mesuré :
+
+| bras | ce qui tourne en parallèle | résultat |
+|---|---|---|
+| A | `test_477r33_…` + `test_433_r4_r3_r1_…` (n'arme **pas** ces hooks) | **41 + 38 verts** |
+| B | `test_477r33_…` + `test_477r31_…` (les arme) | `477r31` → **6 failed / 21 passed** |
+| — | les trois fichiers de la famille, **séquentiels** | **83 verts en 107 s** |
+
+La contrainte est **pré-existante et partagée** : `probe_477r29` et `probe_477r31` l'avaient déjà,
+elle n'avait jamais été nommée (les deux tranches les avaient validés en solo). La discipline
+« 4 fichiers en parallèle » du `CLAUDE.md` ne s'applique donc pas à cette famille. Nommé dans
+l'en-tête de la garde ; un rouge de cette famille en passe parallèle **n'accuse pas le port**, et le
+premier geste est de le rejouer SEUL.
+
 ## 7. Ce qui est livré
 
 * `engine/playbook/non_owner.py` — trois classes (`KardiocoreGalvanusNonOwnerPlaybook`,

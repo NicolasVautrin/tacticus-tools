@@ -123,10 +123,13 @@ def _git(*args: str):
     ⚠ `encoding="utf-8"` EXPLICITE, et ce n'est pas cosmetique -- c'est une panne MESUREE le
     2026-08-06. `text=True` seul decode avec l'encodage de la LOCALE (cp1252 sur cette machine) ;
     un octet parfaitement valide en UTF-8 mais indefini en cp1252 (`0x90`, rencontre dans
-    `operations/damage.py`) fait lever `UnicodeDecodeError` DANS LE THREAD LECTEUR de
-    `subprocess`. L'exception n'est pas propagee : `p.returncode` reste **0** et `p.stdout`
-    devient **None**. Une capture ratee se presentait donc comme une mesure reussie, et le probe
-    partait en `TypeError` trois etages plus loin -- symptome illisible pour la vraie cause.
+    `operations/damage.py` ET dans `catalog_inject.py`, position 4716) fait lever
+    `UnicodeDecodeError` DANS LE THREAD LECTEUR de `subprocess`. L'exception n'est pas propagee :
+    `p.returncode` reste **0** et `p.stdout` devient **None**. Une capture ratee se presentait donc
+    comme une mesure reussie, et le probe partait en `TypeError` trois etages plus loin -- symptome
+    illisible pour la vraie cause. (#477-r33 l'a rencontree independamment sur `catalog_inject.py`
+    et a converge sur le MEME correctif ; la version gardee ici est celle de #477-r30-r2, qui garde
+    EN PLUS le `stdout == None`.)
 
     ⚠ ET LE `None` EST GARDE PAR L'APPELANT, pas seulement evite ici : un `rc == 0` accompagne
     d'une sortie absente doit sortir en NON MESURE, jamais etre lu comme un fichier vide -- un

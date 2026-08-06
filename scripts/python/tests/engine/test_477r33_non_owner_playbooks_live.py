@@ -65,6 +65,25 @@ Mesures fondatrices (`probe_477r33_non_owner_registry_gaps.py`, decomposition
 SEUL `aiStepDryRun` puis desarmes -- AUCUNE reinjection). AUCUNE de ces valeurs n'est gelee ici :
 les assertions re-derivent tout de la mesure du pas.
 
+⚠⚠ **CE FICHIER NE SE JOUE PAS EN PARALLELE DES AUTRES CONSOMMATEURS DE `scorerDamageTrace`.**
+`scorerDamageTraceOn` / `scorerDamageTraceOff` sont des interrupteurs **SESSION-GLOBAUX** (seuls
+les `*Dump` filtrent par `runnerId`). Deux processus pytest qui arment et desarment en meme temps
+se coupent l'un l'autre : le perdant de la course mesure avec les hooks DESARMES, son `X_nat` est
+tronque, et le rouge tombe sur un cas ALEATOIRE. La discipline de ce depot (« 4 fichiers en
+parallele ») ne s'applique donc PAS a cette famille -- `test_477r29_rad_saturation_camp_live.py`,
+`test_477r31_attract_mechanicals_camp_live.py` et ce fichier se jouent **SEQUENTIELLEMENT**
+(une seule invocation pytest les enchaine tres bien : 83 verts en 107 s).
+
+MESURE, pas suppose (2026-08-06, A/B a un seul facteur) :
+  * bras A -- ce fichier + `test_433_r4_r3_r1_adjacent_to_owner_live.py` (qui n'arme PAS ces
+    hooks), en parallele : **41 + 38 verts** ;
+  * bras B -- ce fichier + `test_477r31_...` (qui les arme), en parallele : `477r31` tombe a
+    **6 failed / 21 passed** ;
+  * sequentiel, les trois fichiers : **83 verts**.
+La contrainte est PRE-EXISTANTE et PARTAGEE : les deux fichiers voisins l'avaient deja avant cette
+tranche, elle n'avait simplement jamais ete nommee. Un rouge de cette famille en passe parallele
+n'accuse donc PAS le port -- le rejouer SEUL est le premier geste.
+
 ASCII only.
 """
 from __future__ import annotations
