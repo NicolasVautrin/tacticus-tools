@@ -77,6 +77,22 @@ ROOT = PYDIR.parents[1]
 EMPREINTE = ROOT / "scripts" / "declencheurs-empreinte.tsv"
 FORMAT = "1"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: Il est SOUMIS A SON PROPRE CRITERE -- exiger des autres une declaration sans en porter une
+#: serait indefendable, et c'est le meme principe qui met `probe_439` dans la banque qu'il garde.
+DECLENCHEUR = {
+    "chemins": ("scripts/ratchets.ps1", "scripts/python/**/*.py",
+                "scripts/declencheurs-empreinte.tsv"),
+    "build": False,
+    "toujours": False,
+    "raison": "Trois entrees, toutes dans l'arbre. La BANQUE (son perimetre en est DERIVE, donc "
+              "une entree ajoutee ou retiree change son verdict), le SOURCE de chaque script de "
+              "la banque (il y lit le `DECLENCHEUR` par AST -- pris a tout `scripts/python/**` "
+              "parce que la banque seule dit lesquels), et l'EMPREINTE versionnee qu'il "
+              "confronte. Aucune dependance au build ni au jeu : tout ce qu'il juge est du "
+              "texte du depot.",
+}
+
 #: Budget par cliquet a la mesure. `probe_319` pese ~135 s isole ; 900 s laisse de la marge sous
 #: contention sans laisser un cliquet bloque pendre indefiniment.
 TIMEOUT = 900

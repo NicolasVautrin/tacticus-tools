@@ -87,6 +87,27 @@ from symbols_layout import build_dir, current_build  # noqa: E402
 PY = REPO / "scripts"/"python"
 ENGINE = PY / "engine"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 2 105 fichiers -- et le glob n'est PAS `scripts/python/**` : il lit aussi `lib/*.py`
+#: A LA RACINE du depot, parce que son etape 3 derive son perimetre de `git ls-files *.py`.
+#: Ecrire `scripts/python/**/*.py` aurait donc ete un declencheur trop ETROIT, invisible a
+#: toute relecture du source -- c'est la mesure qui l'a montre.
+DECLENCHEUR = {
+    "chemins": ("**/*.py", "data/seed-bc.json",
+                "scripts/cliquets-cache/probe_313_enum_mirror_bijection.tsv"),
+    "build": True,
+    "toujours": False,
+    "raison": "Etapes 1/2 : les mirrors sous `engine/`, confrontes a "
+              "`data/symbols/<CURRENT>/frida/enums.tsv` -- donc un changement de build renverse "
+              "un verdict sans qu'une ligne du depot bouge (`build: True`, et il lit "
+              "`data/symbols/CURRENT` pour savoir lequel). Etape 3 : TOUT le Python suivi du "
+              "depot (`git ls-files *.py`), racine comprise. Etape 5 : les dicts consommateurs, "
+              "sous `engine/`. Le fichier de cache est declare parce que le cliquet le LIT "
+              "reellement ; son CONTEXTE, lui, ne porte pas le build -- les deux balayages "
+              "caches sont build-independants (#486-r1) -- ce qui n'affaiblit pas ce "
+              "`build: True`, qui vaut pour `enum_natif`, hors cache.",
+}
+
 
 # ------------------------------------------------- le CACHE de verdict par fichier (#486-r1)
 #

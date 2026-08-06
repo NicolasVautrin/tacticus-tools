@@ -54,6 +54,22 @@ from pathlib import Path
 # principal : cf. #434, un cliquet ne balaie que son propre checkout).
 ENGINE = Path(__file__).resolve().parent / "engine"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 438 fichiers -- `scripts/python/engine/**` et son propre source. Aucune table de
+#: symboles : ce qui vient du natif est ATTESTE dans le source (`EXPECTED_DEFAULT`,
+#: `EXPECTED_ZERO`), donc le declencheur de cette moitie-la EST ce fichier.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/engine/**/*.py",),
+    "build": False,
+    "toujours": False,
+    "raison": "`rglob('*.py')` sur `engine/` DE CE CHECKOUT, lu en AST -- il n'importe rien. Le "
+              "verdict n'est pas local a un fichier : il DERIVE le perimetre des portes de "
+              "variance, indexe leurs gates, puis RESOUT les call-sites contre ces "
+              "definitions, ce qui traverse les modules. La moitie ATTESTEE (ce que le natif "
+              "impose a chaque defaut) vit dans ce fichier, donc l'ajout implicite de son "
+              "propre source suffit a la couvrir.",
+}
+
 # --- LE SEUL litteral de perimetre : les noms de parametre qui PORTENT la variance --------
 # Il est lui-meme garde : un nom qui ne designe plus AUCUNE definition fait rougir (le probe
 # serait devenu aveugle sans que rien ne le dise).

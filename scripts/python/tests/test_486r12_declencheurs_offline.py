@@ -193,6 +193,30 @@ def test_les_ONZE_cliquets_du_groupe_A_declarent_et_valident():
         assert DC.valider(d) == [], nom
 
 
+def test_le_garde_est_soumis_a_SON_PROPRE_critere():
+    """Exiger des autres une declaration sans en porter une serait indefendable -- meme
+    principe que `probe_439`, qui est dans la banque qu'il garde."""
+    d = DC.lire(_PYDIR / "probe_486r12_declencheurs.py")
+    assert DC.valider(d) == []
+    globs = DC.perimetre(d, source_rel="scripts/python/probe_486r12_declencheurs.py")
+    # Les trois entrees qu'il LIT vraiment doivent etre couvertes par ce qu'il DECLARE.
+    for lu in ("scripts/ratchets.ps1", "scripts/python/probe_181_targeting_gaps.py",
+               "scripts/declencheurs-empreinte.tsv"):
+        assert DC.couvre(globs, lu) is not None, lu
+
+
+def test_le_programme_lance_est_lu_sous_la_forme_WINDOWS():
+    """`sys.audit("subprocess.Popen", ...)` passe `exe=None` et une LIGNE DE COMMANDE sous
+    Windows. Ne lire que `exe` rendait `programmes` vide -- donc `MESURE INCOMPLETE` muet sur
+    les quatre cliquets qui lancent `git ls-files`."""
+    assert DT.programme_de((None, "git --version", None, None)) == "git"
+    assert DT.programme_de(("C:/x/git.exe", ["git", "status"], None, None)) == "git.exe"
+    assert DT.programme_de((None, '"C:/Program Files/Git/git.exe" status', None, None)) \
+        == "git.exe"
+    assert DT.programme_de((None, ["pwsh", "-File", "x"], None, None)) == "pwsh"
+    assert DT.programme_de((None, None, None, None)) == "<illisible>"
+
+
 # ================================================================= le traceur de mesure
 def test_le_pyc_est_ramene_a_sa_SOURCE():
     """Sans cette normalisation, la meme mesure rendrait deux perimetres selon l'etat du

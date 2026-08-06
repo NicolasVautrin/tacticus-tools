@@ -112,6 +112,22 @@ import sys
 PYDIR = pathlib.Path(__file__).resolve().parent
 ROOT = PYDIR.parent.parent
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 438 fichiers -- `scripts/python/engine/**` et SON PROPRE source, rien d'autre. Il
+#: n'IMPORTE pas `engine`, il le PARSE : sa fermeture est donc celle de `git ls-files
+#: scripts/python/engine`, pas celle d'un `import`.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/engine/**/*.py",),
+    "build": False,
+    "toujours": False,
+    "raison": "Perimetre DERIVE, `git ls-files scripts/python/engine` (#434), lu en AST. Le "
+              "verdict n'est PAS local a un fichier -- l'etape 1 RESOUT les imports pour "
+              "distinguer le foyer de ses homonymes, et les etapes 3/4 suivent le flot d'un "
+              "canal a travers le module -- mais il ne sort jamais de `engine/`. Aucune table "
+              "de symboles : la propriete natif est ATTESTEE dans le source (cf. l'en-tete), "
+              "pas derivee du build.",
+}
+
 # ETAPE 1 -- nom -> index du parametre ELEVATION dans la signature positionnelle de
 # `engine.battle_query`. Seuls comptent les appels qui RESOLVENT vers ce module.
 CIBLES = {"is_adjacent": 2, "are_entities_adjacent": 2, "count_adjacent": 2,

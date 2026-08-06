@@ -50,6 +50,22 @@ import probe_273_gitignored_inputs as P  # noqa: E402
 
 PROBE_273 = PYDIR / "probe_273_gitignored_inputs.py"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 2 100 fichiers et **11 process** -- le seul des onze du groupe A a en tracer plus
+#: d'un (il rejoue `probe_273` dans des arbres jetables). Ses lectures du DEPOT sont pourtant
+#: exactement celles de `probe_273` : les arbres de mutation vivent dans `tempfile`, hors racine.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/**/*.py", ".gitignore", "**/.gitignore", "data/**"),
+    "build": False,
+    "toujours": False,
+    "raison": "DEUX natures dans un meme cliquet. Ses etapes 3 et 4 sont des CONTRE-EPREUVES : "
+              "elles ne dependent que de {son source, celui de `probe_273`}, la portee la plus "
+              "etroite du depot. Mais ses etapes 1, 2 et 2bis confrontent l'ancien balayage au "
+              "nouveau SUR L'ARBRE REEL (`P._scan_paths(ROOT)`, `P._file_infos(ROOT)`) : un "
+              "fichier neuf peut y creer un orphelin de couverture. Son perimetre est donc "
+              "celui de `probe_273`, sans reduction possible.",
+}
+
 # Arbre minimal suffisant pour exercer le cliquet : le probe lui-meme, son
 # helper, et les consommateurs qui portent les exceptions des DEUX allowlists.
 # Copier tout `scripts/python/**` (1422 fichiers) rendrait ce probe aussi lent

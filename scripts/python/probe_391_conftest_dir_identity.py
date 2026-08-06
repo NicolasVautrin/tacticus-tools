@@ -47,6 +47,26 @@ from _pytest import nodes
 HERE = Path(__file__).resolve().parent
 TESTS_ROOT = HERE / "tests"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 1 071 fichiers -- `scripts/python/tests/**`, `pytest.ini`, la cascade d'import des
+#: conftest (`data/seed-bc.json` compris). Le perimetre de FICHIERS est donc parfaitement
+#: borne ; ce n'est pas lui qui impose `toujours`.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/**/*.py", "scripts/python/pytest.ini", "data/seed-bc.json"),
+    "build": False,
+    "toujours": True,
+    "raison": "SON SUJET N'EST PAS DANS L'ARBRE. Il mesure l'identite des collecteurs "
+              "`_pytest.nodes.Directory` et la resolution des `FixtureDef` : c'est la VERSION "
+              "DE PYTEST INSTALLEE qui decide, et elle ne se lit dans aucun fichier versionne "
+              "-- le depot ne porte aucun manifeste de dependances. Une mise a jour de pytest "
+              "peut donc renverser ce verdict sans qu'une seule ligne du depot bouge, "
+              "exactement comme un changement de build pour `data/symbols`, mais SANS le "
+              "`data/symbols/CURRENT` versionne qui rend celui-la bornable. Les `chemins` "
+              "restent ecrits parce qu'ils sont VRAIS et qu'ils disent ce qu'il lit -- mais "
+              "sous `toujours: True` le garde ne les CONFRONTE pas (accuser un declarant qui "
+              "se rejoue de toute facon dissuaderait d'ecrire le defaut prudent).",
+}
+
 _DIRECTORY = getattr(nodes, "Directory", None)
 
 

@@ -68,6 +68,21 @@ from engine.runner.operations.triggers.dispatch.ability import pre_unit_ability_
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.state import State
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 382 fichiers -- la cascade `engine/**`, `board.py`/`gameconfig.py`,
+#: `data/boards/pvp/MC1_67.json` et `data/seed-bc.json`.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/**/*.py", "data/boards/**", "data/seed-bc.json"),
+    "build": True,
+    "toujours": False,
+    "raison": "Il MONTE un `State` et joue quatre scenarios : sa fermeture est celle de "
+              "l'import (`engine/**` + `board.py` + `gameconfig.py`), plus le board qu'il "
+              "charge. `build: True` parce que les TRAITS des unites viennent de "
+              "`GC.unit(vid)`, donc du gameconfig du JEU INSTALLE (hors arbre) : un changement "
+              "de build peut renverser l'etape 1 sans qu'un fichier du depot bouge. Son etape "
+              "0 (`ABILITY_ATTACK_TYPE`), elle, ne lit que le port.",
+}
+
 BOARD_ID = "MC1_67"
 BOARD_KIND = "pvp"
 ATTACK_ABILITY = 1131        # JakhalStimms  -- AActiveAbility..ctor(.., 0) DirectTargetAttack

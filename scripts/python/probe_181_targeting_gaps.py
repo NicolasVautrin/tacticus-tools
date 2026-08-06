@@ -28,6 +28,22 @@ import sys
 
 from engine.runner.abilities.handler import ABILITY_CLASSES
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE (`probe_486r12_declencheurs.py --mesurer`) : 366 fichiers ouverts, dont `data/seed-bc.json`
+#: -- que ce fichier de 76 lignes ne nomme NULLE PART. Il arrive par la cascade d'import de
+#: `ABILITY_CLASSES`, et c'est exactement ce qu'une relecture du source ne peut pas donner.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/**/*.py", "data/seed-bc.json"),
+    "build": False,
+    "toujours": False,
+    "raison": "Il n'a AUCUN perimetre de fichiers : il importe `ABILITY_CLASSES` et croise le "
+              "registre en memoire. Le declencheur est donc la FERMETURE D'IMPORT de "
+              "`engine.runner.abilities.handler` -- prise a tout `scripts/python/**` parce "
+              "qu'un import indirect peut atteindre n'importe quel module (mesure : il lit "
+              "`gameconfig.py`, hors `engine/`). Aucune dependance au build : le masque lu est "
+              "`getattr(cls, 'TARGETING_OPTIONS')`, une valeur du PORT.",
+}
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()

@@ -52,6 +52,24 @@ import host_inputs  # noqa: E402
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
+#: MESURE : 2 099 fichiers, tous sous `scripts/python/**` (tests compris). `.gitignore` et le
+#: referentiel `data/` n'y apparaissent PAS -- ils sont lus par `git` (`check-ignore`,
+#: `ls-files data`), hors de portee du hook, donc declares ICI par lecture du critere.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/**/*.py", ".gitignore", "**/.gitignore", "data/**"),
+    "build": False,
+    "toujours": False,
+    "raison": "Les trois etapes balaient `scripts/python/**/*.py` en AST (rglob, lecture "
+              "unique partagee). S'y ajoutent DEUX entrees que seul `git` lit : les "
+              "`.gitignore` (le verdict de l'etape 0 est `git check-ignore`, donc une regle "
+              "modifiee suffit a le renverser) et `data/**` (l'etape 0c DERIVE son referentiel "
+              "d'entrees VERSIONNEES de `git ls-files data`, et REFUSE de conclure s'il est "
+              "vide). Le verdict n'est pas local a un fichier : le point fixe des etapes 0/0c "
+              "partage un `modenv` -- 58 fichiers sur 2 090 empruntent une racine a un AUTRE "
+              "module (#486-r1).",
+}
+
 
 # ---- lecture UNIQUE de `scripts/python/**`, partagee par les trois etapes -- #
 #

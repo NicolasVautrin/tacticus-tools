@@ -63,6 +63,28 @@ def source_de(rel: str) -> str:
     return (m.group("base") or "") + m.group("mod") + ".py"
 
 
+def programme_de(args) -> str:
+    """Le nom du programme lance, depuis `sys.audit("subprocess.Popen", exe, args, cwd, env)`.
+
+    ⚠ SOUS WINDOWS, `exe` VAUT `None` ET `args` EST UNE LIGNE DE COMMANDE, pas une liste.
+    Mesure : `subprocess.run(["git", "--version"])` emet `(None, 'git --version', None, None)`.
+    Ne lire que `exe` rendait donc `programmes` VIDE -- et un cliquet qui lance `git` passait
+    pour integralement mesure, ce qui est exactement le faux VERT que le tri-etat existe pour
+    interdire. Trouve parce que la premiere mesure des 11 cliquets a rendu ZERO sous-process
+    opaque alors que quatre d'entre eux lancent `git ls-files`.
+    """
+    exe, ligne = (list(args) + [None, None])[:2]
+    val = exe or ligne
+    if isinstance(val, (list, tuple)) and val:
+        val = val[0]
+    txt = str(val or "").strip()
+    if txt.startswith('"'):
+        txt = txt[1:].split('"', 1)[0]
+    else:
+        txt = txt.split(" ", 1)[0]
+    return Path(txt).name.lower() or "<illisible>"
+
+
 class _Trace:
     """Audit hook + vidage a la mort du process. Un fichier par PID : deux process qui
     ecriraient la meme ligne au meme instant se corrompraient, et la fusion est triviale."""
@@ -94,8 +116,7 @@ class _Trace:
             self.lectures.add(rel)
         elif event == "subprocess.Popen":
             try:
-                exe = args[0]
-                self.programmes.add(Path(str(exe)).name.lower())
+                self.programmes.add(programme_de(args))
             except Exception:                                      # noqa: BLE001 - jamais fatal
                 self.programmes.add("<illisible>")
 
