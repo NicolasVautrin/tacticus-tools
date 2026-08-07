@@ -491,9 +491,105 @@ def step_registre() -> int:
     return rc
 
 
+def etat_cadavre(traits_mesures: bool):
+    """Un cadavre-AU-CHARGEMENT porteur d'un `Pinned`, avec ou sans son substrat de traits.
+
+    `traits_mesures=False` = l'etat REEL produit par `snapshot.load_state` : l'entite vient de
+    `decisionView.units[]` (qui conserve les morts AVEC leurs effets) mais `combatSnapshot` ne
+    l'enumere pas, donc AUCUN `StatsComponent` -- et `UnitEffectStateView` n'a alors AUCUNE cle
+    `traits` a poser. `True` = le contrefactuel : le meme cadavre, ses traits connus."""
+    from engine.runner.state import State, Entity
+    from engine.runner.components import (UnitComponent, OwnerComponent, PositionComponent,
+                                          HealthComponent, StatsComponent)
+    from engine.entities.effects_state import EffectsState
+    from engine.entities.traits.unit_trait import UnitTrait
+    from engine.entities.unit_context import UnitContext
+    st = State()
+    e = Entity(7)
+    e.add_component(UnitComponent(visual_id="ultraTerminator", alive=False))
+    e.add_component(OwnerComponent(team=1, player=3))
+    e.add_component(PositionComponent(col=4, row=4))
+    e.add_component(HealthComponent(hp=0, hp_max=100))
+    if traits_mesures:
+        from engine.entities.stats import UnitStats
+        ctx = UnitContext.__new__(UnitContext)
+        ctx.visual_id = "ultraTerminator"
+        ctx.traits = [UnitTrait.TerminatorArmour.name]
+        ctx.traits_measured = True
+        # `UnitEffectStateView.__init__` lit AUSSI `ctx.get_stat(TURNS_STARTED)` -- un ctx
+        # `__new__` nu n'a pas de `stats`, et l'oubli se voit en `AttributeError`, pas en verdict.
+        ctx.stats = UnitStats()
+        e.add_component(StatsComponent(ctx))
+    st.entities[7] = e
+    st.effects = EffectsState.seed({7: [{"name": "Pinned", "type": None}]}, {}, {}, {})
+    return st
+
+
+def step_contrefactuel() -> int:
+    """LA DEGRADATION PERMISSIVE, EXERCEE -- pas seulement affirmee.
+
+    Meme methode que `probe_545_unit_flags_component_vide.py` (meme forme de defaut, un cran
+    ailleurs : la, un `UnitFlagsComponent` ABSENT vs VIDE ; ici, une cle `traits` ABSENTE vs
+    RENSEIGNEE). On APPELLE le substrat sur les deux etats et on compare la SORTIE."""
+    from engine.runner.components import unit_state_for_effects
+    print("CONTREFACTUEL -- la cle `traits` absente change-t-elle ce que rend `active_effects` ?")
+    print("")
+    rc = 1
+    sorties = {}
+    for mesures in (False, True):
+        st = etat_cadavre(mesures)
+        us = unit_state_for_effects(st, 7)
+        actifs = sorted(getattr(x, "name", None) for x in st.effects.active_effects(7, us))
+        portes = sorted(getattr(x, "name", None) for x in st.effects.by_unit.get(7, []))
+        sorties[mesures] = actifs
+        print("  substrat %-22s cle `traits` %-8s  PORTES %-12s ACTIFS %s"
+              % ("MESURE (contrefactuel)" if mesures else "REEL (cadavre charge)",
+                 "PRESENTE" if "traits" in us else "ABSENTE", portes, actifs))
+    print("")
+    if sorties[False] != sorties[True]:
+        rc = 0
+        print("LES DEUX SORTIES DIFFERENT -- la degradation est REELLE et EXERCEE ici :")
+        print("  `PinnedEffect$$CreateActiveCondition` = `Not(HasTrait(Self, 0x40f =")
+        print("  TerminatorArmour))`. Sans la cle, `has_trait(None, ...)` est FAUX, donc la")
+        print("  condition rend VRAI et l'effet CONTRIBUE (x0.70) sur une unite que le natif")
+        print("  immunise. C'est la forme PERMISSIVE : jamais un refus a tort, toujours un")
+        print("  effet de trop.")
+    else:
+        print("SORTIES IDENTIQUES -- ce probe ne discrimine plus rien (regime DEGENERE).")
+        print("  Un contrefactuel qui ne separe pas les deux etats est un VERT qui ment : il")
+        print("  faut le reparer, pas s'en satisfaire. Verifier que `Pinned` est bien seede et")
+        print("  que `TerminatorArmour` est bien le trait lu par la condition.")
+    print("")
+    print("PORTEE. Ce point de passage est UNIQUE : les 19 appelants enumeres par `--step")
+    print("ventilation` consomment TOUS `EffectsState.active_effects`, donc aucun d'eux ne peut")
+    print("distinguer les deux etats autrement que par ce que cette mesure montre. C'est ce qui")
+    print("rend la ventilation site-par-site suffisante -- elle n'a qu'a repondre << le sujet")
+    print("peut-il etre un cadavre ? >>, pas a re-mesurer la degradation.")
+    return rc
+
+
 _STEPS = {"inventaire": step_inventaire, "ventilation": step_ventilation,
           "consommateur": step_consommateur, "gisement": step_gisement,
-          "registre": step_registre}
+          "registre": step_registre, "contrefactuel": step_contrefactuel,
+          "gates": lambda: step_gates()}
+
+
+def step_gates() -> int:
+    print("GATES DE VIVACITE -- les six balayages d'entites qui appellent `active_effects`")
+    print("")
+    rc = 0
+    for cle_, lit_alive, compare_hp, motif in etat_gates():
+        ok = lit_alive or compare_hp
+        if not ok:
+            rc = 1
+        print("  [%s] %-30s %-52s alive=%s hp=%s"
+              % ("OK " if ok else "ROUGE", cle_[1], motif, lit_alive, compare_hp))
+        print("        %s" % cle_[0])
+    print("")
+    print("Un balayage SANS gate visite les cadavres-au-chargement (`decisionView.units[]` les")
+    print("conserve). `defender_fixed_armor` etait le seul dans ce cas -- il a recu son gate")
+    print("`uc.alive` en #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r1.")
+    return rc
 
 
 def main() -> int:
