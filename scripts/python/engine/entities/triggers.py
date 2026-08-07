@@ -9,7 +9,8 @@ from __future__ import annotations
 import hexgeo
 
 from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, Const, _pos, _feet,
-                        _units_of, _is_alive, _same_entity, _c_mod, _occupants_by_tile)
+                        _units_of, _is_alive, _same_entity, _c_mod, _occupants_by_tile,
+                        resolve_unit)
 # `IdunBattle.Entities.Enum.UnitFaction` — FOYER UNIQUE (#241) : mirror 1:1 des 21 membres transcrits
 # de `data/symbols/<build>/frida/enums.tsv`. La table locale etait PARTIELLE (8 valeurs, « ajouter au
 # fil des call-sites ») ; elle en derive maintenant, ce qui la rend complete sans changer aucune des
@@ -646,8 +647,27 @@ class HasFaction(AbilityTrigger):
     au NOM de l'enum (`UNIT_FACTION_NAMES[value]`), meme reduction que `UnitsFromFaction` (qui, lui, recoit
     deja le nom via `System.Enum.ToString`). Accesseur absent -> False.
 
-    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$ExecuteBehaviour`
-    (`If(HasFaction(target, 1=Sisterhood), AddEffect(1401), AddEffect(1436))`)."""
+    ⚠ **UNE ENTITE, LA PREMIERE -- PAS `any` SUR L'ENSEMBLE, ET C'EST MESURE (#521).** Le decompile
+    de `HasFactionTrigger$$ShouldTrigger` fait UNE invocation d'interface qui rend UN objet
+    (`if (unit == 0) return 0` puis `UnitExtensions.HasFaction(unit, this+0x10)`) : il n'itere rien.
+    Le port faisait `any(...)`, ce qui est INDISCERNABLE tant que le selecteur rend au plus une
+    unite -- et c'etait le cas de son unique consommateur d'alors (`HasFaction(Target(), ...)` de
+    ThriceBlessedConflagration). Le premier call-site a selecteur MULTI-UNITES
+    (`...TalonsOfTheEmperorAbility$$MeetSecondDamageProfileRequirement`) l'a rendu observable, et le
+    LIVE a tranche : deux amis adjacents, un Custodes et un non-Custodes, le NON-Custodes en tete de
+    l'ordre d'adjacence -> le natif prend la branche `Power` (le premier ami N'EST PAS Custodes),
+    puis rend `DirectDamage` des qu'on ECHANGE les deux positions. Les trois hypotheses etaient
+    separees par ce couple de montages : `any` aurait rendu `DirectDamage` DANS LES DEUX, et un
+    `SingleOrDefault` (0-ou-1) `Power` dans les deux (`probe_521_talons_of_the_emperor.py`, regimes
+    `mixte` / `mixte_inv`). `resolve_unit` = la PREMIERE entite non nulle, mirror de
+    `IdunBattle.DSL.TargetsSelector$$SelectFirst` (qui enumere et rend le premier `get_Current` non
+    nul). RESIDU NOMME `#521-r3` : `HasTrait` ci-dessus porte le MEME idiome `any` et sa docstring
+    porte deja le doute ; aucun de ses call-sites portes n'est multi-unites, donc AUCUNE mesure ne le
+    tranche -- on ne le change pas sur la foi de ce voisin-ci.
+
+    Consommateurs portes : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$ExecuteBehaviour`
+    (`If(HasFaction(target, 1=Sisterhood), AddEffect(1401), AddEffect(1436))`) et
+    `...TalonsOfTheEmperorAbility$$MeetSecondDamageProfileRequirement`."""
     def __init__(self, unit: AbilityTrigger, faction):
         self.unit, self.faction = unit, faction
 
@@ -659,7 +679,10 @@ class HasFaction(AbilityTrigger):
             else self.faction
         if name is None:
             return False
-        return any(fo(u) == name for u in _units_of(self.unit, ctx))
+        u = resolve_unit(self.unit, ctx)        # slot 7 `SelectSingle` -> la PREMIERE entite
+        if u is None:
+            return False                        # `if (unit == 0) return 0`
+        return fo(u) == name
 
 
 
