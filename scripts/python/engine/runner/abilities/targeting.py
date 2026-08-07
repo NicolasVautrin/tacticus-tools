@@ -3462,8 +3462,10 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     #    `GetFeetCount` dans le natif ; ces trois-la n'ont AUCUN porteur qui pose AUSSI le bit 52
     #    (les trois porteurs du bit 52 sont des MoW dont les masques ne contiennent aucun
     #    `CasterHasNTiles`), donc leur non-port ne peut pas voler la raison a celle-ci.
-    #    `has_minimum_remaining_turns` LEVE si le match a un plafond de rounds -- le port refuse de
-    #    rendre un verdict permissif silencieux (cf. son mirror).
+    #    `has_minimum_remaining_turns` rend desormais une VALEUR dans les DEUX bras
+    #    (#287-r11-r1-r1-r1) : le second lit `State.turns_ended`, le mirror de
+    #    `TurnComponent.<Dictionary @+0x40>` que pose `turnflow.set_current_player` (ecrivain natif
+    #    UNIQUE) et que seede `snapshot._load_turns_ended`. Il LEVAIT, faute de ce substrat.
     if options.has(TR.CasterHas2TurnsLeft):
         if not _bq.has_minimum_remaining_turns(caster_id, CASTER_HAS_2_TURNS_LEFT_ARG, state=state):
             return int(TR.CasterHas2TurnsLeft)

@@ -22,11 +22,18 @@ NATIF (`abilityReason.casterReason`) sur TROIS bras :
                     `ended >= 0` -> refus `CasterHas2TurnsLeft` (0x10000000000000) ;
   * `plafond20`  -- `= 20` -> `2 <= 20 - ended` est VRAI pour tout `ended <= 18` -> AUCUN refus.
 
-⚠ **LES DEUX BRAS A PLAFOND SONT CHOISIS POUR NE PAS DEPENDRE DE `ended`**, que le port ne mesure
-pas (residu `#287-r11-r1-r1-r1`). Le port est donc confronte par ENCADREMENT : son verdict est
-evalue pour TOUTE valeur de `ended` dans `[0, nb d'endturns emis]`, et l'accord n'est retenu que si
-ce verdict est CONSTANT sur l'intervalle ET egal au natif. Fitter un `ended` sur la reponse native
-serait exactement l'anti-pattern « ajuster un scalaire ».
+⚠ **LES DEUX BRAS A PLAFOND SONT CHOISIS POUR NE PAS DEPENDRE DE `ended`.** Le port est confronte
+par ENCADREMENT : son verdict est evalue pour TOUTE valeur de `ended` dans `[0, nb d'endturns
+emis]`, et l'accord n'est retenu que si ce verdict est CONSTANT sur l'intervalle ET egal au natif.
+Fitter un `ended` sur la reponse native serait exactement l'anti-pattern « ajuster un scalaire ».
+
+⚠ **L'ENCADREMENT NE SUFFIT PLUS, ET C'EST VOULU (#287-r11-r1-r1-r1).** Le port MESURE desormais
+`ended` (`State.turns_ended`, mirror de `TurnComponent+0x40` pose par son ecrivain natif UNIQUE
+`TurnComponent$$SetCurrentPlayer`) : un encadrement qui accepte toute valeur du compteur ne peut
+PAS voir un compteur FAUX. Le probe demande donc AUSSI, a chaque bras ET a chaque pas du bras
+`bascule`, le verdict DIRECT du port -- sans lui souffler `ended` -- et exige l'ACCORD PAS A PAS
+plus l'EGALITE DES RANGS DE BASCULE (natif vs port). Les deux criteres coexistent : l'encadrement
+garde la FORMULE, l'accord pas a pas garde le COMPTEUR.
 
 ⚠ **LE COURT-CIRCUIT MUNITIONS EST LE PIEGE DU MONTAGE** : `AttackQuery$$GetInvalidCasterReason`
 rend `broken(ValidRequest=1)` AVANT la cascade quand `ActiveAbility.CanCurrentlyBeUsed` est faux, et
@@ -64,6 +71,7 @@ from engine.entities.victory_condition_type import VictoryConditionType   # noqa
 from engine.runner.abilities.handler import ABILITY_CLASSES          # noqa: E402
 from engine.runner.abilities.targeting import get_invalid_caster_reason   # noqa: E402
 from engine.runner.abilities.targeting_rule import TargetingRule as TR    # noqa: E402
+from engine.runner.operations import turnflow as TF                  # noqa: E402
 from engine.runner.snapshot import load_state                        # noqa: E402
 from engine.services import battle_query as _bq                      # noqa: E402
 from engine.services.victory_config import CONDITIONS_KEY, VICTORY_SECTION   # noqa: E402
@@ -229,21 +237,24 @@ def _run_bras(sid, label, rounds, seed, board):
         port_constant = (len(set(verdicts)) == 1)
         port_code = verdicts[0] if port_constant else None
 
-        # --- LE CONTRAT DE LEVEE -----------------------------------------------------------
-        # Sans `ended`, le port doit LEVER quand le plafond existe, et REPONDRE sinon.
-        leve = None
-        try:
-            direct = int(get_invalid_caster_reason(st, mid, ability))
-            leve = False
-        except NotImplementedError:
-            direct, leve = None, True
+        # --- LE PORT, SANS AUCUNE AIDE (#287-r11-r1-r1-r1) ---------------------------------
+        # Le port LEVAIT ici, faute du compteur `TurnComponent+0x40`. Il a desormais son mirror
+        # (`State.turns_ended`, seede par `snapshot._load_turns_ended`) : on lui demande donc son
+        # verdict DIRECT, sans lui souffler `ended`, et on le confronte au natif. C'est le cran que
+        # l'encadrement ci-dessus ne pouvait PAS donner -- il acceptait toute valeur du compteur.
+        direct = int(get_invalid_caster_reason(st, mid, ability))
+        order = TF.player_turn_order(st)
+        first = order[0] if order else None
+        ended_port = _bq.get_amount_of_turns_ended_by_player(st, first)
 
         return {"label": label, "rounds": rounds, "runner": rid, "mow": mid,
                 "endturns": n_end, "nat": code, "nat_reasons": reasons,
                 "abilityState": abstate, "err": err,
                 "port_bornes": bornes, "port_verdicts": verdicts,
                 "port_constant": port_constant, "port": port_code,
-                "port_direct": direct, "port_leve": leve}
+                "port_direct": direct, "port_ordre": order, "port_first": first,
+                "port_ended": ended_port, "port_turn_counts": dict(st.turn_counts),
+                "port_turns_ended": dict(st.turns_ended)}
     finally:
         try:
             _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=30)
@@ -261,11 +272,22 @@ def _run_bascule(sid, seed, board):
 
     Le refus doit apparaitre quand `ended >= limit - TURNS_ARG = 1`, et JAMAIS revenir a `0`
     ensuite (`ended` est monotone croissant). C'est ce qui etablit que la formule porte bien le
-    terme `- GetAmountOfTurnsEndedByPlayer(...)` : sans lui, `2 <= 3` serait vrai a jamais."""
+    terme `- GetAmountOfTurnsEndedByPlayer(...)` : sans lui, `2 <= 3` serait vrai a jamais.
+
+    ⚠ DEPUIS #287-r11-r1-r1-r1 CE BRAS PORTE LE VRAI CRAN. Il ne se contente plus de lire le
+    natif : a CHAQUE pas il recharge l'etat du port et lui demande son verdict DIRECT
+    (`get_invalid_caster_reason`, sans lui souffler `ended`) plus la valeur de son mirror
+    `State.turns_ended[GetPlayerTurnOrder()[0]]`. Le critere devient un ACCORD PAS A PAS, pas un
+    encadrement -- l'encadrement acceptait toute valeur du compteur, donc il ne pouvait pas voir
+    un compteur FAUX."""
     seed_bc = _seed_bc(BASCULE_ROUNDS)
     rid, state_file = _build(sid, seed, board, seed_bc)
     suite = []
+    ability = ABILITY_CLASSES[MALLEUS_ROCKET_LAUNCHER]()
+    vic = _victory_section(BASCULE_ROUNDS)
     try:
+        bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+        brd = Board(bg["tiles"], adjacency="native_sym") if (bg or {}).get("tiles") else None
         for step in range(BASCULE_ENDTURNS + 1):
             d = _dv(sid, rid)
             mow = _mow_by_vis(d, BATTERY)
@@ -276,11 +298,25 @@ def _run_bascule(sid, seed, board):
                        if a.get("id") == MALLEUS_ROCKET_LAUNCHER), None)
             usable = bool((ab or {}).get("usable")) and not ((ab or {}).get("cooldown") or 0)
             code, reasons, _st, err = _native_caster(sid, rid, mid, MALLEUS_ROCKET_LAUNCHER)
+            # --- LE PORT, AU MEME PAS, SANS AIDE ------------------------------------------
+            ob = _r(sid, "observeBattle", {"runnerId": rid}, 60)
+            snap = _r(sid, "combatSnapshot", {"runnerId": rid}, 60)
+            st = load_state(d, ob, snap, board=brd, victory_config=vic)
+            order = TF.player_turn_order(st)
+            first = order[0] if order else None
             suite.append({"step": step, "usable": usable, "nat": code,
-                          "reasons": reasons, "err": err})
-            print("    [bascule step=%d] usable=%s casterReason=%s %s"
+                          "reasons": reasons, "err": err,
+                          "port": int(get_invalid_caster_reason(st, mid, ability)),
+                          "port_first": first,
+                          "port_ended": _bq.get_amount_of_turns_ended_by_player(st, first),
+                          "port_turns_ended": dict(st.turns_ended),
+                          "port_turn_counts": dict(st.turn_counts),
+                          "port_current": st.current_player_id})
+            print("    [bascule step=%d] usable=%s casterReason=%s %s | PORT=%s ended[%s]=%s "
+                  "turns_ended=%s"
                   % (step, usable, "-" if code is None else hex(code),
-                     ",".join(reasons) or "(valide)"))
+                     ",".join(reasons) or "(valide)", hex(suite[-1]["port"]),
+                     first, suite[-1]["port_ended"], suite[-1]["port_turns_ended"]))
             if step == BASCULE_ENDTURNS:
                 break
             r = _act(sid, rid, {"kind": "endturn"}, 60)
@@ -333,8 +369,10 @@ def main() -> int:
         print("  PORT  verdicts sur ended in %s : %s -> %s"
               % (r["port_bornes"], [hex(v) for v in r["port_verdicts"]],
                  "CONSTANT %s" % hex(r["port"]) if r["port_constant"] else "NON CONSTANT"))
-        print("  PORT  get_invalid_caster_reason (sans `ended`) : %s"
-              % ("LEVE (NotImplementedError)" if r["port_leve"] else hex(r["port_direct"] or 0)))
+        print("  PORT  get_invalid_caster_reason (SANS aide) : %s ; ordre=%s first=%s ended=%s"
+              % (hex(r["port_direct"]), r["port_ordre"], r["port_first"], r["port_ended"]))
+        print("  PORT  turn_counts=%s turns_ended=%s"
+              % (r["port_turn_counts"], r["port_turns_ended"]))
 
     # ---------------------------------------------------------------- verdict
     attendu = {"temoin": 0, "plafond1": int(TR.CasterHas2TurnsLeft), "plafond20": 0}
@@ -396,19 +434,39 @@ def main() -> int:
           "resterait VRAI a tous les pas." % ("MESURE" if a_bascule else "NON MESURE",
                                               BASCULE_ROUNDS))
 
-    ok = a_bascule and monotone
+    # ---------------------------------------------------------------- ACCORD PAS A PAS (#...-r1)
+    # LE CRAN QUE L'ENCADREMENT NE POUVAIT PAS DONNER. Le port rend maintenant un verdict SANS
+    # qu'on lui souffle `ended` -- on le confronte donc pas a pas au natif, sur les seuls pas
+    # EVALUES (les court-circuites ne disent rien de la regle).
+    pas_a_pas = [(s["step"], s["nat"], s["port"], s["port_ended"]) for s in evalues]
+    desaccords = [t for t in pas_a_pas if t[1] != t[2]]
+    print("  ACCORD PAS A PAS (step, natif, port, ended_port) : %s"
+          % [(a, hex(b), hex(c), d) for a, b, c, d in pas_a_pas])
+    print("  desaccords : %s" % (desaccords or "aucun"))
+    # Le rang de bascule du PORT doit etre le MEME que celui du natif -- c'est ce qui confronte le
+    # compteur lui-meme, et pas seulement la formule.
+    rang_port = next((s["step"] for s in evalues if s["port"] == refus), None)
+    print("  rang de bascule : natif=%s port=%s" % (rang, rang_port))
+    # ANTI-REGIME DEGENERE : un accord ou le port refuse (ou accepte) PARTOUT ne prouve rien.
+    ventil_port = {}
+    for s in evalues:
+        ventil_port[hex(s["port"])] = ventil_port.get(hex(s["port"]), 0) + 1
+    print("  ventilation des verdicts PORT : %s" % ventil_port)
+    accord_pas_a_pas = (not desaccords) and rang_port == rang and len(ventil_port) >= 2
+
+    ok = a_bascule and monotone and accord_pas_a_pas
     for r in res:
         att = attendu[r["label"]]
         nat_ok = (r.get("nat") == att)
         port_ok = bool(r.get("port_constant")) and r.get("port") == att
-        leve_ok = (r["port_leve"] is (r["rounds"] is not None))
-        ok = ok and nat_ok and port_ok and leve_ok
-        print("[%s] natif=%s attendu=%s -> %s ; port(encadre)=%s -> %s ; levee=%s -> %s"
+        direct_ok = (r.get("port_direct") == att)
+        ok = ok and nat_ok and port_ok and direct_ok
+        print("[%s] natif=%s attendu=%s -> %s ; port(encadre)=%s -> %s ; port(direct)=%s -> %s"
               % (r["label"], "-" if r.get("nat") is None else hex(r["nat"]), hex(att),
                  "OK" if nat_ok else "MISMATCH",
                  "-" if r.get("port") is None else hex(r["port"]),
                  "OK" if port_ok else "MISMATCH",
-                 r["port_leve"], "OK" if leve_ok else "MISMATCH"))
+                 hex(r.get("port_direct") or 0), "OK" if direct_ok else "MISMATCH"))
     print("[VERDICT] %s" % ("PASS" if ok else "FAIL"))
     print("[RAW] " + json.dumps({"statiques": res, "bascule": suite}))
     return 0 if ok else 1

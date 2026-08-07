@@ -47,6 +47,9 @@ from ..entities.traits.unit_trait import (UnitTrait, entity_trait_names, has_any
 # ici : le natif appelle depuis le playbook les MEMES methodes d'ability que depuis
 # `ExecuteBehaviour`. Meme doctrine que `resurrection_orb` (`runner.abilities.necrons`).
 from ..runner.abilities.deathguard import mortarions_plague_wind_psyker_selector
+# #498-r4 : le tuple des trois traits refusants de `UnitExtensions$$IsDisplaceable`, LU au foyer
+# runner au lieu d'etre recopie ici (il l'etait, et une 3e copie vivait dans `it_itches.py`).
+from ..runner.components import NOT_DISPLACEABLE_TRAITS
 from ..services.battle_query import find_melee_weapon, weapon_hits
 from ..utilities.damage import will_be_overkill
 from ..utilities.utility_type import UtilityType
@@ -1275,7 +1278,10 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
 
     # `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` : les trois traits qui REFUSENT le
     # deplacement, lus au decompile (`BaseUnitComponent$$HasTrait` avec 0x11, 0x3, 0x3f9).
-    _NOT_DISPLACEABLE = (UnitTrait.Immovable, UnitTrait.Hulking, UnitTrait.BigTarget)
+    # #498-r4 : la liste n'est plus RECOPIEE ici -- c'est le tuple du foyer runner
+    # (`runner/components.py::NOT_DISPLACEABLE_TRAITS`). Trois exemplaires du meme tuple etaient
+    # libres de diverger, et c'est le gisement exact que #498-r3 a ferme cote RUNNER.
+    _NOT_DISPLACEABLE = NOT_DISPLACEABLE_TRAITS
 
     @staticmethod
     def _unit(ctx, entity_id):
@@ -1287,7 +1293,29 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
     @classmethod
     def _is_displaceable(cls, ctx, unit: dict) -> bool:
         """`IdunBattle.Entities.UnitExtensions$$IsDisplaceable(unit)` : vivante, et sans aucun des
-        trois traits refusants. Le 4e refus (`HasFlag(unit, 0x19)`) n'a pas de substrat offline."""
+        trois traits refusants.
+
+        DEUX des cinq conditions natives ne sont PAS portees ici, et #498-r4 les a MESUREES plutot
+        que supposees -- les deux verdicts sont « ne pas cabler », pour deux raisons DIFFERENTES :
+
+        * `HasFlag(unit, 0x19 = UnitFlag.Undisplaceable)` -- le substrat de DECISION ne publie que
+          quatre `UnitFlag`. Recensement EXHAUSTIF des ecrivains natifs du flag (les DEUX voies) :
+          `IdunBattleLogic.Entities.DSLBehaviors$$AddFlag` a **10** appelants, litteral relu a
+          chacun, et UN SEUL pose `0x19` -- `IdunBattleLogic.Entities.Abilities.Active.Loki.
+          UnstoppableMomentumReworkedAbility$$ExecuteBehaviour`, qui porte aussi le `RemoveFlag`
+          apparie ; `IdunBattle.Entities.Components.UnitFlagsComponent$$Add` a **40** sites de jeu,
+          litteral relu a chacun, qui posent 21 ordinaux distincts et JAMAIS `0x19` ; et
+          `UnitFlagsComponent$$.ctor` construit un `OrderedSet` VIDE (aucune unite ne nait avec).
+          Le flag n'existe donc qu'a l'INTERIEUR d'une execution d'ability, ou la decision
+          n'evalue jamais. Direction si le port se trompait : PERMISSIVE.
+        * `GetEntityType(unit) != EntityType.Unit` -- STRUCTURELLEMENT inerte : le `unit` vient de
+          `ctx.units`, dont le foyer offline (`ai/state_bridge.py::_dv_units`) EXCLUT les MoW
+          (`is_machine_of_war(e) -> continue`) et dont le foyer live est `decisionView.units`,
+          canal separe de `.mows`. Et `_unit` rend `None` sur tout id qui n'est pas dans cette
+          liste, ce que la premiere ligne refuse deja.
+
+        Le gate `alive` en tete, lui, est un ECART du port : le natif ne teste AUCUNE liveness
+        (cf. `runner/components.py::unit_extensions_is_displaceable`). RESTRICTIF, conserve."""
         if not unit or not unit.get("alive"):
             return False
         scene = getattr(ctx, "scene", None)
@@ -1600,8 +1628,9 @@ class TheLionsWrathPlaybook(NonAttackComparablePlaybook):
     port » est PERIME. Le dictionnaire est `BC.Victory.VictoryConditions`, que le port lit
     (`engine.services.victory_config.get_max_rounds`, defaut DERIVE de `data/seed-bc.json`), et le
     mirror complet est `engine.services.battle_query.has_minimum_remaining_turns` -- desormais
-    branche sur le bit `CasterHas2TurnsLeft` de 1160/1142/1188. Ce qui manque n'est plus le plafond
-    mais le COMPTEUR `TurnComponent+0x40` du SECOND bras (residu `#287-r11-r1-r1-r1`). Le gate se
+    branche sur le bit `CasterHas2TurnsLeft` de 1160/1142/1188. Le COMPTEUR `TurnComponent+0x40` du
+    SECOND bras, qui manquait encore, est porte depuis `#287-r11-r1-r1-r1` (`State.turns_ended`,
+    ecrit par `turnflow.set_current_player`). Le gate se
     reduit donc a `True` PAR LECTURE sur toute BC sans `MainPlayerRoundLimitation`, c.-a-d.
     exactement le defaut de `NonAttackComparablePlaybook.should_evaluate` : l'overrider pour rendre
     `True` inconditionnellement serait du code mort. RESIDU NOMME `#27-r4-g` -- il ne pourra mordre

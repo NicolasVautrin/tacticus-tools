@@ -82,6 +82,11 @@ class State:
     dict @+0x38) ; incrémenté par `StartTurnOperation`. Source de `GetAmountOfTurnsStartedByCurrentPlayer`
     (gate « 1er tour » de certaines mécaniques). Vide tant qu'aucun tour n'a été joué via le runner.
 
+    `turns_ended` = nb de tours TERMINÉS par joueur (mirror `TurnComponent.<Dictionary @+0x40>`,
+    `GetAmountOfTurnsEndedByPlayer`) — le JUMEAU du précédent, jamais son synonyme : les deux sont
+    écrits par la même fonction native (`TurnComponent$$SetCurrentPlayer`) mais sur deux joueurs
+    DIFFÉRENTS (sortant / entrant). Écrivain porté : `turnflow.set_current_player`.
+
     `pending_deaths` / `draining_deaths` = la FILE DE MORTS de `MatchState` et le verrou de
     ré-entrance de `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (case-haze-ord) :
     `RecordKillOperation` ENQUEUE, `VerifyDeaths` DRAINE une mort à la fois. Détail au point
@@ -92,7 +97,7 @@ class State:
     donc l'unité de TOUTE durée d'effet exprimée en ROUNDS. Seedé par `load_state` ; None = inconnu →
     `convert_rounds_to_turns` retombe sur l'identité."""
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
-                 "turn_counts", "turn_order_player_count", "triggering_ability",
+                 "turn_counts", "turns_ended", "turn_order_player_count", "triggering_ability",
                  "trigger_ability_type",
                  "pending_deaths", "draining_deaths", "ability_states_seed",
                  "pending_triggered_abilities", "draining_pending_abilities",
@@ -164,6 +169,17 @@ class State:
         # condition. Les deux ne se confondent pas -- seule la seconde est une MESURE.
         self.victory_conditions: Optional[dict] = None
         self.turn_counts: dict[int, int] = {}
+        # #287-r11-r1-r1-r1 -- `TurnComponent.<Dictionary @+0x40>`, les tours **TERMINES** par
+        # joueur, que rend `IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEndedByPlayer`.
+        # C'est le JUMEAU de `turn_counts` (`+0x38`, tours DEMARRES) et il ne s'y substitue pas :
+        # les deux dictionnaires sont ecrits par la MEME fonction
+        # (`IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer`, ecrivain UNIQUE des
+        # deux) mais sur deux joueurs DIFFERENTS -- `ended[SORTANT] += 1` et `started[ENTRANT] += 1`.
+        # Ecrivain porte : `turnflow.set_current_player`. Seed : `snapshot._load_turns_ended`.
+        # Lecteur : `engine.services.battle_query.get_amount_of_turns_ended_by_player`, appele par
+        # `has_minimum_remaining_turns` (bit 52 `CasterHas2TurnsLeft`).
+        # Cle ABSENTE = 0 -- c'est la branche `!ContainsKey` du natif, pas un zero fabrique.
+        self.turns_ended: dict[int, int] = {}
         # #101 : le fait "a bouge ce tour" N'EST PLUS un set d'etat ici — il vit ou le natif le met, dans
         # le `UnitFlagsComponent` de l'unite (`UnitFlag.Moved=0`), pose par `set_moved_flag`
         # (`IdunBattle.Entities.UnitExtensions$$SetMovedFlag`, appele par MoveUnitOperation) et purge par

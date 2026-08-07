@@ -3,15 +3,18 @@ from __future__ import annotations
 
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
-from engine.entities.traits.unit_trait import UnitTrait, has_any_trait
+from engine.entities.traits.unit_trait import entity_trait_names, has_any_trait
+from engine.runner.components import NOT_DISPLACEABLE_TRAITS   # #498-r4 : foyer UNIQUE de la liste
 from engine.runner.operations.displace import _dir_index, _step   # geometrie FindTileToPush partagee
 
-from ._base import NCContext, NonComparablePlaybook, _traits, _sweep_origin_first
+from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
 
-# `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` : traits BLOQUANTS lisibles en gameconfig.
-_NOT_DISPLACEABLE = (UnitTrait.Immovable,   # 0x11 = 17
-                     UnitTrait.Hulking,     # 3
-                     UnitTrait.BigTarget)   # 0x3f9 = 1017
+# `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` : les traits BLOQUANTS (`BaseUnitComponent$$
+# HasTrait` avec 0x11 `Immovable`, 0x3 `Hulking`, 0x3f9 `BigTarget`).
+# #498-r4 -- CE TUPLE ETAIT LA TROISIEME COPIE du meme, apres `runner/components.py` et
+# `loki_custom.py::MortisRoundPlaybook`. Il DELEGUE desormais au foyer runner : trois listes libres
+# de diverger sont le gisement exact que #498-r3 a ferme cote RUNNER.
+_NOT_DISPLACEABLE = NOT_DISPLACEABLE_TRAITS
 
 
 class ItItchesPlaybook(NonComparablePlaybook):
@@ -69,10 +72,33 @@ class ItItchesPlaybook(NonComparablePlaybook):
 
     @staticmethod
     def _is_displaceable(ctx: NCContext, unit: dict) -> bool:
-        """`IdunBattle.Entities.UnitExtensions$$IsDisplaceable` (part lisible offline : vivante + traits)."""
+        """`IdunBattle.Entities.UnitExtensions$$IsDisplaceable` : vivante, et sans aucun des trois
+        traits refusants.
+
+        ⚠ LE SUBSTRAT DE TRAITS A CHANGE (#498-r4), ET C'ETAIT UN ECART PERMISSIF. Ce site lisait
+        `_traits(visualId)` -- le KIT gameconfig SEUL. Le natif lit
+        `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`, c'est-a-dire la collection
+        `BaseUnitComponent+0x48`/`+0x40`, qui porte AUSSI les traits ACCORDES EN BATAILLE (leaf DSL
+        `IdunBattleLogic.Entities.DSLFactory$$AddTrait` -> `IdunBattle.Operations.AddTraitOperation
+        $$AddTrait`) et le pseudo-trait de grande-alliance. Le foyer porte est
+        `entity_trait_names(ctx)`, exactement ce que lisent l'autre miroir de DECISION
+        (`loki_custom.py::MortisRoundPlaybook._is_displaceable`) et le foyer RUNNER
+        (`runner/components.py::unit_extensions_is_displaceable`). Une unite qui s'est vu ACCORDER
+        `BigTarget`/`Immovable`/`Hulking` en cours de bataille etait donc jugee poussable ici,
+        et refusee partout ailleurs.
+
+        `ctx.scene` absent (contexte construit a la main) -> `entity_trait_names(None, visualId)`
+        retombe sur le substrat STATIQUE, c'est-a-dire le comportement d'avant : une BORNE, pas une
+        regression.
+
+        Les deux conditions natives NON portees ici (`HasFlag(0x19)`, `EntityType == Unit`) sont
+        MESUREES et documentees au site jumeau, `MortisRoundPlaybook._is_displaceable`."""
         if unit is None or unit.get("alive") is False:
             return False
-        return not has_any_trait(_traits(unit.get("visualId")), _NOT_DISPLACEABLE)
+        scene = getattr(ctx, "scene", None)
+        uctx = scene.ctx(unit.get("id")) if scene is not None else None
+        return not has_any_trait(entity_trait_names(uctx, unit.get("visualId")),
+                                 _NOT_DISPLACEABLE)
 
     @staticmethod
     def _can_be_pushed(ctx: NCContext, pusher_pos: tuple, tpos: tuple) -> bool:
