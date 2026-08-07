@@ -79,13 +79,20 @@ CASTER, FOE = 10, 20
 #: Les deux joueurs du montage. `PLAYER_MOI` possede le caster ; le tour bascule entre les deux.
 PLAYER_MOI, PLAYER_ADVERSE = 3, 4
 
-#: Ce que le probe a MESURE live (`MC1_67`, seed 777, `1163 BlackRage`, `bloodDeathCompany`).
-#: `(bras, natif, port APRES, port AVANT, has_moved, is_turn_of_unit)`. Grave ici parce qu'un
+#: Ce que le probe a MESURE live (`MC1_67`, seed 777, runner `--no-ai`), sur DEUX couples
+#: (ability, porteur) a masques DIFFERENTS : `1163 BlackRage` / `bloodDeathCompany` (`0x106004012`)
+#: et `1153 HammerOfWrath` / `bloodIntercessor` (`0x102004032`). Le prefixe ne depend ni de
+#: l'ability ni de son masque -- deux couples le montrent, un seul ne le montrerait pas.
+#: Le ROLE est DERIVE du substrat, jamais de l'ordre des gestes :
+#:   `temoin`       -- n'a pas bouge                 -> `0x0` partout ;
+#:   `arme`         -- a bouge ET c'est son tour     -> `CasterHasNotMoved`, port inchange ;
+#:   `discriminant` -- a bouge ET ce n'est PAS son tour -> natif `0x0`, AVANT `0x10`, APRES `0x0`.
+#: `(role, natif, port APRES, port AVANT, has_moved, is_turn_of_unit)`. Grave ici parce qu'un
 #: mirror re-genere redeviendrait vert sans que le comportement mesure soit encore le meme.
 MESURE_LIVE = (
-    ("avant-move (tour de Lucien)", 0x0, 0x0, 0x0, False, True),
-    ("en-tour + a bouge", 0x10, 0x10, 0x10, True, True),
-    ("hors-tour + a bouge", 0x0, 0x0, 0x10, True, False),
+    ("temoin (n'a pas bouge)", 0x0, 0x0, 0x0, False, True),
+    ("arme (a bouge, son tour)", 0x10, 0x10, 0x10, True, True),
+    ("discriminant (a bouge, PAS son tour)", 0x0, 0x0, 0x10, True, False),
 )
 
 
@@ -328,7 +335,7 @@ def test_le_mutant_prefixe_toujours_vrai_est_SEPARE_par_le_bras_hors_tour(monkey
             separateurs.append(bras)
     assert separateurs, (
         "AUCUN bras ne separe le mutant du natif -- le montage ne mesure rien")
-    assert "hors-tour + a bouge" in separateurs
+    assert "discriminant (a bouge, PAS son tour)" in separateurs
     # Et le foyer est bien RESTAURE apres le monkeypatch (sinon les tests suivants mesureraient
     # le mutant sans le savoir).
     assert is_turn_of_unit is not None

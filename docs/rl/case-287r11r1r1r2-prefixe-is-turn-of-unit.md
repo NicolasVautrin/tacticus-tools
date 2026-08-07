@@ -83,24 +83,38 @@ courant, donc le préfixe y est INERTE.
 
 ## 5. Confrontation LIVE — `probe_287r11r1r1r2_is_turn_of_unit.py`
 
-Board `MC1_67`, seed 777, `1163 BlackRage` / `bloodDeathCompany` (HERO du pool), runner `--no-ai`.
-L'oracle est `casterReason` du RPC `abilityReason` = `AttackQuery$$GetInvalidCasterReason(caster,
-casterTile, abilityType)` — **il ne prend aucune cible**, donc il isole le volet CASTER.
+Board `MC1_67`, seed 777, runner `--no-ai`. L'oracle est `casterReason` du RPC `abilityReason` =
+`AttackQuery$$GetInvalidCasterReason(caster, casterTile, abilityType)` — **il ne prend aucune
+cible**, donc il isole le volet CASTER.
 
-| bras | natif | port APRÈS | port AVANT | `has_moved` | `is_turn_of_unit` | joueur courant |
-|---|---|---|---|---|---|---|
-| avant-move (tour de Lucien) | `0x0` | `0x0` | `0x0` | `False` | `True` | 3 |
-| en-tour + a bougé | `0x10` | `0x10` | `0x10` | `True` | `True` | 3 |
-| **hors-tour + a bougé** | **`0x0`** | **`0x0`** | **`0x10`** | `True` | **`False`** | 4 |
+**DEUX couples (ability, porteur) à masques DIFFÉRENTS**, tous deux au roster, donc généralisation
+sans coût de runner : `1163 BlackRage` / `bloodDeathCompany` (`0x106004012`) et `1153 HammerOfWrath`
+/ `bloodIntercessor` (`0x102004032`). Le préfixe ne dépend ni de l'ability ni de son masque — un
+seul couple ne le montrerait pas.
 
-Ventilation native `{0x0, 0x10}` — **non dégénérée**. **0 bras écarté** (aucun `ValidRequest` d'étage
-amont). Le port « AVANT » est le code du commit avec `targeting.is_turn_of_unit` substituée par
-`lambda: True`, c'est-à-dire la clause évaluée inconditionnellement.
+| bras | rôle | natif | port APRÈS | port AVANT | `has_moved` | `is_turn_of_unit` | joueur |
+|---|---|---|---|---|---|---|---|
+| initial `[1163]` | témoin | `0x0` | `0x0` | `0x0` | `False` | `True` | 3 |
+| initial `[1153]` | témoin | `0x0` | `0x0` | `0x0` | `False` | `True` | 3 |
+| après-move(Lucien) `[1163]` | **armé** | `0x10` | `0x10` | `0x10` | `True` | `True` | 3 |
+| après-move(Lucien) `[1153]` | témoin | `0x0` | `0x0` | `0x0` | `False` | `True` | 3 |
+| après-move(Mataneo) `[1163]` | **discriminant** | **`0x0`** | **`0x0`** | **`0x10`** | `True` | **`False`** | 4 |
+| après-move(Mataneo) `[1153]` | **discriminant** | **`0x0`** | **`0x0`** | **`0x10`** | `True` | **`False`** | 4 |
 
-⚠ **Le bras `hors-tour` ne prouve quelque chose que si le substrat des DEUX étages est celui qu'on
-croit.** Le probe imprime `has_moved` et `is_turn_of_unit` à chaque bras et **refuse de conclure**
-(`rc 3`) si le flag s'est évaporé ou si le préfixe n'est pas FAUX : sans ce cran, l'accord du bras
-hors-tour serait un accord de régime DÉGÉNÉRÉ.
+Ventilation native `{0x0, 0x10}` — **non dégénérée**. **0 bras écarté** (aucun `ValidRequest`
+d'étage amont). **2 discriminants / 1 armé**, régression fermée sur **les deux** couples. Le port
+« AVANT » est le code du commit avec `targeting.is_turn_of_unit` substituée par `lambda: True`,
+c'est-à-dire la clause évaluée inconditionnellement.
+
+⚠ **LE RÔLE DE CHAQUE LIGNE EST DÉRIVÉ DU SUBSTRAT MESURÉ, PAS DE L'ORDRE DES GESTES — et c'est une
+correction, pas une élégance.** Le premier jet bougeait les deux porteurs puis étiquetait la capture
+« en-tour » : le tour avait **basculé tout seul** entre-temps (`VerifyUnitsTurnFinishedOperation`
+termine une unité sans option), si bien que ce bras était en réalité hors-tour. Le probe l'a
+**REFUSÉ** — ventilation dégénérée `{0x0}`, `rc 2` — au lieu de rendre un accord. Depuis, il capture
+après chaque geste et dérive `temoin` / `arme` / `discriminant` de `(has_moved, is_turn_of_unit)`.
+
+⚠ **Il exige AUSSI un bras ARMÉ** (`rc 3` sinon) : sans lui, l'accord des bras discriminants serait
+compatible avec un port qui ne teste plus rien du tout.
 
 ## 6. La garde
 
@@ -122,10 +136,10 @@ et le bras EN-TOUR (comportement conservé) — le diagnostic, pas une faiblesse
 * **La face DÉCISION n'est pas touchée** : `CasterSubstrate.is_turn_of_unit` portait déjà le
   préfixe (#433-r4-r2-r1-r2-r2-r1-r1-r1-r4, 11 paires sur 42). Les deux faces restent deux
   RESTRICTIONS d'un seul natif à deux substrats.
-* **Les autres porteurs du bit ne sont pas confrontés live** : le registre en compte 10
+* **Les huit autres porteurs du bit ne sont pas confrontés live** : le registre en compte 10
   (`1026`, `1058`, `1112`, `1115`, `1153`, `1163`, `1177`, `1186`, `1204`, `1222` — compte
-  re-dérivé, ne pas le citer). Le préfixe ne dépend ni de l'ability ni de son masque, donc leur
-  régime est identique — mais c'est un raisonnement, pas une mesure.
+  re-dérivé, ne pas le citer), dont **deux** sont mesurés ici, avec des masques distincts. Pour les
+  huit restants le régime est identique — mais c'est un raisonnement, pas une mesure.
 * **Rouges PRÉEXISTANTS rencontrés et reproduits À L'IDENTIQUE sur le témoin** (échec de MONTAGE,
   pas de port) : `test_419r1tr14r5r2r1r2r1r1_only_adjacent_live.py` (5 passed / 7 errors),
   `test_419r1tr14r5r2r1r2r1r1r4_melee_clamps_live.py` (2 passed / 6 errors),

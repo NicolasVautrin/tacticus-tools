@@ -73,6 +73,13 @@ ROOT = PYDIR.parents[1]
 BLACK_RAGE = 1163
 LUCIEN = "bloodDeathCompany"
 ALLY = "bloodIntercessor"
+
+#: LA GENERALISATION, et elle est gratuite en runner : `bloodIntercessor` est DEJA au roster, et il
+#: porte `1153 HammerOfWrath`, dont le masque est `0x102004032` -- DIFFERENT de celui de 1163
+#: (`0x106004012`), meme bit `CasterHasNotMoved` mis a part. Le prefixe ne depend NI de l'ability NI
+#: de son masque : deux couples a masques distincts le montrent, un seul ne le montrerait pas.
+#: Chaque bras est mesure pour LES DEUX couples, sur le MEME etat fige.
+COUPLES = ((BLACK_RAGE, LUCIEN), (1153, ALLY))
 A_UNITS = "necroWarden,necroWarden,necroWarden"
 BOARD = "MC1_67"
 SEED = "777"
@@ -147,25 +154,25 @@ def _my_turn(sid, rid, maxit=8):
     return _dv(sid, rid)
 
 
-def _caster_reason(sid, rid, caster_id) -> int:
+def _caster_reason(sid, rid, caster_id, ability_id) -> int:
     """`casterReason` du RPC `abilityReason` = `AttackQuery$$GetInvalidCasterReason(caster,
     casterTile, abilityType)`. AUCUN `targetId` n'est passe : le volet CASTER n'en lit pas."""
     r = _r(sid, "abilityReason", {"runnerId": rid, "casterId": caster_id,
-                                  "abilityType": BLACK_RAGE}, 90) or {}
+                                  "abilityType": int(ability_id)}, 90) or {}
     cr = r.get("casterReason") or {}
     return int(cr.get("hex") or "0x0", 16)
 
 
 # --------------------------------------------------------------------------- les deux ports
 
-def _port(state, caster_id, *, prefixe_porte: bool) -> int:
+def _port(state, caster_id, ability_id, *, prefixe_porte: bool) -> int:
     """`get_invalid_caster_reason` sur l'etat fige, dans les DEUX versions.
 
     `prefixe_porte=False` = l'etat de `master` AVANT cette tranche : la clause `CasterHasNotMoved`
     etait evaluee inconditionnellement. On l'obtient en substituant l'attribut
     `engine.runner.abilities.targeting.is_turn_of_unit` -- le module CONSOMMATEUR, seule forme qui
     morde une liaison `from ..components import is_turn_of_unit`."""
-    ability = ABILITY_CLASSES[BLACK_RAGE]()
+    ability = ABILITY_CLASSES[int(ability_id)]()
     if prefixe_porte:
         return int(T.get_invalid_caster_reason(state, int(caster_id), ability) or 0)
     origine = T.is_turn_of_unit
@@ -185,14 +192,16 @@ def _capture(sid, rid, board):
     return dec, load_state(dec, ob, snap, board=board)
 
 
-def _row(sid, rid, state, dec, caster_id, label) -> dict:
+def _row(sid, rid, state, dec, caster_id, ability_id, label) -> dict:
     """UNE mesure : oracle natif, port APRES, port AVANT, PLUS le substrat des deux etages."""
-    natif = _caster_reason(sid, rid, caster_id)
-    apres = _port(state, caster_id, prefixe_porte=True)
-    avant = _port(state, caster_id, prefixe_porte=False)
+    natif = _caster_reason(sid, rid, caster_id, ability_id)
+    apres = _port(state, caster_id, ability_id, prefixe_porte=True)
+    avant = _port(state, caster_id, ability_id, prefixe_porte=False)
     itou = T.is_turn_of_unit(state, int(caster_id))
     return {
         "bras": label,
+        "ability": int(ability_id),
+        "caster": int(caster_id),
         "natif": natif,
         "apres": apres,
         "avant": avant,
@@ -203,6 +212,17 @@ def _row(sid, rid, state, dec, caster_id, label) -> dict:
         "accord_apres": apres == natif,
         "accord_avant": avant == natif,
     }
+
+
+def _rows(sid, rid, state, dec, ids_par_visual, label) -> list:
+    """LE MEME bras, mesure pour les DEUX couples (ability, porteur) -- la generalisation."""
+    out = []
+    for aid, vis in COUPLES:
+        cid = ids_par_visual.get(vis)
+        if cid is None:
+            continue
+        out.append(_row(sid, rid, state, dec, cid, aid, "%s [%d/%s]" % (label, aid, vis)))
+    return out
 
 
 def run(seed: str = SEED, board_id: str = BOARD, sid=None, rid=None, keep: bool = False) -> dict:
@@ -221,34 +241,45 @@ def run(seed: str = SEED, board_id: str = BOARD, sid=None, rid=None, keep: bool 
         board = Board(bg["tiles"], adjacency="native_sym")
 
         dec = _dv(sid, rid)
-        luc = next((u for u in (dec.get("units") or [])
-                    if u.get("visualId") == LUCIEN and u.get("alive")), None)
-        if luc is None:
-            raise RuntimeError("Lucien absent du roster monte")
-        luc_id = int(luc["id"])
+        ids = {}
+        for aid, vis in COUPLES:
+            u = next((x for x in (dec.get("units") or [])
+                      if x.get("visualId") == vis and x.get("alive")), None)
+            if u is None:
+                raise RuntimeError("porteur %r absent du roster monte" % (vis,))
+            ids[vis] = int(u["id"])
 
-        # ---- bras 1 : AVANT le move -- temoin a verdict NUL des deux cotes ------------------
+        # LA SEQUENCE NE SUPPOSE RIEN DE LA MECANIQUE DE TOUR, et c'est une correction MESUREE :
+        # bouger les DEUX porteurs d'un coup faisait BASCULER le tour tout seul
+        # (`VerifyUnitsTurnFinishedOperation` termine une unite sans option), si bien que le bras
+        # etiquete « en-tour » etait en fait un bras hors-tour -- le probe l'a REFUSE (ventilation
+        # degeneree), ce qui est exactement son travail. On CAPTURE donc apres chaque geste, et le
+        # ROLE de chaque ligne est DERIVE du substrat mesure (`has_moved`, `is_turn_of_unit`),
+        # jamais suppose.
         dec, state = _capture(sid, rid, board)
-        rows.append(_row(sid, rid, state, dec, luc_id, "avant-move (tour de Lucien)"))
+        rows += _rows(sid, rid, state, dec, ids, "initial")
 
-        # ---- bras 2 : EN-TOUR, apres le move -- la clause MORD, prefixe VRAI ----------------
-        tiles = _movable(sid, rid, luc_id)
-        if not tiles:
-            raise RuntimeError("aucune tuile de deplacement pour Lucien")
-        dec0 = _dv(sid, rid)
-        luc0 = next((u for u in (dec0.get("units") or []) if u.get("id") == luc_id), None)
-        cible = min(tiles, key=lambda t: (hexgeo.distance(t, _pos(luc0)) != 1, t))
-        res = _act(sid, rid, {"kind": "move", "unitId": luc_id,
-                              "to": {"col": cible[0], "row": cible[1]}}, 90)
-        if not bool(((res or {}).get("actions") or [{}])[0].get("ok")):
-            raise RuntimeError("le move de Lucien a echoue : %r" % (res,))
-        dec, state = _capture(sid, rid, board)
-        rows.append(_row(sid, rid, state, dec, luc_id, "en-tour + a bouge"))
+        for vis, uid in ids.items():
+            tiles = _movable(sid, rid, uid)
+            if not tiles:
+                raise RuntimeError("aucune tuile de deplacement pour %s" % (vis,))
+            d0 = _dv(sid, rid)
+            u0 = next((x for x in (d0.get("units") or []) if x.get("id") == uid), None)
+            cible = min(tiles, key=lambda t: (hexgeo.distance(t, _pos(u0)) != 1, t))
+            res = _act(sid, rid, {"kind": "move", "unitId": uid,
+                                  "to": {"col": cible[0], "row": cible[1]}}, 90)
+            if not bool(((res or {}).get("actions") or [{}])[0].get("ok")):
+                raise RuntimeError("le move de %s a echoue : %r" % (vis, res))
+            dec, state = _capture(sid, rid, board)
+            rows += _rows(sid, rid, state, dec, ids, "apres-move(%s)" % vis)
 
-        # ---- bras 3 : HORS-TOUR, MEME unite, flag `Moved` encore pose -----------------------
-        _act(sid, rid, {"kind": "endturn"}, 60)
-        dec, state = _capture(sid, rid, board)
-        rows.append(_row(sid, rid, state, dec, luc_id, "hors-tour + a bouge"))
+        # ... et si le tour n'a pas bascule tout seul, on le fait basculer.
+        d = _dv(sid, rid)
+        mien = next((u for u in (d.get("units") or []) if u.get("id") in ids.values()), None)
+        if mien is not None and d.get("currentPlayer") == mien.get("owner"):
+            _act(sid, rid, {"kind": "endturn"}, 60)
+            dec, state = _capture(sid, rid, board)
+            rows += _rows(sid, rid, state, dec, ids, "apres-endturn")
     finally:
         if own and not keep:
             try:
@@ -258,45 +289,60 @@ def run(seed: str = SEED, board_id: str = BOARD, sid=None, rid=None, keep: bool 
 
     joues = [r for r in rows if not r["ecarte"]]
     verdicts = sorted({r["natif"] for r in joues})
-    hors = next((r for r in rows if r["bras"].startswith("hors-tour")), None)
+    # LE ROLE EST DERIVE DU SUBSTRAT, jamais de l'etiquette (cf. la sequence ci-dessus).
+    #   * DISCRIMINANT = a bouge ET ce n'est PAS son tour -> le prefixe fait SAUTER la clause ;
+    #   * ARME         = a bouge ET c'est son tour        -> la clause s'evalue, verdict `0x10`.
+    for r in rows:
+        r["role"] = ("discriminant" if (r["has_moved"] and r["is_turn_of_unit"] is False)
+                     else "arme" if (r["has_moved"] and r["is_turn_of_unit"] is True)
+                     else "temoin")
+    disc = [r for r in joues if r["role"] == "discriminant"]
+    arme = [r for r in joues if r["role"] == "arme"]
+    ferme = [r for r in disc
+             if r["natif"] == 0 and r["avant"] == int(TR.CasterHasNotMoved) and r["apres"] == 0]
+    couples = ["%d/%s" % (a, v) for (a, v) in COUPLES]
+    # La regression doit etre fermee sur TOUS les couples, pas sur au moins un : c'est ce qui fait
+    # de la seconde ability une GENERALISATION et non un decor.
+    couples_disc = {(r["ability"], r["caster"]) for r in ferme}
     bilan = {
-        "runner": rid, "board": board_id, "seed": seed, "rows": rows,
+        "runner": rid, "board": board_id, "seed": seed, "rows": rows, "couples": couples,
         "ecartes": len(rows) - len(joues),
         "ventilation_native": [hex(v) for v in verdicts],
         "degenere": len(verdicts) < 2,
         "accord_apres": all(r["accord_apres"] for r in joues),
         "desaccord_avant": [r["bras"] for r in joues if not r["accord_avant"]],
-        # Le bras `hors-tour` ne PROUVE quelque chose que si le substrat des DEUX etages est
-        # celui qu'on croit : `Moved` pose ET `IsTurnOfUnit` faux. Sans ca, l'accord serait un
-        # accord de regime degenere.
-        "substrat_hors_tour_ok": bool(
-            hors is not None and hors["has_moved"] is True
-            and hors["is_turn_of_unit"] is False and not hors["ecarte"]),
-        "regression_fermee": bool(
-            hors is not None and not hors["ecarte"]
-            and hors["natif"] == 0 and hors["avant"] == int(TR.CasterHasNotMoved)
-            and hors["apres"] == 0),
+        "n_discriminant": len(disc), "n_arme": len(arme),
+        # Sans bras ARME, on ne saurait pas que la clause mord VRAIMENT quelque part -- l'accord du
+        # bras discriminant serait alors compatible avec un port qui ne teste plus rien.
+        "substrat_ok": bool(disc and arme),
+        "regression_fermee": bool(disc and len(ferme) == len(disc)
+                                  and len(couples_disc) == len(COUPLES)),
+        "couples_fermes": sorted("%d/u%d" % c for c in couples_disc),
     }
     return bilan
 
 
 def _print(b: dict) -> None:
     print("== #287-r11-r1-r1-r2  prefixe IsTurnOfUnit de CasterHasNotMoved (face RUNNER) ==")
-    print("runner=%s board=%s seed=%s" % (b["runner"], b["board"], b["seed"]))
-    print("%-30s %-10s %-10s %-10s %-8s %-9s %s"
-          % ("bras", "natif", "apres", "avant", "moved", "isTurnOf", "curPlayer"))
+    print("runner=%s board=%s seed=%s couples=%s"
+          % (b["runner"], b["board"], b["seed"], ",".join(b["couples"])))
+    print("%-46s %-13s %-8s %-8s %-8s %-7s %-9s %s"
+          % ("bras", "role", "natif", "apres", "avant", "moved", "isTurnOf", "curPlayer"))
     for r in b["rows"]:
-        print("%-30s %-10s %-10s %-10s %-8s %-9s %s%s"
-              % (r["bras"], hex(r["natif"]), hex(r["apres"]), hex(r["avant"]),
+        print("%-46s %-13s %-8s %-8s %-8s %-7s %-9s %s%s"
+              % (r["bras"], r["role"], hex(r["natif"]), hex(r["apres"]), hex(r["avant"]),
                  r["has_moved"], r["is_turn_of_unit"], r["currentPlayer"],
                  "   [ECARTE ValidRequest]" if r["ecarte"] else ""))
     print("")
     print("ventilation des verdicts NATIFS (bras joues) : %s" % (b["ventilation_native"],))
     print("bras ECARTES (etage amont, ValidRequest)      : %d" % b["ecartes"])
+    print("bras DISCRIMINANTS / ARMES                    : %d / %d"
+          % (b["n_discriminant"], b["n_arme"]))
     print("accord port APRES / natif sur tous les bras   : %s" % b["accord_apres"])
     print("bras ou le port AVANT etait en desaccord      : %s" % (b["desaccord_avant"] or "aucun"))
-    print("substrat du bras hors-tour (moved + !isTurnOf): %s" % b["substrat_hors_tour_ok"])
-    print("REGRESSION FERMEE (natif 0 / avant 0x10 / apres 0) : %s" % b["regression_fermee"])
+    print("substrat (au moins un DISCRIMINANT et un ARME): %s" % b["substrat_ok"])
+    print("couples dont la regression est FERMEE         : %s" % (b["couples_fermes"],))
+    print("REGRESSION FERMEE sur TOUS les couples        : %s" % b["regression_fermee"])
 
 
 def main(argv=None) -> int:
@@ -315,15 +361,15 @@ def main(argv=None) -> int:
     if b["degenere"]:
         print("REFUS : la ventilation native est DEGENEREE -- ce montage ne separe rien.")
         return 2
-    if not b["substrat_hors_tour_ok"]:
-        print("REFUS : le substrat du bras hors-tour n'est pas celui attendu "
-              "(flag `Moved` absent, ou `IsTurnOfUnit` non FAUX) -- accord non probant.")
+    if not b["substrat_ok"]:
+        print("REFUS : il manque un bras DISCRIMINANT (a bouge, pas son tour) ou un bras ARME "
+              "(a bouge, son tour) -- l'accord ne serait pas probant.")
         return 3
     if not b["accord_apres"]:
         print("ECHEC : le port APRES diverge du natif sur au moins un bras.")
         return 1
     if not b["regression_fermee"]:
-        print("ECHEC : le bras hors-tour ne montre pas la regression fermee.")
+        print("ECHEC : la regression n'est pas fermee sur TOUS les couples.")
         return 1
     return 0
 
