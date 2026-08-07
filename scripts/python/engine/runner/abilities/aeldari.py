@@ -161,7 +161,7 @@ est CONSTRUITE PAR UNE BOUCLE C# a la construction du behaviour, pas ecrite en d
     beh      = df+0x78                                      # DSLBehaviors
     d        = new <>c__DisplayClass1_0 { ability = this, abilityState = *abilityState }
     ennemis  = DSLSelectors$$Cache( DSLSelectors$$Enemies( of       = sel+0x48 = Caster,
-                                                          entities = sel+0x20 = AllUnits,
+                                                          entities = sel+0x20 = AllAliveUnits,
                                                           selectionType = 3 ),
                                     matchAbilityEntities = 1 )
     amorce   = DSLBehaviors$$SetCache( ennemis )
@@ -250,7 +250,7 @@ from ...entities.effect_type import EffectType
 from ...entities.selectors.accessors import CasterTile, Owner, Target, TargetTile
 from ...entities.selectors.geometry import (AtIndex, Cache, ConditionalSelector, Null, PickFirstN,
                                             PickRandomly, Randomize, TilesBehindInLine)
-from ...entities.selectors.tiles import (AdjacentTiles, AllTiles, AllUnits, CanAddUnit, Caster,
+from ...entities.selectors.tiles import (AdjacentTiles, AllAliveUnits, AllTiles, CanAddUnit, Caster,
                                          SortTilesByUtility, TileBehindTargetFromSourceDirection)
 from ...entities.selectors.units import (
     AdjacentEnemies, AdjacentUnits, Alive, And, Damageable, Enemies, First, SortByDistance, Sub,
@@ -650,7 +650,7 @@ def silent_death_tree(n_targets: int) -> Group:
     (MIRROR du DECOMPILE ; la boucle C# native est deroulee ICI, comme elle l'est chez le natif -- ce
     n'est pas un raccourci de port, c'est la CONSTRUCTION du behaviour) :
 
-        ennemis = Cache( Enemies( AllUnits() ) )                  # Enemies(Caster@0x48, AllUnits@0x20, 3)
+        ennemis = Cache( Enemies( AllAliveUnits() ) )   # Enemies(<dsl>+0x48, <dsl>+0x20, 3)
         prev    = Target()                                        # <DSLSelectors+0x60>
         vus     = [ prev ]
         b       = Attack(prev)                                    # Nothing() + b__0(Target)
@@ -680,7 +680,7 @@ def silent_death_tree(n_targets: int) -> Group:
 
     L'ARBRE EST RECONSTRUIT PAR CAST (les `Cache` sont a etat) -- appeler cette fonction une fois par
     `execute_behaviour`, jamais la memoiser au niveau module."""
-    ennemis = Cache(Enemies(AllUnits()))                    # DSLSelectors$$Cache(Enemies(...), 1)
+    ennemis = Cache(Enemies(AllAliveUnits()))               # DSLSelectors$$Cache(Enemies(...), 1)
     prev = Target()                                         # <DSLSelectors+0x60>
     vus = [prev]                                            # List<TargetsSelector>, primaire en tete
     node = _silent_death_attack(prev)                       # Nothing() + b__0(Target) -> la 1re attaque

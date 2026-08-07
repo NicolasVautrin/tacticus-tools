@@ -19,7 +19,7 @@ from ...entities.formulas import (Const as _AmountConst, RoundsStarted, Sum,
                                   TotalRepairActionsAmount)
 from ...entities.selectors.accessors import CasterTile, FixedTileIds, SelectTile, Subject, Target
 from ...entities.selectors.geometry import Blocking, SortReverse, TilesBehindInLine
-from ...entities.selectors.tiles import AllUnits, Caster
+from ...entities.selectors.tiles import AllAliveUnits, Caster
 from ...entities.selectors.units import AdjacentUnits, Friends, Sub, Union, Units, UnitsWithTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
@@ -172,7 +172,7 @@ class SentinelDirectivesAbility(ActiveAbility):
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$AffectedTileAmount` (MIRROR) :
 #   Sum( Get(1),
 #        RoundsStarted(caster@0x160),
-#        TotalRepairActionsAmount( UnitsWithTrait( Friends(caster@0x160, AllUnits@0x80, 3),
+#        TotalRepairActionsAmount( UnitsWithTrait( Friends(<dsl>+0x48, <dsl>+0x20 AllAliveUnits, 3),
 #                                                  0xc = 12 Mechanic, 3 ) ) )
 #
 # L'i2 CONFIRME les trois termes : « The length of the line starts at 2 hexes and increases by 1 hex for
@@ -211,18 +211,19 @@ TRAIT_MECHANIC = int(UnitTrait.Mechanic)         # 0xc = 12
 
 def rad_bombardment_affected_tile_amount():
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$AffectedTileAmount`
-    (MIRROR 1:1) = `Sum( Get(1), RoundsStarted(caster@0x160),
-    TotalRepairActionsAmount(UnitsWithTrait(Friends(caster@0x160, AllUnits@0x80, 3), Mechanic, 3)) )`.
+    (MIRROR 1:1) = `Sum( Get(1), RoundsStarted(<dsl>+0x48 = Caster),
+    TotalRepairActionsAmount(UnitsWithTrait(Friends(<dsl>+0x48, <dsl>+0x20, 3), Mechanic, 3)) )`.
 
     REDUCTION NOTEE : la factory native `IdunBattleLogic.Entities.DSLFactory$$Sum` a UNE seule classe
     de noeud a 5 termes (les surcharges ne different que par le nombre de termes passes, les autres a 0) ;
     le port n'a qu'un `Sum` BINAIRE -> `Sum(Sum(a, b), c)`. Somme d'entiers, associative : identique.
 
-    `@0x80` est la source board-wide `AllUnits` (cf. `entities/selectors/geometry.py`, meme ancrage que
-    `WaaaghAbility$$GetBuffBehaviour`). `TotalRepairActionsAmount` rend 0 offline (compteur non capte,
+    `<dsl>+0x20` est le champ PARTAGE `AllAliveUnitsSelector` (pool `EntityPool.AliveUnits`), LU au
+    decompile courant `rnca9r7q6c` -- meme ancrage que `WaaaghAbility$$GetBuffedUnitsSelector` (#514).
+    `TotalRepairActionsAmount` rend 0 offline (compteur non capte,
     RESIDU documente sur le noeud) -> la longueur vaut `1 + turnsStarted(caster)`, exactement l'i2 tant
     qu'aucun Mechanic ami n'a soigne."""
-    mechanic_friends = UnitsWithTrait(Friends(AllUnits(), Caster()), TRAIT_MECHANIC)
+    mechanic_friends = UnitsWithTrait(Friends(AllAliveUnits(), Caster()), TRAIT_MECHANIC)
     return Sum(Sum(_AmountConst(1), RoundsStarted(Caster())),
                TotalRepairActionsAmount(mechanic_friends))
 

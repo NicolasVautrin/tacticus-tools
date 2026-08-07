@@ -89,7 +89,7 @@ from ...entities.behaviours import op_add, AtomicGroup
 from ...entities.damage_profile_type import DamageProfileType
 from ...entities.selectors.accessors import ActiveTarget, CasterTile, Target
 from ...entities.selectors.geometry import EntitiesWithAnyEffect
-from ...entities.selectors.tiles import AllTiles, AllUnits, Caster
+from ...entities.selectors.tiles import AllAliveUnits, AllTiles, Caster
 from ...entities.selectors.units import (Damageable, Enemies, Filter, SurroundingEnemies, UnitSet,
                                          Unobscured, non_steppable_or_object_units)
 from ...entities.formulas import Count, Min, Sum
@@ -325,7 +325,7 @@ class DoomboltAbility(ActiveAbility):
 #     atk2    = DSLBehaviors.AbilityDamage( <MEMES arguments> )                     # 2e instance
 #     extra   = DSLSelectors.FromTrigger(
 #                   DSLSelectors.NonSteppableOrObjectUnits(
-#                       DSLSelectors.Enemies(Caster@+0x48, AllUnits@+0x20, 3), 3),
+#                       DSLSelectors.Enemies(Caster@+0x48, AllAliveUnits@+0x20, 3), 3),
 #                   DSLTriggers.HasTakenDamageOfDamageProfileThisTurn(ActiveTarget@+0x68, 0xd),
 #                   requireContinuous = 0)
 #     AActiveAbility.Execute( entities, this,
@@ -365,14 +365,15 @@ def hellfyre_extra_targets_selector() -> Filter:
     """Sous-arbre `extra` de `HellfyreMissileRackAbility$$ExecuteBehaviour` -- IDENTIQUE au corps
     ENTIER de `$$GetAffectedUnits` (MIRROR 1:1) :
 
-        FromTrigger( NonSteppableOrObjectUnits( Enemies(Caster@+0x48, AllUnits@+0x20, 3), 3 ),
+        FromTrigger( NonSteppableOrObjectUnits( Enemies(Caster@+0x48, AllAliveUnits@+0x20, 3), 3 ),
                      HasTakenDamageOfDamageProfileThisTurn(ActiveTarget@+0x68, Psychic),
                      requireContinuous = 0 )
 
-    * `Enemies(Caster, AllUnits)` : le natif passe le slot PARTAGE `DSLSelectors+0x20` (alloue par
+    * `Enemies(Caster, AllAliveUnits)` : le natif passe le slot PARTAGE `DSLSelectors+0x20` (alloue par
       `DSLSelectors$$InitializeShared`) comme source, et `+0x48` (= `Caster`) comme reference. Le port
       `Enemies(inner)` prend sa reference dans `ctx.caster` -> meme semantique a ce call-site.
-      `AllUnits` porte deja le filtre VIVANTES (mirror `AllAliveMachinesSelector`).
+      `AllAliveUnits` porte le filtre VIVANTES parce que le slot `+0x20` EST
+      `IdunBattle.Entities.Selectors.AllAliveUnitsSelector` (pool `EntityPool.AliveUnits`) -- #514.
     * `NonSteppableOrObjectUnits` = la factory de composition (cf. son mirror dans
       `entities/selectors/units.py`) : `source & sans-Steppable & sans-Object`.
     * `FromTrigger` = `Filter` cote port (`DSLFactory$$Filter` est le THUNK de `$$FromTrigger`) : il
@@ -382,7 +383,7 @@ def hellfyre_extra_targets_selector() -> Filter:
     * Le predicat est `HasTakenDamageOfDamageProfileThisTurn` **SANS** `AmountOfTimes` : une PRESENCE
       de cle dans `receivedDamageThisTurn`, donc un ennemi ayant encaisse DEUX coups Psychic compte
       toujours (contraste `RealityUnboundExtraMaxDamageAbility`, qui exige `== 1`)."""
-    return Filter(non_steppable_or_object_units(Enemies(AllUnits())),
+    return Filter(non_steppable_or_object_units(Enemies(AllAliveUnits())),
                   HasTakenDamageOfDamageProfileThisTurn(ActiveTarget(), HELLFYRE_TRIGGER_PROFILE))
 
 

@@ -48,7 +48,7 @@ import hexgeo                                                            # noqa:
 from engine.dsl.base import DslContext                                   # noqa: E402
 from engine.entities.pathfinding.board import Board                      # noqa: E402
 from engine.entities.selectors.accessors import Target
-from engine.entities.selectors.tiles import AllUnits, Caster  # noqa: E402
+from engine.entities.selectors.tiles import AllAliveUnits, Caster  # noqa: E402
 from engine.entities.triggers import IsAdjacent                          # noqa: E402
 
 COLS, ROWS = 7, 7
@@ -108,14 +108,14 @@ def test_forall_faux_des_qu_une_paire_ne_l_est_pas(flat):
     near, far = _unit(1, CENTER), _unit(2, FAR)
     tgt = _unit(3, NEIGH, team=2)
     ctx = _ctx([near, far, tgt], caster=near, target=tgt, board=flat)
-    assert IsAdjacent(AllUnits(), Target()).evaluate(ctx) is False
+    assert IsAdjacent(AllAliveUnits(), Target()).evaluate(ctx) is False
 
 
 def test_forall_vrai_quand_toutes_les_paires_le_sont(flat):
     near = _unit(1, CENTER)
     tgt = _unit(3, NEIGH, team=2)
     ctx = _ctx([near, tgt], caster=near, target=tgt, board=flat)
-    assert IsAdjacent(AllUnits(), Target()).evaluate(ctx) is True
+    assert IsAdjacent(AllAliveUnits(), Target()).evaluate(ctx) is True
 
 
 # ------------------------------------------------------------------ le VIDE
