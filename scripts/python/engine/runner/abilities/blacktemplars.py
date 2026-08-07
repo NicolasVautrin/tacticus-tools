@@ -15,7 +15,7 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.ability_constant_type import AbilityConstantType
 from ...entities.effects.magnitude import ability_var
 from ...entities.formulas import StatAmount
-from ...entities.selectors.accessors import Owner, Subject, Target
+from ...entities.selectors.accessors import ActiveTarget, Owner, Target
 from ...entities.selectors.units import Damageable, SortByFormula, Sub, SurroundingEnemies
 from ...entities.stats import StatType
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
@@ -98,17 +98,25 @@ def fragstorm_grenade_launcher_tree(state, range_val: int, base_min: int, base_m
     DESCENDANT) : les cibles les plus faibles d'abord. Il ne survit toutefois que comme TIE-BREAK — le
     `OrderByDescending` du selecteur de prediction, stable, le reordonne ensuite par priorite de kill.
 
-    Le sujet lie par `SortByFormula` est le slot natif `+0x68` = `DSLFactory+0x180` ; cote port ce slot
-    est expose par DEUX noeuds (`Subject` et `ActiveTarget`), et c'est `Subject` que
-    `SortByFormula.select` re-lie par element — d'ou `Subject()` ici.
+    ⚠ **LE NOEUD DE LA FORMULE DE TRI EST `ActiveTarget`, PAS `Subject` — et ca CHANGE le resultat.**
+    Le natif passe `DSLSelectors+0x68`, et le mapping des slots de `DSLSelectors` est LU dans
+    `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` (onze champs `+0x30..+0x80`), aligne sur
+    la carte `DSLFactory` (`+0x148 Owner … +0x180 ActiveTarget`) par l'ecart constant `0x118` :
+    `+0x30 Owner · +0x38 Effect · +0x40 Actor · +0x48 Caster · +0x50 CasterTile · +0x58 CasterTiles ·
+    +0x60 Target · +0x68 ActiveTarget · +0x70 PreviousActiveTarget · +0x78 TargetTiles ·
+    +0x80 UnitFeetTiles`. Le port expose ce slot par `ActiveTarget()` (`ctx.active_target`), que
+    `SortByFormula.select` ne re-lie PAS (il re-lie `subject`) : la formule est donc CONSTANTE sur la
+    source — le tri par PV est un **NO-OP**, et l'ordre SOURCE (geometrique, `SurroundingEnemies`)
+    survit jusqu'au selecteur de prediction. Ecrire `Subject()` a la place rendait le tri ACTIF et
+    changeait la cible du report (MESURE #489 : port -> `u81`, natif -> `u107` ; cf. la case-doc).
 
     `attackRangeType = Ranged` (gameconfig) -> `is_melee=False`. Famille de factory = **ATTACK** (le
     nom natif est `...AttackDamage` et la feuille construit le mold `AttackDamageBehaviour`) ->
     `native_factory="attack"`, le defaut de la feuille."""
     other = fragstorm_grenade_launcher_other_targets(range_val)
     by_health = SortByFormula(other,
-                              StatAmount(Subject(), int(StatType.HEALTH)),   # StatPart.Current = 0
-                              ascending=True)
+                              StatAmount(ActiveTarget(), int(StatType.HEALTH)),  # StatPart.Current = 0
+                              ascending=True)   # flag natif `1` -> `OrderBy` (LU dans `$$Select`)
     chain = SortTargetsByDamagePrediction(
         state=state, attacker=Owner(), targets=by_health,
         ability_type=int(ActiveAbilityType.FragstormGrenadeLauncher),
