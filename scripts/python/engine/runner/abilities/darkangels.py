@@ -418,6 +418,12 @@ class DarkTalonStrikeAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
+        # #287-r14 RESOLUTION DE CIBLE -- `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`
+        # via le slot 16 d'`IActiveAbility` : pour un masque `TargetIsTile`, le role `target` du
+        # natif est TOUJOURS l'entite-TUILE, que l'appelant ait passe la tuile ou son occupant.
+        # IDEMPOTENT (`GetMainTile(<tuile>)` rend la tuile) -> inerte quand `AbilityHandler` a
+        # deja resolu, mordant sur tout appel DIRECT (tests de migration, probes).
+        target_id = self.get_actual_target(state, caster_id, target_id)
         board = state.board
         if target_id is None or board is None:
             return None
@@ -580,6 +586,12 @@ class DeathOnTheWindAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
+        # #287-r14 RESOLUTION DE CIBLE -- `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`
+        # via le slot 16 d'`IActiveAbility` : pour un masque `TargetIsTile`, le role `target` du
+        # natif est TOUJOURS l'entite-TUILE, que l'appelant ait passe la tuile ou son occupant.
+        # IDEMPOTENT (`GetMainTile(<tuile>)` rend la tuile) -> inerte quand `AbilityHandler` a
+        # deja resolu, mordant sur tout appel DIRECT (tests de migration, probes).
+        target_id = self.get_actual_target(state, caster_id, target_id)
         # `target@0x178` = une entite-TUILE (`abilityTargets` live : `kind=tile` -- la tuile de l'ennemi
         # DEJA attaque ce tour). On accepte aussi une entite-UNITE (robustesse harnais) via sa MainTile.
         tile_id = _resolve_target_tile(state, target_id)

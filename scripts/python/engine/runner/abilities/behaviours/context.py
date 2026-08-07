@@ -23,6 +23,21 @@ from ...components import previous_tiles as _pt
 from ...operations.ability_reset import entity_can_have_active_ability_reset
 from ....services.trait_damage_limits import group_unit_stat_part
 from ...components import MachineComponent
+# `unit_extensions_is_alive` (`IdunBattle.Entities.UnitExtensions$$IsAlive` : flag `Dead`, pool
+# `AliveUnits`, PV) : le predicat « cette unite est-elle SUR LE BOARD », lu par `main_tile_id`.
+# Choisi plutot que `unit_is_alive` (PV seuls, celui de `get_tiles`) parce que le natif teste la
+# PRESENCE DU PIED, que perd aussi une unite RETIREE a PV pleins (`RemoveUnitOperation`) -- et
+# parce que c'est EXACTEMENT le predicat du gate cible-morte
+# (`is_dead_unit_and_not_allowed_by_ability`), donc la resolution et le gate ne peuvent pas
+# diverger sur le meme cadavre.
+from ...components import unit_extensions_is_alive
+# Import de MODULE (forme B) : `unit_id` delegue sa branche TUILE au mirror deja porte
+# `operations/active_ability.py::get_unit`. Arete classee GRATUITE par la mesure -- charger
+# `engine.runner.operations.active_ability` seul dans un process FRAIS ne fait PAS atterrir ce
+# module-ci dans `sys.modules`, donc hisser ne ferme aucun cycle (cf. la regle « un import DIFFERE
+# est un outil a CYCLE »). Forme B et non A : une liaison de module n'est jamais gelee, donc un
+# `monkeypatch.setattr` sur le foyer MORD toujours.
+from ...operations import active_ability as _aa
 
 
 # Trait d'ALLIANCE derive de la GrandAlliance : la resolution CANONIQUE vit desormais dans
@@ -678,6 +693,148 @@ def main_tile_id(state, entity_id) -> int | None:
         return None
     e = state.get_entity(eid)
     pc = e.get_component(PositionComponent) if e is not None else None
-    if pc is not None:
+    # ⚠ UNE UNITE MORTE N'A PLUS DE TUILE, et c'est LU : `GetMainTileId` cherche le composant de
+    # PIED, puis l'`OrderedSet` de pieds @+0x78 -- dont il sort par `return 0` quand il est VIDE
+    # (`*(lVar1 + 0x18) == 0`). Le natif RETIRE du board l'unite tuee, donc son `GetMainTile` rend
+    # `state.GetEntity(0)` = **null**. Cote port, `PositionComponent` SURVIT a la mort : sans ce
+    # filtre, `main_tile_id(<cadavre>)` rendait sa derniere tuile.
+    # MESURE (#287-r14, `test_429r1r3_dead_target_message_gate_live`) : la resolution de cible
+    # branchee en amont du gate cible-morte transformait alors `IsUnit(<cadavre>)` en
+    # `IsUnit(<tuile>)` = faux -- le gate ne mordait plus et le cast s'executait sur un cadavre.
+    # C'est une regression PERMISSIVE, et c'est le harnais qui l'a vue, pas la lecture.
+    # MEME NOTION D'OCCUPATION que `operations/active_ability.py::get_tiles` (« unite MORTE ->
+    # liste VIDE, mirror du board natif d'ou une unite tuee est RETIREE »), que le selecteur
+    # `Units(tiles)` (#57m), `CanAddUnit` et `walk_pathfinder` -- mais par le predicat LARGE
+    # `UnitExtensions$$IsAlive` (cf. l'import), pas par les seuls PV : une unite RETIREE a PV
+    # pleins n'a pas de pied non plus.
+    if pc is not None and (e.get_component(UnitComponent) is None or unit_extensions_is_alive(e)):
         return board.id_at(pc.col, pc.row)
     return eid if eid in getattr(board, "by_id", {}) else None
+
+
+def unit_id(state, entity_id) -> int | None:
+    """`IdunBattle.Entities.UnitExtensions$$GetUnit(entity, state)` en DOMAINE ID -- la surcharge
+    DOMAINE MIXTE, celle que les DEUX call-sites de `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`
+    visent (etabli par les XREFS de la fonction, pas par son nom : le binaire en porte TROIS, dont
+    une tuile->unite et une pied->unite). Son corps, relu :
+
+        if (entity == null)      return null;
+        if (IsType(entity, Unit))     return entity;                    // l'entite ELLE-MEME
+        if (IsType(entity, Tile)) { c = entity.TileContentComponent@+0x38;
+                                    if (!c.IsFilled())  return null;
+                                    entity = state.GetEntity(c@+0x10);  // RECURSION
+                                    continue; }
+        if (IsType(entity, UnitFoot)) return GetUnit(<surcharge pied>, state);
+        return null;
+
+    Cote port : `state.entities` ne contient que des unites et des MoW, `state.board` les tuiles, et
+    les PIEDS n'ont pas d'entite propre (`get_unit_feet` rend des POSITIONS) -- la 3e branche n'a
+    donc pas de contrepartie, et son absence ne perd rien (aucun appelant du port ne tient d'id de
+    pied).
+
+    ⚠ UNE MoW N'EST PAS UNE `Unit` COTE NATIF (elle est du type `Machine` -- lu dans
+    `IdunBattle.Entities.UnitExtensions$$GetMachine`, qui rend l'entite elle-meme sur ce type), alors
+    que le port lui pose un `UnitComponent` pour la rendre exercable (`snapshot._load_machines`).
+    Le discriminant retenu est donc le `MachineComponent`, present sur elle SEULE : sans lui,
+    `GetUnit(<MoW>)` rendrait la MoW la ou le natif rend `null`.
+
+    La branche TUILE delegue a `operations/active_ability.py::get_unit`, qui EST le mirror deja
+    porte de cette meme resolution en domaine `(col, row)` -- surtout pas un 2e port du predicat
+    d'occupation."""
+    if entity_id is None:
+        return None
+    try:
+        eid = int(entity_id)
+    except (TypeError, ValueError):
+        return None
+    e = state.get_entity(eid)
+    if e is not None:
+        if e.get_component(MachineComponent) is not None:
+            return None                              # type `Machine` -> ni Unit, ni Tile -> null
+        if e.get_component(UnitComponent) is not None:
+            return eid                               # type `Unit` -> l'entite ELLE-MEME
+    board = getattr(state, "board", None)
+    if board is None or eid not in getattr(board, "by_id", {}):
+        return None
+    return _aa.get_unit(state, board.coord(eid))     # type `Tile` -> son occupant
+
+
+def machine_id(state, entity_id) -> int | None:
+    """`IdunBattle.Entities.UnitExtensions$$GetMachine(entity, state)` en DOMAINE ID :
+
+        if (entity == null)             return null;
+        if (IsType(entity, Machine))    return entity;
+        if (IsType(entity, Tile))       return TileExtensions.GetMachinePlatformContent(entity, state);
+        return null;
+
+    ⚠ La branche TUILE reste NON PORTEE, et c'est un residu NOMME, pas un oubli : le port ne
+    modelise pas les PLATEFORMES de MoW comme contenu de tuile (une MoW n'a ni `PositionComponent`
+    ni tuile -- cf. `snapshot._load_machines`, « hors-plateau »), donc il n'existe aucun substrat
+    d'ou tirer `GetMachinePlatformContent`. Rendre `None` y est la degradation FIDELE a ce que le
+    port sait : aucune plateforme inventee."""
+    if entity_id is None:
+        return None
+    try:
+        eid = int(entity_id)
+    except (TypeError, ValueError):
+        return None
+    e = state.get_entity(eid)
+    if e is not None and e.get_component(MachineComponent) is not None:
+        return eid
+    return None
+
+
+def actual_target(state, options, caster_id, target_id) -> int | None:
+    """`IdunBattle.Core.Services.TargetingQuery$$GetActualTarget(options, caster, target)` en
+    DOMAINE ID -- la transformation que le natif applique a TOUTE cible AVANT ses gates et avant
+    `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities` (#287-r14).
+
+    Corps relu (build rnca9r7q6c), l'ordre des quatre branches est CELUI-LA :
+
+        if (options.isSelfCasting == 0) {                      // byte @options+0x00
+            if (options.rules & 0x40)          return EntityExtensions.GetMainTile(target, state);
+            if (options.rules & (1<<44))       return UnitExtensions.GetMachine(target, state);
+            if (options.rules & (1<<46)) { u = UnitExtensions.GetUnit(target, state);
+                                           if (u != null) return u;
+                                           return UnitExtensions.GetMachine(target, state); }
+            return UnitExtensions.GetUnit(target, state);
+        }
+        return caster;                                          // self-cast
+
+    ⚠ La branche MACHINE n'essaie PAS `GetUnit` d'abord -- seule la branche ACTOR enchaine les deux.
+    Recopier « unit puis machine » partout serait un masque faux, du meme genre que recopier le
+    litteral d'un ctor a preset.
+
+    `options is None` = masque NON RE-LU -> on rend `target_id` TEL QUEL. Meme doctrine que
+    `TARGETING_OPTIONS` cote gate de cible : sans masque le port ne devine pas, il ne transforme
+    pas. Inventer `GetUnit` par defaut ferait resoudre en unite des cibles dont on ignore le
+    domaine.
+
+    IDEMPOTENCE (ce qui autorise les DEUX branchements du port -- `AbilityHandler` au rang natif ET
+    la tete des `execute_behaviour` tile-target) : chaque branche est un projecteur.
+    `GetMainTile(<tuile>)` rend la tuile (`main_tile_id` teste le `PositionComponent` d'abord, la
+    tuile du board en repli -- l'ordre natif de `GetMainTileId`), `GetUnit(<unite>)` rend l'unite,
+    `GetMachine(<MoW>)` rend la MoW, et le self-cast rend `caster` quel que soit l'argument.
+    Appliquer la resolution deux fois rend donc exactement ce que la premiere a rendu."""
+    if options is None:
+        return target_id
+    if getattr(options, "self_cast", False):
+        return caster_id
+    if options.is_tile_targeting:
+        # SUBSTRAT DE TUILES NON MESURE -> aucune resolution, `target_id` rendu TEL QUEL.
+        # `state.board is None` n'est pas « la cible n'a pas de tuile » : c'est « le port n'a pas
+        # charge le boardGraph » (`load_state(dv, ob, snap)` sans `board=`, ce que font plusieurs
+        # tests et tout appelant qui n'a pas la capture du plateau). Le natif, lui, a TOUJOURS son
+        # board. Rabattre ce cas sur le `null` de `GetMainTile` transformerait une non-mesure en
+        # REFUS -- exactement la degradation que la regle « `None` = pas mesure, jamais un zero »
+        # interdit. MESURE : sans ce repli, `test_valkyrie_strike_migration_live` passe de
+        # « l'arbre DSL pose 1022 » a `execute_behaviour -> None` (no-op complet).
+        if getattr(state, "board", None) is None:
+            return target_id
+        return main_tile_id(state, target_id)
+    if options.is_machine_targeting:
+        return machine_id(state, target_id)
+    if options.is_actor_targeting:
+        u = unit_id(state, target_id)
+        return u if u is not None else machine_id(state, target_id)
+    return unit_id(state, target_id)

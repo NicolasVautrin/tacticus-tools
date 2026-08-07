@@ -139,13 +139,17 @@ symbole du fichier qui n'existe pas dans l'arbre d'avant. Au niveau module, il f
 
 ## 7. Ce qui n'est PAS couvert
 
-* **`GetActualTarget` n'est pas porté — résidu `#287-r14`.** Le port reçoit tantôt une unité, tantôt
-  une tuile, selon l'appelant ; le natif, lui, **transforme toujours** selon
-  `TargetIsTile` / `TargetIsMachine` (bit 44) / `TargetIsActor` (bit 46) et le court-circuit self-cast.
-  Conséquence **mesurée** : en régime U, `1018` pose `1022` sur l'**unité**, là où le natif le pose
-  sur la **TUILE**. `test_valkyrie_strike_migration_live.py` grave ce régime (il confronte DSL vs
-  impératif, pas le porteur au natif) et reste juste **en tant que test de migration**. Pour `1017`,
-  les deux régimes sont observationnellement équivalents (mesuré, étage 4 de la garde).
+* ~~**`GetActualTarget` n'est pas porté — résidu `#287-r14`.**~~ **FERMÉ** — porté par #287-r14
+  (`case-287r14-get-actual-target.md`) : `actual_target` (foyer, `behaviours/context.py`) +
+  `ActiveAbility.get_actual_target` (`base.py`), branchés dans `AbilityHandler` au rang natif ET en
+  tête des 23 `execute_behaviour` tile-target. Confronté LIVE (`MC1_67`, seed 777) : cast de `1018`
+  avec un `targetId` d'**UNITÉ** → le natif pose `1022` sur la **TUILE 74**, le port aussi, le témoin
+  d'avant sur l'**unité 77**. `test_valkyrie_strike_migration_live.py` grave toujours le régime U —
+  et c'est correct : il charge `load_state` **sans board**, donc la résolution y est inerte ; il
+  reste juste **en tant que test de migration**. Pour `1017`, les deux régimes étaient déjà
+  observationnellement équivalents (mesuré, étage 4 de la garde). Résidus ouverts : `#287-r14-r1`
+  (la voie `execute_behaviour` ne résout que les tile-target) et `#287-r14-r2`
+  (`GetMachinePlatformContent`).
 * **L'espace d'ids partagé tuile/entité** reste un résidu (déjà nommé dans
   `operations/active_ability.py`) : un id ambigu est tranché par l'ordre de `main_tile_id`, qui est
   désormais celui du natif — ce n'est pas une séparation des espaces.

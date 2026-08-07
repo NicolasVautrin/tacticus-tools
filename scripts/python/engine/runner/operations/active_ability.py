@@ -63,10 +63,15 @@ flags sont poses UNE seule fois, par l'appel re-entrant.
 
 CE QUE LE PORT MATERIALISE, ET CE QU'IL NE MATERIALISE PAS
 ---------------------------------------------------------
-* `GetActualTarget` (`IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`) : le port passe deja
-  une cible RESOLUE dans son message (`ActiveAbilityMessage.target_id` / `target_id` de l'attaque
-  normale), la branche self-cast/tile/machine n'a donc pas de contrepartie offline. Le seul volet
-  qui compte ici est son `null` de sortie -- cf. `execute_for_replaced_target`.
+* `GetActualTarget` (`IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`) : PORTE depuis
+  #287-r14 (`actual_target` ci-dessous). La phrase qui vivait ici -- « le port passe deja une cible
+  RESOLUE dans son message, la branche self-cast/tile/machine n'a donc pas de contrepartie offline »
+  -- etait FAUSSE, et mesuree fausse : le port recoit tantot une UNITE (tous les tests live :
+  `_ringed_cast.cast_and_confront` envoie `targetId: <unite>`), tantot une TUILE (la face DECISION
+  portee : `abilityTargets` rend `kind: "tile"`). Le natif, lui, ne connait qu'UN regime parce qu'il
+  TRANSFORME lui-meme. Consequence MESUREE (#287-r12, live `MC1_67` seed 777) : `1018 ValkyrieStrike`
+  pose son effet `1022` sur la **TUILE** cote natif (`tileMeta.tiles[].effects` ; `decisionView.
+  units[].effects` reste inchange) et sur l'**UNITE** des que le port recoit un id d'unite.
 * `options@+0x8 <- Nullable(2)` : champ ECRIT par `ExecuteForReplacedTarget` et RELU par PERSONNE
   dans la chaine d'execution de ce build -- `ExecuteInternal` ne lit `options` qu'a +0x49/+0x4a/
   +0x4b/+0x4c/+0x50, `GetAbilityEntities` ne recopie que +0x10..+0x4f, `GetSkipEndTurnFlag` lit

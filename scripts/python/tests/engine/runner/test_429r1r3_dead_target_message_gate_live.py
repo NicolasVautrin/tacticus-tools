@@ -151,16 +151,40 @@ def test_le_port_refuse_TOUT_le_registre_sur_un_cadavre(couverture):
 
 
 def test_l_ATTRIBUTION_du_compteur_le_gate_de_message_est_ce_qui_ferme_la_derniere(couverture):
-    """CE QUI DISCRIMINE. Un 104/104 obtenu par un mecanisme faux serait invisible : le bras mute
-    (gate de MESSAGE debranche) doit differer du bras temoin d'EXACTEMENT une ability, et cette
-    ability doit etre le porteur du bit 38. Si le compte mute etait AUSSI complet, le gate de
-    message serait redondant ; s'il en manquait plusieurs, il masquerait autre chose."""
-    assert couverture["sans_message_gate_refusees"] == couverture["registre"] - 1, (
-        "sans le gate de message, EXACTEMENT une ability doit passer, obtenu %s / %s"
-        % (couverture["sans_message_gate_refusees"], couverture["registre"]))
-    assert couverture["sans_message_gate_rescapees"] == [P.ABILITY_GREAT_FROST_AXE], (
-        "l'unique rescapee doit etre GreatFrostAxe (1089), obtenu %s"
-        % couverture["sans_message_gate_rescapees"])
+    """CE QUI DISCRIMINE. Un 129/129 obtenu par un mecanisme faux serait invisible : le bras mute
+    (gate de MESSAGE debranche) doit laisser passer EXACTEMENT l'ensemble qu'aucun autre gate ne
+    peut fermer, et cet ensemble se DERIVE -- il n'est jamais saisi.
+
+    ⚠ CET ENSEMBLE A CHANGE AVEC #287-r14, et le changement est une FIDELITE, pas une regression.
+    Il valait `{1089}` seul tant que le port ne portait pas
+    `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`. Depuis qu'il le porte, une ability
+    SELF-CASTEE voit sa cible remplacee par le CASTER (court-circuit `isSelfCasting`, en TETE de la
+    fonction) : le gate cible-morte ne peut PAS la fermer, puisqu'il ne voit plus le cadavre. Le
+    natif fait exactement cela -- `ExecuteInternal` resout AVANT
+    `IsDeadUnitAndNotAllowedByAbility`.
+
+    L'ensemble attendu est donc `self_cast | {1089}`, DERIVE du registre a chaque passe. Ce qui
+    reste discriminant, et qui est le coeur de ce cas : **aucune** ability a cible EXTERNE
+    n'echappe, hormis le porteur du bit 38.
+
+    MESURE au moment de la tranche : 129 au registre, 109 refusees sans le gate de message,
+    20 rescapees = 19 self-cast (`1045` est fermee par `invalid_target`) + `1089`."""
+    self_cast = set(couverture["self_cast"])
+    rescapees = set(couverture["sans_message_gate_rescapees"])
+    assert self_cast, ("aucune ability SELF-CASTEE au registre -- l'ensemble attendu s'effondrerait "
+                       "sur {1089} et ce test redeviendrait celui d'avant #287-r14 sans le dire")
+    attendu = self_cast | {P.ABILITY_GREAT_FROST_AXE}
+    inexplicables = sorted(rescapees - attendu)
+    assert not inexplicables, (
+        "des abilities a cible EXTERNE echappent au gate cible-morte sans le gate de message : %s"
+        % inexplicables)
+    assert P.ABILITY_GREAT_FROST_AXE in rescapees, (
+        "le porteur du bit 38 `AllowDeadTarget` (GreatFrostAxe 1089) doit TOUJOURS passer, "
+        "obtenu %s" % sorted(rescapees))
+    assert couverture["sans_message_gate_refusees"] == couverture["registre"] - len(rescapees), (
+        "le compte et la liste des rescapees doivent etre coherents, obtenu %s / %s pour %s "
+        "rescapee(s)" % (couverture["sans_message_gate_refusees"], couverture["registre"],
+                         len(rescapees)))
 
 
 def test_generalisation_autre_seed(port_seed2):

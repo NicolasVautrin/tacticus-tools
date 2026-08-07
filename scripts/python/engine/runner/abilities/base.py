@@ -442,6 +442,27 @@ class ActiveAbility:
         bit = int(TR.AllowDeadTarget)                          # hors `return` : cf. ci-dessus
         return bool(int(opts.rules) & bit)
 
+    @classmethod
+    def get_actual_target(cls, state: "State", caster_id: Optional[int],
+                          target_id: Optional[int]) -> Optional[int]:
+        """`IdunBattle.Entities.Abilities.AActiveAbility$$GetActualTarget` (slot 16 d'`IActiveAbility`)
+        — mirror du corps relu : l'ability recopie SES `TargetingOptions` (`this+0xb0`, les 0x40
+        octets) et delegue au slot 6 d'`ITargetingQuery`, c'est-a-dire
+        `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`. Les deux numeros de slot sont LUS
+        dans `data/symbols/<build>/metadata/interface_slots.tsv`, pas deduits d'un nom.
+
+        C'est la fonction que `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` appelle
+        AVANT ses deux gates : la cible que voient `IsDeadUnitAndNotAllowedByAbility`, `IsInvalidTarget`
+        et `GetAbilityEntities` est TOUJOURS celle-ci, jamais celle de l'appelant (#287-r14).
+
+        `TARGETING_OPTIONS is None` (masque non RE-lu) -> `target_id` rendu TEL QUEL par le foyer :
+        sans masque le port ne devine pas quel domaine de cible l'ability veut."""
+        from .behaviours.context import actual_target                 # noqa: PLC0415
+        # Import DIFFERE, classe PORTEUR (mesure) : charger `abilities.behaviours.context` seul dans
+        # un process FRAIS fait deja atterrir `abilities.base` dans `sys.modules` -- hisser fermerait
+        # donc un cycle. Meme classe que les trois differes voisins de ce module.
+        return actual_target(state, cls.TARGETING_OPTIONS, caster_id, target_id)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:  # pragma: no cover
         raise NotImplementedError(
