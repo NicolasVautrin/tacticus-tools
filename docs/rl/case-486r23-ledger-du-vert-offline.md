@@ -187,6 +187,53 @@ D'ou les deux ancres :
 les deux sens : une ancre plus ancienne allonge le diff, donc **sur**-selectionne. On perd du mur,
 jamais de la surete.
 
+## 4bis. CE QUE LE LEDGER ECONOMISE -- mesure, par REGIME de diff
+
+Passe REELLE mono-shard du 2026-08-07 : **3 366 tests, 16 failed, 1 795 s de mur**, ledger ecrit
+avec **237 entrees / 224 VERT / 13 non-VERT**, ancres `_depuis=416e4229`, `_base=c46bb3cd`. Les
+`sec` ci-dessous viennent de ce ledger -- donc **versionnes**, mesures par cette passe.
+
+| regime de diff | fichiers retenus | cout |
+| --- | --- | --- |
+| perimetre complet, sans ledger | 237 | **1 636 s** |
+| diff VIDE (rien n'a bouge depuis l'attestation) | **13** | **509 s** |
+| diff DOC seul (`docs/rl/backlog.md`) | 21 | 758 s |
+| diff **1 `.py` de probe isole** | 30 | 703 s |
+| diff **1 `.py` du moteur** (`engine/utilities/tile.py`) | **199** | **1 198 s** |
+
+**Un chiffre unique serait trompeur** : l'economie va de **69 %** (diff vide) a **27 %** (un
+module moteur). Et les 13 retenus du regime nominal sont **exactement les 13 fichiers rouges** --
+le ledger ne saute que du vert.
+
+### Coup IRREDUCTIBLE contre coup FABRIQUE
+
+Ventilation d'`impacted_files` sur un diff d'UN SEUL `.py` :
+
+| diff | total impactes | par `DECLENCHEUR` | par le GRAPHE d'imports |
+| --- | --- | --- | --- |
+| `engine/utilities/tile.py` | 196 | **16** (232 s) | **180** |
+| `probe_291_summon_activation.py` | 19 | **15** (232 s) | 4 |
+
+Les **180** du module moteur sont **legitimes** : `tile.py` est reellement importe par ces
+tests. Les **15-16 declares**, eux, sont les **mêmes a chaque fois, pour 232 s**, parce qu'ils
+portent un glob couvrant tout le Python (`scripts/python/**/*.py`, `*`, `**`...). C'est un
+**plancher FABRIQUE**, paye par TOUTE PR qui touche le moindre `.py`, et il ne depend pas du
+contenu du diff.
+
+⚠ Ce recensement est celui du volet OFFLINE. `#486-r24` mesure le gisement complet : **43 des 52
+fichiers declarants (83 %) portent un glob universel, dont 25 tests LIVE** -- qui ne sont pas dans
+les `sec` ci-dessus. **232 s est donc une borne BASSE, et de loin.** La cause est dans l'outil :
+`probe_486r15` ne rougit que sur le TROP ETROIT, donc une declaration fine rougit au premier
+import ajoute tandis qu'un glob universel est vert pour toujours -- le cliquet recompense ce
+qu'il est cense empecher. Sweep hors de cette tranche.
+
+⚠ **Consequence pour le ledger** : sa cle DELEGUE l'impact a `impacted_files`, donc elle **herite
+de la largeur des declarations**. Un test qui declare « tout le Python » voit son entree invalidee
+par n'importe quel commit Python -- **zero reutilisation**, ce que le ledger existe precisement
+pour eviter. Le ledger ne CREE pas ce defaut et n'en depend pas structurellement (il ne stocke
+aucun glob) ; il en herite tant que `#486-r24` n'est pas fait, et il en beneficiera
+automatiquement une fois fait.
+
 ## 5. La CONCURRENCE -- mesuree, pas supposee
 
 Cinq a six agents produisent des verts en parallele, chacun dans son worktree. Mesure par
@@ -253,6 +300,20 @@ l'empreinte ET le ledger vivent sous `scripts/`. Consequences mesurees :
 `TOUT rejoue` pour cause de lecture globale **0 fois** (contre 4 aujourd'hui). La piste est de
 comparer les globales au **FICHIER** et non a son repertoire -- non faite ici : elle touche le
 foyer de #486-r15 et c'est une decision de politique de selection, pas une correction locale.
+
+**DEMONSTRATION, faite le 2026-08-07** -- l'economie du §4bis est annulee par le seul fait de
+COMMITER le ledger :
+
+| moment | `--depuis-ledger` |
+| --- | --- |
+| ledger ecrit, **pas encore commite** | **13 / 237** |
+| ledger **commite** (aucun autre changement) | **237 / 237** |
+
+Raison rendue par l'outil : `changement dans une lecture GLOBALE
+(scripts/ratchets-457-vert-offline.json) -- TOUT rejoue`. Le meme diff, prive de ce seul chemin,
+rend `aucun fichier change`. C'est bien le repertoire `scripts` qui declenche, pas le contenu :
+**le ledger s'auto-invalide a chaque ecriture**, et c'est ce qui rend B1 bloquant plutot que
+seulement couteux.
 
 ### B2. Le plancher des `incertains` -- rejeu inconditionnel
 
