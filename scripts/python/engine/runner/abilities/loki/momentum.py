@@ -37,10 +37,21 @@ RE (build rnca9r7q6c, DECOMPILE MIRROR).
     cache  = Cache( First(line, amount: 10), matchAbilityEntities: true )    // 2
     vector = VectorFromAdjacentTo( Get(GetMainTile(caster)), Get(target), length: 1 )   // 3
     for (index = 0; index < 10; index++) {                                   // 4
-        tile = SelectTile( AtIndex(cache, index) );  if (tile == null) return;
+        tile = SelectTile( AtIndex(cache, index) );  if (tile == null) return;   // <<< SANS retrait
         if (!ExecuteBehaviourStep(abilityState, entities, vector, tile, index)) break;
     }
     Execute( RemoveFlag(Caster@0x48, 0x19 = UnitFlag.Undisplaceable) )       // 5
+
+⚠ L'ENCADREMENT (1)...(5) N'EST PAS HERMETIQUE, ET LE PORT LE MIRRORE DEPUIS #498-r4-r1. Le
+`return` du (4) est ENTRE l'`AddFlag` et le `RemoveFlag`, et il ne retire rien : quand la ligne
+comptee par le `First(..., 10)` est plus COURTE que 10 et que la charge la traverse INTEGRALEMENT
+(tous les pas rendent `true`), le natif indexe une position vide, sort, et laisse
+`UnitFlag.Undisplaceable` POSE SUR LE CASTER POUR LE RESTE DE LA BATAILLE. Aucun autre ecrivain de
+`0x19` n'existe (recensement EXHAUSTIF de #498-r4) et `UnitFlagsComponent$$RemoveTurnFlags` ne le
+retire pas -> rien ne vient le lever. Le port portait un `try/finally` qui retirait TOUJOURS :
+degradation PERMISSIVE (il rendait deplacable un caster que le natif verrouille), MESUREE, fermee.
+Le regime est celui d'une cible adossee au BORD DU PLATEAU (ou derriere laquelle la ligne bute sur
+une tuile non marchable des le premier prolongement).
 
 `...UnstoppableMomentumReworkedAbility$$ExecuteBehaviourStep(state, entities, startVector, tile, steps)` :
 
@@ -141,10 +152,14 @@ sont donc pas portes ici -- RESIDU NOMME (face DECISION, hors perimetre #498).
 DEGRADATIONS NOMMEES (aucune n'invente de comportement) :
   * `AddFlag`/`RemoveFlag(UnitFlag.Undisplaceable)` sur le caster : le port POSE et RETIRE le flag
     via `UnitFlagsComponent` (mirror direct, pas de feuille DSL `AddFlag` portee). Son effet natif
-    est de rendre le caster non-deplacable PENDANT sa propre charge ; aucun etage porte ne le lit
-    aujourd'hui (le caster n'est jamais la cible d'un push de sa propre charge), donc il est INERTE
-    -- il est pose quand meme parce qu'un trigger tiers peut le lire, et son absence serait un
-    ecart d'etat.
+    est de rendre le caster non-deplacable pendant sa propre charge -- ET AU-DELA quand la sortie
+    prend le `return` du (4), cf. l'avertissement ci-dessus. Le flag EST lu par le port :
+    `runner/components.py::unit_extensions_is_displaceable` teste `HasFlag(unit, 0x19)`, et ses six
+    lecteurs portes comprennent la tete de `DisplaceUnitOperation$$Execute` (donc TOUT push, pull,
+    deplacement direct ou echange de position visant le caster) et `DamagePrediction$$GetKnockback`.
+    Le retour porte `flag_leaked` : `True` = le flag est encore pose a la sortie du cast.
+  * Une EXCEPTION levee par un pas laisse elle aussi le flag pose (il n'y a plus de `finally`).
+    C'est le comportement natif : le `throw` du decompile ne retire rien non plus.
   * `InvalidateCaches()` (compose au `MoveUnit` de `Move`) : vide les caches de selecteurs natifs.
     Le port re-construit son `AbilityEntities` a chaque pas (`entities_from_state`), ce qui EST
     l'invalidation ; aucun cache DSL ne survit entre deux pas.
@@ -318,7 +333,11 @@ def _can_move(state: "State", unit_id: int) -> bool:
 
 def _set_charge_flag(state: "State", caster_id: int, on: bool) -> None:
     """`Execute(AddFlag(Caster@0x48, 0x19))` / `Execute(RemoveFlag(Caster@0x48, 0x19))` -- les deux
-    arbres qui ENCADRENT la boucle native. cf. « DEGRADATIONS NOMMEES » de l'en-tete."""
+    arbres qui ENCADRENT la boucle native.
+
+    ⚠ L'appel `on=False` n'est PAS symetrique de `on=True` : il n'est atteint que par la sortie
+    NORMALE de la boucle. Le `return` du (4) le saute -- cf. l'avertissement de l'en-tete de module
+    (#498-r4-r1). cf. aussi « DEGRADATIONS NOMMEES »."""
     e = state.get_entity(int(caster_id))
     if e is None:
         return
@@ -363,7 +382,9 @@ class UnstoppableMomentumReworkedAbility(ActiveAbility):
     (on prend alors sa MainTile), meme convention que `RadBombardmentAbility`/`PlagueburstMortar`.
 
     Turn-flags = defauts base (1152 absent des overrides `NO_END_TURN`/`NO_ABILITY_USED_FLAG`).
-    Retour : {ability, caster, aim, steps, attacks, effects, moves, pushes, switches, dsl}."""
+    Retour : {ability, caster, aim, line, steps, attacks, effects, moves, pushes, switches,
+    flag_leaked, dsl} -- `flag_leaked` (#498-r4-r1) = le cast est sorti par le `return` du (4) et
+    `UnitFlag.Undisplaceable` est RESTE pose sur le caster."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.UnstoppableMomentumReworked)   # 1152
     ABILITY_ID = MOMENTUM_ID
@@ -421,18 +442,30 @@ class UnstoppableMomentumReworkedAbility(ActiveAbility):
         tiles = momentum_charge_line(state, caster_id, aim)
         out = {"ability": MOMENTUM_ID, "caster": caster_id, "aim": aim, "line": list(tiles),
                "steps": 0, "attacks": [], "effects": [], "moves": [], "pushes": [], "switches": [],
-               "dsl": True}
+               "flag_leaked": False, "dsl": True}
         _set_charge_flag(state, caster_id, True)                       # (1) AddFlag(Undisplaceable)
-        try:
-            for index, tile_id in enumerate(tiles):
-                if index >= MAX_CHARGE_TILES:
-                    break
-                out["steps"] = index + 1
-                if not self._execute_behaviour_step(state, caster_id, vector, int(tile_id),
-                                                    index, out):
-                    break
-        finally:
-            _set_charge_flag(state, caster_id, False)                  # (5) RemoveFlag
+        # (4) LA BOUCLE NATIVE, MIRROR : `for (index = 0; index < this+0xf0; index++)`, dont le
+        # premier geste est `tile = SelectTile(AtIndex(cache, index))`. Elle N'ITERE PAS sur le
+        # cache : elle l'INDEXE, et l'index sort du cache des que la ligne est plus COURTE que
+        # `MAX_CHARGE_TILES`. Le decompile fait alors `return 0` -- AVANT le `RemoveFlag`.
+        for index in range(MAX_CHARGE_TILES):
+            if index >= len(tiles):
+                # `if (tile == null) return;` -- LA FUITE (#498-r4-r1) : le natif SORT SANS retirer
+                # `UnitFlag.Undisplaceable`, donc le caster reste indeplacable POUR LE RESTE DE LA
+                # BATAILLE. Aucun autre ecrivain de `0x19` n'existe (recensement EXHAUSTIF de
+                # #498-r4 : 10 appelants de `DSLBehaviors$$AddFlag`, 40 sites d'
+                # `UnitFlagsComponent$$Add`, `RemoveTurnFlags` qui ne retire que 0,1,2,3,4,0xc,0x1b)
+                # -> rien ne vient le lever ensuite. Le port RETIRAIT TOUJOURS (`try/finally`),
+                # ce qui etait PERMISSIF : il rendait deplacable un caster que le natif verrouille.
+                out["flag_leaked"] = True
+                return out
+            out["steps"] = index + 1
+            if not self._execute_behaviour_step(state, caster_id, vector, int(tiles[index]),
+                                                index, out):
+                break
+        # Sortie NORMALE de boucle (un pas a rendu `false`, ou les 10 tuiles ont ete consommees) :
+        # c'est le SEUL chemin qui atteint le `RemoveFlag` natif.
+        _set_charge_flag(state, caster_id, False)                      # (5) RemoveFlag
         return out
 
     # ------------------------------------------------------------------------------------------- #
