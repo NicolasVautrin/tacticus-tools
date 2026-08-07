@@ -89,7 +89,12 @@ HOST = "http://127.0.0.1:8765"
 PYDIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(PYDIR))
 
-SLASHING_DIVE = 1091               # ActiveAbilityType.SlashingDive
+from engine.entities.active_ability_type import ActiveAbilityType  # noqa: E402  (apres sys.path)
+
+#: L'ability mesuree. MEMBRE d'enum, pas l'ordinal nu : `1091` est aussi un `EffectType`
+#: (`HolyDuel_Taunt`) et un `TriggeredAbilityType` (`DestroyTheWitch`) -- trois entites differentes
+#: sous le meme entier, et seul le NOM les separe.
+SLASHING_DIVE = int(ActiveAbilityType.SlashingDive)               # 1091 = 0x443
 BOARD = "MC1_67"
 #: ⚠ SEED CHOISI PAR MESURE, et la raison est le TEMOIN, pas le confort. Le block est un TIRAGE par
 #: coup ; sous `seed 777` le 2e coup de la vague BLOQUE (montant natif 0), et un rang a zero rend
