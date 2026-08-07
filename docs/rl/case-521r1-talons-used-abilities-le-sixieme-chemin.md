@@ -198,8 +198,42 @@ Restauré : **15 passed**.
 * **`#521-r3`** (ouvert par #521, toujours OUVERT) — `entities/triggers.py::HasTrait` porte encore
   l'idiome `any(...)` que #521-r2 a réfuté sur son voisin `HasFaction`. Ce cas ne le tranche pas :
   les deux `HasTrait` de 1330 reçoivent un sélecteur **mono-unité** (`actor@+0x48`).
+* **`#486-r22`** — rien ne DÉCLENCHE la régénération d'un cache de verdict quand du code entre, et
+  `origin/master` porte **35 divergences** invisibles du régime normal. Détail et chiffres : §6.
 
-## 6. Ce qui garde
+## 6. Le cache du cliquet — un signalement que j'ai d'abord rendu FAUX
+
+Ce cas ajoute un consommateur à `probe_313_enum_mirror_bijection.py`, dont le **contexte de cache
+EST le sha du fichier probe** : le modifier invalide donc **tout** le cache versionné, par
+construction. J'ai d'abord refusé de le régénérer, sur ce constat :
+
+> « le cache se réécrit de 330 lignes à **chaque run**, donc le commiter ne sert à rien »
+
+**C'est faux, et la façon dont c'était faux vaut d'être écrite** : j'avais mesuré *un* diff après
+*un* run, sans jamais vérifier la stabilité — exactement le raisonnement qu'un probe existe pour
+interdire. Ce que la re-mesure rend :
+
+| question | mesure |
+|---|---|
+| la régénération est-elle stable ? | **IDEMPOTENTE** — trois runs consécutifs, sha256 identique |
+| quelle est l'ampleur réelle du diff ? | **75 lignes** (43+/32−). Les « 330 » comparaient à un `master` vieux de 15 commits |
+| `origin/master` PUR, mode espion | **`rc=3`, 35 divergences** (1 519 sur disque / 1 527 recalculées) — **rouge PRÉEXISTANT** |
+| mon arbre, avant régénération | `rc=3` — le contexte a changé, tout le cache est invalidé |
+| mon arbre, après régénération | **`rc=0`, 0 divergence, 1 530/1 530** |
+| le cache régénéré porte-t-il du code d'un autre agent ? | **non** — `worktree` : 0 occurrence, `.claude` : 0 ; ventilation 1 290 `scripts/` + 239 `engine/` + 1 `lib` (le vice de #434, vérifié absent) |
+
+La livraison **améliore** donc l'état : 35 divergences → 0. Et le régime **normal** rend `rc=0` des
+deux côtés — une entrée périmée est recalculée, jamais rougie, ce qui est précisément pourquoi la
+dérive s'accumule sans que personne ne la voie. Résidu **`#486-r22`**.
+
+⚠ **PIÈGE DE MÉTHODE, nommé parce qu'il m'a fait rendre un chiffre faux** : un arbre témoin extrait
+par `git archive` n'est **pas un dépôt git**, donc l'étape qui itère le Python *suivi* n'y voit
+**rien**. Elle a rendu « 1 294 divergences sur `master` » ; la re-mesure dans un vrai
+`git worktree --detach` rend **35**. C'est le pendant exact de la règle du `CLAUDE.md` (« l'arbre
+TÉMOIN doit voir les mêmes ENTRÉES que l'arbre mesuré ») — pour un balayage indexé par git, ces
+entrées incluent **l'index git lui-même**.
+
+## 7. Ce qui garde
 
 * `scripts/python/tests/engine/runner/test_521r1_talons_used_abilities_live.py` — 15 tests : le
   registre (bon dict natif, et **absence** des trois autres registres — une double inscription
