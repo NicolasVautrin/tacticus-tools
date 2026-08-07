@@ -390,13 +390,21 @@ def test_175r2_le_drapeau_change_le_gate_de_POSE_quand_la_cible_porte_Immune(sen
         return None if (sc is None or getattr(sc, "ctx", None) is None) else sc.ctx
 
     def _pose(avec_immune: bool) -> dict:
-        st = load_state(dv, ob, cs, board=board)          # etat FRAIS a chaque bras
-        ctx = _traits(st, tgt)
-        assert ctx is not None, "la cible n'a pas de StatsComponent -- montage non pose"
-        base = [t for t in (ctx.traits or []) if t != UnitTrait.Immune.name]
-        ctx.traits = base + ([UnitTrait.Immune.name] if avec_immune else [])
-        return {nom: AddEffectOperation.execute(st, src, tgt, et, name=nom) is not None
-                for et, nom in _IMMUNISABLES + _NON_IMMUNISABLES}
+        # UN ETAT FRAIS PAR EFFET, et c'est LOAD-BEARING : poser `Stunned` (1162) d'abord fait
+        # spawner ses sous-effets 1165/1167 par `StunnedEffect.sub_effects_on_apply`, si bien que
+        # la pose EXPLICITE de ces temoins repartait ensuite sur le gate « deja present » et
+        # rendait `False` -- un refus qui n'a rien a voir avec l'immunite. Mesure : le bras
+        # `avec_immune` (ou 1162 est refuse, donc sans sous-effets) rendait `True` pour les deux
+        # temoins et le bras `sans_immune` `False`, c.-a-d. l'INVERSE de ce qui est teste.
+        out = {}
+        for et, nom in _IMMUNISABLES + _NON_IMMUNISABLES:
+            st = load_state(dv, ob, cs, board=board)
+            ctx = _traits(st, tgt)
+            assert ctx is not None, "la cible n'a pas de StatsComponent -- montage non pose"
+            base = [t for t in (ctx.traits or []) if t != UnitTrait.Immune.name]
+            ctx.traits = base + ([UnitTrait.Immune.name] if avec_immune else [])
+            out[nom] = AddEffectOperation.execute(st, src, tgt, et, name=nom) is not None
+        return out
 
     avec, sans = _pose(True), _pose(False)
     print("\n[175r2] avec Immune=%s\n[175r2] sans Immune=%s" % (avec, sans))
