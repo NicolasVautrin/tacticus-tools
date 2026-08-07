@@ -1013,6 +1013,16 @@ préférence de style.
 10. **Discipline de fin** : écrire tôt (un worktree propre est auto-supprimé à la pause et l'agent
     repart dans l'arbre principal sans le savoir) ; ne jamais injecter ni redémarrer le host ; ASCII
     strict en sortie console ; citer les symboles Ghidra, jamais une VA absolue.
+11. **Le NUMÉRO se demande par l'AGENT, jamais alloué dans le brief.** Le brief dit « joue
+    `probe_468 --suggere [parent]`, prends le numéro rendu, ANNONCE-le dans ton premier commit » —
+    il ne porte aucun `#<n>`.
+    *Pourquoi* : `--suggere` ne voit que ce qui est ÉCRIT. Un numéro alloué par l'orchestrateur
+    reste invisible pendant TOUT le vol — des heures — et chaque `--suggere` joué entre-temps le
+    rate. Quand l'agent demande le sien, il le demande au moment où il va écrire, et son premier
+    commit referme la fenêtre en minutes. **L'orchestrateur qui pré-alloue FABRIQUE l'angle mort
+    que l'outil décrit.** Mesuré le 2026-08-07 : cinq briefs consommaient `#521`–`#525` sans qu'une
+    ligne du dépôt ne le porte ; `--suggere` a proposé `#521`, et seule la mémoire de
+    l'orchestrateur a évité la collision — c'est-à-dire précisément ce que #468 remplace.
 
 **Côté orchestrateur, après un merge** : la tranche à rejouer est celle qui **OBSERVE** le
 comportement changé, pas celle que l'auteur cite. (Vécu : #138 mergée sur un rouge — le test qui
