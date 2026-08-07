@@ -258,10 +258,18 @@ def _parse_place_specs(specs, label: str) -> list[tuple[str, int, int]]:
     """'unitId:col,row' -> (unitId, col, row). Leve ValueError sur forme invalide.
 
     Une entree = UNE occurrence de l'unite. Repeter l'option pour placer deux copies
-    du meme id."""
+    du meme id.
+
+    ⚠ COUPE AU DERNIER `:`, pas au premier (#507) : un unitId de PALIER npc en porte deja un
+    (`thousNpc2Screamer:45`, la forme qu'exige `--explicit-stats` et que `--p-units` doit
+    reprendre VERBATIM, cf. la verification `uid not in p_units` du site d'appel). Avec un
+    `partition`, `thousNpc2Screamer:45:3,0` donnait `uid='thousNpc2Screamer'` et
+    `coords='45:3,0'` -> `col/row non entiers`, c'est-a-dire qu'AUCUN porteur npc a palier
+    n'etait placable sur une tuile choisie. Le `rpartition` est sans effet sur la forme sans
+    palier (`orksNob:3,1`), ou il n'y a qu'un seul `:`."""
     out: list[tuple[str, int, int]] = []
     for spec in (specs or []):
-        uid, _, coords = str(spec).partition(":")
+        uid, _, coords = str(spec).rpartition(":")
         uid = uid.strip()
         parts = [p.strip() for p in coords.split(",")]
         if not uid or len(parts) != 2:

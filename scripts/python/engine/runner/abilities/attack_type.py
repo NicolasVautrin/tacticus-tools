@@ -159,6 +159,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # ctor recopie le preset statique `+0x40` puis appelle `AActiveAbility..ctor(this, &opts, 0)`.
     # 3e argument = `0`. Il vaut pour les DEUX heritieres de la base (1064 et 1091 SlashingDive).
     ActiveAbilityType.Loki_SwoopingHawk: AbilityAttackType.DirectTargetAttack,  # 1064 (#502)
+    # SlashingDive (1091) : MEME lecture, et le partage n'est plus une deduction -- le slot de methode
+    # de `SlashingDiveAbility` rend, au runtime, la MEME adresse d'entree de `.ctor` que
+    # `SwoopingHawkAbility` (corps fusionne par IL2CPP), et AUCUNE surcharge a depth=0. Le litteral est
+    # donc celui de `DiveAttackAbilityBase$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0)` = `0`.
+    # Transcrit tel quel : ni deduit du profil de degat (`Power`, different de 1064), ni de la forme
+    # de l'arbre (une VAGUE de 3 tuiles, pas une cible unique). (#507)
+    ActiveAbilityType.SlashingDive: AbilityAttackType.DirectTargetAttack,  # 1091 (#507)
     ActiveAbilityType.SilentDeath: AbilityAttackType.DirectTargetAttack,  # 1068
     # SeekerMissileFrequencyLock (1069, #491) : `...SeekerMissileFrequencyLockAbility$$.ctor` recopie
     # le preset statique `TargetingOptions statics+0x180` puis `AActiveAbility..ctor(this, &opts, 0)`.

@@ -102,7 +102,11 @@ from ..operations.damage_utility import sort_units_by_damage_utility
 from .base import ActiveAbility
 from .behaviours.combat import AttackWithAttackDamage, SortedAttackSeries
 from .behaviours.context import entities_from_state
-from .targeting import (RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions)
+# `DiveAttackAbilityBase` vit dans le namespace natif `...Active.Loki` : le mirror y reste, et les
+# deux heritieres (1091 ici, 1064 sur `aeldari.py`) l'importent -- jamais l'une l'autre.
+from .loki.dive_attack import DiveAttackAbility, dive_attack_profile
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                        TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
@@ -476,3 +480,87 @@ class HellfyreMissileRackAbility(ActiveAbility):
         order = next((p["order"] for n, p in ectx.emitted if n == "SortedAttackSeries"), [])
         return {"ability": HELLFYRE_ID, "caster": caster_id, "target": target_id,
                 "main_attack": main, "extra": extra, "order": order, "dsl": True}
+
+
+# ====================================================================================================
+# SlashingDive (1091, `thousNpc2Screamer` / `thousSmnScreamer` « Screamer ») -- #507
+# ====================================================================================================
+# Classe native `IdunBattleLogic.Entities.Abilities.Active.Loki.SlashingDiveAbility`. Elle est VIDE
+# hors ctor : TOUTE la mecanique vit sur la base `...Active.Loki.DiveAttackAbilityBase`, portee dans
+# `engine/runner/abilities/loki/dive_attack.py` -- decompile complet et lectures qui le tranchent
+# dans SON en-tete. L'autre heritiere est `1064 Loki_SwoopingHawk` (`aeldari.py`, #502).
+#
+# ⚠ LE PARTAGE SE PROUVE AU RUNTIME, PAS PAR L'ABSENCE. `SlashingDiveAbility$$.ctor` n'a AUCUN
+# proprietaire nomme dans `frida/methods.tsv` ni `ghidra/functions.tsv` : IL2CPP a fusionne son corps
+# avec celui de `SwoopingHawkAbility$$.ctor` (les deux sont `return DiveAttackAbilityBase$$.ctor(this);`)
+# et ces tables sont indexees par ADRESSE. C'est ce faux negatif qui avait fait classer 1091 en
+# « NON-LU » dans `TARGETING_OPTIONS_UNPORTED`. Le slot de methode de la CLASSE, lu en live sur le
+# build `rnca9r7q6c` (RPC `resolveMethodPtr`), rend :
+#   - `.ctor` a depth=0, a la MEME adresse d'entree que `SwoopingHawkAbility$$.ctor` ;
+#   - `ExecuteBehaviour` / `GetTargetTilesSelector` / `GetTargetUnitsSelector` / `GetMovementBehavior`
+#     tous a depth=1, sur `DiveAttackAbilityBase` -> AUCUNE surcharge.
+# `classes.tsv` corrobore par une seconde voie (parent = `DiveAttackAbilityBase`, taille 240, comme
+# `SwoopingHawkAbility`).
+#
+# CE QUI DIFFERE DE 1064 est la seule CONFIG, RELUE ability par ability (jamais recopiee de la soeur) :
+#   `damageProfile` = **Power**  (1064 : Piercing)   -- profil de percage/armure du coup
+#   `nrOfHits`      = 1          (1064 : 1)
+#   `attackRangeType` = Melee    (1064 : Melee)      -- quelle arme du caster le volet percage lit
+#   `dmg`           = 3 valeurs DECROISSANTES par niveau (lvl 65 : 1819 / 1455 / 1091)
+#
+# PORTEURS (gate de confrontabilite) : `thousNpc2Screamer` (npc), `thousSmnScreamer` et
+# `thousSmnScreamerHSE` (summons) -- AUCUN lineup. Le npc porte une table `units.npc[].stats[]` de
+# 45 paliers, donc il arrive en bataille par le CHEMIN DE STATS EXPLICITE (`case-92` §5bis recours 4,
+# `--explicit-stats thousNpc2Screamer:<palier>`) avec SES stats, SES traits et SON arme : c'est le
+# mirror, pas un montage, et il est COMMANDABLE. La voie summon existe aussi (`MasterOfTheTutelaries`
+# 1096 d'Abraxas `thousInfernalMaster`, DU POOL, pose l'effet 1197 qui arme la triggered 1173 ->
+# Screamer), mais elle n'OBSERVE que ce que l'IA choisit -- elle ne commande pas la geometrie.
+
+SLASHING_DIVE_ID = "SlashingDive"                            # cle gameconfig de l'ability 1091
+
+
+def slashing_dive_profile() -> str:
+    """`AActiveAbility$$GetDamageProfile` pour 1091 (= « Power » au gameconfig courant).
+
+    Accesseur d'ABILITY au-dessus du foyer de la base (`dive_attack_profile`) : le profil est l'un
+    des trois axes que `DiveAttackAbilityBase` ne fige PAS -- 1064, MEME code natif, vaut
+    « Piercing ». Relire par ability, jamais recopier d'une soeur."""
+    return dive_attack_profile(SLASHING_DIVE_ID)
+
+
+class SlashingDiveAbility(DiveAttackAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SlashingDiveAbility` (id **1091**, Screamer,
+    Thousand Sons) -- MIRROR du DECOMPILE.
+
+    Le Screamer plonge sur un ennemi ADJACENT et balaie la ligne : la cible prend `dmg[0]`, l'unite
+    un hex derriere `dmg[1]`, celle deux hexes derriere `dmg[2]` -- un coup `Power` chacune
+    (`nrOfHits` = 1). Il atterrit ensuite dans l'hex juste derriere la DERNIERE cible touchee, ou,
+    s'il est occupe, sur la tuile libre la plus proche de celui-ci.
+
+    La classe native n'a QUE son ctor : toute la mecanique est heritee de `DiveAttackAbilityBase`,
+    et ce mirror n'ajoute donc rien d'autre que l'identite et les deux donnees du registre."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.SlashingDive)        # 1091 = 0x443
+    ABILITY_ID = SLASHING_DIVE_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET STATIQUE COPIE**, la 3e des
+    # trois formes : ni `SlashingDiveAbility$$.ctor` (= le corps FUSIONNE avec celui de
+    # `SwoopingHawkAbility$$.ctor`, cf. le bandeau) ni `DiveAttackAbilityBase$$.ctor` n'appellent
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`. La base recopie les 0x40 octets du champ
+    # STATIQUE de `TargetingOptions` a l'offset **`+0x40`** du bloc `<class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &opts, 0)   # 3e arg = 0 = AbilityAttackType.DirectTargetAttack
+    # Aucun litteral de masque n'est visible dans le ctor : le masque EFFECTIF est la constante
+    # ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`.
+    # Le preset lu EN ENTIER (bloc `statics+0x40`), pas seulement son champ `Rules` :
+    #     <preset>+0x00 = *(statics+0x40) = 0                  -> isSelfCasting = false
+    #     <preset>+0x08 = copie de `TargetingRange statics+0x30` -> **RANGE_ADJACENT**
+    #     <preset>+0x20 = *(statics+0x60) = 1                  -> forceMeleeTarget = RangedBool.False
+    #     <preset>+0x28 = *(statics+0x68) = 0x4000             -> Rules = `TargetIsEnemy` SEUL
+    # AUCUN `TargetMatchesDynamicRule` (0x2) ni `CasterMatchesDynamicRule` (0x4) -> les deux
+    # `GetDynamicInvalid*Reason` de la base restent au defaut 0 : l'absence de 1091 dans
+    # `DYNAMIC_TARGET_RULE_UNPORTED` est donc EXACTE (verifiee, pas supposee).
+    # 1091 n'etait PAS dans `TARGETING_OPTIONS_UNPORTED` (elle y figurait comme NON-LU explicite,
+    # faute de ctor lisible) : aucune migration, aucun compteur a decrementer -- seul le paragraphe
+    # de `targeting.py` qui la declarait non-lue est reecrit.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                                         range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
