@@ -5702,6 +5702,26 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/test_546_capteurs_fenetre_offline.py": {
+   "_at": 1786146645,
+   "_commit": "d3c8c8997db3243c158e0ce0bf2edadb1b930cf9",
+   "dirs": [
+    "data/symbols",
+    "data/symbols/rnca9r7q6c/frida",
+    "frida/hooks/features/ai-step",
+    "frida/hooks/game",
+    "scripts/python"
+   ],
+   "temoins": [
+    "data/symbols/CURRENT",
+    "data/symbols/rnca9r7q6c/frida/classes.tsv",
+    "data/symbols/rnca9r7q6c/frida/methods.tsv",
+    "frida/hooks/features/ai-step/rpc-board.ts",
+    "frida/hooks/features/ai-step/rpc-targeting.ts",
+    "frida/hooks/game/effects.ts",
+    "scripts/python/targeting_reason.py"
+   ]
+  },
   "tests/test_579r1_nullable_layout_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
