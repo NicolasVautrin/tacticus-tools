@@ -3346,6 +3346,12 @@
     "scripts/python/engine/runner/operations/triggers/loki/time_flux.py"
    ]
   },
+  "tests/engine/test_524r1_bond_sous_effets_offline.py": {
+   "_at": 1786106101,
+   "_commit": "ac322816e880a66eb3c7083394e1f63eb39ccb02",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786061293,
    "_commit": "b83c6731e233f3136dce7d6fad905c8457bf5f1f",
