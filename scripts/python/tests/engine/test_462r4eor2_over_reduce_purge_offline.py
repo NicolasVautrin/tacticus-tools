@@ -131,7 +131,7 @@ def test_fill_up_no_op_sans_composant_capte():
 def test_le_soin_purge_l_accumulateur():
     """`IdunBattle.Operations.HealUnitOperation$$Execute` -> `FillUp`."""
     st, uid, hc = _unite(alive=True, hp=500)
-    assert HealUnitOperation.execute(st, uid, 100) == 100
+    assert HealUnitOperation.execute(st, uid, uid, 100) == 100
     assert hc.hp == 600 and hc.over_reduce == 0
 
 
@@ -141,7 +141,7 @@ def test_le_soin_ANNULE_PAR_CURSED_purge_quand_meme():
     Le port sortait avant `FillUp` -- c'etait la difference observable."""
     st, uid, hc = _unite(alive=True, hp=500)
     st.effects = _EffetsCursed(True)
-    assert HealUnitOperation.execute(st, uid, 100) == 0, "Cursed -> aucun PV rendu"
+    assert HealUnitOperation.execute(st, uid, uid, 100) == 0, "Cursed -> aucun PV rendu"
     assert hc.hp == 500, "Cursed -> les PV ne bougent pas"
     assert hc.over_reduce == 0, "mais `FillUp(0)` a bien ete appele -> purge"
 
@@ -231,7 +231,7 @@ def test_le_SOIN_reste_le_seul_desamorceur_INTRA_attaque():
     On le pose directement ici -- l'etage superieur est garde par `_salve`."""
     st, uid, hc = _unite(alive=True, hp=HP_RETOUR - 1)
     assert hc.over_reduce == OVER_REDUCE, "premisse : accumulateur seme"
-    HealUnitOperation.execute(st, uid, 1)
+    HealUnitOperation.execute(st, uid, uid, 1)
     assert hc.over_reduce == 0, "le soin purge"
     r = _salve(hc.hp, hc.over_reduce)
     assert r["overkilled"] is False and r["per_hit"] == [COUP] * COUPS
@@ -280,7 +280,7 @@ def test_contre_epreuve_le_foyer_desarme_fait_TOMBER_les_gardes(monkeypatch):
     monkeypatch.setattr(HealthComponent, "fill_up", _fill_up_sans_purge, raising=True)
 
     st, uid, hc = _unite(alive=True, hp=500)
-    HealUnitOperation.execute(st, uid, 100)
+    HealUnitOperation.execute(st, uid, uid, 100)
     assert hc.over_reduce == OVER_REDUCE, "le soin ne purge plus -> la garde du soin doit tomber"
 
     st, uid, hc = _unite(alive=False)
