@@ -102,11 +102,210 @@ Legitime, en revanche : `test_468_collision_numeros_offline` **declare** `docs/r
 parce que c'est l'allocateur de numeros et qu'il lit le backlog par construction. Il est aussi le
 plus lourd (**82,5 s**), donc il fixe a lui seul le plancher du mur shardé.
 
-## 4. Ce que la suite instruit
+## 4. Le LEDGER VERSIONNE du vert offline
 
-Le reste de cette case-doc (ledger versionne du vert offline, regle de composition, concurrence,
-economie mesuree) est redige au fil de la tranche.
+`scripts/ratchets-457-vert-offline.json`, foyer `scripts/python/ledger_vert_offline.py`.
 
-**AUCUNE obligation n'est cablee par cette tranche** -- ni dans `CLAUDE.md`, ni dans le skill
-d'orchestration, ni sous forme de hook ou de cliquet. La mise en service attend que le mecanisme
-existe et que son cout soit connu.
+Trois artefacts, et il faut distinguer ce que chacun sait :
+
+| artefact | sait | ne sait pas | versionne |
+| --- | --- | --- | --- |
+| empreinte `ratchets-457-footprints.json` | de quoi un test DEPEND (`dirs`, `temoins`) | s'il est PASSE | oui |
+| poids `logs/ratchets/457-durations.json` | combien il prend | tout le reste | **non** (gitignore) |
+| ledger `ratchets-457-vert-offline.json` | qu'il est PASSE, quand, a quel cout, avec quel bilan | -- | **oui** |
+
+Le ledger porte la **signature du ledger live** `ratchets-462-live-attestations.json` (`_at`,
+`_blob`, `_commit`, `verdict`, `sec`, et le bilan ventile `passed/failed/error/skipped/xfailed`
++ `messages`). Le bilan n'est pas decoratif : c'est lui qui rend possible le garde **#455**
+(`passed == 0 and skipped > 0` est un vert qui ment) -- un champ `verdict` seul ne saurait pas le
+voir. Le `sec`, lui, est le POIDS, et **versionne** cette fois : le fichier de poids etant
+gitignore, un worktree d'agent n'en a JAMAIS, ce qui est la cause exacte du bug de
+`--measure-missing` (235/235 fichiers retenus au lieu de 1).
+
+### La semantique du ledger LIVE ne se recopie pas -- elle s'INVERSE
+
+`probe_462.verdict_effectif` rend **VERT TEL QUEL, sans aucune condition sur le commit** (son
+« trou B », ouvert et assume). C'est defendable la-bas : ce ledger sert a **BLOQUER** sur les
+rouges, donc la peremption n'y touche que le RECIT d'un non-vert.
+
+Ici, un vert sert a **SAUTER un test**. Un vert perime n'y est pas conservateur : c'est le FAUX
+VERT que **#465** nomme comme le mode de defaillance a interdire, et il est **silencieux par
+construction** -- le test n'est pas joue, donc rien ne le signale. Recopier l'asymetrie de
+`probe_462` aurait produit un ledger permissif sans qu'aucun test ne rougisse.
+
+### La regle de composition : quand un vert reste valable
+
+`raison_de_rejeu` est le **foyer unique**. `None` = le vert tient. Sinon, une chaine qui dit
+pourquoi. Six chemins, et aucun autre :
+
+1. pas d'entree -> **jamais joue** ;
+2. `verdict != VERT` (y compris `VIDE` du garde #455 et `SETUP`) ;
+3. entree sans `_blob`, ou **blob courant non mesurable** (git muet -> PAS MESURE, jamais
+   rabattu sur « blob egal ») ;
+4. `_blob != blob COURANT DU WORKTREE` (`git hash-object`, **pas** `git ls-files -s` qui lirait
+   l'INDEX et serait aveugle a une edition non commitee) ;
+5. aucune ancre lisible (les deux mortes) ;
+6. le fichier est **IMPACTE** par le diff `ancre..HEAD` au sens exact de
+   `probe_457.impacted_files` -- empreinte, graphe d'imports, `DECLENCHEUR` et lectures globales
+   ensemble.
+
+Le point 6 **est** la composition : l'empreinte repond a « de quoi depend-il », le ledger a
+« quand etait-il vert ». Ni l'un ni l'autre ne conclut seul. C'est aussi ce qui repare le defaut
+mesure par #465, ou la cle etait le **blob du fichier de test SEUL** alors qu'un verdict depend du
+depot entier (les trois rouges du ledger live etaient PERIMES, 2026-08-04).
+
+Contre-epreuve : `scripts/python/tests/test_486r23_ledger_vert_offline.py`, qui balaie **576
+combinaisons** (verdict x ancres ecrites x ancre effective x blob de l'entree x blob courant x
+impact) et exige **UNE seule forme passante**. Il **assertionne son propre non-vide** -- un
+cartesien vide passerait pour vert sans rien eprouver (#270-r1-r1-r3).
+
+### DEUX ancres, et c'est une mesure qui l'a impose
+
+Premiere conception : une seule ancre, la **base** (`git merge-base HEAD origin/master`), choisie
+parce qu'elle survit au squash-merge qui tue la branche d'agent -- defaut exact repare par
+#486-r15 sur le `_commit` global de l'empreinte.
+
+Mesure du 2026-08-07, ledger COMPLET simule (237 entrees VERT au blob courant) :
+
+| regime | fichiers retenus | cout serie |
+| --- | --- | --- |
+| `--since <base>` seul | 33 / 237 | 494 s |
+| `--depuis-ledger`, ancre = base seule | **33 / 237** | **494 s** |
+
+**Identique.** C'est structurel, pas un hasard : si toutes les attestations portent la base de la
+PR, la question posee au ledger EST celle que `--since` pose deja. Le ledger n'apportait alors que
+de la SURETE (il attrape les rouges et les jamais-attestes), **zero economie**.
+
+D'ou les deux ancres :
+
+- `_depuis` = **HEAD reel** -- PRECISE. C'est elle qui fait gagner : entre deux passes d'une meme
+  tranche, le diff `HEAD_precedent..HEAD` ne porte que ce que l'agent vient de changer. Elle MEURT
+  au squash-merge.
+- `_base` = **merge-base** -- SURVIVANTE, mais grossiere.
+
+`ancre_effective` prend **la plus precise qui soit CONNUE de git**. La degradation est SURE dans
+les deux sens : une ancre plus ancienne allonge le diff, donc **sur**-selectionne. On perd du mur,
+jamais de la surete.
+
+## 5. La CONCURRENCE -- mesuree, pas supposee
+
+Cinq a six agents produisent des verts en parallele, chacun dans son worktree. Mesure par
+`git merge-tree` sur un depot jetable (236 entrees ; 10 communes -- le plancher du paragraphe 3 --
+et 8 propres par agent) :
+
+| forme du fichier | agents DISJOINTS | agents avec entrees COMMUNES |
+| --- | --- | --- |
+| A. JSON indente (~12 lignes/entree) | pas de conflit | conflit, **1 hunk global** |
+| B. une LIGNE par entree *(retenue)* | conflit (proximite) | conflit, 1 hunk |
+| C. un FICHIER par entree | pas de conflit | conflit, **10** (un par entree disputee) |
+
+**Le conflit sur les entrees communes est INTRINSEQUE** : deux agents attestent le meme test sur
+des arbres DIFFERENTS, donc ce sont deux affirmations distinctes. Aucune forme ne l'evite.
+
+Ce qui differe, c'est la **granularite** et donc ce qu'on perd en resolvant. La forme A perd tout
+un hunk illisible. La forme C est la plus precise mais met 236 fichiers dans l'arbre. La forme B
+localise le conflit a la ligne, donc a l'entree -- au prix d'une collision par **proximite** (une
+entree = une ligne, et git prend 3 lignes de contexte, donc trois entrees voisines).
+
+### La regle de resolution : en conflit, on SUPPRIME l'entree
+
+`resoudre_conflit` abandonne **les deux cotes** d'un hunk conflictuel et rend les entrees hors
+conflit. Mesure sur le scenario ci-dessus :
+
+- **221 / 236 entrees retenues** ;
+- **15 abandonnees** : les **10 reellement disputees** + **5 emportees par la proximite** ;
+- cout = le rejeu de ces 15 fichiers. **Jamais un faux vert.**
+
+**Pourquoi ce n'est PAS la faute que la doctrine interdit** (« un doc genere se REGENERE, il ne se
+fusionne pas ») : sur un doc genere, un etat hybride MENT -- il affiche des comptes qui ne
+correspondent a aucune generation. Ici, **toute perte est SURE** : une entree absente est lue
+« jamais joue », donc le fichier REJOUE. La validite est reverifiee **a la lecture**, contre le
+depot, et n'est jamais presumee du fait qu'une ligne existe. Une ligne abimee par une fusion est
+d'ailleurs ecartee seule, sans faire tomber les 235 autres.
+
+C'est aussi pourquoi on sur-abandonne (les cles presentes d'un seul cote du hunk partent aussi) :
+git ne dit pas QUELLES lignes se contredisent ; sur-abandonner coute du mur, sous-abandonner
+ferait survivre une entree que personne n'a ecrite telle quelle.
+
+## 6. Ce qui BLOQUE la mise en service -- criteres verifiables
+
+Aucune obligation n'est cablee par cette tranche : ni `CLAUDE.md`, ni le skill d'orchestration, ni
+hook, ni cliquet. Voici ce qu'il faudrait mesurer AVANT de le faire.
+
+### B1. Les GLOBALES sont comparees au REPERTOIRE -- le ledger s'auto-invalide
+
+`impacted_files` compare tout changement hors-`.py` aux **repertoires** des lectures globales :
+
+```
+_globales : data/seed-bc.json, data/symbols/CURRENT, scripts/python/pytest.ini,
+            scripts/ratchets-486r15-dette-declencheurs.txt
+repertoires impliques : data, data/symbols, scripts, scripts/python
+```
+
+Donc **tout fichier hors-`.py` modifie sous `scripts/` ou `data/` declenche TOUT REJOUE**. Or
+l'empreinte ET le ledger vivent sous `scripts/`. Consequences mesurees :
+
+- sur les 20 derniers commits de `master`, **5 rejouent TOUT**, dont **4** par cette voie
+  (`scripts/ratchets-457-footprints.json`) ;
+- le ledger, ecrit sous `scripts/`, **invaliderait sa propre selection a chaque ecriture**.
+
+**Critere de levee** : sur les 20 derniers commits de `master`, `impacted_files` rend
+`TOUT rejoue` pour cause de lecture globale **0 fois** (contre 4 aujourd'hui). La piste est de
+comparer les globales au **FICHIER** et non a son repertoire -- non faite ici : elle touche le
+foyer de #486-r15 et c'est une decision de politique de selection, pas une correction locale.
+
+### B2. Le plancher des `incertains` -- rejeu inconditionnel
+
+`impacted_files` retient tout fichier de `incertains` **sans regarder le diff**. `incertains` est
+construit sur trois criteres qui ne dependent que du fichier : import relatif, appel dynamique
+(`import_module`/`__import__`/`load_module`/`exec_module`), source illisible. **4 fichiers** sont
+dans ce cas et rejouent donc a chaque PR, y compris sur un diff sans aucun `.py`.
+
+**Critere de levee** : le nombre de fichiers offline `incertains` est **0**, ou bien ils sont
+retenus par une voie qui REGARDE le diff. (Le ledger, lui, les couvre deja : s'ils sont verts et
+non impactes, `raison_de_rejeu` les fait sauter -- mais seulement une fois B1 leve.)
+
+### B3. Le mur d'une PR documentaire
+
+Aujourd'hui **550,8 s** en mono-shard pour un diff d'un seul chemin `docs/`. Le plancher shardé
+est fixe par `test_468_collision_numeros_offline` (**82,5 s**, et il lit le backlog **par
+construction** -- c'est l'allocateur de numeros, dependance legitime).
+
+**Critere de levee** : le mur d'une PR purement documentaire est sous **60 s**, mesure et non
+simule (le mur d'une banque ne se simule pas -- cf. l'ecart 629 s simules / 297,8 s mesures).
+
+### B4. L'ecriture du ledger en MULTI-SHARD
+
+Les 8 shards sont 8 processus : chacun ne connait que sa part et ecraserait celle des autres.
+`_ecrire_ledger` **REFUSE** d'ecrire des que `n_shards > 1`, et le dit. Le ledger ne se peuple
+donc aujourd'hui qu'en mono-shard.
+
+**Critere de levee** : une consolidation inter-shards existe (chaque shard ecrit sa part, une
+passe finale fusionne), ou le mono-shard est assez rapide pour etre le mode nominal.
+
+### B5. La garde de retrait empeche le peuplement
+
+`probe_457` REFUSE de se lancer sans `TACTICUS_ALLOW_RATCHETS` (garde posee le 2026-08-06 apres
+qu'un agent l'a joue par reflexe). Tant qu'elle est la, **le ledger ne se peuple pas dans le cours
+normal**. Ce n'est pas un defaut a corriger tant qu'aucune obligation n'est cablee -- c'est une
+dependance a lever EN MEME TEMPS que la mise en service, pas avant.
+
+## 7. Ce qui n'a PAS ete fait, et pourquoi
+
+- **Aucune obligation ecrite** (`CLAUDE.md`, skill d'orchestration) et **aucun cran executable**
+  (hook `Stop`, garde de PR, cliquet declencheur) : decision de l'utilisateur du 2026-08-07, sur
+  la mesure du paragraphe 2.
+- **Les 45 autres cliquets ne sont pas retablis.** La refutation du `0,21 %` porte sur
+  `probe_457` -- 67 % de la banque, et un **lanceur de suite de tests**, pas un cliquet de
+  gisement. Les 32 cliquets de gisement n'ont pas tire une seule fois en 67 runs et rien ici ne
+  dit ce que vaut LEUR de-obligation. Les retablir par symetrie serait refaire, en sens inverse,
+  l'erreur de raisonnement du paragraphe 1.
+- **Ni `impacted_files` ni les poids ne sont modifies.** B1 est nomme et chiffre, pas corrige :
+  c'est le foyer de #486-r15, en cours de reparation par un autre agent, et le changement est une
+  decision de politique de selection.
+- **Rouges rencontres et NON traites** (herites de `master`, hors perimetre) :
+  `test_270r1r1r3_role_enum_offline::test_etage6...`,
+  `test_337_dsl_triggers_attestation_offline`,
+  `test_519_comptes_derives_offline::test_le_bloc_genere_est_a_jour` (bloc genere perime,
+  `TARGETING_OPTIONS_UNPORTED` 25 vs 26 -- se regenere par
+  `probe_519_comptes_de_table.py --ecrire`).

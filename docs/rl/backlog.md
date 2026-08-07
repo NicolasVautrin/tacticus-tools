@@ -3086,6 +3086,22 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   SEUL en process frais, 430 modules, `en_echec == 0` inconditionnel, ~13 s offline).
   Residus : **#477-r37**, **#485**. cf. `docs/rl/case-477r35-slot4-par-classe.md`.
 
+- **#486-r23 : le ledger du vert offline EXISTE, sa mise en service est BLOQUEE par 5 criteres.**
+  `[opus]` Le mecanisme est livre et teste (`scripts/python/ledger_vert_offline.py`,
+  `scripts/ratchets-457-vert-offline.json`, contre-epreuve de permissivite a 576 combinaisons).
+  **Aucune obligation n'est cablee** -- decision de l'utilisateur du 2026-08-07, parce que le cout
+  n'est pas calibre : une PR **purement documentaire** (1 chemin au diff) paie **550,8 s** de mur
+  mono-shard. Les cinq bloqueurs, chacun avec son critere VERIFIABLE, sont dans
+  `docs/rl/case-486r23-ledger-du-vert-offline.md` §6. Le plus lourd est **B1** : `impacted_files`
+  compare les lectures GLOBALES au **REPERTOIRE**, donc tout fichier hors-`.py` sous `scripts/` ou
+  `data/` declenche `TOUT rejoue` -- **4 des 20 derniers commits** de `master`, et le ledger
+  s'auto-invaliderait a chaque ecriture. Critere de levee : **0 TOUT-rejeu pour cause de globale**
+  sur les 20 derniers commits. Non fait ici : c'est le foyer de #486-r15 et une decision de
+  politique de selection, pas une correction locale.
+  ⚠ Ne pas re-de-obliger un garde sur son TAUX DE DECLENCHEMENT : le `0,21 %` de `d82ec527`
+  mesurait l'EFFICACITE de `probe_457`, pas son inutilite (14-15 rouges en 48 h apres retrait).
+  Le raisonnement complet -- biais du survivant applique a un garde-fou -- est en §1 de la case-doc.
+
 - **#485 : les 314 imports DIFFERES d'`engine/**`, ventiles -- 212 porteurs SANS raison ecrite.**
   `[opus]` Le `430/430` du cliquet `probe_477r35_import_isole.py` est un acquis **adosse a une
   dette** : il est tenu par **262** differes PORTEURS (hisser fermerait un cycle), dont **212 ne
