@@ -339,6 +339,85 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
     return _filter_can_attack_target_tile_from(state, caster_id, target_id, int(tid))
 
 
+def _is_melee_attack(state: "State", caster_id: int, target_id: Optional[int]) -> bool:
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$IsMeleeAttack(entities)`
+    (mirror), FOYER UNIQUE des DEUX consommateurs natifs — le dispatch de `ExecuteBehaviour` et le
+    gate de `GetDynamicInvalidTargetReason`, qui appellent tous deux CETTE methode-la.
+
+    Corps natif, LU :
+
+        trigger = DSLTriggers.IsMeleeAttack(Direct(AbilityOrEffect(this)), Caster@0x48,
+                                            <dsl+0x58>, Target@0x60)      # surcharge 4 arguments
+        return trigger.<slot +0x188>(entities, 0x20, ...)
+
+    `IdunBattleLogic.Entities.DSLTriggers$$IsMeleeAttack` (surcharge 4 arguments) construit un
+    `IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger` — le nom porte l'axe INVERSE, et
+    c'est le natif qui l'ecrit : la surcharge « melee » et sa negation
+    (`MV71SniperDroneSquadAttackAbility$$HasAttackType`, `type == 1` ->
+    `AbilityTrigger$$op_LogicalNot(IsMeleeAttack(...))`) partagent le meme trigger.
+
+    COLLAPSE (celui que `execute_behaviour` applique depuis #61bis, confronte live —
+    `docs/rl/case-254-loki-solo-targeting.md`) : « la cible est ADJACENTE au caster ». Il est ecrit
+    ICI et pas deux fois : le natif appelle la MEME methode aux deux endroits, donc le port ne doit
+    pas pouvoir les faire diverger.
+
+    Positions non resolues -> `False` : le port ne fabrique pas un dispatch melee faute de mesure
+    (c'est la branche PERMISSIVE du gate, cf. `mv71_dynamic_invalid_target_reason`)."""
+    if target_id is None:
+        return False
+    ce = state.get_entity(caster_id)
+    te = state.get_entity(target_id)
+    cp = ce.get_component(PositionComponent) if ce is not None else None
+    tp = te.get_component(PositionComponent) if te is not None else None
+    if cp is None or tp is None:
+        return False
+    return are_tiles_adjacent((cp.col, cp.row), (tp.col, tp.row), state.board)
+
+
+def mv71_dynamic_invalid_target_reason(state: "State", caster_id: int, target_id) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason`
+    (MIRROR 1:1 du decompile, 4 parametres `caster, casterTiles, target, targetTiles`) :
+
+        entities = default(AbilityEntities);          // memset 0x128
+        entities.<+0x08> = caster; entities.<+0x10> = target;
+        entities.<+0x18> = caster; entities.<+0x48> = casterTiles;
+        if (!IsMeleeAttack(entities) && target != null
+            && PickTile(entities, pickFirst: true) == null)
+            return 1;                                 // = TargetingRule.ValidRequest
+        return 0;
+
+    DEUX lectures que la conversion oblige a faire :
+
+    * le code rendu est le litteral **`1` = `TargetingRule.ValidRequest`**, PAS `2
+      TargetMatchesDynamicRule` : c'est le meme emploi « code de refus » que la tete de domaine
+      TUILE du filtre statique (cf. `targeting_rule_inventory`, role `REASON`). Recopier `2` par
+      analogie avec les autres regles dynamiques aurait ecrit un code FAUX ;
+    * `PickTile(pickFirst: true)` n'est PAS « la premiere tuile de l'anneau » : c'est le MEME corps
+      que l'execution, REPLI COMPRIS. Quand aucune tuile candidate ne passe le filtre, le natif
+      poursuit sur le bloc `HasTooManySummons` (tuile du drone le plus faible, filtree par
+      `FilterTilesIfCanAttackTargetTileFrom`) — ce que `_pick_tile` fait deja pour les deux modes.
+      Un port qui aurait court-circuite a « anneau vide -> refus » aurait SUR-refuse au cap.
+
+    L'ORDRE d'enumeration de `GetSurroundingTiles` n'a aucune incidence ici : le gate ne teste que
+    la NULLITE du retour, jamais QUELLE tuile est rendue.
+
+    Substrat non mesure (`unitId` absent du gameconfig) -> `0` : convention permissive du module,
+    jamais un refus invente."""
+    if _is_melee_attack(state, caster_id, target_id):
+        return 0
+    if target_id is None:
+        return 0
+    consts = (GC.ability(CONFIG) or {}).get("constants") or {}
+    unit_id = consts.get("unitId")                       # GetStringConstant(cfg, 0)
+    if unit_id is None:
+        return 0
+    max_summons = int(consts.get("maxSummons") or 3)     # GetNumberConstant(cfg, 0x3c)
+    tile = _pick_tile(state, caster_id, target_id, unit_id, max_summons, first_only=True)
+    if tile is not None:
+        return 0
+    return int(TR.ValidRequest)                          # le litteral `1` du decompile
+
+
 def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: int,
                     parent_pos=None, first_only: bool = False):
     """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile` côté PRÉDICTION (#61bis tranche 3) — MÊME port que `_pick_tile` (runner),
@@ -488,6 +567,19 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
                                          range=RANGE_ADJACENT_IF_MELEE_CASTER,
                                          force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
 
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """La regle-delegue du bit `TargetMatchesDynamicRule` pose ci-dessus (#287-r11-r2) —
+        `MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason`, mirror dans
+        `mv71_dynamic_invalid_target_reason`.
+
+        ⚠ Elle REMPLACE celle de l'attaque normale generique : le corps natif ne rappelle JAMAIS
+        `ALoki_NormalAttackAbility$$GetDynamicInvalidTargetReason` (le test d'arme). 1076 EST
+        l'attaque normale de `tauMarksman`, donc le porteur consulte est
+        `targeting._NormalAttackTargeting`, qui aiguille desormais vers CETTE surcharge — mirror du
+        fait que le delegue `options+0x38` est lie au slot vtable `+0x480` de l'INSTANCE."""
+        return mv71_dynamic_invalid_target_reason(state, caster_id, target_id)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -502,7 +594,9 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
         # l'attaque normale (`ALoki_NormalAttackAbility.ExecuteBehaviour`) — exécution == le pipeline
         # d'attaque normale du port (AttackDamageOperation + after-hit, mirror DamageHandler). H53
         # infirmée : c'est un dispatch, pas un refus de cible.
-        if are_tiles_adjacent((cp.col, cp.row), (tp.col, tp.row), state.board):
+        # Le prédicat vit dans `_is_melee_attack` (#287-r11-r2) : le natif appelle la MÊME méthode
+        # ici et dans son gate de ciblage, le port ne doit donc pas pouvoir les faire diverger.
+        if _is_melee_attack(state, caster_id, target_id):
             atk = AttackDamageOperation.execute(state, caster_id, target_id)
             after = []
             if atk is not None:
