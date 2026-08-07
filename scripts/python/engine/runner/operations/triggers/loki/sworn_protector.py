@@ -107,7 +107,7 @@ RESIDUS EXPLICITES :
  * (LEVE en #120bis) RE-RESOLUTION DE CIBLE apres le vecteur. Ce n'est PAS le `SwitchPosition` qui
    envoie les degats sur Kell -- lui ne fait que DEPLACER Creed. C'est l'etage suivant de
    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`, JUSTE APRES le
-   `FUN_1800280e0(.., 0x2a)` :
+   `FUN_1800280e0(.., 0x2a)` -- `On(PreUnitAbility)` :
 
        if (IsUnit(target) && Count(entities@+0x38) > 0) {   # entities@+0x38 = GetTiles(target),
            replaced = UnitExtensions.GetUnit(First(...), state);   # FIGE avant l'emission

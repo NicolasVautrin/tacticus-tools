@@ -47,11 +47,15 @@ CE QUE LE PROBE FAIT (chaque etape est autonome, `--step`)
            etroit de l'etape 4 ne voyait pas. Exemption : un token qui NOMME le build archive
            est un rappel historique volontaire.
 `on`     : etape 5 -- ordinaux NUS, sur DEUX ancres : `On(<n>)` et la QUOTE VERBATIM du helper
-           de publication (`FUN_<addr>(0x4d|0x50, .., <n>)`). COMPTEUR : l'ancre est sure, le
-           verdict ne l'est pas.
+           de publication (`FUN_<addr>(0x4d|0x50|0x51|.., .., <n>)`). COMPTEUR tant que
+           l'ancre est NUE : l'ancre est sure, le verdict ne l'est pas. GATE des que la ligne
+           porte l'annotation `On(<Membre>)` (#420-r5) -- l'auteur a alors DECLARE quel
+           evenement la quote publie, donc l'ordinal devient confrontable, et il le restera au
+           prochain changement de build sans qu'une ligne du depot ait bouge.
 
-VERDICT : FAIL si `mirror`, `exec`, `tables` ou `4bis` signalent quoi que ce soit hors allowlist.
-Les etapes 4 et 5 sont des COMPTEURS, pas des gates.
+VERDICT : FAIL si `mirror`, `exec`, `tables`, `4bis` signalent quoi que ce soit hors allowlist,
+ou si une ancre ANNOTEE de l'etape 5 cite l'ordinal ARCHIVE du membre qu'elle nomme.
+L'etape 4 et les ancres NUES de l'etape 5 sont des COMPTEURS, pas des gates.
 
 ASCII only (console Windows cp1252).
 Usage: python probe_283_enum_ordinal_sweep.py [--step diff|mirror|exec|tables|prose|all] [-v]
@@ -1210,16 +1214,97 @@ _ON_NOMME = re.compile(r"\bOn\(\s*(?:0x[0-9a-fA-F]+|\d{1,3})\s*=\s*[A-Za-z_]")
 # decompile. Son DERNIER littéral d'argument est un `EventTriggerType`, exactement comme le
 # 1er argument d'`On(...)` -- mais aucune des cinq etapes ne la voyait : ni ancre `On(`, ni
 # membre accole. Mesure #420 : 18 de ces quotes portaient un ordinal PERIME, en silence.
-# Le slot (`0x4d` = publish simple, `0x50` = publish avec entities) est ce qui rend l'ancre
-# sure ; le nom `FUN_<addr>` change a chaque build et n'est donc PAS dans le motif.
-# NON couvert : la forme `FUN_<addr>(0x51, .., <LIT>, &args)`, ou le littéral est
-# l'AVANT-dernier argument (residu #420-r1).
-_FUN_PUB = re.compile(r"\bFUN_[0-9a-fA-F]{6,}\s*\(\s*0x(?:4d|50)\s*,([^)\n]*)\)")
+# Le nom `FUN_<addr>` change a chaque build et n'est donc PAS dans le motif ; ce qui rend
+# l'ancre sure, c'est la TETE de la liste d'arguments. Elle a TROIS formes, et les deux
+# dernieres sont les residus #420-r2 et #420-r3 :
+#
+#   `0x4d`  publish simple            -> `(0x4d, <static>, <events>, <eventType>)`
+#   `0x50`  publish avec entities     -> `(0x50, .., <eventType>, <entities>)`
+#   `0x51`  publish avec `&args`      -> `(0x51, .., <eventType>, &args)`   (#420-r2)
+#   `..`    slot ELIDE par NOUS       -> `FUN_<addr>(.., <eventType>)`      (#420-r3)
+#
+# L'extraction est la MEME pour les quatre : le DERNIER littéral ENTIER de la liste. Le
+# residu #420-r2 la decrivait comme un obstacle (<< le littéral y est l'AVANT-dernier
+# argument >>), et c'est vrai de la POSITION -- mais `&args`, comme `entities`, n'est PAS un
+# littéral, donc l'avant-dernier argument EST le dernier littéral. Rien a changer sauf le slot.
+#
+# LE SLOT `0x51` EST LU AU DECOMPILE, pas deduit (2026-08-07, build `rnca9r7q6c`). Il porte un
+# AUTRE helper que les deux premiers -- 8 arguments au lieu de 4/5 :
+#   `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` : TROIS publications
+#       `FUN_1800284a0(0x51, <static>, <events>, unit, unit, unit, 0x1c, &args)` puis `0x28`
+#       (sous `UnitFlagsComponent$$Add(3)`) puis `0x29` (sous `isTerminated == 0`) ;
+#   `IdunBattle.Operations.ResurrectUnitOperation$$Execute` : `.., 0x2e, &args`.
+# `0x4d`/`0x50` sont, eux, `FUN_1800280e0` (cf. `ActiveAbilityOperation$$ExecuteInternal` :
+# `0x2a` -> `0xb` -> `0xc` -> `0xe`, par adresse croissante). Le motif ne nomme donc AUCUN
+# helper -- ni `FUN_1800280e0`, ni `FUN_1800284a0` : ces noms changent a chaque build, et
+# c'est le SLOT qui reste.
+#
+# CE QUE CETTE EXTENSION RATTRAPE, MESURE : `0x51` a **0 site** dans `scripts/python`
+# aujourd'hui -- l'ancre y est PREVENTIVE, pour la citation qu'on ecrira. Le seul `0x51` du
+# depot est un dispatch d'interface (`FUN_180003bd0(0x51, itf, service, caster)`,
+# `BattleQuery$$GetFreeAdjacentTiles`), et il n'a AUCUN littéral dans ses arguments, donc rien
+# n'y est ancre. L'elision, elle, a **2** sites (`probe_120:231`, `sworn_protector.py:110`).
+# ⚠ Un slot n'est un identifiant que DANS une interface : `0x51` d'`IBattleQuery` n'a aucun
+# rapport avec `0x51` du dispatcher d'evenements. C'est pourquoi l'ancre seule n'est JAMAIS un
+# gate -- elle COMPTE. Le gate exige une ANNOTATION posee a la main (cf. `_ON_MEMBRE_NU`).
+# `…` = l'ellipse UNICODE, ecrite en echappement : le depot en porte (`FUN_...(0x50, …,
+# 0x3d)`), et un caractere non-ASCII dans un motif est ce qu'on relit le plus mal.
+_FUN_PUB = re.compile(
+    r"\bFUN_[0-9a-fA-F]{6,}\s*\(\s*(?:0x(?:4d|50|51)|\.{2,3}|\u2026)\s*,([^)\n]*)\)")
 _FUN_LIT = re.compile(r"^(0x[0-9a-fA-F]+|\d{1,3})$")
+
+# ANNOTATION de decidabilite (#420-r5). Une quote verbatim ne peut pas porter son membre :
+# l'ecrire DEDANS falsifierait la citation. Le membre se pose donc A COTE, sur la MEME LIGNE,
+# sous la forme `On(<Membre>)` -- membre NU, sans nombre, ce qui la distingue de la forme
+# nommee `On(<n> = <Membre>)` que l'etape 4 confronte deja.
+#
+# POURQUOI PAS LE SEPARATEUR, qui etait la piste ecrite en #420 §9. Mesure du 2026-08-07 sur
+# les deux quotes qui portaient DEJA un commentaire de fin de ligne : `anvil_shield.py:39`
+# ecrit `...0x3c)      # UnitBlocked` (8 caracteres de separateur -- la limite EXACTE de
+# 4bis) et `martial_superiority.py:61` ecrit `...0x2a);` puis **21 espaces** d'alignement
+# avant `# On(PreUnitAbility)`. Un critere de PROXIMITE TEXTUELLE ne peut pas tenir contre le
+# padding d'un bloc de decompile recopie ; le critere est donc la LIGNE, comme `_historique`
+# (meme lecon, meme fichier : << la portee est en LIGNES, pas en tokens >>).
+#
+# POURQUOI PAS LE VOISINAGE HEURISTIQUE non plus, mesure et ECARTE. Chercher dans +/-3 lignes
+# un membre dont l'ordinal vaut la valeur de l'ancre rendait 11/18 quotes decidables -- mais
+# applique aux ancres `On(` du meme balayage il produisait **3 << perimees prouvees >>, 3
+# FAUX** : `On(0x29)` apparie a l'`UnitFinishedTurn` qui etiquette le `0x28` de la ligne
+# PRECEDENTE (`probe_462..._haywire_pose.py:124`), et deux `On(0x36)` apparies au
+# `PostUnitKill` qui etiquette le `0x35` voisin (`movement.py:14` et `:385`). C'est le faux
+# positif de VOISINAGE que 4bis avait deja paye sur la virgule et le slash. Un gate ne se
+# fonde donc pas sur ce qu'un texte porte PRES, mais sur ce qu'un auteur a DECLARE.
+_ON_MEMBRE_NU = re.compile(r"\bOn\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
+
+
+def annotation_de_ligne(ligne: str, v: int, ref: dict, old: dict) -> tuple:
+    """(etat, membre) pour une ancre de valeur `v` posee sur `ligne`.
+
+    Etats, dans l'ordre ou ils sont cherches -- le premier qui s'applique gagne, et c'est ce
+    qui rend le critere MONOTONE (jamais un rouge quand un vert est disponible) :
+
+      `ancree`   un `On(<Membre>)` de la ligne a pour ordinal COURANT exactement `v` ;
+      `perimee`  aucun ne l'a, mais l'un a pour ordinal ARCHIVE exactement `v` -- meme critere
+                 PROUVE que le gate 4bis : le nombre cite est l'ordinal d'AVANT du membre que
+                 l'auteur a nomme, ce qui n'a aucune autre explication qu'une citation
+                 recopiee d'un build perime ;
+      `nue`      la ligne ne porte aucun `On(<Membre>)` qui soit un membre d'EventTriggerType.
+
+    Un membre annote qui n'est NI courant NI archive pour cette valeur est ignore (il ne dit
+    rien de `v`) : on ne rougit pas sur une annotation qu'on ne comprend pas."""
+    membres = [m for m in _ON_MEMBRE_NU.findall(ligne) if m in ref or m in old]
+    for m in membres:
+        if ref.get(m) == v:
+            return "ancree", m
+    for m in membres:
+        if old.get(m) == v and ref.get(m) != v:
+            return "perimee", m
+    return "nue", None
 
 
 def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
-    """`On(<n>)` NU en prose : l'ancre est sure, le verdict ne l'est PAS.
+    """`On(<n>)` NU en prose : l'ancre est sure, le verdict ne l'est PAS -- SAUF si l'auteur a
+    pose l'annotation `On(<Membre>)` sur la ligne, et c'est alors un GATE (#420-r5).
 
     L'ancre `On(` est le contrat natif `IdunBattleLogic.Entities.DSLFactory$$On(EventTriggerType,
     ...)` : le nombre EST un `EventTriggerType`, sans ambiguite d'homonyme. Mais rien ne dit de
@@ -1232,12 +1317,25 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
     l'etape 4 (le NOM accole donne l'attendu) n'existe pas ici. Le `git blame` ne tranche pas non
     plus -- MESURE : sur les 7 sites ecrits APRES la migration, 6 recopiaient l'ancienne valeur.
 
-    Cette etape COMPTE et LOCALISE, elle ne corrige pas. Corriger un site exige de relire quel
-    trigger natif il cite -- un travail de RE par site, pas une migration."""
+    CE QUI A CHANGE (#420-r5). Une citation `On(<n>)` se REECRIT en `On(<n> = <Membre>)` et
+    sort alors de cette etape pour entrer dans l'etape 4 : c'est ce que #420 a fait pour 220
+    sites. Une QUOTE VERBATIM, elle, ne le peut pas -- ecrire le membre dedans falsifierait la
+    citation, et c'est exactement ce qui laissait 16 quotes INDECIDABLES. Le membre se pose
+    donc A COTE, `On(<Membre>)` sur la meme ligne, et la quote devient confrontable :
+
+      * annotation coherente avec le build courant -> `ANCREE`, elle sort des ambigus ;
+      * annotation dont l'ordinal ARCHIVE vaut le nombre cite -> `FAIL`, citation PROUVEE
+        perimee (c'est le cran qui mordra au PROCHAIN changement de build, sans qu'une seule
+        ligne du depot ait bouge -- le gisement exact de #283).
+
+    Le GATE ne mord donc QUE la ou quelqu'un a DECLARE le membre. Une ancre nue reste un
+    compteur, et une ancre mal ancree ne peut pas fabriquer de faux rouge : c'est ce qui
+    autorise l'ancre elargie (`0x51`, slot elide) sans risquer un rouge structurel."""
     cur, prev = current_build(), previous_build()
     new = enum_map(cur, ENUMS["EventTriggerType"])
     old = enum_map(prev, ENUMS["EventTriggerType"]) if prev else {}
-    stables, decales = 0, []
+    ref_n, old_n = _by_name(new), _by_name(old)
+    stables, decales, ancrees, fails = 0, [], [], []
     for suf in (".py", ".md"):
         # Lecture PARALLELE (#457-r6), mode BRUT (`newline=""`) comme l'etape 4.
         a_lire = [p for p in sorted((REPO / racine).rglob("*" + suf))
@@ -1253,6 +1351,7 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
             zones = _zones_prose(src, suf)
             if zones is None:
                 continue
+            lignes = src.split("\n")
             for base, txt in zones:
                 ancres = [(g.start(1), g.group(1), "On")
                           for g in _ON_NU.finditer(txt)
@@ -1269,17 +1368,31 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
                         ancres.append((dernier[0], dernier[1], "FUN"))
                 for pos, s, quoi in ancres:
                     v = int(s, 16) if s.lower().startswith("0x") else int(s)
-                    if old.get(v) == new.get(v):
-                        stables += 1      # sous le point de decalage : le meme sur les 2 builds
+                    ln = _ligne_de(src, base + pos)
+                    # La LIGNE du fichier, pas le token : une quote vit dans une docstring
+                    # (un seul token pour des dizaines de lignes) et son annotation est sur
+                    # SA ligne. Meme raison que `_historique`.
+                    etat, membre = annotation_de_ligne(
+                        lignes[ln - 1] if 0 < ln <= len(lignes) else "", v, ref_n, old_n)
+                    if etat == "perimee":
+                        fails.append((rel, ln, s, membre, old_n.get(membre),
+                                      ref_n.get(membre), quoi))
+                    elif etat == "ancree":
+                        ancrees.append((rel, ln, s, membre, quoi))
+                    elif old.get(v) == new.get(v):
+                        stables += 1   # sous le point de decalage : le meme sur les 2 builds
                     else:
-                        decales.append((rel, _ligne_de(src, base + pos), s,
-                                        old.get(v), new.get(v), quoi))
+                        decales.append((rel, ln, s, old.get(v), new.get(v), quoi))
     n_on = sum(1 for d in decales if d[5] == "On")
+    n_anc_fun = sum(1 for a in ancrees if a[4] == "FUN")
     print("[283] etape 5 : ordinaux NUS en prose de %s (ancres `On(` et quote de publication) "
-          "-- %d stables, %d AMBIGUS (%d `On(`, %d quote `FUN_`)"
-          % (racine, stables, len(decales), n_on, len(decales) - n_on))
+          "-- %d stables, %d ANCRES par annotation (%d quote `FUN_`), %d AMBIGUS "
+          "(%d `On(`, %d quote `FUN_`)"
+          % (racine, stables, len(ancrees), n_anc_fun, len(decales), n_on, len(decales) - n_on))
     print("       ambigu = l'ordinal a change de proprietaire ; sans le NOM accole, on ne peut")
     print("       pas savoir de quel build vient la citation. NON corrige (residu #283-r1).")
+    print("       ancre  = la ligne porte `On(<Membre>)` et le membre vaut CE nombre sur le")
+    print("       build courant -- une citation decidable, donc gardee (residu #420-r5 ferme).")
     par_fichier = {}
     for rel, ln, s, a, b, quoi in decales:
         par_fichier.setdefault(rel, []).append((ln, s, a, b, quoi))
@@ -1291,7 +1404,15 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
                   % (ln, "On" if quoi == "On" else "FUN_...", s, a, b))
         if not verbose and len(items) > 2:
             print("        ... (+%d)" % (len(items) - 2))
-    return stables, decales
+    if verbose:
+        for rel, ln, s, membre, quoi in sorted(ancrees):
+            print("   ANCREE %s:%d  %s(%s) = On(%s)"
+                  % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre))
+    for rel, ln, s, membre, anc, courant, quoi in sorted(fails):
+        print("   FAIL %s:%d  %s(%s) annote `On(%s)` -- %s valait %s sur %s et vaut %s sur %s"
+              % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre, membre, anc,
+                 prev or "-", courant, cur))
+    return stables, decales, ancrees, fails
 
 
 # ------------------------------------------------------------------------------------------
@@ -1379,7 +1500,10 @@ def main(argv) -> int:
         # etape 4 = COMPTEUR ; etape 4bis (3e valeur) = GATE, car le critere y est PROUVE.
         ko += len(step_prose(args.verbose, args.racine, args.fix)[2])
     if args.step in ("all", "on"):
-        step_on(args.verbose, args.racine)                # compteur, JAMAIS un gate
+        # COMPTEUR sur les ancres NUES (rien ne dit de quel build vient le nombre) ; GATE sur
+        # les seules ancres ANNOTEES `On(<Membre>)` -- la ou l'auteur a DECLARE le membre,
+        # donc la ou l'ordinal cite est confrontable (#420-r5).
+        ko += len(step_on(args.verbose, args.racine)[3])
     if args.step == "live":                # hors `all` : exige une session vivante et warmee
         ko += step_live(args.verbose)
     print("[283] VERDICT: %s" % ("PASS" if ko == 0 else "FAIL (%d)" % ko))

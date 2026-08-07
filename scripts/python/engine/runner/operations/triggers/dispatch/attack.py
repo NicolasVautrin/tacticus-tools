@@ -63,7 +63,7 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
 def final_damage_triggers(state: State, attacker_id: int, target_id: int,
                           ranged: bool = False, profile: Optional[str] = None) -> list[dict]:
     """Vecteur `On(FinalDamage = 0x42 = 66)` — emis par `IdunBattle.Operations.ADamageOperation$$
-    RegisterFinalDamage`, dont la DERNIERE instruction est `FUN_1800280e0(0x50, .., 0x42, entities)`.
+    RegisterFinalDamage`, dont la DERNIERE instruction est `FUN_1800280e0(0x50, .., 0x42, entities)`.  # On(FinalDamage)
 
     XREFS EXHAUSTIVES de `RegisterFinalDamage` : `IdunBattle.Operations.AttackDamageOperation$$Execute`
     et `IdunBattle.Operations.AbilityDamageOperation$$Execute` — et RIEN d'autre. L'evenement part donc

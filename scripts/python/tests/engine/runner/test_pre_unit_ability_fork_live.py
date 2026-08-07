@@ -2,7 +2,8 @@
 CONFRONTE AU LIVE.
 
 Le natif n'a qu'UN site d'emission : `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-(`FUN_1800280e0(0x4d, .., 0x2a)` en tete, avant l'execution) -- et l'attaque NORMALE emprunte cette
+(`FUN_1800280e0(0x4d, .., 0x2a)` = `On(PreUnitAbility)`, en tete, avant l'execution) -- et
+l'attaque NORMALE emprunte cette
 MEME operation (elle EST une active ability,
 `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility`). Le port a DEUX portes
 d'operation (`DamageHandler.visit_AttackUnitMessage`, `AbilityHandler.visit_ActiveAbilityMessage`) ;

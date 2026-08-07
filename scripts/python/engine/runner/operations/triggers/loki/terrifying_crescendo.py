@@ -29,7 +29,7 @@ trigger  = branche1 | branche2
   `...,0x36` UnitDefeated -> `...,0x35` PostUnitKill). Le port emettait deja `On(1)` et `On(0x36 = UnitDefeated)` mais
   PAS `On(0)` -> vecteur ajoute (`unit_death_triggers`, dispatch.py) ENTRE les deux, a la place exacte.
 - branche2 : << would have Suppressed >>. `On(0x3d=PreEffectAdded)` est emis par
-  `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN HAUT** (`FUN_1800280e0(0x50,...,0x3d)` AVANT le gate
+  `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN HAUT** (`FUN_1800280e0(0x50,...,0x3d)` = `On(PreEffectAdded)`, AVANT le gate
   cible-nulle, AVANT le gate << deja present >> et AVANT le gate d'immunite) -> le compteur monte meme
   quand le Pinned n'est PAS reellement applique (d'ou << WOULD have >>). L'`AbilityEntities` de cet
   evenement est construit `(source, source, target)` -> **actor = la SOURCE de l'effet** : `OwnerIsActor`

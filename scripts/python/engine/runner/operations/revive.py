@@ -53,7 +53,7 @@ aussi bien `PhaseType.Damage` ou `PhaseType.ActiveAbility` quand `KillUnit` est 
   * flags        IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE
                  (PAS 0xe AmbushConsumed -- un revive-en-place N'EST PAS un ambush one-shot)
   * IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : repositionne sur la tuile de l'unite -> IN-PLACE
-  * emet `On(UnitRevived = 0x2d = 45)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_1800280e0(0x4d,...,lVar16,0x2d)`)
+  * emet `On(UnitRevived = 0x2d = 45)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_1800280e0(0x4d,...,lVar16,0x2d)`)  # On(UnitRevived)
   * PUIS purge `unitComponent + 0xa8 .. +0xe8 = 0` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRES le dispatch de On(0x2d = UnitRevived))
 
 Frontiere DSL (#149) : la feuille `Revive` (declaratif, `triggers/revive_effect.py`) POSE ; l'Operation

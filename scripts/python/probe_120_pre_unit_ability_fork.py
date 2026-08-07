@@ -2,13 +2,18 @@
 
 LE FORK
 -------
-Le natif emet `0x2b` depuis UN SEUL site : `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-(`FUN_1800280e0(0x4d, .., 0x2a)`), tout en haut, avant l'execution -- et l'attaque NORMALE emprunte
-cette MEME operation (elle EST une active ability :
+Le natif emet `PreUnitAbility` depuis UN SEUL site :
+`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
+(`FUN_1800280e0(0x4d, .., 0x2a)` = `On(PreUnitAbility)`), tout en haut, avant l'execution -- et
+l'attaque NORMALE emprunte cette MEME operation (elle EST une active ability :
 `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility`). Le port, lui, a DEUX
 portes d'operation : `DamageHandler.visit_AttackUnitMessage` (attaque normale) et
 `AbilityHandler.visit_ActiveAbilityMessage` (cast). Seule la premiere emettait -> les consommateurs
-de `0x2b` etaient MUETS face a une ability adverse.
+de cet evenement etaient MUETS face a une ability adverse.
+
+(Les deux `0x2b` que ces lignes portaient jusqu'au 2026-08-07 etaient l'ordinal `gqfc5mff6c` de
+`PreUnitAbility` : le paragraphe se contredisait lui-meme d'une ligne a l'autre, et AUCUNE etape
+de `probe_283` ne le voyait -- ni ancre `On(`, ni membre au separateur court.)
 
 CE QUE CE PROBE MESURE (offline, sans session live)
 ---------------------------------------------------
@@ -228,7 +233,8 @@ def main() -> int:
         "le +20 % block se pose sur un cast d'ability -> gate IsNormalAttack absent")
 
     # --- 5. un cast REFUSE par le gate de ciblage n'emet RIEN --------------------------------------
-    # `ExecuteInternal` sort sur `IsInvalidTarget` (return 0) EN AMONT du `FUN_1800280e0(.., 0x2a)`.
+    # `ExecuteInternal` sort sur `IsInvalidTarget` (return 0) EN AMONT du
+    # `FUN_1800280e0(.., 0x2a)` -- `On(PreUnitAbility)`.
     # Aucun consommateur porte ne rend ce refus observable aujourd'hui (le seul ability a
     # `TARGETING_OPTIONS` RE-lues est Waaagh 1058, classee `Others` donc muette pour SwornProtector) :
     # on INSTRUMENTE donc le dispatch pour COMPTER les emissions -- c'est une mesure de probe, pas une
