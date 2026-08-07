@@ -158,12 +158,14 @@ Read-only sauf `applyAction` (`mutated=false` attendu). Cœur oracle + harnais m
   IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` → Fix64 (Σ familles damage/heal/effect/repair,
   prob + modifs inclus) pour (ability, cible) depuis une position. ⚠ `ncEvaluate` AV @0x46
   sur les playbooks COMPARABLES hors tour natif — utiliser CE RPC pour l'utilité comparable.
-- **`navToCampaign()`** (`warmup-singletons.ts`) — levier de SECOURS **MANUEL** : force la nav
-  interne (`IdunNavigation.ToCampaign`) pour débloquer une UI coincée sans relancer le jeu.
-  ⚠ **Ce n'est plus le recours nominal du warmup (#390)** : le cycle l'applique lui-même sur
-  wedge détecté, par le même foyer. Il reste utile hors cycle (diagnostic, UI trouvée coincée).
-  Il ne peut rien si la scène méta n'est pas chargée — il rend alors
-  `no live IdunNavigation instance`, et c'est un régime, pas une panne.
+- ~~**`navToCampaign()`**~~ — **RETIRÉ le 2026-08-07. Ne pas le rétablir.** Le cycle de warmup
+  applique déjà ce remède lui-même sur wedge détecté (cran 8, même foyer). L'exposer en plus
+  comme levier manuel faisait croire qu'un warmup rouge se rattrape à la main : **il ne se
+  rattrape pas.** Mesuré — joué quatre fois de suite, il a ramené la campagne à chaque coup
+  pendant que `warm-gate` refusait toujours la création de runner, le RPC de warmup rendant
+  `ok:false`. Il répare l'**écran**, jamais le **verdict**. Un warmup rouge se diagnostique par
+  `POST /api/admin/warmup`, qui rend le détail étape par étape.
+  Cran exécutable qui garde son absence : `frida/tools/probe-390-wedge-remedy.ts` §6.
 - **`exposureView({ runnerId, unitId?, allAbilities?=true })`** — move-guard
   (inverse d'attackPlans) : dégât ennemi entrant au prochain tour + flag `exposed`.
   Même routing dégât que attackPlans (#103 : actives→playbook, normale→preview).

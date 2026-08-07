@@ -369,8 +369,13 @@ function etage2(): void {
     check("`invokeToCampaign(` apparait 2 fois : sa definition et SON UNIQUE appel",
         nbInvoke === 2, `occurrences=${nbInvoke}`);
     check("le foyer existe", src.includes("function navToCampaignOnMainThread("));
-    check("le RPC de secours passe par le foyer",
-        /ctx\.rpc\.navToCampaign\s*=[\s\S]{0,200}navToCampaignOnMainThread\(/.test(src));
+    // RETOURNE le 2026-08-07 : ce cran exigeait que le RPC de secours EXISTE et passe par
+    // le foyer. Le RPC est retire -- il ne reparait que l'ECRAN, jamais le VERDICT du
+    // warmup, donc `warm-gate` refusait toujours la creation de runner apres l'avoir
+    // joue. Le cran garde desormais son ABSENCE : sans quoi rien n'empecherait de le
+    // re-exposer, et le levier trompeur reviendrait par la porte qu'on vient de fermer.
+    check("le RPC de secours `navToCampaign` n'est PLUS expose",
+        !/ctx\.rpc\.navToCampaign\s*=/.test(src));
     check("le remede passe par le foyer",
         /navToCampaign:\s*\(\)\s*=>[\s\S]{0,120}navToCampaignOnMainThread\(/.test(src));
     check("l'etape 2 du cycle passe par le foyer",

@@ -287,9 +287,10 @@ function invokeToCampaign(
 /** FOYER UNIQUE de « resoudre la nav vivante et l'envoyer sur la campagne Indomitus ».
  * A executer sur le MAIN THREAD (queueOnMainThread).
  *
- * TROIS appelants, un seul corps : l'etape 2 du cycle (`animated: true`, on veut la
- * transition normale), le RPC de secours `navToCampaign` et le remede automatique du
- * cran 8 (`animated: false` tous deux — il n'y a rien a montrer, on veut l'ecran).
+ * DEUX appelants, un seul corps : l'etape 2 du cycle (`animated: true`, on veut la
+ * transition normale) et le remede automatique du cran 8 (`animated: false` — il n'y a
+ * rien a montrer, on veut l'ecran). Il y en avait TROIS : le RPC de secours
+ * `navToCampaign` a ete retire le 2026-08-07 (cf. `register` en fin de fichier).
  * C'est la lecon de #332 transposee : la chaine de retraite existait en DEUX copies, l'une
  * a ete corrigee et l'autre a continue de tourner sur le mecanisme refute. Trois copies
  * du triplet `ensureNavRefs` + `findLiveIdunNavigation` + `invokeToCampaign`
@@ -316,8 +317,9 @@ function navToCampaignOnMainThread(animated: boolean): NavOutcome {
  * les commentaires de l'etape 1bis citent comme symptome connu. */
 const NO_NAV_INSTANCE_ERR = "no live IdunNavigation instance";
 
-/** Aplatit un `NavOutcome` vers la forme `{ ok, err?, navInstance? }` que le RPC
- * `navToCampaign` publie depuis l'origine (cf. `rpc-api.md`). */
+/** Aplatit un `NavOutcome` vers la forme `{ ok, err?, navInstance? }`. C'etait la forme
+ * publiee par le RPC `navToCampaign`, retire le 2026-08-07 ; l'etape 2 du cycle continue
+ * de la consommer pour distinguer « pas d'instance vivante » d'une vraie levee. */
 function navOutcomeToRpc(
     o: NavOutcome,
 ): { ok: boolean; err?: string; navInstance?: string } {
@@ -747,16 +749,17 @@ export function register(ctx: Ctx): void {
     ctx.rpc.warmupGameSingletons = (
         opts?: { force?: boolean; stopAfterCapture?: boolean },
     ) => warmupGameSingletons(opts);
-    // Recovery lever: force the game's OWN navigation back to the campaign
-    // screen (same IL2CPP invoke the warmup nav uses, animated=false). Unsticks
-    // a UI wedged in the post-retreat transition without relaunching the game.
-    // No battle-state mutation; safe anytime.
+    // LE RPC `navToCampaign` A ETE RETIRE (2026-08-07). Le cycle applique le remede
+    // lui-meme sur wedge detecte (cran 8) ; l'exposer en plus comme levier manuel
+    // entretenait l'idee qu'un warmup rouge se rattrape a la main.
     //
-    // #390 — CE LEVIER N'EST PLUS LE RECOURS NOMINAL : le cycle l'applique lui-meme sur
-    // wedge detecte (cran 8). Il reste expose pour l'usage MANUEL — diagnostic, ou une
-    // UI trouvee coincee hors de tout cycle de warmup. Il passe par le MEME foyer
-    // (`navToCampaignOnMainThread`) que le remede automatique : deux corps distincts
-    // auraient fini par diverger, comme les deux chaines de retraite de #332.
-    ctx.rpc.navToCampaign = () => queueOnMainThread(
-        () => navOutcomeToRpc(navToCampaignOnMainThread(false)));
+    // IL NE SE RATTRAPE PAS, et c'est mesure : le levier repare l'ECRAN, jamais le
+    // VERDICT. Joue quatre fois de suite ce jour-la, il a bien ramene la campagne a
+    // chaque coup -- pendant que `warm-gate` continuait de refuser toute creation de
+    // runner, puisque le RPC de warmup, lui, rendait toujours `ok:false`. Un levier qui
+    // rend l'ecran conforme sans rendre la session utilisable est pire qu'absent : il
+    // donne l'apparence de la reparation.
+    //
+    // Le foyer `navToCampaignOnMainThread` RESTE -- il sert l'etape 2 du cycle et le
+    // remede du cran 8. C'est l'exposition qui part, pas le corps.
 }
