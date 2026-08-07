@@ -303,7 +303,7 @@ class UnitComponent(Component):
                  "charged_unit_ids", "current_turn_start_tile", "revived_by_abilities",
                  "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn",
                  "blocks_made_this_turn", "blocks_made_this_battle",
-                 "turns_with_attacks_made", "units_attacked_this_turn",
+                 "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
                  "movement_target_override")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
@@ -361,6 +361,12 @@ class UnitComponent(Component):
         # 0 / vide a la creation, comme un composant natif frais.
         self.turns_with_attacks_made = 0
         self.units_attacked_this_turn: set = set()
+        # `ActorStatisticsComponent+0x24` = ATTAQUES EMISES CE TOUR (#508-r1). ⚠ Ce n'est PAS
+        # `times_attacked_this_turn` (+0x38, attaques RECUES) ni `turns_with_attacks_made` (+0x30,
+        # compte de TOURS). Ecrit par `register_attack_made`, remis a 0 par
+        # `reset_units_attacked_this_turn` -- ce dernier NOM ne le dit pas, l'assembleur si
+        # (`*(undefined8*)(this + 0x24) = 0` : une ecriture 64 bits qui couvre +0x24 ET +0x28).
+        self.attacks_made_this_turn = 0
         # `Nullable<UnitPositionId>` a `+0xa8` du composant que `IdunBattle.Operations.
         # MoveUnitOperation$$Execute` ET `IdunBattle.Operations.OverrideMovementTargetOperation$$
         # Execute` recuperent tous DEUX par la MEME paire de caches (#448-r1) -- la DESTINATION
@@ -1916,16 +1922,31 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
             Add(this[0x40], target.Id);
             this[0x20] += 1;                             // TotalAttacksMade      (non porte)
             this[0x54] += totalCrits;                    //                       (non porte)
-            this[0x24] += 1;                             //                       (non porte)
-            if (rangeType == 1) this[0x2c] += 1;         //                       (non porte)
-            if (rangeType == 2) this[0x28] += 1;         //                       (non porte)
+            this[0x24] += 1;                             // <- AmountOfAttacksMadeThisTurn (#508-r1)
+            if (rangeType == 1) this[0x2c] += 1;         // variante Melee        (non portee)
+            if (rangeType == 2) this[0x28] += 1;         // variante Ranged       (non portee)
         }
 
     `+0x30` n'avance donc **qu'une fois par tour**, au PREMIER coup porte -- c'est ce qui fait de
-    lui un compte de TOURS et non d'attaques. Les champs marques « non porte » n'ont a ce jour
-    aucun lecteur cote port : les ajouter serait de la spec inventee (le compteur d'attaques
-    utilise par la PREDICTION, lui, vient du capteur live `actorStats.totalAttacksMade`, cf.
-    `playbook/scene.py`).
+    lui un compte de TOURS et non d'attaques. `+0x20` (`TotalAttacksMade`) reste non porte : le
+    compteur d'attaques utilise par la PREDICTION vient du capteur live `actorStats.totalAttacksMade`
+    (cf. `playbook/scene.py`).
+
+    **`+0x24` EST PORTE DEPUIS #508-r1** -- c'est ce que lit
+    `IdunBattle.Entities.Formulas.AmountOfAttacksMadeThisTurnFormula$$Calculate` quand son
+    `Nullable<rangeType>` n'a PAS de valeur, et c'est le cas des DEUX call-sites de
+    `LeadingTheChargeAbility$$ExecuteBehaviour`. Le noeud DSL
+    `IdunBattleLogic.Entities.DSLFormulas$$TimesAttackMadeThisTurn` a **QUATRE** call-sites natifs
+    pour **TROIS** abilities -- `LeadingTheCharge` (x2), `IconOfObstinacy_AddArmourBuffAbility` et
+    `LegacyOfCombat` : porter le compteur rend le noeud REUTILISABLE, c'est l'argument qui a
+    tranche le rayon de souffle.
+
+    ⚠ **`+0x28`/`+0x2c` restent NON PORTES, et la raison est une RE inachevee, pas un choix** : le
+    `rangeType` est un ARGUMENT de `RegisterAttackOperation$$Execute`, propage tel quel depuis
+    l'enqueue du slot `IOperationProcessor` **74** (`RegisterAttack`, arite 4) -- dont le call-site
+    n'a pas ete localise. Ecrire un `rangeType` devine y mettrait une valeur FAUSSE dans deux
+    compteurs, ce qui est pire que leur absence. Residu a ouvrir avant tout consommateur de ces
+    deux variantes.
 
     SEUL appelant natif : `IdunBattle.Operations.RegisterAttackOperation$$Execute` -- le MEME que
     `...$$RegisterAttackReceived`, dont le port place deja le mirror (`record_attacked`) dans le
@@ -1933,8 +1954,9 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
     bougent donc au meme instant, comme cote natif : **l'attaque qui declenche l'increment ne le
     voit PAS elle-meme** (elle a deja calcule son degat).
 
-    LECTEUR PORTE : `MartialInspiration_ExtraDamageEffect` (#509), via
-    `IdunBattle.Entities.Formulas.TotalTurnsWithAttacksMadeFormula$$Calculate`."""
+    LECTEURS PORTES : `MartialInspiration_ExtraDamageEffect` (#509), via
+    `IdunBattle.Entities.Formulas.TotalTurnsWithAttacksMadeFormula$$Calculate` ; et
+    `unit_attacks_made_this_turn` ci-dessous (#508-r1)."""
     if attacker_id is None or target_id is None:
         return                                           # `attacker == null` -> le natif ne fait rien
     e = state.get_entity(attacker_id)
@@ -1944,6 +1966,7 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
     if not uc.units_attacked_this_turn:                   # `Count(this[0x40]) == 0`
         uc.turns_with_attacks_made = int(uc.turns_with_attacks_made or 0) + 1
     uc.units_attacked_this_turn.add(int(target_id))
+    uc.attacks_made_this_turn = int(uc.attacks_made_this_turn or 0) + 1   # `this[0x24] += 1`
 
 
 def unit_turns_with_attacks_made(state, unit_id: int) -> int:
@@ -1963,9 +1986,59 @@ def unit_turns_with_attacks_made(state, unit_id: int) -> int:
     return int(uc.turns_with_attacks_made or 0) if uc is not None else 0
 
 
+def unit_attacks_made_this_turn(state, unit_id: int) -> int:
+    """`IdunBattle.Entities.Formulas.AmountOfAttacksMadeThisTurnFormula$$Calculate` -- MIRROR du
+    decompile, dans le regime `rangeType = null` :
+
+        sum = 0
+        foreach (unit in <selecteur this+0x10>.Select(entities)) {
+            comp     = unit.GetComponent<ActorStatisticsComponent>()
+            hasValue = (this+0x18 : Nullable<AttackRangeType>).HasValue
+            value    = GetValueOrDefault(this+0x18)
+            if      (hasValue && value == 1) sum += comp[0x2c];    // Melee
+            else if (hasValue && value == 2) sum += comp[0x28];    // Ranged
+            else                             sum += comp[0x24];    // TOUTES
+        }
+        return sum
+
+    Le port n'expose ICI que la branche `else` -- le `Nullable` VIDE -- parce que c'est celle des
+    DEUX call-sites de `LeadingTheChargeAbility$$ExecuteBehaviour`, et parce que les deux compteurs
+    par `rangeType` ne sont pas alimentes (cf. `register_attack_made`). Un appelant qui aurait
+    besoin d'une variante doit d'abord fermer cette RE : rendre un total la ou le natif rend un
+    sous-compte serait un ecart SILENCIEUX et PERMISSIF.
+
+    Le selecteur `this+0x10` est resolu par l'appelant (ici : le caster) -- comme
+    `unit_turns_with_attacks_made`, ce mirror prend l'unite deja resolue. Composant absent = 0,
+    comme un composant natif frais.
+
+    ⚠ **PAS DE SEED LIVE** : `rpc-snapshot.ts` publie `totalTurnsWithAttacksMade` (`+0x30`) mais pas
+    `+0x24` -- un etat RECHARGE repart donc de `0`, meme si l'unite avait deja frappe ce tour-la.
+    Poser le capteur exige une REINJECTION. C'est INERTE pour le seul consommateur porte
+    (`LeadingTheCharge`), qui compare le compteur A LUI-MEME (`SetCache` avant / `AmountIsGreater`
+    apres, dans le MEME rejeu) : seule la DIFFERENCE compte, et elle est juste quel que soit le
+    point de depart. Tout futur consommateur qui lirait la VALEUR ABSOLUE doit d'abord obtenir ce
+    canal."""
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    return int(uc.attacks_made_this_turn or 0) if uc is not None else 0
+
+
 def reset_units_attacked_this_turn(state, unit_id: int) -> None:
-    """`IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetUnitsAttackedThisTurn` =
-    `Clear(this[0x40])`. Appelants natifs (xrefs COMPLETES) :
+    """`IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetUnitsAttackedThisTurn` --
+    MIRROR du decompile, et son NOM ne dit PAS tout ce qu'il fait :
+
+        if (this[0x40] == null) throw
+        Clear(this[0x40])
+        this[0x54] = 0                       // totalCrits du tour           (non porte)
+        *(long long*)(this + 0x24) = 0       // <- UNE ecriture 64 bits : +0x24 ET +0x28
+        this[0x2c] = 0
+
+    C'est donc ICI que les trois compteurs d'ATTAQUES EMISES sont remis a zero (#508-r1), et nulle
+    part ailleurs : les deux `ActorStatisticsComponent$$ResetThisTurn` ne les touchent pas (le
+    premier ecrit dans son parametre `data`, le second roule `+0xf0/+0x78/+0xe4/+0x58/+0xa0` et les
+    champs des sous-structures de son dictionnaire).
+
+    Appelants natifs (xrefs COMPLETES) :
     `IdunBattle.Operations.StartTurnOperation$$Execute` (x2), `$$ResetUnit`, `$$ResetMachine` --
     c'est donc l'ENTREE de tour qui rouvre la fenetre, PAS `EndTurnOperation` (qui, lui, roule les
     champs `+0xf0`/`+0x78`/`+0xe4`/`+0x58`/`+0xa0`, cf. `reset_tiles_moved_this_turn`).
@@ -1977,6 +2050,7 @@ def reset_units_attacked_this_turn(state, unit_id: int) -> None:
     uc = e.get_component(UnitComponent) if e is not None else None
     if uc is not None:
         uc.units_attacked_this_turn.clear()
+        uc.attacks_made_this_turn = 0                    # `*(long long*)(this + 0x24) = 0`
 
 
 def unit_has_teleported(state, unit_id: int) -> bool:
