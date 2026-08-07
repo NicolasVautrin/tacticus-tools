@@ -66,7 +66,12 @@ SNAP_TARGETING_UNPORTED = (
     (1093, (16386, False, (1, True, False, None, False), 1)),
     (1215, (32772, True, None, 1)),
     (1005, (1026, True, (0, False, False, 1, False), 1)),
-    (1019, (16384, False, (3, False, False, None, False), 1)),
+    # 1019 StormOfWrath RETIREE (#499) : sa face COMBAT est portee (`ChainAbilityDamage`), donc son
+    # masque a MIGRE sur `StormOfWrathAbility.TARGETING_OPTIONS` -- meme mouvement que
+    # 1027/1038/1048/1068/1069/1087/1088/1152. Le ctor a ete RELU a cette occasion et la valeur qui
+    # etait figee ici est CONFIRMEE champ pour champ : `rules = 0x4000 = 16384` (TargetIsEnemy seul),
+    # `selfCast = False`, `range` = `TargetingRange statics+0x00` = ADJACENT_IF_MELEE_CASTER,
+    # `forceMeleeTarget = 1` (RangedBool.False). C'est la SOURCE qui bouge, jamais la valeur.
     (1039, (34056, True, (0, False, False, 1, False), 1)),
     (1049, (1024, True, (1, True, False, None, False), 1)),
     (1057, (4160, False, (0, False, False, 1, False), 1)),
@@ -326,15 +331,19 @@ def test_cardinalites_du_volet():
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 36 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
-    1068 (#497), 1152 (#498), 1038 (#500). ⚠ Les deux dernieres ont ete retirees EN PARALLELE, sur
-    deux branches : le compte se RE-DERIVE de la table apres resolution, il ne se soustrait pas
-    d'un seul cote. Ce que ce cliquet garde est la CONVERSION EN MEMBRES D'ENUM des cles
-    restantes -- pas la taille des tables."""
+    passe de 44 a 35 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
+    1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500). Ce que ce cliquet garde est la CONVERSION
+    EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
+
+    ⚠ LE NOMBRE CI-DESSUS SE RE-COMPTE SUR `CIBLES`, il ne se deduit JAMAIS par soustraction du
+    chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les TROIS dernieres
+    sorties (#498, #499, #500) ont ete faites EN PARALLELE, sur trois branches, chacune aveugle aux
+    deux autres. Trois soustractions successives sur le meme chiffre perime en auraient manque
+    deux -- seul un recompte apres resolution converge."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [36, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [35, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 120
+    assert sum(tailles) == 119
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"
