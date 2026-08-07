@@ -1,5 +1,10 @@
 # #512 — `1197 ExcruciatingFrequencies` : le crit se compte sur TOUTES les unités du rayon
 
+> **`#512-r1` est RÉSOLU** (§6) : `SuppressiveFire` écoute désormais son vecteur natif
+> `On(PreAttack = 5)`, émis **par cible distincte**, et son gate est le slot 3 `IsRangedAttack`
+> COMPLET — dont la branche `Ranged(2)`, qui ne lit **aucune** position. Le dégât est bit-exact dans
+> les quatre régimes. Résidu ouvert : `#512-r2` (§8).
+
 `emperNoiseMarine` « Shiron » (Emperor's Children / Chaos, **lineup**, DANS le pool `--list-pool`
 au rank 17 — seul porteur). Avant cette tranche l'ability était un **no-op silencieux** : absente
 d'`ABILITY_CLASSES`, le cast partait, `ported` valait `False`, et **rien** ne se produisait — ni
@@ -174,47 +179,146 @@ Contre-épreuves hors-ligne (mêmes captures, une lecture changée à la fois) :
 Aucune variante n'est inerte dans **tous** les régimes — et le probe **imprime** celles qui le sont
 dans le régime courant, pour qu'un vert ne se lise jamais comme une mesure qui n'a pas eu lieu.
 
-## 6. Le dégât NOMINAL diverge — l'écart est ATTRIBUÉ, résidu `#512-r1`
+## 6. Le dégât NOMINAL divergeait — `#512-r1`, la chaîne de déclencheurs du porteur
 
-En régime nominal le port SOUS-TIRE, à **séquence, cibles, crits et nombre de tirages identiques** :
+En régime nominal le port SOUS-TIRAIT, à **séquence, cibles, crits et nombre de tirages
+identiques** :
 
-| régime | cible | PORT | NATIF | écart |
+| régime | cible | PORT (avant) | NATIF | écart |
 |---|---|---|---|---|
 | R1 | u81 | 9575 | 10073 | +498 |
 | R1 | u83 | 7101 | 7766 | +665 |
 | R3 | u81 | 6383 | 6715 | +332 |
 | R3 | u83 | 6226 | 6891 | +665 |
 
-**R0 — le MÊME montage que R1, le caster privé de son seul passif — rend `9575 / 7101` des DEUX
-côtés, bit pour bit, en 6 tirages.** L'écart n'est donc pas dans ce mirror ; il est dans la chaîne
-de déclencheurs du porteur :
+**R0 — le MÊME montage que R1, le caster privé de son seul passif — rendait `9575 / 7101` des DEUX
+côtés, bit pour bit, en 6 tirages.** L'écart n'était donc pas dans ce mirror ; il était dans la
+chaîne de déclencheurs du porteur :
 
 ```
 natif : SuppressiveFire (TRAIT du caster) pose `Pinned` (0x429) sur CHAQUE cible du rayon
         -> On(PreEffectAdded = 0x3d) -> TerrifyingCrescendo (passif) monte
            `TerrifyingCrescendo_ExtraDmg` (0x590) d'un niveau
         -> ce niveau ajoute son `extraDmg` au coup EN COURS
-           (niveau 1 sur le 1er coup, niveau 2 sur le 2e -- visible dans la cascade native)
-port  : `SuppressiveFireAddEffectAbility` n'écoute que `On(NormalAttack = 38)`, donc RIEN n'est
-        posé sur une attaque d'ABILITY -> le crescendo ne monte jamais
+port  : `SuppressiveFireAddEffectAbility` n'écoutait que `On(NormalAttack = 38)`, donc RIEN n'était
+        posé sur une attaque d'ABILITY -> le crescendo ne montait jamais
 ```
 
-C'est un résidu **déjà nommé** dans `runner/operations/triggers/loki/suppressive_fire.py` : « Un
-carrier qui suppress via une ATTAQUE-ABILITY ranged ne serait pas couvert […] **Aucun scénario de
-validation ne l'exige.** » #512 **est** ce scénario, et c'est la première fois qu'il est exercé.
+### 6.1 OÙ LE NATIF ÉMET `PreAttack` — la lecture qui tranche
 
-⚠ **La mesure RÉFUTE l'argument qui y justifiait l'abstention.** Ce commentaire écarte le vecteur
-`Attack(9)` au motif que « le natif suppress la cible PRIMAIRE seule (PreAttack once) → sur-
-suppression des victimes de splash ». Sur une attaque d'ability **multi-cible**, la cascade native
-pose `Pinned` sur **chacune** des cibles (`u81` puis `u83`, chacun dans son propre bloc
-`[Ability_Power e=77 «SuppressiveFire»]`) — parce que `AttackBehaviour$$Execute` pousse un
-`OngoingAttack`, donc un `On(PreAttack)`, **par cible**. Ce qui reste à trancher n'est donc pas
-« primaire ou toutes », mais **où le natif émet `PreAttack`** — et la réponse sépare une attaque
-multi-cible (une par cible) d'un splash composé dans le `Attack(...)` d'une autre attaque
-(`isOutsideAttack = false`, aucun nouveau `PreAttack`, cf. `#419-r3`).
+Le commentaire de `suppressive_fire.py` écartait le vecteur au motif que « le natif suppress la
+cible PRIMAIRE seule (PreAttack once) → sur-suppression des victimes de splash ». **C'est faux**, et
+la réponse ne se déduit pas d'un observable : elle se LIT.
 
-Corriger le vecteur touche les **49** porteurs du trait (dont 8 lineup) et exige la RE des points
-d'émission de `PreAttack` : hors périmètre de cette tranche. Résidu `#512-r1`.
+```
+IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute        # le nœud DSL `Attack(...)`
+    caster  = Select(entities+0x50) ; targets = Select(entities+0x58)   (OrderBy si Count > 1)
+    for tgt in targets:
+        if prev is null or prev != tgt: processor.StartAttack  (slot 58)
+        <inner behaviour>                                      # AttackDamage / AbilityDamage
+        if next is null or next != tgt: processor.FinishAttack (slot 59)
+IdunBattle.Operations.StartAttackOperation$$Execute
+    -> IOperationProcessor.EvaluateAbilitiesImmediately(EventTriggerType.PreAttack = 5,
+                                                        AbilityEntities{actor, target})
+```
+
+Les slots sont **LUS** dans `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`
+(58 `StartAttack`/3, 59 `FinishAttack`/3, 80 `EvaluateAbilitiesImmediately`/2), et la lecture du 4ᵉ
+argument comme `EventTriggerType` est **recoupée** sur
+`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`, qui émet par le même helper
+`0x3c = UnitBlocked` puis `8 = AttackHit` — exactement ce que le port en dit déjà.
+
+⇒ **`PreAttack` part une fois par CIBLE DISTINCTE** (l'`OrderBy` préalable groupe les cibles
+répétées, donc N coups sur la même cible n'ouvrent qu'une attaque). Trois émetteurs de `StartAttack`
+en tout : `AttackBehaviour$$Execute`, `IdunBattle.Entities.Behaviours.StartAttackBehaviour$$Execute`
+et la voie MESSAGE `IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass25_0$$u003CVisitu003Eb__0`.
+
+Ce qui reste vrai de la mise en garde, mais autrement : une feuille
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` **NUE** composée dans le `Attack(...)` d'une
+autre attaque (`isOutsideAttack = false`, `#419-r3`) n'ouvre **aucun** `StartAttack` et n'émet donc
+rien. **La distinction est STRUCTURELLE — `Attack(...)` contre feuille nue — pas « primaire contre
+toutes ».**
+
+⚠ Et `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (surcharge racine à 7
+arguments) finit elle aussi par `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` : la famille
+ABILITY émet donc `PreAttack` **comme** la famille ATTACK. Le port ne l'y émet pas (gate
+`is_attack_damage_op`) → résidu `#512-r2`.
+
+### 6.2 LE GATE `IsRangedAttack` N'EST PAS POSITIONNEL — deuxième lecture, et elle est décisive
+
+`SuppressiveFireAbility$$CreateTrigger` (re-lu sur `rnca9r7q6c`) conjoint `IsRangedAttack`, qui est
+`IdunBattle.Core.Services.BattleQuery$$IsRangedAttack` — le slot **3** d'`IBattleQuery` :
+
+```
+if (!ability.HasValue) return false;
+switch (GetAbilityAttackRangeType(ability)) {   // 0 None, 1 Melee, 2 Ranged, 3 Normal
+  case 0: case 1: return false;
+  case 2: return true;                          // INCONDITIONNEL — aucune position lue
+  case 3: return HasFlag(caster, 0x15 = UnitFlag.ForceRangedAttack)
+                 || !AreEntitiesAdjacent(casterPosition, target);
+}
+```
+
+L'enum est LU (`IdunBattle.Entities.Enum.AttackRangeType` = `0=None,1=Melee,2=Ranged,3=Normal`) et
+le flag aussi (`IdunBattle.Entities.Enum.UnitFlag`, `21=ForceRangedAttack`). Le port n'avait que
+`triggers/base._is_ranged_position`, c'est-à-dire **la seule branche `Normal(3)`** — et 1197 est
+`attackRangeType = Ranged` (gameconfig **et** `BC.Abilities.ActiveAbilities[…].AttackRangeType = 2`),
+avec sa 1ʳᵉ cible ADJACENTE au caster. Le gate positionnel la déclarait mêlée.
+
+⚠ Ce n'est **pas** la négation d'`is_melee_attack` (slot 2) : les deux rendent `false` sur `None(0)`.
+D'où deux fonctions natives, et deux mirrors.
+
+### 6.3 LA PLACE de l'émission — troisième volet, et il est portant
+
+Le natif pousse `StartAttack` **avant** d'exécuter le behaviour enfant, donc avant `GetAttackHits`
+et avant tout `ExecuteHit` (qui rebâtit les modificateurs à chaque coup). Le port émettait
+`pre_attack_triggers` **après** `attacker_modifiers` : le niveau de crescendo monté par la pose
+restait invisible du coup en cours. L'émission remonte, sur les **deux** voies. Aucun tirage RNG ne
+sépare les deux places, donc l'ordre `state.rng` est inchangé pour tout porteur qui ne pose rien.
+
+### 6.4 Ce que le fix rend, mesuré
+
+| régime | PORT | NATIF | tirages |
+|---|---|---|---|
+| R0 `isolé` | 9575 / 7101 | 9575 / 7101 | 6 = 6 |
+| R1 `mixte` | 10073 / 7766 | 10073 / 7766 | 6 = 6 |
+| R2 `ennemis` | 10073 / 6891 | 10073 / 6891 | 6 = 6 |
+| R3 `borne` | 6715 / 6891 | 6715 / 6891 | 6 = 6 |
+
+`DEGAT_EXACT` du probe passe à **True dans les quatre régimes** : R0 reste la contre-épreuve
+d'ISOLATION (un R0 rouge accuse le mirror, un R1 rouge à R0 vert accuse la chaîne).
+
+⚠ **R0 ne mesurait PAS ce qu'il annonçait, et seul le fix l'a montré.** `probe_512` n'appelait pas
+`snapshot.bind_live_rpc`, donc `_auto_ability_states` rendait `no-transport`, tous les canaux
+mesurés restaient `None`, et `collect_triggered_abilities` retombait sur le kit GAMECONFIG : le
+`--unit-stat <caster>:PassiveAbilities=[]` du régime R0 ne retirait **rien** côté port. R0 passait
+donc par **coïncidence** (le port ne posait aucun `Pinned`, donc le crescendo restait à 0 des deux
+côtés) ; dès que le vecteur a été câblé, R0 est devenu ROUGE — et c'était le MONTAGE. Le rejeu tourne
+désormais sous `live_rpc`. Même gisement que le résidu `#521-r5`.
+
+### 6.5 Généralisation — un AUTRE porteur, une AUTRE ability, la POSE pour observable
+
+`probe_512r1_suppressive_par_cible.py` : `blackObliterator` « Volk » (traits `SuppressiveFire` **et**
+`LetTheGalaxyBurn` — les deux seuls consommateurs portés de `On(5)` — et **pas** de
+`TerrifyingCrescendo`, donc la pose se lit au lieu de se payer en dégât), castant
+`1036 FrenziedFiring` (`Ranged`, famille ATTACK, multi-cible) sur une cible **adjacente**.
+
+| | `Pinned` posé |
+|---|---|
+| NATIF | `u79` (origine adjacente), `u81`, `u83` |
+| PORT | `u79`, `u81`, `u83` |
+| `AB1` gate rabattu sur `_is_ranged_position` (l'état d'avant) | `u81` **seul** |
+| `AB2` ancien vecteur `On(NormalAttack = 38)` | **∅** |
+
+Les deux contre-épreuves MORDENT : les deux lectures (§6.2 et §6.1) sont donc réellement exercées
+par ce montage, et son vert n'est pas vrai par vacuité.
+
+**Rayon RE-MESURÉ** (le « 49 » d'avant était périmé) : **52** porteurs du trait, dont **8 lineup**.
+Sept d'entre eux portent une active à `attackRangeType` explicite — six en `Ranged`
+(`astarCyrus`/`StrikeFromTheShadows`, `astraOrdnance`/`BasiliskBarrage`,
+`blackObliterator`/`FrenziedFiring`, `emperNoiseMarine`/`ExcruciatingFrequencies`,
+`templAggressor`/`FragstormGrenadeLauncher`, `thousTerminator`/`HellfyreMissileRack`) et une en
+`Normal` (`tauDarkstrider`/`FightingRetreat`, qui reste donc positionnelle).
 
 ## 7. Ce que la tranche livre
 
@@ -232,6 +336,39 @@ d'émission de `PreAttack` : hors périmètre de cette tranche. Résidu `#512-r1
 * `tests/engine/runner/test_512_excruciating_frequencies_offline.py` — 17 assertions, `DECLENCHEUR`
   large, `build: True` (les ordinaux figés sont lus dans le binaire).
 
-**Reste hors de cette tranche** : le résidu `#512-r1` ci-dessus, et la face DÉCISION (le playbook
+Puis `#512-r1` (§6) :
+
+* `engine/services/battle_query.py` — `attack_range_type` (l'étage `GetAbilityAttackRangeType`,
+  séparé chez le natif et consulté par les slots 2 ET 3) et `is_ranged_attack` (le slot 3) ;
+* `engine/runner/operations/triggers/base.py` — `_is_ranged_attack`, le slot 3 COMPLET dans le
+  domaine du runner (la branche `Normal(3)` reste sur `_is_ranged_position`) ;
+* `engine/runner/operations/triggers/loki/suppressive_fire.py` — `event_id = PreAttack(5)` ;
+* `engine/runner/operations/damage_ops/{normal,ability}.py` — `pre_attack_triggers` REMONTÉ avant
+  `attacker_modifiers` ;
+* `engine/runner/abilities/emperorschildren.py` — `ability_type` threadé sur la feuille de 1197
+  (7ᵉ argument natif `AbilityOrEffect(this)`) ;
+* `probe_512r1_suppressive_par_cible.py` — la généralisation du §6.5.
+
+**Reste hors de cette tranche** : le résidu `#512-r2` (§6.1 — la famille ABILITY émet `PreAttack`
+nativement, le port ne l'y émet pas), et la face DÉCISION (le playbook
 `ExcruciatingFrequenciesPlaybook`, porté depuis #56-t3b, qui **n'est pas touché** — il consomme le
 même `get_tiles_behind` en domaine POSITION).
+
+## 8. Résidus
+
+* **`#512-r2` — la famille de factory ABILITY n'émet pas `PreAttack` côté port.**
+  `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (surcharge racine à 7 arguments)
+  finit par `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor(caster, target,
+  <AbilityDamageBehaviour>, abilityOrEffect)` — LU au décompilé — donc par `StartAttack`, donc par
+  `On(5)`. Le port gate l'émission sur `is_attack_damage_op` (`damage_ops/ability.py`), ce qui
+  l'éteint pour toute feuille `native_factory="ability"` — dont `1088 HellfyreMissileRack` et
+  `1026 BasiliskBarrage`, **deux abilities de porteurs du trait**. Élargir réveille aussi
+  `LetTheGalaxyBurnArmAbility`, dont le `Maybe(chance)` **consomme un tirage** : à confronter live
+  (un porteur des deux traits, `blackObliterator`, existe et est dans le pool) avant de le faire.
+* **Une feuille qui ne thread pas son `ability_type` fait retomber le gate sur `Normal(3)`.**
+  `_is_ranged_attack` lit l'`AbilityOrEffect` de l'événement ; une feuille d'attaque qui laisse
+  `ability_type=None` (cas mesuré : `ChainLeftOverHitsAttackDamage` de
+  `1048 FragstormGrenadeLauncher`) redevient positionnelle — donc sous-suppresse une cible adjacente.
+  Ce n'est pas une dégradation NOUVELLE (c'était l'état de tout le monde avant), mais c'est
+  désormais une dégradation SILENCIEUSE et localisée. Les six abilities `Ranged` de porteurs lineup
+  ont été vérifiées une par une : cinq threadent, `FragstormGrenadeLauncher` non.
