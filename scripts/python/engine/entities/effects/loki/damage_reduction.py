@@ -567,6 +567,112 @@ class FightingRetreatDmgReductionEffect(BaseEffect):
         return for_addition(True, -int(v)) if v else None
 
 
+class LightOfSanguiniusDmgReductionEffect(BaseEffect):
+    """`LightOfSanguinius` (EffectType **0x560 = 1376**) -- le debuff que pose
+    `IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$ExecuteBehaviour` (1177,
+    `bloodDante`) sur la CIBLE et les ennemis qui l'entourent. Il reduit le degat que le PORTEUR
+    INFLIGE (face ATTAQUANT), pas celui qu'il recoit. #510.
+
+    `IdunBattle.Entities.Effects.Loki.LightOfSanguinius_DamageReductionEffect$$.ctor` =
+    `DamageModifierAbilityEffect..ctor(this, 0x499 = 1177, Nullable(1))` -- la config lue est donc
+    celle de l'ability ACTIVE `LightOfSanguinius`.
+
+    MIRROR 1:1 de `...LightOfSanguinius_DamageReductionEffect$$CreateDamageModifier` (build
+    `rnca9r7q6c`), terme a terme :
+
+        pct    = ConfigVar( 0x46 = dmgReductionPct, GetAbilityState(effet), config@effet+0x60 )
+        double = Multiply( pct, <DSLFormulas+0x28> = Direct(2) )
+        seuil  = ConfigConst( 0x4f = healthPct, config@effet+0x60 )
+        amount = DSLFormulas.If( NOT( HealthPctIsBelowOrEqual(Target@DSLSelectors+0x60, seuil) ),
+                                 pct, double )
+        return EffectBonus.ForPercentDecrease( DSLTriggers.get_OwnerIsCaster, amount )
+
+    ⇒ `-dmgReductionPct %` sur TOUT degat inflige par le porteur, **DOUBLE** quand la cible du coup
+    (`Target@+0x60` = le DEFENDEUR, pas le porteur) est a `healthPct %` de PV ou moins.
+    i2 : « The target and enemy units surrounding it deal -{dmgReductionPct}% Damage for
+    {nrOfRounds} round. This effect is doubled if they attack friendly units that are at or below
+    {healthPct}% Health. » -- le « friendly units » de l'i2 est bien la cible du coup, vue depuis
+    Dante.
+
+    AUCUN autre gate : ni melee/ranged, ni profil, ni `IsNormalAttack`, ni `ActiveCondition`
+    (contraste `MartialKatah_DmgReduction`, gate normal-only) -> il mord sur TOUT vecteur.
+
+    FACE. `LightOfSanguinius_DamageReductionEffect` derive de `DamageModifierAbilityEffect` et
+    n'implemente que `CreateDamageModifier` : sa contribution sort par le forwarder
+    `IdunBattle.Entities.Effects.DamageModifierAbilityEffect$$CreateEffectDamageBonusForAttack`,
+    donc dans l'accumulateur ATTAQUANT -- et le trigger `get_OwnerIsCaster` le confirme
+    (`owner_is_caster=True`). C'est le meme canal que `FightingRetreat_DamageReduction` ci-dessus.
+
+    `HealthPctIsBelowOrEqual` = `IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbility
+    Trigger$$ShouldTrigger` sur la stat 5 = HEALTH : `GetStat(5, Current) / GetStat(5, Maximum) <=
+    pct/100` en Fix64, comparaison INCLUSIVE. Equivalent entier EXACT `100*hp <= pct*max` (meme
+    lecture que `VisionsOfHeresyExtraPierceEffect.is_active` et que `_regenerate_precondition`).
+
+    SUBSTRAT. `tgt_hp` / `tgt_hp_max` sont threades dans `att_ctx` par les TROIS faces
+    (`runner/damage_model.attacker_modifiers`, `playbook/prediction/normal_attack`,
+    `playbook/prediction/abilities`). Cles ABSENTES -> branche NON doublee (`pct` seul), degradation
+    RESTRICTIVE et NOMMEE : on n'invente pas un doublement sur un substrat non mesure. La reduction
+    de BASE, elle, ne depend d'aucun contexte et s'applique toujours.
+
+    ⚠ IL N'Y A **PAS** DE FORK PREDICTION / COMBAT ICI, et c'est une REFUTATION, pas une absence de
+    mesure (`probe_510_light_of_sanguinius_live.py`). Un gate `is_prediction` a ete pose puis RETIRE
+    le meme jour, parce que l'ANTI-CONFOND TEMPOREL a montre que le discriminant n'etait pas le
+    canal mais le TOUR :
+
+      * mesure qui a induit en erreur -- `aiPlaybookPredict` interroge sur un ennemi PENDANT LE TOUR
+        DU JOUEUR : facteur 0,70 CONSTANT dans trois regimes (porteur a 18,8 % PV, defenseur a 40 %
+        PV, les deux a 100 % PV). Aucun doublement : on aurait conclu « la prediction ne double
+        jamais » ;
+      * la MEME requete, sur le MEME couple, avec le MEME effet actif, APRES `endturn` -- donc quand
+        l'unite affectee appartient a l'equipe ACTIVE -- rend **(1040, 1560) = x0,40**, soit le
+        DOUBLEMENT. Le canal n'a pas change ; le tour, si.
+      * COMBAT, au meme instant : attaquant affecte -> defenseur a 40 % PV, live = 2778 ; port avec
+        doublement ARME = **2778 (bit-exact)**, port DESARME = 5091. Meme montage avec un defenseur
+        a 100 % PV : ARME == DESARME == live.
+
+    ⇒ le doublement est REEL sur les DEUX faces, et le port ne le gate PAS. CE QUI EST GARDE de
+    l'episode : `aiPlaybookPredict` invoque sur une unite qui n'est PAS de l'equipe active rend une
+    prediction a CONTEXTE DEGRADE -- la lecture qui l'explique est la garde de
+    `IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger`, qui
+    resout d'abord son SELECTEUR (`this+0x10`, slot 7 `SelectSingle`) et **rend 0 = FAUX des qu'il
+    ne resout AUCUNE entite**. Un `Target@DSLSelectors+0x60` non renseigne suffit donc a effacer la
+    branche, sans erreur. Ce qui reste NON LU (residu `#510-r1`) : POURQUOI ce slot est vide
+    hors-tour, c'est-a-dire la construction de l'`AbilityEntities` dans
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`.
+
+    NIVEAU. `ConfigVar(..., GetAbilityState(effet))` lit l'etat d'ability de la SOURCE (Dante) : cote
+    port c'est `scale_from_source=True` sur l'`AddEffect` de la feuille DSL, qui pose
+    `active_ability_level` + le multiplier de rarete du CASTER sur l'effet materialise.
+    ⚠ Sur un effet SEEDE depuis `decisionView.effects` (debuff d'origine ENNEMIE), ces champs
+    portent le niveau du PORTEUR, pas celui de la source -- meme approximation documentee que
+    `FightingRetreatDmgReductionEffect`, et sans consequence sur un roster au meme palier.
+    `dmgReductionPct` n'est PAS dans `variablesAffectedByRarityBonus` (qui ne contient que
+    `minDmg`/`maxDmg`) -> le multiplier est un no-op, `ability_var` applique la regle config-driven."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else self.ability_level)
+        pct = ability_var("LightOfSanguinius", "dmgReductionPct", lvl,       # ConfigVar(0x46)
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not pct:
+            return None
+        c = att_ctx or {}
+        hp, mx = c.get("tgt_hp"), c.get("tgt_hp_max")
+        seuil = ability_var("LightOfSanguinius", "healthPct", is_constant=True)   # ConfigConst(0x4f)
+        # `NOT(HealthPctIsBelowOrEqual(Target, seuil))` -> `pct` ; sinon `Multiply(pct, Direct(2))`.
+        # AUCUN gate `is_prediction` : le doublement est mesure sur les DEUX faces (cf. la
+        # REFUTATION dans la docstring de classe -- un tel gate a ete pose puis retire).
+        double = (hp is not None and mx and seuil is not None
+                  and 100 * int(hp) <= int(seuil) * int(mx))
+        return for_percent_decrease(True, int(pct) * (2 if double else 1))   # OwnerIsCaster
+
+
 class ShadowInTheWarpLessDmgEffect(BaseEffect):
     """`ShadowInTheWarp_LessDmg_Effect` (effet 1053=0x41d) — AURA de RÉDUCTION du dégât PSYCHIQUE. L'effet
     vit sur le PORTEUR (trait ShadowInTheWarp, ex. tyranSmnWarrior) et se PROJETTE sur les ENNEMIS

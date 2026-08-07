@@ -700,16 +700,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # portee -- le CONTRAT de disjonction de cette table l'exige alors. Sorties a ce jour, dans
     # l'ordre des tranches : 1088 (#487), 1087 (#488), 1048 (#489), 1027 (#490), 1069 (#491),
     # 1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1141 (#503), 1132 (#504),
-    # 1204 (#508), 1191 (#509) -- TREIZE.
-    # ⚠ #508 et #509 se sont croisees ICI : chacune n'ajoutait QUE son id a cette liste et
+    # 1204 (#508), 1191 (#509), 1177 (#510) -- QUATORZE.
+    # ⚠ #508, #509 et #510 se sont croisees ICI : chacune n'ajoutait QUE son id a cette liste et
     #   n'annoncait QUE son propre retrait. La resolution est l'UNION des retraits, et le compte
     #   ci-dessous a ete RE-COMPTE PAR LE CODE **apres** resolution -- pas soustrait, pas repris
-    #   d'un des deux cotes.
+    #   d'un des trois cotes.
     #
-    # Compte RE-COMPTE PAR LE CODE au 2026-08-07, APRES le rebase de #509 sur #508
-    # (`logs/count_509.py`, jamais une soustraction) : **24 entrees ecrites dans ce bloc**,
-    # ventilees `9 / 4 / 0 / 3` (1re region) et `3 / 1 / 4` (2e region), plus **4** entrees
-    # hors-bloc en tete de table -> **28 dans le dict entier**
+    # Compte RE-COMPTE PAR LE CODE au 2026-08-07, APRES le rebase de #510 sur #509 sur #508
+    # (jamais une soustraction) : **23 entrees ecrites dans ce bloc**, ventilees `9 / 4 / 0 / 2`
+    # (1re region) et `3 / 1 / 4` (2e region), plus **4** entrees
+    # hors-bloc en tete de table -> **27 dans le dict entier**
     # (`len(TARGETING_OPTIONS_UNPORTED)`, la seule mesure qui ne depende d'aucun decoupage).
     # ⚠ Le chiffre que #509 avait ecrit AVANT ce rebase (« 26 ecrites, 30 au total ») etait deja
     # perime de DEUX : #505 avait vide la section « PRESET SEUL » et #508 retire une STATIC-COPY.
@@ -740,11 +740,19 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   surcharge B -- `.ctor(this, template, additionalRules)`
     #                  PRESET + FLAGS : `this+0x28 = additionalRules | template+0x28`.    4 (5 en #433-r4)
     #   surcharge C -- `.ctor(this, template)`
-    #                  PRESET SEUL (copie PURE, 8 qwords verbatim, AUCUN `|`).            1 (1 en #433-r4)
+    #                  PRESET SEUL (copie PURE, 8 qwords verbatim, AUCUN `|`).            0 (1 en #433-r4)
+    #                  (la SEULE, 1129 `BloodyFury`, est SORTIE en #505 -- la section est VIDE.)
     #   (aucun ctor) -- STATIC-COPY : les 0x40 octets d'un preset sont recopies dans un local passe
-    #                  TEL QUEL a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28`.     15 (12 en #433-r4)
+    #                  TEL QUEL a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28`.     13 (12 en #433-r4)
     #                  (16 avant #508, qui a fait MIGRER 1204 -- STATIC-COPY du preset `+0x240` --
-    #                   vers `LeadingTheChargeAbility.TARGETING_OPTIONS`.)
+    #                   vers `LeadingTheChargeAbility.TARGETING_OPTIONS` ; 15 avant #509 -- 1191,
+    #                   preset `+0x40` ; 14 avant #510, qui a fait MIGRER 1177 -- STATIC-COPY du MEME
+    #                   preset `+0x240` que 1204 -- vers `LightOfSanguiniusAbility.TARGETING_OPTIONS`.
+    #                   Les deux JUMEAUX du preset `+0x240` sont donc sortis, chacun par sa tranche.)
+    # ⚠ CES QUATRE CHIFFRES ONT ETE RE-DERIVES AU REBASE DE #510, et ils etaient FAUX DE DEUX sur
+    #   `origin/master` (`10 + 4 + 1 + 15 = 30` pour un dict de **28**) : ils ne sont gardes par
+    #   AUCUN test et derivent en silence a chaque migration. Ils somment desormais au
+    #   `len(TARGETING_OPTIONS_UNPORTED)` mesure (`10 + 4 + 0 + 13 = 27`).
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
     # (layout `isSelfCasting@+0x00`, `range@+0x08..0x1f`, `forceMeleeTarget@+0x20`, `rules@+0x28`) --
@@ -890,11 +898,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   Le bloc reste ECRIT parce qu'il documente la 3e forme de ctor : son compte est 0, pas son
     #   existence. Le compte se RE-COMPTE sur la table, jamais par soustraction du chiffre ecrit.
 
-    # --- STATIC-COPY (3) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    # --- STATIC-COPY (2) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
     #   (5 avant #508 : 1204 `LeadingTheCharge` en est SORTIE, sa face COMBAT etant portee ; puis
-    #    1191 `MartialInspiration` en #509, pour la MEME raison. Les deux tranches sont passees en
-    #    parallele : le compte est RE-COMPTE par `logs/count_509.py` APRES resolution, jamais
-    #    soustrait ni repris d'un seul cote.)
+    #    1191 `MartialInspiration` en #509 et 1177 `LightOfSanguinius` en #510, pour la MEME raison.
+    #    Les trois tranches sont passees en parallele : le compte est RE-COMPTE PAR LE CODE APRES
+    #    resolution, jamais soustrait ni repris d'un seul cote.)
     # ⚠ Ce compteur annoncait **16** sur `origin/master` pour **7** entrees reelles (mesure #502 au
     #   rebase) : il n'est garde par AUCUN test, donc il derive en silence a chaque migration. Il
     #   compte les entrees EXECUTABLES du bloc -- les lignes `⚠ ... est SORTIE d'ici` sont des
@@ -947,13 +955,14 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `forceMeleeTarget = 1 = RangedBool.False`. C'est le CONTRAT DE DISJONCTION : porter la face
     #   COMBAT d'une entree d'ici EXIGE d'en retirer la ligne, sinon
     #   `test_targeting_options_sources` rougit -- et `probe_181` reste VERT tout du long.
-    # 1177 LightOfSanguinius -- `...Active.LightOfSanguiniusAbility$$.ctor` (hors namespace `Loki`),
-    #   preset `+0x240`.
-    ActiveAbilityType.LightOfSanguinius: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.CasterHasNotMoved  # 1177
-                                 | TR.TargetHasFreeAdjacentTile | TR.TargetIsEnemy
-                                 | TR.AllowObscuredTargetByElevation | TR.TargetIsNotAdjacent,
-                           self_cast=False, range=RANGE_WHOLE_BOARD,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1177 LightOfSanguinius (`...Active.LightOfSanguiniusAbility$$.ctor`, hors namespace `Loki`,
+    #   preset `+0x240`) est SORTIE d'ici en #510, pour la MEME raison que 1027, 1048, 1069, 1088,
+    #   1132, 1141 et 1165 : sa face COMBAT est desormais portee, donc son masque vit sur la classe
+    #   du registre (`abilities/bloodangels.py::LightOfSanguiniusAbility.TARGETING_OPTIONS`). Le
+    #   `.cctor` a ete RELU a cette occasion et la valeur est CONFIRMEE champ pour champ :
+    #   `*(statics + 0x268) = 0x102004032`, `isSelfCasting = 0` (`+0x240`), `range` =
+    #   `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD, `forceMeleeTarget = 1` (`+0x260`).
+    #   C'est la SOURCE qui bouge, jamais la valeur.
     # ⚠ 1191 MartialInspiration (preset `+0x40`) est SORTIE d'ici en #509, MEME migration que 1132,
     #   1165, 1064 et 1068 : sa face COMBAT est desormais portee, donc son masque vit sur la classe
     #   du registre (`engine/runner/abilities/custodes.py::MartialInspirationAbility.
@@ -962,6 +971,9 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `forceMeleeTarget = 1 = RangedBool.False`. Le ctor a ete RELU a cette occasion (forme
     #   STATIC-COPY : aucun `TargetingOptions$$.ctor`, recopie des 0x40 octets du preset puis
     #   `AActiveAbility..ctor(this, &opts, 0)`) et il CONCORDE champ pour champ.
+    # ⚠⚠ #509 et #510 se sont croisees SUR CES DEUX LIGNES : chacune ne retirait QUE son id. Un
+    #   `--ours`/`--theirs` aurait RESSUSCITE l'entree de l'autre, en laissant le test de disjonction
+    #   VERT de chaque cote pris isolement. La resolution est l'UNION des retraits.
     # 1195 TalonsOfTheEmperor -- `...Active.Loki.TalonsOfTheEmperorAbility$$.ctor`, preset `+0x40`.
     ActiveAbilityType.TalonsOfTheEmperor: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1195
                            force_melee_target=RANGED_BOOL_FALSE),
@@ -1836,7 +1848,6 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
 DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.AdaptiveStrategy: _dynamic_rule_adaptive_strategy,      # 1005
     ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
-    ActiveAbilityType.LightOfSanguinius: _dynamic_rule_light_of_sanguinius,   # 1177
     ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
     # 1204 LeadingTheCharge : RETIREE (#508) -- meme forme, `LeadingTheChargeAbility` SURCHARGE
     # `get_dynamic_invalid_target_reason` et appelle `_dynamic_rule_leading_the_charge` ci-dessus,
@@ -1845,6 +1856,8 @@ DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     # desormais `get_dynamic_invalid_target_reason` et appelle le corps ci-dessus.
     # 1038 FoulInfusion : RETIREE (#500) -- meme forme, `FoulInfusionAbility` SURCHARGE et appelle
     # `_dynamic_rule_foul_infusion`.
+    # 1177 LightOfSanguinius : RETIREE (#510) -- meme forme, `LightOfSanguiniusAbility`
+    # (`abilities/bloodangels.py`) SURCHARGE et appelle `_dynamic_rule_light_of_sanguinius`.
     ActiveAbilityType.ExcruciatingFrequencies: _dynamic_rule_excruciating_frequencies,  # 1197
 }
 

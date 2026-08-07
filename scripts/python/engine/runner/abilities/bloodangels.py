@@ -1,5 +1,5 @@
-"""Abilities Blood Angels -- SavageEchoes (1230, Cezare `bloodTerminator`) et HammerOfWrath (1153,
-Mataneo `bloodIntercessor`, cf. la 2e section du module).
+"""Abilities Blood Angels -- SavageEchoes (1230, Cezare `bloodTerminator`), HammerOfWrath (1153,
+Mataneo `bloodIntercessor`, 2e section) et LightOfSanguinius (1177, Dante `bloodDante`, 3e section).
 
 Module DEDIE (org native = 1 classe par ability, `Abilities.Active.Loki.*` ; `loki/` et `behaviours.py`
 deja > seuil de split). RE ghidra gqfc5mff6c (VA citees). Case-220 §6.12 (docs/rl/case-220/blood-angels.md).
@@ -30,9 +30,10 @@ import hexgeo
 from ...dsl.base import AbilityTrigger, Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_and, If, AtomicGroup
-from ...entities.selectors.accessors import FixedTiles, Target
+from ...entities.selectors.accessors import FixedTiles, Owner, Target
 from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
-from ...entities.selectors.units import AdjacentUnits, Enemies
+from ...entities.selectors.units import (AdjacentUnits, Enemies, SurroundingUnits, Union,
+                                         non_steppable_or_object_units)
 from ...entities.abilities.active_ability import SavageEchoesAbility as SavageEchoesAbilityDecision
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
@@ -45,7 +46,7 @@ from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect
-from .behaviours.movement import MoveUnit
+from .behaviours.movement import FlyUnit, MoveUnit
 from .behaviours.stats import Heal
 from ...utilities.tile import first_tile_by_utility
 
@@ -290,7 +291,7 @@ def _how_occupied_positions(state: "State") -> set:
     return occ
 
 
-def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
+def charge_dest_tile(state: "State", caster_id: int, target_id: int, ability_id: str):
     """COLLAPSE (doctrine slice-18/19) du selecteur de destination de la charge, mirror du DECOMPILE :
 
         First( SortTilesByUtility(
@@ -302,6 +303,17 @@ def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
     -> tuile LIBRE + marchable ADJACENTE a la cible, a distance hex <= `range` de la tuile du caster,
     la PLUS PROCHE du caster (tie-break id de tuile). i2 : « charges an enemy target that has a free
     adjacent hex within movement range 5 ».
+
+    FOYER PARTAGE PAR DEUX ARTEFACTS NATIFS DISTINCTS, terme a terme IDENTIQUES (#510) :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$ExecuteBehaviour` (1153,
+    `bloodIntercessor`) et `IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$Execute
+    Behaviour` (1177, `bloodDante`) construisent la MEME chaine de noeuds -- meme `Filter`, meme
+    `MinDistance(It@0x180, CasterTiles@0x170)`, meme `GetNumberConstant(0x16 = range)`, meme
+    `SortTilesByUtility(..., caster@0x160, 7 = Tile)`, meme `First(..., 1)`. Seule la CONFIG lue
+    change, d'ou le parametre `ability_id` (`range` vaut 5 pour les DEUX au gameconfig, mais c'est
+    une coincidence de valeur, pas une donnee partagee). Les deux `GetDynamicInvalidTargetReason`
+    natifs sont d'ailleurs, eux aussi, le meme predicat (`ability_range.GATE_FREE_ADJACENT_IN_
+    CONFIG_RANGE` les range ensemble).
 
     `MinDistance(It, CasterTiles)` = distance HEX (pas une longueur de chemin) entre la tuile candidate
     et la tuile du caster (`@0x170` = `CasterTiles`, cf. `RadSaturationAbility$$CreateBehaviour`).
@@ -335,7 +347,7 @@ def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
     ttile = board.id_at(tpos[0], tpos[1])
     if ttile is None:
         return None
-    rng_max = ability_var("HammerOfWrath", "range", is_constant=True)   # GetNumberConstant(0x16) = 5
+    rng_max = ability_var(ability_id, "range", is_constant=True)        # GetNumberConstant(0x16) = 5
     occ = _how_occupied_positions(state)
     cands = []
     for t in board.neighbours_native(ttile):               # AdjacentTiles(target) — ORDRE DU SELECTEUR
@@ -352,6 +364,12 @@ def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
     # tuiles candidates, mais un caster SANS `GeminaeSuperia` -> le natif y suit l'elevation.
     best = first_tile_by_utility(state, cands, unit_id=caster_id)   # First(SortTilesByUtility(...), 1)
     return board.coord(best) if best is not None else None
+
+
+def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
+    """Destination de la charge de `HammerOfWrathAbility$$ExecuteBehaviour` (1153) -- l'appel du foyer
+    `charge_dest_tile` avec la config `HammerOfWrath`. Chemin INCHANGE (meme corps, meme `range`)."""
+    return charge_dest_tile(state, caster_id, target_id, "HammerOfWrath")
 
 
 def hammer_of_wrath_tree(dest, damage_override):
@@ -519,3 +537,212 @@ class HammerOfWrathAbility(ActiveAbility):
         return {"ability": "HammerOfWrath", "caster": caster_id, "target": target_id,
                 "main_attack": main_attack, "splash": splash, "moved_to": moved_to,
                 "dest": dest, "doubled": doubled, "dsl": True}
+
+
+# ====================== LightOfSanguinius (bloodDante «Dante», actif 1177) ==========================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$ExecuteBehaviour` -- MIRROR 1:1
+# du DECOMPILE (build `rnca9r7q6c`), terme a terme et dans l'ORDRE des `op_Addition` du natif.
+# ⚠ La classe est hors namespace `Loki` (contraste `HammerOfWrathAbility`), et le module natif des
+# slots de role est `IdunBattleLogic.Entities.DSLSelectors` / `DSLFormulas` / `DSLTriggers` /
+# `DSLBehaviors` (le contexte `this@+0x30` porte `+0x78 Behaviors · +0x80 Formulas · +0x88 Triggers ·
+# +0x90 Selectors`) :
+#
+#   infiltrate = AddEffect( 0x416 = Infiltrate_UnitEffect, AbilityStateReference,
+#                           source = Owner@Selectors+0x30, targets = Owner@+0x30,
+#                           turns  = <DSLFormulas+0x20> = Direct(1) )                        # [1]
+#   tuiles     = First( SortTilesByUtility(
+#                         Filter( CanAddUnit(AdjacentTiles(Target@+0x60)),
+#                                 NOT( AmountIsGreater(
+#                                        MinDistance(ActiveTarget@+0x68, CasterTiles@+0x58),
+#                                        ConfigConst(0x16 = range) ) ) ),
+#                         Caster@+0x48, UtilityDefinition(7 = Tile) ), 1 )
+#   vol        = FlyUnit( Caster@+0x48, tuiles )                                             # [2]
+#   attaque    = AttackWithAttackDamage( Caster@+0x48, Target@+0x60,
+#                    MinMaxDamage(abilityState), Nullable(GetDamageProfile()) = Melta,
+#                    GetHits() = nrOfHits, AbilityOrEffect(this), <options ZERO>, 2 )        # [3]
+#   aura       = AddEffect( 0x560 = LightOfSanguinius, AbilityStateReference,
+#                    source  = Owner@+0x30,
+#                    targets = op_Addition( Target@+0x60,
+#                                NonSteppableOrObjectUnits(
+#                                  Enemies( Owner@+0x30,
+#                                    SurroundingUnits(Target@+0x60, ConfigConst(0x44 = range_2),
+#                                                     unique: 1, includeCenter: 0, 3), 3), 3) ),
+#                    turns   = TurnsFromRounds(ConfigConst(0x45 = nrOfRounds)) )             # [4]
+#   Execute( op_Addition( op_Addition(infiltrate, vol),
+#                         IfAlive(Owner@+0x30, op_Addition(attaque, aura)) ) )
+#
+# `IfAlive(selector, ifBehaviour, else)` = `IdunBattleLogic.Entities.DSLBehaviors$$IfAlive`, dont le
+# corps est litteralement `If(DSLTriggers.IsAlive(selector), ifBehaviour, elseBehaviour)` -- meme
+# forme que le `If(IsAlive(caster), ...)` de HammerOfWrath, et meme place : APRES le deplacement,
+# AVANT l'attaque (« le porteur a-t-il SURVECU au vol ? », overwatch/pieges de la charge).
+#
+# TROIS LECTURES QUE LE DECOMPILE IMPOSE :
+#  * `FlyUnit`, PAS `MoveUnit` (contraste 1153) : `DSLBehaviors$$FlyUnit` pose `Nullable(3)` dans les
+#    options du `MoveUnitBehaviour` -- le chemin est calcule par le `FlyPathfinder` et `movementSteps`
+#    devient la DISTANCE (cf. `behaviours/movement.py::FlyUnit`, qui NOMME deja ce call-site).
+#  * la famille de degat est ATTACK (`DSLBehaviors$$AttackWithAttackDamage`, surcharge 9 arguments),
+#    donc `native_factory="attack"` : crit/block et 2 tirages par coup -- ce n'est PAS
+#    `AttackWithAbilityDamage` comme les deux volets de 1153.
+#  * l'`AddEffect` de l'aura est DANS la branche `IfAlive`, APRES l'attaque : un Dante mort au vol ne
+#    pose NI degat NI debuff.
+#
+# i2 (`Abilities/LightOfSanguinius_CurrentLevelDescription`) : « If Dante has not moved, he gains
+# Infiltrate until the end of this turn, then charges an enemy target that has a free adjacent hex
+# within movement range {range} and deals {nrOfHits}x {minDmg}-{maxDmg} Melta Damage to it. The target
+# and enemy units surrounding it deal -{dmgReductionPct}% Damage for {nrOfRounds} round. This effect is
+# doubled if they attack friendly units that are at or below {healthPct}% Health. »
+# ⚠ comme chez 1153, le « If Dante has not moved » n'est PAS une branche de l'`ExecuteBehaviour` :
+# c'est le bit `CasterHasNotMoved` du masque de ciblage.
+#
+# Le volet « -dmgReductionPct % de degat, double sous healthPct » vit ENTIEREMENT dans l'effet 1376
+# (`IdunBattle.Entities.Effects.Loki.LightOfSanguinius_DamageReductionEffect$$CreateDamageModifier`),
+# porte SEPAREMENT dans `entities/effects/loki/damage_reduction.py` -- la feuille DSL ci-dessous ne
+# fait que le POSER (frontiere behaviour / `ApplyModification`, doctrine #149).
+
+LIGHT_OF_SANGUINIUS = int(EffectType.LightOfSanguinius)                  # 0x560=1376
+
+
+def light_of_sanguinius_dest_tile(state: "State", caster_id: int, target_id: int):
+    """Destination du VOL de `LightOfSanguiniusAbility$$ExecuteBehaviour` (1177) -- l'appel du foyer
+    `charge_dest_tile` avec la config `LightOfSanguinius` (`GetNumberConstant(0x16 = range)` = 5)."""
+    return charge_dest_tile(state, caster_id, target_id, "LightOfSanguinius")
+
+
+def light_of_sanguinius_aura_targets():
+    """Selecteur-cible de l'`AddEffect(0x560)` -- MIRROR du decompile :
+
+        op_Addition( Target@+0x60,
+                     NonSteppableOrObjectUnits(
+                       Enemies( Owner@+0x30,
+                                SurroundingUnits(Target@+0x60, ConfigConst(0x44 = range_2),
+                                                 unique: 1, includeCenter: 0, 3), 3), 3) )
+
+    -> la CIBLE, plus les ennemis (equipe != celle de l'Owner) a distance hex <= `range_2` d'elle,
+    Steppable et Object exclus. i2 : « The target and enemy units surrounding it ».
+
+    `Enemies(of = Owner@+0x30, ...)` : le port lit l'equipe de `ctx.caster` (`selectors/units.py`), et
+    pour une ability ACTIVE `Owner@+0x30` EST le caster -- meme collapse que partout ailleurs.
+    `includeCenter = 0` : la cible n'est pas re-comptee par le voisinage (elle arrive par le premier
+    operande du `op_Addition`, donc UNE fois -- l'`AddEffect` natif itere son selecteur et
+    `AddEffectOperation` ne re-pose pas un effet deja present).
+    `range_2` absent du gameconfig -> `Const(0)` : rayon nul = aucun voisin, jamais un rayon invente."""
+    r2 = ability_var("LightOfSanguinius", "range_2", is_constant=True)   # ConfigConst(0x44) = 1
+    voisins = SurroundingUnits(Target(), Const(int(r2 or 0)), include_center=False)
+    return Union(Target(), non_steppable_or_object_units(Enemies(voisins)))
+
+
+def light_of_sanguinius_tree(dest, rounds):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$ExecuteBehaviour`
+    (id 1177, `bloodDante` « Dante ») -- MIRROR 1:1 ; cf. le bloc de decompile en tete de section :
+
+        op_and( op_and( AddEffect(Infiltrate_UnitEffect, Owner(), duree = 1 TOUR),
+                        FlyUnit(Caster(), FixedTiles([dest])) ),
+                If( IsAlive(Owner()),
+                    op_and( AttackWithAttackDamage(Target(), Melta, nrOfHits),
+                            AddEffect(LightOfSanguinius, aura_targets,
+                                      duree = TurnsFromRounds(nrOfRounds)) ) ) )
+
+    `duration_turns=1` pour l'Infiltrate : le 6e argument natif est `<DSLFormulas+0x20>` = `Direct(1)`
+    (la constante partagee que `IdunBattleLogic.Entities.DSLFormulas$$.ctor` alloue en `+0x20`), DEJA
+    en TOURS -- pas un `TurnsFromRounds`. Identique a 1153, qui prend le `Direct(1)` du `DSLFactory`.
+
+    `duration_rounds=rounds` pour l'aura : le natif enveloppe, lui, `TurnsFromRounds(ConfigConst(0x45
+    = nrOfRounds))` -- c'est le parametre ROUNDS de la feuille, converti par
+    `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`.
+
+    `scale_from_source=True` sur l'aura = le PORT de l'`AbilityStateReference` : l'effet materialise
+    resout son `ConfigVar(0x46 = dmgReductionPct)` contre l'etat d'ability de sa SOURCE (Dante), ce que
+    fait litteralement `GetAbilityState(effect)` dans `LightOfSanguinius_DamageReductionEffect$$
+    CreateDamageModifier`. Sans lui, un debuff pose sur un ENNEMI lirait le niveau du PORTEUR.
+
+    `Infiltrate_UnitEffect` (1046) n'a pas de classe d'effet portee -> `BaseEffect` nu (effet PRESENT,
+    sans contribution) : degradation fidele §17.4, exactement comme chez 1153."""
+    infiltrate = AddEffect(INFILTRATE_UNIT, "Infiltrate_UnitEffect", Owner(),
+                           duration_rounds=None, duration_turns=1)      # <DSLFormulas+0x20> = 1 TOUR
+    fly = FlyUnit(Caster(), FixedTiles([dest] if dest is not None else []))
+    attack = AttackWithAttackDamage(Target(), "LightOfSanguinius", "Melta", is_melee=True,
+                                    native_factory="attack",   # `DSLBehaviors$$AttackWithAttackDamage`
+                                    ability_type=int(ActiveAbilityType.LightOfSanguinius))
+    aura = AddEffect(LIGHT_OF_SANGUINIUS, EffectType.LightOfSanguinius.name,
+                     light_of_sanguinius_aura_targets(), duration_rounds=rounds,
+                     scale_from_source=True)
+    return op_and(op_and(infiltrate, fly),
+                  If(IsAlive(Owner()), op_and(attack, aura)))            # `DSLBehaviors$$IfAlive`
+
+
+class LightOfSanguiniusAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$ExecuteBehaviour` (id 1177,
+    `bloodDante` « Dante », Blood Angels) -- cf. `light_of_sanguinius_tree()`.
+
+    Turn-flags = defauts base (1177 ABSENT des overrides `NO_END_TURN`/`NO_ABILITY_USED_FLAG`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.LightOfSanguinius)   # 1177
+    ABILITY_ID = "LightOfSanguinius"
+
+    # `IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$.ctor` -- FORME
+    # « PRESET STATIQUE COPIE » : AUCUN appel a `TargetingOptions$$.ctor`, le ctor recopie les
+    # 0x40 octets du preset `<TargetingOptions statics>+0x240` puis appelle
+    # `AActiveAbility..ctor(this, &opts, 0)`. Le masque EFFECTIF est donc la constante que
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit a `<preset>+0x28` = `statics+0x268`,
+    # RELUE pour #510 : `*(statics + 0x268) = 0x102004032`. Aucun `|` apres la copie.
+    # Champs du meme preset, tous relus dans le `.cctor` :
+    #   +0x240 isSelfCasting    = 0
+    #   +0x248 range            <- `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD (useWholeBoard)
+    #   +0x260 forceMeleeTarget = 1 = RangedBool.False
+    #   +0x268 rules            = 0x102004032
+    # C'est le MEME preset que `HammerOfWrathAbility` (1153) et `LeadingTheChargeAbility` (1204) --
+    # decomposition EXHAUSTIVE, somme exacte, aucun bit residuel :
+    #     0x2         TargetMatchesDynamicRule       -> `get_dynamic_invalid_target_reason` ci-dessous
+    #     0x10        CasterHasNotMoved              (le « If Dante has not moved » de l'i2)
+    #     0x20        TargetHasFreeAdjacentTile      (le volet STATIQUE ; la regle dynamique ajoute
+    #                                                 la contrainte de DISTANCE au caster)
+    #     0x4000      TargetIsEnemy
+    #     0x2000000   AllowObscuredTargetByElevation
+    #     0x100000000 TargetIsNotAdjacent            (bit 32 ; cible deja au contact = refusee)
+    # ⚠ Ce masque MIGRE depuis `TARGETING_OPTIONS_UNPORTED` (contrat de DISJONCTION : porter la face
+    # COMBAT d'une entree de cette table EXIGE d'en retirer la ligne, sinon
+    # `tests/engine/runner/test_targeting_options_sources.py` rougit). VALEUR INCHANGEE par la
+    # migration -- seule la SOURCE bouge.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.CasterHasNotMoved
+        | TR.TargetHasFreeAdjacentTile
+        | TR.TargetIsEnemy
+        | TR.AllowObscuredTargetByElevation
+        | TR.TargetIsNotAdjacent
+    ), self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`LightOfSanguiniusAbility$$GetDynamicInvalidTargetReason` -- le corps est DEJA porte
+        (#287-r5) dans `abilities/targeting.py::_dynamic_rule_light_of_sanguinius`, et confronte live
+        contre l'oracle natif `abilityReason` (`probe_287r5_light_of_sanguinius_live.py`). Cette
+        surcharge l'APPELLE, et l'entree `DYNAMIC_TARGET_RULE_UNPORTED[1177]` sort dans le meme
+        commit -- meme mouvement que 1087 (#488) et 1038 (#500).
+
+        ⚠ Le code rendu est `0x20 = TargetHasFreeAdjacentTile`, PAS `TargetMatchesDynamicRule` : le
+        natif REUTILISE un bit du volet statique comme code de refus."""
+        from .targeting import _dynamic_rule_light_of_sanguinius        # noqa: PLC0415
+        return int(_dynamic_rule_light_of_sanguinius(state, caster_id, target_id) or 0)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        dest = light_of_sanguinius_dest_tile(state, caster_id, target_id)  # collapse SortTiles+First
+        rounds = ability_var("LightOfSanguinius", "nrOfRounds", is_constant=True)  # ConfigConst(0x45)
+        light_of_sanguinius_tree(dest, int(rounds) if rounds is not None else 1).execute(entities, ectx)
+        main_attack, flew_to, debuffed = None, None, []
+        for name, p in ectx.emitted:
+            if name == "FlyUnit":
+                flew_to = p.get("to") if p.get("moved") else None
+            elif name == "AttackWithAttackDamage" and main_attack is None:
+                main_attack = p.get("attack")
+            elif name == "AddEffect" and p.get("effect_type") == LIGHT_OF_SANGUINIUS:
+                debuffed.append({"target": p.get("target"), "placed": p.get("placed")})
+        return {"ability": "LightOfSanguinius", "caster": caster_id, "target": target_id,
+                "main_attack": main_attack, "flew_to": flew_to, "dest": dest,
+                "debuffed": debuffed, "dsl": True}

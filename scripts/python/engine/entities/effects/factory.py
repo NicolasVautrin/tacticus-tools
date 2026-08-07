@@ -20,7 +20,8 @@ from .loki.damage_reduction import (
     CamoCloakDmgReductionEffect, ChronometronExtraDamageEffect,
     DaughterOfTheAbyssFriendlyDmgReductionPctEffect, DaughterOfTheAbyssOwnerDmgReductionEffect,
     ExemplarOfHateTargetEffect, FightingRetreatDmgReductionEffect,
-    FireAndRepositionReduceDmgEffect, GuardianOrganismDamageReductionEffect, MarkerlightEffect,
+    FireAndRepositionReduceDmgEffect, GuardianOrganismDamageReductionEffect,
+    LightOfSanguiniusDmgReductionEffect, MarkerlightEffect,
     MartialKatahDmgReductionEffect, NeuroparasiteEffect, NightshroudDmgReductionEffect,
     OverwhelmingWrathRangeDmgReductionEffect, PrioritisedEfficiencyDmgReductionEffect,
     PsychicFortressDmgReductionEffect, SereneUnifierSenseOfStoneEffect,
@@ -500,6 +501,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ATTAQUES du porteur : -dmgReduction PLAT + -1 coup (plancher 1), 1 round (rem=2 capté).
     "FightingRetreatDmgReduction": FightingRetreatDmgReductionEffect,
     "FightingRetreatHitReduction": FightingRetreatHitReductionEffect,
+    # LightOfSanguinius (active 1177 bloodDante, effet 1376) -- pose sur la CIBLE + les ennemis qui
+    # l'entourent : -dmgReductionPct% sur le degat que le PORTEUR inflige, DOUBLE quand le defenseur
+    # du coup est a healthPct% de PV ou moins (IdunBattle.Entities.Effects.Loki.LightOfSanguinius_
+    # DamageReductionEffect$$CreateDamageModifier : ForPercentDecrease(get_OwnerIsCaster,
+    # If(NOT(HealthPctIsBelowOrEqual(Target, ConfigConst 0x4f)), ConfigVar 0x46, x2)) ; #510).
+    "LightOfSanguinius": LightOfSanguiniusDmgReductionEffect,
     "LightCover": LightCoverEffect,     # couverture (tuile) : -2 coups ranged reçus, plancher 1
     "Parry_ReduceHits": ParryEffect,    # trait Parry : -1 coup MÊLÉE reçu, plancher 1
     # Camouflage (trait 1037, ex. admecRuststalker) : -1 coup RANGED reçu (-2 si dist>2, -3 sur tuile

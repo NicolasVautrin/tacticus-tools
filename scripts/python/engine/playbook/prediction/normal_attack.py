@@ -613,7 +613,13 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 "att_grand_alliance": (GC.unit(scene.vis_by_id.get(att_id)) or {}).get("GrandAllianceId"),
                 "damage_profile": prof_name,
                 "t_pos": t_pos,
-                "tgt_team": scene.team(tgt_id)}
+                "tgt_team": scene.team(tgt_id),
+                # `HealthPctIsBelowOrEqual(Target@0x60, ConfigConst(0x4f))` -- gate de DOUBLEMENT de
+                # `LightOfSanguinius_DamageReductionEffect$$CreateDamageModifier` (#510), qui porte
+                # sur les PV de la CIBLE DU COUP. MEMES cles que la face COMBAT
+                # (`damage_model.attacker_modifiers`) -- pas de fork.
+                "tgt_hp": scene.hp(tgt_id),
+                "tgt_hp_max": scene.hpmax(tgt_id)}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,

@@ -150,7 +150,15 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                      or {}).get("GrandAllianceId"),
                                                                 "damage_profile": profile_name,
                                                                 "t_pos": scene.pos(tgt),
-                                                                "tgt_team": scene.team(tgt)})
+                                                                "tgt_team": scene.team(tgt),
+                                                                # `HealthPctIsBelowOrEqual(Target
+                                                                # @0x60, ConfigConst(0x4f))` = gate
+                                                                # de DOUBLEMENT de
+                                                                # `LightOfSanguinius` (1376, #510),
+                                                                # sans gate `IsNormalAttack` -> il
+                                                                # entre AUSSI sur ce vecteur.
+                                                                "tgt_hp": scene.hp(tgt),
+                                                                "tgt_hp_max": scene.hpmax(tgt)})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)

@@ -300,6 +300,21 @@ def _unit_pos(state: State, unit_id: Optional[int]):
     return (pc.col, pc.row) if pc is not None else None
 
 
+def _unit_hp_and_max(state: State, unit_id: Optional[int]):
+    """`(hp, hp_max)` de l'unite, ou `(None, None)`. Substrat du noeud `HealthPctIsBelowOrEqual`
+    (`IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` :
+    `GetStat(5 = HEALTH, Current) / GetStat(5, Maximum)`), threade dans `att_ctx` sous `tgt_hp` /
+    `tgt_hp_max` pour les bonus dont la MAGNITUDE depend des PV de la CIBLE du coup --
+    `LightOfSanguinius` (1376) DOUBLE sa reduction sous `healthPct` (#510).
+    Le PV COURANT vit dans `HealthComponent` (mute par les degats) : `get_stat(Health, Current)`
+    rendrait le PV du snapshot, cf. `bloodangels._regenerate_precondition`."""
+    if unit_id is None:
+        return (None, None)
+    e = state.get_entity(int(unit_id))
+    hc = e.get_component(HealthComponent) if e is not None else None
+    return (hc.hp, hc.hp_max) if hc is not None else (None, None)
+
+
 def _unit_team(state: State, unit_id: Optional[int]):
     """Équipe de l'unité, ou None."""
     if unit_id is None:
@@ -535,6 +550,11 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
         _t_pos = _unit_pos(state, target_id)
         att_ctx["t_pos"] = _t_pos
         att_ctx["tgt_team"] = _unit_team(state, target_id)
+        # `HealthPctIsBelowOrEqual(Target@0x60, ConfigConst(0x4f = healthPct))` -- le gate de
+        # DOUBLEMENT de `LightOfSanguinius_DamageReductionEffect$$CreateDamageModifier` (#510) porte
+        # sur les PV de la CIBLE DU COUP, pas sur ceux du porteur de l'effet. MEMES cles, MEME
+        # semantique cote PREDICTION (`prediction/normal_attack.py`, `prediction/abilities.py`).
+        att_ctx["tgt_hp"], att_ctx["tgt_hp_max"] = _unit_hp_and_max(state, target_id)
         # `Tiles` = `IdunBattle.Entities.Selectors.UnitsMainTilesSelector` -> la MAIN TILE de la
         # cible. `_positional_att_ctx` n'a rempli que le centre + ring-1 de l'ATTAQUANT : on
         # COMPLETE (setdefault) la position de la cible sans jamais ECRASER une entree deja posee
