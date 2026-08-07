@@ -1,0 +1,510 @@
+#!/usr/bin/env python
+"""#463-r1 -- CLIQUET : l'empreinte de `probe_457` couvre EXACTEMENT le perimetre offline.
+
+CE QU'IL GARDE
+--------------
+UN SEUL fait, dans les DEUX sens :
+
+  * `NON MESURE` -- un fichier de test offline RECENSE qui n'a pas d'entree dans
+    `scripts/ratchets-457-footprints.json`. Il se rejoue TOUJOURS sous `--since` (une entree
+    absente se lit << jamais mesure >>, #486-r15) et il prend le poids MAXIMUM connu dans
+    `bins_of`, donc il deplace les vrais lourds ;
+  * `FANTOME` -- une entree d'empreinte qui ne correspond a AUCUN fichier du perimetre. Le
+    fichier a ete supprime, ou RENOMME -- typiquement en `_live.py`. Benin pour la selection,
+    mais c'est la TRACE d'un renommage, et `--measure-missing` ne le purge pas (seul
+    `--measure`, qui reecrit l'empreinte en entier, le fait).
+
+LA CADENCE MESUREE, ET POURQUOI CE GISEMENT-LA EXISTE
+------------------------------------------------------
+Rien ne mesure automatiquement les poids d'un fichier de test offline NEUF : `--measure-missing`
+est un geste EXPLICITE, et son oubli est SILENCIEUX. Le 2026-08-07, TROIS reouvertures en UNE
+journee, toutes par nos propres livraisons -- 231->232 (`d9c430cb`), 232->233 (`94fd2b72`),
+233->234 (`0010d088`). C'est donc notre CADENCE DE PORTAGE qui l'alimente, au meme titre que
+`TARGETING_OPTIONS` et `ABILITY_ATTACK_TYPE`, et il etait le seul des trois sans cliquet.
+
+⛔ CE QUE CE CLIQUET REFUSE DE FAIRE, ET LE CONTRE-CAS QUI L'INTERDIT
+---------------------------------------------------------------------
+IL NE MESURE PAS A LA PLACE DE L'HUMAIN. Le remede << evident >> -- lancer `--measure-missing`
+tout seul sur le fichier manquant -- est FAUX, et le contre-cas date du MEME JOUR que les trois
+reouvertures. Le 2026-08-07 au matin, le MEME ecart `N-1 / N` appelait la reponse INVERSE
+(`40917cd0`) : le fichier n'etait pas offline, c'etait un test LIVE MAL NOMME, qu'il fallait
+RENOMMER. L'avoir mesure aurait grave dans un fichier VERSIONNE une empreinte derivee d'un run
+LIVE -- donc d'une selection etroite (le filet de `probe_457` deselectionne les items live avant
+qu'ils ne s'executent) -- donc un FAUX VERT durable, exactement ce que le silence d'aujourd'hui
+evite.
+
+Le discriminant << ce fichier est-il offline ? >> N'EST PAS MECANISABLE : il porte sur l'INTENTION
+de l'auteur. Ce cliquet ROUGIT, NOMME, DONNE UN INDICE LU, et REND LA MAIN. Il enonce les deux
+issues et n'en choisit AUCUNE.
+
+L'INDICE EST LU, PAS COMPTE -- LE PIEGE DU FILTRE
+--------------------------------------------------
+Un grep `live_session|build_runner|rpc` pour classer offline/live matche AUSSI LA PROSE : vecu sur
+`test_524r1_bond_sous_effets_offline.py`, ou `rpc` apparaissait dans une CHAINE DE MESSAGE. Un
+filtre qui COMPTE accuse donc a tort. Deux etages ici, et les deux DISENT sur quoi ils ont
+matche :
+
+  1. la RECLAMATION DE FIXTURE, lue dans la SIGNATURE (`ast`) : pytest resout une fixture par le
+     NOM DU PARAMETRE, donc `def test_x(live_session)` est un fait, pas une correspondance de
+     texte. `@pytest.mark.usefixtures("host")` est lu de meme. L'ensemble des fixtures LIVE est
+     DERIVE des `conftest.py` (fermeture transitive depuis `probe_457.LIVE_FIXTURE_ROOT`), jamais
+     une liste ecrite ici ;
+  2. les autres occurrences sont classees par le TYPE DE TOKEN (`tokenize`) -- `NAME` (code),
+     `STRING`, `COMMENT` -- et rendues avec leur ligne. Une occurrence en `STRING` est nommee
+     PROSE et n'accuse personne.
+
+PAS D'ALLOWLIST, PAS D'ECHAPPATOIRE -- ET C'EST UNE MESURE, PAS UN PARTI PRIS
+------------------------------------------------------------------------------
+#486-r15 a du poser une DETTE versionnee parce que l'obligation seche rendait `master` rouge sur
+711 fichiers. Ici, l'ecart mesure sur `master` au 2026-08-07 est **0 manquant / 0 fantome** pour
+234 fichiers : l'obligation seche est DEJA satisfaite, donc aucune dette n'est necessaire, et en
+inventer une serait fabriquer d'avance le trou par lequel le gisement revient. Les deux gestes qui
+eteignent ce rouge coutent quelques secondes ; une echappatoire ferait exactement ce que le
+silence d'aujourd'hui fait.
+
+TRI-ETAT (#471)
+---------------
+  0  : perimetre et empreinte coincident ;
+  1  : au moins un `NON MESURE` ou un `FANTOME`, ou l'empreinte n'est pas au format attendu ;
+  99 : RIEN n'a pu etre mesure (git muet, empreinte illisible/absente) -- ni un vert ni un rouge.
+
+CE MODULE EST AUSSI LE FOYER DU RECENSEMENT OFFLINE
+-----------------------------------------------------
+Le perimetre etait DERIVE trois fois, separement : `probe_457.candidate_files` (ce que
+`--measure-missing` joue), `loop_status.mesurer_empreinte` (le capteur du hook `Stop`), et ce
+cliquet en aurait fait une QUATRIEME. Deux derivations d'un meme critere ouvrent un ecart
+SILENCIEUX -- c'est ce que `probe_457._modules_du_graphe` documente deja pour le domaine du
+graphe. `perimetre_offline` est donc LE foyer, et ses trois lecteurs l'importent.
+
+Il reste LEGER a dessein (`json` / `ast` / `tokenize`, aucun `pytest`, aucun `repo_read`) :
+mesure du 2026-08-07, `import probe_457_offline_tests_green` coute **1,78 s**, quand
+`loop_status` court sous les 3 s du hook `Stop`. C'est ce cout-la qui interdit a `loop_status`
+d'importer le producteur, et c'est pour cela que le foyer vit ICI et non la-bas.
+
+Usage :
+    python probe_463r1_ecart_empreinte_offline.py
+    python probe_463r1_ecart_empreinte_offline.py --verbose
+
+ASCII only (console Windows cp1252).
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import json
+import subprocess
+import sys
+import tokenize
+from pathlib import Path
+
+PYDIR = Path(__file__).resolve().parent
+ROOT = PYDIR.parents[1]
+
+#: Repertoire des tests. MEME valeur que `probe_457.TESTS_DIR`, qui la prend ICI (foyer unique).
+#: PATHSPEC DE REPERTOIRE et non glob : `git ls-files <dir>` descend recursivement, sans
+#: semantique `**` a deviner -- le vice de #457-r5, ou `**/` exigeait un niveau intermediaire et
+#: rendait invisibles les 23 fichiers poses DIRECTEMENT dans `tests/`.
+TESTS_DIR = "scripts/python/tests"
+
+#: Prefixe retire des chemins rendus : l'empreinte est clee sur des chemins relatifs au ROOTDIR
+#: de `pytest.ini` (`scripts/python`), pas a la racine du depot.
+PREFIXE_ROOTDIR = "scripts/python/"
+
+#: Le fichier d'empreinte, VERSIONNE.
+EMPREINTE = "scripts/ratchets-457-footprints.json"
+
+#: rc << RIEN N'A ETE MESURE >>. Meme convention que `probe_457.EX_NON_MESURE` et
+#: `scripts/ratchets-bg.ps1` : un appelant DOIT le lire << pas de verdict sur le depot >>,
+#: jamais comme un rouge de gisement, jamais comme un vert.
+EX_NON_MESURE = 99
+
+#: Combien de fichiers en ecart sont DETAILLES avant de resumer. Un cliquet qui deverse 234 blocs
+#: d'indices ne se lit pas ; le COMPTE, lui, reste exact et le reste est nomme en une ligne.
+PLAFOND_DETAIL = 12
+
+
+class MontageImpossible(RuntimeError):
+    """Le cliquet n'a pas pu CONSTITUER l'objet de sa mesure. Rend `EX_NON_MESURE`, JAMAIS 1.
+
+    Meme critere ETROIT que `probe_457.MontageImpossible` : ne leve que sur une panne de ce dont
+    ce cliquet depend et qui N'EST PAS le depot -- `git` injoignable, empreinte illisible. Un
+    `git ls-files` qui repond rc=0 avec une liste VIDE n'est PAS une panne : c'est une reponse
+    valide, donc un fait sur le depot, et le garde anti-effondrement le traite en ROUGE.
+    """
+
+
+# --------------------------------------------------------------------- LE FOYER DU RECENSEMENT
+
+def est_fichier_de_test(nom: str) -> bool:
+    """Convention de collecte de pytest, laissee au DEFAUT par `pytest.ini` (pas de `python_files`).
+
+    Les DEUX formes comptent. `*_test.py` n'existe pas dans le depot aujourd'hui, mais un
+    perimetre DERIVE doit couvrir ce que pytest COLLECTE, pas ce qui se trouve exister -- sinon le
+    prochain fichier ainsi nomme rouvre exactement le trou qu'on vient de fermer (#457-r5).
+    """
+    return nom.endswith(".py") and (nom.startswith("test_") or nom.endswith("_test.py"))
+
+
+def perimetre_offline(sortie_ls_files: str) -> list:
+    """Les fichiers de test NON `_live.py`, en chemins relatifs a `scripts/python`.
+
+    FONCTION PURE : elle prend le TEXTE rendu par `git ls-files scripts/python/tests` et ne
+    touche ni au disque ni a git. C'est ce qui permet a ses trois lecteurs de garder CHACUN sa
+    propre facon d'appeler git -- `probe_457` par son foyer `_git` (qui leve `MontageImpossible`),
+    `loop_status` par son `Sources.git` (qui porte un cache TTL et un tri-etat) -- tout en
+    partageant le CRITERE, qui est la seule chose qui doive etre unique.
+
+    Le suffixe `_live.py` est le critere de perimetre de `probe_457`, et il est DECLARATIF : un
+    critere plus fin (la cloture de fixtures) a ete essaye puis REFUTE PAR MESURE -- il rendait
+    153 fichiers << offline >> dont des dizaines de `*_live.py` qui montent leur runner a la main.
+    """
+    out = []
+    for ligne in sortie_ls_files.splitlines():
+        rel = ligne.strip()
+        if not rel or rel.endswith("_live.py") or not rel.startswith(PREFIXE_ROOTDIR):
+            continue
+        if not est_fichier_de_test(rel.rsplit("/", 1)[-1]):
+            continue
+        out.append(rel[len(PREFIXE_ROOTDIR):])
+    return sorted(out)
+
+
+def ventiler(perimetre, entrees) -> dict:
+    """L'ecart, DANS LES DEUX SENS. `{"manquants": [...], "fantomes": [...]}`.
+
+    Le sens `perimetre \\ empreinte` est le gisement (un test neuf jamais mesure). Le sens
+    inverse, `empreinte \\ perimetre`, est celui qu'un simple COMPTE ne peut pas voir : le capteur
+    de `loop_status` rendait `couverts = len([r for r in perimetre if r in entrees])`, donc une
+    empreinte portant 300 cles dont 66 fantomes pour un perimetre de 234 integralement couvert
+    affichait `234/234` et se taisait. Compter une INTERSECTION ne montre jamais ce qui deborde.
+    """
+    connues = set(entrees or ())
+    dans_le_perimetre = set(perimetre)
+    return {
+        "manquants": [r for r in perimetre if r not in connues],
+        "fantomes": sorted(r for r in connues if r not in dans_le_perimetre),
+    }
+
+
+# ------------------------------------------------------------------------------ LECTURE DE GIT
+
+def _git(args: list, quoi: str, racine=None):
+    """FOYER UNIQUE des appels a `git` de ce cliquet. Toute panne -> `MontageImpossible` (#471).
+
+    Un `CalledProcessError` nu sortirait en rc=1, indistinguable d'un ecart reel -- c'est le
+    crash EXACT mesure le 2026-08-04 sur `probe_457:s3` (rc 128 lu comme << un test est rouge >>).
+    """
+    cmd = ["git", "-C", str(racine or ROOT), *args]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise MontageImpossible("`git %s` n'a pas pu etre lance (%s: %s) -- %s"
+                                % (" ".join(args), type(exc).__name__, exc, quoi)) from exc
+    if proc.returncode != 0:
+        raise MontageImpossible("`git %s` a rendu rc=%d -- %s. stderr: %s"
+                                % (" ".join(args), proc.returncode, quoi,
+                                   (proc.stderr or "").strip()[:300]))
+    return proc.stdout
+
+
+def recenser(racine=None) -> list:
+    """Le perimetre offline du depot, DERIVE de `git ls-files` (jamais une allowlist)."""
+    return perimetre_offline(_git(["ls-files", TESTS_DIR],
+                                  "impossible d'enumerer le perimetre des tests", racine))
+
+
+def lire_empreinte(racine=None) -> dict:
+    """L'empreinte VERSIONNEE. Illisible ou absente -> `MontageImpossible`, jamais `{}`.
+
+    Un `{}` silencieux ferait rendre << 234 fichiers non mesures >> pour une panne de lecture :
+    un rouge de gisement pour un echec de MONTAGE, soit le patron repare par #471.
+    """
+    chemin = (Path(racine) if racine else ROOT) / EMPREINTE
+    try:
+        return json.loads(chemin.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise MontageImpossible("`%s` illisible (%s: %s) -- l'ecart n'est pas calculable"
+                                % (EMPREINTE, type(exc).__name__, str(exc)[:120])) from exc
+
+
+def _contrat_de_probe_457() -> tuple:
+    """`(FORMAT_EMPREINTE, LIVE_FIXTURE_ROOT)`, LUS chez le producteur.
+
+    IMPORT DIFFERE **PORTEUR**, au sens de la regle du depot : `probe_457` importe CE module
+    (il y prend son recensement), donc l'importer ici au niveau module fermerait un cycle. Le
+    classement mecanique -- charger `probe_463r1` seul dans un process frais et regarder si
+    `probe_457_offline_tests_green` atterrit dans `sys.modules` -- rend NON, et l'arete inverse
+    existe : c'est la definition d'un differe porteur.
+
+    Il est aussi ce qui evite une TROISIEME recopie du format attendu : `loop_status` en porte
+    deja une, GARDEE par `test_486r15_empreinte_par_entree_offline` (elle est irreductible la-bas,
+    ou l'import coute 1,78 s ; ici il ne coute rien puisqu'on tourne deja hors du hook).
+    """
+    import probe_457_offline_tests_green as P457
+    return P457.FORMAT_EMPREINTE, P457.LIVE_FIXTURE_ROOT
+
+
+# ------------------------------------------------------------- L'INDICE : LU, JAMAIS COMPTE
+
+def fixtures_live(racine=None) -> set:
+    """Les fixtures dont la cloture atteint la RACINE du monde live, DERIVEES des `conftest.py`.
+
+    Pytest resout une fixture par le NOM DU PARAMETRE et sa cloture est TRANSITIVE : un test qui
+    reclame `live_runner` -> `build_runner` -> `host` porte les trois. On reconstruit ce graphe
+    statiquement (`ast`) sur les `conftest.py` VERSIONNES, puis on prend la fermeture depuis la
+    racine.
+
+    POURQUOI PAS UNE LISTE ECRITE ICI : parce qu'une fixture live ajoutee demain n'y serait pas,
+    et que l'indice se degraderait EN SILENCE -- le vice meme que ce cliquet existe pour fermer.
+    Rendre l'ensemble VIDE est possible (aucun conftest lisible) ; l'appelant le DIT alors, au
+    lieu de conclure << aucun indice live >>.
+    """
+    racine = Path(racine) if racine else ROOT
+    graphe: dict = {}
+    for ligne in _git(["ls-files", "scripts/python"],
+                      "impossible d'enumerer les conftest", racine).splitlines():
+        rel = ligne.strip()
+        if not rel.endswith("/conftest.py"):
+            continue
+        try:
+            arbre = ast.parse((racine / rel).read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        for noeud in ast.walk(arbre):
+            if not isinstance(noeud, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not any("fixture" in ast.dump(d) for d in noeud.decorator_list):
+                continue
+            params = [a.arg for a in noeud.args.args] + [a.arg for a in noeud.args.kwonlyargs]
+            graphe.setdefault(noeud.name, set()).update(params)
+
+    # La RACINE entre TOUJOURS, meme si aucun conftest n'a pu etre lu : c'est elle que
+    # `probe_457` interroge sur `item.fixturenames`, et un test peut la reclamer directement.
+    _, racine_live = _contrat_de_probe_457()
+    vivantes = {racine_live}
+    change = True
+    while change:
+        change = False
+        for nom, params in graphe.items():
+            if nom not in vivantes and (params & vivantes):
+                vivantes.add(nom)
+                change = True
+    return vivantes
+
+
+def reclamations_live(source: str, live: set) -> list:
+    """Les fixtures LIVE reclamees dans la SIGNATURE d'un test. `[(fonction, param, ligne)]`.
+
+    C'est un FAIT, pas une correspondance de texte : pytest injecte la fixture dont le nom est
+    celui du parametre. `@pytest.mark.usefixtures("host")` est la seconde forme et compte pareil.
+    """
+    try:
+        arbre = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return []
+    trouves = []
+    for noeud in ast.walk(arbre):
+        if not isinstance(noeud, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for a in list(noeud.args.args) + list(noeud.args.kwonlyargs):
+            if a.arg in live:
+                trouves.append((noeud.name, a.arg, a.lineno))
+        for deco in noeud.decorator_list:
+            if not isinstance(deco, ast.Call):
+                continue
+            if "usefixtures" not in ast.dump(deco.func):
+                continue
+            for arg in deco.args:
+                if isinstance(arg, ast.Constant) and arg.value in live:
+                    trouves.append((noeud.name, "usefixtures(%s)" % arg.value, deco.lineno))
+    return trouves
+
+
+def occurrences_classees(source: str, live: set) -> list:
+    """Toute autre occurrence d'un nom LIVE, CLASSEE PAR TYPE DE TOKEN. `[(classe, ligne, extrait)]`
+
+    LE PIEGE DU FILTRE, traite : un grep matche la PROSE. Mesure sur
+    `test_524r1_bond_sous_effets_offline.py` -- `rpc` y vivait dans une CHAINE DE MESSAGE, et un
+    filtre qui COMPTE aurait accuse le fichier d'etre live. On rend donc `STRING` / `COMMENT`
+    (prose) ou `NAME` (code) avec le numero de ligne, pour que le lecteur LISE la correspondance.
+    """
+    import io
+    import re
+    # BORNES DE MOT dans la prose : sans elles, `host` matcherait `ghost` et `hostile`, et
+    # l'indice bruiterait exactement la ou il doit rassurer. Les `NAME`, eux, sont deja des
+    # jetons entiers -- l'egalite suffit.
+    motif = re.compile(r"\b(%s)\b" % "|".join(re.escape(n) for n in sorted(live))) if live else None
+    vus = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type == tokenize.NAME and tok.string in live:
+                vus.append(("NAME", tok.start[0], tok.line.strip()[:70]))
+            elif tok.type in (tokenize.STRING, tokenize.COMMENT) and motif \
+                    and motif.search(tok.string):
+                vus.append(("STRING" if tok.type == tokenize.STRING else "COMMENT",
+                            tok.start[0], tok.line.strip()[:70]))
+    except (tokenize.TokenError, IndentationError, SyntaxError, UnicodeDecodeError):
+        return []
+    return vus
+
+
+# ------------------------------------------------------------------------------------- RENDU
+
+_ISSUE_MESURER = ("(a) le fichier est REELLEMENT offline -> le MESURER :\n"
+                  "            cd scripts/python ; $env:TACTICUS_ALLOW_RATCHETS=1 ; "
+                  "python probe_457_offline_tests_green.py --measure-missing")
+_ISSUE_RENOMMER = ("(b) il monte un runner ou reclame une fixture live -> le RENOMMER en "
+                   "`*_live.py`\n            (contre-cas `40917cd0` : le mesurer graverait une "
+                   "empreinte derivee d'un run LIVE, donc un FAUX VERT)")
+
+
+def _detailler(rel: str, live: set, racine, verbeux: bool) -> None:
+    """Imprime l'INDICE d'un fichier NON MESURE, sans jamais conclure a sa place."""
+    chemin = (Path(racine) if racine else ROOT) / PREFIXE_ROOTDIR / rel
+    try:
+        source = chemin.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print("      indice : ILLISIBLE (%s) -- aucun indice, a toi de lire le fichier"
+              % type(exc).__name__)
+        return
+    if not live:
+        print("      indice : PAS MESURE -- aucune fixture live n'a pu etre derivee des conftest")
+        return
+
+    reclams = reclamations_live(source, live)
+    if reclams:
+        print("      indice : %d fonction(s) RECLAMENT une fixture LIVE (lu dans la SIGNATURE) :"
+              % len(reclams))
+        for nom, param, ligne in reclams[:5]:
+            print("                 %s(%s)  ligne %d" % (nom[:44], param, ligne))
+        return
+
+    autres = occurrences_classees(source, live)
+    prose = [o for o in autres if o[0] != "NAME"]
+    code = [o for o in autres if o[0] == "NAME"]
+    print("      indice : AUCUNE fonction ne reclame de fixture live.")
+    if not autres:
+        print("                 et aucune occurrence des noms live dans le fichier.")
+    else:
+        print("                 %d occurrence(s) hors signature : %d en PROSE (STRING/COMMENT), "
+              "%d en NAME." % (len(autres), len(prose), len(code)))
+        for classe, ligne, extrait in (autres if verbeux else autres[:3]):
+            print("                 ligne %-5d %-7s | %s" % (ligne, classe, extrait))
+        if prose and not code:
+            print("                 -> toutes en PROSE : ce n'est PAS un indice de test live "
+                  "(cf. `test_524r1_bond_sous_effets_offline.py`).")
+
+
+def rapporter(ecart: dict, perimetre: list, live: set, racine=None, verbeux: bool = False) -> None:
+    """La sortie du cliquet. NOMME, DONNE UN INDICE, et REFUSE DE TRANCHER."""
+    manquants, fantomes = ecart["manquants"], ecart["fantomes"]
+    print("[463-r1] perimetre offline : %d fichier(s) ; empreinte : %d NON MESURE(S), %d FANTOME(S)"
+          % (len(perimetre), len(manquants), len(fantomes)))
+    if live:
+        print("[463-r1] fixtures LIVE derivees des conftest : %d (%s)"
+              % (len(live), ", ".join(sorted(live)[:6])))
+
+    for rel in manquants[:PLAFOND_DETAIL]:
+        print("")
+        print("  NON MESURE  %s" % rel)
+        _detailler(rel, live, racine, verbeux)
+    if len(manquants) > PLAFOND_DETAIL:
+        print("")
+        print("  ... et %d autre(s) NON MESURE(S), non detailles ici :"
+              % (len(manquants) - PLAFOND_DETAIL))
+        for rel in manquants[PLAFOND_DETAIL:]:
+            print("      %s" % rel)
+
+    if manquants:
+        print("")
+        print("  DEUX ISSUES, ET CE CLIQUET N'EN CHOISIT AUCUNE -- le discriminant")
+        print("  << ce fichier est-il offline ? >> porte sur l'INTENTION, il n'est pas mecanisable :")
+        print("        %s" % _ISSUE_MESURER)
+        print("        %s" % _ISSUE_RENOMMER)
+
+    for rel in fantomes[:PLAFOND_DETAIL]:
+        print("")
+        print("  FANTOME     %s" % rel)
+        print("      mesure dans l'empreinte, ABSENT du perimetre offline : supprime, ou RENOMME")
+        print("      (un `_live.py` sort du perimetre). `--measure-missing` ne purge PAS les")
+        print("      fantomes ; seul `--measure`, qui reecrit l'empreinte en entier, le fait.")
+    if len(fantomes) > PLAFOND_DETAIL:
+        print("")
+        print("  ... et %d autre(s) FANTOME(S) : %s"
+              % (len(fantomes) - PLAFOND_DETAIL, ", ".join(fantomes[PLAFOND_DETAIL:][:8])))
+
+
+# -------------------------------------------------------------------------------- POINT D'ENTREE
+
+def mesurer(racine=None) -> dict:
+    """La mesure complete. Leve `MontageImpossible` si elle n'a pas pu etre CONSTITUEE."""
+    perimetre = recenser(racine)
+    empreinte = lire_empreinte(racine)
+    attendu, _ = _contrat_de_probe_457()
+    format_lu = empreinte.get("_format")
+    entrees = (empreinte.get("par_test") or {}) if format_lu == attendu else {}
+    return {"perimetre": perimetre, "format_lu": format_lu, "format_attendu": attendu,
+            "ecart": ventiler(perimetre, entrees)}
+
+
+def _run(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--verbose", action="store_true",
+                    help="Detaille TOUTES les occurrences classees, pas seulement les 3 "
+                         "premieres.")
+    args = ap.parse_args(argv)
+
+    m = mesurer()
+    perimetre = m["perimetre"]
+
+    if not perimetre:
+        # Reponse VALIDE de git avec une liste vide = fait sur le depot, donc un ROUGE
+        # d'effondrement de perimetre -- surtout pas un << rien a signaler >>. Meme frontiere que
+        # `probe_457` (`FAIL shard VIDE`).
+        print("[463-r1] ROUGE : le perimetre offline est VIDE -- `%s` ne designe aucun fichier de"
+              " test. Ce n'est pas une absence d'ecart, c'est un perimetre effondre." % TESTS_DIR)
+        return 1
+
+    if m["format_lu"] != m["format_attendu"]:
+        print("[463-r1] ROUGE : empreinte au format %s, attendu %d."
+              % (m["format_lu"], m["format_attendu"]))
+        print("[463-r1] L'ecart PAR FICHIER n'est pas calculable sur un format inconnu -- et")
+        print("[463-r1] `probe_457 --since` refuse deja de s'en servir, donc il rejoue TOUT.")
+        print("[463-r1] Regenerer : cd scripts/python ; $env:TACTICUS_ALLOW_RATCHETS=1 ; "
+              "python probe_457_offline_tests_green.py --measure")
+        return 1
+
+    ecart = m["ecart"]
+    if not ecart["manquants"] and not ecart["fantomes"]:
+        print("[463-r1] VERDICT: PASS -- %d fichier(s) offline, tous mesures, aucun fantome."
+              % len(perimetre))
+        return 0
+
+    # Les indices ne sont derives QUE s'il y a un ecart a expliquer : en regime normal ce cliquet
+    # ne lit aucun fichier de test.
+    live = fixtures_live()
+    rapporter(ecart, perimetre, live, verbeux=args.verbose)
+    print("")
+    print("[463-r1] VERDICT: FAIL -- %d NON MESURE(S), %d FANTOME(S)."
+          % (len(ecart["manquants"]), len(ecart["fantomes"])))
+    print("[463-r1] AUCUNE allowlist, AUCUNE echappatoire : les deux gestes ci-dessus coutent")
+    print("[463-r1] quelques secondes, et l'ecart sur `master` etait de 0 quand ce cliquet a ete")
+    print("[463-r1] ecrit -- une exception ne ferait que rouvrir le gisement qu'il ferme.")
+    return 1
+
+
+def main(argv=None) -> int:
+    """TROIS issues, jamais deux (#471) : 0 = pas d'ecart, 1 = ecart, `EX_NON_MESURE` = montage."""
+    try:
+        return _run(argv)
+    except MontageImpossible as exc:
+        print("[463-r1] MONTAGE EN ECHEC : %s" % exc)
+        print("[463-r1] RIEN n'a ete mesure. Ce n'est PAS un verdict sur le depot -- ni un rouge")
+        print("[463-r1] de gisement, ni un vert.")
+        print("[463-r1] rc=%d" % EX_NON_MESURE)
+        return EX_NON_MESURE
+
+
+if __name__ == "__main__":
+    sys.exit(main())
