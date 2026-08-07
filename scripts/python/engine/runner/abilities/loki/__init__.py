@@ -48,6 +48,9 @@ from .wall_of_mirrors import (WallOfMirrorsAbility, wall_of_mirrors_possible_til
 from .stormcaller import (StormcallerAbility, stormcaller_tree, stormcaller_get_add_ice_tiles)
 from .psychic_maelstrom import (PsychicMaelstromAbility, psychic_maelstrom_tree,
                                 psychic_maelstrom_hits)
+from .might_from_below import (MightFromBelowAbility, might_from_below_attack_tree,
+                               might_from_below_kill_tree, might_from_below_spawn_tiles,
+                               might_from_below_summon_tree)
 from .quickening import TheQuickeningAbility
 from .facade import (SorcerousFacadeAbility, sorcerous_facade_tree,
                      sorcerous_facade_switch_tree, sorcerous_facade_target_selector)
@@ -90,6 +93,9 @@ __all__ = [
     "StormcallerAbility", "stormcaller_tree", "stormcaller_get_add_ice_tiles",
     # psychic_maelstrom (PsychicMaelstrom 1027, #490)
     "PsychicMaelstromAbility", "psychic_maelstrom_tree", "psychic_maelstrom_hits",
+    # might_from_below (MightFromBelow 1165, #501)
+    "MightFromBelowAbility", "might_from_below_attack_tree", "might_from_below_kill_tree",
+    "might_from_below_spawn_tiles", "might_from_below_summon_tree",
     # quickening
     "TheQuickeningAbility",
     # facade (SorcerousFacade 1100, #287)

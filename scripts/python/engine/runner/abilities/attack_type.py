@@ -191,6 +191,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.PlasmaCannon: AbilityAttackType.DirectTargetAttack,  # 1150
     ActiveAbilityType.HeavyRailRifle: AbilityAttackType.DirectTargetAttack,  # 1160
     ActiveAbilityType.TwinSmartMissileSystem: AbilityAttackType.DirectTargetAttack,  # 1161
+    # MightFromBelow (1165) : `MightFromBelowAbility$$.ctor` recopie le preset statique
+    # `<TargetingOptions statics>+0x40` puis appelle `AActiveAbility..ctor(this, &opts, 0)` -- le
+    # 3e argument est le litteral `0`. Il vaut `DirectTargetAttack` MEME si l'arbre summone en
+    # troisieme phase : on transcrit le litteral du ctor, jamais ce que fait le behaviour
+    # (`1 = SummonAndAttackTarget` est ce que porte `IncursionAbility`, pas celle-ci). (#501)
+    ActiveAbilityType.MightFromBelow: AbilityAttackType.DirectTargetAttack,  # 1165
     ActiveAbilityType.EntropyCannons: AbilityAttackType.DirectTargetAttack,  # 1168
     ActiveAbilityType.PlagueburstMortar: AbilityAttackType.DirectTargetAttack,  # 1169
     ActiveAbilityType.HeroicFusillade: AbilityAttackType.DirectTargetAttack,  # 1180

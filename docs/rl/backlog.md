@@ -618,6 +618,21 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#501-r1` — « N decoys adjacents → N summons » n'est PAS confronté en LIVE.**
+  Le sélecteur natif de `1165 MightFromBelow` n'a **ni `PickRandomly` ni `First`** (lu au
+  décompilé : `Tiles(UnitsWithTrait(AdjacentFriends(caster), Decoy))`), et le port passe
+  `pick_n=None` — gardé **structurellement** par
+  `tests/engine/runner/test_501_might_from_below_offline.py`. Ce qui manque est la MESURE : le
+  volet live n'a jamais posé **deux** decoys adjacents au Patermine tout en le laissant au contact
+  d'un ennemi. Cause : `CultDemagogue` (la seule source de decoys pilotable du roster) les sème sur
+  des tuiles **libres tirées au hasard** dans un rayon 2 de **sa** cible ; trois couples
+  (board, seed) essayés, zéro adjacence utile (mesure : `decoys=[(5,5),(6,4)]` pour un Patermine
+  en `(5,7)`). Le régime `1 decoy → 1 summon` est, lui, bit-exact sur deux couples
+  (`MC1_67/50102`, `C1_74/60100`). Montage qui le fermerait : piloter une unité ADVERSE
+  (`applyAction` ne vérifie pas la propriété) pour amener une cible au contact du Patermine **une
+  fois celui-ci placé** sur une grappe de decoys, au lieu de subir le tirage. Détail :
+  `docs/rl/case-501-might-from-below.md` §7.
+
 - **`#497-r1` — l'adjacence du RUNNER ignore la porte d'élévation du natif.**
   `engine/dsl/base.py::_within` décide l'appartenance par `hexgeo.distance <= r` ; le natif
   (`IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`) énumère la
