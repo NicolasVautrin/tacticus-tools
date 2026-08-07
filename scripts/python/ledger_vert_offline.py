@@ -236,7 +236,7 @@ def raison_de_rejeu(rel: str, entree, blob_courant, ancre, impacte: bool) -> str
 def a_rejouer(perimetre: list, racine, impactes_depuis) -> tuple[list, dict, list]:
     """`(a rejouer, {rel: raison}, anomalies)` -- LA composition empreinte x ledger.
 
-    `impactes_depuis` est INJECTE (`ref -> set(rel impactes)`), et c'est deliberé : ce module ne
+    `impactes_depuis` est INJECTE (`ref -> set(rel impactes)`), et c'est delibere : ce module ne
     doit rien importer de `probe_457`, qui l'importe. L'arete reste a sens unique, donc pas de
     cycle -- meme arbitrage que `probe_463r1_ecart_empreinte_offline`.
 

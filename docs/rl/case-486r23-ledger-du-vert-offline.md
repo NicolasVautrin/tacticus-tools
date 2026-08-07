@@ -290,7 +290,28 @@ qu'un agent l'a joue par reflexe). Tant qu'elle est la, **le ledger ne se peuple
 normal**. Ce n'est pas un defaut a corriger tant qu'aucune obligation n'est cablee -- c'est une
 dependance a lever EN MEME TEMPS que la mise en service, pas avant.
 
-## 7. Ce qui n'a PAS ete fait, et pourquoi
+## 7. Comment s'en servir AUJOURD'HUI (aucune obligation -- un mode d'emploi)
+
+```powershell
+$env:TACTICUS_ALLOW_RATCHETS=1        # la garde de retrait est toujours en place (B5)
+cd scripts\python
+python probe_457_offline_tests_green.py --since origin/master --depuis-ledger
+```
+
+**La base est `origin/master`, et pas le merge-base**, pour une raison qui tient au sens de
+l'erreur : apres le rebase prescrit avant toute PR, les deux coincident. Si l'agent n'a PAS
+rebase, `git diff origin/master HEAD` porte EN PLUS les changements de `master` inverses -- donc
+il SUR-selectionne. On se trompe du cote sur. Le merge-base, lui, donnerait la selection juste
+dans les deux cas mais **tairait** le fait que la branche est en retard.
+
+`--since` et `--depuis-ledger` se CUMULENT et ne repondent pas a la meme question :
+`--since` demande « ce diff touche-t-il ce test ? », le ledger demande « ce test etait-il vert,
+et rien de ce dont il depend n'a-t-il bouge depuis ? ». L'intersection est jouee.
+
+`--list` n'execute rien et ne demande pas la variable -- c'est la facon de CHIFFRER une selection
+avant de decider de la payer.
+
+## 8. Ce qui n'a PAS ete fait, et pourquoi
 
 - **Aucune obligation ecrite** (`CLAUDE.md`, skill d'orchestration) et **aucun cran executable**
   (hook `Stop`, garde de PR, cliquet declencheur) : decision de l'utilisateur du 2026-08-07, sur
