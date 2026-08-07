@@ -204,18 +204,18 @@ def test_no_ability_has_two_contradictory_sources():
 #: 1064 `Loki_SwoopingHawk` (#502), 1141 `OverwhelmingWrath` (#503), 1132 `KillMaimBurn` (#504),
 #: 1129 `BloodyFury` (#505), 1204 `LeadingTheCharge` (#508),
 #: 1191 `MartialInspiration` (#509), 1177 `LightOfSanguinius` (#510),
-#: 1197 `ExcruciatingFrequencies` (#512) -- toutes pour la MEME raison : leur face COMBAT est
-#: portee, donc leur masque a MIGRE sur la classe. Les DOUZE dernieres sont sorties EN PARALLELE,
-#: sur des branches aveugles l'une a l'autre : la liste se relit apres resolution, elle ne se rature
-#: pas d'un seul cote.
-#: ⚠ #503, #504, #505, #508, #509, #510 et #512 se sont croisees sur CETTE liste : chacune n'y
-#: retirait QUE son id (1141 / 1132 / 1129 / 1204 / 1191 / 1177 / 1197), et un `--ours`/`--theirs`
-#: en aurait donc RESSUSCITE un -- le test serait reste VERT de chaque cote pris isolement. La
-#: resolution est l'UNION des retraits, verifiee ensuite PAR LE CODE (`intrus` == [] contre
-#: `ABILITY_CLASSES`).
+#: 1197 `ExcruciatingFrequencies` (#512), 1195 `TalonsOfTheEmperor` (#521) -- toutes pour la MEME
+#: raison : leur face COMBAT est portee, donc leur masque a MIGRE sur la classe. Les TREIZE
+#: dernieres sont sorties EN PARALLELE, sur des branches aveugles l'une a l'autre : la liste se
+#: relit apres resolution, elle ne se rature pas d'un seul cote.
+#: ⚠ #503, #504, #505, #508, #509, #510, #512 et #521 se sont croisees sur CETTE liste : chacune n'y
+#: retirait QUE son id (1141 / 1132 / 1129 / 1204 / 1191 / 1177 / 1197 / 1195), et un
+#: `--ours`/`--theirs` en aurait donc RESSUSCITE un -- le test serait reste VERT de chaque cote pris
+#: isolement. La resolution est l'UNION des retraits, verifiee ensuite PAR LE CODE (`intrus` == []
+#: contre `ABILITY_CLASSES`).
 POOL_ABILITIES_WITHOUT_COMBAT_CLASS = [
     1005, 1039, 1049, 1050, 1057, 1061, 1063,
-    1101, 1106, 1121, 1164, 1175, 1183, 1195,
+    1101, 1106, 1121, 1164, 1175, 1183,
 ]
 
 

@@ -995,9 +995,15 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # ⚠⚠ #509 et #510 se sont croisees SUR CES DEUX LIGNES : chacune ne retirait QUE son id. Un
     #   `--ours`/`--theirs` aurait RESSUSCITE l'entree de l'autre, en laissant le test de disjonction
     #   VERT de chaque cote pris isolement. La resolution est l'UNION des retraits.
-    # 1195 TalonsOfTheEmperor -- `...Active.Loki.TalonsOfTheEmperorAbility$$.ctor`, preset `+0x40`.
-    ActiveAbilityType.TalonsOfTheEmperor: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1195
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1195 TalonsOfTheEmperor (preset `+0x40`, le MEME que 1191 ci-dessus) est SORTIE d'ici en
+    #   #521, MEME migration : sa face COMBAT est desormais portee, donc son masque vit sur la
+    #   classe du registre (`engine/runner/abilities/custodes.py::TalonsOfTheEmperorAbility.
+    #   TARGETING_OPTIONS`). Valeurs INCHANGEES par la migration : `rules = 0x4000`
+    #   (`TargetIsEnemy` SEUL, lu a `<preset>+0x28`), `isSelfCasting = 0`, `range = RANGE_ADJACENT`,
+    #   `forceMeleeTarget = 1 = RangedBool.False`. Le ctor a ete RELU (forme STATIC-COPY, aucun
+    #   `TargetingOptions$$.ctor`) et il CONCORDE champ pour champ -- SAUF le 3e argument, qui vaut
+    #   `2` ici contre `0` pour 1191 : le preset est partage, le litteral d'`AbilityAttackType` ne
+    #   l'est pas.
     # 1204 LeadingTheCharge : RETIREE (#508) -- sa face COMBAT est portee
     #   (`runner/abilities/loki/leading_the_charge.py::LeadingTheChargeAbility`), donc son masque
     #   MIGRE sur la classe, comme l'exige le CONTRAT de disjonction. Le preset reste `+0x240`,
