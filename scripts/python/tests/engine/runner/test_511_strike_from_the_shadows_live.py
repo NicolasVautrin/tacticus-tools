@@ -60,6 +60,12 @@ DECLENCHEUR = {
         # CE fichier, qu'il les cite ou non.
         "scripts/python/*.py",
     ),
+    "build": True,
+    "toujours": False,
+    "raison": "Confrontation LIVE port-vs-natif de `1225 StrikeFromTheShadows` : l'oracle est le "
+              "jeu lui-meme (degat, ORDRE des tirages, pose et retrait des effets, portee du "
+              "deplacement). Un changement de build peut donc faire changer ce fichier d'avis "
+              "sans qu'une ligne du port bouge.",
 }
 
 import uuid

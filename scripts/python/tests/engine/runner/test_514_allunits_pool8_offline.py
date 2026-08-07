@@ -32,6 +32,24 @@ from engine.dsl.base import DslContext                  # noqa: E402
 from engine.entities.selectors.tiles import AllAliveUnits, AllUnits  # noqa: E402
 
 
+DECLENCHEUR = {
+    # PERIMETRE LARGE, et c'est MESURE, pas prudentiel : le cran 2 de ce fichier delegue au
+    # cliquet d'attribution de `probe_514_allunits_rayon_de_souffle.py`, dont l'inventaire AST
+    # visite TOUT `scripts/python/**`. N'importe quel fichier qui se met a ecrire `AllUnits(`
+    # change donc le verdict, meme sans toucher au moteur ni a ce test.
+    # ⚠ Les DEUX formes sont necessaires : `**/` exige un SEGMENT, donc `scripts/python/**/*.py`
+    # ne voit PAS `scripts/python/board.py`.
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+    "build": True,
+    "toujours": False,
+    "raison": "L'ATTRIBUTION de chaque site pool-8 est adossee a un symbole natif "
+              "(`WaaaghAbility$$GetAttackBehaviour`, `LeadingTheChargeAbility$$GetExtraPierceRatio`) "
+              "et a l'ordinal d'`IdunBattle.Entities.Enum.EntityPool` : un changement de build peut "
+              "deplacer un call-site d'un pool a l'autre sans qu'une ligne du port bouge. Les deux "
+              "corps natifs ne different QUE par cet ordinal, donc l'inversion serait MUETTE.",
+}
+
+
 def _unites():
     return [
         {"id": 1, "team": 1, "player": 1, "alive": True, "hp": 100,
