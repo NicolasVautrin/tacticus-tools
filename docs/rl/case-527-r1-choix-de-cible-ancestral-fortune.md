@@ -146,6 +146,56 @@ lisent dans `BC.Damage.DamageProfiles[].PiercingDamageRatio` : `Physical` 1, `La
 `Projectile` 15, `Bolter` 20, `Chain` 20, `Pulse` 20 … `Plasma` 65 ; **`DirectDamage` et `Psychic`
 valent 100** et sont donc inutilisables pour cet axe.
 
+## 4bis. La NORMALISATION est LUE — et elle est déjà PORTÉE FIDÈLEMENT
+
+Elle vit dans `engine/utilities/damage.py`, mirror de `IdunBattle.AI.Utilities.DamageUtility` :
+
+```
+combinedMax = (GetStat(target, Health, Max) + 1) + (GetShield(target) + 1)
+remaining   = (GetStat(target, Health, Current) + 1) + (GetShield(target) + 1)
+u_damage    = Clamp(D / combinedMax, 0, 1) * 80
+u_remaining = (1 - Clamp((remaining - D) / combinedMax, 0, 1)) * 20
+u           = u_damage + u_remaining
+```
+
+⇒ **le trou n'est pas là.** Cible à PV pleins, `remaining == combinedMax`, donc
+`u = (D / combinedMax) * 100` : entièrement normalisé par les PV **max**. Le port l'écrit ainsi, et
+c'est le décompilé.
+
+**Banc offline sur les SIX régimes** (`--etage modele`, aucun runner : les verdicts natifs sont déjà
+mesurés). On fait varier les deux seules entrées candidates — l'armure appliquée ou non, et le
+nombre de coups :
+
+| entrée | verdicts corrects |
+|---|---|
+| `armure=False`, `k=1` — **l'état actuel de `_target_utility`** | **3/6** |
+| `armure=False`, `k=2` ou `k=3` | 3/6 |
+| `armure=True`, `k=1` ou `k=2` | 3/6 |
+| **`armure=True`, `k=3`** | **4/6** |
+
+Le seul gain vient de la combinaison **armure + trois coups**, et il porte **exactement** sur le
+bras `haute` — celui à **maxHP égalisés**, donc celui qui isole l'armure. C'est un **recoupement
+indépendant** du seuil de perçage du §1bis : deux chemins sans rapport désignent `k = 3` et
+l'application de l'armure.
+
+**Ce qui résiste, précisément.** Les deux régimes encore faux (`nominal`, `seuil2200`) partagent un
+patron unique : **maxHP différents ET armures différentes**. Le natif y préfère la cible qui prend
+le plus de dégât **en absolu** (`bloodMephiston` 4124 contre `necroWarden` 3985.8), alors que le
+composite — normalisé par `combinedMax` — préfère la plus petite (`0.4667` contre `0.4453`). Or le
+bras `hp` (armures **égales**, maxHP différents) exige **l'inverse** : dégâts identiques, et le
+natif prend bien la cible au plus petit `combinedMax`.
+
+⇒ **Un terme manque ou une entrée n'est pas celle qu'on croit** ; ce n'est ni la normalisation
+(lue et fidèle), ni l'armure, ni le nombre de coups, ni le block. **Le fix reste bloqué à 4/6**, et
+déplacer un foyer partagé par quatre consommateurs sur 4/6 serait le pari que ce dossier refuse
+depuis le début.
+
+⚠ **Et « l'étage DÉGÂT seul » n'est pas livrable non plus** : sans l'armure, passer de `k = 1` à
+`k = 3` est un **no-op observable** — le facteur est commun aux deux cibles et
+`Clamp(D / combinedMax, 0, 1)` ne sature pas ici (`6132 / 8537 = 0.72`). Le banc le montre :
+`armure=False` rend **3/6** pour `k = 1`, `2` **et** `3`. Livrer ce demi-port changerait le code
+sans rien changer d'observable, donc sans rien qu'un test puisse garder.
+
 ## 5. Instrument, rejouable
 
 ```
