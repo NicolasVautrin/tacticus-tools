@@ -110,6 +110,8 @@ from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove
                                          ITG_OVERRIDE_LEVEL)
 from ..loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
                                 CHRONOMETRON_EXTRA_DAMAGE)
+from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,               # #522 (1198 -> 1429)
+                                     EUPHORIC_STRIKES_EXTRA_CRIT)
 from ..loki.shock_assault import (ShockAssaultBuffRemove,                          # case-366-r1 (1000)
                                   SHOCK_ASSAULT_BUFF)
 from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
@@ -806,6 +808,15 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # qui fait du +degat une CHARGE A USAGE UNIQUE (consommee au 1er coup d'un allie du Chronomancer),
     # et non un buff persistant. Cf. loki/chronometron.py.
     CHRONOMETRON_EXTRA_DAMAGE: [ChronometronExtraDamageRemove],      # 1550 -> retrait On(9)
+    # EuphoricStrikes_ExtraCrit 1429 (#522, effet pose par `EuphoricStrikesAbility$$ExecuteBehaviour`
+    # sur la cible d'`emperExultant` « Laviscus »). Meme greffe generique que 1180/1550 --
+    # `EuphoricStrikes_ExtraCritEffect$$CreateRemoveEffectTrigger` = `On(9 = Attack, alive) &
+    # OwnerIsTarget | On(0 = UnitDeath, alive) & AreEqual(Target, EffectSource(Effect))` ->
+    # `RemoveEffect(<cette instance>)`. C'est ce qui fait du +crit-chance une CHARGE A USAGE UNIQUE
+    # (i2 : « The **next** attack against that enemy this turn ») et non un buff de tout le tour ;
+    # le 2e disjoint fait sauter la marque si Laviscus meurt avant qu'elle serve. Sans cette entree :
+    # regression PERMISSIVE et SILENCIEUSE, forme exacte de 1550/1000. Cf. loki/euphoric_strikes.py.
+    EUPHORIC_STRIKES_EXTRA_CRIT: [EuphoricStrikesExtraCritRemove],    # 1429 -> retrait On(9) | On(0)
     # ShockAssault_Buff 1000 (case-366-r1, effet pose par `ShockAssaultAbility$$CreateBehaviour` sur
     # les Inceptors amis adjacents a `ultraInceptorSgt`). Meme greffe generique que 1180/1550 --
     # `ShockAssaultBuffEffect$$CreateRemoveEffectTrigger` = `On(0xa = AttackDamageAttack) &

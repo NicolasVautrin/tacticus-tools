@@ -16,6 +16,9 @@ Contenu :
   `range` hexes, puis (caster vivant) PULL d'un hex vers Lucius et, si la cible lui est ADJACENTE
   APRES le pull, un bond `Taunted_OnlySpecificTargets` de `nrOfRounds` rounds. RE build
   `rnca9r7q6c` (#524).
+- `EuphoricStrikes` (1198, `emperExultant` « Laviscus ») — `nrOfHits` coups Power MELEE sur un ennemi
+  ADJACENT, puis pose sur lui la marque `EuphoricStrikes_ExtraCrit` (1429) pour UN tour : la
+  PROCHAINE attaque portee contre lui gagne +`extraCritChance` de chance de crit (#522).
 """
 from __future__ import annotations
 
@@ -44,7 +47,8 @@ from ..components import StatsComponent
 from .base import ActiveAbility
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state, entities_with_tile_target
-from .behaviours.effects import AddBondEffect, AddStaticStatModifierEffect, RemoveEffect
+from .behaviours.effects import (AddBondEffect, AddEffect, AddStaticStatModifierEffect,
+                                 RemoveEffect)
 from .behaviours.movement import PullUnitOneTile
 from .loki import _pick_randomly_n
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
@@ -645,3 +649,158 @@ class LashOfTormentAbility(ActiveAbility):
                 "taunt": ({"target": bond.get("target"), "bonded": bond.get("bonded"),
                            "effect_type": bond.get("effect_type")} if bond else None),
                 "nr_of_rounds": rounds, "dsl": True}
+
+# ===================== EuphoricStrikes (1198, emperExultant) -- #522 ============================ #
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.EuphoricStrikesAbility$$ExecuteBehaviour`
+# (MIRROR du decompile, terme a terme, dans l'ordre) :
+#
+#     AActiveAbility.Execute(
+#         AttackWithAttackDamage( Caster@DSLSelectors+0x48, Target@+0x60,
+#                                 damage        = AActiveAbility$$MinMaxDamage(this, abilityState),
+#                                 damageProfile = AbilityConfiguration$$GetDamageProfile(config@+0x60),
+#                                 hits          = AActiveAbility$$GetHits(this),
+#                                 abilityOrEffect = AbilityOrEffect(this+0x10),
+#                                 options       = Nullable<AttackDamageBehaviourOptions> VIDE )
+#       & AddEffect( 0x595 = 1429 EuphoricStrikes_ExtraCrit,
+#                    AActiveAbility$$get_AbilityStateReference(this),
+#                    source  = Caster@+0x48,
+#                    targets = Target@+0x60,
+#                    turns   = <DSLFormulas+0x20> = Direct(1) ) )
+#
+# QUATRE lectures que le decompile impose :
+#
+#   * **`Execute`, PAS `ExecuteAtomic`** -- le call-site est
+#     `IdunBattle.Entities.Abilities.AActiveAbility$$Execute` (les deux symboles existent et sont
+#     distincts). Donc AUCUN `AtomicGroup` : contraste avec ThunderousAssault / ArmoriumCherub,
+#     accord avec CordClaw / SpiritLeech. `op_BitwiseAnd` = `op_and` (`CombinedBehaviour`, effets
+#     PURS : les DEUX volets s'executent -- l'attaque ne court-circuite pas la marque, meme si elle
+#     tue la cible).
+#   * **le degat n'a AUCUN override** : `MinMaxDamage` = bornes config brutes (`minDmg`/`maxDmg`
+#     [level]), et le 8e argument `Nullable<AttackDamageBehaviourOptions>` est passe **VIDE**
+#     (`local_1b8..local_198 = 0`) -> ni `alwaysCrit`, ni `alwaysOverkilled`, ni variance d'arme.
+#   * **la SOURCE de la marque est `Caster@+0x48`**, pas `Owner@+0x30` (contraste EmpyricAmbush, qui
+#     passe `Owner`). Pour un cast direct les deux coincident, mais c'est `Caster` qui est LU -- et
+#     c'est le defaut de la feuille `AddEffect` (`source_ref=None` => `entities.caster`), d'ou
+#     l'absence de `source_ref` explicite ci-dessous.
+#   * **`turns = Direct(1)`**, un nombre de TOURS deja resolu -> `duration_turns=1`, surtout pas
+#     `duration_rounds` (qui passerait par `BattleQuery$$ConvertRoundsToTurns`). Meme noeud partage
+#     `<DSLFormulas+0x20>` qu'EmpyricAmbush et qu'ExcruciatingFrequencies.
+#
+# HORS DE CET ARBRE, et c'est mesure : « Using Euphoric Strikes does not end Laviscus' turn » (i2)
+# ne vient PAS d'ici -- aucun noeud de turn-flow dans `ExecuteBehaviour`. Meme situation
+# qu'ArmoriumCherub (1014), dont la meme phrase i2 est notee comme un concern turn-order NON
+# modelise. Axe separe.
+
+EUPHORIC_STRIKES_ID = "EuphoricStrikes"                     # la cle gameconfig de l'ability 1198
+EUPHORIC_STRIKES_EFFECT = int(EffectType.EuphoricStrikes_ExtraCrit)   # 0x595 = 1429, la MARQUE
+#: `attackRangeType` de la config 1198 = « Melee » -> `is_melee=True` (le volet PERCAGE lit l'arme
+#: melee). C'est la MEME lecture que le `RANGE_ADJACENT` du masque, par une autre voie.
+EUPHORIC_STRIKES_IS_MELEE = True
+
+
+def euphoric_strikes_profile() -> str:
+    """`IdunBattle.Entities.Abilities.AActiveAbility$$GetDamageProfile` ->
+    `IdunBattle.Configuration.AbilityConfiguration$$GetDamageProfile(config@+0x60)` : la constante
+    `damageProfile` de la config 1198, RELUE du gameconfig (= « Power »), jamais codee en dur.
+    Config sans la cle -> `""`, ce que le natif rend comme `Nullable` VIDE (`GetValueOrDefault(-1)`)
+    et que le port resout en repli d'arme. MEME lecture que `excruciating_frequencies_*` ci-dessus
+    et qu'`empyric_ambush_profile` / `silent_death_profile`."""
+    consts = (GC.ability(EUPHORIC_STRIKES_ID) or {}).get("constants") or {}
+    return str(consts.get("damageProfile") or "")
+
+
+def euphoric_strikes_tree():
+    """Arbre de `...EuphoricStrikesAbility$$ExecuteBehaviour` (cf. le bloc ci-dessus) :
+
+        AttackWithAttackDamage(Target@+0x60, config 1198, profil/coups CONFIG)
+      & AddEffect(1429, source = Caster@+0x48, targets = Target@+0x60, 1 TOUR)
+
+    `hits` = defaut du port (`hits_key="nrOfHits"`) == `Get(AActiveAbility$$GetHits)` =
+    `GetNumberConstant(0x2f)` = 1 sur cette config. `native_factory="attack"` : le call-site vise
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (famille ATTACK -- crit et block
+    actifs, 2 tirages/coup a cc = 0), jamais `AttackWithAbilityDamage`.
+
+    L'ordre `op_and` = attaque PUIS pose : la marque N'EST PAS presente pendant l'attaque du cast
+    (le canal crit lu par `_crit_params` a l'attaque ne la voit pas encore) -> le cast frappe SANS
+    son propre +crit ; c'est bien la PROCHAINE attaque qui en beneficie, comme l'i2. L'`AddEffect`
+    ne consomme aucun tirage RNG -> l'ordre n'altere pas l'ordre RNG de la salve."""
+    attack = AttackWithAttackDamage(Target(), EUPHORIC_STRIKES_ID, euphoric_strikes_profile(),
+                                    is_melee=EUPHORIC_STRIKES_IS_MELEE, native_factory="attack",
+                                    ability_type=int(ActiveAbilityType.EuphoricStrikes))
+    # `source_ref` omis = `entities.caster` = `Caster@+0x48`, le noeud SOURCE natif (cf. bloc RE).
+    # `scale_from_source=True` = le PORT de l'`AbilityStateReference` (3e argument natif) : l'effet
+    # materialise resout son `ConfigVar(0x41 = extraCritChance)` contre l'etat d'ability de SA
+    # SOURCE (`GetAbilityState(effect)`), donc contre le niveau d'ACTIVE + le multiplier de rarete
+    # de Laviscus -- sans lui, `EuphoricStrikesExtraCritEffect` retomberait sur le niveau de stack.
+    mark = AddEffect(EUPHORIC_STRIKES_EFFECT, EffectType.EuphoricStrikes_ExtraCrit.name, Target(),
+                     duration_rounds=None, duration_turns=1, scale_from_source=True)
+    return op_and(attack, mark)
+
+
+class EuphoricStrikesAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.EuphoricStrikesAbility$$ExecuteBehaviour`
+    (id **1198**, `emperExultant` « Laviscus », HERO EmperorsChildren) -- MIRROR du DECOMPILE,
+    arbre DSL (`euphoric_strikes_tree`).
+
+    i2 : « Deals {nrOfHits}x {minDmg}-{maxDmg} Power Damage to an adjacent enemy. The next attack
+    against that enemy this turn has +{extraCritChance}% Crit Chance. Using Euphoric Strikes does
+    not end Laviscus' turn. »
+
+    Avant #522, 1198 etait un **NO-OP SILENCIEUX** : absente d'`ABILITY_CLASSES`, la decision
+    pouvait la choisir et l'execution l'ignorait -- 0 degat, 0 effet, AUCUNE erreur. Les DEUX faces
+    entrent ici : l'attaque ET la marque 1429 (dont la contribution vit dans
+    `entities/effects/loki/euphoric_strikes.py` et le retrait dans
+    `runner/operations/triggers/loki/euphoric_strikes.py`).
+
+    Diag : {ability, caster, target, attack, mark, dsl, emitted}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.EuphoricStrikes)   # 1198 = 0x4ae
+    ABILITY_ID = EUPHORIC_STRIKES_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET STATIQUE COPIE** (la 3e des
+    # formes) : `...EuphoricStrikesAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`. Il recopie les 0x40 octets du champ
+    # STATIQUE de `TargetingOptions` a l'offset RELATIF **+0x40** du bloc `<class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &preset, 0)      # 3e arg = 0 = AbilityAttackType.DirectTargetAttack
+    # Aucun litteral de masque n'est donc visible dans le ctor : le contenu du preset est celui
+    # qu'ecrit `IdunBattle.Core.Services.TargetingOptions$$.cctor`, RELU pour cette tranche :
+    #     <preset>+0x00 isSelfCasting    = 0
+    #     <preset>+0x08 range            <- `TargetingRange` statics **+0x30**
+    #     <preset>+0x20 forceMeleeTarget = 1 = RangedBool.False
+    #     <preset>+0x28 rules            = **0x4000**
+    #     <preset>+0x30/+0x38 delegues   = 0, 0  (aucune regle dynamique)
+    # ⚠ LE VOISIN MENT, et il est a portee de copier-coller : `...ThunderousAssaultAbility$$.ctor`
+    # lit **LE MEME preset +0x40**, mais le passe ensuite a la surcharge PRESET + FLAGS
+    # (`TargetingOptions..ctor(&opts, &preset, 0x10000000)`), qui fait `Rules <- flags |
+    # preset.Rules` -> son masque effectif vaut `0x10004000`. EuphoricStrikes, lui, passe le preset
+    # TEL QUEL : il n'y a AUCUN flag a OR-er, et le bit 28 `CasterCanMove` n'est PAS pose.
+    # Decomposition EXHAUSTIVE de 0x4000 (`IdunBattle.Core.Services.TargetingRule`) -- un seul bit,
+    # aucun residu :
+    #     0x4000 (bit 14) TargetIsEnemy -> PORTE (refus sur soi-meme / un allie ;
+    #                                      `TargetingQuery$$UnitsCanAttackEachOther`).
+    # PORTEE : `TargetingRange` statics **+0x30** est, au `$$.cctor` RELU, `onlyAdjacent =
+    # RangedBool.True` (le champ vaut 0 ; `RangedBool.False` vaut 1, cf. `forceMeleeTarget = 1`) +
+    # `overrideRange = Nullable(1)` + `overrideRangeFunc = null` = `RANGE_ADJACENT`. Le filtre
+    # statique prend donc la branche `battleQuery.AreEntitiesAdjacent(casterTiles, target)` -- ce
+    # qui est exactement l'« adjacent enemy » de l'i2, et recoupe `attackRangeType = Melee` de la
+    # config par une voie INDEPENDANTE. `forceMeleeTarget` = 1 = `RangedBool.False` : aucun clamp
+    # melee a poser, la portee EST deja l'adjacence.
+    # Les DEUX delegues dynamiques du preset sont a 0 -> aucun `GetDynamicInvalid*Reason` natif ;
+    # le defaut du port (`ActiveAbility.get_dynamic_invalid_target_reason` = 0) est le mirror EXACT,
+    # pas une degradation. Le bit `TargetMatchesDynamicRule` est d'ailleurs ABSENT du masque.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        euphoric_strikes_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+        mark = next((p for n, p in ectx.emitted if n == "AddEffect"), None)
+        return {"ability": EUPHORIC_STRIKES_ID, "caster": caster_id, "target": target_id,
+                "attack": (atk or {}).get("attack"), "mark": mark, "dsl": True,
+                "emitted": [n for n, _ in ectx.emitted]}

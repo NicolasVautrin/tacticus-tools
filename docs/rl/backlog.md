@@ -638,6 +638,26 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#522-r1` — `ThrillSeekers` applique son +15 crit chance au coup DÉCLENCHANT ; le natif non.**
+  Mesuré en portant `1198 EuphoricStrikes` (board `MC1_67`, `--crit 0,700`) : le port consomme
+  **un tirage `genrand_int32` de plus** que le natif sur le cast (**3 contre 2**), à **dégât et
+  séquence identiques** (6353, `crits=[False]`). Attribution en trois mesures — kit complet
+  natif 2 / port 3 ; **trait `ThrillSeekers` retiré** natif 2 / port 2 (l'écart disparaît) ; témoin
+  `1043 ThunderousAssault` (porteur SANS le trait, même board, même `--crit`, même famille ATTACK)
+  natif 5 / port 5. Cause : le natif POSE bien « Thrilled » (`EffectType` 0x59a = 1434) sur
+  `On(PreAttackHit=6)`, mais la crit chance du coup déclenchant reste 0 → `CouldCrit(0,700)` faux →
+  `RollCritical` jamais appelé ; le port applique le +15 au coup courant.
+  `runner/operations/triggers/loki/thrill_seekers.py` affirme l'inverse en toutes lettres.
+  Effet borné : **rien** sur le dégât tant que le crit-roll échoue, mais RNG désynchronisé pour la
+  suite — et dans un régime où ce tirage réussirait, le port critterait là où le natif ne le peut
+  pas. Fermer touche les **5** porteurs du trait (Emperor's Children) et exige la RE du point où le
+  natif lit `GetStat(9)` dans `ExecuteHit`. Détail : `docs/rl/case-522-euphoric-strikes.md` §6.
+- **`#522-r2` — le passif `RefusalToBeOutdone` (`TriggeredAbilityType` 1441, `emperExultant`) n'est
+  pas porté.** Après un cast de `1198`, le caster porte côté natif `[1226, 1430, 1434, 1511]` et
+  côté port `[1226, 1434]` : `RefusalToBeOutdone_ExtraDamage` (1430) et
+  `RefusalToBeOutdone_ExtraCritDamage` (1511) manquent. Aucun effet observable sur les dégâts du
+  montage de #522 (7403 et 6353 des deux côtés), mais l'écart d'état est réel — donc un régime où
+  ces deux effets mordraient divergerait. Détail : `docs/rl/case-522-euphoric-strikes.md` §6.
 - **`#505-r1` — la loi de REPORT de `ChainLeftOverHitsAttackDamage` n'est pas uniforme, et le
   décompilé dit pourquoi.** `_left_over_hits` porte `max(0, H − k − 1) + extraHits`. **Réfutée**
   pour `1129 BloodyFury` (`extraHits` null) par lecture DIRECTE du live sur un maillon SURVIVANT —

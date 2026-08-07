@@ -24,17 +24,17 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **64** ; kits avec du travail : **63**
-- Volume total : **74** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **73** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
 
 | faction | kits | items |
 |---|---:|---:|
-| EmperorsChildren | 4 | 6 |
 | Necrons | 5 | 6 |
 | BloodAngels | 4 | 5 |
 | DarkAngels | 4 | 5 |
+| EmperorsChildren | 4 | 5 |
 | Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
 | BlackTemplars | 4 | 4 |
@@ -127,11 +127,11 @@
 | darkaSternguard | 2 | SternguardFocus(1228) [--] NO-OP EFFECT/BUFF | SpecialIssueCombiMelta | - |
 | darkaTerminator | 1 | PlasmaCannon(1150) [CD] OK | Deathwing | - |
 
-### EmperorsChildren — 4 kits, 6 items
+### EmperorsChildren — 4 kits, 5 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| emperExultant | 2 | EuphoricStrikes(1198) [--] NO-OP DAMAGE(Power) | RefusalToBeOutdone | - |
+| emperExultant | 1 | EuphoricStrikes(1198) [C-] OK | RefusalToBeOutdone | - |
 | emperFlawlessBlade | 2 | DaemonicPatrons(1203) [--] NO-OP EFFECT/BUFF | EcstaticSlaughter | - |
 | emperKakophonist | 1 | DoomSiren(1199) [CD] OK | ObsessiveAnnunciation | - |
 | emperLucius | 1 | LashOfTorment(1196) [C-] OK | ArmourOfShriekingSouls | - |
