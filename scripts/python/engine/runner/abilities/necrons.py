@@ -641,7 +641,10 @@ def multi_threat_eliminator_tree(range_val: int, extra_hit: int) -> ChainLeftOve
     `AttackDamageBehaviour`) -> `native_factory="attack"` (2 tirages/coup a cc=0)."""
     return ChainLeftOverHitsAttackDamage(
         Caster(), Target(), multi_threat_next_target_selector(range_val),
-        "MultiThreatEliminator", "Gauss", MTE_NR_OF_HITS, extra_hit, is_melee=False)
+        "MultiThreatEliminator", "Gauss", MTE_NR_OF_HITS, extra_hit, is_melee=False,
+        # `AbilityOrEffect(this+0x10)` = le `+0x70` du mold, LU au call-site ci-dessus
+        # (#512-r2 volet 2). Sans lui, l'`On(PreAttack = 5)` de chaque maillon partait sans id.
+        ability_type=int(ActiveAbilityType.MultiThreatEliminator))
 
 
 class MultiThreatEliminatorAbility(ActiveAbility):

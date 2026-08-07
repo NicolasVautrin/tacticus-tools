@@ -279,11 +279,17 @@ class ReviveUnitOperation:
         src = data.get("source")
         if src is not None:
             uc.revived_by_abilities.add(int(src))
+        # #545 : le composant est CREE s'il manque, jamais saute. `UnitFlagsComponent$$.ctor`
+        # construit un `OrderedSet` VIDE et `IdunBattle.Entities.Factories.UnitFactory` le monte sur
+        # CHAQUE unite -- natif, « composant absent » n'existe pas, donc un `if fl is not None:` qui
+        # SAUTE la rafale est un no-op SILENCIEUX (ici : `Add(0x14 = Revived)` jamais pose). Meme
+        # geste que `resurrect.py` et que `turnflow.FinishUnitTurnOperation`, qui le faisaient deja.
         fl = e.get_component(UnitFlagsComponent)
-        if fl is not None:
-            fl.remove(UnitFlag.Downed)                       # Remove(0xf)
-            fl.remove(UnitFlagsComponent.OVERKILLED)         # Remove(8)
-            fl.add(UnitFlagsComponent.REVIVED)               # Add(0x14)
+        if fl is None:
+            fl = e.add_component(UnitFlagsComponent())
+        fl.remove(UnitFlag.Downed)                           # Remove(0xf)
+        fl.remove(UnitFlagsComponent.OVERKILLED)             # Remove(8)
+        fl.add(UnitFlagsComponent.REVIVED)                   # Add(0x14)
         uc.alive = True
         # IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : appele ICI (apres les flags,
         # AVANT `On(0x2d = UnitRevived)`). Le natif sort immediatement si `revivePosition` n'a pas de valeur -> le

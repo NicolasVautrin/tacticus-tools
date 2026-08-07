@@ -654,9 +654,33 @@ def _load_unit_flags(state: State, snapshot: dict) -> None:
     l'ecart n'etait ni un compte de coups ni une conso RNG, mais ce seul flag.
 
     Portee : TOUTES les lignes du snapshot (`EntityType.Unit` ET `EntityType.Machine` — une MoW porte
-    un `UnitFlagsComponent`, cf. `dumpEntityComponents`). Champ absent (capteur plus ancien) ou liste
-    vide -> AUCUN composant pose = flag absent = « n'a pas bouge », soit exactement le comportement
-    anterieur : la degradation reste retro-compatible.
+    un `UnitFlagsComponent`, cf. `dumpEntityComponents`).
+
+    #545 -- LE COMPOSANT EST MATERIALISE SUR TOUTE LIGNE **MESUREE**, LISTE VIDE COMPRISE.
+    `IdunBattle.Entities.Components.UnitFlagsComponent$$.ctor` construit un `OrderedSet` **VIDE** et
+    `IdunBattle.Entities.Factories.UnitFactory` le monte sur **CHAQUE** unite : natif, « composant
+    absent » n'existe pas. Ce module ne posait le composant que sur une liste **NON VIDE** (`not
+    flags` -> `continue`), donc toute unite sans aucun flag n'en avait pas -- et chaque site qui
+    fait `if fc is None: return` avant de POSER un flag devenait un **no-op silencieux**.
+    MESURE (#498-r4-r1, `orksNob` sur `MC1_67`) : apres le cast de `1152`, le natif rend
+    `unitFlags = [1, 2, 3, 4, 25]` et le port ne posait RIEN -- l'ecart que cette tranche-la visait
+    etait INOBSERVABLE, masque par celui-ci. Il avait ete repare LOCALEMENT
+    (`abilities/loki/momentum.py::_set_charge_flag`) ; c'est ici le FOYER.
+
+    TRI-ETAT (meme discipline que `host_inputs.py`) : `unitFlags` **absent** ou **`null`** = le canal
+    n'a PAS ete mesure -> on ne touche a RIEN (comportement anterieur, capteur plus ancien). Une
+    LISTE (meme vide) = mesure -> composant materialise.
+
+    RAYON DE SOUFFLE, mesure AVANT l'edition (`probe_545_unit_flags_component_vide.py` etape 1 --
+    recensement AST des 40 sites `get_component(UnitFlagsComponent)` d'`engine/**`) : un composant
+    VIDE et un composant ABSENT sont indiscernables de **38** d'entre eux (les lecteurs ecrivent
+    tous `fl is not None and fl.has(X)` / `fl is None or not fl.has(X)`, et les ecrivains creent
+    deja le composant absent). Les **2** qui les distinguent sont les deux abstentions de
+    `operations/turnflow.py` -- `MarkUnitAsNoActionAvailableOperation.execute` et
+    `VerifyUnitsTurnFinishedOperation.verify_unit_turn_ended` -- qui rendaient `found: False` sur
+    composant absent. Elles deviennent ACTIVES, ce qui est **le comportement natif** : le natif y
+    fait respectivement `TryGetComponent` sur une unite qui en porte TOUJOURS un, et
+    `GetComponent` (qui LEVE). Aucun des deux ne peut plus s'abstenir sur une unite MESUREE.
 
     #429-r1-r3-r1 -- LES UNITES NON VIVANTES, ET POURQUOI IL A FALLU UN SECOND BLOC. Le capteur
     n'enumerait QUE les unites vivantes (`if (!invokeBool(isAliveMi, [e, statePtr])) return;`), ce
@@ -683,32 +707,41 @@ def _load_unit_flags(state: State, snapshot: dict) -> None:
         canal, na_rows = "muet", []
     else:
         canal, na_rows = "lu", list(na)
-    poses_units = poses_na = 0
+    poses_units = poses_na = vides = 0
     for idx, su in enumerate(rows + na_rows):
         eid = su.get("entityId")
         flags = su.get("unitFlags")
-        if eid is None or not isinstance(flags, list) or not flags:
+        # TRI-ETAT (#545) : une LISTE -- meme VIDE -- est une MESURE, donc le composant est
+        # materialise ; `unitFlags` absent ou `null` = canal non mesure -> on ne touche a rien.
+        if eid is None or not isinstance(flags, list):
             continue
         ent = state.get_entity(eid)
         if ent is None:
             continue
         fl = ent.get_component(UnitFlagsComponent)
         if fl is None:
-            fl = ent.add_component(UnitFlagsComponent())
+            fl = ent.add_component(UnitFlagsComponent())   # #545 : VIDE compris
         for f in flags:
             try:
                 fl.add(int(f))
             except (TypeError, ValueError):
                 continue
+        if not flags:
+            vides += 1
         if idx < len(rows):
             poses_units += 1
         else:
             poses_na += 1
     state.unit_flags_seed = {
+        # #545 : compte des lignes MATERIALISEES (liste vide comprise), pas des lignes « qui ont
+        # pose au moins un flag ». Le canal est le meme ; c'est la portee du composant qui change.
         "units": poses_units,
         # `None` (jamais `0`) des que le canal n'a PAS ete mesure -- meme regle que `host_inputs.py`.
         "units_not_alive": poses_na if canal == "lu" else None,
         "units_not_alive_channel": canal,
+        # Combien de ces lignes portaient une liste VIDE -- exactement les entites que le port
+        # laissait SANS composant avant #545. Rendu pour que l'amplitude soit lisible, pas devinee.
+        "vides": vides,
     }
 
 

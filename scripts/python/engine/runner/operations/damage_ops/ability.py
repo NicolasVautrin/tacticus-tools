@@ -174,11 +174,30 @@ class _AbilityAttack:
         #   COUT pour une unite NON porteuse : nul (aucun autre trigger porte n'ecoute l'event 5).
         #   REFUTE le residu case-61 §6 (« `On(PreAttack=5)` n'est pas emis par le vecteur ability »),
         #   qui n'avait jamais ete mesure.
+        #   ⚠ #512-r2 : **AUCUN GATE DE FAMILLE ICI**, et c'est LU, pas suppose. La surcharge RACINE
+        #   `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (7 arguments, celle a
+        #   laquelle les trois autres delegent) construit un `AbilityDamageBehaviour` PUIS
+        #   `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor(caster, target,
+        #   <AbilityDamageBehaviour>, abilityOrEffect)` -- et c'est l'`AttackBehaviour` qu'elle
+        #   RETOURNE. Exactement comme `$$AttackWithAttackDamage`. Or `StartAttack` (slot 58) est
+        #   pousse par `AttackBehaviour$$Execute`, qui ne connait PAS la famille de son behaviour
+        #   enfant : la famille ABILITY emet donc `On(PreAttack = 5)` comme la famille ATTACK.
+        #   Le gate `if is_attack_damage_op:` qui vivait ici l'eteignait pour toute feuille
+        #   `native_factory="ability"` -- dont `1088 HellfyreMissileRack` et `1026 BasiliskBarrage`,
+        #   deux abilities de porteurs du trait `SuppressiveFire`.
+        #   CE QUI CHANGE POUR UN NON-PORTEUR : rien (zero mutation, zero conso RNG -- seuls
+        #   `SuppressiveFireAddEffectAbility` et `LetTheGalaxyBurnArmAbility` ecoutent l'event 5).
+        #   CE QUI CHANGE POUR UN PORTEUR DE `LetTheGalaxyBurn` : son `Maybe(chance)` CONSOMME un
+        #   tirage par cible -- l'ordre `state.rng` de la famille ABILITY bouge donc pour lui, et
+        #   c'est ce que le montage live de #512-r2 confronte.
+        #   RESIDU NOMME (pas corrige ici) : le critere natif est la presence d'un `AttackBehaviour`
+        #   au-dessus, PAS la famille. Une feuille `IdunBattleLogic.Entities.DSLBehaviors$$
+        #   AttackDamage` NUE (`isOutsideAttack = false`, #419-r3) n'ouvre aucun `StartAttack` et ne
+        #   devrait donc rien emettre ; le port n'a pas de canal pour l'exprimer sur cette route.
         from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
-        if is_attack_damage_op:
-            pre_attack_triggers(state, attacker_id, target_id,
-                                ranged=not bool(is_melee) if is_melee is not None else False,
-                                profile=damage_profile, ability_type=ability_type)
+        pre_attack_triggers(state, attacker_id, target_id,
+                            ranged=not bool(is_melee) if is_melee is not None else False,
+                            profile=damage_profile, ability_type=ability_type)
         if sc is None:
             # caster NON-UNITE (tuile) : mods attaquant VIDES == ce que `CalculateAbilityDamage`
             # recoit (mesure #45f). On NE passe PAS par `attacker_modifiers`, dont la collecte

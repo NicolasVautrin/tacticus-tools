@@ -124,7 +124,9 @@ def fragstorm_grenade_launcher_tree(state, range_val: int, base_min: int, base_m
         damage_profile=FRAGSTORM_GRENADE_LAUNCHER_PROFILE, pierce=pierce, is_melee=False)
     return ChainLeftOverHitsAttackDamage(
         Owner(), Target(), chain, FRAGSTORM_GRENADE_LAUNCHER_ID,
-        FRAGSTORM_GRENADE_LAUNCHER_PROFILE, hits, 0, is_melee=False)
+        FRAGSTORM_GRENADE_LAUNCHER_PROFILE, hits, 0, is_melee=False,
+        # `abilityType = this+0x10` (#512-r2 volet 2) -- LU au call-site ci-dessus.
+        ability_type=int(ActiveAbilityType.FragstormGrenadeLauncher))
 
 
 class FragstormGrenadeLauncherAbility(ActiveAbility):

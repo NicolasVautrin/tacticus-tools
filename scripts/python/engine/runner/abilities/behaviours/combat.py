@@ -451,19 +451,31 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
     noeuds VALEUR (int ou `AAmountFormula`). `MAX_ITERATIONS` = la garde native `100`. Emet
     'ChainLeftOverHitsAttackDamage' par iteration. PUR."""
     __slots__ = ("caster_sel", "target_sel", "next_target_sel", "ability_id", "profile", "hits",
-                 "extra_hits", "is_melee", "native_factory", "min_key", "max_key")
+                 "extra_hits", "is_melee", "native_factory", "min_key", "max_key", "ability_type")
 
     MAX_ITERATIONS = 100                     # garde native (`iVar19 = 100`)
 
     def __init__(self, caster_sel: TargetsSelector, target_sel: TargetsSelector,
                  next_target_sel: TargetsSelector, ability_id: str, profile: str, hits,
                  extra_hits, is_melee: bool = False, native_factory: str = "attack",
-                 min_key: str = "minDmg", max_key: str = "maxDmg"):
+                 min_key: str = "minDmg", max_key: str = "maxDmg",
+                 ability_type: Optional[int] = None):
         self.caster_sel, self.target_sel, self.next_target_sel = caster_sel, target_sel, next_target_sel
         self.ability_id, self.profile = ability_id, profile
         self.hits, self.extra_hits = hits, extra_hits
         self.is_melee, self.native_factory = is_melee, native_factory
         self.min_key, self.max_key = min_key, max_key
+        # #512-r2 volet 2 : l'`AbilityOrEffect` du champ `+0x70`, que le behaviour d'attaque
+        # construit a la volee recoit en `source`. Le port ne le THREADAIT PAS -> l'evenement
+        # `On(PreAttack = 5)` de chaque maillon partait avec `ability_type = None`, et le gate
+        # `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack` (slot 3) -- qui commence par
+        # `if (!ability.HasValue) return false` puis switche sur `GetAbilityAttackRangeType` --
+        # retombait sur sa branche POSITIONNELLE `Normal(3)`. Mesure #512-r1 : `1048
+        # FragstormGrenadeLauncher` est `attackRangeType = Ranged(2)`, donc INCONDITIONNELLEMENT
+        # ranged ; sans l'id, une cible ADJACENTE etait declaree melee et `SuppressiveFire`
+        # SOUS-suppressait. `None` reste le defaut (feuille montee sans id -> comportement
+        # anterieur, gates inertes).
+        self.ability_type = ability_type
 
     @staticmethod
     def _left_over_hits(atk: dict, extra: int) -> int:
@@ -592,6 +604,10 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
             atk = AttackDamageOperation.execute_ability_attack(
                 state, caster, tgt, bmin, bmax, pierce, hits,
                 damage_profile=self.profile, is_melee=self.is_melee,
+                # #512-r2 volet 2 : `abilityType = this+0x10` -- le natif le passe au behaviour
+                # construit a la volee ; sans lui les gates qui lisent l'`AbilityOrEffect` du coup
+                # (dont `_is_ranged_attack`) sont FAUX, pas seulement inertes.
+                ability_type=self.ability_type,
                 is_attack_damage_op=(self.native_factory != "ability"))
             if atk is None:                              # rng non cale : degradation fidele (cf. #217)
                 break
