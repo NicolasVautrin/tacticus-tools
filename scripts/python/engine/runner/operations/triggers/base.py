@@ -14,6 +14,12 @@ from ...state import State
 from ...components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
 from ...abilities.loki.splash import _pick_randomly_n
 from ...abilities.targeting import unit_weapon_range
+# FORME B (`import <module>` puis `<module>.<nom>`) et non `from ... import attack_range_type` : un
+# binding de module n'est jamais gele, donc un `monkeypatch.setattr("engine.services.battle_query.
+# attack_range_type", ...)` mord (cf. CLAUDE.md, les 28 fichiers rouges de #484). Differe -> hisse :
+# classe GRATUIT (charger `engine.services.battle_query` seul en process frais ne tire PAS ce
+# module-ci), donc aucun cycle a fermer.
+from ....services import battle_query as _svc_bq
 
 # --- Cap phase-triggers (#140) --------------------------------------------------------------------
 PHASE_TRIGGER_CAP = 0x33         # 51 — `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateAbilityTrigger : GetTimesTriggeredThisPhase < 0x33.
@@ -472,6 +478,43 @@ def _is_ranged_position(state: State, attacker_id: int, target_id: int) -> bool:
     if atile is None or ttile is None:
         return False
     return ttile not in set(state.board.neighbours(atile))     # non-adjacent = RANGED
+
+
+def _is_ranged_attack(state: State, ability_type, attacker_id: int, target_id: int) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$IsRangedAttack(ability, caster, casterPosition,
+    target)` -- le slot **3** d'`IBattleQuery`, COMPLET, dans le domaine du runner.
+
+        switch (GetAbilityAttackRangeType(ability)) {   // 0 None, 1 Melee, 2 Ranged, 3 Normal
+          case 0: case 1: return false;
+          case 2: return true;                          // INCONDITIONNEL -- aucune position lue
+          case 3: return HasFlag(caster, ForceRangedAttack) || !AreEntitiesAdjacent(...);
+        }
+
+    ⚠ `_is_ranged_position` ci-dessus n'implemente QUE la branche `Normal(3)` -- c'est le mirror du
+    seul repli positionnel, et l'appliquer a une ability declaree `Ranged(2)` DESARME le predicat
+    des que la cible est au contact. Mesure (#512-r1) : `1197 ExcruciatingFrequencies` est
+    `attackRangeType = Ranged` (gameconfig ET `BC.Abilities.ActiveAbilities[...].AttackRangeType = 2`),
+    sa 1re cible est ADJACENTE au caster, et le natif la suppresse quand meme.
+
+    L'ETAGE `GetAbilityAttackRangeType` est delegue au FOYER `services/battle_query.attack_range_type`
+    (le natif l'a aussi en fonction separee, consultee par les slots 2 ET 3) ; la branche `Normal(3)`
+    reste sur `_is_ranged_position`, c.-a-d. `state.board.neighbours` -- l'adjacence du RUNNER, deja
+    confrontee live (`test_suppressive_fire_live.py` : Pinned a d==2, absent a d==1).
+
+    `ability_type` = l'`AbilityOrEffect` du coup, tel que l'event le porte (`TriggerEvent.
+    ability_type`). `None` -> pas de nom -> branche `Normal(3)`, MEME convention que
+    `services/battle_query.is_melee_attack` et MEME justification : les attaques normales CONCRETES
+    n'ont pas d'entree nommee au gameconfig. `ForceRangedAttack` (`UnitFlag` 21) n'est publie par
+    aucun capteur (residu `#419-r1-tr5-r1`) -> non lu ici, degradation RESTRICTIVE nommee."""
+    import gameconfig as GC     # differe comme chez son voisin `_faction_id` (module TOP-LEVEL,
+                                # hors du critere `engine.*` du CLAUDE.md ; charge le gameconfig)
+    rt = _svc_bq.attack_range_type(GC.ability_name(int(ability_type))
+                                   if ability_type is not None else None)
+    if rt == "Ranged":                 # `AttackRangeType.Ranged` (2)
+        return True
+    if rt in ("Melee", "None"):        # `AttackRangeType.Melee` (1) / `.None` (0)
+        return False
+    return _is_ranged_position(state, attacker_id, target_id)   # branche `Normal(3)`
 
 
 def _faction_id(state: State, unit_id: int) -> Optional[str]:
