@@ -699,6 +699,45 @@ tokens**. Ne jamais payer ça pour une information d'avancement : elle se lit à
 *(Faute commise le 2026-07-30 : agent réveillé après 62 min de silence pour savoir s'il était
 bloqué — alors que sa réponse ne changeait rien à la décision.)*
 
+### REPRENDRE ou LANCER FRAIS — le critère n'est PAS la taille, la taille n'est que la borne
+
+**Premier critère, celui qui décide : la valeur est-elle dans ce qui n'a PAS ÉTÉ ÉCRIT ?**
+
+- **Elle l'est** → REPRENDRE. Un agent détient sa propre résolution de conflit, ses régimes
+  éliminés, les montages qu'il a essayés et retirés. Rien de tout ça n'est dans une case-doc, et
+  un agent frais re-paierait la mesure.
+- **L'artefact la porte** (case-doc **MERGÉE**, probe versionné) → LANCER FRAIS, à 0 % de fenêtre.
+  Mesuré le 2026-08-07 : `#523-r1` est parti frais **parce que** la case-doc de `#523` était dans
+  `master`, littéral `0x4cb` lu à l'assembleur compris. Rien de perdu.
+
+Le mot qui compte est **MERGÉE** : tant que la PR est ouverte, le savoir n'existe que dans la tête
+de l'agent, même si le fichier est écrit dans son worktree.
+
+**Second critère, la borne — mesures du 2026-08-07 (fenêtre 1 M, colonne `%fen` de `fleet_board`) :**
+
+| ce qu'on demande | coût en fenêtre |
+|---|---|
+| tranche de port complète, de zéro | **600–700 K (60–70 %)** — les 5 ports du jour, tous dans cette bande |
+| enquête sur un résidu | 200–400 K (20–40 %) |
+| reprise pour REBASE / re-jeu | **+40 à 70 K (4–7 %)** — mesuré sur 3 reprises |
+| plafond jamais dépassé, tous agents confondus | 878 K (**88 %**) |
+
+- **< 50 %** — reprise libre, y compris pour une enquête neuve.
+- **50–75 %** — reprise pour du **BORNÉ** seulement : rebase, re-jeu, une question. Une enquête
+  neuve saturerait.
+- **> 75 %** — agent frais, **même pour un rebase**.
+
+⚠ **Le danger n'est pas de saturer, c'est de saturer AU MILIEU.** Une compaction de sous-agent
+efface précisément la mesure non écrite qui justifiait la reprise — donc le seul cas où reprendre
+avait un sens. Parade : au-dessus de ~70 %, **faire ÉCRIRE d'abord** (commit de la case-doc, du
+probe), reprendre ensuite. La colonne `sature` de `fleet_board` donne le temps restant estimé ;
+c'est elle qu'on lit avant une reprise, pas l'occupation seule.
+
+⚠ Rappel de coût, à ne pas confondre : un `SendMessage` **rejoue** le contexte (300–600 K
+**facturés**) mais n'ajoute que le delta ci-dessus à la **fenêtre**. Les deux chiffres ne mesurent
+pas la même chose — `subagent_tokens` d'une notification compte N fois le même contexte relu et
+vaut ~40× l'occupation réelle.
+
 ## Agents (subagents) — TOUJOURS en worktree isolé
 
 **Tout agent (outil `Agent`, et `agent()` d'un `Workflow`) doit être lancé avec
