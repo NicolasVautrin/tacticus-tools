@@ -205,7 +205,6 @@ scripts/python/tests/engine/runner/test_dotgg_extra_dmg_live.py
 scripts/python/tests/engine/runner/test_dotgg_extra_hits_live.py
 scripts/python/tests/engine/runner/test_echoes_from_the_warp_revive_live.py
 scripts/python/tests/engine/runner/test_effect_duration_rounds_live.py
-scripts/python/tests/engine/runner/test_effect_immunity_live.py
 scripts/python/tests/engine/runner/test_effect_source_ability_state_live.py
 scripts/python/tests/engine/runner/test_effect_stun_live.py
 scripts/python/tests/engine/runner/test_effect_trigger_channels.py

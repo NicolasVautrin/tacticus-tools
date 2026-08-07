@@ -1050,14 +1050,26 @@ class BaseEffect:
     # vtable `get_CanBeImmuneTo`). Le corps de la BASE est le stub partagé `return 0` ⇒ **False par
     # défaut** : la quasi-totalité des effets ne sont PAS « immunisables ». Attribut de CLASSE simple
     # (pas d'annotation ⇒ pas de field dataclass, surchargeable par la MRO — même régime que
-    # `stacks_stat_mod_on_add`). INVENTAIRE des surcharges `return 1` (lecture de la VTABLE RUNTIME par
-    # classe, `probe_224_can_be_immune_to.py` — aucun `get_CanBeImmuneTo` n'existe dans
-    # `data/symbols/<build>/frida/methods.tsv`, les corps triviaux étant partagés et le dump keyé par
-    # RVA) : `PinnedEffect`, `ContaminatedEffect`, `FireEffect`, `IceEffect`,
-    # `BlockEnteringUnitsTileEffect`, `BlockTileMovementEffect`,
-    # `ContagionsOfNurgle_ArmorReduction_Effect` — 7 classes, et RIEN d'autre sur les 442 classes du
-    # namespace `IdunBattle.Entities.Effects.*`. Recoupé par l'i2 du trait `Immune` : « immune to
-    # special hexes and hex effects, and cannot have its Armour, hits, Movement or Range reduced ».
+    # `stacks_stat_mod_on_add`).
+    #
+    # INVENTAIRE : entrée VERSIONNÉE `data/symbols/<build>/metadata/can_be_immune_to.tsv`, dérivée
+    # par `probe_175r2_can_be_immune_to.py` sur la FERMETURE TRANSITIVE de `BaseEffect` (464
+    # descendants) — DÉCLARATION lue dans le `global-metadata.dat`, VALEUR lue par les OCTETS du
+    # corps (`b0 01 c3` / `32 c0 c3`) dans le bloc `methodPointers`, avec contrôle d'alignement.
+    # **13** classes à `true`, dont **8 qui déclarent** (`DespoiledGroundEffect`,
+    # `BlockTileMovementEffect`, `BlockUnitMovementBondEffect`,
+    # `ContagionsOfNurgle_ArmorReduction_Effect`, `ContaminatedEffect`, `PinnedEffect`,
+    # `StunnedEffect`, `TauntedEffect`) et 5 qui HÉRITENT de `BlockTileMovementEffect`.
+    # ⚠ L'inventaire qui vivait ICI (7 classes, « et RIEN d'autre ») venait de
+    # `probe_224_can_be_immune_to.py`, qui comparait la VA du corps à trois LITTÉRAUX d'un build
+    # ANTÉRIEUR : sur `rnca9r7q6c` il rendait **0** classe à `true` et classait les **10** classes
+    # sondées en « `EntityIsImmuneToEffect` SURCHARGÉ » alors que 9 pointaient sur le corps de
+    # `BaseEffect` lui-même. Il est réparé (les corps s'identifient par leurs OCTETS) ; sa liste
+    # d'alors omettait `StunnedEffect`/`TauntedEffect`/`BlockUnitMovementBondEffect` et
+    # SUR-annonçait `ContagionsOfNurgle_ArmorReduction_Effect`, que la classe Python tenait à
+    # `False` dix lignes plus bas (#175-r2).
+    # Recoupé par l'i2 du trait `Immune` : « immune to special hexes and hex effects, and cannot
+    # have its Armour, hits, Movement or Range reduced ».
     can_be_immune_to = False
 
     def entity_is_immune_to_effect(self, trait_names: "list | None" = None) -> bool:

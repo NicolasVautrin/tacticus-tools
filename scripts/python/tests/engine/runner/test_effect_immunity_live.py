@@ -32,10 +32,14 @@ Ce que ces tests VERROUILLENT :
       `decisionView` par defaut cote live, et la plage de degat de la cible est INCHANGEE
       (aucun x0.70 de `PinnedEffect$$CreateEffectDamageBonusForAttack`) ;
   (3) CONTRE-CAS : meme ability, cible sans le trait -> effet ACTIF et x0.70 applique, live ET port ;
-  (4) le gate d'IMMUNITE, lui, n'a pas bouge : un effet `CanBeImmuneTo` faux (Stunned) passe sur la
-      MEME cible, et `Pinned` n'est refuse a la pose sur PERSONNE ici ;
+  (4) le gate d'IMMUNITE, lui, n'a pas bouge : sur une cible SANS le trait `Immune`, ni `Pinned` ni
+      `Stunned` ne sont refuses -- le gate est une CONJONCTION, et c'est le trait qui manque ici ;
   (5) canal declaratif : `EffectFactory.effect_def` rend le bon predicat par classe, et
-      `Contaminated` n'a plus de liste de traits EN DUR dans `effect_triggers.py`.
+      `Contaminated` n'a plus de liste de traits EN DUR dans `effect_triggers.py` ;
+  (6) #175-r2 -- le RAYON DE SOUFFLE du drapeau : sur une cible qui PORTE `Immune`, les classes
+      a `get_CanBeImmuneTo` vrai voient leur pose ABANDONNEE, et un temoin NON NUL a drapeau faux
+      passe dans le meme etat. C'est ce que la correction de `StunnedEffect`/`TauntedEffect`/
+      `ContagionsOfNurgle_ArmorReduction_Effect` change pour le COMBAT.
 
 ASCII only. Dispose SES runners.
 """
@@ -46,6 +50,52 @@ import pytest
 import stream_events as SE
 import probe_112_darkangels as PR
 import probe_224_effect_immunity as IM
+
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict (#486-r15). LISTE, pas glob :
+#: les foyers sous test sont nommes un par un, et un glob `scripts/python/**` le retiendrait a
+#: chaque probe touche, ce qui ne dirait plus rien.
+#: (Retire de `scripts/ratchets-486r15-dette-declencheurs.txt` par #175-r2, qui le modifie.)
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a tout fichier de test : la cascade des `conftest.py` (fixtures `autouse`,
+        # `green_skip_guard`) dont le verdict de CHAQUE test depend, et le gameconfig d'ou sortent
+        # les traits d'unite.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/gameconfig.py", "scripts/python/build_pin.py",
+        # LES DEUX ETAGES SOUS TEST : le predicat DECLARATIF (classe d'effet) et le CONSOMMATEUR
+        # (gate de pose d'`AddEffectOperation`).
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/loki/status.py",
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/runner/operations/effects.py",
+        "scripts/python/engine/runner/operations/triggers/base.py",
+        "scripts/python/engine/runner/operations/triggers/effect_triggers.py",
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/runner/abilities/admec.py",
+        "scripts/python/engine/runner/abilities/darkangels.py",
+        "scripts/python/engine/entities/pathfinding/board.py",
+        # LE HARNAIS que ce fichier importe directement.
+        "scripts/python/probe_112_darkangels.py",
+        "scripts/python/probe_224_effect_immunity.py",
+        "scripts/python/stream_events.py",
+    ),
+    "build": False,
+    "toujours": True,
+    "raison": (
+        "Trois des cinq etages MONTENT UN RUNNER : leur verdict depend de la session Frida, du "
+        "roster que `_build_custom` obtient et de la trajectoire native, qu'aucun chemin "
+        "versionne n'exprime. La liste de `chemins` est donc une BORNE INFERIEURE et ne peut pas "
+        "servir a DESELECTIONNER ce fichier -- d'ou `toujours`. Les deux etages purement offline "
+        "((5) canal declaratif et (6) rayon de souffle #175-r2), eux, ne dependent que des "
+        "foyers listes."),
+}
 from engine.entities.effects.factory import EffectFactory
 from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
@@ -283,13 +333,93 @@ def test_immunity_gate_is_the_immune_trait_only(sentinel_runner):
     assert AddEffectOperation.execute(st, src, immune, PINNED, name="Pinned") is not None, \
         "IMMUNITE FANTOME : Pinned refuse sur une cible qui n'a PAS le trait Immune"
     assert AddEffectOperation.execute(st, src, immune, STUNNED, name="Stunned") is not None, \
-        "SUR-IMMUNITE : Stunned refuse alors que CanBeImmuneTo est faux pour cet effet"
+        ("SUR-IMMUNITE : Stunned refuse alors que la cible n'a PAS le trait `Immune`. "
+         "`StunnedEffect.can_be_immune_to` vaut bien `True` (#175-r2), mais le gate est une "
+         "CONJONCTION : sans le trait, il ne refuse rien.")
     assert AddEffectOperation.execute(st, src, control, PINNED, name="Pinned") is not None, \
         "SUR-IMMUNITE : Pinned refuse sur une cible sans TerminatorArmour"
     # ... et le Pinned pose sur la cible TerminatorArmour est INERTE (le point du cas).
     assert PINNED in _port_carried(st, immune)
     assert PINNED not in _port_active(st, immune)
     assert PINNED in _port_active(st, control)
+
+
+# --------------------------------------------------- (6) #175-r2 : le RAYON DE SOUFFLE du drapeau
+
+#: Les EffectTypes servis par une classe a `get_CanBeImmuneTo` VRAI, et leur temoin a drapeau FAUX.
+#: Les trois premiers sont exactement ce que #175-r2 corrige ; le 4e est deja juste depuis #224 et
+#: sert de CONTROLE D'INSTRUMENT (si LUI tombait, ce serait le montage, pas la correction).
+_IMMUNISABLES = (
+    (int(EffectType.Stunned), "Stunned"),                                        # StunnedEffect
+    (int(EffectType.Taunted_OnlySpecificTargets), "Taunted_OnlySpecificTargets"),  # TauntedEffect
+    (int(EffectType.ContagionsOfNurgle_ArmorReduction1),                          # ContagionsOf...
+     "ContagionsOfNurgle_ArmorReduction1"),
+    (PINNED, "Pinned"),                                                           # PinnedEffect
+)
+#: TEMOINS NON NULS a drapeau FAUX -- des ENFANTS du composite Stunned, donc le voisinage le plus
+#: proche possible : si le gate mordait sur eux, il mordrait sur tout.
+_NON_IMMUNISABLES = (
+    (int(EffectType.Stunned_CantUseAbility), "Stunned_CantUseAbility"),
+    (int(EffectType.Stunned_DamageModifier), "Stunned_DamageModifier"),
+)
+
+
+def test_175r2_le_drapeau_change_le_gate_de_POSE_quand_la_cible_porte_Immune(sentinel_runner):
+    """#175-r2 -- le RAYON DE SOUFFLE, mesure sur le gate de POSE et pas seulement sur l'attribut.
+
+    Les 28 porteurs de `UnitTrait.Immune` du catalogue sont TOUS npc ou summons (case-175-e §4),
+    donc aucun roster montable ne met le trait en face du poseur. Le trait est donc AJOUTE a la
+    cible DANS L'ETAT CHARGE (`StatsComponent.ctx.traits`, la source EXACTE que lit
+    `_unit_trait_names`), ce qui est le meme substrat qu'un `AddTrait` en bataille -- aucun cast
+    live, aucun effet de bord sur le runner.
+
+    Les DEUX branches assertionnent, et la contre-epreuve (meme etat, trait RETIRE) est jouee sur
+    les MEMES effets : sans elle, un refus universel passerait pour un succes."""
+    sid, rid = sentinel_runner
+    board, dv, ob, cs = _snapshot(sid, rid)
+    bv = PR.units_by_visual(dv)
+    if IMMUNE_VICTIM not in bv:
+        pytest.skip("roster incomplet: %s" % sorted(bv))
+    tgt = bv[IMMUNE_VICTIM]["id"]
+    src = bv["admecDestroyer"]["id"]
+
+    def _traits(state, uid):
+        from engine.runner.components import StatsComponent as _SC
+        e = state.get_entity(int(uid))
+        sc = e.get_component(_SC) if e is not None else None
+        return None if (sc is None or getattr(sc, "ctx", None) is None) else sc.ctx
+
+    def _pose(avec_immune: bool) -> dict:
+        # UN ETAT FRAIS PAR EFFET, et c'est LOAD-BEARING : poser `Stunned` (1162) d'abord fait
+        # spawner ses sous-effets 1165/1167 par `StunnedEffect.sub_effects_on_apply`, si bien que
+        # la pose EXPLICITE de ces temoins repartait ensuite sur le gate « deja present » et
+        # rendait `False` -- un refus qui n'a rien a voir avec l'immunite. Mesure : le bras
+        # `avec_immune` (ou 1162 est refuse, donc sans sous-effets) rendait `True` pour les deux
+        # temoins et le bras `sans_immune` `False`, c.-a-d. l'INVERSE de ce qui est teste.
+        out = {}
+        for et, nom in _IMMUNISABLES + _NON_IMMUNISABLES:
+            st = load_state(dv, ob, cs, board=board)
+            ctx = _traits(st, tgt)
+            assert ctx is not None, "la cible n'a pas de StatsComponent -- montage non pose"
+            base = [t for t in (ctx.traits or []) if t != UnitTrait.Immune.name]
+            ctx.traits = base + ([UnitTrait.Immune.name] if avec_immune else [])
+            out[nom] = AddEffectOperation.execute(st, src, tgt, et, name=nom) is not None
+        return out
+
+    avec, sans = _pose(True), _pose(False)
+    print("\n[175r2] avec Immune=%s\n[175r2] sans Immune=%s" % (avec, sans))
+
+    # BRAS 1 -- la cible porte `Immune` : les immunisables sont REFUSES, les temoins PASSENT.
+    for _, nom in _IMMUNISABLES:
+        assert avec[nom] is False, \
+            "%s POSE sur une cible `Immune` alors que sa classe a `get_CanBeImmuneTo` vrai" % nom
+    for _, nom in _NON_IMMUNISABLES:
+        assert avec[nom] is True, \
+            "%s REFUSE alors que sa classe herite le `false` de `BaseEffect` -- SUR-IMMUNITE" % nom
+    # BRAS 2 -- CONTRE-EPREUVE : sans le trait, TOUT passe. Sans elle, un refus universel
+    # (etat casse, cible morte, effet deja present) se lirait comme un succes du bras 1.
+    for nom, ok in sans.items():
+        assert ok is True, "%s refuse alors que la cible n'a PAS le trait `Immune`" % nom
 
 
 # ------------------------------------------------------------------ (5) canal declaratif (pur)
@@ -303,14 +433,27 @@ def test_effect_def_channel_is_declarative():
       * `ContaminatedEffect$$EntityIsImmuneToEffect` = ContagionsOfNurgle | Mechanical | base ;
       * `PinnedEffect` n'a AUCUNE surcharge (`search_symbols_by_name EntityIsImmuneToEffect` = 2
         corps dans tout le binaire) -> `TerminatorArmour` ne l'immunise PAS ; c'est sa
-        `CreateActiveCondition` (`is_active`) qui porte le « cannot be Suppressed »."""
+        `CreateActiveCondition` (`is_active`) qui porte le « cannot be Suppressed ».
+
+    ⚠ DEUX ASSERTIONS RETOURNEES (#175-r2, 2026-08-08), et c'est la MESURE qui les retourne, pas
+    une commodite. Elles affirmaient `stunned.can_be_immune_to is False` et
+    `stunned.entity_is_immune_to_effect([Immune]) is False`. Or
+    `IdunBattle.Entities.Effects.Loki.StunnedEffect` SURCHARGE `get_CanBeImmuneTo` avec le corps
+    trivial `b0 01 c3` (`mov al,1 ; ret`) -- lu par DEUX voies independantes et concordantes
+    (`probe_175r2_can_be_immune_to.py` : bloc `methodPointers` avec 8 controles d'alignement, ET
+    vtable RUNTIME + octets du corps). La source qui avait fait ecrire ce `False`
+    (`probe_224_can_be_immune_to.py`) tranchait par des VA LITTERALES d'un build ANTERIEUR : sur
+    `rnca9r7q6c` elle rendait **0** classe a `true` sur les 442 sondees. Elle est reparee dans la
+    meme tranche, et rend desormais `true` pour les 10 classes de cet echantillon."""
     pinned = EffectFactory.effect_def(PINNED, "Pinned")
     contam = EffectFactory.effect_def(int(EffectType.Contaminated), EffectType.Contaminated.name)
     stunned = EffectFactory.effect_def(STUNNED, "Stunned")
     unknown = EffectFactory.effect_def(999999, "PasDeClassePortee")
 
     assert pinned.can_be_immune_to is True and contam.can_be_immune_to is True
-    assert stunned.can_be_immune_to is False and unknown.can_be_immune_to is False
+    assert stunned.can_be_immune_to is True, \
+        "StunnedEffect SURCHARGE get_CanBeImmuneTo a `mov al,1 ; ret` (#175-r2)"
+    assert unknown.can_be_immune_to is False
 
     tn = lambda *t: [UnitTrait(x).name for x in t]                                  # noqa: E731
     assert pinned.entity_is_immune_to_effect(tn(UnitTrait.TerminatorArmour)) is False
@@ -326,9 +469,11 @@ def test_effect_def_channel_is_declarative():
     assert contam.entity_is_immune_to_effect(tn(UnitTrait.Immune)) is True
     assert contam.entity_is_immune_to_effect(tn(UnitTrait.TerminatorArmour)) is False
 
-    # un effet sans surcharge n'est immunisable QUE via le trait generique, et seulement si le drapeau
-    # `CanBeImmuneTo` est vrai -> ici faux -> jamais immune.
-    assert stunned.entity_is_immune_to_effect(tn(UnitTrait.Immune)) is False
+    # un effet sans surcharge d'`EntityIsImmuneToEffect` n'est immunisable QUE via le trait
+    # generique, et seulement si le drapeau `CanBeImmuneTo` est vrai. `Stunned` : vrai (#175-r2)
+    # -> immune ; un effet NON PORTE : la base rend faux -> jamais immune (aucune invention).
+    assert stunned.entity_is_immune_to_effect(tn(UnitTrait.Immune)) is True
+    assert stunned.entity_is_immune_to_effect(tn(UnitTrait.TerminatorArmour)) is False
     assert unknown.entity_is_immune_to_effect(tn(UnitTrait.Immune)) is False
 
 

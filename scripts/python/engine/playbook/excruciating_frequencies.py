@@ -53,7 +53,8 @@ from engine.entities.active_ability_type import ActiveAbilityType   # #270-r1-r1
 # depuis que le cycle `playbook <-> playbook.*` est mort.
 import engine.playbook.prediction as prediction
 from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
-from engine.utilities.tile import triggered_abilities_attack_utility
+from engine.utilities.tile import (triggered_abilities_attack_utility,
+                                   triggered_abilities_non_owner_attack_utility)
 from engine.playbook.base import tile_utility
 from engine.playbook.static_threshold_gate import STATIC_UTILITY_THRESHOLD
 
@@ -114,6 +115,11 @@ def _score(ctx, P: tuple, line_enemies: list):
         # #438 : `prediction` = la `DamagePrediction` du case de CET event (`ForDamagePrediction`).
         trig = triggered_abilities_attack_utility(ctx, ctx.uid, _ABILITY_ID, ev.target, P,
                                                   prediction=ev.prediction)
+        # Feuille TriggeredAbilitiesNonOwner(4) face ATTACK (#271-r4) — l'AUTRE feuille de
+        # dispatch du MEME composite Damage(35). Ce foyer re-somme le composite lui-meme (route
+        # BESPOKE de 1197) : sans cette ligne, il divergerait de `playbook/base.py` sur les
+        # montages ou un porteur non-owner pese.
+        trig += triggered_abilities_non_owner_attack_utility(ctx, ctx.uid, ev.target, P)
         if trig:
             ua += (-1.0 if ev.friendly else 1.0) * ev.probability * trig
         u += ua

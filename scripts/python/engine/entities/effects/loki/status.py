@@ -111,8 +111,7 @@ class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
     de l'aura `ContagionsOfNurgle` (trait 0x7eb = 2027), en DEUX instances de la MEME classe native.
 
     `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$.ctor` =
-    `AStatModifierEffect(AbilityOrEffect(0x431), unitEffectType = 0, canBeImmuneTo = 0,
-    keepOnRevive = 1, isMultiply = 1)` puis `this+0x488 = <cle de constante>`,
+    `AStatModifierEffect(AbilityOrEffect(0x431), 0, 0, 1, 1)` puis `this+0x488 = <cle de constante>`,
     `this+0x48c = <min>`, `this+0x490 = <max>`. Les DEUX seules constructions
     (`IdunBattle.Core.Services.EffectsDatabase` b__14_93 / b__14_94) :
 
@@ -171,7 +170,19 @@ class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
     pre-calcule `-round(FixedArmor x |pct| / 100)` et le range dans `value` -- MEME convention que
     `ContaminatedUnitEffect`.
     MESURE live (case-dpw) : `astraSmnKell` FixedArmor 1496, une seule aura -> 1496 - 299 = **1197**
-    (`combatSnapshot` post-attaque), et `astraCreed` 6000 -> 4800."""
+    (`combatSnapshot` post-attaque), et `astraCreed` 6000 -> 4800.
+
+    ## `get_CanBeImmuneTo` = **true** (#175-r2) -- l'OVERRIDE gagne sur le champ du `.ctor`
+
+    La classe SURCHARGE le slot 59 avec le corps trivial `b0 01 c3` (`mov al,1 ; ret`), lu par DEUX
+    voies concordantes (bloc `methodPointers`, 10 controles d'alignement ; vtable runtime). Les deux
+    zeros que le `.ctor` passe a `AStatModifierEffect$$.ctor` n'y changent RIEN : le getter du
+    parent (`MultiValueStatEntryEffect`) lit bien un CHAMP d'instance (`movzx eax, byte [rcx+X]`),
+    mais `IdunBattle.Entities.Effects.BaseEffect$$EntityIsImmuneToEffect` appelle le slot
+    VIRTUEL (`klass+0x4e8`), donc l'override de cette classe-ci. Une unite `UnitTrait.Immune`
+    refuse donc 1071/1072 au gate de POSE."""
+
+    can_be_immune_to = True                          # `get_CanBeImmuneTo` -> `b0 01 c3`
 
     stat_mod_source = None   # cle de source ChangeStat (revert par-source, symetrique de reverted_stats)
 
@@ -535,7 +546,14 @@ class StunnedEffect(BaseEffect):
       - `IdunBattle.Entities.Effects.Loki.StunnedEffect$$ApplyDamageModifier → 0x48f=1167 Stunned_DamageModifier, via `AddEffect(turns=0)`
         (permanent/lié au parent ; reverté par `ResetDamageModifier`).
     Les enfants portent `parent_type=1162` (lien `ParentEffect@+0x70`) ; ils n'ont pas eux-mêmes de
-    sous-effets. VALIDÉ live (templSwordBrother/ThunderousAssault → tyranTyrantGuard)."""
+    sous-effets. VALIDÉ live (templSwordBrother/ThunderousAssault → tyranTyrantGuard).
+
+    `get_CanBeImmuneTo` = **true** (#175-r2) : la classe SURCHARGE le slot 59 avec le corps trivial
+    `b0 01 c3` (`mov al,1 ; ret`). Une unité `UnitTrait.Immune` refuse donc le composite 1162 au
+    gate de POSE d'`IdunBattle.Operations.AddEffectOperation$$Execute` — donc AUSSI ses trois
+    sous-effets, qui ne sont spawnés que par l'`ApplyInternal` du parent."""
+
+    can_be_immune_to = True                          # `get_CanBeImmuneTo` -> `b0 01 c3`
 
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         return [
@@ -717,7 +735,14 @@ class TauntedEffect(BaseEffect):
     vaut aussi pour l'ATTAQUE NORMALE (masque `0x4002`, donc `TargetIsEnemy` -> règle ARMÉE).
 
     VALIDÉ live attendu : la cible porte 27 + 25/26/1237 (parent 1 round, enfants same-turns) après
-    CrushingClaws."""
+    CrushingClaws.
+
+    `get_CanBeImmuneTo` = **true** (#175-r2) : la classe SURCHARGE le slot 59 avec le corps trivial
+    `b0 01 c3` (`mov al,1 ; ret`). Une unité `UnitTrait.Immune` refuse donc le composite 27 au gate
+    de POSE — et avec lui les trois sous-effets ET l'écriture de `ForcedAttackTargetsComponent`,
+    puisque tout cela vit dans l'`ApplyInternal` du parent."""
+
+    can_be_immune_to = True                          # `get_CanBeImmuneTo` -> `b0 01 c3`
 
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         return [
