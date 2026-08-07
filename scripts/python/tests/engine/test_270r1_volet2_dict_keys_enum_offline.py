@@ -129,13 +129,24 @@ SNAP_TARGETING_UNPORTED = (
     # 1165 MightFromBelow : SORTIE (#501) -- face COMBAT portee, masque migre sur
     # `abilities/loki/might_from_below.py::MightFromBelowAbility.TARGETING_OPTIONS` (valeur
     # inchangee : rules 0x4000, RANGE_ADJACENT, forceMeleeTarget 1). Meme mouvement que 1027/1087.
-    (1177, (4328538162, False, (1, False, True, None, False), 1)),
+    # 1177 LightOfSanguinius RETIREE (#510) : sa face COMBAT est portee, donc son masque a MIGRE sur
+    # `bloodangels.LightOfSanguiniusAbility.TARGETING_OPTIONS` -- meme mouvement que 1027/1038/1048/
+    # 1064/1068/1069/1087/1088/1132/1141/1152/1165. Le `.cctor` a ete RELU a cette occasion et la
+    # valeur qui etait figee ici est CONFIRMEE champ pour champ : `rules = 0x102004032 = 4328538162`
+    # (`<TargetingOptions statics>+0x268`), `selfCast = False`, `range` = `TargetingRange` statics+0x48
+    # = RANGE_WHOLE_BOARD, `forceMeleeTarget = 1` (RangedBool.False). C'est la SOURCE qui bouge.
+    # ⚠ Son JUMEAU 1204 `LeadingTheCharge` (MEME preset, MEME masque) est sorti d'ici en #508, une
+    # tranche PARALLELE -- ce qui les separait etait leur `GetDynamicInvalidTargetReason`, et les
+    # deux faces COMBAT sont desormais portees, chacune par sa tranche.
     # 1191 MartialInspiration RETIREE (#509) : sa face COMBAT est portee, donc son masque a MIGRE
     # sur `custodes.py::MartialInspirationAbility.TARGETING_OPTIONS` -- meme mouvement que
     # 1019/1027/1038/1048/1064/1068/1069/1087/1088/1132/1141/1152/1165. Le ctor a ete RELU a cette
     # occasion (forme STATIC-COPY, preset `<TargetingOptions statics>+0x40`) et la valeur qui etait
     # figee ici est CONFIRMEE champ pour champ : `16384` = `TargetIsEnemy` SEUL, `selfCast = False`,
     # `RANGE_ADJACENT`, `forceMeleeTarget = 1` (`RangedBool.False`). C'est la SOURCE qui bouge.
+    # ⚠⚠ #509 et #510 se sont croisees ICI : chacune ne retirait QUE son couple. Un `--ours`/
+    # `--theirs` aurait RESSUSCITE celui de l'autre, en laissant chaque cote VERT pris isolement.
+    # La resolution est l'UNION des retraits, et les tailles ci-dessous sont RE-DERIVEES du code.
     (1195, (16384, False, (0, False, False, 1, False), 1)),
     # 1204 LeadingTheCharge : SORTIE (#508) -- face COMBAT portee, masque migre sur
     # `abilities/loki/leading_the_charge.py::LeadingTheChargeAbility.TARGETING_OPTIONS`. La VALEUR
@@ -357,15 +368,15 @@ def test_cardinalites_du_volet():
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 28 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
+    passe de 44 a 27 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
     1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1165 (#501), 1064 (#502), 1141 (#503),
-    1132 (#504), 1129 (#505), 1204 (#508), 1191 (#509). Ce que ce cliquet garde est la CONVERSION
-    EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
-    ⚠ #505, #508 et #509 se sont croisees ICI : la premiere retirait 1129, la deuxieme 1204, la
-    troisieme 1191, et CHACUNE annoncait le chiffre de son propre retrait. Le chiffre a ete
-    RE-COMPTE sur `CIBLES` apres resolution -- une soustraction d'un seul cote aurait laisse le
-    test ROUGE au merge, et un `--ours`/`--theirs` aurait RESSUSCITE l'entree des autres en
-    laissant chaque cote VERT pris isolement.
+    1132 (#504), 1129 (#505), 1204 (#508), 1191 (#509), 1177 (#510). Ce que ce cliquet garde est la
+    CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
+    ⚠ #505, #508, #509 et #510 se sont croisees ICI : la premiere retirait 1129, la deuxieme 1204,
+    la troisieme 1191, la quatrieme 1177, et CHACUNE annoncait le chiffre de son propre retrait. Le
+    chiffre a ete RE-COMPTE sur `CIBLES` apres resolution -- une soustraction d'un seul cote aurait
+    laisse le test ROUGE au merge, et un `--ours`/`--theirs` aurait RESSUSCITE l'entree des autres
+    en laissant chaque cote VERT pris isolement.
 
     ⚠ LE NOMBRE CI-DESSUS SE RE-COMPTE SUR `CIBLES`, il ne se deduit JAMAIS par soustraction du
     chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les SEPT dernieres
@@ -378,9 +389,9 @@ def test_cardinalites_du_volet():
     resolution est l'UNION des retraits, et le chiffre est RE-DERIVE de `CIBLES` apres coup --
     #502, #503, #504 puis #505 ont effectivement resolu ce conflit en RE-COMPTANT."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [28, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [27, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 112
+    assert sum(tailles) == 111
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

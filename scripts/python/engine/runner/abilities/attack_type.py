@@ -286,6 +286,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.GrapnelLauncher: AbilityAttackType.DirectTargetAttack,  # 1090
     ActiveAbilityType.Foehammer: AbilityAttackType.DirectTargetAttack,  # 1097
     ActiveAbilityType.HammerOfWrath: AbilityAttackType.DirectTargetAttack,  # 1153
+    # LightOfSanguinius (1177, Dante bloodDante), #510. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = `0` = DirectTargetAttack, transcrit tel
+    # quel. (`&opts` = le MEME PRESET statique `<TargetingOptions statics>+0x240` que 1153 ci-dessus,
+    #  donc le meme masque EFFECTIF `statics+0x268` = 0x102004032 -- ses `TARGETING_OPTIONS` vivent
+    #  sur la classe du registre depuis #510.)
+    ActiveAbilityType.LightOfSanguinius: AbilityAttackType.DirectTargetAttack,  # 1177
     # UnstoppableMomentumReworked (1152, Tanksmasha orksNob), #498. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableMomentumReworkedAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = `0` = DirectTargetAttack. Transcrit tel
