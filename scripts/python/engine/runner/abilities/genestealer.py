@@ -837,7 +837,7 @@ def vigilance_eternal_tree(state: "State", caster_id: int, target_id: int, move_
     splash/crit) : `op_and(If(Not(IsAdjacent(caster,target)), MoveUnit(caster, destTile)),
     If(IsAlive(caster) & IsAlive(target), AttackWithAttackDamage(caster->target, Power, 3 hits)))`.
     dest = `_vigilance_move_dest_tile` (pool `_charge_candidate_tiles` avec surround_radius=1,
-    move_range=`range`=2, puis collapse du tri `MovementSuggestion(32)`) PRE-move ; gate move =
+    move_range=`range`=2, puis collapse du tri `MovementSuggestion(33)`) PRE-move ; gate move =
     `Not(IsAdjacent)` (dist==1 : bouge sauf si deja adjacent) ; gate attaque = les deux vivants
     (re-eval LIVE apres le move -- Voie A, `LiveUnit`)."""
     dest = _vigilance_move_dest_tile(state, caster_id, target_id, move_range)

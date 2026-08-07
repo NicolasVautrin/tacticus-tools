@@ -358,7 +358,7 @@ def _ancestral_fortune_attack_target(state: "State", caster_id: int) -> Optional
       `SortUnitsByDamageUtility` branche sur son slot +0x40).
     - le TRI + le `First` sont le port PARTAGE `first_by_damage_utility`
       (`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select` = argmax du composite
-      Damage(34)), le meme etage que FinalJustice.
+      Damage(35)), le meme etage que FinalJustice.
 
     Selecteur AI-target (kind S lourd, chevauche le playbook) -> COLLAPSE imperativement, comme
     `_finaljustice_target`, puis injecte dans l'arbre via `Target()`. None si aucun ennemi adjacent."""

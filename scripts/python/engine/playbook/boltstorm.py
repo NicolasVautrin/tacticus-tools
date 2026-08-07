@@ -2,7 +2,7 @@
 passif de `templAggressor` << Burchard >> (HERO) et de 4 npc `templBossAggressor*` : 5 porteurs
 DISPATCHES, quatrieme des residus ATTACK de #419-r1.
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire, Lakrimae, BarbedOvipositor et Neuroparasite
 (`utilities/tile.py::evaluate_attack_in_steps`, vslot 3).
 

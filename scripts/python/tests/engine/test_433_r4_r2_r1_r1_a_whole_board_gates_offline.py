@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import pytest
 
+from engine.entities.active_ability_type import ActiveAbilityType
 from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.services import ability_range as ar
 
@@ -125,23 +126,46 @@ def test_an_unread_mask_never_shrinks():
     """Sans masque lu, le port ne retire rien : l'ecart ne peut qu'ELARGIR -- meme arbitrage que
     `GATE_NOT_READ`.
 
-    ⚠ Le TEMOIN a change DEUX fois, et la seconde dit pourquoi il en fallait un meilleur :
-    `1177 LightOfSanguinius` a ete lu par `#433-r4-r2-r1-r2-r2-r1-r1`, puis `1053 DevoutPush` par
-    `#433-r4-r2-r1-r2-r2-r1-r1-r1`. Un temoin « pas ENCORE lu » se perime a chaque tranche de
-    portage -- c'est le seul gisement que notre propre cadence alimente.
+    ⚠ CE TEST N'A PLUS DE TEMOIN FIGE, et c'est TOUTE la reparation (#519). Il en avait eu TROIS,
+    tombes chacun a son tour par notre propre cadence : `1177 LightOfSanguinius` lu par
+    `#433-r4-r2-r1-r2-r2-r1-r1`, `1053 DevoutPush` par `#433-r4-r2-r1-r2-r2-r1-r1-r1`, puis
+    `1091 SlashingDive` par `#507` -- ce dernier a rendu `master` ROUGE, dans DEUX fichiers.
+    Chaque remplacement declarait son successeur mieux choisi (« non-lecture STRUCTURELLE ») ; le
+    troisieme est tombe en quelques heures. Un id fige du cote « pas ENCORE lu » ne peut PAS etre
+    bien choisi : la cadence de portage le vise par construction.
 
-    Le temoin est maintenant `1091 SlashingDive`, dont la non-lecture est STRUCTURELLE et non
-    circonstancielle : aucune classe `SlashingDiveAbility` n'existe dans les tables (seuls son
-    Playbook et ses Visuals portent ce nom), donc il n'y a aucun ctor a lire -- trancher exigerait
-    le slot de vtable de l'INSTANCE, au runtime (residu `#433-r4-r2-r1-r2-r2-r1-r1-r1-r2`, garde
-    par `test_433_r4_r2_r1_r2_r2_r1_r1_r1_source_tile_zone_offline.py`)."""
+    Le temoin est donc DERIVE de la partition courante d'`ActiveAbilityType` (les 260 ids du build),
+    et le test porte sur TOUS les non-lus a la fois -- ce que le temoin unique n'a jamais fait.
+    Il ne peut plus se perimer par un port : au pire il retrecit, et il ROUGIT en le disant s'il
+    devait se vider (assertion de non-vide -- un ensemble vide serait passe pour un vert).
+
+    Le cliquet du motif entier est `scripts/python/probe_519_temoins_de_camp.py`."""
     from engine.runner.abilities.targeting import targeting_options_for
-    assert targeting_options_for(1091) is None, "temoin PERIME : le masque de 1091 a ete lu"
-    assert ar.target_tiles_zone_is_empty(1091) is False
-    assert targeting_options_for(1177) is not None, "1177 doit desormais porter son masque"
-    assert ar.target_tiles_zone_is_empty(1177) is False       # LU, et il porte `TargetIsEnemy`
-    assert ar.target_tiles_zone_is_empty(999999) is False
-    assert ar.target_tiles_zone_is_empty(None) is False
+    ids = sorted({int(a) for a in ActiveAbilityType})
+    non_lus = [a for a in ids if targeting_options_for(a) is None]
+    lus = [a for a in ids if targeting_options_for(a) is not None]
+
+    # Le test ASSERTIONNE SON PROPRE NON-VIDE : sans ces deux lignes, une partition degeneree
+    # (tout lu, ou rien lu) rendrait les boucles ci-dessous vertes sans rien evaluer.
+    assert non_lus, "aucun masque NON LU : la boucle ci-dessous n'evaluerait RIEN"
+    assert lus, "aucun masque LU : le volet de discrimination n'evaluerait RIEN"
+
+    # 1. L'INVARIANT : un masque non lu ne retire JAMAIS de tuile -- sur TOUS les non-lus.
+    for aid in non_lus:
+        assert ar.target_tiles_zone_is_empty(aid) is False, \
+            "ability %d : masque NON LU et pourtant zone VIDE -- le port RETRECIT sans avoir lu" % aid
+
+    # 2. CONTRE-EPREUVE, sinon l'invariant ci-dessus tiendrait aussi d'une fonction qui rend
+    #    TOUJOURS `False` (accord en regime DEGENERE = zero preuve). Chez les masques LUS, la
+    #    reponse doit DEPENDRE des bits : le court-circuit `TargetIsFriendly && !TargetIsEnemy`
+    #    est porte par une partie stricte d'entre eux.
+    vides = [a for a in lus if ar.target_tiles_zone_is_empty(a) is True]
+    assert vides, "aucun masque LU ne rend une zone VIDE : la fonction ne discrimine plus"
+    assert len(vides) < len(lus), "TOUS les masques LUS rendent une zone vide : regime degenere"
+
+    # 3. Les deux entrees STRUCTURELLES, qui ne peuvent perimer par aucun port.
+    assert ar.target_tiles_zone_is_empty(999999) is False      # id inexistant
+    assert ar.target_tiles_zone_is_empty(None) is False        # non convertible en int
 
 
 # ------------------------------------------------- 3. le regime `GATE_VALID_ON_EMPTY_TILE`

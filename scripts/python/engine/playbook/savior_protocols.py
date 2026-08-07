@@ -3,7 +3,7 @@
 lineup -- 3 npc (`tauNpc2DroneSniper`, ...) et 3 SUMMONS (`tauSmnDroneCommandLink`,
 `tauSmnDroneSniper`, `tauSmnDroneShield`).
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire, Lakrimae et BarbedOvipositor
 (`utilities/tile.py::evaluate_attack_in_steps`, vslot 3).
 

@@ -10,13 +10,33 @@ DECOMPILE (`…SortUnitsByDamageUtilitySelector$$Select`, lecture integrale) :
     ability = (+0x28) ? (+0x28).Calculate(...) : GetNormalAttackType(owner)
     foreach u in units :
         pred = <DamagePrediction scenario 0x25>(owner, u, ability, dmgMin, dmgMax, …)
-        dict[u] = UtilityDecider.CalculateUtility(+0x38 = UtilityDefinition(0x22 = 34 = Damage), u, pred)
+        dict[u] = UtilityDecider.CalculateUtility(+0x38 = UtilityDefinition(0x23 = Damage), u, pred)
     return units.OrderBy( u => Fix64.op_UnaryNegation(dict[u]) ).ToList()
 
 Le lambda de tri (`…SortUnitsByDamageUtilitySelector.u003Cu003Ec__DisplayClass9_0$$u003CSelectu003Eb__0`)
 rend **−utilite** ⇒ `OrderBy` croissant sur −u = tri **DECROISSANT** par utilite ⇒ le `First(…)` d'un
-call-site prend l'**argmax du composite Damage(34)** = DamageDealt(35) + KillUnit(36) + OverkillUnit(38)
-(`engine.utilities.damage_composite`, poids BC `Utilities`).
+call-site prend l'**argmax du composite `UtilityType.Damage`** = `DamageDealt` + `KillUnit` +
+`OverkillUnit` (`engine.utilities.damage_composite`, poids BC `Utilities`).
+
+⚠ CITATION CORRIGEE (#519, ex-`#504-r1`) -- elle etait PERIMEE D'UN BUILD, et melangee. Elle
+annoncait `UtilityDefinition(0x22)`, `Damage = 34`, `DamageDealt = 35`, `KillUnit = 36` et
+`OverkillUnit = 38`. Or `IdunBattle.Configuration.UtilityType` a vu UNE SEULE insertion entre
+`gqfc5mff6c` et `rnca9r7q6c` -- `AttackTile` en 8 -- ce qui a decale de +1 les **73** membres qui
+la suivent, `Damage` compris :
+
+    gqfc5mff6c :  33 TileDistance  34 Damage  35 DamageDealt  36 KillUnit  37 OverkillUnit
+    rnca9r7q6c :  34 TileDistance  35 Damage  36 DamageDealt  37 KillUnit  38 OverkillUnit
+
+Trois des quatre ordinaux cites venaient donc de l'ANCIEN build et le quatrieme (`OverkillUnit
+38`) du NOUVEAU -- une citation qu'aucun des deux builds ne rend vraie. LE CODE, LUI, ETAIT JUSTE :
+il ne lit aucun ordinal en dur, il passe par le mirror `engine.utilities.utility_type.UtilityType`,
+et le comportement est valide live (#504, bit-exact au tirage pres). Le natif confirme la valeur
+courante : les deux surcharges de `IdunBattleLogic.Entities.DSLSelectors$$SortUnitsByDamageUtility`
+qui construisent elles-memes la definition appellent
+`IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(this, 0x23)`.
+C'est pourquoi les ordinaux ne sont PLUS ecrits ici : seuls les NOMS le sont, et `0x23` -- le
+litteral VERBATIM du decompile -- garde son commentaire de nom. Un ordinal recopie se perime en
+silence au prochain build ; un nom se re-derive de `data/symbols/<build>/frida/enums.tsv`.
 
 La prediction IA est PRE-ARMURE (`armor = 0`, cf. en-tete de `services/damage_prediction`) ⇒ la PLAGE de
 degat est la MEME pour toutes les cibles ; le classement ne depend que des PV courants/max et des flags
@@ -55,7 +75,7 @@ def damage_utility_weights():
 
 def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
                     might_crit: bool = False) -> float:
-    """`UtilityDecider.CalculateUtility(UtilityDefinition(0x22 = Damage), cible, prediction)` pour UNE
+    """`UtilityDecider.CalculateUtility(UtilityDefinition(0x23 = Damage), cible, prediction)` pour UNE
     cible — mirror des champs que `UtilityAttackCase$$ForDamagePrediction` lit du `DamagePredictionResult`
     (bornes santé capées/brutes, PV avant, kill = `MightBeKill`, killSure = `WillBeKill`). Bouclier non
     modelise (`shieldBefore = 0`, meme residu que le reste du moteur).
@@ -122,7 +142,7 @@ def sort_units_by_damage_utility(state: State, candidates, dmin: int, dmax: int)
 
 
 def first_by_damage_utility(state: State, candidates, dmin: int, dmax: int) -> Optional[int]:
-    """`First(SortUnitsByDamageUtility(…), 1)` — l'argmax du composite Damage(34), ou None si aucun
+    """`First(SortUnitsByDamageUtility(…), 1)` — l'argmax du composite `UtilityType.Damage`, ou None si aucun
     candidat. Argmax STRICT sur l'ordre `id` croissant = 1er id en cas d'egalite parfaite (== la stabilite
     de l'`OrderBy` natif sur l'ordre source, cf. l'avertissement de `sort_units_by_damage_utility`)."""
     best, best_util = None, None

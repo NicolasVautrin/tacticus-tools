@@ -2,7 +2,7 @@
 `BarbedOvipositor` (1204), passif de `tyranParasite` << Parasite of Mortrex >> (HERO, au pool) et
 de 6 npc `tyranBossParasite*` : 7 porteurs DISPATCHES, tete de la liste des residus ATTACK de #419.
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire et Lakrimae (`utilities/tile.py::evaluate_attack_in_steps`,
 vslot 3).
 

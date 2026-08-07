@@ -3,7 +3,7 @@ passif de 3 npc `ultra*Intercessor*` (`ultraNpc3Intercessor`, `ultraNpc4HeavyInt
 `ultraNpc4HeavyIntercessorSurv`) et du SUMMON `ultraSmnHeavyIntercessor` : 4 porteurs DISPATCHES,
 tete des residus ATTACK a corps NON trivial de #419-r1 par nombre de porteurs.
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire, Lakrimae, BarbedOvipositor, Neuroparasite, SaviorProtocols,
 AvalancheOfMuscle, Boltstorm, FireOfAbsolution, CosmicHorror et LightImUp
 (`utilities/tile.py::evaluate_attack_in_steps`, vslot 3).

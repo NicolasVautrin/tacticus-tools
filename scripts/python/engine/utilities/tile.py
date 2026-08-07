@@ -734,7 +734,7 @@ class TriggeredAbilitiesUtility(BaseUtility):
     def evaluate_attack_in_steps(self, ctx, attacker_uid: int, ability_id: int,
                                  target_uid: int, attack_tile, prediction=None) -> float:
         """Face ATTACK du dispatcher — `<EvaluateAttackInSteps>IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateAttackInStepsInternalu003Ed__3$$MoveNext` (feuille 2
-        du composite Damage(34), #45-s18) : itère les abilities déclenchées de l'ATTAQUANT (kit
+        du composite Damage(35), #45-s18) : itère les abilities déclenchées de l'ATTAQUANT (kit
         COMPLET passifs+traits = AbilitiesComponent), `PlaybookDatabase.LoadPlaybook`, Σ des
         `ITriggeredAbilityPlaybook.CalculateAttackUtilityInSteps` (vslot 3 — registre attack
         `engine/playbook/psyker.py`). `ctx` = AiDecisionContext (scene/wt/hpmax/normal_ids), PAS le
@@ -928,7 +928,7 @@ def tile_composite(tile, meta: dict | None, ctx: dict, wt: Weights) -> float:
     return TILE_UTILITY.evaluate(tile, meta or {}, ctx, wt)
 
 
-# ── `TileDistance(34)` : la SŒUR de `Tile(7)` dans le composite `MovementSuggestion(32)` (#201) ──────
+# ── `TileDistance(34)` : la SŒUR de `Tile(7)` dans le composite `MovementSuggestion(33)` (#201) ──────
 class TileDistanceUtility(BaseUtility):
     """`IdunBattle.AI.Utilities.TileDistanceUtility` (`IdunBattle.AI.Utilities.TileDistanceUtility$$.ctor` ;
     UtilityType.TileDistance=34). Mirror 1:1 de
@@ -1102,7 +1102,7 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     et `IdunBattle.AI.Utilities.UtilityMovementCase` porte deux accesseurs dédiés à ce cas —
     `get_IsSpawning` (= `unit == null && parent != null`) et `get_UnitOrParent` (= `unit ?? parent`).
     Le ctx produit porte donc `is_spawning=True` et AUCUNE clé de sujet : chaque feuille applique sa
-    propre dégradation NOMMÉE (0 pour `TriggeredAbilities(2)`/`DespoiledGround(28)`/
+    propre dégradation NOMMÉE (0 pour `TriggeredAbilities(2)`/`DespoiledGround(29)`/
     `HeroLikeDoorOpening(31)`, `IsSpawning` INLINÉ ⇒ « traité comme un summon » pour `CapturePoint(25)`/
     `PowerUp(27)`/`SummonDislikeDoorOpening(30)`).
 
@@ -1204,7 +1204,7 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
     `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` : le natif les met dans le
     `UtilityMovementCase(dc.units, tile, null, null, dc.owner)` que chaque feuille reçoit, donc les
     feuilles gatées sur l'unité (`TriggeredAbilities(2)`, `CapturePoint(25)`, `PowerUp(27)`,
-    `DespoiledGround(28)`, `HeroLikeDoorOpening(31)`, …) le VOIENT. Tant que ce dict était vide,
+    `DespoiledGround(29)`, `HeroLikeDoorOpening(31)`, …) le VOIENT. Tant que ce dict était vide,
     elles rendaient toutes 0 — c'était le « non couvert » de case-165, et la cause du résidu §4.
 
     `unit_id is None` = `case.unit == null`. Deux régimes, distingués par le PARENT (case-205) :
@@ -1795,7 +1795,7 @@ def _attract_to_decoys_friend_count(lc: dict) -> int:
 
 def triggered_abilities_attack_utility(ctx, attacker_uid: int, ability_id: int,
                                        target_uid: int, attack_tile, prediction=None) -> float:
-    """Feuille TriggeredAbilities(2) FACE ATTACK du composite Damage(34) (#45-s18) — entrée des deux
+    """Feuille TriggeredAbilities(2) FACE ATTACK du composite Damage(35) (#45-s18) — entrée des deux
     scoreurs de paire (`playbook.base.calculate_action_utility` + stages `_formula_pair_utility`).
     Le natif évalue les 13 feuilles Damage DANS `ForDamagePrediction`, PAR DamageEvent -> ce terme
     s'ajoute au `damage_composite` de l'event et suit son `prob x signe` (à appliquer PAR L'APPELANT,

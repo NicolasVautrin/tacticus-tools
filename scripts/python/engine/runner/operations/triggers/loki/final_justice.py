@@ -61,7 +61,7 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
     0x22 = 34 = composite Damage, cible, prediction)` → Dict cible→util → `OrderBy(util via lambda
     <Select>b__0)` → 1ʳᵉ. Le lambda `<Select>b__0`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector.u003Cu003Ec__DisplayClass9_0$$u003CSelectu003Eb__0 renvoie **`Fix64.op_UnaryNegation(util)`**
     (= −util) ⇒ `OrderBy(−util)` = tri DÉCROISSANT par utilité ⇒ la 1ʳᵉ cible = utilité **MAX**.
-    ⇒ FinalJustice frappe l'**argmax du composite Damage(34)** = DamageDealt(35)+KillUnit(36)+
+    ⇒ FinalJustice frappe l'**argmax du composite Damage(35)** = DamageDealt(36)+KillUnit(37)+
     OverkillUnit(38) (`engine.utilities.damage_composite`). Kharn = mêlée ⇒ cibles = ennemis adjacents.
 
     Prédiction PRÉ-ARMURE (`_normal_attack_health_range`) ⇒ dégât identique pour toutes les cibles ; le
@@ -84,7 +84,7 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
 
     dmin, dmax = rng_pred
     # `First(SortUnitsByDamageUtility(…), 1)` — étage de tri PARTAGÉ (port du sélecteur natif) : argmax du
-    # composite Damage(34), tie-break `id` croissant. Bit-identique à l'ancien corps inline (mêmes champs).
+    # composite Damage(35), tie-break `id` croissant. Bit-identique à l'ancien corps inline (mêmes champs).
     return first_by_damage_utility(state, cands, dmin, dmax)
 
 

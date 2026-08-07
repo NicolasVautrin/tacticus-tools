@@ -2,7 +2,7 @@
 (1183), passif de `tyranNeurothrope` << Neurothrope >> (HERO, AU POOL `rl_duel build --list-pool`)
 et de 6 npc : 7 porteurs DISPATCHES, a EGALITE DE TETE de la liste des residus ATTACK de #419.
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire, Lakrimae et BarbedOvipositor
 (`utilities/tile.py::evaluate_attack_in_steps`, vslot 3).
 
