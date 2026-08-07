@@ -773,6 +773,23 @@ L'exposant se lit directement : ×4,1 d'occupation ⇒ ×15,4 de coût ; ×6,7 �
 **k ≈ 2,0** — le coût croît comme le **CARRÉ** de l'occupation. Sur la paire du jour, 1,65× de
 fenêtre a coûté **3,05×**.
 
+⚠ **Le rabais de cache est APPLIQUÉ, et le verdict n'en dépend pas** — vérifié plutôt qu'affirmé.
+Le `cache_read` pèse **78 %** du coût du gros agent et **75 %** du petit ; on pourrait donc croire
+que tout tient au prix qu'on lui donne. Balayage de ce prix, de gratuit à plein tarif :
+
+| prix `cache_read` | rapport gros/petit | k |
+|---|---|---|
+| 0,0 (gratuit) | 2,62× | 1,92 |
+| **0,1 (Anthropic)** | **3,05×** | **2,22** |
+| 0,9 | 3,17× | 2,30 |
+| 1,0 (aucun rabais) | 3,18× | 2,30 |
+
+Le rapport reste dans `[2,6 ; 3,2]` et `k` dans `[1,9 ; 2,3]` sur **tout** l'intervalle. Même en
+rendant le cache **gratuit**, 1,65× de fenêtre coûte 2,6× — parce que le `cache_write` (17–19 %)
+croît lui aussi avec le contexte. Un paramètre de prix ne peut donc pas retourner la conclusion.
+(Même remarque pour le `cache_write`, pris à 1,25× ici alors que le TTL 1 h se facture 2× : sa
+part est quasi identique des deux côtés, donc elle se simplifie dans le rapport.)
+
 **Trois conséquences opérationnelles**, toutes contre-intuitives si on raisonne en fenêtre :
 
 1. **Découper paie, et beaucoup.** Deux tranches à 450 K coûtent ~22 M ; une seule à 880 K en
