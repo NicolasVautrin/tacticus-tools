@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **122**
-- **NO-OP silencieux** (a porter) : **53**
-- Ventilation NO-OP : **DAMAGE**=24, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **123**
+- **NO-OP silencieux** (a porter) : **52**
+- Ventilation NO-OP : **DAMAGE**=23, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (53)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (52)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -45,7 +45,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1170 | ExplosivePresents | DAMAGE(Blast) | 1 | N |
 | 1227 | HeavyWarpFlamer | DAMAGE(Flame) | 1 | L |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
-| 1196 | LashOfTorment | DAMAGE(Eviscerate) | 1 | L |
 | 1216 | MartialExemplar | DAMAGE(Power) | 1 | N |
 | ? | Maugetar | DAMAGE(DirectDamage) | 1 | N |
 | 1093 | MortarionsPlagueWind | DAMAGE(Psychic) | 1 | N |
@@ -88,7 +87,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (122)
+## PORTED (registry) (123)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -173,6 +172,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1206 | GravitonRifle | DAMAGE(Physical) | 1 | L |
 | 1089 | GreatFrostAxe | DAMAGE(Piercing) | 1 | L |
 | 1153 | HammerOfWrath | DAMAGE(Power) | 1 | L |
+| 1196 | LashOfTorment | DAMAGE(Eviscerate) | 1 | L |
 | 1177 | LightOfSanguinius | DAMAGE(Melta) | 1 | L |
 | 1191 | MartialInspiration | DAMAGE(Eviscerate) | 1 | L |
 | 1222 | MassDriverAccelerator | DAMAGE(DirectDamage) | 1 | L |

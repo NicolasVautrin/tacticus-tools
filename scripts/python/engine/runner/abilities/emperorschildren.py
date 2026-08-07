@@ -12,6 +12,10 @@ Contenu :
   ligne droite depuis Shiron A TRAVERS la TUILE visee : +`extraCritChance` % de CRIT CHANCE par
   UNITE (toutes equipes) sur la ligne, pose sur le caster le temps du cast, puis `nrOfHits` coups
   Blast sur CHAQUE ENNEMI de la ligne, puis retrait du buff.
+- `LashOfTorment` (1196, `emperLucius` « Lucius ») — `nrOfHits` coups Eviscerate sur UN ennemi a
+  `range` hexes, puis (caster vivant) PULL d'un hex vers Lucius et, si la cible lui est ADJACENTE
+  APRES le pull, un bond `Taunted_OnlySpecificTargets` de `nrOfRounds` rounds. RE build
+  `rnca9r7q6c` (#524).
 """
 from __future__ import annotations
 
@@ -32,7 +36,7 @@ from ...entities.selectors.units import (
     AdjacentEnemies, Damageable, Enemies, Union, UnitSet, Units, UnitsDamagedThisPhase
 )
 from ...entities.stats import StatType
-from ...entities.triggers import IsDead, HasUnitFlag, TriggerAnd
+from ...entities.triggers import IsAdjacent, IsAlive, IsDead, HasUnitFlag, TriggerAnd
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
@@ -40,13 +44,15 @@ from ..components import StatsComponent
 from .base import ActiveAbility
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state, entities_with_tile_target
-from .behaviours.effects import AddStaticStatModifierEffect, RemoveEffect
+from .behaviours.effects import AddBondEffect, AddStaticStatModifierEffect, RemoveEffect
+from .behaviours.movement import PullUnitOneTile
 from .loki import _pick_randomly_n
-from .targeting import (RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions,
-                        _dynamic_rule_excruciating_frequencies,
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                        TargetingOptions, _dynamic_rule_excruciating_frequencies,
                         excruciating_frequencies_affected_tiles)
 from .targeting_rule import TargetingRule as TR
 from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
+from ...entities.unit_selection_type import UnitSelectionType   # #524 : 3e arg d'`IsAdjacent`
 
 if TYPE_CHECKING:
     from ..state import State
@@ -436,3 +442,206 @@ class ExcruciatingFrequenciesAbility(ActiveAbility):
                 "tiles": tiles, "nr_of_tiles": n_tiles, "units_on_line": sur_ligne,
                 "extra_crit_chance": crit, "crit_chance": (posee or {}).get("amount"),
                 "attacks": attaques, "dsl": True}
+
+
+# ================== LashOfTorment (emperLucius « Lucius », actif 1196) ==========================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.LashOfTormentAbility$$ExecuteBehaviour` --
+# MIRROR du DECOMPILE (build `rnca9r7q6c`, #524). Slots de `DSLSelectors` (`factory+0x90`, champs de
+# la factory decales de `0x118`) : `sel+0x48 = Caster` (`factory+0x160`), `sel+0x60 = Target`
+# (`factory+0x178`) ; `factory+0x78 = DSLBehaviors`, `factory+0x80 = DSLFormulas`,
+# `factory+0x88 = DSLTriggers`.
+#
+#     attaque = AttackWithAttackDamage( caster@0x48, target@0x60,
+#                                       MinMaxDamage(abilityState, isPrediction: 0),
+#                                       Nullable(GetDamageProfile()), GetHits(),
+#                                       AbilityOrEffect(abilityState), <options ZERO>,
+#                                       selectionType: 2 )
+#     pull    = PullUnitOneTile( caster@0x48, target@0x60,
+#                                elevationDifferenceForKnockback: <Nullable NUL> )
+#     bond    = AddBondEffect( 0x1b = 27 Taunted_OnlySpecificTargets, AbilityStateReference,
+#                              source = caster@0x48, targets = target@0x60,
+#                              bondedEntity = caster@0x48,
+#                              turns = TurnsFromRounds(GetVariableForLevel(0x68 = nrOfRounds)) )
+#     taunt   = If( IsAdjacent(caster@0x48, target@0x60, selectionType: 3), bond )
+#     queue   = IfAlive( caster@0x48, pull op_BitwiseAnd taunt )
+#     AActiveAbility.Execute( attaque op_BitwiseAnd queue )
+#
+# ⚠ **`Execute`, PAS `ExecuteAtomic`** -- la callee est
+# `IdunBattle.Entities.Abilities.AActiveAbility$$Execute(behaviour, entities)` (2 arguments) : AUCUN
+# `AtomicGroup` (comme `ExcruciatingFrequencies` ci-dessus, CONTRASTE avec `DoomSiren`).
+#
+# ⚠ **L'ATTAQUE PRECEDE LE PULL** -- `op_BitwiseAnd(attaque, IfAlive(...))`, et `IdunBattle.DSL.
+# CombinedBehaviour$$Execute` execute gauche PUIS droite. C'est l'INVERSE de `GrapnelLauncher`
+# (1090), dont l'ExecuteBehaviour ouvre par le pull ; les deux se lisent, aucun ne se deduit de
+# l'autre. L'i2 le dit d'ailleurs dans cet ordre (« deals ... Damage ... it is **then** pulled »).
+#
+# ⚠ **`6` N'EST PAS UN LITTERAL DE L'ARBRE.** Le nb de coups vient de
+# `IdunBattle.Entities.Abilities.AActiveAbility$$GetHits` = `AbilityConfiguration.GetNumberConstant(
+# config, 0x2f = nrOfHits)` -- une CONSTANTE DE CONFIG, pas une formule et pas un `Direct(6)` :
+# aucun `IAmountFormula` optionnel n'est lu ici (contraste avec le champ que
+# `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$ExecuteTarget` evalue). Le port passe donc
+# `hits_key="nrOfHits"` (defaut) et NE CODE AUCUN 6.
+#
+# ⚠ **`elevationDifferenceForKnockback` est NUL** (4e argument litteral `0`), CONTRASTE avec
+# `GrapnelLauncher` qui y met `Nullable(GetNumberConstant(0x5b = knockbackRange))` -> un pull REUSSI
+# ne paie AUCUN knockback de denivele. La branche `else` de la queue commune de
+# `IdunBattle.Operations.DisplaceUnitOperation$$Execute`, elle, reste armee (`options+0x10 = 1`
+# pose par `PullUnitOneTile`) : cible DEJA ADJACENTE -> l'arc AVANT se reduit a la tuile du CASTER,
+# `IsFilled` -> aucun deplacement mais un `ApplyKnockbackTo(caster, target)`. C'est le meme quirk
+# que 1090, et l'i2 (« If the target is not already adjacent ... it is then pulled ») n'en dit rien.
+#
+# ⚠ **LE TAUNT EST EVALUE APRES LE PULL** : `IsAdjacent` est le `cond` d'un `If` place a DROITE du
+# `op_BitwiseAnd(pull, taunt)`, et le contexte `AbilityEntities` du port est LIVE (`LiveUnit` re-lit
+# `pos`/`feet` a chaque acces) -> l'adjacence est mesuree sur la position d'APRES le pull, comme le
+# natif. C'est l'i2 « If the target is adjacent to Lucius **after the attack** ».
+#
+# ⚠ **`selectionType: 3` (= `OnlyAliveAndTargetable`) de l'`IsAdjacent`** part au SELECTEUR, pas au
+# predicat par-paire ; la couche selecteur du port ne le consomme pas encore (residu NOMME
+# `#433-r3-r2`, partage par TOUS les call-sites portes d'`IsAdjacent` -- orks 1058, genestealer,
+# sisterhood, custodes). CONSEQUENCE ICI, chiffree : si les `nrOfHits` coups TUENT la cible, le natif
+# ne voit plus qu'un ensemble VIDE cote `B` et rend FAUX (pas de taunt), alors que le port evalue
+# l'adjacence du CADAVRE (qui occupe encore sa tuile, aucun `KillDeadUnits` dans cet arbre) et pose le
+# bond. Divergence PERMISSIVE bornee au seul regime « cible morte du cast » -- cf. le test de garde.
+#
+# ⚠ **`AbilityStateReference` (3e argument d'`AddBondEffect`) n'est PAS bake ici** (`scale_from_source`
+# reste a False) : `EffectType.Taunted_OnlySpecificTargets` est un effet COMPOSITE (`TauntedEffect` ->
+# enfants 25/26/1237) qui ne lit AUCUN `ConfigVar` cote port -- meme lecture que les deux bonds de
+# `worldeaters.py::overwhelming_wrath_tree`.
+
+LASH_OF_TORMENT_ID = "LashOfTorment"
+#: `AddBondEffect(0x1b, ...)` -- l'effet BOND `TauntedEffect`, COMPOSITE (enfants 25/26/1237), le
+#: MEME que posent `CrushingClaws` / `GetEmRuntz` / `OverwhelmingWrath`.
+LT_TAUNTED = int(EffectType.Taunted_OnlySpecificTargets)             # 0x1b = 27
+#: `AbilityConfiguration.GetVariableForLevel(config, 0x68, abilityState, 0)` -> `variables.nrOfRounds`.
+#: ⚠ QUALIFICATION D'ENUM : `0x68` est un `AbilityVariableType` parce que l'ACCESSEUR appele est
+#: `GetVariableForLevel` (type DECLARE de son 1er parametre) ; `AbilityConstantType(104)` nomme
+#: `unitId`, une cle sans rapport. Le gameconfig de 1196 porte bien un TABLEAU `nrOfRounds`
+#: (1 au lvl 1..17, 2 jusqu'au 35, 3 ensuite) -- donc une VARIABLE par niveau, pas une constante.
+LT_VAR_NR_OF_ROUNDS = AbilityVariableType.nrOfRounds                 # 0x68 = 104
+
+
+def lash_of_torment_nr_of_rounds(state: "State", caster_id: int) -> int:
+    """`AbilityConfiguration.GetVariableForLevel(config, 0x68 = nrOfRounds, abilityState, 0)` -- la
+    duree du bond, en ROUNDS (le noeud `IdunBattleLogic.Entities.DSLFormulas$$TurnsFromRounds` la
+    convertit en TOURS, ce que fait `_resolve_duration` cote port via
+    `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`).
+
+    Le NIVEAU et le MULTIPLICATEUR viennent du `StatsComponent` du caster (`active_ability_level` /
+    `ability_variables_multiplier`) : c'est l'`AbilityState` que le natif passe a `GetVariableForLevel`
+    (meme lecture que `excruciating_frequencies_extra_crit_chance`). `nrOfRounds` n'est PAS dans
+    `variablesAffectedByRarityBonus` de 1196 (seuls `minDmg`/`maxDmg` y sont), donc le multiplicateur
+    ne mord pas -- il est passe quand meme, parce que c'est la CONFIG qui decide, pas le site d'appel.
+    Variable absente -> `None`, ce qui laisse `AddBondEffect` retomber sur `DefaultAmountOfRounds` au
+    lieu d'inventer une duree."""
+    ce = state.get_entity(int(caster_id))
+    sc = ce.get_component(StatsComponent) if ce is not None else None
+    cctx = sc.ctx if sc is not None else None
+    level = getattr(cctx, "active_ability_level", None)
+    mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+    v = ability_var(LASH_OF_TORMENT_ID, LT_VAR_NR_OF_ROUNDS.name, level, multiplier_pct=mult)
+    return int(v) if v is not None else None
+
+
+def lash_of_torment_tree(nr_of_rounds):
+    """Arbre COMPLET de `...LashOfTormentAbility$$ExecuteBehaviour` (cf. le bloc ci-dessus) :
+
+        attaque & IfAlive( Caster, pull & If(IsAdjacent(Caster, Target), bond) )
+
+    - `AttackWithAttackDamage` famille ATTACK (`IdunBattleLogic.Entities.DSLBehaviors$$
+      AttackWithAttackDamage` -> `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`), donc
+      crit/block actifs et 2 tirages/coup a cc = 0. Bornes = `MinMaxDamage(abilityState)` =
+      `minDmg`/`maxDmg`[level] (aucun override `GetAttackDamage` : la classe n'en a pas de corps) ;
+      profil = `GetDamageProfile()` = `constants.damageProfile` = `Eviscerate` (PiercingRatio 50) ;
+      coups = `GetHits()` = `GetNumberConstant(0x2f = nrOfHits)` = 6. `attackRangeType = Ranged`
+      (gameconfig 1196) -> `is_melee=False`. `ability_type` = l'`AbilityOrEffect(abilityState)` que
+      le natif threade au 6e argument -> `int(ActiveAbilityType.LashOfTorment)`.
+    - `IfAlive(x, b)` est LITTERALEMENT `If(IsAlive(x), b)` (`IdunBattleLogic.Entities.DSLBehaviors$$
+      IfAlive` appelle `DSLTriggers$$IsAlive` puis `DSLBehaviors$$If`) -> aucun noeud dedie. Le
+      selecteur est le CASTER (`sel+0x48`), pas la cible : c'est le meme patron que
+      `bloodangels.py::light_of_sanguinius_tree` et `loki/leading_the_charge.py`.
+    - `PullUnitOneTile(Caster, Target, elevation_knockback=None)` : feuille MINCE au-dessus de
+      `IdunBattle.Operations.DisplaceUnitOperation$$Execute` case 6 (`FindTileToPullOnce`).
+    - `AddBondEffect(27, source=Caster, targets=Target, bondedEntity=Caster,
+      duration_rounds=nrOfRounds)` : la cible est TAUNTEE et bondee a Lucius, donc lui seul reste
+      attaquable pour elle (`runner/components.py`, canal cible forcee)."""
+    attaque = AttackWithAttackDamage(Target(), LASH_OF_TORMENT_ID, "Eviscerate", is_melee=False,
+                                     ability_type=int(ActiveAbilityType.LashOfTorment))
+    pull = PullUnitOneTile(Caster(), Target(), elevation_knockback=None)
+    bond = AddBondEffect(LT_TAUNTED, EffectType.Taunted_OnlySpecificTargets.name,
+                         Caster(), Target(), duration_rounds=nr_of_rounds, bonded_ref=Caster())
+    taunt = IfBehaviour(IsAdjacent(Caster(), Target(),
+                                   UnitSelectionType.OnlyAliveAndTargetable), bond)
+    return op_and(attaque, IfBehaviour(IsAlive(Caster()), op_and(pull, taunt)))
+
+
+class LashOfTormentAbility(ActiveAbility):
+    """`...LashOfTormentAbility$$ExecuteBehaviour` (id 1196, `emperLucius` « Lucius », HERO
+    EmperorsChildren). Arbre DSL `lash_of_torment_tree`.
+
+    i2 : « Deals {nrOfHits}x {minDmg}-{maxDmg} Eviscerating Damage to an enemy unit within range
+    {range}. If the target is not already adjacent to Lucius, it is then pulled 1 hex towards him if
+    possible, and can be pulled over any elevation but not through impassable terrain. If the target
+    is adjacent to Lucius after the attack, it is also Taunted by him for {nrOfRounds} rounds. »
+
+    ROUGE MESURE AVANT CE PORT : 1196 etait ABSENTE d'`ABILITY_CLASSES` -> le cast etait accepte par
+    la DECISION et IGNORE par l'EXECUTION (0 degat, 0 pull, 0 taunt, AUCUNE erreur).
+
+    `emperLucius` est HORS du pool `--list-pool` du rank courant ET hors catalogue : la confrontation
+    live passe par `catalog_inject.write_augmented_seed_bc` puis `rl_duel build --seed-bc`
+    (cf. `docs/rl/case-92-catalog-injection.md` §6). Aucun `data/unspawnable_rank<N>.json` n'existe,
+    donc AUCUN refus n'est declare sur ce porteur.
+
+    Diag : {ability, caster, target, main_attack, total, pull, taunt, nr_of_rounds, dsl} ; le
+    `ported` du `last` de l'`AbilityHandler` passe a True par la seule entree au registre."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.LashOfTorment)   # 1196
+    ABILITY_ID = LASH_OF_TORMENT_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241). `...LashOfTormentAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor` -- forme **STATIC-COPY** : il recopie les
+    # 0x40 octets du PRESET statique `<TargetingOptions statics>+0x140` (les 8 qwords `+0x140..+0x178`)
+    # puis `AActiveAbility..ctor(this, &opts, 0)`. Valeurs LUES dans le bloc de
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` qui ecrit ce preset :
+    #     statics+0x140 (= preset+0x00) = 0                            -> `isSelfCasting` = False
+    #     statics+0x148 (= preset+0x08) = <TargetingRange statics+0x18> -> `RANGE_FROM_CONFIG`
+    #                                                                     (`useRangeFromConfig`)
+    #     statics+0x160 (= preset+0x20) = 0                            -> `forceMeleeTarget`
+    #                                                                     = RangedBool.True
+    #     statics+0x168 (= preset+0x28) = 0x4002                       -> `Rules`
+    # C'est le MEME preset que `astartes.py::StrikeFromTheShadowsAbility` (1225) -- relu ici, pas
+    # herite. Decomposition EXHAUSTIVE de `0x4002` (0x2 + 0x4000, aucun bit residuel) :
+    #     0x2     (bit  1) TargetMatchesDynamicRule -> consulte `get_dynamic_invalid_target_reason`.
+    #                      La classe n'a AUCUN corps `GetDynamicInvalidTargetReason` (ses deux SEULS
+    #                      symboles sont `$$.ctor` et `$$ExecuteBehaviour`, dans les DEUX tables) ->
+    #                      le virtuel `+0x480` retombe sur la base, qui rend 0 : pas de refus
+    #                      dynamique, exactement le defaut de `ActiveAbility`.
+    #     0x4000  (bit 14) TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
+    # PORTEE : `RANGE_FROM_CONFIG` -> `AActiveAbility$$SetConfigValuesInTargetingOptions` pose
+    # `OverrideRange = GetNumberConstant(0x16 = range)` = `LashOfTorment.constants.range` = **2**
+    # (== l'i2 « within range 2 »). `forceMeleeTarget = 0 = RangedBool.True` (l'enum natif est
+    # INVERSE : True = 0, False = 1).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=int(TR.TargetMatchesDynamicRule | TR.TargetIsEnemy),   # `<preset +0x140>+0x28` = 0x4002
+        self_cast=False, range=RANGE_FROM_CONFIG,
+        force_melee_target=RANGED_BOOL_TRUE)                          # `<preset +0x140>+0x20` = 0
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        rounds = lash_of_torment_nr_of_rounds(state, caster_id)
+        entities = entities_from_state(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        lash_of_torment_tree(rounds).execute(entities, ectx)
+        atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+        pull = next((p for n, p in ectx.emitted if n == "PullUnitOneTile"), None)
+        bond = next((p for n, p in ectx.emitted if n == "AddBondEffect"), None)
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "main_attack": (atk or {}).get("attack"), "total": (atk or {}).get("total"),
+                "pull": ({"moved": pull.get("moved"), "to": pull.get("to"),
+                          "reason": pull.get("reason"), "knockback": pull.get("knockback")}
+                         if pull else None),
+                "taunt": ({"target": bond.get("target"), "bonded": bond.get("bonded"),
+                           "effect_type": bond.get("effect_type")} if bond else None),
+                "nr_of_rounds": rounds, "dsl": True}

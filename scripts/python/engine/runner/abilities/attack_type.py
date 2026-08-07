@@ -150,6 +150,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT, jamais
     # deduit du profil de degat de l'arbre. (#511)
     ActiveAbilityType.StrikeFromTheShadows: AbilityAttackType.DirectTargetAttack,  # 1225
+    # LashOfTorment (1196) : `...Active.Loki.LashOfTormentAbility$$.ctor` recopie les 0x40 octets du
+    # MEME preset statique `<TargetingOptions statics>+0x140` que 1225 puis appelle
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT au
+    # decompile, jamais deduit (l'arbre attaque bien en direct, mais c'est une coincidence : le lot
+    # #499/#505 porte les deux contre-exemples). (#524)
+    ActiveAbilityType.LashOfTorment: AbilityAttackType.DirectTargetAttack,  # 1196
     ActiveAbilityType.ThunderousAssault: AbilityAttackType.DirectTargetAttack,  # 1043
     # FragstormGrenadeLauncher (1048) : `FragstormGrenadeLauncherAbility$$.ctor` copie le preset
     # `TargetingOptions` statics `+0x180`, appelle la surcharge PRESET+FLAGS puis
