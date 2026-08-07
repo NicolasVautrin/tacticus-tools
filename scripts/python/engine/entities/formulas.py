@@ -355,10 +355,32 @@ class ConfigConst(AAmountFormula):
 
 
 class TotalTimesAttacked(AAmountFormula):
-    """`IdunBattle.Entities.Formulas.TotalTimesAttackedFormula$$Calculate` : compteur runtime d'attaques du caster
-    (composant @+0x34). NON capté offline → `ctx.times_attacked` (défaut 0 = pré-snowball)."""
+    """`IdunBattleLogic.Entities.DSLFormulas$$TotalTimesAttacked(unit)` ->
+    `IdunBattle.Entities.Formulas.TotalTimesAttackedFormula$$Calculate` : le decompile resout le
+    SELECTEUR d'unite, prend son `ActorStatisticsComponent` et rend `*(uint *)(comp + 0x34)` — le
+    nombre d'attaques REÇUES depuis le DEBUT DE LA BATAILLE (`RegisterAttackReceived` l'incremente,
+    et AUCUN `Reset*` du composant ne l'ecrit ; le champ per-tour est `@+0x38`, cf.
+    `runner/components.py`).
+
+    `unit` = le selecteur natif. Le seul call-site porte est
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$GetNumExtraHits`, qui passe
+    `DSLSelectors+0x30` = `Owner()`. Substrat runner : la cle `totalTimesAttacked` du dict d'unite
+    (`runner/abilities/behaviours/context.py::_unit_dict`), meme patron que
+    `LastHitDamageTakenLastTurn`.
+
+    `unit=None` = la forme DEGRADEE de la face PREDICTION, conservee telle quelle : le contexte
+    figé n'a pas de dict d'unite porteur du compteur, il porte `ctx.times_attacked` (defaut 0 =
+    pre-snowball). Les deux formes lisent la MEME grandeur, par deux substrats."""
+    def __init__(self, unit: TargetsSelector = None):
+        self.unit = unit
+
     def calculate(self, ctx):
-        return ctx.times_attacked or 0
+        if self.unit is None:
+            return ctx.times_attacked or 0
+        u = resolve_unit(self.unit, ctx)
+        if u is None:
+            return ctx.times_attacked or 0
+        return int(u.get("totalTimesAttacked", 0) or 0)
 
 
 class LastHitDamageTakenLastTurn(AAmountFormula):

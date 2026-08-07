@@ -70,10 +70,33 @@ class UnitComponent(Component):
     `StartTurn` mais prend celui d'`EndTurn`, et garde donc `turns_finished == turnsStarted + 1`
     pour le reste de la bataille.
 
-    `times_attacked_this_turn` = nb d'attaques REÇUES par l'unité pendant le tour COURANT (G6
-    HypersensoryAbilities) — source du prédicat DSL `IdunBattleLogic.Entities.DSLFactory$$HasBeenAttackedAmountThisTurnIsEqualOrGreater (compteur natif lu @+0x34 via `TotalTimesAttackedFormula`-family). Incrémenté quand l'unité
-    est la CIBLE d'une attaque (pas d'un DoT), remis à 0 au `start_turn` de chaque tour. Gate de l'ActiveCondition
-    du HP-floor (`IsEnemyTurn & Not(attacked>=1)` = 1re attaque du tour ennemi) et du trigger MoveAndSpawnDecoy.
+    `times_attacked_this_turn` / `total_times_attacked` = les DEUX compteurs d'attaques REÇUES, que
+    `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterAttackReceived` incrémente
+    D'UN SEUL GESTE (`+0x34 += 1 ; +0x38 += 1`, LU) et que seul le RESET distingue :
+      * `@+0x38` — PER-TOUR, remis à 0 par
+        `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetAttacksReceivedThisTurn`
+        (`*(ulong*)(this+0x38) = 0`, donc +0x38 ET +0x3c d'un coup). C'est la source du prédicat DSL
+        `IdunBattleLogic.Entities.DSLFactory$$HasBeenAttackedAmountThisTurnIsEqualOrGreater` (G6
+        HypersensoryAbilities) -> `times_attacked_this_turn` ici, remis à 0 au `start_turn`. Gate de
+        l'ActiveCondition du HP-floor (`IsEnemyTurn & Not(attacked>=1)` = 1re attaque du tour ennemi)
+        et du trigger MoveAndSpawnDecoy.
+      * `@+0x34` — TOTAL DE LA BATAILLE, qu'AUCUN `Reset*` de ce composant ne touche (les deux
+        `ResetThisTurn` et les trois `Reset*ThisTurn` ont été relus : aucun n'écrit +0x34). C'est ce
+        que rend `IdunBattle.Entities.Formulas.TotalTimesAttackedFormula$$Calculate`
+        (`return *(uint *)(comp + 0x34)`) -> `total_times_attacked` ici, JAMAIS remis à 0.
+        Consommateur porté : le snowball de coups de `BloodyFury` (1129, `worldTerminator`),
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$GetNumExtraHits` — l'i2 dit
+        « each time Wrask was attacked **in this battle** », ce que la lecture d'offset confirme.
+    ⚠ L'ancienne rédaction de ce bloc attribuait `@+0x34` à `times_attacked_this_turn` : c'était
+    FAUX, et la faute était invisible tant qu'aucun nœud ne lisait le total. Les deux champs sont
+    logés ici (comme `received_damage_this_turn`) alors que le foyer natif est
+    l'`ActorStatisticsComponent` — même résidu structurel (case-202 §6).
+    ⚠ RÉSIDU NOMMÉ : le foyer d'écriture porté (`operations/minimal_health.py::record_attacked`)
+    est appelé depuis le pipeline post-résolution du dégât, là où le natif appelle
+    `IdunBattle.Operations.RegisterAttackOperation$$Execute` (via l'interface
+    `Core.Services.OperationProcessor$$RegisterAttack`, dont les xrefs entrantes sont toutes des
+    slots DATA -> appelant non résolu au décompilé). Les deux compteurs partagent donc EXACTEMENT
+    le même site : tout écart de placement les affecte ensemble, jamais l'un sans l'autre.
 
     `received_damage_this_turn` (#202) = Dictionary {profil de dégât (int DamageProfileType) → nb
     d'instances} des dégâts REÇUS pendant le tour COURANT — mirror du dict `receivedDamageThisTurn`
@@ -272,7 +295,7 @@ class UnitComponent(Component):
         `AetherStrideAbility`).
     """
     __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "turns_finished",
-                 "times_attacked_this_turn",
+                 "times_attacked_this_turn", "total_times_attacked",
                  "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
                  "death_source", "last_hit_damage_taken_this_turn",
                  "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase",
@@ -294,6 +317,9 @@ class UnitComponent(Component):
         # et c'est `EndTurnOperation` qui les fait diverger.
         self.turns_finished = 0
         self.times_attacked_this_turn = 0
+        # `ActorStatisticsComponent @+0x34` — cf. la docstring de classe. 0 a la creation, comme le
+        # champ natif d'une entite fraichement construite ; JAMAIS remis a zero ensuite.
+        self.total_times_attacked = 0
         self.received_damage_this_turn: dict = {}
         self.revive_used_this_turn = False
         # `ActorStatisticsComponent @+0x6c` / `@+0x70` — cf. la docstring de classe (bloc

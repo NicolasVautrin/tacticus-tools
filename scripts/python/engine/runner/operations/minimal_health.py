@@ -127,14 +127,22 @@ def evaluate_minimal_health(state: State, player_id: Optional[int]) -> list:
 
 
 def record_attacked(state: State, target_id: int) -> None:
-    """La cible vient d'encaisser une ATTAQUE (pas un DoT) -> incrémente son `times_attacked_this_turn` puis
-    ré-évalue l'ActiveCondition du HP-floor : `HasBeenAttacked>=1` rend `Not(...)` faux -> `RevertInternal`
-    efface le plancher (le coup SUIVANT du tour peut tuer). No-op sur une unité sans HP-floor (mais le
-    compteur est incrémenté quand même — il sert aussi au trigger MoveAndSpawnDecoy, G6b)."""
+    """La cible vient d'encaisser une ATTAQUE (pas un DoT) -> mirror de
+    `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterAttackReceived`, qui incrémente
+    les DEUX compteurs D'UN SEUL GESTE (`*(int*)(this+0x34) += 1 ; *(int*)(this+0x38) += 1`, LU ;
+    le 3e bump `+0x3c` est gaté par `totalCrits > 0` et n'a aucun lecteur porté) :
+      * `times_attacked_this_turn` (@+0x38) — per-tour, remis à 0 par `reset_times_attacked` ;
+      * `total_times_attacked` (@+0x34) — TOTAL DE LA BATAILLE, jamais remis à 0 (aucun `Reset*` du
+        composant natif ne l'écrit) ; lu par `TotalTimesAttackedFormula`.
+    Puis ré-évalue l'ActiveCondition du HP-floor : `HasBeenAttacked>=1` rend `Not(...)` faux ->
+    `RevertInternal` efface le plancher (le coup SUIVANT du tour peut tuer). No-op sur une unité sans
+    HP-floor (mais les compteurs sont incrémentés quand même — ils servent aussi au trigger
+    MoveAndSpawnDecoy (G6b) et au snowball de coups de `BloodyFury`)."""
     ent = state.get_entity(target_id)
     uc = ent.get_component(UnitComponent) if ent is not None else None
     if uc is None:
         return
     uc.times_attacked_this_turn += 1
+    uc.total_times_attacked += 1
     if _minimal_health_effect(state, target_id) is not None:
         MinimalHealthEffectOperation.revert(state, target_id)

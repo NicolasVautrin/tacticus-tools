@@ -866,13 +866,18 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.VexillaMagnifica: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject, self_cast=False,  # 1183
                            range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- surcharge C, PRESET SEUL (1) : copie PURE, aucun flag ajoute -------------------------
-    # 1129 BloodyFury -- `...Active.Loki.BloodyFuryAbility$$.ctor` : preset `+0x40` puis
-    #   `.ctor(&opts, &preset)` a DEUX arguments. Le decompile ressemble a un PRESET+FLAGS dont le
-    #   litteral aurait disparu -- ce sont les xrefs entrantes de la surcharge C qui tranchent
-    #   (meme piege que `1029 Drachnyen`, #336). Masque = celui du preset, tel quel.
-    ActiveAbilityType.BloodyFury: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1129
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # --- surcharge C, PRESET SEUL (0) : copie PURE, aucun flag ajoute -------------------------
+    # ⚠ 1129 BloodyFury etait la SEULE entree de ce bloc ; elle est SORTIE en #505, sa face COMBAT
+    #   etant desormais portee (`engine/runner/abilities/worldeaters.py::BloodyFuryAbility.
+    #   TARGETING_OPTIONS`) -- contrat de DISJONCTION, meme mouvement que 1019/1027/1038/1048/1068/
+    #   1069/1087/1088/1152. Le ctor a ete RELU a cette occasion et la valeur qui vivait ici est
+    #   CONFIRMEE champ pour champ : preset `+0x40` puis `.ctor(&opts, &preset)` a DEUX arguments
+    #   (le decompile ressemble a un PRESET+FLAGS dont le litteral aurait disparu -- ce sont les
+    #   xrefs entrantes de la surcharge C qui tranchent, meme piege que `1029 Drachnyen` #336),
+    #   `rules = 0x4000` = `TargetIsEnemy` SEUL, `isSelfCasting = 0`, `range` = `TargetingRange
+    #   statics+0x30` = RANGE_ADJACENT, `forceMeleeTarget = 1` = `RangedBool.False`.
+    #   Le bloc reste ECRIT parce qu'il documente la 3e forme de ctor : son compte est 0, pas son
+    #   existence. Le compte se RE-COMPTE sur la table, jamais par soustraction du chiffre ecrit.
 
     # --- STATIC-COPY (5) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
     # ⚠ Ce compteur annoncait **16** sur `origin/master` pour **7** entrees reelles (mesure #502 au
