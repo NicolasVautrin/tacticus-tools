@@ -39,6 +39,33 @@ from pathlib import Path
 #: predicat divergent (lecon #332). Aucun cycle : ce module n'importe rien de celui-ci.
 import migrate_485r1_barils_reexport as MIG
 
+#: Ce qui doit changer pour que ce cliquet puisse changer de verdict (#486-r12). Il etait le
+#: DERNIER des 36 scripts de la banque a n'en porter aucun, et c'est ce trou qui rendait
+#: `probe_486r12_declencheurs` ROUGE sur `master` -- signale par le port #491, hors de son
+#: perimetre.
+#:
+#: DECLARE LARGE, et c'est une MESURE, pas une paresse : le recensement visite TOUT `.py` de
+#: `scripts/python/**` (moteur, tests offline, tests `_live.py`, probes -- cf. `_fichiers()`), et
+#: la table des noms locaux est IMPORTEE de `migrate_485r1_barils_reexport`, qui vit au meme
+#: endroit. N'importe quel fichier ajoute, retire ou modifie sous cette racine change donc ce que
+#: ce cliquet prouve. Sur-selectionner est sain ; sous-selectionner serait un faux vert.
+#:
+#: LES DEUX FORMES DE GLOB SONT NECESSAIRES : `**/` exige un segment, donc `scripts/python/**/*.py`
+#: seul raterait `scripts/python/board.py`.
+#:
+#: `toujours: False` et non `True` : le perimetre s'ARRETE a `scripts/python/**`. Un changement de
+#: build ou de `data/` ne peut pas retourner ce verdict -- au pire il rend un module non
+#: importable, ce qui sort en `rc 2 PAS MESURE`, jamais en vert.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Le recensement visite TOUT `.py` de `scripts/python/**` et resout chaque acces "
+              "attributaire contre le module reellement importe ; la table des noms locaux est "
+              "importee de `migrate_485r1_barils_reexport`, au meme endroit. Tout fichier ajoute, "
+              "retire ou modifie sous cette racine change le verdict.",
+}
+
 ICI = Path(__file__).resolve().parent
 
 EX_VERT, EX_ROUGE, EX_PAS_MESURE = 0, 1, 2
