@@ -57,7 +57,35 @@ SEED = os.environ.get("VOTANN113_SEED", "31337")
 BESERK, IRONMASTER, UTHAR = "votanBeserk", "votanIronmaster", "votanUthar"
 SPARE = "spaceHound"            # jamais activee : garde le tour OUVERT (buffs 1-round encore lisibles)
 FOE_MECH = "necroWarden"        # trait Mechanical(5)  -> QUALIFIE le +extraPierceRatio (1484)
-FOE_PLAIN = "bloodMephiston"    # aucun des 3 traits qualifiants -> contre-cas (MEME fixedArmor 2008)
+FOE_PLAIN = "bloodMephiston"    # aucun des 3 traits qualifiants -> contre-cas
+
+# --- #527 : le montage DECLARE ses invariants au lieu de les esperer ---------------------------- #
+# Trois proprietes que ce fichier SUPPOSAIT et que le build a fait perimer en silence, chacune
+# reparee par un levier ECRIT plutot que subie (mesures : `probe_527_votann_lot1_rouges.py`).
+#
+#  1. CIBLE QUI SURVIT. `necroWarden` porte `health = 8536` sur `rnca9r7q6c` et un cast 1206 en fait
+#     9785 : elle tombait a 0 PV. Or `_live_total` est un DELTA DE PV -- PLAFONNE par les PV
+#     restants -- alors que `_port_total` est le total BRUT. Le port etait BIT-EXACT coup par coup
+#     ([4667, 2526, 1343] des deux cotes, memes verdicts de crit) ; seule la COMPARAISON etait
+#     fausse. Et une cible a 0 PV perd tous ses effets, d'ou « cible non Stun ([]) ».
+#  2. ARMURES EGALES entre les deux cibles graviton. L'en-tete annoncait « MEME fixedArmor (2008) »
+#     -- FAUX sur ce build (`necroWarden` 2662, `bloodMephiston` 2008), donc le contraste
+#     mech/plain confondait le TRAIT qualifiant et l'ARMURE. On les egalise : le seul ecart
+#     restant entre les deux fixtures est le trait.
+#  3. UN SEUL ENNEMI ADJACENT pour fortune -- cf. `_FORTUNE_A_UNITS` plus bas.
+_FOE_HEALTH = 60000             # >> tout total d'un cast du lot -> la cible SURVIT (cf. 1)
+_FOE_ARMOR = 2008               # armure COMMUNE aux deux cibles graviton (cf. 2)
+_GRAVITON_UNIT_STATS = [
+    "--unit-stat", f"{FOE_MECH}:Health={_FOE_HEALTH},RemainingHealth={_FOE_HEALTH},"
+                   f"Armor={_FOE_ARMOR},FixedArmor={_FOE_ARMOR}",
+    "--unit-stat", f"{FOE_PLAIN}:Health={_FOE_HEALTH},RemainingHealth={_FOE_HEALTH},"
+                   f"Armor={_FOE_ARMOR},FixedArmor={_FOE_ARMOR}",
+]
+# Uthar FRAIS porte `critChance = 26` / `blockChance = 30` sur ce build (mesure #527) : le regime
+# « base nulle » que `fortune_gated` exerce n'existe PLUS par defaut. On le POSE, au lieu de
+# l'esperer d'une normalisation qui a change.
+_UTHAR_BASE_ZERO = ["--unit-stat",
+                    f"{UTHAR}:CritChance=0,CritDamage=0,BlockChance=0,BlockDamage=0"]
 
 AUGMENTED_ASSAULT, GRAVITON_RIFLE, ANCESTRAL_FORTUNE = 1221, 1206, 1207
 STUNNED_NAME = "Stunned"
@@ -168,13 +196,17 @@ def _pe_extra_dmg_pct() -> int:
 
 
 def _scenario(rpc, build_runner, votann_bc, board, caster_vis, foe_vis, ability_id, want_dist,
-              extra=None, self_cast=False):
+              extra=None, self_cast=False, a_units=None):
     """Monte un runner, amene le caster a portee, CAPTURE l'etat-avant (dv/ob/snap/rng), caste LIVE,
-    puis rend de quoi rejouer le MEME cast dans le PORT."""
+    puis rend de quoi rejouer le MEME cast dans le PORT.
+
+    `a_units` (#527) : le roster ADVERSE, explicite. Il valait toujours `FOE_MECH,FOE_PLAIN`, ce qui
+    posait DEUX ennemis adjacents au caster -- indifferent quand la cible arrive par le message
+    (1221/1206), determinant quand l'ability RE-DERIVE sa cible par selecteur (1207)."""
     from engine.entities.pathfinding.board import Board
     args = ["--seed-bc", votann_bc, "--board", board,
             "--p-units", f"{caster_vis},{SPARE}",
-            "--a-units", f"{FOE_MECH},{FOE_PLAIN}"] + list(extra or [])
+            "--a-units", a_units or f"{FOE_MECH},{FOE_PLAIN}"] + list(extra or [])
     rid = build_runner(SEED, extra=args)["rid"]
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     if not (isinstance(bg, dict) and bg.get("tiles")):
@@ -193,7 +225,16 @@ def _scenario(rpc, build_runner, votann_bc, board, caster_vis, foe_vis, ability_
     legal = _from_here(rpc, rid, c["id"], ability_id)
     tid = c["id"] if self_cast else f["id"]
     if tid not in legal:
-        pytest.skip(f"cible {tid} hors fromHere {legal} -> cast refuse par le natif (cf. en-tete)")
+        # #527 -- le message PORTE la mesure. Il disait « hors fromHere », ce qui laissait croire a
+        # une distance insuffisante alors que la garde `dist > want_dist` juste au-dessus vient de
+        # l'exclure : le refus vient donc d'un GATE DE CIBLAGE, pas de la geometrie. Sans les
+        # distances aux DEUX ennemis, le prochain lecteur doit re-diagnostiquer de zero.
+        autres = {u.get("visualId"): hexgeo.distance(_upos(c), _upos(u))
+                  for u in (dv0.get("units") or [])
+                  if u.get("id") in legal or u.get("id") == tid}
+        pytest.skip(f"cible {tid} ({foe_vis}) hors fromHere {legal} a dist {dist} (<= {want_dist}) "
+                    f"-> ce n'est PAS la distance : gate de ciblage natif. Distances du caster aux "
+                    f"unites en jeu ici : {autres}")
 
     ob0 = rpc("observeBattle", {"runnerId": rid}, 40)
     snap0 = rpc("combatSnapshot", {"runnerId": rid}, 60)
@@ -254,7 +295,23 @@ def _scenario(rpc, build_runner, votann_bc, board, caster_vis, foe_vis, ability_
 
 
 def _live_total(d):
-    return int((d["hp_before"] or 0) - (d["hp_after"] or 0))
+    """Le total de degat LIVE, lu comme DELTA DE PV -- et ce proxy a une CONDITION DE VALIDITE.
+
+    #527 : un delta de PV est PLAFONNE par les PV restants, un total de degat ne l'est pas. Des que
+    la cible touche 0, `hp_before - hp_after` cesse d'etre le total et l'egalite `port == live`
+    devient fausse PAR CONSTRUCTION -- ce qui a produit trois rouges illisibles (`9785 != 8536`,
+    « cible non Stun ([]) ») imputes au port alors qu'il etait bit-exact coup par coup.
+
+    On ECHOUE donc explicitement plutot que de rendre un nombre qui ment : le regime est a
+    re-crafter (PV de la cible, cf. `_GRAVITON_UNIT_STATS`), ce n'est pas un desaccord de port."""
+    hp_after = int(d["hp_after"] or 0)
+    if hp_after <= 0:
+        raise AssertionError(
+            "regime PERIME : la cible est tombee a %s PV (avant %s) -> le delta de PV n'est plus le "
+            "total de degat (dernier coup TRONQUE cote natif, pas cote port), et une cible a 0 PV "
+            "perd ses effets. Remonter ses PV (--unit-stat Health/RemainingHealth), ne pas ajuster "
+            "l'attendu." % (hp_after, d["hp_before"]))
+    return int((d["hp_before"] or 0) - hp_after)
 
 
 def _port_total(res):
@@ -267,8 +324,10 @@ def _port_total(res):
 
 @pytest.fixture(scope="session")
 def augmented(rpc, build_runner, votann_bc):
+    # PV releves (#527) : ce n'est pas 1221 qui tuait la cible, mais le meme piege guette des que
+    # le cast passe sous les PV restants -- et le test compare bien un total a un delta de PV.
     return _scenario(rpc, build_runner, votann_bc, BOARD, BESERK, FOE_MECH,
-                     AUGMENTED_ASSAULT, want_dist=1)
+                     AUGMENTED_ASSAULT, want_dist=1, extra=_GRAVITON_UNIT_STATS)
 
 
 def test_augmented_live_debuffs_the_TARGET_not_the_caster(augmented):
@@ -365,19 +424,32 @@ def test_augmented_port_debuff_is_permanent(augmented):
 # 1206 GravitonRifle -- attaque + Stunned, et le PERCAGE conditionnel de l'owner-effect 1484
 # ================================================================================================ #
 
+# `GravitonRifleAbility$$.ctor` pose `forceMeleeTarget = RangedBool.True` : quand un ennemi est au
+# CONTACT du caster, le natif FORCE le ciblage sur lui et refuse tout autre. Avec les deux ennemis
+# au roster, `graviton_plain` etait donc skippe des que `necroWarden` se retrouvait a distance 1 --
+# MESURE `C2_02`/777 : `fromHere = [77]`, `necroWarden` a 1, `bloodMephiston` a 2, distance
+# pourtant conforme. Ce n'est pas un trou de montage, c'est le gate natif ; on le contourne en
+# donnant a chaque fixture SON seul ennemi. `_GRAVITON_UNIT_STATS` patche le CATALOGUE, donc les
+# deux entrees restent egalisees quel que soit le roster deploye.
 @pytest.fixture(scope="session")
 def graviton_mech(rpc, build_runner, votann_bc):
     """Cible `necroWarden` : trait **Mechanical** -> le gate `HasTrait(target, 5)` PASSE."""
     return _scenario(rpc, build_runner, votann_bc, BOARD, IRONMASTER, FOE_MECH,
-                     GRAVITON_RIFLE, want_dist=2)
+                     GRAVITON_RIFLE, want_dist=2, a_units=FOE_MECH,
+                     extra=_GRAVITON_UNIT_STATS)
 
 
 @pytest.fixture(scope="session")
 def graviton_plain(rpc, build_runner, votann_bc):
-    """Cible `bloodMephiston` : AUCUN des 3 traits qualifiants -> le gate trait TOMBE. Meme
-    `fixedArmor` (2008) que `necroWarden` dans ce build -> le contraste isole le PERCAGE."""
+    """Cible `bloodMephiston` : AUCUN des 3 traits qualifiants -> le gate trait TOMBE.
+
+    `fixedArmor` EGALISE aux deux cibles par `_GRAVITON_UNIT_STATS` (#527) : c'est ce qui fait que
+    le contraste avec `graviton_mech` isole le PERCAGE. Il ne l'isolait plus -- l'en-tete affirmait
+    une egalite native (« MEME fixedArmor 2008 ») que ce build a rompue (2662 vs 2008), donc les
+    deux fixtures differaient par le trait ET par l'armure."""
     return _scenario(rpc, build_runner, votann_bc, BOARD, IRONMASTER, FOE_PLAIN,
-                     GRAVITON_RIFLE, want_dist=2)
+                     GRAVITON_RIFLE, want_dist=2, a_units=FOE_PLAIN,
+                     extra=_GRAVITON_UNIT_STATS)
 
 
 def test_graviton_live_owner_effect_is_seeded_at_deploy(graviton_mech):
@@ -470,12 +542,37 @@ def test_graviton_port_places_stunned_with_config_rounds(graviton_mech):
 # 1207 AncestralFortune -- self-buff crit/block GATE par la stat de BASE + attaque conditionnelle
 # ================================================================================================ #
 
+# `AncestralFortune` RE-DERIVE sa cible d'attaque par selecteur
+# (`AncestralFortuneAbility$$GetAttackTarget` = `First(SortUnitsByDamageUtility(AdjacentEnemies(
+# caster, 1), ...), 1)`) : le roster adverse par defaut posait DEUX ennemis adjacents a Uthar, donc
+# ces fixtures mesuraient un CLASSEMENT la ou elles croyaient mesurer un TOTAL.
+#
+# ⚠ ET LE CLASSEMENT DIVERGE -- residu #527-r1, MESURE, pas suppose. A maxHP EGALISES (8536/8536),
+# faire varier la SEULE armure de `necroWarden` fait BASCULER la victime NATIVE (armure 2662 ->
+# le natif frappe `bloodMephiston` ; armure 300 -> il frappe `necroWarden`), alors que le port
+# choisit `necroWarden` dans les DEUX cas. L'armure de la cible entre donc dans l'utilite native,
+# et `engine/runner/operations/damage_utility._target_utility` la met a zero. A/B rejouable :
+# `python probe_527_votann_lot1_rouges.py --etage armure --regime haute|basse`.
+#
+# On monte donc UN SEUL ennemi : ces deux fixtures retrouvent ce qu'elles pretendent mesurer (les
+# gates, les magnitudes, le total), et le classement est confronte ailleurs -- pas noye ici.
+_FORTUNE_A_UNITS = FOE_MECH
+
+
 @pytest.fixture(scope="session")
 def fortune_gated(rpc, build_runner, votann_bc):
-    """Uthar FRAIS : critChance/blockChance de BASE = 0 (ces stats viennent des ITEMS, strippes par la
-    normalisation) -> les DEUX gates natifs `CanAddCritChance`/`CanAddBlockChance` sont FAUX."""
+    """Uthar a critChance/blockChance de BASE = 0 -> les DEUX gates natifs
+    `CanAddCritChance`/`CanAddBlockChance` sont FAUX.
+
+    #527 -- la base nulle est desormais POSEE (`_UTHAR_BASE_ZERO`), plus deduite. Elle etait
+    obtenue d'un effet de bord de la normalisation (« ces stats viennent des ITEMS, strippes ») ;
+    sur `rnca9r7q6c` un Uthar frais porte `critChance = 26` / `blockChance = 30`, donc le regime
+    s'etait retourne EN SILENCE et les deux gates passaient. Un regime qui depend d'un effet de
+    bord n'est pas un regime : c'est une coincidence qui expire."""
     return _scenario(rpc, build_runner, votann_bc, BOARD, UTHAR, FOE_MECH,
-                     ANCESTRAL_FORTUNE, want_dist=1, self_cast=True)
+                     ANCESTRAL_FORTUNE, want_dist=1, self_cast=True,
+                     a_units=_FORTUNE_A_UNITS,
+                     extra=_UTHAR_BASE_ZERO + _GRAVITON_UNIT_STATS)
 
 
 @pytest.fixture(scope="session")
@@ -483,7 +580,9 @@ def fortune_open(rpc, build_runner, votann_bc):
     """MEME scenario, mais crit/block de BASE restaures sur le template Unit -> les deux gates PASSENT."""
     return _scenario(rpc, build_runner, votann_bc, BOARD, UTHAR, FOE_MECH,
                      ANCESTRAL_FORTUNE, want_dist=1, self_cast=True,
-                     extra=["--crit", "10,300", "--block-player", "12,400"])
+                     a_units=_FORTUNE_A_UNITS,
+                     extra=["--crit", "10,300", "--block-player", "12,400"]
+                     + _GRAVITON_UNIT_STATS)
 
 
 def test_fortune_live_gates_block_both_buffs_when_base_is_zero(fortune_gated):
@@ -603,8 +702,14 @@ def test_fortune_port_matches_live_hit_by_hit_where_verdicts_agree(fx, request):
     _st, res = d["replay"]()
     a = (res or {}).get("attack") or {}
     live = d["live_hits"]
-    if not live:
-        pytest.skip("events per-coup indisponibles")
+    # #527 -- ECHEC, jamais skip (#268). Ce skip a masque le rouge le plus interessant du fichier :
+    # `live_hits` etait VIDE parce que le natif frappait l'AUTRE ennemi adjacent, pas parce que les
+    # events manquaient. Un « harnais indisponible » qui est en fait un desaccord de ciblage est un
+    # vert qui ment -- et il a tenu les DEUX parametrisations.
+    assert live, (
+        f"[{fx}] AUCUN event per-coup sur la cible attendue -> le natif n'a pas frappe CETTE "
+        "unite (cf. residu #527-r1 : le classement de `SortUnitsByDamageUtility` diverge quand "
+        "plusieurs ennemis sont adjacents), ou le cast n'a pas attaque du tout")
     assert int(a.get("hits") or 0) == len(live), (
         f"[{fx}] coups port {a.get('hits')} != live {len(live)}")
     port_per = a.get("per_hit") or []
