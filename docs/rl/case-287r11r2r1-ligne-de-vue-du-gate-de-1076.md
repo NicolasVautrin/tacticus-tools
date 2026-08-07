@@ -211,13 +211,13 @@ le témoin et la vue rouge se réduit à une ligne.
 
 ## 6. Résidus
 
-* **`#287-r11-r2-r1-r1` — `_drone_attack_range` rend `1` là où `GetUnitMaxRange` rend `0`.** Le
-  décompilé de `BattleQuery$$GetUnitMaxRange` porte le MÊME corps que la boucle inline du slot 196 :
-  `max` sur les armes de `Range ?? 1`, et **`0` quand la config est nulle ou sa liste d'armes
-  vide**. Le port mappe ce `0` sur `1`. Divergence dans la MÊME direction permissive que celle que
-  cette tranche vient de fermer (portée 1 ⇒ les tuiles adjacentes redeviennent candidates), et le
-  régime « unité sans aucune arme » existe (81 unités du gameconfig, MoW et décor).
-  `tauSmnDroneSniper` n'y est pas, donc c'est NON EXERCÉ — pas inoffensif.
+* ~~**`#287-r11-r2-r1-r1` — `_drone_attack_range` rend `1` là où `GetUnitMaxRange` rend `0`.**~~
+  **FERMÉ.** `_drone_attack_range` DÉLÈGUE désormais à `services.battle_query.get_unit_max_range`
+  (forme B, morsure gardée). Le régime **est** atteignable, contrairement à ce que ce résidu
+  supposait : `BattleQuery$$GetUnitConfig` lit `BC.Units[]`, donc un seed BC dont
+  `tauSmnDroneSniper.Weapons` est vide fait rendre `0` au natif — mesuré, il **refuse** alors le
+  cast (`0x1 ValidRequest`) là où le port d'avant l'acceptait : **2 SOUS-refus** au témoin. Détail :
+  `case-287r11r2r1r1-portee-nulle-du-drone.md`.
 * **`#287-r11-r2-r1-r2` — le gate `!HasFlag(attacker, 0x1c IngoreRangedInMelee)` (typo native) est
   absent des DEUX mirrors de `ShouldApplyRangedInMelee`** (`targeting.should_apply_ranged_in_melee`
   l'omettait déjà, son docstring ne le cite pas). INERTE offline (aucun `UnitFlagsComponent` ne pose

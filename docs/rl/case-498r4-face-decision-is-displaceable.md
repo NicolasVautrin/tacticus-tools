@@ -46,7 +46,11 @@ décision n'évalue jamais là. **Ne pas câbler** — un cinquième canal `Unit
 retrait — la branche `TargetsSelector$$SelectTile(AtIndex(tiles, i)) == null`, atteignable quand la
 ligne derrière la cible est plus courte que le nombre de pas. Le flag peut donc **fuir** au-delà de
 l'ability. Ça ne change pas le verdict (le substrat de décision ne le publie toujours pas), mais ça
-change le RUNNER : résidu **`#498-r4-r1`**.
+change le RUNNER : résidu **`#498-r4-r1`**, **FERMÉ** — la fuite est CONFIRMÉE live
+(`combatSnapshot.units[].unitFlags` du caster porte `25` après un cast à ligne courte traversée), et
+le port la reproduit. La tranche a aussi trouvé un second écart, en amont : le port ne **posait
+même pas** le flag (`_load_unit_flags` ne matérialise le `UnitFlagsComponent` que sur une liste non
+vide) — foyer ouvert sous `#537`. Détail : `case-498r4r1-fuite-du-flag-undisplaceable.md`.
 
 ## 2. La tête `EntityType == Unit` — inerte PAR CONSTRUCTION DU CANAL
 
