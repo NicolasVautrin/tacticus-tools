@@ -16,6 +16,9 @@ Contenu :
   cast contre TerminatorArmour/MkXGravis/Mechanical (canal percage, cf. `entities/effects/loki/votann.py`).
 - `AncestralFortune` (1207, `votanUthar` -- Uthar) : self-buff +critChance (1485) & +blockChance (1486)
   1 round, puis attaque conditionnelle 3x Plasma sur le meilleur ennemi ADJACENT.
+- `MassDriverAccelerator` (1222, `votanChampion` -- Kimm, #525) : CHARGE a SPLASH -- +extraMovement
+  (`MassDriverAccelerator_ExtraMovement` 1542) sur l'OWNER **et ses amis ADJACENTS**, puis charge de la
+  cible, puis 1x `DirectDamage` sur elle et 1x `Physical` sur les ENNEMIS adjacents a elle.
 """
 from __future__ import annotations
 
@@ -25,25 +28,34 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from .base import ActiveAbility
-from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGED_BOOL_FALSE,
-                        RANGED_BOOL_TRUE, TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
+                        RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
-from .behaviours.effects import AddDynamicStatModifierEffect, AddEffect
+from .behaviours.effects import (AddDynamicStatModifierEffect, AddEffect,
+                                 AddStaticStatModifierEffect)
+from .behaviours.movement import MoveUnit
 from .loki import perform_ai_attack_from_current_position
 from ..components import OwnerComponent, StatsComponent, UnitComponent, PositionComponent
+from ...entities.ability_constant_type import AbilityConstantType
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.stats import StatType, StatPart
-from ...entities.behaviours import op_and, op_add, If as IfBehaviour
+from ...entities.behaviours import (AtomicGroup, Group, SetCache, op_and, op_add,
+                                    If as IfBehaviour)
 from ...entities.effects.magnitude import ability_var
-from ...entities.selectors.accessors import Target
-from ...entities.selectors.tiles import Caster
-from ...dsl.base import _round_fix64   # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result`
+from ...entities.selectors.accessors import CasterTile, FixedTiles, Owner, SelectTile, Target
+from ...entities.selectors.geometry import Cache
+from ...entities.selectors.tiles import Caster, tiles_unit_can_move_to_charge_target
+from ...entities.selectors.units import AdjacentFriends, AdjacentUnits, Alive, Enemies, Union
+from ...dsl.base import Const, _round_fix64   # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result`
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.formulas import StatAmount, Count
-from ...entities.triggers import AmountIsGreaterThanZero
+from ...entities.triggers import AmountIsGreaterThanZero, IsAlive
+from ...streams.group_type import GroupType
+from ...utilities.tile import first_tile_by_utility
+from ...utilities.utility_type import UtilityType
 from ..operations.damage_utility import first_by_damage_utility
 from ..operations.spawn import _spawn_config_grot
 
@@ -533,3 +545,385 @@ class AncestralFortuneAbility(ActiveAbility):
         return {"ability": "AncestralFortune", "caster": caster_id,
                 "attack_target": atk_tgt, "buffs": buffs,
                 "attack": atk.get("attack"), "total": atk.get("total"), "dsl": True}
+
+
+# ==================================================================================================
+# MassDriverAccelerator (1222, `votanChampion` -- Kimm) -- #525
+# ==================================================================================================
+MASS_DRIVER_ACCELERATOR_ID = "MassDriverAccelerator"
+
+#: `AbilityConfiguration$$GetNumberConstant(config, 0xe)` -> cle gameconfig `extraMovement` (= 1).
+#: LUE au decompile, jamais deduite du nom : `...MassDriverAcceleratorAbility$$ExecuteBehaviour` ET
+#: `...MassDriverAcceleratorAbility$$GetPossibleMoveTiles` appellent tous deux `GetNumberConstant(0xe)`.
+MASS_DRIVER_CONST_EXTRA_MOVEMENT = AbilityConstantType.extraMovement          # 0xe = 14
+
+#: `AddStaticStatModifierEffect(..., 0x606, ...)` / `UnitMovementRangeWithBonus(..., 0x606, ...)`.
+#: 0x606 = 1542 = `EffectType.MassDriverAccelerator_ExtraMovement` (resolu dans
+#: `data/symbols/<build>/frida/enums.tsv`, pas devine : l'ordinal 1542 est AUSSI un membre valide
+#: d'autres enums d'id, seul le NOM discrimine).
+MASS_DRIVER_EXTRA_MOVEMENT = int(EffectType.MassDriverAccelerator_ExtraMovement)   # 0x606 = 1542
+
+
+def mass_driver_buff_targets_selector():
+    """`...MassDriverAcceleratorAbility$$GetBuffTargets` -- ARBRE DSL, MIRROR 1:1 du decompile :
+
+        TargetsSelector.op_Addition( owner@0x30,
+                                     AdjacentFriends(owner@0x30, unique: 1, selectionType: 3) )
+
+    = l'OWNER **et** ses allies hex-adjacents. C'est ce sur quoi porte le buff de mouvement, et c'est
+    ce que l'utilite `MassDriverAccelerator_AdjacentFriendly` du scoreur natif recompense.
+
+    `...MassDriverAcceleratorAbility$$ExecuteBehaviour` RE-INLINE exactement le meme couple
+    (`AdjacentFriends(*(selectors+0x30), 1, 3)` puis `op_Addition`) plutot que d'appeler ce getter :
+    les deux faces voient donc le MEME ensemble, et ce foyer est l'unique mirror.
+
+    ⚠ La REFERENCE d'equipe d'`AdjacentFriends` est son PROPRE 1er argument (surcharge 3-args
+    `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(unit, unique, selectionType)` ->
+    `Friends(reference = unit, ...)`), pas le caster : elle est passee EXPLICITEMENT ici, meme si
+    `Owner == Caster` sur une ability active la rend numeriquement egale au defaut."""
+    return Union(Owner(), AdjacentFriends(Owner(), Const(1), reference=Owner()))
+
+
+def mass_driver_buff_tree(extra_movement: int):
+    """1er terme de l'arbre natif -- MIRROR du decompile :
+
+        AddStaticStatModifierEffect( GetBuffTargets(),
+                                     0x606 = MassDriverAccelerator_ExtraMovement,
+                                     0x1   = StatType.Movement,
+                                     amount = DSLFormulas$$Get(GetNumberConstant(0xe = extraMovement)),
+                                     turns  = <DSLFormulas+0x20>,
+                                     isHidden = 0 )
+
+    `<DSLFormulas+0x20>` = `Direct(1)`, LU dans `IdunBattleLogic.Entities.DSLFormulas$$.ctor` qui
+    alloue `+0x18 Direct(0) · +0x20 Direct(1) · +0x28 Direct(2) · +0x30 Direct(100) · +0x38 Direct(-1)`
+    -> la duree est **1 TOUR** (`duration_turns`, PAS `TurnsFromRounds`).
+
+    La surcharge est celle a `turns:IAmountFormula`
+    (`IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect(targets, effectType,
+    statType, amount:IAmountFormula, turns:IAmountFormula, isHidden)`) -- le 6e argument natif est un
+    NOEUD du champ `+0x20` des formules partagees, pas un `Nullable<int>`.
+
+    `isHidden = 0` (7e argument) : le port ne modelise pas la visibilite UI d'un effet -- inerte
+    offline, note pour ne pas le croire absent."""
+    return AddStaticStatModifierEffect(mass_driver_buff_targets_selector(),
+                                       MASS_DRIVER_EXTRA_MOVEMENT, int(StatType.MOVEMENT),
+                                       Const(int(extra_movement)),
+                                       name="MassDriverAccelerator_ExtraMovement",
+                                       duration_turns=1)
+
+
+def mass_driver_move_range(state: "State", caster_id: int) -> int:
+    """`IdunBattleLogic.Entities.DSLFormulas$$UnitMovementRangeWithBonus(caster@0x48,
+    0x606 = MassDriverAccelerator_ExtraMovement, Get(GetNumberConstant(0xe = extraMovement)))`, le 4e
+    argument du `TilesUnitCanMoveToChargeTarget` de
+    `...MassDriverAcceleratorAbility$$GetPossibleMoveTiles` -- MIRROR 1:1 du decompile :
+
+        If( HasEffect(caster, 0x606, onlyActive: 0, targetType: 6),
+            StatAmountFormula(caster, 0x1 = StatType.Movement),
+            Sum(StatAmountFormula(caster, 0x1), movementBonus) )
+
+    ANTI-DOUBLE-COMPTE, et c'est le natif qui le porte, pas nous : les DEUX consommateurs de
+    `GetPossibleMoveTiles` voient la MEME portee effective, mais par des branches DIFFERENTES.
+      * `...MassDriverAcceleratorAbility$$GetDynamicInvalidTargetReason` (le GATE) l'evalue AVANT
+        tout cast -> l'effet 1542 n'est pas pose -> branche `Movement + extraMovement` ;
+      * l'etage MOVE d'`ExecuteBehaviour` l'evalue APRES l'`AddStaticStatModifierEffect` (les
+        selecteurs natifs sont PARESSEUX) -> l'effet EST pose et la stat MOVEMENT est deja bonifiee
+        -> branche `Movement` NU.
+    Les deux coincident donc, et la fidelite du stat-mod est DIRECTEMENT observable sur la portee de
+    charge. MEME forme, MEME foyer natif que `orks.py::waaagh_move_range` (1099) et
+    `loki/strike.py::_black_rage_move_range` (1342) -- seul l'`EffectType` differe."""
+    e = state.get_entity(int(caster_id))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    stats = getattr(sc.ctx, "stats", None) if sc is not None else None
+    mv = int(stats.get_stat(int(StatType.MOVEMENT), 0)) if stats is not None else 0
+    has_eff = (state.effects is not None
+               and state.effects.has_effect(int(caster_id),
+                                            effect_type=MASS_DRIVER_EXTRA_MOVEMENT))
+    if has_eff:
+        return mv
+    bonus = ability_var(MASS_DRIVER_ACCELERATOR_ID, MASS_DRIVER_CONST_EXTRA_MOVEMENT.name,
+                        is_constant=True) or 0                # GetNumberConstant(0xe) = 1
+    return mv + int(bonus)
+
+
+def mass_driver_possible_move_tiles_selector(move_range: int):
+    """`...MassDriverAcceleratorAbility$$GetPossibleMoveTiles` -- ARBRE DSL, MIRROR 1:1 :
+
+        TilesUnitCanMoveToChargeTarget( caster@0x48, casterTile@0x50, targetTiles@0x78,
+                                        UnitMovementRangeWithBonus(caster@0x48, 0x606,
+                                                                   Get(GetNumberConstant(0xe))),
+                                        ignoreFlags = 0 )
+
+    MEME appel, MEMES slots que `LeadingTheChargeAbility$$GetPossibleMoveTiles` et
+    `BlackRageAbility$$GetPossibleMovementTiles` : le port passe donc par le MEME foyer
+    (`entities/selectors/tiles.tiles_unit_can_move_to_charge_target`), qui se developpe en
+    `CanAddUnit(AdjacentTiles(target)) op_BitwiseAnd MovableTilesInRange(caster, casterTile, range,
+    0, 0)`.
+
+    `ignoreFlags = 0` -- CONTRASTE avec `VigilanceEternalAbility$$GetPossibleMovementTiles` (1). Le
+    terme reste NON EXERCE cote port (residu #381) ; il est propage tel quel pour que les deux
+    call-sites divergent le jour ou le substrat existe.
+
+    `SelectTile(CasterTile())` = mirror du `TargetsSelector$$SelectTile` (vslot 0xc) par lequel
+    `MovableTilesInRangeSelector$$Select` resout son `casterTiles` (#459).
+
+    `move_range` arrive DEJA CALCULE (`mass_driver_move_range`) : c'est LA valeur du 4e argument
+    natif, presentee au noeud par un `Const`."""
+    return tiles_unit_can_move_to_charge_target(Caster(), SelectTile(CasterTile()), Target(),
+                                                Const(int(move_range)), ignore_flags=False)
+
+
+def mass_driver_move_tile(state: "State", caster_id: int, target_id: int, move_range: int):
+    """`...MassDriverAcceleratorAbility$$GetMoveTile` -- MIRROR du decompile :
+
+        First( SortTilesByUtility( GetPossibleMoveTiles(), caster@0x48,
+                                   0x21 = UtilityType.MovementSuggestion, parent = null ),
+               1 )
+
+    C'est la surcharge INT de `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility`
+    (`utilityType:IdunBattle.Configuration.UtilityType`), PAS la `UtilityDefinition` batie a la main
+    de `LeadingTheChargeAbility$$GetMoveTile` / `RammingSpeedAbility$$GetTileToMoveTo`.
+    ⚠ `0x21` = **33**, et `33 = MovementSuggestion` dans `enums.tsv` du build courant (`32` y est
+    `EnvEndBombardment`) : le littéral a ete RE-LU sur CETTE ability, pas herite d'un port frere.
+
+    `ExecuteBehaviour` re-inline exactement ce couple `SortTilesByUtility(..., 0x21, 0)` + `First(1)`
+    plutot que d'appeler ce getter -- les deux voient le meme ensemble.
+
+    Le tri passe par le FOYER `first_tile_by_utility` (`SortTilesByUtilitySelector$$Select` : tri
+    DECROISSANT, `OrderBy` LINQ STABLE -> les egalites gardent l'ordre du selecteur source, ZERO
+    tirage). `unit_id = caster` = le `dc.unit` du natif (`caster@0x48`). Rend une (col,row) ou None."""
+    board = state.board
+    if board is None or state.get_entity(int(target_id)) is None:
+        return None
+    cands = mass_driver_possible_move_tiles_selector(move_range).evaluate(
+        entities_from_state(state, caster_id, target_id))
+    if not cands:
+        return None
+    best = first_tile_by_utility(state, cands, unit_id=int(caster_id),
+                                 utility_type=int(UtilityType.MovementSuggestion))
+    return board.coord(best) if best is not None else None
+
+
+def mass_driver_adjacent_attack_targets_selector():
+    """`...MassDriverAcceleratorAbility$$GetAdjacentAttackTargets` -- ARBRE DSL, MIRROR 1:1 :
+
+        Enemies( of: caster@0x48,
+                 entities: AdjacentUnits(target@0x60, unique: 1, selectionType: 3),
+                 selectionType: 3 )
+
+    = les ENNEMIS DU CASTER poses sur les tuiles hex-adjacentes A LA CIBLE. La cible elle-meme est
+    deja retiree par `AdjacentUnits` (`_within` exclut le centre), et `AdjacentUnits` ne filtre PAS
+    l'equipe -- c'est le `Enemies` qui le fait, en prenant le CASTER pour referent (ce que le noeud
+    `Enemies` du port mirrore par construction : il lit `ctx.caster`).
+
+    `ExecuteBehaviour` re-inline exactement ce couple pour le passer a `DSLSelectors$$Cache` /
+    `DSLBehaviors$$SetCache` ; la face DECISION consomme le MEME artefact
+    (`entities/abilities/active_ability.py::MassDriverAcceleratorAbility._AOE`, qui l'exprime en
+    `AdjacentEnemies(TargetTile(), 1)` -- meme ensemble, autre substrat)."""
+    return Enemies(AdjacentUnits(Target(), Const(1)))
+
+
+def mass_driver_attack_tree():
+    """2e terme de l'arbre natif -- MIRROR du decompile :
+
+        cache   = Cache( GetAdjacentAttackTargets(), matchAbilityEntities: 1 )
+        atk1    = AttackWithAttackDamage( caster@0x48, target@0x60,
+                                          MinMaxDamage(abilityState),          # minDmg / maxDmg
+                                          Nullable(GetDamageProfile()),        # damageProfile
+                                          GetHits(),                           # nrOfHits
+                                          AbilityOrEffect(this), <options ZERO>,
+                                          selectionType = 2 )
+        atk2    = AttackWithAttackDamage( caster@0x48, Alive(cache),
+                                          MinMaxDamage2(abilityState),         # minDmg_2 / maxDmg_2
+                                          Nullable(GetDamageProfile2()),       # damageProfile_2
+                                          GetHits2(),                          # nrOfHits_2
+                                          AbilityOrEffect(this), <options ZERO>,
+                                          selectionType = 2 )
+        return    AtomicGroup( ( SetCache(cache) & Group(atk1, caster@0x48, 0x20) )
+                               & Group(atk2, caster@0x48, 0x21) )
+
+    et l'appelant l'enveloppe dans `IfAlive(caster@0x48, <ceci>)` (cf. `MassDriverAcceleratorAbility.
+    execute_behaviour`).
+
+    ⚠ **INSTANCE FRAICHE PAR CAST** : le noeud `Cache` est STATEFUL (memoisation par instance) -- d'ou
+    la FACTORY plutot qu'un attribut de classe. Le `SetCache` FIGE l'ensemble des ennemis adjacents a
+    la cible AVANT la 1re attaque ; le `Alive(cache)` de la 2e relit CE cache en n'en gardant que les
+    vivants. Sans la memoisation, la 2e attaque re-deriverait la geometrie APRES que la 1re a mute
+    l'etat -- ce n'est PAS ce que fait le natif.
+
+    ⚠ **PROFILS ET COUPS DISTINCTS ENTRE LES DEUX VOLETS**, LUS a la config 1222 :
+    `damageProfile = DirectDamage` / `nrOfHits = 1` pour la cible, `damageProfile_2 = Physical` /
+    `nrOfHits_2 = 1` pour le splash. `minDmg_2`/`maxDmg_2` y sont EGAUX a `minDmg`/`maxDmg`, mais les
+    cles sont passees separement (le natif appelle bien `MinMaxDamage2`) : le jour ou un build les
+    desaccorde, le port suit sans retouche.
+    ⚠ DIVERGENCE natif/natif DEJA DOCUMENTEE cote DECISION : le playbook, lui, repasse la valeur du
+    batch PRINCIPAL aux deux volets (`entities/abilities/active_ability.py`). C'est l'EXECUTION qui
+    lit `MinMaxDamage2`, pas la prediction.
+
+    `Group(..., caster@0x48, 0x20/0x21)` = `GroupType.Ability_Attack` / `Ability_Attack_2` -- cote
+    ETAT c'est un PASS-THROUGH (couche VUE/timeline, cf. #201/#504), porte pour le MIRROR STRUCTUREL
+    et parce que le natif EVALUE son selecteur de groupe.
+    `selectionType = 2` des deux `AttackWithAttackDamage` : meme valeur que tous les call-sites de
+    charge deja portes (Waaagh / UnstoppableMomentum / LeadingTheCharge), foldee dans la feuille."""
+    consts = (GC.ability(MASS_DRIVER_ACCELERATOR_ID) or {}).get("constants") or {}
+    profile = consts.get("damageProfile")            # GetDamageProfile()  = GetEnumConstant(0x2b)
+    profile2 = consts.get("damageProfile_2")         # GetDamageProfile2() = GetEnumConstant(0x3f)
+    cache = Cache(mass_driver_adjacent_attack_targets_selector())
+    atk1 = AttackWithAttackDamage(Target(), MASS_DRIVER_ACCELERATOR_ID, profile, is_melee=True,
+                                  ability_type=int(ActiveAbilityType.MassDriverAccelerator))
+    atk2 = AttackWithAttackDamage(Alive(cache), MASS_DRIVER_ACCELERATOR_ID, profile2,
+                                  is_melee=True, min_key="minDmg_2", max_key="maxDmg_2",
+                                  hits_key="nrOfHits_2", multi=True,
+                                  ability_type=int(ActiveAbilityType.MassDriverAccelerator))
+    return AtomicGroup(op_and(
+        op_and(SetCache(cache),
+               Group(atk1, int(GroupType.Ability_Attack), Caster())),
+        Group(atk2, int(GroupType.Ability_Attack_2), Caster())))
+
+
+class MassDriverAcceleratorAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.MassDriverAcceleratorAbility$$ExecuteBehaviour`
+    (id 1222, `votanChampion` « Kimm », namespace natif `Abilities.Active.Loki`) -- CHARGE A SPLASH,
+    UNE SEULE execution top-level (`AActiveAbility$$Execute`), MIRROR du decompile :
+
+        Execute(
+          ( AddStaticStatModifierEffect( owner@0x30 + AdjacentFriends(owner@0x30),
+                                         0x606 = MassDriverAccelerator_ExtraMovement,
+                                         0x1 = StatType.Movement,
+                                         Get(GetNumberConstant(0xe = extraMovement)),
+                                         <DSLFormulas+0x20> = Direct(1), isHidden: 0 )
+            & MoveUnit( caster@0x48,
+                        First(SortTilesByUtility(GetPossibleMoveTiles(), caster@0x48,
+                                                 0x21 = MovementSuggestion, null), 1),
+                        <options ZERO> ) )
+          & IfAlive( caster@0x48,
+              AtomicGroup( ( SetCache(cache) & Group(atk1, caster@0x48, 0x20) )
+                           & Group(atk2, caster@0x48, 0x21) ) ) )
+
+    LE VERDICT QUI TRANCHE LA CATEGORIE D'AUDIT
+    -------------------------------------------
+    L'audit classait 1222 en `DAMAGE(DirectDamage)`. C'est **juste mais incomplet** : le
+    `damageProfile` de la config VAUT bien `DirectDamage` et le 1er `AttackWithAttackDamage` le
+    consomme -- mais l'`ExecuteBehaviour` porte AUSSI un buff de stat et un deplacement, et un SECOND
+    volet de degat au profil `Physical`. Ce n'est donc ni « un buff a damageProfile » (la famille
+    NovaBoost/NovaCharge/NovaShield), ni une attaque nue : c'est une CHARGE, du meme patron que
+    `LeadingTheChargeAbility` (1204) et `BlackRageAbility` (1163). L'indice « une utilite du
+    gameconfig nommee `MassDriverAccelerator_AdjacentFriendly` » est CONFIRME au decompile par
+    `...$$GetBuffTargets` = `owner + AdjacentFriends(owner)` : le scoreur prefere les positions ou
+    Kimm a des allies au contact parce que le buff de mouvement les touche AUSSI.
+
+    ORDRE DES ETAGES, ET POURQUOI IL EST OBSERVABLE
+    ------------------------------------------------
+    1. le buff `Movement` est pose D'ABORD, sur Kimm ET ses allies adjacents ;
+    2. la CHARGE est calculee ENSUITE -- `UnitMovementRangeWithBonus` voit alors l'effet 1542 deja
+       pose et lit la stat MOVEMENT DEJA bonifiee (cf. `mass_driver_move_range`) ;
+    3. l'attaque principale et le splash ne s'executent QUE si Kimm est encore vivant apres la
+       charge (`IfAlive(caster@0x48)` = `If(IsAlive(caster), ...)`, le natif ne faisant que composer
+       les deux noeuds).
+
+    La composition `op_BitwiseAnd` de `IdunBattle.DSL.AbilityBehaviour` est SEQUENTIELLE
+    (`CombinedBehaviour`), donc executer `buff` puis `move & ifAlive` l'un apres l'autre sur le MEME
+    `AbilityEntities` est le mirror exact de l'arbre unique -- c'est ce que fait `execute_behaviour`
+    ci-dessous, et c'est ce qui permet de lire la destination de charge APRES la pose du buff,
+    exactement comme le natif dont les selecteurs sont PARESSEUX.
+
+    Diag : {move, dest, move_range, buffed, attack, splash, splash_targets}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.MassDriverAccelerator)   # 1222
+    ABILITY_ID = MASS_DRIVER_ACCELERATOR_ID
+
+    # GATE DE CIBLE (#115). `...MassDriverAcceleratorAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor` : il RECOPIE les 0x40 octets du champ
+    # statique `<TargetingOptions statics>+0x240` puis appelle
+    # `AActiveAbility..ctor(this, &opts, 0)` (2e forme du piege, cf. CLAUDE.md). Le masque effectif
+    # est donc la constante ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor`, RELUE
+    # ICI sur ce preset (pas heritee d'un port frere) :
+    #     *(statics + 0x240) = 0            -> isSelfCasting = False
+    #     *(statics + 0x248..0x25c)         -> copie de `TargetingRange statics+0x48` = useWholeBoard
+    #     *(statics + 0x260) = 1            -> forceMeleeTarget = `RangedBool.False`
+    #     *(statics + 0x268) = 0x102004032  -> rules
+    # Decomposition EXHAUSTIVE de `0x102004032` (reste 0x0 apres les six bits ci-dessous) :
+    #     0x2         TargetMatchesDynamicRule       -> `get_dynamic_invalid_target_reason` ci-dessous
+    #     0x10        CasterHasNotMoved              -> Kimm ne peut pas charger apres s'etre deplace
+    #     0x20        TargetHasFreeAdjacentTile      -> il faut un hex libre au contact de la cible
+    #     0x4000      TargetIsEnemy
+    #     0x2000000   AllowObscuredTargetByElevation
+    #     0x100000000 TargetIsNotAdjacent            -> une cible DEJA au contact est refusee
+    # C'est le MEME preset `+0x240` que `1204 LeadingTheCharge` et `1177 LightOfSanguinius` -- ce qui
+    # separe ces abilities est leur `GetDynamicInvalidTargetReason`, pas leurs options.
+    # PORTEE (#241) : `range` = `TargetingRange` statique -> `useWholeBoard`, donc le volet generique
+    # de portee NE TESTE RIEN ; la contrainte de distance vit ENTIEREMENT dans la regle dynamique.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.CasterHasNotMoved
+        | TR.TargetHasFreeAdjacentTile
+        | TR.TargetIsEnemy
+        | TR.AllowObscuredTargetByElevation
+        | TR.TargetIsNotAdjacent
+    ), self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...MassDriverAcceleratorAbility$$GetDynamicInvalidTargetReason(caster, casterTiles,
+        target, targetTiles)` -- MIRROR du decompile :
+
+            tiles = MassDriverAcceleratorAbility.GetPossibleMoveTiles()
+            ents  = AbilityEntities(caster, caster, ..., casterTiles, ..., targetTiles, ...)
+            return Count( tiles.<slot 2>(ents) ) > 0 ? 0 : 0x8000000
+
+        `0x8000000` = `TargetingRule.TargetIsInRange` : 1222 exprime sa contrainte de DISTANCE ici, et
+        pas par le volet portee generique du filtre statique (desarme par `useWholeBoard`). Predicat :
+        **il existe au moins un hex LIBRE et marchable adjacent a la cible, atteignable par Kimm en
+        `MOVEMENT + extraMovement` pas** -- autrement dit la cible doit etre chargeable ce tour-ci.
+
+        JUMEAU STRUCTUREL de `LeadingTheChargeAbility$$GetDynamicInvalidTargetReason` et de
+        `BlackRageAbility$$GetDynamicInvalidTargetReason` (meme forme, meme code rendu, meme appel
+        SANS argument a leur `GetPossibleMoveTiles` respectif).
+
+        Au moment du GATE l'effet 1542 n'est PAS pose (aucune execution n'a commence) ->
+        `mass_driver_move_range` prend la branche `MOVEMENT + extraMovement` du `If` natif."""
+        if target_id is None or state.get_entity(int(target_id)) is None:
+            return int(TR.TargetIsInRange)
+        move_range = mass_driver_move_range(state, int(caster_id))
+        tiles = mass_driver_possible_move_tiles_selector(move_range).evaluate(
+            entities_from_state(state, caster_id, target_id))
+        return 0 if len(tiles) > 0 else int(TR.TargetIsInRange)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        consts = (GC.ability(self.ABILITY_ID) or {}).get("constants") or {}
+        # `Get(GetNumberConstant(0xe = extraMovement))` -- une CONSTANTE de config (pas une variable
+        # de niveau) : `AbilityConfiguration$$GetNumberConstant`, pas `GetVariableForLevel`.
+        extra_movement = int(consts.get(MASS_DRIVER_CONST_EXTRA_MOVEMENT.name) or 0)
+
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+
+        # ---- 1er terme : le buff de mouvement (owner + amis adjacents) --------------------------
+        mass_driver_buff_tree(extra_movement).execute(entities, ectx)
+        buffed = [p.get("unit") for n, p in ectx.emitted
+                  if n == "AddStaticStatModifierEffect"]
+
+        # ---- 2e terme : la CHARGE. La portee est lue MAINTENANT, donc APRES la pose de l'effet
+        # 1542 -- c'est la branche `Movement` NU d'`UnitMovementRangeWithBonus` (selecteurs natifs
+        # PARESSEUX). `MoveUnit(caster@0x48, <tuile>, <options ZERO>)` : le decompile met a zero les
+        # cinq selecteurs d'options -> aucun flag after-move (meme configuration que Waaagh /
+        # LeadingTheCharge).
+        move_range = mass_driver_move_range(state, caster_id)
+        dest = mass_driver_move_tile(state, caster_id, target_id, move_range)
+        MoveUnit(Caster(), FixedTiles([dest] if dest is not None else [])).execute(entities, ectx)
+        moved = next((p for n, p in ectx.emitted if n == "MoveUnit"), None)
+
+        # ---- 3e terme : `IfAlive(caster@0x48, AtomicGroup(...))` -- l'attaque principale et le
+        # splash ne partent que si Kimm a survecu a la charge.
+        IfBehaviour(IsAlive(Caster()), mass_driver_attack_tree()).execute(entities, ectx)
+
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "move": moved, "dest": dest, "move_range": move_range,
+                "extra_movement": extra_movement, "buffed": buffed,
+                "attack": atks[0] if atks else None,
+                "splash": atks[1:],
+                "splash_targets": [a.get("target") for a in atks[1:]], "dsl": True}

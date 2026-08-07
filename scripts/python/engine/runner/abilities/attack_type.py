@@ -253,6 +253,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.LeadingTheCharge: AbilityAttackType.DirectTargetAttack,  # 1204
     ActiveAbilityType.DeathOnTheWind: AbilityAttackType.DirectTargetAttack,  # 1213
     ActiveAbilityType.AugmentedAssault: AbilityAttackType.DirectTargetAttack,  # 1221
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MassDriverAcceleratorAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 0)` : 3e argument = 0 = DirectTargetAttack (LU, #525 -- le
+    # ctor est BYTE-IDENTIQUE a celui de 1204 : meme preset `TargetingOptions statics+0x240` recopie,
+    # meme litteral). TRANSCRIT, pas deduit du comportement : 1222 est une CHARGE qui pose d'abord un
+    # stat-mod et se DEPLACE, et son 2e volet de degat est un SPLASH multi-cible.
+    ActiveAbilityType.MassDriverAccelerator: AbilityAttackType.DirectTargetAttack,  # 1222
     ActiveAbilityType.SavageEchoes: AbilityAttackType.DirectTargetAttack,  # 1230
     ActiveAbilityType.Supercharge: AbilityAttackType.DirectTargetAttack,  # 1103 (lot #112, litteral 0 relu)
     # DakkaDakkaDakka (1171, Snappawrecka orksKillaKan), case-decision-noop. Litteral RELU :

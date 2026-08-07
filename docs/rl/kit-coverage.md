@@ -23,8 +23,8 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **63** ; kits avec du travail : **64**
-- Volume total : **77** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **64** ; kits avec du travail : **63**
+- Volume total : **76** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -35,11 +35,11 @@
 | Necrons | 5 | 6 |
 | BloodAngels | 4 | 5 |
 | DarkAngels | 4 | 5 |
-| LeaguesOfVotann | 5 | 5 |
 | Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
 | ThousandSons | 3 | 5 |
 | BlackTemplars | 4 | 4 |
+| LeaguesOfVotann | 4 | 4 |
 | AdeptusMechanicus | 3 | 3 |
 | Aeldari | 3 | 3 |
 | AstraMilitarum | 3 | 3 |
@@ -143,12 +143,11 @@
 | genesBiophagus | 1 | AberrantHypermorph(1166) [CD] OK | TwistedScience | - |
 | genesMagus | 1 | MindControl(1164) [--] NO-OP EFFECT/BUFF | - | - |
 
-### LeaguesOfVotann — 5 kits, 5 items
+### LeaguesOfVotann — 4 kits, 4 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | votanBeserk | 1 | AugmentedAssault(1221) [C-] OK | FuryFromTheDelve | - |
-| votanChampion | 1 | MassDriverAccelerator(1222) [-D] NO-OP DAMAGE(DirectDamage) | - | - |
 | votanIronmaster | 1 | GravitonRifle(1206) [C-] OK | EcogSupport | - |
 | votanMemnyr | 1 | IronkinSteeljack(1219) [C-] OK | PredictiveGuidance | - |
 | votanUthar | 1 | AncestralFortune(1207) [CD] OK | GrimEfficiency | - |
@@ -218,9 +217,9 @@
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
 | worldTerminator | 1 | BloodyFury(1129) [CD] OK | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (63)
+## Kits lineup COMPLETS (64)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoAtlacoya, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, emperNoiseMarine, genesKelermorph, genesPatriarch, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, worldEightbound, worldKharn
+adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoAtlacoya, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, emperNoiseMarine, genesKelermorph, genesPatriarch, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
 
 ## HORS total — voies conditionnelles (42 abilities non portees)
 

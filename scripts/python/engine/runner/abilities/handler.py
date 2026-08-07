@@ -80,7 +80,7 @@ from .tau import (HeavyRailRifleAbility, TwinSmartMissileSystemAbility, Fighting
                   EarlyWarningOverrideAbility, InspiredToGreatnessAbility,
                   SeekerMissileFrequencyLockAbility, ExemplarOfTheKauyonAbility)
 from .votann import (IronkinSteeljackAbility, AugmentedAssaultAbility, GravitonRifleAbility,
-                     AncestralFortuneAbility)
+                     AncestralFortuneAbility, MassDriverAcceleratorAbility)
 from .aeldari import (EmpyricAmbushAbility, ExecutionerAbility, HarvesterOfSoulsAbility,
                       SilentDeathAbility, SwoopingHawkAbility)
 from .spacewolves import GreatFrostAxeAbility, FoehammerAbility, GrapnelLauncherAbility
@@ -159,6 +159,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     AugmentedAssaultAbility.ABILITY_TYPE: AugmentedAssaultAbility,     # 1221 (votanBeserk Havyr : 4x Eviscerate melee mono-cible + AddDynamicStatModifierEffect(1541) FixedArmor NEGATIF sur la CIBLE, permanent, #113 Votann)
     GravitonRifleAbility.ABILITY_TYPE: GravitonRifleAbility,           # 1206 (votanIronmaster Vynn : 3x Physical range-2 + Stunned(1162) nrOfRounds ; owner-effect 1484 = +extraPierceRatio vs TerminatorArmour/MkXGravis/Mechanical, #113 Votann)
     AncestralFortuneAbility.ABILITY_TYPE: AncestralFortuneAbility,     # 1207 (votanUthar Uthar : self-buff +critChance(1485) & +blockChance(1486) 1 round, gates StatAmount(INITIAL)>0, puis 3x Plasma sur First(SortUnitsByDamageUtility(AdjacentEnemies)) ; reset persistent-data HORS perimetre, #113 Votann)
+    MassDriverAcceleratorAbility.ABILITY_TYPE: MassDriverAcceleratorAbility,  # 1222 (votanChampion Kimm : CHARGE a splash -- AddStaticStatModifierEffect(1542) MOVEMENT sur owner + AdjacentFriends, MoveUnit(SortTilesByUtility MovementSuggestion), puis IfAlive(caster) 1x DirectDamage sur la cible + 1x Physical sur Alive(Cache(Enemies(AdjacentUnits(target)))), #525)
     ExecutionerAbility.ABILITY_TYPE: ExecutionerAbility,               # 1066 (Eldryon eldarFarseer Aeldari : Psychic ranged hits=RoundsStarted cible + si cible morte 1 ennemi random adjacent-cible, native_factory attack, case-220 §6.19)
     EmpyricAmbushAbility.ABILITY_TYPE: EmpyricAmbushAbility,           # 1232 (Lhykhis eldarLhykhis Aeldari, HORS CATALOGUE -> catalog_inject : FlyUnit(caster, First(SortTilesByUtility(Randomize(CanAddUnit(AdjacentTiles(cible)) - CasterTile), caster, 7))) & If(OwnerIsAlive, nrOfHits x Eviscerate melee mono-cible & AddEffect(1578 EmpyricAmbush -> la CIBLE, source = Owner, Direct(1) tour)) ; l'effet et son gate etaient portes par #589-r1-r1, la POSE manquait -> #589-r1-r1-r1)
     HarvesterOfSoulsAbility.ABILITY_TYPE: HarvesterOfSoulsAbility,     # 1067 (Maugan Ra eldarMauganRa Aeldari : ranged HeavyRound cible hits=If(HasMoved,2,3) + splash MinMaxDamage2 ennemis ring1-cible ∩ rayon-3 caster, native_factory attack, ExecuteAtomic, case-220 §6.19)
