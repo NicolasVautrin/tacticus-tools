@@ -750,10 +750,46 @@ lisait (une reprise à 72 % « coûte » 730 K, une à 44 % « coûte » 450 K) 
 l'occupation, à ~10,1 K par point de pourcentage.
 
 ⇒ **Aucun arbitrage reprendre/frais ne doit s'appuyer sur ce champ.** Il redit la fenêtre, qu'on
-lit déjà mieux dans `fleet_board`. Le coût réel d'un `SendMessage` — qui rejoue bien le transcript
-— **n'est mesuré par rien de ce qu'on a sous la main** ; l'écrire serait réinventer la même faute.
-Le premier critère (la valeur est-elle dans ce qui n'a pas été écrit ?) reste donc le seul qui
-tranche, et la borne reste la **fenêtre**.
+lit déjà mieux dans `fleet_board`.
+
+### Le COÛT, lui, est QUADRATIQUE en occupation — mesuré sur les transcripts
+
+```
+python scripts/python/mesure_cout_agent.py <...>\subagents\agent-<id>.jsonl [...]
+```
+
+Le coût n'est pas la borne, c'est l'**intégrale** : chaque aller-retour re-facture tout le
+contexte accumulé. Mesuré le 2026-08-07 en sommant les `usage` requête par requête, sur **22**
+transcripts (unités d'input : `input` + `cache_read`×0,1 + `cache_write`×1,25 + `output`×5) :
+
+| occupation finale | requêtes | coût (M unités) |
+|---|---|---|
+| ~110 K | 21–56 | **0,5 – 1,0** |
+| 447 K | 264 | **10,8** |
+| 737 K | 589 | **32,8** |
+| 879 K | 602 | **51,0** |
+
+L'exposant se lit directement : ×4,1 d'occupation ⇒ ×15,4 de coût ; ×6,7 ⇒ ×46,9. Soit
+**k ≈ 2,0** — le coût croît comme le **CARRÉ** de l'occupation. Sur la paire du jour, 1,65× de
+fenêtre a coûté **3,05×**.
+
+**Trois conséquences opérationnelles**, toutes contre-intuitives si on raisonne en fenêtre :
+
+1. **Découper paie, et beaucoup.** Deux tranches à 450 K coûtent ~22 M ; une seule à 880 K en
+   coûte ~51 M pour le même travail. Le critère « case-doc **MERGÉE** ⇒ agent frais » n'est donc
+   pas qu'épistémique : c'est le levier de coût **le plus fort** dont on dispose.
+2. **Une reprise achète ses tours au prix fort.** Les requêtes d'un agent repris partent du haut
+   de sa courbe : 50 appels de plus à 740 K coûtent ~4× ce que les mêmes 50 appels coûtent à un
+   agent frais parti de 77 K. Reprendre reste juste quand la valeur est dans le non-écrit — mais
+   ça se paie, et le prix est connu.
+3. **Ce n'est PAS le nombre d'appels qui coûte, c'est le contexte qu'ils portent.** Contre-exemple
+   mesuré : `a6a80fb64f037855f` fait **923** requêtes pour **37,3 M**, quand `af1f8ccded3e3c6cd`
+   en fait **493** pour **56,5 M**. Deux fois moins d'appels, une fois et demie plus cher. Le
+   levier est donc la **croissance de contexte par appel** (relire un fichier entier, déverser une
+   sortie massive), jamais « faire moins d'outils ».
+
+Le premier critère (la valeur est-elle dans ce qui n'a pas été écrit ?) reste celui qui tranche —
+ce chiffrage dit seulement ce qu'on paie quand on répond « oui ».
 
 ## Agents (subagents) — TOUJOURS en worktree isolé
 
