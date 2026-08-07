@@ -72,6 +72,24 @@ if str(PYDIR) not in sys.path:
     sys.path.insert(0, str(PYDIR))
 import repo_read  # noqa: E402
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: Le perimetre est `git ls-files "*.py"` -- TOUT le depot, mais SEULEMENT du Python. Mesure du
+#: 2026-08-07 : 2099 fichiers, dont 2096 sous `scripts/python` et 3 sous `lib/`. Le glob est donc
+#: donne sur l'EXTENSION et non sur une racine, exactement comme le probe le derive : une racine
+#: nouvelle (un `.py` sous `frida/`, sous `tools/`) doit le declencher sans qu'on y pense.
+#: Un `.ts`, un `.md`, une table de symboles ne peuvent PAS le faire changer d'avis : il ne
+#: resout que des liaisons de modules PYTHON, a l'AST.
+DECLENCHEUR = {
+    "chemins": ("*.py", "**/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Il indexe et balaie tout `.py` SUIVI PAR GIT, et son critere est purement "
+              "syntaxique (`from X import Y` ou X est a l'index et Y n'est pas une liaison de "
+              "X) -- aucune autre extension, aucune donnee, aucun outil externe hors "
+              "`git ls-files` n'entre dans le verdict.",
+}
+
 #: Racine d'import de premiere partie. C'est celle que tout le depot insere dans `sys.path`
 #: (`sys.path.insert(0, str(Path(__file__).resolve().parent))`, ~250 sites).
 ROOT_REL = "scripts/python"

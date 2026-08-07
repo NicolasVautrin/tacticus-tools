@@ -24,6 +24,33 @@ import pytest
 
 import probe_462_live_tests_status as P
 
+#: Ce qui doit changer pour que cette contre-epreuve puisse changer d'avis.
+#:
+#: ⚠ CE QUE LA MESURE A REFUTE. On la croyait de portee la plus etroite du lot -- << son verdict
+#: ne depend que de {la source du cliquet teste, la sienne} >>, puisque son depot est FABRIQUE
+#: (`tmp_path_factory`) et que `probe_462.repo_root` y est SUBSTITUE. La lecture du source le
+#: laissait croire. La TRACE dit autre chose (audit hook `declencheur_trace`, arme AVANT le
+#: premier import, 2026-08-07) : 7 lectures du depot, dont TROIS qu'une declaration
+#: << deux fichiers >> ratait --
+#:   * `scripts/ratchets-462-live-attestations.json` : le VRAI ledger. Tous les tests ne
+#:     substituent pas `repo_root` ; le depot reel entre donc bien dans le verdict.
+#:   * `scripts/python/conftest.py` et `scripts/python/green_skip_guard.py` : le harnais pytest
+#:     de la RACINE, invisible du source du fichier de test.
+#: Les ~75 sous-process `git`, eux, restent hors de portee du hook (`MESURE INCOMPLETE`) : ils
+#: ne parlent qu'a l'arbre jetable, mais c'est un fait LU, pas mesure.
+#: Cout ISOLE mesure le 2026-08-07 : 73,9 s (25 tests).
+DECLENCHEUR = {
+    "chemins": ("scripts/python/probe_462_live_tests_status.py",
+                "scripts/ratchets-462-live-attestations.json",
+                "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+                "scripts/python/green_skip_guard.py", "scripts/python/pytest.ini"),
+    "build": False,
+    "toujours": False,
+    "raison": "Elle eprouve `verdict_effectif` / `_verdict` de `probe_462` sur un depot git "
+              "JETABLE, mais tous ses tests ne substituent pas `repo_root` : le VRAI ledger "
+              "entre dans son verdict, ainsi que le harnais pytest de la racine.",
+}
+
 _CIBLE = "tests/engine/runner/test_x_live.py"
 
 #: Tous les verdicts que `_verdict` peut produire, plus ceux que le ledger peut porter.

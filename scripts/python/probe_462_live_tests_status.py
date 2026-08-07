@@ -92,6 +92,24 @@ _PYDIR = Path(__file__).resolve().parent
 #: `**/` exige un segment intermediaire et masquait les fichiers poses directement dans `tests/`).
 TESTS_DIR = "scripts/python/tests"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: Il ne vaut QUE pour l'argv de banque (`--gate origin/master`). Les modes `--collect` et
+#: `--run` MONTENT des runners et lisent tout ce que les tests lisent : eux ne sont pas bornables
+#: par des chemins, et ce n'est pas ce que la banque joue.
+#: L'attestation est keyee sur le BLOB du fichier de test : un fichier live qui ne change pas
+#: garde son verdict meme quand `HEAD` avance, donc seuls le fichier live lui-meme et le ledger
+#: peuvent faire basculer la gate.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/tests/*", "scripts/python/tests/**",
+                "scripts/ratchets-462-live-attestations.json"),
+    "build": False,
+    "toujours": False,
+    "raison": "La gate croise le diff depuis le MERGE-BASE avec `git ls-files "
+              "scripts/python/tests` filtre sur `*_live.py`, puis exige pour chacun une "
+              "attestation VERTE au ledger versionne -- ces deux entrees, et rien d'autre.",
+}
+
 #: Plafond DUR de processus montant un runner (`CLAUDE.md`) : le pump est PARTAGE avec les autres
 #: agents. Depasser degrade tout le monde, y compris l'appelant.
 MAX_JOBS = 4

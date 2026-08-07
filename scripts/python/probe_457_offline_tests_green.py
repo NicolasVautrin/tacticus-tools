@@ -203,6 +203,31 @@ if str(_PYDIR_POUR_IMPORT) not in sys.path:
 
 import repo_read                                                            # noqa: E402
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: `toujours: True`, et pour une raison qui lui est PROPRE : sa selection existe DEJA, elle est
+#: INTERNE, et elle est MESUREE. `--since <ref>` restreint le perimetre aux fichiers impactes,
+#: deduits de l'EMPREINTE (`scripts/ratchets-457-footprints.json` : les fichiers reellement
+#: OUVERTS par chaque test) et du graphe d'imports, tout doute rejouant TOUT et le DISANT.
+#: Le borner en PLUS par une liste de chemins ecrite ici, ce serait poser une seconde selection
+#: DEDUITE au-dessus d'une selection MESUREE -- et c'est la moins fidele des deux qui
+#: trancherait. Ce que ce cliquet lit, ce sont ses 109 fichiers de test ET tout ce que ces tests
+#: lisent : `engine/**`, les ~830 probes, `data/symbols`, `data/seed-bc.json`, `data/boards`,
+#: `scripts/**` (~24 d'entre eux sont des BALAYAGES d'arbre) -- soit le depot, moins rien de
+#: nommable.
+#:
+#: Corollaire pour l'appelant : passer `--since` est ce qui rend son cout supportable, pas le
+#: sauter. Sans diff impactant, il ne joue aucun test et rend la main tout de suite.
+DECLENCHEUR = {
+    "chemins": ("*", "**"),
+    "build": True,
+    "toujours": True,
+    "raison": "Il joue tout `scripts/python/tests/**` non-`_live.py` : son verdict depend de "
+              "tout ce que ces tests LISENT, y compris les balayages d'arbre et les tables de "
+              "symboles. Sa selection est INTERNE (`--since`, empreinte MESUREE) et doit rester "
+              "la seule -- une borne par chemins posee au-dessus la contredirait.",
+}
+
 #: Fixture RACINE du monde live. La cloture calculee par pytest (`item.fixturenames`) est
 #: TRANSITIVE : un item qui reclame `live_runner` -> `build_runner` -> `host` porte les trois.
 #: Verifie le 2026-08-02 sur les 512 fichiers collectes -- `host` et `live_session` couvrent

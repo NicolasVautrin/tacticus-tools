@@ -90,6 +90,25 @@ TABLE = ROOT / "scripts" / "ratchets-verdict.ps1"
 PY_DIR = ROOT / "scripts" / "python"
 PROBE_457 = PY_DIR / "probe_457_offline_tests_green.py"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: Son etage 3 (CONTRE-EPREUVE) est de portee 4 -- un depot git JETABLE, dont le contenu ne
+#: vient PAS de l'arbre : il ne depend que de `probe_457_offline_tests_green.py`, RECOPIE
+#: dedans. Mesure du 2026-08-07 : cette recopie est INCOMPLETE (elle ne prend pas `repo_read`),
+#: donc les trois scenarios sortent en `ModuleNotFoundError` et l'etage rougit -- c'est le
+#: FAUX ROUGE << #471 montage >> que l'en-tete de `ratchets.ps1` documente. Le declencheur le
+#: dit tel qu'il EST : la source de `probe_457` en fait partie, et la cloture d'imports aussi.
+DECLENCHEUR = {
+    "chemins": ("scripts/ratchets.ps1", "scripts/ratchets-verdict.ps1",
+                "scripts/python/*.py", "scripts/python/**/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Il lit la BANQUE (parse textuel), la TABLE (dot-sourcee et interrogee), le texte "
+              "de `ratchets.ps1` pour le BRANCHEMENT, et -- etapes 4 et 5 -- l'AST de chaque "
+              "script d'entree plus ses imports de PROFONDEUR 1 sous `scripts/python` ; "
+              "l'etage 3 n'ajoute que la source de `probe_457`, recopiee dans un depot jetable.",
+}
+
 #: Les trois etats, tels que la table PowerShell les nomme.
 OK, INDISPO, ROUGE = "OK", "INDISPO", "ROUGE"
 

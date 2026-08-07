@@ -104,6 +104,23 @@ ROOT = Path(__file__).resolve().parents[2]
 BANQUE = ROOT / "scripts" / "ratchets.ps1"
 PY_DIR = ROOT / "scripts" / "python"
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: `ratchets-verdict.ps1` en fait partie, et ce n'est PAS de la marge : `ratchets.ps1` le
+#: DOT-SOURCE (ligne `. (Join-Path $PSScriptRoot 'ratchets-verdict.ps1')`) AVANT de traiter
+#: `-List`. Une table cassee fait donc echouer la derivation par EXECUTION, dont ce probe
+#: depend -- l'omettre serait un faux vert.
+DECLENCHEUR = {
+    "chemins": ("scripts/ratchets.ps1", "scripts/ratchets-verdict.ps1",
+                "scripts/python/*.py", "scripts/python/**/*.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Il ne lit que la BANQUE (deux derivations independantes : `-List` execute et "
+              "parse textuel du meme fichier) et, par entree, le SEUL fichier que son `Argv` "
+              "designe sous `scripts/python` -- l'interpretation abstraite s'arrete au point "
+              "d'entree de ce fichier, elle ne suit aucune cloture d'imports.",
+}
+
 # Domaine abstrait. Un etat est un ensemble de ces tags.
 Z, N, S, U = "Z", "N", "S", "U"      # nul / non nul / chaine / inconnu
 ANY = frozenset({U})

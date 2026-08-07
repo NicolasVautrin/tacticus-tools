@@ -41,6 +41,38 @@ import probe_468_collision_numeros as p468  # noqa: E402
 
 PROBE = PYDIR / "probe_468_collision_numeros.py"
 
+#: Ce qui doit changer pour que cette contre-epreuve puisse changer d'avis.
+#:
+#: Une contre-epreuve est normalement de PORTEE 4 -- son verdict ne depend que de {la source du
+#: cliquet teste, la sienne}, puisque tout ce qu'elle monte est FABRIQUE. Celle-ci ne l'est PAS,
+#: et la mesure le dit deux fois :
+#:
+#:   1. son echantillon NEGATIF est le depot REEL -- `docs/rl/backlog.md` (lignes de tableau et
+#:      de continuation) et les NOMS de `docs/rl/case-*.md` ;
+#:   2. et, ce qui n'est PAS un chemin : les 400 derniers SUJETS DE COMMIT
+#:      (`git log --format=%s -n 400`), soumis a `definitions_du_backlog`, qui doit les lire
+#:      comme des MENTIONS.
+#:
+#: Le point (2) est ce qui impose `toujours: True` : sous n'importe quelle selection par DIFF,
+#: des commits ont ete ajoutes par construction, donc l'echantillon a bouge. Le champ `chemins`
+#: ne sait pas exprimer << l'historique >>, et une declaration qui l'omettrait serait un faux
+#: vert -- un sujet de commit a la forme `- **#<n>** -- ...` ou `| #<n> | ... |` ferait
+#: legitimement rougir ce fichier.
+#: Cout ISOLE mesure le 2026-08-07 : 140,9 s (46 tests). RESIDU A REMONTER : si le point (2)
+#: prenait un corpus BORNE au lieu de `git log`, cette contre-epreuve redeviendrait bornable a
+#: {sa source, `probe_468`, `docs/rl/**`}, et 140,9 s deviendraient selectionnables.
+DECLENCHEUR = {
+    "chemins": ("docs/rl/*", "docs/rl/**",
+                "scripts/python/probe_468_collision_numeros.py",
+                "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+                "scripts/python/green_skip_guard.py", "scripts/python/pytest.ini"),
+    "build": False,
+    "toujours": True,
+    "raison": "Contre-epreuve de portee 4 SAUF pour son echantillon negatif, qui est le depot "
+              "reel : `docs/rl` (bornable) ET les 400 derniers sujets de commit (PAS un chemin, "
+              "donc pas bornable par ce champ).",
+}
+
 
 # ==========================================================================================
 #  L'ECHANTILLON NEGATIF : le depot REEL, ses renvois croises compris

@@ -53,6 +53,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fleet_board                                                     # noqa: E402
 import loop_status as LS                                               # noqa: E402
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: Portee la plus ETROITE des cliquets de gisement de ce groupe : trois fichiers. C'est la
+#: consequence directe de la couture -- la facade `Sources` est SUBSTITUEE, donc AUCUNE entree
+#: reelle (git, `gh`, host) n'entre dans le verdict, et les scenarios sont ECRITS ici. Le seul
+#: contenu d'arbre qu'il juge est le code de `loop_status` et de son raccourci de flotte.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/loop_status.py",
+                "scripts/python/fleet_board.py",
+                "scripts/python/host_inputs.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Il n'importe que `loop_status` et `fleet_board` (et `host_inputs`, que "
+              "`loop_status` tire), joue des scenarios ECRITS contre une facade `Sources` "
+              "substituee, et n'ecrit que dans un tmpdir SYSTEME -- aucun autre fichier de "
+              "l'arbre n'est lu.",
+}
+
 ECHECS: list[str] = []
 
 

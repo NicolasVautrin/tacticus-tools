@@ -146,6 +146,28 @@ FOYER_CALLS = ("require_pinned", "archived_build")
 # le probe ne s'auto-exclut pas (le faux vert a 0 fichier mesure par #440).
 EXCLUDED_PREFIXES = ("data/symbols/", ".claude/worktrees/", "node_modules/", "frida/dist/")
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+#:
+#: `toujours: True`, et c'est l'etape 0 qui l'impose, pas le volume : elle fait ROUGIR sur toute
+#: EXTENSION presente dans l'arbre et absente des trois seaux. Un fichier versionne QUELCONQUE --
+#: un `.yaml` neuf a la racine, un `.sh` sous `frida/` -- suffit donc a faire basculer le verdict,
+#: et aucun sous-ensemble de chemins ne peut l'anticiper. C'est exactement le vice que #458 a
+#: repare : le perimetre etait alors une liste de globs, et 967 fichiers tombaient dans un trou
+#: MUET. Le borner de nouveau par des chemins rouvrirait cette porte.
+#:
+#: `build: False` est MESURE, pas suppose : `current_build()` ne sert qu'a ETIQUETER
+#: (`PERIME` / `epingle-au-courant`, `COURANT` / `anterieur`). Le `rc` ne depend que de
+#: `inconnues` (etape 0) et de `reso` (etape 1) ; et `data/symbols/` est de toute facon exclu
+#: du perimetre, ces tables PORTANT le hash de leur propre build.
+DECLENCHEUR = {
+    "chemins": ("*", "**"),
+    "build": False,
+    "toujours": True,
+    "raison": "Le perimetre est `git ls-files` ENTIER moins quatre prefixes, et l'etape 0 rougit "
+              "sur une extension hors seau : tout fichier versionne, quelle que soit sa place et "
+              "son extension, peut le faire changer d'avis.",
+}
+
 # (ligne ENTIEREMENT commentaire, commentaire de FIN DE LIGNE) par famille de syntaxe.
 # Le second compte autant que le premier : `case "X": // retire par <hash>` ferait passer une
 # estampille de queue pour du code (mesure : `battle-log.js:242`).
