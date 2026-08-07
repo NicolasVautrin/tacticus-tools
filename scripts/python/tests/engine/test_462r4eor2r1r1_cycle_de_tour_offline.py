@@ -9,8 +9,9 @@ bit-exact.
 
 ⚠ LA CAUSE N'ETAIT PAS « UN COMPTEUR DE ROUND QUE LE PORT N'AVANCE PAS ». Le compteur natif existe,
 et le port l'a : `TurnComponent+0x38` (`State.turn_counts`), incremente par
-`IdunBattle.Operations.StartTurnOperation$$Execute`. Il manquait TROIS crans, chacun mesure
-separement par sa propre mutation du probe :
+`IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer` (son ecrivain UNIQUE -- le port
+l'ecrivait dans `StartTurnOperation` jusqu'a #287-r11-r1-r1-r1-r1). Il manquait TROIS crans, chacun
+mesure separement par sa propre mutation du probe :
 
   1. son CONSOMMATEUR -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SereneUnifierAbility`
      (`On(0x13 = TurnStart_Other) & IsTurnOf(Owner) & OwnerIsCaster` -> six
@@ -281,14 +282,27 @@ def test_le_depart_de_tour_RETIRE_ce_que_la_fin_de_tour_a_pose():
         "`includeNoAction = 0` CONSERVE le flag 4 au changement de tour"
 
 
-def test_le_depart_de_tour_AVANCE_le_compteur_PAR_JOUEUR():
-    """Le maillon que `PlayerTurnsStarted` relit. C'est ce qui fait tourner la phase du cycle."""
-    from engine.runner.operations.turnflow import StartTurnOperation
+def test_le_CHANGEMENT_de_tour_AVANCE_le_compteur_PAR_JOUEUR():
+    """Le maillon que `PlayerTurnsStarted` relit. C'est ce qui fait tourner la phase du cycle.
+
+    ⚠ L'ECRIVAIN A CHANGE DE PLACE (#287-r11-r1-r1-r1-r1), et le TITRE avec lui : ce n'est PAS le
+    depart de tour qui avance `TurnComponent+0x38`, c'est le CHANGEMENT
+    (`TurnComponent$$SetCurrentPlayer`, ecrivain unique -- `StartTurnOperation$$Execute` ne fait
+    que LIRE `GetAmountOfTurnsStartedByCurrentPlayer`). Le montage a DEUX joueurs : avec un seul,
+    `FindNextPlayer` rendrait le courant et le NO-OP natif ne compterait rien.
+
+    Les deux jambes sont assertionnees SEPAREMENT, sinon le test ne dirait pas OU vit l'ecrivain."""
+    from engine.runner.operations.turnflow import ChangeTurnOperation, StartTurnOperation
     st = State()
     _joueur_avec_unite(st, 3)
+    _joueur_avec_unite(st, 4)
+    st.current_player_id = 4
     st.turn_counts = {3: 2}
+    assert ChangeTurnOperation.execute(st) == 3, "l'ordre de tour doit ramener au joueur 3"
+    assert st.turn_counts[3] == 3, "`SetCurrentPlayer` bumpe l'ENTRANT (`started[current] += 1`)"
     StartTurnOperation.execute(st, 3)
-    assert st.turn_counts[3] == 3
+    assert st.turn_counts[3] == 3, (
+        "`StartTurnOperation$$Execute` n'ECRIT pas `+0x38` -- un second bump ici double le compteur")
 
 
 # ================================================================================================
