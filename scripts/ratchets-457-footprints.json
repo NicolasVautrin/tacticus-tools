@@ -579,6 +579,16 @@
     "data/boards/global/survival_13.json"
    ]
   },
+  "tests/engine/runner/test_525_mass_driver_accelerator_offline.py": {
+   "_at": 1786102042,
+   "_commit": "9ff99a1804a634a370cb2d072937865457223149",
+   "dirs": [
+    "scripts/python/engine/runner/abilities"
+   ],
+   "temoins": [
+    "scripts/python/engine/runner/abilities/votann.py"
+   ]
+  },
   "tests/engine/runner/test_ability_registry_ratchet.py": {
    "_at": 1786061293,
    "_commit": "b83c6731e233f3136dce7d6fad905c8457bf5f1f",
