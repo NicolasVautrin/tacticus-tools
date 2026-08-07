@@ -159,6 +159,19 @@ Le critère de provenance change aussi : il cherchait un test `sc is None` — u
 qui tenait par coïncidence et serait tombé en silence le jour où un `StatsComponent` sera posé sur les
 cadavres. Il cherche désormais le **nom du champ natif**.
 
+### Et le cliquet d'exhaustivité a mordu AU REBASE — 4ᵉ récidive du gisement
+
+`#271-r4` (PR #831, mergée pendant cette tranche) a introduit
+`playbook/non_owner_attack.py::_has_trait`, une lecture BRUTE de `c.traits` **non ventilée**.
+Trouvé **au troisième rebase**, pas à l'écriture : ni la PR qui l'a créée, ni la relecture, ne
+l'avaient vu. Ventilé `INERTE-VIVANT` (le sujet est `caster` = `UtilityAttackCase+0x10`, vivant par
+construction du cas d'utilité ; et `Scene.ctx_by_id` vient de `combatSnapshot`, donc des vivants
+seuls — `c is None` sur un cadavre rend FAUX, jamais un trait deviné).
+
+C'est la **quatrième** fois que ce gisement se rouvre par notre propre cadence de portage (après
+`_can_move` #a1e372d3, puis les trois de `#508`/`#498`). Le cliquet est ce qui le rend visible ; le
+**rebase avant PR** est ce qui le rend visible **à temps**.
+
 ---
 
 ## 4. Le REGISTRE (`-r2`) — la question ne se tranchait pas où le résidu la posait

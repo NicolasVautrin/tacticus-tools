@@ -348,6 +348,16 @@ VENTILATION = {
     ("services/movement_query.py", "get_movable_positions_for", "getattr(sc.ctx)", "R"):
         ("INERTE-VIVANT", "le MOVER"),
 
+    # Site NEUF, arrive avec #271-r4 (PR #831) et ventile a la volee par
+    # #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3 : le cliquet l'a trouve AU REBASE, pas a l'ecriture --
+    # c'est la QUATRIEME recidive du gisement, toujours par notre propre cadence de portage.
+    ("playbook/non_owner_attack.py", "_has_trait", "c.traits", "R"):
+        ("INERTE-VIVANT", "le sujet est `caster` = `UtilityAttackCase+0x10`, l'unite dont l'IA "
+                          "evalue l'action : elle est vivante par construction du cas d'utilite. "
+                          "S'y ajoute que `Scene.ctx_by_id` vient du `predictor`, donc de "
+                          "`combatSnapshot`, donc des VIVANTS seuls -> `c is None` sur un cadavre "
+                          "et la fonction rend FAUX, jamais un trait devine"),
+
     # ---- INDECIDABLE : NON converti, et nomme comme tel ----------------------------------------
     ("runner/components.py", "__init__", "sc.ctx.traits", "R"):
         ("INDECIDABLE", "`UnitEffectStateView` -- substrat des `CreateActiveCondition`. Le seul "
