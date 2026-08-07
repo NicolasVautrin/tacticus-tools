@@ -266,8 +266,14 @@ dépend que de SES PV), ce qui le ramène à ~1 100 évaluations pour exactement
   (non parcouru intégralement). Le port dérive `isMelee` de l'ability du nœud `+0x28` et fixe
   `hits = 1` parce qu'aucun call-site porté ne fournit de nœud de coups ; le comportement de
   `PredictAttackRaw` à `hits > 1` est donc **NON CONFRONTÉ**.
-* **`MightCrit`** — `PredictAttackRaw` le calcule, et le live a pourtant réfuté qu'il entre dans ce
-  classement (#419-r6-r1). L'étage qui le neutralise n'est toujours pas isolé.
+### Un verdict RETOURNÉ en chemin : `MightCrit` (#419-r6-r1)
+
+`#419-r6-r1` avait mesuré que le sélecteur ne fait PAS entrer `MightCrit` — contre le décompilé, qui
+dit l'inverse. La mesure avait été faite sur la clé PRE-ARMURE et concluait par **compensation** ;
+rejouée à l'identique sur la clé corrigée, elle s'inverse : le port AVEC le flag est bit-exact avec
+le live (`[79, 83, 81]`), SANS le flag il diverge (`[79, 83, 85]`). Le port passe donc désormais
+l'`attacker_ctx` à la prédiction, et le test a changé de sens. Détail :
+`docs/rl/case-527-r1-choix-de-cible-ancestral-fortune.md` §6bis.
 
 ## 9. Ce que ce cas a coûté, et la leçon transposable
 

@@ -22,8 +22,8 @@ l'OWNER (`this+0x18`) et recopie la `DamagePredictionResult` COMPLETE dans son e
 TROIS ETAGES, ET LE 3e EST CE QUI ETABLIT LA CAUSALITE
 -------------------------------------------------------
   1. `--regime`  (OFFLINE pur) : BALAYAGE du regime discriminant. On cherche des PV pour lesquels
-     l'argmax du composite Damage(34) CHANGE entre `might_crit=False` (le port d'avant) et
-     `might_crit=True`. Si l'ensemble est VIDE, le probe le DIT et rend rc=1 : un montage qui ne
+     l'argmax du composite Damage(34) CHANGE entre `might_crit=False` (le CONTREFACTUEL) et
+     `might_crit=True` (la PRODUCTION, depuis #494-r1-r1). Si l'ensemble est VIDE, le probe le DIT et rend rc=1 : un montage qui ne
      discrimine pas ne prouve rien (cf. << accord en regime DEGENERE >>).
   2. `--live`    : le montage Doombolt (`thousAhriman`, actif 1102) monte AVEC ces PV. L'ordre du
      selecteur gouverne la repartition des coups, donc l'ordre des tirages RNG, donc les degats
@@ -72,9 +72,9 @@ GEO_PLATE = {"board": "MC1_67", "caster": (3, 3),
 def owner_might_crit(state, owner_id) -> bool:
     """`CouldCrit(owner)` -- le flag que le natif POSERAIT sur la prediction du selecteur.
 
-    Il vit ICI et non dans `engine/`, parce que la mesure a etabli que le natif ne le fait PAS
-    entrer dans ce classement : un helper de production non consomme serait une dette. Il sert au
-    CONTREFACTUEL (jouer le port comme s'il lisait le flag) et a DIRE si le canal est ouvert.
+    Il vit ICI et non dans `engine/` parce qu'il DIT si le canal est ouvert (etage temoin) et sert
+    au
+    CONTREFACTUEL (jouer le port comme s'il NE lisait PAS le flag) et a DIRE si le canal est ouvert.
 
     FOYER UNIQUE reutilise, pas de second mirror : `services.damage_prediction.attacker_could_crit`
     (#R34). `UnitContext.crit_chance`/`.crit_damage` sont des proprietes adossees a
@@ -213,8 +213,8 @@ def etage_regime(d: int, verbose: bool = True, reco: "dict | None" = None) -> di
     # Le critere retenu est ce que le montage rend OBSERVABLE : `N = 3` coups sur 4 cibles donne
     # `[1, 1, 1, 0]`, donc c'est le DERNIER qui se lit sans ambiguite. On exige donc que le
     # dernier CHANGE entre les deux valeurs du flag :
-    #     sans flag : B > C > A   -> A dernier
-    #     avec flag : B > A > C   -> C dernier
+    #     sans flag : B > C > A   -> A dernier  (le CONTREFACTUEL depuis #494-r1-r1)
+    #     avec flag : B > A > C   -> C dernier  (la PRODUCTION depuis #494-r1-r1)
     # ce qui demande `u(A) < u(C) < u(A) + PossibleOverkill` et `u(B)` au-dessus des deux.
     #
     # ⚠ On ne prend PAS le premier triplet qui bascule : on garde celui dont la MARGE MINIMALE est
@@ -554,19 +554,25 @@ def etage_live(regime: dict, a_units: str, regime_items: str, seed: str, board: 
         # --- le MEME etat, mais avec le flag FORCE a l'autre valeur = le port d'AVANT -----------
         st2 = load_state(dec1, ob1, snap1, board=Board(bg["tiles"], adjacency="native_sym"))
         st2.rng = PA._seed_rng(s_cast)
-        # CONTREFACTUEL : le port tel qu'il SERAIT s'il faisait entrer `MightCrit` dans le
+        # CONTREFACTUEL : le port tel qu'il SERAIT s'il ne faisait PAS entrer `MightCrit` dans le
         # classement. `_target_utility` porte le parametre exactement pour ca (il n'est alimente
         # par aucune entree publique -- cf. son commentaire `#419-r6-r1`).
         import engine.runner.operations.damage_utility as DU
         _vrai = DU._target_utility
         # ⚠ Le substitut RELAIE TOUT ce que l'appelant passe, par `**kw` (#494-r1 puis #494-r1-r1) :
         # depuis que la cle porte sa part POSITIONNELLE puis la PREDICTION COMPLETE, les entrees
-        # publiques appellent `_target_utility(..., owner_id=<caster>, damage_profile=..., pierce=
-        # ..., ability_type=..., is_melee=...)`. Un substitut qui NOMME les kwargs mesurerait un
-        # AUTRE port que celui qui tourne des qu'un s'ajoute -- il levait `TypeError` et faisait
-        # passer le rouge pour un echec de montage. Le `**kw` est donc VOULU : il suit le foyer.
-        DU._target_utility = (lambda s, t, dm, dx, w, mc=False, _f=_vrai, _o=cid, **kw:
-                              _f(s, t, dm, dx, w, owner_might_crit(s, _o), **kw))
+        # publiques appellent `_target_utility(..., owner_id=<caster>, ability_type=..., is_melee=
+        # ...)`. Un substitut qui NOMME les kwargs mesurerait un AUTRE port que celui qui tourne des
+        # qu'un s'ajoute -- il levait `TypeError` et faisait passer le rouge pour un echec de
+        # montage. Le `**kw` est donc VOULU : il suit le foyer.
+        #
+        # ⚠ **LE CONTREFACTUEL A CHANGE DE SENS (#494-r1-r1).** Il jouait « le port s'il LISAIT le
+        # flag » ; la production LE LIT desormais (le natif l'ecrit dans `PredictAttackRaw`, et la
+        # mesure sur la cle corrigee le confirme). Le contrefactuel est donc « le port s'il ne le
+        # lisait PAS » : on FORCE `might_crit=False`. `owner_might_crit` reste appele -- il DIT si le
+        # canal est ouvert, ce que l'etage temoin exige.
+        DU._target_utility = (lambda s, t, dm, dx, w, mc=None, _f=_vrai, _o=cid, **kw:
+                              _f(s, t, dm, dx, w, False if owner_might_crit(s, _o) else None, **kw))
         try:
             diag_avant = ABILITY_CLASSES[DOOMBOLT]().execute_behaviour(st2, cid, tid)
         finally:
@@ -607,9 +613,9 @@ def etage_live(regime: dict, a_units: str, regime_items: str, seed: str, board: 
                   % {k: round(v, 3) for k, v in res_u_sans.items()})
             print("  utilites par cible  AVEC le flag : %s"
                   % {k: round(v, 3) for k, v in res_u_avec.items()})
-            print("  ordre PORT (production, sans flag) : %-24s hits=%s"
+            print("  ordre PORT (production, AVEC flag) : %-24s hits=%s"
                   % (diag["targets"], diag["hits"]))
-            print("  ordre CONTREFACTUEL (avec flag)    : %-24s hits=%s"
+            print("  ordre CONTREFACTUEL (SANS flag)    : %-24s hits=%s"
                   % (diag_avant["targets"], diag_avant["hits"]))
             for t in allt:
                 print("    u%-4s live=%-22s production=%-22s contrefactuel=%-22s"

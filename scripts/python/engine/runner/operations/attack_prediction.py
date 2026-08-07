@@ -18,8 +18,12 @@ entrees PAR CIBLE sont assemblees ici avec les MEMES primitives publiques que l'
 `defender_fixed_armor`, `defender_modifiers`), puis le calcul passe par le foyer unique
 `services/damage_prediction`.
 
-⚠ `might_crit` n'est PAS alimente (aucun `attacker_ctx` n'est passe) : c'est un fait MESURE cote
-selecteur d'utilite (#419-r6-r1, `test_419r6r1_face_decision_live.py`), pas un oubli.
+⚠ `might_crit` EST alimente : `PredictAttackRaw` ecrit `MightCrit@+0xB1 = CouldCrit(attacker)`
+INCONDITIONNELLEMENT (le seul `if` englobant est le null-guard C# du champ service), et le port
+passe donc l'`attacker_ctx`. #419-r6-r1 avait MESURE l'inverse cote selecteur d'utilite ; cette
+mesure a ete faite sur la cle PRE-ARMURE, c.-a-d. sur un port qui se trompait par ailleurs, et elle
+concluait par COMPENSATION. Re-mesuree sur la cle corrigee (#494-r1-r1), elle s'inverse et rejoint
+le decompile : `test_419r6r1_face_decision_live.py`.
 """
 from __future__ import annotations
 
@@ -92,4 +96,7 @@ def multi_hit_attack_prediction(state, attacker_id: int, target_id: int, amount:
     return get_attack_prediction(
         target_current_health=int(thc.hp or 0), initial_damage=int(amount), hits=int(hits),
         profile_type=_pt, armor=armor, pierce_pct=int(pierce),
-        mods=mods, attacker_effects=active)
+        # `attacker_ctx` -> `MightCrit@+0xB1 = DamageCalculations$$CouldCrit(attacker)`, que
+        # `PredictAttackRaw` ecrit lui-meme. Le port l'evalue au MEME foyer
+        # (`services/damage_prediction.attacker_could_crit`), pas au call-site.
+        mods=mods, attacker_effects=active, attacker_ctx=getattr(asc, "ctx", None))

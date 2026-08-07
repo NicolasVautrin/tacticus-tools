@@ -171,12 +171,38 @@ coups), parce qu'il cherchait dans le mauvais espace : le perçage y était fig�
   qu'**aucun** des quatre call-sites portés ne fournit de nœud de coups. Un call-site à `hits > 1`
   n'existe pas dans le lot, donc le comportement de `PredictAttackRaw` sur ce paramètre est
   **NON CONFRONTÉ**.
-* **`MightCrit`** — `PredictAttackRaw` le calcule (`CouldCrit(attacker)`), et le live a pourtant
-  RÉFUTÉ qu'il entre dans ce classement (#419-r6-r1). Le port reste où la mesure l'a mis : le
-  service de prédiction ne reçoit pas d'`attacker_ctx` sur ce chemin. L'étage exact qui neutralise
-  le flag n'est toujours pas isolé.
 * **Bouclier de la cible** dans le terme `combinedMax` du composite (`shieldBefore`) — résidu
   partagé avec le reste du moteur.
+
+## 6bis. Un verdict RETOURNÉ en chemin : `MightCrit` ENTRE dans la clé (#419-r6-r1)
+
+Ce n'était pas dans le périmètre demandé, et c'est la clé corrigée qui l'a fait apparaître.
+
+`#419-r6-r1` avait **mesuré** que le sélecteur ne fait pas entrer `MightCrit` dans son classement,
+et le port avait été aligné sur cette mesure — contre le décompilé, qui dit l'inverse
+(`PredictAttackRaw` écrit `MightCrit@+0xB1 = DamageCalculations$$CouldCrit(owner)`
+inconditionnellement ; `UtilityAttackCase$$ForDamagePrediction` recopie la struct entière ;
+`OverkillUnitUtility` lit ce flag par `MightBeOverkill`). Son dossier notait d'ailleurs que
+« l'étage exact qui neutralise le flag n'est pas encore isolé ».
+
+Il n'y en avait aucun. La mesure avait été faite **sur la clé PRE-ARMURE**, c.-à-d. sur un port qui
+se trompait par ailleurs : elle concluait par **compensation**, comme `db-4` concluait « l'armure
+n'entre pas ». Le MÊME probe, le MÊME oracle, le MÊME critère, rejoués sur la clé corrigée :
+
+| | ordre joué | bit-exact vs live |
+|---|---|---|
+| PORT **avec** le flag (= production désormais) | `[79, 83, 81, 85]` | **OUI** |
+| PORT **sans** le flag (= contrefactuel désormais) | `[79, 83, 85, 81]` | non |
+| NATIF | `[79, 83, 81]` | — |
+
+Le port passe donc l'`attacker_ctx` à la prédiction, et `test_419r6r1_face_decision_live.py` a
+changé de sens (son contrefactuel force `might_crit=False`).
+
+⚠ **La leçon** : un montage n'établit son verdict que si le RESTE du port est fidèle. Celui-ci
+isolait correctement son flag — trois rôles d'utilité distincts, armure neutralisée, contrefactuel
+sur le même état — et il a quand même conclu faux, parce que la clé qu'il exerçait n'était pas
+celle du natif. C'est le troisième cas de compensation de ce dossier (`db-4` l'armure, le seuil
+`3 × 2044` le perçage, `#419-r6-r1` le crit) : trois fois, deux erreurs se sont annulées.
 
 ## 7. Instrument, rejouable
 

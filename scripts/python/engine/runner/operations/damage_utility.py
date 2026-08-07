@@ -131,10 +131,16 @@ celui de l'arme : c'est `null`, donc aussi aucun gate de profil (`DamageProfileI
 `CalculateTrenchReduction`). Le PROFIL et le PERCAGE ne sont, pour cette raison, PAS des parametres
 des entrees publiques de ce module.
 
+⚠ `MightCrit` ENTRE dans la cle, et ce n'est PAS ce que le port disait la veille.
+`PredictAttackRaw` ecrit `MightCrit@+0xB1 = DamageCalculations$$CouldCrit(owner)` inconditionnellement,
+`UtilityAttackCase$$ForDamagePrediction` recopie la struct ENTIERE, et `OverkillUnitUtility` lit ce
+flag par `MightBeOverkill`. #419-r6-r1 avait MESURE l'inverse -- sur la cle PRE-ARMURE, donc par
+COMPENSATION, exactement comme `db-4` concluait « pas d'armure ». Le MEME probe, le MEME oracle et
+le MEME critere, rejoues sur la cle corrigee, rendent l'INVERSE (le port AVEC le flag est bit-exact
+avec le live). Cf. `test_419r6r1_face_decision_live.py`.
+
 ⚠ RESTE HORS CLE, ET NOMME : `ShouldApplyRangedInMelee` (feuille du meme builder, mais elle ne
-depend que de l'ATTAQUANT ⇒ facteur COMMUN a toutes les cibles ⇒ sans effet sur l'ORDRE) et
-`MightCrit`, que `PredictAttackRaw` calcule pourtant -- le live l'a REFUTE sur ce chemin
-(#419-r6-r1, `test_419r6r1_face_decision_live.py`), le port reste ou la mesure l'a mis.
+depend que de l'ATTAQUANT ⇒ facteur COMMUN a toutes les cibles ⇒ sans effet sur l'ORDRE).
 """
 from __future__ import annotations
 
@@ -221,7 +227,7 @@ def normal_attack_is_melee(state: State, owner_id, target_id):
 
 
 def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
-                    might_crit: bool = False, owner_id=None, hits: int = 1,
+                    might_crit=None, owner_id=None, hits: int = 1,
                     ability_type=None, is_melee=None) -> float:
     """`UtilityDecider.CalculateUtility(UtilityDefinition(0x23 = Damage), cible, prediction)` pour UNE
     cible.
@@ -245,10 +251,11 @@ def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
     `dmin`/`dmax` : le noeud `+0x40` rend UN entier ; les deux bornes sont conservees pour le chemin
     DEGRADE et pour les appelants historiques. Le chemin MIRROR n'utilise que `dmin` (= l'`amount`).
 
-    `might_crit` -- ⚠ **CE PARAMETRE EXISTE POUR LA CONTRE-EPREUVE, PAS POUR LA PRODUCTION.** Aucune
-    des entrees publiques ne l'alimente, et c'est un resultat MESURE, pas un oubli : cf. le
-    bloc `#419-r6-r1` sur la cle `mightCrit` ci-dessous. `probe_419r6r1_face_decision.py` s'en sert
-    pour rejouer les DEUX cotes sur le meme etat ; il est applique par-dessus les DEUX chemins."""
+    `might_crit` -- ⚠ **OVERRIDE de CONTRE-EPREUVE, `None` par defaut.** Sur le chemin MIRROR le
+    flag vient de la PREDICTION (`PredictAttackRaw` ecrit `MightCrit@+0xB1 = CouldCrit(attacker)`) ;
+    `True`/`False` le FORCENT, ce dont `probe_419r6r1_face_decision.py` se sert pour rejouer les
+    DEUX cotes sur le meme etat. Sur le chemin DEGRADE, `None` vaut `False` -- il n'y a pas de
+    prediction d'ou le tirer, et c'est le comportement historique."""
     e = state.get_entity(target_id)
     hc = e.get_component(HealthComponent) if e is not None else None
     hp = int(hc.hp) if (hc is not None and hc.hp is not None) else 0
@@ -257,8 +264,8 @@ def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
         pred = _prediction_fields(state, owner_id, target_id, int(dmin), int(hits),
                                   ability_type, is_melee)
         if pred is not None:
-            if might_crit:
-                pred["mightCrit"] = True
+            if might_crit is not None:              # override de CONTRE-EPREUVE, jamais la prod
+                pred["mightCrit"] = bool(might_crit)
             return damage_composite(pred, max_hp, wt)
     # --- chemin DEGRADE (pre-armure) : l'appelant n'a pas dit qui attaque, ou le couple n'est pas
     # predictible (pas de stats, pas d'arme normale). #494-r1 : la plage reste celle du COUPLE
@@ -269,34 +276,22 @@ def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
             # (dmg >= 2*PV) — la prediction pre-armure EST deja brute.
             "rawHealthDmgMin": max(0, dmin), "rawHealthDmgMax": max(0, dmax),
             "hpBefore": hp, "shieldBefore": 0,
-            # #419-r6-r1 -- `mightCrit` RESTE NON POSE PAR LES ENTREES PUBLIQUES, et c'est MESURE.
+            # ⚠ **CE CHEMIN NE PEUT PAS POSER `mightCrit`, ET C'EST LA SEULE RAISON.** Il n'a pas de
+            # prediction d'ou le tirer : le flag natif est `MightCrit@+0xB1`, que
+            # `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` ecrit lui-meme depuis
+            # `IdunBattle.Core.Services.DamageCalculations$$CouldCrit(owner)`. Le chemin MIRROR, lui,
+            # le porte (cf. `_prediction_fields`).
             #
-            # #R34 avait NOMME l'absence de cette cle en residu (« non porte faute de pouvoir le
-            # VALIDER »), et la bascule du defaut a « equiper » (#419-r6) a rendu le montage
-            # constructible : `CouldCrit` passe de 0/106 a 98/106 unites normalisees, donc l'ecart
-            # aurait ete REEL si le natif lisait le flag ici. Le port a donc ete ECRIT, puis
-            # CONFRONTE -- et le live l'a REFUTE.
-            #
-            # Montage (`probe_419r6r1_face_decision.py`, Doombolt 1102 sur `thousAhriman`, 4 cibles,
-            # `N = 3` coups -> repartition `[1, 1, 1, 0]` : le DERNIER se lit sans ambiguite) :
-            #   * trois roles d'utilite DISTINCTS -- aucune egalite, donc le tie-break (que le port
-            #     approxime par `id` croissant) ne peut pas se substituer au flag ;
-            #   * `FixedArmor = Armor = 0` sur les cibles -- sinon un `MightBeKill` perdu par
-            #     l'armure ferait basculer le classement pour une raison etrangere au flag ;
-            #   * `--crit 100,700` sur le caster -- `CouldCrit(owner)` vrai de facon incontestable
-            #     (et le crit MORD : le coup sur la cible du message passe de 1468 a 2168).
-            # Resultat : port SANS le flag -> `[77, 81, 83, 79]`, **BIT-EXACT** avec le live ;
-            # port AVEC le flag -> `[77, 81, 79, 83]`, DIVERGE (la cible a 0 coup n'est pas la
-            # meme). Idem au regime de crit NATUREL (items equipes, sans `--crit`).
-            #
-            # ⇒ `IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select` ne fait PAS
-            # entrer `MightCrit` dans son classement. Le dict d'ici est donc FIDELE en l'etat.
-            # La RAISON reste ouverte au decompile (residu, cf. la case-doc) : le chemin passe bien
-            # par `IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction` (memset 0xb8
-            # de l'`AttackPredictionRequest` puis slot 4 = `PredictAttack`), `UtilityAttackCase$$
-            # ForDamagePrediction` recopie la struct ENTIERE (+0x00..+0x9c) et
-            # `OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext` appelle bien
-            # `MightBeOverkill` -- l'etage exact qui neutralise le flag n'est pas encore isole.
+            # ⚠ HISTORIQUE, parce qu'il a fait ECRIRE L'INVERSE PENDANT UN JOUR. #419-r6-r1 avait
+            # MESURE que le natif ne lit PAS `MightCrit` dans ce classement, et le port avait ete
+            # aligne sur cette mesure. Elle a ete faite sur la cle PRE-ARMURE -- donc sur un port qui
+            # se trompait par ailleurs -- et concluait par COMPENSATION, exactement comme le montage
+            # `db-4` de `test_doombolt_live.py` concluait « pas d'armure ». Re-mesuree sur la cle
+            # corrigee (#494-r1-r1, meme probe, meme oracle) elle S'INVERSE : le port AVEC le flag
+            # est bit-exact avec le live, le port SANS le flag diverge. Le decompile le disait deja
+            # (`UtilityAttackCase$$ForDamagePrediction` recopie la struct ENTIERE +0x00..+0x9c, et
+            # `OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext` appelle
+            # `MightBeOverkill`, qui lit `@+0xB1`) -- c'est la mesure qui etait fausse.
             "mightCrit": bool(might_crit),
             "killSure": hp > 0 and dmin >= hp,          # WillBeKill  (dmg min >= PV)
             "kill": hp > 0 and dmax >= hp}              # MightBeKill (dmg max >= PV)
