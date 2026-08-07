@@ -328,7 +328,7 @@ def test_la_CONFRONTATION_voit_une_declaration_TROP_ETROITE():
     ampute["chemins"] = tuple(c for c in vraie["chemins"]
                               if "verdict_cache" not in c and "cliquets-cache" not in c)
     assert len(ampute["chemins"]) < len(vraie["chemins"]), "la mutation n'a pas MORDU"
-    rouges, _ = G.confronter({fichier: ampute})
+    rouges, _, _ = G.confronter({fichier: ampute})
     assert rouges, "une declaration amputee de sa dependance doit ROUGIR"
     assert any("verdict_cache" in x for x in rouges[0][1])
 

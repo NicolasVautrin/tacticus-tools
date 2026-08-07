@@ -1,0 +1,18 @@
+# #486-r24 -- fichiers de test qui declarent `hors_confrontation` (le BYPASS).
+# ARTEFACT GENERE ET VERSIONNE : ne pas fusionner a la main, REGENERER
+# (`python scripts/python/probe_486r15_declencheurs_tests.py --ecrire-bypass`).
+#
+# UN BYPASS DESARME LA CONFRONTATION D'UN FICHIER -- et donc la seule chose qui
+# empeche sa declaration de derailler sans bruit. Le contrat en exige la RAISON
+# (dans le fichier lui-meme) ; ce fichier-ci en exige la VISIBILITE : un bypass
+# non inscrit est ROUGE, donc toute croissance de la population passe par un diff.
+#
+# CE N'EST PAS UNE DETTE A RESORBER. Un bypass peut etre pleinement legitime -- un
+# test qui BALAIE l'arbre depend reellement de tout, et aucune enumeration ne le
+# bornera. Ce qui est garde ici, ce n'est pas le zero : c'est qu'on sache toujours
+# QUI se derobe, et sur quel motif.
+#
+# 3 fichier(s).
+scripts/python/tests/test_457_r8_selection_par_diff_offline.py
+scripts/python/tests/test_464_sibling_script_offline.py
+scripts/python/tests/test_486r24_bypass_confrontation_offline.py

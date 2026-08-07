@@ -1521,7 +1521,13 @@ def declencheurs_du_perimetre(perimetre: list, racine=None) -> tuple:
         if d.get("toujours"):
             ecartes[rel] = "`toujours: True` -- rien ne le borne"
             continue
-        servis[rel] = declencheur_cliquet.perimetre(d, source_rel)
+        # `racine` EXPLICITE : le perimetre effectif inclut desormais la CASCADE DE HARNAIS,
+        # que le foyer DERIVE du disque (#531). La laisser retomber sur `declencheur_cliquet.
+        # RACINE` marcherait ici -- les deux racines coincident -- mais elle ferait dependre la
+        # selection d'une racine calculee AILLEURS, sur un critere different (`repo_root` remonte
+        # depuis le cwd, `RACINE` depuis le module). Deux derivations d'une meme racine sont
+        # exactement la forme d'ecart silencieux que #463-r1 a ferme.
+        servis[rel] = declencheur_cliquet.perimetre(d, source_rel, racine)
     return servis, ecartes
 
 

@@ -26,16 +26,37 @@ donc le doute se resout TOUJOURS du cote large. C'est le patron de `probe_457` (
 rejoue TOUT, et le DIT >>), transpose du test au cliquet. Ecrire `toujours: True` avec sa raison
 est une mesure rendue, jamais un aveu.
 
-TROIS CHOSES SONT AJOUTEES AU PERIMETRE PAR CE FOYER, JAMAIS PAR LE DECLARANT
-------------------------------------------------------------------------------
+QUATRE CHOSES SONT AJOUTEES AU PERIMETRE PAR CE FOYER, JAMAIS PAR LE DECLARANT
+--------------------------------------------------------------------------------
   1. **Le source du cliquet lui-meme.** Un cliquet dont on ne rejouerait pas la modification
      n'a aucun sens ; l'ecrire 46 fois serait 46 occasions de l'oublier.
   2. **`data/symbols/**` quand `build: True`.** C'est le seul artefact du jeu que le depot
      versionne ; le reste (le binaire, le gameconfig de `AppData`) vit HORS de l'arbre, donc
      aucun diff ne peut le montrer -- `build: True` veut precisement dire << un changement de
      build peut faire basculer ce verdict sans qu'un seul fichier du depot bouge >>.
-  3. **`scripts/ratchets.ps1`** : rien, ici. La banque ne change aucun verdict -- elle choisit
+  3. **LA CASCADE DE HARNAIS d'un fichier de test** (#531) : les `conftest.py` qui s'appliquent
+     a lui, ET leur fermeture d'imports. AUCUN test n'importe son conftest -- c'est de la
+     semantique PYTEST, invisible a l'AST -- et pourtant le verdict de chaque test en depend
+     (fixtures `autouse`, `green_skip_guard` de #455). Mesure du 2026-08-07 : la cascade rend
+     **435** chemins pour `tests/`, **446** pour `tests/engine/`, **472** pour
+     `tests/engine/runner/` -- un PLANCHER que le test ne choisit pas et ne peut pas reduire.
+     Les faire recopier par chaque declarant etait la cause MESUREE du glob universel : la
+     seule declaration honnete etait aussi la plus chere, et elle rougissait au moindre import
+     ajoute au conftest -- par quelqu'un d'autre. `test_524r1_bond_sous_effets_offline.py` a
+     rendu `master` ROUGE pour l'avoir declaree honnetement (16 chemins recopies a la main).
+     ⚠ Ce n'est PAS un assouplissement : le perimetre effectif est le MEME qu'avec les lignes
+     recopiees, en PLUS FIDELE. Ce qui change, c'est QUI les ecrit -- le foyer, une fois, par
+     DERIVATION.
+  4. **`scripts/ratchets.ps1`** : rien, ici. La banque ne change aucun verdict -- elle choisit
      qui court. C'est le garde `probe_486r12_declencheurs.py` qui la lit, pas les cliquets.
+
+L'AJOUT 3 EST UN PREREQUIS DE LA SELECTION, PAS UN CONFORT
+------------------------------------------------------------
+`probe_457.impacted_files` decide en DEUX moities, et la DECLAREE court-circuite la MESUREE :
+un fichier qui declare n'est retenu que si un glob declare apparie le diff -- il ne passe JAMAIS
+par le graphe d'imports. Resserrer les declarations SANS deriver le harnais fabriquerait donc
+exactement le faux vert que #486 combat : un changement de `board.py` ne rejouerait plus les
+tests dont le conftest l'importe. L'ajout 3 est ce qui rend le resserrement SUR.
 
 SEMANTIQUE DES GLOBS -- `**/` VAUT ZERO SEGMENT OU PLUS
 --------------------------------------------------------
@@ -98,9 +119,43 @@ NOM = "DECLENCHEUR"
 #:     un `probe_283:step` renomme ou retire.
 NOM_PAR_ENTREE = "DECLENCHEUR_PAR_ENTREE"
 
-#: Les quatre cles, exactement -- ni plus (une cle inventee ne serait lue par personne), ni
-#: moins (une cle absente serait un defaut implicite, donc invisible).
+#: Les quatre cles OBLIGATOIRES, exactement -- ni plus (une cle inventee ne serait lue par
+#: personne), ni moins (une cle absente serait un defaut implicite, donc invisible).
 CLES = ("chemins", "build", "toujours", "raison")
+
+#: LE BYPASS DE CONFRONTATION (#486-r24), facultatif -- une CHAINE, qui EST sa raison.
+#:
+#: CE QU'IL DESARME, ET CE QU'IL NE DESARME PAS. Il desarme le seul etage de CONFRONTATION
+#: (<< tout ce que ce fichier importe ou ouvre est-il dans son perimetre declare ? >>), et RIEN
+#: d'autre : l'obligation de DECLARER reste, la validation de FORME reste, et la selection
+#: continue de servir les globs declares.
+#:
+#: POURQUOI IL VAUT MIEUX QUE L'ETAT ANTERIEUR -- IL EXISTAIT DEJA, INVISIBLE. Mesure du
+#: 2026-08-07 : 43 fichiers de test sur 52 declaraient un glob couvrant tout le Python, et 0
+#: declarait `toujours: True`. Un glob universel n'est rien d'autre qu'un bypass -- il rend la
+#: confrontation TOUJOURS satisfaite. Le prix de cette forme-la : elle MENT sur le perimetre
+#: (donc elle empoisonne la selection, qui sert les globs declares), elle n'est pas COMPTABLE
+#: (personne ne peut dire combien de fichiers se sont derobes) et elle ne dit pas POURQUOI. La
+#: cle ci-dessous echange une evasion silencieuse contre une declaration COMPTEE.
+#:
+#:     DECLENCHEUR = {
+#:         "chemins": ("scripts/python/tests/x/y.py",),
+#:         "build": False, "toujours": False,
+#:         "raison": "...",
+#:         "hors_confrontation": "<pourquoi la fermeture d'imports ne borne PAS ce fichier>",
+#:     }
+#:
+#: ⚠ CE N'EST PAS LA REPONSE A LA CASCADE DE HARNAIS. Un fichier qui n'est trop large que par
+#: les `conftest.py` qu'il traine n'a pas besoin de bypasser : l'ajout 3 ci-dessus lui DERIVE
+#: cette cascade. Les deux populations sont DISTINCTES et se mesurent separement -- les
+#: confondre ferait du bypass la nouvelle echappatoire universelle, ce qui deplacerait le
+#: probleme au lieu de le fermer.
+CLE_HORS_CONFRONTATION = "hors_confrontation"
+
+#: Les cles FACULTATIVES admises. Toute autre reste une faute de forme : le contrat ne se
+#: complete pas par l'usage, sinon la moitie des declarations porterait une cle que personne ne
+#: lit -- et qui aurait l'air de faire quelque chose.
+CLES_FACULTATIVES = (CLE_HORS_CONFRONTATION,)
 
 #: Ce que `build: True` ajoute. Cf. l'en-tete : le reste des artefacts du jeu est HORS ARBRE.
 CHEMINS_BUILD = ("data/symbols/**",)
@@ -179,10 +234,11 @@ def valider(d) -> list[str]:
     manquantes = [c for c in CLES if c not in d]
     if manquantes:
         e.append("cle(s) manquante(s) : %s" % ", ".join(manquantes))
-    inconnues = sorted(set(d) - set(CLES))
+    inconnues = sorted(set(d) - set(CLES) - set(CLES_FACULTATIVES))
     if inconnues:
-        e.append("cle(s) inconnue(s) : %s -- le contrat en a quatre, pas plus"
-                 % ", ".join(inconnues))
+        e.append("cle(s) inconnue(s) : %s -- le contrat en a quatre obligatoires et %d "
+                 "facultative(s) (%s), pas plus"
+                 % (", ".join(inconnues), len(CLES_FACULTATIVES), ", ".join(CLES_FACULTATIVES)))
 
     chemins = d.get("chemins")
     if chemins is not None:
@@ -222,7 +278,43 @@ def valider(d) -> list[str]:
     if d.get("toujours") is False and not d.get("chemins") and not d.get("build"):
         e.append("`toujours: False` avec un perimetre VIDE : rien ne le rejouerait JAMAIS. "
                  "Si tu ne sais pas le borner, ecris `toujours: True` avec sa raison.")
+
+    # -- LE BYPASS (#486-r24). Une cle qui EST sa raison : la porter sans rien dire est
+    # impossible par construction, il n'y a pas de valeur << vraie >> a poser.
+    if CLE_HORS_CONFRONTATION in d:
+        motif = d[CLE_HORS_CONFRONTATION]
+        if not isinstance(motif, str):
+            e.append("`%s` doit etre une CHAINE -- elle EST la raison du bypass (%s)"
+                     % (CLE_HORS_CONFRONTATION, type(motif).__name__))
+        else:
+            try:
+                motif.encode("ascii")
+            except UnicodeEncodeError:
+                e.append("`%s` porte du non-ASCII -- elle est IMPRIMEE (console cp1252)"
+                         % CLE_HORS_CONFRONTATION)
+            if len(motif.strip()) < RAISON_MIN:
+                e.append("`%s` trop courte (%d < %d) : elle doit dire POURQUOI la fermeture "
+                         "d'imports ne borne pas ce fichier, pas qu'elle ne le borne pas"
+                         % (CLE_HORS_CONFRONTATION, len(motif.strip()), RAISON_MIN))
+        # Un `toujours: True` n'est DEJA jamais confronte (cf. `probe_486r12.etage_mesure` et
+        # `probe_486r15.confronter`) : y ajouter un bypass est une declaration MORTE, donc du
+        # copier-coller qui a l'air de faire quelque chose. Meme regle que la cle MORTE de
+        # `valider_par_entree`.
+        if d.get("toujours"):
+            e.append("`%s` avec `toujours: True` : SANS OBJET -- une declaration `toujours` "
+                     "n'est deja jamais confrontee. Retirer l'une des deux."
+                     % CLE_HORS_CONFRONTATION)
     return e
+
+
+def hors_confrontation(d):
+    """Le MOTIF de bypass d'une declaration, ou `None`. Foyer unique de cette lecture.
+
+    Rendre le MOTIF plutot qu'un booleen, pour la meme raison que `couvre` rend le glob : quand
+    le cliquet imprime son compte, il doit pouvoir dire SUR QUEL MOTIF chaque fichier se derobe.
+    Une doctrine qui ne s'affiche pas se degrade en silence."""
+    motif = (d or {}).get(CLE_HORS_CONFRONTATION)
+    return motif.strip() if isinstance(motif, str) and motif.strip() else None
 
 
 def valider_par_entree(par_entree, ids_du_script) -> list[str]:
@@ -279,13 +371,186 @@ def hors_de_l_union(d, par_entree) -> list:
     return out
 
 
-def perimetre(d, source_rel: str | None = None) -> tuple[str, ...]:
+# ============================================================== la cascade de HARNAIS (#531)
+#: Racine des tests. Un fichier hors de cet arbre n'a pas de cascade `conftest.py` a lui deriver.
+PREFIXE_TESTS = "scripts/python/tests/"
+
+_HARNAIS: dict = {}
+
+
+class Fermeture:
+    """La fermeture TOUS IMPORTS d'un fichier, resolue PAR LE DISQUE, sans indexer l'arbre.
+
+    Elle vivait dans `probe_486r15_declencheurs_tests.py` ; elle est ICI depuis #531, parce que
+    le PERIMETRE EFFECTIF en depend desormais (ajout 3) -- et le perimetre est servi aussi bien
+    au cliquet qu'a la SELECTION de `probe_457`. Deux derivations d'un meme critere ouvrent un
+    ecart silencieux : le garde jugerait alors un autre perimetre que celui que la selection
+    joue. Meme arbitrage que `probe_463r1` pour le recensement offline.
+
+    POURQUOI PAS `import_closure.Cloture` (#486-r11) : il repond a une AUTRE question -- << que
+    charge `import M` ? >> -- et EXCLUT donc les imports differes (corps de fonction,
+    `TYPE_CHECKING`), a raison pour son critere. Ici, un `import` ecrit dans un corps de test
+    S'EXECUTE bel et bien pendant le test : l'exclure SOUS-approximerait la fermeture, et une
+    sous-approximation dans un garde de couverture est un FAUX VERT.
+
+    POURQUOI PAS `probe_457._graphe` : il lit et parse les 2 096 modules du domaine (32,7 s
+    mesurees). Ici on ne visite que ce que les fichiers vises atteignent -- mediane 95 modules.
+    """
+
+    def __init__(self, racine=None) -> None:
+        self.racine = Path(racine or RACINE)
+        self._resolus: dict = {}
+        self._cibles: dict = {}
+
+    def resoudre(self, nom: str):
+        """Le chemin relatif au depot du module `nom` sous `scripts/python`, ou `None`."""
+        if nom in self._resolus:
+            return self._resolus[nom]
+        base = self.racine / "scripts" / "python"
+        for suffixe in ("%s.py" % nom.replace(".", "/"),
+                        "%s/__init__.py" % nom.replace(".", "/")):
+            cand = base / suffixe
+            if cand.is_file():
+                self._resolus[nom] = "scripts/python/" + suffixe
+                return self._resolus[nom]
+        self._resolus[nom] = None
+        return None
+
+    @staticmethod
+    def _paquet(rel: str, niveau: int):
+        """Le prefixe de module d'un import RELATIF de niveau `niveau`, ou `None`.
+
+        ⚠ SANS CECI, LA FERMETURE SOUS-APPROXIME -- et une sous-approximation dans un garde de
+        couverture est un FAUX VERT. Mesure du 2026-08-07 : `engine/runner/snapshot.py`, que le
+        conftest de `tests/` importe, n'ecrit QUE des imports relatifs (`from .state import
+        State`, `from ..services.damage_config import ...`). `ast.ImportFrom` rend alors
+        `module='state'` avec `level=1` -- un nom que `resoudre` cherche a `scripts/python/
+        state.py`, ou il n'y a rien. Resultat : la cascade de harnais de `tests/` rendait 12
+        chemins au lieu de la fermeture reelle, donc un changement dans `engine/runner/state.py`
+        ne rejouait PAS les tests dont le conftest en depend.
+        """
+        parts = rel.split("/")
+        if parts[:2] != ["scripts", "python"]:
+            return None
+        parts = parts[2:]
+        # `a/b/__init__.py` EST le paquet `a.b`, et `a/b/c.py` VIT DANS `a.b` : dans les deux
+        # cas le paquet courant est le repertoire, donc `parts[:-1]`.
+        base = parts[:-1]
+        recul = niveau - 1
+        if recul > len(base):
+            return None
+        return base[:len(base) - recul] if recul else base
+
+    def cibles(self, rel: str) -> set:
+        """Les modules importes DIRECTEMENT par `rel` (tous imports, y compris differes)."""
+        if rel in self._cibles:
+            return self._cibles[rel]
+        out: set = set()
+        try:
+            arbre = ast.parse((self.racine / rel).read_bytes())
+        except (OSError, SyntaxError, ValueError):
+            self._cibles[rel] = out
+            return out
+        noms: set = set()
+        for n in ast.walk(arbre):
+            if isinstance(n, ast.Import):
+                noms.update(a.name for a in n.names)
+            elif isinstance(n, ast.ImportFrom):
+                if n.level:
+                    base = self._paquet(rel, n.level)
+                    if base is None:
+                        continue
+                    prefixe = ".".join(base + ([n.module] if n.module else []))
+                    if not prefixe:
+                        continue
+                    noms.add(prefixe)
+                    noms.update(prefixe + "." + a.name for a in n.names)
+                elif n.module:
+                    noms.add(n.module)
+                    noms.update(n.module + "." + a.name for a in n.names)
+        for nom in noms:
+            morceaux = nom.split(".")
+            for i in range(len(morceaux), 0, -1):
+                cible = self.resoudre(".".join(morceaux[:i]))
+                if cible:
+                    out.add(cible)
+                    break
+        self._cibles[rel] = out
+        return out
+
+    def conftests(self, rel: str) -> set:
+        """Les `conftest.py` qui s'appliquent a `rel`, de la racine du rootdir a son repertoire.
+
+        AUCUN test n'IMPORTE son conftest : c'est de la semantique PYTEST, invisible a l'AST.
+        L'oublier ferait passer pour << non couvert >> ce qui l'est, mais surtout laisserait une
+        declaration ignorer les fixtures `autouse` et le `green_skip_guard` de #455 -- dont le
+        verdict de CHAQUE test depend. Meme arete que `probe_457._conftest_edges`, dans l'autre
+        sens."""
+        out: set = set()
+        morceaux = rel.split("/")[:-1]
+        for i in range(len(morceaux), 1, -1):
+            cand = "/".join(morceaux[:i]) + "/conftest.py"
+            if (self.racine / cand).is_file():
+                out.add(cand)
+        return out
+
+    def de(self, rel: str) -> set:
+        vus: set = set()
+        pile = [rel] + sorted(self.conftests(rel))
+        while pile:
+            x = pile.pop()
+            if x in vus:
+                continue
+            vus.add(x)
+            pile.extend(self.cibles(x) - vus)
+        vus.discard(rel)
+        return vus
+
+
+def _fermeture(racine) -> Fermeture:
+    cle = str(Path(racine or RACINE))
+    f = _HARNAIS.get(("F", cle))
+    if f is None:
+        f = Fermeture(cle)
+        _HARNAIS[("F", cle)] = f
+    return f
+
+
+def chemins_du_harnais(source_rel: str, racine=None) -> tuple[str, ...]:
+    """La cascade de harnais d'un fichier de test : ses `conftest.py` ET leur fermeture.
+
+    C'est l'ajout 3 du foyer (cf. en-tete). Il ne depend QUE du repertoire du fichier, donc il
+    est memoise par repertoire -- la selection de `probe_457` l'appelle une fois par fichier du
+    perimetre (~520 fichiers pour ~15 repertoires distincts).
+
+    Hors de `scripts/python/tests/`, il rend le tuple VIDE : un cliquet n'a pas de conftest, et
+    lui en deriver un elargirait son perimetre sans raison.
+    """
+    rel = str(source_rel).replace("\\", "/")
+    if not rel.startswith(PREFIXE_TESTS):
+        return ()
+    rep = rel.rsplit("/", 1)[0]
+    cache = _HARNAIS.get(("H", str(Path(racine or RACINE)), rep))
+    if cache is not None:
+        return cache
+    ferm = _fermeture(racine)
+    conftests = ferm.conftests(rel)
+    out = set(conftests)
+    for c in conftests:
+        out |= ferm.de(c)
+    res = tuple(sorted(out))
+    _HARNAIS[("H", str(Path(racine or RACINE)), rep)] = res
+    return res
+
+
+def perimetre(d, source_rel: str | None = None, racine=None) -> tuple[str, ...]:
     """Les globs EFFECTIFS : ceux declares, plus ce que ce foyer ajoute (cf. en-tete)."""
     out = list(d.get("chemins") or ())
     if d.get("build"):
         out += list(CHEMINS_BUILD)
     if source_rel:
         out.append(source_rel)
+        out += list(chemins_du_harnais(source_rel, racine))
     # dedup en gardant l'ordre : la sortie est lue par un humain quand le garde rougit.
     vus, uniq = set(), []
     for g in out:

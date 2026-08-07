@@ -396,6 +396,8 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
     incompletes: list = []
     perimees: list = []
     absentes: list = []
+    bypass: list = []
+    morts: list = []
     confrontes = 0
 
     for script in sorted(scripts):
@@ -435,6 +437,16 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
                     if DC.couvre(globs, temoin) is None:
                         hors.append((temoin, n))
                         break
+            # LE BYPASS (#486-r24), meme contrat que cote tests. Il DESARME la confrontation de
+            # cette entree, jamais l'obligation de declarer -- et il est MESURE : un bypass qui
+            # ne masque RIEN est une declaration morte, donc un rouge. Sans ce cran, la cle
+            # deviendrait l'echappatoire universelle qu'elle remplace.
+            motif = DC.hors_confrontation(d_eff)
+            if motif is not None:
+                bypass.append((ident, motif, len(hors)))
+                if not hors:
+                    morts.append((ident, script))
+                continue
             if hors:
                 fautes.append((ident, script, globs, sorted(set(hors))))
 
@@ -453,9 +465,23 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
         for p in perimees:
             print("      PERIMEE (le source du cliquet a change depuis la mesure) : %s" % p)
 
+    if bypass:
+        print("  HORS CONFRONTATION (bypass declare et motive, #486-r24) : %d" % len(bypass))
+        for ident, motif, n in sorted(bypass, key=lambda t: (-t[2], t[0])):
+            print("      %-22s masque %3d temoin(s) -- %s" % (ident, n, motif[:88]))
+    if morts:
+        ko += len(morts)
+        print("\n  ROUGE -- %d bypass qui NE MASQUENT RIEN (la confrontation passe sans eux) :"
+              % len(morts))
+        for ident, script in morts:
+            print("      %s (%s) -- declaration MORTE, retirer `%s`."
+                  % (ident, script, DC.CLE_HORS_CONFRONTATION))
+
     if fautes:
-        ko = len(fautes)
-        print("\n  ROUGE -- %d cliquet(s) LISENT hors de leur perimetre DECLARE :" % ko)
+        # `+=` et JAMAIS `=` : les bypass MORTS comptent deja dans `ko`, et une affectation
+        # seche les effacerait -- un rouge qui en avale un autre est un faux vert partiel.
+        ko += len(fautes)
+        print("\n  ROUGE -- %d cliquet(s) LISENT hors de leur perimetre DECLARE :" % len(fautes))
         for ident, script, globs, hors in fautes:
             print("      %s (%s)" % (ident, script))
             print("          declare : %s" % ", ".join(globs))

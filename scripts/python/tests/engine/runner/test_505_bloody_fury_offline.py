@@ -35,16 +35,9 @@ from __future__ import annotations
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
 DECLENCHEUR = {
     "chemins": (
-        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa fermeture.
-        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
-        "scripts/python/catalog_inject.py",
-        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
-        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
-        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
-        "scripts/python/engine/runner/snapshot.py",
-        "scripts/python/tests/engine/conftest.py",
-        "scripts/python/tests/engine/runner/conftest.py",
+        # LE SOCLE COMMUN (la cascade des `conftest.py` et sa fermeture) N'EST PLUS ICI : le
+        # foyer le DERIVE (`declencheur_cliquet.chemins_du_harnais`, #531). Pour ce repertoire
+        # il rend 161 chemins -- un sur-ensemble strict des quatorze qui etaient recopies ici.
         # PROPRE A CE FICHIER, perimetre pris LARGE : la FERMETURE D'IMPORTS d'un test d'ability
         # compte ~139 modules (charger une ability tire le registre, le vocabulaire DSL, les
         # Operations, l'IA et le pathfinding). Foyers VRAIMENT load-bearing, pour la relecture :
@@ -54,7 +47,9 @@ DECLENCHEUR = {
         # (le substrat `totalTimesAttacked` du dict d'unite), `handler.py` + `attack_type.py` +
         # `targeting.py` (les registres et la disjonction).
         "scripts/python/engine/**/*.py",
-        "scripts/python/*.py",
+        # `scripts/python/*.py` a ete RETIRE (#486-r24) : il couvrait les ~830 probes de la
+        # racine, dont aucun ne peut changer le verdict de ce fichier -- il ne les importe pas.
+        # Ce qu'il servait vraiment (la cascade du harnais) est desormais DERIVE.
         # Les constantes de 1129 (`nrOfHits`/`extraHit`/`maxNrOfHits`/`damageProfile`) viennent du
         # gameconfig du BUILD.
         "data/symbols/**",
