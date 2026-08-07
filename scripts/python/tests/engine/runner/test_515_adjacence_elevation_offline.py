@@ -40,6 +40,41 @@ from engine.dsl.base import Const, DslContext, _adjacent_tiles_native, _within
 from engine.entities.pathfinding.board import EVENQ_EVEN, EVENQ_ODD, Board
 from engine.entities.selectors.units import AdjacentUnits, SurroundingUnits
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des conftest et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        # PROPRE A CE FICHIER. Foyers load-bearing, pour la relecture : `engine/dsl/base.py`
+        # (`_within` / `_adjacent_tiles_native` / `_tile_enum_rank`),
+        # `engine/entities/selectors/units.py` (les six selecteurs et l'`order` qu'ils passent),
+        # `engine/entities/pathfinding/board.py` (`neighbours_native` et son tri-etat), et
+        # `probe_515_adjacence_rayon_de_souffle.py` (deux tests LISENT sa mesure).
+        "scripts/python/engine/**/*.py",
+        "scripts/python/*.py",
+        # Deux tests balaient les 675 boards VERSIONNES : leur verdict en depend directement.
+        "data/boards/**",
+    ),
+    # Aucun oracle natif ici (pas de session, pas de runner) : ce fichier confronte le port a
+    # des boards versionnes et a lui-meme. Le BUILD ne peut pas le faire changer d'avis.
+    "build": False,
+    "toujours": False,
+    "raison": "Verdicts figes : l'etage `order='adjacent'` (rayon 1) enumere la liste STOCKEE "
+              "(`TileQuery$$IterateAdjacentTiles`) au lieu de tester `hexgeo.distance <= r` ; "
+              "l'etage `order='surrounding'` reste GEOMETRIQUE (`IterateSurroundingTiles` est un "
+              "balayage cube sans porte d'elevation) ; le TRI-ETAT de `_adjacent_tiles_native` ; "
+              "et la MONOTONIE de la reparation sur les 675 boards versionnes. Aucun runner, "
+              "aucune session Frida : le seul acces disque est le depot.",
+}
+
 COLS, ROWS = 5, 5
 
 CENTRE = (2, 2)
