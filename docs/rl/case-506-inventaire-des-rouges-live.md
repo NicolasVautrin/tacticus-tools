@@ -218,11 +218,59 @@ et en **ouvre deux** sur le bras `kill`. Les deux reposent sur une premisse que 
   cible HORS PORTEE cesse d'etre vetoee, donc `any` devient vrai des qu'UNE cible echappe a la
   portee -- et la contre-epreuve devient INERTE la ou elle mordait.
 
-Le **critere B** du fichier, lui, filtre deja sur `reached` (`r["reached"]`) et reste **VERT** ; les
-deux assertions en cause ne le filtrent pas. **Je ne les modifie pas** : changer un attendu demande
-l'arbitrage. Ce que je proposerais, pour memoire : restreindre ces deux assertions aux casters dont
-`reached` est vrai (le MEME filtre que le critere B), ce qui ne relache rien -- ou faire porter
-`port_proposes` sur la cible que le natif a effectivement choisie.
+#### ARBITRAGE RENDU : les assertions ont RAISON -- le correctif a demasque une SECONDE divergence
+
+Verdict de l'orchestrateur : ne pas toucher les assertions, chercher ce qu'elles attrapent. **Elles
+attrapaient un vrai defaut**, et c'est un **bug COMPENSATOIRE** manuel de manuel.
+
+**La mesure qui tranche** (`logs/mes506_branche.py` puis `logs/mes506_legalite.py`, bras `kill`,
+cibles a 1 PV). D'abord : la branche prise n'est PAS supposee, elle est LUE (`meta=True`) --
+`ultraEliminatorSgt` et `astraPrimarisPsy`/u77 passent bien par la branche SANS ARME. Ensuite, le
+gate NATIF de ciblage, cible par cible :
+
+| caster | ability | cible | `abilityReason` natif | ability evaluee depuis l'origine ? | `port_proposes` |
+|---|---|---|---|---|---|
+| `orksKillaKan` | 1171 | u77 | **`0x8000000 TargetIsInRange`** | non (5 tuiles) | False |
+| `orksKillaKan` | 1171 | u79 | `0x0` | **oui** (11) | False |
+| `astraPrimarisPsy` | 1027 | u77 | **`0x8000000 TargetIsInRange`** | non (3) | **True** |
+| `astraPrimarisPsy` | 1027 | u79 | `0x0` | **oui** (6) | False |
+| `necroDestroyer` | 1006 | u77 / u79 | `0x0` | **oui** (3 / 6) | False |
+| `ultraEliminatorSgt` | 1004 | u77 | **`0x8000000 TargetIsInRange`** | non (2) | **True** |
+| `ultraEliminatorSgt` | 1004 | u79 | **`0x8000000 TargetIsInRange`** | non (4) | **True** |
+| `blackObliterator` | 1036 | u77 / u79 | `0x0` | **oui** (4 / 6) | True (temoin) |
+
+**Les TROIS lignes ou le port propose alors que le natif refuse sont EXACTEMENT les trois lignes
+`TargetIsInRange`** : la cible est hors de portee de l'ability elle-meme, et le natif ne l'evalue
+depuis AUCUNE de ces tuiles. Les sept autres concordent.
+
+**Le defaut** : `port_proposes` (probe) appelait `calculate_action_utility` **A NU**. Or le vrai
+generateur (`ComparableAbilityGenerator._best_attack`) n'enumere QUE les paires publiees par
+`decisionView.attackPlans` -- donnee **NATIVE** -- donc il herite de la legalite de
+`IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` sans la recalculer. Le proxy
+mesurait donc une action que le moteur ne produit **jamais**.
+
+**Pourquoi il n'avait jamais mordu** : le premier defaut le MASQUAIT. La branche SANS ARME rendait
+`killSure` VRAI, donc `WillNormalAttackKill` refusait deja ces trois lignes -- **pour la mauvaise
+raison**. Supprimer le premier a rendu le second visible. C'est la definition d'un bug
+compensatoire, et le demasquer vaut mieux que de le laisser : la coincidence port/natif etait un
+ACCIDENT.
+
+**Correctif** : `_pair_is_native_legal` dans le probe -- la paire doit figurer dans les `ranked` de
+son eval natif depuis la tuile courante. Aucune assertion n'est touchee, aucun attendu n'est
+relache : le proxy mesure enfin ce que sa propre docstring annonce.
+
+#### Ce qui RESTE, et pourquoi je ne le devine pas
+
+`('kill', 'ultraEliminatorSgt')` : ses **DEUX** cibles sont hors de portee de 1004 depuis sa tuile
+(`TargetIsInRange` sur les deux), donc la contre-epreuve y est **INERTE** au lieu de MORDRE -- non
+pas parce que le port se trompe, mais parce que **le montage n'amene jamais ce caster a portee**.
+Mesure : `reached = False` pour lui a `MAX_APPROACH_TURNS` **8 ET 24** (identique), et l'ability
+n'est evaluee que depuis 2 et 4 tuiles, aucune n'etant la sienne. Le **critere B** du fichier filtre
+deja sur `reached` et reste VERT ; cette assertion-ci ne le filtre pas.
+
+Residu **`#506-r3`** : reparer l'approche du montage pour que `ultraEliminatorSgt` entre dans la
+portee de 1004 (le greedy « minimiser la distance a l'ennemi le plus proche » n'y arrive pas, et
+monter le plafond n'y change rien). Je ne modifie pas l'assertion.
 
 ⚠ **Ce que le fichier avait ecrit, et pourquoi il ne pouvait pas voir le bug.** Son en-tete porte
 « UNE BORNE A ETE ESSAYEE PUIS REFUTEE : desarmer le gate quand l'attaque normale ne porte pas
