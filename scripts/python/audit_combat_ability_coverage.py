@@ -30,6 +30,28 @@ from engine.runner.abilities.handler import ABILITY_CLASSES
 OUT = os.path.join(_REPO, "docs", "rl", "combat-ability-coverage.md")
 
 
+#: #491-r2 -- LES CAS OU LA CATEGORIE DERIVEE DU KIT A ETE **MESUREE FAUSSE**, id -> (etiquette, ref).
+#:
+#: `_classify` ne peut lire que le GAMECONFIG (le `damageProfile` du kit). Pour une ability NON
+#: PORTEE, son `ExecuteBehaviour` n'est connu de personne, donc la categorie ne peut PAS etre
+#: derivee -- c'est une limite structurelle, pas un manque de soin. Or c'est exactement cette
+#: colonne qu'on lit pour DISPATCHER : le 2026-08-07, elle a fait briefer QUATRE tranches comme
+#: des ports d'attaque alors que leur cast ne frappe pas. Un solveur envoye porter « une attaque »
+#: qui n'en est pas perd son temps, ou pire, **invente le degat au cast**.
+#:
+#: Ce registre est donc l'inverse d'une derivation : il consigne ce qui a ete **MESURE**, ability
+#: par ability, et l'ecrase sur la colonne. Il ne grandit que par des tranches qui ont lu le
+#: decompile ET confronte live. Un id qu'il ne contient pas n'est PAS « verifie DAMAGE » -- il est
+#: **non verifie**, et le tableau le dit maintenant en toutes lettres.
+CATEGORIE_MESUREE: dict[int, tuple[str, str]] = {
+    # Le cast ne frappe PAS : il pose des effets, et le degat appartient a une TRIGGERED (phase 2).
+    # Mesure live : HP inchanges au cast, alors que la prediction native annoncait [8818-12049].
+    1069: ("2-PHASES (cast sans degat)", "case-491-seeker-missile-frequency-lock.md"),
+    # Trois poses d'effet ; le `2x Eviscerate` du kit vit dans la triggered 1237.
+    1141: ("2-PHASES (cast sans degat)", "case-503-overwhelming-wrath.md"),
+}
+
+
 def _classify(name: str) -> str:
     a = GC.ability(name) or {}
     c = a.get("constants") or {}
@@ -63,7 +85,14 @@ def collect():
     for nm, rec in active_by_name.items():
         aid = name2id.get(nm)
         ported = aid in registered
-        rows.append((aid, nm, "PORTED" if ported else "NO-OP", _classify(nm),
+        cl = _classify(nm)
+        mes = CATEGORIE_MESUREE.get(aid)
+        if mes:
+            # La MESURE ecrase la derivation du kit, et garde la valeur du kit entre parentheses :
+            # le `damageProfile` reste vrai (c'est bien le profil de l'ARME), il ne dit simplement
+            # rien de la phase ou le degat tombe.
+            cl = "%s [kit: %s]" % (mes[0], cl)
+        rows.append((aid, nm, "PORTED" if ported else "NO-OP", cl,
                      len(rec["units"]), rec["kinds"]))
     return rows
 
@@ -109,6 +138,20 @@ def main():
                  "Prioriser par #units. ATTENTION : quelques \"DAMAGE\" sont en fait des BUFF a `damageProfile` "
                  "(NovaBoost/NovaCharge/NovaShield 1192-1194 = NonComparable buff/tile) -> verifier "
                  "`ExecuteBehaviour` avant de porter comme attaque.\n")
+    lines.append("\n> ⚠ **LA COLONNE `categorie` DERIVE DU KIT, PAS DU BEHAVIOUR -- elle N'EST PAS "
+                 "VERIFIEE.** Elle lit le `damageProfile` du gameconfig, c'est-a-dire le profil de "
+                 "l'ARME du porteur. Pour une ability NON PORTEE, son `ExecuteBehaviour` n'est "
+                 "connu de personne : la categorie ne peut donc PAS etre derivee, c'est une limite "
+                 "structurelle. **Mesure du 2026-08-07 : quatre tranches ont ete briefees comme des "
+                 "ports d'ATTAQUE alors que leur cast ne frappe pas** -- patron 2-PHASES (le cast "
+                 "pose des effets, le degat appartient a une TRIGGERED), ou `AddEffect` suivi d'une "
+                 "attaque normale libre, ou boucle imperative. Un solveur envoye porter « une "
+                 "attaque » qui n'en est pas perd son temps, ou pire **invente le degat au cast**.\n>\n"
+                 "> **Avant tout dispatch : LIRE `<X>Ability$$ExecuteBehaviour` au decompile.** Les "
+                 "cas ou la derivation a ete mesuree FAUSSE sont ecrases dans le tableau et "
+                 "s'affichent `2-PHASES (cast sans degat) [kit: DAMAGE(...)]` ; le registre qui les "
+                 "porte est `CATEGORIE_MESUREE` dans le generateur. Une ability qui n'y figure pas "
+                 "n'est PAS « verifiee DAMAGE » : elle est **non verifiee** (residu `#491-r2`).\n\n")
     lines.append("2. **SUMMON** -> template `ScarabHiveAbility`/`GetEmRuntzAbility` (`SpawnUnitOperation` + "
                  "summon on-appearance).\n")
     lines.append("3. **HEAL** / lifesteal / **REPAIR** -> **BLOQUE** sur un `HealOperation`/`RepairOperation` "

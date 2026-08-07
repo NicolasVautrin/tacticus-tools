@@ -16,6 +16,11 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Priorisation & templates de port
 
 1. **DAMAGE** (impact combat direct : degat non inflige = divergence PV) -> template `SpiritLeechAbility`/`CrushingClawsAbility` (`ability_attack_params` + `execute_ability_attack`, config minDmg/maxDmg + profil + nrOfHits ; splash/effets composes selon `ExecuteBehaviour`). Prioriser par #units. ATTENTION : quelques "DAMAGE" sont en fait des BUFF a `damageProfile` (NovaBoost/NovaCharge/NovaShield 1192-1194 = NonComparable buff/tile) -> verifier `ExecuteBehaviour` avant de porter comme attaque.
+
+> ⚠ **LA COLONNE `categorie` DERIVE DU KIT, PAS DU BEHAVIOUR -- elle N'EST PAS VERIFIEE.** Elle lit le `damageProfile` du gameconfig, c'est-a-dire le profil de l'ARME du porteur. Pour une ability NON PORTEE, son `ExecuteBehaviour` n'est connu de personne : la categorie ne peut donc PAS etre derivee, c'est une limite structurelle. **Mesure du 2026-08-07 : quatre tranches ont ete briefees comme des ports d'ATTAQUE alors que leur cast ne frappe pas** -- patron 2-PHASES (le cast pose des effets, le degat appartient a une TRIGGERED), ou `AddEffect` suivi d'une attaque normale libre, ou boucle imperative. Un solveur envoye porter « une attaque » qui n'en est pas perd son temps, ou pire **invente le degat au cast**.
+>
+> **Avant tout dispatch : LIRE `<X>Ability$$ExecuteBehaviour` au decompile.** Les cas ou la derivation a ete mesuree FAUSSE sont ecrases dans le tableau et s'affichent `2-PHASES (cast sans degat) [kit: DAMAGE(...)]` ; le registre qui les porte est `CATEGORIE_MESUREE` dans le generateur. Une ability qui n'y figure pas n'est PAS « verifiee DAMAGE » : elle est **non verifiee** (residu `#491-r2`).
+
 2. **SUMMON** -> template `ScarabHiveAbility`/`GetEmRuntzAbility` (`SpawnUnitOperation` + summon on-appearance).
 3. **HEAL** / lifesteal / **REPAIR** -> **BLOQUE** sur un `HealOperation`/`RepairOperation` combat absent du runner (tache #94). A construire avant de porter cette categorie.
 4. **EFFECT/BUFF** -> `AddEffectOperation` (+ stat-mods) ; certains deja modelises cote prediction (NonComparable) mais pas executes.
@@ -88,6 +93,8 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
+| 1141 | OverwhelmingWrath | 2-PHASES (cast sans degat) [kit: DAMAGE(Eviscerate)] | 2 | LN |
+| 1069 | SeekerMissileFrequencyLock | 2-PHASES (cast sans degat) [kit: DAMAGE(HeavyRound)] | 5 | LN |
 | 1115 | FearOfTheUnseen | DAMAGE(DirectDamage) | 7 | LN |
 | 1036 | FrenziedFiring | DAMAGE(HeavyRound) | 7 | LN |
 | 1104 | SpiritLeech | DAMAGE(Psychic) | 7 | LN |
@@ -111,7 +118,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1004 | MortisRound | DAMAGE(HeavyRound) | 5 | LN |
 | 1027 | PsychicMaelstrom | DAMAGE(Psychic) | 5 | LN |
 | 1065 | ScythingTalons | DAMAGE(Bio) | 5 | NS |
-| 1069 | SeekerMissileFrequencyLock | DAMAGE(HeavyRound) | 5 | LN |
 | 1068 | SilentDeath | DAMAGE(Piercing) | 5 | LN |
 | 1100 | SorcerousFacade | DAMAGE(Psychic) | 5 | LN |
 | 1152 | UnstoppableMomentumReworked | DAMAGE(DirectDamage) | 5 | LN |
@@ -147,7 +153,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1159 | MacroPlasmaIncinerator | DAMAGE(Plasma) | 2 | LN |
 | 1142 | MalleusRocketLauncher | DAMAGE(Blast) | 2 | LN |
 | 1137 | MurderousSwing | DAMAGE(Piercing) | 2 | LN |
-| 1141 | OverwhelmingWrath | DAMAGE(Eviscerate) | 2 | LN |
 | 1169 | PlagueburstMortar | DAMAGE(Toxic) | 2 | LN |
 | 1098 | PlasmaGrenade | DAMAGE(Plasma) | 2 | NS |
 | 1230 | SavageEchoes | DAMAGE(Eviscerate) | 2 | LN |
