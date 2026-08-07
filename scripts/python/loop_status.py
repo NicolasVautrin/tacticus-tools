@@ -1064,7 +1064,18 @@ def rendu_complet(e: dict, sig: list[Signal], ctx: list[str]) -> str:
                     n_net if n_net is not None else lv["nettoyables"].txt()))
         if lv["nettoyables"].mesuree:
             for w in lv["nettoyables"].valeur:
-                L.append("             . %s  [%s]" % (w["branche"], w["voie"]))
+                L.append("             . %s  [%s]%s"
+                         % (w["branche"], w["voie"],
+                            "  boucle %s" % w["session"][:8] if w.get("session") else ""))
+        # LES GARDES RESTENT DITS. Un worktree retire du compte SANS etre affiche serait un
+        # signal qu'on a fait taire -- exactement ce que `#467-r8` refuse (« ni compteur
+        # d'avertissements ni `--quiet` : ca supprime le signal au lieu de le rendre juste »).
+        grd = lv.get("gardes")
+        if grd is not None and grd.mesuree and grd.valeur:
+            L.append("           GARDE(S) sur marque `%s` : %d"
+                     % (livraison.MARQUE_GARDE, len(grd.valeur)))
+            for w in grd.valeur:
+                L.append("             . %s  %s" % (w["branche"], w.get("raison") or ""))
     orph = lv.get("branches_orphelines")
     if orph is not None and (not orph.mesuree or orph.valeur):
         L.append("           branches d'agent livrees sans worktree : %s"
