@@ -23,7 +23,10 @@ et `targeting_options_for(<lit>)` comparés à `None`.
 | `PERISSABLE` | « x N'EST PAS au registre / son masque n'est PAS lu » | tombera à la tranche qui portera x |
 | `PERIME` | l'affirmation est fausse **aujourd'hui** | rouge, ou mensonge silencieux |
 
-Mesure à l'ouverture : **18 sites, 2 `PERIME`, 2 `PERISSABLE`, 14 `STABLE`**.
+Mesure à l'ouverture de la tranche : **18 sites, 2 `PERIME`, 2 `PERISSABLE`, 14 `STABLE`**.
+⚠ Ces comptes se **re-dérivent** (`python scripts/python/probe_519_temoins_de_camp.py`), ils ne se
+citent pas : après réparation et rebase sur `#512`, le corpus est tombé à **13 sites, 0 `PERIME`**
+— les affirmations littérales réparées ayant été remplacées par des dérivations.
 
 Les deux `PERIME` sont les rouges de `master`, tous deux sur le témoin `1091 SlashingDive` porté
 par #507 — **et le brief n'en signalait qu'un**. Le second
@@ -54,10 +57,15 @@ journée, chacun corrigé à la main par la tranche qui le croisait et re-cassé
 aux autres).
 
 **Et la correction FINALE — celle qui se déclarait « RE-COMPTÉE PAR LE CODE » — était fausse
-aussi** : elle annonçait une ventilation par forme de ctor de `10 / 4 / 0 / 13` là où le code en
-porte `12 / 6 / 0 / 9`. **Trois nombres faux sur quatre, et leur SOMME juste** (27 des deux côtés) :
-le seul contrôle qu'un relecteur pouvait faire de tête PASSAIT. *Un accord peut être le produit de
-fautes qui se compensent.*
+aussi** : sur l'arbre de `5e876708`, elle annonçait une ventilation par forme de ctor de
+`10 / 4 / 0 / 13` là où le code en portait `12 / 6 / 0 / 9`. **Trois nombres faux sur quatre, et
+leur SOMME juste** (27 des deux côtés) : le seul contrôle qu'un relecteur pouvait faire de tête
+PASSAIT. *Un accord peut être le produit de fautes qui se compensent.*
+
+⚠ Ces quatre nombres ont **encore** bougé pendant la tranche : le rebase sur `#512` (qui a porté
+`1197 ExcruciatingFrequencies`) les a fait passer à `11 / 6 / 0 / 9` pour un dict de **26**. Le
+cliquet a rougi au rebase et la régénération l'a refermé — c'est exactement l'office qu'on lui
+demande, et la démonstration que ces nombres n'ont pas à être écrits à la main.
 
 `probe_519_comptes_de_table.py` dérive les comptes et les écrit dans un **BLOC GÉNÉRÉ** de
 l'en-tête (`--ecrire`) ; `test_519_comptes_derives_offline.py` le confronte à chaque passe. La
