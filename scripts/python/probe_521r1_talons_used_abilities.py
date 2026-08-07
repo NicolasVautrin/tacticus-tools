@@ -87,6 +87,12 @@ A_PLACE_FOE = "6,8"       # adjacent au caster
 A_PLACE_FILLER = "6,7"
 
 HP_FOE = 300000           # la cible ne meurt jamais : la fenetre de mesure reste ouverte
+#: PV du PORTEUR, et ce n'est pas du confort : sans eux, les deux ennemis adjacents l'abattent
+#: pendant le tour adverse de l'etage [D], ses effets partent avec lui, et le compteur tombe a 0 --
+#: un regime STERILE qui ne dirait plus rien sur `AreFriends`. MESURE : 2 -> 0 sans ce reglage.
+#: Les PV du caster n'entrent dans aucun etage du degat de 1195 (`MinMaxDamage` lit la config
+#: d'ability et le multiplier de rarete), donc l'etage [B] reste confronte a l'identique.
+HP_PORTEUR = 300000
 ARMURE = 2000             # armure NON nulle : sans elle Power et DirectDamage rendraient le meme degat
 
 DP_POWER = 14             # IdunBattle.Entities.Enum.DamageProfileType.Power
@@ -142,6 +148,8 @@ def build(state_file: str, seed: int, regime: str):
             "--state-file", state_file]
     for vid, tile in spec["p"]:
         argv += ["--place", "%s:%s" % (vid, tile)]
+    # Le PORTEUR doit survivre au tour adverse de l'etage [D] (cf. `HP_PORTEUR`).
+    argv += ["--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (CASTER, HP_PORTEUR, HP_PORTEUR)]
     for vid, tile in spec["a"]:
         argv += ["--a-place", "%s:%s" % (vid, tile)]
         # PAS `--hp-target` : il mettrait AUSSI l'armure a 0 et les deux profils rendraient le meme
@@ -227,15 +235,33 @@ def capture(sid, rid):
 
 # ------------------------------------------------------------------ rejeu hors-ligne
 
+#: Session Frida courante -- posee par `main`/les fonctions de mesure, lue par `etat_porte` pour
+#: LIER le transport ambiant. Global assume : `load_state` resout le canal `unitAbilityStates`
+#: par un transport AMBIANT (`snapshot.bind_live_rpc`), pas par un argument.
+_SID = None
+
+
 def etat_porte(cap):
     """`State` charge depuis la capture, PRNG cale sur `dumpRng` (sans quoi le degat serait skippe
-    par repli defensif et on lirait un faux 0)."""
+    par repli defensif et on lirait un faux 0).
+
+    ⚠ `bind_live_rpc` est OBLIGATOIRE (#363), et ce n'est pas une formalite ICI : sans transport
+    ambiant, `_auto_ability_states` rend `no-transport` et TOUS les canaux mesures restent `None` --
+    dont `config_active_abilities`, qui EST le substrat que
+    `collect_triggered_abilities` lit pour inscrire cette triggered-ability. Le port retomberait
+    alors sur le kit gameconfig, et la branche MESUREE ne serait jamais exercee par ce probe.
+    MESURE : sans le bind, `substrat_et_cardinalite` rendait `branche = repli_gameconfig` et
+    `configActives = None`."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.prng import IntBasedMersenneTwister
-    from engine.runner.snapshot import load_state
+    from engine.runner.snapshot import load_state, bind_live_rpc
     board = Board(cap["tiles"], adjacency="native_sym")
-    st = load_state(cap["dv"], cap["ob"], cap["snap"], board=board, tiles=cap["tm"],
-                    actor_stats=cap["stats"])
+    prev = bind_live_rpc(lambda method, args=None, timeout=60: _rpc(_SID, method, args, timeout))
+    try:
+        st = load_state(cap["dv"], cap["ob"], cap["snap"], board=board, tiles=cap["tm"],
+                        actor_stats=cap["stats"])
+    finally:
+        bind_live_rpc(prev)
     d = cap["rng"]
     if not (isinstance(d, dict) and d.get("mt")):
         raise SystemExit("dumpRng VIDE -- MT non calable, aucune mesure de degat n'a de sens")
@@ -330,6 +356,34 @@ def contre_epreuves(cap, caster_id, target_id, ability_type, owner_id):
     return out
 
 
+def substrat_et_cardinalite(cap, owner_id):
+    """QUELLE branche du tri-etat a mordu, et COMBIEN de fois le trigger est-il inscrit ?
+
+    Deux questions qu'un accord numerique ne repond PAS. `collect_triggered_abilities` lit
+    `config_active_abilities` (`UnitConfiguration.ActiveAbilities` MESUREE, canal
+    `unitAbilityStates.units[].configActives`) et se replie sur le kit gameconfig quand le canal est
+    muet. Si le canal etait TOUJOURS muet, la branche << mesure >> serait du code mort et il faudrait
+    l'ECRIRE, pas le decouvrir plus tard. Et une DOUBLE inscription ferait incrementer de +2 par
+    `On(0xe)` -- invisible tant qu'un seul cast est mesure."""
+    from engine.runner.components import StatsComponent
+    from engine.runner.operations.triggers.dispatch.core import collect_triggered_abilities
+    from engine.runner.operations.triggers.loki.talons_of_the_emperor import (
+        TalonsOfTheEmperorUsedAbilitiesAbility as A)
+
+    st = etat_porte(cap)
+    e = st.get_entity(int(owner_id))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    mesure = getattr(ctx, "config_active_abilities", None) if ctx is not None else None
+    inscrits = [t for t in collect_triggered_abilities(st)
+                if isinstance(t, A) and int(t.owner_id) == int(owner_id)]
+    return {"config_actives_mesurees": mesure,
+            "branche": ("mesure" if mesure is not None else "repli_gameconfig"),
+            "inscriptions": len(inscrits),
+            "porteurs_totaux": len([t for t in collect_triggered_abilities(st)
+                                    if isinstance(t, A)])}
+
+
 def gates_forges(cap, owner_id, ally_id, foe_id):
     """Les trois volets du `CreateTrigger` que le LIVE ne separe pas, evalues OFFLINE sur l'etat
     capture : `matches` doit rendre FAUX pour un acteur ENNEMI, pour un acteur sans `Hero`, et pour
@@ -392,6 +446,43 @@ def _cast(state_file, rid, cid, tid, aid):
                   "--target", str(tid), "--state-file", state_file, "--runner", str(rid)])
 
 
+def _tour_adverse(sid, state_file, rid, owner_id, compteur_avant):
+    """`AreFriends(Owner, actor)` confronte au NATIF, et non a un trait forge : on laisse l'IA jouer
+    UN tour d'equipe ADVERSE et on relit le compteur du porteur, qui ne doit PAS bouger.
+
+    ⚠ La mesure peut etre VIDE, et il faut le DIRE au lieu de rendre un vert : si l'IA ne porte que
+    des attaques NORMALES, le compteur reste fige par `IsActiveAbilityCountedAsUsed` et non par
+    `AreFriends` -- l'accord serait en regime degenere. On extrait donc les `Active_Ability_Type`
+    reellement portes par des ennemis et on marque `confronte` en consequence.
+    `abilities_ennemies` ne voit que les casts qui INFLIGENT des degats (les buffs adverses
+    n'apparaissent pas dans `UnitDamaged`) : c'est une borne INFERIEURE, jamais une preuve d'absence."""
+    _duel(["act", "endturn", "--state-file", state_file, "--runner", str(rid)])
+    r = _duel(["aiturn", "--state-file", state_file, "--runner", str(rid)], timeout=400)
+    u, _dv = unites(sid, rid)
+    mine = {v["id"] for v in u.values() if v["owner"] == u[CASTER]["owner"]}
+    types = sorted({int(ab) for _e, at, _t, _a, _p, ab in RE_DMG.findall(r.stdout or "")
+                    if int(at) not in mine})
+    # Une attaque NORMALE ennemie ne discrimine pas `AreFriends` (l'autre gate l'ecarte deja).
+    from engine.runner.abilities.attack_type import is_normal_attack
+    actives = [t for t in types if not is_normal_attack(t)]
+    # DIAGNOSTIC : un compteur qui TOMBE n'est pas un compteur qui monte a tort. Le porteur peut
+    # etre MORT (ses effets partent avec lui) -- c'est un regime STERILE, pas une lecture fausse.
+    porteur = u.get(CASTER) or {}
+    # `cmd_aiturn` imprime un RESUME (`turnsPlayed` / `events`), pas les lignes `UnitDamaged` brutes
+    # de `act` -- d'ou une deuxieme lecture : elle distingue << l'IA n'a rien joue >> (regime vide)
+    # de << l'IA a joue et le compteur n'a pas bouge >>.
+    resume = re.search(r"turnsPlayed=(\S+).*?events=(\S+)", r.stdout or "", re.S)
+    return {"rc": r.returncode, "compteur_avant": compteur_avant,
+            "tours_joues": (resume.group(1) if resume else None),
+            "events": (resume.group(2) if resume else None),
+            "compteur_apres": compteur_live(u),
+            "porteur_hp": porteur.get("hp"),
+            "porteur_effets": sorted({str(e.get("name") or e.get("effectType"))
+                                      for e in (porteur.get("effects") or [])}),
+            "abilities_ennemies": types, "actives_non_normales": actives,
+            "confronte": bool(actives)}
+
+
 def _degats(sortie, cid, aid):
     return [(int(t), int(a), int(pr))
             for _e, at, t, a, pr, ab in RE_DMG.findall(sortie or "")
@@ -399,6 +490,8 @@ def _degats(sortie, cid, aid):
 
 
 def mesure_chaine(sid, state_file, seed, garder=False):
+    global _SID
+    _SID = sid                      # transport ambiant des rejeux (cf. `etat_porte`)
     rid = build(state_file, seed, "chaine")
     if rid is None:
         return None
@@ -439,9 +532,12 @@ def mesure_chaine(sid, state_file, seed, garder=False):
         c2 = compteur_live(u2)
 
         forges = gates_forges(cap0, cid, aid_ally, tid)
+        subst = substrat_et_cardinalite(cap0, cid)
+        tour_adverse = _tour_adverse(sid, state_file, rid, cid, c2)
         return {"regime": "chaine", "rid": rid, "caster": cid, "cible": tid, "allie": aid_ally,
                 "compteurs_live": {"c0": c0, "apres_allie": c1, "apres_talons": c2},
-                "portA": portA, "portB": portB, "forges": forges,
+                "portA": portA, "portB": portB, "forges": forges, "substrat": subst,
+                "tour_adverse": tour_adverse,
                 "natif_talons": {"seq": [(t, a) for t, a, _p in seq_n],
                                  "profils": sorted({p for _t, _a, p in seq_n}),
                                  "total": sum(a for _t, a, _p in seq_n),
@@ -453,6 +549,8 @@ def mesure_chaine(sid, state_file, seed, garder=False):
 
 
 def mesure_normale(sid, state_file, seed, garder=False):
+    global _SID
+    _SID = sid                      # transport ambiant des rejeux (cf. `etat_porte`)
     rid = build(state_file, seed, "attaque_normale")
     if rid is None:
         return None
@@ -555,6 +653,16 @@ def rapport_chaine(m) -> bool:
             print("      contre-epreuve `%s` : compteur %s (au lieu de %s) -- DISCRIMINE"
                   % (cle, b[cle]["compteur_apres"], b["ref"]["compteur_apres"]))
 
+    # --- etage 0 : le SUBSTRAT et la CARDINALITE ------------------------------------------------
+    s = m["substrat"]
+    print("  [0] inscription : branche=%s | %s instance(s) sur le porteur | %s au total | "
+          "configActives mesurees=%r"
+          % (s["branche"], s["inscriptions"], s["porteurs_totaux"], s["config_actives_mesurees"]))
+    if s["inscriptions"] != 1:
+        print("      CARDINALITE : %s inscriptions au lieu d'UNE -> l'increment serait multiplie"
+              % s["inscriptions"])
+        ok = False
+
     # --- etage 3 : les gates forges -----------------------------------------------------------
     f = m["forges"]
     print("  [C] gates OFFLINE : allie Hero=%s | ennemi=%s | sans Hero=%s | MachineOfWar=%s"
@@ -566,6 +674,28 @@ def rapport_chaine(m) -> bool:
         if f[cle] is not False:
             print("      gate `%s` NON respecte (matches=%r)" % (cle, f[cle]))
             ok = False
+
+    # --- etage 4 : `AreFriends` confronte au NATIF (tour adverse joue par l'IA) -----------------
+    t = m["tour_adverse"]
+    print("  [D] tour ADVERSE : compteur %s -> %s | porteur hp=%s | tours joues=%s events=%s |"
+          " abilities ennemies=%s | actives non normales=%s"
+          % (t["compteur_avant"], t["compteur_apres"], t["porteur_hp"], t["tours_joues"],
+             t["events"], t["abilities_ennemies"], t["actives_non_normales"]))
+    if int(t["porteur_hp"] or 0) <= 0:
+        # Le porteur est TOMBE : ses effets partent avec lui. Le compteur ne dit plus rien sur
+        # `AreFriends` -- regime STERILE, on le NOMME au lieu de le lire comme une divergence.
+        print("      REGIME STERILE : le porteur est mort pendant le tour adverse (effets restants"
+              " %s) -- `AreFriends` NON CONFRONTE au natif sur cette passe" % (t["porteur_effets"],))
+    elif t["compteur_apres"] > t["compteur_avant"]:
+        print("      le NATIF a incremente sur un cast ENNEMI -- `AreFriends` mal lu")
+        ok = False
+    elif t["compteur_apres"] < t["compteur_avant"]:
+        print("      le compteur a BAISSE alors que le porteur est VIVANT : l'effet 1420 n'est pas"
+              " permanent, ce que le port suppose (duree 0) -- A INVESTIGUER")
+        ok = False
+    if int(t["porteur_hp"] or 0) > 0 and not t["confronte"]:
+        print("      NON CONFRONTE : l'IA n'a porte aucune active non-normale ; `AreFriends` n'est"
+              " couvert QUE par le gate forge de [C] sur cette passe")
     return ok
 
 

@@ -400,25 +400,30 @@ class MartialInspirationAbility(ActiveAbility):
 # battle. If the target is a Psyker or Atlacoya is adjacent to a friendly Adeptus Custodes, this
 # attack deals Direct Damage instead. » -- les trois phrases sont les trois etages ci-dessus.
 #
-# HORS PERIMETRE, NOMME : la face TRIGGERED
+# LA FACE TRIGGERED EST PORTEE DEPUIS #521-r1 --
 # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TalonsOfTheEmperor_UsedAbilitiesAbility`
-# (`TriggeredAbilityType.TalonsOfTheEmperor_UsedAbilities` = 1330), qui ACCUMULE le niveau de
-# l'effet 1420. Son `$$CreateTrigger` est LU et son corps est le MEME que celui de
-# `...FuelledByFury_ExtraDamageAbility$$CreateTrigger` (deduplique par IL2CPP -- un seul
-# proprietaire dans la table, cf. `runner/operations/triggers/loki/fuelled_by_fury.py`) :
+# (`TriggeredAbilityType.TalonsOfTheEmperor_UsedAbilities` = 1330) ACCUMULE le niveau de l'effet
+# 1420 que `GetExtraDamage` lit ci-dessus :
 #
-#     On(0xe = UnitPostAbility) & AreFriends(Owner@+0x30, actor@+0x48)
+#     On(0xe = UnitPostAbility, ownerNeedsToBeAlive = 1) & AreFriends(Owner@+0x30, actor@+0x48)
 #     & ( HasTrait(actor@+0x48, 0x10 = Hero) & !HasTrait(actor@+0x48, 0x419 = MachineOfWar) )
 #     & IsActiveAbilityCountedAsUsed(isPreAbilityTrigger = 0)
+#         -> AddEffectOrIncreaseLevel(0x58c, Owner, Owner, level = Direct(1), maxLevel = NULL)
 #
-# Le port ne l'inscrit PAS : le niveau de 1420 arrive TEL QUEL dans la capture live
-# (`decisionView.effects[].level` -> `EffectsState.by_unit`), exactement comme celui de
-# `FuelledByFury_ExtraDamage`. Consequence assumee et MESUREE : le port lit le compteur, il ne le
-# fait pas avancer sur un etat rejoue plusieurs tours hors-ligne (residu #521-r1).
+# Elle vit dans `runner/operations/triggers/loki/talons_of_the_emperor.py`, montee par le registre
+# `PASSIVE_HELPER_ABILITY_TRIGGERS` (mirror de `...StaticBattleRules.ActiveAbility$$
+# GetPassiveHelperAbility` -- un dict statique DISTINCT de celui des triggered DERIVEES).
+# AVANT #521-r1, le niveau de 1420 n'arrivait QUE par la capture live
+# (`decisionView.effects[].level` -> `EffectsState.by_unit`) : le port le LISAIT sans le faire
+# AVANCER, donc en simulation pure il restait fige et l'extra damage devenait faux des le 2e cast
+# d'ability allie. MESURE (`probe_521r1_talons_used_abilities.py`) : compteur 0 -> 1 -> 2, natif et
+# port, et le degat du cast de 1195 lit bien le compteur d'AVANT.
 
 TALONS_OF_THE_EMPEROR_ID = "TalonsOfTheEmperor"              # cle gameconfig de l'ability 1195
 #: `HasEffect(..., 0x58c, ...)` / `EffectFromOwner(..., 0x58c)` -- le COMPTEUR d'abilities actives
-#: alliees, pose et incremente par la triggered 1330 (hors perimetre, cf. le bloc ci-dessus).
+#: alliees, pose et incremente par la triggered 1330 (portee #521-r1, cf. le bloc ci-dessus ;
+#: `triggers/loki/talons_of_the_emperor.py::TOTE_USED_ABILITIES` est la MEME constante, et un test
+#: le fige -- si les deux divergeaient, la triggered incrementerait un effet que 1195 ne lit pas).
 TOTE_USED_ABILITIES = int(EffectType.TalonsOfTheEmperor_UsedAbilities)    # 0x58c = 1420
 #: `ConfigVar(8, ...)` de `$$GetExtraDamage` -- `AbilityVariableType` 8 = `extraDmg`, et `extraDmg`
 #: est dans `variablesAffectedByRarityBonus` du kit 1195 -> le multiplier de rarete s'applique.
@@ -517,9 +522,11 @@ def talons_used_abilities_level(state: "State", caster_id: int) -> int:
     entite-EFFET non materialise), donc le noeud DSL ne peut pas porter cette lecture ; c'est le
     meme arbitrage que `tau.py::_seeker_snapshot_state` pour `AbilityStateFromEffect`.
 
-    Le niveau lui-meme vient de la CAPTURE (`decisionView.effects[].level` -> `EffectsState.seed`),
-    comme celui de `FuelledByFury_ExtraDamage` -- le port ne le RE-DERIVE pas (la triggered 1330 qui
-    l'accumule est hors perimetre, cf. le bloc de commentaire du module)."""
+    Le niveau de DEPART vient de la CAPTURE (`decisionView.effects[].level` -> `EffectsState.seed`),
+    comme celui de `FuelledByFury_ExtraDamage`. Depuis #521-r1 il AVANCE aussi hors-ligne : la
+    triggered 1330 (`triggers/loki/talons_of_the_emperor.py`) l'incremente de +1 a la fermeture de
+    toute active alliee qui compte, ce que cette lecture voit puisqu'elle interroge le MEME
+    `EffectsState.by_unit`."""
     if getattr(state, "effects", None) is None:
         return 0
     total = 0

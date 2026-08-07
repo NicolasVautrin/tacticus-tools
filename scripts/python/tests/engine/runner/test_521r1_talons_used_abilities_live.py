@@ -272,6 +272,33 @@ def test_chaine_les_contre_epreuves_discriminent(chaine):
         "cap a 1 -> meme compteur : le `maxLevel = NULL` n'est pas mesure")
 
 
+def test_chaine_le_substrat_et_la_cardinalite(chaine):
+    """DEUX questions qu'un accord numerique ne repond pas.
+
+    (1) QUELLE branche du tri-etat a mordu ? `collect_triggered_abilities` lit
+    `config_active_abilities` (= `UnitConfiguration.ActiveAbilities` MESUREE, exactement ce que
+    `UnitFactory$$AddConfiguredAbilities` itere) et se replie sur le kit gameconfig si le canal est
+    muet. Ce test EXIGE que le canal ait parle sous le harnais : sinon la branche << mesure >>
+    serait du code jamais exerce, et il faudrait l'ecrire au lieu de le decouvrir.
+
+    (2) COMBIEN de fois le trigger est-il inscrit ? Le natif fait un `TriggeredAbilityComponent.
+    TryAdd` (KeyedCollection : monter deux fois n'ajoute qu'UNE entree). Une double inscription cote
+    port incrementerait de +2 par `On(0xe)` -- et resterait invisible tant qu'un seul cast est
+    mesure, puisque 0 -> 2 puis 2 -> 4 << ressemble >> a un compteur qui monte."""
+    s = chaine["substrat"]
+    assert s["branche"] == "mesure", (
+        "le canal `configActives` n'a pas parle (%r) : la branche MESUREE du tri-etat n'est pas "
+        "exercee par ce harnais" % (s["config_actives_mesurees"],))
+    assert "TalonsOfTheEmperor" in (s["config_actives_mesurees"] or []), (
+        "1195 absente des `UnitConfiguration.ActiveAbilities` mesurees : %r"
+        % (s["config_actives_mesurees"],))
+    assert s["inscriptions"] == 1, (
+        "%s inscriptions du trigger sur le porteur au lieu d'UNE -- l'increment serait multiplie"
+        % s["inscriptions"])
+    assert s["porteurs_totaux"] == 1, (
+        "%s unites portent le trigger ; seule Atlacoya a 1195 sur ce montage" % s["porteurs_totaux"])
+
+
 def test_chaine_les_trois_gates_forges(chaine):
     """`AreFriends`, `HasTrait(Hero)` et `!HasTrait(MachineOfWar)` : le live ne les separe pas (un
     seul acteur y passe les trois). Ils sont donc evalues hors-ligne sur l'etat capture, avec le cas
@@ -281,6 +308,30 @@ def test_chaine_les_trois_gates_forges(chaine):
     assert f["ennemi"] is False, "`AreFriends` : un acteur ENNEMI ne doit pas compter"
     assert f["sans_hero"] is False, "`HasTrait(actor, Hero)` : un non-Character ne compte pas"
     assert f["machine_of_war"] is False, "`!HasTrait(actor, MachineOfWar)` : une MoW ne compte pas"
+
+
+def test_chaine_un_tour_ADVERSE_ne_touche_pas_au_compteur(chaine):
+    """Etage [D] -- DEUX lectures pour le prix d'une passe d'IA :
+
+    (1) `AreFriends(Owner, actor)` confronte au NATIF et non a un trait forge -- l'equipe adverse
+        joue un tour d'equipe complet et le compteur du porteur ne doit pas monter.
+    (2) l'effet 1420 est PERMANENT : le `AddEffect` du lambda de `AddEffectOrIncreaseLevel` ne porte
+        aucun `TurnsFromRounds`, donc duree 0. Un compteur qui BAISSERAIT pendant que le porteur est
+        VIVANT refuterait cette lecture -- et c'est arrive une fois, en regime STERILE (le porteur
+        etait tombe, 2 -> 0), d'ou les PV du porteur au montage.
+
+    ⚠ La couverture de (1) est CONDITIONNELLE et le probe le DIT : si l'IA ne porte que des attaques
+    normales, c'est `IsActiveAbilityCountedAsUsed` qui fige le compteur, pas `AreFriends` -- accord
+    en regime degenere. On ne le transforme pas en rouge (l'IA n'est pas pilotable a la demande),
+    mais le gate forge de `test_chaine_les_trois_gates_forges` reste, lui, INCONDITIONNEL."""
+    t = chaine["tour_adverse"]
+    assert int(t["porteur_hp"] or 0) > 0, (
+        "le porteur est tombe pendant le tour adverse (effets restants %r) : regime STERILE, "
+        "le compteur ne dit plus rien" % (t["porteur_effets"],))
+    assert t["compteur_apres"] == t["compteur_avant"], (
+        "compteur %s -> %s sur un tour ADVERSE : soit `AreFriends` est mal lu (il monte), soit "
+        "l'effet 1420 n'est pas permanent (il baisse)"
+        % (t["compteur_avant"], t["compteur_apres"]))
 
 
 # ---------------------------------------------------------------- 2. le TEMOIN NEGATIF
