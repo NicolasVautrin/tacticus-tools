@@ -240,9 +240,16 @@ class DrachnyenExtraAttackAbility(TriggeredAbility):
             entities_from_state(state, self.owner_id, int(best)), ectx)
         hit = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
         atk = (hit or {}).get("attack") or {}
+        # ⚠ DIAGNOSTIC SERIALISABLE : on n'expose PAS l'`atk` brut. `attack_state` y porte
+        # `failed_block`, un **`set`** (`operations/damage_hits.attack_state_out`), et le retour d'un
+        # trigger remonte dans `AbilityHandler.last`, que les probes passent a `json.dumps`. Un port
+        # qui renvoie l'objet entier fait donc TOMBER l'oracle de mesure sur un `TypeError`, pas sur
+        # une divergence -- exactement le genre d'echec de MONTAGE qui se lit comme un resultat.
         return {"ability": "Drachnyen_ExtraAttack", "owner": int(self.owner_id),
                 "target": int(best), "roll": roll, "hits": hits, "profile": profile,
-                "pool": ids, "attack": atk}
+                "pool": ids, "total": atk.get("total"), "per_hit": atk.get("per_hit"),
+                "base": atk.get("base"), "pierce": atk.get("pierce"),
+                "additional_hits": atk.get("additional_hits")}
 
 
 def _team_of(state: State, uid: Optional[int]):

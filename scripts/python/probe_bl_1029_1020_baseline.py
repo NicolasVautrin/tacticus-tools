@@ -221,7 +221,19 @@ def _report(tag, rpc, rid, board, caster_vis, ability, layout, wound=False):
     off_hp = {uid: _off_hp(state, uid) for uid in pre_hp}
     off_delta = {uid: (pre_hp[uid] - off_hp[uid]) for uid in pre_hp
                  if pre_hp[uid] is not None and off_hp[uid] is not None and off_hp[uid] != pre_hp[uid]}
-    print(f"[bl] {tag}: OFFLINE handler.last={json.dumps(last)[:900]}")
+    # `default=str` : le retour d'une ability porte, en profondeur, l'`attack_state` d'un
+    # `AttackDamageOperation` (`operations/damage_hits.attack_state_out`), dont `failed_block` est un
+    # **`set`**. Sans ce `default`, l'oracle tombe sur un `TypeError` -- un echec de MONTAGE qui
+    # ressemble a une mesure. #BL-1029r : le canal est devenu non vide le jour ou une triggered
+    # `On(0x26 = NormalAttack)` est entree au registre pour ce caster.
+    print(f"[bl] {tag}: OFFLINE handler.last={json.dumps(last, default=str)[:1400]}")
+    # Canal AFTER-HIT de la voie `UseActiveAbility` (#BL-1029r) : c'est la que remontent les
+    # triggers `On(0x26 = NormalAttack)` d'une attaque normale DISPATCHEE par une ability. Sans
+    # cette ligne, un trigger qui fire n'est visible que par son effet sur les PV.
+    _uaa = ((last.get("attack") or {}) if isinstance(last, dict) else {})
+    if isinstance(_uaa, dict) and _uaa.get("after_hit"):
+        print(f"[bl] {tag}: OFFLINE after_hit(UseActiveAbility)="
+              f"{json.dumps(_uaa.get('after_hit'), default=str)[:1600]}")
     print(f"[bl] {tag}: OFFLINE deltas PV = {off_delta}")
 
     # --- CAST LIVE ---
