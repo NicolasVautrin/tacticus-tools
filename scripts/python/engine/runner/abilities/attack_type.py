@@ -123,6 +123,10 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.HeraldOfTheApocalypse: AbilityAttackType.DirectTargetAttack,  # 1020 (case-bl-1029-1020)
     ActiveAbilityType.BringerOfDespair: AbilityAttackType.DirectTargetAttack,  # 1022
     ActiveAbilityType.SkyStrike: AbilityAttackType.DirectTargetAttack,  # 1025
+    # PsychicMaelstrom (1027) : `PsychicMaelstromAbility$$.ctor` recopie le preset statique
+    # `<TargetingOptions statics>+0x180` puis appelle `AActiveAbility..ctor(this, &opts, 0)` --
+    # le 3e argument est le litteral `0`. (#490)
+    ActiveAbilityType.PsychicMaelstrom: AbilityAttackType.DirectTargetAttack,  # 1027
     # Drachnyen (1029) : `DrachnyenAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0, 0)`.
     # Le litteral est `0` MEME si le behaviour n'attaque pas en direct (il dispatche l'attaque
     # NORMALE via `UseActiveAbility`) : on transcrit le 3e argument du ctor, jamais le profil de

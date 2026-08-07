@@ -45,6 +45,8 @@ from .mv71 import MV71SniperDroneSquadAttackAbility
 from .wall_of_mirrors import (WallOfMirrorsAbility, wall_of_mirrors_possible_tiles,
                               wall_of_mirrors_range, wall_of_mirrors_tree)
 from .stormcaller import (StormcallerAbility, stormcaller_tree, stormcaller_get_add_ice_tiles)
+from .psychic_maelstrom import (PsychicMaelstromAbility, psychic_maelstrom_tree,
+                                psychic_maelstrom_hits)
 from .quickening import TheQuickeningAbility
 from .facade import (SorcerousFacadeAbility, sorcerous_facade_tree,
                      sorcerous_facade_switch_tree, sorcerous_facade_target_selector)
@@ -81,6 +83,8 @@ __all__ = [
     "wall_of_mirrors_tree",
     # stormcaller
     "StormcallerAbility", "stormcaller_tree", "stormcaller_get_add_ice_tiles",
+    # psychic_maelstrom (PsychicMaelstrom 1027, #490)
+    "PsychicMaelstromAbility", "psychic_maelstrom_tree", "psychic_maelstrom_hits",
     # quickening
     "TheQuickeningAbility",
     # facade (SorcerousFacade 1100, #287)
