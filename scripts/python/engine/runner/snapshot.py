@@ -417,6 +417,10 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # precedente vient de seeder. Meme nature que les seeds ci-dessus -- une ENTREE de gate,
         # cf. `_load_turn_counts`.
         _load_turn_counts(state)
+        # APRES `_load_turn_counts` : ce seed LIT le dict qu'elle vient de poser (`+0x38`) et le
+        # joueur courant, et en DERIVE le dict jumeau `+0x40` par l'identite que fixe l'ecrivain
+        # unique `TurnComponent$$SetCurrentPlayer`. Cf. `_load_turns_ended` (#287-r11-r1-r1-r1).
+        _load_turns_ended(state)
     # MEME nature que les deux seeds ci-dessus, mais son canal est un RPC DISTINCT (`actorStats`,
     # pas `combatSnapshot`) -> il est gate par son propre argument, jamais par `snapshot`.
     if actor_stats is not None:
@@ -850,6 +854,48 @@ def _load_turn_counts(state: State) -> None:
         per_player[p] = max(per_player.get(p, 0), int(n))
     for p, n in per_player.items():
         state.turn_counts[p] = n
+
+
+def _load_turns_ended(state: State) -> None:
+    """Seede `State.turns_ended` -- le dict PAR JOUEUR `TurnComponent.<Dictionary @+0x40>`, que rend
+    `IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEndedByPlayer` -- par l'IDENTITE
+    que fixe son ECRIVAIN UNIQUE.
+
+    L'IDENTITE, ET CE QUI L'ETABLIT. `IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer`
+    est le SEUL ecrivain des deux dictionnaires (verifie sur les 19 methodes de `TurnComponent` :
+    `.ctor` les cree vides, `Copy` les clone, aucune autre ne les touche), et son SEUL appelant est
+    `IdunBattle.Operations.ChangeTurnOperation$$Execute`. Chaque appel MUTANT fait exactement, dans
+    cet ordre : `ended[SORTANT] += 1` (si le sortant n'est pas 0) et `started[ENTRANT] += 1` ; un
+    appel ou `cur == next` retourne AVANT les deux. Donc, a tout instant :
+
+        ended[p] == started[p] - (p == CurrentPlayerId ? 1 : 0)
+
+    -- le joueur COURANT a un tour demarre de plus que termine, tous les autres sont a egalite. Elle
+    tient aussi sous joueur TEMPORAIRE (`+0x28`), ou `get_CurrentPlayerId` rend le temp : les deux
+    bumps portent alors sur LUI, donc l'ecart reste 1.
+
+    CE N'EST DONC PAS UN AJUSTEMENT, et surtout pas un des deux rabattements que le residu
+    `#287-r11-r1-r1-r1` interdisait : `decisionView.turnsEnded` publie `Sum(dict.Values)` (la SOMME
+    sur tous les joueurs) et `State.turn_counts` est l'AUTRE dictionnaire. Ici on ne substitue rien --
+    on RECONSTRUIT la ventilation depuis la ventilation jumelle et le joueur courant.
+
+    PORTEE DE LA MESURE, honnetement bornee : `turns_ended` est EXACT **par rapport a**
+    `turn_counts`, qui est lui-meme DERIVE (`_load_turn_counts` prend le `max` de la stat 12
+    per-unite). Les modes de sous-estimation de `turn_counts` sont donc herites tels quels -- un
+    joueur dont TOUTES les unites sont apparues apres le debut, ou ont manque des tours en etant
+    mortes. Direction de l'ecart : `ended` SOUS-estime -> `limit - ended` SUR-estime ->
+    `has_minimum_remaining_turns` est PERMISSIF. Le supprimer demanderait un capteur qui publie les
+    deux dictionnaires (aucun RPC ne le fait : `readTurnInfo` de `frida/hooks/game/match-state.ts`
+    n'invoque `GetAmountOfTurnsStartedByPlayer` que pour le joueur COURANT, et vers
+    `recorder`/`cheat`/`move-options`, jamais vers `decisionView`/`combatSnapshot`).
+
+    Tri-etat : un joueur ABSENT de `turn_counts` reste ABSENT ici (on ne fabrique pas un `0` qui se
+    lirait comme une mesure) -- et la LECTURE de ce dict, `battle_query.get_amount_of_turns_ended_by
+    _player`, rend `0` sur cle absente parce que c'est ce que rend le natif (`!ContainsKey`)."""
+    cur = state.current_player_id
+    for p, started in state.turn_counts.items():
+        ended = int(started) - (1 if (cur is not None and int(cur) == int(p)) else 0)
+        state.turns_ended[int(p)] = max(0, ended)      # `started == 0` ne peut pas rendre `ended < 0`
 
 
 def _load_unit_parent(state: State, snapshot: dict) -> None:

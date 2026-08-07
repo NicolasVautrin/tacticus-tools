@@ -478,6 +478,73 @@ def get_unit_max_range(visual_id) -> int:
     return best
 
 
+def get_player_turn_order(state=None) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetPlayerTurnOrder` = le slot `IBattleQuery` **0x18**
+    (arite **0**, lu dans `data/symbols/<build>/metadata/interface_slots.tsv`). Son corps est un pur
+    accesseur de CONFIG :
+
+        return this.<+0xa0 : BattleConfiguration>.<+0x30>.<+0x18>      # IList<PlayerId>
+
+    soit, cote BC, **`BC.Player.TurnOrder`**.
+
+    ⚠ STAND-IN NOMME, et sa portee est bornee -- le port ne recoit NI la liste `TurnOrder` NI la
+    table `PlayerId -> BEntityId` : `decisionView` ne publie que `units[].owner`, un **BEntityId** de
+    joueur. L'ordre est donc RECONSTRUIT par les ids d'entite CROISSANTS des joueurs porteurs
+    d'unites. Les deux coincident sur le seed BC (`TurnOrder` trie par `PlayerId`, entites joueur
+    creees dans cet ordre), et rien ne le garantit pour une BC dont le `TurnOrder` ne serait pas
+    trie. Residu `#462-r4e-o-r2-r1-r1-r1-r1` : le publier demanderait un capteur sur
+    `GetPlayerTurnOrder`.
+
+    ⚠ AUCUN filtre `alive` : `TurnOrder` est une donnee de CONFIGURATION, un joueur n'en sort JAMAIS,
+    meme toutes ses unites mortes. C'est le SKIP (`ShouldPlayerSkipTurn`, evalue DANS la boucle de
+    `FindNextPlayer`) qui l'ecarte, pas l'ordre.
+
+    FOYER UNIQUE, et il est ICI depuis `#287-r11-r1-r1-r1` : le corps vivait dans
+    `engine.runner.operations.turnflow`, alors que `GetPlayerTurnOrder` est une methode de
+    `BattleQuery` -- et `BattleQuery$$HasMinimumRemainingTurns`, ci-dessous, l'appelle. Deux
+    stand-ins qui derivent seraient un bug silencieux ; `turnflow.player_turn_order` DELEGUE
+    desormais a celui-la."""
+    # DIFFERE, et il est PORTEUR -- classe par la mesure prescrite (charger X seul dans un process
+    # FRAIS et regarder si M y atterrit) : `python -c "import engine.runner.components"` charge
+    # `engine.services.battle_query` (chaine `components -> entities.effects.loki.* ->
+    # services.damage_modifiers -> services.battle_query`, 107 modules). Le hisser fermerait donc un
+    # cycle. Ni (1) DEPLACER ni (2) ALLEGER un `__init__` ne s'appliquent : `OwnerComponent` est un
+    # composant du RUNNER, et la cascade ne passe par aucun baril.
+    from ..runner.components import OwnerComponent
+    players = set()
+    for e in (getattr(state, "entities", None) or {}).values():
+        oc = e.get_component(OwnerComponent)
+        if oc is None or oc.player is None:
+            continue
+        players.add(int(oc.player))
+    return sorted(players)
+
+
+def get_amount_of_turns_ended_by_player(state=None, player_id=None) -> int:
+    """`IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEndedByPlayer(playerId)` --
+    MIRROR du decompile, verbatim :
+
+        if (this.<Dictionary @+0x40>.ContainsKey(playerId)) return this.<+0x40>[playerId];
+        return 0;
+
+    Une cle ABSENTE rend donc **0**, et c'est une LECTURE du natif -- pas une convention permissive :
+    le dictionnaire nait VIDE (`TurnComponent$$.ctor` construit `+0x38` et `+0x40` vides) et ne
+    recoit une cle qu'au premier changement de joueur.
+
+    SUBSTRAT COTE PORT : `State.turns_ended`, le mirror de `+0x40`, ecrit par le SEUL ecrivain natif
+    (`turnflow.set_current_player`) et seede par `snapshot._load_turns_ended`. NE PAS CONFONDRE avec
+    `State.turn_counts`, qui mirroir `+0x38` (tours **DEMARRES**,
+    `TurnComponent$$GetAmountOfTurnsStartedByPlayer`), ni avec `decisionView.turnsEnded`, qui publie
+    `GetAmountOfTurnsEnded(matchTurn, 0)` = `Sum(dict.Values)`, la SOMME sur tous les joueurs."""
+    d = getattr(state, "turns_ended", None) or {}
+    if player_id is None:
+        return 0
+    key = int(player_id)
+    if key not in d:                                  # `if (!ContainsKey(playerId)) return 0`
+        return 0
+    return int(d[key])
+
+
 def has_minimum_remaining_turns(unit_id, turns: int, state=None, victory_conditions=None,
                                 turns_ended_by_first_player=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns(unit, turns)` (slot **27**
@@ -516,31 +583,40 @@ def has_minimum_remaining_turns(unit_id, turns: int, state=None, victory_conditi
       (`engine.services.victory_config.get_max_rounds`, defaut DERIVE de `data/seed-bc.json` ou la
       cle est ABSENTE). C'est donc une lecture, pas une convention permissive -- et c'est le
       regime de TOUS les runners `rl_duel build` a ce jour.
-    * **bras 2 (`limit` PRESENT) -> LEVE**, faute du compteur `TurnComponent.<Dictionary @+0x40>`
-      qu'expose `IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEndedByPlayer`.
-      Le `State` porte `turn_counts` = les tours **DEMARRES** (`TurnComponent+0x38`,
-      `GetAmountOfTurnsStartedByPlayer`) : c'est un AUTRE dictionnaire, et l'assimiler serait
-      inventer. `decisionView.turnsEnded` publie bien `GetAmountOfTurnsEnded(matchTurn, 0)`, mais
-      c'est la **SOMME sur tous les joueurs** (`Sum(dict.Values)`), pas la ventilation.
-      Rendre ici un `True` silencieux serait un port PERMISSIF muet -- exactement le vice que
-      `get_surrounding_tiles` refuse pour `only_empty_or_steppable`. RESIDU `#287-r11-r1-r1-r1` ;
-      point d'ancrage a publier : le dictionnaire `TurnComponent+0x40`, ventile par joueur.
+    * **bras 2 (`limit` PRESENT) -> LA FORMULE**, depuis `#287-r11-r1-r1-r1`. Le compteur
+      `TurnComponent.<Dictionary @+0x40>` a desormais un substrat porte : `State.turns_ended`,
+      lu par `get_amount_of_turns_ended_by_player` ci-dessus. Il ETAIT absent, et le port LEVAIT
+      plutot que de degrader ; ce n'est plus le cas.
 
-    `turns_ended_by_first_player` est le SEUL moyen d'exercer le bras 2 : un appelant qui a MESURE
-    le compteur le fournit (c'est ce que fait la garde offline). Il n'a aucun defaut."""
+      ⚠ CE SUBSTRAT N'EST NI `State.turn_counts` NI `decisionView.turnsEnded` -- les deux candidats
+      voisins, tous deux FAUX ici : `turn_counts` mirroir `+0x38` (tours **DEMARRES**), et
+      `decisionView.turnsEnded` publie `GetAmountOfTurnsEnded(matchTurn, 0)` = `Sum(dict.Values)`,
+      la SOMME sur tous les joueurs. Ce qui a debloque la tranche est le fait que
+      `IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer` est l'**UNIQUE ecrivain**
+      des DEUX dictionnaires (verifie sur les 19 methodes de `TurnComponent` : seuls `.ctor` les
+      construit vides et `Copy` les clone), qu'il est appele depuis un SEUL site
+      (`IdunBattle.Operations.ChangeTurnOperation$$Execute`), et qu'il y fait exactement, dans cet
+      ordre : `if (cur == next) return;` puis `started.TryAdd(next, 0)`, puis
+      `if (cur != 0) { ended.TryAdd(cur, 0); ended[cur] += 1; }`, puis `<+0x24> = next` et
+      `started[CurrentPlayerId] += 1`. Le port mirroir CE site (`turnflow.set_current_player`), donc
+      le dictionnaire est TENU, pas devine.
+
+    `turns_ended_by_first_player` reste accepte : c'est le canal d'un appelant qui a MESURE le
+    compteur autrement (encadrement du probe, garde offline). `None` = non fourni -> le port lit son
+    propre substrat, comme le natif lit le sien."""
     limit = get_max_rounds(state=state, victory_conditions=victory_conditions)
     if limit is None:
         return True                                   # `if (!limit.HasValue) return true;`
     if turns_ended_by_first_player is None:
-        raise NotImplementedError(
-            "HasMinimumRemainingTurns: le match porte un plafond de rounds "
-            "(VictoryConditionType.MainPlayerRoundLimitation = %d) mais le port n'a pas le "
-            "compteur `TurnComponent+0x40` que lit "
-            "`IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEndedByPlayer`. "
-            "`State.turn_counts` est le dictionnaire des tours DEMARRES (+0x38), pas celui-ci, et "
-            "`decisionView.turnsEnded` en publie la SOMME, pas la ventilation par joueur. "
-            "Le port REFUSE de rendre un verdict permissif silencieux (residu #287-r11-r1-r1-r1)."
-            % (int(limit),))
+        # `first = StateExtensions.GetPlayer(state, GetPlayerTurnOrder()[0])` puis
+        # `matchTurn.GetAmountOfTurnsEndedByPlayer(first.Id)`.
+        # ⚠ ORDRE VIDE : le natif indexerait `[0]` sur une liste vide (le `TurnOrder` d'une BC en
+        # porte toujours au moins un). Le port n'a pas de joueur a nommer -> `player_id=None`, que
+        # l'accesseur rend a `0` par sa branche `!ContainsKey` -- la MEME valeur que le natif rendrait
+        # pour un joueur qui n'a encore termine aucun tour.
+        order = get_player_turn_order(state)
+        turns_ended_by_first_player = get_amount_of_turns_ended_by_player(
+            state, order[0] if order else None)
     return int(turns) <= int(limit) - int(turns_ended_by_first_player)
 
 

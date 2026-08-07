@@ -164,9 +164,10 @@ class HeavyRailRifleAbility(ActiveAbility):
     #                       GetPlayerTurnOrder()[0])`.
     #                       **PORTE depuis #287-r11-r1-r1** : le dictionnaire est `BC.Victory.
     #                       VictoryConditions`, que le port lit (`engine.services.victory_config`),
-    #                       et le premier bras est donc une LECTURE. Le second bras LEVE (le
-    #                       compteur `TurnComponent+0x40` n'a pas de substrat cote port -- residu
-    #                       `#287-r11-r1-r1-r1`), il ne degrade pas en silence.
+    #                       et le premier bras est donc une LECTURE. Le second bras APPLIQUE la
+    #                       formule depuis `#287-r11-r1-r1-r1` : `TurnComponent+0x40` a un substrat
+    #                       porte (`State.turns_ended`, ecrit par `turnflow.set_current_player`,
+    #                       l'ecrivain natif UNIQUE des deux dictionnaires de tours). Il LEVAIT.
     #                       Coherent avec la mecanique 2-PHASES de l'ability (le degat arrive au tour
     #                       SUIVANT : sans 2 tours restants, armer la phase 1 ne sert a rien).
     # PORTEE : `TargetingRange statics+0x48` = `RANGE_WHOLE_BOARD`

@@ -1600,8 +1600,9 @@ class TheLionsWrathPlaybook(NonAttackComparablePlaybook):
     port » est PERIME. Le dictionnaire est `BC.Victory.VictoryConditions`, que le port lit
     (`engine.services.victory_config.get_max_rounds`, defaut DERIVE de `data/seed-bc.json`), et le
     mirror complet est `engine.services.battle_query.has_minimum_remaining_turns` -- desormais
-    branche sur le bit `CasterHas2TurnsLeft` de 1160/1142/1188. Ce qui manque n'est plus le plafond
-    mais le COMPTEUR `TurnComponent+0x40` du SECOND bras (residu `#287-r11-r1-r1-r1`). Le gate se
+    branche sur le bit `CasterHas2TurnsLeft` de 1160/1142/1188. Le COMPTEUR `TurnComponent+0x40` du
+    SECOND bras, qui manquait encore, est porte depuis `#287-r11-r1-r1-r1` (`State.turns_ended`,
+    ecrit par `turnflow.set_current_player`). Le gate se
     reduit donc a `True` PAR LECTURE sur toute BC sans `MainPlayerRoundLimitation`, c.-a-d.
     exactement le defaut de `NonAttackComparablePlaybook.should_evaluate` : l'overrider pour rendre
     `True` inconditionnellement serait du code mort. RESIDU NOMME `#27-r4-g` -- il ne pourra mordre

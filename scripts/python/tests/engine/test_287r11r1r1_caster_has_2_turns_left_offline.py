@@ -7,7 +7,10 @@ OFFLINE, et il est ecrit pour ROUGIR sur l'arbre d'avant la tranche :
   1. le SLOT et son ARITE, LUS dans `data/symbols/<build>/metadata/interface_slots.tsv` -- c'est
      l'etage qui aurait empeche le decalage de UN ;
   2. le mirror `GetMaxRounds` : `Nullable<int>`, cle `MainPlayerRoundLimitation`, defaut DERIVE ;
-  3. les DEUX bras de `HasMinimumRemainingTurns`, dont la LEVEE (jamais un `True` permissif) ;
+  3. les DEUX bras de `HasMinimumRemainingTurns` -- ⚠ le second LEVAIT (`NotImplementedError`) faute
+     du compteur `TurnComponent+0x40` ; depuis `#287-r11-r1-r1-r1` il APPLIQUE la formule sur le
+     mirror `State.turns_ended`. Le contrat garde ici n'est donc plus « leve » mais « rend une
+     VALEUR dans les deux sens », et le TERME `- ended` doit rester separable ;
   4. le cablage des DEUX faces, et le fait que le bit ne mord QUE chez ses porteurs ;
   5. la FRONTIERE de la formule -- le mutant `turns <= limit` (sans `- ended`) doit etre SEPARE
      par au moins un point, sinon le bras `bascule` du probe ne prouverait rien.
@@ -25,6 +28,7 @@ from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.abilities.targeting import (get_invalid_caster_reason,
                                                targeting_options_for)
 from engine.runner.abilities.targeting_rule import TargetingRule as TR
+from engine.runner.components import OwnerComponent, UnitComponent
 from engine.runner.state import State
 from engine.services import battle_query as BQ
 from engine.services.ability_caster_gates import CasterSubstrate, invalid_caster_reason
@@ -159,14 +163,23 @@ def test_bras1_pas_de_plafond_rend_true_par_LECTURE():
     assert BQ.has_minimum_remaining_turns("x", 2, victory_conditions={}) is True
 
 
-def test_bras2_sans_compteur_LEVE_au_lieu_de_degrader():
-    """LE CONTRAT. Un `True` silencieux ici serait un port PERMISSIF muet -- exactement ce que
-    `get_surrounding_tiles` refuse pour `only_empty_or_steppable`."""
-    with pytest.raises(NotImplementedError) as exc:
-        BQ.has_minimum_remaining_turns("x", 2, victory_conditions={"MainPlayerRoundLimitation": 3})
-    msg = str(exc.value)
-    assert "TurnComponent+0x40" in msg, "la levee doit NOMMER le substrat manquant"
-    assert "GetAmountOfTurnsEndedByPlayer" in msg
+def test_bras2_LIT_le_compteur_au_lieu_de_LEVER():
+    """LE CONTRAT A CHANGE AVEC #287-r11-r1-r1-r1, ET IL N'A PAS ETE ASSOUPLI -- il a ete SATISFAIT.
+
+    Le port LEVAIT (`NotImplementedError`) faute du dictionnaire `TurnComponent.<Dictionary @+0x40>`.
+    Ce dictionnaire a desormais un mirror (`State.turns_ended`), pose par l'ecrivain natif UNIQUE
+    (`TurnComponent$$SetCurrentPlayer` -> `turnflow.set_current_player`). Le second bras applique
+    donc la formule, dans les DEUX sens -- ce test le figera si quelqu'un le remet a lever.
+
+    ⚠ SANS `State`, le port lit un `TurnComponent` NEUF : ses deux dictionnaires naissent VIDES
+    (`TurnComponent$$.ctor`) et `GetAmountOfTurnsEndedByPlayer` rend `0` sur cle absente. `ended = 0`
+    est donc une LECTURE du natif, pas un defaut permissif choisi."""
+    assert BQ.has_minimum_remaining_turns(
+        "x", 2, victory_conditions={"MainPlayerRoundLimitation": 3}) is True     # 2 <= 3 - 0
+    assert BQ.has_minimum_remaining_turns(
+        "x", 2, victory_conditions={"MainPlayerRoundLimitation": 1}) is False    # 2 <= 1 - 0
+    st = State()
+    assert st.turns_ended == {}, "un State neuf mirroir les dicts VIDES de TurnComponent$$.ctor"
 
 
 def test_bras2_avec_compteur_applique_la_formule():
@@ -224,12 +237,28 @@ def test_les_porteurs_du_bit_sont_re_derives_et_tous_MoW():
 
 
 def test_face_RUNNER_le_bit_ne_mord_que_sous_plafond():
+    """Le bit ne peut refuser QUE sous plafond, et le refus depend du compteur VENTILE.
+
+    ⚠ Depuis #287-r11-r1-r1-r1 le second bras rend une VALEUR : ce test le montre dans les DEUX
+    sens sur le MEME plafond, en ne bougeant que `turns_ended[turnOrder[0]]`. Sans le terme
+    `- ended`, les deux lignes rendraient le meme verdict."""
     st = State()
     ability = ABILITY_CLASSES[PORTEURS_ATTENDUS[0]]()
     assert int(get_invalid_caster_reason(st, 1, ability)) == 0     # seed sans plafond -> LECTURE
     st.victory_conditions = {"MainPlayerRoundLimitation": 3}
-    with pytest.raises(NotImplementedError):
-        get_invalid_caster_reason(st, 1, ability)
+    # deux joueurs porteurs d'unites -> `GetPlayerTurnOrder()[0]` = 3 (stand-in : ids croissants)
+    for eid, player in ((10, 3), (11, 4)):
+        e = st.add_entity(eid)
+        e.add_component(OwnerComponent(team=player, player=player))
+        e.add_component(UnitComponent(visual_id="u%d" % eid, alive=True))
+    st.turns_ended = {3: 1, 4: 1}
+    assert int(get_invalid_caster_reason(st, 1, ability)) == 0            # 2 <= 3 - 1 -> vrai
+    st.turns_ended = {3: 2, 4: 1}
+    assert (int(get_invalid_caster_reason(st, 1, ability))
+            == int(TR.CasterHas2TurnsLeft))                              # 2 <= 3 - 2 -> faux
+    # Le compteur est VENTILE : bouger CELUI DE L'AUTRE joueur ne change rien.
+    st.turns_ended = {3: 1, 4: 9}
+    assert int(get_invalid_caster_reason(st, 1, ability)) == 0
 
 
 def test_face_RUNNER_une_ability_SANS_le_bit_ne_LEVE_jamais():

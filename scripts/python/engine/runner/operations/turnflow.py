@@ -15,6 +15,9 @@ Operations natives (VA citees) :
       * si `advance` (param_2) : enqueue le changement de tour (ChangeTurn) puis StartTurn.
   - `IdunBattle.Operations.ChangeTurnOperation$$Execute  : `current = IdunBattle.Operations.ChangeTurnOperation$$FindNextPlayer ;
       `IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer ; si le nouveau joueur est de type 2 (neutre) -> recurse (skip).
+      C'est LA que vivent les deux compteurs PAR JOUEUR (`+0x38` demarres, `+0x40` termines) :
+      `SetCurrentPlayer` en est l'ecrivain UNIQUE, et `ChangeTurnOperation$$Execute` son SEUL
+      appelant. Le port y bumpe `state.turns_ended` (`set_current_player`, #287-r11-r1-r1-r1).
   - `IdunBattle.Operations.StartTurnOperation$$Execute  : resets per-unite (ActorStatistics/UnitFlags) +
       emet la sequence d'events de debut de tour 0x12/0x13/0x14/0x15/0x16 (`On(0x16)` = vecteur
       turn-start porte = `start_turn_triggers`).
@@ -40,6 +43,11 @@ durees d'effet, triggers de debut de tour) :
   * StartTurn       -> incremente `state.turn_counts[player]` (compteur GLOBAL, TurnComponent+0x38) +
                        `turnsStarted@+0x58 += 1` PER-UNITE du joueur courant (stat 12, `_bump_turns_started`,
                        mig #123) + `start_turn_triggers(player)`.
+                       ⚠ LE PLACEMENT DU PREMIER EST HERITE, ET MESURE COMME FAUX (#287-r11-r1-r1-r1) :
+                       `IdunBattle.Operations.StartTurnOperation$$Execute` ne fait que LIRE
+                       `GetAmountOfTurnsStartedByCurrentPlayer` ; l'unique ecrivain de `+0x38` (et de
+                       `+0x40`) est `TurnComponent$$SetCurrentPlayer`, donc ChangeTurn. Cf.
+                       `set_current_player`, qui porte le jumeau `turns_ended` A SA PLACE.
 
 DEFERE (etat NON suivi offline -> TODO, en miroir documente) :
   * `DecreaseAbilityCooldowns` (le runner ne suit pas de compteur de cooldown d'ability offline) ;
@@ -70,6 +78,12 @@ from .triggers.tiles import first_aid_heal
 # differe deplace l'echec vers le premier appel et rend l'ordre d'initialisation dependant du
 # chemin d'execution. Le cout d'import, lui, se paie une fois.
 from ...entities.traits.unit_trait import UnitTrait, has_trait
+# #287-r11-r1-r1-r1 -- FORME B (module, pas symbole) : `player_turn_order` DELEGUE a son foyer natif
+# (`BattleQuery$$GetPlayerTurnOrder`). Un `from ... import get_player_turn_order` gelerait la liaison
+# et NE MORDRAIT PAS sous `monkeypatch.setattr("engine.services.battle_query.get_player_turn_order")`.
+# Aucun cycle : `services.battle_query` est deja dans la cascade de ce module (via `abilities.targeting`
+# juste en dessous), et il ne remonte vers le runner que par un differe INTERNE a sa fonction.
+from ...services import battle_query as _sbq
 from ..abilities.targeting import (valid_normal_attack_targets, normal_attack_type_for,
                                    get_invalid_target_reason, get_invalid_caster_reason,
                                    targeting_options_for, UnportedAbilityTargeting)
@@ -279,14 +293,15 @@ def player_turn_order(state: State) -> list[int]:
     SKIP (`ShouldPlayerSkipTurn`, evalue DANS la boucle). La difference se voit des que le joueur
     COURANT est celui qui n'a plus d'unite : l'ancien port ne le trouvait plus dans l'ordre et
     repartait de `order[0]`, la ou `FindTurnIndex` -- qui ne consulte AUCUN skip -- le trouve et
-    avance depuis SA position."""
-    players: set[int] = set()
-    for e in state.entities.values():
-        oc = e.get_component(OwnerComponent)
-        if oc is None or oc.player is None:
-            continue
-        players.add(int(oc.player))
-    return sorted(players)
+    avance depuis SA position.
+
+    ⚠ LE CORPS A DEMENAGE (#287-r11-r1-r1-r1), ET LA RAISON EST UN SECOND LECTEUR.
+    `GetPlayerTurnOrder` est une methode de `BattleQuery`, et `BattleQuery$$HasMinimumRemainingTurns`
+    l'appelle (`GetAmountOfTurnsEndedByPlayer(GetPlayerTurnOrder()[0])`). Le corps vit donc desormais
+    dans `engine.services.battle_query.get_player_turn_order`, son foyer NATIF, et cette fonction-ci
+    y DELEGUE : deux stand-ins qui derivent auraient ete un bug silencieux -- l'un dans l'ordre de
+    tour, l'autre dans le plafond de rounds."""
+    return _sbq.get_player_turn_order(state)
 
 
 def find_turn_index(state: State, player: Optional[int]) -> Optional[int]:
@@ -408,6 +423,53 @@ def find_next_player(state: State) -> Optional[int]:
     return None                                 # tous skippes -> le natif rend `null`
 
 
+def set_current_player(state: State, next_player_id: int) -> None:
+    """`IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer(nextPlayerId)` -- MIRROR du
+    decompile, VERBATIM et dans cet ordre :
+
+        if (get_CurrentPlayerId() == nextPlayerId)            return;          # NO-OP
+        if (!started.ContainsKey(nextPlayerId))               started.Add(nextPlayerId, 0);
+        if (get_CurrentPlayerId() != 0) {
+            if (!ended.ContainsKey(CurrentPlayerId))          ended.Add(CurrentPlayerId, 0);
+            ended[CurrentPlayerId] = ended[CurrentPlayerId] + 1;
+        }
+        prev = get_CurrentPlayerId();
+        this.<+0x24 : currentPlayerId>  = nextPlayerId;
+        this.<+0x18 : previousPlayerId> = prev;
+        started[get_CurrentPlayerId()] = started[get_CurrentPlayerId()] + 1;
+
+    (`started` = `<Dictionary @+0x38>`, `ended` = `<Dictionary @+0x40>` ;
+    `get_CurrentPlayerId` = `tempPlayer.HasValue ? tempPlayer.Value : <+0x24>`.)
+
+    ⚠ C'EST L'ECRIVAIN **UNIQUE** DES DEUX DICTIONNAIRES, et c'est ce fait -- pas une formule -- qui
+    a debloque le residu `#287-r11-r1-r1-r1`. Verifie sur les **19** methodes de `TurnComponent` :
+    `.ctor` les construit VIDES, `Copy` les clone, aucune autre ne les touche (`BlockTurnChange` /
+    `UnblockTurnChange` ecrivent `+0x30`, `SetTempChangeToPlayer` / `ResetTempPlayerTurn` `+0x28`,
+    `GetNextTurnStage` lit `+0x10/+0x14`). Et il n'a qu'UN SEUL appelant,
+    `IdunBattle.Operations.ChangeTurnOperation$$Execute` (xrefs). Corollaire LU, jamais ajuste :
+    a tout instant, `ended[p] == started[p] - (p == CurrentPlayerId ? 1 : 0)` -- c'est l'identite que
+    `snapshot._load_turns_ended` utilise pour SEEDER, et elle tient meme sous joueur TEMPORAIRE
+    (`ended[temp]` et `started[temp]` sont bumpes ensemble).
+
+    ⚠ LE PORT NE BUMPE ICI QUE `turns_ended`, ET LE PLACEMENT DE L'AUTRE EST **HERITE**.
+    `started[+0x38]` est bumpe ici par le natif ; cote port, `state.turn_counts[player] += 1` vit
+    dans `StartTurnOperation.execute` -- placement d'origine, MESURE comme faux (le decompile de
+    `IdunBattle.Operations.StartTurnOperation$$Execute` ne fait que LIRE
+    `GetAmountOfTurnsStartedByCurrentPlayer`, il n'ecrit jamais `+0x38`). Les deux sites sont
+    ENCHAINES par `advance_turn` (`ChangeTurn` puis `StartTurn`), donc l'etat observable apres la
+    paire est identique -- SAUF sur le NO-OP (`cur == next`, seul joueur encore jouable), ou le natif
+    ne bumpe RIEN et le port compte un tour de plus pour lui. Le deplacer casserait les **8** sites
+    (probes) qui appellent `StartTurnOperation.execute` SEUL, sans `ChangeTurn` : residu
+    `#287-r11-r1-r1-r1-r1`, direction NOMMEE (le port SUR-compte `turn_counts` dans ce seul regime).
+    `turns_ended`, lui, est pose ICI, a sa place native, et respecte le NO-OP."""
+    cur = state.current_player_id
+    if cur is not None and int(cur) == int(next_player_id):
+        return                                    # `if (cur == next) return;` -- AUCUN bump
+    if cur is not None and int(cur) != 0:         # `if (get_CurrentPlayerId() != 0)`
+        state.turns_ended[int(cur)] = int(state.turns_ended.get(int(cur), 0)) + 1
+    state.current_player_id = next_player_id      # `this.<+0x24> = nextPlayerId`
+
+
 class ChangeTurnOperation:
     """`IdunBattle.Operations.ChangeTurnOperation$$Execute()`, MIRROR du decompile :
 
@@ -430,7 +492,10 @@ class ChangeTurnOperation:
 
     ⚠ `SetCurrentPlayer` est un NO-OP quand le joueur ne change pas (`if (cur == next) return`, LU
     dans `IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer`) : rendre le joueur
-    COURANT n'est donc pas une anomalie cote natif, c'est un tour de plus pour lui.
+    COURANT n'est pas une anomalie cote natif -- mais ce n'est PAS non plus « un tour de plus pour
+    lui », comme cette note l'ecrivait avant #287-r11-r1-r1-r1. Le retour anticipe est AVANT les deux
+    bumps : ni `+0x38[next]` ni `+0x40[cur]` ne bougent. Le compte de tours du natif ne progresse
+    donc pas dans ce regime, et `set_current_player` le mirroir.
 
     Renvoie le nouveau joueur (ou None)."""
     __slots__ = ()
@@ -440,7 +505,7 @@ class ChangeTurnOperation:
         nxt = find_next_player(state)
         if nxt is None:
             return None
-        state.current_player_id = nxt          # mirror IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer
+        set_current_player(state, nxt)         # mirror IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer
         return nxt
 
 
@@ -468,7 +533,9 @@ def _bump_turns_started(state: State, player: int) -> None:
 
 class StartTurnOperation:
     """`IdunBattle.Operations.StartTurnOperation$$Execute (squelette fidele) : incremente le compteur de tours du
-    joueur (compteur GLOBAL `TurnComponent.turnsStarted`, dict @+0x38) ET le compteur PER-UNITE
+    joueur (compteur GLOBAL `TurnComponent.turnsStarted`, dict @+0x38 -- ⚠ PLACEMENT HERITE : le natif
+    ECRIT ce dict dans `TurnComponent$$SetCurrentPlayer`, donc dans ChangeTurn ; ici il ne fait que le
+    LIRE via `GetAmountOfTurnsStartedByCurrentPlayer`. Residu `#287-r11-r1-r1-r1-r1`) ET le compteur PER-UNITE
     `turnsStarted@+0x58` de chaque unite du joueur courant (stat 12, `_bump_turns_started`, mig #123) puis
     emet la sequence d'events 0x12..0x16 ; ici on tire le vecteur turn-start `On(0x16)` deja porte
     (`start_turn_triggers` -> ex. TheBetrayer auto-tour). Les resets per-unite natifs (ActorStatistics/
