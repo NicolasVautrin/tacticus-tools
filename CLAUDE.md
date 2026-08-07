@@ -509,6 +509,41 @@ dossiers) que le cliquet a trouvée à son premier passage.
   (`#468-r7`) ; et `#<n>` désigne à la fois une tâche et une PR (`#468-r8`), ce qui rend
   `git log --grep` structurellement ambigu.
 
+### Et tu termines son corps par `FOYER:` et `BLOCAGE:` — deux champs, une ligne chacun
+
+**Toute ligne de résidu que tu ajoutes à `docs/rl/backlog.md` finit par ces deux champs**, juste
+avant le `|` de la colonne « Modèle » :
+
+```
+FOYER: engine/runner/abilities/targeting.py, engine/services/battle_query.py
+BLOCAGE: aucun
+```
+
+- **`FOYER`** = les fichiers que la tranche va **ÉDITER**. Pas ceux qu'elle lit — ceux-là sont déjà
+  dans « Point d'entrée ». `aucun` est une réponse valable (résidu documentaire ou d'outillage).
+  Tu le connais au moment où tu ouvres le résidu : tu viens de lire le décompilé et tu sais quel
+  mirror est en cause. Personne d'autre ne le saura sans relire toute ta fiche.
+- **`BLOCAGE`** = un mot parmi `capteur` (exige une fenêtre de reinject) · `seeding` (le substrat
+  ne publie pas la donnée) · `etage` (une fonction native intermédiaire n'est pas portée) ·
+  `porteur` (aucune unité confrontable) · `aucun`. Un seul, le plus haut qui s'applique.
+
+**Pourquoi — mesuré le 2026-08-07 sur les 297 résidus ouverts.** Grouper deux résidus dans un même
+agent exige des **foyers DISJOINTS**, sinon on déplace une collision au lieu de l'éviter. Or c'est
+la seule chose que le backlog ne porte pas : la **famille** se dérive gratuitement (46 familles
+multi-résidus, 50 isolés) mais c'est **le mauvais axe** — `#287` compte **10** résidus répartis sur
+**5 foyers disjoints**, et inversement `probe_457_offline_tests_green.py` est le foyer de **3**
+résidus de **familles différentes** (`#457`, `#463`, `#486`). Le foyer TRAVERSE les familles.
+Quant au « Point d'entrée », il cite majoritairement une **case-doc** — où LIRE, pas où ÉCRIRE.
+
+⚠ **Le blocage, lui, est déjà écrit — mais en prose libre, donc incomptable** : un balayage rend
+`etage manquant : 0` alors que `#287-r11` en nomme **trois**. Un mot discret le rend dénombrable,
+et surtout **écartable au dispatch** : un résidu `BLOCAGE: capteur` ne part pas tant qu'aucune
+fenêtre n'est prévue.
+
+**Rétro-remplissage : au fil de l'eau, jamais en masse.** Si tu touches une ligne existante qui
+n'a pas ces champs, ajoute-les. 297 lignes d'un coup coûteraient plus que ce que ça rapporte, et
+un champ rempli de mémoire plutôt que par lecture serait pire que son absence.
+
 ## L'état de la BOUCLE — `loop_status.py`, déclenché tout seul (#467)
 
 ```powershell
