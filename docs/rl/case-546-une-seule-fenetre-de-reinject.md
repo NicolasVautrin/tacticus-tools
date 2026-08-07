@@ -253,7 +253,14 @@ contre-épreuves APRÈS.
   marquer la tuile non marchable, et l'écart reste inerte pour la raison du §3.
 * Le régime ORPHELIN de `#231-r` reste une hypothèse : le décompilé montre que la voie d'ajout ne
   peut pas le produire, mais il ne ferme pas les autres écrivains d'`ActiveEffectIds`.
-* Trois rouges de `master` **hors périmètre**, une seule cause :
-  `test_463r1_ecart_empreinte_offline.py`, `test_474_optional_locks_offline.py` et
-  `test_486r15_empreinte_par_entree_offline.py` déclarent trop étroit — il leur manque
-  `scripts/python/livraison.py`. Non touchés (trois familles distinctes, agents en vol).
+* **Un rouge de `master` réparé dans le périmètre, un autre qui l'était déjà.**
+  `test_175e_175r_tile_meta_live.py` (famille `#175-r`) déclarait `DECLENCHEUR` **sans** `build`
+  ni `toujours` : `probe_486r15_declencheurs_tests` rendait « declaration MAL FORMEE ». En le
+  réparant, une **seconde** faute est apparue sur le même fichier — six chemins de la fermeture
+  d'imports non déclarés —, invisible tant que la première tenait : **le cliquet s'arrête à la
+  déclaration MAL FORMÉE et ne confronte le PÉRIMÈTRE qu'ensuite**. `#486-r29` a réparé les deux
+  en parallèle sur `master` ; le rebase a produit le conflit et c'est la version de `master` qui
+  est retenue. Les trois autres rouges observés en cours de tranche
+  (`test_463r1` / `test_474` / `test_486r15_empreinte_par_entree`, tous « il manque
+  `scripts/python/livraison.py` ») sont fermés par le même commit : après rebase,
+  `probe_486r15_declencheurs_tests` rend **PASS**.
