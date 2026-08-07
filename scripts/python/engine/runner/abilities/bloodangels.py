@@ -131,7 +131,13 @@ def savage_echoes_tree(regenerate: bool, damage_override):
     l'ordre RNG de l'attaque est inchange."""
     attack = AttackWithAttackDamage(Target(), "SavageEchoes", "Eviscerate", is_melee=True,
                                     damage_override=damage_override, native_factory="attack")
-    heal = Heal(Caster(), savage_echoes_heal_amount)                  # Heal(Self, Self, Get(hp), ForRegenerate)
+    # `Heal(Self, Self, Get(hp), ForRegenerate)` -- `HealBehaviourOptions$$ForRegenerate` = `(scope 1,
+    # removeEffects 0)`. La fabrique etait DEJA ecrite dans ce commentaire, et le port l'IGNORAIT :
+    # jusqu'a #520 la feuille `Heal` n'avait aucun champ d'options, donc ce call-site tournait en
+    # `scope 0` -- le cap de GROUPE `GetGroupUnitHealLimit` n'etait jamais consulte. Ecart observable
+    # sur une cible MULTI-MEMBRES seulement (`nrOfMembers >= 2`) ; `bloodTerminator` en a 1, donc
+    # l'ecart est nul sur le porteur, et le declarer est ce qui le garde vrai si le kit change.
+    heal = Heal(Caster(), savage_echoes_heal_amount, scope=1, remove_effects=False)
     return op_and(attack, If(_RegenerateCondition(regenerate), heal))
 
 

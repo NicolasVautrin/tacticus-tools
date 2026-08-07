@@ -69,25 +69,11 @@ from ...predict import calculate_repair_modifier_for_prediction
 from ...predict import repair_amount as _repair_amount
 from ...services.trait_damage_limits import get_group_unit_heal_limit
 from ..components import unit_state_for_effects
+from .fill_up_prediction import group_unit_members as _group_unit_members
+from .fill_up_prediction import is_boss as _is_boss
 
 if TYPE_CHECKING:
     from ..state import State
-
-
-def _group_unit_members(state: "State", unit_id: int) -> int:
-    """`GetComponent<GroupUnitComponent>(target)+0x10` = `nrOfMembers`, le champ que
-    `IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` lit en TOUT PREMIER
-    (`if (nrOfMembers < 2) return int.MaxValue`).
-
-    Substrat runner : `StatsComponent.ctx.number_of_members` (seede depuis `nrOfMembers` du
-    gameconfig / de la capture, cf. `entities/unit_context.py` et `operations/spawn.py`) -- MEME
-    source que le `n` que le trigger `LivingMetal` lisait avant #310. Defaut 1 = unite simple, donc
-    branche `int.MaxValue` = pas de cap, exactement comme le natif sur un heros."""
-    e = state.get_entity(int(unit_id)) if unit_id is not None else None
-    sc = e.get_component(StatsComponent) if e is not None else None
-    if sc is None or getattr(sc, "ctx", None) is None:
-        return 1
-    return max(1, int(getattr(sc.ctx, "number_of_members", 1) or 1))
 
 
 def _repair_modifier(state: "State", target_id: int) -> tuple:
@@ -149,25 +135,6 @@ def _repair_modifier(state: "State", target_id: int) -> tuple:
         return {"multiplier": int(mult or 100)}
 
     return calculate_repair_modifier_for_prediction(rows, heal_config=_cfg)
-
-
-def _is_boss(state: "State", unit_id: int) -> bool:
-    """`IdunBattle.Entities.UnitExtensions$$IsBoss` -- NON PORTE, et le decompile dit POURQUOI :
-
-        TryGetComponent<UnitComponent>(unit, out c) && *(byte*)(c + 0x88)
-
-    Ce n'est PAS `HasTrait(Boss)` (l'erreur naturelle : `UnitTrait.Boss` existe et vaut 2023) mais un
-    CHAMP du `UnitComponent`, qu'aucun canal de seed du runner n'expose (`components.UnitComponent`
-    n'a pas d'attribut boss -- et tous les appelants de `predict.repair_utility` passent deja
-    `is_boss=False`). Rendu `False` = le cap boss de `PredictRepair` ne s'applique jamais.
-
-    CONSEQUENCE CHIFFREE, et elle est nulle sur le substrat runner : le cap boss vaut
-    `GetStat(Health, Initial) - current`, tandis que l'etage SUIVANT (`MaxFillUp`) cape a
-    `CurrentMaximumValue - current`. Le canal offline n'expose qu'UN SEUL plafond (`hp_max`), donc
-    les deux bornes s'y confondent -- meme argument, mot pour mot, que la branche BOSS d'
-    `attack_query.is_damaged_unit`. Un port qui INVENTERAIT `Initial != hp_max` fabriquerait un cap
-    la ou le natif n'en met pas."""
-    return False
 
 
 def predict_repair(state: "State", caster_id, target_id: int, amount: int,

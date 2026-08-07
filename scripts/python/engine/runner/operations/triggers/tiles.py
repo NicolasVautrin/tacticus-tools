@@ -130,8 +130,14 @@ def first_aid_heal(state: State, player_id: int) -> list[dict]:
         if thc is None or thc.hp_max is None:
             continue
         amount = round(int(thc.hp_max) * healpct / 100)         # PercentageOf(maxHP, firstAidRecovery%)
-        tile_id = board.id_at(col, row)                          # source = la tuile FirstAid
-        healed = HealUnitOperation.execute(state, uid, amount, source_id=tile_id)
+        tile_id = board.id_at(col, row)                          # `healer` = la tuile FirstAid
+        # `options` : `FirstAidHealEffect$$CreateTargetTriggerBehaviour` ne passe NI `ForHeal` NI
+        # `ForRegenerate` -- il construit un `HealBehaviourOptions` a la main et n'ecrit QUE
+        # `<+0x32> = 1` (le mode de selection du soigneur, une TUILE ici). `scope@+0x2c` et
+        # `removeEffects@+0x30` restent donc les defauts du ctor, relus verbatim :
+        # `HealBehaviourOptions$$.ctor` ecrit `+0x30 = 1` et laisse `+0x2c` a 0 -- c'est-a-dire
+        # exactement le couple de `ForHeal`, qui est le defaut de la feuille. Lu, pas suppose.
+        healed = HealUnitOperation.execute(state, tile_id, uid, amount)
         if healed > 0:
             out.append({"tile_effect": "FirstAid", "tile": tile_id, "unit": uid,
                         "heal": healed, "pct": healpct, "on_event": 0x13})

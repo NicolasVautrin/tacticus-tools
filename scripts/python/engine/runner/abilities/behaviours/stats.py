@@ -97,11 +97,27 @@ class Heal(AbilityBehaviour):
     fourni, une unite dont la garde est FAUSSE est EXCLUE du set (jamais soignee, absente de `heals`). Sert a
     porter la garde `Healable` du `HealableUnitsSelector` natif COTE MUTATION (case-220 1037
     RevitalizingMalignancy : HP<max ET non-mechanical) sans creer un noeud selecteur dedie. None = comportement
-    historique inchange (lifesteal SpiritLeech)."""
-    __slots__ = ("targets_sel", "amount_fn", "guard")
+    historique inchange (lifesteal SpiritLeech).
 
-    def __init__(self, targets_sel: TargetsSelector, amount_fn, guard=None):
+    `options` = les DEUX fabriques du build, transcrites en `scope`/`remove_effects` -- STRICT pendant
+    de `Repair`, ajoute par #520 (elles etaient purement et simplement ABSENTES de cette feuille) :
+      * `IdunBattle.Entities.Behaviours.HealBehaviourOptions$$ForHeal`       -> `(0, True)`  (defaut) ;
+      * `IdunBattle.Entities.Behaviours.HealBehaviourOptions$$ForRegenerate` -> `(1, False)`.
+
+    ⚠ LE DEFAUT `ForHeal` N'EST PAS UNE COMMODITE : c'est la fabrique de 19 des 25 call-sites du
+    build (xrefs relues sur `rnca9r7q6c`). Les SIX qui prennent `ForRegenerate` sont NOMMES, et deux
+    d'entre eux sont portes -- ils DECLARENT donc `scope=1` a leur site :
+    `SavageEchoesAbility$$ExecuteBehaviour` (`abilities/bloodangels.py`) et
+    `TimeFluxAbility$$CreateBehaviour` (`operations/triggers/loki/time_flux.py`) ; les quatre autres
+    (`MedicusMinistorumAbility`, `LifeStealEffect`, `SanguinaryPriestAbility`,
+    `ToughToKill_HealAbility`) ne sont pas portes. Un call-site NEUF lit sa fabrique au decompile ; il
+    ne recopie pas ce defaut."""
+    __slots__ = ("targets_sel", "amount_fn", "guard", "scope", "remove_effects")
+
+    def __init__(self, targets_sel: TargetsSelector, amount_fn, guard=None,
+                 scope: int = 0, remove_effects: bool = True):
         self.targets_sel, self.amount_fn, self.guard = targets_sel, amount_fn, guard
+        self.scope, self.remove_effects = int(scope), bool(remove_effects)
 
     def execute(self, entities, ectx):
         state = ectx.state
@@ -124,7 +140,13 @@ class Heal(AbilityBehaviour):
                     continue
                 if self.guard is not None and not self.guard(entities, ectx, u):
                     continue                              # garde Healable (case-220 1037) : HP<max & non-mechanical
-                healed = HealUnitOperation.execute(state, tid, amount, source_id=src)
+                # `healer` = `<selecteur@+0x50>` : le SOIGNEUR, `Caster` sur les call-sites lus. Il
+                # n'etait PAS transmis a l'Operation avant #520 (`source_id` etait un parametre MORT),
+                # alors que le gate natif `EntityCanBeHealed` en depend (`caster != null &&
+                # HasFlag(caster, CanHealFullHealthUnits)`).
+                healed = HealUnitOperation.execute(state, src, tid, amount,
+                                                   scope=self.scope,
+                                                   remove_effects=self.remove_effects)
                 heals.append({"target": tid, "healed": healed})
         ectx.emit("Heal", amount=amount, heals=heals)
         return OperationResult.ok()
