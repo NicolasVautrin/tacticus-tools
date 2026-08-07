@@ -51,7 +51,7 @@ import hexgeo
 from engine.dsl import nodes as dsl
 from engine.dsl.base import (Const, DslContext, _main_tile, _occupants_by_tile, _origin_tiles,
                              _within)
-from engine.entities.pathfinding.board import Board
+from engine.entities.pathfinding.board import EVENQ_EVEN, EVENQ_ODD, Board
 from engine.entities.selectors.accessors import SurroundingTiles
 from engine.entities.selectors.units import (AdjacentUnits, SurroundingUnits, Units,
                                              UnitsOnTilesWithEffect, Unobscured)
@@ -66,15 +66,29 @@ OBSERVER = (4, 2)
 
 
 def _flat_board() -> Board:
+    """Plateau PLAT 9x9, entierement connecte -- et le champ `neighbours` le DIT (#515).
+
+    Il portait `[]`, ce qui declare « cette tuile n'a AUCUN voisin stocke » : le contraire de ce
+    que le montage veut. Le test passait quand meme parce que `_within` decidait l'appartenance
+    par `hexgeo.distance <= r` et ne LISAIT pas le champ -- deux fautes qui se compensaient. Des
+    que `_within` a branche l'etage `adjacent` sur l'enumeration native (residu `#497-r1`), le
+    montage s'est demasque tout seul : `AdjacentUnits` rendait `[]`.
+
+    Le champ est donc rempli avec la geometrie even-q, qui est ce qu'un plateau plat produit
+    reellement : `InitializeConnectivityOperation$$Execute` relie les six voisins d'une `Grass`
+    non pivotee, et la porte `|dElev| < 2` de `TileQuery$$IterateAdjacentTiles` ne refuse rien a
+    elevation constante. L'axe teste ici (l'EMPREINTE multi-hex) est inchange."""
     tiles, tid, idof = [], 1, {}
     for c in range(COLS):
         for r in range(ROWS):
             idof[(c, r)] = tid
             tid += 1
     for (c, r), i in idof.items():
+        ds = EVENQ_EVEN if c % 2 == 0 else EVENQ_ODD
+        voisins = [idof[(c + dc, r + dr)] for dc, dr in ds if (c + dc, r + dr) in idof]
         tiles.append({"id": i, "col": c, "row": r, "elevation": 0, "tileDefId": "Grass",
                       "isTemporary": False, "isWall": False, "walkable": True,
-                      "neighbours": [], "occupantUnitId": None})
+                      "neighbours": voisins, "occupantUnitId": None})
     return Board(tiles, adjacency="evenq")
 
 
