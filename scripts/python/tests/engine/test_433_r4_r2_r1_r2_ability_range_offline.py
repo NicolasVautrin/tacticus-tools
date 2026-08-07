@@ -174,19 +174,25 @@ def test_no_ability_has_two_contradictory_sources():
     assert dupes == [], "abilities a deux sources d'options : %r" % (dupes,)
 
 
-#: Les 32 abilities ACTIVES du pool spawnable hors `ABILITY_CLASSES` (#433-r4-r2-r1-r2-r2-r1-r1).
+#: Les abilities ACTIVES du pool spawnable hors `ABILITY_CLASSES` (#433-r4-r2-r1-r2-r2-r1-r1).
 #: DERIVEE, pas choisie : `rl_duel build --list-pool` (rank courant, 97 unites regulieres) croise
 #: avec `gameconfig.activeAbilities`, moins le registre COMBAT. La liste est FIGEE ici parce que
 #: `--list-pool` exige la session host (normalisation live) et qu'un test offline ne peut pas la
 #: rejouer ; le test qui suit, lui, DERIVE son perimetre du seed BC versionne.
+#: ⚠ ELLE RETRECIT A CHAQUE PORT, et c'est voulu : `test_the_pool_abilities_carry_a_read_mask`
+#: exige aussi qu'AUCUNE entree ne soit dans `ABILITY_CLASSES` (assertion `intrus`), parce que le
+#: masque aurait alors DEUX sources. Une ability qui entre au registre doit donc SORTIR d'ici dans
+#: le meme commit -- c'est le pendant, cote perimetre, du contrat de disjonction que garde
+#: `tests/engine/runner/test_targeting_options_sources.py`.
+#: Sorties : 1087 `ExemplarOfTheKauyon` (#488, face COMBAT portee -> masque MIGRE sur la classe).
 POOL_ABILITIES_WITHOUT_COMBAT_CLASS = [
-    1005, 1019, 1027, 1038, 1039, 1048, 1049, 1050, 1057, 1061, 1063, 1064, 1068, 1069, 1087,
+    1005, 1019, 1027, 1038, 1039, 1048, 1049, 1050, 1057, 1061, 1063, 1064, 1068, 1069,
     1088, 1101, 1106, 1121, 1129, 1132, 1141, 1152, 1164, 1165, 1175, 1177, 1183, 1191, 1195,
     1197, 1204,
 ]
 
 
-def test_the_thirty_two_pool_abilities_carry_a_read_mask():
+def test_the_pool_abilities_carry_a_read_mask():
     """`#433-r4-r2-r1-r2-r2-r1-r1` : les abilities ACTIVES du pool spawnable hors registre portent
     desormais leur masque `rules`, pas seulement leur portee. Sans lui, `tile_removed_by_walkability`
     et `target_is_obscured` sont DESARMES (convention permissive) et leur terme attribue des tuiles

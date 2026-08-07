@@ -60,9 +60,18 @@ def test_les_trois_ids_sont_evaluables_par_leur_canal():
     l'entree de table sinon. Une regle du mauvais cote serait silencieusement ignoree."""
     assert R.evaluabilite(SKY) == "surcharge", "1025 a une classe : sa regle doit y etre surchargee"
     assert R.evaluabilite(ALPHA) == "surcharge", "1112 a une classe portee"
-    assert R.evaluabilite(KAUYON) == "table", "1087 n'a AUCUNE classe -> canal table"
-    assert KAUYON in DYNAMIC_TARGET_RULE_UNPORTED
-    assert SKY in ABILITY_CLASSES and ALPHA in ABILITY_CLASSES
+    # 1087 a CHANGE DE CANAL au port de sa face COMBAT (#488) : sa classe
+    # `ExemplarOfTheKauyonAbility` surcharge desormais `get_dynamic_invalid_target_reason` (qui
+    # appelle le MEME corps, `targeting.py::_dynamic_rule_exemplar_of_the_kauyon`), et son entree
+    # de `DYNAMIC_TARGET_RULE_UNPORTED` a ete retiree dans le meme commit. Ce que le test garde
+    # est INCHANGE -- « le canal doit suivre l'existence d'une classe » -- seule la reponse a bouge.
+    assert R.evaluabilite(KAUYON) == "surcharge", (
+        "1087 a une classe portee (#488) -> canal surcharge")
+    # Les DEUX tables `*_UNPORTED` sont DISJOINTES d'`ABILITY_CLASSES` : une entree qui resterait en
+    # table pendant que la classe existe donnerait DEUX sources pour une meme regle, et la cascade
+    # n'en lirait qu'une (la surcharge) -- l'autre deviendrait un mort silencieux.
+    assert KAUYON not in DYNAMIC_TARGET_RULE_UNPORTED
+    assert SKY in ABILITY_CLASSES and ALPHA in ABILITY_CLASSES and KAUYON in ABILITY_CLASSES
 
 
 def test_les_trois_ids_posent_le_bit_au_masque():
@@ -168,3 +177,4 @@ def test_chainon_complet_is_invalid_target():
         "la cascade ne remonte pas le refus dynamique de 1087 (obtenu %s)" % hex(refus))
     assert not (passe & int(TR.TargetMatchesDynamicRule)), (
         "la cascade refuse dynamiquement une tuile que la regle accepte (obtenu %s)" % hex(passe))
+

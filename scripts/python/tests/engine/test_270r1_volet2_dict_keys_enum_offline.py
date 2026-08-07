@@ -72,7 +72,10 @@ SNAP_TARGETING_UNPORTED = (
     (1049, (1024, True, (1, True, False, None, False), 1)),
     (1057, (4160, False, (0, False, False, 1, False), 1)),
     (1061, (33792, True, (1, True, False, None, False), 1)),
-    (1087, (100667458, False, (1, False, True, None, False), 1)),
+    # 1087 `ExemplarOfTheKauyon` : RETIRE du snapshot par #488. Son masque (`0x6001042` =
+    # 100667458) a MIGRE sur `ExemplarOfTheKauyonAbility.TARGETING_OPTIONS` avec sa face COMBAT --
+    # les deux tables `*_UNPORTED` sont disjointes d'`ABILITY_CLASSES`. La VALEUR est inchangee ;
+    # seule la SOURCE a bouge, et c'est `test_targeting_options_sources.py` qui garde la disjonction.
     (1121, (524352, False, (0, False, False, 1, False), 0)),
     (1141, (16384, True, (0, False, False, 1, False), 1)),
     (1152, (269615168, False, (0, False, False, 1, False), 1)),
@@ -306,11 +309,17 @@ def test_snapshot_ordinal_valeur_et_ordre():
 
 
 def test_cardinalites_du_volet():
-    """Le compte du volet 2 : 44 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 128 cles."""
+    """Le compte du volet 2 : 43 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 127 cles.
+
+    ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
+    perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
+    COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
+    passe de 44 a 43 au port de 1087 `ExemplarOfTheKauyon` (#488). Ce que ce cliquet garde est la
+    CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [44, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [43, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 128
+    assert sum(tailles) == 127
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"
