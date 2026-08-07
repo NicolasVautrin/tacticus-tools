@@ -48,6 +48,12 @@ DECLENCHEUR = {
         "scripts/python/engine/entities/effects_state.py",
         "scripts/python/engine/entities/effects/loki/status.py",
         "scripts/python/probe_462_r4b_r1_r1_r1_r1_b_r1_r1_r3_r1_r1_appelants.py",
+        # L'etage 5 IMPORTE le montage de crush de la tranche precedente (aucun fork de montage) :
+        # ce chemin est donc une ENTREE de ce fichier, pas un voisin.
+        "scripts/python/probe_462_r4b_r1_r1_r1_r1_b_r1_r1_r3_r1_substrat_traits.py",
+        "scripts/python/engine/runner/operations/movement.py",
+        "scripts/python/engine/runner/operations/turnflow.py",
+        "scripts/python/engine/runner/operations/triggers/genestealer.py",
     ),
     "build": False,
     "toujours": False,
