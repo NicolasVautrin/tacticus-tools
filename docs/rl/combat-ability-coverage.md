@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **116**
-- **NO-OP silencieux** (a porter) : **59**
-- Ventilation NO-OP : **DAMAGE**=30, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **117**
+- **NO-OP silencieux** (a porter) : **58**
+- Ventilation NO-OP : **DAMAGE**=29, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (59)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (58)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -31,7 +31,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1209 | InfernalCannon | DAMAGE(Flame) | 2 | LN |
 | 1108 | KissOfDeath | DAMAGE(DirectDamage) | 2 | NS |
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
-| 1225 | StrikeFromTheShadows | DAMAGE(Bolter) | 2 | LN |
 | 1173 | ArcScourge | DAMAGE(Particle) | 1 | N |
 | 1176 | BlightGrenades | DAMAGE(Toxic) | 1 | N |
 | 1198 | EuphoricStrikes | DAMAGE(Power) | 1 | L |
@@ -86,7 +85,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (116)
+## PORTED (registry) (117)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -157,6 +156,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1201 | SquigMine | DAMAGE(Blast) | 2 | LN |
 | 1051 | Stikkbomb | DAMAGE(Blast) | 2 | NS |
 | 1113 | Stormcaller | DAMAGE(Psychic) | 2 | LN |
+| 1225 | StrikeFromTheShadows | DAMAGE(Bolter) | 2 | LN |
 | 1187 | ThriceBlessedConflagration | DAMAGE(Flame) | 2 | LN |
 | 1161 | TwinSmartMissileSystem | DAMAGE(Blast) | 2 | LN |
 | 1018 | ValkyrieStrike | DAMAGE(Blast) | 2 | NS |
