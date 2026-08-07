@@ -260,10 +260,21 @@ Cliquets re-joués : `probe_181` **129/129, 0 manquante** ; `probe_429` OK ;
 `probe_287r5` cliquet d'appariement OK (0 orphelin, 0 fantôme). Cette tranche n'ajoute **aucune**
 entrée à `ABILITY_CLASSES` (1076 y était déjà, avec son masque et son `AbilityAttackType`).
 
-## 8. Résidu `#287-r11-r2-r1`
+## 8. Résidu `#287-r11-r2-r1` — **FERMÉ**, cf. `case-287r11r2r1-ligne-de-vue-du-gate-de-1076.md`
 
-**Le gate de ciblage de `1076` hérite du COLLAPSE de `IsTargetInAttackRangeForSummon`, et l'écart
-est RESTRICTIF côté natif — donc PERMISSIF côté port.** Le corps natif (slot 196), LU :
+Le SOUS-refus annoncé ici était **réel et a été mesuré** : sur `C3_47`, une cible dont les **10**
+tuiles libres du disque r=4 sont masquées par un mur de roche — natif `0x1 ValidRequest`, port
+d'avant `0x0`, **2 SOUS-refus** (les deux porteurs). Le slot 196 est désormais mirroré
+(`mv71._is_target_in_attack_range_for_summon`), ligne de vue et clamp mêlée compris.
+
+⚠ **Une citation de ce paragraphe était FAUSSE** : `<slot 0x10>` n'est PAS sur `IBattleQuery` (où
+16 = `GetChainedUnits/3`, trois paramètres pour un appel qui en passe quatre) mais sur
+**`IMovementQuery`** (16 = `GetTilesObscuringTerrain/4`, la surcharge ENTITÉ). Ce qui le tranche est
+mesuré : le service interrogé est `this+0x10`, et `BattleQuery$$GetDistance(tileA, tileB)` appelle
+le slot `9` du MÊME champ, que la table nomme `IMovementQuery 9 GetDistance/2`. Le corps ci-dessous
+est conservé tel qu'il a été lu, cette seule attribution corrigée.
+
+Le corps natif (slot 196), LU :
 
     if (target == null || !UnitExtensions.IsTargetable(target)) return false;
     range = max(w.Range ?? 1 for w in GetUnitConfig(unitId).Weapons);
@@ -272,16 +283,16 @@ est RESTRICTIF côté natif — donc PERMISSIF côté port.** Le corps natif (sl
     } else if (range == 1 && !TileExtensions.IsAdjacentTo(tile, GetTiles(target))) return false;
     if (GetDistance(tile, target) > range) return false;
     foreach (t in GetTiles(target))
-        if (!<slot 0x10>(tile, t, 6, 2).IsNullOrEmpty()) return false;      // LIGNE DE VUE
+        if (!<IMovementQuery slot 16>(tile, t, 6, 2).IsNullOrEmpty()) return false;   // LIGNE DE VUE
     if (range == 1) return DamageCalculations.CanMeleeAttackOverElevationDifference(tile, GetMainTile(target));
     return true;
 
-Le port collapse tout cela en `1 <= distance(tile, cible) <= range` (`_pick_tile`). Tant que
+Le port collapsait tout cela en `1 <= distance(tile, cible) <= range` (`_pick_tile`). Tant que
 `PickTile` ne servait qu'à l'EXÉCUTION, le collapse ne coûtait qu'une tuile de spawn parfois
-différente ; il **décide maintenant de la légalité d'un cast**. Une tuile que le natif rejette pour
-LIGNE DE VUE (ou pour `CanMeleeAttackOverElevationDifference`) est comptée valide par le port, qui
-ACCEPTE alors une cible que le natif REFUSE — un **SOUS-refus**. Le montage `une-tuile` a été
-conçu pour l'éviter (tuile adjacente à la cible), donc la mesure de cette tranche ne le voit pas ;
-il faut un montage où la seule tuile libre du disque est **masquée** par du terrain.
-Étage manquant : le mirror de `<IBattleQuery slot 0x10>(from, to, 6, 2)` (la même famille que
-`GetTilesObscuringTerrain`, déjà portée pour `TargetIsUnobscured` — à confronter avant réemploi).
+différente ; il **décide maintenant de la légalité d'un cast**. Le montage `une-tuile` avait été
+conçu pour éviter la confusion (tuile adjacente à la cible), donc la mesure de CETTE tranche-ci ne
+le voyait pas ; `#287-r11-r2-r1` a monté le régime où la ligne de vue mord (`C3_47`) et fermé
+l'écart. Réemploi justifié PAR LA MESURE et non par la ressemblance : c'est **littéralement la même
+fonction native** que `TargetIsUnobscured` (`MovementQuery$$GetTilesObscuringTerrain`), mais par un
+CHEMIN D'ENTRÉE différent — sans le gate `EnableObscuringTerrain` de
+`TargetingQuery$$GetTilesObscuringTerrain`.
