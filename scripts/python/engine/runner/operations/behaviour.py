@@ -56,6 +56,7 @@ from ...entities.effect_type import EffectType
 from ...entities.selectors.accessors import Target
 from ...entities.selectors.tiles import Caster
 from ...entities.triggers import IsAdjacent, is_object_or_steppable
+from ...entities.unit_selection_type import UnitSelectionType   # #524 : 3e arg d'`IsAdjacent`
 from ...entities.pathfinding.walk_pathfinder import get_movable_positions
 from .remove_unit import RemoveUnitOperation
 from ...services.damage_combat import roll_critical
@@ -64,7 +65,9 @@ from .movement import MoveUnitOperation
 
 IGNORE_BATTLE_FATIGUE = int(EffectType.IgnoreBattleFatigue)  # 1079 (immunite ; posee p.ex. par SquigHound 1078) #158
 # 3e argument d'`DSLTriggers$$IsAdjacent` = `UnitSelectionType`, PAS un rayon (cf. en-tete du module).
-ONLY_TARGETABLE = 2              # UnitSelectionType.OnlyTargetable
+# #524 : l'ordinal ecrit a la main est remplace par le MEMBRE du mirror `IdunBattle.Entities.Enum.
+# UnitSelectionType` (value-preserving : `IntEnum` EST un `int`, et `OnlyTargetable` vaut 2).
+ONLY_TARGETABLE = UnitSelectionType.OnlyTargetable
 _IS_ADJACENT = IsAdjacent(Caster(), Target(), ONLY_TARGETABLE)   # IsAdjacent(self@+0x30, dying@+0x60, 2)
 # 5e conjoint : `NOT IsObjectOrSteppable(dying@+0x60)`. Foyer partage `entities/triggers.py`
 # (mirror de `IdunBattleLogic.Entities.DSLTriggers$$IsObjectOrSteppable`, 8 call-sites natifs).

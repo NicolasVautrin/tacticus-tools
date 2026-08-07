@@ -43,13 +43,15 @@ from .....entities.traits.unit_trait import UnitTrait
 from .....entities.selectors.accessors import Target
 from .....entities.selectors.tiles import Caster
 from .....entities.triggers import IsAdjacent
+from .....entities.unit_selection_type import UnitSelectionType   # #524 : 3e arg d'`IsAdjacent`
 from ..base import TriggerEvent
 from ..revive_effect import ReviveEffectAbility, are_friends
 
 ABILITY_ID = "TaintedNarthecium"
 CHAOS = int(UnitTrait.Chaos)                     # 0x7ea=2026 (HasTrait(target, Chaos))
 # 3e argument d'`DSLTriggers$$IsAdjacent` = `UnitSelectionType`, PAS un rayon (cf. en-tete).
-ONLY_TARGETABLE = 2                              # UnitSelectionType.OnlyTargetable
+# #524 : membre du mirror `IdunBattle.Entities.Enum.UnitSelectionType` (value-preserving).
+ONLY_TARGETABLE = UnitSelectionType.OnlyTargetable
 _IS_ADJACENT = IsAdjacent(Caster(), Target(), ONLY_TARGETABLE)
 
 

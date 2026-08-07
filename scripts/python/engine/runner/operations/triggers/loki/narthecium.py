@@ -52,13 +52,15 @@ from ....state import State
 from .....entities.selectors.accessors import Target
 from .....entities.selectors.tiles import Caster
 from .....entities.triggers import IsAdjacent
+from .....entities.unit_selection_type import UnitSelectionType   # #524 : 3e arg d'`IsAdjacent`
 from ..base import TriggerEvent
 from ..revive_effect import ReviveEffectAbility, are_friends
 
 ABILITY_ID = "Narthecium"
 # 3e argument d'`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent` = `UnitSelectionType`, PAS un rayon
 # (cf. en-tete). `2` = `OnlyTargetable`, le defaut de `DSLSelectors$$GetDefaultUnitSelectionType(false)`.
-ONLY_TARGETABLE = 2
+# #524 : membre du mirror `IdunBattle.Entities.Enum.UnitSelectionType` (value-preserving).
+ONLY_TARGETABLE = UnitSelectionType.OnlyTargetable
 # `IsAdjacent(self@sel+0x30, target@sel+0x60, UnitSelectionType.OnlyTargetable)` -- mirror integral
 # (forall sur les paires, empreintes completes, porte d'elevation, court-circuit d'identite).
 _IS_ADJACENT = IsAdjacent(Caster(), Target(), ONLY_TARGETABLE)

@@ -24,6 +24,9 @@ from .unit_faction import UNIT_FACTION_NAMES        # noqa: F401 (re-export)
 # #270-r4 : le `sourceFlags` des deux triggers d'effet. Type DECLARE du dernier parametre de
 # `IdunBattleLogic.Entities.DSLTriggers.HasEffect`, LU dans `frida/methods.tsv`.
 from .effect_target_type import EffectTargetType
+# #524 : le 3e argument d'`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent`. Type DECLARE du
+# parametre `selectionType`, LU dans `frida/methods.tsv` -- jamais deduit de l'ordinal.
+from .unit_selection_type import UnitSelectionType
 # #270-r4-r2 : les DEUX lectures de `UnitTrait` etaient DIFFEREES, avec pour motif ecrit une
 # « garde anti-circulaire ». MESURE : la garde etait VIDE -- le hissage passe depuis 8 ordres
 # d'entree distincts (`probe_270r4r2_import_en_premier.py`), et il passait DEJA avant la coupe
@@ -1232,9 +1235,33 @@ class IsAdjacent(AbilityTrigger):
       Le foyer est `services/battle_query.py::are_tiles_adjacent` (#433-r1) -- pas un 5e mirror.
     * **Le 3e argument va au SELECTEUR, PAS au predicat.** `selectionType` (`UnitSelectionType`,
       champ `+0x18`) n'est lu QUE comme 2e argument du `Select` des deux selecteurs ; il n'entre pas
-      dans la comparaison par paire. Le port le prend au constructeur pour mirrorer la signature
-      native et le garder INERTE ici ; la couche selecteur du port ne consomme pas encore le
-      `UnitSelectionType` (residu `#433-r3-r2`).
+      dans la comparaison par paire.
+
+      **VOLET `IsAlive` PORTE (#524), volet `Untargetable` encore RESIDUEL (`#433-r3-r2`).** Le
+      foyer natif est `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType(unit,
+      selectionType, state)`, MIRROR de son decompile :
+
+          if (unit == null || !EntityExtensions.IsUnit(unit))  return false;
+          if (selectionType == 1)  return IsAlive(unit, state);
+          if (selectionType == 2)  return !HasFlag(unit, 0x11 = UnitFlag.Untargetable);
+          if (selectionType == 3)  return IsAlive(unit, state) && !HasFlag(unit, 0x11);
+          return true;                                          // 0 = Any
+
+      Ce noeud applique donc `IsAlive` pour `OnlyAlive`/`OnlyAliveAndTargetable` -- et seulement
+      ceux-la : `OnlyTargetable` (2) N'APPELLE PAS `IsAlive` au decompile, donc les trois call-sites
+      portes qui passent `2` (`runner/operations/behaviour.py`, `.../loki/narthecium.py`,
+      `.../loki/tainted_narthecium.py`) sont INCHANGES, comme les call-sites qui ne passent RIEN.
+      Le volet `HasFlag(Untargetable)` reste hors de portee ici : `DslContext` ne porte ni `state`
+      ni la table d'effets, et le signal offline du port vit dans `ai/state_bridge.py`
+      (`UNTARGETABLE_EFFECT_TYPES`) -- l'amener jusqu'au contexte DSL est une tranche a part.
+
+      **CE QUE LE VOLET `IsAlive` FERME, MESURE** (#524, `probe_524_lash_of_torment.py --step
+      taunt-dead --dmin 1 --dmax 1`) : `LashOfTorment` (1196) fait `If(IsAdjacent(Caster, Target,
+      3), AddBondEffect(27 Taunted))` APRES son attaque. Cible ADJACENTE tuee par le cast -> le
+      natif pose `[]`, le port posait `[25, 26, 27, 1237]` sur le CADAVRE, qui garde ses tuiles
+      (`feet(cadavre) = [(6,7)]`, `IsAdjacent = True`). Le meme regime a distance 2 ACCORDAIT deja
+      des deux cotes -- l'accord y venait de la distance, pas d'un filtre : une garde qui ne joue
+      que ce regime-la aurait ete verte.
 
     `ctx.board` = le graphe de tuiles (`state.board` cote COMBAT, `scene.board` cote DECISION) :
     fourni -> voisinage natif + porte d'elevation ; ABSENT -> degradation documentee du depot =
@@ -1253,12 +1280,25 @@ class IsAdjacent(AbilityTrigger):
     board est la. Une unite mono-tuile a `feet == [main tile]` -> resultat bit-a-bit inchange."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger, selection_type: int | None = None):
         # `selection_type` = `UnitSelectionType` du 3e argument de la factory : il part au SELECTEUR
-        # (slot 3), jamais dans la comparaison par paire. Garde-le INERTE (cf. docstring).
+        # (slot 3), jamais dans la comparaison par paire (cf. docstring). `None` = call-site qui ne
+        # l'a pas encore releve -> AUCUN filtre, comportement d'avant #524 bit pour bit.
         self.a, self.b, self.selection_type = a, b, selection_type
 
+    def _select(self, node, ctx) -> list:
+        """`<sel>.Select(entities, selectionType)` -- le `_units_of` du port, SUIVI du filtre
+        `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType` (volet `IsAlive` seul, cf.
+        docstring). `IsAlive` n'est appele par le natif QUE pour `OnlyAlive` et
+        `OnlyAliveAndTargetable` : tout autre `selection_type` (y compris `None`) laisse passer."""
+        units = _units_of(node, ctx)
+        st = self.selection_type
+        if st is not None and int(st) in (int(UnitSelectionType.OnlyAlive),
+                                          int(UnitSelectionType.OnlyAliveAndTargetable)):
+            return [u for u in units if _is_alive(u)]
+        return units
+
     def should_trigger(self, ctx):
-        ua = _units_of(self.a, ctx)
-        ub = _units_of(self.b, ctx)
+        ua = self._select(self.a, ctx)
+        ub = self._select(self.b, ctx)
         if not ua or not ub:                          # `!A.Any() || !B.Any()` -> false
             return False
         board = getattr(ctx, "board", None)

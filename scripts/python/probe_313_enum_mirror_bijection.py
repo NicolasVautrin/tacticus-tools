@@ -277,6 +277,14 @@ REGISTRE: list[Mirror] = [
     # `NonMechanical`, et l'ordinal nu (`0`) est aussi un membre de `DamageReason`/`KillUnitStep`.
     Mirror("HealType", "engine/entities/heal_type.py",
            "IdunBattle.Entities.Enum.HealType"),
+    # #524 -- `UnitSelectionType`, mirror NEUF, inscrit DANS LE COMMIT QUI LE CREE (sixieme fois que
+    # ce gisement se rouvre par notre propre cadence). Sa cle est le TYPE DECLARE du 3e parametre
+    # d'`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent` et du 2e d'`IdunBattle.DSL.
+    # TargetsSelector$$SelectUnit` -- pas le nom court, et le port en portait TROIS copies a la main
+    # (`ONLY_TARGETABLE = 2` dans `runner/operations/behaviour.py`, `.../loki/narthecium.py`,
+    # `.../loki/tainted_narthecium.py`), toutes converties par la meme tranche.
+    Mirror("UnitSelectionType", "engine/entities/unit_selection_type.py",
+           "IdunBattle.Entities.Enum.UnitSelectionType"),
     Mirror("GroupType", "engine/streams/group_type.py",
            "IdunBattle.Streams.GroupType"),
     Mirror("StepType", "engine/streams/step_type.py",
