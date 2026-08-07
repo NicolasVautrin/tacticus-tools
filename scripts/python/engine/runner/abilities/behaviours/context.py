@@ -799,6 +799,16 @@ def actual_target(state, options, caster_id, target_id) -> int | None:
     if getattr(options, "self_cast", False):
         return caster_id
     if options.is_tile_targeting:
+        # SUBSTRAT DE TUILES NON MESURE -> aucune resolution, `target_id` rendu TEL QUEL.
+        # `state.board is None` n'est pas « la cible n'a pas de tuile » : c'est « le port n'a pas
+        # charge le boardGraph » (`load_state(dv, ob, snap)` sans `board=`, ce que font plusieurs
+        # tests et tout appelant qui n'a pas la capture du plateau). Le natif, lui, a TOUJOURS son
+        # board. Rabattre ce cas sur le `null` de `GetMainTile` transformerait une non-mesure en
+        # REFUS -- exactement la degradation que la regle « `None` = pas mesure, jamais un zero »
+        # interdit. MESURE : sans ce repli, `test_valkyrie_strike_migration_live` passe de
+        # « l'arbre DSL pose 1022 » a `execute_behaviour -> None` (no-op complet).
+        if getattr(state, "board", None) is None:
+            return target_id
         return main_tile_id(state, target_id)
     if options.is_machine_targeting:
         return machine_id(state, target_id)
