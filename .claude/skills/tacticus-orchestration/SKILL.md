@@ -449,6 +449,33 @@ normal et sans danger depuis la neutralisation du détecteur de gel.
 `preprocess` estampille chaque TSV (`#!il2cpp-provenance`, pivot = **sha256 du
 GameAssembly.dll installé**) et **refuse d'écrire** s'il ne peut pas l'établir.
 
+**Étape 1bis — LES SIX TABLES DE NOMS FIGÉES.** `frida/hooks/data/*.ts` recopie six enums
+natifs sous forme de tables `{ id: "Nom" }` — `ability-names`, `effect-type-names`,
+`event-trigger-type-names`, `targeting-rule-names`, `triggered-ability-names`,
+`utility-type-names`. Contrairement à `introspect.ts`, qui lit l'enum **à l'exécution** et se
+met donc à jour tout seul, celles-ci sont **GELÉES au build où elles ont été générées**.
+
+```powershell
+python scripts/python/probe_252_hook_name_tables.py   # GARDE : rc 0 = collent, 1 = dérive (id par id)
+python scripts/python/regen_hook_name_tables.py       # régénère depuis frida/enums.tsv
+```
+
+> **Le mode de panne est SILENCIEUX, et il est déjà survenu.** Le 2026-07-29 le jeu a retiré
+> `ArmorChanged` (valeur 40) **au milieu** d'`EventTriggerType`, décalant de −1 les 36 membres
+> suivants. Une table figée continue alors de nommer correctement les 40 premiers ids et **ment
+> sur tous les autres** — la sortie reste plausible, donc rien ne proteste.
+>
+> ⚠ **Ce n'est PAS un sujet « live ».** `gameconfig.py` LIT `ability-names.ts` au disque pour
+> résoudre `name ↔ id` (`ability_id`/`ability_name`) : une table périmée fausse la **recon
+> offline** autant que les traces. Le chemin `frida/hooks/` dit d'où elles VIENNENT (le dump),
+> pas qui les consomme.
+>
+> ⚠ **Régénérer n'est pas mécanique** : certaines entrées sont **voulues hors enum**
+> (`9999: "STRIPPED"` dans `triggered-ability-names.ts`), qu'un régénérateur naïf effacerait.
+> Lire la sortie de `probe_252` avant d'écraser.
+>
+> État au 2026-08-07 sur `rnca9r7q6c` : **6/6 vertes, 0 faux**. Re-dériver, ne pas citer.
+
 **Étape 2 — Ghidra** : importer le nouveau `GameAssembly.dll` dans un projet neuf, laisser
 l'analyse finir, puis appliquer les noms via `scripts/ghidra/GhidraApplyIl2CppSymbols.java`.
 Ce script **vérifie l'estampille avant toute écriture** et s'arrête si elle ne correspond pas
