@@ -8,12 +8,9 @@ from ....state import State
 from ....components import StatsComponent, HealthComponent
 from ....abilities.behaviours.combat import UseActiveAbility
 from ....abilities.behaviours.context import entities_from_state
-from ....damage_model import select_weapon_pierce, attacker_modifiers
 from .....entities.stats import StatType
-from .....entities.effects import hits_bonus_from_effects
 from .....entities.selectors.accessors import Target
 from .....entities.selectors.tiles import Caster
-from .....services.damage_prediction import get_attack_prediction
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _adjacent_enemies
@@ -29,27 +26,27 @@ def _damage_utility_weights():
     return damage_utility_weights()
 
 
-def _normal_attack_health_range(state: State, owner_id: int):
-    """Plage de dégât SANTÉ (min,max) du TOTAL de l'attaque normale mêlée de l'owner, PRÉ-ARMURE — mirror
-    de la `DamagePrediction` que `IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select bâtit par cible
-    (`FUN_18002c910` scénario 0x25, profil `NormalAttackDamage`). La prédiction IA d'attaque normale est
-    PRÉ-ARMURE (`armor=0` ; cf. en-tête `services/damage_prediction`) ⇒ le dégât est INDÉPENDANT de la
-    cible → calculé UNE fois. Inclut les ×modifiers d'effet de l'attaquant (RapidAssault…) et les hits
-    d'arme+effet. Renvoie (dmin, dmax) du total, ou None si stats indispo."""
+def _normal_attack_damage_node(state: State, owner_id: int):
+    """`IdunBattleLogic.Entities.DSLFormulas$$NormalAttackDamage(caster)` — le nœud `+0x40` que
+    `FinalJusticeAbility$$CreateBehaviour` branche sur `SortUnitsByDamageUtility`.
+
+    Corps natif, LU : `new StatAmountFormula(unitsSelector, statType: StatType.Attack = 0,
+    statPart: 0, modificationEntity: null, selectionType: 0)` — donc **la stat `Attack` du caster**,
+    c.-à-d. la base d'**UN** coup, pas le total d'une attaque.
+
+    ⚠ **CE QUE #494-r1-r1 A CORRIGÉ.** Ce call-site passait ici `_normal_attack_health_range` : la
+    plage SANTÉ du TOTAL de l'attaque normale (hits d'arme + effets), pré-armure. Tant que la clé de
+    tri était pré-armure, l'écart était un facteur COMMUN à toutes les cibles, donc sans effet sur
+    l'ordre. Depuis que la clé passe par la prédiction COMPLÈTE (armure + perçage, non linéaires),
+    un total mis à la place d'un montant PAR COUP franchit d'autres seuils : le mirror doit être le
+    nœud, pas son agrégat.
+
+    Renvoie l'entier `Attack`, ou None si les stats sont indisponibles."""
     owner = state.get_entity(owner_id)
     sc = owner.get_component(StatsComponent) if owner is not None else None
     if sc is None:
         return None
-    ctx = sc.ctx
-    ahc = owner.get_component(HealthComponent)
-    _pierce, _ranged, whits = select_weapon_pierce(ctx, 1)             # dist=1 → arme mêlée
-    mods, active = attacker_modifiers(state, owner_id, ahc.hp if ahc else None, is_ranged=False)
-    hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
-    pred = get_attack_prediction(
-        target_current_health=0, initial_damage=int(ctx.stat(StatType.ATTACK)), hits=hits,
-        profile_type=0, armor=0, pierce_pct=100, mods=mods, spread_pct=20,    # PRÉ-ARMURE (armor=0)
-        attacker_effects=active)   # #202 : max-out evalue DANS predict_attack_raw
-    return (pred.accurate_health_damage.min, pred.accurate_health_damage.max)
+    return int(sc.ctx.stat(StatType.ATTACK))
 
 
 def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
@@ -64,11 +61,12 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
     ⇒ FinalJustice frappe l'**argmax du composite Damage(35)** = DamageDealt(36)+KillUnit(37)+
     OverkillUnit(38) (`engine.utilities.damage_composite`). Kharn = mêlée ⇒ cibles = ennemis adjacents.
 
-    Prédiction PRÉ-ARMURE (`_normal_attack_health_range`) ⇒ dégât identique pour toutes les cibles ; le
-    classement dépend des PV courants/max + flags kill/overkill PAR cible (kill = dmg ≥ PV). Tie-break :
-    `OrderBy` natif STABLE → ordre source `ValidNormalAttackTargets` ; approximé ici par id croissant
-    (itération `sorted(cands)` + argmax STRICT). Bouclier non modélisé (`shieldBefore=0`, comme le reste
-    du moteur — TODO). Fallback PV-bas si la prédiction est indispo (pas de stats)."""
+    Le nœud `+0x28` est `UnitNormalAttackType` et le nœud `+0x48` (hits) est **null** ⇒ la clé est la
+    prédiction de l'ATTAQUE NORMALE du caster, montant = la stat `Attack`, **UN** coup (#494-r1-r1).
+    Elle porte donc l'armure, le perçage, la défense et les modificateurs par cible ; le classement
+    ne dépend plus des seuls PV. Tie-break : `OrderBy` natif STABLE → ordre source
+    `ValidNormalAttackTargets`. Bouclier non modélisé côté cible du composite (résidu partagé).
+    Fallback PV-bas si les stats sont indisponibles."""
     cands = _adjacent_enemies(state, owner_id)
     if not cands:
         return None
@@ -78,14 +76,14 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
         h = e.get_component(HealthComponent) if e is not None else None
         return int(h.hp) if (h is not None and h.hp is not None) else (1 << 30)
 
-    rng_pred = _normal_attack_health_range(state, owner_id)
-    if rng_pred is None:                                   # pas de stats → proxy PV-bas (fallback)
+    amount = _normal_attack_damage_node(state, owner_id)
+    if amount is None:                                     # pas de stats → proxy PV-bas (fallback)
         return min(cands, key=lambda eid: (_hp(eid), eid))
 
-    dmin, dmax = rng_pred
-    # `First(SortUnitsByDamageUtility(…), 1)` — étage de tri PARTAGÉ (port du sélecteur natif) : argmax du
-    # composite Damage(35), tie-break `id` croissant. Bit-identique à l'ancien corps inline (mêmes champs).
-    return first_by_damage_utility(state, cands, dmin, dmax, owner_id=owner_id)
+    # `First(SortUnitsByDamageUtility(…), 1)` — étage de tri PARTAGÉ (port du sélecteur natif) : argmax
+    # du composite Damage. Profil/perçage NON passés : le nœud d'ability est `UnitNormalAttackType`,
+    # donc le foyer résout l'ARME NORMALE du caster (`normal_attack_profile_and_pierce`).
+    return first_by_damage_utility(state, cands, amount, amount, owner_id=owner_id)
 
 
 def _finaljustice_attack(state: State, owner_id: int) -> Optional[dict]:

@@ -30,12 +30,14 @@ import pytest
 
 from engine.runner.snapshot import load_state
 from engine.runner.operations import triggers as T
-from engine.runner.operations.damage_utility import positional_damage_range
+from engine.runner.operations import attack_prediction as AP
+from engine.runner.operations import damage_utility as DU
 from engine.runner.operations.triggers.dispatch.move_death import after_death_triggers
 from engine.runner.components import (UnitComponent, HealthComponent,
                                       OwnerComponent, PositionComponent)
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.utilities import damage_composite
+from engine.utilities.damage import composite_fields_from_prediction
 
 KHARN = "worldKharn"
 BUILD = ["--roster", "1", "--p-units", "worldKharn",
@@ -116,31 +118,29 @@ def test_finaljustice_target_sort_live(live_session, rpc, build_runner):
     adj = T._adjacent_enemies(state, kid)
     assert set(adj) == set(enemies), f"adjacence offline {adj} != repositionnes {enemies}"
 
-    # prediction PRE-ARMURE sur le ctx REEL de Kharn : plage de degat sante > 0.
-    rng_pred = T._normal_attack_health_range(state, kid)
-    assert rng_pred is not None, "prediction d'attaque normale indispo (ctx Kharn)"
-    dmin, dmax = rng_pred
-    assert 0 < dmin <= dmax, f"plage de degat invalide {rng_pred}"
+    # Le noeud `+0x40` du selecteur natif = `DSLFormulas$$NormalAttackDamage(caster)` =
+    # `StatAmountFormula(caster, StatType.Attack, 0)` -> la stat `Attack`, base d'UN coup.
+    amount = T._normal_attack_damage_node(state, kid)
+    assert amount is not None and amount > 0, f"stat Attack indispo/nulle sur Kharn ({amount})"
 
-    # argmax INDEPENDANT (meme formule composite Damage 34, tie-break id croissant).
+    # argmax INDEPENDANT (meme formule composite Damage, tie-break = ordre SOURCE).
     wt = T._damage_utility_weights()
 
     def _util(eid):
         ent = state.get_entity(eid)
         hc = ent.get_component(HealthComponent)
-        hp = int(hc.hp) if (hc is not None and hc.hp is not None) else 0
-        mx = int(hc.hp_max) if (hc is not None and hc.hp_max) else hp
-        # #494-r1 -- LA PLAGE EST CELLE DU COUPLE (caster, cible), pas une constante. Le natif
-        # (`…SortUnitsByDamageUtilitySelector$$Select`) appelle la prediction DANS sa boucle par
-        # cible, en lui passant la POSITION du caster : les feuilles positionnelles du builder
-        # `…$$CalculateAttackerModifiersForPrediction` (elevation, trench) la rendent differente
-        # d'une cible a l'autre. Cet oracle reste INDEPENDANT du foyer (il refait le composite),
-        # mais il doit lire les MEMES entrees, sinon il mesure un port qui n'existe plus.
-        lo, hi = positional_damage_range(state, kid, eid, dmin, dmax)
-        pred = {"healthDmgMin": max(0, lo), "healthDmgMax": max(0, hi),
-                "hpBefore": hp, "shieldBefore": 0,
-                "killSure": hp > 0 and lo >= hp, "kill": hp > 0 and hi >= hp}
-        return damage_composite(pred, mx, wt)
+        mx = int(hc.hp_max) if (hc is not None and hc.hp_max) else 0
+        # #494-r1-r1 -- LA CLE EST LA PREDICTION COMPLETE PAR CIBLE. Le natif appelle
+        # `IBattleQuery` slot 0x26 DANS sa boucle `foreach u`, avec la POSITION du caster, le
+        # montant du noeud `+0x40` et `hits = 1` : armure, percage, defense et modificateurs
+        # entrent donc dans la cle. Cet oracle reste INDEPENDANT du foyer (il ne passe pas par
+        # `_target_utility`) mais il lit les MEMES etages natifs -- le service de prediction et le
+        # foyer de lecture des champs du composite.
+        melee = DU.normal_attack_is_melee(state, kid, eid)
+        # `damageProfile: null` au call-site natif -> `GetAttackPiercingDamageRatio` rend 0.
+        dp = AP.multi_hit_attack_prediction(state, kid, eid, amount, 1, None, 0,
+                                            is_melee=melee, is_normal_attack=True)
+        return damage_composite(composite_fields_from_prediction(dp), mx, wt)
 
     # #494-r1 -- TIE-BREAK = L'ORDRE SOURCE (`Enumerable.OrderBy` est STABLE), jamais l'id : argmax
     # STRICT en parcourant `adj` dans l'ordre ou le selecteur l'a rendu.

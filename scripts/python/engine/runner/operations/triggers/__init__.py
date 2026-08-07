@@ -42,7 +42,7 @@ from .loki import (
     _fire_of_absolution_after_attack, OnFireDamageAbility, OnToxicDamageAbility,
     THEBETRAYER_EFFECT, ACTOFFAITH_EFFECT,
     _add_betrayer_effect, _reset_act_of_faith,
-    _finaljustice_target, _normal_attack_health_range, _damage_utility_weights,
+    _finaljustice_target, _normal_attack_damage_node, _damage_utility_weights,
     _arcaneshield_grant, _arcaneshield_target,
     _betrayer_take_turn, _betrayer_target, _betrayer_stop_tile,
 )
@@ -71,7 +71,7 @@ __all__ = [
     "_fire_of_absolution_after_attack", "OnFireDamageAbility", "OnToxicDamageAbility",
     "THEBETRAYER_EFFECT", "ACTOFFAITH_EFFECT",
     "_add_betrayer_effect", "_reset_act_of_faith",
-    "_finaljustice_target", "_normal_attack_health_range", "_damage_utility_weights",
+    "_finaljustice_target", "_normal_attack_damage_node", "_damage_utility_weights",
     "_arcaneshield_grant", "_arcaneshield_target",
     "_betrayer_take_turn", "_betrayer_target", "_betrayer_stop_tile",
 ]

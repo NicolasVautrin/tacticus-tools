@@ -37,7 +37,7 @@ from .arcane_shield import (ArcaneShieldAbility, _arcaneshield_target, _arcanesh
                             ARCANESHIELD_RANGE, ARCANESHIELD_TRAIT_EXCLUDE,
                             ARCANESHIELD_DISTANCE_WEIGHT, ARCANESHIELD_OWNER_PENALTY_OFFSET)
 from .final_justice import (FinalJusticeAbility, _finaljustice_target, _finaljustice_attack,
-                            _normal_attack_health_range, _damage_utility_weights)
+                            _normal_attack_damage_node, _damage_utility_weights)
 from .control_edict import (ControlEdictAbility, _adjacent_mechanical_summons,
                             PROTECTOR as CONTROLEDICT_PROTECTOR, CONQUEROR as CONTROLEDICT_CONQUEROR)
 from .rad_saturation import RadSaturationAbility, rad_saturation_tree, CONTAMINATED_TILE as RADSAT_CONTAMINATED_TILE
@@ -77,7 +77,7 @@ __all__ = [
     "ARCANESHIELD_DISTANCE_WEIGHT", "ARCANESHIELD_OWNER_PENALTY_OFFSET",
     # final_justice
     "FinalJusticeAbility", "_finaljustice_target", "_finaljustice_attack",
-    "_normal_attack_health_range", "_damage_utility_weights",
+    "_normal_attack_damage_node", "_damage_utility_weights",
     # control_edict (S4b)
     "ControlEdictAbility", "_adjacent_mechanical_summons",
     "CONTROLEDICT_PROTECTOR", "CONTROLEDICT_CONQUEROR",

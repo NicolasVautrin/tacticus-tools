@@ -1,216 +1,222 @@
-# #527-r1 — Le classement de cible de `SortUnitsByDamageUtilitySelector` : l'armure SEULE et le BLOCK sont éliminés, le seuil de perçage MESURE le dégât employé (3 coups, pas 1)
+# #527-r1 — Le classement de cible de `SortUnitsByDamageUtilitySelector` : la clé est la PRÉDICTION COMPLÈTE, et son `damageProfile` est **NUL**
 
-**Statut : NON RÉSOLU.** Ce dossier ne livre pas de fix. Il livre ce qui est **éliminé**, ce qui
-reste **ouvert**, et l'instrument pour reprendre.
+**Statut : RÉSOLU** (#494-r1-r1, 2026-08-07). Les **6 régimes sur 6** concordent avec le natif, dont
+les trois qui divergeaient (`nominal`, `haute`, `seuil2200`).
+
+Ce dossier garde aussi ce qui a été **éliminé** en chemin : deux explications plausibles et fausses,
+et un seuil correctement mesuré mais mal attribué.
 
 ## 0. Le fait
 
 `AncestralFortuneAbility$$GetAttackTarget` =
 `First(SortUnitsByDamageUtility(NormalUnits(AdjacentEnemies(caster, 1), 3), MinMaxDamage(entities, 1), 3), 1)`.
 
-Avec **deux** ennemis adjacents à `votanUthar`, le natif frappe `bloodMephiston` (79), le port
-`necroWarden` (77).
+Avec **deux** ennemis adjacents à `votanUthar`, le natif frappait `bloodMephiston` (79), le port
+`necroWarden` (77). L'étage **DÉGÂT** était hors de cause : cible **forcée** à celle du natif, le
+port est **bit-exact** (per-hit `[993, 977, 1131]`, total 3101). C'est l'étage **CHOIX**.
 
-L'étage **DÉGÂT est hors de cause** : cible **forcée** à celle du natif, le port est **bit-exact**
-(per-hit `[993, 977, 1131]`, total 3101, mêmes verdicts de crit). C'est l'étage **CHOIX**.
+## 1. La cause, LUE — et elle tient en deux lectures
 
-## 1. Ce que la première explication disait — et pourquoi elle est FAUSSE
+### 1.1 Le sélecteur appelle la PRÉDICTION COMPLÈTE, pas des bornes brutes
 
-#527 avait conclu « l'armure de la cible entre dans l'utilité native, `_target_utility` la met à
-zéro ». C'était l'inférence d'un A/B à deux bras. **Le calcul la réfute.**
+`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select`, relu intégralement :
 
-`AncestralFortune` porte le profil **`Plasma`**, dont le `PiercingDamageRatio` du gameconfig vaut
-**65**. Le foyer natif est
-`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetDamageWithPiercing`
-= `max(0, d − armure, d × pierce%)` — le perçage est un **plancher**. Sur la moyenne des bornes de
-l'ability (`avg = 2044`) :
+```
+units    = (+0x20).SelectUnits(entities, unitSelectionType)
+owner    = (+0x18).SelectUnit(entities)                       -> dc+0x18
+ownerPos = EntityExtensions.GetUnitPosition(owner)            -> dc+0x20
+if ownerPos.IsEmpty : return new List<IEntity>()
+damage   = (+0x40).Calculate(entities)                        -> dc+0x10
+hits     = 1 ; if (+0x48) != null : hits = (+0x48).Calculate(entities)   -> dc+0x14
+ability  = AbilityOrEffect(GetNormalAttackType(owner)) ; if (+0x28) != null : ability = (+0x28).Select(entities)
+foreach u in units :
+    pred = (+0x50 = IBattleQuery).<slot 0x26>(owner, u, ownerPos, ability,
+                                              () => damage, () => hits,
+                                              damageProfile: null, defenderInitialHealth: null,
+                                              previousHitsPrediction: default, null, null)
+    dict[u] = UtilityDecider.CalculateUtility(+0x38, u, pred)
+return units.OrderBy(u => Fix64.op_UnaryNegation(dict[u])).ToList()
+```
 
-| armure | `d − armure` | `d × 65 %` | résultat |
-|---|---|---|---|
-| 2662 | −618 | 1328.6 | **1328.6** |
-| 2008 | 36 | 1328.6 | **1328.6** |
-| 300 | 1744 | 1328.6 | **1744.0** |
+Deux corrections d'en-tête, toutes deux structurelles :
 
-⇒ à 2662 et à 2008 le dégât est **identique**. L'armure ne mord qu'à 300. Donc l'armure explique le
-seul bras `basse` de l'A/B — pas le régime nominal ni le bras `haute`, qui sont précisément les deux
-où le port diverge.
+* **`+0x48` est `hits`, pas un `dmgMax`.** Le ctor l'atteste (`frida/methods.tsv`) :
+  `SortUnitsByDamageUtilitySelector..ctor(state, battleQuery, utilitiesDatabase, targets, caster,
+  ability, utilityDefinition, damage, hits, aiLogger)`. Son défaut est **1**, écrit en dur
+  (`*(dc+0x14) = 1` avant le test de nullité). Le nœud de dégât rend **un** entier.
+* Le slot `0x26` d'`IBattleQuery` (`metadata/interface_slots.tsv` :
+  `IBattleQuery 38 GetAttackPrediction 11`) est la surcharge
+  `(caster, target, casterPosition, ability, calculateDamageAtTile:Func<Int32>,
+  calculateHitsAtTile:Func<Int32>, damageProfile, defenderInitialHealth, previousHitsPrediction,
+  prePredictionAction, postPredictionAction)` →
+  `DamagePredictionQuery$$GetAttackPrediction` (memset 0xb8 de l'`AttackPredictionRequest`, puis
+  slot 5 = `DamagePrediction$$PredictAttack`) → `$$PredictAttackRaw`. **ARMURE, DÉFENSE,
+  modificateurs d'attaquant et de défenseur, bouclier et scénarios de BLOCK entrent donc dans la
+  clé de tri.**
 
-**Bilan sur les 4 régimes mesurés** (maxHP et armures posés par `--unit-stat`) :
+### 1.2 `damageProfile` est NUL, et c'est ce qui met le PERÇAGE à ZÉRO
 
-| régime | necro (maxHP / armure) | meph (maxHP / armure) | NATIF | PORT | verdict |
-|---|---|---|---|---|---|
-| nominal | 8536 / 2662 | 9537 / 2008 | `bloodMephiston` | `necroWarden` | **diverge** |
-| `haute` | 8536 / 2662 | 8536 / 2008 | `bloodMephiston` | `necroWarden` | **diverge** |
-| `basse` | 8536 / **300** | 8536 / 2008 | `necroWarden` | `necroWarden` | concorde |
-| `hp` | 8536 / 2008 | 9537 / 2008 | `necroWarden` | `necroWarden` | concorde |
+Le sélecteur passe `null` en 7ᵉ argument. Et
+`IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` commence par :
 
-Un modèle « plus de dégât relatif = mieux » — pré-armure **comme** post-armure — donne `necroWarden`
-en nominal (moins de PV à dégât égal). Le natif dit l'inverse. **Aucun des deux modèles ne rend
-compte du nominal.**
+```
+if (damageProfile != null) {
+    extra   = GetStat(attacker, ExtraPierce);
+    dir     = GetStat(attacker, isMelee ? ExtraPierceMelee : ExtraPierceRanged);
+    base    = StaticBattleRules.Damage$$GetPiercingRatio(damageProfile, GetTraits(attacker));
+    return Min(100, Max(base > 0, dir + extra + defMod + attMod + base));
+}
+return 0;                                   // <-- LE GARDE
+```
 
-## 1bis. Le SEUIL D'ARMURE, qui MESURE le dégât employé — et réhabilite l'armure, autrement
+Le garde n'existerait pas si aucun chemin ne passait un profil nul. La clé prédit donc un coup
+**SANS PERÇAGE** : `StaticBattleRules.Damage$$GetDamageWithPiercing(d, 0, armure) =
+max(0, d − armure)` — **l'armure est soustraite EN ENTIER**. Ce n'est ni le profil de l'ability, ni
+celui de l'arme ; c'est `null`, donc aussi **aucun gate de profil**
+(`DamageProfileIs`, traits d'arme, `CalculateTrenchReduction`).
 
-La réfutation du §1 vaut contre la formulation « l'armure entre **parce que** 2662 et 2008 donnent
-des dégâts différents » — ils n'en donnent pas, **à `d = 2044`**. Mais `GetDamageWithPiercing`
-bascule de la branche PERÇAGE à la branche ARMURE quand `armure < d × 35 %` : ce **seuil dépend de
-`d`**, donc le localiser **mesure `d`**.
+⇒ Le port fabriquait un `pred` synthétique (bornes brutes, `armor = 0`). C'est la MÊME cause que
+`#494-r1-r1` (la défense), et c'est pour cela que les deux résidus se sont fermés du même geste.
 
-Les régimes déjà joués le bornent : `necroWarden` reste préféré à armure **2008**, il perd à
-**2662** ⇒ seuil ∈ ]2008, 2662[ ⇒ `d = seuil / 0.35` ∈ ]5737, 7606[.
+## 2. Deux explications ÉLIMINÉES — les garder évite de les ressortir
 
-- un **seul** coup (`avg = 2044`) donnerait un seuil de **715** — **RÉFUTÉ**, `necroWarden` gagne
-  encore à 2008 ;
-- les **trois** coups de l'ability (`3 × 2044 = 6132`) donnent **2146**.
+### 2.1 « L'armure entre par le plancher perçage du profil `Plasma` (65 %) » — RÉFUTÉE
 
-**Prédit avant de mesurer, puis mesuré** — encadrement à 2100 / 2200, tout le reste inchangé :
+`AncestralFortune` porte le profil `Plasma` (`PiercingDamageRatio = 65`). Sur la moyenne des bornes
+de l'ability (`avg = 2044`), `max(0, d − armure, d × 65 %)` rend **exactement 1328.6 pour 2662 ET
+pour 2008** : le plancher perçage domine, l'armure ne mord qu'à 300. Le calcul est juste — c'est
+l'HYPOTHÈSE qui était fausse : **`Plasma` n'est pas le profil de la clé**, puisque la clé n'en a
+aucun.
 
-| armure `necroWarden` | NATIF frappe | PORT |
-|---|---|---|
-| 2100 | `necroWarden` | `necroWarden` |
-| 2200 | `bloodMephiston` | `necroWarden` |
+### 2.2 Le canal BLOCK — ÉLIMINÉ par A/B à une variable
 
-⇒ **la bascule est entre 2100 et 2200**, et `2146` y tombe. `d` mesuré ∈ [6000, 6286] — soit
-`3 × 2044`. Ce n'est pas un ajustement : la valeur sort de la loi native et du nombre de coups de
-l'ability, la mesure n'a fait que la confirmer dans une fenêtre de largeur 100 sur une plage
-possible de 0..3513.
+`aiPredict` montrait que seule `bloodMephiston` porte un scénario de block
+(`blockScenarioCount = 1`, `blockProbability = 30`) et que c'est ELLE que le natif préfère. A/B joué
+(`--unit-stat bloodMephiston:BlockChance=0,BlockDamage=0`, rien d'autre touché) : **le natif frappe
+toujours `bloodMephiston`**. Le block n'est pas le facteur.
 
-**DEUX écarts du port sont donc nommés**, et ils se cumulent :
+⚠ `aiPredict` est Attack-based (`GetAllPredictions`, ability `69 Loki_NormalAttack`) : il répond à
+« le dégât prédit dépend-il de la cible ? », pas à « quelle est la clé ».
 
-1. il passe le dégât d'**UN** coup (`first_by_damage_utility(state, cands, avg, avg)`) là où le
-   natif emploie celui des **TROIS** ;
-2. il n'applique **aucune armure** (`_target_utility` fabrique `healthDmg = dmin/dmax` bruts), donc
-   il ne peut pas franchir de seuil.
+## 3. Le seuil 2100/2200 : la MESURE était bonne, l'ATTRIBUTION était fausse
 
-## 2. Le candidat BLOCK — ÉLIMINÉ, lui aussi
+Les régimes bornaient la bascule native entre armure **2100** (le natif préfère `necroWarden`) et
+**2200** (il bascule sur `bloodMephiston`), tout le reste inchangé. `#527-r1` en avait déduit
+`seuil = d × 35 %` donc `d ∈ [6000, 6286] = 3 × 2044` — « le natif emploie le dégât des TROIS
+coups ». C'était cohérent avec un perçage de 65 %, et **faux**, parce que le perçage vaut 0.
 
-`aiPredict` (attaque normale d'Uthar, régime nominal) :
+Avec la clé réelle (`amount = 2044`, ±20 %, **perçage 0**, `hits = 1`), la bascule tombe au même
+endroit sans qu'aucun scalaire soit ajusté — mesuré, port et natif :
 
-| cible | armure | `armorBefore` | `healthDmgMin..Max` | scénario de block |
+| armure `necroWarden` | prédiction du port (accurate) | utilité port | NATIF | PORT |
 |---|---|---|---|---|
-| `necroWarden` | 2662 | `null` | `3720..5577` | `blockScenarioCount = 0` |
-| `bloodMephiston` | 2008 | `null` | `2604..3903` | `blockScenarioCount = 1`, `blockProbability = 30`, `blockKillDmg = 0`, `blockMightDmg = 0`, `willKillDmgEffective = 0` |
+| 2100 | `[1, 441]` | 2.588 | `necroWarden` | `necroWarden` |
+| 2200 | `[1, 316]` | 1.851 | `bloodMephiston` | `bloodMephiston` |
 
-Deux faits, tous deux gênants pour l'explication par l'armure :
+(`bloodMephiston`, armure 2008 : `[1, 389]`, utilité 2.044 — constante d'un régime à l'autre.)
 
-1. `armorBefore` est **`null`** — la prédiction est bien pré-armure **au sens du champ publié** ;
-2. les dégâts prédits **diffèrent par cible** et **ne sont pas monotones en armure** : la cible la
-   **plus** blindée prend le **plus** de dégât. L'armure ne peut donc pas être le facteur.
+⚠ **La leçon** : un seuil correctement encadré *mesure* quelque chose, mais ne dit pas QUOI tant que
+la loi qui l'engendre n'est pas lue. Ici deux inconnues (le dégât employé, le perçage) se
+compensaient : `3 × 2044` à 65 % et `2044` à 0 % donnent le même seuil à ~50 près.
 
-Ce qui distingue structurellement les deux cibles dans le résultat natif, c'est le **canal BLOCK** —
-et `_target_utility` (`engine/runner/operations/damage_utility.py`) n'en modélise **rien** : son dict
-pose `shieldBefore = 0` et ne porte aucune clé de block. Or c'est la cible **porteuse** du block que
-le natif préfère.
+## 4. Les SIX régimes, après le fix
 
-**A/B joué, à une variable — le block est ÉLIMINÉ.** Régime nominal, `bloodMephiston` privé de son
-block (`--unit-stat bloodMephiston:BlockChance=0,BlockDamage=0`, rien d'autre touché) : le natif
-frappe **toujours `bloodMephiston`**. Le canal block n'est donc pas le facteur du classement, et
-l'absence de cette clé dans le dict du port n'est pas la cause de la divergence.
+`python probe_527_votann_lot1_rouges.py --etage armure|cle --regime <r>` (l'étage `cle` est neuf : il
+imprime les ENTRÉES — mêlée, armure résolue — et les SORTIES — bornes prédites, champs du composite,
+utilité — au lieu du seul verdict, qui ne distinguait pas « le fix ne mord pas » de « le fix mord et
+se trompe »).
 
-⚠ `aiPredict` est **Attack-based** (`GetAllPredictions`, ability `69 Loki_NormalAttack`) : ce n'est
-**pas** le nœud de dégât que le sélecteur branche sur son slot `+0x40`
-(`MinMaxDamage(entities, 1)`). Il répond à une seule question — « le dégât prédit dépend-il de la
-cible, et comment ? » — et sa réponse suffit à **éliminer** l'armure, pas à établir la loi.
+| régime | necro (maxHP / armure) | meph (maxHP / armure) | NATIF | PORT | u(necro) | u(meph) |
+|---|---|---|---|---|---|---|
+| `nominal`    | 8536 / 2662 | 9537 / 2008 | `bloodMephiston` | `bloodMephiston` | 0.012 | 2.044 |
+| `haute`      | 8536 / 2662 | 8536 / 2008 | `bloodMephiston` | `bloodMephiston` | 0.012 | 2.284 |
+| `basse`      | 8536 / **300** | 8536 / 2008 | `necroWarden` | `necroWarden` | 25.533 | 2.284 |
+| `hp`         | 8536 / 2008 | 9537 / 2008 | `necroWarden` | `necroWarden` | 3.256 | 2.044 |
+| `seuil_2100` | 8536 / 2100 | 9537 / 2008 | `necroWarden` | `necroWarden` | 2.588 | 2.044 |
+| `seuil_2200` | 8536 / 2200 | 9537 / 2008 | `bloodMephiston` | `bloodMephiston` | 1.851 | 2.044 |
 
-## 3. Ce qui reste ouvert
+**6/6.** Avant le fix : 3/6 (`basse`, `hp`, `seuil_2100`) — et le banc offline `--etage modele` ne
+dépassait pas 4/6, quelles que soient les entrées qu'il faisait varier (armure appliquée, 1/2/3
+coups), parce qu'il cherchait dans le mauvais espace : le perçage y était figé à 65.
 
-- **La surcharge exacte.** `SortUnitsByDamageUtilitySelector$$Select` appelle le slot **`0x26`** de
-  son service `(this+0x50)` avec `(owner, target, ownerPosition, Nullable<AbilityOrEffect>, deux
-  `Func`, …, &minmax)`. Les slots `0x23..0x27` d'`IBattleQuery` sont les `GetAttackPrediction` ; la
-  surcharge la plus référencée, `IdunBattle.Core.Services.BattleQuery$$GetAttackPrediction`, a pour
-  signature `(caster, target, casterPosition, ability, amount, damageProfileType,
-  defenderInitialHealth, previousHitsPrediction)` et délègue au **slot 10** du service porté par
-  `caster+0x30`, avec **`hits = 1`** en littéral. Ce n'est **pas** celle du sélecteur (qui passe des
-  `Func`) — la bonne reste à isoler.
-- **La NORMALISATION du composite.** À `d = 6132`, l'armure explique la bascule en dégât
-  **ABSOLU** (`necroWarden` 3985.8 contre `bloodMephiston` **4124** au nominal ⇒ meph gagne), mais
-  le composite du port normalise par `maxHP`, et cette normalisation rend `necroWarden` gagnant
-  (`0.4669` contre `0.4324`). Or le bras `hp` (armures **égales**, maxHP différents) exige au
-  contraire une normalisation — dégâts identiques, et le natif prend celle qui a le moins de PV.
-  Les deux bras contraignent donc en sens opposés le même terme : **c'est là que la loi reste à
-  lire**, et c'est le point à trancher AVANT tout fix. `UtilityType.Damage` = `DamageDealt` +
-  `KillUnit` + `OverkillUnit` ; ici aucune cible n'est tuable (`willBeKill` et `mightBeKill` faux
-  des deux côtés), donc seul `DamageDealt` est en jeu.
-- **Les 4 consommateurs** du foyer partagé (`votann.AncestralFortune`, `final_justice`,
-  `worldeaters`, `thousandsons`) n'ont donc **pas** été re-validés : il n'y a pas de fix à valider.
+## 5. Ce qui a changé dans le port
 
-## 4. Pourquoi le trou a survécu à sa validation — et ce que ça prescrit
+* **`engine/runner/operations/attack_prediction.py` (NEUF)** — le mirror de
+  `BattleQuery$$GetMultiHitAttackPrediction` monté depuis l'ECS. Il vivait dans
+  `damage_prediction_sort.py` (le mirror d'un AUTRE sélecteur) ; il a désormais **deux**
+  consommateurs, donc son propre module. Accepte `damage_profile = None` →
+  `DamageProfileType.None_`.
+* **`engine/utilities/damage.py::composite_fields_from_prediction`** — la lecture
+  `UtilityAttackCase$$ForDamagePrediction`, extraite de `ProbableDamageEvent.composite_fields` (qui
+  y délègue). Les deux chaînes — playbook et sélecteur de tri — lisent le MÊME
+  `DamagePredictionResult` ; en recopier la lecture aurait été un fork du mirror.
+* **`engine/runner/operations/damage_utility.py`** — `_target_utility` a deux chemins : MIRROR
+  (prédiction complète) quand `owner_id` est fourni et le couple prédictible, DÉGRADÉ (pré-armure)
+  sinon. Le natif, lui, sort sec (`ownerPos.IsEmpty -> new List<IEntity>()`) ; le port ne peut pas
+  rendre une liste vide à un appelant qui ne lui a rien dit du caster, donc il dégrade **en le
+  documentant**. Ce chemin est celui des étages OFFLINE (stubs sans `StatsComponent`).
+* **`final_justice.py`** — le nœud `+0x40` de FinalJustice est
+  `DSLFormulas$$NormalAttackDamage(caster)` = `StatAmountFormula(caster, StatType.Attack = 0,
+  StatPart = 0)`, donc **la stat `Attack`**, base d'UN coup. Le port y passait
+  `_normal_attack_health_range` : la plage SANTÉ du TOTAL de l'attaque (hits d'arme + effets). Tant
+  que la clé était pré-armure, l'écart était un facteur commun donc invisible ; il ne l'est plus,
+  l'armure n'étant pas linéaire. `_normal_attack_health_range` est remplacé par
+  `_normal_attack_damage_node`.
 
-#419-r6-r1 a confronté ce foyer sur **Doombolt (1102)**, avec `FixedArmor = Armor = 0` sur toutes
-ses cibles. Le régime était **doublement** dégénéré : profil `Psychic`, `PiercingDamageRatio =
-**100**` ⇒ `max(0, d − armure, d × 100 %) = d` **quelle que soit l'armure**, et en plus l'armure
-était nulle. Aucun montage sur ce profil ne peut discriminer l'étage armure.
+## 6. Ce qui reste ouvert
 
-⇒ **Toute garde future de ce foyer doit REFUSER un régime à perçage 100 % ou à armure nulle**, et
-l'assertionner, sinon elle sera verte pour la même mauvaise raison. Les profils utilisables se
-lisent dans `BC.Damage.DamageProfiles[].PiercingDamageRatio` : `Physical` 1, `Las` 10, `Blast` 15,
-`Projectile` 15, `Bolter` 20, `Chain` 20, `Pulse` 20 … `Plasma` 65 ; **`DirectDamage` et `Psychic`
-valent 100** et sont donc inutilisables pour cet axe.
+* **`#494-r1-r1-r1`** — `isMelee` et `hits` de la clé ne sont pas LUS dans `PredictAttackRaw`
+  (non parcouru intégralement) : le port dérive `isMelee` de l'ability du nœud `+0x28` (attaque
+  normale → l'arme ; Doombolt → `Ranged` ; KillMaimBurn → mêlée), et fixe `hits = 1` parce
+  qu'**aucun** des quatre call-sites portés ne fournit de nœud de coups. Un call-site à `hits > 1`
+  n'existe pas dans le lot, donc le comportement de `PredictAttackRaw` sur ce paramètre est
+  **NON CONFRONTÉ**.
+* **Bouclier de la cible** dans le terme `combinedMax` du composite (`shieldBefore`) — résidu
+  partagé avec le reste du moteur.
 
-## 4bis. La NORMALISATION est LUE — et elle est déjà PORTÉE FIDÈLEMENT
+## 6bis. Un verdict RETOURNÉ en chemin : `MightCrit` ENTRE dans la clé (#419-r6-r1)
 
-Elle vit dans `engine/utilities/damage.py`, mirror de `IdunBattle.AI.Utilities.DamageUtility` :
+Ce n'était pas dans le périmètre demandé, et c'est la clé corrigée qui l'a fait apparaître.
 
-```
-combinedMax = (GetStat(target, Health, Max) + 1) + (GetShield(target) + 1)
-remaining   = (GetStat(target, Health, Current) + 1) + (GetShield(target) + 1)
-u_damage    = Clamp(D / combinedMax, 0, 1) * 80
-u_remaining = (1 - Clamp((remaining - D) / combinedMax, 0, 1)) * 20
-u           = u_damage + u_remaining
-```
+`#419-r6-r1` avait **mesuré** que le sélecteur ne fait pas entrer `MightCrit` dans son classement,
+et le port avait été aligné sur cette mesure — contre le décompilé, qui dit l'inverse
+(`PredictAttackRaw` écrit `MightCrit@+0xB1 = DamageCalculations$$CouldCrit(owner)`
+inconditionnellement ; `UtilityAttackCase$$ForDamagePrediction` recopie la struct entière ;
+`OverkillUnitUtility` lit ce flag par `MightBeOverkill`). Son dossier notait d'ailleurs que
+« l'étage exact qui neutralise le flag n'est pas encore isolé ».
 
-⇒ **le trou n'est pas là.** Cible à PV pleins, `remaining == combinedMax`, donc
-`u = (D / combinedMax) * 100` : entièrement normalisé par les PV **max**. Le port l'écrit ainsi, et
-c'est le décompilé.
+Il n'y en avait aucun. La mesure avait été faite **sur la clé PRE-ARMURE**, c.-à-d. sur un port qui
+se trompait par ailleurs : elle concluait par **compensation**, comme `db-4` concluait « l'armure
+n'entre pas ». Le MÊME probe, le MÊME oracle, le MÊME critère, rejoués sur la clé corrigée :
 
-**Banc offline sur les SIX régimes** (`--etage modele`, aucun runner : les verdicts natifs sont déjà
-mesurés). On fait varier les deux seules entrées candidates — l'armure appliquée ou non, et le
-nombre de coups :
+| | ordre joué | bit-exact vs live |
+|---|---|---|
+| PORT **avec** le flag (= production désormais) | `[79, 83, 81, 85]` | **OUI** |
+| PORT **sans** le flag (= contrefactuel désormais) | `[79, 83, 85, 81]` | non |
+| NATIF | `[79, 83, 81]` | — |
 
-| entrée | verdicts corrects |
-|---|---|
-| `armure=False`, `k=1` — **l'état actuel de `_target_utility`** | **3/6** |
-| `armure=False`, `k=2` ou `k=3` | 3/6 |
-| `armure=True`, `k=1` ou `k=2` | 3/6 |
-| **`armure=True`, `k=3`** | **4/6** |
+Le port passe donc l'`attacker_ctx` à la prédiction, et `test_419r6r1_face_decision_live.py` a
+changé de sens (son contrefactuel force `might_crit=False`).
 
-Le seul gain vient de la combinaison **armure + trois coups**, et il porte **exactement** sur le
-bras `haute` — celui à **maxHP égalisés**, donc celui qui isole l'armure. C'est un **recoupement
-indépendant** du seuil de perçage du §1bis : deux chemins sans rapport désignent `k = 3` et
-l'application de l'armure.
+⚠ **La leçon** : un montage n'établit son verdict que si le RESTE du port est fidèle. Celui-ci
+isolait correctement son flag — trois rôles d'utilité distincts, armure neutralisée, contrefactuel
+sur le même état — et il a quand même conclu faux, parce que la clé qu'il exerçait n'était pas
+celle du natif. C'est le troisième cas de compensation de ce dossier (`db-4` l'armure, le seuil
+`3 × 2044` le perçage, `#419-r6-r1` le crit) : trois fois, deux erreurs se sont annulées.
 
-**Ce qui résiste, précisément.** Les deux régimes encore faux (`nominal`, `seuil2200`) partagent un
-patron unique : **maxHP différents ET armures différentes**. Le natif y préfère la cible qui prend
-le plus de dégât **en absolu** (`bloodMephiston` 4124 contre `necroWarden` 3985.8), alors que le
-composite — normalisé par `combinedMax` — préfère la plus petite (`0.4667` contre `0.4453`). Or le
-bras `hp` (armures **égales**, maxHP différents) exige **l'inverse** : dégâts identiques, et le
-natif prend bien la cible au plus petit `combinedMax`.
-
-⇒ **Un terme manque ou une entrée n'est pas celle qu'on croit** ; ce n'est ni la normalisation
-(lue et fidèle), ni l'armure, ni le nombre de coups, ni le block. **Le fix reste bloqué à 4/6**, et
-déplacer un foyer partagé par quatre consommateurs sur 4/6 serait le pari que ce dossier refuse
-depuis le début.
-
-⚠ **Et « l'étage DÉGÂT seul » n'est pas livrable non plus** : sans l'armure, passer de `k = 1` à
-`k = 3` est un **no-op observable** — le facteur est commun aux deux cibles et
-`Clamp(D / combinedMax, 0, 1)` ne sature pas ici (`6132 / 8537 = 0.72`). Le banc le montre :
-`armure=False` rend **3/6** pour `k = 1`, `2` **et** `3`. Livrer ce demi-port changerait le code
-sans rien changer d'observable, donc sans rien qu'un test puisse garder.
-
-## 5. Instrument, rejouable
+## 7. Instrument, rejouable
 
 ```
-python probe_527_votann_lot1_rouges.py --etage armure  --regime haute|basse|hp
-python probe_527_votann_lot1_rouges.py --etage armure  --regime seuil_2100|seuil_2200   # §1bis
-python probe_527_votann_lot1_rouges.py --etage armure  --regime block_off|block_both    # §2
+python probe_527_votann_lot1_rouges.py --etage cle    --regime nominal|haute|basse|hp|seuil_2100|seuil_2200
+python probe_527_votann_lot1_rouges.py --etage armure --regime <idem>
 python probe_527_votann_lot1_rouges.py --etage predict --regime nominal
 python probe_527_votann_lot1_rouges.py --etage replay
 ```
 
-`--etage replay` sépare **choix** et **dégât** (il rejoue le cast port avec la cible forcée à celle
-du natif) ; `--etage armure` porte les bras de l'A/B ; `--etage predict` interroge la prédiction
-native cible par cible.
-
-⚠ Les deux lignes du milieu ne sont pas décoratives : ce sont **elles** qui portent les verdicts du
-dossier. `seuil_2100`/`seuil_2200` encadrent la bascule et **mesurent `d`** (§1bis, le seul résultat
-positif de la tranche) ; `block_off`/`block_both` sont l'A/B qui **élimine** le canal block (§2).
-Rejouer seulement `haute|basse|hp` reproduit l'ancien état de la question, pas ses conclusions.
+⚠ **Toute garde future de ce foyer doit REFUSER un régime à armure nulle**, sinon elle sera verte
+pour la même mauvaise raison que #419-r6-r1 (qui avait validé ce foyer sur Doombolt avec
+`FixedArmor = Armor = 0` sur toutes ses cibles). La garde exécutable est
+`test_doombolt_live.py::test_doombolt_ordre_heterogene_bloque_par_l_armure_live` (montage `db-4`,
+`fixedArmor` NATURELS et tous différents) : il portait le `xfail(strict=True)` de ce résidu, il est
+passé en `xpass`, le marqueur a été retiré, et il est désormais **vert** — donc il rougira si
+l'armure ressort de la clé.

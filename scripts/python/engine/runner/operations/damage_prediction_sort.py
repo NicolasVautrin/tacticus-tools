@@ -76,11 +76,11 @@ from __future__ import annotations
 from typing import Optional
 
 from ...dsl.base import TargetsSelector, resolve_unit
-from ...entities.damage_profile_type import DamageProfileType
-from ...services.damage_prediction import get_attack_prediction
-from ..components import HealthComponent, StatsComponent
-from ..damage_model import (attacker_modifiers, defender_modifiers, defender_fixed_armor,
-                            apply_elevation_bonus, apply_trench_reduction, target_trait_names)
+# FORME B (`import <module>` + acces attributaire) : le mirror de
+# `BattleQuery$$GetMultiHitAttackPrediction` a DEUX consommateurs depuis #494-r1-r1 (ce selecteur et
+# `damage_utility`), il a donc son propre module. La forme B garde la MORSURE d'un
+# `monkeypatch.setattr("...attack_prediction.multi_hit_attack_prediction", ...)`.
+from . import attack_prediction as _attack_prediction
 
 # `int.MaxValue` / `int.MaxValue - 1` : les deux rangs LITTERAUX de `<Select>b__0`. Ce ne sont pas des
 # seuils fittes — ils sont ecrits tels quels dans le decompile (`0x7fffffff` / `0x7ffffffe`).
@@ -91,50 +91,12 @@ KEY_MIGHT_BE_KILL = 0x7FFFFFFE
 def multi_hit_attack_prediction(state, attacker_id: int, target_id: int, amount: int, hits: int,
                                 damage_profile: str, pierce: int, is_melee: bool = False,
                                 ability_type: Optional[int] = None):
-    """`IdunBattle.Core.Services.BattleQuery$$GetMultiHitAttackPrediction(attacker, target,
-    attackerPosition, ability, damage, damageProfile, hits)` monte depuis le `State` runner.
-
-    Les entrees PAR CIBLE sont assemblees avec les MEMES primitives publiques que l'EXECUTION
-    (`damage_ops/ability.execute_ability_attack`) — `attacker_modifiers` (famille ATTACK : nature du
-    coup, traits de la cible, profil et ability declenchante threades), les feuilles POSITIONNELLES
-    (elevation / trench), `defender_fixed_armor` et `defender_modifiers` — puis le calcul lui-meme
-    passe par le foyer unique `services/damage_prediction`. Ce n'est donc PAS un fork du calcul : le
-    natif a lui aussi DEUX chemins (prediction / execution) qui partagent `$$PredictAttackRaw`.
-
-    Rend `None` quand la cible n'a pas de `HealthComponent` (rien a predire)."""
-    att = state.get_entity(attacker_id)
-    tgt = state.get_entity(target_id)
-    thc = tgt.get_component(HealthComponent) if tgt is not None else None
-    if thc is None:
-        return None
-    asc = att.get_component(StatsComponent) if att is not None else None
-    ahc = att.get_component(HealthComponent) if att is not None else None
-    _ranged = (not is_melee) if is_melee is not None else None
-    if asc is None:
-        from ...services.damage_modifiers import DamageModifiers   # differe PORTEUR : cycle services<->runner
-        mods, active = DamageModifiers(), []
-    else:
-        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None,
-                                          target_id=target_id, is_ranged=_ranged,
-                                          is_normal_attack=False,
-                                          target_traits=target_trait_names(state, target_id),
-                                          damage_profile=damage_profile,
-                                          trigger_ability_type=ability_type)
-    apply_elevation_bonus(state, mods, attacker_id, target_id)
-    apply_trench_reduction(state, mods, attacker_id, target_id, damage_profile)
-    armor = defender_fixed_armor(state, target_id)
-    def_mods, _da = defender_modifiers(state, target_id, thc.hp, is_melee=is_melee,
-                                       damage_profile=damage_profile, attacker_id=attacker_id,
-                                       is_normal_attack=False)
-    # Differe PORTEUR : `operations.damage` importe `damage_ops`, qui importe ce paquet -> hisser
-    # fermerait le cycle (meme raison, ecrite, que le `from ..damage import AttackDamageOperation`
-    # de `damage_ops/ability.py`).
-    from .damage import AttackDamageOperation
-    AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
-    return get_attack_prediction(
-        target_current_health=int(thc.hp or 0), initial_damage=int(amount), hits=int(hits),
-        profile_type=int(DamageProfileType[damage_profile]), armor=armor, pierce_pct=int(pierce),
-        mods=mods, attacker_effects=active)
+    """Alias historique -- le mirror de `BattleQuery$$GetMultiHitAttackPrediction` vit desormais dans
+    `operations/attack_prediction.py`, parce qu'il a DEUX consommateurs (#494-r1-r1). Conserve pour
+    les appelants/probes qui l'importent d'ici."""
+    return _attack_prediction.multi_hit_attack_prediction(
+        state, attacker_id, target_id, amount, hits, damage_profile, pierce,
+        is_melee=is_melee, ability_type=ability_type)
 
 
 class SortTargetsByDamagePrediction(TargetsSelector):

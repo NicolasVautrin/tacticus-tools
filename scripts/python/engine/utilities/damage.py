@@ -186,11 +186,12 @@ def might_be_overkill(pred) -> bool:
     # (utilite 37) sur TOUT kill critique dans `[PV, 2 x PV)`. MESURE (probe_r34, formule ISOLEE --
     # memes predictions natives des deux cotes) : natif 148.2903 vs port 133.2903 = **exactement
     # PossibleOverkill (15.0)**, et 0 ecart dans le regime sans crit.
-    # Producteurs de la cle : `playbook/probable_damage_event.py::composite_fields` (<- `dp.might_crit`,
-    # pose par `services/damage_prediction.attacker_could_crit`) et `engine_agreement_stages.
+    # Producteurs de la cle : `utilities/damage.composite_fields_from_prediction` (<- `dp.might_crit`,
+    # pose par `services/damage_prediction.attacker_could_crit`), consomme par la chaine PLAYBOOK
+    # (`ProbableDamageEvent`) ET par le SELECTEUR de tri (`runner/operations/damage_utility`, depuis
+    # #494-r1-r1 -- le residu qui vivait ici est ferme) ; et `engine_agreement_stages.
     # _fields_from_native_event` (<- `mightCrit` du decodeur natif). `.get(...)` absent/None -> 0 =
-    # l'ancien comportement, pour les producteurs qui ne posent pas la cle (cf. residu nomme
-    # `runner/operations/damage_utility.py`, doc case-r34).
+    # le chemin DEGRADE, qui n'a aucune prediction d'ou tirer le flag.
     #
     # #195 -- `isPreventOverkill` (5e arg) = `result@+0xb3` = `HasFlag(cible, 0x13)`, lu par les DEUX
     # bornes (contrairement a `isCritical`). Le corps prive ne teste `pct` QUE `if (!isPreventOverkill
@@ -238,6 +239,59 @@ class OverkillUnitUtility(BaseUtility):
 # DOMINANTES (DamageDealt=DamageUtility + KillUnit + OverkillUnit) ; 10 situationnels TODO. Devise ~[0,250].
 DAMAGE_UTILITY = ComposedUtility([DamageUtility(), KillUnitUtility(), OverkillUnitUtility()],
                                  utility_type=UtilityType.Damage)
+
+
+def composite_fields_from_prediction(dp, target_hp: int | None = None,
+                                     target_shield: int | None = None) -> dict:
+    """`IdunBattle.AI.Utilities.UtilityAttackCase$$ForDamagePrediction` — les champs qu'un
+    `DamagePredictionResult` donne au composite Damage. **FOYER UNIQUE**, et il a deux consommateurs
+    depuis #494-r1-r1 : `playbook/probable_damage_event.ProbableDamageEvent.composite_fields` (chaine
+    PLAYBOOK) et `runner/operations/damage_utility._target_utility` (le selecteur de tri
+    `SortUnitsByDamageUtilitySelector$$Select`, dont la boucle `foreach u` appelle la MEME prediction
+    native). Les deux lisaient le MEME `DamagePredictionResult` ; en recopier la lecture aurait ete
+    un fork du mirror.
+
+    `rawHealthDmg*` = degat sante NON cape par HP (@0x24/@0x28) -> over-shoot pour `OverkillUnit`
+    (`WillBeOverkill`/`MightBeOverkill` via `IsOverkill`, #84). `forceOverkill` = @0xB2,
+    `mightCrit` = @0xB1 (#R34 : le 3e argument `isCritical` que `MightBeOverkill` passe a
+    `IsOverkill`, et que le corps prive RENVOIE dans le cas « letal mais sous le seuil » ;
+    `WillBeOverkill`, lui, passe 0 EN DUR), `preventOverkill` = @0xB3 (#195 : le 5e argument
+    `isPreventOverkill`, celui-la passe par les DEUX bornes).
+    `cannotBeGuaranteedKilled` = le gate de sortie anticipee de `get_WillBeKill` (#372) : publie pour
+    que la trace dise POURQUOI `killSure` est faux.
+
+    `target_hp` / `target_shield` (#419-r1-tr9) = la lecture d'ENTITE de `case.Target`, publiee
+    SEULEMENT quand l'appelant a su la distinguer du proxy. Absentes -> `DamageUtility` retombe sur
+    `hpBefore`/`shieldBefore` (exact des que event.target == prediction.target)."""
+    r = dp.accurate_health_damage
+    rr = dp.raw_health_damage
+    s = dp.accurate_shield_damage
+    hp = dp.current_health
+    # #54A : `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` lit `list[0]@0x50`
+    # (scenario « tous coups bloques ») quand la liste est non-vide, sinon le scalaire rawMin@0x24 —
+    # killSure compte donc le BLOCK du defenseur. `kill` (`get_MightBeKill`) reste sur le rawMax
+    # scalaire SANS block.
+    bmin = dp.block_raw_min
+    will_min = bmin if bmin is not None else rr.min
+    # #372 : `get_WillBeKill` SORT EN TETE sur `CannotBeGuaranteedKilled@0x89`, avant tout choix de
+    # borne. Le mirror reste NU (`hp == 0` -> le natif rend `true`) : un gate `hp > 0` PORT-SIDE
+    # changerait le verdict sur les cibles a 0 PV que `decisionView` conserve.
+    will_sure = (not dp.cannot_be_guaranteed_killed) and will_min >= hp
+    extra = {}
+    if target_hp is not None:
+        extra["targetHp"] = int(target_hp)
+    if target_shield is not None:
+        extra["targetShield"] = int(target_shield)
+    return {**extra, "hpBefore": hp, "shieldBefore": dp.shield,
+            "healthDmgMin": min(r.min, hp), "healthDmgMax": min(r.max, hp),
+            "rawHealthDmgMin": rr.min, "rawHealthDmgMax": rr.max,
+            "forceOverkill": dp.force_overkill,
+            "mightCrit": dp.might_crit, "preventOverkill": dp.prevent_overkill,
+            "shieldDmgMin": s.min, "shieldDmgMax": s.max,
+            "limitedByMinHp": dp.limited_by_min_hp, "appliedHits": dp.applied_hits,
+            "blockRawMin": bmin,
+            "cannotBeGuaranteedKilled": dp.cannot_be_guaranteed_killed,
+            "kill": r.max >= hp, "killSure": will_sure}
 
 
 def damage_composite(pred: dict | None, target_max_hp: int | None, wt: Weights) -> float:

@@ -1,17 +1,31 @@
-"""#419-r6-r1 -- GARDE : le selecteur de cible ne fait PAS entrer `MightCrit` dans son classement.
+"""#419-r6-r1 -- GARDE : le selecteur de cible FAIT entrer `MightCrit` dans son classement.
 
-CE QUE CE FICHIER FIGE, ET POURQUOI IL EXISTE
-----------------------------------------------
+CE QUE CE FICHIER FIGE, ET POURQUOI IL A CHANGE DE SENS
+--------------------------------------------------------
 #R34 a porte `MightCrit` sur la chaine PLAYBOOK et a NOMME en residu le seul producteur restant :
-`runner/operations/damage_utility._target_utility`, qui fabrique un `pred` SANS la cle. Le residu
+`runner/operations/damage_utility._target_utility`, qui fabriquait un `pred` SANS la cle. Le residu
 disait << non porte faute de pouvoir le VALIDER >>, et c'etait exact : tant que le canal crit etait
 muet (`CouldCrit` faux sur 106/106 unites normalisees, #419-r5), la cle absente et la cle a `False`
 sont le MEME dict -- aucune mesure ne pouvait les separer.
 
 La bascule du defaut a << equiper >> (#419-r6) ouvre `CouldCrit` sur 98/106. Le port a donc ete
-ECRIT, puis CONFRONTE -- et le live l'a REFUTE. Sans ce fichier, la prochaine lecture de #R34
-re-ouvrirait le meme residu et re-ecrirait le meme port faux : le residu ne dit pas que la question
-a ete tranchee.
+ECRIT, puis CONFRONTE -- et le live l'avait REFUTE le 2026-08-06.
+
+⚠ **CETTE MESURE ETAIT FAUSSE, ET SA CAUSE EST NOMMEE (#494-r1-r1).** Elle a ete faite sur la cle
+de tri PRE-ARMURE, c.-a-d. sur un port qui se trompait PAR AILLEURS (ni armure, ni defense, ni
+etalement des bornes) : elle concluait par COMPENSATION, exactement comme le montage `db-4` de
+`test_doombolt_live.py` concluait « l'armure n'entre pas ». Depuis que la cle passe par la
+PREDICTION COMPLETE par cible (`IBattleQuery` slot `0x26`), le MEME probe, le MEME oracle et le MEME
+critere rendent l'INVERSE : le port AVEC le flag est bit-exact avec le live, le port SANS le flag
+diverge. Et c'est ce que le decompile disait deja --
+`IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` ecrit
+`MightCrit@+0xB1 = DamageCalculations$$CouldCrit(owner)` INCONDITIONNELLEMENT,
+`UtilityAttackCase$$ForDamagePrediction` recopie la struct ENTIERE (+0x00..+0x9c), et
+`OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext` appelle `MightBeOverkill`, qui
+lit ce flag.
+
+LECON : un montage ne prouve son verdict que si le RESTE du port est fidele. Celui-ci ISOLAIT bien
+le flag -- mais sur une cle fausse, et les deux erreurs se sont annulees.
 
 L'ORACLE, ET CE QUI LE REND LISIBLE
 ------------------------------------
@@ -80,10 +94,13 @@ def test_le_flag_change_bien_l_utilite_offline():
         % (attendu, u_avec - u_sans))
 
 
-def test_les_entrees_publiques_ne_posent_pas_le_flag():
-    """Le contrat FIGE : `sort_units_by_damage_utility` / `first_by_damage_utility` classent comme
-    si `MightCrit` etait faux -- c'est ce que le live impose (etage 2). Un futur portage qui
-    rebrancherait le flag ferait rougir ICI, avant meme de couter un runner."""
+def test_le_chemin_degrade_ne_peut_pas_poser_le_flag():
+    """Le contrat FIGE du chemin DEGRADE -- celui qu'un appelant SANS `owner_id` emprunte.
+
+    Il n'a AUCUNE prediction d'ou tirer `MightCrit` (le flag natif est ecrit par
+    `PredictAttackRaw`), donc il classe comme si le flag valait faux. Ce n'est pas un choix de
+    modele : c'est ce que le substrat permet. Le chemin MIRROR, lui, le porte -- et c'est ce que
+    l'etage LIVE mesure."""
     from engine.runner.operations.damage_utility import (first_by_damage_utility,
                                                          sort_units_by_damage_utility)
     d = 1000
@@ -97,8 +114,8 @@ def test_les_entrees_publiques_ne_posent_pas_le_flag():
     if not (u1_sans < u2 < u1_avec):
         pytest.skip("regime non discriminant a ce d/maxHealth (u1=%s/%s u2=%s) -- l'etage LIVE, "
                     "lui, DERIVE son regime du runner" % (u1_sans, u1_avec, u2))
-    assert first_by_damage_utility(st, [1, 2], d, d) == 2, (
-        "les entrees publiques doivent classer SANS le flag (#419-r6-r1 : le natif ne le lit pas)")
+    # Sans `owner_id`, les entrees publiques n'ont pas de caster -> chemin DEGRADE -> flag faux.
+    assert first_by_damage_utility(st, [1, 2], d, d) == 2
     assert list(sort_units_by_damage_utility(st, [1, 2], d, d)) == [2, 1]
 
 
@@ -108,12 +125,17 @@ def test_les_entrees_publiques_ne_posent_pas_le_flag():
 
 @pytest.fixture(scope="module")
 def mesure_live():
-    dmg = P._dmg_tri_du_runner(
+    # #494-r1-r1 : la RECONNAISSANCE rend aussi l'ETAT. Depuis que la cle de tri passe par la
+    # prediction complete par cible, un balayage sur stub a PV seuls reglerait le regime sur le
+    # chemin DEGRADE -- et le montage cesserait d'etre discriminant en live (mesure du 2026-08-07 :
+    # `montage_discriminant = False`, un ROUGE de MONTAGE qui ne juge pas le port).
+    reco = P._reco_du_runner(
         "necroOverlord,necroWarden,eldarRanger,orksNob", "defaut", "31337", "MC1_67")
-    if dmg is None:
+    if reco is None:
         pytest.fail("MONTAGE : reconnaissance du degat du noeud de tri impossible (build KO). "
                     "Ce n'est pas un verdict sur le port -- le harnais n'a pas monte le cas.")
-    reg = P.etage_regime(dmg, verbose=False)
+    dmg = reco["d"]
+    reg = P.etage_regime(dmg, verbose=False, reco=reco)
     if not reg.get("ok"):
         pytest.fail("MONTAGE : aucun regime discriminant a d=%s -- le cas ne separerait pas les "
                     "deux valeurs du flag, donc il ne prouverait rien." % dmg)
@@ -124,10 +146,11 @@ def mesure_live():
     return r
 
 
-def test_le_natif_ne_lit_pas_might_crit_dans_le_selecteur_live(mesure_live):
-    """LE VERDICT. Le port de PRODUCTION (sans le flag) est bit-exact avec le live ; le
-    CONTREFACTUEL (avec le flag) diverge. Les deux ordres different, donc le montage separe bien
-    les deux hypotheses -- un accord ou les deux cotes rendent la meme chose ne prouverait rien."""
+def test_le_natif_lit_might_crit_dans_le_selecteur_live(mesure_live):
+    """LE VERDICT. Le port de PRODUCTION (le flag VIENT de la prediction) est bit-exact avec le
+    live ; le CONTREFACTUEL (flag FORCE a faux) diverge. Les deux ordres different, donc le montage
+    separe bien les deux hypotheses -- un accord ou les deux cotes rendent la meme chose ne
+    prouverait rien."""
     r = mesure_live
     assert r["montage_discriminant"], (
         "montage NON discriminant : les deux valeurs du flag rendent le meme ordre (%s), donc "
@@ -150,11 +173,12 @@ def test_le_temoin_referme_le_canal_live():
     C'est ce bras qui etablit que la bascule #419-r6 est bien ce qui a rendu la question POSABLE.
     S'il echoue, c'est qu'une autre voie equipe desormais les unites -- et alors le temoin de
     toute cette famille de mesures est perdu, ce qu'il faut savoir tout de suite."""
-    dmg = P._dmg_tri_du_runner(
+    reco = P._reco_du_runner(
         "necroOverlord,necroWarden,eldarRanger,orksNob", "0", "31337", "MC1_67")
-    if dmg is None:
+    if reco is None:
         pytest.fail("MONTAGE : reconnaissance impossible en regime temoin (build KO).")
-    reg = P.etage_regime(dmg, verbose=False)
+    dmg = reco["d"]
+    reg = P.etage_regime(dmg, verbose=False, reco=reco)
     if not reg.get("ok"):
         pytest.fail("MONTAGE : aucun regime discriminant a d=%s (temoin)." % dmg)
     r = P.etage_live(reg, "necroOverlord,necroWarden,eldarRanger,orksNob", "0",

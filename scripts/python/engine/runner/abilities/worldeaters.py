@@ -504,9 +504,17 @@ class KillMaimBurnNextTarget(TargetsSelector):
             self.rolls.append(roll)
             # `owner_id` = le `caster@0x48` que le natif passe en `+0x20` du selecteur de tri
             # (#494-r1) : sa POSITION entre dans la prediction PAR CIBLE, donc dans la cle.
+            # #494-r1-r1 : la cle EST cette prediction (armure et defense comprises). Le noeud
+            # `+0x28` du selecteur est `Direct(AbilityOrEffect(1132))` -> seule l'ABILITY descend
+            # jusqu'a la prediction ; ni PROFIL ni PERCAGE, parce que le selecteur passe
+            # `damageProfile: null` (percage 0, cf. l'en-tete de `damage_utility.py`). Ce qui
+            # dispense, au passage, de trancher lequel des trois profils de 1132
+            # (`Piercing`/`Eviscerate`/`Plasma`) le tri emploierait.
             _cast = getattr(ctx, "caster", None)
+            _cid = (_cast or {}).get("id")
             best = first_by_damage_utility(self.state, [u.get("id") for u in candidates], roll, roll,
-                                           owner_id=(_cast or {}).get("id"))
+                                           owner_id=_cid, is_melee=True,
+                                           ability_type=int(ActiveAbilityType.KillMaimBurn))
             res = [] if best is None else [u for u in candidates if u.get("id") == best]
             self.picked.append(("retarget", [u.get("id") for u in res]))
         if not res:                                        # `.Otherwise(previousTarget)`
