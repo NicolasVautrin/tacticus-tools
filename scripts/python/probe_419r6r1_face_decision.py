@@ -438,12 +438,14 @@ def etage_live(regime: dict, a_units: str, regime_items: str, seed: str, board: 
         # par aucune entree publique -- cf. son commentaire `#419-r6-r1`).
         import engine.runner.operations.damage_utility as DU
         _vrai = DU._target_utility
-        # ⚠ Le substitut RELAIE `owner_id` (#494-r1) : depuis que la cle porte sa part
-        # POSITIONNELLE, les entrees publiques appellent `_target_utility(..., owner_id=<caster>)`.
-        # Un substitut qui l'avale (ou le refuse) mesurerait un AUTRE port que celui qui tourne --
-        # ici il levait `TypeError` et faisait passer le rouge pour un echec de montage.
-        DU._target_utility = (lambda s, t, dm, dx, w, mc=False, owner_id=None, _f=_vrai, _o=cid:
-                              _f(s, t, dm, dx, w, owner_might_crit(s, _o), owner_id=owner_id))
+        # ⚠ Le substitut RELAIE TOUT ce que l'appelant passe, par `**kw` (#494-r1 puis #494-r1-r1) :
+        # depuis que la cle porte sa part POSITIONNELLE puis la PREDICTION COMPLETE, les entrees
+        # publiques appellent `_target_utility(..., owner_id=<caster>, damage_profile=..., pierce=
+        # ..., ability_type=..., is_melee=...)`. Un substitut qui NOMME les kwargs mesurerait un
+        # AUTRE port que celui qui tourne des qu'un s'ajoute -- il levait `TypeError` et faisait
+        # passer le rouge pour un echec de montage. Le `**kw` est donc VOULU : il suit le foyer.
+        DU._target_utility = (lambda s, t, dm, dx, w, mc=False, _f=_vrai, _o=cid, **kw:
+                              _f(s, t, dm, dx, w, owner_might_crit(s, _o), **kw))
         try:
             diag_avant = ABILITY_CLASSES[DOOMBOLT]().execute_behaviour(st2, cid, tid)
         finally:

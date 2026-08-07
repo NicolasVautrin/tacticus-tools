@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from ..services.damage_prediction import DamagePredictionResult
 from ..utilities import damage_composite
+from ..utilities.damage import composite_fields_from_prediction
 from ..utilities.effect import ADDED_EFFECT_UTILITY
 
 
@@ -45,55 +46,14 @@ class ProbableDamageEvent:
 
     def composite_fields(self) -> dict:
         """Champs consommés par le composite Damage (`IdunBattle.AI.Utilities.UtilityAttackCase$$ForDamagePrediction`
-        → poids `Utilities` case 0x22) : santé min/max (cap PV), split bouclier (AccurateShieldDamage@0x78),
-        kill/killSure. Mirror de la lecture native des bornes depuis le `DamagePredictionResult`
-        (= l'ancien `predict_validate._event_from_dp`).
-        `rawHealthDmg*` = dégât santé NON capé par HP (@0x24/@0x28) → over-shoot pour `OverkillUnit`
-        (`WillBeOverkill`/`MightBeOverkill` via `IsOverkill`, #84). `forceOverkill` = @0xB2,
-        `mightCrit` = @0xB1 (#R34 : le 3ᵉ argument `isCritical` que `MightBeOverkill` passe à
-        `IsOverkill`, et que le corps privé RENVOIE dans le cas « létal mais sous le seuil » ;
-        `WillBeOverkill`, lui, passe 0 EN DUR — le port posait 0 des deux côtés),
-        `preventOverkill` = @0xB3 (#195 : le 5ᵉ argument `isPreventOverkill`, celui-là passé par les
-        DEUX bornes — `HasFlag(cible, 0x13)`, posé par `FuelledByFury_BlockOverkillEffect`).
-        `cannotBeGuaranteedKilled` = le gate de sortie anticipée de `get_WillBeKill` (#372) : publié
-        pour que la trace dise POURQUOI `killSure` est faux, plutôt que de laisser deviner entre
-        « bornes insuffisantes » et « gate armé »."""
-        dp = self.prediction
-        r = dp.accurate_health_damage
-        rr = dp.raw_health_damage
-        s = dp.accurate_shield_damage
-        hp = dp.current_health
-        # #54A : `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` lit `list[0]@0x50` (scénario « tous coups bloqués »)
-        # quand la liste est non-vide, sinon le scalaire rawMin@0x24 — killSure compte donc le BLOCK
-        # du défenseur (Daemon 25%/50%×Attack, BeastSlayer…). `kill` (MightBeKill IdunBattle.Core.Services.DamagePredictionResult$$get_MightBeKill) reste
-        # sur le rawMax scalaire SANS block.
-        bmin = dp.block_raw_min
-        will_min = bmin if bmin is not None else rr.min
-        # #372 : `get_WillBeKill` SORT EN TETE sur `CannotBeGuaranteedKilled@0x89`, avant tout choix
-        # de borne. `killSure` est ce verdict-la : le gate doit donc etre ICI aussi, pas seulement
-        # dans `DamagePredictionResult.will_be_kill`. Les deux restent DEUX lignes distinctes
-        # (et non un appel a `will_be_kill()`) parce que le port y ajoute un gate `hp > 0` PORT-SIDE
-        # que le natif n'a pas : `composite_fields` doit rester le mirror NU (`hp == 0` -> le natif
-        # rend `true`), sinon on changerait le verdict sur les cibles a 0 PV que `decisionView`
-        # conserve. Le flag, lui, est le MEME fait des deux cotes.
-        will_sure = (not dp.cannot_be_guaranteed_killed) and will_min >= hp
-        # #419-r1-tr9 : la lecture d'ENTITE de `case.Target`, publiee SEULEMENT quand l'appelant a
-        # su la distinguer du proxy. Absente -> `DamageUtility` retombe sur `hpBefore`/`shieldBefore`
-        # (comportement anterieur, exact des que event.target == prediction.target).
-        extra = {}
-        if self.target_hp is not None:
-            extra["targetHp"] = int(self.target_hp)
-        if self.target_shield is not None:
-            extra["targetShield"] = int(self.target_shield)
-        return {**extra, "hpBefore": hp, "shieldBefore": dp.shield,
-                "healthDmgMin": min(r.min, hp), "healthDmgMax": min(r.max, hp),
-                "rawHealthDmgMin": rr.min, "rawHealthDmgMax": rr.max, "forceOverkill": dp.force_overkill,
-                "mightCrit": dp.might_crit, "preventOverkill": dp.prevent_overkill,
-                "shieldDmgMin": s.min, "shieldDmgMax": s.max,
-                "limitedByMinHp": dp.limited_by_min_hp, "appliedHits": dp.applied_hits,
-                "blockRawMin": bmin,
-                "cannotBeGuaranteedKilled": dp.cannot_be_guaranteed_killed,
-                "kill": r.max >= hp, "killSure": will_sure}
+        → poids `Utilities` case 0x22).
+
+        ⚠ Le CORPS a été DÉPLACÉ (#494-r1-r1) dans `engine/utilities/damage.py`
+        (`composite_fields_from_prediction`) : la même lecture native est faite par le sélecteur de
+        tri `SortUnitsByDamageUtilitySelector$$Select`, dont la boucle `foreach u` appelle la MÊME
+        prédiction. Deux copies auraient été un fork du mirror ; le foyer est donc du côté du
+        composite, que les deux consommateurs importent déjà."""
+        return composite_fields_from_prediction(self.prediction, self.target_hp, self.target_shield)
 
 
 def calculate_utility_from_damage_event(event: ProbableDamageEvent, wt, target_max_hp: int | None = None) -> float:

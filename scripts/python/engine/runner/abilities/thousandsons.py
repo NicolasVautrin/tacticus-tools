@@ -102,7 +102,7 @@ from ...entities.triggers import HasTakenDamageOfDamageProfileThisTurn
 from ..components import StatsComponent
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from ..operations.damage_utility import sort_units_by_damage_utility
-from .base import ActiveAbility, ability_attack_params
+from .base import ActiveAbility, ability_attack_params, profile_pierce
 from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage,
                                 SortedAttackSeries)
 from .behaviours.context import entities_from_state
@@ -174,9 +174,12 @@ def doombolt_ordered_targets(state: "State", caster_id: int, target_id: Optional
     """`SortUnitsByDamageUtility(...)` puis `list.Remove(target); list.Insert(0, target)` — MIRROR.
 
     - Le TRI = `IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select` (deja porte,
-      `runner/operations/damage_utility.py`) : utilite `UtilityDefinition(0x22 = Damage)` DECROISSANTE.
-      Le noeud de degat branche par ce call-site est `Direct(GetVariableForLevel(0xc = minDmg, level))`
-      et le slot `dmgMax` (+0x48) recoit **null** (8e argument du factory = 0) -> `dmax == dmin`.
+      `runner/operations/damage_utility.py`) : utilite `UtilityDefinition(0x23 = Damage)` DECROISSANTE.
+      Le noeud de degat branche par ce call-site est `Direct(GetVariableForLevel(0xc = minDmg, level))`,
+      le noeud d'ABILITY est `Direct(AbilityOrEffect(1102))` (3e argument du factory), et le slot
+      `hits` (+0x48) recoit **null** (8e argument = 0) -> la cle predit **UN** coup.
+      ⚠ Le commentaire d'avant #494-r1-r1 lisait `+0x48` comme un `dmgMax` : c'est `hits`, cf.
+      l'en-tete de `damage_utility.py`.
     - Le REORDONNANCEMENT natif est INCONDITIONNEL des que caster et cible existent et different :
       `Remove` est un no-op si la cible n'etait pas dans la liste, mais `Insert(0, ...)` l'ajoute
       QUAND MEME -> la cible du message est TOUJOURS en tete (et compte dans `C`). On mirror tel quel.
@@ -187,8 +190,16 @@ def doombolt_ordered_targets(state: "State", caster_id: int, target_id: Optional
     # POSITIONNELLE (bonus d'elevation) et le classement diverge des que deux cibles ne sont pas a la
     # meme hauteur. `candidates` arrive dans l'ORDRE SOURCE du selecteur (cube-lex), qui EST le
     # tie-break natif : ne jamais le re-trier ici.
-    ordered = list(sort_units_by_damage_utility(state, candidates, dmg_min, dmg_min,
-                                                owner_id=caster_id))
+    # #494-r1-r1 : la cle est la PREDICTION COMPLETE -> le profil/percage/ability du noeud `+0x28`
+    # (`Direct(AbilityOrEffect(1102))`) descendent jusqu'a elle, comme ils descendent deja jusqu'aux
+    # feuilles d'attaque de `doombolt_tree` (profil `Psychic`, `is_melee=False`).
+    _sc = state.get_entity(caster_id)
+    _sc = _sc.get_component(StatsComponent) if _sc is not None else None
+    ordered = list(sort_units_by_damage_utility(
+        state, candidates, dmg_min, dmg_min, owner_id=caster_id,
+        damage_profile="Psychic", is_melee=False,
+        pierce=profile_pierce(getattr(_sc, "ctx", None), "Psychic", ranged=True),
+        ability_type=int(ActiveAbilityType.Doombolt)))
     if target_id is None or int(caster_id) == int(target_id):
         return ordered
     tid = int(target_id)
