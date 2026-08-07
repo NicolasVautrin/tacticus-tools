@@ -70,12 +70,19 @@ MONTAGE -- DEUX SUMMONS DE LA MEME EQUIPE, UNE SEULE VARIABLE
   `WeaponsComponent` ; un montage qui ne viderait QUE le BC mesurerait la divergence des SUBSTRATS
   au lieu de la REGLE (residu nomme dans la case-doc).
 
-  Geometrie PILOTEE (jamais subie), et dans cet ORDRE -- il a ete mesure, pas suppose :
-  on amene D'ABORD `genesPrimus` au contact d'un ennemi, on caste ENSUITE. Les summons apparaissent
-  autour du caster, donc au contact. La voie inverse (subir le spawn au camp de depart puis pousser
-  les ennemis vers les summons) a ete ESSAYEE ET ABANDONNEE : les decoys sont `Steppable` et
-  ephemeres -- premier jet, la geometrie se defaisait tour par tour et les ennemis disparaissaient
-  avant la mesure.
+  Geometrie PILOTEE (jamais subie), en DEUX etages -- et le second a ete ajoute parce que le
+  premier NE SUFFIT PAS :
+
+    1. on amene `genesPrimus` au contact d'un ennemi, PUIS on caste. Necessaire, pas suffisant :
+       les summons n'apparaissent PAS tous autour du caster. Mesure (`MC1_67`/`4192`, ancre en
+       `(5, 7)`, ennemis en `(6, 7)` / `(6, 8)` / `(5, 8)`) : les trois `genesSmnDecoy` tombent en
+       `(4, 6)`, `(3, 6)` et `(1, 1)`, soit `d = 2`, `3` et `9`. **AUCUN decoy adjacent** -- le
+       montage rendait `MontageError` et les trois fichiers de la famille ERROR-aient, sans qu'aucun
+       port soit en cause. Les `genesSmnNeophyte`, eux, en avaient un : le TEMOIN etait monte et le
+       DISCRIMINANT non, la pire des deux moities ;
+    2. `forcer_contact` (ci-dessous) amene un ENNEMI a `d = 1`. Sa doc porte les trois faits mesures
+       qui en fixent la forme -- summons non activables, ennemis activables seulement quand leur
+       camp a la main, et geometrie detruite si on rend la main a notre camp.
 
   ⚠ Un summon ne se COMMANDE pas (#291) -- mais on ne le commande pas : `abilityReason` est une
   REQUETE d'oracle, et le summon est une entite de `decisionView.units` comme une autre.
@@ -229,6 +236,92 @@ def _pick_adjacent(dv, vis):
     return None
 
 
+def _current_player(sid, rid):
+    return P247._r(sid, "battleStatus", {"runnerId": rid}, 40).get("currentPlayer")
+
+
+def _hand_to(sid, rid, player: int, maxit: int = 6) -> bool:
+    """Passe la main au camp `player` a coups d'`endturn`. Le runner est `--no-ai` : rendre la main
+    a l'adversaire ne le fait PAS jouer, il rend seulement ses unites ACTIVABLES."""
+    for _ in range(maxit):
+        if _current_player(sid, rid) == player:
+            return True
+        P247._act(sid, rid, {"kind": "endturn"}, 90)
+    return _current_player(sid, rid) == player
+
+
+def _paires(dv, vis):
+    """`(distance, id summon, id ennemi, pos summon)` triees, pour tous les summons vivants."""
+    out = []
+    for s in _live(dv, vis):
+        for f in _foes_of(dv, s):
+            out.append((hexgeo.distance(P247._pos(s), P247._pos(f)), int(s["id"]), int(f["id"]),
+                        P247._pos(s)))
+    return sorted(out)
+
+
+def forcer_contact(sid, rid, vis_list=(NOWEAPON_VIS, ARMED_VIS), rounds: int = 8) -> dict:
+    """PILOTE la geometrie du contact : amene un ENNEMI a `d = 1` d'au moins un summon de CHAQUE
+    `vis` demande. Rend `{vis: distance minimale atteinte}`.
+
+    DEUX FAITS MESURES gouvernent cette fonction, et ils vont dans des sens opposes :
+
+      1. **Les summons ne sont PAS activables** -- `aiMovableTiles` les publie avec `tiles = []`
+         (mesure : les trois `genesSmnDecoy` du montage, zero tuile), conformement a #291 : le natif
+         termine le tour de toute unite qui apparait pendant le tour de son proprietaire. On ne peut
+         donc PAS rapprocher le summon ; il faut rapprocher l'ENNEMI.
+      2. **Un ennemi n'est activable que quand son camp a la main.** Pendant notre tour,
+         `aiMovableTiles` ne publie QUE nos unites (mesure : `[83, 85, 109, ...]`, aucun id adverse),
+         donc un `move` sur un ennemi n'a aucune tuile legale ou aller. C'est precisement le cran qui
+         manquait a la version anterieure de cette approche, qui concluait « u%d n'est pas activable
+         sans consommer un tour -- arret ». Il faut RENDRE LA MAIN a l'adversaire d'abord.
+
+    ET ON N'EN REVIENT PAS : au retour de la main a notre camp, `PlayAutomaticUnits` joue les
+    summons au turn-start (trait `Summon`) -- mesure : les huit `genesSmnNeophyte` se deplacent, un
+    `genesSmnDecoy` est remplace, et l'ennemi qu'on venait d'amener au contact MEURT. La geometrie
+    installee ici ne survit donc pas a un `endturn` de plus, et la mesure se fait **pendant le tour
+    adverse**. `abilityReason` y repond normalement (mesure : `0x2` sur le decoy adjacent, `0x0` sur
+    le neophyte adjacent, `0x8000000` sur les cibles lointaines) -- c'est une REQUETE d'oracle, pas
+    une action, et elle ne demande pas que le caster soit activable."""
+    besoin = [v for v in vis_list]
+    rep = {}
+    for _ in range(rounds):
+        dv = P247._dv(sid, rid)
+        reste = []
+        for vis in besoin:
+            paires = _paires(dv, vis)
+            if not paires:
+                rep[vis] = None
+                continue
+            rep[vis] = paires[0][0]
+            if paires[0][0] > 1:
+                reste.append((vis, paires))
+        if not reste:
+            return rep
+        if not _hand_to(sid, rid, 4):
+            print("  [contact] la main ne passe pas a l'adversaire -- arret")
+            return rep
+        avance = False
+        for vis, paires in reste:
+            for d, suid, fid, spos in paires:
+                tiles = P247._movable(sid, rid, fid)
+                if not tiles:
+                    continue
+                t = min(tiles, key=lambda x: (hexgeo.distance(x, spos), x))
+                if hexgeo.distance(t, spos) >= d:
+                    continue
+                print("  [contact] %-18s summon u%-4d@%s <- ennemi u%-4d -> %s (d %d -> %d)"
+                      % (vis, suid, spos, fid, t, d, hexgeo.distance(t, spos)))
+                P247._act(sid, rid, {"kind": "move", "unitId": fid,
+                                     "to": {"col": t[0], "row": t[1]}}, 90)
+                avance = True
+                break
+        if not avance:
+            print("  [contact] aucun ennemi ne peut se rapprocher davantage -- arret")
+            return rep
+    return rep
+
+
 def _rows(sid, rid, st, dv, caster_u):
     """Une ligne par cible ENNEMIE vivante : natif, port APRES, port BASELINE."""
     cid = int(caster_u["id"])
@@ -272,6 +365,7 @@ def run(sid, seed: str = "4192", board: str = "MC1_67") -> dict:
         for _ in range(P247.WARMUP_ENDTURNS):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         _drive_and_summon(sid, rid)
+        print("  contact force : %s" % forcer_contact(sid, rid))
         dv, payloads = P436._capture(sid, rid)
         st = P436._mk_state(payloads)
         nw = _pick_adjacent(dv, NOWEAPON_VIS)

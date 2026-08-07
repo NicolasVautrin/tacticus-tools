@@ -182,6 +182,8 @@ def run_greffe(sid, seed: str = "4192", board: str = "MC1_67", sans_canal: bool 
         for _ in range(P247.WARMUP_ENDTURNS):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         P583._drive_and_summon(sid, rid)
+        print("  contact force : %s"
+              % P583.forcer_contact(sid, rid, vis_list=(P583.NOWEAPON_VIS,)))
         dv, payloads = P436._capture(sid, rid)
         st = P436._mk_state(payloads)
         nw = P583._pick_adjacent(dv, P583.NOWEAPON_VIS)
@@ -223,6 +225,7 @@ def run(sid, seed: str = "4192", board: str = "MC1_67", sans_canal: bool = False
         for _ in range(P247.WARMUP_ENDTURNS):
             P247._act(sid, rid, {"kind": "endturn"}, 60)
         P583._drive_and_summon(sid, rid)
+        print("  contact force : %s" % P583.forcer_contact(sid, rid))
         dv, payloads = P436._capture(sid, rid)
         st = P436._mk_state(payloads)
         nw = P583._pick_adjacent(dv, P583.NOWEAPON_VIS)
