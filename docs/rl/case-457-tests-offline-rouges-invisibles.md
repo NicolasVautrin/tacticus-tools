@@ -757,10 +757,13 @@ désormais réellement : 22 passed + 1 skipped → **23 passed**.
   `probe_111_*`, …). Fragilité réelle au CWD, mais l'échec y est **bruyant** et **sans
   persistance** — aucune écriture versionnée en jeu. Non corrigé (hors périmètre). Le patron sûr
   est déjà majoritaire dans le dépôt : **183** appels passent `cwd=` explicite.
-- **`#463-r1`** — **rien ne mesure les poids d'un fichier neuf automatiquement.** Un shard ne peut
-  pas le faire : les 8 shards tournent **en parallèle** et écriraient le même JSON (c'est #455 dans
-  l'autre sens). `--measure-missing` reste donc un geste **explicite**, et son oubli coûte du mur,
-  jamais un verdict.
+- ~~**`#463-r1`**~~ — **LIVRÉ (2026-08-07)**, cf. **`docs/rl/case-463-r1-ecart-empreinte-offline.md`**.
+  Un shard ne pouvait pas mesurer (les 8 tournent **en parallèle** et écriraient le même JSON), et
+  la cadence mesurée était de **trois réouvertures en une journée**. Le remède n'est PAS de mesurer
+  automatiquement — le contre-cas `40917cd0` du même jour appelait la réponse **inverse** (un test
+  live mal nommé, à RENOMMER). Le cliquet **rougit, nomme, et refuse de trancher**. En chemin, il a
+  fait apparaître que le geste `--measure-missing` était **impraticable dans un worktree** (poids
+  gitignorés ⇒ **235/235 joués**), corrigé par un tri-état ⇒ **1/235**.
 - **`#463-r2`** — **la marge de 1,35 n'a pas été re-dérivée.** Elle est héritée de #457-r6 et
   n'était contrainte par aucune mesure ici ; le test la porte désormais en constante nommée
   (`MARGE_EQUILIBRE`), ce qui la rend au moins visible et mutable.

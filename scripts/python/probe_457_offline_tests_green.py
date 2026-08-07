@@ -188,6 +188,17 @@ soit ~12 min BLOQUANTES par PR pour une OPTIMISATION de mur.
 `--measure-missing` ne chronometre que les fichiers SANS poids et FUSIONNE dans le JSON existant.
 C'est le cas nominal (mediane 0-1 fichier offline neuf par PR) : quelques secondes au lieu de 12 min.
 
+⚠ POIDS ABSENTS N'EST PAS SANS POIDS (#463-r1). `logs/` est GITIGNORE, donc un worktree d'agent
+n'a JAMAIS de poids -- et le critere << sans poids >> y valait pour TOUT LE MONDE : mesure du
+2026-08-07 depuis un worktree, ce mode retenait **235 fichiers sur 235**, soit un `--measure`
+complet (~976 s), c'est-a-dire l'exact contraire de sa raison d'etre. C'est le tri-etat que ce
+depot tient partout ailleurs (`null` = pas mesure, jamais un zero), applique aux poids : quand le
+FICHIER de poids est absent, le seul critere applicable est l'ENTREE D'EMPREINTE, et le mode le
+DIT. Mesure apres correction : **1 fichier sur 235, 15 s de mur**.
+Corollaire : dans ce regime, AUCUN fichier de poids n'est ecrit -- une entree unique fixerait
+`defaut = max(weights.values())` de `bins_of` sur une valeur non representative, ce qui est PIRE
+que le repli md5, lequel repartit par nombre et reste honnete.
+
 Il ECRIT desormais l'empreinte des seuls fichiers qu'il a joues (#486-r15). Ce refus etait
 structurel TANT QUE l'empreinte portait UN SEUL tampon de fraicheur pour l'ensemble ; avec un
 tampon PAR ENTREE, une passe partielle rafraichit exactement ce qu'elle a mesure et ne pretend
