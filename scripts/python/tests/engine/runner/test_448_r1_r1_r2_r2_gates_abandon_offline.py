@@ -34,13 +34,24 @@ from engine.runner.operations.movement import MoveUnitOperation
 #: fichier importe le montage.
 DECLENCHEUR = {
     "chemins": (
-        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # LA CASCADE DES `conftest.py` N'EST PLUS ICI (#531, arrive avec #823 pendant que cette
+        # tranche etait en vol) : le foyer la DERIVE. Les quatre chemins recopies a cette place
+        # etaient justes -- la derivation rend un sur-ensemble strict.
         "scripts/python/engine/**/*.py",
         "scripts/python/probe_448r1r1r2r2_gates_abandon.py",
+        # `board.py` : la fermeture y passe PAR le probe ci-dessus (`_load_board`). Declarer le
+        # probe ne declare PAS ce qu'il importe -- meme lecon que la cascade de harnais (#531),
+        # sur une arete que le foyer ne derive pas (elle est PROPRE a ce fichier).
+        "scripts/python/board.py",
         "data/boards/pvp/C4_09.json",
     ),
+    "build": False,
     "toujours": False,
+    "raison": "Tout `engine/**` : le cliquet AST de l'etage 6 y balaie chaque site qui INSTANCIE "
+              "`MoveUnitOperation` -- un module qui cesse de le faire, ou qui commence, change le "
+              "verdict. S'y ajoutent les deux entrees LUES : le probe dont ce fichier importe le "
+              "montage, et le dump de board `C4_09` dont il exige les DEUX composantes de marche. "
+              "Aucune dependance au build ni au jeu.",
 }
 
 BOARD_ID = "C4_09"          # 70 tuiles, DEUX composantes de marche dans le dump `data/boards/`
