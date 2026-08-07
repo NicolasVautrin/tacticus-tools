@@ -41,6 +41,35 @@ ASCII only ; offline (aucun runner).
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des conftest et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # PROPRE A CE FICHIER. Perimetre pris LARGE, pas feuille a feuille : l'etage 4 COPIE
+        # l'arbre `engine/` entier dans un temoin, et le recenseur le PARCOURT -- toute feuille
+        # d'`engine/**` entre donc dans la fermeture, et une liste choisie rendrait ce cliquet
+        # rouge. Foyers vraiment load-bearing, pour la relecture humaine :
+        # `runner/components.py` (le foyer `unit_extensions_is_displaceable`),
+        # `runner/operations/displace.py` (les quatre `execute`), `entities/traits/unit_trait.py`
+        # et `entities/unit_flag.py` (les deux enums), `probe_498r3_is_displaceable_sites.py`.
+        "scripts/python/engine/**/*.py",
+        "scripts/python/*.py",
+        # L'etage 0 QUALIFIE les six ordinaux contre la table d'enums du BUILD.
+        "data/symbols/**",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Verdicts figes : les six ordinaux d'`IsDisplaceable` (3 traits, 1 flag, 2 valeurs "
+              "d'EntityType), la table de verite du foyer, le no-op des quatre operations de "
+              "`displace.py` sur une cible non deplacable, et la CONTRE-EPREUVE du recenseur. "
+              "Aucun runner, aucune session Frida : le seul acces disque est le depot (table "
+              "d'enums du build, plus une copie de `engine/` en tmp pour l'etage 4).",
+}
+
 import shutil
 import sys
 from pathlib import Path

@@ -29,6 +29,34 @@ ASCII only.
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des conftest et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # PROPRE A CE FICHIER. Perimetre LARGE : le montage monte un runner COMPLET (build,
+        # nav, RPC) puis REJOUE le cast offline, donc la fermeture couvre le registre
+        # d'abilities, le vocabulaire DSL, les Operations, l'IA et le pathfinding. Foyers
+        # load-bearing : `runner/components.py` (le foyer), `runner/operations/displace.py`
+        # (`SwitchPositionOperation`), `runner/abilities/loki/facade.py` (1100/1180),
+        # `probe_498r3_switch_position_gate.py` et `probe_287_facade_combat.py` (le montage).
+        "scripts/python/engine/**/*.py",
+        "scripts/python/*.py",
+        # Le seed BC est LU puis re-ecrit avec `BigTarget` ; le board vient du dump.
+        "data/seed-bc.json",
+        "data/boards/**",
+        "data/symbols/**",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "La confrontation LIVE du gate `IsDisplaceable` sur le case 5 "
+              "(`SwitchPosition`) : temoin non degenere, bras `BigTarget`, et A/B causal par "
+              "mutation du foyer. Monte deux runners isoles depuis une seed BC sur disque.",
+}
+
 import sys
 from pathlib import Path
 

@@ -9,10 +9,11 @@ conditions ; les **cinq** sites Python du substrat n'en portent que **deux** (`I
 `BigTarget`).
 
 **Ce que la re-dérivation donne** : les quatre conditions sont exactes, **et il y a une cinquième
-lecture** (la tête `EntityType == Unit`) ; le recensement rend **12 sites**, dont **9 miroirs** du
-prédicat (7 runner, 2 décision) — et le site que personne n'avait compté,
-`SwitchPositionOperation`, **n'en portait aucune**. Un compte hérité se périme ; une liste de cinq
-entrées ne peut pas montrer le sixième site.
+lecture** (la tête `EntityType == Unit`) ; le recensement rend **12 sites**, dont **8 miroirs** du
+prédicat AVANT cette tranche (**6 runner**, 2 décision — 9 après, le foyer étant neuf) — et le
+**sixième site runner**, `SwitchPositionOperation`, que personne n'avait compté, **n'en portait
+aucune**. Un compte hérité se périme ; une liste de cinq entrées ne peut pas montrer le sixième
+site.
 
 ---
 
