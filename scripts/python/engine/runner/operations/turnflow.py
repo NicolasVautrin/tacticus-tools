@@ -60,7 +60,7 @@ from ..components import (OwnerComponent, UnitComponent, ShieldComponent, StatsC
                           is_machine_of_war, ActiveAbilitiesComponent)
 from ...entities.stats import StatType
 from .triggers.dispatch.turn import (
-    start_turn_triggers, tile_tick_triggers, turn_start_other_triggers
+    delayed_attack_triggers, start_turn_triggers, tile_tick_triggers, turn_start_other_triggers
 )
 from .triggers.tiles import first_aid_heal
 # #270-r4-r2 : les SIX imports de ce fichier qui etaient DIFFERES sont HISSES. Aucun ne brise
@@ -584,8 +584,16 @@ class StartTurnOperation:
         # `RefreshEffectsOperation$$ShouldBeActive` le consomme via
         # `BaseEffect$$ShouldRefreshForTrigger`.
         refresh_stat_modifier_effects(state, refresh_trigger=RefreshEffectTrigger.TurnChanged)
+        # #513 : `On(0x15 = TurnStart_DelayedAttacks)`, le QUATRIEME des cinq events -- il etait le
+        # SEUL sans consommateur porte (<< role a mapper >> ci-dessus). Son role est lu :
+        # `IdunBattle.Entities.Effects.APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal` y
+        # monte l'attaque DIFFEREE de toute la famille 2-phases. Il PRECEDE `On(0x16)` -- ordre du
+        # decompile, et il compte : le missile frappe AVANT que les trigger-abilities de turn-start
+        # ne s'executent.
+        delayed = delayed_attack_triggers(state, player)
         out = start_turn_triggers(state, player)
-        out = tile_ticks + first_aid + living_metal + out + run_ai_control_pass(state, player)
+        out = (tile_ticks + first_aid + living_metal + delayed + out
+               + run_ai_control_pass(state, player))
         return out
 
 

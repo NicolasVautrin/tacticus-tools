@@ -18,6 +18,7 @@ from ..loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOf
                    LordOfTempestsAddIceAbility, FireTileDoT, FIRE_TILE,
                    OnFireDamageAbility, OnToxicDamageAbility)
 from ..bond_removal import bond_removal_registry_entries
+from ..pending_attack import pending_attack_registry_entries       # #513 : les attaques DIFFEREES
 from ..effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
                               RangedAutoAttackActivateOnTurnStart,
                               RangedAutoAttackDeactivateOnTurnStart,
@@ -973,3 +974,13 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
 # Sa face NATIVE est mesuree malgre tout -- cf. `bond_removal.py` §5.
 for _bond_et, _bond_cls in bond_removal_registry_entries():
     EFFECT_TRIGGERS.setdefault(_bond_et, []).append(_bond_cls)
+
+
+# #513 -- l'ATTAQUE DIFFEREE d'`IdunBattle.Entities.Effects.APendingAttackEffect`, un QUATRIEME
+# `Triggered()` qui s'AJOUTE aux trois retraits de bond ci-dessus, exactement comme le natif ajoute
+# le sien a l'`ArraySet` que lui rend `ABondEffect$$CreateHandleTriggerAbilitiesInternal`.
+# `SeekerMissileFrequencyLock_Target` (1123) porte donc DEUX entrees ici : ce retrait-la (le gate (a)
+# n'est PAS arme sur la famille -- `get_RemoveOnBondedEntityDeath` y vaut `NOT IsExecutedIfOwnerDies`)
+# et cette attaque. Cf. `pending_attack.py` pour la table et son critere d'inscription.
+for _pend_et, _pend_cls in pending_attack_registry_entries():
+    EFFECT_TRIGGERS.setdefault(_pend_et, []).append(_pend_cls)
