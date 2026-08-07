@@ -392,6 +392,10 @@ class Kill(AbilityBehaviour):
 # INVENTE la mutation. Le call-site `HeraldOfTheApocalypse` (1020 -> BattleFatigue 0x401) reste
 # DELIBEREMENT absent : son behaviour a un gate central sans AUCUNE source offline (cf. la docstring
 # de `TriggerAbility`).
+# ⚠ CE DICT N'EST PAS VIDE, et la ligne qui l'affirmait ici a coute un rouge (#513) : il est peuple
+# a l'IMPORT par les modules d'abilities -- `loki/full_throttle.py` (1134) depuis #448-r1,
+# `abilities/tau.py` (1127) depuis #513. Elargir la signature exige donc de mettre a jour CHAQUE
+# entree ; c'est la banque de tests qui l'a dit, pas la lecture du dict au repos.
 #
 # ⚠ `entities` EST L'`AbilityEntities` DU DECLENCHEUR, ET C'EST LE NATIF QUI LE VEUT (#513) :
 # `IdunBattle.Entities.Behaviours.TriggerAbilityBehaviour$$Execute` resout ses QUATRE selecteurs
