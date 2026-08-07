@@ -699,12 +699,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # ulterieurs, tous appendus en section STATIC-COPY) et il en SORT des qu'une face COMBAT est
     # portee -- le CONTRAT de disjonction de cette table l'exige alors. Sorties a ce jour, dans
     # l'ordre des tranches : 1088 (#487), 1087 (#488), 1048 (#489), 1027 (#490), 1069 (#491),
-    # 1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1141 (#503), 1132 (#504) -- ONZE.
+    # 1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1141 (#503), 1132 (#504),
+    # 1204 (#508) -- DOUZE.
     #
-    # Compte RE-DERIVE au 2026-08-07, APRES le rebase de #503 sur #504 :
-    # **27 entrees ecrites dans ce bloc**, ventilees `9 / 4 / 1 / 5` (1re region) et `3 / 1 / 4`
-    # (2e region), plus **4** entrees hors-bloc en tete de table -> **31 dans le dict entier**
-    # (`len(TARGETING_OPTIONS_UNPORTED)`, la seule mesure qui ne depende d'aucun decoupage).
+    # Compte RE-DERIVE au 2026-08-07 par un balayage du LITTERAL (`logs/count508.py`, jamais une
+    # soustraction) : **26 entrees ecrites dans ce bloc**, ventilees `9 / 4 / 1 / 4` (1re region) et
+    # `3 / 1 / 4` (2e region), plus **4** entrees hors-bloc en tete de table -> **30 dans le dict
+    # entier** (`len(TARGETING_OPTIONS_UNPORTED)`, la seule mesure qui ne depende d'aucun decoupage).
     # ⚠ CE COMPTE SE RE-COMPTE, IL NE SE SOUSTRAIT PAS -- et ce n'est pas une precaution de style :
     # #498, #499, #500, #501, #502, #503 et #504 ont retire une entree CHACUNE, en parallele, chaque
     # tranche aveugle aux autres. TROIS illustrations, toutes dans CE paragraphe :
@@ -733,7 +734,9 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   surcharge C -- `.ctor(this, template)`
     #                  PRESET SEUL (copie PURE, 8 qwords verbatim, AUCUN `|`).            1 (1 en #433-r4)
     #   (aucun ctor) -- STATIC-COPY : les 0x40 octets d'un preset sont recopies dans un local passe
-    #                  TEL QUEL a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28`.     16 (12 en #433-r4)
+    #                  TEL QUEL a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28`.     15 (12 en #433-r4)
+    #                  (16 avant #508, qui a fait MIGRER 1204 -- STATIC-COPY du preset `+0x240` --
+    #                   vers `LeadingTheChargeAbility.TARGETING_OPTIONS`.)
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
     # (layout `isSelfCasting@+0x00`, `range@+0x08..0x1f`, `forceMeleeTarget@+0x20`, `rules@+0x28`) --
@@ -879,7 +882,9 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   Le bloc reste ECRIT parce qu'il documente la 3e forme de ctor : son compte est 0, pas son
     #   existence. Le compte se RE-COMPTE sur la table, jamais par soustraction du chiffre ecrit.
 
-    # --- STATIC-COPY (5) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    # --- STATIC-COPY (4) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    #   (5 avant #508 : 1204 `LeadingTheCharge` en est SORTIE, sa face COMBAT etant portee. Le
+    #    compte est RE-DERIVE par `probe_508_leading_the_charge.py --tables`, jamais soustrait.)
     # ⚠ Ce compteur annoncait **16** sur `origin/master` pour **7** entrees reelles (mesure #502 au
     #   rebase) : il n'est garde par AUCUN test, donc il derive en silence a chaque migration. Il
     #   compte les entrees EXECUTABLES du bloc -- les lignes `⚠ ... est SORTIE d'ici` sont des
@@ -945,14 +950,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # 1195 TalonsOfTheEmperor -- `...Active.Loki.TalonsOfTheEmperorAbility$$.ctor`, preset `+0x40`.
     ActiveAbilityType.TalonsOfTheEmperor: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1195
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1204 LeadingTheCharge -- `...Active.Loki.LeadingTheChargeAbility$$.ctor`, preset `+0x240` --
-    #   le MEME que 1177, donc masque IDENTIQUE ; ce qui les separe est leur
+    # 1204 LeadingTheCharge : RETIREE (#508) -- sa face COMBAT est portee
+    #   (`runner/abilities/loki/leading_the_charge.py::LeadingTheChargeAbility`), donc son masque
+    #   MIGRE sur la classe, comme l'exige le CONTRAT de disjonction. Le preset reste `+0x240`,
+    #   le MEME que 1177 : ce qui separe les deux abilities est leur
     #   `GetDynamicInvalidTargetReason` (cf. `engine.services.ability_range`), pas leurs options.
-    ActiveAbilityType.LeadingTheCharge: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.CasterHasNotMoved  # 1204
-                                 | TR.TargetHasFreeAdjacentTile | TR.TargetIsEnemy
-                                 | TR.AllowObscuredTargetByElevation | TR.TargetIsNotAdjacent,
-                           self_cast=False, range=RANGE_WHOLE_BOARD,
-                           force_melee_target=RANGED_BOOL_FALSE),
 
     # ============================================================================================
     # LE LOT HORS POOL (#433-r4-r2-r1-r2-r2-r1-r1-r1) -- les abilities ACTIVES que le seed BC
@@ -1821,7 +1823,9 @@ DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
     ActiveAbilityType.LightOfSanguinius: _dynamic_rule_light_of_sanguinius,   # 1177
     ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
-    ActiveAbilityType.LeadingTheCharge: _dynamic_rule_leading_the_charge,     # 1204
+    # 1204 LeadingTheCharge : RETIREE (#508) -- meme forme, `LeadingTheChargeAbility` SURCHARGE
+    # `get_dynamic_invalid_target_reason` et appelle `_dynamic_rule_leading_the_charge` ci-dessus,
+    # qui reste l'UNIQUE mirror du corps natif.
     # 1087 ExemplarOfTheKauyon : RETIREE (#488) -- `ExemplarOfTheKauyonAbility` SURCHARGE
     # desormais `get_dynamic_invalid_target_reason` et appelle le corps ci-dessus.
     # 1038 FoulInfusion : RETIREE (#500) -- meme forme, `FoulInfusionAbility` SURCHARGE et appelle

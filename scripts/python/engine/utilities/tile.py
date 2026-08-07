@@ -82,6 +82,7 @@ from __future__ import annotations
 from ..weights import Weights
 from .base import BaseUtility, ComposedUtility
 from .decider import UtilityBucket, UtilityDefinition, calculate_utility
+from .leading_the_charge import LEADING_THE_CHARGE_CHARGE_TILE
 from .ramming_speed import RAMMING_SPEED_MOST_ADJACENT_ENEMIES
 from .utility_type import UtilityType
 from ..entities.effect_type import EffectType
@@ -1014,6 +1015,11 @@ UTILITY_BY_TYPE: dict[int, BaseUtility] = {
     # entrée dans son `Dictionary<UtilityType, UtilityType[]>` ; 54 n'en a pas, `GetUtility` rend
     # donc directement l'instance de la classe.
     int(UtilityType.RammingSpeed_MostAdjacentEnemies): RAMMING_SPEED_MOST_ADJACENT_ENEMIES,
+    # 67 — 2e terme du bucket de `LeadingTheChargeAbility$$GetMoveTile` (#508). FEUILLE, pas
+    # composite : meme critere que 54 ci-dessus — `UtilitiesDatabase$$InitializeUtilities` ne
+    # compose que les types qui ont une entree dans son `Dictionary<UtilityType, UtilityType[]>`,
+    # et 67 n'en a pas, donc `GetUtility` rend directement l'instance de la classe.
+    int(UtilityType.LeadingTheCharge_ChargeTile): LEADING_THE_CHARGE_CHARGE_TILE,
 }
 
 

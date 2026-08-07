@@ -229,6 +229,10 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.SquigLaunchas: AbilityAttackType.DirectTargetAttack,  # 1200
     ActiveAbilityType.SquigMine: AbilityAttackType.DirectTargetAttack,  # 1201
     ActiveAbilityType.VigilanceEternal: AbilityAttackType.DirectTargetAttack,  # 1202
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.LeadingTheChargeAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 0)` : 3e argument = 0 = DirectTargetAttack (LU, #508 --
+    # le ctor ne fait qu'y recopier le preset `TargetingOptions statics+0x240` avant l'appel).
+    ActiveAbilityType.LeadingTheCharge: AbilityAttackType.DirectTargetAttack,  # 1204
     ActiveAbilityType.DeathOnTheWind: AbilityAttackType.DirectTargetAttack,  # 1213
     ActiveAbilityType.AugmentedAssault: AbilityAttackType.DirectTargetAttack,  # 1221
     ActiveAbilityType.SavageEchoes: AbilityAttackType.DirectTargetAttack,  # 1230

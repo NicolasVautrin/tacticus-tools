@@ -132,7 +132,12 @@ SNAP_TARGETING_UNPORTED = (
     (1177, (4328538162, False, (1, False, True, None, False), 1)),
     (1191, (16384, False, (0, False, False, 1, False), 1)),
     (1195, (16384, False, (0, False, False, 1, False), 1)),
-    (1204, (4328538162, False, (1, False, True, None, False), 1)),
+    # 1204 LeadingTheCharge : SORTIE (#508) -- face COMBAT portee, masque migre sur
+    # `abilities/loki/leading_the_charge.py::LeadingTheChargeAbility.TARGETING_OPTIONS`. La VALEUR
+    # est CONFIRMEE champ pour champ contre le preset `TargetingOptions statics+0x240` relu au
+    # `.cctor` : `rules = 0x102004032 = 4328538162`, `selfCast = False`, `range` = WHOLE_BOARD,
+    # `forceMeleeTarget = 1` (RangedBool.False) -- exactement ce qui etait fige ici, et le MEME
+    # preset que 1177 juste au-dessus. Seule la SOURCE a bouge.
     (1010, (16400, False, (0, False, False, 1, False), 1)),
     (1144, (1073758240, False, (1, False, True, None, False), 1)),
     (1185, (8589950978, False, (1, True, False, None, False), 0)),
@@ -342,15 +347,19 @@ def test_snapshot_ordinal_valeur_et_ordre():
 
 
 def test_cardinalites_du_volet():
-    """Le compte du volet 2 : 30 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 114 cles.
+    """Le compte du volet 2 : 29 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 113 cles.
 
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 31 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
+    passe de 44 a 29 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
     1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1165 (#501), 1064 (#502), 1141 (#503),
-    1132 (#504), 1129 (#505). Ce que ce cliquet garde est la CONVERSION EN MEMBRES D'ENUM des cles
-    restantes -- pas la taille des tables.
+    1132 (#504), 1129 (#505), 1204 (#508). Ce que ce cliquet garde est la CONVERSION EN MEMBRES
+    D'ENUM des cles restantes -- pas la taille des tables.
+    ⚠ #505 et #508 se sont croisees ICI : la premiere retirait 1129, la seconde 1204, et CHACUNE
+    annoncait `30`. Le chiffre a ete RE-COMPTE sur `CIBLES` apres resolution -- une soustraction
+    d'un seul cote aurait laisse le test ROUGE au merge, et un `--ours`/`--theirs` aurait
+    RESSUSCITE l'entree de l'autre en laissant les deux cotes VERTS pris isolement.
 
     ⚠ LE NOMBRE CI-DESSUS SE RE-COMPTE SUR `CIBLES`, il ne se deduit JAMAIS par soustraction du
     chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les SEPT dernieres
@@ -363,9 +372,9 @@ def test_cardinalites_du_volet():
     resolution est l'UNION des retraits, et le chiffre est RE-DERIVE de `CIBLES` apres coup --
     #502, #503, #504 puis #505 ont effectivement resolu ce conflit en RE-COMPTANT."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [30, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [29, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 114
+    assert sum(tailles) == 113
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"
