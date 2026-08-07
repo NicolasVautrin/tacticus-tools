@@ -2098,6 +2098,12 @@
     "scripts/python/engine/runner/abilities/loki/mv71.py"
    ]
   },
+  "tests/engine/test_287r13_roster_monte_offline.py": {
+   "_at": 1786124360,
+   "_commit": "31d988c5819e0cd9d789dc7720c60beedeacc9a6",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_287r4_targeting_needs_instance_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",

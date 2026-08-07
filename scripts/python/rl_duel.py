@@ -354,7 +354,55 @@ def _validate_placements(bc: dict, player_units: list[dict],
     return problems
 
 
-def _verify_placements(sid: int, rid: int, wanted: list[dict]) -> list[str]:
+def _base_unit_id(uid: str) -> str:
+    """`thousNpc2Screamer:45` -> `thousNpc2Screamer`. Le suffixe de PALIER n'est pas republie.
+
+    Meme coupe qu'au `rpartition` de `_parse_place_specs` (#507), mais CONDITIONNELLE : on ne
+    tronque que si la partie droite est un ENTIER. Un `unitId` qui porterait un `:` non numerique
+    resterait entier, ce qui est le sens prudent -- au pire la confrontation compare deux noms
+    identiques."""
+    head, sep, tail = str(uid).rpartition(":")
+    return head if (sep and head and tail.strip().isdigit()) else str(uid)
+
+
+def _verify_roster(dec: dict, p_units: list[str], a_units: list[str]) -> list[str]:
+    """Confronte le ROSTER DEMANDE au roster REELLEMENT MONTE, camp par camp (#287-r13).
+
+    POURQUOI, alors que `_verify_placements` confronte deja : ce garde-la ne visite QUE les unites
+    citees par `--place`/`--a-place`. Une unite du roster confiee au placement NATIF
+    (`BC.PredefinedUnits` -> `IdunBattle.Operations.SetupGameOperation$$AddPredefinedUnits`) qui
+    n'arrive pas ne traverse AUCUNE de ses lignes. MESURE (#287-r13, board `C1_02`, seed 4242) :
+    `--a-units necroWarden x4` avec TROIS `--a-place` monte **3 unites sur 4**, et `build` rend
+    `[build] placements verifies OK (4)` puis **rc = 0** -- il IMPRIME meme le roster adverse a
+    quatre entrees. La geometrie mesuree n'est alors pas celle demandee, et un cote de bascule
+    disparait sans trace (c'est ainsi qu'un bras du predicat de `1200` a manque au premier jet de
+    `probe_287r11`).
+
+    ⚠ LE DEFICIT SEUL FAIT FAUTE. Un SURPLUS (summon pose au deploiement, unite de boss) est
+    NORMAL : il est imprime et jamais bloquant. Les MACHINES OF WAR sont hors perimetre -- elles
+    vivent dans `decisionView.mows`, et leur propre panne muette a deja son avertissement
+    (`_board_mow_ok`).
+
+    Rend la liste des ecarts (DEFICITS seuls)."""
+    have: dict[tuple[str, int], int] = {}
+    for u in (dec.get("units") or []):
+        key = (_base_unit_id(u.get("visualId")), int(u.get("team") or 0))
+        have[key] = have.get(key, 0) + 1
+    problems: list[str] = []
+    for team, roster in ((1, p_units), (2, a_units)):
+        want: dict[str, int] = {}
+        for uid in roster:
+            b = _base_unit_id(uid)
+            want[b] = want.get(b, 0) + 1
+        for uid, n in sorted(want.items()):
+            got = have.get((uid, team), 0)
+            if got < n:
+                problems.append(f"{uid} (team{team}) demande x{n} mais MONTE x{got} "
+                                f"-- {n - got} exemplaire(s) absent(s) du deploiement")
+    return problems
+
+
+def _verify_placements(sid: int, rid: int, wanted: list[dict], dec: dict | None = None) -> list[str]:
     """Confronte les placements DEMANDES aux positions REELLEMENT obtenues.
 
     Raison d'etre : `IdunBattle.Operations.AddUnitOperation$$Execute` abandonne en
@@ -363,7 +411,7 @@ def _verify_placements(sid: int, rid: int, wanted: list[dict]) -> list[str]:
     `TilesAreReserved`, `TilesArePendingDrafting`, `TilesAreInFog` -- ni exception, ni
     event d'erreur cote appelant. Un placement refuse se lirait donc comme un succes.
     Rend la liste des ecarts."""
-    res = _decision(sid, rid)
+    res = dec if dec is not None else _decision(sid, rid)
     units = res.get("units") or []
     # Cle = (visualId, team) : le MEME unitId peut etre des DEUX cotes (rosters croises),
     # et sans la team un placement joueur refuse se lirait comme honore par l'unite ADVERSE
@@ -978,6 +1026,10 @@ def cmd_build(sid: int, a) -> int:
         print("[build] replay recorder ARME (--record-replay) -> RPC replayOutputStream")
     print(f"[build] runnerId={rid}  MON roster (team 1)={p_units}")
     print(f"[build] roster ADVERSE (team 2)={a_units}{mow_str}")
+    # UN SEUL `decisionView` pour les DEUX confrontations qui suivent (placements et roster) :
+    # elles jugent le MEME instant, et deux releves distincts les feraient diverger sur un runner
+    # qui bouge.
+    dec_after = _decision(sid, rid)
     placement_problems: list[str] = []
     if placed:
         # Un placement refuse par le natif est un RETOUR NUL SILENCIEUX (cf. _verify_placements) :
@@ -986,9 +1038,12 @@ def cmd_build(sid: int, a) -> int:
         # d'ecrire le state-file laisserait ce runner ORPHELIN (le prochain build disposerait
         # l'ancien id, pas celui-ci) -- il mangerait le cap partage sans proprietaire.
         placement_problems = _verify_placements(sid, rid, [
-            {"unitId": u, "col": c, "row": r, "team": t} for u, c, r, t in placed])
+            {"unitId": u, "col": c, "row": r, "team": t} for u, c, r, t in placed], dec=dec_after)
         if not placement_problems:
             print(f"[build] placements verifies OK ({len(placed)})")
+    # #287-r13 : le ROSTER, que la confrontation ci-dessus ne visite pas (elle ne juge que les
+    # unites CITEES par --place/--a-place). Toujours joue, meme sans placement.
+    roster_problems = _verify_roster(dec_after, p_units, a_units)
     modifier_problems: list[str] = []
     if unit_mods:
         # Meme raison d'etre que la confrontation des placements : `ApplyModifiers`
@@ -1003,6 +1058,22 @@ def cmd_build(sid: int, a) -> int:
                     if u.get("ctrl")), None)
     _save_state({"runnerId": rid, "bc": bc, "seed": a.seed, "myTeam": my_team,
                  "playerUnits": player_units})
+    if roster_problems:
+        # ⚠ NON BLOQUANT (rc inchange), et c'est un CHOIX MESURE, pas une timidite : le rayon de
+        # souffle d'un refus dur n'est pas derivable de la config -- il faudrait REJOUER chaque
+        # montage du depot. Ce qui manquait n'etait pas le refus, c'etait le SIGNAL : `build`
+        # imprimait un roster a N entrees en en montant N-1, sans un mot. Le passer en refus dur
+        # (rc, comme les placements) est le residu #287-r13-r1, a trancher sur une mesure du
+        # nombre d'appelants affectes.
+        for p in roster_problems:
+            print(f"[error] roster NON MONTE: {p}", file=sys.stderr)
+        print("[error] --p-units/--a-units: le roster DEMANDE n'est pas celui qui est en "
+              "bataille. Causes connues, toutes a RETOUR NUL SILENCIEUX cote natif : tuile "
+              "interdite/occupee (AddUnitOperation$$AreTilesDisallowedAndLog), reservee, en "
+              "attente de draft, sous brouillard -- et, pour une unite confiee au placement "
+              "NATIF, un SpawnPointGroup trop petit "
+              "(SetupGameOperation$$AddPredefinedUnits). La geometrie mesuree n'est PAS celle "
+              "demandee.", file=sys.stderr)
     if placement_problems:
         for p in placement_problems:
             print(f"[error] placement NON HONORE par le natif: {p}", file=sys.stderr)

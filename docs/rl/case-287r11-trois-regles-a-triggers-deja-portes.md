@@ -118,8 +118,17 @@ la règle « un entier qui désigne passe par un enum » vise précisément.
   `casterReason = 1`, « munitions épuisées », **après quatre tours de déblocage** — aucun nombre de
   tours ne lève ce court-circuit-là. Parade : `seed_bc_with_ammo` (repris de `probe_250`).
 - **Un `--a-place` dont l'unité n'arrive pas en bataille ne fait REFUSER aucun placement.** La 4ᵉ
-  cible du montage 1200 a disparu sans un message ; un `necroWarden` en quatrième exemplaire ne
-  monte pas. Le probe imprime désormais le **substrat effectivement monté**. Résidu `#287-r13`.
+  cible du montage 1200 a disparu ; le probe imprime désormais le **substrat effectivement monté**.
+  Résidu `#287-r13`.
+  ⚠ **La CAUSE écrite ici était FAUSSE, et #287-r13 l'a réfutée par mesure.** « Un `necroWarden` en
+  quatrième exemplaire ne monte pas » : `BC.Units` n'en porte qu'**un seul** template, et le même
+  montage avec la 4ᵉ tuile en `(3,6)` au lieu de `(0,6)` monte les **quatre**
+  (`placements verifies OK (8)`, rc 0). La cause était la **tuile** `(0,6)` — et `rl_duel build` la
+  nommait déjà (`[error] placement NON HONORE par le natif: necroWarden (team2) demande @(0,6) mais
+  present @[(2,3),(1,1),(4,6)]`, rc 3). Ce qui est réellement silencieux est le cas **voisin** : une
+  unité du roster confiée au placement **natif** (sans `--a-place`) qui n'arrive pas — mesuré,
+  `[build] placements verifies OK (4)` puis **rc 0** avec 3 unités sur 4. C'est ce cas-là que
+  `_verify_roster` couvre. Détail : `docs/rl/case-287r10-consommateurs-verifies.md` §6.
 
 ## 6. Confrontation LIVE, avec attribution
 
@@ -184,11 +193,14 @@ au registre : cette tranche n'ajoute aucune entrée, elle en surcharge trois).
   elles (`1180 HeroicFusillade`, `1179`-comme-`1016 SendInTheNextWave`) demandent le même étage de
   mouvement que celui que cette tranche vient d'employer, donc leur coût a baissé.
 
-## 10. Résidu `#287-r13`
+## 10. Résidu `#287-r13` — TRAITÉ, et son énoncé était en partie FAUX
 
-**Un `--place`/`--a-place` dont l'unité n'arrive pas en bataille est SILENCIEUX.** `rl_duel` refuse
-et LOGUE un placement hors board, sur une tuile occupée ou non marchable ; mais une unité qui n'est
-simplement pas montée (ici un 4ᵉ `necroWarden` demandé au roster adverse) ne produit **aucun
-message** — la géométrie mesurée n'est pas celle demandée, et un côté de bascule disparaît sans
-trace. Parade appliquée ici : le probe imprime le substrat monté et le lecteur compare. La parade
-qui manque est en amont : `rl_duel build` devrait **nommer** les `--place` qu'il n'a pas honorés.
+**Ce que cette section affirmait** : « un `--place`/`--a-place` dont l'unité n'arrive pas en bataille
+est SILENCIEUX ». **Réfuté par mesure** (#287-r13) : `_verify_placements` couvre déjà ce cas et rend
+`rc 3` en nommant l'unité, la tuile demandée et les positions obtenues.
+
+**Ce qui était réellement silencieux** — et que `rl_duel._verify_roster` couvre désormais : une unité
+du roster **confiée au placement natif** (donc jamais citée par `--place`/`--a-place`) qui n'arrive
+pas. Mesuré : `--a-units necroWarden x4` avec trois `--a-place` monte **3 unités sur 4**, imprime
+`[build] placements verifies OK (4)` et rend **rc 0**, en affichant un roster adverse à quatre
+entrées. Détail et rayon de souffle : `docs/rl/case-287r10-consommateurs-verifies.md` §6.
