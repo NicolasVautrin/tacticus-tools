@@ -180,6 +180,48 @@ def test_etage3_sans_le_correctif_le_port_diverge_sur_le_vehicle_seul(rpc, monta
             "INCHANGE, or port=%r natif=%r. Le rayon de souffle deborde." % (temoin, port_t, natif_t))
 
 
+# --------------------------------------------------------------------------- [5] l'axe ABILITY
+@pytest.fixture(scope="module")
+def montage_ability(rpc, build_runner):
+    """`bloodDante` (lineup) castant `LightOfSanguinius`, dont le `damageProfile` est `Melta`."""
+    rid = build_runner("777", board=P.BOARD,
+                       extra=P.build_extra_ability(P.CIBLE_VEHICLE))["rid"]
+    dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 200) or {}
+    by_vis = {u.get("visualId"): u for u in (dec.get("units") or [])}
+    assert P.CASTER_ABILITY in by_vis and P.CIBLE_VEHICLE in by_vis, (
+        "montage ABILITY KO : %r" % sorted(by_vis))
+    return rid, int(by_vis[P.CASTER_ABILITY]["id"]), int(by_vis[P.CIBLE_VEHICLE]["id"])
+
+
+def test_etage5_le_bonus_vaut_aussi_pour_une_ABILITY_a_profil_melta(rpc, montage_ability,
+                                                                    monkeypatch):
+    """[5] GENERALISATION -- autre PORTEUR, autre VECTEUR, autre ORACLE.
+
+    Le gate natif porte sur le PROFIL DU COUP, jamais sur le vecteur : sur ce build, `Melta` est
+    porte par 2 armes de lineup ET par 6 abilities. Ne confronter que l'arme laisserait la moitie du
+    rayon non mesuree. Ici : `bloodDante` (et non `tauShadowsun`) caste `LightOfSanguinius` (voie
+    ACTIVE, et non l'attaque normale), confronte a `aiPlaybookPredict` (et non `aiPredict`).
+
+    Mesure de reference : natif `(8840, 13270)` == port ; sans le correctif, port `(5890, 8845)`
+    -- rapport 1,5008 / 1,5003."""
+    rid, aid, tid = montage_ability
+    port, natif = P.bandes_ability(lambda m, b=None, t=120: rpc(m, b, t), rid, aid, tid)
+    assert natif, "l'oracle natif n'a rendu aucun event pour la cible"
+    assert port == natif, ("axe ABILITY : le port DIVERGE du natif -- port=%r natif=%r"
+                           % (port, natif))
+
+    # CONTRE-EPREUVE : le meme bras sans le correctif doit SOUS-estimer d'un facteur ~1,5.
+    from engine.entities import effects as EF
+    monkeypatch.setattr(EF, "_MATCH_WIDE_EFFECTS", [])
+    sans, _ = P.bandes_ability(lambda m, b=None, t=120: rpc(m, b, t), rid, aid, tid)
+    assert sans != port, (
+        "CONTRE-EPREUVE INOPERANTE sur l'axe ABILITY : le port rend %r avec ET sans "
+        "`MATCH_WIDE_EFFECTS` -- le +50 %% viendrait donc d'ailleurs" % (sans,))
+    assert sans and sans[0][1] < port[0][1], (
+        "sens de l'ecart INATTENDU : sans le bonus le port doit SOUS-estimer (%r vs %r)"
+        % (sans, port))
+
+
 # --------------------------------------------------------------------------- [4] le gate
 def test_etage4_les_deux_conjoints_du_gate_mordent_un_par_un():
     """[4] OFFLINE -- `ForPercentIncrease(DamageProfileHasTrait(OnMelta) & HasTrait(target,

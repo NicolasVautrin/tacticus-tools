@@ -294,6 +294,43 @@ def build_extra(cible: str) -> list:
             "--armor-target", "2000", "--crit", "0,0", "--block-target", "0,0", "--no-ai"]
 
 
+# --- Axe ABILITY : le profil `Melta` n'est pas qu'une ARME ---------------------------------------
+# Le gate natif est `DamageProfileHasTrait(OnMelta)` sur le PROFIL DU COUP -- il ne dit rien du
+# VECTEUR. Sur ce build, `Melta` est porte par 2 armes de lineup ET par 6 abilities
+# (`abilities/<X>/constants/damageProfile`). Confronter le seul vecteur ARME laisserait la moitie du
+# rayon non mesuree, et c'est un porteur DIFFERENT sur une voie DIFFERENTE : la vraie generalisation.
+CASTER_ABILITY = "bloodDante"          # lineup ; `LightOfSanguinius` a `damageProfile = Melta`
+ABILITY_NOM = "LightOfSanguinius"
+ABILITY_ID = 1177
+
+
+def build_extra_ability(cible: str) -> list:
+    """Meme regime discriminant que `build_extra`, avec le caster de l'axe ABILITY."""
+    return ["--p-units", CASTER_ABILITY, "--a-units", cible,
+            "--place", "%s:%s" % (CASTER_ABILITY, CASTER_POS),
+            "--a-place", "%s:%s" % (cible, CIBLE_POS),
+            "--unit-stat", "%s:Health=400000,RemainingHealth=400000" % cible,
+            "--armor-target", "2000", "--crit", "0,0", "--block-target", "0,0", "--no-ai"]
+
+
+def bandes_ability(rpc1, rid, aid, tid):
+    """`(port, natif)` pour un cast d'ABILITY. L'oracle est `aiPlaybookPredict` -- l'oracle DIRECT
+    du playbook natif per-ability, pas `aiPredict` (qui est attack-based quel que soit l'abilityType)."""
+    from engine.playbook.prediction.abilities import make_damage_predictions
+    sc = _scene(rpc1, rid)
+    if sc is None:
+        return None, None
+    ev = make_damage_predictions(sc, aid, tid, ABILITY_ID, ABILITY_NOM, sc.pos(aid))
+    lst = ev if isinstance(ev, (list, tuple)) else ([] if ev is None else [ev])
+    port = [(int(e.prediction.raw_health_damage.min), int(e.prediction.raw_health_damage.max))
+            for e in lst]
+    orc = rpc1("aiPlaybookPredict", {"runnerId": rid, "unitId": aid, "targetId": tid,
+                                     "abilityType": ABILITY_ID}, 150) or {}
+    natif = [(int(e.get("healthDmgMin") or 0), int(e.get("healthDmgMax") or 0))
+             for e in (orc.get("events") or []) if e.get("targetId") == tid]
+    return port, natif
+
+
 def bandes(rpc1, rid, aid, tid):
     """`(port, natif)` -- la bande de degat predite, bornes comprises, sur la position COURANTE.
 
