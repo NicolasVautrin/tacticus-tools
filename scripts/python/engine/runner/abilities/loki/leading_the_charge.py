@@ -168,7 +168,8 @@ from ..behaviours.context import entities_from_state
 from ..behaviours.effects import AddEffect, AddStaticStatModifierEffect, RemoveEffect
 from ..behaviours.movement import MoveUnit
 from ..behaviours.summon import PerformAIAttack, Spawn
-from ...components import OwnerComponent, PositionComponent, StatsComponent, UnitComponent
+from ...components import (OwnerComponent, PositionComponent, StatsComponent, UnitComponent,
+                           unit_attacks_made_this_turn)
 from ....dsl.base import Const
 from ....dsl.effects import ExecutionContext
 from ....entities.ability_constant_type import AbilityConstantType
@@ -601,9 +602,18 @@ class LeadingTheChargeAbility(ActiveAbility):
         moved = next((p for n, p in ectx.emitted if n == "MoveUnit"), None)
 
         # ---- PHASE 2 : `AActiveAbility$$ExecuteAtomic( ... , GroupType.Ability_AtomicGroup )` ---
-        n_before = sum(1 for n, _ in ectx.emitted if n == "AttackWithAttackDamage")
+        # `SetCache( Cache( TimesAttackMadeThisTurn(Caster@0x48, rangeType: null) ) )` -- le
+        # compteur est FIGE AVANT l'attaque (#508-r1 : le substrat existe desormais,
+        # `components.unit_attacks_made_this_turn` = `AmountOfAttacksMadeThisTurnFormula$$Calculate`
+        # dans son regime `Nullable` VIDE, donc `ActorStatisticsComponent+0x24`).
+        cached_attacks = unit_attacks_made_this_turn(state, caster_id)
         leading_the_charge_attack_tree(pierce).execute(entities, ectx)
-        attacked = sum(1 for n, _ in ectx.emitted if n == "AttackWithAttackDamage") > n_before
+        # `AmountIsGreater( TimesAttackMadeThisTurn(Caster, null), <le cache> )` -- RELU apres.
+        # ⚠ Le collapse d'avant (`une emission 'AttackWithAttackDamage' de plus`) restait
+        # structurellement equivalent SUR CET ARBRE ; ce qui change est que le noeud est desormais
+        # PORTE, donc reutilisable par les deux autres abilities qui le consomment
+        # (`IconOfObstinacy_AddArmourBuffAbility`, `LegacyOfCombat`).
+        attacked = unit_attacks_made_this_turn(state, caster_id) > cached_attacks
         summon_tiles: list = []
         if attacked:            # `If( AmountIsGreater(TimesAttackMadeThisTurn, Cache(...)), spawn )`
             summon_tiles = leading_the_charge_summon_tiles(state, caster_id, caster_id, n_summons)

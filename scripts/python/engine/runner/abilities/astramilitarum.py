@@ -807,7 +807,10 @@ def frag_bomb_tree() -> AtomicGroup:
     splash = AttackWithAttackDamage(ActiveTarget(), FRAG_BOMB_ID, "Blast", is_melee=True,
                                     hits_key="nrOfHits_2",
                                     ability_type=int(ActiveAbilityType.FragBomb))
-    return AtomicGroup(SortedAttackSeries([(main_sel, main), (splash_sel, splash)]))
+    return AtomicGroup(SortedAttackSeries([(main_sel, main), (splash_sel, splash)],
+                                          # `<AbilityOrEffect>` = 6e argument de la factory, LU au
+                                          # call-site cite ci-dessus (#512-r2).
+                                          ability_type=int(ActiveAbilityType.FragBomb)))
 
 
 class FragBombAbility(ActiveAbility):

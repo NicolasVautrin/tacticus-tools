@@ -46,7 +46,8 @@ class _AbilityAttack:
                                force_crit: bool = False,
                                round_materialize: bool = False,
                                hit_index0: int = 0, crit_allowed0: bool = True,
-                               failed_block0=None) -> Optional[dict]:
+                               failed_block0=None,
+                               is_outside_attack: bool = True) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
@@ -89,7 +90,18 @@ class _AbilityAttack:
         precedents. **15 de ses 18 call-sites** posent `isOutsideAttack = false` (balayage exhaustif,
         `docs/rl/case-419-r3-is-outside-attack-inexprimable.md`). Un appelant qui monte une telle
         feuille DOIT donc threader l'etat -- sinon le crit se re-autorise, l'index de coup repart de
-        0 et les sources de block deja echouees sont RE-TIREES (tirages RNG en TROP)."""
+        0 et les sources de block deja echouees sont RE-TIREES (tirages RNG en TROP).
+
+        `is_outside_attack` (#512-r2) = le LITTERAL natif du meme nom, et il pilote UNE chose ici :
+        l'emission d'`On(PreAttack = 5)`. `True` (defaut) = la feuille est celle que
+        `DSLBehaviors$$AttackWith{Attack,Ability}Damage` emballe dans son PROPRE `AttackBehaviour`,
+        donc elle ouvre une attaque et pousse `StartAttack`. `False` = feuille NUE
+        (`DSLBehaviors$$AttackDamage` / `$$AbilityDamage`), composee dans un noeud qui a deja ouvert
+        l'attaque (`SortedAttackSeries`, un `Attack(...)` englobant) : elle ne pousse RIEN.
+        ⚠ C'est le MEME littéral que celui qui commande `hit_index0`/`crit_allowed0`/`failed_block0`
+        ci-dessus -- deux consequences d'un seul champ natif, laissees en deux parametres parce que
+        le port n'a pas (encore) de canal pour propager l'`OngoingAttack` a travers un
+        `SortedAttackSeries`."""
         from ..damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
         # GARDE-FOU rng (PAS un mirror natif) : sans `state.rng` cale (replay effet-seul, etat
         # `load_state` sans dumpRng) on SKIP au lieu de lever. RAFFINE a la migration du DoT de tuile :
@@ -174,8 +186,37 @@ class _AbilityAttack:
         #   COUT pour une unite NON porteuse : nul (aucun autre trigger porte n'ecoute l'event 5).
         #   REFUTE le residu case-61 §6 (« `On(PreAttack=5)` n'est pas emis par le vecteur ability »),
         #   qui n'avait jamais ete mesure.
+        #   ⚠ #512-r2 : **AUCUN GATE DE FAMILLE ICI**, et c'est LU, pas suppose. La surcharge RACINE
+        #   `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (7 arguments, celle a
+        #   laquelle les trois autres delegent) construit un `AbilityDamageBehaviour` PUIS
+        #   `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor(caster, target,
+        #   <AbilityDamageBehaviour>, abilityOrEffect)` -- et c'est l'`AttackBehaviour` qu'elle
+        #   RETOURNE. Exactement comme `$$AttackWithAttackDamage`. Or `StartAttack` (slot 58) est
+        #   pousse par `AttackBehaviour$$Execute`, qui ne connait PAS la famille de son behaviour
+        #   enfant : la famille ABILITY emet donc `On(PreAttack = 5)` comme la famille ATTACK.
+        #   Le gate `if is_attack_damage_op:` qui vivait ici l'eteignait pour toute feuille
+        #   `native_factory="ability"` -- dont `1088 HellfyreMissileRack` et `1026 BasiliskBarrage`,
+        #   deux abilities de porteurs du trait `SuppressiveFire`.
+        #   CE QUI CHANGE POUR UN NON-PORTEUR : rien (zero mutation, zero conso RNG -- seuls
+        #   `SuppressiveFireAddEffectAbility` et `LetTheGalaxyBurnArmAbility` ecoutent l'event 5).
+        #   CE QUI CHANGE POUR UN PORTEUR DE `LetTheGalaxyBurn` : son `Maybe(chance)` CONSOMME un
+        #   tirage par cible -- l'ordre `state.rng` de la famille ABILITY bouge donc pour lui, et
+        #   c'est ce que le montage live de #512-r2 confronte.
+        #   ⚠ LE CRITERE N'EST PAS LA FAMILLE, C'EST `isOutsideAttack` -- le LITTERAL natif, 8e
+        #   argument de `IdunBattleLogic.Entities.DSLBehaviors$$AbilityDamage` (et son jumeau
+        #   `$$AttackDamage`). Ces deux factories-la construisent une feuille **NUE** (le seul
+        #   `AbilityDamageBehaviour` / `AttackDamageBehaviour`, AUCUN `AttackBehaviour` -- lu
+        #   verbatim) : composee dans un noeud qui ouvre deja l'attaque, elle ne pousse RIEN.
+        #   QUATRE emetteurs de `StartAttack`, pas trois (#512-r1 en recensait trois) :
+        #   `AttackBehaviour$$Execute`, `StartAttackBehaviour$$Execute`, la voie MESSAGE
+        #   (`InputMessageProcessor...u003CVisitu003Eb__0`) et
+        #   `IdunBattle.Entities.Behaviours.SortedAttackSeriesBehaviour$$Execute`, qui invoque les
+        #   slots `0x3a`/`0x3b` (= 58 `StartAttack` / 59 `FinishAttack`, arite 3, LUS dans
+        #   `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`) a chaque CHANGEMENT de
+        #   cible de sa serie. Sans ce quatrieme, `1088 HellfyreMissileRack` -- deux feuilles NUES
+        #   sur la meme cible -- emettrait DEUX `On(5)` la ou le natif en emet UN.
         from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
-        if is_attack_damage_op:
+        if is_outside_attack:
             pre_attack_triggers(state, attacker_id, target_id,
                                 ranged=not bool(is_melee) if is_melee is not None else False,
                                 profile=damage_profile, ability_type=ability_type)

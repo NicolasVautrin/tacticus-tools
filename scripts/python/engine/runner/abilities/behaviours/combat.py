@@ -100,7 +100,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
                  "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain",
-                 "force_crit", "is_first_hit", "amount_spread_pct", "attack_state0")
+                 "force_crit", "is_first_hit", "amount_spread_pct", "attack_state0",
+                 "is_outside_attack")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
@@ -109,7 +110,13 @@ class AttackWithAttackDamage(AbilityBehaviour):
                  force_overkill: bool = False, hits_override=None, level_slot: str = "active",
                  tile_domain: bool = False, force_crit: bool = False,
                  is_first_hit: bool = True, amount_spread_pct: int = 0,
-                 attack_state0: Optional[dict] = None):
+                 attack_state0: Optional[dict] = None, is_outside_attack: bool = True):
+        # #512-r2 : `isOutsideAttack`, le litteral natif. `True` = cette feuille EST celle que
+        # `DSLBehaviors$$AttackWith{Attack,Ability}Damage` emballe dans son propre `AttackBehaviour`
+        # -> elle pousse `StartAttack`, donc `On(PreAttack = 5)`. `False` = feuille NUE
+        # (`$$AttackDamage` / `$$AbilityDamage`) composee dans un noeud qui a DEJA ouvert l'attaque.
+        # `SortedAttackSeries.__init__` le pose a `False` sur ses paires (cf. sa docstring).
+        self.is_outside_attack = bool(is_outside_attack)
         # #419-r3 : `attack_state0` = l'etat de l'`OngoingAttack` HERITEE (`+0x30` index de coup,
         # `+0x40` `isCriticalDamageAllowed`, `+0x48` `FailedBlockIds`), au format rendu par
         # `operations/damage_hits.attack_state_out`. `None` (defaut) = attaque NEUVE, ce qui est la
@@ -304,6 +311,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     damage_profile=self.profile, is_melee=self.is_melee,
                     ability_type=self.ability_type,
                     is_attack_damage_op=(self.native_factory != "ability"),
+                    # #512-r2 : cette feuille ouvre-t-elle l'attaque (`StartAttack` -> `On(5)`) ?
+                    is_outside_attack=self.is_outside_attack,
                     force_overkill=self.force_overkill, force_crit=self.force_crit,
                     # #419-r3 : etat de l'`OngoingAttack` heritee (cf. `__init__`). Absent = neuve.
                     hit_index0=int(_as0.get("next_hit_index", 0)),
@@ -349,15 +358,47 @@ class SortedAttackSeries(AbilityBehaviour):
       2. **la cible est passee par `ActiveTarget@0x180`** : les behaviours d'attaque du tableau ciblent
          `ActiveTarget()`, que ce noeud RELIE avant chaque execution (une unite presente dans les DEUX
          selecteurs recevrait les DEUX attaques, consecutivement).
-    Les operations `0x3a`/`0x3b` (Start/EndAttackSeries) sont des bornes d'ANIMATION : aucune mutation
-    d'etat, aucun tirage -> non portees (meme classe de no-op structurel que `InformWeapon`/`Inform`).
+    ⚠⚠ **`0x3a`/`0x3b` NE SONT PAS DES BORNES D'ANIMATION** -- cette docstring l'a affirme, et c'est
+    FAUX (#512-r2). Les deux ordinaux sont LUS dans
+    `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv` : `58 StartAttack` (arite 3) et
+    `59 FinishAttack` (arite 3) -- les MEMES slots que `IdunBattle.Entities.Behaviours.
+    AttackBehaviour$$Execute` pousse autour de chaque cible. Et
+    `IdunBattle.Operations.StartAttackOperation$$Execute` appelle
+    `EvaluateAbilitiesImmediately(EventTriggerType.PreAttack = 5, ...)`. Ce noeud est donc le
+    **QUATRIEME** emetteur de `On(5)` du binaire (avec `AttackBehaviour$$Execute`,
+    `StartAttackBehaviour$$Execute` et la voie MESSAGE), et il l'emet **par cible DISTINCTE de la
+    serie**, pas par feuille -- une cible presente dans les DEUX selecteurs recoit ses deux attaques
+    A L'INTERIEUR d'une seule ouverture (c'est litteralement ce que dit `if (unit != prevUnit)`).
+
+    CONSEQUENCE PORTEE : ce noeud EMET `On(5)` lui-meme, et il pose `is_outside_attack = False` sur
+    ses feuilles -- sinon `1088 HellfyreMissileRack` (deux feuilles sur la MEME cible) emettrait
+    DEUX `On(5)` la ou le natif en emet UN. Voir `damage_ops/ability.py`.
+    RESIDU NOMME, non porte : le pendant `On(Attack = 9)` de `FinishAttack` (`0x3b`) -- le port ne
+    l'emet que sur la voie NORMALE (`damage_ops/normal.py`), pour AUCUNE ability, et l'y ajouter
+    reveillerait d'un coup tous les consommateurs de `finish_attack_triggers` (armure Terminator,
+    reset de crit d'ActOfFaith, MoveAndSpawnDecoy, Neuroparasite) sur un rayon non mesure. Le seul
+    consommateur porte que l'asymetrie concerne est le CLEAR de `LetTheGalaxyBurn` ; MESURE du
+    2026-08-07 : les **33** porteurs du trait n'ont que **5** actives distinctes
+    (`BringerOfDespair`, `Drachnyen`, `FrenziedFiring`, `HeraldOfTheApocalypse`, `Incursion`) et
+    **aucune** n'est famille ABILITY ni ne passe par un `SortedAttackSeries` -> l'asymetrie est
+    INERTE sur tout porteur reel.
 
     `pairs` = liste de `(TargetsSelector, AbilityBehaviour)`. Emet 'SortedAttackSeries' (ordre resolu,
     diagnostic). PUR."""
-    __slots__ = ("pairs",)
+    __slots__ = ("pairs", "ability_type")
 
-    def __init__(self, pairs):
+    def __init__(self, pairs, ability_type: Optional[int] = None):
         self.pairs = list(pairs)
+        # `+0x60..0x70` = l'`AbilityOrEffect` de la source, 6e argument de la factory native. Il
+        # n'etait PAS porte ; il l'est parce que l'`On(5)` que ce noeud emet le transporte, et que
+        # `BattleQuery$$IsRangedAttack` (slot 3) commence par `if (!ability.HasValue) return false`.
+        self.ability_type = ability_type
+        # `GetAttacks` ne construit QUE des feuilles NUES : c'est ce noeud-ci qui ouvre l'attaque
+        # (slot 58) et la ferme (slot 59). Toute feuille qui sait exprimer `isOutsideAttack` est donc
+        # rabattue a `False` ici -- une feuille qui ne le sait pas garde son comportement.
+        for _sel, beh in self.pairs:
+            if beh is not None and hasattr(beh, "is_outside_attack"):
+                beh.is_outside_attack = False
 
     def execute(self, entities, ectx):
         from dataclasses import replace
@@ -374,9 +415,24 @@ class SortedAttackSeries(AbilityBehaviour):
                     by_id[uid] = (u, [])
                     order.append(uid)
                 by_id[uid][1].append(beh)
+        state = ectx.state
+        actor = (entities.caster or {}).get("id") if entities.caster else None
         for uid in order:
             u, behs = by_id[uid]
             ents = replace(entities, active_target=u)      # `entities[slot 4] = unit` (ActiveTarget)
+            # slot 58 `StartAttack` -> `StartAttackOperation$$Execute` ->
+            # `EvaluateAbilitiesImmediately(PreAttack = 5)` -- UNE fois par cible DISTINCTE de la
+            # serie, AVANT ses behaviours (#512-r2, cf. la docstring). L'`actor` du natif est
+            # `(+0x50).SelectSingle(entities)` ; le port prend le caster du contexte, qui est ce que
+            # ce selecteur rend a tous les call-sites portes.
+            if state is not None and actor is not None:
+                from ...operations.triggers.dispatch.attack import pre_attack_triggers
+                # `ranged` est un canal LEGACY du port (la branche positionnelle `Normal(3)`) ; le
+                # gate PORTEUR est `ability_type`, que `_is_ranged_attack` resout en
+                # `GetAbilityAttackRangeType`. Sans id, le slot 3 rend `false` -- soit exactement
+                # l'etat d'avant #512-r2 pour ce noeud (aucune emission).
+                pre_attack_triggers(state, int(actor), int(uid), ranged=False,
+                                    ability_type=self.ability_type)
             for beh in behs:
                 beh.execute(ents, ectx)
         ectx.emit("SortedAttackSeries", order=list(order))
@@ -451,19 +507,31 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
     noeuds VALEUR (int ou `AAmountFormula`). `MAX_ITERATIONS` = la garde native `100`. Emet
     'ChainLeftOverHitsAttackDamage' par iteration. PUR."""
     __slots__ = ("caster_sel", "target_sel", "next_target_sel", "ability_id", "profile", "hits",
-                 "extra_hits", "is_melee", "native_factory", "min_key", "max_key")
+                 "extra_hits", "is_melee", "native_factory", "min_key", "max_key", "ability_type")
 
     MAX_ITERATIONS = 100                     # garde native (`iVar19 = 100`)
 
     def __init__(self, caster_sel: TargetsSelector, target_sel: TargetsSelector,
                  next_target_sel: TargetsSelector, ability_id: str, profile: str, hits,
                  extra_hits, is_melee: bool = False, native_factory: str = "attack",
-                 min_key: str = "minDmg", max_key: str = "maxDmg"):
+                 min_key: str = "minDmg", max_key: str = "maxDmg",
+                 ability_type: Optional[int] = None):
         self.caster_sel, self.target_sel, self.next_target_sel = caster_sel, target_sel, next_target_sel
         self.ability_id, self.profile = ability_id, profile
         self.hits, self.extra_hits = hits, extra_hits
         self.is_melee, self.native_factory = is_melee, native_factory
         self.min_key, self.max_key = min_key, max_key
+        # #512-r2 volet 2 : l'`AbilityOrEffect` du champ `+0x70`, que le behaviour d'attaque
+        # construit a la volee recoit en `source`. Le port ne le THREADAIT PAS -> l'evenement
+        # `On(PreAttack = 5)` de chaque maillon partait avec `ability_type = None`, et le gate
+        # `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack` (slot 3) -- qui commence par
+        # `if (!ability.HasValue) return false` puis switche sur `GetAbilityAttackRangeType` --
+        # retombait sur sa branche POSITIONNELLE `Normal(3)`. Mesure #512-r1 : `1048
+        # FragstormGrenadeLauncher` est `attackRangeType = Ranged(2)`, donc INCONDITIONNELLEMENT
+        # ranged ; sans l'id, une cible ADJACENTE etait declaree melee et `SuppressiveFire`
+        # SOUS-suppressait. `None` reste le defaut (feuille montee sans id -> comportement
+        # anterieur, gates inertes).
+        self.ability_type = ability_type
 
     @staticmethod
     def _left_over_hits(atk: dict, extra: int) -> int:
@@ -592,6 +660,10 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
             atk = AttackDamageOperation.execute_ability_attack(
                 state, caster, tgt, bmin, bmax, pierce, hits,
                 damage_profile=self.profile, is_melee=self.is_melee,
+                # #512-r2 volet 2 : `abilityType = this+0x10` -- le natif le passe au behaviour
+                # construit a la volee ; sans lui les gates qui lisent l'`AbilityOrEffect` du coup
+                # (dont `_is_ranged_attack`) sont FAUX, pas seulement inertes.
+                ability_type=self.ability_type,
                 is_attack_damage_op=(self.native_factory != "ability"))
             if atk is None:                              # rng non cale : degradation fidele (cf. #217)
                 break
@@ -688,14 +760,17 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     STRICTEMENT identique avec une cible NON-Resilient (astraBullgryn, 61362 PV) -> elle MEURT. La route
     `"direct"` tuait les deux."""
     __slots__ = ("target_sel", "profile", "amount", "is_melee", "hits", "source_ref",
-                 "multi", "native_operation")
+                 "multi", "native_operation", "is_outside_attack")
 
     def __init__(self, target_sel: TargetsSelector, profile: str, amount, is_melee: bool = True,
                  hits: int = 1, source_ref=None, multi: bool = False,
-                 native_operation: str = "direct"):
+                 native_operation: str = "direct", is_outside_attack: bool = True):
         self.target_sel, self.profile, self.amount = target_sel, profile, amount
         self.is_melee, self.hits, self.source_ref = is_melee, int(hits), source_ref
         self.multi, self.native_operation = multi, native_operation
+        # #512-r2 -- cf. `AttackWithAttackDamage.__init__` : `isOutsideAttack` natif, gate de
+        # l'emission d'`On(PreAttack = 5)`.
+        self.is_outside_attack = bool(is_outside_attack)
 
     def execute(self, entities, ectx):
         state = ectx.state
@@ -723,6 +798,7 @@ class AttackWithAbilityDamage(AbilityBehaviour):
                     state, src, tgt, base, base, pierce, max(1, self.hits),
                     damage_profile=self.profile, is_melee=self.is_melee,
                     is_attack_damage_op=False,             # famille ABILITY : pas de crit, pas de resolve
+                    is_outside_attack=self.is_outside_attack,          # #512-r2 : gate d'`On(5)`
                     # etage MULTIPLICATEUR de CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers (slot 0x10 = Round(dmg x mult,
                     # AwayFromZero) IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers) : inconditionnel des que param_7 HasValue, ce qui est
                     # TOUJOURS le cas dans `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`. MESURE live (nova

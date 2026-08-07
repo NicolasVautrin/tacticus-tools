@@ -433,7 +433,11 @@ def hellfyre_missile_rack_tree() -> SortedAttackSeries:
                                   native_factory="ability",
                                   ability_type=int(ActiveAbilityType.HellfyreMissileRack))
     return SortedAttackSeries([(Target(), atk1),
-                               (hellfyre_extra_targets_selector(), atk2)])
+                               (hellfyre_extra_targets_selector(), atk2)],
+                              # `<AbilityOrEffect 1088>` = le 6e argument de la factory, LU au
+                              # call-site ci-dessus (#512-r2). Il transporte l'`On(PreAttack = 5)`
+                              # que ce noeud emet par cible distincte.
+                              ability_type=int(ActiveAbilityType.HellfyreMissileRack))
 
 
 class HellfyreMissileRackAbility(ActiveAbility):

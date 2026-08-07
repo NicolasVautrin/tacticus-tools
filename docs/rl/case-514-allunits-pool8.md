@@ -118,11 +118,8 @@ d'`extraPierceRatio` compte un cadavre allié.
 
 ## 7. Ce qui n'est PAS couvert
 
-* **`WeaverOfFate` / `RealityUnbound` ne sont pas confrontés live dans le régime qui les
-  distingue** (3 ennemis touchés en Psychic dont un meurt). La correction repose sur le décompilé
-  (source pool-8 **et** `selectionType = Any`) + la preuve live que le pool 8 contient les morts ;
-  le montage qui le fermerait : `thousInfernalMaster` + 3 ennemis, une salve Psychic qui en tue un,
-  puis lire la pose de `1185 WeaverOfFate_MaxOutDamage`. Résidu **#514-r1**.
+* ~~**`WeaverOfFate` / `RealityUnbound` ne sont pas confrontés live dans le régime qui les
+  distingue**~~ — **FERMÉ (`#514-r1`)**, cf. §8.
 * **22 des 24 call-sites natifs pool-8 ne sont pas portés ou pas vérifiés un par un.** Vérifiés :
   `Waaagh$$GetAttackBehaviour` (porté, corrigé), `LeadingTheCharge$$GetExtraPierceRatio` (porté,
   corrigé), `WeaverOfFate$$GetTrigger` (porté, corrigé), `HeavyRailRifle_Attack$$CreateBehaviour`
@@ -133,3 +130,34 @@ d'`extraPierceRatio` compte un cadavre allié.
   autres restent à trancher. Résidu **#514-r2**.
 * **`UnitSelectionType` reste non porté** (#433-r3-r2) : le port ne peut pas exprimer
   `Enemies(source, 3)` sur une source pool-8. Aucun site porté n'en a besoin aujourd'hui.
+
+## 8. `#514-r1` — le régime discriminant, MONTÉ
+
+Le porteur retenu n'est pas `thousInfernalMaster` mais **`thousAhriman`** : il porte `WeaverOfFate`
+**et** `Doombolt` (1102), dont le profil est `Psychic` et qui frappe **tous** les ennemis vivants à
+distance <= 2 du caster. Un seul cast produit donc les trois traces Psychic, sans dépendre d'alliés.
+
+`probe_514r1_weaver_of_fate_mort.py` (board `MC1_67`, seed 5141) place **exactement trois** ennemis
+dans ce rayon et rabaisse l'un d'eux à 300 PV (`--unit-stat Health` **et** `RemainingHealth` — deux
+occurrences, le `;` de cette option sépare des ENTRÉES, pas des champs) pour qu'il meure du cast.
+
+| étage | mesure |
+|---|---|
+| E0 morts après le cast | NATIF `[u79]` == PORT `[u79]` |
+| E1 ORACLE — `WeaverOfFate_MaxOutDamage` dans la cascade native | **POSÉ** |
+| E2 terme du gate (`>= 3`) | `True`, touches Psychic = `[u79 MORT, u81, u83]` |
+| E3 `1185` posé côté port | `True` |
+| AB1 `_enemies_of` rabattu sur les VIVANTS (l'état d'AVANT #514) | 2 touches -> terme `False` — **MORD** |
+
+**Deux pièges de montage, tous deux trouvés en mesurant** :
+
+* l'**oracle est la CASCADE, pas l'état final** — `AddEffect(1185, ..., Nullable(1))` dure UN TOUR et
+  le cast d'une active TERMINE le tour du porteur, donc le `LoseEffect` tombe dans le même flux : un
+  `decisionView` pris après ne voit **jamais** la pose (première version : `natif = False` sur une
+  pose réelle) ;
+* on n'évalue **pas** `matches()` mais le **terme du compte** — `matches` conjoint
+  `Not(HasEffect(caster, 1185))`, déjà posé sur l'état post-cast, donc les deux bras rendaient
+  `False` et la contre-épreuve était inerte.
+
+`RealityUnboundAbility$$CreateTrigger` appelle **littéralement** `WeaverOfFateAbility$$GetTrigger`
+(seul appelant hors table) : le même corps est donc confronté pour les deux.
