@@ -57,6 +57,33 @@ LES TROIS ETAGES
       `scripts/ratchets-486r24-bypass-confrontation.txt`, et son bypass doit SERVIR : un bypass
       qui ne masque aucun decouvert est une declaration MORTE, donc un rouge.
 
+L'ORDRE : `probe_457 --measure-missing` D'ABORD, CE CLIQUET ENSUITE (#486-r29)
+------------------------------------------------------------------------------
+CE CLIQUET N'A PAS LE MEME NOMBRE DE SOURCES AVANT ET APRES `--measure-missing`, et l'ordre
+prescrit jusqu'au 2026-08-08 etait l'INVERSE de celui qu'il faut. Sans entree d'empreinte, la
+seconde source est VIDE : l'etage 2 verifie la fermeture d'imports SEULE, qui est strictement
+plus etroite. L'auteur jouait donc le cliquet dans le regime a UNE source, gravait l'empreinte
+juste apres, et livrait ; la confrontation passait a DEUX sources AU MERGE.
+
+MESURE DU 2026-08-08. La PR #832 etait VERTE chez son auteur (`probe_486r15 PASS` rapporte) et
+ROUGE sur `master` au commit de merge `18edd540` : **8 chemins** manquants, **tous** apportes par
+les temoins (6 `__init__.py` de cascade + `caches/ability_and_effect_cache.py` +
+`streams/verify_turn_finished.py`), **0** par la fermeture -- et l'entree d'empreinte fautive
+arrivait DANS LA MEME PR. Ce n'est donc pas une negligence d'auteur : aucun rappel de discipline
+ne le ferme, c'est l'ORDRE qui etait faux.
+
+AMPLEUR DU REGIME A UNE SOURCE, mesuree le 2026-08-08 sur le parc : **28 des 74** declarations
+(38 %) n'ont AUCUNE entree d'empreinte, donc leur vert ne vaut que pour une source ; et sur les
+46 qui en ont une, les temoins apportent **206** chemins que la fermeture d'imports NE VOIT PAS.
+
+D'ou deux crans, ici et dans la prescription :
+  * le VERDICT SE QUALIFIE -- `PASS SOUS RESERVE` quand au moins une declaration est jugee a une
+    seule source, avec le compte, la LISTE et l'ordre a jouer. Le rc reste 0 (ce n'est pas une
+    faute), mais le texte ne se lit plus comme un vert plein. Auparavant ces fichiers etaient
+    comptes parmi les << confrontee(s) >>, ce qui etait faux ;
+  * `--proposer` etait DEJA correct sur ce point (il DIT qu'il ne voit que les imports quand
+    l'empreinte manque) -- c'est la checklist qui ne l'etait pas.
+
 L'ASYMETRIE QUE L'ETAGE 3 CORRIGE, ET POURQUOI ELLE ETAIT LA VRAIE FAUTE (#486-r24)
 ------------------------------------------------------------------------------------
 Ce cliquet rougissait sur le TROP ETROIT et benissait le TROP LARGE. L'auteur rationnel ecrivait
@@ -530,6 +557,13 @@ def _run(argv=None) -> int:
 
     # -- ETAGE 2 : CONFRONTATION
     rouges, non_mesures, bypass = confronter(ok, args.verbose)
+    # ⚠ CE N'EST PAS UNE REMARQUE DE FIN, C'EST UNE RESERVE SUR LE VERDICT (#486-r29). Un
+    # fichier sans entree d'empreinte est juge sur UNE source (la fermeture d'imports), qui
+    # est STRICTEMENT PLUS ETROITE que l'union. Le PASS qui suit ne vaut donc pas la meme
+    # chose pour lui que pour un fichier confronte -- et l'ancienne sortie le comptait
+    # pourtant parmi les << confrontee(s) >>.
+    reserve = sorted(r for r in non_mesures
+                     if DC.hors_confrontation(ok[r]) is None)
     if non_mesures:
         print("[486r15] %d declaration(s) NON CONFRONTEE(S) a l'empreinte (aucune entree mesuree) "
               ": la fermeture d'imports seule a ete verifiee -- %s"
@@ -578,9 +612,35 @@ def _run(argv=None) -> int:
     if mauvais:
         print("[486r15] VERDICT: FAIL -- %d fichier(s) en faute" % mauvais)
         return 1
-    print("[486r15] VERDICT: PASS -- %d declaration(s) dont %d confrontee(s) et %d hors "
-          "confrontation ; dette de %d fichier(s)"
-          % (len(ok), len(ok) - len(bypass), len(bypass), len(ko)))
+
+    # ------------------------------------------------------------------ LE VERT SE QUALIFIE
+    # UN VERT DOIT DIRE DE QUOI IL EST LE VERT (#486-r29). Le compte des << confrontee(s) >>
+    # valait `len(ok) - len(bypass)` : il rangeait parmi les confrontees les declarations
+    # SANS entree d'empreinte, qui n'ont ete jugees que sur la fermeture d'imports. Le
+    # verdict devient donc TRI-ETAT en TEXTE (le rc reste 0 : ce n'est pas une faute).
+    confrontees = len(ok) - len(bypass) - len(reserve)
+    if reserve:
+        print("[486r15] VERDICT: PASS SOUS RESERVE -- %d declaration(s) dont %d confrontee(s) "
+              "aux DEUX sources, %d a UNE SEULE (fermeture d'imports) et %d hors "
+              "confrontation ; dette de %d fichier(s)"
+              % (len(ok), confrontees, len(reserve), len(bypass), len(ko)))
+        print("[486r15] CE VERT NE VAUT QUE POUR UNE SOURCE sur %d fichier(s) : la fermeture "
+              "d'imports NE VOIT PAS ce qu'un test OUVRE sans l'importer." % len(reserve))
+        for r in reserve[:12]:
+            print("             %s" % r)
+        if len(reserve) > 12:
+            print("             ... et %d autre(s)" % (len(reserve) - 12))
+        # L'ORDRE, ecrit la ou il est joue -- pas seulement dans un brief qu'on recopie.
+        print("[486r15] ORDRE (#486-r29) : joue `probe_457_offline_tests_green.py "
+              "--measure-missing` D'ABORD, PUIS ce cliquet. Grave l'empreinte APRES, et la "
+              "confrontation passe de UNE a DEUX sources AU MERGE, pas chez toi -- c'est")
+        print("[486r15]   exactement ce qui a rendu `master` rouge au commit 18edd540 : PR "
+              "#832 verte chez son auteur, 8 chemins manquants, TOUS apportes par les "
+              "temoins, 0 par la fermeture, empreinte arrivee dans la MEME PR.")
+        return 0
+    print("[486r15] VERDICT: PASS -- %d declaration(s) dont %d confrontee(s) aux DEUX sources "
+          "et %d hors confrontation ; dette de %d fichier(s)"
+          % (len(ok), confrontees, len(bypass), len(ko)))
     return 0
 
 
