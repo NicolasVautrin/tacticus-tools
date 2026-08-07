@@ -25,14 +25,33 @@ import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
 
 /**
  * Classes d'`IBrokenTargetingRule` dont le code N'EST PAS un champ mais le retour de leur
- * `get_Type`. Recensé au décompilé sur `rnca9r7q6c` : `NoBrokenTargetingRule` (valide) et
- * `ObscuredTerrainBrokenTargetingRule` — `IdunBattle.Core.Services.ObscuredTerrainBrokenTargetingRule$$get_Type`
- * rend le littéral `0x1000000` = bit 24 `TargetIsUnobscured`. Toute autre classe reste non décodable
- * et sort en `hex: "0x0"` avec sa `ruleClass`, comme avant.
+ * `get_Type`. Recensé au décompilé sur `rnca9r7q6c` — et le recensement se fait par les CLASSES
+ * (`data/symbols/<build>/frida/classes.tsv` : 4 classes, dont 3 non génériques), JAMAIS par la
+ * présence d'un symbole `get_Type`. IL2CPP **déduplique les corps triviaux** : un seul des trois
+ * `get_Type` est nommé, les deux autres sont publiés sous le nom d'une classe Unity/Wwise.
+ *
+ * - `NoBrokenTargetingRule` → `0` (cible valide).
+ * - `ObscuredTerrainBrokenTargetingRule` → `0x1000000` = bit 24 `TargetIsUnobscured`
+ *   (`IdunBattle.Core.Services.ObscuredTerrainBrokenTargetingRule$$get_Type`, NOMMÉ).
+ * - `InFogOfWarBrokenTargetingRule` → `1` (#287-r10). Boxée par le TOUT PREMIER étage de
+ *   `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`, avant le moindre test de
+ *   masque, dès qu'une tuile de la cible porte `TileComponent+0x40` (`IsInFogOfWar`).
+ *   ⚠ MESURÉ LIVE sur le board `C6_09` (34 tuiles en brouillard sur 63) : sans cette ligne le RPC
+ *   publiait `hex: "0x0"` — donc « cible VALIDE » — pour un REFUS, avec `casterReason == 0`.
+ *   Son `Type` est établi par `InFogOfWarBrokenTargetingRule$$ToString`, qui boxe la valeur `1`
+ *   comme les trois autres `ToString` du groupe boxent exactement leur propre `Type`.
+ *   ⚠ `1` est l'ordinal de `TargetingRule.ValidRequest`, donc `reasons` sortira `["ValidRequest"]`
+ *   pour ce refus : c'est le nom que le natif donne lui-même à ce `Type`. Le discriminant reste la
+ *   `ruleClass`, publiée à côté. Le volet CASTER n'est PAS concerné —
+ *   `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason` n'a aucune branche brouillard
+ *   (LU : il ne boxe que `Generic` et `No`).
+ *
+ * Toute autre classe reste non décodable et sort en `hex: "0x0"` avec sa `ruleClass`, comme avant.
  */
 const NON_GENERIC_RULE_CODES: Record<string, number> = {
     NoBrokenTargetingRule: 0,
     ObscuredTerrainBrokenTargetingRule: 0x1000000,
+    InFogOfWarBrokenTargetingRule: 1,
 };
 import { Ctx } from "../../controller.js";
 import {
