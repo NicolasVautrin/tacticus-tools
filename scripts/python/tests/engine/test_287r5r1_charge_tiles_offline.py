@@ -5,8 +5,13 @@ confrontation a etabli, et couvre le SEUL bras que le live ne peut pas exercer.
 
 CINQ ETAGES :
 
- 1. RECENSEMENT BI-CANAL -- les trois ids sont EVALUABLES, chacun par son canal (surcharge de classe
-    pour 1151/1202, entree de `DYNAMIC_TARGET_RULE_UNPORTED` pour 1204, qui n'a pas de classe).
+ 1. RECENSEMENT BI-CANAL -- les trois ids sont EVALUABLES, chacun par son canal. Le recensement
+    reste bi-canal (etage NON-REGRESSION en fin de fichier), mais LE CANAL DE 1204 A CHANGE : #508
+    a porte sa face COMBAT, donc son masque et sa regle ont MIGRE de `TARGETING_OPTIONS_UNPORTED` /
+    `DYNAMIC_TARGET_RULE_UNPORTED` vers `LeadingTheChargeAbility`. Ce fichier gardait
+    « 1204 n'a AUCUNE classe portee » -- un fait de CADENCE, pas une loi native. Ce qu'il garde
+    desormais est la loi : les trois restent EVALUABLES, et la regle de 1204 n'a toujours qu'UN
+    SEUL mirror (la surcharge DELEGUE au foyer, elle ne recopie pas son corps).
  2. BASCULE -- chaque regle DISCRIMINE : un substrat qui refuse, un substrat qui passe. Les deux ne
     different que par la grandeur que le corps natif LIT (la distance, l'adjacence, l'empreinte).
  3. MUTANTS, en DELTA -- la regle DESARMEE doit LACHER le refus qu'elle produisait
@@ -27,6 +32,7 @@ ASCII only.
 from __future__ import annotations
 
 import sys
+import textwrap
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
@@ -104,12 +110,52 @@ def _reason(st, caster, cible, aid) -> int:
 # ================================================================================================
 
 def test_les_trois_ids_sont_evaluables_chacun_par_son_canal():
-    assert P.evaluabilite(QUICKENING) == "surcharge"
-    assert P.evaluabilite(VIGILANCE) == "surcharge"
-    # 1204 n'a AUCUNE classe portee : sa regle ne peut vivre que dans la table.
-    assert ABILITY_CLASSES.get(LEADING) is None
-    assert P.evaluabilite(LEADING) == "table"
-    assert LEADING in DYNAMIC_TARGET_RULE_UNPORTED
+    """L'INVARIANT -- les trois ids sont EVALUABLES ; le CANAL, lui, suit la cadence de portage.
+
+    1204 a bascule `table` -> `surcharge` avec #508 (`8dd377ef`). Cette version-ci ne CONSTATE pas
+    le nouveau canal en remplacant un litteral par un autre : le seul canal interdit est `aucune`,
+    et c'est ce que l'assertion exprime. Le contrat de DISJONCTION qui rend la bascule propre
+    (1204 sortie des deux tables « non portee ») est garde par
+    `tests/engine/runner/test_508_leading_the_charge_offline.py::test_1204_est_au_registre_et_a_UNE
+    _seule_source_de_masque` -- on ne le duplique pas ici."""
+    for aid in TRIO:
+        assert P.evaluabilite(aid) != "aucune", (
+            "%d n'est plus EVALUABLE : sa regle dynamique a disparu des DEUX canaux (ni surcharge "
+            "de classe, ni entree de `DYNAMIC_TARGET_RULE_UNPORTED`). Le bit "
+            "`TargetMatchesDynamicRule` de son masque est alors un gate DESARME, et la degradation "
+            "est PERMISSIVE -- le moteur accepterait des cibles que le natif refuse." % aid)
+    assert LEADING in P.ids_portant_le_bit(), (
+        "1204 ne porte plus `TargetMatchesDynamicRule` dans son masque effectif : ce fichier ne "
+        "mesure alors plus rien sur elle.")
+
+
+def test_la_regle_de_1204_n_a_toujours_qu_UN_SEUL_mirror():
+    """LE CRAN QUE LA MIGRATION DE #508 A RENDU NECESSAIRE, et que rien d'autre ne tient.
+
+    `LeadingTheChargeAbility.get_dynamic_invalid_target_reason` DELEGUE a
+    `_dynamic_rule_leading_the_charge` (`runner/abilities/targeting.py`), qui reste l'UNIQUE mirror
+    de `...LeadingTheChargeAbility$$GetDynamicInvalidTargetReason` -- sa propre docstring le
+    prescrit : « Dupliquer le corps ici en ferait deux, qui divergeraient. »
+
+    `test_508...::test_la_classe_surcharge_bien_la_regle_dynamique` verifie qu'elle SURCHARGE, pas
+    qu'elle DELEGUE : une recopie locale du corps y passerait au vert, serait indistinguable
+    AUJOURD'HUI, et divergerait au premier correctif applique d'un seul cote (c'est la contre-epreuve
+    deja mesuree en #643/#646 sur un autre foyer). D'ou une assertion sur le SOURCE.
+
+    Par AST et pas par grep : la docstring de la methode CITE le nom du foyer, donc un critere par
+    chaine resterait vert sur une methode qui ne l'appelle plus."""
+    import ast
+    import inspect
+    klass = ABILITY_CLASSES[LEADING]
+    src = inspect.getsource(klass.get_dynamic_invalid_target_reason)
+    tree = ast.parse(textwrap.dedent(src))
+    appels = {n.func.id for n in ast.walk(tree)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "_dynamic_rule_leading_the_charge" in appels, (
+        "`%s.get_dynamic_invalid_target_reason` n'APPELLE plus `_dynamic_rule_leading_the_charge` : "
+        "le mirror de `...LeadingTheChargeAbility$$GetDynamicInvalidTargetReason` est recopie "
+        "localement. Meme a l'identique, c'est la SECONDE source que la migration de #508 avait "
+        "pour but d'eviter. Appels vus : %r" % (klass.__name__, sorted(appels)))
 
 
 # ================================================================================================
