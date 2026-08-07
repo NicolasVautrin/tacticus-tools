@@ -654,8 +654,17 @@ def main_tile_id(state, entity_id) -> int | None:
     arbre (`astramilitarum.basilisk_shell_tiles`, `deathguard.plagueburst_target_tile`) -- le seul
     endroit du port ou `target_id` est normalise en TUILE. Les DEUX l'ecrivaient chacun de leur cote,
     et l'un des deux (1026) ne traitait QUE le cas UNITE : un `target_id` de tuile lui rendait `[]`,
-    donc **zero obus**, sans erreur (#287-r12). L'ordre des deux branches est celui du natif : la
-    branche TUILE d'abord (`GetMainTile` d'une tuile est l'identite), l'unite ensuite.
+    donc **zero obus**, sans erreur (#287-r12).
+
+    ⚠ L'ORDRE DES DEUX BRANCHES EST LU, PAS CHOISI, et il n'est pas celui qu'on ecrit d'instinct :
+    `IdunBattle.Entities.EntityExtensions$$GetMainTileId` essaie D'ABORD le composant de PIED
+    (`TryGetComponent` -> `return *(uint*)(comp + 0x14)`), PUIS l'unite multi-pieds (l'`OrderedSet`
+    @+0x78, dont il prend l'element 0 et RECURSE), et ne teste `EntityExtensions$$IsTile` qu'EN
+    DERNIER, en repli. Une entite-TUILE est donc le cas de FALLBACK, jamais le cas prioritaire.
+    Ce n'est pas academique cote port : les deux espaces d'ids (unites de `state.entities`, tuiles de
+    `state.board`) se CHEVAUCHENT (residu nomme dans `operations/active_ability.py`), donc l'ordre
+    DECIDE ce que rend un id ambigu. `deathguard.plagueburst_target_tile` testait la tuile d'abord --
+    l'ordre inverse du natif ; il delegue desormais ici.
 
     ⚠ Pendant ID de `_entity_pos` (`entities/selectors/_shared.py`), qui rend une POSITION : les deux
     mirrorent la meme fonction native sous les deux formes dont le port a besoin ; celle-ci ne vaut
@@ -667,8 +676,8 @@ def main_tile_id(state, entity_id) -> int | None:
         eid = int(entity_id)
     except (TypeError, ValueError):
         return None
-    if eid in getattr(board, "by_id", {}):
-        return eid
     e = state.get_entity(eid)
     pc = e.get_component(PositionComponent) if e is not None else None
-    return board.id_at(pc.col, pc.row) if pc is not None else None
+    if pc is not None:
+        return board.id_at(pc.col, pc.row)
+    return eid if eid in getattr(board, "by_id", {}) else None
