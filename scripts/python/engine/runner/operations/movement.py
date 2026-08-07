@@ -412,20 +412,23 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
     ⇒ un port qui propagerait l'override jusqu'a `_num_tiles_moved` serait INFIDELE.
 
     L'override a par ailleurs un second effet, sur `path` lui-meme (il change le pathfinder, donc la
-    trajectoire, donc la garde `path vide -> mouvement ABANDONNE` et les `AddMoveEvent`). Le port ne
-    materialise pas `path` dans `MoveUnitOperation` -> RESIDU NOMME, inchange. Il ne se compose pas
-    avec le bras 2 sur `movementSteps` : des que l'override vaut `Fly`, `IsLikeFlying` est vrai,
-    donc c'est la DISTANCE qui est prise et `path.Count` n'est plus lu.
+    trajectoire, donc la garde `path vide -> mouvement ABANDONNE`). Ce `path` est materialise depuis
+    #448-r1-r1-r2-r2 (`_calculate_path`), et l'override y est PROPAGE. Il ne se compose pas avec le
+    bras 2 sur `movementSteps` : des que l'override vaut `Fly`, `IsLikeFlying` est vrai, donc c'est
+    la DISTANCE qui est prise et `path.Count` n'est plus lu.
     Meme statut pour le troisieme forceur de `Fly` de `CalculatePaths`
     (`if (previousPosition.IsEmpty()) pathfinderType = 3`) : il n'entre PAS dans `IsLikeFlying`, il
     ne touche que `path`.
 
-    RESIDU, herite de `_num_tiles_moved` : le natif tire `movementSteps` de `path` (8e out-param de
-    `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths`) tandis que
-    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` compte `connectedPath` (le 9e) -- DEUX
-    listes distinctes. Le port n'en materialise qu'une (le `WalkPathfinder`) ; elles ont la MEME
-    longueur sur un chemin de marche ordinaire, et divergent la ou
-    `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo` DENSIFIE (teleporteurs/sauts)."""
+    ⚠ CE `movementSteps` RESTE DERIVE de `_num_tiles_moved`, PAS de `_calculate_path`, et c'est
+    VOULU. Les deux listes natives sont distinctes (`path` = 8e out-param, `connectedPath` = 9e),
+    et la valeur rendue ici est CONFRONTEE LIVE (#448-r1-r1-r1 : 70 vols, la greffe de
+    `FullThrottle` sur 5 volants). Les rebrancher sur `_calculate_path` ne changerait aucune valeur
+    -- les deux passent par le meme `_dijkstra_by_pos` sur un chemin de marche -- mais ferait
+    reposer une mesure validee sur un etage neuf, sans rien gagner. RESIDU herite, inchange : le
+    port ne materialise pas la DENSIFICATION de
+    `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo`, la ou les deux listes divergent
+    (teleporteurs/sauts)."""
     e = state.get_entity(int(mover_id))
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None
@@ -1011,7 +1014,13 @@ class MoveUnitOperation(Operation):
                 is_interim_step=self.is_interim_step,
                 arrive_at_final_tile=self.arrive_at_final_tile)
             refresh_effects_after_move_triggers(state)   # 2e `RefreshEffects({7, null})` natif
-        # INCRÉMENT 1b (residu) : `AddMoveEvent` par pas (bus de vue) reste non porte.
+        # `AddMoveEvent` par pas : NON PORTE, et ce n'etait PAS a porter (#448-r1-r1-r2-r2). Le
+        # decompile d'`IdunBattle.Operations.MoveUnitOperation$$AddMoveEvent` ne touche AUCUN
+        # composant ECS : il construit un `Dictionary<int,int>` (`0x79` pathTile, `0x80` isLastTile,
+        # `0x7a..0x7f` les pieds 1..6) et le pousse dans `AOperation.get_Events()` par
+        # `AddStep(3, unit.Id, dict)`. Ses seules autres operations sont des LECTURES
+        # (`HasTrait(unit, 0x13 = Burrow)`, `IsTeleportationTile`). Canal de VUE, comme le step
+        # `0x25` d'`OverrideMovementTargetOperation` et le `Inform{0x79}` du Miss.
 
 
 def refresh_effects_after_move_triggers(state: State) -> list:

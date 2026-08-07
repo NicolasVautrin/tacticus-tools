@@ -289,9 +289,16 @@ Trois lectures load-bearing : le champ est posé **par l'Operation de mouvement 
 Porté : `UnitComponent.movement_target_override`, `OverrideMovementTargetOperation` (`operations/
 movement.py`), la feuille DSL `OverrideUnitMovementTarget` (`behaviours/movement.py`) et la boucle
 ci-dessus dans `MoveUnitOperation.execute`.
-**NON porté, résidu NOMMÉ** : le gate `TilesAreEmpty` entre (b) et (c) — le port n'a ni réservation
+> ⚠ **PORTÉ depuis #448-r1-r2 (2026-08-07)**, et l'alinéa ci-dessous sous-estimait sa portée :
+> `TilesAreEmpty` est le **SEUL gate d'occupation de tout `Execute`** — aucun des sept gates amont
+> n'en teste — donc il mord aussi quand la destination était occupée AVANT le vecteur, sans qu'aucun
+> trigger n'intervienne. Détail, montage isolant (occupant **allié**, pas ennemi) et confrontation
+> live : **`docs/rl/case-448-r1-r1-r2-r2-gates-abandon.md`**. La RÉSERVATION, elle, reste non portée
+> (résidu `#448-r1-r2-r1`).
+
+~~**NON porté, résidu NOMMÉ** : le gate `TilesAreEmpty` entre (b) et (c) — le port n'a ni réservation
 ni abandon de mouvement. Il mordrait si un trigger `PreUnitMove` faisait OCCUPER la tuile d'arrivée,
-ce qu'aucun consommateur porté ne fait.
+ce qu'aucun consommateur porté ne fait.~~
 
 ### 6.3 `FullThrottle` (1134) — le `CreateBehaviour` porté, le `CreateTrigger` non
 
@@ -412,7 +419,8 @@ exerce le bras « la cible PORTE l'ability », que le bras 1 ne peut pas atteind
 
 * `FullThrottle$$CreateTrigger` — cf. §6.3 (`MovementSteps` non résolue offline). Le passif autonome
   est INERTE côté port ; seul son déclenchement par le Miss est porté.
-* Le gate `TilesAreEmpty` de `MoveUnitOperation` — cf. §6.2.
+* ~~Le gate `TilesAreEmpty` de `MoveUnitOperation`~~ — **PORTÉ** (#448-r1-r2), cf. §6.2 et
+  `case-448-r1-r1-r2-r2-gates-abandon.md`. Ce qui reste : la RÉSERVATION (`#448-r1-r2-r1`).
 * La branche `Kill` du Fallback (`Count(Tiles(Caster)) == 0`) n'est **pas exercée LIVE** : elle
   demande un plateau où AUCUNE tuile n'est libre. Elle est gardée offline (O6, les trois gates de
   `KillUnitBehaviour` + l'idempotence) et sa feuille est le mirror du foyer de mort déjà validé.

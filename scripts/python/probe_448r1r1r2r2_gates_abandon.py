@@ -196,20 +196,31 @@ def volet_a(board_id: str) -> int:
               % (apres_on, op.last_abandoned, apres_off, "OK" if ok else "ROUGE"))
 
     # ---- A2 : GATE 1 (`TilesAreEmpty`). Deux unites, l'une bouge SUR l'autre.
+    # ⚠ L'occupant est un **ALLIE** (meme team), et c'est ce qui ISOLE le gate : un ENNEMI est
+    # refuse par les DEUX gates, puisque `WalkPathfinder$$UnitIsBlockedByEnemyUnit` interdit
+    # l'arete qui mene a sa tuile -- `CalculatePaths` rendrait `path = null` de toute facon.
     neigh, walk, elev = board.walk_maps_by_pos()
     a = next(p for p, w in sorted(walk.items()) if w and neigh.get(p))
     b = next(q for q in neigh[a] if walk.get(q))
-    st = _state(board, [(1, a, 1, []), (2, b, 2, [])])
+    st = _state(board, [(1, a, 1, []), (2, b, 1, [])])
     op = MoveUnitOperation(1, b)
     op.execute(st, EventBus())
     apres_on = _pos(st, 1)
-    st2 = _state(board, [(1, a, 1, []), (2, b, 2, [])])
+    st2 = _state(board, [(1, a, 1, []), (2, b, 1, [])])
     MoveUnitOperation(1, b, enforce_native_gates=False).execute(st2, EventBus())
     apres_off = _pos(st2, 1)
     ok = (apres_on == a and apres_off == b and op.last_abandoned == "tiles-not-empty")
     bad += 0 if ok else 1
-    print("[A2] a=%s occupee par u2 ; gates ON -> pos %s (abandon=%r) ; OFF -> %s  => %s"
+    print("[A2] %s occupee par un ALLIE ; gates ON -> pos %s (abandon=%r) ; OFF -> %s  => %s"
           % (b, apres_on, op.last_abandoned, apres_off, "OK" if ok else "ROUGE"))
+    # le RECOUVREMENT sur un ENNEMI, assertionne plutot que subi
+    st3 = _state(board, [(1, a, 1, []), (2, b, 2, [])])
+    op3 = MoveUnitOperation(1, b, skip_pre_move_triggers=True)     # saute `TilesAreEmpty`
+    op3.execute(st3, EventBus())
+    ok = (op3.last_abandoned == "path-empty")
+    bad += 0 if ok else 1
+    print("[A2] occupant ENNEMI, gate 1 saute -> abandon=%r (le chemin est coupe) => %s"
+          % (op3.last_abandoned, "OK" if ok else "ROUGE"))
 
     # ---- A3 : les TROIS exemptions natives du gate 1.
     #   (i) occupant STEPPABLE -> le mouvement PASSE (et le crush a lieu) ;
@@ -219,7 +230,7 @@ def volet_a(board_id: str) -> int:
     op = MoveUnitOperation(1, b)
     op.execute(st, EventBus())
     ok_i = _pos(st, 1) == b
-    st = _state(board, [(1, a, 1, []), (2, b, 2, [])])
+    st = _state(board, [(1, a, 1, []), (2, b, 1, [])])
     st.get_entity(2).get_component(UnitComponent).alive = False
     MoveUnitOperation(1, b).execute(st, EventBus())
     ok_ii = _pos(st, 1) == b

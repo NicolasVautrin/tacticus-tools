@@ -194,9 +194,12 @@ ailleurs.
   appellent `MoveUnitOperation.execute` **directement**. `last_movement_steps` est donc calculé
   correctement mais non consommé sur ce chemin. Le corriger toucherait push / switch / quickening /
   genestealer, bien au-delà de ce cas — **résidu `#448-r1-r1-r2-r1`**.
-* **`path` dans `MoveUnitOperation`** : le port ne matérialise pas la trajectoire, donc ni la garde
-  native `path vide -> mouvement ABANDONNÉ`, ni les `AddMoveEvent` par pas, ni l'effet de
-  l'override sur les tuiles TRAVERSÉES — **résidu `#448-r1-r1-r2-r2`**.
+* ~~**`path` dans `MoveUnitOperation`**~~ — **PORTÉ (2026-08-07)**, `_calculate_path` +
+  `walk_pathfinder.get_path_by_pos` (même `_dijkstra_by_pos` que les comptes, aucun second port du
+  pathfinding), et la garde `path vide -> ABANDONNÉ` est au rang natif. ⚠ Les `AddMoveEvent` par
+  pas **n'étaient PAS à porter** : `AddMoveEvent` ne touche aucun composant ECS, c'est un canal de
+  VUE (`AOperation.get_Events()` → `AddStep(3, unitId, dict)`). Détail :
+  **`docs/rl/case-448-r1-r1-r2-r2-gates-abandon.md`**.
 * **`useTeleporter`** : `CalculatePaths` pose `Nullable(GetStat(unit, Movement))` quand
   `IsLikeFlying && GetDistance(startTile, endTile) > Movement`. Argument mort sur les deux routes
   lues (`#448-r1-r1-r1-r1` §4) ; non re-vérifié sur les autres pathfinders.
