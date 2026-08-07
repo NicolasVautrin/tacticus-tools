@@ -95,27 +95,104 @@ i2 : « Deals 1x [dmg] Piercing Damage to all adjacent enemies. If only one enem
   et s'applique des DEUX cotes ; `BlessingsOfKhorne` est indexe sur le nb de defaites en MELEE de la
   bataille (0 au 1er cast) ; `TrophyTaker` n'agit que sur la crit-chance (neutralisee au build par
   `--crit 0,0`).
+
+KillMaimBurn (1132, `worldKharn` « Kharn the Betrayer »). Namespace natif
+`Abilities.Active.Loki.KillMaimBurnAbility` (#504).
+`IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
+
+    dmg1 = MinMaxDamage (state, 0)  = RandomAmount(GetVariableForLevel(0xc  minDmg  ), (0xd  maxDmg  ))
+    dmg2 = MinMaxDamage2(state, 0)  = RandomAmount(GetVariableForLevel(0x36 minDmg_2), (0x37 maxDmg_2))
+    dmg3 = MinMaxDamage3(state, 0)  = RandomAmount(GetVariableForLevel(0x38 minDmg_3), (0x39 maxDmg_3))
+    p1/p2/p3 = GetDamageProfile()/GetDamageProfile2()/GetDamageProfile3()  # Piercing / Eviscerate / Plasma
+    h1/h2/h3 = ConfigConst(0x2f nrOfHits) / ConfigConst(0x32 nrOfHits_2) / ConfigConst(0x66 nrOfHits_3)
+    n        = GetNumberConstant(0x16 range)                                    # = 2
+
+    t2 = GetNextTarget( previousTarget  = target@0x60,
+                        validNextTargets = AdjacentEnemies(caster@0x48, 1, 3),
+                        damage           = dmg2 )
+    t3 = GetNextTarget( previousTarget   = t2,
+                        validNextTargets = Unobscured(caster@0x48,
+                                              SurroundingEnemies(caster@0x48, n, 1, 3)),
+                        damage           = dmg2 )                       # <-- dmg2, PAS dmg3 (LU)
+
+    b1 = Group( AttackWithAttackDamage(caster@0x48, target@0x60, dmg1, Direct(Nullable(p1)), h1,
+                                       AbilityOrEffect(this+0x10), <options>, 2),
+                target@0x60, 0x20 )
+    b2 = Group( AttackWithAttackDamage(caster@0x48, t2, dmg2, Direct(Nullable(p2)), h2, ...), t2, 0x20 )
+    b3 = Group( AttackWithAttackDamage(caster@0x48, t3, dmg3, Direct(Nullable(p3)), h3, ...), t3, 0x20 )
+    ExecuteAtomic( op_BitwiseAnd(op_BitwiseAnd(b1, b2), b3), 0x2a )
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$GetNextTarget(previousTarget,
+validNextTargets, damage)` (MIRROR du DECOMPILE) :
+
+    pool   = FromTrigger( validNextTargets,
+                          op_LogicalNot(IsObjectOrSteppable(It@0x68)), 0 )
+             .Otherwise(validNextTargets)                          # repli si le filtre VIDE tout
+    sorted = SortUnitsByDamageUtility( pool, caster@0x48, Direct(AbilityOrEffect(this+0x10)),
+                                       UtilityDefinition(0x23 = UtilityType.Damage), damage,
+                                       3, <hits = null> )
+    return If( IsAlive(previousTarget), previousTarget, First(sorted, 1) )
+           .Otherwise(previousTarget)
+
+i2 CONCORDANT : « Deals 1x [dmg] Piercing Damage to an adjacent enemy. Then performs a second attack
+targeting an adjacent enemy, dealing 6x [dmg_2] Eviscerating Damage. Then performs a third attack
+targeting an enemy within range 2, dealing 1x [dmg_3] Plasma Damage. **All attacks prioritize the
+same target until it is killed and then prioritise kills.** » -- la derniere phrase EST le
+`If(IsAlive(prev), prev, First(SortUnitsByDamageUtility(...)))`.
+Config 1132 : `nrOfHits=1`/`damageProfile=Piercing`, `nrOfHits_2=6`/`damageProfile_2=Eviscerate`,
+`nrOfHits_3=1`/`damageProfile_3=Plasma`, `range=2` ; les SIX bornes sont dans
+`variablesAffectedByRarityBonus`.
+
+- **Les trois bandes sont LAZY, et c'est le coeur de l'ability** : `t2`/`t3` sont des SELECTEURS, donc
+  evalues par `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` au moment de LEUR bande. Si la
+  bande 1 tue la cible, `IsAlive(previousTarget)` est FAUX quand la bande 2 s'execute -> re-ciblage.
+  `t3` re-evalue `t2` (il en est le `previousTarget`), donc la chaine se re-derive a chaque bande.
+- **`damage` de la 2e ET de la 3e `GetNextTarget` est `dmg2`** (`MinMaxDamage2`), LU au decompile : le
+  meme `pvVar5` est passe aux deux appels. Ne PAS "corriger" en `dmg3` pour la 3e bande.
+- **`SortUnitsByDamageUtilitySelector$$Select` CONSOMME UN TIRAGE** : il appelle `damage.Calculate(
+  entities)` UNE fois (hors de la boucle par cible), et `IdunBattle.Entities.Formulas.RandomAmount$$
+  Calculate` finit par `query.NextInternal(min, max + 1)` sur le PRNG de bataille (`DSLFactory+0x18`).
+  Le tri n'est donc PAS gratuit en rng -- mais il n'a lieu que dans la branche FAUSSE du `If`
+  (cible precedente MORTE). `hits` du selecteur est `null` -> le champ reste a `1` et la prediction
+  vaut `dmgMin == dmgMax == <le tirage>`, 1 coup.
+- `native_factory="attack"` : `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` construit
+  `AttackDamageBehaviour` + `AttackBehaviour` (famille ATTACK, 2 tirages/coup a cc=0) -- LU, pas deduit.
+  Le `caster`/`target` que ce `DSLBehaviors` donne a l'`AttackDamageBehaviour` sont les selecteurs par
+  DEFAUT (`caster@0x48`/`target@0x60`) ; les arguments de l'appelant vont a l'`AttackBehaviour`.
+- `Group(..., 0x20)` = `GroupType.Ability_Attack` (LU dans `data/symbols/<build>/frida/enums.tsv`),
+  pass-through d'etat ; `ExecuteAtomic(., 0x2a)` -> `AtomicGroup` (inline #201).
+- FACE DECISION deja portee (#362, `engine/playbook/noncomparable/kill_maim_burn.py`) : le playbook ne
+  lit QUE le 1er volet (`MinMaxDamage`/`GetDamageProfile`). Les suffixes `_2`/`_3` sont propres a la
+  face COMBAT -- c'est-a-dire a CE port.
+- Confonds du PORTEUR, hors perimetre : `TrophyTaker` (crit-chance, neutralise par `--crit 0,0`),
+  `BlessingsOfKhorne` (indexe sur les defaites melee de la bataille, 0 au 1er cast), `RapidAssault`.
 """
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from ...entities.behaviours import op_and, AtomicGroup
-from ...entities.formulas import Count, Get, If
+from ...dsl.base import Const, TargetsSelector, _is_alive, _units_of
+from ...entities.ability_constant_type import AbilityConstantType
+from ...entities.behaviours import op_and, AtomicGroup, Group
+from ...entities.formulas import Count, Get, If, RandomAmount
 from ...entities.selectors.accessors import CasterTile, Target, TargetTile
+from ...entities.selectors.geometry import Otherwise
 from ...entities.selectors.tiles import Caster
-from ...entities.selectors.units import AdjacentEnemies, AdjacentUnits, And
+from ...entities.selectors.units import (AdjacentEnemies, AdjacentUnits, And, SurroundingEnemies,
+                                         Unobscured, non_steppable_or_object_units)
 from ...entities.triggers import AmountIsGreater
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ...dsl.effects import ExecutionContext
-from .base import ActiveAbility
+from ...streams.group_type import GroupType
+from .base import ActiveAbility, ability_attack_params
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.stats import SubtractHealthPercent
 from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from ..components import StatsComponent
+from ..operations.damage_utility import first_by_damage_utility
 
 if TYPE_CHECKING:
     from ..state import State
@@ -331,3 +408,201 @@ class MurderousSwingAbility(ActiveAbility):
                 for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         return {"ability": "MurderousSwing", "caster": caster_id, "target": target_id,
                 "extra_damage": extra, "per_target_delta": seen, "hits": hits, "dsl": True}
+
+
+KILL_MAIM_BURN_ID = "KillMaimBurn"
+# `GroupType.Ability_Attack` = 0x20 -- le 3e argument des trois `DSLBehaviors.Group` de
+# `KillMaimBurnAbility$$ExecuteBehaviour`, DECLARE `groupType : IdunBattle.Streams.GroupType` dans
+# `frida/methods.tsv` et LU dans `data/symbols/<build>/frida/enums.tsv`.
+KILL_MAIM_BURN_GROUP = GroupType.Ability_Attack
+
+
+def _kill_maim_burn_const(key: AbilityConstantType) -> int:
+    """`AbilityConfiguration$$GetNumberConstant(config, <key>)` = `KillMaimBurn.constants[<nom>]`.
+
+    Lecture gameconfig DIRECTE, par le NOM du membre d'enum (jamais son ordinal) : le noeud
+    `ConfigConst` du port lit `ctx.config`, un `AbilityConfiguration` que le contexte d'un cast de
+    runner ne porte pas -- meme voie que `triggers/loki/serene_unifier.py::_ability_const`."""
+    import gameconfig as GC                 # DIFFERE, et GRATUIT au sens du cliquet d'import isole :
+    #   `gameconfig` n'est PAS un module `engine.*` (c'est un script racine de `scripts/python`), donc
+    #   il n'entre dans aucun cycle du paquet ; le hisser ferait payer le chargement du gameconfig a
+    #   tout import de `abilities/worldeaters.py`, y compris aux consommateurs qui n'en ont pas besoin.
+    consts = (GC.ability(KILL_MAIM_BURN_ID) or {}).get("constants") or {}
+    return int(consts.get(getattr(key, "name", str(key))) or 0)
+
+
+class KillMaimBurnNextTarget(TargetsSelector):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$GetNextTarget(
+    previousTarget, validNextTargets, damage)` -- MIRROR 1:1 du decompile (cf. l'en-tete du module) :
+
+        pool   = FromTrigger(validNextTargets, NOT IsObjectOrSteppable(It@0x68), 0)
+                 .Otherwise(validNextTargets)
+        sorted = SortUnitsByDamageUtility(pool, caster@0x48, Direct(AbilityOrEffect(1132)),
+                                          UtilityDefinition(0x23 = UtilityType.Damage), damage, 3, null)
+        return If(IsAlive(previousTarget), previousTarget, First(sorted, 1)).Otherwise(previousTarget)
+
+    Les DEUX etages structurels (`pool` et le `.Otherwise` final) sont des noeuds DSL montes tels
+    quels ; seul l'etage `SortUnitsByDamageUtility + First` est COLLAPSE en imperatif
+    (`operations/damage_utility.first_by_damage_utility`), doctrine slice-18/19 deja appliquee a
+    FinalJustice / AncestralFortune / Doombolt -- le selecteur AI-target n'a pas d'equivalent noeud.
+
+    ⚠ **UN TIRAGE PRNG dans la branche FAUSSE.** `SortUnitsByDamageUtilitySelector$$Select` appelle
+    `damage.Calculate(entities)` UNE fois (avant la boucle par cible) ; `damage` est ici
+    `MinMaxDamage2` = `RandomAmount(minDmg_2, maxDmg_2)`, dont le `Calculate` finit par
+    `query.NextInternal(min, max + 1)` sur le PRNG de BATAILLE. Le port consomme donc le meme tirage,
+    au meme endroit, et SEULEMENT quand la cible precedente est morte (le `If` court-circuite).
+    `hits` du selecteur natif est `null` -> la prediction de tri vaut `dmgMin == dmgMax == <tirage>`
+    pour 1 coup, ce que reproduit `first_by_damage_utility(state, pool, roll, roll)`.
+
+    Le noeud est evalue PARESSEUSEMENT (une fois par bande, par `AttackBehaviour$$Execute`), et
+    `previous` peut etre un AUTRE `KillMaimBurnNextTarget` (la 3e bande prend la 2e en
+    `previousTarget`) : la chaine se re-derive donc integralement a chaque bande, comme le natif."""
+    __slots__ = ("previous", "pool", "state", "dmg_min", "dmg_max", "picked", "rolls")
+
+    def __init__(self, previous: TargetsSelector, valid: TargetsSelector, state,
+                 dmg_min: int, dmg_max: int):
+        self.previous = previous
+        # `FromTrigger(valid, NOT IsObjectOrSteppable(It), 0).Otherwise(valid)` -- le repli natif n'a de
+        # sens que parce que `validNextTargets` peut etre INTEGRALEMENT compose d'Object/Steppable
+        # (cf. case-462-r4b-...-r1-mot-object-or-steppable).
+        self.pool = Otherwise(non_steppable_or_object_units(valid), valid)
+        self.state, self.dmg_min, self.dmg_max = state, int(dmg_min), int(dmg_max)
+        self.picked, self.rolls = [], []          # diagnostic (jamais lu par l'arbre)
+
+    def select(self, ctx):
+        # `IfSelector.Select` = `cond = trigger.ShouldTrigger(entities)` PUIS
+        # `(cond ? selectorTrue : selectorFalse).Select(entities)`. Ici `trigger` est
+        # `IsAlive(previousTarget)` et `selectorTrue` EST `previousTarget` : le noeud
+        # `previousTarget` est donc evalue DEUX FOIS sur la branche vraie -- une fois par le
+        # trigger, une fois par la branche rendue. Ce n'est pas un detail de style : quand
+        # `previousTarget` est lui-meme un `GetNextTarget` (la bande 3 prend la bande 2), CHAQUE
+        # evaluation peut consommer un tirage de tri. #504 l'a mesure au tirage pres (24 tirages
+        # natifs contre 20 pour un port qui n'evaluait qu'une fois).
+        prev = _units_of(self.previous, ctx)               # `IsAlive(previousTarget)` -- le TRIGGER
+        if any(_is_alive(u) for u in prev):
+            res = _units_of(self.previous, ctx)            # branche VRAIE : `previousTarget` RE-EVALUE
+            self.picked.append(("alive", [u.get("id") for u in res]))
+        else:
+            candidates = _units_of(self.pool, ctx)         # `targets.Select` du selecteur de tri
+            # `damage.Calculate(entities)` -- `RandomAmount(minDmg_2, maxDmg_2)`, PRNG de bataille.
+            roll = int(RandomAmount(Const(self.dmg_min), Const(self.dmg_max),
+                                    rng=getattr(self.state, "rng", None)).calculate(ctx))
+            self.rolls.append(roll)
+            best = first_by_damage_utility(self.state, [u.get("id") for u in candidates], roll, roll)
+            res = [] if best is None else [u for u in candidates if u.get("id") == best]
+            self.picked.append(("retarget", [u.get("id") for u in res]))
+        if not res:                                        # `.Otherwise(previousTarget)`
+            res = _units_of(self.previous, ctx)
+            self.picked.append(("otherwise", [u.get("id") for u in res]))
+        return res
+
+
+def kill_maim_burn_selectors(state, caster_id: int) -> tuple:
+    """Les deux `GetNextTarget` de `KillMaimBurnAbility$$ExecuteBehaviour`, montes dans l'ordre du
+    decompile. Rendus a part pour que l'ability puisse LIRE leur diagnostic apres execution.
+
+      * `t2` = `GetNextTarget(target@0x60, AdjacentEnemies(caster@0x48, 1, 3), dmg2)`
+      * `t3` = `GetNextTarget(t2, Unobscured(caster@0x48, SurroundingEnemies(caster@0x48, range, 1, 3)),
+                              dmg2)` -- le decompile passe `dmg2` (`pvVar5`) AUX DEUX appels.
+
+    La surcharge 4-args de `SurroundingEnemies` (celle du decompile ici : `SurroundingEnemies(this,
+    caster, <int range>, 1, 3)`) fait servir le MEME selecteur de centre ET de reference d'equipe --
+    ce qui, le centre etant le caster, coincide avec le defaut `reference = ctx.caster` du port."""
+    bmin2, bmax2, _pierce2, _hits2 = ability_attack_params(
+        state, caster_id, KILL_MAIM_BURN_ID, "Eviscerate", ranged=False,
+        min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2")
+    t2 = KillMaimBurnNextTarget(Target(), AdjacentEnemies(CasterTile()), state, bmin2, bmax2)
+    t3 = KillMaimBurnNextTarget(
+        t2,
+        Unobscured(SurroundingEnemies(CasterTile(),
+                                      Const(_kill_maim_burn_const(AbilityConstantType.range)))),
+        state, bmin2, bmax2)
+    return t2, t3
+
+
+def kill_maim_burn_tree(t2: TargetsSelector, t3: TargetsSelector) -> AtomicGroup:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$ExecuteBehaviour`
+    (id 1132, `worldKharn` « Kharn ») -- MIRROR 1:1 du decompile (cf. l'en-tete du module) :
+
+        ExecuteAtomic( Group(b1, Target, 0x20) & Group(b2, t2, 0x20) & Group(b3, t3, 0x20), 0x2a )
+
+    Trois plages, trois profils et trois comptes de coups DISTINCTS (`minDmg`/`maxDmg` + `Piercing` +
+    `nrOfHits`(0x2f) ; `minDmg_2`/`maxDmg_2` + `Eviscerate` + `nrOfHits_2`(0x32) ; `minDmg_3`/
+    `maxDmg_3` + `Plasma` + `nrOfHits_3`(0x66)). `is_melee=True` : `attackRangeType = Melee` est une
+    propriete de l'ABILITY (une seule config), y compris pour la 3e bande qui porte a 2 hexes.
+    `native_factory="attack"` (`DSLBehaviors$$AttackWithAttackDamage` -> `AttackDamageBehaviour` +
+    `AttackBehaviour`, LU). `multi=True` sur les trois : le natif passe TOUJOURS par
+    `AttackBehaviour$$Execute` (resolution de la LISTE puis `OrderBy`), meme pour un singleton."""
+    aid = int(ActiveAbilityType.KillMaimBurn)                 # AbilityOrEffect(this+0x10)
+    b1 = AttackWithAttackDamage(Target(), KILL_MAIM_BURN_ID, "Piercing", is_melee=True, multi=True,
+                                native_factory="attack", ability_type=aid)
+    b2 = AttackWithAttackDamage(t2, KILL_MAIM_BURN_ID, "Eviscerate", is_melee=True, multi=True,
+                                min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2",
+                                native_factory="attack", ability_type=aid)
+    b3 = AttackWithAttackDamage(t3, KILL_MAIM_BURN_ID, "Plasma", is_melee=True, multi=True,
+                                min_key="minDmg_3", max_key="maxDmg_3", hits_key="nrOfHits_3",
+                                native_factory="attack", ability_type=aid)
+    return AtomicGroup(op_and(op_and(Group(b1, int(KILL_MAIM_BURN_GROUP), Target()),
+                                     Group(b2, int(KILL_MAIM_BURN_GROUP), t2)),
+                              Group(b3, int(KILL_MAIM_BURN_GROUP), t3)))
+
+
+class KillMaimBurnAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$ExecuteBehaviour` (id 1132,
+    `worldKharn` « Kharn the Betrayer », WorldEaters -- HERO, present dans
+    `rl_duel build --list-pool`) -- MIRROR du DECOMPILE, cf. `kill_maim_burn_tree()`.
+
+    TROIS attaques enchainees sur la MEME cible tant qu'elle vit, re-ciblees par utilite de degat des
+    qu'elle meurt (`GetNextTarget`) :
+      1. cible du message                       -> `nrOfHits`   x `Piercing`   `minDmg`  /`maxDmg`
+      2. `AdjacentEnemies(caster)` si (1) tue   -> `nrOfHits_2` x `Eviscerate` `minDmg_2`/`maxDmg_2`
+      3. `Unobscured(SurroundingEnemies(caster, range=2))` si (2) tue
+                                                -> `nrOfHits_3` x `Plasma`     `minDmg_3`/`maxDmg_3`
+
+    FACE COMBAT du gisement `[-D]` : la face DECISION est portee depuis #362
+    (`playbook/noncomparable/kill_maim_burn.py` : l'IA PREDIT et CHOISIT 1132) pendant que
+    l'execution etait un NO-OP SILENCIEUX -- 1132 absente d'`ABILITY_CLASSES`, donc cast accepte,
+    tour consomme, 0 degat, 0 effet, AUCUNE erreur (meme signature que MurderousSwing avant #149).
+
+    Turn-flags = defauts base (1132 ABSENT de `NO_END_TURN_ABILITY_TYPES` /
+    `NO_ABILITY_USED_FLAG_ABILITY_TYPES`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.KillMaimBurn)   # 1132
+    ABILITY_ID = KILL_MAIM_BURN_ID
+
+    # MASQUE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$.ctor` est de
+    # la forme PRESET COPIE : il n'appelle AUCUN `TargetingOptions$$.ctor`, il recopie les 0x40 octets
+    # du champ STATIQUE de `TargetingOptions` a l'offset +0x40 du bloc `<class>+0xb8`, puis
+    # `AActiveAbility..ctor(this, &opts, 0)`. `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit
+    # ce preset (RELU pour CETTE ability, pas herite d'un lot) :
+    #     +0x40 isSelfCasting     = 0
+    #     +0x48 range            <- `TargetingRange` statics +0x30 = RANGE_ADJACENT
+    #     +0x60 forceMeleeTarget  = 1 = `RangedBool.False`   (⚠ enum natif INVERSE : True=0, False=1)
+    #     +0x68 Rules             = 0x4000  (= <preset>+0x28)
+    #     +0x70/+0x78             = 0 (les deux regles-delegues, ECRASEES par `AActiveAbility..ctor`)
+    #     0x4000 TargetIsEnemy -> PORTE (`TargetingQuery$$UnitsCanAttackEachOther`). SEUL bit : pas de
+    #            `TargetMatchesDynamicRule`, et 1132 n'a effectivement aucun
+    #            `KillMaimBurnAbility$$GetDynamicInvalidTargetReason`.
+    # MEME preset que JakhalStimms (1131) / MurderousSwing (1137) ci-dessus -- ce qui ne se DEDUIT pas.
+    # PORTEE : `RANGE_ADJACENT` (`onlyAdjacent = True` + `overrideRange = 1`) = cible ADJACENTE
+    # obligatoire. La `range=2` de la config ne borne QUE le pool de re-ciblage de la 3e bande
+    # (`SurroundingEnemies`), PAS le gate de cible du cast.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        t2, t3 = kill_maim_burn_selectors(state, caster_id)   # noeuds NEUFS -> etat PAR-CAST
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        kill_maim_burn_tree(t2, t3).execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [{"target": p.get("target"), "total": p.get("total"), "attack": p.get("attack")}
+                for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": KILL_MAIM_BURN_ID, "caster": caster_id, "target": target_id,
+                "attacks": atks,
+                # ventilation LUE des deux `GetNextTarget` (branche prise + tirages de tri consommes)
+                "next_target_2": {"picks": t2.picked, "rolls": t2.rolls},
+                "next_target_3": {"picks": t3.picked, "rolls": t3.rolls},
+                "dsl": True}

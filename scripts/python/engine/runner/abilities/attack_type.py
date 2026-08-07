@@ -185,6 +185,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.Stormcaller: AbilityAttackType.DirectTargetAttack,  # 1113
     ActiveAbilityType.CordClaw: AbilityAttackType.DirectTargetAttack,  # 1122
     ActiveAbilityType.JakhalStimms: AbilityAttackType.DirectTargetAttack,  # 1131
+    # KillMaimBurn (1132, worldKharn) : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # KillMaimBurnAbility$$.ctor` recopie le preset statique `<TargetingOptions statics>+0x40` puis
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. RELU au
+    # decompile (#504) ; il vaut `0` bien que l'arbre porte TROIS attaques a cibles distinctes.
+    ActiveAbilityType.KillMaimBurn: AbilityAttackType.DirectTargetAttack,  # 1132
     # MurderousSwing (1137) : `IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility$$.ctor`
     # -> `AActiveAbility..ctor(this, &opts, 0, 0)`. Litteral RELU au decompile ; il vaut `0` bien que
     # l'arbre soit un splash MULTI-cible self-centre (on transcrit le 3e argument du ctor, jamais la

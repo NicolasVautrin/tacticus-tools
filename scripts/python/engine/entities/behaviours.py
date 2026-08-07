@@ -213,16 +213,34 @@ class Group(AbilityBehaviour):
     n'existe que pour la couche VUE/timeline (meme statut que `AtomicGroup` cote port, cf. #201).
     Le noeud est porte pour le MIRROR STRUCTUREL des arbres qui l'utilisent -- 3 bandes de
     `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$ExecuteBehaviour`
-    (`Group(bande1, Target, 0x4b) & Group(bande2, Target, 0x4c) & Group(bande3, Target, 0x4d)`).
-    `group_id` / `targets_sel` sont conserves comme METADONNEE (jamais evalues : le selecteur ne sert
-    qu'a la vue, l'evaluer offline ajouterait un effet de bord de `Cache` inexistant cote etat)."""
+    (`Group(bande1, Target, 0x4b) & Group(bande2, Target, 0x4c) & Group(bande3, Target, 0x4d)`) et
+    3 bandes de `IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$ExecuteBehaviour`
+    (`Group(bande_i, <cible de la bande i>, 0x20)`).
+    `group_id` reste une METADONNEE ; `targets_sel`, lui, est EVALUE (cf. `execute` ci-dessous)."""
     __slots__ = ("child", "group_id", "targets_sel")
 
     def __init__(self, child: AbilityBehaviour, group_id: int = 0, targets_sel=None):
         self.child, self.group_id, self.targets_sel = child, int(group_id), targets_sel
 
     def execute(self, entities, ectx):
-        return self.child.execute(entities, ectx)    # pass-through (le groupe est un artefact de VUE)
+        # `targets = (+0x68).Select(entities)` -- le natif EVALUE le selecteur de groupe AVANT le
+        # child, et cette evaluation n'est PAS gratuite : #504 l'a MESUREE. Sur `KillMaimBurn`
+        # (1132) le selecteur de groupe d'une bande est le noeud de re-ciblage `GetNextTarget`,
+        # dont le `SortUnitsByDamageUtility` consomme un tirage `RandomAmount(minDmg_2, maxDmg_2)`
+        # sur le PRNG de bataille. Sans cette ligne le port consommait 20 tirages la ou le natif en
+        # consomme 24, et TOUTE la sequence de degat aval divergeait (le TOTAL, lui, restait juste
+        # quand les cibles etaient surtuees -- un critere sur le total serait reste VERT).
+        #
+        # ⚠ La ligne qui vivait ici disait « jamais evalues : l'evaluer offline ajouterait un effet
+        # de bord de `Cache` inexistant cote etat ». C'etait faux dans les deux sens : le natif
+        # EVALUE (son propre decompile, transcrit dans la docstring ci-dessus, le montre), et
+        # amorcer un `Cache` a l'ouverture du groupe est precisement ce que le natif fait. Les deux
+        # consommateurs anterieurs ne changent pas de valeur pour autant -- PlagueWind passe
+        # `Cache(Target())` (memo amorce sur la cible du message, meme valeur, aucun tirage) et
+        # SilentDeath passe `Null()` (ensemble vide).
+        if self.targets_sel is not None:
+            self.targets_sel.evaluate(entities)
+        return self.child.execute(entities, ectx)    # `if (+0x50) : (+0x50).Execute(entities)`
 
 
 class ChainBehaviour(AbilityBehaviour):
