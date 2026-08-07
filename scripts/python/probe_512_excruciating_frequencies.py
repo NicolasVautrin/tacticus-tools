@@ -462,7 +462,7 @@ def contre_epreuves(cap, caster_id, tile_id, regime):
     from engine.entities.selectors.units import Enemies, Units
     import engine.runner.abilities.emperorschildren as EC
     from engine.runner.abilities.behaviours.combat import AttackWithAttackDamage
-    from engine.runner.abilities.behaviours.context import entities_with_tile_target
+    from engine.runner.abilities.behaviours.context import entities_from_state
     from engine.runner.abilities.behaviours.effects import (AddStaticStatModifierEffect,
                                                             RemoveEffect)
     from engine.runner.abilities.targeting import excruciating_frequencies_affected_tiles
@@ -471,7 +471,7 @@ def contre_epreuves(cap, caster_id, tile_id, regime):
         st = etat_porte(cap)
         n = EC.excruciating_frequencies_nr_of_tiles()
         crit = EC.excruciating_frequencies_extra_crit_chance(st, int(caster_id))
-        ents = entities_with_tile_target(st, int(caster_id), int(tile_id))
+        ents = entities_from_state(st, int(caster_id), int(tile_id))
         ectx = ExecutionContext(state=st, rng=st.rng)
         arbre_fn(n, crit).execute(ents, ectx)
         pose = next((p for nm, p in ectx.emitted if nm == "AddStaticStatModifierEffect"), None)

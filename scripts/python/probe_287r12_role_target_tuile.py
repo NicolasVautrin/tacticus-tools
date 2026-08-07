@@ -175,6 +175,12 @@ def _effets(st) -> list:
     return sorted(out)
 
 
+def _est_entite_tuile(v, tuile_id: int) -> bool:
+    """`v` est-il l'ENTITE-TUILE que l'elargissement materialise pour CE cast ? Une entite-tuile se
+    reconnait a son `visualId` NUL (toute unite en porte un) et a son `id` == la tuile visee."""
+    return isinstance(v, dict) and v.get("id") == tuile_id and v.get("visualId") is None
+
+
 def _norm(out):
     """Diagnostic canonique : on jette la cle `target` (elle porte l'ARGUMENT, qui differe par
     construction entre les deux regimes) pour ne comparer que ce que l'ability a FAIT."""
@@ -183,7 +189,7 @@ def _norm(out):
     return {k: v for k, v in sorted(out.items()) if k != "target"}
 
 
-def joue(ability: int) -> int:
+def joue(ability: int, verbeux: bool = True) -> int:
     board = _board()
     tuile_cible = _tid(*POS_CIBLE)
     u = _mesure(ability, U_CIBLE, board)
@@ -196,7 +202,7 @@ def joue(ability: int) -> int:
           f"dont {t['nuls']} NUL")
     same = _norm(u["out"]) == _norm(t["out"]) and u["effets"] == t["effets"]
     print(f"  DIAGNOSTICS IDENTIQUES : {'OUI' if same else 'NON'}")
-    if not same:
+    if not same and verbeux:
         print(f"    U out    = {_norm(u['out'])}")
         print(f"    T out    = {_norm(t['out'])}")
         print(f"    U effets = {u['effets']}")
@@ -204,10 +210,78 @@ def joue(ability: int) -> int:
     return 0
 
 
+# ------------------------------------------------------------------ rayon de souffle (etage 0)
+
+def rayon_de_souffle() -> int:
+    """QUI d'autre que les cinq peut voir l'elargissement ? Balaye TOUT `ABILITY_CLASSES` en regime
+    T (`target_id` = une TUILE) et compte les evaluations de `Target()` qui RENDENT L'ENTITE-TUILE
+    materialisee par l'elargissement.
+
+    ⚠ TROIS criteres ont ete essayes, et les DEUX PREMIERS MENTENT :
+      * « `Target()` rendu NUL » : apres elargissement `ctx.target` n'est plus jamais nul -> le
+        compte tombe a `0` partout et se lit comme « personne n'est touche ». Inutilisable APRES.
+      * « `Target()` EVALUE » : rend **81** abilities, dont `1096 MasterOfTheTutelaries`, qui appelle
+        pourtant `entities_from_state(state, caster_id)` **SANS `target_id`**. Le noeud y est evalue
+        dans un SOUS-contexte (l'attaque normale du summon a l'apparition), pas dans celui de
+        l'ability -- un faux positif que seul un critere portant sur la VALEUR ecarte.
+      * retenu : « `Target()` rend l'entite-tuile de CE cast » -- exactement ce que l'elargissement
+        met, et rien d'autre. Une entite-tuile se reconnait a `visualId is None` (une unite en porte
+        toujours un) et a son `id` == la tuile visee.
+
+    Le porteur du montage est quelconque (le caster n'est pas le sujet) : ce balayage ne PROUVE pas
+    le comportement de chaque ability, il DELIMITE l'ensemble de celles que l'elargissement peut
+    atteindre. Les abilities qui LEVENT sur ce montage generique sont imprimees a part, jamais
+    comptees comme inertes."""
+    from engine.runner.abilities.targeting_rule import TargetingRule as TR
+    board = _board()
+    tuile = _tid(*POS_CIBLE)
+    touchees, inertes, erreurs, tile_target = [], [], [], []
+    for aid, cls in sorted(ABILITY_CLASSES.items()):
+        opts = getattr(cls, "TARGETING_OPTIONS", None)
+        est_tuile = bool(opts is not None and int(opts.rules) & int(TR.TargetIsTile))
+        if est_tuile:
+            tile_target.append(aid)
+        st = _substrat([(U_CASTER, "astraBullgryn", 1, POS_CASTER),
+                        (U_CIBLE, "necroWarden", 2, POS_CIBLE)], board)
+        vus = []
+        orig = ACC.Target.select
+
+        def _spy(self, ctx, _o=orig, _v=vus):
+            v = _o(self, ctx)
+            _v.append(v)
+            return v
+
+        ACC.Target.select = _spy
+        try:
+            cls().execute_behaviour(st, U_CASTER, tuile)
+        except Exception as exc:                                        # noqa: BLE001
+            erreurs.append((aid, type(exc).__name__))
+            continue
+        finally:
+            ACC.Target.select = orig
+        mord = [v for v in vus if _est_entite_tuile(v, tuile)]
+        (touchees if mord else inertes).append(aid)
+    croise = sorted(set(tile_target) & set(touchees))
+    print(f"\n=== RAYON DE SOUFFLE (registre = {len(ABILITY_CLASSES)} abilities) ===")
+    print(f"  portent TargetIsTile              : {len(tile_target)} -> {tile_target}")
+    print(f"  Target() rend l'entite-tuile      : {len(touchees)} -> {touchees}")
+    print(f"  inertes                           : {len(inertes)}")
+    print(f"  levees sur ce montage             : {len(erreurs)} -> {erreurs}")
+    print(f"  >>> RAYON EFFECTIF (TargetIsTile ET mordu) : {len(croise)} -> {croise}")
+    print("  NB : ce balayage delimite, il ne prouve pas -- le montage generique n'est le montage")
+    print("       PROPRE d'aucune ability, et une ability UNIT-TARGET ne recoit jamais un id de")
+    print("       tuile (d'ou le croisement : c'est LUI le rayon, pas la 2e ligne).")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ability", type=int, default=None)
+    ap.add_argument("--rayon", action="store_true",
+                    help="etage 0 : qui d'autre que les cinq voit l'elargissement")
     ns = ap.parse_args()
+    if ns.rayon:
+        return rayon_de_souffle()
     cibles = [ns.ability] if ns.ability else [FRAG_BOMB, VALKYRIE, BASILISK, DAEMONIC, PLAGUEBURST]
     for a in cibles:
         joue(a)

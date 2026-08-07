@@ -97,7 +97,7 @@ from engine.runner.abilities.attack_type import (ABILITY_ATTACK_TYPE,      # noq
                                                  AbilityAttackType)
 from engine.runner.abilities.base import ActiveAbility                     # noqa: E402
 from engine.runner.abilities.behaviours.combat import AttackWithAttackDamage   # noqa: E402
-from engine.runner.abilities.behaviours.context import entities_with_tile_target  # noqa: E402
+from engine.runner.abilities.behaviours.context import entities_from_state  # noqa: E402
 from engine.runner.abilities.behaviours.effects import (                   # noqa: E402
     AddStaticStatModifierEffect, RemoveEffect)
 from engine.runner.abilities.emperorschildren import (                     # noqa: E402
@@ -401,18 +401,28 @@ def test_la_crit_chance_est_VUE_par_l_attaque_puis_RENDUE_apres_le_cast():
     assert ctx.stat(int(StatType.CRIT_CHANCE)) == 0, "le buff SURVIT au cast : le RemoveEffect rate"
 
 
-def test_la_cible_TUILE_est_materialisee_par_le_helper_partage():
-    """`entities_from_state` rend `target = None` pour une entite-TUILE : sans materialisation,
-    `SelectTile(TargetTile())` resout VIDE et le rayon n'a plus de direction -> no-op silencieux."""
+def test_la_cible_TUILE_est_materialisee_par_le_FOYER():
+    """Sans materialisation du role `target`, `SelectTile(TargetTile())` resout VIDE et le rayon n'a
+    plus de direction -> no-op silencieux. Ce que ce test garde n'a PAS change ; son FOYER, si :
+    la parade a vecu locale (#287-r11-r1), puis dans `entities_with_tile_target` (#512), et vit
+    depuis #287-r12 dans `entities_from_state` lui-meme -- la fonction specialisee a disparu avec son
+    objet, exactement comme l'annoncait le message d'assertion de la version precedente."""
     from engine.runner.abilities.behaviours.context import entities_from_state
     st, _ = _mixte(avec_allie=True)
     tuile = _tid(*POS_AIM)
-    assert entities_from_state(st, U_CASTER, tuile).target is None, (
-        "le foyer materialise desormais la cible-tuile : le helper a perdu son objet")
-    ents = entities_with_tile_target(st, U_CASTER, tuile)
+    ents = entities_from_state(st, U_CASTER, tuile)
     assert ents.target is not None and ents.target["id"] == tuile
     assert ents.target["pos"] == {"col": POS_AIM[0], "row": POS_AIM[1]}
+    assert ents.target["visualId"] is None and ents.target["_traits"] == set(), (
+        "une entite-tuile n'a ni visuel ni trait : une valeur inventee ferait passer des gates de "
+        "camp que le natif n'evalue pas")
     assert len(excruciating_frequencies_affected_tiles(3).evaluate(ents)) == 3
+    # La CIBLE-UNITE reste servie par la boucle sur `state.entities` : l'elargissement est INERTE
+    # des que `target_id` designe une unite (c'est ce qui le rend sans risque pour les 127 autres
+    # entrees du registre).
+    ents_u = entities_from_state(st, U_CASTER, U_E1)
+    assert ents_u.target is not None and ents_u.target["id"] == U_E1
+    assert ents_u.target["visualId"] is not None
 
 
 def test_une_cible_qui_n_est_ni_unite_ni_tuile_ne_fabrique_RIEN():

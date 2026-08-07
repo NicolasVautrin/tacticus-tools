@@ -145,6 +145,36 @@ class LiveUnit(dict):
         return super().__getitem__(key)
 
 
+def _tile_entity(state, eid) -> dict | None:
+    """Entite-TUILE MINIMALE : la forme sous laquelle une tuile du `boardGraph` entre dans un role de
+    l'`AbilityEntities` (`caster` ou `target`). `None` si `eid` ne designe pas une tuile du board.
+
+    UNE seule forme, parce qu'il n'y a qu'UNE forme cote natif : `AbilityEntities` porte des ENTITES,
+    et une entite-tuile en est une (`IdunBattle.Entities.EntityExtensions$$GetMainTile` rend une
+    entite-tuile ELLE-MEME -- domaine mixte). Cote port une tuile ne vit que dans `state.board` /
+    `EffectsState` (`state.entities` ne contient que des unites/MoW), d'ou ce dict : `pos` est ce que
+    lit `dsl.base._pos`, `id` ce que lisent les feuilles d'effet et `Units`/`AdjacentTiles`
+    (qui acceptent tous le domaine mixte, cf. `selectors/units.Units.select`).
+
+    `_traits` VIDE et `team`/`player`/`visualId` a `None` : une tuile n'a ni camp ni trait, et une
+    valeur inventee ferait passer des gates de camp que le natif n'evalue pas. `alive: True` /
+    `hp: None` : la tuile n'est ni morte ni blessee, et `hp=None` est ce que lit `_unit_dict` pour une
+    entite sans `HealthComponent`."""
+    board = getattr(state, "board", None)
+    if eid is None or board is None:
+        return None
+    try:
+        tid = int(eid)
+    except (TypeError, ValueError):
+        return None
+    if tid not in getattr(board, "by_id", {}):
+        return None
+    c = board.coord(tid)
+    return {"id": tid, "team": None, "player": None,
+            "pos": {"col": int(c[0]), "row": int(c[1])},      # forme lue par `dsl.base._pos`
+            "alive": True, "hp": None, "visualId": None, "_traits": set()}
+
+
 def entities_from_state(state, caster_id: int, target_id: int | None = None,
                         actor_id: int | None = None) -> DslContext:
     """Construit l'`AbilityEntities` (= `DslContext`) lu par les selecteurs d'un behaviour, depuis le
@@ -152,7 +182,8 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     -> mirror `AbilityEntities+0x40` ; permet la re-eval de predicat post-mutation, Voie A), `caster`
     (`factory+0x160`, aussi `Self@0x148`
     pour un triggered Owner==Caster), `target` (cible principale = `factory+0x178`, lu par `Target()` —
-    None si l'ability est sans cible ; sur un OnPreDeath = l'unite MOURANTE @0x178), `actor` (`factory+
+    l'entite-TUILE quand `target_id` en designe une (#287-r12, cf. le bloc de commentaire plus bas),
+    None quand l'ability est sans cible ; sur un OnPreDeath = l'unite MOURANTE @0x178), `actor` (`factory+
     0x158` = ACTEUR/TUEUR de l'evenement, lu par `Actor()` — threade sur les behaviours de trigger type
     ActOfFaith accumulate ; None sinon), `board` (= `state.board`), `has_trait(unit, traitId)` (mirror
     `UnitExtensions.HasFlag`, via l'enum `UnitTrait` + le set de noms `ctx.traits`). `children=[]` =
@@ -188,13 +219,38 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # Owner@0x148` du `Revive` de `GhostEffect`) resolvait une liste VIDE = no-op silencieux. Reste
     # `None` pour un caster non resolvable (ni unite, ni tuile du board).
     if caster is None and caster_id is not None:
-        _board = getattr(state, "board", None)
-        _tpos = None
-        if _board is not None and int(caster_id) in getattr(_board, "by_id", {}):
-            _c = _board.coord(int(caster_id))
-            _tpos = {"col": int(_c[0]), "row": int(_c[1])}   # forme lue par `dsl.base._pos`
-        caster = {"id": caster_id, "team": None, "player": None, "pos": _tpos,
-                  "alive": True, "hp": None, "visualId": None, "_traits": set()}
+        _tile = _tile_entity(state, caster_id)
+        caster = ({"id": caster_id, "team": None, "player": None, "pos": None,
+                   "alive": True, "hp": None, "visualId": None, "_traits": set()}
+                  if _tile is None else _tile)
+        caster["id"] = caster_id                 # id BRUT (un caster non-tuile garde le sien)
+
+    # TARGET NON-UNITE (entite TUILE) -- le PENDANT du caster minimal ci-dessus, et la meme
+    # DEGRADATION SILENCIEUSE quand il manque (#287-r12). Le natif ne connait qu'un role `target`, et
+    # c'est une ENTITE : `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` resout
+    # `finalTarget = IActiveAbility.GetActualTarget(ability, caster, target)` (slot 16 ->
+    # `IdunBattle.Entities.Abilities.AActiveAbility$$GetActualTarget` -> slot `ITargetingQuery` 6 =
+    # `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`), dont la branche
+    # `rules & TargetIsTile` rend `IdunBattle.Entities.EntityExtensions$$GetMainTile(target, state)` ;
+    # ce `finalTarget` part en 5e argument de
+    # `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities`, qui ecrit
+    # `AbilityEntities+0x10 = finalTarget` (offset LU dans
+    # `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor`, 32 arguments : `+0x00 actor ·
+    # +0x08 caster · +0x10 target · +0x18 owner · +0x30 targetTile · +0x40 casterTile ·
+    # +0x48 casterTiles`). Le role `target` d'une ability TILE-TARGET est donc TOUJOURS l'ENTITE-TUILE
+    # -- jamais nul.
+    # MESURE (`probe_287r12_role_target_tuile.py`, 100 % offline) de ce que rendait le `None` :
+    #   * `1017 FragBomb`      -> `Target()` evalue 3x, **3 NULS** -> aucune attaque, aucune erreur ;
+    #   * `1018 ValkyrieStrike`-> `Target()` evalue 1x, **1 NUL**  -> l'effet 1022 n'est PAS pose ;
+    #   * `1026 BasiliskBarrage`, `1148 DaemonicOrdnance`, `1169 PlagueburstMortar` : 0 evaluation
+    #     nulle -- les deux dernieres portent leur propre normalisation tuile (`FixedTileIds`), et
+    #     1026 collapse ses tirages en Python AVANT l'arbre.
+    # Il N'ENTRE PAS dans `units` (le natif non plus ne met pas la tuile dans la liste d'unites de
+    # l'`AbilityEntities`) et reste `None` pour un `target_id` qui n'est ni une unite ni une tuile du
+    # board : substrat non mesure, aucune tuile inventee. INERTE des que `target_id` designe une unite
+    # (cas de tous les casts unit-target).
+    if target is None and target_id is not None:
+        target = _tile_entity(state, target_id)
 
     def _has_trait(unit, trait_id):
         try:
@@ -589,41 +645,30 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       current_player_machine_position=mow_pos)
 
 
-def entities_with_tile_target(state, caster_id: int, target_id: int | None = None):
-    """`entities_from_state` + MATERIALISATION du role `target` quand la cible est une entite-TUILE.
+def main_tile_id(state, entity_id) -> int | None:
+    """`IdunBattle.Entities.EntityExtensions$$GetMainTile(entity, state)` en DOMAINE ID DE TUILE : la
+    tuile d'une UNITE comme d'une TUILE (le natif rend une entite-tuile ELLE-MEME -- domaine mixte).
+    `None` si `entity_id` n'est ni une tuile du board ni une unite POSITIONNEE.
 
-    `entities_from_state` materialise deja un CASTER minimal quand `caster_id` designe une tuile (le
-    commentaire y explique pourquoi : sans lui toute feuille lisant `entities.caster` devenait un
-    no-op silencieux) mais n'a PAS le pendant sur le role `target` -- il rend `None`, et tout
-    `Target()` / `SelectTile(TargetTile())` avec lui. Les abilities TILE-TARGET dont l'arbre LIT la
-    tuile visee (`GetAffectedTiles` d'`ExcruciatingFrequencies` : `TilesBehindInLine(from =
-    CasterTile@0x50, to = TargetTile@0x78, ...)`) ont donc besoin de cette forme-la.
+    Foyer PARTAGE des collapses imperatifs qui ont besoin de la tuile visee AVANT de construire leur
+    arbre (`astramilitarum.basilisk_shell_tiles`, `deathguard.plagueburst_target_tile`) -- le seul
+    endroit du port ou `target_id` est normalise en TUILE. Les DEUX l'ecrivaient chacun de leur cote,
+    et l'un des deux (1026) ne traitait QUE le cas UNITE : un `target_id` de tuile lui rendait `[]`,
+    donc **zero obus**, sans erreur (#287-r12). L'ordre des deux branches est celui du natif : la
+    branche TUILE d'abord (`GetMainTile` d'une tuile est l'identite), l'unite ensuite.
 
-    ⚠ CE N'EST PAS UN ELARGISSEMENT DU FOYER : `entities_from_state` est INCHANGE. Le rayon de
-    souffle a ete mesure a #287-r8 -- **5** abilities TILE-TARGET portees passent leur `target_id` a
-    `entities_from_state` (1017 FragBomb, 1018 ValkyrieStrike, 1026 BasiliskBarrage, 1148
-    DaemonicOrdnance, 1169 PlagueburstMortar) et lisent aujourd'hui un `Target()` NUL ; les basculer
-    changerait leurs arbres sans qu'aucune tranche les ait confrontees. RESIDU `#287-r12`, inchange.
-    Cette fonction est la forme PARTAGEABLE de la « parade locale » que
-    `tyranids.AlphaWarriorAbility.get_dynamic_invalid_target_reason` (#287-r8) et
-    `targeting._dynamic_rule_excruciating_frequencies` (#287-r11-r1) ecrivaient chacune de leur cote
-    -- un 3e exemplaire aurait fait trois copies a maintenir.
-
-    Cote NATIF il n'y a pas d'ecart : `AbilityEntities+0x178` porte bien l'ENTITE ciblee, tuile
-    comprise (le cast tile-target passe l'entite-tuile), et `IdunBattle.Entities.EntityExtensions$$
-    GetMainTile` rend une entite-tuile ELLE-MEME.
-
-    La forme du dict est EXACTEMENT celle du caster-tuile minimal d'`entities_from_state`
-    (`dsl.base._pos` lit `pos.col` / `pos.row`). `target_id` qui n'est ni une unite ni une tuile du
-    board -> `target` reste `None` (substrat non mesure, aucune tuile inventee)."""
-    ents = entities_from_state(state, int(caster_id), None if target_id is None else int(target_id))
-    if target_id is None or ents.target is not None:
-        return ents
+    ⚠ Pendant ID de `_entity_pos` (`entities/selectors/_shared.py`), qui rend une POSITION : les deux
+    mirrorent la meme fonction native sous les deux formes dont le port a besoin ; celle-ci ne vaut
+    que la ou un ID de tuile est attendu (pools de `PickRandomly`, `FixedTileIds`)."""
     board = getattr(state, "board", None)
-    if board is None or int(target_id) not in getattr(board, "by_id", {}):
-        return ents
-    c = board.coord(int(target_id))
-    ents.target = {"id": int(target_id), "team": None, "player": None,
-                   "pos": {"col": int(c[0]), "row": int(c[1])},
-                   "alive": True, "hp": None, "visualId": None, "_traits": set()}
-    return ents
+    if board is None or entity_id is None:
+        return None
+    try:
+        eid = int(entity_id)
+    except (TypeError, ValueError):
+        return None
+    if eid in getattr(board, "by_id", {}):
+        return eid
+    e = state.get_entity(eid)
+    pc = e.get_component(PositionComponent) if e is not None else None
+    return board.id_at(pc.col, pc.row) if pc is not None else None
