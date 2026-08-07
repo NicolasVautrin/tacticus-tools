@@ -161,7 +161,7 @@ def test_le_site_converti_passe_par_le_foyer_et_porte_son_gate(cle):
     comportementalement indistinguable AUJOURD'HUI, et le risque qu'il porte est la DIVERGENCE
     FUTURE. D'ou une assertion sur le SOURCE.
 
-    Le gate `sc is None` est verifie dans le MEME test parce que les deux ne valent que
+    Le gate `IsKilledThisTurn` est verifie dans le MEME test parce que les deux ne valent que
     ENSEMBLE : reparer le substrat SANS le gate fait entrer un mort que le natif refuse."""
     etat = {c: (b, a, g) for c, b, a, g, _m in P.etat_conversion()}
     brut_absent, appelle_foyer, gate = etat[cle]
@@ -172,26 +172,41 @@ def test_le_site_converti_passe_par_le_foyer_et_porte_son_gate(cle):
         "`%s::%s` n'APPELLE plus `entity_trait_names` : le substrat est recompose localement. "
         "Meme a l'identique, c'est la recopie que ce residu ferme." % cle)
     assert gate, (
-        "`%s::%s` a perdu son gate `sc is None`. C'est lui qui NOMME le collapse du conjoint natif "
-        "`IsKilledThisTurn` : sans lui, le foyer rend ses traits a un cadavre-au-chargement et le "
-        "port selectionne un mort que le natif REFUSE." % cle)
+        "`%s::%s` ne LIT plus `killed_this_turn`. C'est le substrat natif du conjoint "
+        "`IsKilledThisTurn` (`UnitComponent+0x17a`) : sans lui, le foyer rend ses traits a un "
+        "cadavre-au-chargement et le port selectionne un mort que le natif REFUSE." % cle)
 
 
-@pytest.mark.parametrize("regime,attendu", [(True, [2]), (False, [])],
-                         ids=["mort-PENDANT-le-run", "cadavre-AU-CHARGEMENT"])
-def test_valid_dead_decoys_refuse_le_cadavre_au_chargement(regime, attendu):
-    """`ADecoysAndMisdirectionAbility$$GetValidDeadDecoys` -- conjoint `IsKilledThisTurn(sel@0x68)`.
+@pytest.mark.parametrize("kw,attendu,pourquoi", [
+    (dict(avec_stats=True), [2],
+     "controle POSITIF : le decoy a bien ete crushe PAR le stepper, ce tour-ci"),
+    (dict(avec_stats=False), [],
+     "cadavre-AU-CHARGEMENT : `killed_this_turn is None` (non mesure) ET `death_source is None`"),
+    (dict(avec_stats=True, tue_ce_tour=False), [],
+     "`IsKilledThisTurn` SEUL : le decoy a redemarre un tour depuis sa mort"),
+    (dict(avec_stats=True, tueur=99), [],
+     "`AreEqual(Killer(it), stepper)` SEUL : tue par une AUTRE unite"),
+], ids=["mort-PENDANT-le-run", "cadavre-AU-CHARGEMENT",
+        "isole-IsKilledThisTurn", "isole-AreEqual-Killer"])
+def test_valid_dead_decoys_porte_les_deux_conjoints(kw, attendu, pourquoi):
+    """`ADecoysAndMisdirectionAbility$$GetValidDeadDecoys` -- les conjoints `IsKilledThisTurn(it)`
+    ET `AreEqual(Killer(it), sel@0x40)`, tous deux PORTES depuis
+    #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3.
 
-    Les deux regimes ont le MEME decoy (memes traits natifs) et la MEME co-localisation : seul
-    change << etait-il deja mort a la capture >>. Le natif repond par `IsKilledThisTurn`, le port
-    par la presence du `StatsComponent`. Ce test fige que le verdict SUIT le natif."""
+    ⚠ LES DEUX DERNIERS BRAS EXISTENT PARCE QUE LES DEUX PREMIERS NE DISCRIMINENT RIEN. Entre
+    << mort du run >> et << cadavre au chargement >>, TROIS choses changent a la fois
+    (`StatsComponent`, `killed_this_turn`, `death_source`) : un vert n'y est attribuable a aucun
+    conjoint -- c'est exactement ce qui laissait le COLLAPSE passer pour un port. Chaque bras isole
+    ne bouge qu'UN champ a partir du controle positif.
+
+    Le 4e bras est le regime que le collapse LAISSAIT PASSER : rien ne libere la tuile d'un decoy
+    mort cote port, donc un stepper ami qui marche dessus PLUS TARD satisfaisait la
+    co-localisation, et le port BLASTAIT pour un kill qui n'etait pas le sien."""
     from engine.runner.operations.triggers.genestealer import _valid_dead_decoys
-    st = P.etat_crush("genesSmnDecoy", avec_stats=regime)
+    st = P.etat_crush("genesSmnDecoy", **kw)
     got = _valid_dead_decoys(st, owner_id=1, stepper_id=1)
     assert got == attendu, (
-        "regime %s : `_valid_dead_decoys` rend %r, attendu %r. Le conjoint `IsKilledThisTurn` est "
-        "COLLAPSE cote port ; son seul discriminant est le `StatsComponent`."
-        % ("mort du run" if regime else "cadavre au chargement", got, attendu))
+        "%s : `_valid_dead_decoys` rend %r, attendu %r." % (pourquoi, got, attendu))
 
 
 @pytest.mark.parametrize("cle", sorted(P.DISPARUS))
