@@ -115,7 +115,22 @@ et `TileEffectsUtility` ne note que des tuiles de **déplacement**. Or aucune un
 une tuile non marchable (`TileExtensions$$CanAddUnit` exige `IsWalkable`). Le sur-marquage du port
 ne peut donc produire ni cible de plus, ni dégât, ni préférence de tuile.
 
-### Le capteur qui trancherait (code livré, NON activé — reinject requis)
+> ⚠ **RECTIFICATIF (#546, 2026-08-08) — le point 3 est RÉFUTÉ, et le prérequis était DÉJÀ DÉPLOYÉ.**
+> Le `includeInactive` de `tileMeta` est dans le bundle chargé depuis le 2026-08-07 (livré le
+> 2026-07-31) : aucune fenêtre n'était requise. Mesure, bras D, `MC1_67`, ancre `(0,7)`, les trois
+> tuiles du triangle à la MÊME élévation — la tuile NON MARCHABLE `(0,8)` **porte bien un `Fire`,
+> `active: False`, `remaining: 4`**, quand `(0,7)` et `(1,8)` le portent `active: True`. Donc
+> l'effet EST soumis, `StateExtensions$$GetTileAt` la rend, elle EST dans `BoardComponent+0x18`, et
+> **le substrat `board.id_at` du port est exact**. Le refus est une `ActiveCondition`
+> (`IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` → `BaseEffect` slot `+0x518`),
+> non portée : résidu **`#368-r2`**. Le §2 (« aucun artefact natif ne dit la marchabilité »)
+> reste vrai — poser un `Walkable` dans le sélecteur serait toujours fitter la mesure ; c'est
+> l'ÉTAGE D'ACTIVATION qui manque, pas le sélecteur.
+> Reproduction : `python scripts/python/probe_368_daemonic_ordnance_pose.py --pose --only D`
+> (le probe imprime `#368-r1 (includeInactive) = …`, et rend `NON MESURE` si le bundle chargé
+> ignore le drapeau — jamais un faux « rien d'inactif »).
+
+### Le capteur qui trancherait (code livré, NON activé — reinject requis) — PÉRIMÉ, cf. rectificatif
 
 `ctx.rpc.tileMeta` accepte désormais `includeInactive` et publie alors `active` par effet — strict
 pendant de `decisionView`, même raison. Il est **livré mais inerte tant que le bundle n'est pas
@@ -136,8 +151,10 @@ lieu et le refus est une `ActiveCondition` ; si elle ne porte rien, le refus est
 
 ## 5. Ce qui n'est PAS couvert
 
-- **La cause native du refus sur tuile non marchable** — non tranchée (§3). Capteur nommé, livré,
-  non activé.
+- ~~**La cause native du refus sur tuile non marchable** — non tranchée (§3).~~ **TRANCHÉE
+  (#546, 2026-08-08)** : posé puis DÉSACTIVÉ. Ce qui reste ouvert est l'ÉTAGE — l'`ActiveCondition`
+  d'un effet de tuile n'est pas portée (`#368-r2`), et la question reste GÉNÉRALE : elle n'a été
+  mesurée que sur `5 EffectType.Fire` posé par `1148`.
 - **L'ORDRE des events de 1148** — hors périmètre, cf. `case-350r3`.
 - **Les autres poseurs d'effet de tuile** (`MacroPlasmaIncinerator`, `RadBombardment`, …) : ils
   filtrent explicitement (`Walkable`, `− Blocking`), donc le régime ne s'y observe pas — mais la

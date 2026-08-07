@@ -136,10 +136,18 @@ Non-régression rejouée : `test_sorcerous_facade_combat_live` + `test_thunderou
   le **lift-off** (`MoveUnit` vers une `UnitPosition` vide) **sort avant** `RecordTilesMoved` — la
   branche `Count(position) == 0 && MoveUnitOptions+0x15` de `MoveUnitOperation$$Execute` retire
   l'unité du board et retourne ; le **move-in** facture `GetNumTilesMoved(connectedPath)` avec
-  `movementStartPosition = GetPreviousPositionThisTurn(unit)` (`UnitComponent+0x98`, écrit par
-  `SetUnitPositionOperation$$SavePreviousPosition`, effacé par `ResetPreviousPositionBehaviour`),
-  donc une valeur qui dépend de l'**historique de mouvement du tour**. Non mesurable sans capteur.
-  Commentaire corrigé dans `abilities/loki/quickening.py`.
+  `movementStartPosition = GetPreviousPositionThisTurn(unit)` (~~`UnitComponent+0x98`~~ —
+  ⚠ **RECTIFICATIF #546, 2026-08-08 : le COMPOSANT est faux.** Sur `rnca9r7q6c`,
+  `UnitComponent+0x98` est `PendingHit` ; les quatre `Nullable<UnitPositionId>` vivent sur
+  **`IdunBattle.Entities.Components.MovementComponent`** — `TurnStartPosition@+0x78`,
+  `PreviousPosition@+0x88`, `PreviousPositionThisTurn@+0x98`, `PendingPosition@+0xa8`.
+  L'offset coïncide, le composant non : un capteur écrit sur la foi de cette ligne aurait lu
+  `PendingHit` **sans lever**), écrit par `SetUnitPositionOperation$$SavePreviousPosition`, effacé
+  par `ResetPreviousPositionBehaviour`, donc une valeur qui dépend de l'**historique de mouvement
+  du tour**. Commentaire corrigé dans `abilities/loki/quickening.py`.
+  **CAPTEUR ÉCRIT (#546), non déployé** : `actorStats[].movement` publie les quatre champs décodés
+  en hex (`UnitPositionIdExtensions$$ToTileList` INVOQUÉ) + `movementLayout` tri-état. Contre-épreuve
+  après la fenêtre : `case-546-une-seule-fenetre-de-reinject.md` §6.
 * **`#347-r2` — mesuré en marge, hors périmètre** : `TheQuickening` **refuse** une tuile occupée par
   un **allié** (`Attackable(Units(Target))` est vide, donc aucun `MoveOut` n'est émis pour
   l'occupant et le move-in du caster échoue sur tuile pleine) ; et `GetDynamicInvalidTargetReason`
