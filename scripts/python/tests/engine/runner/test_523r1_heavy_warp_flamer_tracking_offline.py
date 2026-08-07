@@ -56,7 +56,13 @@ DECLENCHEUR = {
         # (le LECTEUR du compteur).
         # ⚠ Les DEUX formes de glob sont necessaires : dans ce matcher `**/` exige un segment, donc
         # `engine/*.py` (racine du paquet) n'est PAS couvert par `engine/**/*.py` seul.
-        "scripts/python/*.py",
+        # ⚠ `scripts/python/*.py` a ete RETIRE (#523-r2/-r4) : ce joker retenait ce fichier a
+        # CHAQUE edition d'un des ~500 probes de la racine, dont aucun n'est dans sa fermeture
+        # d'imports. Ce qui reste au niveau RACINE est ENUMERE dans le socle ci-dessus --
+        # `gameconfig` est le seul module racine que ce fichier importe directement, les autres
+        # (`enum_maps`, `symbols_layout`, `host_inputs`, ...) arrivant par la fermeture d'`engine`
+        # et de la cascade `conftest`. `probe_486r15` confronte cette declaration a la fermeture
+        # REELLE : un resserrage excessif y rougit.
         "scripts/python/engine/*.py",
         "scripts/python/engine/**/*.py",
         # Le chemin de registration part des `activeAbilities` du gameconfig du BUILD, et les

@@ -64,7 +64,11 @@ DECLENCHEUR = {
         # `entities/selectors/**` (les noeuds DSL dont la forme est ASSERTEE ici).
         # ⚠ Les DEUX formes de glob sont necessaires : dans ce matcher `**/` exige un segment, donc
         # `engine/*.py` (racine du paquet) n'est PAS couvert par `engine/**/*.py` seul.
-        "scripts/python/*.py",
+        # ⚠ `scripts/python/*.py` a ete RETIRE (#523-r2/-r4) : ce joker retenait ce fichier a
+        # CHAQUE edition d'un des ~500 probes de la racine, dont AUCUN n'est dans sa fermeture
+        # d'imports (ce fichier n'importe DIRECTEMENT aucun module racine). Ce qui reste a ce
+        # niveau est ENUMERE dans le socle ci-dessus, et `probe_486r15` confronte la declaration a
+        # la fermeture REELLE -- un resserrage excessif y rougit.
         "scripts/python/engine/*.py",
         "scripts/python/engine/**/*.py",
         # Les magnitudes et constantes de 1227 viennent du gameconfig du BUILD.
