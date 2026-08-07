@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **103**
-- **NO-OP silencieux** (a porter) : **72**
-- Ventilation NO-OP : **DAMAGE**=43, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **104**
+- **NO-OP silencieux** (a porter) : **71**
+- Ventilation NO-OP : **DAMAGE**=42, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -22,11 +22,10 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (72)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (71)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
-| 1087 | ExemplarOfTheKauyon | DAMAGE(Blast) | 5 | LN |
 | 1027 | PsychicMaelstrom | DAMAGE(Psychic) | 5 | LN |
 | 1068 | SilentDeath | DAMAGE(Piercing) | 5 | LN |
 | 1152 | UnstoppableMomentumReworked | DAMAGE(DirectDamage) | 5 | LN |
@@ -99,7 +98,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (103)
+## PORTED (registry) (104)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -119,6 +118,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1022 | BringerOfDespair | DAMAGE(Power) | 5 | LN |
 | 1171 | DakkaDakkaDakka | DAMAGE(Projectile) | 5 | LN |
 | 1102 | Doombolt | DAMAGE(Psychic) | 5 | LN |
+| 1087 | ExemplarOfTheKauyon | DAMAGE(Blast) | 5 | LN |
 | 1017 | FragBomb | DAMAGE(Blast) | 5 | LN |
 | 1048 | FragstormGrenadeLauncher | DAMAGE(Blast) | 5 | LN |
 | 1180 | HeroicFusillade | DAMAGE(Projectile) | 5 | LN |

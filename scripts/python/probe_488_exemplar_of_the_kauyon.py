@@ -23,6 +23,14 @@ CE QUI EST MESURE, ET CE QUI NE L'EST PAS
 * Le TIRAGE du repli de tuile de spawn (`SortByDistance(Randomize(AllTiles), exTile)`) n'est PAS
   confronte : il n'entre en jeu que si l'ex-tuile est prise, ce que ce montage ne produit pas.
 
+⚠ `--enemy admecDestroyer` FAIT ROUGIR E3, ET LA CAUSE EST EXTERIEURE A 1087 (residu **#488-r1**).
+La phase ARME y diverge (natif `[4497, 5349]`, port `[3162, 2678]`) alors que les coups ADDITIONNELS
+restent bit-exacts. Un bras de CONTROLE -- Shadowsun posee a la main sur la meme tuile, attaque
+NORMALE NUE, aucun cast de 1087 -- rend le MEME ecart ; le meme bras contre `orksNob` est
+bit-exact. `engine/entities/damage_trait.py` declare le `+50 %` Melta vs `Vehicle` DEAD-CODE sur la
+foi d'une mesure faite dans le build `gqfc5mff6c`, pour ce couple exact. Ne pas lire ce rouge comme
+un defaut du port de 1087 -- ventiler par `logs/`-style bras de controle avant de conclure.
+
 MONTAGE -- reutilise le FOYER de `probe_366r1_exemplar_kauyon_hits.py` (`build_extra`, `arrange`,
 `legal_destinations`) : meme roster, memes neutralisations de confond (crit/block a 0, PV a 300000
 des DEUX cotes), meme geometrie « ennemi ancre / allie a d=2 / Shadowsun exilee a d>=4 ».
@@ -62,6 +70,25 @@ def snapshot(sid, rid):
             "rng": P366._rpc(sid, "dumpRng", {"runnerId": rid}, 40)}
 
 
+def build(seed, board, state_file, enemy):
+    """`P366.build`, mais avec l'ENNEMI threade jusqu'au roster.
+
+    ⚠ POURQUOI PAS `P366.build` DIRECTEMENT : son `build_extra(enemy: str = ENEMY)` fige son defaut
+    a l'IMPORT, et `P366.build` l'appelle sans argument -- reaffecter `P366.ENEMY` ne change donc
+    PAS le roster construit, seulement l'unite que `arrange` va CHERCHER sur le plateau. C'est ce
+    qui rendait `--enemy necroWarrior` muet (`arrange ABORT unites absentes`). On garde le FOYER
+    (`build_extra`) et on lui passe l'argument."""
+    import subprocess
+    argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
+            "--state-file", state_file, *P366.build_extra(enemy)]
+    p = subprocess.run(argv, cwd=P366.PYDIR, capture_output=True, text=True)
+    if p.returncode != 0:
+        print("[build] rc=%s\n%s\n%s" % (p.returncode, p.stdout[-1500:], p.stderr[-1500:]))
+        return None
+    with open(state_file, "r", encoding="utf-8") as f:
+        return int(json.load(f)["runnerId"])
+
+
 def traits_of(snap, uid):
     for u in ((snap or {}).get("units") or []):
         if u.get("entityId") == uid:
@@ -89,7 +116,7 @@ def hits_count(res, attacker):
     return n, bool(a0.get("ok")), sorted(set(cibles)), total, detail
 
 
-def cast_natif(sid, rid, board, verbose=True):
+def cast_natif(sid, rid, board, verbose=True, loin=False):
     """Joue le cast NATIF et rend tout ce que les trois etages exigent, snapshot AVANT compris."""
     plan = P366.arrange(sid, rid, board, verbose=verbose)
     if plan is None:
@@ -103,7 +130,11 @@ def cast_natif(sid, rid, board, verbose=True):
     if not dests:
         print("[488] ABORT aucune destination legale (le gate natif refuse tout)")
         return None
-    dst = dests[0]
+    # `loin=True` : la destination legale la PLUS ELOIGNEE de l'ennemi -- regime ou le gate de
+    # portee de `perform_ai_ability_unit_behaviour` doit FERMER (aucune cible atteignable sans
+    # bouger), donc teleport + spawn SANS attaque. C'est la generalisation qui separe les trois
+    # etages : un port qui attaquerait quand meme s'y verrait.
+    dst = dests[-1] if loin else dests[0]
     avant = snapshot(sid, rid)
     pos_avant = {u["id"]: P366.upos(u) for u in P366.alive(avant["dv"])}
     ex_tile_pos = pos_avant.get(plan["carrier"])
@@ -124,6 +155,32 @@ def cast_natif(sid, rid, board, verbose=True):
             "carrier_after": pos_apres.get(plan["carrier"]),
             "spawned": [{"id": u.get("id"), "visualId": u.get("visualId"), "pos": P366.upos(u),
                          "traits": traits_of(apres_snap, u.get("id"))} for u in neufs]}
+
+
+# ------------------------------------------------------------------ etage DECISION (E0)
+
+def tuiles_legales_portees(rec, board):
+    """L'ensemble des tuiles que le GATE PORTE accepte, balaye sur TOUT le plateau.
+
+    C'est la face DECISION du port : `TARGETING_OPTIONS` (masque `0x6001042`) + la regle dynamique
+    `get_dynamic_invalid_target_reason`, toutes deux MIGREES sur la classe par #488. Elle se
+    confronte a `abilityTargets` du natif, dont `fromHere` est la legalite EXACTE du cast immediat.
+
+    Balayer TOUT le plateau, et pas seulement les tuiles que le natif accepte, est ce qui rend le
+    test bilateral : un port trop PERMISSIF (masque absent -> retour 0 immediat) accepterait des
+    tuiles que le natif refuse, et un ensemble inclus dans l'autre ne le montrerait pas."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.abilities.handler import ABILITY_CLASSES
+    from engine.runner.abilities.targeting import get_invalid_target_reason
+    s = rec["avant"]
+    st = load_state(s["dv"], s["ob"], s["snap"], board=board)
+    ability = ABILITY_CLASSES[EXEMPLAR_OF_THE_KAUYON]()
+    cid = rec["plan"]["carrier"]
+    out = []
+    for tid in sorted(st.board.by_id):
+        if int(get_invalid_target_reason(st, cid, tid, ability) or 0) == 0:
+            out.append(st.board.coord(tid))
+    return sorted(out)
 
 
 # ------------------------------------------------------------------ rejeu PORTE
@@ -207,16 +264,23 @@ def main():
     ap.add_argument("--mutant", action="store_true",
                     help="rejoue le port avec 1087 RETIRE d'`ABILITY_CLASSES` (vue ROUGE : "
                          "le no-op silencieux d'avant #488 doit ressortir)")
+    ap.add_argument("--enemy", default=P366.ENEMY,
+                    help="change l'ENNEMI (donc son armure et ses traits) -- generalisation de la "
+                         "VALEUR des coups, la structure devant rester la meme")
+    ap.add_argument("--loin", action="store_true",
+                    help="vise la destination legale la PLUS ELOIGNEE de l'ennemi (regime SANS "
+                         "attaque : le gate de portee de l'IA doit fermer des DEUX cotes)")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
+    P366.ENEMY = a.enemy
     sid = P366._sid()
-    print("[488] session=%s board=%s seed=%s" % (sid, a.board, a.seed))
+    print("[488] session=%s board=%s seed=%s enemy=%s" % (sid, a.board, a.seed, a.enemy))
     from engine.entities.pathfinding.board import Board
     sf = os.path.join(tempfile.gettempdir(), "p488_%s_%s.json" % (a.board, os.getpid()))
     rid = None
     rc = 1
     try:
-        rid = P366.build(a.seed, a.board, sf)
+        rid = build(a.seed, a.board, sf, a.enemy)
         if rid is None:
             print("[488] ABORT build KO")
             return 1
@@ -224,7 +288,7 @@ def main():
         # substrat que `load_state` recevra, donc les deux faces indexent les MEMES ids de tuile.
         bg = P366._rpc(sid, "boardGraph", {"runnerId": rid}, 90)
         board = Board(bg["tiles"], adjacency="native_sym")
-        rec = cast_natif(sid, rid, board)
+        rec = cast_natif(sid, rid, board, loin=a.loin)
         if rec is None:
             return 1
         print("[488] NATIF   ok=%s carrier %s -> %s | hits=%d | spawned=%s"
@@ -238,6 +302,11 @@ def main():
         print("[488] PORTE   ported=%s carrier -> %s | hits=%d | spawned=%s"
               % ((port["last"] or {}).get("ported"), port["carrier_after"], port["n_hits"],
                  [(u["visualId"], u["pos"], u["stationary"]) for u in port["spawned"]]))
+        nat_legales = sorted(rec["dests"])
+        prt_legales = tuiles_legales_portees(rec, board)
+        e0 = (len(nat_legales) > 0 and nat_legales == prt_legales)
+        print("[488] E0 CIBLAGE  (natif %s / port %s) : %s"
+              % (nat_legales, prt_legales, "OK" if e0 else "KO"))
         e1 = (rec["carrier_after"] == rec["dst"] and port["carrier_after"] == rec["dst"])
         nat_sp = [u for u in rec["spawned"] if u["visualId"] == SUMMON_VISUAL]
         prt_sp = [u for u in port["spawned"] if u["visualId"] == SUMMON_VISUAL]
@@ -251,7 +320,9 @@ def main():
         seq_prt = []
         for d in port["detail"]:
             seq_prt += list(d["per_hit"]) + list(d["additional"])
-        e3 = (rec["n_hits"] > 0 and seq_nat == seq_prt
+        # En regime `--loin` le natif ne frappe pas : l'etage garde alors l'EGALITE des deux
+        # sequences (toutes deux VIDES), et le `n_hits > 0` deviendrait un faux rouge.
+        e3 = ((rec["n_hits"] > 0 or a.loin) and seq_nat == seq_prt
               and rec["targets"] == sorted(set(port["targets"])))
         print("[488] E1 TELEPORT (natif %s / port %s / attendu %s) : %s"
               % (rec["carrier_after"], port["carrier_after"], rec["dst"], "OK" if e1 else "KO"))
@@ -264,7 +335,7 @@ def main():
         print("[488] E3 COUPS    (natif %s sur %s / port %s sur %s) : %s"
               % (seq_nat, rec["targets"], seq_prt, sorted(set(port["targets"])),
                  "OK" if e3 else "KO"))
-        rc = 0 if (e1 and e2 and e3) else 1
+        rc = 0 if (e0 and e1 and e2 and e3) else 1
         print("[488] VERDICT : %s" % ("OK" if rc == 0 else "KO"))
         return rc
     finally:
@@ -279,5 +350,10 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+
+
+
 
 
