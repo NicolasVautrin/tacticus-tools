@@ -112,35 +112,92 @@ class _StubState:
         return self._e.get(int(eid))
 
 
-def _ordre(par_id: dict, d: int, might_crit: bool) -> list:
+def _substrat(par_id: dict, reco: "dict | None"):
+    """L'ETAT sur lequel l'etage 1 balaie, et QUI il est.
+
+    ⚠ **#494-r1-r1 -- CE SUBSTRAT DOIT ETRE CELUI DE LA CLE DE PRODUCTION.** Tant que la cle de tri
+    etait PRE-ARMURE, un stub a PV seuls la calculait exactement ; depuis qu'elle passe par la
+    PREDICTION COMPLETE par cible (`IBattleQuery` slot `0x26`), un stub sans `StatsComponent` fait
+    emprunter a `_target_utility` son chemin DEGRADE -- et l'etage 1 reglait alors le regime sur une
+    cle qui n'est plus celle qui tourne en live. Mesure du 2026-08-07 : le montage rendait
+    `montage_discriminant = False` (les deux valeurs du flag donnaient le meme ordre), c.-a-d. un
+    ROUGE de MONTAGE, pas un verdict sur le port.
+
+    `reco` = la RECONNAISSANCE (`_reco_du_runner`) : `{"state", "caster", "cibles"}` d'un runner
+    monte avec la MEME geometrie et la MEME neutralisation d'armure que le build final. On y MUTE
+    les PV des trois roles, donc le balayage exerce la cle REELLE (armure, defense, modificateurs,
+    part positionnelle). `None` -> repli sur le stub a PV seuls (chemin DEGRADE), qui reste utile
+    hors runner mais ne regle plus rien de discriminant."""
+    if reco is None:
+        return _StubState(par_id), None, {int(k): int(k) for k in par_id}
+    st, cibles = reco["state"], reco["cibles"]
+    mapping = {}
+    for role in sorted(int(k) for k in par_id):
+        # Le role N est TOUJOURS la N-ieme cible apres celle du MESSAGE -- c'est l'appariement que
+        # `etage_live` pose par `--unit-stat` sur `noms[1:]`. Un `zip` sur les seuls roles PRESENTS
+        # le casserait des qu'on evalue un role isolement (balayage separable).
+        eid = int(cibles[role - 1])
+        hp, mx = par_id[role]
+        hc = st.get_entity(eid).get_component(HealthComponent)
+        hc.hp, hc.hp_max = int(hp), int(mx)
+        mapping[role] = eid
+    return st, reco["caster"], mapping
+
+
+def _ordre(par_id: dict, d: int, might_crit: bool, reco: "dict | None" = None) -> list:
     """L'argmax-ordre que `sort_units_by_damage_utility` rendrait pour ces PV, a `might_crit` IMPOSE.
 
     On appelle `_target_utility` (le vrai) et on re-fait le tri ici plutot que d'appeler
     `sort_units_by_damage_utility`, uniquement parce que cette derniere DERIVE `might_crit` de
     l'owner : l'etage 1 doit pouvoir imposer les DEUX valeurs sur le meme etat."""
-    st = _StubState(par_id)
+    u = _utilites(par_id, d, might_crit, reco)
+    return sorted(sorted(int(k) for k in par_id), key=lambda r: -u[r])
+
+
+def _utilites(par_id: dict, d: int, might_crit: bool, reco: "dict | None" = None) -> dict:
+    st, owner, mapping = _substrat(par_id, reco)
     wt = damage_utility_weights()
-    ids = sorted(int(k) for k in par_id)
-    return sorted(ids, key=lambda eid: -_target_utility(st, eid, d, d, wt, might_crit))
+    # Les kwargs sont ceux du call-site Doombolt (`abilities/thousandsons.doombolt_ordered_targets`)
+    # -- l'etage 1 doit exercer LA MEME cle, pas une variante.
+    kw = ({} if owner is None
+          else {"owner_id": owner, "ability_type": DOOMBOLT, "is_melee": False})
+    return {int(k): _target_utility(st, mapping[int(k)], d, d, wt, might_crit, **kw)
+            for k in par_id}
 
 
-def _utilites(par_id: dict, d: int, might_crit: bool) -> dict:
-    st = _StubState(par_id)
-    wt = damage_utility_weights()
-    return {int(k): _target_utility(st, int(k), d, d, wt, might_crit) for k in par_id}
+def _bornes_brutes(d: int, reco: "dict | None", role: int = 1) -> tuple:
+    """Les bornes du degat sante BRUT que la cle predit REELLEMENT pour un role, DERIVEES d'une
+    prediction et non d'une formule supposee.
+
+    Elles bornent la fenetre << letal MAIS sous le seuil >>, et elles ont change avec la cle : le
+    chemin DEGRADE rendait `raw == (d, d)` (bornes brutes de l'appelant), le chemin MIRROR rend le
+    `{0.8 x d, 1.2 x d}` de `GetBaseDamageFix64` compose des modificateurs de l'attaquant et du
+    defenseur. Les LIRE evite de recopier ici des facteurs qui appartiennent a `predict_attack_raw`.
+    """
+    if reco is None:
+        return int(d), int(d)
+    from engine.runner.operations import damage_utility as _DU
+    f = _DU._prediction_fields(reco["state"], reco["caster"], reco["cibles"][role - 1], int(d), 1,
+                               DOOMBOLT, False) or {}
+    return int(f.get("rawHealthDmgMin") or d), int(f.get("rawHealthDmgMax") or d)
 
 
-def etage_regime(d: int, verbose: bool = True) -> dict:
+def etage_regime(d: int, verbose: bool = True, reco: "dict | None" = None) -> dict:
     """Cherche des (hp, hp_max) pour lesquels l'ordre BASCULE entre les deux valeurs du flag.
 
     Le seul terme que `MightCrit` gouverne est `OverkillUnit` (38) par `MightBeOverkill`, et il ne
     mord QUE dans la fenetre << letal MAIS sous le seuil >> :
-    `is_overkill` rend `isCritical` quand `hp <= d` ET `(d - hp) / hp * 100 < overkillDmgPctOfHealth`.
+    `is_overkill` rend `isCritical` quand `hp <= rawMax` ET
+    `(rawMax - hp) / hp * 100 < overkillDmgPctOfHealth`.
     Il faut donc une cible A dans cette fenetre, et une cible B qui la DEVANCE sans le flag et la
-    SUIT avec -- ce qui demande de regler le terme `DamageDealt` (35), gouverne par `MaxHealth`."""
-    lo, hi = d // 2 + 1, d          # la fenetre, DERIVEE de la formule (jamais posee a la main)
+    SUIT avec -- ce qui demande de regler le terme `DamageDealt` (35), gouverne par `MaxHealth`.
+
+    `reco` (#494-r1-r1) = la reconnaissance sur runner, qui donne a ce balayage le SUBSTRAT de la
+    cle de production (cf. `_substrat`). Sans elle, le balayage exerce le chemin DEGRADE."""
+    _rmin, rmax = _bornes_brutes(d, reco, 1)
+    lo, hi = rmax // 2 + 1, rmax    # la fenetre, DERIVEE de la borne haute MESUREE
     if lo > hi:
-        return {"ok": False, "raison": "fenetre vide : d=%d" % d}
+        return {"ok": False, "raison": "fenetre vide : rawMax=%d" % rmax}
     hp_a = hi                       # A : haut de fenetre = le plus favorable au terme DamageDealt
     trouve = None
     marge_max = -1.0
@@ -163,21 +220,54 @@ def etage_regime(d: int, verbose: bool = True) -> dict:
     # ⚠ On ne prend PAS le premier triplet qui bascule : on garde celui dont la MARGE MINIMALE est
     # la plus grande. Une bascule a 0,5 point tiendrait a un arrondi, et un montage qui ne tient
     # qu'a un arrondi ne DISCRIMINE pas -- il attribuerait au flag un ecart venu d'ailleurs.
-    hp_bc = max(1, d // 3)          # B et C : SOUS la fenetre -> overkill inconditionnel
-    for h_c in range(max(hp_bc, int(d * 0.5)), int(d * 8), max(1, d // 60)):
-        for h_b in range(hp_bc, int(d * 1.2), max(1, d // 60)):
-            par_id = {1: (hp_a, hp_a), 2: (hp_bc, h_b), 3: (hp_bc, h_c)}
-            o_off = _ordre(par_id, d, False)
-            o_on = _ordre(par_id, d, True)
+    # ⚠ **LES PV DE C SE DERIVENT D'UNE CONDITION, ILS NE SE BALAIENT PAS AU HASARD (#494-r1-r1).**
+    # C doit s'INTERCALER entre `u(A)` et `u(A) + PossibleOverkill` -- donc etre INSENSIBLE au flag,
+    # et pourtant proche. Le flag ne gouverne QUE `MightBeOverkill`, et il n'y mord que dans le cas
+    # « letal MAIS sous le seuil » (`hp <= rawMax` et `(rawMax - hp) / hp * 100 < 100`) : c'est ce
+    # cas-la, et lui seul, qu'il faut EVITER pour C. Les trois regimes possibles, derives de
+    # `is_overkill` :
+    #     hp_c > rawMax            -> ni kill ni overkill : `u(C) <= 100`, sous la fenetre ;
+    #     rawMax / 2 < hp_c        -> LETAL SOUS LE SEUIL : C bouge AVEC le flag, comme A -> inutile
+    #                                 (c'est ce que ce balayage faisait, d'ou son ensemble VIDE) ;
+    #     rmin / 2 < hp_c <= rawMax / 2 -> `MightBeOverkill` VRAI inconditionnellement (rawMax >= 2 hp)
+    #                                 et `WillBeOverkill` FAUX (rawMin < 2 hp, et cette borne-la passe
+    #                                 `isCritical = 0` EN DUR) -> `PossibleOverkill` FIXE, plus
+    #                                 `DefinitelyKill` (rawMin >= hp). Seul terme libre : `DamageDealt`,
+    #                                 que `max_c` regle finement.
+    # ⚠ La borne BASSE compte autant que la haute : sous `rmin / 2`, C devient `WillBeOverkill` et
+    # empoche 40 au lieu de 15 -- il repasse au-dessus de la fenetre.
+    hp_b = max(1, _rmin // 3)       # B : overkill GARANTI -> utilite HAUTE, au-dessus des deux
+    c_hp_lo, c_hp_hi = _rmin // 2 + 1, rmax // 2
+    # Le balayage est SEPARABLE, et il DOIT l'etre desormais : l'utilite d'un role ne depend que de
+    # SES PV. Le produit cartesien naif (~34 000 couples x 6 evaluations) etait tenable tant que
+    # `_target_utility` fabriquait un dict ; il ne l'est plus depuis qu'il monte une PREDICTION
+    # COMPLETE. On evalue chaque (role, PV) UNE fois, puis on combine en pur numerique.
+    def _u(role: int, hp: int, mx: int, mc: bool) -> float:
+        return _utilites({role: (hp, mx)}, d, mc, reco)[role]
+
+    pas = max(1, rmax // 40)
+    if c_hp_lo > c_hp_hi:
+        return {"ok": False, "raison": "fenetre C vide : rawMin=%d rawMax=%d" % (_rmin, rmax)}
+    b_vals = [(hp_b, m) for m in range(hp_b, int(rmax * 1.2), pas)]
+    c_vals = [(h, m) for h in range(c_hp_lo, c_hp_hi + 1, max(1, (c_hp_hi - c_hp_lo) // 8 or 1))
+              for m in range(max(1, rmax // 2), int(rmax * 40), max(1, rmax // 4))]
+    uA = {mc: _u(1, hp_a, hp_a, mc) for mc in (False, True)}
+    uB = {mc: {v: _u(2, v[0], v[1], mc) for v in b_vals} for mc in (False, True)}
+    uC = {mc: {v: _u(3, v[0], v[1], mc) for v in c_vals} for mc in (False, True)}
+    for v_c in c_vals:
+        for v_b in b_vals:
+            u_off = {1: uA[False], 2: uB[False][v_b], 3: uC[False][v_c]}
+            u_on = {1: uA[True], 2: uB[True][v_b], 3: uC[True][v_c]}
+            o_off = sorted((1, 2, 3), key=lambda r: -u_off[r])
+            o_on = sorted((1, 2, 3), key=lambda r: -u_on[r])
             if o_off[-1] == o_on[-1]:
                 continue            # le DERNIER ne change pas -> rien d'observable
-            u_off, u_on = _utilites(par_id, d, False), _utilites(par_id, d, True)
             marge = min(min(abs(u_off[x] - u_off[y]) for x, y in ((1, 2), (1, 3), (2, 3))),
                         min(abs(u_on[x] - u_on[y]) for x, y in ((1, 2), (1, 3), (2, 3))))
             if marge > marge_max:
                 marge_max = marge
-                trouve = {"hp_a": hp_a, "max_a": hp_a, "hp_b": hp_bc, "max_b": h_b,
-                          "hp_c": hp_bc, "max_c": h_c,
+                trouve = {"hp_a": hp_a, "max_a": hp_a, "hp_b": v_b[0], "max_b": v_b[1],
+                          "hp_c": v_c[0], "max_c": v_c[1],
                           "ordre_sans_crit": o_off, "ordre_avec_crit": o_on,
                           "u_sans": u_off, "u_avec": u_on, "marge": marge}
     if verbose:
@@ -223,24 +313,40 @@ def _ability_state_of(state, caster_id: int):
     return _ability_state(state, caster_id)
 
 
-def _dmg_tri_du_runner(a_units: str, regime_items: str, seed: str, board: str) -> "int | None":
-    """RECONNAISSANCE : le degat que le noeud de tri recevra REELLEMENT, lu sur un runner.
+def _reco_du_runner(a_units: str, regime_items: str, seed: str, board: str) -> "dict | None":
+    """RECONNAISSANCE : le degat que le noeud de tri recevra REELLEMENT **et l'ETAT sur lequel la
+    cle se calcule**, lus sur un runner.
 
-    ⚠ Il ne se DEDUIT pas : `dmg_min = ability_var(minDmg, level, multiplier_pct=mult)` et les deux
-    entrees viennent de l'UNITE (`_ability_state`). Supposer `level=50, mult=100` a donne 665 la ou
-    le runner rend une autre valeur -- et le regime calcule sur 665 ne discriminait alors RIEN
-    (les deux ordres identiques). Un montage regle sur une valeur SUPPOSEE ne prouve rien."""
+    ⚠ Le degat ne se DEDUIT pas : `dmg_min = ability_var(minDmg, level, multiplier_pct=mult)` et les
+    deux entrees viennent de l'UNITE (`_ability_state`). Supposer `level=50, mult=100` a donne 665
+    la ou le runner rend une autre valeur -- et le regime calcule sur 665 ne discriminait alors RIEN
+    (les deux ordres identiques). Un montage regle sur une valeur SUPPOSEE ne prouve rien.
+
+    ⚠ **L'ETAT non plus (#494-r1-r1).** Depuis que la cle de tri passe par la PREDICTION COMPLETE
+    par cible, un balayage sur stub a PV seuls regle le regime sur le chemin DEGRADE -- donc sur une
+    cle qui n'est plus celle qui tourne. Ce runner est monte avec la MEME geometrie PLATE et la MEME
+    neutralisation d'armure que le build final, pour que l'etage 1 balaie le bon substrat.
+
+    Rend `{"d", "state", "caster", "cibles"}` (`cibles` = les ids des roles A / B / C, dans l'ordre
+    des `--a-units` apres la cible du MESSAGE), ou `None` si le montage n'a pas tenu."""
     import probe_psychic_aoe as PA
     import rl_collect_batch as R
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
 
     sid = R._resolve_session()
+    noms = [s.strip() for s in a_units.split(",") if s.strip()]
     state_file = _ROOT / "logs" / "runners" / ("419r6r1-reco-%s.json" % uuid.uuid4().hex[:6])
     state_file.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
             "--roster", "1", "--p-units", CASTER, "--a-units", a_units,
             "--state-file", str(state_file)]
+    if board == GEO_PLATE["board"]:
+        argv += ["--place", "%s:%d,%d" % (CASTER, GEO_PLATE["caster"][0], GEO_PLATE["caster"][1])]
+        for nom, pos in zip(noms, GEO_PLATE["cibles"]):
+            argv += ["--a-place", "%s:%d,%d" % (nom, pos[0], pos[1])]
+    for nom in noms[1:]:
+        argv += ["--unit-stat", "%s:FixedArmor=0,Armor=0" % nom]
     if regime_items == "0":
         argv.append("--no-bis-items")
     subprocess.run(argv, cwd=str(_HERE), capture_output=True, text=True,
@@ -259,8 +365,16 @@ def _dmg_tri_du_runner(a_units: str, regime_items: str, seed: str, board: str) -
                     if u.get("visualId") == CASTER), None)
         if cid is None:
             return None
+        cibles = []
+        for nom in noms[1:]:
+            eid = next((u["id"] for u in (dec.get("units") or [])
+                        if u.get("visualId") == nom and u.get("id") != cid), None)
+            if eid is not None:
+                cibles.append(int(eid))
+        if len(cibles) < 3:
+            return None
         lvl, mult = _ability_state_of(st, cid)
-        return _dmg_min(lvl, mult)
+        return {"d": _dmg_min(lvl, mult), "state": st, "caster": int(cid), "cibles": cibles}
     finally:
         try:
             live.rpc("disposeRunner", {"runnerId": rid}, 20)
@@ -270,6 +384,13 @@ def _dmg_tri_du_runner(a_units: str, regime_items: str, seed: str, board: str) -
             state_file.unlink()
         except Exception:
             pass
+
+
+def _dmg_tri_du_runner(a_units: str, regime_items: str, seed: str, board: str) -> "int | None":
+    """Alias historique : le seul degat, sans l'etat. Conserve pour les appelants qui n'ont pas
+    besoin du substrat (`--etage regime` en ligne de commande)."""
+    r = _reco_du_runner(a_units, regime_items, seed, board)
+    return None if r is None else r["d"]
 
 
 def etage_live(regime: dict, a_units: str, regime_items: str, seed: str, board: str,
@@ -532,15 +653,19 @@ def main(argv=None) -> int:
     if not (a.regime or a.live or a.temoin):
         a.regime = a.live = a.temoin = True
 
-    d = a.dmg_tri
+    d, reco = a.dmg_tri, None
     if d is None and (a.live or a.temoin):
-        d = _dmg_tri_du_runner(a.a_units, "defaut", a.seed, a.board)
+        reco = _reco_du_runner(a.a_units, "defaut", a.seed, a.board)
+        d = None if reco is None else reco["d"]
         print("[419-r6-r1] degat du noeud de tri LU sur un runner : %s" % d)
     if d is None:
         d = _dmg_min(a.level, a.mult)
         print("[419-r6-r1] degat du noeud de tri SUPPOSE (level=%d, mult=%d) : %d -- une mesure"
               " live le REMPLACERAIT" % (a.level, a.mult, d))
-    reg = etage_regime(d, verbose=True)
+    if reco is None:
+        print("[419-r6-r1] ATTENTION : etage 1 SANS substrat reel -> chemin DEGRADE : le regime trouve peut"
+              " ne PAS discriminer en live (#494-r1-r1).")
+    reg = etage_regime(d, verbose=True, reco=reco)
     if not reg.get("ok"):
         print("[419-r6-r1] etage 1 SANS regime discriminant -- rien a mesurer live.")
         return 1

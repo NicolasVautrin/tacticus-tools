@@ -108,12 +108,17 @@ def test_les_entrees_publiques_ne_posent_pas_le_flag():
 
 @pytest.fixture(scope="module")
 def mesure_live():
-    dmg = P._dmg_tri_du_runner(
+    # #494-r1-r1 : la RECONNAISSANCE rend aussi l'ETAT. Depuis que la cle de tri passe par la
+    # prediction complete par cible, un balayage sur stub a PV seuls reglerait le regime sur le
+    # chemin DEGRADE -- et le montage cesserait d'etre discriminant en live (mesure du 2026-08-07 :
+    # `montage_discriminant = False`, un ROUGE de MONTAGE qui ne juge pas le port).
+    reco = P._reco_du_runner(
         "necroOverlord,necroWarden,eldarRanger,orksNob", "defaut", "31337", "MC1_67")
-    if dmg is None:
+    if reco is None:
         pytest.fail("MONTAGE : reconnaissance du degat du noeud de tri impossible (build KO). "
                     "Ce n'est pas un verdict sur le port -- le harnais n'a pas monte le cas.")
-    reg = P.etage_regime(dmg, verbose=False)
+    dmg = reco["d"]
+    reg = P.etage_regime(dmg, verbose=False, reco=reco)
     if not reg.get("ok"):
         pytest.fail("MONTAGE : aucun regime discriminant a d=%s -- le cas ne separerait pas les "
                     "deux valeurs du flag, donc il ne prouverait rien." % dmg)
@@ -150,11 +155,12 @@ def test_le_temoin_referme_le_canal_live():
     C'est ce bras qui etablit que la bascule #419-r6 est bien ce qui a rendu la question POSABLE.
     S'il echoue, c'est qu'une autre voie equipe desormais les unites -- et alors le temoin de
     toute cette famille de mesures est perdu, ce qu'il faut savoir tout de suite."""
-    dmg = P._dmg_tri_du_runner(
+    reco = P._reco_du_runner(
         "necroOverlord,necroWarden,eldarRanger,orksNob", "0", "31337", "MC1_67")
-    if dmg is None:
+    if reco is None:
         pytest.fail("MONTAGE : reconnaissance impossible en regime temoin (build KO).")
-    reg = P.etage_regime(dmg, verbose=False)
+    dmg = reco["d"]
+    reg = P.etage_regime(dmg, verbose=False, reco=reco)
     if not reg.get("ok"):
         pytest.fail("MONTAGE : aucun regime discriminant a d=%s (temoin)." % dmg)
     r = P.etage_live(reg, "necroOverlord,necroWarden,eldarRanger,orksNob", "0",

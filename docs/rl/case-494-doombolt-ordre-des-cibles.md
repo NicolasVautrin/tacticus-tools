@@ -165,40 +165,109 @@ Porté (`engine/runner/operations/damage_utility.py`) :
   responsabilité de fournir l'ordre du sélecteur natif passe à l'appelant ;
 * **`positional_damage_range(state, owner_id, target_id, dmin, dmax)`** — les bornes passées par
   `apply_elevation_bonus` et `apply_trench_reduction` (MÊMES fonctions que le COMBAT, pas de fork).
-  `owner_id is None` ⇒ bornes inchangées : le port ne devine pas une géométrie qu'on ne lui a pas
-  donnée ;
+  ⚠ Depuis #494-r1-r1 cette fonction ne sert plus qu'au chemin **DÉGRADÉ** : la clé de production
+  passe par la prédiction complète, qui applique ces deux feuilles elle-même ;
 * `owner_id=` câblé aux **quatre** call-sites (Doombolt, FinalJustice, AncestralFortune,
   KillMaimBurn). Un call-site qui l'oublierait retomberait sur la clé constante d'avant, en silence
   — d'où le balayage AST de `test_494r1_ordre_cibles_offline.py`.
 
-NON porté, et nommé :
+NON porté, et nommé (état du 2026-08-07, AVANT #494-r1-r1) :
 
-* l'**ARMURE** de la cible (`#527-r1`) — c'est ce que `db-4` mesure, et le seul bloqueur restant sur
-  ce montage ;
-* la **DÉFENSE** de la cible (`#494-r1-r1`, §8) ;
+* l'**ARMURE** de la cible (`#527-r1`) ;
+* la **DÉFENSE** de la cible (`#494-r1-r1`) ;
 * `ShouldApplyRangedInMelee` — feuille du même builder, mais elle ne dépend que de l'ATTAQUANT, donc
   facteur COMMUN à toutes les cibles ⇒ **sans effet sur l'ORDRE** (elle en a un sur les seuils
   kill/overkill) ;
 * les modificateurs d'**EFFETS** par cible.
 
-## 8. Résidus
+## 8. Résidus (état à la clôture de #494-r1)
 
-* **`#494-r1-r1`** — **la clé de tri doit passer par la prédiction COMPLÈTE par cible, pas par des
-  bornes brutes + les deux feuilles positionnelles.** Mesuré : les régimes `I5` et `J1` restent
-  DIVERGENTS après #494-r1, et la cause est isolée — la tuile `(1,3)` de `MC1_67` porte
-  `Thorns_DefenseReduction`, donc l'occupant y descend à `defense = 50` (`statDelta {"defense": -50}`)
-  et le natif lui prédit plus de dégât. Ce n'est ni l'ordre ni l'élévation : c'est la DÉFENSE, qui
-  entre dans la prédiction native et pas dans la clé du port. Même foyer et même famille que
-  `#527-r1` (l'armure) — les deux se ferment ensemble en faisant appeler à `_target_utility` le
-  service de prédiction du port au lieu de fabriquer un `pred` synthétique.
-  Rejouer : `python probe_494_doombolt_sort_order.py --regime I5|J1`.
-* **`#527-r1`** (existant) — confirmé ici sur une seconde ability, et désormais **TÉMOIN
-  EXÉCUTABLE** : `test_doombolt_live.py::test_doombolt_ordre_heterogene_bloque_par_l_armure_live`,
-  `xfail(strict=True)`.
+* **`#494-r1-r1`** — la clé de tri doit passer par la prédiction COMPLÈTE par cible. **FERMÉ, §10.**
+* **`#527-r1`** — confirmé ici sur une seconde ability, avec le TÉMOIN EXÉCUTABLE
+  `test_doombolt_live.py::test_doombolt_ordre_heterogene_bloque_par_l_armure_live`
+  (`xfail(strict=True)`). **FERMÉ, §10** — le cliquet a joué (xpass), le marqueur est retiré.
 * **Hors périmètre, LU en chemin** : `IdunBattleLogic.Entities.DSLSelectors$$Damageable` n'est pas
   « vivant et PV > 0 » (ce que porte `entities/selectors/units.Damageable`) mais
   `UnitsWithoutTrait(source, UnitTrait.Invincible, 3)`. Non mesuré, non porté ici — le signaler,
   pas le corriger au passage.
+
+## 10. #494-r1-r1 — la clé EST la prédiction complète, et son `damageProfile` est NUL
+
+Deux relectures ferment les deux résidus d'un seul geste.
+
+**(a) `+0x48` est le nœud `hits`, pas un `dmgMax`** — le ctor l'atteste
+(`SortUnitsByDamageUtilitySelector..ctor(state, battleQuery, utilitiesDatabase, targets, caster,
+ability, utilityDefinition, damage, hits, aiLogger)`), et son défaut est **1**, écrit en dur. Le
+nœud de dégât rend UN entier. Les **quatre** call-sites portés passent `hits = null`.
+
+**(b) le slot `0x26` est la PRÉDICTION COMPLÈTE.** `metadata/interface_slots.tsv` donne
+`IBattleQuery 38 GetAttackPrediction 11` = la surcharge à `calculateDamageAtTile:Func<Int32>` /
+`calculateHitsAtTile:Func<Int32>` → `DamagePredictionQuery$$GetAttackPrediction` (memset 0xb8 de
+l'`AttackPredictionRequest`, puis slot 5 = `DamagePrediction$$PredictAttack`) → `$$PredictAttackRaw`.
+Armure, défense, modificateurs d'attaquant et de défenseur, bouclier et scénarios de BLOCK entrent
+donc dans la clé.
+
+**(c) et `damageProfile` est passé `null`**, ce qui met le **perçage à ZÉRO** :
+`IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` commence par
+`if (damageProfile == null) return 0`. Le garde n'existerait pas si aucun chemin ne passait un
+profil nul. La clé prédit donc `GetDamageWithPiercing(d, 0, armure) = max(0, d − armure)` :
+**l'armure est soustraite en entier**, et aucun gate de profil ne joue.
+
+Le nœud d'ability (`+0x28`) reste ce qu'il désigne — `Direct(AbilityOrEffect(1102))` pour Doombolt,
+`Direct(AbilityOrEffect(1132))` pour KillMaimBurn, `UnitNormalAttackType` pour FinalJustice,
+**rien** pour AncestralFortune (donc `GetNormalAttackType(owner)`).
+
+### Mesure — les HUIT régimes, `python probe_494_doombolt_sort_order.py --regime <r>`
+
+| régime | NATIF joué | PORT joué | verdict |
+|---|---|---|---|
+| `I1` | `[79, 85, 81]` | idem | ACCORD |
+| `I3` | `[79, 85, 83]` | idem | ACCORD |
+| **`I5`** | `[79, 83, 85]` | idem | **ACCORD** (divergeait : port `[79, 85, 81]`) |
+| **`J1`** | `[79, 83, 85]` | idem | **ACCORD** (divergeait) |
+| `K1` | `[79, 83, 81]` | idem | ACCORD |
+| `L1` | `[79, 81, 83]` | idem | ACCORD |
+| `L2` | `[79, 85, 81]` | idem | ACCORD |
+| `L3` | `[79, 81, 83]` | idem | ACCORD |
+
+**8/8** (6/8 avant). `I5`/`J1` sont exactement les régimes où une cible se tient sur la tuile `(1,3)`
+de `MC1_67`, qui porte `Thorns_DefenseReduction` : son occupant descend à `defense = 50`
+(`statDelta {"defense": -50}`) et prend donc **plus** de dégât. Le port la classe désormais
+DEVANT la cible qui bénéficie du bonus d'élévation — comme le natif. La défense pèse plus, ici, que
+le +50 % d'élévation : ce n'est pas un réglage, c'est ce que la prédiction rend.
+
+Côté `#527-r1` (AncestralFortune, `probe_527 --etage cle|armure`) : **6/6**, dont la bascule
+d'armure entre 2100 et 2200 reproduite. Détail :
+`docs/rl/case-527-r1-choix-de-cible-ancestral-fortune.md`.
+
+### Ce que ça a coûté, et la leçon transposable
+
+⚠ **Un seuil correctement encadré MESURE, mais n'ATTRIBUE pas.** `#527-r1` avait borné la bascule
+native entre armure 2100 et 2200, et en avait déduit — par la loi `seuil = d × 35 %` du profil
+`Plasma` — que le natif employait le dégât des TROIS coups (`3 × 2044 = 6132`). Le seuil était
+juste ; la loi était la mauvaise. Deux inconnues se compensaient : `6132` à 65 % de perçage et
+`2044` à **0 %** donnent le même seuil à ~50 près. Il a fallu LIRE `GetAttackPiercingDamageRatio`
+pour trancher — aucune quantité de mesure ne l'aurait fait, parce que les deux modèles prédisent la
+même chose sur cet axe.
+
+⚠ **UN MONTAGE DISCRIMINANT EST DISCRIMINANT POUR UNE CLÉ DONNÉE.** L'étage 1 de
+`probe_419r6r1_face_decision.py` cherchait son régime sur un stub à PV seuls — donc, depuis ce
+changement, sur le chemin DÉGRADÉ de `_target_utility`. Résultat mesuré : le montage est revenu
+`montage_discriminant = False`, un **rouge de MONTAGE** qui ne juge pas le port. La réparation est
+la transposition exacte de ce que ce probe disait déjà de son dégât (« un montage réglé sur une
+valeur SUPPOSÉE ne prouve rien ») : la reconnaissance rend désormais aussi l'**ÉTAT**
+(`_reco_du_runner`), et le balayage exerce la clé RÉELLE. Corollaire de coût : le produit cartésien
+naïf devenait ~200 000 prédictions complètes ; le balayage est SÉPARABLE (l'utilité d'un rôle ne
+dépend que de SES PV), ce qui le ramène à ~1 100 évaluations pour exactement la même couverture.
+
+### Résidus ouverts
+
+* **`#494-r1-r1-r1`** — `isMelee` et `hits` de la clé ne sont pas LUS dans `PredictAttackRaw`
+  (non parcouru intégralement). Le port dérive `isMelee` de l'ability du nœud `+0x28` et fixe
+  `hits = 1` parce qu'aucun call-site porté ne fournit de nœud de coups ; le comportement de
+  `PredictAttackRaw` à `hits > 1` est donc **NON CONFRONTÉ**.
+* **`MightCrit`** — `PredictAttackRaw` le calcule, et le live a pourtant réfuté qu'il entre dans ce
+  classement (#419-r6-r1). L'étage qui le neutralise n'est toujours pas isolé.
 
 ## 9. Ce que ce cas a coûté, et la leçon transposable
 

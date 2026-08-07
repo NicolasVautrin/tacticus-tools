@@ -45,9 +45,10 @@ Egalise, le port et le natif sont d'accord sur la MEME geometrie -- `orksNob` (e
 plus BAS que le caster, elevation 3) remonte en 2e position des DEUX cotes. Ce qui restait est donc
 bien l'armure, pas l'ordre.
 
-  * `db-4e` (EGALISE) porte desormais la confrontation d'ORDRE et le bit-exact.
-  * `db-4` (HETEROGENE) est conserve comme TEMOIN de `#527-r1`, en `xfail(strict=True)` : le jour
-    ou l'armure entrera dans la cle, il passera au vert et FORCERA a retirer le marqueur.
+  * `db-4e` (EGALISE) porte la confrontation d'ORDRE et le bit-exact ;
+  * `db-4` (HETEROGENE) etait le TEMOIN de `#527-r1`, en `xfail(strict=True)`. **Le cliquet a joue
+    (#494-r1-r1)** : la cle de tri passe desormais par la PREDICTION COMPLETE par cible, l'armure y
+    entre, le test est passe en `xpass` et le marqueur a ete retire. Il est VERT et le reste.
 
 Detail : `docs/rl/case-494-doombolt-ordre-des-cibles.md`.
 
@@ -122,12 +123,14 @@ def test_doombolt_zero_hit_target_and_sort_order_live(psychic_aoe_case):
     _assert_db4(psychic_aoe_case("db-4e"))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "#527-r1 -- l'ARMURE de la cible entre dans la prediction NATIVE et pas encore dans la cle du "
-    "port. Sur ce montage a `fixedArmor` NATURELS et tous differents, l'ordre natif est decide par "
-    "elle : le port rend [77, 83, 81, 79] la ou le natif joue [77, 81, 79]. La MEME geometrie, "
-    "armures egalisees (`db-4e`), est en ACCORD -- c'est ce qui isole la cause. Ce marqueur est un "
-    "CLIQUET : quand l'armure entrera dans la cle, ce test passera au vert et rougira en xpass."))
 def test_doombolt_ordre_heterogene_bloque_par_l_armure_live(psychic_aoe_case):
-    """TEMOIN de `#527-r1` : le MEME critere que `db-4e`, sur le montage a armures HETEROGENES."""
+    """TEMOIN de `#527-r1`, desormais VERT : le MEME critere que `db-4e`, sur le montage a armures
+    HETEROGENES.
+
+    ⚠ Ce test a porte un `xfail(strict=True)` du 2026-08-07 au 2026-08-07 (#494-r1-r1). Le marqueur
+    etait un CLIQUET : « quand l'armure entrera dans la cle, ce test passera au vert et rougira en
+    xpass ». Il a fait exactement cela. La cause a ete fermee en faisant passer la cle de tri par la
+    PREDICTION COMPLETE par cible (`IBattleQuery` slot `0x26`, `damageProfile: null` donc percage 0
+    et armure SOUSTRAITE EN ENTIER) -- mesure : `[77, 81, 79]` des deux cotes, bit-exact.
+    Le NOM du test est conserve tel quel : c'est lui que la case-doc et le backlog citent."""
     _assert_db4(psychic_aoe_case("db-4"))
