@@ -94,6 +94,14 @@ Empreinte re-mesurée (`--mesurer --only probe_283`) : `diff` **0,5 s / 6 lectur
 * l'étage 1 du probe sur la **vraie banque**, avec le compte d'entrées affinées assertionné
   **non nul**.
 
+⚠ **Le fichier de test a lui-même été pris en TROP ÉTROIT par `probe_486r15`**, et pas sur son
+propre code : `scripts/python/tests/conftest.py` et `scripts/python/engine/runner/snapshot.py`.
+C'est la **cascade des conftest** — tout fichier posé sous `tests/` la traîne, qu'il la touche
+ou non. C'est exactement le résidu **#531** que `d57293b9` vient de nommer sur
+`test_524r1_bond_sous_effets_offline.py` (« une déclaration HONNÊTE punie par la cascade des
+conftest »), en plus court ici parce que ce fichier n'est pas sous `tests/engine/`. Elle est
+déclarée explicitement plutôt que noyée dans un `scripts/python/*.py`.
+
 ## 5. Ce qui reste ouvert
 
 * **`probe_457` (8 shards) n'est pas affiné** — l'autre moitié des 14 entrées. Ses shards

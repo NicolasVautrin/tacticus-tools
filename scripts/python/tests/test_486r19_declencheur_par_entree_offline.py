@@ -36,20 +36,28 @@ import probe_486r12_declencheurs as P                # noqa: E402
 
 #: Ce qui doit changer pour que ce fichier puisse changer de verdict (#486-r15).
 #:
-#: ⚠ VOLONTAIREMENT ETROIT, et c'est verifiable : les globs ci-dessous s'arretent a la RACINE
-#: de `scripts/python` (`*.py`, pas `**/*.py`). Ce n'est pas de la prudence inversee -- c'est
-#: ce que le fichier lit vraiment : la banque ne porte que des scripts poses a cette racine,
-#: et `DC.lire` les ouvre un par un depuis `PYDIR`. Rien sous `engine/`, rien sous `tests/`
-#: (hors ce fichier, ajoute par le foyer).
+#: ⚠ VOLONTAIREMENT ETROIT sur ce qui lui est PROPRE : les globs de la 1re ligne s'arretent a
+#: la RACINE de `scripts/python` (`*.py`, pas `**/*.py`). Ce n'est pas de la prudence inversee
+#: -- c'est ce que le fichier lit vraiment : la banque ne porte que des scripts poses a cette
+#: racine, et `DC.lire` les ouvre un par un depuis `PYDIR`.
+#:
+#: Les DEUX lignes suivantes ne lui sont PAS propres : c'est LA CASCADE DES CONFTEST, MESUREE
+#: par `probe_486r15` (`DECLARE TROP ETROIT : scripts/python/tests/conftest.py`,
+#: `scripts/python/engine/runner/snapshot.py`), pas devinee. Tout fichier pose sous `tests/`
+#: les traine, qu'il les touche ou non -- meme phenomene que `test_524r1` (residu #531), en
+#: plus court parce que ce fichier n'est pas sous `tests/engine/`.
 DECLENCHEUR = {
-    "chemins": ("scripts/python/*.py", "scripts/ratchets.ps1"),
+    "chemins": ("scripts/python/*.py", "scripts/ratchets.ps1",
+                "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+                "scripts/python/engine/runner/snapshot.py"),
     "build": True,
     "toujours": False,
     "raison": "Il DERIVE la banque de `scripts/ratchets.ps1` (via `probe_439`) puis ouvre le "
               "source de CHACUN de ses scripts, tous poses a la racine de `scripts/python`, "
               "pour y lire `DECLENCHEUR` et `DECLENCHEUR_PAR_ENTREE` par AST. Il importe "
               "`probe_283`, dont le module lit `data/symbols` au chargement -- d'ou "
-              "`build: True`, qui apporte `data/symbols/**`.",
+              "`build: True`, qui apporte `data/symbols/**`. S'y ajoute la cascade des "
+              "conftest de `tests/`, qui n'est propre a aucun fichier de test.",
 }
 
 _BON = {"chemins": ("scripts/python/**/*.py",), "build": False, "toujours": False,
