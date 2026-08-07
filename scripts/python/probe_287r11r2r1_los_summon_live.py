@@ -88,26 +88,47 @@ CIBLE = (0, 1)
 # `masque`  : les QUATRE claires sont occupees (caster en (0,3)) -> il ne reste que du masque.
 #             Natif : `PickTile` == null -> `1 ValidRequest`. Port d'avant : accepte -> SOUS-refus.
 # `degage`  : le bloqueur de (1,4) part en (5,5), HORS du disque. MEME caster, MEME cible, MEME
-#             distance : EXACTEMENT UNE tuile libre, et elle est CLAIRE -> le natif accepte. C'est
-#             ce bras qui etablit que le decideur est la LIGNE DE VUE et non le compte du disque
-#             (`masque` en laisse DIX libres, et le natif refuse quand meme).
+#             distance : EXACTEMENT UNE tuile libre CLAIRE -> le natif accepte. C'est ce bras qui
+#             etablit que le decideur est la LIGNE DE VUE et non le compte du disque (`masque` en
+#             laisse DIX libres, et le natif refuse quand meme).
+# `melee-candidate` : `degage` a UNE SEULE variable pres -- l'occupant de (2,4) change d'EQUIPE
+#             (allie -> ennemi). MEMES tuiles occupees, MEME ensemble libre, MEME ligne de vue.
+#             (2,4) est adjacente a la tuile libre claire (1,4) et a d=2 du caster (donc PAS au
+#             contact du caster, sinon `TargetIsInRange` masquerait la regle) :
+#             `ShouldApplyRangedInMelee(parent, [(1,4)], state, true)` devient VRAI -> la portee du
+#             drone est rabattue a 1 -> `IsAdjacentTo((1,4), (0,1))` est FAUX (d=3) -> plus aucune
+#             candidate, le natif rebascule sur `1 ValidRequest`. C'est l'etage
+#             `ShouldApplyRangedInMelee DEPUIS LA TUILE CANDIDATE` qui le decide -- ni la ligne de
+#             vue, ni le compte. Elevations (1,4)=2 / (2,4)=3, |dElev| = 1 < 2, donc
+#             `CanMeleeAttackOverElevationDifference` laisse passer l'ennemi.
+#             ⚠ (2,3), pourtant voisine HEX de (1,4), NE CONVIENT PAS : le `ConnectivityComponent`
+#             LIVE de (1,4) ne porte que 5 aretes et cette arete-la n'y est pas -- mesure, pas
+#             suppose (le natif rend `0x0` avec l'ennemi en (2,3), et le port aussi).
 # --------------------------------------------------------------------------------------------- #
 
 _ALLIES = "tauMarksman,ultraTitus,ultraTitus,ultraTitus"
+_ALLIES3 = "tauMarksman,ultraTitus,ultraTitus"
 _ENNEMIS = "necroWarden"
+_ENNEMIS2 = "necroWarden,necroWarden"
 
 MONTAGES = {
     "masque": dict(
         board="C3_47", seed=4747, cible=CIBLE, p_units=_ALLIES, a_units=_ENNEMIS,
         place=["tauMarksman:0,3", "ultraTitus:0,2", "ultraTitus:1,4", "ultraTitus:2,4"],
         a_place=["necroWarden:0,1"],
-        libres_clairs=0,
+        libres_clairs=0, natif_attendu=0x1,
     ),
     "degage": dict(
         board="C3_47", seed=4747, cible=CIBLE, p_units=_ALLIES, a_units=_ENNEMIS,
         place=["tauMarksman:0,3", "ultraTitus:0,2", "ultraTitus:5,5", "ultraTitus:2,4"],
         a_place=["necroWarden:0,1"],
-        libres_clairs=1,
+        libres_clairs=1, natif_attendu=0x0,
+    ),
+    "melee-candidate": dict(
+        board="C3_47", seed=4747, cible=CIBLE, p_units=_ALLIES3, a_units=_ENNEMIS2,
+        place=["tauMarksman:0,3", "ultraTitus:0,2", "ultraTitus:5,5"],
+        a_place=["necroWarden:0,1", "necroWarden:2,4"],
+        libres_clairs=1, natif_attendu=0x1,
     ),
 }
 
@@ -291,10 +312,20 @@ def main() -> int:
         for ligne in res["lignes"]:
             print("      t%-5d %-48s natif=%-8s [%s] port=%s"
                   % (ligne[0], ligne[1], ligne[2], ligne[3], ligne[4]))
-        if res.get("cible_cle") is None:
+        cle = res.get("cible_cle")
+        if cle is None:
             print("   !! LA CIBLE CLE %s N'EST PAS DANS LE DOMAINE : montage non honore"
                   % (tuple(m["cible"]),))
             rc = max(rc, 2)
+        else:
+            # LA RE PREDIT LE VERDICT NATIF DE CE REGIME. Ce n'est pas le port qu'on juge ici : si
+            # le natif dit autre chose, c'est la LECTURE du decompile qui est fausse, et ca doit
+            # etre bruyant plutot que noye dans un accord port<->natif.
+            attendu, obtenu = int(m["natif_attendu"]), int(cle[2], 16)
+            if attendu != obtenu:
+                print("   !! PREDICTION DE LA RE NON CONFIRMEE sur la cible cle : attendu %s, "
+                      "natif %s" % (hex(attendu), hex(obtenu)))
+                rc = max(rc, 1)
         temoin_exact = {(r[0], r[1]) for r in temoin["exact"]}
         attribuables = [r for r in res["exact"] if (r[0], r[1]) not in temoin_exact]
         print("   refus ATTRIBUABLES a la LIGNE DE VUE (perdus par le temoin) : %d"
@@ -319,9 +350,12 @@ def main() -> int:
                   % (r[0], r[1], r[2], r[3], r[5]))
         if imputables or res["sous_refus"]:
             rc = 1
-        if nom == "masque" and (not attribuables or not temoin["sous_refus"]):
+        # Tout montage dont le natif REFUSE doit DISCRIMINER : sous le collapse d'avant, le port
+        # doit perdre ce refus. Sinon l'accord est obtenu par autre chose et ne dit rien de la
+        # tranche.
+        if int(m["natif_attendu"]) != 0 and (not attribuables or not temoin["sous_refus"]):
             print("   !! le montage ne DISCRIMINE pas : sous le collapse d'avant, le port rend le "
-                  "meme verdict -- la ligne de vue n'est pas ce qui decide")
+                  "meme verdict -- l'etage porte n'est pas ce qui decide")
             rc = max(rc, 1)
     print("")
     zero = sum(v for k, v in natif_global.items() if int(k, 16) == 0)
