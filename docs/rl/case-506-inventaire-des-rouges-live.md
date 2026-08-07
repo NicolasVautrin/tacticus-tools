@@ -90,10 +90,89 @@ des verts en regime degenere -- precisement ce que #419-r6 a supprime. Chaque mo
 
 ## 3. Ce que cette tranche a repare
 
-(section renseignee au fil des reparations)
+Le critere de reussite n'est **pas** « c'est vert » : c'est **le compte du TEMOIN** (#419-r6-r1
+§3.3). Un fichier qui rendrait plus de tests verts que son temoin aurait change d'objet.
+
+| # | avant | apres | temoin | geste |
+|---|---|---|---|---|
+| 2 | 13F / 12P / 5S | **30 passed** | 30 | neutralisation crit/block, QUATRE faces, au montage |
+| 3 | 2F / 6P | **8 passed** | 8 | l'attaquant de mesure est CHOISI puis AMENE au contact |
+| 4 | 6 errors | **6 passed** | 6 | neutralisation crit/block + echec NOMME au lieu d'un `KeyError` |
+| 5 | 1F / 28P | **29 passed** | 29 | la condition du volet live devient MESUREE, et les deux branches assertionnent |
+
+### 3.1 -- #2, #4 : le remede-type, et POURQUOI pas `--no-bis-items`
+
+Les deux fichiers mesurent une TRAJECTOIRE / des STATS DE SPAWN, jamais un montant de degat
+inflige. On epingle donc **quatre scalaires sur CE montage**
+(`--crit 0,0 --crit-target 0,0 --block-player 0,0 --block-target 0,0`) plutot que de restituer le
+regime degenere global. Precedent exact : #419-r6-r3 sur `test_477r33_non_owner_playbooks_live`
+(6 failed / 35 passed -> 41 passed). Les **quatre** faces sont necessaires : les deux montages ont
+des porteurs des deux cotes.
+
+⚠ **La neutralisation ne mord QUE sur les unites nommees.** `rl_duel build` applique
+`--crit`/`--block-*` a `p_units`/`a_units`, c.-a-d. au roster EXPLICITE quand il y en a un, sinon
+au tirage `rng.sample(pool, roster)`. Elle mord donc toujours -- mais elle ne suffit pas partout
+(cf. residu `#506-r1`).
+
+### 3.2 -- #3 : l'attaquant de mesure ne se SUBIT plus
+
+Le probe prenait la VICTIME du cast (qui a les decoys au contact par construction) et retombait
+sinon sur `foes[0]`, c.-a-d. l'ordre de `decisionView`. Depuis la bascule, les tours AI immediats
+des Neophytes TUENT la victime, et `foes[0]` est un ennemi quelconque : les 5 decoys rendaient
+`portDesarme = 0x8000000` (refus de PORTEE) au lieu de `0x0`, donc l'etage B n'avait plus de ligne
+ou le port d'AVANT ACCEPTAIT -- le contrefactuel qui fait TOUT le sens de la regle, puisque sa
+degradation est PERMISSIVE.
+
+⚠ L'accord natif/port, lui, restait **18/18** : c'est la regle 51 qui PRECEDE le volet portee dans
+`IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`, donc les deux cotes refusaient
+en `TargetIsNotSteppable` sans jamais atteindre la portee. **Un accord peut survivre a la
+disparition du regime qui le rendait probant** -- seul le contrefactuel l'a vu.
+
+Le probe choisit desormais l'ennemi vivant le plus proche d'un decoy et l'**AMENE au contact**
+(`_step_toward`, runner `--no-ai`, `applyAction` ne verifie pas la propriete du `unitId`).
+
+### 3.3 -- #5 : une condition PROXY qui a lache
+
+Le volet live etait garde par `if live_effects:` = « le caster porte au moins un effet », ce qui ne
+valait que tant que le seul effet possible etait un buff Waaagh. Depuis la bascule, la cible SURVIT
+au cast, `decisionView` publie encore le caster, et celui-ci porte `BigTarget_AdjacentEffect` (effet
+TIERS qui n'expire pas) : la condition devenait vraie dans le regime qu'elle etait ecrite pour
+EXCLURE. Elle est desormais MESUREE (`dv1.currentPlayer == owner du caster` = tour encore ouvert) et
+**les deux branches assertionnent** -- tour ouvert => les 3 buffs sont la ; tour tique => ils n'y
+sont PLUS (duree `Direct(1)`, mesure #95). Aucune branche n'est vide.
+
+Le volet live INCONDITIONNEL vit ailleurs et il est VERT : `test_waaagh_buff_contrib_live.py`
+**7 passed** (mesure de cette tranche) -- les buffs SONT bien poses live.
 
 ---
 
 ## 4. Residus
 
-* `#506-r1` -- (a renseigner)
+* **`#506-r1` -- DEUX fichiers de plus dans la meme famille, trouves par DERIVATION, NON REPARES.**
+  `_move_tile_sweep_order.build_sweep_order_case` est partage par TROIS fichiers ; seul celui des
+  cinq signalements l'etait. Les deux autres, mesures sur `master` nu (joues ensemble) :
+  **3 failed / 8 passed / 7 skipped**.
+  * `test_tile_term_triggered_playbooks_live.py` : au pas 14 de `C4_09/999` c'est `astraCreed` qui
+    est active, pas `templAncient` ; le cas du pas 22 de `C4_09/31337` skippe
+    (`pas 22 non atteint (stage Finished)`).
+  * `test_move_tile_sweep_order_live.py` : le couple `C4_09/999` pas 14 -- **le seul des deux qui
+    DISCRIMINE**, « le seul couple discriminant trouve sur 10 couples balayes » selon son propre
+    en-tete -- part en `montage NON discriminant : les deux ordres coincident`. Le fichier reste
+    vert au `rc`, et c'est exactement l'invisibilite que #455 decrit.
+
+  La neutralisation crit/block a ete ESSAYEE sur ces deux fichiers et **NE SUFFIT PAS** : elle
+  deplace les rouges (le pas 14 de `C4_09/999` redevient vert, le pas 22 tombe) sans les fermer,
+  parce que ces cas n'ont pas de `--hp-*` et subissent donc AUSSI le `FixedArmor` des items
+  (49/106 unites) et le `Health` (4/106). L'edition a ete **retiree** plutot que livree a moitie.
+  Le remede qui reste a instruire est la **re-mesure des pas** -- ou, mieux, un montage qui
+  **CHERCHE** son pas au lieu de l'epingler : la mesure des pas d'activation sous le regime equipe
+  est deja faite pour les six cas de #2 (`blackTerminator` 34 -> {3, 35, 41}, `darkaAsmodai`
+  28 -> {4, 5} et 26 -> {1, 2, 25, 30}, `deathBlightbringer` 25 -> {12, 18} et 19 -> {3, 13, 18,
+  21}), et elle montre qu'un pas epingle est structurellement fragile.
+
+* **`#419-r6-r1` reste ouvert et cette tranche le CONFIRME de deux facons.** Son §2.2 classait deja
+  `test_summon_consumers_live` en CAUSE (28/1 -> 29) et
+  `test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live` en PREEXISTANT -- mes deux mesures
+  independantes rendent **exactement** ces deux verdicts. Les trois autres (#2, #3, #4) n'etaient
+  dans AUCUNE des deux listes : ils font partie des « ~100 derniers fichiers non visites » que son
+  §5 declare **NON MESURES**. Ils sont desormais mesures, ventiles et **reparés**.
