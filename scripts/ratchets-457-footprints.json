@@ -5271,6 +5271,21 @@
     "scripts/ratchets-486r15-dette-declencheurs.txt"
    ]
   },
+  "tests/test_486r19_declencheur_par_entree_offline.py": {
+   "_at": 1786129386,
+   "_commit": "20320989ecd4f3133ee3e75d81b1529c019f18d7",
+   "dirs": [
+    "data/symbols",
+    "scripts",
+    "scripts/python"
+   ],
+   "temoins": [
+    "data/symbols/CURRENT",
+    "scripts/python/probe_120_pre_unit_ability_fork.py",
+    "scripts/python/probe_486r2_usage_des_probes.py",
+    "scripts/ratchets.ps1"
+   ]
+  },
   "tests/test_486r23_ledger_vert_offline.py": {
    "_at": 1786124986,
    "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
