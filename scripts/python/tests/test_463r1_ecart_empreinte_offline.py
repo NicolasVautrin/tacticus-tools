@@ -431,6 +431,18 @@ def test_aucune_variable_d_environnement_ne_fait_TAIRE_le_rouge(depot, var):
     assert rc == 1, "%s ne doit RIEN changer au verdict" % var
 
 
+def test_toute_la_sortie_du_cliquet_est_ASCII(depot):
+    """La console Windows tourne en cp1252 : un seul caractere non-ASCII imprime leve
+    `UnicodeEncodeError` et fait CRASHER le cliquet -- un faux negatif qui masque le vrai
+    resultat. On exerce le chemin ROUGE, celui qui imprime le plus (indices, angle mort, les
+    deux issues), pas seulement le PASS d'une ligne."""
+    _empreinte(depot, {})
+    rc, sortie = _jouer(depot)
+    assert rc == 1 and len(sortie) > 800, "temoin trop maigre : %d octets" % len(sortie)
+    non_ascii = sorted({c for c in sortie if ord(c) > 127})
+    assert non_ascii == [], "caracteres non-ASCII imprimes : %r" % non_ascii
+
+
 def test_le_source_ne_lit_AUCUNE_variable_d_environnement():
     """Le test ci-dessus ne peut couvrir que les variables qu'on a PENSE a nommer -- une
     allowlist de noms ne montre jamais celui qu'elle a oublie. Ce balayage-ci est exhaustif."""

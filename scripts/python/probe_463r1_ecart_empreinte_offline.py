@@ -365,6 +365,59 @@ def reclamations_live(source: str, live: set) -> list:
     return trouves
 
 
+def modules_freres_importes(source: str) -> list:
+    """Les modules de `scripts/python` que ce fichier importe. SECOND indice, brut et non classe.
+
+    Il existe parce que le PREMIER a un angle mort MESURE (cf. `angle_mort_de_l_indice`) : un
+    fichier peut monter son runner par un PROBE qu'il importe, sans jamais nommer de fixture.
+    On les LISTE, on ne les classe pas -- decider si `probe_500_foul_infusion` parle au host
+    demanderait la fermeture d'imports de l'arbre (29,5 s mesurees), et ce serait de nouveau
+    trancher a la place du lecteur.
+    """
+    import ast
+    try:
+        arbre = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return []
+    noms = set()
+    for n in ast.walk(arbre):
+        if isinstance(n, ast.Import):
+            noms.update(a.name.split(".")[0] for a in n.names)
+        elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+            noms.add(n.module.split(".")[0])
+    return sorted(n for n in noms if (PYDIR / (n + ".py")).exists())
+
+
+def angle_mort_de_l_indice(racine=None) -> tuple:
+    """`(sans_reclamation, total_live)` sur les `*_live.py` du depot. RE-DERIVE, jamais cite.
+
+    LA MESURE QUI INTERDIT DE CONCLURE. << Aucune fixture live reclamee >> se lit spontanement
+    << donc le fichier est offline >>. C'est FAUX, et le chiffre le dit : le 2026-08-07,
+    **90 des 513** `*_live.py` du depot (17,5 %) ne reclament AUCUNE fixture -- ils montent leur
+    runner a la main, ou par une fixture LOCALE qui appelle un probe. C'est la meme limite qui a
+    fait REFUTER la cloture de fixtures comme critere de perimetre pour `probe_457`.
+
+    Ce compte est calcule A L'EXECUTION et imprime a cote de l'indice : cite en dur, il se
+    perimerait, et un lecteur y verrait une garantie la ou il n'y a qu'une frequence.
+    """
+    racine = Path(racine) if racine else ROOT
+    live = fixtures_live(racine)
+    total, sans = 0, 0
+    for ligne in _git(["ls-files", TESTS_DIR],
+                      "impossible d'enumerer les tests live", racine).splitlines():
+        rel = ligne.strip()
+        if not rel.endswith("_live.py"):
+            continue
+        total += 1
+        try:
+            src = (racine / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not reclamations_live(src, live):
+            sans += 1
+    return sans, total
+
+
 def occurrences_classees(source: str, live: set) -> list:
     """Toute autre occurrence d'un nom LIVE, CLASSEE PAR TYPE DE TOKEN. `[(classe, ligne, extrait)]`
 
@@ -429,6 +482,11 @@ def _detailler(rel: str, live: set, racine, verbeux: bool) -> None:
     prose = [o for o in autres if o[0] != "NAME"]
     code = [o for o in autres if o[0] == "NAME"]
     print("      indice : AUCUNE fonction ne reclame de fixture live.")
+    freres = modules_freres_importes(source)
+    if freres:
+        print("                 mais il importe %d module(s) de `scripts/python` : %s"
+              % (len(freres), ", ".join(freres[:6])))
+        print("                 -> un fichier peut monter son runner PAR un probe qu'il importe.")
     if not autres:
         print("                 et aucune occurrence des noms live dans le fichier.")
     else:
@@ -463,6 +521,24 @@ def rapporter(ecart: dict, perimetre: list, live: set, racine=None, verbeux: boo
 
     if manquants:
         print("")
+        # L'ANGLE MORT, MESURE ET DIT. Sans lui, << aucune fixture reclamee >> se lirait
+        # << donc offline >>, et le cliquet aurait TRANCHE en creux -- par une absence de
+        # preuve presentee comme une preuve d'absence.
+        try:
+            sans, total = angle_mort_de_l_indice(racine)
+            if total:
+                print("  ATTENTION -- L'ABSENCE DE RECLAMATION N'EST PAS UNE PREUVE D'OFFLINE : "
+                      "%d des %d `*_live.py`" % (sans, total))
+                print("    de ce depot (%.1f %%) n'en reclament AUCUNE non plus -- ils montent "
+                      "leur runner" % (100.0 * sans / total))
+                print("    a la main ou via une fixture LOCALE. C'est la limite qui a fait "
+                      "REFUTER la cloture")
+                print("    de fixtures comme critere de perimetre pour `probe_457`. LIS le "
+                      "fichier.")
+                print("")
+        except MontageImpossible:
+            print("  (angle mort de l'indice : PAS MESURE -- git muet)")
+            print("")
         print("  DEUX ISSUES, ET CE CLIQUET N'EN CHOISIT AUCUNE -- le discriminant")
         print("  << ce fichier est-il offline ? >> porte sur l'INTENTION, il n'est pas mecanisable :")
         print("        %s" % _ISSUE_MESURER)
