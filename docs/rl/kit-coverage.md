@@ -23,8 +23,8 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **62** ; kits avec du travail : **65**
-- Volume total : **78** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **63** ; kits avec du travail : **64**
+- Volume total : **77** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -40,11 +40,11 @@
 | SpaceWolves | 4 | 5 |
 | ThousandSons | 3 | 5 |
 | BlackTemplars | 4 | 4 |
-| Custodes | 4 | 4 |
 | AdeptusMechanicus | 3 | 3 |
 | Aeldari | 3 | 3 |
 | AstraMilitarum | 3 | 3 |
 | BlackLegion | 3 | 3 |
+| Custodes | 3 | 3 |
 | Orks | 2 | 3 |
 | Tyranids | 3 | 3 |
 | WorldEaters | 3 | 3 |
@@ -110,11 +110,10 @@
 | bloodSanguinary | 2 | BloodChalice(1175) [--] NO-OP HEAL | SanguinaryPriest | - |
 | bloodTerminator | 1 | SavageEchoes(1230) [CD] OK | RedRampage | - |
 
-### Custodes — 4 kits, 4 items
+### Custodes — 3 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| custoAtlacoya | 1 | TalonsOfTheEmperor(1195) [--] NO-OP DAMAGE(Power) | - | - |
 | custoBladeChampion | 1 | MartialInspiration(1191) [C-] OK | LegacyOfCombat | - |
 | custoKyrus | 1 | VigilanceEternal(1202) [CD] OK | UnwaveringSentinel | - |
 | custoVexilusPraetor | 1 | VexillaMagnifica(1183) [-D] NO-OP DAMAGE(Physical) | - | - |
@@ -219,9 +218,9 @@
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
 | worldTerminator | 1 | BloodyFury(1129) [CD] OK | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (62)
+## Kits lineup COMPLETS (63)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, emperNoiseMarine, genesKelermorph, genesPatriarch, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, worldEightbound, worldKharn
+adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoAtlacoya, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, emperNoiseMarine, genesKelermorph, genesPatriarch, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, worldEightbound, worldKharn
 
 ## HORS total — voies conditionnelles (42 abilities non portees)
 

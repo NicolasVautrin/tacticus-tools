@@ -64,8 +64,8 @@ serait pas mesure) :
                    [(6,8), (6,7), (5,7), (4,7), (4,8)] -> le PREMIER ami rendu est le NON-Custodes.
   * `mixte_inv` -- le MEME couple, positions ECHANGEES -> le premier ami rendu est le Custodes.
 
-`mixte` + `mixte_inv` TRANCHENT le residu `#521-r2` (la semantique du selecteur d'`HasFaction`), et
-les trois hypotheses sont separees par construction :
+`mixte` + `mixte_inv` TRANCHENT la semantique du selecteur d'`HasFaction` (#521-r2), et les trois
+hypotheses sont separees par construction :
     any (le noeud porte)      -> Direct  dans les DEUX
     SelectSingle = premier    -> Power   dans `mixte`, Direct dans `mixte_inv`
     SelectSingle = 0-ou-1     -> Power   dans les DEUX

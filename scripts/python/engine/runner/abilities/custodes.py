@@ -453,14 +453,21 @@ def talons_meet_second_damage_profile_requirement():
         op_BitwiseOr
         HasFaction( NonSteppableOrObjectUnits(AdjacentFriends(Caster, CasterTile, 1), 3), Custodes )
 
-    RESIDU NOMME `#521-r2` -- LE VOLET FACTION EST UN `SelectSingle`, PAS UN `any`.
+    ⚠ LE VOLET FACTION PORTE SUR **UN SEUL** AMI -- LE PREMIER, ET C'EST MESURE (#521-r2).
     `IdunBattle.Entities.Triggers.HasFactionTrigger$$ShouldTrigger` resout son selecteur par UNE
     invocation d'interface qui rend UNE entite (`if (unit == 0) return 0` puis
-    `UnitExtensions.HasFaction(unit, this+0x10)`), alors que le noeud porte
-    (`entities/triggers.py::HasFaction`) teste `any(...)` sur l'ensemble. Les deux ne peuvent
-    diverger que si Atlacoya a **au moins deux** amis adjacents non-Steppable/non-Object de factions
-    MELANGEES ; le regime `mixte` de `probe_521_talons_of_the_emperor.py` le CONFRONTE au natif
-    plutot que de le supposer, et c'est ce qui tranche."""
+    `UnitExtensions.HasFaction(unit, this+0x10)`) : il n'itere pas l'ensemble. Le noeud porte
+    (`entities/triggers.py::HasFaction`) faisait `any(...)`, ce qui etait INDISCERNABLE tant que son
+    seul consommateur passait un selecteur mono-unite. CE call-site est le premier a passer un
+    ENSEMBLE, et le live a tranche (`probe_521_talons_of_the_emperor.py`, regimes `mixte` /
+    `mixte_inv`) : deux amis adjacents de factions differentes, le natif rend `Power` quand le
+    NON-Custodes est en tete de l'ordre d'adjacence et `DirectDamage` quand c'est le Custodes. Le
+    noeud a ete REPARE en consequence -- ne pas le relacher en `any` sans re-jouer ces deux regimes.
+
+    ⚠ CONSEQUENCE DE JEU, qui n'est PAS ce que dit l'i2 : le texte promet « si Atlacoya est adjacent
+    a un ami Adeptus Custodes », mais le natif ne regarde QUE le premier ami de l'ordre d'adjacence
+    de la tuile du caster. Un ami Custodes en 2e position ne declenche PAS la bascule. C'est le
+    decompile ET la mesure qui font foi ; l'i2 est une approximation de communication."""
     return TriggerOr(
         HasTrait(Target(), TOTE_PSYKER_TRAIT),
         HasFaction(non_steppable_or_object_units(talons_adjacent_friends()),
