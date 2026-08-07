@@ -1182,6 +1182,29 @@ docs generes -> **commit LOCAL** -> **push seulement sur VERT** -> **`nettoyer_l
   `nettoyables` du passage suivant). Et la reciproque tient : tant que la reprise est PROBABLE,
   laisser le worktree est **gratuit**, alors que le retirer est irreversible.
 
+  ⚠ **LE PREMIER TERME EST DESORMAIS OUTILLE, LE SECOND SE DEPOSE (#479-r4, #467-r8).**
+  « PR mergee » n'est plus a verifier a la main : `livraison.py` est le critere PARTAGE par
+  `nettoyer_livraison`, `loop_status` et `probe_479`, et il rend **trois** etats
+  (`LIVREE` / `NON LIVREE` / `NON TRANCHEE`) — un `gh` muet ou une fenetre `gh pr list`
+  **saturee** ne supprime rien et le **DIT**, au lieu de rendre un zero rassurant.
+  Le SECOND terme, lui, n'est derivable d'aucun etat git : il vit dans ta tete, donc **ecris-le
+  dans le worktree** au lieu de le re-decider a chaque tour —
+
+  ```powershell
+  "#527-r1 encore ouverte, reprise probable" > <worktree>\.keep-agent
+  ```
+
+  `loop_status` le retire alors des `nettoyables` et le publie sous **`gardes`** avec ta raison
+  (il reste DIT, jamais efface du rapport) ; `nettoyer_livraison` le REFUSE. Sans cette marque,
+  le hook re-signale le meme worktree a chaque tour — mesure du 2026-08-07 : **3 tours de
+  suite** pour `#527-r1` —, et un signal qu'on apprend a ignorer est pire qu'un silence.
+  ⚠ Ni compteur d'avertissements ni `--quiet` : ceux-la supprimeraient le signal au lieu de le
+  rendre juste.
+  ⚠ **Et l'attribution d'un worktree ne se SUPPOSE plus** : `fleet_board.session_de_l_agent`
+  la DERIVE de l'emplacement du transcript, et `loop_status` la publie a cote de chaque
+  nettoyable. Un worktree a deja ete defendu **quatre tours** au motif qu'il « appartenait a
+  l'autre orchestrateur » — attribution jamais mesuree, et FAUSSE.
+
 - **Ne pousser que du VERT.** Les worktrees d'agents partent d'`origin/master` : un rouge pousse
   demarre casse tout agent dispatche ensuite. Les merges s'empilent **localement** dans l'ordre ;
   on pousse dans l'ordre des VERDICTS, pas des merges.

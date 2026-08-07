@@ -111,9 +111,17 @@ aucune branche du manifeste ne subsiste, les 6 branches à worktree et la gardé
 
 ## 6. Ce qui n'est PAS couvert
 
-- **Les branches distantes.** `git ls-remote --heads origin "worktree-agent-*"` en rend **284**,
-  soit **100 de plus** que localement. Elles survivent au squash-merge et ne sont pas touchées ici.
-  Le probe ne mesure que le local ; le nettoyage distant est un autre geste, à instruire à part.
+> ⚠ **Deux points de cette section sont RÉSOLUS depuis le 2026-08-07** — voir
+> `case-479r4-critere-de-livraison-partage.md`. Le critère « pas ancêtre ⇒ à auditer » du §2
+> est **outillé** : `probe_479 --pr` applique la voie PR mergée et rend, sur la même mesure,
+> **16 non-ancêtres → 16 livrées par PR → 0 à auditer**. Le nettoyage distant existe
+> (`nettoyer_livraison.py --distant`, DRY-RUN par défaut, manifeste versionné). Les chiffres
+> ci-dessous sont ceux du 2026-08-05 : les re-dériver.
+
+- **Les branches distantes.** `git ls-remote --heads origin "worktree-agent-*"` en rendait
+  **284** le 2026-08-05, soit **100 de plus** que localement (**431** le 2026-08-07). Elles
+  survivent au squash-merge. Le probe ne mesure que le local ; le nettoyage distant est un
+  autre geste — désormais outillé (`--distant`), mais **jamais joué** (`#479-r5`).
 - **Les worktrees de `pytest`** (`Temp/pytest-of-*/arbre*/wt`) et `Temp/ratchets-bg-wt` sont en
   HEAD détaché et ne portent aucune branche `worktree-agent-*` : hors périmètre, mais ils
   expliquent pourquoi `git worktree list` compte plus d'entrées que d'agents.
@@ -123,7 +131,11 @@ aucune branche du manifeste ne subsiste, les 6 branches à worktree et la gardé
 
 ## Résidus
 
-- **`#479-r1`** — Les **284** branches `worktree-agent-*` d'`origin` ne sont pas nettoyées. Le
-  critère « ancêtre » s'y applique tel quel, mais la suppression distante (`git push origin
-  --delete`) est irréversible sans `origin` pour filet : elle demande son propre manifeste, et
-  probablement de conserver les branches des PR encore ouvertes **par leur PR**, pas par leur nom.
+- ~~**`#479-r1`**~~ — **FERMÉ le 2026-08-07.** Les branches d'`origin` sont outillées par
+  `nettoyer_livraison.py --distant` : même critère partagé, DRY-RUN par défaut, manifeste
+  **versionné** écrit avant tout `push --delete`, et les PR **ouvertes** protégées par leur PR
+  (pas par leur nom). ⚠ Le critère « ancêtre s'y applique tel quel » qu'annonçait ce résidu
+  était **faux pour la même raison que tout le reste** : 431 branches distantes, **272**
+  ancêtres, **146** livrées par la seule PR. Détail :
+  `case-479r4-critere-de-livraison-partage.md` §5. Reste ouvert : `#479-r5` (l'application
+  n'a jamais été jouée).
