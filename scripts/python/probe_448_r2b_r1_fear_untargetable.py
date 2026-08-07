@@ -21,9 +21,22 @@ est deja non ciblable par le canal DEJA porte, et `1115` y est en cooldown. Le p
 donc a le faire ATTERRIR (1035 expire) -- c'est ce qui rend le temoin non nul : entre les deux
 etats, u81 est CIBLABLE, et c'est seulement le cast qui doit le retirer.
 
-LECTURE. Apres `endturn`, `decisionView` est rendu du POINT DE VUE du joueur courant, donc de
-l'ADVERSAIRE : ses `attackPlans` enumerent ses cibles. u81 y figure (bras temoin) ou pas (bras
-cast) -- et c'est la difference des deux qui est la mesure.
+LECTURE -- ET LE POINT QUI A FAIT CROIRE A UN CAPTEUR MANQUANT (#448-r2b-r1-r1).
+`decisionView` EST rendu du point de vue du JOUEUR COURANT, et c'est LU au decompile, pas suppose :
+`computeAttackPlans` (`frida/hooks/features/ai-step/projection.ts`) classe chaque entite par
+`IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer`, dont le corps est
+`OwnerComponent.get_CurrentPlayerEntityId(unit) == TurnComponent.get_CurrentPlayerId(state)` --
+le joueur DU TOUR, jamais un joueur « attache ». L'`attach --team 2` n'y change donc RIEN, dans un
+sens comme dans l'autre : ce n'est pas lui qui bascule la vue, et son absence ne la bloque pas.
+
+Ce qui bloquait etait le MONTAGE : un `act endturn` unique NE FLIPPE PAS TOUJOURS le joueur
+courant (quirk H19 -- le premier rend la preview IA). La vue restait donc sur MON tour, ses
+`attackPlans` enumeraient MES cibles, et les deux bras rendaient le meme ensemble. Le probe
+RE-`endturn` desormais jusqu'au flip (meme garde-fou que `rl_duel._enemy_turn` : on ne re-endturn
+QUE tant que ce n'est pas l'ennemi, sinon on finirait SON tour), et REFUSE de mesurer si le flip
+n'a pas eu lieu -- un ensemble de cibles lu du mauvais point de vue est pire qu'une absence de
+mesure. Apres le flip, `attackPlans[].evals[].targetId` enumere MES unites : le porteur de `1238`
+doit en sortir.
 
     python scripts/python/probe_448_r2b_r1_fear_untargetable.py [--seed 4488] [--board MC1_67]
 """
@@ -82,7 +95,12 @@ def _deathleaper_id(sortie: str) -> int | None:
 
 
 def _cibles_adverses(sid: int, rid: int) -> set:
-    """Les unites que l'ADVERSAIRE (joueur courant apres `endturn`) enumere comme cibles.
+    """Les unites que l'ADVERSAIRE (joueur courant apres le flip) enumere comme cibles.
+
+    PRECONDITION : `currentPlayer == PLAYER_ADVERSE`. Elle est verifiee par `_passer_la_main`,
+    et c'est le seul cran qui separe « les cibles de l'adversaire » de « MES cibles » --
+    `computeAttackPlans` partitionne par `UnitExtensions$$IsControlledByCurrentPlayer`, donc la
+    reponse suit le joueur DU TOUR et rien d'autre.
 
     Source = `decisionView(allAbilities: true).attackPlans[].evals[].targetId` -- la STRUCTURE lue
     dans `oracle.build_card` (`attackPlans` est a la RACINE de la vue, et la cible d'un `eval` est
@@ -150,18 +168,56 @@ def _bras(caster_le_fear: bool, seed: int, board: str, tag: str) -> tuple:
                 raise SystemExit("[%s] LE CAST N'A PAS POSE 1238 -- montage a revoir" % tag)
         for u in _a_activer(_duel(sf, "view")):
             _duel(sf, "act", "finish", "--unit", str(u))
-        _duel(sf, "act", "endturn")
-        # ⚠ `endturn` NE BASCULE PAS la vue : `decisionView` est rendu du point de vue du player
-        # ATTACHE, pas du joueur courant -- mesure faite, un premier jet lisait toujours MES plans
-        # et rendait donc les ennemis {81, 83} comme « cibles adverses ». Le POV adverse s'obtient
-        # par un `attach --team 2` sur le MEME runner (la voie du self-play).
-        sf2 = sf.with_name(sf.stem + "_pov2.json")
-        _duel(sf2, "attach", "--from", str(sf), "--team", "2")
-        sid2, rid2 = _ids(sf2)
-        cibles = _cibles_adverses(sid2, rid2)
+        # PASSER LA MAIN -- et VERIFIER que la main est passee (quirk H19). Un `endturn` unique
+        # laisse frequemment `currentPlayer` sur MOI : `decisionView` reste alors sur MES plans et
+        # les deux bras rendent le meme ensemble. Meme garde-fou que `rl_duel._enemy_turn` : on ne
+        # re-endturn QUE tant que ce n'est pas l'ennemi.
+        if not _passer_la_main(sid, rid):
+            raise SystemExit(
+                "[%s] REGIME NON ATTEINT : `endturn` n'a pas flippe sur l'adversaire "
+                "(currentPlayer=%s) -- refus de mesurer, une enumeration lue du mauvais point de "
+                "vue est pire qu'une absence de mesure" % (tag, _current_player(sid, rid)))
+        cibles = _cibles_adverses(sid, rid)
     finally:
         _duel(sf, "dispose")
     return uid, cibles
+
+
+#: L'`entityId` du player ADVERSE. `rl_duel` monte team 1 sur le player 3 et team 2 sur le
+#: player 4 (`PLAYER_ID_HUMAN`/`PLAYER_ID_AI` de `rl_collect_batch`) ; je joue team 1.
+PLAYER_ADVERSE = 4
+
+
+def _current_player(sid: int, rid: int):
+    res = (_rpc(sid, "decisionView", [{"runnerId": rid, "maxRank": 1}],
+                timeout=300).get("result") or {})
+    return res.get("currentPlayer")
+
+
+#: CONTRE-EPREUVE (--mutate-un-seul-endturn) : rejoue le montage D'AVANT #448-r2b-r1-r1 --
+#: UN `endturn`, aucune verification du flip. Attendu : les deux bras rendent le MEME ensemble
+#: (MES cibles), donc `u<porteur>` reste enumere dans le bras CAST et le probe rend ROUGE ou
+#: INCONCLUSIF. C'est ce faux negatif-la qui avait fait ecrire « il manque un point d'observation
+#: du POV adverse ».
+_UN_SEUL_ENDTURN = False
+
+
+def _passer_la_main(sid: int, rid: int, max_essais: int = 3) -> bool:
+    """`endturn` jusqu'a ce que `decisionView.currentPlayer` soit l'ADVERSAIRE.
+
+    Rend False si le flip n'a pas eu lieu -- l'appelant REFUSE alors de mesurer."""
+    if _UN_SEUL_ENDTURN:
+        _rpc(sid, "applyAction",
+             [{"runnerId": rid, "action": {"kind": "endturn"}}], timeout=60)
+        print("  [mutation] un seul endturn, flip NON verifie -> currentPlayer=%s"
+              % _current_player(sid, rid))
+        return True
+    for _ in range(max_essais):
+        if _current_player(sid, rid) == PLAYER_ADVERSE:
+            return True
+        _rpc(sid, "applyAction",
+             [{"runnerId": rid, "action": {"kind": "endturn"}}], timeout=60)
+    return _current_player(sid, rid) == PLAYER_ADVERSE
 
 
 def _a_activer(vue: str) -> list:
@@ -177,7 +233,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--seed", type=int, default=4488)
     ap.add_argument("--board", default="MC1_67")
+    ap.add_argument("--mutate-un-seul-endturn", action="store_true",
+                    help="contre-epreuve : rejoue le montage d'avant #448-r2b-r1-r1")
     a = ap.parse_args()
+    if a.mutate_un_seul_endturn:
+        global _UN_SEUL_ENDTURN
+        _UN_SEUL_ENDTURN = True
 
     uid_t, cibles_t = _bras(False, a.seed, a.board, "temoin")
     uid_c, cibles_c = _bras(True, a.seed, a.board, "cast")

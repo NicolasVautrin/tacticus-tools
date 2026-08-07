@@ -225,17 +225,18 @@ reste dehors, pour des raisons **distinctes**, et c'est le point à ne pas rabat
   HERO **au pool**), le porteur reste **sur sa tuile** côté port — il restait donc énumérable
   pendant tout son round de disparition, là où i2 dit « The Deathleaper vanishes and **cannot be
   targeted** or damaged for 1 round ». Écart PERMISSIF fermé.
-  ⚠ **La garde est OFFLINE, et il faut le dire** : la confrontation live n'a **pas abouti** — le
-  point d'observation manque, `decisionView` est rendu du point de vue du player **attaché** et non
-  du joueur courant, donc ni `endturn` ni `attach --team 2` ne donnent l'énumération ADVERSE
-  (mesuré : les deux bras rendent `{81, 83}`, c'est-à-dire *mes* cibles). Le montage et son point
-  de blocage vivent dans `probe_448_r2b_r1_fear_untargetable.py`. Ce qui tient la décision sans le
-  live : `1035` et `1140`, **sœurs de la même classe parente** `ATeleportingEffect`, sont toutes
-  deux confrontées et posent bien le flag ; aucune surcharge d'`ApplyInternal` n'apparaît sur la
-  feuille ni sur `ATeleportingEffect` (indice, pas preuve — IL2CPP déduplique) ; et le port traite
-  **déjà** les quatre sœurs ensemble sur l'axe MOUVEMENT
-  (`services/movement_query.SPECIAL_MOVEMENT_EFFECT_TYPES`). Résidu de confrontation :
-  `#448-r2b-r1-r1` ;
+  ⚠ ~~**La garde est OFFLINE**~~ — **CONFRONTÉE LIVE (#546, 2026-08-08)**, et l'explication
+  ci-dessous était **FAUSSE**. `decisionView` EST rendu du point de vue du joueur **COURANT** :
+  `computeAttackPlans` partitionne par
+  `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer`, dont le corps entier est
+  `OwnerComponent.get_CurrentPlayerEntityId == TurnComponent.get_CurrentPlayerId`. Il ne manquait
+  donc **aucun point d'observation** : ce qui bloquait était le MONTAGE — `act endturn` ne flippe
+  pas toujours le joueur courant (quirk H19), d'où le `{81, 83}` qui était *mes* cibles. Le probe
+  re-`endturn` jusqu'au flip et REFUSE de mesurer sinon ; mesure : témoin `[77, 79]` (porteur
+  DEDANS), cast `[79]` (porteur DEHORS). Contre-épreuve `--mutate-un-seul-endturn` : `[81, 83]`
+  sur les DEUX bras. Ce qui tenait la décision sans le live reste vrai et n'est plus load-bearing :
+  `1035` et `1140`, sœurs de `ATeleportingEffect`, sont confrontées et posent bien le flag.
+  Résidu `#448-r2b-r1-r1` **FERMÉ** ;
 * **`1573`** — arrive avec #448-r2d ;
 * **`JustSummonedEffect`** — **REFUS MESURÉ (#448-r2b-r1)**, et la raison n'est pas le rayon de
   souffle : **aucun** de ses quatre `EffectType` n'est POSÉ par le port. `1230` est posé puis retiré

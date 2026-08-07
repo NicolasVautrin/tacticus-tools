@@ -50,6 +50,28 @@ const EC = {
         ? fieldOffsetOr(effectComponentClass, "RemainingTurns", 0x64) : 0x64,
     level: effectComponentClass
         ? fieldOffsetOr(effectComponentClass, "Level", 0x68) : 0x68,
+    // #231-r — les champs que `readEffectsByUnit` n'avait aucune raison de lire (il part
+    // de la liste POSSÉDÉE, donc l'owner est connu) et qui deviennent le discriminant dès
+    // qu'on énumère les entités-effet elles-mêmes. Noms LUS sur le build `rnca9r7q6c`
+    // (`dumpEntityComponents` sur une entité `EntityType.Effect`), pas devinés :
+    //   SourceUnitId@0x10 · OwnerId@0x14 · TargetIds@0x48 · AppliedTargetIds@0x50 ·
+    //   EffectType@0x58 · IsActive@0x5c · HasTurns@0x5d · BeingRemoved@0x5e · Removed@0x5f ·
+    //   InitialTurns@0x60 · RemainingTurns@0x64 · Level@0x68 · TimesApplied@0x6c ·
+    //   ParentEffect@0x70 · SubEffects@0x78.
+    ownerId: effectComponentClass
+        ? fieldOffsetOr(effectComponentClass, "OwnerId", 0x14) : 0x14,
+    hasTurns: effectComponentClass
+        ? fieldOffsetOr(effectComponentClass, "HasTurns", 0x5d) : 0x5d,
+    beingRemoved: effectComponentClass
+        ? fieldOffsetOr(effectComponentClass, "BeingRemoved", 0x5e) : 0x5e,
+    initialTurns: effectComponentClass
+        ? fieldOffsetOr(effectComponentClass, "InitialTurns", 0x60) : 0x60,
+    timesApplied: effectComponentClass
+        ? fieldOffsetOr(effectComponentClass, "TimesApplied", 0x6c) : 0x6c,
+    parentEffect: effectComponentClass
+        ? fieldOffsetOr(effectComponentClass, "ParentEffect", 0x70) : 0x70,
+    subEffects: effectComponentClass
+        ? fieldOffsetOr(effectComponentClass, "SubEffects", 0x78) : 0x78,
 } as const;
 
 // --- StatModifierComponent de l'entité-effet ---------------------------------
@@ -587,6 +609,121 @@ export function readEffectsByTile(
         }
         if (effs.length) out.set(id, effs);
     });
+    return out;
+}
+
+/** #231-r — une entité-effet, vue depuis l'ÉNUMÉRATION DES ENTITÉS et non depuis la liste
+ *  possédée d'une unité. C'est la seule vue qui peut répondre à « l'effet a-t-il été posé ? ». */
+export interface OrphanableEffectInfo extends EffectInfo {
+    /** `EffectComponent.OwnerId` — l'entité dont l'`EffectsOwnedComponent.ActiveEffectIds`
+     *  a reçu cet id à la création (`…AddEffectOperation$$AddNewEffect` écrit `OwnerId`
+     *  PUIS fait `List.Add` sur CETTE entité). */
+    ownerId: number | null;
+    /** `EntityType` de cet owner, ou `null` si l'id ne résout sur aucune entité. */
+    ownerType: number | null;
+    /** L'id de CETTE entité-effet est-il présent dans `ActiveEffectIds` de son owner ?
+     *  `false` avec `removed: true` = RETIRÉ (`…RemoveEffectOperation$$Execute` fait
+     *  `List.Remove` puis pose `Removed`) ; `false` avec `removed: false` = ORPHELIN,
+     *  c.-à-d. vivant HORS de la liste — le seul régime que `readEffectsByUnit` ne peut
+     *  structurellement pas montrer. */
+    inOwnerList: boolean;
+    /** `HasTurns` / `InitialTurns` : la DURÉE telle que le natif l'a bakée. `hasTurns=false`
+     *  = permanent/aura ; sinon `initialTurns` est ce que l'`AddEffect` a demandé (ou le
+     *  `StaticBattleRules.Effect$$DefaultAmountOfRounds` de ce type converti en tours). */
+    hasTurns: boolean;
+    initialTurns: number | null;
+    /** `BeingRemoved` — posé AVANT `Removed` par `…RemoveEffectOperation$$Execute` : un
+     *  retrait interrompu se lit ici et nulle part ailleurs. */
+    beingRemoved: boolean;
+    timesApplied: number | null;
+    /** `ParentEffect` (0 = aucun) et `SubEffects` : la chaîne parent/enfant qu'un retrait
+     *  propage (`RemoveSubEffects`). */
+    parentEffect: number | null;
+    subEffects: number[];
+}
+
+/** #231-r — TOUTES les entités-effet du state (`EntityType.Effect`), y compris celles qui
+ *  ont quitté la liste possédée de leur owner.
+ *
+ *  POURQUOI CE CAPTEUR EXISTE. `readEffectsByUnit` / `readEffectsByTile` partent de
+ *  `EffectsOwnedComponent.ActiveEffectIds` : un effet qui n'y est pas est INVISIBLE des deux,
+ *  et l'absence est alors AMBIGUË entre trois régimes que rien ne séparait —
+ *  (1) jamais posé, (2) posé puis RETIRÉ, (3) vivant hors de la liste. Mesuré sur
+ *  `1197 EffectType.MasterOfTheTutelaries` (#231 §4) : la triggered `1173` fire (4 Screamers
+ *  apparaissent) et pourtant l'effet n'est dans AUCUN des deux canaux, `includeInactive`
+ *  compris. Le décompilé tranche déjà une partie :
+ *  `IdunBattle.Operations.AddEffectOperation$$AddNewEffect` fait `List.Add` sur
+ *  l'`EffectsOwnedComponent` de l'entité `owner` — inconditionnellement — et
+ *  `IdunBattle.Operations.RemoveEffectOperation$$Execute` fait `List.Remove` puis pose
+ *  `Removed`, **sans détruire l'entité**. Donc l'entité SURVIT à son retrait, et c'est
+ *  exactement ce que cette énumération voit.
+ *
+ *  Read-only, une passe d'entités, aucun Interceptor. */
+export function readAllEffects(statePtr: NativePointer): OrphanableEffectInfo[] {
+    // Index owner -> (type, ids possédés) : une seule passe, pour ne pas re-scanner par effet.
+    const ownerType = new Map<number, number>();
+    const ownedIds = new Map<number, Set<number>>();
+    forEachEntity(statePtr, (e, id, ty) => {
+        ownerType.set(id, ty);
+        const ids = readOwnedEffectIds(e);
+        if (ids.length) ownedIds.set(id, new Set(ids));
+    });
+    const out: OrphanableEffectInfo[] = [];
+    forEachEntity(statePtr, (e, id, ty) => {
+        if (ty !== EntityType.Effect) return;
+        const info = readEffect(e);
+        if (!info) return;
+        let ec: NativePointer | null = null;
+        forEachComponent(e, (comp, klass) => {
+            if (ec === null && effectComponentClass && klass.equals(effectComponentClass)) {
+                ec = comp;
+            }
+        });
+        let owner: number | null = null;
+        let hasTurns = false;
+        let initialTurns: number | null = null;
+        let beingRemoved = false;
+        let timesApplied: number | null = null;
+        let parentEffect: number | null = null;
+        let subEffects: number[] = [];
+        if (ec !== null) {
+            const c = ec as NativePointer;
+            try { owner = c.add(EC.ownerId).readS32(); } catch { /* null */ }
+            try { hasTurns = c.add(EC.hasTurns).readU8() !== 0; } catch { /* false */ }
+            try { initialTurns = c.add(EC.initialTurns).readS32(); } catch { /* null */ }
+            try { beingRemoved = c.add(EC.beingRemoved).readU8() !== 0; } catch { /* false */ }
+            try { timesApplied = c.add(EC.timesApplied).readS32(); } catch { /* null */ }
+            try { parentEffect = c.add(EC.parentEffect).readS32(); } catch { /* null */ }
+            try { subEffects = readIdList(c.add(EC.subEffects).readPointer()); }
+            catch { subEffects = []; }
+        }
+        out.push({
+            ...toInfo(id, info),
+            ownerId: owner,
+            ownerType: (owner !== null && ownerType.has(owner))
+                ? (ownerType.get(owner) as number) : null,
+            inOwnerList: owner !== null && (ownedIds.get(owner)?.has(id) ?? false),
+            hasTurns, initialTurns, beingRemoved, timesApplied,
+            parentEffect: (parentEffect === 0 ? null : parentEffect),
+            subEffects,
+        });
+    });
+    return out;
+}
+
+/** `List<BEntityId>` -> ids (items @0x10, size @0x18, éléments dès +0x20, stride 4). */
+function readIdList(list: NativePointer): number[] {
+    if (list.isNull()) return [];
+    let size: number;
+    try { size = list.add(0x18).readS32(); } catch { return []; }
+    if (size <= 0 || size > 128) return [];
+    let items: NativePointer;
+    try { items = list.add(0x10).readPointer(); } catch { return []; }
+    if (items.isNull()) return [];
+    const out: number[] = [];
+    for (let i = 0; i < size; i++) {
+        try { out.push(items.add(0x20 + i * 4).readS32()); } catch { break; }
+    }
     return out;
 }
 
