@@ -72,17 +72,18 @@ SNAP_TARGETING_UNPORTED = (
     (1049, (1024, True, (1, True, False, None, False), 1)),
     (1057, (4160, False, (0, False, False, 1, False), 1)),
     (1061, (33792, True, (1, True, False, None, False), 1)),
-    # 1087 `ExemplarOfTheKauyon` : RETIRE du snapshot par #488. Son masque (`0x6001042` =
-    # 100667458) a MIGRE sur `ExemplarOfTheKauyonAbility.TARGETING_OPTIONS` avec sa face COMBAT --
-    # les deux tables `*_UNPORTED` sont disjointes d'`ABILITY_CLASSES`. La VALEUR est inchangee ;
-    # seule la SOURCE a bouge, et c'est `test_targeting_options_sources.py` qui garde la disjonction.
+    # QUATRE entrees RETIREES du snapshot parce que leur face COMBAT est PORTEE et que leur masque
+    # a MIGRE sur la classe -- les deux tables `*_UNPORTED` sont disjointes d'`ABILITY_CLASSES`. La
+    # VALEUR est inchangee ; seule la SOURCE a bouge, et c'est `test_targeting_options_sources.py`
+    # qui garde la disjonction. 1087 `ExemplarOfTheKauyon` (#488), 1048 `FragstormGrenadeLauncher`
+    # (#489), 1069 `SeekerMissileFrequencyLock` (#491), 1088 `HellfyreMissileRack` (#487) -- les
+    # trois dernieres laissaient `master` ROUGE sur ce fichier, trouvees au rebase de #488.
     (1121, (524352, False, (0, False, False, 1, False), 0)),
     (1141, (16384, True, (0, False, False, 1, False), 1)),
     (1152, (269615168, False, (0, False, False, 1, False), 1)),
     (1164, (16386, False, (1, True, False, None, False), 1)),
     (1175, (3074, True, (0, False, False, 1, False), 1)),
     (1197, (2199023255618, False, (0, False, False, 1, False), 1)),
-    (1048, (33570818, False, (1, True, False, None, False), 1)),
     (1050, (8589950976, False, (0, False, False, 1, False), 1)),
     (1101, (8589950978, False, (1, True, False, None, False), 1)),
     (1106, (32788, True, (1, False, False, 0, False), 1)),
@@ -92,8 +93,6 @@ SNAP_TARGETING_UNPORTED = (
     (1063, (16386, False, (3, False, False, None, False), 2)),
     (1064, (16384, False, (0, False, False, 1, False), 1)),
     (1068, (16384, False, (0, False, False, 1, False), 1)),
-    (1069, (16386, False, (1, True, False, None, False), 1)),
-    (1088, (16386, False, (1, True, False, None, False), 0)),
     (1132, (16384, False, (0, False, False, 1, False), 1)),
     (1165, (16384, False, (0, False, False, 1, False), 1)),
     (1177, (4328538162, False, (1, False, True, None, False), 1)),
@@ -309,17 +308,17 @@ def test_snapshot_ordinal_valeur_et_ordre():
 
 
 def test_cardinalites_du_volet():
-    """Le compte du volet 2 : 43 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 127 cles.
+    """Le compte du volet 2 : 40 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 124 cles.
 
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 43 au port de 1087 `ExemplarOfTheKauyon` (#488). Ce que ce cliquet garde est la
-    CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables."""
+    passe de 44 a 40 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487). Ce que ce cliquet garde
+    est la CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [43, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [40, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 127
+    assert sum(tailles) == 124
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"
