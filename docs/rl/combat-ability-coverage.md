@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **100**
-- **NO-OP silencieux** (a porter) : **75**
-- Ventilation NO-OP : **DAMAGE**=46, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **101**
+- **NO-OP silencieux** (a porter) : **74**
+- Ventilation NO-OP : **DAMAGE**=45, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (75)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (74)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -30,7 +30,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1087 | ExemplarOfTheKauyon | DAMAGE(Blast) | 5 | LN |
 | 1048 | FragstormGrenadeLauncher | DAMAGE(Blast) | 5 | LN |
 | 1027 | PsychicMaelstrom | DAMAGE(Psychic) | 5 | LN |
-| 1069 | SeekerMissileFrequencyLock | DAMAGE(HeavyRound) | 5 | LN |
 | 1068 | SilentDeath | DAMAGE(Piercing) | 5 | LN |
 | 1152 | UnstoppableMomentumReworked | DAMAGE(DirectDamage) | 5 | LN |
 | 1038 | FoulInfusion | DAMAGE(Toxic) | 4 | LN |
@@ -102,7 +101,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (100)
+## PORTED (registry) (101)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -125,6 +124,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1180 | HeroicFusillade | DAMAGE(Projectile) | 5 | LN |
 | 1004 | MortisRound | DAMAGE(HeavyRound) | 5 | LN |
 | 1065 | ScythingTalons | DAMAGE(Bio) | 5 | NS |
+| 1069 | SeekerMissileFrequencyLock | DAMAGE(HeavyRound) | 5 | LN |
 | 1100 | SorcerousFacade | DAMAGE(Psychic) | 5 | LN |
 | 1014 | ArmoriumCherub | DAMAGE(Flame) | 4 | LN |
 | 1041 | BrazierOfHolyFire | DAMAGE(Flame) | 4 | LN |

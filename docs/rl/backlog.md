@@ -613,6 +613,27 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#491-r1` — la PHASE 2 de `1069 SeekerMissileFrequencyLock` n'est pas portée.**
+  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SeekerMissileFrequencyLock_AttackAbility$$CreateBehaviour`
+  (`TriggeredAbilityType.SeekerMissileFrequencyLock_Attack` = 1127) porte
+  `AttackWithAbilityDamage(Caster, Target, RandomAmount(ConfigVar(0xc minDmg), ConfigVar(0xd maxDmg)),
+  GetDamageProfileOrDefault(0x13), GetNumberConstant(0x2f nrOfHits))
+  & RemoveEffect(Caster, 1136 _Aiming)`, l'état d'ability venant d'
+  `AbilityStateFromEffect(EffectFromOwner(Target, 0x463))`. Déclencheur = `APendingAttackEffect`
+  (dont `SeekerMissileFrequencyLockTargetEffect` hérite) : **c'est lui le point d'entrée à RE**, et
+  il est PARTAGÉ par toute la famille « pending attack » — donc la tranche vaut aussi pour
+  `#90-B` (1160 `HeavyRailRifle`, même résidu ouvert). Tant qu'elle manque, le port pose le
+  verrouillage et le missile ne part jamais offline. Cf. `case-491-seeker-missile-frequency-lock.md`.
+
+- **`#491-r2` — `audit_combat_ability_coverage.py` ne peut pas voir qu'un cast ne frappe pas.**
+  Sa colonne `categorie` dérive du **gameconfig** (`damageProfile` du kit), pas de
+  l'`ExecuteBehaviour` : `1069` y reste `DAMAGE(HeavyRound)` **après** son port. C'est l'angle mort
+  qui a fait briefer #491 comme une tranche DAMAGE, et il vaut pour tout patron 2-phases (1160,
+  1142 `MalleusRocketLauncher`…). L'audit oriente le dispatch : un solveur envoyé porter « une
+  attaque » qui n'en est pas perd son temps, ou pire, **invente le dégât au cast**. Piste : marquer
+  les abilities dont le behaviour ne porte aucun nœud d'attaque — l'information est dans le
+  registre, pas dans le kit. Cf. `case-491-seeker-missile-frequency-lock.md` §Résidus.
+
 - **`#483-r1` — les 6 endpoints host de trace arment encore en GLOBAL.**
   `frida/host/router.ts` appelle `aiUtilityTrace{Enable,Disable}`,
   `bucketAudit{Enable,Disable}` et `aiUtilityTraceDiagSampler{Enable,Disable}` **sans
