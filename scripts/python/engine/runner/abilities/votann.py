@@ -417,6 +417,11 @@ def _ancestral_fortune_attack_target(state: "State", caster_id: int) -> Optional
     avg = _round_fix64(Fraction(bmin + bmax, 2), 0)
     # `owner_id = caster` (#494-r1) : le selecteur natif passe la POSITION du caster a la prediction
     # PAR CIBLE -> la cle porte les feuilles positionnelles (elevation / trench).
+    # #494-r1-r1 : AUCUN profil/percage n'est passe, et c'est une LECTURE. Ce call-site emploie la
+    # surcharge `SortUnitsByDamageUtility(targets, damage, unitSelectionType, hits)` -- SANS noeud
+    # d'ability (`+0x28` nul) -- donc le natif predit avec
+    # `AbilityOrEffect(UnitExtensions$$GetNormalAttackType(owner))` : le profil et le percage sont
+    # ceux de l'ARME NORMALE du caster, pas le `Plasma` de l'ability. `hits` est nul -> UN coup.
     return first_by_damage_utility(state, cands, avg, avg, owner_id=caster_id)
 
 

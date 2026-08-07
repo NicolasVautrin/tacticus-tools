@@ -33,7 +33,7 @@ from ..damage_model import (attacker_modifiers, defender_modifiers, defender_fix
 
 
 def multi_hit_attack_prediction(state, attacker_id: int, target_id: int, amount: int, hits: int,
-                                damage_profile: str, pierce: int, is_melee: bool = False,
+                                damage_profile: Optional[str], pierce: int, is_melee: bool = False,
                                 ability_type: Optional[int] = None,
                                 is_normal_attack: bool = False):
     """`IdunBattle.Core.Services.BattleQuery$$GetMultiHitAttackPrediction(attacker, target,
@@ -50,6 +50,12 @@ def multi_hit_attack_prediction(state, attacker_id: int, target_id: int, amount:
     `+0x28` du selecteur de tri est nul et ou le natif retombe sur
     `UnitExtensions$$GetNormalAttackType(owner)`) : les gates d'effet qui distinguent les deux
     familles le lisent.
+
+    `damage_profile = None` = le natif passe `damageProfile: null` (c'est le cas de TOUS les
+    call-sites de `SortUnitsByDamageUtility`) : `DamageProfileType.None_` en interne, aucun gate de
+    profil arme, et le percage vaut 0 -- cf.
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`, dont le corps commence
+    par `if (damageProfile == null) return 0`.
 
     Rend `None` quand la cible n'a pas de `HealthComponent` (rien a predire)."""
     att = state.get_entity(attacker_id)
@@ -81,7 +87,9 @@ def multi_hit_attack_prediction(state, attacker_id: int, target_id: int, amount:
     # de `damage_ops/ability.py`).
     from .damage import AttackDamageOperation
     AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
+    _pt = int(DamageProfileType.None_ if damage_profile is None
+              else DamageProfileType[damage_profile])
     return get_attack_prediction(
         target_current_health=int(thc.hp or 0), initial_damage=int(amount), hits=int(hits),
-        profile_type=int(DamageProfileType[damage_profile]), armor=armor, pierce_pct=int(pierce),
+        profile_type=_pt, armor=armor, pierce_pct=int(pierce),
         mods=mods, attacker_effects=active)

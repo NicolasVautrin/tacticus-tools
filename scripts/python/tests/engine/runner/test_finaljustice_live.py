@@ -136,8 +136,9 @@ def test_finaljustice_target_sort_live(live_session, rpc, build_runner):
         # entrent donc dans la cle. Cet oracle reste INDEPENDANT du foyer (il ne passe pas par
         # `_target_utility`) mais il lit les MEMES etages natifs -- le service de prediction et le
         # foyer de lecture des champs du composite.
-        prof, pierce, melee = DU.normal_attack_profile_and_pierce(state, kid, eid)
-        dp = AP.multi_hit_attack_prediction(state, kid, eid, amount, 1, prof, pierce,
+        melee = DU.normal_attack_is_melee(state, kid, eid)
+        # `damageProfile: null` au call-site natif -> `GetAttackPiercingDamageRatio` rend 0.
+        dp = AP.multi_hit_attack_prediction(state, kid, eid, amount, 1, None, 0,
                                             is_melee=melee, is_normal_attack=True)
         return damage_composite(composite_fields_from_prediction(dp), mx, wt)
 

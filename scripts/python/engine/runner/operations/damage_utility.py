@@ -116,14 +116,25 @@ LES QUATRE CALL-SITES PORTES, et ce que chacun branche sur `+0x28` / `+0x40` / `
 Les QUATRE passent `hits = null` : aucun call-site porte ne fournit de noeud de coups, donc la cle
 predit **UN** coup. C'est une LECTURE, pas une simplification.
 
-⚠ RESTE NON PORTE / NOMME : `damageProfile` est passe **null** par le selecteur, et sa resolution
-vit dans `DamagePrediction$$PredictAttackRaw`, qui n'a PAS ete parcouru integralement ici. Le port
-passe le profil de l'ABILITY citee par `+0x28` (Doombolt `Psychic`, KillMaimBurn le
-`AActiveAbility$$GetDamageProfile` = `damageProfile` de la config = `Piercing`), et celui de l'ARME
-NORMALE quand `+0x28` est nul. Restent aussi hors cle : `ShouldApplyRangedInMelee` (feuille du meme
-builder, mais elle ne depend que de l'ATTAQUANT ⇒ facteur COMMUN a toutes les cibles ⇒ sans effet
-sur l'ORDRE) et `MightCrit`, que `PredictAttackRaw` calcule pourtant -- le live l'a REFUTE sur ce
-chemin (#419-r6-r1, `test_419r6r1_face_decision_live.py`), le port reste ou la mesure l'a mis.
+⚠ **`damageProfile` EST NUL, ET C'EST CE QUI FIXE LE PERCAGE A ZERO.** Le selecteur passe `null` en
+7e argument, et `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` commence
+par :
+
+    if (damageProfile != null) { ... Min(100, Max(GetPiercingRatio(profile, traits) > 0,
+                                                  extraPierce + dirPierce + mods + base)) }
+    return 0;
+
+Le garde n'existerait pas si aucun chemin ne passait un profil nul. La cle de tri predit donc un
+coup **SANS PERCAGE** : `StaticBattleRules.Damage$$GetDamageWithPiercing(d, 0, armure)
+= max(0, d - armure)` — l'armure est SOUSTRAITE EN ENTIER. Ce n'est ni le profil de l'ability, ni
+celui de l'arme : c'est `null`, donc aussi aucun gate de profil (`DamageProfileIs`, traits d'arme,
+`CalculateTrenchReduction`). Le PROFIL et le PERCAGE ne sont, pour cette raison, PAS des parametres
+des entrees publiques de ce module.
+
+⚠ RESTE HORS CLE, ET NOMME : `ShouldApplyRangedInMelee` (feuille du meme builder, mais elle ne
+depend que de l'ATTAQUANT ⇒ facteur COMMUN a toutes les cibles ⇒ sans effet sur l'ORDRE) et
+`MightCrit`, que `PredictAttackRaw` calcule pourtant -- le live l'a REFUTE sur ce chemin
+(#419-r6-r1, `test_419r6r1_face_decision_live.py`), le port reste ou la mesure l'a mis.
 """
 from __future__ import annotations
 
@@ -182,16 +193,19 @@ def positional_damage_range(state: State, owner_id, target_id: int, dmin: int, d
     return (apply_all_modifiers(int(dmin), mods), apply_all_modifiers(int(dmax), mods))
 
 
-def normal_attack_profile_and_pierce(state: State, owner_id, target_id):
-    """`AbilityOrEffect(UnitExtensions$$GetNormalAttackType(owner))` — le defaut du noeud `+0x28` du
-    selecteur : quand aucun noeud d'ability n'est branche, le natif predit l'ATTAQUE NORMALE du
-    caster. Le profil de degat et le percage sont alors ceux de l'ARME que
+def normal_attack_is_melee(state: State, owner_id, target_id):
+    """`UnitExtensions$$GetNormalAttackType(owner)` — le defaut du noeud `+0x28` du selecteur :
+    quand aucun noeud d'ability n'est branche, le natif predit l'ATTAQUE NORMALE du caster. Le
+    caractere MELEE du coup est alors celui de l'ARME que
     `BattleQuery$$GetAttackWeaponForDefaultNormalAttack` choisit pour ce couple (melee/ranged par
     adjacence hex + porte ranged) — MEME service que le combat (`services/battle_query`).
 
-    Rend `(profile_name, pierce, is_melee)`, ou `None` si le caster n'a pas de stats ou si l'arme
-    est introuvable (le natif rend alors `null` et sa prediction est `0..0` en 1 coup — le port
-    prefere le dire a l'appelant plutot que d'inventer un profil)."""
+    ⚠ Seul le caractere MELEE est lu ici, PAS le profil ni le percage de l'arme : le selecteur passe
+    `damageProfile: null` a la prediction, et
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` commence par
+    `if (damageProfile == null) return 0` — le percage vaut donc **0**, quelle que soit l'arme.
+
+    Rend `True`/`False`, ou `None` si le caster n'a pas de stats (couple non predictible)."""
     import hexgeo
     e = state.get_entity(int(owner_id))
     sc = e.get_component(StatsComponent) if e is not None else None
@@ -201,17 +215,14 @@ def normal_attack_profile_and_pierce(state: State, owner_id, target_id):
     pa = _damage_model._unit_pos(state, int(owner_id))
     pb = _damage_model._unit_pos(state, int(target_id))
     dist = hexgeo.distance(pa, pb) if (pa is not None and pb is not None) else None
-    pierce, is_ranged, _whits, prof = _select_weapon_pierce(ctx, dist is not None and dist <= 1,
-                                                           dist)
-    if prof is None:
-        return None
-    return prof, int(pierce), (not is_ranged)
+    _pierce, is_ranged, _whits, _prof = _select_weapon_pierce(ctx, dist is not None and dist <= 1,
+                                                             dist)
+    return not is_ranged
 
 
 def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
                     might_crit: bool = False, owner_id=None, hits: int = 1,
-                    damage_profile=None, pierce=None, ability_type=None,
-                    is_melee=None) -> float:
+                    ability_type=None, is_melee=None) -> float:
     """`UtilityDecider.CalculateUtility(UtilityDefinition(0x23 = Damage), cible, prediction)` pour UNE
     cible.
 
@@ -244,7 +255,7 @@ def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
     max_hp = int(hc.hp_max) if (hc is not None and hc.hp_max) else hp
     if owner_id is not None:
         pred = _prediction_fields(state, owner_id, target_id, int(dmin), int(hits),
-                                  damage_profile, pierce, ability_type, is_melee)
+                                  ability_type, is_melee)
         if pred is not None:
             if might_crit:
                 pred["mightCrit"] = True
@@ -293,27 +304,35 @@ def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
 
 
 def _prediction_fields(state: State, owner_id, target_id: int, amount: int, hits: int,
-                       damage_profile, pierce, ability_type, is_melee):
+                       ability_type, is_melee):
     """La PREDICTION du natif pour UNE cible, rendue sous la forme que le composite consomme.
 
     Mirror de l'appel que la boucle `foreach u` fait sur `+0x50` (`IBattleQuery` slot `0x26`) :
     `GetAttackPrediction(owner, u, ownerPosition, ability, () => damage, () => hits,
-    damageProfile: null, defenderInitialHealth: null, previousHitsPrediction: default, null, null)`.
+    **damageProfile: null**, defenderInitialHealth: null, previousHitsPrediction: default, null,
+    null)`.
 
-    `damage_profile`/`pierce`/`is_melee` non fournis -> l'ability du selecteur est nulle, donc le
-    natif prend `GetNormalAttackType(owner)` : on resout l'ARME NORMALE du caster
-    (`normal_attack_profile_and_pierce`). `None` en retour = couple non predictible -> l'appelant
-    retombe sur la cle DEGRADEE."""
-    prof, pc, melee = damage_profile, pierce, is_melee
-    is_normal = False
-    if prof is None or pc is None:
-        na = normal_attack_profile_and_pierce(state, owner_id, target_id)
-        if na is None:
+    ⚠ **`damageProfile` EST NUL, ET C'EST CE QUI FIXE LE PERCAGE A ZERO.** Lu au decompile :
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` commence par
+    `if (damageProfile == null) return 0` — le garde n'aurait aucun sens si aucun chemin ne passait
+    un profil nul. La cle de tri predit donc un coup **SANS PERCAGE**, c.-a-d. avec l'armure
+    SOUSTRAITE EN ENTIER (`GetDamageWithPiercing(d, 0, armure) = max(0, d - armure)`). Ce n'est pas
+    le profil de l'ability, et ce n'est pas non plus celui de l'arme : c'est `null`, donc aussi
+    aucun gate de profil (`DamageProfileIs`, traits d'arme, `apply_trench_reduction`).
+
+    `is_melee` non fourni -> l'ability du selecteur est nulle, donc le natif prend
+    `GetNormalAttackType(owner)` : on lit le caractere melee de l'ARME NORMALE
+    (`normal_attack_is_melee`). `None` en retour = couple non predictible -> l'appelant retombe sur
+    la cle DEGRADEE."""
+    melee, is_normal = is_melee, False
+    if melee is None:
+        melee = normal_attack_is_melee(state, owner_id, target_id)
+        if melee is None:
             return None
-        prof, pc, melee = na[0], na[1], (na[2] if melee is None else melee)
         is_normal = True
     dp = _attack_prediction.multi_hit_attack_prediction(
-        state, int(owner_id), int(target_id), int(amount), max(1, int(hits)), prof, int(pc),
+        state, int(owner_id), int(target_id), int(amount), max(1, int(hits)),
+        None, 0,                                   # damageProfile: null -> percage 0
         is_melee=bool(melee), ability_type=ability_type, is_normal_attack=is_normal)
     if dp is None:
         return None
@@ -321,8 +340,8 @@ def _prediction_fields(state: State, owner_id, target_id: int, amount: int, hits
 
 
 def sort_units_by_damage_utility(state: State, candidates, dmin: int, dmax: int,
-                                 owner_id=None, hits: int = 1, damage_profile=None,
-                                 pierce=None, ability_type=None, is_melee=None) -> list:
+                                 owner_id=None, hits: int = 1, ability_type=None,
+                                 is_melee=None) -> list:
     """`SortUnitsByDamageUtilitySelector$$Select` — les candidats TRIES par utilite Damage DECROISSANTE
     (`OrderBy(−utilite)`).
 
@@ -342,19 +361,19 @@ def sort_units_by_damage_utility(state: State, candidates, dmin: int, dmax: int,
     cle soit celle du natif** : c'est lui qui rend la PREDICTION calculable (#494-r1-r1). Non
     fourni -> cle DEGRADEE pre-armure (cf. `_target_utility`).
 
-    `damage_profile`/`pierce`/`ability_type`/`is_melee` = ce que le noeud `+0x28` designe. Non
-    fournis -> `GetNormalAttackType(owner)`, c.-a-d. l'ARME NORMALE du caster."""
+    `ability_type`/`is_melee` = ce que le noeud `+0x28` designe. Non fournis ->
+    `GetNormalAttackType(owner)`, c.-a-d. l'ARME NORMALE du caster. Le PROFIL et le PERCAGE, eux, ne
+    sont JAMAIS des parametres : le selecteur passe `damageProfile: null`, donc percage 0."""
     wt = damage_utility_weights()
     src = [int(c) for c in candidates]          # ORDRE SOURCE — `OrderBy` natif STABLE
     return sorted(src, key=lambda eid: -_target_utility(
         state, eid, dmin, dmax, wt, owner_id=owner_id, hits=hits,
-        damage_profile=damage_profile, pierce=pierce, ability_type=ability_type,
-        is_melee=is_melee))
+        ability_type=ability_type, is_melee=is_melee))
 
 
 def first_by_damage_utility(state: State, candidates, dmin: int, dmax: int,
-                            owner_id=None, hits: int = 1, damage_profile=None,
-                            pierce=None, ability_type=None, is_melee=None) -> Optional[int]:
+                            owner_id=None, hits: int = 1, ability_type=None,
+                            is_melee=None) -> Optional[int]:
     """`First(SortUnitsByDamageUtility(…), 1)` — l'argmax du composite `UtilityType.Damage`, ou None si aucun
     candidat. Argmax STRICT sur l'ORDRE DE `candidates` = 1er de l'ordre source en cas d'egalite parfaite
     (== la stabilite de l'`OrderBy` natif, cf. `sort_units_by_damage_utility`)."""
@@ -362,7 +381,6 @@ def first_by_damage_utility(state: State, candidates, dmin: int, dmax: int,
     wt = damage_utility_weights()
     for eid in (int(c) for c in candidates):    # ORDRE SOURCE — jamais re-trie par `id`
         util = _target_utility(state, eid, dmin, dmax, wt, owner_id=owner_id, hits=hits,
-                               damage_profile=damage_profile, pierce=pierce,
                                ability_type=ability_type, is_melee=is_melee)
         if best_util is None or util > best_util:
             best_util, best = util, eid

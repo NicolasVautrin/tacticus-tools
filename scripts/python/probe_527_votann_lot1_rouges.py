@@ -539,9 +539,82 @@ def etage_modele(sid, args, regime=None):
     return None
 
 
+# ------------------------------------------------------------------------------------------------ #
+# etage `cle` (#494-r1-r1) -- DECOMPOSER la cle de tri, etage par etage, au lieu de lire un verdict
+# ------------------------------------------------------------------------------------------------ #
+#
+# `etage_armure` rend « NATIF frappe X | PORT choisit Y » : un SCALAIRE. Il ne dit ni quelle
+# prediction le port a faite, ni meme s'il a pris le chemin MIRROR (prediction complete) ou le
+# chemin DEGRADE (bornes brutes) -- un fix qui ne mord pas y est indiscernable d'un fix qui mord et
+# se trompe. Cet etage imprime les ENTREES (profil, percage, armure resolue) et les SORTIES
+# (bornes predites, champs du composite, utilite) par cible.
+
+def etage_cle(sid, args, regime=None):
+    from engine.runner.operations import attack_prediction as AP
+    from engine.runner.operations import damage_utility as DU
+    from engine.runner.abilities.votann import _ancestral_fortune_attack_target
+    from engine.runner.components import StatsComponent
+    from engine.entities.effects.magnitude import ability_var
+    from engine.dsl.base import _round_fix64
+    from engine.utilities.damage import composite_fields_from_prediction
+    from fractions import Fraction
+
+    extra = ARMURE_REGIMES[regime] if regime in ARMURE_REGIMES else None
+    rid = build(args.state, f"{UTHAR},{SPARE}", f"{FOE_MECH},{FOE_PLAIN}", extra=extra)
+    nom = regime or "nominal"
+    print("[cle:%s] runner %s" % (nom, rid))
+    drive(sid, rid, UTHAR, FOE_MECH, 1)
+    dv0, ob0, snap0, rng0, board_obj = _capture(sid, rid)
+    u = find(dv0, UTHAR)
+    ids = {vis: (find(dv0, vis) or {}).get("id") for vis in (FOE_MECH, FOE_PLAIN)}
+    st = _load(dv0, ob0, snap0, rng0, board_obj)
+    sc = st.get_entity(u["id"]).get_component(StatsComponent)
+    lvl = int(getattr(sc.ctx, "active_ability_level", 0) or 0)
+    mult = int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100)
+    bmin = int(ability_var("AncestralFortune", "minDmg", lvl, multiplier_pct=mult) or 0)
+    bmax = int(ability_var("AncestralFortune", "maxDmg", lvl, multiplier_pct=mult) or 0)
+    avg = _round_fix64(Fraction(bmin + bmax, 2), 0)
+    wt = DU.damage_utility_weights()
+    print("[cle:%s] caster u%s Attack=%s | ability minDmg=%s maxDmg=%s avg=%s"
+          % (nom, u["id"], sc.ctx.stat(0), bmin, bmax, avg))
+    for vis, eid in ids.items():
+        if eid is None:
+            continue
+        na = DU.normal_attack_is_melee(st, u["id"], eid)
+        print("[cle:%s] %-16s id=%s arme NORMALE melee -> %s" % (nom, vis, eid, na))
+        if na is None:
+            print("[cle:%s]   CHEMIN = DEGRADE (pas d'arme resolue) -- le fix NE MORD PAS" % nom)
+            continue
+        # `damageProfile: null` -> percage 0 (garde lu dans `GetAttackPiercingDamageRatio`).
+        dp = AP.multi_hit_attack_prediction(st, u["id"], eid, int(avg), 1, None, 0,
+                                            is_melee=na, is_normal_attack=True)
+        f = composite_fields_from_prediction(dp)
+        print("[cle:%s]   pred armure=%s accurate=[%s, %s] raw=[%s, %s] hp=%s"
+              % (nom, dp.armor, dp.accurate_health_damage.min, dp.accurate_health_damage.max,
+                 dp.raw_health_damage.min, dp.raw_health_damage.max, dp.current_health))
+        print("[cle:%s]   fields = %s" % (nom, json.dumps(f)))
+        print("[cle:%s]   utilite MIRROR   = %s"
+              % (nom, DU._target_utility(st, eid, int(avg), int(avg), wt, owner_id=u["id"])))
+        print("[cle:%s]   utilite DEGRADEE = %s"
+              % (nom, DU._target_utility(st, eid, int(avg), int(avg), wt)))
+    hp0 = {vis: (find(dv0, vis) or {}).get("hp") for vis in (FOE_MECH, FOE_PLAIN)}
+    tg = legal_targets(sid, rid, u["id"], ANCESTRAL_FORTUNE)
+    frappes = None
+    if u["id"] in tg:
+        _cast(sid, rid, u["id"], u["id"], ANCESTRAL_FORTUNE)
+        dv1 = _dv(sid, rid)
+        hp1 = {vis: (find(dv1, vis) or {}).get("hp") for vis in (FOE_MECH, FOE_PLAIN)}
+        frappes = [vis for vis in (FOE_MECH, FOE_PLAIN)
+                   if int(hp0.get(vis) or 0) != int(hp1.get(vis) or 0)]
+    port_tgt = _ancestral_fortune_attack_target(st, u["id"])
+    port_vis = next((v for v, e in ids.items() if e == port_tgt), port_tgt)
+    print("[cle:%s] NATIF frappe %s | PORT choisit %s" % (nom, frappes, port_vis))
+    return rid
+
+
 ETAGES = {"stats": etage_stats, "graviton": etage_graviton, "fortune": etage_fortune,
           "replay": etage_replay, "armure": etage_armure, "predict": etage_predict,
-          "modele": etage_modele}
+          "modele": etage_modele, "cle": etage_cle}
 
 
 def main():
@@ -569,7 +642,7 @@ def main():
             kw["regime"] = args.regime
         if nom == "modele":
             kw["regime"] = None
-        if nom == "predict":
+        if nom in ("predict", "cle"):
             kw["regime"] = args.regime if args.regime in ARMURE_REGIMES else None
         rid = ETAGES[nom](sid, args, **kw)
         if rid is not None and not args.keep:

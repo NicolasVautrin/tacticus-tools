@@ -198,7 +198,7 @@ from ...entities.effects.magnitude import ability_var
 from ...dsl.effects import ExecutionContext
 from ...streams.group_type import GroupType
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
-from .base import ActiveAbility, ability_attack_params, profile_pierce
+from .base import ActiveAbility, ability_attack_params
 from .behaviours.combat import AttackWithAttackDamage, ChainLeftOverHitsAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddBondEffect, AddEffect
@@ -504,19 +504,16 @@ class KillMaimBurnNextTarget(TargetsSelector):
             self.rolls.append(roll)
             # `owner_id` = le `caster@0x48` que le natif passe en `+0x20` du selecteur de tri
             # (#494-r1) : sa POSITION entre dans la prediction PAR CIBLE, donc dans la cle.
-            # #494-r1-r1 : la cle EST cette prediction (armure/percage/defense compris). Le noeud
-            # `+0x28` du selecteur est `Direct(AbilityOrEffect(1132))` -> le profil est celui que
-            # `AActiveAbility$$GetDamageProfile` rend pour 1132, c.-a-d. la constante
-            # `damageProfile` de la config = `Piercing` (le PREMIER volet ; les volets 2 et 3
-            # portent `Eviscerate`/`Plasma`, mais ils ne sont pas ce que l'ability DECLARE).
+            # #494-r1-r1 : la cle EST cette prediction (armure et defense comprises). Le noeud
+            # `+0x28` du selecteur est `Direct(AbilityOrEffect(1132))` -> seule l'ABILITY descend
+            # jusqu'a la prediction ; ni PROFIL ni PERCAGE, parce que le selecteur passe
+            # `damageProfile: null` (percage 0, cf. l'en-tete de `damage_utility.py`). Ce qui
+            # dispense, au passage, de trancher lequel des trois profils de 1132
+            # (`Piercing`/`Eviscerate`/`Plasma`) le tri emploierait.
             _cast = getattr(ctx, "caster", None)
             _cid = (_cast or {}).get("id")
-            _ce = self.state.get_entity(_cid) if _cid is not None else None
-            _csc = _ce.get_component(StatsComponent) if _ce is not None else None
             best = first_by_damage_utility(self.state, [u.get("id") for u in candidates], roll, roll,
-                                           owner_id=_cid, damage_profile="Piercing", is_melee=True,
-                                           pierce=profile_pierce(getattr(_csc, "ctx", None),
-                                                                 "Piercing", ranged=False),
+                                           owner_id=_cid, is_melee=True,
                                            ability_type=int(ActiveAbilityType.KillMaimBurn))
             res = [] if best is None else [u for u in candidates if u.get("id") == best]
             self.picked.append(("retarget", [u.get("id") for u in res]))

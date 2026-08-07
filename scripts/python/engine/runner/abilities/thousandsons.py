@@ -102,7 +102,7 @@ from ...entities.triggers import HasTakenDamageOfDamageProfileThisTurn
 from ..components import StatsComponent
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from ..operations.damage_utility import sort_units_by_damage_utility
-from .base import ActiveAbility, ability_attack_params, profile_pierce
+from .base import ActiveAbility, ability_attack_params
 from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage,
                                 SortedAttackSeries)
 from .behaviours.context import entities_from_state
@@ -190,15 +190,12 @@ def doombolt_ordered_targets(state: "State", caster_id: int, target_id: Optional
     # POSITIONNELLE (bonus d'elevation) et le classement diverge des que deux cibles ne sont pas a la
     # meme hauteur. `candidates` arrive dans l'ORDRE SOURCE du selecteur (cube-lex), qui EST le
     # tie-break natif : ne jamais le re-trier ici.
-    # #494-r1-r1 : la cle est la PREDICTION COMPLETE -> le profil/percage/ability du noeud `+0x28`
-    # (`Direct(AbilityOrEffect(1102))`) descendent jusqu'a elle, comme ils descendent deja jusqu'aux
-    # feuilles d'attaque de `doombolt_tree` (profil `Psychic`, `is_melee=False`).
-    _sc = state.get_entity(caster_id)
-    _sc = _sc.get_component(StatsComponent) if _sc is not None else None
+    # #494-r1-r1 : la cle est la PREDICTION COMPLETE -> l'ability du noeud `+0x28`
+    # (`Direct(AbilityOrEffect(1102))`) descend jusqu'a elle. Ni PROFIL ni PERCAGE : le selecteur
+    # passe `damageProfile: null`, donc percage 0 (cf. l'en-tete de `damage_utility.py`).
+    # `is_melee=False` = `attackRangeType = Ranged` de 1102, comme les feuilles de `doombolt_tree`.
     ordered = list(sort_units_by_damage_utility(
-        state, candidates, dmg_min, dmg_min, owner_id=caster_id,
-        damage_profile="Psychic", is_melee=False,
-        pierce=profile_pierce(getattr(_sc, "ctx", None), "Psychic", ranged=True),
+        state, candidates, dmg_min, dmg_min, owner_id=caster_id, is_melee=False,
         ability_type=int(ActiveAbilityType.Doombolt)))
     if target_id is None or int(caster_id) == int(target_id):
         return ordered
