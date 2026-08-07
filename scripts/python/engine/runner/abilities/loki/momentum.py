@@ -337,13 +337,27 @@ def _set_charge_flag(state: "State", caster_id: int, on: bool) -> None:
 
     ⚠ L'appel `on=False` n'est PAS symetrique de `on=True` : il n'est atteint que par la sortie
     NORMALE de la boucle. Le `return` du (4) le saute -- cf. l'avertissement de l'en-tete de module
-    (#498-r4-r1). cf. aussi « DEGRADATIONS NOMMEES »."""
+    (#498-r4-r1). cf. aussi « DEGRADATIONS NOMMEES ».
+
+    ⚠ LE COMPOSANT EST CREE S'IL MANQUE, ET C'EST UN CORRECTIF, PAS UNE COMMODITE (#498-r4-r1).
+    `IdunBattle.Entities.Behaviours.AddFlagBehaviour$$Execute` (comme son jumeau `RemoveFlag`)
+    accede au `UnitFlagsComponent` de chaque unite selectionnee et **LEVE** s'il est absent -- il ne
+    l'ignore pas. Natif, le cas ne se produit jamais : `UnitFlagsComponent$$.ctor` construit un
+    `OrderedSet` VIDE et `UnitFactory` le monte sur TOUTE unite. Cote port, en revanche,
+    `snapshot._load_unit_flags` ne materialise le composant que si la ligne du snapshot porte une
+    liste NON VIDE -- donc une unite sans AUCUN flag n'en a pas, et le `if fc is None: return`
+    d'avant faisait de la pose un NO-OP SILENCIEUX. MESURE (`probe_498r4r1_fuite_flag_undisplaceable
+    _live.py`, bras `fuite`) : le natif rend `unitFlags = [1, 2, 3, 4, 25]` apres le cast, le port
+    ne posait RIEN -- l'ecart de fuite etait donc INOBSERVABLE cote port, masque par un ecart de
+    substrat en amont. Meme geste que `turnflow.FinishUnitTurnOperation.execute`, qui cree deja le
+    composant absent pour la meme raison. Le FOYER (`_load_unit_flags` devrait materialiser un
+    composant VIDE sur toute ligne MESUREE) reste ouvert : residu `#537`."""
     e = state.get_entity(int(caster_id))
     if e is None:
         return
     fc = e.get_component(UnitFlagsComponent)
     if fc is None:
-        return
+        fc = e.add_component(UnitFlagsComponent())
     if on:
         fc.add(CHARGE_FLAG)
     else:
