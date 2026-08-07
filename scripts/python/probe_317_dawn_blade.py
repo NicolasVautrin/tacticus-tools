@@ -160,7 +160,11 @@ def _patch_heal():
 
     @staticmethod
     def _as_heal(state, caster_id, target_id, amount, scope=0, remove_effects=False):
-        return HealUnitOperation.execute(state, target_id, int(amount))
+        # #520 : `HealUnitOperation.execute` a desormais la MEME signature que son jumeau
+        # (`caster` en tete, `scope`/`removeEffects` en queue). La mutation reste donc une
+        # SUBSTITUTION D'OPERATION pure -- memes arguments, autre Operation.
+        return HealUnitOperation.execute(state, caster_id, target_id, int(amount),
+                                         scope=scope, remove_effects=remove_effects)
     RP.RepairUnitOperation.execute = _as_heal
     return lambda: setattr(RP.RepairUnitOperation, "execute", saved)
 

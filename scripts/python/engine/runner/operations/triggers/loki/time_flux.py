@@ -110,10 +110,17 @@ def time_flux_regen_tree(hp_to_heal: int, max_hp_to_heal: int):
 
     La feuille `Heal` du port prend un `amount_fn` (callable ou scalaire) : on lui passe l'evaluation
     du noeud `Min`, ce qui preserve la structure de l'arbre. Pas de `guard` : le selecteur natif est
-    `self@0x148` DIRECT, il n'y a AUCUN pre-filtre `HealableUnitsSelector` a mirrorer ici."""
+    `self@0x148` DIRECT, il n'y a AUCUN pre-filtre `HealableUnitsSelector` a mirrorer ici.
+
+    ⚠ `options = HealBehaviourOptions$$ForRegenerate` = `(scope 1, removeEffects 0)` -- LU aux xrefs
+    (`TimeFluxAbility$$CreateBehaviour` est l'un des SIX call-sites `ForRegenerate` du build). Le port
+    tournait en `scope 0` jusqu'a #520, faute d'options sur la feuille : le cap de GROUPE
+    `GetGroupUnitHealLimit` n'etait jamais consulte. Le porteur (`necroCryptek`) est mono-membre, donc
+    l'ecart mesure est NUL sur lui -- ce qui est declare ici est la fabrique, pas un effet."""
     amount = Min(Sum(Const(int(hp_to_heal)), LastHitDamageTakenLastTurn(Caster())),
                  Const(int(max_hp_to_heal)))
-    return Heal(Caster(), lambda entities, ectx: int(amount.evaluate(entities)))
+    return Heal(Caster(), lambda entities, ectx: int(amount.evaluate(entities)),
+                scope=1, remove_effects=False)
 
 
 class TimeFluxRegenAbility(TriggeredAbility):

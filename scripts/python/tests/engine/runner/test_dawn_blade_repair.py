@@ -94,6 +94,14 @@ def test_cursed_does_not_block_the_repair(base, mutated):
         % (base["R3"]["repaired"], base["amount"]))
     assert mutated["R3"]["repaired"] == 0, (
         "la contre-epreuve ne rougit pas : rebranchee sur HealUnitOperation, R3 devrait rendre 0")
+    # ⚠ #520 -- CE 0 A DESORMAIS DEUX CAUSES, ET C'EST UNE PERTE DE POUVOIR DISCRIMINANT.
+    # Avant #520, le mutant rendait 0 UNIQUEMENT par le gate `EffectType.Cursed(79)` du soin. Depuis
+    # que `HealUnitOperation` porte son gate d'entree (`AttackQuery$$EntityCanBeHealed`), la cible --
+    # une unite MECANIQUE, puisque DawnBlade la REPARE -- est refusee de toute facon par
+    # `IsAffectedByHealType(target, 0)`. Le 0 ne prouve donc plus que `Cursed` a joue : il prouve
+    # que le mutant est mort, ce qui reste ce que la contre-epreuve doit montrer. Le test qui
+    # ISOLE `Cursed` est `test_heal_operation_live.py::test_heal_operation_fillup_cap` (etape 5),
+    # sur une cible que le gate ACCEPTE.
 
 
 def test_the_repair_modifier_is_applied(base, mutated):
@@ -103,9 +111,21 @@ def test_the_repair_modifier_is_applied(base, mutated):
     assert base["R4"]["repaired"] > base["amount"], (
         "offline %s == base %s -- l'etage RepairModifier de PredictRepair n'est pas traverse"
         % (base["R4"]["repaired"], base["amount"]))
-    assert mutated["R4"]["repaired"] == base["amount"], (
-        "la contre-epreuve ne rougit pas : rebranchee sur HealUnitOperation, R4 devrait retomber sur "
-        "le montant nu")
+    # ⚠ #520 -- L'ATTENDU DE LA CONTRE-EPREUVE A CHANGE, ET LE MESURER ETAIT LE POINT.
+    # Il valait `base["amount"]` (7273, le montant NU, sans `RepairModifier`) tant que
+    # `HealUnitOperation` n'etait qu'un `FillUp` derriere un gate `Cursed` : reroutee sur le soin, la
+    # reparation perdait son modificateur mais MUTAIT quand meme. Depuis que l'Operation de soin
+    # porte son gate d'entree (`AttackQuery$$EntityCanBeHealed`), la cible -- MECANIQUE, puisque
+    # DawnBlade la repare -- est REFUSEE : `IsAffectedByHealType(target, 0)` = `AffectedByHealAndRepair
+    # OU NOT IsMechanical`, faux des deux cotes. Le mutant rend donc 0.
+    # Confondre les deux Operations est ainsi PLUS destructeur que #310 ne l'avait mesure : ce n'est
+    # pas « le bon montant sans son bonus », c'est « aucun PV du tout ».
+    assert mutated["R4"]["repaired"] == 0, (
+        "la contre-epreuve ne rougit pas : rebranchee sur HealUnitOperation, R4 devrait rendre 0 "
+        "(gate EntityCanBeHealed : cible MECANIQUE)")
+    assert mutated["R4"]["repaired"] != base["R4"]["repaired"], (
+        "INVARIANT de la contre-epreuve, independant de sa valeur : le mutant DOIT diverger du "
+        "nominal. C'est lui qu'il faut lire si l'attendu chiffre ci-dessus bouge encore.")
 
 
 def test_module_does_not_call_heal_unit_operation():

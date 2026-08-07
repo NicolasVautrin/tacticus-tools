@@ -566,6 +566,32 @@ class HealthComponent(Component):
             self.over_reduce = int(self.over_reduce or 0) + max(0, amount - red)
         return red
 
+    def max_reduce(self, amount: int, *, ignore_minimal: bool = False) -> int:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$MaxReduce` -- MIRROR 1:1 (#520) :
+
+            r = Math.Min(amount, Current)
+            if (!ignoreMinimum && Minimum.HasValue)
+                r = Math.Min(Current - Math.Min(Current, Minimum.Value), r)
+            return r
+
+        C'est `reduce` PRIVE DE SA MUTATION : le meme calcul de borne, sans le `Current -= r` ni la
+        queue `this[0x24] += Max(0, damage - applied)`. Le natif a bien les deux (`MaxReduce` CALCULE,
+        `Reduce` APPLIQUE), exactement comme `MaxFillUp` / `FillUp`.
+
+        ⚠ PAS de `Math.Max(0, amount)` ici, alors que `Reduce` en a un : le decompile de `MaxReduce`
+        attaque directement par `Math.Min(amount, Current)`. Un `amount` negatif y rend donc un
+        negatif, la ou `Reduce` rendrait 0. Ecart LU, conserve tel quel -- l'unique appelant porte
+        (`operations/heal.py::predict_heal`, branche `predicted < 0`) lui passe `-predicted > 0`.
+
+        No-op (0) si `hp` non capte."""
+        if self.hp is None:
+            return 0
+        red = min(int(amount), int(self.hp))                 # Min(amount, current)
+        if not ignore_minimal and self.minimal_health is not None:
+            floor = min(int(self.hp), int(self.minimal_health))   # Min(current, minimalHealth.Value)
+            red = min(int(self.hp) - floor, red)              # Min(current - floor, r)
+        return red
+
     def fill_up(self, amount: int) -> int:
         """`IdunBattle.Entities.Components.FillUpStatComponent$$FillUp` -- MIRROR 1:1 (#462-r4e-o-r2) :
 

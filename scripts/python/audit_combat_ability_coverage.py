@@ -154,8 +154,25 @@ def main():
                  "n'est PAS « verifiee DAMAGE » : elle est **non verifiee** (residu `#491-r2`).\n\n")
     lines.append("2. **SUMMON** -> template `ScarabHiveAbility`/`GetEmRuntzAbility` (`SpawnUnitOperation` + "
                  "summon on-appearance).\n")
-    lines.append("3. **HEAL** / lifesteal / **REPAIR** -> **BLOQUE** sur un `HealOperation`/`RepairOperation` "
-                 "combat absent du runner (tache #94). A construire avant de porter cette categorie.\n")
+    lines.append("3. **HEAL** / lifesteal / **REPAIR** -> **DEBLOQUE** (#520). Les deux Operations sont "
+                 "portees et COMPLETES : `IdunBattle.Operations.RepairUnitOperation$$Execute` "
+                 "(`runner/operations/repair.py`, #299) et "
+                 "`IdunBattle.Operations.HealUnitOperation$$Execute` (`runner/operations/heal.py`, #520). "
+                 "Chacune porte son gate (`AttackQuery$$EntityCanBeRepaired` / `$$EntityCanBeHealed`), "
+                 "sa prediction (`DamagePrediction$$PredictRepair` / `$$PredictHeal`) et ses deux "
+                 "fabriques d'options (`ForRepair`/`ForRegenerate`, `ForHeal`/`ForRegenerate`). "
+                 "Un port de cette categorie construit une feuille `Repair`/`Heal` "
+                 "(`runner/abilities/behaviours/stats.py`) et DECLARE sa fabrique lue au decompile.\n")
+    lines.append("\n> ⚠ **CETTE LIGNE A ANNONCE « BLOQUE sur un `HealOperation`/`RepairOperation` "
+                 "combat absent du runner (tache #94) » BIEN APRES QUE LES DEUX EURENT ETE PORTEES**, "
+                 "et c'est la forme de degat la plus couteuse d'une citation perimee : elle a fait "
+                 "RENONCER a dispatcher une categorie entiere. Pire, elle designait le mauvais "
+                 "bloqueur -- le vrai etait qu'`HealUnitOperation` n'appelait NI son gate NI "
+                 "`PredictHeal`, donc les QUATRE abilities HEAL deja au registre soignaient des "
+                 "cibles que le natif refuse, en rendant `ported: True`. Mesure #520 sur le seed 777 : "
+                 "**3 unites blessees sur 10** etaient refusees par le gate et soignees par le port. "
+                 "Un no-op silencieux DANS une ability declaree portee ne se voit par AUCUN compteur "
+                 "de cet audit -- il ne compte que les absentes du registre.\n\n")
     lines.append("4. **EFFECT/BUFF** -> `AddEffectOperation` (+ stat-mods) ; certains deja modelises cote "
                  "prediction (NonComparable) mais pas executes.\n\n")
     lines.append("Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.\n")
