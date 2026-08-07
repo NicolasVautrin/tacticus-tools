@@ -164,9 +164,20 @@ def test_une_mesure_REELLE_est_bien_ecrite(sorties):
     ecrits = json.loads(poids.read_text(encoding="utf-8"))
     assert ecrits == {"tests/a_offline.py": 1.25, "tests/b_offline.py": 0.5}
     lu = json.loads(emp.read_text(encoding="utf-8"))
+    assert lu["_format"] == P.FORMAT_EMPREINTE, "sans format, la selection refuse de s'appliquer"
     assert lu["_globales"] == ["data/seed-bc.json"]
-    assert lu["par_test"] == {"tests/a_offline.py": ["data/symbols"]}, "granularite REPERTOIRE"
-    assert lu["_commit"], "sans `_commit`, `impacted_files` refuse de s'appliquer"
+    # UNE ENTREE PAR FICHIER JOUE, `dirs` VIDE COMPRIS (#486-r15). C'est ce qui rend l'ABSENCE
+    # lisible comme << jamais mesure >> : sans l'entree vide de `b_offline`, rien ne distinguerait
+    # << il n'ouvre rien >> de << il n'a jamais tourne >>, et le second se lisait comme le premier.
+    assert set(lu["par_test"]) == {"tests/a_offline.py", "tests/b_offline.py"}
+    assert lu["par_test"]["tests/a_offline.py"]["dirs"] == ["data/symbols"], \
+        "granularite REPERTOIRE"
+    assert lu["par_test"]["tests/b_offline.py"]["dirs"] == []
+    assert lu["par_test"]["tests/a_offline.py"]["temoins"] == ["data/symbols/x.tsv"], \
+        "les TEMOINS sont des chemins REELS -- c'est a eux que se confronte un `DECLENCHEUR`"
+    # `_commit` est desormais du CONTEXTE, par entree. Il n'autorise ni n'interdit plus rien :
+    # le sha etait ecrit sur une branche d'agent, que le squash-merge supprime (#486-r15).
+    assert lu["par_test"]["tests/a_offline.py"]["_commit"]
 
 
 def test_des_tests_ROUGES_n_empechent_PAS_la_mesure(sorties):

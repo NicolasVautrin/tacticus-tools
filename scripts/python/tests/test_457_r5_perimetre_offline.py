@@ -31,6 +31,35 @@ ASCII only (cp1252).
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict
+#: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
+        # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
+        # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le
+        # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
+        # glob large retiendrait ce test a chaque modification d'un probe quelconque.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # PROPRE A CE FICHIER :
+        "scripts/python/probe_457_offline_tests_green.py",
+        "scripts/python/repo_read.py", "scripts/python/declencheur_cliquet.py",
+        "scripts/python/tests/**/*.py", "scripts/ratchets.ps1",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Le probe sous test et ses deux foyers importes, plus TOUS les fichiers de test "
+              "(son perimetre en est DERIVE par `git ls-files`, donc un fichier de test ajoute "
+              "ou retire change ce qu'il compte) et la banque, dont il verifie la coherence de "
+              "sharding.",
+}
+
 import subprocess
 import sys
 from pathlib import Path
@@ -291,3 +320,4 @@ def test_le_critere_suit_les_deux_conventions_pytest(name, attendu):
 
     Un perimetre derive doit couvrir ce que pytest COLLECTE, pas ce qui se trouve exister."""
     assert P._is_test_file(name) is attendu
+

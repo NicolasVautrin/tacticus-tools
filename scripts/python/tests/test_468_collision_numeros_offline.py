@@ -23,6 +23,36 @@ ASCII only.
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict
+#: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
+        # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
+        # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le
+        # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
+        # glob large retiendrait ce test a chaque modification d'un probe quelconque.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # PROPRE A CE FICHIER :
+        "scripts/python/probe_468_collision_numeros.py",
+        # MESURE : la declaration << arbres synthetiques seulement >> etait FAUSSE. Des cas
+        # font tourner le detecteur sur le corpus REEL (`docs/rl`, 7 chemins vus par la
+        # confrontation) et lisent le ledger de numeros versionne.
+        "docs/rl/**", "scripts/ratchets-468-numeros-attestes.json",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Le seul probe sous test. Ses cas montent des arbres SYNTHETIQUES en repertoire "
+              "temporaire, donc ni `docs/rl/` ni `git log` du depot reel n'entrent dans son "
+              "verdict -- c'est le probe lui-meme qui est juge, pas le corpus.",
+}
+
 import json
 import shutil
 import subprocess
@@ -908,3 +938,4 @@ def test_sur_le_depot_REEL_le_numero_suggere_n_apparait_NULLE_PART():
     assert n > borne, "la suggestion doit rester au-dessus de la borne (monotonie)"
     # Et la borne ne doit pas avoir ete contaminee par un id d'ability.
     assert borne < 1000, "la borne (%d) a absorbe un identifiant qui n'est pas une tache" % borne
+

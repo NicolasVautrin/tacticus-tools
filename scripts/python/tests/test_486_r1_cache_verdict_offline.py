@@ -28,6 +28,37 @@ n'est ecrit. Les etages de CABLAGE lisent le source des cliquets, ils ne les exe
 
 ASCII only (console cp1252).
 """
+
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict
+#: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
+        # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
+        # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le
+        # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
+        # glob large retiendrait ce test a chaque modification d'un probe quelconque.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # PROPRE A CE FICHIER :
+        "scripts/python/verdict_cache.py", "scripts/cliquets-cache/**",
+        # MESURE : le controle de fidelite REJOUE des cliquets reels, donc leur source
+        # entre au verdict.
+        "scripts/python/probe_181_targeting_gaps.py",
+        "scripts/python/probe_485_imports_differes.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Le foyer du cache de verdict et les fichiers de cache VERSIONNES qu'il ecrit : ce "
+              "test recalcule tout en mode espion et confronte au disque, donc il depend du code "
+              "du cache et du contenu de `scripts/cliquets-cache/`. Rien d'autre du depot "
+              "n'entre dans son verdict.",
+}
 import ast
 import sys
 from pathlib import Path
@@ -444,3 +475,4 @@ def test_le_cache_ne_vit_ni_sous_data_ni_sous_logs():
     rel = VC.DOSSIER.resolve().relative_to(REPO.resolve()).as_posix()
     assert not rel.startswith("data/") and not rel.startswith("logs/"), rel
     assert rel == "scripts/cliquets-cache", rel
+

@@ -57,15 +57,37 @@ des tests, NI aux scopes (aucune `FixtureDef` en double n'est creee).
 Garde : `probe_391_conftest_dir_identity.py` (mesure) et
 `tests/engine/test_391_conftest_dir_identity_offline.py` (cliquet).
 
+SECOND ROLE (#486-r15) -- CABLER LE GARDE D'OBLIGATION `DECLENCHEUR`
+---------------------------------------------------------------------
+`declencheur_guard` est REGISTRE comme plugin, pas importe hook par hook. La raison est
+mecanique : `tests/conftest.py` importe deja `pytest_sessionfinish` et
+`pytest_terminal_summary` DE `green_skip_guard`, et un module ne peut lier qu'un seul objet
+par nom. Importer les memes noms d'un second garde ferait taire l'un des deux -- en silence,
+ce qui est exactement le mode de defaillance que ces gardes existent pour empecher.
+`pluginmanager.register` fait appeler les DEUX.
+
 ASCII only (cp1252).
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 from _pytest import nodes
+
+_PYDIR = Path(__file__).resolve().parent
+if str(_PYDIR) not in sys.path:
+    sys.path.insert(0, str(_PYDIR))
+
+import declencheur_guard                                          # noqa: E402
+
+
+def pytest_configure(config):
+    """Enregistre le garde d'obligation (#486-r15). Idempotent."""
+    if not config.pluginmanager.is_registered(declencheur_guard):
+        config.pluginmanager.register(declencheur_guard, "declencheur_guard")
 
 # `nodes.Directory` existe depuis pytest 8. En son absence le hook devient inerte : c'est le
 # probe/test de garde qui le signale, pas un no-op silencieux.

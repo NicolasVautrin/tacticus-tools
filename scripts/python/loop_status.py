@@ -703,15 +703,76 @@ def mesurer_harnais(src: Sources) -> dict:
     return d
 
 
+# ------------------------------------------------------------------ EMPREINTE (#486-r15)
+#: Le format attendu de `scripts/ratchets-457-footprints.json`. RECOPIE et non importe : tirer
+#: `probe_457` ici traine `pytest` et `repo_read` dans un outil qui court sous 3 s. Le prix de la
+#: recopie est borne -- une divergence ne peut que faire SIGNALER a tort (sur-alerte), jamais
+#: taire ; et `test_486r15_empreinte_par_entree_offline` la confronte a la constante source.
+FORMAT_EMPREINTE_ATTENDU = 2
+
+
+def mesurer_empreinte(src: Sources) -> dict:
+    """La COUVERTURE de l'empreinte de `probe_457` -- le capteur qui manquait.
+
+    LE GISEMENT. `probe_457 --since` ne peut retirer un test du perimetre que s'il a une entree
+    d'empreinte : sans elle, le test est << jamais mesure >> et se rejoue. La selection se DEGRADE
+    donc continument, et cette degradation etait MUETTE -- l'outil imprimait bien sa raison, mais
+    dans une ligne noyee dans sa sortie, que personne n'a lue pendant 3 jours et ~40 commits
+    pendant que `--since` rendait 220/220. Un capteur muet est un garde-fou mort (#467).
+
+    BON MARCHE : deux `git ls-files` et une lecture JSON. Aucun graphe, aucun `ast.parse` -- le
+    hook `Stop` court sous 3 s.
+
+    TRI-ETAT : git muet ou empreinte illisible rendent PAS MESURE, jamais un zero. Un << 0 fichier
+    couvert >> fabrique se lirait comme une alarme fausse, et un << tout va bien >> fabrique
+    ferait taire l'outil sur exactement le defaut qu'il existe pour voir.
+    """
+    d: dict = {}
+    rc, out = src.git("ls-files", "scripts/python/tests")
+    if rc != 0:
+        d["couverture"] = _ko("git ls-files scripts/python/tests",
+                              src.cause_git(rc, "ls-files"))
+        return d
+    perimetre = sorted(
+        l.strip()[len("scripts/python/"):] for l in out.splitlines()
+        if l.strip().endswith(".py") and not l.strip().endswith("_live.py")
+        and (l.strip().rsplit("/", 1)[-1].startswith("test_")
+             or l.strip().rsplit("/", 1)[-1].endswith("_test.py")))
+    if not perimetre:
+        # Un depot SANS fichier de test offline ne dit RIEN sur l'empreinte : il n'y a pas de
+        # couverture a mesurer. PAS MESURE, donc du CONTEXTE -- surtout pas un signal.
+        # Le PERIMETRE EFFONDRE, lui, reste garde la ou il a un sens : `probe_457` rend
+        # `FAIL shard VIDE`. Le dupliquer ici ferait parler cet outil dans tout depot de
+        # travail jetable, et un outil qui alarme a tort se fait desarmer.
+        d["couverture"] = _ko("git ls-files scripts/python/tests",
+                              "aucun fichier de test offline dans ce checkout")
+        return d
+    try:
+        emp = json.loads((src.repo / "scripts" / "ratchets-457-footprints.json")
+                         .read_text(encoding="utf-8"))
+    except (OSError, ValueError) as ex:
+        d["couverture"] = _ko("scripts/ratchets-457-footprints.json",
+                              "%s: %s" % (type(ex).__name__, str(ex)[:50]))
+        return d
+    entrees = emp.get("par_test") or {}
+    d["couverture"] = _ok({"format": emp.get("_format"),
+                           "couverts": len([r for r in perimetre if r in entrees]),
+                           "perimetre": len(perimetre)},
+                          "scripts/ratchets-457-footprints.json vs git ls-files")
+    return d
+
+
 # ------------------------------------------------------------------ etat complet
 def etat(src: Sources, plafond: int) -> dict:
     """Toutes les mesures, en parallele. Aucune ne peut faire echouer les autres."""
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex:
         f_flotte = ex.submit(mesurer_flotte, src, plafond)
         f_livr = ex.submit(mesurer_livraison, src)
         f_harnais = ex.submit(mesurer_harnais, src)
+        f_emp = ex.submit(mesurer_empreinte, src)
         flotte, livr, harnais = f_flotte.result(), f_livr.result(), f_harnais.result()
+        empreinte = f_emp.result()
 
     # JONCTION, apres coup pour que les trois mesures restent independantes : un agent qui
     # TRAVAILLE garde son worktree meme si sa branche est deja mergee (il peut encore
@@ -721,7 +782,7 @@ def etat(src: Sources, plafond: int) -> dict:
                  if str(Path(w["chemin"]).resolve()).lower() not in flotte["chemins"]]
         livr["nettoyables"] = _ok(garde, livr["nettoyables"].source + " - agents en vol")
     return {"flotte": flotte, "livraison": livr, "harnais": harnais,
-            "repo": str(src.repo)}
+            "empreinte": empreinte, "repo": str(src.repo)}
 
 
 # ------------------------------------------------------------------ signaux
@@ -809,6 +870,33 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
         s = ha["session"].valeur
         ctx.append("session %s %s (pid %s)" % (s.get("id"), s.get("status"), s.get("pid")))
 
+    # -- EMPREINTE de `probe_457` (#486-r15). ACTIONNABLE : la regenerer est un geste, et la
+    #    degradation est INVISIBLE autrement -- elle ne se lit que dans une ligne de sortie du
+    #    probe, que personne n'a lue pendant 3 jours et ~40 commits.
+    #    HORS campagne aussi : c'est un fait sur le DEPOT, pas sur la boucle, et le silence
+    #    reste tenu par le fait qu'un depot sain ne produit AUCUNE de ces lignes.
+    emp = e.get("empreinte") or {}
+    cov = emp.get("couverture")
+    if cov is not None and not cov.mesuree:
+        ctx.append("empreinte 457 : %s" % cov.txt())
+    elif cov is not None:
+        v = cov.valeur
+        if v["format"] != FORMAT_EMPREINTE_ATTENDU:
+            sig.append(Signal(
+                "empreinte-format",
+                "empreinte 457 au format %s (attendu %d) -- `--since` refuse de s'en servir et "
+                "rejoue TOUT ; regenerer : cd scripts/python ; $env:TACTICUS_ALLOW_RATCHETS=1 ; "
+                "python probe_457_offline_tests_green.py --measure"
+                % (v["format"], FORMAT_EMPREINTE_ATTENDU)))
+        elif v["couverts"] < v["perimetre"]:
+            sig.append(Signal(
+                "empreinte",
+                "empreinte 457 : %d/%d fichier(s) offline mesure(s) -- les %d autres se rejouent "
+                "TOUJOURS sous `--since` ; regenerer : cd scripts/python ; "
+                "$env:TACTICUS_ALLOW_RATCHETS=1 ; python probe_457_offline_tests_green.py "
+                "--measure-missing"
+                % (v["couverts"], v["perimetre"], v["perimetre"] - v["couverts"])))
+
     lr = ha["live_runners"]
     if lr.mesuree and lr.valeur and not en_vol:
         sig.append(Signal("orphelins", "%d runner(s) VIVANT(S) sans aucun agent en vol -- "
@@ -877,6 +965,12 @@ def rendu_complet(e: dict, sig: list[Signal], ctx: list[str]) -> str:
     if orph is not None and (not orph.mesuree or orph.valeur):
         L.append("           branches d'agent livrees sans worktree : %s"
                  % (len(orph.valeur) if orph.mesuree else orph.txt()))
+    cov = (e.get("empreinte") or {}).get("couverture")
+    if cov is not None:
+        L.append("EMPREINTE  457 : %s"
+                 % (("format %s, %d/%d fichier(s) offline mesure(s)"
+                     % (cov.valeur["format"], cov.valeur["couverts"], cov.valeur["perimetre"]))
+                    if cov.mesuree else cov.txt()))
     L.append("HARNAIS    session %s ; drain %s ; liveRunners %s"
              % (("aucune" if ha["session"].valeur is None else
                  "%s %s" % (ha["session"].valeur.get("id"), ha["session"].valeur.get("status")))

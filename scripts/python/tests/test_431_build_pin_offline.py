@@ -26,6 +26,36 @@ ASCII only (console Windows cp1252).
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict
+#: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
+        # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
+        # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le
+        # verdict de CHAQUE test depend.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # PROPRE A CE FICHIER, pose depuis la MESURE (empreinte #486-r15) :
+        "scripts/python/probe_431_build_literals.py", "scripts/python/build_pin.py",
+        "scripts/python/il2cpp_provenance.py", "scripts/python/repo_read.py",
+        # Ce que le cliquet BALAIE reellement -- temoins mesures : `data/symbols/CURRENT`,
+        # `frida/hooks/controller.ts`, trois modules de `scripts/python/**`.
+        "data/symbols/**", "frida/hooks/**", "scripts/python/**/*.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Le cliquet des adresses epinglees et ses trois foyers, plus ce qu'il BALAIE : la "
+              "table de symboles du build, les hooks TypeScript et l'arbre Python. LARGE a "
+              "dessein sur les trois derniers -- son critere porte sur le CONTENU de ce "
+              "balayage, donc une adresse en dur ajoutee n'importe ou doit le rejouer.",
+}
+
 import hashlib
 import subprocess
 import sys

@@ -9,6 +9,42 @@ sienne. Un checkout frais joue donc ces gardes a l'identique.
 
 ASCII only (console cp1252).
 """
+
+
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict
+#: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
+        # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
+        # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le
+        # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
+        # glob large retiendrait ce test a chaque modification d'un probe quelconque.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # PROPRE A CE FICHIER :
+        "scripts/python/probe_457_offline_tests_green.py",
+        "scripts/python/repo_read.py", "scripts/python/declencheur_cliquet.py",
+        "scripts/python/**/*.py", "scripts/ratchets-457-footprints.json",
+        # LARGE A DESSEIN, et c'est une MESURE, pas une paresse : trois cas construisent
+        # le perimetre REEL (`candidate_files`) et font tourner le graphe d'imports sur
+        # tout `scripts/python/**`. La confrontation les voit ouvrir 55 chemins hors
+        # d'une declaration etroite. La portee reelle de ce que le verdict LIT n'est pas
+        # celle de ce dont il DEPEND (residu #486-r17) -- en attendant, on sur-selectionne.
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Le probe sous test et ses deux foyers, l'EMPREINTE versionnee qu'il confronte "
+              "reellement dans ses contre-epreuves, et TOUS les fichiers de test -- le perimetre "
+              "reel sert d'anti-vacuite a plusieurs cas, donc un fichier ajoute ou retire change "
+              "ce que ce fichier prouve.",
+}
+
 import sys
 from pathlib import Path
 
@@ -24,21 +60,30 @@ import probe_457_offline_tests_green as P  # noqa: E402
 PERIMETRE = ["tests/a_offline.py", "tests/b_offline.py", "tests/c_offline.py"]
 
 
+def _e(dirs=()):
+    """Une entree d'empreinte au FORMAT 2 (#486-r15) : un DICT, jamais une simple liste.
+
+    `_commit` y est du CONTEXTE et non un critere -- la fraicheur ne se lit plus dans un sha qui
+    meurt au squash-merge. Une entree PRESENTE avec `dirs` vide vaut << mesure, n'ouvre rien >> ;
+    une entree ABSENTE vaut << jamais mesure >> et rejoue."""
+    return {"_at": 1, "_commit": "contexte", "dirs": list(dirs), "temoins": []}
+
+
 @pytest.fixture
 def empreinte(monkeypatch):
-    """Injecte une empreinte SYNTHETIQUE et un diff controle."""
-    MESURE = "mesure_ref"
+    """Injecte une empreinte SYNTHETIQUE, un diff controle et AUCUNE declaration.
 
+    Les `DECLENCHEUR` reels du depot sont NEUTRALISES ici : ce fichier garde la moitie MESUREE de
+    la selection. La moitie DECLAREE a sa propre garde
+    (`test_486r15_empreinte_par_entree_offline.py`)."""
     def poser(globales, par_test, changes, mods=None, inverse=None, incertains=None):
-        # `_commit` est OBLIGATOIRE depuis le versionnement : une empreinte sans lui a un age
-        # inverifiable et rejoue tout. Ici la mesure est supposee A JOUR (rien change depuis).
         monkeypatch.setattr(P, "_footprints",
-                            lambda: {"_commit": MESURE, "_globales": globales,
+                            lambda: {"_format": P.FORMAT_EMPREINTE, "_globales": globales,
                                      "par_test": par_test})
-        monkeypatch.setattr(P, "_changed",
-                            lambda ref: [] if ref == MESURE else changes)
+        monkeypatch.setattr(P, "_changed", lambda ref: changes)
         monkeypatch.setattr(P, "_import_graph",
                             lambda m: (inverse or {}, incertains or set()))
+        monkeypatch.setattr(P, "declencheurs_du_perimetre", lambda perim, racine=None: ({}, {}))
         if mods is not None:
             import subprocess
 
@@ -48,6 +93,13 @@ def empreinte(monkeypatch):
 
             monkeypatch.setattr(subprocess, "run", lambda *a, **k: _R())
     return poser
+
+
+#: Toutes les entrees MESUREES et vides : le regime ou la selection peut reellement retirer des
+#: fichiers. Sans cela, chaque cas ci-dessous rendrait << jamais mesure >> pour tout le monde et
+#: serait VACUEUX.
+def _toutes_vides(perimetre=None):
+    return {rel: _e() for rel in (perimetre or PERIMETRE)}
 
 
 def test_une_ref_inconnue_rejoue_TOUT_et_le_dit(monkeypatch):
@@ -66,7 +118,8 @@ def test_sans_empreinte_mesuree_on_rejoue_TOUT(monkeypatch):
 
 
 def test_un_changement_dans_une_lecture_GLOBALE_rejoue_TOUT(empreinte):
-    empreinte(globales=["data/seed-bc.json"], par_test={}, changes=["data/seed-bc.json"], mods=[])
+    empreinte(globales=["data/seed-bc.json"], par_test=_toutes_vides(),
+              changes=["data/seed-bc.json"], mods=[])
     retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
     assert retenus == PERIMETRE, "une lecture globale n'est attribuable a personne -> impacte tout"
     assert "GLOBALE" in raison
@@ -76,13 +129,14 @@ def test_les_pyc_ne_declenchent_PAS_un_rejeu_total(empreinte):
     # 521 des 527 lectures globales mesurees sont des `.pyc` : les compter rendrait la selection
     # inutile, et ils ne peuvent PAS apparaitre dans un diff (bytecode non versionne).
     empreinte(globales=["scripts/python/__pycache__/x.cpython-313.pyc"],
-              par_test={}, changes=["docs/rl/note.md"], mods=[])
+              par_test=_toutes_vides(), changes=["docs/rl/note.md"], mods=[])
     retenus, _ = P.impacted_files(PERIMETRE, "HEAD~1")
     assert retenus == [], "un .pyc en globale ne doit pas forcer le rejeu total"
 
 
 def test_un_fichier_de_test_MODIFIE_est_toujours_retenu(empreinte):
-    empreinte(globales=[], par_test={}, changes=["scripts/python/tests/b_offline.py"], mods=[])
+    empreinte(globales=[], par_test=_toutes_vides(),
+              changes=["scripts/python/tests/b_offline.py"], mods=[])
     retenus, _ = P.impacted_files(PERIMETRE, "HEAD~1")
     assert "tests/b_offline.py" in retenus, "un test modifie DOIT etre rejoue"
 
@@ -109,71 +163,49 @@ def test_la_cloture_ARRIERE_des_imports_est_suivie(empreinte):
 def test_un_non_py_retient_les_tests_qui_lisent_son_REPERTOIRE(empreinte):
     # Granularite REPERTOIRE : un test qui lit docs/rl/x.md doit rejouer si docs/rl/y.md change --
     # sinon un fichier NEUF, absent de toute empreinte, passerait entre les mailles.
-    empreinte(globales=[], par_test={"tests/c_offline.py": ["docs/rl/x.md"]},
-              changes=["docs/rl/y.md"], mods=[])
+    par_test = _toutes_vides()
+    par_test["tests/c_offline.py"] = _e(["docs/rl"])
+    empreinte(globales=[], par_test=par_test, changes=["docs/rl/y.md"], mods=[])
     retenus, _ = P.impacted_files(PERIMETRE, "HEAD~1")
     assert retenus == ["tests/c_offline.py"], "granularite repertoire attendue, ni plus ni moins"
 
 
 def test_la_selection_est_INCLUSE_dans_le_perimetre(empreinte):
-    empreinte(globales=[], par_test={"tests/a_offline.py": ["data/symbols/z.tsv"]},
-              changes=["data/symbols/z.tsv"], mods=[])
+    par_test = _toutes_vides()
+    par_test["tests/a_offline.py"] = _e(["data/symbols"])
+    empreinte(globales=[], par_test=par_test, changes=["data/symbols/z.tsv"], mods=[])
     retenus, _ = P.impacted_files(PERIMETRE, "HEAD~1")
     assert set(retenus) <= set(PERIMETRE), "la selection ne peut pas INVENTER un fichier"
     assert len(retenus) == len(set(retenus)), "aucun doublon"
 
 
 def test_un_diff_VIDE_ne_joue_rien(empreinte):
-    empreinte(globales=[], par_test={}, changes=[], mods=[])
+    empreinte(globales=[], par_test=_toutes_vides(), changes=[], mods=[])
     retenus, raison = P.impacted_files(PERIMETRE, "HEAD")
     assert retenus == [], "aucun changement -> aucun test a rejouer"
     assert "aucun fichier change" in raison
 
 
-def test_une_empreinte_SANS_commit_de_mesure_rejoue_TOUT(monkeypatch):
-    # L'empreinte est VERSIONNEE : sans commit d'horodatage, son age est inverifiable, donc son
-    # contenu n'autorise a sauter AUCUN test. C'est ce qui rend le versionnement sur.
-    monkeypatch.setattr(P, "_changed", lambda ref: ["scripts/python/engine/x.py"])
-    monkeypatch.setattr(P, "_footprints", lambda: {"_globales": [], "par_test": {}})
-    retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
-    assert retenus == PERIMETRE
-    assert "SANS commit" in raison
-
-
-def test_un_commit_de_mesure_INCONNU_rejoue_TOUT(monkeypatch):
-    monkeypatch.setattr(P, "_footprints",
-                        lambda: {"_commit": "dead" * 10, "_globales": [], "par_test": {}})
-    monkeypatch.setattr(P, "_changed",
-                        lambda ref: None if ref.startswith("dead") else ["scripts/python/e/x.py"])
-    retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
-    assert retenus == PERIMETRE
-    assert "inconnu de git" in raison
-
-
-def test_le_diff_DEPUIS_LA_MESURE_est_UNI_a_celui_de_la_PR(monkeypatch):
-    # Coeur de l'invalidation par l'age : un test modifie APRES la mesure mais AVANT la ref de la
-    # PR n'est dans aucun des deux diffs pris seuls -- il ne doit pas passer entre les mailles.
-    monkeypatch.setattr(P, "_footprints",
-                        lambda: {"_commit": "abc123", "_globales": [], "par_test": {}})
-
-    def diff(ref):
-        if ref == "abc123":
-            return ["scripts/python/tests/c_offline.py"]   # change depuis la MESURE
-        return ["docs/rl/note.md"]                          # diff de la PR : sans rapport
-
-    monkeypatch.setattr(P, "_changed", diff)
-    monkeypatch.setattr(P, "_import_graph", lambda m: ({}, set()))
-
-    import subprocess
-
-    class _R:
-        returncode = 0
-        stdout = ""
-
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _R())
-    retenus, _ = P.impacted_files(PERIMETRE, "HEAD~1")
-    assert "tests/c_offline.py" in retenus, \
-        "un test modifie depuis la MESURE doit etre rejoue meme s'il est hors du diff de la PR"
+# ------------------------------------------------------------------------------------------------
+# #486-r15 -- CE QUE TROIS GARDES DE CE FICHIER TENAIENT, ET POURQUOI ELLES ONT CHANGE D'OBJET.
+#
+# `test_une_empreinte_SANS_commit_de_mesure_rejoue_TOUT`, `test_un_commit_de_mesure_INCONNU...`
+# et `test_le_diff_DEPUIS_LA_MESURE_est_UNI_a_celui_de_la_PR` gardaient le tampon GLOBAL : un
+# `_commit` unique horodatait l'empreinte ENTIERE, et `impacted_files` unissait << tout ce qui a
+# change depuis >> au diff de la PR.
+#
+# Ce critere n'a pas ete affaibli, il a ete SUPPRIME parce qu'il etait AUTO-DESTRUCTEUR : ce sha
+# etait ecrit dans le worktree d'un AGENT, donc sur une branche que le squash-merge remplace par
+# un commit neuf avant de la supprimer. Il naissait MORT a chaque livraison par PR. Mesure du
+# 2026-08-07 : `57bb2a7c` inconnu de `git cat-file`, et `--since` rendait 220/220 fichiers sur
+# CHACUNE des 8 dernieres bases -- la selection ne selectionnait plus rien depuis 3 jours.
+#
+# Ce qui le remplace n'est pas un autre tampon : c'est le DIFF, plus la mise a jour PARTIELLE qui
+# rend la fraicheur auto-reparatrice (un module change entre dans le diff -> son test est
+# selectionne -> il tourne -> son entree est REECRITE). Les gardes correspondantes vivent dans
+# `test_486r15_empreinte_par_entree_offline.py` : survie au squash, tri-etat JAMAIS-MESURE vs
+# MESURE-ET-VIDE, et non-contamination des entrees qu'une passe partielle n'a pas jouees.
+# ------------------------------------------------------------------------------------------------
 
 
 def test_le_perimetre_reel_est_NON_VIDE(monkeypatch):
@@ -223,15 +255,16 @@ def test_AUCUNE_lecture_globale_n_est_retiree_a_la_lecture(empreinte):
 
     Un module du domaine LAISSE dans une empreinte ancienne doit encore mordre par son repertoire
     -- c'est le sens SUR. Le regime est garanti a l'ecriture, jamais en effacant a la lecture."""
-    empreinte(globales=[MODULE], par_test={}, changes=["scripts/python/engine/table.json"],
-              mods=[MODULE])
+    empreinte(globales=[MODULE], par_test=_toutes_vides(),
+              changes=["scripts/python/engine/table.json"], mods=[MODULE])
     retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
     assert retenus == PERIMETRE, "une empreinte ancienne doit SUR-selectionner, jamais sous-selectionner"
     assert "GLOBALE" in raison
 
 
 def test_un_py_HORS_domaine_en_globale_rejoue_TOUJOURS_TOUT(empreinte):
-    empreinte(globales=[HORS_DOMAINE], par_test={}, changes=[HORS_DOMAINE], mods=[MODULE])
+    empreinte(globales=[HORS_DOMAINE], par_test=_toutes_vides(), changes=[HORS_DOMAINE],
+              mods=[MODULE])
     retenus, raison = P.impacted_files(PERIMETRE, "HEAD~1")
     assert retenus == PERIMETRE, "un `.py` hors du domaine du graphe n'est couvert par RIEN"
     assert "GLOBALE" in raison
@@ -258,15 +291,29 @@ def test_un_conftest_MODIFIE_retient_les_tests_de_son_sous_arbre():
         "un conftest profond ne sert PAS les tests de son parent"
 
 
+def _empreinte_REELLE_toute_mesuree(monkeypatch, perimetre, change):
+    """L'arbre REEL, avec une empreinte ou TOUT est mesure et vide -- le regime le plus EXIGEANT.
+
+    Sans ce montage les deux gardes ci-dessous seraient VACUEUSES depuis #486-r15 : un `par_test`
+    vide fait desormais rendre << jamais mesure >> pour chaque fichier, donc `len(retenus)` vaudrait
+    trivialement `len(perimetre)` et le seuil passerait sans rien prouver. En declarant chaque
+    fichier MESURE-ET-VIDE, la seule voie de retention qui reste est le GRAPHE -- c'est bien lui
+    qu'on veut mesurer."""
+    monkeypatch.setattr(P, "_footprints",
+                        lambda: {"_format": P.FORMAT_EMPREINTE, "_globales": [],
+                                 "par_test": {rel: _e() for rel in perimetre}})
+    monkeypatch.setattr(P, "_changed", lambda ref: [change])
+    # Les declarations REELLES sont neutralisees : c'est la moitie MESUREE qui est sous test.
+    monkeypatch.setattr(P, "declencheurs_du_perimetre", lambda perim, racine=None: ({}, {}))
+
+
 def test_le_conftest_REEL_du_depot_retient_massivement(monkeypatch):
     """Sur l'arbre REEL : le conftest qui porte les fixtures `autouse` doit rejouer la suite."""
     perimetre = P.candidate_files()
     conftest = "scripts/python/tests/conftest.py"
     assert (P.repo_root() / conftest).exists(), "conftest de reference absent -- garde vacueuse"
 
-    monkeypatch.setattr(P, "_footprints",
-                        lambda: {"_commit": "M", "_globales": [], "par_test": {}})
-    monkeypatch.setattr(P, "_changed", lambda ref: [] if ref == "M" else [conftest])
+    _empreinte_REELLE_toute_mesuree(monkeypatch, perimetre, conftest)
     retenus, _ = P.impacted_files(perimetre, "REF")
     # AVANT #464-r2 : 2 fichiers sur 132. Le seuil vise la CLASSE de defaut, pas un chiffre exact.
     assert len(retenus) > len(perimetre) // 2, \
@@ -280,13 +327,26 @@ def test_un_module_importe_par_un_CONFTEST_retient_les_tests(monkeypatch):
     cible = "scripts/python/green_skip_guard.py"
     assert (P.repo_root() / cible).exists(), "cible de reference absente -- garde vacueuse"
 
-    monkeypatch.setattr(P, "_footprints",
-                        lambda: {"_commit": "M", "_globales": [], "par_test": {}})
-    monkeypatch.setattr(P, "_changed", lambda ref: [] if ref == "M" else [cible])
+    _empreinte_REELLE_toute_mesuree(monkeypatch, perimetre, cible)
     retenus, _ = P.impacted_files(perimetre, "REF")
     assert len(retenus) > len(perimetre) // 2, \
         ("changer %s ne retient que %d/%d fichiers -- la chaine module -> conftest -> tests est "
          "coupee" % (cible, len(retenus), len(perimetre)))
+
+
+def test_un_module_QUELCONQUE_ne_retient_PAS_tout(monkeypatch):
+    """LA BORNE des deux gardes ci-dessus : sans elle, une selection qui retiendrait TOUJOURS tout
+    les ferait passer toutes les deux. On exige donc qu'un module a la portee ETROITE reste
+    etroit."""
+    perimetre = P.candidate_files()
+    cible = "scripts/python/verdict_cache.py"
+    assert (P.repo_root() / cible).exists(), "cible de reference absente -- garde vacueuse"
+
+    _empreinte_REELLE_toute_mesuree(monkeypatch, perimetre, cible)
+    retenus, _ = P.impacted_files(perimetre, "REF")
+    assert 0 < len(retenus) < len(perimetre) // 2, \
+        ("changer %s retient %d/%d fichiers : la selection ne discrimine plus rien"
+         % (cible, len(retenus), len(perimetre)))
 
 
 # ------------------------------------------------------------------------------------------------
@@ -299,9 +359,12 @@ def test_un_module_importe_par_un_CONFTEST_retient_les_tests(monkeypatch):
 def test_une_donnee_hors_py_qui_change_selectionne_TOUJOURS_son_test(racine, monkeypatch):
     emp = P._footprints()
     assert emp.get("par_test"), "empreinte versionnee absente ou vide -- contre-epreuve vacueuse"
+    assert emp.get("_format") == P.FORMAT_EMPREINTE, \
+        ("empreinte au format %s : la contre-epreuve ci-dessous lit les entrees du format %d"
+         % (emp.get("_format"), P.FORMAT_EMPREINTE))
 
     # Un test REEL de l'empreinte dont une dependance mesuree vit sous cette racine.
-    cas = [(t, d) for t, dirs in emp["par_test"].items() for d in dirs
+    cas = [(t, d) for t, e in emp["par_test"].items() for d in (e.get("dirs") or ())
            if d.split("/")[0] == racine]
     assert cas, "aucun test de l'empreinte ne depend de `%s/` -- contre-epreuve vacueuse" % racine
     test, dossier = sorted(cas)[0]
@@ -310,10 +373,13 @@ def test_une_donnee_hors_py_qui_change_selectionne_TOUJOURS_son_test(racine, mon
     # empeche un fichier jamais lu de passer entre les mailles.
     change = dossier + "/fichier_neuf_de_contre_epreuve.bin"
     monkeypatch.setattr(P, "_footprints", lambda: emp)
-    monkeypatch.setattr(P, "_changed", lambda ref: [] if ref == emp["_commit"] else [change])
+    monkeypatch.setattr(P, "_changed", lambda ref: [change])
     monkeypatch.setattr(P, "_import_graph", lambda m: ({}, set()))   # graphe NEUTRALISE
+    monkeypatch.setattr(P, "declencheurs_du_perimetre", lambda perim, racine=None: ({}, {}))
 
     retenus, raison = P.impacted_files([test], "REF")
     assert retenus == [test], \
         ("%s depend de `%s/` mais un changement dans `%s` ne le selectionne pas (%s)"
          % (test, dossier, change, raison))
+
+
