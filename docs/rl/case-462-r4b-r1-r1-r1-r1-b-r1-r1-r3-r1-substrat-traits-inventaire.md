@@ -62,6 +62,22 @@ légitimes au lieu de « probablement sans effet ».
 effectivement rougi **133 commits durant** sur un site neuf que personne n'avait ventilé :
 `runner/operations/turnflow.py::_can_move`, introduit par `a1e372d3` (port de
 `VerifyUnitsTurnFinishedOperation`, 2026-08-05), ventilé le 2026-08-06 en **`INERTE-VIVANT`**.
+
+⚠ **Il a récidivé, à TROIS sites d'un coup — le gisement est alimenté par notre propre cadence de
+portage, pas par une dette ancienne.** Trouvés le 2026-08-07 en balayant la suite offline complète
+(cliquet retiré du pipeline de PR le 2026-08-05, donc personne ne la rejouait). Les trois viennent
+de deux ports livrés depuis, et leurs verdicts **DIFFÈRENT** — c'est précisément ce que cette table
+sert à dire :
+
+| site | tranche | verdict | ce qui le gate |
+|---|---|---|---|
+| `runner/abilities/loki/leading_the_charge.py::_has_adjacent_enemies` | `#508` | `INERTE-VIVANT` | `uc is None or not uc.alive -> continue`, en tête de la boucle `UnitsWithoutTrait(0x1b)` |
+| `runner/abilities/loki/momentum.py::_is_displaceable` | `#498` | `INERTE-VIVANT` | gate **INTERNE** `not uc.alive -> False` (mirror de `UnitExtensions$$IsDisplaceable`) |
+| `runner/abilities/loki/momentum.py::_can_move` | `#498` | `INERTE-AMONT` | **aucun** gate interne (`UnitExtensions$$CanMove` n'en a pas) ; son **unique** appelant pose `if _is_dead(caster): return False` à la ligne précédente |
+
+Le troisième est le seul des trois qui ne se ventile pas en lisant la fonction seule : son sujet
+n'est borné que par l'énumération de ses appelants — un de plus, sur une entité arbitraire, le
+ferait basculer en `ATTEIGNABLE`.
 Sa chaîne d'appel est **FERMÉE** (`_can_move` est privé ; son unique appelant est
 `has_tiles_to_move_to`, lui-même appelé par `_can_act` et `has_action_available`, tous deux sous
 `VerifyUnitsTurnFinishedOperation.verify_unit_turn_ended`), et le gate vivant y est le **NATIF
