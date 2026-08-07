@@ -799,15 +799,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
                            self_cast=False, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- surcharge B, PRESET + FLAGS (5) : `rules = additionalRules | <preset>+0x28` -----------
-    # 1048 FragstormGrenadeLauncher -- `...Active.Loki.FragstormGrenadeLauncherAbility$$.ctor` :
-    #   preset `+0x180` (rules 0x4002) puis `.ctor(&opts, &preset, 0x2000000)` -> 0x2004002.
-    #   Le bit ajoute est `AllowObscuredTargetByElevation` : recopier le seul litteral aurait perdu
-    #   `TargetIsEnemy` et `TargetMatchesDynamicRule`.
-    ActiveAbilityType.FragstormGrenadeLauncher: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy  # 1048
-                                 | TR.AllowObscuredTargetByElevation,
-                           self_cast=False, range=RANGE_FROM_CONFIG,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # --- surcharge B, PRESET + FLAGS (4) : `rules = additionalRules | <preset>+0x28` -----------
+    # ⚠ 1048 FragstormGrenadeLauncher (preset `+0x180` + flags `0x2000000` -> `0x2004002`) est
+    #   SORTIE d'ici : sa face COMBAT est portee depuis #489, donc son masque vit sur la classe du
+    #   registre (`engine/runner/abilities/blacktemplars.py::FragstormGrenadeLauncherAbility`).
+    #   Meme migration que 1069 et 1088 -- c'est le CONTRAT DE DISJONCTION, et il avait ete
+    #   OUBLIE au merge de #763 : l'entree restait ici pendant que la classe entrait au registre,
+    #   ce qui a rendu `master` ROUGE sur `test_targeting_options_sources` (2 failed) pendant
+    #   trois commits. `probe_181` restait VERT tout du long -- il verifie qu'un masque EXISTE,
+    #   jamais qu'il n'est declare QU'UNE FOIS. Les deux axes sont distincts : jouer le premier
+    #   ne dispense pas du second.
     # 1050 HolyDuel -- `...Active.Loki.HolyDuelAbility$$.ctor` :
     #   preset `+0x40` (rules 0x4000) puis `.ctor(&opts, &preset, 0x200000000)` -> 0x200004000.
     ActiveAbilityType.HolyDuel: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject, self_cast=False,  # 1050
