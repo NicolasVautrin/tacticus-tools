@@ -42,6 +42,11 @@ ETAGES
                     ne peut que RETIRER : c'est ce qui rend le rayon de souffle borne.
   [4] SENSIBLES  -- combien de tuiles voient leur voisinage CHANGER, sur combien de boards.
                     Une unite posee sur une de ces tuiles est un temoin de la divergence.
+  [5] RE-JEU     -- le PERIMETRE de re-jeu, DERIVE et non choisi : les fichiers de `tests/` et
+                    `probes` qui touchent le foyer, croises avec le board qu'ils DECLARENT et
+                    avec la sensibilite mesuree a l'etage 2. Un fichier qui touche le foyer sur
+                    un board ou la porte ne mord pas est HORS perimetre, et le dire est une
+                    mesure -- pas une dispense.
 
 ASCII only (cp1252). Offline pur : aucun runner, aucun RPC.
 """
@@ -132,6 +137,7 @@ def etage234(limite: int | None = None) -> dict:
     total_aretes = 0
     total_refusees = 0
     par_board: list[tuple[str, int, int, int]] = []   # (id, aretes, refusees, tuiles touchees)
+    par_tuiles: dict[str, set] = {}
     violations_monotonie = 0
     for path in boards:
         elev = charger_board(path)
@@ -154,12 +160,92 @@ def etage234(limite: int | None = None) -> dict:
         total_aretes += aretes
         total_refusees += refusees
         par_board.append((path.stem, aretes, refusees, len(touchees)))
+        par_tuiles[path.stem] = touchees
     par_board.sort(key=lambda r: -r[2])
     sensibles = [r for r in par_board if r[2] > 0]
     return {"boards": len(par_board), "aretes": total_aretes, "refusees": total_refusees,
             "violations_monotonie": violations_monotonie,
             "boards_sensibles": len(sensibles), "top": par_board[:15],
-            "par_board": {r[0]: r for r in par_board}}
+            "par_board": {r[0]: r for r in par_board}, "touchees": par_tuiles}
+
+
+# --------------------------------------------------------------------------- etage 5
+#: Ce qui fait qu'un fichier TOUCHE le foyer. `_within` et les trois selecteurs `order='adjacent'`
+#: -- pas les `Surrounding*`, dont le natif n'a pas de porte (cf. l'entete).
+MARQUEURS_FOYER = ("_within", "_tile_enum_rank", "_adjacent_tiles_native",
+                   "AdjacentUnits", "AdjacentEnemies", "AdjacentFriends")
+
+
+def _paires_litterales(src: str) -> set:
+    """Les couples `(col, row)` ECRITS dans un fichier de montage. `ast.Tuple` de deux `int`
+    (`CASTER_TILE = (2, 7)`, `("orksNob", (2, 2))`), et les DEUX DERNIERS d'un tuple de trois
+    (`"%s:%d,%d" % (unit, col, row)`). LARGE volontairement : un faux positif coute un re-jeu,
+    un faux negatif coute une regression non vue."""
+    paires: set = set()
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return paires
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Tuple):
+            continue
+        vals = [e.value for e in node.elts
+                if isinstance(e, ast.Constant) and isinstance(e.value, int)
+                and not isinstance(e.value, bool)]
+        if len(node.elts) == 2 and len(vals) == 2:
+            paires.add((vals[0], vals[1]))
+        elif len(node.elts) == 3 and len(vals) >= 2:
+            paires.add((vals[-2], vals[-1]))
+    return paires
+
+
+def etage5_rejeu(sensibilite: dict, touchees: dict) -> dict:
+    """Le PERIMETRE de re-jeu, derive en DEUX crans -- et le second est celui qui tranche.
+
+    Cran BOARD : (fichier qui touche le foyer) x (board declare, cherche par ses LITTERAUX) x
+    (la porte mord-elle sur ce board ?). Trop grossier a lui seul : sur `MC1_67` la porte mord,
+    donc TOUT montage qui l'utilise ressort sensible -- alors que 11 tuiles sur ~55 seulement
+    voient leur voisinage changer.
+
+    Cran POSITION : le fichier ecrit-il un couple `(col,row)` qui TOMBE sur une tuile touchee ?
+    La relation est SYMETRIQUE (la porte prend une valeur absolue), donc les deux bouts de
+    chaque arete perdue sont dans l'ensemble -- « la position est touchee » est le critere
+    EXACT, pas une approximation. Un fichier sans board ou sans position litterale n'est
+    JAMAIS classe hors perimetre : il sort sous `indetermine`."""
+    import re
+    racine = Path(__file__).resolve().parent
+    connus = set(sensibilite)
+    jeton = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
+    cibles: list[Path] = sorted((racine / "tests").rglob("*.py"))
+    cibles += sorted(racine.glob("probe_*.py"))
+    chauds: list[tuple[str, list[str], list]] = []
+    tiedes: list[tuple[str, list[str]]] = []
+    inertes: list[tuple[str, list[str]]] = []
+    indetermines: list[str] = []
+    for f in cibles:
+        try:
+            src = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if not any(m in src for m in MARQUEURS_FOYER):
+            continue
+        rel = f.relative_to(racine).as_posix()
+        boards = sorted({t for t in jeton.findall(src) if t in connus})
+        if not boards:
+            indetermines.append(rel)
+            continue
+        mordants = [b for b in boards if sensibilite[b][2] > 0]
+        if not mordants:
+            inertes.append((rel, boards))
+            continue
+        paires = _paires_litterales(src)
+        if not paires:
+            indetermines.append(rel)
+            continue
+        heurts = sorted({(b, p) for b in mordants for p in paires if p in touchees.get(b, ())})
+        (chauds if heurts else tiedes).append((rel, mordants, heurts) if heurts else (rel, mordants))
+    return {"chauds": chauds, "tiedes": tiedes, "inertes": inertes,
+            "indetermines": indetermines}
 
 
 def main() -> int:
@@ -200,6 +286,17 @@ def main() -> int:
     print("    %-12s %8s %10s %10s" % ("board", "aretes", "refusees", "tuiles"))
     for bid, ar, rf, tu in m["top"]:
         print("    %-12s %8d %10d %10d" % (bid, ar, rf, tu))
+
+    p = etage5_rejeu(m["par_board"], m["touchees"])
+    print("\n[5] PERIMETRE DE RE-JEU (derive : foyer x board declare x POSITION touchee)")
+    print("    CHAUDS   -- une position ECRITE tombe sur une tuile touchee : %d" % len(p["chauds"]))
+    for rel, bs, heurts in p["chauds"]:
+        apercu = ", ".join("%s%s" % (b, tuple(q)) for b, q in heurts[:3])
+        print("      %-62s %s" % (rel, apercu))
+    print("    TIEDES   -- board mordant, aucune position ecrite touchee  : %d" % len(p["tiedes"]))
+    print("    INERTES  -- board sans denivele                            : %d" % len(p["inertes"]))
+    print("    INDETERMINES (jamais exclus : ni board ni position lisible) : %d"
+          % len(p["indetermines"]))
 
     for b in args.board:
         r = m["par_board"].get(b)
