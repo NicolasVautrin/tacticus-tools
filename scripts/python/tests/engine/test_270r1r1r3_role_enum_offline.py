@@ -667,6 +667,48 @@ def test_etage5_une_confusion_des_deux_index_serait_silencieuse_en_ORDINAL():
 
 # ─────────────────────────────────────────────────────────── ETAGE 6 : PLACEMENT DES MIRRORS
 
+def _paquet_du_module(chemin: Path, racine: Path) -> str:
+    """Le paquet PLEIN d'un fichier de l'arbre temoin (`engine.entities.effects.loki`).
+
+    C'est ce qui permet de resoudre un import RELATIF : sans lui, `from ...X import` n'est
+    qu'une chaine, et une mutation textuelle passe a cote."""
+    parties = chemin.relative_to(racine).with_suffix("").as_posix().split("/")
+    return ".".join(parties[:-1])
+
+
+def _cible_pleine(noeud: "ast.ImportFrom", paquet: str) -> str:
+    """Le module PLEIN designe par un `ImportFrom`, absolu ou relatif.
+
+    `level = 0` : `noeud.module` est deja plein. `level = N` : on remonte de `N - 1` crans
+    depuis `paquet` (regle Python : un point = le paquet courant), puis on colle `noeud.module`.
+    Rend `""` si la remontee sort de l'arbre -- un import qu'on ne sait pas resoudre n'est jamais
+    reecrit."""
+    if not noeud.level:
+        return noeud.module or ""
+    parties = paquet.split(".") if paquet else []
+    if noeud.level - 1 > len(parties):
+        return ""
+    base = parties[:len(parties) - (noeud.level - 1)]
+    return ".".join(base + ([noeud.module] if noeud.module else []))
+
+
+def _reecrire_vers_abilities(noeud: "ast.ImportFrom", paquet: str, nom: str) -> str:
+    """Le `from <...>` d'apres-deplacement, en CONSERVANT la forme (relative ou absolue).
+
+    Conserver la forme n'est pas cosmetique : reecrire un relatif en absolu changerait AUSSI
+    l'ordre de resolution, donc la mutation ne mesurerait plus le seul deplacement. Si la
+    nouvelle cible n'est pas atteignable au meme niveau relatif, on retombe sur l'absolu --
+    toujours correct, et c'est alors DIT par la forme produite."""
+    cible = "engine.entities.abilities." + nom
+    if not noeud.level:
+        return "from " + cible
+    parties = paquet.split(".") if paquet else []
+    base = ".".join(parties[:len(parties) - (noeud.level - 1)])
+    if base and cible.startswith(base + "."):
+        return "from " + "." * noeud.level + cible[len(base) + 1:]
+    return "from " + cible
+
+
 def test_etage6_les_deux_index_vivent_hors_du_paquet_abilities():
     """ETAGE 6 -- l'emplacement des deux mirrors : la CONTRAINTE A DISPARU, et cet etage l'ACTE.
 
@@ -710,6 +752,21 @@ def test_etage6_les_deux_index_vivent_hors_du_paquet_abilities():
     #: rate celui qu'on n'a pas vu -- mesure : `entities/abilities/triggered_ability.py` importe
     #: `ability_variable_type`, et l'oublier faisait echouer la mutation par un
     #: `ModuleNotFoundError` de MONTAGE, que l'assertion aurait impute au cycle.
+    #:
+    #: ⚠⚠ ET LE MEME VICE EXISTE SUR L'AXE **FORME**, pas seulement sur l'axe FICHIER -- mesure
+    #: du 2026-08-07, `master` ROUGE. La mutation ne connaissait QUE la forme ABSOLUE
+    #: (`entities.<nom> import`), remplacee a la chaine. `entities/effects/loki/
+    #: martial_inspiration.py` (arrive avec #509) ecrit `from ...ability_variable_type import` --
+    #: forme RELATIVE, conforme a son voisinage (**34 des 35** fichiers de ce dossier importent
+    #: en relatif). La mutation la laissait intacte, le module deplace n'existait plus a
+    #: `engine/entities/`, et l'etage accusait « la contrainte de #270-r1-r1-r3 est revenue »
+    #: alors que le cycle, lui, n'etait jamais revenu : un cliquet qui montre un ROUGE DE SON
+    #: PROPRE OUTIL sous le libelle d'un fait de RE. Un `str.replace` sur une seule ecriture EST
+    #: une liste choisie, deguisee.
+    #:
+    #: La reecriture passe donc par l'AST : on RESOUT chaque `ImportFrom` (niveau relatif
+    #: compris) vers son module PLEIN, et on ne reecrit que ceux qui designent reellement
+    #: `engine.entities.<nom>`. L'invariant qui remplace le seuil : REECRITS == RECENSES.
     with tempfile.TemporaryDirectory() as tmp:
         arbre = Path(tmp) / "arbre"
         shutil.copytree(ENGINE, arbre / "engine", ignore=shutil.ignore_patterns("__pycache__"))
@@ -720,16 +777,38 @@ def test_etage6_les_deux_index_vivent_hors_du_paquet_abilities():
             src = arbre / "engine" / "entities" / (nom + ".py")
             assert src.is_file(), src
             shutil.move(str(src), str(arbre / "engine" / "entities" / "abilities" / (nom + ".py")))
-        touches = []
+        recenses, reecrits, touches = [], [], []
         for p in sorted((arbre / "engine").rglob("*.py")):
             avant = p.read_text(encoding="utf-8")
-            apres = avant
-            for nom in ("ability_constant_type", "ability_variable_type"):
-                apres = apres.replace("entities.%s import" % nom,
-                                      "entities.abilities.%s import" % nom)
-            if apres != avant:
-                p.write_text(apres, encoding="utf-8")
+            lignes = avant.splitlines(keepends=True)
+            paquet = _paquet_du_module(p, arbre)
+            change = False
+            for noeud in ast.walk(ast.parse(avant)):
+                if not isinstance(noeud, ast.ImportFrom):
+                    continue
+                cible = _cible_pleine(noeud, paquet)
+                nom = cible.rpartition(".")[2]
+                if cible not in ("engine.entities.ability_constant_type",
+                                 "engine.entities.ability_variable_type"):
+                    continue
+                site = "%s:%d" % (p.relative_to(arbre).as_posix(), noeud.lineno)
+                recenses.append(site)
+                i = noeud.lineno - 1
+                ecrit_avant = "from %s%s" % ("." * noeud.level, noeud.module or "")
+                ecrit_apres = _reecrire_vers_abilities(noeud, paquet, nom)
+                if ecrit_avant in lignes[i]:
+                    lignes[i] = lignes[i].replace(ecrit_avant, ecrit_apres, 1)
+                    reecrits.append(site)
+                    change = True
+            if change:
+                p.write_text("".join(lignes), encoding="utf-8")
                 touches.append(p.relative_to(arbre).as_posix())
+        #: INVARIANT, pas seuil : tout site RECENSE a ete REECRIT. Une garde en seuil se degrade
+        #: en silence -- c'est le `>= 10` qui laissait passer la forme relative.
+        assert recenses and reecrits == recenses, (
+            "la mutation n'a pas reecrit tous les importeurs recenses -- elle ne mesure donc PAS "
+            "le deplacement reel. Non reecrits : %r"
+            % [s for s in recenses if s not in reecrits])
         assert len(touches) >= 10, (
             "moins d'importeurs reecrits qu'attendu (%d) -- la mutation ne mesure peut-etre "
             "plus le deplacement reel : %r" % (len(touches), touches))
