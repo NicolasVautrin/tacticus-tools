@@ -10,10 +10,13 @@
 ## 1. Portée mesurée
 
 Le backlog porte **sept** sections. Une seule est dispatchable, et le grep est **borné à
-elle** : `## Tâches ouvertes` = **278 entrées** sur **91 racines** (les six autres portent un
-autre statut, dont `## Fiches PERIMEES ou REFUTEES — NE PAS re-dispatcher`). Un match non
-borné mélangerait les deux — c'est le vice qui a coûté 5 dispatches sur du déjà-mergé le
-2026-08-07, sur `combat-ability-coverage.md`.
+elle** : `## Tâches ouvertes` = **278 entrées** sur **91 racines** au commit de mesure
+(`65f30497`) — **280 après** l'ajout des deux résidus de cette tranche, tous deux classés
+`HARNAIS` par le probe. Les six autres sections portent un autre statut, dont
+`## Fiches PERIMEES ou REFUTEES — NE PAS re-dispatcher` : un match non borné mélangerait les
+deux, et c'est le vice qui a coûté 5 dispatches sur du déjà-mergé le 2026-08-07 (sur
+`combat-ability-coverage.md`, dont les tables `NO-OP SILENCIEUX` et `PORTED (registry)` se
+lisent pareil hors section).
 
 Ventilation **dérivée** (score moteur vs score harnais, cf. §3 A) :
 
@@ -38,18 +41,51 @@ change le comportement en bataille. C'est la limite structurelle d'un classement
 
 ## 2. Ce que vaut la confrontation de référence
 
-`docs/rl/port-residuals-inventory.md` est la dernière confrontation item-par-item — **passe 3
-du 2026-07-27**, commit `bec119f` (le backlog l'annonce au 2026-07-26 / `7f47c29` : cette
-citation est elle-même en retard d'une passe). Onze jours et **~600 PR mergées** plus tard.
+**Trois dates différentes, aucune n'est la bonne.** Le backlog l'annonce au **2026-07-26**
+(`7f47c29`), son propre titre dit **2026-07-27** (`bec119f`), et son dernier commit est du
+**2026-07-31** (`1dc0e4c5`). Depuis ce dernier commit : **1 934 commits** sur `origin/master`
+(mesuré `rev-list --count`). La requête `gh pr list --limit 600` ne remonte même pas jusqu'à
+cette date — **plus de 600 PR ont été mergées depuis le 2026-07-28**.
 
-Elle est **structurellement inappariable au backlog** : elle indexe par clés internes
-(`R8`, `O1`, `N7`, `O4a`…), le backlog par `#<n>-r<k>`. Aucun appariement mécanique n'existe
-entre les deux jeux d'identifiants — c'est un résultat, pas un manque de mesure, et c'est ce
-qui rend son recalage coûteux. Elle signale de plus elle-même que son §4.d (**13 items « en
-veille »**) n'a **aucune colonne Fichiers**, donc échappe à son propre scoping par diff.
+**Son compte net ne tombe juste dans aucune lecture.** La même section §4.g annonce **trois
+totaux différents** (23, puis « 27 → 22 », puis 20) et est désaccordée avec ses propres
+tableaux (elle cite `R6`, `R30`, `N1` — tous barrés FERMÉ — et omet `N14`, `N15`, `N18`,
+`N19`). Recompte par extraction (première cellule non barrée + cellule verdict) : **26
+ouvertes**, plus 2 en §4.z qui n'entrent dans **aucune** ligne du total.
 
-**Conséquence pour le dispatch** : ne pas s'en servir comme source de fraîcheur. Elle décrit
-un état à 11 jours, sous une clé qui ne se raccorde pas.
+**Sur ces 26, la confrontation à `HEAD` donne** :
+
+| | n | |
+|---|---|---|
+| **LIVRÉES depuis**, preuve au commit | **6 (23 %)** | `N14`(§4.a), `R12`, `R15`, `N15`(§4.b), `N17`(§4.b), `O7` |
+| confirmées **encore ouvertes**, symptôme relu au code | 8 (31 %) | `R19a`, `R27`, `R25`, `N2`, `R7`, `O2`, `R17`, `N19` |
+| indéterminées ou **à reformuler** | 5 (19 %) | dont `R26` (affirmation périmée) et `N13-b` (compte faux d'un facteur **2,4** : 7 annoncés, **17** au code) |
+| sans preuve dans un sens ni l'autre | 7 (27 %) | |
+
+⚠ **Deux des six (`R12`, `O7`) étaient déjà livrées le 2026-07-31**, jour de la dernière
+retouche du document. Il **nomme sa propre maladie** (§4.g) : « ni PR #151 ni PR #152 n'a mis
+CET inventaire à jour… un document qui n'est corrigé que par ses passes de re-confrontation
+**ment structurellement entre deux passes** » — et il a récidivé le jour même.
+
+**Le « 13 items en veille » du §4.d n'est reproductible par aucun critère.** §4.d n'est pas
+un tableau mais un **paragraphe de prose** (0 ligne `|`) : le dénombrement rend **11**, dont
+l'un s'auto-déclare hors périmètre (« c'est un chantier, pas un résidu ») et un autre a vu
+**trois sous-items en sortir** sans que le total soit re-dérivé. Aucune référence
+`fichier:ligne` — la dette d'ancrage annoncée n'a été honorée pour **aucun** item.
+
+**Elle est inappariable au backlog, et c'est mesuré.** Sur les **321** lignes du backlog à
+identifiant `#<n>`, **une seule** porte une clé interne (`R14`, barrée) — **0,3 %**. Des 26
+clés ouvertes, **18 (69 %) ont zéro occurrence** dans le backlog ; **~17 %** seulement sont
+appariables à une ligne précise. Trois causes structurelles : aucune colonne d'appariement
+n'existe des deux côtés ; l'espace interne porte des **homonymies assumées** (`N14`, `N15`,
+`N16`, `N17` désignent **chacun deux entrées**) que le backlog ne peut pas lever ; et
+`probe_468` n'alloue que les `#<n>` — les clés `R*`/`N*`/`O*` sont **hors de son corpus**,
+d'où un renommage « au merge » et quatre homonymies qu'aucun cliquet n'a vues.
+
+**Conséquence pour le dispatch** : ne pas s'en servir comme source de fraîcheur, et ne pas
+citer une clé interne dans un brief — une entrée ouverte se re-désigne par son **sujet**
+(symbole natif + fichier), ce qui annule le service que le document est censé rendre.
+Résidu **`#526-r1`**.
 
 ## 3. Les trois axes
 
@@ -133,13 +169,16 @@ Critère de tête : **un bug silencieux confrontable et vivant passe devant tout
 c'est le seul défaut qu'un entraînement RL irait exploiter. `PERIME-CANDIDAT` et `HARNAIS`
 sont **écartés** (score −1), pas rétrogradés.
 
+⚠ **Cet ordre est l'ordre FINAL, après requalification humaine.** L'ordre mécanique brut se
+rejoue par `--top 20` et diffère : il porte encore les 6 `OUTILLAGE` listés plus bas.
+
 | # | résidu | pourquoi ici |
 |---|---|---|
-| 1 | `#494` | `1102 Doombolt` **au registre**, écart de cible mesuré (`{81,83,87}` natif contre `{81,83,85}` port) — et `test_doombolt_live.py` **reste VERT** : son montage ne produit pas de reste non nul, le gisement lui est structurellement invisible. |
+| 1 | `#494` | `1102 Doombolt` **au registre**, écart de cible mesuré (`{81,83,87}` natif contre `{81,83,85}` port) — et `test_doombolt_live.py` **reste VERT**. ⚠ Correction de l'étage humain : l'entrée dit « son montage ne produit pas de reste non nul », c'est **inexact** — `test_doombolt_zero_hit_target_and_sort_order_live` fait `N=3` sur **4 cibles** (`[1,1,1,0]`) et asserte l'ordre. Ce qui manque au montage est la **GÉOMÉTRIE** qui fait diverger le tri, pas le reste : le repreneur doit **déplacer les unités**, pas croire le test aveugle. |
 | 2 | `#488-r1` | Un trait de dégât touche le pipeline de **toutes** les attaques ; verdict `case-72` falsifié au décompilé, rapports natif/port **1,42** et **2,00**. `E!` |
 | 3 | `#512-r1` | Écart **chiffré et attribué** (`9575`/`10073` puis `7101`/`7766`, bit-exact sans le passif), montage écrit, **49 porteurs** du trait dont 8 lineup. `E!` |
 | 4 | `#287-r11` | 4 règles de ciblage dynamiques dont le port rend `0` **permissif** ; **2 des 4 ids sont déjà au registre** (`1076`, `1213`) donc confrontables sans montage neuf. |
-| 5 | `#287-r12` | `Target()` **nul** pour 5 abilities TILE-TARGET — **les 5 sont au registre** (`1017`, `1018`, `1026`, `1148`, `1169`) : le gisement est armé et muet. |
+| 5 | `#287-r12` | `Target()` **nul** pour 5 abilities TILE-TARGET — **les 5 sont au registre** (`1017`, `1018`, `1026`, `1148`, `1169`) : le gisement est armé et muet. **Vérifié au code** : `entities_from_state` matérialise bien un caster minimal (`if caster is None and caster_id is not None`) et **rien** pour `target`. |
 | 6 | `#508-r1` | Le gate de spawn de `1204` (au registre) **collapse** sur un compteur inexistant ; l'équivalence n'est établie que sur cet arbre. `E!` |
 | 7 | `#511-r1` | Décalage de **flux RNG en cours d'attaque** (natif 7–8 tirages, port 10–13) qui n'empêche pas l'accord nominal — exactement la forme qui se réveille ailleurs. `E!` |
 | 8 | `#429-r1-r1-r1-r1` | Le repli de `summon_ai` rend `0` pour toute ability sans `minDmg`/`maxDmg` ; `1015` **absent du registre**, porteur summon → greffe, pas un refus. |
@@ -163,7 +202,22 @@ ce sont des résidus d'`OUTILLAGE`, chantier harnais arrêté) : `#281-r2`, `#28
 **Écartés comme PERIME-CANDIDAT** : `#haze-ord` (confirmé livré — **à retirer du backlog**),
 `#437-r1-r1-r3`, `#448-r1-r1-r1-r1-r2-r1`, `#419-r1-tr14-r5-r2-r1-r1-r1`.
 
-## 5. Ce qui n'est PAS couvert
+## 5. Résidus ouverts par cette tranche
+
+- **`#526-r1`** — `port-residuals-inventory.md` est **inappariable et faux dans son compte** :
+  3 totaux contradictoires en §4.g, 26 ouvertes recomptées dont **6 déjà livrées** (2 l'étaient
+  le jour de sa dernière retouche), un « 13 » non reproductible, **0,3 %** d'appariement au
+  backlog, et 4 homonymies internes qu'aucun cliquet ne voit — les clés `R*`/`N*`/`O*` sont
+  hors du corpus de `probe_468`. Trancher : le **recaler avec une colonne `#<n>`** sur ses 70
+  lignes à clé interne, ou le **retirer** et ne garder que le backlog.
+- **`#526-r2`** — **la fraîcheur d'un résidu n'est pas dérivable, et rien ne la rend
+  dérivable.** Mesuré ici : 10/278 (3,6 %) au mieux, avec les deux seuls signaux qui tiennent.
+  La cause est en amont — **une PR qui ferme un résidu ne retire pas sa ligne du backlog**, et
+  rien ne l'y oblige. Deux parades possibles, aucune écrite : un cliquet « une PR dont le titre
+  nomme `#<n>-r<k>` doit toucher la ligne correspondante de `backlog.md` », ou une convention
+  de retrait. Sans l'une des deux, **toute passe d'inventaire future paiera le même prix**.
+
+## 6. Ce qui n'est PAS couvert
 
 - **La fraîcheur de 268 entrées sur 278.** Aucun signal mécanique ne les atteint. Les
   trancher demande la lecture, et c'est le coût que cette tranche a mesuré plutôt que payé.
