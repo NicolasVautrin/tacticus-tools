@@ -30,7 +30,8 @@ from .dispatch.move_death import (
 )
 from .dispatch.phase import phase_end_triggers
 from .dispatch.registry import (
-    ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS, EFFECT_TRIGGERS, TRAIT_TRIGGERS
+    ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS, EFFECT_TRIGGERS, TRAIT_TRIGGERS,
+    PASSIVE_HELPER_ABILITY_TRIGGERS          # #521-r1 -- `...ActiveAbility$$GetPassiveHelperAbility`
 )
 from .dispatch.turn import (
     delayed_attack_triggers, end_turn_summon_triggers, start_turn_triggers, tile_tick_triggers,
@@ -52,6 +53,7 @@ __all__ = [
     "triggered_ability_state",
     "_unit_tile", "_hex_dist", "_adjacent_enemies", "_is_adjacent_units",
     "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "ACTIVE_ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
+    "PASSIVE_HELPER_ABILITY_TRIGGERS",
     "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",
     "after_death_triggers", "is_overkill", "unit_is_overkill", "start_turn_triggers",
     "turn_start_other_triggers", "tile_tick_triggers", "delayed_attack_triggers",

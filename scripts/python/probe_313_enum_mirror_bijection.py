@@ -687,9 +687,10 @@ class Consommateur:
 #: `test_le_registre_EFFECT_CLASSES_resout_entierement_dans_le_mirror` (#318) ne la gardait que
 #: pour `EFFECT_CLASSES`.
 #:
-#: Les six registres de `triggers.dispatch` couvrent les cinq CHEMINS DE REGISTRATION que
+#: Les registres de `triggers.dispatch` couvrent les SIX CHEMINS DE REGISTRATION que
 #: `collect_triggered_abilities` (`dispatch/core.py`) parcourt : trait, `passiveAbilities`,
-#: `activeAbilities` (derivees), `relicAbilities` + `TertiaryAbility`, et l'effet.
+#: `activeAbilities` (derivees), `relicAbilities` + `TertiaryAbility`, l'effet, et -- depuis
+#: #521-r1 -- la triggered-ability HELPER d'une active (`GetPassiveHelperAbility`).
 CONSOMMATEURS: list[Consommateur] = [
     # `dispatch/core.py` : `for pa in passives: ABILITY_TRIGGERS.get(pa, ())`, ou `passives` vient
     # du canal mesure `UnitContext.passive_abilities` ou, a defaut, de `gameconfig.passiveAbilities`.
@@ -702,6 +703,17 @@ CONSOMMATEURS: list[Consommateur] = [
     Consommateur("ACTIVE_ABILITY_TRIGGERS", "engine.runner.operations.triggers.dispatch.registry",
                  "ACTIVE_ABILITY_TRIGGERS", "ActiveAbilityType",
                  raison="voie activeAbilities -- la CLE est l'active, la VALEUR la derivee"),
+    # Meme fichier, SIXIEME chemin (#521-r1) : `for aa in config_actives:
+    # PASSIVE_HELPER_ABILITY_TRIGGERS.get(aa, ())`. La cle est de la MEME nature que celle du
+    # voisin ci-dessus (un nom d'ability ACTIVE), mais le dict natif est AUTRE --
+    # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$
+    # GetPassiveHelperAbility` (`<statics>+0x78`), monte par `IdunBattle.Entities.Factories.
+    # UnitFactory$$AddActiveAbility`. Meme cran du dessous que ses cinq voisins : un nom disparu
+    # rendrait `()` sans erreur, et le trigger ne serait inscrit sur personne.
+    Consommateur("PASSIVE_HELPER_ABILITY_TRIGGERS",
+                 "engine.runner.operations.triggers.dispatch.registry",
+                 "PASSIVE_HELPER_ABILITY_TRIGGERS", "ActiveAbilityType",
+                 raison="voie passive-helper -- la CLE est l'active, la VALEUR le helper"),
     # La cle est une relique, mais l'enum reste `TriggeredAbilityType` : le natif la monte par
     # `TriggeredAbilityComponent$$TryAdd(id, tertiaryAbilityState, 3)` (branche TERTIAIRE
     # d'`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`), et le registre le dit

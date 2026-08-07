@@ -157,18 +157,22 @@ famille ATTACK). Cinq contre-épreuves hors-ligne rejouent la **même capture** 
 
 ## 5. Résidus nommés
 
-* **`#521-r1`** — la face TRIGGERED
+* **`#521-r1`** — **PORTÉ + CONFRONTÉ LIVE**, cf. `case-521r1-talons-used-abilities-le-sixieme-chemin.md`.
+  La face TRIGGERED
   `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TalonsOfTheEmperor_UsedAbilitiesAbility`
-  (`TriggeredAbilityType` 1330), qui **accumule** le niveau de l'effet 1420, n'est pas portée. Son
-  `CreateTrigger` est LU et son corps est le **même** que celui de
-  `…FuelledByFury_ExtraDamageAbility$$CreateTrigger` (dédupliqué par IL2CPP — un seul propriétaire
-  dans la table) : `On(0xe = UnitPostAbility) & AreFriends(Owner@+0x30, actor@+0x48) &
+  (`TriggeredAbilityType` 1330) **accumule** le niveau de l'effet 1420 :
+  `On(0xe = UnitPostAbility, ownerNeedsToBeAlive = 1) & AreFriends(Owner@+0x30, actor@+0x48) &
   (HasTrait(actor, 0x10 = Hero) & !HasTrait(actor, 0x419 = MachineOfWar)) &
-  IsActiveAbilityCountedAsUsed(isPreAbilityTrigger = 0)`. Le port **lit** le niveau depuis la capture
-  (`decisionView.units[].effects[].level` → `EffectsState`, même canal que
-  `FuelledByFury_ExtraDamage`) ; il ne le fait pas avancer sur un état rejoué plusieurs tours
-  hors-ligne. Porter 1330 est une tranche à part : le rail `runner/operations/triggers/loki/` et
-  `is_active_ability_counted_as_used` existent déjà, il ne manque que la classe et son inscription.
+  IsActiveAbilityCountedAsUsed(isPreAbilityTrigger = 0)` →
+  `AddEffectOrIncreaseLevel(0x58c, Owner, Owner, level = Direct(1), maxLevel = NULL)`.
+  Mesuré : compteur 0 → 1 → 2, natif ET port, et le dégât du cast de 1195 lit bien le compteur
+  d'AVANT. **Deux corrections à ce paragraphe** : (a) le sens de la déduplication est INVERSE — c'est
+  `…FuelledByFury_ExtraDamageAbility$$CreateTrigger` qui est ABSENT de la table, le propriétaire du
+  corps partagé étant celui de TalonsOfTheEmperor ; (b) le montage n'est **ni** `ABILITY_TRIGGERS`
+  **ni** `ACTIVE_ABILITY_TRIGGERS` — 1330 est une « passive helper ability »
+  (`…StaticBattleRules.ActiveAbility$$GetPassiveHelperAbility`, `<statics>+0x78`, six entrées), un
+  SIXIÈME chemin de registration monté par `UnitFactory$$AddActiveAbility`. Résidus ouverts par cette
+  tranche : `#521-r4` (les cinq autres helpers) et `#521-r5` (substrat divergent entre registres).
 * **`#521-r2`** — **TRANCHÉ** par ce cas (§3) : sémantique `SelectSingle` = premier élément,
   mesurée et gardée par le couple `mixte` / `mixte_inv`.
 * **`#521-r3`** — `entities/triggers.py::HasTrait` porte le **même** idiome `any(...)` et sa

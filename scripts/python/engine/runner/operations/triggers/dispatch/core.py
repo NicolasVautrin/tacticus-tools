@@ -15,7 +15,7 @@ from ....state import State
 from ....components import StatsComponent, UnitComponent, TriggeredAbilityComponent
 from ..base import TriggerEvent, TriggeredAbility, EffectTrigger, PHASE_TRIGGER_CAP
 from .registry import (TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS,
-                       RELIC_ABILITY_TRIGGERS, EFFECT_TRIGGERS)
+                       PASSIVE_HELPER_ABILITY_TRIGGERS, RELIC_ABILITY_TRIGGERS, EFFECT_TRIGGERS)
 from .registry import GLOBAL_TRIGGERS
 
 
@@ -24,9 +24,12 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
     pour chaque trait à trigger porté, instancie l'ability correspondante (owner = l'entité). (Le volet
     effet-trigger — Overwatch, on-hit — n'est pas encore collecté ici.)
 
-    CINQ chemins de registration, tous mirrors de `IdunBattle.Entities.Factories.UnitFactory$$Add*
-    Abilities` : trait, passiveAbility, activeAbility (dérivée), relicAbility EN DUR (gameconfig) et
-    -- depuis #357 -- l'item RELIQUE ÉQUIPÉ (`UnitConfiguration.TertiaryAbility`, cf. plus bas)."""
+    SIX chemins de registration, tous mirrors de `IdunBattle.Entities.Factories.UnitFactory$$Add*
+    Abilities` : trait, passiveAbility, activeAbility (dérivée), relicAbility EN DUR (gameconfig),
+    -- depuis #357 -- l'item RELIQUE ÉQUIPÉ (`UnitConfiguration.TertiaryAbility`, cf. plus bas), et
+    -- depuis #521-r1 -- la triggered-ability HELPER d'une active
+    (`...StaticBattleRules.ActiveAbility$$GetPassiveHelperAbility`, dict statique DISTINCT de celui
+    des dérivées)."""
     import gameconfig as GC
     from ...behaviour import BEHAVIOUR_TRAIT_TRIGGERS            # lazy : evite circular import behaviour<->triggers
     out: list[TriggeredAbility] = []
@@ -62,6 +65,24 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
             for aa in (gu.get("activeAbilities") or []):
                 for cls in ACTIVE_ABILITY_TRIGGERS.get(aa, ()):
                     out.append(cls(eid))
+        # SIXIEME chemin (#521-r1) : la triggered-ability HELPER d'une ability ACTIVE
+        # (`StaticBattleRules.ActiveAbility$$GetPassiveHelperAbility`, dict statique DISTINCT de
+        # celui des derivees -- cf. l'en-tete de `PASSIVE_HELPER_ABILITY_TRIGGERS`). Le natif la
+        # monte dans `IdunBattle.Entities.Factories.UnitFactory$$AddActiveAbility`, appele en boucle
+        # sur `config@+0xa0` = `UnitConfiguration.ActiveAbilities`.
+        # SUBSTRAT, et il est TRI-ETAT (meme discipline que `passive_abilities` juste au-dessus) :
+        # `config_active_abilities` EST `UnitConfiguration.ActiveAbilities` mesuree (canal
+        # `unitAbilityStates.units[].configActives`, #466) -- exactement ce que le natif itere ;
+        # `None` = canal non mesure -> repli sur le kit gameconfig, comportement d'avant. Le repli
+        # n'est PAS equivalent : une active GREFFEE sur une unite du pool (seul chemin de
+        # confrontation d'une ability a porteur npc) n'existe QUE dans la mesure.
+        measured_actives = getattr(sc.ctx, "config_active_abilities", None)
+        config_actives = (measured_actives if measured_actives is not None
+                          else list(gu.get("activeAbilities") or []))
+        for aa in config_actives:
+            for cls in PASSIVE_HELPER_ABILITY_TRIGGERS.get(aa, ()):
+                out.append(cls(eid))
+        if vid:
             # relicAbilities -> triggered-ability(s) accordee(s) par une RELIQUE cablee EN DUR sur
             # l'unite (#317). QUATRIEME chemin de registration ; les 25 abilities dans ce cas sont
             # TOUTES sur des npc.
