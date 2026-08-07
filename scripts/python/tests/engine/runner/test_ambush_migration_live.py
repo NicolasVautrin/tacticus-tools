@@ -149,8 +149,10 @@ def _kill(state, uid, killer_id):
 
 
 def _start_turn(state, player, force_delta=None):
-    """Avance au debut de tour de `player` : incremente `turn_counts[player]` (mirror StartTurnOperation) puis
-    tire `start_turn_triggers` (On 22) -> EnvAmbushResurrect. `force_delta` (optionnel) force
+    """Avance au debut de tour de `player` : incremente `turn_counts[player]` (mirror de l'ecrivain
+    natif `TurnComponent$$SetCurrentPlayer`, cote port `turnflow.set_current_player` -- surtout PAS
+    `StartTurnOperation`, qui ne fait que LIRE ce dict, cf. #287-r11-r1-r1-r1-r1) puis tire
+    `start_turn_triggers` (On 22) -> EnvAmbushResurrect. `force_delta` (optionnel) force
     `turn_counts[player]` a `turn_defeated + force_delta` pour tester le gate de delai."""
     from engine.runner.operations.triggers.dispatch.turn import start_turn_triggers
     state.turn_counts[player] = state.turn_counts.get(player, 0) + 1

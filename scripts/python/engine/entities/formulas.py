@@ -556,7 +556,8 @@ class PlayerTurnsStarted(AAmountFormula):
         return TurnComponent.GetAmountOfTurnsStartedByPlayer(turn, owner)
 
     C'est donc le compteur PAR JOUEUR `TurnComponent+0x38` (= `State.turn_counts`), incremente par
-    `IdunBattle.Operations.StartTurnOperation$$Execute` -- **PAS** le compteur PER-UNITE
+    `IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer` -- son ecrivain UNIQUE, donc
+    par ChangeTurn et non par StartTurn (#287-r11-r1-r1-r1-r1) -- **PAS** le compteur PER-UNITE
     `UnitComponent+0x58` (stat 0xc) que lit `UnitTurnsStarted` juste au-dessus. Les deux existent et
     les confondre change la phase d'un cycle : `FleshMetalGunsAbility` indexe son cycle a 3 temps sur
     le compteur PER-UNITE, `SereneUnifierAbility` sur celui-ci.

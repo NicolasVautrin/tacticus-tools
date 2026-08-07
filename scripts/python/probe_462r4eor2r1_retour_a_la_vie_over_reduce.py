@@ -529,7 +529,9 @@ def _avance_de_tour_portee(st, entrants):
         IdunBattle.Operations.EndTurnOperation$$Execute   (turnsFinished, boucliers, FinishUnitTurn,
                                                            vecteur On(0x17), puis RefreshEffects)
         IdunBattle.Operations.ChangeTurnOperation$$Execute  -> TurnComponent$$SetCurrentPlayer
-        IdunBattle.Operations.StartTurnOperation$$Execute  (turn_counts + turnsStarted per-unite +
+                                                           (les DEUX dicts PAR JOUEUR : turn_counts
+                                                            `+0x38` et turns_ended `+0x40`)
+        IdunBattle.Operations.StartTurnOperation$$Execute  (turnsStarted per-unite +
                                                            RemoveTurnFlags + events 0x12..0x16)
 
     De `entrants` -- la suite des joueurs entrants mesuree sur le live -- ce rejeu ne prend plus que

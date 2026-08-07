@@ -79,7 +79,9 @@ class State:
     à la cible). None = pas d'adjacence dispo → ces mécaniques dégradent en no-op.
 
     `turn_counts` = nb de tours DÉMARRÉS par joueur (mirror `TurnComponent.turnsStartedByCurrentPlayer`,
-    dict @+0x38) ; incrémenté par `StartTurnOperation`. Source de `GetAmountOfTurnsStartedByCurrentPlayer`
+    dict @+0x38) ; incrémenté par `turnflow.set_current_player`, mirror de son écrivain natif UNIQUE
+    `TurnComponent$$SetCurrentPlayer` — donc par ChangeTurn, PAS par StartTurn, qui ne fait que le
+    LIRE (#287-r11-r1-r1-r1-r1). Source de `GetAmountOfTurnsStartedByCurrentPlayer`
     (gate « 1er tour » de certaines mécaniques). Vide tant qu'aucun tour n'a été joué via le runner.
 
     `turns_ended` = nb de tours TERMINÉS par joueur (mirror `TurnComponent.<Dictionary @+0x40>`,

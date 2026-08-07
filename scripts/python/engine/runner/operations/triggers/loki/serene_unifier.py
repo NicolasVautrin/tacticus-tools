@@ -12,8 +12,9 @@ et ne matérialisait JAMAIS les deux autres -- le natif, lui, passait à
 
 ⚠ CE N'EST PAS « UN COMPTEUR DE ROUND QUE LE PORT N'AVANCE PAS ». Le compteur existe et il est
 déjà avancé (`State.turn_counts`, mirror `TurnComponent+0x38`, bumpé par
-`IdunBattle.Operations.StartTurnOperation$$Execute` -> `turnflow.StartTurnOperation.execute`). Ce
-qui manquait est son CONSOMMATEUR.
+`IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer` -> `turnflow.set_current_player`
+— l'écrivain natif UNIQUE ; le port l'écrivait dans `StartTurnOperation.execute` jusqu'à
+#287-r11-r1-r1-r1-r1). Ce qui manquait est son CONSOMMATEUR.
 
 ================================================================================================
 RE (décompilé ghidra, build `rnca9r7q6c`) -- DEUX fonctions natives NOMMÉES

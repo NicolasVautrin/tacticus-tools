@@ -17,7 +17,8 @@ Operations natives (VA citees) :
       `IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer ; si le nouveau joueur est de type 2 (neutre) -> recurse (skip).
       C'est LA que vivent les deux compteurs PAR JOUEUR (`+0x38` demarres, `+0x40` termines) :
       `SetCurrentPlayer` en est l'ecrivain UNIQUE, et `ChangeTurnOperation$$Execute` son SEUL
-      appelant. Le port y bumpe `state.turns_ended` (`set_current_player`, #287-r11-r1-r1-r1).
+      appelant. Le port y bumpe les DEUX -- `state.turns_ended` (#287-r11-r1-r1-r1) ET
+      `state.turn_counts` (#287-r11-r1-r1-r1-r1), cf. `set_current_player`.
   - `IdunBattle.Operations.StartTurnOperation$$Execute  : resets per-unite (ActorStatistics/UnitFlags) +
       emet la sequence d'events de debut de tour 0x12/0x13/0x14/0x15/0x16 (`On(0x16)` = vecteur
       turn-start porte = `start_turn_triggers`).
@@ -40,14 +41,13 @@ durees d'effet, triggers de debut de tour) :
                        (`find_turn_index`), et le SKIP (`should_player_skip_turn`, slot 0x1a) est
                        evalue DANS la boucle bornee. L'Environment fait partie de l'ordre ; c'est la
                        RECURSION d'`Execute` qui l'ecarte (non portee, cf. `ChangeTurnOperation`).
-  * StartTurn       -> incremente `state.turn_counts[player]` (compteur GLOBAL, TurnComponent+0x38) +
-                       `turnsStarted@+0x58 += 1` PER-UNITE du joueur courant (stat 12, `_bump_turns_started`,
-                       mig #123) + `start_turn_triggers(player)`.
-                       ⚠ LE PLACEMENT DU PREMIER EST HERITE, ET MESURE COMME FAUX (#287-r11-r1-r1-r1) :
+  * StartTurn       -> `turnsStarted@+0x58 += 1` PER-UNITE du joueur courant (stat 12,
+                       `_bump_turns_started`, mig #123) + `start_turn_triggers(player)`.
+                       ⚠ IL N'INCREMENTE **PAS** `state.turn_counts` (#287-r11-r1-r1-r1-r1) :
                        `IdunBattle.Operations.StartTurnOperation$$Execute` ne fait que LIRE
-                       `GetAmountOfTurnsStartedByCurrentPlayer` ; l'unique ecrivain de `+0x38` (et de
-                       `+0x40`) est `TurnComponent$$SetCurrentPlayer`, donc ChangeTurn. Cf.
-                       `set_current_player`, qui porte le jumeau `turns_ended` A SA PLACE.
+                       `GetAmountOfTurnsStartedByCurrentPlayer`. L'unique ecrivain de `+0x38` (et de
+                       `+0x40`) est `TurnComponent$$SetCurrentPlayer`, donc ChangeTurn -- les DEUX
+                       dicts y sont desormais bumpes, cf. `set_current_player`.
 
 DEFERE (etat NON suivi offline -> TODO, en miroir documente) :
   * `DecreaseAbilityCooldowns` (le runner ne suit pas de compteur de cooldown d'ability offline) ;
@@ -451,23 +451,38 @@ def set_current_player(state: State, next_player_id: int) -> None:
     `snapshot._load_turns_ended` utilise pour SEEDER, et elle tient meme sous joueur TEMPORAIRE
     (`ended[temp]` et `started[temp]` sont bumpes ensemble).
 
-    ⚠ LE PORT NE BUMPE ICI QUE `turns_ended`, ET LE PLACEMENT DE L'AUTRE EST **HERITE**.
-    `started[+0x38]` est bumpe ici par le natif ; cote port, `state.turn_counts[player] += 1` vit
-    dans `StartTurnOperation.execute` -- placement d'origine, MESURE comme faux (le decompile de
+    ⚠ LES **DEUX** DICTIONNAIRES SONT BUMPES ICI DEPUIS #287-r11-r1-r1-r1-r1, ET C'EST LA FIN DU
+    PLACEMENT HERITE. `state.turn_counts` (`+0x38`) vivait dans `StartTurnOperation.execute` --
+    placement d'origine, MESURE comme faux : le decompile de
     `IdunBattle.Operations.StartTurnOperation$$Execute` ne fait que LIRE
-    `GetAmountOfTurnsStartedByCurrentPlayer`, il n'ecrit jamais `+0x38`). Les deux sites sont
-    ENCHAINES par `advance_turn` (`ChangeTurn` puis `StartTurn`), donc l'etat observable apres la
-    paire est identique -- SAUF sur le NO-OP (`cur == next`, seul joueur encore jouable), ou le natif
-    ne bumpe RIEN et le port compte un tour de plus pour lui. Le deplacer casserait les **8** sites
-    (probes) qui appellent `StartTurnOperation.execute` SEUL, sans `ChangeTurn` : residu
-    `#287-r11-r1-r1-r1-r1`, direction NOMMEE (le port SUR-compte `turn_counts` dans ce seul regime).
-    `turns_ended`, lui, est pose ICI, a sa place native, et respecte le NO-OP."""
+    `GetAmountOfTurnsStartedByCurrentPlayer` (compare a `1`), il n'ecrit JAMAIS `+0x38`. Les deux
+    sites etaient ENCHAINES par `advance_turn` (`ChangeTurn` puis `StartTurn`), donc l'etat
+    observable apres la paire etait le meme -- SAUF sur le NO-OP (`cur == next`, seul joueur encore
+    jouable), ou le natif ne bumpe RIEN et le port comptait un tour de plus pour lui (direction :
+    le port SUR-comptait `turn_counts` dans ce seul regime).
+
+    ⚠ CE QUE LE DEPLACEMENT CHANGE POUR LES APPELANTS DE `StartTurnOperation.execute` SEUL (8 sites,
+    tous des probes -- `probe_213_ghost_revive`, `probe_227_remove_unit_operation` x2,
+    `probe_366r1_echoes_revive`, `probe_cvc_contagions_lifecycle`, `probe_lot_pose` x3) : leur appel
+    ne fait plus avancer `turn_counts`. Mesure du 2026-08-07 : **aucun des cinq fichiers** ne
+    mentionne `turn_counts`, `PlayerTurnsStarted`, `turn_defeated`, `SereneUnifier` ni `Ambush` --
+    les DEUX seuls consommateurs portes de ce dict. Ils appellent l'operation pour ce qu'elle FAIT
+    vraiment (resets per-unite, `turnsStarted@+0x58`, vecteurs turn-start), pas pour le compteur.
+    Un appelant qui voudrait VRAIMENT avancer d'un tour joue desormais la PAIRE
+    (`set_current_player` ou `ChangeTurnOperation.execute`, puis `StartTurnOperation.execute`) --
+    ce qui est aussi ce que fait le natif."""
     cur = state.current_player_id
     if cur is not None and int(cur) == int(next_player_id):
         return                                    # `if (cur == next) return;` -- AUCUN bump
     if cur is not None and int(cur) != 0:         # `if (get_CurrentPlayerId() != 0)`
         state.turns_ended[int(cur)] = int(state.turns_ended.get(int(cur), 0)) + 1
     state.current_player_id = next_player_id      # `this.<+0x24> = nextPlayerId`
+    # `started[get_CurrentPlayerId()] = started[get_CurrentPlayerId()] + 1` -- DERNIERE instruction
+    # du corps natif, et INCONDITIONNELLE : le gate `!= 0` ne porte QUE sur `ended`. A ce point
+    # `get_CurrentPlayerId()` vaut deja `nextPlayerId` (la ligne au-dessus), donc c'est l'ENTRANT
+    # qui est bumpe. Le `if (!started.ContainsKey(next)) started.Add(next, 0)` de tete de corps est
+    # absorbe par le `.get(..., 0)` : il ne sert, natif, qu'a rendre l'indexeur non levant.
+    state.turn_counts[int(next_player_id)] = int(state.turn_counts.get(int(next_player_id), 0)) + 1
 
 
 class ChangeTurnOperation:
@@ -532,12 +547,9 @@ def _bump_turns_started(state: State, player: int) -> None:
 
 
 class StartTurnOperation:
-    """`IdunBattle.Operations.StartTurnOperation$$Execute (squelette fidele) : incremente le compteur de tours du
-    joueur (compteur GLOBAL `TurnComponent.turnsStarted`, dict @+0x38 -- ⚠ PLACEMENT HERITE : le natif
-    ECRIT ce dict dans `TurnComponent$$SetCurrentPlayer`, donc dans ChangeTurn ; ici il ne fait que le
-    LIRE via `GetAmountOfTurnsStartedByCurrentPlayer`. Residu `#287-r11-r1-r1-r1-r1`) ET le compteur PER-UNITE
-    `turnsStarted@+0x58` de chaque unite du joueur courant (stat 12, `_bump_turns_started`, mig #123) puis
-    emet la sequence d'events 0x12..0x16 ; ici on tire le vecteur turn-start `On(0x16)` deja porte
+    """`IdunBattle.Operations.StartTurnOperation$$Execute (squelette fidele) : incremente le compteur
+    PER-UNITE `turnsStarted@+0x58` de chaque unite du joueur courant (stat 12, `_bump_turns_started`,
+    mig #123) puis emet la sequence d'events 0x12..0x16 ; ici on tire le vecteur turn-start `On(0x16)` deja porte
     (`start_turn_triggers` -> ex. TheBetrayer auto-tour). Les resets per-unite natifs (ActorStatistics/
     UnitFlags) ne sont pas suivis offline (cf. en-tete).
 
@@ -556,7 +568,11 @@ class StartTurnOperation:
 
     @staticmethod
     def execute(state: State, player: int) -> list[dict]:
-        state.turn_counts[player] = state.turn_counts.get(player, 0) + 1
+        # ⚠ AUCUN BUMP DE `state.turn_counts` ICI (#287-r11-r1-r1-r1-r1). Le natif LIT
+        # `GetAmountOfTurnsStartedByCurrentPlayer` dans ce corps (il le compare a `1`), il ne
+        # l'ECRIT pas : l'ecrivain UNIQUE de `TurnComponent+0x38` est
+        # `IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer`, donc `set_current_player`
+        # (plus haut dans ce module), et lui seul respecte le NO-OP `cur == next`.
         _bump_turns_started(state, player)     # #123 : turnsStarted PER-UNITE (stat 12) += 1 (joueur courant)
         # #139 : reset des UnitFlags de tour du joueur ENTRANT — mirror de la boucle de StartTurnOperation.
         # (#101 : c'est le SEUL reset du fait "a bouge ce tour" — le `state.moved_this_turn.clear()` de #60

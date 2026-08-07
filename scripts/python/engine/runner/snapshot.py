@@ -811,14 +811,25 @@ def _load_turn_counts(state: State) -> None:
 
     LA DERIVATION EST EXACTE, ET SA DIRECTION EST CONNUE. `IdunBattle.Operations.StartTurnOperation
     $$Execute` incremente `turnsStarted@+0x58` de CHAQUE unite VIVANTE de
-    `PlayerComponent.CurrentlyOwnedUnitIds` a CHAQUE demarrage de tour -- le MEME evenement qui
-    incremente `TurnComponent+0x38[player]` (mirror porte : `_bump_turns_started` puis
-    `state.turn_counts[player] += 1`, meme fonction). Donc :
+    `PlayerComponent.CurrentlyOwnedUnitIds` a CHAQUE demarrage de tour -- le MEME EVENEMENT que
+    l'ecriture de `TurnComponent+0x38[player]`, sans en etre la meme FONCTION : `+0x38` est ecrit
+    par `TurnComponent$$SetCurrentPlayer` (ChangeTurn), `+0x58` par `StartTurnOperation`, et
+    `EndTurnOperation$$Execute` enchaine les deux (mirror porte : `set_current_player` puis
+    `_bump_turns_started`). Donc :
 
       * aucune unite ne peut porter PLUS de bumps que le nombre de tours demarres par son joueur
         -> `max(...)` ne SUR-ESTIME jamais ;
       * une unite presente et vivante depuis le 1er tour en porte EXACTEMENT autant
         -> `max(...)` est EXACT des qu'il en existe une.
+
+    ⚠ UNE EXCEPTION, LUE ET NOMMEE (#287-r11-r1-r1-r1-r1-r1) : le regime NO-OP DECOUPLE les deux
+    compteurs, cote NATIF. Quand `FindNextPlayer` rend le joueur COURANT (seul joueur encore
+    jouable), `SetCurrentPlayer` sort AVANT ses deux bumps -- `+0x38` ne bouge pas -- mais
+    `StartTurnOperation` est enfile SEPAREMENT par `EndTurnOperation$$Execute` et joue quand meme,
+    donc `+0x58` per-unite avance. Sur N tours consecutifs dans ce regime, `max(stat 12)` SUR-estime
+    `+0x38` de N. Le premier point ci-dessus vaut donc « hors NO-OP ». Ce n'est pas un ecart de
+    port : la sur-estimation porte sur une mesure PRISE SUR LE NATIF, et le port produit exactement
+    le meme decouplage depuis que `turn_counts` est ecrit a sa place native.
 
     Il ne SOUS-ESTIME que si toutes les unites du joueur sont apparues apres le debut (summons) ou
     ont manque des tours en etant mortes. Les unites MORTES sont exclues (le natif les retire de

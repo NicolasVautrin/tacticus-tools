@@ -124,16 +124,25 @@ def test_le_state_porte_le_dict_des_tours_TERMINES():
 
 
 def test_les_deux_dicts_divergent_des_le_premier_changement_de_joueur():
-    """CONTRE-EPREUVE du precedent : deux dicts qui resteraient egaux ne prouveraient rien."""
+    """CONTRE-EPREUVE du precedent : deux dicts qui resteraient egaux ne prouveraient rien.
+
+    ⚠ DEPUIS #287-r11-r1-r1-r1-r1 LE SEUL `ChangeTurn` SUFFIT. `SetCurrentPlayer` ecrit les DEUX
+    dicts (`ended[sortant] += 1` PUIS `started[entrant] += 1`) et c'est leur ecrivain UNIQUE ;
+    `StartTurnOperation$$Execute` n'en ecrit AUCUN -- il ne fait que LIRE
+    `GetAmountOfTurnsStartedByCurrentPlayer`. Les deux jambes sont assertionnees SEPAREMENT :
+    sans la seconde, un port qui bumperait `turn_counts` AUX DEUX endroits (double comptage)
+    resterait vert."""
     st = _etat([(3, 2), (4, 2)], 3)
     st.turn_counts = {3: 1}
-    TF.ChangeTurnOperation.execute(st)               # 3 -> 4 : `ended[3] += 1`
+    TF.ChangeTurnOperation.execute(st)               # 3 -> 4 : `ended[3] += 1` ET `started[4] += 1`
     assert st.turns_ended == {3: 1}
-    assert st.turn_counts == {3: 1}, "ChangeTurn ne doit PAS toucher le dict des DEMARRES ici"
-    TF.StartTurnOperation.execute(st, 4)             # `started[4] += 1` (placement HERITE du port)
+    assert st.turn_counts == {3: 1, 4: 1}, (
+        "`SetCurrentPlayer` est l'ecrivain des DEUX dicts -- `started[entrant] += 1` est sa "
+        "DERNIERE instruction")
+    TF.StartTurnOperation.execute(st, 4)             # n'ECRIT ni `+0x38` ni `+0x40`
     assert st.turn_counts == {3: 1, 4: 1} and st.turns_ended == {3: 1}, (
-        "apres la paire ChangeTurn+StartTurn les deux dicts DIFFERENT : le joueur 4 a demarre un "
-        "tour qu'il n'a pas termine")
+        "`StartTurnOperation$$Execute` ne fait que LIRE le dict des DEMARRES -- un bump ici le "
+        "compterait DEUX fois par tour")
 
 
 # =================================================================================================

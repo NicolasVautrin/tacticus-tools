@@ -83,9 +83,11 @@ pouvait pas donner : il acceptait n'importe quel compteur.
   `ended` sous-estimé ⇒ PERMISSIF. Le supprimer demande un capteur publiant les deux dictionnaires —
   aucun RPC ne le fait (`readTurnInfo` n'invoque `GetAmountOfTurnsStartedByPlayer` que pour le
   joueur COURANT, et vers `recorder`/`cheat`/`move-options`).
-* **Le placement de `turn_counts`** reste à `StartTurnOperation`, alors que le natif l'écrit dans
-  `ChangeTurn`. Équivalent sur la paire enchaînée, DIVERGENT sur le NO-OP. Résidu
-  `#287-r11-r1-r1-r1-r1`.
+* ~~**Le placement de `turn_counts`** reste à `StartTurnOperation`~~ — **FERMÉ** par
+  `#287-r11-r1-r1-r1-r1` : le bump vit désormais dans `turnflow.set_current_player`, aux côtés de
+  son jumeau. Le NO-OP ne compte plus rien, et la non-régression du régime nominal est re-mesurée
+  par le §3 ci-dessus (0 désaccord, chiffres identiques). Détail :
+  `case-287r11r1r1r1r1-placement-du-compteur-de-tours.md`.
 * **Les deux autres porteurs du bit** (1160, 1188) restent non confrontés live — le gate est global
   au match, donc leur régime est identique, mais c'est un raisonnement.
 * **Aucun régime à plafond de rounds hors de ce probe** : la seed versionnée n'en porte pas.
