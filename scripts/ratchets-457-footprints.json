@@ -579,6 +579,12 @@
     "data/boards/global/survival_13.json"
    ]
   },
+  "tests/engine/runner/test_523_heavy_warp_flamer_offline.py": {
+   "_at": 1786103055,
+   "_commit": "86e708a421a4d9b8237b191f161dcef389a89db0",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_525_mass_driver_accelerator_offline.py": {
    "_at": 1786102042,
    "_commit": "9ff99a1804a634a370cb2d072937865457223149",
