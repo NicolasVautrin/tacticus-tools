@@ -524,6 +524,29 @@ class UnitsWithoutTrait(TargetsSelector):
         return [u for u in self.source.evaluate(ctx) if not ht(u, self.trait)]
 
 
+def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLSelectors$$NonSteppableOrObjectUnits(source, selectionType)` --
+    MIRROR de la FACTORY : le natif N'ALLOUE AUCUN selecteur dedie, il COMPOSE textuellement
+
+        a = UnitsWithoutTrait(source, 0x1b, selectionType)      # 27 = UnitTrait.Steppable
+        b = TargetsSelector.op_BitwiseAnd(source, a)
+        c = UnitsWithoutTrait(source, 0xd,  selectionType)      # 13 = UnitTrait.Object
+        return TargetsSelector.op_BitwiseAnd(b, c)
+
+    -> `source & sans-Steppable & sans-Object`. On mirror la composition telle quelle (les deux
+    `And` compris) plutot que de la simplifier : c'est la structure LUE, et l'`And` du port
+    (`op_BitwiseAnd`) preserve l'ordre de son operande GAUCHE, donc l'ordre du `source` traverse.
+
+    ⚠ Le `0xd` de CE site est un `UnitTrait` (`Object`), pas un `DamageProfileType` -- l'ordinal 13
+    nomme les deux, et `HellfyreMissileRackAbility$$ExecuteBehaviour` les utilise TOUS LES DEUX dans
+    la meme expression (`NonSteppableOrObjectUnits(...)` avec le trait, `HasTakenDamage...(..., 0xd)`
+    avec `DamageProfileType.Psychic`). C'est exactement le regime ou l'ordinal nu ment en silence.
+
+    Consommateurs natifs lus : `HellfyreMissileRackAbility$$ExecuteBehaviour` / `$$GetAffectedUnits`."""
+    return And(And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable))),   # 0x1b
+               UnitsWithoutTrait(source, int(UnitTrait.Object)))                   # 0xd
+
+
 def hero_units(source: TargetsSelector) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLFactory$$HeroUnits(source, mask)` — MIRROR du decompile : la factory
     native N'ALLOUE PAS de selecteur dedie, elle DELEGUE textuellement a

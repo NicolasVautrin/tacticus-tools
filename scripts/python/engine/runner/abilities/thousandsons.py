@@ -86,20 +86,23 @@ import gameconfig as GC
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, AtomicGroup
-from ...entities.selectors.accessors import CasterTile
+from ...entities.damage_profile_type import DamageProfileType
+from ...entities.selectors.accessors import ActiveTarget, CasterTile, Target
 from ...entities.selectors.geometry import EntitiesWithAnyEffect
-from ...entities.selectors.tiles import AllTiles, Caster
-from ...entities.selectors.units import Damageable, SurroundingEnemies, UnitSet, Unobscured
+from ...entities.selectors.tiles import AllTiles, AllUnits, Caster
+from ...entities.selectors.units import (Damageable, Enemies, Filter, SurroundingEnemies, UnitSet,
+                                         Unobscured, non_steppable_or_object_units)
 from ...entities.formulas import Count, Min, Sum
 from ...entities.effect_type import EffectType
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
+from ...entities.triggers import HasTakenDamageOfDamageProfileThisTurn
 from ..components import StatsComponent
 from ..operations.damage_utility import sort_units_by_damage_utility
 from .base import ActiveAbility
-from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.combat import AttackWithAttackDamage, SortedAttackSeries
 from .behaviours.context import entities_from_state
-from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import (RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
@@ -303,3 +306,173 @@ class DoomboltAbility(ActiveAbility):
         return {"ability": DOOMBOLT_ID, "caster": caster_id, "target": target_id,
                 "targets": ordered, "hits": dist, "total_hits": total_hits,
                 "attacks": attacks, "dsl": True}
+
+
+# ========================= HellfyreMissileRack (thousTerminator, actif 1088) =========================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.HellfyreMissileRackAbility$$ExecuteBehaviour` --
+# arbre `DSLFactory` PUR (aucun etage imperatif, contraste Doombolt), MIRROR du DECOMPILE :
+#
+#     dmg     = AActiveAbility.MinMaxDamage(this, abilityState)                     # minDmg/maxDmg[level]
+#     profile = DSLSelectors.Direct( AbilityConfiguration.GetDamageProfile(cfg) )   # HeavyRound
+#     hits    = DSLFormulas.Get( AbilityConfiguration.GetNumberConstant(cfg, 0x2f) ) # nrOfHits = 1
+#     atk1    = DSLBehaviors.AbilityDamage(Caster@+0x48, ActiveTarget@+0x68, dmg, profile, hits,
+#                                          <AbilityOrEffect 1088>, isOutsideAttack=false, selectionType=2)
+#     atk2    = DSLBehaviors.AbilityDamage( <MEMES arguments> )                     # 2e instance
+#     extra   = DSLSelectors.FromTrigger(
+#                   DSLSelectors.NonSteppableOrObjectUnits(
+#                       DSLSelectors.Enemies(Caster@+0x48, AllUnits@+0x20, 3), 3),
+#                   DSLTriggers.HasTakenDamageOfDamageProfileThisTurn(ActiveTarget@+0x68, 0xd),
+#                   requireContinuous = 0)
+#     AActiveAbility.Execute( entities, this,
+#         DSLBehaviors.SortedAttackSeries(Caster@+0x48, Target@+0x60, atk1, extra, atk2,
+#                                         <AbilityOrEffect 1088>) )
+#
+# `HellfyreMissileRackAbility$$GetAffectedUnits` re-construit `extra` A L'IDENTIQUE -> le 2e volet est
+# bien le sous-arbre ci-dessus, pas une lecture optimiste du decompile.
+#
+# QUALIFICATION DES ORDINAUX (le point le plus piegeur de cette ability) :
+#   * `0x2f`  -> `AbilityConstantType.nrOfHits` (cle gameconfig `nrOfHits` = 1) ;
+#   * `0xd`   -> **DEUX enums differents dans la MEME expression** : `DamageProfileType.Psychic` (le
+#     trigger) et `UnitTrait.Object` (dans `NonSteppableOrObjectUnits`, avec `0x1b` = `Steppable`).
+#     L'ordinal nu aurait confondu les deux SANS erreur.
+#   * Le profil INFLIGE est `HeavyRound` (config), le profil TESTE est `Psychic` -- ne PAS deduire
+#     l'un de l'autre. i2 : « Deals 1x [dmg] Heavy Round Damage to a target enemy unit within range 3
+#     and an additional 1x [dmg] Heavy Round Damage to each enemy unit on the map that was dealt
+#     PSYCHIC Damage this turn, which can include the initial target again. »
+#
+# FAMILLE = `DSLBehaviors$$AbilityDamage` -> `AbilityDamageBehaviour` (famille ABILITY :
+# `AbilityDamageOperation$$ExecuteHits`, 1 tirage/coup, PAS de crit/block) -> `native_factory="ability"`.
+# CONTRASTE avec `FragBombAbility$$ExecuteBehaviour`, qui a la MEME forme `SortedAttackSeries` mais
+# route `DSLBehaviors$$AttackDamage` (famille ATTACK). Classification par la CALLEE, jamais au juge.
+# ====================================================================================================
+
+HELLFYRE_ID = "HellfyreMissileRack"
+# `GetDamageProfile(cfg)` = gameconfig `HellfyreMissileRack.constants.damageProfile` = `HeavyRound`.
+# C'est le profil INFLIGE par les deux volets (ils partagent `profile`, `dmg` et `hits`).
+HELLFYRE_PROFILE = DamageProfileType.HeavyRound.name
+# `DSLTriggers$$HasTakenDamageOfDamageProfileThisTurn(unit, 0xd)` -- `0xd` est ici un
+# `DamageProfileType`, PAS le `UnitTrait.Object` de meme ordinal utilise deux lignes plus haut par
+# `NonSteppableOrObjectUnits`. Meme constante que `weaver_of_fate`/`reality_unbound` (Thousand Sons).
+HELLFYRE_TRIGGER_PROFILE = int(DamageProfileType.Psychic)   # 0xd = 13
+
+
+def hellfyre_extra_targets_selector() -> Filter:
+    """Sous-arbre `extra` de `HellfyreMissileRackAbility$$ExecuteBehaviour` -- IDENTIQUE au corps
+    ENTIER de `$$GetAffectedUnits` (MIRROR 1:1) :
+
+        FromTrigger( NonSteppableOrObjectUnits( Enemies(Caster@+0x48, AllUnits@+0x20, 3), 3 ),
+                     HasTakenDamageOfDamageProfileThisTurn(ActiveTarget@+0x68, Psychic),
+                     requireContinuous = 0 )
+
+    * `Enemies(Caster, AllUnits)` : le natif passe le slot PARTAGE `DSLSelectors+0x20` (alloue par
+      `DSLSelectors$$InitializeShared`) comme source, et `+0x48` (= `Caster`) comme reference. Le port
+      `Enemies(inner)` prend sa reference dans `ctx.caster` -> meme semantique a ce call-site.
+      `AllUnits` porte deja le filtre VIVANTES (mirror `AllAliveMachinesSelector`).
+    * `NonSteppableOrObjectUnits` = la factory de composition (cf. son mirror dans
+      `entities/selectors/units.py`) : `source & sans-Steppable & sans-Object`.
+    * `FromTrigger` = `Filter` cote port (`DSLFactory$$Filter` est le THUNK de `$$FromTrigger`) : il
+      LIE chaque candidat au slot `+0x180` = `ActiveTarget`, exactement le slot que le predicat lit.
+      `requireContinuous = 0` -> aucun court-circuit (le port ne porte pas ce flag ; `FilterContinuous`
+      est une factory distincte).
+    * Le predicat est `HasTakenDamageOfDamageProfileThisTurn` **SANS** `AmountOfTimes` : une PRESENCE
+      de cle dans `receivedDamageThisTurn`, donc un ennemi ayant encaisse DEUX coups Psychic compte
+      toujours (contraste `RealityUnboundExtraMaxDamageAbility`, qui exige `== 1`)."""
+    return Filter(non_steppable_or_object_units(Enemies(AllUnits())),
+                  HasTakenDamageOfDamageProfileThisTurn(ActiveTarget(), HELLFYRE_TRIGGER_PROFILE))
+
+
+def hellfyre_missile_rack_tree() -> SortedAttackSeries:
+    """Arbre COMPLET de `HellfyreMissileRackAbility$$ExecuteBehaviour` -- MIRROR 1:1.
+
+    `SortedAttackSeries(Caster@+0x48, Target@+0x60, atk1, extra, atk2, <AbilityOrEffect 1088>)` :
+    le noeud resout les DEUX selecteurs D'ABORD (`$$GetAttacks` construit le `Dictionary` complet),
+    puis rejoue les behaviours par cible dans l'ORDRE D'INSERTION -- donc :
+
+      * une unite presente dans les DEUX selecteurs (la cible du message ayant DEJA pris du Psychic
+        AVANT ce cast) recoit les DEUX attaques, consecutivement. C'est le « which can include the
+        initial target again » de l'i2 ;
+      * le coup du volet 1 est `HeavyRound`, donc il ne rend JAMAIS sa propre cible eligible au volet
+        2 -- et de toute facon le selecteur est deja resolu quand il part.
+
+    ⚠ Le 1er selecteur est `Target@+0x60` NU (le natif ne l'enveloppe PAS dans `Units(...)`, contraste
+    `FragBombAbility$$ExecuteBehaviour` qui passe `Units(Target@+0x60, 1, 1)`).
+
+    ⚠ `AActiveAbility$$Execute`, PAS `$$ExecuteAtomic` -> **aucun `AtomicGroup`** ici (FragBomb, lui,
+    finit par `ExecuteAtomic(..., 0x43)`).
+
+    Les deux `AbilityDamage` sont deux INSTANCES distinctes aux arguments IDENTIQUES (c'est ce que
+    fait le natif : deux allocations de `AbilityDamageBehaviour` sur les memes noeuds)."""
+    atk1 = AttackWithAttackDamage(ActiveTarget(), HELLFYRE_ID, HELLFYRE_PROFILE, is_melee=False,
+                                  native_factory="ability",
+                                  ability_type=int(ActiveAbilityType.HellfyreMissileRack))
+    atk2 = AttackWithAttackDamage(ActiveTarget(), HELLFYRE_ID, HELLFYRE_PROFILE, is_melee=False,
+                                  native_factory="ability",
+                                  ability_type=int(ActiveAbilityType.HellfyreMissileRack))
+    return SortedAttackSeries([(Target(), atk1),
+                               (hellfyre_extra_targets_selector(), atk2)])
+
+
+class HellfyreMissileRackAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HellfyreMissileRackAbility$$ExecuteBehaviour`
+    (id 1088, `thousTerminator` « Toth », Thousand Sons/Chaos -- HERO, present dans
+    `rl_duel build --list-pool`). Cast UNIT-TARGET, RANGED (`attackRangeType = Ranged`, `range = 3`).
+
+    Kit gameconfig 1088 : `damageProfile = HeavyRound`, `range = 3`, `nrOfHits = 1`,
+    `minDmg`/`maxDmg`[level] (rarity-affected, `variablesAffectedByRarityBonus`). AUCUNE variable `_2`
+    -> les DEUX volets partagent plage, profil et nombre de coups.
+
+    OBSERVABLE : la cible designee encaisse `nrOfHits` coups HeavyRound ; **CHAQUE ennemi vivant du
+    plateau** (non-`Steppable`, non-`Object`) ayant deja encaisse du degat **Psychic** ce tour en
+    encaisse `nrOfHits` de plus -- la cible designee comprise si elle est dans ce cas.
+
+    AVANT ce port, 1088 etait absente d'`ABILITY_CLASSES` : `visit_ActiveAbilityMessage` rendait
+    `ported:False` -> **0 degat, 0 effet, aucune erreur** (no-op SILENCIEUX).
+
+    Flags de tour : defauts base (1088 absente des overrides) -> termine le tour + ActiveAbilityUsed.
+    Retour : `{main_attack, extra, order, dsl}` -- `order` est l'ordre d'insertion resolu par
+    `SortedAttackSeries`, ce qui rend la SEQUENCE de tirages confrontable coup par coup."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.HellfyreMissileRack)   # 1088
+    ABILITY_ID = HELLFYRE_ID
+
+    # MASQUE -- `HellfyreMissileRackAbility$$.ctor` n'appelle AUCUN `TargetingOptions$$.ctor` : il
+    # recopie les 0x40 octets du champ STATIQUE `<TargetingOptions statics>+0x140` et les passe
+    # directement a `AActiveAbility$$.ctor(this, &opts, 0)`. Le masque EFFECTIF est donc la constante
+    # ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28` (= le
+    # `*(lVar4 + 0x168) = 0x4002` de son corps) : **0x4002** (LU, pas deduit).
+    #     0x4000  TargetIsEnemy
+    #     0x0002  TargetMatchesDynamicRule
+    # ⚠ MEME masque que 1027 `PsychicMaelstrom` / 1069 `SeekerMissileFrequencyLock`, mais preset
+    # DIFFERENT : `forceMeleeTarget = *(preset+0x20)` vaut **0** ici (`<preset>+0x160 = 0`) =
+    # `RangedBool.True` (l'enum natif est INVERSE : True=0, False=1), contre 1 chez eux. C'est le seul
+    # champ qui les separe et il change le regime de portee -> ne rien generaliser d'une autre ability.
+    # PORTEE : le preset copie son `TargetingRange` depuis `<TargetingRange statics>+0x18` =
+    # `RANGE_FROM_CONFIG` -> `SetConfigValuesInTargetingOptions` y pose
+    # `overrideRange = GetNumberConstant(0x16 = range)` = 3 (config 1088).
+    # Cette entree a MIGRE de `TARGETING_OPTIONS_UNPORTED` vers cette classe dans le meme commit que
+    # l'entree au registre COMBAT (contrat de disjonction des deux sources de masque).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsEnemy), self_cast=False,
+        range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        hellfyre_missile_rack_tree().execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        # ⚠ La cible du message peut recevoir DEUX attaques (volet 1 puis volet 2, consecutivement,
+        # cf. `SortedAttackSeries`) : ventiler par `target != target_id` PERDRAIT la seconde. On
+        # retire donc la PREMIERE occurrence sur la cible (= le volet 1) et tout le reste est `extra`.
+        main, extra, main_taken = None, [], False
+        for p in atks:
+            if not main_taken and p.get("target") == target_id:
+                main, main_taken = p["attack"], True
+                continue
+            extra.append({"target": p["target"], "attack": p["attack"]})
+        order = next((p["order"] for n, p in ectx.emitted if n == "SortedAttackSeries"), [])
+        return {"ability": HELLFYRE_ID, "caster": caster_id, "target": target_id,
+                "main_attack": main, "extra": extra, "order": order, "dsl": True}

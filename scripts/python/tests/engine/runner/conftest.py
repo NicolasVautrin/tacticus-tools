@@ -47,6 +47,29 @@ import probe_348_ai_approach as AIAP
 import probe_270d_lysander_deploy as LYS
 import probe_357_relic_rail as RELIC
 import probe_363_ability_states_channel as ASD
+import probe_487_hellfyre_missile_rack as HFMR
+
+
+@pytest.fixture
+def hellfyre_case(live_session):
+    """Fabrique : `hellfyre_case(arm=True)` -> le dict de mesure du probe #487.
+
+    Meme forme que `psychic_aoe_case` : `live_session` est tire ICI (le montage exige la session
+    Frida), le runner est DISPOSE par le probe en sortie de `run()`. `arm` choisit le regime
+    (armement Psychic par Doombolt, ou cast SEUL = contre-cas volet 2 vide), `target_mode` choisit
+    si la cible de Hellfyre est elle-meme ARMEE ou le TEMOIN hors Psychic ; `seed`/`board` sont
+    surchargeables pour rejouer sur un second couple (discipline de generalisation).
+
+    ⚠ `seed` ne fait PAS varier le MT du runner (mesure #487) -- ce qui exerce reellement le tirage,
+    c'est l'ETAT du MT au cast, donc le CHOIX DU REGIME, pas le seed."""
+    def _build(arm: bool = True, seed: str = "777", board_id: str = "MC1_67",
+               target_mode: str = "armed") -> dict:
+        r = HFMR.run(arm=arm, seed=seed, board_id=board_id, target_mode=target_mode, verbose=True)
+        if "error" in r:
+            pytest.skip("build runner KO / harnais indisponible "
+                        f"(hellfyre arm={arm} target={target_mode}): {r['error']}")
+        return r
+    return _build
 
 
 @pytest.fixture

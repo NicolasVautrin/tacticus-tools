@@ -415,6 +415,21 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # le drapeau ? Lu par `AllDeadOrResurrectedUnits` (flag 0xe = RESSUSCITE, pose par
     # `ResurrectUnitOperation` cote port `UnitFlagsComponent.AMBUSH_CONSUMED`). Unite sans composant de
     # flags -> False.
+    # `ctx.has_taken_damage_of_profile_this_turn` (`IdunBattle.Entities.UnitExtensions$$
+    # HasTakenDamageOfDamageProfileThisTurn`, dont le corps relu est un `ContainsKey` sur le dict
+    # `ActorStatisticsComponent+0x80` = `receivedDamageThisTurn`) : PRESENCE de la cle, pas un compte.
+    # C'est le MEME dict que lisent `units_that_taken_damage_this_turn` (weaver_of_fate) et
+    # `has_taken_damage_of_damage_profile_this_turn_amount_of_times` (reality_unbound) -- une seule
+    # source cote port (`UnitComponent.received_damage_this_turn`, alimente par `damage.py`).
+    # Composant absent -> False (degradation fidele).
+    def _has_taken_damage_of_profile_this_turn(unit, profile_id):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        uc = e.get_component(_UC) if e is not None else None
+        if uc is None:
+            return False
+        return int(profile_id) in (uc.received_damage_this_turn or {})
+
     def _has_unit_flag(unit, flag):
         uid = (unit or {}).get("id")
         e = state.get_entity(uid) if uid is not None else None
@@ -553,6 +568,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       entity_by_id=_entity_by_id,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_unit_flag=_has_unit_flag,
+                      has_taken_damage_of_profile_this_turn=_has_taken_damage_of_profile_this_turn,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
                       has_effect=_has_effect, effects_from_source=_effects_from_source, children=[],
                       has_negative_modifier=_has_negative_modifier,
