@@ -192,11 +192,10 @@ ajoute 1 coup au prochain `HeavyWarpFlamer`, plafonne a `maxNrOfHits`, remis a z
 tour.**
 
 **ETAT DU PORT** : le noeud de LECTURE est monte pour de vrai (il interroge `ctx.persistent_data`,
-donc le `PersistentDataComponent` de l'ECS). L'ECRITURE n'existe pas tant que **1546 n'est pas
-portee** (residu **#523-r1**) -> la cle est absente, `GetPersistentDataFormula$$Calculate` rend son
-`out` par defaut = 0, et `GetNumTotalHits` vaut `nrOfHits`. Le jour ou 1546 est portee, ce noeud lit
-la valeur **sans changer d'une ligne** — les trois regimes de valeur sont figes par
-`test_523_heavy_warp_flamer_offline.py`.
+donc le `PersistentDataComponent` de l'ECS). L'ECRITURE est arrivee avec **#523-r1** — et la
+prediction de ce paragraphe s'est verifiee : 1546 a ete portee **sans changer une ligne** du port de
+1227, et le nombre de coups est passe de 4 a 6 en live. Les trois regimes de valeur restent figes par
+`test_523_heavy_warp_flamer_offline.py`. Detail : `case-523-r1-heavy-warp-flamer-attack-tracking.md`.
 
 ## 5. Ce que le port ecrit
 
@@ -270,12 +269,14 @@ mesure supplementaire pour #505, sur une ability et un profil de degat nouveaux.
 
 ## 8. Residu
 
-* **#523-r1** — la triggered `1546 HeavyWarpFlamer_AttackTracking` n'est pas portee. Elle est LUE en
-  entier (§4) ; tant qu'elle manque, le compteur `(1227, "PSYCHIC_ATTACKS_KEY")` reste a 0 et
-  `GetNumTotalHits` rend `nrOfHits`. Le montage qui la confronterait : un allie du porteur qui
-  attaque avec un profil `Psychic` (ex. `thousAhriman` / `1102 Doombolt`, deja porte) AVANT le cast
-  de 1227, puis lecture du nombre de coups. Meme forme que les phases 2 non portees de 1069 (#491-r1)
-  et 1141 (#503-r1).
+* ~~**#523-r1** — la triggered `1546 HeavyWarpFlamer_AttackTracking` n'est pas portee.~~
+  **LIVREE (2026-08-07)**, et le montage prevu ici est celui qui a servi (un allie du porteur attaque
+  en `Psychic` AVANT le cast) — a un ecart pres, MESURE : l'arme de melee des deux Thousand Sons est
+  `Flame`, c'est leur arme A DISTANCE qui est `Psychic`, donc la DISTANCE (2) fait partie du montage.
+  Le nombre de coups passe de 4 a 6, des DEUX cotes. La triggered arrive par la voie DERIVEE
+  `ACTIVE_ABILITY_TRIGGERS` (`StaticBattleRules.ActiveAbility$$.cctor`), et non par
+  `passiveAbilities` : 1546 n'a AUCUNE entree de gameconfig. Detail, et les trois residus ouverts
+  (#523-r2 / -r3 / -r4) : `case-523-r1-heavy-warp-flamer-attack-tracking.md`.
 
 ## Fichiers
 

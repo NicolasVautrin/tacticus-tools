@@ -109,6 +109,8 @@ from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # tra
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
 from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
+from ..loki.heavy_warp_flamer import (HeavyWarpFlamerAttackTrackingAbility,       # #523-r1
+                                      HeavyWarpFlamerAttackTrackingResetAbility)  # (1227 -> 1546)
 from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove,   # #114 residu 2
                                          ITG_OVERRIDE_LEVEL)
 from ..loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
@@ -610,6 +612,17 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Le trigger porte ses propres gates (OwnerIsActor + AreEnemies + IsNormalAttack + IsMeleeAttack),
     # donc l'inscription inconditionnelle est fidele. Cf. loki/empyric_ambush.py.
     "EmpyricAmbush": [EmpyricAmbushResetAbility],
+    # 0x4cb (1227 HeavyWarpFlamer, `thousSekhetar` HERO) -> 0x60a (1546 HeavyWarpFlamer_AttackTracking)
+    # -- le COMPTEUR de coups psychiques allies que lit `HeavyWarpFlamerAbility$$GetNumExtraHits`.
+    # DEUX classes de port pour UNE classe native : son `CreateTrigger` est une DISJONCTION
+    # (`On(9 = Attack) & ... | On(0x17 = TurnEnd)`) et son `CreateBehaviour` branche sur le
+    # `triggerType` ; le registre du port etant indexe par `event_id`, il faut une entree par
+    # disjoint (patron `HaywireMinePlaceOnMove` / `HaywireMinePlaceOnTurnEnd`).
+    # Le couple est LU dans le motif d'insertion de `StaticBattleRules.ActiveAbility$$.cctor`
+    # (valeur en `[rbp+0x18]`, cle en `[rbp+0x20]`), entre `0x5e3 -> 0x4be` (Hailstrike) et
+    # `0x613 -> 0x4d0` (EmpyricAmbush) -- les deux entrees ci-dessus. Cf. loki/heavy_warp_flamer.py.
+    "HeavyWarpFlamer": [HeavyWarpFlamerAttackTrackingAbility,
+                        HeavyWarpFlamerAttackTrackingResetAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability HELPER (« passive helper ») ---------------------
