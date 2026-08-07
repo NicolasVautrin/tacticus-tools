@@ -41,6 +41,8 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+import gameconfig as GC
+
 from ...dsl.base import Const, resolve_unit
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.behaviours import op_add, op_and, AtomicGroup
@@ -50,9 +52,11 @@ from ...entities.selectors.geometry import (
     ThreeTileUnitSpawnShape, TilesInTriangleShape, TilesOnSameElevation, Walkable
 )
 from ...entities.selectors.tiles import Caster
+from ...entities.selectors.composites import adjacent_units
 from ...entities.selectors.units import (
-    AdjacentEnemies, AdjacentUnits, Friends, Sub, Union, Unique, UnitsWithTrait
+    AdjacentEnemies, AdjacentUnits, Enemies, Friends, Sub, Union, Unique, UnitsWithTrait
 )
+from ...entities.formulas import RandomAmount
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
@@ -60,10 +64,11 @@ from ...entities.effects.magnitude import ability_var
 from ...entities.stats import StatType
 from ...entities.triggers import IsPositionMachineForCurrentPlayer
 from ..components import StatsComponent, OwnerComponent, PositionComponent, get_unit_feet
-from .base import ActiveAbility, convert_rounds_to_turns
+from .base import ActiveAbility, ability_attack_params, convert_rounds_to_turns
 from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_WHOLE_BOARD,
                         RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
+from .behaviours.chain import ChainAbilityDamage
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect
@@ -799,4 +804,165 @@ class TacticalPrecisionAbility(ActiveAbility):
                 "charging": charging, "crit_amount": crit,
                 "main_attack": main,
                 "attacks": [{"target": p.get("target"), "total": p.get("total")} for p in atks],
+                "dsl": True}
+
+
+STORM_OF_WRATH_ID = "StormOfWrath"
+
+
+def storm_of_wrath_jump_targets(picked_sel):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfWrathAbility$$u003CExecuteBehaviouru003Eb__1_0(lastTargets)`
+    -- le `System.Func<TargetsSelector, TargetsSelector>` de saut de la chaine, MIRROR TEXTUEL :
+
+        DSLSelectors$$Enemies( of       = <DSLSelectors+0x48> = Caster,
+                               entities = DSLSelectors$$AdjacentUnits(lastTargets, unique: 1,
+                                                                      selectionType: 3),
+                               selectionType: 3 = UnitSelectionType.OnlyAliveAndTargetable )
+
+    ⚠ `lastTargets` est PLURIEL, et ce n'est pas une coquette : `IdunBattle.Entities.Behaviours.
+    ChainBehaviourBehaviour$$Execute` invoque ce `Func` avec `DSLSelectors$$Entities(pickedTargets)`
+    -- la LISTE COMPLETE des cibles deja piquees. Le saut part donc de N'IMPORTE QUEL maillon, pas
+    seulement du dernier.
+
+    ⚠ PIEGE #419 : le 3e argument d'`AdjacentUnits(this, origin, unique, selectionType)` est
+    `unique`, PAS `includeCenter` -- le corps est
+    `op_Subtraction(Units(AdjacentTiles(origin), unique, selectionType), origin)`, donc l'origine est
+    TOUJOURS retiree. C'est le helper `adjacent_units` (source = un ENSEMBLE) qui mirrore cette
+    exclusion PAR APPARTENANCE, et non une distance par-centre.
+
+    ⚠ CE CORPS EST PARTAGE (deduplication IL2CPP) : la face DECISION de `PlagueWind` (1035) et de
+    `MortarionsPlagueWind` (1093) l'appelle pour sa vague 2 -- ghidra le nomme d'apres 1019, son
+    proprietaire arbitraire (cf. `engine/runner/abilities/deathguard.py`,
+    `plague_wind_wave_selectors`). Le mirror de la face DECISION vit deja la-bas ; ceci est le
+    call-site COMBAT."""
+    return Enemies(adjacent_units(picked_sel))
+
+
+def storm_of_wrath_tree(state: "State", caster_id: int) -> AtomicGroup:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfWrathAbility$$ExecuteBehaviour`
+    (id 1019, ultraTigurius « Tigurius ») -- MIRROR du DECOMPILE :
+
+        ExecuteAtomic(
+            DSLBehaviors$$ChainAbilityDamage(
+                preselectedTargets  = <DSLSelectors+0x60> = Target,
+                jumpTargetSelector  = Func(<ExecuteBehaviour>b__1_0),
+                maxTargets          = DSLFormulas$$Direct( GetVariableForLevel(
+                                          0 = AbilityVariableType.maxAdjacentTargets) ),
+                dmgAmount           = AActiveAbility$$MinMaxDamage(state, isPrediction: 0)
+                                      = DSLFormulas$$RandomAmount(0xc = minDmg, 0xd = maxDmg),
+                abilityOrEffect     = AbilityOrEffect$$op_Implicit(this),
+                extraBehaviour      = null,
+                damageOptions       = { isOutsideAttack: 0,
+                                        damageProfile: Direct(GetDamageProfile()),
+                                        hits: null, 0 },
+                chainOptions        = new <ChainOptions> { +0x12 = 1 } ),
+            groupType = 0x44 = GroupType.StormOfWrath_Attack )
+
+    CE QUE CA FAIT, ETAGE PAR ETAGE (aucun etage deduit du nom de l'ability) :
+
+      1. la CIBLE designee encaisse UN coup `RandomAmount(minDmg, maxDmg)` du profil
+         `constants.damageProfile` (Psychic) ;
+      2. la chaine SAUTE ensuite jusqu'a `maxAdjacentTargets` fois, a chaque fois vers UN ennemi du
+         caster tire au sort parmi ceux qui touchent AU MOINS UN maillon deja frappe, jamais deux
+         fois le meme ;
+      3. chaque maillon prend son PROPRE tirage `RandomAmount` (le natif evalue la formule une fois
+         par cible dans `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$ExecuteTarget` ->
+         `$$GetDamage`).
+
+    -> `maxAdjacentTargets` borne les SAUTS, pas le total : le compteur natif est le DELTA
+    `pickedTargets.Count - preselectedTargets.Count`, LU dans `ChainBehaviourBehaviour$$Execute`.
+    C'est une VARIABLE per-niveau (pas une constante) -- la lire, jamais la figer.
+
+    FAMILLE DE DEGAT = **ABILITY** (`IdunBattle.Operations.AbilityDamageOperation`), lue dans le
+    `.ctor` de `ChainAbilityDamageBehaviour` (il alloue un `AbilityDamageBehaviour`, la MEME classe
+    qu'alloue `IdunBattleLogic.Entities.DSLBehaviors$$AbilityDamage`) : donc **aucun crit**, mais
+    **block**, bouclier et caps de trait MORDENT. C'est le discriminant du kit (`dmg_reduction`,
+    `block`).
+
+    Le coup est DIFFERE d'un cran (`chainOptions+0x12 = 1`) : cf. la docstring de
+    `ChainAbilityDamage`. Le tirage de cible du maillon N+1 se fait donc sur un plateau ou le
+    maillon N n'a pas encore encaisse."""
+    cfg = GC.ability(STORM_OF_WRATH_ID) or {}
+    # `AActiveAbility$$GetDamageProfile` = `GetEnumConstant(constants.damageProfile)`.
+    profile = (cfg.get("constants") or {}).get("damageProfile")
+    e = state.get_entity(caster_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    cctx = sc.ctx if sc is not None else None
+    level = getattr(cctx, "active_ability_level", None)
+    mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+    # `AActiveAbility$$MinMaxDamage(state, isPrediction: 0)` = `RandomAmount(GetVariableForLevel(0xc),
+    # GetVariableForLevel(0xd))` -- LU au decompile (la branche `isPrediction != 0`, elle, rend
+    # `Half(Sum(Direct(min), Direct(max)))` et ne concerne que la face DECISION).
+    bmin, bmax, _pierce, _hits = ability_attack_params(state, caster_id, STORM_OF_WRATH_ID,
+                                                       profile, ranged=True)
+    amount = RandomAmount(Const(int(bmin)), Const(int(bmax)), rng=state.rng)
+    # `DSLFormulas$$Direct(GetVariableForLevel(config, 0, abilityState, 0))` -- l'index `0` est
+    # `AbilityVariableType.maxAdjacentTargets` (LU dans l'enum du build, jamais suppose).
+    max_adj = int(ability_var(STORM_OF_WRATH_ID, AbilityVariableType.maxAdjacentTargets.name,
+                              level, multiplier_pct=mult) or 0)
+    chain = ChainAbilityDamage(
+        Target(), storm_of_wrath_jump_targets, Const(max_adj), amount, profile,
+        # `attackRangeType: Ranged` (config) -> le percage lit `ExtraPierceRanged`.
+        is_melee=False,
+        # `damageOptions.hits = null` -> UN coup par maillon. Le natif ne lit PAS `nrOfHits` ici
+        # (la config de 1019 n'a d'ailleurs que `damageProfile` en constante).
+        hits=1,
+        extra_behaviour=None,                    # `extraBehaviour = 0` au call-site
+        allow_repeat_targets=False,              # chainOptions+0x10 laisse a 0
+        allow_immediate_repeat=False,            # chainOptions+0x11 laisse a 0
+        deferred_hit=True)                       # chainOptions+0x12 = 1
+    # `ExecuteAtomic(..., 0x44)` = `int(GroupType.StormOfWrath_Attack)` ; `AtomicGroup` est un
+    # pass-through d'execution cote port (RE #201), le groupe n'existant que pour la couche VUE.
+    return AtomicGroup(chain)
+
+
+class StormOfWrathAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfWrathAbility` (id 1019, `ultraTigurius`
+    « Tigurius », Ultramarines). Face COMBAT = l'arbre DSL `storm_of_wrath_tree` (mirror 1:1).
+
+    AVANT #499 : 1019 etait un **NO-OP SILENCIEUX** -- absente d'`ABILITY_CLASSES`, donc la decision
+    pouvait choisir le cast et l'execution l'ignorait (0 degat, 0 effet, AUCUNE erreur). Son masque
+    de ciblage vivait dans `TARGETING_OPTIONS_UNPORTED` ; il MIGRE ici, le contrat de DISJONCTION
+    des deux tables (`tests/engine/runner/test_targeting_options_sources.py`) exigeant qu'une
+    ability n'ait qu'UNE source de masque.
+
+    Porteurs : `ultraTigurius` (lineup, DANS le pool rank 17) ; `ultraBossTigurius`,
+    `ultraBossTiguriusLHE`, `ultraNpcTigurius` (npc)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.StormOfWrath)  # 1019
+    ABILITY_ID = STORM_OF_WRATH_ID
+
+    # GATE DE CIBLE (#115). FORME **SURCHARGE A -- FLAGS DIRECTS** (tranchee par les XREFS
+    # ENTRANTES, pas par le nom que ghidra rend aux trois surcharges de
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`) :
+    #   `IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfWrathAbility$$.ctor` copie 24 octets
+    #   du champ statique `<TargetingRange statics>+0x00` dans un local, puis
+    #     TargetingOptions..ctor(&opts, isSelfCasting: 0, range: &<TR statics+0x00>,
+    #                            forceMeleeTarget: 1, rules: 0x4000, dynCaster: 0, dynTarget: 0)
+    #     AActiveAbility..ctor(this, &opts, 0)          # 3e arg = 0 = DirectTargetAttack
+    #   Le litteral EST le masque (cette surcharge fait `this+0x28 = rules`, aucun `|` de preset).
+    #     rules 0x4000            = TargetIsEnemy, et RIEN d'autre (0x4000 = 0x4000, aucun residu)
+    #     isSelfCasting 0
+    #     forceMeleeTarget 1      = RangedBool.False (l'enum natif est INVERSE : True=0, False=1)
+    #     range <TR statics+0x00> = RANGE_ADJACENT_IF_MELEE_CASTER
+    # Valeurs RELUES au decompile pour #499 -- elles etaient deja dans `TARGETING_OPTIONS_UNPORTED`
+    # (lot #433-r4-...), et la relecture les CONFIRME a l'identique ; la ligne y est RETIREE.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                                         range=RANGE_ADJACENT_IF_MELEE_CASTER,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        storm_of_wrath_tree(state, caster_id).execute(entities, ectx)
+        hits = [p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+        main = next((p.get("attack") for p in hits if p.get("target") == target_id), None)
+        chain = [{"target": p.get("target"), "attack": p.get("attack")}
+                 for p in hits if p.get("target") != target_id]
+        return {"ability": STORM_OF_WRATH_ID, "caster": caster_id, "target": target_id,
+                "main_attack": main, "chain": chain,
+                "attacks": [{"target": p.get("target"), "total": p.get("total")} for p in hits],
                 "dsl": True}

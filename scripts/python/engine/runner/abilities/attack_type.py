@@ -120,6 +120,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.MultiThreatEliminator: AbilityAttackType.DirectTargetAttack,  # 1006
     ActiveAbilityType.HarbingerOfDestruction: AbilityAttackType.DirectTargetAttack,  # 1008
     ActiveAbilityType.ArmoriumCherub: AbilityAttackType.DirectTargetAttack,  # 1014
+    # StormOfWrath (1019) : `...Active.Loki.StormOfWrathAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT, pas
+    # deduit : le behaviour n'attaque PAS « en direct » (c'est une CHAINE `ChainAbilityDamage` de
+    # famille ABILITY, aucune Operation `AttackDamage`), et le litteral vaut quand meme
+    # `DirectTargetAttack`. (#499)
+    ActiveAbilityType.StormOfWrath: AbilityAttackType.DirectTargetAttack,  # 1019
     ActiveAbilityType.HeraldOfTheApocalypse: AbilityAttackType.DirectTargetAttack,  # 1020 (case-bl-1029-1020)
     ActiveAbilityType.BringerOfDespair: AbilityAttackType.DirectTargetAttack,  # 1022
     ActiveAbilityType.SkyStrike: AbilityAttackType.DirectTargetAttack,  # 1025

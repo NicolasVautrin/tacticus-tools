@@ -682,24 +682,35 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
 
     # ============================================================================================
     # LES ABILITIES ACTIVES DU POOL SPAWNABLE HORS REGISTRE (#433-r4-r2-r1-r2-r2-r1-r1)
-    # ⚠ Le lot etait de **32** a la mesure ; il DECROIT a chaque face COMBAT portee, par migration
-    #   du masque sur la classe (contrat de disjonction ci-dessus). Sorties a ce jour, toutes
-    #   static-copy : 1069 SeekerMissileFrequencyLock (#491), 1027 PsychicMaelstrom (#490).
-    #   Re-deriver le compte, ne pas citer les chiffres ci-dessous comme s'ils etaient courants.
+    # ⚠ Le lot etait de **32** a la mesure ; les entrees ECRITES ici, elles, DECROISSENT a chaque
+    #   face COMBAT portee, par migration du masque sur la classe (contrat de disjonction ci-dessus).
+    #   Re-deriver le compte, ne JAMAIS citer les chiffres ci-dessous comme s'ils etaient courants.
     # ============================================================================================
     # PERIMETRE, re-derive et non herite : les abilities ACTIVES (`gameconfig.activeAbilities`) des
     # 97 unites que rend `rl_duel build --list-pool` au rank courant, MOINS celles d'`ABILITY_CLASSES`
     # -- soit exactement l'ensemble des masques que `BattleQuery$$IsTileInRangeOfAnyAbility` peut
-    # avoir a lire sur un ennemi confrontable. Elles sont **32**, et le volet PORTEE de ces memes 32
-    # etait deja lu (il vivait dans `engine.services.ability_range.TARGETING_RANGE_BY_ABILITY`, que
-    # cette tranche SUPPRIME : une ability n'a qu'UNE source d'options, jamais deux).
+    # avoir a lire sur un ennemi confrontable. Elles etaient **32** a la mesure de #433-r4, et le
+    # volet PORTEE de ces memes 32 etait deja lu (il vivait dans
+    # `engine.services.ability_range.TARGETING_RANGE_BY_ABILITY`, que cette tranche SUPPRIME : une
+    # ability n'a qu'UNE source d'options, jamais deux).
     #
-    # ⚠ **32 = le PERIMETRE MESURE, pas le compte d'entrees ici**, et l'ecart ne fait que croitre :
-    # chaque fois qu'une des 32 voit sa face COMBAT portee, le contrat de disjonction la fait SORTIR
-    # de cette table. Depuis #498, `1152 UnstoppableMomentumReworked` est passee a `ABILITY_CLASSES`
-    # -> **31 entrees ici**, et le sous-total « surcharge A » ci-dessous vaut **13 ecrites pour 14
-    # lues**. Les comptes des trois autres surcharges (5 / 1 / 12) sont inchanges. Re-deriver, ne
-    # jamais citer ces chiffres.
+    # ⚠ **32 = le PERIMETRE MESURE de #433-r4, PAS le compte d'entrees ecrites ici.** Les deux
+    # nombres bougent independamment, et dans les DEUX sens : des masques ENTRENT dans le bloc (lots
+    # ulterieurs, tous appendus en section STATIC-COPY) et il en SORT des qu'une face COMBAT est
+    # portee -- le CONTRAT de disjonction de cette table l'exige alors. Sorties a ce jour, dans
+    # l'ordre des tranches : 1088 (#487), 1087 (#488), 1048 (#489), 1027 (#490), 1069 (#491),
+    # 1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500) -- NEUF.
+    #
+    # Compte RE-DERIVE au 2026-08-07, apres le retrait de 1019 : **31 entrees ecrites dans ce bloc**
+    # (10 / 4 / 1 / 16 par section), plus les entrees hors-bloc du haut de la table.
+    # ⚠ CE COMPTE SE RE-COMPTE, IL NE SE SOUSTRAIT PAS -- et ce n'est pas une precaution de style :
+    # #498, #499 et #500 ont retire une entree CHACUNE, en parallele, chaque tranche aveugle aux
+    # deux autres. Trois soustractions successives sur le meme chiffre perime en auraient manque
+    # deux. Compter les entrees du bloc est le seul geste qui converge.
+    #
+    # Les chiffres des quatre sections ci-dessous sont eux aussi RE-DERIVES ; ceux entre parentheses
+    # apres « en #433-r4 » sont la mesure HISTORIQUE, gardee parce que le contre-controle de la fin
+    # du bloc porte sur CE perimetre-la.
     #
     # COMMENT LA SURCHARGE A ETE TRANCHEE -- par les XREFS ENTRANTES, jamais a l'oeil. Ghidra rend le
     # meme nom decompile (`TargetingOptions___ctor`) pour les trois surcharges de
@@ -707,13 +718,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # l'appartenance d'un ctor d'ability a leur liste d'appelants :
     #
     #   surcharge A -- `.ctor(this, isSelfCasting, range, forceMeleeTarget, rules, dynCaster, dynTarget)`
-    #                  FLAGS DIRECTS : `this+0x28 = rules`. Le litteral EST le masque.        14 des 32
+    #                  FLAGS DIRECTS : `this+0x28 = rules`. Le litteral EST le masque.   10 (14 en #433-r4)
     #   surcharge B -- `.ctor(this, template, additionalRules)`
-    #                  PRESET + FLAGS : `this+0x28 = additionalRules | template+0x28`.          5 des 32
+    #                  PRESET + FLAGS : `this+0x28 = additionalRules | template+0x28`.    4 (5 en #433-r4)
     #   surcharge C -- `.ctor(this, template)`
-    #                  PRESET SEUL (copie PURE, 8 qwords verbatim, AUCUN `|`).                   1 des 32
+    #                  PRESET SEUL (copie PURE, 8 qwords verbatim, AUCUN `|`).            1 (1 en #433-r4)
     #   (aucun ctor) -- STATIC-COPY : les 0x40 octets d'un preset sont recopies dans un local passe
-    #                  TEL QUEL a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28`.            12 des 32
+    #                  TEL QUEL a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28`.     16 (12 en #433-r4)
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
     # (layout `isSelfCasting@+0x00`, `range@+0x08..0x1f`, `forceMeleeTarget@+0x20`, `rules@+0x28`) --
@@ -730,30 +741,32 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # (0 contre 1) -- le piege « meme masque, presets differents » : recopier le masque sans le preset
     # entier laisse le volet PORTEE faux. Les deux sont dans ce lot (1088 contre 1027/1069).
     #
-    # CONTRE-CONTROLE INDEPENDANT : les 32 valeurs concordent avec l'artefact genere
-    # `docs/rl/case-302-4/tile-target-population.json` (champs `form` et `rules`), obtenu par un
-    # balayage distinct. 32/32, aucune divergence.
+    # CONTRE-CONTROLE INDEPENDANT (perimetre #433-r4) : les 32 valeurs d'alors concordent avec
+    # l'artefact genere `docs/rl/case-302-4/tile-target-population.json` (champs `form` et `rules`),
+    # obtenu par un balayage distinct. 32/32, aucune divergence. Les entrees ajoutees DEPUIS ne sont
+    # pas couvertes par cet artefact-la.
     #
-    # BIT 43 `AllowUnwalkableTargetTile` : **0 porteur sur 32**. Le terme de walkability
-    # (`engine.services.targeting_query.tile_removed_by_walkability`) mord donc pour les 32.
+    # BIT 43 `AllowUnwalkableTargetTile` : **0 porteur sur les 32 de #433-r4**. Le terme de
+    # walkability (`engine.services.targeting_query.tile_removed_by_walkability`) mord donc pour eux.
 
-    # --- surcharge A, FLAGS DIRECTS (14 lues, 11 ecrites ici) : le litteral du ctor EST le masque -
+    # --- surcharge A, FLAGS DIRECTS (14 lues, 10 ecrites ici) : le litteral du ctor EST le masque -
     # ⚠ LES DEUX COMPTES NE SONT PAS LE MEME OBJET. « 14 lues » est un fait de RE (le lot de 32 de
     #   #433-r4-r2-r1-r2-r2-r1-r1) et ne se decremente JAMAIS ; « ecrites ici » compte les entrees
     #   REELLEMENT presentes dans ce bloc et DIMINUE a chaque face COMBAT portee -- 1087
-    #   ExemplarOfTheKauyon (#488), 1038 FoulInfusion (#500) et 1152 UnstoppableMomentumReworked
-    #   (#498) ont MIGRE sur leur classe. Le RECOMPTER, jamais le soustraire : il etait deja faux
-    #   d'une unite entre #488 et #500, et #498 comme #500 l'ont decremente en parallele.
+    #   ExemplarOfTheKauyon (#488), 1038 FoulInfusion (#500), 1152 UnstoppableMomentumReworked
+    #   (#498) et 1019 StormOfWrath (#499) ont MIGRE sur leur classe. Le RECOMPTER, jamais le
+    #   soustraire : il etait deja faux d'une unite entre #488 et #500, et #498, #499 et #500 l'ont
+    #   decremente EN PARALLELE -- trois tranches en vol, chacune aveugle aux deux autres.
     # 1005 AdaptiveStrategy -- `...Active.Loki.AdaptiveStrategyAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x402, 0, 0)`.
     ActiveAbilityType.AdaptiveStrategy: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly,  # 1005
                            self_cast=True, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1019 StormOfWrath -- `...Active.Loki.StormOfWrathAbility$$.ctor` :
+    # 1019 StormOfWrath -- MIGRE (#499) sur
+    #   `runner/abilities/ultramarines.py::StormOfWrathAbility.TARGETING_OPTIONS` avec sa face
+    #   COMBAT (le noeud `ChainAbilityDamage`) ; contrat de disjonction ci-dessus. Valeurs
+    #   INCHANGEES, relues au decompile a l'occasion :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x00>, 1, 0x4000, 0, 0)`.
-    ActiveAbilityType.StormOfWrath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,  # 1019
-                           range=RANGE_ADJACENT_IF_MELEE_CASTER,
-                           force_melee_target=RANGED_BOOL_FALSE),
     # 1038 FoulInfusion -- MIGRE (#500) sur
     #   `runner/abilities/loki/foul_infusion.py::FoulInfusionAbility.TARGETING_OPTIONS` avec sa face
     #   COMBAT ; contrat de disjonction ci-dessus. (Le `range` y reste un DELEGUE
@@ -850,7 +863,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.BloodyFury: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1129
                            force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- STATIC-COPY (8) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    # --- STATIC-COPY (16) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` ------------
     # ⚠ 1027 PsychicMaelstrom (preset `+0x180`) est SORTIE d'ici en #490 -- comme 1088 en #487,
     #   1069 en #491, 1048 en #489 et 1068 en #497 : sa face COMBAT est desormais portee, donc son
     #   masque vit sur la classe du registre
