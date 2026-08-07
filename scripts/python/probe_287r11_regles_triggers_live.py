@@ -84,9 +84,16 @@ MONTAGES = {
         at=SQUIG, board="C1_02", seed=4242, mow="orksRukkatrukk",
         # UN Ork (`orksNob`) et TROIS non-Orks : les QUATRE bras du predicat ont chacun leur temoin.
         p_units="orksNob,ultraTitus,ultraTitus,ultraTitus",
-        # ⚠ `necroWarden` n'existe qu'en TROIS exemplaires dans le seed BC : un 4e n'est pas
-        # REFUSE, il n'arrive simplement pas -- mesure de ce probe, la 4e cible manquait sans
-        # aucun message. D'ou le 4e id DISTINCT.
+        # ⚠ CETTE LIGNE PORTAIT UNE CAUSE FAUSSE, REFUTEE PAR MESURE (#287-r13). Elle disait
+        # « `necroWarden` n'existe qu'en TROIS exemplaires dans le seed BC ». C'est FAUX :
+        # `BC.Units` n'en porte qu'UN SEUL template, et le meme montage avec le 4e `necroWarden`
+        # en (3,6) au lieu de (0,6) monte les QUATRE (`placements verifies OK (8)`, rc 0). La
+        # cause etait la TUILE (0,6), refusee par une des quatre gardes muettes
+        # d'`IdunBattle.Operations.AddUnitOperation$$Execute` -- et `rl_duel build` le DISAIT
+        # deja (`[error] placement NON HONORE par le natif: necroWarden (team2) demande @(0,6)`,
+        # rc 3). Le 4e id DISTINCT reste : il fonctionne et le montage est mesure avec lui.
+        # Ce qui EST silencieux -- et que #287-r13 corrige -- est le cas voisin : une unite du
+        # roster confiee au placement NATIF (sans `--a-place`) qui n'arrive pas.
         a_units="necroWarden,necroWarden,necroWarden,necroDestroyer",
         # E1 (2,3) : `orksNob` en (2,2)          -> 1 Ork  , 1 ami  -> bras `nrOfUnits`   (>=1 Ork)
         # E2 (1,1) : deux `ultraTitus` (0,1)/(1,2) -> 0 Ork, 2 amis -> bras `nrOfUnits_2` (>=2 amis)

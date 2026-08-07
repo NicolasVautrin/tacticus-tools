@@ -29,6 +29,15 @@ ligne de vue se lit donc « CIBLE VALIDE » via `int(payload["hex"], 16)`. Le de
 -> `0x1000000`). Tant que le port ne portait pas la regle, les deux cotes rendaient `0` : accord
 parfait, faux des deux cotes.
 
+⚠ ET IL Y A UNE SECONDE CLASSE DANS CE CAS, MESUREE PAR #287-r10 :
+`IdunBattle.Core.Services.InFogOfWarBrokenTargetingRule`, boxee par le TOUT PREMIER etage de
+`TargetingQuery$$GetInvalidTargetReason` (une tuile de la cible porte `TileComponent+0x40`
+`IsInFogOfWar`), AVANT le moindre test de masque -- donc avant le volet portee et avant la ligne de
+vue. Elle sort elle aussi en `hex: "0x0"` ; son `Type` vaut `1`. `RULE_CLASS_CODES` la porte
+desormais. Le montage de CE probe (`C1_09`) est mono-salle, donc hors de ce regime : le brouillard
+n'existe que sur les 15 boards `C6_*`, seuls a porter plusieurs `RoomID` et des `Doors`
+(`probe_287r10_fog_capteur_live.py`).
+
 LE MONTAGE
 ----------
 Board `C1_09` -- choisi par un balayage OFFLINE des 779 boards versionnes : c'est celui dont la plus

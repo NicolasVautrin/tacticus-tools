@@ -130,6 +130,28 @@ DETTE = {
         "(1143/1158 demandent deux tours ; une MoW sans munitions n'est JAMAIS debloquee par des "
         "tours). Le cran lit `casterReason` une fois par ability, avant les cibles."),
 
+    # ---- REPARES par #287-r10 -------------------------------------------------------------------
+    "probe_249_deathguard_targeting.py": (
+        "REPARE",
+        "1169 PlagueburstMortar sur la MoW `deathCrawler`. LE REGIME EXISTE, MESURE (#287-r10, "
+        "`probe_287r9_expose_mesure_live.py --ability 1169 --mow deathCrawler --board C1_02`) : au "
+        "tour 1 `casterReason=ValidRequest`, `cooldown=1`, `hasAmmo=true` -- donc le cooldown seul, "
+        "PAS les munitions ; a un tour de la, `0`. Le re-jeu du probe montre que ses 6 `endturn` de "
+        "warmup suffisaient EN FAIT (6 lignes `natif=0x0` sur des tuiles marchables), mais rien ne "
+        "le VERIFIAIT : c'est du deblocage par COMPTAGE. `debloquer_oracle(..., jouer_adverse=False)` "
+        "pose desormais le cran AVANT le volet 1169, et ROUGIT s'il echoue. `jouer_adverse=False` "
+        "est obligatoire ici : le montage est GEOMETRIQUE (aura Contagion montee a la main)."),
+    "probe_433_r4_r2_r1_r2_r2_r1_r1_r1_r4_caster_reason.py": (
+        "REPARE",
+        "Le << indeterminable offline >> etait FAUX : `_kit_ability_ids` intersecte le KIT de chaque "
+        "visual du roster avec les masques RE-lus, donc le gisement exerce se DERIVE du gameconfig "
+        "-- il vaut {1115 `tyranDeathleaper`, 1152 `orksNob`}, tous deux `initialCooldownTurns=1`. "
+        "MESURE (#287-r10, `--step cascade`) : 60 paires, 60 accords EXACTS, dont **8 DEGENERES** "
+        "(1115 et 1152 aux iters 0 et 1, `natif=0x1 ValidRequest`) -- le port rend `1` lui aussi "
+        "(`_port_caster_reason` mirroire la marche (d) `CanCurrentlyBeUsed`), donc l'accord est VRAI "
+        "mais ne dit RIEN de la cascade des onze regles. `_verdict_cascade` les VENTILE desormais a "
+        "part et exige un temoin non degenere."),
+
     # ---- SAINS etablis par LECTURE, la ou le recenseur statique se trompe -----------------------
     "test_targeting_options_masks_live.py": (
         "SAIN_LU",
@@ -138,35 +160,55 @@ DETTE = {
         "1006, 1179, 1180, 1202) sont tous hors gisement. RESIDU tout de meme : son "
         "`if nt == 0x1: continue` ecarte en silence, sans lire `casterReason` -- inoffensif "
         "aujourd'hui, faux vert des qu'un id du gisement entrera dans `POOL_CASES`."),
-
-    # ---- EXPOSES, NON VERIFIES -- ce qui manque est NOMME, pas suppose ---------------------------
-    "probe_249_deathguard_targeting.py": (
-        "NON_VERIFIE",
-        "1169 PlagueburstMortar (cd initial 1) sur la MoW `deathCrawler` -- donc DEUX termes amont "
-        "possibles (cooldown ET munitions). Manque : une mesure de `casterReason` sur ce montage "
-        "(`probe_287r9_expose_mesure_live.py --ability 1169 --mow deathCrawler`)."),
-    "probe_250_blacklegion_targeting.py": (
-        "NON_VERIFIE",
-        "1148 DaemonicOrdnance (cd initial 1). Manque : la meme mesure sur son porteur."),
-    "probe_253_astramilitarum_targeting.py": (
-        "NON_VERIFIE",
-        "1142 MalleusRocketLauncher (cd 1) et 1143 ForwardSpotter (cd 2 -- le plus long du "
-        "gisement avec 1158). Manque : la meme mesure, et un deblocage a DEUX tours."),
     "probe_447_add_caster_dynamic_rule.py": (
-        "NON_VERIFIE",
-        "1115 FearOfTheUnseen (cd initial 1). Manque : la meme mesure."),
-    "probe_433_r4_r2_r1_r2_r2_r1_r1_r1_r4_caster_reason.py": (
-        "NON_VERIFIE",
-        "ITERE `ABILITY_CLASSES`, donc il balaye les 15 ids du gisement presents au registre. "
-        "Manque : savoir lesquels ses porteurs portent reellement -- indeterminable offline."),
+        "SAIN_LU",
+        "1115 FearOfTheUnseen (cd initial 1) est bien exerce -- mais `_reason` n'est appele qu'a "
+        "l'ETAPE 0, dont le SEUL role est de MONTRER que ce canal est muet dans le regime R1 ; le "
+        "resultat part dans `data[\"canal_abilityreason\"]` et n'entre dans AUCUN `ok`. L'oracle du "
+        "probe est `abilityTargets` (`_targets`), qui ne passe pas par `AttackQuery`. Un consommateur "
+        "qui DOCUMENTE le court-circuit au lieu de mesurer a travers lui est SAIN par construction."),
     "probe_444_obscured_targeting.py": (
-        "NON_VERIFIE",
-        "ITERE `ABILITY_CLASSES`. Meme angle mort. ⚠ Ce probe est de plus le seul a exercer la "
-        "LIGNE DE VUE : `InFogOfWarBrokenTargetingRule` n'est PAS decodee par le hook et sortirait "
-        "en `hex: \"0x0\"` (« cible valide ») pour un REFUS -- distinct du court-circuit amont."),
+        "SAIN_LU",
+        "Les seuls ids passes a `abilityReason` sont 69 `Loki_NormalAttack` et 1180/1202 "
+        "(`DISARMED_BY`) -- AUCUN dans le gisement. Le recenseur le classait REGISTRE par un TEST "
+        "D'APPARTENANCE (`if aid_disarmed in ABILITY_CLASSES`), qui n'exerce que l'id teste : le "
+        "critere le distingue desormais d'une iteration. !! RESIDU DISTINCT, et il est MESURE "
+        "(#287-r10, board `C6_09`, 34 tuiles en brouillard sur 63) : `abilityReason` sur une tuile "
+        "en brouillard rend `ruleClass: \"InFogOfWarBrokenTargetingRule\", hex: \"0x0\"` avec "
+        "`casterReason == 0` -- un REFUS lu << cible valide >> par tout `int(hex, 16)`. Ce probe y "
+        "echappait parce qu'il decode par `targeting_reason.native_target_reason`, qui rendait "
+        "`None` (exclusion silencieuse, pas un faux zero) ; la classe y est desormais INSCRITE."),
     "test_ability_target_gate_live.py": (
-        "NON_VERIFIE",
-        "ITERE `ABILITY_CLASSES`. Meme angle mort."),
+        "SAIN_LU",
+        "Son iteration d'`ABILITY_CLASSES` (`test_unported_targeting_options_means_no_gate`) va a "
+        "`is_invalid_target` OFFLINE, jamais au RPC : le SEUL id passe a `abilityReason` est "
+        "`WAAAGH = 1058`, qui n'a pas de `initialCooldownTurns`. La fixture `caster_moved115` lit de "
+        "plus `casterReason` et l'assert a `0` en PRECONDITION (`d[\"before\"] == 0`). Le recenseur "
+        "statique ne suit pas le flux de donnees : il ne peut pas voir cette separation."),
+
+    # ---- SAINS MESURES : ils DEBLOQUENT et ROUGISSENT, par une voie propre au probe ---------------
+    "probe_250_blacklegion_targeting.py": (
+        "SAIN_MESURE",
+        "1148 DaemonicOrdnance (cd initial 1) sur la MoW `blackForgefiend`. RE-JEU #287-r10 "
+        "(`--ability 1148`) : `abilityState={usable, cooldown: 0, hasAmmo: true}`, `casterReason "
+        "natif = [0]`. Le probe porte DEJA son cran, et il ROUGIT : `[garde] au moins une cible "
+        "ACCEPTEE (0x0)` -- un oracle court-circuite rend `0x1` sur TOUTES les cibles a la fois, "
+        "donc l'existence d'un `0x0` le refute. Il imprime aussi `casterReason natif` au bilan."),
+    "probe_253_astramilitarum_targeting.py": (
+        "SAIN_MESURE",
+        "1142 MalleusRocketLauncher (cd 1, `munitionsCost = 1`) et 1143 ForwardSpotter (cd 2) sur "
+        "la MoW `astraOrdnanceBattery`. RE-JEU #287-r10 : `casterReason natif=[0]` pour les DEUX, "
+        "1142 avec `ammoCost: 1, hasAmmo: true` (son propre levier `_seed_bc_with_ammo`). Le probe "
+        "porte DEJA son cran, et il est du bon cote : `court_circuit = all(nat == ValidRequest)` "
+        "bascule sur l'oracle ENSEMBLISTE `abilityTargets` et EXCLUT l'ability de l'accord par CODE."),
+    "probe_287r11r1r1_caster_has_2_turns_left.py": (
+        "SAIN_MESURE",
+        "1142 sur `astraOrdnanceBattery`. Il DEBLOQUE en MESURANT (`for` qui s'arrete des que "
+        "`usable and not cooldown`, jamais un comptage), patche `MachineOfWarAmmo = 9` pour desarmer "
+        "le terme munitions, et REFUSE de conclure : `court_circuit = [r for r in res if r.nat == "
+        "ValidRequest]` -> `[FAIL] ... Aucun accord ne peut etre conclu`. Le bras `bascule` ECARTE "
+        "et COMPTE les pas court-circuites au lieu de les avaler. Il est arrive APRES #287-r9 : "
+        "c'est le cran A qui l'a montre, exactement comme il est cense le faire."),
 }
 
 
@@ -327,6 +369,13 @@ def analyser(chemin: Path, gis: dict) -> dict:
             if isinstance(p, ast.Subscript):
                 continue
             if isinstance(p, ast.Attribute) and p.attr not in ("items", "keys", "values"):
+                continue
+            # ⚠ TROISIEME voie NON iterante, trouvee par #287-r10 : le TEST D'APPARTENANCE
+            # `<un id> in ABILITY_CLASSES`. Il n'exerce que l'id teste -- c'est un LOOKUP deguise en
+            # operateur. `probe_444_obscured_targeting` etait classe REGISTRE par cette seule ligne
+            # (`if aid_disarmed in ABILITY_CLASSES`) alors qu'il ne passe que 69/1180/1202 au RPC.
+            if isinstance(p, ast.Compare) and any(
+                    isinstance(o, (ast.In, ast.NotIn)) for o in p.ops) and n in p.comparators:
                 continue
             balaye_registre = True
         elif isinstance(n, ast.Call):

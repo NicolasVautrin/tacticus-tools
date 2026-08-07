@@ -74,6 +74,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hexgeo                                                        # noqa: E402
+import oracle_targeting as O                                         # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc                  # noqa: E402
 
 from engine.entities.pathfinding.board import Board                  # noqa: E402
@@ -594,6 +595,23 @@ def _run_mow(sid, seed, board_id):
                                 "to": {"col": free[0]["col"], "row": free[0]["row"]}}, 90)
                 print("  [aura] deathTyphus amene au contact de %s" % foe.get("visualId"))
 
+        # --- LE CRAN (#287-r10) : l'oracle `abilityReason` est-il PASSANT pour 1169 ? -----------
+        # MESURE : `1169 PlagueburstMortar` porte `initialCooldownTurns = 1`, donc au tour 1
+        # `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason` court-circuite en
+        # `GenericBrokenTargetingRule(ValidRequest)` pour TOUTE cible, AVANT la cascade de ciblage
+        # -- confronter le port a ce regime compare deux fonctions natives differentes. Les
+        # `WARMUP_ENDTURNS` ci-dessus SUFFISENT en fait (re-jeu #287-r10), mais compter des tours
+        # n'est pas mesurer : ce foyer MESURE `casterReason` et rend une PHRASE s'il ne tombe pas.
+        # ⚠ `jouer_adverse=False` est OBLIGATOIRE ici : le montage est GEOMETRIQUE (l'aura Contagion
+        # vient d'etre montee a la main), et faire jouer l'IA adverse la detruirait.
+        empeche = O.debloquer_oracle(lambda m, b, t=60000: _r(sid, m, b, max(30, int(t) // 1000)),
+                                     rid, cid, MORTAR, jouer_adverse=False)
+        if empeche:
+            print("\n=== ability %d : ORACLE COURT-CIRCUITE, mesure IMPOSSIBLE -- %s"
+                  % (MORTAR, empeche))
+            out.append({"ability": MORTAR, "skipped": True, "pourquoi": empeche})
+            return out
+
         st, dv, board, bg = _load_offline(sid, rid, adjacency="evenq")
         units = {int(u["id"]): u for u in (dv.get("units") or []) if u.get("alive")}
         own = (_by_vis(dv, "deathTyphus") or {}).get("owner")
@@ -656,7 +674,8 @@ def main(argv=None) -> int:
     print("\n================================ BILAN ================================")
     for res in results:
         if res.get("skipped"):
-            print("  ability %d : NON MESUREE (ability non utilisable)" % res["ability"])
+            print("  ability %d : NON MESUREE -- %s"
+                  % (res["ability"], res.get("pourquoi") or "ability non utilisable"))
             ok = False
             continue
         good = _report_set(res) if res.get("oracle") == "abilityTargets" else _report(res)

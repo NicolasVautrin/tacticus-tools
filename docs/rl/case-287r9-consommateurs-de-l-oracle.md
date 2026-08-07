@@ -100,15 +100,16 @@ Même signature que #444 (un champ absent lu comme « cible valide »), transpos
 
 ## 6. Ce qui n'est PAS couvert
 
-- **Résidu `#287-r10` — 7 consommateurs EXPOSÉS et NON VÉRIFIÉS**, nommés dans le registre `DETTE`.
-  Quatre par littéral (`1169` sur la MoW `deathCrawler` — donc les DEUX termes amont possibles,
-  `1148`, `1142`/`1143`, `1115`), trois par itération du registre. Ce qui manque est une mesure,
-  et elle tient en une commande (`probe_287r9_expose_mesure_live.py`).
-- **`InFogOfWarBrokenTargetingRule` toujours non décodée** (`NON_GENERIC_RULE_CODES` de
-  `rpc-targeting.ts`) : elle sort en `hex: "0x0"`, donc « cible valide », pour un REFUS. Le
-  recensement l'a croisée : `probe_444_obscured_targeting` est le seul consommateur à exercer la
-  ligne de vue, et il est aussi dans la dette. Correctif = même fenêtre de reinject que le capteur
-  munitions.
+- ~~**Résidu `#287-r10` — 7 consommateurs EXPOSÉS et NON VÉRIFIÉS**~~ — **TRAITÉ**, plus un
+  huitième arrivé depuis (`probe_287r11r1r1`, qui rendait `master` ROUGE sur le cran A). Les huit
+  sont **JUSTES** ; deux crans posés, quatre déclarés sains par lecture ou par leur propre garde.
+  L'« indéterminable offline » de trois d'entre eux était **faux** : le kit gameconfig tranche.
+  Détail : `docs/rl/case-287r10-consommateurs-verifies.md`.
+- ~~**`InFogOfWarBrokenTargetingRule` toujours non décodée**~~ — **MESURÉE** (#287-r10, board
+  `C6_09`, 34 tuiles en brouillard sur 63) : `hex: "0x0"` pour un REFUS, `casterReason == 0`, et son
+  `Type` vaut **1**. Son `get_Type` est absent des tables parce qu'IL2CPP **déduplique** son
+  `return 1` — l'absence d'un symbole ne prouvait rien. Décodeur Python **corrigé** ; la ligne du
+  hook est **livrée et non injectée** (résidu `#287-r10-r1`, `BLOCAGE: capteur`).
 - **Le troisième terme amont reste hors mesure** : `IsDamagedMachine && !IsMachinePrimaryAbilityType`
   n'est publié par aucun champ. `cause_du_court_circuit` le range en `indeterminee`.
 - **Les 4 `INDETERMINE`** (`probe_243_splash_range_clamp`, `probe_r34_overkill_decision`, `rl_duel`,

@@ -66,6 +66,7 @@ from pathlib import Path
 
 import gameconfig as GC                                                  # noqa: E402
 import hexgeo                                                            # noqa: E402
+import oracle_targeting as O                                             # noqa: E402
 from engine.entities.active_ability_type import ActiveAbilityType        # noqa: E402
 from engine.runner.abilities import targeting as TGT                     # noqa: E402
 from engine.runner.abilities.handler import ABILITY_CLASSES              # noqa: E402
@@ -253,12 +254,20 @@ def _hex_to_int(h):
 def _caster_reason(sid, rid, uid, aid):
     """`casterReason` de l'oracle `abilityReason` = `AttackQuery$$GetInvalidCasterReason(caster,
     getUnitMainTile(caster), ability)` -- la cascade COMPLETE (marches a..g), en NOMS de
-    `TargetingRule`. C'est le seul canal qui dise QUELLE regle mord."""
+    `TargetingRule`. C'est le seul canal qui dise QUELLE regle mord.
+
+    ⚠ TROISIEME VALEUR : le COURT-CIRCUIT AMONT (#287-r6, mesure #287-r10). `AttackQuery` place
+    DEUX etages avant la cascade ; quand l'un mord il rend `GenericBrokenTargetingRule(ValidRequest)`
+    et la cascade des onze regles n'est PAS evaluee. Le port rend `1` lui aussi
+    (`_port_caster_reason` mirroire la marche (d)), donc la ligne s'AFFICHE en accord EXACT tout en
+    ne disant RIEN de ce que ce probe mesure. Le drapeau vient du FOYER (`oracle_targeting`), jamais
+    d'un `== 1` recopie : `1` designe aussi autre chose un etage plus bas."""
     rep = _r(sid, "abilityReason",
              {"runnerId": rid, "casterId": uid, "abilityType": int(aid)}, 90)
     cr = (rep or {}).get("casterReason")
     return (None if cr is None else _hex_to_int(cr.get("hex")),
-            None if cr is None else (cr.get("reasons") or []))
+            None if cr is None else (cr.get("reasons") or []),
+            O.oracle_court_circuite(rep))
 
 
 def _port_caster_reason(aid, ability_state, sub):
@@ -434,10 +443,10 @@ def live(sid, board=None, fillers=3, tours=8, approche=True, approche_d=4,
             rows = _dv_rows(sid, rid)
             st = acg.ability_state_map(rows.get(uid))
             na_id = acg.normal_attack_id(rows.get(uid))
-            nat, noms = _caster_reason(sid, rid, uid, GETEMRUNTZ)
+            nat, noms, cc = _caster_reason(sid, rid, uid, GETEMRUNTZ)
             ligne = {
                 "iter": it, "pos": list(pos), "n_move": len(move), "move": sorted(move),
-                "natif_reason": nat, "natif_noms": noms,
+                "natif_reason": nat, "natif_noms": noms, "court_circuite": cc,
                 "port_reason": _port_caster_reason(GETEMRUNTZ, st.get(GETEMRUNTZ), sub),
                 "gate_port": acg.invalid_caster_reason(GETEMRUNTZ, sub),
                 "gate_port_nom": acg.caster_gate_reason(GETEMRUNTZ, st.get(GETEMRUNTZ), sub),
@@ -587,11 +596,12 @@ def cascade(sid, board, rosters, tours=3) -> dict:
                 sub = _substrate(u, units, walk, elev, moved, joueur)
                 st = acg.ability_state_map(rows.get(uid))
                 for aid in _kit_ability_ids(vis):
-                    nat, noms = _caster_reason(sid, rid, uid, aid)
+                    nat, noms, cc = _caster_reason(sid, rid, uid, aid)
                     out["paires"].append({
                         "iter": it, "phase": phase, "unit": vis, "uid": uid, "ability": aid,
                         "rules": "0x%x" % int(getattr(targeting_options_for(aid), "rules", 0) or 0),
-                        "natif": nat, "natif_noms": noms,
+                        "natif": nat, "natif_noms": noms, "court_circuite": cc,
+                        "cd_initial": O.cooldown_initial(aid),
                         "port": _port_caster_reason(aid, st.get(aid), sub),
                         "moved": sub.has_moved,
                     })
@@ -621,12 +631,24 @@ def cascade(sid, board, rosters, tours=3) -> dict:
 
 def _verdict_cascade(res) -> int:
     """Contrat de `probe_115` : le port n'invente JAMAIS un refus ; quand il en pose un, il pose le
-    MEME que le natif ; sinon c'est un ecart PERMISSIF, compte et nomme."""
+    MEME que le natif ; sinon c'est un ecart PERMISSIF, compte et nomme.
+
+    ⚠ LES LIGNES COURT-CIRCUITEES SONT VENTILEES A PART (#287-r10). Quand
+    `IdunBattle.Core.Services.AttackQuery$$GetInvalidCasterReason` sort en amont
+    (`casterReason == ValidRequest` -- typiquement `initialCooldownTurns >= 1` au premier tour), la
+    cascade des onze regles n'a PAS tourne. Le port rend `1` lui aussi, donc la ligne compte en
+    << accord EXACT >> sans rien etablir de ce que ce probe mesure. MESURE sur les rosters par
+    defaut : **8 des 60 paires** (1115 `tyranDeathleaper` et 1152 `orksNob`, tous deux
+    `initialCooldownTurns = 1`, aux iters 0 et 1). Les compter avec les autres, c'est le
+    << accord en regime degenere >> : un vert qui ne mesure rien. Un temoin NON degenere est donc
+    exige -- sinon la passe est INCOMPLETE, pas verte."""
     if res.get("error"):
         print("VERDICT cascade: %s" % res["error"])
         return 1
     inv, exact, permissif = [], 0, {}
     n = 0
+    degen = {}                       # (unite, ability) -> nb de lignes court-circuitees
+    n_degen_exact = 0
     n_moved = sum(1 for d in (res.get("paires") or []) if d.get("moved") is True)
     for d in (res.get("paires") or []):
         nat, port = d.get("natif"), int(d.get("port") or 0)
@@ -634,6 +656,11 @@ def _verdict_cascade(res) -> int:
             continue
         n += 1
         nat = int(nat)
+        cc = bool(d.get("court_circuite"))
+        if cc:
+            k = "%s/%s (initialCooldownTurns=%s)" % (d.get("unit"), d.get("ability"),
+                                                     d.get("cd_initial"))
+            degen[k] = degen.get(k, 0) + 1
         if nat == 0:
             if port != 0:
                 inv.append(d)
@@ -641,14 +668,18 @@ def _verdict_cascade(res) -> int:
                 exact += 1
         elif port == nat:
             exact += 1
+            n_degen_exact += 1 if cc else 0
         elif port == 0:
             k = ",".join(d.get("natif_noms") or []) or hex(nat)
             permissif[k] = permissif.get(k, 0) + 1
         else:
             inv.append(d)
-    print("paires confrontees : %d   accord EXACT : %d   ecart PERMISSIF : %d"
-          "   (dont %d paires avec has_moved=True)"
-          % (n, exact, sum(permissif.values()), n_moved))
+    utile = exact - n_degen_exact
+    print("paires confrontees : %d   accord EXACT : %d (dont %d DEGENERES -> cascade UTILE : %d)"
+          "   ecart PERMISSIF : %d   (dont %d paires avec has_moved=True)"
+          % (n, exact, n_degen_exact, utile, sum(permissif.values()), n_moved))
+    for k, v in sorted(degen.items(), key=lambda kv: -kv[1]):
+        print("   DEGENERE (oracle court-circuite en amont) %-44s x%d" % (k, v))
     for k, v in sorted(permissif.items(), key=lambda kv: -kv[1]):
         print("   permissif %-40s x%d" % (k, v))
     for d in inv[:20]:
@@ -660,7 +691,12 @@ def _verdict_cascade(res) -> int:
     if not n:
         print("VERDICT cascade: INCOMPLET -- aucune paire confrontee")
         return 1
-    print("VERDICT cascade: aucun refus invente, aucun refus FAUX")
+    if not utile:
+        print("VERDICT cascade: INCOMPLET -- les %d accords sont TOUS degeneres (oracle "
+              "court-circuite en amont) : la cascade des onze regles n'a jamais ete evaluee" % exact)
+        return 1
+    print("VERDICT cascade: aucun refus invente, aucun refus FAUX (%d accords non degeneres)"
+          % utile)
     return 0
 
 
@@ -688,7 +724,7 @@ def moved(sid, board=None) -> dict:
             mv, mid = _moved_map(sid, rid)
             sub = _substrate(me, units, walk, elev, mv, joueur)
             st = acg.ability_state_map(_dv_rows(sid, rid).get(uid))
-            nat, noms = _caster_reason(sid, rid, uid, MOVED_ABILITY)
+            nat, noms, _cc = _caster_reason(sid, rid, uid, MOVED_ABILITY)
             with _SansRegle(TR.CasterHasNotMoved):
                 sans = int(acg.invalid_caster_reason(MOVED_ABILITY, sub) or 0)
             return ({"phase": tag, "pos": [me["col"], me["row"]], "uid": uid,
