@@ -42,16 +42,31 @@ dans `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (le block, lui, a
 avec la même chance ⇒ `_run_hits` (crit par-coup, aucun accumulateur) est déjà fidèle. Le block gate PARCE
 QUE multi-source (id par source) ; le crit est chance unique ⇒ rien à exclure. (Détail : docs/rl/case-68.)
 
-    #74 (RE close, 2026-07-09) : la crit-chance est RELUE PAR COUP par le natif, MAIS constante sur les coups
-    d'une attaque -> le calcul UNE FOIS du port (`_crit_params`) est fidele. `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` dispatche
-    `RollCritical` (slot 0xa IDamagePrediction) A CHAQUE coup (chance re-lue GetStat(9)+bonus) + EvaluateAfterHit
-    Triggers en fin de CHAQUE coup -> un buff crit-chance on-hit escaladerait entre coups. MAIS recherche gameconfig
-    (559 abilities) : AUCUNE cle per-hit/consecutive/timesAttacked ; les 19 abilities crit-chance sont des buffs
-    extraCritChance per-attaque/aura/per-tour/on-kill (TrophyTaker=kill-snowball, ThrillSeekers=re-trigger PAR TOUR,
-    cf. hypotheses.md H22), JAMAIS per-coup-intra-attaque. => crit-chance constante sur les coups d'UNE attaque =>
-    `_crit_params` (avant `_run_hits`) == valeur re-lue par coup. Rien a porter. RESIDU (non observe) : un futur effet
-    crit-chance on-hit-intra-attaque exigerait l'application des triggers PAR COUP (le port les applique post-attaque)
-    -- axe separe, pas un gap crit actuel.
+    #74 (2026-07-09), **REFUTE le 2026-08-07 par #522-r1** : la crit-chance est RELUE PAR COUP par le
+    natif -- ca, c'est exact et toujours vrai (`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`
+    dispatche `RollCritical`, slot 0xa d'`IDamagePrediction`, A CHAQUE coup, et
+    `IdunBattle.Core.Services.DamagePrediction$$RollCritical` y relit
+    `UnitExtensions.GetStat(attacker, 0x9, 0)` + `GetCritChanceBonusFromEffects`). Ce qui etait FAUX,
+    c'est la conclusion « MAIS constante sur les coups d'une attaque => `_crit_params` une fois ==
+    valeur re-lue par coup => **rien a porter** ».
+
+    ⚠ **POURQUOI LE FAUX A TENU** -- l'argument etait une recherche gameconfig sur **559 ABILITIES**
+    (« AUCUNE cle per-hit/consecutive/timesAttacked ; les 19 abilities crit-chance sont des buffs
+    per-attaque/aura/per-tour/on-kill, JAMAIS per-coup-intra-attaque »). Or le contre-exemple n'est
+    PAS une ability : `ThrillSeekers` est un **TRAIT** (`UnitTrait` 1056, 5 porteurs Emperor's
+    Children), donc structurellement HORS du corpus fouille. Un recenseur ne peut pas rendre zero
+    sur ce qu'il ne visite pas -- et la ligne citait meme « ThrillSeekers=re-trigger PAR TOUR »,
+    en le classant dans la mauvaise categorie sans etre allee lire son `CreateTrigger`.
+
+    LA LOI, telle qu'elle est LUE : `ExecuteHit` appelle `RollCritical` **AVANT** d'emettre
+    `On(PreAttackHit = 6)` / `On(PreAttackDamageHit = 7)`. Le stat-mod CRIT_CHANCE pose par
+    `...ThrillSeekersAbility$$CreateBehaviour` sur `On(6) & IsFirstHitInSeries` ne mord donc PAS sur
+    le coup 0, et mord sur **tous** les coups suivants de la MEME salve. Porte par le couple
+    (`crit_chance`, `crit_chance_after`) de `damage_hits.py::_run_hits`, alimente par les trois
+    vecteurs qui appellent `_crit_params` **avant** l'event (coup 0) puis **apres** (coups 1+).
+    RESIDU qui, lui, RESTE : les triggers AFTER-HIT sont toujours appliques post-attaque par le
+    port, la ou `EvaluateAfterHitTriggers` court en fin de CHAQUE coup -- axe separe, aucun
+    consommateur crit connu (mesure #522-r1 : le registre ne porte qu'UN ecouteur de `On(6)/On(7)`).
 
 **ORDRE réduction↔tirage (CORRIGÉ — confirmé live 18/18 coups, 3 seeds, necroDestroyer 6h**
 **mêlée → eldarFarseer)** : la réduction perçage/armure/modifiers est appliquée aux BORNES

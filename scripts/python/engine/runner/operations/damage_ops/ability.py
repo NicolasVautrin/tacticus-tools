@@ -258,6 +258,11 @@ class _AbilityAttack:
         # `On(PreAttackHit=6)` — `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` emet le MEME
         # trio d'events {6, 8, 0x3d} que la voie normale (verdict RE #147/#150), donc ThrillSeekers se
         # declenche aussi sur une attaque d'ABILITY du porteur contre une cible a pleine vie.
+        # #522-r1 : `ExecuteHit` emet `On(6)` **APRES** le `RollCritical` du coup -> on mesure la
+        # crit chance AVANT l'event (celle du coup 0), on emet, puis on la RELIT pour les coups 1+.
+        crit_avant = (AttackDamageOperation._crit_params(ctx, active, state, attacker_id, target_id,
+                                                         is_ranged=_ranged, is_normal_attack=False)
+                      if ctx is not None else (0, 0, False))
         from ..triggers.dispatch.attack import pre_attack_hit_triggers  # lazy : cycle damage<->triggers
         pre_attack_hit_triggers(state, attacker_id, target_id,
                                 ranged=not bool(is_melee) if is_melee is not None else False,
@@ -269,6 +274,8 @@ class _AbilityAttack:
             AttackDamageOperation._crit_params(ctx, active, state, attacker_id, target_id,
                                                is_ranged=_ranged, is_normal_attack=False)
             if ctx is not None else (0, 0, False))
+        crit_apres = (crit_chance, crit_damage, crit_enabled)
+        crit_chance, crit_damage, crit_enabled = crit_avant
         # #45f : la famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) n'a AUCUN chemin
         # crit — pas d'appel RollCritical (le slot crit n'existe que dans `AttackDamageOperation.
         # IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`), l'AttackHit est construit isCrit=0, et `CalculateAbilityDamage
@@ -278,6 +285,7 @@ class _AbilityAttack:
         # no-op (roll_critical deja gate cc<1). Le bonus crit-Ice suit (crit_enabled=False -> 0).
         if not is_attack_damage_op:                               # famille ABILITY : crit inexistant
             crit_chance, crit_damage, crit_enabled = 0, 0, False
+            crit_apres = (0, 0, False)      # #522-r1 : le gate vaut pour TOUS les coups, pas que le 0
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> spéciales aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
         # MkXGravis (trait CIBLE 0x3f5) : armure traversée 2× aussi pour les spéciales (CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers
@@ -471,6 +479,9 @@ class _AbilityAttack:
         from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
+                                            # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`.
+                                            crit_chance_after=crit_apres[0],
+                                            crit_enabled_after=crit_apres[2],
                                             bonus_hit_chance=_gsi,
                                             # #419-r3 : etat de l'`OngoingAttack` a l'entree de la
                                             # feuille (cf. docstring). Defauts = attaque neuve.

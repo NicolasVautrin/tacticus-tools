@@ -424,12 +424,19 @@ class _Normal:
         # d'ABILITY multi-coups à cc=0 n'était PAS un crit-roll (réfuté décompile + live M1/M2) mais le
         # resolve slot-8 GASPILLÉ du vecteur ability — cf. `_one_hit`. Gate `could_crit` = cc>0 ET cd>0
         # (IdunBattle.Core.Services.DamageCalculations$$CouldCrit).
-        # `On(PreAttackHit=6)` — vecteur PER-COUP natif emis TOUT EN HAUT d'`IdunBattle.Operations.
-        # AttackDamageOperation$$ExecuteHit`, donc APRES `GetAttackHits` et AVANT le calcul du crit du
-        # coup. Emis ICI a la MEME place : son seul consommateur porte (ThrillSeekers, branche
-        # « cible a pleine vie ») pose un stat-mod CRIT_CHANCE que `_crit_params` (ligne suivante) DOIT
-        # voir sur CETTE attaque -- le router apres serait un no-op silencieux. `is_first_hit=True` =
-        # le coup 0 (le port n'a pas de boucle de coups au niveau trigger ; cf. l'en-tete du vecteur).
+        # `On(PreAttackHit=6)` — vecteur PER-COUP natif, emis par `IdunBattle.Operations.
+        # AttackDamageOperation$$ExecuteHit` **APRES le `RollCritical` du coup** (#522-r1 : l'ordre
+        # du decompile est slot 0xad profil -> `AttackHit..ctor` -> **slot 0xa `RollCritical`** ->
+        # `AbilityEntities..ctor` -> `EnqueueOperation(6)` -> `EnqueueOperation(7)`). Son seul
+        # consommateur porte (ThrillSeekers, branche « cible a pleine vie ») pose un stat-mod
+        # CRIT_CHANCE : il ne doit donc PAS entrer dans la crit chance du coup 0, mais bien dans
+        # celle des coups suivants -- `DamagePrediction$$RollCritical` relit `GetStat(9)` a chaque
+        # appel, et `ExecuteHits` boucle sur `ExecuteHit`.
+        # => on MESURE la crit chance AVANT l'event (celle du coup 0), on emet, puis on la RELIT.
+        # `is_first_hit=True` = le coup 0 (le port n'a pas de boucle de coups au niveau trigger).
+        crit_avant = AttackDamageOperation._crit_params(
+            ctx, active, state, attacker_id, target_id,
+            is_ranged=_ranged, is_normal_attack=True)
         from ..triggers.dispatch.attack import pre_attack_hit_triggers  # lazy : cycle damage<->triggers
         pre_attack_hit_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
                                 profile=_profile, is_first_hit=True, ability_type=1013)
@@ -444,9 +451,14 @@ class _Normal:
         # `is_ranged`/`is_normal_attack` = la NATURE du coup, MEME valeur que celle passee a
         # `attacker_modifiers` ci-dessus (vecteur NORMALE : `_ranged` mesure, normal = True) ->
         # noeuds `IsMeleeAttack`/`IsNormalAttack` du canal CHANCE DE CRIT (case-366-r1).
+        # RELECTURE post-event : ce sont les valeurs des coups 1+ (`crit_avant` reste celle du
+        # coup 0). Hors ThrillSeekers les deux coincident -- aucun autre trigger porte n'ecoute
+        # `On(6)`/`On(7)` (mesure #522-r1 : 1 seul ecouteur dans tout le registre).
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
             is_ranged=_ranged, is_normal_attack=True)
+        crit_apres = (crit_chance, crit_damage, crit_enabled)
+        crit_chance, crit_damage, crit_enabled = crit_avant
         # #120 : réduction PLATE défenseur (Nightshroud) fusionnée dans l'additif pré-perçage (mirror prédiction).
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 
@@ -550,6 +562,10 @@ class _Normal:
         _hit_icept = make_hit_interceptor(state, attacker_id, target_id)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
+                                            # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`
+                                            # -> coups 1+ seulement (le coup 0 garde `crit_avant`).
+                                            crit_chance_after=crit_apres[0],
+                                            crit_enabled_after=crit_apres[2],
                                             bonus_hit_chance=_gsi, hit_interceptor=_hit_icept,
                                             capped_reductions=def_mods.capped_reductions,
                                             # #67 : etage limites (member-cap/Resilient/bypass Blast) —
