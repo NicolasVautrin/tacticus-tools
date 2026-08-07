@@ -42,7 +42,7 @@ Mesuré au premier run du probe : natif `unitFlags = [1, 2, 3, 4, 25]` après le
 `_set_charge_flag` crée désormais le composant absent — même geste que
 `turnflow.FinishUnitTurnOperation.execute`, qui le faisait déjà. **Le foyer reste ouvert** :
 `_load_unit_flags` devrait matérialiser un composant VIDE sur toute ligne MESURÉE, ce qui vaudrait
-pour les neuf autres appelants d'`AddFlag` — résidu **`#537`**.
+pour les neuf autres appelants d'`AddFlag` — résidu **`#545`**.
 
 ## 3. La confrontation LIVE — deux bras, une seule variable
 
@@ -84,7 +84,7 @@ fichier ; **8 passed** après.
   qu'un push ultérieur sur le caster échoue des deux côtés. Le chaînage est porté
   (`unit_extensions_is_displaceable` est le foyer unique, six lecteurs) et gardé offline, mais le
   montage « charger, puis se faire pousser » n'a pas été joué.
-* **Le foyer du substrat** (`_load_unit_flags`) reste ouvert — résidu `#537`. Les neuf autres
+* **Le foyer du substrat** (`_load_unit_flags`) reste ouvert — résidu `#545`. Les neuf autres
   appelants de `DSLBehaviors$$AddFlag` portent la même forme et n'ont pas été relus.
 * **L'exception** laisse aussi le flag posé (il n'y a plus de `finally`) : c'est le comportement
   natif (le `throw` du décompilé ne retire rien), mais aucun montage ne l'exerce.

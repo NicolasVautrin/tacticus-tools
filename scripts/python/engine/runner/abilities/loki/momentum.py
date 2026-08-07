@@ -351,7 +351,7 @@ def _set_charge_flag(state: "State", caster_id: int, on: bool) -> None:
     ne posait RIEN -- l'ecart de fuite etait donc INOBSERVABLE cote port, masque par un ecart de
     substrat en amont. Meme geste que `turnflow.FinishUnitTurnOperation.execute`, qui cree deja le
     composant absent pour la meme raison. Le FOYER (`_load_unit_flags` devrait materialiser un
-    composant VIDE sur toute ligne MESUREE) reste ouvert : residu `#537`."""
+    composant VIDE sur toute ligne MESUREE) reste ouvert : residu `#545`."""
     e = state.get_entity(int(caster_id))
     if e is None:
         return

@@ -24,7 +24,7 @@ DEUX ECARTS, PAS UN. Le port portait un `try/finally` qui retirait TOUJOURS (deg
 PERMISSIVE) ; et `_set_charge_flag` abandonnait quand le `UnitFlagsComponent` etait absent, ce qui
 est le cas de TOUTE unite sans aucun flag sur un etat recharge (`snapshot._load_unit_flags` ne
 materialise le composant que sur une liste NON VIDE). Le second RENDAIT LE PREMIER INOBSERVABLE :
-mesure live du 2026-08-07, le port ne posait meme pas le flag. Foyer du second : residu `#537`.
+mesure live du 2026-08-07, le port ne posait meme pas le flag. Foyer du second : residu `#545`.
 
 CONFRONTE LIVE : `probe_498r4r1_fuite_flag_undisplaceable_live.py` -- `orksNob` sur `MC1_67`, deux
 bras. `fuite` (cible au coin, ligne d'UNE tuile) : natif `unitFlags = [1, 2, 3, 4, 25]` ; `retrait`
