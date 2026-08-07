@@ -2447,6 +2447,7 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
 
         if (casterTiles == null || casterTiles.Count == 0) return false;
         if (!HasTrait(caster, 0xb) && !ignoreTrait) return false;
+        if (UnitExtensions.HasFlag(caster, 0x1c))          return false;
         foreach (tile in casterTiles)
           foreach (adj in <tuiles adjacentes de tile>)
             u = GetUnit(adj, state);
@@ -2459,7 +2460,18 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
     Offline : adjacence = `board.neighbours` (graphe evenq, la meme adjacence que tout le port),
     `HasSteppableUnit` = l'occupant porte `UnitTrait.Steppable` (0x1b),
     `CanMeleeAttackOverElevationDifference` = `|dElevation| < 2` (litteral `iVar1 < 2`).
-    Sans `state.board` on ne sait pas decider -> False (aucun clamp invente)."""
+    Sans `state.board` on ne sait pas decider -> False (aucun clamp invente).
+
+    LE TROISIEME GATE EST PORTE DEPUIS #287-r11-r2-r1-r2, et il etait ABSENT des DEUX mirrors.
+    `HasFlag(attacker, 0x1c)` est `UnitFlag.IngoreRangedInMelee` (**typo native**, `enums.tsv` :
+    `28=IngoreRangedInMelee`) -- l'ordinal ne se lit QUE dans cet espace de nommage : `0x1c` vaut
+    aussi `UnitTrait` 28 et `TargetingRule` bit 28, qui nomment autre chose. Le drapeau DISPENSE
+    son porteur du clamp melee : sans lui le port rabattait a 1 une portee que le natif laisse
+    entiere -- ecart RESTRICTIF, meme direction que celui de #287-r11-r1-r1-r2.
+    Le canal existe et il est COMPLET : `combatSnapshot.units[].unitFlags` publie le resultat de
+    `IdunBattle.Entities.UnitExtensions$$HasFlag` pour **chaque valeur** de l'enum lue au runtime
+    (`internals.ts::unitFlagValues`), et `snapshot._load_unit_flags` seede tout ce qu'il recoit --
+    donc ce gate MORD des qu'un etat charge porte le drapeau, sans capteur neuf."""
     board = state.board
     if board is None:
         return False
@@ -2472,6 +2484,11 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
     caster = state.get_entity(int(caster_id))
     c_owner = caster.get_component(OwnerComponent) if caster is not None else None
     if c_owner is None:
+        return False
+    # `if (UnitExtensions.HasFlag(attacker, 0x1c)) return false;` -- AVANT la boucle, comme le
+    # natif : le drapeau court-circuite, il ne filtre pas les voisins.
+    c_flags = caster.get_component(UnitFlagsComponent) if caster is not None else None
+    if c_flags is not None and c_flags.has(UnitFlag.IngoreRangedInMelee):
         return False
     src_elev = board.elevation(src_tid)
     neigh = set(board.neighbours(src_tid))

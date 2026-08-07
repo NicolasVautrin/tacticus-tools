@@ -66,7 +66,8 @@ from ..targeting import (RANGE_ADJACENT_IF_MELEE_CASTER, RANGED_BOOL_IF_RANGED_C
                          TargetingOptions, has_steppable_unit, is_targetable)
 from ..targeting_rule import TargetingRule as TR
 from ...components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
-                           HealthComponent, get_unit_feet)
+                           HealthComponent, UnitFlagsComponent, get_unit_feet)
+from ....entities.unit_flag import UnitFlag   # `IngoreRangedInMelee` (#287-r11-r2-r1-r2)
 from ....dsl.base import DslContext
 from ....entities.selectors.accessors import FixedTileIds, Target
 from ....entities.selectors.tiles import Caster, FilterTilesIfCanAttackTargetTileFrom
@@ -292,7 +293,8 @@ def _filter_can_attack_target_tile_from(state: "State", caster_id: int, target_i
 # ------------------------------------------------------------------------------------------------
 
 def _should_apply_ranged_in_melee_from_tile(board, tile_id, attacker_team,
-                                            occupant_by_tile) -> bool:
+                                            occupant_by_tile,
+                                            attacker_ignores_ranged_in_melee=None) -> bool:
     """`IdunBattle.Core.Services.DamageCalculations$$ShouldApplyRangedInMelee(attacker,
     attackerTiles, state, ignoreTrait)` -- VERBATIM du decompile :
 
@@ -321,11 +323,28 @@ def _should_apply_ranged_in_melee_from_tile(board, tile_id, attacker_team,
     caster. `IsAlive` est mirroir par CONSTRUCTION -- `occupant_by_tile` ne porte que des unites
     vivantes.
 
-    ECART NOMME (residu, cf. la case-doc) : le gate `!HasFlag(attacker, 0x1c
-    IngoreRangedInMelee)` -- typo native -- n'est pas porte ici, exactement comme dans
-    `targeting.should_apply_ranged_in_melee` qui l'omettait deja. INERTE offline : aucun chemin du
-    port ne pose ce drapeau (`UnitFlagsComponent`)."""
+    LE GATE `!HasFlag(attacker, 0x1c)` EST PORTE DEPUIS #287-r11-r2-r1-r2 (il manquait aux DEUX
+    mirrors). `0x1c` se lit dans SON espace de nommage : `UnitFlag.IngoreRangedInMelee` (**typo
+    native**, `enums.tsv` : `28=IngoreRangedInMelee`) -- l'ordinal 28 nomme AUTRE CHOSE dans
+    `UnitTrait` et dans `TargetingRule`, donc l'appariement se fait par le NOM, jamais par le
+    nombre. `attacker` = le **`parent`** du call-site (`BattleQuery$$IsTargetInAttackRangeForSummon`
+    passe `parent`, pas le drone) : c'est le drapeau du CASTER qui dispense du clamp melee.
+
+    `attacker_ignores_ranged_in_melee` est en TRI-ETAT, et la DIRECTION est celle de #287-r11-r1-r1-r2 :
+      * `True` MESURE  -> le natif rend `false` AVANT la boucle -> pas de clamp ;
+      * `False` MESURE -> la boucle s'evalue ;
+      * `None` = PAS MESURE -> la boucle s'evalue aussi. Sauter sur une non-mesure ELARGIRAIT la
+        portee du drone (le clamp a 1 disparaitrait), c'est-a-dire fabriquerait des candidates que
+        le natif refuse. La face RUNNER le mesure (`UnitFlagsComponent` du caster) ; la face
+        PREDICTION rend `None` -- la `Scene` porte une table PAR FLAG (`moved_by_id`,
+        `teleported_by_id`, `active_ability_used_by_id`, `prevent_overkill_by_id`) et aucune pour
+        celui-ci. Point d'ancrage a publier : une entree de plus alimentee du MEME canal
+        (`combatSnapshot.units[].unitFlags`, qui publie DEJA toutes les valeurs de l'enum) --
+        aucun capteur neuf n'est requis."""
     if board is None or tile_id is None or attacker_team is None:
+        return False
+    # `if (UnitExtensions.HasFlag(attacker, 0x1c)) return false;` -- AVANT la boucle, comme le natif.
+    if attacker_ignores_ranged_in_melee is True:
         return False
     elev = board.elevation(tile_id)
     for n in board.neighbours(tile_id):
@@ -348,7 +367,8 @@ def _should_apply_ranged_in_melee_from_tile(board, tile_id, attacker_team,
 
 def _is_target_in_attack_range_for_summon(board, tile_id, target_tiles, unit_max_range: int,
                                           attacker_team, occupant_by_tile,
-                                          target_is_targetable: bool = True) -> bool:
+                                          target_is_targetable: bool = True,
+                                          attacker_ignores_ranged_in_melee=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTargetInAttackRangeForSummon(parent, unitId, tile,
     target)` -- MIRROR 1:1 du decompile (`IBattleQuery` slot 196) :
 
@@ -406,7 +426,8 @@ def _is_target_in_attack_range_for_summon(board, tile_id, target_tiles, unit_max
     # (decompile LU) -- et `are_tiles_adjacent` est justement le mirror d'`AreTilesAdjacent`, porte
     # d'elevation `|dElev| < 2` comprise.
     adjacent = any(bool(are_tiles_adjacent(tile_pos, t, board)) for t in target_tiles)
-    if _should_apply_ranged_in_melee_from_tile(board, tile_id, attacker_team, occupant_by_tile):
+    if _should_apply_ranged_in_melee_from_tile(board, tile_id, attacker_team, occupant_by_tile,
+                                               attacker_ignores_ranged_in_melee):
         rng = 1                                          # le clamp melee, DEPUIS LA TUILE CANDIDATE
         if not adjacent:
             return False
@@ -516,6 +537,13 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
     occupant_by_tile = _occupants_by_tile(state, board)
     target_tiles = get_unit_feet(state, int(target_id)) or [tpos]   # `EntityExtensions$$GetTiles`
     target_ok = is_targetable(state, int(target_id))                # `UnitExtensions$$IsTargetable`
+    # `HasFlag(parent, 0x1c = UnitFlag.IngoreRangedInMelee)` (#287-r11-r2-r1-r2) : le natif lit le
+    # drapeau du **parent**, pas du drone. MESURE cote runner (le `UnitFlagsComponent` est dans
+    # l'ECS et `load_state` le seede depuis `combatSnapshot.units[].unitFlags`) -> jamais `None`
+    # ici, contrairement a la face prediction.
+    c_flags = ce.get_component(UnitFlagsComponent)
+    caster_ignores_melee = bool(c_flags is not None
+                               and c_flags.has(UnitFlag.IngoreRangedInMelee))
     cands = []
     for tid in sorted(board.by_id.keys()):
         if not board.walkable(tid) or tid in occupied:      # CanAddUnit (libre + marchable)
@@ -528,7 +556,8 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
         # « peut attaquer la cible depuis » : le slot 196, PORTE (#287-r11-r2-r1). Il ne se reduit
         # PAS a la distance -- ligne de vue, clamp melee depuis la candidate, elevation.
         if not _is_target_in_attack_range_for_summon(board, tid, target_tiles, rng, coc.team,
-                                                     occupant_by_tile, target_ok):
+                                                     occupant_by_tile, target_ok,
+                                                     caster_ignores_melee):
             continue
         cands.append((tid, pos))
     if cands:
@@ -703,20 +732,25 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
 
     # MEME substrat que la face runner (`_occupants_by_tile`), hydrate depuis la `Scene` : c'est ce
     # qui empeche les deux faces de forker sur `IsTargetInAttackRangeForSummon` (#287-r11-r2-r1).
-    # DEUX canaux y sont plus PAUVRES qu'au runner, et les deux sont nommes :
     #   * `targetable` est CONSTANT a `True` -- ni la `Scene` ni le runner ne posent
     #     `UnitFlag.Untargetable` (`targeting.is_targetable` est constamment vrai) : meme canal muet
     #     des deux cotes, donc pas un fork ;
-    #   * `Steppable` est lu sur la BORNE STATIQUE `entity_trait_names(None, visualId)` (kit
-    #     gameconfig + alliance) -- exactement la voie que `_tile7_utility` / `_spawn_tile_utility_0x37`
-    #     empruntent deja dans cette meme fonction (`triggered_ability_ids(vis)`), la `Scene` etant
-    #     hydratee par `vis_by_id`. Un trait ACCORDE EN BATAILLE y est donc invisible.
+    #   * `Steppable` passe DEPUIS #287-r11-r2-r1-r2 par le `UnitContext` de la `Scene`
+    #     (`scene.ctx(uid)`), et non plus par la borne STATIQUE `entity_trait_names(None, visualId)`.
+    #     LE CANAL PRECEDENT ETAIT LE MAUVAIS : `entity_trait_names` documente lui-meme que
+    #     `Scene.ctx(uid)` est LE MEME OBJET que le `StatsComponent.ctx` que lit la face runner
+    #     (`targeting._unit_traits`), donc passer `None` REDUISAIT volontairement le substrat au kit
+    #     gameconfig -- aveugle a tout trait ACCORDE EN BATAILLE (`AddTraitOperation`) ET a la MESURE
+    #     live `combatSnapshot.units[].traits`, qui differe du kit DANS LES DEUX SENS (#264 : 5 unites
+    #     du seed ont MOINS de traits que leur kit, 48 en ont PLUS). C'etait un fork entre les deux
+    #     faces, pas une borne assumee. `ctx` absent -> `entity_trait_names` retombe de lui-meme sur
+    #     la borne statique, donc la degradation reste celle d'avant pour une unite hors tables.
     occupant_by_tile = {}
     for u, p in _pos_of.items():
         t = board.id_at(int(p[0]), int(p[1]))
         if t is None:
             continue
-        traits = entity_trait_names(None, scene.vis_by_id.get(u))
+        traits = entity_trait_names(scene.ctx(u), scene.vis_by_id.get(u))
         occupant_by_tile[int(t)] = (scene.team(u), UnitTrait.Steppable.name in traits, True)
     cands = []
     for tid in sorted(board.by_id.keys()):
@@ -727,8 +761,12 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
         d_t = hexgeo.distance(pos, tpos)
         if d_t < 1 or d_t > rng:                            # l'ANNEAU (`GetSurroundingTiles`, radius)
             continue
+        # `attacker_ignores_ranged_in_melee` reste a son defaut `None` = **PAS MESURE** : la `Scene`
+        # porte une table par flag (`moved_by_id`, `teleported_by_id`, `active_ability_used_by_id`,
+        # `prevent_overkill_by_id`) et aucune pour `UnitFlag.IngoreRangedInMelee`. La degradation est
+        # celle du foyer : le clamp melee reste applique, jamais leve sur une non-mesure.
         if not _is_target_in_attack_range_for_summon(board, tid, [tpos], rng, caster_team,
-                                                     occupant_by_tile):
+                                                     occupant_by_tile, True, None):
             continue                                        # `IsTargetInAttackRangeForSummon`
         cands.append((tid, pos))
     if cands:
