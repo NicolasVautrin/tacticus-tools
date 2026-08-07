@@ -424,10 +424,19 @@ def _print(r):
     for nom, pred in sorted(r["lois"].items()):
         print("  %-28s %s%s" % (nom, pred, "   <== CONCORDE" if pred[:len(r["live_order"])]
                                 == r["live_order"] else ""))
+    # ⚠ LE VERDICT PORTE SUR L'ORDRE, PAS SEULEMENT SUR LA VICTIME. Un regime ou `N % C == 0`
+    # (K1 : 3 coups sur 3 cibles) n'a AUCUNE victime des deux cotes -- un critere « meme victime »
+    # y rendrait ACCORD alors que la sequence jouee diverge. C'est le meme vice que le montage
+    # `db-4` de `test_doombolt_live.py` : mesurer un observable que la geometrie a rendu muet.
     live_zero = [w["id"] for w in r["regime_rows"] if w["id"] not in r["live_counts"]]
     off_zero = [w["id"] for w in r["regime_rows"] if w["id"] not in r["off_counts"]]
+    ordre_ok = r["live_order"] == r["off_order"]
     print("\nVICTIME (0 coup) : NATIF %s | PORT %s -- %s"
-          % (live_zero, off_zero, "ACCORD" if live_zero == off_zero else "DIVERGENCE"))
+          % (live_zero, off_zero, "meme" if live_zero == off_zero else "DIFFERENTE"))
+    print("ORDRE JOUE       : NATIF %s | PORT %s -- %s"
+          % (r["live_order"], r["off_order"], "identique" if ordre_ok else "DIVERGENT"))
+    print("VERDICT          : %s" % ("ACCORD" if (ordre_ok and live_zero == off_zero)
+                                     else "DIVERGENCE (#494-r1)"))
 
 
 def main():
@@ -445,7 +454,7 @@ def main():
         raise SystemExit(2)
     live_zero = [w["id"] for w in r["regime_rows"] if w["id"] not in r["live_counts"]]
     off_zero = [w["id"] for w in r["regime_rows"] if w["id"] not in r["off_counts"]]
-    raise SystemExit(0 if live_zero == off_zero else 1)
+    raise SystemExit(0 if (live_zero == off_zero and r["live_order"] == r["off_order"]) else 1)
 
 
 if __name__ == "__main__":

@@ -60,6 +60,12 @@ stat de cible ne peut ordonner : ce qui reste est purement géométrique.
 | `J1` | 5 cibles, `(2,3) (1,4) (1,3) (3,5) (4,4)` | `[81, 83, 79, 85, 87]` | `[79, 83, 85, …]` |
 | `K1` | 3 cibles, `(3,4) (2,4) (4,4)` | `[81, 79, 83]` | `[79, 83, 81]` |
 
+⚠ **Le probe s'est fait piéger par son propre critère, et c'est le vice de `db-4` transposé** : son
+verdict portait sur la seule VICTIME, or `K1` (`N % C == 0`) n'en a aucune des deux côtés — il
+rendait `ACCORD` sur un régime dont la séquence jouée DIVERGE (`[79, 83, 81]` natif contre
+`[79, 81, 83]` port). Le verdict porte désormais sur l'**ORDRE JOUÉ** *et* sur la victime. Mesurer
+un observable que la géométrie a rendu muet est exactement ce qui garde `test_doombolt_live.py` vert.
+
 **Réfuté** : l'ordre par id (ce que le port impose), l'id décroissant, `cube-lex (x,y)` seul,
 `cube-lex (x,y)` décroissant, `cube-lex (y,x)`, `cube-lex (z,x)`.
 
