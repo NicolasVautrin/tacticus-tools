@@ -130,6 +130,10 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.Drachnyen: AbilityAttackType.DirectTargetAttack,  # 1029
     ActiveAbilityType.FlailSwing: AbilityAttackType.DirectTargetAttack,  # 1042
     ActiveAbilityType.ThunderousAssault: AbilityAttackType.DirectTargetAttack,  # 1043
+    # FragstormGrenadeLauncher (1048) : `FragstormGrenadeLauncherAbility$$.ctor` copie le preset
+    # `TargetingOptions` statics `+0x180`, appelle la surcharge PRESET+FLAGS puis
+    # `AActiveAbility..ctor(this, &opts, 0)` -> litteral `0`. (#489)
+    ActiveAbilityType.FragstormGrenadeLauncher: AbilityAttackType.DirectTargetAttack,  # 1048
     ActiveAbilityType.FragBomb: AbilityAttackType.DirectTargetAttack,  # 1017
     ActiveAbilityType.BasiliskBarrage: AbilityAttackType.DirectTargetAttack,  # 1026
     ActiveAbilityType.Stikkbomb: AbilityAttackType.DirectTargetAttack,  # 1051

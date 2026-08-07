@@ -28,7 +28,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 |---|---|---|---|---|
 | 1088 | HellfyreMissileRack | DAMAGE(HeavyRound) | 6 | LN |
 | 1087 | ExemplarOfTheKauyon | DAMAGE(Blast) | 5 | LN |
-| 1048 | FragstormGrenadeLauncher | DAMAGE(Blast) | 5 | LN |
 | 1027 | PsychicMaelstrom | DAMAGE(Psychic) | 5 | LN |
 | 1068 | SilentDeath | DAMAGE(Piercing) | 5 | LN |
 | 1152 | UnstoppableMomentumReworked | DAMAGE(DirectDamage) | 5 | LN |
@@ -121,6 +120,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1171 | DakkaDakkaDakka | DAMAGE(Projectile) | 5 | LN |
 | 1102 | Doombolt | DAMAGE(Psychic) | 5 | LN |
 | 1017 | FragBomb | DAMAGE(Blast) | 5 | LN |
+| 1048 | FragstormGrenadeLauncher | DAMAGE(Blast) | 5 | LN |
 | 1180 | HeroicFusillade | DAMAGE(Projectile) | 5 | LN |
 | 1004 | MortisRound | DAMAGE(HeavyRound) | 5 | LN |
 | 1065 | ScythingTalons | DAMAGE(Bio) | 5 | NS |

@@ -90,6 +90,7 @@ from .astramilitarum import (SupremeCommanderAbility, SendInTheNextWaveAbility,
                              MalleusRocketLauncherAbility, ForwardSpotterAbility,
                              FragBombAbility, BasiliskBarrageAbility)
 from .emperorschildren import DoomSirenAbility
+from .blacktemplars import FragstormGrenadeLauncherAbility
 from ..components import is_alive_and_not_fled
 from ..components import unit_is_dead, MachineComponent
 from ..messages import ActiveAbilityMessage
@@ -140,6 +141,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     ResurrectionOrbAbility.ABILITY_TYPE: ResurrectionOrbAbility,       # 1009 (necroOverlord Anuphet Necrons : SUMMON PUR (aucun revive) — Spawn(PickRandomly(CanAddUnit(AdjacentTiles(caster)), Min(Count(amis LivingMetal morts/ressuscites) + TURNS_STARTED(caster), 6)), necroSmnWarrior, WithStatsFromConfig), Execute plain, #116)
     ChronometronAbility.ABILITY_TYPE: ChronometronAbility,             # 1226 (necroChronomancer Thothmek Necrons : Foreach(SurroundingEnemies(caster, range=2), If(HasTrait(It, Summon), AddEffect(Stunned), AddEffect(Pinned)) & AddEffect(Chronometron_ExtraDamage)) ; porteur hors seed BC -> catalog_inject, #116)
     MultiThreatEliminatorAbility.ABILITY_TYPE: MultiThreatEliminatorAbility,  # 1006 (necroDestroyer Imospekh Necrons : ChainLeftOverHitsAttackDamage 6 coups Gauss + report des coups gaspilles (+extraHit par kill) sur l'ennemi adjacent-derniere-cible & disque rayon-2 caster unobscured, #116)
+    FragstormGrenadeLauncherAbility.ABILITY_TYPE: FragstormGrenadeLauncherAbility,  # 1048 (templAggressor « Brother Burchard » Black Templars : ChainLeftOverHitsAttackDamage 6 coups Blast sur la cible, extraHits NULL, report des coups gaspilles sur Damageable(SurroundingEnemies(Owner, range 2) - Target) trie PV croissants puis SortTargetsByDamagePredictionSelector (priorite aux kills), #489)
     TunnelingHorrorAbility.ABILITY_TYPE: TunnelingHorrorAbility,       # 1011 (necroSmnDestroyer Necrons, cast TILE-TARGET : RemoveUnitFromItsTiles(Caster, true) -> le caster QUITTE le plateau (pos=null, alive=true) & RemoveAllForcedAttackTargets(Caster) & AddBondEffect(0x459 TunnelingHorror_PendingSummon -> la tuile visee, bondedEntity=Caster, PERMANENT) ; porteur summon SANS invocateur -> greffe sur un heros du pool ; #366-r1)
     BurrowersAbility.ABILITY_TYPE: BurrowersAbility,                   # 1023 (tyranSmnRipperSwarm + 5 tyranNpc2RipperSwarm* Tyranids, SELF-CAST : RemoveUnitFromItsTiles(Caster, true) -> le caster QUITTE le plateau (pos=null, alive=true) & RemoveAllForcedAttackTargets(Caster) & AddEffect(0x410 Burrowers_Hidden -> le CASTER, surcharge SANS source, PERMANENT) ; gate CASTER-dynamique `GetDynamicInvalidCasterReason` = casterTiles vide OU une tuile IsTemporary -> 4 ; 2e appelant de la primitive #366-r1, tranche 1 de `#366-r1-tunnel-family`)
     SanctorumMissileAbility.ABILITY_TYPE: SanctorumMissileAbility,     # 1062 (adeptMorvenn Morvenn Vahl Sisterhood : missile 2x Blast cible + 1x Blast adjacents-cible (hex Morvenn exclu) Unobscured, native_factory attack, case-220)
