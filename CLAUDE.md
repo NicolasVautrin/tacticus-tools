@@ -541,8 +541,18 @@ et surtout **écartable au dispatch** : un résidu `BLOCAGE: capteur` ne part pa
 fenêtre n'est prévue.
 
 **Rétro-remplissage : au fil de l'eau, jamais en masse.** Si tu touches une ligne existante qui
-n'a pas ces champs, ajoute-les. 297 lignes d'un coup coûteraient plus que ce que ça rapporte, et
-un champ rempli de mémoire plutôt que par lecture serait pire que son absence.
+n'a pas ces champs, ajoute-les.
+
+⚠ **Et « jamais en masse » n'est PAS une question de coût — c'est le MERGE qui l'interdit.**
+Mesuré le 2026-08-07 : **36 des 40 dernières PR mergées touchent `docs/rl/backlog.md`** (90 %),
+et c'est de très loin le fichier le plus partagé du dépôt — le suivant est à 15. La cause est la
+doctrine elle-même : tout agent qui ouvre un résidu y ajoute sa ligne. Une tranche qui réécrirait
+les 297 lignes toucherait **toutes** les zones du fichier, donc chaque PR en vol tomberait dans un
+hunk adjacent, sur des lignes de tableau modifiées **des deux côtés** — le conflit que git ne
+résout pas seul, avec le risque d'écraser une ligne qu'on n'a pas lue. Le premier argument (« un
+champ rempli de mémoire plutôt que par lecture est pire que son absence ») reste vrai mais il est
+**négociable** ; celui-ci ne l'est pas. Ne dispatche pas d'agent de classification de masse sur ce
+fichier, quelle que soit la valeur attendue.
 
 ## L'état de la BOUCLE — `loop_status.py`, déclenché tout seul (#467)
 
