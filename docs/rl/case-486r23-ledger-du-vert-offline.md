@@ -344,12 +344,42 @@ donc aujourd'hui qu'en mono-shard.
 **Critere de levee** : une consolidation inter-shards existe (chaque shard ecrit sa part, une
 passe finale fusionne), ou le mono-shard est assez rapide pour etre le mode nominal.
 
+**ET EN REGIME REEL, B1 DOMINE TOUT.** Mesure faite APRES le rebase de cette PR sur 12 commits
+de `master` :
+
+```
+--depuis-ledger                    : 239/239 [dependance changee 223, ROUGE 13,
+                                              aucune attestation 2, blob change 1]
+--since origin/master              : changement dans une lecture GLOBALE
+                                     (scripts/ratchets-457-footprints.json) -- TOUT rejoue
+```
+
+Les trois autres causes montrent que le mecanisme est **CORRECT** -- il voit les 2 fichiers de
+test NEUFS arrives avec `master` (« aucune attestation »), et le fichier que j'ai modifie
+(« blob change »). Mais les **223** restants tombent tous par B1. **Tant que B1 tient, le ledger
+n'economise rien en pratique**, quelle que soit la qualite de sa cle.
+
 ### B5. La garde de retrait empeche le peuplement
 
 `probe_457` REFUSE de se lancer sans `TACTICUS_ALLOW_RATCHETS` (garde posee le 2026-08-06 apres
 qu'un agent l'a joue par reflexe). Tant qu'elle est la, **le ledger ne se peuple pas dans le cours
 normal**. Ce n'est pas un defaut a corriger tant qu'aucune obligation n'est cablee -- c'est une
 dependance a lever EN MEME TEMPS que la mise en service, pas avant.
+
+### B6. Une passe COMPLETE SALIT un fichier VERSIONNE
+
+Trouve au rebase de cette PR : apres la passe de 1 795 s, `git status` portait
+`M scripts/cliquets-cache/probe_270r4r2_import_en_premier.tsv` (**367 insertions, 348
+suppressions**) -- un cache de cliquet, VERSIONNE, reecrit par un test pendant la passe.
+
+Consequence si `probe_457` redevenait une etape de PR : **chaque agent verrait ce fichier sali**,
+donc soit il l'embarquerait dans sa PR (conflit garanti avec les autres, sur un artefact genere),
+soit il le restaurerait a la main sans savoir pourquoi. Le probe garantit deja qu'il n'ecrit rien
+sous `scripts/python/` (`-p no:cacheprovider`, #455) -- mais un TEST qu'il joue, lui, ecrit
+ailleurs.
+
+**Critere de levee** : apres une passe complete, `git status` est **propre** (hors artefacts que
+le probe ecrit deliberement : empreinte, ledger).
 
 ## 7. Comment s'en servir AUJOURD'HUI (aucune obligation -- un mode d'emploi)
 
