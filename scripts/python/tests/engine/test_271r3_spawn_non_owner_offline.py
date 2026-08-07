@@ -41,14 +41,42 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 #: Ce qui doit changer pour que cette garde puisse changer de verdict (#486-r15).
 DECLENCHEUR = {
-    "chemins": ("scripts/python/engine/**/*.py", "scripts/python/tests/engine/**/*.py",
-                "scripts/python/gameconfig.py", "data/**"),
-    "build": False,
+    "chemins": (
+        # SOCLE COMMUN a tout fichier de test : la cascade des deux `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # LE SUBSTRAT du regime SPAWN et le dispatcher de la feuille 4 -- l'objet meme du fichier.
+        "scripts/python/engine/utilities/tile.py",
+        # LES CORPS : les trois qui yieldent en SPAWN, les deux gates load-bearing, le registre.
+        "scripts/python/engine/playbook/non_owner.py",
+        # L'ADJACENCE (`MovementUtil$$AreTilesAdjacent`, porte d'elevation + court-circuit
+        # d'identite) : c'est elle qui decide quelles tuiles de spawn recoivent le terme.
+        "scripts/python/engine/battle_query.py",
+        # LES POIDS BC : la somme attendue est DERIVEE de trois cles, jamais ecrite en dur.
+        "scripts/python/engine/weights.py",
+        # LA COMPOSITION du composite `Tile(7)`, dont l'etage RAYON DE SOUFFLE derive son perimetre.
+        "scripts/python/engine/utilities/utility_type.py",
+        # ⚠ LARGE ET ASSUME : importer `engine.utilities.tile` tire la cascade du paquet `engine`
+        # (playbooks, pathfinding, entites). Une liste feuille-a-feuille ne peut pas montrer le
+        # module qu'elle a oublie -- les chemins NOMMES ci-dessus disent OU regarder, les deux
+        # globs disent ce qui FAIT changer d'avis. Les DEUX formes sont necessaires : `**/` exige
+        # un SEGMENT, donc `scripts/python/**/*.py` ne voit PAS `scripts/python/gameconfig.py`.
+        "scripts/python/*.py", "scripts/python/**/*.py",
+        # ⚠ HORS de `scripts/python/` -- aucun des deux globs ne les couvre. Les entrees
+        # VERSIONNEES que la cascade lit (seed BC, gameconfig, boards) et la table des noms
+        # d'ability, qui vit dans le bundle Frida. Mesure : `dirs = ['data', 'frida/hooks/data']`.
+        "data/**", "frida/hooks/data/ability-names.ts",
+    ),
+    # Les trois poids (`PSYCHICFORTRESS_AdjacentFriendly`, `BookOfFate_AdjacentSummons`,
+    # `MawClawsOfThyrax_AdjacentSummons`) sont LUS dans le gameconfig du build : un re-dump peut les
+    # faire bouger, et l'etage 2 doit alors rougir plutot que de figer une valeur perimee.
+    "build": True,
     "toujours": False,
-    "raison": "Le substrat du regime SPAWN (`engine/utilities/tile.py::_spawn_leaf_ctx`), le "
-              "dispatcher de la feuille 4 et les corps de `engine/playbook/non_owner.py` -- plus "
-              "les poids BC, qui viennent du gameconfig : les trois valeurs assertionnees (20/5/5) "
-              "sont LUES, pas ecrites en dur. Aucun binaire : la garde est 100 % offline.",
+    "raison": (
+        "Le regime SPAWN est un mirror de deux corps natifs (`<EvaluateMovementInSteps>d__0` et "
+        "`<IterateAbilities>d__3`) plus les corps des playbooks : il ne peut changer de verdict "
+        "que si le substrat (`_spawn_leaf_ctx`), le dispatcher, un corps de `non_owner.py`, "
+        "l'adjacence portee ou les poids BC du build changent."),
 }
 
 #: Les classes du registre qui YIELDENT en regime SPAWN -- LU au decompile, corps par corps
