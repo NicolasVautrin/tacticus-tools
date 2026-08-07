@@ -110,6 +110,8 @@ from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # tra
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
 from ..loki.drachnyen import (DrachnyenExtraAttackAbility,            # #BL-1029r (1029 -> 1485)
                               DRACHNYEN_ABILITY)
+from ..loki.doctrina_imperatives import (DoctrinaImperativesSetStartAbility,   # #521-r4
+                                         DOCTRINA_IMPERATIVES_ACTIVE)          # (1118 -> 1201)
 from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
 from ..loki.heavy_warp_flamer import (HeavyWarpFlamerAttackTrackingAbility,       # #523-r1
                                       HeavyWarpFlamerAttackTrackingResetAbility)  # (1227 -> 1546)
@@ -678,6 +680,17 @@ PASSIVE_HELPER_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `...TalonsOfTheEmperorAbility$$GetExtraDamage`. Le trigger porte tous ses gates, donc
     # l'inscription inconditionnelle est fidele. Cf. loki/talons_of_the_emperor.py.
     TOTE_ACTIVE_ID: [TalonsOfTheEmperorUsedAbilitiesAbility],
+    # 0x466 (1118 DoctrinaImperatives, `admecMarshall` HERO) -> 0x4b9 (1201
+    # DoctrinaImperatives_SetStart) : a l'INIT des abilities du porteur, self-buff
+    # `AddDynamicStatModifierEffectToOwner(1247 ProtectorImperative, 16 FixedArmor, turns = null)`.
+    # Le trigger PARTAGE (`<DSLTriggers+0x30>`) se reduit a `On(0x21 = AbilityInit) & OwnerIsActor` :
+    # son 2e conjoint `<DSLTriggers+0x70>` est le `YesTrigger` CONSTANT (element neutre), ce qui
+    # LEVE le dernier verrou de lecture note par case-521r1 Sec.5bis.
+    # ⚠ INERTE sur le regime courant : le port n'emet `On(AbilityInit)` qu'au SPAWN, et aucune unite
+    # portant 1118 n'est spawnee -- celles du roster arrivent par `load_state` avec l'effet DEJA
+    # pose. Inscription FIDELE au registre natif, gain de comportement NUL, et c'est dit.
+    # Cf. loki/doctrina_imperatives.py. #521-r4.
+    DOCTRINA_IMPERATIVES_ACTIVE: [DoctrinaImperativesSetStartAbility],
 }
 
 # --- Registre : relicAbility → triggered-ability(s) accordée(s) ------------------------------------
