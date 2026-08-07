@@ -257,8 +257,11 @@ VENTILATION = {
         ("INERTE-VIVANT", "`IsDisplaceable` : gate `not uc.alive -> return` juste au-dessus"),
     ("runner/operations/displace.py", "_is_empty_or_steppable", "getattr(sc.ctx)", "R"):
         ("INERTE-VIVANT", "occupant issu de `_occupied` (vivants seuls)"),
-    ("runner/operations/displace.py", "execute", "getattr(sc.ctx)", "R"):
-        ("INERTE-VIVANT", "pull ET push : meme gate `IsDisplaceable` en tete d'`Execute`"),
+    # #498-r3 -- l'entree `displace.py::execute` (pull/push/direct) a DISPARU de la table : ces
+    # trois `execute()` ne lisent plus `.traits` du tout, ils appellent le foyer
+    # `runner/components.py::unit_extensions_is_displaceable`, qui passe par `entity_trait_names`.
+    # Meme cause pour `momentum.py::_is_displaceable`. Retirer l'entree N'EST PAS un abandon de
+    # verdict : le site a change d'etage, et le foyer n'est pas une lecture brute.
     ("runner/operations/movement.py", "_num_tiles_moved", "getattr(sc0.ctx)", "R"):
         ("INERTE-VIVANT", "le MOVER"),
     ("runner/operations/movement.py", "_num_tiles_moved", "getattr(sc.ctx)", "R"):
@@ -320,8 +323,8 @@ VENTILATION = {
         ("INERTE-VIVANT", "gate `uc is None or not uc.alive -> continue` en tete de boucle"),
     # #498 -- les deux predicats de `UnstoppableMomentumReworked`. Les verdicts DIFFERENT parce que
     # les gates ne sont pas au meme etage, et c'est exactement ce que cette table sert a dire.
-    ("runner/abilities/loki/momentum.py", "_is_displaceable", "getattr(sc.ctx)", "R"):
-        ("INERTE-VIVANT", "`UnitExtensions$$IsDisplaceable` : gate INTERNE `not uc.alive -> False`"),
+    # (#498-r3 : `_is_displaceable` ne lit plus `.traits` -- il delegue au foyer, cf. la note
+    #  posee au bloc `displace.py` ci-dessus. Son gate `alive` est CONSERVE et nomme au site.)
     ("runner/abilities/loki/momentum.py", "_can_move", "getattr(sc.ctx)", "R"):
         ("INERTE-AMONT", "`UnitExtensions$$CanMove` n'a AUCUN gate interne ; son unique appelant "
                          "(`ExecuteBehaviourStep`) pose `if _is_dead(caster): return False` a la "

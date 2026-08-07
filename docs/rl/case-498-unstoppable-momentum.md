@@ -295,9 +295,13 @@ re-jeu APRÈS rebase** — les tests concernés ne sont pas dans le périmètre 
 * **`extra_hits`** : le kit annonce la mécanique, mais `nrOfHits = 1` et aucun des 6 montages n'a
   produit de coup additionnel (`additional_hits` toujours vide). La face est donc **non exercée**,
   pas « validée ». Elle passe par le foyer PARTAGÉ `execute_ability_attack`, déjà gardé ailleurs.
-* **`UnitFlag.Undisplaceable`** posé/retiré autour de la charge : **inerte** dans le port (aucun
-  étage porté ne le lit ; le caster n'est jamais la cible d'un push de sa propre charge). Il est
-  posé quand même — son absence serait un écart d'état.
+* **`UnitFlag.Undisplaceable`** posé/retiré autour de la charge. ⚠ La phrase qui vivait ici
+  (« inerte : **aucun étage porté ne le lit** ») est **PÉRIMÉE depuis #498-r3** : les six miroirs
+  runner d'`IdunBattle.Entities.UnitExtensions$$IsDisplaceable` le lisent désormais, par le foyer
+  `runner/components.py::unit_extensions_is_displaceable`. Ce qui reste vrai, et qui est la VRAIE
+  raison de l'inertie : le flag n'a qu'**un seul écrivain** et il ne porte que sur le **caster**,
+  que les gates de sa propre charge n'évaluent jamais. Il mordrait dès qu'un déplacement viserait
+  ce caster **pendant** sa charge. Détail : `case-498-r3-is-displaceable-quatre-conditions.md`.
 * **`UnitExtensions$$CanMove`** : réduction NOMMÉE à `not Immovable` (le port n'a pas d'état
   « immobilisé » distinct). Permissive ; le vrai verrou reste `IsEmptyOrSteppable` puis `IsFreeTile`.
 * **`TileExtensions$$IsTemporary`** (gate du `SwitchPosition`) : gate **inerte**, le port n'a pas de
@@ -309,8 +313,11 @@ re-jeu APRÈS rebase** — les tests concernés ne sont pas dans le périmètre 
 
 ---
 
-## 5. Résidu ouvert
+## 5. Résidus
 
 | # | sujet |
 |---|---|
+| **#498-r2** | **FERMÉ par #498-r3.** `IsDisplaceable` testait QUATRE refus là où le port en portait DEUX. Re-dérivé : **neuf** miroirs (pas cinq), et `SwitchPositionOperation` n'en portait **aucun**. Corrigé par un foyer unique, confronté LIVE. |
+| **#498-r3** | **FERMÉ (cette tranche).** `docs/rl/case-498-r3-is-displaceable-quatre-conditions.md`. |
+| **#498-r4** | **OUVERT.** Les deux miroirs de la face **DÉCISION** (`MortisRoundPlaybook._is_displaceable`, `ItItchesPlaybook._is_displaceable`) portent les trois traits mais pas `HasFlag(0x19 UnitFlag.Undisplaceable)` ni la tête `EntityType == Unit` : leur substrat (`Scene` / `NCContext`) ne publie que quatre `UnitFlag`. Direction PERMISSIVE. |
 | **#498-r1** | **Face DÉCISION de 1152 non portée.** `$$CanContinue` et `$$GetAllTilesInLine` sont lus (cf. §1) et le playbook `UnstoppableMomentumReworkedPlaybook$$EvaluateNonComparable` est cité par `case-477r33` comme un non-owner dont le port ne rend rien. La face COMBAT est portée et confrontée (#498) ; celle-ci est un résidu de SCORING/prévisualisation, entièrement lisible. |
