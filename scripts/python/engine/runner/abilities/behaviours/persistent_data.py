@@ -29,7 +29,7 @@ l'atteint. Le jour ou un consommateur a besoin des ENTITES, le selecteur entre i
 """
 from __future__ import annotations
 
-from ....dsl.base import TargetsSelector, _units_of
+from ....dsl.base import TargetsSelector, _units_of, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import PersistentDataComponent
 
@@ -144,6 +144,65 @@ class AddPersistentData(AbilityBehaviour):
             c.persist_data(ck, val)                  # `PersistData` ECRASE (pas d'empilement)
             posees.append({"unit": int(u["id"]), "value": val})
         ectx.emit("AddPersistentData", ability=self.ability_or_effect, key=key, posees=posees)
+        return OperationResult.ok()
+
+
+class SetPersistentData(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$SetPersistentData(abilityOrEffect, unit, dataKey,
+    valueFormula)` -> `IdunBattle.Entities.Behaviours.SetPersistentDataBehavior$$Execute` -- MIRROR du
+    decompile :
+
+        entity = <selecteur unit @+0x68>.SelectSingle(entities)   # null -> return (no-op)
+        key    = <formule INT @+0x70>.Calculate(entities).ToString()
+                 ?? <formule STRING @+0x78>.Calculate(entities)
+        value  = <formule @+0x80>.Calculate(entities)
+        entity.GetComponent<PersistentDataComponent>()
+              .PersistData<T>(GetPersistentDataId(abilityOrEffect@+0x50), key, value)
+
+    ⚠ CE N'EST PAS `AddPersistentData` CI-DESSUS, et la difference est LUE, pas supposee : deux
+    CLASSES natives distinctes, dans deux NAMESPACES distincts, a deux adresses distinctes
+    (`IdunBattle.Entities.Behaviours.SetPersistentDataBehavior$$Execute` vs
+    `IdunBattle.Entities.Triggers.AddPersistentDataBehavior$$Execute`). La sequence d'appels les
+    separe : le corps d'`AddPersistentDataBehavior` appelle
+    `PersistentDataComponent$$TryGetPersistData<T>` AVANT son `PersistData<T>` -- il RELIT la valeur
+    en place --, la ou celui-ci ne l'appelle PAS et se contente d'ECRIRE. Cette feuille-ci est donc
+    un ECRASEMENT PUR ; toute accumulation doit venir du noeud VALEUR au-dessus (c'est ce que fait
+    `HeavyWarpFlamer_AttackTrackingAbility`, dont la valeur est
+    `Sum(GetPersistentData(...), Direct(1))`).
+
+    RESIDU NOMME, hors perimetre : la docstring d'`AddPersistentData` ci-dessus decrit son natif
+    comme un ECRASEMENT PUR alors que son corps RELIT (`TryGetPersistData`). Son unique consommateur
+    porte (`HaywireMineAbility`, valeur `Direct(1)`) est gate par `AmountIsZero(GetPersistentData)`
+    et vide la cle a chaque fin de tour : accumuler ou ecraser y donne le MEME observable, donc rien
+    ne diverge aujourd'hui. Le corps d'`AddPersistentDataBehavior` reste a re-RE.
+
+    `SelectSingle` (slot 8), pas `Select` : la feuille porte sur UNE entite -- mirror direct, la ou
+    `AddPersistentData` boucle. Effet PUR (`stop=False`). Emet 'SetPersistentData'."""
+    __slots__ = ("ability_or_effect", "unit_sel", "data_key", "value")
+
+    def __init__(self, ability_or_effect: int, unit_sel: TargetsSelector, data_key, value):
+        self.ability_or_effect = int(ability_or_effect)
+        self.unit_sel, self.data_key, self.value = unit_sel, data_key, value
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        u = resolve_unit(self.unit_sel, entities)     # `SelectSingle` -- null => no-op
+        if u is None:
+            return OperationResult.ok()
+        c = _component(state, u.get("id"))
+        if c is None:
+            return OperationResult.ok()
+        key = self.data_key.evaluate(entities) if hasattr(self.data_key, "evaluate") \
+            else self.data_key
+        val = self.value.evaluate(entities) if hasattr(self.value, "evaluate") else self.value
+        if val is None:
+            return OperationResult.ok()
+        ck = (self.ability_or_effect, key)
+        c.persist_data(ck, val)                       # `PersistData<T>` -- ECRASE
+        ectx.emit("SetPersistentData", ability=self.ability_or_effect, key=key,
+                  unit=int(u["id"]), value=val)
         return OperationResult.ok()
 
 
