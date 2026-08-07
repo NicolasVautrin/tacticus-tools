@@ -29,6 +29,18 @@ Chaine native (relue au decompile du build `rnca9r7q6c`) :
                 yield (playbook, triggeredAbility.Owner);
         }
 
+⚠ **LE REGIME SPAWN N'EST PAS UN REGIME MORT (#271-r3).** Les deux gardes ci-dessus le disent, et
+c'est la lecture qui a manque pendant trois tranches : `EvaluateMovementInSteps` ne rend `Zero` que
+si `case.unit` **ET** `case.parent` sont nuls, et l'exclusion de self d'`IterateAbilities` est
+GARDEE par `case.unit != null`. Quand un summon cherche sa tuile d'apparition
+(`SortTilesByUtilityForSummon`), le natif itere donc avec le PARENT pour sujet, **le parent compris
+parmi les porteurs**. TROIS corps du registre y yieldent, parce qu'ils ne lisent JAMAIS `case.unit`
+(relus au decompile un par un) : `PsychicFortress` (20), `BookOfFate` (5), et la BRANCHE SPAWN de
+`MawClawsOfThyrax` (5, sans le gate `Summon`). Les 17 autres portent un
+`if (case.unit == null) yield break` -- leur gate `is_spawning` est donc LOAD-BEARING, pas
+decoratif : le dispatcher n'ecarte plus ce regime en amont. DEUX classes ne l'avaient pas
+(`KustomForceFieldReworked`, `ECogSupport`) ; il est desormais EXPLICITE partout ou le natif l'a.
+
 Le pre-gate `<slot 4> || IsFriend` est le complement de
 `IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility$$IsInvalidEntityForPlaybook`
 (= `!slot4 && !IsFriend`). `slot 4` est un predicat SANS argument de l'interface
@@ -189,6 +201,13 @@ class KustomForceFieldReworkedNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook)
 
     def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
                                             ctx: dict, wt) -> float:
+        # `if (case.unit == null) yield break;` -- LU au desassembleur (`if (case+0x10 != 0)` garde
+        # TOUT le corps). Ce gate est LOAD-BEARING depuis #271-r3 : le dispatcher n'ecarte plus le
+        # regime SPAWN en amont, et sans lui ce terme verserait sa valeur sur une decision de spawn
+        # ou le natif ne verse RIEN (`is_friend` y est calcule sur le PARENT, donc vrai ; le `x2`
+        # d'`HasFaction` tomberait, mais le terme de base passerait) -- un +10 fantome, muet.
+        if (ctx or {}).get("is_spawning"):
+            return 0.0
         if not is_friend:                                    # UnitExtensions.IsFriend(case.unit, owner)
             return 0.0
         opos = (owner or {}).get("pos")
@@ -250,6 +269,12 @@ class ECogSupportPlaybookNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
     def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
                                             ctx: dict, wt) -> float:
         ctx = ctx or {}
+        # `if (case.unit == null) { yield return Fix64.Zero; yield break; }` -- etat 1 de la SM, LU.
+        # Le gate etait IMPLICITE (en regime SPAWN `unit_traits` est absent, donc `HasTrait` tombait
+        # de toute facon) ; il est EXPLICITE depuis #271-r3, parce que le dispatcher n'ecarte plus ce
+        # regime en amont et qu'un gate implicite depend d'une cle que le ctx pourrait porter demain.
+        if ctx.get("is_spawning"):
+            return 0.0
         opos = (owner or {}).get("pos")
         if not opos:                                          # GetMainTile(owner, State) == null
             return 0.0
@@ -289,7 +314,15 @@ class PsychicFortressNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
     pre-gate `<slot 4> || IsFriend` d'`IterateAbilities` (slot 4 = `false`, cf. en-tete). Le porter
     dans le corps serait un doublon inoffensif ; ne pas le porter DU TOUT rendrait le terme actif
     pour les ennemis du porteur -- c'est exactement pourquoi ce residu exigeait de lire le slot
-    avant d'enregistrer la classe."""
+    avant d'enregistrer la classe.
+
+    ⚠⚠ **CE CORPS YIELDE AUSSI EN REGIME SPAWN, et c'est l'un des trois seuls (#271-r3).** Ne pas
+    lire `case.unit` n'est pas un detail de style : le natif itere cette feuille quand
+    `case.unit == null && case.parent != null` (call-site `SortTilesByUtilityForSummon`), et rien
+    ici ne s'y oppose -- le terme vaut 20 pour toute tuile de spawn adjacente au porteur AMI DU
+    PARENT. **Ne JAMAIS ajouter un gate `is_spawning` a cette classe** : ce serait retirer un terme
+    que le natif verse. Les DEUX autres sont `BookOfFateNonOwnerPlaybook` et la branche SPAWN de
+    `MawClawsOfThyraxNonOwnerPlaybook`."""
 
     ABILITY_ID = int(TriggeredAbilityType.PsychicFortress)              # 1000
     KEY = "PSYCHICFORTRESS_AdjacentFriendly"                            # gameconfig vivant = 20
@@ -353,7 +386,8 @@ class KardiocoreGalvanusNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
                                             ctx: dict, wt) -> float:
         ctx = ctx or {}
         # `if (case.unit == null) { yield Fix64.Zero; yield break; }` -- le regime SPAWN est le seul
-        # ou le sujet manque, et le dispatcher y rend deja 0 (residu nomme).
+        # ou le sujet manque. Gate LOAD-BEARING depuis #271-r3 : le dispatcher itere ce regime au
+        # lieu de le court-circuiter, donc le 0 vient d'ICI, comme dans le natif.
         if ctx.get("is_spawning"):
             return 0.0
         if not _is_mechanical(ctx):                          # IsMechanical(case.unit)
@@ -389,6 +423,10 @@ class BookOfFateNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
     `HasTrait(.., Summon)`. Le nom de cle decrit l'intention du designer, pas la condition -- le
     lire comme un gate ajouterait un filtre que le natif n'a pas. Le « Friendly » implicite, lui,
     vient ENTIEREMENT du pre-gate `<slot 4> || IsFriend` d'`IterateAbilities` (slot 4 = `false`).
+
+    ⚠⚠ **CE CORPS YIELDE AUSSI EN REGIME SPAWN (#271-r3)** -- il ne lit JAMAIS `case.unit`, et le
+    natif itere la feuille quand `case.unit == null && case.parent != null`. **Ne JAMAIS lui
+    ajouter un gate `is_spawning`.** Cf. `PsychicFortressNonOwnerPlaybook`, meme cas.
 
     Porteurs (voie RELIQUE) : `blackPossession`, `thousInfernalMaster`, `thousSorcerer` -- au pool,
     relique NON equipee au seed (etat 2, montage `--equip-relic`)."""
@@ -547,6 +585,8 @@ class AdjacentToOwnerNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
                                             ctx: dict, wt) -> float:
         ctx = ctx or {}
         # `if (case.unit == null) yield break;` -- le regime SPAWN est le seul ou le sujet manque.
+        # Gate LOAD-BEARING depuis #271-r3 (le dispatcher itere ce regime) : il porte le 0 des DIX
+        # concrets du corps partage.
         if ctx.get("is_spawning"):
             return 0.0
         opos = (owner or {}).get("pos")
@@ -842,8 +882,9 @@ class PurgeResponseNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
     def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
                                             ctx: dict, wt) -> float:
         ctx = ctx or {}
-        # `if (case.unit == null) yield break` -- le regime SPAWN est le seul ou le sujet manque, et
-        # le dispatcher y rend deja 0 (residu nomme, commun a toute la feuille).
+        # `if (case.unit == null) yield break` -- le regime SPAWN est le seul ou le sujet manque.
+        # Gate LOAD-BEARING depuis #271-r3 : le dispatcher itere ce regime au lieu de le
+        # court-circuiter, donc le 0 vient d'ICI, exactement comme dans le corps natif.
         if ctx.get("is_spawning"):
             return 0.0
         fac = ctx.get("unit_faction")
@@ -883,8 +924,10 @@ class MawClawsOfThyraxNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
 
     * **C'est le SEUL corps de la famille a porter DEUX branches**, et la branche SPAWN
       (`case.unit == null && case.parent != null`) n'a PAS le gate `Summon` -- le sujet spawne est
-      presume l'etre, c'est le PARENT qu'elle teste. Le `ctx` de spawn du port ne portant aucune
-      cle de sujet, cette branche reste au residu NOMME de la feuille, comme partout ailleurs ;
+      presume l'etre, c'est le PARENT qu'elle teste. **PORTEE depuis #271-r3** : le `ctx` de spawn
+      porte desormais un substrat campe sur le PARENT (`utilities/tile.py::_spawn_leaf_ctx`), donc
+      `is_friend` y EST `AreFriends(case.parent, owner, ByCurrentTeam)` -- exactement le second
+      terme de cette branche. Les deux branches ne different que par le gate `Summon` ;
     * **le slot `0x92` est `AreFriends`, pas un predicat de position.** Resolu par la vtable RUNTIME
       (`probe_27_4g_battlequery_slots.py --slots 0x92` : slot d'interface `0x92` + 4 = index `0x96`
       = `AreFriends`). Le voisin `0x8e` est `GetAllEnemiesOf` : lire le slot a un pres ici aurait
@@ -915,21 +958,24 @@ class MawClawsOfThyraxNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
     def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
                                             ctx: dict, wt) -> float:
         ctx = ctx or {}
-        # BRANCHE SPAWN (`case.unit == null && case.parent != null`) : NON PORTEE -- le `ctx` de
-        # spawn ne produit aucune cle de sujet ni de parent. Residu nomme de la feuille, pas un
-        # ecart propre a cette classe.
-        if ctx.get("is_spawning"):
-            return 0.0
         opos = (owner or {}).get("pos")
         if not opos:
             return 0.0
+        # `AreEntitiesAdjacent(case.MovementTile, owner)` -- 1er terme des DEUX branches.
         if not bq.are_entities_adjacent((tile[0], tile[1]), (opos[0], opos[1]),
                                         ctx.get("elev_by_pos"), bq.neigh_map(ctx)):
             return 0.0
-        if not _has_trait(ctx, UnitTrait.Summon):            # HasTrait(case.unit, 0x2)
-            return 0.0
-        # `AreFriends(case.unit, owner, ByCurrentTeam)` == `IsFriend(case.unit, owner, state)` : le
-        # dispatcher a deja calcule ce booleen pour le pre-gate, on le RELIT au lieu de le refaire.
+        # LE BRANCHEMENT. `is_spawning` == `UtilityMovementCase$$get_IsSpawning` ==
+        # `case.unit == null && case.parent != null`, c'est-a-dire EXACTEMENT le `else` du natif une
+        # fois sa sortie `case.parent == null -> yield break` prise en compte (ce ctx n'existe que
+        # si le parent existe). La branche SPAWN n'a PAS le gate `Summon` : le sujet qui apparait
+        # est presume l'etre, et c'est le PARENT que teste son `AreFriends`.
+        if not ctx.get("is_spawning"):
+            if not _has_trait(ctx, UnitTrait.Summon):        # HasTrait(case.unit, 0x2)
+                return 0.0
+        # `AreFriends(case.unit ?? case.parent, owner, ByCurrentTeam)` == `IsFriend(.., owner, state)` :
+        # le dispatcher a deja calcule ce booleen pour le pre-gate -- sur le SUJET quand il existe,
+        # sur le PARENT en regime SPAWN -- on le RELIT au lieu de le refaire.
         if not is_friend:
             return 0.0
         return float(wt.sub("TriggeredAbilitiesNonOwner", self.KEY))
@@ -1106,8 +1152,9 @@ class FirstAmongTraitorsNonOwnerPlaybook(TriggeredAbilityNonOwnerPlaybook):
     def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
                                             ctx: dict, wt) -> float:
         ctx = ctx or {}
-        # `if (case.unit == null) yield break` -- le regime SPAWN est le seul ou le sujet manque, et
-        # le dispatcher y rend deja 0 (residu nomme, commun a toute la feuille).
+        # `if (case.unit == null) yield break` -- le regime SPAWN est le seul ou le sujet manque.
+        # Gate LOAD-BEARING depuis #271-r3 : le dispatcher itere ce regime au lieu de le
+        # court-circuiter, donc le 0 vient d'ICI, exactement comme dans le corps natif.
         if ctx.get("is_spawning"):
             return 0.0
         if not _has_trait(ctx, UnitTrait.Chaos):             # HasTrait(case.unit, 0x7ea)

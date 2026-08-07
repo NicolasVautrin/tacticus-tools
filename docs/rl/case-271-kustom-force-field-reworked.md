@@ -110,18 +110,30 @@ IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CIterateAbilitiesu
     }
 ```
 
-**Ce qui n'est PAS porté, et pourquoi** — le pré-gate `<slot 4>` (complément de
-`IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility$$IsInvalidEntityForPlaybook`, qui vaut
-`!slot4 && !IsFriend`) est un prédicat sans argument dont le corps est TRIVIAL, fondu par l'ICF, donc
-sans symbole propre. Il est **TRANSPARENT** pour le seul playbook enregistré : celui-ci re-teste
-`IsFriend` lui-même, donc un porteur non-ami rend 0 que le pré-gate l'ait écarté ou non. **Résidu
-nommé** : le jour où un playbook NonOwner *sans auto-gate* entre au registre, il faudra lire ce slot
-(bloc `methodPointers` du PE, `probe_8889_methodptr_vtable.py`) **avant** de le porter.
+**Les deux résidus que ce §3 avait ouverts sont FERMÉS (2026-08-07), et les deux énoncés étaient
+faux — pas incomplets, faux.** Ils sont conservés ci-dessous rayés, parce que la façon dont chacun
+s'est révélé faux est le vrai enseignement du cas.
 
-**Second résidu nommé** : le régime SPAWN (`case.unit == null`, `case.parent != null` — call-site
-`SortTilesByUtilityForSummon`) où le natif itère avec le PARENT comme sujet et **sans** exclusion de
-self. Le `ctx` de ce foyer ne produit aucune clé d'unité (`{"is_spawning": True}` seul) ⇒ la feuille
-rend 0. Identique aux autres feuilles gatées sur le sujet.
+~~**Ce qui n'est PAS porté** — le pré-gate `<slot 4>` … est **TRANSPARENT** pour le seul playbook
+enregistré ; il faudra lire ce slot le jour où un playbook sans auto-gate entre au registre.~~
+→ **#271-r2 FERMÉ.** Le slot a un NOM (`get_ShouldIncludingEnemiesWhenCalculate`, 5ᵉ méthode
+d'`IdunBattle.AI.Playbook.ITriggeredAbilityNonOwnerPlaybook`, LUE dans le `global-metadata.dat`) et
+il est porté **PAR CLASSE** depuis #477-r37 : **2 des 28** concrets le surchargent, l'entrée
+`data/symbols/<build>/metadata/non_owner_slot4.tsv` est versionnée, et un cliquet confronte le port
+au binaire. Ce qui restait ouvert n'était donc pas le port : c'était **cette citation-ci**, recopiée
+dans la docstring du dispatcher, où elle affirmait « vaut `false` — aucune classe ne le surcharge »
+DIX LIGNES au-dessus d'un code qui lisait `pb.SLOT_4` par classe.
+
+~~**Second résidu** : le régime SPAWN … le `ctx` de ce foyer ne produit aucune clé d'unité ⇒ la
+feuille rend 0. Identique aux autres feuilles gatées sur le sujet.~~
+→ **#271-r3 LIVRÉ.** « Identique aux autres feuilles » était l'erreur : les autres feuilles sont
+gatées sur le sujet **dans leur corps natif**, celle-ci ne l'est pas. `<EvaluateMovementInSteps>d__0`
+ne rend `Fix64.Zero` que si `case.unit` **ET** `case.parent` sont nuls ; `<IterateAbilities>d__3`
+prend alors le PARENT pour sujet et **désarme l'exclusion de self**. TROIS corps du registre y
+yieldent — `PsychicFortress` (20), `BookOfFate` (5), branche SPAWN de `MawClawsOfThyrax` (5, sans le
+gate `Summon`) — soit jusqu'à **30 points** perdus par tuile de spawn adjacente à un porteur ami. Et
+le blocage annoncé (`seeding`) n'existait pas : le `State` du runner portait déjà tout, seul le
+producteur de `ctx` refusait de publier.
 
 ## 4. LE PIÈGE DU CAS — l'adjacence du port n'était pas l'adjacence native
 
@@ -241,10 +253,10 @@ positif** ≤ 25 sur un état où la proposition native est un mouvement PUR. Vo
 
 ## 7. Résidus NOMMÉS
 
-1. **Pré-gate `<slot 4>` de `IterateAbilities`** — non porté, transparent pour le seul playbook au
-   registre (§3). À lire avant d'enregistrer un playbook NonOwner sans auto-gate `IsFriend`.
-2. **Régime SPAWN de la feuille 4** (`case.unit == null`, parent non nul) — rend 0 faute d'un `ctx`
-   de spawn peuplé ; même résidu que les autres feuilles gatées sur le sujet (case-205).
+1. ~~**Pré-gate `<slot 4>` de `IterateAbilities`**~~ — **FERMÉ (#271-r2, 2026-08-07)**, cf. §3 et
+   §7.1 ci-dessous.
+2. ~~**Régime SPAWN de la feuille 4**~~ — **LIVRÉ (#271-r3, 2026-08-07)**, cf. §3 et §7.2. Reste la
+   confrontation LIVE du choix de tuile de spawn : **`#271-r5`**.
 3. **Face NON-OWNER : pas de confrontation à écart STRICTEMENT POSITIF.** Les deux bascules mesurées
    partent d'un ex aequo. Deux voies pour fermer : (a) un couple (board, seed, pas) où la meilleure
    et la deuxième tuile d'un allié diffèrent de 1..25 **et** où la proposition native est un move pur
@@ -253,13 +265,53 @@ positif** ≤ 25 sur un état où la proposition native est un mouvement PUR. Vo
 4. **`X_nat` par tuile non re-mesurable** sur `rnca9r7q6c` : les hooks `scorer-damage-trace` portent
    des RVA `gqfc5mff6c` (`probe_257_scorer_rva_migration.py` les migrerait, mais ça exige un
    reinject). Toute la confrontation de ce cas passe donc par l'ARGMAX, pas par la valeur du terme.
-5. **Les 24 autres playbooks `*NonOwnerPlaybook`** du binaire restent non portés (absence du registre
-   == `LoadPlaybookNonOwner` rend null == même dégradation que le natif, pas un trou silencieux).
+5. ~~**Les 24 autres playbooks `*NonOwnerPlaybook`** du binaire restent non portés.~~
+   **ÉNONCÉ RÉFUTÉ ET RÉÉCRIT (#271-r4, 2026-08-07).** Les deux chiffres étaient faux : le binaire
+   déclare **28** concrets (compte par PARENT — trois ne portent pas le suffixe `NonOwnerPlaybook`
+   et échappaient au grep par nom), et le registre en porte **19**. Ventilation par FACE, lue dans
+   `data/symbols/<build>/metadata/non_owner_slot4.tsv` : **24 MOVE / 3 ATTACK / 1 REPAIR**.
+   * face **MOVE** : 19 au registre, 1 portée volontairement hors registre
+     (`RedemptionOfTheRisen`, 0 porteur), **4 non portées** — toutes déjà nommées ailleurs
+     (`#477-r43` pour les trois gates `HasRarity`, `#477-r45` pour `SabreOfSacrifice`) ;
+   * faces **ATTACK** (3 classes) et **REPAIR** (1) : **NON portées, et ce n'est pas du dead code.**
+
+   **La reachability est MESURÉE, pas supposée** (`probe_271r4_composition_map.py`). Le dispatcher a
+   trois entrées (`$$EvaluateMovementInSteps` / `$$EvaluateAttackInSteps` / `$$EvaluateRepairInSteps`,
+   plus DEUX `IterateAbilities`, `d__3` et `d__4`), et une face n'est atteignable que si la feuille 4
+   est membre du composite qui la porte. `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities`
+   remplit sa carte de composition (`db+0x58`) par `RuntimeHelpers.InitializeArray` depuis des blobs
+   de `<PrivateImplementationDetails>` qui vivent dans le **`global-metadata.dat`** et **pas dans le
+   PE** (mesuré : 0 occurrence dans `GameAssembly.dll`). Le probe s'ancre sur le blob `Tile(7)` — la
+   seule chose identifiable sans rien supposer, ses 29 éléments étant déjà portés et confrontés, et
+   sa suite d'octets UNIQUE dans le fichier — puis segmente les blobs voisins, délimités par un `0` :
+
+   | composite | n | membres |
+   |---|--:|---|
+   | `Tile(7)` | 29 | … `TriggeredAbilities(2)`, **`TriggeredAbilitiesNonOwner(4)`** … |
+   | `Damage(35)` | 13 | `OnlyImperviousUnitIfCanBeDamaged`, `DamageDealt`, `KillUnit`, `DislikeObjects`, `DislikeBoss`, `DislikeEnvironmentUnits`, `OverkillUnit`, `EnemyOnTerritoryTile`, `TriggeredAbilities`, **`TriggeredAbilitiesNonOwner`**, `UnitSpecificBehaviours`, `OptimizedGait_AdjacentFriends`, `AttackTargetWithEffect` |
+   | `Repair(47)` | 3 | `RepairedAmount`, `TriggeredAbilities`, **`TriggeredAbilitiesNonOwner`** |
+
+   ⚠ **ANTI-CIRCULARITÉ** : on ne cherche pas « un blob qui contient la feuille 4 ». Chaque blob est
+   identifié par sa TAILLE (lue au décompilé) **et** par un témoin INDÉPENDANT déjà porté dans le
+   dépôt (`Damage` : les trois dominants de `utilities/damage.py` ; `Repair` : `RepairedAmount` de
+   `utilities/repair.py`) ; témoin absent ⇒ le probe LÈVE. Corroboration : le blob `Damage` porte
+   aussi la feuille 2, que le port câble déjà comme « feuille 2 du composite Damage(35) ».
+   ⚠ `NoHidingFromTheWatchersNonOwnerPlaybook` (ATTACK) porte `<slot 4> = true` : l'inscrire sans
+   cette valeur rendrait sa branche ENNEMI structurellement inatteignable — le bug de #477-r35,
+   transposé d'une face. Garde posée en attendant : le registre MOVE ne peut contenir que des
+   classes de face MOVE (`test_477r37_slot4_et_faces_restantes_live.py`).
 
 ## 8. Re-dérivation
 
 ```bash
 cd scripts/python
+# #271-r4 : les TROIS faces de la feuille 4, leur reachability, et la ventilation des 28 concrets
+python probe_271r4_composition_map.py [--blobs]
+# #271-r2 : le `<slot 4>` des 28, re-derive du binaire et confronte au port
+python probe_477r37_slot4_et_faces_restantes.py --offline-only
+# #271-r3 : le regime SPAWN (offline pur, ~2 s)
+python -m pytest tests/engine/test_271r3_spawn_non_owner_offline.py -q
+
 python probe_271_kustom_force_field_reworked.py --offline-only          # etape 0 : poids vivants
 python probe_271_kustom_force_field_reworked.py --adjacency --boards "MC1_67,C4_09,C1_25"
 python probe_271_kustom_force_field_reworked.py --driven --seed 777 --board MC1_67 \

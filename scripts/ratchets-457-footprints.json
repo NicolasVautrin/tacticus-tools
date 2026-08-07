@@ -2062,6 +2062,18 @@
     "scripts/python/verdict_cache.py"
    ]
   },
+  "tests/engine/test_271r3_spawn_non_owner_offline.py": {
+   "_at": 1786129486,
+   "_commit": "232eb5481e7643f19c65a477b007e560556132d5",
+   "dirs": [
+    "data",
+    "frida/hooks/data"
+   ],
+   "temoins": [
+    "data/seed-bc.json",
+    "frida/hooks/data/ability-names.ts"
+   ]
+  },
   "tests/engine/test_287r11_regles_triggers_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",

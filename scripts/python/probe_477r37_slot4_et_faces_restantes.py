@@ -394,12 +394,32 @@ def step0a(call=None, verbeux: bool = True) -> tuple[int, dict]:
     else:
         print("[0a] RUNTIME : PAS MESURE (aucune session) -- ce n'est pas un vert")
 
-    # CLIQUET CONTRE LE PORT -- chaque playbook du registre porte la valeur du binaire.
-    from engine.playbook.non_owner import NON_OWNER_MOVE_PLAYBOOKS as REG
+    # CLIQUET CONTRE LE PORT -- TOUTE classe PORTEE de la famille, pas seulement celles du registre.
+    # ⚠ La version precedente balayait `NON_OWNER_MOVE_PLAYBOOKS.values()`, c'est-a-dire le REGISTRE.
+    # Une classe PORTEE mais volontairement HORS registre -- `RedemptionOfTheRisenNonOwnerPlaybook`,
+    # zero porteur sur ce build -- portait donc un `SLOT_4` que rien ne confrontait au binaire, et le
+    # jour ou une unite porterait 1522 il suffirait d'UNE ligne au registre pour l'armer avec une
+    # valeur jamais verifiee. Un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas : le
+    # perimetre est desormais DERIVE (toute sous-classe de la base, decouverte dans le module).
     import engine.playbook.non_owner as NO
-    par_classe = {type(pb).__name__: pb for pb in REG.values()}
+    REG = NO.NON_OWNER_MOVE_PLAYBOOKS
+    au_registre = {type(pb).__name__ for pb in REG.values()}
+    famille = {n: v for n, v in vars(NO).items()
+               if isinstance(v, type) and issubclass(v, NO.TriggeredAbilityNonOwnerPlaybook)}
+    # PARTITION : une classe PORTEE est concrete ssi elle nomme son ability. Les deux autres sont les
+    # bases (`TriggeredAbilityNonOwnerPlaybook`, `AdjacentToOwnerNonOwnerPlaybook`), qui n'ont pas
+    # d'`ABILITY_ID` et ne sont pas des concrets du binaire. La partition est CONTROLEE juste apres :
+    # une « base » que le binaire declare CONCRETE serait une classe reelle jamais confrontee.
+    bases = sorted(n for n, v in famille.items() if not hasattr(v, "ABILITY_ID"))
+    concretes = sorted(n for n, v in famille.items() if hasattr(v, "ABILITY_ID"))
+    for nom in bases:
+        if nom in table:
+            print("[0a] ROUGE : %r est classee BASE (aucun `ABILITY_ID`) alors que le binaire la "
+                  "declare CONCRETE -- la partition du cliquet est fausse, et cette classe ne "
+                  "serait JAMAIS confrontee" % nom)
+            rc = 1
     vus = 0
-    for nom, pb in sorted(par_classe.items()):
+    for nom in concretes:
         att = table.get(nom)
         if att is None:
             print("[0a] ROUGE : la classe portee %r n'est dans AUCUNE des sources -- le nom "
@@ -407,13 +427,16 @@ def step0a(call=None, verbeux: bool = True) -> tuple[int, dict]:
             rc = 1
             continue
         vus += 1
-        if bool(pb.SLOT_4) != bool(att["valeur"]):
+        if bool(famille[nom].SLOT_4) != bool(att["valeur"]):
             print("[0a] ROUGE : le port dit SLOT_4=%s pour %s, le binaire dit %s. Le pre-gate du "
                   "dispatcher est alors FAUX -- et il ne leve rien : il ECARTE (ou GARDE) des "
-                  "porteurs en silence." % (pb.SLOT_4, nom, att["valeur"]))
+                  "porteurs en silence." % (famille[nom].SLOT_4, nom, att["valeur"]))
             rc = 1
-    print("[0a] PORT : %d classes du registre confrontees au binaire, %s"
-          % (vus, "0 ecart" if rc == 0 else "des ECARTS ci-dessus"))
+    hors = sorted(set(concretes) - au_registre)
+    print("[0a] PORT : %d classe(s) portee(s) confrontee(s) au binaire (%d au registre, %d PORTEE(S) "
+          "HORS registre : %s), %d base(s) : %s ; %s"
+          % (vus, len(au_registre), len(hors), ", ".join(hors) or "-", len(bases), ", ".join(bases),
+             "0 ecart" if rc == 0 else "des ECARTS ci-dessus"))
     # La base doit elle aussi porter `false` : c'est ce dont heritent les 26.
     if bool(NO.TriggeredAbilityNonOwnerPlaybook.SLOT_4):
         print("[0a] ROUGE : la BASE portee a SLOT_4=True -- les 26 classes qui n'overrident pas "
