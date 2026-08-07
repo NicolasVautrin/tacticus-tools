@@ -1,4 +1,41 @@
-# Inventaire des résidus de portage — confronté au CODE (2026-07-27, passe 3)
+# Inventaire des résidus de portage — INSTANTANÉ HISTORIQUE du 2026-07-31
+
+> # ⛔ NE PAS Y LIRE UN COMPTE, NI UNE LISTE D'OUVERTS. Source vivante : `backlog.md`.
+>
+> **Ce document est FIGÉ à sa dernière retouche (2026-07-31).** Il reste ici parce que ~20 fiches
+> le citent par section (`§2`, `§4.a`, `N6`, `R21`…) et que sa **RE par entrée** garde sa valeur :
+> les symboles natifs, les ventilations de porteur, les raisons d'un verdict. C'est ce qu'on vient
+> y chercher. Ce qui n'y a plus cours, ce sont les **comptes** et l'**état ouvert/fermé**.
+>
+> **Mesuré (#526, 2026-08-07) — pourquoi ce bandeau plutôt qu'un recalage :**
+>
+> | ce que le document annonce | ce que la mesure rend |
+> | --- | --- |
+> | §4.g : « 23 » / « 27→22 » / « 20 » ouvertes | **trois totaux différents**, aucun reproductible ; recompte par extraction = **26** (+2 en §4.z hors de tout total) |
+> | `R6`, `R30`, `N1` cités comme ouverts | **barrés FERMÉ** dans le document lui-même |
+> | `N14`, `N15`, `N18`, `N19` | **omis** de tout total |
+> | les 26 ouvertes, confrontées à `HEAD` | **6 LIVRÉES depuis (23 %)** — dont `R12` et `O7` l'étaient **déjà le jour de sa dernière retouche** |
+> | §4.d « 13 items en veille » | paragraphe de PROSE, 0 ligne de tableau, dénombrement = **11**, aucun ancrage `fichier:ligne` |
+> | `N13-b` : « 7 » | **17** au code (facteur 2,4) |
+> | appariement au backlog | **1 ligne sur 321 (0,3 %)** ; **18 des 26 clés ouvertes à ZÉRO occurrence** |
+>
+> **Pourquoi il n'est PAS recalé.** Le recaler remettrait l'horloge à l'heure sans rien changer à
+> la cause : **rien n'oblige une PR qui ferme un résidu à toucher sa ligne**, ni ici ni dans
+> `backlog.md`. Il re-divergerait au rythme mesuré — 23 % en quatre jours. La cause est traitée en
+> AMONT et pour le backlog seul (`#526-r2`) : `loop_status` signale désormais, **à chaque hook
+> `Stop` donc juste après un merge**, tout résidu qu'un titre de PR mergée nomme et dont la ligne
+> est encore ouverte. Étendre ce signal à ce document-ci demanderait d'abord de lui donner une
+> **colonne `#<n>`** sur ses 70 lignes à clé interne — ses clés `R*`/`N*`/`O*` sont hors du corpus
+> de `probe_468`, d'où **quatre homonymies** (`N14`/`N15`/`N16`/`N17` désignent **chacune deux
+> entrées**) qu'aucun cliquet n'a jamais vues. Résidu ouvert : **`#526-r3`**.
+>
+> **Pourquoi il n'est pas RETIRÉ non plus.** ~20 renvois pointent des sections précises ; les
+> casser détruirait la RE sans rendre le backlog plus juste. Le dégrader en instantané daté coûte
+> un bandeau et rend l'erreur impossible — c'est le traitement que `STATUS.md` reçoit déjà ici.
+
+---
+
+## Corps du document, tel qu'il était au 2026-07-31 — conservé pour sa RE, comptes NON valides
 
 > **Pourquoi ce fichier.** `backlog.md` décrit des INTENTIONS horodatées, `port-roadmap.md` un
 > découpage figé : ni l'un ni l'autre ne décrit l'état du code. Ce document est le résultat d'une
