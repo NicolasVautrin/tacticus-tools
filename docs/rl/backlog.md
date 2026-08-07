@@ -621,6 +621,24 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#505-r1` — la loi de REPORT de `ChainLeftOverHitsAttackDamage` n'est pas uniforme, et le
+  décompilé dit pourquoi.** `_left_over_hits` porte `max(0, H − k − 1) + extraHits`. **Réfutée**
+  pour `1129 BloodyFury` (`extraHits` null) par lecture DIRECTE du live sur un maillon SURVIVANT —
+  4 régimes, H = 4 : report live **3 / 2 / 1 / 0** pour k = 1/2/3/4, soit `max(0, H − k)`. Mais
+  `max(0, H − k)` échoue sur le régime `H == k` de `1006` (`probe_125 --mode sweep --hp-target
+  10000` : le live frappe un 2ᵉ maillon). **Aucune forme simple ne couvre les six points.**
+  La CAUSE est lue : `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` est un **SEUIL**
+  (`pct = (dmg − initialHealth)/initialHealth × 100`, `pct < overkillDmgPctOfHealth ? isCritical :
+  true`) — le coup fatal pose lui-même `UnitFlag.Overkilled` s'il **écrase** la cible (1129 :
+  +167 %), sinon c'est le coup suivant (1006 : +24 %), d'où l'unité d'écart.
+  **Non pris par #505** : la feuille est partagée par **1006 / 1048 / 1129**, et fermer demande de
+  porter `IsOverkill` (constante `overkillDmgPctOfHealth` des battle-rules, `deniedDamage` cumulé,
+  `CanBeOverkilled`, `HasFlag(0x13)`, `minimumHealth`). Effet borné et connu : la forme actuelle
+  **sous-estime le report d'exactement 1** quand le coup fatal écrase la cible.
+  ⚠ Au passage : `probe_489` VERDICT-4 compare `off_chain[1]["hits"]` à la formule qui l'a produit
+  — une **tautologie**. Mesure rejouable : `probe_505_bloody_fury.py --only report --attackers
+  0,1,3 --attacks 3 --main-hp 3000,10000,15000,21000`. Détail : `docs/rl/case-505-bloody-fury.md`
+  §5.
 - **`#501-r1` — « N decoys adjacents → N summons » n'est PAS confronté en LIVE.**
   Le sélecteur natif de `1165 MightFromBelow` n'a **ni `PickRandomly` ni `First`** (lu au
   décompilé : `Tiles(UnitsWithTrait(AdjacentFriends(caster), Decoy))`), et le port passe

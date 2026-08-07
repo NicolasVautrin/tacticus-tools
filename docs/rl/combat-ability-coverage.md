@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **114**
-- **NO-OP silencieux** (a porter) : **61**
-- Ventilation NO-OP : **DAMAGE**=32, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **115**
+- **NO-OP silencieux** (a porter) : **60**
+- Ventilation NO-OP : **DAMAGE**=31, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -22,12 +22,11 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (61)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (60)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1080 | HellfireShells | DAMAGE(Piercing) | 3 | NS |
-| 1129 | BloodyFury | DAMAGE(Chain) | 2 | LN |
 | 1044 | IncendiaryShells | DAMAGE(Flame) | 2 | NS |
 | 1209 | InfernalCannon | DAMAGE(Flame) | 2 | LN |
 | 1108 | KissOfDeath | DAMAGE(DirectDamage) | 2 | NS |
@@ -88,7 +87,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (114)
+## PORTED (registry) (115)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -136,6 +135,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1150 | PlasmaCannon | DAMAGE(Plasma) | 3 | LN |
 | 1091 | SlashingDive | DAMAGE(Power) | 3 | NS |
 | 1103 | Supercharge | DAMAGE(Plasma) | 3 | LN |
+| 1129 | BloodyFury | DAMAGE(Chain) | 2 | LN |
 | 1148 | DaemonicOrdnance | DAMAGE(Plasma) | 2 | LN |
 | 1213 | DeathOnTheWind | DAMAGE(HeavyRound) | 2 | LN |
 | 1188 | DevastatingRefrain | DAMAGE(Blast) | 2 | LN |

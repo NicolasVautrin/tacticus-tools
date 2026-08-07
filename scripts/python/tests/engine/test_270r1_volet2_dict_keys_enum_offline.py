@@ -101,7 +101,14 @@ SNAP_TARGETING_UNPORTED = (
     (1101, (8589950978, False, (1, True, False, None, False), 1)),
     (1106, (32788, True, (1, False, False, 0, False), 1)),
     (1183, (8589950976, False, (0, False, False, 1, False), 1)),
-    (1129, (16384, False, (0, False, False, 1, False), 1)),
+    # 1129 BloodyFury RETIREE (#505) : sa face COMBAT est portee
+    # (`ChainLeftOverHitsAttackDamage` melee profil `Chain` + snowball de coups), donc son masque a
+    # MIGRE sur `BloodyFuryAbility.TARGETING_OPTIONS` -- meme mouvement que
+    # 1019/1027/1038/1048/1068/1069/1087/1088/1152. Le ctor a ete RELU a cette occasion et la valeur
+    # qui etait figee ici est CONFIRMEE champ pour champ : `rules = 0x4000 = 16384` (TargetIsEnemy
+    # seul), `selfCast = False`, `range` = `TargetingRange statics+0x30` = ADJACENT,
+    # `forceMeleeTarget = 1` (RangedBool.False). C'est la SOURCE qui bouge, jamais la valeur. Elle
+    # etait la SEULE de la surcharge « PRESET SEUL » (copie pure a 2 arguments).
     # 1027 PsychicMaelstrom RETIREE (#490) : sa face COMBAT est portee, donc son masque a MIGRE
     # sur `PsychicMaelstromAbility.TARGETING_OPTIONS` -- meme mouvement que 1048/1069/1087/1088.
     # Ce snapshot fige l'ordinal ECRIT AU SITE, et le site a change ; rien n'est perdu, les sites
@@ -335,29 +342,30 @@ def test_snapshot_ordinal_valeur_et_ordre():
 
 
 def test_cardinalites_du_volet():
-    """Le compte du volet 2 : 31 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 115 cles.
+    """Le compte du volet 2 : 30 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 114 cles.
 
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
     passe de 44 a 31 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
     1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1165 (#501), 1064 (#502), 1141 (#503),
-    1132 (#504). Ce que ce cliquet garde est la CONVERSION EN MEMBRES D'ENUM des cles restantes --
-    pas la taille des tables.
+    1132 (#504), 1129 (#505). Ce que ce cliquet garde est la CONVERSION EN MEMBRES D'ENUM des cles
+    restantes -- pas la taille des tables.
 
     ⚠ LE NOMBRE CI-DESSUS SE RE-COMPTE SUR `CIBLES`, il ne se deduit JAMAIS par soustraction du
     chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les SEPT dernieres
-    sorties (#498, #499, #500, #501, #502, #503, #504) ont ete faites EN PARALLELE, sur sept
-    branches, chacune aveugle aux autres. Sept soustractions successives sur le meme chiffre perime
-    en auraient manque six -- seul un recompte apres resolution converge.
+    sorties (#498, #499, #500, #501, #502, #503, #504, #505) ont ete faites EN PARALLELE, sur huit
+    branches, chacune aveugle aux autres. Huit soustractions successives sur le meme chiffre perime
+    en auraient manque sept -- seul un recompte apres resolution converge.
     ⚠ #503 et #504 se sont croisees ICI : les deux annoncaient `32` (chacune n'ayant retire QUE son
-    id, 1141 / 1132), et un cote pris tel quel aurait RESSUSCITE l'entree de l'autre. La resolution
-    est l'UNION des retraits, et le chiffre a ete RE-DERIVE de `CIBLES` apres coup. #502, #503 puis
-    #504 ont effectivement resolu ce conflit en RE-COMPTANT."""
+    id, 1141 / 1132), et un cote pris tel quel aurait RESSUSCITE l'entree de l'autre. #505 s'est
+    croisee avec les DEUX de la meme facon (elle annoncait `34`, n'ayant retire que 1129). La
+    resolution est l'UNION des retraits, et le chiffre est RE-DERIVE de `CIBLES` apres coup --
+    #502, #503, #504 puis #505 ont effectivement resolu ce conflit en RE-COMPTANT."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [31, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [30, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 115
+    assert sum(tailles) == 114
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

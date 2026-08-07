@@ -127,6 +127,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `DirectTargetAttack`. (#499)
     ActiveAbilityType.StormOfWrath: AbilityAttackType.DirectTargetAttack,  # 1019
     ActiveAbilityType.HeraldOfTheApocalypse: AbilityAttackType.DirectTargetAttack,  # 1020 (case-bl-1029-1020)
+    # BloodyFury (1129) : `...Active.Loki.BloodyFuryAbility$$.ctor` recopie le preset statique
+    # `<TargetingOptions statics>+0x40`, appelle la surcharge COPIE PURE a 2 arguments, puis
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT, pas
+    # deduit du comportement (le lot du jour porte les deux contre-exemples : `Others` sur une
+    # ability qui attaque, `DirectTargetAttack` sur une qui ne frappe pas). (#505)
+    ActiveAbilityType.BloodyFury: AbilityAttackType.DirectTargetAttack,  # 1129
     ActiveAbilityType.BringerOfDespair: AbilityAttackType.DirectTargetAttack,  # 1022
     ActiveAbilityType.SkyStrike: AbilityAttackType.DirectTargetAttack,  # 1025
     # PsychicMaelstrom (1027) : `PsychicMaelstromAbility$$.ctor` recopie le preset statique

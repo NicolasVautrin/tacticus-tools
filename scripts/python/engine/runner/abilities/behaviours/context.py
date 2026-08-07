@@ -87,6 +87,12 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # (`IdunBattle.Entities.Formulas.LastHitDamageTakenLastTurnFormula$$Calculate`). 0 par defaut.
         "lastHitDamageTakenLastTurn": (int(getattr(uc, "last_hit_damage_taken_last_turn", 0) or 0)
                                        if uc is not None else 0),
+        # `ActorStatisticsComponent @+0x34` — lu par le noeud formule `TotalTimesAttacked`
+        # (`IdunBattle.Entities.Formulas.TotalTimesAttackedFormula$$Calculate`, qui rend ce champ
+        # tel quel). TOTAL de la bataille (aucun `Reset*` natif ne l'ecrit), a distinguer du
+        # per-tour `@+0x38`. 0 par defaut. Consommateur porte : `BloodyFuryAbility$$GetNumExtraHits`.
+        "totalTimesAttacked": (int(getattr(uc, "total_times_attacked", 0) or 0)
+                               if uc is not None else 0),
         "_traits": traits,
     }
 

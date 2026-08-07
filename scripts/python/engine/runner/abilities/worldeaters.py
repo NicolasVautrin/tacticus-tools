@@ -1,6 +1,9 @@
 """Abilities actives WorldEaters (porteurs `world*`). Module DEDIE (isolation de faction ; org native =
 1 classe par ability). RE ghidra gqfc5mff6c (VAs citees). Case-220 §6.3 (docs/rl/case-220/world-eaters.md).
 
+BloodyFury (1129, `worldTerminator` « Wrask ») -- #505, RE relue sur `rnca9r7q6c`. Detail en tete de
+la section dediee, en bas de ce module.
+
 JakhalStimms (1131, `worldJakhal` « Macer »). Namespace natif `Abilities.Active.Loki.JakhalStimmsAbility`.
 `IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
     aoeSel = op_BitwiseAnd( AdjacentUnits(@0x168=caster, 1, 3),      # A : TOUTES unites adjacentes au caster
@@ -180,12 +183,13 @@ from typing import Optional, TYPE_CHECKING
 from ...dsl.base import Const, TargetsSelector, _is_alive, _units_of
 from ...entities.ability_constant_type import AbilityConstantType
 from ...entities.behaviours import op_add, op_and, AtomicGroup, Group
-from ...entities.formulas import Count, Get, If, RandomAmount
+from ...entities.formulas import (Count, Difference, Get, If, Min, Multiply, RandomAmount, Sum,
+                                  TotalTimesAttacked)
 from ...entities.selectors.accessors import CasterTile, Owner, Target, TargetTile
 from ...entities.selectors.geometry import Otherwise
 from ...entities.selectors.tiles import Caster
-from ...entities.selectors.units import (AdjacentEnemies, AdjacentUnits, And, NormalUnits,
-                                         SurroundingEnemies, Unobscured,
+from ...entities.selectors.units import (AdjacentEnemies, AdjacentUnits, And, Damageable,
+                                         NormalUnits, Sub, SurroundingEnemies, Unobscured,
                                          non_steppable_or_object_units)
 from ...entities.triggers import AmountIsGreater
 from ...entities.active_ability_type import ActiveAbilityType
@@ -193,8 +197,9 @@ from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...dsl.effects import ExecutionContext
 from ...streams.group_type import GroupType
+from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from .base import ActiveAbility, ability_attack_params
-from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.combat import AttackWithAttackDamage, ChainLeftOverHitsAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddBondEffect, AddEffect
 from .behaviours.stats import SubtractHealthPercent
@@ -760,3 +765,258 @@ class OverwhelmingWrathAbility(ActiveAbility):
                  for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")]
         return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
                 "posed": posed, "dsl": True}
+
+
+# ================== BloodyFury (worldTerminator « Wrask », actif 1129) -- #505 ====================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$ExecuteBehaviour` (RE relue sur
+# `rnca9r7q6c`), transcription de l'arbre, UN SEUL noeud terminal passe a `AActiveAbility$$Execute` :
+#
+#     dmg   = DSLFormulas$$Cache( AActiveAbility$$MinMaxDamage(this, abilityState) )
+#     other = DSLSelectors$$Damageable(
+#                 DSLSelectors$$AdjacentEnemies(unit = Owner@DSLSelectors+0x30, unique: 1,
+#                                               unitSelectionType: 3)
+#                 op_Subtraction Target@DSLSelectors+0x60 )              # == `$$GetOtherTargets`
+#     chain = DSLSelectors$$SortTargetsByDamagePredictionSelector(
+#                 attacker              = Owner@+0x30,
+#                 units                 = other,
+#                 ability               = DSLSelectors$$Direct(AbilityOrEffect(this+0x10)),
+#                 damage                = dmg,
+#                 hits                  = <DSLFormulas+0x20>,           # cf. ci-dessous : Direct(1)
+#                 damageProfileType     = DSLSelectors$$Direct(Nullable(GetDamageProfile(config))),
+#                 attackerSelectionType = 3)
+#     DSLBehaviors$$ChainLeftOverHitsAttackDamage(
+#                 caster                     = Owner@+0x30,
+#                 firstTarget                = Target@+0x60,
+#                 dmgAmount                  = dmg,
+#                 damageProfileType          = Direct(Nullable(GetDamageProfile(config))),
+#                 hits                       = <GetNumTotalHits(this)>,
+#                 abilityType                = this+0x10,
+#                 otherTargetSelector        = chain,
+#                 extraHitsAfterTargetKilled = **null**)
+#
+# ⚠ LE `hits` DU SELECTEUR DE TRI EST **1**, PAS `nrOfHits`, ET CE N'EST PAS UN OUBLI DE LECTURE.
+# Le natif passe `*(void **)(<DSLFormulas> + 0x20)`, un CHAMP de l'instance `DSLFormulas`, pas un
+# `Direct(GetNumberConstant(...))` construit sur place. `IdunBattleLogic.Entities.DSLFormulas$$.ctor`
+# ecrit cinq formules-constantes memoisees, LUES : `+0x18 = 0`, `+0x20 = 1`, `+0x28 = 2`,
+# `+0x30 = 100`, `+0x38 = -1` (meme classe et meme ctor `(valeur, 0)` que
+# `IdunBattleLogic.Entities.DSLFormulas$$Direct`). Donc `hits = Direct(1)`. C'est un ECART LU avec
+# `1048 FragstormGrenadeLauncher`, qui monte la MEME feuille et passe, lui,
+# `Direct(GetNumberConstant(0x2f = nrOfHits))` : le tri par priorite de kill de BloodyFury predit le
+# report sur UN coup, pas sur la volee entiere. Recopier le voisin aurait change l'ordre du report.
+#
+# TROIS AUTRES ECARTS LUS avec 1048 (aucun n'est copie) :
+#   * pas de `SortByFormula` par PV en amont du selecteur de prediction (1048 en a un) ;
+#   * le pool est `AdjacentEnemies` (ring 1) et non `SurroundingEnemies(range)` ;
+#   * le `hits` de la CHAINE est une FORMULE (`GetNumTotalHits`), pas la constante `nrOfHits`.
+# ET UN POINT COMMUN LU : `extraHitsAfterTargetKilled` est **null** des deux cotes (1006
+# `MultiThreatEliminator` y met `Get(GetNumberConstant(0x2b = extraHit))`) -- donc AUCUN coup bonus
+# par ennemi tue pour 1129. Le `extraHit` de sa config sert au SNOWBALL, pas au report.
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$GetNumTotalHits` (MIRROR) :
+#     Sum( Direct(GetNumberConstant(0x2f = nrOfHits)), GetNumExtraHits(this) )
+# `...BloodyFuryAbility$$GetNumExtraHits` (MIRROR) :
+#     Min( Multiply( Direct(GetNumberConstant(0x2b = extraHit)),
+#                    DSLFormulas$$TotalTimesAttacked(Owner@DSLSelectors+0x30) ),
+#          Subtract( Direct(GetNumberConstant(0x48 = maxNrOfHits)),
+#                    Direct(GetNumberConstant(0x2f = nrOfHits)) ) )
+# -> coups = nrOfHits + min(extraHit x <attaques recues DANS LA BATAILLE>, maxNrOfHits - nrOfHits),
+# donc borne par `maxNrOfHits`. Config 1129 : nrOfHits=1, extraHit=1, maxNrOfHits=8, damageProfile
+# `Chain`, `attackRangeType = Melee`.
+# i2 mot a mot : « Deals {nrOfHits}x {minDmg}-{maxDmg} Chain Damage to an adjacent enemy. This attack
+# scores +{extraHit} hit for each time Wrask was attacked in this battle, to a maximum of
+# {maxNrOfHits} hits total. Any leftover hits are allocated to remaining adjacent enemies,
+# prioritising kills. »
+#
+# ⚠ « DANS LA BATAILLE » N'EST PAS UNE PARAPHRASE DE L'i2, C'EST L'OFFSET.
+# `IdunBattle.Entities.Formulas.TotalTimesAttackedFormula$$Calculate` rend `*(uint *)(comp + 0x34)` ;
+# `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterAttackReceived` incremente +0x34
+# ET +0x38 ; et `$$ResetAttacksReceivedThisTurn` n'efface QUE `+0x38` (`*(ulong*)(this+0x38) = 0`).
+# Aucun des deux `$$ResetThisTurn` ni des trois `Reset*ThisTurn` n'ecrit +0x34. Le compteur PER-TOUR
+# deja porte (`UnitComponent.times_attacked_this_turn`, gate du HP-floor) est donc `+0x38`, PAS ce
+# compteur-ci : le total de bataille est un champ NEUF (`UnitComponent.total_times_attacked`),
+# incremente au MEME site (`operations/minimal_health.py::record_attacked`).
+#
+# MECANIQUES DU KIT `worldTerminator` QUI NE PASSENT PAS PAR CETTE ABILITY (mesure, pas supposition) :
+# `unit_map.py kit worldTerminator` attribue `dmg_bonus` et `dmg_reduction` a des TRAITS
+# (`BlessingsOfKhorne`, `TerminatorArmour`) et `shield` a la PASSIVE `WrathfulDevotion` -- aucune des
+# trois n'est lue par `BloodyFuryAbility` (ni son `.ctor`, ni `$$ExecuteBehaviour`, ni les deux
+# `GetNum*Hits`, tous relus integralement). Le `shield` du kit est donc HORS de ce port ; il vit
+# dans le pipeline de degat partage, du cote de la CIBLE.
+
+BLOODY_FURY_ID = "BloodyFury"
+BLOODY_FURY_PROFILE = "Chain"      # `AbilityConfiguration$$GetDamageProfile` (constants.damageProfile)
+
+
+def bloody_fury_other_targets() -> Damageable:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$GetOtherTargets` -- MIRROR 1:1 :
+
+        Damageable( AdjacentEnemies(unit = Owner@DSLSelectors+0x30, unique: 1, unitSelectionType: 3)
+                    op_Subtraction Target@DSLSelectors+0x60 )
+
+    La surcharge appelee est celle a **4 arguments** (`AdjacentEnemies(unit, unique, selectionType)`,
+    tranchee sur les DEUX candidats du dump -- l'autre prend `(unit, unitTile, unique)`), dont le corps
+    est `Enemies(unit, Units(AdjacentTiles(unit), unique, sel) op_Subtraction unit, sel)` : le MEME
+    selecteur sert de centre ET de reference d'equipe. Cote port, `AdjacentEnemies(Owner())` filtre
+    `team != ctx.caster.team` -- observationnellement egal ici (Owner == Caster pour une active), et
+    c'est le slot `+0x30` qui est CITE, jamais `Caster@+0x48` que le natif n'utilise pas.
+
+    ⚠ Le meme ensemble est relu, INLINE, par `$$ExecuteBehaviour` (le natif ne rappelle pas
+    `$$GetOtherTargets`, il recopie l'expression) -> un seul foyer cote port."""
+    return Damageable(Sub(AdjacentEnemies(Owner()), Target()))
+
+
+def bloody_fury_hits_formula(nr_of_hits: int, extra_hit: int, max_nr_of_hits: int) -> Sum:
+    """`...BloodyFuryAbility$$GetNumTotalHits` + `$$GetNumExtraHits` -- MIRROR 1:1 de l'arbre :
+
+        Sum( Direct(nrOfHits),
+             Min( Multiply(Direct(extraHit), TotalTimesAttacked(Owner@+0x30)),
+                  Subtract(Direct(maxNrOfHits), Direct(nrOfHits)) ) )
+
+    Les trois constantes sont resolues a la CONSTRUCTION (le natif fait
+    `Direct(GetNumberConstant(...))`, donc un noeud a valeur figee) ; le seul terme runtime est
+    `TotalTimesAttacked`, evalue par la feuille de chaine AVANT sa boucle -- comme le natif, qui fait
+    `hits = (+0x98).Calculate(entities)` une fois, hors boucle.
+
+    `DSLFormulas$$Subtract(a, b)` = `a - b` -> `Difference(a, b)` cote port. L'ordre des operandes est
+    LU : `Subtract(this_00, pvVar4 = Direct(maxNrOfHits), pvVar3 = Direct(nrOfHits))`, donc bien
+    `maxNrOfHits - nrOfHits` (l'inverse rendrait un `Min` negatif et TUERAIT le snowball)."""
+    return Sum(Get(int(nr_of_hits)),
+               Min(Multiply(Get(int(extra_hit)), TotalTimesAttacked(Owner())),
+                   Difference(Get(int(max_nr_of_hits)), Get(int(nr_of_hits)))))
+
+
+def bloody_fury_tree(state, hits_node, base_min: int, base_max: int,
+                     pierce: int) -> ChainLeftOverHitsAttackDamage:
+    """Arbre de `...BloodyFuryAbility$$ExecuteBehaviour` -- MIRROR 1:1 (cf. l'en-tete de section).
+
+    `attackRangeType = Melee` (gameconfig) -> `is_melee=True`. Famille de factory = **ATTACK** : le
+    nom natif est `...AttackDamage` et le `.ctor` alloue `ChainLeftOverHitsAttackDamageBehaviour`,
+    qui construit le mold `AttackDamageBehaviour` par iteration -> `native_factory="attack"` (le
+    defaut de la feuille).
+
+    `extra_hits = 0` encode le `extraHitsAfterTargetKilled = **null**` du call-site natif :
+    `$$GetLeftOverHits` fait `if (list.Count > 0 && (+0x90) != null) count += (+0x90).Calculate(...)`,
+    donc un noeud nul et un noeud valant 0 rendent le MEME compte (meme encodage que 1048).
+
+    RESIDU NOMME : le `DSLFormulas$$Cache` qui enveloppe `MinMaxDamage` n'est pas materialise -- la
+    feuille partagee re-derive `(bmin, bmax)` par `ability_attack_params` et laisse
+    `AttackDamageOperation.execute_ability_attack` rouler par coup, exactement comme 1006 et 1048.
+    `Cache` ne change AUCUNE valeur (il memoise l'evaluation pour la duree du cast)."""
+    chain = SortTargetsByDamagePrediction(
+        state=state, attacker=Owner(), targets=bloody_fury_other_targets(),
+        ability_type=int(ActiveAbilityType.BloodyFury),
+        damage_min=base_min, damage_max=base_max,
+        hits=1,                                   # `<DSLFormulas+0x20>` = `Direct(1)`, LU au ctor
+        damage_profile=BLOODY_FURY_PROFILE, pierce=pierce, is_melee=True)
+    return ChainLeftOverHitsAttackDamage(
+        Owner(), Target(), chain, BLOODY_FURY_ID, BLOODY_FURY_PROFILE, hits_node, 0,
+        is_melee=True)
+
+
+class BloodyFuryAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$ExecuteBehaviour`
+    (id 1129, `worldTerminator` « Wrask », WorldEaters) -- face EXECUTION.
+
+    `nrOfHits` coups `Chain` MELEE sur un ennemi ADJACENT, plus UN coup par attaque deja recue par
+    Wrask DEPUIS LE DEBUT DE LA BATAILLE (plafond `maxNrOfHits` = 8 coups au total) ; les coups qui
+    tombent sur le CADAVRE sont REPORTES sur les autres ennemis adjacents au CASTER, tries par
+    priorite de kill. Le report lui-meme vit dans la feuille partagee
+    `ChainLeftOverHitsAttackDamage` (`behaviours/combat.py`, mirror de
+    `IdunBattle.Entities.Behaviours.ChainLeftOverHitsAttackDamageBehaviour$$Execute` et de son
+    `$$GetLeftOverHits`) ; ici, seulement la CONSTRUCTION de l'arbre.
+
+    ⚠ Sans `extraHits`, un maillon ne peut REPORTER que si la cible meurt AVANT le dernier coup :
+    `GetLeftOverHits` rend `max(0, H - k - 1) + 0`. Avec `nrOfHits = 1` et un Wrask jamais attaque,
+    l'attaque fait UN coup et ne peut donc RIEN reporter -- le regime interessant demande un
+    snowball non nul.
+
+    Face DECISION deja portee : le playbook `BloodyFuryPlaybook`
+    (`playbook/noncomparable/bloody_fury.py`, `1 + adj x 10`) et la formule de coups de
+    `entities/abilities/active_ability.py::BloodyFuryAbility`. Ce port-ci est la face EXECUTION, qui
+    etait un NO-OP SILENCIEUX (absente d'`ABILITY_CLASSES` : le cast etait choisi par la decision et
+    l'execution l'ignorait -- 0 degat, 0 effet, aucune erreur).
+
+    Renvoie {ability, caster, target, hits, chain, dsl}. Termine le tour (1129 hors des frozensets
+    de `base.py`)."""
+
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.BloodyFury)   # 1129
+    ABILITY_ID = BLOODY_FURY_ID
+
+    # GATE DE CIBLE (#115) -- forme de ctor = **PRESET STATIQUE, SURCHARGE COPIE PURE** (la 3e des
+    # six formes). `...BloodyFuryAbility$$.ctor` recopie les 0x40 octets du PRESET STATIQUE
+    # `IdunBattle.Core.Services.TargetingOptions` statics `+0x40`, puis appelle
+    # `TargetingOptions$$.ctor(&opts, &preset)` a **DEUX** arguments, puis
+    # `AActiveAbility$$.ctor(this, &opts, 0)`.
+    # ⚠ LE DECOMPILE RESSEMBLE A UN PRESET+FLAGS DONT LE LITTERAL AURAIT DISPARU : ce sont les XREFS
+    # ENTRANTES qui tranchent. `BloodyFuryAbility$$.ctor` figure dans les appelants de la surcharge
+    # a 2 arguments (avec Drachnyen/Doombolt/MurderousSwing/DakkaDakkaDakka/HeroicFusillade/
+    # VigilanceEternal) et dans AUCUN des appelants de la surcharge PRESET+FLAGS. Le corps de cette
+    # surcharge, RELU, est une copie verbatim des 8 qwords (`+0x00/+0x08/+0x10/+0x18/+0x1c/+0x20/
+    # +0x28/+0x30/+0x38`) : elle n'ajoute AUCUN flag. Meme piege que `1029 Drachnyen` (#336).
+    # Champs du preset, LUS dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     +0x40 (`isSelfCasting`)     = 0
+    #     +0x48..+0x5f (`range`)      = recopie de `<TargetingRange statics>+0x30` = RANGE_ADJACENT
+    #     +0x60 (`forceMeleeTarget`)  = 1 = `RangedBool.False`
+    #     +0x68 (`rules`)             = 0x4000 = `TargetIsEnemy`, et RIEN d'autre
+    # MASQUE EFFECTIF = `0x4000`. Concordant avec la mesure independante de
+    # `docs/rl/case-302-4/tile-target-population.tsv` (ligne 1129, `state=measured`, `form=preset`,
+    # `rules=0x4000`), et avec la valeur qui vivait dans `TARGETING_OPTIONS_UNPORTED` -- d'ou elle
+    # MIGRE ici dans le meme commit (contrat de DISJONCTION).
+    #     0x4000  TargetIsEnemy -> PORTE (`TargetingQuery$$UnitsCanAttackEachOther`) : refus sur
+    #             soi-meme et sur un allie. SEUL bit du masque -- en particulier PAS de
+    #             `TargetMatchesDynamicRule`, et 1129 n'a effectivement aucun
+    #             `BloodyFuryAbility$$GetDynamicInvalidTargetReason` (absent du dump, et absent de
+    #             `DYNAMIC_TARGET_RULE_UNPORTED` -- VERIFIE, pas suppose).
+    # PORTEE : `RANGE_ADJACENT` (`onlyAdjacent = True` + `overrideRange = 1`) -> cible ADJACENTE
+    # obligatoire, et la constante de config `range` n'est PAS consultee (1129 n'en a d'ailleurs
+    # aucune). Coherent avec `attackRangeType = Melee` et l'i2 (« an adjacent enemy »).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    # `AbilityAttackType` = 3e argument d'`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` = `0`
+    # (`DirectTargetAttack`), LU au ctor (`AActiveAbility___ctor(this, &local_48, (void *)0x0)`) ->
+    # transcrit dans la table `ABILITY_ATTACK_TYPE` (`abilities/attack_type.py`), qui est le registre
+    # de cette donnee (pas un attribut de classe).
+
+    def _params(self, state: "State", caster_id: int) -> tuple:
+        """`(hits_node, base_min, base_max, pierce)`.
+
+        Les trois constantes de l'arbre de coups viennent de `GetNumberConstant` (constantes de
+        config, pas de variables per-niveau) ; les bornes et le percage du profil viennent du foyer
+        partage `ability_attack_params` (mirror `AActiveAbility$$MinMaxDamage` / `GetDamageProfile`).
+        Le `hits` que rend `ability_attack_params` (= `nrOfHits`) est IGNORE ici : le natif n'appelle
+        pas `GetHits`, il monte `GetNumTotalHits`."""
+        nr_of_hits = int(ability_var(self.ABILITY_ID, "nrOfHits", is_constant=True) or 1)
+        extra_hit = int(ability_var(self.ABILITY_ID, "extraHit", is_constant=True) or 0)
+        max_hits = int(ability_var(self.ABILITY_ID, "maxNrOfHits", is_constant=True) or nr_of_hits)
+        base_min, base_max, pierce, _cfg_hits = ability_attack_params(
+            state, caster_id, self.ABILITY_ID, BLOODY_FURY_PROFILE, ranged=False)
+        return (bloody_fury_hits_formula(nr_of_hits, extra_hit, max_hits),
+                int(base_min), int(base_max), int(pierce))
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        entities = entities_from_state(state, caster_id, target_id)
+        hits_node, base_min, base_max, pierce = self._params(state, caster_id)
+        # DIAGNOSTIC : le compte de coups tel que la feuille l'evaluera -- lu AVANT l'execution,
+        # comme le natif (`hits = (+0x98).Calculate(entities)` hors boucle). L'evaluer apres
+        # rapporterait une valeur qui n'a pas servi si le compteur bougeait pendant le cast.
+        hits = int(hits_node.evaluate(entities))
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        bloody_fury_tree(state, hits_node, base_min, base_max, pierce).execute(entities, ectx)
+        chain = next((p["chain"] for n, p in ectx.emitted if n == "ChainLeftOverHits"), [])
+        return {"ability": BLOODY_FURY_ID, "caster": caster_id, "target": target_id,
+                "hits": hits, "chain": chain, "dsl": True}
+
+
+# Les trois constantes de config LUES au decompile de `$$GetNumTotalHits`/`$$GetNumExtraHits`,
+# nommees (regle « un entier qui DESIGNE passe par un ENUM ») : `GetNumberConstant(0x2f)`,
+# `GetNumberConstant(0x2b)` et `GetNumberConstant(0x48)`.
+assert (int(AbilityConstantType.nrOfHits) == 0x2F
+        and int(AbilityConstantType.extraHit) == 0x2B
+        and int(AbilityConstantType.maxNrOfHits) == 0x48)

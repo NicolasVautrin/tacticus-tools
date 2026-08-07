@@ -512,7 +512,53 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
         AVANT ce port, le branche « tuee » rendait `1 + extraHits` en dur (mesure #116 lue sur un SEUL
         regime, PV 8000 -> k=5, H=6, ou `1` se trouve etre `max(0,H-k-1)+1 - 1`... et surtout ou le
         malus `LightCover` du maillon suivant ecrase 1 et 2 sur la MEME valeur appliquee) : d'ou le
-        bit-exact trompeur de #116 et la divergence de #122 des que k <= 3."""
+        bit-exact trompeur de #116 et la divergence de #122 des que k <= 3.
+
+        ⚠⚠ RESIDU OUVERT, MESURE ET NON FERME (#505) : CETTE LOI N'EST PAS UNIFORME, ET LE DECOMPILE
+        DIT POURQUOI. Sur `1129 BloodyFury` (`extraHits` **null**, donc `extra = 0`), la mesure LIVE
+        DIRECTE -- un seul ennemi fragile, les autres immortels, donc le 2e maillon SURVIT et son
+        nombre d'events EST son nombre de coups (`probe_505_bloody_fury.py --only report --attackers
+        0,1,3 --attacks 3 --main-hp 3000,10000,15000,21000`) -- donne, a H = 4 :
+
+            PV cible | k | report LIVE | cette loi `max(0,H-k-1)+0` | `max(0,H-k)`
+            -------- | - | ----------- | -------------------------- | ------------
+            3000     | 1 | 3           | 2  X                       | 3  OK
+            10000    | 2 | 2           | 1  X                       | 2  OK
+            15000    | 3 | 1           | 0  X                       | 1  OK
+            21000    | 4 | 0           | 0  OK                      | 0  OK
+
+        et `max(0,H-k)` fait AUSSI passer `tests/engine/runner/test_chain_leftover_hits_live.py`
+        (1006, seeds 4242 ET 777) -- parce que pour 1006 `extra = 1` et que
+        `max(0,H-k-1)+1 == max(0,H-k)` des que `H-k >= 1`. La SEULE mesure qui separe les deux est
+        le regime `H == k` de `probe_125_leftover_hits.py --mode sweep --hp-target 10000`, ou le
+        LIVE frappe un 2e maillon (report >= 1) alors que `max(0,H-k)` rendrait 0. AUCUNE des deux
+        formes ne couvre donc les SIX points mesures.
+
+        LA CAUSE, LUE : le predicat qui decide si un coup laisse une entree FLAG-VRAIE est
+        `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, et c'est un SEUIL, pas un index --
+
+            if (!allowOverkill) return false
+            if (minimumHealth.HasValue && minimumHealth.Value > 0) return false
+            if (healthDamage >= targetInitialHealth && isForceOverkill) return true
+            if (!isPreventOverkill && healthDamage >= targetInitialHealth) {
+                pct = (healthDamage - targetInitialHealth) / targetInitialHealth * 100   # Fix64
+                return (pct < overkillDmgPctOfHealth) ? isCritical : true
+            }
+            return false
+
+        -> le coup FATAL pose lui-meme `UnitFlag.Overkilled` quand son EXCEDENT depasse
+        `overkillDmgPctOfHealth` (ou qu'il est CRITIQUE) ; sinon c'est le coup SUIVANT qui le pose.
+        L'indice du premier coup « deja overkill » vaut donc `k` ou `k+1` SELON LA MAGNITUDE, et
+        c'est exactement l'unite d'ecart entre les deux formes ci-dessus (1129 ecrase sa cible a
+        +167 % -> `k` ; 1006 la depasse de +24 % -> `k+1`). Fermer ce residu demande de porter
+        `IsOverkill` (constante `overkillDmgPctOfHealth` des battle-rules, `deniedDamage` cumule,
+        `CanBeOverkilled`, `HasFlag(0x13)`, `minimumHealth`) -- hors perimetre #505, qui ne pouvait
+        pas changer une feuille PARTAGEE par 1006/1048/1129 sur une loi qu'aucune forme simple ne
+        satisfait. CE QUI EST ACQUIS : la forme actuelle SOUS-ESTIME le report d'exactement 1 quand
+        le coup fatal ecrase la cible (BloodyFury), et est JUSTE quand il l'effleure.
+        ⚠ Et `probe_489_fragstorm_grenade_launcher.py` VERDICT-4 ne l'aurait jamais vu : il compare
+        `off_chain[1]["hits"]` a la formule qui l'a produit -- une TAUTOLOGIE, pas une confrontation.
+        Le verdict qui mord est celui qui lit le report DANS LE LIVE, sur un maillon SURVIVANT."""
         per_hit = list(atk.get("per_hit_health") or [])
         if not per_hit:
             return 0

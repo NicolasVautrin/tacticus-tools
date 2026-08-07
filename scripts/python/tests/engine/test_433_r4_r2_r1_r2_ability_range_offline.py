@@ -201,15 +201,18 @@ def test_no_ability_has_two_contradictory_sources():
 #: 1027 `PsychicMaelstrom` (#490), 1068 `SilentDeath` (#497),
 #: 1152 `UnstoppableMomentumReworked` (#498), 1019 `StormOfWrath` (#499),
 #: 1038 `FoulInfusion` (#500), 1165 `MightFromBelow` (#501),
-#: 1064 `Loki_SwoopingHawk` (#502), 1141 `OverwhelmingWrath` (#503), 1132 `KillMaimBurn` (#504) --
-#: toutes pour la MEME raison : leur face COMBAT est portee, donc leur masque a MIGRE sur la classe.
-#: Les SEPT dernieres sont sorties EN PARALLELE, sur des branches aveugles l'une a l'autre : la
-#: liste se relit apres resolution, elle ne se rature pas d'un seul cote.
-#: ⚠ #503 et #504 se sont croisees sur CETTE liste : chacune n'y retirait QUE son id (1141 / 1132),
-#: et un `--ours`/`--theirs` en aurait donc RESSUSCITE un. La resolution est l'UNION des retraits.
+#: 1064 `Loki_SwoopingHawk` (#502), 1141 `OverwhelmingWrath` (#503), 1132 `KillMaimBurn` (#504),
+#: 1129 `BloodyFury` (#505) -- toutes pour la MEME raison : leur face COMBAT est portee, donc leur
+#: masque a MIGRE sur la classe. Les HUIT dernieres sont sorties EN PARALLELE, sur des branches
+#: aveugles l'une a l'autre : la liste se relit apres resolution, elle ne se rature pas d'un seul
+#: cote.
+#: ⚠ #503, #504 et #505 se sont croisees sur CETTE liste : chacune n'y retirait QUE son id
+#: (1141 / 1132 / 1129), et un `--ours`/`--theirs` en aurait donc RESSUSCITE un -- le test serait
+#: reste VERT de chaque cote pris isolement. La resolution est l'UNION des retraits, verifiee
+#: ensuite PAR LE CODE (`intrus` == [] contre `ABILITY_CLASSES`).
 POOL_ABILITIES_WITHOUT_COMBAT_CLASS = [
     1005, 1039, 1049, 1050, 1057, 1061, 1063,
-    1101, 1106, 1121, 1129, 1164, 1175, 1177, 1183, 1191, 1195,
+    1101, 1106, 1121, 1164, 1175, 1177, 1183, 1191, 1195,
     1197, 1204,
 ]
 

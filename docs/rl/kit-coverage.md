@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **59** ; kits avec du travail : **68**
-- Volume total : **84** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **83** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -42,13 +42,13 @@
 | ThousandSons | 3 | 5 |
 | AstraMilitarum | 3 | 4 |
 | BlackTemplars | 4 | 4 |
-| WorldEaters | 3 | 4 |
 | AdeptusAstartes | 2 | 3 |
 | AdeptusMechanicus | 3 | 3 |
 | Aeldari | 3 | 3 |
 | BlackLegion | 3 | 3 |
 | Orks | 2 | 3 |
 | Tyranids | 3 | 3 |
+| WorldEaters | 3 | 3 |
 | Genestealers | 2 | 2 |
 | Tau | 1 | 2 |
 
@@ -214,13 +214,13 @@
 | tyranParasite | 1 | ItItches(1121) [-D] NO-OP SUMMON | - | - |
 | tyranWingedPrime | 1 | AlphaWarrior(1112) [C-] OK | SynapticLinchpin | - |
 
-### WorldEaters — 3 kits, 4 items
+### WorldEaters — 3 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | worldExecutions | 1 | MurderousSwing(1137) [CD] OK | TrophyTaker | - |
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
-| worldTerminator | 2 | BloodyFury(1129) [-D] NO-OP DAMAGE(Chain) | WrathfulDevotion | - |
+| worldTerminator | 1 | BloodyFury(1129) [CD] OK | WrathfulDevotion | - |
 
 ## Kits lineup COMPLETS (59)
 
