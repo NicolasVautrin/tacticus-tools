@@ -98,7 +98,7 @@ from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddStaticStatModifierEffect
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
-from .weaver_of_fate import _alive_enemies_of, units_that_taken_damage_this_turn
+from .weaver_of_fate import _enemies_of, units_that_taken_damage_this_turn
 
 ABILITY_ID = "RealityUnbound"
 RU_MOVEMENT = int(EffectType.RealityUnbound_Movement)                # 1205 (0x4b5)
@@ -218,8 +218,14 @@ class RealityUnboundAbility(TriggeredAbility):
         if state.effects is not None and state.effects.has_effect(
                 self.owner_id, effect_type=RU_MOVEMENT):
             return False
-        # AmountIsEqualOrGreater(UnitsThatTakenDamageThisTurn(Enemies(self, AllUnits), Psychic), Get(3))
-        enemies = _alive_enemies_of(state, self.owner_id)
+        # AmountIsEqualOrGreater(UnitsThatTakenDamageThisTurn(
+        #     Enemies(<dsl>+0x30 = Owner, DSLSelectors$$AllUnits(), UnitSelectionType.Any = 0),
+        #     Psychic), Get(3))
+        # ⚠ MEME CORPS que WeaverOfFate -- `RealityUnboundAbility$$CreateTrigger` appelle
+        # litteralement `WeaverOfFateAbility$$GetTrigger` (verifie par `list_xrefs`, c'est son SEUL
+        # appelant hors table). Donc MEME source pool-8 et MEME `selectionType = Any` : les MORTS
+        # comptent, cf. `_enemies_of` (#514).
+        enemies = _enemies_of(state, self.owner_id)
         hit = units_that_taken_damage_this_turn(state, enemies, _PSYCHIC)
         return len(hit) >= _THRESHOLD
 

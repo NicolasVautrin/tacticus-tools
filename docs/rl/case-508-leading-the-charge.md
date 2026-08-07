@@ -126,11 +126,14 @@ Contre-épreuves hors-ligne (`--ab`, même capture, R1, 5 candidats) : `Tile(7)`
 
 ## 5. Ce qui n'est PAS couvert
 
-* **Le terme `extraPierceRatio` n'a jamais été exercé non nul en live** : aucun allié de Dreir n'est
-  mort dans les deux régimes, donc `GetExtraPierceRatio` rend `0` — et le natif le confirme
-  (`UnitStats_ExtraPierce_Modification=0` dans les events). L'accord sur le dégât est donc obtenu
-  dans un régime **dégénéré pour ce terme**. Monter un allié vaincu demande un tour préalable.
-  Résidu **#508-r1**.
+* ~~**Le terme `extraPierceRatio` n'a jamais été exercé non nul en live**~~ — **FERMÉ par #514.**
+  Dans les deux régimes de cette fiche aucun allié de Dreir n'était mort, donc `GetExtraPierceRatio`
+  rendait `0` (le natif le confirmait : `UnitStats_ExtraPierce_Modification=0`) : l'accord sur le
+  dégât était obtenu dans un régime **dégénéré pour ce terme**. `probe_514_extra_pierce_cadavres.py`
+  monte le cadavre (allié fragile + `endturn` + `aiturn`) et confronte : `ExtraPierce` port `10` ==
+  natif `10`, séquence `[1212, 1399, 1125]` == natif, 13 tirages == 13 — et la contre-épreuve
+  montre que le port d'AVANT #514 rendait `[970, 1119, 900]`, soit **−20 %**.
+  Détail : `case-514-allunits-pool8.md`.
 * **Les deux termes du bucket ne sont pas séparés** : sur R1, `MovementSuggestion` seule et
   `LeadingTheCharge_ChargeTile` seule rendent toutes deux `(5,7)`. Seule leur SOMME est confrontée.
 * **`Fled` (UnitFlag 9)** de `HasBeenDefeated` n'a aucun producteur côté port — le terme est porté
