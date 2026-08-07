@@ -1,12 +1,12 @@
 """Feuilles DSL de DEPLACEMENT runner-couplees : `PushUnit` (`DisplaceUnitBehaviour`, pousse a l'oppose),
-`MoveUnit` (`MoveUnitBehaviour`, charge sur une tuile libre). Wrappers au-dessus de
-`runner/operations/displace.py` + `movement.py`. Namespace natif `Entities.Behaviours.*`.
-
-C'est ICI qu'atterriront les futurs `ResetMovement` (transverse) et push/reposition case-220."""
+`MoveUnit` (`MoveUnitBehaviour`, charge sur une tuile libre), `ResetMovement`
+(`ResetMovementBehavior`, rend le tour au sujet). Wrappers au-dessus de
+`runner/operations/displace.py` + `movement.py`. Namespace natif `Entities.Behaviours.*`."""
 from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
+from ...components import UnitFlagsComponent
 from ...operations.displace import DirectDisplaceOperation
 from ...operations.displace import DisplaceUnitOperation
 from ...operations.displace import PullUnitOneTileOperation
@@ -463,6 +463,84 @@ class OverrideUnitMovementTarget(AbilityBehaviour):
                   unit=unit.get("id"), target=(r or {}).get("target"))
         return OperationResult.ok()
 
+
+
+#: Les QUATRE flags que `IdunBattle.Entities.Behaviours.ResetMovementBehavior$$Execute` retire, DANS
+#: L'ORDRE du decompile (`UnitFlagsComponent$$Remove` appele avec 1, 0, 0x1b, puis 3). Les ordinaux
+#: sont resolus par `data/symbols/<build>/frida/enums.tsv` -> `IdunBattle.Entities.Enum.UnitFlag`.
+#:
+#: ⚠ CE N'EST PAS `UnitFlagsComponent$$RemoveTurnFlags` : celui-la retire AUSSI `ActiveAbilityUsed(2)`
+#: et `Teleported(0xc)`, que `ResetMovementBehavior` LAISSE EN PLACE. La difference est le coeur de la
+#: mecanique -- l'unite retrouve son DEPLACEMENT et son activation, mais PAS son active (elle ne peut
+#: pas re-caster). Utiliser `remove_turn_flags` ici rendrait l'ability infiniment re-castable.
+_RESET_MOVEMENT_FLAGS = (
+    UnitFlagsComponent.ARRIVED_AT_FINAL_TILE,   # Remove(1)
+    UnitFlagsComponent.MOVED,                   # Remove(0)
+    UnitFlagsComponent.TURN_FINISHED_FORCED,    # Remove(0x1b) = UnitFlag.TurnTerminated
+)
+
+
+class ResetMovement(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ResetMovement(targets)` ->
+    `IdunBattle.Entities.Behaviours.ResetMovementBehavior$$Execute` -- MIRROR 1:1 du decompile, dont
+    le corps entier tient en une boucle sur le selecteur :
+
+        targets = this.<+0x50>.Select(entities, 2)      // le SEUL champ du behaviour
+        if (targets == null) throw
+        foreach (e in targets) {
+            f = e.GetComponent<UnitFlagsComponent>()
+            f.Remove(UnitFlag.ArrivedAtFinalTile)       // Remove(1)
+            f.Remove(UnitFlag.Moved)                    // Remove(0)
+            f.Remove(UnitFlag.TurnTerminated)           // Remove(0x1b)
+            if (f.Remove(UnitFlag.TurnFinished))        // Remove(3) -- le RETOUR est lu
+                events.Publish(<groupe 0xc>, e, { <cle 0x70> : 0 })
+        }
+
+    `DSLBehaviors$$ResetMovement` n'alloue rien d'autre que le behaviour : son ctor recoit
+    `(targets, <factory+0x20>)` -- le second argument est l'`IStreamDispatcher` (`behaviour+0x58`,
+    relu par l'`Execute`), pas un second selecteur.
+
+    SEMANTIQUE : le sujet RECUPERE son deplacement (`Moved`/`ArrivedAtFinalTile` tombent) ET son
+    activation si elle etait close (`TurnFinished`/`TurnTerminated` tombent). Il NE recupere PAS son
+    active : `ActiveAbilityUsed(2)` n'est pas dans la liste -- cf. `_RESET_MOVEMENT_FLAGS`.
+
+    Call-sites NATIFS (xrefs de `DSLBehaviors$$ResetMovement`) :
+    `StrikeFromTheShadowsAbility$$ExecuteBehaviour` (porte, `#511`),
+    `FireAndRepositionAbility$$ExecuteBehaviour`, `Maugetar_ResetMovementAbility$$CreateBehaviour`.
+
+    DETERMINISTE : aucun tirage rng -> inserer cette feuille dans un arbre ne DECALE PAS l'ordre RNG.
+    Emet 'ResetMovement' par unite (`reopened` = le tour etait-il clos, i.e. le retour du `Remove(3)`
+    natif). PUR (stop=False).
+
+    RESIDU NOMME : la publication de stream du natif (`Publish(<0xc>, e, {<0x70>: 0})`) quand le tour
+    est rouvert n'a pas de canal equivalent cote port -- l'etat, lui, est integralement mirrore par
+    le retrait des quatre flags. Le groupe `0xc` et la cle `0x70` ne sont PAS nommes ici : le mirror
+    `GROUP_TYPE` porte des noms FAUX en nombre (cf. CLAUDE.md #270-a), et ecrire un nom faux serait
+    pire que l'ordinal."""
+    __slots__ = ("targets_sel",)
+
+    def __init__(self, targets_sel: TargetsSelector):
+        self.targets_sel = targets_sel
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        subjects = [u for u in _units_of(self.targets_sel, entities)
+                    if isinstance(u, dict) and u.get("id") is not None]
+        for u in sorted(subjects, key=lambda x: x["id"]):    # ordre de lecture = id (== PushUnit)
+            ent = state.entities.get(int(u["id"]))
+            flags = ent.get_component(UnitFlagsComponent) if ent is not None else None
+            if flags is None:
+                continue
+            for f in _RESET_MOVEMENT_FLAGS:
+                flags.remove(f)
+            # `Remove(3)` -- SEUL des quatre dont le natif LIT le retour (il conditionne la
+            # publication de stream). Le port le surface dans l'event, et rien d'autre.
+            reopened = flags.has(UnitFlagsComponent.TURN_FINISHED)
+            flags.remove(UnitFlagsComponent.TURN_FINISHED)
+            ectx.emit("ResetMovement", subject=int(u["id"]), reopened=bool(reopened))
+        return OperationResult.ok()
 
 
 class Teleport(AbilityBehaviour):

@@ -23,8 +23,8 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **59** ; kits avec du travail : **68**
-- Volume total : **82** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **60** ; kits avec du travail : **67**
+- Volume total : **81** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -41,7 +41,6 @@
 | SpaceWolves | 4 | 5 |
 | ThousandSons | 3 | 5 |
 | BlackTemplars | 4 | 4 |
-| AdeptusAstartes | 2 | 3 |
 | AdeptusMechanicus | 3 | 3 |
 | Aeldari | 3 | 3 |
 | AstraMilitarum | 3 | 3 |
@@ -49,16 +48,16 @@
 | Orks | 2 | 3 |
 | Tyranids | 3 | 3 |
 | WorldEaters | 3 | 3 |
+| AdeptusAstartes | 1 | 2 |
 | Genestealers | 2 | 2 |
 | Tau | 1 | 2 |
 
 ## Par faction (kits avec du travail)
 
-### AdeptusAstartes — 2 kits, 3 items
+### AdeptusAstartes — 1 kits, 2 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| astarCyrus | 1 | StrikeFromTheShadows(1225) [--] NO-OP DAMAGE(Bolter) | - | - |
 | astarLysander | 2 | TitanhammerSquad(1231) [--] NO-OP HEAL | IconOfObstinacy | - |
 
 ### AdeptusMechanicus — 3 kits, 3 items
@@ -222,9 +221,9 @@
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
 | worldTerminator | 1 | BloodyFury(1129) [CD] OK | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (59)
+## Kits lineup COMPLETS (60)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, genesKelermorph, genesPatriarch, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, worldEightbound, worldKharn
+adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, genesKelermorph, genesPatriarch, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, worldEightbound, worldKharn
 
 ## HORS total — voies conditionnelles (42 abilities non portees)
 

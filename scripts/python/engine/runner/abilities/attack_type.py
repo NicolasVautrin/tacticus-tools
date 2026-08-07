@@ -145,6 +145,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # degat de l'arbre. (case-bl-1029-1020)
     ActiveAbilityType.Drachnyen: AbilityAttackType.DirectTargetAttack,  # 1029
     ActiveAbilityType.FlailSwing: AbilityAttackType.DirectTargetAttack,  # 1042
+    # StrikeFromTheShadows (1225) : `...Active.Loki.StrikeFromTheShadowsAbility$$.ctor` recopie les
+    # 0x40 octets du preset statique `<TargetingOptions statics>+0x140` puis appelle
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT, jamais
+    # deduit du profil de degat de l'arbre. (#511)
+    ActiveAbilityType.StrikeFromTheShadows: AbilityAttackType.DirectTargetAttack,  # 1225
     ActiveAbilityType.ThunderousAssault: AbilityAttackType.DirectTargetAttack,  # 1043
     # FragstormGrenadeLauncher (1048) : `FragstormGrenadeLauncherAbility$$.ctor` copie le preset
     # `TargetingOptions` statics `+0x180`, appelle la surcharge PRESET+FLAGS puis
