@@ -1184,8 +1184,21 @@ def exemplar_of_the_kauyon_tree(dest_tile_id: int, ex_tile_id: Optional[int]):
     spawn_tiles = PickFirstN(
         CanAddUnit(Union(ex_tile, SortByDistance(Randomize(AllTiles()), ex_tile))), Const(1))
     corps = op_and(
+        # `AddEffect(0x49d, abilityState = AbilityStateReference, source = caster@0x48,
+        #            targets = caster@0x48, options = default)`.
+        #  * `duration_rounds=None` : le natif passe une struct d'options ZERO-initialisee, donc AUCUN
+        #    noeud `TurnsFromRounds` -> pas d'override, la duree vient de `DefaultAmountOfRounds`
+        #    (branche « pas d'override » d'`AddEffectOperation`). Sans objet ici (l'effet est retire
+        #    trois noeuds plus bas) mais on n'invente pas une duree que le natif n'ecrit pas.
+        #  * `scale_from_source` : c'est le pendant PORT de l'`AbilityStateReference` -- le 2e argument
+        #    natif. `...ExemplarOfTheKauyon_AdditionalHitsEffectEffect$$CreateAdditionalHits` lit son
+        #    degat par `DSLFormulas.ConfigVar(0xb = dmg, GetAbilityState(effet), config)`, donc contre
+        #    le NIVEAU d'ability + le multiplicateur de rarete de l'unite qui a pose l'effet. Sans lui
+        #    l'effet retombe sur le niveau 1 : MESURE #488, les 2 coups additionnels valaient **40**
+        #    au lieu de **3979** (la phase ARME, elle, etait deja bit-exacte : 3162 / 2678). Meme
+        #    cablage que le jumeau `SorcerousFacade_AdditionalHits` (1204), meme canal #179.
         AddEffect(EXEMPLAR_KAUYON_HITS, EffectType.ExemplarOfTheKauyon_AdditionalHits.name,
-                  Caster(), duration_rounds=0),
+                  Caster(), duration_rounds=None, scale_from_source=True, source_ref=Caster()),
         PerformAIAttack(dest))
     corps = op_and(corps, RemoveEffect(EXEMPLAR_KAUYON_HITS, Caster()))
     tete = op_and(Teleport(Caster(), dest), IfBehaviour(OwnerIsAlive(), corps))
