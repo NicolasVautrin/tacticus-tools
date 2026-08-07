@@ -1,0 +1,444 @@
+"""#488-r1 -- `1211 OnMeltaDamageAbility` est-elle VIVANTE, et si non par quel MECANISME ?
+
+QUESTION BINAIRE, posee AVANT la methode. `case-72` l'a classee DEAD-CODE sur `gqfc5mff6c` avec
+pour racine « elle n'override pas `CreateTrigger` ». #519 a FALSIFIE cette racine au decompile sur
+`rnca9r7q6c`. Reste :
+
+    VIVANTE     : le trigger est materialise ET l'effet 1297 `Melta_ExtraDmg` atteint le pipeline
+                  de degat de l'ATTAQUANT -> le +50 % vs `Vehicle` de l'i2 existe.
+    MORTE       : n'importe quel maillon rompu -- mais alors DIRE LEQUEL.
+
+ETAGES MESURES (chacun a son oracle natif -- jamais un scalaire fitte) :
+
+  [0] SLOT DE VTABLE (RPC `resolveMethodPtr`).  La table est indexee par ADRESSE et IL2CPP
+      DEDUPLIQUE les corps triviaux : la presence du symbole ne prouve pas plus l'override que son
+      absence ne prouve la non-surcharge. Le seul discriminant est la PROFONDEUR du premier corps
+      dans la chaine de parents -- `0` = la classe DECLARE la methode. On interroge les TROIS
+      membres de la famille (`OnFire`, `OnToxic`, `OnMelta`) : les deux premiers sont les TEMOINS
+      DE MORSURE (ils overrident, c'est etabli), et on ajoute `GetTargetTiles` -- que seul `OnFire`
+      declare -- pour montrer que l'etage sait aussi rendre « pas a la profondeur 0 ».
+
+  [1] EFFET DE TUILE AU `MatchInit`.  `$$CreateBehaviour` pose `AddEffect(1297, targets =
+      First(AllTiles(), 1))` : le support est une TUILE, pas une unite. `decisionView.effects` est
+      une vue PAR UNITE -- son silence (la contre-observation de #519) ne prouve donc rien.
+      L'oracle est la vue TUILE (`tileMeta` / effets de tuile du runner).
+
+  [2] MORSURE SUR LE DEGAT.  Un attaquant a profil `Melta` frappe un `Vehicle` DEPUIS la tuile qui
+      porte l'effet, puis depuis une AUTRE tuile. Si l'effet mord, les deux regimes different.
+      C'est ce qui separe « pose mais inerte » de « pose et lu ».
+
+Usage :
+    python scripts/python/probe_488r1_onmelta_vivant.py --step vtable
+    python scripts/python/probe_488r1_onmelta_vivant.py --step tuile
+"""
+from __future__ import annotations
+
+import argparse
+import bisect
+import json
+import os
+import sys
+import urllib.request
+
+HOST = "http://127.0.0.1:8765"
+RACINE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+NS_DMG = "IdunBattleLogic.Entities.Abilities.Damage.Loki"
+
+# Les TROIS membres de la famille. `OnFire`/`OnToxic` sont les temoins de morsure de l'etage 0 :
+# leur override de `CreateTrigger` est etabli (corps NOMMES et NON partages dans la table).
+FAMILLE = ["OnFireDamageAbility", "OnToxicDamageAbility", "OnMeltaDamageAbility"]
+
+# `GetTargetTiles` n'est declaree que par `OnFireDamageAbility` -> l'etage doit rendre une
+# profondeur > 0 (ou rien) pour les deux autres. Sans ce contre-cas, un etage qui rendrait
+# « profondeur 0 » pour tout passerait pour vert.
+METHODES = ["CreateTrigger", "CreateBehaviour", "GetTargetTiles"]
+
+
+def _http(chemin, methode="GET", corps=None, timeout=60):
+    req = urllib.request.Request(
+        HOST + chemin, method=methode,
+        data=None if corps is None else json.dumps(corps).encode("utf-8"),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def session_id():
+    st = _http("/api/admin/status")
+    sess = st.get("session") or {}
+    return int(sess["id"]) if sess.get("id") is not None else None
+
+
+def rpc(sid, methode, args, timeout=90.0):
+    out = _http("/api/scripts/%d/rpc" % sid, "POST",
+                {"method": methode, "args": args, "timeout": int(timeout * 1000)},
+                timeout + 10)
+    return out.get("result")
+
+
+def build_courant():
+    with open(os.path.join(RACINE, "data", "symbols", "CURRENT"), encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def charge_table(build):
+    chemin = os.path.join(RACINE, "data", "symbols", build, "ghidra", "functions.tsv")
+    paires = []
+    with open(chemin, encoding="utf-8") as f:
+        for ligne in f:
+            if ligne.startswith("#"):
+                continue
+            m = ligne.rstrip("\n").split("\t")
+            if len(m) < 2:
+                continue
+            try:
+                paires.append((int(m[0], 16), m[1]))
+            except ValueError:
+                continue
+    paires.sort()
+    return [a for a, _ in paires], [s for _, s in paires]
+
+
+def whereis(adresses, symboles, va):
+    if va == 0:
+        return None
+    i = bisect.bisect_right(adresses, va) - 1
+    if i < 0:
+        return None
+    delta = va - adresses[i]
+    return symboles[i] if delta == 0 else "%s+0x%x" % (symboles[i], delta)
+
+
+def etape_vtable():
+    """[0] La classe DECLARE-t-elle `CreateTrigger` ? -> profondeur du 1er corps."""
+    build = build_courant()
+    adresses, symboles = charge_table(build)
+    print("build=%s  table=%d fonctions" % (build, len(adresses)))
+
+    sid = session_id()
+    if sid is None:
+        print("ECHEC: aucune session Frida vivante")
+        return 2
+    print("session=%d" % sid)
+
+    cibles = [{"ns": NS_DMG, "cls": c, "method": m} for c in FAMILLE for m in METHODES]
+    res = rpc(sid, "resolveMethodPtr", [{"targets": cibles, "maxDepth": 6}], 90)
+    if not res or not res.get("ok"):
+        print("ECHEC RPC: %r" % (res,))
+        return 3
+
+    # (classe, methode) -> (profondeur, classe porteuse, symbole du corps)
+    trouve = {}
+    for t in res["targets"]:
+        cle = (t["cls"], t["method"])
+        if not t.get("ok"):
+            trouve[cle] = None
+            continue
+        premier = None
+        for niveau in t["levels"]:
+            if not niveau["methods"]:
+                continue
+            entree = niveau["methods"][0]
+            va = int(entree["entry"]["ghidraVA"], 16)
+            premier = (niveau["depth"], niveau["name"], whereis(adresses, symboles, va), va)
+            break
+        trouve[cle] = premier
+
+    print("\n--- [0] PROFONDEUR DU PREMIER CORPS (0 = la classe DECLARE) ---")
+    for cls in FAMILLE:
+        print("\n%s" % cls)
+        for m in METHODES:
+            v = trouve.get((cls, m))
+            if v is None:
+                print("  %-18s : ABSENTE de toute la chaine" % m)
+            else:
+                prof, porteuse, sym, va = v
+                print("  %-18s : profondeur %d  chez %s" % (m, prof, porteuse))
+                print("  %-18s   corps -> %s" % ("", sym))
+
+    # VERDICT de l'etage : la question binaire de la reserve (a).
+    melta = trouve.get(("OnMeltaDamageAbility", "CreateTrigger"))
+    print("\n--- VERDICT [0] ---")
+    if melta is None:
+        print("OnMeltaDamageAbility.CreateTrigger : ABSENTE -> `case-72` tiendrait")
+        return 1
+    prof, porteuse, sym, _ = melta
+    if prof == 0:
+        print("OnMeltaDamageAbility DECLARE CreateTrigger (profondeur 0, porteuse %s)" % porteuse)
+        print("  -> la racine de `case-72` (« n'override pas CreateTrigger ») est FALSIFIEE")
+    else:
+        print("OnMeltaDamageAbility HERITE CreateTrigger (profondeur %d, chez %s)" % (prof, porteuse))
+        print("  -> `case-72` tiendrait, mais pour une raison a re-enoncer")
+
+    # CONTRE-CAS : l'etage sait-il rendre autre chose que « profondeur 0 » ?
+    print("\n--- CONTRE-CAS (l'etage MORD-il ?) ---")
+    non_zero = [(c, m, v) for (c, m), v in sorted(trouve.items())
+                if v is None or v[0] != 0]
+    if not non_zero:
+        print("AUCUN : tous les couples rendent profondeur 0 -> l'etage NE DISCRIMINE PAS,")
+        print("        son « profondeur 0 » ne vaut rien. Ajouter un couple non declare.")
+        return 4
+    for c, m, v in non_zero:
+        print("  %s.%s : %s" % (c, m, "ABSENTE" if v is None else "profondeur %d chez %s" % (v[0], v[1])))
+
+    # PARTAGE DU CORPS : quels couples rendent la MEME adresse d'entree ?
+    print("\n--- PARTAGE DU CORPS (la deduplication, mesuree) ---")
+    par_va = {}
+    for (c, m), v in trouve.items():
+        if v is not None:
+            par_va.setdefault(v[3], []).append("%s.%s" % (c, m))
+    for va, membres in sorted(par_va.items()):
+        if len(membres) > 1:
+            print("  %s partage par %d : %s"
+                  % (whereis(adresses, symboles, va), len(membres), ", ".join(sorted(membres))))
+    return 0
+
+
+def etape_tuile(runner_id):
+    """[1] L'effet 1297 est-il POSE au `MatchInit`, et sur QUEL support ?
+
+    `decisionView.effects` est une vue PAR UNITE : son silence (la contre-observation de #519) ne
+    peut pas distinguer « pas pose » de « pose sur une TUILE ». L'oracle est donc `tileMeta`, la
+    MEME lecture native cote tuile (`readEffectsByTile`)."""
+    sid = session_id()
+    if sid is None:
+        print("ECHEC: aucune session Frida vivante")
+        return 2
+    res = rpc(sid, "tileMeta", [{"runnerId": runner_id}], 60)
+    if not res or not res.get("ok"):
+        print("ECHEC RPC tileMeta: %r" % (res,))
+        return 3
+    tuiles = res.get("tiles") or []
+    print("--- [1] EFFETS PORTES PAR LES TUILES (runner %d, %d tuiles) ---"
+          % (runner_id, len(tuiles)))
+    porteuses = []
+    for t in tuiles:
+        noms = [e.get("name") if isinstance(e, dict) else str(e) for e in (t.get("effects") or [])]
+        if noms:
+            print("  (%s,%s) : %s" % (t.get("col"), t.get("row"), ", ".join(noms)))
+            if "Melta_ExtraDmg" in noms:
+                porteuses.append((t.get("col"), t.get("row")))
+    print("\n--- VERDICT [1] ---")
+    if not porteuses:
+        print("AUCUNE tuile ne porte Melta_ExtraDmg -> le behaviour n'a rien pose")
+        return 1
+    print("Melta_ExtraDmg pose sur %d tuile(s) : %s" % (len(porteuses), porteuses))
+    print("  -> conforme a `AddEffect(1297, targets = First(AllTiles(), 1))` : UNE tuile,")
+    print("     et le support est une TUILE, pas une unite. La contre-observation de #519")
+    print("     (`decisionView.effects` muette) mesurait le MAUVAIS support.")
+    return 0
+
+
+def etape_morsure(runner_id, attaquant, cibles, tuiles):
+    """[2] L'effet MORD-il ? Bande de prediction NATIVE depuis chaque tuile.
+
+    `Melta_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` est un `ForPercentIncrease` : s'il
+    entrait dans le pipeline, la bande predite contre un `Vehicle` serait 1,5x plus haute DEPUIS la
+    tuile porteuse. On balaie donc les MEMES tuiles pour une cible `Vehicle` ET une cible
+    non-`Vehicle` -- la seconde est le TEMOIN : elle ne doit varier avec AUCUNE tuile porteuse,
+    parce que le gate `HasTrait(target, Vehicle)` l'exclut."""
+    sid = session_id()
+    if sid is None:
+        print("ECHEC: aucune session Frida vivante")
+        return 2
+    print("--- [2] BANDE NATIVE (`aiPredict`) PAR TUILE DE TIR ---")
+    print("attaquant u%d ; tuiles balayees : %s" % (attaquant, tuiles))
+    table = {}
+    for cible, etiquette in cibles:
+        print("\n  vs u%d (%s)" % (cible, etiquette))
+        for (c, r) in tuiles:
+            res = rpc(sid, "aiPredict", [{"runnerId": runner_id, "unitId": attaquant,
+                                          "targetId": cible, "col": c, "row": r,
+                                          "fresh": True}], 60)
+            if not res or not res.get("ok"):
+                print("    (%d,%d) : RPC KO %r" % (c, r, res))
+                continue
+            p = res.get("pred") or {}
+            bande = (p.get("healthDmgMin"), p.get("healthDmgMax"), p.get("appliedHits"))
+            table[(etiquette, c, r)] = bande
+            print("    (%d,%d) : min=%s max=%s hits=%s   [%s]"
+                  % (c, r, bande[0], bande[1], bande[2], res.get("abilityName")))
+    return table
+
+
+# --- MONTAGE, expose pour que le test GARDE la meme implementation que ce probe -----------------
+#
+# Le regime DISCRIMINANT, et chacun de ses termes est un choix MESURE :
+#  * l'attaquant est pose en (4,0) et la cible en (2,0) -> distance 2 = portee RANGED. A distance 1
+#    le natif prend l'arme de MELEE, dont le profil n'est PAS `Melta` : le gate
+#    `DamageProfileHasTrait(OnMelta)` tombe et le bonus disparait -- mesure, pas hypothese.
+#  * (4,0) ne porte PAS l'effet (il est sur (0,0)) : c'est VOULU. Le bonus mord depuis n'importe
+#    quelle tuile, et le montrer depuis une tuile NON porteuse est ce qui etablit qu'il ne depend
+#    pas de la position -- une mesure faite sur (0,0) seule serait ambigue.
+#  * `--armor-target 2000` EGALISE l'armure des trois cibles : sans lui, le rapport Vehicle /
+#    non-Vehicle melangerait le +50 % Melta et un ecart d'armure.
+#  * `--crit "0,0" --block-target "0,0"` : le canal aleatoire est eteint, la bande predite est
+#    deterministe.
+#  * PV a 400000 : sans quoi la borne haute est CLAMPEE aux PV de la cible et le rapport 1,5
+#    devient illisible (mesure : [9014-9537] au lieu de [9014-13520]).
+CASTER = "tauShadowsun"        # profil d'arme RANGED `Melta` (gameconfig, `weapons[].DamageProfile`)
+CIBLE_VEHICLE = "admecDestroyer"                     # UnitTrait.Vehicle -- le gate doit MORDRE
+CIBLES_TEMOIN = ("orksNob", "adeptCanoness")         # sans `Vehicle` -- le gate doit rester MUET
+BOARD = "MC1_67"
+CASTER_POS = "4,0"
+CIBLE_POS = "2,0"
+
+
+def build_extra(cible: str) -> list:
+    """Args `rl_duel build` du regime discriminant (cf. l'encadre)."""
+    return ["--p-units", CASTER, "--a-units", cible,
+            "--place", "%s:%s" % (CASTER, CASTER_POS),
+            "--a-place", "%s:%s" % (cible, CIBLE_POS),
+            "--unit-stat", "%s:Health=400000,RemainingHealth=400000" % cible,
+            "--armor-target", "2000", "--crit", "0,0", "--block-target", "0,0", "--no-ai"]
+
+
+# --- Axe ABILITY : le profil `Melta` n'est pas qu'une ARME ---------------------------------------
+# Le gate natif est `DamageProfileHasTrait(OnMelta)` sur le PROFIL DU COUP -- il ne dit rien du
+# VECTEUR. Sur ce build, `Melta` est porte par 2 armes de lineup ET par 6 abilities
+# (`abilities/<X>/constants/damageProfile`). Confronter le seul vecteur ARME laisserait la moitie du
+# rayon non mesuree, et c'est un porteur DIFFERENT sur une voie DIFFERENTE : la vraie generalisation.
+CASTER_ABILITY = "bloodDante"          # lineup ; `LightOfSanguinius` a `damageProfile = Melta`
+ABILITY_NOM = "LightOfSanguinius"
+ABILITY_ID = 1177
+
+
+def build_extra_ability(cible: str) -> list:
+    """Meme regime discriminant que `build_extra`, avec le caster de l'axe ABILITY."""
+    return ["--p-units", CASTER_ABILITY, "--a-units", cible,
+            "--place", "%s:%s" % (CASTER_ABILITY, CASTER_POS),
+            "--a-place", "%s:%s" % (cible, CIBLE_POS),
+            "--unit-stat", "%s:Health=400000,RemainingHealth=400000" % cible,
+            "--armor-target", "2000", "--crit", "0,0", "--block-target", "0,0", "--no-ai"]
+
+
+def bandes_ability(rpc1, rid, aid, tid):
+    """`(port, natif)` pour un cast d'ABILITY. L'oracle est `aiPlaybookPredict` -- l'oracle DIRECT
+    du playbook natif per-ability, pas `aiPredict` (qui est attack-based quel que soit l'abilityType)."""
+    from engine.playbook.prediction.abilities import make_damage_predictions
+    sc = _scene(rpc1, rid)
+    if sc is None:
+        return None, None
+    ev = make_damage_predictions(sc, aid, tid, ABILITY_ID, ABILITY_NOM, sc.pos(aid))
+    lst = ev if isinstance(ev, (list, tuple)) else ([] if ev is None else [ev])
+    port = [(int(e.prediction.raw_health_damage.min), int(e.prediction.raw_health_damage.max))
+            for e in lst]
+    orc = rpc1("aiPlaybookPredict", {"runnerId": rid, "unitId": aid, "targetId": tid,
+                                     "abilityType": ABILITY_ID}, 150) or {}
+    natif = [(int(e.get("healthDmgMin") or 0), int(e.get("healthDmgMax") or 0))
+             for e in (orc.get("events") or []) if e.get("targetId") == tid]
+    return port, natif
+
+
+def bandes(rpc1, rid, aid, tid):
+    """`(port, natif)` -- la bande de degat predite, bornes comprises, sur la position COURANTE.
+
+    `natif` = `aiPredict` (`GetAllPredictions`), `port` = `make_normal_attack_predictions`. Les deux
+    lisent le MEME etat live. `rpc1(methode, corps, timeout)`."""
+    sc = _scene(rpc1, rid)
+    if sc is None:
+        return None, None
+    port = _degat_port(sc, aid, tid, sc.pos(aid))
+    p = (rpc1("aiPredict", {"runnerId": rid, "unitId": aid, "targetId": tid, "fresh": True}, 60)
+         or {}).get("pred") or {}
+    return port, (int(p.get("healthDmgMin") or 0), int(p.get("healthDmgMax") or 0))
+
+
+def _scene(rpc1, rid):
+    """La `Scene` de la face PREDICTION, montee comme le spine de decision (`engine.ai.context`) --
+    MEME montage que `tests/engine/test_prediction_trait_gates_live.py`."""
+    from engine.playbook import scene as SC
+    from engine.playbook.scene import Scene
+    pred = SC.build_predictor(rpc1, rid)
+    if pred is None:
+        return None
+    vue = rpc1("decisionView", {"runnerId": rid, "maxRank": 1}, 150)
+    sctx = SC.step_context(pred, vue)
+    obs = rpc1("observeBattle", {"runnerId": rid}, 60) or {}
+    hp = {u.get("squadId"): (u.get("hpMax") or 0) for u in (obs.get("units") or [])}
+    hp.update(pred.get("hpmax_eff_by_id") or {})
+    sctx["hpmax_by_id"] = hp
+    return Scene.from_predictor_sctx(pred, sctx, None)
+
+
+def _degat_port(scene, aid, tid, apos):
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
+    ev = make_normal_attack_predictions(scene, aid, tid, apos)
+    if ev is None:
+        return None
+    r = ev.prediction.raw_health_damage
+    return (int(r.min), int(r.max))
+
+
+def etape_port(runner_id, attaquant, cible, sans_correctif=False):
+    """[3] PORT vs NATIF sur la MEME position -- la bande predite, bornes comprises.
+
+    L'oracle est `aiPredict` (`GetAllPredictions` natif) ; le port passe par
+    `make_normal_attack_predictions`. Les deux lisent le MEME etat live.
+
+    `sans_correctif` = CONTRE-EPREUVE : on VIDE `MATCH_WIDE_EFFECTS`, donc le port perd le +50 %
+    Melta et RIEN D'AUTRE. Sans ce bras, « port == natif » ne prouverait pas que le correctif y est
+    pour quelque chose -- il pourrait accorder pour une raison etrangere (cf. la doctrine « verifier
+    que la MUTATION a mordu »)."""
+    sid = session_id()
+    if sid is None:
+        print("ECHEC: aucune session Frida vivante")
+        return 2
+    if sans_correctif:
+        from engine.entities import effects as _EF
+        _EF._MATCH_WIDE_EFFECTS = []          # neutralise le SEUL apport de cette tranche
+        print("[contre-epreuve] MATCH_WIDE_EFFECTS vide -> le port perd le +50 % Melta")
+
+    def rpc1(m, b=None, t=120):
+        return rpc(sid, m, [b or {}], t)
+
+    sc = _scene(rpc1, runner_id)
+    if sc is None:
+        print("ECHEC: build_predictor KO")
+        return 3
+    apos = sc.pos(attaquant)
+    port = _degat_port(sc, attaquant, cible, apos)
+    nat = rpc(sid, "aiPredict", [{"runnerId": runner_id, "unitId": attaquant,
+                                  "targetId": cible, "fresh": True}], 60) or {}
+    p = nat.get("pred") or {}
+    natif = (int(p.get("healthDmgMin") or 0), int(p.get("healthDmgMax") or 0))
+    print("runner=%d  attaquant=u%d @%s  cible=u%d" % (runner_id, attaquant, apos, cible))
+    print("  NATIF %s" % (natif,))
+    print("  PORT  %s" % (port,))
+    if port is None:
+        print("  VERDICT: le port ne rend AUCUNE prediction")
+        return 1
+    ecart = (port[0] - natif[0], port[1] - natif[1])
+    print("  ECART %s -> %s" % (ecart, "ACCORD" if ecart == (0, 0) else "DESACCORD"))
+    return 0 if ecart == (0, 0) else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--step", default="vtable",
+                    choices=["vtable", "tuile", "morsure", "port"])
+    ap.add_argument("--runner", type=int)
+    ap.add_argument("--attaquant", type=int)
+    ap.add_argument("--vehicle", type=int)
+    ap.add_argument("--autre", type=int)
+    ap.add_argument("--tuiles", default="0,0;1,0;2,0;0,1;0,2")
+    ap.add_argument("--sans-correctif", action="store_true",
+                    help="contre-epreuve : vide MATCH_WIDE_EFFECTS (le port perd le +50 % Melta)")
+    a = ap.parse_args()
+    if a.step == "vtable":
+        return etape_vtable()
+    if a.step == "tuile":
+        return etape_tuile(a.runner)
+    if a.step == "morsure":
+        tuiles = [tuple(int(x) for x in t.split(",")) for t in a.tuiles.split(";")]
+        cibles = [(a.vehicle, "Vehicle"), (a.autre, "non-Vehicle")]
+        etape_morsure(a.runner, a.attaquant, cibles, tuiles)
+        return 0
+    if a.step == "port":
+        return etape_port(a.runner, a.attaquant, a.vehicle, sans_correctif=a.sans_correctif)
+    return 9
+
+
+if __name__ == "__main__":
+    sys.exit(main())

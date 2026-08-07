@@ -23,19 +23,29 @@ Usages dans le port (post-#156) :
                               get_piercing_ratio / static_battle_rules (non wire, defaut False).
   - OnToxic (4)             : attaque Toxic -> pose Contaminated (OnToxicDamageAbility, #137).
   - OnMelta (5)             : attaque Melta. i2 `Keywords/DMG_Melta` = "75% pierce ratio. Deals +50%
-                              damage against Vehicle units". Le +50% vs Vehicle est DEAD CODE dans le
-                              build gqfc5mff6c -> NON porte (le porter DIVERGERAIT du live). Racine :
-                              `OnMeltaDamageAbility` (TriggeredAbilityType 1211) a un `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnMeltaDamageAbility$$CreateBehaviour (`AddEffect(Melta_ExtraDmg=1297, First(+0x78))`) mais AUCUN
-                              `CreateTrigger` -- contrairement a OnFire (1016, trigger IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateTrigger) et
-                              OnToxic (1203, trigger IdunBattleLogic.Entities.Abilities.Damage.Loki.OnToxicDamageAbility$$CreateTrigger). Sans trigger l'ability ne fire jamais
-                              -> l'effet `Melta_ExtraDmgEffect` (IdunBattle.Entities.Effects.Loki.Melta_ExtraDmgEffect$$CreateEffectDamageBonusForAttack `ForPercentIncrease(
-                              DamageProfileHasTrait(OnMelta) & HasTrait(target, Vehicle=1029),
-                              ConfigConst 0xf=meltaDamageExtraDmgPct=50)`) n'est JAMAIS pose -> le +50%
-                              n'est applique NI en prediction NI en combat. CONFIRME LIVE (case-72) :
-                              tauShadowsun Melta ranged vs admecDestroyer (Vehicle) predit [6008-9014]
-                              == vs cible non-Vehicle (aucun +50%), aucun effet pose post-coup ; A/B :
-                              OnFire pose bien `Fire` on-hit dans le meme runner. Verdict = DEAD-CODE
-                              documente (cf. docs/rl/case-72-onmelta-dead-code.md), pas un gap de port.
+                              damage against Vehicle units". Le +50% vs Vehicle est VIVANT sur
+                              `rnca9r7q6c` et PORTE (#488-r1) : `MeltaExtraDmgEffect`
+                              (`effects/loki/extra_damage.py`), inscrit dans `MATCH_WIDE_EFFECTS`.
+                              L'effet `Melta_ExtraDmgEffect` (IdunBattle.Entities.Effects.Loki.Melta_ExtraDmgEffect$$CreateEffectDamageBonusForAttack
+                              = `ForPercentIncrease(DamageProfileHasTrait(OnMelta) &
+                              HasTrait(target, Vehicle=1029), ConfigConst 0xf =
+                              meltaDamageExtraDmgPct = 50)`) est pose au `MatchInit` par l'ability
+                              GLOBALE 1211 sur UNE TUILE arbitraire (IdunBattleLogic.Entities.Abilities.Damage.Loki.OnMeltaDamageAbility$$CreateBehaviour
+                              = `AddEffect(1297, AbilityStateReference, First(AllTiles(), 1))`).
+                              ⚠ CE PARAGRAPHE A DEJA ETE FAUX, ET C'EST LE PIEGE A CONNAITRE.
+                              `case-72` concluait DEAD-CODE au motif que 1211 n'override pas
+                              `CreateTrigger` : vrai sur `gqfc5mff6c`, FAUX ici. Le corps de
+                              IdunBattleLogic.Entities.Abilities.Damage.Loki.OnMeltaDamageAbility$$CreateTrigger
+                              (`On(0x19 = MatchInit, true)`) est DEDUPLIQUE -- seul le slot de
+                              vtable de l'INSTANCE le prouve (profondeur 0, RPC `resolveMethodPtr`).
+                              Et l'ABSENCE d'observation ne prouvait rien non plus : l'effet est sur
+                              une TUILE, donc invisible de `decisionView.effects`, vue PAR UNITE.
+                              MESURE (#488-r1, armure egalisee, geometrie identique) : natif
+                              [9014-13520] vs `Vehicle` contre [6008-9014] vs DEUX temoins
+                              non-Vehicle -- rapport 1,5000 exact, et nul en melee (profil
+                              non-Melta). Cf. docs/rl/case-488-r1-onmelta-vivant-ou-mort.md ; le
+                              verdict de docs/rl/case-72-onmelta-dead-code.md ne vaut QUE pour
+                              `gqfc5mff6c`.
 """
 from __future__ import annotations
 

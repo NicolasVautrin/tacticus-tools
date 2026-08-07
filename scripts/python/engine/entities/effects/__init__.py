@@ -41,6 +41,7 @@ __all__ = [
     "piercing_bonus_from_effects", "apply_effect_stat_modifications",
     "stat_modifications_by_source", "statmod_source_key", "effect_stat_mod_key",
     "effect_stat_modifications", "effect_stat_overrides", "stat_overrides_by_stat",
+    "match_wide_effects", "MATCH_WIDE_EFFECT_NAMES",
 ]
 
 
@@ -55,6 +56,46 @@ def _as_effects(effects) -> list[BaseEffect]:
     return out
 
 
+# --- Effets MATCH-WIDE : poses au `MatchInit` par une ability GLOBALE, portes par AUCUNE unite ---
+#
+# `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` n'itere PAS
+# les effets de l'attaquant : il itere une collection recue en parametre, et invoque le slot de bonus
+# sur chaque effet **SANS AUCUN FILTRE de proprietaire, de position ni d'adjacence** -- il passe
+# l'`AbilityEntities` complet (attaquant / cible / tuile / arme) et laisse l'effet decider seul. Le
+# port a scinde cette boucle unique en pattes (self, aura alliee, aura ennemie) : c'est un artefact du
+# port, pas du natif (cf. `BaseEffect.create_aura_attack_damage_bonus_for_ally`). Il en manquait une :
+# l'effet dont le porteur n'est NI l'attaquant NI une unite.
+#
+# UN SEUL membre a ce jour, et il est LU : `Melta_ExtraDmg` (0x511=1297), pose par
+# `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnMeltaDamageAbility$$CreateBehaviour` =
+# `AddEffect(0x511, AbilityStateReference, targets = First(AllTiles(), 1))` sur UNE TUILE arbitraire,
+# sous le trigger INCONDITIONNEL `On(0x19 = EventTriggerType.MatchInit, true)` d'une ability GLOBALE
+# (aucun owner -- meme famille `Damage.Loki.*` que `OnFireDamageAbility` / `OnToxicDamageAbility`,
+# cf. `GLOBAL_TRIGGERS`). Il est donc present dans TOUTE bataille, et ses deux conjoints de gate
+# portent sur le COUP et la CIBLE, jamais sur le porteur.
+#
+# ⚠ POURQUOI PAS « lire l'effet de tuile depuis l'etat » : le canal des effets de tuile
+# (`load_state(tiles=tileMeta)`) est **OPT-IN**, et la plupart des etats ne le passent pas (mesure
+# citee par `ai/state_bridge.py`). Un port qui en dependrait serait inerte **en silence** dans ces
+# chemins-la -- exactement la degradation permissive que la doctrine proscrit. La presence de l'effet
+# n'est pas une donnee d'etat : c'est une INVARIANTE de bataille, et c'est ainsi qu'elle est portee.
+# Aucun risque de double comptage : cette boucle ne recoit que les effets de l'ATTAQUANT, et aucun
+# agregateur du port ne balaie les effets portes par une TUILE (trou documente de
+# `board_effect_carriers`).
+MATCH_WIDE_EFFECT_NAMES: tuple = ("Melta_ExtraDmg",)
+
+_MATCH_WIDE_EFFECTS: list | None = None
+
+
+def match_wide_effects() -> list:
+    """Instances des effets MATCH-WIDE (cf. l'encadre ci-dessus). Memoise : ces effets n'ont ni
+    niveau ni multiplicateur (leur magnitude est un `globalValues`), donc une instance suffit."""
+    global _MATCH_WIDE_EFFECTS
+    if _MATCH_WIDE_EFFECTS is None:
+        _MATCH_WIDE_EFFECTS = [EffectFactory.create({"name": n}) for n in MATCH_WIDE_EFFECT_NAMES]
+    return _MATCH_WIDE_EFFECTS
+
+
 def _attacker_effect_bonuses(effects, is_ranged: bool | None, is_normal_attack: bool,
                              has_moved: bool | None, target_traits=None, is_prediction=False,
                              target_armor_reduced: bool | None = None, att_ctx=None) -> list:
@@ -65,7 +106,9 @@ def _attacker_effect_bonuses(effects, is_ranged: bool | None, is_normal_attack: 
     `att_ctx` = contexte POSITIONNEL {att_pos, tile_effects_by_pos} pour les bonus à magnitude
     position-dépendante (LordOfTempests IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$CreateEffectDamageBonusForAttack) ; None = inconnu (ces bonus rendent None)."""
     bonuses = []
-    for e in _as_effects(effects):
+    # Les effets MATCH-WIDE entrent dans la MEME boucle que ceux de l'attaquant -- c'est exactement
+    # ce que fait le natif, qui n'a qu'UNE boucle et aucun filtre de porteur (cf. l'encadre).
+    for e in list(_as_effects(effects)) + match_wide_effects():
         db = e.create_effect_damage_bonus_for_attack(is_ranged, has_moved, target_traits=target_traits,
                                                      is_prediction=is_prediction,
                                                      is_normal_attack=is_normal_attack,

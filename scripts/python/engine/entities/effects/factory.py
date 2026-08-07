@@ -43,6 +43,7 @@ from .loki.extra_damage import (
     CondemnorStakeExtraDmgEffect, CrushingStrikeEffect, DecoysAndMisdirectionExtraDamageEffect,
     FeederTendrilsExtraDamageEffect, FuelledByFuryExtraDamageEffect, HeavyGravCannonEffect,
     HeavyWeaponExtraDmgEffect, LordOfTempestsExtraDamageEffect, MartialKatahDmgBonusEffect,
+    MeltaExtraDmgEffect,
     ModifiedExoarmourExtraDmgEffect, PrimarchOfTheFirstLegionExtraDamageEffect,
     PrioritisedEfficiencyExtraDmgEffect, RangedSpecialistEffect, RapidAssaultExtraDamageEffect,
     SmashaEadExtraDamageEffect, TerrifyingCrescendoExtraDmgEffect
@@ -127,6 +128,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # bonus (+extraDmg, +extraHits si la cible est de grande-alliance Chaos).
     "FearedInterrogator_Owner": FearedInterrogatorOwnerEffect,
     "FearedInterrogator_Target": FearedInterrogatorTargetEffect,
+    # Melta_ExtraDmg (0x511=1297) -- le +50 % vs `Vehicle` du profil de degat `Melta`, pose au
+    # `MatchInit` par l'ability GLOBALE `OnMeltaDamageAbility` (1211) sur UNE TUILE arbitraire.
+    # Inscrit ICI parce que le canal live le remonte comme n'importe quel effet de tuile
+    # (`readEffectsByTile` -> `load_state(tiles=)`), ET dans `MATCH_WIDE_EFFECTS`
+    # (`effects/__init__.py`) parce que ce canal-la est OPT-IN : sans la seconde inscription le
+    # bonus serait inerte dans tous les chemins qui ne passent pas `tiles=` (#488-r1).
+    "Melta_ExtraDmg": MeltaExtraDmgEffect,
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
     "SquigHound_AdditionalHits": SquigHoundAdditionalHitsEffect,   # #179 : 2 coups hetero [minDmg,maxDmg] Physical
     # SorcerousFacade (Yazaghor thousTzaangor, effet 0x4b4=1204 pose par le cast de 1100 sur le CASTER
