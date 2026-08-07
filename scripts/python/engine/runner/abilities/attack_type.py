@@ -234,6 +234,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # porterait donc `DirectTargetAttack` a l'oeil -- le litteral dit `Others`, et c'est lui qui
     # decide de `AbilityHasAttackType(0|1)` (gate SwornProtector).
     ActiveAbilityType.ExcruciatingFrequencies: AbilityAttackType.Others,  # 1197
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.TalonsOfTheEmperorAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 2)` : 3e argument = **2 = Others** (#521). TRANSCRIT TEL
+    # QUEL, surtout pas deduit du comportement : 1195 est une attaque DIRECTE mono-cible sur la
+    # cible du message (`If(cond, 1x DirectDamage, 1x Power)`) et porterait `DirectTargetAttack` a
+    # l'oeil -- le litteral dit `Others`. Contraste `1191 MartialInspiration`, du MEME module et du
+    # MEME preset de `TargetingOptions`, dont le litteral vaut `0`.
+    ActiveAbilityType.TalonsOfTheEmperor: AbilityAttackType.Others,  # 1195
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 0, 0)` : 3e argument = 0 = DirectTargetAttack.
     ActiveAbilityType.DoomSiren: AbilityAttackType.DirectTargetAttack,  # 1199
