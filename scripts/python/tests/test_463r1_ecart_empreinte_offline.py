@@ -36,9 +36,17 @@ ASCII only (console cp1252).
 DECLENCHEUR = {
     "chemins": (
         # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
-        # fermeture (fixtures `autouse`, `green_skip_guard` de #455).
+        # fermeture (fixtures `autouse`, `green_skip_guard` de #455). Liste EXPLICITE et non
+        # `scripts/python/*.py` : le glob large retiendrait ce test a chaque modification d'un
+        # probe quelconque.
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/fleet_board.py", "scripts/python/verdict_cache.py",
         # PROPRE A CE FICHIER : le cliquet sous test, son producteur (dont il lit le contrat par
         # import differe), le capteur qui partage son foyer, et l'empreinte VERSIONNEE que
         # l'etage 7 confronte a l'arbre reel.
@@ -440,7 +448,13 @@ def test_l_ecart_est_NUL_sur_ce_checkout():
     TROIS fois par jour. Le geste qui l'eteint est l'un des deux que le cliquet nomme, jamais
     une exception ecrite ici.
 
-    BON MARCHE : un `git ls-files` et une lecture JSON, aucun test rejoue."""
+    BON MARCHE : un `git ls-files` et une lecture JSON, aucun test rejoue.
+
+    ⚠ CE CAS EST AUTO-REFERENT, et une seule fois : la passe `--measure-missing` qui INSCRIT ce
+    fichier dans l'empreinte le joue AVANT que son entree existe, donc il y rougit -- puis il est
+    vert au rejeu. C'est la sequence normale (mesurer, puis rejouer), pas un defaut, et `probe_457`
+    ecrit sa mesure meme sur `rc=1` (les fichiers ONT ete joues). S'exclure lui-meme du recensement
+    pour eviter ce rouge serait une ALLOWLIST -- exactement ce que cette tranche refuse."""
     m = E.mesurer()
     assert m["perimetre"], "perimetre effondre -- ce test ne prouverait rien"
     assert m["format_lu"] == m["format_attendu"], \
@@ -455,6 +469,79 @@ def test_l_ecart_est_NUL_sur_ce_checkout():
     assert ecart["fantomes"] == [], (
         "%d entree(s) FANTOME(S) : %s -- purge par `probe_457 --measure`."
         % (len(ecart["fantomes"]), ", ".join(ecart["fantomes"][:5])))
+
+
+# ------------------- 7bis. LE GESTE RECOMMANDE DOIT ETRE PRATICABLE LA OU IL EST LU
+
+class _PoidsAbsents:
+    """Substitue le CHEMIN des poids par un fichier qui n'existe pas -- l'etat de tout worktree."""
+
+    def __init__(self, monkeypatch, tmp_path, existe: bool):
+        chemin = tmp_path / "457-durations.json"
+        if existe:
+            chemin.write_text(json.dumps({}), encoding="utf-8")
+        monkeypatch.setattr(P457, "_weights_path", lambda: chemin)
+        monkeypatch.setattr(P457, "_weights", lambda: {})
+
+
+def _joues_par_measure_missing(perimetre, entrees):
+    """Ce que `--measure-missing` RETIENDRAIT, sans rien jouer.
+
+    On rejoue le critere du mode plutot que d'invoquer pytest : mesurer pour de vrai coute ici
+    ~976 s (c'est le fait meme que ce cas garde), et l'objet du test est le CRITERE."""
+    poids_absents = not P457._weights_path().exists()
+    poids = P457._weights()
+    if poids_absents:
+        return [r for r in perimetre if r not in entrees]
+    return [r for r in perimetre if r not in poids or r not in entrees]
+
+
+def test_sans_poids_measure_missing_ne_rejoue_PAS_tout_le_perimetre(monkeypatch, tmp_path):
+    """LE DEFAUT REPARE, ET IL RENDAIT LE GESTE RECOMMANDE INAPPLICABLE.
+
+    `logs/` est GITIGNORE : un worktree d'agent n'a JAMAIS de poids. Le critere « sans poids »
+    valait donc pour TOUT LE MONDE, et `--measure-missing` retenait **235 fichiers sur 235** --
+    un `--measure` complet (~976 s) la ou le mode existe pour en couter quelques secondes.
+    Mesure apres reparation, sur ce worktree : **1 fichier sur 235, 15 s de mur**.
+
+    C'est le tri-etat du depot applique aux poids : `{}` parce que le FICHIER est absent n'est
+    pas `{}` parce qu'aucun fichier n'a de poids."""
+    _PoidsAbsents(monkeypatch, tmp_path, existe=False)
+    perimetre = ["tests/a_offline.py", "tests/b_offline.py", "tests/neuf_offline.py"]
+    entrees = {"tests/a_offline.py": {}, "tests/b_offline.py": {}}
+    joues = _joues_par_measure_missing(perimetre, entrees)
+    assert joues == ["tests/neuf_offline.py"], \
+        "seul le fichier SANS entree d'empreinte doit etre rejoue"
+
+
+def test_avec_un_fichier_de_poids_le_critere_des_poids_REDEVIENT_actif(monkeypatch, tmp_path):
+    """LA BORNE. Sans elle, la reparation ci-dessus aurait pu se degrader en « on ignore les
+    poids », et un fichier PESE-mais-perime cesserait d'etre remesure dans l'arbre principal."""
+    _PoidsAbsents(monkeypatch, tmp_path, existe=True)
+    perimetre = ["tests/a_offline.py", "tests/neuf_offline.py"]
+    entrees = {"tests/a_offline.py": {}, "tests/neuf_offline.py": {}}
+    joues = _joues_par_measure_missing(perimetre, entrees)
+    assert joues == perimetre, \
+        "poids PRESENTS mais vides : les deux criteres s'appliquent, tout est sans poids"
+
+
+def test_sans_poids_aucun_fichier_de_poids_PARTIEL_n_est_ecrit(monkeypatch, tmp_path):
+    """Un fichier de poids a UNE entree est PIRE que pas de poids : `bins_of` prend
+    `defaut = max(weights.values())`, donc le poids du seul fichier mesure deviendrait la valeur
+    supposee des 234 autres. Le repli md5, lui, repartit par nombre et reste honnete."""
+    chemin = tmp_path / "457-durations.json"
+    monkeypatch.setattr(P457, "_weights_path", lambda: chemin)
+    monkeypatch.setattr(P457, "_modules_du_graphe", lambda racine=None: {})
+
+    class _Horloge:
+        sec = {"tests/neuf_offline.py": 1.5}
+        n = {"tests/neuf_offline.py": 3}
+
+    rc = P457._ecrire_mesure(["tests/a_offline.py", "tests/neuf_offline.py"],
+                             ["tests/neuf_offline.py"], _Horloge(), None, 0, 1.5, {},
+                             complete=False, ecrire_poids=False)
+    assert rc == 0
+    assert not chemin.exists(), "aucun fichier de poids partiel ne doit apparaitre"
 
 
 # ------------------------------------------- 8. `loop_status` NE DOUBLE PLUS LE RECENSEMENT

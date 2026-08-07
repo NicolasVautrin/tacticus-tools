@@ -737,7 +737,8 @@ def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, g
 
 
 def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
-                   elapsed: float, poids_connus: dict, complete: bool = True) -> int:
+                   elapsed: float, poids_connus: dict, complete: bool = True,
+                   ecrire_poids: bool = True) -> int:
     """FOYER UNIQUE d'ecriture de ce probe (#464). DECIDE d'abord, ecrit ensuite -- jamais l'inverse.
 
     Le vice repare : `--measure` ecrivait, PUIS annoncait << poids ecrits, mais l'arbre est ROUGE >>
@@ -778,8 +779,19 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
     manquants = [rel for rel in joues if horloge.n.get(rel, 0) == 0]
 
     path = _weights_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(poids, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    if ecrire_poids:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(poids, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    else:
+        # POIDS ABSENTS (#463-r1) : ecrire ce que cette passe a mesure fabriquerait un fichier de
+        # poids a UNE entree, et ce serait PIRE que pas de poids du tout -- `bins_of` prend
+        # `defaut = max(weights.values())`, donc le poids d'un seul fichier deviendrait la valeur
+        # supposee de TOUS les autres. Le repli md5, lui, repartit par nombre et reste honnete.
+        print("[457] POIDS NON ECRITS : ce checkout n'en avait aucun, et un fichier de poids a "
+              "%d entree(s) fixerait le `defaut` de `bins_of` sur une valeur non representative."
+              % len(joues))
+        print("[457] Le repli md5 reste en place (mur sous-optimal, verdict INCHANGE). "
+              "L'EMPREINTE, elle, est ecrite ci-dessous -- c'est elle qui est VERSIONNEE.")
 
     empreinte_refusee = False
     if empreinte is not None:
@@ -849,8 +861,10 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
         print("[457] empreinte NON INSTRUMENTEE par cette passe -- fichier versionne INCHANGE.")
 
     joue = sum(round(horloge.sec.get(rel, 0.0), 3) for rel in joues)
-    print("[457] %d fichier(s) joue(s), %.1f s de tests mesures en %.1f s de mur ; %d poids -> %s"
-          % (len(joues), joue, elapsed, len(poids), path))
+    print("[457] %d fichier(s) joue(s), %.1f s de tests mesures en %.1f s de mur ; %s"
+          % (len(joues), joue, elapsed,
+             ("%d poids -> %s" % (len(poids), path)) if ecrire_poids
+             else "poids NON ecrits (aucun n'existait dans ce checkout)"))
     for rel in sorted(joues, key=lambda r: -horloge.sec.get(r, 0.0))[:5]:
         print("    %7.1f s  %s" % (horloge.sec.get(rel, 0.0), rel))
     if manquants:
@@ -859,8 +873,8 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
         print("[457] %d fichier(s) sans mesure (0 report) : %s"
               % (len(manquants), ", ".join(manquants[:5])))
     if rc != 0:
-        print("[457] pytest rc=%d -- poids ecrits (les fichiers ONT ete joues), mais l'arbre est "
-              "ROUGE" % rc)
+        print("[457] pytest rc=%d -- mesure %s (les fichiers ONT ete joues), mais l'arbre est "
+              "ROUGE" % (rc, "ecrite" if ecrire_poids else "ecrite (empreinte seule)"))
         return 1
     if empreinte_refusee:
         # Le GISEMENT est vert, mais le LIVRABLE << empreinte >> n'a pas ete produit. Ne pas rendre
@@ -984,6 +998,11 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
         return EX_NON_MESURE
 
     poids_connus = _weights() if seulement_manquants else {}
+    # LES POIDS SONT-ILS ABSENTS, OU LES FICHIERS SONT-ILS SANS POIDS ? (#463-r1). Deux etats que
+    # `poids_connus == {}` confondait, et c'est le tri-etat que ce depot tient partout ailleurs :
+    # `logs/` est GITIGNORE, donc un worktree d'agent n'a JAMAIS de poids -- pas << 235 fichiers
+    # neufs >>, mais << je n'ai pas mesure les poids >>.
+    poids_absents = seulement_manquants and not _weights_path().exists()
     if seulement_manquants:
         # DEUX criteres, et c'est le sens du mode : un fichier neuf n'a NI poids NI entree
         # d'empreinte. L'ABSENCE d'entree est detectable sans le graphe ; la PEREMPTION d'une
@@ -992,14 +1011,32 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
         # degenerer ce mode en `--measure` complet des qu'un module partage change (#486-r15).
         emp = _footprints()
         deja = set((emp.get("par_test") or {}) if emp.get("_format") == FORMAT_EMPREINTE else {})
-        joues = [rel for rel in perimetre if rel not in poids_connus or rel not in deja]
+        if poids_absents:
+            # LE CRITERE << sans poids >> N'EST PAS APPLICABLE : il vaudrait pour TOUT LE MONDE.
+            # Mesure du 2026-08-07 depuis un worktree d'agent : `--measure-missing` retenait
+            # **235 fichiers sur 235**, soit un `--measure` complet (~976 s) -- c'est-a-dire que
+            # le geste que `loop_status` et `probe_463r1` recommandent etait IMPRATICABLE dans le
+            # seul regime ou leurs lecteurs le lisent. On retient donc le SEUL critere
+            # applicable, l'EMPREINTE, et on le DIT.
+            joues = [rel for rel in perimetre if rel not in deja]
+        else:
+            joues = [rel for rel in perimetre if rel not in poids_connus or rel not in deja]
         if not joues:
-            print("[457] --measure-missing : les %d fichier(s) du perimetre ont deja un poids ET "
-                  "une entree d'empreinte, rien a mesurer" % len(perimetre))
+            print("[457] --measure-missing : les %d fichier(s) du perimetre ont deja %s, rien a "
+                  "mesurer" % (len(perimetre),
+                               "une entree d'empreinte" if poids_absents
+                               else "un poids ET une entree d'empreinte"))
             return 0
-        print("[457] --measure-missing : %d fichier(s) SANS poids ou SANS entree d'empreinte sur "
-              "%d ; les %d autres gardent leur mesure"
-              % (len(joues), len(perimetre), len(perimetre) - len(joues)))
+        if poids_absents:
+            print("[457] --measure-missing : POIDS ABSENTS de ce checkout (%s est gitignore, donc"
+                  " un worktree n'en a jamais). Ce n'est PAS << aucun fichier n'a de poids >> :"
+                  % _weights_path())
+            print("[457] le critere retenu est le SEUL applicable, l'ENTREE D'EMPREINTE.")
+        print("[457] --measure-missing : %d fichier(s) %s sur %d ; les %d autres gardent leur "
+              "mesure" % (len(joues),
+                          "SANS entree d'empreinte" if poids_absents
+                          else "SANS poids ou SANS entree d'empreinte",
+                          len(perimetre), len(perimetre) - len(joues)))
     else:
         joues = list(perimetre)
 
@@ -1022,7 +1059,7 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
     elapsed = time.time() - started
 
     return _ecrire_mesure(perimetre, joues, horloge, empreinte, int(rc), elapsed, poids_connus,
-                          complete=not seulement_manquants)
+                          complete=not seulement_manquants, ecrire_poids=not poids_absents)
 
 
 #: ---------------------------------------------------------------------------------------------
