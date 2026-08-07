@@ -172,7 +172,7 @@ def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=
     une fois la nature du coup DEJA resolue. Celui-ci la RESOUT."""
     if caster_position is None or target_position is None:
         return False
-    rt = ((GC.ability(ability_name) or {}) if ability_name else {}).get("attackRangeType")
+    rt = attack_range_type(ability_name)    # `BattleQuery$$GetAbilityAttackRangeType` (etage separe)
     if rt == "Melee":                       # `AttackRangeType.Melee` (1)
         return True
     if rt == "Ranged":                      # `AttackRangeType.Ranged` (2)
@@ -187,6 +187,87 @@ def is_melee_attack(ability_name, caster_position, target_position, elev_by_pos=
     # `(|dElev| < 2) & IsNeighbour` == `(|dElev| < 2) & (arete de C ^ gate)` == `C ^ gate`.
     return bool(_bq.are_entities_adjacent(tuple(caster_position), tuple(target_position),
                                           elev_by_pos, neigh_by_pos))
+
+
+def attack_range_type(ability_name):
+    """`IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType(Nullable<AbilityOrEffect>)`
+    -- l'ETAGE SEPARE que les slots 2 (`IsMeleeAttack`) et 3 (`IsRangedAttack`) consultent tous les
+    deux. Rend le NOM du membre d'`IdunBattle.Entities.Enum.AttackRangeType`
+    (`0=None,1=Melee,2=Ranged,3=Normal`, LU dans `data/symbols/<build>/frida/enums.tsv`), ou `None`
+    quand l'ability n'a pas d'entree nommee au gameconfig.
+
+    Corps natif : l'`AbilityOrEffect` est un triplet `(ActiveAbilityType, TriggeredAbilityType,
+    EffectType)` et le natif branche sur celui des trois qui est renseigne -- id ACTIF ->
+    `AbilityConfiguration` (getter slot `0xf`) ; id TRIGGERED -> `SelectAbilityAttackRangeType
+    FromMultiple` ; EFFET -> resolution de l'ability porteuse puis RECURSION. Le port ne resout que
+    la voie ACTIVE (`gameconfig.abilities[<nom>].attackRangeType`) ; les deux autres retombent sur
+    `None` -> branche `Normal(3)` chez les appelants. RESIDU NOMME, pas une equivalence.
+
+    `None` de retour n'est PAS `AttackRangeType.None` : c'est « pas d'entree », que les deux
+    appelants traitent comme la branche `Normal(3)` (cf. leur docstring). La CHAINE `"None"`, elle,
+    EST le membre 0."""
+    if not ability_name:
+        return None
+    return (GC.ability(ability_name) or {}).get("attackRangeType")
+
+
+def is_ranged_attack(ability_name, caster_position, target_position, elev_by_pos=None,
+                     force_ranged_attack: bool = False, neigh_by_pos=None) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$IsRangedAttack(ability, caster, casterPosition,
+    target)` -- le slot **3** d'`IBattleQuery`, mirror 1:1 du decompile (build `rnca9r7q6c`) :
+
+        if (!ability.HasValue) return false;
+        switch (GetAbilityAttackRangeType(ability)) {   // 0 None, 1 Melee, 2 Ranged, 3 Normal
+          case 0: return false;
+          case 1: return false;
+          case 2: return true;                          // INCONDITIONNEL -- aucun test de position
+          case 3: return UnitExtensions.HasFlag(caster, 0x15)      // UnitFlag.ForceRangedAttack
+                         || !AreEntitiesAdjacent(casterPosition, target);
+          default: throw new NotImplementedException();
+        }
+
+    ⚠ **CE N'EST PAS LA NEGATION d'`is_melee_attack`.** Les deux slots coincident sur `Normal(3)`
+    (la ou l'un teste `!ForceRanged && adjacent`, l'autre teste `ForceRanged || !adjacent`) mais
+    DIVERGENT sur `None(0)`, ou les DEUX rendent `false`. C'est pour ca qu'ils sont deux fonctions
+    natives distinctes, et pourquoi ce mirror en est une aussi.
+
+    ⚠ **`Ranged(2)` ne consulte AUCUNE position** -- une ability declaree `attackRangeType: Ranged`
+    est une attaque a distance MEME contre une cible ADJACENTE. C'est la lecture qui manquait au
+    port : `triggers/base._is_ranged_position` n'implemente que le repli positionnel de la branche
+    `Normal(3)`, et l'appliquer a une ability `Ranged` DESARME le predicat sur toute cible au
+    contact. Mesure (#512-r1, `1197 ExcruciatingFrequencies`, `attackRangeType = Ranged` au
+    gameconfig ET `AttackRangeType = 2` dans `BC.Abilities.ActiveAbilities`) : la 1re cible du rayon
+    est ADJACENTE au caster, et le natif la suppresse quand meme.
+    Distribution `attackRangeType` au gameconfig (572 abilities) : `None` 406, `Ranged` 85,
+    `Melee` 71, `Normal` 10 -- a RE-DERIVER, jamais citer cette ligne.
+
+    `ability_name` = le NOM gameconfig de l'ability qui porte l'attaque. `None` / nom inconnu ->
+    `attackRangeType` absent -> branche `Normal(3)`, MEME convention et MEME justification que
+    `is_melee_attack` : les attaques normales CONCRETES (id per-unite) n'ont pas d'entree nommee au
+    gameconfig, et c'est la branche que le natif y prend. Confirme par le LIVE : le discriminant
+    melee/ranged de `test_suppressive_fire_live.py` (Pinned pose a d==2, absent a d==1, attaque
+    NORMALE) n'est exactement la branche `Normal(3)`.
+
+    `force_ranged_attack` = `UnitFlag.ForceRangedAttack` (21, nom LU dans
+    `data/symbols/<build>/frida/enums.tsv`, `IdunBattle.Entities.Enum.UnitFlag`) ; le capteur
+    `combatSnapshot.unitFlags` ne le publie pas (residu `#419-r1-tr5-r1`), donc l'appelant le laisse
+    a `False` -- degradation RESTRICTIVE-EN-MOINS ici (le natif rendrait `true` sans regarder
+    l'adjacence), nommee."""
+    rt = attack_range_type(ability_name)
+    if rt == "Ranged":                      # `AttackRangeType.Ranged` (2) -- aucune position lue
+        return True
+    if rt == "Melee":                       # `AttackRangeType.Melee` (1)
+        return False
+    if rt == "None":                        # `AttackRangeType.None` (0)
+        return False
+    if force_ranged_attack:                 # `HasFlag(caster, 0x15)` -> ranged sans lire la position
+        return True
+    # branche `Normal(3)` : `!AreEntitiesAdjacent(casterPosition, target)`. Positions manquantes ->
+    # False (melee), le defaut conservateur deja retenu par `_is_ranged_position`.
+    if caster_position is None or target_position is None:
+        return False
+    return not bool(_bq.are_entities_adjacent(tuple(caster_position), tuple(target_position),
+                                              elev_by_pos, neigh_by_pos))
 
 
 def _find_by_hits(cands: list, prefer_hits) -> dict:
