@@ -59,7 +59,7 @@ from ..runner.abilities.targeting import (NORMAL_ATTACK_TARGETING_OPTIONS,
 from ..runner.abilities.targeting_rule import TargetingRule as TR
 from .. import battle_query as bq
 from ..entities.traits.unit_trait import UnitTrait, has_trait
-from ..runner.abilities.targeting import targeting_options_for
+import engine.runner.abilities.targeting as TGT   # FORME B (module, pas nom) -- cf. `_options_of`
 from ..entities.pathfinding.board import adjacent_neigh_by_pos
 
 
@@ -68,13 +68,23 @@ def _options_of(ability_id):
     `engine.runner.abilities.targeting.targeting_options_for` (registre COMBAT, puis
     `TARGETING_OPTIONS_UNPORTED`). `None` = masque NON LU.
 
-    Import PARESSEUX : `targeting_options_for` tire `handler`, qui importe les modules d'abilities,
-    qui importent ce paquet -- le cycle `services <-> runner` se casse ici et nulle part ailleurs."""
+    ⚠ **L'ACCES EST ATTRIBUTAIRE (`TGT.targeting_options_for`), et ce n'est pas du style.** La
+    docstring annoncait ici un « import PARESSEUX » alors que le corps appelait un nom LIE AU
+    NIVEAU MODULE (forme A, `from ..runner.abilities.targeting import targeting_options_for`) : la
+    prose disait donc l'inverse du code. Effet MESURE le 2026-08-07 -- les contre-factuels du
+    dossier #447 substituent `TGT.targeting_options_for` (forme B) pour demander « et si le natif
+    n'armait pas le bit 15 ? », et cette liaison A les DESARMAIT en silence. `master` en etait
+    rouge : `test_447_r1_r1_zone_inclusion_decision_live.py` (3 contre-epreuves) et
+    `probe_447_r1_r1_zone_inclusion_decision.py --step portee_non_lue` rendaient un masque
+    « mute » valant encore `0x8004` -- c'est-a-dire bit 15 TOUJOURS ARME. C'est le vice
+    « HISSER EN FORME A desarme un patch deja pose » du CLAUDE.md, pris sur le fait.
+    La forme B ne coute rien en cascade et casse le meme cycle : `targeting_options_for` tire
+    `handler`, qui importe les modules d'abilities, qui importent ce paquet."""
     try:
         aid = int(ability_id)
     except (TypeError, ValueError):
         return None
-    return targeting_options_for(aid)
+    return TGT.targeting_options_for(aid)
 
 
 def targeting_range_of(ability_id) -> TargetingRange | None:

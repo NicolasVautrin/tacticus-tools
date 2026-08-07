@@ -3642,6 +3642,29 @@ IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate(unit)
 Les trois statiques sont LUS au `FixMath.NET.Fix64$$.cctor`, pas deduits du nom :
 `+0x20 = 0x100000000` (One), `+0x28 = 0` (Zero), `+0x30 = op_Division(1, 2)` (Half).
 
+### Le TIREUR est nomme (#27-r9, 2026-08-07) — et le blocage change de nature
+
+Le `random` de la derniere ligne est le champ **`BasePlaybook+0x30`**, invoque par
+`FUN_180005000(4, <klass>, this+0x30, p)` — donc le slot 4 d'une **interface**, et **uniquement**
+dans la branche `0 < p < 1`. Ce n'est ni un statique `UnityEngine.Random` ni un `System.Random`
+local : c'est un champ d'INSTANCE, injecte a la construction du playbook.
+
+La classe de ce slot est celle qu'initialise `IdunBattle.Utils.PRNG.DisallowablePseudoRNG$$AddListener` —
+autrement dit **le PRNG DE BATAILLE**. La meme classe apparait chez
+`IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`,
+`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` / `$$FindTileToPullOnce` et
+`IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$GetUnitToSpawn` — trois consommateurs **deja
+portes** cote runner sur `state.rng`. Le tirage est donc **rejouable depuis un etat**, et la
+question ouverte n'est plus « quel generateur » mais **a quel RANG dans le flux**.
+
+⚠ **Et c'est pour ca que rien n'est inscrit.** Le port ne reproduit pas la sequence d'evaluation
+des playbooks tuile par tuile ; poser le tirage au mauvais rang **decalerait tout le flux PRNG** en
+aval et casserait des accords aujourd'hui verts (degats, spawns, displacements). Le correctif
+serait donc RESTRICTIF *et* perturbateur — deux fois pire que l'ecart permissif qu'il ferme.
+Restent a etablir : le NOM du slot 4 sur `DisallowablePseudoRNG`, et si l'evaluation IA consomme ce
+flux **dans la bataille** ou dans une copie isolee (l'existence d'un `AddListener` suggere un flux
+ENREGISTRE, donc bien celui de la bataille — indice, pas preuve).
+
 **Le blocage tombe sur deux crans :**
 
 1. **Le capteur EXISTE deja**, livre par #N11 : `getTurnsFinishedMi`

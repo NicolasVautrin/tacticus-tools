@@ -114,7 +114,12 @@ from ..runner.abilities.attack_type import is_regular_attack
 from ..runner.abilities.targeting_rule import TargetingRule as TR
 from ..entities.traits.unit_trait import UnitTrait   # #270-r1-r1-r3
 from .. import battle_query as bq
-from ..runner.abilities.targeting import targeting_options_for
+# FORME B (le MODULE, pas le nom). Le contre-factuel `_SansRegle` de
+# `probe_433_r4_r2_r1_r2_r2_r1_r1_r1_r4_caster_reason.py` substitue `TGT.targeting_options_for` :
+# une liaison de NOM ici le DESARMERAIT en silence, et c'est ce qui rendait `master` rouge sur
+# `test_contre_epreuve_sans_le_bit_du_masque_le_port_ACCEPTE` (le port refusait encore `0x10` alors
+# que le bit etait cense avoir ete retire). Meme cause, meme correctif qu'`ability_range._options_of`.
+import engine.runner.abilities.targeting as TGT
 
 # ------------------------------------------------------------------------------------------------
 # `IdunBattle.Configuration.AbilityConfiguration$$TryGetNumberConstant` sur le substrat gameconfig.
@@ -548,7 +553,7 @@ def invalid_caster_reason(ability_id, caster: "CasterSubstrate" = None) -> int |
         aid = int(ability_id)
     except (TypeError, ValueError):
         return None
-    opts = targeting_options_for(aid)
+    opts = TGT.targeting_options_for(aid)
     if opts is None:
         return None                              # masque NON RE-lu -> aucune regle lisible
     rules = int(getattr(opts, "rules", 0) or 0)

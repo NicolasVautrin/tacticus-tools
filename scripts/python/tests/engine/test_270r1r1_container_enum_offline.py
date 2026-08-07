@@ -150,7 +150,7 @@ SNAP_TUPLES = {
     "runner/components._TELEPORT_MOVE_EFFECTS": (
         RC._TELEPORT_MOVE_EFFECTS, EffectType, (1036, 1035, 1241, 1238)),
     "entities/effects/aura_selectors.UNTARGETABLE_EFFECT_TYPES": (
-        ASel.UNTARGETABLE_EFFECT_TYPES, EffectType, (1035, 1140)),
+        ASel.UNTARGETABLE_EFFECT_TYPES, EffectType, (1035, 1140, 1238)),
     "services/spawn_tile_shape.DIRECTION_ORDER": (
         STS.DIRECTION_ORDER, Corner, (1, 0, 5, 4, 3, 2)),
     "runner/abilities/sisterhood.SHAPE_DIRECTIONS_MACHINE": (
@@ -290,7 +290,10 @@ def test_etage2b_cardinalites():
     total = sum(len(s) for _v, _e, s in SNAP_SETS.values()) \
         + sum(len(s) for _v, _e, s in SNAP_TUPLES.values()) \
         + sum(len(s) for _v, _e, s in SNAP_DICTS.values())
-    assert total == 157, "le perimetre de la tranche a change de taille : %d" % total
+    # 157 -> 158 : `UNTARGETABLE_EFFECT_TYPES` gagne `1238 FearOfTheUnseen_TeleportingIn`
+    # (#448-r2b-r1). Le compte MONTE quand une inscription est confrontee ; il ne doit jamais
+    # baisser en silence.
+    assert total == 158, "le perimetre de la tranche a change de taille : %d" % total
     for nom, (vivant, _e, snap) in {**SNAP_SETS, **SNAP_TUPLES}.items():
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

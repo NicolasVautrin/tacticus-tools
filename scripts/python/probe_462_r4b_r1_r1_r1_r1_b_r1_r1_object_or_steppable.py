@@ -72,6 +72,7 @@ ASCII only (cp1252).
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -95,24 +96,91 @@ SYMBOLS = (
 # Les HUIT call-sites natifs d'`IsObjectOrSteppable` (xrefs `list_xrefs`, build rnca9r7q6c). Ce
 # recensement est ce qui justifie un FOYER plutot qu'une n-ieme recopie -- et il dit aussi combien
 # de sites restent NON portes (donc combien de fois le meme oubli peut se reproduire).
+#
+# ⚠ **CETTE CONSTANTE NE PORTE PLUS D'ETAT DE PORTAGE, et c'est le correctif de `#462-...-r2`.**
+# Elle en portait un, FIGE, et il s'est PERIME sous nos propres pieds : `KillMaimBurnAbility$$
+# GetNextTarget` y etait ecrit `NON PORTE` alors que #504 l'avait porte (`engine/runner/abilities/
+# worldeaters.py::KillMaimBurnNextTarget`, `Otherwise(non_steppable_or_object_units(valid), valid)`).
+# Un recenseur qui CITE au lieu de MESURER envoie donc une tranche fermer un trou deja bouche --
+# exactement le vice que le CLAUDE.md nomme (« re-deriver, ne jamais citer »). L'etat est desormais
+# DERIVE de l'arbre par `_etat_de_portage` ci-dessous.
 CALL_SITES = (
-    ("IdunBattleLogic.Entities.Abilities.Active.Loki.BattleFatigueAbility$$CreateTrigger",
-     "engine/runner/operations/behaviour.py", "PORTE (cette tranche)"),
-    ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.BarbedOvipositorAbility$$CreateTrigger",
-     "engine/runner/operations/triggers/loki/barbed_ovipositor.py", "PORTE (recopie fidele)"),
-    ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateTrigger",
-     "engine/runner/operations/triggers/loki/master_of_the_tutelaries.py", "PORTE mais INFIDELE (Decoy)"),
-    ("IdunBattleLogic.Entities.Abilities.Active.Loki.CursedOfTheWalkingPoxAbility$$CreateTrigger",
-     None, "NON PORTE"),
-    ("IdunBattleLogic.Entities.Abilities.Active.Loki.PossessionAbility$$CreateTrigger",
-     None, "NON PORTE"),
-    ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.Lakrimae_SummonPoxwalker_Ability$$CreateTrigger",
-     None, "NON PORTE"),
-    ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.BounceAbility$$Prioritization",
-     None, "NON PORTE"),
-    ("IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$GetNextTarget",
-     None, "NON PORTE"),
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BattleFatigueAbility$$CreateTrigger",
+    "IdunBattleLogic.Entities.Abilities.Triggered.Loki.BarbedOvipositorAbility$$CreateTrigger",
+    "IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateTrigger",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CursedOfTheWalkingPoxAbility$$CreateTrigger",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.PossessionAbility$$CreateTrigger",
+    "IdunBattleLogic.Entities.Abilities.Triggered.Loki.Lakrimae_SummonPoxwalker_Ability$$CreateTrigger",
+    "IdunBattleLogic.Entities.Abilities.Triggered.Loki.BounceAbility$$Prioritization",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$GetNextTarget",
 )
+
+#: Les DEUX noms sous lesquels le foyer se consomme : le noeud TRIGGER
+#: (`entities/triggers.py::is_object_or_steppable`, mirror de `DSLTriggers$$IsObjectOrSteppable`) et
+#: le SELECTEUR frere (`entities/selectors/units.py::non_steppable_or_object_units`, mirror de
+#: `DSLSelectors$$NonSteppableOrObjectUnits`) -- deux noeuds natifs distincts, meme predicat, et un
+#: call-site emploie l'un OU l'autre selon qu'il filtre un trigger ou un ensemble.
+FOYERS = ("is_object_or_steppable", "non_steppable_or_object_units")
+
+
+def _etat_de_portage() -> dict:
+    """`{symbole natif: (etat, fichier|None)}` -- DERIVE de l'arbre `engine/**`, jamais cite.
+
+    Critere, en deux crans, et le second est ce qui separe « gate manquant » d'« ability absente » :
+
+      * **PORTE** -- le symbole du call-site est cite dans un fichier de `engine/**` qui consomme
+        AUSSI l'un des `FOYERS`. Le meme fichier : c'est ce qui evite qu'un module citant dix
+        symboles fasse passer pour portes ceux qu'il ne fait que mentionner.
+      * **CITE, FOYER ABSENT** -- le symbole est cite quelque part dans `engine/**`, mais aucun de
+        ces fichiers ne consomme le foyer. C'est un etat A TRANCHER A LA MAIN, pas un verdict : la
+        citation peut etre un PORT auquel le conjoint manque (vrai gate manquant) **ou** un simple
+        RENVOI documentaire. Mesure faite le 2026-08-07 : le seul site dans cet etat,
+        `Lakrimae_SummonPoxwalker_Ability$$CreateTrigger`, est un RENVOI -- `deathguard.py` le cite
+        pour dater le mapping des slots `DSLSelectors`, et l'ability est absente
+        d'`ABILITY_TRIGGERS`. Le critere ne peut pas separer les deux : un port et un renvoi
+        s'ecrivent tous deux « symbole cite verbatim ».
+      * **ABILITY ABSENTE** -- aucun fichier d'`engine/**` ne cite le symbole. Il n'y a alors AUCUN
+        arbre ou greffer le gate : la dette n'est pas « un conjoint oublie », c'est l'ability
+        entiere. Y porter le seul gate serait du port speculatif.
+
+    La lecture est faite sur le TEXTE des sources (le symbole natif est cite verbatim par doctrine),
+    donc elle ne charge aucun module et ne depend d'aucun registre.
+
+    ⚠ « consomme le foyer » = un APPEL `<foyer>(...)`, jamais sa DEFINITION ni sa docstring. Sans ce
+    cran, `entities/triggers.py` -- qui DEFINIT `is_object_or_steppable` et cite les huit call-sites
+    dans sa docstring -- faisait rendre `8/8 PORTE`, un vert integralement faux. Mesure faite : le
+    premier jet du recenseur derive rendait exactement cela."""
+    base = ROOT / "scripts" / "python" / "engine"
+    citants: dict = {s: [] for s in CALL_SITES}
+    avec_foyer: dict = {s: [] for s in CALL_SITES}
+    appel = re.compile(r"(?<!def )\b(?:%s)\s*\(" % "|".join(FOYERS))
+    definit = re.compile(r"^def (?:%s)\s*\(" % "|".join(FOYERS), re.M)
+    for p in sorted(base.rglob("*.py")):
+        try:
+            txt = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if definit.search(txt):
+            continue        # le DEFINISSEUR du foyer : sa docstring INVENTORIE les call-sites, elle
+            #                 n'en porte aucun. L'y compter ferait passer les huit pour portes.
+        foyer = bool(appel.search(txt))
+        rel = p.relative_to(ROOT).as_posix()
+        for s in CALL_SITES:
+            court = s.rsplit("$$", 1)
+            court = court[0].rsplit(".", 1)[-1] + "$$" + court[1]   # `<Classe>$$<Methode>`
+            if court in txt or s in txt:
+                citants[s].append(rel)
+                if foyer:
+                    avec_foyer[s].append(rel)
+    out = {}
+    for s in CALL_SITES:
+        if avec_foyer[s]:
+            out[s] = ("PORTE", avec_foyer[s][0])
+        elif citants[s]:
+            out[s] = ("CITE, FOYER ABSENT", citants[s][0])
+        else:
+            out[s] = ("ABILITY ABSENTE", None)
+    return out
 
 FATIGUE_TRAIT = "BattleFatigue"          # UnitTrait 1015 -- le trait qui ACCORDE la triggered 1025
 GATED_TRAITS = ("Steppable", "Object")   # UnitTrait 27 / 13 -- ce que le conjoint 5 ecarte
@@ -141,7 +209,7 @@ def step_re() -> int:
         if not funcs.exists():
             print("  functions.tsv ABSENT -- non mesure")
             continue
-        want = set(SYMBOLS) | {s for s, _, _ in CALL_SITES}
+        want = set(SYMBOLS) | set(CALL_SITES)
         seen = set()
         with funcs.open(encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -161,14 +229,21 @@ def step_re() -> int:
         return 1
     print("chaine COMPLETE sur : %s" % (complets,))
     print("")
-    print("LES HUIT CALL-SITES NATIFS d'`IsObjectOrSteppable` et leur etat de portage :")
-    for sym, mod, etat in CALL_SITES:
-        print("  %-28s %-26s %s" % (sym.rsplit("$$", 1)[0].rsplit(".", 1)[-1],
-                                    etat, mod or "-"))
-    non_portes = [s for s, m, _ in CALL_SITES if m is None]
+    print("LES HUIT CALL-SITES NATIFS d'`IsObjectOrSteppable`, etat DERIVE de l'arbre :")
+    etats = _etat_de_portage()
+    for sym in CALL_SITES:
+        etat, mod = etats[sym]
+        print("  %-36s %-19s %s" % (sym.rsplit("$$", 1)[0].rsplit(".", 1)[-1], etat, mod or "-"))
+    portes = [s for s in CALL_SITES if etats[s][0] == "PORTE"]
+    gate_manquant = [s for s in CALL_SITES if etats[s][0] == "CITE, FOYER ABSENT"]
+    absents = [s for s in CALL_SITES if etats[s][0] == "ABILITY ABSENTE"]
     print("")
-    print("  -> %d/%d call-sites NON portes : autant d'endroits ou le meme oubli peut se reproduire."
-          % (len(non_portes), len(CALL_SITES)))
+    print("  -> %d PORTE(S) / %d A TRANCHER (cite, foyer absent) / %d ability(s) ABSENTE(S)"
+          % (len(portes), len(gate_manquant), len(absents)))
+    print("  Sur une ability ABSENTE il n'y a AUCUN arbre ou greffer le conjoint : la dette n'est")
+    print("  pas « un gate oublie », c'est l'ability entiere, et poser le seul conjoint serait du")
+    print("  port speculatif. Les `CITE, FOYER ABSENT` se tranchent A LA MAIN (port sans conjoint")
+    print("  vs renvoi documentaire) -- cf. la docstring de `_etat_de_portage`.")
     print("LECTURE : `IsObjectOrSteppable(x)` = `HasTrait(x, 0x1b=27 Steppable) | HasTrait(x,")
     print("          0xd=13 Object)`. Sur BattleFatigue il porte sur le MOURANT (`sel@+0x60`).")
     return 0

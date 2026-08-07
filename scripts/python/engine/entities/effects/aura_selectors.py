@@ -31,18 +31,34 @@ from ..effect_type import EffectType   # #270-r1-r1 : `UNTARGETABLE_EFFECT_TYPES
 #: `1140 StormboyzStrike_TeleportingIn`, `1238 FearOfTheUnseen_TeleportingIn`,
 #: `1573 TitanhammerSquad_TeleportingIn` -- et `JustSummonedEffect`.
 #: RESTENT DEHORS, et pour des raisons DISTINCTES :
-#:   * `1238` -- ses TRIGGERS sont portes (#448-r2c, merge) mais sa face DECISION ne l'est PAS :
-#:     cette tranche-la l'a explicitement laissee en RESIDU NOMME, hors de son perimetre. Elle
-#:     n'attend donc plus une tranche, elle attend une CONFRONTATION de ce canal -> #448-r2b-r1 ;
 #:   * `1573` -- arrive avec #448-r2d ;
-#:   * `JustSummonedEffect` (4 `EffectType` : 1, 1061, 1230, 1390) -- aucune tranche ouverte,
-#:     rayon de souffle a mesurer -> #448-r2b-r1.
+#:   * `JustSummonedEffect` (4 `EffectType` : 1, 1061, 1230, 1390) -- **REFUS MESURE (#448-r2b-r1)**,
+#:     et la raison n'est PAS « rayon de souffle a mesurer » : AUCUN des quatre n'est POSE par le
+#:     port. `1230` est pose puis retire dans le meme behaviour natif et le port l'OMET
+#:     (`triggers/loki/sworn_protector.py`) ; `1390` n'est pas pose
+#:     (`triggers/loki/spiritual_leader.py` : « ni le flag 17 ni l'effet 1390 ne sont poses par le
+#:     port ») ; `1061` n'est que RETIRE (`operations/spawn.py`, `abilities/loki/momentum.py` --
+#:     « NO-OP offline tant qu'aucun poseur de 1061 n'est ... ») ; `1` n'a aucun site. Les inscrire
+#:     serait donc **strictement inerte** (`has_effect` rendrait toujours faux) tout en donnant
+#:     l'illusion d'avoir ferme le trou. L'etage manquant est le POSEUR, pas le domaine.
 #: On n'inscrit que ce qui est porte ET confronte SUR CE CANAL : un ajout speculatif retirerait des
 #: cibles a l'IA sans mesure, et c'est une degradation SILENCIEUSE.
 # #270-r1-r1 : membres nommes -- le commentaire ci-dessus nomme deja les quatre derivees, dont ces
 # deux INSCRITES ; confronte a `frida/enums.tsv`, le nom matche 2/2 `EffectType`.
-UNTARGETABLE_EFFECT_TYPES = (EffectType.TeleportStrike_TeleportingIn,     # 1035
-                             EffectType.StormboyzStrike_TeleportingIn)   # 1140
+#
+# `1238` INSCRIT par #448-r2b-r1. Ce n'est pas un ajout speculatif : (i) la classe native
+# `IdunBattle.Entities.Effects.Loki.FearOfTheUnseen_TeleportingInEffect` derive d'`ATeleportingEffect`
+# donc d'`UntargetableEffect` (`frida/classes.tsv`), (ii) l'effet est REELLEMENT POSE par le port --
+# `runner/abilities/tyranids.py::fear_of_the_unseen_tree` fait `AddEffect(1238, ..., Caster(),
+# duration_turns=Sum(TurnsFromRounds(1), Direct(1)))` au cast de `1115 FearOfTheUnseen`
+# (`tyranDeathleaper`, HERO, AU POOL) -- et (iii) le porteur reste SUR SA TUILE cote port, donc il
+# restait ENUMERABLE comme cible pendant tout son round de disparition, la ou i2 dit « The
+# Deathleaper vanishes and CANNOT BE TARGETED or damaged for 1 round ». Ecart PERMISSIF ferme ;
+# le sens du correctif est RESTRICTIF, et c'est pourquoi il est confronte live
+# (`test_448_r2b_r1_fear_of_the_unseen_untargetable_live.py`).
+UNTARGETABLE_EFFECT_TYPES = (EffectType.TeleportStrike_TeleportingIn,      # 1035
+                             EffectType.StormboyzStrike_TeleportingIn,    # 1140
+                             EffectType.FearOfTheUnseen_TeleportingIn)    # 1238
 
 
 def hex_distance(a, b) -> "int | None":

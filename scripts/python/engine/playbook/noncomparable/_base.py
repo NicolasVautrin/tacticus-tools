@@ -371,6 +371,42 @@ def occupant_team_by_pos(ctx: "NCContext") -> dict:
     return out
 
 
+def is_turn_of_unit_by_pos(ctx: "NCContext") -> dict:
+    """`{(col, row): bool}` -- `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit(unit)` evalue sur
+    l'occupant VIVANT de chaque tuile (`#447-r1-r1-r3`, foyer consommateur
+    `engine.services.ability_caster_gates.invalid_caster_reason` clause 1).
+
+    Corps natif (cf. l'encadre GATE 4 d'`ability_caster_gates`) :
+
+        GetOriginalOwnerEntity(GetUnit(caster)).Id == StateExtensions.GetMatchTurn(state).CurrentPlayerId
+
+    Substrat, SANS CAPTEUR NEUF : `observeBattle.units[].playerId` est
+    `OwnerComponent.PlayerEntityId` -- le proprietaire d'ORIGINE, celui que `GetOriginalOwnerEntity`
+    resout -- et `ctx.current_player` est `TurnComponent._currentPlayerId`, celui-la meme que le
+    natif compare. ⚠ SURTOUT PAS `teamId` (que `occupant_team_by_pos` lit, lui) : `teamId` est
+    l'equipe COURANTE, donc il suit le controle mental la ou `playerId` ne le suit pas -- c'est
+    exactement la divergence que l'avertissement de `CasterSubstrate.is_turn_of_unit` nomme.
+
+    `ctx.current_player is None` (canal muet) -> dict VIDE, et le consommateur lit alors `None` =
+    **non mesure** : la regle `CasterHasNotMoved` ne refuse jamais. Statu quo, degradation
+    PERMISSIVE, identique a l'etat d'avant ce transport.
+
+    Meme filtre `isDead` qu'`occupant_team_by_pos`, et pour la meme raison : une depouille ne
+    remplit plus sa tuile (`TileContentComponent$$IsFilled`)."""
+    if ctx.current_player is None:
+        return {}
+    cur = int(ctx.current_player)
+    out: dict = {}
+    for u in (ctx.obs_units or []):
+        if u.get("isDead") or u.get("playerId") is None:
+            continue
+        c, r = u.get("col"), u.get("row")
+        if c is None or r is None:
+            continue
+        out[(c, r)] = (int(u["playerId"]) == cur)
+    return out
+
+
 def _sweep_origin_first(ctx: "NCContext") -> list:
     """Ordre de balayage des positions candidates : ORIGINE D'ABORD, puis les tuiles de move.
 
@@ -410,9 +446,16 @@ class NCContext:
     #                                cible EXACTE Gauntlets = 1er ennemi ring-1 en ordre voisins inversé (#117)
     walkable_by_pos: dict = field(default_factory=dict)  # {(col,row): walkable} (boardGraph, statique) :
     #                                gate STATIQUE de placement CanAddUnit (HammerOfWrath +5 displacement #116)
-    obs_units: list = field(default_factory=list)  # observeBattle.units (isDead/teamId/visualId/pos) :
+    obs_units: list = field(default_factory=list)  # observeBattle.units (isDead/teamId/playerId/visualId/pos) :
     #                                SOURCE DES MORTS pour RitesOfRestoration (decisionView garde les
     #                                depouilles -> observeBattle.isDead, cf. project_decisionview_keeps_dead)
+    #                                PORTE AUSSI `playerId` (= OwnerComponent.PlayerEntityId), le
+    #                                substrat d'`is_turn_of_unit_by_pos` (#447-r1-r1-r3)
+    current_player: int | None = None  # `TurnComponent._currentPlayerId` (dv/observeBattle
+    #                                `currentPlayer`) -- avec `obs_units[].playerId`, le substrat de
+    #                                `BattleQuery$$IsTurnOfUnit`, PREFIXE de la regle
+    #                                `CasterHasNotMoved` (#447-r1-r1-r3). `None` = canal muet ->
+    #                                la regle ne refuse jamais (degradation PERMISSIVE, statu quo)
     elev_by_pos: dict = None       # {(col,row): elevation} (tileMeta) — porte d'adjacence |Δelev|<2
     #                                ET substrat de la LIGNE DE VUE (#433-r4-r2-r1-r2 : le 2e prédicat
     #                                de `TargetingQuery$$GetPossibleTargetsForOptions` compare
