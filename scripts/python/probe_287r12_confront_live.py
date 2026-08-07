@@ -69,8 +69,11 @@ FRAG_BOMB = int(ActiveAbilityType.FragBomb)                 # 1017
 VALKYRIE = int(ActiveAbilityType.ValkyrieStrike)            # 1018
 VALK_EFFECT = 1022                                          # EffectType.ValkyrieStrike_Effect (0x3fe)
 
+BASILISK = int(ActiveAbilityType.BasiliskBarrage)           # 1026
+
 BULLGRYN = "astraBullgryn"          # HERO, pool -- porteur de 1017
 VOXCASTER = "astraSmnVoxcaster"     # SUMMON injecte au catalogue -- porteur de 1018
+ORDNANCE = "astraOrdnance"          # HERO, pool -- porteur de 1026
 ENEMY = "necroWarden"
 BOARD = "MC1_67"
 SEED = 777
@@ -81,7 +84,10 @@ RANK = 17
 VOX_HEALTH = 5000
 VOX_TRAITS = ["Imperial", "BattleFatigue"]
 
-STATE = ROOT / "logs" / ("_probe287r12-%d.json" % os.getpid())
+#: State-file a nom FIXE (pas de PID) : `logs/` MEURT avec le worktree de l'agent, donc il n'y a plus
+#: de discipline « nom unique par agent » -- et un nom variable rendait le runner IRRECUPERABLE d'une
+#: invocation a l'autre, donc en construisait un NEUF a chaque volet (budget partage).
+STATE = ROOT / "logs" / "_probe287r12_state.json"
 
 
 def _r(sid, method, body, timeout=90):
@@ -92,8 +98,8 @@ def _r(sid, method, body, timeout=90):
 def _build(sid, seed: int, board: str):
     """Un SEUL runner portant les DEUX casters (le Bullgryn du pool + le Voxcaster injecte)."""
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    bc0, _added, _ab, _m = CI.augment(RD._load_seed_bc(None), [VOXCASTER, BULLGRYN, ENEMY],
-                                      rank=RANK)
+    bc0, _added, _ab, _m = CI.augment(RD._load_seed_bc(None),
+                                      [VOXCASTER, BULLGRYN, ORDNANCE, ENEMY], rank=RANK)
     dump = RD._load_board_dump(board)
     template, _pool, _pool_mow = RD._normalize_and_extract_pool(sid, bc0, RANK, board_dump=dump)
     bc = copy.deepcopy(template)
@@ -104,12 +110,11 @@ def _build(sid, seed: int, board: str):
     vox["Traits"] = list(VOX_TRAITS)
     RD._patch_predefined_units(bc, [ENEMY, ENEMY, ENEMY])
     pts = (RD._spawn_points_by_twpi(bc).get(0) or [])
-    if len(pts) < 2:
-        raise RuntimeError("moins de 2 spawn points joueur sur %s" % board)
-    pu = [{"unitId": VOXCASTER, "playerId": RD.PLAYER_ID_HUMAN,
-           "col": int(pts[0][0]), "row": int(pts[0][1])},
-          {"unitId": BULLGRYN, "playerId": RD.PLAYER_ID_HUMAN,
-           "col": int(pts[1][0]), "row": int(pts[1][1])}]
+    if len(pts) < 3:
+        raise RuntimeError("moins de 3 spawn points joueur sur %s" % board)
+    pu = [{"unitId": uid, "playerId": RD.PLAYER_ID_HUMAN,
+           "col": int(pts[i][0]), "row": int(pts[i][1])}
+          for i, uid in enumerate((VOXCASTER, BULLGRYN, ORDNANCE))]
     resp = _rpc(sid, "initAndStart",
                 [{"configJson": json.dumps(bc), "seed": seed, "playerUnits": pu,
                   "owner": str(STATE.resolve())}], timeout=120)
@@ -144,8 +149,14 @@ def _seed_rng(dump):
     return rng
 
 
+#: Le Vox-caster spawne sous le `visualId` de sa variante NPC (`astraNpc3Voxcaster`) -- meme alias
+#: que `probe_245_valkyrie_targeting.py` : la vue de decision publie le visuel, pas l'id de catalogue.
+ALIAS = {VOXCASTER: (VOXCASTER, "astraNpc3Voxcaster")}
+
+
 def _unit(dv, vid):
-    return next((u for u in (dv.get("units") or []) if u.get("visualId") == vid), None)
+    noms = ALIAS.get(vid, (vid,))
+    return next((u for u in (dv.get("units") or []) if u.get("visualId") in noms), None)
 
 
 def _alive_enemies(dv, owner):
@@ -164,25 +175,32 @@ def _to_my_turn(sid, rid, vid, maxit=4):
     return dv, _unit(dv, vid)
 
 
+#: ⚠ Le champ est `effectType`, PAS `type` -- et le confondre rend un dict VIDE, donc « le natif ne
+#: pose RIEN », qui est exactement la conclusion inverse de la verite. Faute commise et corrigee ici :
+#: la premiere passe de ce probe a conclu « AUCUN porteur » sur les deux canaux a la fois.
 def _effets_unites(dv) -> dict:
     """{unitId: sorted[effectType]} lu de `decisionView.units[].effects` (= `readEffectsByUnit`)."""
     out = {}
     for u in (dv.get("units") or []):
-        types = sorted(int(e.get("type")) for e in (u.get("effects") or [])
-                       if e.get("type") is not None)
+        types = sorted(int(e["effectType"]) for e in (u.get("effects") or [])
+                       if e.get("effectType") is not None)
         if types:
             out[int(u["id"])] = types
     return out
 
 
-def _effets_tuiles(tiles) -> dict:
-    """{tileId: sorted[effectType]} lu de `tileMeta.tiles[].effects` (= `readEffectsByTile`, #102)."""
+def _effets_tuiles(tiles, board) -> dict:
+    """{tileId: sorted[effectType]} lu de `tileMeta.tiles[].effects` (= `readEffectsByTile`, #102).
+
+    ⚠ Les entrees de `tileMeta` sont indexees par `(col,row)` -- **elles n'ont pas de champ `id`** :
+    la cle d'entite-tuile se re-derive par le `boardGraph`."""
     out = {}
     for t in ((tiles or {}).get("tiles") or []):
-        types = sorted(int(e.get("type")) for e in (t.get("effects") or [])
-                       if e.get("type") is not None)
-        if types:
-            out[int(t["id"])] = types
+        types = sorted(int(e["effectType"]) for e in (t.get("effects") or [])
+                       if e.get("effectType") is not None)
+        tid = board.id_at(int(t["col"]), int(t["row"]))
+        if types and tid is not None:
+            out[int(tid)] = types
     return out
 
 
@@ -225,6 +243,39 @@ def _sans_role_target(klass):
     return _Avant
 
 
+def _sans_main_tile(klass):
+    """Le port d'AVANT pour `1026` : la normalisation de la tuile visee ne traitait QUE le cas UNITE
+    (`get_entity(target_id).PositionComponent`). On la remet dans cet etat en neutralisant le foyer
+    `main_tile_id` -- meme role de TEMOIN que ci-dessus.
+
+    ⚠ LE PATCH PORTE SUR LE MODULE CONSOMMATEUR, PAS SUR LE FOYER : `astramilitarum` importe le nom
+    (`from .behaviours.context import main_tile_id`), donc le binding est FIGE chez lui -- patcher
+    `context.main_tile_id` NE MORDRAIT PAS (forme A). C'est l'inverse de `_tile_entity`, qui est
+    appele DEPUIS `context` lui-meme et se patche donc sur son propre module."""
+    import engine.runner.abilities.astramilitarum as AM
+
+    class _Avant(klass):
+        __slots__ = ()
+
+        def execute_behaviour(self, state, caster_id, target_id):
+            vrai = AM.main_tile_id
+
+            def _unite_seule(st, eid):
+                from engine.runner.components import PositionComponent as _PC
+                e = st.get_entity(int(eid)) if eid is not None else None
+                pc = e.get_component(_PC) if e is not None else None
+                brd = getattr(st, "board", None)
+                return brd.id_at(pc.col, pc.row) if (pc is not None and brd is not None) else None
+
+            AM.main_tile_id = _unite_seule
+            try:
+                return klass.execute_behaviour(self, state, caster_id, target_id)
+            finally:
+                AM.main_tile_id = vrai
+
+    return _Avant
+
+
 # ------------------------------------------------------------------------------- volet 1018
 
 def volet_1018(sid, rid) -> int:
@@ -241,7 +292,7 @@ def volet_1018(sid, rid) -> int:
     cible = ens[0]
     tuile = board.id_at(cible["pos"]["col"], cible["pos"]["row"])
     print(f"[1018] caster={vox['id']} cible-unite={cible['id']} tuile-cible={tuile}")
-    av_u, av_t = _effets_unites(dv), _effets_tuiles(tiles)
+    av_u, av_t = _effets_unites(dv), _effets_tuiles(tiles, board)
 
     res = _r(sid, "applyAction", {"runnerId": rid, "action": {
         "kind": "ability", "casterId": vox["id"], "targetId": int(tuile),
@@ -249,9 +300,14 @@ def volet_1018(sid, rid) -> int:
     a0 = (res.get("actions") or [{}])[0] if isinstance(res, dict) else {}
     print(f"[1018] cast ok={bool(isinstance(res, dict) and res.get('ok'))} "
           f"action0.ok={a0.get('ok')} reason={a0.get('reason')}")
+    # L'ABSENCE d'un effet dans les deux canaux ne prouve RIEN par elle-meme : on imprime les
+    # EVENEMENTS du cast, seul canal qui distingue « rien pose » de « pose ailleurs ».
+    for a in (res.get("actions") or []):
+        for i, e in enumerate(a.get("events") or []):
+            print(f"[1018]   event[{i}] {json.dumps(e)[:400]}")
     dv2 = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 150)
     tiles2 = _r(sid, "tileMeta", {"runnerId": rid}, 60)
-    ap_u, ap_t = _effets_unites(dv2), _effets_tuiles(tiles2)
+    ap_u, ap_t = _effets_unites(dv2), _effets_tuiles(tiles2, board)
 
     neuf_u = {k: sorted(set(v) - set(av_u.get(k, []))) for k, v in ap_u.items()
               if sorted(set(v) - set(av_u.get(k, [])))}
@@ -290,20 +346,30 @@ def volet_1017(sid, rid) -> int:
         return 1
     bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
     board = Board(bg["tiles"], adjacency="native_sym")
-    cible = ens[0]
-    tp = (cible["pos"]["col"], cible["pos"]["row"])
-    tuile = board.id_at(*tp)
-    # 1017 est RANGE_ADJACENT : on AMENE le caster au contact (on ne se plaint pas de la geometrie).
-    voisins = [t for t in board.neighbours_native(tuile)
-               if board.by_id.get(t, {}).get("walkable")]
-    occupes = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or []) if u.get("alive")}
-    libre = next((t for t in voisins if board.coord(t) not in occupes), None)
-    if libre is None:
-        print("[1017] aucune tuile adjacente libre autour de la cible -- NON CONFRONTE")
+    byid = {t["id"]: t for t in bg["tiles"]}
+    # On POSE la geometrie plutot que de se plaindre de celle du spawn : cible au centre d'un hexagone
+    # dont les 6 voisins sont marchables, caster sur l'un d'eux (1017 est RANGE_ADJACENT), deux autres
+    # ennemis dans l'anneau pour que le volet SPLASH ne soit pas vide. `applyAction` ignore propriete
+    # et portee -- c'est ce qui permet de driver les DEUX camps.
+    def _nb(tid):
+        return [n for n in (byid[tid].get("neighbours") or []) if n in byid]
+
+    cands = sorted(t for t in byid
+                   if len(_nb(t)) == 6 and byid[t].get("walkable")
+                   and all(byid[n].get("walkable") for n in _nb(t)))
+    if not cands:
+        print("[1017] aucune tuile a 6 voisins marchables sur ce board -- NON CONFRONTE")
         return 1
-    c = board.coord(libre)
-    _r(sid, "applyAction", {"runnerId": rid, "action": {
-        "kind": "move", "unitId": bull["id"], "to": {"col": int(c[0]), "row": int(c[1])}}}, 90)
+    centre = cands[len(cands) // 2]
+    anneau = _nb(centre)
+    cible = ens[0]
+    place = [(cible["id"], centre), (bull["id"], anneau[0])]
+    place += [(u["id"], anneau[i + 2]) for i, u in enumerate(ens[1:3])]
+    for uid, tid in place:
+        c = board.coord(tid)
+        _r(sid, "applyAction", {"runnerId": rid, "action": {
+            "kind": "move", "unitId": uid, "to": {"col": int(c[0]), "row": int(c[1])}}}, 90)
+    tuile = centre
 
     dv, ob, snap, tiles, bg, rng = _capture(sid, rid)
     print(f"[1017] caster={bull['id']} cible-unite={cible['id']} tuile-cible={tuile}")
@@ -330,15 +396,55 @@ def volet_1017(sid, rid) -> int:
     return 0
 
 
+# ------------------------------------------------------------------------------- volet 1026
+
+def volet_1026(sid, rid) -> int:
+    """`1026 BasiliskBarrage` n'est PAS dans le rayon de l'elargissement (son arbre n'evalue jamais
+    `Target()`), mais elle etait MUETTE en regime T pour une AUTRE cause, dans le collapse imperatif
+    de ses tirages : `basilisk_shell_tiles` resolvait la tuile visee par un `get_entity(target_id)`,
+    donc `[]` -- **zero obus** -- des que `target_id` designait une tuile. La reparation passe par le
+    foyer `main_tile_id`. On confronte ici le regime T au natif, meme protocole (MEME MT, TEMOIN)."""
+    dv, ord_u = _to_my_turn(sid, rid, ORDNANCE)
+    if ord_u is None:
+        print("[1026] astraOrdnance absent du build -- NON CONFRONTE")
+        return 1
+    ens = _alive_enemies(dv, ord_u.get("owner"))
+    if not ens:
+        print("[1026] aucun ennemi vivant -- NON CONFRONTE")
+        return 1
+    dv, ob, snap, tiles, bg, rng = _capture(sid, rid)
+    board = Board(bg["tiles"], adjacency="native_sym")
+    cible = ens[0]
+    tuile = board.id_at(cible["pos"]["col"], cible["pos"]["row"])
+    print(f"[1026] caster={ord_u['id']} cible-unite={cible['id']} tuile-cible={tuile}")
+    res = _r(sid, "applyAction", {"runnerId": rid, "action": {
+        "kind": "ability", "casterId": ord_u["id"], "targetId": int(tuile),
+        "abilityType": BASILISK}}, 120)
+    a0 = (res.get("actions") or [{}])[0] if isinstance(res, dict) else {}
+    print(f"[1026] cast ok={bool(isinstance(res, dict) and res.get('ok'))} "
+          f"action0.ok={a0.get('ok')} reason={a0.get('reason')}")
+    print(f"[1026] NATIF coups = {_coups(res, BASILISK)}")
+    klass = ABILITY_CLASSES[BASILISK]
+    for nom, cls in (("APRES", klass), ("AVANT(temoin)", _sans_main_tile(klass))):
+        st = load_state(dv, ob, snap, board=board, tiles=tiles)
+        if rng and rng.get("ok"):
+            st.rng = _seed_rng(rng)
+        out = cls().execute_behaviour(st, int(ord_u["id"]), int(tuile)) or {}
+        coups = [(a["target"], h) for a in (out.get("attacks") or [])
+                 for h in ((a.get("attack") or {}).get("per_hit") or [])]
+        print(f"[1026] PORT {nom} : tuiles={out.get('tiles')} coups={coups}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--volet", choices=["1017", "1018"], default=None)
+    ap.add_argument("--volet", choices=["1017", "1018", "1026"], default=None)
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--rebuild", action="store_true")
     ap.add_argument("--dispose", action="store_true")
     ns = ap.parse_args(argv)
-    sid = _resolve_session(None)
+    sid = _resolve_session()
     if ns.dispose:
         if STATE.exists():
             rid = int(json.loads(STATE.read_text(encoding="utf-8"))["runnerId"])
@@ -351,8 +457,11 @@ def main(argv=None) -> int:
         return volet_1017(sid, rid)
     if ns.volet == "1018":
         return volet_1018(sid, rid)
+    if ns.volet == "1026":
+        return volet_1026(sid, rid)
     rc = volet_1018(sid, rid)
-    return rc or volet_1017(sid, rid)
+    rc = volet_1026(sid, rid) or rc
+    return volet_1017(sid, rid) or rc
 
 
 if __name__ == "__main__":
