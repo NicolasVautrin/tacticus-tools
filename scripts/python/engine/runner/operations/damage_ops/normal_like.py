@@ -106,7 +106,12 @@ class _NormalLike:
         # `_block_sources` (mirror du GetMultiValueStat(7)/IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif).
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
-        # `On(PreAttackHit=6)` — meme vecteur per-coup natif (ExecuteHit, en tete du coup, avant le crit).
+        # `On(PreAttackHit=6)` — meme vecteur per-coup natif, emis par `ExecuteHit` **APRES** le
+        # `RollCritical` du coup (#522-r1). On mesure donc la crit chance AVANT l'event (celle du
+        # coup 0), on emet, puis on la RELIT pour les coups 1+.
+        crit_avant = AttackDamageOperation._crit_params(
+            ctx, active, state, attacker_id, target_id,
+            is_ranged=_ranged, is_normal_attack=False)
         from ..triggers.dispatch.attack import pre_attack_hit_triggers  # lazy : cycle damage<->triggers
         pre_attack_hit_triggers(state, attacker_id, target_id,
                                 ranged=not bool(is_melee) if is_melee is not None else False,
@@ -116,6 +121,8 @@ class _NormalLike:
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
             is_ranged=_ranged, is_normal_attack=False)   # #112 : ce vecteur porte une SPECIALE
+        crit_apres = (crit_chance, crit_damage, crit_enabled)
+        crit_chance, crit_damage, crit_enabled = crit_avant
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> splash/normal-like aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 
@@ -175,6 +182,9 @@ class _NormalLike:
         from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources,
+                                            # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`.
+                                            crit_chance_after=crit_apres[0],
+                                            crit_enabled_after=crit_apres[2],
                                             shield=shield_total,   # post_roll=None (reduce-then-roll)
                                             hit_interceptor=make_hit_interceptor(
                                                 state, attacker_id, target_id),

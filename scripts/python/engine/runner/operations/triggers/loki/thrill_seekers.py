@@ -58,10 +58,21 @@ RE (decompile ghidra, build gqfc5mff6c) — MIRROR 1:1 :
   enemy is always overkilled. »
 
 DISPATCH (2 classes = 2 branches de l'`op_BitwiseOr`, patron `TerrifyingCrescendo`/`ActOfFaith`) :
-  - `ThrillSeekersFullHealthTargetAbility` : `On(PreAttackHit=6)`, vecteur `pre_attack_hit_triggers`
-    (emis par les 3 vecteurs d'attaque AVANT `_crit_params` = la place NATIVE : `ExecuteHit` emet
+  - `ThrillSeekersFullHealthTargetAbility` : `On(PreAttackHit=6)`, vecteur `pre_attack_hit_triggers`.
+    ⚠ **CETTE LIGNE A AFFIRME L'INVERSE DE CE QUE FAIT LE NATIF** — elle disait « `ExecuteHit` emet
     `On(6)` en TETE, avant le calcul du crit de CE coup -> le buff s'applique bien a l'attaque
-    declenchante) ;
+    declenchante ». RELU dans `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (#522-r1),
+    l'ordre est : slot 0xad (profil) -> `AttackHit..ctor` -> **slot 0xa `RollCritical`** ->
+    `AbilityEntities..ctor` -> `EnqueueOperation(6)` -> `EnqueueOperation(7)` -> sub-op 0x42 ->
+    `EvaluateAfterHitTriggers`. `On(6)` est donc en **QUEUE**, apres le crit.
+    Conjugue au fait que `IdunBattle.Core.Services.DamagePrediction$$RollCritical` relit
+    `GetStat(attacker, 0x9)` **a chaque appel** et qu'`ExecuteHits` boucle sur `ExecuteHit`, la loi
+    est : **le +15 ne mord jamais sur le coup qui l'a declenche, et mord sur tous les suivants**,
+    ceux de la MEME salve compris. Porte par `crit_chance_after` (`damage_hits.py::_run_hits`), que
+    les trois vecteurs alimentent en relisant `_crit_params` APRES l'emission.
+    D'ou venait le faux : l'affirmation decrivait la place du vecteur **cote PORT** (ou l'event
+    etait effectivement emis avant `_crit_params`) et la presentait comme « la place NATIVE » --
+    une justification de l'existant, jamais confrontee au decompile ;
   - `ThrillSeekersDamageTakenAbility` : `On(DamageTaken=15)`, vecteur `damage_taken_triggers` (emis
     par `_apply_damage_pipeline` juste apres la mutation de PV, gate `degat SANTE applique > 0` =
     mirror `if (0 < local_7dc)` d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`, ou

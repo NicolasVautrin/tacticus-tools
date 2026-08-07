@@ -143,7 +143,13 @@ Contre-épreuve du garde : désarmer `_owner_is_target` fait rougir 2 bras sur 8
 
 ## 6. Deux résidus, tous deux MESURÉS et ATTRIBUÉS — hors #522
 
-### `#522-r1` — `ThrillSeekers` applique son +15 au coup DÉCLENCHANT, le natif non
+### `#522-r1` — `ThrillSeekers` applique son +15 au coup DÉCLENCHANT, le natif non — **RÉSOLU**
+
+> **Fermé le 2026-08-07.** La loi a été établie au décompilé (`RollCritical` précède
+> `On(PreAttackHit)` dans `AttackDamageOperation$$ExecuteHit`, et `GetStat(9)` est relu par coup),
+> le correctif porté par `crit_chance_after` / `crit_enabled_after`. Le même correctif ferme
+> **`#524-r2`**. Détail : `docs/rl/case-522-r1-thrill-seekers-timing.md`. Le constat d'origine est
+> conservé ci-dessous parce que c'est lui qui a servi de point d'entrée.
 
 Avec le kit COMPLET à `--crit 0,700`, le port consomme **un tirage `genrand_int32` de plus** que le
 natif sur le cast (**3 contre 2**), à **dégât et séquence identiques** (6353, `crits=[False]`).

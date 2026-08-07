@@ -303,6 +303,8 @@ class _DamageHitsMixin:
                   prevent_overkill: bool = False,
                   force_crit: bool = False, hit_index0: int = 0,
                   crit_allowed0: bool = True,
+                  crit_chance_after: Optional[int] = None,
+                  crit_enabled_after: Optional[bool] = None,
                   hit_interceptor=None, failed_block0=None,
                   hp_current: Optional[int] = None,
                   hp_floor: Optional[int] = None,
@@ -552,12 +554,34 @@ class _DamageHitsMixin:
         def _roll_crit(idx: int) -> bool:
             """Le crit d'UN coup, gate compris -- foyer UNIQUE des deux branches de `_one_hit`.
             `never crit` (message +0x29) est arme des que `isCriticalDamageAllowed` est tombe :
-            `ExecuteHit` rend alors `isCrit = 0` **sans appeler `RollCritical`** (0 tirage)."""
+            `ExecuteHit` rend alors `isCrit = 0` **sans appeler `RollCritical`** (0 tirage).
+
+            #522-r1 -- LA CRIT CHANCE N'EST PAS LA MEME AU COUP 0 ET AUX SUIVANTS, et c'est LU :
+            `IdunBattle.Core.Services.DamagePrediction$$RollCritical` relit
+            `UnitExtensions.GetStat(attacker, 0x9 = CritChance, 0 = Current)` **a chaque appel**,
+            et `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` appelle `RollCritical`
+            **AVANT** d'emettre `On(PreAttackHit = 6)` (l'ordre du decompile est : slot 0xad
+            profil -> `AttackHit..ctor` -> **slot 0xa `RollCritical`** -> `AbilityEntities..ctor`
+            -> `EnqueueOperation(6)` -> `EnqueueOperation(7)` -> sub-op 0x42 -> after-hit).
+            `ExecuteHits` boucle sur `ExecuteHit`, donc un stat-mod pose par `On(6)` du coup 0
+            mord sur les coups SUIVANTS de la MEME salve, jamais sur le coup 0.
+
+            `crit_chance_after` / `crit_enabled_after` = les valeurs RELUES **apres** l'event ;
+            `None` = inchangees, donc strict no-op pour tout appelant qui ne les passe pas.
+            `idx` est l'index CONTINU de l'attaque (`hit_index0 + i`), donc `idx == 0` est
+            exactement l'`IsFirstHitInSeries` natif -- un groupe de coups additionnels
+            (`hit_index0 > 0`) est deja au-dela, et prend donc les valeurs d'apres."""
             if force_crit:                      # options+5 -> le natif SAUTE RollCritical
                 return True
             if not crit_gate_open(_crit_allowed[0], is_attack_damage_op):
                 return False                    # flag « never crit » arme -> 0 tirage
-            return roll_critical(rng, crit_chance) if crit_enabled else False
+            cc, en = crit_chance, crit_enabled
+            if idx != 0:                        # coups 1+ : `GetStat(9)` RELU apres `On(6)`
+                if crit_chance_after is not None:
+                    cc = crit_chance_after
+                if crit_enabled_after is not None:
+                    en = crit_enabled_after
+            return roll_critical(rng, cc) if en else False
 
         def _limits_scalar(value: int) -> int:
             """Etage LIMITES en cap SCALAIRE sur la valeur DONNEE (cellule degeneree du core, mode 2).
