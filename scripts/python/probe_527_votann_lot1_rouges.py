@@ -471,8 +471,77 @@ def etage_predict(sid, args, regime=None):
     return rid
 
 
+# ------------------------------------------------------------------------------------------------ #
+# etage `modele` (#527-r1) -- BANC OFFLINE : confronter un modele de classement aux SIX regimes
+# ------------------------------------------------------------------------------------------------ #
+#
+# Aucun runner, aucune session : les six verdicts NATIFS sont deja mesures (etage `armure`), on
+# rejoue contre eux la formule du port, nourrie de differentes entrees. C'est ce banc qui permet de
+# ne PAS bruler six builds pour eprouver une hypothese -- et de voir ce qu'un fix vaudrait AVANT de
+# toucher un foyer partage par quatre consommateurs.
+#
+# `k` (nombre de coups) n'est PAS un parametre libre : l'ability frappe 3 fois, donc k vaut 1, 2 ou
+# 3. Le seuil de percage mesure (]2100, 2200[) avait deja designe k = 3 ; ce banc le RECOUPE par un
+# chemin independant (le classement lui-meme), il ne l'ajuste pas.
+
+#: (nom, necro (maxHP, armure), meph (maxHP, armure), victime NATIVE mesuree)
+MODELE_REGIMES = [
+    ("nominal",   (8536, 2662), (9537, 2008), "meph"),
+    ("haute",     (8536, 2662), (8536, 2008), "meph"),
+    ("basse",     (8536,  300), (8536, 2008), "necro"),
+    ("hp",        (8536, 2008), (9537, 2008), "necro"),
+    ("seuil2100", (8536, 2100), (9537, 2008), "necro"),
+    ("seuil2200", (8536, 2200), (9537, 2008), "meph"),
+]
+MODELE_AVG = 2044        # `MinMaxDamage(entities, 1)` = moyenne des bornes de 1207
+MODELE_PIERCE = 65       # `Plasma.PiercingDamageRatio`, lu du gameconfig
+
+
+def _modele_utilite(d_total, maxhp, armure, wt, spread_pct, avec_armure):
+    """Le composite `UtilityType.Damage` DU PORT (`engine.utilities.damage.DAMAGE_UTILITY`), nourri
+    d'une plage de degat construite ici. `avec_armure=False` reproduit l'entree ACTUELLE de
+    `_target_utility` (bornes brutes) ; `True` applique le foyer natif
+    `StaticBattleRules.Damage$$GetDamageWithPiercing`."""
+    from engine.services.static_battle_rules import get_damage_with_piercing
+    from engine.utilities.damage import DAMAGE_UTILITY
+    lo = int(d_total * (100 - spread_pct) / 100)
+    hi = int(d_total * (100 + spread_pct) / 100)
+    if avec_armure:
+        lo = float(get_damage_with_piercing(lo, MODELE_PIERCE, armure))
+        hi = float(get_damage_with_piercing(hi, MODELE_PIERCE, armure))
+    pred = {"healthDmgMin": lo, "healthDmgMax": hi, "rawHealthDmgMin": lo, "rawHealthDmgMax": hi,
+            "hpBefore": maxhp, "shieldBefore": 0,
+            "killSure": maxhp > 0 and lo >= maxhp, "kill": maxhp > 0 and hi >= maxhp}
+    return DAMAGE_UTILITY.evaluate(pred, maxhp, wt)
+
+
+def etage_modele(sid, args, regime=None):
+    from engine.weights import load as load_weights
+    wt = load_weights()
+    print("[modele] BANC OFFLINE -- aucun runner. Six verdicts natifs deja mesures.")
+    for avec_armure in (False, True):
+        for k in (1, 2, 3):
+            d = MODELE_AVG * k
+            ok, lignes = 0, []
+            for nom, (nhp, na), (mhp, ma), natif in MODELE_REGIMES:
+                un = _modele_utilite(d, nhp, na, wt, 20, avec_armure)
+                um = _modele_utilite(d, mhp, ma, wt, 20, avec_armure)
+                # ex aequo -> le port prend le plus petit `id`, et `necroWarden` (77) < (79).
+                port = "necro" if un >= um else "meph"
+                ok += (port == natif)
+                lignes.append("    %-10s necro=%8.3f meph=%8.3f -> port=%-6s natif=%-6s %s"
+                              % (nom, un, um, port, natif, "OK" if port == natif else "NON"))
+            print("[modele] armure=%-5s k=%d coup(s) d=%5d -> %d/6"
+                  % (str(avec_armure), k, d, ok))
+            for l in lignes:
+                print(l)
+    print("[modele] LECTURE : `armure=False k=1` EST l'entree actuelle de `_target_utility`.")
+    return None
+
+
 ETAGES = {"stats": etage_stats, "graviton": etage_graviton, "fortune": etage_fortune,
-          "replay": etage_replay, "armure": etage_armure, "predict": etage_predict}
+          "replay": etage_replay, "armure": etage_armure, "predict": etage_predict,
+          "modele": etage_modele}
 
 
 def main():
@@ -498,6 +567,8 @@ def main():
             kw["extra"] = extra or None
         if nom == "armure":
             kw["regime"] = args.regime
+        if nom == "modele":
+            kw["regime"] = None
         if nom == "predict":
             kw["regime"] = args.regime if args.regime in ARMURE_REGIMES else None
         rid = ETAGES[nom](sid, args, **kw)
