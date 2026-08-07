@@ -627,6 +627,20 @@ class StartTurnOperation:
             # `MartialInspiration_ExtraDamageEffect` (0x580 = 1408).
             if uc is not None and uc.units_attacked_this_turn:
                 uc.units_attacked_this_turn.clear()
+            # `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3` : `*(undefined2 *)(uc + 0x179) = 0` -- la
+            # SECONDE instruction de `IdunBattle.Operations.StartTurnOperation$$ResetUnit` (elle
+            # suit immediatement `uc + 0x60 = 0` et PRECEDE tout le bloc `ActorStatisticsComponent`
+            # ci-dessus). Ce `short` efface DEUX octets d'un coup : `+0x179` et `+0x17a`. Seul
+            # `+0x17a` est porte -- c'est `killed_this_turn`, le substrat du noeud DSL
+            # `IdunBattleLogic.Entities.DSLTriggers$$IsKilledThisTurn`.
+            # ⚠ LE FILTRE `uc.alive` N'EST PAS UNE PRUDENCE : `ResetUnit` est appele sur
+            # `PlayerComponent.CurrentlyOwnedUnitIds`, dont `PlayerComponent$$
+            # get_CurrentlyOwnedUnitIds` retire les defaits (meme `RemoveAll(<defait>)` que
+            # `current_turn_start_tile` plus bas). Un cadavre ne voit donc JAMAIS son drapeau
+            # efface, et c'est ce qui donne au predicat sa vraie semantique : « tuee, et n'a pas
+            # redemarre de tour depuis » -- PAS « tuee pendant le tour courant ».
+            if uc is not None and uc.alive:
+                uc.killed_this_turn = False
             # #213 : `UnitComponent + 0x18c` = la TUILE de debut de tour. Mirror des DEUX lignes qui
             # suivent le bump de `turnsStarted@+0x58` dans la MEME boucle native
             # (`IdunBattle.Operations.StartTurnOperation$$Execute`) :

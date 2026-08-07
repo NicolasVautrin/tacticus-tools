@@ -45,6 +45,7 @@
  "tests/engine/runner/test_448_r2c_fear_of_the_unseen_offline.py": 0.071,
  "tests/engine/runner/test_448_r2d_titanhammer_squad_offline.py": 0.02,
  "tests/engine/runner/test_459_tile_accessors_offline.py": 0.035,
+ "tests/engine/runner/test_462_r4b_substrat_mort_appelants_offline.py": 12.2,
  "tests/engine/runner/test_462_r4d_nightshroud_cells_offline.py": 0.014,
  "tests/engine/runner/test_462_r4d_r3_two_channels_defender_offline.py": 0.03,
  "tests/engine/runner/test_462r4eor2r1r1r1_cycle_de_tour_offline.py": 0.01,

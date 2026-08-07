@@ -348,6 +348,16 @@ VENTILATION = {
     ("services/movement_query.py", "get_movable_positions_for", "getattr(sc.ctx)", "R"):
         ("INERTE-VIVANT", "le MOVER"),
 
+    # Site NEUF, arrive avec #271-r4 (PR #831) et ventile a la volee par
+    # #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3 : le cliquet l'a trouve AU REBASE, pas a l'ecriture --
+    # c'est la QUATRIEME recidive du gisement, toujours par notre propre cadence de portage.
+    ("playbook/non_owner_attack.py", "_has_trait", "c.traits", "R"):
+        ("INERTE-VIVANT", "le sujet est `caster` = `UtilityAttackCase+0x10`, l'unite dont l'IA "
+                          "evalue l'action : elle est vivante par construction du cas d'utilite. "
+                          "S'y ajoute que `Scene.ctx_by_id` vient du `predictor`, donc de "
+                          "`combatSnapshot`, donc des VIVANTS seuls -> `c is None` sur un cadavre "
+                          "et la fonction rend FAUX, jamais un trait devine"),
+
     # ---- INDECIDABLE : NON converti, et nomme comme tel ----------------------------------------
     ("runner/components.py", "__init__", "sc.ctx.traits", "R"):
         ("INDECIDABLE", "`UnitEffectStateView` -- substrat des `CreateActiveCondition`. Le seul "
@@ -404,9 +414,16 @@ def etat_conversion() -> list:
     * `brut_absent`    : plus aucune lecture brute de `traits` dans la fonction ;
     * `appelle_foyer`  : la fonction APPELLE `entity_trait_names` (AST, pas grep -- un appel
                          dans un commentaire ne compte pas) ;
-    * `gate_explicite` : la fonction porte un test `sc is None` (le collapse d'`IsKilledThisTurn`
-                         NOMME). Sans lui, reparer le substrat ferait entrer dans le selecteur un
-                         mort que le natif REFUSE."""
+    * `gate_explicite` : la fonction LIT `killed_this_turn` -- le substrat NATIF du conjoint
+                         `IsKilledThisTurn` (`UnitComponent+0x17a`). Sans ce gate, reparer le
+                         substrat de traits ferait entrer dans le selecteur un mort que le natif
+                         REFUSE.
+                         ⚠ LE CRITERE A CHANGE en #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3 : il
+                         cherchait un test `sc is None`, qui n'etait qu'un ARTEFACT du port
+                         (« pas de `StatsComponent` » ⇒ « pas tue ce tour »). Un artefact ne peut
+                         pas garder un conjoint : il tenait par coincidence, et le jour ou un
+                         `StatsComponent` sera pose sur les cadavres il tombait en SILENCE. Le
+                         critere est desormais le NOM du champ natif."""
     bruts = {}
     for s in sites():
         bruts.setdefault((s[0], s[1]), 0)
@@ -418,11 +435,8 @@ def etat_conversion() -> list:
         if fn is not None:
             appelle = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                           and n.func.id == "entity_trait_names" for n in ast.walk(fn))
-            foyer_gate = any(
-                isinstance(n, ast.Compare) and isinstance(n.ops[0], ast.Is)
-                and isinstance(n.comparators[0], ast.Constant) and n.comparators[0].value is None
-                and isinstance(n.left, ast.Name) and n.left.id == "sc"
-                for n in ast.walk(fn))
+            foyer_gate = any(isinstance(n, ast.Attribute) and n.attr == "killed_this_turn"
+                             for n in ast.walk(fn))
         out.append((cle, bruts.get(cle, 0) == 0, appelle, foyer_gate, motif))
     return out
 
@@ -612,18 +626,32 @@ def step_loi() -> int:
 # ================================================================================================
 # --step contre : la contre-epreuve DIRIGEE des deux sites ATTEIGNABLES
 # ================================================================================================
-def etat_crush(vis_mort: str, avec_stats: bool, vivant: bool = False):
+_ABSENT_CRUSH = object()          # sentinelle : « laisse le defaut derive d'`avec_stats` »
+
+
+def etat_crush(vis_mort: str, avec_stats: bool, vivant: bool = False,
+               tue_ce_tour=_ABSENT_CRUSH, tueur=_ABSENT_CRUSH):
     """Mover (eid 1) et une unite co-localisee (eid 2) de visualId `vis_mort`.
 
     `avec_stats=False` reproduit le CADAVRE AU CHARGEMENT (absent de `combatSnapshot`) ;
     `True` reproduit le crush SURVENU PENDANT LE RUN (l'entite garde son ctx).
 
     `vivant=True` monte l'eid 2 VIVANTE : c'est l'ENTREE du crush, pas son resultat -- le regime
-    qu'il faut pour exercer `_kill_steppable_units` lui-meme (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4)."""
+    qu'il faut pour exercer `_kill_steppable_units` lui-meme (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4).
+
+    ⚠ LE MORT DU RUN PORTE DESORMAIS LES DEUX CHAMPS QUE LE VRAI CRUSH POSE
+    (#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3), parce que `_valid_dead_decoys` les LIT :
+    `movement.py::_kill_steppable_kill_unit` appelle `_record_death_reason(dead, mover,
+    DamageReason.Steppable)` -- d'ou `death_source = (1, 2, None)` -- PUIS
+    `damage.py::_kill_unit_operation`, qui pose `killed_this_turn = True`
+    (`KillUnitOperation$$Execute+0x828`). Un cadavre-AU-CHARGEMENT n'a ni l'un ni l'autre.
+    Les deux surcharges `tue_ce_tour` / `tueur` existent pour ISOLER chaque conjoint : sans elles,
+    trois choses changent d'un bras a l'autre et aucun verdict n'est attribuable."""
     import gameconfig as GC
     from engine.runner.state import State, Entity
     from engine.runner.components import (UnitComponent, OwnerComponent, PositionComponent,
                                           HealthComponent, StatsComponent)
+    from engine.entities.damage_reason import DamageReason
     from engine.entities.unit_context import UnitContext
     st = State()
 
@@ -640,9 +668,19 @@ def etat_crush(vis_mort: str, avec_stats: bool, vivant: bool = False):
             ctx.traits_measured = False
             e.add_component(StatsComponent(ctx))
         st.entities[uid] = e
+        return e
 
     _add(1, "astraBullgryn", 1, True, True)             # le mover, toujours charge
-    _add(2, vis_mort, 1, vivant, avec_stats)            # le co-localise (meme team : G2 friends)
+    mort = _add(2, vis_mort, 1, vivant, avec_stats)     # le co-localise (meme team : G2 friends)
+    # Le crush du RUN grave les deux champs ; le cadavre-au-chargement n'en a aucun.
+    # `None` (et NON `False`) hors du regime crush : c'est le tri-etat « NON MESURE » -- aucun canal
+    # live ne publie `UnitComponent+0x17a`, donc un cadavre-AU-CHARGEMENT ne PEUT pas porter `False`.
+    tue = (True if (avec_stats and not vivant) else None) if tue_ce_tour is _ABSENT_CRUSH \
+        else tue_ce_tour
+    kid = (1 if (avec_stats and not vivant) else None) if tueur is _ABSENT_CRUSH else tueur
+    uc = mort.get_component(UnitComponent)
+    uc.killed_this_turn = tue
+    uc.death_source = None if kid is None else (int(kid), int(DamageReason.Steppable), None)
     return st
 
 
@@ -686,15 +724,37 @@ def step_contre() -> int:
             print("  %-24s (%s)" % (vis, regime))
             print("      substrat BRUT  = %s" % (sorted(brut),))
             print("      substrat FOYER = %s" % (sorted(foyer),))
-            print("      natif `IsKilledThisTurn(it)` = %s"
-                  % ("VRAI" if avec else "FAUX  <-- le natif EXCLUT ce mort"))
+            print("      port `killed_this_turn` = %r ; `death_source` = %r"
+                  % (uc.killed_this_turn, uc.death_source))
     print("")
     print("Lecture : dans le regime CADAVRE, le foyer rend `Decoy`/`Steppable` la ou le brut rendait")
-    print("`[]`. Une conversion NUE aurait donc fait ENTRER dans `GetValidDeadDecoys` (et dans")
-    print("`post_unit_kill_triggers_for_move`) un mort que le conjoint natif `IsKilledThisTurn`")
-    print("REFUSE -- le port aurait blaste / emis un `On(PostUnitKill)` sans kill. D'ou le gate")
-    print("EXPLICITE livre : `sc is None` = cadavre-au-chargement = pas tue ce tour.")
-    return 0
+    print("`[]`. Une conversion NUE aurait donc fait ENTRER dans `GetValidDeadDecoys` un mort que le")
+    print("conjoint natif `IsKilledThisTurn` REFUSE -- le port aurait blaste sans kill.")
+    print("")
+    print("DEPUIS #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3, le gate n'est PLUS `sc is None` (un")
+    print("artefact du port) : les deux conjoints ont leur substrat NATIF, et ils ne refusent pas")
+    print("les memes morts. Les quatre bras ci-dessous le montrent.")
+    print("")
+    from engine.runner.operations.triggers.genestealer import _valid_dead_decoys
+    bras = (
+        ("mort du run, crushe PAR le stepper", dict(avec_stats=True), [2]),
+        ("cadavre AU CHARGEMENT (rien de mesure)", dict(avec_stats=False), []),
+        ("mort du run, mais a REDEMARRE un tour depuis (killed_this_turn=False)",
+         dict(avec_stats=True, tue_ce_tour=False), []),
+        ("mort du run, tue par une AUTRE unite (Killer != stepper)",
+         dict(avec_stats=True, tueur=99), []),
+    )
+    rc = 0
+    for libelle, kw, attendu in bras:
+        got = _valid_dead_decoys(etat_crush("genesSmnDecoy", **kw), owner_id=1, stepper_id=1)
+        if got != attendu:
+            rc = 1
+        print("  [%s] %-62s -> %r (attendu %r)"
+              % ("OK " if got == attendu else "ROUGE", libelle, got, attendu))
+    print("")
+    print("Le 4e bras est celui que le COLLAPSE laissait passer : rien ne libere la tuile d'un decoy")
+    print("mort, donc un stepper ami qui marche dessus PLUS TARD satisfaisait la co-localisation.")
+    return rc
 
 
 def step_disparu() -> int:
