@@ -385,11 +385,20 @@ class TheQuickeningAbility(ActiveAbility):
         # assume, jamais sur-comptage -- meme sens que le residu `#347-r1` ci-dessus.
         # `arrive_at_final_tile=False` : defaut de feuille DSL (octet `MoveUnitOptions+0x10` = 1 des
         # que le selecteur `MoveUnitBehaviourOptions+0x18` est nul).
+        # `enforce_native_gates=False` : c'est le COLLAPSE ci-dessus qui l'exige, pas le natif.
+        # `MoveUnitOperation$$Execute` refuse le mouvement quand `TilesAreEmpty(unit, position)` est
+        # faux -- son SEUL gate d'occupation. Le natif ne le rencontre jamais ici : son LIFT-OFF a
+        # deja retire l'unite du plateau quand l'autre entre. Le port, qui echange DIRECTEMENT,
+        # entre sur une tuile encore occupee -- une geometrie que le natif ne produit pas. Jouer le
+        # gate ici ferait ABANDONNER les deux mouvements et casserait TheQuickening ; l'eteindre
+        # preserve exactement l'etat NET que ce collapse vise depuis #347.
         MoveUnitOperation(caster_id, target_pos, record_tiles=False,
-                          arrive_at_final_tile=False).execute(state, ectx.bus)
+                          arrive_at_final_tile=False,
+                          enforce_native_gates=False).execute(state, ectx.bus)
         if swap_id is not None:
             MoveUnitOperation(swap_id, origin, record_tiles=False,
-                              arrive_at_final_tile=False).execute(state, ectx.bus)
+                              arrive_at_final_tile=False,
+                              enforce_native_gates=False).execute(state, ectx.bus)
         # --- phases 4/6 : free melee attack faction-BloodAngels (caster PUIS unite-echangee) ----------
         # config (maxDmg/dmgPct/level/mult) = celle de l'ability de MEPH (le caster) ; Attack = per-unit.
         csc = caster.get_component(StatsComponent)

@@ -38,13 +38,21 @@ FULL_THROTTLE = 1134
 
 
 def _grid(cols=4, rows=4):
-    """Plateau plat `cols x rows`, toutes tuiles marchables, adjacence evenq (celle du moteur)."""
+    """Plateau plat `cols x rows`, toutes tuiles marchables, adjacence evenq (celle du moteur).
+
+    ⚠ Le champ `neighbours` est ABSENT, et c'est ce qui donne son adjacence a ce plateau. Il valait
+    `[]` jusqu'a #448-r1-r1-r2-r2, ce qui ANNULAIT l'`adjacency="evenq"` annonce ci-dessus :
+    `Board.neighbours_native` distingue le champ ABSENT (repli sur `neighbours()`, donc `evenq`) du
+    champ PRESENT ET VIDE (« cette tuile n'a aucun voisin », un etat LEGITIME sur board reel --
+    deux `Water` de `C1_74` sont dans ce cas). Le plateau etait donc entierement DECONNECTE, ce que
+    rien ne montrait tant que le port ne calculait aucun chemin : `_num_tiles_moved` rendait `0`,
+    `record_tiles_moved(0)` etait un no-op, et le mouvement se posait quand meme.
+    Le gate d'abandon `path` vide l'a rendu visible."""
     tiles = []
     tid = 1
     for c in range(cols):
         for r in range(rows):
-            tiles.append({"id": tid, "col": c, "row": r, "walkable": True, "elevation": 0,
-                          "neighbours": []})
+            tiles.append({"id": tid, "col": c, "row": r, "walkable": True, "elevation": 0})
             tid += 1
     return Board(tiles, adjacency="evenq")
 

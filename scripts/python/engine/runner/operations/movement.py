@@ -29,7 +29,7 @@ from .base import Operation
 from ...entities.damage_reason import DamageReason
 from ...entities.pathfinding import pathfinders as _pf
 from ...entities.pathfinding.fly_pathfinder import is_like_flying
-from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
+from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos, get_path_by_pos
 from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ...services.movement_query import (get_connected_path_to, get_num_tiles_moved,
                                             get_pathfinder_type_for_unit, unit_has_effect_fn)
@@ -39,6 +39,38 @@ from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
 from ...entities.effects.aura_selectors import hex_distance
 from ..components import save_previous_position
 from ..components import set_unit_feet
+
+
+def _blocking_positions(state: State, mover_id: int) -> set:
+    """`IdunBattle.Entities.Pathfinding.WalkPathfinder$$UnitIsBlockedByEnemyUnit` : les positions
+    portant un occupant ENNEMI VIVANT non `Steppable` -- un ami ne bloque pas le passage, et
+    `UnitExtensions.HasTrait(occ, 0x1b = Steppable)` court-circuite le blocage.
+
+    FOYER UNIQUE des deux consommateurs de `MoveUnitOperation` : `_num_tiles_moved`
+    (`connectedPath`) et `_calculate_path` (`path`). Le natif interroge le MEME predicat depuis les
+    deux -- `Pathfinders$$GetPath` et `BattleQuery$$GetConnectedPathTo` finissent tous deux dans
+    `BasePathfinder$$GenerateBreadthFirstTree`, dont l'arete est
+    `WalkPathfinder$$IsValidPathNode`."""
+    me = state.get_entity(int(mover_id))
+    moc = me.get_component(OwnerComponent) if me is not None else None
+    team = moc.team if moc is not None else None
+    blocking = set()
+    for uid, e in state.entities.items():
+        if uid == mover_id:
+            continue
+        pc = e.get_component(PositionComponent)
+        uc = e.get_component(UnitComponent)
+        if pc is None or uc is None or not uc.alive:
+            continue
+        oc = e.get_component(OwnerComponent)
+        if team is not None and oc is not None and oc.team == team:
+            continue
+        sc = e.get_component(StatsComponent)
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if has_trait(traits or [], UnitTrait.Steppable):
+            continue
+        blocking.add((pc.col, pc.row))
+    return blocking
 
 
 def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
@@ -125,27 +157,7 @@ def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
         path = _pf.find_path(board, ptype, src, dst)
         return get_num_tiles_moved(get_connected_path_to(board, src, dst, path))
     neigh, walk, elev = board.walk_maps_by_pos()
-    # `WalkPathfinder$$UnitIsBlockedByEnemyUnit` : occupant ENNEMI VIVANT non `Steppable` (un ami ne
-    # bloque pas le passage ; `HasTrait(occ, 0x1b = Steppable)` court-circuite le blocage).
-    me = state.get_entity(mover_id)
-    moc = me.get_component(OwnerComponent) if me is not None else None
-    team = moc.team if moc is not None else None
-    blocking = set()
-    for uid, e in state.entities.items():
-        if uid == mover_id:
-            continue
-        pc = e.get_component(PositionComponent)
-        uc = e.get_component(UnitComponent)
-        if pc is None or uc is None or not uc.alive:
-            continue
-        oc = e.get_component(OwnerComponent)
-        if team is not None and oc is not None and oc.team == team:
-            continue
-        sc = e.get_component(StatsComponent)
-        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-        if has_trait(traits or [], UnitTrait.Steppable):
-            continue
-        blocking.add((pc.col, pc.row))
+    blocking = _blocking_positions(state, mover_id)
     counts = get_path_node_counts_by_pos((from_pos[0], from_pos[1]), neigh_by_pos=neigh,
                                          walkable_by_pos=walk, elev_by_pos=elev,
                                          blocking_positions=blocking)
@@ -199,6 +211,142 @@ def _is_like_flying(traits, pathfinder_type_override) -> bool:
     if pathfinder_type_override is None:                   # `!ov.HasValue`
         return False
     return int(pathfinder_type_override) == int(_pf.PathfinderType.Fly)      # BRAS 2 : `== 3`
+
+
+def _calculate_path(state: State, mover_id: int, from_pos, to_pos,
+                    pathfinder_type_override=None) -> "list | None":
+    """`IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` -- son **8e** out-param, `path`
+    (#448-r1-r1-r2-r2). Le 9e, `connectedPath`, reste porte a part par `_num_tiles_moved` : ce sont
+    DEUX listes distinctes, et le §5 de `docs/rl/case-448-r1-r1-r2-second-bras-islikeflying.md`
+    etablit que les confondre serait INFIDELE (`connectedPath` ne voit PAS l'override).
+
+    LE NATIF, remis en C# depuis le decompile :
+
+        CalculatePaths(unit, movementStartPosition, previousPosition, startTile, endTile, options,
+                       out path, out connectedPath) {
+            if (movementStartPosition == null) throw;
+            if (movementStartPosition.Count == 0) {           // unite HORS PLATEAU
+                var l = new List<TileEntity>{ endTile, endTile };
+                path = l; connectedPath = l; return;          // JAMAIS vide
+            }
+            int movement       = UnitExtensions.GetStat(unit, 1 = Movement);
+            int pathfinderType = MovementQuery.GetPathfinderTypeForUnit(unit);
+            bool likeFlying    = MoveUnitOperation.IsLikeFlying(unit, options);
+            if (UnitPosition.IsEmpty(previousPosition)) pathfinderType = PathfinderType.Fly;   // 3
+            if (options.<+0x8>.HasValue) pathfinderType = options.<+0x8>.Value;   // l'OVERRIDE
+            Nullable<int> useTeleporter = null;
+            if (likeFlying && BattleQuery.GetDistance(startTile, endTile) > movement)
+                useTeleporter = movement;
+            path          = Pathfinders.GetPath(pathfinderType, unit, startTile, endTile,
+                                                useTeleporter);
+            connectedPath = BattleQuery.GetConnectedPathTo(unit, startTile, endTile);
+        }
+
+    ⚠ L'ORDRE DES DEUX ECRASEMENTS EST LU, PAS DEDUIT : le forcage `Fly` de la position vide vient
+    AVANT l'override, donc **l'override GAGNE** quand les deux s'appliquent.
+
+    ⚠ `useTeleporter` : argument MORT sur les deux routes lues (`#448-r1-r1-r1-r1` §4), non
+    re-verifie sur les autres pathfinders -- residu PREEXISTANT, inchange ici.
+
+    TRI-ETAT DU RETOUR, et c'est LA donnee du gate d'abandon :
+      * **`None`** = MESURE, et la destination est INJOIGNABLE -- le `path` vide/nul du natif, sur
+        lequel `Execute` journalise puis `RemoveReservation ; return` SANS bouger l'unite ;
+      * une **liste** de positions (extremites incluses) = le chemin ;
+      * `[from, to]` = le repli PERMISSIF quand le substrat manque (pas de board, tuile hors board,
+        id non resoluble). Non vide, donc le gate ne mord pas : on n'ABANDONNE jamais un mouvement
+        faute d'avoir su mesurer. C'est la seule degradation, et elle va dans le sens d'AVANT.
+
+    `from_pos is None` (unite hors plateau : spawn, ou retour apres `RemoveUnitFromItsTiles`) rend
+    `[to, to]` : c'est litteralement la branche `movementStartPosition.Count == 0` du natif, y
+    compris son doublon. C'est ce qui empeche le gate de mordre sur `GhostRevive`,
+    `EchoesFromTheWarp` et `StormboyzStrike_Fallback`, dont le caster arrive de nulle part."""
+    if to_pos is None:
+        return None
+    dst = (int(to_pos[0]), int(to_pos[1]))
+    if from_pos is None:
+        return [dst, dst]                       # `movementStartPosition.Count == 0`
+    src = (int(from_pos[0]), int(from_pos[1]))
+    board = getattr(state, "board", None)
+    if board is None:
+        return [src, dst]                       # substrat absent -> PERMISSIF
+    e = state.get_entity(int(mover_id))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+    ptype = get_pathfinder_type_for_unit(unit_has_effect_fn(state, int(mover_id)), traits or [])
+    if pathfinder_type_override is not None:
+        ptype = int(pathfinder_type_override)    # `options.<+0x8>` ECRASE, y compris un forcage Fly
+    if ptype != int(_pf.PathfinderType.Walk):
+        sid = board.id_at(src[0], src[1])
+        did = board.id_at(dst[0], dst[1])
+        if sid is None or did is None:
+            return [src, dst]                    # hors board : PERMISSIF
+        ids = _pf.find_path(board, ptype, sid, did)
+        if ids is None:
+            return None                          # MESURE : injoignable
+        out = []
+        for t in ids:
+            xy = board.coord(int(t))
+            if xy is None:
+                return [src, dst]                # id non resoluble : PERMISSIF
+            out.append((int(xy[0]), int(xy[1])))
+        return out or None
+    # `Walk` : le port materialise la marche en domaine POSITION (FOYER PARTAGE #304), le meme
+    # moteur que `_num_tiles_moved` -- `get_path_by_pos` et `get_path_node_counts_by_pos` sont deux
+    # sorties d'un unique `_dijkstra_by_pos`, donc leurs longueurs coincident par construction.
+    neigh, walk, elev = board.walk_maps_by_pos()
+    return get_path_by_pos(src, dst, neigh_by_pos=neigh, walkable_by_pos=walk, elev_by_pos=elev,
+                           blocking_positions=_blocking_positions(state, int(mover_id)))
+
+
+def _tiles_are_empty(state: State, mover_id: int, dest_tile) -> bool:
+    """`IdunBattle.Operations.MoveUnitOperation$$TilesAreEmpty(unit, feetTiles)` -- MIRROR 1:1 du
+    decompile (#448-r1-r2). Le natif :
+
+        foreach (var tile in feetTiles) {
+            var content = tile.GetComponent<TileContentComponent>();
+            if (!content.IsFilled())                                 continue;   // vide
+            if (TileExtensions.HasSteppableUnit(tile, state))        continue;   // un Steppable
+            if (TileExtensions.ContainsUnit(content, state, unit))   continue;   // c'est NOUS
+            logger.Log(...);  return false;                                      // OCCUPEE
+        }
+        return true;
+
+    ⚠ **C'EST LE SEUL GATE D'OCCUPATION DE TOUT `Execute`** -- et c'est ce que la lecture d'origine
+    (`case-448-r1` §6.2 : « il mordrait si un trigger `PreUnitMove` faisait OCCUPER la tuile
+    d'arrivee ») avait sous-estime. Les sept gates AMONT ne testent pas l'occupation :
+    `IsAllowedToMove` (flags/effets), `UnitIsOnTiles` (« y suis-je deja ? »), `TilesAreWalkable`,
+    `TilesMatchUnitFeetCount`, `IsDisallowedEmptyPosition`, `IsPositionReservedForOtherUnit` (la
+    RESERVATION, pas l'occupant) et `IsPositionReservedForDrafting`. Le gate mord donc AUSSI quand
+    la destination etait deja occupee AVANT le vecteur `On(0x1f)` -- un trigger n'est pas requis.
+
+    Les trois exemptions sont chacune load-bearing cote port :
+      * `HasSteppableUnit` : sinon un decoy/spore-mine bloquerait le mouvement que
+        `KillSteppableUnits` est justement la pour ecraser (`_kill_steppable_units`) ;
+      * `ContainsUnit(self)` : une unite multi-pieds qui glisse d'un pied ne se bloque pas ;
+      * `!IsFilled` : le cas ordinaire.
+
+    Le port ne materialise que la MAIN TILE (`UnitComponent.feet` collapse l'empreinte), donc la
+    boucle se reduit a une tuile -- meme residu multi-pieds que partout ailleurs. Les MORTS ne
+    remplissent pas : `TileContentComponent.IsFilled` suit le retrait du plateau, que le port
+    collapse dans `UnitComponent.alive`."""
+    if dest_tile is None:
+        return True
+    dt = (int(dest_tile[0]), int(dest_tile[1]))
+    for uid, e in state.entities.items():
+        if uid == mover_id:
+            continue                             # `ContainsUnit(content, state, unit)`
+        pc = e.get_component(PositionComponent)
+        uc = e.get_component(UnitComponent)
+        if pc is None or uc is None or not uc.alive:
+            continue                             # `!IsFilled` (le retrait du plateau)
+        if (pc.col, pc.row) != dt:
+            continue
+        sc = e.get_component(StatsComponent)
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if has_trait(traits or [], UnitTrait.Steppable):
+            continue                             # `HasSteppableUnit(tile, state)`
+        return False
+    return True
 
 
 def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
@@ -264,20 +412,23 @@ def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
     ⇒ un port qui propagerait l'override jusqu'a `_num_tiles_moved` serait INFIDELE.
 
     L'override a par ailleurs un second effet, sur `path` lui-meme (il change le pathfinder, donc la
-    trajectoire, donc la garde `path vide -> mouvement ABANDONNE` et les `AddMoveEvent`). Le port ne
-    materialise pas `path` dans `MoveUnitOperation` -> RESIDU NOMME, inchange. Il ne se compose pas
-    avec le bras 2 sur `movementSteps` : des que l'override vaut `Fly`, `IsLikeFlying` est vrai,
-    donc c'est la DISTANCE qui est prise et `path.Count` n'est plus lu.
+    trajectoire, donc la garde `path vide -> mouvement ABANDONNE`). Ce `path` est materialise depuis
+    #448-r1-r1-r2-r2 (`_calculate_path`), et l'override y est PROPAGE. Il ne se compose pas avec le
+    bras 2 sur `movementSteps` : des que l'override vaut `Fly`, `IsLikeFlying` est vrai, donc c'est
+    la DISTANCE qui est prise et `path.Count` n'est plus lu.
     Meme statut pour le troisieme forceur de `Fly` de `CalculatePaths`
     (`if (previousPosition.IsEmpty()) pathfinderType = 3`) : il n'entre PAS dans `IsLikeFlying`, il
     ne touche que `path`.
 
-    RESIDU, herite de `_num_tiles_moved` : le natif tire `movementSteps` de `path` (8e out-param de
-    `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths`) tandis que
-    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` compte `connectedPath` (le 9e) -- DEUX
-    listes distinctes. Le port n'en materialise qu'une (le `WalkPathfinder`) ; elles ont la MEME
-    longueur sur un chemin de marche ordinaire, et divergent la ou
-    `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo` DENSIFIE (teleporteurs/sauts)."""
+    ⚠ CE `movementSteps` RESTE DERIVE de `_num_tiles_moved`, PAS de `_calculate_path`, et c'est
+    VOULU. Les deux listes natives sont distinctes (`path` = 8e out-param, `connectedPath` = 9e),
+    et la valeur rendue ici est CONFRONTEE LIVE (#448-r1-r1-r1 : 70 vols, la greffe de
+    `FullThrottle` sur 5 volants). Les rebrancher sur `_calculate_path` ne changerait aucune valeur
+    -- les deux passent par le meme `_dijkstra_by_pos` sur un chemin de marche -- mais ferait
+    reposer une mesure validee sur un etage neuf, sans rien gagner. RESIDU herite, inchange : le
+    port ne materialise pas la DENSIFICATION de
+    `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo`, la ou les deux listes divergent
+    (teleporteurs/sauts)."""
     e = state.get_entity(int(mover_id))
     sc = e.get_component(StatsComponent) if e is not None else None
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None
@@ -425,7 +576,8 @@ def _kill_steppable_kill_unit(state: State, dead_id: int, killer_id) -> list:
         state.trigger_ability_type = prev_trigger
 
 
-def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: int) -> list:
+def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: int,
+                          trace: list | None = None) -> list:
     """`MoveUnitOperation$$IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` — étape INLINE du move pipeline (avant
     `EvaluateAfterMoveTriggers`). Quand une unité MOVE sur `dest_tile`, tout occupant `Steppable`
     (`IdunBattle.Entities.UnitExtensions$$IsSteppable` = `HasTrait(0x1b=27)`) VIVANT y est détruit par un kill
@@ -446,7 +598,14 @@ def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: in
         steppable crushé au pas N est encore sur sa tuile au pas N+1 ;
       * l'absence de `StatsComponent` écarte le cadavre AU CHARGEMENT plus bas, par un substrat de
         traits VIDE (`has_trait([], Steppable)` faux) -- le gate `uc.alive` ne le voit même pas.
-    Les deux sont exercés par `test_ctx_traits_substrat_ventilation_offline.py`, un régime chacun."""
+    Les deux sont exercés par `test_ctx_traits_substrat_ventilation_offline.py`, un régime chacun.
+
+    `trace` (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r3) : liste OPTIONNELLE que cette fonction APPEND, une
+    entrée par crushé — `{"unit": <id du crushé>, "killer": <mover>, "reason": DamageReason.Steppable,
+    "vectors": <la trace de `_kill_unit_operation`>}`. Le retour reste les IDS (aucun appelant ne
+    change de contrat) ; la trace est un canal SUPPLEMENTAIRE, parce que `KillUnitOperation$$Execute`
+    joue CINQ vecteurs par crushé et que le retour `void` du natif ne permettait de les observer
+    qu'a la SOURCE. Aucun effet sur l'etat : c'est de l'OBSERVABILITE, pas du comportement."""
     killed: list = []
     for uid, e in list(state.entities.items()):
         if uid == mover_id:
@@ -472,7 +631,10 @@ def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: in
         # Le natif boucle sur les `Steppable` de la tuile et joue `KillUnit` **ENTIEREMENT** pour
         # chacun : les evenements de mort et le retrait des effets du crushe N precedent donc le
         # crush du N+1, ce que reproduit cet appel dans la boucle.
-        _kill_steppable_kill_unit(state, uid, mover_id)
+        vectors = _kill_steppable_kill_unit(state, uid, mover_id)
+        if trace is not None:
+            trace.append({"unit": int(uid), "killer": int(mover_id),
+                          "reason": int(DamageReason.Steppable), "vectors": vectors})
         killed.append(uid)
     return killed
 
@@ -539,18 +701,53 @@ class MoveUnitOperation(Operation):
     `set_moved=False` au switch etaient attribues aux octets `+0x16`/`+0x11` d'un `MoveUnitOptions`
     que ces call-sites NE PASSENT PAS. Les valeurs restent JUSTES (le natif n'y fait ni l'un ni
     l'autre), la raison etait mal nommee.
+
+    LES GATES D'ABANDON, et pourquoi `enforce_native_gates` n'est PAS `emit_after_move`
+    ------------------------------------------------------------------------------------
+    `MoveUnitOperation$$Execute` peut REFUSER de bouger l'unite, par DEUX gates que le port ne
+    jouait pas (#448-r1-r2 et #448-r1-r1-r2-r2) :
+
+      * `if (!TilesAreEmpty(unit, position)) { RemoveReservation ; return }` -- le SEUL gate
+        d'OCCUPATION de tout `Execute` (cf. `_tiles_are_empty`), joue DANS le bloc
+        `!skipPreMoveTriggers` ;
+      * `if (path == null || path.Count == 0) { log ; RemoveReservation ; return }` -- la
+        destination est INJOIGNABLE pour le pathfinder resolu (cf. `_calculate_path`).
+
+    Les deux sont PERMISSIFS quand ils manquent : le port bougeait toujours, donc rien ne cassait
+    et rien ne se voyait. `enforce_native_gates=False` les eteint, et il y a **deux** familles de
+    call-sites qui l'exigent -- ce qui interdit de reutiliser `emit_after_move` comme
+    discriminant, alors qu'il code deja « ce call-site mirroite `SetUnitPositionOperation` » :
+
+      1. les STAND-INS de `SetUnitPositionOperation$$Execute` (push / pull / switch de
+         `displace.py`, la fuite de `behaviour.py`) -- ce natif n'a NI `CalculatePaths` NI
+         `TilesAreEmpty` : lui appliquer les gates inventerait un refus. Ils portent deja
+         `emit_after_move=False`, mais ce n'est PAS pour cette raison-la ;
+      2. `TheQuickening` (`abilities/loki/quickening.py`), qui porte `emit_after_move` a sa valeur
+         par DEFAUT (le natif y joue bien le vecteur : `GetMoveInBehaviour` / `GetMoveOutBehaviour`
+         sont deux des 30 call-sites de `DSLBehaviors$$MoveUnit`) et qui, POURTANT, ne peut pas
+         jouer `TilesAreEmpty` : le natif fait un LIFT-OFF (`MoveUnit` vers une `UnitPosition`
+         VIDE) puis un MOVE-IN, la ou le port COLLAPSE l'echange en deux mouvements directs.
+         Pendant cet echange direct le caster entre sur une tuile encore occupee par l'unite
+         echangee -- une geometrie que le natif ne rencontre jamais. Le collapse etait deja assume
+         et ecrit (« MoveUnitOperation pose la position sans check d'occupation -> l'echange direct
+         rend l'etat NET identique ») : il DEPEND de l'absence du gate. `emit_after_move` y vaut
+         `True` ⇒ un gate branche dessus CASSERAIT `TheQuickening`, en silence.
     """
     __slots__ = ("unit_id", "to", "set_moved", "record_tiles", "skip_pre_move_triggers",
                  "last_movement_steps", "pathfinder_type_override", "is_interim_step",
-                 "arrive_at_final_tile", "emit_after_move", "last_after_move")
+                 "arrive_at_final_tile", "emit_after_move", "last_after_move",
+                 "last_crushed", "last_path", "last_abandoned", "enforce_native_gates")
 
     def __init__(self, unit_id: int, to: tuple[int, int], set_moved: bool = True,
                  record_tiles: bool = True, skip_pre_move_triggers: bool = False,
                  pathfinder_type_override: int | None = None,
                  is_interim_step: bool = False, arrive_at_final_tile: bool = True,
-                 emit_after_move: bool = True):
+                 emit_after_move: bool = True, enforce_native_gates: bool = True):
         self.unit_id = unit_id
         self.to = to
+        # Cf. le bloc « LES GATES D'ABANDON » du docstring de classe. `True` = cette instance
+        # mirroite `MoveUnitOperation$$Execute` et joue donc ses DEUX gates d'abandon.
+        self.enforce_native_gates = bool(enforce_native_gates)
         self.pathfinder_type_override = (None if pathfinder_type_override is None
                                          else int(pathfinder_type_override))
         self.is_interim_step = bool(is_interim_step)
@@ -560,6 +757,17 @@ class MoveUnitOperation(Operation):
         # mouvement n'a pas eu lieu, ou si `emit_after_move` est faux). Publie pour les appelants qui
         # le remontent dans leur payload de trace (`MovementHandler.after_move`, feuilles DSL).
         self.last_after_move: list = []
+        # Trace des CRUSH joues par ce mouvement (`KillSteppableUnits`), une entree par steppable
+        # ecrase — cf. `_kill_steppable_units(trace=...)`. VIDE si le mouvement n'a pas eu lieu.
+        self.last_crushed: list = []
+        # `path` (8e out-param de `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths`),
+        # materialise depuis #448-r1-r1-r2-r2 : la liste de POSITIONS, extremites incluses. `None`
+        # = pas de mouvement joue par cette instance. Cf. `_calculate_path`.
+        self.last_path: list | None = None
+        # Le mouvement a-t-il ete ABANDONNE par un gate natif (`path` vide, `TilesAreEmpty` faux) ?
+        # `None` = pas evalue (aucune tentative), sinon la RAISON du refus, ou `""` si le mouvement
+        # est alle au bout. Publie pour les appelants et les tests ; le natif, lui, `return`-ait sec.
+        self.last_abandoned: str | None = None
         # Le `movementSteps` que le natif passe a `IdunBattle.Operations.MoveUnitOperation$$
         # EvaluateAfterMoveTriggers` (cf. `_movement_steps`). Publie ICI parce que sa seule entree,
         # la position de DEPART, n'existe plus une fois `execute` termine -- et que le vecteur
@@ -602,9 +810,12 @@ class MoveUnitOperation(Operation):
         #       avec `options.skipPreMoveTriggers = true` (l'octet `+0x12`, pose juste avant
         #       l'appel recursif) -- ce qui borne la recursion a UN niveau par trigger deviant.
         # Le gate `if (!TilesAreEmpty(unit, position)) { RemoveReservation ; return }` que le natif
-        # place entre (b) et (c) n'est PAS porte : le port n'a ni reservation ni abandon de
-        # mouvement (RESIDU NOMME -- il mordrait si un trigger `PreUnitMove` faisait OCCUPER la
-        # tuile d'arrivee, ce qu'aucun consommateur porte ne fait).
+        # place entre (b) et (c) est PORTE depuis #448-r1-r2 (cf. `_tiles_are_empty`), sous
+        # `enforce_native_gates`. La RESERVATION elle-meme (`SetReservation`/`RemoveReservation`)
+        # ne l'est toujours pas : son unique lecteur natif est le gate AMONT
+        # `IsPositionReservedForOtherUnit`, qui ne mord que sur deux mouvements CONCURRENTS -- un
+        # regime que le port mono-thread n'atteint que si un trigger `PreUnitMove` lance lui-meme
+        # un mouvement vers la meme tuile. RESIDU NOMME ; sans lecteur, la porter serait un no-op.
         uc0 = e.get_component(UnitComponent)
         if uc0 is not None:
             uc0.movement_target_override = (int(self.to[0]), int(self.to[1]))      # (a)
@@ -616,6 +827,13 @@ class MoveUnitOperation(Operation):
             from .triggers.dispatch import move_death
             move_death.pre_move_triggers(state, self.unit_id,
                                          dest_tile=tuple(self.to))                # (b)
+            # `if (!TilesAreEmpty(unit, position)) { RemoveReservation ; return }` -- RANG NATIF
+            # EXACT : DANS le bloc `!skipPreMoveTriggers`, donc la RELANCE apres deviation ne le
+            # rejoue PAS (le natif y pose `options+0x12 = 1`). C'est LU, pas choisi : le gate est
+            # a l'interieur des accolades du `if`, comme `On(0x1f)`.
+            if self.enforce_native_gates and not _tiles_are_empty(state, self.unit_id, self.to):
+                self.last_abandoned = "tiles-not-empty"
+                return                                                             # + RemoveReservation
         if uc0 is not None:                                                        # (c)
             ovr = uc0.movement_target_override
             uc0.movement_target_override = None                # CONSOMME (le natif remet a zero)
@@ -635,16 +853,41 @@ class MoveUnitOperation(Operation):
                                         pathfinder_type_override=self.pathfinder_type_override,
                                         is_interim_step=self.is_interim_step,
                                         arrive_at_final_tile=self.arrive_at_final_tile,
-                                        emit_after_move=self.emit_after_move)
+                                        emit_after_move=self.emit_after_move,
+                                        enforce_native_gates=self.enforce_native_gates)
                 sub.execute(state, bus)
                 # Le natif RELANCE `Execute` sur la nouvelle destination et c'est CET appel-la qui
                 # calcule son `movementSteps` et joue le vecteur after-move : on remonte donc la
                 # valeur de la relance, jamais celle du mouvement abandonne.
                 self.last_movement_steps = sub.last_movement_steps
                 self.last_after_move = sub.last_after_move
+                self.last_crushed = sub.last_crushed
+                self.last_path = sub.last_path
+                self.last_abandoned = sub.last_abandoned
                 return
         pc = e.get_component(PositionComponent)
         old_pos = (pc.col, pc.row) if pc is not None else None
+        # `CalculatePaths(...)` puis le GATE D'ABANDON, au RANG NATIF : le natif les place APRES le
+        # bloc override et AVANT `processor.SetUnitPosition` -- donc avant toute mutation. Lu
+        # verbatim (`IdunBattle.Operations.MoveUnitOperation$$Execute`) :
+        #
+        #     CalculatePaths(this, unit, movementStartPosition, previousPosition, startTile,
+        #                    endTile, options, out path, out connectedPath);
+        #     if (path == null || path.Count == 0) {
+        #         logger.Log(<StackDict unitName/startTile/endTile>, 0x17, 4);
+        #         RemoveReservation(unit, position);
+        #         return;                          // <- L'UNITE NE BOUGE PAS
+        #     }
+        #
+        # Le log natif (`AOperation.get_Logger` + un `StackDict` a trois entrees) n'est pas porte :
+        # le runner n'a pas de canal de journal, comme partout ailleurs dans `operations/`. La
+        # RAISON est publiee a la place (`last_abandoned`).
+        self.last_path = _calculate_path(state, self.unit_id, old_pos, self.to,
+                                         self.pathfinder_type_override)
+        if self.enforce_native_gates and not self.last_path:
+            self.last_abandoned = "path-empty"
+            return                                                  # + RemoveReservation
+        self.last_abandoned = ""
         # `movementSteps` -- calcule AVANT la mutation de position (`old_pos` est son entree), comme
         # le natif qui derive `path` de `CalculatePaths(startTile = position.MainTile, ...)` avant
         # de bouger l'unite.
@@ -689,7 +932,11 @@ class MoveUnitOperation(Operation):
         # **KillSteppableUnits** -> EvaluateAfterMoveTriggers). Un occupant Steppable (decoy, spore-mine) de la
         # tuile d'arrivée est crushé (kill propre, pas de death-trigger) AVANT que le vecteur after-move
         # (visit_MoveUnitMessage -> after_move_triggers) ne s'exécute -> le decoy est déjà mort pour G2.
-        _kill_steppable_units(state, self.to, self.unit_id)
+        # `last_crushed` (#462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r3) : le natif rend `void` et sa trace ne
+        # s'observait qu'a la SOURCE de l'ability consommatrice ; on la PUBLIE ici. Ecart
+        # d'OBSERVABILITE uniquement -- l'etat produit est identique.
+        self.last_crushed = []
+        _kill_steppable_units(state, self.to, self.unit_id, trace=self.last_crushed)
         # `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` — RANG NATIF EXACT (le decompile
         # d'`IdunBattle.Operations.MoveUnitOperation$$Execute` l'appelle entre `KillSteppableUnits` et
         # `SetMovedFlag`). Enregistre sur le mover les unites NOUVELLEMENT adjacentes apres ce pas :
@@ -767,7 +1014,13 @@ class MoveUnitOperation(Operation):
                 is_interim_step=self.is_interim_step,
                 arrive_at_final_tile=self.arrive_at_final_tile)
             refresh_effects_after_move_triggers(state)   # 2e `RefreshEffects({7, null})` natif
-        # INCRÉMENT 1b (residu) : `AddMoveEvent` par pas (bus de vue) reste non porte.
+        # `AddMoveEvent` par pas : NON PORTE, et ce n'etait PAS a porter (#448-r1-r1-r2-r2). Le
+        # decompile d'`IdunBattle.Operations.MoveUnitOperation$$AddMoveEvent` ne touche AUCUN
+        # composant ECS : il construit un `Dictionary<int,int>` (`0x79` pathTile, `0x80` isLastTile,
+        # `0x7a..0x7f` les pieds 1..6) et le pousse dans `AOperation.get_Events()` par
+        # `AddStep(3, unit.Id, dict)`. Ses seules autres operations sont des LECTURES
+        # (`HasTrait(unit, 0x13 = Burrow)`, `IsTeleportationTile`). Canal de VUE, comme le step
+        # `0x25` d'`OverrideMovementTargetOperation` et le `Inform{0x79}` du Miss.
 
 
 def refresh_effects_after_move_triggers(state: State) -> list:
