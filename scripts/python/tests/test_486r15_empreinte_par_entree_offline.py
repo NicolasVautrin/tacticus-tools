@@ -35,7 +35,8 @@ DECLENCHEUR = {
         # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
         # glob large retiendrait ce test a chaque modification d'un probe quelconque.
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/catalog_inject.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
         "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
         "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
         "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
@@ -325,3 +326,106 @@ def test_la_confrontation_DIT_ce_qu_elle_n_a_pas_pu_mesurer():
     << pas mesure >>. Le garde ne doit pas valider par defaut sur cette absence."""
     tem, mesure = G.temoins_mesures("scripts/python/tests/test_qui_n_existe_pas_offline.py")
     assert tem == () and mesure is False
+
+
+# ---------------------------------------------------------- 6. le CAPTEUR de visibilite (#467)
+
+import json                                                             # noqa: E402
+import loop_status as LS                                                # noqa: E402
+
+
+class _SourcesJetables(LS.Sources):
+    """Un depot ECRIT, pour exercer le capteur sans dependre de l'etat du checkout courant."""
+
+    def __init__(self, repo, fichiers, rc=0):
+        super().__init__(repo=repo, ttl_cache=0.0)
+        self._fichiers, self._rc = fichiers, rc
+
+    def git(self, *args):
+        assert args[:1] == ("ls-files",), args
+        return self._rc, self._fichiers
+
+
+def _repo_jetable(tmp_path, emp):
+    (tmp_path / "scripts").mkdir(parents=True, exist_ok=True)
+    if emp is not None:
+        (tmp_path / "scripts" / "ratchets-457-footprints.json").write_text(
+            json.dumps(emp), encoding="utf-8")
+    return tmp_path
+
+
+def test_le_capteur_VOIT_l_empreinte_incomplete(tmp_path):
+    """LE CAPTEUR QUI MANQUAIT. La degradation etait DITE par `probe_457`, dans une ligne noyee
+    que personne n'a lue pendant 3 jours et ~40 commits -- un capteur muet est un garde-fou mort."""
+    repo = _repo_jetable(tmp_path, {"_format": P.FORMAT_EMPREINTE,
+                                    "par_test": {"tests/test_a_offline.py": _entree()}})
+    src = _SourcesJetables(repo, "scripts/python/tests/test_a_offline.py\n"
+                                 "scripts/python/tests/test_b_offline.py\n"
+                                 "scripts/python/tests/test_c_live.py\n")
+    d = LS.mesurer_empreinte(src)
+    assert d["couverture"].mesuree
+    assert d["couverture"].valeur == {"format": 2, "couverts": 1, "perimetre": 2}, \
+        "le `_live.py` ne doit pas compter -- `probe_457` ne le selectionne pas"
+    sig, _ctx = LS.signaux({"flotte": _FLOTTE, "livraison": _LIVRAISON, "harnais": _HARNAIS,
+                            "empreinte": d})
+    assert any(s.cle == "empreinte" for s in sig), "l'incompletude doit etre ACTIONNABLE"
+
+
+def test_le_capteur_VOIT_un_format_perime(tmp_path):
+    """Le format 1 est ce que `master` portait : `--since` le refuse et rejoue TOUT, en silence."""
+    repo = _repo_jetable(tmp_path, {"_commit": "x", "par_test": {"tests/test_a_offline.py": ["docs"]}})
+    src = _SourcesJetables(repo, "scripts/python/tests/test_a_offline.py\n")
+    d = LS.mesurer_empreinte(src)
+    sig, _ = LS.signaux({"flotte": _FLOTTE, "livraison": _LIVRAISON, "harnais": _HARNAIS,
+                         "empreinte": d})
+    assert any(s.cle == "empreinte-format" for s in sig)
+
+
+def test_le_capteur_se_TAIT_quand_l_empreinte_est_COMPLETE(tmp_path):
+    """LA BORNE : sans elle, un capteur qui alarme toujours passerait les deux cas ci-dessus --
+    et se ferait desarmer dans la semaine."""
+    repo = _repo_jetable(tmp_path, {"_format": P.FORMAT_EMPREINTE,
+                                    "par_test": {"tests/test_a_offline.py": _entree()}})
+    src = _SourcesJetables(repo, "scripts/python/tests/test_a_offline.py\n")
+    sig, _ = LS.signaux({"flotte": _FLOTTE, "livraison": _LIVRAISON, "harnais": _HARNAIS,
+                         "empreinte": LS.mesurer_empreinte(src)})
+    assert not [s for s in sig if s.cle.startswith("empreinte")]
+
+
+@pytest.mark.parametrize("cas", ["git muet", "empreinte absente", "aucun test"])
+def test_le_capteur_ne_fabrique_JAMAIS_un_zero(tmp_path, cas):
+    """TRI-ETAT (#467) : `null` = PAS mesure, jamais un zero -- ni alarmant, ni rassurant."""
+    if cas == "git muet":
+        src = _SourcesJetables(_repo_jetable(tmp_path, {}), "", rc=LS.Sources.RC_MUET)
+    elif cas == "empreinte absente":
+        src = _SourcesJetables(_repo_jetable(tmp_path, None),
+                               "scripts/python/tests/test_a_offline.py\n")
+    else:
+        src = _SourcesJetables(_repo_jetable(tmp_path, {}), "")
+    d = LS.mesurer_empreinte(src)
+    assert not d["couverture"].mesuree, "%s doit rendre PAS MESURE" % cas
+    assert d["couverture"].valeur is None
+    sig, ctx = LS.signaux({"flotte": _FLOTTE, "livraison": _LIVRAISON, "harnais": _HARNAIS,
+                           "empreinte": d})
+    assert not [s for s in sig if s.cle.startswith("empreinte")], \
+        "une PANNE de capteur ne doit pas se lire comme un gisement"
+    assert any("empreinte 457" in c for c in ctx), "elle doit quand meme etre DITE"
+
+
+def test_le_format_attendu_par_le_capteur_SUIT_la_source():
+    """La constante est RECOPIEE dans `loop_status` (l'importer y traine pytest). Une recopie qui
+    derive ferait alarmer a tort -- benin -- mais rien ne le dirait. Ceci le dit."""
+    assert LS.FORMAT_EMPREINTE_ATTENDU == P.FORMAT_EMPREINTE
+
+
+#: Etats NEUTRES des trois autres postes : ces cas ne jugent que l'empreinte.
+_FLOTTE = {"en_vol": LS._ok(0, "t"), "libres": LS._ok(0, "t"), "plafond": 6,
+           "noms": LS._ok([], "t"), "chemins": set()}
+_LIVRAISON = {"avance": LS._ok(0, "t"), "suivis_sales": LS._ok([], "t"),
+              "worktrees": LS._ok([], "t"), "nettoyables": LS._ok([], "t"),
+              "pr_ouvertes": LS._ok([], "t"), "branche": LS._ok("master", "t"),
+              "non_suivis": LS._ok(0, "t"), "non_suivis_inconnus": LS._ok([], "t")}
+_HARNAIS = {"session": LS._ok(None, "t"), "drain": LS._ok(False, "t"),
+            "jeu": LS._ok(True, "t"), "live_runners": LS._ok(0, "t")}
+
+

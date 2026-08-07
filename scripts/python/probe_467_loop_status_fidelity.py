@@ -91,8 +91,9 @@ class FauxSources(LS.Sources):
     def __init__(self, *, status_v2: str = "", worktrees: str = "", mergees: str = "",
                  prs: list | None = None, gh_ko: str | None = None,
                  http: dict | None = None, http_ko: str | None = None,
-                 rows: list | None = None) -> None:
+                 rows: list | None = None, fichiers_tests: str | None = None) -> None:
         super().__init__(repo=Path("/faux"), ttl_cache=0.0)
+        self._fichiers_tests = fichiers_tests
         self._status_v2, self._worktrees, self._mergees = status_v2, worktrees, mergees
         self._prs, self._gh_ko = prs, gh_ko
         self._http, self._http_ko = http or {}, http_ko
@@ -107,6 +108,14 @@ class FauxSources(LS.Sources):
             return 0, self._mergees
         if args[:1] == ("rev-list",):
             return 0, "0\n"
+        if args[:1] == ("ls-files",):
+            # Poste EMPREINTE (#486-r15). Par defaut git NE REPOND PAS : c'est un etat
+            # scripte, pas un trou -- il exerce le TRI-ETAT (la couverture sort en << pas
+            # mesuree >>, donc en CONTEXTE, jamais en zero fabrique). Les scenarios qui
+            # veulent la voir MESUREE passent `fichiers_tests`.
+            if self._fichiers_tests is None:
+                return self.RC_MUET, ""
+            return 0, self._fichiers_tests
         raise AssertionError("git non scripte : %r" % (args,))
 
     def gh(self, *args: str) -> tuple[int, str, str]:

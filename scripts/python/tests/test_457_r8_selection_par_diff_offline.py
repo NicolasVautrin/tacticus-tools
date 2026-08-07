@@ -21,7 +21,8 @@ DECLENCHEUR = {
         # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
         # glob large retiendrait ce test a chaque modification d'un probe quelconque.
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/catalog_inject.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
         "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
         "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
         "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
@@ -375,4 +376,5 @@ def test_une_donnee_hors_py_qui_change_selectionne_TOUJOURS_son_test(racine, mon
     assert retenus == [test], \
         ("%s depend de `%s/` mais un changement dans `%s` ne le selectionne pas (%s)"
          % (test, dossier, change, raison))
+
 

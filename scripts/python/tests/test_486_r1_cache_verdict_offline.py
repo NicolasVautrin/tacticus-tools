@@ -39,7 +39,8 @@ DECLENCHEUR = {
         # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
         # glob large retiendrait ce test a chaque modification d'un probe quelconque.
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/catalog_inject.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
         "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
         "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
         "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
@@ -470,3 +471,4 @@ def test_le_cache_ne_vit_ni_sous_data_ni_sous_logs():
     rel = VC.DOSSIER.resolve().relative_to(REPO.resolve()).as_posix()
     assert not rel.startswith("data/") and not rel.startswith("logs/"), rel
     assert rel == "scripts/cliquets-cache", rel
+

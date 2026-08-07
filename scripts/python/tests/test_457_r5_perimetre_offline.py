@@ -41,7 +41,8 @@ DECLENCHEUR = {
         # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
         # glob large retiendrait ce test a chaque modification d'un probe quelconque.
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/catalog_inject.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
         "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
         "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
         "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
@@ -319,3 +320,4 @@ def test_le_critere_suit_les_deux_conventions_pytest(name, attendu):
 
     Un perimetre derive doit couvrir ce que pytest COLLECTE, pas ce qui se trouve exister."""
     assert P._is_test_file(name) is attendu
+
