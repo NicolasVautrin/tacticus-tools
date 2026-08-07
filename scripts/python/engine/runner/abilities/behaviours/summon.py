@@ -245,12 +245,37 @@ class PerformAIAttack(AbilityBehaviour):
                     return c
             return None
 
+        def _unit_on_tile(tid):
+            """L'occupant VIVANT de la tuile -- mirror du **slot 4** de l'`ITargetsSelector` que
+            `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` invoque sur son
+            champ `+0x50` : le natif resout ce selecteur en **UNITES** (puis lit `get_Id` de chaque
+            element et l'ecrit en `AbilityEntities+0x00` = l'ACTEUR), donc un selecteur de TUILES y
+            rend les unites qui les OCCUPENT -- jamais des entites-tuile.
+
+            Le repli sur `entities.children` reste TESTE EN PREMIER : il porte les annotations de
+            Taunt (`_new_child`/`_attacks_made`/`_last_attacked`) que `GetEmRuntz` relit, et le
+            resultat coincide (le grot spawne EST l'occupant de sa tuile). Ce second etage n'existait
+            pas, et c'est ce qui rendait le noeud INERTE hors summon : le seul call-site natif dont
+            l'acteur n'est PAS un enfant du cast est
+            `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility$$ExecuteBehaviour`
+            (`PerformAIAttackFromCurrentPosition(target@0x60)` = le CASTER, qui vient de se teleporter
+            sur cette tuile) -- ajoute par #488."""
+            if board is None or state is None:
+                return None
+            for u in (entities.units or []):
+                p = u.get("pos")
+                if not p or not u.get("alive"):
+                    continue
+                if board.id_at(p["col"], p["row"]) == tid:
+                    return u
+            return None
+
         elems = self.tile_selector.evaluate(entities) or []
         if isinstance(elems, dict):                       # selecteur mono-unite (ActiveTarget d'un summon)
             elems = [elems]
         attacks: list = []
         for tid in elems:                                 # tuiles du Cache (ORDRE natif = spawn) OU unites
-            child = tid if isinstance(tid, dict) else _child_on_tile(tid)
+            child = tid if isinstance(tid, dict) else (_child_on_tile(tid) or _unit_on_tile(tid))
             if child is None:
                 continue
             cid = child.get("id")

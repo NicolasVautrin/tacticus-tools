@@ -23,30 +23,35 @@ from .base import (ActiveAbility, convert_rounds_to_turns,
 from .behaviours.ability_state import ResetActiveAbility
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
-from .behaviours.effects import ActivateEffect, AddBondEffect, AddEffect, ChangeEffectTurns
+from .behaviours.effects import (ActivateEffect, AddBondEffect, AddEffect, ChangeEffectTurns,
+                                 RemoveEffect)
+from .behaviours.grants import AddTrait
+from .behaviours.movement import Teleport
 from .behaviours.stats import (
     AddStatOverrideEffect, Heal, Repair, healable_heal_type_0, repairable_heal_type_1
 )
 from .behaviours.summon import PerformAIAttack, Spawn
 from .behaviours.turnflow import FinishTurn, ResetTurn
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
-                        RANGED_BOOL_FALSE, TargetingOptions)
+                        RANGED_BOOL_FALSE, TargetingOptions,
+                        _dynamic_rule_exemplar_of_the_kauyon)
 from .targeting_rule import TargetingRule as TR
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import Foreach, op_add, op_and, If as IfBehaviour
 from ...entities.effect_type import EffectType
-from ...entities.selectors.accessors import ActiveTarget, FixedTileIds, OwnerTile, Subject, Target
-from ...entities.selectors.geometry import EntitiesWithAnyEffect
-from ...entities.selectors.tiles import AllUnits, Caster
+from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, OwnerTile,
+                                             Subject, Target)
+from ...entities.selectors.geometry import EntitiesWithAnyEffect, Randomize
+from ...entities.selectors.tiles import AllTiles, AllUnits, Caster
 from ...entities.selectors.units import (
-    AdjacentEnemies, AdjacentFriends, Enemies, Sub, Union, UnitsThatCanHaveActiveAbilityReset,
-    non_steppable_or_object_units
+    AdjacentEnemies, AdjacentFriends, Enemies, SortByDistance, Sub, Union,
+    UnitsThatCanHaveActiveAbilityReset, non_steppable_or_object_units
 )
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
-from ...entities.triggers import AmountIsGreater, HasEffect, HasTrait, IsRepairable
+from ...entities.triggers import AmountIsGreater, HasEffect, HasTrait, IsRepairable, OwnerIsAlive
 from ...entities.effects.magnitude import ability_var
 from ...entities.selectors.geometry import PickFirstN
 from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit
@@ -1100,3 +1105,180 @@ class SeekerMissileFrequencyLockAbility(ActiveAbility):
         return {"ability": SEEKER_MISSILE_FREQUENCY_LOCK_ID, "caster": caster_id,
                 "target": target_id, "posed": posed,
                 "turns": turns_until_end_of_current_players_next_turn(state), "dsl": True}
+
+
+# ============ ExemplarOfTheKauyon (tauShadowsun, HERO, actif 1087) -- lot #488 ============
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility$$ExecuteBehaviour`
+# (MIRROR 1:1 du DECOMPILE ; offsets de `IdunBattleLogic.Entities.DSLSelectors` -- convention deja
+# etablie dans le port : `caster@0x48`, `target@0x60`, `ActiveTarget@0x68`, `AllTiles@0x18`) :
+#
+#   teleport = DSLBehaviors.Teleport( caster@0x48, target@0x60 )
+#   aiAttack = DSLBehaviors.PerformAIAttackFromCurrentPosition( target@0x60, null, null, false )
+#   exTile   = DSLSelectors.Entity( <AbilityEntities+0x40 = casterTile> )
+#   unitId   = AbilityConfiguration.GetStringConstant( config@0x60, 0 )   # "unitId"
+#   opts     = SpawnUnitOptions.WithStatsFromConfig( config@0x60, abilityState, null, null )
+#   opts.<+0x18> = DSLBehaviors.AddTrait( ActiveTarget@0x68, 0x418, null )
+#   tileSel  = First( CanAddUnit( exTile + SortByDistance( Randomize( AllTiles@0x18 ), exTile ) ),
+#                     1, null )
+#   spawn    = DSLBehaviors.Spawn( caster@0x48, tileSel, unitId, opts )
+#   addEff   = DSLBehaviors.AddEffect( 0x49d, AbilityStateReference,
+#                                      source = caster@0x48, targets = caster@0x48,
+#                                      options = default )            # Nullable turns VIDE
+#   remEff   = DSLBehaviors.RemoveEffect( caster@0x48, (int?)0x49d, null )
+#
+#   AActiveAbility.Execute( entities, this,
+#       ( teleport & If( <DSLTriggers+0x20 = OwnerIsAlive>, (addEff & aiAttack) & remEff ) )
+#       & spawn )
+#
+# NOTES DE FIDELITE :
+#  - `AbilityEntities+0x40` EST `casterTile` -- lu sur les noms de parametres du
+#    `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` (32 arguments nommes ; `+0x00` actor,
+#    `+0x08` caster, `+0x10` target, `+0x18` owner, `+0x20` activeTarget, `+0x28`
+#    previousActiveTarget, `+0x30` targetTile, `+0x38` targetTiles, **`+0x40` casterTile**, `+0x48`
+#    casterTiles, `+0x50` activePlayer, `+0x58` effect). C'est une entite CAPTUREE a la construction
+#    de l'`AbilityEntities`, donc AVANT le teleport : d'ou l'i2, « A stationary Command-Link Drone is
+#    summoned in the hex she **previously occupied** ». Un `CasterTile()` DYNAMIQUE rendrait la
+#    NOUVELLE tuile -- c'est exactement pourquoi le natif passe par `DSLSelectors.Entity(<entite>)` et
+#    pas par le selecteur `CasterTile`. Le port COLLAPSE donc l'id AVANT d'executer l'arbre et le
+#    presente en `FixedTileIds` (meme vehicule que `SendInTheNextWave` / `SpawnPoxwalkers`).
+#  - L'ORDRE compte : le `Teleport` LIBERE la tuile d'origine avant que le `Spawn` ne l'evalue, ce
+#    qui fait passer `CanAddUnit(exTile)` -- le drone atterrit sur l'ex-tuile de Shadowsun dans le cas
+#    nominal, et le `SortByDistance(Randomize(AllTiles), exTile)` n'est le repli que si elle est prise.
+#  - `Randomize(AllTiles)` CONSOMME DU RNG (permutation complete du pool, `len(pool)` tirages, cf. sa
+#    docstring) et il est evalue MEME quand l'ex-tuile passe : le `+` (op_Addition) evalue ses DEUX
+#    operandes avant que `First(1)` ne tranche, exactement comme le natif.
+#  - `AddEffect` recoit un `options` ZERO-initialise (32 octets) -> `Nullable<turns>` VIDE, donc
+#    AUCUN noeud de duree : convention deja posee par `add_effect_or_increase_level`
+#    (`duration_rounds=0` = permanent cote port). Sans objet ici, l'effet etant retire trois noeuds
+#    plus bas -- mais on n'invente pas une duree que le natif n'ecrit pas.
+#  - `PerformAIAttack(Target())` : le natif passe `target@0x60`, un selecteur de TUILE (l'ability est
+#    `TargetIsTile`). C'est la tuile ou Shadowsun VIENT d'arriver -- donc l'acteur de l'attaque IA est
+#    bien elle. Defauts `...FromCurrentPosition` (`allow_move_action=False`, `move_amount=0`).
+#  - Le gate `If(OwnerIsAlive)` couvre les DEUX etages qui suivent le deplacement (overwatch, piege,
+#    DoT declenches par l'arrivee) : si Shadowsun meurt en se teleportant, ni l'effet ni l'attaque
+#    n'ont lieu -- mais le `Spawn`, lui, est HORS du `If` et a lieu quand meme.
+#  - `SetsEndTurnFlags` / `SetsActiveAbilityUsedFlag` : AUCUN override dans la classe native (les
+#    seuls symboles `ExemplarOfTheKauyonAbility$$*` du build sont `.ctor`, `ExecuteBehaviour`,
+#    `GetDynamicInvalidTargetReason`, `GetPossibleAdditionalTargetTilesForDangerZone` et le lambda de
+#    la regle dynamique) -> defauts, l'ability TERMINE le tour et pose le flag.
+
+EXEMPLAR_OF_THE_KAUYON_ID = "ExemplarOfTheKauyon"
+EXEMPLAR_KAUYON_HITS = int(EffectType.ExemplarOfTheKauyon_AdditionalHits)     # 0x49d = 1181
+
+
+def exemplar_of_the_kauyon_tree(dest_tile_id: int, ex_tile_id: Optional[int]):
+    """Arbre de `...ExemplarOfTheKauyonAbility$$ExecuteBehaviour` (MIRROR 1:1, cf. le bloc ci-dessus).
+
+    `dest_tile_id` = le COLLAPSE de `target@0x60`. Le port ne materialise AUCUNE entite-tuile dans
+    `state.entities` (elles ne vivent que dans `state.board`), donc `entities_from_state` laisse
+    `ctx.target` a `None` pour un cast TILE-TARGET et le selecteur `Target()` serait VIDE : on
+    presente l'id deja resolu en `FixedTileIds`, meme vehicule de collapse que
+    `DutyEternalAbility` / `SendInTheNextWaveAbility` / `SpawnPoxwalkersAbility`.
+
+    `ex_tile_id` = le COLLAPSE de `DSLSelectors.Entity(<AbilityEntities+0x40 = casterTile>)`, resolu
+    AVANT l'execution (donc AVANT le teleport). `None` -> le selecteur d'ex-tuile est VIDE et seul le
+    repli `SortByDistance(Randomize(AllTiles), ...)` alimente le spawn."""
+    dest = FixedTileIds([dest_tile_id])
+    ex_tile = FixedTileIds([ex_tile_id] if ex_tile_id is not None else [])
+    spawn_tiles = PickFirstN(
+        CanAddUnit(Union(ex_tile, SortByDistance(Randomize(AllTiles()), ex_tile))), Const(1))
+    corps = op_and(
+        AddEffect(EXEMPLAR_KAUYON_HITS, EffectType.ExemplarOfTheKauyon_AdditionalHits.name,
+                  Caster(), duration_rounds=0),
+        PerformAIAttack(dest))
+    corps = op_and(corps, RemoveEffect(EXEMPLAR_KAUYON_HITS, Caster()))
+    tete = op_and(Teleport(Caster(), dest), IfBehaviour(OwnerIsAlive(), corps))
+    return op_and(tete, Spawn(spawn_tiles, EXEMPLAR_OF_THE_KAUYON_ID,
+                              on_appearance=AddTrait(ActiveTarget(), UnitTrait.Stationary)))
+
+
+class ExemplarOfTheKauyonAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility$$ExecuteBehaviour`
+    (id 1087, `tauShadowsun` -- Commander Shadowsun, Tau, HERO). Cast TILE-TARGET.
+
+    Kit gameconfig 1087 : `unitId=tauSmnDroneCommandLink`, `damageProfile=Blast`, `nrOfHits=2`,
+    `initialCooldownTurns=1` ; variables `dmg` / `summonHp` / `summonDmg` / `summonArmor` (toutes
+    dans `variablesAffectedByRarityBonus`).
+
+    OBSERVABLE, dans l'ordre : (1) Shadowsun DISPARAIT de sa tuile et REAPPARAIT sur la tuile cible
+    (libre, adjacente a un allie) ; (2) si elle a survecu au deplacement, l'effet 1181
+    `ExemplarOfTheKauyon_AdditionalHits` est pose sur elle, elle execute une ATTAQUE NORMALE pilotee
+    par l'IA depuis sa nouvelle position, puis l'effet est retire ; (3) un `tauSmnDroneCommandLink`
+    `Stationary` apparait sur la tuile qu'elle occupait -- ce dernier volet a lieu MEME si elle est
+    morte en chemin (il est hors du `If`). i2 : « Commander Shadowsun disappears, then reappears on a
+    target hex adjacent to an allied unit and immediately performs a normal attack against the
+    closest enemy target. This attack deals an additional {nrOfHits}x {dmg} Blast Damage. A
+    stationary Command-Link Drone is summoned in the hex she previously occupied. »
+
+    LE DEGAT SUPPLEMENTAIRE N'EST PAS ECRIT ICI : il vient de l'effet 1181, deja porte
+    (`entities/effects/loki/hits.py::ExemplarOfTheKauyonAdditionalHitsEffect`, canal #179
+    `EffectAdditionalHits`, mesure #366-r1). Cette classe est ce qui le POSE -- l'inscription etait
+    DORMANTE tant que 1087 restait un no-op combat.
+
+    Retour : {teleport, posed, attacks, removed, spawned, ex_tile, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ExemplarOfTheKauyon)     # 1087
+    ABILITY_ID = EXEMPLAR_OF_THE_KAUYON_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **7 ARGUMENTS EXPLICITES** (ni preset
+    # copie, ni surcharge PRESET+FLAGS) : `...ExemplarOfTheKauyonAbility$$.ctor` fait
+    #     TargetingOptions..ctor(&opts, isSelfCasting = 0,
+    #                            range = &<TargetingRange statics+0x48>,
+    #                            forceMeleeTarget = 1, rules = 0x6001042, null, null)
+    #     AActiveAbility..ctor(this, &opts, 2)          # 3e arg = 2 = AbilityAttackType.Others
+    # Le masque est donc le LITTERAL, sans template a fusionner. Decomposition EXHAUSTIVE de
+    # 0x6001042 = 0x2 + 0x40 + 0x1000 + 0x2000000 + 0x4000000, aucun bit residuel :
+    #     0x2        TargetMatchesDynamicRule      -> delegue `GetDynamicInvalidTargetReason`, porte
+    #                                                 ci-dessous (tuile libre + allie adjacent).
+    #     0x40       TargetIsTile                  -> domaine TUILE.
+    #     0x1000     TargetTileIsFree              -> la tuile d'arrivee doit etre libre.
+    #     0x2000000  AllowObscuredTargetByElevation
+    #     0x4000000  AllowObscuredTargetByWalls    -> Shadowsun se teleporte : la ligne de vue ne
+    #                                                 la contraint pas. SEULE du lot #241 a porter
+    #                                                 les DEUX bits d'obscurcissement.
+    # `range` = `<TargetingRange statics+0x48>` = RANGE_WHOLE_BOARD ; `forceMeleeTarget = 1` =
+    # `RangedBool.False`. Ce masque etait dans `TARGETING_OPTIONS_UNPORTED` (pose par #241) ; il
+    # MIGRE ici avec la face COMBAT, contrat de disjonction du module `targeting.py`.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.TargetTileIsFree
+              | TR.AllowObscuredTargetByElevation | TR.AllowObscuredTargetByWalls,
+        self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int, target_id) -> int:
+        """Le delegue `options+0x38` (slot vtable `+0x480`) =
+        `...ExemplarOfTheKauyonAbility$$GetDynamicInvalidTargetReason`. Le CORPS vit dans
+        `targeting.py::_dynamic_rule_exemplar_of_the_kauyon` (mirror complet, avec la RE du
+        `Remove(caster)` trouve par la mesure live sur `MC1_67`) : il y a ete ecrit quand la face
+        COMBAT n'etait pas portee, et il y RESTE -- un seul foyer, deux appelants successifs.
+        Son entree de `DYNAMIC_TARGET_RULE_UNPORTED` est retiree par le meme commit que cette
+        classe (les deux tables `*_UNPORTED` sont disjointes d'`ABILITY_CLASSES`)."""
+        return _dynamic_rule_exemplar_of_the_kauyon(state, caster_id, target_id)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        board = getattr(state, "board", None)
+        entities = entities_from_state(state, caster_id)
+        # COLLAPSE de `DSLSelectors.Entity(<AbilityEntities+0x40 = casterTile>)` : l'id d'entite-tuile
+        # du caster, LU MAINTENANT (avant le `Teleport` de l'arbre), comme le natif le capture a la
+        # construction de l'`AbilityEntities`.
+        ex_tiles = CasterTile(as_ids=True).evaluate(entities) or []
+        ex_tile_id = int(ex_tiles[0]) if ex_tiles else None
+        # COLLAPSE de `target@0x60` : le cast est TILE-TARGET, donc `target_id` est un id du
+        # `board`, pas une entite de `state.entities` (meme lecture que `DutyEternalAbility`).
+        dest_tile_id = (int(target_id) if (board is not None and target_id is not None
+                                           and int(target_id) in board.by_id) else None)
+        if dest_tile_id is None:
+            return {"ability": EXEMPLAR_OF_THE_KAUYON_ID, "caster": caster_id,
+                    "target": target_id, "ex_tile": ex_tile_id, "teleport": [], "posed": [],
+                    "attacks": [], "removed": [], "spawned": [], "dsl": True}
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        exemplar_of_the_kauyon_tree(dest_tile_id, ex_tile_id).execute(entities, ectx)
+        return {"ability": EXEMPLAR_OF_THE_KAUYON_ID, "caster": caster_id, "target": target_id,
+                "ex_tile": ex_tile_id, "dest_tile": dest_tile_id,
+                "teleport": [p for n, p in ectx.emitted if n == "Teleport"],
+                "posed": [p for n, p in ectx.emitted if n == "AddEffect"],
+                "attacks": [p for n, p in ectx.emitted if n == "PerformAIAttack"],
+                "removed": [p for n, p in ectx.emitted if n == "RemoveEffect"],
+                "spawned": [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"],
+                "dsl": True}

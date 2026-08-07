@@ -628,3 +628,167 @@ class DisplaceUnitOperation(Operation):
         if trg:
             res["displaced_triggers"] = trg
         return res
+
+
+class DirectDisplaceOperation(Operation):
+    """`IdunBattle.Operations.DisplaceUnitOperation$$Execute` case **4** (`Direct`) -- le
+    deplacement SANS recherche : la destination est la PREMIERE tuile de la liste passee en options.
+
+    Le case, lu VERBATIM sur `rnca9r7q6c` :
+
+        case 4:
+            if (options == null) throw;
+            tile = null;
+            if (options.<+0x20> != null && options.<+0x20>.Count > 0)
+                tile = options.<+0x20>[0];          // <- AUCUNE recherche, AUCUN filtre
+            break;
+
+    puis la queue COMMUNE d'`Execute` (celle que le push et le pull rejoignent), mirroree ici :
+
+        elevationKnockback = options.<+0x14>        // Nullable<int>
+        doIt               = options.<+0x11>
+        if (tile != null) {
+            if (elevationKnockback.HasValue
+                && elevationKnockback.Value <= GetElevationDifference(tile, GetMainTile(target)))
+                ApplyKnockbackTo(caster, target, doIt);
+            if (IsFilled(tile) && IsSteppable(occupant))  KillUnit(target, occupant, ForSteppable);
+            if (!IsFilled(tile)) {
+                if (TileComponent(tile).<+0x2c> == 0) {          // tuile NON temporaire
+                    prev = GetTiles(target);
+                    SetUnitPosition(target, new UnitPosition(tile), false);   // slot 0x7e
+                    AddTilesMoved(caster, target, prev, tile, options);
+                    return EventAndAbilitiesAndEffects(caster, target, prev, tile, false);
+                }
+            } else {
+                isEnemy = IsEnemy(caster, occupant);
+                r = ApplyKnockbackTo(caster, target, doIt);
+                if (!isEnemy) return r;
+                target = occupant;
+            }
+        }
+        return ApplyKnockbackTo(caster, target, doIt);
+
+    SEUL PRODUCTEUR de ce case dans tout le binaire :
+    `IdunBattleLogic.Entities.DSLBehaviors$$Teleport(unit, tile)`, dont le corps est
+
+        options = new DisplaceUnitBehaviourOptions();
+        options[+0x10] = 0 ; options[+0x1c] = 1 ; options[+0x20] = tile
+        return new DisplaceUnitBehaviour(direction = 4, displacingUnit = unit, displacedUnit = unit,
+                                         options, targetSelectionType = 2)
+
+    -> `doIt` (= `+0x10`) vaut **0** : le knockback est DESARME pour un teleport ; `+0x14` reste
+    `Nullable` VIDE (zero-init) : aucun degat de denivele ; et `+0x1c = 1` -> `record_tiles` est
+    **ARME**, d'ou le defaut `True` ci-dessous (`Teleport` et `SwitchPosition` sont les deux seules
+    feuilles qui le posent -- cf. `_add_tiles_moved`).
+
+    `set_moved=False` sur le `MoveUnitOperation` : le natif n'appelle PAS `MoveUnit` ici, il ecrit la
+    position par le slot `0x7e` = `IdunBattle.Operations.SetUnitPositionOperation$$Execute`, dont le
+    corps -- relu en entier -- ne contient AUCUN `UnitExtensions$$SetMovedFlag` (il reecrit les pieds,
+    reinitialise les tuiles precedentes quand son 3e argument est faux, et finit sur
+    `VerifyTerritoryCapture`). Meme verdict que le switch, mesure lui : l'unite TELEPORTEE ne gagne
+    pas `UnitFlag.Moved`. `emit_after_move=False` pour la meme raison (le vecteur est
+    `EventAndAbilitiesAndEffects`, porte ci-dessous par `displace_triggers`).
+
+    NON PORTES (residus NOMMES, les MEMES que le push et le pull) : le steppable-crush (l'occupant
+    `Steppable` est TUE puis le move a lieu), la garde `TileComponent+0x2c` (tuile TEMPORAIRE) que le
+    board statique du port ne materialise pas, et le `IsSteppable(target)` de tete d'`Execute` (une
+    unite `Steppable` DEPLACEE est tuee au lieu d'etre bougee).
+
+    Retour {moved, to, reason, knockback} pour `ectx.emit` (replay-diff)."""
+    __slots__ = ("caster_id", "target_id", "tiles", "elevation_knockback", "record_tiles",
+                 "apply_knockback")
+
+    def __init__(self, caster_id: int, target_id: int, tiles,
+                 elevation_knockback: int | None = None, record_tiles: bool = True,
+                 apply_knockback: bool = False):
+        self.caster_id = caster_id
+        self.target_id = target_id
+        # `options.<+0x20>` -- la LISTE ; seul son element 0 est lu par le case 4.
+        self.tiles = list(tiles or [])
+        self.elevation_knockback = elevation_knockback          # `options.<+0x14>`
+        self.record_tiles = bool(record_tiles)                  # `options.<+0x10>` (= behaviour +0x1c)
+        self.apply_knockback = bool(apply_knockback)            # `options.<+0x11>` (= behaviour +0x10)
+
+    def execute(self, state: State, bus: EventBus) -> dict:
+        board = getattr(state, "board", None)
+        target = state.get_entity(self.target_id)
+        if board is None or target is None:
+            return {"moved": False, "reason": "missing board/unit"}
+        tpos = target.get_component(PositionComponent)
+        if tpos is None:
+            return {"moved": False, "reason": "no position"}
+        # --- `IsDisplaceable(target)` (tete d'`Execute`) : mort ou non-deplacable -> no-op ---
+        uc = target.get_component(UnitComponent)
+        if uc is not None and not uc.alive:
+            return {"moved": False, "reason": "dead"}
+        sc = target.get_component(StatsComponent)
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if has_any_trait(traits, (UnitTrait.Immovable, UnitTrait.BigTarget)):
+            return {"moved": False, "reason": "not displaceable"}
+        cur = (tpos.col, tpos.row)
+        # --- case 4 : `options.<+0x20>[0]`, sans aucune recherche ---
+        dest = self.tiles[0] if self.tiles else None
+        if dest is not None and not (isinstance(dest, tuple) and len(dest) == 2):
+            # domaine MIXTE des selecteurs de tuile (ids vs positions), meme normalisation que `FlyUnit`.
+            dest = board.coord(int(dest)) if int(dest) in board.by_id else None
+        kbs = []
+
+        def _kb(unit_id):
+            """`ApplyKnockbackTo(caster, <unit>, doIt)` -- `doIt` = `options.<+0x11>`. `Teleport` le
+            laisse a 0, donc rien n'est applique ; l'appel reste ecrit au bon rang."""
+            if not self.apply_knockback:
+                return None
+            return _apply_knockback_to(state, bus, self.caster_id, unit_id)
+
+        if dest is None:
+            kb = _kb(self.target_id)
+            res = {"moved": False, "reason": "no tile"}
+            if kb:
+                res["knockback"] = [kb]
+            return res
+        td = board.id_at(*dest)
+        if td is None:
+            kb = _kb(self.target_id)
+            res = {"moved": False, "reason": "off board"}
+            if kb:
+                res["knockback"] = [kb]
+            return res
+        # `GetElevationDifference(tile, GetMainTile(target))`, valeur ABSOLUE -- meme terme que le pull.
+        if self.elevation_knockback is not None:
+            tc = board.id_at(*cur)
+            if tc is not None and int(self.elevation_knockback) <= abs(board.elevation(td)
+                                                                      - board.elevation(tc)):
+                kb = _kb(self.target_id)
+                if kb:
+                    kbs.append(kb)
+        occ = _occupied(state, self.target_id)
+        blocker_id = occ.get(dest)
+        if blocker_id is not None:
+            # branche `IsFilled` : knockback a la DEPLACEE puis, SI l'occupant est ENNEMI du caster,
+            # a l'OCCUPANT. Aucun deplacement. (Le steppable-crush n'est pas porte -- cf. docstring.)
+            kb = _kb(self.target_id)
+            if kb:
+                kbs.append(kb)
+            if _is_enemy(state, self.caster_id, blocker_id):
+                kb2 = _kb(blocker_id)
+                if kb2:
+                    kbs.append(kb2)
+            res = {"moved": False, "reason": "occupied", "to": dest}
+            if kbs:
+                res["knockback"] = kbs
+            return res
+        prev_tiles = [cur]                                # `GetTiles(target)` LU AVANT l'ecriture
+        MoveUnitOperation(self.target_id, dest, set_moved=False, record_tiles=False,
+                          emit_after_move=False).execute(state, bus)
+        n = _add_tiles_moved(state, self.caster_id, self.target_id, prev_tiles, dest,
+                             self.record_tiles)
+        from .triggers.dispatch.move_death import displace_triggers
+        res = {"moved": True, "to": dest, "from": cur}
+        if kbs:
+            res["knockback"] = kbs
+        if n:
+            res["tiles_moved"] = {self.target_id: n}
+        trg = displace_triggers(state, self.caster_id, self.target_id)
+        if trg:
+            res["displaced_triggers"] = trg
+        return res

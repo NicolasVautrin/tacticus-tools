@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
+from ...operations.displace import DirectDisplaceOperation
 from ...operations.displace import DisplaceUnitOperation
 from ...operations.displace import PullUnitOneTileOperation
 from ...operations.displace import SwitchPositionOperation
@@ -400,3 +401,55 @@ class OverrideUnitMovementTarget(AbilityBehaviour):
                   unit=unit.get("id"), target=(r or {}).get("target"))
         return OperationResult.ok()
 
+
+
+class Teleport(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$Teleport(unit, tile)` -- MIRROR du decompile, dont le
+    corps ENTIER tient en quatre ecritures :
+
+        options = new DisplaceUnitBehaviourOptions();     // 0x28 octets ZERO-initialises
+        options[+0x10] = 0                                // doIt du knockback -> DESARME
+        options[+0x1c] = 1                                // record_tiles      -> ARME
+        options[+0x20] = tile                             // le selecteur de destination
+        return new DisplaceUnitBehaviour(direction = 4 = Direct,
+                                         displacingUnit = unit, displacedUnit = unit,
+                                         options, targetSelectionType = 2)
+
+    Le SUJET est passe DEUX FOIS (`displacingUnit == displacedUnit`) : l'unite se deplace
+    elle-meme, donc le `!IsEnemy(caster, target)` d'`AddTilesMoved` est toujours passant et le
+    comptage de tuiles a bien lieu (`+0x1c = 1`). C'est la MEME forme que `SwitchPosition`, qui est
+    l'autre -- et seule autre -- feuille a armer `+0x1c`.
+
+    `DisplaceUnitBehaviour$$Execute` resout les deux selecteurs et emet une `DisplaceUnitOperation`
+    par unite tiree ; le case **4** de son switch (`Direct`) prend la PREMIERE tuile de la liste
+    d'options sans aucune recherche. Toute la logique vit dans l'Operation -- cette feuille est un
+    wrapper MINCE (frontiere DSL #149 : au-dessus le declaratif, en-dessous l'imperatif), et delegue
+    a `DirectDisplaceOperation`.
+
+    SEUL call-site natif (xrefs exhaustives sur `DSLBehaviors$$Teleport`, refcount 3 = def + 1
+    appel + 1 relocation) : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    ExemplarOfTheKauyonAbility$$ExecuteBehaviour` = `Teleport(caster@0x48, target@0x60)` -- le CASTER
+    va sur la TUILE CIBLE (l'ability est `TargetIsTile | TargetTileIsFree`). Emet 'Teleport'.
+    PUR (stop=False)."""
+    __slots__ = ("subject_sel", "dest_tile_sel")
+
+    def __init__(self, subject_sel: TargetsSelector, dest_tile_sel: TargetsSelector):
+        self.subject_sel = subject_sel
+        self.dest_tile_sel = dest_tile_sel
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        subject = resolve_unit(self.subject_sel, entities)
+        if state is None or subject is None:
+            return OperationResult.ok()
+        sid = subject.get("id")
+        if sid is None:
+            return OperationResult.ok()
+        dest = self.dest_tile_sel.evaluate(entities)
+        # domaine MIXTE (position `(col,row)` ou id de tuile) -- meme normalisation que `FlyUnit` ;
+        # l'Operation ne lit que l'element 0, comme le case 4 natif.
+        raw = [dest] if (isinstance(dest, tuple) and len(dest) == 2) else list(dest or [])
+        res = DirectDisplaceOperation(sid, sid, raw).execute(state, ectx.bus) or {}
+        ectx.emit("Teleport", subject=sid, moved=bool(res.get("moved")), to=res.get("to"),
+                  reason=res.get("reason"))
+        return OperationResult.ok()

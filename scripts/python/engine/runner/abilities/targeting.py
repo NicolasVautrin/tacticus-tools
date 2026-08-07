@@ -760,13 +760,8 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x8400, 0, 0)`.
     ActiveAbilityType.UnbreakableDuty: TargetingOptions(rules=TR.TargetIsFriendly | TR.CasterIsPossibleTarget, self_cast=True,  # 1061
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
-    # 1087 ExemplarOfTheKauyon -- `...Active.Loki.ExemplarOfTheKauyonAbility$$.ctor` :
-    #   `.ctor(&opts, 0, &<TargetingRange statics+0x48>, 1, 0x6001042, 0, 0)`. SEULE du lot a porter
-    #   les DEUX bits d'obscurcissement.
-    ActiveAbilityType.ExemplarOfTheKauyon: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.TargetTileIsFree  # 1087
-                                 | TR.AllowObscuredTargetByElevation | TR.AllowObscuredTargetByWalls,
-                           self_cast=False, range=RANGE_WHOLE_BOARD,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # 1087 ExemplarOfTheKauyon -- MIGRE (#488) sur `runner/abilities/tau.py::ExemplarOfTheKauyonAbility.TARGETING_OPTIONS`
+    #   avec sa face COMBAT ; contrat de disjonction ci-dessus.
     # 1121 ItItches -- `...Active.Loki.ItItchesAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 0, 0x80040, 0, 0)`. ⚠ `forceMeleeTarget = 0`
     #   = `RangedBool.True` (l'enum natif est INVERSE) -- l'une des DEUX du lot hors defaut.
@@ -1759,7 +1754,8 @@ DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.LightOfSanguinius: _dynamic_rule_light_of_sanguinius,   # 1177
     ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
     ActiveAbilityType.LeadingTheCharge: _dynamic_rule_leading_the_charge,     # 1204
-    ActiveAbilityType.ExemplarOfTheKauyon: _dynamic_rule_exemplar_of_the_kauyon,  # 1087
+    # 1087 ExemplarOfTheKauyon : RETIREE (#488) -- `ExemplarOfTheKauyonAbility` SURCHARGE
+    # desormais `get_dynamic_invalid_target_reason` et appelle le corps ci-dessus.
     ActiveAbilityType.ExcruciatingFrequencies: _dynamic_rule_excruciating_frequencies,  # 1197
 }
 

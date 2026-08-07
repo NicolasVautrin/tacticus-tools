@@ -340,6 +340,8 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # litteralement `AActiveAbility..ctor(this, &opts, 2, 0)` (relu au decompile).
     ActiveAbilityType.EarlyWarningOverride: AbilityAttackType.Others,  # 1077
     ActiveAbilityType.FightingRetreat: AbilityAttackType.Others,  # 1081
+    # 1087 -- `...ExemplarOfTheKauyonAbility$$.ctor` : `AActiveAbility..ctor(this, &opts, 2)`
+    ActiveAbilityType.ExemplarOfTheKauyon: AbilityAttackType.Others,  # 1087
     ActiveAbilityType.InspiredToGreatness: AbilityAttackType.Others,  # 1082
     # Lot DarkAngels #112, arrive lui aussi apres #120 (litteraux relus au decompile) :
     # Supercharge est le seul des trois a `DirectTargetAttack` (0) -- il entre donc dans le gate
