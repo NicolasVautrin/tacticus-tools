@@ -1006,7 +1006,7 @@ def _load_effect_parent_links(state: State) -> None:
 
 def _load_actor_statistics(state: State, actor_stats: dict) -> None:
     """Seede les TROIS compteurs de tuiles parcourues du `UnitComponent` depuis le RPC `actorStats`
-    (`#340-r1`).
+    (`#340-r1`), plus `TotalTurnsWithAttacksMade` (`#509`).
 
     MIRROR : `IdunBattle.Entities.Components.ActorStatisticsComponent @+0xec` (cumul BATAILLE),
     `@+0xf0` (cumul CE TOUR) et `@+0xf4` (tour PRECEDENT) -- les trois champs contigus qu'ecrit
@@ -1050,9 +1050,20 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
         uc = ent.get_component(UnitComponent) if ent is not None else None
         if uc is None:
             continue
+        # #509 : `TotalTurnsWithAttacksMade` (`ActorStatisticsComponent @+0x30`) rejoint la boucle.
+        # MEME canal, MEME hook (`rpc-snapshot.ts` le publie DEJA sous
+        # `totalTurnsWithAttacksMade`, resolu par `fieldOffsetOr(asClass, "TotalTurnsWith
+        # AttacksMade", 0x30)`), MEME tri-etat et MEME garde `< 0` -- il n'y avait simplement
+        # aucun lecteur porte avant que `MartialInspiration_ExtraDamageEffect` n'en devienne un.
+        # C'est aussi un compteur a increments `>= 1` : `...$$RegisterAttackMade` fait `+0x30 += 1`
+        # sous `Count(+0x40) == 0`, et RIEN ne le remet a zero (seul le SET `+0x40` est vide, par
+        # `ResetUnitsAttackedThisTurn`) -> une valeur negative denonce une lecture invalide.
+        # ⚠ `TotalAttacksMade` (`+0x20`) reste NON seede : la face PREDICTION le lit par son propre
+        # canal (`playbook/scene.py::actorstats_by_id`), et aucun consommateur du `State` ne le lit.
         for key, attr in (("tilesMovedThisBattle", "tiles_moved_this_battle"),
                           ("tilesMovedThisTurn", "tiles_moved_this_turn"),
-                          ("tilesMovedLastTurn", "tiles_moved_last_turn")):
+                          ("tilesMovedLastTurn", "tiles_moved_last_turn"),
+                          ("totalTurnsWithAttacksMade", "turns_with_attacks_made")):
             v = su.get(key)
             if v is None or int(v) < 0:
                 continue

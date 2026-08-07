@@ -75,6 +75,7 @@ from .loki.inescapable_accuracy import (
     InescapableAccuracyExtraCritChanceEffect, InescapableAccuracyExtraCritDamageEffect,
     InescapableAccuracyOverrideHitsEffect
 )
+from .loki.martial_inspiration import MartialInspirationExtraDamageEffect
 from .loki.martial_superiority import MartialSuperiorityVisualEffect
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
 from .loki.reality_unbound import (
@@ -814,6 +815,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     #    = `ForPercentDecrease(get_OwnerIsTarget, ConfigConst(0x72))` -> -33 % sur TOUT degat recu.
     "PrioritisedEfficiency_ExtraDmg": PrioritisedEfficiencyExtraDmgEffect,
     "PrioritisedEfficiency_DmgReduction": PrioritisedEfficiencyDmgReductionEffect,
+    # 0x580=1408 MartialInspiration_ExtraDamage (#509) : l'active `1191 MartialInspiration` de
+    # `custoBladeChampion` << Kariyan >> le pose SUR SON PROPRE CASTER (1 tour) AVANT de frapper.
+    # `...MartialInspiration_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` =
+    # `ForPercentIncrease( OwnerIsCaster & (CurrentAbilityIs(ActiveAbilityType 0x4a7 = 1191)
+    #                                       | CurrentAbilityIs(TriggeredAbilityType 0x527 = 1319
+    #                                                          LegacyOfCombat)),
+    #                      ConfigVar(0xa extraDmgPct) x TotalTurnsWithAttacksMade(Owner) )`.
+    # Les TROIS constantes du corps passent par TROIS surcharges DIFFERENTES d'`op_Implicit`
+    # (`set_ActiveAbility` / `set_TriggeredAbility` / `set_Effect`) -- cf. l'en-tete du module.
+    "MartialInspiration_ExtraDamage": MartialInspirationExtraDamageEffect,
     # 0x5e5=1509 Hailstrike (case-117 phase 2) : buff pose sur un ALLIE par l'ability 1214 de la MoW
     # `darkaStormSpeeder`. Classe DEDIEE `IdunBattle.Entities.Effects.Loki.Hailstrike_ExtraPierceEffect`
     # — canal PERCAGE : `CreatePiercingBonusForAttack` = `ForPiercing(OwnerIsCaster & (IsRangedAttack |

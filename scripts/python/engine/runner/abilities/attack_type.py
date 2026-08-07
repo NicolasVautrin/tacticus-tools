@@ -394,6 +394,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 2 = Others (l'ACTIVE ne fait aucun degat ; le
     # 2x Bolter de l'i2 vient de la TRIGGERED `MomentShackle_AttackAbility`, hors registre).
     ActiveAbilityType.MomentShackle: AbilityAttackType.Others,  # 1184
+    # MartialInspiration (1191, Kariyan custoBladeChampion), #509. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = **0** = DirectTargetAttack. TRANSCRIT
+    # du ctor, jamais deduit -- meme si l'ability POSE un effet avant de frapper, ce qui aurait pu
+    # faire croire a un `Others` (cf. 1184 juste au-dessus, qui, lui, ne frappe pas).
+    ActiveAbilityType.MartialInspiration: AbilityAttackType.DirectTargetAttack,  # 1191
     # SorcerousFacade (1100, Yazaghor thousTzaangor), #287. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. Coherent avec la nature du

@@ -700,12 +700,20 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # portee -- le CONTRAT de disjonction de cette table l'exige alors. Sorties a ce jour, dans
     # l'ordre des tranches : 1088 (#487), 1087 (#488), 1048 (#489), 1027 (#490), 1069 (#491),
     # 1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1141 (#503), 1132 (#504),
-    # 1204 (#508) -- DOUZE.
+    # 1204 (#508), 1191 (#509) -- TREIZE.
+    # ⚠ #508 et #509 se sont croisees ICI : chacune n'ajoutait QUE son id a cette liste et
+    #   n'annoncait QUE son propre retrait. La resolution est l'UNION des retraits, et le compte
+    #   ci-dessous a ete RE-COMPTE PAR LE CODE **apres** resolution -- pas soustrait, pas repris
+    #   d'un des deux cotes.
     #
-    # Compte RE-DERIVE au 2026-08-07 par un balayage du LITTERAL (`logs/count508.py`, jamais une
-    # soustraction) : **26 entrees ecrites dans ce bloc**, ventilees `9 / 4 / 1 / 4` (1re region) et
-    # `3 / 1 / 4` (2e region), plus **4** entrees hors-bloc en tete de table -> **30 dans le dict
-    # entier** (`len(TARGETING_OPTIONS_UNPORTED)`, la seule mesure qui ne depende d'aucun decoupage).
+    # Compte RE-COMPTE PAR LE CODE au 2026-08-07, APRES le rebase de #509 sur #508
+    # (`logs/count_509.py`, jamais une soustraction) : **24 entrees ecrites dans ce bloc**,
+    # ventilees `9 / 4 / 0 / 3` (1re region) et `3 / 1 / 4` (2e region), plus **4** entrees
+    # hors-bloc en tete de table -> **28 dans le dict entier**
+    # (`len(TARGETING_OPTIONS_UNPORTED)`, la seule mesure qui ne depende d'aucun decoupage).
+    # ⚠ Le chiffre que #509 avait ecrit AVANT ce rebase (« 26 ecrites, 30 au total ») etait deja
+    # perime de DEUX : #505 avait vide la section « PRESET SEUL » et #508 retire une STATIC-COPY.
+    # C'est la troisieme illustration de la ligne ci-dessous, et elle est arrivee au meme endroit.
     # ⚠ CE COMPTE SE RE-COMPTE, IL NE SE SOUSTRAIT PAS -- et ce n'est pas une precaution de style :
     # #498, #499, #500, #501, #502, #503 et #504 ont retire une entree CHACUNE, en parallele, chaque
     # tranche aveugle aux autres. TROIS illustrations, toutes dans CE paragraphe :
@@ -882,9 +890,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   Le bloc reste ECRIT parce qu'il documente la 3e forme de ctor : son compte est 0, pas son
     #   existence. Le compte se RE-COMPTE sur la table, jamais par soustraction du chiffre ecrit.
 
-    # --- STATIC-COPY (4) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
-    #   (5 avant #508 : 1204 `LeadingTheCharge` en est SORTIE, sa face COMBAT etant portee. Le
-    #    compte est RE-DERIVE par `probe_508_leading_the_charge.py --tables`, jamais soustrait.)
+    # --- STATIC-COPY (3) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    #   (5 avant #508 : 1204 `LeadingTheCharge` en est SORTIE, sa face COMBAT etant portee ; puis
+    #    1191 `MartialInspiration` en #509, pour la MEME raison. Les deux tranches sont passees en
+    #    parallele : le compte est RE-COMPTE par `logs/count_509.py` APRES resolution, jamais
+    #    soustrait ni repris d'un seul cote.)
     # ⚠ Ce compteur annoncait **16** sur `origin/master` pour **7** entrees reelles (mesure #502 au
     #   rebase) : il n'est garde par AUCUN test, donc il derive en silence a chaque migration. Il
     #   compte les entrees EXECUTABLES du bloc -- les lignes `⚠ ... est SORTIE d'ici` sont des
@@ -944,9 +954,14 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
                                  | TR.AllowObscuredTargetByElevation | TR.TargetIsNotAdjacent,
                            self_cast=False, range=RANGE_WHOLE_BOARD,
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1191 MartialInspiration -- `...Active.Loki.MartialInspirationAbility$$.ctor`, preset `+0x40`.
-    ActiveAbilityType.MartialInspiration: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1191
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1191 MartialInspiration (preset `+0x40`) est SORTIE d'ici en #509, MEME migration que 1132,
+    #   1165, 1064 et 1068 : sa face COMBAT est desormais portee, donc son masque vit sur la classe
+    #   du registre (`engine/runner/abilities/custodes.py::MartialInspirationAbility.
+    #   TARGETING_OPTIONS`). Valeurs INCHANGEES par la migration : `rules = 0x4000` (`TargetIsEnemy`
+    #   SEUL, lu a `<preset>+0x28`), `isSelfCasting = 0`, `range = RANGE_ADJACENT`,
+    #   `forceMeleeTarget = 1 = RangedBool.False`. Le ctor a ete RELU a cette occasion (forme
+    #   STATIC-COPY : aucun `TargetingOptions$$.ctor`, recopie des 0x40 octets du preset puis
+    #   `AActiveAbility..ctor(this, &opts, 0)`) et il CONCORDE champ pour champ.
     # 1195 TalonsOfTheEmperor -- `...Active.Loki.TalonsOfTheEmperorAbility$$.ctor`, preset `+0x40`.
     ActiveAbilityType.TalonsOfTheEmperor: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1195
                            force_melee_target=RANGED_BOOL_FALSE),

@@ -302,6 +302,7 @@ class UnitComponent(Component):
                  "charged_unit_ids", "current_turn_start_tile", "revived_by_abilities",
                  "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn",
                  "blocks_made_this_turn", "blocks_made_this_battle",
+                 "turns_with_attacks_made", "units_attacked_this_turn",
                  "movement_target_override")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
@@ -352,6 +353,13 @@ class UnitComponent(Component):
         # `blocks_made_this_turn` et `blocks_made_this_battle`).
         self.blocks_made_this_turn = 0
         self.blocks_made_this_battle = 0
+        # `ActorStatisticsComponent @+0x30` (`TotalTurnsWithAttacksMade`) et `@+0x40`
+        # (`unitsAttackedThisTurn`) -- cf. `register_attack_made` / `unit_turns_with_attacks_made` /
+        # `reset_units_attacked_this_turn`. Loges ici comme `blocks_made_*` et `tiles_moved_*`
+        # (MEME residu structurel : le foyer natif est l'`ActorStatisticsComponent`, case-202 SS6).
+        # 0 / vide a la creation, comme un composant natif frais.
+        self.turns_with_attacks_made = 0
+        self.units_attacked_this_turn: set = set()
         # `Nullable<UnitPositionId>` a `+0xa8` du composant que `IdunBattle.Operations.
         # MoveUnitOperation$$Execute` ET `IdunBattle.Operations.OverrideMovementTargetOperation$$
         # Execute` recuperent tous DEUX par la MEME paire de caches (#448-r1) -- la DESTINATION
@@ -1739,6 +1747,80 @@ def reset_tiles_moved_this_turn(state, unit_id: int, was_own_turn: bool) -> None
     if was_own_turn:
         uc.tiles_moved_last_turn = int(uc.tiles_moved_this_turn or 0)
     uc.tiles_moved_this_turn = 0
+
+
+def register_attack_made(state, attacker_id: int, target_id: int) -> None:
+    """`IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterAttackMade(this, target,
+    rangeType, totalCrits)` -- volet PORTE (les deux champs qu'un consommateur porte lit), lu a
+    l'assembleur :
+
+        this[0x50] = target.Id;                          // derniere unite attaquee (non porte)
+        if (this[0x40] != null) {                        // HashSet<BEntityId> unitsAttackedThisTurn
+            if (Count(this[0x40]) == 0) this[0x30] += 1; // <- TotalTurnsWithAttacksMade
+            Add(this[0x40], target.Id);
+            this[0x20] += 1;                             // TotalAttacksMade      (non porte)
+            this[0x54] += totalCrits;                    //                       (non porte)
+            this[0x24] += 1;                             //                       (non porte)
+            if (rangeType == 1) this[0x2c] += 1;         //                       (non porte)
+            if (rangeType == 2) this[0x28] += 1;         //                       (non porte)
+        }
+
+    `+0x30` n'avance donc **qu'une fois par tour**, au PREMIER coup porte -- c'est ce qui fait de
+    lui un compte de TOURS et non d'attaques. Les champs marques « non porte » n'ont a ce jour
+    aucun lecteur cote port : les ajouter serait de la spec inventee (le compteur d'attaques
+    utilise par la PREDICTION, lui, vient du capteur live `actorStats.totalAttacksMade`, cf.
+    `playbook/scene.py`).
+
+    SEUL appelant natif : `IdunBattle.Operations.RegisterAttackOperation$$Execute` -- le MEME que
+    `...$$RegisterAttackReceived`, dont le port place deja le mirror (`record_attacked`) dans le
+    chokepoint post-resolution `AttackDamageOperation._apply_damage_pipeline`. Les deux compteurs
+    bougent donc au meme instant, comme cote natif : **l'attaque qui declenche l'increment ne le
+    voit PAS elle-meme** (elle a deja calcule son degat).
+
+    LECTEUR PORTE : `MartialInspiration_ExtraDamageEffect` (#509), via
+    `IdunBattle.Entities.Formulas.TotalTurnsWithAttacksMadeFormula$$Calculate`."""
+    if attacker_id is None or target_id is None:
+        return                                           # `attacker == null` -> le natif ne fait rien
+    e = state.get_entity(attacker_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    if uc is None:
+        return                                           # attaquant NON-UNITE (tuile en feu) : pas de composant
+    if not uc.units_attacked_this_turn:                   # `Count(this[0x40]) == 0`
+        uc.turns_with_attacks_made = int(uc.turns_with_attacks_made or 0) + 1
+    uc.units_attacked_this_turn.add(int(target_id))
+
+
+def unit_turns_with_attacks_made(state, unit_id: int) -> int:
+    """`IdunBattle.Entities.Formulas.TotalTurnsWithAttacksMadeFormula$$Calculate` = le champ
+    `ActorStatisticsComponent + 0x30` de l'unite selectionnee (`GetComponent` puis `*(int*)(c+0x30)`)
+    -- LECTEUR UNIQUE du canal cote COMBAT.
+
+    C'est ce que resout le noeud DSL `IdunBattleLogic.Entities.DSLFormulas$$TotalTurnsWithAttacksMade`,
+    dont le consommateur porte est `MartialInspiration_ExtraDamageEffect` (magnitude
+    `ConfigVar(extraDmgPct) x n`). Composant absent = 0, comme un composant natif frais.
+
+    ⚠ Ce n'est PAS `TotalAttacksMade` (`+0x20`), que la face PREDICTION lit par le capteur
+    `actorStats` (`playbook/scene.py::total_attacks_made`) : le natif fait diverger les deux faces
+    de cette ability -- divergence prediction/combat NATIVE, portee telle quelle des deux cotes."""
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    return int(uc.turns_with_attacks_made or 0) if uc is not None else 0
+
+
+def reset_units_attacked_this_turn(state, unit_id: int) -> None:
+    """`IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetUnitsAttackedThisTurn` =
+    `Clear(this[0x40])`. Appelants natifs (xrefs COMPLETES) :
+    `IdunBattle.Operations.StartTurnOperation$$Execute` (x2), `$$ResetUnit`, `$$ResetMachine` --
+    c'est donc l'ENTREE de tour qui rouvre la fenetre, PAS `EndTurnOperation` (qui, lui, roule les
+    champs `+0xf0`/`+0x78`/`+0xe4`/`+0x58`/`+0xa0`, cf. `reset_tiles_moved_this_turn`).
+
+    Consequence portee : une unite qui attaque DEUX fois dans le meme tour n'incremente
+    `turns_with_attacks_made` qu'une fois ; une unite qui attaque a deux tours differents
+    l'incremente deux fois."""
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    if uc is not None:
+        uc.units_attacked_this_turn.clear()
 
 
 def unit_has_teleported(state, unit_id: int) -> bool:

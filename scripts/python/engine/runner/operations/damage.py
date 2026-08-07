@@ -89,6 +89,7 @@ from ..components import (OwnerComponent, StatsComponent, UnitComponent,
 from ..components import UnitComponent, unit_state_for_effects
 from ..components import is_alive_and_not_fled
 from ..components import unit_has_moved, unit_tiles_moved_this_turn
+from ..components import register_attack_made
 from ..damage_model import _unit_gameconfig
 from ..damage_model import battle_query_is_charging
 #: FORME B : `probe_429r1r1r1_ability_attack_dead_target.py` substitue
@@ -727,6 +728,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             hits_result=hits_result, is_force_overkill=is_force_overkill)
         if is_attack:
             AttackDamageOperation._record_attacked(state, target_id)    # #G6a : compteur + revert du floor
+            # #509 : le VOLET ATTAQUANT de la MEME operation native. `IdunBattle.Operations.
+            # RegisterAttackOperation$$Execute` appelle `ActorStatisticsComponent$$RegisterAttackMade`
+            # (attaquant) PUIS `...$$RegisterAttackReceived` (defenseur) -- `_record_attacked`
+            # ci-dessus ne portait que le second. Meme gate `is_attack` (meme operation, donc meme
+            # gate par FAMILLE : un DoT n'est pas une attaque). Ecrit `turns_with_attacks_made`
+            # (+0x30) et `units_attacked_this_turn` (+0x40) ; lecteur porte :
+            # `MartialInspiration_ExtraDamageEffect` via `TotalTurnsWithAttacksMadeFormula`.
+            register_attack_made(state, attacker_id, target_id)
         AttackDamageOperation._register_received_damage(
             state, target_id, profile, total, shield_dmg, armor_dmg)
         AttackDamageOperation._record_last_hit_damage_taken(

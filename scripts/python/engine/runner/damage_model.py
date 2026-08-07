@@ -25,7 +25,8 @@ from .state import State
 from .components import (StatsComponent, HealthComponent, OwnerComponent, PositionComponent,
                          UnitComponent, unit_has_moved, unit_has_teleported,
                          unit_has_used_active_ability,
-                         unit_tiles_moved_this_turn, unit_state_for_effects)
+                         unit_tiles_moved_this_turn, unit_state_for_effects,
+                         unit_turns_with_attacks_made)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -430,7 +431,8 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
                        target_traits=None, target_id: Optional[int] = None,
                        is_normal_attack: bool = True, damage_profile: Optional[str] = None,
                        trigger_ability_type: Optional[int] = None,
-                       is_overwatch: bool = False):
+                       is_overwatch: bool = False,
+                       ability_type: Optional[int] = None):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
     (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60/#101) = l'unité
     a-t-elle BOUGE ce tour — LU SUR LE FLAG NATIF `UnitFlag.Moved` du `UnitFlagsComponent` (`unit_has_moved`,
@@ -474,6 +476,25 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # comme l'`AbilityEntities` natif que `BaseEffect$$DamageBonusForAttack` recoit.
     att_ctx = dict(att_ctx or {})
     att_ctx["tiles_moved_this_turn"] = unit_tiles_moved_this_turn(state, unit_id)
+    # #509 : `TotalTurnsWithAttacksMade(Owner)` — `IdunBattle.Entities.Formulas.
+    # TotalTurnsWithAttacksMadeFormula$$Calculate` = `ActorStatisticsComponent+0x30`. MEME regime que
+    # `tiles_moved_this_turn` juste au-dessus : la valeur est MESUREE cote COMBAT, donc la cle est
+    # TOUJOURS posee (une unite sans `UnitComponent` rend 0, comme un composant natif frais). Sur ce
+    # canal l'OWNER de chaque effet parcouru EST l'attaquant (l'agregateur n'itere que ses effets) —
+    # c'est la meme equivalence que celle qui rend `get_OwnerIsCaster` implicitement vrai ici.
+    # Consommateur porte : `MartialInspiration_ExtraDamageEffect` (magnitude `extraDmgPct x n`).
+    att_ctx["turns_with_attacks_made"] = unit_turns_with_attacks_made(state, unit_id)
+    # #509 : `CurrentAbilityIs(<AbilityOrEffect>)` — l'ability COURANTE du coup
+    # (`AbilityEntities+0x60`, lu par `AbilityTypeSelector.CurrentAbilitySelector$$Select`), a NE PAS
+    # confondre avec `trigger_ability_type` ci-dessous, qui mirror `TriggeringAbilityIs`
+    # (`AbilityEntities+0x98`) : ce sont DEUX champs natifs distincts, ecrits a des moments
+    # differents (cf. `operations/triggers/base.py::TriggerEvent.triggering_ability`).
+    # Le canal PERCAGE portait deja le sien (`ability_pierce_effect_bonus` -> `ctx["ability_type"]`,
+    # gate de `GravitonRifle_ExtraPierce`) ; celui-ci est son pendant sur l'axe DEGAT.
+    # `None` (attaque normale / appelant historique) = cle absente -> tout gate `CurrentAbilityIs`
+    # est FERME, jamais « inconnu = vrai ».
+    if ability_type is not None:
+        att_ctx["ability_type"] = int(ability_type)
     # Branche `| HasFlag(Self@0x148, 0xc = Teleported)` du trigger de
     # `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` : le +25%
     # ranged survit a un deplacement qui etait un TELEPORT. Threade dans `att_ctx` (le contexte
