@@ -1794,6 +1794,18 @@
     "data/symbols/rnca9r7q6c/metadata/interface_slots.tsv"
    ]
   },
+  "tests/engine/test_287r11r2_mv71_gate_offline.py": {
+   "_at": 1786115987,
+   "_commit": "20135a234082c31322a343037b0f57cc32e356da",
+   "dirs": [
+    "frida/hooks/data",
+    "scripts/python/engine/runner/abilities/loki"
+   ],
+   "temoins": [
+    "frida/hooks/data/ability-names.ts",
+    "scripts/python/engine/runner/abilities/loki/mv71.py"
+   ]
+  },
   "tests/engine/test_287r4_targeting_needs_instance_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
