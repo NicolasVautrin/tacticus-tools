@@ -27,6 +27,22 @@ from engine.runner.components import PositionComponent, UnitComponent
 from engine.runner.events import EventBus
 from engine.runner.operations.movement import MoveUnitOperation
 
+#: Ce fichier ne peut pas changer de verdict SANS qu'un de ces chemins bouge. Il est volontairement
+#: LARGE (trop large est sain, trop etroit est un faux vert) : le cliquet AST de l'etage 6 balaie
+#: `engine/**` en entier -- tout module qui INSTANCIE `MoveUnitOperation`, ou qui cesse de le faire,
+#: le fait changer de verdict. S'y ajoutent les entrees LUES : le dump de board, et le probe dont ce
+#: fichier importe le montage.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/engine/**/*.py",
+        "scripts/python/probe_448r1r1r2r2_gates_abandon.py",
+        "data/boards/pvp/C4_09.json",
+    ),
+    "toujours": False,
+}
+
 BOARD_ID = "C4_09"          # 70 tuiles, DEUX composantes de marche dans le dump `data/boards/`
 
 
