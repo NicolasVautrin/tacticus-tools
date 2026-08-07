@@ -955,6 +955,19 @@ docs generes -> **commit LOCAL** -> **push seulement sur VERT** -> **`nettoyer_l
   `loop_status` signale desormais les orphelines (`branches-orphelines`), et
   `probe_467r4_scene_git_reelle` garde les DEUX sens : le signal doit apparaitre quand la branche
   survit, et disparaitre apres le `branch -D`.
+  ⚠ **LE MOMENT DU NETTOYAGE EST LE MERGE, PAS LA NOTIFICATION DE FIN — et le declencheur n'est
+  ni le rapport de l'agent ni l'ancestry.** Un agent qui a rendu se **REPREND** couramment : mes
+  propres merges perimant les registres, il rebase et repousse (mesure du 2026-08-07 : **3 reprises**
+  sur une fournee de 5 ports, toutes provoquees par moi). Une reprise repart du **worktree** ; s'il
+  a ete retire, elle repart silencieusement dans l'**arbre principal** et l'agent edite `master`
+  (invariant 7). Un worktree retire trop tot ne coute donc pas un rebuild, il **contamine la
+  branche par defaut**.
+  Le critere est donc : **sa PR est MERGEE _et_ je n'ai plus rien a lui demander.** Pas
+  « il a rendu » (il peut rebaser), pas `merge-base --is-ancestor` (**un squash-merge y est
+  invisible** — mesure du meme jour : le worktree d'une PR squash-mergee n'apparait PAS aux
+  `nettoyables` du passage suivant). Et la reciproque tient : tant que la reprise est PROBABLE,
+  laisser le worktree est **gratuit**, alors que le retirer est irreversible.
+
 - **Ne pousser que du VERT.** Les worktrees d'agents partent d'`origin/master` : un rouge pousse
   demarre casse tout agent dispatche ensuite. Les merges s'empilent **localement** dans l'ordre ;
   on pousse dans l'ordre des VERDICTS, pas des merges.
