@@ -164,7 +164,7 @@ converties, value-preserving.
 
 ## 4. Résidus ouverts
 
-### `#524-r1` — le bond des ENFANTS d'un effet COMPOSITE n'est pas propagé
+### `#524-r1` — le bond des ENFANTS d'un effet COMPOSITE n'est pas propagé — **FERMÉ (2026-08-07)**
 
 Mesuré : le natif propage `bondedEntityId` aux **trois** sous-effets de `TauntedEffect`
 (`25 Taunted_BlockMovement`, `26 Taunted_CantUseAbility`, `1237 Taunted_RefreshUnitTurnFinished`),
@@ -174,13 +174,95 @@ Mesuré : le natif propage `bondedEntityId` aux **trois** sous-effets de `Taunte
 BONDED natif={27: 81, 25: 81, 26: 81, 1237: 81}   port={27: 81, 25: None, 26: None, 1237: None}
 ```
 
-**PRÉEXISTANT, pas introduit par cette tranche** : `entities/effects/base.py::SubEffectSpec` n'a
-aucun champ `bonded`, et le chemin de création des sous-effets est PARTAGÉ par tous les composites
-(`CrushingClaws` 1105, `GetEmRuntz` 1045, `OverwhelmingWrath` 1141). Le consommateur connu du bond
-(`writes_forced_attack_targets` → `ForcedAttackTargetsComponent`) lit le **parent**, donc l'écart
-est aujourd'hui sans effet mesuré sur le ciblage ; il est visible dans toute comparaison d'effets.
-Reproduire : `python probe_524_lash_of_torment.py --step taunt --dmin 2 --dmax 2` (ligne
-`BONDED enfants`).
+**PRÉEXISTANT, pas introduit par cette tranche.** Reproduire :
+`python probe_524_lash_of_torment.py --step taunt --dmin 2 --dmax 2` (ligne `BONDED enfants`).
+
+#### Le rayon de souffle, MESURÉ (il ne s'estime pas)
+
+La première rédaction nommait « `CrushingClaws`, `GetEmRuntz`, `OverwhelmingWrath` » — des
+**abilities**, alors que le chemin est porté par des **classes d'effet**. Re-dérivé par le code :
+
+| effets COMPOSITES du port (`sub_effects_on_apply` surchargé) | enfants | posé par un `AddBondEffect` ? |
+|---|---|---|
+| `Taunted_OnlySpecificTargets` (27) | 25 / 26 / 1237 | **OUI** — 4 call-sites |
+| `Stunned` (1162) | 1165 / 1166 / 1167 | **NON** — aucun |
+
+Il n'y a donc que **DEUX** composites, et **UN SEUL** est réellement concerné. `Stunned` est le
+**régime dégénéré** : son bond est `None` des deux côtés, la propagation y est inerte — c'est
+exactement le piège qu'un test naïf aurait pris pour un vert.
+
+Les **4 call-sites** qui posent le composite 27 bondé, et leur confrontabilité :
+
+| ability | porteur | voie | confronté |
+|---|---|---|---|
+| `1105 CrushingClaws` | `tyranTyrantGuard` | pool | `test_damage_crushingclaws_live.py` |
+| `1045 GetEmRuntz` | `orksRuntherd` (summoner) | pool, taunt posé par l'enfant spawné | via son summoner |
+| `1141 OverwhelmingWrath` | `worldEightbound` « Azkor » | pool | `test_overwhelming_wrath_live.py` |
+| `1196 LashOfTorment` | `emperLucius` | **hors pool ET hors catalogue** → injection | `test_524_lash_of_torment_live.py` |
+
+**4 portées, 4 confrontables** — aucune ne tombe dans « non pertinent ».
+
+#### Ce que le décompilé dit de la STRUCTURE (et pourquoi on ne recâble rien)
+
+`IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal` n'énumère pas trois poses à la main :
+il alloue **UN objet de contexte**, y écrit le bond **lu du parent**, et le passe aux trois
+builders —
+
+```
+ctx.<+0x10> = <abilityState de l'effet parent>
+ctx.<+0x18> = IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId(this, effect)
+AddSubEffectWithSameTurns(this, effect, target, new EffectBuilder(ctx, <25>),   0x19)
+AddSubEffectWithSameTurns(this, effect, target, new EffectBuilder(ctx, <26>),   0x1a)
+AddSubEffectWithSameTurns(this, effect, target, new EffectBuilder(ctx, <1237>), 0x4d5)
+// puis la MÊME valeur `ctx.<+0x18>` alimente `ForcedAttackTargetsComponent` de la cible
+```
+
+`IdunBattle.Entities.Effects.BaseEffect$$AddSubEffectWithSameTurns` ne transporte, lui, que
+`{ turns = <EffectComponent du parent>.RemainingTurns, parentEffect }` — le bond **n'y passe pas**.
+C'est donc l'`EffectBuilder`, via le contexte, qui pose le composant de bond de chaque enfant. Et
+la valeur est **la même** que celle qui alimente les cibles forcées : le port l'avait déjà sous la
+main, il ne la faisait simplement pas descendre.
+
+⇒ le correctif est **un héritage au foyer**, pas un champ `bonded` à renseigner call-site par
+call-site sur `SubEffectSpec`.
+
+À quoi ça sert : `IdunBattle.Entities.Effects.Taunted_RefreshUnitTurnFinishedEffect$$get_Range`
+rend `Nullable<int>(1)`, exactement comme `IdunBattle.Entities.Effects.TauntedEffect$$get_Range`.
+Chaque enfant porte donc **son propre** gate de rupture de bond (distance au bonded), qu'un
+`bonded` nul rend ininterprétable.
+
+#### Le correctif — DEUX foyers, parce qu'il y a deux façons pour un enfant d'exister
+
+| foyer | quand | ce qui manquait |
+|---|---|---|
+| `runner/operations/effects.py::AddEffectOperation._spawn_sub_effects` | POSE en simulation | l'enfant naissait sans `bonded` |
+| `runner/snapshot.py::_load_effect_parent_links` | état RECONSTRUIT d'une capture | idem — et c'est **le foyer que traversent les tests live** |
+
+Ne traiter que le premier aurait laissé la moitié du gisement, invisible : un état hydraté est
+exactement ce que charge tout test live. Le second n'écrase jamais un bond déjà posé (même règle
+que le `parent_type` qu'il attribue).
+
+#### Garde et validation
+
+`tests/engine/test_524r1_bond_sous_effets_offline.py`, **vue ROUGE avant le fix**, message verbatim :
+
+```
+#524-r1 -- le bond du composite NE DESCEND PAS a ses sous-effets. [...]
+attendu {25: 81, 26: 81, 1237: 81} ; obtenu {25: None, 26: None, 1237: None}
+```
+
+Trois bras : POSE, HYDRATATION, et un bras qui **NOMME le régime dégénéré** (`Stunned` non bondé →
+enfants `None`, et l'héritage ne doit pas *fabriquer* un bond). Le bras dégénéré était **vert avant
+le fix** — c'est lui qui atteste que les deux rouges venaient du fond et non du montage.
+
+Confronté LIVE (1196, `MC1_67`/777), régime **non dégénéré** (bond = id du caster, non nul) :
+
+```
+BONDED enfants natif={25: 81, 26: 81, 1237: 81}   port={25: 81, 26: 81, 1237: 81}   ACCORD
+```
+
+L'assertion est désormais **dans** `test_524_lash_of_torment_live.py` (avec témoin non nul), et le
+probe **confronte** cette ligne au lieu de la commenter.
 
 ### `#524-r2` — DEUX casts de 1196 enchaînés : le second diverge
 
