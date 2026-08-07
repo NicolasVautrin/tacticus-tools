@@ -1255,6 +1255,29 @@ préférence de style.
 comportement changé, pas celle que l'auteur cite. (Vécu : #138 mergée sur un rouge — le test qui
 encodait l'ancien comportement était dans une autre tranche.)
 
+### ⛔ SUSPENDUE depuis le 2026-08-07 : l'obligation de cliquet OFFLINE dans les briefs
+
+**Ne plus exiger d'un agent, avant qu'il ouvre sa PR** : `probe_486r15_declencheurs_tests.py`,
+`probe_457_offline_tests_green.py --measure-missing`, `probe_463r1`. **Décision de l'utilisateur**,
+levée **tant que le problème des déclencheurs trop larges n'est pas réglé** (résidus `#486-r24`,
+`#531`, tranchés par le **bypass déclaré** en cours d'écriture).
+
+- **Ce que ça ne change PAS** : ces trois-là ne sont **ni dans `scripts/ratchets.ps1`, ni dans un
+  hook, ni en CI** — mesuré. L'obligation n'existait **que** dans le gabarit de brief. Rien ne
+  rougit du fait de la lever : une empreinte absente vaut « rejoué TOUJOURS » sous `--since`,
+  ce qui est conservateur, pas rouge. `probe_457` (8 shards) **reste dans la banque** : il garde
+  que les tests offline sont VERTS, ce qui est un autre sujet que la déclaration.
+- **Pourquoi** : le cliquet est **asymétrique** (rouge sur TROP ÉTROIT, muet sur TROP LARGE), donc
+  il récompense la sur-déclaration — **43 fichiers sur 52, dont 25 live**. Une PR touchant un seul
+  fichier Python sélectionne alors les 43. Exiger la déclaration dans ce régime fait payer un coût
+  réel pour une sélection qui ne sélectionne rien, et **punit l'honnêteté** : `test_524r1` a rendu
+  `master` rouge pour avoir déclaré finement, sur une cascade de conftest qui ne lui appartient pas.
+- **Condition de RÉ-ARMEMENT** : le bypass déclaré est livré (clé explicite, raison obligatoire,
+  compte imprimé) **et** les 43 sont ventilés entre « dépend vraiment de tout », « large seulement
+  par la cascade conftest » et « a renoncé ». Alors seulement remettre la clause au gabarit.
+- **Ne pas la ré-introduire par habitude** en recopiant un ancien brief. C'est exactement le mode
+  de rechute : le bloc « Avant d'ouvrir la PR » se recopie d'un brief à l'autre sans être relu.
+
 ## Références chargées avec ce skill
 
 <!-- Conventions des hooks : ne sert QUE si on edite frida/hooks/* — pas au portage Python. -->
