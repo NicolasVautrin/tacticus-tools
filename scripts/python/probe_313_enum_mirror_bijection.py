@@ -136,7 +136,7 @@ def cache() -> verdict_cache.CacheCliquet:
     if _CACHE is None:
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_313_enum_mirror_bijection",
-            contexte=verdict_cache.sha_fichiers(Path(__file__).resolve()))
+            contexte=verdict_cache.sha_fichiers_texte(Path(__file__).resolve()))
     return _CACHE
 
 # Attributs qui ne designent PAS un membre : l'API `Enum` elle-meme.
@@ -986,7 +986,7 @@ def main() -> int:
         #: MODE ESPION : le fichier est charge, jamais servi -- le rapport recalcule donc TOUT.
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_313_enum_mirror_bijection",
-            contexte=verdict_cache.sha_fichiers(Path(__file__).resolve()), relire=False)
+            contexte=verdict_cache.sha_fichiers_texte(Path(__file__).resolve()), relire=False)
 
     rc = rapport(a.verbose, a.porteurs, not a.sans_consommateurs, a.homonymes)
 

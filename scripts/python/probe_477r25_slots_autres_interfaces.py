@@ -558,7 +558,7 @@ def cache() -> verdict_cache.CacheCliquet:
     if _CACHE is None:
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_477r25_slots_autres_interfaces",
-            contexte=verdict_cache.sha_fichiers(
+            contexte=verdict_cache.sha_fichiers_texte(
                 Path(__file__).resolve(), HERE / "probe_477r24r1_slots_interface.py",
                 HERE / "il2cpp_metadata.py", tsv_path()),
             encoder=_encoder, decoder=_decoder)
@@ -1214,7 +1214,7 @@ def main() -> int:
         global _CACHE
         _CACHE = verdict_cache.CacheCliquet(
             nom="probe_477r25_slots_autres_interfaces",
-            contexte=verdict_cache.sha_fichiers(
+            contexte=verdict_cache.sha_fichiers_texte(
                 Path(__file__).resolve(), HERE / "probe_477r24r1_slots_interface.py",
                 HERE / "il2cpp_metadata.py", tsv_path()),
             encoder=_encoder, decoder=_decoder, relire=False)
