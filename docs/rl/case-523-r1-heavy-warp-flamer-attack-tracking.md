@@ -194,15 +194,13 @@ mirrors en bijection (dont `ACTIVE_ABILITY_TRIGGERS`, 3 clés).
 
 ## 7. Résidus
 
-* **#523-r2** — **`AddPersistentDataBehavior$$Execute` RELIT avant d'écrire, et le port le décrit
-  comme un écrasement pur.** Mesuré par la séquence d'appels : son corps appelle
-  `PersistentDataComponent$$TryGetPersistData<T>` **avant** son `PersistData<T>`, ce que
-  `SetPersistentDataBehavior$$Execute` ne fait pas. La docstring de `AddPersistentData`
-  (`abilities/behaviours/persistent_data.py`) affirme « `PersistData` **ÉCRASE**, il n'empile pas ».
-  Aucun observable ne diverge aujourd'hui : son unique consommateur porté (`HaywireMineAbility`,
-  valeur `Direct(1)`) est gaté par `AmountIsZero(GetPersistentData)` et vide la clé à chaque fin de
-  tour — accumuler ou écraser y donne le même verdict. À re-RE (l'arithmétique entre les deux appels
-  passe par des helpers génériques boxés).
+* **#523-r2** — **RÉSOLU (2026-08-07) : le natif ACCUMULE.**
+  `case-523r2-523r4-521r5-trois-lectures-sans-observable.md` §1. L'arithmétique est un `add dword
+  ptr [rbp+0x1e8], eax` entre `TryGetPersistData<T>` / `Nullable<T>$$GetValueOrDefault` et
+  `PersistData<T>` — lu à l'assembleur, pas au décompilé. La feuille du port accumule désormais
+  (`default = 0` sur clé absente) ; `HaywireMine` est re-vérifié, offline **et** live : son unique
+  lecteur est `AmountIsZero`, et aucun de ses trois chemins d'écriture n'écrit deux fois sans
+  `Clear` intercalé.
 * **#523-r3** — **le PRNG diverge d'un tirage par attaque normale sur le montage de ce probe.**
   Mesuré : `mti` live 3 / 5 / 11 contre offline 2 / 4 / 9 après les attaques de `thousSorcerer`
   (RANGED `Psychic`, 1 coup), `thousAhriman` (idem) et `astraBullgryn` (MÊLÉE `Physical`, 4 coups) —
@@ -210,16 +208,14 @@ mirrors en bijection (dont `ACTIVE_ABILITY_TRIGGERS`, 3 clés).
   ne consomme aucun tirage, et la 3ᵉ attaque ne le déclenche pas. Conséquence directe : toute
   confrontation de MAGNITUDE derrière un prélude d'attaques est structurellement impossible sur ce
   roster tant que ce n'est pas fermé.
-* **#523-r4** — **la branche MV71 de `IdunBattleLogic.Entities.DSLSelectors$$Attacker` n'est pas
-  modélisée.** Le sélecteur n'est PAS le slot `Actor@+0x40` : c'est un composite, lu en entier —
-  `If( AreEqual(<DSLSelectors+0x98>, DirectAbilitySelector(AbilityOrEffect(0x434 =
-  ActiveAbilityType.MV71SniperDroneSquadAttack))), ParentSelector(Caster@+0x48), Caster@+0x48 )`. Le
-  littéral `0x434` est LU à l'assembleur (`...DSLSelectors$$Attacker+0x38` : `mov edx,0x434`), et la
-  nature CONDITIONNELLE du nœud est établie par les XREFS de son `.ctor` — corps DÉDUPLIQUÉ que
-  `DSLSelectors$$If` et `DSLSelectors$$ConditionalSelector` partagent, donc le nom ghidra
-  `UnobscuredEntitiesSelector$$.ctor` est celui d'un propriétaire ARBITRAIRE. Hors du cas MV71 (un
-  drone T'au, dont l'attaque est créditée à son PARENT), `Attacker` EST le caster de l'attaque, que
-  le port lit dans `ev.actor_id`. Le sélecteur est partagé : ce résidu dépasse 1546.
+* **#523-r4** — **RÉSOLU (2026-08-07) : porté dans un FOYER, et le rayon de souffle est MESURÉ.**
+  `case-523r2-523r4-521r5-trois-lectures-sans-observable.md` §2. Le sélecteur est CONDITIONNEL et
+  vit désormais dans `engine/runner/operations/triggers/base.py::attacker_of`, que ce module
+  consomme (en forme B — la garde a trouvé un import forme A au premier jeu). Les XREFS donnent ses
+  **quatre** consommateurs natifs, dont **un seul** est porté (celui-ci) : `ShieldOfFaithAbility`,
+  `LifeStealEffect` et `HeadwoppasKillchoppaEffect` ne le sont pas, donc le résidu ne dépassait
+  1546 qu'en puissance. La branche MV71 est **inerte sur ce porteur** (drone et parent sont dans la
+  même équipe ⇒ `AreFriends` ne discrimine pas) : elle est gardée offline, pas live.
 
 ## Fichiers
 
