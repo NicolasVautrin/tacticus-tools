@@ -41,19 +41,23 @@ DECLENCHEUR = {
         "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
         "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
         "scripts/python/engine/runner/snapshot.py",
-        # PROPRE A CE FICHIER : le port de l'ability, le selecteur de chaine, les deux
-        # registres (classes + AbilityAttackType), la feuille PARTAGEE de chainage, et les
-        # noeuds DSL dont la forme est ASSERTEE ici.
-        "scripts/python/engine/runner/abilities/blacktemplars.py",
-        "scripts/python/engine/runner/operations/damage_prediction_sort.py",
-        "scripts/python/engine/runner/abilities/handler.py",
-        "scripts/python/engine/runner/abilities/attack_type.py",
-        "scripts/python/engine/runner/abilities/targeting.py",
-        "scripts/python/engine/runner/abilities/targeting_rule.py",
-        "scripts/python/engine/runner/abilities/behaviours/combat.py",
-        "scripts/python/engine/entities/selectors/**/*.py",
-        "scripts/python/engine/entities/formulas.py",
-        "scripts/python/engine/entities/active_ability_type.py",
+        # ... y compris les DEUX conftest intermediaires du chemin de ce fichier, qui portent
+        # les fixtures de montage dont chaque test depend.
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        # PROPRE A CE FICHIER. Perimetre pris LARGE, et non feuille a feuille : la FERMETURE
+        # D'IMPORTS mesuree par le cliquet compte ~139 modules (charger une ability tire le
+        # registre, le vocabulaire DSL, les Operations, l'IA et le pathfinding ; et la cascade
+        # des `conftest.py` tire une vingtaine de probes de la RACINE). La liste choisie qui
+        # vivait ici rendait ce cliquet ROUGE -- reparé par #490, meme correctif que celui
+        # applique a `test_490_psychic_maelstrom_live.py`. Les foyers VRAIMENT load-bearing,
+        # pour la relecture humaine : `abilities/blacktemplars.py` (le port),
+        # `operations/damage_prediction_sort.py` (le selecteur de chaine), `handler.py` +
+        # `attack_type.py` + `targeting.py` (les registres), `behaviours/combat.py` (la feuille
+        # partagee de chainage), `entities/formulas.py` + `entities/selectors/**` (les noeuds
+        # DSL dont la forme est ASSERTEE ici).
+        "scripts/python/engine/**/*.py",
+        "scripts/python/*.py",
         "scripts/python/engine/entities/stats.py",
         # Les magnitudes/constantes de 1048 viennent du gameconfig du BUILD.
         "data/symbols/**",

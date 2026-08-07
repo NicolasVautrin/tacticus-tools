@@ -596,6 +596,7 @@ def refuses_all_enemy_targets(options: "TargetingOptions") -> bool:
 # garde-fou `tests/engine/test_targeting_options_sources.py`. Chaque entree cite le ctor natif dont
 # le litteral est transcrit ; aucune valeur devinee.
 # ⚠ Une entree PEUT en sortir : depuis #287 le masque de 1100 `SorcerousFacade` a MIGRE sur sa classe
+# (et depuis #490 celui de 1027 `PsychicMaelstrom`, meme mouvement)
 # du registre COMBAT (`engine/runner/abilities/loki/facade.py::SorcerousFacadeAbility.TARGETING_OPTIONS`),
 # parce que sa face COMBAT est desormais portee. Le CONTRAT de disjonction est ce qui rend cette
 # migration sure : porter la face COMBAT d'une entree d'ici EXIGE de retirer sa ligne. Le
@@ -680,7 +681,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
                            self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
 
     # ============================================================================================
-    # LES 32 ABILITIES ACTIVES DU POOL SPAWNABLE HORS REGISTRE (#433-r4-r2-r1-r2-r2-r1-r1)
+    # LES ABILITIES ACTIVES DU POOL SPAWNABLE HORS REGISTRE (#433-r4-r2-r1-r2-r2-r1-r1)
+    # ⚠ Le lot etait de **32** a la mesure ; il DECROIT a chaque face COMBAT portee, par migration
+    #   du masque sur la classe (contrat de disjonction ci-dessus). Sorties a ce jour, toutes
+    #   static-copy : 1069 SeekerMissileFrequencyLock (#491), 1027 PsychicMaelstrom (#490).
+    #   Re-deriver le compte, ne pas citer les chiffres ci-dessous comme s'ils etaient courants.
     # ============================================================================================
     # PERIMETRE, re-derive et non herite : les abilities ACTIVES (`gameconfig.activeAbilities`) des
     # 97 unites que rend `rl_duel build --list-pool` au rank courant, MOINS celles d'`ABILITY_CLASSES`
@@ -835,10 +840,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.BloodyFury: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1129
                            force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- STATIC-COPY (10) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` ------------
-    # 1027 PsychicMaelstrom -- `...Active.Loki.PsychicMaelstromAbility$$.ctor`, preset `+0x180`.
-    ActiveAbilityType.PsychicMaelstrom: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1027
-                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
+    # --- STATIC-COPY (9) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    # ⚠ 1027 PsychicMaelstrom (preset `+0x180`) est SORTIE d'ici en #490 -- comme 1088 en #487,
+    #   1069 en #491 et 1048 en #489 : sa face COMBAT est desormais portee, donc son masque vit
+    #   sur la classe du registre
+    #   (`abilities/loki/psychic_maelstrom.py::PsychicMaelstromAbility.TARGETING_OPTIONS`). Le
+    #   masque n'a PAS bouge (rules 0x4002, RANGE_FROM_CONFIG, forceMeleeTarget 1) -- c'est la
+    #   SOURCE qui change, et le contrat de disjonction impose de retirer la ligne d'ici.
     # 1063 FireAndReposition -- `...Active.Loki.FireAndRepositionAbility$$.ctor`, preset `+0x00`.
     #   ⚠ `forceMeleeTarget = 2` = `RangedBool.IfRangedCaster` -- SEULE du lot dans ce regime.
     ActiveAbilityType.FireAndReposition: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1063

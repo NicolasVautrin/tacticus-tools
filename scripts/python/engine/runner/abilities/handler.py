@@ -51,7 +51,7 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    MV71SniperDroneSquadAttackAbility, MasterOfTheTutelariesAbility,
                    StormcallerAbility, TheQuickeningAbility, BlackRageAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility,
-                   SorcerousFacadeAbility, WallOfMirrorsAbility)
+                   SorcerousFacadeAbility, WallOfMirrorsAbility, PsychicMaelstromAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility)
@@ -122,6 +122,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     WallOfMirrorsAbility.ABILITY_TYPE: WallOfMirrorsAbility,           # 1186 (Stealth Battlesuit T'au : vol sur l'anneau dist==2 d'une cible Markerlight + attaque normale a +extraPierce, #433-r4-r1-r1)
     MasterOfTheTutelariesAbility.ABILITY_TYPE: MasterOfTheTutelariesAbility,  # 1096 (Abraxas : effet 1197 + summon Pink Horror tile-target + Screamer sur Psychic, #202-C)
     StormcallerAbility.ABILITY_TYPE: StormcallerAbility,               # 1113 (Njal : glace zone cible+ring1 + 3x Psychic ennemis-sur-glace + stun Flying, #217)
+    PsychicMaelstromAbility.ABILITY_TYPE: PsychicMaelstromAbility,     # 1027 (Sibyll astraPrimarisPsy : 1 coup garanti + 4 jets 75/50/25/10 -> 1..5 coups Psychic mono-cible, #490)
     TheQuickeningAbility.ABILITY_TYPE: TheQuickeningAbility,  # 1151 (Mephiston : teleport-echange tile-target + free melee attack faction-BloodAngels, #217)
     BlackRageAbility.ABILITY_TYPE: BlackRageAbility,                   # 1163 (Lucien bloodDeathCompany : setHealth 30% + 3 self-buffs + charge + attaque normale, #217)
     GauntletsOfUltramarAbility.ABILITY_TYPE: GauntletsOfUltramarAbility,  # 1000 (ultraCalgar : AoE 2 bandes adjacent 2 coups + surrounding r=2 Unobscured 1 coup, case-220 P0-DAMAGE)

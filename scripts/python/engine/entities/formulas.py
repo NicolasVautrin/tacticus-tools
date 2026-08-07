@@ -22,11 +22,28 @@ from .stats import StatType
 
 
 class Sum(AAmountFormula):
-    def __init__(self, a: AAmountFormula, b: AAmountFormula):
-        self.a, self.b = a, b
+    """`IdunBattleLogic.Entities.DSLFormulas$$Sum` -> `IdunBattle.Entities.Formulas.SumAmount` --
+    MIRROR du decompile. La factory a QUATRE surcharges (2, 3, 4 et 5 branches) qui construisent
+    TOUTES la meme classe : `SumAmount$$.ctor(a,b,c,d,e)` ecrit `+0x10 a`, `+0x18 b`, `+0x20 c`,
+    `+0x28 d`, `+0x30 e` (les surcharges courtes passent `null` pour les champs restants).
+
+    `SumAmount$$Calculate` (LU) additionne DANS L'ORDRE `a, b, c, d, e` : `a` et `b` sont evalues
+    INCONDITIONNELLEMENT, `c`/`d`/`e` chacun sous un `if (champ != 0)`. Le port reproduit cet ordre,
+    et c'est ce qui compte : une branche peut CONSOMMER DU RNG (un `ConditionalAmount(Maybe(...))`
+    tire un `NextBool` a chaque evaluation), donc permuter les branches changerait le flux de tirages.
+
+    Consommateur a 5 branches : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    PsychicMaelstromAbility$$ExecuteBehaviour` (1 + quatre jets de coup supplementaire)."""
+    def __init__(self, a: AAmountFormula, b: AAmountFormula, c: AAmountFormula = None,
+                 d: AAmountFormula = None, e: AAmountFormula = None):
+        self.a, self.b, self.c, self.d, self.e = a, b, c, d, e
 
     def calculate(self, ctx):
-        return self.a.evaluate(ctx) + self.b.evaluate(ctx)
+        total = self.a.evaluate(ctx) + self.b.evaluate(ctx)   # `a` et `b` : aucun null-check natif
+        for branch in (self.c, self.d, self.e):               # `if (this+0x20/0x28/0x30 != 0)`
+            if branch is not None:
+                total += branch.evaluate(ctx)
+        return total
 
 
 class Min(AAmountFormula):
