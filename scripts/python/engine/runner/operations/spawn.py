@@ -52,6 +52,11 @@ from ..components import UnitFlagsComponent
 from engine.battle_query import is_adjacent
 from ..components import set_unit_feet
 from .aura_stat_mods import refresh_aura_stat_modifiers
+# `AddUnitOperation$$KillSteppableUnits` et `MoveUnitOperation$$KillSteppableUnits` sont DEUX
+# appelants natifs du MEME crush : le port n'en a qu'UNE implementation, celle du move (#501).
+# Import de niveau module : `movement` ne charge PAS `spawn` (verifie en process frais), donc
+# aucun cycle a differer.
+from .movement import _kill_steppable_units
 from engine.entities.pathfinding.board import (adjacent_neigh_by_pos,
                                                            elevations_by_pos)
 
@@ -555,6 +560,25 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
                   (board.by_id.get(t) for t in feet_tiles) if bt is not None]
         if coords:
             set_unit_feet(state, e.id, coords)
+    # `IdunBattle.Operations.AddUnitOperation$$KillSteppableUnits(killer, steppableUnits)` — LU au
+    # decompile, appele par `AddUnitOperation$$Execute` (xref UNIQUE) : poser une unite sur une
+    # tuile qu'occupe un `Steppable` (0x1b) le DETRUIT, exactement comme un MOVE dessus. Le foyer
+    # est le MEME que celui du move (`movement.py::_kill_steppable_units`, deja mirror complet de
+    # la sequence de mort `KillUnitOperation$$Execute`) -- une seule Operation portee, deux
+    # appelants natifs.
+    #
+    # `killer` = l'unite QUI VIENT D'ETRE POSEE, pas le summoner. Le discriminant est MESURE, pas
+    # deduit : le Patermine porte `CosmicHorror_OnMoveAbility` (« se soigne des qu'il est le TUEUR
+    # d'un decoy ami »), et sur le cast #501 qui crushe un decoy son delta HP live vaut **0** --
+    # donc `OwnerIsActor` echoue, donc le tueur n'est pas lui.
+    #
+    # RAYON DE SOUFFLE (mesure) : ce crush ne mord que si la tuile de spawn porte un `Steppable`
+    # VIVANT. Tous les call-sites qui choisissent leurs tuiles par `CanAddUnit` (GetEmRuntz,
+    # SupremeCommander, CultDemagogue, Incursion, ...) en sont exclus PAR CONSTRUCTION :
+    # `TileExtensions$$IsFreeTile` a `allowSteppable = 0` exige `content.IsEmpty()`. Le seul
+    # call-site porte qui pose SUR un occupant est `MightFromBelow` (#501), dont le selecteur est
+    # `Tiles(<decoys adjacents>)` sans aucun `CanAddUnit`.
+    _kill_steppable_units(state, (tinfo["col"], tinfo["row"]), e.id)
     # `On(UnitAdded)` — APRES la pose ET apres le recalage multi-hex (`set_unit_feet` deplace la
     # `PositionComponent` sur la main tile, et les gates de PORTEE du vecteur la lisent).
     on_unit_added(state, e.id)

@@ -899,9 +899,14 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # 1132 KillMaimBurn -- `...Active.Loki.KillMaimBurnAbility$$.ctor`, preset `+0x40`.
     ActiveAbilityType.KillMaimBurn: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1132
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1165 MightFromBelow -- `...Active.Loki.MightFromBelowAbility$$.ctor`, preset `+0x40`.
-    ActiveAbilityType.MightFromBelow: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1165
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1165 MightFromBelow (preset `+0x40`) est SORTIE d'ici en #501, pour la MEME raison que 1027,
+    #   1048, 1069 et 1088 : sa face COMBAT est desormais portee, donc son masque vit sur la classe
+    #   du registre (`abilities/loki/might_from_below.py::MightFromBelowAbility.TARGETING_OPTIONS`).
+    #   Valeurs inchangees par la migration : `rules = 0x4000` (`<TargetingOptions statics>+0x40`,
+    #   lu a `<preset>+0x28`), `isSelfCasting = 0`, `range = RANGE_ADJACENT`,
+    #   `forceMeleeTarget = 1 = RangedBool.False`. C'est le CONTRAT DE DISJONCTION : porter la face
+    #   COMBAT d'une entree d'ici EXIGE d'en retirer la ligne, sinon
+    #   `test_targeting_options_sources` rougit -- et `probe_181` reste VERT tout du long.
     # 1177 LightOfSanguinius -- `...Active.LightOfSanguiniusAbility$$.ctor` (hors namespace `Loki`),
     #   preset `+0x240`.
     ActiveAbilityType.LightOfSanguinius: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.CasterHasNotMoved  # 1177

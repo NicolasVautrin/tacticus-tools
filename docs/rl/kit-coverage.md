@@ -23,8 +23,8 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **55** ; kits avec du travail : **72**
-- Volume total : **88** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **56** ; kits avec du travail : **71**
+- Volume total : **87** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -47,9 +47,9 @@
 | AdeptusAstartes | 2 | 3 |
 | AdeptusMechanicus | 3 | 3 |
 | BlackLegion | 3 | 3 |
-| Genestealers | 3 | 3 |
 | Orks | 2 | 3 |
 | Tyranids | 3 | 3 |
+| Genestealers | 2 | 2 |
 | Tau | 1 | 2 |
 
 ## Par faction (kits avec du travail)
@@ -141,13 +141,12 @@
 | emperLucius | 2 | LashOfTorment(1196) [--] NO-OP DAMAGE(Eviscerate) | ArmourOfShriekingSouls | - |
 | emperNoiseMarine | 1 | ExcruciatingFrequencies(1197) [--] NO-OP DAMAGE(Blast) | - | - |
 
-### Genestealers — 3 kits, 3 items
+### Genestealers — 2 kits, 2 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | genesBiophagus | 1 | AberrantHypermorph(1166) [CD] OK | TwistedScience | - |
 | genesMagus | 1 | MindControl(1164) [--] NO-OP EFFECT/BUFF | - | - |
-| genesPatriarch | 1 | MightFromBelow(1165) [--] NO-OP DAMAGE(Psychic) | - | - |
 
 ### LeaguesOfVotann — 5 kits, 5 items
 
@@ -226,9 +225,9 @@
 | worldKharn | 1 | KillMaimBurn(1132) [-D] NO-OP DAMAGE(Piercing) | - | - |
 | worldTerminator | 2 | BloodyFury(1129) [-D] NO-OP DAMAGE(Chain) | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (55)
+## Kits lineup COMPLETS (56)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarFarseer, eldarMauganRa, genesKelermorph, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus
+adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarFarseer, eldarMauganRa, genesKelermorph, genesPatriarch, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus
 
 ## HORS total — voies conditionnelles (42 abilities non portees)
 

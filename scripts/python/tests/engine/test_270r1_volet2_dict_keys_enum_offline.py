@@ -112,7 +112,9 @@ SNAP_TARGETING_UNPORTED = (
     # ctor a ete RELU a cette occasion et la valeur figee ici est CONFIRMEE champ pour champ
     # (`16384` = `TargetIsEnemy` seul, `RANGE_ADJACENT`, `forceMeleeTarget = 1`).
     (1132, (16384, False, (0, False, False, 1, False), 1)),
-    (1165, (16384, False, (0, False, False, 1, False), 1)),
+    # 1165 MightFromBelow : SORTIE (#501) -- face COMBAT portee, masque migre sur
+    # `abilities/loki/might_from_below.py::MightFromBelowAbility.TARGETING_OPTIONS` (valeur
+    # inchangee : rules 0x4000, RANGE_ADJACENT, forceMeleeTarget 1). Meme mouvement que 1027/1087.
     (1177, (4328538162, False, (1, False, True, None, False), 1)),
     (1191, (16384, False, (0, False, False, 1, False), 1)),
     (1195, (16384, False, (0, False, False, 1, False), 1)),
@@ -331,19 +333,19 @@ def test_cardinalites_du_volet():
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 35 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
-    1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500). Ce que ce cliquet garde est la CONVERSION
-    EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
+    passe de 44 a 34 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
+    1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1165 (#501). Ce que ce cliquet garde est la
+    CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
 
     ⚠ LE NOMBRE CI-DESSUS SE RE-COMPTE SUR `CIBLES`, il ne se deduit JAMAIS par soustraction du
-    chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les TROIS dernieres
-    sorties (#498, #499, #500) ont ete faites EN PARALLELE, sur trois branches, chacune aveugle aux
-    deux autres. Trois soustractions successives sur le meme chiffre perime en auraient manque
-    deux -- seul un recompte apres resolution converge."""
+    chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les QUATRE
+    dernieres sorties (#498, #499, #500, #501) ont ete faites EN PARALLELE, sur quatre branches,
+    chacune aveugle aux trois autres. Quatre soustractions successives sur le meme chiffre perime
+    en auraient manque trois -- seul un recompte apres resolution converge."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [35, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [34, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 119
+    assert sum(tailles) == 118
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

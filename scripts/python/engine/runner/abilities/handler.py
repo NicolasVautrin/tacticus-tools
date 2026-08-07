@@ -52,7 +52,8 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    StormcallerAbility, TheQuickeningAbility, BlackRageAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility,
                    SorcerousFacadeAbility, WallOfMirrorsAbility, PsychicMaelstromAbility,
-                   UnstoppableMomentumReworkedAbility, FoulInfusionAbility)
+                   UnstoppableMomentumReworkedAbility, FoulInfusionAbility,
+                   MightFromBelowAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility)
@@ -125,6 +126,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     MasterOfTheTutelariesAbility.ABILITY_TYPE: MasterOfTheTutelariesAbility,  # 1096 (Abraxas : effet 1197 + summon Pink Horror tile-target + Screamer sur Psychic, #202-C)
     StormcallerAbility.ABILITY_TYPE: StormcallerAbility,               # 1113 (Njal : glace zone cible+ring1 + 3x Psychic ennemis-sur-glace + stun Flying, #217)
     PsychicMaelstromAbility.ABILITY_TYPE: PsychicMaelstromAbility,     # 1027 (Sibyll astraPrimarisPsy : 1 coup garanti + 4 jets 75/50/25/10 -> 1..5 coups Psychic mono-cible, #490)
+    MightFromBelowAbility.ABILITY_TYPE: MightFromBelowAbility,         # 1165 (The Patermine genesPatriarch : TROIS Execute -- Group(5x Psychic Pierce100 NoBlocking sur la cible adjacente, Ability_Attack) puis KillDeadUnits(UnitsDamagedThisPhase) puis IfAlive(Group(Spawn genesSmnGenestealer sur CHAQUE decoy ami adjacent + attaque IA immediate sans move, Ability_Summon)) -- les tuiles sont evaluees APRES l'attaque, donc le decoy pose par CosmicHorror sur un kill compte, #501)
     TheQuickeningAbility.ABILITY_TYPE: TheQuickeningAbility,  # 1151 (Mephiston : teleport-echange tile-target + free melee attack faction-BloodAngels, #217)
     BlackRageAbility.ABILITY_TYPE: BlackRageAbility,                   # 1163 (Lucien bloodDeathCompany : setHealth 30% + 3 self-buffs + charge + attaque normale, #217)
     GauntletsOfUltramarAbility.ABILITY_TYPE: GauntletsOfUltramarAbility,  # 1000 (ultraCalgar : AoE 2 bandes adjacent 2 coups + surrounding r=2 Unobscured 1 coup, case-220 P0-DAMAGE)
