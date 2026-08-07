@@ -144,6 +144,94 @@ sont PLUS (duree `Direct(1)`, mesure #95). Aucune branche n'est vide.
 Le volet live INCONDITIONNEL vit ailleurs et il est VERT : `test_waaagh_buff_contrib_live.py`
 **7 passed** (mesure de cette tranche) -- les buffs SONT bien poses live.
 
+### 3.4 -- #1 : le SEUL des cinq qui soit un BUG DE PORT, et le temoin l'a designe
+
+`test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py` echoue **A L'IDENTIQUE** sous
+`TACTICUS_BIS_ITEMS=0` (1 failed / 9 passed dans les deux regimes) : ce n'est **pas** la bascule.
+C'est aussi le verdict de `#419-r6-r1` §2.2, qui le classait deja PREEXISTANT sans le diagnostiquer.
+
+**Decomposition par etage** (`logs/mes506_killgate*.py`, seed 4242 / MC1_67, cible `adeptRetributor`
+a **7530 PV pleins**), et c'est le 2e etage qui tranche :
+
+| caster | ability | `hpBefore` du port | `rawHealthDmgMin` | `killSure` | natif (`decisionView.attackPlans`) |
+|---|---|---|---|---|---|
+| `ultraEliminatorSgt` u87 -> u77 | 1004 | **0** | **0** | **true** | `dmgMin 1958 / dmgMax 4166`, `killSure false` |
+| `ultraEliminatorSgt` u87 -> u79 | 1004 | **0** | **0** | **true** | `dmgMin 2937 / dmgMax 6249`, `killSure false` |
+| `astraPrimarisPsy` u83 -> u77 | 1027 | **0** | **0** | **true** | `dmgMin 2409`, `killSure false` |
+| `astraPrimarisPsy` u83 -> u79 | 1027 | 7530 | 2409 | false | `dmgMin 2409 / dmgMax 3613` -- **BIT-EXACT** |
+| `blackObliterator` u89 -> u77 | 1036 | 7530 | 4858 | false | -- |
+
+Le port ne se trompe pas de VALEUR : quand il predit, il predit **exactement** comme le natif. Il
+rend `hpBefore = 0` -- **les PV de la cible ne sont jamais lus** -- et
+`IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` (borne MIN >= PV courants) lit
+alors `0 >= 0` = **VRAI**. **Une prediction VIDE se lit comme un KILL CERTAIN.**
+
+**Le site** : `engine/playbook/prediction/normal_attack.py`, branche SANS ARME de
+`make_normal_attack_predictions` (introduite par `9ba79819`, #419-r1-tr14-r1-r1, 2026-08-06 01:37),
+qui fabriquait `DamagePredictionResult(applied_hits=1)` -- structure a zero.
+
+**Ce que le natif fait, LU au decompile**
+(`IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$PredictAttack`) : la
+branche `else` (arme nulle, ou `TryGet<DamageProfile>` faux) **n'invente aucune structure** -- elle
+appelle le **slot `0x26` d'`IBattleQuery`** sur `entities+0x20`, avec les deux listes de modifiers
+VIDES (les deux widgets statiques crees juste avant) et les litteraux `0, 0`. C'est la MEME facade
+de prediction que la branche avec arme, **contre la VRAIE cible** : sa `DamagePredictionResult`
+porte donc `CurrentHealth@0`, `CurrentArmor@4`, `CurrentShield@8` de la cible, et seul le DEGAT est
+nul. `get_WillBeKill` y rend `0 >= 7530` = **FAUX**.
+
+**Le correctif** appelle la meme facade (`get_attack_prediction(initial_damage=0, hits=1, ...)`)
+avec les PV / l'armure / le bouclier reels de la cible. Controle OFFLINE
+(`logs/mes506_noweapon_offline.py`) : `appliedHits` reste **1** (le litteral natif), `killSure`
+devient FAUX des `hp > 0` et reste VRAI sur `hp == 0` -- la cible morte que `decisionView`
+conserve, comportement deja documente dans `probable_damage_event.composite_fields`.
+
+**Deux consequences du bug, dont une que le test ne mesurait pas** :
+
+1. `IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill` rendait VRAI **hors portee**, donc
+   les **15** playbooks du gate `#419-r1-tr14-r5-r2-r1-r1-r1` REFUSAIENT leur ability des que
+   l'attaque normale ne portait pas depuis la tuile de cast. Le port PERD une action legale -- le
+   sens de divergence que le fichier appelle lui-meme « le plus grave ».
+2. `KillUnitUtility` (`engine/utilities/damage.py`) lit `killSure` et rend `DefinitelyKill`,
+   l'utilite MAXIMALE, pour une attaque qui n'atteint rien. Aucun test ne le mesurait.
+
+#### Validation du correctif, et ce qu'il DEPLACE -- DEUX assertions a ARBITRER
+
+| epreuve | resultat |
+|---|---|
+| controle OFFLINE (`logs/mes506_noweapon_offline.py`) | `appliedHits` = **1** ; `killSure` FAUX des `hp > 0`, VRAI sur `hp == 0` |
+| `test_419r1tr14r1r1_range_gate_generalisation_live` + `test_419r1tr14r1_heavy_bolt_pistol_real_carriers_live` | **16 passed** -- les deux gardes de la porte de portee, seules consommatrices directes de la branche |
+| GENERALISATION crafte (`logs/mes506_gen.py`) -- **autre board `C4_09`, autre seed 31337, autres unites**, positions DRIVEES | **PASS** : 3 couples hors portee (`hpBefore` = 8536 / 8536 / 1573, jamais 0 ; `killSure` faux) **et 1 temoin EN portee non degenere** (`rawMin 2195 / rawMax 4955` sur 1573 PV -> `killSure` VRAI). 0 violation |
+| `test_tile_term_unit_gated_playbooks_live` rejoue APRES le fix | **30 passed** -- le plus gros fichier d'AGREEMENT de tuile ne bouge pas |
+| le fichier cible | **2 failed / 8 passed** (il etait a 1 failed / 9 passed) |
+
+Le correctif **ferme** `test_la_contre_epreuve...` sur le bras `nokill` -- la ligne du signalement --
+et en **ouvre deux** sur le bras `kill`. Les deux reposent sur une premisse que le montage
+**n'installe pas**, et qui n'a rien a voir avec le port :
+
+* `reached` (= « l'attaque normale porte DEPUIS SA TUILE ») vaut **`ultraEliminatorSgt: False`** dans
+  le bras `kill`. Ce n'est **pas** un plafond d'iterations trop bas : mesure
+  (`logs/mes506_reached.py`) a `MAX_APPROACH_TURNS` = **8** puis **24**, `reached` est **IDENTIQUE**
+  -- l'approche est structurellement bloquee pour ce caster ;
+* `port_proposes` est un `any(... for t in foes)` sur les **DEUX** cibles. Avec le gate corrige, une
+  cible HORS PORTEE cesse d'etre vetoee, donc `any` devient vrai des qu'UNE cible echappe a la
+  portee -- et la contre-epreuve devient INERTE la ou elle mordait.
+
+Le **critere B** du fichier, lui, filtre deja sur `reached` (`r["reached"]`) et reste **VERT** ; les
+deux assertions en cause ne le filtrent pas. **Je ne les modifie pas** : changer un attendu demande
+l'arbitrage. Ce que je proposerais, pour memoire : restreindre ces deux assertions aux casters dont
+`reached` est vrai (le MEME filtre que le critere B), ce qui ne relache rien -- ou faire porter
+`port_proposes` sur la cible que le natif a effectivement choisie.
+
+⚠ **Ce que le fichier avait ecrit, et pourquoi il ne pouvait pas voir le bug.** Son en-tete porte
+« UNE BORNE A ETE ESSAYEE PUIS REFUTEE : desarmer le gate quand l'attaque normale ne porte pas
+depuis la tuile de cast fait passer trois lignes du bras `kill` de "port refuse" a "port accepte"
+alors que le natif, lui, REFUSE. **Le natif predit donc l'attaque normale HORS PORTEE, comme le
+port.** » Cette conclusion a ete tiree le **2026-08-04**, AVANT que `9ba79819` (2026-08-06) ne porte
+la branche sans arme : a l'epoque le port ne gatait PAS sur la portee et predisait un degat reel
+hors portee. La phrase decrivait donc un port qui n'existe plus, et elle a servi d'argument pour ne
+pas re-examiner le sujet. **Un avertissement ecrit contre une borne datee peut survivre au regime
+qui le justifiait.**
+
 ---
 
 ## 4. Residus
@@ -169,6 +257,20 @@ Le volet live INCONDITIONNEL vit ailleurs et il est VERT : `test_waaagh_buff_con
   est deja faite pour les six cas de #2 (`blackTerminator` 34 -> {3, 35, 41}, `darkaAsmodai`
   28 -> {4, 5} et 26 -> {1, 2, 25, 30}, `deathBlightbringer` 25 -> {12, 18} et 19 -> {3, 13, 18,
   21}), et elle montre qu'un pas epingle est structurellement fragile.
+
+* **`#506-r2` -- le MEME vice, un site plus loin, NON MESURE.**
+  `engine/playbook/prediction/normal_attack.py` porte un second
+  `ProbableDamageEvent(target=tgt_id, prediction=DamagePredictionResult())` : la branche du chemin
+  DRONE `MV71` quand `pick_tile_scene` ne rend aucune tuile. Meme forme (`current_health = 0` donc
+  `killSure` VRAI), mais **autre mecanisme** et **autre corps natif**
+  (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PredictAttack`),
+  que je n'ai pas lu. Le reparer par analogie serait speculatif. A instruire : lire la branche
+  « aucune tuile » de ce corps, et dire si elle appelle elle aussi la facade contre la vraie cible.
+
+* **DEUX assertions de `test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py` attendent un
+  ARBITRAGE** (§3.4) -- le fichier passe de 1 failed / 9 passed a **2 failed / 8 passed**. Le
+  correctif de port ferme la ligne signalee et en ouvre deux dont la premisse (`reached`) n'est pas
+  installee par le montage. Non modifiees deliberement.
 
 * **`#419-r6-r1` reste ouvert et cette tranche le CONFIRME de deux facons.** Son §2.2 classait deja
   `test_summon_consumers_live` en CAUSE (28/1 -> 29) et

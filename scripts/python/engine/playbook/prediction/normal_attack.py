@@ -539,7 +539,32 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _w, _ = get_attack_weapon_for_default_normal_attack(
         ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits, dist=_dist)
     if _w is None:
-        ev = ProbableDamageEvent(target=tgt_id, prediction=DamagePredictionResult(applied_hits=1))
+        # #506 -- LA BRANCHE SANS ARME PASSE PAR LA MEME FACADE, ET CONTRE LA VRAIE CIBLE.
+        # Le natif ne fabrique PAS une struct vide : il appelle le slot `0x26` d'`IBattleQuery`
+        # (`GetAttackPrediction`) avec les DEUX listes de modifiers VIDES et les litteraux
+        # `amount: 0` / `hits: 1`. Sa `DamagePredictionResult` porte donc `CurrentHealth@0`,
+        # `CurrentArmor@4` et `CurrentShield@8` de la cible -- seul le DEGAT est nul.
+        #
+        # Construire `DamagePredictionResult(applied_hits=1)` laissait `current_health = 0`, et
+        # `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` (borne MIN >= PV
+        # courants) rendait alors `0 >= 0` = VRAI : une prediction VIDE se lisait comme un KILL
+        # CERTAIN. Deux consequences MESUREES sur `master` (seed 4242 / MC1_67, cible a 7530 PV) :
+        #   * `BasePlaybook$$WillNormalAttackKill` rendait VRAI hors portee, donc les 15 playbooks
+        #     du gate `#419-r1-tr14-r5-r2-r1-r1-r1` REFUSAIENT leur ability des que l'attaque
+        #     normale ne portait pas depuis la tuile de cast (`ultraEliminatorSgt`/1004 sur les
+        #     DEUX cibles, `astraPrimarisPsy`/1027 sur une) ;
+        #   * `KillUnitUtility` lisait `killSure` et rendait `DefinitelyKill` -- l'utilite MAXIMALE
+        #     -- pour une attaque qui n'atteint rien.
+        # Le natif, lui, rend `0 >= 7530` = FAUX. Le `hp == 0` reste VRAI des deux cotes (cible
+        # morte que `decisionView` conserve), et c'est le comportement deja documente dans
+        # `probable_damage_event.composite_fields`.
+        res = get_attack_prediction(
+            target_current_health=scene.hp(tgt_id) or 0, initial_damage=0, hits=1,
+            profile_type=0, armor=scene.armor(tgt_id), target_shield=scene.shield(tgt_id),
+            target_prevents_overkill=scene.prevents_overkill(tgt_id),   # #195 : HasFlag(cible, 0x13)
+            attacker_ctx=ctx)          # #R34 : MightCrit = CouldCrit(attaquant), ecrit par
+                                       # `PredictAttackRaw` que cette voie traverse aussi
+        ev = ProbableDamageEvent(target=tgt_id, prediction=res)
         return (ev, {"no_weapon": True, "dist": _dist, "is_adjacent": is_adjacent}) if meta else ev
     pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)
     is_melee = not _ranged
