@@ -42,6 +42,39 @@ from __future__ import annotations
 
 import pytest
 
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict (#486-r15). LISTE, pas glob :
+#: les assertions relisent le BINAIRE (metadata + PE) et TROIS foyers Python precis. Un glob
+#: `scripts/python/**` le retiendrait a chaque probe touche, ce qui ne dirait plus rien.
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a tout fichier de test : la cascade des `conftest.py` (fixtures `autouse`,
+        # `green_skip_guard`) dont le verdict de CHAQUE test depend, et le gameconfig d'ou sortent
+        # les poids BC et les traits.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/gameconfig.py", "scripts/python/build_pin.py",
+        # PROPRE A CE FICHIER -- les trois foyers sous test.
+        "scripts/python/engine/utilities/tile.py",
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects/loki/status.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/battle_query.py",
+        "scripts/python/engine/weights.py",
+        # L'etage 1 relit le BINAIRE par cette machinerie (et par la table de symboles VERSIONNEE,
+        # qui bouge au changement de build).
+        "scripts/python/il2cpp_metadata.py",
+        "scripts/python/probe_477r37_slot4_et_faces_restantes.py",
+        "data/symbols/**",
+    ),
+    "raison": (
+        "Les etages 1-2 sont OFFLINE et deterministes : ils ne dependent que des foyers ci-dessus "
+        "et du binaire du build. L'etage 3 monte un runner, donc il depend AUSSI de la session "
+        "live -- ce que le declencheur ne peut pas exprimer et qui rend cette liste une BORNE "
+        "INFERIEURE, pas une garantie."),
+}
+
 
 # ================================================================================================
 # ETAGE 1 (offline) -- #175-e : le natif LU AU BINAIRE, et le port confronte a lui
