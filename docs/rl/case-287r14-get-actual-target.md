@@ -100,6 +100,53 @@ Cast de `1018 ValkyrieStrike` avec `targetId` = **l'id d'UNITÉ** (le régime qu
 Le témoin est obligatoire : sans lui, un accord natif/port ne distingue pas « la résolution porte le
 résultat » de « il vient d'ailleurs ».
 
+**Généralisation — `1026 BasiliskBarrage`, un patron TOUT AUTRE** (`--volet 1026`) : pas de `Target()`
+dans l'arbre, mais un collapse impératif qui **tire ses tuiles au PRNG**. C'est le scénario le plus à
+risque (une cible déplacée d'un cran ferait diverger la suite de tirages). Cast en régime UNITÉ :
+natif et port rendent les **6 mêmes coups**, `(81,462) (81,493) (79,460) (79,521) (77,449) (77,525)`,
+et le **témoin est identique** — la résolution y est **inerte**, son collapse passait déjà par
+`main_tile_id`. C'est un résultat de **non-régression**, pas de réparation : il établit que la
+tranche ne perturbe aucun tirage.
+
+## 5bis. La régression que la tranche a d'abord INTRODUITE — et qui l'a trouvée
+
+Brancher la résolution **en amont** du gate cible-morte (l'ordre natif) l'a **désarmé** : pour une
+ability tile-target visant un **cadavre**, `main_tile_id` rendait encore sa dernière tuile (le
+`PositionComponent` survit à la mort côté port), donc `IsUnit(<tuile>)` était faux et le cast
+s'exécutait sur un mort. **Écart PERMISSIF, silencieux.**
+
+Ce n'est pas la relecture qui l'a vu, c'est le **harnais** : `test_429r1r3_dead_target_message_gate_live`
+est parti en `ERROR` (`state.rng non calé`, levé depuis `damage_ops/normal.py` — donc la behaviour
+s'exécutait). Le décompilé tranche : `GetMainTileId` cherche le composant de **pied**, puis
+l'`OrderedSet` de pieds @+0x78 dont il sort par `return 0` quand il est **vide** ; le natif retire du
+board l'unité tuée, donc `GetMainTile(<cadavre>)` rend `state.GetEntity(0)` = **null**. Le filtre
+d'occupation est posé dans `main_tile_id`, par `UnitExtensions$$IsAlive` — le prédicat **large** (flag
+`Dead`, pool `AliveUnits`, PV), choisi plutôt que les seuls PV parce qu'une unité **retirée** à PV
+pleins n'a pas de pied non plus, et parce que c'est **exactement** celui du gate cible-morte : la
+résolution et le gate ne peuvent plus diverger sur le même cadavre. Étage [12] de la garde.
+
+### Ce que cela a changé dans `#429-r1-r3`, et pourquoi c'est une fidélité
+
+Deux corrections dans `probe_429r1r3_dead_target_message_gate.py` et son test :
+
+1. **`_refuse` ignorait une QUATRIÈME porte.** `no_actual_target` est native
+   (`if (finalTarget == null) return 0;`, avant les deux gates) et mord sur les 23 tile-target dont
+   la cible cadavre ne résout plus. L'omettre comptait ces **refus** comme des **passages** : le bras
+   muté rendait **86/129** au lieu de **109/129**, et l'écart accusait le mauvais mécanisme.
+2. **L'ensemble des « rescapées sans le gate de message » n'est plus `{1089}`.** Une ability
+   **self-castée** voit sa cible remplacée par le **caster** (court-circuit `isSelfCasting`, en tête
+   de `GetActualTarget`) : le gate cible-morte ne peut pas la fermer, puisqu'il ne voit plus le
+   cadavre — et **le natif fait exactement cela**. Mesuré : **20 rescapées = 19 self-cast + `1089`**
+   (`1045`, self-cast, est fermée par `invalid_target`). L'attendu du test se **dérive** désormais
+   (`self_cast | {1089}`, `self_cast` lu du registre) au lieu d'être saisi, et ce qui reste
+   discriminant — le cœur du cas #429-r1-r3 — est intact : **aucune** ability à cible **externe**
+   n'échappe, hormis le porteur du bit 38. Le test principal (`refusees == registre`) reste
+   **129/129**.
+
+⚠ **Le montage du probe LEVAIT** au lieu de mesurer (`state.rng` non calé) : un scénario qui ne
+confronte aucun tirage mais dont le bras muté exécute des behaviours doit quand même seeder son PRNG,
+sinon la levée remonte dans la **fixture** et les deux tests sortent en `ERROR` — sans aucune mesure.
+
 ⚠ Le champ du canal est `effectType`, **pas** `type`, et `tileMeta.tiles[]` n'a **pas** de champ
 `id` (indexé par `(col,row)`) : les confondre rend deux dicts vides, donc « le natif ne pose RIEN »
 — la conclusion inverse de la vérité (faute commise et corrigée dans #287-r12 ; ce probe réutilise
