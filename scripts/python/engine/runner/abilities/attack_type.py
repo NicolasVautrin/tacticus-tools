@@ -137,6 +137,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.ScythingTalons: AbilityAttackType.DirectTargetAttack,  # 1065
     ActiveAbilityType.Executioner: AbilityAttackType.DirectTargetAttack,  # 1066
     ActiveAbilityType.HarvesterOfSouls: AbilityAttackType.DirectTargetAttack,  # 1067
+    # SeekerMissileFrequencyLock (1069, #491) : `...SeekerMissileFrequencyLockAbility$$.ctor` recopie
+    # le preset statique `TargetingOptions statics+0x180` puis `AActiveAbility..ctor(this, &opts, 0)`.
+    # MEME configuration que Drachnyen ci-dessus : le litteral est `0` bien que le behaviour
+    # n'attaque PAS en direct (son `ExecuteBehaviour` ne pose que 3 effets, le degat appartient a la
+    # triggered 1127). On transcrit le 3e argument du ctor, jamais le profil de degat de l'arbre.
+    ActiveAbilityType.SeekerMissileFrequencyLock: AbilityAttackType.DirectTargetAttack,  # 1069
     # EmpyricAmbush (1232) : `EmpyricAmbushAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0)`.
     # Le litteral est `0` bien que le behaviour commence par un `FlyUnit` : on transcrit le 3e argument
     # du ctor, jamais la forme de l'arbre. (#589-r1-r1-r1)

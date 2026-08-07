@@ -23,8 +23,8 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **48** ; kits avec du travail : **79**
-- Volume total : **97** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **49** ; kits avec du travail : **78**
+- Volume total : **96** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -45,11 +45,11 @@
 | Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
 | Orks | 3 | 4 |
-| Tau | 3 | 4 |
 | AdeptusAstartes | 2 | 3 |
 | AdeptusMechanicus | 3 | 3 |
 | BlackLegion | 3 | 3 |
 | Genestealers | 3 | 3 |
+| Tau | 2 | 3 |
 | Tyranids | 3 | 3 |
 | DeathGuard | 1 | 1 |
 | Ultramarines | 1 | 1 |
@@ -204,12 +204,11 @@
 | spaceWolfPriest | 2 | RitesOfMorkai(1211) [--] NO-OP EFFECT/BUFF | HealingBalms | - |
 | spaceWulfen | 1 | GreatFrostAxe(1089) [CD] OK | SavageKiller | - |
 
-### Tau — 3 kits, 4 items
+### Tau — 2 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | tauFarsight | 2 | ExemplarOfTheMontka(1210) [--] NO-OP EFFECT/BUFF | WayOfTheShortBlade | - |
-| tauMarksman | 1 | SeekerMissileFrequencyLock(1069) [-D] NO-OP DAMAGE(HeavyRound) | - | - |
 | tauShadowsun | 1 | ExemplarOfTheKauyon(1087) [--] NO-OP DAMAGE(Blast) | - | - |
 
 ### ThousandSons — 4 kits, 6 items
@@ -245,9 +244,9 @@
 | worldKharn | 1 | KillMaimBurn(1132) [-D] NO-OP DAMAGE(Piercing) | - | - |
 | worldTerminator | 2 | BloodyFury(1129) [-D] NO-OP DAMAGE(Chain) | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (48)
+## Kits lineup COMPLETS (49)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraCreed, astraOrdnanceBattery, blackForgefiend, blackObliterator, blackTerminator, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathRotbone, deathTyphus, eldarFarseer, eldarMauganRa, genesKelermorph, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, templSwordBrother, thousAhriman, thousInfernalMaster, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTitus
+adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraCreed, astraOrdnanceBattery, blackForgefiend, blackObliterator, blackTerminator, bloodDeathCompany, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathRotbone, deathTyphus, eldarFarseer, eldarMauganRa, genesKelermorph, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, templSwordBrother, thousAhriman, thousInfernalMaster, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTitus
 
 ## HORS total — voies conditionnelles (42 abilities non portees)
 
