@@ -43,10 +43,24 @@ sys.path.insert(0, os.path.dirname(__file__))      # tests/engine -> import du h
 
 from _move_tile_sweep_order import build_sweep_order_case  # noqa: E402
 
+# NEUTRALISATION CRIT/BLOCK SUR LES QUATRE FACES (#506, remede-type de #419-r6-r1 §3.3).
+# Ce fichier mesure une TRAJECTOIRE NATIVE epinglee a un PAS et un accord de TUILE -- jamais un
+# montant de degat. Depuis `c4be3896` (#419-r6, le defaut passe a << equiper >>), `CritChance`/
+# `CritDamage`/`BlockChance`/`BlockDamage` sont non nuls sur 98/106 unites du seed : la trajectoire
+# native derive et le pas epingle n'active plus le porteur vise (MESURE sur `master` nu : pas 34 ->
+# `bloodIntercessor`, pas 28 et 26 -> `templChampion`, pas 19 -> `bloodMephiston`, et le cas du pas
+# 25 finit sa bataille au pas 23).
+# On epingle QUATRE SCALAIRES sur CE montage plutot que `--no-bis-items`, qui restituerait le regime
+# DEGENERE global (`CouldCrit` faux sur 106/106) et perdrait aussi les autres slots d'items. C'est
+# exactement le geste de #419-r6-r3 sur `test_477r33_non_owner_playbooks_live` (6 failed / 35 passed
+# -> 41 passed). Les QUATRE faces sont necessaires : le montage a des porteurs des deux cotes.
+_NO_CRIT_BLOCK = ["--crit", "0,0", "--crit-target", "0,0",
+                  "--block-player", "0,0", "--block-target", "0,0"]
+
 # Batailles LONGUES : sans `--hp-*` eleve les rosters s'effondrent avant de se melanger et le terme
 # reste constant sur toutes les tuiles candidates (mesure : MC1_67/777 sans, bataille finie au pas 17,
 # terme = 20 partout). Ce n'est PAS un reglage cosmetique : c'est ce qui rend le montage discriminant.
-_LONG = ["--hp-target", "100000", "--hp-player", "100000"]
+_LONG = _NO_CRIT_BLOCK + ["--hp-target", "100000", "--hp-player", "100000"]
 _HATEFUL = _LONG + [
     "--p-units", "blackTerminator,spaceWulfen,orksNob,templSwordBrother,bloodIntercessor",
     "--a-units", "darkaHellblaster,eldarRanger,worldKharn,templChampion,tauMarksman"]
@@ -65,10 +79,10 @@ _FEARED = _LONG + [
 #   `_CPB_ENEMY`  : AUCUN ami Chaos (la face amie est muette, le terme ne vient que des ennemis) et
 #     un melange melee-Psychic (bloodMephiston, astraPrimarisPsy -> 10) / Psychic de PORTEE
 #     (thousAhriman -> 0, c'est le gate `WeaponProfile$$get_IsMelee`) / non-Psychic (-> 0).
-_CPB_FRIEND = [
+_CPB_FRIEND = _NO_CRIT_BLOCK + [
     "--p-units", "deathBlightbringer,deathBlightlord,thousSorcerer,astraBullgryn,necroWarden",
     "--a-units", "bloodMephiston,astraPrimarisPsy,thousAhriman,tauMarksman,orksNob"]
-_CPB_ENEMY = [
+_CPB_ENEMY = _NO_CRIT_BLOCK + [
     "--p-units", "deathBlightbringer,astraBullgryn,necroWarden,orksNob,eldarRanger",
     "--a-units", "bloodMephiston,astraPrimarisPsy,thousAhriman,tauMarksman,templChampion"]
 

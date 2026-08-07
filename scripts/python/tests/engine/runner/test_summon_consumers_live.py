@@ -91,7 +91,20 @@ def test_waaagh_buff_effects_posed_live_and_port(waaagh):
     epuise les activations du camp -> le tour bascule -> le TICK de fin de tour passe et les 3 buffs
     (`Direct(1)` = 1 TOUR) ont DEJA expire quand `decisionView` est relu (mesure #95 : « effects [] »
     sur TOUTES les unites, caster compris). Le volet live INCONDITIONNEL vit dans
-    `test_waaagh_buff_contrib_live.py`, qui garde le tour OUVERT avec une 4e unite jamais activee."""
+    `test_waaagh_buff_contrib_live.py`, qui garde le tour OUVERT avec une 4e unite jamais activee
+    (mesure #506 : **7 passed** -- les buffs SONT bien poses live, ce fichier-ci ne le re-mesure pas).
+
+    #506 -- LA CONDITION ETAIT UN PROXY, ET LE PROXY A LACHE. Elle s'ecrivait `if live_effects:`,
+    c.-a-d. « le caster porte au moins un effet », ce qui ne valait QUE tant que le seul effet
+    possible etait un buff Waaagh. Depuis `c4be3896` (#419-r6, le defaut passe a << equiper >>) la
+    cible SURVIT au cast, `decisionView` publie encore le caster, et celui-ci porte un effet TIERS
+    (`BigTarget_AdjacentEffect`, qui n'expire pas) : la condition devenait vraie dans le regime
+    qu'elle etait ecrite pour EXCLURE, et l'assertion mordait sur un tour deja tique.
+
+    La condition est desormais **MESUREE** sur l'etat live, pas devinee : le tour du caster est-il
+    encore OUVERT (`dv1.currentPlayer == owner du caster`) ? Et les DEUX branches assertionnent --
+    tour ouvert => les 3 buffs sont la ; tour tique => ils n'y sont PLUS, ce qui est exactement la
+    duree `Direct(1)` mesuree en #95. Aucune branche n'est vide."""
     d = waaagh
     from engine.entities.effect_type import EffectType
     want = {"Waaagh_ExtraMovement", "Waaagh_ExtraDamage", "Waaagh_ExtraHits"}
@@ -101,9 +114,18 @@ def test_waaagh_buff_effects_posed_live_and_port(waaagh):
         for ef in (st.effects.by_unit.get(d["caster_id"]) or []):
             port_names.add(getattr(ef, "name", None) or "")
     assert want <= port_names, f"port : effets sur le caster {sorted(port_names)} ne couvre pas {sorted(want)}"
-    if d["live_effects"]:
+    dv1 = d.get("dv1") or {}
+    me1 = next((u for u in (dv1.get("units") or []) if u.get("id") == d["caster_id"]), None)
+    if me1 is None:
+        return                       # bataille terminee au cast : `decisionView` ne publie plus rien
+    if dv1.get("currentPlayer") == me1.get("owner"):
         assert want <= d["live_effects"], (
-            f"live : effets sur le caster {sorted(d['live_effects'])} ne couvre pas {sorted(want)}")
+            "live, TOUR ENCORE OUVERT : effets sur le caster %s ne couvre pas %s"
+            % (sorted(d["live_effects"]), sorted(want)))
+    else:
+        assert not (want & d["live_effects"]), (
+            "live, tour DEJA TIQUE : les buffs `Direct(1)` %s devraient avoir expire, effets = %s"
+            % (sorted(want & d["live_effects"]), sorted(d["live_effects"])))
 
 
 def test_waaagh_move_range_uses_effect_not_double_count(waaagh):
