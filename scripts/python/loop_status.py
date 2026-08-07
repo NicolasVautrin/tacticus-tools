@@ -67,15 +67,14 @@ BRANCHE_AGENT_GLOB = "worktree-agent-*"
 # pump Frida. Rien dans le depot ne le DERIVE -- l'ecrire ici le rend au moins visible et
 # surchargeable, au lieu de vivre dans la tete de l'orchestrateur.
 #
-# 5 -> 6 le 2026-08-06, sur DECISION de l'utilisateur.
+# 5 -> 6 le 2026-08-06, puis 6 -> 5 le 2026-08-07, sur DECISION de l'utilisateur dans les deux
+# sens. Les DEUX mouvements sont notes parce que ce chiffre n'a pas de derivation : son seul
+# historique EST sa justification, et un lecteur qui n'y verrait qu'une valeur la croirait mesuree.
 # ⚠ CE PLAFOND N'EST PAS CELUI DES RUNNERS, et les confondre est la faute a eviter : le budget
-# des tests live reste **4 en parallele** (mesure : rendement a 23 % des 6 workers), et il est
-# PARTAGE entre tous les agents. Monter la flotte a 6 augmente donc la contention sur un budget
-# INCHANGE -- c'est jouable parce qu'une part des tranches est offline pure (recensements,
-# cliquets, empreintes AST), pas parce que le harnais encaisserait 6 agents tous en live.
-# Corollaire de dispatch : au-dela de 4 agents, preferer une tranche OFFLINE pour le slot
-# supplementaire.
-PLAFOND_DISPATCH = 6
+# des tests live est **4 workers pour une meme passe pytest** (rendement a 23 % des 6), il est
+# PARTAGE entre tous les agents, et il ne borne PAS le nombre d'agents en vol -- une passe est
+# sporadique, pas continue. Aucun des deux chiffres ne se derive de l'autre.
+PLAFOND_DISPATCH = 5
 
 # Le host tourne en local ; le littéral est celui de tous les probes du depot.
 HOST_DEFAUT = "http://127.0.0.1:8765"

@@ -533,7 +533,8 @@ nettoyables, PR ouvertes, session Frida, drain, et **`liveRunners`** (le budget 
   corrigée, `HEAD` ayant changé deux fois entre-temps ; re-mesuré à froid, **48 commits** d'écart.
   Un verdict **PÉRIMÉ** reste **AFFICHÉ** avec les deux commits — il change d'**accusé** (contexte,
   pas signal), pas d'existence, et n'est rabattu **ni sur un vert ni sur un rouge**.
-- ⚠ **Le chiffre du plafond (6 depuis le 2026-08-06) est le SEUL qui ne soit pas une mesure** :
+- ⚠ **Le chiffre du plafond (5 depuis le 2026-08-07 ; 6 du 2026-08-06 au 2026-08-07) est le SEUL
+  qui ne soit pas une mesure** :
   c'est un paramètre d'orchestration (`--max-agents`, `TACTICUS_DISPATCH_CAP`). Résidu `#467-r1`.
   ⚠ **Ce n'est PAS le budget des RUNNERS** — mais l'inverse non plus : **rien n'oblige à donner
   une tranche offline au-delà de 4 agents**, et la prescription qui le disait ici (2026-08-06) est
