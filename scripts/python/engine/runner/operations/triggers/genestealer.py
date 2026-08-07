@@ -93,16 +93,48 @@ def _pos_of(state: State, uid: int):
 
 
 def _valid_dead_decoys(state: State, owner_id: int, stepper_id: int) -> list:
-    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ADecoysAndMisdirectionAbility$$GetValidDeadDecoys` (collapse S) : decoys (trait Decoy 1053) MORTS, amis de owner, tues CE
-    TOUR PAR le stepper, sur une tuile occupee par le stepper.
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ADecoysAndMisdirectionAbility$$GetValidDeadDecoys`,
+    relu conjoint par conjoint sur le build `rnca9r7q6c` :
 
-    Collapse : le stepper vient de MOVE sur la tuile d'un decoy, crushe INLINE (`_kill_steppable_units` G1) ->
-    le decoy DEAD co-localise avec le stepper == celui qu'il a ecrase par CE move. `_kill_steppable_units` est
-    un kill PROPRE (pas de trace killer/killed-this-turn) -> `AreEqual(Killer, stepper)` & `IsKilledThisTurn`
-    sont APPROXIMES par la co-localisation dead-decoy/stepper (positions exclusives : la tuile est liberee au
-    crush puis reoccupee par le stepper -> au plus 1 decoy mort la ; un decoy mort d'un tour anterieur est sur
-    une AUTRE tuile). FLAG : le cas multi-decoys-meme-tuile (`Repeat` count>1) n'est pas atteignable (positions
-    exclusives -> count 1). Cf. verdict RE G2 point #5."""
+        Filter( AllDeadUnits,
+                  AreFriends(sel@0x30 owner, sel@0x68 it)
+                & HasTrait(sel@0x68 it, 0x41d = 1053 Decoy)
+                & IsKilledThisTurn(sel@0x68 it)
+                & AreEqual(Killer(it), sel@0x40 stepper)
+                & Contains(Tiles(sel@0x40 stepper), MainTileOfUnits(it)) )
+
+    LES CINQ SONT PORTES (#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3). Les deux du milieu ne l'etaient
+    pas : le port les COLLAPSAIT en co-localisation, et leur seul discriminant etait la presence du
+    `StatsComponent` -- un artefact du port, pas un concept natif. Les deux ont desormais leur
+    substrat, et ce sont DEUX champs DISTINCTS du `UnitComponent`, pas un seul :
+
+      * `IsKilledThisTurn(it)` -> `UnitComponent.killed_this_turn` (`+0x17a`, un BOOLEEN), pose par
+        `IdunBattle.Operations.KillUnitOperation$$Execute+0x828` et efface par
+        `IdunBattle.Operations.StartTurnOperation$$ResetUnit` -- qui ne visite QUE les vivants
+        (`PlayerComponent.CurrentlyOwnedUnitIds`), d'ou la semantique reelle « tuee, et n'a pas
+        redemarre de tour depuis ». (Ce n'est PAS `turn_defeated`/`+0x17c`, un ENTIER dont le
+        lecteur est `IdunBattle.Entities.Formulas.TurnDefeatedFormula$$Calculate`.)
+      * `AreEqual(Killer(it), stepper)` -> `UnitComponent.death_source[0]`.
+        `IdunBattle.Entities.Selectors.UnitKillerSelector$$Select` lit exactement ce champ : pour
+        chaque unite selectionnee, `uc = GetComponent<UnitComponent>(unit)`, puis
+        `Nullable<DamageSource>@+0x108` ; si `HasValue` ET
+        `IdunBattle.Operations.DamageSource$$get_KillerId() != 0`, il resout l'entite de cet id et ne
+        la retient que si `IdunBattle.Entities.EntityExtensions$$IsActor(entity)`.
+
+    CE QUE LE COLLAPSE LAISSAIT PASSER, et qui est ferme ici : un decoy tue au tour N par une AUTRE
+    unite reste MORT SUR SA TUILE cote port ; si un stepper ami marche sur cette tuile au tour N+k,
+    la co-localisation seule le rendait valide et faisait BLASTER. Le natif le refuse par
+    `AreEqual(Killer(it), stepper)`. La docstring precedente affirmait l'inverse (« un decoy mort
+    d'un tour anterieur est sur une AUTRE tuile ») -- rien ne libere sa tuile.
+
+    TRI-ETAT sur `killed_this_turn` : `None` = NON MESURE (cadavre-AU-CHARGEMENT ; aucun canal ne
+    publie `+0x17a`). On REFUSE, et c'est value-preserving par rapport au gate `sc is None` qu'on
+    remplace -- mais la raison change de mains : ce n'est plus « pas de `StatsComponent` », c'est
+    « on ne sait pas s'il a ete tue ». Le conjoint `AreEqual(Killer(it), stepper)` le refuserait de
+    toute facon (`death_source is None` sur un cadavre-au-chargement).
+
+    FLAG conserve : le cas multi-decoys-meme-tuile (`Repeat` count>1) n'est pas atteignable
+    (positions exclusives -> count 1)."""
     spos = _pos_of(state, stepper_id)
     o_team = _team_of(state, owner_id)
     if spos is None or o_team is None:
@@ -114,12 +146,19 @@ def _valid_dead_decoys(state: State, owner_id: int, stepper_id: int) -> list:
         uc = e.get_component(UnitComponent)
         if uc is None or uc.alive:                    # decoy MORT (crushe)
             continue
-        # `IsKilledThisTurn(sel@0x68)` -- 3e conjoint natif, COLLAPSE par le port (cf. docstring).
-        # Un cadavre AU CHARGEMENT n'a, par construction, pas ete tue CE TOUR : `combatSnapshot`
-        # ne porte que les entites `IsAlive`, donc `_load_stats_and_effects` ne lui pose AUCUN
-        # `StatsComponent`. C'est le seul discriminant dont dispose le port -- il etait applique
-        # PAR ACCIDENT (la lecture BRUTE de `ctx.traits` rendait `set()` sur lui, d'ou un
-        # `HasTrait` faux), on le NOMME ici pour qu'il survive a la reparation du substrat.
+        # `IsKilledThisTurn(sel@0x68)` -- 3e conjoint natif, PORTE (cf. docstring). Tri-etat :
+        # `None` = non mesure (cadavre-AU-CHARGEMENT) -> on refuse.
+        if uc.killed_this_turn is not True:
+            continue
+        # `AreEqual(Killer(it), sel@0x40)` -- 4e conjoint natif, PORTE (cf. docstring).
+        # `UnitKillerSelector$$Select` ne retient un tueur que si `KillerId != 0` ; cote port,
+        # `death_source is None` (jamais tuee dans ce run) et `death_source[0] is None` (tueur
+        # inconnu) sont les deux formes de ce zero.
+        ds = uc.death_source
+        if ds is None or ds[0] is None or int(ds[0]) != int(stepper_id):
+            continue
+        # Le substrat de traits exige un `StatsComponent` ; un cadavre-AU-CHARGEMENT n'en a pas,
+        # mais il est deja sorti par les deux conjoints ci-dessus.
         sc = e.get_component(StatsComponent)
         if sc is None:
             continue
@@ -133,7 +172,7 @@ def _valid_dead_decoys(state: State, owner_id: int, stepper_id: int) -> list:
         if oc is None or oc.team != o_team:           # AreFriends(owner, decoy)
             continue
         pc = e.get_component(PositionComponent)
-        if pc is None or (pc.col, pc.row) != spos:    # Contains(Tiles(stepper), decoy tile) + Killer==stepper
+        if pc is None or (pc.col, pc.row) != spos:    # Contains(Tiles(stepper), MainTileOfUnits(it))
             continue
         out.append(uid)
     return out

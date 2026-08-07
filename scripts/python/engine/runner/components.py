@@ -45,6 +45,37 @@ class UnitComponent(Component):
     mirror du `TurnDefeated` que `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$GetUnitsEligibleForResurrect` lit dans
     `AmountIsEqual(Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)), @0xc0=1)`. None tant que
     l'unité n'est pas morte. Posé par `Ambush_SummonAbility` (trigger On(UnitDefeated)).
+    ⚠ Le champ natif est `UnitComponent + 0x17c`, un ENTIER — lu par
+    `IdunBattle.Entities.Formulas.TurnDefeatedFormula$$Calculate` (sous un gate
+    `IdunBattle.Entities.UnitExtensions$$IsDefeated`) et recopié par
+    `IdunBattle.Entities.Components.UnitComponent$$Copy`. Son ÉCRIVAIN natif n'est PAS identifié :
+    `IdunBattle.Operations.KillUnitOperation$$Execute` n'écrit que `+0x178` et `+0x17a`, et
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour` —
+    l'endroit où le port l'écrit — ne l'écrit PAS (son arbre est
+    `If(NOT <trigger>, Spawn(owner, PickRandomly(FreeTilesOrAdjacentFreeTiles(Tiles(target))), …))`).
+    La pose côté port est donc une COMPENSATION, pas un mirror (résidu
+    `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1`).
+
+    `killed_this_turn` = mirror EXACT du BOOLÉEN `UnitComponent + 0x17a`, et il n'a rien à voir avec
+    son voisin `turn_defeated` ci-dessus :
+      * LECTEUR UNIQUE — `IdunBattle.Entities.Triggers.KilledThisTurnTrigger$$ShouldTrigger`, dont le
+        corps entier est `unit = SelectSingle(entities); if (unit == null) return false;
+        uc = GetComponent<UnitComponent>(unit); return uc != null && *(byte*)(uc + 0x17a)`. C'est ce
+        trigger qu'alloue le nœud DSL `IdunBattleLogic.Entities.DSLTriggers$$IsKilledThisTurn`, dont
+        l'unique call-site natif est
+        `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ADecoysAndMisdirectionAbility$$GetValidDeadDecoys`.
+      * ÉCRIVAIN — `IdunBattle.Operations.KillUnitOperation$$Execute+0x828` : `+0x17a = 1`, DANS la
+        branche non-revive (juste après la garde `if (!unitComponent.PendingRevive@+0xa8.HasValue)`
+        @+0x81c, et AVANT le `RegisterDefeatedUnit` @+0x8be).
+      * RESET — `IdunBattle.Operations.StartTurnOperation$$ResetUnit`, dont la 2e instruction est
+        `*(undefined2 *)(uc + 0x179) = 0` : un `short` qui efface `+0x179` ET `+0x17a` d'un coup. Ce
+        `ResetUnit` est appelé sur `PlayerComponent.CurrentlyOwnedUnitIds` du joueur ENTRANT, dont
+        `PlayerComponent$$get_CurrentlyOwnedUnitIds` retire les défaits ⇒ **le drapeau d'une unité
+        MORTE n'est JAMAIS effacé tant qu'elle reste morte**. Sa sémantique exacte est donc « tuée,
+        et n'a pas redémarré de tour depuis », pas « tuée pendant le tour courant ».
+      * TRI-ÉTAT : `None` = NON MESURÉ. Aucun canal live ne publie `+0x17a` (`combatSnapshot` ne
+        porte que `unitFlags`, un `OrderedSet<UnitFlag>` distinct), donc un cadavre-AU-CHARGEMENT
+        arrive à `None` — et non à `False`, qui se lirait comme une mesure.
 
     `turns_finished` = mirror EXACT du champ `UnitComponent + 0x5c` — le compteur PER-UNITÉ des
     tours que CETTE unité a TERMINÉS. À ne pas confondre avec ses deux voisins :
@@ -295,7 +326,8 @@ class UnitComponent(Component):
         producteur dans ce build (`DSLFactory.ThreeTileUnitSpawnShape` <- `DutyEternalAbility` /
         `AetherStrideAbility`).
     """
-    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "turns_finished",
+    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "killed_this_turn",
+                 "turns_finished",
                  "times_attacked_this_turn", "total_times_attacked",
                  "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
                  "death_source", "last_hit_damage_taken_this_turn",
@@ -313,6 +345,13 @@ class UnitComponent(Component):
         self.ai_controlled = ai_controlled
         self.feet: Optional[List[tuple]] = None      # `_feet` @+0x78 ; None = 1 pied (cf. docstring)
         self.turn_defeated = None
+        # `UnitComponent + 0x17a` — le BOOLEEN que lit `IdunBattleLogic.Entities.DSLTriggers$$
+        # IsKilledThisTurn`. TRI-ETAT : `None` = NON MESURE (aucun canal ne publie ce champ, cf. la
+        # docstring de classe), `True`/`False` = mesure du run. Ne PAS le confondre avec son voisin
+        # `turn_defeated` (`+0x17c`, un ENTIER) : ce sont deux champs distincts, aux lecteurs
+        # distincts (`KilledThisTurnTrigger$$ShouldTrigger` vs
+        # `IdunBattle.Entities.Formulas.TurnDefeatedFormula$$Calculate`).
+        self.killed_this_turn = None
         # `UnitComponent + 0x5c` — cf. la docstring de classe (bloc `turns_finished`). 0 a la
         # creation, exactement comme le champ natif d'une entite fraichement construite : une unite
         # deployee au setup comme un summon apparu en cours de partie partent tous les deux de 0,

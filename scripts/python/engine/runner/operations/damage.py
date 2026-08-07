@@ -577,6 +577,18 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # C'est le SEUL des cinq events que la garde revive n'annule pas (pile d'accolades ci-dessus).
             return ((out or []) + [{"kill_cancelled_by_revive": revived}]
                     + move_death.post_unit_kill_triggers(state, target_id, attacker_id))
+        # `unitComponent.KilledThisTurn@+0x17a = 1` @`KillUnitOperation$$Execute+0x828` -- la
+        # PREMIERE instruction de la branche non-revive, entre la garde @+0x81c et le
+        # `RegisterDefeatedUnit` @+0x8be. C'est le substrat du noeud DSL
+        # `IdunBattleLogic.Entities.DSLTriggers$$IsKilledThisTurn` (lecteur unique :
+        # `IdunBattle.Entities.Triggers.KilledThisTurnTrigger$$ShouldTrigger`, qui rend ce seul
+        # octet). Il est DANS la branche non-revive : une mort ANNULEE par un revive ne le pose pas
+        # -- c'est pourquoi il est ecrit ici et non avant `kill_unit_revive_gate`.
+        _ent_killed = state.get_entity(int(target_id))
+        _uc_killed = (_ent_killed.get_component(UnitComponent)
+                      if _ent_killed is not None else None)
+        if _uc_killed is not None:
+            _uc_killed.killed_this_turn = True
         # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion. Il PRECEDE
         # tout retrait : c'est pourquoi `ExplodesAbility$$GetDamage` voit encore les effets du mort
         # (`HasEffect(Owner, 1098)` de RammingSpeed, #389).
