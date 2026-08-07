@@ -28,6 +28,26 @@ import pytest
 
 sys.path.insert(0, __file__.rsplit("tests", 1)[0].rstrip("\\/"))
 
+# `DECLENCHEUR` (#486-r15) -- ce qui doit changer pour que ce fichier puisse changer de verdict.
+DECLENCHEUR = {
+    # PERIMETRE LARGE, et DERIVE du role des trois probes, pas prudentiel : l'axe TEMOIN balaie
+    # TOUT site executable de `scripts/python/**` qui affirme un camp (« pas encore portee »), et
+    # l'axe COMPTES lit le texte de `engine/runner/abilities/targeting.py` marqueur par marqueur.
+    # N'importe quel fichier qui se met a citer une ability change donc le verdict, sans toucher
+    # ni au moteur ni a ce test. Une liste choisie serait un FAUX VERT -- c'est exactement la
+    # faute que cette tranche outille.
+    # Les DEUX formes sont necessaires : `**/` exige un SEGMENT, donc `scripts/python/**/*.py`
+    # ne voit PAS `scripts/python/board.py`.
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+    "build": True,
+    "toujours": False,
+    "raison": "L'axe ORDINAUX compare les ordinaux CITES aux valeurs du build PRECEDENT : c'est "
+              "une propriete du build, pas du code. Un renumerotage d'`ActiveAbilityType` a la "
+              "mise a jour suivante peut donc faire changer ce fichier d'avis sans qu'une ligne "
+              "de `scripts/python` bouge -- et c'est precisement le glissement SILENCIEUX que la "
+              "tranche existe pour rendre visible.",
+}
+
 comptes = importlib.import_module("probe_519_comptes_de_table")
 temoins = importlib.import_module("probe_519_temoins_de_camp")
 ordinaux = importlib.import_module("probe_519_ordinaux_decales")

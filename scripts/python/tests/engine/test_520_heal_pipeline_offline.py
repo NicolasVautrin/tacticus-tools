@@ -48,6 +48,15 @@ DECLENCHEUR = {
         "scripts/python/engine/services/trait_damage_limits.py",
         # L'etat minimal que les montages offline construisent.
         "scripts/python/engine/runner/state.py",
+        # ⚠ ELARGI (#486-r15) : la liste feuille-a-feuille ci-dessus etait TROP ETROITE de
+        # **81 chemins** -- mesure par le cliquet, pas estimee. Importer `heal.py` tire l'`__init__`
+        # du paquet `operations`, donc le registre de triggers, le vocabulaire DSL et le
+        # pathfinding : une liste choisie ne peut pas montrer le module qu'elle a oublie. Les
+        # chemins nommes plus haut restent ECRITS pour la relecture humaine -- ils disent OU
+        # regarder ; les deux globs disent ce qui FAIT VRAIMENT changer d'avis.
+        # Les DEUX formes sont necessaires : `**/` exige un SEGMENT, donc `scripts/python/**/*.py`
+        # ne voit PAS `scripts/python/board.py`.
+        "scripts/python/*.py", "scripts/python/**/*.py",
     ),
     "build": True,
     "toujours": False,
