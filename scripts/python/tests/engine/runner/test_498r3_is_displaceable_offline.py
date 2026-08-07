@@ -60,6 +60,10 @@ DECLENCHEUR = {
         "scripts/python/*.py",
         # L'etage 0 QUALIFIE les six ordinaux contre la table d'enums du BUILD.
         "data/symbols/**",
+        # L'etage 2 passe par `_apply_knockback_to`, dont le pourcentage se resout par
+        # `services/damage_config.resolve_damage_field` -- qui DERIVE son defaut du seed BC
+        # (#449-r2-r4-r4). Mesure de l'empreinte, pas une supposition.
+        "data/seed-bc.json",
     ),
     "build": True,
     "toujours": False,
