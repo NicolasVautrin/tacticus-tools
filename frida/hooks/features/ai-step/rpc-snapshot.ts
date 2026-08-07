@@ -19,7 +19,8 @@ import {
     readBattleStatus, unitFootComponentClass,
 } from "../../game/match-state.js";
 import {
-    readEffectsByUnit, readEffectsByTile, readRoundCapClock, readEffectAbilityStateRaw,
+    readAllEffects, readEffectsByUnit, readEffectsByTile, readRoundCapClock,
+    readEffectAbilityStateRaw,
 } from "../../game/effects.js";
 import { state } from "../../game/state.js";
 import { readDamagePredictionResult } from "../../game/damage-prediction.js";
@@ -1381,9 +1382,159 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 tilesMovedThisBattle: cp.add(OFF_TILES_BATTLE).readS32(),
                 tilesMovedThisTurn: cp.add(OFF_TILES_TURN).readS32(),
                 tilesMovedLastTurn: cp.add(OFF_TILES_LAST).readS32(),
+                // #347-r1 — l'HISTORIQUE de position du tour, sur le MÊME appel.
+                movement: readMovementPositions(e, statePtr),
             });
         });
-        return { ok: true, runner: label, units };
+        return {
+            ok: true, runner: label, units,
+            // #347-r1 — ce que le capteur de position a RÉSOLU. `movement: null` sur toutes
+            // les unités serait sinon indiscernable de « aucune unité n'a bougé ».
+            movementLayout: movementLayout(),
+        };
     });
 
+    /** #231-r — TOUTES les entités-effet du state, y compris celles qui ne sont PLUS dans la
+     *  liste possédée de leur owner. `decisionView.units[].effects` et `tileMeta.tiles[].effects`
+     *  partent tous deux d'`EffectsOwnedComponent.ActiveEffectIds` : un effet absent y est
+     *  AMBIGU entre « jamais posé », « posé puis RETIRÉ » et « vivant hors de la liste », et
+     *  aucun des deux canaux ne peut les séparer — `includeInactive` compris, puisqu'il ne
+     *  desserre que le filtre `IsActive`, pas l'appartenance à la liste.
+     *
+     *  Le décompilé tranche la moitié du problème et le capteur mesure l'autre :
+     *  `IdunBattle.Operations.AddEffectOperation$$AddNewEffect` écrit `EffectComponent.OwnerId`
+     *  puis fait `List.Add` sur l'`EffectsOwnedComponent` de CETTE MÊME entité — donc un effet
+     *  POSÉ est toujours dans la liste de son owner au moment de la pose ;
+     *  `IdunBattle.Operations.RemoveEffectOperation$$Execute` fait `List.Remove` puis pose
+     *  `BeingRemoved` (+0x5e) et `Removed` (+0x5f) **sans détruire l'entité**. Trois régimes,
+     *  trois signatures LISIBLES :
+     *    - l'entité n'apparaît pas du tout        -> JAMAIS POSÉ (gate d'`AddEffectOperation`) ;
+     *    - `inOwnerList: false, removed: true`    -> POSÉ PUIS RETIRÉ ;
+     *    - `inOwnerList: false, removed: false`   -> ORPHELIN (vivant hors de la liste).
+     *
+     *  Cas d'usage d'origine : `1197 EffectType.MasterOfTheTutelaries` (#231 §7), dont la
+     *  triggered `1173` fire alors que l'effet est absent des deux canaux. Sa durée est
+     *  LUE au décompilé — `…MasterOfTheTutelariesAbility$$ExecuteBehaviour` passe à
+     *  `DSLBehaviors$$AddEffect` le nœud `<DSLFormulas>+0x20`, que
+     *  `IdunBattleLogic.Entities.DSLFormulas$$.ctor` construit avec le littéral **1**.
+     *  Read-only, une passe d'entités, aucun Interceptor.
+     *  body: { runnerId?, effectType?, includeRemoved?=true } */
+    ctx.rpc.effectsAll = (
+        body?: { runnerId?: number; effectType?: number; includeRemoved?: boolean },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer; let label: string;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+            setTraceOrigin(body.runnerId);
+            label = "build#" + body.runnerId;
+        } else if (state.liveRunner) {
+            runner = state.liveRunner; label = "live";
+        } else { return { ok: false, error: "no runner — pass runnerId" }; }
+        if (runner.isNull()) return { ok: false, error: label + " runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+        const includeRemoved = body?.includeRemoved !== false;
+        let effects = readAllEffects(statePtr);
+        if (typeof body?.effectType === "number") {
+            const want = body.effectType | 0;
+            effects = effects.filter((e) => e.effectType === want);
+        }
+        if (!includeRemoved) effects = effects.filter((e) => !e.removed);
+        return {
+            ok: true, runner: label, count: effects.length, effects,
+            // Ventilation, pour que le lecteur n'ait pas à la recalculer — et pour qu'un
+            // `count: 0` DISE de quoi il est le zéro.
+            orphanCount: effects.filter((e) => !e.inOwnerList && !e.removed).length,
+            removedCount: effects.filter((e) => e.removed).length,
+        };
+    });
+
+}
+
+// --- #347-r1 : HISTORIQUE DE POSITION DU TOUR ------------------------------------------------
+//
+// CE QUE CE CAPTEUR DÉBLOQUE. Le lift-off de `TheQuickening` (`MoveUnit` vers une
+// `UnitPosition` vide) **sort avant** `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` :
+// la branche `Count(position) == 0 && MoveUnitOptions+0x15` d'
+// `IdunBattle.Operations.MoveUnitOperation$$Execute` retire l'unité du board et retourne. C'est
+// le **move-in** qui facture, avec `movementStartPosition =
+// IdunBattle.Entities.EntityExtensions$$GetPreviousPositionThisTurn(unit)` — donc une valeur qui
+// dépend de l'HISTORIQUE de mouvement du tour, et qu'aucun RPC ne publiait.
+//
+// ⚠ LE COMPOSANT N'EST PAS CELUI QUE `case-347` §8 NOMME. La fiche écrit
+// « `UnitComponent+0x98` » ; mesuré sur le build `rnca9r7q6c` (`dumpEntityComponents`),
+// `UnitComponent+0x98` est `PendingHit`. Les quatre `Nullable<UnitPositionId>` vivent sur
+// **`IdunBattle.Entities.Components.MovementComponent`** :
+//     TurnStartPosition @+0x78 · PreviousPosition @+0x88 ·
+//     PreviousPositionThisTurn @+0x98 · PendingPosition @+0xa8
+// et c'est bien `+0x98` que lit `GetPreviousPositionThisTurn` (`local_38 = *(comp+0x98)`,
+// `uStack_30 = *(comp+0xa0)`), qu'écrit
+// `IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition` et que remet à zéro
+// `IdunBattle.Entities.Behaviours.ResetPreviousPositionBehaviour$$Execute`. L'offset coïncide,
+// le COMPOSANT non — un capteur écrit sur la foi de la fiche aurait lu `PendingHit`.
+//
+// LAYOUT. `Nullable<UnitPositionId>` = 16 octets : la valeur (un `UnitPositionId`, 8 o = un
+// `List<BEntityId>` — `classes.tsv` publie 24, taille BOXÉE, header 0x10 déduit) puis
+// `hasValue` à +8. C'est ce qu'établissent les quatre champs espacés de 0x10 ET
+// `SavePreviousPosition`, qui écrit 16 octets en deux `undefined8`.
+//
+// DÉCODAGE. On n'ouvre PAS le `List<BEntityId>` à la main : `hasValue` lu au champ, puis
+// `IdunBattle.Core.UnitPositionIdExtensions$$ToTileList(positionId, state)` INVOQUÉ (la valeur
+// est passée par POINTEUR, convention value-type d'`il2cpp_runtime_invoke` — même idiome que
+// l'`AbilityState` de `makeDamagePredictions`), puis `extractTiles`. Le natif fait exactement
+// cet appel pour matérialiser une position.
+const movementComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "MovementComponent");
+const unitPositionIdExtClass = findClassAnywhere(
+    "IdunBattle.Core", "UnitPositionIdExtensions");
+const toTileListMi = unitPositionIdExtClass
+    ? findMethodByParamCount(unitPositionIdExtClass, "ToTileList", 2) : null;
+/** Les quatre champs, avec leur repli décompilé. `fieldOffsetOr` et JAMAIS `|| fallback` :
+ *  `getFieldOffset` rend **-1** sur un nom absent, truthy en JS (#340-r1). */
+const MOVEMENT_POS_FIELDS: ReadonlyArray<{ key: string; name: string; fallback: number }> = [
+    { key: "turnStartPosition", name: "TurnStartPosition", fallback: 0x78 },
+    { key: "previousPosition", name: "PreviousPosition", fallback: 0x88 },
+    { key: "previousPositionThisTurn", name: "PreviousPositionThisTurn", fallback: 0x98 },
+    { key: "pendingPosition", name: "PendingPosition", fallback: 0xa8 },
+];
+
+/** Ce que le capteur a RÉSOLU — publié au niveau réponse (tri-état). */
+function movementLayout(): Record<string, unknown> {
+    return {
+        componentResolved: movementComponentClass !== null,
+        toTileListResolved: toTileListMi !== null,
+        offsets: movementComponentClass
+            ? Object.fromEntries(MOVEMENT_POS_FIELDS.map(
+                (f) => [f.key, fieldOffsetOr(movementComponentClass, f.name, f.fallback)]))
+            : null,
+    };
+}
+
+/** Les quatre `Nullable<UnitPositionId>` d'une unité, décodées en hex.
+ *  `null` (au niveau du champ) = `hasValue == 0` — le natif n'a pas de position enregistrée.
+ *  `null` (au niveau de l'objet) = capteur MUET : composant absent ou classe non résolue. */
+function readMovementPositions(
+    entity: NativePointer, statePtr: NativePointer,
+): Record<string, unknown> | null {
+    if (!movementComponentClass) return null;
+    let comp: NativePointer | null = null;
+    forEachComponent(entity, (c, klass) => {
+        if (comp === null && klass.equals(movementComponentClass)) comp = c;
+    });
+    if (comp === null) return null;
+    const cp = comp as NativePointer;
+    const out: Record<string, unknown> = {};
+    for (const f of MOVEMENT_POS_FIELDS) {
+        const off = fieldOffsetOr(movementComponentClass, f.name, f.fallback);
+        let hasValue = false;
+        try { hasValue = cp.add(off + 8).readU8() !== 0; } catch { out[f.key] = null; continue; }
+        if (!hasValue) { out[f.key] = null; continue; }
+        if (!toTileListMi) { out[f.key] = { tiles: null }; continue; }
+        try {
+            const list = invokeMethod(toTileListMi.info, null, [cp.add(off), statePtr]);
+            out[f.key] = { tiles: list.isNull() ? null : extractTiles(list) };
+        } catch { out[f.key] = { tiles: null }; }
+    }
+    return out;
 }
