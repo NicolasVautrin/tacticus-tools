@@ -236,6 +236,111 @@ def test_etape5_ancre_AUSSI_la_quote_verbatim_du_helper_de_publication():
     assert not SW._FUN_PUB.search("# FUN_1801f4390(DAT_1833ae538, 2)\n")
 
 
+# --------------------------- 2ter. les DEUX formes que l'ancre ne voyait pas (#420-r2/-r3),
+#                                   et la DECIDABILITE par annotation (#420-r5)
+
+def _dernier_litteral(txt: str):
+    """Ce que l'etape 5 retient d'une quote : le DERNIER littéral ENTIER de ses arguments."""
+    g = SW._FUN_PUB.search(txt)
+    if g is None:
+        return None
+    lits = [a.strip() for a in g.group(1).split(",") if SW._FUN_LIT.match(a.strip())]
+    return lits[-1] if lits else None
+
+
+def test_etape5_ancre_le_slot_0x51_dont_le_litteral_est_AVANT_dernier():
+    """#420-r2. Le slot `0x51` porte un AUTRE helper que `0x4d`/`0x50` (8 arguments), et son
+    littéral d'evenement est suivi d'un `&args`. LU au decompile de `rnca9r7q6c` :
+    `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` publie `0x1c`, `0x28` puis `0x29`
+    par `FUN_1800284a0(0x51, .., unit, unit, unit, <n>, &args)`, et
+    `IdunBattle.Operations.ResurrectUnitOperation$$Execute` publie `0x2e` de meme.
+
+    Le residu decrivait la POSITION comme l'obstacle ; elle n'en est pas un -- `&args` n'est
+    pas un littéral, donc l'avant-dernier argument EST le dernier littéral. Seul le slot
+    manquait au motif."""
+    assert _dernier_litteral("# FUN_1800284a0(0x51, .., 0x2e, &args)") == "0x2e"
+    assert _dernier_litteral("# FUN_1800284a0(0x51, .., unit, unit, unit, 0x1c, &args)") == "0x1c"
+
+
+def test_etape5_ancre_la_quote_dont_le_SLOT_est_ELIDE():
+    """#420-r3. Deux quotes du depot elident le slot (`probe_120`, `sworn_protector.py`) :
+    l'ellipse est NOTRE ecriture, elle remplace les arguments fixes du helper. Les deux formes
+    d'ellipse existent dans l'arbre, ASCII (`..`) et Unicode."""
+    assert _dernier_litteral("# FUN_1800280e0(.., 0x2a)") == "0x2a"
+    assert _dernier_litteral("# FUN_1800280e0(…, 0x3d)") == "0x3d"
+
+
+def test_etape5_ne_confond_PAS_un_slot_d_INTERFACE_avec_une_publication():
+    """Un slot n'identifie une methode que DANS son interface : `0x51` d'`IBattleQuery` est
+    `GetFreeAdjacentTiles` (`FUN_180003bd0(0x51, itf, service, caster)`, seul `0x51` du depot),
+    sans rapport avec `0x51` du dispatcher d'evenements. Il n'a AUCUN littéral dans ses
+    arguments, donc l'ancre elargie ne peut rien lui attribuer -- c'est ce qui autorise
+    d'ajouter le slot sans risquer un faux positif."""
+    assert _dernier_litteral("(`FUN_180003bd0(0x51, itf, service, caster)`)") is None
+    assert _dernier_litteral("FUN_180002560(0, DAT_1831d4f88, playbook)") is None
+
+
+def _ann(ligne: str, v: int):
+    ref = SW._by_name(SW.enum_map(SW.current_build(), SW.ENUMS["EventTriggerType"]))
+    old = SW._by_name(SW.enum_map(SW.previous_build(), SW.ENUMS["EventTriggerType"]))
+    return SW.annotation_de_ligne(ligne, v, ref, old)
+
+
+def test_l_annotation_On_Membre_rend_la_quote_DECIDABLE_et_le_GATE_MORD():
+    """#420-r5, LES DEUX DIRECTIONS. Une quote verbatim ne peut pas porter son membre DEDANS
+    sans cesser d'etre verbatim ; le membre se pose A COTE, `On(<Membre>)` sur la meme ligne.
+
+    * coherent avec le build courant -> `ancree` : la quote sort des indecidables ;
+    * egal a l'ordinal ARCHIVE du membre nomme -> `perimee` : FAIL, meme critere PROUVE que
+      4bis. C'est ce cas-la qui mordra au PROCHAIN changement de build, sans qu'une ligne du
+      depot ait bouge -- le gisement exact de #283."""
+    assert _ann("#  FUN_1800280e0(0x4d, .., 0x2a);   # On(PreUnitAbility)", 0x2a)[0] == "ancree"
+    etat, membre = _ann("#  FUN_1800280e0(0x4d, .., 0x2b);   # On(PreUnitAbility)", 0x2b)
+    assert (etat, membre) == ("perimee", "PreUnitAbility"), (etat, membre)
+    # ... et le detecteur DOIT mordre, sinon les deux assertions ci-dessus ne prouveraient rien
+    assert SW._by_name(SW.enum_map(SW.previous_build(),
+                                   SW.ENUMS["EventTriggerType"]))["PreUnitAbility"] == 0x2b
+
+
+def test_une_ancre_NUE_ou_a_membre_INCONNU_reste_un_COMPTEUR():
+    """Le gate ne mord QUE la ou un auteur a DECLARE le membre. Sans annotation, ou avec un nom
+    qui n'est membre d'`EventTriggerType` sur AUCUN des deux builds, l'ancre reste indecidable
+    -- on ne rougit jamais sur une annotation qu'on ne comprend pas. C'est ce qui rend l'ancre
+    elargie (slot `0x51`, slot elide) incapable de fabriquer un faux rouge."""
+    assert _ann("#  FUN_1800280e0(0x4d, .., 0x2a);", 0x2a)[0] == "nue"
+    assert _ann("#  FUN_1800280e0(0x4d, .., 0x2a);  # On(Zorglub)", 0x2a)[0] == "nue"
+    # la forme NOMMEE `On(<n> = <Membre>)` n'est PAS une annotation : elle porte un nombre,
+    # et c'est l'etape 4 qui la confronte.
+    assert _ann("#  On(0x2b = PreUnitAbility)", 0x2b)[0] == "nue"
+
+
+def test_le_depot_ne_porte_AUCUNE_quote_de_publication_INDECIDABLE():
+    """LE CLIQUET DE GISEMENT (#420-r5). Une quote `FUN_` dont l'ordinal a change de
+    proprietaire entre les deux builds versionnes et qui ne porte PAS son `On(<Membre>)` est,
+    par construction, invisible a toutes les etapes : elle peut etre juste ou perimee, rien ne
+    le dira jamais. Elles etaient 16 le 2026-08-07 ; ce test garde le zero.
+
+    Si tu ajoutes une quote et que ce test rougit : pose l'annotation `On(<Membre>)` sur sa
+    ligne, apres avoir LU au decompile quel evenement ce site publie. Ne la retire pas."""
+    _stables, decales, _ancrees, _fails = SW.step_on(verbose=False)
+    fun = [d for d in decales if d[5] == "FUN"]
+    assert not fun, ("quote(s) de publication INDECIDABLE(S) -- annoter `On(<Membre>)` sur la "
+                     "ligne :\n" + "\n".join("  %s:%d  FUN_...(%s) : etait %s, vaut %s"
+                                             % (d[0], d[1], d[2], d[3], d[4]) for d in fun))
+
+
+def test_aucune_ancre_ANNOTEE_du_depot_ne_cite_un_ordinal_PERIME():
+    """Le GATE, joue sur l'arbre. Il est vert aujourd'hui et le restera tant que le build ne
+    bougera pas ; au prochain build il rougira sur chaque annotation dont l'ordinal a glisse --
+    c'est exactement ce qu'on lui demande, et ce qu'aucun declencheur sur diff ne peut voir."""
+    _stables, _decales, ancrees, fails = SW.step_on(verbose=False)
+    assert not fails, ("citation(s) PROUVEE(S) perimee(s) :\n"
+                       + "\n".join("  %s:%d  (%s) annote On(%s)" % (f[0], f[1], f[2], f[3])
+                                   for f in fails))
+    # non-vide : un gate joue sur un ensemble VIDE passerait pour vert sans rien garder.
+    assert ancrees, "aucune ancre annotee -- le gate ne s'applique a RIEN"
+
+
 # ------------------------------------------------------- 3. le diff des tables reste derivable
 
 def test_le_diff_des_quatre_enums_est_derivable_offline():

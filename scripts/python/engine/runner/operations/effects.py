@@ -161,7 +161,8 @@ class AddEffectOperation:
         `ContagionsOfNurgle_ArmorReduction1/2`, dont les DEUX instances coexistent et dont une seule doit
         porter une modification)."""
         # `On(PreEffectAdded=0x3d=61)` — le natif émet ce message TOUT EN HAUT d'`IdunBattle.Operations.AddEffectOperation$$Execute`
-        # (`FUN_1800280e0(0x50, …, 0x3d)` juste après la construction de l'`AbilityEntities`), donc AVANT
+        # (`FUN_1800280e0(0x50, …, 0x3d)` = `On(PreEffectAdded)` juste après la construction
+        # de l'`AbilityEntities`), donc AVANT
         # le gate cible-nulle, AVANT le gate « déjà présent » et AVANT le gate d'immunité : l'événement
         # fire même si la pose est finalement abandonnée (sémantique « would have », cf.
         # TerrifyingCrescendo « would have Suppressed »). Émis ICI, à la MÊME place.

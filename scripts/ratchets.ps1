@@ -290,9 +290,13 @@ $Ratchets = @(
     #     le cout MARGINAL en parallele quasi nul : joue d un bloc, probe_283 DOUBLE le mur du lot
     #     (145 s -> 299 s, mesure du 2026-08-01) ; eclate, sa plus longue etape (prose, ~47 s)
     #     passe TRES en dessous du mur, qui ne bouge pas.
-    #     `diff` et `on` sont des COMPTEURS (aucun `ko +=` : structurellement incapables de
-    #     rougir). Ils restent dans la banque quand meme -- 9 s de CPU pour que la banque reste
-    #     l EQUIVALENT EXACT de `--step all`, et pour qu un futur `ko +=` sur eux soit vu.
+    #     `diff` est un COMPTEUR (aucun `ko +=` : structurellement incapable de rougir). Il
+    #     reste dans la banque quand meme -- 1 s de CPU pour que la banque reste l EQUIVALENT
+    #     EXACT de `--step all`, et pour qu un futur `ko +=` sur lui soit vu.
+    #     `on` en ETAIT un jusqu au 2026-08-07 : depuis #420-r5 il rougit sur une quote
+    #     VERBATIM ANNOTEE `On(<Membre>)` dont le nombre vaut l ordinal ARCHIVE de ce membre.
+    #     Sa declaration `Rougit = compteur` est donc RETIREE -- une declaration MORTE est
+    #     elle-meme un rouge de `probe_439`, dans les DEUX directions.
     #     Aucune ecriture sans `--fix` : les six s executent en lecture seule, sans collision.
     @{ Id = 'probe_283:diff'; Argv = @('probe_283_enum_ordinal_sweep.py', '--step', 'diff')
        Rougit = 'compteur'
@@ -311,9 +315,8 @@ $Ratchets = @(
        Seul = 'une citation de decompile en commentaire/docstring dont l ordinal vaut EXACTEMENT celui du build precedent -- 220 invalidees par une MAJ SANS QU UNE SEULE LIGNE CHANGE, donc structurellement invisible a tout declencheur sur diff'
        Doc  = 'docs/rl/case-420-on-litteraux-perimes.md' }
     @{ Id = 'probe_283:on'; Argv = @('probe_283_enum_ordinal_sweep.py', '--step', 'on')
-       Rougit = 'compteur'
-       Seul = 'COMPTEUR : les litteraux On(<n>) stables vs decales'
-       Doc  = 'docs/rl/case-283-quatre-enums-renumerotes.md' }
+       Seul = 'une QUOTE VERBATIM du helper de publication (`FUN_<addr>(0x4d|0x50|0x51|.., .., <n>)`) dont l ordinal est PERIME. Elle echappe a TOUTES les autres etapes -- ni ancre On(, ni membre au separateur court, et on ne peut pas ecrire le membre DEDANS sans falsifier la citation. Le gate ne mord que la ou l auteur a pose l annotation `On(<Membre>)` sur la ligne : le nombre cite vaut alors l ordinal ARCHIVE du membre nomme, ce qui n a aucune autre explication qu une recopie d un build perime. Compte AUSSI les litteraux On(<n>) NUS, stables vs decales (residu #283-r1, indecidables par construction)'
+       Doc  = 'docs/rl/case-420-on-litteraux-perimes.md ; docs/rl/case-420-r2-r5-ancre-et-annotation.md' }
 
     # --- probe_457, en HUIT shards (etait TROIS). Le shard se derive d'un md5 du chemin -- stable,
     #     donc un fichier neuf ne redistribue pas les autres, et l'union des shards est STRICTE.

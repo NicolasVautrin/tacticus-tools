@@ -60,6 +60,44 @@ RACINE = Path(__file__).resolve().parents[2]
 #: Nom de la constante, au niveau module, dans le source du cliquet.
 NOM = "DECLENCHEUR"
 
+#: Nom de la constante FACULTATIVE qui affine, ENTREE DE BANQUE PAR ENTREE DE BANQUE (#486-r19).
+#:
+#: LE PROBLEME QU'ELLE RESOUT. Un `DECLENCHEUR` se declare par FICHIER, mais la banque a des
+#: entrees plus fines : `probe_283` en porte SIX (`--step diff|mirror|exec|tables|prose|on`) et
+#: `probe_457` en porte HUIT (shards). Sur les 25 entrees du groupe C, QUATORZE partagent ainsi
+#: un fichier avec des perimetres DIFFERENTS. La seule declaration non fautive etait alors
+#: l'UNION -- et l'union est trop large pour presque toutes : ventilation MESUREE de `probe_283`
+#: (couts isoles du 2026-08-07) : `diff` 1,1 s ne lit QUE `data/symbols/<build>/frida/enums.tsv`
+#: quand `mirror` 32,6 s et `tables` 12,3 s lisent tout `.py`/`.ts`/`.js` du depot, et que `exec`
+#: 80,0 s / `prose` 66,1 s / `on` 15,7 s ne lisent que `scripts/python/**`. Sous l'union, un `.ts`
+#: de `frida/` rejoue 161,8 s d'etapes qui ne le lisent pas.
+#:
+#: ⚠ NE PAS le simuler en SCINDANT le fichier : les six etapes de `probe_283` partagent
+#: `_fichiers_du_depot` / `_sources`, et c'est la memoisation de ces deux-la qui tient leur cout.
+#:
+#: L'ASYMETRIE QUI RENDAIT LA CHOSE ABSURDE : l'EMPREINTE, elle, est deja par ENTREE
+#: (`declencheurs-empreinte.tsv` est keye sur l'id de banque). L'etage 2 de `probe_486r12`
+#: confrontait donc une mesure FINE a une declaration GROSSIERE -- `probe_283:diff` ne pouvait
+#: structurellement pas rougir, et surtout ne disait RIEN.
+#:
+#:     DECLENCHEUR_PAR_ENTREE = {
+#:         "probe_283:diff": {"chemins": (), "build": True, "toujours": False,
+#:                            "raison": "<ce que CETTE entree lit>"},
+#:         ...
+#:     }
+#:
+#: Les regles, dans l'ordre ou elles mordent :
+#:   * le `DECLENCHEUR` de fichier reste OBLIGATOIRE -- il est l'UNION et le repli de toute
+#:     entree non affinee. Retirer ce repli rendrait une entree neuve INDECLAREE en silence,
+#:     ce qui est le faux vert que cette famille combat ;
+#:   * une entree affinee est validee comme un declencheur ORDINAIRE (les quatre cles, meme
+#:     forme, meme longueur minimale de raison) : il n'y a pas d'heritage partiel, parce
+#:     qu'une cle heritee serait un defaut IMPLICITE, donc invisible ;
+#:   * une CLE qui ne designe aucune entree de la banque est une declaration MORTE, donc un
+#:     ROUGE -- meme regle que `Rougit` en direction morte (#426). C'est le seul moyen de voir
+#:     un `probe_283:step` renomme ou retire.
+NOM_PAR_ENTREE = "DECLENCHEUR_PAR_ENTREE"
+
 #: Les quatre cles, exactement -- ni plus (une cle inventee ne serait lue par personne), ni
 #: moins (une cle absente serait un defaut implicite, donc invisible).
 CLES = ("chemins", "build", "toujours", "raison")
@@ -85,8 +123,8 @@ def _rel(p) -> str:
     return q
 
 
-def lire(chemin) -> dict:
-    """Le `DECLENCHEUR` d'un fichier Python, lu par AST -- le module n'est JAMAIS execute.
+def _constante(chemin, nom: str, obligatoire: bool):
+    """La constante `nom` d'un module, lue par AST -- le module n'est JAMAIS execute.
 
     Importer le cliquet pour lire sa declaration serait absurde : `probe_120` tirerait tout
     `engine/`, `probe_391` tirerait pytest, et un cliquet dont l'import PLANTE ne pourrait plus
@@ -99,16 +137,33 @@ def lire(chemin) -> dict:
     for node in arbre.body:
         cibles = (node.targets if isinstance(node, ast.Assign)
                   else [node.target] if isinstance(node, ast.AnnAssign) else [])
-        if not any(isinstance(t, ast.Name) and t.id == NOM for t in cibles):
+        if not any(isinstance(t, ast.Name) and t.id == nom for t in cibles):
             continue
         if node.value is None:
-            raise DeclencheurAbsent("%s : `%s` declare sans valeur" % (_rel(p), NOM))
+            raise DeclencheurAbsent("%s : `%s` declare sans valeur" % (_rel(p), nom))
         try:
             return ast.literal_eval(node.value)
         except (ValueError, SyntaxError) as e:
             raise DeclencheurAbsent("%s : `%s` n'est pas un litteral (%s)"
-                                    % (_rel(p), NOM, type(e).__name__))
-    raise DeclencheurAbsent("%s : aucun `%s` au niveau module" % (_rel(p), NOM))
+                                    % (_rel(p), nom, type(e).__name__))
+    if obligatoire:
+        raise DeclencheurAbsent("%s : aucun `%s` au niveau module" % (_rel(p), nom))
+    return None
+
+
+def lire(chemin) -> dict:
+    """Le `DECLENCHEUR` d'un fichier Python. Obligatoire : son absence est un rouge."""
+    return _constante(chemin, NOM, obligatoire=True)
+
+
+def lire_par_entree(chemin) -> dict:
+    """Le `DECLENCHEUR_PAR_ENTREE` d'un fichier Python, ou `{}` s'il n'en porte pas.
+
+    FACULTATIF, et le rester est un choix defendable : un cliquet a une seule entree de banque
+    n'a rien a affiner. Ce qui ne l'est pas, c'est de declarer une entree qui n'existe pas
+    (cf. `valider_par_entree`)."""
+    d = _constante(chemin, NOM_PAR_ENTREE, obligatoire=False)
+    return d if d is not None else {}
 
 
 def valider(d) -> list[str]:
@@ -168,6 +223,60 @@ def valider(d) -> list[str]:
         e.append("`toujours: False` avec un perimetre VIDE : rien ne le rejouerait JAMAIS. "
                  "Si tu ne sais pas le borner, ecris `toujours: True` avec sa raison.")
     return e
+
+
+def valider_par_entree(par_entree, ids_du_script) -> list[str]:
+    """Les fautes de FORME d'un `DECLENCHEUR_PAR_ENTREE`. Liste vide = bien forme.
+
+    `ids_du_script` = les ids de banque que CE script porte, DERIVES de `scripts/ratchets.ps1`
+    (jamais une liste ecrite ici : c'est la lecon de #457-r6 sur les allowlists). Une cle hors
+    de cet ensemble est une DECLARATION MORTE -- l'entree a ete renommee, retiree, ou n'a jamais
+    existe -- et le silence y serait exactement le faux vert que #486-r12 combat : personne ne
+    joue le perimetre fin qu'on croit avoir declare."""
+    e: list[str] = []
+    if not isinstance(par_entree, dict):
+        return ["`%s` n'est pas un dict (%s)" % (NOM_PAR_ENTREE, type(par_entree).__name__)]
+    connus = set(ids_du_script or ())
+    for cle in sorted(par_entree, key=str):
+        if not isinstance(cle, str) or not cle.strip():
+            e.append("`%s` : cle vide ou non-str : %r" % (NOM_PAR_ENTREE, cle))
+            continue
+        if connus and cle not in connus:
+            e.append("`%s` : cle MORTE %r -- aucune entree de banque de ce script ne porte cet "
+                     "id (connues : %s)" % (NOM_PAR_ENTREE, cle, ", ".join(sorted(connus))))
+            continue
+        for f in valider(par_entree[cle]):
+            e.append("`%s[%s]` : %s" % (NOM_PAR_ENTREE, cle, f))
+    return e
+
+
+def resoudre(d, par_entree, ident: str) -> dict:
+    """La declaration EFFECTIVE d'une entree de banque : la sienne si elle en a une, sinon
+    celle du FICHIER -- qui est l'union, donc le repli conservateur."""
+    fine = (par_entree or {}).get(ident)
+    return fine if isinstance(fine, dict) else d
+
+
+def hors_de_l_union(d, par_entree) -> list:
+    """[(ident, glob)] -- les globs d'une entree que le `DECLENCHEUR` du fichier ne couvre PAS.
+
+    INFORMATIF, jamais un rc, et pour la meme raison que `redondants` : `_couvre_glob` teste par
+    SUBSTITUTION, donc il est CONSERVATEUR (au pire il ne signale pas) et un rouge fonde dessus
+    serait fragile. Mais un ecart signale que le declencheur de FICHIER a cesse d'etre l'union
+    de ses entrees -- or c'est ce qu'il PRETEND etre, et c'est lui qui sert de repli a toute
+    entree neuve."""
+    large = list((d or {}).get("chemins") or ())
+    if (d or {}).get("build"):
+        large += list(CHEMINS_BUILD)
+    out = []
+    for ident in sorted(par_entree or {}, key=str):
+        fine = par_entree[ident]
+        if not isinstance(fine, dict):
+            continue
+        for g in (fine.get("chemins") or ()):
+            if isinstance(g, str) and not any(_couvre_glob(h, g) for h in large):
+                out.append((ident, g))
+    return out
 
 
 def perimetre(d, source_rel: str | None = None) -> tuple[str, ...]:

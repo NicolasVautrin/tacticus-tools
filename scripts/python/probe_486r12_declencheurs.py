@@ -18,12 +18,24 @@ LES DEUX ETAGES, ET POURQUOI LE SECOND NE PEUT PAS ETRE UNE RELECTURE DU SOURCE
 --------------------------------------------------------------------------------
   [1] DECLARATION -- perimetre DERIVE de `scripts/ratchets.ps1` (jamais une liste ecrite ici :
       une entree neuve doit entrer d'elle-meme, c'est la lecon de #457-r6 sur les allowlists).
-      Chaque script de la banque doit porter un `DECLENCHEUR` bien forme.
+      Chaque script de la banque doit porter un `DECLENCHEUR` bien forme, et peut AFFINER
+      entree par entree (`DECLENCHEUR_PAR_ENTREE`, #486-r19). Une cle qui ne designe aucune
+      entree de banque de ce script est une declaration MORTE, donc un rouge.
   [2] MESURE -- la declaration est confrontee aux fichiers que le cliquet OUVRE REELLEMENT
       (`declencheur_trace`, meme idee que `probe_457._FilesPerTest`). Croire le source du
       declarant reviendrait a lui demander de s'auto-attester : un `read_text` derriere un
       helper, un `import` qui traine un paquet, une table lue par un module tiers sont
       invisibles a l'oeil et decisifs pour le verdict.
+
+CE QUE #486-r19 A CHANGE, ET POURQUOI CE N'ETAIT PAS COSMETIQUE
+---------------------------------------------------------------
+L'empreinte est keyee par ENTREE DE BANQUE depuis le premier jour ; la declaration, elle, ne
+pouvait porter que sur le FICHIER. L'etage 2 confrontait donc une mesure FINE a une declaration
+GROSSIERE. 14 des 25 entrees du groupe C sont dans ce cas (6 etapes de `probe_283`, 8 shards de
+`probe_457`), et l'effet est double : la confrontation est DESARMEE (`probe_283:diff` ne lit que
+`data/symbols/<build>/frida/enums.tsv` mais etait juge contre l'union des six etapes, donc il ne
+pouvait pas rougir), et la declaration est INEXPLOITABLE par une future selection -- un `.ts` de
+`frida/` rejouerait 161,8 s d'etapes qui ne le lisent pas.
 
 L'EMPREINTE EST VERSIONNEE, ET UNE ENTREE PERIMEE NE PEUT QUE MANQUER
 ----------------------------------------------------------------------
@@ -118,10 +130,18 @@ def script_de(argv) -> str | None:
 def par_script(bq: dict) -> dict:
     """`{script.py: [ids]}` -- plusieurs entrees partagent un script (`probe_283:*`, `probe_457:*`).
 
-    La DECLARATION porte sur le SCRIPT, jamais sur l'id : les shards et les etapes d'un meme
-    cliquet lisent des sous-ensembles d'un meme perimetre, et un declencheur par argv se
-    perimerait au premier decoupage. Le declencheur couvre donc l'UNION, ce qui est le sens
-    conservateur.
+    Le `DECLENCHEUR` porte sur le SCRIPT et vaut pour l'UNION de ses entrees : c'est le sens
+    conservateur, et il reste le REPLI de toute entree qui ne s'affine pas.
+
+    ⚠ MAIS L'UNION SEULE ETAIT UNE ASYMETRIE (#486-r19), et elle desarmait l'etage 2.
+    L'EMPREINTE est deja par ENTREE (`declencheurs-empreinte.tsv` est keye sur l'id de banque) :
+    on confrontait donc une mesure FINE a une declaration GROSSIERE. `probe_283:diff` ne lit que
+    `data/symbols/<build>/frida/enums.tsv` (1,1 s) et etait juge contre l'union des SIX etapes,
+    qui couvre tout `.py`/`.ts`/`.js` du depot -- il ne pouvait structurellement pas rougir, et
+    surtout il ne DISAIT rien. Sur les 25 entrees du groupe C, 14 partagent un fichier avec des
+    perimetres differents (6 pour `probe_283`, 8 pour `probe_457`).
+    Un script peut donc affiner, entree par entree, via `DECLENCHEUR_PAR_ENTREE` -- contrat et
+    resolution dans `declencheur_cliquet.py`, foyer UNIQUE.
     """
     out: dict = {}
     for ident, argv in bq.items():
@@ -273,10 +293,14 @@ def _tete() -> str:
 
 
 # ============================================================== etage 1 : la declaration
-def etage_declaration(scripts: dict) -> tuple[int, dict]:
-    """Rend (nb de rouges, {script: declencheur valide}). Un script sans declaration est ROUGE."""
+def etage_declaration(scripts: dict) -> tuple[int, dict, dict]:
+    """Rend (nb de rouges, {script: declencheur}, {script: declencheur_par_entree}).
+
+    Un script sans `DECLENCHEUR` est ROUGE ; un `DECLENCHEUR_PAR_ENTREE` mal forme ou portant
+    une cle MORTE (aucune entree de banque de ce script) l'est aussi."""
     print("== [1] DECLARATION -- perimetre DERIVE de scripts/ratchets.ps1 ==")
     ok: dict = {}
+    fins: dict = {}
     absents, malformes = [], []
     for script in sorted(scripts):
         p = PYDIR / script
@@ -289,10 +313,17 @@ def etage_declaration(scripts: dict) -> tuple[int, dict]:
             absents.append((script, str(exc)))
             continue
         fautes = DC.valider(d)
+        try:
+            fin = DC.lire_par_entree(p)
+        except DC.DeclencheurAbsent as exc:
+            fautes = fautes + [str(exc)]
+            fin = {}
+        fautes = fautes + DC.valider_par_entree(fin, scripts[script])
         if fautes:
             malformes.append((script, fautes))
             continue
         ok[script] = d
+        fins[script] = fin
 
     total = len(scripts)
     print("  scripts de la banque      : %d" % total)
@@ -301,6 +332,20 @@ def etage_declaration(scripts: dict) -> tuple[int, dict]:
     print("  declaration MAL FORMEE    : %d" % len(malformes))
     borne = [s for s, d in ok.items() if not d.get("toujours")]
     print("  dont BORNES (toujours=0)  : %d" % len(borne))
+    n_fines = sum(len(f) for f in fins.values())
+    n_entrees = sum(len(v) for v in scripts.values())
+    print("  entrees de banque         : %d, dont %d AFFINEES (DECLENCHEUR_PAR_ENTREE)"
+          % (n_entrees, n_fines))
+
+    # INFORMATIF (cf. `declencheur_cliquet.hors_de_l_union`) : le declencheur de FICHIER
+    # pretend etre l'union de ses entrees, et il sert de repli a toute entree neuve.
+    ecarts = [(s, i, g) for s in sorted(fins)
+              for i, g in DC.hors_de_l_union(ok[s], fins[s])]
+    if ecarts:
+        print("  [info] glob(s) d'une entree HORS de l'union declaree par le fichier : %d"
+              % len(ecarts))
+        for script, ident, g in ecarts[:6]:
+            print("      %-46s %-22s %r" % (script.rsplit("/", 1)[-1], ident, g))
 
     # INFORMATIF, jamais un rc (cf. `declencheur_cliquet.redondants`) : un glob integralement
     # couvert par un autre de la MEME declaration. Trace d'hesitation sur la semantique de
@@ -331,12 +376,17 @@ def etage_declaration(scripts: dict) -> tuple[int, dict]:
             print("      %s" % script)
             for f in fautes:
                 print("          %s" % f)
-    return ko, ok
+    return ko, ok, fins
 
 
 # ============================================================== etage 2 : la mesure
-def etage_mesure(scripts: dict, decl: dict, emp: Empreinte, verbose: bool) -> tuple[int, int]:
-    """Rend (nb de rouges, nb d'entrees NON MESUREES)."""
+def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
+                 verbose: bool) -> tuple[int, int]:
+    """Rend (nb de rouges, nb d'entrees NON MESUREES).
+
+    La confrontation est PAR ENTREE des deux cotes depuis #486-r19 : l'empreinte l'etait deja,
+    la declaration peut l'etre. Une entree qui ne s'affine pas est jugee contre le declencheur
+    du FICHIER, comme avant."""
     print("\n== [2] MESURE -- ce que le cliquet OUVRE vraiment, confronte a ce qu'il DECLARE ==")
     print("  empreinte : %s (commit=%s, %d entree(s))"
           % (EMPREINTE.relative_to(ROOT).as_posix(), emp.commit[:12], len(emp.par_id)))
@@ -353,8 +403,10 @@ def etage_mesure(scripts: dict, decl: dict, emp: Empreinte, verbose: bool) -> tu
         if d is None:
             continue                              # deja rouge a l'etage 1, ne pas compter deux fois
         sha = sha_source(script)
-        globs = DC.perimetre(d, source_rel=("scripts/python/" + script))
+        fin = fins.get(script) or {}
         for ident in sorted(scripts[script]):
+            d_eff = DC.resoudre(d, fin, ident)
+            globs = DC.perimetre(d_eff, source_rel=("scripts/python/" + script))
             e = emp.par_id.get(ident)
             if e is None:
                 absentes.append(ident)
@@ -373,7 +425,7 @@ def etage_mesure(scripts: dict, decl: dict, emp: Empreinte, verbose: bool) -> tu
             if e["proc"]:
                 incompletes.append((ident, e["proc"]))
             confrontes += 1
-            if d.get("toujours"):
+            if d_eff.get("toujours"):
                 continue                          # rien a confronter : il se rejoue TOUJOURS
             hors = []
             for dossier, ext, n, t_min, t_max in e["lu"]:
@@ -457,8 +509,8 @@ def main() -> int:
         print("[486r12] empreinte ecrite : %s (%d entree(s))"
               % (EMPREINTE.relative_to(ROOT).as_posix(), len(ancien.par_id)))
 
-    ko1, decl = etage_declaration(scripts)
-    ko2, non_mesure = etage_mesure(scripts, decl, Empreinte.charger(), a.verbose)
+    ko1, decl, fins = etage_declaration(scripts)
+    ko2, non_mesure = etage_mesure(scripts, decl, fins, Empreinte.charger(), a.verbose)
 
     ko = ko1 + ko2
     print("")

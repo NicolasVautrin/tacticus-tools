@@ -1,12 +1,12 @@
 # format=1  declencheurs-empreinte (#486-r12) -- GENERE, jamais fusionne a la main : REGENERER (`--mesurer`) en cas de conflit.
-# commit=1a0d40eae98f8a2dcfd8888397afb0a2a7f6051a
+# commit=20320989ecd4f3133ee3e75d81b1529c019f18d7
 # Une ligne `lu` = un groupe (dossier, extension) reellement OUVERT en lecture,
 # avec son compte et DEUX temoins (le plus petit et le plus grand chemin du
 # groupe). Les temoins sont ce que le cliquet confronte aux globs declares :
 # l'agregation borne la taille du fichier, et c'est une APPROXIMATION assumee
 # -- un glob discriminant sur le NOM de base pourrait couvrir les deux temoins
 # sans couvrir un troisieme fichier du meme groupe.
-probe_120	sha	15e70ccb150f73d833a4792ddf33a7f8f2db6de807e53a8376d5312b6b30f3f3
+probe_120	sha	56f1e913d0e379cde63973e3b6a27eefaa1bce5e966fe84c01bda9884568b53c
 probe_120	nproc	1
 probe_120	lu	data	.json	1	data/seed-bc.json	data/seed-bc.json
 probe_120	lu	data/boards/pvp	.json	1	data/boards/pvp/MC1_67.json	data/boards/pvp/MC1_67.json
@@ -14,10 +14,10 @@ probe_120	lu	scripts/python	.py	4	scripts/python/board.py	scripts/python/probe_1
 probe_120	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_120	lu	scripts/python/engine/ai	.py	6	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_120	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
-probe_120	lu	scripts/python/engine/entities	.py	24	scripts/python/engine/entities/__init__.py	scripts/python/engine/entities/victory_condition_type.py
+probe_120	lu	scripts/python/engine/entities	.py	25	scripts/python/engine/entities/__init__.py	scripts/python/engine/entities/victory_condition_type.py
 probe_120	lu	scripts/python/engine/entities/abilities	.py	3	scripts/python/engine/entities/abilities/__init__.py	scripts/python/engine/entities/abilities/active_ability.py
 probe_120	lu	scripts/python/engine/entities/effects	.py	6	scripts/python/engine/entities/effects/__init__.py	scripts/python/engine/entities/effects/magnitude.py
-probe_120	lu	scripts/python/engine/entities/effects/loki	.py	33	scripts/python/engine/entities/effects/loki/__init__.py	scripts/python/engine/entities/effects/loki/war_howl.py
+probe_120	lu	scripts/python/engine/entities/effects/loki	.py	35	scripts/python/engine/entities/effects/loki/__init__.py	scripts/python/engine/entities/effects/loki/war_howl.py
 probe_120	lu	scripts/python/engine/entities/pathfinding	.py	10	scripts/python/engine/entities/pathfinding/__init__.py	scripts/python/engine/entities/pathfinding/walk_pathfinder.py
 probe_120	lu	scripts/python/engine/entities/selectors	.py	7	scripts/python/engine/entities/selectors/__init__.py	scripts/python/engine/entities/selectors/units.py
 probe_120	lu	scripts/python/engine/entities/traits	.py	5	scripts/python/engine/entities/traits/__init__.py	scripts/python/engine/entities/traits/unit_trait.py
@@ -25,17 +25,17 @@ probe_120	lu	scripts/python/engine/playbook	.py	16	scripts/python/engine/playboo
 probe_120	lu	scripts/python/engine/playbook/noncomparable	.py	34	scripts/python/engine/playbook/noncomparable/__init__.py	scripts/python/engine/playbook/noncomparable/vigilance_eternal.py
 probe_120	lu	scripts/python/engine/playbook/prediction	.py	4	scripts/python/engine/playbook/prediction/__init__.py	scripts/python/engine/playbook/prediction/normal_attack.py
 probe_120	lu	scripts/python/engine/runner	.py	8	scripts/python/engine/runner/__init__.py	scripts/python/engine/runner/state.py
-probe_120	lu	scripts/python/engine/runner/abilities	.py	28	scripts/python/engine/runner/abilities/__init__.py	scripts/python/engine/runner/abilities/worldeaters.py
-probe_120	lu	scripts/python/engine/runner/abilities/behaviours	.py	13	scripts/python/engine/runner/abilities/behaviours/__init__.py	scripts/python/engine/runner/abilities/behaviours/turnflow.py
-probe_120	lu	scripts/python/engine/runner/abilities/loki	.py	11	scripts/python/engine/runner/abilities/loki/__init__.py	scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py
-probe_120	lu	scripts/python/engine/runner/operations	.py	26	scripts/python/engine/runner/operations/__init__.py	scripts/python/engine/runner/operations/turnflow.py
+probe_120	lu	scripts/python/engine/runner/abilities	.py	30	scripts/python/engine/runner/abilities/__init__.py	scripts/python/engine/runner/abilities/worldeaters.py
+probe_120	lu	scripts/python/engine/runner/abilities/behaviours	.py	14	scripts/python/engine/runner/abilities/behaviours/__init__.py	scripts/python/engine/runner/abilities/behaviours/turnflow.py
+probe_120	lu	scripts/python/engine/runner/abilities/loki	.py	17	scripts/python/engine/runner/abilities/loki/__init__.py	scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py
+probe_120	lu	scripts/python/engine/runner/operations	.py	28	scripts/python/engine/runner/operations/__init__.py	scripts/python/engine/runner/operations/turnflow.py
 probe_120	lu	scripts/python/engine/runner/operations/damage_ops	.py	5	scripts/python/engine/runner/operations/damage_ops/__init__.py	scripts/python/engine/runner/operations/damage_ops/normal_like.py
-probe_120	lu	scripts/python/engine/runner/operations/triggers	.py	7	scripts/python/engine/runner/operations/triggers/__init__.py	scripts/python/engine/runner/operations/triggers/tiles.py
+probe_120	lu	scripts/python/engine/runner/operations/triggers	.py	8	scripts/python/engine/runner/operations/triggers/__init__.py	scripts/python/engine/runner/operations/triggers/tiles.py
 probe_120	lu	scripts/python/engine/runner/operations/triggers/dispatch	.py	8	scripts/python/engine/runner/operations/triggers/dispatch/__init__.py	scripts/python/engine/runner/operations/triggers/dispatch/turn.py
-probe_120	lu	scripts/python/engine/runner/operations/triggers/loki	.py	69	scripts/python/engine/runner/operations/triggers/loki/__init__.py	scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py
+probe_120	lu	scripts/python/engine/runner/operations/triggers/loki	.py	72	scripts/python/engine/runner/operations/triggers/loki/__init__.py	scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py
 probe_120	lu	scripts/python/engine/services	.py	21	scripts/python/engine/services/__init__.py	scripts/python/engine/services/victory_config.py
 probe_120	lu	scripts/python/engine/streams	.py	8	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/tag_key.py
-probe_120	lu	scripts/python/engine/utilities	.py	12	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
+probe_120	lu	scripts/python/engine/utilities	.py	13	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_181	sha	5b7fc56882044cdab1071c6442cd8473078ce4772fc8834ed2f0738a6f586622
 probe_181	nproc	1
 probe_181	lu	data	.json	1	data/seed-bc.json	data/seed-bc.json
@@ -165,6 +165,231 @@ probe_274	lu	scripts/python/tests/engine/entities	.py	5	scripts/python/tests/eng
 probe_274	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
 probe_274	lu	scripts/python/tests/engine/runner	.py	433	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_274	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
+probe_283:diff	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
+probe_283:diff	nproc	1
+probe_283:diff	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
+probe_283:diff	lu	data/symbols/gqfc5mff6c/frida	.tsv	1	data/symbols/gqfc5mff6c/frida/enums.tsv	data/symbols/gqfc5mff6c/frida/enums.tsv
+probe_283:diff	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
+probe_283:diff	lu	scripts/python	.py	3	scripts/python/probe_283_enum_ordinal_sweep.py	scripts/python/symbols_layout.py
+probe_283:exec	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
+probe_283:exec	nproc	1
+probe_283:exec	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
+probe_283:exec	lu	data/symbols/gqfc5mff6c/frida	.tsv	1	data/symbols/gqfc5mff6c/frida/enums.tsv	data/symbols/gqfc5mff6c/frida/enums.tsv
+probe_283:exec	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
+probe_283:exec	lu	scripts/python	.py	990	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:exec	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
+probe_283:exec	lu	scripts/python/engine/ai	.py	7	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
+probe_283:exec	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
+probe_283:exec	lu	scripts/python/engine/entities	.py	30	scripts/python/engine/entities/__init__.py	scripts/python/engine/entities/victory_condition_type.py
+probe_283:exec	lu	scripts/python/engine/entities/abilities	.py	4	scripts/python/engine/entities/abilities/__init__.py	scripts/python/engine/entities/abilities/triggered_ability.py
+probe_283:exec	lu	scripts/python/engine/entities/effects	.py	6	scripts/python/engine/entities/effects/__init__.py	scripts/python/engine/entities/effects/magnitude.py
+probe_283:exec	lu	scripts/python/engine/entities/effects/loki	.py	35	scripts/python/engine/entities/effects/loki/__init__.py	scripts/python/engine/entities/effects/loki/war_howl.py
+probe_283:exec	lu	scripts/python/engine/entities/pathfinding	.py	10	scripts/python/engine/entities/pathfinding/__init__.py	scripts/python/engine/entities/pathfinding/walk_pathfinder.py
+probe_283:exec	lu	scripts/python/engine/entities/selectors	.py	7	scripts/python/engine/entities/selectors/__init__.py	scripts/python/engine/entities/selectors/units.py
+probe_283:exec	lu	scripts/python/engine/entities/traits	.py	5	scripts/python/engine/entities/traits/__init__.py	scripts/python/engine/entities/traits/unit_trait.py
+probe_283:exec	lu	scripts/python/engine/playbook	.py	41	scripts/python/engine/playbook/__init__.py	scripts/python/engine/playbook/tile_targets.py
+probe_283:exec	lu	scripts/python/engine/playbook/noncomparable	.py	34	scripts/python/engine/playbook/noncomparable/__init__.py	scripts/python/engine/playbook/noncomparable/vigilance_eternal.py
+probe_283:exec	lu	scripts/python/engine/playbook/prediction	.py	6	scripts/python/engine/playbook/prediction/__init__.py	scripts/python/engine/playbook/prediction/ramming_speed.py
+probe_283:exec	lu	scripts/python/engine/runner	.py	9	scripts/python/engine/runner/__init__.py	scripts/python/engine/runner/state.py
+probe_283:exec	lu	scripts/python/engine/runner/abilities	.py	31	scripts/python/engine/runner/abilities/__init__.py	scripts/python/engine/runner/abilities/worldeaters.py
+probe_283:exec	lu	scripts/python/engine/runner/abilities/behaviours	.py	14	scripts/python/engine/runner/abilities/behaviours/__init__.py	scripts/python/engine/runner/abilities/behaviours/turnflow.py
+probe_283:exec	lu	scripts/python/engine/runner/abilities/loki	.py	20	scripts/python/engine/runner/abilities/loki/__init__.py	scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py
+probe_283:exec	lu	scripts/python/engine/runner/caches	.py	2	scripts/python/engine/runner/caches/__init__.py	scripts/python/engine/runner/caches/ability_and_effect_cache.py
+probe_283:exec	lu	scripts/python/engine/runner/operations	.py	30	scripts/python/engine/runner/operations/__init__.py	scripts/python/engine/runner/operations/turnflow.py
+probe_283:exec	lu	scripts/python/engine/runner/operations/damage_ops	.py	5	scripts/python/engine/runner/operations/damage_ops/__init__.py	scripts/python/engine/runner/operations/damage_ops/normal_like.py
+probe_283:exec	lu	scripts/python/engine/runner/operations/triggers	.py	8	scripts/python/engine/runner/operations/triggers/__init__.py	scripts/python/engine/runner/operations/triggers/tiles.py
+probe_283:exec	lu	scripts/python/engine/runner/operations/triggers/dispatch	.py	9	scripts/python/engine/runner/operations/triggers/dispatch/__init__.py	scripts/python/engine/runner/operations/triggers/dispatch/turn.py
+probe_283:exec	lu	scripts/python/engine/runner/operations/triggers/loki	.py	72	scripts/python/engine/runner/operations/triggers/loki/__init__.py	scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py
+probe_283:exec	lu	scripts/python/engine/services	.py	21	scripts/python/engine/services/__init__.py	scripts/python/engine/services/victory_config.py
+probe_283:exec	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/verify_turn_finished.py
+probe_283:exec	lu	scripts/python/engine/utilities	.py	13	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
+probe_283:exec	lu	scripts/python/tests	.py	49	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
+probe_283:exec	lu	scripts/python/tests/engine	.py	252	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:exec	lu	scripts/python/tests/engine/entities	.py	5	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
+probe_283:exec	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
+probe_283:exec	lu	scripts/python/tests/engine/runner	.py	473	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:exec	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
+probe_283:mirror	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
+probe_283:mirror	nproc	1
+probe_283:mirror	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
+probe_283:mirror	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
+probe_283:mirror	lu	lib	.py	3	lib/hex.py	lib/state.py
+probe_283:mirror	lu	scripts/python	.py	990	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:mirror	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
+probe_283:mirror	lu	scripts/python/engine/ai	.py	7	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
+probe_283:mirror	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
+probe_283:mirror	lu	scripts/python/engine/entities	.py	30	scripts/python/engine/entities/__init__.py	scripts/python/engine/entities/victory_condition_type.py
+probe_283:mirror	lu	scripts/python/engine/entities/abilities	.py	4	scripts/python/engine/entities/abilities/__init__.py	scripts/python/engine/entities/abilities/triggered_ability.py
+probe_283:mirror	lu	scripts/python/engine/entities/effects	.py	6	scripts/python/engine/entities/effects/__init__.py	scripts/python/engine/entities/effects/magnitude.py
+probe_283:mirror	lu	scripts/python/engine/entities/effects/loki	.py	35	scripts/python/engine/entities/effects/loki/__init__.py	scripts/python/engine/entities/effects/loki/war_howl.py
+probe_283:mirror	lu	scripts/python/engine/entities/pathfinding	.py	10	scripts/python/engine/entities/pathfinding/__init__.py	scripts/python/engine/entities/pathfinding/walk_pathfinder.py
+probe_283:mirror	lu	scripts/python/engine/entities/selectors	.py	7	scripts/python/engine/entities/selectors/__init__.py	scripts/python/engine/entities/selectors/units.py
+probe_283:mirror	lu	scripts/python/engine/entities/traits	.py	5	scripts/python/engine/entities/traits/__init__.py	scripts/python/engine/entities/traits/unit_trait.py
+probe_283:mirror	lu	scripts/python/engine/playbook	.py	41	scripts/python/engine/playbook/__init__.py	scripts/python/engine/playbook/tile_targets.py
+probe_283:mirror	lu	scripts/python/engine/playbook/noncomparable	.py	34	scripts/python/engine/playbook/noncomparable/__init__.py	scripts/python/engine/playbook/noncomparable/vigilance_eternal.py
+probe_283:mirror	lu	scripts/python/engine/playbook/prediction	.py	6	scripts/python/engine/playbook/prediction/__init__.py	scripts/python/engine/playbook/prediction/ramming_speed.py
+probe_283:mirror	lu	scripts/python/engine/runner	.py	9	scripts/python/engine/runner/__init__.py	scripts/python/engine/runner/state.py
+probe_283:mirror	lu	scripts/python/engine/runner/abilities	.py	31	scripts/python/engine/runner/abilities/__init__.py	scripts/python/engine/runner/abilities/worldeaters.py
+probe_283:mirror	lu	scripts/python/engine/runner/abilities/behaviours	.py	14	scripts/python/engine/runner/abilities/behaviours/__init__.py	scripts/python/engine/runner/abilities/behaviours/turnflow.py
+probe_283:mirror	lu	scripts/python/engine/runner/abilities/loki	.py	20	scripts/python/engine/runner/abilities/loki/__init__.py	scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py
+probe_283:mirror	lu	scripts/python/engine/runner/caches	.py	2	scripts/python/engine/runner/caches/__init__.py	scripts/python/engine/runner/caches/ability_and_effect_cache.py
+probe_283:mirror	lu	scripts/python/engine/runner/operations	.py	30	scripts/python/engine/runner/operations/__init__.py	scripts/python/engine/runner/operations/turnflow.py
+probe_283:mirror	lu	scripts/python/engine/runner/operations/damage_ops	.py	5	scripts/python/engine/runner/operations/damage_ops/__init__.py	scripts/python/engine/runner/operations/damage_ops/normal_like.py
+probe_283:mirror	lu	scripts/python/engine/runner/operations/triggers	.py	8	scripts/python/engine/runner/operations/triggers/__init__.py	scripts/python/engine/runner/operations/triggers/tiles.py
+probe_283:mirror	lu	scripts/python/engine/runner/operations/triggers/dispatch	.py	9	scripts/python/engine/runner/operations/triggers/dispatch/__init__.py	scripts/python/engine/runner/operations/triggers/dispatch/turn.py
+probe_283:mirror	lu	scripts/python/engine/runner/operations/triggers/loki	.py	72	scripts/python/engine/runner/operations/triggers/loki/__init__.py	scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py
+probe_283:mirror	lu	scripts/python/engine/services	.py	21	scripts/python/engine/services/__init__.py	scripts/python/engine/services/victory_config.py
+probe_283:mirror	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/verify_turn_finished.py
+probe_283:mirror	lu	scripts/python/engine/utilities	.py	13	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
+probe_283:mirror	lu	scripts/python/tests	.py	49	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
+probe_283:mirror	lu	scripts/python/tests/engine	.py	252	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:mirror	lu	scripts/python/tests/engine/entities	.py	5	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
+probe_283:mirror	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
+probe_283:mirror	lu	scripts/python/tests/engine/runner	.py	473	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:mirror	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
+probe_283:on	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
+probe_283:on	nproc	1
+probe_283:on	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
+probe_283:on	lu	data/symbols/gqfc5mff6c/frida	.tsv	1	data/symbols/gqfc5mff6c/frida/enums.tsv	data/symbols/gqfc5mff6c/frida/enums.tsv
+probe_283:on	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
+probe_283:on	lu	scripts/python	.py	988	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:on	lu	scripts/python/.pytest_cache	.md	1	scripts/python/.pytest_cache/README.md	scripts/python/.pytest_cache/README.md
+probe_283:on	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
+probe_283:on	lu	scripts/python/engine/ai	.py	7	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
+probe_283:on	lu	scripts/python/engine/dsl	.py	4	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
+probe_283:on	lu	scripts/python/engine/entities	.py	30	scripts/python/engine/entities/__init__.py	scripts/python/engine/entities/victory_condition_type.py
+probe_283:on	lu	scripts/python/engine/entities/abilities	.py	4	scripts/python/engine/entities/abilities/__init__.py	scripts/python/engine/entities/abilities/triggered_ability.py
+probe_283:on	lu	scripts/python/engine/entities/effects	.py	6	scripts/python/engine/entities/effects/__init__.py	scripts/python/engine/entities/effects/magnitude.py
+probe_283:on	lu	scripts/python/engine/entities/effects/loki	.py	35	scripts/python/engine/entities/effects/loki/__init__.py	scripts/python/engine/entities/effects/loki/war_howl.py
+probe_283:on	lu	scripts/python/engine/entities/pathfinding	.py	10	scripts/python/engine/entities/pathfinding/__init__.py	scripts/python/engine/entities/pathfinding/walk_pathfinder.py
+probe_283:on	lu	scripts/python/engine/entities/selectors	.py	7	scripts/python/engine/entities/selectors/__init__.py	scripts/python/engine/entities/selectors/units.py
+probe_283:on	lu	scripts/python/engine/entities/traits	.py	5	scripts/python/engine/entities/traits/__init__.py	scripts/python/engine/entities/traits/unit_trait.py
+probe_283:on	lu	scripts/python/engine/playbook	.py	41	scripts/python/engine/playbook/__init__.py	scripts/python/engine/playbook/tile_targets.py
+probe_283:on	lu	scripts/python/engine/playbook/noncomparable	.py	34	scripts/python/engine/playbook/noncomparable/__init__.py	scripts/python/engine/playbook/noncomparable/vigilance_eternal.py
+probe_283:on	lu	scripts/python/engine/playbook/prediction	.py	6	scripts/python/engine/playbook/prediction/__init__.py	scripts/python/engine/playbook/prediction/ramming_speed.py
+probe_283:on	lu	scripts/python/engine/runner	.py	9	scripts/python/engine/runner/__init__.py	scripts/python/engine/runner/state.py
+probe_283:on	lu	scripts/python/engine/runner/abilities	.py	31	scripts/python/engine/runner/abilities/__init__.py	scripts/python/engine/runner/abilities/worldeaters.py
+probe_283:on	lu	scripts/python/engine/runner/abilities/behaviours	.py	14	scripts/python/engine/runner/abilities/behaviours/__init__.py	scripts/python/engine/runner/abilities/behaviours/turnflow.py
+probe_283:on	lu	scripts/python/engine/runner/abilities/loki	.py	20	scripts/python/engine/runner/abilities/loki/__init__.py	scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py
+probe_283:on	lu	scripts/python/engine/runner/caches	.py	2	scripts/python/engine/runner/caches/__init__.py	scripts/python/engine/runner/caches/ability_and_effect_cache.py
+probe_283:on	lu	scripts/python/engine/runner/operations	.py	30	scripts/python/engine/runner/operations/__init__.py	scripts/python/engine/runner/operations/turnflow.py
+probe_283:on	lu	scripts/python/engine/runner/operations/damage_ops	.py	5	scripts/python/engine/runner/operations/damage_ops/__init__.py	scripts/python/engine/runner/operations/damage_ops/normal_like.py
+probe_283:on	lu	scripts/python/engine/runner/operations/triggers	.py	8	scripts/python/engine/runner/operations/triggers/__init__.py	scripts/python/engine/runner/operations/triggers/tiles.py
+probe_283:on	lu	scripts/python/engine/runner/operations/triggers/dispatch	.py	9	scripts/python/engine/runner/operations/triggers/dispatch/__init__.py	scripts/python/engine/runner/operations/triggers/dispatch/turn.py
+probe_283:on	lu	scripts/python/engine/runner/operations/triggers/loki	.py	72	scripts/python/engine/runner/operations/triggers/loki/__init__.py	scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py
+probe_283:on	lu	scripts/python/engine/services	.py	21	scripts/python/engine/services/__init__.py	scripts/python/engine/services/victory_config.py
+probe_283:on	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/verify_turn_finished.py
+probe_283:on	lu	scripts/python/engine/utilities	.py	12	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
+probe_283:on	lu	scripts/python/tests	.py	48	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
+probe_283:on	lu	scripts/python/tests/engine	.py	252	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:on	lu	scripts/python/tests/engine/entities	.py	5	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
+probe_283:on	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
+probe_283:on	lu	scripts/python/tests/engine/runner	.py	473	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:on	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
+probe_283:prose	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
+probe_283:prose	nproc	1
+probe_283:prose	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
+probe_283:prose	lu	data/symbols/gqfc5mff6c/frida	.tsv	1	data/symbols/gqfc5mff6c/frida/enums.tsv	data/symbols/gqfc5mff6c/frida/enums.tsv
+probe_283:prose	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
+probe_283:prose	lu	scripts/python	.py	988	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:prose	lu	scripts/python/.pytest_cache	.md	1	scripts/python/.pytest_cache/README.md	scripts/python/.pytest_cache/README.md
+probe_283:prose	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
+probe_283:prose	lu	scripts/python/engine/ai	.py	7	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
+probe_283:prose	lu	scripts/python/engine/dsl	.py	4	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
+probe_283:prose	lu	scripts/python/engine/entities	.py	30	scripts/python/engine/entities/__init__.py	scripts/python/engine/entities/victory_condition_type.py
+probe_283:prose	lu	scripts/python/engine/entities/abilities	.py	4	scripts/python/engine/entities/abilities/__init__.py	scripts/python/engine/entities/abilities/triggered_ability.py
+probe_283:prose	lu	scripts/python/engine/entities/effects	.py	6	scripts/python/engine/entities/effects/__init__.py	scripts/python/engine/entities/effects/magnitude.py
+probe_283:prose	lu	scripts/python/engine/entities/effects/loki	.py	35	scripts/python/engine/entities/effects/loki/__init__.py	scripts/python/engine/entities/effects/loki/war_howl.py
+probe_283:prose	lu	scripts/python/engine/entities/pathfinding	.py	10	scripts/python/engine/entities/pathfinding/__init__.py	scripts/python/engine/entities/pathfinding/walk_pathfinder.py
+probe_283:prose	lu	scripts/python/engine/entities/selectors	.py	7	scripts/python/engine/entities/selectors/__init__.py	scripts/python/engine/entities/selectors/units.py
+probe_283:prose	lu	scripts/python/engine/entities/traits	.py	5	scripts/python/engine/entities/traits/__init__.py	scripts/python/engine/entities/traits/unit_trait.py
+probe_283:prose	lu	scripts/python/engine/playbook	.py	41	scripts/python/engine/playbook/__init__.py	scripts/python/engine/playbook/tile_targets.py
+probe_283:prose	lu	scripts/python/engine/playbook/noncomparable	.py	34	scripts/python/engine/playbook/noncomparable/__init__.py	scripts/python/engine/playbook/noncomparable/vigilance_eternal.py
+probe_283:prose	lu	scripts/python/engine/playbook/prediction	.py	6	scripts/python/engine/playbook/prediction/__init__.py	scripts/python/engine/playbook/prediction/ramming_speed.py
+probe_283:prose	lu	scripts/python/engine/runner	.py	9	scripts/python/engine/runner/__init__.py	scripts/python/engine/runner/state.py
+probe_283:prose	lu	scripts/python/engine/runner/abilities	.py	31	scripts/python/engine/runner/abilities/__init__.py	scripts/python/engine/runner/abilities/worldeaters.py
+probe_283:prose	lu	scripts/python/engine/runner/abilities/behaviours	.py	14	scripts/python/engine/runner/abilities/behaviours/__init__.py	scripts/python/engine/runner/abilities/behaviours/turnflow.py
+probe_283:prose	lu	scripts/python/engine/runner/abilities/loki	.py	20	scripts/python/engine/runner/abilities/loki/__init__.py	scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py
+probe_283:prose	lu	scripts/python/engine/runner/caches	.py	2	scripts/python/engine/runner/caches/__init__.py	scripts/python/engine/runner/caches/ability_and_effect_cache.py
+probe_283:prose	lu	scripts/python/engine/runner/operations	.py	30	scripts/python/engine/runner/operations/__init__.py	scripts/python/engine/runner/operations/turnflow.py
+probe_283:prose	lu	scripts/python/engine/runner/operations/damage_ops	.py	5	scripts/python/engine/runner/operations/damage_ops/__init__.py	scripts/python/engine/runner/operations/damage_ops/normal_like.py
+probe_283:prose	lu	scripts/python/engine/runner/operations/triggers	.py	8	scripts/python/engine/runner/operations/triggers/__init__.py	scripts/python/engine/runner/operations/triggers/tiles.py
+probe_283:prose	lu	scripts/python/engine/runner/operations/triggers/dispatch	.py	9	scripts/python/engine/runner/operations/triggers/dispatch/__init__.py	scripts/python/engine/runner/operations/triggers/dispatch/turn.py
+probe_283:prose	lu	scripts/python/engine/runner/operations/triggers/loki	.py	72	scripts/python/engine/runner/operations/triggers/loki/__init__.py	scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py
+probe_283:prose	lu	scripts/python/engine/services	.py	21	scripts/python/engine/services/__init__.py	scripts/python/engine/services/victory_config.py
+probe_283:prose	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/verify_turn_finished.py
+probe_283:prose	lu	scripts/python/engine/utilities	.py	12	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
+probe_283:prose	lu	scripts/python/tests	.py	48	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
+probe_283:prose	lu	scripts/python/tests/engine	.py	252	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:prose	lu	scripts/python/tests/engine/entities	.py	5	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
+probe_283:prose	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
+probe_283:prose	lu	scripts/python/tests/engine/runner	.py	473	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:prose	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
+probe_283:tables	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
+probe_283:tables	nproc	1
+probe_283:tables	lu	.claude/workflows	.js	2	.claude/workflows/tacticus-loop-wave.js	.claude/workflows/tacticus-selfplay.js
+probe_283:tables	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
+probe_283:tables	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
+probe_283:tables	lu	frida/hooks	.ts	2	frida/hooks/controller.ts	frida/hooks/main.ts
+probe_283:tables	lu	frida/hooks/ai-toolkit	.ts	5	frida/hooks/ai-toolkit/coroutine.ts	frida/hooks/ai-toolkit/unit-action.ts
+probe_283:tables	lu	frida/hooks/data	.ts	6	frida/hooks/data/ability-names.ts	frida/hooks/data/utility-type-names.ts
+probe_283:tables	lu	frida/hooks/features	.ts	48	frida/hooks/features/ability-prefs.ts	frida/hooks/features/winner-capture.ts
+probe_283:tables	lu	frida/hooks/features/ai-step	.ts	15	frida/hooks/features/ai-step/index.ts	frida/hooks/features/ai-step/triggered-predict.ts
+probe_283:tables	lu	frida/hooks/features/ai-trace	.ts	6	frida/hooks/features/ai-trace/ai-control.ts	frida/hooks/features/ai-trace/utilities.ts
+probe_283:tables	lu	frida/hooks/features/normalize-bc	.ts	5	frida/hooks/features/normalize-bc/debug-rpcs.ts	frida/hooks/features/normalize-bc/live-bc.ts
+probe_283:tables	lu	frida/hooks/features/overwatch-fix	.ts	5	frida/hooks/features/overwatch-fix/index.ts	frida/hooks/features/overwatch-fix/track.ts
+probe_283:tables	lu	frida/hooks/features/overwatch-fix/hooks	.ts	8	frida/hooks/features/overwatch-fix/hooks/bucket.ts	frida/hooks/features/overwatch-fix/hooks/trigger-observe.ts
+probe_283:tables	lu	frida/hooks/features/rl	.ts	2	frida/hooks/features/rl/bridge.ts	frida/hooks/features/rl/tensorizer.ts
+probe_283:tables	lu	frida/hooks/game	.ts	11	frida/hooks/game/ai-control.ts	frida/hooks/game/trace-origin.ts
+probe_283:tables	lu	frida/hooks/il2cpp	.ts	8	frida/hooks/il2cpp/build-pin.ts	frida/hooks/il2cpp/serializer.ts
+probe_283:tables	lu	frida/hooks/probes	.ts	67	frida/hooks/probes/check-invoker.ts	frida/hooks/probes/try-to-campaign.ts
+probe_283:tables	lu	frida/hooks/runtime	.ts	6	frida/hooks/runtime/crash-logger.ts	frida/hooks/runtime/queue.ts
+probe_283:tables	lu	frida/host	.ts	16	frida/host/admin.ts	frida/host/ws.ts
+probe_283:tables	lu	frida/public	.js	1	frida/public/app.js	frida/public/app.js
+probe_283:tables	lu	frida/public/src	.js	22	frida/public/src/actions.js	frida/public/src/ws.js
+probe_283:tables	lu	frida/tools	.ts	2	frida/tools/probe-279-layout-by-name.ts	frida/tools/probe-390-wedge-remedy.ts
+probe_283:tables	lu	hooks-legacy/_oneshot	.js	15	hooks-legacy/_oneshot/capture-battle-config.js	hooks-legacy/_oneshot/trace-battleconfig-ctor.js
+probe_283:tables	lu	hooks-legacy/_test	.js	9	hooks-legacy/_test/_composed_autoplay.js	hooks-legacy/_test/test_autoplay_probe.js
+probe_283:tables	lu	hooks-legacy/_utils	.js	5	hooks-legacy/_utils/il2cpp-gc-root.js	hooks-legacy/_utils/matchstate-reader.js
+probe_283:tables	lu	hooks-legacy/ai	.js	3	hooks-legacy/ai/ai-decisions.js	hooks-legacy/ai/ai-turn.js
+probe_283:tables	lu	hooks-legacy/autoplay	.js	13	hooks-legacy/autoplay/action-queue.js	hooks-legacy/autoplay/turn-observer.js
+probe_283:tables	lu	hooks-legacy/battle	.js	3	hooks-legacy/battle/all-actions.js	hooks-legacy/battle/player-input.js
+probe_283:tables	lu	lib	.py	3	lib/hex.py	lib/state.py
+probe_283:tables	lu	scripts/frida	.js	7	scripts/frida/dump-all-configs.js	scripts/frida/test-param-hook.js
+probe_283:tables	lu	scripts/node	.js	1	scripts/node/count_proxy.js	scripts/node/count_proxy.js
+probe_283:tables	lu	scripts/python	.py	990	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:tables	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
+probe_283:tables	lu	scripts/python/engine/ai	.py	7	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
+probe_283:tables	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
+probe_283:tables	lu	scripts/python/engine/entities	.py	30	scripts/python/engine/entities/__init__.py	scripts/python/engine/entities/victory_condition_type.py
+probe_283:tables	lu	scripts/python/engine/entities/abilities	.py	4	scripts/python/engine/entities/abilities/__init__.py	scripts/python/engine/entities/abilities/triggered_ability.py
+probe_283:tables	lu	scripts/python/engine/entities/effects	.py	6	scripts/python/engine/entities/effects/__init__.py	scripts/python/engine/entities/effects/magnitude.py
+probe_283:tables	lu	scripts/python/engine/entities/effects/loki	.py	35	scripts/python/engine/entities/effects/loki/__init__.py	scripts/python/engine/entities/effects/loki/war_howl.py
+probe_283:tables	lu	scripts/python/engine/entities/pathfinding	.py	10	scripts/python/engine/entities/pathfinding/__init__.py	scripts/python/engine/entities/pathfinding/walk_pathfinder.py
+probe_283:tables	lu	scripts/python/engine/entities/selectors	.py	7	scripts/python/engine/entities/selectors/__init__.py	scripts/python/engine/entities/selectors/units.py
+probe_283:tables	lu	scripts/python/engine/entities/traits	.py	5	scripts/python/engine/entities/traits/__init__.py	scripts/python/engine/entities/traits/unit_trait.py
+probe_283:tables	lu	scripts/python/engine/playbook	.py	41	scripts/python/engine/playbook/__init__.py	scripts/python/engine/playbook/tile_targets.py
+probe_283:tables	lu	scripts/python/engine/playbook/noncomparable	.py	34	scripts/python/engine/playbook/noncomparable/__init__.py	scripts/python/engine/playbook/noncomparable/vigilance_eternal.py
+probe_283:tables	lu	scripts/python/engine/playbook/prediction	.py	6	scripts/python/engine/playbook/prediction/__init__.py	scripts/python/engine/playbook/prediction/ramming_speed.py
+probe_283:tables	lu	scripts/python/engine/runner	.py	9	scripts/python/engine/runner/__init__.py	scripts/python/engine/runner/state.py
+probe_283:tables	lu	scripts/python/engine/runner/abilities	.py	31	scripts/python/engine/runner/abilities/__init__.py	scripts/python/engine/runner/abilities/worldeaters.py
+probe_283:tables	lu	scripts/python/engine/runner/abilities/behaviours	.py	14	scripts/python/engine/runner/abilities/behaviours/__init__.py	scripts/python/engine/runner/abilities/behaviours/turnflow.py
+probe_283:tables	lu	scripts/python/engine/runner/abilities/loki	.py	20	scripts/python/engine/runner/abilities/loki/__init__.py	scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py
+probe_283:tables	lu	scripts/python/engine/runner/caches	.py	2	scripts/python/engine/runner/caches/__init__.py	scripts/python/engine/runner/caches/ability_and_effect_cache.py
+probe_283:tables	lu	scripts/python/engine/runner/operations	.py	30	scripts/python/engine/runner/operations/__init__.py	scripts/python/engine/runner/operations/turnflow.py
+probe_283:tables	lu	scripts/python/engine/runner/operations/damage_ops	.py	5	scripts/python/engine/runner/operations/damage_ops/__init__.py	scripts/python/engine/runner/operations/damage_ops/normal_like.py
+probe_283:tables	lu	scripts/python/engine/runner/operations/triggers	.py	8	scripts/python/engine/runner/operations/triggers/__init__.py	scripts/python/engine/runner/operations/triggers/tiles.py
+probe_283:tables	lu	scripts/python/engine/runner/operations/triggers/dispatch	.py	9	scripts/python/engine/runner/operations/triggers/dispatch/__init__.py	scripts/python/engine/runner/operations/triggers/dispatch/turn.py
+probe_283:tables	lu	scripts/python/engine/runner/operations/triggers/loki	.py	72	scripts/python/engine/runner/operations/triggers/loki/__init__.py	scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py
+probe_283:tables	lu	scripts/python/engine/services	.py	21	scripts/python/engine/services/__init__.py	scripts/python/engine/services/victory_config.py
+probe_283:tables	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/verify_turn_finished.py
+probe_283:tables	lu	scripts/python/engine/utilities	.py	13	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
+probe_283:tables	lu	scripts/python/tests	.py	49	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
+probe_283:tables	lu	scripts/python/tests/engine	.py	252	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:tables	lu	scripts/python/tests/engine/entities	.py	5	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
+probe_283:tables	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
+probe_283:tables	lu	scripts/python/tests/engine/runner	.py	473	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:tables	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_313	sha	fb212d8281ac09a1f5541941b36165a1c5a5b62d90fe4ba21d35403d9860a264
 probe_313	nproc	1
 probe_313	proc	git
