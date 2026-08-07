@@ -733,10 +733,27 @@ avait un sens. Parade : au-dessus de ~70 %, **faire ÉCRIRE d'abord** (commit de
 probe), reprendre ensuite. La colonne `sature` de `fleet_board` donne le temps restant estimé ;
 c'est elle qu'on lit avant une reprise, pas l'occupation seule.
 
-⚠ Rappel de coût, à ne pas confondre : un `SendMessage` **rejoue** le contexte (300–600 K
-**facturés**) mais n'ajoute que le delta ci-dessus à la **fenêtre**. Les deux chiffres ne mesurent
-pas la même chose — `subagent_tokens` d'une notification compte N fois le même contexte relu et
-vaut ~40× l'occupation réelle.
+⚠ **`subagent_tokens` N'EST PAS UNE FACTURE — il suit l'OCCUPATION FINALE de la fenêtre, et le
+prendre pour un coût a produit une conclusion FAUSSE.** Re-mesuré le 2026-08-07 en confrontant la
+notification à la colonne `contexte` de `fleet_board`, qui la dérive **indépendamment** (dernière
+requête du transcript, `input + cache_creation + cache_read`) :
+
+| agent | `contexte` (fleet_board) | `subagent_tokens` | écart |
+|---|---|---|---|
+| `#522-r1` | 737 449 | 738 691 | **0,17 %** |
+| `#527-r1` | 446 506 | 446 987 | **0,11 %** |
+
+Deux agents indépendants, deux fois le **même** nombre. Ce qui tombe avec ça : la lecture « une
+reprise coûte autant ou plus qu'une tranche neuve **en facture** », bâtie le matin même sur ces
+chiffres. Elle comparait deux **occupations de fenêtre**, pas deux coûts — et l'ordre qu'on y
+lisait (une reprise à 72 % « coûte » 730 K, une à 44 % « coûte » 450 K) est simplement
+l'occupation, à ~10,1 K par point de pourcentage.
+
+⇒ **Aucun arbitrage reprendre/frais ne doit s'appuyer sur ce champ.** Il redit la fenêtre, qu'on
+lit déjà mieux dans `fleet_board`. Le coût réel d'un `SendMessage` — qui rejoue bien le transcript
+— **n'est mesuré par rien de ce qu'on a sous la main** ; l'écrire serait réinventer la même faute.
+Le premier critère (la valeur est-elle dans ce qui n'a pas été écrit ?) reste donc le seul qui
+tranche, et la borne reste la **fenêtre**.
 
 ## Agents (subagents) — TOUJOURS en worktree isolé
 
