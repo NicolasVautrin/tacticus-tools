@@ -222,7 +222,7 @@ def rapport(m) -> bool:
           % (m["pos_apres_port"], m["pos_apres_natif"]))
     print("  E3 tirages genrand_int32  PORT=%s  NATIF=%s"
           % (m["tirages_port"], m["tirages_natif"]))
-    print("  CE  contre-epreuve « port d'AVANT #514 » (AllUnits filtrait les mortes) :")
+    print("  CE  contre-epreuve : port d'AVANT #514 (AllUnits filtrait les mortes) --")
     print("        pierce=%s  sequence=%s"
           % (m["pierce_avant514"], [("u%s" % t, a) for t, a in m["seq_avant514"]]))
 
