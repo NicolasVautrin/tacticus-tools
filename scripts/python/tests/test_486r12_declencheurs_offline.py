@@ -245,7 +245,13 @@ def test_le_programme_lance_est_lu_sous_la_forme_WINDOWS():
     Windows. Ne lire que `exe` rendait `programmes` vide -- donc `MESURE INCOMPLETE` muet sur
     les quatre cliquets qui lancent `git ls-files`."""
     assert DT.programme_de((None, "git --version", None, None)) == "git"
-    assert DT.programme_de(("C:/x/git.exe", ["git", "status"], None, None)) == "git.exe"
+    # `--no-optional-locks` n'entre pour RIEN dans ce qu'on eprouve (l'extraction du nom de
+    # programme) : il est la parce qu'un argv `["git", "status"]` NU, meme en donnee de test,
+    # fait rougir `probe_474` -- son etage STATIQUE lit les litteraux d'argv sans pouvoir savoir
+    # ou ils vont. Sur-approximer est son choix (un argv assemble ailleurs lui echapperait) ;
+    # aligner la donnee sur la convention du depot coute moins qu'affaiblir son critere.
+    assert DT.programme_de(("C:/x/git.exe", ["git", "status", "--no-optional-locks"],
+                            None, None)) == "git.exe"
     assert DT.programme_de((None, '"C:/Program Files/Git/git.exe" status', None, None)) \
         == "git.exe"
     assert DT.programme_de((None, ["pwsh", "-File", "x"], None, None)) == "pwsh"
@@ -295,7 +301,10 @@ def test_le_hook_enregistre_une_lecture_du_depot_et_ignore_le_reste(tmp_path):
     for p in (dedans, sortie, dehors):
         t._hook("open", (str(p), "r", 0))
     t._hook("open", (str(dedans), "w", 0))
-    t._hook("subprocess.Popen", ("C:/x/git.exe", ["git", "status"], None, None))
+    # argv non NU : cf. la note de `test_programme_de_*` -- `probe_474` rougit sur un
+    # `["git", "status"]` litteral, meme en donnee de test qui ne lance rien.
+    t._hook("subprocess.Popen", ("C:/x/git.exe", ["git", "status", "--no-optional-locks"],
+                                 None, None))
 
     assert t.lectures == {"scripts/x.py"}, t.lectures
     assert t.programmes == {"git.exe"}

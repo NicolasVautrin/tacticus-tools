@@ -257,6 +257,41 @@ def _git_du_faux(base: Path, *argv) -> None:
                            % (argv[0], r.returncode, (r.stderr or "")[:200]))
 
 
+def _dependances_locales(source: Path) -> set:
+    """Les modules FRERES de `scripts/python` que `source` importe, TRANSITIVEMENT.
+
+    Ecrit apres coup (#486-r14 l'a diagnostique) : la recopie etait une LISTE ECRITE A LA MAIN
+    -- `probe_457` et `pytest.ini`, rien d'autre. Elle s'est donc perimee a l'instant ou
+    `probe_457` a acquis `repo_read` (#486-r5, lecture parallele), et les trois scenarios sont
+    sortis en `ModuleNotFoundError` : l'etage 3 rougissait SANS RIEN MESURER, c'est-a-dire
+    exactement le vice que ce cliquet existe pour attraper, retourne contre lui-meme.
+
+    DERIVER la cloture est ce qui empeche la recidive : le jour ou `probe_457` prend une
+    dependance de plus, elle est recopiee sans que personne ait a y penser.
+    """
+    vus, pile = set(), [source]
+    while pile:
+        p = pile.pop()
+        if p in vus or not p.exists():
+            continue
+        vus.add(p)
+        try:
+            arbre = ast.parse(p.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        for n in ast.walk(arbre):
+            noms = []
+            if isinstance(n, ast.Import):
+                noms = [a.name.split(".")[0] for a in n.names]
+            elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+                noms = [n.module.split(".")[0]]
+            for nom in noms:
+                frere = PY_DIR / (nom + ".py")
+                if frere.exists():
+                    pile.append(frere)
+    return vus
+
+
 def _faux_depot(base: Path) -> Path:
     """Un depot git JETABLE qui contient `probe_457` et UN test qui passe. Rend sa racine.
 
@@ -272,7 +307,8 @@ def _faux_depot(base: Path) -> Path:
     """
     py = base / "scripts" / "python"
     (py / "tests").mkdir(parents=True)
-    shutil.copy2(PROBE_457, py / PROBE_457.name)
+    for src in sorted(_dependances_locales(PROBE_457)):
+        shutil.copy2(src, py / src.name)
     shutil.copy2(PY_DIR / "pytest.ini", py / "pytest.ini")
     (py / "tests" / "test_vert_offline.py").write_text(_TEST_VERT, encoding="utf-8")
     _git_du_faux(base, "init", "-q")

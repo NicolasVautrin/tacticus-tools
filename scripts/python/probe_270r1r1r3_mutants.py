@@ -125,7 +125,11 @@ def _restaurer(rel: str) -> None:
 
 
 def _sale() -> list[str]:
-    r = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain",
+    # `--no-optional-locks` (#474) : ce `status` est une LECTURE, mais git y prend quand meme
+    # `.git/index.lock` de l'ARBRE PRINCIPAL a 0 octet pendant ~toute sa duree (5/5 mesures).
+    # Ce module tourne sous budget, donc tuable dans cette fenetre -- un git TerminateProcess-e
+    # ne nettoie rien, et c'est la commande SUIVANTE qui meurt sur le residu (20/20 mesures).
+    r = subprocess.run(["git", "-C", str(REPO), "--no-optional-locks", "status", "--porcelain",
                         "scripts/python"], capture_output=True, text=True, check=True)
     return [l for l in r.stdout.splitlines() if l and not l.startswith("??")]
 
