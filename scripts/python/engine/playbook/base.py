@@ -25,7 +25,8 @@ from ..utilities import damage_composite
 from ..utilities.tile import tile_composite
 from ..utilities.tile import (terrain_tile_effects, tile_leaf_ctx,   # lazy : évite tout cycle
                                   apply_tile_attributes)
-from ..utilities.tile import triggered_abilities_attack_utility
+from ..utilities.tile import (triggered_abilities_attack_utility,
+                              triggered_abilities_non_owner_attack_utility)
 from ..utilities.wireweave_net import wireweave_net_first_attack_utility
 
 
@@ -285,6 +286,13 @@ class ComparablePlaybook(BasePlaybook):
             # `HasValue == false` et rendrait 0 en silence.
             trig = triggered_abilities_attack_utility(ctx, ctx.uid, ability_id, ev.target, caster_tile,
                                                       prediction=ev.prediction)
+            # Feuille TriggeredAbilitiesNonOwner(4) face ATTACK (#271-r4) : l'AUTRE dispatcher du
+            # composite Damage(35) — celui qui itère les abilities déclenchées des AUTRES unités.
+            # Même rang, même prob x signe : la carte de composition MESURÉE
+            # (`probe_271r4_composition_map.py`) donne 13 membres pour `Damage(35)`, dont les DEUX
+            # feuilles de dispatch. Le natif ne passe AUCUNE prédiction à cette face-ci.
+            trig += triggered_abilities_non_owner_attack_utility(ctx, ctx.uid, ev.target,
+                                                                 caster_tile)
             if trig:
                 ua += (-1.0 if ev.friendly else 1.0) * ev.probability * trig
             u += ua

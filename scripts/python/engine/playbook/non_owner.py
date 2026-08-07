@@ -151,6 +151,11 @@ class TriggeredAbilityNonOwnerPlaybook:
     #: `playbook.<slot 4> || IsFriend(sujet, owner)` d'`IterateAbilities`. C'est une donnee PAR
     #: CLASSE, jamais une constante de famille (#477-r35) : voir la docstring de tete du module.
     SLOT_4 = False
+    #: La FACE du corps natif -- laquelle des TROIS entrees du dispatcher l'evalue, et donc dans
+    #: QUEL composite le terme part (`Tile(7)` pour MOVE, `Damage(35)` pour ATTACK, `Repair(47)`
+    #: pour REPAIR). Elle est LUE dans `data/symbols/<build>/metadata/non_owner_slot4.tsv`, jamais
+    #: deduite du nom de la classe. La face ATTACK vit dans `non_owner_attack.py` (#271-r4).
+    FACE = "MOVE"
 
     def calculate_movement_utility_in_steps(self, tile, owner: dict, is_friend: bool,
                                             ctx: dict, wt) -> float:

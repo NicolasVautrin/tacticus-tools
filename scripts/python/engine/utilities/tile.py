@@ -971,6 +971,78 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
                     total += pb.calculate_movement_utility_in_steps(tile, u, is_friend, ctx, wt)
         return total
 
+    def evaluate_attack_in_steps(self, ctx, caster_uid: int, caster_tile, target_uid: int) -> float:
+        """Face ATTACK du dispatcher — `IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext`,
+        feuille 4 du composite `Damage(35)` (#271-r4). Corps natif, LU :
+
+            Fix64 total = 0;
+            foreach ((playbook, owner) in IterateAbilities(case.<+0x10>))   // surcharge (IEntity)
+                total += playbook.<slot 1>(case, owner);
+            yield total;
+
+        DEUX écarts avec la face MOVE, tous deux LUS et load-bearing :
+
+        * **AUCUN gate de nullité du sujet.** `<EvaluateMovementInSteps>d__0` ouvre sur
+          `if (case.unit == null && case.parent == null) { yield 0; return; }` ; cette face-ci
+          n'a rien. Il n'y a donc pas de régime SPAWN à écarter ici — un `UtilityAttackCase` a
+          toujours un caster.
+        * **Le SUJET est le CASTER** (`case+0x10`, écrit par `UtilityAttackCase$$.ctor`), là où la
+          face MOVE prend `case.unit ?? case.parent`.
+
+        Et `<IterateAbilities>d__4` (la surcharge `(IEntity)`) diffère de `d__3` sur un seul point,
+        lui aussi load-bearing : **l'exclusion de self est INCONDITIONNELLE**
+        (`if (ta.Owner == subject) continue`), là où `d__3` la garde par `case.unit != null`. Le
+        caster ne pèse donc JAMAIS ses propres abilities non-owner.
+
+        Le pré-gate `<slot 4> || IsFriend(subject, owner)` est le MÊME, et il est appliqué ICI —
+        là où le natif le met. `NoHidingFromTheWatchersNonOwnerPlaybook` est la seule classe ATTACK
+        dont le `<slot 4>` vaut `true` : sans lui sa branche ENNEMI serait structurellement
+        inatteignable (son corps ouvre sur `if (IsFriend(...)) yield break`).
+
+        `ctx` = l'`AiDecisionContext` (comme la face ATTACK de la feuille 2), PAS le dict tile-leaf
+        de la face MOVE. La source du kit déclenché est `ctx.live_triggered_ability_ids(owner)` —
+        l'`AbilitiesComponent` ECS, celui que le natif itère — avec repli sur le kit gameconfig
+        quand le canal live est muet (même degradation que la feuille 2, #419)."""
+        sc = getattr(ctx, "scene", None)
+        if sc is None:
+            return 0.0
+        from ..playbook.non_owner_attack import load_playbook_non_owner_attack
+        _live_fn = getattr(ctx, "live_triggered_ability_ids", None)
+        my_team = sc.team(caster_uid)
+        total = 0.0
+        for u in (sc.units or []):
+            owner = u.get("id")
+            if owner is None:
+                continue
+            owner = int(owner)
+            # `if (ta.Owner == subject) continue` — INCONDITIONNEL dans `<IterateAbilities>d__4`.
+            if owner == int(caster_uid):
+                continue
+            if sc.pos(owner) is None:        # unité sans tuile : hors du cache d'abilities vivantes
+                continue
+            kit = list(kit_triggered_ability_ids(sc.vis_by_id.get(owner)))
+            if callable(_live_fn):
+                _live = list(_live_fn(owner) or ())
+                if _live:
+                    kit = _live              # l'AbilitiesComponent REEL, tel que le natif l'itère
+            if not kit:
+                continue
+            # `UnitExtensions.IsFriend(subject, ta.Owner, State)` — même camp que le CASTER.
+            is_friend = (sc.team(owner) == my_team)
+            for ab in kit:
+                pb = load_playbook_non_owner_attack(ab)
+                if pb is None:
+                    continue
+                # PRE-GATE `playbook.<slot 4> || IsFriend`. Accès DIRECT, jamais
+                # `getattr(..., False)` : toute classe de la famille porte `SLOT_4`, donc le défaut
+                # serait mort et un objet ETRANGER doit LEVER ici (même règle que la face MOVE).
+                if not (pb.SLOT_4 or is_friend):
+                    continue      # `!<slot 4> && !IsFriend` = IsInvalidEntityForPlaybook
+                total += pb.calculate_attack_utility_in_steps(ctx, int(caster_uid), caster_tile,
+                                                              int(target_uid), owner, is_friend,
+                                                              ctx.wt)
+        return total
+
 
 # ── Registry : UtilityType -> (name, instance|None). None => délégué/non-portable comme simple leaf. ──
 #
@@ -2103,4 +2175,24 @@ def triggered_abilities_attack_utility(ctx, attacker_uid: int, ability_id: int,
                                                      prediction=prediction)
 
 
+def triggered_abilities_non_owner_attack_utility(ctx, attacker_uid: int, target_uid: int,
+                                                 attack_tile) -> float:
+    """Feuille TriggeredAbilitiesNonOwner(4) FACE ATTACK du composite Damage(35) (#271-r4) —
+    pendant EXACT de `triggered_abilities_attack_utility` sur l'autre feuille de dispatch.
+
+    La MEMBERSHIP est MESURÉE, pas supposée : `probe_271r4_composition_map.py` lit la carte de
+    composition d'`IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities` et rend pour
+    `Damage(35)` **13** membres, dont `TriggeredAbilities` ET `TriggeredAbilitiesNonOwner`. Ce
+    terme s'ajoute donc au `damage_composite` de l'event et suit son `prob x signe`, exactement
+    comme la feuille 2 — à appliquer PAR L'APPELANT.
+
+    Le corps natif ne prend PAS de `prediction` (aucun des trois playbooks ATTACK ne lit
+    `case.DamagePrediction`), d'où l'absence du paramètre ici : l'ajouter suggérerait un canal que
+    le natif n'ouvre pas."""
+    return _TRIG_AB_NON_OWNER_UTILITY.evaluate_attack_in_steps(ctx, attacker_uid, attack_tile,
+                                                               target_uid)
+
+
 _TRIG_AB_UTILITY: TriggeredAbilitiesUtility = TILE_LEAVES[UtilityType.TriggeredAbilities][1]
+_TRIG_AB_NON_OWNER_UTILITY: TriggeredAbilitiesNonOwnerUtility = \
+    TILE_LEAVES[UtilityType.TriggeredAbilitiesNonOwner][1]
