@@ -46,7 +46,7 @@ from ...entities.effects.magnitude import ability_var
 from ..components import StatsComponent
 from .base import ActiveAbility
 from .behaviours.combat import AttackWithAttackDamage
-from .behaviours.context import entities_from_state, entities_with_tile_target
+from .behaviours.context import entities_from_state
 from .behaviours.effects import (AddBondEffect, AddEffect, AddStaticStatModifierEffect,
                                  RemoveEffect)
 from .behaviours.movement import PullUnitOneTile
@@ -392,8 +392,10 @@ class ExcruciatingFrequenciesAbility(ActiveAbility):
     {minDmg}-{maxDmg} Blast Damage to each enemy on affected hexes. Enemies hit are also Suppressed. »
 
     La cible du message est une **TUILE** (masque `TargetIsTile`) : elle donne la DIRECTION du rayon,
-    qui part du caster A TRAVERS elle. `entities_with_tile_target` materialise le role `target` (le
-    foyer `entities_from_state` rend `None` pour une entite-tuile, cf. sa docstring).
+    qui part du caster A TRAVERS elle. Le role `target` de l'`AbilityEntities` la MATERIALISE -- c'est
+    le foyer `entities_from_state` qui le fait depuis #287-r12 (avant, il rendait `None` et la
+    fonction specialisee `entities_with_tile_target` portait la parade ; elle a disparu avec le
+    besoin).
 
     Diag : {ability, caster, target, tiles, units_on_line, crit_chance, attacks, dsl}."""
     __slots__ = ()
@@ -436,7 +438,7 @@ class ExcruciatingFrequenciesAbility(ActiveAbility):
             return None
         n_tiles = excruciating_frequencies_nr_of_tiles()
         crit = excruciating_frequencies_extra_crit_chance(state, caster_id)
-        entities = entities_with_tile_target(state, caster_id, target_id)
+        entities = entities_from_state(state, caster_id, target_id)
         if entities.target is None:
             return None            # ni unite ni tuile du board -> le rayon n'a pas de direction
         # DIAGNOSTIC seulement : la geometrie ET l'occupation sont PURES (zero tirage, aucune

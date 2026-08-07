@@ -52,7 +52,7 @@ from .targeting import (custom_range_func, RANGE_ADJACENT, RANGE_FROM_CONFIG, RA
                         RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAttackDamage, InformWeapon
-from .behaviours.context import entities_from_state
+from .behaviours.context import entities_from_state, main_tile_id
 from .behaviours.effects import AddEffect
 from .behaviours.stats import Heal, healable_heal_type_0
 from .behaviours.summon import PerformAIAttack, Spawn
@@ -871,17 +871,16 @@ def plagueburst_nr_of_tiles(state: "State", caster_id: int) -> int:
 
 
 def plagueburst_target_tile(state: "State", target_id: Optional[int]) -> Optional[int]:
-    """Id de la TUILE ciblee : le cast est TILE-TARGET (mesure live), mais on accepte aussi un id
-    d'UNITE (on prend alors sa MainTile) -- `target@0x178` designe une ENTITE et le natif en lit la
-    MainTile partout ou il l'utilise en domaine tuile."""
-    board = state.board
-    if board is None or target_id is None:
-        return None
-    if int(target_id) in board.by_id:
-        return int(target_id)
-    te = state.get_entity(target_id)
-    tpc = te.get_component(PositionComponent) if te is not None else None
-    return board.id_at(tpc.col, tpc.row) if tpc is not None else None
+    """Id de la TUILE ciblee : le cast est TILE-TARGET (`TargetIsTile` au masque), mais on accepte
+    aussi un id d'UNITE (on prend alors sa MainTile) -- `target@0x178` designe une ENTITE et le natif
+    en lit la MainTile partout ou il l'utilise en domaine tuile.
+
+    DELEGUE au foyer `main_tile_id` (#287-r12), qui mirrore
+    `IdunBattle.Entities.EntityExtensions$$GetMainTileId`. Ce corps testait la branche TUILE
+    D'ABORD ; le natif la teste EN DERNIER, en repli du composant de pied puis de l'unite. L'ordre
+    n'est pas academique : les deux espaces d'ids se chevauchent (residu nomme dans
+    `operations/active_ability.py`), donc il decide de ce que rend un id ambigu."""
+    return main_tile_id(state, target_id)
 
 
 def plagueburst_contaminated_tiles(state: "State", target_id: int, n_tiles: int) -> list:

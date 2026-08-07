@@ -329,9 +329,10 @@ Sept d'entre eux portent une active à `attackRangeType` explicite — six en `R
   tables `*_UNPORTED` (contrat de disjonction) ;
 * `engine/runner/abilities/behaviours/context.py` — `entities_with_tile_target`, la forme
   PARTAGEABLE de la parade « le rôle `target` ne matérialise pas une entité-TUILE » que
-  `#287-r8` et `#287-r11-r1` écrivaient chacune de leur côté (résidu `#287-r12` inchangé :
-  `entities_from_state` n'est PAS élargi, les 5 abilities tile-target qui lisent un `Target()` nul
-  ne bougent pas) ;
+  `#287-r8` et `#287-r11-r1` écrivaient chacune de leur côté. ⚠ **Cette fonction n'existe plus** :
+  `#287-r12` a élargi `entities_from_state` lui-même après avoir mesuré le rayon de souffle
+  (**2** abilities, pas 5), et 1197 passe désormais par le foyer — c'est le même contexte, au même
+  endroit, sans la forme spécialisée ;
 * `probe_512_excruciating_frequencies.py` — 4 régimes live + 4 contre-épreuves ;
 * `tests/engine/runner/test_512_excruciating_frequencies_offline.py` — 17 assertions, `DECLENCHEUR`
   large, `build: True` (les ordinaux figés sont lus dans le binaire).

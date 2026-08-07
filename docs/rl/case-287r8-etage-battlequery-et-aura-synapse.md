@@ -176,14 +176,13 @@ la table de Contagions) — et c'est ce qui rend le rouge lisible.
 
 ## 10. Ce qui n'est PAS couvert
 
-- **Résidu `#287-r12` — le rôle `target` d'une entité TUILE n'est pas matérialisé par
-  `entities_from_state`.** Le foyer construit un caster minimal quand `caster_id` désigne une tuile
-  (même raison, même commentaire), mais rend `None` sur le rôle `target` — et `Entity(Target())`
-  avec lui. `1112` le matérialise **localement**, et ce choix est mesuré : **5** abilities
-  TILE-TARGET portées passent aujourd'hui leur `target_id` à `entities_from_state` (`1017`
-  FragBomb, `1018` ValkyrieStrike, `1026` BasiliskBarrage, `1148` DaemonicOrdnance, `1169`
-  PlagueburstMortar) et lisent donc un `Target()` **nul** ; élargir le foyer changerait leurs arbres
-  sans que cette tranche l'ait confronté.
+- **`#287-r12` — RÉSOLU.** Le rôle `target` d'une entité TUILE est matérialisé par
+  `entities_from_state` lui-même, et la parade locale de `1112` a disparu. Le critère « passe son
+  `target_id` au foyer » qui donnait **5** abilities ici n'était pas le bon : ce qui change avec
+  l'élargissement, c'est ce qu'un arbre **LIT**, et le rayon effectif est **2** (`1017` FragBomb,
+  `1018` ValkyrieStrike) — les deux confrontées au natif, `1026` étant muette pour une **autre**
+  cause (son collapse impératif) et `1148`/`1169` portant leur propre normalisation. Détail :
+  `case-287r12-role-target-entite-tuile.md`.
 - **Le bras `TargetHasFreeAdjacentTile` de 1025 n'est pas exercé en LIVE** : il exige une cible dont
   aucune tuile adjacente n'est libre — une ceinture complète, que ni `MC1_67` ni `C1_02` ne
   produisent spontanément. Couvert **offline** (cible ceinturée par 4 unités), et le probe live

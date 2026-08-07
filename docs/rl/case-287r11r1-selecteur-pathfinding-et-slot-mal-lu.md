@@ -160,10 +160,11 @@ Le natif ne remplit que **trois** champs de l'`AbilityEntities` (`caster` +0x08,
 `GetTiles(entities.Caster)` — l'empreinte COURANTE, ce que `CasterTile()` rend déjà côté port hors
 balayage IA. Aucun écart.
 
-⚠ **Le rôle `target` d'une entité TUILE n'est pas matérialisé** par `entities_from_state` : même
-verrou et même parade LOCALE que `AlphaWarriorAbility` (#287-r8), pour la même raison — élargir le
-foyer changerait les arbres des 5 abilities TILE-TARGET portées qui lisent aujourd'hui un `Target()`
-nul. RÉSIDU `#287-r12`, inchangé.
+⚠ **Le rôle `target` d'une entité TUILE est matérialisé par le FOYER** depuis `#287-r12`. Cette règle
+a porté la parade en LOCAL, comme `AlphaWarriorAbility` (#287-r8), tant que le rayon de souffle de
+l'élargissement n'était pas mesuré. Il l'est : **2** abilities (`1017 FragBomb`, `1018
+ValkyrieStrike`) — et non 5 — lisent réellement ce rôle en régime tuile, et les deux ont été
+confrontées au natif. Il ne reste aucune copie locale.
 
 ## 6. Confrontation LIVE, avec attribution
 

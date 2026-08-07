@@ -1887,13 +1887,12 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
     `ITargetsSelector` n'expose qu'UNE methode a 1 parametre rendant un `int` : `Count` (slot 2 de
     l'interface, cf. `data/symbols/<build>/metadata/interface_slots.tsv`).
 
-    ⚠ LA CIBLE EST UNE TUILE, ET LE ROLE `target` NE LA MATERIALISE PAS -- meme verrou que
-    `AlphaWarriorAbility.get_dynamic_invalid_target_reason` (#287-r8), pour la meme raison :
-    elargir `entities_from_state` changerait les arbres des **5** abilities TILE-TARGET portees qui
-    lisent aujourd'hui un `Target()` nul, sans que cette tranche les ait confrontees. RESIDU
-    `#287-r12`, inchange. La parade, qui etait LOCALE ici, vit desormais dans
-    `behaviours.context.entities_with_tile_target` (#512) : la face COMBAT de 1197 en a besoin de la
-    MEME forme, et trois copies du meme dict minimal auraient ete trois choses a maintenir.
+    ⚠ LA CIBLE EST UNE TUILE, ET LE ROLE `target` LA MATERIALISE -- depuis #287-r12, dans le FOYER
+    `entities_from_state` lui-meme. La parade a vecu LOCALE ici (#287-r11-r1), puis dans une fonction
+    specialisee `entities_with_tile_target` (#512) ; le rayon de souffle de l'elargissement a ete
+    MESURE (`probe_287r12_role_target_tuile.py --rayon`) a **2** abilities -- `1017 FragBomb` et
+    `1018 ValkyrieStrike`, toutes deux en NO-OP silencieux sur ce role -- et les deux ont ete
+    confrontees. Il n'y a donc plus de forme specialisee, ni ici ni ailleurs.
 
     ⚠ ET LE CONTEXTE NATIF EST VOLONTAIREMENT PAUVRE : `casterTiles` (+0x48) reste NUL, donc
     `CasterTileSelector$$Select` retombe sur `GetTiles(entities.Caster)` -- l'empreinte COURANTE du
@@ -1901,10 +1900,10 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
 
     `nrOfTiles` illisible / cible non resolue / board absent -> `0`, la convention permissive du
     module (on ne fabrique pas un refus sur un substrat non mesure)."""
-    # `entities_with_tile_target` reste DIFFERE : `behaviours` re-importe `targeting` (cycle reel,
-    # meme raison que `charge_tiles_count`). Les noeuds DSL, eux, sont HISSES au niveau module -- le
+    # `entities_from_state` reste DIFFERE : `behaviours` re-importe `targeting` (cycle reel, meme
+    # raison que `charge_tiles_count`). Les noeuds DSL, eux, sont HISSES au niveau module -- le
     # cliquet `probe_485_imports_differes.py` a MESURE qu'aucun cycle ne les justifie.
-    from .behaviours.context import entities_with_tile_target  # noqa: PLC0415
+    from .behaviours.context import entities_from_state  # noqa: PLC0415
     import gameconfig as GC                                             # noqa: PLC0415
     if target_id is None:
         return 0
@@ -1912,7 +1911,7 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
            or {}).get(ABILITY_CONSTANT_NR_OF_TILES)
     if raw is None:
         return 0                                    # `GetNumberConstant(0x17)` non mesure
-    ents = entities_with_tile_target(state, int(caster_id), int(target_id))
+    ents = entities_from_state(state, int(caster_id), int(target_id))
     if ents.target is None:
         return 0                                    # ni unite ni tuile du board -> non mesure
     sel = Enemies(Units(excruciating_frequencies_affected_tiles(int(raw))))

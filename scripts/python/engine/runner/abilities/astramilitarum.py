@@ -34,7 +34,7 @@ from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_SE
 from .targeting_rule import TargetingRule as TR
 from .behaviours.ai_control import PerformAIAction
 from .behaviours.combat import AttackWithAttackDamage, SortedAttackSeries, UseActiveAbility
-from .behaviours.context import entities_from_state
+from .behaviours.context import entities_from_state, main_tile_id
 from .behaviours.effects import AddBondEffect, AddEffect
 from .behaviours.summon import PerformAIAttack, Spawn
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
@@ -843,11 +843,20 @@ class FragBombAbility(ActiveAbility):
         if target_id is None:
             return None
         ectx = ExecutionContext(state=state, rng=state.rng)
-        frag_bomb_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        entities = entities_from_state(state, caster_id, target_id)
+        # VENTILATION du diagnostic (aucun effet sur la mutation) : la cible PRINCIPALE est ce que
+        # rend le selecteur natif du 1er groupe, `Units(Target@0x178, 1, 1)` -- PAS `target_id`, qui
+        # est une TUILE des que le cast est tile-target (`TargetIsTile` au masque, et le natif y met
+        # l'entite-tuile). Comparer les cibles emises a `target_id` rangeait alors la cible
+        # principale dans `splash` et rendait `main_attack: None`, alors que les COUPS, eux, etaient
+        # deja exacts (#287-r12). Evalue AVANT l'arbre : apres, la cible peut etre morte et la tuile
+        # vide. `Units` ne consomme aucun tirage.
+        main_uid = next((u.get("id") for u in Units(Target()).evaluate(entities)), None)
+        frag_bomb_tree().execute(entities, ectx)
         atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
-        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        main = next((p["attack"] for p in atks if p.get("target") == main_uid), None)
         splash = [{"target": p["target"], "attack": p["attack"]}
-                  for p in atks if p.get("target") != target_id]
+                  for p in atks if p.get("target") != main_uid]
         order = next((p["order"] for n, p in ectx.emitted if n == "SortedAttackSeries"), [])
         return {"ability": FRAG_BOMB_ID, "caster": caster_id, "target": target_id,
                 "main_attack": main, "splash": splash, "order": order, "dsl": True}
@@ -973,16 +982,18 @@ def basilisk_shell_tiles(state: "State", caster_id: int, target_id: int) -> list
     -- meme doctrine de collapse que `send_in_the_next_wave_spawn_tiles` / le `pick_n` des feuilles.
     `Cache` = no-op offline (chaque pool n'est resolu qu'une fois).
 
-    Rend la liste des tuiles d'IMPACT (une entree par obus, DOUBLONS COMPRIS : `allowRepeat=1`)."""
+    Rend la liste des tuiles d'IMPACT (une entree par obus, DOUBLONS COMPRIS : `allowRepeat=1`).
+
+    ⚠ `target@0x178` est une ENTITE, et pour 1026 (`TargetIsTile` au masque) le natif y met
+    l'entite-TUILE : la normalisation passe donc par le foyer `main_tile_id`
+    (`IdunBattle.Entities.EntityExtensions$$GetMainTileId`), pas par un `get_entity` local. Ce site
+    ne lisait QUE le cas UNITE -- un `target_id` de TUILE lui rendait `[]`, donc **zero obus, aucune
+    erreur** (#287-r12, mesure `probe_287r12_role_target_tuile.py`)."""
     board = state.board
-    te = state.get_entity(target_id) if target_id is not None else None
-    tpc = te.get_component(PositionComponent) if te is not None else None
-    if board is None or tpc is None:
+    ttile = main_tile_id(state, target_id)
+    if board is None or ttile is None:
         return []
-    tp = (tpc.col, tpc.row)
-    ttile = board.id_at(tp[0], tp[1])
-    if ttile is None:
-        return []
+    tp = board.coord(ttile)
     guaranteed, maybe, miss, _total = basilisk_num_shells(state, caster_id)
     pool_miss = basilisk_tiles_at_distance(state, tp, 2)
     pool_maybe = [ttile] + basilisk_tiles_at_distance(state, tp, 1)
