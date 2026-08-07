@@ -233,17 +233,32 @@ def test_bio_minefield_porte_la_signature_MoW():
     assert opts.range is not None and opts.range.use_whole_board
 
 
-def test_1091_reste_non_lu_et_1186_reste_au_registre():
-    """Les deux exclusions du lot, et elles ne sont PAS de meme nature :
-      * `1091 SlashingDive` -- aucune classe d'ability a lire (le corps du ctor est deduplicable) :
-        un masque devine serait pire que l'absence ;
-      * `1186 WallOfMirrors` -- sa face COMBAT est portee, donc son masque vit dans
-        `ABILITY_CLASSES` et le dupliquer ici casserait le contrat de disjonction."""
-    assert 1091 not in TARGETING_OPTIONS_UNPORTED
-    assert targeting_options_for(1091) is None, (
-        "1091 a desormais un masque : verifier qu'il a ete LU (ctor ou slot de vtable), pas devine")
-    assert 1186 not in TARGETING_OPTIONS_UNPORTED, "doublon avec `ABILITY_CLASSES[1186]`"
-    assert getattr(ABILITY_CLASSES[1186], "TARGETING_OPTIONS", None) is not None
+def test_les_deux_exclusions_du_lot_vivent_au_registre():
+    """Les deux exclusions du lot ont CONVERGE, et le chemin par lequel elles y sont arrivees est
+    ce que ce test garde desormais.
+
+      * `1186 WallOfMirrors` -- sa face COMBAT etait deja portee : son masque vit dans
+        `ABILITY_CLASSES` et le dupliquer ici casserait le contrat de disjonction.
+      * `1091 SlashingDive` -- exclue parce qu'aucun ctor n'etait LISIBLE (le corps est
+        deduplicable, et aucune classe `SlashingDiveAbility` n'apparait dans les tables, qui sont
+        indexees par ADRESSE). `#507` a tranche par la SECONDE voie, celle que le residu
+        `#433-r4-r2-r1-r2-r2-r1-r1-r1-r2` nommait : le SLOT DE METHODE de la classe, lu en live
+        (`resolveMethodPtr`) -- `.ctor` a depth=0 sur la MEME adresse d'entree que
+        `SwoopingHawkAbility$$.ctor`, corrobore par `classes.tsv` (parent `DiveAttackAbilityBase`).
+        Le masque est donc LU, pas devine, et 1091 est entree au registre COMBAT.
+
+    ⚠ CE TEST AFFIRMAIT L'INVERSE (`targeting_options_for(1091) is None`) et a rendu `master`
+    ROUGE des le port de `#507`, dans CE fichier et dans
+    `test_433_r4_r2_r1_r1_a_whole_board_gates_offline.py` (#519). Il affirme maintenant le sens
+    STABLE de la cadence -- une ability va de « non portee » vers « portee », jamais l'inverse --
+    donc il ne peut plus tomber par un port. Cliquet du motif :
+    `scripts/python/probe_519_temoins_de_camp.py`."""
+    for aid in (1091, 1186):
+        assert aid not in TARGETING_OPTIONS_UNPORTED, (
+            "%d : doublon avec `ABILITY_CLASSES[%d]` -- contrat de disjonction rompu" % (aid, aid))
+        assert aid in ABILITY_CLASSES, "%d a quitte le registre COMBAT" % aid
+        assert getattr(ABILITY_CLASSES[aid], "TARGETING_OPTIONS", None) is not None, (
+            "%d entree au registre SANS son masque : gate de ciblage DESARME en silence" % aid)
 
 
 def test_les_deux_sources_de_masques_restent_disjointes():

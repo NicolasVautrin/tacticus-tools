@@ -604,6 +604,7 @@ def refuses_all_enemy_targets(options: "TargetingOptions") -> bool:
 # `tests/engine/runner/test_targeting_options_sources.py` (une entree bidon injectee par monkeypatch
 # verifie que `targeting_options_for` consulte toujours cette table).
 TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
+    # @FORME PRESET+FLAGS
     # 1216 MartialExemplar (#27-r4) -- face DECISION portee (playbook), face COMBAT NON portee :
     # d'ou cette table plutot qu'`ABILITY_CLASSES`. Le masque est EFFECTIF, pas le litteral visible :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$.ctor` recopie le preset
@@ -623,6 +624,8 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.MartialExemplar: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved  # 1216
                                  | TR.CasterMatchesDynamicRule,
                            self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
+    # @FORME STATIC-COPY   (couvre aussi 1093 et 1215 ci-dessous : les trois recopient les 0x40
+    #                       octets d'un preset et n'appellent AUCUN `TargetingOptions$$.ctor`)
     # 1217 TheLionsWrath (#27-r4) -- meme configuration que 1216 : face DECISION portee (playbook
     # `loki_custom.TheLionsWrathPlaybook`), face COMBAT NON portee -> cette table, pas
     # `ABILITY_CLASSES`. Ici le masque est le LITTERAL, sans piege PRESET+FLAGS :
@@ -702,33 +705,29 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # 1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1141 (#503), 1132 (#504),
     # 1204 (#508), 1191 (#509), 1177 (#510), 1197 (#512) -- QUINZE.
     # ⚠ #508, #509, #510 et #512 se sont croisees ICI : chacune n'ajoutait QUE son id a cette liste
-    #   et n'annoncait QUE son propre retrait. La resolution est l'UNION des retraits, et le compte
-    #   ci-dessous a ete RE-COMPTE PAR LE CODE **apres** resolution -- pas soustrait, pas repris
-    #   d'un des quatre cotes.
+    #   et n'annoncait QUE son propre retrait. La resolution est l'UNION des retraits.
     #
-    # Compte RE-DERIVE au 2026-08-07 EN CHARGEANT LE MODULE, APRES le rebase de #512 sur #510 sur
-    # #509 sur #508 (`logs/count512.py` : `len(TARGETING_OPTIONS_UNPORTED)`, jamais une
-    # soustraction ni un balayage du texte) : **26 dans le dict entier**, dont **4** hors-bloc en
-    # tete de table. C'est la seule mesure qui ne depende d'aucun decoupage -- et la seule qui ne se
-    # perime pas par le croisement de deux tranches, puisqu'elle se re-joue.
-    # ⚠ Le chiffre que #509 avait ecrit AVANT son rebase (« 26 ecrites, 30 au total ») etait deja
-    # perime de DEUX : #505 avait vide la section « PRESET SEUL » et #508 retire une STATIC-COPY.
-    # C'est la troisieme illustration de la ligne ci-dessous, et elle est arrivee au meme endroit.
-    # ⚠ CE COMPTE SE RE-COMPTE, IL NE SE SOUSTRAIT PAS -- et ce n'est pas une precaution de style :
-    # #498, #499, #500, #501, #502, #503 et #504 ont retire une entree CHACUNE, en parallele, chaque
-    # tranche aveugle aux autres. TROIS illustrations, toutes dans CE paragraphe :
-    #   * le chiffre qui vivait ici avant #503 (« 31 entrees ecrites, 10/4/1/16 ») etait deja faux
-    #     de 2 sur un arbre qui en portait 29 -- la ventilation « 16 » ne correspond a aucune des
-    #     sections ;
+    # ⚠ AUCUN COMPTE DE CETTE TABLE NE S'ECRIT PLUS A LA MAIN (#519) -- ils vivent dans le BLOC
+    # GENERE ci-dessous, derive du code. Ce n'est pas une precaution de style : SEPT tranches
+    # (#498 a #504) ont retire une entree CHACUNE, en parallele et aveugles les unes aux autres,
+    # et le compte ecrit ici a ete faux QUATRE fois dans la seule journee du 2026-08-07.
+    # QUATRE illustrations, toutes au meme endroit :
+    #   * le chiffre d'avant #503 (« 31 entrees ecrites, 10/4/1/16 ») etait deja faux de 2 sur un
+    #     arbre qui en portait 29 -- la ventilation « 16 » ne correspondait a aucune section ;
     #   * la version de #503 ecrite AVANT son premier rebase annoncait « 32 dans ce bloc » sur un
     #     arbre qui portait encore 1019, 1038, 1165 et 1064 ;
-    #   * celle ecrite APRES ce premier rebase (« 28 ») s'est periemee une deuxieme fois quand #504
-    #     a retire 1132 de la section STATIC-COPY pendant la validation de #503.
-    # Compter les entrees du bloc APRES resolution est le seul geste qui converge.
+    #   * celle ecrite APRES ce rebase (« 28 ») s'est perimee quand #504 a retire 1132 pendant la
+    #     validation de #503 ; celle de #509 (« 26 ecrites, 30 au total ») etait perimee de DEUX ;
+    #   * et la correction FINALE du 2026-08-07 -- celle qui se declarait « RE-COMPTEE PAR LE
+    #     CODE » -- annoncait une ventilation par forme de `10 / 4 / 0 / 13` la ou le code en
+    #     portait `12 / 6 / 0 / 9`. TROIS nombres faux sur quatre, et leur SOMME juste (27 des
+    #     deux cotes) : le seul controle qu'un relecteur pouvait faire de tete PASSAIT. Un accord
+    #     peut etre le produit de fautes qui se compensent.
+    # Un compteur qu'on ecrit soi-meme n'est pas plus fiable qu'un compteur herite.
     #
-    # Les chiffres des quatre sections ci-dessous sont eux aussi RE-DERIVES ; ceux entre parentheses
-    # apres « en #433-r4 » sont la mesure HISTORIQUE, gardee parce que le contre-controle de la fin
-    # du bloc porte sur CE perimetre-la.
+    # Les nombres entre parentheses « en #433-r4 » ci-dessous sont, eux, des faits de RE FIGES
+    # (la mesure du lot de 32) : ils ne bougent jamais, et le contre-controle de la fin du bloc
+    # porte sur CE perimetre-la.
     #
     # COMMENT LA SURCHARGE A ETE TRANCHEE -- par les XREFS ENTRANTES, jamais a l'oeil. Ghidra rend le
     # meme nom decompile (`TargetingOptions___ctor`) pour les trois surcharges de
@@ -736,23 +735,42 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # l'appartenance d'un ctor d'ability a leur liste d'appelants :
     #
     #   surcharge A -- `.ctor(this, isSelfCasting, range, forceMeleeTarget, rules, dynCaster, dynTarget)`
-    #                  FLAGS DIRECTS : `this+0x28 = rules`. Le litteral EST le masque.   10 (14 en #433-r4)
+    #                  FLAGS DIRECTS : `this+0x28 = rules`. Le litteral EST le masque.  (14 en #433-r4)
     #   surcharge B -- `.ctor(this, template, additionalRules)`
-    #                  PRESET + FLAGS : `this+0x28 = additionalRules | template+0x28`.    4 (5 en #433-r4)
+    #                  PRESET + FLAGS : `this+0x28 = additionalRules | template+0x28`.   (5 en #433-r4)
     #   surcharge C -- `.ctor(this, template)`
-    #                  PRESET SEUL (copie PURE, 8 qwords verbatim, AUCUN `|`).            0 (1 en #433-r4)
+    #                  PRESET SEUL (copie PURE, 8 qwords verbatim, AUCUN `|`).           (1 en #433-r4)
     #                  (la SEULE, 1129 `BloodyFury`, est SORTIE en #505 -- la section est VIDE.)
     #   (aucun ctor) -- STATIC-COPY : les 0x40 octets d'un preset sont recopies dans un local passe
-    #                  TEL QUEL a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28`.     13 (12 en #433-r4)
-    #                  (16 avant #508, qui a fait MIGRER 1204 -- STATIC-COPY du preset `+0x240` --
-    #                   vers `LeadingTheChargeAbility.TARGETING_OPTIONS` ; 15 avant #509 -- 1191,
-    #                   preset `+0x40` ; 14 avant #510, qui a fait MIGRER 1177 -- STATIC-COPY du MEME
-    #                   preset `+0x240` que 1204 -- vers `LightOfSanguiniusAbility.TARGETING_OPTIONS`.
-    #                   Les deux JUMEAUX du preset `+0x240` sont donc sortis, chacun par sa tranche.)
-    # ⚠ CES QUATRE CHIFFRES ONT ETE RE-DERIVES AU REBASE DE #510, et ils etaient FAUX DE DEUX sur
-    #   `origin/master` (`10 + 4 + 1 + 15 = 30` pour un dict de **28**) : ils ne sont gardes par
-    #   AUCUN test et derivent en silence a chaque migration. Ils somment desormais au
-    #   `len(TARGETING_OPTIONS_UNPORTED)` mesure (`10 + 4 + 0 + 13 = 27`).
+    #                  TEL QUEL a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28`.    (12 en #433-r4)
+    #                  (MIGRATIONS de cette forme, dans l'ordre : 1204 -- preset `+0x240` -- vers
+    #                   `LeadingTheChargeAbility.TARGETING_OPTIONS` (#508) ; 1191 -- preset `+0x40`
+    #                   -- (#509) ; 1177 -- MEME preset `+0x240` que 1204 -- vers
+    #                   `LightOfSanguiniusAbility.TARGETING_OPTIONS` (#510). Les deux JUMEAUX du
+    #                   preset `+0x240` sont donc sortis, chacun par sa tranche.)
+    #
+    # CHAQUE ENTREE porte sa forme par le marqueur `@FORME <...>` le plus proche AU-DESSUS d'elle :
+    # les en-tetes de section en portent un, et les quatre entrees hors-bloc -- qui ne vivent dans
+    # aucune section -- en portent un chacune. C'est ce marqueur, et lui seul, qui rend la
+    # ventilation ci-dessous DERIVABLE au lieu d'etre recomptee a l'oeil.
+    #
+    # >>> COMPTES DERIVES (#519) -- BLOC GENERE -- ne pas editer a la main.
+    #     Re-generer : `python scripts/python/probe_519_comptes_de_table.py --ecrire`
+    #     Garde : `tests/engine/test_519_comptes_derives_offline.py`. Ces nombres ne sont
+    #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
+    #     qu'aucun d'eux n'est ecrit a la main.
+    #
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 26
+    #       dont hors-bloc (tete de table) ..... 4
+    #       dont bloc du pool (#433-r4) ........ 22
+    #
+    #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
+    #       FLAGS-DIRECTS  ..................... 11
+    #       PRESET+FLAGS   ..................... 6
+    #       PRESET-SEUL    ..................... 0
+    #       STATIC-COPY    ..................... 9
+    #       (somme = 26)
+    # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
     # (layout `isSelfCasting@+0x00`, `range@+0x08..0x1f`, `forceMeleeTarget@+0x20`, `rules@+0x28`) --
@@ -777,15 +795,14 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # BIT 43 `AllowUnwalkableTargetTile` : **0 porteur sur les 32 de #433-r4**. Le terme de
     # walkability (`engine.services.targeting_query.tile_removed_by_walkability`) mord donc pour eux.
 
-    # --- surcharge A, FLAGS DIRECTS (14 lues, 9 ecrites ici) : le litteral du ctor EST le masque --
-    # ⚠ LES DEUX COMPTES NE SONT PAS LE MEME OBJET. « 14 lues » est un fait de RE (le lot de 32 de
-    #   #433-r4-r2-r1-r2-r2-r1-r1) et ne se decremente JAMAIS ; « ecrites ici » compte les entrees
-    #   REELLEMENT presentes dans ce bloc et DIMINUE a chaque face COMBAT portee -- 1087
-    #   ExemplarOfTheKauyon (#488), 1038 FoulInfusion (#500), 1152 UnstoppableMomentumReworked
-    #   (#498), 1019 StormOfWrath (#499) et 1141 OverwhelmingWrath (#503) ont MIGRE sur leur classe.
-    #   Le RECOMPTER, jamais le soustraire : il etait deja faux d'une unite entre #488 et #500, et
-    #   #498, #499, #500 et #503 l'ont decremente EN PARALLELE -- quatre tranches en vol, chacune
-    #   aveugle aux autres. (#504 a decremente la section STATIC-COPY, pas celle-ci.)
+    # @FORME FLAGS-DIRECTS
+    # --- surcharge A, FLAGS DIRECTS (14 LUES en #433-r4) : le litteral du ctor EST le masque -----
+    # ⚠ « 14 LUES » est un fait de RE FIGE (le lot de 32 de `#433-r4-r2-r1-r2-r2-r1-r1`) et ne se
+    #   decremente JAMAIS. Le compte des entrees REELLEMENT presentes ici, lui, DIMINUE a chaque
+    #   face COMBAT portee -- 1087 ExemplarOfTheKauyon (#488), 1152 UnstoppableMomentumReworked
+    #   (#498), 1019 StormOfWrath (#499), 1038 FoulInfusion (#500) et 1141 OverwhelmingWrath (#503)
+    #   ont MIGRE sur leur classe. Confondre les deux est ce qui a fait ecrire quatre chiffres faux
+    #   en un jour : le second N'EST PLUS ECRIT ICI, il vit dans le BLOC GENERE de l'en-tete (#519).
     # 1005 AdaptiveStrategy -- `...Active.Loki.AdaptiveStrategyAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x402, 0, 0)`.
     ActiveAbilityType.AdaptiveStrategy: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly,  # 1005
@@ -853,7 +870,8 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `TargetMatchesDynamicRule | TargetIsTile | AllowUntargetableTarget`. C'est la SOURCE qui
     #   bouge, jamais la valeur.
 
-    # --- surcharge B, PRESET + FLAGS (4) : `rules = additionalRules | <preset>+0x28` -----------
+    # @FORME PRESET+FLAGS
+    # --- surcharge B, PRESET + FLAGS : `rules = additionalRules | <preset>+0x28` ----------------
     # ⚠ 1048 FragstormGrenadeLauncher (preset `+0x180` + flags `0x2000000` -> `0x2004002`) est
     #   SORTIE d'ici : sa face COMBAT est portee depuis #489, donc son masque vit sur la classe du
     #   registre (`engine/runner/abilities/blacktemplars.py::FragstormGrenadeLauncherAbility`).
@@ -886,7 +904,8 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.VexillaMagnifica: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject, self_cast=False,  # 1183
                            range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- surcharge C, PRESET SEUL (0) : copie PURE, aucun flag ajoute -------------------------
+    # @FORME PRESET-SEUL
+    # --- surcharge C, PRESET SEUL : copie PURE, aucun flag ajoute -------------------------------
     # ⚠ 1129 BloodyFury etait la SEULE entree de ce bloc ; elle est SORTIE en #505, sa face COMBAT
     #   etant desormais portee (`engine/runner/abilities/worldeaters.py::BloodyFuryAbility.
     #   TARGETING_OPTIONS`) -- contrat de DISJONCTION, meme mouvement que 1019/1027/1038/1048/1068/
@@ -899,7 +918,8 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   Le bloc reste ECRIT parce qu'il documente la 3e forme de ctor : son compte est 0, pas son
     #   existence. Le compte se RE-COMPTE sur la table, jamais par soustraction du chiffre ecrit.
 
-    # --- STATIC-COPY (2) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    # @FORME STATIC-COPY
+    # --- STATIC-COPY : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` ------------------
     #   (5 avant #508 : 1204 `LeadingTheCharge` en est SORTIE, sa face COMBAT etant portee ; puis
     #    1191 `MartialInspiration` en #509 et 1177 `LightOfSanguinius` en #510, pour la MEME raison.
     #    Les trois tranches sont passees en parallele : le compte est RE-COMPTE PAR LE CODE APRES
@@ -1019,6 +1039,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # SlashingDiveAbility`) et son masque vit sur SA classe : l'ajouter ici violerait le contrat de
     # disjonction -- MEME raison que `1186 WallOfMirrors` ci-dessous, et non plus l'inverse.
     #
+    # @FORME FLAGS-DIRECTS
     # --- FLAGS DIRECTS -- surcharge `TargetingOptions$$.ctor(this, isSelfCasting, range,
     #     forceMeleeTarget, rules, getDynamicInvalidCasterReason, getDynamicInvalidTargetReason)`,
     #     la seule des trois a 7 parametres, et la seule dont les XREFS ENTRANTES contiennent ces
@@ -1059,6 +1080,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # CONCORDE, champ pour champ, avec ce que le registre porte. Deux lectures independantes du
     # meme ctor, meme resultat.
 
+    # @FORME PRESET+FLAGS
     # --- PRESET + FLAGS -- surcharge `TargetingOptions$$.ctor(this, template, additionalRules)`,
     #     dont le corps fait `this+0x28 <- additionalRules | template+0x28`. Le litteral visible
     #     n'est PAS le masque. XREF ENTRANTE : `PrecisionShotAbility$$.ctor` figure bien dans la
@@ -1077,6 +1099,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
                            self_cast=True, range=RANGE_SELF,
                            force_melee_target=RANGED_BOOL_FALSE),
 
+    # @FORME STATIC-COPY
     # --- STATIC-COPY -- aucun ctor appele : le corps recopie les 0x40 octets d'un preset et passe
     #     la struct telle quelle a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28` du `.cctor`.
     # --------------------------------------------------------------------------------------------
