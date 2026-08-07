@@ -23,14 +23,14 @@ from .base import (ActiveAbility, convert_rounds_to_turns,
 from .behaviours.ability_state import ResetActiveAbility
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
-from .behaviours.effects import ActivateEffect, AddEffect, ChangeEffectTurns
+from .behaviours.effects import ActivateEffect, AddBondEffect, AddEffect, ChangeEffectTurns
 from .behaviours.stats import (
     AddStatOverrideEffect, Heal, Repair, healable_heal_type_0, repairable_heal_type_1
 )
 from .behaviours.summon import PerformAIAttack, Spawn
 from .behaviours.turnflow import FinishTurn, ResetTurn
-from .targeting import (RANGE_ADJACENT, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
-                        TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
+                        RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
@@ -944,3 +944,159 @@ class InspiredToGreatnessAbility(ActiveAbility):
                 "override": [p for n, p in ectx.emitted if n == "AddStatOverrideEffect"],
                 "reset": [p for n, p in ectx.emitted if n == "ResetActiveAbility"],
                 "dsl": True}
+
+
+# ============ SeekerMissileFrequencyLock (tauMarksman Sho'syl, HERO, actif 1069) -- #491 ============
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.SeekerMissileFrequencyLockAbility$$ExecuteBehaviour`
+# (MIRROR 1:1 du DECOMPILE, build `rnca9r7q6c`) :
+#
+#   turns = Sum( TurnsFromRounds(1), Direct(1) )        # == DSLFactory$$TurnsUntilEndOfCurrentPlayersNextTurn
+#   AActiveAbility.Execute(
+#         AddEffect(     0x462 = 1122 Markerlight,                        AbilityStateReference,
+#                        source = Caster@DSLSelectors+0x48,
+#                        targets = Target@DSLSelectors+0x60,  turns )
+#       & AddBondEffect( 0x463 = 1123 SeekerMissileFrequencyLock_Target,  CreateSnapshot(abilityState),
+#                        source = Caster@+0x48, targets = Target@+0x60, bonded = Caster@+0x48,
+#                        options = ZERO )
+#       & AddBondEffect( 0x470 = 1136 SeekerMissileFrequencyLock_Aiming,  CreateSnapshot(abilityState),
+#                        source = Caster@+0x48, targets = Caster@+0x48, bonded = Target@+0x60,
+#                        options = ZERO ),
+#       entities )
+#
+# LE CAST NE FRAPPE PAS. L'audit `combat-ability-coverage` classe 1069 en `DAMAGE(HeavyRound)` --
+# c'est le profil du KIT (`constants.damageProfile = HeavyRound`, `nrOfHits = 1`,
+# `minDmg`/`maxDmg`[level]), pas celui du cast : l'`ExecuteBehaviour` ne porte AUCUN noeud
+# `AttackWithAbilityDamage`, AUCUN spawn, AUCUNE stat. Meme patron 2-PHASES que `HeavyRailRifle`
+# (1160) : le cast ARME, le degat vient de la PHASE 2 --
+# `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SeekerMissileFrequencyLock_AttackAbility$$CreateBehaviour`
+# (`TriggeredAbilityType.SeekerMissileFrequencyLock_Attack` = 1127, rendu par
+# `IdunBattle.Entities.Effects.Loki.SeekerMissileFrequencyLockTargetEffect$$GetTriggeredAbilityType`)
+# -- HORS de ce port (residu #491-r1, cf. `docs/rl/case-491-seeker-missile-frequency-lock.md`).
+#
+# ⚠ L'ordinal `0x467 = 1127` rendu par `$$GetTriggeredAbilityType` est un **TriggeredAbilityType**,
+# PAS un `EffectType` : `EffectType(1127)` existe et vaut `AnnihilatorBeam_PendingAttack` -- une
+# ability ENTIEREMENT differente. Qualifie par NOM (`triggered_ability_type.py`), jamais par ordinal.
+#
+# LES DEUX BONDS SONT SYMETRIQUES ET INVERSES (lu, pas deduit -- le decompile passe les memes deux
+# selecteurs dans l'ordre oppose) :
+#   * 1123 `_Target` est pose SUR LA CIBLE,  bonde AU CASTER  -> `APendingAttackEffect` (le missile en
+#     vol vise cette unite) ;
+#   * 1136 `_Aiming` est pose SUR LE CASTER, bonde A LA CIBLE -> `BaseEffect` (Sho'syl est en train de
+#     viser). Son `$$CreateHandleTriggerAbilitiesInternal` retire l'effet sur
+#     `On(0xc = EventTriggerType.UnitActiveAbility) & TriggeringAbilityIs(<self>)
+#      & AreEqual(Caster@+0x48, BondedEntityFromEffect(Effect@+0x38))` -- i.e. un NOUVEAU cast de
+#     Sho'syl annule le verrouillage precedent.
+# Aucune des deux classes d'effet n'est portee -> `BaseEffect` inerte (presence FIDELE, semantique de
+# phase 2 non modelisee), meme regime que 1144/1145/1149 d'`EarlyWarningOverride`.
+#
+# `Markerlight` (1122), lui, EST porte (`MarkerlightEffect`) : la cible prend `MarkerlightDmgBonusPct`
+# (=15 %) de degats en plus des attaques RANGED d'un attaquant T'AU. C'est l'observable MESURABLE du
+# cast, et le lien de kit avec `TwinSmartMissileSystem` (1161), dont l'attaque ne porte QUE sur les
+# ennemis deja marques.
+#
+# `CreateSnapshot(abilityState)` (`IdunBattleLogic.Entities.DSLSelectors$$CreateSnapshot`) = l'
+# `AbilityStateReference` FIGE, meme role que le `snapshot` d'`EarlyWarningOverride` et le
+# `CreateSnapshot` de `WarHowlAbility`. Cote port il n'a d'effet OBSERVABLE que via
+# `scale_from_source` (indexation des `ConfigVar` de l'effet materialise) : les trois effets d'ici
+# n'ayant AUCUNE magnitude `ConfigVar` portee, on garde le defaut, comme les deux call-sites voisins.
+
+SEEKER_MISSILE_FREQUENCY_LOCK_ID = "SeekerMissileFrequencyLock"
+SEEKER_LOCK_TARGET = int(EffectType.SeekerMissileFrequencyLock_Target)   # 0x463 = 1123
+SEEKER_LOCK_AIMING = int(EffectType.SeekerMissileFrequencyLock_Aiming)   # 0x470 = 1136
+
+
+def seeker_missile_frequency_lock_tree(state: "State"):
+    """Arbre de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SeekerMissileFrequencyLockAbility$$ExecuteBehaviour`
+    -- MIRROR 1:1 du decompile (cf. le bloc de commentaire ci-dessus).
+
+    `turns` est CALCULE ici parce que le natif compose deux noeuds de formule dont un SEUL passe par
+    `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` : `Sum(TurnsFromRounds(1),
+    Direct(1))` == `IdunBattleLogic.Entities.DSLFactory$$TurnsUntilEndOfCurrentPlayersNextTurn`, deja
+    porte (`turns_until_end_of_current_players_next_turn`). Il s'applique au SEUL `Markerlight` : les
+    deux `AddBondEffect` recoivent une struct d'options ZERO-INITIALISEE (`local_188..uStack_170 = 0`,
+    surcharge `IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect(..., options)` et non
+    `(..., turns)`) -> duree `DefaultAmountOfRounds` = `duration_rounds=None` cote port."""
+    turns = turns_until_end_of_current_players_next_turn(state)
+    mark = AddEffect(MARKERLIGHT, EffectType.Markerlight.name, Target(), duration_turns=turns)
+    on_target = AddBondEffect(SEEKER_LOCK_TARGET, EffectType.SeekerMissileFrequencyLock_Target.name,
+                              Caster(), Target(), duration_rounds=None, bonded_ref=Caster())
+    on_caster = AddBondEffect(SEEKER_LOCK_AIMING, EffectType.SeekerMissileFrequencyLock_Aiming.name,
+                              Caster(), Caster(), duration_rounds=None, bonded_ref=Target())
+    return op_and(op_and(mark, on_target), on_caster)
+
+
+class SeekerMissileFrequencyLockAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SeekerMissileFrequencyLockAbility$$ExecuteBehaviour`
+    (id 1069, `tauMarksman` Sho'syl -- Tau, HERO). Cast UNIT-TARGET.
+
+    La classe native ne porte QUE deux corps -- `$$.ctor` et `$$ExecuteBehaviour` : aucun
+    `GetDynamicInvalidTargetReason`, aucun `GetAdditionalTargets`, aucun `GetAttackDamage`.
+
+    Kit gameconfig 1069 : `range=5`, `nrOfHits=1`, `damageProfile=HeavyRound`, `minDmg`/`maxDmg`[level]
+    (rarity-affected) -- TOUS consommes par la PHASE 2, pas par le cast (cf. le bloc ci-dessus).
+
+    OBSERVABLE DU CAST : (1) la cible recoit `Markerlight` (1122) pour
+    `TurnsUntilEndOfCurrentPlayersNextTurn` tours -- effet PORTE, donc +15 % de degats subis des
+    attaques ranged T'AU ; (2) la cible recoit `SeekerMissileFrequencyLock_Target` (1123, bonde au
+    caster, duree DEFAUT) ; (3) Sho'syl recoit `SeekerMissileFrequencyLock_Aiming` (1136, bonde a la
+    cible, duree DEFAUT). AUCUN degat, AUCUN spawn, AUCUNE stat touchee.
+
+    Flags de tour : defauts base (1069 absent de `NO_END_TURN_ABILITY_TYPES` /
+    `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) -> l'ability termine le tour + pose ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.SeekerMissileFrequencyLock)   # 1069
+    ABILITY_ID = SEEKER_MISSILE_FREQUENCY_LOCK_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET STATIQUE COPIE** (la 3e des
+    # trois formes) : `...SeekerMissileFrequencyLockAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`. Il recopie les 0x40 octets du champ STATIQUE
+    # de `TargetingOptions` a l'offset RELATIF **+0x180** du bloc `<class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &opts, 0)   # 3e arg = 0 = AbilityAttackType.DirectTargetAttack
+    # Aucun litteral de masque n'est donc visible dans le ctor : le masque EFFECTIF est la constante
+    # ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`, soit
+    # `*(statics+0x1a8)` = **0x4002** (LU dans le cctor, pas deduit). Ce n'est PAS la surcharge
+    # « preset + flags » : la copie est integrale, il n'y a aucun flag a OR-er.
+    #
+    # Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`) -- 0x2 + 0x4000 = 0x4002,
+    # aucun bit residuel :
+    #     0x2     (bit 1)  TargetMatchesDynamicRule -> point d'extension : le filtre statique invoque
+    #             la regle-delegue `options+0x38` (slot vtable +0x480). La classe native ne fournit
+    #             AUCUN corps `...SeekerMissileFrequencyLockAbility$$GetDynamicInvalidTargetReason`
+    #             (ses SEULS corps sont `$$.ctor` et `$$ExecuteBehaviour`) -> defaut `AActiveAbility`
+    #             = 0 = aucun refus. Cote port : `ActiveAbility.get_dynamic_invalid_target_reason`.
+    #     0x4000  (bit 14) TargetIsEnemy            -> PORTE
+    #             (`TargetingQuery$$UnitsCanAttackEachOther`) : refus sur soi-meme et sur un allie.
+    # PORTEE : le MEME preset `+0x180` porte `TargetingRange` <- `TargetingRange` statique **+0x18**
+    # (`IdunBattle.Core.Services.TargetingRange$$.cctor` : `+0x18`=1 `onlyAdjacent = RangedBool.False`,
+    # `+0x1c`=1 `useRangeFromConfig = true`, `+0x20/+0x24` overrideRange VIDE, `+0x28` null)
+    # = `RANGE_FROM_CONFIG` -> `AActiveAbility$$SetConfigValuesInTargetingOptions` pose
+    # `OverrideRange = GetNumberConstant(0x16 range)` = `SeekerMissileFrequencyLock.constants.range`
+    # = **5** (l'arme de `tauMarksman` porte 3 : c'est bien l'ABILITY qui etend a 5, cf.
+    # `engine/services/ability_range.py` et `probe_433_r4_r2_r1_ability_range.py`).
+    # `forceMeleeTarget` (`<preset>+0x20` = `*(statics+0x1a0)`) = **1** = `RangedBool.False` -> AUCUN
+    # clamp melee.
+    # ⚠ LA VOISINE MENT : `HellfyreMissileRack` (1088) a le MEME masque 0x4002 et le MEME
+    # `RANGE_FROM_CONFIG`, mais son preset est `+0x140`, qui ecrit `forceMeleeTarget = 0`
+    # (`RangedBool.True`). Copier le masque d'a cote aurait produit un regime de portee FAUX.
+    # ⚠ Cette valeur MIGRE depuis `TARGETING_OPTIONS_UNPORTED[1069]` (contrat de DISJONCTION :
+    # une ability a UNE source de masque, jamais deux -- garde
+    # `tests/engine/runner/test_targeting_options_sources.py`).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+        self_cast=False, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        entities = entities_from_state(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        seeker_missile_frequency_lock_tree(state).execute(entities, ectx)
+        posed = [{"target": p["target"], "effect": p["effect_type"], "bonded": p.get("bonded"),
+                  "placed": p.get("placed"), "active": p.get("active")}
+                 for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")]
+        return {"ability": SEEKER_MISSILE_FREQUENCY_LOCK_ID, "caster": caster_id,
+                "target": target_id, "posed": posed,
+                "turns": turns_until_end_of_current_players_next_turn(state), "dsl": True}

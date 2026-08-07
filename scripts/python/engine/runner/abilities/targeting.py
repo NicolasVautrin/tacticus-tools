@@ -839,7 +839,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.BloodyFury: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1129
                            force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- STATIC-COPY (12) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` ------------
+    # --- STATIC-COPY (11) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` ------------
     # 1027 PsychicMaelstrom -- `...Active.Loki.PsychicMaelstromAbility$$.ctor`, preset `+0x180`.
     ActiveAbilityType.PsychicMaelstrom: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1027
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
@@ -855,10 +855,10 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # 1068 SilentDeath -- `...Active.Loki.SilentDeathAbility$$.ctor`, preset `+0x40`.
     ActiveAbilityType.SilentDeath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1068
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1069 SeekerMissileFrequencyLock -- `...Active.Loki.SeekerMissileFrequencyLockAbility$$.ctor`,
-    #   preset `+0x180`.
-    ActiveAbilityType.SeekerMissileFrequencyLock: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1069
-                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1069 SeekerMissileFrequencyLock (preset `+0x180`) est SORTIE d'ici en #491 : sa face COMBAT
+    #   est desormais portee, donc son masque vit sur la classe du registre
+    #   (`engine/runner/abilities/tau.py::SeekerMissileFrequencyLockAbility.TARGETING_OPTIONS`).
+    #   Meme migration que 1100 `SorcerousFacade` ci-dessus -- c'est le CONTRAT de disjonction.
     # 1088 HellfyreMissileRack -- `...Active.Loki.HellfyreMissileRackAbility$$.ctor`, preset `+0x140`.
     #   ⚠ MEME masque que 1027/1069 (0x4002) mais preset DIFFERENT : `forceMeleeTarget = 0`
     #   = `RangedBool.True`. C'est le seul champ qui les separe, et il change le regime de portee.

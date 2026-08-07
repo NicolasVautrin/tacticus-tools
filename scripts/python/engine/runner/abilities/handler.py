@@ -74,7 +74,8 @@ from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, Chr
 from .sisterhood import (SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility,
                          ThriceBlessedConflagrationAbility, BrazierOfHolyFireAbility)
 from .tau import (HeavyRailRifleAbility, TwinSmartMissileSystemAbility, FightingRetreatAbility,
-                  EarlyWarningOverrideAbility, InspiredToGreatnessAbility)
+                  EarlyWarningOverrideAbility, InspiredToGreatnessAbility,
+                  SeekerMissileFrequencyLockAbility)
 from .votann import (IronkinSteeljackAbility, AugmentedAssaultAbility, GravitonRifleAbility,
                      AncestralFortuneAbility)
 from .aeldari import EmpyricAmbushAbility, ExecutionerAbility, HarvesterOfSoulsAbility
@@ -198,6 +199,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     FightingRetreatAbility.ABILITY_TYPE: FightingRetreatAbility,  # 1081 (tauDarkstrider Tau HERO : AddEffect(1157 DmgReduction)+AddEffect(1158 HitReduction) sur les ennemis adjacents non-Steppable/Object + Foreach(Markerlight 1122) + Foreach(allies adjacents + soi, If(HasTrait RangedSpecialist, ActivateEffect 1515)) + If(nbEnnemisAdjacents>0, ResetTurn(soi), FinishTurn(soi)) ; duree TurnsUntilEndOfCurrentPlayersNextTurn ; self-cast)
     InspiredToGreatnessAbility.ABILITY_TYPE: InspiredToGreatnessAbility,  # 1082 (tauAunShi Aun'Shi Tau HERO : split UnitsThatCanHaveActiveAbilityReset(cible) / complementaire -> RepairOrHeal(hpToHeal) / RepairOrHeal(hpToHeal_2) + AddStatOverrideEffect(1180, ACTIVE_ABILITY_LEVEL = Min(niveau 1082 du caster, niveau de l'actif primaire de la cible)) + ResetActiveAbility ; unit-target allie)
     EarlyWarningOverrideAbility.ABILITY_TYPE: EarlyWarningOverrideAbility,  # 1077 (tauCrisis Re'vas Tau HERO : AddEffect x4 sur soi (1009 Overwatch_AutoAttack, 1144 SuppressCloseCombatWeakness, 1145 ReactivateOverwatch, 1149 Visual, TurnsFromRounds(1)) + Spawn(nrOfSummons=2 tauSmnDroneShield sur tuiles libres adjacentes-caster, WithStatsFromConfig) + on-appearance PerformAIAttack ; self-cast)
+    SeekerMissileFrequencyLockAbility.ABILITY_TYPE: SeekerMissileFrequencyLockAbility,  # 1069 (#491 -- tauMarksman Sho'syl Tau HERO : le cast NE FRAPPE PAS (patron 2-phases de HeavyRailRifle, le degat HeavyRound du kit appartient a la triggered 1127 SeekerMissileFrequencyLock_Attack, NON portee) : AddEffect(1122 Markerlight -> cible, TurnsUntilEndOfCurrentPlayersNextTurn) & AddBondEffect(1123 _Target -> cible, bonde au caster) & AddBondEffect(1136 _Aiming -> caster, bonde a la cible), les deux bonds a duree DEFAUT ; unit-target, range=5 depuis config)
     # --- Lot #112 : DarkAngels lot 1 (artefact natif = `<Ability>.ExecuteBehaviour` => arbres DSL).
     SuperchargeAbility.ABILITY_TYPE: SuperchargeAbility,               # 1103 (darkaHellblaster Sarquael : AddEffect(1208 Supercharge_ExtraPiercing) sur cible + <=2 PickRandomly(UnitsDirectlyBehind) POSE AVANT les attaques (elles en beneficient), TurnsFromRounds(1) & 1x Plasma minDmg/maxDmg sur la cible & 1x Plasma minDmg_2/maxDmg_2 sur ces memes unites ; native_factory attack, ExecuteAtomic 0x2a)
     ExemplarOfHateAbility.ABILITY_TYPE: ExemplarOfHateAbility,         # 1140 (darkaAsmodai Asmodai : AddEffect(1293 ExemplarOfHate_Target, TurnsFromRounds(2)) INCONDITIONNEL & If(grand-alliance Chaos de la cible, Pinned(1065) duree DEFAUT & override d'Attack + attaque normale libre + retrait, portes par le MEILLEUR allie DarkAngels a portee -- collapse S GetAttacker/SortAttackersByDamagePrediction))
