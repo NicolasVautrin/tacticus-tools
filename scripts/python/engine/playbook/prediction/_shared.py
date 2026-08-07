@@ -132,7 +132,23 @@ def _should_apply_ranged_in_melee(scene, att_id, attack_pos) -> bool:
 
     Suite (native, quand HasTrait) : depuis `attack_pos`, existe-t-il un ENNEMI melee-able ADJACENT ?
     (any-enemy, boucle sur les tuiles adjacentes) — ennemi (team != attaquant) + vivant +
-    `CanMeleeAttackOverElevationDifference` (|Delta elev|<2). Adjacence HEX via `are_tiles_adjacent`."""
+    `CanMeleeAttackOverElevationDifference` (|Delta elev|<2). Adjacence HEX via `are_tiles_adjacent`.
+
+    ⚠ CE MODULE PORTE LE **TROISIEME** MIRROR DU MEME NATIF (#287-r11-r2-r1-r2), et le corps a
+    TROIS gardes avant sa boucle, pas deux. La troisieme --
+    `if (UnitExtensions.HasFlag(attacker, 0x1c = UnitFlag.IngoreRangedInMelee)) return false;` --
+    est portee par les deux autres mirrors (`runner.abilities.targeting.should_apply_ranged_in_melee`
+    et `runner.abilities.loki.mv71._should_apply_ranged_in_melee_from_tile`) et NON portee ici,
+    pour une raison MESUREE et non par omission : son unique poseur dans tout le binaire est
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour`,
+    qui le pose sur le DRONE **a l'interieur** de sa chaine DSL (`AddFlag & UseActiveAbility &
+    RemoveFlag`) -- un instant que la face PREDICTION n'observe jamais. Il est de plus PRECEDE ici
+    par le gate `HasTrait(0xb Ranged)`, dont le retour negatif court-circuite deja tout le corps.
+    Point d'ancrage si un second poseur apparait : une table de plus dans la `Scene`, alimentee du
+    MEME canal (`combatSnapshot.units[].unitFlags` publie DEJA toutes les valeurs de l'enum).
+    ⚠ Ce mirror-ci omet AUSSI `!TileExtensions.HasSteppableUnit(adj)` et
+    `UnitExtensions.IsTargetable(u)`, deux conjonctions que les deux autres portent : ecart NOMME,
+    inerte tant que le gate `HasTrait` l'est."""
     ctx = scene.ctx(att_id)
     traits = getattr(ctx, "traits", None) or ()
     if UnitTrait.Ranged.name not in traits:        # HasTrait(attaquant, 0xb) — absent partout => inerte (#161)
