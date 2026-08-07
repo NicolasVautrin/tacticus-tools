@@ -166,6 +166,12 @@ Config 1132 : `nrOfHits=1`/`damageProfile=Piercing`, `nrOfHits_2=6`/`damageProfi
   face COMBAT -- c'est-a-dire a CE port.
 - Confonds du PORTEUR, hors perimetre : `TrophyTaker` (crit-chance, neutralise par `--crit 0,0`),
   `BlessingsOfKhorne` (indexe sur les defaites melee de la bataille, 0 au 1er cast), `RapidAssault`.
+
+OverwhelmingWrath (1141, `worldEightbound` « Azkor »), #503 -- patron 2-PHASES « POSE D'EFFETS SEULE »
+(le meme que `tau.py::HeavyRailRifle`) : le cast ne frappe PAS, il ARME. Trois poses, aucun degat,
+aucun tirage RNG -- c'est le CONTRASTE exact des trois abilities ci-dessus, toutes famille ATTACK.
+Detail complet dans `overwhelming_wrath_tree` / `OverwhelmingWrathAbility` en bas de module ;
+RE : `docs/rl/case-503-overwhelming-wrath.md`.
 """
 from __future__ import annotations
 
@@ -173,21 +179,24 @@ from typing import Optional, TYPE_CHECKING
 
 from ...dsl.base import Const, TargetsSelector, _is_alive, _units_of
 from ...entities.ability_constant_type import AbilityConstantType
-from ...entities.behaviours import op_and, AtomicGroup, Group
+from ...entities.behaviours import op_add, op_and, AtomicGroup, Group
 from ...entities.formulas import Count, Get, If, RandomAmount
-from ...entities.selectors.accessors import CasterTile, Target, TargetTile
+from ...entities.selectors.accessors import CasterTile, Owner, Target, TargetTile
 from ...entities.selectors.geometry import Otherwise
 from ...entities.selectors.tiles import Caster
-from ...entities.selectors.units import (AdjacentEnemies, AdjacentUnits, And, SurroundingEnemies,
-                                         Unobscured, non_steppable_or_object_units)
+from ...entities.selectors.units import (AdjacentEnemies, AdjacentUnits, And, NormalUnits,
+                                         SurroundingEnemies, Unobscured,
+                                         non_steppable_or_object_units)
 from ...entities.triggers import AmountIsGreater
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...dsl.effects import ExecutionContext
 from ...streams.group_type import GroupType
 from .base import ActiveAbility, ability_attack_params
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
+from .behaviours.effects import AddBondEffect, AddEffect
 from .behaviours.stats import SubtractHealthPercent
 from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
@@ -606,3 +615,148 @@ class KillMaimBurnAbility(ActiveAbility):
                 "next_target_2": {"picks": t2.picked, "rolls": t2.rolls},
                 "next_target_3": {"picks": t3.picked, "rolls": t3.rolls},
                 "dsl": True}
+
+
+# =====================================================================================
+# OverwhelmingWrath (1141, `worldEightbound` « Azkor ») -- #503
+# =====================================================================================
+#: `EffectType.Taunted_OnlySpecificTargets` -- l'effet COMPOSITE 27 (`TauntedEffect`, base
+#: `ABondEffect`), le MEME que pose `GetEmRuntz` / `CrushingClaws`.
+OW_TAUNTED = int(EffectType.Taunted_OnlySpecificTargets)            # 0x1b = 27
+#: `EffectType.OverwhelmingWrath_PendingAttack` -- l'ARMEMENT de la phase 2.
+OW_PENDING_ATTACK = int(EffectType.OverwhelmingWrath_PendingAttack)  # 0x514 = 1300
+#: `EffectType.OverwhelmingWrath_RangeDmgReduction` -- le -dmgReductionPct% RANGED sur le caster.
+OW_RANGE_DMG_REDUCTION = int(EffectType.OverwhelmingWrath_RangeDmgReduction)   # 0x515 = 1301
+
+
+def overwhelming_wrath_tree():
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility$$ExecuteBehaviour`
+    -- MIRROR 1:1 du DECOMPILE (build `rnca9r7q6c`) :
+
+        e1 = AddEffect( 0x515 = 1301 OverwhelmingWrath_RangeDmgReduction, AbilityStateReference,
+                        source = Caster@0x48, targets = Caster@0x48, TurnsFromRounds(1) )
+        e2 = AddBondEffect( 0x1b = 27 Taunted_OnlySpecificTargets, AbilityStateReference,
+                            source  = Caster@0x48,
+                            targets = NormalUnits( AdjacentEnemies(Owner@0x30, unique: 1,
+                                                                   selectionType: 3),
+                                                   selectionType: 3 ),
+                            bondedEntity = Caster@0x48, TurnsFromRounds(1) )
+        e3 = AddBondEffect( 0x514 = 1300 OverwhelmingWrath_PendingAttack, AbilityStateReference,
+                            source = Caster@0x48, targets = Caster@0x48,
+                            bondedEntity = Caster@0x48, options = <Nullable ZERO> )
+        AActiveAbility.Execute( op_Addition( op_Addition(e1, e2), e3 ) )
+
+    AUCUNE attaque, aucun `ChangeStat`, aucun spawn -- et AUCUN `Group` (contraste avec
+    `kill_maim_burn_tree` ci-dessus, dont les trois bandes en portent un) : le cast ARME (patron
+    2-PHASES, cf. `tau.py::heavy_rail_rifle_tree`). Le `2x Eviscerate` du kit appartient a la
+    TRIGGERED `IdunBattleLogic.Entities.Abilities.Triggered.Loki.OverwhelmingWrath_AttackAbility`
+    (`TriggeredAbilityType` 0x4d5 = 1237), portee par l'effet 1300 -- HORS de ce port (residu
+    #503-r1). C'est pourquoi la colonne `categorie` de l'audit (`DAMAGE(Eviscerate)`, derivee du
+    KIT) ne decrit PAS ce behaviour.
+
+    LES DEUX SLOTS DE ROLE, re-derives sur CE build et non hérités : `Selectors+0x48` est le CASTER
+    et `Selectors+0x30` l'OWNER. Preuve independante -- `IdunBattleLogic.Entities.Abilities.Active.
+    Loki.MomentShackleAbility$$ExecuteBehaviour` passe `+0x48` a `DSLBehaviors$$Heal` et a
+    `DSLFormulas$$StatAmount` (que `case-231` avait lus `caster@0x160`), et `+0x30` aux deux
+    `AddDynamicStatModifierEffect` + a l'`AddEffect(0x571)` (que `case-231` avait lus `owner@0x148`) ;
+    et `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetPossibleMovementTiles`
+    passe `+0x48` au parametre NOMME `caster` de `DSLSelectors$$TilesUnitCanMoveToChargeTarget`.
+    Sur une ACTIVE, `Owner` et `Caster` designent la MEME unite (le port ne materialise pas de
+    selecteur `Owner` distinct : `Owner()` retombe sur le caster, convention actee case-224) -- l'ecart
+    de slot est donc SANS effet ici, et il est ecrit pour rester grepable.
+
+    `AdjacentEnemies(unit, unique, selectionType)` natif =
+    `Enemies( of: unit, Units(AdjacentTiles(unit), unique, selectionType) - unit, selectionType )` :
+    la reference d'equipe est le 1er argument (`Owner`), PAS un caster implicite. Le selecteur porte
+    filtre sur `ctx.caster.team` -- identique tant que le centre EST le caster, ce qui est le cas ici.
+
+    DUREES : les deux premieres feuilles portent `TurnsFromRounds(1)` (litteral `1`, PAS un
+    `GetNumberConstant(nrOfRounds)` -- 1141 n'a pas cette constante au gameconfig) -> le port passe
+    `duration_rounds=1`, converti par `BattleQuery$$ConvertRoundsToTurns`. La TROISIEME recoit un
+    `Nullable<AddEffectBehaviourOptions>` ZERO-initialise (`local_198..uStack_180 = 0`), donc AUCUN
+    override -> `duration_rounds=None` = `DefaultAmountOfRounds` de l'effet (meme lecture que les deux
+    poses de `heavy_rail_rifle_tree`).
+
+    `scale_from_source=True` sur la feuille 1301 : sa magnitude est un `ConfigVar` --
+    `IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_RangeDmgReductionEffect$$CreateDamageDefenseModifier`
+    = `EffectBonus.ForPercentDecrease( get_OwnerIsTarget & IsRangedAttack,
+    ConfigVar(0x46 = AbilityVariableType.dmgReductionPct, GetAbilityState(effet), config@+0x60) )`.
+    Sans le bake de l'`AbilityStateReference` (3e argument natif), l'effet materialise lirait le
+    niveau par defaut au lieu de celui du poseur. Les deux bonds n'en ont PAS besoin (27 et 1300 ne
+    lisent aucun `ConfigVar` cote port : 27 est un composite a sous-effets, 1300 est un marqueur)."""
+    dmg_reduction = AddEffect(
+        OW_RANGE_DMG_REDUCTION, EffectType.OverwhelmingWrath_RangeDmgReduction.name,
+        Caster(), duration_rounds=1, scale_from_source=True)
+    taunt = AddBondEffect(
+        OW_TAUNTED, EffectType.Taunted_OnlySpecificTargets.name,
+        Caster(), NormalUnits(AdjacentEnemies(Owner())),
+        duration_rounds=1, bonded_ref=Caster())
+    pending = AddBondEffect(
+        OW_PENDING_ATTACK, EffectType.OverwhelmingWrath_PendingAttack.name,
+        Caster(), Caster(), duration_rounds=None, bonded_ref=Caster())
+    return op_add(op_add(dmg_reduction, taunt), pending)
+
+
+class OverwhelmingWrathAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility$$ExecuteBehaviour`
+    (id 1141, `worldEightbound` « Azkor », WorldEaters). Arbre DSL `overwhelming_wrath_tree`.
+
+    i2 (`Abilities/OverwhelmingWrath_CurrentLevelDescription`) : « Until the beginning of his next
+    turn Azkor Taunts all adjacent enemies and takes -{dmgReductionPct}% Damage from ranged attacks.
+    Deals {nrOfHits}x {minDmg}-{maxDmg} Eviscerating Damage to all adjacent enemies at the beginning
+    of Azkor's next turn. » -> les DEUX premieres phrases sont l'ACTIVE (portee ici, trois poses
+    d'effet) ; la TROISIEME est la phase 2, la triggered 1237 armee par l'effet 1300 (residu #503-r1).
+
+    ROUGE MESURE AVANT CE PORT : 1141 etait ABSENTE d'`ABILITY_CLASSES` -> `AbilityHandler` acceptait
+    le cast, posait les flags de tour, et n'executait RIEN. Zero effet, zero erreur.
+
+    `ABILITY_ATTACK_TYPE` : `...OverwhelmingWrathAbility$$.ctor` termine par
+    `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = `2` = `Others`. LITTERAL TRANSCRIT, pas
+    deduit : l'ability est classee `DAMAGE(Eviscerate)` par le kit, et son ctor dit quand meme `2`.
+
+    Turn-flags = defauts base (1141 ABSENT des overrides `NO_END_TURN_ABILITY_TYPES` /
+    `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) -> le cast termine le tour et pose `ActiveAbilityUsed`.
+
+    Diag : {posed: [{effect, target, bonded}], dsl: True}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.OverwhelmingWrath)   # 1141
+    ABILITY_ID = "OverwhelmingWrath"
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **FLAGS DIRECTS** (la 1re des trois
+    # surcharges) : `IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility$$.ctor`
+    # recopie les 24 octets du champ STATIQUE `TargetingRange statics+0x30` dans un local, puis
+    #     TargetingOptions..ctor(&opts, isSelfCasting=1, range=<TargetingRange statics+0x30>,
+    #                            forceMeleeTarget=1, rules=0x4000, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)
+    # Le litteral EST le masque : ni preset a OR-er, ni copie de bloc `TargetingOptions` -- contraste
+    # avec les TROIS autres abilities de ce module, toutes en PRESET COPIE.
+    #     0x4000 (bit 14) TargetIsEnemy -> PORTE (`TargetingQuery$$UnitsCanAttackEachOther`).
+    # `isSelfCasting = 1` avec `TargetIsEnemy` n'est PAS contradictoire : c'est le meme couple que
+    # 1061 `UnbreakableDuty` / 1175 `BloodChalice` -- le flag dit que le cast peut partir sans cible
+    # designee, le bit reste arme sur la cible quand il y en a une.
+    # ⚠ MAIS `isSelfCasting = 1` ne veut PAS dire « castable a vide » : MESURE (contre-epreuve G1 de
+    # `probe_503_generalisation.py`), sans aucun ennemi adjacent le natif REFUSE, sur
+    # `0x800 AddCasterIfAtLeastOneTarget` -- le caster n'entre dans les cibles legales que s'il
+    # existe au moins une AUTRE cible (branche `else` de
+    # `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason`). Le port rend `0` la :
+    # ecart PERMISSIF ANTERIEUR (#447), deja nomme et mesure sur 1226 Chronometron dans la docstring
+    # de `get_caster_not_added_reason` ; #503 le re-mesure sur un DEUXIEME porteur.
+    # PORTEE : `TargetingRange statics+0x30` = `RANGE_ADJACENT` (`onlyAdjacent = RangedBool.True` +
+    # `overrideRange = 1`). `forceMeleeTarget = 1` = `RangedBool.False` (aucun clamp melee).
+    # ⚠ Ces quatre valeurs MIGRENT depuis `TARGETING_OPTIONS_UNPORTED[1141]` (contrat de DISJONCTION :
+    # une ability a UNE source de masque, jamais deux) ; elles ont ete RE-LUES au decompile avant
+    # migration et sont bit-identiques a celles qui vivaient la-bas.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=True,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        overwhelming_wrath_tree().execute(entities, ectx)
+        posed = [{"effect": p.get("effect_type"), "target": p.get("target"),
+                  "bonded": p.get("bonded")}
+                 for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "posed": posed, "dsl": True}

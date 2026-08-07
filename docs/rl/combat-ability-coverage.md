@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **112**
-- **NO-OP silencieux** (a porter) : **63**
-- Ventilation NO-OP : **DAMAGE**=34, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **113**
+- **NO-OP silencieux** (a porter) : **62**
+- Ventilation NO-OP : **DAMAGE**=33, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (63)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (62)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -33,7 +33,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1209 | InfernalCannon | DAMAGE(Flame) | 2 | LN |
 | 1108 | KissOfDeath | DAMAGE(DirectDamage) | 2 | NS |
 | 1204 | LeadingTheCharge | DAMAGE(Power) | 2 | LN |
-| 1141 | OverwhelmingWrath | DAMAGE(Eviscerate) | 2 | LN |
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
 | 1225 | StrikeFromTheShadows | DAMAGE(Bolter) | 2 | LN |
 | 1173 | ArcScourge | DAMAGE(Particle) | 1 | N |
@@ -90,7 +89,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (112)
+## PORTED (registry) (113)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -150,6 +149,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1159 | MacroPlasmaIncinerator | DAMAGE(Plasma) | 2 | LN |
 | 1142 | MalleusRocketLauncher | DAMAGE(Blast) | 2 | LN |
 | 1137 | MurderousSwing | DAMAGE(Piercing) | 2 | LN |
+| 1141 | OverwhelmingWrath | DAMAGE(Eviscerate) | 2 | LN |
 | 1169 | PlagueburstMortar | DAMAGE(Toxic) | 2 | LN |
 | 1098 | PlasmaGrenade | DAMAGE(Plasma) | 2 | NS |
 | 1230 | SavageEchoes | DAMAGE(Eviscerate) | 2 | LN |

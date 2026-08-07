@@ -397,6 +397,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # (Ici le `&opts` EST un litteral inline : `TargetingOptions..ctor(&opts, 0, CustomRange(1), 1,
     #  0xa0000000042, 0, 0, 0)` -- mais le masque est deja pose par le lot #128, on ne le double pas.)
     ActiveAbilityType.RadBombardment: AbilityAttackType.Others,  # 1116
+    # OverwhelmingWrath (1141, Azkor worldEightbound), #503. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. On transcrit le LITTERAL,
+    # jamais la categorie du kit : l'audit classe 1141 `DAMAGE(Eviscerate)` (elle a bien un
+    # minDmg/maxDmg/damageProfile au gameconfig), et le ctor dit quand meme `2` -- parce que le degat
+    # appartient a la TRIGGERED 1237 `OverwhelmingWrath_Attack`, pas au cast. Meme configuration que
+    # 1069 SeekerMissileFrequencyLock et 1184 MomentShackle (2-phases).
+    ActiveAbilityType.OverwhelmingWrath: AbilityAttackType.Others,  # 1141
 }
 # COUVERTURE : la table couvre l'INTEGRALITE du registre `ABILITY_CLASSES` (garde-fou :
 # `probe_120_pre_unit_ability_fork.py` etape 0). Une ability AJOUTEE au registre sans son litteral de

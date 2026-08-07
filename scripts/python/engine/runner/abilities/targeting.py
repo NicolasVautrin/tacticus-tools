@@ -699,14 +699,23 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # ulterieurs, tous appendus en section STATIC-COPY) et il en SORT des qu'une face COMBAT est
     # portee -- le CONTRAT de disjonction de cette table l'exige alors. Sorties a ce jour, dans
     # l'ordre des tranches : 1088 (#487), 1087 (#488), 1048 (#489), 1027 (#490), 1069 (#491),
-    # 1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500) -- NEUF.
+    # 1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1141 (#503), 1132 (#504) -- ONZE.
     #
-    # Compte RE-DERIVE au 2026-08-07, apres le retrait de 1019 : **31 entrees ecrites dans ce bloc**
-    # (10 / 4 / 1 / 16 par section), plus les entrees hors-bloc du haut de la table.
+    # Compte RE-DERIVE au 2026-08-07, APRES le rebase de #503 sur #504 :
+    # **27 entrees ecrites dans ce bloc**, ventilees `9 / 4 / 1 / 5` (1re region) et `3 / 1 / 4`
+    # (2e region), plus **4** entrees hors-bloc en tete de table -> **31 dans le dict entier**
+    # (`len(TARGETING_OPTIONS_UNPORTED)`, la seule mesure qui ne depende d'aucun decoupage).
     # ⚠ CE COMPTE SE RE-COMPTE, IL NE SE SOUSTRAIT PAS -- et ce n'est pas une precaution de style :
-    # #498, #499 et #500 ont retire une entree CHACUNE, en parallele, chaque tranche aveugle aux
-    # deux autres. Trois soustractions successives sur le meme chiffre perime en auraient manque
-    # deux. Compter les entrees du bloc est le seul geste qui converge.
+    # #498, #499, #500, #501, #502, #503 et #504 ont retire une entree CHACUNE, en parallele, chaque
+    # tranche aveugle aux autres. TROIS illustrations, toutes dans CE paragraphe :
+    #   * le chiffre qui vivait ici avant #503 (« 31 entrees ecrites, 10/4/1/16 ») etait deja faux
+    #     de 2 sur un arbre qui en portait 29 -- la ventilation « 16 » ne correspond a aucune des
+    #     sections ;
+    #   * la version de #503 ecrite AVANT son premier rebase annoncait « 32 dans ce bloc » sur un
+    #     arbre qui portait encore 1019, 1038, 1165 et 1064 ;
+    #   * celle ecrite APRES ce premier rebase (« 28 ») s'est periemee une deuxieme fois quand #504
+    #     a retire 1132 de la section STATIC-COPY pendant la validation de #503.
+    # Compter les entrees du bloc APRES resolution est le seul geste qui converge.
     #
     # Les chiffres des quatre sections ci-dessous sont eux aussi RE-DERIVES ; ceux entre parentheses
     # apres « en #433-r4 » sont la mesure HISTORIQUE, gardee parce que le contre-controle de la fin
@@ -749,14 +758,15 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # BIT 43 `AllowUnwalkableTargetTile` : **0 porteur sur les 32 de #433-r4**. Le terme de
     # walkability (`engine.services.targeting_query.tile_removed_by_walkability`) mord donc pour eux.
 
-    # --- surcharge A, FLAGS DIRECTS (14 lues, 10 ecrites ici) : le litteral du ctor EST le masque -
+    # --- surcharge A, FLAGS DIRECTS (14 lues, 9 ecrites ici) : le litteral du ctor EST le masque --
     # ⚠ LES DEUX COMPTES NE SONT PAS LE MEME OBJET. « 14 lues » est un fait de RE (le lot de 32 de
     #   #433-r4-r2-r1-r2-r2-r1-r1) et ne se decremente JAMAIS ; « ecrites ici » compte les entrees
     #   REELLEMENT presentes dans ce bloc et DIMINUE a chaque face COMBAT portee -- 1087
     #   ExemplarOfTheKauyon (#488), 1038 FoulInfusion (#500), 1152 UnstoppableMomentumReworked
-    #   (#498) et 1019 StormOfWrath (#499) ont MIGRE sur leur classe. Le RECOMPTER, jamais le
-    #   soustraire : il etait deja faux d'une unite entre #488 et #500, et #498, #499 et #500 l'ont
-    #   decremente EN PARALLELE -- trois tranches en vol, chacune aveugle aux deux autres.
+    #   (#498), 1019 StormOfWrath (#499) et 1141 OverwhelmingWrath (#503) ont MIGRE sur leur classe.
+    #   Le RECOMPTER, jamais le soustraire : il etait deja faux d'une unite entre #488 et #500, et
+    #   #498, #499, #500 et #503 l'ont decremente EN PARALLELE -- quatre tranches en vol, chacune
+    #   aveugle aux autres. (#504 a decremente la section STATIC-COPY, pas celle-ci.)
     # 1005 AdaptiveStrategy -- `...Active.Loki.AdaptiveStrategyAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x402, 0, 0)`.
     ActiveAbilityType.AdaptiveStrategy: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly,  # 1005
@@ -796,10 +806,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   = `RangedBool.True` (l'enum natif est INVERSE) -- l'une des DEUX du lot hors defaut.
     ActiveAbilityType.ItItches: TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileHasEnemyUnit, self_cast=False,  # 1121
                            range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_TRUE),
-    # 1141 OverwhelmingWrath -- `...Active.Loki.OverwhelmingWrathAbility$$.ctor` :
-    #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x4000, 0, 0)`.
-    ActiveAbilityType.OverwhelmingWrath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=True, range=RANGE_ADJACENT,  # 1141
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # 1141 OverwhelmingWrath : MIGRE vers `ABILITY_CLASSES` (#503) -- sa face COMBAT est desormais
+    #   portee (`abilities/worldeaters.py::OverwhelmingWrathAbility.TARGETING_OPTIONS`), donc le
+    #   CONTRAT DE DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile
+    #   avant migration et est bit-identique a celui qui vivait ici
+    #   (`.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x4000, 0, 0)`).
     # 1152 UnstoppableMomentumReworked : MIGRE vers `ABILITY_CLASSES` (#498) -- sa face COMBAT est
     #   desormais portee (`abilities/loki/momentum.py::UnstoppableMomentumReworkedAbility.
     #   TARGETING_OPTIONS`), donc le CONTRAT DE DISJONCTION impose de retirer sa ligne d'ici. Le
@@ -863,7 +874,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.BloodyFury: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1129
                            force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- STATIC-COPY (6) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    # --- STATIC-COPY (5) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
     # ⚠ Ce compteur annoncait **16** sur `origin/master` pour **7** entrees reelles (mesure #502 au
     #   rebase) : il n'est garde par AUCUN test, donc il derive en silence a chaque migration. Il
     #   compte les entrees EXECUTABLES du bloc -- les lignes `⚠ ... est SORTIE d'ici` sont des
