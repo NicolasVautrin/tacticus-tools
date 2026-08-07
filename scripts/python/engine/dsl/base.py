@@ -355,6 +355,16 @@ class DslContext:
     # cascade de ciblage). Defaut None -> le selecteur `ValidNormalAttackTargets` rend [] (contexte
     # hors runner : la cascade n'est pas evaluable sans `State`), degradation documentee par noeud.
     valid_normal_attack_targets: object | None = None
+    # `has_taken_damage_of_profile_this_turn(unit, damage_profile_id) -> bool` : mirror de
+    # `IdunBattle.Entities.UnitExtensions$$HasTakenDamageOfDamageProfileThisTurn`, dont le corps
+    # RELU est un `ContainsKey(ActorStatisticsComponent+0x80, damageProfileType)` -- PRESENCE de la
+    # cle, jamais un compte (contraste `HasTakenDamageOfDamageProfileThisTurnAmountOfTimesTrigger$$
+    # ShouldTrigger`, qui compare `== times`). C'est le canal du predicat DSL
+    # `HasTakenDamageOfDamageProfileThisTurn` (`entities/triggers.py`). Defaut None -> False
+    # (degradation fidele : aucun degat enregistre). Fourni par `entities_from_state`, qui lit
+    # `UnitComponent.received_damage_this_turn` -- le MEME dict que
+    # `runner/operations/triggers/loki/reality_unbound.py` et `.../weaver_of_fate.py`.
+    has_taken_damage_of_profile_this_turn: object | None = None
 
     def __post_init__(self):
         """`elev_by_pos` se DERIVE du `board` des qu'il n'est pas fourni -- le canal d'elevation

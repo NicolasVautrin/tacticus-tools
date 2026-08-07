@@ -839,7 +839,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.BloodyFury: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1129
                            force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- STATIC-COPY (11) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` ------------
+    # --- STATIC-COPY (10) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` ------------
     # 1027 PsychicMaelstrom -- `...Active.Loki.PsychicMaelstromAbility$$.ctor`, preset `+0x180`.
     ActiveAbilityType.PsychicMaelstrom: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1027
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
@@ -859,11 +859,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   est desormais portee, donc son masque vit sur la classe du registre
     #   (`engine/runner/abilities/tau.py::SeekerMissileFrequencyLockAbility.TARGETING_OPTIONS`).
     #   Meme migration que 1100 `SorcerousFacade` ci-dessus -- c'est le CONTRAT de disjonction.
-    # 1088 HellfyreMissileRack -- `...Active.Loki.HellfyreMissileRackAbility$$.ctor`, preset `+0x140`.
-    #   ⚠ MEME masque que 1027/1069 (0x4002) mais preset DIFFERENT : `forceMeleeTarget = 0`
-    #   = `RangedBool.True`. C'est le seul champ qui les separe, et il change le regime de portee.
-    ActiveAbilityType.HellfyreMissileRack: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1088
-                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE),
+    # ⚠ 1088 HellfyreMissileRack (preset `+0x140`) est SORTIE d'ici en #487, pour la MEME raison :
+    #   son masque vit desormais sur
+    #   `engine/runner/abilities/thousandsons.py::HellfyreMissileRackAbility.TARGETING_OPTIONS`.
+    #   Valeurs inchangees par la migration : `0x4002` (`<TargetingOptions statics>+0x140`, lu a
+    #   `<preset>+0x28`), `forceMeleeTarget = 0 = RangedBool.True`, `range = RANGE_FROM_CONFIG`.
+    #   ⚠ Elle partageait le masque de 1027/1069 mais PAS leur preset : `forceMeleeTarget` vaut 0
+    #   ici contre 1 chez eux -- ne jamais generaliser un masque d'une voisine de ce bloc.
     # 1132 KillMaimBurn -- `...Active.Loki.KillMaimBurnAbility$$.ctor`, preset `+0x40`.
     ActiveAbilityType.KillMaimBurn: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1132
                            force_melee_target=RANGED_BOOL_FALSE),

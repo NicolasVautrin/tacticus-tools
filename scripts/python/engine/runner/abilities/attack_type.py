@@ -152,6 +152,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # du ctor, jamais la forme de l'arbre. (#589-r1-r1-r1)
     ActiveAbilityType.EmpyricAmbush: AbilityAttackType.DirectTargetAttack,  # 1232
     ActiveAbilityType.Fragstorm: AbilityAttackType.DirectTargetAttack,  # 1078
+    # HellfyreMissileRack (1088, thousTerminator « Toth ») : `IdunBattleLogic.Entities.Abilities.
+    # Active.Loki.HellfyreMissileRackAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0)`.
+    # 3e argument = `0` = DirectTargetAttack. Litteral RELU au decompile (#487) ; il vaut `0` bien
+    # que l'arbre frappe AUSSI des unites board-wide via `SortedAttackSeries` -- on transcrit le 3e
+    # argument du ctor, jamais la forme du ciblage (meme regle que MurderousSwing ci-dessous).
+    ActiveAbilityType.HellfyreMissileRack: AbilityAttackType.DirectTargetAttack,  # 1088
     ActiveAbilityType.GreatFrostAxe: AbilityAttackType.DirectTargetAttack,  # 1089
     ActiveAbilityType.DarkTalonStrike: AbilityAttackType.DirectTargetAttack,  # 1092
     ActiveAbilityType.PlasmaGrenade: AbilityAttackType.DirectTargetAttack,  # 1098

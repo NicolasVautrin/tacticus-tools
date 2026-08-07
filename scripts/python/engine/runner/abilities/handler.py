@@ -55,7 +55,7 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility)
-from .thousandsons import DoomboltAbility
+from .thousandsons import DoomboltAbility, HellfyreMissileRackAbility
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
                           DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat,
                           DrachnyenAbility, HeraldOfTheApocalypseAbility)
@@ -211,6 +211,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # --- Famille PSYCHIC (case-psychic-aoe) : deux AoE Psychic HERO, jusqu'ici NO-OP offline. ---
     PlagueWindAbility.ABILITY_TYPE: PlagueWindAbility,                 # 1035 (deathTyphus Typhus DeathGuard : AoE CONCENTRIQUE 3 bandes ancree cible -- cible (minDmg/maxDmg) + adjacents-cible (minDmg_2/maxDmg_2) + adjacents-d'un-secondaire moins cible/secondaires (minDmg_3/maxDmg_3), 1 coup chacune, native_factory ABILITY, ExecuteAtomic 0x4a + 3 Group 0x4b/4c/4d)
     DoomboltAbility.ABILITY_TYPE: DoomboltAbility,                     # 1102 (thousAhriman Ahriman ThousandSons : Min(nrOfHits + Count(hexes en Feu), 9) coups Psychic REPARTIS par division entiere sur les ennemis <=range non obscurcis, tries SortUnitsByDamageUtility avec la CIBLE forcee en tete ; native_factory ATTACK, ExecuteAtomic 0x61)
+    HellfyreMissileRackAbility.ABILITY_TYPE: HellfyreMissileRackAbility,  # 1088 (thousTerminator « Toth » ThousandSons : Execute(SortedAttackSeries(Caster, Target, nrOfHits coups HeavyRound, FromTrigger(NonSteppableOrObjectUnits(Enemies(Caster, AllUnits)), HasTakenDamageOfDamageProfileThisTurn(ActiveTarget, Psychic)), nrOfHits coups HeavyRound)) -- le 2e volet frappe TOUT ennemi du plateau ayant pris du PSYCHIC ce tour, cible du message COMPRISE ; native_factory ABILITY, PAS d'ExecuteAtomic ; masque 0x4002 MIGRE depuis `TARGETING_OPTIONS_UNPORTED` ; #487)
     # --- case #154 : EmperorsChildren DoomSiren + Tyranids FearOfTheUnseen (canal DirectDamage) ---
     DoomSirenAbility.ABILITY_TYPE: DoomSirenAbility,                   # 1199 (emperKakophonist « Adamatar » : UN leaf combine — nrOfHits coups DirectDamage MELEE sur la cible + PickRandomly(nrOfUnits) ennemis adjacents A LA CIBLE (Damageable), passe id-triee unique ; puis Foreach(UnitsDamagedThisPhase(caster), If(IsDead(It) & HasFlag(It, 8=Overkilled), AddStaticStatModifierEffect(caster, 1431 DoomSiren_ExtraHit, EXTRA_HITS, Direct(1), PERMANENT))) ; ExecuteAtomic 0x2a)
     FearOfTheUnseenAbility.ABILITY_TYPE: FearOfTheUnseenAbility,       # 1115 (tyranDeathleaper « Deathleaper » Tyranids : POSEUR D'EFFETS pur, AUCUN degat au cast — Execute plain de (If(NOT HasFlag(Self, Moved), AddEffect(1065 Pinned -> Enemies(NonSteppableOrObjectUnits(SurroundingUnits(Self, range, includeCenter))), duree DEFAUT) + TriggerAbility(memes ennemis, 1025 BattleFatigue)) + AddEffect(1238 TeleportingIn -> Self) + AddEffect(1239 ExtraDamage -> Self)), les 2 effets self a Sum(TurnsFromRounds(1), Direct(1)) TOURS ; le DirectDamage vit en PHASE 2 dans l'effet 1239 (canal coups additionnels #179))

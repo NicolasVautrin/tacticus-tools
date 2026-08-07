@@ -350,6 +350,38 @@ class HasTrait(AbilityTrigger):
         return any(ht(u, self.trait) for u in _units_of(self.unit, ctx))
 
 
+class HasTakenDamageOfDamageProfileThisTurn(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasTakenDamageOfDamageProfileThisTurn(unit,
+    damageProfile)` -> `IdunBattle.Entities.Triggers.HasTakenDamageOfDamageProfileThisTurnTrigger$$
+    ShouldTrigger` -- MIRROR du decompile :
+
+        u = this.<+0x10>.SelectUnit(entities)             # le selecteur d'unite
+        if (u == null) return false
+        stats = u.GetComponent<ActorStatisticsComponent>()
+        if (stats == null || stats.<+0x80> == null) <throw>
+        return stats.<+0x80>.ContainsKey(this.<+0x18>)    # `receivedDamageThisTurn`
+
+    C'est une **PRESENCE DE CLE**, jamais un compte -- a distinguer strictement de
+    `HasTakenDamageOfDamageProfileThisTurnAmountOfTimesTrigger$$ShouldTrigger`, qui ajoute
+    `[profile] == times` (EGALITE STRICTE, cf. `runner/operations/triggers/loki/reality_unbound.py`).
+    Les deux factories sont distinctes (`DSLTriggers$$HasTakenDamageOfDamageProfileThisTurn` vs
+    `...AmountOfTimes`) et le mauvais choix change le resultat des le 2e coup du meme profil.
+
+    Sujet = l'operande (passer `ActiveTarget()` sous un `Filter`, ce que fait
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HellfyreMissileRackAbility$$ExecuteBehaviour` :
+    `FromTrigger(<ennemis>, HasTakenDamageOfDamageProfileThisTurn(ActiveTarget@+0x68, Psychic), 0)`).
+    Une liste -> `any` (meme convention qu'`HasTrait`). `ctx.has_taken_damage_of_profile_this_turn`
+    defaut None -> False (degradation fidele : aucun degat enregistre)."""
+    def __init__(self, unit: AbilityTrigger, damage_profile):
+        self.unit, self.damage_profile = unit, damage_profile
+
+    def should_trigger(self, ctx):
+        f = ctx.has_taken_damage_of_profile_this_turn
+        if f is None:
+            return False
+        return any(f(u, int(self.damage_profile)) for u in _units_of(self.unit, ctx))
+
+
 def is_mechanical(unit: TargetsSelector, selection_type: int = 0) -> AbilityTrigger:
     """`IdunBattleLogic.Entities.DSLTriggers$$IsMechanical(unit, selectionType)` — MIRROR de la FACTORY :
     le natif N'ALLOUE PAS de predicat dedie, il compose
