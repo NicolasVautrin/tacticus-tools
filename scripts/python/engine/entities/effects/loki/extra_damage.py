@@ -15,9 +15,28 @@ from collections.abc import Mapping
 from ....services.effect_bonus import (EffectBonus, for_addition, for_percent_decrease,
                                        for_percent_increase)
 from ...active_ability_type import ActiveAbilityType
+from ...damage_trait import DamageTrait
+from ...traits.unit_trait import UnitTrait
 from ..base import (BaseEffect, is_melee_attack, is_not_charging, is_ranged_attack,
                     tiles_moved_this_turn)
-from ..magnitude import ability_var, trait_var
+from ..magnitude import ability_var, global_value, trait_var
+
+
+def _damage_profile_has_trait(profile_name, trait: DamageTrait) -> bool:
+    """`IdunBattleLogic.Entities.DSLTriggers$$DamageProfileHasTrait` -- le profil du COUP porte-t-il
+    ce `DamageTrait` ?
+
+    Les `DamageProfile.Traits` du gameconfig sont des NOMS de chaine : le check est name-based
+    (`DamageTrait.X.name in Traits`), jamais un int brut -- meme regle que
+    `active_ability.get_pierce` pour `LasCannon`. Profil ABSENT (`None`) = **non mesure** -> gate
+    FERME (degradation RESTRICTIVE, comme tout gate d'`att_ctx` a cle absente)."""
+    if not profile_name:
+        return False
+    try:
+        import gameconfig as _GC
+    except Exception:
+        return False
+    return trait.name in ((_GC.damage_profile(profile_name) or {}).get("Traits") or ())
 
 
 class RapidAssaultExtraDamageEffect(BaseEffect):
@@ -557,6 +576,65 @@ class RangedSpecialistEffect(BaseEffect):
         if not is_ranged_attack(is_ranged):      # gated IsRangedAttack (IdunBattle.Entities.Effects.Loki.RangedSpecialistEffect$$CreateEffectDamageBonusForAttack)
             return None                          # #106 : foyer unique du predicat (mirror BattleQuery)
         pct = trait_var("RangedSpecialist", "rangedSpecialistDmgPct")
+        return for_percent_increase(True, pct) if pct is not None else None
+
+
+class MeltaExtraDmgEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.Melta_ExtraDmgEffect$$CreateEffectDamageBonusForAttack`
+    (EffectType `Melta_ExtraDmg` = 0x511 = 1297) -- MIRROR 1:1 du decompile (`rnca9r7q6c`) :
+
+        cond = op_BitwiseAnd( DamageProfileHasTrait(0x5 = DamageTrait.OnMelta),
+                              HasTrait(Target@DSLSelectors+0x60, 0x405 = UnitTrait.Vehicle) )
+        amt  = ConfigConst(0xf) = globalValues.meltaDamageExtraDmgPct = 50
+        return EffectBonus.ForPercentIncrease(cond, amt)
+
+    = le **+50 % vs Vehicle** que l'i2 `Keywords/DMG_Melta` annonce (« Deals +50% damage against
+    Vehicle units »). Jumeau STRUCTUREL de `BeastSlayerExtraDmgEffect` ci-dessous, a UNE difference
+    LUE : le premier conjoint n'est PAS un noeud melee mais `DamageProfileHasTrait(OnMelta)`.
+
+    ⚠ CET EFFET N'EST PORTE PAR AUCUNE UNITE -- ET C'EST LE NATIF QUI EN DECIDE AINSI.
+    `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnMeltaDamageAbility$$CreateBehaviour` le pose
+    par `AddEffect(0x511, AbilityStateReference, targets = First(AllTiles(), amount: 1))` : le
+    support est **UNE TUILE ARBITRAIRE** (`<DSLSelectors+0x18>` = `AllTilesSelector`, ecrit
+    NOMMEMENT par `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`), pas l'attaquant.
+    MESURE live (#488-r1, `MC1_67`, RPC `tileMeta`) : l'effet est sur la tuile **(0,0)**, et le
+    bonus mord IDENTIQUEMENT que l'attaquant s'y tienne ou non.
+
+    Ce n'est pas une anomalie mais la consequence de l'architecture native :
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` invoque
+    le slot de bonus **SANS AUCUN FILTRE de proprietaire ni de position** -- il passe a chaque effet
+    l'`AbilityEntities` complet (attaquant, cible, tuile, arme) et laisse l'effet decider. Or les
+    DEUX conjoints du gate ci-dessus portent sur le COUP et sur la CIBLE, jamais sur le porteur :
+    la tuile n'est qu'un support d'existence. L'ability etant GLOBALE (aucun owner, cf.
+    `GLOBAL_TRIGGERS`) et son trigger `On(0x19 = EventTriggerType.MatchInit, true)` inconditionnel,
+    l'effet est present dans TOUTE bataille -- d'ou son inscription dans `MATCH_WIDE_EFFECTS`
+    (`effects/__init__.py`) plutot que dans les effets d'une unite.
+
+    ⚠ HISTORIQUE -- NE PAS RE-CLASSER EN DEAD-CODE SANS RE-MESURER. `case-72` a conclu DEAD-CODE sur
+    le build `gqfc5mff6c`, ou `$$CreateTrigger` etait REELLEMENT absent. Sur `rnca9r7q6c` la classe
+    le DECLARE (slot de vtable a la profondeur 0, RPC `resolveMethodPtr`) et le +50 % est MESURE :
+    a armure egalisee et geometrie identique, `tauShadowsun` predit `[9014-13520]` contre
+    `admecDestroyer` (Vehicle) et `[6008-9014]` contre DEUX temoins non-Vehicle -- rapport 1,5000
+    exact, et il disparait en melee (profil non-Melta). Detail :
+    `docs/rl/case-488-r1-onmelta-vivant-ou-mort.md`."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        # 1er conjoint : `DamageProfileHasTrait(OnMelta)` -- le profil du COUP, threade dans
+        # `att_ctx["damage_profile"]` par les DEUX faces (prediction `normal_attack`/`abilities`,
+        # combat `damage_model.attacker_modifiers`). Cle absente -> gate FERME.
+        if not _damage_profile_has_trait((att_ctx or {}).get("damage_profile"), DamageTrait.OnMelta):
+            return None
+        # 2e conjoint : `HasTrait(Target@0x60, Vehicle)` -- MEME substrat que BeastSlayer
+        # (`target_trait_names` cote combat, `_entity_traits` cote prediction).
+        if not target_traits or UnitTrait.Vehicle.name not in target_traits:
+            return None
+        pct = global_value("meltaDamageExtraDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
 

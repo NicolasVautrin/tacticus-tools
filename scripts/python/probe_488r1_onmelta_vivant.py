@@ -262,14 +262,86 @@ def etape_morsure(runner_id, attaquant, cibles, tuiles):
     return table
 
 
+def _scene(rpc1, rid):
+    """La `Scene` de la face PREDICTION, montee comme le spine de decision (`engine.ai.context`) --
+    MEME montage que `tests/engine/test_prediction_trait_gates_live.py`."""
+    from engine.playbook import scene as SC
+    from engine.playbook.scene import Scene
+    pred = SC.build_predictor(rpc1, rid)
+    if pred is None:
+        return None
+    vue = rpc1("decisionView", {"runnerId": rid, "maxRank": 1}, 150)
+    sctx = SC.step_context(pred, vue)
+    obs = rpc1("observeBattle", {"runnerId": rid}, 60) or {}
+    hp = {u.get("squadId"): (u.get("hpMax") or 0) for u in (obs.get("units") or [])}
+    hp.update(pred.get("hpmax_eff_by_id") or {})
+    sctx["hpmax_by_id"] = hp
+    return Scene.from_predictor_sctx(pred, sctx, None)
+
+
+def _degat_port(scene, aid, tid, apos):
+    from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
+    ev = make_normal_attack_predictions(scene, aid, tid, apos)
+    if ev is None:
+        return None
+    r = ev.prediction.raw_health_damage
+    return (int(r.min), int(r.max))
+
+
+def etape_port(runner_id, attaquant, cible, sans_correctif=False):
+    """[3] PORT vs NATIF sur la MEME position -- la bande predite, bornes comprises.
+
+    L'oracle est `aiPredict` (`GetAllPredictions` natif) ; le port passe par
+    `make_normal_attack_predictions`. Les deux lisent le MEME etat live.
+
+    `sans_correctif` = CONTRE-EPREUVE : on VIDE `MATCH_WIDE_EFFECTS`, donc le port perd le +50 %
+    Melta et RIEN D'AUTRE. Sans ce bras, « port == natif » ne prouverait pas que le correctif y est
+    pour quelque chose -- il pourrait accorder pour une raison etrangere (cf. la doctrine « verifier
+    que la MUTATION a mordu »)."""
+    sid = session_id()
+    if sid is None:
+        print("ECHEC: aucune session Frida vivante")
+        return 2
+    if sans_correctif:
+        from engine.entities import effects as _EF
+        _EF._MATCH_WIDE_EFFECTS = []          # neutralise le SEUL apport de cette tranche
+        print("[contre-epreuve] MATCH_WIDE_EFFECTS vide -> le port perd le +50 % Melta")
+
+    def rpc1(m, b=None, t=120):
+        return rpc(sid, m, [b or {}], t)
+
+    sc = _scene(rpc1, runner_id)
+    if sc is None:
+        print("ECHEC: build_predictor KO")
+        return 3
+    apos = sc.pos(attaquant)
+    port = _degat_port(sc, attaquant, cible, apos)
+    nat = rpc(sid, "aiPredict", [{"runnerId": runner_id, "unitId": attaquant,
+                                  "targetId": cible, "fresh": True}], 60) or {}
+    p = nat.get("pred") or {}
+    natif = (int(p.get("healthDmgMin") or 0), int(p.get("healthDmgMax") or 0))
+    print("runner=%d  attaquant=u%d @%s  cible=u%d" % (runner_id, attaquant, apos, cible))
+    print("  NATIF %s" % (natif,))
+    print("  PORT  %s" % (port,))
+    if port is None:
+        print("  VERDICT: le port ne rend AUCUNE prediction")
+        return 1
+    ecart = (port[0] - natif[0], port[1] - natif[1])
+    print("  ECART %s -> %s" % (ecart, "ACCORD" if ecart == (0, 0) else "DESACCORD"))
+    return 0 if ecart == (0, 0) else 1
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", default="vtable", choices=["vtable", "tuile", "morsure"])
+    ap.add_argument("--step", default="vtable",
+                    choices=["vtable", "tuile", "morsure", "port"])
     ap.add_argument("--runner", type=int)
     ap.add_argument("--attaquant", type=int)
     ap.add_argument("--vehicle", type=int)
     ap.add_argument("--autre", type=int)
     ap.add_argument("--tuiles", default="0,0;1,0;2,0;0,1;0,2")
+    ap.add_argument("--sans-correctif", action="store_true",
+                    help="contre-epreuve : vide MATCH_WIDE_EFFECTS (le port perd le +50 % Melta)")
     a = ap.parse_args()
     if a.step == "vtable":
         return etape_vtable()
@@ -280,6 +352,8 @@ def main():
         cibles = [(a.vehicle, "Vehicle"), (a.autre, "non-Vehicle")]
         etape_morsure(a.runner, a.attaquant, cibles, tuiles)
         return 0
+    if a.step == "port":
+        return etape_port(a.runner, a.attaquant, a.vehicle, sans_correctif=a.sans_correctif)
     return 9
 
 
