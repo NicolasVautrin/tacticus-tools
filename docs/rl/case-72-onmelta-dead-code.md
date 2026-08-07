@@ -1,5 +1,18 @@
 # Case study #72 : `OnMeltaDamageAbility` (+50% vs Vehicle) est DEAD CODE dans le build gqfc5mff6c
 
+> ⚠ **LA RACINE DE CE VERDICT EST FALSIFIÉE SUR `rnca9r7q6c`** (mesuré #519, 2026-08-07). Le
+> verdict ci-dessous repose entièrement sur « `OnMeltaDamageAbility` n'override PAS `CreateTrigger` »
+> (§ *LA RACINE*). Or `data/symbols/rnca9r7q6c/ghidra/functions.tsv` **porte** le symbole
+> `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnMeltaDamageAbility$$CreateTrigger`, corps
+> `return DSLTriggers.On(0x19 MatchInit, true)`, alors que `data/symbols/gqfc5mff6c/…` ne le porte
+> pas. `$$CreateBehaviour` est inchangé.
+>
+> **Ce document reste tel quel** : il décrit fidèlement `gqfc5mff6c`, et le réécrire falsifierait
+> la mesure. Ce qu'il ne peut plus servir, c'est de justification au non-port sur le build courant.
+> Deux réserves restent à lever avant tout port (corps vraisemblablement **dédupliqué** — 8 xrefs
+> contre 2 chez les jumeaux ; et **aucun `Melta_ExtraDmg` observé live** au début de match sur ce
+> build) : `docs/rl/case-519-peremption-des-citations.md` §5, résidu `#488-r1`.
+
 ## Contexte / mandat
 
 Audit DamageTrait : `DamageTrait.OnMelta(5)` est porte par le profil de degat `Melta` (gameconfig,
