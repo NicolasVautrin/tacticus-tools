@@ -90,7 +90,10 @@ Toute la chaîne native a été LUE, et **aucun de ses étages ne réordonne** :
   l'itérateur, **aucun tri** ;
 * `IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select` — `OrderedSet.AddRange` ;
 * `IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select` → `IdunBattle.DSL.TargetsSelector$$SelectUniqueUnits`
-  — `ArraySet.Add` puis `ToList` (ordre d'insertion) ;
+  — `ArraySet.Add` puis `ToList`. Les DEUX corps sont lus :
+  `idun.shared.collections.ArraySetu003C__Il2CppFullySharedGenericTypeu003E$$Add` écrit à l'index
+  `count` (et `$$Resize` quand il est plein), `…$$ToList` boucle `0 .. count-1` en `List.Add` —
+  **ordre d'insertion STRICT**, aucune réorganisation par hachage ;
 * `IdunBattle.Entities.Selectors.UnitsByTeamSelector$$Select` → `$$CountOrAdd` — `List.Add` filtré
   par `IdunBattle.Entities.UnitExtensions$$IsFriend` ;
 * `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$Select` — `List.Add` filtré ;
@@ -112,8 +115,11 @@ points mais qu'aucune fonction native ne justifie. Elle reste donc au **résidu 
   attribué à un étage natif malgré la lecture complète de la chaîne (§4). Tant qu'il n'est pas
   attribué, le tie-break du port reste FAUX (`sorted(by id)`) et la 4ᵉ cible peut différer.
   Rejouer : `python probe_494_doombolt_sort_order.py --regime I1|I3|I5|J1|K1`.
-  Piste non explorée : l'implémentation de `idun.shared.collections.ArraySet`/`OrderedSet`
-  (`Add`/`ToList`/`Remove`) et le corps gshared de `System.Linq.Enumerable.OrderBy` sous IL2CPP.
+  Pistes NON explorées, dans l'ordre où je les prendrais : le corps gshared de
+  `System.Linq.Enumerable.OrderBy`/`OrderedEnumerable` sous IL2CPP (le seul comparateur du chemin) ;
+  `idun.shared.collections.OrderedSet$$Add`/`$$AddRange`/`$$Remove` (l'`ArraySet`, lui, est LU et
+  strictement insertion-ordonné) ; et `IdunBattle.DSL.TargetsSelector$$op_Subtraction`, qui retire
+  la tuile du centre du disque `includeCenter = 1`.
 * **`#527-r1`** (existant, agent en vol) — confirmé ici sur une seconde ability. Le montage à
   aura (`orksBigMek` `Mechanic`) en est un second témoin, à armures **non posées à la main**.
 * **Hors périmètre, LU en chemin** : `IdunBattleLogic.Entities.DSLSelectors$$Damageable` n'est pas
