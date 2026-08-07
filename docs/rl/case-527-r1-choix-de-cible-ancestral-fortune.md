@@ -1,4 +1,4 @@
-# #527-r1 — Le classement de cible de `SortUnitsByDamageUtilitySelector` : l'armure est ÉLIMINÉE, le canal BLOCK est le candidat
+# #527-r1 — Le classement de cible de `SortUnitsByDamageUtilitySelector` : l'armure SEULE et le BLOCK sont éliminés, le seuil de perçage MESURE le dégât employé (3 coups, pas 1)
 
 **Statut : NON RÉSOLU.** Ce dossier ne livre pas de fix. Il livre ce qui est **éliminé**, ce qui
 reste **ouvert**, et l'instrument pour reprendre.
@@ -150,10 +150,17 @@ valent 100** et sont donc inutilisables pour cet axe.
 
 ```
 python probe_527_votann_lot1_rouges.py --etage armure  --regime haute|basse|hp
+python probe_527_votann_lot1_rouges.py --etage armure  --regime seuil_2100|seuil_2200   # §1bis
+python probe_527_votann_lot1_rouges.py --etage armure  --regime block_off|block_both    # §2
 python probe_527_votann_lot1_rouges.py --etage predict --regime nominal
 python probe_527_votann_lot1_rouges.py --etage replay
 ```
 
 `--etage replay` sépare **choix** et **dégât** (il rejoue le cast port avec la cible forcée à celle
-du natif) ; `--etage armure` porte les trois bras de l'A/B ; `--etage predict` interroge la
-prédiction native cible par cible.
+du natif) ; `--etage armure` porte les bras de l'A/B ; `--etage predict` interroge la prédiction
+native cible par cible.
+
+⚠ Les deux lignes du milieu ne sont pas décoratives : ce sont **elles** qui portent les verdicts du
+dossier. `seuil_2100`/`seuil_2200` encadrent la bascule et **mesurent `d`** (§1bis, le seul résultat
+positif de la tranche) ; `block_off`/`block_both` sont l'A/B qui **élimine** le canal block (§2).
+Rejouer seulement `haute|basse|hp` reproduit l'ancien état de la question, pas ses conclusions.
