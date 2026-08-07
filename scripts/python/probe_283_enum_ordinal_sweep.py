@@ -81,26 +81,10 @@ from symbols_layout import archived_builds, current_build  # noqa: E402
 
 #: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
 #:
-#: ⚠ LIMITE DE LA FORME, A REMONTER : ce fichier porte SIX entrees de banque (`--step diff |
-#: mirror | exec | tables | prose | on`) et un DECLENCHEUR ne se declare que par FICHIER. Ce
-#: qui suit est donc l'UNION STRICTE des six, et elle est trop LARGE pour quatre d'entre elles.
-#: Ventilation MESUREE (perimetres lus dans le code, couts isoles du 2026-08-07) :
-#:
-#:   etape    cout     perimetre REEL
-#:   ------   ------   --------------------------------------------------------------------
-#:   diff      1,1 s   `data/symbols/<build>/frida/enums.tsv` des DEUX builds archives. RIEN
-#:                     d'autre -- aucun fichier de code n'est ouvert. (COMPTEUR)
-#:   mirror   32,6 s   TOUT `.py` du depot (`_fichiers_du_depot`) + la table du build courant.
-#:   exec     80,0 s   `scripts/python/**/*.py` SEULEMENT (`REPO/"scripts"/"python"`.rglob).
-#:   tables   12,3 s   TOUT `.py` / `.ts` / `.js` du depot + les tables.
-#:   prose    66,1 s   `scripts/python/**` en `.py`/`.md`/`.ts`/`.js` (arg `--racine`).
-#:   on       15,7 s   `scripts/python/**` en `.py`/`.md`. (COMPTEUR)
-#:
-#: Consequence pratique : sous cette union, un `.ts` de `frida/` rejoue `exec`, `prose` et `on`
-#: (161,8 s) qui ne le lisent pas, et un changement de `data/symbols` seul rejoue les six alors
-#: que `diff` suffirait. Un mecanisme qui saurait porter un declencheur PAR ENTREE de banque
-#: (et non par fichier) recupererait ce qui est ici perdu ; en l'etat, l'union est la seule
-#: declaration qui ne soit pas un faux vert.
+#: Ce fichier porte SIX entrees de banque (`--step diff|mirror|exec|tables|prose|on`) aux
+#: perimetres DIFFERENTS. Ce `DECLENCHEUR`-ci est leur UNION STRICTE -- il vaut pour
+#: `--step all` et sert de REPLI a toute entree qui ne s'affine pas ; la ventilation, elle,
+#: vit dans `DECLENCHEUR_PAR_ENTREE` juste en dessous (#486-r19).
 #:
 #: `build: True` n'est pas de la marge : `main` lit `current_build()` et `archived_builds()` a
 #: CHAQUE etape, et `mirror` / `exec` / `tables` / `prose` comparent a des ORDINAUX qui viennent
@@ -115,6 +99,93 @@ DECLENCHEUR = {
               "`scripts/python/**` en `.py`/`.md` (exec, prose, on), et les tables "
               "`data/symbols/<build>/frida/enums.tsv` dont chaque etape tire ses ordinaux. "
               "Aucune etape ne lit `docs/**` ni aucune autre extension.",
+}
+
+#: La VENTILATION, entree de banque par entree de banque (#486-r19). Perimetres LUS dans le
+#: code de chaque `step_*` ; couts ISOLES mesures le 2026-08-07 (#486-r14) :
+#:
+#:   etape    cout     perimetre REEL
+#:   ------   ------   --------------------------------------------------------------------
+#:   diff      1,1 s   `data/symbols/<build>/frida/enums.tsv` des DEUX builds archives. RIEN
+#:                     d'autre -- aucun fichier de code n'est ouvert. (COMPTEUR)
+#:   mirror   32,6 s   TOUT `.py` du depot (`_fichiers_du_depot`) + la table du build courant.
+#:   exec     80,0 s   `scripts/python/**/*.py` SEULEMENT (`REPO/"scripts"/"python"`.rglob).
+#:   tables   12,3 s   TOUT `.py` / `.ts` / `.js` du depot + les tables.
+#:   prose    66,1 s   `scripts/python/**` en `.py`/`.md`/`.ts`/`.js` (arg `--racine`).
+#:   on       15,7 s   `scripts/python/**` en `.py`/`.md`.
+#:
+#: Sous l'UNION seule, un `.ts` de `frida/` rejouait `exec`, `prose` et `on` (161,8 s) qui ne le
+#: lisent pas, et un changement de `data/symbols` seul rejouait les six alors que `diff` suffit.
+#:
+#: ⚠ NE PAS scinder ce fichier en six pour obtenir la meme finesse : les six etapes partagent
+#: `_fichiers_du_depot` et `_sources`, et c'est la memoisation de ces deux-la qui tient leur
+#: cout (la lecture parallele de #457-r6 n'est payee QU'UNE FOIS par process).
+#:
+#: ⚠ `--racine` (defaut `scripts/python`) est un ARGUMENT : `prose` et `on` peuvent etre pointes
+#: ailleurs (`--racine docs`, cf. #283-r2). Ces declarations decrivent l'entree de banque TELLE
+#: QU'ELLE EST DANS `ratchets.ps1`, qui ne passe pas `--racine` -- c'est le contrat mesure par
+#: `probe_486r12`, qui rejoue exactement l'argv de la banque.
+DECLENCHEUR_PAR_ENTREE = {
+    # ⚠ CETTE ENTREE A ETE MESUREE FAUSSE, et c'est la premiere prise de la forme #486-r19.
+    # Sa 1re redaction disait << n'ouvre AUCUN fichier de code, le seul .py qu'il touche est le
+    # sien >> -- ce qui est vrai de `step_diff`, et FAUX de l'entree de banque : le MODULE, en
+    # se chargeant, importe `repo_read` et `symbols_layout` (`_ARCHIVES = tuple(archived_builds())`
+    # s'evalue a l'import). L'etage 2 l'a nomme des le premier passage --
+    # `LU hors perimetre : scripts/python/symbols_layout.py`. Sous l'UNION, cette faute etait
+    # STRUCTURELLEMENT invisible : `**/*.py` couvre tout.
+    "probe_283:diff": {
+        "chemins": ("scripts/python/repo_read.py", "scripts/python/symbols_layout.py"),
+        "build": True,
+        "toujours": False,
+        "raison": "`step_diff` n'ouvre AUCUN fichier de code : il ne lit que "
+                  "`data/symbols/<build>/frida/enums.tsv` des deux builds archives, apporte "
+                  "par `build: True`. Restent les deux modules que le CHARGEMENT du fichier "
+                  "importe (`repo_read`, `symbols_layout`) -- MESURES, pas supposes.",
+    },
+    "probe_283:mirror": {
+        "chemins": ("*.py", "**/*.py"),
+        "build": True,
+        "toujours": False,
+        "raison": "`step_mirror` parse TOUT `.py` du depot (`_fichiers_du_depot('.py')`) pour "
+                  "y trouver les classes IntEnum homonymes des quatre enums, et confronte "
+                  "leurs membres a la table du build courant. Ni `.ts`, ni `.js`, ni `.md`.",
+    },
+    "probe_283:exec": {
+        "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+        "build": True,
+        "toujours": False,
+        "raison": "`step_exec` ne balaie que `scripts/python/**/*.py` (rglob explicite sur "
+                  "`REPO/scripts/python`) : AST + prose par ligne, plus les ordinaux des deux "
+                  "builds. Il ne sort jamais de `scripts/python`, et ne lit aucun `.ts`/`.js`.",
+    },
+    "probe_283:tables": {
+        "chemins": ("*.py", "**/*.py", "*.ts", "**/*.ts", "*.js", "**/*.js"),
+        "build": True,
+        "toujours": False,
+        "raison": "`step_tables` cherche les tables `{ordinal: \"Nom\"}` dans TOUT le depot, "
+                  "sur les trois suffixes de `_SUFFIXES` -- c'est la seule etape qui lit du "
+                  "TypeScript (le motif `UTILITY_TYPE_NAMES` du hook `ai-utility-trace`).",
+    },
+    "probe_283:prose": {
+        "chemins": ("scripts/python/*.py", "scripts/python/**/*.py",
+                    "scripts/python/*.md", "scripts/python/**/*.md",
+                    "scripts/python/*.ts", "scripts/python/**/*.ts",
+                    "scripts/python/*.js", "scripts/python/**/*.js"),
+        "build": True,
+        "toujours": False,
+        "raison": "`step_prose` (etapes 4 et 4bis) rglob sur `REPO/<racine>` avec les QUATRE "
+                  "suffixes `.py`/`.md`/`.ts`/`.js`, `<racine>` valant `scripts/python` sous "
+                  "l'argv de la banque. Les ordinaux compares viennent des deux tables.",
+    },
+    "probe_283:on": {
+        "chemins": ("scripts/python/*.py", "scripts/python/**/*.py",
+                    "scripts/python/*.md", "scripts/python/**/*.md"),
+        "build": True,
+        "toujours": False,
+        "raison": "`step_on` rglob sur `REPO/<racine>` en `.py` et `.md` seulement (pas de "
+                  "`.ts`/`.js`), et compare aux ordinaux `EventTriggerType` des deux builds "
+                  "-- c'est ce qui separe une ancre `stable` d'une ancre `decalee`.",
+    },
 }
 
 # Les quatre enums renumerotes, par leur nom PLEINEMENT QUALIFIE (= la cle de `enums.tsv`,
