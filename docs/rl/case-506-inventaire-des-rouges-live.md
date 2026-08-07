@@ -272,6 +272,32 @@ Residu **`#506-r3`** : reparer l'approche du montage pour que `ultraEliminatorSg
 portee de 1004 (le greedy « minimiser la distance a l'ennemi le plus proche » n'y arrive pas, et
 monter le plafond n'y change rien). Je ne modifie pas l'assertion.
 
+> **FERME le 2026-08-07 -- et « monter le plafond n'y change rien » etait le bon indice, mal lu.**
+> `_approach` avait DEUX defauts independants, et le second explique pourquoi 8 et 24 rendaient le
+> meme resultat :
+>
+> 1. **Le tour d'approche ne se terminait jamais.** La boucle de fin de tour sort sur
+>    `currentPlayer == 3`, ce qui est deja vrai tant qu'il reste chez nous une unite non activee :
+>    sans `endturn` d'amorce, elle ne faisait RIEN. Trace (`logs/diag_killgate3.py`) : au tour 5
+>    `necroDestroyer` bouge, les trois deja `reached` gardent leur activation, la main ne bascule
+>    pas, et `ultraEliminatorSgt` -- qui vient de bouger -- se retrouve a `movable = 0` aux tours 5
+>    ET 6, jusqu'au `break` sur `moved`. **Il ne faisait qu'UN SEUL deplacement utile**, quel que
+>    soit le plafond. Le plafond n'etait pas la contrainte active ; l'epuisement du mouvement l'etait.
+> 2. **Le critere de destination etait la distance hex, pas la donnee native.** Il finissait en
+>    `(2, 6)` alors que le natif publiait pour lui QUATRE tuiles portantes -- `(3, 6)`, `(3, 8)`,
+>    `(4, 5)`, `(4, 7)` -- toutes dans ses 15 tuiles atteignables. On vise desormais
+>    `ranked(attaque normale) INTER ranked(ability) INTER atteignables`, avec repli sur la distance.
+>
+> Apres les deux : `reached` **5/5** (il finit en `(3, 6)`), `legal = {77: False, 79: True}`,
+> `port = False`, `gate_cut = True` -> la contre-epreuve **MORD**, et le temoin `blackObliterator`
+> reste inerte. Le fichier passe de **1 failed / 9 passed** a **10 passed**. Aucune assertion
+> touchee, aucun `engine/**` touche.
+>
+> **Generalisation, sur un AUTRE couple** (`C4_09`/31337, `logs/gen_killgate.py`) : `reached`
+> **5/5**, critere A **10/10**, critere B **5/5**, temoin propose, et la contre-epreuve MORD sur
+> les **QUATRE** gate-ees du bras `kill` -- `INATTENDUE = []`. Le montage repare n'est donc pas
+> ajuste au seul `MC1_67`/4242.
+
 ⚠ **Ce que le fichier avait ecrit, et pourquoi il ne pouvait pas voir le bug.** Son en-tete porte
 « UNE BORNE A ETE ESSAYEE PUIS REFUTEE : desarmer le gate quand l'attaque normale ne porte pas
 depuis la tuile de cast fait passer trois lignes du bras `kill` de "port refuse" a "port accepte"
@@ -411,10 +437,10 @@ stat globale (comme #419-r6) en cree une fournee d'un coup.
   que je n'ai pas lu. Le reparer par analogie serait speculatif. A instruire : lire la branche
   « aucune tuile » de ce corps, et dire si elle appelle elle aussi la facade contre la vraie cible.
 
-* **DEUX assertions de `test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py` attendent un
-  ARBITRAGE** (§3.4) -- le fichier passe de 1 failed / 9 passed a **2 failed / 8 passed**. Le
-  correctif de port ferme la ligne signalee et en ouvre deux dont la premisse (`reached`) n'est pas
-  installee par le montage. Non modifiees deliberement.
+* ~~**DEUX assertions de `test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py` attendent un
+  ARBITRAGE**~~ (§3.4) -- **FERME le 2026-08-07** avec `#506-r3` : la premisse `reached` que le
+  montage n'installait pas est desormais installee (`5/5`), le fichier passe de **1 failed / 9
+  passed** a **10 passed**. Aucune assertion touchee.
 
 * **`#419-r6-r1` reste ouvert et cette tranche le CONFIRME de deux facons.** Son §2.2 classait deja
   `test_summon_consumers_live` en CAUSE (28/1 -> 29) et
