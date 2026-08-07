@@ -21,6 +21,15 @@ from ...effect_type import EffectType   # #270-r3 : cles de `ContagionsOfNurgle.
 from ...stats import StatType
 from ...stats import StatType, StatPart
 
+# `IdunBattle.Entities.UnitExtensions$$IsMechanical` -- LU au décompilé (#175-e), ce N'EST PAS
+# `HasTrait(Mechanical)` seul : le corps enchaîne trois `BaseUnitComponent$$HasTrait` en OU
+# court-circuité, sur `5`, `0x3e8` et `0x405`. Les trois ids sont QUALIFIÉS contre
+# `IdunBattle.Entities.Enum.UnitTrait`. Même lecture que `engine/playbook/non_owner.py::_is_mechanical`
+# (l'autre consommateur porté de cette fonction native) -- la valeur y est en IDS, ici en NOMS.
+_IS_MECHANICAL_TRAITS = (UnitTrait.Mechanical,      # 5
+                         UnitTrait.LivingMetal,     # 0x3e8 = 1000
+                         UnitTrait.Vehicle)         # 0x405 = 1029
+
 
 class HypersensoryMinimalHealthEffect(BaseEffect):
     """`HypersensoryAbilities_MinimalHealthEffect` (Effects.Idun, effet 0x564=1380 ; IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$.ctor).
@@ -69,8 +78,17 @@ class ContaminatedEffect(BaseEffect):
           || base.EntityIsImmuneToEffect(entity)          # HasTrait(Immune) && CanBeImmuneTo
 
     `get_CanBeImmuneTo` = **true** (vtable runtime, cf. `BaseEffect.can_be_immune_to`) ⇒ la 3e branche
-    mord réellement pour cet effet. `IsMechanical` est approximé par le TRAIT `Mechanical` (la propriété
-    native peut couvrir davantage — approximation pré-existante #154, conservée telle quelle).
+    mord réellement pour cet effet.
+
+    ⚠ `IsMechanical` N'EST PAS `HasTrait(Mechanical)` (#175-e). Le corps de
+    `IdunBattle.Entities.UnitExtensions$$IsMechanical` enchaîne TROIS `BaseUnitComponent$$HasTrait` en
+    OU court-circuité — `5` `Mechanical`, `0x3e8` = 1000 `LivingMetal`, `0x405` = 1029 `Vehicle` — et
+    l'approximation « trait `Mechanical` seul » (héritée de #154) était un FORK : la MÊME fonction
+    native est déjà lue correctement par `engine/playbook/non_owner.py::_is_mechanical`. Sur le
+    catalogue du build `rnca9r7q6c` les deux ensembles coïncident (130 unités des deux côtés : tout
+    `LivingMetal`/`Vehicle` y est aussi `Mechanical`), donc l'écart était INOBSERVABLE au kit — mais
+    `entity_trait_names` porte AUSSI les traits accordés EN BATAILLE (`AddTrait`), où rien ne garantit
+    cette coïncidence. On lit les trois, comme le natif.
 
     C'est le canal unique consulté par les DEUX consommateurs : le gate générique de
     `IdunBattle.Operations.AddEffectOperation$$Execute` (via `EffectFactory.effect_def`) ET le vecteur
@@ -80,7 +98,10 @@ class ContaminatedEffect(BaseEffect):
     can_be_immune_to = True                          # `get_CanBeImmuneTo` -> stub partagé `return 1`
 
     def entity_is_immune_to_effect(self, trait_names: "list | None" = None) -> bool:
-        if has_any_trait(trait_names, (UnitTrait.ContagionsOfNurgle, UnitTrait.Mechanical)):
+        # `HasTrait(entity, 0x7eb)` puis `IsMechanical(entity)` -- ce SECOND test est la chaîne de
+        # TROIS traits en OU du natif, pas le seul `Mechanical` (cf. l'encart de la docstring).
+        if has_any_trait(trait_names, (UnitTrait.ContagionsOfNurgle,)) \
+                or has_any_trait(trait_names, _IS_MECHANICAL_TRAITS):
             return True
         return super().entity_is_immune_to_effect(trait_names)
 
@@ -316,8 +337,28 @@ class DespoiledGroundEffect(BaseEffect):
     d'override : les deux `AddEffect(0x5c4, stateRef, Tiles(Target))` lus (FleshMetalGuns_TileEffect,
     LetTheGalaxyBurn) sont la surcharge SANS noeud de duree.
 
-    IMMUNITE : aucune surcharge d'`EntityIsImmuneToEffect` (contraste `ContaminatedEffect`) -> le gate
-    generique de `AddEffectOperation` s'applique tel quel. #85."""
+    IMMUNITE : aucune surcharge d'`EntityIsImmuneToEffect` (contraste `ContaminatedEffect`) -> c'est le
+    corps GENERIQUE `BaseEffect$$EntityIsImmuneToEffect` qui s'applique.
+
+    ⚠⚠ **MAIS LA CLASSE SURCHARGE `get_CanBeImmuneTo`, ET A `true` (#175-e).** La ligne qui disait
+    « les TROIS SEULS virtuels que la classe surcharge (recherche EXHAUSTIVE des symboles
+    `DespoiledGroundEffect$$*`) » etait fausse par sa METHODE, pas par inattention : cette classe n'a
+    **AUCUN** symbole ghidra -- ses quatre corps sont fondus par l'ICF -- donc une recherche par
+    symbole ne peut structurellement rien y voir (« L'ABSENCE dans les tables de symboles ne prouve
+    RIEN », CLAUDE.md). Le `global-metadata.dat` lui attribue **4** methodes declarees
+    (`get_CanBeImmuneTo` slot 59, `CreateActiveCondition` 62, `CreateTargetSelector` 64, `.ctor`), et
+    le bloc `methodPointers` du PE donne `b0 01 c3` = `mov al,1 ; ret` pour le slot 59.
+    Consequence : `EntityIsImmuneToEffect(u) = HasTrait(u, UnitTrait.Immune) && true`
+    = **`HasTrait(u, Immune)`** -- le gate MORD, la ou le port rendait un `False` inconditionnel.
+
+    ⚠ Le recensement de #224 (vtable RUNTIME, namespace `IdunBattle.Entities.Effects.*`) ne pouvait
+    pas la voir non plus : elle vit sous `Idun.Source.IdunBattle.Logic.Entities.Effects`. Les deux
+    mesures se RECONCILIENT une fois l'heritage propage (`FireEffect`/`IceEffect`/
+    `BlockEnteringUnitsTileEffect` heritent le `true` de `BlockTileMovementEffect`) ; ce qui reste
+    ouvert est l'ecart INVERSE -- trois classes qui DECLARENT `true` et que le port tient a `false`
+    (residu, cf. `docs/rl/case-175e-immunite-des-feuilles-de-tuile.md`). #85, #175-e."""
+
+    can_be_immune_to = True                          # `get_CanBeImmuneTo` -> `b0 01 c3` (mov al,1 ; ret)
 
 
 class DespoiledGroundExtraDamagePctEffect(BaseEffect):

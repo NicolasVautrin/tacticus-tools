@@ -38,7 +38,11 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
                                                             occupant steppable NON ennemi + compte
                                                             des amis porteurs de 1304]
   ability_friend_counts : {ability_id:int -> count}        (KustomForceField 1102 / Defender 1155 / Savior 1120)
+                                                           [ACTIF #175-r — `_ability_friend_counts`,
+                                                            via `apply_tile_attributes`]
   movetowards_hexdist : {ability_id:int -> hexdist}        (BioMinefield 1315 / MasterOfTheTutelaries 1096)
+                                                           ⚠ le NOM MENT : ce n'est PAS une distance
+                                                            hex (cf. `MoveTowardsUnitUtility`)
   neighbor_effect_names : {adjacent|surrounding1|ranged2 -> [effect_name]}   (UnitEffects 10/11/12)
 
 `ctx` (PAR UNITÉ/DÉCISION, constant sur toutes les tuiles d'une décision) — clés consommées :
@@ -49,7 +53,11 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
                                       [ACTIF #241 — `faction_value(visualId)` = `FactionId` gameconfig
                                        -> enum, le pendant du `System.Enum.ToString` de `HasFaction`]
   friend_positions : [(col,row)]      (allies vivants self-exclu = ctx.fpos — TriggeredAbilities(2))
-  unit_has_ranged_weapon : bool ; unit_is_ai : bool ; player_door_mode : int ; contaminated_excluded : bool
+  unit_has_ranged_weapon : bool ; unit_is_ai : bool ; player_door_mode : int
+  ⚠ `contaminated_excluded` A DISPARU (#175-e) : la clé n'était peuplée par AUCUN des trois
+    constructeurs de `ctx`, et sa FORME était fausse. L'exclusion native n'est pas un booléen
+    par-décision mais `effectsDatabase.GetEffect(<type>).EntityIsImmuneToEffect(case.unit)`, dérivé
+    des seuls `unit_traits` (cf. `_entity_is_immune_to_effect`).
   is_spawning : bool                  (`IdunBattle.AI.Utilities.UtilityMovementCase$$get_IsSpawning`
                                        = `case.unit == null && case.parent != null` — le call-site SUMMON
                                        `SortTilesByUtilityForSummon` n'a PAS de sujet, cf. case-205)
@@ -206,6 +214,47 @@ def _ability_count(meta: dict, ability_id: int) -> int:
     """count d'amis (dans le rayon propre à la leaf) ayant l'ability `ability_id`."""
     counts = (meta or {}).get("ability_friend_counts") or {}
     return int(counts.get(ability_id) or counts.get(str(ability_id)) or 0)
+
+
+def _subject_trait_names(ctx: dict) -> tuple:
+    """Les NOMS de traits du SUJET, dérivés des IDS que porte `ctx["unit_traits"]`.
+
+    Même substrat, autre forme : `entity_trait_ids` est LUI-MÊME dérivé d'`entity_trait_names`
+    (`engine/entities/traits/unit_trait.py`), donc la conversion est totale — aucun id ne peut
+    sortir de l'enum. LOUDER-ON-BUG, comme le foyer d'autorité : un id hors enum LÈVE plutôt que
+    de disparaître du gate."""
+    return tuple(UnitTrait(int(t)).name for t in ((ctx or {}).get("unit_traits") or ()))
+
+
+def _entity_is_immune_to_effect(effect_type, ctx: dict) -> bool:
+    """`effectsDatabase.GetEffect(<effectType>).EntityIsImmuneToEffect(case.unit)` — les DEUX étages,
+    mirror 1:1 (#175-e), lus dans
+    `IdunBattle.AI.Utilities.DespoiledGroundUtility.u003CEvaluateMovementInStepsu003Ed__5$$MoveNext`
+    et `IdunBattle.AI.Utilities.ContaminatedUtility.u003CEvaluateMovementInStepsu003Ed__4$$MoveNext`,
+    qui l'appellent tous deux JUSTE APRÈS le gate `case.unit == null` et AVANT d'énumérer les effets
+    de la tuile :
+
+        IEffect eff = this.<+0x60>.GetEffect(<effectType>);     // IEffectsDatabase slot 0
+        if (eff.EntityIsImmuneToEffect(case.unit)) yield break; // IEffect slot 40
+
+    Les deux slots sont LUS, pas déduits : `IEffectsDatabase` n'a qu'UNE méthode
+    (`GetEffect`, slot 0, 1 argument) et `IEffect` slot 40 = `EntityIsImmuneToEffect` (1 argument) —
+    `data/symbols/<build>/metadata/interface_slots.tsv` + `global-metadata.dat`. Le champ `+0x60` est
+    le paramètre `effectsDatabase` du `.ctor` des DEUX utilities (type DÉCLARÉ lu dans
+    `frida/methods.tsv`).
+
+    Le 2e étage est le foyer DÉJÀ PORTÉ `EffectFactory.effect_def(...).entity_is_immune_to_effect`
+    (mirror d'`EffectsDatabase.Get` + du virtuel par classe) — le MÊME que consulte le gate de pose
+    `IdunBattle.Operations.AddEffectOperation$$Execute`. Le rebrancher ici plutôt que de recâbler un
+    prédicat de traits dans la feuille est ce qui évite un fork : c'est un seul nœud natif.
+
+    IMPORT DIFFÉRÉ, classe **PORTEUR** (mesure : `python -c "import engine.entities.effects.factory"`
+    dans un process FRAIS charge `engine.utilities.tile` — 102 modules `engine.*` —, donc hisser
+    fermerait un cycle). Forme B (`import <module>` puis attribut) : un binding de module reste
+    substituable, contrairement au `from X import nom`."""
+    from ..entities.effects import factory as _fx
+    return bool(_fx.EffectFactory.effect_def(int(effect_type), effect_type.name)
+                .entity_is_immune_to_effect(_subject_trait_names(ctx)))
 
 
 # ── Classes `IdunBattle.AI.Utilities.*Utility` (une par feuille ; corps DANS la méthode) ─────────────
@@ -383,13 +432,33 @@ class PowerUpTileUtility(BaseUtility):
 
 class ContaminatedUtility(BaseUtility):
     """`ContaminatedUtility` (IdunBattle.AI.Utilities.ContaminatedUtility$$.ctor ; UtilityType.Contaminated=26) ; IdunBattle.AI.Utilities.ContaminatedUtility.u003CEvaluateMovementInStepsu003Ed__4$$MoveNext : -25 si la tuile porte
-    un effet type 1244 (0x4dc) ET l'unité n'est pas exclue. `meta.tile_effect_type_ids` + `ctx.contaminated_excluded`."""
+    un effet type 1244 (0x4dc) ET l'unité n'est pas IMMUNISÉE contre lui. `meta.tile_effect_type_ids`.
+
+    Corps natif remis en C# depuis le décompilé (#175-e), dans SON ordre :
+
+        if (case.unit == null) yield break;                                  // régime SPAWN
+        if (effectsDatabase.GetEffect(Contaminated).EntityIsImmuneToEffect(case.unit)) yield break;
+        foreach (e in EffectsOwnedComponent(case.Position.MainTile))
+            if (EffectComponent(e).EffectType == 0x4dc) { u += GetUtilityValue("AffectedUnit"); break; }
+
+    DEUX gates manquaient, et les deux sont dans la MÊME instruction du natif :
+
+    * `case.unit == null` (`if (case+0x10 == 0) -> return false`, l'état 0 de la SM). La sœur
+      `DespoiledGroundUtility` le portait déjà (case-205) ; celle-ci non — en régime SPAWN elle
+      versait donc son -25 là où le natif n'émet AUCUN step.
+    * l'IMMUNITÉ. `ctx.contaminated_excluded`, le nom que le port lui donnait, n'était peuplé par
+      AUCUN des trois constructeurs de `ctx` : le gate était mort. Sa forme aussi était fausse —
+      ce n'est pas un booléen par-décision mais l'appel à DEUX étages `_entity_is_immune_to_effect`,
+      dont le second est le virtuel `ContaminatedEffect$$EntityIsImmuneToEffect`
+      (`ContagionsOfNurgle` | `IsMechanical` | `HasTrait(Immune) && CanBeImmuneTo(=true)`)."""
     UTILITY_TYPE = int(UtilityType.Contaminated)  # 26
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        if int(EffectType.Contaminated) not in _eff_ids(meta, "tile_effect_type_ids"):   # 0x4dc
+        if (ctx or {}).get("is_spawning"):            # `if (case.unit == null) yield break;`
             return 0.0
-        if (ctx or {}).get("contaminated_excluded"):
+        if _entity_is_immune_to_effect(EffectType.Contaminated, ctx):    # IEffect slot 40
+            return 0.0
+        if int(EffectType.Contaminated) not in _eff_ids(meta, "tile_effect_type_ids"):   # 0x4dc
             return 0.0
         return wt.sub("Contaminated", "AffectedUnit")
 
@@ -447,11 +516,22 @@ class DespoiledGroundUtility(BaseUtility):
     tile-effect type 1476 (0x5c4) → trait 2026 (Chaos) → ChaosAffectedUnit(-5) ; trait 26 ou 1006
     (Imperial/Xenos) → ImperialAndXenosAffectedUnit(-25). `meta.tile_effect_type_ids` + `ctx.unit_traits`.
     Première instruction du corps natif : `if (case.unit == null) yield break;` — sujet ABSENT ⇒ AUCUN
-    step émis, donc 0 (case-205)."""
+    step émis, donc 0 (case-205).
+
+    ⚠ SECONDE instruction, non portée jusqu'à #175-e : le gate d'IMMUNITÉ, à DEUX étages —
+    `effectsDatabase.GetEffect(DespoiledGround).EntityIsImmuneToEffect(case.unit)` ⇒ `yield break`.
+    Il vient AVANT l'énumération des effets de la tuile, et il MORD : `DespoiledGroundEffect` ne
+    surcharge PAS `EntityIsImmuneToEffect` (c'est le corps générique) mais surcharge bien
+    `get_CanBeImmuneTo` à **true**, si bien que le prédicat vaut `HasTrait(case.unit, Immune)`.
+    Sans lui, le port SUR-PÉNALISE toute unité immunisée (-5 Chaos / -25 Imperial-Xenos là où le
+    natif rend 0). Détail de la lecture : `_entity_is_immune_to_effect` et la docstring de
+    `engine/entities/effects/loki/status.py::DespoiledGroundEffect`."""
     UTILITY_TYPE = int(UtilityType.DespoiledGround)  # 29
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if (ctx or {}).get("is_spawning"):            # `if (case.unit == null) yield break;`
+            return 0.0
+        if _entity_is_immune_to_effect(EffectType.DespoiledGround, ctx):    # IEffect slot 40
             return 0.0
         if int(EffectType.DespoiledGround) not in _eff_ids(meta, "tile_effect_type_ids"):  # 0x5c4
             return 0.0
@@ -654,7 +734,26 @@ class MoveTowardsUnitUtility(BaseUtility):
     """`MoveTowardsUnitUtility` (IdunBattle.AI.Utilities.MoveTowardsUnitUtility$$.ctor ; base) ; `IdunBattle.AI.Utilities.MoveTowardsUnitUtility.u003CEvaluateMovementInStepsu003Ed__15$$MoveNext` : score = poids("PerTileDistance")
     × hexdist(candidate, cible) ; cible = unité ayant l'ability/effet `_ABILITY_ID`. distance = HEX (cube ;
     fournie par `meta.movetowards_hexdist[_ABILITY_ID]`). `_TRAIT_GATE` (None = pas de gate). Corps PARTAGE
-    par les 2 sous-classes (BioMinefield, MasterOfTheTutelaries) qui parametrent `_CAT`/`_ABILITY_ID`/`_TRAIT_GATE`."""
+    par les 2 sous-classes (BioMinefield, MasterOfTheTutelaries) qui parametrent `_CAT`/`_ABILITY_ID`/`_TRAIT_GATE`.
+
+    ⚠⚠ **LE NOM `movetowards_hexdist` MENT, ET LE CLASSEMENT « derivable OFFLINE des positions,
+    sans RPC » DE `case-175` §4 EST REFUTE (#175-r).** La distance n'est PAS hexagonale :
+    `IdunBattle.AI.Utilities.MoveTowardsUnitUtility$$GetMinDistanceToTarget`, relu au decompile,
+    fait
+
+        min = null;
+        foreach (tile in EntityExtensions.IterateTiles(target, State))
+            { p = MovementQuery.<slot 4>(1, unit, unitTile, tile, 0); if (p != null && p.<+0x18> < min) min = p.<+0x18>; }
+        return min;                                                  // Nullable<int>
+
+    -- un appel au service de MOUVEMENT par tuile de la cible, dont on lit une longueur : une
+    distance de **CHEMIN** (murs et occupants compris), pas `hexgeo.distance`. Et la CIBLE elle-meme
+    ne se derive pas d'une position : `<EvaluateMovementInSteps>d__15` la cherche en balayant
+    `Query.<slot 0x89 = GetAllAliveUnits>(null)` et en testant `HasActiveAbility` /
+    `HasTriggeredAbility` / `GetOwnedEffect` selon que `UnitIdentifierAbilityOrEffect()` porte une
+    ABILITY ou un EFFET, puis retient la premiere AMIE ou ENNEMIE selon un troisieme virtuel.
+    Deux etages manquent donc au port, pas une carte de positions. Residu ouvert -- cf.
+    `docs/rl/case-175r-ventilation-du-blocage-capteur.md`."""
     _CAT: str = ""
     _ABILITY_ID: int = -1
     _TRAIT_GATE: "set | None" = None
@@ -1185,6 +1284,17 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
         effs += terrain_tile_effects(terr, effs)       # Loop2 + repli Loop1 non hydrate (#155)
         meta = {"elevation": info.get("elevation"), "elevation_max": emax, "elevation_min": emin,
                 "effects": effs}
+        # #175-r — ce foyer est le TROISIEME constructeur de `meta` du composite `Tile(7)`, et le
+        # SEUL qui n'appelait pas `apply_tile_attributes`. Les deux autres (`engine.move` et
+        # `engine.playbook.base.tile_utility`) le font depuis #175. Consequence MESUREE : sur ce
+        # chemin — le selecteur DSL `SortTilesByUtilitySelector`, donc TOUS les call-sites de charge
+        # ET le sweep de tuile de spawn d'un summon — les feuilles gatees sur un attribut de tuile
+        # rendaient 0 SANS EXCEPTION, quoi que porte le `leaf_ctx`. Le natif, lui, evalue le MEME
+        # `ComposedUtility` avec le MEME `UtilityMovementCase` sur les trois chemins : c'est UNE
+        # composition, pas trois. Les cartes que `runner_tile_leaf_ctx` ne publie pas
+        # (`is_territory_by_pos`, `tile_effect_type_ids_by_pos`) restent absentes -> les feuilles
+        # correspondantes degradent a 0 comme avant, exactement comme sur les deux autres chemins.
+        apply_tile_attributes(meta, board.coord(t), leaf_ctx)
         # ⚠ Le 1er argument est la POSITION (col,row), pas l'id de tuile : c'est le contrat des DEUX
         # autres constructeurs de composite (`engine.move`, `playbook.base.tile_utility`) et celui
         # qu'attendent les playbooks de la feuille TriggeredAbilities(2) (`hexgeo`/`battle_query`).
@@ -1809,7 +1919,84 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
             meta["decoy_friend_count"] = _attract_to_decoys_friend_count(lc)
     if lc.get("friend_units") is not None:                        # feuille DoctrinaImperatives(#477-r31)
         meta["attract_mechanicals_neighbor"] = _attract_mechanicals_neighbor(pos, lc)
+        # feuilles KustomForceField(21) / DefenderOfTheGreaterGood(22) / SaviorProtocols(23) (#175-r)
+        meta["ability_friend_counts"] = _ability_friend_counts(pos, lc)
     return meta
+
+
+#: Les TROIS feuilles de la famille `ATriggeredAbilityUtility`, et l'id d'ability que chacune
+#: cherche -- le champ `<utility>+0x60` que `$$GetUnitsWithAbility` passe a
+#: `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithTriggeredAbility`. Ce sont EXACTEMENT les trois
+#: clefs que `_ability_count` lit dans `meta["ability_friend_counts"]`.
+_ATRIGGERED_ABILITY_LEAVES = (int(TriggeredAbilityType.KustomForceField),            # 1102
+                              int(TriggeredAbilityType.DefenderOfTheGreaterGood),    # 1155
+                              int(TriggeredAbilityType.SaviorProtocols))             # 1120
+
+
+def _ability_friend_counts(pos, lc: dict) -> dict:
+    """`{ability_id: n}` que somment les feuilles 21/22/23 — `n` est le `Count` du selecteur DSL que
+    chaque concret rend, et le corps PARTAGE
+    `IdunBattle.AI.Utilities.ATriggeredAbilityUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext`
+    en fait `Fix64.FromInt(n) x GetUtilityPerUnit()` :
+
+        if (!this.AppliesTo(case))  yield Fix64.Zero;
+        else yield Fix64.FromInt(Count(this.GetUnitsWithUtilityForMove(case))) x GetUtilityPerUnit();
+
+    Le SELECTEUR commun est
+    `IdunBattle.AI.Utilities.ATriggeredAbilityUtility$$GetFriendsAdjacentToMovementTile` :
+
+        Friends(Entity(case.unit), AdjacentUnits(Entity(case.MovementTile), 1, 3), 3)
+            op_Subtraction Entity(case.unit)
+
+    -- les AMIS du mover ADJACENTS a la TUILE CANDIDATE, **self EXCLU** (`op_Subtraction`), puis
+    `UnitsWithTriggeredAbility(<+0x60>)`. `AdjacentUnits` passe par `IterateAdjacentTiles`, donc
+    porte d'elevation `|delta| < 2` -> `battle_query.is_adjacent`, jamais `hexgeo.distance == 1`.
+
+    UNE seule feuille s'ecarte de ce voisinage, et il faut le lire, pas le deviner --
+    `IdunBattle.AI.Utilities.DefenderOfTheGreaterGoodUtility$$GetUnitsWithUtilityForMove` :
+
+        sel = GetFriendsAdjacentToMovementTile(case);                       // ring-1, self EXCLU
+        if (case.unit != null && HasFaction(case.unit, 9 = UnitFaction.Tau))
+            sel = SurroundingFriends(Entity(case.unit), Entity(case.MovementTile), 2, 1, 3);
+        return UnitsWithTriggeredAbility(sel, <+0x60>);
+
+    DEUX ecarts, tous deux LOAD-BEARING : le voisinage devient le **DISQUE hex de rayon 2** (donc
+    `battle_query.is_surrounding`, SANS porte d'elevation), et surtout la branche Tau **NE
+    SOUSTRAIT PAS `case.unit`** -- le mover s'y compte LUI-MEME s'il porte 1155. Le `- Entity(
+    case.unit)` n'existe que dans `GetFriendsAdjacentToMovementTile`, et cette branche-la le
+    remplace au lieu de le composer.
+
+    Les gates propres a chaque feuille (`HasRangedWeapon` pour 22, `HasFaction(Tau) && !Has
+    TriggeredAbility(1120)` pour 23) restent dans les `evaluate` : cote natif ils vivent dans le
+    MEME `GetUnitsWithUtilityForMove`, qui rend `None()` quand ils ne passent pas -- soit un compte
+    de 0, soit exactement ce que rend un `evaluate` qui court-circuite. On ne les duplique pas ici.
+
+    `friend_units` est deja self-exclu par construction du `ctx` : il porte donc DIRECTEMENT
+    l'ensemble du selecteur commun. Le `self_pos` n'est re-injecte que pour la branche Tau."""
+    elev = lc.get("elev_by_pos")
+    neigh = _bq.neigh_map(lc)
+    friends = lc.get("friend_units") or ()
+    tau = (lc.get("unit_faction") == int(UnitFaction.Tau))       # HasFaction(case.unit, 9)
+    mine = set(lc.get("unit_triggered_abilities") or ())
+    sp = lc.get("self_pos")
+    out: dict = {}
+    for ab in _ATRIGGERED_ABILITY_LEAVES:
+        disque = tau and ab == int(TriggeredAbilityType.DefenderOfTheGreaterGood)
+        n = 0
+        for u in friends:
+            p = u.get("pos")
+            if not p or ab not in set(u.get("triggered") or ()):
+                continue
+            if _bq.is_surrounding(pos, (p[0], p[1]), 2, True) if disque \
+                    else _bq.is_adjacent(pos, p, elev, neigh):
+                n += 1
+        # branche Tau de la feuille 22 : `SurroundingFriends` ne retire PAS `case.unit`, et
+        # `friend_units` l'a deja retire -> on le re-injecte, comme `_attract_to_decoys_friend_count`.
+        if disque and ab in mine and sp and _bq.is_surrounding(pos, (sp[0], sp[1]), 2, True):
+            n += 1
+        if n:
+            out[ab] = n
+    return out
 
 
 def _attract_mechanicals_neighbor(pos, lc: dict) -> bool:
