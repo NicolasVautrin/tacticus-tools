@@ -51,6 +51,8 @@ from .psychic_maelstrom import (PsychicMaelstromAbility, psychic_maelstrom_tree,
 from .quickening import TheQuickeningAbility
 from .facade import (SorcerousFacadeAbility, sorcerous_facade_tree,
                      sorcerous_facade_switch_tree, sorcerous_facade_target_selector)
+from .foul_infusion import (FoulInfusionAbility, foul_infusion_tree,
+                            foul_infusion_buff_targets, foul_infusion_attack_target)
 
 __all__ = [
     # summon
@@ -93,4 +95,7 @@ __all__ = [
     # facade (SorcerousFacade 1100, #287)
     "SorcerousFacadeAbility", "sorcerous_facade_tree", "sorcerous_facade_switch_tree",
     "sorcerous_facade_target_selector",
+    # foul_infusion (FoulInfusion 1038, #500)
+    "FoulInfusionAbility", "foul_infusion_tree", "foul_infusion_buff_targets",
+    "foul_infusion_attack_target",
 ]

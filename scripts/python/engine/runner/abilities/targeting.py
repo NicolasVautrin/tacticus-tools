@@ -737,7 +737,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # BIT 43 `AllowUnwalkableTargetTile` : **0 porteur sur 32**. Le terme de walkability
     # (`engine.services.targeting_query.tile_removed_by_walkability`) mord donc pour les 32.
 
-    # --- surcharge A, FLAGS DIRECTS (14 lues, 13 ecrites ici) : le litteral du ctor EST le masque -
+    # --- surcharge A, FLAGS DIRECTS (14 lues, 11 ecrites ici) : le litteral du ctor EST le masque -
+    # ⚠ LES DEUX COMPTES NE SONT PAS LE MEME OBJET. « 14 lues » est un fait de RE (le lot de 32 de
+    #   #433-r4-r2-r1-r2-r2-r1-r1) et ne se decremente JAMAIS ; « ecrites ici » compte les entrees
+    #   REELLEMENT presentes dans ce bloc et DIMINUE a chaque face COMBAT portee -- 1087
+    #   ExemplarOfTheKauyon (#488), 1038 FoulInfusion (#500) et 1152 UnstoppableMomentumReworked
+    #   (#498) ont MIGRE sur leur classe. Le RECOMPTER, jamais le soustraire : il etait deja faux
+    #   d'une unite entre #488 et #500, et #498 comme #500 l'ont decremente en parallele.
     # 1005 AdaptiveStrategy -- `...Active.Loki.AdaptiveStrategyAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x402, 0, 0)`.
     ActiveAbilityType.AdaptiveStrategy: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly,  # 1005
@@ -748,12 +754,10 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.StormOfWrath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,  # 1019
                            range=RANGE_ADJACENT_IF_MELEE_CASTER,
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1038 FoulInfusion -- `...Active.Loki.FoulInfusionAbility$$.ctor` :
-    #   `.ctor(&opts, 1, &<TargetingRange$$CustomRange(GetRange)>, 1, 0x482, 0, 0)`. Le `range` est un
-    #   DELEGUE (`GetRange$$.ctor` construit juste avant) -> `custom_range_func()`, portee non derivable.
-    ActiveAbilityType.FoulInfusion: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.AddCaster | TR.TargetIsFriendly,  # 1038
-                           self_cast=True, range=custom_range_func(),
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # 1038 FoulInfusion -- MIGRE (#500) sur
+    #   `runner/abilities/loki/foul_infusion.py::FoulInfusionAbility.TARGETING_OPTIONS` avec sa face
+    #   COMBAT ; contrat de disjonction ci-dessus. (Le `range` y reste un DELEGUE
+    #   `TargetingRange$$CustomRange(GetRange)` -> `custom_range_func()`, portee non derivable.)
     # 1039 RitesOfRestoration -- `...Active.Loki.RitesOfRestorationAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x8508, 0, 0)`.
     ActiveAbilityType.RitesOfRestoration: TargetingOptions(rules=TR.AddCasterIfMatchesDynamicRule | TR.TargetIsHealable  # 1039
@@ -1766,13 +1770,14 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
 
 DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     ActiveAbilityType.AdaptiveStrategy: _dynamic_rule_adaptive_strategy,      # 1005
-    ActiveAbilityType.FoulInfusion: _dynamic_rule_foul_infusion,              # 1038
     ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
     ActiveAbilityType.LightOfSanguinius: _dynamic_rule_light_of_sanguinius,   # 1177
     ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
     ActiveAbilityType.LeadingTheCharge: _dynamic_rule_leading_the_charge,     # 1204
     # 1087 ExemplarOfTheKauyon : RETIREE (#488) -- `ExemplarOfTheKauyonAbility` SURCHARGE
     # desormais `get_dynamic_invalid_target_reason` et appelle le corps ci-dessus.
+    # 1038 FoulInfusion : RETIREE (#500) -- meme forme, `FoulInfusionAbility` SURCHARGE et appelle
+    # `_dynamic_rule_foul_infusion`.
     ActiveAbilityType.ExcruciatingFrequencies: _dynamic_rule_excruciating_frequencies,  # 1197
 }
 

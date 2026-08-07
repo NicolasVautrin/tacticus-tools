@@ -303,6 +303,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.ValkyrieStrike: AbilityAttackType.Others,  # 1018
     ActiveAbilityType.SupremeCommander: AbilityAttackType.Others,  # 1028
     ActiveAbilityType.RevitalizingMalignancy: AbilityAttackType.Others,  # 1037
+    # 1038 -- `...Active.Loki.FoulInfusionAbility$$.ctor` : `AActiveAbility..ctor(this, &opts, 2)`.
+    # LITTERAL RELU au decompile, jamais deduit : l'ability EMET pourtant une attaque
+    # (`UseNormalAttack` en 2e volet de son `op_Addition`), et sa categorie d'audit est
+    # `DAMAGE(Toxic)` -- deux raisons de croire a `DirectTargetAttack`. Le natif ecrit `2`.
+    ActiveAbilityType.FoulInfusion: AbilityAttackType.Others,  # 1038
     ActiveAbilityType.GetEmRuntz: AbilityAttackType.Others,  # 1045
     ActiveAbilityType.ScarabSummon: AbilityAttackType.Others,  # 1047
     ActiveAbilityType.Waaagh: AbilityAttackType.Others,  # 1058

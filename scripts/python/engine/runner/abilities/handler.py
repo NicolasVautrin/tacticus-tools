@@ -52,7 +52,7 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    StormcallerAbility, TheQuickeningAbility, BlackRageAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility,
                    SorcerousFacadeAbility, WallOfMirrorsAbility, PsychicMaelstromAbility,
-                   UnstoppableMomentumReworkedAbility)
+                   UnstoppableMomentumReworkedAbility, FoulInfusionAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility)
@@ -133,6 +133,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     CordClawAbility.ABILITY_TYPE: CordClawAbility,                     # 1122 (Exitor-Rho admecRuststalker : 4x DirectDamage melee + self-buff coups additionnels 2 tours, case-220)
     RevitalizingMalignancyAbility.ABILITY_TYPE: RevitalizingMalignancyAbility,  # 1037 (deathRotbone : heal self+allies adj non-Imperial, split trait Chaos regular/chaos-cumul, case-220)
     FlailSwingAbility.ABILITY_TYPE: FlailSwingAbility,                 # 1042 (deathBlightlord DeathGuard : 3x Power melee mono-cible + InformWeapon no-op ; residu overkill flag, case-220)
+    FoulInfusionAbility.ABILITY_TYPE: FoulInfusionAbility,             # 1038 (Pestillian deathPutrifier DeathGuard HERO, SELF-CAST : AddEffect(1074 FoulInfusion_ExtraHits, 2 rounds) sur UnitsWithTrait(SurroundingFriends(Caster, ContagionsOfNurgleRange(Owner)), Chaos) + Caster, PUIS UseNormalAttack(Caster, PickRandomly(Attackable(AdjacentEnemies(Caster)), 1)) -- l'attaque libre beneficie DEJA du buff ; #500)
     BringerOfDespairAbility.ABILITY_TYPE: BringerOfDespairAbility,     # 1022 (Angrax blackTerminator : 4x Power cible melee + 4x Power ennemi random adjacent-CASTER, splash factory attack, case-220 BL)
     FrenziedFiringAbilityCombat.ABILITY_TYPE: FrenziedFiringAbilityCombat,  # 1036 (Volk blackObliterator BlackLegion : AtomicGroup(op_Addition( SetCache(hitsNode) & Attack(cible, hits=Min(Cache(nrOfHits + #tuiles-adjacentes-marchables-sans-ennemi), maxNrOfHits)), SetCache(hitsNode) & Attack(AdjacentEnemies(TargetTile,1), hits=Direct(1), multi) )) ; famille ATTACK, HeavyRound ranged ; case-61 volet AoE COMBAT)
     PlasmaCannonAbility.ABILITY_TYPE: PlasmaCannonAbility,             # 1150 (darkaTerminator DarkAngels : 3x Plasma cible + 3x sur <=2 unites tirees directly-behind, native_factory attack, case-220)
