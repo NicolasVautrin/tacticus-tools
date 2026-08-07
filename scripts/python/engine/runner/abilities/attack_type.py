@@ -242,6 +242,15 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.GrapnelLauncher: AbilityAttackType.DirectTargetAttack,  # 1090
     ActiveAbilityType.Foehammer: AbilityAttackType.DirectTargetAttack,  # 1097
     ActiveAbilityType.HammerOfWrath: AbilityAttackType.DirectTargetAttack,  # 1153
+    # UnstoppableMomentumReworked (1152, Tanksmasha orksNob), #498. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableMomentumReworkedAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = `0` = DirectTargetAttack. Transcrit tel
+    # quel : la cible du MESSAGE est pourtant une TUILE (`TargetIsTile`) et l'attaque ne frappe pas
+    # cette cible mais les occupants de la ligne de charge -- on transcrit le 3e argument du ctor,
+    # jamais la forme de l'arbre (meme regle que Drachnyen 1029 / SeekerMissile 1069 ci-dessus).
+    # (`&opts` est la forme FLAGS DIRECTS a 7 arguments, `rules = 0x10120040` litteral -> ses
+    #  `TARGETING_OPTIONS` vivent sur la classe du registre.)
+    ActiveAbilityType.UnstoppableMomentumReworked: AbilityAttackType.DirectTargetAttack,  # 1152
     # PlagueWind (1035, Typhus deathTyphus), case-psychic-aoe. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.

@@ -78,6 +78,68 @@ class PushUnit(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class PushToPrioritizedTiles(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$PushToPrioritizedTiles(pushingUnit, pushedUnit,
+    prioritizedTiles, knockbackDamage)` -- MIRROR du decompile :
+
+        options = new DisplaceUnitBehaviourOptions();
+        options[+0x10] = knockbackDamage ;  options[+0x20] = prioritizedTiles
+        return new DisplaceUnitBehaviour(direction = 2 = FindTileToPushToPrioritizedTiles,
+                                         displacingUnit = pushingUnit, displacedUnit = pushedUnit,
+                                         options, targetSelectionType = 2)
+
+    Feuille MINCE : elle resout les deux selecteurs + la liste de tuiles et DELEGUE a
+    `DisplaceUnitOperation(prioritized_tiles=...)`, ou vit toute la logique (case 2 du switch natif
+    -- selection de la destination, `MoveUnit`, `AddTilesMoved`, `On(UnitDisplaced)`, knockback si
+    aucune destination). Frontiere #149.
+
+    Unique call-site porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    UnstoppableMomentumReworkedAbility$$Push` = `PushToPrioritizedTiles(Caster@0x48, Get(unit),
+    Get(<la tuile prioritaire retenue>), knockbackDamage: true)` -- le selecteur de tuiles y rend
+    TOUJOURS UN element (le natif a deja fait `First(prio & adj, 1)` avant d'appeler la feuille).
+
+    DETERMINISTE : la selection de destination du case 2 ne tire RIEN (le hasard du call-site vit en
+    amont, dans les `Randomize` qui ORDONNENT les candidates). Emet 'PushToPrioritizedTiles' par
+    unite poussee. PUR (stop=False)."""
+    __slots__ = ("pusher_sel", "pushed_sel", "tiles_sel", "knockback_damage")
+
+    def __init__(self, pusher_sel: TargetsSelector, pushed_sel: TargetsSelector,
+                 tiles_sel: TargetsSelector, knockback_damage: bool = True):
+        self.pusher_sel = pusher_sel
+        self.pushed_sel = pushed_sel
+        self.tiles_sel = tiles_sel
+        self.knockback_damage = bool(knockback_damage)
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        pusher = resolve_unit(self.pusher_sel, entities)
+        if state is None or pusher is None:
+            return OperationResult.ok()
+        board = getattr(state, "board", None)
+        pusher_id = pusher.get("id")
+        tiles: list[tuple[int, int]] = []
+        for c in self.tiles_sel.evaluate(entities):
+            if isinstance(c, tuple) and len(c) == 2:
+                tiles.append((int(c[0]), int(c[1])))
+                continue
+            if isinstance(c, dict):                       # dict d'entite-tuile (`{"id": ...}`)
+                c = c.get("id")
+            if c is None or board is None:
+                continue
+            xy = board.coord(int(c))
+            if xy is not None:
+                tiles.append((int(xy[0]), int(xy[1])))
+        pushed = [u for u in _units_of(self.pushed_sel, entities)
+                  if isinstance(u, dict) and u.get("id") is not None]
+        for u in sorted(pushed, key=lambda x: x["id"]):   # ordre de lecture = id (== `PushUnit`)
+            res = DisplaceUnitOperation(pusher_id, u["id"],
+                                        prioritized_tiles=tiles).execute(state, ectx.bus) or {}
+            ectx.emit("PushToPrioritizedTiles", pusher=pusher_id, pushed=u["id"],
+                      moved=bool(res.get("moved")), to=res.get("to"),
+                      knockback=res.get("knockback"))
+        return OperationResult.ok()
+
+
 class PullUnitOneTile(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLBehaviors$$PullUnitOneTile(pullingUnit, pulledUnit,
     elevationDifferenceForKnockback)` -- MIRROR du decompile :

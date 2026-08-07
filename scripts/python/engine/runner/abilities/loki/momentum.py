@@ -1,0 +1,634 @@
+"""UnstoppableMomentumReworked (1152, `orksNob` « Tanksmasha », Orks) -- CHARGE-DRIVER EN LIGNE.
+
+Namespace natif `IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableMomentumReworkedAbility`.
+Classee « charge-driver en ligne IMPERATIF » par case-220 §6.13 ; la RE ci-dessous CONFIRME la
+classification : le natif n'est PAS un arbre `DSLFactory` unique, c'est une BOUCLE imperative
+(`ExecuteBehaviourStep`, <= `this+0xf0` = 10 iterations) qui execute a chaque pas un PETIT arbre DSL
+(`AActiveAbility$$Execute(<arbre>)`). Frontiere #149 respectee : l'ossature (boucle, gates de tuile,
+choix de la tuile de poussee) est IMPERATIVE parce que le natif l'est ; les EFFETS (attaque, pose
+d'effet, retrait d'effet, move, switch, push) passent par les feuilles DSL deja portees.
+
+i2 / gameconfig 1152 (`Melee`, profil `DirectDamage{PiercingRatio:100}`, `nrOfHits=1`,
+`initialCooldownTurns=1`, `effectTurns=1`, `effectTurns_2=1`) :
+
+    « Charges in one of 6 directions and keeps moving in a straight line until he hits an obstacle
+      or a Big Target. Any enemies hit by the charge take 1x <dmg> Direct Damage, increased by
+      <extraDmg> Damage for each hex traversed from the starting hex to the enemy. Affected enemies
+      get pushed and Suppressed for 1 round. A Big Target is Stunned for 1 round instead. Friendly
+      units are also displaced, but take no damage or negative effects. »
+
+RE (build rnca9r7q6c, DECOMPILE MIRROR).
+
+`...UnstoppableMomentumReworkedAbility$$.ctor` :
+
+    this+0xf0 = 10                                      // MAX_CHARGE_TILES (longueur de ligne)
+    TargetingOptions..ctor(&opts, selfCast: 0, &<TargetingRange statics+0x30>,
+                           forceMeleeTarget: 1, rules: 0x10120040, 0, 0)
+    AActiveAbility..ctor(this, &opts, 0)                // AbilityAttackType.DirectTargetAttack
+
+`...UnstoppableMomentumReworkedAbility$$CanStillBeUsed(caster, amountOfTimesAlreadyUsed)` :
+    `return amountOfTimesAlreadyUsed == 0` (une seule fois par tour ; c'est le DEFAUT du port).
+
+`...UnstoppableMomentumReworkedAbility$$ExecuteBehaviour(abilityState, entities)` :
+
+    Execute( AddFlag(Caster@0x48, 0x19 = UnitFlag.Undisplaceable) )          // 1
+    line   = TilesBehindInLine( CasterTile@0x50, Target@0x60,
+                                settings{+0x10 = 1, +0x11 = 1}, maxAmount: 0 )
+    cache  = Cache( First(line, amount: 10), matchAbilityEntities: true )    // 2
+    vector = VectorFromAdjacentTo( Get(GetMainTile(caster)), Get(target), length: 1 )   // 3
+    for (index = 0; index < 10; index++) {                                   // 4
+        tile = SelectTile( AtIndex(cache, index) );  if (tile == null) return;
+        if (!ExecuteBehaviourStep(abilityState, entities, vector, tile, index)) break;
+    }
+    Execute( RemoveFlag(Caster@0x48, 0x19 = UnitFlag.Undisplaceable) )       // 5
+
+`...UnstoppableMomentumReworkedAbility$$ExecuteBehaviourStep(state, entities, startVector, tile, steps)` :
+
+    if (UnitExtensions.IsDead(caster))                     return false;
+    if (!TileExtensions.IsWalkable(tile, true))            return false;
+    if (!TileExtensions.IsNeighbourOf(tile, GetMainTile(caster)))  return false;
+  MOVE:
+    if (TileExtensions.IsEmptyOrSteppable(tile, caster))   return Move(caster, tile);
+    Execute( RemoveEffect( Units(Get(tile), unique: 1, sel: 0),
+                           Nullable(0x425 = GeminaeSuperia_JustSummonedEffect) ) );
+    enemies = Enemies( Caster@0x48, Units(Get(tile), unique: 0, sel: 3), 3 );
+    Attack(enemies, abilityState, entities, steps);
+    SuppressOrStun(enemies, abilityState, entities);
+    if (Push(tile, entities, startVector))                 return true;      // SwitchPosition
+    if (UnitExtensions.IsDead(caster))                     return false;
+    if (!UnitExtensions.CanMove(caster))                   return false;
+    if (!TileExtensions.IsEmptyOrSteppable(tile, caster))  return false;
+    goto MOVE;                                                               // -> Move(caster, tile)
+
+`...UnstoppableMomentumReworkedAbility$$Move(caster, tile)` :
+
+    if (!TileExtensions.IsFreeTile(tile, caster, allowSteppable: 1, allowTemporary: 0,
+                                   allowAnyUnit: 0))       return false;
+    Execute( InvalidateCaches() & MoveUnit(Get(caster), Get(tile), <options ZERO>) );
+    return true;
+
+`...UnstoppableMomentumReworkedAbility$$Attack(target, abilityState, entities, traversedSteps)` :
+
+    dmg   = Sum( MinMaxDamage(abilityState),
+                 Direct( GetVariableForLevel(8 = extraDmg) * traversedSteps ) )
+    Execute( AttackWithAttackDamage( Caster@0x48, target, dmg, GetDamageProfile(),
+                                     GetNumberConstant(0x2f = nrOfHits), abilityState,
+                                     <options ZERO>, selectionType: 2 ) )
+
+  ⚠ `traversedSteps` = l'INDEX de la boucle, 0-BASED : au 1er pas (l'ennemi est ADJACENT au caster)
+  le bonus vaut `extraDmg * 0 = 0`. C'est exactement l'i2 (« for each hex traversed FROM THE
+  STARTING HEX to the enemy »). Famille ATTACK (`DSLBehaviors$$AttackWithAttackDamage`, PAS
+  `AttackWithAbilityDamage`) -> crit/block/extra-hits actifs, `native_factory="attack"`.
+
+`...UnstoppableMomentumReworkedAbility$$SuppressOrStun(target, abilityState, entities)` :
+
+    suppressRounds = GetNumberConstant(0x69 = effectTurns)     // 1
+    stunRounds     = GetNumberConstant(0x6a = effectTurns_2)   // 1
+    Execute( If( NOT CanBeDisplaced(target),
+                 AddEffect(0x48a = Stunned, src = AbilityStateReference, Owner@0x30, target,
+                           TurnsFromRounds(suppressRounds)),
+                 AddEffect(0x429 = Pinned,  src = AbilityStateReference, Owner@0x30, target,
+                           TurnsFromRounds(stunRounds)) ) )
+
+  ⚠ Les DEUX branches sont CROISEES par rapport aux noms de constantes : la branche BIG TARGET
+  (`!CanBeDisplaced`) lit `effectTurns` et pose `Stunned` ; la branche ordinaire lit `effectTurns_2`
+  et pose `Pinned` (« Suppressed » cote UI). Transcrit VERBATIM -- inerte tant que les deux valent 1,
+  mais ecrire l'inverse serait un fork de port silencieux le jour ou elles divergent.
+
+`...UnstoppableMomentumReworkedAbility$$Push(tile, entities, startVector)` :
+
+    if (TileExtensions.IsEmptyOrSteppable(tile, caster))         return false;
+    unit = UnitExtensions.GetUnit(tile, caster);
+    if (!UnitExtensions.IsDisplaceable(unit))                    return false;   // BigTarget/Immovable
+    adj  = Cache( CanAddUnit( AdjacentTiles(Get(tile)) ), true )
+    P(d) = TilesInPath( PathDefinition(Get(tile), startVector, [d], includeStartTile: false) )
+    prio = ( Randomize(P(ForwardRight) + P(ForwardLeft))
+           + Randomize(P(BackwardRight) + P(BackwardLeft))
+           + P(Forward) ) & adj
+    dest = SelectTile( First(prio, amount: 1) );
+    if (dest == null) {
+        if (TileExtensions.IsTemporary(GetMainTile(unit)))       return false;
+        Execute( SwitchPosition(Caster@0x48, Get(unit)) );       return true;
+    }
+    Execute( PushToPrioritizedTiles(Caster@0x48, Get(unit), Get(dest), knockbackDamage: true) );
+    return false;
+
+  `IdunBattleLogic.Utils.Hex.RelativeDirection` = `0=Forward, 1=ForwardRight, 2=BackwardRight,
+  3=Backward, 4=BackwardLeft, 5=ForwardLeft` (enum LU dans `data/symbols/<build>/frida/enums.tsv`).
+  Priorite : les deux diagonales AVANT (ordre tire au sort), puis les deux diagonales ARRIERE (idem),
+  puis TOUT DROIT. `Backward` (vers le caster) n'est JAMAIS candidat.
+
+  ⚠ Le SENS de rotation (quel cote est « Right ») est INOBSERVABLE ici et ce n'est pas une
+  approximation : les deux premiers rangs sont des PAIRES SYMETRIQUES (`{+1, +5}` et `{+2, +4}`
+  autour de `Forward`), donc echanger droite et gauche permute deux elements d'un ensemble
+  immediatement melange par `Randomize`. Le 3e rang (`Forward`) est invariant. Aucun besoin de
+  trancher la convention native.
+
+  `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPushToPrioritizedTiles(target, tiles)` :
+  liste a UN element -> rendue TELLE QUELLE (aucun re-test) ; liste a N > 1 -> filtree par
+  `IsEmptyOrSteppable` puis premier element ; liste vide -> null. Ici `prioritizedTiles` est un
+  `Get(dest)` d'UNE tuile, deja passee par `CanAddUnit` -> premiere branche.
+
+`...UnstoppableMomentumReworkedAbility$$RemoveJustSummonedEffect(tile, entities)` : corps INLINE dans
+`ExecuteBehaviourStep` (meme arbre, meme effet `0x425`), non appele separement dans le flux porte --
+mirror rendu par `_remove_just_summoned` ci-dessous.
+
+`...UnstoppableMomentumReworkedAbility$$CanContinue(nextTile)` et `$$GetAllTilesInLine()` sont deux
+helpers de la face DECISION/vue (`CanBeDisplaced(Units(nextTile)) | IsCanAddUnit(nextTile)` pour le
+premier, la ligne seule pour le second) : AUCUN des deux n'est appele par `ExecuteBehaviour`. Ils ne
+sont donc pas portes ici -- RESIDU NOMME (face DECISION, hors perimetre #498).
+
+DEGRADATIONS NOMMEES (aucune n'invente de comportement) :
+  * `AddFlag`/`RemoveFlag(UnitFlag.Undisplaceable)` sur le caster : le port POSE et RETIRE le flag
+    via `UnitFlagsComponent` (mirror direct, pas de feuille DSL `AddFlag` portee). Son effet natif
+    est de rendre le caster non-deplacable PENDANT sa propre charge ; aucun etage porte ne le lit
+    aujourd'hui (le caster n'est jamais la cible d'un push de sa propre charge), donc il est INERTE
+    -- il est pose quand meme parce qu'un trigger tiers peut le lire, et son absence serait un
+    ecart d'etat.
+  * `InvalidateCaches()` (compose au `MoveUnit` de `Move`) : vide les caches de selecteurs natifs.
+    Le port re-construit son `AbilityEntities` a chaque pas (`entities_from_state`), ce qui EST
+    l'invalidation ; aucun cache DSL ne survit entre deux pas.
+"""
+from __future__ import annotations
+
+from typing import Optional, TYPE_CHECKING
+
+import gameconfig as GC
+
+from ..base import ActiveAbility
+from ..targeting import (RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions, has_steppable_unit,
+                         unit_of_entity)
+from ..targeting_rule import TargetingRule as TR
+from ..behaviours.combat import AttackWithAttackDamage
+from ..behaviours.context import entities_from_state
+from ..behaviours.effects import AddEffect, RemoveEffect
+from ..behaviours.movement import MoveUnit, PushToPrioritizedTiles, SwitchPosition
+from ...components import PositionComponent, StatsComponent, UnitComponent, UnitFlagsComponent
+from ....dsl.effects import ExecutionContext
+from ....entities.active_ability_type import ActiveAbilityType
+from ....entities.ability_constant_type import AbilityConstantType
+from ....entities.ability_variable_type import AbilityVariableType
+from ....entities.effect_type import EffectType
+from ....entities.effects.magnitude import ability_var
+from ....entities.selectors.accessors import CasterTile, FixedTileIds, SelectTile
+from ....entities.selectors.geometry import Randomize, TilesBehindInLine
+from ....entities.selectors.tiles import Caster
+from ....entities.selectors.units import Enemies, Units, UnitSet
+from ....entities.traits.unit_trait import UnitTrait, has_any_trait
+from ....entities.unit_flag import UnitFlag
+
+if TYPE_CHECKING:
+    from ...state import State
+
+MOMENTUM_ID = "UnstoppableMomentumReworked"
+
+# `*(undefined4 *)((longlong)this + 0xf0) = 10` du `.ctor` -- lu par `First(line, amount: 10)` ET par
+# la borne de boucle `index < this+0xf0` d'`ExecuteBehaviour`.
+MAX_CHARGE_TILES = 10
+
+# `Nullable(0x425)` du `RemoveEffect` d'`ExecuteBehaviourStep`.
+JUST_SUMMONED = int(EffectType.GeminaeSuperia_JustSummonedEffect)   # 0x425 = 1061
+STUNNED = int(EffectType.Stunned)                                   # 0x48a = 1162
+PINNED = int(EffectType.Pinned)                                     # 0x429 = 1065
+
+# `GetNumberConstant(<index>)` -> cle gameconfig. Transcription des trois index LUS au decompile.
+CONST_NR_OF_HITS = AbilityConstantType.nrOfHits            # 0x2f -> "nrOfHits"
+CONST_STUN_ROUNDS = AbilityConstantType.effectTurns        # 0x69 -> "effectTurns"   (branche BigTarget)
+CONST_PIN_ROUNDS = AbilityConstantType.effectTurns_2       # 0x6a -> "effectTurns_2" (branche ordinaire)
+VAR_EXTRA_DMG = AbilityVariableType.extraDmg               # 8    -> "extraDmg" (per-hex)
+
+# `UnitFlag.Undisplaceable` = `0x19` -- le litteral des `AddFlag`/`RemoveFlag` qui encadrent la charge.
+CHARGE_FLAG = int(UnitFlag.Undisplaceable)
+
+# Les SIX directions cube, dans un ordre CYCLIQUE (rotation de 60 degres = +1 modulo 6). Ce n'est PAS
+# la table `EVENQ_*` de `entities/pathfinding/board.py`, qui est lexicographique (son index n'est donc
+# pas une rotation). Base de `_relative_neighbour` ci-dessous ; cf. la note « le SENS de rotation est
+# INOBSERVABLE » de l'en-tete de module.
+_CUBE_DIRS = ((1, -1, 0), (1, 0, -1), (0, 1, -1), (-1, 1, 0), (-1, 0, 1), (0, -1, 1))
+
+
+class RelativeDirection:
+    """`IdunBattleLogic.Utils.Hex.RelativeDirection` (enum VERBATIM du dump il2cpp) -- les valeurs
+    passees comme `nodes` aux cinq `PathDefinition` de `...UnstoppableMomentumReworkedAbility$$Push`."""
+    Forward = 0
+    ForwardRight = 1
+    BackwardRight = 2
+    Backward = 3
+    BackwardLeft = 4
+    ForwardLeft = 5
+
+
+def _cube(col: int, row: int) -> tuple[int, int, int]:
+    import hexgeo
+    return hexgeo.to_cube(col, row)
+
+
+def _from_cube(x: int, z: int) -> tuple[int, int]:
+    import hexgeo
+    return hexgeo.from_cube(x, z)
+
+
+def _charge_vector(frm: tuple[int, int], to: tuple[int, int]) -> Optional[tuple[int, int, int]]:
+    """`DSLFormulas$$VectorFromAdjacentTo(from, to, length: 1)` -> `FromToVectorFormula` : le vecteur
+    UNITAIRE `from -> to`. Le ciblage est ADJACENT (`TargetingRange statics+0x30`), donc `to` est un
+    VOISIN de `from` et le delta cube EST deja unitaire. Rend None si les deux tuiles ne sont pas
+    voisines (cast impossible cote natif : le gate `IsNeighbourOf` du 1er pas romprait de toute
+    facon)."""
+    ax, _, az = _cube(frm[0], frm[1])
+    bx, _, bz = _cube(to[0], to[1])
+    d = (bx - ax, (-(bx - ax) - (bz - az)), bz - az)
+    return d if d in _CUBE_DIRS else None
+
+
+def _relative_neighbour(board, tile: tuple[int, int], vector: tuple[int, int, int],
+                        relative: int) -> Optional[int]:
+    """UN pas de `TilesInPath(PathDefinition(Get(tile), vector, [relative], includeStartTile: false))` :
+    la voisine de `tile` dans la direction `vector` TOURNEE de `relative` crans. `nodes` ne contient
+    qu'UN element a chacun des cinq call-sites -> le path fait exactement un pas, et
+    `includeStartTile = false` exclut `tile`. Rend l'id de tuile, ou None hors plateau."""
+    i = _CUBE_DIRS.index(vector)
+    dx, _, dz = _CUBE_DIRS[(i + int(relative)) % 6]
+    cx, _, cz = _cube(tile[0], tile[1])
+    col, row = _from_cube(cx + dx, cz + dz)
+    return board.id_at(col, row)
+
+
+def _main_tile(state: "State", unit_id: int) -> Optional[tuple[int, int]]:
+    """`EntityExtensions$$GetMainTile(entities, unit)` -- la position (col,row) de l'unite."""
+    e = state.get_entity(int(unit_id))
+    pc = e.get_component(PositionComponent) if e is not None else None
+    return (pc.col, pc.row) if pc is not None else None
+
+
+def _is_dead(state: "State", unit_id: int) -> bool:
+    """`UnitExtensions$$IsDead(entities, unit)`."""
+    e = state.get_entity(int(unit_id))
+    uc = e.get_component(UnitComponent) if e is not None else None
+    return uc is not None and not uc.alive
+
+
+def _occupant_of(state: "State", board, tile_id: int) -> Optional[int]:
+    """`UnitExtensions$$GetUnit(tile, state)` = l'occupant VIVANT de la tuile (`unit_of_entity` est le
+    foyer porte de ce mirror ; il resout une TUILE en son occupant)."""
+    return unit_of_entity(state, tile_id)
+
+
+def _is_empty_or_steppable(state: "State", board, tile_id: int) -> bool:
+    """`TileExtensions$$IsEmptyOrSteppable(tile, caster)` = la tuile est VIDE, ou son occupant porte
+    le trait `Steppable` (`has_steppable_unit`, foyer porte du meme mirror)."""
+    occ = _occupant_of(state, board, tile_id)
+    if occ is None:
+        return True
+    return has_steppable_unit(state, tile_id)
+
+
+def _is_displaceable(state: "State", unit_id: int) -> bool:
+    """`UnitExtensions$$IsDisplaceable(unit)` -- MEME substrat que la tete d'`IdunBattle.Operations.
+    DisplaceUnitOperation$$Execute` deja portee (`operations/displace.py`) : vivant, et sans
+    `Immovable` ni `BigTarget`."""
+    e = state.get_entity(int(unit_id))
+    if e is None:
+        return False
+    uc = e.get_component(UnitComponent)
+    if uc is not None and not uc.alive:
+        return False
+    sc = e.get_component(StatsComponent)
+    traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+    return not has_any_trait(traits, (UnitTrait.Immovable, UnitTrait.BigTarget))
+
+
+def _can_move(state: "State", unit_id: int) -> bool:
+    """`UnitExtensions$$CanMove(unit)` : le port n'a pas d'etat « immobilise » distinct du trait
+    `Immovable` ni du flag `Moved` (le natif teste un flag de MOUVEMENT REMANENT que le runner ne
+    capte pas). REDUCTION NOMMEE : on rend `not Immovable`. Elle est PERMISSIVE au meme titre que le
+    reste du port -- le gate suivant (`IsEmptyOrSteppable` puis `IsFreeTile` dans `Move`) reste le
+    vrai verrou du deplacement."""
+    e = state.get_entity(int(unit_id))
+    if e is None:
+        return False
+    sc = e.get_component(StatsComponent)
+    traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+    return not has_any_trait(traits, (UnitTrait.Immovable,))
+
+
+def _set_charge_flag(state: "State", caster_id: int, on: bool) -> None:
+    """`Execute(AddFlag(Caster@0x48, 0x19))` / `Execute(RemoveFlag(Caster@0x48, 0x19))` -- les deux
+    arbres qui ENCADRENT la boucle native. cf. « DEGRADATIONS NOMMEES » de l'en-tete."""
+    e = state.get_entity(int(caster_id))
+    if e is None:
+        return
+    fc = e.get_component(UnitFlagsComponent)
+    if fc is None:
+        return
+    if on:
+        fc.add(CHARGE_FLAG)
+    else:
+        fc.remove(CHARGE_FLAG)
+
+
+def momentum_charge_line(state: "State", caster_id: int, aim_tile_id: int) -> list:
+    """`Cache( First( TilesBehindInLine(CasterTile@0x50, Target@0x60, settings{+0x10=1, +0x11=1}, 0),
+    amount: 10 ), true )` -- la LIGNE de charge, EVALUEE UNE FOIS.
+
+    * `settings` : le ctor natif ecrit `*(short*)(obj + 0x10) = 0x101`, soit (little-endian)
+      `+0x10 = 1` (`checkWalkable`) et `+0x11 = 1` (`updateReference`) -- MEME couple que
+      `DarkTalonStrikeAbility$$GetTilesInLine`. `checkWalkable = 1` arme AUSSI le gate d'ELEVATION
+      (il vit dans la branche walkable d'`IdunBattle.Core.Services.TileUtil$$IsTileValidForList`) et
+      la ligne S'ARRETE au 1er echec -- c'est exactement le « until he hits an obstacle » de l'i2.
+    * `TilesBehindInLine(from, to)` rend `to` EN PREMIER puis prolonge : la 1re tuile de la charge
+      EST la tuile visee (adjacente au caster).
+    * `First(line, amount: 10)` = les DIX premieres. Le `First` du port (`selectors/units.py`) est un
+      `AtIndex` (UN element) : la troncature est donc COLLAPSEE ici (`[:MAX_CHARGE_TILES]`).
+    * Le `Cache` est LOAD-BEARING : le caster BOUGE pendant la charge, donc re-evaluer
+      `CasterTile@0x50` a chaque pas donnerait une ligne differente a chaque iteration."""
+    board = state.board
+    if board is None:
+        return []
+    entities = entities_from_state(state, caster_id)
+    line = TilesBehindInLine(SelectTile(CasterTile()), FixedTileIds([int(aim_tile_id)]),
+                             max_count=None, check_walkable=True, update_reference=True)
+    return list(line.evaluate(entities))[:MAX_CHARGE_TILES]
+
+
+class UnstoppableMomentumReworkedAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableMomentumReworkedAbility` (id 1152,
+    `orksNob` « Tanksmasha », HERO Orks -- 4 autres porteurs npc) -- cf. la docstring de module.
+
+    `target_id` = un id de TUILE (cast TILE-TARGET, `TargetIsTile`). On accepte aussi un id d'UNITE
+    (on prend alors sa MainTile), meme convention que `RadBombardmentAbility`/`PlagueburstMortar`.
+
+    Turn-flags = defauts base (1152 absent des overrides `NO_END_TURN`/`NO_ABILITY_USED_FLAG`).
+    Retour : {ability, caster, aim, steps, attacks, effects, moves, pushes, switches, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.UnstoppableMomentumReworked)   # 1152
+    ABILITY_ID = MOMENTUM_ID
+
+    # GATE DE CIBLE (#115 / #498). `...UnstoppableMomentumReworkedAbility$$.ctor` appelle la surcharge
+    # a 7 arguments « FLAGS DIRECTS » de `IdunBattle.Core.Services.TargetingOptions$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x10120040, 0, 0)
+    # Le 3e argument est un PRESET DE PORTEE (`TargetingRange`), pas un preset d'options -> le
+    # litteral `0x10120040` EST le masque effectif (aucun `| preset.rules`). Decomposition :
+    #     0x40         TargetIsTile             -> cast TILE-TARGET (domaine tuile, regle non portee
+    #                  par le filtre statique -> inerte, et c'est delibere).
+    #     0x20000      TargetTileIsFreeOrEnemy  -> la tuile visee doit etre LIBRE ou porter un ennemi.
+    #     0x100000     AllowSteppableUnit       -> permission (un occupant Steppable ne bloque pas).
+    #     0x10000000   CasterCanMove            -> refus si le caster ne peut plus bouger.
+    # `selfCast = 0` ; `forceMeleeTarget = 1` = `RangedBool.False` (l'enum natif est INVERSE, cf. le
+    # bloc `ItItches` de `targeting.py`). Portee = `TargetingRange statics+0x30` = ADJACENT, ce qui
+    # est ce qui donne les « 6 directions » de l'i2.
+    # Cette entree a MIGRE depuis `TARGETING_OPTIONS_UNPORTED` (contrat de disjonction) : elle y
+    # vivait a l'identique, RE-LUE au decompile avant migration.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsTile
+        | TR.TargetTileIsFreeOrEnemy
+        | TR.AllowSteppableUnit
+        | TR.CasterCanMove
+    ), self_cast=False, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    # ------------------------------------------------------------------------------------------- #
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        board = state.board
+        if board is None or target_id is None:
+            return None
+        aim = int(target_id) if int(target_id) in board.by_id else None
+        if aim is None:
+            pos = _main_tile(state, target_id)
+            aim = board.id_at(pos[0], pos[1]) if pos is not None else None
+        if aim is None:
+            return None
+        caster_pos = _main_tile(state, caster_id)
+        aim_pos = board.coord(aim)
+        if caster_pos is None or aim_pos is None:
+            return None
+        # (3) `VectorFromAdjacentTo(Get(GetMainTile(caster)), Get(target), 1)` -- FIGE avant la boucle
+        # (le natif le calcule UNE fois, hors boucle, donc sur la position de DEPART du caster).
+        vector = _charge_vector(caster_pos, (int(aim_pos[0]), int(aim_pos[1])))
+        if vector is None:
+            return None
+        # (2) la ligne, mise en cache AVANT le 1er pas.
+        tiles = momentum_charge_line(state, caster_id, aim)
+        out = {"ability": MOMENTUM_ID, "caster": caster_id, "aim": aim, "line": list(tiles),
+               "steps": 0, "attacks": [], "effects": [], "moves": [], "pushes": [], "switches": [],
+               "dsl": True}
+        _set_charge_flag(state, caster_id, True)                       # (1) AddFlag(Undisplaceable)
+        try:
+            for index, tile_id in enumerate(tiles):
+                if index >= MAX_CHARGE_TILES:
+                    break
+                out["steps"] = index + 1
+                if not self._execute_behaviour_step(state, caster_id, vector, int(tile_id),
+                                                    index, out):
+                    break
+        finally:
+            _set_charge_flag(state, caster_id, False)                  # (5) RemoveFlag
+        return out
+
+    # ------------------------------------------------------------------------------------------- #
+    def _execute_behaviour_step(self, state: "State", caster_id: int,
+                                vector: tuple[int, int, int], tile_id: int, steps: int,
+                                out: dict) -> bool:
+        """`...UnstoppableMomentumReworkedAbility$$ExecuteBehaviourStep` -- MIRROR ligne a ligne (cf.
+        l'en-tete de module). Rend `true` = la charge CONTINUE au pas suivant."""
+        board = state.board
+        if _is_dead(state, caster_id):
+            return False
+        if not board.walkable(tile_id):                       # TileExtensions.IsWalkable(tile, true)
+            return False
+        caster_pos = _main_tile(state, caster_id)
+        tile_pos = board.coord(tile_id)
+        if caster_pos is None or tile_pos is None:
+            return False
+        import hexgeo
+        if hexgeo.distance(caster_pos, (int(tile_pos[0]), int(tile_pos[1]))) != 1:
+            return False                                      # TileExtensions.IsNeighbourOf
+        if _is_empty_or_steppable(state, board, tile_id):
+            return self._move(state, caster_id, tile_id, out)
+        # --- tuile OCCUPEE : retrait de l'effet 0x425, attaque, effet, poussee -------------------
+        self._remove_just_summoned(state, caster_id, tile_id, out)
+        self._attack(state, caster_id, tile_id, steps, out)
+        self._suppress_or_stun(state, caster_id, tile_id, out)
+        if self._push(state, caster_id, tile_id, vector, out):
+            return True                                       # SwitchPosition -> on continue
+        if _is_dead(state, caster_id):
+            return False
+        if not _can_move(state, caster_id):
+            return False
+        if not _is_empty_or_steppable(state, board, tile_id):
+            return False
+        return self._move(state, caster_id, tile_id, out)     # `goto MOVE` du decompile
+
+    # ------------------------------------------------------------------------------------------- #
+    def _ectx(self, state: "State"):
+        return ExecutionContext(state=state, rng=state.rng)
+
+    def _remove_just_summoned(self, state: "State", caster_id: int, tile_id: int,
+                              out: dict) -> None:
+        """`Execute( RemoveEffect( Units(Get(tile), unique: 1, sel: 0), Nullable(0x425) ) )` -- le
+        corps de `...UnstoppableMomentumReworkedAbility$$RemoveJustSummonedEffect`, inline dans
+        `ExecuteBehaviourStep`."""
+        entities = entities_from_state(state, caster_id)
+        ectx = self._ectx(state)
+        RemoveEffect(JUST_SUMMONED, Units(FixedTileIds([int(tile_id)]))).execute(entities, ectx)
+        for name, p in ectx.emitted:
+            if name == "RemoveEffect" and p.get("removed"):
+                out["effects"].append({"kind": "RemoveEffect", "effect": JUST_SUMMONED,
+                                       "target": p.get("target"), "removed": p.get("removed")})
+
+    def _enemies_on(self, tile_id: int):
+        """`Enemies( Caster@0x48, Units(Get(tile), unique: 0, sel: 3), 3 )` -- SEULS les ENNEMIS sur la
+        tuile prennent le degat et les effets ; un ALLIE est seulement DEPLACE (i2 : « Friendly units
+        are also displaced, but take no damage or negative effects »)."""
+        return Enemies(Units(FixedTileIds([int(tile_id)])))
+
+    def _attack(self, state: "State", caster_id: int, tile_id: int, steps: int,
+                out: dict) -> None:
+        """`...UnstoppableMomentumReworkedAbility$$Attack` -- cf. l'en-tete de module.
+
+        `Sum(MinMaxDamage, Direct(extraDmg * traversedSteps))` : le terme flat s'ajoute aux DEUX
+        bornes (`SumAmount$$CalculateMin`/`$$CalculateMax` sont compositionnels), MEME forme que
+        `FoehammerAbility` (`spacewolves.py`). `traversedSteps` est 0-BASED."""
+        ce = state.get_entity(caster_id)
+        sc = ce.get_component(StatsComponent) if ce is not None else None
+        ctx = sc.ctx if sc is not None else None
+        level = getattr(ctx, "active_ability_level", 0) if ctx is not None else 0
+        mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
+        per_hex = int(ability_var(MOMENTUM_ID, AbilityVariableType.extraDmg.name, level,
+                                  multiplier_pct=mult) or 0)
+        flat = per_hex * int(steps)
+        profile = ((GC.ability(MOMENTUM_ID) or {}).get("constants") or {}).get(
+            "damageProfile") or "DirectDamage"
+
+        def damage_override(_st, _caster, _target, bmin, bmax):
+            return bmin + flat, bmax + flat
+
+        entities = entities_from_state(state, caster_id)
+        ectx = self._ectx(state)
+        AttackWithAttackDamage(self._enemies_on(tile_id), MOMENTUM_ID, profile, is_melee=True,
+                               damage_override=damage_override, multi=True,
+                               ability_type=self.ABILITY_TYPE).execute(entities, ectx)
+        for name, p in ectx.emitted:
+            if name == "AttackWithAttackDamage":
+                out["attacks"].append({"target": p.get("target"), "total": p.get("total"),
+                                       "attack": p.get("attack"), "steps": int(steps),
+                                       "extra_dmg": flat})
+
+    def _suppress_or_stun(self, state: "State", caster_id: int, tile_id: int,
+                          out: dict) -> None:
+        """`...UnstoppableMomentumReworkedAbility$$SuppressOrStun` -- le `If(NOT CanBeDisplaced(...))`
+        est COLLAPSE par cible (doctrine slice-18/19/24 : les predicats T se replient, seule
+        l'ossature E reste feuille DSL). `DSLTriggers$$CanBeDisplaced` == `UnitExtensions$$
+        IsDisplaceable` (meme substrat que le gate de `_push`) -> BigTarget/Immovable ⇒ `Stunned`,
+        sinon `Pinned`. Les DEUX index de constante sont transcrits VERBATIM (cf. l'avertissement
+        « branches CROISEES » de l'en-tete)."""
+        const = (GC.ability(MOMENTUM_ID) or {}).get("constants") or {}
+        stun_rounds = int(const.get(AbilityConstantType.effectTurns.name) or 1)      # 0x69
+        pin_rounds = int(const.get(AbilityConstantType.effectTurns_2.name) or 1)     # 0x6a
+        entities = entities_from_state(state, caster_id)
+        targets = [u for u in self._enemies_on(tile_id).evaluate(entities)
+                   if isinstance(u, dict) and u.get("id") is not None]
+        for u in sorted(targets, key=lambda x: x["id"]):
+            big = not _is_displaceable(state, int(u["id"]))
+            eff, name, rounds = ((STUNNED, EffectType.Stunned.name, stun_rounds) if big
+                                 else (PINNED, EffectType.Pinned.name, pin_rounds))
+            ectx = self._ectx(state)
+            AddEffect(eff, name, UnitSet([u]), duration_rounds=rounds).execute(entities, ectx)
+            for ename, p in ectx.emitted:
+                if ename == "AddEffect":
+                    out["effects"].append({"kind": "AddEffect", "effect": eff, "name": name,
+                                           "target": p.get("target"), "placed": p.get("placed"),
+                                           "rounds": rounds})
+
+    # ------------------------------------------------------------------------------------------- #
+    def _move(self, state: "State", caster_id: int, tile_id: int, out: dict) -> bool:
+        """`...UnstoppableMomentumReworkedAbility$$Move(caster, tile)` : gate `IsFreeTile(tile, caster,
+        allowSteppable: 1, allowTemporary: 0, allowAnyUnit: 0)` puis
+        `Execute(InvalidateCaches() & MoveUnit(Get(caster), Get(tile), <options ZERO>))`.
+
+        Le gate est le MEME predicat que `_is_empty_or_steppable` (branche `allowAnyUnit == 0` d'
+        `IdunBattle.Entities.TileExtensions$$IsFreeTile` : `content.IsEmpty() || GetUnit(t).HasTrait(
+        Steppable)`), PLUS `walkable`. On le re-teste : le natif le re-teste aussi (les deux appelants
+        de `Move` viennent de chemins ou l'etat a pu changer -- un push vient de liberer la tuile)."""
+        board = state.board
+        if not board.walkable(tile_id) or not _is_empty_or_steppable(state, board, tile_id):
+            return False
+        entities = entities_from_state(state, caster_id)
+        ectx = self._ectx(state)
+        MoveUnit(Caster(), FixedTileIds([int(tile_id)])).execute(entities, ectx)
+        moved = False
+        for name, p in ectx.emitted:
+            if name == "MoveUnit":
+                moved = bool(p.get("moved"))
+                out["moves"].append({"to": p.get("to"), "moved": moved, "tile": int(tile_id)})
+        return moved
+
+    def _push(self, state: "State", caster_id: int, tile_id: int,
+              vector: tuple[int, int, int], out: dict) -> bool:
+        """`...UnstoppableMomentumReworkedAbility$$Push(tile, entities, startVector)` -- cf. l'en-tete
+        de module pour l'arbre natif complet. Rend `true` UNIQUEMENT sur le `SwitchPosition` (aucune
+        tuile de poussee disponible) : c'est ce `true` qui fait CONTINUER la charge sans `Move`,
+        puisque l'echange a deja mis le caster sur la tuile."""
+        board = state.board
+        if _is_empty_or_steppable(state, board, tile_id):
+            return False
+        unit_id = _occupant_of(state, board, tile_id)
+        if unit_id is None or not _is_displaceable(state, int(unit_id)):
+            return False                                    # BigTarget/Immovable : la charge S'ARRETE
+        tile_pos = board.coord(tile_id)
+        if tile_pos is None:
+            return False
+        tile_xy = (int(tile_pos[0]), int(tile_pos[1]))
+        entities = entities_from_state(state, caster_id)
+        # `adj = Cache( CanAddUnit( AdjacentTiles(Get(tile)) ), true )` -- COLLAPSE : les voisines
+        # walkable ET libres (l'occupant POUSSE ne s'auto-bloque pas : il quitte sa tuile).
+        occupied = set()
+        for eid, e in state.entities.items():
+            if int(eid) == int(unit_id):
+                continue
+            uc = e.get_component(UnitComponent)
+            if uc is not None and not uc.alive:
+                continue
+            pc = e.get_component(PositionComponent)
+            if pc is not None:
+                occupied.add((pc.col, pc.row))
+        import hexgeo
+        adj = set()
+        for nb in hexgeo.neighbors(tile_xy[0], tile_xy[1]):
+            tid = board.id_at(nb[0], nb[1])
+            if tid is not None and board.walkable(tid) and (nb[0], nb[1]) not in occupied:
+                adj.add(int(tid))
+        # Les CINQ `TilesInPath`, dans l'ordre natif, avec les DEUX `Randomize` -- feuille portee
+        # `Randomize` (permutation complete, `len(pool)` tirages) pour que la consommation RNG soit
+        # celle du natif. `Backward` (3) n'est JAMAIS candidat.
+        def path(rel: int):
+            tid = _relative_neighbour(board, tile_xy, vector, rel)
+            return [] if tid is None else [{"id": int(tid)}]
+
+        front = Randomize(UnitSet(path(RelativeDirection.ForwardRight)
+                                  + path(RelativeDirection.ForwardLeft))).evaluate(entities)
+        back = Randomize(UnitSet(path(RelativeDirection.BackwardRight)
+                                 + path(RelativeDirection.BackwardLeft))).evaluate(entities)
+        prioritized = [int(t["id"]) for t in list(front) + list(back) + path(RelativeDirection.Forward)]
+        dest = next((t for t in prioritized if t in adj), None)     # `& adj` puis `First(1)`
+        ectx = self._ectx(state)
+        if dest is None:
+            # Aucune tuile de poussee -> ECHANGE de position caster <-> occupant.
+            main = _main_tile(state, int(unit_id))
+            if main is None or board.id_at(main[0], main[1]) is None:
+                return False
+            # `TileExtensions$$IsTemporary(GetMainTile(unit))` : le port n'a pas de tuile TEMPORAIRE
+            # (aucune capture live ne l'expose) -> gate INERTE, nomme.
+            SwitchPosition(Caster(), UnitSet([{"id": int(unit_id)}])).execute(entities, ectx)
+            switched = False
+            for name, p in ectx.emitted:
+                if name == "SwitchPosition":
+                    switched = bool(p.get("switched"))
+                    out["switches"].append({"unit": int(unit_id), "switched": switched})
+            return True                                     # le natif rend `true` INCONDITIONNELLEMENT
+        PushToPrioritizedTiles(Caster(), UnitSet([{"id": int(unit_id)}]),
+                               FixedTileIds([int(dest)])).execute(entities, ectx)
+        for name, p in ectx.emitted:
+            if name == "PushToPrioritizedTiles":
+                out["pushes"].append({"pushed": int(unit_id), "to": p.get("to"),
+                                      "moved": bool(p.get("moved")), "dest_tile": int(dest)})
+        return False

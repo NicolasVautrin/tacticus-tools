@@ -529,13 +529,32 @@ class DisplaceUnitOperation(Operation):
     aucune tuile**. Le parametre existe pour que la seule feuille `Direct` qui l'active
     (`IdunBattleLogic.Entities.DSLBehaviors$$Teleport`, non encore portee) trouve son gate en place.
 
-    Retour dict {moved, to, reason} pour le journal `ectx.emit` (replay-diff live)."""
-    __slots__ = ("pusher_id", "pushed_id", "record_tiles")
+    `prioritized_tiles` = le `direction = 2` du switch natif (#498). Le natif n'a QU'UNE
+    `DisplaceUnitOperation` : son champ `direction` choisit le `FindTileTo*` qui produit la
+    destination, tout l'aval (`MoveUnit` -> `AddTilesMoved` -> `EventAndAbilitiesAndEffects`) est
+    PARTAGE. `None` (defaut) = `direction 1` = `FindTileToPush` (comportement historique INCHANGE) ;
+    une liste de `(col, row)` = `direction 2` = `IdunBattle.Operations.DisplaceUnitOperation$$
+    FindTileToPushToPrioritizedTiles(target, prioritizedTiles)`, dont le corps est, MIRROR :
 
-    def __init__(self, pusher_id: int, pushed_id: int, record_tiles: bool = False):
+        if (prioritizedTiles == null)      -> NullReferenceException
+        if (prioritizedTiles.Count <= 0)   -> null
+        if (prioritizedTiles.Count == 1)   -> prioritizedTiles[0]     // AUCUN re-test
+        else  filtre par TileExtensions.IsEmptyOrSteppable(t, target), puis [0] du filtre
+              (filtre vide -> null)
+
+    Pose par `IdunBattleLogic.Entities.DSLBehaviors$$PushToPrioritizedTiles(pushingUnit, pushedUnit,
+    prioritizedTiles, knockbackDamage)` -> `DisplaceUnitBehaviour(direction: 2, ..., options{+0x10 =
+    knockbackDamage, +0x20 = prioritizedTiles}, targetSelectionType: 2)`.
+
+    Retour dict {moved, to, reason} pour le journal `ectx.emit` (replay-diff live)."""
+    __slots__ = ("pusher_id", "pushed_id", "record_tiles", "prioritized_tiles")
+
+    def __init__(self, pusher_id: int, pushed_id: int, record_tiles: bool = False,
+                 prioritized_tiles: "list[tuple[int, int]] | None" = None):
         self.pusher_id = pusher_id
         self.pushed_id = pushed_id
         self.record_tiles = bool(record_tiles)
+        self.prioritized_tiles = prioritized_tiles
 
     def execute(self, state: State, bus: EventBus) -> dict:
         board = getattr(state, "board", None)
@@ -555,24 +574,39 @@ class DisplaceUnitOperation(Operation):
         traits = getattr(sc.ctx, "traits", None) if sc is not None else None
         if has_any_trait(traits, (UnitTrait.Immovable, UnitTrait.BigTarget)):
             return {"moved": False, "reason": "not displaceable"}
-        # --- direction hex pousseur->poussee (adjacent en melee) ; away = meme direction depuis poussee ---
-        dir_idx = _dir_index(upos.col, upos.row, ppos.col, ppos.row)
-        if dir_idx is None:
-            return {"moved": False, "reason": "pusher not adjacent"}
-        occ = _occupied(state, self.pushed_id)
-        cur = (ppos.col, ppos.row)
         dest: tuple[int, int] | None = None
         blocker_id: int | None = None
-        for _ in range(_PUSH_MAX_DIST):
-            nxt = _step(cur[0], cur[1], dir_idx)
-            nt = board.id_at(*nxt)
-            if nt is None or not board.walkable(nt):     # hors-board / mur -> stop (FindTileToPush vide)
-                break
-            if nxt in occ:                               # occupee -> stop (21b: steppable-crush / absorb)
-                blocker_id = occ[nxt]
-                break
-            dest = nxt
-            cur = nxt
+        if self.prioritized_tiles is not None:
+            # `direction = 2` -> `IdunBattle.Operations.DisplaceUnitOperation$$
+            # FindTileToPushToPrioritizedTiles` (#498, cf. la docstring de classe). Le cas `Count == 1`
+            # est rendu TEL QUEL par le natif -- aucun `IsEmptyOrSteppable` ; c'est le cas du seul
+            # call-site porte (`UnstoppableMomentumReworkedAbility$$Push`, qui a deja filtre par
+            # `CanAddUnit`). `Count > 1` filtre, `Count == 0` rend null (-> branche knockback).
+            cands = [(int(c), int(r)) for (c, r) in self.prioritized_tiles]
+            if len(cands) == 1:
+                dest = cands[0]
+            elif cands:
+                occ2 = _occupied(state, self.pushed_id)
+                dest = next((p for p in cands
+                             if board.id_at(*p) is not None and board.walkable(board.id_at(*p))
+                             and p not in occ2), None)
+        else:
+            # --- direction hex pousseur->poussee (adjacent en melee) ; away = meme direction depuis poussee ---
+            dir_idx = _dir_index(upos.col, upos.row, ppos.col, ppos.row)
+            if dir_idx is None:
+                return {"moved": False, "reason": "pusher not adjacent"}
+            occ = _occupied(state, self.pushed_id)
+            cur = (ppos.col, ppos.row)
+            for _ in range(_PUSH_MAX_DIST):
+                nxt = _step(cur[0], cur[1], dir_idx)
+                nt = board.id_at(*nxt)
+                if nt is None or not board.walkable(nt):     # hors-board / mur -> stop (FindTileToPush vide)
+                    break
+                if nxt in occ:                               # occupee -> stop (21b: steppable-crush / absorb)
+                    blocker_id = occ[nxt]
+                    break
+                dest = nxt
+                cur = nxt
         if dest is None:
             # #47 : push BLOQUE -> KNOCKBACK DAMAGE (mirror `IdunBattle.Operations.DisplaceUnitOperation$$Execute`) :
             #   - hors-board/mur (`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` ne rend aucune tuile, lVar7==0) ->
