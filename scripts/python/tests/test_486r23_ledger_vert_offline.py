@@ -29,17 +29,25 @@ import ledger_vert_offline as L
 
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
 #:
-#: ETROIT, et c'est mesure, pas espere : ce fichier n'importe QUE `ledger_vert_offline` (jamais
-#: `probe_457`, dont il n'eprouve pas le cablage), et il fabrique ses depots git dans
-#: `tmp_path`. Son verdict ne depend donc que du module sous test et du socle pytest.
+#: ETROIT, et c'est MESURE, pas espere : ce fichier n'importe QUE `ledger_vert_offline` (jamais
+#: `probe_457`, dont il n'eprouve pas le cablage), et il fabrique ses depots git dans `tmp_path`.
+#:
+#: ⚠ La premiere redaction declarait 6 chemins et `probe_486r15_declencheurs_tests` l'a rendue
+#: ROUGE : **8 chemins de plus** sont lus, tous par la CASCADE DES CONFTEST, qu'aucune lecture du
+#: source de ce fichier ne montre. La liste ci-dessous est celle du cliquet, pas une estimation.
 DECLENCHEUR = {
     "chemins": (
         # SOCLE COMMUN a tout fichier de test : la cascade des deux `conftest.py` et sa
-        # fermeture. Aucun test ne les IMPORTE (semantique pytest), et ils portent le
+        # FERMETURE. Aucun test ne les IMPORTE (semantique pytest), et ils portent le
         # `green_skip_guard` de #455 plus des fixtures `autouse`.
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
         "scripts/python/pytest.ini",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
         # PROPRE A CE FICHIER :
         "scripts/python/ledger_vert_offline.py",
     ),
