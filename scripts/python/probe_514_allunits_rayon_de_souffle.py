@@ -99,8 +99,13 @@ SITES_POOL8 = {
         "IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetAttackBehaviour",
     ("engine/runner/abilities/loki/leading_the_charge.py", "leading_the_charge_defeated_friends_selector"):
         "IdunBattleLogic.Entities.Abilities.Active.Loki.LeadingTheChargeAbility$$GetExtraPierceRatio",
-    # Le probe se teste LUI-MEME sur les deux primitives (etape 4) : ce n'est pas un mirror.
+    # Le probe et sa GARDE se testent EUX-MEMES sur les deux primitives : ce ne sont pas des
+    # mirrors de call-sites natifs, mais les crans qui figent la semantique.
     ("probe_514_allunits_rayon_de_souffle.py", "etape_4"): "<auto-test de l'etape 4>",
+    ("tests/engine/runner/test_514_allunits_pool8_offline.py",
+     "test_allunits_est_le_pool_8_et_ne_filtre_pas_les_mortes"): "<garde de semantique>",
+    ("tests/engine/runner/test_514_allunits_pool8_offline.py",
+     "test_les_deux_primitives_divergent_des_qu_il_y_a_UN_cadavre"): "<garde anti-degenere>",
 }
 
 #: Call-sites NATIFS de `DSLSelectors$$AllUnits` (pool 8) -- releve `list_xrefs` du 2026-08-07 sur
