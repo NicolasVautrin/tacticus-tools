@@ -21,6 +21,43 @@ ASCII only (console cp1252).
 """
 from __future__ import annotations
 
+# `DECLENCHEUR` (#486-r15) -- ce qui doit changer pour que ce fichier puisse changer de verdict.
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a tout fichier de test : la cascade des deux `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # LES DEUX OPERATIONS JUMELLES et leur foyer de substrat partage -- c'est ce que ce
+        # fichier compare etage par etage, et une divergence de forme entre elles est justement
+        # ce qu'il doit rougir.
+        "scripts/python/engine/runner/operations/heal.py",
+        "scripts/python/engine/runner/operations/repair.py",
+        "scripts/python/engine/runner/operations/fill_up_prediction.py",
+        # LE GATE : le mirror que l'Operation appelle en tete. Un assouplissement la-bas rendrait
+        # l'etage 1 de ce fichier vert a tort.
+        "scripts/python/engine/runner/abilities/attack_query.py",
+        # LA MUTATION et son accumulateur (`fill_up` / `max_reduce` / `reduce` vivent ensemble).
+        "scripts/python/engine/runner/components.py",
+        # LES DEUX FEUILLES DSL, dont ce fichier verifie les DEFAUTS d'options.
+        "scripts/python/engine/runner/abilities/behaviours/stats.py",
+        # LES CALL-SITES `ForRegenerate` PORTES -- l'etage 4 les lit par AST, donc tout
+        # deplacement de leur `Heal(...)` change son verdict.
+        "scripts/python/engine/runner/abilities/bloodangels.py",
+        "scripts/python/engine/runner/operations/triggers/loki/time_flux.py",
+        # Le cap de groupe, lu par `predict_heal` comme par `predict_repair`.
+        "scripts/python/engine/services/trait_damage_limits.py",
+        # L'etat minimal que les montages offline construisent.
+        "scripts/python/engine/runner/state.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Les deux Operations jumelles, leur gate, leur mutation, leurs feuilles DSL et les "
+              "deux call-sites `ForRegenerate` lus par AST. `build: True` parce que la ventilation "
+              "des familles `CreateEffect*` -- qui etablit que l'etage BONUS de `PredictHeal` est "
+              "INERTE -- est une propriete du BUILD : un `CreateEffectHealBonus` apparaissant a une "
+              "mise a jour rendrait le no-op porte FAUX (residu #520-r2).",
+}
+
 import ast
 import io
 import pathlib
