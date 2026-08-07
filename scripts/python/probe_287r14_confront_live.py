@@ -140,8 +140,61 @@ def joue(sid, rid) -> int:
     return 0 if (ok_natif and ok_port and ok_temoin) else 1
 
 
+def volet_1026(sid, rid) -> int:
+    """GENERALISATION -- `1026 BasiliskBarrage`, un patron TOUT AUTRE que `1018` : pas de `Target()`
+    dans l'arbre, mais un collapse imperatif qui TIRE ses tuiles au PRNG (`basilisk_shell_tiles`).
+    C'est le scenario le plus a risque de la tranche : si la resolution deplacait la cible d'un cran
+    de trop, la suite de tirages divergerait et les obus tomberaient ailleurs.
+
+    On caste avec `targetId` = l'id d'**UNITE** (le regime que la tranche repare) et on confronte
+    les coups NATIF aux coups du port rejoue depuis la MEME capture et le MEME MT."""
+    dv, ord_u = P12._to_my_turn(sid, rid, P12.ORDNANCE)
+    if ord_u is None:
+        print("[1026] astraOrdnance absent du build -- NON CONFRONTE")
+        return 1
+    ens = P12._alive_enemies(dv, ord_u.get("owner"))
+    if not ens:
+        print("[1026] aucun ennemi vivant -- NON CONFRONTE")
+        return 1
+    dv0, ob0, snap0, tiles0, bg0, rng0 = P12._capture(sid, rid)
+    board = Board(bg0["tiles"], adjacency="native_sym")
+    cible = ens[0]
+    tuile = board.id_at(cible["pos"]["col"], cible["pos"]["row"])
+    print(f"[1026] caster={ord_u['id']} cible UNITE={cible['id']} -> tuile {tuile}")
+    res = P12._r(sid, "applyAction", {"runnerId": rid, "action": {
+        "kind": "ability", "casterId": ord_u["id"], "targetId": int(cible["id"]),
+        "abilityType": P12.BASILISK}}, 120)
+    a0 = (res.get("actions") or [{}])[0] if isinstance(res, dict) else {}
+    print(f"[1026] cast ok={bool(isinstance(res, dict) and res.get('ok'))} "
+          f"action0.ok={a0.get('ok')} reason={a0.get('reason')}")
+    natif = P12._coups(res, P12.BASILISK)
+    print(f"[1026] NATIF  coups = {natif}")
+
+    def _rejoue():
+        st = load_state(dv0, ob0, snap0, board=board, tiles=tiles0)
+        if rng0 and rng0.get("ok"):
+            st.rng = P12._seed_rng(rng0)
+        h = AbilityHandler(st)
+        h.visit_ActiveAbilityMessage(ActiveAbilityMessage(
+            caster_id=int(ord_u["id"]), target_id=int(cible["id"]),
+            ability_type=P12.BASILISK))
+        out = h.last or {}
+        return (out.get("tiles"),
+                [(a["target"], hh) for a in (out.get("attacks") or [])
+                 for hh in ((a.get("attack") or {}).get("per_hit") or [])])
+
+    tiles_ap, coups_ap = _rejoue()
+    tiles_av, coups_av = _sans_resolution(_rejoue)
+    print(f"[1026] PORT   : tuiles={tiles_ap} coups={coups_ap}")
+    print(f"[1026] TEMOIN : tuiles={tiles_av} coups={coups_av}   (port d'AVANT la tranche)")
+    ok = (len(natif) > 0 and coups_ap == natif)
+    print(f"\n[VERDICT 1026] port apres tranche = natif, coup par coup : {'OUI' if ok else 'NON'}")
+    return 0 if ok else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--volet", choices=["1018", "1026"], default="1018")
     ap.add_argument("--seed", type=int, default=P12.SEED)
     ap.add_argument("--board", default=P12.BOARD)
     ap.add_argument("--rebuild", action="store_true")
@@ -158,7 +211,7 @@ def main(argv=None) -> int:
         return 0
     rid = P12._rid(sid, ns.seed, ns.board, ns.rebuild)
     print(f"[runner] {rid}")
-    return joue(sid, rid)
+    return volet_1026(sid, rid) if ns.volet == "1026" else joue(sid, rid)
 
 
 if __name__ == "__main__":

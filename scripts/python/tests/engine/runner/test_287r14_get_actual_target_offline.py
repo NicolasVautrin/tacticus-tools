@@ -421,3 +421,30 @@ def test_etage11_le_gate_no_actual_target_est_ATTEIGNABLE(board):
         f"(last={h.last})")
     assert P.empreinte_etat(st) == P.empreinte_etat(P._montage_pour(aid, board)), (
         "le gate a mordu mais l'etat a MUTE -- le natif abandonne AVANT la behaviour")
+
+
+# ------------------------------------------------------------------ [12] le CADAVRE n'a plus de tuile
+
+def test_etage12_un_cadavre_n_a_plus_de_tuile_donc_le_gate_cible_morte_mord_encore(board):
+    """`IdunBattle.Entities.EntityExtensions$$GetMainTileId` cherche le composant de PIED, puis
+    l'`OrderedSet` de pieds @+0x78 -- dont il sort par `return 0` quand il est VIDE. Le natif RETIRE
+    du board l'unite tuee, donc `GetMainTile(<cadavre>)` rend `state.GetEntity(0)` = **null**.
+
+    Cote port, `PositionComponent` SURVIT a la mort. Sans le filtre d'occupation dans `main_tile_id`,
+    la resolution branchee EN AMONT du gate cible-morte (l'ordre natif) transformait
+    `IsUnit(<cadavre>)` en `IsUnit(<tuile>)` = faux -> **le gate ne mordait plus** et le cast
+    s'executait sur un cadavre. Regression PERMISSIVE, trouvee par
+    `test_429r1r3_dead_target_message_gate_live` -- par le HARNAIS, pas par la lecture."""
+    from engine.runner.components import HealthComponent, UnitComponent
+    actual_target, _u, _m = _foyer()
+    aid, cls = _tile_targets()[0]
+    st = P._montage_pour(aid, board)
+    mort = st.get_entity(U_CIBLE)
+    mort.get_component(UnitComponent).alive = False
+    mort.get_component(HealthComponent).hp = 0
+    o_tile = TargetingOptions(rules=int(TR.TargetIsTile))
+    assert actual_target(st, o_tile, U_CASTER, U_CIBLE) is None, (
+        "un CADAVRE ne doit plus resoudre en tuile -- le natif rend `null`")
+    # ... et la tuile elle-meme, passee directement, resout toujours (le filtre porte sur l'UNITE,
+    # pas sur le board : sinon on aurait ferme le regime T avec).
+    assert actual_target(st, o_tile, U_CASTER, _tid(*POS_CIBLE)) == _tid(*POS_CIBLE)

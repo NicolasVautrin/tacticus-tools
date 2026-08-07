@@ -23,6 +23,14 @@ from ...components import previous_tiles as _pt
 from ...operations.ability_reset import entity_can_have_active_ability_reset
 from ....services.trait_damage_limits import group_unit_stat_part
 from ...components import MachineComponent
+# `unit_extensions_is_alive` (`IdunBattle.Entities.UnitExtensions$$IsAlive` : flag `Dead`, pool
+# `AliveUnits`, PV) : le predicat « cette unite est-elle SUR LE BOARD », lu par `main_tile_id`.
+# Choisi plutot que `unit_is_alive` (PV seuls, celui de `get_tiles`) parce que le natif teste la
+# PRESENCE DU PIED, que perd aussi une unite RETIREE a PV pleins (`RemoveUnitOperation`) -- et
+# parce que c'est EXACTEMENT le predicat du gate cible-morte
+# (`is_dead_unit_and_not_allowed_by_ability`), donc la resolution et le gate ne peuvent pas
+# diverger sur le meme cadavre.
+from ...components import unit_extensions_is_alive
 # Import de MODULE (forme B) : `unit_id` delegue sa branche TUILE au mirror deja porte
 # `operations/active_ability.py::get_unit`. Arete classee GRATUITE par la mesure -- charger
 # `engine.runner.operations.active_ability` seul dans un process FRAIS ne fait PAS atterrir ce
@@ -685,7 +693,21 @@ def main_tile_id(state, entity_id) -> int | None:
         return None
     e = state.get_entity(eid)
     pc = e.get_component(PositionComponent) if e is not None else None
-    if pc is not None:
+    # ⚠ UNE UNITE MORTE N'A PLUS DE TUILE, et c'est LU : `GetMainTileId` cherche le composant de
+    # PIED, puis l'`OrderedSet` de pieds @+0x78 -- dont il sort par `return 0` quand il est VIDE
+    # (`*(lVar1 + 0x18) == 0`). Le natif RETIRE du board l'unite tuee, donc son `GetMainTile` rend
+    # `state.GetEntity(0)` = **null**. Cote port, `PositionComponent` SURVIT a la mort : sans ce
+    # filtre, `main_tile_id(<cadavre>)` rendait sa derniere tuile.
+    # MESURE (#287-r14, `test_429r1r3_dead_target_message_gate_live`) : la resolution de cible
+    # branchee en amont du gate cible-morte transformait alors `IsUnit(<cadavre>)` en
+    # `IsUnit(<tuile>)` = faux -- le gate ne mordait plus et le cast s'executait sur un cadavre.
+    # C'est une regression PERMISSIVE, et c'est le harnais qui l'a vue, pas la lecture.
+    # MEME NOTION D'OCCUPATION que `operations/active_ability.py::get_tiles` (« unite MORTE ->
+    # liste VIDE, mirror du board natif d'ou une unite tuee est RETIREE »), que le selecteur
+    # `Units(tiles)` (#57m), `CanAddUnit` et `walk_pathfinder` -- mais par le predicat LARGE
+    # `UnitExtensions$$IsAlive` (cf. l'import), pas par les seuls PV : une unite RETIREE a PV
+    # pleins n'a pas de pied non plus.
+    if pc is not None and (e.get_component(UnitComponent) is None or unit_extensions_is_alive(e)):
         return board.id_at(pc.col, pc.row)
     return eid if eid in getattr(board, "by_id", {}) else None
 
