@@ -26,22 +26,29 @@ import probe_462_live_tests_status as P
 
 #: Ce qui doit changer pour que cette contre-epreuve puisse changer d'avis.
 #:
-#: PORTEE 4 PURE -- la plus etroite du groupe C, et la seule des trois contre-epreuves nommees
-#: qui le soit vraiment. Verifie fichier par fichier : aucun test n'ouvre le depot. Le depot est
-#: FABRIQUE (`tmp_path_factory`), `probe_462.repo_root` est SUBSTITUE par `monkeypatch`, et les
-#: ~75 sous-process `git` ne parlent qu'a cet arbre jetable. Son verdict ne depend donc que de
-#: {la source de `probe_462`, la sienne} -- plus le harnais pytest qui la collecte.
-#: Cout ISOLE mesure le 2026-08-07 : 73,9 s (25 tests), pour un declencheur de DEUX fichiers.
-#: C'est le meilleur rapport du lot, et il n'etait exploite par rien.
+#: ⚠ CE QUE LA MESURE A REFUTE. On la croyait de portee la plus etroite du lot -- << son verdict
+#: ne depend que de {la source du cliquet teste, la sienne} >>, puisque son depot est FABRIQUE
+#: (`tmp_path_factory`) et que `probe_462.repo_root` y est SUBSTITUE. La lecture du source le
+#: laissait croire. La TRACE dit autre chose (audit hook `declencheur_trace`, arme AVANT le
+#: premier import, 2026-08-07) : 7 lectures du depot, dont TROIS qu'une declaration
+#: << deux fichiers >> ratait --
+#:   * `scripts/ratchets-462-live-attestations.json` : le VRAI ledger. Tous les tests ne
+#:     substituent pas `repo_root` ; le depot reel entre donc bien dans le verdict.
+#:   * `scripts/python/conftest.py` et `scripts/python/green_skip_guard.py` : le harnais pytest
+#:     de la RACINE, invisible du source du fichier de test.
+#: Les ~75 sous-process `git`, eux, restent hors de portee du hook (`MESURE INCOMPLETE`) : ils
+#: ne parlent qu'a l'arbre jetable, mais c'est un fait LU, pas mesure.
+#: Cout ISOLE mesure le 2026-08-07 : 73,9 s (25 tests).
 DECLENCHEUR = {
     "chemins": ("scripts/python/probe_462_live_tests_status.py",
-                "scripts/python/tests/test_465_ledger_validite_offline.py",
-                "scripts/python/tests/conftest.py", "scripts/python/pytest.ini"),
+                "scripts/ratchets-462-live-attestations.json",
+                "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+                "scripts/python/green_skip_guard.py", "scripts/python/pytest.ini"),
     "build": False,
     "toujours": False,
     "raison": "Elle eprouve `verdict_effectif` / `_verdict` de `probe_462` sur un depot git "
-              "JETABLE avec `repo_root` substitue : rien du contenu du depot reel n'entre dans "
-              "son verdict.",
+              "JETABLE, mais tous ses tests ne substituent pas `repo_root` : le VRAI ledger "
+              "entre dans son verdict, ainsi que le harnais pytest de la racine.",
 }
 
 _CIBLE = "tests/engine/runner/test_x_live.py"

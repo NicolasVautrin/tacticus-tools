@@ -258,17 +258,23 @@ LEDGER = REPO / "scripts" / "ratchets-468-numeros-attestes.json"
 #: -- est vraie du mode ATTRIBUER (`--suggere`), dont le corpus est l'UNION de toutes les
 #: positions ; le mode DETECTER, lui, ne lit que des DEFINITIONS, et les trois positions de
 #: definition vivent toutes dans `docs/rl`.
+#: MESURE (audit hook sur `open`, 2026-08-07) : l'argv de banque ouvre **664** fichiers du
+#: depot, et **664 sur 664** sont soit un `.md` de `docs/rl` (662), soit le ledger, soit cette
+#: source. Le perimetre ci-dessous n'est donc PAS une prudence : il est mesure, et il borne.
+#: `toujours: True` est neanmoins ce qui est DECLARE, et c'est un ARBITRAGE, pas un defaut
+#: d'analyse : l'unicite d'un numero n'a pas de voisinage -- un `#<n>` peut etre pris par un
+#: `probe_<n>_*.py`, un `test_<n>_*.py` ou un message de commit que ce mode ne lit PAS (seuls
+#: `--report` et `--suggere` les voient). Borner sur `docs/rl` ferait donc coincider le
+#: declencheur avec l'ANGLE MORT du detecteur, et le gain serait de 2,5 s.
 DECLENCHEUR = {
-    "chemins": ("docs/rl/*", "docs/rl/**",
-                "scripts/ratchets-468-numeros-attestes.json",
-                "scripts/python/probe_468_collision_numeros.py"),
+    "chemins": ("docs/rl/*", "docs/rl/**", "scripts/ratchets-468-numeros-attestes.json"),
     "build": False,
-    "toujours": False,
-    "raison": "Les trois positions de DEFINITION (cellule de tableau et tete de puce de "
-              "`backlog.md`, prefixe de `docs/rl/case-<n>-*.md`) et le corpus de separation de "
-              "l'etape 0b vivent tous sous `docs/rl` ; l'etape 2 y ajoute le seul ledger. "
-              "`--suggere` (mode ATTRIBUER, HORS de l'argv de banque) lit en plus git, les "
-              "worktrees et `gh` : lui n'a pas de voisinage, et rien ici ne le borne.",
+    "toujours": True,
+    "raison": "Mesure : les 664 lectures de l'argv de banque tiennent dans `docs/rl` + le "
+              "ledger. Declare TOUJOURS quand meme -- l'unicite d'un numero n'a pas de "
+              "voisinage, et les positions que ce mode ne lit pas (artefacts de code, messages "
+              "de commit) sont precisement celles ou une collision naitrait sans toucher "
+              "`docs/rl`. Le gain d'un bornage serait de 2,5 s.",
 }
 
 #: << RIEN N'A ETE MESURE >> -- contrat de banque, `scripts/ratchets-verdict.ps1` (#471).

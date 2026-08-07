@@ -78,8 +78,7 @@ if str(PYDIR) not in sys.path:
 #: le `<build>` etant celui que le PIN DECLARE, pas `CURRENT`. Une table qui bouge peut donc
 #: faire basculer le verdict SANS qu'aucun `.ts` ne change, ce qui est precisement le gisement.
 DECLENCHEUR = {
-    "chemins": ("frida/hooks/*", "frida/hooks/**", "data/symbols/*", "data/symbols/**",
-                "scripts/python/probe_475_pinned_addresses.py"),
+    "chemins": ("frida/hooks/*", "frida/hooks/**"),
     "build": True,
     "toujours": False,
     "raison": "R1 balaie `git ls-files -- frida/hooks` et rien d'autre ; R2 confronte chaque pin "

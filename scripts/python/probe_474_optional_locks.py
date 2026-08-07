@@ -64,7 +64,7 @@ from pathlib import Path
 
 #: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
 DECLENCHEUR = {
-    "chemins": ("scripts/*", "scripts/**", "scripts/python/loop_status.py"),
+    "chemins": ("scripts/*", "scripts/**"),
     "build": False,
     "toujours": False,
     "raison": "Etage 1 = AST (.py) et texte (.ps1/.psm1) de TOUT fichier versionne sous "

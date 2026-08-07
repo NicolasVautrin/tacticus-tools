@@ -126,8 +126,7 @@ DECLENCHEUR = {
     "chemins": ("frida/host/*.ts", "frida/host/**",
                 "scripts/python/loop_status.py",
                 "scripts/python/fleet_board.py",
-                "scripts/python/host_inputs.py",
-                "scripts/python/probe_467r4_contrat_host.py"),
+                "scripts/python/host_inputs.py"),
     "build": False,
     "toujours": False,
     "raison": "Volet A confronte le CODE SOURCE de `frida/host/*.ts` a une liste de champs "

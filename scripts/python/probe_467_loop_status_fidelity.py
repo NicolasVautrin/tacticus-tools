@@ -62,8 +62,7 @@ import loop_status as LS                                               # noqa: E
 DECLENCHEUR = {
     "chemins": ("scripts/python/loop_status.py",
                 "scripts/python/fleet_board.py",
-                "scripts/python/host_inputs.py",
-                "scripts/python/probe_467_loop_status_fidelity.py"),
+                "scripts/python/host_inputs.py"),
     "build": False,
     "toujours": False,
     "raison": "Il n'importe que `loop_status` et `fleet_board` (et `host_inputs`, que "

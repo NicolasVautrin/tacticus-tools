@@ -104,8 +104,7 @@ from symbols_layout import archived_builds, current_build  # noqa: E402
 #: -- c'est litteralement le gisement (220 citations invalidees par une MAJ, #420).
 DECLENCHEUR = {
     "chemins": ("*.py", "**/*.py", "*.ts", "**/*.ts", "*.js", "**/*.js",
-                "scripts/python/*.md", "scripts/python/**/*.md",
-                "data/symbols/*", "data/symbols/**"),
+                "scripts/python/*.md", "scripts/python/**/*.md"),
     "build": True,
     "toujours": False,
     "raison": "UNION des six etapes : tout `.py`/`.ts`/`.js` du depot (mirror, tables), "

@@ -64,8 +64,8 @@ PROBE = PYDIR / "probe_468_collision_numeros.py"
 DECLENCHEUR = {
     "chemins": ("docs/rl/*", "docs/rl/**",
                 "scripts/python/probe_468_collision_numeros.py",
-                "scripts/python/tests/test_468_collision_numeros_offline.py",
-                "scripts/python/tests/conftest.py", "scripts/python/pytest.ini"),
+                "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+                "scripts/python/green_skip_guard.py", "scripts/python/pytest.ini"),
     "build": False,
     "toujours": True,
     "raison": "Contre-epreuve de portee 4 SAUF pour son echantillon negatif, qui est le depot "
