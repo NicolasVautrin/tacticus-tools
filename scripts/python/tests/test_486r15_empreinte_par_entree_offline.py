@@ -43,6 +43,8 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/snapshot.py",
         # PROPRE A CE FICHIER :
         "scripts/python/probe_457_offline_tests_green.py",
+        # Entre dans la cascade avec #486-r23 : `probe_457` importe le ledger.
+        "scripts/python/ledger_vert_offline.py",
         # #463-r1 : le FOYER du recensement offline, dont `probe_457` ET `loop_status` (tous deux
         # sous test ici) tirent leur perimetre.
         "scripts/python/probe_463r1_ecart_empreinte_offline.py",
