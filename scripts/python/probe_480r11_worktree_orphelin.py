@@ -67,6 +67,36 @@ import livraison as LV                                                     # noq
 
 ECHECS: list[str] = []
 
+#: DECLENCHEUR (#486-r12). Perimetre MESURE fonction par fonction, pas suppose :
+#: `etape_0_config` -> la config git du depot (hors arbre, donc non declarable en chemin) ;
+#: `etape_1/2/5` -> des depots SYNTHETIQUES montes en tmpdir systeme, qui ne lisent RIEN du
+#: depot ; `etape_3` -> `fleet_board.py` ; `etape_2/3/5` -> `livraison.py` ; `etape_4` ->
+#: `probe_457_offline_tests_green.py`. Aucune de ces etapes n'ouvre `docs/`, `data/`, ni
+#: `engine/`.
+#:
+#: PAS de glob a la racine `scripts/python/*.py` : il selectionnerait 995 fichiers la ou 20
+#: suffisent (mesure `case-486-r24` §3bis), et enumerer `engine/**` serait un no-op de
+#: selection. Les trois modules cites le sont NOMMEMENT.
+#:
+#: `toujours: True`, et c'est le point : ce cliquet garde un etat qui vit HORS de l'arbre --
+#: la presence de repertoires orphelins sous `.claude/worktrees/` et la config `core.longpaths`
+#: du clone. Aucun diff ne peut annoncer qu'un `worktree remove` a echoue ; c'est precisement
+#: la forme de faute que le gisement a produite (13 orphelins, 392 Mo, sans qu'aucun fichier
+#: du depot ne bouge). Un declencheur BORNE le rendrait aveugle a sa propre raison d'etre.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/livraison.py", "scripts/python/fleet_board.py",
+                "scripts/python/probe_457_offline_tests_green.py",
+                "scripts/python/probe_480r11_worktree_orphelin.py"),
+    "build": False,
+    "toujours": True,
+    "raison": "Mesure : les etapes 1/2/5 montent des depots SYNTHETIQUES et ne lisent rien du "
+              "depot ; les trois seuls modules lus sont cites nommement. Declare TOUJOURS "
+              "quand meme, car l'objet garde vit HORS de l'arbre -- des repertoires orphelins "
+              "sous `.claude/worktrees/` et la config `core.longpaths` du clone. Un "
+              "`worktree remove` qui echoue ne touche AUCUN fichier versionne, donc aucun diff "
+              "ne peut le declencher. Cout mesure : ~5 s.",
+}
+
 #: Longueur a partir de laquelle git refuse sans `core.longpaths`. MAX_PATH vaut 260 en comptant
 #: le NUL terminal ; on vise franchement au-dela pour que l'epreuve ne depende pas de la longueur
 #: du tmpdir de la machine.
