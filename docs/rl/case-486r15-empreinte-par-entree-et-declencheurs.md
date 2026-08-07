@@ -174,13 +174,13 @@ tranche. Les deux « décor » ne sont établis que **pour la dep mutée** — u
 les 33 ni les 34.
 
 Conséquence retenue : **les portées restent LARGES** là où la mutation n'a pas tranché. Résidu
-#486-r17.
+#486-r21.
 
 ## 10. Ce qui n'est PAS couvert
 
 - **11 déclarations sur 714.** Le mécanisme, le cliquet d'obligation et la dette sont livrés ;
-  la généralisation ne l'est pas (résidu #486-r16).
-- **La troisième nature (DÉCOR vs ENTRÉE) n'est pas outillée** — résidu #486-r17. Le recensement
+  la généralisation ne l'est pas (résidu #486-r20).
+- **La troisième nature (DÉCOR vs ENTRÉE) n'est pas outillée** — résidu #486-r21. Le recensement
   amont dit 31 fichiers offline montant un montage jetable, dont 8 à plus de 20 s (449 s, 33,6 %
   de la banque) ; mais le marqueur `tmp_path` est une **borne haute**, et §9 montre qu'il ne
   discrimine pas. Toute réduction de portée doit passer par la mutation, fichier par fichier.
