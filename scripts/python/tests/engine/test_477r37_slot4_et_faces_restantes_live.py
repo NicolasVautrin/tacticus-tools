@@ -108,6 +108,40 @@ def test_la_valeur_de_la_BASE_est_false_et_c_est_ce_dont_26_classes_HERITENT():
         "valeur, en silence" % BASE.SLOT_4)
 
 
+def test_le_registre_MOVE_ne_contient_QUE_des_faces_MOVE(capsys):
+    """#271-r4 -- UN dispatcher, TROIS faces, et un seul registre porte.
+
+    `IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility` a trois entrees
+    (`$$EvaluateMovementInSteps` / `$$EvaluateAttackInSteps` / `$$EvaluateRepairInSteps`) et
+    l'interface leur repond par ses slots 0 / 1 / 2. Le port n'en monte qu'une : `evaluate`, la
+    face MOVE. Inscrire dans `NON_OWNER_MOVE_PLAYBOOKS` une classe dont la face est ATTACK ou
+    REPAIR ne leverait RIEN -- le dispatcher appellerait `calculate_movement_utility_in_steps`
+    sur un objet dont le corps natif pese une ATTAQUE, et verserait un terme au mauvais
+    composite. La face est LUE dans l'entree versionnee, jamais deduite du nom de la classe.
+
+    Le controle est assorti d'un anti-degenere : la colonne `face` doit porter les TROIS valeurs.
+    Une table dont la face aurait ete rabattue sur une constante rendrait ce test vert sans
+    rien verifier."""
+    import engine.playbook.non_owner as NO
+    table = P.lire_tsv()
+    faces = {r["face"] for r in table.values()}
+    assert faces == {"MOVE", "ATTACK", "REPAIR"}, (
+        "la colonne `face` de l'entree versionnee ne porte plus que %r : le controle ci-dessous "
+        "ne separerait plus rien" % sorted(faces))
+    mauvaises = sorted((type(pb).__name__, table[type(pb).__name__]["face"])
+                       for pb in NO.NON_OWNER_MOVE_PLAYBOOKS.values()
+                       if table.get(type(pb).__name__, {}).get("face") != "MOVE")
+    assert not mauvaises, (
+        "le registre MOVE contient des classes dont la face native n'est PAS MOVE : %r. Leur "
+        "corps pese une autre face, et le terme partirait dans le mauvais composite -- sans "
+        "erreur" % mauvaises)
+    inconnues = sorted(type(pb).__name__ for pb in NO.NON_OWNER_MOVE_PLAYBOOKS.values()
+                       if type(pb).__name__ not in table)
+    assert not inconnues, (
+        "des classes du registre n'ont AUCUNE ligne dans l'entree versionnee (%r) : leur face "
+        "n'est pas mesuree, donc le controle ci-dessus les a sautees en silence" % inconnues)
+
+
 def test_le_gate_de_1064_n_est_PAS_inerte_et_les_DEUX_substrats_sont_imprimes():
     """La contre-mesure du verdict « 0 unite sur 1083 ».
 
