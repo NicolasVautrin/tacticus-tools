@@ -141,6 +141,17 @@ Contre-épreuves hors-ligne (`--ab`, même capture, R1, 5 candidats) : `Tile(7)`
 * **`isHidden = 1`** (7ᵉ argument des deux `AddStaticStatModifierEffect`) n'est pas modélisé.
 * **`ignoreFlags = 0`** de `GetPossibleMoveTiles` reste non exercé (résidu #381 : `unitFlags` n'a pas
   de substrat), mais il est propagé pour que 1204 et 1202 divergent le jour où il en aura un.
+* ~~**`Cache(TimesAttackMadeThisTurn)` / `AmountIsGreater` collapsés sur « l'attaque a été
+  émise »**~~ — **RÉSOLU par `#508-r1`** : le compteur `ActorStatisticsComponent+0x24` est porté
+  (`components.register_attack_made` l'incrémente, `reset_units_attacked_this_turn` le remet à zéro
+  — **lu à l'assembleur**, son nom ne le dit pas), et `LeadingTheCharge` compare désormais le
+  compteur à lui-même. **Aucun changement observable sur 1204** (le collapse était structurellement
+  équivalent sur cet arbre) ; ce qui change est que le nœud
+  `IdunBattleLogic.Entities.DSLFormulas$$TimesAttackMadeThisTurn` devient **réutilisable** par ses
+  deux autres consommateurs natifs, `IconOfObstinacy_AddArmourBuffAbility$$CreateTrigger` et
+  `LegacyOfCombatAbility$$CreateTrigger`, tous deux non portés faute de ce substrat.
+  Détail et résidus ouverts (`#508-r2` : les variantes `rangeType` ; `#545-r1` : le seed live) :
+  `docs/rl/case-545-composant-de-flags-vide.md` §4-5.
 
 ## 6. Le contrat de disjonction — cinq endroits, comptés PAR LE CODE
 

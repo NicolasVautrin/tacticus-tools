@@ -3,7 +3,9 @@
 > **`#512-r1` est RÉSOLU** (§6) : `SuppressiveFire` écoute désormais son vecteur natif
 > `On(PreAttack = 5)`, émis **par cible distincte**, et son gate est le slot 3 `IsRangedAttack`
 > COMPLET — dont la branche `Ranged(2)`, qui ne lit **aucune** position. Le dégât est bit-exact dans
-> les quatre régimes. Résidu ouvert : `#512-r2` (§8).
+> les quatre régimes. **`#512-r2` est RÉSOLU** (§9) : le critère de l'émission n'est pas la FAMILLE
+> mais `isOutsideAttack`, et `SortedAttackSeriesBehaviour$$Execute` est un **quatrième** émetteur de
+> `StartAttack`. Résidu ouvert : `#512-r3` (§9, dernier paragraphe).
 
 `emperNoiseMarine` « Shiron » (Emperor's Children / Chaos, **lineup**, DANS le pool `--list-pool`
 au rank 17 — seul porteur). Avant cette tranche l'ability était un **no-op silencieux** : absente
@@ -357,15 +359,7 @@ même `get_tiles_behind` en domaine POSITION).
 
 ## 8. Résidus
 
-* **`#512-r2` — la famille de factory ABILITY n'émet pas `PreAttack` côté port.**
-  `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (surcharge racine à 7 arguments)
-  finit par `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor(caster, target,
-  <AbilityDamageBehaviour>, abilityOrEffect)` — LU au décompilé — donc par `StartAttack`, donc par
-  `On(5)`. Le port gate l'émission sur `is_attack_damage_op` (`damage_ops/ability.py`), ce qui
-  l'éteint pour toute feuille `native_factory="ability"` — dont `1088 HellfyreMissileRack` et
-  `1026 BasiliskBarrage`, **deux abilities de porteurs du trait**. Élargir réveille aussi
-  `LetTheGalaxyBurnArmAbility`, dont le `Maybe(chance)` **consomme un tirage** : à confronter live
-  (un porteur des deux traits, `blackObliterator`, existe et est dans le pool) avant de le faire.
+* **`#512-r2` — RÉSOLU (§9). Le critère n'était pas la FAMILLE, c'était `isOutsideAttack`.**
 * **Une feuille qui ne thread pas son `ability_type` fait retomber le gate sur `Normal(3)`.**
   `_is_ranged_attack` lit l'`AbilityOrEffect` de l'événement ; une feuille d'attaque qui laisse
   `ability_type=None` (cas mesuré : `ChainLeftOverHitsAttackDamage` de
@@ -373,3 +367,54 @@ même `get_tiles_behind` en domaine POSITION).
   Ce n'est pas une dégradation NOUVELLE (c'était l'état de tout le monde avant), mais c'est
   désormais une dégradation SILENCIEUSE et localisée. Les six abilities `Ranged` de porteurs lineup
   ont été vérifiées une par une : cinq threadent, `FragstormGrenadeLauncher` non.
+
+## 9. `#512-r2` — RÉSOLU : le critère est `isOutsideAttack`, et il y a un QUATRIÈME émetteur
+
+Le résidu disait vrai à moitié. Ce qui est **lu** sur le build courant :
+
+* `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` — surcharge **racine à
+  7 arguments**, celle à laquelle les trois autres délèguent — construit un `AbilityDamageBehaviour`
+  **puis** `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor(caster, target, <ce behaviour>,
+  abilityOrEffect)`, et c'est l'`AttackBehaviour` qu'elle **retourne**. La famille ABILITY ouvre donc
+  une attaque exactement comme la famille ATTACK ⇒ `StartAttack` ⇒ `On(5)`. Le gate
+  `is_attack_damage_op` était faux.
+* **MAIS** `IdunBattleLogic.Entities.DSLBehaviors$$AbilityDamage` (8 arguments, dont
+  `isOutsideAttack`) construit la feuille **NUE** — le seul `AbilityDamageBehaviour`, aucun
+  `AttackBehaviour`. C'est celle-là qu'utilise `1088 HellfyreMissileRack`, **deux fois**, sous un
+  `SortedAttackSeries`.
+* `IdunBattle.Entities.Behaviours.SortedAttackSeriesBehaviour$$Execute` invoque les slots
+  `0x3a`/`0x3b` = **58 `StartAttack` / 59 `FinishAttack`** (arité 3, LUS dans
+  `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`) à chaque **changement de cible** de
+  sa série. C'est le **QUATRIÈME** émetteur de `On(5)` du binaire — §6.1 en recensait trois — et il
+  émet **par cible DISTINCTE**. La docstring du port les appelait « bornes d'ANIMATION, aucune
+  mutation, aucun tirage » : c'était faux.
+
+⇒ le critère porté est `is_outside_attack` (le littéral natif), pas la famille :
+`AttackWith{Attack,Ability}Damage` ⇒ `True` (défaut) ; les feuilles d'un `SortedAttackSeries` sont
+rabattues à `False` et c'est le nœud qui émet, en portant son `AbilityOrEffect` (`+0x60..0x70`).
+
+**Confrontation live** (`probe_512r2_famille_ability_preattack.py`, `thousTerminator` — trait
+`SuppressiveFire`, **pas** `TerrifyingCrescendo`, donc la pose se LIT — castant `1088` sur une cible
+**adjacente**, board `MC1_67`, seed 5122) :
+
+| | résultat |
+|---|---|
+| `Pinned` (1065) PORT / NATIF | `[u79]` == `[u79]` |
+| émissions `On(5)` côté port | **1** pour 1 cible distincte |
+| `AB1` nœud muet (l'état d'AVANT) | `pinned = []` — **MORD** |
+| `AB2` lecture naïve (1 émission par FEUILLE), sous **recouvrement** Psychic | **2** émissions contre 1 — **MORD** |
+
+Le recouvrement (deux feuilles sur la même cible) est **produit** : on pose la trace
+`receivedDamageThisTurn[Psychic]` sur la cible, ce qui la rend éligible au 2ᵉ volet de 1088. Sans lui
+`AB2` serait inerte, et le probe le dit.
+
+**Volet 2 du résidu** — `ChainLeftOverHitsAttackDamage` thread désormais son `abilityType =
+this+0x10` (`1006 MultiThreatEliminator`, `1048 FragstormGrenadeLauncher`) : sans lui, l'`On(5)` de
+chaque maillon partait sans id et `BattleQuery$$IsRangedAttack` (slot 3) retombait sur sa branche
+positionnelle `Normal(3)`.
+
+**Reste ouvert** : `#512-r3` — le pendant `On(Attack = 9)` du slot 59 n'est émis par **aucune**
+ability côté port (seulement par `damage_ops/normal.py`). Asymétrie POSE/CLEAR pour
+`LetTheGalaxyBurn`, mesurée **INERTE** : les 33 porteurs du trait n'ont que 5 actives distinctes
+(`BringerOfDespair`, `Drachnyen`, `FrenziedFiring`, `HeraldOfTheApocalypse`, `Incursion`), aucune
+famille ABILITY ni sous un `SortedAttackSeries`.
