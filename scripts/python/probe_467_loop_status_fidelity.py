@@ -91,13 +91,19 @@ class FauxSources(LS.Sources):
     def __init__(self, *, status_v2: str = "", worktrees: str = "", mergees: str = "",
                  prs: list | None = None, gh_ko: str | None = None,
                  http: dict | None = None, http_ko: str | None = None,
-                 rows: list | None = None, fichiers_tests: str | None = None) -> None:
+                 rows: list | None = None, fichiers_tests: str | None = None,
+                 branches: str | None = None) -> None:
         super().__init__(repo=Path("/faux"), ttl_cache=0.0)
         self._fichiers_tests = fichiers_tests
         self._status_v2, self._worktrees, self._mergees = status_v2, worktrees, mergees
         self._prs, self._gh_ko = prs, gh_ko
         self._http, self._http_ko = http or {}, http_ko
         self._rows = rows or []
+        # Le PERIMETRE des branches d'agents locales -- 4e appel git, ajoute par `#479-r4`
+        # (`--merged` ne rend que les ancetres, or une branche squash-mergee n'est ancetre de
+        # rien). Par defaut il vaut les MERGEES : les scenarios anterieurs, qui ne connaissaient
+        # que cette voie, gardent exactement leur sens.
+        self._branches = mergees if branches is None else branches
 
     def git(self, *args: str) -> tuple[int, str]:
         if args[:1] == ("status",):
@@ -106,6 +112,8 @@ class FauxSources(LS.Sources):
             return 0, self._worktrees
         if args[:2] == ("for-each-ref", "--merged"):
             return 0, self._mergees
+        if args[:1] == ("for-each-ref",):
+            return 0, self._branches
         if args[:1] == ("rev-list",):
             return 0, "0\n"
         if args[:1] == ("ls-files",):
@@ -618,7 +626,7 @@ def etape_7_gh_muet() -> None:
             for rc, err, attendus, quoi in cas_rc:
                 LS.subprocess.run = (                        # type: ignore[assignment]
                     lambda *a, _rc=rc, _e=err, **k: _Fini(_rc, "", _e))
-                m, _, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
+                m, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
                 msg = m.erreur or ""
                 verifie(not m.mesuree and all(x in msg for x in attendus)
                         and "rc=127" not in msg, "%s (%r)" % (quoi, msg))
@@ -627,20 +635,20 @@ def etape_7_gh_muet() -> None:
             # d'AUCUNE panne. `json.loads(out or "[]")` en faisait une liste vide, donc un
             # << PR ouvertes : 0 >> RENDU COMME UNE MESURE.
             LS.subprocess.run = lambda *a, **k: _Fini(0, "", "")   # type: ignore[assignment]
-            m, _, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
+            m, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
             verifie(not m.mesuree and "VIDE" in (m.erreur or ""),
                     "rc=0 + sortie VIDE -> PAS MESURE, jamais << 0 PR >> (%r)" % m.erreur)
 
             LS.subprocess.run = (                                  # type: ignore[assignment]
                 lambda *a, **k: _Fini(0, "{ tronque", ""))
-            m, _, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
+            m, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
             verifie(not m.mesuree and "ILLISIBLE" in (m.erreur or ""),
                     "rc=0 + sortie TRONQUEE -> PAS MESURE (%r)" % m.erreur)
 
             # CONTRE-EPREUVE des quatre precedentes : une VRAIE liste vide reste une MESURE a
             # zero. Sans elle, un lecteur qui rendrait TOUJOURS PAS MESURE les passerait toutes.
             LS.subprocess.run = lambda *a, **k: _Fini(0, "[]", "")  # type: ignore[assignment]
-            m, _, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
+            m, _, _, _ = LS._gh_prs(LS.Sources(repo=vierge, ttl_cache=0.0))
             verifie(m.mesuree and m.valeur == [],
                     "contre-epreuve : `[]` rendu par `gh` reste un ZERO MESURE")
         finally:

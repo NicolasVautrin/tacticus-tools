@@ -285,6 +285,47 @@ def trancher_par_pr_ciblee(gh, branche: str) -> Verdict:
                    cause="aucune PR mergee sur cette head (requete ciblee, sans fenetre)")
 
 
+def branches_protegees_par_worktree(sortie_porcelain: str) -> set[str]:
+    """Les branches qu'un worktree PROTEGE -- a exclure de toute suppression, locale ou distante.
+
+    DEUX voies, et la seconde n'est pas un supplement de confort. Elle vit deja dans
+    `probe_479.branches_a_worktree` ; elle est hissee ici parce que `nettoyer_livraison` et
+    `loop_status` ne l'avaient PAS, et que c'est le meme fait qui les mordait tous les deux.
+
+    1. la ligne `branch refs/heads/<x>` de `git worktree list --porcelain` ;
+    2. la CONVENTION DE NOM du repertoire : `.claude/worktrees/agent-<id>` protege
+       `worktree-agent-<id>`, que le worktree expose cette branche ou non.
+
+    POURQUOI LA SECONDE -- deux mesures, un an d'ecart de forme, la meme cause :
+
+    - 2026-08-05 : `worktree-agent-a403b7d0c9170ac76` est apparu ORPHELIN alors que son
+      worktree existait, etait `locked` et que son agent commitait. Un worktree en HEAD
+      DETACHE n'emet aucune ligne `branch` -- et c'est exactement son etat PENDANT `git
+      rebase`, que la doctrine impose a chaque agent avant d'ouvrir sa PR.
+    - 2026-08-07 : `worktree-agent-a209ad485d64a730e` a ete propose au gisement B (tip
+      `22fdb030`, un ancien `master`, 0 commit d'avance, donc ANCETRE, donc « livree »)
+      alors que son agent TRAVAILLAIT -- il avait simplement RENOMME sa branche en
+      `agent/486r24-bypass-declare`. L'outil voyait les deux faces du meme agent
+      (`agent/486r24-...` figurait dans sa liste INTACT) SANS LES RELIER.
+
+    Le discriminant sur n'est donc PAS le nom de la branche, c'est le WORKTREE -- et le nom
+    du REPERTOIRE est ce qui survit aussi bien au detachement de HEAD qu'au renommage de la
+    branche. La voie 2 sur-protege legerement (elle garde `worktree-agent-<id>` meme si
+    l'agent est parti ailleurs pour de bon) : c'est le bon sens de l'erreur, on ne supprime
+    jamais par defaut d'information.
+    """
+    noms: set[str] = set()
+    for ligne in (sortie_porcelain or "").splitlines():
+        if ligne.startswith("branch refs/heads/"):
+            noms.add(ligne[len("branch refs/heads/"):].strip())
+        elif ligne.startswith("worktree "):
+            base = ligne[len("worktree "):].strip().replace("\\", "/").rstrip("/")
+            base = base.rsplit("/", 1)[-1]
+            if base.startswith("agent-"):
+                noms.add("worktree-" + base)
+    return noms
+
+
 def garde_marquee(chemin_worktree: str) -> str | None:
     """La RAISON pour laquelle ce worktree doit RESTER, ou None. Lue, jamais devinee (#467-r8).
 

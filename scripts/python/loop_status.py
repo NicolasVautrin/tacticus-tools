@@ -55,6 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fleet_board                                                     # noqa: E402
 import host_inputs                                                     # noqa: E402
+import livraison                                                       # noqa: E402
 # LE FOYER DU RECENSEMENT OFFLINE (#463-r1). Le filtre du perimetre etait RECOPIE ici : trois
 # derivations separees du meme critere (celle-ci, `probe_457.candidate_files`, le cliquet
 # d'ecart), donc un ecart SILENCIEUX possible entre ce que ce capteur COMPTE et ce que
@@ -68,7 +69,7 @@ REPO = Path(__file__).resolve().parents[2]
 # Le motif des branches fabriquees par le harnais d'agents. Sert a BORNER le balayage des
 # branches orphelines (cf. `_worktrees_et_livrees`) -- il est le meme que le perimetre par defaut
 # de `nettoyer_livraison.PREFIXE_AGENT`, qui les supprime.
-BRANCHE_AGENT_GLOB = "worktree-agent-*"
+BRANCHE_AGENT_GLOB = livraison.BRANCHE_AGENT_GLOB
 
 # PARAMETRE, pas mesure. Source : la conduite de campagne, elle-meme bornee par le partage du
 # pump Frida. Rien dans le depot ne le DERIVE -- l'ecrire ici le rend au moins visible et
@@ -489,8 +490,14 @@ def _leve_gh(quoi: str, err: str) -> list:
     raise RuntimeError("%s -- %s" % (quoi, tete) if tete else quoi)
 
 
-def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None, str | None]:
-    """(PR ouvertes, refs des PR mergees, mergees_mesuree, age du cache en s, cause du repli).
+def _gh_prs(src: Sources) -> tuple[Mesure, livraison.FenetrePR, float | None, str | None]:
+    """(PR ouvertes, FENETRE des PR, age du cache en s, cause du repli).
+
+    La FENETRE est l'objet de `livraison.py`, PARTAGE avec `nettoyer_livraison` : c'est ce qui
+    empeche les deux outils de la meme etape du protocole de repondre l'inverse (`#479-r4`).
+    Elle porte, en plus d'un simple ensemble de refs, LA SATURATION -- si `gh` a rendu autant de
+    lignes que la limite demandee, une PR plus ancienne peut y etre invisible, donc l'ABSENCE
+    d'une branche n'y prouve rien. C'est `#467-r2` transforme en etat NOMME.
 
     UN SEUL appel `gh`, et c'est mesure : deux appels (`--state open` puis `--state merged`)
     coutaient 2,71 s a eux seuls -- plus que tout le reste de l'outil reuni. `--state all` rend
@@ -509,7 +516,8 @@ def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None, str | N
         prs, age = cache
     else:
         try:
-            rc, out, err = src.gh("pr", "list", "--state", "all", "--limit", "120",
+            rc, out, err = src.gh("pr", "list", "--state", "all",
+                                  "--limit", str(livraison.LIMITE_HOOK),
                                   "--json", "number,title,headRefName,isDraft,state")
             if rc != 0:
                 raise RuntimeError(_cause_gh(rc, err))
@@ -527,22 +535,25 @@ def _gh_prs(src: Sources) -> tuple[Mesure, set[str], bool, float | None, str | N
             # Le repli n'est retenu QUE s'il porte une PR ouverte : cf. `lire_cache_gh_repli`.
             if vieux is None or not [p for p in vieux[0]
                                      if (p.get("state") or "").upper() == "OPEN"]:
-                return _ko("gh pr list", cause), set(), False, None, None
+                return (_ko("gh pr list", cause),
+                        livraison.FenetrePR(cause=cause, limite=livraison.LIMITE_HOOK),
+                        None, None)
             prs, age, repli = vieux[0], vieux[1], cause
     ouvertes = [p for p in prs if (p.get("state") or "").upper() == "OPEN"]
-    mergees = {p.get("headRefName", "") for p in prs
-               if (p.get("state") or "").upper() == "MERGED"}
     source = "gh pr list --state all" + (" [cache, gh muet]" if repli else "")
-    # Sous repli, les PR MERGEES sont ECARTEES (set vide + `mergees_mesuree` faux) : le repli
-    # sert a SIGNALER, jamais a autoriser un geste destructeur. Proposer le NETTOYAGE d'un
-    # worktree sur un instantane perime, c'est proposer de supprimer le travail d'un agent
-    # dont la PR n'est peut-etre plus mergee. Seule la voie ANCETRE (`--merged origin/master`,
-    # git local, verifiable) continue alors d'alimenter les nettoyables.
-    return _ok(ouvertes, source), (set() if repli else mergees), repli is None, age, repli
+    # Sous repli, les PR MERGEES sont ECARTEES (fenetre NON MESUREE) : le repli sert a
+    # SIGNALER, jamais a autoriser un geste destructeur. Proposer le NETTOYAGE d'un worktree
+    # sur un instantane perime, c'est proposer de supprimer le travail d'un agent dont la PR
+    # n'est peut-etre plus mergee. Seule la voie ANCETRE (`--merged origin/master`, git local,
+    # verifiable) continue alors d'alimenter les nettoyables.
+    fenetre = (livraison.FenetrePR(cause="repli sur cache : " + repli,
+                                   limite=livraison.LIMITE_HOOK)
+               if repli else livraison.fenetre_des_prs(prs, livraison.LIMITE_HOOK))
+    return _ok(ouvertes, source), fenetre, age, repli
 
 
 def _worktrees_et_livrees(src: Sources) -> tuple[tuple[int, str], tuple[int, str],
-                                                 tuple[int, str]]:
+                                                 tuple[int, str], tuple[int, str]]:
     """Les worktrees d'agents, LESQUELLES de LEURS branches sont livrees, et les ORPHELINES.
 
     Deux appels en SEQUENCE, et c'est le bon ordre : `git branch --merged origin/master`
@@ -560,18 +571,27 @@ def _worktrees_et_livrees(src: Sources) -> tuple[tuple[int, str], tuple[int, str
     branches locales, parce que le `git branch -D` d'apres-merge etait un geste manuel oublie.
     Ce troisieme appel part des REFS (glob `worktree-agent-*`, borne : 406 ms contre 998 ms
     pour un `--merged` complet) et rend celles qui ne sont montees NULLE PART.
+
+    LE QUATRIEME EXISTE PARCE QUE LE TROISIEME PORTE `--merged`, DONC NE VOIT QUE LES ANCETRES.
+    Une branche SQUASH-mergee n'est ancetre de rien : elle est invisible des trois premiers
+    appels, et c'est le gisement entier de `#479-r4` (mesure du 2026-08-07 : 3 ancetres sur
+    20 branches locales, les 16 autres livrees par PR). Il faut donc la liste COMPLETE des
+    branches d'agents locales pour pouvoir leur appliquer la voie PR -- sans quoi le
+    rattrapage n'aurait rien a rattraper.
     """
     rc_wt, out_wt = src.git("worktree", "list", "--porcelain")
     if rc_wt != 0:
-        return (rc_wt, out_wt), (rc_wt, ""), (rc_wt, "")
+        return (rc_wt, out_wt), (rc_wt, ""), (rc_wt, ""), (rc_wt, "")
     orph = src.git("for-each-ref", "--merged", "origin/master", "--format=%(refname:short)",
                    "refs/heads/" + BRANCHE_AGENT_GLOB)
+    toutes = src.git("for-each-ref", "--format=%(refname:short)",
+                     "refs/heads/" + BRANCHE_AGENT_GLOB)
     refs = ["refs/heads/" + w["branch"] for w in _porcelain_worktrees(out_wt)
             if w["branch"] and ".claude/worktrees/agent-" in w["path"].replace("\\", "/")]
     if not refs:
-        return (rc_wt, out_wt), (0, ""), orph
+        return (rc_wt, out_wt), (0, ""), orph, toutes
     return (rc_wt, out_wt), src.git("for-each-ref", "--merged", "origin/master",
-                                    "--format=%(refname:short)", *refs), orph
+                                    "--format=%(refname:short)", *refs), orph, toutes
 
 
 def mesurer_livraison(src: Sources) -> dict:
@@ -591,8 +611,8 @@ def mesurer_livraison(src: Sources) -> dict:
         f_wt_mg = ex.submit(_worktrees_et_livrees, src)
         f_gh = ex.submit(_gh_prs, src)
         rc, out = f_status.result()
-        (rc_wt, out_wt), (rc_mg, out_mg), (rc_or, out_or) = f_wt_mg.result()
-        pr_ouvertes, pr_mergees_refs, pr_mergees_ok, age_gh, gh_repli = f_gh.result()
+        (rc_wt, out_wt), (rc_mg, out_mg), (rc_or, out_or), (rc_to, out_to) = f_wt_mg.result()
+        pr_ouvertes, fenetre_pr, age_gh, gh_repli = f_gh.result()
     d["gh_age_s"] = age_gh
     d["gh_repli"] = gh_repli
 
@@ -652,34 +672,68 @@ def mesurer_livraison(src: Sources) -> dict:
         d["worktrees"] = _ok([w["path"] for w in wts], "git worktree list --porcelain")
         branches_agents = {w["branch"]: w["path"] for w in wts if w["branch"]}
 
-    # `--merged origin/master` = le tip de la branche est ANCETRE. C'est le cote SUR : un
-    # squash-merge n'y apparait pas (faux negatif), donc on ne proposera jamais de nettoyer une
-    # branche non livree. Les squash sont rattrapes par `gh pr list --state merged`.
-    mergees = {b.strip() for b in out_mg.splitlines() if b.strip()} if rc_mg == 0 else set()
+    # `--merged origin/master` = le tip de la branche est ANCETRE. Voie LOCALE et verifiable,
+    # mais AVEUGLE au squash-merge -- qui est notre SEUL mode de merge. Le rattrapage par la PR
+    # vit dans `livraison.classer`, PARTAGE avec `nettoyer_livraison` (#479-r4).
+    ancetres = ({b.strip() for b in out_mg.splitlines() if b.strip()} if rc_mg == 0
+                else None)
+    cause_anc = src.cause_git(rc_mg, "for-each-ref") if rc_mg != 0 else ""
 
     d["pr_ouvertes"] = pr_ouvertes
-    if d["worktrees"].mesuree and (rc_mg == 0 or pr_mergees_ok):
-        nett = []
+    d["portee_pr"] = fenetre_pr.portee()
+    if d["worktrees"].mesuree:
+        verdicts = livraison.classer(sorted(branches_agents), ancetres, fenetre_pr,
+                                     cause_ancetres=cause_anc)
+        nett, gardes = [], []
         for br, chemin in sorted(branches_agents.items()):
-            if br not in mergees and br not in pr_mergees_refs:
+            if not verdicts[br].livree:
                 continue
-            nett.append({"branche": br, "chemin": chemin,
-                         "voie": "ancetre" if br in mergees else "PR mergee"})
-        d["nettoyables"] = _ok(nett, "git branch --merged + gh pr list --state merged")
+            # << Livree >> n'est pas << a retirer >> : le second terme du protocole n'est
+            # derivable d'aucun etat git (#467-r8). Une marque DEPOSEE dans le worktree le
+            # porte -- et le worktree garde reste DIT, jamais efface du rapport.
+            raison = livraison.garde_marquee(chemin)
+            (gardes if raison is not None else nett).append(
+                {"branche": br, "chemin": chemin, "voie": verdicts[br].voie,
+                 **({"raison": raison} if raison is not None else {})})
+        if not nett and not gardes and ancetres is None and not fenetre_pr.mesuree:
+            # AUCUNE des deux voies n'a repondu : une liste vide se lirait « rien a nettoyer ».
+            d["nettoyables"] = _ko("nettoyables", "ni --merged ni gh n'ont repondu")
+            d["gardes"] = _ko("gardes", "ni --merged ni gh n'ont repondu")
+        else:
+            d["nettoyables"] = _ok(nett, "livraison.classer (ancetre + PR mergee)")
+            d["gardes"] = _ok(gardes, "livraison.garde_marquee (%s)" % livraison.MARQUE_GARDE)
     else:
-        d["nettoyables"] = _ko("nettoyables", "ni --merged ni gh n'ont repondu")
+        d["nettoyables"] = _ko("nettoyables", "worktrees non mesures")
+        d["gardes"] = _ko("gardes", "worktrees non mesures")
 
     # -- branches d'agents LIVREES et montees NULLE PART (#479-r3). Le poste ci-dessus ne peut
     #    pas les voir : il part des worktrees. Ce sont elles qui s'accumulaient en silence.
-    if rc_or != 0 or not d["worktrees"].mesuree:
-        d["branches_orphelines"] = _ko("git for-each-ref --merged",
-                                       src.cause_git(rc_or, "for-each-ref")
-                                       if rc_or != 0 else "worktrees non mesures")
+    #    ⚠ DEUX corrections ici, l'une et l'autre mesurees le 2026-08-07 :
+    #    (a) le critere passe par `livraison.classer`, donc une branche SQUASH-mergee y entre
+    #        enfin -- l'ancestralite seule en voyait 3 sur 20 ;
+    #    (b) la protection ne se lit plus sur la seule ligne `branch` du porcelain, mais aussi
+    #        sur la CONVENTION DE NOM du repertoire (`livraison.branches_protegees_par_worktree`) :
+    #        un agent qui RENOMME sa branche laisse `worktree-agent-<id>` non montee alors qu'il
+    #        travaille encore, et l'ancienne voie l'aurait declaree orpheline.
+    if not d["worktrees"].mesuree:
+        d["branches_orphelines"] = _ko("branches orphelines", "worktrees non mesures")
     else:
-        d["branches_orphelines"] = _ok(
-            sorted({b.strip() for b in out_or.splitlines() if b.strip()}
-                   - set(branches_agents)),
-            "git for-each-ref --merged origin/master " + BRANCHE_AGENT_GLOB)
+        protegees = livraison.branches_protegees_par_worktree(out_wt)
+        # Le glob `--merged` ne rend QUE des ancetres. Le periMETRE est donc la liste COMPLETE
+        # des branches d'agents locales (4e appel) -- une branche squash-mergee n'apparait dans
+        # aucune des deux autres sources, et un recenseur ne peut pas rendre zero sur ce qu'il
+        # ne visite pas.
+        vues = {b.strip() for b in out_or.splitlines() if b.strip()} if rc_or == 0 else set()
+        if rc_to != 0:
+            d["branches_orphelines"] = _ko("git for-each-ref (toutes)",
+                                           src.cause_git(rc_to, "for-each-ref"))
+        else:
+            cand = sorted({b.strip() for b in out_to.splitlines() if b.strip()} - protegees)
+            verd = livraison.classer(cand, vues if rc_or == 0 else None, fenetre_pr,
+                                     cause_ancetres=src.cause_git(rc_or, "for-each-ref"))
+            d["branches_orphelines"] = _ok(
+                [b for b in cand if verd[b].livree],
+                "livraison.classer (ancetre + PR mergee) sur " + BRANCHE_AGENT_GLOB)
     return d
 
 
