@@ -410,14 +410,54 @@ def etage_armure(sid, args, regime="haute"):
     return rid
 
 
+# ------------------------------------------------------------------------------------------------ #
+# etage `predict` (#527-r1) -- la PREDICTION NATIVE par cible, au lieu de la deduire
+# ------------------------------------------------------------------------------------------------ #
+#
+# Le calcul offline REFUTE l'explication « l'armure passe par le percage » sur le regime NOMINAL :
+# `AncestralFortune` a le profil `Plasma`, dont le `PiercingDamageRatio` vaut 65, et
+# `StaticBattleRules.Damage$$GetDamageWithPiercing` = `max(0, d - armure, d x pierce%)` rend
+# EXACTEMENT la meme valeur (1328.6) pour armure 2662 et 2008 -- le plancher percage domine dans les
+# deux cas. L'armure ne mord qu'a 300 (1744.0), ce qui explique le regime `basse` mais PAS le
+# nominal. On arrete donc de deduire et on demande au NATIF ce qu'il predit, cible par cible.
+
+def etage_predict(sid, args, regime=None):
+    """`aiPredict` NATIF sur les DEUX cibles adjacentes, dans le regime demande (defaut : nominal).
+
+    ⚠ `aiPredict` est Attack-based (`GetAllPredictions`) : ce n'est PAS le noeud de degat que
+    `SortUnitsByDamageUtilitySelector` branche sur son slot +0x40 (`MinMaxDamage(entities, 1)`).
+    Il repond donc a UNE question, et une seule : le degat que le natif predit contre une cible
+    DEPEND-IL de son armure ? C'est le discriminant qui manque -- le reste (quel noeud de degat,
+    quelle normalisation) ne se lit pas ici."""
+    extra = ARMURE_REGIMES[regime] if regime else None
+    rid = build(args.state, f"{UTHAR},{SPARE}", f"{FOE_MECH},{FOE_PLAIN}", extra=extra)
+    print("[predict:%s] runner %s" % (regime or "nominal", rid))
+    drive(sid, rid, UTHAR, FOE_MECH, 1)
+    d = _dv(sid, rid)
+    u = find(d, UTHAR)
+    for vis in (FOE_MECH, FOE_PLAIN):
+        f = find(d, vis)
+        if f is None:
+            continue
+        s = snap_stats(sid, rid, f["id"]).get("stats") or {}
+        pr = rpc(sid, "aiPredict", {"runnerId": rid, "unitId": u["id"], "targetId": f["id"],
+                                    "fresh": True}, 90)
+        print("[predict:%s] %-16s hp=%s health=%s fixedArmor=%s numberOfMembers=%s dist=%s"
+              % (regime or "nominal", vis, f.get("hp"), s.get("health"), s.get("fixedArmor"),
+                 s.get("numberOfMembers"), hexgeo.distance(upos(u), upos(f))))
+        print("[predict:%s]   aiPredict = %s" % (regime or "nominal", json.dumps(pr)[:700]))
+        print("[predict:%s]   traits    = %s" % (regime or "nominal", (f.get("traits") or [])))
+    return rid
+
+
 ETAGES = {"stats": etage_stats, "graviton": etage_graviton, "fortune": etage_fortune,
-          "replay": etage_replay, "armure": etage_armure}
+          "replay": etage_replay, "armure": etage_armure, "predict": etage_predict}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--etage", required=True, choices=sorted(ETAGES) + ["tous"])
-    ap.add_argument("--regime", default="haute", choices=sorted(ARMURE_REGIMES),
+    ap.add_argument("--regime", default="haute", choices=sorted(ARMURE_REGIMES) + ["nominal"],
                     help="etage `armure` : quel bras de l'A/B jouer")
     ap.add_argument("--state", default=str(LOGS / "_527_probe_state.json"))
     ap.add_argument("--crit", default=None, help="'CC,CD' passe a rl_duel --crit")
@@ -437,6 +477,8 @@ def main():
             kw["extra"] = extra or None
         if nom == "armure":
             kw["regime"] = args.regime
+        if nom == "predict":
+            kw["regime"] = args.regime if args.regime in ARMURE_REGIMES else None
         rid = ETAGES[nom](sid, args, **kw)
         if rid is not None and not args.keep:
             rpc(sid, "disposeRunner", {"runnerId": rid}, 30)
