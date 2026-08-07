@@ -369,8 +369,30 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
       - tile = PickTile — delegue b__0 IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility.u003Cu003Ec__DisplayClass7_0$$u003CPredictAttacku003Eb__0 = `() => PickTile(entities, firstOnly=0)`, LE MEME
         PickTile que l'execution (memoise par un service de cache) -> `pick_tile_scene` (hydrateur
         scene du port runner, scoring partage). Parent = la POSITION CANDIDATE (#153).
-        **Aucune tuile -> prediction VIDE** (memset 0xc0 + liste block vide = resultat ZERO, pas
-        d'absence d'event).
+        **Aucune tuile -> prediction VIDE**, et c'est LU verbatim (#506-r2, re-lu sur `rnca9r7q6c`) :
+
+            local_4c0 = <PickTile>(...);
+            if (local_4c0 == null) {
+                FUN_1802abdd0(&result, 0, 0xa0);      // memset(&result, 0, 0xa0)
+                result.<+0x38> = new List<...>();     // la seule ecriture non nulle
+            }
+            else { ... la vraie prediction ... }
+            *this = result;                            // copie 0xa0 octets
+
+        La structure rendue est donc ENTIEREMENT A ZERO -- `CurrentHealth@0`, `CurrentArmor@4`,
+        `CurrentShield@8` compris -- avec pour seul contenu une liste de blocks VIDE. Ce n'est pas
+        une absence d'event : c'est un event dont la prediction est nulle.
+
+        ⚠ **NE PAS « REPARER » CETTE BRANCHE PAR ANALOGIE AVEC #506 §3.4.** La branche SANS ARME
+        d'`IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$PredictAttack`
+        a la MEME FORME cote port (`DamagePredictionResult()` a zero) et c'etait un BUG : elle,
+        le natif n'invente aucune structure, il appelle le slot `0x26` d'`IBattleQuery` contre la
+        VRAIE cible, si bien que sa prediction porte les PV reels et que `get_WillBeKill` rend
+        FAUX. **ICI le natif fait bien le `memset`**, donc `get_WillBeKill` (borne MIN >= PV
+        courants) y lit `0 >= 0` = VRAI -- cote NATIF comme cote port. Le port est CONFORME, et le
+        `killSure` vrai de ce chemin est le comportement du jeu. Les deux corps natifs sont
+        DIFFERENTS ; seule leur silhouette Python se ressemblait. Garde :
+        `tests/engine/runner/test_mv71_sniper_drone_live.py::test_506r2_*`.
       - hits = `ExtraHitsComponent(CASTER).CurrentValue + 1`, stocke DisplayClass@0x148 et consomme
         par le 3e delegue (DAT_183279860 — « b__2 » sans symbole ghidra, alias « m860 ») : role
         compte-de-coups tranche PAR ELIMINATION (b__0 = tile, b__1 = degat : aucun autre lecteur

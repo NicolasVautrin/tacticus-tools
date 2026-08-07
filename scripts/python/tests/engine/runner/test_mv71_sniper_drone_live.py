@@ -544,3 +544,91 @@ def test_mv71_normal_attack_dispatch_sim(live_session, rpc, build_runner):
         "offline : Markerlight absent apres AttackUnitMessage"
     print(f"[MV71 dispatch] AttackUnitMessage -> drone ({opc.col},{opc.row}) degat={off_total} "
           f"(live {live_dmg}) markerlight OK")
+
+
+# =================================================================================================
+# #506-r2 (OFFLINE, aucun runner) -- la branche « AUCUNE TUILE » est CONFORME, pas un bug jumeau
+# =================================================================================================
+def test_506r2_la_branche_sans_tuile_rend_une_prediction_A_ZERO_et_c_est_LE_NATIF():
+    """#506-r2 -- CLASSIFICATION, tranchee au DECOMPILE avant tout correctif.
+
+    Le residu partait d'une SYMETRIE : `engine/playbook/prediction/normal_attack.py` porte DEUX
+    sites qui construisent un `ProbableDamageEvent(prediction=DamagePredictionResult())`, et le
+    premier (branche SANS ARME d'`ALoki_NormalAttackAbility`) etait un BUG -- le natif y appelle la
+    facade de prediction contre la VRAIE cible, donc `hpBefore` porte les PV reels et
+    `get_WillBeKill` rend FAUX (#506 §3.4). Le second est CE site-ci.
+
+    **LES DEUX CORPS NATIFS SONT DIFFERENTS.** Relu verbatim sur `rnca9r7q6c`
+    (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PredictAttack`) :
+
+        tile = <PickTile>(...);
+        if (tile == null) {
+            memset(&result, 0, 0xa0);           // la structure ENTIERE, PV compris
+            result.<+0x38> = new List<...>();   // seule ecriture non nulle : la liste de blocks
+        }
+        else { ... }
+        *this = result;
+
+    Le natif fabrique donc BIEN une `DamagePredictionResult` a ZERO ici. `get_WillBeKill` (borne
+    MIN >= PV courants) y lit `0 >= 0` = VRAI **des deux cotes**. Le port est CONFORME, et
+    « reparer par analogie » y aurait introduit une divergence la ou il n'y en avait pas.
+
+    Ce test FIGE ce verdict : il exige que le port rende une structure a ZERO (et non les PV de la
+    cible), et il exige de la MEME facon que `killSure` y soit VRAI -- pour qu'un futur correctif
+    d'analogie casse ICI plutot que de passer inapercu."""
+    from engine.playbook.prediction.normal_attack import _make_mv71_drone_predictions
+    import engine.playbook.prediction.normal_attack as NAP
+
+    class _Ctx:
+        stats = None
+
+        def stat(self, _s):
+            return 0
+
+    class _Scene:
+        def ctx(self, _uid):
+            return _Ctx()
+
+        def pos(self, uid):
+            return (0, 0) if uid == 2 else (1, 1)
+
+    # `pick_tile_scene` est SUBSTITUE pour forcer la branche « aucune tuile » -- c'est le SEUL
+    # regime que ce test juge, et le fabriquer par la geometrie exigerait un plateau sature.
+    # Forme B (`import M` puis `M.f()`) cote foyer : la substitution MORD (cf. CLAUDE.md).
+    ancien = NAP.pick_tile_scene
+    try:
+        NAP.pick_tile_scene = lambda *a, **k: None
+        ev = _make_mv71_drone_predictions(_Scene(), 1, 2, (1, 1))
+    finally:
+        NAP.pick_tile_scene = ancien
+
+    assert ev is not None, (
+        "la branche « aucune tuile » doit rendre un EVENT a prediction nulle, PAS l'absence "
+        "d'event : le natif copie la structure memsetee dans `*this`")
+    p = ev.prediction
+    assert p is not None
+    # `memset(&result, 0, 0xa0)` : la structure ENTIERE est a zero, PV de la cible compris.
+    for champ in ("current_health", "current_armor", "current_shield"):
+        v = getattr(p, champ, None)
+        assert not v, (
+            "%s = %r : le port lit les PV de la CIBLE sur un chemin ou le natif fait un memset. "
+            "C'est la « reparation par analogie » que #506-r2 devait ecarter." % (champ, v))
+    # ... et la CONSEQUENCE, figee en DEUX temps parce que les deux faits sont distincts.
+    #
+    # (a) La FORMULE NATIVE `get_WillBeKill` = `min(HealthDamage) >= CurrentHealth` vaut VRAI ici :
+    #     `0 >= 0`. C'est ce que le jeu evalue, et c'est ce que #506 §3.4 a decrit -- pour l'AUTRE
+    #     branche, ou la structure a zero etait un bug. Ici elle ne l'est pas.
+    m = p.block_raw_min if p.block_raw_min is not None else p.raw_health_damage.min
+    assert int(m) >= int(p.current_health), (
+        "la formule native `min >= PV` ne vaut plus sur la structure memsetee (min=%r, hp=%r)"
+        % (m, p.current_health))
+    # (b) Le PORT, lui, rend FAUX -- par un gate PORT-SIDE `hp > 0` pose par #344-r2 et DOCUMENTE
+    #     comme tel a son foyer (`engine/services/damage_prediction.py::will_be_kill` : « le natif
+    #     est toujours appele avec une cible vivante, et lui rendrait `true` a `hp == 0` »). Cette
+    #     divergence est ORTHOGONALE a #506-r2 : elle vit dans le lecteur, pas dans la branche.
+    #     On la FIGE ici pour qu'elle cesse d'etre invisible depuis ce chemin-la.
+    assert p.will_be_kill() is False, (
+        "`will_be_kill()` ne rend plus FAUX sur une prediction a `hp == 0` : le gate PORT-SIDE de "
+        "#344-r2 a bouge. Ce n'est pas un defaut de CETTE branche, mais le verdict de #506-r2 "
+        "citait sa valeur -- le re-mesurer avant de conclure quoi que ce soit.")
+

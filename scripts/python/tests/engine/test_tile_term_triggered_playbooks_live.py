@@ -45,18 +45,42 @@ from _move_tile_sweep_order import build_sweep_order_case  # noqa: E402
 #
 # Le 3e montage est CRAFTE (`--p-units`) et sur un AUTRE BOARD : il sort le terme du seul `C4_09`
 # et prouve la GENERALISATION geometrique (autre plateau, autres allies, autres distances).
+#
+# ⚠ #506-r1 -- LE PAS N'EST PLUS EPINGLE, IL EST CHERCHE. Les trois montages marchent une
+# trajectoire 100 % NATIVE : toute tranche qui change une stat globale la deplace. La bascule
+# « equiper » de #419-r6 (`c4be3896`) l'a fait -- au pas 14 de `C4_09`/999 c'est desormais
+# `astraCreed` qui est activee, et le pas 22 de `C4_09`/31337 n'existe plus (la bataille finit au
+# pas 21). Les assertions ci-dessous n'ont PAS bouge : ce qui avait peri, c'est la PREMISSE que le
+# montage installait. Le pas de depart reste celui de la mesure d'origine, `search` ouvre la
+# fenetre, et le couple (porteur, ability declenchee) est le critere -- exactement ce que les deux
+# premieres assertions du fichier verifiaient deja.
 _TEMPL = ["--p-units", "templAncient,ultraApothecary,astraCreed,templChampion,tauDarkstrider"]
-CASES = [("C4_09", "999", 14, "templAncient", 1106, []),
-         ("C4_09", "31337", 22, "admecMarshall", 1457, []),
-         ("C3_01", "777", 14, "templAncient", 1106, _TEMPL)]
+# (board, seed, pas de DEPART, largeur de recherche, porteur attendu, ability declenchee, extra)
+CASES = [("C4_09", "999", 14, 24, "templAncient", 1106, []),
+         ("C4_09", "31337", 8, 20, "admecMarshall", 1457, []),
+         ("C3_01", "777", 14, 24, "templAncient", 1106, _TEMPL)]
 
 
 @pytest.fixture(scope="module", params=CASES, ids=lambda c: "%s-%s-s%d" % c[:3])
 def tile_term_case(request, rpc, build_runner):
-    board, seed, step, _vid, _ab, extra = request.param
-    c = build_sweep_order_case(rpc, build_runner, seed=seed, board=board, step=step, extra=extra)
+    board, seed, step, search, _vid, _ab, extra = request.param
+
+    def _porte_l_ability(c):
+        """Le pas ne convient que si le KIT DECLENCHE du porteur remonte bien l'ability visee.
+
+        C'est la MEME lecture que `test_kit_source_carries_the_triggered_ability` -- le montage
+        n'anticipe donc aucune assertion, il installe la premisse qu'elles supposent. Decisif pour
+        1457 `KardiocoreGalvanus`, une RELIQUE : seul le `TriggeredAbilityComponent` lu live la
+        remonte, jamais `gameconfig.passiveAbilities`."""
+        from engine.utilities.tile import tile_leaf_ctx
+        return _ab in (tile_leaf_ctx(c.ctx).get("unit_triggered_abilities") or [])
+
+    c = build_sweep_order_case(rpc, build_runner, seed=seed, board=board, step=step, extra=extra,
+                               carrier=_vid, accept=_porte_l_ability, search=search)
     c.expected_visual_id = _vid
     c.expected_ability = _ab
+    print("\n[N13] %s/%s : pas RETENU %d (%s), %d pas ecarte(s) %r"
+          % (board, seed, c.step, c.visual_id, len(c.searched or []), (c.searched or [])[:6]))
     return c
 
 
