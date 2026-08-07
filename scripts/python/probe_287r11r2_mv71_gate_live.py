@@ -94,25 +94,23 @@ CASTER = "tauMarksman"
 # expose le collapse et melange deux causes.
 # --------------------------------------------------------------------------------------------- #
 
-_ALLIES = "tauMarksman,ultraTitus,ultraTitus,ultraTitus,ultraTitus"
-_ENNEMIS = "necroWarden,necroWarden,necroWarden,necroDestroyer"
+_ALLIES = "tauMarksman,ultraTitus,ultraTitus"
+_ENNEMIS = "necroWarden,necroWarden,necroWarden,necroWarden,necroWarden,necroDestroyer"
 
 MONTAGES = {
     "sature": dict(
-        board="C1_t_01", seed=4242, cible=(4, 6),
+        board="MC1_01", seed=4242, cible=(4, 6),
         p_units=_ALLIES, a_units=_ENNEMIS,
-        place=["tauMarksman:2,6", "ultraTitus:1,6", "ultraTitus:3,6",
-               "ultraTitus:1,5", "ultraTitus:0,4"],
+        place=["tauMarksman:2,6", "ultraTitus:1,6", "ultraTitus:3,6"],
         a_place=["necroWarden:4,6", "necroWarden:4,4", "necroWarden:3,3",
-                 "necroDestroyer:4,3"],
+                 "necroWarden:1,5", "necroWarden:0,4", "necroDestroyer:4,3"],
     ),
     "une-tuile": dict(
-        board="C1_t_01", seed=4242, cible=(4, 6),
+        board="MC1_01", seed=4242, cible=(4, 6),
         p_units=_ALLIES, a_units=_ENNEMIS,
-        place=["tauMarksman:2,6", "ultraTitus:1,6", "ultraTitus:2,2",
-               "ultraTitus:1,5", "ultraTitus:0,4"],
+        place=["tauMarksman:2,6", "ultraTitus:1,6", "ultraTitus:2,2"],
         a_place=["necroWarden:4,6", "necroWarden:4,4", "necroWarden:3,3",
-                 "necroDestroyer:4,3"],
+                 "necroWarden:1,5", "necroWarden:0,4", "necroDestroyer:4,3"],
     ),
 }
 
@@ -265,7 +263,17 @@ def main() -> int:
             print("   !! LA CIBLE CLE %s N'EST PAS DANS LE DOMAINE : montage non honore"
                   % (tuple(m["cible"]),))
             rc = max(rc, 2)
-        print("   refus reproduits A L'IDENTIQUE (par porteur) : %d" % len(res["exact"]))
+        # ATTRIBUTION PAR DESARMEMENT, et pas par le CODE rendu. `1076` rend `ValidRequest`, que le
+        # filtre statique emploie AUSSI (tete de domaine TUILE) : trier sur le code confondrait deux
+        # origines. Le discriminant est « le TEMOIN perd-il ce refus ? ».
+        temoin_exact = {(r[0], r[1]) for r in temoin["exact"]}
+        attribuables = [r for r in res["exact"] if (r[0], r[1]) not in temoin_exact]
+        hors_regle = [r for r in res["exact"] if (r[0], r[1]) in temoin_exact]
+        print("   refus ATTRIBUABLES a la regle (perdus par le temoin) : %d" % len(attribuables))
+        for r in attribuables:
+            print("      REGLE porteur=%-8s t%-5d %-40s natif=%-8s port=%s"
+                  % (r[0], r[1], r[2], r[3], r[5]))
+        print("   refus HORS regle (autre bit, survivent au desarmement) : %d" % len(hors_regle))
         preexistantes = {(r[0], r[1]) for r in temoin["viol"]}
         imputables = [r for r in res["viol"] if (r[0], r[1]) not in preexistantes]
         print("   SUR-refus imputables a cette tranche : %d" % len(imputables))
@@ -276,17 +284,17 @@ def main() -> int:
         for r in res["sous_refus"]:
             print("      SOUS porteur=%-8s t%-5d %-40s natif=%-8s port=%s"
                   % (r[0], r[1], r[2], r[3], r[5]))
-        print("   TEMOIN desarme : %d refus encore reproduits (attendu 0) | %d SOUS-refus"
-              % (len(temoin["exact"]), len(temoin["sous_refus"])))
+        # LA VUE ROUGE, mesuree SUR PLACE : desarme, le port DOIT manquer les refus attribues a la
+        # regle. Un temoin qui ne perd rien est un montage qui ne discrimine pas.
+        print("   VUE ROUGE (temoin desarme) : %d SOUS-refus, %d refus encore reproduits"
+              % (len(temoin["sous_refus"]), len(temoin["exact"])))
+        for r in temoin["sous_refus"]:
+            print("      ROUGE porteur=%-8s t%-5d %-40s natif=%-8s port=%s"
+                  % (r[0], r[1], r[2], r[3], r[5]))
         if imputables or res["sous_refus"]:
             rc = 1
-        if temoin["exact"]:
-            print("   !! le TEMOIN reproduit encore des refus : le verdict ne vient pas de la regle")
-            rc = 1
-        # LA VUE ROUGE, mesuree SUR PLACE : desarme, le port doit MANQUER le refus que le natif
-        # pose sur la cible cle -- sinon la regle portee ne sert a rien ici.
-        if nom == "sature" and cle is not None and int(cle[2], 16) != 0 and not temoin["sous_refus"]:
-            print("   !! le TEMOIN ne perd AUCUN refus : le montage ne discrimine pas")
+        if nom == "sature" and (not attribuables or not temoin["sous_refus"]):
+            print("   !! le montage ne DISCRIMINE pas : desarme, le port rend le meme verdict")
             rc = max(rc, 1)
     print("")
     zero = sum(v for k, v in natif_global.items() if int(k, 16) == 0)
