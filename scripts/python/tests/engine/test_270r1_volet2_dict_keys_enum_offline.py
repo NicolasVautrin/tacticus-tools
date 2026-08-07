@@ -154,7 +154,17 @@ SNAP_TARGETING_UNPORTED = (
     # ⚠⚠ #509 et #510 se sont croisees ICI : chacune ne retirait QUE son couple. Un `--ours`/
     # `--theirs` aurait RESSUSCITE celui de l'autre, en laissant chaque cote VERT pris isolement.
     # La resolution est l'UNION des retraits, et les tailles ci-dessous sont RE-DERIVEES du code.
-    (1195, (16384, False, (0, False, False, 1, False), 1)),
+    # 1195 TalonsOfTheEmperor RETIREE (#521) : sa face COMBAT est portee, donc son masque a MIGRE
+    # sur `custodes.py::TalonsOfTheEmperorAbility.TARGETING_OPTIONS` -- meme mouvement que
+    # 1019/1027/1038/1048/1064/1068/1069/1087/1088/1132/1141/1152/1165/1191. Le ctor a ete RELU a
+    # cette occasion (forme STATIC-COPY, preset `<TargetingOptions statics>+0x40` -- le MEME que
+    # 1191 ci-dessus) et la valeur qui etait figee ici est CONFIRMEE champ pour champ :
+    # `16384 = 0x4000` = `TargetIsEnemy` SEUL (lu a `<preset>+0x28`), `selfCast = False`,
+    # `RANGE_ADJACENT`, `forceMeleeTarget = 1` (`RangedBool.False`). C'est la SOURCE qui bouge,
+    # jamais la valeur -- la comparaison a ete refaite par `_valeur_comparable` sur la classe
+    # portee, tuple pour tuple.
+    # ⚠ Le preset est PARTAGE avec 1191, le litteral d'`AbilityAttackType` ne l'est PAS : `2`
+    # (`Others`) pour 1195 contre `0` pour 1191, transcrit du 3e argument d'`AActiveAbility..ctor`.
     # 1204 LeadingTheCharge : SORTIE (#508) -- face COMBAT portee, masque migre sur
     # `abilities/loki/leading_the_charge.py::LeadingTheChargeAbility.TARGETING_OPTIONS`. La VALEUR
     # est CONFIRMEE champ pour champ contre le preset `TargetingOptions statics+0x240` relu au
@@ -370,15 +380,16 @@ def test_snapshot_ordinal_valeur_et_ordre():
 
 
 def test_cardinalites_du_volet():
-    """Le compte du volet 2 : 28 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 112 cles.
+    """Le compte du volet 2 : 25 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 109 cles.
 
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 26 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
+    passe de 44 a 25 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
     1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1165 (#501), 1064 (#502), 1141 (#503),
-    1132 (#504), 1129 (#505), 1204 (#508), 1191 (#509), 1177 (#510), 1197 (#512). Ce que ce cliquet
-    garde est la CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
+    1132 (#504), 1129 (#505), 1204 (#508), 1191 (#509), 1177 (#510), 1197 (#512), 1195 (#521).
+    Ce que ce cliquet garde est la CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la
+    taille des tables.
     ⚠ #505, #508, #509, #510 et #512 se sont croisees ICI : elles retiraient respectivement 1129,
     1204, 1191, 1177 et 1197, et CHACUNE annoncait le chiffre de son propre retrait. Le chiffre a
     ete RE-COMPTE sur `CIBLES` apres resolution -- une soustraction d'un seul cote aurait laisse le
@@ -396,9 +407,9 @@ def test_cardinalites_du_volet():
     resolution est l'UNION des retraits, et le chiffre est RE-DERIVE de `CIBLES` apres coup --
     #502, #503, #504 puis #505 ont effectivement resolu ce conflit en RE-COMPTANT."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [26, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [25, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 110
+    assert sum(tailles) == 109
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

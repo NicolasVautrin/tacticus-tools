@@ -41,6 +41,7 @@ from ...entities.effects.magnitude import ability_var
 from ...entities.triggers import HasEffect, IsAlive
 from ..components import HealthComponent, PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
+from . import targeting as _targeting   # FORME B : le binding de module garde un patch MORDANT
 from .targeting import RANGE_ADJACENT, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAttackDamage
@@ -729,8 +730,8 @@ class LightOfSanguiniusAbility(ActiveAbility):
 
         ⚠ Le code rendu est `0x20 = TargetHasFreeAdjacentTile`, PAS `TargetMatchesDynamicRule` : le
         natif REUTILISE un bit du volet statique comme code de refus."""
-        from .targeting import _dynamic_rule_light_of_sanguinius        # noqa: PLC0415
-        return int(_dynamic_rule_light_of_sanguinius(state, caster_id, target_id) or 0)
+        return int(_targeting._dynamic_rule_light_of_sanguinius(
+            state, caster_id, target_id) or 0)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

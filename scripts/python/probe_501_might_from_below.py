@@ -44,7 +44,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hexgeo  # noqa: E402
+import stream_events as SE  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
+
+#: Resolu PAR NOM contre `enums.tsv` du build courant, jamais ecrit en ordinal : l'ordinal `9`
+#: designait `AddTile` avant la MAJ `gqfc5mff6c` -> `rnca9r7q6c`, et un filtre fige aurait lu le
+#: pas VOISIN sans erreur ni trace (cliquet `tests/test_step_ordinal_ratchet_offline.py`).
+S_ADD_UNIT = SE.step_id("AddUnit")
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
@@ -90,13 +96,14 @@ def _units_of_vis(dec, vis, alive_only=True):
 
 
 def _live_added_units(res):
-    """Les unites CREEES par le cast, dans l'ordre natif : chaque `step 9` (`AddUnitOperation`)
-    porte `Unit_Parent_Id` et `Unit_Foot_Tile_Id_1` (la tuile d'ancrage). C'est la mesure qui
-    tranche le SUMMON independamment de ce que la cascade aval fait ensuite de l'unite posee."""
+    """Les unites CREEES par le cast, dans l'ordre natif : chaque pas `AddUnit`
+    (`AddUnitOperation`) porte `Unit_Parent_Id` et `Unit_Foot_Tile_Id_1` (la tuile d'ancrage).
+    C'est la mesure qui tranche le SUMMON independamment de ce que la cascade aval fait ensuite
+    de l'unite posee."""
     out = []
     for act in (res.get("actions") or []):
         for e in (act.get("events") or []):
-            if (e.get("step") or e.get("type")) != 9:
+            if (e.get("step") or e.get("type")) != S_ADD_UNIT:
                 continue
             td = e.get("tags")
             td = json.loads(td) if isinstance(td, str) else (td or {})
@@ -132,7 +139,7 @@ def _live_group_order(res, groups):
         for i, e in enumerate(act.get("events") or []):
             if e.get("kind") == "group" and int(e.get("group") or -1) in groups:
                 out.append((i, int(e["group"]), e.get("source")))
-            elif (e.get("step") or e.get("type")) == 9:
+            elif (e.get("step") or e.get("type")) == S_ADD_UNIT:
                 out.append((i, "AddUnit", e.get("entity")))
     return out
 

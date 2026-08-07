@@ -31,6 +31,12 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import hexgeo                                                          # noqa: E402
+import stream_events as SE                                            # noqa: E402
+
+#: Resolu PAR NOM contre `enums.tsv` du build courant, jamais ecrit en ordinal : un membre retire
+#: en amont decale tout ce qui suit, et le filtre lit alors le pas VOISIN sans erreur ni trace
+#: (cliquet `tests/test_step_ordinal_ratchet_offline.py`).
+S_UNIT_DAMAGED = SE.step_id("UnitDamaged")
 
 CASTER = "astarCyrus"              # HERO `lineup` HORS seed BC -> catalog_inject
 ABILITY = 1225                     # ActiveAbilityType.StrikeFromTheShadows
@@ -154,13 +160,14 @@ def _events_bruts(res, brut=False):
 
 
 def _montants_natifs(res):
-    """La SEQUENCE coup par coup du NATIF, lue dans les tags `Amount` des events `action` step 4.
-    Un TOTAL juste ne prouve rien : c'est la sequence qui mord (et le compte de coups)."""
+    """La SEQUENCE coup par coup du NATIF, lue dans les tags `Amount` des events `action` du pas
+    `UnitDamaged`. Un TOTAL juste ne prouve rien : c'est la sequence qui mord (et le compte de
+    coups)."""
     import json as _j
     out = []
     for a in ((res or {}).get("actions") or []):
         for e in (a.get("events") or []):
-            if e.get("step") != 4:
+            if e.get("step") != S_UNIT_DAMAGED:
                 continue
             try:
                 t = _j.loads(e.get("tags") or "{}")

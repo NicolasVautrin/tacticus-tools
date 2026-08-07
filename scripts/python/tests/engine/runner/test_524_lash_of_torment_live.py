@@ -67,6 +67,7 @@ import uuid
 import pytest
 
 import hexgeo
+import stream_events as SE
 
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.effect_type import EffectType
@@ -155,12 +156,14 @@ def _act(rpc, rid, action, timeout=240):
 
 
 def _montants_natifs(res):
-    """La SEQUENCE coup par coup du NATIF (tags `Amount` des events `action` step 4)."""
+    """La SEQUENCE coup par coup du NATIF (tags `Amount` des events `action` du pas
+    `UnitDamaged`, resolu PAR NOM -- un ordinal fige designerait le pas VOISIN au prochain
+    retrait de membre, sans erreur ni trace)."""
     import json as _j
     out = []
     for a in ((res or {}).get("actions") or []):
         for e in (a.get("events") or []):
-            if e.get("step") != 4:
+            if e.get("step") != SE.step_id("UnitDamaged"):
                 continue
             try:
                 t = _j.loads(e.get("tags") or "{}")

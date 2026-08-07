@@ -338,7 +338,6 @@ class SpawnInceptors(AbilityBehaviour):
         self.target_ref = target_ref
 
     def execute(self, entities, ectx):
-        import gameconfig as GC
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
         tu = resolve_unit(self.target_ref, entities)          # Target@0x178

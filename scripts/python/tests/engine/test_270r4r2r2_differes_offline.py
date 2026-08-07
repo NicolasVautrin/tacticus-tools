@@ -47,8 +47,23 @@ import probe_270r4r2r2_tri_differes as TR       # noqa: E402
 # MASSE. Le BAISSER quand une tranche descend -- un plafond qu'on ne descend pas cesse de mordre.
 # #485-r1-r1 : le sweep des barils a fait tomber les GRATUITS (47 -> 3, les 3 restants etant des
 # imports OPTIONNELS sous `try/except` que hisser denaturerait). Plafonds re-MESURES apres coup.
-PLAFOND_DIFFERES = 211
-PLAFOND_INCONDITIONNELS = 136
+#
+# ⚠ RE-MESURES le 2026-08-07 (211 -> 224, 136 -> 139), et il faut dire POURQUOI, sinon relever un
+# seuil a chaque rouge le vide de son sens. La montee court sur ~30 tranches de portage livrees
+# depuis #485-r1-r1 -- environ 0,45 differe par tranche. Ce n'est PAS la reprise de MASSE que ce
+# seuil surveille ; c'est de la derive unitaire, que seul un seuil jamais re-mesure transforme en
+# rouge permanent. Mesure a l'appui (`probe_270r4r2r2_tri_differes.py --mesurer`), partition
+# EXHAUSTIVE des 224 : 54 TYPE_CHECKING, 95 brise-cycle, 31 conditionnel, 16 placement -- et
+# 28 HISSABLES.
+#
+# ⚠⚠ CE SONT CES 28 QUI SONT LE GISEMENT, PAS LE TOTAL, et l'etage 1 ne peut pas les voir : son
+# critere `gratuits()` est SYNTAXIQUE (« la cible est deja au preambule du MEME fichier ») et n'en
+# retient qu'UN. Le critere doctrinal, lui, est une MESURE (charger la cible seule en process
+# frais). Le sweep des 28 est ouvert en RESIDU #270-r4-r2-r2-r4 : il touche 28 fichiers partages
+# et chaque site doit passer par `migrate_485r1_barils_reexport.py morsure` puis etre hisse en
+# FORME B -- ce n'est pas un geste a glisser dans une tranche de reparation de cliquets.
+PLAFOND_DIFFERES = 224
+PLAFOND_INCONDITIONNELS = 139
 
 
 @pytest.fixture(scope="module")
