@@ -178,6 +178,30 @@ def _burning(rpc, rid) -> set:
             if any(e.get("effectType") == FIRE for e in (t.get("effects") or []))}
 
 
+def _fire_par_tuile(rpc, rid) -> dict:
+    """#368-r1 -- LE DISCRIMINANT. `tileMeta(includeInactive=True)` publie `active` par effet :
+    une tuile qui porte un `Fire` **INACTIF** a bien recu la pose (le refus est alors une
+    `ActiveCondition`, `RefreshEffectsOperation$$ShouldBeActive`) ; une tuile qui ne porte RIEN
+    n'a jamais ete soumise (le refus est au selecteur, `StateExtensions$$GetTileAt`, et c'est le
+    substrat `board.id_at` du port qu'il faudrait corriger, pas `1148`).
+
+    Rend `{(col,row): [{"active": bool, "removed": bool, ...}]}` pour les seuls effets `Fire`,
+    et `None` si le bundle injecte ne connait pas `includeInactive` (tri-etat : l'absence du
+    drapeau `active` sur TOUS les effets publies signe un bundle anterieur -- on ne la rabat
+    surtout pas sur « aucun effet inactif »)."""
+    tm = rpc("tileMeta", {"runnerId": rid, "includeInactive": True}, 90) or {}
+    tuiles = tm.get("tiles") or []
+    vu_active = any("active" in e
+                    for t in tuiles for e in (t.get("effects") or []))
+    porte_des_effets = any(t.get("effects") for t in tuiles)
+    if porte_des_effets and not vu_active:
+        return None                     # bundle sans `includeInactive` -> PAS MESURE
+    return {(t["col"], t["row"]): [e for e in (t.get("effects") or [])
+                                   if e.get("effectType") == FIRE]
+            for t in tuiles
+            if any(e.get("effectType") == FIRE for e in (t.get("effects") or []))}
+
+
 def _write_graft_seed_bc(out: Path) -> None:
     import rl_collect_batch as R
     bc = R._load_seed_bc(None)
@@ -371,7 +395,24 @@ def pose(arm: str, mutate: str = "") -> dict:
         # qui la refuse -- exactement la decomposition par etage qu'un compte ne donne pas.
         ev = _effect_events(act)
         unwalk = sorted(q for q in stages["zone"] if not stages["walkable"][q])
+        # #368-r1 -- APRES le cast, relire avec `includeInactive` : c'est la seule mesure qui
+        # separe « jamais soumis » de « pose puis desactive » sur les tuiles de l'ecart.
+        fire_inactif = _fire_par_tuile(rpc, rid)
+        gap = sorted(set(map(tuple, port)) - set(map(tuple, native)))
+        if fire_inactif is None:
+            verdict_368r1 = "NON MESURE -- le bundle injecte ignore `includeInactive`"
+        elif not gap:
+            verdict_368r1 = "SANS OBJET -- aucun ecart port/natif sur ce bras"
+        else:
+            portees = [q for q in gap if fire_inactif.get(q)]
+            verdict_368r1 = ("POSE-PUIS-DESACTIVE (ActiveCondition) : %s" % portees
+                             if portees else
+                             "JAMAIS SOUMIS (selecteur / GetTileAt) : aucune des tuiles de "
+                             "l'ecart %s ne porte de `Fire`, meme INACTIF" % gap)
         return {"arm": arm, "rid": rid, "board": ARMS[arm]["board"], "dir": direction,
+                "fire_inactif": (None if fire_inactif is None
+                                 else {str(k): v for k, v in fire_inactif.items()}),
+                "verdict_368r1": verdict_368r1,
                 "regime": regime, "caster": caster, "caster_kind": kind, "anchor": anchor,
                 "stages": stages, "native": native, "port": sorted(port),
                 "port_wide": sorted(port_wide), "events": ev[:12],
@@ -476,6 +517,10 @@ def _print(r: dict) -> None:
           % (r["gap"], r["unwalkable_in_zone"]))
     print("  ACCORD natif/port      = %s%s"
           % (r["agree"], ("   [mutation %s]" % r["mutate"]) if r["mutate"] else ""))
+    print("  #368-r1 (includeInactive) = %s" % r.get("verdict_368r1"))
+    if r.get("fire_inactif") is not None:
+        for q, effs in sorted((r.get("fire_inactif") or {}).items()):
+            print("     Fire sur %s : %s" % (q, effs))
 
 
 def main() -> int:

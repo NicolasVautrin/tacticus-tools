@@ -386,8 +386,14 @@ function readDoorsByTile(
 // son corps itère `StaticBattleRules.TriggeredAbility$$GetPowerUps()` et teste
 // `TriggeredAbilityComponent$$TryGetAbility` — une liste STATIQUE que le port n'a pas et qu'on
 // se garde de re-dériver.
+// ⚠ `GetUnit` a TROIS surcharges de MÊME arité 2 sur `UnitExtensions` (lues dans
+// `data/symbols/<build>/frida/methods.tsv`) : `(IEntity, IMatchState)`,
+// `(FootEntity, IMatchState)` et `(TileEntity, IMatchState)`. `findMethodByParamCount` en
+// rendrait une AU HASARD — et deux des trois ne prennent pas une tuile. La feuille native passe
+// `UnitPosition$$get_MainTile(...)`, donc une **TileEntity** : on désambiguïse par la CLASSE du
+// premier paramètre, jamais par l'arité (même piège que les six ctors de `TargetingOptions`).
 const getUnitOnTileMi = unitExtClass
-    ? findMethodByParamCount(unitExtClass, "GetUnit", 2) : null;
+    ? findMethodByParamClasses(unitExtClass, "GetUnit", ["TileEntity", null]) : null;
 const isPowerUpMi = unitExtClass
     ? findMethodByParamCount(unitExtClass, "IsPowerUp", 1) : null;
 

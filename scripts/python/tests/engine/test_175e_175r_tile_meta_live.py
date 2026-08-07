@@ -75,6 +75,13 @@ DECLENCHEUR = {
     ),
     # `build: True` : l'etage 1 RELIT le binaire du build (metadata + PE) et la table de symboles
     # versionnee -- ce fichier change donc de verdict a chaque changement de `<HASH>`.
+    #
+    # ⚠ RESOLUTION DE CONFLIT (#546 x #486-r29) : les DEUX cotes ont repare la MEME faute, dans le
+    # meme sens et avec les memes valeurs (les six chemins de la fermeture, puis `build`/`toujours`).
+    # C'est la version de `master` qui est retenue ici, telle quelle ; la duplication apportee par
+    # #546 est retiree. Le fait a garder : le cliquet s'arrete a la declaration MAL FORMEE et ne
+    # confronte le PERIMETRE qu'ensuite, donc la seconde faute etait CACHEE par la premiere -- deux
+    # tranches ont du la trouver l'une apres l'autre.
     "build": True,
     "toujours": False,
     "raison": (
