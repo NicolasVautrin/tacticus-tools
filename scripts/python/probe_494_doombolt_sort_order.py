@@ -30,17 +30,19 @@ POSE un `statDelta {fixedArmor: +1197}` sur ses voisins -- le DEPLACER change l'
 Les regimes `I*`/`J1`/`K1` montent donc N x `orksNob` IDENTIQUES (memes traits, memes stats, meme
 `statDelta`) : plus aucune stat de cible ne peut ordonner.
 
-CE QUE LA MESURE A ETABLI (7 geometries, 2026-08-07, `rnca9r7q6c`) -- detail :
-`docs/rl/case-494-doombolt-ordre-des-cibles.md`
+CE QUE LA MESURE A ETABLI -- detail : `docs/rl/case-494-doombolt-ordre-des-cibles.md`
   * DEUX causes independantes s'additionnent, et le montage heterogene les MELANGE ;
-  * l'ordre natif a utilite EGALE n'est ni l'ordre par id (ce que le port impose) ni l'ordre
-    d'enumeration des tuiles : c'est cet ordre-la ROTATE d'un cran vers la GAUCHE. La rotation est
-    mesuree, y compris en PREDICTION hors echantillon (`J1` a 5 cibles, `K1` a 3), mais elle n'est
-    ATTRIBUEE a aucun etage natif : les sept etages de la chaine ont ete lus et preservent tous
-    l'ordre. Elle n'est donc PAS portee -- l'ecrire serait un fit.
+  * la « rotation d'un cran vers la GAUCHE » que #494 avait mesuree sur sept geometries est
+    **REFUTEE** (#494-r1) : les regimes `L1`/`L2`/`L3`, qui font varier l'ELEVATION et rien
+    d'autre, la contredisent tous les trois. Ce n'etait pas une loi d'ordre mais l'OMBRE d'une CLE
+    de tri non constante -- `SortUnitsByDamageUtilitySelector$$Select` appelle la prediction PAR
+    CIBLE en lui passant la POSITION DU CASTER, et le bonus d'elevation est un modifier
+    POSITIONNEL. L'`OrderBy` etant STABLE, le tie-break est l'ORDRE SOURCE (cube-lex ASC).
 
-`rc` : 2 = montage KO ; 1 = la divergence #494 est TOUJOURS presente (etat ATTENDU tant que le
-residu est ouvert) ; 0 = victime identique des deux cotes.
+`rc` : 2 = montage KO ; 1 = divergence ; 0 = ordre joue ET victime identiques des deux cotes.
+Etat au 2026-08-07, apres #494-r1 : `I1 I3 K1 L1 L2 L3` = ACCORD ; `I5 J1` = DIVERGENCE, cause
+ISOLEE et distincte de l'ordre -- la tuile `(1,3)` porte `Thorns_DefenseReduction` donc la cible qui
+s'y tient a `defense = 50`, que la cle du port ne lit pas encore (residu `#494-r1-r1`).
 
 Usage : python probe_494_doombolt_sort_order.py [--regime A|B|C|I1..I5|J1|K1] [--seed 777]
                                                 [--board MC1_67] [--state-file <abs>]
@@ -109,6 +111,11 @@ REGIMES = {
     "I4": [("orksNob", (2, 3)), ("orksNob", (1, 4)), ("orksNob", (4, 4)), ("orksNob", (2, 2))],
     # I5 -- separe les DEUX lois encore compatibles avec I1 et I3 :
     #   lex(y,x) ASC -> victime u83 | rotation-gauche de lex(x,y) -> victime u81 | id ASC -> u85
+    # ⚠ I5 ET J1 NE SONT PAS DES REGIMES EGALISES, contrairement a ce que ce fichier affirmait :
+    # la tuile `(1,3)` porte `Thorns_DefenseReduction` et l'occupant y descend a `defense = 50`
+    # (`statDelta {"defense": -50}`, mesure 2026-08-07). Leur divergence residuelle n'est donc PAS
+    # un fait d'ORDRE -- c'est la DEFENSE de la cible, que la cle du port ne lit pas encore
+    # (#494-r1-r1). Le critere d'egalisation les rejette desormais explicitement.
     "I5": [("orksNob", (2, 3)), ("orksNob", (1, 4)), ("orksNob", (1, 3)), ("orksNob", (3, 5))],
     # J1 -- CINQ unites identiques : `N = 3` sur `C = 5` -> `[1,1,1,0,0]`, donc on lit les TROIS
     # premieres places de la liste finale. C'est le test de PREDICTION de la loi mesuree sur I1/I3/I5
@@ -341,6 +348,15 @@ def run(regime: str = "A", seed: str = "777", board_id: str = "MC1_67",
                 # (`IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier`),
                 # donc de la CLE de tri -- pas seulement du dommage joue.
                 "elev": (tiles_meta.get(p) or {}).get("elevation"),
+                # DEFENSE RESOLUE + `statDelta` (#494-r1) : le critere d'egalisation ne les lisait
+                # PAS, et il declarait « EGALISE : OUI » des regimes ou une cible se tenait sur une
+                # tuile `Thorns_DefenseReduction` (defense 100 -> 50, `statDelta {defense: -50}`).
+                # Un regime faussement declare egalise fait chercher une LOI D'ORDRE la ou il n'y a
+                # qu'une cle de tri non constante -- c'est exactement ce qui a produit la
+                # « rotation d'un cran » de #494.
+                "defense": ((raw_stats.get(int(u["id"])) or {}).get("stats") or {}).get("defense"),
+                "stat_delta": json.dumps((raw_stats.get(int(u["id"])) or {}).get("statDelta") or {},
+                                         sort_keys=True),
                 "armor": _stat(st, u["id"], "armor"),
                 "fixed_armor": _stat(st, u["id"], "fixed_armor")})
         runner = Runner(st).install_default_handlers(20)
@@ -419,21 +435,29 @@ def _print(r):
     print("caster u%s @%s | cible du message u%s" % (r["caster"], r["caster_pos"], r["target"]))
     print("\n--- etage 0 : REGIME (ce que l'utilite peut voir) ---")
     print("caster elevation = %s" % r.get("caster_elev"))
-    print("%-6s %-16s %-8s %-3s %-10s %-8s %-8s %-7s %-7s %-5s"
-          % ("id", "visualId", "pos", "d", "cube_key", "hp", "maxHp", "armor", "fixArm", "elev"))
+    print("%-6s %-16s %-8s %-3s %-10s %-8s %-8s %-7s %-7s %-5s %-5s %s"
+          % ("id", "visualId", "pos", "d", "cube_key", "hp", "maxHp", "armor", "fixArm", "elev",
+             "def", "statDelta"))
     for w in r["regime_rows"]:
-        print("%-6s %-16s %-8s %-3s %-10s %-8s %-8s %-7s %-7s %-5s"
+        print("%-6s %-16s %-8s %-3s %-10s %-8s %-8s %-7s %-7s %-5s %-5s %s"
               % (w["id"], w["visualId"], "%d,%d" % w["pos"], w["d"], "%d,%d" % w["cube_key"],
-                 w["hp"], w["maxHp"], w["armor"], w["fixed_armor"], w.get("elev")))
-    vals = {w["id"]: (w["hp"], w["maxHp"], w["armor"], w["fixed_armor"]) for w in r["regime_rows"]}
-    print("REGIME EGALISE (hp/maxHp/armor/fixedArmor identiques) : %s"
+                 w["hp"], w["maxHp"], w["armor"], w["fixed_armor"], w.get("elev"),
+                 w.get("defense"), w.get("stat_delta")))
+    # ⚠ LE CRITERE PORTE SUR TOUT CE QUE LA PREDICTION LIT, PAS SUR UNE LISTE CHOISIE DE STATS.
+    # Il ne lisait que hp/maxHp/armor/fixedArmor et rendait « OUI » sur des regimes ou une cible se
+    # tenait sur une tuile `Thorns_DefenseReduction` (defense 100 -> 50). Un regime faussement
+    # declare egalise fait chercher une LOI D'ORDRE la ou la CLE de tri n'est simplement pas
+    # constante : c'est la cause exacte de la « rotation d'un cran » de #494, refutee par L1/L2/L3.
+    vals = {w["id"]: (w["hp"], w["maxHp"], w["armor"], w["fixed_armor"], w.get("defense"),
+                      w.get("stat_delta")) for w in r["regime_rows"]}
+    print("REGIME EGALISE (hp/maxHp/armor/fixedArmor/defense/statDelta identiques) : %s"
           % ("OUI" if len(set(vals.values())) == 1 else "NON -- %s" % sorted(set(vals.values()))))
-    # ⚠ L'EGALISATION CI-DESSUS NE COUVRE PAS L'ELEVATION, et c'est exactement le trou de #494 :
-    # une cible plus BASSE que le caster recoit le bonus d'elevation, donc une PREDICTION plus
-    # haute, donc une utilite plus haute -- sans qu'aucune de ses stats n'ait bouge.
+    # L'ELEVATION est HORS de l'egalisation par construction : c'est une propriete de la TUILE, pas
+    # de l'unite, et c'est precisement la variable que L1/L2/L3 font bouger. Elle est imprimee a
+    # part pour que le regime reste lisible.
     elevs = {w["id"]: w.get("elev") for w in r["regime_rows"]}
-    print("ELEVATION DES CIBLES : %s -- %s"
-          % (elevs, "PLATE" if len(set(elevs.values())) == 1 else "VARIABLE"))
+    print("ELEVATION DES CIBLES : %s -- %s (caster %s)"
+          % (elevs, "PLATE" if len(set(elevs.values())) == 1 else "VARIABLE", r.get("caster_elev")))
     print("\n--- etage 0bis : ORACLES NATIFS par cible (read-only, AVANT le cast) ---")
     for k in sorted(r["oracle"]):
         o = r["oracle"][k]
