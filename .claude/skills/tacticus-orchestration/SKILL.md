@@ -795,6 +795,14 @@ part est quasi identique des deux côtés, donc elle se simplifie dans le rappor
 1. **Découper paie, et beaucoup.** Deux tranches à 450 K coûtent ~22 M ; une seule à 880 K en
    coûte ~51 M pour le même travail. Le critère « case-doc **MERGÉE** ⇒ agent frais » n'est donc
    pas qu'épistémique : c'est le levier de coût **le plus fort** dont on dispose.
+   ⚠ **L'objection évidente — « chaque agent frais re-paie le socle système » — ne tient pas, et
+   c'est mesuré.** Le socle (prompt système + outils + `CLAUDE.md` + brief, ~55–77 K) est relu à
+   **chaque requête**, donc sa facture est `N_requêtes × socle`, jamais `N_agents × socle` :
+   découper à travail égal ne le duplique pas. Sa part **tombe** quand l'agent grossit — **4,7 à
+   19 %** du coût chez les agents de 264–602 requêtes, **8 à 39 %** chez ceux de 24–67 — parce
+   qu'elle est linéaire quand le reste est quadratique. Ce qu'un agent frais paie **en plus**, une
+   fois : l'écriture en cache de son socle (~1,25× le socle, soit ~0,1 M) et la relecture de la
+   case-doc. Deux ordres de grandeur sous les ~20 M économisés.
 2. **Une reprise achète ses tours au prix fort.** Les requêtes d'un agent repris partent du haut
    de sa courbe : 50 appels de plus à 740 K coûtent ~4× ce que les mêmes 50 appels coûtent à un
    agent frais parti de 77 K. Reprendre reste juste quand la valeur est dans le non-écrit — mais
