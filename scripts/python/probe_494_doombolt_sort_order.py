@@ -356,7 +356,11 @@ def run(regime: str = "A", seed: str = "777", board_id: str = "MC1_67",
         st2 = load_state(dv, ob, snap, board=board)
         level, mult = _ability_state(st2, ahri["id"])
         dmin = int(ability_var(DOOMBOLT_ID, "minDmg", level, multiplier_pct=mult) or 0)
-        util = {int(u["id"]): _target_utility(st2, int(u["id"]), dmin, dmin, wt) for u in ens}
+        # `owner_id` OBLIGATOIRE (#494-r1) : sans lui la cle perd sa part POSITIONNELLE et rend
+        # « TOUTES EGALES : OUI » sur des cibles que le natif SEPARE (c'est exactement ce qui avait
+        # fait chercher une loi d'ordre la ou il n'y avait qu'une cle non constante).
+        util = {int(u["id"]): _target_utility(st2, int(u["id"]), dmin, dmin, wt,
+                                              owner_id=ahri["id"]) for u in ens}
         # etage 5 : les LOIS CANDIDATES d'ordre SOURCE, chacune passee par le meme
         # `Remove(cible); Insert(0, cible)` que le natif -- pour qu'aucune ne soit avantagee.
         ids = [int(u["id"]) for u in ens]
