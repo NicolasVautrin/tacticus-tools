@@ -3,7 +3,7 @@
 (`genesBossPatriarch`, `genesBossPatriarchLHE`, `genesNpcPatriarch`) : 4 porteurs, tranche 6 des
 residus ATTACK de #419.
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire, Lakrimae, BarbedOvipositor, Neuroparasite, SaviorProtocols,
 AvalancheOfMuscle et Boltstorm (`utilities/tile.py::evaluate_attack_in_steps`, vslot 3).
 
@@ -69,7 +69,7 @@ Cinq lectures qui ne se devinent pas :
 Le gate d'ami (`IsFriend(occupant, case.Caster, state)`) rejoue l'asymetrie deja notee sur la
 feuille 20 : la feuille MOVE PENALISE de -50 (`SteppableUnit.FriendlyDecoy`) le fait de marcher sur
 son propre leurre, tandis que ce playbook-ci en REND 10 quand la tuile sert a attaquer. Les deux
-termes ne s'annulent pas (ils vivent dans deux composites differents -- Tile(7) contre Damage(34))
+termes ne s'annulent pas (ils vivent dans deux composites differents -- Tile(7) contre Damage(35))
 mais ils vont bien en sens INVERSE : le Patriarch n'ecrase son leurre que s'il y gagne une attaque.
 
 ## Face MOVE : `yield Fix64(0)` CONSTANT -- decompile LU, ce n'est pas un trou

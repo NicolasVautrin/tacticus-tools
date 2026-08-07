@@ -1,6 +1,6 @@
 """`IdunBattle.AI.Playbook.Loki.PsykerPlaybook` — face ATTACK des triggered (splash Psyker, #45-s18).
 
-Consommé par la feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34) (dispatcher face attack
+Consommé par la feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35) (dispatcher face attack
 `<EvaluateAttackInSteps>d__2 IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateAttackInStepsInternalu003Ed__3$$MoveNext` : itère les triggered de l'ATTAQUANT, `PlaybookDatabase.
 LoadPlaybook`, Σ `ITriggeredAbilityPlaybook.CalculateAttackUtilityInSteps` vslot 3). Pendant ATTACK de
 `adjacent_unit_preference.py` (face MOVE, case-36) — même protocole, autre vslot.

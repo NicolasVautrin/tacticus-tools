@@ -2,7 +2,7 @@
 `HeavyBoltPistol` (1083), passif du SUMMON `templInitiate` et du npc `templNpc1Initiate` :
 2 porteurs DISPATCHES, tranche 14 des residus ATTACK de #419-r1.
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire, Lakrimae, BarbedOvipositor, Neuroparasite, SaviorProtocols,
 AvalancheOfMuscle, Boltstorm, FireOfAbsolution, CosmicHorror, LightImUp, RapidFire,
 RighteousRepugnance, SpecialIssueCombiMelta, ElectroShock et Shrapnel

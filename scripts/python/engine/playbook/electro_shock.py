@@ -2,7 +2,7 @@
 (**TriggeredAbilityType 1303**), passif du SUMMON `admecSmnElectropriest` et de 2 npc
 (`admecNpc3Electropriest`, `admecNpc3ElectropriestSurv`) : tete des residus ATTACK de #419-r1.
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire, Lakrimae, BarbedOvipositor, Neuroparasite, SaviorProtocols,
 AvalancheOfMuscle, Boltstorm, FireOfAbsolution, CosmicHorror, LightImUp, RapidFire et
 RighteousRepugnance (`utilities/tile.py::evaluate_attack_in_steps`, vslot 3 -- SOMME des yields,

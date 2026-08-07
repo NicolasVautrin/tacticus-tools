@@ -64,7 +64,7 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
     if not enemy_positions:
         return None, None
     coords = [(t["col"], t["row"]) for t in tiles]
-    # Elevation(8) : min/max sur le BOARD ENTIER (`elev_by_pos` = toutes les tuiles tileMeta), pas les
+    # Elevation(9) : min/max sur le BOARD ENTIER (`elev_by_pos` = toutes les tuiles tileMeta), pas les
     # candidates — sinon LowestElevation(-5)/HighestElevation(+10) s'appliquent à un faux extrême du
     # candidate-set (case-37 : 909 s4 (3,2)@elev2 = min des candidats mais PAS du board (min=1) -> -5 indu).
     board_elevs = [e for e in elev_by_pos.values() if e is not None]

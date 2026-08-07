@@ -1,6 +1,6 @@
 """DamageUtility — barème de dégât FIDÈLE (RE ghidra gqfc5mff6c, doc §13.7). UNE CLASSE par feuille (nom NATIF).
 
-DamageDealt(35) = `IdunBattle.AI.Utilities.DamageUtility` (IdunBattle.AI.Utilities.DamageUtility$$.ctor, TypeDefIndex 12112).
+DamageDealt(36) = `IdunBattle.AI.Utilities.DamageUtility` (IdunBattle.AI.Utilities.DamageUtility$$.ctor, TypeDefIndex 12112).
 - `.cctor` (IdunBattle.AI.Utilities.DamageUtility$$.cctor) : **W_damage = Fix64(0x50) = 80**, **W_remaining = Fix64(0x14) = 20**.
 - `<EvaluateAttackInSteps>d__2.MoveNext` (IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) — RE LECTURE INTÉGRALE (2026-07-02) :
     hAvg        = Avg(AccurateHealthDamage@0x58) ; si LimitedByMinHp@0xB0 -> CurrentHealth@0x0
@@ -19,13 +19,13 @@ DamageDealt(35) = `IdunBattle.AI.Utilities.DamageUtility` (IdunBattle.AI.Utiliti
     u_remaining = (1 - Clamp((remaining - D) / combinedMax, 0, 1)) * 20
     u           = u_damage + u_remaining ;  *-1 si friendly-fire (cible = ami)
 
-KillUnit(36) (`KillUnitUtility` IdunBattle.AI.Utilities.KillUnitUtility$$.ctor ; IdunBattle.AI.Utilities.KillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) : +DefinitelyKill(BC 100) si WillBeKill,
+KillUnit(37) (`KillUnitUtility` IdunBattle.AI.Utilities.KillUnitUtility$$.ctor ; IdunBattle.AI.Utilities.KillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) : +DefinitelyKill(BC 100) si WillBeKill,
   +PossibleKill(BC 50) si MightBeKill ; 0 si Steppable ; *-1 si friendly-fire.
 OverkillUnit(38) (`OverkillUnitUtility` IdunBattle.AI.Utilities.OverkillUnitUtility$$.ctor ; IdunBattle.AI.Utilities.OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) : +DefinitelyOverkill(BC 40) si
   WillBeOverkill, +PossibleOverkill(BC 15) si MightBeOverkill ; ADDITIONNÉ (un kill garanti+overkill est
   PRÉFÉRÉ = certitude) — l'OPPOSÉ de l'ancien `attack_utility`.
 
-Composite Damage(34) (membership LUE runtime, doc §13.8) = INSTANCE `ComposedUtility` (Damage n'est PAS une
+Composite Damage(35) (membership LUE runtime, doc §13.8) = INSTANCE `ComposedUtility` (Damage n'est PAS une
 classe ; `DamageUtility` c'est le LEAF type-35). Ici : les 3 DOMINANTS (DamageDealt + KillUnit + OverkillUnit).
 Les 10 situationnels (poids BC × condition trait/effet/boss/objet) = 0 sur une attaque basique → TODO.
 
@@ -241,7 +241,7 @@ DAMAGE_UTILITY = ComposedUtility([DamageUtility(), KillUnitUtility(), OverkillUn
 
 
 def damage_composite(pred: dict | None, target_max_hp: int | None, wt: Weights) -> float:
-    """Composite Damage(34) = `DAMAGE_UTILITY.evaluate` (Σ des 3 feuilles dominantes). Wrapper mince pour
+    """Composite Damage(35) = `DAMAGE_UTILITY.evaluate` (Σ des 3 feuilles dominantes). Wrapper mince pour
     les appelants (`probable_damage_event`, `runner/operations/triggers`, `move`). None -> 0."""
     if not pred:
         return 0.0

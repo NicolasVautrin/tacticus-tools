@@ -30,6 +30,7 @@ sys.path.insert(0, __file__.rsplit("tests", 1)[0].rstrip("\\/"))
 
 comptes = importlib.import_module("probe_519_comptes_de_table")
 temoins = importlib.import_module("probe_519_temoins_de_camp")
+ordinaux = importlib.import_module("probe_519_ordinaux_decales")
 
 
 # ------------------------------------------------------- 1. les COMPTES sont DERIVES, pas ecrits
@@ -97,6 +98,35 @@ def test_le_balayage_voit_un_corpus_non_vide():
     assert sites, "le balayage ne trouve AUCUN site : defaut d'outil, pas un vert"
     assert any(s.verdict == temoins.STABLE for s in sites), (
         "aucun site STABLE : le detecteur ne reconnait plus les formes du corpus")
+
+
+# ---------------------------- 3. aucun ORDINAL d'enum cite n'est celui du build PRECEDENT
+
+def test_aucun_ordinal_cite_ne_vient_du_build_precedent():
+    """L'autre forme du motif : celle qu'alimente le JEU, pas notre cadence. Une insertion dans un
+    enum natif decale tous les membres suivants, et chaque ordinal recopie en commentaire devient
+    faux -- en silence, puisqu'aucun code ne le lit.
+
+    MESURE (`gqfc5mff6c` -> `rnca9r7q6c`, insertion d'`AttackTile` en 8, 73 membres decales) :
+    **37** citations perimees dans `engine/**`, dont le `Damage(34)` que `#504-r1` n'avait vu que
+    sur un fichier. Corriger : `python scripts/python/probe_519_ordinaux_decales.py --ecrire`."""
+    trouves, vieux, neuf, blds = ordinaux.balayer()
+    assert vieux and neuf, (
+        "enum introuvable pour les builds %r -- MESURE IMPOSSIBLE, ce n'est pas un vert" % (blds,))
+    perimes = ["%s:%d %s(%d) -> %d" % (f.name, i, n, o, v) for f, i, n, o, v in trouves]
+    assert perimes == [], "ordinaux cites PERIMES :\n  " + "\n  ".join(perimes)
+
+
+def test_le_detecteur_d_ordinaux_a_de_quoi_trouver():
+    """Ce probe ne peut rien voir si les deux builds compares ont le MEME enum : son zero serait
+    alors vide de sens. On exige donc qu'il existe des membres DECALES -- sinon le vert ci-dessus
+    ne prouve rien et il faut le dire."""
+    _t, vieux, neuf, blds = ordinaux.balayer()
+    assert vieux and neuf, "MESURE IMPOSSIBLE pour les builds %r" % (blds,)
+    decales = [n for n in neuf if n in vieux and vieux[n] != neuf[n]]
+    assert decales, (
+        "aucun membre decale entre %r : le detecteur ne peut RIEN trouver, son zero ne dit rien "
+        "de la fraicheur des citations" % (blds,))
 
 
 @pytest.mark.parametrize("verdict", [temoins.PERIME, temoins.PERISSABLE, temoins.STABLE])

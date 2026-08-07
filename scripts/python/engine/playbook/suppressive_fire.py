@@ -1,6 +1,6 @@
 """`IdunBattle.AI.Playbook.Loki.SuppressiveFirePlaybook` — face ATTACK du triggered
 `SuppressiveFire` (1044, accorde par le TRAIT `UnitTrait.SuppressiveFire` = 1010, x49 unites).
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker et
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker et
 AggressiveOnslaught (`utilities/tile.py::evaluate_attack_in_steps`, vslot 3).
 
 Corps natif mirrore — `IdunBattle.AI.Playbook.Loki.SuppressiveFirePlaybook$$CalculateAttackUtilityInStepsInternal`

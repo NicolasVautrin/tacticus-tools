@@ -2,7 +2,7 @@
 passif de 2 npc (`astraNpc4Mortar`, `astraNpc4MortarSurv`) et du SUMMON `astraSmnMortar` : 3 porteurs
 DISPATCHES, tranche 13 des residus ATTACK de #419-r1.
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught, SuppressiveFire, Lakrimae, BarbedOvipositor, Neuroparasite, SaviorProtocols,
 AvalancheOfMuscle, Boltstorm, FireOfAbsolution, CosmicHorror, LightImUp, RapidFire,
 RighteousRepugnance, SpecialIssueCombiMelta et ElectroShock

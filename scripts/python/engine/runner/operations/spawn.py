@@ -429,7 +429,7 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
     On passe donc `parent_id=caster_id` — le `parent` natif, 3ᵉ argument de
     `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` — et AUCUN `unit_id` : le foyer
     produit un ctx `{"is_spawning": True}`, que chaque feuille consomme selon SA propre dégradation
-    (0 pour `TriggeredAbilities(2)` / `DespoiledGround(28)` / `HeroLikeDoorOpening(31)` ; flag summon
+    (0 pour `TriggeredAbilities(2)` / `DespoiledGround(29)` / `HeroLikeDoorOpening(31)` ; flag summon
     pour `CapturePoint(25)` / `PowerUp(27)` / `SummonDislikeDoorOpening(30)`).
 
     ⚠ La réduction est **MESURÉE, pas supposée** : trois scénarios live où le tri et l'ordre source

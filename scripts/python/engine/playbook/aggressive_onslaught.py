@@ -1,6 +1,6 @@
 """`IdunBattle.AI.Playbook.Loki.AggressiveOnslaughtPlaybook` — face ATTACK du triggered
 AggressiveOnslaught (1248, Mataneo bloodIntercessor). Feuille `TriggeredAbilitiesUtility(2)` du
-composite Damage(34), meme dispatcher que Psyker (`tile.py:evaluate_attack_in_steps`, vslot 3).
+composite Damage(35), meme dispatcher que Psyker (`tile.py:evaluate_attack_in_steps`, vslot 3).
 
 Chaine native mirroree (VAs base 0x180000000) :
   - `IdunBattle.AI.Playbook.Loki.AggressiveOnslaughtPlaybook$$CalculateAttackUtilityInStepsInternal` : monte la SM d__3 (param_1=this @0x28,

@@ -2,7 +2,7 @@
 accorde par la RELIQUE `R_Crit_Lakrimae` (`items[].abilityId` + `allowedUnits = [deathTyphus]`,
 voie `item` de #323) et EN DUR sur 5 npc `deathBossTyphus*` (`relicAbilities`).
 
-Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(34), MEME dispatcher que Psyker,
+Feuille `TriggeredAbilitiesUtility(2)` du composite Damage(35), MEME dispatcher que Psyker,
 AggressiveOnslaught et SuppressiveFire (`utilities/tile.py::evaluate_attack_in_steps`, vslot 3).
 
 Corps natif mirrore -- `IdunBattle.AI.Playbook.Loki.LakrimaePlaybook$$CalculateAttackUtilityInStepsInternal`
