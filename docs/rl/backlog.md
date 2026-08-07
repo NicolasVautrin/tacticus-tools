@@ -680,6 +680,21 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Screamers. La valeur est **relue** de la config (jamais codée en dur) ; l'axe deviendra mesurable
   le jour où `DiveAttackAbilityBase` gagne une héritière à deux armes. `[opus]` —
   `case-507-slashing-dive.md` §7.
+- **`#515-r1` — le filtre `onlyWalkableTiles` du sélecteur `AdjacentTiles` n'est pas dans le
+  substrat capté.** `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` appelle son
+  itérateur avec `(tile, 0, 1, 1)` — soit, contre la signature lue dans `frida/methods.tsv`
+  (`IterateAdjacentTiles(from, onlyEmptyOrSteppable, onlyWalkableTiles, allowTemporary)`),
+  **`onlyWalkableTiles = true`**. Le capteur du `boardGraph`, lui, utilise `(t, false, false,
+  true)` (#148) : le champ `neighbours` **sur-atteint** donc encore le sélecteur, des tuiles non
+  walkable. `IdunBattle.Entities.TileExtensions$$IsWalkable(tile, checkFog)` sépare deux sous-cas :
+  le **mur** (`tile[+0x40][+0x10] != 0`) — `IsWalkable` ne lit pas l'occupant, donc il faudrait
+  qu'une unité se tienne dessus, vraisemblablement inerte ; et le **brouillard**
+  (`tile[+0x20][+0x40]`, `checkFog` étant passé à `true`) — une tuile embuée **peut** porter une
+  unité, et là le filtre mordrait. Le `boardGraph` ne publie pas ce flag : c'est le canal
+  manquant. **Rien n'est mesuré** ; le sens de l'écart est permissif, le même que celui que #515
+  vient de fermer. Pour trancher : publier `isFogged` dans le `boardGraph`, ou mesurer live si une
+  unité peut occuper une tuile refusée par `IsWalkable`. `[opus]` —
+  `case-515-adjacence-du-runner.md` §6.
 
 - **`#491-r1` — la PHASE 2 de `1069 SeekerMissileFrequencyLock` n'est pas portée.**
   `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SeekerMissileFrequencyLock_AttackAbility$$CreateBehaviour`
