@@ -62,6 +62,10 @@ DECLENCHEUR = {
         "scripts/python/*.py", "scripts/python/**/*.py",
         # ⚠ HORS de `scripts/python/` -- donc AUCUN des deux globs ne le couvre (lecon de #806).
         "frida/hooks/data/ability-names.ts",
+        # L'etage 1 lit la table des slots, l'etage 9 celle des ENUMS (l'ordinal de
+        # `UnitFlag.IngoreRangedInMelee`, #287-r11-r2-r1-r2) : les deux vivent hors des globs.
+        "data/symbols/CURRENT",
+        "data/symbols/*/metadata/interface_slots.tsv", "data/symbols/*/frida/enums.tsv",
     ),
     # Les slots d'interface, le rayon du drone et `maxSummons` sont LUS dans les artefacts du BUILD
     # (`data/symbols/**`) : un re-dump peut les faire bouger, et l'etage 1 doit alors rougir.
@@ -483,3 +487,164 @@ def test_la_bascule_est_restauree_hors_mutant():
     lieu (ordre-dependance, cf. #485-r1-r3)."""
     assert _regle(BASE, 3) == REFUS
     assert _regle(AVEC_ENNEMI, 1) == REFUS
+
+
+# ================================================================================================
+# 9. #287-r11-r2-r1-r2 -- LE TROISIEME GATE DE `ShouldApplyRangedInMelee`, ET LE CANAL DES TRAITS
+# ================================================================================================
+#
+# Le corps natif a TROIS gardes avant sa boucle, pas deux :
+#
+#     if (attackerTiles == null || attackerTiles.Count == 0)         return false;
+#     if (!UnitExtensions.HasTrait(attacker, 0xb) && !ignoreTrait)   return false;
+#     if (UnitExtensions.HasFlag(attacker, 0x1c))                    return false;   <-- CELUI-CI
+#
+# Il manquait aux DEUX mirrors. Sa direction est celle de #287-r11-r1-r1-r2 : le port CLAMPAIT une
+# portee que le natif laisse entiere (ecart RESTRICTIF).
+
+def test_l_ordinal_28_nomme_TROIS_choses_differentes():
+    """LE PIEGE D'ORDINAL, MESURE -- c'est ce qui rend le NOM obligatoire (#498-r3).
+
+    `0x1c` vaut `UnitFlag.IngoreRangedInMelee` (typo native), MAIS aussi `UnitTrait.Impervious`,
+    et le BIT 28 de `TargetingRule` est `CasterCanMove`. Confondre les trois n'aurait leve AUCUNE
+    erreur : le port aurait juste teste autre chose. Le mirror doit donc citer le MEMBRE, et ce
+    test fige les trois noms."""
+    from engine.entities.traits.unit_trait import UnitTrait as _UT           # noqa: PLC0415
+    from engine.entities.unit_flag import UnitFlag                           # noqa: PLC0415
+    assert int(UnitFlag.IngoreRangedInMelee) == 28
+    assert UnitFlag(28).name == "IngoreRangedInMelee"
+    assert _UT(28).name == "Impervious", "l'ordinal 28 nomme AUTRE CHOSE dans UnitTrait"
+    assert UnitFlag(28).name != _UT(28).name
+    bit28 = [r.name for r in TR if int(r) == (1 << 28)]
+    assert bit28 == ["CasterCanMove"], bit28
+
+
+def test_l_ordinal_du_flag_est_celui_du_BUILD():
+    """`data/symbols/<build>/frida/enums.tsv` est la source ; le mirror ne doit pas deriver."""
+    from engine.entities.unit_flag import UnitFlag                           # noqa: PLC0415
+    tsv = PY.parents[1] / "data" / "symbols" / BUILD / "frida" / "enums.tsv"
+    ligne = next((l for l in tsv.read_text(encoding="utf-8").splitlines()
+                  if l.startswith("IdunBattle.Entities.Enum.UnitFlag\t")), None)
+    assert ligne is not None, "l'enum `UnitFlag` est absente de la table du build"
+    membres = dict(p.split("=", 1) for p in ligne.split("\t")[1].split(","))
+    assert membres["28"] == "IngoreRangedInMelee", membres.get("28")
+    assert int(UnitFlag[membres["28"]]) == 28
+
+
+def test_le_gate_du_mirror_targeting_court_circuite_le_clamp():
+    """`targeting.should_apply_ranged_in_melee` : MEME substrat, le flag SEUL change le verdict.
+
+    Le montage est celui du clamp (un ennemi au contact du caster) ; sans le flag le mirror rend
+    `True`, avec le flag il rend `False` -- exactement le `return false` natif, AVANT la boucle."""
+    from engine.entities.unit_flag import UnitFlag                           # noqa: PLC0415
+    from engine.runner.abilities.targeting import should_apply_ranged_in_melee   # noqa: PLC0415
+    from engine.runner.components import UnitFlagsComponent                  # noqa: PLC0415
+    # CASTER en (2,0), ennemi en (3,0) : ADJACENTS -> le clamp s'arme.
+    unites = [(U_CASTER, PORTEUR, 1, 2), (U_CIBLE, "necroWarden", 2, 0),
+              (U_ENNEMI, "necroWarden", 2, 3)]
+    st = _substrat(unites, 1)
+    assert should_apply_ranged_in_melee(st, U_CASTER) is True, (
+        "le montage doit VRAIMENT armer le clamp, sinon le bras suivant est vrai par vacuite")
+    ent = st.get_entity(U_CASTER)
+    fl = ent.get_component(UnitFlagsComponent) or ent.add_component(UnitFlagsComponent())
+    fl.add(UnitFlag.IngoreRangedInMelee)
+    assert should_apply_ranged_in_melee(st, U_CASTER) is False
+
+
+def test_le_gate_du_mirror_mv71_est_en_TRI_ETAT():
+    """`_should_apply_ranged_in_melee_from_tile` : `True` MESURE court-circuite ; `False` et `None`
+    laissent la boucle s'evaluer.
+
+    La DIRECTION est le livrable : `None` = pas mesure -> on n'allege PAS. Alleger elargirait la
+    portee du drone (le clamp a 1 disparaitrait) et fabriquerait des candidates que le natif
+    refuse."""
+    from engine.runner.abilities.loki.mv71 import (                          # noqa: PLC0415
+        _should_apply_ranged_in_melee_from_tile)
+    b = _board(1)
+    occ = {_tid(4, 0): (2, False, True)}          # un ennemi au contact de la candidate (3,0)
+    assert _should_apply_ranged_in_melee_from_tile(b, _tid(3, 0), 1, occ) is True
+    assert _should_apply_ranged_in_melee_from_tile(b, _tid(3, 0), 1, occ, None) is True
+    assert _should_apply_ranged_in_melee_from_tile(b, _tid(3, 0), 1, occ, False) is True
+    assert _should_apply_ranged_in_melee_from_tile(b, _tid(3, 0), 1, occ, True) is False
+
+
+def test_le_cablage_runner_lit_le_flag_du_PARENT(monkeypatch):
+    """`BattleQuery$$IsTargetInAttackRangeForSummon` passe **`parent`** a `ShouldApplyRangedInMelee`,
+    pas le drone -- donc `_pick_tile` doit lire le `UnitFlagsComponent` du CASTER.
+
+    Le compteur est la contre-epreuve : sans lui, un cablage qui ne passerait JAMAIS le flag
+    (defaut `None` partout) rendrait le meme verdict et ce test serait vert par coincidence."""
+    from engine.entities.unit_flag import UnitFlag                           # noqa: PLC0415
+    from engine.runner.abilities.loki import mv71                            # noqa: PLC0415
+    from engine.runner.components import UnitFlagsComponent                  # noqa: PLC0415
+    vus = []
+    origine = mv71._should_apply_ranged_in_melee_from_tile
+    monkeypatch.setattr(mv71, "_should_apply_ranged_in_melee_from_tile",
+                        lambda b, t, team, occ, ign=None: (vus.append(ign)
+                                                           or origine(b, t, team, occ, ign)))
+    st = _substrat(AVEC_ENNEMI, 1)
+    mv71._pick_tile(st, U_CASTER, U_CIBLE, DRONE, MAX_SUMMONS_MESURE)
+    assert vus, "le foyer n'a pas ete consulte : le montage ne mesure rien"
+    assert set(vus) == {False}, "sans le flag, le cablage doit passer `False` MESURE : %r" % (vus,)
+
+    vus.clear()
+    ent = st.get_entity(U_CASTER)
+    fl = ent.get_component(UnitFlagsComponent) or ent.add_component(UnitFlagsComponent())
+    fl.add(UnitFlag.IngoreRangedInMelee)
+    mv71._pick_tile(st, U_CASTER, U_CIBLE, DRONE, MAX_SUMMONS_MESURE)
+    assert set(vus) == {True}, "le flag du PARENT n'atteint pas le foyer : %r" % (vus,)
+
+
+def _pick_pred(st, steppable_sur_ennemi: bool):
+    """`pick_tile_scene` (face PREDICTION) sur une `Scene` derivee du MEME `State` que le runner.
+
+    `steppable_sur_ennemi` accorde le trait EN BATAILLE (`AddTraitOperation` -> `ctx.traits`),
+    c'est-a-dire hors du kit gameconfig -- le seul regime qui separe les deux canaux."""
+    from engine.entities.traits.unit_trait import UnitTrait                  # noqa: PLC0415
+    from engine.playbook.scene import Scene                                  # noqa: PLC0415
+    from engine.runner.abilities.loki.mv71 import pick_tile_scene            # noqa: PLC0415
+    from engine.runner.components import StatsComponent                      # noqa: PLC0415
+    if steppable_sur_ennemi:
+        sc = st.get_entity(U_ENNEMI).get_component(StatsComponent)
+        sc.ctx.traits = list(sc.ctx.traits or ()) + [UnitTrait.Steppable.name]
+    return pick_tile_scene(Scene.from_state(st), U_CASTER, U_CIBLE, DRONE, MAX_SUMMONS_MESURE)
+
+
+def test_la_face_prediction_lit_les_traits_du_UnitContext_pas_la_borne_statique():
+    """SECOND VOLET, CONFRONTE AU SITE. `Steppable` passait par `entity_trait_names(None, visualId)`
+    -- la BORNE STATIQUE (kit gameconfig + alliance), aveugle a tout trait ACCORDE EN BATAILLE et a
+    la mesure live `combatSnapshot.units[].traits`. Or `entity_trait_names` documente que
+    `Scene.ctx(uid)` est LE MEME objet que le `StatsComponent.ctx` que lit la face RUNNER : c'etait
+    un FORK entre les deux faces, pas une borne assumee.
+
+    LE DISCRIMINANT EST LE VERDICT DE `pick_tile_scene`, pas la valeur d'un helper : l'ennemi de
+    (4,0) est au contact de la seule candidate (3,0) ; sans `Steppable` il ARME le clamp melee
+    (`!HasSteppableUnit(adj)`) et la candidate tombe, avec `Steppable` il ne l'arme plus. La face
+    RUNNER voit le trait accorde en bataille et rend la tuile ; la face PREDICTION doit rendre LA
+    MEME chose. Sur l'arbre d'avant la tranche elle lisait le kit et rendait `None`."""
+    from engine.entities.traits.unit_trait import (UnitTrait,                # noqa: PLC0415
+                                                   entity_trait_names)
+    from engine.runner.abilities.loki.mv71 import _pick_tile                 # noqa: PLC0415
+    # Le KIT ne porte pas le trait -- sans quoi les deux canaux coincideraient et rien ne serait
+    # discrimine.
+    assert UnitTrait.Steppable.name not in entity_trait_names(None, "necroWarden")
+
+    # (a) TEMOIN, sans le trait : les DEUX faces refusent (le clamp mord).
+    assert _pick_tile(_substrat(AVEC_ENNEMI, 1), U_CASTER, U_CIBLE, DRONE,
+                      MAX_SUMMONS_MESURE) is None
+    assert _pick_pred(_substrat(AVEC_ENNEMI, 1), False) is None
+
+    # (b) trait ACCORDE EN BATAILLE : la face RUNNER le voit et rend la tuile (3,0).
+    st_run = _substrat(AVEC_ENNEMI, 1)
+    from engine.runner.components import StatsComponent                      # noqa: PLC0415
+    sc = st_run.get_entity(U_ENNEMI).get_component(StatsComponent)
+    sc.ctx.traits = list(sc.ctx.traits or ()) + [UnitTrait.Steppable.name]
+    tid_runner = _pick_tile(st_run, U_CASTER, U_CIBLE, DRONE, MAX_SUMMONS_MESURE)
+    assert tid_runner == _tid(3, 0), tid_runner
+
+    # (c) ... et la face PREDICTION doit rendre LA MEME tuile. C'est ici que le fork se voyait.
+    pos_pred = _pick_pred(_substrat(AVEC_ENNEMI, 1), True)
+    assert pos_pred is not None, (
+        "la face PREDICTION ne voit pas le trait accorde en bataille : elle lit encore la BORNE "
+        "STATIQUE `entity_trait_names(None, visualId)`")
+    assert tuple(pos_pred) == (3, 0), pos_pred
