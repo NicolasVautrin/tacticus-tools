@@ -4,7 +4,7 @@
  *  INCHANGEE (memes noms ctx.rpc.*), agregee par registerView (rpc-view.ts). */
 import {
     class_get_fields, class_get_name, class_get_namespace, field_get_name, field_get_offset,
-    field_get_type, findClass, findClassAnywhere, findMethod,
+    field_get_type, fieldOffsetOr, findClass, findClassAnywhere, findMethod,
     findMethodByParamClasses, findMethodByParamCount, getFieldOffset, readIl2cppString, s,
     type_get_class_or_element_class,
 } from "../../il2cpp/helpers.js";
@@ -259,6 +259,168 @@ function readConnectivity(entityPtr: NativePointer):
     return out;
 }
 
+// --- #175-r : PORTES ---------------------------------------------------------------------
+// Deux composants, tous deux portés par des entités TUILE (mesuré sur le board `C6_09`, qui
+// porte 3 portes) :
+//   `IdunBattle.Entities.Components.DoorComponent`           : ActivationTiles(List<BEntityId>)
+//                                                              @+0x10 · IsOpen(bool) @+0x18
+//   `IdunBattle.Entities.Components.DoorActivationComponent`  : DoorTileId(BEntityId) @+0x10
+// Le prédicat des deux feuilles est `!DoorComponent.IsOpen` de la porte DÉSIGNÉE par la tuile
+// d'activation — cf. la note de `tileMeta`. Offsets résolus PAR NOM (`fieldOffsetOr`), repli
+// sur le décompilé.
+const doorComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "DoorComponent");
+const doorActivationComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "DoorActivationComponent");
+const DOOR_ACTIVATION_TILES_OFF = doorComponentClass
+    ? fieldOffsetOr(doorComponentClass, "ActivationTiles", 0x10) : 0x10;
+const DOOR_IS_OPEN_OFF = doorComponentClass
+    ? fieldOffsetOr(doorComponentClass, "IsOpen", 0x18) : 0x18;
+const DOOR_TILE_ID_OFF = doorActivationComponentClass
+    ? fieldOffsetOr(doorActivationComponentClass, "DoorTileId", 0x10) : 0x10;
+
+export interface TileDoorInfo {
+    /** La tuile PORTE elle-même (elle porte le `DoorComponent`). */
+    isDoor: boolean;
+    /** `DoorComponent.IsOpen` — de CETTE tuile si c'est une porte, sinon de la porte
+     *  désignée par `DoorActivationComponent.DoorTileId`. `null` = non lisible. */
+    isOpen: boolean | null;
+    /** La tuile est une tuile d'ACTIVATION (elle porte le `DoorActivationComponent`). */
+    isActivationTile: boolean;
+    /** Entity id de la tuile-porte désignée (tuile d'activation), sinon `null`. */
+    doorTileId: number | null;
+    /** Hex de cette tuile-porte, `null` si l'entité n'est pas une tuile projetée. */
+    doorTile: { col: number; row: number } | null;
+    /** Hex des tuiles d'activation (tuile PORTE seulement). */
+    activationTiles: Array<{ col: number; row: number }>;
+    /** Le PRÉDICAT NATIF des deux feuilles, tel quel : `isActivationTile && !isOpen`.
+     *  Publié pour que le consommateur n'ait pas à le ré-assembler — c'est exactement
+     *  ce que rend `…DoorOpeningUtility$$IsActivationTile`. `null` = non mesuré. */
+    isActivationTileOfClosedDoor: boolean | null;
+}
+
+/** Lit les `BEntityId` d'une `List<BEntityId>` (items @0x10, size @0x18, éléments dès +0x20,
+ *  stride 4). Borne haute assumée : au-delà, la liste est refusée plutôt que déréférencée. */
+function readEntityIdList(list: NativePointer, cap: number): number[] {
+    const out: number[] = [];
+    if (list.isNull()) return out;
+    try {
+        const items = list.add(LIST_ITEMS).readPointer();
+        const size = list.add(LIST_SIZE).readS32();
+        if (items.isNull() || size <= 0 || size > cap) return out;
+        for (let i = 0; i < size; i++) out.push(items.add(ARRAY_FIRST + i * 4).readS32());
+    } catch { /* liste illisible -> [] */ }
+    return out;
+}
+
+/** Map entityId de TUILE → info porte. Deux passes : d'abord les tuiles PORTE (pour connaître
+ *  leur `IsOpen`), puis les tuiles d'ACTIVATION qui les désignent. Une tuile sans aucun des
+ *  deux composants n'entre PAS dans la map (l'appelant publiera `null`). */
+function readDoorsByTile(
+    statePtr: NativePointer,
+    ptrById: Map<number, NativePointer>,
+    coordById: Map<number, { col: number; row: number }>,
+): Map<number, TileDoorInfo> {
+    const out = new Map<number, TileDoorInfo>();
+    if (!doorComponentClass && !doorActivationComponentClass) return out;
+    const isOpenByDoorTile = new Map<number, boolean>();
+    // Passe 1 — les portes.
+    forEachEntity(statePtr, (e, id, ty) => {
+        if (ty !== EntityType.Tile || !doorComponentClass) return;
+        forEachComponent(e, (comp, klass) => {
+            if (!klass.equals(doorComponentClass)) return;
+            let isOpen: boolean | null = null;
+            try { isOpen = comp.add(DOOR_IS_OPEN_OFF).readU8() !== 0; } catch { /* null */ }
+            const acts: Array<{ col: number; row: number }> = [];
+            try {
+                for (const tid of readEntityIdList(
+                    comp.add(DOOR_ACTIVATION_TILES_OFF).readPointer(), 64)) {
+                    const c = coordById.get(tid);
+                    if (c) acts.push(c);
+                }
+            } catch { /* [] */ }
+            if (isOpen !== null) isOpenByDoorTile.set(id, isOpen);
+            out.set(id, {
+                isDoor: true, isOpen, isActivationTile: false,
+                doorTileId: null, doorTile: null, activationTiles: acts,
+                // Une tuile PORTE n'est pas une tuile d'activation : le prédicat natif est faux.
+                isActivationTileOfClosedDoor: false,
+            });
+        });
+    });
+    // Passe 2 — les tuiles d'activation.
+    forEachEntity(statePtr, (e, id, ty) => {
+        if (ty !== EntityType.Tile || !doorActivationComponentClass) return;
+        forEachComponent(e, (comp, klass) => {
+            if (!klass.equals(doorActivationComponentClass)) return;
+            let doorTileId: number | null = null;
+            try { doorTileId = comp.add(DOOR_TILE_ID_OFF).readS32(); } catch { /* null */ }
+            const isOpen = (doorTileId !== null && isOpenByDoorTile.has(doorTileId))
+                ? (isOpenByDoorTile.get(doorTileId) as boolean) : null;
+            const prev = out.get(id);
+            out.set(id, {
+                isDoor: prev ? prev.isDoor : false,
+                isOpen,
+                isActivationTile: true,
+                doorTileId,
+                doorTile: (doorTileId !== null ? (coordById.get(doorTileId) ?? null) : null),
+                activationTiles: prev ? prev.activationTiles : [],
+                isActivationTileOfClosedDoor: isOpen === null ? null : !isOpen,
+            });
+        });
+    });
+    // `ptrById` n'est lu que pour attester que l'index a bien été construit par l'appelant :
+    // sans lui, un `doorTileId` qui ne résout sur AUCUNE entité serait indiscernable d'un 0.
+    for (const [id, info] of out) {
+        if (info.doorTileId !== null && info.doorTileId !== 0
+            && !ptrById.has(info.doorTileId)) {
+            out.set(id, { ...info, doorTile: null });
+        }
+    }
+    return out;
+}
+
+// --- #175-r : OCCUPANT + POWER-UP -----------------------------------------------------------
+// `UnitExtensions$$GetUnit(tile, state)` = l'unité DEBOUT sur la tuile (le natif de la feuille
+// `PowerUp(26)` n'utilise pas d'autre voie), et `UnitExtensions$$IsPowerUp(unit)` est INVOQUÉ :
+// son corps itère `StaticBattleRules.TriggeredAbility$$GetPowerUps()` et teste
+// `TriggeredAbilityComponent$$TryGetAbility` — une liste STATIQUE que le port n'a pas et qu'on
+// se garde de re-dériver.
+const getUnitOnTileMi = unitExtClass
+    ? findMethodByParamCount(unitExtClass, "GetUnit", 2) : null;
+const isPowerUpMi = unitExtClass
+    ? findMethodByParamCount(unitExtClass, "IsPowerUp", 1) : null;
+
+/** Map entityId de TUILE → { occupantId, isPowerUp }. Absente = aucun occupant.
+ *  `isPowerUp: null` = PAS MESURÉ (méthode non résolue ou invocation en erreur). */
+function readTileOccupants(
+    statePtr: NativePointer,
+    idByPtr: Map<string, number>,
+    tiles: Array<{ id: number }>,
+): Map<number, { occupantId: number | null; isPowerUp: boolean | null }> {
+    const out = new Map<number, { occupantId: number | null; isPowerUp: boolean | null }>();
+    if (!getUnitOnTileMi) return out;
+    const ptrByTileId = new Map<number, NativePointer>();
+    forEachEntity(statePtr, (e, id, ty) => {
+        if (ty === EntityType.Tile) ptrByTileId.set(id, e);
+    });
+    for (const t of tiles) {
+        const tilePtr = ptrByTileId.get(t.id);
+        if (!tilePtr) continue;
+        let unit: NativePointer;
+        try { unit = invokeMethod(getUnitOnTileMi.info, null, [tilePtr, statePtr]); }
+        catch { continue; }
+        if (unit.isNull()) continue;
+        const occupantId = idByPtr.get(unit.toString()) ?? null;
+        let isPowerUp: boolean | null = null;
+        if (isPowerUpMi) {
+            try { isPowerUp = invokeBool(isPowerUpMi, [unit]); } catch { isPowerUp = null; }
+        }
+        out.set(t.id, { occupantId, isPowerUp });
+    }
+    return out;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function registerViewBoard(ctx: Ctx): void {
     /** STATUS LÉGER pour le long-poll de hand-off self-play : lit SEULEMENT
@@ -492,6 +654,27 @@ export function registerViewBoard(ctx: Ctx): void {
      *  ne rend que col/row ; ce RPC projette TOUTES les tiles (TileComponent) avec
      *  leur élévation/terrain. L'occupant steppable se dérive côté moteur via les
      *  positions des summons (decisionView). Read-only.
+     *
+     *  #175-r — PORTE et OCCUPANT-POWERUP, les deux derniers sujets du `BLOCAGE: capteur`.
+     *  Les deux feuilles restantes lisent des composants qu'AUCUN RPC ne remontait :
+     *
+     *  - `SummonDislikeDoorOpening(29)` / `HeroLikeDoorOpening(30)` :
+     *    `IdunBattle.AI.Utilities.SummonDislikeDoorOpeningUtility$$IsActivationTile` et
+     *    `IdunBattle.AI.Utilities.HeroDoorOpeningUtility$$IsActivationTile` ont le MÊME corps,
+     *    lu à l'octet — `TryGetComponent<DoorActivationComponent>(tile)` puis
+     *    `state.GetEntity(DoorActivationComponent.DoorTileId @+0x10)` puis
+     *    `TryGetComponent<DoorComponent>(porte)` et le prédicat est
+     *    **`DoorComponent.IsOpen @+0x18 == 0`** — donc « tuile d'activation d'une porte FERMÉE ».
+     *    Ni la relation activation→porte ni l'état ouvert/fermé n'étaient lisibles.
+     *  - `PowerUp(26)` : `IdunBattle.AI.Utilities.PowerUpTileUtility.u003CEvaluateMovementInSteps
+     *    u003Ed__2$$MoveNext` fait `UnitExtensions.GetUnit(case.MovementTile.MainTile, state)`
+     *    puis `UnitExtensions.IsPowerUp(occupant)`. Ce dernier n'est PAS un trait : il itère
+     *    `StaticBattleRules.TriggeredAbility$$GetPowerUps()` et teste
+     *    `TriggeredAbilityComponent$$TryGetAbility` — donc INVOQUÉ, jamais re-dérivé.
+     *
+     *  `roomTileType` (`TileComponent+0x44`, 0=Floor/1=Wall/2=Door) et `isInFog` (`+0x40`)
+     *  étaient déjà PROJETÉS par `projectMatchState` et simplement pas publiés ici.
+     *  Tri-état : `null` = PAS MESURÉ (classe/méthode non résolue), jamais rabattu sur `false`.
      *  `includeInactive` publie AUSSI les effets de tuile posés-mais-INACTIFS, avec
      *  leur flag `active` (défaut FAUX = comportement historique, que tous les
      *  consommateurs actuels supposent) — strict pendant de `decisionView`, même
@@ -523,11 +706,34 @@ export function registerViewBoard(ctx: Ctx): void {
         // Clé = entity id de la tuile ; on joint sur t.id de la projection.
         const includeInactive = body?.includeInactive === true;
         const effectsByTile = readEffectsByTile(statePtr, { includeInactive });
+        // --- #175-r : porte + occupant, lus sur les composants NATIFS -------------------
+        // Index (ptr -> entityId) et (entityId -> coord) : le premier pour re-identifier
+        // l'occupant rendu par `GetUnit`, le second pour nommer la tuile-porte en hex.
+        const idByPtr = new Map<string, number>();
+        const ptrById = new Map<number, NativePointer>();
+        forEachEntity(statePtr, (e, id) => {
+            idByPtr.set(e.toString(), id); ptrById.set(id, e);
+        });
+        const coordById = new Map<number, { col: number; row: number }>();
+        for (const t of (proj.tiles ?? [])) coordById.set(t.id, { col: t.col, row: t.row });
+        const doorInfoByTile = readDoorsByTile(statePtr, ptrById, coordById);
+        const occupantByTile = readTileOccupants(statePtr, idByPtr, proj.tiles ?? []);
         const tiles = (proj.tiles ?? []).map((t) => {
             const effs = effectsByTile.get(t.id) ?? [];
+            const door = doorInfoByTile.get(t.id) ?? null;
+            const occ = occupantByTile.get(t.id) ?? null;
             return {
                 col: t.col, row: t.row, elevation: t.elevation,
                 isWall: t.isWall, isTemporary: t.isTemporary, isTerritory: t.isTerritory,
+                // #175-r — déjà projetés par `projectMatchState`, jamais publiés ici.
+                isInFog: t.isInFog, roomTileType: t.roomTileType,
+                // #175-r — `door` : `null` = ni porte ni tuile d'activation (mesure FAITE) ;
+                // `doorMeasured: false` = les classes natives ne sont pas résolues.
+                door,
+                // #175-r — occupant : `occupantId` = `UnitExtensions$$GetUnit(tile, state)`,
+                // `occupantIsPowerUp` = `UnitExtensions$$IsPowerUp` INVOQUÉ (tri-état).
+                occupantId: occ ? occ.occupantId : null,
+                occupantIsPowerUp: occ ? occ.isPowerUp : null,
                 // effects: liste des effets de statut sur la tuile (name = clé de poids
                 // Default.TileEffects ; effectType/source pour le multiplicateur natif).
                 // `active` n'est publié que sous `includeInactive` — sinon il vaut toujours
@@ -539,7 +745,17 @@ export function registerViewBoard(ctx: Ctx): void {
                 })),
             };
         });
-        return { ok: true, runner: label, tileCount: tiles.length, tiles };
+        return {
+            ok: true, runner: label, tileCount: tiles.length, tiles,
+            // #175-r — CE QUE LES CAPTEURS ONT RÉSOLU. Sans ce bloc, un `door: null` sur
+            // TOUTES les tuiles se lit « ce board n'a pas de porte » alors qu'il peut vouloir
+            // dire « la classe `DoorComponent` n'est pas résolue ». Même règle que
+            // `abilityStateLayout` de `decisionView` : le lecteur ne DEVINE pas.
+            doorMeasured: doorComponentClass !== null
+                && doorActivationComponentClass !== null,
+            occupantMeasured: getUnitOnTileMi !== null,
+            powerUpMeasured: isPowerUpMi !== null,
+        };
     });
 
     /** GRAPHE DE BOARD STATIQUE — adjacence hex RÉELLE + walkable + élévation,
