@@ -175,18 +175,51 @@ def _weapon(visual):
     return unit_weapon_range(visual, None)
 
 
+def _porteur_du_masque(ability_id):
+    """La SOURCE reellement consultee par `targeting_options_for`, en (nom, lire, ecrire).
+
+    ⚠ IL Y EN A DEUX, DISJOINTES PAR CONTRAT : la CLASSE du registre COMBAT d'abord, la table
+    `TARGETING_OPTIONS_UNPORTED` ensuite. Indexer la table en dur ne marche que tant que l'ability
+    n'est pas portee -- et le jour ou elle l'est, son entree DOIT en sortir. Ce probe est tombe en
+    `KeyError: 1069` le 2026-08-07, quand #491 a porte `SeekerMissileFrequencyLock` : son cobaye
+    etait fige (`WALK_ABILITY`) dans une table qui RETRECIT a chaque port, donc sa peremption etait
+    programmee. Meme vice que le cobaye de `test_override_range_wins_over_config`, et surtout :
+    RIEN ne l'a fait rougir au merge, parce qu'un probe n'est joue par aucune passe de tests.
+
+    Rend `None` si l'ability n'a de masque NULLE PART -- l'appelant doit alors NOMMER
+    l'impossibilite, jamais fabriquer un zero.
+    """
+    import engine.runner.abilities.targeting as T
+    from engine.runner.abilities.handler import ABILITY_CLASSES
+    aid = int(ability_id)
+    klass = ABILITY_CLASSES.get(aid)
+    if klass is not None and getattr(klass, "TARGETING_OPTIONS", None) is not None:
+        return ("classe",
+                lambda: klass.TARGETING_OPTIONS,
+                lambda v: setattr(klass, "TARGETING_OPTIONS", v))
+    if aid in T.TARGETING_OPTIONS_UNPORTED:
+        return ("table",
+                lambda: T.TARGETING_OPTIONS_UNPORTED[aid],
+                lambda v: T.TARGETING_OPTIONS_UNPORTED.__setitem__(aid, v))
+    return None
+
+
 def _reach_with(visual, ability_id, substitute):
     """`unit_threat_reach` sous un substrat donne (`None` = le substrat courant)."""
-    import engine.runner.abilities.targeting as T
     from engine.services import ability_range as AR
-    prev = T.TARGETING_OPTIONS_UNPORTED[ability_id]
+    porteur = _porteur_du_masque(ability_id)
+    if porteur is None:
+        raise KeyError("ability %d n'a de masque NI en classe NI en table -- ce montage a perdu "
+                       "son substrat" % int(ability_id))
+    _nom, lire, ecrire = porteur
+    prev = lire()
     try:
         if substitute is not None:
-            T.TARGETING_OPTIONS_UNPORTED[ability_id] = substitute
+            ecrire(substitute)
         AR._REACH_CACHE.clear()
         return AR.unit_threat_reach(visual)
     finally:
-        T.TARGETING_OPTIONS_UNPORTED[ability_id] = prev
+        ecrire(prev)
         AR._REACH_CACHE.clear()
 
 
@@ -232,12 +265,22 @@ def _measure(sid, board, caster, ability_id, p_units, a_units):
         # l'entree simulerait une ability sans portee, qui ne verse rien -- un autre regime, et la
         # mesure ne dirait alors rien du masque. On remet donc EXACTEMENT le substrat d'avant :
         # le `TargetingRange` de la table supprimee, et `rules = None` (la convention permissive).
-        prev = T.TARGETING_OPTIONS_UNPORTED[ability_id]
+        # Le substrat se patche sur la source REELLEMENT consultee -- cf. `_porteur_du_masque`.
+        # Patcher la classe plutot que re-deriver le cobaye preserve la MESURE et l'appariement
+        # avec `WALK_CASTER` / `WALK_BOARD`, qui sont un montage crafte.
+        porteur = _porteur_du_masque(ability_id)
+        if porteur is None:
+            # On ne fabrique pas un zero -- on NOMME l'impossibilite (meme discipline de tri-etat
+            # qu'ailleurs dans ce probe).
+            return {"error": "ability %d n'a de masque NI en classe NI en table -- ce montage a "
+                             "perdu son substrat, pas sa raison d'etre" % int(ability_id)}
+        _nom, _lire, _ecrire = porteur
+        prev = _lire()
         try:
-            T.TARGETING_OPTIONS_UNPORTED[ability_id] = _RangeOnly(prev.range)
+            _ecrire(_RangeOnly(prev.range))
             before = _zone()
         finally:
-            T.TARGETING_OPTIONS_UNPORTED[ability_id] = prev
+            _ecrire(prev)
             AR._REACH_CACHE.clear()
 
         native &= set(allp)
