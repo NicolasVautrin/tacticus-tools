@@ -1,17 +1,27 @@
 # Case study #72 : `OnMeltaDamageAbility` (+50% vs Vehicle) est DEAD CODE dans le build gqfc5mff6c
 
-> ⚠ **LA RACINE DE CE VERDICT EST FALSIFIÉE SUR `rnca9r7q6c`** (mesuré #519, 2026-08-07). Le
-> verdict ci-dessous repose entièrement sur « `OnMeltaDamageAbility` n'override PAS `CreateTrigger` »
-> (§ *LA RACINE*). Or `data/symbols/rnca9r7q6c/ghidra/functions.tsv` **porte** le symbole
-> `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnMeltaDamageAbility$$CreateTrigger`, corps
-> `return DSLTriggers.On(0x19 MatchInit, true)`, alors que `data/symbols/gqfc5mff6c/…` ne le porte
-> pas. `$$CreateBehaviour` est inchangé.
+> ⛔ **CE VERDICT NE VAUT QUE POUR `gqfc5mff6c`. IL EST FAUX SUR `rnca9r7q6c`, ET SA RACINE AUSSI.**
+> Tranché par #488-r1 (2026-08-07), après que #519 eut falsifié la racine au décompilé.
 >
-> **Ce document reste tel quel** : il décrit fidèlement `gqfc5mff6c`, et le réécrire falsifierait
-> la mesure. Ce qu'il ne peut plus servir, c'est de justification au non-port sur le build courant.
-> Deux réserves restent à lever avant tout port (corps vraisemblablement **dédupliqué** — 8 xrefs
-> contre 2 chez les jumeaux ; et **aucun `Melta_ExtraDmg` observé live** au début de match sur ce
-> build) : `docs/rl/case-519-peremption-des-citations.md` §5, résidu `#488-r1`.
+> Sur le build courant, `1211 OnMeltaDamageAbility` est **VIVANTE** et le +50 % vs `Vehicle`
+> **s'applique**, en prédiction ET en combat. Le port le porte désormais
+> (`MeltaExtraDmgEffect`, `MATCH_WIDE_EFFECTS`). Détail, mesures et méthode :
+> **`docs/rl/case-488-r1-onmelta-vivant-ou-mort.md`**.
+>
+> **Les deux raisonnements ci-dessous sont des ANTI-PATRONS, et c'est à ce titre qu'on les garde :**
+>
+> 1. **« Le symbole n'est pas dans la table ⇒ pas d'override »** (§ *LA RACINE*). Les tables sont
+>    indexées par ADRESSE et IL2CPP déduplique les corps triviaux : `On(MatchInit, true)` est
+>    partagé, et son adresse porte **8** xrefs DATA contre 2 chez les jumeaux. Seul le **slot de
+>    vtable de l'INSTANCE** tranche (RPC `resolveMethodPtr` — profondeur 0). L'absence ne prouvait
+>    rien ; sa présence sur le build suivant non plus.
+> 2. **« Aucun effet observé ⇒ rien n'est posé »** (§ *Confirmation LIVE*). Le canal employé,
+>    `decisionView.effects`, est une vue **PAR UNITÉ**. Or `$$CreateBehaviour` pose l'effet sur
+>    `First(AllTiles(), 1)` — **une TUILE**. Le bon canal est `tileMeta` ; il y montre
+>    `Melta_ExtraDmg` sur la tuile `(0,0)`. L'absence d'un événement ne prouve rien.
+>
+> Le texte d'origine est conservé **intégralement** : il décrit fidèlement `gqfc5mff6c`, et le
+> réécrire falsifierait la mesure.
 
 ## Contexte / mandat
 

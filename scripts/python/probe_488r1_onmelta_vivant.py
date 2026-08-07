@@ -262,6 +262,52 @@ def etape_morsure(runner_id, attaquant, cibles, tuiles):
     return table
 
 
+# --- MONTAGE, expose pour que le test GARDE la meme implementation que ce probe -----------------
+#
+# Le regime DISCRIMINANT, et chacun de ses termes est un choix MESURE :
+#  * l'attaquant est pose en (4,0) et la cible en (2,0) -> distance 2 = portee RANGED. A distance 1
+#    le natif prend l'arme de MELEE, dont le profil n'est PAS `Melta` : le gate
+#    `DamageProfileHasTrait(OnMelta)` tombe et le bonus disparait -- mesure, pas hypothese.
+#  * (4,0) ne porte PAS l'effet (il est sur (0,0)) : c'est VOULU. Le bonus mord depuis n'importe
+#    quelle tuile, et le montrer depuis une tuile NON porteuse est ce qui etablit qu'il ne depend
+#    pas de la position -- une mesure faite sur (0,0) seule serait ambigue.
+#  * `--armor-target 2000` EGALISE l'armure des trois cibles : sans lui, le rapport Vehicle /
+#    non-Vehicle melangerait le +50 % Melta et un ecart d'armure.
+#  * `--crit "0,0" --block-target "0,0"` : le canal aleatoire est eteint, la bande predite est
+#    deterministe.
+#  * PV a 400000 : sans quoi la borne haute est CLAMPEE aux PV de la cible et le rapport 1,5
+#    devient illisible (mesure : [9014-9537] au lieu de [9014-13520]).
+CASTER = "tauShadowsun"        # profil d'arme RANGED `Melta` (gameconfig, `weapons[].DamageProfile`)
+CIBLE_VEHICLE = "admecDestroyer"                     # UnitTrait.Vehicle -- le gate doit MORDRE
+CIBLES_TEMOIN = ("orksNob", "adeptCanoness")         # sans `Vehicle` -- le gate doit rester MUET
+BOARD = "MC1_67"
+CASTER_POS = "4,0"
+CIBLE_POS = "2,0"
+
+
+def build_extra(cible: str) -> list:
+    """Args `rl_duel build` du regime discriminant (cf. l'encadre)."""
+    return ["--p-units", CASTER, "--a-units", cible,
+            "--place", "%s:%s" % (CASTER, CASTER_POS),
+            "--a-place", "%s:%s" % (cible, CIBLE_POS),
+            "--unit-stat", "%s:Health=400000,RemainingHealth=400000" % cible,
+            "--armor-target", "2000", "--crit", "0,0", "--block-target", "0,0", "--no-ai"]
+
+
+def bandes(rpc1, rid, aid, tid):
+    """`(port, natif)` -- la bande de degat predite, bornes comprises, sur la position COURANTE.
+
+    `natif` = `aiPredict` (`GetAllPredictions`), `port` = `make_normal_attack_predictions`. Les deux
+    lisent le MEME etat live. `rpc1(methode, corps, timeout)`."""
+    sc = _scene(rpc1, rid)
+    if sc is None:
+        return None, None
+    port = _degat_port(sc, aid, tid, sc.pos(aid))
+    p = (rpc1("aiPredict", {"runnerId": rid, "unitId": aid, "targetId": tid, "fresh": True}, 60)
+         or {}).get("pred") or {}
+    return port, (int(p.get("healthDmgMin") or 0), int(p.get("healthDmgMax") or 0))
+
+
 def _scene(rpc1, rid):
     """La `Scene` de la face PREDICTION, montee comme le spine de decision (`engine.ai.context`) --
     MEME montage que `tests/engine/test_prediction_trait_gates_live.py`."""

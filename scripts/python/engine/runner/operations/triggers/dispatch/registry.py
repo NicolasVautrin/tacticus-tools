@@ -711,8 +711,16 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 #   OnToxicDamageAbility (1203) : On(0x10) & DamageProfileHasTrait(4 = OnToxic) & !TriggeringEffectIs(0x4dc)
 #                                 -> If(IsFirstHitInSeries & Maybe(chance=25), AddEffect(0x4dc))
 #
-# Le 3e membre de la famille, `OnMeltaDamageAbility` (1211), n'a PAS de `CreateTrigger` dans ce build
-# (`case-72-onmelta-dead-code.md`) : DEAD-CODE, volontairement absent de ce registre.
+# Le 3e membre de la famille, `OnMeltaDamageAbility` (1211), est absent de ce registre pour une
+# raison DIFFERENTE des deux autres -- et surtout PAS parce qu'il serait mort (#488-r1).
+# Son `CreateTrigger` EXISTE sur `rnca9r7q6c` (slot de vtable a la profondeur 0, RPC
+# `resolveMethodPtr` ; le corps est DEDUPLIQUE, donc la table seule ne tranchait pas), mais son
+# vecteur n'est pas `On(0x10 = DamageDealt)` : c'est `On(0x19 = MatchInit, true)`. Il ne pose donc
+# RIEN on-hit -- il pose, UNE FOIS au debut du match, l'effet 1297 `Melta_ExtraDmg` sur une TUILE
+# arbitraire (`AddEffect(1297, AbilityStateReference, First(AllTiles(), 1))`). Cet effet n'a aucun
+# gate de porteur : il bonifie +50 % TOUT coup de profil `Melta` porte contre une cible `Vehicle`.
+# Il est PORTE, mais par le canal du DEGAT (`MATCH_WIDE_EFFECTS`, `entities/effects/__init__.py`),
+# pas par le bus d'events -- d'ou son absence ici. Cf. `docs/rl/case-488-r1-onmelta-vivant-ou-mort.md`.
 GLOBAL_TRIGGERS: list[type[TriggeredAbility]] = [
     OnFireDamageAbility,
     OnToxicDamageAbility,
