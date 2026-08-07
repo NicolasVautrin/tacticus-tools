@@ -195,5 +195,12 @@ Les DEUX cotes frappent bien 3 cibles sur 4 (`N = 3`, `C = 4` -> `r = 3`, les 3 
 1 coup, la 4e 0) : la repartition est juste, c'est l'**ORDRE** de
 `SortUnitsByDamageUtilitySelector$$Select` qui diverge -- donc *qui* est la 4e. Reproductible par
 `probe_487_hellfyre_missile_rack.py` en replacant `orksRuntherd` a `3,5`.
-`test_doombolt_live.py` reste VERT : son montage ne produit pas de reste non nul.
-Non investigue ici (hors perimetre) ; **un numero de residu reste a demander**.
+`test_doombolt_live.py` reste VERT : son montage produit BIEN un reste non nul (`N = 3` sur 4
+cibles) mais sur la SEULE geometrie ou les deux cotes tombent d'accord.
+
+⚠ **INSTRUIT DEPUIS** (#494, `case-494-doombolt-ordre-des-cibles.md`) : l'ecart tient a DEUX causes
+que ce montage MELANGE. `orksBigMek` porte le trait `Mechanic` et pose un `statDelta
+{fixedArmor: +1197}` sur ses voisins -- le DEPLACER change l'armure des autres, donc ce roster ne
+peut pas servir d'A/B de position. Sur un roster de N `orksNob` IDENTIQUES, l'ecart residuel est un
+TIE-BREAK : `sorted(by id)` cote port contre l'enumeration de tuiles `cube-lex (x,y)` rotee d'un
+cran cote natif. Residu **`#494-r1`** ; rejouer `probe_494_doombolt_sort_order.py`.

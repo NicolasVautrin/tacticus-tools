@@ -26,6 +26,16 @@ CE QUE CE TEST VALIDE (cas DISCRIMINANTS ; montage = la fixture NOMMEE `psychic_
   (C) DISCRIMINANCE : un port DELIBEREMENT FAUX (famille ABILITY, 1 tirage/coup au lieu des 2 de la
       famille ATTACK a cc=0) DIVERGE du live sur le meme etat et le meme `state.rng`.
 
+CE QUE CE TEST NE VOIT PAS, ET POURQUOI (#494 / residu `#494-r1`) : il confronte l'ORDRE, mais sur
+la SEULE geometrie de `db-4`, ou le port et le natif tombent d'accord. Deplacer les cibles suffit a
+les separer -- mesure du 2026-08-07, 7 geometries, `probe_494_doombolt_sort_order.py` : a utilite
+EGALE le port classe par `id` croissant (`sort_units_by_damage_utility`) la ou le natif rend
+l'enumeration de tuiles `cube-lex (x,y)` ROTEE d'un cran ; et l'ARMURE de la cible, que
+`_target_utility` met a zero, entre dans le classement natif (c'est `#527-r1`, confirme la sur une
+seconde ability). Les deux causes vivent dans `engine/runner/operations/damage_utility.py`. Ce
+fichier n'est donc PAS un garde de l'etage TRI -- il garde la REPARTITION, le plancher de coups et
+la famille d'attaque. Detail : `docs/rl/case-494-doombolt-ordre-des-cibles.md`.
+
 Lit l'etat LIVE (aucune tuile/valeur hardcodee), state-file UNIQUE, dispose au teardown (le probe
 s'en charge). ASCII only.
 """
