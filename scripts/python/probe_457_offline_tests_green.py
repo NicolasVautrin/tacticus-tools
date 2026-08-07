@@ -271,6 +271,11 @@ if str(_PYDIR_POUR_IMPORT) not in sys.path:
     sys.path.insert(0, str(_PYDIR_POUR_IMPORT))
 
 import declencheur_cliquet                                                  # noqa: E402
+# LE FOYER DU RECENSEMENT OFFLINE (#463-r1) : `TESTS_DIR`, la convention de collecte et le filtre
+# `_live.py` y vivent, parce que TROIS outils les derivaient separement. Le module est LEGER
+# (`json`/`ast`/`tokenize`) et n'importe RIEN d'ici -- l'arete est a sens unique, donc pas de
+# cycle. Forme B (liaison de module) : cf. la regle d'import du depot.
+import probe_463r1_ecart_empreinte_offline as ecart_empreinte               # noqa: E402
 import repo_read                                                            # noqa: E402
 
 #: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
@@ -313,16 +318,17 @@ LIVE_FIXTURE_ROOT = "host"
 #: Mesure du 2026-08-02 : 496 fichiers avec `**`, 519 sans, soit 23 invisibles, dont 21 que AUCUNE
 #: entree de la banque ne jouait (les 2 autres etant nommes a la main par `pytest_signatures` et
 #: `pytest_attestations`). C'est le vice de #458 (`Path.match` n'etend pas `**`) sur un autre outil.
-TESTS_DIR = "scripts/python/tests"
+#:
+#: DEPUIS #463-r1, LE CRITERE VIT DANS `probe_463r1_ecart_empreinte_offline` -- pas ici. Il etait
+#: DERIVE trois fois separement (ici, dans `loop_status.mesurer_empreinte`, et le cliquet d'ecart
+#: en aurait fait une quatrieme), et deux derivations d'un meme critere ouvrent un ecart
+#: SILENCIEUX : le capteur mesurerait alors un autre perimetre que celui que `--measure-missing`
+#: joue. Meme arbitrage que `_modules_du_graphe`, qui est le foyer unique du domaine du graphe.
+#: Les NOMS restent ici (`TESTS_DIR`, `_is_test_file`) : ce sont eux que lisent les tests de #457.
+TESTS_DIR = ecart_empreinte.TESTS_DIR
 
-
-def _is_test_file(name: str) -> bool:
-    """Convention de collecte de pytest, laissee au DEFAUT par `pytest.ini` (pas de `python_files`).
-
-    Les DEUX formes comptent. `*_test.py` n'existe pas dans le depot aujourd'hui, mais un perimetre
-    DERIVE doit couvrir ce que pytest collecte, pas ce qui se trouve exister -- sinon le prochain
-    fichier ainsi nomme rouvre exactement le trou qu'on vient de fermer."""
-    return name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
+#: La convention de collecte de pytest. Alias du foyer -- cf. `TESTS_DIR` ci-dessus.
+_is_test_file = ecart_empreinte.est_fichier_de_test
 
 _PYDIR = Path(__file__).resolve().parent
 
@@ -456,18 +462,13 @@ def candidate_files() -> list[str]:
     offline rouge. C'est le crash EXACT mesure le 2026-08-04 sur `probe_457:s3` (rc 128).
     Une liste VIDE, elle, n'est PAS une panne : c'est une reponse valide, donc un fait sur le
     depot, et le garde anti-effondrement de `main` la traite en ROUGE."""
+    #463-r1 : le FILTRE est delegue au foyer (`ecart_empreinte.perimetre_offline`), qui est une
+    # fonction PURE sur la sortie de git. L'APPEL a git reste ici, avec son `MontageImpossible` --
+    # c'est exactement ce partage qui permet a `loop_status` de partager le critere sans partager
+    # la facon d'interroger git (il a son propre cache TTL et son propre tri-etat).
     out = _git(["ls-files", TESTS_DIR],
                "impossible d'enumerer le perimetre des tests -- RIEN n'a ete mesure")
-    prefix = "scripts/python/"
-    rels = []
-    for line in out.stdout.splitlines():
-        rel = line.strip()
-        if not rel or rel.endswith("_live.py") or not rel.startswith(prefix):
-            continue
-        if not _is_test_file(rel.rsplit("/", 1)[-1]):
-            continue
-        rels.append(rel[len(prefix):])
-    return sorted(rels)
+    return ecart_empreinte.perimetre_offline(out.stdout)
 
 
 def shard_of(rel: str, total: int) -> int:

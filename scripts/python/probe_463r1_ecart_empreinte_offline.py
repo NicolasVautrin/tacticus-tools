@@ -76,10 +76,14 @@ cliquet en aurait fait une QUATRIEME. Deux derivations d'un meme critere ouvrent
 SILENCIEUX -- c'est ce que `probe_457._modules_du_graphe` documente deja pour le domaine du
 graphe. `perimetre_offline` est donc LE foyer, et ses trois lecteurs l'importent.
 
-Il reste LEGER a dessein (`json` / `ast` / `tokenize`, aucun `pytest`, aucun `repo_read`) :
-mesure du 2026-08-07, `import probe_457_offline_tests_green` coute **1,78 s**, quand
-`loop_status` court sous les 3 s du hook `Stop`. C'est ce cout-la qui interdit a `loop_status`
-d'importer le producteur, et c'est pour cela que le foyer vit ICI et non la-bas.
+Il reste LEGER a dessein (`json` / `ast` / `tokenize`, aucun `pytest`, aucun `repo_read`, et pas
+meme un import de `probe_457` -- son contrat est LU dans son source, cf. `_contrat_de_probe_457`).
+Mesure du 2026-08-07 : `import probe_457_offline_tests_green` coute **1,53 s** en process frais,
+quand `loop_status` court sous les 3 s du hook `Stop`. Ce cliquet, lui, tient en **0,5 s** de
+travail (import 0,27 s, contrat 0,015 s, empreinte 0,003 s) -- son poste dominant est le
+`git ls-files`, qui varie de 0,19 a 0,66 s selon la contention sur le `.git/` partage entre
+worktrees, donc le mur observe est de 1,3 a 2,9 s en campagne. C'est le cout de `probe_457` qui
+interdit a `loop_status` d'importer le producteur, et c'est pour cela que le foyer vit ICI.
 
 Usage :
     python probe_463r1_ecart_empreinte_offline.py
@@ -89,13 +93,16 @@ ASCII only (console Windows cp1252).
 """
 from __future__ import annotations
 
-import argparse
-import ast
 import json
 import subprocess
 import sys
-import tokenize
 from pathlib import Path
+
+# `ast`, `tokenize` et `argparse` sont importes PARESSEUSEMENT (34 ms mesures a eux trois) : ils
+# ne servent QU'aux indices et au CLI, jamais au recensement. Or `loop_status` importe ce module
+# et court sous les 3 s du hook `Stop`, budget deja serre (`gh` y prend 2,90 s -- #467-r6). Meme
+# patron que `loop_status`, qui differe `urllib.request` pour la meme raison. `json` et
+# `subprocess`, eux, restent en tete : ils portent le recensement, et `loop_status` les a deja.
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
@@ -228,21 +235,56 @@ def lire_empreinte(racine=None) -> dict:
                                 % (EMPREINTE, type(exc).__name__, str(exc)[:120])) from exc
 
 
-def _contrat_de_probe_457() -> tuple:
-    """`(FORMAT_EMPREINTE, LIVE_FIXTURE_ROOT)`, LUS chez le producteur.
+#: Le producteur de l'empreinte, dont ce cliquet LIT le contrat (jamais ne le recopie).
+SOURCE_457 = "probe_457_offline_tests_green.py"
 
-    IMPORT DIFFERE **PORTEUR**, au sens de la regle du depot : `probe_457` importe CE module
-    (il y prend son recensement), donc l'importer ici au niveau module fermerait un cycle. Le
-    classement mecanique -- charger `probe_463r1` seul dans un process frais et regarder si
-    `probe_457_offline_tests_green` atterrit dans `sys.modules` -- rend NON, et l'arete inverse
-    existe : c'est la definition d'un differe porteur.
+#: Les deux constantes du contrat : la version de format que `probe_457` ECRIT, et la fixture
+#: RACINE du monde live dont l'indice derive la fermeture.
+CONTRAT_457 = ("FORMAT_EMPREINTE", "LIVE_FIXTURE_ROOT")
 
-    Il est aussi ce qui evite une TROISIEME recopie du format attendu : `loop_status` en porte
-    deja une, GARDEE par `test_486r15_empreinte_par_entree_offline` (elle est irreductible la-bas,
-    ou l'import coute 1,78 s ; ici il ne coute rien puisqu'on tourne deja hors du hook).
+
+def _contrat_de_probe_457(racine=None) -> tuple:
+    """`(FORMAT_EMPREINTE, LIVE_FIXTURE_ROOT)`, LUS DANS LE SOURCE du producteur.
+
+    POURQUOI PAS UN IMPORT, ALORS QUE C'EST PLUS FIDELE. Mesure du 2026-08-07 : `import
+    probe_457_offline_tests_green` coute **1,53 s** en process frais (il tire `pytest` et
+    `repo_read`), pour DEUX litteraux. Le cliquet entier tombe de **2,8 s a ~0,5 s** en le
+    retirant, et sa contre-epreuve n'a plus a recopier toute la cloture du producteur dans son
+    depot jetable. Un cliquet cher se fait desarmer -- c'est la lecon de #457-r6 et de #486-r5.
+
+    POURQUOI PAS UNE RECOPIE NON PLUS : une constante recopiee derive en silence. Ici la source
+    de verite reste le FICHIER de `probe_457` ; on en extrait la valeur par `ast`, ce qui est
+    DERIVE, pas duplique. Meme patron que `probe_467r4`, qui confronte le contrat de
+    `loop_status` au CODE SOURCE du host plutot qu'a une liste ecrite.
+
+    LA FRAGILITE EST NOMMEE, JAMAIS SILENCIEUSE : si l'une des deux cesse d'etre un litteral au
+    niveau module, l'extraction leve `MontageImpossible` (rc 99, << je n'ai pas pu lire le
+    contrat >>) au lieu de retomber sur une valeur devinee. Et
+    `test_463r1_ecart_empreinte_offline` confronte ce qui est EXTRAIT a ce que l'import REEL
+    rend -- c'est le cran qui interdit a cette lecture de mentir.
     """
-    import probe_457_offline_tests_green as P457
-    return P457.FORMAT_EMPREINTE, P457.LIVE_FIXTURE_ROOT
+    import ast
+    chemin = (Path(racine) if racine else ROOT) / PREFIXE_ROOTDIR / SOURCE_457
+    try:
+        arbre = ast.parse(chemin.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+        raise MontageImpossible("`%s` illisible (%s: %s) -- le contrat de l'empreinte n'a pas pu "
+                                "etre lu" % (SOURCE_457, type(exc).__name__,
+                                             str(exc)[:120])) from exc
+    lus: dict = {}
+    for noeud in arbre.body:
+        if not isinstance(noeud, ast.Assign) or not isinstance(noeud.value, ast.Constant):
+            continue
+        for cible in noeud.targets:
+            if isinstance(cible, ast.Name) and cible.id in CONTRAT_457:
+                lus[cible.id] = noeud.value.value
+    absentes = [n for n in CONTRAT_457 if n not in lus]
+    if absentes:
+        raise MontageImpossible(
+            "`%s` ne porte plus %s comme litteral(aux) de module -- le contrat de l'empreinte "
+            "n'est plus lisible sans importer le producteur (1,53 s). Rendre la constante "
+            "litterale, ou basculer ce cliquet sur un import." % (SOURCE_457, ", ".join(absentes)))
+    return lus["FORMAT_EMPREINTE"], lus["LIVE_FIXTURE_ROOT"]
 
 
 # ------------------------------------------------------------- L'INDICE : LU, JAMAIS COMPTE
@@ -260,6 +302,7 @@ def fixtures_live(racine=None) -> set:
     Rendre l'ensemble VIDE est possible (aucun conftest lisible) ; l'appelant le DIT alors, au
     lieu de conclure << aucun indice live >>.
     """
+    import ast
     racine = Path(racine) if racine else ROOT
     graphe: dict = {}
     for ligne in _git(["ls-files", "scripts/python"],
@@ -281,7 +324,7 @@ def fixtures_live(racine=None) -> set:
 
     # La RACINE entre TOUJOURS, meme si aucun conftest n'a pu etre lu : c'est elle que
     # `probe_457` interroge sur `item.fixturenames`, et un test peut la reclamer directement.
-    _, racine_live = _contrat_de_probe_457()
+    _, racine_live = _contrat_de_probe_457(racine)
     vivantes = {racine_live}
     change = True
     while change:
@@ -299,6 +342,7 @@ def reclamations_live(source: str, live: set) -> list:
     C'est un FAIT, pas une correspondance de texte : pytest injecte la fixture dont le nom est
     celui du parametre. `@pytest.mark.usefixtures("host")` est la seconde forme et compte pareil.
     """
+    import ast
     try:
         arbre = ast.parse(source)
     except (SyntaxError, ValueError):
@@ -331,6 +375,7 @@ def occurrences_classees(source: str, live: set) -> list:
     """
     import io
     import re
+    import tokenize
     # BORNES DE MOT dans la prose : sans elles, `host` matcherait `ghost` et `hostile`, et
     # l'indice bruiterait exactement la ou il doit rassurer. Les `NAME`, eux, sont deja des
     # jetons entiers -- l'egalite suffit.
@@ -441,7 +486,7 @@ def mesurer(racine=None) -> dict:
     """La mesure complete. Leve `MontageImpossible` si elle n'a pas pu etre CONSTITUEE."""
     perimetre = recenser(racine)
     empreinte = lire_empreinte(racine)
-    attendu, _ = _contrat_de_probe_457()
+    attendu, _ = _contrat_de_probe_457(racine)
     format_lu = empreinte.get("_format")
     entrees = (empreinte.get("par_test") or {}) if format_lu == attendu else {}
     return {"perimetre": perimetre, "format_lu": format_lu, "format_attendu": attendu,
@@ -449,6 +494,7 @@ def mesurer(racine=None) -> dict:
 
 
 def _run(argv=None) -> int:
+    import argparse
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--verbose", action="store_true",
                     help="Detaille TOUTES les occurrences classees, pas seulement les 3 "

@@ -55,6 +55,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fleet_board                                                     # noqa: E402
 import host_inputs                                                     # noqa: E402
+# LE FOYER DU RECENSEMENT OFFLINE (#463-r1). Le filtre du perimetre etait RECOPIE ici : trois
+# derivations separees du meme critere (celle-ci, `probe_457.candidate_files`, le cliquet
+# d'ecart), donc un ecart SILENCIEUX possible entre ce que ce capteur COMPTE et ce que
+# `--measure-missing` JOUE. Le module est LEGER a dessein -- `ast`/`tokenize`/`argparse` y sont
+# differes, et il n'importe NI `pytest` NI `repo_read` : mesure du 2026-08-07, l'import de
+# `probe_457` coute 1,78 s, celui-ci ~0 une fois `json`/`subprocess` deja charges.
+import probe_463r1_ecart_empreinte_offline as ecart_empreinte          # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -727,37 +734,40 @@ def mesurer_empreinte(src: Sources) -> dict:
     ferait taire l'outil sur exactement le defaut qu'il existe pour voir.
     """
     d: dict = {}
-    rc, out = src.git("ls-files", "scripts/python/tests")
+    rc, out = src.git("ls-files", ecart_empreinte.TESTS_DIR)
     if rc != 0:
-        d["couverture"] = _ko("git ls-files scripts/python/tests",
+        d["couverture"] = _ko("git ls-files " + ecart_empreinte.TESTS_DIR,
                               src.cause_git(rc, "ls-files"))
         return d
-    perimetre = sorted(
-        l.strip()[len("scripts/python/"):] for l in out.splitlines()
-        if l.strip().endswith(".py") and not l.strip().endswith("_live.py")
-        and (l.strip().rsplit("/", 1)[-1].startswith("test_")
-             or l.strip().rsplit("/", 1)[-1].endswith("_test.py")))
+    # #463-r1 : le FILTRE vient du foyer, l'APPEL a git reste ici (cache TTL + tri-etat propres a
+    # cet outil). C'est ce partage-la qui supprime la recopie sans imposer une facon d'appeler git.
+    perimetre = ecart_empreinte.perimetre_offline(out)
     if not perimetre:
         # Un depot SANS fichier de test offline ne dit RIEN sur l'empreinte : il n'y a pas de
         # couverture a mesurer. PAS MESURE, donc du CONTEXTE -- surtout pas un signal.
         # Le PERIMETRE EFFONDRE, lui, reste garde la ou il a un sens : `probe_457` rend
         # `FAIL shard VIDE`. Le dupliquer ici ferait parler cet outil dans tout depot de
         # travail jetable, et un outil qui alarme a tort se fait desarmer.
-        d["couverture"] = _ko("git ls-files scripts/python/tests",
+        d["couverture"] = _ko("git ls-files " + ecart_empreinte.TESTS_DIR,
                               "aucun fichier de test offline dans ce checkout")
         return d
     try:
-        emp = json.loads((src.repo / "scripts" / "ratchets-457-footprints.json")
-                         .read_text(encoding="utf-8"))
+        emp = json.loads((src.repo / ecart_empreinte.EMPREINTE).read_text(encoding="utf-8"))
     except (OSError, ValueError) as ex:
-        d["couverture"] = _ko("scripts/ratchets-457-footprints.json",
+        d["couverture"] = _ko(ecart_empreinte.EMPREINTE,
                               "%s: %s" % (type(ex).__name__, str(ex)[:50]))
         return d
-    entrees = emp.get("par_test") or {}
+    # #463-r1 : la VENTILATION remplace le compte d'INTERSECTION. `couverts` ne voyait qu'un sens
+    # -- une empreinte portant des entrees FANTOMES (fichier supprime, ou RENOMME en `_live.py`)
+    # affichait `N/N` et se taisait, parce qu'une intersection ne montre jamais ce qui deborde.
+    # `couverts` reste RENDU pour le libelle, mais il est DERIVE des manquants, plus recompte.
+    ecart = ecart_empreinte.ventiler(perimetre, emp.get("par_test") or {})
     d["couverture"] = _ok({"format": emp.get("_format"),
-                           "couverts": len([r for r in perimetre if r in entrees]),
-                           "perimetre": len(perimetre)},
-                          "scripts/ratchets-457-footprints.json vs git ls-files")
+                           "couverts": len(perimetre) - len(ecart["manquants"]),
+                           "perimetre": len(perimetre),
+                           "manquants": ecart["manquants"],
+                           "fantomes": ecart["fantomes"]},
+                          ecart_empreinte.EMPREINTE + " vs git ls-files")
     return d
 
 
@@ -869,11 +879,19 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
         s = ha["session"].valeur
         ctx.append("session %s %s (pid %s)" % (s.get("id"), s.get("status"), s.get("pid")))
 
-    # -- EMPREINTE de `probe_457` (#486-r15). ACTIONNABLE : la regenerer est un geste, et la
+    # -- EMPREINTE de `probe_457` (#486-r15, ventilee par #463-r1). ACTIONNABLE, et la
     #    degradation est INVISIBLE autrement -- elle ne se lit que dans une ligne de sortie du
     #    probe, que personne n'a lue pendant 3 jours et ~40 commits.
     #    HORS campagne aussi : c'est un fait sur le DEPOT, pas sur la boucle, et le silence
     #    reste tenu par le fait qu'un depot sain ne produit AUCUNE de ces lignes.
+    #
+    #    ⚠ IL NOMME LES FICHIERS ET NE TRANCHE PAS (#463-r1). Ce signal disait « regenerer :
+    #    --measure-missing », c'est-a-dire qu'il CHOISISSAIT la mesure. Le contre-cas est mesure
+    #    et date du 2026-08-07 (`40917cd0`) : le meme ecart `N-1/N` appelait la reponse INVERSE
+    #    -- un test LIVE mal nomme, a RENOMMER. L'avoir mesure aurait grave une empreinte derivee
+    #    d'un run live, donc un FAUX VERT durable. Le discriminant « ce fichier est-il offline ? »
+    #    porte sur l'INTENTION : il n'est pas mecanisable, et un capteur qui le tranche a la place
+    #    de l'humain fabrique exactement le defaut qu'il surveille.
     emp = e.get("empreinte") or {}
     cov = emp.get("couverture")
     if cov is not None and not cov.mesuree:
@@ -887,14 +905,25 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
                 "rejoue TOUT ; regenerer : cd scripts/python ; $env:TACTICUS_ALLOW_RATCHETS=1 ; "
                 "python probe_457_offline_tests_green.py --measure"
                 % (v["format"], FORMAT_EMPREINTE_ATTENDU)))
-        elif v["couverts"] < v["perimetre"]:
-            sig.append(Signal(
-                "empreinte",
-                "empreinte 457 : %d/%d fichier(s) offline mesure(s) -- les %d autres se rejouent "
-                "TOUJOURS sous `--since` ; regenerer : cd scripts/python ; "
-                "$env:TACTICUS_ALLOW_RATCHETS=1 ; python probe_457_offline_tests_green.py "
-                "--measure-missing"
-                % (v["couverts"], v["perimetre"], v["perimetre"] - v["couverts"])))
+        else:
+            if v["manquants"]:
+                sig.append(Signal(
+                    "empreinte",
+                    "empreinte 457 : %d fichier(s) offline NON MESURE(S) -- ils se rejouent "
+                    "TOUJOURS sous `--since` : %s%s. DEUX issues, a TRANCHER par un humain : "
+                    "(a) reellement offline -> le mesurer (`--measure-missing`) ; (b) il reclame "
+                    "une fixture live -> le RENOMMER en `*_live.py`. L'indice, LU dans les "
+                    "signatures : python probe_463r1_ecart_empreinte_offline.py"
+                    % (len(v["manquants"]), ", ".join(v["manquants"][:3]),
+                       "" if len(v["manquants"]) <= 3 else " (+%d)" % (len(v["manquants"]) - 3))))
+            if v["fantomes"]:
+                sig.append(Signal(
+                    "empreinte-fantome",
+                    "empreinte 457 : %d entree(s) FANTOME(S) -- mesurees, mais ABSENTES du "
+                    "perimetre offline (fichier supprime, ou RENOMME en `_live.py`) : %s%s. "
+                    "`--measure-missing` ne les purge PAS ; seul `--measure` le fait."
+                    % (len(v["fantomes"]), ", ".join(v["fantomes"][:3]),
+                       "" if len(v["fantomes"]) <= 3 else " (+%d)" % (len(v["fantomes"]) - 3))))
 
     lr = ha["live_runners"]
     if lr.mesuree and lr.valeur and not en_vol:
@@ -967,8 +996,9 @@ def rendu_complet(e: dict, sig: list[Signal], ctx: list[str]) -> str:
     cov = (e.get("empreinte") or {}).get("couverture")
     if cov is not None:
         L.append("EMPREINTE  457 : %s"
-                 % (("format %s, %d/%d fichier(s) offline mesure(s)"
-                     % (cov.valeur["format"], cov.valeur["couverts"], cov.valeur["perimetre"]))
+                 % (("format %s, %d/%d fichier(s) offline mesure(s), %d fantome(s)"
+                     % (cov.valeur["format"], cov.valeur["couverts"], cov.valeur["perimetre"],
+                        len(cov.valeur["fantomes"])))
                     if cov.mesuree else cov.txt()))
     L.append("HARNAIS    session %s ; drain %s ; liveRunners %s"
              % (("aucune" if ha["session"].valeur is None else
