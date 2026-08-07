@@ -547,6 +547,49 @@ def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
                UnitsWithoutTrait(source, int(UnitTrait.Object)))                   # 0xd
 
 
+class NormalUnits(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$NormalUnits(entities, selectionType)` -- MIRROR du
+    decompile (build `rnca9r7q6c`), qui COMPOSE trois noeuds deja portes :
+
+        u = Units(entities, unique: true, selectionType)          # UnitsOnTilesSelector
+        t = DSLTriggers.IsNormalUnit(It@0x68)                     # IsNormalUnitTrigger
+        return FromTrigger(u, t, requireContinuous: false)        # == `Filter`
+
+    Le predicat est `IdunBattle.Entities.Triggers.IsNormalUnitTrigger$$ShouldTrigger` :
+
+        e = <resolution du selecteur sur l'item courant>
+        if (e == null)                 return false;
+        if (!EntityExtensions.IsUnit(e)) return false;
+        return UnitExtensions.IsNormalUnit(e);
+
+    et `IdunBattle.Entities.UnitExtensions$$IsNormalUnit` :
+
+        if (GetBaseUnitComponent(u) != null && BaseUnitComponent.HasTrait(u, 0xd))  return false;
+        if (GetBaseUnitComponent(u) != null)  return !BaseUnitComponent.HasTrait(u, 0x1b);
+        return true;
+
+    soit `!HasTrait(Object) && !HasTrait(Steppable)` -- MEME predicat que
+    `non_steppable_or_object_units` ci-dessus, mais PAS le meme noeud natif (celui-la compose deux
+    `UnitsWithoutTrait`/`op_BitwiseAnd`, celui-ci un `FromTrigger`). On garde les deux distincts :
+    le site qui cite `NormalUnits` doit pouvoir se re-grepper contre son symbole.
+
+    Le `IsUnit` de la tete du trigger est SATISFAIT par construction : `Units(...)` ne rend que des
+    occupants d'unite. La branche « composant de base absent -> true » l'est aussi (`ctx.has_trait`
+    absent -> `False` sur les deux traits -> unite gardee), meme substrat que `UnitsWithoutTrait`.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility$$ExecuteBehaviour`
+    (`NormalUnits(AdjacentEnemies(Owner@0x30, unique: 1, selectionType: 3), selectionType: 3)` = les
+    ennemis adjacents TAUNTES -- un decoy `Steppable` ou un `Object` de plateau n'est pas taunte)."""
+    def __init__(self, entities: TargetsSelector):
+        self.entities = entities
+
+    def select(self, ctx):
+        ht = ctx.has_trait or (lambda u, t: False)
+        return [u for u in Units(self.entities).evaluate(ctx)
+                if not ht(u, int(UnitTrait.Object))          # 0xd
+                and not ht(u, int(UnitTrait.Steppable))]     # 0x1b
+
+
 def hero_units(source: TargetsSelector) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLFactory$$HeroUnits(source, mask)` — MIRROR du decompile : la factory
     native N'ALLOUE PAS de selecteur dedie, elle DELEGUE textuellement a
