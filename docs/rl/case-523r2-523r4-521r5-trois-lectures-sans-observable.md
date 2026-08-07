@@ -164,7 +164,17 @@ absent) ; la consommation du FOYER par le seul port concerné (substitution en f
 substrat commun des deux registres dans les **deux** régimes — dont celui qui discrimine, la GREFFE
 (kit gameconfig muet, canal mesuré parlant), plus le tri-état `[]` ≠ `None`.
 
-Non-régression LIVE rejouée (4 fichiers, **33 tests, 0 rouge**) :
+**VUE ROUGE** — trois mutations du SOURCE, chacune appliquée puis révoquée, sur le fichier complet :
+
+| mutation | rouges | ce qui tombe |
+|---|---|---|
+| l'accumulation retirée (`cumul = int(val)`) | **2/12** | `…ACCUMULE_au_lieu_d_ecraser` (`[1,1,1] != [1,2,3]`) et `…haywire_mine_ne_change_PAS_d_observable` |
+| la branche MV71 désarmée (retour au collapse) | **2/12** | `…branche_MV71_rend_le_PARENT` et `…parent_absent_rend_un_ensemble_VIDE` |
+| `ACTIVE_ABILITY_TRIGGERS` re-filtré sur le seul kit gameconfig | **1/12** | `…meme_substrat[True]` **seul** — le régime `[False]` reste VERT, et c'est exactement ce qu'il existe pour montrer : sans la GREFFE, les deux lectures coïncident |
+
+Restauré : **12 passed**.
+
+Non-régression LIVE rejouée (4 fichiers, **33 tests, 0 rouge**, avant ET après rebase) :
 `test_523r1_heavy_warp_flamer_tracking_live.py` (8), `test_462_r4b_..._haywire_pose_live.py` (5),
 `test_521r1_talons_used_abilities_live.py` (15), `test_589r1r1r1r1_empyric_ambush_reset_live.py` (5)
 — les deux derniers exercent les deux registres dont le substrat a changé.
