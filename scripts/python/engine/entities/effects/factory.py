@@ -37,6 +37,7 @@ from .loki.destroy_the_witch import (
     DestroyTheWitchExtraDamageEffect, DestroyTheWitchExtraMoveEffect
 )
 from .loki.empyric_ambush import EmpyricAmbushEffect
+from .loki.euphoric_strikes import EuphoricStrikesExtraCritEffect
 from .loki.extra_damage import (
     AvalancheOfMuscleExtraDamageEffect, BeaconOfRageExtraDamageEffect, BeastSlayerExtraDmgEffect,
     CondemnorStakeExtraDmgEffect, CrushingStrikeEffect, DecoysAndMisdirectionExtraDamageEffect,
@@ -923,6 +924,25 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ⚠ Config lue = l'ability ACTIVE 1232 (`mov edx, 0x4d0` + surcharge `set_ActiveAbility` de
     # `AbilityOrEffect$$op_Implicit`, relue byte a byte), PAS l'EffectType 1578.
     "EmpyricAmbush": EmpyricAmbushEffect,
+    # 1429 EuphoricStrikes_ExtraCrit (#522) : la MARQUE que `EuphoricStrikesAbility$$ExecuteBehaviour`
+    # pose sur la CIBLE de l'ability active d'`emperExultant` (« Laviscus ») -- `AddEffect(0x595,
+    # <abilityStateRef>, source = Caster@DSLSelectors+0x48, targets = Target@+0x60,
+    # turns = <DSLFormulas+0x20> = Direct(1))`, donc UN tour. UN SEUL canal (le build ne porte que
+    # `$$CreateCritChanceBonus`, `$$CreateRemoveEffectTrigger` et `$$.ctor` pour cette classe) :
+    #   `EuphoricStrikes_ExtraCritEffect$$CreateCritChanceBonus`
+    #       = ForAddition(get_OwnerIsTarget
+    #                       & AmountIsGreaterThanZero(StatAmount(Caster@+0x48, 0x9 = CritChance,
+    #                                                            0 = Current, null, 0)),
+    #                     ConfigVar(0x41 = extraCritChance))
+    # `get_OwnerIsTarget` = le PORTEUR est le DEFENSEUR (comme 1578), donc le balayage board-wide de
+    # `board_effect_carriers` est ce qui le rend atteignable ; le SUJET du second noeud est en revanche
+    # l'ATTAQUANT (`Caster@+0x48`) -- un attaquant a crit-chance nulle ne gagne RIEN.
+    # ⚠ Config lue = l'ability ACTIVE 1198 (`mov edx, 0x4ae` du `$$.ctor`, relu octet a octet), PAS
+    # l'EffectType 1429. `extraCritChance` est HORS `variablesAffectedByRarityBonus` -> pas de scaling.
+    # Le RETRAIT (`CreateRemoveEffectTrigger` = `On(9) & OwnerIsTarget | On(0) & Target ==
+    # EffectSource`) vit dans `EFFECT_TRIGGERS[1429]` : sans lui le +crit ne serait pas une CHARGE A
+    # USAGE UNIQUE mais un buff de tout le tour -- regression PERMISSIVE (forme de 1550/1000).
+    "EuphoricStrikes_ExtraCrit": EuphoricStrikesExtraCritEffect,
     # 1460 AmuletOfTheVoidwyrm_CritDamageReduction (#589-r1-r1-r2-r1) : owner-effect PERMANENT de la
     # RELIQUE `AmuletOfTheVoidwyrm`, pose a l'init par la base `IdunBattle.Entities.Abilities.
     # AOwnerEffectTriggeredAbility$$CreateBehaviour` (`If(<trig>, AddEffect(GetEffectType() = 0x5b4,

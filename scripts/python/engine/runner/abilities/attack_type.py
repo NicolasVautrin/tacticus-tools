@@ -253,6 +253,15 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # l'oeil -- le litteral dit `Others`. Contraste `1191 MartialInspiration`, du MEME module et du
     # MEME preset de `TargetingOptions`, dont le litteral vaut `0`.
     ActiveAbilityType.TalonsOfTheEmperor: AbilityAttackType.Others,  # 1195
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.EuphoricStrikesAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &preset, 0)` : 3e argument = **0 = DirectTargetAttack** (#522).
+    # Le ctor est de la forme PRESET STATIQUE COPIE (il recopie les 0x40 octets de
+    # `TargetingOptions statics+0x40` et les passe TELS QUELS, sans surcharge preset+flags --
+    # contraste avec `ThunderousAssaultAbility$$.ctor`, qui lit le MEME preset puis y OR-e
+    # `0x10000000`). Le litteral est donc lu sur l'appel, pas deduit du profil de degat.
+    # ⚠ Voisin IMMEDIAT et litteral OPPOSE : `1195` juste au-dessus vaut `Others`. Les deux sont LUS
+    # sur leur propre appel, jamais deduits du fait que ce sont deux attaques directes mono-cible.
+    ActiveAbilityType.EuphoricStrikes: AbilityAttackType.DirectTargetAttack,  # 1198
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 0, 0)` : 3e argument = 0 = DirectTargetAttack.
     ActiveAbilityType.DoomSiren: AbilityAttackType.DirectTargetAttack,  # 1199
