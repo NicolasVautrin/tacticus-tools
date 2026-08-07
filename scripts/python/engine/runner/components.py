@@ -1776,6 +1776,67 @@ def unit_has_moved(state, unit_id: int) -> bool:
     return bool(fl is not None and fl.has(UnitFlagsComponent.MOVED))
 
 
+def is_turn_of_unit(state, unit_id: int) -> Optional[bool]:
+    """`IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit(unit)` (slot **53** d'`IBattleQuery`,
+    arite **1**, LU dans `data/symbols/<build>/metadata/interface_slots.tsv`) -- MIRROR du decompile,
+    relu VERBATIM sur `rnca9r7q6c` :
+
+        entity = UnitExtensions.GetUnit(unit, state);
+        if (entity == null)  return false;
+        turn   = StateExtensions.GetMatchTurn(state);
+        owner  = EntityExtensions.GetOriginalOwnerEntity(entity, state);   // null -> NullReference
+        return TurnComponent.get_CurrentPlayerId(turn) == owner.Id;
+
+    C'est le PREFIXE de la clause 1 de `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`
+    (`CasterHasNotMoved`) : quand ce n'est PAS le tour du proprietaire d'ORIGINE, la regle est
+    ENTIEREMENT sautee, quel que soit le flag `UnitFlag.Moved`. Le meme prefixe est porte cote
+    DECISION par le champ `CasterSubstrate.is_turn_of_unit`
+    (`engine.services.ability_caster_gates`) -- deux RESTRICTIONS d'un seul natif a deux substrats,
+    la lecture etant la MEME fonction.
+
+    LE SUBSTRAT DU PORT EST EXACT, ET C'EST UNE LECTURE, PAS UNE APPROXIMATION.
+    `IdunBattle.Entities.EntityExtensions$$GetOriginalOwnerEntity` resout
+    `state.GetEntity(OwnerComponent.<PlayerEntityId @+0x10>)` -- le MEME champ `+0x10` que le hook
+    publie en `decisionView.units[].owner` (`frida/hooks/game/match-state.ts`, `ownerPlayerId: 0x10`),
+    donc `OwnerComponent.player` cote port.
+    ⚠ NE PAS le confondre avec `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer`
+    (`decisionView.units[].ctrl`), qui lit l'ACCESSEUR
+    `IdunBattle.Entities.Components.OwnerComponent$$get_CurrentPlayerEntityId` =
+    `(this+0x14 != 0) ? this+0x14 : this+0x10` : le champ `+0x14` est l'override de CONTROLE, et les
+    deux divergent sous controle mental (`1164 MindControl`, non portee).
+
+    ECART NOMME, sans substrat cote port : `TurnComponent$$get_CurrentPlayerId` deroute vers le
+    joueur TEMPORAIRE quand le `Nullable` `TurnComponent+0x28` a une valeur, sinon rend le champ brut
+    `+0x24`. `State.current_player_id` mirroir le champ BRUT (`decisionView.currentPlayer` <-
+    `TurnComponent._currentPlayerId @+0x24`) ; aucun canal ne publie `+0x28`. Meme borne que celle
+    deja nommee par `engine/streams/turn_phase.py::prepare_turn`.
+
+    TRI-ETAT, et sa DIRECTION est le livrable :
+      * `False` MESURE (proprietaire connu, joueur courant connu, differents) -> l'appelant SAUTE
+        la clause `CasterHasNotMoved`, comme le natif ;
+      * `True` MESURE -> la clause est evaluee ;
+      * `None` = **pas mesure** (`OwnerComponent` absent, `player` a `None`, ou `State` sans
+        `current_player_id` -- le cas de toute fixture construite hors `load_state`). L'appelant
+        ne doit alors PAS alleger la clause : sauter sur une non-mesure FABRIQUERAIT une
+        acceptation, alors que la garder rend exactement le verdict d'avant ce prefixe. C'est
+        l'inverse de la convention du module DECISION (`invalid_caster_reason`), et pour la raison
+        qui l'inverse : la-bas le tri-etat borne la ZONE par le HAUT, ici il garde un REFUS mesure.
+
+    `entity is None` -> `False` : mirror du `if (entity == null) return false` natif. Le verdict
+    n'a aucune portee pratique (`unit_has_moved` rend alors `False` de son cote), mais il est ecrit
+    parce que le natif l'ecrit."""
+    e = state.get_entity(unit_id) if state is not None else None
+    if e is None:
+        return False                        # `if (GetUnit(unit, state) == null) return false;`
+    oc = e.get_component(OwnerComponent)
+    if oc is None or oc.player is None:
+        return None                         # proprietaire non capte -> PAS MESURE
+    cur = getattr(state, "current_player_id", None)
+    if cur is None:
+        return None                         # `TurnComponent.CurrentPlayerId` non capte -> PAS MESURE
+    return int(oc.player) == int(cur)
+
+
 def record_tiles_moved(state, unit_id: int, tiles: int) -> int:
     """`IdunBattle.Entities.UnitExtensions$$RecordTilesMoved(unit, tiles, state)` — mirror 1:1 :
 

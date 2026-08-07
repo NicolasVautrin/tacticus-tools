@@ -67,6 +67,16 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/runner/test_287r11r1r1r2_is_turn_of_unit_offline.py": {
+   "_at": 1786125933,
+   "_commit": "fda8d98ebab75b01594c6f9e85853618b81a442f",
+   "dirs": [
+    "data/symbols/rnca9r7q6c/metadata"
+   ],
+   "temoins": [
+    "data/symbols/rnca9r7q6c/metadata/interface_slots.tsv"
+   ]
+  },
   "tests/engine/runner/test_287r12_role_target_tuile_offline.py": {
    "_at": 1786124986,
    "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",

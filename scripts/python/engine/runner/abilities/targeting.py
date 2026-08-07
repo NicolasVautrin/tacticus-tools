@@ -305,6 +305,7 @@ from ..components import UnitComponent
 from ..components import UnitFlagsComponent
 from ..components import get_unit_feet
 from ..components import has_effect_of_type
+from ..components import is_turn_of_unit   # `BattleQuery$$IsTurnOfUnit` (#287-r11-r1-r1-r2)
 from ..components import unit_has_moved
 
 if TYPE_CHECKING:
@@ -2446,6 +2447,7 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
 
         if (casterTiles == null || casterTiles.Count == 0) return false;
         if (!HasTrait(caster, 0xb) && !ignoreTrait) return false;
+        if (UnitExtensions.HasFlag(caster, 0x1c))          return false;
         foreach (tile in casterTiles)
           foreach (adj in <tuiles adjacentes de tile>)
             u = GetUnit(adj, state);
@@ -2458,7 +2460,28 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
     Offline : adjacence = `board.neighbours` (graphe evenq, la meme adjacence que tout le port),
     `HasSteppableUnit` = l'occupant porte `UnitTrait.Steppable` (0x1b),
     `CanMeleeAttackOverElevationDifference` = `|dElevation| < 2` (litteral `iVar1 < 2`).
-    Sans `state.board` on ne sait pas decider -> False (aucun clamp invente)."""
+    Sans `state.board` on ne sait pas decider -> False (aucun clamp invente).
+
+    LE TROISIEME GATE EST PORTE DEPUIS #287-r11-r2-r1-r2, et il etait ABSENT des DEUX mirrors.
+    `HasFlag(attacker, 0x1c)` est `UnitFlag.IngoreRangedInMelee` (**typo native**, `enums.tsv` :
+    `28=IngoreRangedInMelee`) -- l'ordinal ne se lit QUE dans cet espace de nommage : `0x1c` vaut
+    aussi `UnitTrait.Impervious` et le bit 28 de `TargetingRule` (`CasterCanMove`), qui nomment
+    autre chose. Le drapeau DISPENSE son porteur du clamp melee : sans lui le port rabattait a 1
+    une portee que le natif laisse entiere -- ecart RESTRICTIF, meme direction que celui de
+    #287-r11-r1-r1-r2.
+
+    SON UNIQUE POSEUR EST CONNU, et c'est ce qui rend CE mirror-ci le seul des deux a etre
+    exercable : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour`
+    pose le flag SUR LE DRONE juste avant son `UseActiveAbility` et le retire juste apres
+    (balayage exhaustif des deux voies d'ecriture de flag -- 25 appelants de
+    `UnitFlagsComponent$$Add`, 10 de `IdunBattleLogic.Entities.DSLBehaviors$$AddFlag`). Cette
+    fonction-ci recoit le CASTER, donc elle voit le flag quand le caster EST le drone -- ce qui est
+    exactement le regime de son attaque d'ouverture. (Le mirror jumeau de `mv71.py` recoit le
+    `parent` : le gate y est inerte par construction.)
+    Le canal existe et il est COMPLET : `combatSnapshot.units[].unitFlags` publie le resultat de
+    `IdunBattle.Entities.UnitExtensions$$HasFlag` pour **chaque valeur** de l'enum lue au runtime
+    (`internals.ts::unitFlagValues`), et `snapshot._load_unit_flags` seede tout ce qu'il recoit --
+    donc ce gate MORD des qu'un etat charge porte le drapeau, sans capteur neuf."""
     board = state.board
     if board is None:
         return False
@@ -2471,6 +2494,11 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
     caster = state.get_entity(int(caster_id))
     c_owner = caster.get_component(OwnerComponent) if caster is not None else None
     if c_owner is None:
+        return False
+    # `if (UnitExtensions.HasFlag(attacker, 0x1c)) return false;` -- AVANT la boucle, comme le
+    # natif : le drapeau court-circuite, il ne filtre pas les voisins.
+    c_flags = caster.get_component(UnitFlagsComponent) if caster is not None else None
+    if c_flags is not None and c_flags.has(UnitFlag.IngoreRangedInMelee):
         return False
     src_elev = board.elevation(src_tid)
     neigh = set(board.neighbours(src_tid))
@@ -3324,13 +3352,23 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
 
     Il est PORTE cote DECISION (`engine.services.ability_caster_gates`, champ
     `CasterSubstrate.is_turn_of_unit`, mesure #433-r4-r2-r1-r2-r2-r1-r1-r1-r4 : 11 paires sur 42
-    ou le natif ACCEPTE une unite qui a bouge parce que ce n'est pas son tour). Il ne l'est PAS
-    ici : sur le chemin `ExecuteInternal` le caster est le joueur courant, donc le prefixe y est
-    vrai par construction -- mais les DEUX autres appelants du port (`turnflow`, `handler`)
-    interrogent des unites quelconques, ou l'omission rend le port RESTRICTIF. ECART NOMME, non
-    porte par cette tranche (residu `#287-r11-r1-r1-r2`), et la MESURE live le montre arme pour une
-    unite de roster (probe `probe_115_ability_reason.py` : apres un `move`, le natif rend
-    `casterReason = {hex: 0x10, reasons: ["CasterHasNotMoved"]}`).
+    ou le natif ACCEPTE une unite qui a bouge parce que ce n'est pas son tour), ET **ICI DEPUIS
+    #287-r11-r1-r1-r2** -- foyer `engine.runner.components.is_turn_of_unit`, qui lit
+    `OwnerComponent.<PlayerEntityId @+0x10>` (le proprietaire d'ORIGINE, celui que
+    `EntityExtensions$$GetOriginalOwnerEntity` resout) contre `State.current_player_id`.
+
+    ⚠ L'OMISSION ETAIT RESTRICTIVE, ET SON REGIME D'INERTIE EST NOMME. Sur le chemin du CAST
+    (`ActiveAbilityOperation$$ExecuteInternal` -> `handler.py`) le caster est le joueur courant,
+    donc le prefixe y est vrai par construction et le prefixe est INERTE. Il MORD des que le port
+    interroge une unite dont ce n'est pas le tour : c'est le regime de l'ORACLE `abilityReason`,
+    que `AttackQuery$$GetInvalidCasterReason` evalue pour n'importe quelle unite des deux camps --
+    et le flag `UnitFlag.Moved` SURVIT a la fin du tour (`RemoveTurnFlags` est purge par le
+    `StartTurnOperation` du JOUEUR ENTRANT, pas globalement), donc une unite qui a bouge puis passe
+    la main porte encore le flag pendant tout le tour adverse. Sans le prefixe, le port rendait
+    `CasterHasNotMoved` la ou le natif rend `0`. MESURE (#287-r11-r1-r1-r2, probe
+    `probe_287r11r1r1r2_is_turn_of_unit.py`, board `MC1_67`) : ventilation non degeneree, natif
+    `0x0` / port AVANT `0x10` / port APRES `0x0` sur le bras hors-tour, les deux d'accord a `0x10`
+    sur le bras EN-TOUR.
 
     ORDRE NATIF de la cascade CASTER, relu en entier (#250) -- il fixe la RAISON rendue quand
     plusieurs regles sont rompues :
@@ -3398,8 +3436,14 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     if options is None:
         return 0
     if options.has(TR.CasterHasNotMoved):
-        if unit_has_moved(state, int(caster_id)):
-            return int(TR.CasterHasNotMoved)
+        # LE PREFIXE `<slot 0x35>` = `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit(caster)`,
+        # PORTE PAR #287-r11-r1-r1-r2 (foyer `runner.components.is_turn_of_unit`). Ce n'est pas le
+        # tour du proprietaire d'ORIGINE -> le natif SAUTE la clause entiere, flag `Moved` compris.
+        # Seul un `False` MESURE allege : `None` = substrat non capte, et sauter sur une non-mesure
+        # fabriquerait une acceptation (cf. le tri-etat du foyer).
+        if is_turn_of_unit(state, int(caster_id)) is not False:
+            if unit_has_moved(state, int(caster_id)):
+                return int(TR.CasterHasNotMoved)
     # CLAUSE TUILE-NULLE (4a) -- placee ici, au rang NATIF : APRES `CasterHasNotMoved`, AVANT
     # `CasterMatchesDynamicRule`. L'ordre n'est pas cosmetique, c'est lui qui fixe la RAISON rendue :
     # une unite sous terre rompt CETTE regle et non la regle-delegue de son ability (cf. la section

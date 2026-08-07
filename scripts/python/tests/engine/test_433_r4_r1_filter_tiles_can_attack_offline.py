@@ -284,6 +284,16 @@ class _StubScene:
     def team(self, uid):
         return (self._u.get(uid) or {}).get("team")
 
+    def ctx(self, uid):
+        """`Scene.ctx(uid)` -- le `UnitContext` de l'unite (`ctx_by_id`).
+
+        AJOUTE PAR #287-r11-r2-r1-r2 : `pick_tile_scene` lit desormais les traits par cette voie
+        (le MEME objet que le `StatsComponent.ctx` de la face runner) au lieu de la borne STATIQUE
+        `entity_trait_names(None, visualId)`. Ce stub n'a pas de contexte a offrir -> `None`, ce
+        que `entity_trait_names` traite exactement comme avant (repli sur la borne statique) : le
+        montage de CE fichier est donc inchange."""
+        return None
+
 
 def _scene_pick(drone_pos, enemy_pos=None):
     """Montage du REPLI de `PickTile` : cap atteint (3 drones), plateau entierement occupe.
