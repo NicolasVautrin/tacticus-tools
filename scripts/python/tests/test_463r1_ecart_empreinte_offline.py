@@ -52,6 +52,8 @@ DECLENCHEUR = {
         # l'etage 7 confronte a l'arbre reel.
         "scripts/python/probe_463r1_ecart_empreinte_offline.py",
         "scripts/python/probe_457_offline_tests_green.py",
+        # Entre dans la cascade avec #486-r23 : `probe_457` importe le ledger.
+        "scripts/python/ledger_vert_offline.py",
         "scripts/python/loop_status.py",
         "scripts/python/declencheur_cliquet.py", "scripts/python/repo_read.py",
         "scripts/ratchets-457-footprints.json",

@@ -49,6 +49,8 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/snapshot.py",
         # PROPRE A CE FICHIER :
         "scripts/python/probe_457_offline_tests_green.py",
+        # Entre dans la cascade avec #486-r23 : `probe_457` importe le ledger.
+        "scripts/python/ledger_vert_offline.py",
         # #463-r1 : `probe_457` y prend desormais son recensement offline (`TESTS_DIR`, la
         # convention de collecte, le filtre `_live.py`). Le perimetre que ce fichier garde EST
         # calcule la-bas -- l'omettre serait une declaration TROP ETROITE au sens exact de
