@@ -1053,8 +1053,14 @@ def herald_of_the_apocalypse_tree(range_: int):
     targets = herald_of_the_apocalypse_targets()
     attack = AttackWithAttackDamage(targets, HERALD_ID, "Piercing", is_melee=True, multi=True,
                                     ability_type=int(ActiveAbilityType.HeraldOfTheApocalypse))
+    # `scale_from_source=True` = le PORT de l'`AbilityStateReference` (3e argument natif d'`AddEffect`) :
+    # la magnitude de l'effet 1027 est un `ConfigVar(8 = extraDmg)` que
+    # `IdunBattle.Entities.Effects.Loki.HeraldOfTheApocalypse_ExtraDamageEffect$$
+    # CreateEffectDamageBonusForAttack` resout contre l'`AbilityState` de la SOURCE (Haarken), pas de la
+    # victime. `extraDmg` est dans `variablesAffectedByRarityBonus` -> le multiplier du POSEUR compte.
+    # #BL-1020r (sans ce flag l'effet lisait le niveau/multiplier de l'unite qui le PORTE).
     add_eff = AddEffect(HERALD_EFFECT, EffectType.HeraldOfTheApocalypse.name, targets,
-                        duration_rounds=None)
+                        duration_rounds=None, scale_from_source=True)
     fatigue = TriggerAbility(
         Enemies(SurroundingUnits(Target(), Const(int(range_)), include_center=True)),
         int(TriggeredAbilityType.BattleFatigue))

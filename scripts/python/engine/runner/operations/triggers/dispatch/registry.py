@@ -115,6 +115,8 @@ from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove
                                          ITG_OVERRIDE_LEVEL)
 from ..loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
                                 CHRONOMETRON_EXTRA_DAMAGE)
+from ..loki.herald_of_the_apocalypse import (HeraldOfTheApocalypseExtraDamageRemove,  # #BL-1020r
+                                             HERALD_OF_THE_APOCALYPSE_EFFECT)
 from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,               # #522 (1198 -> 1429)
                                      EUPHORIC_STRIKES_EXTRA_CRIT)
 from ..loki.shock_assault import (ShockAssaultBuffRemove,                          # case-366-r1 (1000)
@@ -873,6 +875,13 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # qui fait du +degat une CHARGE A USAGE UNIQUE (consommee au 1er coup d'un allie du Chronomancer),
     # et non un buff persistant. Cf. loki/chronometron.py.
     CHRONOMETRON_EXTRA_DAMAGE: [ChronometronExtraDamageRemove],      # 1550 -> retrait On(9)
+    # HeraldOfTheApocalypse 1027 (#BL-1020r, effet pose par `HeraldOfTheApocalypseAbility$$Execute
+    # Behaviour` de `blackHaarken` sur la cible ET l'ennemi derriere elle). Meme greffe generique --
+    # `HeraldOfTheApocalypse_ExtraDamageEffect$$CreateRemoveEffectTrigger` = `On(9) & OwnerIsTarget &
+    # IsUnit(caster)` -> `RemoveEffect(<cette instance>)`. ⚠ SANS l'`AreFriends(caster, EffectSource)`
+    # de 1550 : ici N'IMPORTE QUELLE unite qui attaque le porteur consomme la charge. i2 : « the NEXT
+    # attack made by a unit against them ». Cf. loki/herald_of_the_apocalypse.py.
+    HERALD_OF_THE_APOCALYPSE_EFFECT: [HeraldOfTheApocalypseExtraDamageRemove],   # 1027 -> retrait On(9)
     # EuphoricStrikes_ExtraCrit 1429 (#522, effet pose par `EuphoricStrikesAbility$$ExecuteBehaviour`
     # sur la cible d'`emperExultant` « Laviscus »). Meme greffe generique que 1180/1550 --
     # `EuphoricStrikes_ExtraCritEffect$$CreateRemoveEffectTrigger` = `On(9 = Attack, alive) &
