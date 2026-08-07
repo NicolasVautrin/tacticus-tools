@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **64** ; kits avec du travail : **63**
-- Volume total : **75** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **74** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -37,9 +37,9 @@
 | DarkAngels | 4 | 5 |
 | Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
-| ThousandSons | 3 | 5 |
 | BlackTemplars | 4 | 4 |
 | LeaguesOfVotann | 4 | 4 |
+| ThousandSons | 3 | 4 |
 | AdeptusMechanicus | 3 | 3 |
 | Aeldari | 3 | 3 |
 | AstraMilitarum | 3 | 3 |
@@ -193,12 +193,12 @@
 |---|---|---|---|---|
 | tauFarsight | 2 | ExemplarOfTheMontka(1210) [--] NO-OP EFFECT/BUFF | WayOfTheShortBlade | - |
 
-### ThousandSons — 3 kits, 5 items
+### ThousandSons — 3 kits, 4 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | thousDaemonPrince | 2 | AetherStride(1208) [--] NO-OP SUMMON<br>InfernalCannon(1209) [--] NO-OP DAMAGE(Flame) | - | - |
-| thousSekhetar | 2 | HeavyWarpFlamer(1227) [-D] NO-OP DAMAGE(Flame) | PropheticSentinel | - |
+| thousSekhetar | 1 | HeavyWarpFlamer(1227) [CD] OK | PropheticSentinel | - |
 | thousSorcerer | 1 | AttemptedPossession(1101) [--] NO-OP EFFECT/BUFF | - | - |
 
 ### Tyranids — 3 kits, 3 items

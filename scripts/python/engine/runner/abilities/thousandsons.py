@@ -87,20 +87,24 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, AtomicGroup
 from ...entities.damage_profile_type import DamageProfileType
-from ...entities.selectors.accessors import ActiveTarget, CasterTile, Target
+from ...entities.selectors.accessors import ActiveTarget, CasterTile, Owner, Target
 from ...entities.selectors.geometry import EntitiesWithAnyEffect
 from ...entities.selectors.tiles import AllAliveUnits, AllTiles, Caster
-from ...entities.selectors.units import (Damageable, Enemies, Filter, SurroundingEnemies, UnitSet,
-                                         Unobscured, non_steppable_or_object_units)
-from ...entities.formulas import Count, Min, Sum
+from ...entities.selectors.units import (AdjacentFriends, And, Damageable, Enemies, Filter,
+                                         SurroundingEnemies, UnitSet, Unobscured,
+                                         non_steppable_or_object_units)
+from ...entities.formulas import Count, Difference, GetPersistentData, Min, Sum
 from ...entities.effect_type import EffectType
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.ability_constant_type import AbilityConstantType
 from ...entities.effects.magnitude import ability_var
 from ...entities.triggers import HasTakenDamageOfDamageProfileThisTurn
 from ..components import StatsComponent
+from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from ..operations.damage_utility import sort_units_by_damage_utility
-from .base import ActiveAbility
-from .behaviours.combat import AttackWithAttackDamage, SortedAttackSeries
+from .base import ActiveAbility, ability_attack_params
+from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage,
+                                SortedAttackSeries)
 from .behaviours.context import entities_from_state
 # `DiveAttackAbilityBase` vit dans le namespace natif `...Active.Loki` : le mirror y reste, et les
 # deux heritieres (1091 ici, 1064 sur `aeldari.py`) l'importent -- jamais l'une l'autre.
@@ -565,3 +569,268 @@ class SlashingDiveAbility(DiveAttackAbility):
     # de `targeting.py` qui la declarait non-lue est reecrit.
     TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
                                          range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+
+# ====================================================================================================
+# HeavyWarpFlamer (1227, `thousSekhetar` « Sekhetar Robot ») -- #523
+# ====================================================================================================
+
+HEAVY_WARP_FLAMER_ID = "HeavyWarpFlamer"                     # cle gameconfig de l'ability 1227
+HEAVY_WARP_FLAMER_PROFILE = "Flame"      # `AbilityConfiguration$$GetDamageProfile` (gameconfig 1227)
+# `DAT_183370b30`, le litteral de `dataKey` que PARTAGENT les deux seuls lecteurs/ecrivains du sac
+# persistant de cette ability -- `HeavyWarpFlamerAbility$$GetNumExtraHits` (lecture) et
+# `HeavyWarpFlamer_AttackTrackingAbility$$CreateBehaviour` (Set + Clear). Resolu par le slot du
+# build : `data/symbols/rnca9r7q6c/metadata/string_literals.tsv` ligne `13388 0x3370b30
+# "PSYCHIC_ATTACKS_KEY"`. Les xrefs du slot sont EXHAUSTIVEMENT ces deux fonctions -> cle privee.
+HEAVY_WARP_FLAMER_STACK_KEY = "PSYCHIC_ATTACKS_KEY"
+# `hits` du selecteur de PREDICTION : le natif passe le champ `<DSLFormulas+0x20>` de l'instance
+# partagee, que `IdunBattleLogic.Entities.DSLFormulas$$.ctor` initialise avec la constante **1**
+# (il alloue `0 / 1 / 2 / 100 / -1` aux slots `+0x18 / +0x20 / +0x28 / +0x30 / +0x38`). Ce n'est
+# donc PAS `nrOfHits` : le classement des cibles de report se fait sur la prediction d'UN coup.
+HEAVY_WARP_FLAMER_PREDICTION_HITS = 1
+
+
+def heavy_warp_flamer_other_targets(range_val: int) -> And:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyWarpFlamerAbility$$GetOtherTargets`
+    -- MIRROR 1:1 :
+
+        Damageable( AdjacentFriends(unit = Target@DSLSelectors+0x60, unique = 1,
+                                    unitSelectionType = 3) )
+        op_BitwiseAnd
+        SurroundingEnemies(unit = Caster@DSLSelectors+0x48,
+                           range = Get(GetNumberConstant(0x16 = range)),
+                           unique = 1, unitSelectionType = 3)
+
+    Les DEUX surcharges sont tranchees par leurs XREFS ENTRANTES (deux corps homonymes chacune) :
+      * `AdjacentFriends(unit, unique, selectionType)` (3 args) =
+        `Friends(reference = unit, Units(AdjacentTiles(unit), unique, sel) op_Subtraction unit, sel)`
+        -> la REFERENCE d'equipe EST le centre. Le centre est ici la CIBLE, pas le caster : ce sont
+        donc les ALLIES DE LA CIBLE = les ENNEMIS du caster, anneau d'adjacence, cible EXCLUE (le
+        `- unit` du corps natif). Le collapse `reference=None` (== `ctx.caster`) rendrait le camp
+        INVERSE -> `reference=Target()` est OBLIGATOIRE ici.
+      * `SurroundingEnemies(unit, range, unique, selectionType)` (4 args) =
+        `Enemies(reference = unit, Units(SurroundingTiles(unit, includeCenter=1, range)
+        op_Subtraction Tiles(unit), unique, sel), sel)` -> le MEME selecteur sert de centre ET de
+        reference, d'ou `reference=Caster()` explicite. Pas d'`Unobscured` dans cette surcharge.
+
+    => « les ennemis du caster ADJACENTS a la cible ET a distance <= `range`(2) du CASTER ». C'est la
+    geometrie que l'utilite IA `HeavyWarpFlamer_LikesAdjacentEnemies` recompense (elle compte les
+    ennemis adjacents a la TUILE DE LA CIBLE, cf. `playbook/loki_custom.py`).
+
+    ⚠ Le `Damageable` ne porte QUE sur le volet `AdjacentFriends` (le natif fait
+    `op_BitwiseAnd(Damageable(adj), surrounding)`, pas `Damageable(adj & surrounding)`) -- sans effet
+    observable ici (l'intersection ne peut pas RAJOUTER de mort), mais on ecrit ce qui est lu.
+
+    ⚠ Le meme ensemble est RECOPIE INLINE par `$$ExecuteBehaviour` (le natif ne rappelle pas
+    `$$GetOtherTargets`) -> un seul foyer cote port, comme pour 1048."""
+    return And(Damageable(AdjacentFriends(Target(), reference=Target())),
+               SurroundingEnemies(Caster(), Const(range_val), reference=Caster()))
+
+
+def heavy_warp_flamer_num_extra_hits(nr_of_hits: int, max_nr_of_hits: int) -> Min:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyWarpFlamerAbility$$GetNumExtraHits`
+    -- MIRROR 1:1 :
+
+        Min( GetPersistentData(AbilityOrEffect(this+0x10 = 1227), Owner@DSLSelectors+0x30,
+                               "PSYCHIC_ATTACKS_KEY"),
+             Subtract( Direct(GetNumberConstant(0x48 = maxNrOfHits)),
+                       Direct(GetNumberConstant(0x2f = nrOfHits)) ) )
+
+    `DSLFormulas$$Subtract(a, b)` construit `SumAmount(a, MultiplyAmount(b, <DSLFormulas+0x38 = -1>))`
+    = `a - b` (LU) : le plafond est bien `maxNrOfHits - nrOfHits`, pas l'inverse.
+
+    LE COMPTEUR est alimente par la TRIGGERED `1546 HeavyWarpFlamer_AttackTracking`
+    (`...Triggered.Loki.HeavyWarpFlamer_AttackTrackingAbility$$CreateBehaviour`, HORS PERIMETRE #523) :
+
+        On(0x9) & <clause partagee +0x28> & !AreEqual(Attacker, Owner@+0x30)
+                & AreFriends(Attacker, Owner@+0x30)
+                & CurrentAttackDamageProfilesContain(DamageProfileType.Psychic = 0xd)
+        | On(EventTriggerType.TurnEnd = 0x17)
+        --------------------------------------------------------------------------------------------
+        triggerType == TurnEnd -> ClearPersistentData(AbilityOrEffect(1227), Owner, KEY)
+        sinon                  -> SetPersistentData(AbilityOrEffect(1227), Owner, KEY,
+                                                    Sum(GetPersistentData(...), <DSLFormulas+0x20 = 1>))
+
+    ⚠ L'`AbilityOrEffect` de la TRIGGERED est le LITTERAL `0x4cb` = **1227** (`mov edx,0x4cb` juste
+    avant l'`op_Implicit`, LU a l'assembleur) -- PAS son propre id 1546. Les deux cotes adressent donc
+    la MEME cle composite `(1227, "PSYCHIC_ATTACKS_KEY")`, et c'est ce qui rend le mecanisme coherent
+    (`AbilityOrEffect$$GetPersistentDataId` rend l'ordinal du premier des trois `Nullable` renseigne).
+
+    ETAT DU PORT : le noeud de LECTURE est monte pour de vrai (il interroge `ctx.persistent_data`,
+    donc le `PersistentDataComponent` de l'ECS) ; l'ECRITURE n'existe pas tant que 1546 n'est pas
+    portee -> la cle est absente, `GetPersistentDataFormula$$Calculate` rend l'`out` par defaut = 0,
+    et `GetNumTotalHits` vaut `nrOfHits`. C'est la MEME degradation, nommee, que la face DECISION
+    (`playbook/loki_custom.py::HeavyWarpFlamerPlaybook`). Le jour ou 1546 est portee, ce noeud lit la
+    valeur sans changer d'une ligne."""
+    return Min(GetPersistentData(int(ActiveAbilityType.HeavyWarpFlamer), Owner(),
+                                 HEAVY_WARP_FLAMER_STACK_KEY),
+               Difference(Const(int(max_nr_of_hits)), Const(int(nr_of_hits))))
+
+
+def heavy_warp_flamer_num_total_hits(nr_of_hits: int, max_nr_of_hits: int) -> Sum:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyWarpFlamerAbility$$GetNumTotalHits`
+    -- MIRROR 1:1 :
+
+        Sum( Direct(GetNumberConstant(0x2f = nrOfHits)), GetNumExtraHits() )
+
+    (`$$GetNumBaseHits` est exactement la 1re branche -- `Direct(GetNumberConstant(0x2f))` -- et
+    n'est appelee par PERSONNE dans le build : elle n'a pas de foyer distinct cote port.)
+
+    => `nrOfHits + min(<coups Psychic allies ce tour>, maxNrOfHits - nrOfHits)`, soit `[4, 9]` a la
+    config courante. Ce noeud est passe TEL QUEL a `ChainLeftOverHitsAttackDamage` (`+0x98 hits`), qui
+    l'evalue au moment de l'execution -- pas un scalaire fige a la construction."""
+    return Sum(Const(int(nr_of_hits)), heavy_warp_flamer_num_extra_hits(nr_of_hits, max_nr_of_hits))
+
+
+def heavy_warp_flamer_tree(state, range_val: int, base_min: int, base_max: int,
+                           nr_of_hits: int, max_nr_of_hits: int,
+                           pierce: int) -> ChainLeftOverHitsAttackDamage:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyWarpFlamerAbility$$ExecuteBehaviour`
+    -- MIRROR 1:1 (UN SEUL noeud terminal, passe a `AActiveAbility$$Execute`) :
+
+        dp    = AbilityConfiguration$$GetDamageProfile(config)         # Nullable<DamageProfileType>
+        dmg   = AActiveAbility$$MinMaxDamage(this, abilityState)
+        other = <GetOtherTargets, recopie inline>
+        chain = DSLSelectors$$SortTargetsByDamagePredictionSelector(
+                    attacker              = Owner@+0x30,
+                    units                 = other,
+                    ability               = DSLSelectors$$Direct(AbilityOrEffect(this+0x10)),
+                    damage                = dmg,
+                    hits                  = <DSLFormulas+0x20>,
+                    damageProfileType     = DSLSelectors$$Direct(Nullable(dp)),
+                    attackerSelectionType = 3)
+        DSLBehaviors$$ChainLeftOverHitsAttackDamage(
+                    caster                     = Owner@+0x30,
+                    firstTarget                = Target@+0x60,
+                    dmgAmount                  = dmg,
+                    damageProfileType          = Direct(Nullable(dp)),
+                    hits                       = GetNumTotalHits(this),
+                    abilityType                = this+0x10,
+                    otherTargetSelector        = chain,
+                    extraHitsAfterTargetKilled = **null**)
+
+    QUATRE ecarts LUS avec `1048 FragstormGrenadeLauncher`, qui monte la MEME feuille
+    (`blacktemplars.py`) -- aucun n'est copie de la voisine :
+      * l'ensemble de report est `AdjacentFriends(TARGET) & SurroundingEnemies(CASTER, range)` (1048 :
+        `SurroundingEnemies(Owner, range) - Target`) -> la chaine reste COLLEE a la cible ;
+      * il n'y a AUCUN `SortByFormula` par PV en amont du selecteur de prediction (1048 en a un, qui y
+        est de surcroit un no-op) -> l'ordre SOURCE est la geometrie brute, puis le tri par kill ;
+      * le `hits` du selecteur de PREDICTION est `<DSLFormulas+0x20>` = **1** (1048 : `nrOfHits`) --
+        le champ est pose par `DSLFormulas$$.ctor`, qui alloue cinq constantes `0 / 1 / 2 / 100 / -1`
+        aux slots `+0x18 / +0x20 / +0x28 / +0x30 / +0x38`. Corroboration independante : le meme
+        `+0x20` sert d'increment (`Sum(GetPersistentData(...), +0x20)`) dans la triggered 1546, ou il
+        ne peut valoir que 1 ;
+      * le `hits` de la FEUILLE est le noeud DYNAMIQUE `GetNumTotalHits` (1048 : `Direct(nrOfHits)`).
+    Communs : `extraHitsAfterTargetKilled` **null** (donc `extra = 0` dans `GetLeftOverHits`) et
+    l'execution par `AActiveAbility$$Execute`.
+
+    `attackRangeType = Ranged` (gameconfig 1227) -> `is_melee=False`. Famille de factory = **ATTACK**
+    (le nom natif est `...AttackDamage` et la feuille construit le mold `AttackDamageBehaviour`) ->
+    `native_factory="attack"`, le defaut de la feuille.
+
+    ⚠ Sans `extraHits`, un maillon ne peut REPORTER que si la cible meurt AVANT le dernier coup :
+    `GetLeftOverHits` rend `max(0, H - k - 1) + 0`."""
+    other = heavy_warp_flamer_other_targets(range_val)
+    chain = SortTargetsByDamagePrediction(
+        state=state, attacker=Owner(), targets=other,
+        ability_type=int(ActiveAbilityType.HeavyWarpFlamer),
+        damage_min=base_min, damage_max=base_max,
+        hits=HEAVY_WARP_FLAMER_PREDICTION_HITS,
+        damage_profile=HEAVY_WARP_FLAMER_PROFILE, pierce=pierce, is_melee=False)
+    return ChainLeftOverHitsAttackDamage(
+        Owner(), Target(), chain, HEAVY_WARP_FLAMER_ID, HEAVY_WARP_FLAMER_PROFILE,
+        heavy_warp_flamer_num_total_hits(nr_of_hits, max_nr_of_hits), 0, is_melee=False)
+
+
+class HeavyWarpFlamerAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyWarpFlamerAbility$$ExecuteBehaviour`
+    (id **1227**, `thousSekhetar` « Sekhetar Robot », Thousand Sons/Chaos).
+
+    Kit gameconfig 1227 : `attackRangeType = Ranged`, `damageProfile = Flame`
+    (`PiercingRatio` 25, trait `OnFire`), `nrOfHits` 4, `maxNrOfHits` 9, `range` 2.
+
+    OBSERVABLE : la cible designee encaisse `GetNumTotalHits` coups Flame ; les coups qui tombent sur
+    le CADAVRE sont REPORTES sur l'ennemi suivant -- parmi les ennemis du caster ADJACENTS a la cible
+    ET a distance <= 2 du caster, tries par priorite de kill (prediction de degat). Le report lui-meme
+    vit dans la feuille partagee `ChainLeftOverHitsAttackDamage` (`behaviours/combat.py`, mirror de
+    `IdunBattle.Entities.Behaviours.ChainLeftOverHitsAttackDamageBehaviour$$Execute` et de son
+    `GetLeftOverHits`, garde de 100 iterations) ; ici, seulement la CONSTRUCTION de l'arbre.
+
+    GATE DE CONFRONTABILITE : porteur lineup UNIQUE, ABSENT du seed BC partage (unite ajoutee par le
+    build `rnca9r7q6c`) -> il arrive en bataille par `catalog_inject.write_augmented_seed_bc` +
+    `rl_duel build --seed-bc` (#92 §6), la MEME voie qui a servi a la face DECISION (#27).
+    « Absent du pool » n'est pas « non confrontable » : aucun `data/unspawnable_rank*.json` n'existe.
+
+    Face DECISION deja portee (#27, `playbook/loki_custom.py::HeavyWarpFlamerPlaybook` --
+    `W(HeavyWarpFlamer_LikesAdjacentEnemies) x |ennemis adjacents a la tuile de la CIBLE|`). Ce
+    port-ci est la face EXECUTION, qui etait un NO-OP SILENCIEUX (absente d'`ABILITY_CLASSES` ->
+    `visit_ActiveAbilityMessage` rendait `ported: False` : 0 degat, 0 effet, aucune erreur).
+
+    Flags de tour : defauts base (1227 absente des overrides) -> termine le tour + ActiveAbilityUsed.
+    Retour : `{ability, caster, target, range, hits, chain, dsl}`."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.HeavyWarpFlamer)        # 1227
+    ABILITY_ID = HEAVY_WARP_FLAMER_ID
+
+    # GATE DE CIBLE (#523) -- forme de ctor = **PRESET STATIQUE COPIE** (aucun appel a
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`, donc AUCUN flag ajoute) :
+    #     opts <- <TargetingOptions statics>+0x140 .. +0x17f      (copie des 0x40 octets)
+    #     AActiveAbility..ctor(this, &opts, 0)                    # 3e arg = AbilityAttackType = 0
+    # Le preset `+0x140` est LU dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     <preset>+0x00 = *(statics+0x140) = 0        -> isSelfCasting = false
+    #     <preset>+0x08 = copie de `TargetingRange statics+0x18` -> **RANGE_FROM_CONFIG**
+    #     <preset>+0x20 = *(statics+0x160) = 0        -> forceMeleeTarget = RangedBool.True
+    #                                                    (l'enum natif est INVERSE : True=0, False=1)
+    #     <preset>+0x28 = *(statics+0x168) = 0x4002   -> Rules
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`), exhaustive :
+    #     0x0002  TargetMatchesDynamicRule  -> `GetDynamicInvalidTargetReason` NON surchargee par
+    #                                          1227 -> defaut 0 (degradation PERMISSIVE assumee, et
+    #                                          c'est pourquoi 1227 n'entre pas dans
+    #                                          `DYNAMIC_TARGET_RULE_UNPORTED`)
+    #     0x4000  TargetIsEnemy             -> PORTE
+    # ⚠ Le preset voisin `+0x180` (Fragstorm 1048) ne differe QUE par `forceMeleeTarget`
+    # (`RangedBool.False`, valeur 1) : recopier le masque de la voisine aurait donne le bon `Rules` et
+    # le mauvais regime de PORTEE (`TargetingQuery$$GetRange` rabat a 1 au contact quand
+    # `ForceMeleeTarget` est vrai). 1227, LUI, est rabattu au contact -- lire ability par ability.
+    # 1227 n'etait dans AUCUNE des listes du contrat de disjonction (`TARGETING_OPTIONS_UNPORTED`,
+    # `DYNAMIC_TARGET_RULE_UNPORTED`) -- verifie PAR LE CODE au moment du port, coherent avec un
+    # porteur hors du pool spawnable : aucune migration, aucun compteur a decrementer.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsEnemy), self_cast=False,
+        range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE)
+
+    # `AbilityAttackType` = 3e argument d'`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` = `0`
+    # (`DirectTargetAttack`), LU au ctor -> transcrit dans la table `ABILITY_ATTACK_TYPE`
+    # (`abilities/attack_type.py`), qui est le registre de cette donnee (pas un attribut de classe).
+
+    def _params(self, state: "State", caster_id: int) -> tuple:
+        """`(range, base_min, base_max, nrOfHits, maxNrOfHits, pierce)`.
+
+        `range` = `GetNumberConstant(0x16)`, `maxNrOfHits` = `GetNumberConstant(0x48)` ; les bornes,
+        `nrOfHits` (`0x2f`) et le percage du profil viennent du foyer partage `ability_attack_params`
+        (mirror `AActiveAbility$$MinMaxDamage` / `GetHits` / `GetDamageProfile`)."""
+        rng_range = ability_var(self.ABILITY_ID, "range", is_constant=True) or 1
+        max_hits = ability_var(self.ABILITY_ID, "maxNrOfHits", is_constant=True) or 0
+        base_min, base_max, pierce, hits = ability_attack_params(
+            state, caster_id, self.ABILITY_ID, HEAVY_WARP_FLAMER_PROFILE, ranged=True)
+        return int(rng_range), int(base_min), int(base_max), int(hits), int(max_hits), int(pierce)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        entities = entities_from_state(state, caster_id, target_id)
+        rng_range, base_min, base_max, hits, max_hits, pierce = self._params(state, caster_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        heavy_warp_flamer_tree(state, rng_range, base_min, base_max, hits, max_hits,
+                               pierce).execute(entities, ectx)
+        chain = next((p["chain"] for n, p in ectx.emitted if n == "ChainLeftOverHits"), [])
+        return {"ability": HEAVY_WARP_FLAMER_ID, "caster": caster_id, "target": target_id,
+                "range": rng_range, "hits": (chain[0]["hits"] if chain else None),
+                "chain": chain, "dsl": True}
+
+
+# Les trois constantes de config LUES au decompile de 1227, nommees (regle « un entier qui DESIGNE
+# passe par un ENUM ») : `GetNumberConstant(0x16)`, `(0x2f)` et `(0x48)`.
+assert (int(AbilityConstantType.range) == 0x16 and int(AbilityConstantType.nrOfHits) == 0x2F
+        and int(AbilityConstantType.maxNrOfHits) == 0x48)

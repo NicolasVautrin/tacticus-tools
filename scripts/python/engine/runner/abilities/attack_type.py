@@ -201,6 +201,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # que l'arbre frappe AUSSI des unites board-wide via `SortedAttackSeries` -- on transcrit le 3e
     # argument du ctor, jamais la forme du ciblage (meme regle que MurderousSwing ci-dessous).
     ActiveAbilityType.HellfyreMissileRack: AbilityAttackType.DirectTargetAttack,  # 1088
+    # HeavyWarpFlamer (1227, thousSekhetar « Sekhetar Robot ») : `IdunBattleLogic.Entities.Abilities.
+    # Active.Loki.HeavyWarpFlamerAbility$$.ctor` recopie les 0x40 octets du preset statique
+    # `<TargetingOptions statics>+0x140` (AUCUN appel a `TargetingOptions$$.ctor`, donc aucun flag
+    # ajoute) puis `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = litteral `0`. TRANSCRIT,
+    # jamais deduit du profil de degat (`Flame`) ni de la chaine de report. (#523)
+    ActiveAbilityType.HeavyWarpFlamer: AbilityAttackType.DirectTargetAttack,  # 1227
     ActiveAbilityType.GreatFrostAxe: AbilityAttackType.DirectTargetAttack,  # 1089
     ActiveAbilityType.DarkTalonStrike: AbilityAttackType.DirectTargetAttack,  # 1092
     ActiveAbilityType.PlasmaGrenade: AbilityAttackType.DirectTargetAttack,  # 1098

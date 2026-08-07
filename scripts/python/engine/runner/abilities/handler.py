@@ -57,7 +57,8 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility)
-from .thousandsons import DoomboltAbility, HellfyreMissileRackAbility, SlashingDiveAbility
+from .thousandsons import (DoomboltAbility, HeavyWarpFlamerAbility, HellfyreMissileRackAbility,
+                           SlashingDiveAbility)
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
                           DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat,
                           DrachnyenAbility, HeraldOfTheApocalypseAbility)
@@ -233,6 +234,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # --- Famille PSYCHIC (case-psychic-aoe) : deux AoE Psychic HERO, jusqu'ici NO-OP offline. ---
     PlagueWindAbility.ABILITY_TYPE: PlagueWindAbility,                 # 1035 (deathTyphus Typhus DeathGuard : AoE CONCENTRIQUE 3 bandes ancree cible -- cible (minDmg/maxDmg) + adjacents-cible (minDmg_2/maxDmg_2) + adjacents-d'un-secondaire moins cible/secondaires (minDmg_3/maxDmg_3), 1 coup chacune, native_factory ABILITY, ExecuteAtomic 0x4a + 3 Group 0x4b/4c/4d)
     DoomboltAbility.ABILITY_TYPE: DoomboltAbility,                     # 1102 (thousAhriman Ahriman ThousandSons : Min(nrOfHits + Count(hexes en Feu), 9) coups Psychic REPARTIS par division entiere sur les ennemis <=range non obscurcis, tries SortUnitsByDamageUtility avec la CIBLE forcee en tete ; native_factory ATTACK, ExecuteAtomic 0x61)
+    HeavyWarpFlamerAbility.ABILITY_TYPE: HeavyWarpFlamerAbility,       # 1227 (thousSekhetar « Sekhetar Robot » ThousandSons : ChainLeftOverHitsAttackDamage de GetNumTotalHits = Sum(nrOfHits, Min(GetPersistentData(1227, Owner, "PSYCHIC_ATTACKS_KEY"), maxNrOfHits - nrOfHits)) coups Flame sur la cible, extraHits NULL, report des coups gaspilles sur And(Damageable(AdjacentFriends(Target)), SurroundingEnemies(Caster, range 2)) trie par SortTargetsByDamagePredictionSelector (hits=1) ; porteur hors seed BC -> catalog_inject ; #523)
     HellfyreMissileRackAbility.ABILITY_TYPE: HellfyreMissileRackAbility,  # 1088 (thousTerminator « Toth » ThousandSons : Execute(SortedAttackSeries(Caster, Target, nrOfHits coups HeavyRound, FromTrigger(NonSteppableOrObjectUnits(Enemies(Caster, AllUnits)), HasTakenDamageOfDamageProfileThisTurn(ActiveTarget, Psychic)), nrOfHits coups HeavyRound)) -- le 2e volet frappe TOUT ennemi du plateau ayant pris du PSYCHIC ce tour, cible du message COMPRISE ; native_factory ABILITY, PAS d'ExecuteAtomic ; masque 0x4002 MIGRE depuis `TARGETING_OPTIONS_UNPORTED` ; #487)
     # --- case #154 : EmperorsChildren DoomSiren + Tyranids FearOfTheUnseen (canal DirectDamage) ---
     DoomSirenAbility.ABILITY_TYPE: DoomSirenAbility,                   # 1199 (emperKakophonist « Adamatar » : UN leaf combine — nrOfHits coups DirectDamage MELEE sur la cible + PickRandomly(nrOfUnits) ennemis adjacents A LA CIBLE (Damageable), passe id-triee unique ; puis Foreach(UnitsDamagedThisPhase(caster), If(IsDead(It) & HasFlag(It, 8=Overkilled), AddStaticStatModifierEffect(caster, 1431 DoomSiren_ExtraHit, EXTRA_HITS, Direct(1), PERMANENT))) ; ExecuteAtomic 0x2a)
