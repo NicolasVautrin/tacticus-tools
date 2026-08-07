@@ -131,7 +131,10 @@ def test_la_ligne_du_substrat_a_la_geometrie_voulue():
 # ================================================================================================
 
 def test_les_trois_ids_sont_evaluables():
-    attendu = {WAVE: "surcharge", FUSILLADE: "surcharge", FREQUENCIES: "table"}
+    # ⚠ 1197 est passee de `table` a `surcharge` avec #512 (sa face COMBAT est portee) -- c'est
+    # exactement la bascule que `test_1197_...` ci-dessous annoncait. La regle, elle, n'a PAS bouge :
+    # la surcharge DELEGUE au meme `_dynamic_rule_excruciating_frequencies`.
+    attendu = {WAVE: "surcharge", FUSILLADE: "surcharge", FREQUENCIES: "surcharge"}
     for aid, voie in attendu.items():
         assert P.evaluabilite(aid) == voie, (
             "%d n'est plus evaluable par `%s` (%s)" % (aid, voie, P.evaluabilite(aid)))
@@ -145,12 +148,36 @@ def test_les_trois_ids_posent_le_bit_au_masque():
             "%d ne pose plus TargetMatchesDynamicRule : la regle ne serait jamais consultee" % aid)
 
 
-def test_1197_reste_hors_ABILITY_CLASSES_donc_sa_regle_vit_dans_la_TABLE():
-    """1197 n'a pas de behaviour portee : sa regle vit dans `DYNAMIC_TARGET_RULE_UNPORTED`, pas dans
-    une classe. Le jour ou elle entrerait au registre, ce test rougit -- et c'est voulu : il faudrait
-    alors DEPLACER la regle en surcharge (et poser `TARGETING_OPTIONS` + `ABILITY_ATTACK_TYPE`)."""
-    assert FREQUENCIES not in ABILITY_CLASSES
-    assert ActiveAbilityType.ExcruciatingFrequencies in DYNAMIC_TARGET_RULE_UNPORTED
+def test_1197_est_ENTREE_au_registre_et_sa_regle_a_MIGRE_en_surcharge():
+    """BASCULE #512 -- la face COMBAT de 1197 est portee, donc son entree a QUITTE les deux tables
+    `*_UNPORTED` et vit sur `ExcruciatingFrequenciesAbility`. C'est la forme que ce test annoncait
+    quand il gardait l'etat inverse (« le jour ou elle entrerait au registre, ce test rougit -- et
+    c'est voulu : il faudrait alors DEPLACER la regle en surcharge (et poser `TARGETING_OPTIONS` +
+    `ABILITY_ATTACK_TYPE`) ») : il a rougi, et voici les quatre faits qu'il exige desormais.
+
+    Le 4e est le seul qui ne se deduise d'aucun autre : la surcharge doit DELEGUER au foyer, pas
+    re-porter le corps. Deux mirrors du meme `GetDynamicInvalidTargetReason` divergeraient, et rien
+    ne le verrait -- la face DECISION lit l'un, la cascade de ciblage l'autre."""
+    from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
+    from engine.runner.abilities.targeting import (
+        TARGETING_OPTIONS_UNPORTED, _dynamic_rule_excruciating_frequencies)
+    klass = ABILITY_CLASSES.get(FREQUENCIES)
+    assert klass is not None, "1197 doit etre au registre COMBAT (#512)"
+    assert ActiveAbilityType.ExcruciatingFrequencies not in DYNAMIC_TARGET_RULE_UNPORTED
+    assert ActiveAbilityType.ExcruciatingFrequencies not in TARGETING_OPTIONS_UNPORTED
+    assert klass.TARGETING_OPTIONS is not None
+    assert ActiveAbilityType.ExcruciatingFrequencies in ABILITY_ATTACK_TYPE
+    # DELEGATION, pas duplication : sur un substrat qui REFUSE, les deux chemins rendent le MEME
+    # code -- et sur un substrat qui ACCEPTE aussi (sinon l'egalite serait vraie par vacuite).
+    st_refuse = _sub_1197([])
+    st_passe = _sub_1197([(1, 2)])
+    for st, attendu in ((st_refuse, REFUS), (st_passe, 0)):
+        direct = int(_dynamic_rule_excruciating_frequencies(st, U_CASTER, TUILE_VISEE) or 0)
+        par_classe = int(klass().get_dynamic_invalid_target_reason(
+            st, U_CASTER, TUILE_VISEE) or 0)
+        assert direct == par_classe == attendu, (
+            "la surcharge ne delegue plus au foyer : %r vs %r (attendu %r)"
+            % (par_classe, direct, attendu))
 
 
 # ================================================================================================

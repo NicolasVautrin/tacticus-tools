@@ -96,7 +96,14 @@ SNAP_TARGETING_UNPORTED = (
     # `range` = `TargetingRange statics+0x30` = ADJACENT, `forceMeleeTarget = 1` (RangedBool.False).
     (1164, (16386, False, (1, True, False, None, False), 1)),
     (1175, (3074, True, (0, False, False, 1, False), 1)),
-    (1197, (2199023255618, False, (0, False, False, 1, False), 1)),
+    # 1197 ExcruciatingFrequencies RETIREE (#512) : sa face COMBAT est portee, donc son masque a
+    # MIGRE sur `emperorschildren.ExcruciatingFrequenciesAbility.TARGETING_OPTIONS` -- meme
+    # mouvement que 1019/1027/1038/1048/1064/1068/1069/1087/1088/1129/1132/1141/1152/1165/1204. Le
+    # ctor a ete RELU a cette occasion et la valeur qui etait figee ici est CONFIRMEE champ pour
+    # champ : `rules = 0x20000000042 = 2199023255618` (`TargetMatchesDynamicRule | TargetIsTile |
+    # AllowUntargetableTarget` -- le bit 41 est AU-DELA DE 32), `selfCast = False`, `range` =
+    # `TargetingRange statics+0x30` = ADJACENT, `forceMeleeTarget = 1` (RangedBool.False). C'est la
+    # SOURCE qui bouge, jamais la valeur.
     (1050, (8589950976, False, (0, False, False, 1, False), 1)),
     (1101, (8589950978, False, (1, True, False, None, False), 1)),
     (1106, (32788, True, (1, False, False, 0, False), 1)),
@@ -368,15 +375,15 @@ def test_cardinalites_du_volet():
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 27 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
+    passe de 44 a 26 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
     1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1165 (#501), 1064 (#502), 1141 (#503),
-    1132 (#504), 1129 (#505), 1204 (#508), 1191 (#509), 1177 (#510). Ce que ce cliquet garde est la
-    CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
-    ⚠ #505, #508, #509 et #510 se sont croisees ICI : la premiere retirait 1129, la deuxieme 1204,
-    la troisieme 1191, la quatrieme 1177, et CHACUNE annoncait le chiffre de son propre retrait. Le
-    chiffre a ete RE-COMPTE sur `CIBLES` apres resolution -- une soustraction d'un seul cote aurait
-    laisse le test ROUGE au merge, et un `--ours`/`--theirs` aurait RESSUSCITE l'entree des autres
-    en laissant chaque cote VERT pris isolement.
+    1132 (#504), 1129 (#505), 1204 (#508), 1191 (#509), 1177 (#510), 1197 (#512). Ce que ce cliquet
+    garde est la CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
+    ⚠ #505, #508, #509, #510 et #512 se sont croisees ICI : elles retiraient respectivement 1129,
+    1204, 1191, 1177 et 1197, et CHACUNE annoncait le chiffre de son propre retrait. Le chiffre a
+    ete RE-COMPTE sur `CIBLES` apres resolution -- une soustraction d'un seul cote aurait laisse le
+    test ROUGE au merge, et un `--ours`/`--theirs` aurait RESSUSCITE l'entree des autres en laissant
+    chaque cote VERT pris isolement.
 
     ⚠ LE NOMBRE CI-DESSUS SE RE-COMPTE SUR `CIBLES`, il ne se deduit JAMAIS par soustraction du
     chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les SEPT dernieres
@@ -389,9 +396,9 @@ def test_cardinalites_du_volet():
     resolution est l'UNION des retraits, et le chiffre est RE-DERIVE de `CIBLES` apres coup --
     #502, #503, #504 puis #505 ont effectivement resolu ce conflit en RE-COMPTANT."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [27, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [26, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 111
+    assert sum(tailles) == 110
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

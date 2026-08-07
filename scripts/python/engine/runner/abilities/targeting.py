@@ -700,18 +700,18 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # portee -- le CONTRAT de disjonction de cette table l'exige alors. Sorties a ce jour, dans
     # l'ordre des tranches : 1088 (#487), 1087 (#488), 1048 (#489), 1027 (#490), 1069 (#491),
     # 1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1141 (#503), 1132 (#504),
-    # 1204 (#508), 1191 (#509), 1177 (#510) -- QUATORZE.
-    # ⚠ #508, #509 et #510 se sont croisees ICI : chacune n'ajoutait QUE son id a cette liste et
-    #   n'annoncait QUE son propre retrait. La resolution est l'UNION des retraits, et le compte
+    # 1204 (#508), 1191 (#509), 1177 (#510), 1197 (#512) -- QUINZE.
+    # ⚠ #508, #509, #510 et #512 se sont croisees ICI : chacune n'ajoutait QUE son id a cette liste
+    #   et n'annoncait QUE son propre retrait. La resolution est l'UNION des retraits, et le compte
     #   ci-dessous a ete RE-COMPTE PAR LE CODE **apres** resolution -- pas soustrait, pas repris
-    #   d'un des trois cotes.
+    #   d'un des quatre cotes.
     #
-    # Compte RE-COMPTE PAR LE CODE au 2026-08-07, APRES le rebase de #510 sur #509 sur #508
-    # (jamais une soustraction) : **23 entrees ecrites dans ce bloc**, ventilees `9 / 4 / 0 / 2`
-    # (1re region) et `3 / 1 / 4` (2e region), plus **4** entrees
-    # hors-bloc en tete de table -> **27 dans le dict entier**
-    # (`len(TARGETING_OPTIONS_UNPORTED)`, la seule mesure qui ne depende d'aucun decoupage).
-    # ⚠ Le chiffre que #509 avait ecrit AVANT ce rebase (« 26 ecrites, 30 au total ») etait deja
+    # Compte RE-DERIVE au 2026-08-07 EN CHARGEANT LE MODULE, APRES le rebase de #512 sur #510 sur
+    # #509 sur #508 (`logs/count512.py` : `len(TARGETING_OPTIONS_UNPORTED)`, jamais une
+    # soustraction ni un balayage du texte) : **26 dans le dict entier**, dont **4** hors-bloc en
+    # tete de table. C'est la seule mesure qui ne depende d'aucun decoupage -- et la seule qui ne se
+    # perime pas par le croisement de deux tranches, puisqu'elle se re-joue.
+    # ⚠ Le chiffre que #509 avait ecrit AVANT son rebase (« 26 ecrites, 30 au total ») etait deja
     # perime de DEUX : #505 avait vide la section « PRESET SEUL » et #508 retire une STATIC-COPY.
     # C'est la troisieme illustration de la ligne ci-dessous, et elle est arrivee au meme endroit.
     # ⚠ CE COMPTE SE RE-COMPTE, IL NE SE SOUSTRAIT PAS -- et ce n'est pas une precaution de style :
@@ -845,12 +845,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
                                  | TR.AddCasterIfAtLeastOneTarget,
                            self_cast=True, range=RANGE_ADJACENT,
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1197 ExcruciatingFrequencies -- `...Active.Loki.ExcruciatingFrequenciesAbility$$.ctor` :
-    #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x20000000042, 0, 0)`.
-    ActiveAbilityType.ExcruciatingFrequencies: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsTile  # 1197
-                                 | TR.AllowUntargetableTarget,
-                           self_cast=False, range=RANGE_ADJACENT,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # 1197 ExcruciatingFrequencies : SORTIE (#512) -- sa face COMBAT est portee, donc son masque a
+    #   MIGRE sur `emperorschildren.ExcruciatingFrequenciesAbility.TARGETING_OPTIONS`. Le ctor a ete
+    #   RELU a cette occasion et la valeur qui vivait ici est CONFIRMEE champ pour champ :
+    #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x20000000042, 0, 0)` -- `selfCast =
+    #   False`, `range` = ADJACENT, `forceMeleeTarget = 1` (RangedBool.False), `rules` =
+    #   `TargetMatchesDynamicRule | TargetIsTile | AllowUntargetableTarget`. C'est la SOURCE qui
+    #   bouge, jamais la valeur.
 
     # --- surcharge B, PRESET + FLAGS (4) : `rules = additionalRules | <preset>+0x28` -----------
     # ⚠ 1048 FragstormGrenadeLauncher (preset `+0x180` + flags `0x2000000` -> `0x2004002`) est
@@ -1757,6 +1758,34 @@ def _dynamic_rule_leading_the_charge(state: "State", caster_id: int, target_id) 
     return 0 if n > 0 else int(TR.TargetIsInRange)
 
 
+def excruciating_frequencies_affected_tiles(n_tiles) -> SortReverse:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAffectedTiles`
+    -- LE foyer, MIRROR 1:1 du decompile :
+
+        SortReverse( TilesBehindInLine( from      = CasterTile@0x50,
+                                        direction = TargetTile@0x78,
+                                        settings{+0x10 = 1, +0x11 = 1},
+                                        maxAmount = Direct(GetNumberConstant(0x17 nrOfTiles)) ) )
+
+    UN SEUL exemplaire pour les DEUX faces de 1197 : la regle dynamique de ciblage ci-dessous
+    (`Enemies(Units(GetAffectedTiles()))`, le `GetAttackTargets` natif) et l'`ExecuteBehaviour`
+    (`emperorschildren.excruciating_frequencies_tree`), qui l'appelle DEUX fois -- une pour le
+    `Count` de toutes les unites de la ligne, une pour les ennemis attaques. Les dupliquer en ferait
+    deux geometries a maintenir.
+
+    `settings +0x10 = 1` active `IsWalkable` **ET** le gate d'ELEVATION `|Delta elev| < 2` de
+    `IdunBattle.Core.Services.TileUtil$$IsTileValidForList` ; `+0x11 = 1` fait SUIVRE la reference le
+    long de la ligne (marche pas-a-pas). La ligne S'ARRETE a la 1re tuile invalide -- c'est un
+    PREFIXE, pas un filtre (#124).
+
+    `SelectTile(...)` = le `TargetsSelector$$SelectTile` (vslot 0xc) par lequel
+    `TilesBehindInLineSelector$$Select` resout ses deux extremites."""
+    return SortReverse(TilesBehindInLine(SelectTile(CasterTile()), SelectTile(TargetTile()),
+                                         max_count=Const(int(n_tiles)),
+                                         check_walkable=True,        # settings +0x10 = 1
+                                         update_reference=True))     # settings +0x11 = 1
+
+
 def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, target_id) -> int:
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetDynamicInvalidTargetReason`
     (1197, `emperNoiseMarine` « Shiron ») -- MIRROR du decompile (#287-r11-r1) :
@@ -1803,11 +1832,13 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
     `ITargetsSelector` n'expose qu'UNE methode a 1 parametre rendant un `int` : `Count` (slot 2 de
     l'interface, cf. `data/symbols/<build>/metadata/interface_slots.tsv`).
 
-    ⚠ LA CIBLE EST UNE TUILE, ET LE ROLE `target` NE LA MATERIALISE PAS -- meme verrou et meme
-    parade locale que `AlphaWarriorAbility.get_dynamic_invalid_target_reason` (#287-r8), pour la
-    meme raison : elargir `entities_from_state` changerait les arbres des **5** abilities
-    TILE-TARGET portees qui lisent aujourd'hui un `Target()` nul, sans que cette tranche les ait
-    confrontees. RESIDU `#287-r12`, inchange.
+    ⚠ LA CIBLE EST UNE TUILE, ET LE ROLE `target` NE LA MATERIALISE PAS -- meme verrou que
+    `AlphaWarriorAbility.get_dynamic_invalid_target_reason` (#287-r8), pour la meme raison :
+    elargir `entities_from_state` changerait les arbres des **5** abilities TILE-TARGET portees qui
+    lisent aujourd'hui un `Target()` nul, sans que cette tranche les ait confrontees. RESIDU
+    `#287-r12`, inchange. La parade, qui etait LOCALE ici, vit desormais dans
+    `behaviours.context.entities_with_tile_target` (#512) : la face COMBAT de 1197 en a besoin de la
+    MEME forme, et trois copies du meme dict minimal auraient ete trois choses a maintenir.
 
     ⚠ ET LE CONTEXTE NATIF EST VOLONTAIREMENT PAUVRE : `casterTiles` (+0x48) reste NUL, donc
     `CasterTileSelector$$Select` retombe sur `GetTiles(entities.Caster)` -- l'empreinte COURANTE du
@@ -1815,10 +1846,10 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
 
     `nrOfTiles` illisible / cible non resolue / board absent -> `0`, la convention permissive du
     module (on ne fabrique pas un refus sur un substrat non mesure)."""
-    # `entities_from_state` reste DIFFERE : `behaviours` re-importe `targeting` (cycle reel, meme
-    # raison que `charge_tiles_count`). Les noeuds DSL, eux, sont HISSES au niveau module -- le
+    # `entities_with_tile_target` reste DIFFERE : `behaviours` re-importe `targeting` (cycle reel,
+    # meme raison que `charge_tiles_count`). Les noeuds DSL, eux, sont HISSES au niveau module -- le
     # cliquet `probe_485_imports_differes.py` a MESURE qu'aucun cycle ne les justifie.
-    from .behaviours.context import entities_from_state  # noqa: PLC0415
+    from .behaviours.context import entities_with_tile_target  # noqa: PLC0415
     import gameconfig as GC                                             # noqa: PLC0415
     if target_id is None:
         return 0
@@ -1826,22 +1857,10 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
            or {}).get(ABILITY_CONSTANT_NR_OF_TILES)
     if raw is None:
         return 0                                    # `GetNumberConstant(0x17)` non mesure
-    ents = entities_from_state(state, int(caster_id), int(target_id))
+    ents = entities_with_tile_target(state, int(caster_id), int(target_id))
     if ents.target is None:
-        board = state.board
-        if board is None or int(target_id) not in getattr(board, "by_id", {}):
-            return 0                                # ni unite ni tuile du board -> non mesure
-        c = board.coord(int(target_id))
-        # MEME forme que le caster-tuile minimal d'`entities_from_state` (`dsl.base._pos` lit
-        # `pos.col`/`pos.row`) : `SelectTile(TargetTile())` n'en lit que `pos`.
-        ents.target = {"id": int(target_id), "team": None, "player": None,
-                       "pos": {"col": int(c[0]), "row": int(c[1])},
-                       "alive": True, "hp": None, "visualId": None, "_traits": set()}
-    ligne = SortReverse(TilesBehindInLine(SelectTile(CasterTile()), SelectTile(TargetTile()),
-                                          max_count=Const(int(raw)),
-                                          check_walkable=True,        # settings +0x10 = 1
-                                          update_reference=True))     # settings +0x11 = 1
-    sel = Enemies(Units(ligne))
+        return 0                                    # ni unite ni tuile du board -> non mesure
+    sel = Enemies(Units(excruciating_frequencies_affected_tiles(int(raw))))
     return 0 if len(sel.evaluate(ents)) > 0 else int(TR.TargetMatchesDynamicRule)
 
 
@@ -1858,7 +1877,10 @@ DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     # `_dynamic_rule_foul_infusion`.
     # 1177 LightOfSanguinius : RETIREE (#510) -- meme forme, `LightOfSanguiniusAbility`
     # (`abilities/bloodangels.py`) SURCHARGE et appelle `_dynamic_rule_light_of_sanguinius`.
-    ActiveAbilityType.ExcruciatingFrequencies: _dynamic_rule_excruciating_frequencies,  # 1197
+    # 1197 ExcruciatingFrequencies : RETIREE (#512) -- meme forme,
+    # `emperorschildren.ExcruciatingFrequenciesAbility` SURCHARGE `get_dynamic_invalid_target_reason`
+    # et appelle `_dynamic_rule_excruciating_frequencies` ci-dessus, qui reste l'UNIQUE mirror du
+    # corps natif.
 }
 
 

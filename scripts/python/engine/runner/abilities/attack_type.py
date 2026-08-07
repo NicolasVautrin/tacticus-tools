@@ -228,6 +228,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.EntropyCannons: AbilityAttackType.DirectTargetAttack,  # 1168
     ActiveAbilityType.PlagueburstMortar: AbilityAttackType.DirectTargetAttack,  # 1169
     ActiveAbilityType.HeroicFusillade: AbilityAttackType.DirectTargetAttack,  # 1180
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 2)` : 3e argument = **2 = Others** (#512). TRANSCRIT TEL
+    # QUEL, surtout pas deduit du comportement : 1197 EST une attaque (nrOfHits coups Blast) et
+    # porterait donc `DirectTargetAttack` a l'oeil -- le litteral dit `Others`, et c'est lui qui
+    # decide de `AbilityHasAttackType(0|1)` (gate SwornProtector).
+    ActiveAbilityType.ExcruciatingFrequencies: AbilityAttackType.Others,  # 1197
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 0, 0)` : 3e argument = 0 = DirectTargetAttack.
     ActiveAbilityType.DoomSiren: AbilityAttackType.DirectTargetAttack,  # 1199
