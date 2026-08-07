@@ -59,27 +59,41 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
         for pa in passives:
             for cls in ABILITY_TRIGGERS.get(pa, ()):
                 out.append(cls(eid))
-        if vid:
-            # activeAbilities -> triggered-abilities DERIVEES (`StaticBattleRules.ActiveAbility$$
-            # GetDerivedTriggeredAbilities`) : porté dès l'init de l'unité, sans cast préalable.
-            for aa in (gu.get("activeAbilities") or []):
-                for cls in ACTIVE_ABILITY_TRIGGERS.get(aa, ()):
-                    out.append(cls(eid))
-        # SIXIEME chemin (#521-r1) : la triggered-ability HELPER d'une ability ACTIVE
-        # (`StaticBattleRules.ActiveAbility$$GetPassiveHelperAbility`, dict statique DISTINCT de
-        # celui des derivees -- cf. l'en-tete de `PASSIVE_HELPER_ABILITY_TRIGGERS`). Le natif la
-        # monte dans `IdunBattle.Entities.Factories.UnitFactory$$AddActiveAbility`, appele en boucle
-        # sur `config@+0xa0` = `UnitConfiguration.ActiveAbilities`.
-        # SUBSTRAT, et il est TRI-ETAT (meme discipline que `passive_abilities` juste au-dessus) :
-        # `config_active_abilities` EST `UnitConfiguration.ActiveAbilities` mesuree (canal
-        # `unitAbilityStates.units[].configActives`, #466) -- exactement ce que le natif itere ;
-        # `None` = canal non mesure -> repli sur le kit gameconfig, comportement d'avant. Le repli
-        # n'est PAS equivalent : une active GREFFEE sur une unite du pool (seul chemin de
-        # confrontation d'une ability a porteur npc) n'existe QUE dans la mesure.
+        # SUBSTRAT DES DEUX REGISTRES D'ACTIVE, et il est TRI-ETAT (meme discipline que
+        # `passive_abilities` juste au-dessus) : `config_active_abilities` EST
+        # `UnitConfiguration.ActiveAbilities` mesuree (canal `unitAbilityStates.units[].configActives`,
+        # #466) ; `None` = canal non mesure -> repli sur le kit gameconfig. Le repli n'est PAS
+        # equivalent : une active GREFFEE sur une unite du pool (seul chemin de confrontation d'une
+        # ability a porteur npc) n'existe QUE dans la mesure.
+        #
+        # UNE SEULE LECTURE POUR LES DEUX REGISTRES (#521-r5), et c'est le NATIF qui l'impose --
+        # `config@+0xa0` est le MEME champ des deux cotes, LU au decompile :
+        #   * `IdunBattle.Entities.Factories.UnitFactory$$AddDerivedAbilities(entity, config,
+        #     activeAbilityState, triggeredAbilityState)` ouvre sur
+        #     `List<ActiveAbilityType>.GetEnumerator(config@+0xa0)` et, par element,
+        #     `StaticBattleRules.ActiveAbility$$HasDerivedTriggeredAbilities` ->
+        #     `...$$GetDerivedTriggeredAbilities` -> `TriggeredAbilityComponent$$TryAdd`
+        #     (= `ACTIVE_ABILITY_TRIGGERS`) ;
+        #   * `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` boucle sur ce MEME
+        #     `config@+0xa0` pour appeler `...$$AddActiveAbility`, qui interroge
+        #     `StaticBattleRules.ActiveAbility$$GetPassiveHelperAbility`
+        #     (= `PASSIVE_HELPER_ABILITY_TRIGGERS`).
+        # Les faire lire deux substrats DIFFERENTS etait donc un artefact du port, pas une nuance du
+        # natif : `ACTIVE_ABILITY_TRIGGERS` sur le seul kit gameconfig etait AVEUGLE a une active
+        # greffee -- exactement le regime qu'il faut pour confronter une ability a porteur npc.
         measured_actives = getattr(sc.ctx, "config_active_abilities", None)
         config_actives = (measured_actives if measured_actives is not None
                           else list(gu.get("activeAbilities") or []))
         for aa in config_actives:
+            # activeAbilities -> triggered-abilities DERIVEES
+            # (`StaticBattleRules.ActiveAbility$$GetDerivedTriggeredAbilities`) : portee des l'init
+            # de l'unite, sans cast prealable.
+            for cls in ACTIVE_ABILITY_TRIGGERS.get(aa, ()):
+                out.append(cls(eid))
+            # SIXIEME chemin (#521-r1) : la triggered-ability HELPER d'une ability ACTIVE
+            # (`StaticBattleRules.ActiveAbility$$GetPassiveHelperAbility`, dict statique DISTINCT de
+            # celui des derivees -- cf. l'en-tete de `PASSIVE_HELPER_ABILITY_TRIGGERS`), montee par
+            # `IdunBattle.Entities.Factories.UnitFactory$$AddActiveAbility`.
             for cls in PASSIVE_HELPER_ABILITY_TRIGGERS.get(aa, ()):
                 out.append(cls(eid))
         if vid:
