@@ -53,17 +53,61 @@ from __future__ import annotations
 
 #: Perimetre DECLARE LARGE sur `engine/**`, et c'est MESURE : les etages [5]/[6] chargent le
 #: REGISTRE ENTIER d'abilities et jouent chacune, donc la fermeture d'imports traverse tout
-#: `engine/**`. Hors de ce paquet, en revanche, les chemins sont NOMMES UN PAR UN -- pas de
-#: `scripts/python/*.py` fourre-tout, qui serait un `toujours: True` deguise.
+#: `engine/**`. Hors de ce paquet, les chemins sont NOMMES UN PAR UN -- pas de
+#: `scripts/python/*.py` fourre-tout, qui serait un `toujours: True` deguise (mesure #486-r24 :
+#: 43 des 52 declencheurs du parc y cedent, et le cliquet ne rougit que sur le TROP ETROIT, donc
+#: il RECOMPENSE la facilite).
+#:
+#: ⚠ Les 41 modules de RACINE ci-dessous ne sont PAS importes par ce fichier : ils viennent de la
+#: cascade des `conftest` (celui de `tests/engine/runner/` importe des probes pour ses helpers).
+#: Ils sont DERIVES, jamais devines --
+#:     python -c "import probe_486r15_declencheurs_tests as P; \
+#:                d,_=P.declarations(P.fichiers_de_test()); \
+#:                print(P.confronter({<ce fichier>: d[<ce fichier>]})[0])"
+#: rend la liste exacte. Si la cascade `conftest` change, ce declencheur ROUGIT -- et c'est le
+#: comportement voulu : la fermeture de ce test a change, donc il doit se rejouer.
 DECLENCHEUR = {
     "chemins": (
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         "scripts/python/tests/engine/conftest.py",
         "scripts/python/tests/engine/runner/conftest.py",
         "scripts/python/engine/**/*.py",
+        # importes DIRECTEMENT par ce fichier
         "scripts/python/probe_287r14_get_actual_target.py",
         "scripts/python/probe_287r12_role_target_tuile.py",
         "scripts/python/hexgeo.py",
+        # tires par la cascade `conftest` (liste DERIVEE, cf. la commande ci-dessus)
+        "scripts/python/board.py", "scripts/python/catalog_inject.py",
+        "scripts/python/declencheur_guard.py", "scripts/python/engine_agreement_stages.py",
+        "scripts/python/engine_validate.py", "scripts/python/enum_maps.py",
+        "scripts/python/gameconfig.py", "scripts/python/green_skip_guard.py",
+        "scripts/python/host_inputs.py", "scripts/python/probe_159_ah_bounds.py",
+        "scripts/python/probe_178_overkill_gate.py",
+        "scripts/python/probe_17_active_ability_used_gate.py",
+        "scripts/python/probe_17_hammer_corpse.py",
+        "scripts/python/probe_17_martial_inspiration.py",
+        "scripts/python/probe_195_prevent_overkill_decision.py",
+        "scripts/python/probe_207_haze_pool_ladder.py",
+        "scripts/python/probe_207_haze_target_finder.py",
+        "scripts/python/probe_220_haze_bonded_chain.py",
+        "scripts/python/probe_270d_lysander_deploy.py",
+        "scripts/python/probe_294_trigger_ability_channels.py",
+        "scripts/python/probe_301_kill_unit_trigger_channels.py",
+        "scripts/python/probe_306_effect_trigger_channels.py",
+        "scripts/python/probe_308_normal_attack_bonus.py",
+        "scripts/python/probe_316_ability_prediction_target_traits.py",
+        "scripts/python/probe_334_defend_the_divine_work.py",
+        "scripts/python/probe_338_ai_target_choice.py",
+        "scripts/python/probe_348_ai_approach.py",
+        "scripts/python/probe_350r3b_triggered_average_forms.py",
+        "scripts/python/probe_357_relic_rail.py",
+        "scripts/python/probe_363_ability_states_channel.py",
+        "scripts/python/probe_487_hellfyre_missile_rack.py",
+        "scripts/python/probe_dpw_weapon_cell.py", "scripts/python/probe_o5_unit_flags.py",
+        "scripts/python/probe_psychic_aoe.py", "scripts/python/probe_r34_overkill_decision.py",
+        "scripts/python/probe_r6_round_materialize.py", "scripts/python/probe_r6c_ah_bounds.py",
+        "scripts/python/rl_collect_batch.py", "scripts/python/stream_events.py",
+        "scripts/python/symbols_layout.py", "scripts/python/unit_map.py",
         # ⚠ HORS de `scripts/python/` -- donc aucun glob ci-dessus ne les couvre. La cascade
         # d'import du registre LIT ces deux entrees versionnees.
         "frida/hooks/data/ability-names.ts", "data/seed-bc.json",
