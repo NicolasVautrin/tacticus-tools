@@ -75,18 +75,30 @@ def test_override_range_wins_over_config():
     vide, donc un override du ctor GAGNE. On le prouve sur un `TargetingRange` synthetique qui
     porte les DEUX (aucune ability du lot ne le fait -- la garde protege l'ordre, pas un cas)."""
     both = TargetingRange(use_range_from_config=True, override_range=2)
-    assert ar._config_range(1069) == 5, "montage : l'ability doit bien porter constants.range = 5"
     import dataclasses
-    # MEMBRE et non `1069` (#270-r1 volet 2) : toute ECRITURE sur cette table porte un membre.
-    # Ici l'ordinal serait sans danger (CPython conserve la cle sur une affectation a une cle
-    # DEJA presente), mais la regle est uniforme -- l'exception n'est pas decidable statiquement,
-    # et une affectation a une cle ABSENTE creerait une cle non typee.
-    cle = ActiveAbilityType.SeekerMissileFrequencyLock  # 1069
+    # ⚠ LE COBAYE SE DERIVE, IL NE SE FIGE PAS. Il etait ecrit en dur (`1069
+    # SeekerMissileFrequencyLock`) : le jour ou cette ability a ete PORTEE (#491), elle a quitte
+    # `TARGETING_OPTIONS_UNPORTED` -- disjointe d'`ABILITY_CLASSES` -- et ce test est tombe en
+    # `KeyError` sur `master`, pour une cause qui n'a RIEN a voir avec ce qu'il garde (l'ORDRE
+    # override-avant-config). Un cobaye fige dans une table qui RETRECIT a chaque port est une
+    # peremption programmee ; on prend donc la premiere entree VIVANTE qui porte les deux
+    # ingredients du montage. (Repare depuis #488, qui a fait sortir 1087 de la meme table.)
+    # MEMBRE et non ordinal nu (#270-r1 volet 2) : toute ECRITURE sur cette table porte un membre --
+    # les cles de la table EN SONT deja, donc iterer dessus le garantit.
+    cle = next((k for k, o in TARGETING_OPTIONS_UNPORTED.items()
+                if o.range is not None and getattr(o.range, "use_range_from_config", False)
+                and isinstance(ar._config_range(int(k)), int) and ar._config_range(int(k)) > 0),
+               None)
+    assert cle is not None, (
+        "plus AUCUNE entree de `TARGETING_OPTIONS_UNPORTED` ne porte `use_range_from_config` avec "
+        "un `constants.range` lisible : ce test a perdu son substrat, pas sa raison d'etre")
+    aid = int(cle)
+    assert ar._config_range(aid) > 0, "montage : l'ability doit bien porter un constants.range"
     prev = TARGETING_OPTIONS_UNPORTED[cle]
     try:
         TARGETING_OPTIONS_UNPORTED[cle] = dataclasses.replace(prev, range=both)
         ar._REACH_CACHE.clear()
-        assert ar.ability_range_value(1069, RANGED) == 2
+        assert ar.ability_range_value(aid, RANGED) == 2
     finally:
         TARGETING_OPTIONS_UNPORTED[cle] = prev
         ar._REACH_CACHE.clear()
@@ -174,19 +186,27 @@ def test_no_ability_has_two_contradictory_sources():
     assert dupes == [], "abilities a deux sources d'options : %r" % (dupes,)
 
 
-#: Les 32 abilities ACTIVES du pool spawnable hors `ABILITY_CLASSES` (#433-r4-r2-r1-r2-r2-r1-r1).
+#: Les abilities ACTIVES du pool spawnable hors `ABILITY_CLASSES` (#433-r4-r2-r1-r2-r2-r1-r1).
 #: DERIVEE, pas choisie : `rl_duel build --list-pool` (rank courant, 97 unites regulieres) croise
 #: avec `gameconfig.activeAbilities`, moins le registre COMBAT. La liste est FIGEE ici parce que
 #: `--list-pool` exige la session host (normalisation live) et qu'un test offline ne peut pas la
 #: rejouer ; le test qui suit, lui, DERIVE son perimetre du seed BC versionne.
+#: ⚠ ELLE RETRECIT A CHAQUE PORT, et c'est voulu : `test_the_pool_abilities_carry_a_read_mask`
+#: exige aussi qu'AUCUNE entree ne soit dans `ABILITY_CLASSES` (assertion `intrus`), parce que le
+#: masque aurait alors DEUX sources. Une ability qui entre au registre doit donc SORTIR d'ici dans
+#: le meme commit -- c'est le pendant, cote perimetre, du contrat de disjonction que garde
+#: `tests/engine/runner/test_targeting_options_sources.py`.
+#: Sorties : 1087 `ExemplarOfTheKauyon` (#488), 1048 `FragstormGrenadeLauncher` (#489),
+#: 1069 `SeekerMissileFrequencyLock` (#491), 1088 `HellfyreMissileRack` (#487) -- toutes pour la
+#: MEME raison : leur face COMBAT est portee, donc leur masque a MIGRE sur la classe.
 POOL_ABILITIES_WITHOUT_COMBAT_CLASS = [
-    1005, 1019, 1027, 1038, 1039, 1048, 1049, 1050, 1057, 1061, 1063, 1064, 1068, 1069, 1087,
-    1088, 1101, 1106, 1121, 1129, 1132, 1141, 1152, 1164, 1165, 1175, 1177, 1183, 1191, 1195,
+    1005, 1019, 1027, 1038, 1039, 1049, 1050, 1057, 1061, 1063, 1064, 1068,
+    1101, 1106, 1121, 1129, 1132, 1141, 1152, 1164, 1165, 1175, 1177, 1183, 1191, 1195,
     1197, 1204,
 ]
 
 
-def test_the_thirty_two_pool_abilities_carry_a_read_mask():
+def test_the_pool_abilities_carry_a_read_mask():
     """`#433-r4-r2-r1-r2-r2-r1-r1` : les abilities ACTIVES du pool spawnable hors registre portent
     desormais leur masque `rules`, pas seulement leur portee. Sans lui, `tile_removed_by_walkability`
     et `target_is_obscured` sont DESARMES (convention permissive) et leur terme attribue des tuiles
