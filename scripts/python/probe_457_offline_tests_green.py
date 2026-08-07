@@ -282,6 +282,10 @@ if str(_PYDIR_POUR_IMPORT) not in sys.path:
     sys.path.insert(0, str(_PYDIR_POUR_IMPORT))
 
 import declencheur_cliquet                                                  # noqa: E402
+# LEDGER VERSIONNE DU VERT OFFLINE (#486-r23). Arete a SENS UNIQUE : ce module-la n'importe RIEN
+# d'ici (l'impact lui est INJECTE), donc pas de cycle. Forme B non requise -- on lie des noms de
+# module, pas des fonctions patchables. Il est LEGER (`json`/`subprocess`/`pathlib`).
+import ledger_vert_offline as ledger                                        # noqa: E402
 # LE FOYER DU RECENSEMENT OFFLINE (#463-r1) : `TESTS_DIR`, la convention de collecte et le filtre
 # `_live.py` y vivent, parce que TROIS outils les derivaient separement. Le module est LEGER
 # (`json`/`ast`/`tokenize`) et n'importe RIEN d'ici -- l'arete est a sens unique, donc pas de
@@ -620,6 +624,46 @@ class _TimePerFile:
             self.n[rel] = self.n.get(rel, 0) + 1
 
 
+class _BilanParFichier:
+    """Le BILAN VENTILE de pytest, par FICHIER -- la moitie que `_TimePerFile` ne porte pas.
+
+    Il alimente le ledger versionne du vert offline (`ledger_vert_offline`). Ventile, et pas
+    seulement `rc`, parce que c'est la ventilation qui rend possible le garde `#455` :
+    `passed == 0 and skipped > 0` est un VERT QUI MENT -- zero assertion evaluee, `rc 0`. Un champ
+    `verdict` seul ne saurait pas le voir, et c'est exactement ainsi que
+    `test_summon_trait_effects_live.py` a tenu sur `master` en 8 skipped / 0 passed.
+
+    La SEMANTIQUE DES PHASES est celle de `probe_462`, et elle n'est pas cosmetique : un echec en
+    `setup`/`teardown` est une panne de MONTAGE (`error`), pas un echec d'assertion (`failed`).
+    Confondre les deux fait accuser le depot pour une panne de harnais.
+    """
+
+    def __init__(self) -> None:
+        self.par_fichier: dict = {}
+
+    def _seau(self, rel: str) -> dict:
+        return self.par_fichier.setdefault(
+            rel, {"passed": 0, "failed": 0, "error": 0, "skipped": 0, "xfailed": 0})
+
+    def pytest_runtest_logreport(self, report):                       # noqa: D102
+        rel = str(getattr(report, "nodeid", "") or "").split("::")[0].replace("\\", "/")
+        if not rel:
+            return
+        seau = self._seau(rel)
+        if getattr(report, "when", None) in ("setup", "teardown"):
+            if report.failed:
+                seau["error"] += 1
+            return
+        if getattr(report, "wasxfail", None) is not None and report.skipped:
+            seau["xfailed"] += 1
+        elif report.passed:
+            seau["passed"] += 1
+        elif report.failed:
+            seau["failed"] += 1
+        elif report.skipped:
+            seau["skipped"] += 1
+
+
 class _FilesPerTest:
     """EMPREINTE MESUREE : quels fichiers du depot chaque fichier de test ouvre REELLEMENT.
 
@@ -745,6 +789,70 @@ def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, g
         "_globales": sorted(globales if complete else set(globales) | set(anciennes_glob)),
         "par_test": dict(sorted({**garde, **neuves}.items())),
     }
+
+
+def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shards: int) -> None:
+    """Inscrit au LEDGER VERSIONNE le verdict de CHAQUE fichier que CETTE passe a joue (#486-r23).
+
+    DECIDE D'ABORD, ECRIT ENSUITE -- meme discipline que `_ecrire_mesure`, et pour la meme raison :
+    ce fichier est VERSIONNE, donc une ecriture fausse se propage a tout le monde.
+
+    TROIS REFUS, et chacun ferme un chemin par lequel un FAUX VERT entrerait :
+
+      1. `rc` d'USAGE / d'interruption (2, 3, 4, 5) -- rien n'a ete joue, donc rien n'est atteste.
+         C'est le patron << un echec RENDU se lit comme une mesure >>, deja paye deux fois ici.
+      2. `n_shards > 1` -- LA CONCURRENCE INTRA-RUN. Les 8 shards sont 8 PROCESSUS : ils
+         ecriraient le meme fichier en meme temps, et le dernier ecraserait les autres (chaque
+         shard ne connait QUE ses fichiers, donc il ecrirait un ledger ampute des 7/8 restants).
+         Refuser et le DIRE ; consolider entre processus est un residu, pas une devinette.
+      3. AUCUNE base de fraicheur (`git` muet) -- une attestation sans `_depuis` n'est pas
+         verifiable, donc `raison_de_rejeu` la rejetterait de toute facon. Autant ne pas l'ecrire.
+
+    Ce qui n'est PAS un refus : des tests ROUGES. Un rouge est un FAIT sur cet arbre et il
+    s'inscrit -- c'est meme la seule facon qu'un rouge cesse d'etre invisible entre deux passes.
+    """
+    if rc in RC_PYTEST_SANS_MESURE:
+        print("[457] ledger NON ECRIT : pytest rc=%d -- rien n'a ete joue, rien n'est atteste."
+              % rc)
+        return
+    if n_shards > 1:
+        print("[457] ledger NON ECRIT : %d shards = autant de processus concurrents sur un "
+              "fichier VERSIONNE ; chacun n'a joue que sa part et ecraserait celle des autres."
+              % n_shards)
+        print("[457] Rejouer en MONO-SHARD pour attester (residu : consolidation inter-shards).")
+        return
+    depuis, comment = ledger.base_de_fraicheur(repo_root())
+    if not depuis:
+        print("[457] ledger NON ECRIT : %s" % comment)
+        return
+    tete = _git(["rev-parse", "HEAD"], "horodatage du ledger", tolere_rc=True)
+    head = (tete.stdout or "").strip() or None
+    blobs = ledger.blobs_courants(repo_root(), list(joues))
+
+    neuves = {}
+    for rel in joues:
+        b = bilan.par_fichier.get(rel)
+        if b is None:
+            # AUCUN report pour ce fichier : il n'a rien collecte (ou a disparu). Ne RIEN ecrire
+            # est le seul traitement sur -- une entree fabriquee a 0 partout serait lue `VIDE`,
+            # ce qui est un FAIT que cette passe n'a pas etabli.
+            continue
+        neuves[rel] = ledger.entree_neuve(
+            b, horloge.sec.get(rel, 0.0), blobs.get(rel), depuis, head)
+
+    if not neuves:
+        print("[457] ledger NON ECRIT : aucun des %d fichier(s) joue(s) n'a produit de report."
+              % len(joues))
+        return
+    anciennes, anomalies = ledger.lire(repo_root())
+    for a in anomalies:
+        print("[457] ledger : %s" % a)
+    fusion = ledger.fusionner(anciennes, neuves, perimetre=perimetre)
+    p = ledger.ecrire(repo_root(), fusion)
+    verts = sum(1 for e in neuves.values() if e["verdict"] == ledger.VERT)
+    print("[457] ledger -> %s : %d entree(s) inscrite(s) (%d VERT, %d non-VERT), %d au total ; "
+          "base de fraicheur %s [%s]"
+          % (p, len(neuves), verts, len(neuves) - verts, len(fusion), depuis[:8], comment))
 
 
 def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
@@ -1560,6 +1668,10 @@ def _run(argv=None) -> int:
     ap.add_argument("--since", default=None,
                     help="Ne joue que les fichiers IMPACTES par le diff <ref>..HEAD (empreinte "
                          "mesuree + graphe d'imports). Tout doute rejoue TOUT, et le dit.")
+    ap.add_argument("--depuis-ledger", action="store_true", dest="depuis_ledger",
+                    help="Ne joue que les fichiers dont le VERT n'est plus atteste par le ledger "
+                         "VERSIONNE (`scripts/ratchets-457-vert-offline.json`), compose avec "
+                         "l'empreinte. Se cumule avec `--since` : l'intersection est jouee.")
     ap.add_argument("--shard", default="0/1",
                     help="k/N -- ne joue que le shard k parmi N (defaut 0/1 = tout).")
     ap.add_argument("--list", action="store_true",
@@ -1659,6 +1771,10 @@ def _run(argv=None) -> int:
         return 2
 
     every = candidate_files()
+    # LE PERIMETRE COMPLET, CAPTURE AVANT TOUTE SELECTION. `every` est reduit par `--since` et
+    # `--depuis-ledger` ; passer ce reduit a `ledger.fusionner` EFFACERAIT les entrees de tous les
+    # fichiers non selectionnes -- une passe de 10 fichiers detruirait 226 attestations valides.
+    perimetre_complet = list(every)
     if args.since:
         # La selection s'applique AVANT le partitionnement : les shards se repartissent alors les
         # seuls fichiers impactes, donc N shards restent equilibres sur un perimetre reduit.
@@ -1666,6 +1782,30 @@ def _run(argv=None) -> int:
         print("[457] --since %s : %s" % (args.since, raison))
         if not every:
             print("[457] aucun fichier impacte -- rien a jouer, VERDICT: PASS")
+            return 0
+    if args.depuis_ledger:
+        # COMPOSITION empreinte x ledger (#486-r23). L'impact est INJECTE : `ledger_vert_offline`
+        # n'importe rien d'ici. Le graphe d'imports est memoise (`_GRAPHE_CACHE`), donc N bases
+        # distinctes ne le recalculent pas N fois.
+        avant = len(every)
+        garde = set(every)
+        every, raisons, anomalies = ledger.a_rejouer(
+            every, repo_root(),
+            lambda sha: [r for r in impacted_files(candidate_files(), sha)[0] if r in garde])
+        for a in anomalies:
+            print("[457] ledger : %s" % a)
+        causes = {}
+        for motif in raisons.values():
+            causes[motif.split(" (")[0].split(" --")[0]] = \
+                causes.get(motif.split(" (")[0].split(" --")[0], 0) + 1
+        print("[457] --depuis-ledger : %d/%d fichier(s) SANS vert atteste valable [%s]"
+              % (len(every), avant,
+                 ", ".join("%s %d" % (k, v) for k, v in sorted(causes.items(),
+                                                               key=lambda kv: -kv[1])[:4])
+                 or "aucun"))
+        if not every:
+            print("[457] tout le perimetre est ATTESTE VERT et valable -- rien a jouer, "
+                  "VERDICT: PASS")
             return 0
     poids = _weights()
     if poids:
@@ -1714,12 +1854,20 @@ def _run(argv=None) -> int:
         return 1
 
     plugin = _DeselectLiveItems()
+    bilan = _BilanParFichier()
+    horloge = _TimePerFile()
     started = time.time()
     # `-p no:cacheprovider` : aucune ecriture sous `scripts/python/` (#455 -- la banque enumere
     # cet arbre en parallele). `--import-mode=importlib` est deja dans `pytest.ini` ; on ne le
     # repete pas, pour que ce cliquet joue EXACTEMENT la configuration de production.
-    rc = pytest.main(["-q", "-p", "no:cacheprovider", *mine], plugins=[plugin])
+    rc = pytest.main(["-q", "-p", "no:cacheprovider", *mine],
+                     plugins=[plugin, bilan, horloge])
     elapsed = time.time() - started
+    # LE LEDGER S'ECRIT ICI, ET PAS DANS `_ecrire_mesure` : celui-ci n'est atteint que par
+    # `--measure`, qui rejoue TOUT (976,9 s). Un ledger qui ne se remplirait qu'a la maintenance
+    # serait vide en pratique -- c'est la passe ORDINAIRE qui prouve le vert, donc c'est elle qui
+    # doit l'inscrire.
+    _ecrire_ledger(perimetre_complet, mine, bilan, horloge, int(rc), n)
 
     print("[457] %d test(s) joue(s) en %.1f s -- pytest rc=%d" % (plugin.kept, elapsed, int(rc)))
     if plugin.dropped_items:
