@@ -243,3 +243,25 @@ entrées incluent **l'index git lui-même**.
   dégât coup par coup, les contre-épreuves, les gates forgés, le tour adverse, et le témoin négatif.
 * `scripts/python/probe_521r1_talons_used_abilities.py` — la MESURE (montage + critères), foyer
   unique appelé par le test.
+
+## 8. Ce que cette tranche a laissé ROUGE, et que la suite offline complète a trouvé (2026-08-07)
+
+Deux rouges de `master` sortis du **même** fichier — `probe_521r1_talons_used_abilities.py` — en
+rejouant la suite offline entière (16 failed / 3314 passed ; le cliquet a été retiré du pipeline de
+PR le 2026-08-05, donc plus personne ne la jouait). Aucun des deux n'était attribué à un lot : ils
+n'appartenaient à la tranche de personne, exactement le mode d'invisibilité que `#457` décrit.
+
+* **`test_host_inputs_offline::test_probe_273_passe`** — le state-file par défaut était
+  `PYDIR / "logs"` = `scripts/python/logs`. Les deux emplacements sont gitignorés (`.gitignore`
+  → `logs/` matche à tout niveau), mais `probe_273 --only-scan` étape 0 classe SORTIE sur le
+  **premier segment** du chemin relatif au dépôt : `scripts/…` n'en est pas un. Écart mesuré :
+  **71** probes écrivent `parents[1] / "logs"`, **1 seul** faisait autrement — et le probe FRÈRE
+  de cette même tranche (`probe_521_talons_of_the_emperor.py:635`) faisait déjà juste.
+* **`test_enum_ordinal_ratchet_offline`** — `TriggerEvent(event_id=14, …)` en contexte
+  `EventTriggerType`. Le commentaire de la ligne au-dessus **nommait déjà** l'event
+  (`On(0xe = UnitPostAbility)`) : l'ordinal étant juste, la faute était structurellement invisible.
+
+⚠ **Reste, NON traité et hors périmètre du correctif** : `MOMENT_SHACKLE = 1184` (l. 70) porte le
+même patron sur l'axe `ActiveAbilityType`, avec son nom en commentaire de fin de ligne. **Aucun
+cliquet ne le relève** — l'étape 2 de `probe_283` vise les *kwargs* en contexte enum, pas les
+*affectations de module*. C'est un trou de garde, pas un oubli de cette tranche.
