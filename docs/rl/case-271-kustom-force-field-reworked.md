@@ -301,6 +301,58 @@ positif** ≤ 25 sur un état où la proposition native est un mouvement PUR. Vo
    transposé d'une face. Garde posée en attendant : le registre MOVE ne peut contenir que des
    classes de face MOVE (`test_477r37_slot4_et_faces_restantes_live.py`).
 
+### 7.5 — la RE des DEUX faces restantes est FAITE (2026-08-07) ; le port ne l'est pas
+
+Ce §7.5 fixe ce qui a été LU, pour qu'une reprise n'ait plus à le refaire. **Aucun code n'est
+livré** : les deux faces exigent un dispatcher neuf, un registre par face et un câblage dans
+`utilities/damage.py` / `utilities/repair.py`, et un port non confronté serait spéculatif.
+
+**Les deux dispatchers sont JUMEAUX, et diffèrent de la face MOVE sur deux points.**
+
+```c
+// IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.<EvaluateAttackInSteps>d__1$$MoveNext
+// IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.<EvaluateRepairInSteps>d__2$$MoveNext
+Fix64 total = 0;
+foreach ((playbook, owner) in IterateAbilities(case.Caster))          // surcharge (caseEntity)
+    total += playbook.<slot 1 | slot 2>(case, owner);                 // Attack | Repair
+yield total;
+```
+
+* **AUCUN gate de nullité du sujet** — ni `case.unit == null`, ni le couple `unit`/`parent` de la
+  face MOVE. Les deux faces appellent directement la surcharge `IterateAbilities(IEntity)`
+  (`$$IterateAbilities(caseEntity)` @ `<d__4>`), pas `$$IterateAbilities(movementCase)` (`<d__3>`).
+* **Le SUJET est le CASTER** : `case+0x10`, et `UtilityAttackCase$$.ctor` écrit `caster` à `+0x10`,
+  `casterPosition` à `+0x18`, `target` à `+0x20` — lu, pas supposé. Les DEUX faces prennent un
+  `UtilityAttackCase` (le paramètre de la face REPAIR s'appelle `repairCase` mais son type déclaré
+  est le même, `frida/methods.tsv`).
+
+**`<IterateAbilities>d__4`** diffère de `d__3` sur un seul point, et il est load-bearing :
+
+```c
+foreach (ta in <utility+0x50 = abilityAndEffectCache>.<slot 5>()) {
+    if (ta.Owner == subject) continue;                      // INCONDITIONNEL (d__3 le garde par `case.unit != null`)
+    pb = PlaybookDatabase.LoadPlaybookNonOwner(ta.Type);     // null -> skip
+    if (pb.<slot 4> || UnitExtensions.IsFriend(subject, ta.Owner, State))
+        yield (pb, ta.Owner);
+}
+```
+
+**Les QUATRE corps concrets, et leur blocage RÉEL — un par classe, jamais un par face :**
+
+| classe | face | corps natif (lu) | blocage |
+|---|---|---|---|
+| `NoHidingFromTheWatchersNonOwnerPlaybook` | ATTACK | `if (case.Target != owner \|\| case.CasterPosition.MainTile == null \|\| GetMainTile(owner) == null) yield break; if (IsFriend(case.Caster, owner, State)) yield break; if (Query.<slot 132 = GetAdjacentFriends(pos, owner)>(GetUnitPosition(owner, State), owner).Count != 0) yield <clé BC>;` | `aucun` — et c'est elle qui porte `<slot 4> = true`, donc sa branche ENNEMI n'existe QUE si le pré-gate est porté |
+| `WayOfTheShortBladeNonOwnerPlaybook` | ATTACK | `if (!HasTrait(case.Caster, 0x10 = Hero)) yield break; if (!(HasFaction(case.Caster, 9 = Tau) && HasRangedWeapon(case.Caster, null) && Query.<slot 0x61 = AreEntitiesAdjacent>(case.CasterPosition, case.Target))) yield break; range = GetNumberConstant(config, 0x16 = AbilityConstantType.range); if (Query.<slot 0x6d = GetDistance>(owner, case.CasterPosition) <= range) yield <clé BC>;` | `aucun` |
+| `ShieldOfFaithNonOwnerPlaybook` | ATTACK | `if (case.Caster.BaseUnitComponent != null && BaseUnitComponent.<+0x74> != 5) yield break;` (= `HasRarity(Mythic)`) `; if (!AnyTileHasEffectOfUnit(case.Target, EffectType 5)) yield break; yield <clé BC>;` — et `$$AnyTileHasEffectOfUnit` = `GetTiles(target, State).Any(t => HasEffect(t, State, effectType, false))` | **`capteur`** — c'est le MÊME verrou `rarity` que `#477-r43` (aucun canal `rarity` côté port ; il faudrait `combatSnapshot.units[].rarity` ← `BaseUnitComponent.Rarity`) |
+| `VoltagheistFieldPlaybook` | REPAIR | `if (case.Target != owner) yield break; yield <utilitiesDatabase @+0xe0>.GetUtility(0x30, 0).<slot 6>(case);` — `IUtilitiesDatabase` slot 0 = `GetUtility` (2 args), `0x30 = 48 = UtilityType.RepairedAmount` | `etage` — la feuille `RepairedAmount(48)` EST portée (`utilities/repair.py`), mais le port n'a aucun dispatcher REPAIR pour la feuille 4 ni de canal `IUtility.<slot 6>` |
+
+**Ce qui reste à faire, dans l'ordre** : (a) `FACE` par classe au registre (la table
+`data/symbols/<build>/metadata/non_owner_slot4.tsv` la porte déjà, et
+`test_477r37_…::test_le_registre_MOVE_ne_contient_QUE_des_faces_MOVE` doit rester vrai) ;
+(b) le mirror d'`<IterateAbilities>d__4` (exclusion de self INCONDITIONNELLE) ; (c) les deux corps
+non bloqués ; (d) le câblage dans `Damage(35)` et `Repair(47)` ; (e) la confrontation live, dont le
+porteur est à établir pour chacune des trois abilities.
+
 ## 8. Re-dérivation
 
 ```bash
