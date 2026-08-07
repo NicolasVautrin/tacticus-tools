@@ -8,30 +8,43 @@ Contenu :
   sur la cible ET sur <=`nrOfUnits` autres ennemis ALEATOIRES adjacents A LA CIBLE, dans UNE passe
   id-triee unique ; puis, pour chaque unite endommagee CETTE PHASE par le caster qui est MORTE et
   OVERKILLEE, un `DoomSiren_ExtraHit` (+1 EXTRA_HITS, PERMANENT) sur Adamatar.
+- `ExcruciatingFrequencies` (1197, `emperNoiseMarine` « Shiron ») — rayon de `nrOfTiles` tuiles en
+  ligne droite depuis Shiron A TRAVERS la TUILE visee : +`extraCritChance` % de CRIT CHANCE par
+  UNITE (toutes equipes) sur la ligne, pose sur le caster le temps du cast, puis `nrOfHits` coups
+  Blast sur CHAQUE ENNEMI de la ligne, puis retrait du buff.
 """
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+import gameconfig as GC
+
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import Foreach, If as IfBehaviour, AtomicGroup, op_add
+from ...entities.ability_constant_type import AbilityConstantType
+from ...entities.ability_variable_type import AbilityVariableType
+from ...entities.behaviours import Foreach, If as IfBehaviour, AtomicGroup, op_add, op_and
+from ...entities.formulas import Count, Multiply
 from ...entities.selectors.accessors import ActiveTarget, Target, TargetTile
+from ...entities.selectors.geometry import Cache
 from ...entities.selectors.tiles import Caster
 from ...entities.selectors.units import (
-    AdjacentEnemies, Damageable, Union, UnitSet, UnitsDamagedThisPhase
+    AdjacentEnemies, Damageable, Enemies, Union, UnitSet, Units, UnitsDamagedThisPhase
 )
 from ...entities.stats import StatType
 from ...entities.triggers import IsDead, HasUnitFlag, TriggerAnd
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
+from ..components import StatsComponent
 from .base import ActiveAbility
 from .behaviours.combat import AttackWithAttackDamage
-from .behaviours.context import entities_from_state
-from .behaviours.effects import AddStaticStatModifierEffect
+from .behaviours.context import entities_from_state, entities_with_tile_target
+from .behaviours.effects import AddStaticStatModifierEffect, RemoveEffect
 from .loki import _pick_randomly_n
-from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import (RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions,
+                        _dynamic_rule_excruciating_frequencies,
+                        excruciating_frequencies_affected_tiles)
 from .targeting_rule import TargetingRule as TR
 from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 
@@ -40,6 +53,23 @@ if TYPE_CHECKING:
 
 DOOM_SIREN_EXTRA_HIT = int(EffectType.DoomSiren_ExtraHit)   # 0x597 = 1431
 UNIT_FLAG_OVERKILLED = UnitFlag.Overkilled                                    # `IdunBattle.Entities.Enum.UnitFlag.Overkilled`
+
+EXCRUCIATING_FREQUENCIES_ID = "ExcruciatingFrequencies"
+#: `AddStaticStatModifierEffect(caster@0x48, 0x56c, ...)` -- l'effet GENERIQUE de stat-mod temporaire,
+#: le MEME que celui du `+ExtraPierce` de `LeadingTheCharge` (1204). Pose ET retire DANS le cast.
+EF_TEMPORARY_STAT_MODIFIER = int(EffectType.TemporaryStatModifier)   # 0x56c = 1388
+#: `AddStaticStatModifierEffect(..., 0x9, ...)` -- `IdunBattle.Entities.Enum.StatType.CritChance`.
+EF_CRIT_CHANCE = int(StatType.CRIT_CHANCE)                           # 0x9 = 9
+#: `AbilityConfiguration.GetNumberConstant(config, 0x17)` -> cle gameconfig `constants.nrOfTiles` = 3.
+EF_CONST_NR_OF_TILES = AbilityConstantType.nrOfTiles                 # 0x17 = 23
+#: `AbilityConfiguration.GetVariableForLevel(config, 0x41, abilityState, 0)` -> `variables.extraCritChance`.
+#: ⚠ QUALIFICATION D'ENUM -- LES DEUX ORDINAUX SONT AMBIGUS, ET C'EST L'ACCESSEUR QUI TRANCHE.
+#: `0x41` est un `AbilityVariableType` parce que c'est le type DECLARE du 1er parametre de
+#: `AbilityConfiguration.GetVariableForLevel` (LU dans `frida/methods.tsv`) ; `AbilityConstantType(65)`
+#: nomme `armorReduction`, une cle sans rapport. Symetriquement `0x17` est un `AbilityConstantType`
+#: (`GetNumberConstant`) : `AbilityVariableType(23)` nomme `extraChance`. Confondre les deux aurait lu
+#: deux mauvaises cles du gameconfig SANS lever la moindre erreur.
+EF_VAR_EXTRA_CRIT_CHANCE = AbilityVariableType.extraCritChance       # 0x41 = 65
 
 
 def doom_siren_pool_selector():
@@ -205,3 +235,204 @@ class DoomSirenAbility(ActiveAbility):
         extra = [p for n, p in ectx.emitted if n == "AddStaticStatModifierEffect"]
         return {"ability": "DoomSiren", "caster": caster_id, "target": target_id,
                 "main_attack": main, "splash": splash, "extra_hits": extra, "dsl": True}
+
+
+# ============ ExcruciatingFrequencies (emperNoiseMarine « Shiron », actif 1197) ==================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$ExecuteBehaviour` --
+# MIRROR du DECOMPILE (build `rnca9r7q6c`). Correspondance des slots de `DSLSelectors`
+# (`factory+0x90`, champs de la factory decales de `0x118`) : `sel+0x48 = Caster(0x160)`,
+# `sel+0x50 = CasterTile(0x168)`, `sel+0x78 = TargetTile(0x190)`. `DSLFormulas+0x20 = Direct(1)`
+# (LU dans `IdunBattleLogic.Entities.DSLFormulas$$.ctor`, qui alloue `+0x18 Direct(0) ·
+# +0x20 Direct(1) · +0x28 Direct(2) · +0x30 Direct(100) · +0x38 Direct(-1)`).
+#
+#     tousSurLaLigne = Cache( Units(GetAffectedTiles(), unique: 1, selectionType: 3), 1 )
+#     ennemis        = Cache( Enemies( caster@0x48,
+#                                      Units(GetAffectedTiles(), unique: 1, selectionType: 3),
+#                                      selectionType: 3 ),
+#                             1 )
+#     montant        = Multiply( Count(tousSurLaLigne),
+#                                Direct(GetVariableForLevel(0x41 = extraCritChance)) )
+#     crit           = AddStaticStatModifierEffect( targets = caster@0x48,
+#                                                   0x56c = TemporaryStatModifier,
+#                                                   0x9   = StatType.CritChance,
+#                                                   amount = montant,
+#                                                   turns  = DSLFormulas+0x20 = Direct(1),
+#                                                   isHidden = 1 )
+#     retrait        = RemoveEffect( caster@0x48, Nullable(0x56c) )
+#     attaque        = AttackWithAttackDamage( caster@0x48, ennemis,
+#                                              MinMaxDamage(abilityState, isPrediction: 0),
+#                                              Nullable(GetDamageProfile()), GetHits(),
+#                                              AbilityOrEffect(this), <options ZERO>,
+#                                              selectionType = 2 )
+#     Execute( (crit op_BitwiseAnd attaque) op_BitwiseAnd retrait )
+#
+# ⚠ **`Execute`, PAS `ExecuteAtomic`** -- la callee est
+# `IdunBattle.Entities.Abilities.AActiveAbility$$Execute(behaviour, entities)` (2 arguments), pas
+# `...$$ExecuteAtomic(behaviour, entities, groupType)` (3 arguments). CONTRASTE avec `DoomSiren`
+# ci-dessus et avec `LeadingTheCharge` (1204), qui emballent tous deux leur arbre dans un
+# `GroupType.Ability_AtomicGroup` : le port ne pose donc AUCUN `AtomicGroup` ici.
+#
+# ⚠ **LE COMPTE PORTE SUR *TOUTES* LES UNITES DE LA LIGNE, PAS SUR LES ENNEMIS.** Le natif construit
+# DEUX selecteurs distincts a partir du MEME `GetAffectedTiles()` : le `Count` lit celui SANS filtre
+# `Enemies`, l'attaque lit celui AVEC. Un allie (ou une unite neutre) pose sur la ligne augmente donc
+# la crit chance de Shiron sans etre frappe -- c'est exactement l'i2 (« +{extraCritChance}% Crit
+# Chance for each **unit** on affected hexes ... deals ... to each **enemy** on affected hexes »).
+# Reutiliser le selecteur d'ennemis pour le compte aurait rendu la MEME valeur sur tout regime sans
+# allie sur la ligne : la faute ne se voit QUE sur le regime mixte, qui est celui du test.
+#
+# ⚠ **`GetAffectedTiles()` EST APPELE DEUX FOIS** par `ExecuteBehaviour` (deux arbres, deux `Cache`)
+# -- transcrit tel quel : deux instances du noeud, chacune sous son `Cache`. Le foyer de la geometrie
+# reste UNIQUE (`targeting.excruciating_frequencies_affected_tiles`, partage avec la face DECISION du
+# gate dynamique).
+#
+# ⚠ **`SortReverse` est INOBSERVABLE sur cette face** : la famille de l'attaque est ATTACK
+# (`DSLBehaviors$$AttackWithAttackDamage` -> `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`),
+# qui repose un `OrderBy(b__5_0)` des que `Count > 1`. Il est porte quand meme (le noeud est dans le
+# foyer partage) parce que la face DECISION, elle, le consomme.
+#
+# ⚠ **L'ORDRE DES TROIS TERMES EST PORTANT** : le buff de crit est pose AVANT l'attaque (sinon les
+# tirages de crit de CE cast ne le verraient pas) et retire APRES (sinon il survivrait au cast).
+# `op_BitwiseAnd` = `CombinedBehaviour` (sequentiel), donc executer les sous-arbres l'un apres
+# l'autre sur le MEME `AbilityEntities` est le mirror exact.
+#
+# ⚠ **`isHidden = 1`** (7e argument) : le port ne modelise pas la visibilite UI d'un effet -- inerte
+# offline, note pour ne pas le croire absent.
+# ⚠ **`selectionType = 2`** du `AttackWithAttackDamage` : meme valeur que tous les call-sites deja
+# portes, foldee dans la feuille.
+#
+# HORS DE CET ARBRE, et c'est mesure : le « Enemies hit are also Suppressed » de l'i2 ne vient PAS
+# d'ici (aucun `AddEffect(0x429 Pinned)` dans `ExecuteBehaviour`, aucun `Traits` sur le profil
+# `Blast` = `{PiercingRatio: 15, Traits: [HitsMultipleMembers]}`). Il vient du TRAIT
+# `SuppressiveFire` de `emperNoiseMarine` (gameconfig `traits`), un axe separe.
+
+
+def excruciating_frequencies_nr_of_tiles() -> int:
+    """`AbilityConfiguration.GetNumberConstant(config, 0x17 = nrOfTiles)` = la LONGUEUR du rayon.
+
+    CONSTANTE (pas une variable par niveau) : `constants.nrOfTiles` = 3. Absente -> `0`, ce que rend
+    le natif sur une cle manquante -- la ligne est alors vide et le cast un no-op, jamais une
+    longueur inventee."""
+    consts = (GC.ability(EXCRUCIATING_FREQUENCIES_ID) or {}).get("constants") or {}
+    return int(consts.get(EF_CONST_NR_OF_TILES.name) or 0)
+
+
+def excruciating_frequencies_extra_crit_chance(state: "State", caster_id: int) -> int:
+    """`AbilityConfiguration.GetVariableForLevel(config, 0x41 = extraCritChance, abilityState, 0)`.
+
+    Le NIVEAU et le MULTIPLICATEUR viennent du `StatsComponent` du caster (`active_ability_level` /
+    `ability_variables_multiplier`) -- c'est l'`AbilityState` que le natif passe a
+    `GetVariableForLevel`, meme lecture que `LeadingTheChargeAbility` pour `extraPierceRatio`.
+    `extraCritChance` n'est PAS dans `variablesAffectedByRarityBonus` de 1197 (seuls `minDmg`/
+    `maxDmg` y sont), donc le multiplicateur ne mord pas -- il est passe quand meme, parce que c'est
+    la CONFIG qui decide, pas le site d'appel. Variable absente -> `0` (aucune magnitude inventee)."""
+    ce = state.get_entity(int(caster_id))
+    sc = ce.get_component(StatsComponent) if ce is not None else None
+    cctx = sc.ctx if sc is not None else None
+    level = getattr(cctx, "active_ability_level", None)
+    mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+    return int(ability_var(EXCRUCIATING_FREQUENCIES_ID, EF_VAR_EXTRA_CRIT_CHANCE.name, level,
+                           multiplier_pct=mult) or 0)
+
+
+def excruciating_frequencies_tree(n_tiles: int, extra_crit_chance: int):
+    """Arbre COMPLET de `...ExcruciatingFrequenciesAbility$$ExecuteBehaviour` (cf. le bloc ci-dessus) :
+
+        (AddStaticStatModifierEffect & AttackWithAttackDamage) & RemoveEffect
+
+    - `Cache(Units(GetAffectedTiles()))` = TOUTES les unites de la ligne (le `Count` du montant) ;
+    - `Cache(Enemies(Units(GetAffectedTiles())))` = les cibles de l'attaque. Les deux `Cache` sont
+      alloues PAR CAST (l'arbre est rebati a chaque `execute_behaviour`), comme le natif qui les
+      alloue dans `ExecuteBehaviour` -- la memoisation est donc par-cast.
+    - `turns = Direct(1)` -> `duration_turns=1` (le noeud partage `DSLFormulas+0x20`, deja en TOURS ;
+      surtout pas `TurnsFromRounds`). Sans portee observable ici puisque le `RemoveEffect` du meme
+      arbre le retire, mais transcrit : c'est ce qui reste si un jour l'attaque leve.
+    - `AttackWithAttackDamage` (famille ATTACK, PAS `AttackWithAbilityDamage`) : crit/block actifs,
+      2 tirages/coup a cc = 0. Profil `Blast` (`GetDamageProfile` = `constants.damageProfile`),
+      `GetHits()` = `GetNumberConstant(0x2f = nrOfHits)` = 1, bornes = `MinMaxDamage(abilityState)` =
+      `minDmg`/`maxDmg`[level]. `attackRangeType = Ranged` (gameconfig 1197) -> `is_melee=False`.
+      `multi=True` : le selecteur resout N ennemis, `AttackBehaviour$$Execute` les `OrderBy` puis
+      attaque chacun."""
+    tous = Cache(Units(excruciating_frequencies_affected_tiles(n_tiles)))
+    ennemis = Cache(Enemies(Units(excruciating_frequencies_affected_tiles(n_tiles))))
+    crit = AddStaticStatModifierEffect(
+        Caster(), EF_TEMPORARY_STAT_MODIFIER, EF_CRIT_CHANCE,
+        Multiply(Count(tous), Const(int(extra_crit_chance))),
+        name=EffectType.TemporaryStatModifier.name, duration_turns=1)
+    attaque = AttackWithAttackDamage(ennemis, EXCRUCIATING_FREQUENCIES_ID, "Blast",
+                                     is_melee=False, multi=True)
+    retrait = RemoveEffect(EF_TEMPORARY_STAT_MODIFIER, Caster())
+    return op_and(op_and(crit, attaque), retrait)
+
+
+class ExcruciatingFrequenciesAbility(ActiveAbility):
+    """`...ExcruciatingFrequenciesAbility$$ExecuteBehaviour` (id 1197, `emperNoiseMarine` « Shiron »,
+    HERO EmperorsChildren, DANS le pool `--list-pool` rank 17).
+
+    i2 : « Affects {nrOfTiles} hexes in a straight line in one of 6 directions. This attack has
+    +{extraCritChance}% Crit Chance for each unit on affected hexes and deals {nrOfHits}x
+    {minDmg}-{maxDmg} Blast Damage to each enemy on affected hexes. Enemies hit are also Suppressed. »
+
+    La cible du message est une **TUILE** (masque `TargetIsTile`) : elle donne la DIRECTION du rayon,
+    qui part du caster A TRAVERS elle. `entities_with_tile_target` materialise le role `target` (le
+    foyer `entities_from_state` rend `None` pour une entite-tuile, cf. sa docstring).
+
+    Diag : {ability, caster, target, tiles, units_on_line, crit_chance, attacks, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ExcruciatingFrequencies)   # 1197
+    ABILITY_ID = EXCRUCIATING_FREQUENCIES_ID
+
+    # GATE DE CIBLE (#115). `...ExcruciatingFrequenciesAbility$$.ctor` -- forme **FLAGS DIRECTS**
+    # (surcharge a 7 arguments), donc le litteral EST le masque, sans preset a OR-er :
+    #     TargetingOptions..ctor(&opts, isSelfCasting = 0,
+    #                            range = <TargetingRange statics+0x30>, forceMeleeTarget = 1,
+    #                            rules = 0x20000000042, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)      # 3e arg = AbilityAttackType.Others
+    # Decomposition EXHAUSTIVE de `0x20000000042` (0x2 + 0x40 + 0x20000000000, rien ne reste) :
+    #   bit  1  0x2             TargetMatchesDynamicRule -> `get_dynamic_invalid_target_reason`
+    #   bit  6  0x40            TargetIsTile             -> domaine TUILE (la cible EST un hex)
+    #   bit 41  0x20000000000   AllowUntargetableTarget  -> une tuile n'est jamais « targetable »
+    # ⚠ Le bit 41 est AU-DELA DE 32 : `rules` est un masque 64 bits (`options+0x28`), et le lire en
+    #   32 bits perdrait exactement celui-la.
+    # `range` = `TargetingRange statics+0x30` = RANGE_ADJACENT (`onlyAdjacent = True`,
+    # `overrideRange = 1`) : la tuile visee est ADJACENTE au caster -- c'est la DIRECTION, pas la
+    # portee du rayon (celle-ci vaut `nrOfTiles`). `forceMeleeTarget` = 1 = `RangedBool.False`.
+    # Valeurs MIGREES telles quelles depuis `TARGETING_OPTIONS_UNPORTED` (#512) : c'est la MEME
+    # lecture, relue au decompile a cette occasion, elle change juste de foyer.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.AllowUntargetableTarget),
+        self_cast=False, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...ExcruciatingFrequenciesAbility$$GetDynamicInvalidTargetReason` -- DELEGATION au foyer
+        deja porte (`_dynamic_rule_excruciating_frequencies`, `runner/abilities/targeting.py`), qui
+        reste l'UNIQUE mirror : `Count(Enemies(Units(GetAffectedTiles()))) > 0 ? 0 :
+        TargetingRule.TargetMatchesDynamicRule`. Dupliquer le corps ici en ferait deux, qui
+        divergeraient."""
+        return _dynamic_rule_excruciating_frequencies(state, caster_id, target_id)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        n_tiles = excruciating_frequencies_nr_of_tiles()
+        crit = excruciating_frequencies_extra_crit_chance(state, caster_id)
+        entities = entities_with_tile_target(state, caster_id, target_id)
+        if entities.target is None:
+            return None            # ni unite ni tuile du board -> le rayon n'a pas de direction
+        # DIAGNOSTIC seulement : la geometrie ET l'occupation sont PURES (zero tirage, aucune
+        # mutation), donc les re-evaluer AVANT l'arbre ne decale rien -- le natif lui-meme appelle
+        # `GetAffectedTiles()` deux fois. Mesure PRE-cast, comme le `Count` du montant.
+        ligne = excruciating_frequencies_affected_tiles(n_tiles)
+        tiles = list(ligne.evaluate(entities) or [])
+        sur_ligne = [u.get("id") for u in Units(ligne).evaluate(entities) or []]
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        excruciating_frequencies_tree(n_tiles, crit).execute(entities, ectx)
+        posee = next((p for n, p in ectx.emitted if n == "AddStaticStatModifierEffect"), None)
+        attaques = [{"target": p.get("target"), "total": p.get("total"), "attack": p.get("attack")}
+                    for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "tiles": tiles, "nr_of_tiles": n_tiles, "units_on_line": sur_ligne,
+                "extra_crit_chance": crit, "crit_chance": (posee or {}).get("amount"),
+                "attacks": attaques, "dsl": True}

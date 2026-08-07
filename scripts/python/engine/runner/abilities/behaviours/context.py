@@ -587,3 +587,43 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       # (`EffectsDatabase` def+0x58) n'est pas dans le canal de seed. Cf. le noeud
                       # `UnitsWithEffectsOfType` -- residu NOMME, pas un oubli.
                       current_player_machine_position=mow_pos)
+
+
+def entities_with_tile_target(state, caster_id: int, target_id: int | None = None):
+    """`entities_from_state` + MATERIALISATION du role `target` quand la cible est une entite-TUILE.
+
+    `entities_from_state` materialise deja un CASTER minimal quand `caster_id` designe une tuile (le
+    commentaire y explique pourquoi : sans lui toute feuille lisant `entities.caster` devenait un
+    no-op silencieux) mais n'a PAS le pendant sur le role `target` -- il rend `None`, et tout
+    `Target()` / `SelectTile(TargetTile())` avec lui. Les abilities TILE-TARGET dont l'arbre LIT la
+    tuile visee (`GetAffectedTiles` d'`ExcruciatingFrequencies` : `TilesBehindInLine(from =
+    CasterTile@0x50, to = TargetTile@0x78, ...)`) ont donc besoin de cette forme-la.
+
+    ⚠ CE N'EST PAS UN ELARGISSEMENT DU FOYER : `entities_from_state` est INCHANGE. Le rayon de
+    souffle a ete mesure a #287-r8 -- **5** abilities TILE-TARGET portees passent leur `target_id` a
+    `entities_from_state` (1017 FragBomb, 1018 ValkyrieStrike, 1026 BasiliskBarrage, 1148
+    DaemonicOrdnance, 1169 PlagueburstMortar) et lisent aujourd'hui un `Target()` NUL ; les basculer
+    changerait leurs arbres sans qu'aucune tranche les ait confrontees. RESIDU `#287-r12`, inchange.
+    Cette fonction est la forme PARTAGEABLE de la « parade locale » que
+    `tyranids.AlphaWarriorAbility.get_dynamic_invalid_target_reason` (#287-r8) et
+    `targeting._dynamic_rule_excruciating_frequencies` (#287-r11-r1) ecrivaient chacune de leur cote
+    -- un 3e exemplaire aurait fait trois copies a maintenir.
+
+    Cote NATIF il n'y a pas d'ecart : `AbilityEntities+0x178` porte bien l'ENTITE ciblee, tuile
+    comprise (le cast tile-target passe l'entite-tuile), et `IdunBattle.Entities.EntityExtensions$$
+    GetMainTile` rend une entite-tuile ELLE-MEME.
+
+    La forme du dict est EXACTEMENT celle du caster-tuile minimal d'`entities_from_state`
+    (`dsl.base._pos` lit `pos.col` / `pos.row`). `target_id` qui n'est ni une unite ni une tuile du
+    board -> `target` reste `None` (substrat non mesure, aucune tuile inventee)."""
+    ents = entities_from_state(state, int(caster_id), None if target_id is None else int(target_id))
+    if target_id is None or ents.target is not None:
+        return ents
+    board = getattr(state, "board", None)
+    if board is None or int(target_id) not in getattr(board, "by_id", {}):
+        return ents
+    c = board.coord(int(target_id))
+    ents.target = {"id": int(target_id), "team": None, "player": None,
+                   "pos": {"col": int(c[0]), "row": int(c[1])},
+                   "alive": True, "hp": None, "visualId": None, "_traits": set()}
+    return ents
