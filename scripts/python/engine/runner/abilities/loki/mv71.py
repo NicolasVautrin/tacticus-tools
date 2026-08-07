@@ -36,15 +36,22 @@ COLLAPSES documentés (doctrine FinalJustice, tri d'utilité impératif) :
   - tri = `ClosestToParent` (distance hex au caster ; natif = MovementInSteps IdunBattle.AI.Utilities.MV71SniperDroneSquad_SpawnTileUtility$$EvaluateMovementInSteps, == dist hex
     sur board ouvert) ; `WeightedUtility(7=Tile)` traité CONSTANT sur terrain uniforme (flag) ;
     tie-break = (dist hex à la cible, id de tuile) — À CONFRONTER live (GT (3,4)/(4,3)/(5,4)).
-  - « peut attaquer depuis » = distance <= portée max d'arme du drone ; LoS (`UnobscuredTiles`) NON
-    portée (flag — board MC1_67 ouvert).
+  - « peut attaquer depuis » (slot 0xc3 = `IBattleQuery` 196) N'EST PLUS un collapse de distance :
+    `IdunBattle.Core.Services.BattleQuery$$IsTargetInAttackRangeForSummon` est MIRRORÉ depuis
+    `#287-r11-r2-r1` (`_is_target_in_attack_range_for_summon`) — `IsTargetable`, clamp mêlée
+    `ShouldApplyRangedInMelee` DEPUIS LA TUILE CANDIDATE, portée, LIGNE DE VUE
+    (`MovementQuery$$GetTilesObscuringTerrain`, `IMovementQuery` slot 16, littéraux `6, 2`) et
+    `CanMeleeAttackOverElevationDifference`. Le collapse coûtait une tuile de spawn parfois
+    différente tant que `PickTile` ne servait qu'à l'EXÉCUTION ; depuis `#287-r11-r2` il décide de
+    la LÉGALITÉ d'un cast, donc chaque étage manquant ACCEPTAIT une cible que le natif REFUSE.
   - le REPLI se termine nativement par
     `IdunBattleLogic.Entities.DSLSelectors$$FilterTilesIfCanAttackTargetTileFrom(Caster@0x48,
     Target@0x60, <la tuile>)`, PORTÉ depuis `#433-r4-r1` (nœud DSL
     `entities/selectors/tiles.py::FilterTilesIfCanAttackTargetTileFrom`) : la tuile du drone le plus
     faible est REFUSÉE si un ennemi du caster lui est adjacent ET qu'elle n'est pas adjacente à la
-    tuile de la cible → `PickTile` rend null → cast NO-OP. C'est le seul étage du repli qui n'était
-    pas porté ; `UnobscuredTiles` reste flaggé.
+    tuile de la cible → `PickTile` rend null → cast NO-OP. Son maillon `UnobscuredTiles` est porté
+    depuis `#287-r11-r2-r1` (`_is_obscured_from_tiles`, mirror d'`UnobscuredTilesSelector$$
+    IsObscured`) — DÉCISION portée, nœud DSL non matérialisé (résidu nommé dans la case-doc).
 """
 from __future__ import annotations
 
@@ -56,10 +63,10 @@ import hexgeo
 from ..base import ActiveAbility, convert_rounds_to_turns
 from ..behaviours.context import entities_from_state
 from ..targeting import (RANGE_ADJACENT_IF_MELEE_CASTER, RANGED_BOOL_IF_RANGED_CASTER,
-                         TargetingOptions)
+                         TargetingOptions, has_steppable_unit, is_targetable)
 from ..targeting_rule import TargetingRule as TR
 from ...components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
-                           HealthComponent)
+                           HealthComponent, get_unit_feet)
 from ....dsl.base import DslContext
 from ....entities.selectors.accessors import FixedTileIds, Target
 from ....entities.selectors.tiles import Caster, FilterTilesIfCanAttackTargetTileFrom
@@ -69,9 +76,12 @@ from ...operations.spawn import _spawn_config_grot, _occupied_tiles
 from ...operations.remove_unit import RemoveUnitOperation
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effect_type import EffectType
+from ....entities.traits.unit_trait import UnitTrait, entity_trait_names
 from ....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1
 from ....services.battle_query import are_tiles_adjacent
 from ....services.custom_normal_attack import substitutes_normal_attack
+from ....services.movement_query import get_tiles_obscuring_terrain
+from ....services.targeting_query import BLOCKING_ELEVATION_DIFFERENCE, OBSCURING_TYPE_ALL
 from ....entities.triggered_ability_type import triggered_ability_ids
 from ....utilities.tile import tile_composite
 from ....utilities.tile import terrain_tile_effects
@@ -242,12 +252,13 @@ def _filter_tiles_if_can_attack_target_tile_from(dctx, tile_id: int):
 
         sel = SurroundingTiles(Tiles(Target@0x60), includeCenter: 0, radius: <portee du drone>)
               op_BitwiseAnd Tiles(First(AlreadySpawnedSummonsSortedForRemoval, 1, 0))
-        sel = UnobscuredTiles(Tiles(Target@0x60), sel)                    # LoS -- NON PORTE (flag)
+        sel = UnobscuredTiles(Tiles(Target@0x60), sel)                    # LoS -- `_is_obscured_from_tiles`
         sel = FilterTilesIfCanAttackTargetTileFrom(Caster@0x48, Target@0x60, sel)   # <- ICI
         return sel.SelectTile(entities)
 
     Les deux premiers etages sont deja collapses imperativement par l'appelant (l'anneau = la garde
     `1 <= dist(drone, cible) <= portee`, l'intersection = « la tuile DU drone le plus faible ») ;
+    le troisieme l'est aussi depuis `#287-r11-r2-r1` (`_is_obscured_from_tiles`) ;
     ce dernier etage-la, lui, reste un noeud DSL -- la structure emerge de l'arbre (doctrine #149),
     le collapse ne fournit que le vehicule `FixedTileIds`. Rend l'id de tuile survivant, ou None
     (le natif rend alors `null`, donc un cast NO-OP : ni eviction, ni spawn, ni Markerlight)."""
@@ -267,14 +278,222 @@ def _filter_can_attack_target_tile_from(state: "State", caster_id: int, target_i
         entities_from_state(state, caster_id, target_id), tile_id)
 
 
+# ------------------------------------------------------------------------------------------------
+# `IdunBattle.Core.Services.BattleQuery$$IsTargetInAttackRangeForSummon` (#287-r11-r2-r1)
+#
+# Le TROISIEME filtre de `PickTile` (`IBattleQuery` slot 196, `metadata/interface_slots.tsv`). Il
+# etait COLLAPSE en `1 <= distance(tuile, cible) <= portee` ; depuis #287-r11-r2 ce collapse decide
+# de la LEGALITE d'un cast (le gate `GetDynamicInvalidTargetReason` teste la NULLITE de `PickTile`),
+# donc chaque condition non portee ACCEPTE une cible que le natif REFUSE (SOUS-refus).
+#
+# La substitution est un DICT `{id de tuile: (team, steppable, targetable)}` des unites VIVANTES :
+# c'est tout ce que les deux etages a substrat (`ShouldApplyRangedInMelee` et `IsTargetable`) lisent,
+# et les deux faces du port (runner / prediction) savent le construire depuis LEUR hydratation.
+# ------------------------------------------------------------------------------------------------
+
+def _should_apply_ranged_in_melee_from_tile(board, tile_id, attacker_team,
+                                            occupant_by_tile) -> bool:
+    """`IdunBattle.Core.Services.DamageCalculations$$ShouldApplyRangedInMelee(attacker,
+    attackerTiles, state, ignoreTrait)` -- VERBATIM du decompile :
+
+        if (attackerTiles == null || attackerTiles.Count == 0)        return false;
+        if (!UnitExtensions.HasTrait(attacker, 0xb) && !ignoreTrait)  return false;
+        if (UnitExtensions.HasFlag(attacker, 0x1c))                   return false;
+        foreach (attackerTile in attackerTiles)
+          foreach (adj in TileComponent(attackerTile).Neighbours)
+            u = UnitExtensions.GetUnit(adj, state);
+            if (u != null && EntityExtensions.IsUnit(u)
+                && !UnitExtensions.IsFriend(attacker, u, state)
+                && !TileExtensions.HasSteppableUnit(adj, state)
+                && DamageCalculations.CanMeleeAttackOverElevationDifference(attackerTile, adj)
+                && UnitExtensions.IsTargetable(u) && UnitExtensions.IsAlive(u, state))
+              return true;
+        return false;
+
+    ⚠ CE N'EST PAS `targeting.should_apply_ranged_in_melee`, ET LA DIFFERENCE EST LE POINT :
+    `IsTargetInAttackRangeForSummon` l'appelle avec `attackerTiles = [<la tuile CANDIDATE>]`
+    (`TExtensions.ToList(tile)`), PAS avec les tuiles du caster. C'est donc « un ennemi du caster
+    est-il au contact de la tuile ou le DRONE serait pose », et c'est ce qui rabat la portee a 1 --
+    donc ce qui ARME `CanMeleeAttackOverElevationDifference` en aval. `ignoreTrait = 1` est le
+    litteral du call-site : le gate `HasTrait(0xb Ranged)` est court-circuite.
+
+    `attacker` n'entre ici QUE par son equipe (`IsFriend`) : la fonction ne lit aucune tuile du
+    caster. `IsAlive` est mirroir par CONSTRUCTION -- `occupant_by_tile` ne porte que des unites
+    vivantes.
+
+    ECART NOMME (residu, cf. la case-doc) : le gate `!HasFlag(attacker, 0x1c
+    IngoreRangedInMelee)` -- typo native -- n'est pas porte ici, exactement comme dans
+    `targeting.should_apply_ranged_in_melee` qui l'omettait deja. INERTE offline : aucun chemin du
+    port ne pose ce drapeau (`UnitFlagsComponent`)."""
+    if board is None or tile_id is None or attacker_team is None:
+        return False
+    elev = board.elevation(tile_id)
+    for n in board.neighbours(tile_id):
+        occ = (occupant_by_tile or {}).get(int(n))
+        if occ is None:
+            continue                                    # `GetUnit(adj, state) == null`
+        team, steppable, targetable = occ
+        if team is None or int(team) == int(attacker_team):
+            continue                                    # `!IsFriend(attacker, u, state)`
+        if steppable:
+            continue                                    # `!TileExtensions.HasSteppableUnit(adj)`
+        ne = board.elevation(n)
+        if elev is not None and ne is not None and abs(int(elev) - int(ne)) >= 2:
+            continue                                    # `CanMeleeAttackOverElevationDifference`
+        if not targetable:
+            continue                                    # `UnitExtensions.IsTargetable(u)`
+        return True
+    return False
+
+
+def _is_target_in_attack_range_for_summon(board, tile_id, target_tiles, unit_max_range: int,
+                                          attacker_team, occupant_by_tile,
+                                          target_is_targetable: bool = True) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$IsTargetInAttackRangeForSummon(parent, unitId, tile,
+    target)` -- MIRROR 1:1 du decompile (`IBattleQuery` slot 196) :
+
+        if (target == null || !UnitExtensions.IsTargetable(target)) return false;
+        range = 0; foreach (w in GetUnitConfig(unitId).Weapons)
+                       range = Math.Max(range, w.Range.HasValue ? w.Range.Value : 1);
+        if (DamageCalculations.ShouldApplyRangedInMelee(parent, [tile], state, true)) {
+            range = 1;
+            if (!TileExtensions.IsAdjacentTo(tile, GetTiles(target)))          return false;
+        } else if (range == 1
+                   && !TileExtensions.IsAdjacentTo(tile, GetTiles(target)))    return false;
+        if (BattleQuery.GetDistance(tile, target) > range)                     return false;
+        foreach (t in GetTiles(target))
+            if (!<IMovementQuery slot 16>(tile, t, 6, 2).IsNullOrEmpty())      return false;
+        if (range == 1)
+            return DamageCalculations.CanMeleeAttackOverElevationDifference(
+                       tile, EntityExtensions.GetMainTile(target));
+        return true;
+
+    LE SLOT 0x10 EST CELUI D'`IMovementQuery`, PAS D'`IBattleQuery` -- et c'est la mesure qui le
+    dit, pas le contexte : le service interroge est `this+0x10`, et
+    `IdunBattle.Core.Services.BattleQuery$$GetDistance(tileA, tileB)` appelle le slot `9` du MEME
+    champ, que `data/symbols/<build>/metadata/interface_slots.tsv` nomme `IMovementQuery 9
+    GetDistance/2`. Slot `16` y est `IMovementQuery GetTilesObscuringTerrain/4` -- la surcharge
+    ENTITE (la surcharge LISTE est le slot `15`, celui que `TargetingQuery$$GetTilesObscuringTerrain`
+    appelle avec `casterTiles`). CONFRONTEE au corps deja porte pour `TargetIsUnobscured` :
+    c'est LA MEME fonction native, `IdunBattle.Core.Services.MovementQuery$$GetTilesObscuringTerrain`
+    -- `TargetingQuery$$IsTargetTileObscured` appelle ce meme slot `16`.
+
+    ⚠ MAIS PAS LE MEME CHEMIN D'ENTREE, ET L'ECART COMPTE : la cascade de ciblage passe par
+    `TargetingQuery$$GetTilesObscuringTerrain`, qui GATE sur `TargetingConfiguration.
+    EnableObscuringTerrain (+0x10)`, sur `IsFriendOrHasFriendlyUnitOnIt` et sur les bits 25/26 du
+    masque, et qui COMPOSE son `ObscuringType`. Ici, RIEN de tout cela : l'appel est DIRECT sur
+    `IMovementQuery`, avec les litteraux `(6 = ObscuringType.All, 2)`. Le port appelle donc
+    `services.movement_query.get_tiles_obscuring_terrain` (la geometrie) et surtout PAS
+    `services.targeting_query.target_is_obscured` (les gardes de la cascade), qui rendrait
+    faussement « non obscurci » des que `EnableObscuringTerrain` est faux.
+
+    `target_tiles` = `EntityExtensions$$GetTiles(target)` (la liste des pieds, DANS L'ORDRE : sa
+    premiere entree est la main tile de `GetMainTile`). `unit_max_range` = `GetUnitMaxRange(unitId)`
+    (mirror `_drone_attack_range`) : le decompile de `BattleQuery$$GetUnitMaxRange` porte LE MEME
+    corps que la boucle inline de ce slot -- meme `HasValue ? Value : 1`, meme `Math.Max`.
+
+    `board is None` -> `False` cote appelant (il ne construit alors aucune candidate) ; ici on
+    suppose le board present. Un canal d'elevation ou de mur MUET ne peut qu'ELARGIR la zone (cf.
+    `movement_query.PositionBoard`), jamais la retrecir : la degradation reste PERMISSIVE et
+    NOMMEE."""
+    if not target_is_targetable or not target_tiles or board is None:
+        return False
+    tile_pos = board.coord(tile_id)
+    if tile_pos is None:
+        return False
+    rng = int(unit_max_range)
+    # `TileExtensions$$IsAdjacentTo(tile, otherTiles)` = `any(MovementUtil.AreTilesAdjacent(tile, t))`
+    # (decompile LU) -- et `are_tiles_adjacent` est justement le mirror d'`AreTilesAdjacent`, porte
+    # d'elevation `|dElev| < 2` comprise.
+    adjacent = any(bool(are_tiles_adjacent(tile_pos, t, board)) for t in target_tiles)
+    if _should_apply_ranged_in_melee_from_tile(board, tile_id, attacker_team, occupant_by_tile):
+        rng = 1                                          # le clamp melee, DEPUIS LA TUILE CANDIDATE
+        if not adjacent:
+            return False
+    elif rng == 1 and not adjacent:
+        return False
+    if min(hexgeo.distance(tile_pos, t) for t in target_tiles) > rng:
+        return False                                     # `BattleQuery$$GetDistance` = min sur les pieds
+    for t in target_tiles:                               # LIGNE DE VUE, par tuile de la CIBLE
+        if get_tiles_obscuring_terrain(board, tile_pos, t, OBSCURING_TYPE_ALL,
+                                       BLOCKING_ELEVATION_DIFFERENCE):
+            return False
+    if rng == 1:
+        # `CanMeleeAttackOverElevationDifference(tile, GetMainTile(target))` = `|dElev| < 2`
+        # (litteral `iVar1 < 2` du decompile). `GetMainTile` = la tuile du PREMIER pied.
+        main = target_tiles[0]
+        mtid = board.id_at(int(main[0]), int(main[1]))
+        me = board.elevation(mtid) if mtid is not None else None
+        ae = board.elevation(tile_id)
+        if ae is not None and me is not None and abs(int(ae) - int(me)) >= 2:
+            return False
+    return True
+
+
+def _is_obscured_from_tiles(board, from_tiles, tile_pos) -> bool:
+    """`IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$IsObscured(caster, targetTile)` --
+    VERBATIM :
+
+        foreach (c in caster)                               // `caster` = la liste `fromAnyTiles`
+            if (<IMovementQuery slot 16>(c, targetTile, 6, 2).Count == 0)  return false;
+        return true;
+
+    « OBSCURCI » = obscurci depuis TOUTES les tuiles source (une seule ligne de vue degagee suffit a
+    garder la tuile). Liste source VIDE -> la boucle ne tourne pas -> `true` : le natif RETIRE, et
+    le mirror le fait aussi.
+
+    C'est le maillon `UnobscuredTiles` du REPLI de
+    `MV71SniperDroneSquadAttackAbility$$PickTile` : `sel = UnobscuredTiles(Tiles(Target@0x60), sel)`
+    -- `DSLSelectors$$UnobscuredTiles(fromAnyTiles, toTiles)` pose `+0x20 = fromAnyTiles` (les
+    tuiles de la CIBLE) et `+0x18 = toTiles` (la candidate), et `Select` garde de `+0x18` ce qui
+    n'est pas obscurci depuis `+0x20`. Le sens de la ligne est donc CIBLE -> candidate.
+
+    COLLAPSE ASSUME, et c'est celui que l'appelant applique deja aux deux etages voisins du repli :
+    le noeud DSL n'est pas materialise ici, seule sa DECISION l'est (residu nomme dans la
+    case-doc). `board is None` -> `False`, convention permissive du module (aucun retrait invente
+    faute de canal)."""
+    if board is None:
+        return False
+    if not from_tiles:
+        return True                                   # boucle vide -> `return true` (obscurci)
+    for f in from_tiles:
+        if not get_tiles_obscuring_terrain(board, f, tile_pos, OBSCURING_TYPE_ALL,
+                                           BLOCKING_ELEVATION_DIFFERENCE):
+            return False                              # une ligne degagee suffit
+    return True
+
+
+def _occupants_by_tile(state: "State", board) -> dict:
+    """Le substrat d'`_is_target_in_attack_range_for_summon`, hydrate depuis l'ECS du RUNNER :
+    `{id de tuile: (team, steppable, targetable)}` des unites VIVANTES seulement (le natif teste
+    `IsAlive` en dernier, donc les cadavres ne comptent pas)."""
+    out: dict = {}
+    if board is None:
+        return out
+    for eid, e in state.entities.items():
+        uc = e.get_component(UnitComponent)
+        oc = e.get_component(OwnerComponent)
+        pc = e.get_component(PositionComponent)
+        if uc is None or oc is None or pc is None or not uc.alive:
+            continue
+        tid = board.id_at(pc.col, pc.row)
+        if tid is None:
+            continue
+        out[int(tid)] = (oc.team, has_steppable_unit(state, int(eid)),
+                         is_targetable(state, int(eid)))
+    return out
+
+
 def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
                max_summons: int, first_only: bool = False):
     """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile` : renvoie l'id de TUILE choisie, ou None (aucune tuile -> cast no-op,
     le gate de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason`).
 
     Candidates = tuiles MARCHABLES et LIBRES à distance <= portée du drone de LA CIBLE (slot 0x66 x
-    config drone), d'où le drone peut attaquer (collapse distance ; LoS `UnobscuredTiles` non portée,
-    flag). Tri = `SortTilesByUtility(list, [UtilityBucket[WeightedUtility(7=Tile),
+    config drone), d'où le drone peut attaquer — ce dernier filtre est
+    `IdunBattle.Core.Services.BattleQuery$$IsTargetInAttackRangeForSummon` (`IBattleQuery` slot 196),
+    PORTE depuis #287-r11-r2-r1 : ligne de vue comprise. Tri = `SortTilesByUtility(list,
+    [UtilityBucket[WeightedUtility(7=Tile),
     WeightedUtility(0x37=ClosestToParent)]])` -> First : score = Tile(7) porté + utilité 0x37
     (`_spawn_tile_utility_0x37`), max premier, tie-break stable = ordre des candidats (id de tuile
     croissant — l'énumération native slot 0x66 n'est pas RE'd, à confronter live). FALLBACK (au cap
@@ -292,6 +511,11 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
     tpos = (tp.col, tp.row)
     cpos = (cp.col, cp.row)
     occupied = _occupied_tiles(state)
+    # Le substrat des DEUX etages a substrat d'`IsTargetInAttackRangeForSummon`, monte UNE fois pour
+    # toute l'enumeration (il ne depend pas de la candidate).
+    occupant_by_tile = _occupants_by_tile(state, board)
+    target_tiles = get_unit_feet(state, int(target_id)) or [tpos]   # `EntityExtensions$$GetTiles`
+    target_ok = is_targetable(state, int(target_id))                # `UnitExtensions$$IsTargetable`
     cands = []
     for tid in sorted(board.by_id.keys()):
         if not board.walkable(tid) or tid in occupied:      # CanAddUnit (libre + marchable)
@@ -299,7 +523,12 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
         info = board.by_id[tid]
         pos = (info["col"], info["row"])
         d_t = hexgeo.distance(pos, tpos)
-        if d_t < 1 or d_t > rng:                            # « peut attaquer la cible depuis » (portée)
+        if d_t < 1 or d_t > rng:                            # l'ANNEAU (`GetSurroundingTiles`, radius)
+            continue
+        # « peut attaquer la cible depuis » : le slot 196, PORTE (#287-r11-r2-r1). Il ne se reduit
+        # PAS a la distance -- ligne de vue, clamp melee depuis la candidate, elevation.
+        if not _is_target_in_attack_range_for_summon(board, tid, target_tiles, rng, coc.team,
+                                                     occupant_by_tile, target_ok):
             continue
         cands.append((tid, pos))
     if cands:
@@ -335,6 +564,11 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
         return None
     tid = board.id_at(wp.col, wp.row)
     if tid is None:
+        return None
+    # `sel = UnobscuredTiles(Tiles(Target@0x60), sel)` -- LIGNE DE VUE du repli (#287-r11-r2-r1).
+    # Ce maillon-la n'est PAS `IsTargetInAttackRangeForSummon` (le repli ne le rappelle pas) : c'est
+    # le selecteur `UnobscuredTilesSelector`, meme geometrie mais sens CIBLE -> candidate.
+    if _is_obscured_from_tiles(board, target_tiles, (wp.col, wp.row)):
         return None
     return _filter_can_attack_target_tile_from(state, caster_id, target_id, int(tid))
 
@@ -467,6 +701,18 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
                 out.append((scene.team(u), scene.vis_by_id.get(u)))
         return out
 
+    # MEME substrat que la face runner (`_occupants_by_tile`), hydrate depuis la `Scene` : c'est ce
+    # qui empeche les deux faces de forker sur `IsTargetInAttackRangeForSummon` (#287-r11-r2-r1).
+    # `targetable` y est CONSTANT a `True` -- la `Scene` ne capte pas `UnitFlag.Untargetable`, et le
+    # runner ne le pose nulle part non plus (`targeting.is_targetable` est constamment vrai) : c'est
+    # le meme canal muet des deux cotes, pas un fork.
+    occupant_by_tile = {}
+    for u, p in _pos_of.items():
+        t = board.id_at(int(p[0]), int(p[1]))
+        if t is None:
+            continue
+        traits = entity_trait_names(scene.ctx(u), scene.vis_by_id.get(u))
+        occupant_by_tile[int(t)] = (scene.team(u), UnitTrait.Steppable.name in traits, True)
     cands = []
     for tid in sorted(board.by_id.keys()):
         info = board.by_id[tid]
@@ -474,8 +720,11 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
         if not board.walkable(tid) or pos in occupied:      # CanAddUnit (libre + marchable)
             continue
         d_t = hexgeo.distance(pos, tpos)
-        if d_t < 1 or d_t > rng:                            # « peut attaquer la cible depuis » (portée)
+        if d_t < 1 or d_t > rng:                            # l'ANNEAU (`GetSurroundingTiles`, radius)
             continue
+        if not _is_target_in_attack_range_for_summon(board, tid, [tpos], rng, caster_team,
+                                                     occupant_by_tile):
+            continue                                        # `IsTargetInAttackRangeForSummon`
         cands.append((tid, pos))
     if cands:
         if first_only:
@@ -506,6 +755,9 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
         return None
     tid = board.id_at(wpos[0], wpos[1])
     if tid is None:
+        return None
+    # MEME maillon `UnobscuredTiles` que la face runner (#287-r11-r2-r1).
+    if _is_obscured_from_tiles(board, [tpos], tuple(wpos)):
         return None
     # MEME dernier maillon que la face runner (`_filter_tiles_if_can_attack_target_tile_from`), la
     # SEULE difference etant l'hydratation : les unites viennent de `_pos_of` (donc le caster est
