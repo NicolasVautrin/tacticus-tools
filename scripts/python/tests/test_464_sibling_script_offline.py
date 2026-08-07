@@ -19,33 +19,28 @@ from __future__ import annotations
 #: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
 DECLENCHEUR = {
     "chemins": (
-        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
-        # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
-        # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le
-        # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
-        # glob large retiendrait ce test a chaque modification d'un probe quelconque.
-        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
-        "scripts/python/catalog_inject.py",
-        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
-        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
-        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
-        "scripts/python/engine/runner/snapshot.py",
-        # PROPRE A CE FICHIER :
+        # LA CASCADE DES `conftest.py` N'EST PLUS ICI (#531) : le foyer la DERIVE
+        # (`declencheur_cliquet.chemins_du_harnais`, ajout 3). Les douze chemins du << socle
+        # commun >> qui figuraient a cette place etaient JUSTES -- la derivation rend
+        # exactement les memes -- mais les recopier dans chaque declaration etait la cause
+        # MESUREE du glob universel : c'etait la declaration honnete qui coutait le plus cher,
+        # et elle rougissait au premier import ajoute au conftest par quelqu'un d'autre.
         "scripts/python/probe_464_sibling_script_cwd.py",
         "scripts/python/sibling_script.py", "scripts/python/repo_read.py",
-        "scripts/python/**/*.py",
-        # LARGE A DESSEIN : le cliquet BALAIE `scripts/python/**` (1 682 lectures), et la
-        # confrontation mesure 64 chemins hors d'une declaration etroite. Sa docstring dit
-        # pourtant que le CRITERE est eprouve sur des cas FABRIQUES -- LU et DONT-DEPEND
-        # divergent ici (residu #486-r17). Sur-selectionner reste le sens sur.
     ),
     "build": False,
     "toujours": False,
     "raison": "Le probe sous test, le foyer `sibling_script` dont il verifie l'emploi, et "
-              "`repo_read` qui porte la lecture parallele du balayage. Le perimetre BALAYE, lui, "
-              "est `scripts/python/**` -- deja couvert par les entrees ci-dessus au titre du "
-              "socle et du probe.",
+              "`repo_read` qui porte la lecture parallele du balayage.",
+    # LE BYPASS (#486-r24), a la place du `scripts/python/**/*.py` qui vivait ici sous un
+    # commentaire << LARGE A DESSEIN >>. Le glob avait le meme effet -- rendre la confrontation
+    # toujours satisfaite -- mais il MENTAIT au selecteur : `probe_457` sert les globs declares,
+    # donc ce fichier etait retenu par toute PR touchant un `.py` quelconque.
+    "hors_confrontation":
+        "Il BALAIE scripts/python/** : trois cas construisent le perimetre reel du probe et "
+        "ouvrent 1 682 fichiers, dont 64 qu'aucune enumeration ne bornera -- ce que ce test LIT "
+        "n'est pas ce dont son verdict DEPEND (residu #486-r17). Les chemins declares ci-dessus "
+        "restent la SELECTION, volontairement etroite ; c'est la confrontation qui est levee.",
 }
 
 import os

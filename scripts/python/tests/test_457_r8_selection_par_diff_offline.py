@@ -15,34 +15,26 @@ ASCII only (console cp1252).
 #: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
 DECLENCHEUR = {
     "chemins": (
-        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
-        # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
-        # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le
-        # verdict de CHAQUE test depend. Liste EXPLICITE et non `scripts/python/*.py` : le
-        # glob large retiendrait ce test a chaque modification d'un probe quelconque.
-        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
-        "scripts/python/catalog_inject.py",
-        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
-        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
-        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
-        "scripts/python/engine/runner/snapshot.py",
-        # PROPRE A CE FICHIER :
+        # LA CASCADE DES `conftest.py` N'EST PLUS ICI (#531) : le foyer la DERIVE
+        # (`declencheur_cliquet.chemins_du_harnais`, ajout 3), et rend exactement les douze
+        # chemins du << socle commun >> qui etaient recopies a cette place.
         "scripts/python/probe_457_offline_tests_green.py",
         "scripts/python/repo_read.py", "scripts/python/declencheur_cliquet.py",
-        "scripts/python/**/*.py", "scripts/ratchets-457-footprints.json",
-        # LARGE A DESSEIN, et c'est une MESURE, pas une paresse : trois cas construisent
-        # le perimetre REEL (`candidate_files`) et font tourner le graphe d'imports sur
-        # tout `scripts/python/**`. La confrontation les voit ouvrir 55 chemins hors
-        # d'une declaration etroite. La portee reelle de ce que le verdict LIT n'est pas
-        # celle de ce dont il DEPEND (residu #486-r17) -- en attendant, on sur-selectionne.
+        "scripts/ratchets-457-footprints.json",
     ),
     "build": False,
     "toujours": False,
-    "raison": "Le probe sous test et ses deux foyers, l'EMPREINTE versionnee qu'il confronte "
-              "reellement dans ses contre-epreuves, et TOUS les fichiers de test -- le perimetre "
-              "reel sert d'anti-vacuite a plusieurs cas, donc un fichier ajoute ou retire change "
-              "ce que ce fichier prouve.",
+    "raison": "Le probe sous test et ses deux foyers, et l'EMPREINTE versionnee qu'il confronte "
+              "reellement dans ses contre-epreuves.",
+    # LE BYPASS (#486-r24), a la place du `scripts/python/**/*.py` qui vivait ici. Le glob
+    # couvrait TOUS les fichiers de test du depot -- donc toute PR Python retenait ce fichier,
+    # alors que la selection qu'on veut est celle des quatre chemins ci-dessus.
+    "hors_confrontation":
+        "Il BALAIE scripts/python/** : trois cas construisent le perimetre REEL "
+        "(`candidate_files`) et font tourner le graphe d'imports sur tout l'arbre, ce que la "
+        "confrontation voit comme 55 a 66 chemins hors perimetre. Ce que ce test LIT n'est pas "
+        "ce dont son verdict DEPEND (residu #486-r17) ; l'anti-vacuite de ces cas EXIGE le "
+        "perimetre reel, donc aucune enumeration ne peut le borner.",
 }
 
 import sys

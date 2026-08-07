@@ -50,25 +50,13 @@ DECLENCHEUR = {
         # `entities/effects/loki/status.py` (`TauntedEffect`/`StunnedEffect`),
         # `entities/effects_state.py`.
         "scripts/python/engine/**/*.py",
-        # LA CASCADE DES CONFTEST, mesuree (`probe_486r15`), pas devinee. Declarer
-        # `tests/engine/conftest.py` ne declare PAS ce qu'il importe : le harnais live tire
-        # `board`/`catalog_inject`/`rl_collect_batch`, et `engine_agreement_stages` tire quatre
-        # probes. Ces 16 modules sont dans la fermeture d'imports de CE fichier -- donc un
-        # `ImportError` chez eux change son verdict -- alors qu'il n'en touche aucun.
-        # Ils ne lui sont PAS PROPRES : tout fichier de `tests/engine/` les traine. Les recopier
-        # a la main dans chaque declaration est ce qui pousse a ecrire `scripts/python/*.py`
-        # (43 fichiers sur 52 le font) -- residu #531.
-        "scripts/python/board.py", "scripts/python/catalog_inject.py",
-        "scripts/python/engine_agreement_stages.py", "scripts/python/engine_validate.py",
-        "scripts/python/hexgeo.py", "scripts/python/host_inputs.py",
-        "scripts/python/rl_collect_batch.py", "scripts/python/stream_events.py",
-        "scripts/python/symbols_layout.py", "scripts/python/unit_map.py",
-        "scripts/python/probe_17_active_ability_used_gate.py",
-        "scripts/python/probe_17_hammer_corpse.py",
-        "scripts/python/probe_17_martial_inspiration.py",
-        "scripts/python/probe_308_normal_attack_bonus.py",
-        "scripts/python/probe_316_ability_prediction_target_traits.py",
-        "scripts/python/probe_350r3b_triggered_average_forms.py",
+        # LA CASCADE DES CONFTEST N'EST PLUS ICI, ET C'ETAIT LE POINT DE #531. Ces 16 modules
+        # (`board`, `catalog_inject`, `engine_agreement_stages` et ses quatre probes...) etaient
+        # recopies a la main parce que declarer `tests/engine/conftest.py` ne declare PAS ce
+        # qu'il importe -- et ce fichier a rendu `master` ROUGE pour l'avoir declare HONNETEMENT.
+        # Le foyer les DERIVE desormais (`declencheur_cliquet.chemins_du_harnais`, ajout 3) : le
+        # perimetre effectif est le MEME, seul l'auteur change. Mesure : la derivation en rend
+        # 86 pour `tests/engine/`, soit un SUR-ensemble strict des 16.
     ),
     "build": False,
     "toujours": False,

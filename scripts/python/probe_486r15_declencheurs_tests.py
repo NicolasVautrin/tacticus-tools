@@ -40,8 +40,8 @@ sont deselectionnes n'emet AUCUN report (volet #455-r3, structurellement invisib
 `passed == 0 and skipped > 0` fait ROUGIR la passe (volet #455). On detruirait le garde-fou
 contre les tests fantomes pour economiser 0,6 s.
 
-LES DEUX ETAGES
----------------
+LES TROIS ETAGES
+----------------
   [1] OBLIGATION -- perimetre DERIVE de `git ls-files scripts/python/tests` (jamais une allowlist :
       un fichier de test NEUF y entre TOUT SEUL, c'est la lecon de #457-r5 et #455-r3). Tout
       fichier sans `DECLENCHEUR` bien forme est une DETTE. La dette est un CLIQUET : elle est
@@ -52,6 +52,42 @@ LES DEUX ETAGES
       les fichiers qu'il OUVRE reellement (temoins de l'empreinte `probe_457`) et les modules
       que sa fermeture d'imports charge. Croire la declaration sur parole reviendrait a demander
       au declarant de s'auto-attester.
+  [3] BYPASS (#486-r24) -- un fichier peut declarer `hors_confrontation: "<raison>"` et sortir
+      de l'etage 2. Il est alors COMPTE, son motif est IMPRIME, il doit etre ATTESTE dans
+      `scripts/ratchets-486r24-bypass-confrontation.txt`, et son bypass doit SERVIR : un bypass
+      qui ne masque aucun decouvert est une declaration MORTE, donc un rouge.
+
+L'ASYMETRIE QUE L'ETAGE 3 CORRIGE, ET POURQUOI ELLE ETAIT LA VRAIE FAUTE (#486-r24)
+------------------------------------------------------------------------------------
+Ce cliquet rougissait sur le TROP ETROIT et benissait le TROP LARGE. L'auteur rationnel ecrivait
+donc un glob couvrant tout le Python : vert pour toujours, et jamais rejoue par personne. Mesure
+du 2026-08-07 sur `origin/master` : sur **63** fichiers declarants, **62 portent au moins un glob
+INDISCRIMINANT** (il couvre un fichier de test ou un probe TIERS -- or aucun test ne depend d'un
+autre consommateur du socle qu'il n'importe pas), et **0** declarait honnetement `toujours: True`.
+
+Autrement dit : LE BYPASS EXISTAIT DEJA. Il se posait en mentant sur le perimetre, ce qui a un
+prix que la cle explicite n'a pas -- il empoisonne la SELECTION (`probe_457` sert les globs
+declares : un glob universel fait rejouer le fichier a chaque PR Python, dont 25 tests LIVE), il
+n'est pas COMPTABLE, et il ne dit pas POURQUOI. L'etage 3 echange une evasion silencieuse contre
+une declaration comptee.
+
+CE QUE LA MESURE DIT DE LA POPULATION, ET POURQUOI LE BYPASS N'EST PAS LA REPONSE POUR TOUS
+---------------------------------------------------------------------------------------------
+Ventilation des 62, mesuree en retirant les globs indiscriminants puis en derivant la cascade de
+harnais (`declencheur_cliquet.chemins_du_harnais`, ajout 3 du foyer) :
+
+  * **19 CASCADE** -- decouverts ramenes a ZERO par le seul harnais derive. Ils n'ont JAMAIS eu
+    besoin d'un bypass : ils payaient les 16 modules racine que la cascade des `conftest.py` leur
+    imputait (#531). C'est le foyer qui les porte desormais ;
+  *  **1 DECORATIF** -- le glob universel ne couvrait rien que la declaration fine ne couvrait ;
+  * **38 A RESSERRER** -- 1 a 12 decouverts, tous NOMMABLES, et le plus souvent UN SEUL : le
+    probe frere du test (`probe_<n>_<sujet>.py`). Une ligne, pas un bypass ;
+  *  **4 BALAYAGE** -- 40 a 67 decouverts structurels : ces tests LISENT l'arbre. Aucune
+    enumeration ne les bornera. Ce sont les seuls candidats legitimes au bypass.
+
+Soit **4 sur 63**. C'est pourquoi l'etage 3 refuse un bypass qui ne masque rien : sans ce cran,
+les 19 CASCADE et le DECORATIF auraient pose la cle par imitation, et l'echappatoire aurait
+simplement change de nom.
 
 POURQUOI UNE DETTE PLUTOT QU'UN ROUGE IMMEDIAT SUR LES 711
 -----------------------------------------------------------
@@ -72,6 +108,7 @@ Usage :
     python probe_486r15_declencheurs_tests.py
     python probe_486r15_declencheurs_tests.py --sans-dette     # le critere SEC
     python probe_486r15_declencheurs_tests.py --ecrire-dette   # (re)pose la ligne de base
+    python probe_486r15_declencheurs_tests.py --ecrire-bypass  # (re)pose la population du bypass
     python probe_486r15_declencheurs_tests.py --verbose
 
 ASCII only (console Windows cp1252).
@@ -79,7 +116,6 @@ ASCII only (console Windows cp1252).
 from __future__ import annotations
 
 import argparse
-import ast
 import json
 import subprocess
 import sys
@@ -94,6 +130,7 @@ import repo_read                                                        # noqa: 
 
 ROOT = PYDIR.parents[1]
 DETTE = ROOT / "scripts" / "ratchets-486r15-dette-declencheurs.txt"
+BYPASS = ROOT / "scripts" / "ratchets-486r24-bypass-confrontation.txt"
 EMPREINTE = ROOT / "scripts" / "ratchets-457-footprints.json"
 
 EX_NON_MESURE = 99
@@ -104,14 +141,15 @@ EX_NON_MESURE = 99
 DECLENCHEUR = {
     "chemins": ("scripts/python/tests/**/*.py", "scripts/python/**/*.py",
                 "scripts/ratchets-486r15-dette-declencheurs.txt",
+                "scripts/ratchets-486r24-bypass-confrontation.txt",
                 "scripts/ratchets-457-footprints.json"),
     "build": False,
     "toujours": False,
-    "raison": "Quatre entrees, toutes dans l'arbre. Les FICHIERS DE TEST (son perimetre en est "
+    "raison": "Cinq entrees, toutes dans l'arbre. Les FICHIERS DE TEST (son perimetre en est "
               "DERIVE, et il y lit le DECLENCHEUR par AST), tout `scripts/python/**` (il resout "
-              "la fermeture d'imports de chaque fichier declare), la DETTE versionnee et "
-              "l'EMPREINTE de probe_457 qu'il confronte. Aucune dependance au build ni au jeu : "
-              "tout ce qu'il juge est du texte du depot.",
+              "la fermeture d'imports de chaque fichier declare), la DETTE versionnee, la "
+              "population ATTESTEE du bypass, et l'EMPREINTE de probe_457 qu'il confronte. "
+              "Aucune dependance au build ni au jeu : tout ce qu'il juge est du texte du depot.",
 }
 
 
@@ -217,93 +255,12 @@ def declarations(fichiers) -> tuple:
 
 
 # ============================================================== fermeture d'imports CIBLEE
-class Fermeture:
-    """La fermeture TOUS IMPORTS d'un fichier, resolue PAR LE DISQUE, sans indexer l'arbre.
-
-    POURQUOI PAS `import_closure.Cloture` (#486-r11) : il repond a une AUTRE question -- << que
-    charge `import M` ? >> -- et EXCLUT donc les imports differes (corps de fonction,
-    `TYPE_CHECKING`), a raison pour son critere. Ici, un `import` ecrit dans un corps de test
-    S'EXECUTE bel et bien pendant le test : l'exclure SOUS-approximerait la fermeture, et une
-    sous-approximation dans un garde de couverture est un FAUX VERT. Les deux fermetures sont
-    donc distinctes par leur CRITERE, pas par negligence.
-
-    POURQUOI PAS `probe_457._graphe` : il lit et parse les 2 096 modules du domaine (32,7 s
-    mesurees). Ici on ne visite que ce que les fichiers DECLARES atteignent -- mediane 95 modules.
-    """
-
-    def __init__(self, racine: Path) -> None:
-        self.racine = Path(racine)
-        self._resolus: dict = {}
-        self._cibles: dict = {}
-
-    def resoudre(self, nom: str):
-        """Le chemin relatif au depot du module `nom` sous `scripts/python`, ou `None`."""
-        if nom in self._resolus:
-            return self._resolus[nom]
-        base = self.racine / "scripts" / "python"
-        for suffixe in ("%s.py" % nom.replace(".", "/"),
-                        "%s/__init__.py" % nom.replace(".", "/")):
-            cand = base / suffixe
-            if cand.is_file():
-                self._resolus[nom] = "scripts/python/" + suffixe
-                return self._resolus[nom]
-        self._resolus[nom] = None
-        return None
-
-    def cibles(self, rel: str) -> set:
-        """Les modules importes DIRECTEMENT par `rel` (tous imports, y compris differes)."""
-        if rel in self._cibles:
-            return self._cibles[rel]
-        out: set = set()
-        try:
-            arbre = ast.parse((self.racine / rel).read_bytes())
-        except (OSError, SyntaxError, ValueError):
-            self._cibles[rel] = out
-            return out
-        noms: set = set()
-        for n in ast.walk(arbre):
-            if isinstance(n, ast.Import):
-                noms.update(a.name for a in n.names)
-            elif isinstance(n, ast.ImportFrom) and n.module:
-                noms.add(n.module)
-                noms.update(n.module + "." + a.name for a in n.names)
-        for nom in noms:
-            morceaux = nom.split(".")
-            for i in range(len(morceaux), 0, -1):
-                cible = self.resoudre(".".join(morceaux[:i]))
-                if cible:
-                    out.add(cible)
-                    break
-        self._cibles[rel] = out
-        return out
-
-    def conftests(self, rel: str) -> set:
-        """Les `conftest.py` qui s'appliquent a `rel`, de la racine du rootdir a son repertoire.
-
-        AUCUN test n'IMPORTE son conftest : c'est de la semantique PYTEST, invisible a l'AST.
-        L'oublier ferait passer pour << non couvert >> ce qui l'est, mais surtout laisserait une
-        declaration ignorer les fixtures `autouse` et le `green_skip_guard` de #455 -- dont le
-        verdict de CHAQUE test depend. Meme arete que `probe_457._conftest_edges`, dans l'autre
-        sens."""
-        out: set = set()
-        morceaux = rel.split("/")[:-1]
-        for i in range(len(morceaux), 1, -1):
-            cand = "/".join(morceaux[:i]) + "/conftest.py"
-            if (self.racine / cand).is_file():
-                out.add(cand)
-        return out
-
-    def de(self, rel: str) -> set:
-        vus: set = set()
-        pile = [rel] + sorted(self.conftests(rel))
-        while pile:
-            x = pile.pop()
-            if x in vus:
-                continue
-            vus.add(x)
-            pile.extend(self.cibles(x) - vus)
-        vus.discard(rel)
-        return vus
+#: La fermeture vit dans le FOYER depuis #531 : le PERIMETRE EFFECTIF en depend desormais (le
+#: foyer y derive la cascade de harnais), et le perimetre est servi aussi bien a ce cliquet qu'a
+#: la SELECTION de `probe_457`. En garder une seconde copie ici rouvrirait l'ecart silencieux
+#: que #463-r1 a ferme sur le recensement offline : le garde jugerait un autre perimetre que
+#: celui que la selection joue.
+Fermeture = DC.Fermeture
 
 
 def temoins_mesures(rel: str) -> tuple:
@@ -323,16 +280,25 @@ def temoins_mesures(rel: str) -> tuple:
 
 
 def confronter(decl: dict, verbeux: bool = False) -> tuple:
-    """`(rouges, non_mesures)` -- ce que chaque declaration ne couvre PAS.
+    """`(rouges, non_mesures, bypass)` -- ce que chaque declaration ne couvre PAS.
 
     DEUX SOURCES, et elles ne voient pas la meme chose :
       * la FERMETURE D'IMPORTS -- ce que le fichier CHARGE. Exacte, calculee ici ;
       * les TEMOINS de l'empreinte -- ce que le fichier a reellement OUVERT pendant ses tests.
         Elle seule voit un `read_text("data/...")` qu'aucun import ne revele.
+
+    LE BYPASS EST MESURE, PAS CRU SUR PAROLE (#486-r24). Un fichier qui declare
+    `hors_confrontation` n'est pas ROUGE sur ses decouverts -- mais on les COMPTE quand meme,
+    parce que ce compte est la seule chose qui rende la relecture d'un bypass decidable : un
+    bypass qui masque UN chemin nommable (typiquement le probe frere du test) n'est pas de la
+    meme nature qu'un bypass qui en masque soixante (un balayage d'arbre). Et un bypass qui
+    n'en masque AUCUN est une declaration MORTE, donc un rouge : c'est le seul cran qui empeche
+    la cle de devenir l'echappatoire universelle qu'elle remplace.
     """
     ferm = Fermeture(ROOT)
     rouges: list = []
     non_mesures: list = []
+    bypass: list = []
     for rel in sorted(decl):
         globs = DC.perimetre(decl[rel], rel)
         decouverts = sorted(m for m in ferm.de(rel) if not DC.couvre(globs, m))
@@ -340,12 +306,53 @@ def confronter(decl: dict, verbeux: bool = False) -> tuple:
         if not mesure:
             non_mesures.append(rel)
         decouverts += sorted(t for t in tem if not DC.couvre(globs, t))
+        motif = DC.hors_confrontation(decl[rel])
+        if motif is not None:
+            bypass.append((rel, motif, decouverts))
+            continue
         if decouverts:
             rouges.append((rel, decouverts))
         elif verbeux:
             print("    OK  %s  (%d module(s) de fermeture, %d temoin(s))"
                   % (rel, len(ferm.de(rel)), len(tem)))
-    return rouges, non_mesures
+    return rouges, non_mesures, bypass
+
+
+# ============================================================== la ligne de base des bypass
+def lire_bypass_atteste() -> set:
+    """Les fichiers DEJA connus pour bypasser. Absente -> ensemble VIDE (critere sec).
+
+    CE N'EST PAS UNE ALLOWLIST DE PERIMETRE (#457-r6) : le perimetre du cliquet reste DERIVE de
+    `git ls-files`, et un fichier neuf y entre tout seul. C'est une ATTESTATION, comme la dette
+    de declaration -- elle ne dit pas QUI est juge, elle dit ce qui etait deja vrai. Sa fonction
+    est de rendre toute CROISSANCE de la population visible dans un diff : poser un bypass
+    exige alors deux gestes, dont l'un dans un fichier que personne ne lit par accident."""
+    try:
+        lignes = BYPASS.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return set()
+    return {l.strip() for l in lignes if l.strip() and not l.startswith("#")}
+
+
+def ecrire_bypass(rels) -> None:
+    entete = [
+        "# #486-r24 -- fichiers de test qui declarent `hors_confrontation` (le BYPASS).",
+        "# ARTEFACT GENERE ET VERSIONNE : ne pas fusionner a la main, REGENERER",
+        "# (`python scripts/python/probe_486r15_declencheurs_tests.py --ecrire-bypass`).",
+        "#",
+        "# UN BYPASS DESARME LA CONFRONTATION D'UN FICHIER -- et donc la seule chose qui",
+        "# empeche sa declaration de derailler sans bruit. Le contrat en exige la RAISON",
+        "# (dans le fichier lui-meme) ; ce fichier-ci en exige la VISIBILITE : un bypass",
+        "# non inscrit est ROUGE, donc toute croissance de la population passe par un diff.",
+        "#",
+        "# CE N'EST PAS UNE DETTE A RESORBER. Un bypass peut etre pleinement legitime -- un",
+        "# test qui BALAIE l'arbre depend reellement de tout, et aucune enumeration ne le",
+        "# bornera. Ce qui est garde ici, ce n'est pas le zero : c'est qu'on sache toujours",
+        "# QUI se derobe, et sur quel motif.",
+        "#",
+        "# %d fichier(s)." % len(rels),
+    ]
+    BYPASS.write_text("\n".join(entete + sorted(rels)) + "\n", encoding="utf-8")
 
 
 def _run(argv=None) -> int:
@@ -354,6 +361,8 @@ def _run(argv=None) -> int:
                     help="Joue le critere SEC : toute absence de declaration est ROUGE.")
     ap.add_argument("--ecrire-dette", action="store_true", dest="ecrire",
                     help="(Re)pose la ligne de base. Elle ne doit JAMAIS s'elargir.")
+    ap.add_argument("--ecrire-bypass", action="store_true", dest="ecrire_bypass",
+                    help="(Re)pose la population des `hors_confrontation` attestes.")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args(argv)
 
@@ -373,6 +382,13 @@ def _run(argv=None) -> int:
               % (len(ko), len(fichiers), DETTE))
         return 0
 
+    if args.ecrire_bypass:
+        porteurs = sorted(r for r in ok if DC.hors_confrontation(ok[r]) is not None)
+        ecrire_bypass(porteurs)
+        print("[486r15] bypass (re)ecrit : %d fichier(s) declarent `%s` sur %d -> %s"
+              % (len(porteurs), DC.CLE_HORS_CONFRONTATION, len(ok), BYPASS))
+        return 0
+
     # -- ETAGE 1 : OBLIGATION
     hors_dette = sorted(r for r in ko if r not in dette)
     elargie = sorted(r for r in dette if r not in ko and r in fichiers)
@@ -383,11 +399,27 @@ def _run(argv=None) -> int:
               "regenerer la dette : %s" % (len(elargie), ", ".join(elargie[:4])))
 
     # -- ETAGE 2 : CONFRONTATION
-    rouges, non_mesures = confronter(ok, args.verbose)
+    rouges, non_mesures, bypass = confronter(ok, args.verbose)
     if non_mesures:
         print("[486r15] %d declaration(s) NON CONFRONTEE(S) a l'empreinte (aucune entree mesuree) "
               ": la fermeture d'imports seule a ete verifiee -- %s"
               % (len(non_mesures), ", ".join(x.rsplit("/", 1)[-1] for x in non_mesures[:4])))
+
+    # -- ETAGE 3 : LE BYPASS, COMPTE ET MOTIVE (#486-r24)
+    attestes = set() if args.sans_dette else lire_bypass_atteste()
+    non_attestes = sorted(rel for rel, _, _ in bypass if rel not in attestes)
+    morts = sorted(rel for rel, _, dec in bypass if not dec)
+    perimes = sorted(a for a in attestes
+                     if a not in {rel for rel, _, _ in bypass} and a in fichiers)
+    if bypass:
+        print("[486r15] %d declaration(s) HORS CONFRONTATION (bypass declare et motive) sur %d :"
+              % (len(bypass), len(ok)))
+        for rel, motif, dec in sorted(bypass, key=lambda t: (-len(t[2]), t[0])):
+            print("             %-64s masque %3d chemin(s) -- %s"
+                  % (rel.rsplit("/", 1)[-1], len(dec), motif[:96]))
+    if perimes:
+        print("[486r15] %d attestation(s) de bypass PERIMEE(S) (le fichier ne bypasse plus, ou a "
+              "disparu) -- regenerer : %s" % (len(perimes), ", ".join(perimes[:4])))
 
     mauvais = 0
     for rel in hors_dette:
@@ -398,13 +430,27 @@ def _run(argv=None) -> int:
               "perimetre declare" % (rel, len(decouverts)))
         for d in decouverts[:8]:
             print("             %s" % d)
+        print("             => soit ELARGIR (nommer ces chemins), soit declarer "
+              "`%s: \"<raison>\"` si la fermeture ne peut PAS borner ce fichier."
+              % DC.CLE_HORS_CONFRONTATION)
+        mauvais += 1
+    for rel in morts:
+        print("[486r15] ROUGE -- %s declare `%s` mais NE MASQUE RIEN : la confrontation passe "
+              "sans lui. Declaration MORTE -- la retirer."
+              % (rel, DC.CLE_HORS_CONFRONTATION))
+        mauvais += 1
+    for rel in non_attestes:
+        print("[486r15] ROUGE -- %s bypasse SANS ETRE ATTESTE. Un bypass se pose en DEUX gestes : "
+              "la cle dans le fichier, et la ligne dans %s (`--ecrire-bypass`)."
+              % (rel, BYPASS.relative_to(ROOT).as_posix()))
         mauvais += 1
 
     if mauvais:
         print("[486r15] VERDICT: FAIL -- %d fichier(s) en faute" % mauvais)
         return 1
-    print("[486r15] VERDICT: PASS -- %d declaration(s) confrontee(s), dette de %d fichier(s)"
-          % (len(ok), len(ko)))
+    print("[486r15] VERDICT: PASS -- %d declaration(s) dont %d confrontee(s) et %d hors "
+          "confrontation ; dette de %d fichier(s)"
+          % (len(ok), len(ok) - len(bypass), len(bypass), len(ko)))
     return 0
 
 
