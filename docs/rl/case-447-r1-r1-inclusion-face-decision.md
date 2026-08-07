@@ -191,12 +191,20 @@ garde qui ne se voit pas. Hors périmètre de cette tranche, signalé.
   (`necroPlasmancer`, `thousAhriman`) arment aussi `CasterMatchesDynamicRule` en régime
   `not_derivable`, donc une confrontation doit d'abord **établir** `casterReason == 0` avant de lire
   la zone — sans quoi elle mesurerait le gate, pas le bit.
-* **`#447-r1-r1-r3` — `is_turn_of_unit` n'est câblé par AUCUN appelant de production.** La 2ᵉ clause
-  de `CasterHasNotMoved` est donc **inerte hors probe**, et la dégradation reste PERMISSIVE pour les
-  **13** porteurs du bit 4 dès qu'un appelant balaie des positions. Le canal est dérivable **sans
-  capteur neuf** (`observeBattle.units[].playerId` vs `observeBattle.currentPlayer` = exactement
-  `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit`) ; ce qui manque est le **transport** jusqu'à
-  `is_tile_in_range_of_any_ability` (son appelant `NCContext` ne le porte pas).
+* ~~**`#447-r1-r1-r3`**~~ — **TRANSPORT LIVRÉ, GISEMENT MESURÉ VIDE (2026-08-07).** Le canal est
+  câblé de bout en bout : `NCContext.current_player` (`TurnComponent._currentPlayerId`, rempli par
+  `ai/action_generators.py` depuis `ctx.cur`) + `noncomparable/_base.py::is_turn_of_unit_by_pos`
+  (mirror de `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit` :
+  `observeBattle.units[].playerId == currentPlayer`, **jamais `teamId`** — les deux divergent sous
+  contrôle mental) → `early_warning_override.py` → `is_tile_in_range_of_any_ability`.
+  **Son effet observable est NUL, et c'est le résultat**, pas un aveu : sur l'unique appelant de
+  production, le port mirrore `BattleQuery$$IsTileInRangeOfAnyAbility`, dont `casterTiles` est le
+  **singleton** `{GetMainTile(unit)}` — la 2ᵉ clause y est donc inerte **CHEZ LE NATIF AUSSI**
+  (`interrogated_pos == pos` par construction), et `has_moved` reste non publié côté DÉCISION.
+  S'y ajoute que le « caster » interrogé y est un **ENNEMI** du joueur courant, donc
+  `IsTurnOfUnit` y vaut `False`, ce qui est déjà le comportement d'un `None`. Le transport ferme le
+  canal et devient le **prérequis** de tout câblage de `has_moved` ; il ne ferme aucun écart.
+  Résidu neuf : `#447-r1-r1-r3-r1` (le canal `has_moved`, `combatSnapshot.units[].unitFlags`).
 
 ## 9. Re-dériver
 

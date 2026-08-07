@@ -218,17 +218,39 @@ Fermeture NATIVE du domaine (`classes.tsv`, parent `UntargetableEffect`) : `ATel
 ce qu'il a confronté **SUR CE CANAL** — aujourd'hui **{1035, 1140}** — et un test le FIGE. Ce qui
 reste dehors, pour des raisons **distinctes**, et c'est le point à ne pas rabattre :
 
-* **`1238`** — ses TRIGGERS sont portés et confrontés (#448-r2c, mergée), mais cette tranche-là a
-  explicitement laissé la face DÉCISION en résidu nommé, hors de son périmètre. « Porté » et
-  « confronté sur ce canal » ne coïncident donc plus : `1238` n'attend plus une tranche, il attend
-  une confrontation de CE canal. **→ `#448-r2b-r1`** ;
+* **`1238`** — **INSCRIT (#448-r2b-r1, 2026-08-07)**. La RE est nette : la classe dérive
+  d'`ATeleportingEffect` donc d'`UntargetableEffect` (`frida/classes.tsv`), **le port POSE
+  réellement l'effet** (`runner/abilities/tyranids.py::fear_of_the_unseen_tree` →
+  `AddEffect(1238, …, Caster())` au cast de `1115 FearOfTheUnseen`, porteur `tyranDeathleaper`,
+  HERO **au pool**), le porteur reste **sur sa tuile** côté port — il restait donc énumérable
+  pendant tout son round de disparition, là où i2 dit « The Deathleaper vanishes and **cannot be
+  targeted** or damaged for 1 round ». Écart PERMISSIF fermé.
+  ⚠ **La garde est OFFLINE, et il faut le dire** : la confrontation live n'a **pas abouti** — le
+  point d'observation manque, `decisionView` est rendu du point de vue du player **attaché** et non
+  du joueur courant, donc ni `endturn` ni `attach --team 2` ne donnent l'énumération ADVERSE
+  (mesuré : les deux bras rendent `{81, 83}`, c'est-à-dire *mes* cibles). Le montage et son point
+  de blocage vivent dans `probe_448_r2b_r1_fear_untargetable.py`. Ce qui tient la décision sans le
+  live : `1035` et `1140`, **sœurs de la même classe parente** `ATeleportingEffect`, sont toutes
+  deux confrontées et posent bien le flag ; aucune surcharge d'`ApplyInternal` n'apparaît sur la
+  feuille ni sur `ATeleportingEffect` (indice, pas preuve — IL2CPP déduplique) ; et le port traite
+  **déjà** les quatre sœurs ensemble sur l'axe MOUVEMENT
+  (`services/movement_query.SPECIAL_MOVEMENT_EFFECT_TYPES`). Résidu de confrontation :
+  `#448-r2b-r1-r1` ;
 * **`1573`** — arrive avec #448-r2d ;
-* **`JustSummonedEffect`** — aucune tranche ouverte, et il couvre quatre `EffectType`
-  (`1 JustSummoned`, `1061`, `1230`, `1390`). Côté port ces summons sont **ciblables** alors que le
-  natif les exclut — dégradation permissive. **→ `#448-r2b-r1`**.
+* **`JustSummonedEffect`** — **REFUS MESURÉ (#448-r2b-r1)**, et la raison n'est pas le rayon de
+  souffle : **aucun** de ses quatre `EffectType` n'est POSÉ par le port. `1230` est posé puis retiré
+  dans le même behaviour natif et le port l'OMET ; `1390` n'est pas posé
+  (`triggers/loki/spiritual_leader.py` le dit explicitement) ; `1061` n'est que RETIRÉ
+  (`operations/spawn.py`, `abilities/loki/momentum.py`) ; `1` n'a aucun site. Les inscrire serait
+  **strictement inerte** — `has_effect` rendrait toujours faux — tout en donnant l'illusion d'avoir
+  fermé le trou. **L'étage manquant est le POSEUR, pas le domaine.** Un cliquet le garde
+  (`test_the_just_summoned_family_stays_out_because_nothing_POSES_it`), et il lit l'**AST** : un
+  premier jet en `re` avait rendu « 1061 est POSÉ par `spawn.py` » sur… un commentaire disant
+  « aucun `AddEffect(1061)` dans ce kit ». Il porte aussi sa **contre-épreuve** — il doit voir le
+  poseur de `1238` —, et c'est elle qui a montré qu'il était aveugle aux constantes de module.
 
 Le rayon de souffle (le `ClosestEnemy` du seed `MinDist(16)` et les plans d'attaque de tout scénario
-à summons) est ce qui interdit d'inscrire l'un ou l'autre sans confrontation.
+à summons) est ce qui interdit d'inscrire quoi que ce soit sans mesure.
 
 ---
 

@@ -675,11 +675,16 @@ def verdicts_portee_non_lue(d) -> list:
           "natif=%s attendu=%s" % (d.get("source_natif"), attendu)),
          ("le port est d'accord",
           d.get("source_port") == d.get("source_natif"),
-          "port=%s natif=%s" % (d.get("source_port"), d.get("source_natif"))),
-         ("contre-epreuve : le masque est REELLEMENT mute",
-          int(d.get("masque_mute_sans_bit15") or "0x0", 16)
-          & int(TR.CasterIsPossibleTarget) == 0, d.get("masque_mute_sans_bit15"))]
+          "port=%s natif=%s" % (d.get("source_port"), d.get("source_natif")))]
     if not bloque:
+        # ⚠ CETTE contre-epreuve n'appartient QU'AU sous-pas `portee_non_lue` : c'est lui, et lui
+        # seul, qui mute le masque en RETIRANT le bit 15. Le sous-pas `has_not_moved` mute la 2e
+        # CLAUSE de `CasterHasNotMoved` et garde le bit (`0x8014`) -- l'assertion y echouait donc
+        # PAR CONSTRUCTION, et rendait `master` rouge sur `--step has_not_moved` en accusant le
+        # port alors que les sept assertions de fond etaient vertes. Sa place est ici.
+        v.append(("contre-epreuve : le masque est REELLEMENT mute",
+                  int(d.get("masque_mute_sans_bit15") or "0x0", 16)
+                  & int(TR.CasterIsPossibleTarget) == 0, d.get("masque_mute_sans_bit15")))
         v.append(("contre-epreuve : sans le bit 15 le port PERD la tuile",
                   d.get("source_port_sans_bit15") == [] and d.get("source_port") != [],
                   d.get("source_port_sans_bit15")))

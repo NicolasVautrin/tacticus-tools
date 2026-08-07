@@ -245,6 +245,22 @@ Ici elle avait raison sur un point et tort sur l'autre, **dans le même fichier*
   les morts). Migration **value-preserving mesurée** sur le nominal, **correctrice** sur le cadavre,
   **confrontée live**. Résidu neuf : `#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1` (le patron de la lecture
   brute, ~54 sites à trier).
-* **`#462-r4b-r1-r1-r1-r1-b-r1-r1-r2`** — les **5 call-sites natifs non portés** d'`IsObjectOrSteppable`
-  (§3). Chacun est un gate manquant du même genre, sur une ability différente ; `--step re` les
-  réimprime avec leur état, donc l'inventaire se re-dérive au lieu de se citer.
+* ~~**`#462-r4b-r1-r1-r1-r1-b-r1-r1-r2`**~~ — **REQUALIFIÉ (2026-08-07), et le résidu tel qu'énoncé
+  était DEUX FOIS faux.** Il annonçait « 5 call-sites non portés, chacun un gate manquant du même
+  genre » et disait que `--step re` « re-dérive » l'inventaire. Il ne le re-dérivait pas : la table
+  `CALL_SITES` **portait l'état de portage en dur**, et cet état s'était périmé sous nos pieds —
+  `KillMaimBurnAbility$$GetNextTarget` y était `NON PORTE` alors que #504 l'avait porté
+  (`runner/abilities/worldeaters.py::KillMaimBurnNextTarget`,
+  `Otherwise(non_steppable_or_object_units(valid), valid)`). Le recenseur **MESURE** désormais
+  (`_etat_de_portage`, dérivé de l'arbre) et rend **4 PORTÉS / 1 à trancher / 3 abilities
+  ABSENTES** :
+  * `CursedOfTheWalkingPoxAbility`, `PossessionAbility`, `BounceAbility` — **l'ability entière est
+    absente du port** (aucun des trois n'est dans `ABILITY_TRIGGERS`). Il n'y a donc **aucun arbre
+    où greffer le conjoint** : la dette n'est pas « un gate oublié », et poser le seul
+    `NOT IsObjectOrSteppable` serait du port spéculatif ;
+  * `Lakrimae_SummonPoxwalker_Ability$$CreateTrigger` — cité par `runner/abilities/deathguard.py`,
+    mais comme **RENVOI documentaire** (il y date le mapping des slots `DSLSelectors`), pas comme
+    port. Tranché à la main : l'ability n'est pas au registre non plus.
+  ⚠ Le critère du recenseur ne peut pas séparer un port d'un renvoi — les deux s'écrivent « symbole
+  cité verbatim ». C'est pourquoi cet état sort sous `CITE, FOYER ABSENT` et non sous un verdict.
+  Ce qui reste ouvert est donc le **portage de trois abilities**, pas cinq gates.
