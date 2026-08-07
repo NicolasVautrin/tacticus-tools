@@ -109,6 +109,7 @@ Usage :
     python probe_486r15_declencheurs_tests.py --sans-dette     # le critere SEC
     python probe_486r15_declencheurs_tests.py --ecrire-dette   # (re)pose la ligne de base
     python probe_486r15_declencheurs_tests.py --ecrire-bypass  # (re)pose la population du bypass
+    python probe_486r15_declencheurs_tests.py --proposer <fichier_de_test>   # AIDE A L'ECRITURE
     python probe_486r15_declencheurs_tests.py --verbose
 
 ASCII only (console Windows cp1252).
@@ -318,6 +319,127 @@ def confronter(decl: dict, verbeux: bool = False) -> tuple:
     return rouges, non_mesures, bypass
 
 
+# ============================================================== l'AIDE A L'ECRITURE (#486-r28)
+def proposer(rel: str) -> int:
+    """Imprime la declaration que ce cliquet EXIGERAIT pour `rel`. Foyer unique du calcul.
+
+    POURQUOI CE MODE EXISTE. Jusqu'ici l'outillage ne savait que JUGER : `--sans-dette`,
+    `--ecrire-dette`, `--ecrire-bypass`. Un auteur devait donc deriver A LA MAIN sa fermeture
+    d'imports, en soustraire la cascade que le foyer ajoute, et deviner -- alors que la machine
+    qui calcule la reponse est exactement celle qui le juge ensuite. Mesure du 2026-08-07 :
+    CINQ declarations ont rendu `master` ROUGE en une journee, dont deux MAL FORMEES et trois
+    trop etroites sur un foyer partage arrive sous elles. Aucune n'etait une negligence : le
+    seul gate qu'un auteur interroge (le hook pytest) ne valide que la PRESENCE (#486-r27).
+
+    ⚠ LE CALCUL N'EST PAS REFAIT ICI, ET C'EST LE POINT. La proposition se derive en soustrayant
+    `DC.perimetre` d'une declaration VIDE -- donc la cascade de harnais, les ajouts du foyer, et
+    rien d'autre. Une seconde derivation << equivalente >> rouvrirait l'ecart silencieux que
+    #531 a ferme : l'aide proposerait alors un perimetre que le juge n'accepte pas.
+
+    ⚠ ET ELLE N'EMET JAMAIS DE GLOB DE RACINE. `scripts/python/*.py` rend la confrontation
+    toujours satisfaite tout en MENTANT au selecteur (mesure `case-486-r24` §3bis : il fait
+    passer l'axe des probes de 20 a 995 chemins retenus). Une aide qui le proposerait
+    industrialiserait le defaut qu'elle est censee prevenir.
+    """
+    rel = _rel_depuis(rel)
+    if rel is None:
+        return 2
+    if not (ROOT / rel).is_file():
+        print("[486r15] introuvable : %s" % rel)
+        return 2
+
+    vide = {"chemins": (), "build": False, "toujours": False, "raison": ""}
+    deja = DC.perimetre(vide, rel, ROOT)          # la cascade + ce que le foyer ajoute
+    ferm = Fermeture(ROOT)
+    closure = sorted(ferm.de(rel))
+    tem, mesure = temoins_mesures(rel)
+
+    manquants = sorted(set(c for c in closure if not DC.couvre(deja, c))
+                       | set(t for t in tem if not DC.couvre(deja, t)))
+
+    print("[486r15] PROPOSITION pour %s" % rel)
+    print("   fermeture d'imports          : %d module(s)" % len(closure))
+    print("   cascade DERIVEE par le foyer : %d chemin(s) -- NE PAS les declarer (#531)"
+          % len(deja))
+    if mesure:
+        print("   temoins de l'empreinte 457   : %d" % len(tem))
+    else:
+        print("   temoins de l'empreinte 457   : NON MESURE -- cette proposition ne voit que les")
+        print("                                  IMPORTS. Un `read_text(\"data/...\")` qu'aucun")
+        print("                                  import ne revele y echappe. Joue le fichier puis")
+        print("                                  `probe_457_offline_tests_green.py --measure-missing`,")
+        print("                                  et RE-JOUE ce mode.")
+    print()
+
+    if not manquants:
+        print("   RIEN A DECLARER hors de la cascade : la fermeture de ce fichier y tient")
+        print("   entierement. Une declaration a `chemins` VIDE serait donc juste -- mais dis")
+        print("   quand meme dans `raison` ce que le fichier prouve.")
+    else:
+        print("   A DECLARER -- %d chemin(s) que la cascade ne couvre PAS :" % len(manquants))
+
+    lit_build = any(m.startswith("data/symbols") for m in manquants + list(tem)) \
+        or any("il2cpp" in m or "build_pin" in m for m in manquants)
+
+    print()
+    print("DECLENCHEUR = {")
+    print("    \"chemins\": (")
+    for m in manquants:
+        print("        %r," % m)
+    print("    ),")
+    print("    \"build\": %s,%s" % (lit_build,
+                                   "   # DERIVE : ce fichier lit le binaire ou data/symbols/**"
+                                   if lit_build else
+                                   "  # <- passe a True s'il lit le binaire ou data/symbols/**"))
+    print("    \"toujours\": False,")
+    print("    \"raison\": \"<A ECRIRE -- pourquoi CES chemins, et pourquoi pas d'autres>\",")
+    print("}")
+    print()
+    print("[486r15] La `raison` n'est PAS decorative : c'est le seul champ qu'aucune machine ne")
+    print("[486r15] peut deriver, donc le seul par lequel un relecteur voit qu'une declaration")
+    print("[486r15] juste a ete ecrite pour de MAUVAISES raisons.")
+    if manquants:
+        sous_engine = sum(1 for m in manquants if m.startswith("scripts/python/engine/"))
+        if sous_engine >= 4:
+            print("[486r15]")
+            print("[486r15] %d de ces chemins sont sous `engine/`. Un GLOB y est acceptable "
+                  "-- le critere" % sous_engine)
+            print("[486r15] n'est pas << littéral ou joker >>, c'est << ce joker couvre-t-il un "
+                  "test ou un")
+            print("[486r15] probe TIERS ? >>. `engine/**/*.py` n'en couvre aucun ; "
+                  "`scripts/python/*.py`")
+            print("[486r15] les couvre tous, et c'est le SEUL qui coute (mesure "
+                  "`case-486-r24` 3bis :")
+            print("[486r15] il fait passer l'axe des probes de 20 a 995 chemins retenus).")
+            print("[486r15] NB : `engine/**/*.py` seul ne couvre PAS `engine/*.py` -- dans ce")
+            print("[486r15] matcher, `**/` exige un segment. Les deux formes sont necessaires.")
+    return 0
+
+
+def _rel_depuis(chemin: str):
+    """Le chemin relatif au depot, depuis un argument absolu ou relatif. `None` si hors arbre.
+
+    TROIS lectures, dans cet ordre -- et l'ordre compte. On sera appele aussi bien depuis la
+    RACINE que depuis `scripts/python/` (c'est de la que se jouent les probes), et un chemin
+    deja relatif au DEPOT resolu contre le cwd donnerait `scripts/python/scripts/python/...`
+    -- une non-existence qui se lit comme << fichier introuvable >> alors que le fichier est la.
+    """
+    p = Path(chemin)
+    if p.is_absolute():
+        try:
+            return p.resolve().relative_to(ROOT.resolve()).as_posix()
+        except (ValueError, OSError):
+            print("[486r15] hors du depot : %s" % chemin)
+            return None
+    if (ROOT / chemin).is_file():                       # deja relatif au DEPOT
+        return Path(chemin).as_posix()
+    try:                                                 # relatif au CWD
+        return (Path.cwd() / p).resolve().relative_to(ROOT.resolve()).as_posix()
+    except (ValueError, OSError):
+        print("[486r15] hors du depot : %s" % chemin)
+        return None
+
+
 # ============================================================== la ligne de base des bypass
 def lire_bypass_atteste() -> set:
     """Les fichiers DEJA connus pour bypasser. Absente -> ensemble VIDE (critere sec).
@@ -363,8 +485,16 @@ def _run(argv=None) -> int:
                     help="(Re)pose la ligne de base. Elle ne doit JAMAIS s'elargir.")
     ap.add_argument("--ecrire-bypass", action="store_true", dest="ecrire_bypass",
                     help="(Re)pose la population des `hors_confrontation` attestes.")
+    ap.add_argument("--proposer", metavar="FICHIER", default="",
+                    help="Imprime la declaration que ce cliquet EXIGERAIT pour ce fichier de "
+                         "test. Aide a l'ECRITURE, pas au jugement (#486-r28).")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args(argv)
+
+    # AVANT le balayage : ce mode porte sur UN fichier, il n'a pas besoin du perimetre entier
+    # (et il doit repondre meme quand le parc est rouge -- c'est precisement quand on s'en sert).
+    if args.proposer:
+        return proposer(args.proposer)
 
     fichiers = fichiers_de_test()
     if not fichiers:
