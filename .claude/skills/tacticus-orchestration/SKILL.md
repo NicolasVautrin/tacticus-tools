@@ -792,17 +792,42 @@ part est quasi identique des deux côtés, donc elle se simplifie dans le rappor
 
 **Trois conséquences opérationnelles**, toutes contre-intuitives si on raisonne en fenêtre :
 
-1. **Découper paie, et beaucoup.** Deux tranches à 450 K coûtent ~22 M ; une seule à 880 K en
-   coûte ~51 M pour le même travail. Le critère « case-doc **MERGÉE** ⇒ agent frais » n'est donc
-   pas qu'épistémique : c'est le levier de coût **le plus fort** dont on dispose.
-   ⚠ **L'objection évidente — « chaque agent frais re-paie le socle système » — ne tient pas, et
-   c'est mesuré.** Le socle (prompt système + outils + `CLAUDE.md` + brief, ~55–77 K) est relu à
-   **chaque requête**, donc sa facture est `N_requêtes × socle`, jamais `N_agents × socle` :
-   découper à travail égal ne le duplique pas. Sa part **tombe** quand l'agent grossit — **4,7 à
-   19 %** du coût chez les agents de 264–602 requêtes, **8 à 39 %** chez ceux de 24–67 — parce
-   qu'elle est linéaire quand le reste est quadratique. Ce qu'un agent frais paie **en plus**, une
-   fois : l'écriture en cache de son socle (~1,25× le socle, soit ~0,1 M) et la relecture de la
-   case-doc. Deux ordres de grandeur sous les ~20 M économisés.
+1. **Découper paie — MAIS SOUS UN SEUIL, et le seuil est le coût de RE-CONTEXTE du successeur.**
+   Le second agent doit se refaire un contexte **sans rien produire** ; ce terme peut retourner le
+   calcul, et l'ignorer était une erreur. En posant `coût ≈ a·ctx²` (`a ≈ 5,5·10⁻⁵`, dispersion
+   ±20 % sur 9 agents), socle `S`, travail `W`, re-contexte `R` :
+
+   ```
+   2·(S + R + W/2)²  <  (S + W)²      <=>      R  <  (S+W)/√2 − S − W/2
+   ```
+
+   Pour `S = 77 K` et `W = 660 K` (l'agent mesuré à 737 K) : **`R < 114 K`**, soit ~57 requêtes de
+   relecture au rythme observé (~2 K de contexte par appel).
+
+   ⇒ **Sous le seuil** (le successeur absorbe une **case-doc MERGÉE** et repart) le découpage
+   paie. **Au-dessus** (il doit refaire la découverte : relire le décompilé, remonter le montage)
+   il coûte **plus cher** que la tranche unique. Les deux bornes se lisent dans les données :
+   `#523-r1`, lancé frais **parce que** la case-doc de `#523` était dans `master`, a livré un port
+   complet + confrontation live pour **17,4 M** ; trois agents frais sur des résidus **sans**
+   artefact d'appui dépensent **29 à 44 %** de leur coût avant leur première écriture.
+
+   ⇒ Conséquence qui vaut plus que la règle : **écrire la case-doc n'est pas la fin d'une tranche,
+   c'est ce qui rend la suivante finançable.**
+
+   ⚠ **L'autre objection — « chaque agent frais re-paie le socle système » — ne tient PAS**, et
+   c'est le seul des deux termes qui se dissout : le socle (prompt système + outils + `CLAUDE.md`
+   + brief, ~55–77 K) est relu à **chaque requête**, donc sa facture est `N_requêtes × socle`,
+   jamais `N_agents × socle` — découper à travail égal ne le duplique pas. Sa part **tombe** quand
+   l'agent grossit (**4,7 à 19 %** du coût à 264–602 requêtes, **8 à 39 %** à 24–67), parce
+   qu'elle est linéaire quand le reste est quadratique. Ce qu'un agent frais paie en plus une
+   fois : l'écriture en cache de son socle (~1,25× le socle, ~0,1 M). Négligeable — contrairement
+   au re-contexte ci-dessus, qui ne l'est pas.
+
+   ⚠ **NE PAS mesurer le re-contexte par « requêtes avant la première écriture ».** Métrique
+   essayée, **contaminée** : la consigne « écrire tôt » (survie à la pause, invariant 7) fait
+   commiter un fichier au début, donc `#523-r1` affiche une rampe de **5 requêtes / 2,1 %** qui ne
+   dit rien de ce qu'il a relu ensuite. Elle mesure la date du premier `Edit`, pas le coût de
+   reprise du fil.
 2. **Une reprise achète ses tours au prix fort.** Les requêtes d'un agent repris partent du haut
    de sa courbe : 50 appels de plus à 740 K coûtent ~4× ce que les mêmes 50 appels coûtent à un
    agent frais parti de 77 K. Reprendre reste juste quand la valeur est dans le non-écrit — mais
