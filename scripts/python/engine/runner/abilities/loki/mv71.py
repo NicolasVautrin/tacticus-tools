@@ -703,15 +703,20 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
 
     # MEME substrat que la face runner (`_occupants_by_tile`), hydrate depuis la `Scene` : c'est ce
     # qui empeche les deux faces de forker sur `IsTargetInAttackRangeForSummon` (#287-r11-r2-r1).
-    # `targetable` y est CONSTANT a `True` -- la `Scene` ne capte pas `UnitFlag.Untargetable`, et le
-    # runner ne le pose nulle part non plus (`targeting.is_targetable` est constamment vrai) : c'est
-    # le meme canal muet des deux cotes, pas un fork.
+    # DEUX canaux y sont plus PAUVRES qu'au runner, et les deux sont nommes :
+    #   * `targetable` est CONSTANT a `True` -- ni la `Scene` ni le runner ne posent
+    #     `UnitFlag.Untargetable` (`targeting.is_targetable` est constamment vrai) : meme canal muet
+    #     des deux cotes, donc pas un fork ;
+    #   * `Steppable` est lu sur la BORNE STATIQUE `entity_trait_names(None, visualId)` (kit
+    #     gameconfig + alliance) -- exactement la voie que `_tile7_utility` / `_spawn_tile_utility_0x37`
+    #     empruntent deja dans cette meme fonction (`triggered_ability_ids(vis)`), la `Scene` etant
+    #     hydratee par `vis_by_id`. Un trait ACCORDE EN BATAILLE y est donc invisible.
     occupant_by_tile = {}
     for u, p in _pos_of.items():
         t = board.id_at(int(p[0]), int(p[1]))
         if t is None:
             continue
-        traits = entity_trait_names(scene.ctx(u), scene.vis_by_id.get(u))
+        traits = entity_trait_names(None, scene.vis_by_id.get(u))
         occupant_by_tile[int(t)] = (scene.team(u), UnitTrait.Steppable.name in traits, True)
     cands = []
     for tid in sorted(board.by_id.keys()):
