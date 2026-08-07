@@ -69,7 +69,7 @@ from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnThe
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
                            MacroPlasmaIncineratorAbility, TacticalPrecisionAbility,
                            DutyEternalAbility, StormOfWrathAbility)
-from .custodes import MomentShackleAbility
+from .custodes import MartialInspirationAbility, MomentShackleAbility
 from .bloodangels import SavageEchoesAbility, HammerOfWrathAbility
 from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, ChronometronAbility,
                       MultiThreatEliminatorAbility, TunnelingHorrorAbility)
@@ -238,6 +238,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     #     + `force_crit` (octet +5 du Nullable<AttackOptions>). Les DEUX abilities du lot.
     TacticalPrecisionAbility.ABILITY_TYPE: TacticalPrecisionAbility,   # 1154 (ultraTitus Titus : If(IsCharging(caster,cible), ChangeStat(+extraCritDmg) & 1x Bolter FORCE-CRIT sur la cible & ChangeStat(revert), 3x Chain sur TOUS les AdjacentEnemies(caster)) ; ExecuteAtomic, branches EXCLUSIVES)
     MomentShackleAbility.ABILITY_TYPE: MomentShackleAbility,           # 1184 (custoTrajann Trajann : self-cast Heal(hpToHeal) & AddDynamicStatModifierEffect(1391 BlockChance) & (1392 BlockDamage) & AddEffect(1393 marqueur de la triggered MomentShackle_Attack), TurnsFromRounds(nrOfRounds=1) ; aucun degat)
+    MartialInspirationAbility.ABILITY_TYPE: MartialInspirationAbility,  # 1191 (custoBladeChampion Kariyan Custodes : AddEffect(1408 MartialInspiration_ExtraDamage sur le CASTER, Direct(1) tour) op_BitwiseAnd AttackWithAttackDamage(Target, MinMaxDamage, Eviscerate, nrOfHits=3) -- le buff est pose AVANT l'attaque et la buffe (gate `CurrentAbilityIs(1191)`), magnitude `extraDmgPct x TotalTurnsWithAttacksMade(Owner)` donc NULLE au 1er tour de bataille, #509)
     # --- case-decision-noop : gisement `[-D]` (la DECISION choisit, l'EXECUTION etait un NO-OP). ---
     # --- #287 : face COMBAT de SorcerousFacade, dont la face DECISION etait deja portee (#27-4e).
     SorcerousFacadeAbility.ABILITY_TYPE: SorcerousFacadeAbility,       # 1100 (thousTzaangor « Yazaghor » ThousandSons : cast sur un ALLIE Psyker -> AddEffect(1204 SorcerousFacade_AdditionalHits -> Caster + Target, TurnsFromRounds(1)) & UseActiveAbility(attaque NORMALE dirigee sur `sel` = l'ENNEMI le plus proche de `ValidNormalAttackTargets`) & KillDeadUnits(Caster, sel) & TriggerAbilityDelayed(Owner, 1180 SorcerousFacade_Switch, 3) -> SwitchPosition(Caster, Target) ; masque 0x402 MIGRE depuis `TARGETING_OPTIONS_UNPORTED`)

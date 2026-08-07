@@ -172,7 +172,18 @@ class _AbilityAttack:
                                               # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, 1435),
                                               # dont le trigger n'a AUCUN gate `IsNormalAttack`.
                                               damage_profile=(damage_profile if is_attack_damage_op else None),
-                                              trigger_ability_type=(ability_type if is_attack_damage_op else None))
+                                              trigger_ability_type=(ability_type if is_attack_damage_op else None),
+                                              # #509 : `CurrentAbilityIs(<AbilityOrEffect>)` =
+                                              # `AbilityEntities+0x60`, ecrit par
+                                              # `ActiveAbilityOperation$$ExecuteInternal` AVANT
+                                              # d'executer la behaviour -> herite par TOUT ce que
+                                              # la behaviour engendre, dont cette attaque. C'est un
+                                              # champ DISTINCT de `TriggeringAbility` (+0x98,
+                                              # ci-dessus) meme quand les deux valent le meme id.
+                                              # MEME gate FAMILLE que ses voisins (mods attaquant
+                                              # zeroes pour la famille ABILITY, #226).
+                                              # Consommateur porte : `MartialInspiration_ExtraDamage`.
+                                              ability_type=(ability_type if is_attack_damage_op else None))
             # #226 — STRUCT ATTAQUANT ZEROEE POUR LA FAMILLE ABILITY (generalisation de la mesure #45f,
             # desormais LUE AU DECOMPILE). `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`
             # ne construit QUE les mods DEFENSEUR (slot d'interface 0xf) et passe a

@@ -534,6 +534,16 @@ class StartTurnOperation:
             # (« the FIRST time each turn this unit blocks a hit »).
             if uc is not None:
                 uc.blocks_made_this_turn = 0
+            # #509 : `IdunBattle.Entities.Components.ActorStatisticsComponent$$
+            # ResetUnitsAttackedThisTurn` (`Clear(+0x40)`) -- la PREMIERE instruction de la meme
+            # sequence de `IdunBattle.Operations.StartTurnOperation$$ResetUnit` (elle PRECEDE le
+            # `ResetBlocksMadeThisTurn` ci-dessus, cf. sa note). MEME portee : les unites du joueur
+            # ENTRANT. C'est ce Clear qui rouvre la fenetre du compteur `TotalTurnsWithAttacksMade`
+            # (`+0x30`, incremente par `RegisterAttackMade` UNIQUEMENT quand ce set est vide) -->
+            # une unite qui attaque a N tours differents a `+0x30 == N`. Lecteur porte :
+            # `MartialInspiration_ExtraDamageEffect` (0x580 = 1408).
+            if uc is not None and uc.units_attacked_this_turn:
+                uc.units_attacked_this_turn.clear()
             # #213 : `UnitComponent + 0x18c` = la TUILE de debut de tour. Mirror des DEUX lignes qui
             # suivent le bump de `turnsStarted@+0x58` dans la MEME boucle native
             # (`IdunBattle.Operations.StartTurnOperation$$Execute`) :

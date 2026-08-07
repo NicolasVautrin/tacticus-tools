@@ -1,6 +1,65 @@
-"""Abilities ADEPTUS CUSTODES (namespace natif `Abilities.Active.Loki.*`) — case-231.
+"""Abilities ADEPTUS CUSTODES (namespace natif `Abilities.Active.Loki.*`) — case-231, case-509.
 
-Module DEDIE (meme org faction que `ultramarines.py` / `votann.py`). RE ghidra `gqfc5mff6c`.
+Module DEDIE (meme org faction que `ultramarines.py` / `votann.py`). RE ghidra `gqfc5mff6c`
+(MomentShackle) et `rnca9r7q6c` (MartialInspiration).
+
+================================================================================================
+`IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility$$ExecuteBehaviour`
+(id 1191, `custoBladeChampion` << Kariyan >>) -- #509
+================================================================================================
+
+MIRROR 1:1, terme a terme (slots `DSLFactory` : `+0x78 Behaviors`, `+0x80 Formulas`,
+`+0x90 Selectors` ; slots `DSLSelectors` : `+0x48 Caster`, `+0x60 Target`) :
+
+    buff = DSLBehaviors.AddEffect( 0x580 = 1408 MartialInspiration_ExtraDamage,
+                                   GetAbilityStateReference(this),
+                                   source  = Caster@+0x48,
+                                   targets = Caster@+0x48,
+                                   turns   = DSLFormulas.Direct(1) )
+    atk  = DSLBehaviors.AttackWithAttackDamage(
+               caster        = Caster@+0x48,
+               target        = Target@+0x60,
+               amount        = AActiveAbility.MinMaxDamage(this, abilityState, isPrediction = 0)
+                               = DSLFormulas.RandomAmount( GetVariableForLevel(0xc = minDmg),
+                                                           GetVariableForLevel(0xd = maxDmg) ),
+               damageProfile = DSLSelectors.Direct( Nullable(AActiveAbility.GetDamageProfile(this)) ),
+               hits          = DSLFormulas.Direct( AActiveAbility.GetHits(this)
+                                                   = GetNumberConstant(0x2f = nrOfHits) ),
+               abilityOrEffect = AbilityOrEffect(this),
+               options         = default (struct zeroee),
+               selectionType   = 2 )
+    AActiveAbility.Execute( this, AbilityBehaviour.op_BitwiseAnd(buff, atk), entities )
+
+TROIS lectures que le decompile impose :
+
+  * **LE BUFF EST POSE AVANT L'ATTAQUE, et c'est CETTE attaque qu'il buffe.** Le gate de
+    `MartialInspiration_ExtraDamageEffect` est `CurrentAbilityIs(1191) | CurrentAbilityIs(1319)` :
+    l'attaque de la phase 2 porte `CurrentAbility = 1191`, donc elle beneficie DEJA du bonus. Meme
+    forme que `FoulInfusion` (#500) -- c'est la SEQUENCE qui distingue un port juste d'un port faux,
+    pas le compte de coups.
+  * **`op_BitwiseAnd`, PAS `op_Addition`** : les deux factories allouent la MEME classe
+    `IdunBattle.DSL.CombinedBehaviour` (cf. `entities/behaviours.py::Seq`), et l'`Execute` est PLAIN
+    (aucun `ExecuteAtomic`, aucun `AtomicGroup`).
+  * **`Direct(1)` est deja en TOURS** (pas un `TurnsFromRounds`) -> le buff dure UN tour, ce qui
+    couvre exactement « this turn » de l'i2 pour la fenetre `Legacy of Combat`.
+
+`...MartialInspirationAbility$$.ctor` :
+
+    <recopie les 0x40 octets du preset `<TargetingOptions statics>+0x40`>
+    AActiveAbility..ctor(this, &opts, 0)          # 3e arg = 0 = AbilityAttackType.DirectTargetAttack
+
+Aucun appel a `TargetingOptions$$.ctor` : le masque EFFECTIF est la constante ecrite par
+`IdunBattle.Core.Services.TargetingOptions$$.cctor` (forme STATIC-COPY). C'est le MEME preset que
+`TalonsOfTheEmperorAbility$$.ctor` (1195) et `TheLionsWrathAbility$$.ctor` (1217).
+
+RESIDUS NOMMES :
+ * `selectionType = 2` (9e argument d'`AttackWithAttackDamage`) : le port ne materialise aucun etage
+   de `UnitSelectionType` sur cette feuille (residu PARTAGE par tous ses call-sites).
+ * `options` (8e argument) : struct ZEROEE au call-site -> aucun `isForceOverkill`, aucun
+   `forceCrit` ; le defaut de la feuille portee est exactement cela.
+ * la triggered `1319 LegacyOfCombat` (le passif homonyme de Kariyan) n'est pas portee : la 2e
+   branche du gate de l'effet est donc INATTEIGNABLE cote port (cf. l'en-tete de
+   `entities/effects/loki/martial_inspiration.py`).
 
 `IdunBattleLogic.Entities.Abilities.Active.Loki.MomentShackleAbility$$ExecuteBehaviour` (id 1184,
 `custoTrajann` « Trajann ») — MIRROR du DECOMPILE :
@@ -44,7 +103,8 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import op_and
+from ...entities.behaviours import op_and, Seq
+from ...entities.selectors.accessors import Target
 from ...entities.selectors.tiles import Caster
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
@@ -52,8 +112,9 @@ from ...entities.effects.magnitude import ability_var
 from ...entities.stats import StatType
 from ..components import StatsComponent
 from .base import ActiveAbility, convert_rounds_to_turns
-from .targeting import RANGE_SELF, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import RANGE_ADJACENT, RANGE_SELF, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
+from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddDynamicStatModifierEffect, AddEffect
 from .behaviours.stats import Heal
@@ -157,3 +218,111 @@ class MomentShackleAbility(ActiveAbility):
         return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
                 "heal_amount": heal_amount, "rounds": rounds, "turns": turns,
                 "heals": heals, "posed": posed, "dsl": True}
+
+
+# ===================== MartialInspiration (Kariyan custoBladeChampion, actif 1191) =====================
+MARTIAL_INSPIRATION_ID = "MartialInspiration"                             # cle gameconfig de l'ability 1191
+MI_EXTRA_DAMAGE = int(EffectType.MartialInspiration_ExtraDamage)          # 0x580 = 1408
+MI_EXTRA_DAMAGE_NAME = EffectType.MartialInspiration_ExtraDamage.name
+#: `turns = DSLFormulas.Direct(1)` -- litteral du call-site d'`AddEffect`, DEJA en tours (aucun
+#: `TurnsFromRounds` dans ce decompile, contraste `moment_shackle_tree`).
+MI_BUFF_TURNS = 1
+
+
+def martial_inspiration_tree(profile: str) -> Seq:
+    """`AActiveAbility.Execute( AddEffect(...) op_BitwiseAnd AttackWithAttackDamage(...) )` --
+    MIRROR 1:1 (cf. l'en-tete de module).
+
+    `op_and` = `IdunBattle.DSL.AbilityBehaviour$$op_BitwiseAnd` -> `CombinedBehaviour`, passe
+    DIRECTEMENT a `Execute` : aucun `AtomicGroup` dans ce decompile.
+
+    ORDRE LOAD-BEARING : la feuille `AddEffect` est a GAUCHE, donc l'effet 1408 est POSE avant que
+    l'attaque ne calcule son degat -- et le gate `CurrentAbilityIs(1191)` de cet effet mord sur
+    CETTE attaque. Inverser les deux feuilles rendrait le meme nombre de coups avec des montants
+    faux des que Kariyan a deja attaque a un tour precedent."""
+    return op_and(
+        # `source` = `Caster@+0x48` = le defaut de la feuille (`AbilityStateReference` = caster) ;
+        # `targets` = `Caster@+0x48` AUSSI (le natif passe le MEME slot deux fois) -> self-buff.
+        # `scale_from_source=True` : la magnitude de l'effet est un `ConfigVar(0xa = extraDmgPct)`
+        # resolu contre l'`AbilityState` de sa SOURCE (`BaseEffect$$GetAbilityState`).
+        AddEffect(MI_EXTRA_DAMAGE, MI_EXTRA_DAMAGE_NAME, Caster(),
+                  duration_rounds=None, duration_turns=MI_BUFF_TURNS, scale_from_source=True),
+        # Mode BORNES (`MinMaxDamage` = `RandomAmount(minDmg, maxDmg)`), `hits` = None -> la feuille
+        # lit `GetNumberConstant(0x2f = nrOfHits)` de la config, ce qu'est exactement
+        # `Direct(GetHits(this))`. `native_factory="attack"` (defaut) = la famille du call-site,
+        # `DSLBehaviors$$AttackWithAttackDamage` -> `AttackBehaviour` (2 tirages par coup a cc=0).
+        # `ability_type` = le **7e argument** natif (`abilityOrEffect = AbilityOrEffect(this)`), et
+        # il est LOAD-BEARING ICI : c'est lui qui alimente `att_ctx["ability_type"]`, donc le gate
+        # `CurrentAbilityIs(1191)` de l'effet 1408. L'omettre laisse le port bit-exact tant que le
+        # compteur vaut 0 et FAUX de x(1 + n x 33 %) des qu'il avance -- mesure #509.
+        AttackWithAttackDamage(Target(), MARTIAL_INSPIRATION_ID, profile, is_melee=True,
+                               ability_type=int(ActiveAbilityType.MartialInspiration)))
+
+
+class MartialInspirationAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility$$ExecuteBehaviour`
+    (id 1191, `custoBladeChampion` << Kariyan >>, Adeptus Custodes). Arbre DSL
+    `martial_inspiration_tree()` (cf. l'en-tete de module) :
+
+        Execute( AddEffect( 1408 MartialInspiration_ExtraDamage, AbilityStateReference,
+                            source = Caster, targets = Caster, turns = Direct(1) )
+                 op_BitwiseAnd
+                 AttackWithAttackDamage( Caster, Target, MinMaxDamage(minDmg, maxDmg),
+                                         GetDamageProfile() = Eviscerate,
+                                         GetNumberConstant(nrOfHits) = 3 ) )
+
+    i2 : « Deals 3x <minDmg>-<maxDmg> Eviscerating Damage to an adjacent enemy. This attack and
+    attacks from <i>Legacy of Combat</i> this turn deal +<extraDmgPct>% Damage for each turn in
+    which Kariyan performed an attack this battle. »
+
+    LE BONUS N'EST PAS DANS CETTE CLASSE : il vit dans l'effet 1408
+    (`entities/effects/loki/martial_inspiration.py`), qui multiplie `extraDmgPct` par
+    `TotalTurnsWithAttacksMade(Owner)` -- un compteur qui vaut **0** au premier tour de bataille
+    (le bonus est alors NUL) et qui avance d'UN par tour ou Kariyan attaque.
+
+    `AbilityAttackType` = **0** (`DirectTargetAttack`), transcrit du 3e argument litteral
+    d'`AActiveAbility..ctor` -- cf. `abilities/attack_type.py`.
+
+    Termine le tour (1191 hors des frozensets de `base.py` -> flags par defaut).
+
+    Retour : {ability, caster, target, profile, posed, attacks, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.MartialInspiration)   # 1191
+    ABILITY_ID = MARTIAL_INSPIRATION_ID
+
+    # `...MartialInspirationAbility$$.ctor` -- forme **STATIC-COPY** : le ctor n'appelle AUCUN
+    # `TargetingOptions$$.ctor`, il recopie les 0x40 octets du preset
+    # `<TargetingOptions statics>+0x40` puis passe la struct TELLE QUELLE a
+    # `AActiveAbility..ctor(this, &opts, 0)`. Le masque EFFECTIF est donc la constante ecrite par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor`, champs LUS :
+    #   +0x40 (`isSelfCasting`)     = 0
+    #   +0x48..+0x5f (`range`)      = recopie de `<TargetingRange statics>+0x30` = RANGE_ADJACENT
+    #   +0x60 (`forceMeleeTarget`)  = 1 = RangedBool.False (l'enum natif est INVERSE)
+    #   +0x68 (`rules`)             = 0x4000 = TargetIsEnemy, et RIEN d'autre
+    # C'est le MEME preset que `TalonsOfTheEmperorAbility$$.ctor` (1195) et
+    # `TheLionsWrathAbility$$.ctor` (1217). Ces valeurs VIENNENT de l'entree que cette tranche
+    # RETIRE de `TARGETING_OPTIONS_UNPORTED` (contrat de disjonction : une ability n'a qu'UNE
+    # source d'options, jamais deux).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=int(TR.TargetIsEnemy), self_cast=False, range=RANGE_ADJACENT,
+        force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        import gameconfig as GC
+        if target_id is None:
+            return None
+        # `AActiveAbility$$GetDamageProfile` = `AbilityConfiguration$$GetDamageProfile` =
+        # `constants.damageProfile` (ici `Eviscerate`), LU de la config -- jamais code en dur.
+        profile = ((GC.ability(self.ABILITY_ID) or {}).get("constants") or {}).get("damageProfile")
+        if not profile:
+            return None                     # `Nullable<DamageProfile>` vide -> aucun profil a passer
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        martial_inspiration_tree(profile).execute(entities, ectx)
+        posed = [{"effect": p.get("effect_type"), "target": p.get("target"),
+                  "placed": p.get("placed"), "active": p.get("active")}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        attacks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "profile": profile, "posed": posed, "attacks": attacks, "dsl": True}

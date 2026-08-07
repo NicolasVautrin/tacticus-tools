@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **60** ; kits avec du travail : **67**
-- Volume total : **81** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **80** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -34,13 +34,13 @@
 | EmperorsChildren | 5 | 8 |
 | BloodAngels | 5 | 6 |
 | Necrons | 5 | 6 |
-| Custodes | 4 | 5 |
 | DarkAngels | 4 | 5 |
 | LeaguesOfVotann | 5 | 5 |
 | Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
 | ThousandSons | 3 | 5 |
 | BlackTemplars | 4 | 4 |
+| Custodes | 4 | 4 |
 | AdeptusMechanicus | 3 | 3 |
 | Aeldari | 3 | 3 |
 | AstraMilitarum | 3 | 3 |
@@ -111,12 +111,12 @@
 | bloodSanguinary | 2 | BloodChalice(1175) [--] NO-OP HEAL | SanguinaryPriest | - |
 | bloodTerminator | 1 | SavageEchoes(1230) [CD] OK | RedRampage | - |
 
-### Custodes — 4 kits, 5 items
+### Custodes — 4 kits, 4 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | custoAtlacoya | 1 | TalonsOfTheEmperor(1195) [--] NO-OP DAMAGE(Power) | - | - |
-| custoBladeChampion | 2 | MartialInspiration(1191) [--] NO-OP DAMAGE(Eviscerate) | LegacyOfCombat | - |
+| custoBladeChampion | 1 | MartialInspiration(1191) [C-] OK | LegacyOfCombat | - |
 | custoKyrus | 1 | VigilanceEternal(1202) [CD] OK | UnwaveringSentinel | - |
 | custoVexilusPraetor | 1 | VexillaMagnifica(1183) [-D] NO-OP DAMAGE(Physical) | - | - |
 
