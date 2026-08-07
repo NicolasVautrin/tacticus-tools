@@ -817,21 +817,30 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
     de `engine/playbook/non_owner.py`.
 
     ⚠ RÉGIME SPAWN (`case.unit == null`, `case.parent != null` — call-site
-    `SortTilesByUtilityForSummon`, case-205) : le natif ITÈRE quand même, avec le PARENT comme
-    sujet de `IsFriend` et SANS exclusion de self. Le `ctx` de ce foyer ne produit alors AUCUNE clé
-    d'unité (`runner_tile_leaf_ctx` rend `{"is_spawning": True}` seul) ⇒ la feuille rend 0. RÉSIDU
-    NOMMÉ, identique à celui des autres feuilles gatées sur le sujet : porter ce régime demande
-    d'abord un `ctx` de spawn peuplé."""
+    `SortTilesByUtilityForSummon`, case-205) : le natif **ITÈRE QUAND MÊME**. Relu au décompilé
+    (#271-r3) — `<EvaluateMovementInSteps>d__0` ne rend `Fix64.Zero` que si `case.unit == null`
+    **ET** `case.parent == null` (`if (case+0x10 != 0 || case+0x30 != 0)` avant l'itération), et
+    `<IterateAbilities>d__3` prend alors le PARENT pour sujet de `IsFriend` **et désarme
+    l'exclusion de self** (son `continue` est gardé par `case.unit != null`).
+    Cette feuille court-circuitait sur `is_spawning`, ce qui était un écart CHIFFRÉ : trois corps
+    du registre ne lisent JAMAIS `case.unit` et yieldent donc dans ce régime —
+    `PsychicFortressNonOwnerPlaybook` (20), `BookOfFateNonOwnerPlaybook` (5) et la BRANCHE SPAWN de
+    `MawClawsOfThyraxNonOwnerPlaybook` (5). Les 16 autres portent `if (case.unit == null) yield
+    break` : leur 0 vient désormais de LEUR corps (mirror fidèle), plus d'un court-circuit en
+    amont — le gate `is_spawning` de chaque playbook est devenu LOAD-BEARING.
+    Le substrat du régime est `_spawn_leaf_ctx` (amis/ennemis campés sur le PARENT, SANS
+    self-exclusion). Rayon de souffle mesuré avant de le peupler : **0** feuille sur 27."""
     UTILITY_TYPE = int(UtilityType.TriggeredAbilitiesNonOwner)  # 4
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         ctx = ctx or {}
-        if ctx.get("is_spawning"):        # sujet ABSENT : le `ctx` de spawn ne porte aucune unité
-            return 0.0
         from ..playbook.non_owner import load_playbook_non_owner
         total = 0.0
-        # `friend_units`/`enemy_units` sont déjà SELF-EXCLUS : c'est exactement le
-        # `if (case.unit == ability.Owner) continue` du natif. Les DEUX listes sont parcourues (le
+        # `friend_units`/`enemy_units` sont SELF-EXCLUS quand il y a un SUJET : c'est exactement le
+        # `if (case.unit == ability.Owner) continue` du natif. En régime SPAWN ils ne le sont PAS,
+        # parce que ce `continue` est gardé par `case.unit != null` — le PARENT est donc lui-même un
+        # porteur candidat, et c'est `_spawn_leaf_ctx` qui porte cette différence, pas cette boucle.
+        # Les DEUX listes sont parcourues (le
         # natif itère TOUTES les TriggeredAbility de la bataille, pas seulement celles des amis),
         # puis le PRÉ-GATE `<slot 4> || IsFriend(sujet, owner)` écarte les porteurs non amis — SAUF
         # pour les classes dont le `<slot 4>` vaut `true`, qui gardent AUSSI les ennemis (#477-r37).
@@ -1208,6 +1217,109 @@ def first_tile_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     return ranked[0] if ranked else None
 
 
+def _est_vivante(e) -> bool:
+    """Filtre d'unite des deux regimes du ctx runner : une entite SANS `UnitComponent` passe
+    (tuile, objet), une unite morte non."""
+    from ..runner.components import UnitComponent
+    uc = e.get_component(UnitComponent)
+    return uc is None or bool(uc.alive)
+
+
+def _unit_record(e, uid: int, pc, fx) -> dict:
+    """L'enregistrement `{pos, vis, id, triggered, active, traits, effects}` d'un voisin.
+
+    FOYER UNIQUE des deux regimes (sujet present / SPAWN) : deux constructions separees
+    finiraient par diverger de forme, et une feuille lisant une cle absente d'un seul des deux
+    rendrait 0 sans erreur.
+
+    #456-r1 -- `triggered`/`active`/`traits` sortent du substrat d'ENTITE (`UnitContext`, seede par
+    `snapshot._load_triggered_abilities`), plus du kit gameconfig par `visualId` : c'est ce que
+    `HasTrait`/`HasActiveAbility` interrogent. Relique, greffe et abilities derivees d'un TRAIT y
+    etaient invisibles."""
+    from ..runner.components import StatsComponent, UnitComponent
+    uc = e.get_component(UnitComponent)
+    sc = e.get_component(StatsComponent)
+    vis = uc.visual_id if uc is not None else None
+    cx = sc.ctx if sc is not None else None
+    return {"pos": (pc.col, pc.row), "vis": vis, "id": uid,
+            "triggered": tuple(entity_triggered_ability_ids(cx, vis)),
+            "active": tuple(entity_active_ability_ids(cx, vis)),
+            "traits": entity_trait_names(cx, vis),
+            "effects": tuple(ef.name for ef in ((fx.by_unit.get(int(uid), []) if fx else []))
+                             if not ef.consumed and ef.name)}
+
+
+def _board_maps(state) -> tuple:
+    """`(elev_by_pos, neigh_by_pos, walkable_by_pos)` du board. FOYER partage par les deux regimes
+    de `runner_tile_leaf_ctx` (sujet present / SPAWN) : les cartes ne dependent d'aucun sujet.
+    `neigh_by_pos` est dans l'ordre NATIF (`board.neighbours_native`)."""
+    board = getattr(state, "board", None)
+    elev_by_pos, neigh_by_pos, walkable_by_pos = {}, {}, {}
+    if board is not None:
+        for tid, t in board.by_id.items():
+            p = (t["col"], t["row"])
+            elev_by_pos[p] = t.get("elevation")
+            walkable_by_pos[p] = bool(t.get("walkable"))
+            neigh_by_pos[p] = [board.coord(n) for n in board.neighbours_native(tid)]
+    return elev_by_pos, neigh_by_pos, walkable_by_pos
+
+
+def _spawn_leaf_ctx(state, parent_id: int) -> dict:
+    """Regime SPAWN (`case.unit == null && case.parent != null`) -- call-site
+    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` (case-205).
+
+    ⚠ **Ce ctx portait `{"is_spawning": True}` SEUL, et c'etait un ecart CHIFFRE** (#271-r3). Le
+    natif n'arrete PAS l'evaluation quand le sujet manque :
+    `IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CEvaluateMovementInStepsu003Ed__0$$MoveNext`
+    ne rend `Fix64.Zero` que si `case.unit == null` **ET** `case.parent == null` ; sinon il itere.
+    Et `...u003CIterateAbilitiesu003Ed__3$$MoveNext` prend alors le PARENT pour sujet
+    (`subject = case.unit ?? case.parent`) et **N'EXCLUT PLUS le porteur de lui-meme** -- son
+    `continue` est garde par `case.unit != null`. Trois corps du registre yieldent dans ce regime,
+    parce qu'ils ne lisent JAMAIS `case.unit` (relus au decompile, pas deduits) :
+    `PsychicFortress` (20), `BookOfFate` (5) et la BRANCHE SPAWN de `MawClawsOfThyrax` (5).
+
+    Ce que ce ctx produit, et ce qu'il NE produit PAS :
+      * `friend_units`/`enemy_units` -- TOUTES les unites vivantes et positionnees, camp calcule
+        par rapport au PARENT, **sans self-exclusion** (le parent y figure : c'est exactement le
+        `continue` que le natif desarme). C'est la seule difference de FORME avec le regime a
+        sujet, et elle est LOAD-BEARING ;
+      * les cartes du board (`elev_by_pos`, `neigh_by_pos`, `walkable_by_pos`) ;
+      * **AUCUNE cle de sujet** (`uid`, `self_pos`, `unit_traits`, `unit_faction`,
+        `unit_triggered_abilities`, `unit_parent_id`, ...) : il n'y a PAS de sujet, et les
+        fabriquer depuis le parent ferait mordre des gates que le natif laisse tomber.
+
+    ⚠ RAYON DE SOUFFLE MESURE avant d'ajouter ces cles : sur les 27 feuilles portees de `Tile(7)`
+    x 9 tuiles candidates, **0** change de valeur -- toutes les autres gatent soit sur
+    `is_spawning`, soit sur une cle de sujet (qui reste absente), soit lisent leur voisinage dans
+    `meta` et non dans le `ctx`. Ajouter ce substrat ne reveille donc QUE la feuille 4."""
+    from ..runner.components import OwnerComponent, PositionComponent
+    par = state.get_entity(parent_id)
+    if par is None:
+        return {"is_spawning": True}        # parent introuvable : rien a camper, on ne devine pas
+    poc = par.get_component(OwnerComponent)
+    par_team = poc.team if poc is not None else None
+    fx = getattr(state, "effects", None)
+    friends, enemies, fpos = [], [], []
+    for uid, e in state.entities.items():
+        pc = e.get_component(PositionComponent)
+        # MEME filtre que le regime a sujet (vivante ET positionnee) -- mais AUCUNE exclusion de
+        # self : le natif ne saute le porteur que `if (case.unit != null && case.unit == ta.Owner)`.
+        if pc is None or not _est_vivante(e):
+            continue
+        rec = _unit_record(e, uid, pc, fx)
+        oc = e.get_component(OwnerComponent)
+        if oc is not None and par_team is not None and oc.team == par_team:
+            friends.append(rec)
+            fpos.append(rec["pos"])
+        else:
+            enemies.append(rec)
+    elev_by_pos, neigh_by_pos, walkable_by_pos = _board_maps(state)
+    return {"is_spawning": True,
+            "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
+            "elev_by_pos": elev_by_pos, "neigh_by_pos": neigh_by_pos,
+            "walkable_by_pos": walkable_by_pos}
+
+
 def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = None) -> dict:
     """Dict `ctx` PAR-DÉCISION des feuilles `Tile(7)`, construit depuis un `State` de RUNNER —
     jumeau de `tile_leaf_ctx` (qui, lui, part d'un `AiDecisionContext` côté DÉCISION).
@@ -1239,12 +1351,14 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
     NON produites, donc feuilles muettes ici (résidus nommés, mêmes que côté décision) : `scene` /
     `hpmax_by_id` / `enemies` (→ `FuryOfTheAncientsPlaybook` rend 0), `is_territory_by_pos` et
     `tile_effect_type_ids_by_pos` (le `meta` de ce foyer ne les porte pas non plus)."""
+    from ..runner.components import (OwnerComponent, PositionComponent, StatsComponent,
+                                     UnitComponent)
     if unit_id is None:
         # `case.unit == null` : PAS de sujet. `is_spawning` = `get_IsSpawning` = unit null ET parent
         # non nul -- c'est la signature EXACTE du call-site SortTilesByUtilityForSummon (case-205).
-        return {"is_spawning": True} if parent_id is not None else {}
-    from ..runner.components import (OwnerComponent, PositionComponent, StatsComponent,
-                                     UnitComponent)
+        if parent_id is None:
+            return {}                       # ni sujet ni parent : aucune feuille ne peut rien rendre
+        return _spawn_leaf_ctx(state, parent_id)
     me = state.get_entity(unit_id)
     if me is None:
         return {}
@@ -1258,43 +1372,22 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
     friends, enemies, fpos = [], [], []
     for uid, e in state.entities.items():
         pc = e.get_component(PositionComponent)
-        uc = e.get_component(UnitComponent)
-        if pc is None or (uc is not None and not uc.alive) or uid == unit_id:
+        # `if (case.unit == ability.Owner) continue` : le sujet est self-EXCLU. C'est la seule
+        # difference avec le regime SPAWN, ou le natif desarme ce `continue` (cf. `_spawn_leaf_ctx`).
+        if pc is None or not _est_vivante(e) or uid == unit_id:
             continue
-        vis = uc.visual_id if uc is not None else None
+        # Kit DECLENCHE/ACTIF/traits du voisin : foyer unique `_unit_record` -- feuilles
+        # SteppableUnit(20)/AttractToDecoys(64), noeud `!ActorHasTriggeredAbility(Target, 1120)` de
+        # `SaviorProtocolsPlaybook`, predicat `HasActiveAbility(f, DoctrinaImperatives)` de
+        # `RadSaturationPlaybook` (#477-r29).
+        rec = _unit_record(e, uid, pc, fx)
         oc = e.get_component(OwnerComponent)
-        sc = e.get_component(StatsComponent)
-        rec = {"pos": (pc.col, pc.row), "vis": vis, "id": uid,
-               # Kit DECLENCHE du voisin -- feuilles SteppableUnit(20)/AttractToDecoys(64) et noeud
-               # `!ActorHasTriggeredAbility(Target, 1120)` de `SaviorProtocolsPlaybook`.
-               # #456-r1 : substrat d'ENTITE (`UnitContext.triggered_abilities` = l'AbilitiesComponent
-               # seede par `snapshot._load_triggered_abilities`), plus le kit gameconfig par visualId.
-               # C'est la fermeture du residu N13-b sur ce foyer : relique, greffe et abilities
-               # derivees d'un TRAIT y etaient invisibles.
-               "triggered": tuple(entity_triggered_ability_ids(
-                   sc.ctx if sc is not None else None, vis)),
-               # #477-r29 : kit ACTIF du voisin -- l'argument du predicat
-               # `RadSaturationPlaybook.<>c.<CalculateMovementUtilityInStepsInternal>b__2_0`
-               # (`HasActiveAbility(f, 0x45e = DoctrinaImperatives)`), applique aux amis adjacents.
-               "active": tuple(entity_active_ability_ids(sc.ctx if sc is not None else None, vis)),
-               # #225 : substrat d'ENTITE (kit + traits accordes en bataille par le leaf `AddTrait`),
-               # pas le kit gameconfig cache par visualId -- c'est ce que `HasTrait` interroge.
-               "traits": entity_trait_names(sc.ctx if sc is not None else None, vis),
-               "effects": tuple(ef.name for ef in ((fx.by_unit.get(int(uid), []) if fx else []))
-                                if not ef.consumed and ef.name)}
         if oc is not None and my_team is not None and oc.team == my_team:
             friends.append(rec)
             fpos.append(rec["pos"])
         else:
             enemies.append(rec)
-    board = getattr(state, "board", None)
-    elev_by_pos, neigh_by_pos, walkable_by_pos = {}, {}, {}
-    if board is not None:
-        for tid, t in board.by_id.items():
-            p = (t["col"], t["row"])
-            elev_by_pos[p] = t.get("elevation")
-            walkable_by_pos[p] = bool(t.get("walkable"))
-            neigh_by_pos[p] = [board.coord(n) for n in board.neighbours_native(tid)]
+    elev_by_pos, neigh_by_pos, walkable_by_pos = _board_maps(state)
     from ..runner.components import parent_of
     _par = parent_of(state, unit_id)
     return {# #456-r1 : substrat d'ENTITE, exactement comme `unit_traits` juste en dessous -- le
