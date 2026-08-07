@@ -10,7 +10,7 @@ from engine.services import ability_range as ar
 from engine.services import battle_query as bqs
 
 from ._base import (NCContext, NonComparablePlaybook, _sweep_origin_first,
-                    occupant_team_by_pos)
+                    is_turn_of_unit_by_pos, occupant_team_by_pos)
 
 
 def _ranged_weapon_threshold(visual_id) -> int:
@@ -201,7 +201,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
 
     def utility_at(self, P: tuple, enemies: list, adj_origin: set, elev_by_pos=None,
                    is_wall_by_pos=None, team_by_pos=None, walkable_by_pos=None,
-                   is_in_fog_by_pos=None) -> float:
+                   is_in_fog_by_pos=None, is_turn_by_pos=None) -> float:
         """UTIL(P) du corps natif, ennemi par ennemi (mirror de la boucle `GetAllAliveUnits`).
 
         Extrait de `generate_candidates` pour etre CONFRONTABLE POSITION PAR POSITION a l'oracle
@@ -226,7 +226,13 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
                                                           caster_team=(team_by_pos or {}).get(ep),
                                                           team_by_pos=team_by_pos,
                                                           walkable_by_pos=walkable_by_pos,
-                                                          is_in_fog_by_pos=is_in_fog_by_pos):
+                                                          is_in_fog_by_pos=is_in_fog_by_pos,
+                                                          # `IsTurnOfUnit(E)` -- PREFIXE de
+                                                          # `CasterHasNotMoved`, lu sur E (le
+                                                          # « caster » de CETTE question), jamais
+                                                          # sur le porteur d'EarlyWarningOverride
+                                                          # (#447-r1-r1-r3).
+                                                          is_turn_of_unit=(is_turn_by_pos or {}).get(ep)):
                     u += self._COVER_BONUS
             else:                               # branche B : +50 si `threshold(E) < d`
                 if thr < d:
@@ -264,12 +270,13 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         # ennemis adjacents a l'ORIGINE (caster tuile courante) -> branche B ; sinon branche A.
         adj_origin = self.adjacent_at_origin(ctx, enemies)
         team_by_pos = occupant_team_by_pos(ctx)   # gardes « ami » de la ligne de vue (#-r1-r2-r2)
+        is_turn_by_pos = is_turn_of_unit_by_pos(ctx)   # PREFIXE de `CasterHasNotMoved` (#447-r1-r1-r3)
         best_p, best_u = None, None
         for P in _sweep_origin_first(ctx):        # ORIGINE-FIRST + keep-first (strict >)
             u = self.utility_at(P, enemies, adj_origin, ctx.elev_by_pos,
                                 getattr(ctx, "is_wall_by_pos", None), team_by_pos,
                                 getattr(ctx, "walkable_by_pos", None),
-                                getattr(ctx, "is_in_fog_by_pos", None))
+                                getattr(ctx, "is_in_fog_by_pos", None), is_turn_by_pos)
             if u < self.MIN_UTILITY:
                 continue                            # admission Bucket util>=1
             if best_u is None or u > best_u:        # strict > : 1re position du max gagne (keep-first)
