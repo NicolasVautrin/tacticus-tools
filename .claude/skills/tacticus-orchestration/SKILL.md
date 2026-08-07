@@ -1278,6 +1278,19 @@ levée **tant que le problème des déclencheurs trop larges n'est pas réglé**
 - **Ne pas la ré-introduire par habitude** en recopiant un ancien brief. C'est exactement le mode
   de rechute : le bloc « Avant d'ouvrir la PR » se recopie d'un brief à l'autre sans être relu.
 
+> ⚠ **Le hook `Stop` VA réclamer ces empreintes, et il faut le laisser dire non.** Dès la première
+> PR livrée sous la suspension (#822), l'axe empreinte de `loop_status` a signalé **3 fichiers
+> offline non mesurés** sous « rien de ceci n'est déclaré ». C'est **faux** : c'est déclaré ici.
+> Le capteur ignore simplement la décision — il n'a pas de canal pour la connaître.
+>
+> **Ne pas « réparer » en re-mesurant au fil de l'eau** : ce serait ré-instaurer l'obligation par
+> la porte de derrière, un fichier à la fois, sans que la décision ait été revue. Le coût réel de
+> l'absence est **borné et conservateur** — un fichier sans empreinte se rejoue **TOUJOURS** sous
+> `--since`, jamais moins. C'est du temps de calcul, pas un trou de couverture.
+>
+> **Au ré-armement**, une passe unique `--measure-missing` rattrape le lot d'un coup — et elle sera
+> alors jouée sur un parc de déclencheurs assaini, ce qui est précisément l'ordre voulu.
+
 ## Références chargées avec ce skill
 
 <!-- Conventions des hooks : ne sert QUE si on edite frida/hooks/* — pas au portage Python. -->
