@@ -314,6 +314,18 @@ VENTILATION = {
         ("INERTE-VIVANT", "la CIBLE d'un ciblage"),
     ("runner/abilities/loki/swarm.py", "refresh_swarm_hit_reduction", "ctx.traits", "R"):
         ("INERTE-VIVANT", "gate `not uc.alive -> return` puis `ctx is None -> return`"),
+    # #508 -- `LeadingTheChargeAbility$$GetSummonTiles` : le sujet est un ennemi ADJACENT a la tuile
+    # candidate, et la boucle `UnitsWithoutTrait(0x1b = Steppable)` est GATEE au-dessus.
+    ("runner/abilities/loki/leading_the_charge.py", "_has_adjacent_enemies", "getattr(sc.ctx)", "R"):
+        ("INERTE-VIVANT", "gate `uc is None or not uc.alive -> continue` en tete de boucle"),
+    # #498 -- les deux predicats de `UnstoppableMomentumReworked`. Les verdicts DIFFERENT parce que
+    # les gates ne sont pas au meme etage, et c'est exactement ce que cette table sert a dire.
+    ("runner/abilities/loki/momentum.py", "_is_displaceable", "getattr(sc.ctx)", "R"):
+        ("INERTE-VIVANT", "`UnitExtensions$$IsDisplaceable` : gate INTERNE `not uc.alive -> False`"),
+    ("runner/abilities/loki/momentum.py", "_can_move", "getattr(sc.ctx)", "R"):
+        ("INERTE-AMONT", "`UnitExtensions$$CanMove` n'a AUCUN gate interne ; son unique appelant "
+                         "(`ExecuteBehaviourStep`) pose `if _is_dead(caster): return False` a la "
+                         "ligne PRECEDENTE -- le sujet est le CASTER, jamais une entite arbitraire"),
     ("runner/operations/spawn.py", "initialize_deferred_actor_abilities", "getattr(ctx)", "R"):
         ("INERTE-VIVANT", "l'unite qui vient d'agir / d'etre initialisee"),
     ("services/battle_query.py", "select_weapon_pierce", "getattr(ctx)", "R"):

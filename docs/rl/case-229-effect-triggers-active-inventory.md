@@ -242,6 +242,17 @@ de cette table ; se fier au probe.
 
 **27 classes conformes / 1 en ecart** (22/6 a l'ecriture de cette fiche ; #231 a resorbe 1077,
 1197 et 1201, la tache 1502 a resorbe `RitesOfMorkaiReviveTrigger`, `case-1547` a resorbe 1547).
+
+⚠ **Le trou de recensement se ROUVRE a chaque port, et c'est le seul gisement que notre cadence
+alimente.** Deux classes sont entrees au registre SANS entree `RAIL` (trouvees le 2026-08-07 en
+rejouant la suite offline complete, que le pipeline de PR ne joue plus depuis le 2026-08-05) :
+`EuphoricStrikesExtraCritRemove` (#522) et `PendingAttackOnAttackersTurn` (#513). **ARRAYSET toutes
+les deux**, etabli sur decompile relu et non sur la docstring du port --
+`EuphoricStrikes_ExtraCritEffect$$CreateRemoveEffectTrigger` (greffe par
+`BaseEffect$$CreateHandleTriggerAbilities`, meme forme que 1180 et 1550) et
+`APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal`, dont le corps clot son `Triggered()`
+par `Idun.Shared.Collections.ArraySet<T>$$Add`. Donc **aucun gate `IsActive` natif**, et **aucun des
+deux ports n'en lit** : conformes, sans correction de code.
 ⚠ Ce compte se PERIME a chaque resorption : le re-deriver par le probe, jamais citer cette ligne.
 Precision sur la fiche d'entree : le flag n'etait lu que par **1009** cote `EFFECT_TRIGGERS`
 (1077, 1197, 1201, 1502 puis 1547 l'ont rejoint). Pour **1324**, ce sont ses trois triggers qui l'ECRIVENT ;

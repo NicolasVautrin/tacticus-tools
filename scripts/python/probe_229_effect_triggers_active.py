@@ -117,6 +117,24 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.InspiredToGreatness_OverrideLevelEffect$$CreateRemoveEffectTrigger"),
     "ChronometronExtraDamageRemove":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateRemoveEffectTrigger"),
+    # #522 -- MEME forme que les deux ci-dessus : un `CreateRemoveEffectTrigger`, que
+    # `IdunBattle.Entities.Effects.BaseEffect$$CreateHandleTriggerAbilities` GREFFE dans l'`ArraySet`
+    # sous `Triggered(<lui>, GetRemoveEffectBehaviour())` quand le virtuel rend non nul. Corps RELU
+    # (build `rnca9r7q6c`) : `On(9, alive) & get_OwnerIsTarget | On(0, alive) & AreEqual(sel+0x60,
+    # EffectSource(sel+0x38))` -- aucun `CreateTargetTrigger` sur cette classe (les trois seules
+    # methodes du namespace sont `.ctor`, `CreateCritChanceBonus`, `CreateRemoveEffectTrigger`).
+    # Rail ARRAYSET => AUCUN gate `IsActive` natif => le port ne doit PAS lire le flag.
+    "EuphoricStrikesExtraCritRemove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.EuphoricStrikes_ExtraCritEffect$$CreateRemoveEffectTrigger"),
+    # #513 -- le `Triggered()` de la BASE `APendingAttackEffect`, PARTAGE par ses 20 derivees (une
+    # seule classe portee, N effectTypes inscrits -- meme forme que `BondRemoveOnBondedEntityDeath`).
+    # Corps RELU : il appelle d'abord `ABondEffect$$CreateHandleTriggerAbilitiesInternal`, puis clot
+    # son propre `Triggered(On(0x15) & IsTurnOf(<klass+0x758>), TriggerAbility(...) & RemoveEffect(
+    # sel+0x38))` par `Idun.Shared.Collections.ArraySet<T>$$Add(this, ...)` -- le MEME `ArraySet`
+    # qu'enumere `EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities`, ou `+0x5c` n'est
+    # jamais lu. Rail ARRAYSET, pas TARGETS.
+    "PendingAttackOnAttackersTurn":
+        (ARRAYSET, "IdunBattle.Entities.Effects.APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal"),
     # #462-r4b-r1-r1-r1 -- les DEUX `Triggered()` que
     # `NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal` ajoute a l'`ArraySet` (montee de
     # niveau sur frappe PSYCHIQUE `On(9)` et sur pose de `Pinned` `On(0x3d)`). Rail ARRAYSET : le

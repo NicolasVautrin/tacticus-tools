@@ -204,15 +204,32 @@ def test_relance_apres_override_remonte_le_vecteur_de_la_relance(monkeypatch, sp
 def _move_unit_calls(mod):
     """Les `MoveUnitOperation(...)` d'un module, avec leurs KWARGS -- releves par AST, jamais par
     comptage de chaine (un commentaire qui cite le drapeau ne doit pas compter comme un call-site)."""
+    return [kw for _owner, kw in _move_unit_call_sites(mod)]
+
+
+def _move_unit_call_sites(mod):
+    """`(classe porteuse, kwargs)` par call-site, TRIE PAR LIGNE.
+
+    Le porteur est nomme parce qu'un COMPTE NU ne dit pas QUI a bouge : ce test comptait `4` sur
+    `displace.py` et #488 y a ajoute un 5e call-site legitime (`DirectDisplaceOperation`, le
+    `Teleport`) -- le rouge accusait alors le fichier entier au lieu de designer l'entrant. La
+    liste NOMMEE garde exactement le meme invariant (le compte en decoule) en le rendant lisible.
+    `ast.walk` est un BFS : sans le tri par `lineno` l'ordre ne serait pas celui du source."""
     import ast
     import inspect
     tree = ast.parse(inspect.getsource(mod))
+    porteur = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for ln in range(node.lineno, (node.end_lineno or node.lineno) + 1):
+                porteur[ln] = node.name
     out = []
     for node in ast.walk(tree):
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                 and node.func.id == "MoveUnitOperation"):
-            out.append({kw.arg: ast.unparse(kw.value) for kw in node.keywords if kw.arg})
-    return out
+            out.append((node.lineno, porteur.get(node.lineno, "<module>"),
+                        {kw.arg: ast.unparse(kw.value) for kw in node.keywords if kw.arg}))
+    return [(o, kw) for _ln, o, kw in sorted(out, key=lambda t: t[0])]
 
 
 def test_emit_after_move_false_ne_joue_rien(spy):
@@ -229,11 +246,23 @@ def test_emit_after_move_false_ne_joue_rien(spy):
 def test_displace_push_et_pull_ne_jouent_pas_le_vecteur(spy):
     """`DisplaceUnitOperation$$Execute` ecrit la position par le slot `SetUnitPosition`, puis emet
     SON vecteur (`$$EventAndAbilitiesAndEffects` = `On(0x24)`/`On(0x23)`/`On(0x1d)`, porte par
-    `displace_triggers`). AUCUN `On(4)` : un push n'a jamais declenche l'overwatch cote natif."""
+    `displace_triggers`). AUCUN `On(4)` : un push n'a jamais declenche l'overwatch cote natif.
+
+    LES CINQ PORTEURS SONT NOMMES, et le 5e est arrive APRES cette garde : #488 a porte le case
+    **4** (`Direct`) de `DisplaceUnitOperation$$Execute`, dont le SEUL producteur est
+    `IdunBattleLogic.Entities.DSLBehaviors$$Teleport`. Il rejoint la MEME queue commune que le push
+    et le pull -- `SetUnitPosition(target, ..., false)` (slot `0x7e`) puis
+    `EventAndAbilitiesAndEffects` -- donc `emit_after_move=False` y est la MEME lecture, pas une
+    exception : c'est pour cela qu'il entre dans la liste plutot que dans une derogation."""
     from engine.runner.operations import displace as DP
-    calls = _move_unit_calls(DP)
-    assert len(calls) == 4, "push + pull + les DEUX moities du switch"
-    assert all(c.get("emit_after_move") == "False" for c in calls), calls
+    sites = _move_unit_call_sites(DP)
+    assert [o for o, _kw in sites] == [
+        "PullUnitOneTileOperation",                          # `$$Execute` type 2 = FindTileToPull
+        "SwitchPositionOperation", "SwitchPositionOperation",  # les DEUX moities, independantes
+        "DisplaceUnitOperation",                             # `$$Execute` type 1 = FindTileToPush
+        "DirectDisplaceOperation",                           # `$$Execute` case 4 = Direct (#488)
+    ], "call-site(s) `MoveUnitOperation` de `displace.py` : %r" % (sites,)
+    assert all(kw.get("emit_after_move") == "False" for _o, kw in sites), sites
 
 
 def test_flee_ne_joue_pas_le_vecteur():

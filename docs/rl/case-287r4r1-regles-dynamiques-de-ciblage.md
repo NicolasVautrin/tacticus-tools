@@ -255,9 +255,17 @@ impose dans les deux sens : chercher ce qui existe avant de re-porter.
 
 | id | corps natif, verbatim | code rendu | canal |
 |---|---|---|---|
-| 1204 `LeadingTheCharge` | `Count(GetPossibleMoveTiles) > 0 ? 0 : 0x8000000` | `0x8000000` | table |
+| 1204 `LeadingTheCharge` | `Count(GetPossibleMoveTiles) > 0 ? 0 : 0x8000000` | `0x8000000` | surcharge |
 | 1202 `VigilanceEternal` | `AreEntitiesAdjacent(casterTiles, targetTiles) ? 0 : (SelectTiles(GetPossibleMovementTiles).Count < 1 ? 0x8000000 : 0)` | `0x8000000` | surcharge |
 | 1151 `TheQuickening` | `!(MovableTilesInRange(ignoreUnitsOnTiles: 1) − Enemies).SelectTiles().Contains(target) ? 0x8000000 : (GetUnit(target) == null ? 0 : (GetFeetCount(unit) != GetFeetCount(caster) ? 2 : 0))` | `0x8000000` / `0x2` | surcharge |
+
+⚠ **Le CANAL de 1204 a bougé APRÈS cette tranche, et le foyer NON.** À la livraison de #287-r5-r1,
+1204 n'avait aucune classe portée : sa règle vivait dans `DYNAMIC_TARGET_RULE_UNPORTED`. #508 a porté
+sa face COMBAT, donc son masque et sa règle ont migré vers `LeadingTheChargeAbility` — et la
+surcharge **DÉLÈGUE** à `_dynamic_rule_leading_the_charge`, qui reste l'**unique** mirror du corps
+natif ci-dessus. Le canal se re-dérive (`probe_287r4r1_dynamic_target_rules.evaluabilite`) ; ce qui
+est stable, et que garde `test_287r5r1_charge_tiles_offline.py`, c'est qu'aucun des trois ids n'est
+en canal `aucune` et que 1204 n'a qu'un seul mirror.
 
 `0x8000000` = `TargetingRule.TargetIsInRange`, `0x2` = `TargetMatchesDynamicRule`. Les slots sont LUS
 dans `data/symbols/<build>/metadata/interface_slots.tsv` : `IBattleQuery 98 AreEntitiesAdjacent 2`,
