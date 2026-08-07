@@ -45,8 +45,24 @@ from _move_tile_sweep_order import build_sweep_order_case  # noqa: E402
 # assertions supposent (un TIE d'au moins deux tuiles), et pour le 1er couple la DIVERGENCE des
 # deux ordres -- celle-la meme qui fait qu'il discrimine.
 #
+# ⚠ ET LE COUPLE DISCRIMINANT A CHANGE DE BOARD -- c'est une MESURE, pas un ajustement.
+# `probe_506r1_balayage_ties.py` (VERSIONNE, rejouable) a balaye 4 couples sous le regime EQUIPE :
+#
+#   `--board C4_09  --seeds 999,4242  --steps 8,30`  -> 7 ties de >= 2 tuiles, **divergent=False
+#                                                       sur 7/7** (le regime de tie VIT, plus
+#                                                       aucun couple n'y DISCRIMINE) ;
+#   `--board MC1_67 --seeds 777,31337 --steps 6,28`  -> 6 ties, **3 DIVERGENTS** :
+#                                                       777 pas 12 et 21 (`custoVexilusPraetor`,
+#                                                       tie=3), 31337 pas 18 (`deathRotbone`,
+#                                                       tie=2).
+#
+# Le montage DISCRIMINANT est donc recale sur `MC1_67`/777 -- et il est CHERCHE, pas epingle : le
+# pas 12 d'aujourd'hui sera un autre demain, et c'est precisement le mode de defaillance que
+# #506-r1 ferme. Le second couple garde le regime NON discriminant, comme l'en-tete d'origine le
+# disait : il verifie le keep-first sans departager les deux ordres.
+#
 # (board, seed, pas de DEPART, largeur de recherche, exiger la divergence des deux ordres)
-CASES = [("C4_09", "999", 14, 24, True), ("C4_09", "4242", 15, 24, False)]
+CASES = [("MC1_67", "777", 8, 24, True), ("C4_09", "999", 13, 24, False)]
 
 
 def _tie_d_au_moins_deux(c) -> bool:

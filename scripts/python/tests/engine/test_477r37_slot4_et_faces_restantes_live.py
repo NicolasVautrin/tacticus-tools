@@ -297,17 +297,20 @@ def test_271r4_le_corps_de_WayOfTheShortBlade_MORD_et_ses_gates_coupent():
 
     Les TROIS premiers gates portent sur le CASTER, pas sur le porteur : c'est le point que le
     decompile tranche et qu'un nom d'ability laisserait deviner a l'envers."""
-    import gameconfig as GC
     import engine.playbook.non_owner_attack as NA
     from engine.entities.traits.unit_trait import UnitTrait
+    from engine.playbook.adjacent_unit_preference import (_has_ranged_weapon as _hrw,
+                                                          _unit_faction)
     pb = NA.NON_OWNER_ATTACK_PLAYBOOKS[1500]
-    # PREMISSE MESUREE : un vis Tau porteur d'une arme a distance, et un vis NON Tau.
+    # PREMISSE MESUREE (et NON supposee) : un vis Tau porteur d'une arme a distance, et un vis
+    # NON Tau. Les deux lectures passent par les MEMES helpers que le corps porte -- une premisse
+    # lue par un autre canal ne prouverait rien du gate.
     TAU, NONTAU = "tauMarksman", "orksNob"
-    if (GC.unit(TAU) or {}).get("faction") != "Tau":
-        pytest.skip("premisse absente : %s n'est pas Tau au gameconfig" % TAU)
-    from engine.playbook.adjacent_unit_preference import _has_ranged_weapon as _hrw
-    if not _hrw(GC.unit(TAU) or {}):
-        pytest.skip("premisse absente : %s n'a pas d'arme a distance" % TAU)
+    assert _unit_faction({"vis": TAU}) == "Tau", (
+        "premisse : %s n'est plus Tau au gameconfig -- le gate FACTION ne serait plus exerce"
+        % TAU)
+    assert _hrw({"vis": TAU}), "premisse : %s n'a plus d'arme a distance" % TAU
+    assert _unit_faction({"vis": NONTAU}) != "Tau", "le temoin NON Tau n'en est plus un"
     CASTER, OWNER, CIBLE = 1, 2, 3
     pos = {CASTER: (0, 0), OWNER: (1, 0), CIBLE: (0, 1)}
     neigh = {(0, 0): [(1, 0), (0, 1)], (0, 1): [(0, 0)], (1, 0): [(0, 0)]}
@@ -330,8 +333,10 @@ def test_271r4_le_corps_de_WayOfTheShortBlade_MORD_et_ses_gates_coupent():
               neigh=neigh)
     assert _u(c=c) == 0.0, "`HasTrait(caster, Hero)` ne coupe pas"
     # gate 2 -- `HasFaction(caster, 9 = Tau)`
+    vis_nontau = dict(vis)
+    vis_nontau[CASTER] = NONTAU
     c = _banc([CASTER, OWNER, CIBLE], pos, {CASTER: 1, OWNER: 1, CIBLE: 2}, traits,
-              dict(vis, **{CASTER: NONTAU}), {}, neigh=neigh)
+              vis_nontau, {}, neigh=neigh)
     assert _u(c=c) == 0.0, "`HasFaction(caster, Tau)` ne coupe pas"
     # gate 4 -- `AreEntitiesAdjacent(case.CasterPosition, case.Target)` : cible eloignee
     c = _banc([CASTER, OWNER, CIBLE], {CASTER: (0, 0), OWNER: (1, 0), CIBLE: (9, 9)},
