@@ -20,6 +20,47 @@ sequence de coups.
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa fermeture.
+        # La cascade ENTIERE des `conftest.py` jusqu'a ce repertoire : `tests/engine/conftest.py`
+        # et `tests/engine/runner/conftest.py` portent des fixtures `autouse` dont le verdict de
+        # CHAQUE test de ce fichier depend, et aucun test ne les IMPORTE (semantique pytest).
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # PROPRE A CE FICHIER -- le probe qui porte le montage ET les criteres, et son foyer de
+        # montage (#366-r1) :
+        "scripts/python/probe_488_exemplar_of_the_kauyon.py",
+        "scripts/python/probe_366r1_exemplar_kauyon_hits.py",
+        # LE MOTEUR ENTIER, deliberement : l'etage E3 REJOUE le cast hors-ligne sur un `Runner`
+        # complet (`load_state` -> `ActiveAbilityMessage` -> attaque normale + effet 1181), donc
+        # sa fermeture d'imports MESUREE couvre 140 modules de plus que les seuls fichiers touches
+        # par la tranche -- pipeline de degat, PRNG, pathfinding, generateurs d'action IA compris,
+        # tous capables de deplacer une valeur bit-exacte. Enumerer les fichiers de #488 serait
+        # DECLARER TROP ETROIT, et un declencheur trop etroit est un FAUX VERT ; large est sain.
+        # Les deux formes de glob sont necessaires : `**/` exige un segment, donc `engine/*.py`
+        # (racine du paquet) ne serait pas couvert par `engine/**/*.py` seul.
+        "scripts/python/*.py",
+        "scripts/python/engine/*.py",
+        "scripts/python/engine/**/*.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Le port de 1087 (arbre DSL dans `tau.py`, feuille `Teleport`, `DirectDisplaceOperation` "
+              "case 4, resolution de tuile de `PerformAIAttack`), son cablage (registre, attack-type, "
+              "masque et regle dynamique migres), l'effet 1181 qu'il pose -- et tout le moteur que le "
+              "rejeu hors-ligne traverse. `build: True` parce que les quatre etages confrontent le "
+              "NATIF : un changement de build deplace les valeurs d'arme comme les tuiles legales.",
+}
+
 import os
 import sys
 
