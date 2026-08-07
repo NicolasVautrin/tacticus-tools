@@ -302,6 +302,21 @@ class _Normal:
                                                 weapon_melee=_melee):
             execute_feeder_tendrils_special(state, attacker_id, target_id)
         ahc = att.get_component(HealthComponent)
+        # `On(PreAttack=5)` (#84) — vecteur natif emis par `IdunBattle.Operations.
+        # StartAttackOperation$$Execute` (`EvaluateAbilitiesImmediately(5, ...)`, slot 80), que
+        # `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` declenche (slot 58 `StartAttack`)
+        # AVANT d'executer le behaviour enfant -- donc avant `GetAttackHits` ET avant les mods.
+        #   ⚠ REMONTE (#512-r1) : il etait emis APRES `attacker_modifiers`, ce qui rendait INVISIBLE
+        #   du coup en cours tout bonus de degat ATTAQUANT qu'un consommateur de ce vecteur pose
+        #   (`SuppressiveFire` -> `Pinned` -> `TerrifyingCrescendo_ExtraDmg`). Le natif rebatit les
+        #   mods a CHAQUE `ExecuteHit`, donc il les y voit. Aucun tirage RNG ne separe les deux
+        #   places -> l'ordre `state.rng` est INCHANGE.
+        #   Emis APRES la selection d'arme (le natif connait deja la nature du coup) ; les deux
+        #   consommateurs portes sont `LetTheGalaxyBurnArmAbility` (arme un flag persistant relu par
+        #   le canal de coups plus bas) et `SuppressiveFireAddEffectAbility`.
+        if tp is not None:
+            from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
+            pre_attack_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),
                                           target_id=target_id, damage_profile=_profile,
@@ -325,14 +340,6 @@ class _Normal:
         # coup bonus n'est PAS un coup de la formule : folder en dur sur-comptait, orksNob 1v1 chance=30 ->
         # natif 3 coups, folder 4). Le coup bonus est ajoute PLUS BAS a l'EXECUTION (#62c, commit 3997793) :
         # `_gsi = getstuckin_combat_chance(...)` -> `_run_hits(bonus_hit_chance=_gsi)`. Bit-exact live case-67.
-        # `On(PreAttack=5)` (#84) — vecteur natif emis AVANT `GetAttackHits`. Le SEUL consommateur porte
-        # est `LetTheGalaxyBurnArmAbility` (arme le flag persistant lu 3 lignes plus bas par le canal de
-        # coups de CETTE attaque) ; aucun autre trigger n'ecoute l'event 5 -> no-op (et zero conso RNG)
-        # pour toute unite non-porteuse. Emis APRES la selection d'arme (le natif connait deja la nature
-        # du coup) et AVANT la formule, comme le natif.
-        if tp is not None:
-            from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
-            pre_attack_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
         # #227 SNAPSHOT DES ENTREES D'ETAT DU GATE `LetTheGalaxyBurn`, pris ICI = juste apres
         # `On(PreAttack=5)` et AVANT le premier coup. C'est l'etat que le natif voit : la tuile de la
         # cible est FIGEE par `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities`

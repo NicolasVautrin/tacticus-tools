@@ -362,7 +362,14 @@ def excruciating_frequencies_tree(n_tiles: int, extra_crit_chance: int):
       `GetHits()` = `GetNumberConstant(0x2f = nrOfHits)` = 1, bornes = `MinMaxDamage(abilityState)` =
       `minDmg`/`maxDmg`[level]. `attackRangeType = Ranged` (gameconfig 1197) -> `is_melee=False`.
       `multi=True` : le selecteur resout N ennemis, `AttackBehaviour$$Execute` les `OrderBy` puis
-      attaque chacun."""
+      attaque chacun.
+    - `ability_type` = le **7e argument** de `AttackWithAttackDamage` natif, `AbilityOrEffect(this)`
+      (cf. le bloc de RE ci-dessus) : l'`AttackBehaviour` le porte, donc l'`AbilityEntities` de
+      CHAQUE evenement de l'attaque le porte aussi -- dont `On(PreAttack = 5)`, ou
+      `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack` le lit pour resoudre
+      `GetAbilityAttackRangeType`. Sans lui, `SuppressiveFire` retombait sur la branche `Normal(3)`
+      (positionnelle) et NE suppressait PAS la 1re cible du rayon, qui est ADJACENTE au caster
+      (#512-r1)."""
     tous = Cache(Units(excruciating_frequencies_affected_tiles(n_tiles)))
     ennemis = Cache(Enemies(Units(excruciating_frequencies_affected_tiles(n_tiles))))
     crit = AddStaticStatModifierEffect(
@@ -370,7 +377,8 @@ def excruciating_frequencies_tree(n_tiles: int, extra_crit_chance: int):
         Multiply(Count(tous), Const(int(extra_crit_chance))),
         name=EffectType.TemporaryStatModifier.name, duration_turns=1)
     attaque = AttackWithAttackDamage(ennemis, EXCRUCIATING_FREQUENCIES_ID, "Blast",
-                                     is_melee=False, multi=True)
+                                     is_melee=False, multi=True,
+                                     ability_type=int(ActiveAbilityType.ExcruciatingFrequencies))
     retrait = RemoveEffect(EF_TEMPORARY_STAT_MODIFIER, Caster())
     return op_and(op_and(crit, attaque), retrait)
 

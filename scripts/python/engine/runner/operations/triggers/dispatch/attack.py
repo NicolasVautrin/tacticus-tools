@@ -88,18 +88,45 @@ def final_damage_triggers(state: State, attacker_id: int, target_id: int,
 def pre_attack_triggers(state: State, attacker_id: int, target_id: int,
                         ranged: bool, profile: Optional[str] = None,
                         ability_type: Optional[int] = None) -> list[dict]:
-    """Vecteur `On(PreAttack=5)` — emis par le pipeline d'attaque natif **AVANT** le calcul du nombre de
-    coups (`GetAttackHits`) et avant tout degat, UNE fois par attaque, sur la cible PRIMAIRE.
+    """Vecteur `On(PreAttack=5)` — emis **AVANT** le calcul du nombre de coups (`GetAttackHits`),
+    avant les modificateurs d'attaquant et avant tout degat, **UNE FOIS PAR CIBLE DISTINCTE**.
 
-    Le port ne l'emettait PAS jusqu'a #84 : les consommateurs deja portes qui l'ecoutent nativement
-    avaient ete ROUTES sur d'autres vecteurs (`SuppressiveFireAddEffectAbility` -> `On(38)`, cf. son
-    en-tete) parce que leur observable ne depend pas du timing. `LetTheGalaxyBurnArmAbility` (#84), lui,
-    **exige** ce timing : son behaviour arme un flag (`SetPersistentData`) que le canal de coups de la
-    MEME attaque relit (`IsPersistentData` dans `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits) — le router apres coup serait un no-op silencieux.
+    OU LE NATIF L'EMET (#512-r1, lu au decompile ; c'est le MEME etage que le `On(9 = Attack)` de
+    `finish_attack_triggers`, a l'autre bout de la meme boucle) :
 
-    AUCUN autre trigger porte n'ecoute `event_id == 5` (verifie : le seul `PreAttack` du port etait une
-    mention en commentaire) -> emettre ce vecteur ne reveille rien d'autre, et le seul cout RNG possible
-    est le `Maybe(33%)` de LetTheGalaxyBurn, qui ne fire que pour ses 5 porteurs."""
+        IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute        # le noeud DSL `Attack(...)`
+            caster  = Select(entities+0x50) ; targets = Select(entities+0x58)   (OrderBy si Count > 1)
+            for tgt in targets:
+                if prev is null or prev != tgt: processor.StartAttack  (slot 58)
+                <inner behaviour>                                      # AttackDamage / AbilityDamage
+                if next is null or next != tgt: processor.FinishAttack (slot 59)
+        IdunBattle.Operations.StartAttackOperation$$Execute
+            -> IOperationProcessor.EvaluateAbilitiesImmediately(EventTriggerType.PreAttack = 5,
+                                                                AbilityEntities{actor = attaquant,
+                                                                                target = la cible})
+
+    ⚠ **« UNE fois par attaque, sur la cible PRIMAIRE » — ce que cette docstring affirmait — EST
+    FAUX**, et l'erreur avait ete recopiee dans `suppressive_fire.py` pour y JUSTIFIER un routage sur
+    un autre vecteur. La boucle ci-dessus emet `StartAttack` a chaque CHANGEMENT de cible (le
+    `OrderBy` prealable groupe les cibles repetees, donc plusieurs coups sur la MEME cible
+    n'ouvrent qu'une attaque). Mesure (#512, `1197 ExcruciatingFrequencies`, 2 cibles) : la cascade
+    native porte DEUX blocs `[Ability_Power e=77 <<SuppressiveFire>>]`.
+
+    Ce qui n'emet PAS de `PreAttack` : une feuille `IdunBattleLogic.Entities.DSLBehaviors$$
+    AttackDamage` NUE composee dans le `Attack(...)` d'une autre attaque (`isOutsideAttack = false`,
+    `#419-r3`) -- elle n'ouvre aucun `StartAttack`. La distinction est STRUCTURELLE, pas
+    « primaire vs toutes ».
+
+    SITES D'EMISSION cote port : `damage_ops/normal.py` et `damage_ops/ability.py`, dans les deux
+    cas **avant `attacker_modifiers`** (cf. leur commentaire). L'appel etant fait une fois par
+    OPERATION d'attaque, et `AttackWithAttackDamage(multi=True)` executant une operation par cible,
+    la granularite « par cible distincte » est reproduite.
+
+    CONSOMMATEURS PORTES de `event_id == 5` : `LetTheGalaxyBurnArmAbility` (#84 -- son behaviour arme
+    un flag `SetPersistentData` que le canal de coups de la MEME attaque relit via `IsPersistentData`
+    dans `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` ; le router
+    apres coup serait un no-op silencieux) et `SuppressiveFireAddEffectAbility` (#512-r1). Pour toute
+    unite non porteuse : zero mutation et zero conso RNG."""
     ev = TriggerEvent(EventTriggerType.PreAttack, attacker_id, target_id,
                       ranged=ranged, profile=profile, ability_type=ability_type)
     return evaluate_trigger_operation(state, ev)

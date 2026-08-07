@@ -154,6 +154,31 @@ class _AbilityAttack:
         #     attaquant VIDES (#45f) -> None hors `is_attack_damage_op` (comportement inchange).
         _ranged = (not is_melee) if (is_melee is not None and is_attack_damage_op) else None
         _tgt_traits = target_trait_names(state, target_id) if is_attack_damage_op else None
+        # `On(PreAttack = 5)` -- EMIS ICI, **AVANT** la collecte des mods ATTAQUANT, et c'est la
+        # place NATIVE : `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` pousse
+        # `processor.StartAttack` (slot 58) -> `IdunBattle.Operations.StartAttackOperation$$Execute`
+        # -> `EvaluateAbilitiesImmediately(5, ...)` AVANT d'executer le behaviour enfant, donc avant
+        # `GetAttackHits` et avant tout `ExecuteHit` (qui, lui, rebatit les mods a CHAQUE coup).
+        #   ⚠ CE DEPLACEMENT EST PORTANT, PAS COSMETIQUE (#512-r1) : `SuppressiveFire` ecoute ce
+        #   vecteur et pose `Pinned`, ce qui monte `TerrifyingCrescendo_ExtraDmg` (0x590) d'un niveau
+        #   -- un bonus de degat ATTAQUANT. Emis APRES `attacker_modifiers` (la place d'avant), le
+        #   niveau monte etait invisible du coup EN COURS ; le natif, lui, l'y voit (mesure : `9575`
+        #   port contre `10073` natif sur la 1re cible du rayon de 1197).
+        #   Aucun tirage RNG ne separe l'ancienne place de la nouvelle -> l'ordre `state.rng` est
+        #   INCHANGE pour tout porteur qui ne pose rien sur ce vecteur.
+        #   MESURE (#512, `blackObliterator` / `FrenziedFiring 1036`) : le natif applique un `+1 coup`
+        #   sur une PARTIE variable des cibles = le `Maybe(ConfigConst(0x2a))` de
+        #   `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger`
+        #   (`On(5) & OwnerIsCaster & Maybe(chance) & !HasTileStatusEffect(TargetTiles)`), dont le
+        #   flag est relu par le canal de coups plus bas -- inchange par le deplacement.
+        #   COUT pour une unite NON porteuse : nul (aucun autre trigger porte n'ecoute l'event 5).
+        #   REFUTE le residu case-61 §6 (« `On(PreAttack=5)` n'est pas emis par le vecteur ability »),
+        #   qui n'avait jamais ete mesure.
+        from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
+        if is_attack_damage_op:
+            pre_attack_triggers(state, attacker_id, target_id,
+                                ranged=not bool(is_melee) if is_melee is not None else False,
+                                profile=damage_profile, ability_type=ability_type)
         if sc is None:
             # caster NON-UNITE (tuile) : mods attaquant VIDES == ce que `CalculateAbilityDamage`
             # recoit (mesure #45f). On NE passe PAS par `attacker_modifiers`, dont la collecte
@@ -232,29 +257,6 @@ class _AbilityAttack:
         # `_block_sources` (mirror du GetMultiValueStat(7)/IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif).
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
-        # `On(PreAttack=5)` SUR LE VECTEUR ABILITY (famille ATTACK) — MEME raisonnement que le canal
-        # #179 plus bas : le natif n'a QU'UNE `IdunBattle.Operations.AttackDamageOperation$$Execute`,
-        # empruntee par l'attaque NORMALE et par toute ability `AttackWithAttackDamage` (case-61 §1.2),
-        # et c'est ELLE qui emet l'event 5 avant `GetAttackHits`. Le port ne l'emettait que dans
-        # `execute` -> 2e branche du meme fork de port.
-        #   REFUTE le residu case-61 §6 (« `On(PreAttack=5)` n'est pas emis par le vecteur ability ->
-        #   `LetTheGalaxyBurn` ne peut s'armer que par sa branche `TargetHasTileEffect` »), qui n'avait
-        #   jamais ete mesure. MESURE (probe_61d_frenzy_aoe_combat, `blackObliterator` porteur du trait
-        #   `LetTheGalaxyBurn`, cast de FrenziedFiring 1036, roster TEMOIN sans modificateur de coups) :
-        #   le natif applique **+1 coup sur une PARTIE des cibles, et la partie CHANGE d'un run a
-        #   l'autre a geometrie identique** (k=3 : {77:4,79:1,81:1,83:1} puis {77:5,79:2,81:2,83:1}) =
-        #   signature d'un chance-gate par attaque -- exactement le `Maybe(ConfigConst(0x2a))` de
-        #   `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger`
-        #   (`On(5) & OwnerIsCaster & Maybe(chance) & !HasTileStatusEffect(TargetTiles@0x190)`).
-        #   Emis ICI = AVANT le canal de coups (qui relit le flag via `attacker_persistent_data`) et
-        #   avant tout degat, comme le natif. `ability_type` threade (l'`AbilityOrEffect` du coup).
-        #   COUT pour une unite NON porteuse : nul -- aucun autre trigger porte n'ecoute l'event 5
-        #   (cf. `pre_attack_triggers`), donc 0 conso RNG et 0 mutation.
-        from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
-        if is_attack_damage_op:
-            pre_attack_triggers(state, attacker_id, target_id,
-                                ranged=not bool(is_melee) if is_melee is not None else False,
-                                profile=damage_profile, ability_type=ability_type)
         # `On(PreAttackHit=6)` — `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` emet le MEME
         # trio d'events {6, 8, 0x3d} que la voie normale (verdict RE #147/#150), donc ThrillSeekers se
         # declenche aussi sur une attaque d'ABILITY du porteur contre une cible a pleine vie.

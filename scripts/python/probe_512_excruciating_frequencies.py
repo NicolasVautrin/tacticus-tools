@@ -62,30 +62,37 @@ REGIMES
        sur la 4e tuile `(4,4)` : `nrOfTiles = 3` doit l'exclure du compte ET des cibles. Sans la
        borne, le rayon irait jusqu'au bord du plateau.
 
-RESIDU MESURE `#512-r1` -- POURQUOI LE DEGAT NOMINAL DIVERGE, ET CE QUE CA N'ACCUSE PAS
-----------------------------------------------------------------------------------------
-En regime NOMINAL (R1/R2/R3) le port SOUS-TIRE : mesure du 2026-08-07 sur R1, `u81` 9575 (port)
-contre 10073 (natif) et `u83` 7101 contre 7766 -- a **SEQUENCE, CIBLES, CRITS ET NOMBRE DE TIRAGES
-IDENTIQUES** (6 = 6). L'ecart est ENTIEREMENT attribue, et il n'est PAS dans le mirror
-d'`ExecuteBehaviour` : R0 (le MEME montage, passif retire) rend **9575 / 7101 des DEUX cotes**,
-bit pour bit. Ce que R0 retire, c'est exactement ce qui manque :
+LA CHAINE DE DECLENCHEURS DU PORTEUR -- `#512-r1`, MESUREE PUIS FERMEE
+----------------------------------------------------------------------
+Avant `#512-r1` le port SOUS-TIRAIT en regime NOMINAL (R1/R2/R3), a **SEQUENCE, CIBLES, CRITS ET
+NOMBRE DE TIRAGES IDENTIQUES** (6 = 6) : `u81` 9575 contre 10073, `u83` 7101 contre 7766. L'ecart
+n'etait PAS dans le mirror d'`ExecuteBehaviour` -- R0 (le MEME montage, passif retire) rendait deja
+9575 / 7101 des DEUX cotes, bit pour bit. C'est cette attribution qui a designe la chaine :
 
     natif : SuppressiveFire (TRAIT du caster) pose `Pinned` sur CHAQUE cible du rayon
             -> `On(PreEffectAdded = 0x3d)` -> `TerrifyingCrescendo` (passif) monte
                `TerrifyingCrescendo_ExtraDmg` (0x590) d'un niveau
-            -> ce niveau ajoute son `extraDmg` au coup EN COURS (niveau 1 sur le 1er coup,
-               niveau 2 sur le 2e -- visible dans la cascade native).
-    port  : `SuppressiveFireAddEffectAbility` n'ecoute que `On(NormalAttack = 38)`, donc RIEN
-            n'est pose sur une attaque d'ABILITY -> le crescendo ne monte pas.
+            -> ce niveau ajoute son `extraDmg` au coup EN COURS.
+    port  : `SuppressiveFireAddEffectAbility` ecoutait `On(NormalAttack = 38)`, donc RIEN n'etait
+            pose sur une attaque d'ABILITY -> le crescendo ne montait jamais.
 
-C'est un residu **DEJA NOMME** dans `runner/operations/triggers/loki/suppressive_fire.py` (« Un
-carrier qui suppress via une ATTAQUE-ABILITY ranged ne serait pas couvert [...] Aucun scenario de
-validation ne l'exige »). #512 EST ce scenario. ⚠ Et la mesure REFUTE l'argument qui y justifiait
-l'abstention (« le natif suppress la cible PRIMAIRE seule ») : sur une attaque d'ability
-MULTI-CIBLE, la cascade native pose `Pinned` sur **chacune** des cibles (`u81` puis `u83`), parce
-que `AttackBehaviour$$Execute` pousse un `OngoingAttack` -- donc un `On(PreAttack)` -- PAR CIBLE.
-Corriger le vecteur touche les **49** porteurs du trait et exige la RE des points d'emission de
-`PreAttack` : hors perimetre de cette tranche, d'ou le residu.
+⚠ **L'argument qui justifiait l'abstention dans `suppressive_fire.py` etait FAUX**, et c'est la
+lecture du decompile qui le montre : `On(PreAttack = 5)` n'est PAS emis « une fois par attaque, sur
+la cible primaire ». `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` pousse
+`processor.StartAttack` (slot 58) a chaque CHANGEMENT de cible, et
+`IdunBattle.Operations.StartAttackOperation$$Execute` y emet
+`EvaluateAbilitiesImmediately(EventTriggerType.PreAttack = 5, ...)` -- donc **une fois par cible
+distincte**. Une feuille `IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` NUE composee dans le
+`Attack(...)` d'une AUTRE attaque (`isOutsideAttack = false`, `#419-r3`) n'ouvre aucun
+`StartAttack` et n'emet donc rien : la distinction est STRUCTURELLE, pas « primaire vs toutes ».
+
+Depuis `#512-r1`, `DEGAT_EXACT` vaut **True dans les quatre regimes** : R0 (la contre-epreuve
+d'isolation, qui doit rester bit-exacte -- c'est elle qui garde le mirror d'`ExecuteBehaviour`
+contre une regression de la chaine) ET R1/R2/R3 (le regime nominal, ou la chaine complete joue).
+Le fix a trois volets, tous mesures ici : le VECTEUR (`On(5)` au lieu d'`On(38)`), le GATE
+(`BattleQuery$$IsRangedAttack` slot 3 COMPLET -- 1197 est `attackRangeType = Ranged`, donc ranged
+SANS lire la position, alors que sa 1re cible est ADJACENTE au caster), et la PLACE (l'event remonte
+AVANT `attacker_modifiers`, sinon le niveau monte reste invisible du coup en cours).
 
 CONTRE-EPREUVES (`--ab`, hors ligne, sur la MEME capture)
 ----------------------------------------------------------
@@ -151,9 +158,12 @@ UNIT_STAT = {"R0": ('%s:PassiveAbilities=[]' % CASTER,)}
 #: L'unite dont la presence SUR LA LIGNE change le compte (et donc la crit chance) entre R1 et R2.
 SUR_LIGNE = {"R0": (FOE_A, ALLY, FOE_B), "R1": (FOE_A, ALLY, FOE_B),
              "R2": (FOE_A, FOE_B), "R3": (FOE_A, FOE_B)}
-#: Le DEGAT n'est bit-exact QUE dans le regime isole (cf. residu `#512-r1`). Ailleurs le verdict
-#: porte sur ce que le port DOIT rendre exactement : crit chance posee, cibles, crits, tirages.
-DEGAT_EXACT = {"R0": True, "R1": False, "R2": False, "R3": False}
+#: Le DEGAT est bit-exact dans les QUATRE regimes depuis `#512-r1` (avant, seul R0 l'etait -- le
+#: nominal sous-tirait de la chaine `SuppressiveFire -> Pinned -> TerrifyingCrescendo`, cf. l'en-tete).
+#: R0 reste la contre-epreuve d'ISOLATION : il garde le mirror d'`ExecuteBehaviour` seul, donc un
+#: R0 rouge accuse le mirror et un R1 rouge a R0 vert accuse la chaine de declencheurs. Ne JAMAIS
+#: rabattre l'une de ces entrees sur False pour faire passer une passe : c'est le cliquet du cas.
+DEGAT_EXACT = {"R0": True, "R1": True, "R2": True, "R3": True}
 
 #: `UnitDamaged` natif : on lit la SEQUENCE coup par coup (attaquant, cible, montant, crit).
 RE_DMG = re.compile(
@@ -302,7 +312,16 @@ def etat_porte(cap):
     """`State` charge depuis la capture, PRNG cale sur `dumpRng`.
 
     ⚠ Sans ce calage `execute_ability_attack` SKIPPE le degat par repli defensif : on lirait un
-    faux `0` et l'accord ne prouverait rien."""
+    faux `0` et l'accord ne prouverait rien.
+
+    ⚠ **Appeler sous `snapshot.live_rpc(...)`** (cf. `mesure`), sinon `_auto_ability_states` rend
+    `no-transport` et TOUS les canaux mesures restent `None` -- dont `UnitContext.passive_abilities`.
+    `collect_triggered_abilities` retombe alors sur le kit GAMECONFIG, et le regime R0
+    (`--unit-stat <caster>:PassiveAbilities=[]`) ne retire RIEN cote port : le porteur y garde
+    `TerrifyingCrescendo` que le BC ne porte plus. C'etait invisible tant que le port ne posait
+    aucun `Pinned` (le crescendo restait a 0 des deux cotes, donc R0 passait par COINCIDENCE) ;
+    des que `#512-r1` a cable le vecteur, R0 est devenu ROUGE -- et c'etait le MONTAGE, pas le port.
+    Meme gisement que le residu `#521-r5`."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.snapshot import load_state
@@ -514,8 +533,15 @@ def mesure(sid, state_file, regime, avec_ab=False, garder=False):
         cid = u[CASTER]["id"]
         bypos = {(t["col"], t["row"]): t["id"] for t in cap["tiles"]}
         tile_id = bypos[GEO[regime][1]]
-        port = rejeu_porte(cap, cid, tile_id, ids)
-        ab = contre_epreuves(cap, cid, tile_id, regime) if avec_ab else None
+        # TRANSPORT RPC LIE pour tout le rejeu hors-ligne : sans lui les canaux MESURES
+        # (`unitAbilityStates` -> `passive_abilities`, `config_active_abilities`, ...) restent `None`
+        # et le port retombe sur le kit gameconfig -- ce qui DESARME `--unit-stat PassiveAbilities=[]`
+        # du regime R0 (cf. `etat_porte`). Le canal est un cache par runner, donc les deux rejeux
+        # (REF et contre-epreuves) lisent le MEME etat.
+        from engine.runner.snapshot import live_rpc
+        with live_rpc(lambda method, body=None, timeout=120: _rpc(sid, method, body, timeout)):
+            port = rejeu_porte(cap, cid, tile_id, ids)
+            ab = contre_epreuves(cap, cid, tile_id, regime) if avec_ab else None
         p = _duel(["act", "ability", "--caster", str(cid),
                    "--ability", str(EXCRUCIATING_FREQUENCIES), "--target", str(tile_id),
                    "--state-file", state_file, "--runner", str(rid)])
@@ -592,11 +618,13 @@ def _rapport(m) -> bool:
             and p["crits"] == n["crits"] and p.get("tirages") == n.get("tirages")
             and len(n["seq"]) > 0)
     ok = base and (p["seq"] == n["seq"] if exact else True)
-    if not exact and base and p["seq"] != n["seq"]:
-        # Le port SOUS-TIRE, et l'ecart est ATTRIBUE (residu `#512-r1`) : c'est R0 -- le MEME
-        # montage sans le passif -- qui l'etablit en rendant le degat bit-exact des deux cotes.
-        print("     RESIDU `#512-r1` (chaine SuppressiveFire -> Pinned -> TerrifyingCrescendo) : "
-              "ecart de MONTANT %s, a cibles/crits/tirages IDENTIQUES"
+    if base and p["seq"] != n["seq"]:
+        # Ecart de MONTANT a cibles/crits/tirages identiques = un etage d'ARITHMETIQUE, jamais une
+        # divergence de structure. Sur ce cas, c'etait la chaine
+        # `SuppressiveFire -> Pinned -> TerrifyingCrescendo` (`#512-r1`) : si ce message revient avec
+        # R0 VERT, c'est elle qu'il faut regarder d'abord, pas le mirror d'`ExecuteBehaviour`.
+        print("     ECART DE MONTANT %s, a cibles/crits/tirages IDENTIQUES (R0 vert => regarder la "
+              "chaine de declencheurs du porteur, pas ExecuteBehaviour)"
               % ([nb - pb for (_t, pb), (_u, nb) in zip(p["seq"], n["seq"])],))
     if not ok:
         print("  -- sortie du cast NATIF (diagnostic) --")
