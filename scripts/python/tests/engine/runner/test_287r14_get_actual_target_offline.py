@@ -342,3 +342,38 @@ def test_etage10_valkyrie_pose_1022_sur_la_tuile_dans_les_deux_regimes(board):
                                for e in effs if int(e.effect_type) == VALK_EFFECT))
     assert porteurs[0] == porteurs[1] == [tuile], (
         f"1022 doit etre porte par la TUILE {tuile} dans les DEUX regimes, mesure {porteurs}")
+
+
+# ------------------------------------------------------------------ [11] le gate `finalTarget == null`
+
+def test_etage11_le_gate_no_actual_target_est_ATTEIGNABLE(board):
+    """`if (finalTarget == null) return 0;` -- le natif abandonne AVANT tout (ni behaviour, ni flag,
+    ni vecteur d'operation). Ce gate n'est exerce par AUCUN des 258 casts du balayage generique
+    (mesure), donc rien ne l'y garderait : ce sont ces branches-la qui derivent en silence. On
+    l'exerce explicitement -- une ability UNIT-TARGET dont la cible est une TUILE VIDE :
+    `UnitExtensions$$GetUnit(<tuile vide>)` rend `null` (le `TileContentComponent` n'est pas
+    `IsFilled`), donc le cast doit etre un NO-OP COMPLET.
+
+    ⚠ La contre-partie est l'etage [4] : quand c'est le SUBSTRAT qui manque (`board is None`), le
+    port ne rabat PAS sur ce refus. Le gate ne mord que sur une resolution qui a REELLEMENT perdu
+    une cible existante."""
+    from engine.runner.abilities.handler import AbilityHandler
+    from engine.runner.messages import ActiveAbilityMessage
+    unit_target = next(((aid, cls) for aid, cls in sorted(ABILITY_CLASSES.items())
+                        if P._categorie(cls) == "GetUnit (defaut)"), None)
+    assert unit_target is not None, "aucune ability UNIT-TARGET au registre -- etage sans objet"
+    aid, _cls = unit_target
+    from engine.runner.components import PositionComponent
+    st = P._montage_pour(aid, board)
+    occupees = {st.board.id_at(pc.col, pc.row)
+                for pc in (e.get_component(PositionComponent) for e in st.entities.values())
+                if pc is not None}
+    vide = next(t for t in sorted(st.board.by_id) if t not in occupees)
+    h = AbilityHandler(st)
+    h.visit_ActiveAbilityMessage(ActiveAbilityMessage(
+        caster_id=U_CASTER, target_id=int(vide), ability_type=int(aid)))
+    assert (h.last or {}).get("no_actual_target") is True, (
+        f"ability {aid} sur la tuile VIDE {vide} : le gate `finalTarget == null` n'a pas mordu "
+        f"(last={h.last})")
+    assert P.empreinte_etat(st) == P.empreinte_etat(P._montage_pour(aid, board)), (
+        "le gate a mordu mais l'etat a MUTE -- le natif abandonne AVANT la behaviour")

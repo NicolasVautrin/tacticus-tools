@@ -147,7 +147,7 @@ def main(argv=None) -> int:
     ap.add_argument("--rebuild", action="store_true")
     ap.add_argument("--dispose", action="store_true")
     ns = ap.parse_args(argv)
-    sid = _resolve_session(None)
+    sid = _resolve_session()
     P12.STATE = STATE                      # state-file PROPRE a ce probe (jamais celui d'un autre)
     if ns.dispose:
         if STATE.exists():
