@@ -863,7 +863,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.BloodyFury: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1129
                            force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- STATIC-COPY (16) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` ------------
+    # --- STATIC-COPY (6) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    # ⚠ Ce compteur annoncait **16** sur `origin/master` pour **7** entrees reelles (mesure #502 au
+    #   rebase) : il n'est garde par AUCUN test, donc il derive en silence a chaque migration. Il
+    #   compte les entrees EXECUTABLES du bloc -- les lignes `⚠ ... est SORTIE d'ici` sont des
+    #   TOMBES, elles ne comptent pas. Re-derive plutot que decremente.
     # ⚠ 1027 PsychicMaelstrom (preset `+0x180`) est SORTIE d'ici en #490 -- comme 1088 en #487,
     #   1069 en #491, 1048 en #489 et 1068 en #497 : sa face COMBAT est desormais portee, donc son
     #   masque vit sur la classe du registre
@@ -875,10 +879,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.FireAndReposition: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1063
                            range=RANGE_ADJACENT_IF_MELEE_CASTER,
                            force_melee_target=RANGED_BOOL_IF_RANGED_CASTER),
-    # 1064 Loki_SwoopingHawk -- `...Active.Loki.SwoopingHawkAbility$$.ctor` dont le corps ENTIER est
-    #   `return DiveAttackAbilityBase$$.ctor(this);` ; c'est la BASE qui recopie le preset `+0x40`.
-    ActiveAbilityType.Loki_SwoopingHawk: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1064
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1064 Loki_SwoopingHawk (preset `+0x40`) est SORTIE d'ici en #502, MEME migration que 1068 :
+    #   sa face COMBAT est portee (`engine/runner/abilities/aeldari.py::SwoopingHawkAbility`), donc
+    #   son masque vit sur la classe du registre. Le ctor a ete RELU a cette occasion -- il n'a
+    #   aucun corps propre (`return DiveAttackAbilityBase$$.ctor(this);`), c'est la BASE qui recopie
+    #   le preset -- et il CONCORDE champ pour champ avec ce que cette entree portait :
+    #   `*(statics+0x68) = 0x4000` = `TargetIsEnemy` SEUL, `+0x60 = 1` = `RangedBool.False`,
+    #   range = `<TargetingRange statics+0x30>` = RANGE_ADJACENT.
     # ⚠ 1068 SilentDeath (preset `+0x40`) est SORTIE d'ici en #497, MEME migration que 1069 ci-dessous :
     #   sa face COMBAT est portee (`engine/runner/abilities/aeldari.py::SilentDeathAbility`), donc son
     #   masque vit sur la classe du registre. Le ctor a ete RELU a cette occasion et il CONCORDE, champ

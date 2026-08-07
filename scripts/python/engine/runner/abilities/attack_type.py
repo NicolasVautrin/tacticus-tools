@@ -154,6 +154,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `SilentDeathAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0)`. Le litteral est `0`, et
     # il est TRANSCRIT : ni deduit de la forme de l'arbre (une CHAINE de 4 attaques), ni du profil de
     # degat (`Piercing`). (#497)
+    # Loki_SwoopingHawk (1064) : `SwoopingHawkAbility$$.ctor` n'a AUCUN corps propre
+    # (`return DiveAttackAbilityBase$$.ctor(this);`) -- le litteral est donc lu sur la BASE, dont le
+    # ctor recopie le preset statique `+0x40` puis appelle `AActiveAbility..ctor(this, &opts, 0)`.
+    # 3e argument = `0`. Il vaut pour les DEUX heritieres de la base (1064 et 1091 SlashingDive).
+    ActiveAbilityType.Loki_SwoopingHawk: AbilityAttackType.DirectTargetAttack,  # 1064 (#502)
     ActiveAbilityType.SilentDeath: AbilityAttackType.DirectTargetAttack,  # 1068
     # SeekerMissileFrequencyLock (1069, #491) : `...SeekerMissileFrequencyLockAbility$$.ctor` recopie
     # le preset statique `TargetingOptions statics+0x180` puis `AActiveAbility..ctor(this, &opts, 0)`.

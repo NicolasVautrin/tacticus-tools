@@ -350,6 +350,41 @@ class HasTrait(AbilityTrigger):
         return any(ht(u, self.trait) for u in _units_of(self.unit, ctx))
 
 
+class CanMove(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$CanMove(unit)` -> un trigger dont le predicat EST
+    `IdunBattle.Entities.UnitExtensions$$CanMove(unit)`, MIRROR du decompile :
+
+        if (unit == null)                                       return false
+        if (!IsUnit(unit))                                      return false
+        if (unit.GetBaseUnitComponent().HasTrait(0x418))         return false   # 0x418 = Stationary
+        if (unit.TryGet<MovementComponent>(out mc))              return mc.IsAllowedToMove()
+        return false
+
+    Le port tient le 3e etage (le trait `Stationary`, canal `ctx.has_trait`) et NOMME le 4e comme
+    RESIDU : `MovementComponent.IsAllowedToMove` n'est publie par AUCUN canal du runner -- meme
+    constat que le gate de caster `CasterCanMove` (`services/ability_caster_gates.py`) et que
+    `selectors/tiles.py`, qui l'ont deja rencontre. La degradation est donc **PERMISSIVE et bornee**
+    au seul etage manquant : une unite `Stationary` est correctement refusee ; une unite dont le
+    seul empechement serait un flag de mouvement runtime passerait.
+
+    ⚠ Ne PAS rabattre ce residu sur `unit_has_moved` : « a deja bouge ce tour » est un flag de TOUR
+    (`UnitFlag.Moved`), pas le predicat de ce composant, et le natif ne le consulte pas ici. Ecrire
+    un gate voisin a la place du bon serait pire que l'absence.
+
+    CONSOMMATEUR PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase$$
+    GetMovementBehavior`, qui garde son `MoveUnit` final par `If(CanMove(Caster), ...)`."""
+    def __init__(self, unit: AbilityTrigger):
+        self.unit = unit
+
+    def should_trigger(self, ctx):
+        ht = ctx.has_trait or (lambda u, t: False)
+        units = _units_of(self.unit, ctx)
+        if not units:
+            return False                                  # `unit == null` -> false
+        # `HasTrait(0x418)` -> false. L'etage `IsAllowedToMove` reste un RESIDU (cf. docstring).
+        return not any(ht(u, int(UnitTrait.Stationary)) for u in units)
+
+
 class HasTakenDamageOfDamageProfileThisTurn(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLTriggers$$HasTakenDamageOfDamageProfileThisTurn(unit,
     damageProfile)` -> `IdunBattle.Entities.Triggers.HasTakenDamageOfDamageProfileThisTurnTrigger$$

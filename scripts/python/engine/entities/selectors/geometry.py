@@ -328,6 +328,33 @@ class PickFirstN(TargetsSelector):
         return list(self.source.evaluate(ctx))[:n]
 
 
+class AtIndex(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$AtIndex(entities, index)` ->
+    `IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select` : l'element a `index` de la source
+    (ordre TEL QUEL), `[]` si hors borne. Retour list de 0/1 element (PAS un element nu).
+
+    ⚠ Le `.ctor` alloue par la factory porte dans Ghidra le nom
+    `IdunBattle.Entities.Selectors.WalkableTilesSelector$$.ctor` : corps DEDUPLIQUE (meme signature
+    `(state, source, int)`), pas l'identite de la classe -- on cite donc la FACTORY.
+
+    ⚠ MEME SELECTEUR NATIF que `selectors.units.First`, atteint par une AUTRE factory
+    (`DSLFactory$$First(source[, index])`). Les deux coexistent volontairement cote port : chacune
+    nomme la factory que SON call-site ecrit. Et c'est le voisin homonyme qu'il faut se garder de
+    confondre : `DSLSelectors$$First(source, amount, ignoreForcedTargets)` -- une factory DISTINCTE
+    -- boxe son `amount` en `DirectAmount` et construit un `PickFirstNSelector` (les `amount`
+    PREMIERS elements) ; c'est `PickFirstN` ci-dessus, pas ce noeud.
+
+    CONSOMMATEUR PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase$$
+    ExecuteBehaviour`, qui deroule sa vague sur les 3 tuiles de la ligne par `AtIndex(tiles, i)`
+    et `AtIndex(tiles, i + 1)` (le maillon SUIVANT, pour decider du `FinishAttack`)."""
+    def __init__(self, source: TargetsSelector, index: int = 0):
+        self.source, self.index = source, int(index)
+
+    def select(self, ctx):
+        lst = list(self.source.evaluate(ctx))
+        return [lst[self.index]] if 0 <= self.index < len(lst) else []
+
+
 class PickRandomly(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(entities, amount, allowDuplicates,
     maxDuplicatesAllowed, ignoreForcedTargets)` -> `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select`.
@@ -624,6 +651,25 @@ class SelectIf(TargetsSelector):
         if self.cond.evaluate(ctx):
             return self.selector_true.evaluate(ctx)
         return [] if self.selector_false is None else self.selector_false.evaluate(ctx)
+
+
+class ConditionalSelector(SelectIf):
+    """`IdunBattleLogic.Entities.DSLSelectors$$ConditionalSelector(abilityTrigger, selectorTrue,
+    selectorFalse)` -- QUATRIEME porte du `If` selecteur, et **la MEME classe native** que
+    `DSLSelectors$$If` (cf. `SelectIf` ci-dessus) : les deux factories sont a des adresses
+    DISTINCTES mais allouent le meme singleton (`DAT_18335bd70`), avec le meme
+    `...UnobscuredEntitiesSelector$$.ctor(state, trigger, selTrue, selFalse)` et le meme ordre
+    d'arguments -- LU aux deux decompiles. La semantique est donc celle de `SelectIf`, dont on
+    herite : evalue le predicat puis DELEGUE a UNE seule branche (l'autre n'est jamais evaluee).
+
+    Ce point compte pour le RNG : au seul call-site porte
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase$$GetMovementBehavior`),
+    la branche FAUSSE contient un `Randomize(CanAddUnit(AllTiles))` -- une permutation aleatoire
+    COMPLETE du plateau, donc `len(pool)` tirages. Elle n'est tiree QUE si la tuile d'atterrissage
+    directe est occupee ; evaluer les deux branches desalignerait tout le flux RNG en aval.
+
+    La classe existe pour que le port CITE la factory que son call-site ecrit -- meme raison que
+    `AtIndex` vs `units.First`."""
 
 
 class Null(TargetsSelector):

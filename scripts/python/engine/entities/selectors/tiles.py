@@ -346,6 +346,49 @@ class CanAddUnit(TargetsSelector):
         return [t for t in self.source.evaluate(ctx) if t not in occ and board.walkable(t)]
 
 
+class TileBehindTargetFromSourceDirection(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$TileBehindTargetFromSourceDirection(target, source)`
+    -> `IdunBattle.Entities.Selectors.TileBehindTargetFromSourceDirectionSelector$$Select` : LA tuile
+    adjacente a `target`, un pas AU-DELA dans la direction `source -> target`. Retour domaine ID
+    (0 ou 1 element), pour composer avec `CanAddUnit` -- son consommateur immediat au seul call-site
+    porte.
+
+    Le `Select` natif resout ses deux sous-selecteurs puis delegue INTEGRALEMENT a
+    `IdunBattle.Core.Services.BattleQuery$$GetTileBehindTargetFromSourceDirection(source, target)` ;
+    la geometrie (et le `DirectionTo` qui la porte) vit donc dans le mirror UNIQUE
+    `engine.battle_query.get_tile_behind_target_from_source_direction`, ce noeud n'en est que
+    l'adaptateur tile-id.
+
+    ⚠ ORDRE DES ARGUMENTS -- tranche au ctor, jamais au nom de la factory : le ctor
+    `...TileBehindTargetFromSourceDirectionSelector$$.ctor(this, state, query, targetTileSelector,
+    sourceTileSelector)` ecrit `+0x18 = sourceTileSelector` et `+0x20 = targetTileSelector`, et
+    `Select` appelle `query.<slot 0x59>(Select(+0x18), Select(+0x20))` = `(source, target)`. La
+    factory, elle, prend `(target, source)` -- les deux ordres sont INVERSES l'un de l'autre, et ce
+    noeud expose celui de la FACTORY (le seul qu'un call-site ecrit).
+
+    AUCUN gate ici (ni walkable, ni occupation) : le natif rend la tuile telle quelle. Au call-site
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase$$GetMovementBehavior`,
+    c'est le `CanAddUnit(...)` englobant qui filtre -- et c'est ce qui rend la branche de repli
+    (`ConditionalSelector`) atteignable quand la tuile d'atterrissage est occupee.
+
+    `source`/`target` normalises par `_tile_positions` (unite / id de tuile / position), comme
+    `TilesBehindInLine`. board None -> []."""
+    def __init__(self, target: TargetsSelector, source: TargetsSelector):
+        self.target, self.source = target, source
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        src = _tile_positions(self.source, ctx, board)
+        dst = _tile_positions(self.target, ctx, board)
+        if not src or not dst:
+            return []
+        positions = battle_query.get_tile_behind_target_from_source_direction(
+            src[0], dst[0], tile_exists=lambda p: board.id_at(p[0], p[1]) is not None)
+        return [t for t in (board.id_at(p[0], p[1]) for p in positions) if t is not None]
+
+
 class TileIntersect(TargetsSelector):
     """Intersection de deux ensembles de TUILES (ids) — `op_BitwiseAnd` du domaine tile
     (`CombinedSelector`). Garde les tuiles de `left` presentes dans `right` (ordre de `left`,

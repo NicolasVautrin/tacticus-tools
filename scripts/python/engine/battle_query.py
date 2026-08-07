@@ -668,6 +668,71 @@ def get_tiles_behind(frm: tuple, to: tuple, max_count: int | None = None,
     return out
 
 
+def direction_to(frm: tuple, to: tuple) -> tuple:
+    """`IdunBattle.Utils.Hex.CubeCoordinate$$DirectionTo(toPositionCube)` -- MIRROR du decompile,
+    en domaine POSITION (odd-q), retour en CUBE `(x, y, z)`.
+
+    Corps natif (convention x64 : `RCX` = buffer de retour, `RDX` = `this`, `R8` = l'argument --
+    Ghidra decale d'un cran et nomme `RDX` `toPositionCube`, d'ou la lecture par les registres) :
+
+        c0 = Max(Min(to.x - this.x, 1), -1)
+        c1 = Max(Min(to.y - this.y, 1), -1)
+        c2 = Max(Min(to.z - this.z, 1), -1)
+        return (-c0, -c1, -c2)                       # soit clamp(this - to, -1, 1)
+
+    Donc **`a.DirectionTo(b) == clamp(a - b, -1, +1)`**, composante par composante : un pas
+    UNITAIRE pointant de `b` VERS `a`. Le sens est contre-intuitif et c'est ce que confirme le seul
+    autre consommateur porte, `get_tiles_behind` : il pose `dir = DirectionTo(cube(from), cube(to))`
+    puis avance par `next = cur - dir` en partant de `cur = from`, et sa 1re tuile rendue EST `to`
+    -- ce qui n'est vrai que si `dir` pointe de `to` vers `from`.
+
+    ⚠ Le clamp est INDEPENDANT par composante : sur un delta non aligne, la somme des trois
+    composantes du resultat n'est pas forcement nulle (donc ce n'est pas toujours un vecteur cube
+    canonique). C'est le comportement NATIF, transcrit tel quel -- ne pas le "corriger"."""
+    fx, fy, fz = hexgeo.to_cube(frm[0], frm[1])
+    tx, ty, tz = hexgeo.to_cube(to[0], to[1])
+    clamp = lambda v: max(min(v, 1), -1)                       # noqa: E731 -- Max(Min(v,1),-1) natif
+    return (clamp(fx - tx), clamp(fy - ty), clamp(fz - tz))
+
+
+def get_tile_behind_target_from_source_direction(source: tuple, target: tuple,
+                                                 tile_exists=None) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetTileBehindTargetFromSourceDirection(sourceTile,
+    targetTile)` en domaine POSITION -- MIRROR du decompile :
+
+        a = GetMainTile(sourceTile) ; b = GetMainTile(targetTile)
+        if (a == b)                       return new List<TileEntity>()     # meme tuile -> VIDE
+        dir  = cube(a).DirectionTo(cube(b))            # = clamp(cube(a) - cube(b), -1, +1)
+        res  = cube(b) - dir                           # = cube(b) + clamp(cube(b) - cube(a), -1, +1)
+        tile = state.GetTileAt(res.ToAxialCoordinate())
+        return tile != null ? tile.ToList() : new List<TileEntity>()
+
+    En clair : **la tuile adjacente a la CIBLE, dans la direction source -> cible** -- « un pas
+    au-dela de la cible ». C'est ce que la fiche i2 de `Loki_SwoopingHawk` decrit par « Lands in
+    the hex directly behind the last target hit ».
+
+    L'ORDRE DES ARGUMENTS a ete tranche au ctor, pas au nom : `TileBehindTargetFromSourceDirection
+    Selector$$.ctor(this, state, query, targetTileSelector, sourceTileSelector)` ecrit
+    `+0x18 = sourceTileSelector` et `+0x20 = targetTileSelector`, et
+    `...Selector$$Select` appelle `query.<slot 0x59>(Select(+0x18), Select(+0x20))` -- donc bien
+    `(source, target)`, dans cet ordre. Les inverser rendrait la tuile situee DEVANT la cible
+    (entre elle et le caster), ce qui est directement observable en live.
+
+    AUCUN gate de walkabilite / d'occupation ici : le natif rend la tuile telle quelle, et c'est
+    le `CanAddUnit(...)` du call-site (`DiveAttackAbilityBase$$GetMovementBehavior`) qui filtre.
+    `tile_exists(pos) -> bool` mirrore `GetTileAt(res) == null -> liste vide` (bord du plateau)."""
+    if source is None or target is None:
+        return []
+    if (source[0], source[1]) == (target[0], target[1]):        # `a == b` -> List vide
+        return []
+    dx, dy, dz = direction_to(source, target)
+    bx, by, bz = hexgeo.to_cube(target[0], target[1])
+    p = hexgeo.from_cube(bx - dx, bz - dz)                      # `res = cube(b) - dir`
+    if tile_exists is not None and not tile_exists(p):
+        return []                                              # `GetTileAt == null`
+    return [p]
+
+
 def _sgn(v: int) -> int:
     """`x / abs(x)` du decompile (division ENTIERE C, jamais atteinte avec x == 0 : les trois
     branches `composante nulle` sont traitees AVANT)."""
