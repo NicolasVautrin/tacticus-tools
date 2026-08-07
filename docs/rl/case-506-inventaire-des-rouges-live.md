@@ -428,6 +428,32 @@ stat globale (comme #419-r6) en cree une fournee d'un coup.
   28 -> {4, 5} et 26 -> {1, 2, 25, 30}, `deathBlightbringer` 25 -> {12, 18} et 19 -> {3, 13, 18,
   21}), et elle montre qu'un pas epingle est structurellement fragile.
 
+  > **TRAITE le 2026-08-08.** Le remede retenu est celui que ce paragraphe designait : le montage
+  > **CHERCHE** son pas au lieu de l'epingler. `build_sweep_order_case` prend desormais un
+  > `carrier` (pre-filtre leger : le `visualId` que le pas doit activer) et un `accept(case)` (le
+  > predicat sur le case complet), et avance d'un chunk NATIF entre deux essais. **Echec NOMME,
+  > jamais un skip** : fenetre epuisee -> `AssertionError` qui liste les pas essayes et le motif
+  > de chacun.
+  >
+  > Trois choses mesurees en chemin, toutes contre-intuitives :
+  >
+  > 1. **le regime de TIE est vivant, mais plus aucun couple de `C4_09` n'y DISCRIMINE.**
+  >    `probe_506r1_balayage_ties.py` (versionne) : `C4_09`/{999,4242} pas 8..30 rend **7 ties**
+  >    de >= 2 tuiles et **`divergent=False` sur 7/7** ; `MC1_67`/{777,31337} pas 6..28 en rend
+  >    **6 dont 3 DIVERGENTS** (777 pas 12 et 21, 31337 pas 18). Le montage discriminant a donc
+  >    change de BOARD, il n'a pas disparu -- et le supposer disparu aurait fait renoncer ;
+  > 2. **un pas sans unite activee ne doit pas ETEINDRE la recherche.** Le `pytest.skip` interne
+  >    de `_case_at` l'interrompait : premiere mesure apres reparation, **0 passed / 6 skipped**.
+  >    Il ne vaut plus qu'en regime EPINGLE (`strict`) ; en recherche le pas est ECARTE ;
+  > 3. **le critere doit porter TOUTES les premisses que les assertions supposent.** Chercher le
+  >    seul couple (porteur, ability) laissait tomber les gardes sur `assert c.best is not None` :
+  >    au pas 18 de `C4_09`/31337, `admecMarshall` est bien active avec sa relique mais fait un
+  >    MOUVEMENT PUR. Le predicat exige donc aussi `best is not None`.
+  >
+  > Bilan : `test_move_tile_sweep_order_live` **5 passed / 1 skipped** (le skip est celui, NOMME,
+  > du couple non discriminant, conforme a son en-tete d'origine) et
+  > `test_tile_term_triggered_playbooks_live` **8 passed** sur ses deux couples `AstartesBanner`.
+
 * **`#506-r2` -- le MEME vice, un site plus loin, NON MESURE.**
   `engine/playbook/prediction/normal_attack.py` porte un second
   `ProbableDamageEvent(target=tgt_id, prediction=DamagePredictionResult())` : la branche du chemin
@@ -436,6 +462,35 @@ stat globale (comme #419-r6) en cree une fournee d'un coup.
   (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PredictAttack`),
   que je n'ai pas lu. Le reparer par analogie serait speculatif. A instruire : lire la branche
   « aucune tuile » de ce corps, et dire si elle appelle elle aussi la facade contre la vraie cible.
+
+  > **FERME le 2026-08-08 -- LE PORT EST CONFORME, et la prudence de ce paragraphe etait justifiee.**
+  > La branche a ete lue verbatim sur `rnca9r7q6c` :
+  >
+  >     tile = <PickTile>(...);
+  >     if (tile == null) {
+  >         memset(&result, 0, 0xa0);           // la structure ENTIERE, PV compris
+  >         result.<+0x38> = new List<...>();   // seule ecriture non nulle : la liste de blocks
+  >     }
+  >     else { ... }
+  >     *this = result;                          // copie 0xa0 octets
+  >
+  > **Les deux corps natifs sont DIFFERENTS ; seule leur silhouette Python se ressemblait.** La
+  > branche SANS ARME d'`ALoki_NormalAttackAbility` n'invente aucune structure (elle appelle le
+  > slot `0x26` d'`IBattleQuery` contre la VRAIE cible) -- c'etait le bug de §3.4. **Celle-ci fait
+  > bien le `memset`** : `ProbableDamageEvent(prediction=DamagePredictionResult())` est le mirror
+  > EXACT, et « reparer par analogie » y aurait introduit une divergence la ou il n'y en avait
+  > aucune. **Aucun correctif n'est livre**, et c'est le resultat.
+  >
+  > Garde posee pour que ce verdict ne se reperde pas :
+  > `tests/engine/runner/test_mv71_sniper_drone_live.py::test_506r2_*` (offline, aucun runner) --
+  > elle exige la structure a ZERO et la formule native `min >= PV` vraie.
+  >
+  > ⚠ **Une observation en marge, ORTHOGONALE mais qui touche une citation de §3.4** : le port
+  > rend `will_be_kill() == False` sur cette prediction, par un gate **PORT-SIDE** `hp > 0` pose
+  > par #344-r2 et documente a son foyer (`engine/services/damage_prediction.py` : « le natif est
+  > toujours appele avec une cible vivante, et lui rendrait `true` a `hp == 0` »). §3.4 ecrivait
+  > « `0 >= 0` = VRAI » ; c'est vrai de la FORMULE NATIVE, pas de ce que le lecteur porte rend.
+  > Les deux faits sont figes separement par la garde.
 
 * ~~**DEUX assertions de `test_419r1tr14r5r2r1r1r1_normal_attack_kill_gate_live.py` attendent un
   ARBITRAGE**~~ (§3.4) -- **FERME le 2026-08-07** avec `#506-r3` : la premisse `reached` que le

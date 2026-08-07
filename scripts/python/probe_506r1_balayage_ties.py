@@ -46,6 +46,8 @@ def main() -> int:
     ap.add_argument("--seeds", default="999,4242,777,31337")
     ap.add_argument("--steps", default="8,32", help="pas MIN,MAX (inclus)")
     ap.add_argument("--extra", default="")
+    ap.add_argument("--carrier", default="",
+                    help="ne rapporter que ce visualId, et imprimer son kit declenche + `best`")
     a = ap.parse_args()
     lo, hi = (int(x) for x in a.steps.split(","))
 
@@ -89,6 +91,14 @@ def main() -> int:
                 c = _case_at(rpc, rid, step, dry, uid, strict=False)
                 if c is None:
                     print("[%s] pas %2d : (aucune unite activee lisible)" % (seed, step))
+                elif a.carrier:
+                    if c.visual_id == a.carrier:
+                        from engine.utilities.tile import tile_leaf_ctx
+                        kit = tile_leaf_ctx(c.ctx).get("unit_triggered_abilities") or []
+                        print("[%s] pas %2d : %-22s best=%-5s kit=%r"
+                              % (seed, step, c.visual_id, c.best is not None, list(kit)))
+                        if c.best is not None:
+                            trouves.append((seed, step, c.visual_id, len(c.tie_tiles), True))
                 else:
                     tied = set(c.tie_tiles)
                     by_a = [t for t in c.action_tiles if t in tied]

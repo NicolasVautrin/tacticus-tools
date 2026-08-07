@@ -303,6 +303,38 @@ positif** ≤ 25 sur un état où la proposition native est un mouvement PUR. Vo
 
 ### 7.5 — la RE des DEUX faces restantes est FAITE (2026-08-07) ; le port ne l'est pas
 
+> **LA FACE ATTACK EST LIVRÉE ET CONFRONTÉE (2026-08-08).** Foyer :
+> `engine/playbook/non_owner_attack.py` (neuf) + `TriggeredAbilitiesNonOwnerUtility.
+> evaluate_attack_in_steps` + le câblage dans les DEUX foyers qui somment `Damage(35)`
+> (`playbook/base.py`, `playbook/excruciating_frequencies.py`). Les deux corps non bloqués sont
+> portés ; `ShieldOfFaith` reste `capteur` et la face REPAIR ouvre **`#271-r7`**.
+> Ce qui a été RELU (et non hérité de ce §7.5) : les deux `MoveNext` de dispatch,
+> `<IterateAbilities>d__4`, les deux corps concrets et leurs `.ctor`. Tout concorde.
+> **Clés BC LUES** (`probe_212_bc_key_literals.py` sur le symbole du `MoveNext`, jamais devinées) :
+> `NoHidingFromTheWatchers_AttackIfAdjacentToFriendAndMele` = **10** (le `Mele` tronqué est celui
+> du binaire) et `WayOfTheShortBlade_TauAdjacentToEnemy` = **5**.
+>
+> **CONFRONTATION LIVE — `probe_271r4_face_attack_live.py`**, deux bras, board `MC1_67`/777.
+> Les porteurs natifs de 1523 sont un SUMMON et un npc, et le summon n'a **aucun invocateur
+> dérivable** (`darkaSmnWatcher` n'apparaît dans AUCUNE constante d'ability — 1 occurrence dans
+> tout le gameconfig, sa propre entrée d'unité) ⇒ recours 3 de `case-92` §5bis, la **GREFFE**,
+> licite ici parce que le corps ne lit du porteur QUE sa position et son identité (vérifié au
+> décompilé, aucune stat, aucun trait) :
+>
+> | bras | porteur greffé | ami du caster ? | terme ON | terme OFF |
+> |---|---|---|---:|---:|
+> | `nohiding` | `worldKharn` (camp adverse) | non | **10.0** | 0.0 |
+> | `nohiding-gate` | `ultraApothecary` (même camp) | oui | **0.0** | 0.0 |
+>
+> Le bras nominal prouve les DEUX choses à la fois : le pré-gate `<slot 4> = true` yielde bien un
+> porteur **ENNEMI** (sans lui, la branche serait structurellement inatteignable — le bug de
+> #477-r35), et le corps rend la clé BC. Le contrôle prouve que le gate `IsFriend` du corps coupe.
+>
+> **NON COUVERT — `#271-r8`** : la confrontation d'**ARGMAX natif**. Faire basculer le choix du
+> jeu exige un état où 10 dépasse l'écart entre les deux meilleures paires, et le composite
+> `Damage(35)` est dominé par `DamageDealt` ~[0,100] et `KillUnit` ~[0,100]. Ce qui est mesuré est
+> « le terme MORD et DÉPLACE l'utilité de 10 », pas « le natif suit ».
+
 Ce §7.5 fixe ce qui a été LU, pour qu'une reprise n'ait plus à le refaire. **Aucun code n'est
 livré** : les deux faces exigent un dispatcher neuf, un registre par face et un câblage dans
 `utilities/damage.py` / `utilities/repair.py`, et un port non confronté serait spéculatif.

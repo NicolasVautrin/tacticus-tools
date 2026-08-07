@@ -66,13 +66,22 @@ def tile_term_case(request, rpc, build_runner):
     board, seed, step, search, _vid, _ab, extra = request.param
 
     def _porte_l_ability(c):
-        """Le pas ne convient que si le KIT DECLENCHE du porteur remonte bien l'ability visee.
+        """Le pas ne convient que s'il installe les DEUX premisses que les assertions supposent :
 
-        C'est la MEME lecture que `test_kit_source_carries_the_triggered_ability` -- le montage
-        n'anticipe donc aucune assertion, il installe la premisse qu'elles supposent. Decisif pour
-        1457 `KardiocoreGalvanus`, une RELIQUE : seul le `TriggeredAbilityComponent` lu live la
-        remonte, jamais `gameconfig.passiveAbilities`."""
+          * le KIT DECLENCHE du porteur remonte bien l'ability visee -- MEME lecture que
+            `test_kit_source_carries_the_triggered_ability`, decisive pour 1457
+            `KardiocoreGalvanus` (une RELIQUE : seul le `TriggeredAbilityComponent` lu live la
+            remonte, jamais `gameconfig.passiveAbilities`) ;
+          * le pas porte une action d'ATTAQUE (`_best_attack` rend quelque chose). Les trois
+            assertions de tie/agreement ouvrent toutes sur `assert c.best is not None` : un pas de
+            MOUVEMENT PUR n'a aucune paire (ability, cible) a departager. Mesure : sur
+            `C4_09`/31337 le premier pas d'`admecMarshall` trouve (18) est un mouvement pur, et
+            les deux gardes y tombaient sur leur propre premisse.
+
+        Le montage n'anticipe donc AUCUNE assertion -- il installe ce qu'elles exigent."""
         from engine.utilities.tile import tile_leaf_ctx
+        if c.best is None:
+            return False
         return _ab in (tile_leaf_ctx(c.ctx).get("unit_triggered_abilities") or [])
 
     c = build_sweep_order_case(rpc, build_runner, seed=seed, board=board, step=step, extra=extra,
