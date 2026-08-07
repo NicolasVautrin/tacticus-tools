@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **59** ; kits avec du travail : **68**
-- Volume total : **83** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **82** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -40,11 +40,11 @@
 | Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
 | ThousandSons | 3 | 5 |
-| AstraMilitarum | 3 | 4 |
 | BlackTemplars | 4 | 4 |
 | AdeptusAstartes | 2 | 3 |
 | AdeptusMechanicus | 3 | 3 |
 | Aeldari | 3 | 3 |
+| AstraMilitarum | 3 | 3 |
 | BlackLegion | 3 | 3 |
 | Orks | 2 | 3 |
 | Tyranids | 3 | 3 |
@@ -77,11 +77,11 @@
 | eldarLhykhis | 1 | EmpyricAmbush(1232) [C-] OK | WhisperingWeb | - |
 | eldarRanger | 1 | FireAndReposition(1063) [--] NO-OP EFFECT/BUFF | - | - |
 
-### AstraMilitarum — 3 kits, 4 items
+### AstraMilitarum — 3 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| astraDreir | 2 | LeadingTheCharge(1204) [--] NO-OP DAMAGE(Power) | ToughToKill | - |
+| astraDreir | 1 | LeadingTheCharge(1204) [C-] OK | ToughToKill | - |
 | astraOrdnance | 1 | BasiliskBarrage(1026) [C-] OK | - | IndirectFire(x9) |
 | astraYarrick | 1 | SendInTheNextWave(1016) [CD] OK | SummaryExecution | - |
 

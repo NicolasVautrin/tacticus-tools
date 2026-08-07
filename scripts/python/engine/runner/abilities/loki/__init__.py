@@ -41,6 +41,13 @@ from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeec
                      black_rage_possible_movement_tiles_selector, _black_rage_charge_tile,
                      _black_rage_move_range, cord_claw_tree)
 from .imperative import DoctrinaImperativesAbility
+from .leading_the_charge import (LeadingTheChargeAbility, leading_the_charge_attack_tree,
+                                 leading_the_charge_cleanup_tree,
+                                 leading_the_charge_defeated_friends_count,
+                                 leading_the_charge_extra_pierce_ratio,
+                                 leading_the_charge_head_tree, leading_the_charge_move_tile,
+                                 leading_the_charge_possible_move_tiles_selector,
+                                 leading_the_charge_spawn_tree, leading_the_charge_summon_tiles)
 from .momentum import UnstoppableMomentumReworkedAbility, momentum_charge_line
 from .mv71 import MV71SniperDroneSquadAttackAbility
 from .wall_of_mirrors import (WallOfMirrorsAbility, wall_of_mirrors_possible_tiles,
@@ -82,6 +89,12 @@ __all__ = [
     "_black_rage_move_range", "cord_claw_tree",
     # imperative
     "DoctrinaImperativesAbility",
+    # leading_the_charge (LeadingTheCharge 1204, #508)
+    "LeadingTheChargeAbility", "leading_the_charge_attack_tree",
+    "leading_the_charge_cleanup_tree", "leading_the_charge_defeated_friends_count",
+    "leading_the_charge_extra_pierce_ratio", "leading_the_charge_head_tree",
+    "leading_the_charge_move_tile", "leading_the_charge_possible_move_tiles_selector",
+    "leading_the_charge_spawn_tree", "leading_the_charge_summon_tiles",
     # momentum (UnstoppableMomentumReworked 1152, #498)
     "UnstoppableMomentumReworkedAbility", "momentum_charge_line",
     # mv71
