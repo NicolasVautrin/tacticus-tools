@@ -41,6 +41,7 @@ from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeec
                      black_rage_possible_movement_tiles_selector, _black_rage_charge_tile,
                      _black_rage_move_range, cord_claw_tree)
 from .imperative import DoctrinaImperativesAbility
+from .momentum import UnstoppableMomentumReworkedAbility, momentum_charge_line
 from .mv71 import MV71SniperDroneSquadAttackAbility
 from .wall_of_mirrors import (WallOfMirrorsAbility, wall_of_mirrors_possible_tiles,
                               wall_of_mirrors_range, wall_of_mirrors_tree)
@@ -76,6 +77,8 @@ __all__ = [
     "_black_rage_move_range", "cord_claw_tree",
     # imperative
     "DoctrinaImperativesAbility",
+    # momentum (UnstoppableMomentumReworked 1152, #498)
+    "UnstoppableMomentumReworkedAbility", "momentum_charge_line",
     # mv71
     "MV71SniperDroneSquadAttackAbility",
     # wall_of_mirrors (WallOfMirrors 1186, #433-r4-r1-r1)

@@ -694,6 +694,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # etait deja lu (il vivait dans `engine.services.ability_range.TARGETING_RANGE_BY_ABILITY`, que
     # cette tranche SUPPRIME : une ability n'a qu'UNE source d'options, jamais deux).
     #
+    # ⚠ **32 = le PERIMETRE MESURE, pas le compte d'entrees ici**, et l'ecart ne fait que croitre :
+    # chaque fois qu'une des 32 voit sa face COMBAT portee, le contrat de disjonction la fait SORTIR
+    # de cette table. Depuis #498, `1152 UnstoppableMomentumReworked` est passee a `ABILITY_CLASSES`
+    # -> **31 entrees ici**, et le sous-total « surcharge A » ci-dessous vaut **13 ecrites pour 14
+    # lues**. Les comptes des trois autres surcharges (5 / 1 / 12) sont inchanges. Re-deriver, ne
+    # jamais citer ces chiffres.
+    #
     # COMMENT LA SURCHARGE A ETE TRANCHEE -- par les XREFS ENTRANTES, jamais a l'oeil. Ghidra rend le
     # meme nom decompile (`TargetingOptions___ctor`) pour les trois surcharges de
     # `IdunBattle.Core.Services.TargetingOptions$$.ctor` ; ce qui les separe est leur ADRESSE, et donc
@@ -730,7 +737,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # BIT 43 `AllowUnwalkableTargetTile` : **0 porteur sur 32**. Le terme de walkability
     # (`engine.services.targeting_query.tile_removed_by_walkability`) mord donc pour les 32.
 
-    # --- surcharge A, FLAGS DIRECTS (14) : le litteral du ctor EST le masque -------------------
+    # --- surcharge A, FLAGS DIRECTS (14 lues, 13 ecrites ici) : le litteral du ctor EST le masque -
     # 1005 AdaptiveStrategy -- `...Active.Loki.AdaptiveStrategyAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x402, 0, 0)`.
     ActiveAbilityType.AdaptiveStrategy: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly,  # 1005
@@ -776,12 +783,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x4000, 0, 0)`.
     ActiveAbilityType.OverwhelmingWrath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=True, range=RANGE_ADJACENT,  # 1141
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1152 UnstoppableMomentumReworked -- `...Active.Loki.UnstoppableMomentumReworkedAbility$$.ctor` :
-    #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x10120040, 0, 0)`.
-    ActiveAbilityType.UnstoppableMomentumReworked: TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileIsFreeOrEnemy | TR.AllowSteppableUnit  # 1152
-                                 | TR.CasterCanMove,
-                           self_cast=False, range=RANGE_ADJACENT,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # 1152 UnstoppableMomentumReworked : MIGRE vers `ABILITY_CLASSES` (#498) -- sa face COMBAT est
+    #   desormais portee (`abilities/loki/momentum.py::UnstoppableMomentumReworkedAbility.
+    #   TARGETING_OPTIONS`), donc le CONTRAT DE DISJONCTION impose de retirer sa ligne d'ici. Le
+    #   masque a ete RE-LU au decompile avant migration et est bit-identique a celui qui vivait ici
+    #   (`.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x10120040, 0, 0)`).
     # 1164 MindControl -- `...Active.Loki.MindControlAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x18>, 1, 0x4002, 0, 0)`.
     ActiveAbilityType.MindControl: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1164
