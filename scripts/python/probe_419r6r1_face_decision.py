@@ -60,6 +60,15 @@ from engine.services.damage_prediction import attacker_could_crit      # noqa: E
 from engine.entities.effects.magnitude import ability_var      # noqa: E402
 
 
+#: #494-r1 -- GEOMETRIE PLATE de `MC1_67`, MESUREE par `tileMeta` le 2026-08-07 : le caster et les
+#: quatre cibles y sont TOUS a l'elevation 3, donc `…$$CalculateElevationBonusModifier` (« +% si
+#: l'attaquant est plus HAUT que la cible ») ne joue nulle part et la cle de tri redevient purement
+#: fonction des PV -- ce que ce montage doit mesurer. `cibles[0]` est a distance 1 du caster (les
+#: trois autres a 2), donc c'est elle que le natif prend comme cible du MESSAGE.
+GEO_PLATE = {"board": "MC1_67", "caster": (3, 3),
+             "cibles": [(3, 4), (1, 4), (2, 4), (5, 4)]}
+
+
 def owner_might_crit(state, owner_id) -> bool:
     """`CouldCrit(owner)` -- le flag que le natif POSERAIT sur la prediction du selecteur.
 
@@ -304,6 +313,13 @@ def etage_live(regime: dict, a_units: str, regime_items: str, seed: str, board: 
     argv = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
             "--roster", "1", "--p-units", CASTER, "--a-units", a_units,
             "--state-file", str(state_file)]
+    # #494-r1 : geometrie PLATE POSEE au build (cf. le bloc de commentaire de `etage_live`).
+    # L'ordre des `--a-place` suit celui des `--a-units`, donc `noms[0]` = cible du MESSAGE (la
+    # plus proche du caster) et `noms[1:]` = les roles A / B / C, dans l'ordre des `--unit-stat`.
+    if board == GEO_PLATE["board"]:
+        argv += ["--place", "%s:%d,%d" % (CASTER, GEO_PLATE["caster"][0], GEO_PLATE["caster"][1])]
+        for nom, pos in zip(noms, GEO_PLATE["cibles"]):
+            argv += ["--a-place", "%s:%d,%d" % (nom, pos[0], pos[1])]
     if regime_items == "0":
         argv.append("--no-bis-items")
     if crit:
@@ -324,16 +340,35 @@ def etage_live(regime: dict, a_units: str, regime_items: str, seed: str, board: 
         if caster is None:
             return {"error": "caster %s absent du runner" % CASTER}
         enemies = [u for u in units if u.get("id") != caster["id"]]
-        geo = PA.pick_geometry(board_o, "db-4", set())
-        if geo is None:
-            return {"error": "aucune geometrie candidate (hub 6-voisins) sur " + board}
-        wanted = [(enemies[0]["id"], geo["target"])]
-        for i, pos in enumerate(geo["extra"]):
-            if i + 1 < len(enemies):
-                wanted.append((enemies[i + 1]["id"], pos))
-        wanted.append((caster["id"], geo["caster"]))
-        for uid, dest in wanted:
-            PA.drive_to(live, board_o, uid, dest)
+        # #494-r1 -- GEOMETRIE SANS BONUS D'ELEVATION, obligatoire ici, et PLACEE et non DRIVEE.
+        #
+        # Ce montage mesure le flag `MightCrit`, qui ne mord que dans la fenetre « letal MAIS sous
+        # le seuil d'overkill ». Depuis #494-r1 la cle de tri porte sa part POSITIONNELLE : une
+        # cible plus BASSE que le caster voit sa plage predite multipliee par
+        # `1 + ElevationBonus/100`, ce qui la fait SORTIR de la fenetre. Mesure : sur les 1870
+        # regimes de PV qui rendent le montage discriminant a plat, **0** survit des qu'une des
+        # trois cibles classantes recoit le bonus. Il FAUT donc une geometrie plate.
+        #
+        # `PA.pick_geometry` ne peut pas la fournir : elle cherche un HUB A 6 VOISINS, et sur les
+        # boards du depot aucun n'a ses trois cibles classantes a une elevation >= celle du caster.
+        # Une geometrie plate existe pourtant (`GEO_PLATE` ci-dessous, mesuree par `tileMeta` sur
+        # `MC1_67` : tout le monde a l'elevation 3) -- elle n'est simplement pas un hub. On la POSE
+        # donc au build (`--place` / `--a-place`), ce qui supprime au passage tout le drive et sa
+        # part de contingence.
+        if board == GEO_PLATE["board"]:
+            geo = {"target": GEO_PLATE["cibles"][0], "extra": list(GEO_PLATE["cibles"][1:]),
+                   "caster": GEO_PLATE["caster"]}
+        else:
+            geo = PA.pick_geometry(board_o, "db-4", set(), sans_bonus_elevation=True)
+            if geo is None:
+                return {"error": "aucune geometrie SANS bonus d'elevation sur " + board}
+            wanted = [(enemies[0]["id"], geo["target"])]
+            for i, pos in enumerate(geo["extra"]):
+                if i + 1 < len(enemies):
+                    wanted.append((enemies[i + 1]["id"], pos))
+            wanted.append((caster["id"], geo["caster"]))
+            for uid, dest in wanted:
+                PA.drive_to(live, board_o, uid, dest)
         for _ in range(6):
             dv = live.dec()
             cu = next((u for u in (dv.get("units") or []) if u.get("id") == caster["id"]), None)
@@ -403,8 +438,12 @@ def etage_live(regime: dict, a_units: str, regime_items: str, seed: str, board: 
         # par aucune entree publique -- cf. son commentaire `#419-r6-r1`).
         import engine.runner.operations.damage_utility as DU
         _vrai = DU._target_utility
-        DU._target_utility = (lambda s, t, dm, dx, w, mc=False, _f=_vrai, _o=cid:
-                              _f(s, t, dm, dx, w, owner_might_crit(s, _o)))
+        # ⚠ Le substitut RELAIE `owner_id` (#494-r1) : depuis que la cle porte sa part
+        # POSITIONNELLE, les entrees publiques appellent `_target_utility(..., owner_id=<caster>)`.
+        # Un substitut qui l'avale (ou le refuse) mesurerait un AUTRE port que celui qui tourne --
+        # ici il levait `TypeError` et faisait passer le rouge pour un echec de montage.
+        DU._target_utility = (lambda s, t, dm, dx, w, mc=False, owner_id=None, _f=_vrai, _o=cid:
+                              _f(s, t, dm, dx, w, owner_might_crit(s, _o), owner_id=owner_id))
         try:
             diag_avant = ABILITY_CLASSES[DOOMBOLT]().execute_behaviour(st2, cid, tid)
         finally:

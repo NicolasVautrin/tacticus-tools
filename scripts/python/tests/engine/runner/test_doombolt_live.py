@@ -26,20 +26,37 @@ CE QUE CE TEST VALIDE (cas DISCRIMINANTS ; montage = la fixture NOMMEE `psychic_
   (C) DISCRIMINANCE : un port DELIBEREMENT FAUX (famille ABILITY, 1 tirage/coup au lieu des 2 de la
       famille ATTACK a cc=0) DIVERGE du live sur le meme etat et le meme `state.rng`.
 
-CE QUE CE TEST NE VOIT PAS, ET POURQUOI (#494 / residu `#494-r1`) : il confronte l'ORDRE, mais sur
-la SEULE geometrie de `db-4`, ou le port et le natif tombent d'accord. Deplacer les cibles suffit a
-les separer -- mesure du 2026-08-07, 7 geometries, `probe_494_doombolt_sort_order.py` : a utilite
-EGALE le port classe par `id` croissant (`sort_units_by_damage_utility`) la ou le natif rend
-l'enumeration de tuiles `cube-lex (x,y)` ROTEE d'un cran ; et l'ARMURE de la cible, que
-`_target_utility` met a zero, entre dans le classement natif (c'est `#527-r1`, confirme la sur une
-seconde ability). Les deux causes vivent dans `engine/runner/operations/damage_utility.py`. Ce
-fichier n'est donc PAS un garde de l'etage TRI -- il garde la REPARTITION, le plancher de coups et
-la famille d'attaque. Detail : `docs/rl/case-494-doombolt-ordre-des-cibles.md`.
+CE QUE `db-4` MESURAIT VRAIMENT, ET POURQUOI IL EST DESORMAIS SCINDE (#494-r1)
+-----------------------------------------------------------------------------
+`db-4` monte quatre visualId differents a PV NATURELS -- donc a `fixedArmor` naturels et TOUS
+DIFFERENTS (mesure 2026-08-07 : 2761 / 2662 / 1806 / 2161). Or l'ARMURE entre dans la prediction
+NATIVE et **pas encore** dans la cle du port (`#527-r1`). Ce montage ne mesurait donc pas l'ORDRE :
+il mesurait la partie de la cle qui reste non portee, et il passait par COMPENSATION -- deux
+absences (armure ET part positionnelle) qui se corrigeaient l'une l'autre sur cette geometrie-la.
+
+La preuve est une mesure a UNE seule variable (`probe_494r1_db4_decompose.py`, MEME roster, MEME
+geometrie, MEME seed) :
+
+    | regime      | armures            | NATIF joue      | PORT (cle positionnelle) |
+    | db-4        | 2761 2662 1806 2161| [77, 81, 79]    | [77, 83, 81, 79]  DIVERGE |
+    | db-4 --egalise |     0 partout   | [77, 83, 79]    | [77, 83, 79, 81]  ACCORD  |
+
+Egalise, le port et le natif sont d'accord sur la MEME geometrie -- `orksNob` (elevation 2, seul
+plus BAS que le caster, elevation 3) remonte en 2e position des DEUX cotes. Ce qui restait est donc
+bien l'armure, pas l'ordre.
+
+  * `db-4e` (EGALISE) porte desormais la confrontation d'ORDRE et le bit-exact.
+  * `db-4` (HETEROGENE) est conserve comme TEMOIN de `#527-r1`, en `xfail(strict=True)` : le jour
+    ou l'armure entrera dans la cle, il passera au vert et FORCERA a retirer le marqueur.
+
+Detail : `docs/rl/case-494-doombolt-ordre-des-cibles.md`.
 
 Lit l'etat LIVE (aucune tuile/valeur hardcodee), state-file UNIQUE, dispose au teardown (le probe
 s'en charge). ASCII only.
 """
 from __future__ import annotations
+
+import pytest
 
 import gameconfig as GC
 
@@ -74,10 +91,10 @@ def test_doombolt_two_targets_live(psychic_aoe_case):
         f"control={r['control']} live={r['live']}")
 
 
-def test_doombolt_zero_hit_target_and_sort_order_live(psychic_aoe_case):
-    """(B)+(C) 4 ennemis pour N=3 -> [1,1,1,0] : la DERNIERE cible ne recoit AUCUN coup (plancher de
-    coups borne par la base, cf. l'en-tete) et l'ORDRE du tri par utilite est confronte au live."""
-    r = psychic_aoe_case("db-4")
+def _assert_db4(r):
+    """Le corps commun aux deux regimes de `db-4` : repartition, plancher de coups, bit-exact,
+    ordre. Ecrit UNE fois pour que le regime EGALISE et le TEMOIN heterogene soient juges par le
+    MEME critere -- un temoin juge plus mollement ne temoignerait de rien."""
     diag = r["diag"]
     assert len(diag["targets"]) == 4, f"4 cibles attendues a portee : {diag['targets']}"
     assert diag["hits"] == [1, 1, 1, 0], f"repartition attendue [1,1,1,0], obtenu {diag['hits']}"
@@ -96,3 +113,21 @@ def test_doombolt_zero_hit_target_and_sort_order_live(psychic_aoe_case):
         f"la CIBLE DU MESSAGE doit rester en tete : {diag['targets']}")
     assert r["discriminant"], (
         f"cas NON discriminant : control={r['control']} live={r['live']}")
+
+
+def test_doombolt_zero_hit_target_and_sort_order_live(psychic_aoe_case):
+    """(B)+(C) 4 ennemis pour N=3 -> [1,1,1,0], PV et armures EGALISES : la DERNIERE cible ne recoit
+    AUCUN coup (plancher de coups borne par la base) et l'ORDRE du tri par utilite est confronte au
+    live sur une geometrie ou seule l'ELEVATION discrimine (#494-r1)."""
+    _assert_db4(psychic_aoe_case("db-4e"))
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "#527-r1 -- l'ARMURE de la cible entre dans la prediction NATIVE et pas encore dans la cle du "
+    "port. Sur ce montage a `fixedArmor` NATURELS et tous differents, l'ordre natif est decide par "
+    "elle : le port rend [77, 83, 81, 79] la ou le natif joue [77, 81, 79]. La MEME geometrie, "
+    "armures egalisees (`db-4e`), est en ACCORD -- c'est ce qui isole la cause. Ce marqueur est un "
+    "CLIQUET : quand l'armure entrera dans la cle, ce test passera au vert et rougira en xpass."))
+def test_doombolt_ordre_heterogene_bloque_par_l_armure_live(psychic_aoe_case):
+    """TEMOIN de `#527-r1` : le MEME critere que `db-4e`, sur le montage a armures HETEROGENES."""
+    _assert_db4(psychic_aoe_case("db-4"))
