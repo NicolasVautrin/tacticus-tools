@@ -1,20 +1,30 @@
 """#457 -- CLIQUET : TOUT fichier de test qui n'est pas `_live.py` doit etre VERT.
 
-⛔ NE LE JOUE PAS PAR REFLEXE -- IL N'EST PLUS UNE ETAPE DE PR depuis le 2026-08-05 (`d82ec527`,
-qui a retire la BANQUE de `CLAUDE.md` et du skill d'orchestration). Ce probe est DANS cette banque
-et en pese 67 % ; sa de-obligation est donc la sienne. Verifie le 2026-08-06 : **aucun fichier de
-`.claude/` ni `CLAUDE.md` ne le prescrit**, et la banque de fond ne tourne plus (dernier run
-`logs/ratchets-bg` : 2026-08-04). Il reste lancable A LA DEMANDE, et c'est tout.
+CE QU'IL EST AUJOURD'HUI : lancable a la demande, **pas** une etape de PR obligatoire. Aucun
+fichier de `.claude/` ni `CLAUDE.md` ne le prescrit, et la banque de fond ne tourne plus. Ce qui
+suit dit ce qu'il COUTE et ce qu'il VOIT -- pas quand le jouer.
 
-LA MESURE QUI L'A IMPOSE, et elle vaut pour lui : sur les 67 runs de `logs/ratchets-bg`,
-2 437 lignes de cliquet, **5 non nulles -- 0,21 %**, dont deux faux rouges documentes. Les prises
-citees plus bas restent VRAIES, mais ce sont des prises de **FONDATION** (trouvees en ECRIVANT le
-cliquet), pas de GARDE : elles justifient de l'avoir ecrit, pas de le REJOUER.
+⛔ NE LANCE PAS LE RUN COMPLET PAR REFLEXE : **297,8 s de mur mesure a 8 shards**, ~1 425 s en
+serie. Le geste courant, quand on veut s'en servir, est une SELECTION -- `--since <base>` ou
+`--depuis-ledger` (cf. plus bas). Sans diff impactant, il ne joue rien et rend la main tout de
+suite.
 
-⚠ CE QUI SUIT SUR LE COUT (shards, << mur de la banque >>) A ETE ECRIT AVANT cette decision. Ces
-paragraphes disent ce que coute un run, pas qu'il faille en faire un. Le cout ne se << regle >>
-toujours pas en retrecissant le perimetre (faute que #457-r5 repare) ; il se regle en ne jouant
-pas ce qui n'a rien a garder.
+⚠ LE `0,21 %` QUI L'AVAIT DE-OBLIGE NE DIT PAS CE QU'ON LUI A FAIT DIRE (#486-r23). L'argument du
+2026-08-05 (`d82ec527`) etait : sur 67 runs de `logs/ratchets-bg`, 2 437 lignes de cliquet, **5
+non nulles**, donc << des prises de FONDATION, pas de GARDE >>. C'est un **biais du survivant
+applique a un garde-fou** : un taux de declenchement bas est compatible avec << inutile >> ET avec
+<< efficace >>, donc il ne separe pas les deux hypotheses. La contre-epreuve est arrivee seule --
+de-oblige le 05, l'arbre offline portait **14-15 rouges le 07**. Un taux de declenchement ne
+re-de-obligera donc plus rien ici ; le critere est le COUT, confronte au cout de la derive.
+Detail et chiffres : `docs/rl/case-486r23-ledger-du-vert-offline.md`.
+
+⚠ ET CETTE REFUTATION NE VAUT QUE POUR LUI. Il pese 67 % de la banque et n'est pas un cliquet de
+GISEMENT mais un **lanceur de suite de tests** -- c'est pourquoi lui seul pouvait attraper ces 14
+rouges. Les 32 cliquets de gisement n'ont pas tire une seule fois en 67 runs, et rien de ce qui
+precede ne dit ce que vaut LEUR de-obligation.
+
+⚠ Le cout ne se << regle >> pas en retrecissant le perimetre (faute que #457-r5 repare) : il se
+regle par la SELECTION, qui est mesuree et se justifie fichier par fichier.
 
 CE QU'IL EST SEUL A VOIR
 ------------------------
@@ -821,12 +831,16 @@ def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shar
               % n_shards)
         print("[457] Rejouer en MONO-SHARD pour attester (residu : consolidation inter-shards).")
         return
-    depuis, comment = ledger.base_de_fraicheur(repo_root())
-    if not depuis:
-        print("[457] ledger NON ECRIT : %s" % comment)
-        return
+    base, comment = ledger.base_de_fraicheur(repo_root())
     tete = _git(["rev-parse", "HEAD"], "horodatage du ledger", tolere_rc=True)
     head = (tete.stdout or "").strip() or None
+    # DEUX ANCRES : `_depuis` = HEAD (PRECIS, mortel au squash), `_base` = merge-base
+    # (SURVIVANTE, grossiere). Mesure du 2026-08-07 : avec la base SEULE, `--depuis-ledger` rend
+    # EXACTEMENT la selection de `--since <base>` (33 fichiers, 494 s) -- zero economie.
+    if not head and not base:
+        print("[457] ledger NON ECRIT : %s" % comment)
+        return
+    depuis = head
     blobs = ledger.blobs_courants(repo_root(), list(joues))
 
     neuves = {}
@@ -838,7 +852,7 @@ def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shar
             # ce qui est un FAIT que cette passe n'a pas etabli.
             continue
         neuves[rel] = ledger.entree_neuve(
-            b, horloge.sec.get(rel, 0.0), blobs.get(rel), depuis, head)
+            b, horloge.sec.get(rel, 0.0), blobs.get(rel), depuis, head, base=base)
 
     if not neuves:
         print("[457] ledger NON ECRIT : aucun des %d fichier(s) joue(s) n'a produit de report."
@@ -851,8 +865,9 @@ def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shar
     p = ledger.ecrire(repo_root(), fusion)
     verts = sum(1 for e in neuves.values() if e["verdict"] == ledger.VERT)
     print("[457] ledger -> %s : %d entree(s) inscrite(s) (%d VERT, %d non-VERT), %d au total ; "
-          "base de fraicheur %s [%s]"
-          % (p, len(neuves), verts, len(neuves) - verts, len(fusion), depuis[:8], comment))
+          "ancres _depuis=%s (precise) / _base=%s [%s]"
+          % (p, len(neuves), verts, len(neuves) - verts, len(fusion),
+             (depuis or "(aucune)")[:8], (base or "(aucune)")[:8], comment))
 
 
 def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
@@ -1720,26 +1735,27 @@ def _run(argv=None) -> int:
     if not args.list and not os.environ.get("TACTICUS_ALLOW_RATCHETS"):
         print("")
         print("  ===================================================================")
-        print("   REFUS -- CE CLIQUET N EST PLUS UNE ETAPE DE PR")
+        print("   REFUS -- CE CLIQUET N EST PAS UNE ETAPE DE PR OBLIGATOIRE")
         print("  ===================================================================")
         print("")
-        print("  Retire de la doctrine le 2026-08-05 (commit d82ec527), avec la BANQUE")
-        print("  dont il fait partie. Si quelque chose t a dit de le jouer, cette source")
-        print("  est PERIMEE : ni CLAUDE.md ni le skill d orchestration ne le prescrivent,")
-        print("  et la banque de fond ne tourne plus depuis le 2026-08-04.")
+        print("  Il n est prescrit par aucun fichier de .claude/ ni par CLAUDE.md, et la")
+        print("  banque de fond ne tourne plus. Le lancer reste un choix DELIBERE, jamais")
+        print("  un reflexe -- d ou ce refus, pose apres qu un agent l a joue par reflexe")
+        print("  sur une tranche qui ne le concernait pas (2026-08-06).")
         print("")
-        print("  MESURE QUI A MOTIVE LE RETRAIT (67 runs de logs/ratchets-bg) :")
-        print("    2 437 lignes de cliquet jouees, 5 non nulles -- 0,21 %.")
-        print("    Ce probe pesait 67 % du cout, pour ~891 s par agent et par PR.")
-        print("    Ses prises sont des prises de FONDATION (trouvees en l ECRIVANT),")
-        print("    pas de GARDE : elles justifient de l avoir ecrit, pas de le REJOUER.")
+        print("  CE QU IL COUTE, et c est la seule raison du refus :")
+        print("    run COMPLET  ~1 425 s en serie, 297,8 s de mur a 8 shards ;")
+        print("    meme une PR PUREMENT DOCUMENTAIRE selectionne 10 fichiers et")
+        print("    paie 550,8 s en mono-shard (mesure du 2026-08-07).")
         print("")
-        print("  CE QUE TU DOIS FAIRE A LA PLACE :")
+        print("  CE QUE TU FAIS NORMALEMENT A LA PLACE :")
         print("    - les tests CIBLES de ta tranche, et tu les montres dans ton rapport ;")
         print("    - la relecture du diff de tout test EXISTANT que tu modifies.")
         print("")
-        print("  SI TU LE VEUX QUAND MEME (diagnostic, maintenance des poids) :")
-        print("    $env:TACTICUS_ALLOW_RATCHETS=1   puis relance.")
+        print("  SI TU LE JOUES, JOUE UNE SELECTION -- jamais le run complet :")
+        print("    $env:TACTICUS_ALLOW_RATCHETS=1")
+        print("    python probe_457_offline_tests_green.py --since origin/master")
+        print("    python probe_457_offline_tests_green.py --depuis-ledger")
         print("    `--list` n execute rien et reste jouable sans la variable.")
         print("")
         print("[457] rc=%d -- RIEN n a ete joue, ce n est PAS un verdict sur le depot."

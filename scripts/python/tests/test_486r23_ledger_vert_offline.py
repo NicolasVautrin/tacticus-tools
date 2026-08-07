@@ -7,9 +7,9 @@ signale. C'est l'exact inverse du ledger LIVE (`probe_462`), ou une entree perim
 mal RACONTER un rouge qui reste bloquant.
 
 Le test central est `test_AUCUN_chemin_ne_rend_le_ledger_permissif` : il balaie le produit
-CARTESIEN (verdict x `_depuis` x commit connu x blob de l'entree x blob courant x impact) et
-exige que `raison_de_rejeu` ne rende `None` que sur UNE seule combinaison -- le vert non
-impacte, au blob courant, sur un commit connu.
+CARTESIEN (verdict x ancres ECRITES x ancre EFFECTIVE x blob de l'entree x blob courant x impact,
+soit 576 combinaisons) et exige que `raison_de_rejeu` ne rende `None` que sur UNE seule FORME --
+le vert non impacte, au blob courant, avec une ancre lisible.
 
 ⚠ IL ASSERTIONNE SON PROPRE NON-VIDE. Un balayage cartesien qui porterait sur un ensemble vide
 passerait pour VERT sans rien avoir eprouve ; c'est le vice mesure sur `#270-r1-r1-r3`, ou un
@@ -53,8 +53,12 @@ _BLOB_A = "a" * 40
 _BLOB_B = "b" * 40
 
 
-def _entree(verdict=L.VERT, blob=_BLOB_A, depuis="c" * 40, **kw):
-    e = {"_at": 1, "_blob": blob, "_commit": "d" * 40, "_depuis": depuis,
+_ANCRE = "c" * 40
+_BASE = "e" * 40
+
+
+def _entree(verdict=L.VERT, blob=_BLOB_A, depuis=_ANCRE, base=_BASE, **kw):
+    e = {"_at": 1, "_blob": blob, "_commit": "d" * 40, "_depuis": depuis, "_base": base,
          "verdict": verdict, "sec": 1.0, "messages": [],
          "passed": 3, "failed": 0, "error": 0, "skipped": 0, "xfailed": 0}
     e.update(kw)
@@ -66,65 +70,98 @@ def _entree(verdict=L.VERT, blob=_BLOB_A, depuis="c" * 40, **kw):
 def test_AUCUN_chemin_ne_rend_le_ledger_permissif():
     """`raison_de_rejeu` ne rend `None` que sur UNE combinaison, et on les essaie TOUTES."""
     verdicts = [L.VERT, L.ROUGE, L.SETUP, L.VIDE, "?", None]
-    depuis_vals = ["c" * 40, None, ""]
-    connus = [True, False]
+    ancres_ecrites = [(_ANCRE, _BASE), (None, _BASE), (None, None), ("", "")]
+    ancres_effectives = [_ANCRE, None]
     blobs_entree = [_BLOB_A, None]
     blobs_courants = [_BLOB_A, _BLOB_B, None]
     impacts = [True, False]
 
-    combinaisons = list(itertools.product(verdicts, depuis_vals, connus,
+    combinaisons = list(itertools.product(verdicts, ancres_ecrites, ancres_effectives,
                                           blobs_entree, blobs_courants, impacts))
     # ANTI-VACUITE : un cartesien vide passerait pour vert sans rien eprouver.
-    assert len(combinaisons) == 6 * 3 * 2 * 2 * 3 * 2 == 432, len(combinaisons)
+    assert len(combinaisons) == 6 * 4 * 2 * 2 * 3 * 2 == 576, len(combinaisons)
 
     passants = []
-    for verdict, depuis, connu, blob_e, blob_c, impacte in combinaisons:
+    for verdict, (depuis, base), ancre, blob_e, blob_c, impacte in combinaisons:
         entree = None if verdict is None else _entree(verdict=verdict, blob=blob_e,
-                                                      depuis=depuis)
-        motif = L.raison_de_rejeu("tests/x_offline.py", entree, blob_c, connu, impacte)
+                                                      depuis=depuis, base=base)
+        motif = L.raison_de_rejeu("tests/x_offline.py", entree, blob_c, ancre, impacte)
         if motif is None:
-            passants.append((verdict, depuis, connu, blob_e, blob_c, impacte))
+            passants.append((verdict, depuis, base, ancre, blob_e, blob_c, impacte))
         else:
             assert isinstance(motif, str) and motif, \
                 "un rejeu doit DIRE pourquoi : %r" % (motif,)
 
-    attendu = [(L.VERT, "c" * 40, True, _BLOB_A, _BLOB_A, False)]
-    assert passants == attendu, (
-        "le ledger laisse passer %d combinaison(s) au lieu de 1 : %s"
-        % (len(passants), [p for p in passants if p not in attendu]))
+    # Une seule FORME passe : VERT, blob courant, une ancre EFFECTIVE, non impacte. Elle se
+    # decline sur les 2 facons d'avoir une ancre ECRITE non vide -- `ancre_effective` a deja
+    # tranche laquelle des deux sert, ce n'est plus la question de `raison_de_rejeu`.
+    attendu = {(L.VERT, _ANCRE, _BASE, _ANCRE, _BLOB_A, _BLOB_A, False),
+               (L.VERT, None, _BASE, _ANCRE, _BLOB_A, _BLOB_A, False)}
+    assert set(passants) == attendu, (
+        "le ledger laisse passer %d combinaison(s) au lieu de %d : %s"
+        % (len(passants), len(attendu), [p for p in passants if p not in attendu]))
 
 
 @pytest.mark.parametrize("verdict", [L.ROUGE, L.SETUP, L.VIDE, "?"])
 def test_un_NON_VERT_ne_passe_JAMAIS(verdict):
-    """Meme au blob courant, meme sur un commit connu, meme non impacte."""
-    motif = L.raison_de_rejeu("tests/x.py", _entree(verdict=verdict), _BLOB_A, True, False)
+    """Meme au blob courant, meme sur une ancre connue, meme non impacte."""
+    motif = L.raison_de_rejeu("tests/x.py", _entree(verdict=verdict), _BLOB_A, _ANCRE, False)
     assert motif is not None and verdict in motif
 
 
 def test_une_edition_NON_COMMITEE_invalide_le_vert():
     """Le cran que `git diff <ref> HEAD` ne peut PAS voir -- et c'est pour lui que la cle
     porte le blob du WORKTREE, jamais celui de l'index."""
-    motif = L.raison_de_rejeu("tests/x.py", _entree(), _BLOB_B, True, False)
+    motif = L.raison_de_rejeu("tests/x.py", _entree(), _BLOB_B, _ANCRE, False)
     assert motif is not None and "CHANGE" in motif
 
 
 def test_un_blob_NON_MESURABLE_rejoue_au_lieu_de_passer():
     """`None` veut dire << git n'a pas su hacher >>. C'est une panne de MESURE, pas un fait :
     la rabattre sur << blob egal >> serait exactement le faux vert."""
-    motif = L.raison_de_rejeu("tests/x.py", _entree(), None, True, False)
+    motif = L.raison_de_rejeu("tests/x.py", _entree(), None, _ANCRE, False)
     assert motif is not None and "PAS MESURE" in motif
 
 
-def test_un_commit_INCONNU_rejoue_le_defaut_de_486r15():
-    """Une attestation ancree sur une branche d'agent disparue ne porte sur aucun arbre."""
-    motif = L.raison_de_rejeu("tests/x.py", _entree(), _BLOB_A, False, False)
+def test_aucune_ancre_LISIBLE_rejoue_le_defaut_de_486r15():
+    """Une attestation dont les DEUX ancres sont mortes ne porte sur aucun arbre d'ici."""
+    motif = L.raison_de_rejeu("tests/x.py", _entree(), _BLOB_A, None, False)
     assert motif is not None and "INCONNU" in motif
 
 
 def test_une_dependance_CHANGEE_rejoue():
     """La composition avec l'empreinte : c'est `impacted_files` qui repond, pas le ledger."""
-    motif = L.raison_de_rejeu("tests/x.py", _entree(), _BLOB_A, True, True)
+    motif = L.raison_de_rejeu("tests/x.py", _entree(), _BLOB_A, _ANCRE, True)
     assert motif is not None and "dependance" in motif
+
+
+# ------------------------------------------------------------------------------- DEUX ANCRES
+
+def test_l_ancre_PRECISE_prime_sur_la_SURVIVANTE():
+    """`_depuis` (HEAD) fait gagner entre deux passes d'une meme tranche ; `_base` ne fait que
+    reproduire la selection de `--since`. Mesure du 2026-08-07 : avec la base SEULE,
+    `--depuis-ledger` rend EXACTEMENT 33 fichiers / 494 s, comme `--since <base>`."""
+    assert L.ancre_effective(_entree(), {_ANCRE: True, _BASE: True}) == _ANCRE
+
+
+def test_l_ancre_MORTE_se_replie_sur_la_BASE_au_lieu_de_tout_perdre():
+    """C'est ce qui empeche le ledger de naitre MORT a chaque squash-merge (defaut #486-r15)."""
+    assert L.ancre_effective(_entree(), {_ANCRE: False, _BASE: True}) == _BASE
+
+
+def test_deux_ancres_MORTES_ne_rendent_AUCUNE_ancre():
+    assert L.ancre_effective(_entree(), {_ANCRE: False, _BASE: False}) is None
+    assert L.ancre_effective(None, {}) is None
+
+
+def test_se_replier_sur_la_base_SUR_selectionne_et_ne_peut_pas_faire_sauter_un_test():
+    """La degradation est SURE : une ancre plus ancienne allonge le diff, donc plus de fichiers
+    sont juges impactes. On perd du mur, jamais de la surete."""
+    e = _entree()
+    # Avec l'ancre precise ET non impacte : le vert tient.
+    assert L.raison_de_rejeu("tests/x.py", e, _BLOB_A, _ANCRE, False) is None
+    # Repli sur la base : le diff est plus long, donc `impacte` devient vrai -> rejeu.
+    assert L.raison_de_rejeu("tests/x.py", e, _BLOB_A, _BASE, True) is not None
 
 
 # ------------------------------------------------------------------ VERDICT DERIVE DU BILAN (#455)
@@ -138,7 +175,7 @@ def test_un_fichier_INTEGRALEMENT_SKIPPE_n_est_PAS_VERT():
     # ... et il ne passe donc pas la validite, meme cle parfaite :
     e = _entree(verdict=L.verdict_de_bilan({"passed": 0, "skipped": 8}),
                 passed=0, skipped=8)
-    assert L.raison_de_rejeu("tests/x.py", e, _BLOB_A, True, False) is not None
+    assert L.raison_de_rejeu("tests/x.py", e, _BLOB_A, _ANCRE, False) is not None
 
 
 def test_une_ERREUR_de_setup_n_est_pas_un_ROUGE_d_assertion():
@@ -273,7 +310,7 @@ def test_la_resolution_ne_peut_produire_qu_un_MUR_jamais_un_FAUX_VERT():
     for cle in abandonnees:
         assert cle not in retenues
         # ... et une cle absente est lue << jamais joue >>, donc elle REJOUE :
-        assert L.raison_de_rejeu(cle, retenues.get(cle), _BLOB_A, True, False) is not None
+        assert L.raison_de_rejeu(cle, retenues.get(cle), _BLOB_A, _ANCRE, False) is not None
 
 
 def test_un_fichier_SANS_conflit_traverse_la_resolution_intact():
@@ -319,7 +356,7 @@ def test_blobs_courants_voit_une_edition_NON_COMMITEE(depot):
         "def test_x():\n    assert False\n", encoding="utf-8")
     apres = L.blobs_courants(depot, [rel])[rel]
     assert apres and apres != avant, "une edition non commitee doit changer le blob"
-    assert L.raison_de_rejeu(rel, _entree(blob=avant), apres, True, False) is not None
+    assert L.raison_de_rejeu(rel, _entree(blob=avant), apres, _ANCRE, False) is not None
 
 
 def test_un_fichier_ABSENT_rend_un_blob_NON_MESURE_pas_un_faux(depot):
@@ -327,7 +364,7 @@ def test_un_fichier_ABSENT_rend_un_blob_NON_MESURE_pas_un_faux(depot):
     assert blobs["tests/jamais_ecrit.py"] is None
     # le lot entier retombe a None : c'est le sens SUR (rejeu), jamais une valeur devinee.
     assert L.raison_de_rejeu("tests/jamais_ecrit.py", _entree(),
-                             blobs["tests/jamais_ecrit.py"], True, False) is not None
+                             blobs["tests/jamais_ecrit.py"], _ANCRE, False) is not None
 
 
 def test_commits_connus_distingue_un_sha_MORT(depot):

@@ -49,22 +49,34 @@ artefacts (detail dans `raison_de_rejeu`) :
 Le point 3 est la COMPOSITION : l'empreinte repond a << de quoi depend-il >>, le ledger a
 << quand etait-il vert >>. Ni l'un ni l'autre ne conclut seul.
 
-POURQUOI `_depuis` EST LA BASE, ET NON `HEAD`
-----------------------------------------------
-Ecrire `HEAD` serait auto-destructeur A CHAQUE LIVRAISON : un agent ecrit le ledger dans SON
-worktree, donc sur SA branche, que le squash-merge remplace par un commit neuf avant de la
-supprimer. Le sha inscrit naitrait MORT -- c'est le defaut exact que `#486-r15` a du reparer sur
-le `_commit` global de l'empreinte (mesure : `--since` rendait 220/220 sur chacune des 8 dernieres
-bases de PR, pendant 3 jours).
+DEUX ANCRES, ET C'EST LA MESURE QUI L'A IMPOSE
+-----------------------------------------------
+Une seule ancre ne peut pas etre a la fois PRECISE et SURVIVANTE, et prendre l'une ou l'autre
+coute exactement ce que l'autre rapporte :
 
-`_depuis` est donc la BASE (`git merge-base HEAD origin/master`), qui survit au squash. Et c'est
-SUR, par un argument qui tient en deux cas :
-  * si les changements de l'agent IMPACTENT le fichier, il est dans `impacted_files(base)` et sera
-    rejoue -- l'attestation ne sert pas ;
-  * sinon, le vert observe sur `base + changements` vaut aussi pour `base`.
-Dans les deux cas, inscrire la base ne peut pas faire sauter un test qu'il fallait jouer.
+  * `_depuis` = **HEAD reel** -- PRECIS. C'est lui qui fait gagner : entre deux passes d'une meme
+    tranche, le diff `HEAD_precedent..HEAD` ne porte que ce que l'agent vient de changer. Mais il
+    MEURT au squash-merge, qui remplace la branche de l'agent par un commit neuf avant de la
+    supprimer -- defaut exact que `#486-r15` a du reparer sur le `_commit` global de l'empreinte
+    (`--since` rendait alors 220/220 sur chacune des 8 dernieres bases de PR, 3 jours durant).
+  * `_base` = **`git merge-base HEAD origin/master`** -- SURVIVANTE, mais GROSSIERE.
 
-`_commit` (HEAD reel) reste inscrit, en CONTEXTE INFORMATIF -- jamais comme critere.
+MESURE DU 2026-08-07 qui tranche : avec `_base` SEULE, `--depuis-ledger` rend **exactement la meme
+selection que `--since <base>`** -- 33 fichiers, 494 s dans les deux cas. C'est structurel, pas un
+hasard : si toutes les attestations portent la base de la PR, la question posee au ledger EST
+celle que `--since` pose deja. Le ledger n'aurait alors apporte que de la SURETE (il attrape les
+rouges et les jamais-attestes), zero economie.
+
+Donc les DEUX sont inscrites, et l'ancre effective est **la plus precise qui soit CONNUE de git**
+(`ancre_effective`) : `_depuis` tant que la branche vit, `_base` apres le squash. La degradation
+est SURE dans les deux sens -- une ancre plus ancienne ne fait que SUR-selectionner.
+
+Et `_base` reste sure pour la meme raison qu'avant : si les changements de l'agent impactent le
+fichier, il est de toute facon dans `impacted_files(base)` ; sinon, le vert observe sur
+`base + changements` vaut aussi pour `base`.
+
+`_commit` (HEAD au moment de l'ecriture) reste inscrit en CONTEXTE INFORMATIF -- jamais comme
+critere ; c'est `_depuis` qui porte la meme valeur avec le statut de critere.
 
 ASCII only (cp1252).
 """
@@ -163,8 +175,26 @@ def lire(racine) -> tuple[dict, list]:
 
 # ------------------------------------------------------------------------------- VALIDITE
 
-def raison_de_rejeu(rel: str, entree, blob_courant, commit_connu: bool,
-                    impacte: bool) -> str | None:
+def ancre_effective(entree, connus: dict) -> str | None:
+    """LA plus PRECISE des deux ancres qui soit connue de git, ou `None`.
+
+    `_depuis` (HEAD reel) d'abord : c'est lui qui fait gagner entre deux passes d'une meme
+    tranche. `_base` (merge-base) ensuite : elle survit au squash-merge qui tue la premiere.
+    `None` si aucune n'est lisible -- et `raison_de_rejeu` le traduit en rejeu, jamais en vert.
+
+    Se degrader vers l'ancre la plus ANCIENNE ne peut que SUR-selectionner : le diff s'allonge,
+    donc plus de fichiers sont juges impactes. La perte est du mur, jamais de la surete.
+    """
+    if not isinstance(entree, dict):
+        return None
+    for cle in ("_depuis", "_base"):
+        sha = entree.get(cle)
+        if sha and connus.get(sha):
+            return sha
+    return None
+
+
+def raison_de_rejeu(rel: str, entree, blob_courant, ancre, impacte: bool) -> str | None:
     """LE FOYER UNIQUE de la validite. `None` = le vert tient, le fichier peut etre SAUTE.
 
     Tout autre retour est une CHAINE qui dit pourquoi il rejoue. Un seul foyer, parce qu'un
@@ -192,13 +222,14 @@ def raison_de_rejeu(rel: str, entree, blob_courant, commit_connu: bool,
     if entree.get("_blob") != blob_courant:
         return "le fichier de test a CHANGE depuis l'attestation (blob %s -> %s)" % (
             str(entree.get("_blob"))[:8], str(blob_courant)[:8])
-    if not entree.get("_depuis"):
-        return "attestation sans `_depuis` -- aucune base de fraicheur"
-    if not commit_connu:
-        return ("attestee depuis %s, INCONNU de ce depot (branche d'agent disparue) -- ne porte "
-                "sur aucun arbre lisible ici" % str(entree.get("_depuis"))[:8])
+    if not (entree.get("_depuis") or entree.get("_base")):
+        return "attestation sans ancre (`_depuis`/`_base`) -- aucune fraicheur verifiable"
+    if not ancre:
+        return ("attestee depuis %s, INCONNU de ce depot (branche d'agent disparue, et pas de "
+                "`_base` lisible) -- ne porte sur aucun arbre d'ici"
+                % (str(entree.get("_depuis") or entree.get("_base"))[:8]))
     if impacte:
-        return "une dependance MESUREE a change depuis %s" % str(entree.get("_depuis"))[:8]
+        return "une dependance MESUREE a change depuis %s" % str(ancre)[:8]
     return None
 
 
@@ -215,21 +246,21 @@ def a_rejouer(perimetre: list, racine, impactes_depuis) -> tuple[list, dict, lis
     """
     entrees, anomalies = lire(racine)
     blobs = blobs_courants(racine, list(perimetre))
-    connus = commits_connus(racine, [e.get("_depuis") for e in entrees.values()
-                                     if isinstance(e, dict)])
+    connus = commits_connus(racine, [s for e in entrees.values() if isinstance(e, dict)
+                                     for s in (e.get("_depuis"), e.get("_base"))])
+    ancres = {rel: ancre_effective(e, connus) for rel, e in entrees.items()}
 
     # Les fichiers dont l'attestation echoue AVANT meme la question du diff n'ont pas besoin que
     # l'on calcule leur impact : on ne paie le diff que pour les candidats reellement en lice.
-    par_depuis: dict = {}
+    par_ancre: dict = {}
     for rel in perimetre:
         e = entrees.get(rel)
-        if isinstance(e, dict) and e.get("verdict") == VERT and e.get("_depuis") \
-                and connus.get(e.get("_depuis")) and e.get("_blob") \
-                and blobs.get(rel) == e.get("_blob"):
-            par_depuis.setdefault(e["_depuis"], []).append(rel)
+        if isinstance(e, dict) and e.get("verdict") == VERT and ancres.get(rel) \
+                and e.get("_blob") and blobs.get(rel) == e.get("_blob"):
+            par_ancre.setdefault(ancres[rel], []).append(rel)
 
     impactes: set = set()
-    for sha in par_depuis:
+    for sha in par_ancre:
         try:
             impactes |= set(impactes_depuis(sha))
         except Exception as exc:                          # noqa: BLE001
@@ -237,14 +268,12 @@ def a_rejouer(perimetre: list, racine, impactes_depuis) -> tuple[list, dict, lis
             # Le sens sur, et il est DIT -- jamais un vert par defaut d'information.
             anomalies.append("impact depuis %s non mesurable (%s) -- ces fichiers rejouent"
                              % (sha[:8], exc))
-            impactes |= set(par_depuis[sha])
+            impactes |= set(par_ancre[sha])
 
     rejeu, raisons = [], {}
     for rel in perimetre:
         motif = raison_de_rejeu(rel, entrees.get(rel), blobs.get(rel),
-                                bool(connus.get((entrees.get(rel) or {}).get("_depuis")))
-                                if isinstance(entrees.get(rel), dict) else False,
-                                rel in impactes)
+                                ancres.get(rel), rel in impactes)
         if motif is not None:
             rejeu.append(rel)
             raisons[rel] = motif
@@ -320,13 +349,21 @@ def base_de_fraicheur(racine) -> tuple[str | None, str]:
 
 # ------------------------------------------------------------------------------- ECRITURE
 
-def entree_neuve(bilan: dict, sec: float, blob, depuis, head, messages=None) -> dict:
-    """Une entree, dans la signature du ledger live -- ni plus riche, ni plus pauvre."""
+def entree_neuve(bilan: dict, sec: float, blob, depuis, head, messages=None,
+                 base=None) -> dict:
+    """Une entree, dans la signature du ledger live -- plus les DEUX ancres (cf. l'en-tete).
+
+    `sec` n'est pas decoratif non plus : c'est le POIDS, mesure, et il est ici VERSIONNE. Le
+    fichier de poids (`logs/ratchets/457-durations.json`) est gitignore, donc un worktree d'agent
+    n'en a JAMAIS -- ce qui a produit le bug de `--measure-missing` (235/235 fichiers retenus).
+    Un poids porte par le ledger traverse les worktrees, lui.
+    """
     e = {
         "_at": int(time.time()),
         "_blob": blob,
         "_commit": head,
         "_depuis": depuis,
+        "_base": base,
         "sec": round(float(sec), 3),
         "messages": list(messages or ()),
     }
