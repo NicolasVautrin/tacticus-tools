@@ -293,7 +293,40 @@ fichiers**, joues en **4 groupes paralleles**. Le tirage est deterministe, repro
 surtout **independant du sujet** -- donc le taux s'extrapole, ce qu'un echantillon choisi par
 thematique ne permettrait pas.
 
-<!-- RESULTAT DE L'ECHANTILLON : renseigne apres la passe -->
+**RESULTAT : 6 fichiers ROUGES sur 24, soit 25 %.** Extrapole aux 500 : **~125 fichiers live
+rouges sur `master`**. Le gisement n'est donc pas « sept familles » -- il est **deux ordres de
+grandeur plus gros que ce que sept agents en avaient vu**.
+
+| groupe | bilan pytest | fichier(s) ROUGE(S) | deja nomme ? |
+|---|---|---|---|
+| 0 | 1 failed / 40 passed | `test_381r3_neighbour_source_live` | **oui** -- `#419-r6-r1` §2.2, PREEXISTANT |
+| 1 | 2 failed / 45 passed | `test_429r1r3r1r2_unit_extensions_is_alive_live` ; `test_heroic_fusillade_migration_live` | **oui** -- `#419-r6-r1` §4, deux residus ouverts |
+| 2 | 2 failed / 33 passed / 1 skipped | `test_darkangels_lot1_live` (2 tests) | non |
+| 3 | 7 errors / 39 passed | `test_419r1tr14r5r2r1r2r1r1_only_adjacent_live` (`aucun genesSmnDecoy vivant ADJACENT a un ennemi -> montage non pose`) | non |
+| (echantillon) | -- | `test_summon_consumers_live` -- tire par l'echantillon, rouge sur `master`, **repare par cette tranche** | oui (= #5) |
+
+**L'echantillon se VALIDE lui-meme** : 4 des 6 rouges tires au hasard etaient **deja nommes** par
+`case-419-r6-r1` -- le tirage retombe sur des rouges connus, donc il ne fabrique pas ses trouvailles.
+Et il en trouve **deux que personne n'avait vus**, dont un (`only_adjacent`) de la MEME famille
+`genesSmnDecoy` que l'item #3 de cette tranche : la geometrie des decoys de `CultDemagogue` casse
+plusieurs montages a la fois.
+
+**CE QUE CET ECHANTILLON NE COUVRE PAS**, et il faut le dire :
+* **476 fichiers sur 500 ne sont PAS mesures.** Le `~125` est une EXTRAPOLATION d'un echantillon de
+  24, pas un compte. Sur n = 24, l'incertitude est large (a la louche, 10 % a 45 % -> 50 a 225
+  fichiers) ;
+* le tirage est systematique et non aleatoire -- si les rouges se groupaient par prefixe de nom
+  avec une periode multiple de 21, il serait biaise. Rien ne le suggere, mais ce n'est pas exclu ;
+* les **180** `test_*.py` NON live (680 - 500) ne sont pas concernes : la banque offline
+  (`probe_457`) les garde deja ;
+* aucun de ces 6 rouges n'est **diagnostique** ici, sauf ceux des sept familles. Les deux nouveaux
+  (`darkangels_lot1`, `only_adjacent`) sont **mesures et nommes**, rien de plus.
+
+⚠ **Le vrai enseignement n'est pas le chiffre, c'est l'ABSENCE DE CAPTEUR.** Ces ~125 fichiers ne
+rougissent nulle part : la banque qui tourne a chaque PR est OFFLINE, et rien ne joue le live en
+continu. Sept agents les ont trouves **par accident**, un a la fois, en validant autre chose. Tant
+qu'aucun capteur ne balaie le live, le compte ne peut que croitre -- chaque tranche qui change une
+stat globale (comme #419-r6) en cree une fournee d'un coup.
 
 ---
 
