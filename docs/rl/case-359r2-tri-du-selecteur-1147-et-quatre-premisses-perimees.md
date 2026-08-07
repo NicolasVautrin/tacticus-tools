@@ -196,6 +196,46 @@ Contre-épreuve, attribution exacte :
 | `IsMechanical` neutralisé | `mechanical`, rien d'autre |
 | `Multiply(TimesEffectApplied)` neutralisé | `linear` + `zero`, rien d'autre |
 
+### 2.5 Et une RE adversariale a trouvé un BUG que la re-mesure n'avait pas vu
+
+La re-mesure du §2.4 dit « l'effet est vivant » — et elle a raison. Une **relecture indépendante du
+décompilé**, lancée pour *confronter* le port et non pour l'écrire, dit autre chose :
+
+```
+IdunBattle.Entities.UnitExtensions$$IsMechanical(unit) =
+    HasTrait(unit, 0x5) || HasTrait(unit, 0x3e8) || HasTrait(unit, 0x405)
+    //     Mechanical=5      LivingMetal=1000        Vehicle=1029
+```
+
+Le site testait `"Mechanical" in (ac.get("traits") or ())`. **Trois traits, pas un.** Le raccourci
+ne lève pas : il lit l'autre branche du `If` et rend `extraDmg` au lieu d'`extraDmg_2`.
+
+**Et il rate précisément le régime le plus fréquent de cet effet** : `Chronometron` est une ability
+NECRON (`necroChronomancer`), dont les alliés portent `LivingMetal` — pas `Mechanical`.
+
+Le prédicat existait déjà en **trois exemplaires corrects**, chacun sur un substrat différent
+(`behaviours/stats.py` sur le callable `has_trait` du DSL, `abilities/targeting.py` sur un `State` +
+un id, le sélecteur `MechanicalUnits` qui délègue au premier). **Manquait celui du substrat le plus
+simple** — un ensemble de NOMS déjà résolu, ce que porte `attacker_ctx["traits"]`. C'est cette
+absence qui a fait recopier un raccourci à un trait plutôt qu'appeler un foyer. Ajouté dans
+`entities/traits/unit_trait.py`, frère exact d'`is_normal_unit`.
+
+Contre-épreuve, les trois traits testés **séparément** (un helper qui n'en couvrirait que deux
+passerait un test qui les poserait ensemble) :
+
+```
+code AVANT le fix : Mechanical VERT · LivingMetal ROUGE · Vehicle ROUGE
+code APRES le fix : Mechanical VERT · LivingMetal VERT  · Vehicle VERT
+```
+
+**La leçon** : la re-mesure « l'effet rend-il une magnitude ? » ne pouvait pas voir ce bug — elle
+mesurait la **présence** d'une valeur, pas sa **justesse**. Il a fallu une lecture du natif *faite
+pour contredire*. Une prémisse périmée ne veut pas dire qu'il n'y a rien à trouver.
+
+Le balayage des autres sites testant le trait `5` rend **un candidat, pas zéro** :
+`engine/ai/state_bridge.py::_is_machine` (résidu `#116-r1`) ; tous les autres sont corrects, le
+natif y écrivant `HasTrait(unit, 5)` **nu** et le port documentant la distinction.
+
 ---
 
 ## 3. Ce que cette tranche enseigne sur le backlog
