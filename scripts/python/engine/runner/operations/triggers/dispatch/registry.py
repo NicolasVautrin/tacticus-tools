@@ -81,6 +81,9 @@ from ..loki.fuelled_by_fury import (FuelledByFuryExtraDamageAbility,  # compteur
                                     FuelledByFuryCanReviveActivateOnTurnStart,
                                     FuelledByFuryCanReviveDeactivateOnRevive,
                                     FUELLED_BY_FURY_CAN_REVIVE)       # marqueur 1324
+from ..loki.talons_of_the_emperor import (                            # #521-r1 : compteur 1420
+    TalonsOfTheEmperorUsedAbilitiesAbility,                           # (helper PASSIF de l'actif 1195)
+    TALONS_OF_THE_EMPEROR_ID as TOTE_ACTIVE_ID)
 from ..loki.anvil_shield import (AnvilShieldApplyIceAbility,          # lot POSE (passif spaceRockfist)
                                 AnvilShieldApplyStunAbility,          # #100 volet Stun on-block
                                 AnvilShieldFrozenAttackerAdvantageAbility,   # #100 volet +block glace
@@ -607,6 +610,47 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Le trigger porte ses propres gates (OwnerIsActor + AreEnemies + IsNormalAttack + IsMeleeAttack),
     # donc l'inscription inconditionnelle est fidele. Cf. loki/empyric_ambush.py.
     "EmpyricAmbush": [EmpyricAmbushResetAbility],
+}
+
+# --- Registre : ability ACTIVE → triggered-ability HELPER (« passive helper ») ---------------------
+# Mirror de `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$Get
+# PassiveHelperAbility` (#521-r1) -- un `Dictionary<ActiveAbilityType, TriggeredAbilityType>` range
+# dans `<StaticBattleRules.ActiveAbility statics>+0x78`, peuple par le `.cctor` de la meme classe.
+#
+# ⚠ CE N'EST PAS le dict d'`ACTIVE_ABILITY_TRIGGERS` ci-dessus. Deux dicts natifs DISTINCTS, deux
+# slots statiques distincts, et deux chemins de montage distincts :
+#   * `...$$GetDerivedTriggeredAbilities` (statics+0x30, valeur = une **List**) -> monte par
+#     `UnitFactory$$AddDerivedAbilities` ;
+#   * `...$$GetPassiveHelperAbility`      (statics+0x78, valeur = un **scalaire** Nullable) -> monte
+#     par `IdunBattle.Entities.Factories.UnitFactory$$AddActiveAbility`, lui-meme appele en boucle
+#     sur `config@+0xa0` = `UnitConfiguration.ActiveAbilities` depuis
+#     `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` (et son jumeau
+#     `IdunBattle.Entities.Factories.MachineFactory$$AddConfiguredAbilities` pour les MoW) :
+#         helper = GetPassiveHelperAbility(activeAbility)
+#         if (helper.HasValue) TriggeredAbilityComponent.TryAdd(helper.Value, passiveAbilityState, 0)
+#     -- l'etat d'ability inscrit est le **PASSIF**, et la hierarchie vaut 0.
+# Ecrire une entree de l'un dans l'autre ferait porter une triggered-ability par un chemin que le
+# natif n'emprunte pas ; c'est pourquoi le registre est SEPARE, comme `RELIC_ABILITY_TRIGGERS` l'est
+# d'`ABILITY_TRIGGERS`.
+#
+# Cle = NOM gameconfig de l'ability active. Le dict natif compte SIX entrees, transcrites ici en
+# COMMENTAIRE (nom + ordinal), pour que le lecteur voie ce qui est porte et ce qui ne l'est pas :
+#   1032 Catalyst              -> 1062 GuildBossRunAway                            (non porte)
+#   1070 BreathOfSilence       -> 1128 BreathOfSilence_SetStart                    (non porte)
+#   1118 DoctrinaImperatives   -> 1201 DoctrinaImperatives_SetStart                (non porte)
+#   1148 DaemonicOrdnance      -> 1244 DaemonicOrdnance_Crit                       (non porte)
+#   1189 CalibaniteGreatsword  -> 1316 CalibaniteGreatsword_NormalAttackAdditionalDamage (non porte)
+#   1195 TalonsOfTheEmperor    -> 1330 TalonsOfTheEmperor_UsedAbilities            <- PORTE (#521-r1)
+# Les cinq non portees restent registered-but-unported cote natif : no-op fidele, elles n'ont RIEN a
+# faire ici tant que leur classe n'existe pas (une entree vide serait un mensonge de couverture).
+PASSIVE_HELPER_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
+    # 0x4ab (1195 TalonsOfTheEmperor, `custoAtlacoya` HERO) -> 0x532 (1330 TalonsOfTheEmperor_Used
+    # Abilities) : a la FERMETURE de toute active d'un allie `Hero` non-`MachineOfWar` qui COMPTE
+    # (`IsActiveAbilityCountedAsUsed`, donc PAS l'attaque normale), le porteur incremente de +1, SANS
+    # cap, le niveau de l'effet 1420 -- le compteur que lit
+    # `...TalonsOfTheEmperorAbility$$GetExtraDamage`. Le trigger porte tous ses gates, donc
+    # l'inscription inconditionnelle est fidele. Cf. loki/talons_of_the_emperor.py.
+    TOTE_ACTIVE_ID: [TalonsOfTheEmperorUsedAbilitiesAbility],
 }
 
 # --- Registre : relicAbility → triggered-ability(s) accordée(s) ------------------------------------
