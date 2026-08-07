@@ -80,9 +80,20 @@ sans passer par les fixtures `host`/`live_session`/`build_runner`. Joue tel quel
 monter des runners et depassait 600 s. Le suffixe, lui, est DECLARATIF et tenu par le depot.
 
 La cloture de fixtures reste utilisee, mais comme FILET et non comme critere : un item d'un fichier
-non-`_live.py` qui reclame quand meme une fixture live est DESELECTIONNE et RAPPORTE (mesure :
-1 item, `test_act_of_faith_crit_resets_both_paths.py`, fichier MIXTE). On ne rougit pas dessus --
-ce cliquet garde << les tests offline sont verts >>, pas << le nommage est parfait >>.
+non-`_live.py` qui reclame quand meme une fixture live est DESELECTIONNE et RAPPORTE. On ne rougit
+pas dessus -- ce cliquet garde << les tests offline sont verts >>, pas << le nommage est parfait >>.
+
+Le filet a pris EXACTEMENT UN poisson, et il a fallu 231/232 pour le voir. `mesure` mesurait
+1 item, dans `test_act_of_faith_crit_resets_both_paths.py` : une seule fonction de test, prenant
+`live_session`/`rpc`/`build_runner`, dans un fichier que le suffixe declarait offline. Sa docstring
+disait << contrepartie OFFLINE >> -- l'intention l'etait, l'implementation non.
+
+CE QUI L'A REVELE N'EST PAS LE FILET, C'EST L'EMPREINTE. Le filet le deselectionnait en silence
+depuis toujours : sans report, pas de chronometrage, pas d'entree -- le fichier restait donc
+eternellement a << jamais mesure >> et se rejouait sous `--since`. C'est cet ecart 231/232, et lui
+seul, qui a nomme le fichier. Un item deselectionne ne coute rien et ne se voit pas ; c'est son
+ABSENCE DE POIDS qui parle. Renomme en `_live.py` le 2026-08-07 : il sort du perimetre offline et
+rejoint la banque ou il peut reellement tourner.
 
 PERIMETRE (#434) : la liste vient de `git ls-files` lance dans CE checkout, donc elle ne peut pas
 lire l'arbre d'un autre agent. ECRITURE (#455) : aucune -- `-p no:cacheprovider` empeche pytest de

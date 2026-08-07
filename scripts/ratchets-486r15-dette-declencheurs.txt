@@ -112,7 +112,7 @@ scripts/python/tests/engine/runner/test_ability_registry_ratchet.py
 scripts/python/tests/engine/runner/test_ability_target_gate_live.py
 scripts/python/tests/engine/runner/test_ability_target_gate_lot181_live.py
 scripts/python/tests/engine/runner/test_act_of_faith_ability_reset_live.py
-scripts/python/tests/engine/runner/test_act_of_faith_crit_resets_both_paths.py
+scripts/python/tests/engine/runner/test_act_of_faith_crit_resets_both_paths_live.py
 scripts/python/tests/engine/runner/test_act_of_faith_live.py
 scripts/python/tests/engine/runner/test_act_of_faith_normal_crit_resets_live.py
 scripts/python/tests/engine/runner/test_act_of_faith_reset_live.py
