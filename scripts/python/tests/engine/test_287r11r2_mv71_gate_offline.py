@@ -59,6 +59,10 @@ DECLENCHEUR = {
         # globs disent ce qui FAIT changer d'avis. Les DEUX formes sont necessaires : `**/` exige
         # un SEGMENT, donc `scripts/python/**/*.py` ne voit PAS `scripts/python/gameconfig.py`.
         "scripts/python/*.py", "scripts/python/**/*.py",
+        # ⚠ HORS de `scripts/python/` -- donc AUCUN des deux globs ne le couvre : la table des noms
+        # d'ability vit dans le bundle Frida, et la cascade d'import la LIT. Omission mesuree par
+        # `probe_486r15` au merge de #806 (declaration TROP ETROITE, `master` rouge).
+        "frida/hooks/data/ability-names.ts",
     ),
     # Le rayon du drone et `maxSummons` sont LUS dans le gameconfig du build : un re-dump peut les
     # faire bouger, et l'etage 6 doit alors rougir plutot que de figer une valeur perimee.
