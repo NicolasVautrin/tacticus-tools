@@ -233,12 +233,19 @@ def test_l_ordre_source_et_les_doublons_sont_preserves():
 class _StubBoard:
     """Board reduit aux SEULES tuiles fournies -- toutes marchables. Comme elles sont TOUTES
     occupees au montage, le chemin PRIMAIRE de `PickTile` rend une liste de candidates VIDE, ce qui
-    est exactement la condition d'entree dans la branche de REPLI native."""
+    est exactement la condition d'entree dans la branche de REPLI native.
+
+    ⚠ PLAT ET SANS MUR, DELIBEREMENT (#287-r11-r2-r1) : le repli traverse desormais AUSSI le maillon
+    `UnobscuredTiles` (`mv71._is_obscured_from_tiles`), qui lit `elevation` / `is_wall` / `by_coord`.
+    Les rendre CONSTANTS rend cet etage-la INERTE, et ce fichier continue donc de mesurer le seul
+    maillon qui l'interesse -- `FilterTilesIfCanAttackTargetTileFrom`. La ligne de vue a sa propre
+    garde (`test_287r11r2r1_los_summon_offline.py`)."""
 
     def __init__(self, positions):
         self._pos = {i + 1: (int(p[0]), int(p[1])) for i, p in enumerate(positions)}
         self._ids = {v: k for k, v in self._pos.items()}
-        self.by_id = {t: {"col": p[0], "row": p[1]} for t, p in self._pos.items()}
+        self.by_id = {t: {"col": p[0], "row": p[1], "elevation": 0} for t, p in self._pos.items()}
+        self.by_coord = dict(self._ids)
 
     def id_at(self, col, row):
         return self._ids.get((int(col), int(row)))
@@ -252,6 +259,12 @@ class _StubBoard:
 
     def walkable(self, tid):
         return tid in self._pos
+
+    def elevation(self, tid):
+        return 0 if tid in self._pos else None
+
+    def is_wall(self, tid):
+        return False
 
 
 class _StubScene:
