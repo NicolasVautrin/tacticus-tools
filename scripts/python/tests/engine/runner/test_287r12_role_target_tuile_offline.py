@@ -53,6 +53,11 @@ DECLENCHEUR = {
         "scripts/python/tests/engine/conftest.py",
         "scripts/python/tests/engine/runner/conftest.py",
         "scripts/python/engine/**/*.py", "scripts/python/*.py",
+        # ⚠ HORS de `scripts/python/` -- donc AUCUN glob ci-dessus ne les couvre. La cascade
+        # d'import du registre LIT ces deux entrees versionnees. Meme omission qu'au merge de
+        # #806, mesuree par `probe_486r15` : un declencheur qui ne nomme que du Python est
+        # structurellement aveugle a ce que le paquet va chercher ailleurs dans le depot.
+        "frida/hooks/data/ability-names.ts", "data/seed-bc.json",
     ),
     "build": False,
     "toujours": False,
