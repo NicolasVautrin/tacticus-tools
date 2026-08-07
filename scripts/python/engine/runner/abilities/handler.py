@@ -81,7 +81,7 @@ from .tau import (HeavyRailRifleAbility, TwinSmartMissileSystemAbility, Fighting
 from .votann import (IronkinSteeljackAbility, AugmentedAssaultAbility, GravitonRifleAbility,
                      AncestralFortuneAbility)
 from .aeldari import (EmpyricAmbushAbility, ExecutionerAbility, HarvesterOfSoulsAbility,
-                      SilentDeathAbility)
+                      SilentDeathAbility, SwoopingHawkAbility)
 from .spacewolves import GreatFrostAxeAbility, FoehammerAbility, GrapnelLauncherAbility
 from .tyranids import (SporeMineLauncherAbility, AlphaWarriorAbility, FearOfTheUnseenAbility,
                        BurrowersAbility)
@@ -159,6 +159,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     ExecutionerAbility.ABILITY_TYPE: ExecutionerAbility,               # 1066 (Eldryon eldarFarseer Aeldari : Psychic ranged hits=RoundsStarted cible + si cible morte 1 ennemi random adjacent-cible, native_factory attack, case-220 §6.19)
     EmpyricAmbushAbility.ABILITY_TYPE: EmpyricAmbushAbility,           # 1232 (Lhykhis eldarLhykhis Aeldari, HORS CATALOGUE -> catalog_inject : FlyUnit(caster, First(SortTilesByUtility(Randomize(CanAddUnit(AdjacentTiles(cible)) - CasterTile), caster, 7))) & If(OwnerIsAlive, nrOfHits x Eviscerate melee mono-cible & AddEffect(1578 EmpyricAmbush -> la CIBLE, source = Owner, Direct(1) tour)) ; l'effet et son gate etaient portes par #589-r1-r1, la POSE manquait -> #589-r1-r1-r1)
     HarvesterOfSoulsAbility.ABILITY_TYPE: HarvesterOfSoulsAbility,     # 1067 (Maugan Ra eldarMauganRa Aeldari : ranged HeavyRound cible hits=If(HasMoved,2,3) + splash MinMaxDamage2 ennemis ring1-cible ∩ rayon-3 caster, native_factory attack, ExecuteAtomic, case-220 §6.19)
+    SwoopingHawkAbility.ABILITY_TYPE: SwoopingHawkAbility,             # 1064 (Aethana eldarAutarch Aeldari : VAGUE EN LIGNE -- `DiveAttackAbilityBase` : 3 tuiles `First(TilesBehindInLine(CasterTile, <tuile de contact de la cible>), 3)`, 1 coup `Piercing` par tuile aux montants `dmg[0..2]` (famille ABILITY, AUCUN crit), puis `MoveUnit` du caster sur la tuile DERRIERE la derniere cible touchee -- ou, si occupee, la tuile libre la plus proche d'elle (`ConditionalSelector`) ; `ExecuteAtomic(..., 0x2a)` ; #502)
     SilentDeathAbility.ABILITY_TYPE: SilentDeathAbility,               # 1068 (Jain Zar eldarJainZar Aeldari : CHAINE DE DEGAT -- nrOfHits=3 coups Piercing melee sur la cible ADJACENTE, puis nrOfTargets=3 rebonds `Cache(PickRandomly(AdjacentUnits(maillon precedent) & <cache ennemis> - deja frappes, 1))`, memes bornes/profil/coups a chaque maillon ; `Group(..., GroupType.DamageChain)` ; #497)
     SkyStrikeAbility.ABILITY_TYPE: SkyStrikeAbility,                   # 1025 (adeptCelestine Celestine Sisterhood : charge tuile libre adjacente (vole, sans reach) + attaque melee normale base Attack+extraDmg profil/coups arme melee, template VigilanceEternal, case-220)
     GreatFrostAxeAbility.ABILITY_TYPE: GreatFrostAxeAbility,           # 1089 (spaceWulfen : glace zone cible+ring1 + attaque melee 4x Piercing mono-cible ATTACK-family, case-220 SW)

@@ -106,7 +106,10 @@ SNAP_TARGETING_UNPORTED = (
     # Ce snapshot fige l'ordinal ECRIT AU SITE, et le site a change ; rien n'est perdu, les sites
     # qui portent desormais 1027 l'ecrivent par le MEMBRE et `probe_313` garde la bijection.
     (1063, (16386, False, (3, False, False, None, False), 2)),
-    (1064, (16384, False, (0, False, False, 1, False), 1)),
+    # 1064 Loki_SwoopingHawk RETIREE (#502) : sa face COMBAT est portee, donc son masque a MIGRE
+    # sur `SwoopingHawkAbility.TARGETING_OPTIONS` -- meme mouvement que 1027/1048/1068/1069/1087/
+    # 1088. Le masque lui-meme n'a PAS bouge (0x4000 TargetIsEnemy, RANGE_ADJACENT, RangedBool
+    # .False) ; c'est sa SOURCE qui change, et le contrat de disjonction impose le retrait d'ici.
     # 1068 SilentDeath RETIREE (#497) : sa face COMBAT est portee, donc son masque a MIGRE sur
     # `SilentDeathAbility.TARGETING_OPTIONS` -- meme mouvement que 1027/1048/1069/1087/1088. Le
     # ctor a ete RELU a cette occasion et la valeur figee ici est CONFIRMEE champ pour champ
@@ -328,24 +331,25 @@ def test_snapshot_ordinal_valeur_et_ordre():
 
 
 def test_cardinalites_du_volet():
-    """Le compte du volet 2 : 36 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 120 cles.
+    """Le compte du volet 2 : 33 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 117 cles.
 
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 34 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
-    1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1165 (#501). Ce que ce cliquet garde est la
-    CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
+    passe de 44 a 33 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
+    1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1165 (#501), 1064 (#502). Ce que ce cliquet
+    garde est la CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables.
 
     ⚠ LE NOMBRE CI-DESSUS SE RE-COMPTE SUR `CIBLES`, il ne se deduit JAMAIS par soustraction du
-    chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les QUATRE
-    dernieres sorties (#498, #499, #500, #501) ont ete faites EN PARALLELE, sur quatre branches,
-    chacune aveugle aux trois autres. Quatre soustractions successives sur le meme chiffre perime
-    en auraient manque trois -- seul un recompte apres resolution converge."""
+    chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les CINQ dernieres
+    sorties (#498, #499, #500, #501, #502) ont ete faites EN PARALLELE, sur cinq branches, chacune
+    aveugle aux quatre autres. Cinq soustractions successives sur le meme chiffre perime en
+    auraient manque quatre -- seul un recompte apres resolution converge. #502 a effectivement
+    resolu ce conflit en RE-COMPTANT."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [34, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [33, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 118
+    assert sum(tailles) == 117
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

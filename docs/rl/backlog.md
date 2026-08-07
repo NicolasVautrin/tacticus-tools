@@ -632,6 +632,21 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   (`applyAction` ne vérifie pas la propriété) pour amener une cible au contact du Patermine **une
   fois celui-ci placé** sur une grappe de decoys, au lieu de subir le tirage. Détail :
   `docs/rl/case-501-might-from-below.md` §7.
+- **`#502-r1` — `StartAttack` / `FinishAttack` ne sont pas portés (vague `1064 Loki_SwoopingHawk`).**
+  `DiveAttackAbilityBase$$ExecuteBehaviour` encadre chaque maillon par
+  `If(!AreEqual(cur, prev), DSLBehaviors$$StartAttack)` et `If(!AreEqual(cur, next), DSLBehaviors$$FinishAttack)`.
+  Leur seul effet observable est de **FUSIONNER en UNE attaque** les tuiles consécutives occupées
+  par la MÊME unité — une grande unité couchée sur deux rangs de la ligne prend alors
+  `dmg[i] + dmg[i+1]` sous un seul `StartAttack`. Le port n'a aucun substrat DSL pour la pile de
+  contexte d'attaque (`IdunBattle.Core.MatchState$$StartAttack` / `$$FinishAttack`, `MatchState+0x60`)
+  et émet une attaque **par tuile** : total de dégâts identique, **nombre d'attaques encadrantes
+  différent** — donc rang des triggers on-attack différent. **NON mesuré** : il faut une unité
+  multi-hex alignée sur la vague. Aucun test ne l'asserte (un test qui figerait la divergence
+  figerait le résidu). `[opus]` — `case-502-swooping-hawk.md` §Résidus.
+- **`1091 SlashingDive` reste non portée** — MÊME classe native que `1064`
+  (`DiveAttackAbilityBase`, les deux héritières), seule la config change (profil `Power` au lieu de
+  `Piercing`). Le port de #502 la porterait telle quelle en changeant la clé de config ; elle n'a
+  pas été enregistrée (hors périmètre). `[opus]` — `case-502-swooping-hawk.md` §1.
 
 - **`#497-r1` — l'adjacence du RUNNER ignore la porte d'élévation du natif.**
   `engine/dsl/base.py::_within` décide l'appartenance par `hexgeo.distance <= r` ; le natif

@@ -82,6 +82,52 @@ def _lookup_config_key(table: dict, key: str):
     return hits[0] if len(hits) == 1 else None
 
 
+def ability_var_array(ability_id: str, var_key: str, level: int | None = None,
+                      multiplier_pct: int = 100) -> list[int] | None:
+    """`IdunBattle.Configuration.AbilityConfiguration$$GetVariableArrayForLevel(type, abilityState,
+    fallback)` -- la variante VECTORIELLE d'`ability_var` ci-dessous, pour les variables dont UNE
+    cellule de niveau porte PLUSIEURS valeurs.
+
+    Le natif rend un `int[]` (le call-site lit sa longueur en `+0x18` et ses elements a partir de
+    `+0x20`) ; le gameconfig, lui, encode cette cellule comme une chaine SEPAREE PAR DES VIRGULES --
+    ex. `Loki_SwoopingHawk.dmg[16] == "164,128,91"` = les degats des 3 tuiles de la vague. Passer une
+    telle cellule a `ability_var` leve (`int("164,128,91")`), d'ou cet accesseur distinct plutot
+    qu'un elargissement silencieux du scalaire.
+
+    MEME indexation 1-based que le scalaire (`Idun.Shared.Level$$ToZeroBasedIndex` = `level - 1`,
+    clampe `[0, len-1]`) et MEME regle de scaling : le natif applique
+    `Fix64.Round(v x mult/100)` **a CHAQUE entree du tableau**, et seulement si la variable est
+    listee dans `variablesAffectedByRarityBonus` (`AbilityConfiguration+0x28`) -- ce qui est le cas
+    de `dmg`. Une cellule mono-valeur rend une liste d'un element (aucun cas particulier).
+
+    Retour `None` (jamais `[]`) quand la variable est absente ou illisible : c'est le contrat de
+    tous les appelants du module, et il distingue « pas de config » de « tableau vide »."""
+    try:
+        import gameconfig as _GC
+    except Exception:
+        return None
+    a = _GC.ability(ability_id) or {}
+    arr = _lookup_config_key(a.get("variables") or {}, var_key)
+    if arr is None:
+        return None
+    cell = arr
+    if isinstance(arr, list):
+        if not arr:
+            return None
+        idx = (level - 1) if (level and level > 0) else 0     # ToZeroBasedIndex, clampe
+        cell = arr[max(0, min(idx, len(arr) - 1))]
+    try:
+        vals = [int(tok) for tok in str(cell).split(",") if str(tok).strip() != ""]
+    except (TypeError, ValueError):
+        return None
+    if not vals:
+        return None
+    if multiplier_pct and multiplier_pct != 100 \
+            and var_key in (a.get("variablesAffectedByRarityBonus") or []):
+        return [round(v * multiplier_pct / 100) for v in vals]   # scaling PAR ENTREE, comme le natif
+    return vals
+
+
 def ability_var(ability_id: str, var_key: str, level: int | None = None,
                 is_constant: bool = False, multiplier_pct: int = 100) -> int | None:
     """Variable/constante d'ability. Constante = scalaire ; variable = tableau per-niveau indexé `level`

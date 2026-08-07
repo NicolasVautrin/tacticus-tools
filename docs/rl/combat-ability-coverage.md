@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **110**
-- **NO-OP silencieux** (a porter) : **65**
-- Ventilation NO-OP : **DAMAGE**=36, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **111**
+- **NO-OP silencieux** (a porter) : **64**
+- Ventilation NO-OP : **DAMAGE**=35, **EFFECT/BUFF**=18, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -22,11 +22,10 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (65)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (64)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
-| 1064 | Loki_SwoopingHawk | DAMAGE(Piercing) | 4 | LN |
 | 1080 | HellfireShells | DAMAGE(Piercing) | 3 | NS |
 | 1091 | SlashingDive | DAMAGE(Power) | 3 | NS |
 | 1129 | BloodyFury | DAMAGE(Chain) | 2 | LN |
@@ -92,7 +91,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (110)
+## PORTED (registry) (111)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -128,6 +127,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1042 | FlailSwing | DAMAGE(Power) | 4 | LN |
 | 1038 | FoulInfusion | DAMAGE(Toxic) | 4 | LN |
 | 1000 | GauntletsOfUltramar | DAMAGE(Bolter) | 4 | LN |
+| 1064 | Loki_SwoopingHawk | DAMAGE(Piercing) | 4 | LN |
 | 1165 | MightFromBelow | DAMAGE(Psychic) | 4 | LN |
 | 1062 | SanctorumMissile | DAMAGE(Blast) | 4 | LN |
 | 1139 | SentinelDirectives | DAMAGE(Physical) | 4 | LN |
