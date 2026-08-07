@@ -3542,3 +3542,22 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   de `StartingActions` est de jouer **tout autre `IInputMessage`** que `AddUnit`, et de le jouer
   **pendant** `SetupGameOperation`. cf. `docs/rl/case-477-harnais-de-test-natif.md` sec. 2c.
 
+- **#520-r1 : les QUATRE call-sites `HealBehaviourOptions$$ForRegenerate` non portes.** `[opus]`
+  `MedicusMinistorumAbility$$CreateBehaviour`, `LifeStealEffect$$CreateTargetTriggerBehaviour`,
+  `SanguinaryPriestAbility$$CreateBehaviour`, `ToughToKill_HealAbility$$CreateBehaviour` (les deux
+  autres, `SavageEchoes` et `TimeFlux`, sont portes et declarent leur `scope=1` depuis #520).
+  Leur `scope = 1` arme le cap de GROUPE `DamagePrediction$$GetGroupUnitHealLimit`, seul regime ou ce
+  cap MORD -- et il ne mord que sur une cible MULTI-MEMBRES. Aucun des porteurs mesures n'en est une,
+  donc l'etage (2) de `predict_heal` n'est **exerce par aucune passe**, ni live ni offline. Le port
+  est ecrit et isomorphe ; ce qui manque est un montage qui le fasse mordre.
+  cf. `docs/rl/case-520-heal-repair-operation.md` sec. 3.
+
+- **#520-r2 : l'etage BONUS de `DamagePrediction$$PredictHeal` est inerte SUR CE BUILD, sans cliquet.** `[opus]`
+  Mesure #520 : les **178** implementeurs de `CreateEffect*` de `rnca9r7q6c` se ventilent en SEPT
+  familles, dont **aucune** n'est un heal bonus (`RepairBonus` en a 3). La boucle est donc portee en
+  no-op EXPLICITE. Un `<X>Effect$$CreateEffectHealBonus` apparaissant a une mise a jour rendrait ce
+  no-op FAUX **en silence** : le soin ignorerait un bonus que le natif applique, et aucun test ne le
+  verrait (les montants restent coherents entre eux). RETOURNEMENT : un cliquet qui derive la
+  ventilation des familles `CreateEffect*` du dump courant et rougit si une famille `HealBonus`
+  apparait. cf. `docs/rl/case-520-heal-repair-operation.md` sec. 2.
+

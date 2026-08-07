@@ -70,6 +70,14 @@ PORT_HEAL_CALLERS: dict[tuple[str, str], tuple[str, str]] = {
         "IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$RepairOrHeal", HEAL),
     ("runner/abilities/loki/strike.py", "Heal"): (
         "IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$ExecuteBehaviour", HEAL),
+    # Declaration MANQUANTE trouvee par ce probe meme, et PREEXISTANTE (#520) : le site existe sur
+    # `origin/master` nu et n'y etait pas declare -- le probe rendait donc `FAIL` sur `master`. Deux
+    # artefacts natifs partagent ce site (les xrefs de `HealBehaviourOptions$$ForHeal` les listent
+    # tous deux) : `$$ExecuteBehaviour` et `$$ExecuteSpecialAttack` de la MEME classe. On declare le
+    # premier, qui est celui que l'en-tete du module porte deja verbatim.
+    ("runner/abilities/loki/feeder_tendrils.py", "Heal"): (
+        "IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility"
+        "$$ExecuteBehaviour", HEAL),
     ("runner/operations/triggers/loki/cosmic_horror.py", "Heal"): (
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateBehaviour",
         HEAL),
