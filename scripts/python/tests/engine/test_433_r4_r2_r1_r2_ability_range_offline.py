@@ -199,10 +199,10 @@ def test_no_ability_has_two_contradictory_sources():
 #: Sorties : 1087 `ExemplarOfTheKauyon` (#488), 1048 `FragstormGrenadeLauncher` (#489),
 #: 1069 `SeekerMissileFrequencyLock` (#491), 1088 `HellfyreMissileRack` (#487),
 #: 1027 `PsychicMaelstrom` (#490), 1068 `SilentDeath` (#497),
-#: 1152 `UnstoppableMomentumReworked` (#498) -- toutes pour la MEME raison :
-#: leur face COMBAT est portee, donc leur masque a MIGRE sur la classe.
+#: 1152 `UnstoppableMomentumReworked` (#498), 1038 `FoulInfusion` (#500) -- toutes pour la MEME
+#: raison : leur face COMBAT est portee, donc leur masque a MIGRE sur la classe.
 POOL_ABILITIES_WITHOUT_COMBAT_CLASS = [
-    1005, 1019, 1038, 1039, 1049, 1050, 1057, 1061, 1063, 1064,
+    1005, 1019, 1039, 1049, 1050, 1057, 1061, 1063, 1064,
     1101, 1106, 1121, 1129, 1132, 1141, 1164, 1165, 1175, 1177, 1183, 1191, 1195,
     1197, 1204,
 ]
@@ -255,11 +255,19 @@ def test_the_six_friendly_only_abilities_contribute_no_tile():
     lecture des 32 masques debloque. `target_tiles_zone_is_empty` ne lisait QUE `ABILITY_CLASSES`,
     donc rendait `False` pour toutes les 32 : leur zone etait versee a
     `AttackQuery$$GetAllTilesInAbilityRange` alors que le natif n'en verse AUCUNE tuile."""
-    attendues = [1005, 1038, 1039, 1049, 1061, 1175]
+    # ⚠ LA LISTE SUIT `POOL_ABILITIES_WITHOUT_COMBAT_CLASS`, elle ne la fige pas : 1038
+    # `FoulInfusion` en est SORTIE avec son port (#500), donc n'apparait plus ici. Son masque
+    # `TargetIsFriendly && !TargetIsEnemy` est INCHANGE -- c'est le PERIMETRE balaye qui a change,
+    # et `test_the_pool_abilities_carry_a_read_mask` garde la disjonction qui l'exige.
+    attendues = [1005, 1039, 1049, 1061, 1175]
     vides = [a for a in POOL_ABILITIES_WITHOUT_COMBAT_CLASS if ar.target_tiles_zone_is_empty(a)]
     assert vides == attendues, "court-circuit : %r" % (vides,)
     for aid in attendues:
         assert ar.ability_range_value(aid, MELEE) is None
+    # 1038 hors perimetre depuis #500, mais les DEUX proprietes tiennent toujours sur elle : le
+    # court-circuit friendly-only, et la portee non derivable du `CustomRange(GetRange)`.
+    assert ar.target_tiles_zone_is_empty(1038) is True
+    assert ar.ability_range_value(1038, MELEE) is None
 
 
 def test_bit_43_is_carried_by_none_of_the_pool_abilities():
