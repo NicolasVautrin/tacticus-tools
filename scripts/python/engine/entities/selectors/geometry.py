@@ -205,6 +205,75 @@ class SortReverse(TargetsSelector):
         return list(reversed(list(v)))
 
 
+class SortByRow(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$SortByRow(tiles, sameColumnIsRandom, additionalSorting,
+    ascending)` -> `IdunBattle.Entities.Selectors.SortByRowSelector$$Select`.
+
+    Le ctor NOMME la carte des champs, lue verbatim
+    (`IdunBattle.Entities.Selectors.SortByRowSelector$$.ctor(this, tiles, state, pseudoRng,
+    sameColumnIsRandom, additionalSortingFormula, ascending)`) :
+
+        +0x18 tiles · +0x20 pseudoRng · +0x28 sameColumnIsRandom · +0x30 additionalSortingFormula
+        +0x38 ascending
+
+    et `Select` s'y branche exactement (`IdunBattle.Entities.Selectors.SortByRowSelector$$Select`) :
+
+        ordered = (+0x38 /* ascending */ == 0) ? OrderByDescending(src, key) : OrderBy(src, key)
+        if (+0x30 /* additionalSortingFormula */ != 0) ordered = ThenBy(ordered, <formule>)
+        if (+0x28 /* sameColumnIsRandom      */ != 0) ordered = ThenBy(ordered, <pseudoRng>)
+        return ordered.ToList()
+
+    ⚠ `ascending` est le CINQUIEME argument de la factory, et le call-site porte lui passe **false**
+    -- donc la branche prise est `OrderByDescending`. La docstring de `HadesAutocannonsAbility`
+    nommait ce selecteur `asc`, ce qui etait une erreur de RE : `SortByRow(..., 0, 0, false)` trie
+    par row DECROISSANTE. C'est le sens qui compte ici, puisque le meme arbre reutilise le resultat
+    sous un `SortReverse` pour l'autre branche du `If`.
+
+    CLE DE TRI. Les deux lambdas de la cle (`...SortByRowSelector.u003Cu003Ec__DisplayClass6_0$$u003CSelectu003Eb__0`
+    pour `OrderBy`, `...b__1` pour `OrderByDescending`) ont le MEME corps : elles resolvent
+    `IdunBattle.Entities.EntityExtensions$$GetMainTileId(s, state)` puis lisent le champ ROW de la
+    tuile. Cote port, `_entity_pos` EST le mirror de `GetMainTile` (domaine MIXTE unite / id de tuile
+    / position), d'ou la meme cle des deux cotes.
+
+    ORDRE STABLE : `Enumerable.OrderBy`/`OrderByDescending` sont des tris STABLES, et `sorted` de
+    Python aussi -- les ex aequo de row gardent donc l'ordre du selecteur source, des deux cotes.
+
+    Une entite dont la position n'est pas resolvable (`_entity_pos` -> None, ex. id de tuile sans
+    board) ne peut pas etre classee : elle est laissee en QUEUE dans l'ordre source, jamais
+    silencieusement jetee -- le natif, lui, n'a pas ce cas (il travaille sur des entites-tuiles
+    deja resolues).
+
+    Les deux options non exercees par le call-site porte sont MIRRORISEES mais REFUSEES a
+    l'evaluation plutot que devinees : `same_column_is_random` demande le `pseudoRng` du match
+    (flux RNG partage, cf. `PickRandomly`), et `additional_sorting` une formule `ThenBy`. Les poser
+    sans substrat produirait un ordre INVENTE -- on leve, on ne degrade pas."""
+    def __init__(self, source: TargetsSelector, same_column_is_random: bool = False,
+                 additional_sorting=None, ascending: bool = False):
+        self.source = source
+        self.same_column_is_random = bool(same_column_is_random)
+        self.additional_sorting = additional_sorting
+        self.ascending = bool(ascending)
+
+    def select(self, ctx):
+        v = self.source.evaluate(ctx)
+        if v is None:
+            return []
+        items = list(v)
+        if self.additional_sorting is not None or self.same_column_is_random:
+            raise NotImplementedError(
+                "SortByRow : `additionalSortingFormula`/`sameColumnIsRandom` ne sont exerces par "
+                "aucun call-site porte et n'ont pas de substrat (formule ThenBy / pseudoRng du "
+                "match). Les porter demande de LIRE le decompile du call-site qui les pose.")
+        board = getattr(ctx, "board", None)
+        rows = [(_entity_pos(it, board) or (None, None))[1] for it in items]
+        # Les non-classables restent en QUEUE, dans l'ordre source (cf. docstring).
+        classables = [(r, i) for i, r in enumerate(rows) if r is not None]
+        classables.sort(key=lambda ri: ri[0], reverse=not self.ascending)   # +0x38 ascending
+        out = [items[i] for _, i in classables]
+        out.extend(items[i] for i, r in enumerate(rows) if r is None)
+        return out
+
+
 class Blocking(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Blocking` : garde les tuiles BLOQUANTES = le COMPLEMENT
     exact de `Walkable` sur le meme predicat de tuile.

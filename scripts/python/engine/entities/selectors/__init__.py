@@ -53,7 +53,7 @@ from .accessors import (  # noqa: F401
 
 from .geometry import (  # noqa: F401
     neighbour_at, TilesInTriangleShape, ThreeTileUnitSpawnShape, TileFromVector, Walkable,
-    Blocking, SortReverse,
+    Blocking, SortReverse, SortByRow,
     TilesOnSameElevation,
     EntitiesWithoutEffects, EntitiesWithAnyEffect, PickFirstN, PickRandomly, Randomize, Otherwise,
     TilesBehindInLine,
@@ -86,7 +86,7 @@ __all__ = [
     "SelectTile", "Actor",
     "Target", "ActiveTarget", "SurroundingTiles", "_center_pos", "neighbour_at",
     "TilesInTriangleShape", "ThreeTileUnitSpawnShape", "TileFromVector", "Walkable", "Blocking",
-    "SortReverse",
+    "SortReverse", "SortByRow",
     "TilesOnSameElevation",
     "EntitiesWithoutEffects", "EntitiesWithAnyEffect", "PickFirstN", "Otherwise",
     "TilesBehindInLine", "FilterContinuous", "UnitsWithVisualId", "UnitsWithId", "Cache",
