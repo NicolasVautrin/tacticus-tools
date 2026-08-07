@@ -351,44 +351,26 @@ def _print_rows(label, rows):
                  hex(r["port"]), hex(r["b1"]), hex(r["b2"]), mark))
 
 
-def forcer_contact(sid, rid, vis: str = CASTER_VIS, rounds: int = 6) -> bool:
+def forcer_contact(sid, rid, vis: str = CASTER_VIS, rounds: int = 8) -> bool:
     """PILOTE la geometrie au lieu de la subir : amene un ENNEMI au contact d'un summon `vis`.
 
     Le clamp `(c)` exige `ShouldApplyRangedInMelee`, donc un ennemi adjacent au CASTER. Sur un
-    board/seed ou les summons apparaissent loin de tout ennemi (mesure : `C4_09`/31337 rend
-    0 clampe), la geometrie de spawn n'est PAS une excuse -- on DEPLACE. `applyAction` ne verifie
-    pas la propriete du `unitId` (runner.md SS4) et le runner est `--no-ai`, donc rien ne defait le
-    mouvement. Rend `True` des qu'un summon a un ennemi a `d = 1`.
+    board/seed ou les summons apparaissent loin de tout ennemi -- c'est le cas du montage NOMINAL
+    lui-meme, `MC1_67`/`4192`, ou les trois `genesSmnDecoy` tombent a `d = 2`, `3` et `9` --, la
+    geometrie de spawn n'est PAS une excuse : on DEPLACE.
 
-    ⚠ ON NE PASSE PAS PAR `_step_toward` : son `_wait_movable` enchaine des `endturn` jusqu'a ce que
-    le camp de l'unite ait la main -- or les `genesSmnDecoy` sont EPHEMERES et n'y survivent pas
-    (MESURE sur `C4_09`/31337 : apres 3 rapprochements, plus AUCUN decoy vivant, et le montage
-    echoue plus loin qu'il n'aurait du). On ne bouge donc QUE ce qui est deja activable, et on
-    s'arrete des qu'un tour serait consomme."""
-    for it in range(rounds):
-        dv = P247._dv(sid, rid)
-        summons = P583._live(dv, vis)
-        if not summons:
-            print("  [contact] plus aucun `%s` vivant -- arret" % vis)
-            return False
-        paires = [(hexgeo.distance(P247._pos(s), P247._pos(f)), int(s["id"]), int(f["id"]), s, f)
-                  for s in summons for f in P583._foes_of(dv, s)]
-        if not paires:
-            return False
-        d, sid_u, fid, s, f = min(paires, key=lambda p: (p[0], p[1], p[2]))
-        print("  [contact %d] summon u%d@%s <- ennemi u%d@%s  d=%d"
-              % (it, sid_u, P247._pos(s), fid, P247._pos(f), d))
-        if d <= 1:
-            return True
-        tiles = P247._movable(sid, rid, fid)           # SANS `endturn` -- cf. l'avertissement
-        if not tiles:
-            print("  [contact] u%d n'est pas activable sans consommer un tour -- arret" % fid)
-            return False
-        goal = P247._pos(s)
-        best = min(tiles, key=lambda t: (abs(hexgeo.distance(t, goal) - 1), t))
-        P247._act(sid, rid, {"kind": "move", "unitId": fid,
-                             "to": {"col": best[0], "row": best[1]}}, 90)
-    return False
+    DELEGUE au foyer commun `P583.forcer_contact`, qui porte les trois faits mesures. L'implantation
+    LOCALE qui vivait ici NE POUVAIT PAS ABOUTIR, et sa propre trace le disait sans le nommer : elle
+    refusait tout `endturn` (« les decoys sont EPHEMERES et n'y survivent pas ») et ne bougeait donc
+    l'ennemi que pendant NOTRE tour -- or `aiMovableTiles` ne publie alors AUCUNE unite adverse, si
+    bien qu'elle sortait systematiquement sur « u%d n'est pas activable sans consommer un tour ».
+    Le fait qui la fondait est vrai a l'envers : c'est le retour de la main a NOTRE camp qui detruit
+    la geometrie (`PlayAutomaticUnits`), pas le passage a l'adversaire. Rendre la main a l'ennemi et
+    y RESTER est donc a la fois necessaire et sans danger -- mesure : les trois decoys sont intacts
+    apres le passage, et `abilityReason` y repond normalement."""
+    rep = P583.forcer_contact(sid, rid, vis_list=(vis,), rounds=rounds)
+    print("  [contact] distance minimale atteinte : %s" % rep)
+    return rep.get(vis) == 1
 
 
 def _clampe(st, dv, u) -> bool:

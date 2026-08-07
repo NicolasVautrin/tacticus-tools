@@ -178,6 +178,30 @@ def _normal_ids(u) -> set:
             and a.get("id") is not None}
 
 
+def _plan_tiles(dv, uid: int, ability_ids: set) -> set:
+    """Les tuiles d'ou le NATIF EVALUE l'une des `ability_ids` de `uid`, toutes cibles confondues
+    (`decisionView.attackPlans[].evals[].ranked`).
+
+    C'est la MEME donnee que `_has_normal_plan` interroge -- lui demande « ma tuile COURANTE y
+    est-elle ? », celle-ci rend « lesquelles y sont ? ». Elle sert a CHOISIR ou aller, au lieu de
+    l'esperer : cf. `_approach`."""
+    out = set()
+    for pl in (dv.get("attackPlans") or ()):
+        if pl.get("unitId") != uid:
+            continue
+        for ev in (pl.get("evals") or ()):
+            if ev.get("abilityId") in ability_ids and ev.get("rankCount"):
+                out.update((rk.get("col"), rk.get("row")) for rk in (ev.get("ranked") or ()))
+    return {t for t in out if t[0] is not None}
+
+
+def _normal_ids_of(dv, uid: int) -> set:
+    for u in (dv.get("units") or ()):
+        if u.get("id") == uid:
+            return _normal_ids(u)
+    return set()
+
+
 def _has_normal_plan(dv, uid: int, from_here: bool = True) -> bool:
     """L'unite peut-elle porter son ATTAQUE NORMALE, et depuis quelle position ?
 
@@ -208,15 +232,29 @@ def _has_normal_plan(dv, uid: int, from_here: bool = True) -> bool:
 
 # --------------------------------------------------------------------------- montage
 
-def _approach(rpc, rid: int, sf: str, casters: dict, foes: list) -> dict:
-    """Amene chaque caster a portee de son ATTAQUE NORMALE, en jouant NOS tours seulement
-    (`--no-ai` : l'adversaire ne bouge jamais, la geometrie est PILOTEE, pas subie).
+def _approach(rpc, rid: int, sf: str, casters: dict, foes: list, abilities: dict) -> dict:
+    """Amene chaque caster a portee de son ATTAQUE NORMALE **et de son ability**, en jouant NOS tours
+    seulement (`--no-ai` : l'adversaire ne bouge jamais, la geometrie est PILOTEE, pas subie).
 
-    A chaque tour, un caster dont l'attaque normale ne porte pas DEPUIS SA TUILE se deplace sur la
-    tuile atteignable qui MINIMISE la distance hex a l'ennemi le plus proche. Un TOUR BLANC clot
-    l'approche : sans lui, les unites qui viennent de bouger n'ont plus d'action et
-    `aiDryRunAllUnits` rend `FinishUnitTurnMessage` -- mesure, c'est ce qui avait rendu deux lignes
-    non concluantes. Rend `{visualId: bool a_portee_depuis_sa_tuile}`."""
+    LE CRITERE DE DESTINATION EST LA DONNEE NATIVE, PAS LA DISTANCE HEX -- et c'est le correctif
+    #506-r3. La version anterieure visait la tuile atteignable qui MINIMISE la distance hex a
+    l'ennemi le plus proche ; ce proxy echoue, et il echouait toujours au meme endroit. Mesure sur le
+    bras `kill` (`MC1_67`/4242) : `ultraEliminatorSgt` finissait en `(2, 6)`, `d = 4` des deux
+    cibles, `reached = False` -- alors que le natif publie pour lui QUATRE tuiles d'ou son attaque
+    normale ET son `1004` sont evaluees, `(3, 6)`, `(3, 8)`, `(4, 7)` et `(4, 5)`, toutes dans ses
+    15 tuiles atteignables. La portee n'etait pas hors d'atteinte : elle n'etait pas VISEE. Monter
+    `MAX_APPROACH_TURNS` de 8 a 24 ne changeait donc rien (mesure `#506` §3.4), et ne pouvait rien
+    changer -- le point fixe du greedy n'est pas un plafond d'iterations.
+
+    On vise donc, par ordre de preference : (1) une tuile d'ou le natif evalue A LA FOIS l'attaque
+    normale et l'ability gate-ee -- c'est la premisse exacte des deux criteres du fichier, `reached`
+    pour B et `_pair_is_native_legal` pour la contre-epreuve ; (2) a defaut, l'attaque normale
+    seule ; (3) a defaut, l'ancien critere de distance, qui reste le seul disponible quand le natif
+    ne publie aucun plan (caster hors de tout `attackPlans`).
+
+    Un TOUR BLANC clot l'approche : sans lui, les unites qui viennent de bouger n'ont plus d'action
+    et `aiDryRunAllUnits` rend `FinishUnitTurnMessage` -- mesure, c'est ce qui avait rendu deux
+    lignes non concluantes. Rend `{visualId: bool a_portee_depuis_sa_tuile}`."""
     reached = {}
     for _turn in range(MAX_APPROACH_TURNS):
         dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 300)
@@ -235,12 +273,27 @@ def _approach(rpc, rid: int, sf: str, casters: dict, foes: list) -> dict:
             tiles = [t for t in tiles if t[0] is not None]
             if not tiles or not epos:
                 continue
-            best = min(tiles, key=lambda t: min(hexgeo.distance(t, e) for e in epos))
+            porte_n = _plan_tiles(dv, uid, _normal_ids_of(dv, uid))
+            porte_a = _plan_tiles(dv, uid, {abilities.get(vis)})
+            for cand in (set(tiles) & porte_n & porte_a, set(tiles) & porte_n, set(tiles)):
+                if cand:
+                    best = min(cand, key=lambda t: (min(hexgeo.distance(t, e) for e in epos), t))
+                    break
             rc, _out = _duel("act", "move", "--state-file", sf, "--unit", str(uid),
                              "--to", "%d,%d" % best)
             moved = moved or rc == 0
         if not moved:
             break
+        # CLORE LE TOUR -- le premier `endturn` est INCONDITIONNEL, et c'est le second volet du
+        # correctif #506-r3. La boucle de retour ci-dessous sort sur `currentPlayer == 3`, ce qui
+        # est DEJA vrai tant qu'il reste chez nous une unite non activee : sans un `endturn`
+        # d'amorce, elle ne faisait donc RIEN et le tour ne passait pas. Mesure
+        # (`logs/diag_killgate3.py`) : au tour 5, `necroDestroyer` bouge, les trois deja `reached`
+        # gardent leur activation, la main ne bascule jamais -- et `ultraEliminatorSgt`, qui vient
+        # de bouger, se retrouve a `movable = 0` aux tours 5 ET 6, jusqu'au `break` sur `moved`.
+        # Son approche s'arretait apres UN SEUL deplacement utile, quel que soit le plafond
+        # d'iterations : c'est la vraie raison pour laquelle 8 et 24 rendaient le meme resultat.
+        _duel("act", "endturn", "--state-file", sf, "--no-ai")
         for _ in range(4):
             if rpc("battleStatus", {"runnerId": rid}, 40).get("currentPlayer") == 3:
                 break
@@ -278,7 +331,7 @@ def stage(rpc, logs: str, tag: str, hp, casters=CASTERS, approach: bool = True) 
         _dispose(rpc, rid)
         raise MontageError("montage NON INSTALLE (bras %s) : casters absents=%s, cibles=%d"
                            % (tag, missing, len(foes)))
-    reached = (_approach(rpc, rid, sf, ids, foes) if approach
+    reached = (_approach(rpc, rid, sf, ids, foes, {v: a for v, a, _g in casters}) if approach
                else {v: _has_normal_plan(dv, ids[v]) for v, _a, _g in casters})
     return {"tag": tag, "rid": rid, "state_file": sf, "hp": hp, "ids": ids, "foes": foes,
             "reached": reached}
