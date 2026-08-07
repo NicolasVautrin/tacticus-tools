@@ -799,12 +799,22 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
     `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner(ability.Type)` (null ⇒ skip), puis
     `<slot 4> || IsFriend(case.unit ?? case.parent, ability.Owner)` ⇒ yield `(playbook, owner)`.
 
-    ⚠ Le pré-gate `<slot 4>` est PORTÉ depuis #433-r4-r3 : son corps trivial (fondu par l'ICF, donc
-    sans symbole propre) a été LU dans le bloc `methodPointers` du PE et vaut **`false`** — aucune
-    des classes concrètes ne le surcharge, elles n'ont que `.ctor` + `CalculateMovementUtilityInSteps`.
-    Le gate se réduit donc à `IsFriend`, et il est appliqué ICI, là où le natif le met (dans
-    `IterateAbilities`), pas dans les corps de playbook. Chaîne de lecture complète et les deux
-    autres sources qui la recoupent : docstring de tête de `engine/playbook/non_owner.py`.
+    ⚠ Le pré-gate `<slot 4>` est PORTÉ, et c'est une donnée **PAR CLASSE** — pas une constante de
+    famille. Le slot a un NOM : `get_ShouldIncludingEnemiesWhenCalculate`, 5ᵉ méthode d'
+    `IdunBattle.AI.Playbook.ITriggeredAbilityNonOwnerPlaybook`, LUE dans le `global-metadata.dat`
+    (#477-r37). Sur les **28** concrets, **DEUX** la surchargent — `HaywireMineNonOwnerPlaybook`
+    (face MOVE) et `NoHidingFromTheWatchersNonOwnerPlaybook` (face ATTACK), les deux à `true` ; les
+    26 autres héritent le `false` de la base. Le gate ne se réduit donc PAS à `IsFriend` : pour ces
+    deux classes il yielde AUSSI les porteurs ENNEMIS. Il est appliqué ICI, là où le natif le met
+    (dans `IterateAbilities`), pas dans les corps de playbook.
+    ⚠ Cette ligne a énoncé le contraire (« vaut `false` — aucune classe ne le surcharge », héritée de
+    #433-r4-r3) pendant que le code ci-dessous portait DÉJÀ la valeur par classe : la citation
+    contredisait son propre foyer. Coût mesuré de cette lecture-là quand elle était armée : `-30`
+    manquants sur la tuile minée du montage `haywire` (branche ENNEMI de 1531 structurellement
+    inatteignable). Ne jamais la re-généraliser. Entrée VERSIONNÉE + cliquet :
+    `data/symbols/<build>/metadata/non_owner_slot4.tsv`, `probe_477r37_slot4_et_faces_restantes.py`
+    étape 0a (3 sources, chacune DIT son angle mort). Chaîne de lecture complète : docstring de tête
+    de `engine/playbook/non_owner.py`.
 
     ⚠ RÉGIME SPAWN (`case.unit == null`, `case.parent != null` — call-site
     `SortTilesByUtilityForSummon`, case-205) : le natif ITÈRE quand même, avec le PARENT comme
@@ -823,8 +833,8 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
         # `friend_units`/`enemy_units` sont déjà SELF-EXCLUS : c'est exactement le
         # `if (case.unit == ability.Owner) continue` du natif. Les DEUX listes sont parcourues (le
         # natif itère TOUTES les TriggeredAbility de la bataille, pas seulement celles des amis),
-        # puis le PRÉ-GATE `<slot 4 = false> || IsFriend(sujet, owner)` écarte les porteurs non
-        # amis — c'est la seule chose que fait le `||` une fois le slot lu (#433-r4-r3).
+        # puis le PRÉ-GATE `<slot 4> || IsFriend(sujet, owner)` écarte les porteurs non amis — SAUF
+        # pour les classes dont le `<slot 4>` vaut `true`, qui gardent AUSSI les ennemis (#477-r37).
         # `is_friend` reste passé aux playbooks : `KustomForceFieldReworkedNonOwnerPlaybook` le
         # RE-TESTE dans son propre corps natif, et le port mirrore ce corps.
         for units, is_friend in ((ctx.get("friend_units") or (), True),
@@ -842,10 +852,12 @@ class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
                     # inatteignable la branche ENNEMI de 1531. MESURE : -30 manquants sur la tuile
                     # minee du montage `haywire`.
                     # Acces DIRECT, jamais `getattr(..., False)` : `TriggeredAbilityNonOwnerPlaybook`
-                    # declare `SLOT_4 = False`, donc les 21 classes de la famille le portent toutes
-                    # et le defaut serait mort. Un objet ETRANGER a la famille doit lever ici, pas
-                    # se faire silencieusement traiter comme un `false` -- le residu #477-r37 porte
-                    # justement la relecture du `<slot 4>` des 22 autres classes.
+                    # declare `SLOT_4 = False`, donc TOUTE classe de la famille le porte (mesure :
+                    # 22 classes du module, 2 bases + 20 concretes) et le defaut serait mort. Un
+                    # objet ETRANGER a la famille doit LEVER ici, pas se faire silencieusement
+                    # traiter comme un `false`. Le `<slot 4>` des 28 concrets du binaire est LU et
+                    # VERSIONNE (#477-r37) ; le cliquet confronte le port au binaire classe par
+                    # classe (`probe_477r37_slot4_et_faces_restantes.py` etape 0a).
                     if not (pb.SLOT_4 or is_friend):
                         continue          # `!<slot 4> && !IsFriend` = IsInvalidEntityForPlaybook
                     total += pb.calculate_movement_utility_in_steps(tile, u, is_friend, ctx, wt)
