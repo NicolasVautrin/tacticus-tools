@@ -39,12 +39,17 @@ from __future__ import annotations
 DECLENCHEUR = {
     "chemins": (),
     "build": False,
-    "toujours": False,
-    "raison": "Aucun chemin hors cascade (mesure `--proposer`). Le fichier n'ouvre ni binaire ni "
-              "`data/symbols/**` : il construit ses unites a la main et lit le seul `range` du "
-              "gameconfig, deja couvert par la cascade. `build: False` -- rien n'est fige depuis "
-              "le binaire, les deux litteraux gardes (`ascending=false`, `team=1`) viennent du "
-              "decompile CITE, et c'est le texte de la citation qui les tient, pas une table.",
+    "toujours": True,
+    "raison": "`chemins` VIDE parce que `probe_486r15 --proposer` mesure que la fermeture d'imports "
+              "de ce fichier (474 modules) tient ENTIEREMENT dans la cascade derivee du foyer, "
+              "qu'on ne redeclare pas (#531) -- rien ne reste a borner, et un perimetre vide avec "
+              "`toujours: False` ne serait JAMAIS rejoue. D'ou `toujours: True` : le fichier est "
+              "offline et court (7 tests, ~2 s, aucun runner). Ce qu'il garde justifie de le "
+              "rejouer toujours : le SENS du tri et l'ancre d'equipe sont deux litteraux relus au "
+              "decompile (`ascending = false`, `Player(<team>)`), et se tromper sur l'un comme sur "
+              "l'autre est SILENCIEUX -- l'ensemble reste identique, seul l'ordre change, et la "
+              "garde live compare des ensembles. `build: False` : rien n'est fige depuis le "
+              "binaire, c'est le texte de la citation qui tient les deux litteraux, pas une table.",
 }
 
 import pytest

@@ -36,12 +36,17 @@ from __future__ import annotations
 DECLENCHEUR = {
     "chemins": (),
     "build": False,
-    "toujours": False,
-    "raison": "Aucun chemin hors cascade (mesure `--proposer`). Le fichier lit le REGISTRE d'effets "
-              "et le gameconfig, tous deux couverts par la cascade derivee du foyer. `build: False` "
-              "-- aucune valeur n'est figee depuis le binaire : les magnitudes sont re-derivees du "
-              "gameconfig a chaque passe, et ce que le test fige est la STRUCTURE des gates (quatre "
-              "fermetures, une discrimination, une linearite), qui vient du decompile CITE.",
+    "toujours": True,
+    "raison": "`chemins` VIDE parce que `probe_486r15 --proposer` mesure que la fermeture d'imports "
+              "de ce fichier (450 modules) tient ENTIEREMENT dans la cascade derivee du foyer, "
+              "qu'on ne redeclare pas (#531) -- il ne reste donc rien a borner, et un perimetre "
+              "vide avec `toujours: False` ne serait JAMAIS rejoue. D'ou `toujours: True` : le "
+              "fichier est offline et court (7 tests, ~2 s, aucun runner), le cout de le rejouer a "
+              "chaque passe est negligeable devant ce qu'il garde -- les quatre FERMETURES de gate "
+              "de l'effet 1550, qu'aucun autre test ne voit (le garde existant ne mesure que le "
+              "gate OUVERT, donc il reste vert si `AreFriends` disparait). `build: False` : aucune "
+              "valeur n'est figee depuis le binaire, les magnitudes sont re-derivees du gameconfig "
+              "a chaque passe et seule la STRUCTURE des gates est assertee.",
 }
 
 import pytest
@@ -113,6 +118,30 @@ def test_mechanical_attacker_reads_the_OTHER_config_var():
         "attaquant MECANIQUE et non-mecanique rendent la MEME magnitude (%s) : soit le `If("
         "IsMechanical(...))` a saute, soit extraDmg == extraDmg_2 au gameconfig -- dans les deux "
         "cas ce garde ne discrimine plus" % plain.value)
+
+
+@pytest.mark.parametrize("trait", ["Mechanical", "LivingMetal", "Vehicle"])
+def test_is_mechanical_is_a_disjunction_of_THREE_traits(trait):
+    """LE BUG QUE CE FICHIER A TROUVE. `IdunBattle.Entities.UnitExtensions$$IsMechanical` =
+
+        HasTrait(0x5 Mechanical) || HasTrait(0x3e8 LivingMetal) || HasTrait(0x405 Vehicle)
+
+    Le site testait `"Mechanical" in traits`. Le raccourci ne leve pas : il lit l'AUTRE branche du
+    `If` et rend `extraDmg` au lieu d'`extraDmg_2` -- une magnitude fausse, en silence.
+
+    C'est le camp NECRON qui le paie : `Chronometron` est une ability necron, ses allies portent
+    `LivingMetal` et non `Mechanical`. Le regime le plus frequent de cet effet etait donc
+    precisement celui que le port ratait, et aucun test ne le voyait (le seul garde existant
+    n'exerce que le cas non-mecanique).
+
+    Les trois traits sont testes SEPAREMENT : un helper qui n'en couvrirait que deux passerait un
+    test qui les poserait ensemble."""
+    plain = _bonus(_effect(), _attacker(traits=("Necron",)))
+    mecha = _bonus(_effect(), _attacker(traits=("Necron", trait)))
+    assert plain is not None and mecha is not None
+    assert mecha.value != plain.value, (
+        "trait `%s` : l'attaquant n'est pas reconnu MECANIQUE (meme magnitude %s que sans le "
+        "trait) -- `IsMechanical` a ete relu comme un test de trait UNIQUE" % (trait, plain.value))
 
 
 def test_enemy_attacker_closes_the_AreFriends_gate():
