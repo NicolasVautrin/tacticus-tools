@@ -389,6 +389,7 @@ def gates_forges(cap, owner_id, ally_id, foe_id):
     capture : `matches` doit rendre FAUX pour un acteur ENNEMI, pour un acteur sans `Hero`, et pour
     un acteur `MachineOfWar`. Les deux derniers sont obtenus en MUTANT la liste de traits de l'allie
     (l'etat est une copie locale : rien n'est ecrit live)."""
+    from engine.dsl.event_trigger_type import EventTriggerType
     from engine.runner.components import StatsComponent
     from engine.runner.operations.triggers.base import TriggerEvent
     from engine.runner.operations.triggers.loki.talons_of_the_emperor import (
@@ -400,7 +401,10 @@ def gates_forges(cap, owner_id, ally_id, foe_id):
     def _ev(actor):
         # `On(0xe = UnitPostAbility)` : `actor` = le caster de l'ability qui se ferme ; ni `ranged`
         # ni `profile` ne sont lus par ce trigger (aucun noeud de profil dans son `CreateTrigger`).
-        return TriggerEvent(event_id=14, actor_id=int(actor), target_id=int(actor),
+        # L'ordinal etait ECRIT en dur (`14`) alors que le commentaire, lui, nommait deja l'event :
+        # c'est exactement le regime ou la faute serait INVISIBLE, l'ordinal etant juste.
+        return TriggerEvent(event_id=int(EventTriggerType.UnitPostAbility),
+                            actor_id=int(actor), target_id=int(actor),
                             ranged=False, profile=None, ability_type=MOMENT_SHACKLE)
 
     def _traits(uid):
@@ -742,7 +746,14 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     sid = _sid()
-    base = a.state_file or os.path.join(PYDIR, "logs", "state_521r1_%d.json" % os.getpid())
+    # `<racine>/logs`, pas `scripts/python/logs` : les deux sont gitignores (`.gitignore` -> `logs/`
+    # matche a tout niveau), mais `probe_273 --only-scan` etape 0 classe SORTIE sur le PREMIER
+    # SEGMENT du chemin relatif au depot -- `scripts/...` n'en est pas un, donc la forme `PYDIR /
+    # "logs"` sortait en `[FAIL] entree gitignoree lue depuis la racine sans passer par host_inputs`.
+    # C'est la forme du probe FRERE de la meme tranche (`probe_521_talons_of_the_emperor.py`) et des
+    # 71 autres du depot ; ce site en etait le SEUL ecart.
+    base = a.state_file or os.path.join(str(Path(PYDIR).parents[1]), "logs",
+                                        "state_521r1_%d.json" % os.getpid())
     os.makedirs(os.path.dirname(base), exist_ok=True)
 
     regimes = (["chaine", "attaque_normale"] if a.regime == "tous" else [a.regime])
