@@ -123,9 +123,29 @@ ne passent pas par la voie `order='adjacent'`.
     (sans quoi l'arrêt à un maillon ne prouverait rien — un montage à un seul ennemi rendrait le
     même `[81]`).
 * **Périmètre de re-jeu dérivé** (§2), joué : voir §7.
-* **NON couvert** : le filtre `onlyWalkableTiles`. `AdjacentTilesSelector$$Select` appelle
-  `IterateAdjacentTiles(tile, 0, 1, 1)` — donc `onlyWalkableTiles = true` — alors que le capteur
-  du `boardGraph` utilise `(0, 0, 1)`. Le champ `neighbours` sur-atteint donc encore le sélecteur
-  des tuiles **non walkable**. Écart vraisemblablement inerte pour la voie UNITÉ (`IsWalkable` ne
-  lit pas l'occupant : il teste `tile[+0x40][+0x10] == 0` puis le fog), mais **non mesuré** →
-  résidu `#515-r1`.
+### Résidu `#515-r1` — le filtre `onlyWalkableTiles` du sélecteur n'est PAS dans le substrat
+
+**Non couvert par cette tranche, et c'est un axe DISTINCT de la porte d'élévation.**
+`IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` appelle son itérateur avec les
+littéraux `(tile, 0, 1, 1)` — soit, contre la signature lue dans `frida/methods.tsv`
+(`IterateAdjacentTiles(from, onlyEmptyOrSteppable, onlyWalkableTiles, allowTemporary)`),
+**`onlyWalkableTiles = true`**. Le capteur du `boardGraph`, lui, utilise `(t, false, false, true)`
+(#148). Le champ `neighbours` sur-atteint donc encore le sélecteur, des tuiles **non walkable**.
+
+Ce que la lecture d'`IdunBattle.Entities.TileExtensions$$IsWalkable(tile, checkFog)` donne, et qui
+sépare deux sous-cas :
+
+* le composant `tile[+0x40]` avec `[+0x10] != 0` — le mur. `IsWalkable` **ne lit pas l'occupant**,
+  donc pour la voie UNITÉ il faudrait qu'une unité se tienne sur un mur. Vraisemblablement inerte.
+* `checkFog` (passé à `true` par l'itérateur) → `tile[+0x20][+0x40] == 0`, le **brouillard**. Une
+  tuile embuée **peut** porter une unité, et là le filtre mordrait pour de bon. Le `boardGraph` ne
+  publie pas ce flag — c'est le canal manquant.
+
+**Rien de tout cela n'est mesuré**, et le sens de l'écart est le même que celui qu'on vient de
+réparer (permissif). Pour le trancher il faut soit publier `isFogged` dans le `boardGraph`, soit
+mesurer live si une unité peut occuper une tuile refusée par `IsWalkable`. Cette tranche ne le
+fait pas et n'a rien changé sur cet axe.
+
+* **Autres points NON couverts** : `MatchesUnitSelectionType` sur la résolution d'occupant (résidu
+  `#433-r3-r2`, préexistant) ; les 143 fichiers `indéterminés` du cran de re-jeu (ni board ni
+  position littérale lisible — jamais classés hors périmètre, seulement non priorisés).
