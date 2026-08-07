@@ -54,11 +54,17 @@ from _move_tile_sweep_order import build_sweep_order_case  # noqa: E402
 # montage installait. Le pas de depart reste celui de la mesure d'origine, `search` ouvre la
 # fenetre, et le couple (porteur, ability declenchee) est le critere -- exactement ce que les deux
 # premieres assertions du fichier verifiaient deja.
+#
+# ⚠ **LA RECHERCHE NE VA QUE VERS L'AVANT** : le pas de DEPART doit etre PRUDENT. Mesure de
+# `probe_506r1_balayage_ties.py --carrier admecMarshall` : sur `C4_09`/31337, `admecMarshall` n'est
+# active que TROIS fois (pas 7, 18, 19) et **seul le pas 7 porte une action d'attaque** -- une
+# fenetre ouverte a 8 le manquait d'UN pas, et rendait « fenetre epuisee ». Partir bas coute
+# quelques `aiStepDryRun` ; partir haut rend le montage introuvable.
 _TEMPL = ["--p-units", "templAncient,ultraApothecary,astraCreed,templChampion,tauDarkstrider"]
 # (board, seed, pas de DEPART, largeur de recherche, porteur attendu, ability declenchee, extra)
-CASES = [("C4_09", "999", 14, 24, "templAncient", 1106, []),
-         ("C4_09", "31337", 8, 20, "admecMarshall", 1457, []),
-         ("C3_01", "777", 14, 24, "templAncient", 1106, _TEMPL)]
+CASES = [("C4_09", "999", 10, 26, "templAncient", 1106, []),
+         ("C4_09", "31337", 3, 24, "admecMarshall", 1457, []),
+         ("C3_01", "777", 10, 26, "templAncient", 1106, _TEMPL)]
 
 
 @pytest.fixture(scope="module", params=CASES, ids=lambda c: "%s-%s-s%d" % c[:3])

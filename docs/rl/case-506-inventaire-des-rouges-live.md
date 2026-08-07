@@ -448,11 +448,18 @@ stat globale (comme #419-r6) en cree une fournee d'un coup.
   > 3. **le critere doit porter TOUTES les premisses que les assertions supposent.** Chercher le
   >    seul couple (porteur, ability) laissait tomber les gardes sur `assert c.best is not None` :
   >    au pas 18 de `C4_09`/31337, `admecMarshall` est bien active avec sa relique mais fait un
-  >    MOUVEMENT PUR. Le predicat exige donc aussi `best is not None`.
+  >    MOUVEMENT PUR. Le predicat exige donc aussi `best is not None` ;
+  > 4. **la recherche ne va que vers l'AVANT, donc le pas de DEPART doit etre PRUDENT.** Mesure
+  >    (`probe_506r1_balayage_ties.py --carrier admecMarshall`) : sur `C4_09`/31337 ce porteur
+  >    n'est active que TROIS fois (pas **7**, 18, 19) et **seul le pas 7 porte une attaque**. Une
+  >    fenetre ouverte a 8 -- le pas epingle d'origine etant 22 -- le manquait d'UN pas et rendait
+  >    « fenetre epuisee ». Partir bas coute quelques `aiStepDryRun` ; partir haut rend le montage
+  >    introuvable, et le fait passer pour disparu.
   >
   > Bilan : `test_move_tile_sweep_order_live` **5 passed / 1 skipped** (le skip est celui, NOMME,
   > du couple non discriminant, conforme a son en-tete d'origine) et
-  > `test_tile_term_triggered_playbooks_live` **8 passed** sur ses deux couples `AstartesBanner`.
+  > `test_tile_term_triggered_playbooks_live` **12 passed** -- ses TROIS couples, relique comprise.
+  > Depart : 3 failed / 8 passed / 7 skipped.
 
 * **`#506-r2` -- le MEME vice, un site plus loin, NON MESURE.**
   `engine/playbook/prediction/normal_attack.py` porte un second
