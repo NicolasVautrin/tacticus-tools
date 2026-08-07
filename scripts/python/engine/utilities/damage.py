@@ -186,11 +186,12 @@ def might_be_overkill(pred) -> bool:
     # (utilite 37) sur TOUT kill critique dans `[PV, 2 x PV)`. MESURE (probe_r34, formule ISOLEE --
     # memes predictions natives des deux cotes) : natif 148.2903 vs port 133.2903 = **exactement
     # PossibleOverkill (15.0)**, et 0 ecart dans le regime sans crit.
-    # Producteurs de la cle : `playbook/probable_damage_event.py::composite_fields` (<- `dp.might_crit`,
-    # pose par `services/damage_prediction.attacker_could_crit`) et `engine_agreement_stages.
+    # Producteurs de la cle : `utilities/damage.composite_fields_from_prediction` (<- `dp.might_crit`,
+    # pose par `services/damage_prediction.attacker_could_crit`), consomme par la chaine PLAYBOOK
+    # (`ProbableDamageEvent`) ET par le SELECTEUR de tri (`runner/operations/damage_utility`, depuis
+    # #494-r1-r1 -- le residu qui vivait ici est ferme) ; et `engine_agreement_stages.
     # _fields_from_native_event` (<- `mightCrit` du decodeur natif). `.get(...)` absent/None -> 0 =
-    # l'ancien comportement, pour les producteurs qui ne posent pas la cle (cf. residu nomme
-    # `runner/operations/damage_utility.py`, doc case-r34).
+    # le chemin DEGRADE, qui n'a aucune prediction d'ou tirer le flag.
     #
     # #195 -- `isPreventOverkill` (5e arg) = `result@+0xb3` = `HasFlag(cible, 0x13)`, lu par les DEUX
     # bornes (contrairement a `isCritical`). Le corps prive ne teste `pct` QUE `if (!isPreventOverkill
