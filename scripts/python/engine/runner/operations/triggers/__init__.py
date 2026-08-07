@@ -33,8 +33,8 @@ from .dispatch.registry import (
     ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS, EFFECT_TRIGGERS, TRAIT_TRIGGERS
 )
 from .dispatch.turn import (
-    end_turn_summon_triggers, start_turn_triggers, tile_tick_triggers, turn_start_other_triggers,
-    unit_finished_turn_normally_triggers, unit_finished_turn_triggers
+    delayed_attack_triggers, end_turn_summon_triggers, start_turn_triggers, tile_tick_triggers,
+    turn_start_other_triggers, unit_finished_turn_normally_triggers, unit_finished_turn_triggers
 )
 from engine.services.damage_prediction import is_overkill, unit_is_overkill
 from .loki import (
@@ -54,7 +54,7 @@ __all__ = [
     "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "ACTIVE_ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
     "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",
     "after_death_triggers", "is_overkill", "unit_is_overkill", "start_turn_triggers",
-    "turn_start_other_triggers", "tile_tick_triggers",
+    "turn_start_other_triggers", "tile_tick_triggers", "delayed_attack_triggers",
     "unit_finished_turn_triggers", "unit_finished_turn_normally_triggers",
     "pre_attack_triggers", "pre_unit_ability_triggers", "unit_post_ability_triggers",
     "after_hit_normal_attack", "after_hit_ability_attack", "after_move_triggers", "displace_triggers",

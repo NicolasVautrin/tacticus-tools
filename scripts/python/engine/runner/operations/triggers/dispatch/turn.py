@@ -63,6 +63,31 @@ def turn_start_other_triggers(state: State, player_id: int) -> list[dict]:
     return evaluate_trigger_operation(state, ev)
 
 
+def delayed_attack_triggers(state: State, player_id: int) -> list[dict]:
+    """Vecteur `On(0x15 = TurnStart_DelayedAttacks = 21)` -- le QUATRIEME des cinq events que
+    `IdunBattle.Operations.StartTurnOperation$$Execute` publie (sequence 0x12 -> 0x13 -> 0x14 ->
+    **0x15** -> 0x16), et le SEUL qui restait sans consommateur porte : `turnflow.py` le nommait
+    encore << role a mapper >>.
+
+    Son role est desormais LU : c'est l'event sur lequel
+    `IdunBattle.Entities.Effects.APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal` monte le
+    `Triggered()` de TOUTE la famille des attaques DIFFEREES (20 classes d'effet, #513) --
+    `On(0x15) & IsTurnOf(GetAttackingUnitSelector())` -> `TriggerAbility(...) & RemoveEffect(Effect)`.
+    Le nom de l'enum le disait deja : `TurnStart_DelayedAttacks`.
+
+    `actor`/`target` = -1 (aucun acteur unique) ; chaque trigger filtre sur `ev.player_id`, exactement
+    comme `turn_start_other_triggers` et `start_turn_triggers`. No-op si aucun effet de la famille
+    n'est pose.
+
+    ⚠ Le gate `IsTurnOf` porte sur l'unite ATTAQUANTE (l'entite BONDEE), pas sur le porteur de
+    l'effet -- qui, sur `1069 SeekerMissileFrequencyLock`, appartient au camp ADVERSE. C'est ce qui
+    fait partir le missile au tour du CASTER et non au tour de sa victime (mesure : cf.
+    `triggers/pending_attack.py` §1)."""
+    ev = TriggerEvent(EventTriggerType.TurnStart_DelayedAttacks, -1, -1,
+                      ranged=False, profile=None, player_id=player_id)
+    return evaluate_trigger_operation(state, ev)
+
+
 def unit_finished_turn_triggers(state: State, unit_id: int) -> list[dict]:
     """Vecteur `On(0x28 = UnitFinishedTurn = 40)` -- le DEUXIEME des trois evenements que
     `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` publie (#354) :

@@ -112,14 +112,26 @@ def full_throttle_tree(chance: int, rng) -> If:
     return If(MaybeTrigger(rng, Const(int(chance))), Kill(Caster(), Caster()), None)
 
 
-def execute_full_throttle(state: State, owner_id: int) -> Optional[dict]:
+def execute_full_throttle(state: State, owner_id: int,
+                          entities=None, ectx_appelant=None) -> Optional[dict]:
     """Entree de `TRIGGERED_ABILITY_BEHAVIOURS[1134]` -- le callable que le noeud DSL
     `TriggerAbility` invoque, unite par unite, pour un declenchement DIRECT.
 
     `chance` vient du gameconfig (`FullThrottle.constants.chance` = 30) ; absente -> `0`, et
     `next_bool(0)` est toujours faux : le port ne tue alors personne plutot que d'inventer un taux.
     C'est la MEME doctrine que le refus de dispatcher `BattleFatigue` (dont la config, elle,
-    n'existe PAS du tout -- ici elle existe, d'ou l'entree)."""
+    n'existe PAS du tout -- ici elle existe, d'ou l'entree).
+
+    ⚠ `entities` / `ectx_appelant` sont les DEUX parametres que #513 a ajoutes au contrat du
+    registre (le noeud natif reconstitue un `AbilityEntities` depuis ses quatre selecteurs et le
+    passe a l'operation). CE call-site les IGNORE, et c'est le comportement STRICTEMENT d'avant :
+    il rebatit `entities_from_state(state, owner_id)` (donc `Caster` = l'unite DECLENCHEE) et son
+    propre `ExecutionContext`. Sur `...StormboyzStrike_MissAbility`, seul call-site porte, le
+    selecteur `caster` du noeud est le caster du Miss, qui n'est pas forcement l'unite declenchee :
+    le port choisirait donc une AUTRE unite s'il consommait `entities`. Basculer sur les entities du
+    noeud changerait la semantique de FullThrottle -- residu NOMME **#513-r5**, hors de la tranche
+    qui l'a rendu visible. Les nommer ici plutot que d'avaler un `*args` muet est ce qui rend le
+    residu greppable."""
     if state is None or owner_id is None:
         return None
     import gameconfig as GC

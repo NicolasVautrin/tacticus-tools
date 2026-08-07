@@ -107,7 +107,12 @@ jamais un vert.
 
 ## Résidus
 
-- **#491-r1 — la PHASE 2 n'est pas portée.** `SeekerMissileFrequencyLock_AttackAbility$$CreateBehaviour`
+- **#491-r1 — FERMÉ par #513** (`case-513-attaque-differee-pending-attack.md`). Le foyer
+  `IdunBattle.Entities.Effects.APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal` est porté
+  pour les **20** dérivées, le vecteur `On(0x15 = TurnStart_DelayedAttacks)` est câblé, et le missile
+  part au tour du CASTER pour **3424 = 3424** (4 tirages des deux côtés). L'énoncé d'origine, conservé
+  pour la traçabilité de la lecture :
+  ~~`SeekerMissileFrequencyLock_AttackAbility$$CreateBehaviour`~~
   (1127) : `AttackWithAbilityDamage(Caster, Target, RandomAmount(ConfigVar(0xc minDmg),
   ConfigVar(0xd maxDmg)), GetDamageProfileOrDefault(0x13), GetNumberConstant(0x2f nrOfHits))
   & RemoveEffect(Caster, 1136 _Aiming)`, l'état d'ability étant repris via

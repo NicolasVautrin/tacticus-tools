@@ -698,17 +698,20 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   unité peut occuper une tuile refusée par `IsWalkable`. `[opus]` —
   `case-515-adjacence-du-runner.md` §6.
 
-- **`#491-r1` — la PHASE 2 de `1069 SeekerMissileFrequencyLock` n'est pas portée.**
-  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SeekerMissileFrequencyLock_AttackAbility$$CreateBehaviour`
-  (`TriggeredAbilityType.SeekerMissileFrequencyLock_Attack` = 1127) porte
-  `AttackWithAbilityDamage(Caster, Target, RandomAmount(ConfigVar(0xc minDmg), ConfigVar(0xd maxDmg)),
-  GetDamageProfileOrDefault(0x13), GetNumberConstant(0x2f nrOfHits))
-  & RemoveEffect(Caster, 1136 _Aiming)`, l'état d'ability venant d'
-  `AbilityStateFromEffect(EffectFromOwner(Target, 0x463))`. Déclencheur = `APendingAttackEffect`
-  (dont `SeekerMissileFrequencyLockTargetEffect` hérite) : **c'est lui le point d'entrée à RE**, et
-  il est PARTAGÉ par toute la famille « pending attack » — donc la tranche vaut aussi pour
-  `#90-B` (1160 `HeavyRailRifle`, même résidu ouvert). Tant qu'elle manque, le port pose le
-  verrouillage et le missile ne part jamais offline. Cf. `case-491-seeker-missile-frequency-lock.md`.
+- **`#513-r7` — CINQ phases 2 restent à porter, et le FOYER les attend.** `#491-r1` est **FERMÉ**
+  (`case-513-attaque-differee-pending-attack.md`) : `APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal`
+  est porté (`engine/runner/operations/triggers/pending_attack.py`), le vecteur `On(0x15 =
+  TurnStart_DelayedAttacks)` est câblé, et la phase 2 de `1069` frappe pour **3424 = 3424** en
+  bit-exact (4 tirages des deux côtés). Le recensement DÉRIVÉ
+  (`probe_513_pending_attack_family.py`) donne **20** dérivées, dont **6** à phase 1 portée. Restent
+  **cinq** : `1018 ValkyrieStrike` (1026), `1141 OverwhelmingWrath` (1237, = `#503-r1`),
+  `1142 MalleusRocketLauncher` (1239), `1160 HeavyRailRifle` (1260, = `#90-B`),
+  `1188 DevastatingRefrain` (1315). Chacune coûte **une ligne de table + un arbre de `CreateBehaviour`
+  + une entrée de `TRIGGERED_ABILITY_BEHAVIOURS`** — le déclenchement, le retrait et le vecteur sont
+  déjà là. ⚠ **Le critère d'inscription est la phase 2, pas la famille** : inscrire un effet sans son
+  arbre de dégât le ferait EFFACER par le `RemoveEffect(Effect)` du même `Triggered()` sans que rien
+  ne frappe — pire que le marqueur inerte d'aujourd'hui (garde :
+  `test_513_pending_attack_live::test_la_phase2_de_1069_est_inscrite`). | `[opus]` |
 
 - **`#491-r2` — `audit_combat_ability_coverage.py` ne peut pas voir qu'un cast ne frappe pas.**
   Sa colonne `categorie` dérive du **gameconfig** (`damageProfile` du kit), pas de

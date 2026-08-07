@@ -387,11 +387,24 @@ class Kill(AbilityBehaviour):
 
 
 # Registre des abilities TRIGGERED declenchables DIRECTEMENT par le noeud `TriggerAbility` :
-# `TriggeredAbilityType (int) -> callable(state, owner_id) -> dict | None`. VIDE par defaut, et c'est un
-# CHOIX documente, pas un oubli : le seul call-site porte (HeraldOfTheApocalypse 1020 -> BattleFatigue
-# 0x401) declenche un behaviour dont le gate central N'A AUCUNE SOURCE OFFLINE (cf. `TriggerAbility`).
+# `TriggeredAbilityType (int) -> callable(state, owner_id, entities, ectx) -> dict | None`.
 # Une entree ici DOIT etre integralement sourcable (config gameconfig ou etat runner), sinon elle
-# INVENTE la mutation.
+# INVENTE la mutation. Le call-site `HeraldOfTheApocalypse` (1020 -> BattleFatigue 0x401) reste
+# DELIBEREMENT absent : son behaviour a un gate central sans AUCUNE source offline (cf. la docstring
+# de `TriggerAbility`).
+# ⚠ CE DICT N'EST PAS VIDE, et la ligne qui l'affirmait ici a coute un rouge (#513) : il est peuple
+# a l'IMPORT par les modules d'abilities -- `loki/full_throttle.py` (1134) depuis #448-r1,
+# `abilities/tau.py` (1127) depuis #513. Elargir la signature exige donc de mettre a jour CHAQUE
+# entree ; c'est la banque de tests qui l'a dit, pas la lecture du dict au repos.
+#
+# ⚠ `entities` EST L'`AbilityEntities` DU DECLENCHEUR, ET C'EST LE NATIF QUI LE VEUT (#513) :
+# `IdunBattle.Entities.Behaviours.TriggerAbilityBehaviour$$Execute` resout ses QUATRE selecteurs
+# (`+0x60` actor, `+0x68` caster, `+0x70` target, `+0x78` unitFeetTiles) UNE FOIS, puis les passe --
+# reconstitues en un `AbilityEntities` -- au slot d'operation 0x56 POUR CHAQUE unite declenchee. La
+# signature `(state, owner_id)` d'avant #513 laissait donc tomber `caster` et `target`, ce qui est
+# sans consequence tant que les deux valent l'owner mais FAUX des qu'ils divergent : sur
+# `APendingAttackEffect` (`triggers/pending_attack.py`), `caster` est l'unite ATTAQUANTE et `target`
+# le PORTEUR de l'effet, qui appartiennent a DEUX JOUEURS DIFFERENTS.
 TRIGGERED_ABILITY_BEHAVIOURS: dict[int, object] = {}
 
 
@@ -538,7 +551,7 @@ class TriggerAbility(AbilityBehaviour):
                 skipped.append(int(uid))                     # gate `GetAbilityState` -- cf. ci-dessous
                 results.append(None)
                 continue
-            results.append(None if fn is None else fn(state, uid))
+            results.append(None if fn is None else fn(state, uid, entities, ectx))
         ectx.emit("TriggerAbility", ability_type=self.ability_type, targets=targets,
                   dispatched=fn is not None, results=results, notCarrying=skipped)
         return OperationResult.ok()
