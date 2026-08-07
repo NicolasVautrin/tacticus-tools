@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **52** ; kits avec du travail : **75**
-- Volume total : **92** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **91** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -35,13 +35,13 @@
 | BloodAngels | 5 | 6 |
 | Necrons | 5 | 6 |
 | WorldEaters | 5 | 6 |
-| Aeldari | 4 | 5 |
 | Custodes | 4 | 5 |
 | DarkAngels | 4 | 5 |
 | LeaguesOfVotann | 5 | 5 |
 | Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
 | ThousandSons | 3 | 5 |
+| Aeldari | 4 | 4 |
 | AstraMilitarum | 3 | 4 |
 | BlackTemplars | 4 | 4 |
 | Orks | 3 | 4 |
@@ -71,12 +71,12 @@
 | admecManipulus | 1 | DefendTheDivineWork(1117) [CD] OK | GalvanicField | - |
 | admecRuststalker | 1 | CordClaw(1122) [CD] OK | OptimizedGait | - |
 
-### Aeldari — 4 kits, 5 items
+### Aeldari — 4 kits, 4 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | eldarAutarch | 1 | Loki_SwoopingHawk(1064) [--] NO-OP DAMAGE(Piercing) | - | - |
-| eldarJainZar | 2 | SilentDeath(1068) [--] NO-OP DAMAGE(Piercing) | TerrorsLament | - |
+| eldarJainZar | 1 | SilentDeath(1068) [C-] OK | TerrorsLament | - |
 | eldarLhykhis | 1 | EmpyricAmbush(1232) [C-] OK | WhisperingWeb | - |
 | eldarRanger | 1 | FireAndReposition(1063) [--] NO-OP EFFECT/BUFF | - | - |
 

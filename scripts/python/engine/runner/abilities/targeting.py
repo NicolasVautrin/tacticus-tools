@@ -840,10 +840,10 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.BloodyFury: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1129
                            force_melee_target=RANGED_BOOL_FALSE),
 
-    # --- STATIC-COPY (9) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
+    # --- STATIC-COPY (8) : aucun ctor appele, masque = `<preset>+0x28` du `.cctor` -------------
     # ⚠ 1027 PsychicMaelstrom (preset `+0x180`) est SORTIE d'ici en #490 -- comme 1088 en #487,
-    #   1069 en #491 et 1048 en #489 : sa face COMBAT est desormais portee, donc son masque vit
-    #   sur la classe du registre
+    #   1069 en #491, 1048 en #489 et 1068 en #497 : sa face COMBAT est desormais portee, donc son
+    #   masque vit sur la classe du registre
     #   (`abilities/loki/psychic_maelstrom.py::PsychicMaelstromAbility.TARGETING_OPTIONS`). Le
     #   masque n'a PAS bouge (rules 0x4002, RANGE_FROM_CONFIG, forceMeleeTarget 1) -- c'est la
     #   SOURCE qui change, et le contrat de disjonction impose de retirer la ligne d'ici.
@@ -856,9 +856,12 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `return DiveAttackAbilityBase$$.ctor(this);` ; c'est la BASE qui recopie le preset `+0x40`.
     ActiveAbilityType.Loki_SwoopingHawk: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1064
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1068 SilentDeath -- `...Active.Loki.SilentDeathAbility$$.ctor`, preset `+0x40`.
-    ActiveAbilityType.SilentDeath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1068
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1068 SilentDeath (preset `+0x40`) est SORTIE d'ici en #497, MEME migration que 1069 ci-dessous :
+    #   sa face COMBAT est portee (`engine/runner/abilities/aeldari.py::SilentDeathAbility`), donc son
+    #   masque vit sur la classe du registre. Le ctor a ete RELU a cette occasion et il CONCORDE, champ
+    #   pour champ, avec ce que cette entree portait -- `*(statics+0x68) = 0x4000` = `TargetIsEnemy`
+    #   SEUL, `+0x60 = 1` = `RangedBool.False`, range = `<TargetingRange statics+0x30>` = RANGE_ADJACENT.
+    #   Deux lectures independantes du meme ctor, meme resultat.
     # ⚠ 1069 SeekerMissileFrequencyLock (preset `+0x180`) est SORTIE d'ici en #491 : sa face COMBAT
     #   est desormais portee, donc son masque vit sur la classe du registre
     #   (`engine/runner/abilities/tau.py::SeekerMissileFrequencyLockAbility.TARGETING_OPTIONS`).

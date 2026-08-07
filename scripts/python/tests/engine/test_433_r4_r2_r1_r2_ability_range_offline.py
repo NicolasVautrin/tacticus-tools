@@ -197,10 +197,11 @@ def test_no_ability_has_two_contradictory_sources():
 #: le meme commit -- c'est le pendant, cote perimetre, du contrat de disjonction que garde
 #: `tests/engine/runner/test_targeting_options_sources.py`.
 #: Sorties : 1087 `ExemplarOfTheKauyon` (#488), 1048 `FragstormGrenadeLauncher` (#489),
-#: 1069 `SeekerMissileFrequencyLock` (#491), 1088 `HellfyreMissileRack` (#487) -- toutes pour la
-#: MEME raison : leur face COMBAT est portee, donc leur masque a MIGRE sur la classe.
+#: 1069 `SeekerMissileFrequencyLock` (#491), 1088 `HellfyreMissileRack` (#487),
+#: 1027 `PsychicMaelstrom` (#490), 1068 `SilentDeath` (#497) -- toutes pour la MEME raison :
+#: leur face COMBAT est portee, donc leur masque a MIGRE sur la classe.
 POOL_ABILITIES_WITHOUT_COMBAT_CLASS = [
-    1005, 1019, 1038, 1039, 1049, 1050, 1057, 1061, 1063, 1064, 1068,
+    1005, 1019, 1038, 1039, 1049, 1050, 1057, 1061, 1063, 1064,
     1101, 1106, 1121, 1129, 1132, 1141, 1152, 1164, 1165, 1175, 1177, 1183, 1191, 1195,
     1197, 1204,
 ]

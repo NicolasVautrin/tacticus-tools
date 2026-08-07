@@ -95,7 +95,10 @@ SNAP_TARGETING_UNPORTED = (
     # qui portent desormais 1027 l'ecrivent par le MEMBRE et `probe_313` garde la bijection.
     (1063, (16386, False, (3, False, False, None, False), 2)),
     (1064, (16384, False, (0, False, False, 1, False), 1)),
-    (1068, (16384, False, (0, False, False, 1, False), 1)),
+    # 1068 SilentDeath RETIREE (#497) : sa face COMBAT est portee, donc son masque a MIGRE sur
+    # `SilentDeathAbility.TARGETING_OPTIONS` -- meme mouvement que 1027/1048/1069/1087/1088. Le
+    # ctor a ete RELU a cette occasion et la valeur figee ici est CONFIRMEE champ pour champ
+    # (`16384` = `TargetIsEnemy` seul, `RANGE_ADJACENT`, `forceMeleeTarget = 1`).
     (1132, (16384, False, (0, False, False, 1, False), 1)),
     (1165, (16384, False, (0, False, False, 1, False), 1)),
     (1177, (4328538162, False, (1, False, True, None, False), 1)),
@@ -311,17 +314,18 @@ def test_snapshot_ordinal_valeur_et_ordre():
 
 
 def test_cardinalites_du_volet():
-    """Le compte du volet 2 : 39 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 123 cles.
+    """Le compte du volet 2 : 38 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 122 cles.
 
     ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
     perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
     COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 40 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487). Ce que ce cliquet garde
-    est la CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la taille des tables."""
+    passe de 44 a 38 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
+    1068 (#497). Ce que ce cliquet garde est la CONVERSION EN MEMBRES D'ENUM des cles restantes --
+    pas la taille des tables."""
     tailles = [len(s) for _v, s, _e, _n in CIBLES]
-    assert tailles == [39, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
+    assert tailles == [38, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
-    assert sum(tailles) == 123
+    assert sum(tailles) == 122
     for vivant, snap, _enum, nom in CIBLES:
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

@@ -149,6 +149,95 @@ CONFRONTABILITE : `eldarLhykhis` est **HORS CATALOGUE** du seed BC (`catalog_inj
 `rl_duel build --list-pool` ne la rend pas) -> injection `catalog_inject.write_augmented_seed_bc` +
 `build --seed-bc` (`docs/rl/case-92-catalog-injection.md` §6). C'est le MEME montage que
 `probe_589r1r1_empyric_ambush_live.py`, qui castait deja 1232 en LIVE.
+
+SilentDeath (1068, `eldarJainZar` « Jain Zar »). Namespace natif `Abilities.Active.Loki.
+SilentDeathAbility`. C'est une **CHAINE DE DEGAT** -- le seul arbre de ce module dont la structure
+est CONSTRUITE PAR UNE BOUCLE C# a la construction du behaviour, pas ecrite en dur.
+`IdunBattleLogic.Entities.Abilities.Active.Loki.SilentDeathAbility$$ExecuteBehaviour`
+(MIRROR du DECOMPILE, terme a terme, dans l'ordre des allocations) :
+
+    df       = this+0x30                                    # DSLFactory
+    sel      = df+0x90                                      # DSLSelectors
+    beh      = df+0x78                                      # DSLBehaviors
+    d        = new <>c__DisplayClass1_0 { ability = this, abilityState = *abilityState }
+    ennemis  = DSLSelectors$$Cache( DSLSelectors$$Enemies( of       = sel+0x48 = Caster,
+                                                          entities = sel+0x20 = AllUnits,
+                                                          selectionType = 3 ),
+                                    matchAbilityEntities = 1 )
+    amorce   = DSLBehaviors$$SetCache( ennemis )
+    prev     = sel+0x60 = Target
+    vus      = new List<TargetsSelector>()
+    b        = DSLBehaviors$$Nothing()  op_Addition  d.<ExecuteBehaviour>b__0( prev )
+    vus.Add( prev )
+    for (i = 0 ; i < GetNumberConstant(config+0x60, 0x11 = nrOfTargets) ; i++) :
+        pool = DSLSelectors$$AdjacentUnits( prev, unique = 1, selectionType = 3 )
+               op_BitwiseAnd  ennemis
+        foreach (s in vus) : pool = pool op_Subtraction s
+        pris = DSLSelectors$$Cache( DSLSelectors$$PickRandomly( pool, amount = 1,
+                                                               allowDuplicates = 0,
+                                                               maxDuplicatesAllowed = 0x7fffffff,
+                                                               ignoreForcedTargets = 0 ), 1 )
+        b    = b  op_Addition  d.<ExecuteBehaviour>b__0( pris )
+        vus.Add( pris )
+        prev = pris
+    AActiveAbility$$Execute( DSLBehaviors$$Group( amorce op_BitwiseAnd b,
+                                                 groupEntity = DSLSelectors$$None(),
+                                                 groupType   = 0x1d ),
+                             entities )
+
+    <>c__DisplayClass1_0$$<ExecuteBehaviour>b__0(cible) =
+        DSLBehaviors$$AttackWithAttackDamage(
+            caster        = sel+0x48,
+            target        = cible,
+            amount        = AActiveAbility$$MinMaxDamage(d.abilityState, isPrediction: 0),
+            damageProfile = Nullable( AActiveAbility$$GetDamageProfile() ),
+            hits          = DSLFormulas$$Get( GetNumberConstant(config+0x60, 0x2f = nrOfHits) ),
+            abilityOrEffect = AbilityOrEffect$$op_Implicit(...),
+            options       = <struct ZEROEE, HasValue = 0>,
+            selectionType = 2 )
+
+i2 : « Jain Zar throws the Silent Death at an adjacent enemy, dealing 3x minDmg-maxDmg Piercing Damage
+to it **and up to nrOfTargets additional enemies adjacent to each other**, before returning to Jain
+Zar's hands. » Config 1068 LUE : `attackRangeType = Melee` (-> `is_melee=True`), `damageProfile =
+Piercing`, `nrOfHits = 3`, `nrOfTargets = 3` -> jusqu'a **4** unites frappees (la cible + 3 maillons).
+
+CINQ lectures que le decompile impose et qu'on ne devine pas :
+
+  * **La chaine est SEQUENTIELLE, chaque maillon partant du PRECEDENT** : `AdjacentUnits(prev, ...)`
+    ou `prev` est le maillon `i-1`, PAS la cible primaire. « up to N additional enemies adjacent to
+    EACH OTHER » de l'i2 dit exactement ca. Un port qui prendrait N ennemis adjacents a la CIBLE
+    (patron splash Executioner/HarvesterOfSouls) frapperait un ensemble DIFFERENT des le maillon 2.
+  * **Les selecteurs sont LAZY, donc la chaine s'INTERLEAVE avec les degats.** Chaque maillon est un
+    `Cache(PickRandomly(...))` qui n'est evalue qu'a l'execution de SON `AttackWithAttackDamage` --
+    c'est-a-dire APRES que le maillon precedent a encaisse ses coups. Le pool du maillon `i` voit donc
+    l'etat POST-degat du maillon `i-1` : une unite tuee par le maillon `i-1` n'est plus sur sa tuile
+    (`UnitsOnTilesSelector`, filtre d'occupation mirrore par `_within`) et ne peut pas etre piquee.
+    Le `Cache` est ce qui FIGE le tirage : le meme selecteur est relu par le `op_Subtraction` des
+    iterations suivantes SANS re-tirer (cache hit, 0 rng).
+  * **Le `SetCache(ennemis)` fige le camp ADVERSE AVANT le premier coup** (`amorce` est l'operande
+    GAUCHE du `op_BitwiseAnd` final, donc executee en tete). Le pool d'ennemis est donc celui du
+    DEBUT du cast, intersecte a chaque maillon avec l'adjacence VIVANTE du moment. C'est ce qui rend
+    l'ordre `SetCache` puis attaques observable, et pourquoi il n'est PAS foldable ici (contrairement
+    a Executioner, dont le `SetCache` etait un no-op mono-cible).
+  * **`vus` retranche TOUS les maillons deja frappes, la cible primaire COMPRISE** : la chaine ne
+    revient jamais en arriere, meme si la geometrie le permettrait (deux ennemis mutuellement
+    adjacents ne se renvoient pas la balle). C'est une liste, pas un simple `!= prev`.
+  * **Le degat n'a AUCUN override, et il est IDENTIQUE sur les 4 feuilles** : le lambda `b__0` est
+    UNE seule methode, appelee avec des `cible` differentes -- memes `MinMaxDamage` (bornes config),
+    meme `Nullable(GetDamageProfile())` = `Piercing`, memes `hits = nrOfHits` = 3. Le 7e argument
+    `Nullable<AttackDamageBehaviourOptions>` est passe **VIDE** (`local_78..local_58 = 0`) -> ni
+    `alwaysOverkilled`, ni `alwaysCrit`, ni variance d'arme. Le `pierce` de la mecanique `pierce` du
+    kit vient donc du PROFIL (`Piercing.PiercingRatio`) + les stats `ExtraPierce*` du caster, par le
+    volet commun `profile_pierce` -- il n'y a AUCUN terme de percage propre a 1068.
+
+`Group(..., 0x1d)` = `GroupType.DamageChain` (LU dans `data/symbols/<build>/frida/enums.tsv`, pas
+devine) : groupe de PRESENTATION, pass-through d'etat cote port (#201, meme statut qu'`AtomicGroup`).
+Son `groupEntity` est `DSLSelectors$$None()` -- METADONNEE de vue, jamais evaluee.
+
+CONFRONTABILITE : `eldarJainZar` est un HERO du pool `rl_duel build --list-pool` (verifie rank 17) ;
+aucune injection catalogue, aucun montage de relique. Portee ADJACENTE (preset `+0x40`) -> le drive
+des positions (`--place`/`--a-place`) est OBLIGATOIRE pour qu'un ennemi soit au contact, et il faut
+en aligner PLUSIEURS pour exercer la chaine au-dela du maillon 1.
 """
 from __future__ import annotations
 
@@ -156,14 +245,16 @@ from typing import Optional, TYPE_CHECKING
 
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import op_and, If, AtomicGroup
+from ...entities.behaviours import op_add, op_and, If, AtomicGroup, Group, SetCache
 from ...entities.effect_type import EffectType
 from ...entities.selectors.accessors import CasterTile, Owner, Target, TargetTile
-from ...entities.selectors.geometry import Randomize
-from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster, SortTilesByUtility
+from ...entities.selectors.geometry import Cache, Null, PickRandomly, Randomize
+from ...entities.selectors.tiles import (AdjacentTiles, AllUnits, CanAddUnit, Caster,
+                                         SortTilesByUtility)
 from ...entities.selectors.units import (
     AdjacentEnemies, AdjacentUnits, Alive, And, Damageable, Enemies, First, Sub, SurroundingUnits
 )
+from ...streams.group_type import GroupType
 from ...entities.triggers import IsDead, OwnerIsAlive
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatType
@@ -174,8 +265,8 @@ from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect
 from .behaviours.movement import FlyUnit
-from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
-                        TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ...entities.effects.magnitude import ability_var
 
@@ -491,3 +582,177 @@ class EmpyricAmbushAbility(ActiveAbility):
         return {"ability": EMPYRIC_AMBUSH_CONFIG, "caster": caster_id, "target": target_id,
                 "move": fly, "attack": (atk or {}).get("attack"), "mark": mark, "dsl": True,
                 "emitted": [n for n, _ in ectx.emitted]}
+
+
+# ====================== SilentDeath (1068, eldarJainZar) -- #497 ================================ #
+
+SILENT_DEATH_ID = "SilentDeath"                             # la cle gameconfig de l'ability 1068
+#: `attackRangeType` de la config 1068 = « Melee » -> `is_melee=True` (le volet PERCAGE lit l'arme melee).
+SILENT_DEATH_IS_MELEE = True
+#: `DSLBehaviors$$Group(..., groupType = 0x1d)` -- membre LU dans `frida/enums.tsv` du build, pas devine.
+SILENT_DEATH_GROUP = GroupType.DamageChain                  # 0x1d = 29
+
+
+def silent_death_profile() -> str:
+    """`IdunBattle.Entities.Abilities.AActiveAbility$$GetDamageProfile` ->
+    `IdunBattle.Configuration.AbilityConfiguration$$GetDamageProfile(config@+0x60)` : la constante
+    `damageProfile` de la config 1068, RELUE du gameconfig (= « Piercing »), jamais codee en dur.
+    Config sans la cle -> `""`, ce que le natif rend comme `Nullable` VIDE et que le port resout en
+    repli d'arme. MEME lecture que `empyric_ambush_profile` ci-dessus."""
+    import gameconfig as GC
+    consts = (GC.ability(SILENT_DEATH_ID) or {}).get("constants") or {}
+    return str(consts.get("damageProfile") or "")
+
+
+def silent_death_num_targets() -> int:
+    """`IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(config@+0x60, 0x11)` =
+    `AbilityConstantType.nrOfTargets` -- la BORNE de la boucle qui construit la chaine (= 3 sur 1068).
+
+    C'est un nombre de maillons ADDITIONNELS : le natif attaque la cible primaire AVANT d'entrer dans
+    la boucle, donc le cardinal maximal frappe est `1 + nrOfTargets`. Constante absente -> 0 (le natif
+    `GetNumberConstant` d'un index manquant rend 0, pas 1) = la cible primaire seule."""
+    return int(ability_var(SILENT_DEATH_ID, "nrOfTargets", is_constant=True) or 0)
+
+
+def _silent_death_attack(target_sel):
+    """`<>c__DisplayClass1_0$$<ExecuteBehaviour>b__0(cible)` -- LA feuille, UNIQUE cote natif et
+    re-instanciee par maillon cote port (le natif n'a qu'UNE methode, invoquee avec des `cible`
+    differentes) :
+
+        AttackWithAttackDamage( caster = <DSLSelectors+0x48>, target = cible,
+                                amount        = MinMaxDamage(abilityState, isPrediction: 0),
+                                damageProfile = Nullable(GetDamageProfile()),
+                                hits          = Get(GetNumberConstant(0x2f = nrOfHits)),
+                                abilityOrEffect = AbilityOrEffect(this+0x10),
+                                options       = <Nullable VIDE> )
+
+    Mode BORNES (`min_key`/`max_key`/`hits_key` par defaut = `minDmg`/`maxDmg`/`nrOfHits`), aucun
+    override de degat ni de coups. `native_factory="attack"` : le call-site vise bien
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (famille ATTACK, 2 tirages/coup a
+    cc=0), jamais `AttackWithAbilityDamage`. `multi=True` : le natif passe TOUJOURS par
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (resolution de LISTE + `OrderBy`), y
+    compris quand le selecteur est un singleton -- et le maillon d'une chaine epuisee resout un
+    ensemble VIDE, que le mode multi traite en no-op exact (aucune attaque emise)."""
+    return AttackWithAttackDamage(target_sel, SILENT_DEATH_ID, silent_death_profile(),
+                                  is_melee=SILENT_DEATH_IS_MELEE, multi=True,
+                                  native_factory="attack",             # DSLBehaviors$$AttackWithAttackDamage
+                                  ability_type=int(ActiveAbilityType.SilentDeath))
+
+
+def silent_death_tree(n_targets: int) -> Group:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SilentDeathAbility$$ExecuteBehaviour`
+    (MIRROR du DECOMPILE ; la boucle C# native est deroulee ICI, comme elle l'est chez le natif -- ce
+    n'est pas un raccourci de port, c'est la CONSTRUCTION du behaviour) :
+
+        ennemis = Cache( Enemies( AllUnits() ) )                  # Enemies(Caster@0x48, AllUnits@0x20, 3)
+        prev    = Target()                                        # <DSLSelectors+0x60>
+        vus     = [ prev ]
+        b       = Attack(prev)                                    # Nothing() + b__0(Target)
+        pour i dans [0, n_targets) :
+            pool = And( AdjacentUnits(prev), ennemis )            # AdjacentUnits(prev,1,3) & <cache>
+            pour s dans vus : pool = Sub(pool, s)                 # foreach : pool = pool - s
+            pris = Cache( PickRandomly(pool, 1) )                 # PickRandomly(pool,1,0,MAXINT,0)
+            b    = op_add( b, Attack(pris) )
+            vus.append(pris) ; prev = pris
+        Group( op_and( SetCache(ennemis), b ), DamageChain, None() )
+
+    `Nothing()` (`IdunBattleLogic.Entities.DSLBehaviors$$Nothing`) = feuille NEUTRE en tete du
+    `op_Addition` : aucun etat, aucun tirage -> NON materialisee (meme convention que
+    `early_warning_override_tree`, `runner/abilities/tau.py`). L'arbre porte demarre a la 1re attaque.
+
+    `AdjacentUnits(prev)` (radius 1 par defaut) mirrore `DSLSelectors$$AdjacentUnits(prev, unique: 1,
+    selectionType: 3)` = `Units(AdjacentTiles(prev), 1, 3) op_Subtraction prev`. Le volet ALIVE de
+    `UnitSelectionType.OnlyAliveAndTargetable` (3) est deja porte PAR `_within` (`dsl/base.py`, filtre
+    `_is_alive`, mirror de `UnitsOnTilesSelector` : un mort n'est plus sur sa tuile, #57m) -- d'ou
+    l'absence de wrapper `Alive` ICI, qui serait redondant. RESIDU NOMME : le volet « Targetable »
+    (deep strike / `TeleportingIn`) n'est modelise nulle part cote port.
+
+    `Cache` porte le `matchAbilityEntities = 1` du natif en mode SLOT UNIQUE : tout l'arbre s'evalue
+    sous LE MEME `AbilityEntities` (aucun `Foreach` au-dessus), donc les deux modes coincident. La
+    memoisation est OBSERVABLE et REQUISE : sans elle, le `op_Subtraction` des iterations suivantes
+    re-tirerait le `PickRandomly` et desalignerait tout le flux rng.
+
+    L'ARBRE EST RECONSTRUIT PAR CAST (les `Cache` sont a etat) -- appeler cette fonction une fois par
+    `execute_behaviour`, jamais la memoiser au niveau module."""
+    ennemis = Cache(Enemies(AllUnits()))                    # DSLSelectors$$Cache(Enemies(...), 1)
+    prev = Target()                                         # <DSLSelectors+0x60>
+    vus = [prev]                                            # List<TargetsSelector>, primaire en tete
+    node = _silent_death_attack(prev)                       # Nothing() + b__0(Target) -> la 1re attaque
+    for _ in range(max(0, int(n_targets))):
+        pool = And(AdjacentUnits(prev), ennemis)            # & <cache ennemis> (fige AVANT le 1er coup)
+        for seen in vus:                                    # foreach s in vus : pool = pool - s
+            pool = Sub(pool, seen)
+        pris = Cache(PickRandomly(pool, 1))                 # 1 tirage rng des que le pool est non vide
+        node = op_add(node, _silent_death_attack(pris))
+        vus.append(pris)
+        prev = pris                                         # le maillon SUIVANT part d'ICI
+    # `groupEntity` = `DSLSelectors$$None()` : le port n'a pas d'homonyme `None` -- `Null` (« entite
+    # NULLE ») est le plus proche, et c'est une METADONNEE de vue que `Group` n'evalue jamais.
+    return Group(op_and(SetCache(ennemis), node),
+                 group_id=int(SILENT_DEATH_GROUP), targets_sel=Null())
+
+
+class SilentDeathAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SilentDeathAbility$$ExecuteBehaviour` (id
+    **1068**, `eldarJainZar` « Jain Zar », Aeldari) -- MIRROR du DECOMPILE, arbre DSL
+    (`silent_death_tree`).
+
+    Jain Zar lance le Silent Death sur un ennemi ADJACENT (`nrOfHits` = 3 coups `Piercing` melee),
+    puis l'arme REBONDIT jusqu'a `nrOfTargets` = 3 fois : chaque rebond pique AU HASARD un ennemi
+    encore vivant, adjacent au maillon PRECEDENT, jamais deja frappe. Jusqu'a 4 unites, 3 coups
+    chacune. La chaine s'arrete d'elle-meme des qu'un maillon n'a aucun voisin eligible (le
+    `PickRandomly` rend un ensemble vide -> la feuille est un no-op, et les maillons suivants aussi
+    puisqu'ils partent de ce vide).
+
+    Le behaviour EST l'arbre DSL : les feuilles `AttackWithAttackDamage` (mode bornes) emettent la
+    MEME Operation d'attaque d'ability que le pipeline combat porte -> bit-exact BY CONSTRUCTION vs
+    une sequence directe sous meme rng. ORDRE RNG, et il est CONTRAINT : `SetCache` (0 tirage), puis
+    pour chaque maillon `k` -- les 3 coups du maillon `k`, PUIS le tirage du maillon `k+1`. Le pick
+    vient APRES les degats parce que le selecteur est LAZY et n'est evalue qu'a l'execution de SA
+    feuille.
+
+    Retour : {ability, caster, target, chain, hits, max_targets, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.SilentDeath)        # 1068 = 0x42c
+    ABILITY_ID = SILENT_DEATH_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET STATIQUE COPIE** (la 3e des
+    # trois formes) : `...SilentDeathAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`. Il recopie les 0x40 octets du champ STATIQUE
+    # de `TargetingOptions` a l'offset **`+0x40`** du bloc `<class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &opts, 0)   # 3e arg = 0 = AbilityAttackType.DirectTargetAttack
+    # Aucun litteral de masque n'est visible dans le ctor : le masque EFFECTIF est la constante ecrite
+    # par `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28` = `*(statics+0x68)`.
+    #
+    # Le preset lu EN ENTIER (bloc `statics+0x40` du `cctor`), pas seulement son champ `Rules` :
+    #     <preset>+0x00 = *(statics+0x40) = 0                  -> isSelfCasting = false
+    #     <preset>+0x08 = copie de `TargetingRange statics+0x30` -> **RANGE_ADJACENT**
+    #                     (`cctor` : `+0x30 = 0` onlyAdjacent, `+0x38 = Nullable(1)`)
+    #     <preset>+0x20 = *(statics+0x60) = 1                  -> forceMeleeTarget = RangedBool.False
+    #     <preset>+0x28 = *(statics+0x68) = 0x4000             -> Rules = `TargetIsEnemy` SEUL
+    # C'est le preset PARTAGE par 1053/1064/1108/1129/1132/1165/1191/1195 et par
+    # `DiveAttackAbilityBase$$.ctor` -- mais il a ete RELU sur CE ctor, pas recopie d'une voisine
+    # (mesure de la vague #491 : deux abilities a masque identique peuvent differer sur
+    # `forceMeleeTarget`, et ce seul champ change le regime de portee).
+    #
+    # AUCUN `TargetMatchesDynamicRule` (0x2) ni `CasterMatchesDynamicRule` (0x4) -> les deux
+    # `GetDynamicInvalid*Reason` de la base (defaut 0) sont le mirror EXACT, pas une degradation.
+    # Cette entree MIGRE depuis `TARGETING_OPTIONS_UNPORTED` (`abilities/targeting.py`) : contrat de
+    # disjonction -- une ability portee porte son masque sur SA classe.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                                         range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        n_targets = silent_death_num_targets()               # GetNumberConstant(0x11 = nrOfTargets)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        silent_death_tree(n_targets).execute(                # arbre NEUF par cast (les `Cache` ont un etat)
+            entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        # ORDRE D'EMISSION = ordre de la chaine (le 1er est la cible primaire, cf. l'arbre) : on le
+        # conserve tel quel, c'est lui l'observable a confronter au natif.
+        chain = [{"target": p.get("target"), "attack": p.get("attack")} for p in atks]
+        return {"ability": SILENT_DEATH_ID, "caster": caster_id, "target": target_id,
+                "chain": chain, "hits": len(chain), "max_targets": 1 + int(n_targets), "dsl": True}

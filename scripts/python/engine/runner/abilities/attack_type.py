@@ -145,6 +145,10 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.ScythingTalons: AbilityAttackType.DirectTargetAttack,  # 1065
     ActiveAbilityType.Executioner: AbilityAttackType.DirectTargetAttack,  # 1066
     ActiveAbilityType.HarvesterOfSouls: AbilityAttackType.DirectTargetAttack,  # 1067
+    # `SilentDeathAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0)`. Le litteral est `0`, et
+    # il est TRANSCRIT : ni deduit de la forme de l'arbre (une CHAINE de 4 attaques), ni du profil de
+    # degat (`Piercing`). (#497)
+    ActiveAbilityType.SilentDeath: AbilityAttackType.DirectTargetAttack,  # 1068
     # SeekerMissileFrequencyLock (1069, #491) : `...SeekerMissileFrequencyLockAbility$$.ctor` recopie
     # le preset statique `TargetingOptions statics+0x180` puis `AActiveAbility..ctor(this, &opts, 0)`.
     # MEME configuration que Drachnyen ci-dessus : le litteral est `0` bien que le behaviour
