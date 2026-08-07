@@ -594,6 +594,22 @@ def _worktrees_et_livrees(src: Sources) -> tuple[tuple[int, str], tuple[int, str
                                     "--format=%(refname:short)", *refs), orph, toutes
 
 
+def _session_du_worktree(chemin: str) -> str | None:
+    """La boucle qui a lance l'agent de ce worktree, ou None. Ne LEVE jamais.
+
+    L'id de l'agent est deja dans le CHEMIN (`.claude/worktrees/agent-<id>`) -- mesure du
+    #467-r8 : 1 agent sur 6 le recopie inutilement dans son marqueur. On le lit donc la, et on
+    demande a `fleet_board` sous quelle session son transcript a ete ecrit.
+    """
+    base = Path(chemin).name
+    if not base.startswith("agent-"):
+        return None
+    try:
+        return fleet_board.session_de_l_agent(base[len("agent-"):])
+    except Exception:                                            # noqa: BLE001
+        return None
+
+
 def mesurer_livraison(src: Sources) -> dict:
     """Toutes les entrees de la livraison, en PARALLELE.
 
@@ -694,6 +710,12 @@ def mesurer_livraison(src: Sources) -> dict:
             raison = livraison.garde_marquee(chemin)
             (gardes if raison is not None else nett).append(
                 {"branche": br, "chemin": chemin, "voie": verdicts[br].voie,
+                 # LA BOUCLE qui a lance cet agent, DERIVEE (#467-r8). Publiee, jamais
+                 # transformee en verdict : ce lecteur ne connait pas SA propre session, donc
+                 # il ne peut pas dire << la mienne >> -- et inventer cette attribution est
+                 # exactement la faute que le residu a mesuree (un worktree defendu quatre
+                 # tours sur une propriete supposee, qui s'est revelee FAUSSE).
+                 "session": _session_du_worktree(chemin),
                  **({"raison": raison} if raison is not None else {})})
         if not nett and not gardes and ancetres is None and not fenetre_pr.mesuree:
             # AUCUNE des deux voies n'a repondu : une liste vide se lirait « rien a nettoyer ».

@@ -200,6 +200,30 @@ def transcripts(racine: Path, only_alive: bool) -> list[Path]:
     return sorted(out)
 
 
+def session_de_l_agent(agent_id: str, racine: Path | None = None) -> str | None:
+    """La SESSION qui a lance `agent_id`, ou None si aucun transcript ne porte ce nom.
+
+    DERIVEE de l'emplacement du fichier, pas demandee a l'agent : le harnais ecrit sous
+    `<projet>/<SESSION DU LANCEUR>/subagents/agent-<id>.jsonl`, donc la reponse est vraie
+    RETROACTIVEMENT et pour un agent deja termine -- ce que `collect(only_alive=True)` ne peut
+    pas dire, puisqu'il ne rend que les vivants.
+
+    Un GLOB CIBLE, pas un balayage : `collect(include_done=True)` relit tous les transcripts
+    (54,8 s mesurees le 2026-08-04), alors qu'ici on ne cherche qu'un nom de fichier. Le cout
+    est celui d'un parcours de repertoires, sans ouvrir un seul octet de transcript.
+
+    ⚠ Meme limite que le champ `session` de `collect` : un petit-fils remonte sous la session
+    RACINE. Ce lecteur repond a << quelle boucle ? >>, jamais a << quel lanceur direct ? >>.
+    """
+    try:
+        base = racine if racine is not None else project_dir()
+        for p in base.glob("*/subagents/agent-%s.jsonl" % agent_id):
+            return p.parent.parent.name
+    except (OSError, SystemExit):
+        return None
+    return None
+
+
 def collect(include_done: bool, only_alive: bool = False) -> list[dict]:
     """Lignes de la flotte. `only_alive` ne rend QUE les « vif », et vite.
 
@@ -266,7 +290,22 @@ def collect(include_done: bool, only_alive: bool = False) -> list[dict]:
             # `isolation: worktree` n'en a pas non plus, et serait pris pour un enfant. La
             # profondeur, elle, dit ce qu'elle dit.
             depth=int(meta.get("spawnDepth") or 1),
-            parent=meta.get("parentAgentId") or ""))
+            parent=meta.get("parentAgentId") or "",
+            # LA SESSION QUI A LANCE cet agent -- DERIVEE de l'emplacement du transcript
+            # (`<projet>/<SESSION DU LANCEUR>/subagents/agent-<id>.jsonl`), jamais demandee a
+            # l'agent : c'est le HARNAIS qui ecrit, donc c'est vrai retroactivement et sans
+            # marque a poser.
+            #
+            # POURQUOI (#467-r8). Un worktree a ete defendu QUATRE TOURS au motif qu'il
+            # << appartenait a l'autre orchestrateur >> -- attribution jamais mesuree, et
+            # FAUSSE : le transcript vivait sous notre propre session. La propriete EST
+            # derivable ; ce qui manquait, c'est de regarder.
+            #
+            # ⚠ LIMITE, a dire plutot qu'a taire : un petit-fils (un `re-expert` lance par un
+            # solveur) est ecrit sous la session RACINE, pas sous celle de son lanceur direct.
+            # Ce champ repond donc a << est-ce MA boucle ? >>, jamais a << l'ai-je lance
+            # moi-meme ? >> -- ce qui suffit exactement a ne pas toucher au travail d'autrui.
+            session=p.parent.parent.name))
     rows.sort(key=lambda r: (RANG[r["state"]], -r["ctx"]))
     return rows
 
