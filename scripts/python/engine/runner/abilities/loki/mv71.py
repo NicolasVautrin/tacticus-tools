@@ -98,6 +98,11 @@ from ....entities.effect_type import EffectType
 from ....entities.traits.unit_trait import UnitTrait, entity_trait_names
 from ....entities.triggered_ability_type import TriggeredAbilityType   # #270-r1-r1
 from ....services.battle_query import are_tiles_adjacent
+# #287-r11-r2-r1-r1 -- FORME B (module, pas symbole) : `_drone_attack_range` DELEGUE a son foyer
+# natif `BattleQuery$$GetUnitMaxRange`. Un `from ... import get_unit_max_range` gelerait la liaison
+# et NE MORDRAIT PAS sous `monkeypatch.setattr("engine.services.battle_query.get_unit_max_range")`.
+# Aucun cycle : `services.battle_query` est DEJA dans la cascade de ce module (l'import ci-dessus).
+from ....services import battle_query as _sbq
 from ....services.custom_normal_attack import substitutes_normal_attack
 from ....services.movement_query import get_tiles_obscuring_terrain
 from ....services.targeting_query import BLOCKING_ELEVATION_DIFFERENCE, OBSCURING_TYPE_ALL
@@ -116,11 +121,34 @@ CONFIG = "MV71SniperDroneSquad"    # l'entrée gameconfig qui porte constants/va
 
 
 def _drone_attack_range(unit_id: str) -> int:
-    """Portée d'attaque max du drone (mirror de la config d'unité résolue par le service slot 0xaa) :
-    max(Range des armes) ; armes mêlée seules -> 1."""
-    ranges = [int(w.get("Range") or 0) for w in ((GC.unit(unit_id) or {}).get("weapons") or [])]
-    mx = max(ranges) if ranges else 0
-    return mx if mx > 0 else 1
+    """Portee d'attaque max du drone = `IdunBattle.Core.Services.BattleQuery$$GetUnitMaxRange(unitId)`
+    (slot **171** d'`IBattleQuery`), DELEGUE a son foyer
+    `engine.services.battle_query.get_unit_max_range` (#287-r11-r2-r1-r1).
+
+    C'est la MEME fonction que la boucle INLINE de `BattleQuery$$IsTargetInAttackRangeForSummon`
+    (slot 196) -- corps confronte au decompile, identique aux deux endroits :
+
+        config = GetUnitConfig(unitId);
+        if (config == null || config.Weapons == null) return 0;
+        max = 0;
+        foreach (w in config.Weapons) max = Math.Max(max, w.Range.HasValue ? w.Range.Value : 1);
+        return max;
+
+    ⚠ CE QUI A CHANGE, ET LES DEUX REGIMES OU CA MORD (#287-r11-r2-r1-r1). Le corps LOCAL d'avant
+    ecrivait `int(w.get("Range") or 0)` puis `return mx if mx > 0 else 1` : il MAPPAIT le `0` natif
+    sur `1`, et lisait `0` (au lieu de `1`) pour une arme sans portee. Deux divergences :
+
+      * **config nulle, absente ou liste d'armes VIDE** -> natif `0`, port d'avant `1`. Regime reel :
+        les unites du gameconfig sans aucune arme (MoW et decor). Portee 1 ⇒ l'anneau de `_pick_tile`
+        (`1 <= d <= rng`) garde les tuiles ADJACENTES a la cible, la ou le natif n'en garde AUCUNE
+        (`1 <= d <= 0` est vide) -> une cible que le natif REFUSE etait acceptee. MEME direction
+        PERMISSIVE que l'ecart que #287-r11-r2-r1 a ferme ;
+      * **arme a `Range` explicitement `0`** (`HasValue` vrai, valeur 0) -> natif `0`, port d'avant
+        `1` (le `mx > 0 else 1` la rabattait). Distinct du precedent : ici la config EXISTE.
+
+    Le cas « toutes les armes sans `Range` » (melee pure) rendait deja `1` des deux cotes -- par
+    accident de compensation, pas par fidelite : `or 0` mettait 0, et `mx > 0 else 1` le remontait."""
+    return _sbq.get_unit_max_range(unit_id)
 
 
 def is_mv71_normal_attacker(visual_id, passive_abilities=None, active_abilities=None,
