@@ -97,6 +97,8 @@ class Entree:
         self.nature = self.nat_raison = ""
         self.confront = self.conf_raison = ""
         self.affirme_absence = False
+        self.ecart_chiffre = False
+        self.bloque_reinject = False
         self.score = 0.0
 
 
@@ -370,6 +372,9 @@ LEXIQUE_NATURE = [
         r"LUE? mais NON port", r"non port[ée]", r"pas port[ée]", r"partiellement",
         r"collapse", r"diverge", r"ecart mesure", r"le port rend", r"le port ne",
         r"n'a aucun substrat", r"NON port", r"n'est pas porte", r"ni portes",
+        r"la loi port[ée]e", r"rate le r[ée]gime", r"ne couvre pas", r"au lieu de",
+        r"n'est c[âa]bl[ée]", r"hors du domaine du port", r"ne mat[ée]rialise pas",
+        r"n'est pas outill", r"reste[nt]? non port",
     )),
     ("CONFRONTATION-MANQUANTE", (
         r"jamais confront", r"non confront", r"n'a pas ete monte", r"pas ete oppose",
@@ -394,7 +399,32 @@ ORDRE_NATURE = ["BUG-SILENCIEUX", "MIRROR-INCOMPLET", "CONFRONTATION-MANQUANTE",
                 "MESURE-MANQUANTE", "OUTILLAGE", "PROSE"]
 
 
+# Signal de GRAVITE, orthogonal a la taxonomie : la ligne porte-t-elle un ECART
+# CHIFFRE natif-vs-port deja mesure ? Un residu qui dit << natif 10073 contre
+# port 9575 >> n'est plus une intention : c'est un symptome constate, et il
+# passe devant un residu de meme nature qui n'en a pas. Motif volontairement
+# etroit -- deux nombres d'au moins 2 chiffres separes par un comparatif.
+RE_ECART_CHIFFRE = re.compile(
+    r"\b\d{2,}\b[^.|]{0,60}?\b(?:contre|vs\.?|au lieu de|puis)\b[^.|]{0,60}?\b\d{2,}\b"
+    r"|natif\s*[`\[]?\s*\d{2,}[^.|]{0,40}port\s*[`\[]?\s*\d{2,}"
+    r"|port\s*[`\[]?\s*\d{2,}[^.|]{0,40}natif\s*[`\[]?\s*\d{2,}",
+    re.IGNORECASE,
+)
+
+
+# Un residu qui exige un CAPTEUR NEUF (hook frida) n'est pas dispatchable seul :
+# il attend une fenetre de reinject, qui appartient a l'orchestrateur. Le dire
+# ici evite d'envoyer un solveur sur un mur.
+RE_BLOQUE_REINJECT = re.compile(
+    r"fen[êe]tre de reinject|exige une fen[êe]tre|capteur\s+`?frida|frida/hooks|"
+    r"reinject pour [êe]tre active|demande d'exposer",
+    re.IGNORECASE,
+)
+
+
 def classer_nature(e: Entree) -> None:
+    e.ecart_chiffre = bool(RE_ECART_CHIFFRE.search(e.brut))
+    e.bloque_reinject = bool(RE_BLOQUE_REINJECT.search(e.brut))
     trouves = []
     for etiquette, motifs in LEXIQUE_NATURE:
         for m in motifs:
@@ -501,6 +531,8 @@ def scorer(e: Entree) -> None:
         s += 10
     elif e.perimetre == "MOTEUR-FAIBLE":
         s += 2
+    if e.ecart_chiffre:
+        s += 25  # symptome deja CONSTATE, pas une intention
     e.score = float(s)
 
 
@@ -597,11 +629,14 @@ def main() -> int:
         print("\nCLASSEMENT PRIORISE -- %d premiers (score = nature + confrontabilite)" % a.top)
         print("  (PERIME-CANDIDAT et HARNAIS sont ECARTES : score -1)")
         for i, e in enumerate(sorted(moteur, key=lambda x: (-x.score, x.ident))[:a.top], 1):
-            print("  %2d. %-30s %3.0f  %-24s %-24s" % (i, e.ident, e.score, e.nature, e.confront))
+            print("  %2d. %-30s %3.0f %s%s %-24s %-24s"
+                  % (i, e.ident, e.score, "E!" if e.ecart_chiffre else "  ",
+                     "R!" if e.bloque_reinject else "  ", e.nature, e.confront))
 
     if a.tsv:
         out = Path(a.tsv)
         cols = ["id", "ligne", "score", "perimetre", "fraicheur", "nature", "confront",
+                "ecart_chiffre", "bloque_reinject",
                 "symboles", "ids", "probes", "perim_raison", "frai_raison",
                 "nat_raison", "conf_raison", "titre"]
         with out.open("w", encoding="utf-8", newline="") as fh:
@@ -609,7 +644,10 @@ def main() -> int:
             for e in sorted(entrees, key=lambda x: -x.score):
                 fh.write("\t".join([
                     e.ident, str(e.ligne), "%.0f" % e.score, e.perimetre, e.fraicheur,
-                    e.nature, e.confront, ";".join(e.symboles[:4]),
+                    e.nature, e.confront,
+                    "oui" if e.ecart_chiffre else "non",
+                    "oui" if e.bloque_reinject else "non",
+                    ";".join(e.symboles[:4]),
                     ";".join(str(i) for i in e.ids), ";".join(e.probes[:4]),
                     e.perim_raison, e.frai_raison, e.nat_raison, e.conf_raison,
                     e.titre[:300].replace("\t", " "),
