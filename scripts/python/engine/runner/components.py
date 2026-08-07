@@ -23,6 +23,7 @@ from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_po
 from ..entities.stats import StatType
 from ..entities.traits.unit_trait import UnitTrait as _UT, has_trait as _has_trait
 from ..entities.traits.unit_trait import UnitTrait, has_trait
+from ..entities.traits.unit_trait import entity_trait_names, has_any_trait   # #498-r2
 from ..entities.stats import StatType as _ST
 
 if TYPE_CHECKING:
@@ -1626,6 +1627,67 @@ def unit_extensions_is_alive(entity) -> bool:
     if uc is not None and not uc.alive:
         return False                        # `state.GetPool(EntityPool.AliveUnits).Contains(unit)`
     return unit_is_alive(entity)            # `HealthComponent.IsAlive`
+
+
+# --- Predicat de DEPLACABILITE (#498-r2) ------------------------------------------------------- #
+# Les TROIS traits que `IdunBattle.Entities.UnitExtensions$$IsDisplaceable` refuse, dans l'ordre du
+# decompile : `BaseUnitComponent$$HasTrait(u, 0x11)`, `(u, 0x3)`, `(u, 0x3f9)`. Les trois ordinaux
+# sont qualifies contre `data/symbols/<build>/frida/enums.tsv`, enum
+# `IdunBattle.Entities.Enum.UnitTrait` (`3=Hulking, 17=Immovable, 1017=BigTarget`).
+_NOT_DISPLACEABLE_TRAITS = (UnitTrait.Immovable,   # 0x11
+                            UnitTrait.Hulking,     # 0x3
+                            UnitTrait.BigTarget)   # 0x3f9
+
+
+def unit_extensions_is_displaceable(entity) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsDisplaceable(unit)` — MIRROR du decompile, relu
+    VERBATIM sur le build courant :
+
+        if (unit == null)                                       return false;
+        if (GetEntityType(unit) != EntityType.Unit)             return false;   // iface, slot 1
+        if (GetBaseUnitComponent(unit) != null
+            && BaseUnitComponent.HasTrait(unit, 0x11))          return false;   // Immovable
+        if (GetBaseUnitComponent(unit) != null
+            && BaseUnitComponent.HasTrait(unit, 0x3))           return false;   // Hulking
+        big = GetBaseUnitComponent(unit) != null
+              && BaseUnitComponent.HasTrait(unit, 0x3f9);                       // BigTarget
+        return !UnitExtensions.HasFlag(unit, 0x19) && !big;              // UnitFlag.Undisplaceable
+
+    ⚠ **Le natif ne teste AUCUNE LIVENESS ici.** Le gate `alive` que portaient les sites appelants
+    n'est PAS dans cette fonction : il reste chez EUX, nomme, parce qu'il n'a pas le meme statut
+    (cf. la docstring de `DisplaceUnitOperation` cote `operations/displace.py`).
+
+    `EntityType` : les valeurs sont LUES dans `frida/enums.tsv`
+    (`IdunBattle.Entities.Enum.EntityType` -> `1=Unit`, `6=Machine`). Cote port, le discriminant est
+    `MachineComponent` — MEME choix que `unit_extensions_is_alive` ci-dessus, qui traite deja la
+    branche `EntityType.Machine` par ce composant (une MoW est materialisee par `_load_machines`
+    avec `MachineComponent`, et sans `PositionComponent`).
+
+    Le substrat de traits est `entity_trait_names` (le FOYER : kit gameconfig + traits ACCORDES en
+    bataille + pseudo-trait d'alliance), pas `sc.ctx.traits` brut — c'est ce que lit
+    `BaseUnitComponent$$HasTrait`.
+
+    SIX LECTEURS PORTES (les six sites qui, natifs, passent par cette fonction) :
+    `DisplaceUnitOperation$$Execute` (tete, commune aux 7 cases du switch — donc pull, push, direct
+    ET switch-position), `DamagePrediction$$GetKnockback`, et les deux gates de
+    `UnstoppableMomentumReworkedAbility` (`$$Push` et le `CanBeDisplaced` de `$$SuppressOrStun`)."""
+    if entity is None:
+        return False
+    if entity.get_component(MachineComponent) is not None:
+        return False                        # `EntityType.Machine` (6) != `EntityType.Unit` (1)
+    sc = entity.get_component(StatsComponent)
+    uc = entity.get_component(UnitComponent)
+    traits = entity_trait_names(sc.ctx if sc is not None else None,
+                                getattr(uc, "visual_id", None) if uc is not None else None)
+    if has_any_trait(traits, _NOT_DISPLACEABLE_TRAITS):
+        return False
+    fl = entity.get_component(UnitFlagsComponent)
+    # `UnitExtensions$$HasFlag(unit, 0x19)` -> `UnitFlagsComponent$$Has`. Le flag est POSE et RETIRE
+    # par la charge de 1152 (`AddFlag`/`RemoveFlag` autour de `ExecuteBehaviour`), donc il est bien
+    # ECRIT cote port (`abilities/loki/momentum.py::_set_charge_flag`).
+    if fl is not None and fl.has(UnitFlag.Undisplaceable):
+        return False
+    return True
 
 
 # Effets dont la presence (owner OU target) fait qu'un move est un TELEPORT (cf. `set_moved_flag`) :

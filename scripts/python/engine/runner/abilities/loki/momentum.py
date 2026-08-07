@@ -164,6 +164,7 @@ from ..behaviours.context import entities_from_state
 from ..behaviours.effects import AddEffect, RemoveEffect
 from ..behaviours.movement import MoveUnit, PushToPrioritizedTiles, SwitchPosition
 from ...components import PositionComponent, StatsComponent, UnitComponent, UnitFlagsComponent
+from ...components import unit_extensions_is_displaceable   # #498-r2 : foyer d'`IsDisplaceable`
 from ....dsl.effects import ExecutionContext
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.ability_constant_type import AbilityConstantType
@@ -284,17 +285,21 @@ def _is_empty_or_steppable(state: "State", board, tile_id: int) -> bool:
 
 def _is_displaceable(state: "State", unit_id: int) -> bool:
     """`UnitExtensions$$IsDisplaceable(unit)` -- MEME substrat que la tete d'`IdunBattle.Operations.
-    DisplaceUnitOperation$$Execute` deja portee (`operations/displace.py`) : vivant, et sans
-    `Immovable` ni `BigTarget`."""
+    DisplaceUnitOperation$$Execute` (`operations/displace.py`), et depuis #498-r2 le MEME FOYER :
+    `runner/components.py::unit_extensions_is_displaceable`. Ce module en portait une COPIE qui ne
+    testait que `Immovable` et `BigTarget` -- il manquait `Hulking` (0x3) et le flag
+    `UnitFlag.Undisplaceable` (0x19), les deux dans le sens PERMISSIF.
+
+    Le gate `alive` ci-dessous n'est PAS dans le natif (relu : `IsDisplaceable` ne teste aucune
+    liveness). Il est CONSERVE parce qu'il est deja ventile `INERTE-VIVANT` par #462, et NOMME
+    ici : direction RESTRICTIVE (le port refuse de deplacer un cadavre que le natif accepterait)."""
     e = state.get_entity(int(unit_id))
     if e is None:
         return False
     uc = e.get_component(UnitComponent)
     if uc is not None and not uc.alive:
         return False
-    sc = e.get_component(StatsComponent)
-    traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-    return not has_any_trait(traits, (UnitTrait.Immovable, UnitTrait.BigTarget))
+    return unit_extensions_is_displaceable(e)
 
 
 def _can_move(state: "State", unit_id: int) -> bool:

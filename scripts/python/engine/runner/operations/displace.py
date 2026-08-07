@@ -30,8 +30,15 @@ Destination (mirror partie commune de `Execute`) :
   MoveUnit ; DisplaceUnit NE reecrit PAS la position lui-meme) -> pose PositionComponent + UnitFlag.Moved
   + tile-defense + cascade after-move (overwatch) deja cablees.
 - aucune tuile valide (hors-board / mur / occupee) -> **push ANNULE** (`lVar7==0` : return sans move).
-- garde `IsDisplaceable(pushed)` en tete : mort OU trait non-deplacable (Immovable=17, BigTarget=1017)
-  -> **no-op** (c'est pourquoi le test de Stun utilise tyranTyrantGuard=BigTarget pour neutraliser le push).
+- garde `IsDisplaceable(pushed)` en tete -> **no-op** (c'est pourquoi le test de Stun utilise
+  tyranTyrantGuard=BigTarget pour neutraliser le push). #498-r2 : cette garde est desormais le FOYER
+  `runner/components.py::unit_extensions_is_displaceable`, et elle porte les QUATRE refus du natif
+  (`Immovable=0x11`, `Hulking=0x3`, `BigTarget=0x3f9`, `HasFlag(UnitFlag.Undisplaceable=0x19)`)
+  plus la tete `EntityType == Unit` ; les quatre sites de ce module n'en portaient que DEUX.
+  ⚠ Le gate `alive` qui la precede aux trois `execute()` n'est PAS dans le natif -- `IsDisplaceable`
+  ne teste AUCUNE liveness (relu VERBATIM). Il est CONSERVE, hors du foyer, et sa direction est
+  RESTRICTIVE (le port refuse ce que le natif accepterait). `SwitchPositionOperation` ne l'a PAS :
+  le natif y traite la mort explicitement, par `HasFlag(u, UnitFlag.Dead)` moitie par moitie.
 
 SCOPE (1-hex simple) : push 1 tuile, stop sur mur/bord/occupee. La DISTANCE = 1 hex est TRANCHEE (cas
 #68, RE + live) : `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` choisit dans l'arc arriere DISTANCE-1 (`GetMinimumTiles180
@@ -62,6 +69,7 @@ from ...services.damage_combat import calculate_damage_operation
 from ...services.damage_config import resolve_damage_field
 from ..components import HealthComponent, StatsComponent
 from ..components import unit_is_dead
+from ..components import unit_extensions_is_displaceable   # #498-r2 : foyer d'`IsDisplaceable`
 from .damage import AttackDamageOperation
 
 # Distance du push, en tuiles = 1. CONSTANTE SOURCEE (cas #68 : RE decompile + confirme live), PAS une
@@ -167,8 +175,11 @@ def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: in
         return None
     sc = e.get_component(StatsComponent)
     traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-    # IdunBattle.Core.Services.DamagePrediction$$GetKnockback : IsDisplaceable (mort/Immovable/BigTarget) + !HasTrait(Immune=25) -> 0.
-    if has_any_trait(traits, (UnitTrait.Immovable, UnitTrait.BigTarget, UnitTrait.Immune)):
+    # `IdunBattle.Core.Services.DamagePrediction$$GetKnockback` = `IsDisplaceable(target)` PUIS
+    # `!UnitExtensions.HasTrait(target, 0x19 = UnitTrait.Immune)` -> 0 (aucun degat). Les deux
+    # `0x19` du voisinage ne designent PAS la meme chose : celui-ci est un TRAIT (`Immune`), celui
+    # d'`IsDisplaceable` un `UnitFlag` (`Undisplaceable`) -- c'est l'ecart que #498-r2 a dissout.
+    if not unit_extensions_is_displaceable(e) or has_any_trait(traits, (UnitTrait.Immune,)):
         return None
     thc = e.get_component(HealthComponent)
     if thc is None or thc.hp is None or not thc.hp_max:
@@ -330,13 +341,13 @@ class PullUnitOneTileOperation(Operation):
         upos = puller.get_component(PositionComponent)
         if ppos is None or upos is None:
             return {"moved": False, "reason": "no position"}
-        # --- IsDisplaceable (tete d'`Execute`) : mort ou non-deplacable -> no-op ---
+        # --- gate `alive` : ABSENT du natif, CONSERVE et nomme (#498-r2, cf. la docstring de
+        # `DisplaceUnitOperation`) ---
         uc = pulled.get_component(UnitComponent)
         if uc is not None and not uc.alive:
             return {"moved": False, "reason": "dead"}
-        sc = pulled.get_component(StatsComponent)
-        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-        if has_any_trait(traits, (UnitTrait.Immovable, UnitTrait.BigTarget)):
+        # --- `IsDisplaceable(target)` (tete d'`Execute`, commune aux 7 cases) -> no-op ---
+        if not unit_extensions_is_displaceable(pulled):
             return {"moved": False, "reason": "not displaceable"}
         cur = (ppos.col, ppos.row)
         # --- FindTileToPullOnce ---
@@ -414,8 +425,9 @@ class SwitchPositionOperation(Operation):
     d'`IdunBattle.Operations.DisplaceUnitOperation$$Execute` (`DisplaceDirection.SwitchPosition`),
     seule branche qui ne cherche AUCUNE tuile : les deux unites ECHANGENT leurs tuiles principales.
 
-    MIRROR du decompile, dans l'ordre :
+    MIRROR du decompile, dans l'ordre — **precede de la TETE d'`Execute`** (#498-r2) :
 
+        if (!UnitExtensions.IsDisplaceable(target)) return false;   // tete, AVANT le switch
         deadCaster = HasFlag(caster, UnitFlag.Dead = 6)
         deadTarget = HasFlag(target, 6)
         tileCaster = GetMainTile(caster) ; tileTarget = GetMainTile(target)
@@ -466,6 +478,13 @@ class SwitchPositionOperation(Operation):
         tpc = target.get_component(PositionComponent)
         if cpc is None or tpc is None:
             return {"switched": False, "reason": "no position"}
+        # --- `IsDisplaceable(target)` : la TETE d'`IdunBattle.Operations.DisplaceUnitOperation$$
+        # Execute` s'execute AVANT le `switch(direction)`, donc AUSSI pour le case 5. Ce site ne
+        # l'avait pas -- degradation PERMISSIVE : le port echangeait les tuiles d'une unite que le
+        # natif REFUSE de deplacer (#498-r2). `target` = le `displacedUnit` (unit2) du behaviour,
+        # jamais le caster : c'est bien lui que la tete du natif gate.
+        if not unit_extensions_is_displaceable(target):
+            return {"switched": False, "reason": "not displaceable"}
         tile_caster = (cpc.col, cpc.row)
         tile_target = (tpc.col, tpc.row)
         # `HasFlag(u, UnitFlag.Dead = 6)` : offline le flag natif n'est pas trace, le predicat
@@ -566,13 +585,12 @@ class DisplaceUnitOperation(Operation):
         upos = pusher.get_component(PositionComponent)
         if ppos is None or upos is None:
             return {"moved": False, "reason": "no position"}
-        # --- IsDisplaceable (tete de Execute natif) : mort ou non-deplacable -> no-op ---
+        # --- gate `alive` : ABSENT du natif, CONSERVE et nomme (#498-r2, cf. docstring de classe) ---
         uc = pushed.get_component(UnitComponent)
         if uc is not None and not uc.alive:
             return {"moved": False, "reason": "dead"}
-        sc = pushed.get_component(StatsComponent)
-        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-        if has_any_trait(traits, (UnitTrait.Immovable, UnitTrait.BigTarget)):
+        # --- `IsDisplaceable(target)` (tete d'`Execute`, commune aux 7 cases) -> no-op ---
+        if not unit_extensions_is_displaceable(pushed):
             return {"moved": False, "reason": "not displaceable"}
         dest: tuple[int, int] | None = None
         blocker_id: int | None = None
@@ -751,13 +769,13 @@ class DirectDisplaceOperation(Operation):
         tpos = target.get_component(PositionComponent)
         if tpos is None:
             return {"moved": False, "reason": "no position"}
-        # --- `IsDisplaceable(target)` (tete d'`Execute`) : mort ou non-deplacable -> no-op ---
+        # --- gate `alive` : ABSENT du natif, CONSERVE et nomme (#498-r2, cf. docstring de
+        # `DisplaceUnitOperation`) ---
         uc = target.get_component(UnitComponent)
         if uc is not None and not uc.alive:
             return {"moved": False, "reason": "dead"}
-        sc = target.get_component(StatsComponent)
-        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-        if has_any_trait(traits, (UnitTrait.Immovable, UnitTrait.BigTarget)):
+        # --- `IsDisplaceable(target)` (tete d'`Execute`, commune aux 7 cases) -> no-op ---
+        if not unit_extensions_is_displaceable(target):
             return {"moved": False, "reason": "not displaceable"}
         cur = (tpos.col, tpos.row)
         # --- case 4 : `options.<+0x20>[0]`, sans aucune recherche ---
