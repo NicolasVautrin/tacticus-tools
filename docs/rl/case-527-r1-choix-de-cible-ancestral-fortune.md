@@ -48,7 +48,40 @@ Un modèle « plus de dégât relatif = mieux » — pré-armure **comme** post-
 en nominal (moins de PV à dégât égal). Le natif dit l'inverse. **Aucun des deux modèles ne rend
 compte du nominal.**
 
-## 2. Le candidat qui reste, mesuré
+## 1bis. Le SEUIL D'ARMURE, qui MESURE le dégât employé — et réhabilite l'armure, autrement
+
+La réfutation du §1 vaut contre la formulation « l'armure entre **parce que** 2662 et 2008 donnent
+des dégâts différents » — ils n'en donnent pas, **à `d = 2044`**. Mais `GetDamageWithPiercing`
+bascule de la branche PERÇAGE à la branche ARMURE quand `armure < d × 35 %` : ce **seuil dépend de
+`d`**, donc le localiser **mesure `d`**.
+
+Les régimes déjà joués le bornent : `necroWarden` reste préféré à armure **2008**, il perd à
+**2662** ⇒ seuil ∈ ]2008, 2662[ ⇒ `d = seuil / 0.35` ∈ ]5737, 7606[.
+
+- un **seul** coup (`avg = 2044`) donnerait un seuil de **715** — **RÉFUTÉ**, `necroWarden` gagne
+  encore à 2008 ;
+- les **trois** coups de l'ability (`3 × 2044 = 6132`) donnent **2146**.
+
+**Prédit avant de mesurer, puis mesuré** — encadrement à 2100 / 2200, tout le reste inchangé :
+
+| armure `necroWarden` | NATIF frappe | PORT |
+|---|---|---|
+| 2100 | `necroWarden` | `necroWarden` |
+| 2200 | `bloodMephiston` | `necroWarden` |
+
+⇒ **la bascule est entre 2100 et 2200**, et `2146` y tombe. `d` mesuré ∈ [6000, 6286] — soit
+`3 × 2044`. Ce n'est pas un ajustement : la valeur sort de la loi native et du nombre de coups de
+l'ability, la mesure n'a fait que la confirmer dans une fenêtre de largeur 100 sur une plage
+possible de 0..3513.
+
+**DEUX écarts du port sont donc nommés**, et ils se cumulent :
+
+1. il passe le dégât d'**UN** coup (`first_by_damage_utility(state, cands, avg, avg)`) là où le
+   natif emploie celui des **TROIS** ;
+2. il n'applique **aucune armure** (`_target_utility` fabrique `healthDmg = dmin/dmax` bruts), donc
+   il ne peut pas franchir de seuil.
+
+## 2. Le candidat BLOCK — ÉLIMINÉ, lui aussi
 
 `aiPredict` (attaque normale d'Uthar, régime nominal) :
 
@@ -68,6 +101,11 @@ et `_target_utility` (`engine/runner/operations/damage_utility.py`) n'en modéli
 pose `shieldBefore = 0` et ne porte aucune clé de block. Or c'est la cible **porteuse** du block que
 le natif préfère.
 
+**A/B joué, à une variable — le block est ÉLIMINÉ.** Régime nominal, `bloodMephiston` privé de son
+block (`--unit-stat bloodMephiston:BlockChance=0,BlockDamage=0`, rien d'autre touché) : le natif
+frappe **toujours `bloodMephiston`**. Le canal block n'est donc pas le facteur du classement, et
+l'absence de cette clé dans le dict du port n'est pas la cause de la divergence.
+
 ⚠ `aiPredict` est **Attack-based** (`GetAllPredictions`, ability `69 Loki_NormalAttack`) : ce n'est
 **pas** le nœud de dégât que le sélecteur branche sur son slot `+0x40`
 (`MinMaxDamage(entities, 1)`). Il répond à une seule question — « le dégât prédit dépend-il de la
@@ -83,9 +121,15 @@ cible, et comment ? » — et sa réponse suffit à **éliminer** l'armure, pas 
   defenderInitialHealth, previousHitsPrediction)` et délègue au **slot 10** du service porté par
   `caster+0x30`, avec **`hits = 1`** en littéral. Ce n'est **pas** celle du sélecteur (qui passe des
   `Func`) — la bonne reste à isoler.
-- **Pourquoi le natif préfère la cible au dégât prédit le PLUS FAIBLE.** Le composite
-  `UtilityType.Damage` (= `DamageDealt` + `KillUnit` + `OverkillUnit`) ne l'explique pas :
-  aucune des deux cibles n'est tuable ici (`willBeKill` et `mightBeKill` faux des deux côtés).
+- **La NORMALISATION du composite.** À `d = 6132`, l'armure explique la bascule en dégât
+  **ABSOLU** (`necroWarden` 3985.8 contre `bloodMephiston` **4124** au nominal ⇒ meph gagne), mais
+  le composite du port normalise par `maxHP`, et cette normalisation rend `necroWarden` gagnant
+  (`0.4669` contre `0.4324`). Or le bras `hp` (armures **égales**, maxHP différents) exige au
+  contraire une normalisation — dégâts identiques, et le natif prend celle qui a le moins de PV.
+  Les deux bras contraignent donc en sens opposés le même terme : **c'est là que la loi reste à
+  lire**, et c'est le point à trancher AVANT tout fix. `UtilityType.Damage` = `DamageDealt` +
+  `KillUnit` + `OverkillUnit` ; ici aucune cible n'est tuable (`willBeKill` et `mightBeKill` faux
+  des deux côtés), donc seul `DamageDealt` est en jeu.
 - **Les 4 consommateurs** du foyer partagé (`votann.AncestralFortune`, `final_justice`,
   `worldeaters`, `thousandsons`) n'ont donc **pas** été re-validés : il n'y a pas de fix à valider.
 

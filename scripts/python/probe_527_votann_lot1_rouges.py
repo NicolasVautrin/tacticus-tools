@@ -368,6 +368,27 @@ ARMURE_REGIMES = {
     "haute": ["--unit-stat", "bloodMephiston:Health=8536,RemainingHealth=8536"],
     "basse": ["--unit-stat", "bloodMephiston:Health=8536,RemainingHealth=8536",
               "--unit-stat", "necroWarden:Armor=300,FixedArmor=300"],
+    # #527-r1 -- A/B du canal BLOCK, a UNE variable, sur le regime NOMINAL (rien d'autre n'est
+    # touche). `aiPredict` montre que seule `bloodMephiston` porte un scenario de block
+    # (`blockScenarioCount = 1`, `blockProbability = 30`) et que c'est ELLE que le natif prefere.
+    # On lui RETIRE son block : si la victime NATIVE bascule vers `necroWarden`, le canal block est
+    # etabli comme facteur du classement ; si elle ne bascule pas, il est ELIMINE a son tour.
+    "block_off": ["--unit-stat", "bloodMephiston:BlockChance=0,BlockDamage=0"],
+    # CONTRE-BRAS : le block est au contraire donne AUSSI a `necroWarden`. Les deux cibles en
+    # portent alors un -- si le classement suit le block, la preference doit se defaire.
+    "block_both": ["--unit-stat", "necroWarden:BlockChance=30,BlockDamage=1828"],
+    # #527-r1 -- ENCADRER LE SEUIL D'ARMURE, ce qui MESURE le degat `d` que le selecteur emploie.
+    # `GetDamageWithPiercing` bascule de la branche PERCAGE (`d x 65 %`) a la branche ARMURE
+    # (`d - armure`) quand `armure < d x 35 %`. Les regimes deja joues bornent le seuil de
+    # `necroWarden` entre 2008 (il gagne) et 2662 (il perd), donc `d` est entre 5737 et 7606.
+    #   * un SEUL coup (`avg = 2044`) donnerait un seuil de 715 -- REFUTE, `necroWarden` gagne
+    #     encore a 2008 ;
+    #   * les TROIS coups de l'ability (`3 x 2044 = 6132`) donnent 2146.
+    # On encadre donc 2146 : a 2100 la branche armure doit gagner pour `necroWarden` (il reste
+    # prefere), a 2200 elle doit perdre (la preference bascule sur `bloodMephiston`). Si la bascule
+    # tombe entre ces deux points, `d` vaut bien le degat des TROIS coups -- mesure, pas ajustement.
+    "seuil_2100": ["--unit-stat", "necroWarden:Armor=2100,FixedArmor=2100"],
+    "seuil_2200": ["--unit-stat", "necroWarden:Armor=2200,FixedArmor=2200"],
     # TEMOIN INVERSE : armures EGALISEES, maxHP laisses DIFFERENTS (8536 vs 9537). Le facteur que
     # le port porte DEJA (`degat / maxHP`) est alors le seul qui varie. Il etablit que le port
     # n'est pas faux de bout en bout -- il est AMPUTE de l'etage armure -- et que ce montage sait
