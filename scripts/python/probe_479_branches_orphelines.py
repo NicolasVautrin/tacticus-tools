@@ -310,7 +310,7 @@ def presence(g: Git, branche: str, ref: str) -> Mesure:
 
 
 def etat(g: Git, motif: str, ref: str, avec_detail: bool = False,
-         avec_presence: bool = False) -> dict:
+         avec_presence: bool = False, avec_pr: bool = False) -> dict:
     e: dict = {"motif": motif, "ref": ref}
     m_ref = ref_existe(g, ref)
     e["ref_sha"] = m_ref
@@ -357,6 +357,25 @@ def etat(g: Git, motif: str, ref: str, avec_detail: bool = False,
     e["non_ancetres"] = _ok(non, "git merge-base --is-ancestor")
     e["indecidables"] = _ok(ind, "git merge-base --is-ancestor")
 
+    if avec_pr:
+        # LA VOIE QUI MANQUAIT. Sans elle, ce probe annonce N << non-ancetres A AUDITER >> --
+        # ce qui a ete lu comme N audits MANUELS, alors que le squash-merge explique la
+        # quasi-totalite d'entre eux et que `gh` sait le dire (mesure du 2026-08-07 : 16 sur 16
+        # portaient une PR mergee). Le critere est celui de `livraison.py`, partage avec
+        # `nettoyer_livraison` et `loop_status` : trois outils, une seule reponse.
+        import livraison as LV
+        import loop_status as LS
+        fen = LV.lire_fenetre_pr(
+            LS.Sources(repo=g.repo if hasattr(g, "repo") else REPO,
+                       avec_host=False, timeout=20.0, timeout_gh=20.0).gh,
+            limite=LV.LIMITE_MANUELLE)
+        verd = LV.classer(non, set(), fen)
+        e["portee_pr"] = fen.portee()
+        e["livrees_par_pr"] = _ok([b for b in non if verd[b].livree],
+                                  "gh pr list --state all (PR mergee sur cette head)")
+        e["a_auditer"] = _ok([b for b in non if not verd[b].livree],
+                             "non-ancetres QUE la PR n'explique pas")
+
     if avec_detail:
         e["details"] = {b: detail_branche(g, b) for b in (non + [x for x, _ in ind])}
     if avec_presence:
@@ -390,6 +409,12 @@ def rendu(e: dict, lister_anc: bool, lister_non: bool) -> str:
              % _n(e["non_ancetres"]))
     L.append("    non mesurees (git muet, NE PAS supprimer)              : %s"
              % _n(e["indecidables"]))
+    if "livrees_par_pr" in e:
+        L.append("    dont LIVREES par une PR mergee (le squash, `--pr`)    : %s"
+                 % _n(e["livrees_par_pr"]))
+        L.append("    reste A AUDITER (ni ancetre, ni PR)                   : %s"
+                 % _n(e["a_auditer"]))
+        L.append("  %s" % e.get("portee_pr", ""))
 
     if e["a_worktree"].mesuree and e["a_worktree"].valeur:
         L.append("  branches protegees par un worktree :")
@@ -484,13 +509,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--presence", action="store_true",
                     help="pour chaque non-ancetre : cherry + taux de lignes ajoutees "
                          "presentes dans la ref (indice de relivraison par squash)")
+    ap.add_argument("--pr", action="store_true",
+                    help="applique AUSSI la voie PR mergee aux non-ancetres (le squash-merge "
+                         "les explique presque tous). Reseau : ~5 s.")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--timeout", type=float, default=20.0)
     a = ap.parse_args(argv)
 
     g = Git(timeout=a.timeout)
     e = etat(g, a.motif, a.ref, avec_detail=a.lister_non_ancetres or a.json,
-             avec_presence=a.presence)
+             avec_presence=a.presence, avec_pr=a.pr)
 
     if a.json:
         print(json.dumps(_json_pret(e), indent=2, ensure_ascii=True))

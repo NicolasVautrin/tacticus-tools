@@ -173,10 +173,13 @@ Le hook global qui joue un son n'est **pas touché** : les deux fusionnent.
 - **`#467-r1` — le plafond de 5 est ASSUMÉ.** Rien dans le dépôt ne le dérive : c'est une décision
   d'orchestration. S'il change, la valeur se périme en silence. Elle porte sa source en commentaire
   et deux surcharges, mais ce n'est pas une mesure.
-- **`#467-r2` — les squash-merges anciens.** `git for-each-ref --merged` ne voit qu'un tip
-  **ancêtre** ; un squash est rattrapé par `gh pr list --state merged --limit 120`. Au-delà de 120
-  PR, un worktree squash-mergé ne sera **pas** proposé au nettoyage. C'est le côté sûr (on ne
-  propose jamais de supprimer une branche non livrée), mais c'est un trou.
+- ~~**`#467-r2`** — les squash-merges anciens.~~ **FERMÉ le 2026-08-07.** Le trou n'est pas
+  *comblé*, il est **NOMMÉ** : une fenêtre `gh pr list --limit N` qui rend N lignes est
+  **SATURÉE**, donc l'absence d'une branche n'y prouve rien, donc elle ne conclut **qu'au
+  positif** — l'état `NON TRANCHEE` de `livraison.py`, avec sa cause. Un faux négatif muet est
+  devenu un état dit. Le critère est **partagé** avec `nettoyer_livraison` et `probe_479`, ce
+  qui referme du même geste la divergence où « les deux outils de la même étape répondent
+  l'inverse ». Détail : `case-479r4-critere-de-livraison-partage.md` §2.
 - **`#467-r3` — un seul rappel par chaîne.** `stop_hook_active` interdit de re-bloquer, sinon le
   hook boucle. Si l'orchestrateur ne traite pas tout au premier tour, le rappel ne revient qu'au
   tour utilisateur suivant.
