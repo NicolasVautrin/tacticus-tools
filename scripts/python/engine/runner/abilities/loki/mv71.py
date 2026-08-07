@@ -18,10 +18,28 @@ Config = l'entrée gameconfig **`MV71SniperDroneSquad`** (le passif 1119) : cons
     (d) foreach drone in spawned :
             AddEffect(0x46c=1132 InitialDmg, stateRef, Get(drone))       # OVERRIDE 4 stats du parent
             AddEffect(0x46d=1133 ResetInitialDmg, stateRef, Get(drone))
+            AddFlag(Get(drone), 0x1c = UnitFlag.IngoreRangedInMelee)      # cf. l'encadre ci-dessous
             UseActiveAbility(Alive(Get(drone)), target@0x178, GetNormalAttackType(drone),
                              Nullable<AbilityOrEffect>(this+0x10=1076) x2)   # attribution 1076
+            RemoveFlag(Get(drone), 0x1c)
     (e) AddEffect(0x462=1122 Markerlight, stateRef, caster@0x160, target@0x178,
                   Sum(TurnsFromRounds(1), Direct(1)))   # fin du prochain tour du caster
+
+⚠ LE COUPLE `AddFlag`/`RemoveFlag` DE (d) MANQUAIT A CETTE CITATION (#287-r11-r2-r1-r2), et il
+n'est pas decoratif : `MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour` est le **SEUL** poseur
+de `UnitFlag.IngoreRangedInMelee` (28 = `0x1c`) de tout le binaire -- balayage EXHAUSTIF des deux
+seules voies d'ecriture d'un flag (25 appelants de `UnitFlagsComponent$$Add`, 10 appelants de
+`IdunBattleLogic.Entities.DSLBehaviors$$AddFlag`, plus les xrefs de `UnitFlagsComponent$$Remove` ;
+la classe n'expose ni `AddRange` ni setter de masque). La chaine est
+`AddEffect & AddEffect & AddFlag(sel, 0x1c) & UseActiveAbility(...) & RemoveFlag(sel, 0x1c)`,
+composee par `AbilityBehaviour$$op_BitwiseAnd`, et le porteur du flag est **le DRONE** (selecteur
+`+0x68`, celui-la meme qui recoit les deux `AddEffect` et le `Alive()`), jamais le heros.
+SEMANTIQUE : l'attaque d'OUVERTURE du drone fraichement invoque est DISPENSEE de la penalite
+ranged-in-melee -- le flag est TRANSITOIRE, il n'existe jamais entre deux actions.
+CONSEQUENCE SUR LE MIRROR DU GATE : sur le chemin `BattleQuery$$IsTargetInAttackRangeForSummon`,
+`ShouldApplyRangedInMelee` recoit le **`parent`**, qui ne porte JAMAIS ce flag -> le gate y est
+INERTE PAR CONSTRUCTION, et c'est une mesure, pas un manque de canal. Il MORD sur l'autre chemin,
+`AttackQuery$$ShouldApplyRangedInMelee(caster = LE DRONE)` (-> `targeting.get_range`).
 
 `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile` : candidates = tuiles autour des TUILES DE LA CIBLE selon la config du drone
 (service slot 0x66 x slot 0xaa(unitId) — portée d'attaque du drone), filtrées `CanAddUnit` &
@@ -335,12 +353,18 @@ def _should_apply_ranged_in_melee_from_tile(board, tile_id, attacker_team,
       * `False` MESURE -> la boucle s'evalue ;
       * `None` = PAS MESURE -> la boucle s'evalue aussi. Sauter sur une non-mesure ELARGIRAIT la
         portee du drone (le clamp a 1 disparaitrait), c'est-a-dire fabriquerait des candidates que
-        le natif refuse. La face RUNNER le mesure (`UnitFlagsComponent` du caster) ; la face
-        PREDICTION rend `None` -- la `Scene` porte une table PAR FLAG (`moved_by_id`,
-        `teleported_by_id`, `active_ability_used_by_id`, `prevent_overkill_by_id`) et aucune pour
-        celui-ci. Point d'ancrage a publier : une entree de plus alimentee du MEME canal
-        (`combatSnapshot.units[].unitFlags`, qui publie DEJA toutes les valeurs de l'enum) --
-        aucun capteur neuf n'est requis."""
+        le natif refuse.
+
+    ⚠ **SUR CE CHEMIN-CI LE GATE EST INERTE PAR CONSTRUCTION, ET C'EST UNE MESURE.** Le SEUL
+    poseur du flag dans tout le binaire est `MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour`
+    (balayage exhaustif des deux voies d'ecriture, cf. l'encadre en tete de module), et il le pose
+    sur le **DRONE**. Or `IsTargetInAttackRangeForSummon` passe le **`parent`** : aucun regime ne
+    peut donc rendre `True` ici. Le mirror est ecrit parce que le natif l'ecrit -- pas parce qu'un
+    gisement l'exige. C'est aussi ce qui rend le `None` de la face PREDICTION sans consequence :
+    la `Scene` n'a pas de table pour ce flag, mais la valeur MESUREE serait `False` de toute
+    facon. Point d'ancrage si un jour un second poseur apparait : une entree de plus dans la
+    `Scene`, alimentee du MEME canal (`combatSnapshot.units[].unitFlags` publie DEJA toutes les
+    valeurs de l'enum) -- aucun capteur neuf n'est requis."""
     if board is None or tile_id is None or attacker_team is None:
         return False
     # `if (UnitExtensions.HasFlag(attacker, 0x1c)) return false;` -- AVANT la boucle, comme le natif.
@@ -965,9 +989,25 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
         AddEffectOperation.execute(state, source=caster_id, target=drone_id,
                                    effect_type=RESET_INITIAL_DMG,
                                    name="MV71SniperDroneSquad_ResetInitialDmg")
+        # `AddFlag(Get(drone), 0x1c = UnitFlag.IngoreRangedInMelee)` (#287-r11-r2-r1-r2) -- ce
+        # behaviour est le SEUL poseur du flag dans tout le binaire, et son porteur est le DRONE.
+        # TRANSITOIRE : pose ici, retire juste apres l'attaque, exactement comme la chaine DSL
+        # `AddFlag & UseActiveAbility & RemoveFlag`. L'etat final est donc INCHANGE.
+        # ⚠ INERTE PAR CE CHEMIN, et la cause est NOMMEE : le seul consommateur porte du gate est
+        # `targeting.get_range` (sous `options.force_melee_target`), que ce raccourci ne traverse
+        # pas -- le port appelle `AttackDamageOperation` DIRECTEMENT la ou le natif passe par la
+        # cascade `ActiveAbilityOperation`. Le mirror est ecrit parce que le natif l'ecrit, et il
+        # arme le gate le jour ou l'execution du drone passera par la cascade.
+        d_ent = state.get_entity(int(drone_id))
+        d_flags = (d_ent.get_component(UnitFlagsComponent)
+                   or d_ent.add_component(UnitFlagsComponent())) if d_ent is not None else None
+        if d_flags is not None:
+            d_flags.add(UnitFlag.IngoreRangedInMelee)
         # l'attaque COMMANDÉE : l'attaque normale DU DRONE (arme choisie par distance — r4 Piercing à
         # distance, Physical au contact), stats lues via GetStat -> les OVERRIDES s'appliquent.
         atk = AttackDamageOperation.execute(state, drone_id, target_id)
+        if d_flags is not None:
+            d_flags.remove(UnitFlag.IngoreRangedInMelee)     # `RemoveFlag(Get(drone), 0x1c)`
         # TargetTrigger `On(AttackDamageAttack=10,1) & OwnerIsCaster` (IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$CreateTargetTrigger) : le drone vient
         # d'attaquer -> 1132 (IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal = REMOVE_OVERRIDE x4) et 1133 sont retirés
         # (GT : seuls les owner-effects de traits restent post-cast). Collapse : ce cast contient le

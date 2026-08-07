@@ -551,6 +551,43 @@ def test_le_gate_du_mirror_targeting_court_circuite_le_clamp():
     assert should_apply_ranged_in_melee(st, U_CASTER) is False
 
 
+def test_le_behaviour_pose_ET_retire_le_flag_autour_de_l_attaque_du_drone(monkeypatch):
+    """LE SEUL POSEUR DU FLAG DANS TOUT LE BINAIRE, et le port l'omettait.
+
+    `MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour` compose
+    `AddEffect & AddEffect & AddFlag(sel, 0x1c) & UseActiveAbility(...) & RemoveFlag(sel, 0x1c)` --
+    le porteur du flag est le **DRONE**, et il est TRANSITOIRE (l'etat final est INCHANGE, ce que
+    les deux dernieres assertions verifient).
+
+    Le discriminant est donc l'ETAT PENDANT L'ATTAQUE : on substitue `AttackDamageOperation.execute`
+    par un temoin qui releve le flag du drone au moment ou le natif l'aurait pose."""
+    from engine.entities.unit_flag import UnitFlag                           # noqa: PLC0415
+    from engine.runner.abilities.loki import mv71                            # noqa: PLC0415
+    from engine.runner.components import UnitFlagsComponent                  # noqa: PLC0415
+    st = _substrat(BASE, 1)
+    vu = {}
+
+    def _temoin(state, att, tgt, *a, **k):
+        """L'attaque elle-meme n'est PAS rejouee : elle exigerait un `state.rng` cale, et ce test
+        ne porte pas sur le degat mais sur l'ETAT DU DRONE a cet instant precis."""
+        e = state.get_entity(int(att))
+        fl = e.get_component(UnitFlagsComponent) if e is not None else None
+        vu["pendant"] = bool(fl is not None and fl.has(UnitFlag.IngoreRangedInMelee))
+        vu["drone"] = int(att)
+        return None
+
+    monkeypatch.setattr(mv71.AttackDamageOperation, "execute", staticmethod(_temoin))
+    out = mv71.MV71SniperDroneSquadAttackAbility().execute_behaviour(st, U_CASTER, U_CIBLE)
+    assert out.get("spawned"), "aucun drone invoque : le montage ne mesure rien -- %r" % (out,)
+    assert vu.get("pendant") is True, (
+        "le flag `IngoreRangedInMelee` n'est PAS pose sur le drone pendant son attaque")
+    # ... et il est RETIRE : l'etat final ne le porte plus (le natif fait `RemoveFlag`).
+    e = st.get_entity(vu["drone"])
+    fl = e.get_component(UnitFlagsComponent)
+    assert not (fl is not None and fl.has(UnitFlag.IngoreRangedInMelee)), (
+        "le flag survit a l'attaque : le `RemoveFlag` de la chaine DSL n'est pas porte")
+
+
 def test_le_gate_du_mirror_mv71_est_en_TRI_ETAT():
     """`_should_apply_ranged_in_melee_from_tile` : `True` MESURE court-circuite ; `False` et `None`
     laissent la boucle s'evaluer.

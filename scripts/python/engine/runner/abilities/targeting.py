@@ -2465,9 +2465,19 @@ def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
     LE TROISIEME GATE EST PORTE DEPUIS #287-r11-r2-r1-r2, et il etait ABSENT des DEUX mirrors.
     `HasFlag(attacker, 0x1c)` est `UnitFlag.IngoreRangedInMelee` (**typo native**, `enums.tsv` :
     `28=IngoreRangedInMelee`) -- l'ordinal ne se lit QUE dans cet espace de nommage : `0x1c` vaut
-    aussi `UnitTrait` 28 et `TargetingRule` bit 28, qui nomment autre chose. Le drapeau DISPENSE
-    son porteur du clamp melee : sans lui le port rabattait a 1 une portee que le natif laisse
-    entiere -- ecart RESTRICTIF, meme direction que celui de #287-r11-r1-r1-r2.
+    aussi `UnitTrait.Impervious` et le bit 28 de `TargetingRule` (`CasterCanMove`), qui nomment
+    autre chose. Le drapeau DISPENSE son porteur du clamp melee : sans lui le port rabattait a 1
+    une portee que le natif laisse entiere -- ecart RESTRICTIF, meme direction que celui de
+    #287-r11-r1-r1-r2.
+
+    SON UNIQUE POSEUR EST CONNU, et c'est ce qui rend CE mirror-ci le seul des deux a etre
+    exercable : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour`
+    pose le flag SUR LE DRONE juste avant son `UseActiveAbility` et le retire juste apres
+    (balayage exhaustif des deux voies d'ecriture de flag -- 25 appelants de
+    `UnitFlagsComponent$$Add`, 10 de `IdunBattleLogic.Entities.DSLBehaviors$$AddFlag`). Cette
+    fonction-ci recoit le CASTER, donc elle voit le flag quand le caster EST le drone -- ce qui est
+    exactement le regime de son attaque d'ouverture. (Le mirror jumeau de `mv71.py` recoit le
+    `parent` : le gate y est inerte par construction.)
     Le canal existe et il est COMPLET : `combatSnapshot.units[].unitFlags` publie le resultat de
     `IdunBattle.Entities.UnitExtensions$$HasFlag` pour **chaque valeur** de l'enum lue au runtime
     (`internals.ts::unitFlagValues`), et `snapshot._load_unit_flags` seede tout ce qu'il recoit --
