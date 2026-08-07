@@ -368,6 +368,27 @@ ARMURE_REGIMES = {
     "haute": ["--unit-stat", "bloodMephiston:Health=8536,RemainingHealth=8536"],
     "basse": ["--unit-stat", "bloodMephiston:Health=8536,RemainingHealth=8536",
               "--unit-stat", "necroWarden:Armor=300,FixedArmor=300"],
+    # #527-r1 -- A/B du canal BLOCK, a UNE variable, sur le regime NOMINAL (rien d'autre n'est
+    # touche). `aiPredict` montre que seule `bloodMephiston` porte un scenario de block
+    # (`blockScenarioCount = 1`, `blockProbability = 30`) et que c'est ELLE que le natif prefere.
+    # On lui RETIRE son block : si la victime NATIVE bascule vers `necroWarden`, le canal block est
+    # etabli comme facteur du classement ; si elle ne bascule pas, il est ELIMINE a son tour.
+    "block_off": ["--unit-stat", "bloodMephiston:BlockChance=0,BlockDamage=0"],
+    # CONTRE-BRAS : le block est au contraire donne AUSSI a `necroWarden`. Les deux cibles en
+    # portent alors un -- si le classement suit le block, la preference doit se defaire.
+    "block_both": ["--unit-stat", "necroWarden:BlockChance=30,BlockDamage=1828"],
+    # #527-r1 -- ENCADRER LE SEUIL D'ARMURE, ce qui MESURE le degat `d` que le selecteur emploie.
+    # `GetDamageWithPiercing` bascule de la branche PERCAGE (`d x 65 %`) a la branche ARMURE
+    # (`d - armure`) quand `armure < d x 35 %`. Les regimes deja joues bornent le seuil de
+    # `necroWarden` entre 2008 (il gagne) et 2662 (il perd), donc `d` est entre 5737 et 7606.
+    #   * un SEUL coup (`avg = 2044`) donnerait un seuil de 715 -- REFUTE, `necroWarden` gagne
+    #     encore a 2008 ;
+    #   * les TROIS coups de l'ability (`3 x 2044 = 6132`) donnent 2146.
+    # On encadre donc 2146 : a 2100 la branche armure doit gagner pour `necroWarden` (il reste
+    # prefere), a 2200 elle doit perdre (la preference bascule sur `bloodMephiston`). Si la bascule
+    # tombe entre ces deux points, `d` vaut bien le degat des TROIS coups -- mesure, pas ajustement.
+    "seuil_2100": ["--unit-stat", "necroWarden:Armor=2100,FixedArmor=2100"],
+    "seuil_2200": ["--unit-stat", "necroWarden:Armor=2200,FixedArmor=2200"],
     # TEMOIN INVERSE : armures EGALISEES, maxHP laisses DIFFERENTS (8536 vs 9537). Le facteur que
     # le port porte DEJA (`degat / maxHP`) est alors le seul qui varie. Il etablit que le port
     # n'est pas faux de bout en bout -- il est AMPUTE de l'etage armure -- et que ce montage sait
@@ -410,14 +431,54 @@ def etage_armure(sid, args, regime="haute"):
     return rid
 
 
+# ------------------------------------------------------------------------------------------------ #
+# etage `predict` (#527-r1) -- la PREDICTION NATIVE par cible, au lieu de la deduire
+# ------------------------------------------------------------------------------------------------ #
+#
+# Le calcul offline REFUTE l'explication « l'armure passe par le percage » sur le regime NOMINAL :
+# `AncestralFortune` a le profil `Plasma`, dont le `PiercingDamageRatio` vaut 65, et
+# `StaticBattleRules.Damage$$GetDamageWithPiercing` = `max(0, d - armure, d x pierce%)` rend
+# EXACTEMENT la meme valeur (1328.6) pour armure 2662 et 2008 -- le plancher percage domine dans les
+# deux cas. L'armure ne mord qu'a 300 (1744.0), ce qui explique le regime `basse` mais PAS le
+# nominal. On arrete donc de deduire et on demande au NATIF ce qu'il predit, cible par cible.
+
+def etage_predict(sid, args, regime=None):
+    """`aiPredict` NATIF sur les DEUX cibles adjacentes, dans le regime demande (defaut : nominal).
+
+    ⚠ `aiPredict` est Attack-based (`GetAllPredictions`) : ce n'est PAS le noeud de degat que
+    `SortUnitsByDamageUtilitySelector` branche sur son slot +0x40 (`MinMaxDamage(entities, 1)`).
+    Il repond donc a UNE question, et une seule : le degat que le natif predit contre une cible
+    DEPEND-IL de son armure ? C'est le discriminant qui manque -- le reste (quel noeud de degat,
+    quelle normalisation) ne se lit pas ici."""
+    extra = ARMURE_REGIMES[regime] if regime else None
+    rid = build(args.state, f"{UTHAR},{SPARE}", f"{FOE_MECH},{FOE_PLAIN}", extra=extra)
+    print("[predict:%s] runner %s" % (regime or "nominal", rid))
+    drive(sid, rid, UTHAR, FOE_MECH, 1)
+    d = _dv(sid, rid)
+    u = find(d, UTHAR)
+    for vis in (FOE_MECH, FOE_PLAIN):
+        f = find(d, vis)
+        if f is None:
+            continue
+        s = snap_stats(sid, rid, f["id"]).get("stats") or {}
+        pr = rpc(sid, "aiPredict", {"runnerId": rid, "unitId": u["id"], "targetId": f["id"],
+                                    "fresh": True}, 90)
+        print("[predict:%s] %-16s hp=%s health=%s fixedArmor=%s numberOfMembers=%s dist=%s"
+              % (regime or "nominal", vis, f.get("hp"), s.get("health"), s.get("fixedArmor"),
+                 s.get("numberOfMembers"), hexgeo.distance(upos(u), upos(f))))
+        print("[predict:%s]   aiPredict = %s" % (regime or "nominal", json.dumps(pr)[:700]))
+        print("[predict:%s]   traits    = %s" % (regime or "nominal", (f.get("traits") or [])))
+    return rid
+
+
 ETAGES = {"stats": etage_stats, "graviton": etage_graviton, "fortune": etage_fortune,
-          "replay": etage_replay, "armure": etage_armure}
+          "replay": etage_replay, "armure": etage_armure, "predict": etage_predict}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--etage", required=True, choices=sorted(ETAGES) + ["tous"])
-    ap.add_argument("--regime", default="haute", choices=sorted(ARMURE_REGIMES),
+    ap.add_argument("--regime", default="haute", choices=sorted(ARMURE_REGIMES) + ["nominal"],
                     help="etage `armure` : quel bras de l'A/B jouer")
     ap.add_argument("--state", default=str(LOGS / "_527_probe_state.json"))
     ap.add_argument("--crit", default=None, help="'CC,CD' passe a rl_duel --crit")
@@ -437,6 +498,8 @@ def main():
             kw["extra"] = extra or None
         if nom == "armure":
             kw["regime"] = args.regime
+        if nom == "predict":
+            kw["regime"] = args.regime if args.regime in ARMURE_REGIMES else None
         rid = ETAGES[nom](sid, args, **kw)
         if rid is not None and not args.keep:
             rpc(sid, "disposeRunner", {"runnerId": rid}, 30)
