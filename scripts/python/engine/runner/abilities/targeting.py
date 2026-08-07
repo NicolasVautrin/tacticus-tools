@@ -305,6 +305,7 @@ from ..components import UnitComponent
 from ..components import UnitFlagsComponent
 from ..components import get_unit_feet
 from ..components import has_effect_of_type
+from ..components import is_turn_of_unit   # `BattleQuery$$IsTurnOfUnit` (#287-r11-r1-r1-r2)
 from ..components import unit_has_moved
 
 if TYPE_CHECKING:
@@ -3324,13 +3325,23 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
 
     Il est PORTE cote DECISION (`engine.services.ability_caster_gates`, champ
     `CasterSubstrate.is_turn_of_unit`, mesure #433-r4-r2-r1-r2-r2-r1-r1-r1-r4 : 11 paires sur 42
-    ou le natif ACCEPTE une unite qui a bouge parce que ce n'est pas son tour). Il ne l'est PAS
-    ici : sur le chemin `ExecuteInternal` le caster est le joueur courant, donc le prefixe y est
-    vrai par construction -- mais les DEUX autres appelants du port (`turnflow`, `handler`)
-    interrogent des unites quelconques, ou l'omission rend le port RESTRICTIF. ECART NOMME, non
-    porte par cette tranche (residu `#287-r11-r1-r1-r2`), et la MESURE live le montre arme pour une
-    unite de roster (probe `probe_115_ability_reason.py` : apres un `move`, le natif rend
-    `casterReason = {hex: 0x10, reasons: ["CasterHasNotMoved"]}`).
+    ou le natif ACCEPTE une unite qui a bouge parce que ce n'est pas son tour), ET **ICI DEPUIS
+    #287-r11-r1-r1-r2** -- foyer `engine.runner.components.is_turn_of_unit`, qui lit
+    `OwnerComponent.<PlayerEntityId @+0x10>` (le proprietaire d'ORIGINE, celui que
+    `EntityExtensions$$GetOriginalOwnerEntity` resout) contre `State.current_player_id`.
+
+    ⚠ L'OMISSION ETAIT RESTRICTIVE, ET SON REGIME D'INERTIE EST NOMME. Sur le chemin du CAST
+    (`ActiveAbilityOperation$$ExecuteInternal` -> `handler.py`) le caster est le joueur courant,
+    donc le prefixe y est vrai par construction et le prefixe est INERTE. Il MORD des que le port
+    interroge une unite dont ce n'est pas le tour : c'est le regime de l'ORACLE `abilityReason`,
+    que `AttackQuery$$GetInvalidCasterReason` evalue pour n'importe quelle unite des deux camps --
+    et le flag `UnitFlag.Moved` SURVIT a la fin du tour (`RemoveTurnFlags` est purge par le
+    `StartTurnOperation` du JOUEUR ENTRANT, pas globalement), donc une unite qui a bouge puis passe
+    la main porte encore le flag pendant tout le tour adverse. Sans le prefixe, le port rendait
+    `CasterHasNotMoved` la ou le natif rend `0`. MESURE (#287-r11-r1-r1-r2, probe
+    `probe_287r11r1r1r2_is_turn_of_unit.py`, board `MC1_67`) : ventilation non degeneree, natif
+    `0x0` / port AVANT `0x10` / port APRES `0x0` sur le bras hors-tour, les deux d'accord a `0x10`
+    sur le bras EN-TOUR.
 
     ORDRE NATIF de la cascade CASTER, relu en entier (#250) -- il fixe la RAISON rendue quand
     plusieurs regles sont rompues :
@@ -3398,8 +3409,14 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     if options is None:
         return 0
     if options.has(TR.CasterHasNotMoved):
-        if unit_has_moved(state, int(caster_id)):
-            return int(TR.CasterHasNotMoved)
+        # LE PREFIXE `<slot 0x35>` = `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit(caster)`,
+        # PORTE PAR #287-r11-r1-r1-r2 (foyer `runner.components.is_turn_of_unit`). Ce n'est pas le
+        # tour du proprietaire d'ORIGINE -> le natif SAUTE la clause entiere, flag `Moved` compris.
+        # Seul un `False` MESURE allege : `None` = substrat non capte, et sauter sur une non-mesure
+        # fabriquerait une acceptation (cf. le tri-etat du foyer).
+        if is_turn_of_unit(state, int(caster_id)) is not False:
+            if unit_has_moved(state, int(caster_id)):
+                return int(TR.CasterHasNotMoved)
     # CLAUSE TUILE-NULLE (4a) -- placee ici, au rang NATIF : APRES `CasterHasNotMoved`, AVANT
     # `CasterMatchesDynamicRule`. L'ordre n'est pas cosmetique, c'est lui qui fixe la RAISON rendue :
     # une unite sous terre rompt CETTE regle et non la regle-delegue de son ability (cf. la section
