@@ -344,19 +344,45 @@ def scenario_couverture(state_file: str, seed: str = "777", board: str = "MC1_67
             st = load_state(dv1, ob0, snap)
             if isinstance(bg, dict) and "tiles" in bg:
                 st.board = Board(bg["tiles"], adjacency="native_sym")
+            # RNG CALE (#287-r14) : ce scenario ne confronte AUCUN tirage -- il compte des REFUS.
+            # Mais son bras MUTE debranche le gate de message, et depuis que la resolution de cible
+            # est portee (`TargetingQuery$$GetActualTarget`), une ability SELF-CAST y resout sa
+            # cible en `caster` (VIVANT) : elle passe donc les gates et EXECUTE sa behaviour. Sans
+            # RNG, la premiere attaque atteinte LEVE (`damage_ops/normal.py`), et la levee remonte
+            # dans la FIXTURE -- les deux tests sortent alors en `ERROR`, sans aucune mesure.
+            # Le seed est arbitraire et n'influe sur aucun verdict de ce probe.
+            from engine.runner.prng import IntBasedMersenneTwister    # noqa: PLC0415
+            st.rng = IntBasedMersenneTwister()
+            st.rng.init_genrand(20260807)
             run = Runner(st).install_default_handlers(20)
             run.apply(ActiveAbilityMessage(wulfen, prime, int(aid)))
             return run.ability_handler.last or {}
 
         def _refuse(last: dict) -> bool:
-            """REFUS = le cast n'a produit aucune behaviour ET n'a pose aucun flag de tour."""
+            """REFUS = le cast n'a produit aucune behaviour ET n'a pose aucun flag de tour.
+
+            ⚠ `no_actual_target` (#287-r14) est une QUATRIEME porte, et elle est native :
+            `ActiveAbilityOperation$$ExecuteInternal` fait `if (finalTarget == null) return 0;`
+            AVANT ses deux gates. Elle mord ici sur les abilities TILE-TARGET, dont la cible
+            CADAVRE ne resout plus en tuile (`GetMainTileId` sort par `return 0` quand
+            l'`OrderedSet` de pieds est vide -- le natif RETIRE du board l'unite tuee). L'omettre
+            comptait ces refus comme des PASSAGES : le bras mute rendait 86/129 au lieu de
+            109/129, et l'ecart accusait le mauvais mecanisme."""
             return (last.get("not_alive_and_not_fled") is not None
                     or last.get("dead_target_not_allowed") is True
+                    or last.get("no_actual_target") is True
                     or last.get("invalid_target") is not None)
 
         aids = sorted(ABILITY_CLASSES)
         res["registre"] = len(aids)
         res["refusees"] = sum(1 for a in aids if _refuse(_joue(a)))
+        # Les abilities SELF-CASTEES ne peuvent PAS etre fermees par le gate cible-morte : le natif
+        # remplace leur cible par le CASTER (`GetActualTarget`, court-circuit `isSelfCasting`), qui
+        # est vivant. Le compte se DERIVE du registre -- jamais saisi.
+        res["self_cast"] = sorted(
+            a for a in aids
+            if getattr(ABILITY_CLASSES[a], "TARGETING_OPTIONS", None) is not None
+            and getattr(ABILITY_CLASSES[a].TARGETING_OPTIONS, "self_cast", False))
         import engine.runner.components as C                        # noqa: PLC0415
         # #419-r6-r1 : idem -- cf. `counterproof.substituer_partout`.
         from counterproof import substituer_partout                 # noqa: PLC0415
