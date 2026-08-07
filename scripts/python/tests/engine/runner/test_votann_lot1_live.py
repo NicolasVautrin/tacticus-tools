@@ -225,7 +225,16 @@ def _scenario(rpc, build_runner, votann_bc, board, caster_vis, foe_vis, ability_
     legal = _from_here(rpc, rid, c["id"], ability_id)
     tid = c["id"] if self_cast else f["id"]
     if tid not in legal:
-        pytest.skip(f"cible {tid} hors fromHere {legal} -> cast refuse par le natif (cf. en-tete)")
+        # #527 -- le message PORTE la mesure. Il disait « hors fromHere », ce qui laissait croire a
+        # une distance insuffisante alors que la garde `dist > want_dist` juste au-dessus vient de
+        # l'exclure : le refus vient donc d'un GATE DE CIBLAGE, pas de la geometrie. Sans les
+        # distances aux DEUX ennemis, le prochain lecteur doit re-diagnostiquer de zero.
+        autres = {u.get("visualId"): hexgeo.distance(_upos(c), _upos(u))
+                  for u in (dv0.get("units") or [])
+                  if u.get("id") in legal or u.get("id") == tid}
+        pytest.skip(f"cible {tid} ({foe_vis}) hors fromHere {legal} a dist {dist} (<= {want_dist}) "
+                    f"-> ce n'est PAS la distance : gate de ciblage natif. Distances du caster aux "
+                    f"unites en jeu ici : {autres}")
 
     ob0 = rpc("observeBattle", {"runnerId": rid}, 40)
     snap0 = rpc("combatSnapshot", {"runnerId": rid}, 60)
@@ -415,11 +424,19 @@ def test_augmented_port_debuff_is_permanent(augmented):
 # 1206 GravitonRifle -- attaque + Stunned, et le PERCAGE conditionnel de l'owner-effect 1484
 # ================================================================================================ #
 
+# `GravitonRifleAbility$$.ctor` pose `forceMeleeTarget = RangedBool.True` : quand un ennemi est au
+# CONTACT du caster, le natif FORCE le ciblage sur lui et refuse tout autre. Avec les deux ennemis
+# au roster, `graviton_plain` etait donc skippe des que `necroWarden` se retrouvait a distance 1 --
+# MESURE `C2_02`/777 : `fromHere = [77]`, `necroWarden` a 1, `bloodMephiston` a 2, distance
+# pourtant conforme. Ce n'est pas un trou de montage, c'est le gate natif ; on le contourne en
+# donnant a chaque fixture SON seul ennemi. `_GRAVITON_UNIT_STATS` patche le CATALOGUE, donc les
+# deux entrees restent egalisees quel que soit le roster deploye.
 @pytest.fixture(scope="session")
 def graviton_mech(rpc, build_runner, votann_bc):
     """Cible `necroWarden` : trait **Mechanical** -> le gate `HasTrait(target, 5)` PASSE."""
     return _scenario(rpc, build_runner, votann_bc, BOARD, IRONMASTER, FOE_MECH,
-                     GRAVITON_RIFLE, want_dist=2, extra=_GRAVITON_UNIT_STATS)
+                     GRAVITON_RIFLE, want_dist=2, a_units=FOE_MECH,
+                     extra=_GRAVITON_UNIT_STATS)
 
 
 @pytest.fixture(scope="session")
@@ -431,7 +448,8 @@ def graviton_plain(rpc, build_runner, votann_bc):
     une egalite native (« MEME fixedArmor 2008 ») que ce build a rompue (2662 vs 2008), donc les
     deux fixtures differaient par le trait ET par l'armure."""
     return _scenario(rpc, build_runner, votann_bc, BOARD, IRONMASTER, FOE_PLAIN,
-                     GRAVITON_RIFLE, want_dist=2, extra=_GRAVITON_UNIT_STATS)
+                     GRAVITON_RIFLE, want_dist=2, a_units=FOE_PLAIN,
+                     extra=_GRAVITON_UNIT_STATS)
 
 
 def test_graviton_live_owner_effect_is_seeded_at_deploy(graviton_mech):

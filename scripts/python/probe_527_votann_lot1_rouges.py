@@ -344,13 +344,81 @@ def etage_replay(sid, args):
     return rid
 
 
+# ------------------------------------------------------------------------------------------------ #
+# etage `armure` -- A/B DISCRIMINANT : l'ARMURE de la cible entre-t-elle dans le classement ?
+# ------------------------------------------------------------------------------------------------ #
+#
+# Le port classe par `degat / maxHP` PRE-ARMURE (`operations/damage_utility._target_utility` :
+# `armor = 0`, « la plage de degat est la MEME pour toutes les cibles »). Si c'etait vrai, deux
+# cibles a maxHP EGAL seraient EX AEQUO et le tie-break trancherait -- donc la MEME victime quelle
+# que soit leur armure. On egalise donc les maxHP et on ne fait varier QUE l'armure :
+#
+#   `haute` : `necroWarden` garde son armure native (la PLUS HAUTE des deux)
+#   `basse` : `necroWarden` passe SOUS celle de `bloodMephiston`
+#
+# Si la victime NATIVE bascule d'un regime a l'autre, l'armure entre dans le classement et le port
+# est FAUX. Si elle ne bascule pas, le port est fidele et le rouge vient d'ailleurs.
+#
+# ⚠ Ce montage a ete crafte APRES avoir constate que la validation anterieure du foyer
+# (#419-r6-r1, Doombolt) tournait `FixedArmor = Armor = 0` sur TOUTES ses cibles -- un regime ou
+# l'armure ne peut par construction rien discriminer.
+
+ARMURE_REGIMES = {
+    # maxHP EGALISES a ceux de `necroWarden` -> sans armure, les deux cibles sont EX AEQUO.
+    "haute": ["--unit-stat", "bloodMephiston:Health=8536,RemainingHealth=8536"],
+    "basse": ["--unit-stat", "bloodMephiston:Health=8536,RemainingHealth=8536",
+              "--unit-stat", "necroWarden:Armor=300,FixedArmor=300"],
+    # TEMOIN INVERSE : armures EGALISEES, maxHP laisses DIFFERENTS (8536 vs 9537). Le facteur que
+    # le port porte DEJA (`degat / maxHP`) est alors le seul qui varie. Il etablit que le port
+    # n'est pas faux de bout en bout -- il est AMPUTE de l'etage armure -- et que ce montage sait
+    # rendre un ACCORD, donc que les deux bascules ci-dessus ne sont pas un artefact du montage.
+    "hp": ["--unit-stat", "necroWarden:Armor=2008,FixedArmor=2008"],
+}
+
+
+def etage_armure(sid, args, regime="haute"):
+    from engine.runner.abilities.votann import _ancestral_fortune_attack_target
+    rid = build(args.state, f"{UTHAR},{SPARE}", f"{FOE_MECH},{FOE_PLAIN}",
+                extra=ARMURE_REGIMES[regime])
+    print("[armure:%s] runner %s" % (regime, rid))
+    drive(sid, rid, UTHAR, FOE_MECH, 1)
+    dv0, ob0, snap0, rng0, board_obj = _capture(sid, rid)
+    u = find(dv0, UTHAR)
+    ids = {vis: (find(dv0, vis) or {}).get("id") for vis in (FOE_MECH, FOE_PLAIN)}
+    for vis, eid in ids.items():
+        if eid is None:
+            continue
+        s = snap_stats(sid, rid, eid).get("stats") or {}
+        d = find(dv0, vis) or {}
+        print("[armure:%s] %-16s id=%s hp=%s health=%s fixedArmor=%s dist=%s"
+              % (regime, vis, eid, d.get("hp"), s.get("health"), s.get("fixedArmor"),
+                 hexgeo.distance(upos(u), upos(d))))
+    tg = legal_targets(sid, rid, u["id"], ANCESTRAL_FORTUNE)
+    if u["id"] not in tg:
+        print("[armure:%s] ABORT : self hors fromHere %s" % (regime, tg))
+        return rid
+    hp0 = {vis: (find(dv0, vis) or {}).get("hp") for vis in (FOE_MECH, FOE_PLAIN)}
+    _cast(sid, rid, u["id"], u["id"], ANCESTRAL_FORTUNE)
+    dv1 = _dv(sid, rid)
+    hp1 = {vis: (find(dv1, vis) or {}).get("hp") for vis in (FOE_MECH, FOE_PLAIN)}
+    frappes = [vis for vis in (FOE_MECH, FOE_PLAIN)
+               if int(hp0.get(vis) or 0) != int(hp1.get(vis) or 0)]
+    st = _load(dv0, ob0, snap0, rng0, board_obj)
+    port_tgt = _ancestral_fortune_attack_target(st, u["id"])
+    port_vis = next((v for v, e in ids.items() if e == port_tgt), port_tgt)
+    print("[armure:%s] NATIF frappe %s | PORT choisit %s" % (regime, frappes, port_vis))
+    return rid
+
+
 ETAGES = {"stats": etage_stats, "graviton": etage_graviton, "fortune": etage_fortune,
-          "replay": etage_replay}
+          "replay": etage_replay, "armure": etage_armure}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--etage", required=True, choices=sorted(ETAGES) + ["tous"])
+    ap.add_argument("--regime", default="haute", choices=sorted(ARMURE_REGIMES),
+                    help="etage `armure` : quel bras de l'A/B jouer")
     ap.add_argument("--state", default=str(LOGS / "_527_probe_state.json"))
     ap.add_argument("--crit", default=None, help="'CC,CD' passe a rl_duel --crit")
     ap.add_argument("--block", default=None, help="'BC,BD' passe a rl_duel --block-player")
@@ -367,6 +435,8 @@ def main():
             if args.block:
                 extra += ["--block-player", args.block]
             kw["extra"] = extra or None
+        if nom == "armure":
+            kw["regime"] = args.regime
         rid = ETAGES[nom](sid, args, **kw)
         if rid is not None and not args.keep:
             rpc(sid, "disposeRunner", {"runnerId": rid}, 30)
