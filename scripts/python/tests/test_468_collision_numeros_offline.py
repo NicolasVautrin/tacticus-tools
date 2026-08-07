@@ -41,6 +41,10 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/snapshot.py",
         # PROPRE A CE FICHIER :
         "scripts/python/probe_468_collision_numeros.py",
+        # MESURE : la declaration << arbres synthetiques seulement >> etait FAUSSE. Des cas
+        # font tourner le detecteur sur le corpus REEL (`docs/rl`, 7 chemins vus par la
+        # confrontation) et lisent le ledger de numeros versionne.
+        "docs/rl/**", "scripts/ratchets-468-numeros-attestes.json",
     ),
     "build": False,
     "toujours": False,

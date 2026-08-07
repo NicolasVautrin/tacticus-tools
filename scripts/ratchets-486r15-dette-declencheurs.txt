@@ -689,7 +689,6 @@ scripts/python/tests/test_377_runnerid_monotone_offline.py
 scripts/python/tests/test_379_state_file_session_stamp_offline.py
 scripts/python/tests/test_380_seed_bc_patch_survival_offline.py
 scripts/python/tests/test_419_playbook_wiring_ratchet_offline.py
-scripts/python/tests/test_431_build_pin_offline.py
 scripts/python/tests/test_433r4r2r4r1_channel_counterproof_offline.py
 scripts/python/tests/test_449_r2_spread_face_combat_offline.py
 scripts/python/tests/test_457_r6_banque_sans_doublon_offline.py
@@ -698,9 +697,10 @@ scripts/python/tests/test_462_gate_offline.py
 scripts/python/tests/test_462r6_counterproof_marker_offline.py
 scripts/python/tests/test_469_priorite_banque_de_fond_offline.py
 scripts/python/tests/test_474_forensics_offline.py
-scripts/python/tests/test_474_optional_locks_offline.py
 scripts/python/tests/test_477r18r4_canaux_tags_offline.py
 scripts/python/tests/test_480r8_rpc_joignable_offline.py
+scripts/python/tests/test_486r11_cle_sous_graphe_offline.py
+scripts/python/tests/test_486r12_declencheurs_offline.py
 scripts/python/tests/test_486r5_balayages_memoises_offline.py
 scripts/python/tests/test_579r1_nullable_layout_offline.py
 scripts/python/tests/test_additional_hits_variant_signatures_offline.py

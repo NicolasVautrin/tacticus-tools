@@ -30,7 +30,12 @@ DECLENCHEUR = {
         # PROPRE A CE FICHIER :
         "scripts/python/probe_457_offline_tests_green.py",
         "scripts/python/repo_read.py", "scripts/python/declencheur_cliquet.py",
-        "scripts/python/tests/**/*.py", "scripts/ratchets-457-footprints.json",
+        "scripts/python/**/*.py", "scripts/ratchets-457-footprints.json",
+        # LARGE A DESSEIN, et c'est une MESURE, pas une paresse : trois cas construisent
+        # le perimetre REEL (`candidate_files`) et font tourner le graphe d'imports sur
+        # tout `scripts/python/**`. La confrontation les voit ouvrir 55 chemins hors
+        # d'une declaration etroite. La portee reelle de ce que le verdict LIT n'est pas
+        # celle de ce dont il DEPEND (residu #486-r17) -- en attendant, on sur-selectionne.
     ),
     "build": False,
     "toujours": False,

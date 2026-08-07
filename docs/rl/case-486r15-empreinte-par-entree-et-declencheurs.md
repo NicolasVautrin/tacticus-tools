@@ -122,10 +122,68 @@ empreinte illisible ou dépôt sans test offline sortent en **PAS MESURÉ** (con
 fabriqué — ni alarmant, ni rassurant. Un dépôt sans fichier de test ne produit **aucun** signal :
 le périmètre effondré reste gardé là où il a un sens (`probe_457` rend `FAIL shard VIDE`).
 
-## 8. Ce qui n'est PAS couvert
+## 8. AVANT / APRÈS, mesuré
 
-- **8 déclarations sur 711.** Le mécanisme, le cliquet d'obligation et la dette sont livrés ;
-  la généralisation ne l'est pas.
+`--since` sur le **diff propre de chacune des 8 dernières PR** de `master` (223 fichiers offline,
+empreinte à 219 entrées) :
+
+| PR | fichiers du diff | retenus | part |
+| --- | --- | --- | --- |
+| `0830eda5` | 3 | 12/223 | 5,4 % |
+| `71482946` | 17 | 27/223 | 12,1 % |
+| `d4b78353` | 6 | 15/223 | 6,7 % |
+| `c0831857` | 12 | 24/223 | 10,8 % |
+| `cb4435e0` | 20 | 30/223 | 13,5 % |
+| `f55428b6` | 12 | 21/223 | 9,4 % |
+| `acf23fc6` | 1 | 11/223 | 4,9 % |
+| `1e4849c3` | 10 | 24/223 | 10,8 % |
+
+**AVANT : 220/220 (100 %) sur chacune des 8. APRÈS : moyenne 20,5/223, soit 9,2 %.**
+
+**Le squash ne tue plus l'empreinte** : en remplaçant TOUS les `_commit` du fichier par un sha
+inconnu de `git cat-file`, la sélection est **identique sur 8/8 bases**. Le sha est du contexte.
+
+**Contre-épreuve dans les deux sens** (4/4 conformes, chaque diff témoin sélectionnant 13 à 18
+fichiers — donc aucun diff inerte) :
+
+- `scripts/python/verdict_cache.py` → `test_486_r1_cache_verdict_offline.py` **RETENU** ;
+- `docs/rl/wiki.md` → le même fichier **écarté**, et le verdict prouvé inchangé **à la main** :
+  45 passed avant mutation, 45 passed après (mutation réellement écrite, remise en état vérifiée) ;
+- `frida/hooks/il2cpp/build-pin.ts` → `test_475_pinned_addresses_offline.py` **RETENU**, et
+  `test_486_r1` **écarté** sur le même diff.
+
+## 9. LU vs DONT-DEPEND — l'hypothèse est PARTIELLEMENT RÉFUTÉE
+
+L'hypothèse était : un test qui monte un **montage jetable** lit l'arbre comme **décor**, donc son
+empreinte sur-approxime massivement sa vraie portée. Établi **par mutation** (injection d'un site
+que le critère de `probe_464` accuse dans `engine/ai/utilities.py`, une dep mesurée supposée décor,
+**témoin de morsure exigé et obtenu** — le critère voit le site neuf) :
+
+| fichier | avant | après mutation | verdict |
+| --- | --- | --- | --- |
+| `test_464_sibling_script_offline.py` | 12 passed | **1 failed**, 11 passed | **DÉPEND** |
+| `test_457_r8_selection_par_diff_offline.py` | 22 passed | 22 passed | décor |
+| `test_465_ledger_validite_offline.py` | 25 passed | 25 passed | décor |
+
+⚠ **`test_464` est précisément le fichier dont la docstring affirmait que le critère est éprouvé sur
+des cas FABRIQUÉS** — et c'est le seul des trois qui DÉPEND réellement de l'arbre : son
+`test_gisement_a_zero_sur_ce_checkout` balaie le dépôt pour attester que le gisement est à zéro. Un
+déclencheur étroit posé sur ce raisonnement aurait fabriqué un **faux vert**. Le gisement existe
+(2/3), mais **le discriminant n'est ni le montage jetable ni la docstring** : seule la mutation
+tranche. Les deux « décor » ne sont établis que **pour la dep mutée** — une dep par fichier, pas
+les 33 ni les 34.
+
+Conséquence retenue : **les portées restent LARGES** là où la mutation n'a pas tranché. Résidu
+#486-r17.
+
+## 10. Ce qui n'est PAS couvert
+
+- **11 déclarations sur 714.** Le mécanisme, le cliquet d'obligation et la dette sont livrés ;
+  la généralisation ne l'est pas (résidu #486-r16).
+- **La troisième nature (DÉCOR vs ENTRÉE) n'est pas outillée** — résidu #486-r17. Le recensement
+  amont dit 31 fichiers offline montant un montage jetable, dont 8 à plus de 20 s (449 s, 33,6 %
+  de la banque) ; mais le marqueur `tmp_path` est une **borne haute**, et §9 montre qu'il ne
+  discrimine pas. Toute réduction de portée doit passer par la mutation, fichier par fichier.
 - La **répétition du socle** (11 chemins communs à toute déclaration) est imposée par le contrat :
   `ast.literal_eval` ne résout aucun nom, donc aucune constante partagée n'est lisible. Un module
   ajouté à la cascade des `conftest.py` fait rougir **toutes** les déclarations — c'est le garde qui

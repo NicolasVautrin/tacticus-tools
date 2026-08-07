@@ -47,6 +47,8 @@ DECLENCHEUR = {
         "scripts/python/declencheur_cliquet.py", "scripts/python/repo_read.py",
         "scripts/python/tests/**/*.py",
         "scripts/ratchets-486r15-dette-declencheurs.txt",
+        # Le capteur de visibilite (#467) et sa dependance de flotte.
+        "scripts/python/loop_status.py", "scripts/python/fleet_board.py",
     ),
     "build": False,
     "toujours": False,

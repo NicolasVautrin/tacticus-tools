@@ -34,6 +34,8 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/snapshot.py",
         # PROPRE A CE FICHIER :
         "scripts/python/probe_462_live_tests_status.py",
+        # MESURE : un cas lit le ledger VERSIONNE (anti-vacuite), pas seulement le sien.
+        "scripts/ratchets-462-live-attestations.json",
     ),
     "build": False,
     "toujours": False,

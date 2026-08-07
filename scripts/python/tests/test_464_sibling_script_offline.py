@@ -34,6 +34,11 @@ DECLENCHEUR = {
         # PROPRE A CE FICHIER :
         "scripts/python/probe_464_sibling_script_cwd.py",
         "scripts/python/sibling_script.py", "scripts/python/repo_read.py",
+        "scripts/python/**/*.py",
+        # LARGE A DESSEIN : le cliquet BALAIE `scripts/python/**` (1 682 lectures), et la
+        # confrontation mesure 64 chemins hors d'une declaration etroite. Sa docstring dit
+        # pourtant que le CRITERE est eprouve sur des cas FABRIQUES -- LU et DONT-DEPEND
+        # divergent ici (residu #486-r17). Sur-selectionner reste le sens sur.
     ),
     "build": False,
     "toujours": False,

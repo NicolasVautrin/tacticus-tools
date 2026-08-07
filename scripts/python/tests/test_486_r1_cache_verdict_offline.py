@@ -47,6 +47,10 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/snapshot.py",
         # PROPRE A CE FICHIER :
         "scripts/python/verdict_cache.py", "scripts/cliquets-cache/**",
+        # MESURE : le controle de fidelite REJOUE des cliquets reels, donc leur source
+        # entre au verdict.
+        "scripts/python/probe_181_targeting_gaps.py",
+        "scripts/python/probe_485_imports_differes.py",
     ),
     "build": False,
     "toujours": False,
