@@ -1634,9 +1634,16 @@ def unit_extensions_is_alive(entity) -> bool:
 # decompile : `BaseUnitComponent$$HasTrait(u, 0x11)`, `(u, 0x3)`, `(u, 0x3f9)`. Les trois ordinaux
 # sont qualifies contre `data/symbols/<build>/frida/enums.tsv`, enum
 # `IdunBattle.Entities.Enum.UnitTrait` (`3=Hulking, 17=Immovable, 1017=BigTarget`).
-_NOT_DISPLACEABLE_TRAITS = (UnitTrait.Immovable,   # 0x11
-                            UnitTrait.Hulking,     # 0x3
-                            UnitTrait.BigTarget)   # 0x3f9
+# ⚠ PUBLIC depuis #498-r4, et pour une raison MESUREE : ce tuple existait en TROIS exemplaires
+# (`playbook/loki_custom.py::MortisRoundPlaybook._NOT_DISPLACEABLE` et
+# `playbook/noncomparable/it_itches.py::_NOT_DISPLACEABLE`), c'est-a-dire exactement le gisement que
+# #498-r3 a ferme cote RUNNER (« six copies libres de diverger, et elles avaient diverge »). Les
+# deux miroirs de la face DECISION ne peuvent PAS appeler `unit_extensions_is_displaceable` (leur
+# substrat est un `dict` de `decisionView`, pas une `Entity`), mais ils peuvent partager CETTE
+# liste -- c'est la seule des cinq conditions qui MORDE aujourd'hui.
+NOT_DISPLACEABLE_TRAITS = (UnitTrait.Immovable,   # 0x11
+                           UnitTrait.Hulking,     # 0x3
+                           UnitTrait.BigTarget)   # 0x3f9
 
 
 def unit_extensions_is_displaceable(entity) -> bool:
@@ -1679,7 +1686,7 @@ def unit_extensions_is_displaceable(entity) -> bool:
     uc = entity.get_component(UnitComponent)
     traits = entity_trait_names(sc.ctx if sc is not None else None,
                                 getattr(uc, "visual_id", None) if uc is not None else None)
-    if has_any_trait(traits, _NOT_DISPLACEABLE_TRAITS):
+    if has_any_trait(traits, NOT_DISPLACEABLE_TRAITS):
         return False
     fl = entity.get_component(UnitFlagsComponent)
     # `UnitExtensions$$HasFlag(unit, 0x19)` -> `UnitFlagsComponent$$Has`. Le flag est POSE et RETIRE

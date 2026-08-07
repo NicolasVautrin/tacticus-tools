@@ -93,8 +93,7 @@ def etape_qualification() -> dict:
 
 # ------------------------------------------------------- etage 1 : RECENSEMENT DERIVE des sites
 def _alias_traits(tree: ast.AST, src: str) -> dict:
-    """{nom d'une constante `*DISPLACEABLE*` -> traits qu'elle enumere}. Necessaire parce que deux
-    sites rangent leur tuple de traits HORS de la fonction (module ou classe)."""
+    """{nom d'une constante `*DISPLACEABLE*` -> traits qu'elle enumere}, POUR CE FICHIER."""
     out = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
@@ -107,6 +106,94 @@ def _alias_traits(tree: ast.AST, src: str) -> dict:
         traits = {c for c in ("Immovable", "Hulking", "BigTarget") if c in seg}
         for n in names:
             out[n] = traits
+    return out
+
+
+def _alias_traits_global() -> dict:
+    """{nom d'une constante `*DISPLACEABLE*` -> traits} sur TOUT `engine/**`, chaines RESOLUES.
+
+    ⚠ SANS CETTE PASSE, LE RECENSEUR RECOMPENSE LA DUPLICATION. `_alias_traits` ne lit qu'un
+    `ast.Assign` du fichier COURANT : une constante IMPORTEE d'un autre module (`from ..runner.
+    components import NOT_DISPLACEABLE_TRAITS`, la forme SAINE) n'y laisse aucune trace, donc le
+    site perdait ses traits et sortait du role MIROIR -- c'est-a-dire qu'un site correctement
+    factorise devenait INVISIBLE la ou une copie locale restait visible. Mesure : c'est exactement
+    ce qui s'est produit quand #498-r4 a fait deleguer les deux miroirs de DECISION.
+
+    La table est batie sur l'ENSEMBLE d'`engine/**` puis les alias sont resolus par point fixe
+    (`_NOT_DISPLACEABLE = NOT_DISPLACEABLE_TRAITS` est une chaine de longueur 2)."""
+    brut: dict = {}
+    for path in sorted(ENGINE.rglob("*.py")):
+        src = path.read_text(encoding="utf-8")
+        if "DISPLACEABLE" not in src.upper():
+            continue
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            for t in node.targets:
+                nom = t.id if isinstance(t, ast.Name) else None
+                if nom is None or "DISPLACEABLE" not in nom.upper():
+                    continue
+                seg = ast.get_source_segment(src, node.value) or ""
+                traits = {c for c in ("Immovable", "Hulking", "BigTarget") if c in seg}
+                # renvoi vers une AUTRE constante `*DISPLACEABLE*` : on garde le lien a resoudre
+                refs = {n.id for n in ast.walk(node.value)
+                        if isinstance(n, ast.Name) and "DISPLACEABLE" in n.id.upper()}
+                anc = brut.setdefault(nom, {"traits": set(), "refs": set()})
+                anc["traits"] |= traits
+                anc["refs"] |= refs
+    for _ in range(len(brut) + 1):          # point fixe (chaines courtes, borne EXPLICITE)
+        change = False
+        for nom, d in brut.items():
+            for r in list(d["refs"]):
+                add = brut.get(r, {}).get("traits", set()) - d["traits"]
+                if add:
+                    d["traits"] |= add
+                    change = True
+        if not change:
+            break
+    return {n: d["traits"] for n, d in brut.items()}
+
+
+def _symboles(node: ast.AST) -> set:
+    """Les symboles REELLEMENT ECRITS DANS LE CODE d'une fonction : chaque `Name`, chaque attribut,
+    et chaque chemin pointe `X.Y` (`UnitTrait.BigTarget`, `UnitFlag.Undisplaceable`...).
+
+    ⚠ L'AST EXCLUT LES COMMENTAIRES, ET C'EST LE POINT. Les docstrings y survivent comme
+    `ast.Constant`, jamais comme `Attribute`, donc citer `UnitFlag.Undisplaceable` dans une prose
+    qui EXPLIQUE qu'on ne le porte pas ne credite plus rien. Mesure : #498-r4 a ajoute exactement
+    cette prose aux deux miroirs de DECISION, et le critere textuel a aussitot credite l'un d'eux
+    de la condition qu'il DECLARE ne pas porter."""
+    out = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Name):
+            out.add(n.id)
+        elif isinstance(n, ast.Attribute):
+            out.add(n.attr)
+            if isinstance(n.value, ast.Name):
+                out.add("%s.%s" % (n.value.id, n.attr))
+    return out
+
+
+def _appels(node: ast.AST) -> set:
+    """Les NOMS de fonction REELLEMENT appeles dans le corps (`f(...)` et `o.f(...)`).
+
+    ⚠ PAR AST, JAMAIS PAR TEXTE. Le critere textuel comptait comme DELEGATION toute mention du nom
+    du foyer -- y compris dans une DOCSTRING. Mesure : #498-r4 a ajoute aux deux miroirs de DECISION
+    une docstring qui NOMME le foyer pour expliquer ce qu'ils ne portent pas, et le recenseur les a
+    aussitot classes `delegue`, donc `manque = -`. Un faux vert fabrique par un commentaire."""
+    out = set()
+    for n in ast.walk(node):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if isinstance(f, ast.Name):
+            out.add(f.id)
+        elif isinstance(f, ast.Attribute):
+            out.add(f.attr)
     return out
 
 
@@ -127,28 +214,41 @@ def _owner_class(tree: ast.AST, node: ast.AST) -> str:
 
 def etape_recensement() -> dict:
     sites = []
+    globales = _alias_traits_global()
     for path in sorted(ENGINE.rglob("*.py")):
         src = path.read_text(encoding="utf-8")
-        if SYMBOL not in src and "Immovable" not in src:
+        if SYMBOL not in src and "Immovable" not in src and "DISPLACEABLE" not in src.upper():
             continue
         try:
             tree = ast.parse(src)
         except SyntaxError:
             continue
         lines = src.splitlines(keepends=True)
-        aliases = _alias_traits(tree, src)
+        # UNION, jamais REMPLACEMENT : une definition locale `_X = <constante importee>` ne porte
+        # aucun nom de trait dans son segment, donc un `update` ECRASERAIT la resolution globale
+        # par un ensemble VIDE -- mesure, c'est ce que le premier jet a fait.
+        aliases = dict(globales)
+        for nom, tr in _alias_traits(tree, src).items():
+            aliases[nom] = set(aliases.get(nom, set())) | set(tr)
         rel = path.relative_to(ENGINE).as_posix()
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             seg = _fn_source(lines, node)
+            # ⚠ CE QU'UNE FONCTION PORTE SE LIT DANS SON CODE, PAS DANS SA PROSE. `symb` vient de
+            # l'AST (`_symboles`) ; `seg` -- le texte, commentaires compris -- ne sert plus qu'au
+            # critere de RECENSEMENT (`cite`), ou l'inclusion large est voulue.
+            symb = _symboles(node)
             traits = {c for c in ("Immovable", "Hulking", "BigTarget")
-                      if ("UnitTrait.%s" % c) in seg}
+                      if ("UnitTrait.%s" % c) in symb}
+            # Une constante `*DISPLACEABLE*` lue par le corps, en `Name` (`_NOT_DISPLACEABLE`) ou
+            # en attribut (`cls._NOT_DISPLACEABLE`) : `_symboles` rend les deux formes.
             for alias, tr in aliases.items():
-                if alias in seg:
+                if alias in symb:
                     traits |= tr
             foyer = (node.name == FOYER_FUNC)
-            delegue = (FOYER_CALL in seg and not foyer)
+            appels = _appels(node)
+            delegue = (FOYER_CALL in appels and not foyer)
             cite = SYMBOL in seg
             # CRITERE DE RECENSEMENT -- derive, jamais une liste ecrite ici : soit la fonction CITE
             # le symbole natif, soit elle teste conjointement les deux traits historiques.
@@ -157,7 +257,7 @@ def etape_recensement() -> dict:
             # ROLE : un MIROIR re-implemente le predicat ; un CONSOMMATEUR se contente d'appeler un
             # miroir (`_is_displaceable(...)`). Confondre les deux fait rougir des sites qui n'ont
             # rien a porter -- et c'est ce que la 1re version de ce probe faisait.
-            appelle_miroir = ("_is_displaceable(" in seg and node.name != "_is_displaceable")
+            appelle_miroir = ("_is_displaceable" in appels and node.name != "_is_displaceable")
             if foyer or delegue or traits:
                 role = "MIROIR"
             elif appelle_miroir:
@@ -169,9 +269,9 @@ def etape_recensement() -> dict:
                 porte |= set(CONDITIONS)
             elif role == "MIROIR":
                 porte |= traits
-                if "UnitFlag.Undisplaceable" in seg:
+                if "UnitFlag.Undisplaceable" in symb:      # AST, pas texte (cf. `_symboles`)
                     porte.add("Undisplaceable")
-                if "MachineComponent" in seg:
+                if "MachineComponent" in symb:
                     porte.add("EntityType")
             cls = _owner_class(tree, node)
             sites.append({

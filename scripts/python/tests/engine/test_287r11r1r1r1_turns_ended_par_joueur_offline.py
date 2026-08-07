@@ -42,10 +42,13 @@ SEPARE par au moins un point, et le test ASSERTIONNE SON PROPRE NON-VIDE.
 from __future__ import annotations
 
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
-#: PERIMETRE MESURE, pas suppose : l'import de ce module charge **389** modules `engine/**` et
+#: PERIMETRE MESURE, pas suppose : l'import du module de test charge **389** modules `engine/**` et
 #: exactement DEUX modules hors `engine/` (`gameconfig.py`, `hexgeo.py`) -- compte re-derivable en
-#: important le fichier et en filtrant `sys.modules` sur `scripts/python/`. C'est pourquoi ce
-#: declencheur ne porte PAS le glob `scripts/python/*.py` du parc : il nomme les deux.
+#: important le fichier et en filtrant `sys.modules` sur `scripts/python/`. Mais le verdict d'un
+#: fichier de test ne depend pas que de SES imports : la cascade des `conftest.py` en tire **16**
+#: de plus (`engine_validate.py`, `board.py`, `enum_maps.py`, `host_inputs.py`, les `probe_17_*`...),
+#: tous DIRECTEMENT sous `scripts/python/` -- mesure `probe_486r15_declencheurs_tests.py`. D'ou le
+#: glob NON RECURSIF `scripts/python/*.py` : il nomme cette couche-la, et EXCLUT `tests/**`.
 DECLENCHEUR = {
     "chemins": (
         # SOCLE COMMUN a TOUT fichier de test : la cascade des conftest et sa fermeture. Aucun
@@ -53,6 +56,10 @@ DECLENCHEUR = {
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         "scripts/python/tests/engine/conftest.py",
         "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # La couche de modules de TETE que cette cascade tire (16 chemins MESURES). Les nommer un
+        # par un serait perime au premier import ajoute au harnais -- et un declencheur perime est
+        # exactement le faux vert que ce cliquet combat.
+        "scripts/python/*.py",
         # PROPRE A CE FICHIER. `engine/**` est pris en bloc et c'est une MESURE : 389 de ses
         # modules entrent dans la fermeture (le turn-flow tire tout le dispatch de triggers).
         # Une liste feuille a feuille serait perimee au premier import ajoute -- exactement le
@@ -63,8 +70,6 @@ DECLENCHEUR = {
         # `engine/services/battle_query.py` (`get_amount_of_turns_ended_by_player`,
         # `get_player_turn_order`, `has_minimum_remaining_turns`).
         "scripts/python/engine/**/*.py",
-        # Les DEUX seuls modules hors `engine/` de la fermeture, MESURES.
-        "scripts/python/gameconfig.py", "scripts/python/hexgeo.py",
         # `victory_config.get_max_rounds` DERIVE son defaut de la seed versionnee quand
         # `State.victory_conditions` est `None` (tri-etat) : une seed qui porterait
         # `MainPlayerRoundLimitation` armerait le bit pour tous les etats non explicites.
