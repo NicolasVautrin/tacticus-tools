@@ -55,8 +55,10 @@ DECLENCHEUR = {
 
 
 @pytest.fixture(scope="module")
-def mesure(rpc_session_id):
-    m, dispose = P.measure(rpc_session_id, state_name="test_513_pending_attack")
+def mesure(live_session):
+    """UN SEUL runner pour tout le fichier : le cast et le passage de tour ne sont pas rejouables
+    (ils consomment l'actif et l'effet), donc les gardes relisent la MEME mesure."""
+    m, dispose = P.measure(live_session, state_name="test_513_pending_attack")
     try:
         yield m
     finally:
