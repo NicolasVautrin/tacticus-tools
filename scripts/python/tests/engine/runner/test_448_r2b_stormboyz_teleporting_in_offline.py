@@ -277,18 +277,98 @@ def test_1140_makes_its_carrier_untargetable(state):
 
 def test_the_untargetable_domain_holds_only_the_confronted_slices():
     """CLIQUET. Fermeture NATIVE de `UntargetableEffect` = les 4 `ATeleportingEffect` +
-    `JustSummonedEffect`. Le port n'inscrit que ce qu'il a CONFRONTE SUR CE CANAL : 1035 (#448-r2)
-    et 1140 (#448-r2b).
+    `JustSummonedEffect`. Le port n'inscrit que ce qu'il a CONFRONTE SUR CE CANAL : 1035 (#448-r2),
+    1140 (#448-r2b) et 1238 (#448-r2b-r1).
 
-    ⚠ `1238` est DEHORS bien que ses TRIGGERS soient portes (#448-r2c) : cette tranche-la a
-    explicitement laisse la face DECISION en RESIDU NOMME, hors de son perimetre. Le test dit donc
-    << non confronte SUR CE CANAL >>, pas << non porte >> -- les deux ne coincident plus.
-    `1573` arrive avec #448-r2d ; `JustSummonedEffect` n'a aucune tranche ouverte (#448-r2b-r1).
+    ⚠ `1573` reste DEHORS -- il arrive avec #448-r2d et son poseur n'est pas porte.
     Ce test tombe des qu'une inscription se fait sans sa confrontation."""
     assert sorted(UNTARGETABLE_EFFECT_TYPES) == [TELEPORT_STRIKE_TELEPORTING_IN,
-                                                 STORMBOYZ_STRIKE_TELEPORTING_IN]
-    for eff in (EffectType.FearOfTheUnseen_TeleportingIn,
-                EffectType.TitanhammerSquad_TeleportingIn):
+                                                 STORMBOYZ_STRIKE_TELEPORTING_IN,
+                                                 int(EffectType.FearOfTheUnseen_TeleportingIn)]
+    assert int(EffectType.TitanhammerSquad_TeleportingIn) not in UNTARGETABLE_EFFECT_TYPES, (
+        "TitanhammerSquad_TeleportingIn inscrite au domaine sans que la face DECISION soit "
+        "CONFRONTEE (le port de ses triggers ne suffit pas -- cf. #448-r2d)")
+
+
+def test_the_just_summoned_family_stays_out_because_nothing_POSES_it():
+    """CLIQUET du REFUS mesure (#448-r2b-r1). Les quatre `EffectType` de `JustSummonedEffect`
+    (`1`, `1061`, `1230`, `1390`) restent hors du domaine, et la raison est DERIVEE de l'arbre, pas
+    citee : **aucun site du port ne les POSE**. Les inscrire serait strictement inerte
+    (`has_effect` rendrait toujours faux) tout en donnant l'illusion d'avoir ferme le trou --
+    l'etage manquant est le POSEUR, pas le domaine.
+
+    Le critere est un `AddEffect(<id>, ...)` EXECUTABLE dans `engine/**` : c'est la seule ecriture
+    par laquelle un effet entre dans `state.effects` cote port. Si un poseur apparait un jour, ce
+    test rougit et c'est exactement ce qu'on veut -- l'inscription redevient alors CONFRONTABLE.
+
+    ⚠ La lecture se fait sur l'**AST**, jamais sur le texte. Un premier jet en `re` a rendu
+    « 1061 est POSE par spawn.py » : la ligne trouvee etait la PROSE
+    « aucun AddEffect(1061) dans ce kit » -- un commentaire qui dit exactement le CONTRAIRE de ce
+    que le balayage en concluait. Un critere textuel ne peut pas separer le code de ce qui parle
+    du code."""
+    import ast
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[3] / "engine"
+    assert base.is_dir(), "arbre `engine/` introuvable depuis %s" % __file__
+    familles = (EffectType.JustSummoned, EffectType.GeminaeSuperia_JustSummonedEffect,
+                EffectType.SwornProtector_JustSummonedEffect,
+                EffectType.DecoysAndMisdirection_JustSummonedEffect)
+
+    def _ordinal(node, consts):
+        """L'ordinal `EffectType` qu'un noeud d'ARGUMENT designe, ou `None`. QUATRE ecritures :
+        litteral nu, `EffectType.<Nom>`, l'enveloppe `int(...)`, et un NOM de constante de module.
+
+        ⚠ La 4e n'y etait pas, et c'est la CONTRE-EPREUVE qui l'a montre : le seul poseur porte de
+        `1238` s'ecrit `AddEffect(FEAR_TELEPORTING_IN, ...)` -- le balayage rendait donc « 0 poseur »
+        pour lui AUSSI, ce qui aurait fait passer pour un fait mesure ce qui n'etait qu'un angle
+        mort du recenseur."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, int):
+            return node.value
+        if isinstance(node, ast.Attribute):
+            m = getattr(EffectType, node.attr, None)
+            return None if m is None else int(m)
+        if isinstance(node, ast.Name):
+            return consts.get(node.id)
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "int" and node.args):
+            return _ordinal(node.args[0], consts)
+        return None
+
+    poses: dict = {}
+    lus = 0
+    for p in sorted(base.rglob("*.py")):
+        try:
+            arbre = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:                      # pragma: no cover - arbre casse = un autre test
+            continue
+        lus += 1
+        consts: dict = {}                        # `NOM = <ordinal>` au niveau MODULE
+        for n in arbre.body:
+            if isinstance(n, ast.Assign) and len(n.targets) == 1 \
+                    and isinstance(n.targets[0], ast.Name):
+                o = _ordinal(n.value, {})
+                if o is not None:
+                    consts[n.targets[0].id] = o
+        for n in ast.walk(arbre):
+            if not isinstance(n, ast.Call):
+                continue
+            nom = n.func.id if isinstance(n.func, ast.Name) else getattr(n.func, "attr", None)
+            if nom != "AddEffect" or not n.args:
+                continue
+            o = _ordinal(n.args[0], consts)
+            if o is not None:
+                poses.setdefault(o, set()).add(p.name)
+    assert lus > 100, "balayage trop maigre (%d modules) -- un vide passerait pour un vert" % lus
+    assert poses, "aucun `AddEffect(<ordinal>)` trouve : le critere ne mesure plus rien"
+    for eff in familles:
         assert int(eff) not in UNTARGETABLE_EFFECT_TYPES, (
-            "%s inscrite au domaine sans que la face DECISION soit CONFRONTEE (le port de ses "
-            "triggers ne suffit pas -- cf. #448-r2b-r1)" % eff.name)
+            "%s inscrite au domaine : verifier d'abord qu'un poseur existe" % eff.name)
+        assert int(eff) not in poses, (
+            "%s est POSE par %s : le refus d'inscription au domaine n'est plus fonde sur "
+            "l'absence de poseur -- re-trancher la question (#448-r2b-r1)"
+            % (eff.name, sorted(poses[int(eff)])))
+    # CONTRE-EPREUVE : le meme balayage DOIT voir le poseur de 1238, sans quoi il ne prouverait
+    # rien sur les quatre ci-dessus (un recenseur aveugle rend « 0 poseur » partout).
+    assert int(EffectType.FearOfTheUnseen_TeleportingIn) in poses, (
+        "le balayage ne voit pas le poseur de 1238 (`abilities/tyranids.py`) : son zero sur la "
+        "famille JustSummoned ne prouve donc rien")
