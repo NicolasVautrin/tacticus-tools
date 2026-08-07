@@ -482,6 +482,18 @@ def test_pull_et_taunt_live(cast):
                        if int(getattr(x, "effect_type", -1)) == TAUNT)
     assert getattr(parent_port, "bonded", None) == cast["cid"]
     assert (diag.get("taunt") or {}).get("bonded") == cast["cid"]
-    # ⚠ Les ENFANTS (25/26/1237) portent le bond cote NATIF et pas cote port : ecart PREEXISTANT du
-    # composite `TauntedEffect` (`SubEffectSpec` n'a pas de champ `bonded`), partage par
-    # CrushingClaws/GetEmRuntz/OverwhelmingWrath -- residu `#524-r1`, hors de cette tranche.
+
+    # #524-r1 (FERME) : les ENFANTS portent le bond du parent, des DEUX cotes. Le natif l'ecrit par
+    # un CONTEXTE PARTAGE (`IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal` :
+    # `ctx.<+0x18> = ABondEffect$$BondedEntityId(parent)`, passe aux trois `EffectBuilder`) ; le port
+    # le fait descendre au foyer de creation des sous-effets. TEMOIN NON NUL : le bond vaut l'id du
+    # caster, jamais `None` -- sans quoi cette egalite serait `None == None`.
+    enf_nat = {e.get("effectType"): e.get("bondedEntityId") for e in _effets_bruts(dv2, tid)
+               if e.get("effectType") in TAUNT_CHILDREN}
+    enf_port = {int(getattr(x, "effect_type", -1)): getattr(x, "bonded", None)
+                for x in (st.effects.by_unit.get(int(tid)) or [])
+                if int(getattr(x, "effect_type", -1)) in TAUNT_CHILDREN}
+    assert set(enf_nat.values()) == {cast["cid"]}, \
+        "temoin nul : le natif ne bonde pas les enfants (%r)" % (enf_nat,)
+    assert enf_nat == enf_port, \
+        "#524-r1 -- bond des sous-effets natif=%r port=%r" % (enf_nat, enf_port)

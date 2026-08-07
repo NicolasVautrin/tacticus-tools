@@ -416,7 +416,25 @@ class AddEffectOperation:
         """Matérialise les sous-effets déclarés par `parent.sub_effects_on_apply()` (mirror des
         `Add*SubEffect`/`AddEffect` de `ApplyInternal`). Durée : SAME_TURNS → durée du parent ;
         0/None → permanent (lié au parent, rem=0 natif) ; N>0 → N. Chaque enfant porte
-        `parent_type` (lien `ParentEffect@+0x70`). Enfants déjà présents = skip (idempotent)."""
+        `parent_type` (lien `ParentEffect@+0x70`). Enfants déjà présents = skip (idempotent).
+
+        **LE BOND DESCEND DU PARENT (#524-r1).** Ce n'est pas une propagation recâblée à la main :
+        l'artefact natif est un **CONTEXTE PARTAGÉ**. `IdunBattle.Entities.Effects.TauntedEffect$$
+        ApplyInternal` alloue UN objet d'options, y écrit
+        `<+0x18> = IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId(this, effect)` — lu du
+        **parent** — puis passe CE contexte aux trois `IdunBattle.Operations.EffectBuilder$$.ctor`,
+        et c'est le builder qui pose le composant de bond de chaque entité-effet enfant. La MÊME
+        valeur alimente ensuite `ForcedAttackTargetsComponent` (cf. `_apply_forced_attack_targets`),
+        ce qui est la preuve que le port l'avait déjà sous la main.
+        `IdunBattle.Entities.Effects.BaseEffect$$AddSubEffectWithSameTurns` ne transporte, lui, que
+        `{ turns = <EffectComponent du parent>.RemainingTurns, parentEffect }` : le bond n'y passe
+        pas — il vient du contexte, donc du parent.
+
+        À QUOI ÇA SERT : `IdunBattle.Entities.Effects.Taunted_RefreshUnitTurnFinishedEffect$$
+        get_Range` rend `Nullable<int>(1)`, comme `IdunBattle.Entities.Effects.TauntedEffect$$
+        get_Range` — chaque enfant porte donc SON PROPRE gate de rupture de bond, ininterprétable
+        avec un `bonded` nul. Parent non bondé → enfants non bondés (aucun bond fabriqué)."""
+        bonded = getattr(parent, "bonded", None)
         for spec in parent.sub_effects_on_apply():
             if state.effects.has_effect(target, effect_type=spec.effect_type, name=spec.name):
                 continue
@@ -430,6 +448,7 @@ class AddEffectOperation:
                                           "level": None, "remaining": rem, "source": source})
             child.target = target
             child.parent_type = parent.effect_type
+            child.bonded = bonded            # `ctx.<+0x18>`, LU du parent (cf. docstring)
             state.effects.add_effect(target, child)
             _register_name(state, target, child.name)
 

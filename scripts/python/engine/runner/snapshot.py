@@ -1002,6 +1002,16 @@ def _load_effect_parent_links(state: State) -> None:
                 child = by_type.get(int(spec.effect_type))
                 if child is not None and child is not parent and child.parent_type is None:
                     child.parent_type = int(parent.effect_type)
+                    # #524-r1 : le BOND descend du parent, ici aussi. Le capteur publie bien
+                    # `bondedEntityId` par entite-effet (`bondMeasured` vrai sur les trois enfants
+                    # d'un `Taunted`), mais `EffectFactory.create` ne le lit que pour l'effet qu'on
+                    # lui donne : un enfant RECONSTRUIT arrivait sans bond, la ou la POSE le lui
+                    # donne (`AddEffectOperation._spawn_sub_effects`). Deux foyers, un seul
+                    # invariant -- et c'est le foyer que les tests LIVE traversent, puisqu'ils
+                    # chargent leur `State` d'une capture.
+                    # N'ECRASE JAMAIS un bond deja pose (meme regle que `parent_type` ci-dessus).
+                    if getattr(child, "bonded", None) is None:
+                        child.bonded = getattr(parent, "bonded", None)
 
 
 def _load_actor_statistics(state: State, actor_stats: dict) -> None:

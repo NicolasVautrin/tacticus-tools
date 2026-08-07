@@ -585,9 +585,16 @@ def step_taunt(board, seed, allie, ennemis, dmin, dmax):
         print("  BONDED parent natif=%s  port=%s  %s"
               % (bond_nat.get(TAUNT), bond_port.get(TAUNT),
                  "ACCORD" if bond_nat.get(TAUNT) == bond_port.get(TAUNT) else "DESACCORD"))
-        print("  BONDED enfants natif=%s  port=%s (ECART PREEXISTANT du composite, hors #524)"
-              % ({k: v for k, v in bond_nat.items() if k != TAUNT},
-                 {k: v for k, v in bond_port.items() if k != TAUNT}))
+        # #524-r1 FERME : le bond descend desormais aux ENFANTS, au foyer de creation des
+        # sous-effets (mirror du CONTEXTE PARTAGE de `TauntedEffect$$ApplyInternal`). On le
+        # CONFRONTE au lieu de le commenter -- et le regime est NON degenere (bond non nul).
+        _enf_nat = {k: v for k, v in bond_nat.items() if k != TAUNT}
+        _enf_port = {k: v for k, v in bond_port.items() if k != TAUNT}
+        print("  BONDED enfants natif=%s  port=%s  %s"
+              % (_enf_nat, _enf_port, "ACCORD" if _enf_nat == _enf_port else "DESACCORD"))
+        if nat_taunt and _enf_nat != _enf_port:
+            print("VERDICT TAUNT: DESACCORD (bond des enfants -- #524-r1)")
+            return 1
         if nat_taunt and (rem_nat != rem_port or bond_nat.get(TAUNT) != bond_port.get(TAUNT)):
             print("VERDICT TAUNT: DESACCORD (duree ou bond du parent)")
             return 1
