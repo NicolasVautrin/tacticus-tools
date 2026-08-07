@@ -674,6 +674,24 @@ tokens**. Ne jamais payer ça pour une information d'avancement : elle se lit à
 | ce qu'il a écrit | `git -C <worktree> status --porcelain` et `git -C <worktree> log --oneline origin/master..HEAD` |
 | empreinte live | `listRunners` côté host — montre ses runners sans l'éveiller |
 | en cours vs arrêté | `LastWriteTime` du même `.jsonl` comparé à maintenant. **PAS** l'absence de notification — un agent vivant n'en émet aucune. |
+| **à quelle BOUCLE il appartient** | le **répertoire de session qui contient son transcript** : `Get-ChildItem ~/.claude/projects/<projet> -Recurse -Filter "agent-<id>.jsonl"` → le nom du grand-parent EST la session du lanceur. |
+
+> ⚠ **La PROPRIÉTÉ d'un worktree EST dérivable — ne jamais l'inférer, et surtout ne jamais
+> l'inventer.** C'est le harnais qui écrit le transcript, donc le critère est rétroactif et
+> n'exige aucune coopération de l'agent. Mesuré le 2026-08-07 : 6 sessions coexistent sur ce
+> projet ; `agent-a1216afb10c33ccd8` a été déclaré « à l'autre orchestrateur » **quatre tours de
+> suite**, défendu contre le hook `Stop`, et **inscrit au backlog comme un fait de mesure** — il
+> était sous NOTRE session, son worktree partait d'un commit de l'orchestrateur écrit 11 min plus
+> tôt, et il ne contenait **rien** (0 commit d'avance, `.agent-alive` seul). Une explication
+> plausible pour un état incompris avait pris la place d'une commande de 30 s.
+>
+> **Limite à écrire quand on s'en sert** : un **petit-fils** (un `re-expert` lancé par un solveur —
+> le `CLAUDE.md` l'autorise) remonte sous la session **RACINE**. Le critère dit donc « ma boucle »,
+> pas « moi directement ». C'est suffisant pour ne pas toucher au travail d'autrui.
+>
+> **Corollaire sur `.agent-alive`** : inutile d'y faire écrire l'agentId — il est **déjà le nom du
+> répertoire**. Mesuré sur 6 worktrees, 1 agent le recopie pour rien ; les 5 autres y mettent leur
+> **tâche**, la seule chose que le chemin ne porte pas.
 
 > ⛔ **`<session>/tasks/<agentId>.output` — celui que l'outil `Agent` rapporte comme `output_file` —
 > fait `0 octet` pour TOUS les agents, vivants comme morts, et son `LastWriteTime` vaut l'heure de
