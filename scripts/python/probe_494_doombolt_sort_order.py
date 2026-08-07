@@ -121,6 +121,36 @@ REGIMES = {
     #   * la liste native compte 2 (une cible ABSENTE) -> `[2, 1]`, la cible en prend DEUX.
     # `orksNob@(2,4)` est le premier dans l'enumeration de tuiles et n'est PAS la cible du message.
     "K1": [("orksNob", (3, 4)), ("orksNob", (2, 4)), ("orksNob", (4, 4))],
+    # ---------------------------------------------------------------------------------------------
+    # L* (#494-r1) -- les regimes qui font varier l'ELEVATION, et RIEN d'autre. Ils testent
+    # l'hypothese que la « rotation d'un cran » n'est pas une loi d'ordre mais l'ombre d'une CLE de
+    # tri NON CONSTANTE : `SortUnitsByDamageUtilitySelector$$Select` appelle la prediction d'attaque
+    # PAR CIBLE (`IBattleQuery` slot 0x26, args `(caster, unit, casterPosition, ability, dmgMin,
+    # dmgMax)`) et `IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier`
+    # est un modifier POSITIONNEL -> deux cibles identiques sur des tuiles d'elevation differente
+    # n'ont PAS la meme utilite, meme sans armure et a PV egaux.
+    # Elevations du board `MC1_67` autour du caster (3,3) (lues par `tileMeta`, cf. etage 0quinquies) :
+    #   elev 3 : (1,4) (2,4) (3,3)=caster (3,4) (4,3) (5,4)   |   elev 2 : (1,2) (4,4) (3,5) ...
+    #
+    #   L1 PLAT  -- les 4 cibles sur elev 3, comme le caster : AUCUN bonus d'elevation nulle part,
+    #     donc la cle EST constante et le tri stable doit rendre l'ordre SOURCE tel quel.
+    #       ordre source lex(x,y) = [81, 83, 79, 85] ; cible = u79
+    #       cle constante  -> [79, 81, 83, 85]  (victime u85)
+    #       rotation-gauche-> [79, 83, 85, 81]  (victime u81)
+    "L1": [("orksNob", (3, 4)), ("orksNob", (1, 4)), ("orksNob", (2, 4)), ("orksNob", (5, 4))],
+    #   L2 PENTE -- L1 avec la DERNIERE de l'ordre lex descendue d'un cran, (5,4) elev 3 -> (4,4)
+    #     elev 2. Les trois lois rendent TROIS victimes differentes :
+    #       ordre source lex(x,y) = [81, 83, 79, 85] ; cible = u79
+    #       cle constante  -> [79, 81, 83, 85]  (victime u85)
+    #       rotation-gauche-> [79, 83, 85, 81]  (victime u81)
+    #       elevation      -> [79, 85, 81, 83]  (victime u83 -- u85 seule a beneficier du bonus)
+    "L2": [("orksNob", (3, 4)), ("orksNob", (1, 4)), ("orksNob", (2, 4)), ("orksNob", (4, 4))],
+    #   L3 PENTE INVERSE -- la cible qui beneficie du bonus est la PREMIERE de l'ordre lex, (1,2)
+    #     elev 2 : l'elevation la GARDE en tete, la rotation l'envoie en DERNIER.
+    #       ordre source lex(x,y) = [81, 83, 79, 85] ; cible = u79
+    #       elevation      -> [79, 81, 83, 85]  (victime u85)
+    #       rotation-gauche-> [79, 83, 85, 81]  (victime u81)
+    "L3": [("orksNob", (3, 4)), ("orksNob", (1, 2)), ("orksNob", (2, 4)), ("orksNob", (5, 4))],
 }
 CASTER_POS = (3, 3)
 
@@ -307,6 +337,10 @@ def run(regime: str = "A", seed: str = "777", board_id: str = "MC1_67",
                 "id": u["id"], "visualId": u.get("visualId"), "pos": p,
                 "d": hexgeo.distance(p, ap), "cube_key": iterate_surrounding_tiles_order_key(p),
                 "hp": hp, "maxHp": hp_max,
+                # ELEVATION de la tuile de la cible (#494-r1) : c'est une entree de la PREDICTION
+                # (`IdunBattle.Core.Services.DamageCalculations$$CalculateElevationBonusModifier`),
+                # donc de la CLE de tri -- pas seulement du dommage joue.
+                "elev": (tiles_meta.get(p) or {}).get("elevation"),
                 "armor": _stat(st, u["id"], "armor"),
                 "fixed_armor": _stat(st, u["id"], "fixed_armor")})
         runner = Runner(st).install_default_handlers(20)
@@ -357,7 +391,8 @@ def run(regime: str = "A", seed: str = "777", board_id: str = "MC1_67",
             if len(set(vals.values())) > 1:
                 diff_stats.append("%-28s %s" % (c, {k: (vals[k] or "")[:120]
                                                     for k in sorted(vals)}))
-        out.update(caster=ahri["id"], caster_pos=ap, target=target["id"], regime_rows=regime_rows,
+        out.update(caster_elev=(tiles_meta.get(ap) or {}).get("elevation"),
+                   caster=ahri["id"], caster_pos=ap, target=target["id"], regime_rows=regime_rows,
                    source_order=source_order, util=util, dmin=dmin, lois=lois,
                    oracle=oracle, raw_stats=raw_stats, diff_stats=diff_stats,
                    tiles_meta={"%d,%d" % k: v for k, v in tiles_meta.items()},
@@ -379,15 +414,22 @@ def _print(r):
                                                           r["seed"]))
     print("caster u%s @%s | cible du message u%s" % (r["caster"], r["caster_pos"], r["target"]))
     print("\n--- etage 0 : REGIME (ce que l'utilite peut voir) ---")
-    print("%-6s %-16s %-8s %-3s %-10s %-8s %-8s %-7s %-7s"
-          % ("id", "visualId", "pos", "d", "cube_key", "hp", "maxHp", "armor", "fixArm"))
+    print("caster elevation = %s" % r.get("caster_elev"))
+    print("%-6s %-16s %-8s %-3s %-10s %-8s %-8s %-7s %-7s %-5s"
+          % ("id", "visualId", "pos", "d", "cube_key", "hp", "maxHp", "armor", "fixArm", "elev"))
     for w in r["regime_rows"]:
-        print("%-6s %-16s %-8s %-3s %-10s %-8s %-8s %-7s %-7s"
+        print("%-6s %-16s %-8s %-3s %-10s %-8s %-8s %-7s %-7s %-5s"
               % (w["id"], w["visualId"], "%d,%d" % w["pos"], w["d"], "%d,%d" % w["cube_key"],
-                 w["hp"], w["maxHp"], w["armor"], w["fixed_armor"]))
+                 w["hp"], w["maxHp"], w["armor"], w["fixed_armor"], w.get("elev")))
     vals = {w["id"]: (w["hp"], w["maxHp"], w["armor"], w["fixed_armor"]) for w in r["regime_rows"]}
     print("REGIME EGALISE (hp/maxHp/armor/fixedArmor identiques) : %s"
           % ("OUI" if len(set(vals.values())) == 1 else "NON -- %s" % sorted(set(vals.values()))))
+    # ⚠ L'EGALISATION CI-DESSUS NE COUVRE PAS L'ELEVATION, et c'est exactement le trou de #494 :
+    # une cible plus BASSE que le caster recoit le bonus d'elevation, donc une PREDICTION plus
+    # haute, donc une utilite plus haute -- sans qu'aucune de ses stats n'ait bouge.
+    elevs = {w["id"]: w.get("elev") for w in r["regime_rows"]}
+    print("ELEVATION DES CIBLES : %s -- %s"
+          % (elevs, "PLATE" if len(set(elevs.values())) == 1 else "VARIABLE"))
     print("\n--- etage 0bis : ORACLES NATIFS par cible (read-only, AVANT le cast) ---")
     for k in sorted(r["oracle"]):
         o = r["oracle"][k]
