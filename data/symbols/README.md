@@ -74,6 +74,21 @@ de build, et resoudre contre la mauvaise table rendrait une chaine *plausible et
 ⚠ **La cle stable est la VALEUR**, jamais l'index ni la RVA. La table n'est pas triee : l'index est
 un rang d'emission du compilateur.
 
+**Trois autres tables l'ont rejointe depuis**, meme provenance (`global-metadata.dat`, champ `slot`
+d'`Il2CppMethodDefinition`) et meme statut d'entree VERSIONNEE — c'est ce qui rend leurs cliquets
+jouables sans le jeu installe :
+
+| fichier | produit par | ce qu'il fixe |
+|---|---|---|
+| `metadata/interface_slots.tsv` | `probe_477r25_slots_autres_interfaces.py --regenerer` | `(interface, slot) -> (nom, arite)` — le plus cite du depot |
+| `metadata/ioperationprocessor_slots.tsv` | `probe_477r24r1_slots_interface.py --regenerer` | les slots de `Core.Services.IOperationProcessor` |
+| `metadata/non_owner_slot4.tsv` | `probe_477r37_slot4_et_faces_restantes.py --regenerer` | le `<slot 4>` de chaque concret de `TriggeredAbilityNonOwnerPlaybook<T>` |
+
+⚠ **Le moteur ne LIT aucune des trois** : il ecrit le slot EN DUR et cite le TSV en docstring
+(101 citations, 60 fichiers). Un slot renumerote ment donc en silence dans `engine/**` — les
+regenerer fait partie de la migration (skill `tacticus-orchestration`, **etape 1ter**), et aucun
+axe de `symbols_sync.py` ne le reclame.
+
 ### La QUATRIEME famille — `fingerprints/`, qui répond à ce que les trois autres ne voient PAS
 
 `fingerprints/functions.tsv` (#482, archivé par #482-r3) est produit par

@@ -331,6 +331,7 @@ data/symbols/<HASH>/
   BUILD                          le hash, en clair
   frida/{methods,classes,enums}.tsv    produit par preprocess_il2cpp_dump.py
   ghidra/functions.tsv                 EXTRAIT de Ghidra par ghidra_symbols.py dump
+  metadata/{string_literals,interface_slots,...}.tsv   LU dans global-metadata.dat -- etape 1ter
   fingerprints/functions.tsv           EMPREINTE STRUCTURELLE (#482) -- a produire TOUT DE SUITE
 ```
 
@@ -475,6 +476,32 @@ python scripts/python/regen_hook_name_tables.py       # régénère depuis frida
 > Lire la sortie de `probe_252` avant d'écraser.
 >
 > État au 2026-08-07 sur `rnca9r7q6c` : **6/6 vertes, 0 faux**. Re-dériver, ne pas citer.
+
+**Étape 1ter — LA FAMILLE `metadata/`, lue dans les fichiers LIVRÉS AVEC LE JEU.** Quatre tables
+versionnées par build, produites ni par le dump Frida ni par Ghidra, mais directement de
+`global-metadata.dat` + `GameAssembly.dll`. **Jeu INSTALLÉ suffit — pas lancé, pas de warmup.**
+
+```powershell
+python scripts/python/dump_string_literals.py                             # string_literals.tsv (~4 s)
+python scripts/python/probe_477r24r1_slots_interface.py --regenerer       # ioperationprocessor_slots.tsv
+python scripts/python/probe_477r25_slots_autres_interfaces.py --regenerer # interface_slots.tsv
+python scripts/python/probe_477r37_slot4_et_faces_restantes.py --regenerer # non_owner_slot4.tsv
+git add data/symbols/<NOUVEAU_HASH>/metadata
+```
+
+> **Pourquoi cette étape a été OUBLIÉE, et ce qu'elle risque.** Les quatre tables sont nées
+> **après** la dernière migration — mesuré, seul `rnca9r7q6c` porte un `metadata/`, `gqfc5mff6c`
+> n'en a pas. Personne n'a donc jamais joué de migration avec elles.
+>
+> Le mode de panne est en deux temps, opposés. Les **probes échouent FORT** : leur chemin est
+> `build_dir(current_build())`, donc dès que `CURRENT` bouge le fichier est absent et ils rendent
+> `ROUGE : l'entree versionnee est absente`. Mais le **moteur ne lit pas ces tables** — il écrit
+> les slots **en dur** et cite le TSV en docstring (**101 citations sur 60 fichiers**). Un slot
+> renuméroté ment donc en silence dans `engine/**`, et le seul témoin est un probe que **rien ne
+> réclame** : `symbols_sync.py` (6 axes) ne mentionne aucune des quatre tables.
+>
+> C'est exactement la forme de l'étape 1bis ci-dessus, en plus discret : là une table figée
+> nommait faux, ici elle *manque* pour le nouveau build.
 
 **Étape 2 — Ghidra** : importer le nouveau `GameAssembly.dll` dans un projet neuf, laisser
 l'analyse finir, puis appliquer les noms via `scripts/ghidra/GhidraApplyIl2CppSymbols.java`.
