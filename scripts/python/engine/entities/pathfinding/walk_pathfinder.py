@@ -290,6 +290,26 @@ def get_path_node_counts_by_pos(origin, neigh_by_pos=None, walkable_by_pos=None,
     Substrat : les cartes par-position du `tile_leaf_ctx` (`neigh_by_pos` = voisins NATIFS du
     `boardGraph`, `walkable_by_pos`, `elev_by_pos`). `neigh_by_pos` absent -> repli sur le voisinage
     hexgeo restreint aux positions connues (même dégradation que `battle_query.adjacent_addable_count`)."""
+    best, _came = _dijkstra_by_pos(origin, neigh_by_pos, walkable_by_pos, elev_by_pos,
+                                   blocking_positions, block_entering_positions)
+    return {p: nodes for p, (_cost, nodes) in best.items()}
+
+
+def _dijkstra_by_pos(origin, neigh_by_pos=None, walkable_by_pos=None, elev_by_pos=None,
+                     blocking_positions=(), block_entering_positions=()) -> tuple[dict, dict]:
+    """Le moteur PARTAGE de `get_path_node_counts_by_pos` et de `get_path_by_pos` -- le mirror de
+    `IdunBattle.Entities.Pathfinding.BasePathfinder$$GenerateBreadthFirstTree` en domaine POSITION.
+
+    Rend `(best, came_from)` ou `best[pos] = (cout cumule, nb de noeuds)` et
+    `came_from[pos] = <la position PRECEDENTE sur le chemin optimal>` -- exactement les deux moities
+    du `costs` natif (`costs[n] = (tile, newCost)` : le PARENT et le COUT). La cle de comparaison
+    reste `(cout, noeuds)`, INCHANGEE : le parent est range A COTE, jamais dans le tuple compare --
+    sinon un ex aequo de cout ET de longueur se departagerait par l'ordre des positions, ce que le
+    natif ne fait pas (`<` STRICT sur le seul cout).
+
+    Cette factorisation est VALUE-PRESERVING pour `get_path_node_counts_by_pos` : meme file, meme
+    ordre de visite, meme condition de mise a jour. Le seul ajout est l'ecriture de `came_from` au
+    MEME endroit que celle de `best`."""
     import hexgeo
     ok = (origin[0], origin[1])
     blocked_cost = {(p[0], p[1]) for p in (block_entering_positions or ())}
@@ -308,6 +328,7 @@ def get_path_node_counts_by_pos(origin, neigh_by_pos=None, walkable_by_pos=None,
         return None if elev_by_pos is None else elev_by_pos.get(p)
 
     best: dict = {ok: (0, 1)}                      # pos -> (cout cumule, nb de noeuds)
+    came: dict = {}                                # pos -> parent (le `costs[n].Item1` natif)
     heap = [(0, 1, ok)]
     while heap:
         cost, nodes, cur = heapq.heappop(heap)
@@ -325,5 +346,49 @@ def get_path_node_counts_by_pos(origin, neigh_by_pos=None, walkable_by_pos=None,
             cand = (cost + weight_cost(ne, n in blocked_cost), nodes + 1)
             if n not in best or cand < best[n]:
                 best[n] = cand
+                came[n] = cur
                 heapq.heappush(heap, (cand[0], cand[1], n))
-    return {p: nodes for p, (_cost, nodes) in best.items()}
+    return best, came
+
+
+def get_path_by_pos(origin, dest, neigh_by_pos=None, walkable_by_pos=None, elev_by_pos=None,
+                    blocking_positions=(), block_entering_positions=()) -> "list | None":
+    """`IPathfinders.GetPath(unit, origin, dest, null)` pour le **WalkPathfinder**, rendu comme la
+    LISTE DE NOEUDS, extremites INCLUSES -- le pendant CHEMIN de `get_path_node_counts_by_pos`, qui
+    n'en rendait que la LONGUEUR. Meme moteur (`_dijkstra_by_pos`), donc aucun second port du
+    pathfinding : `len(get_path_by_pos(o, d, ...)) == get_path_node_counts_by_pos(o, ...)[d]` par
+    construction.
+
+    Mirror de la seconde moitie de `IdunBattle.Entities.Pathfinding.BasePathfinder$$FindPath` :
+
+        path = [to] ; cur = to
+        while (cur != from) { if (!cameFrom.TryGetValue(cur, out cur)) return null
+                              path.Add(cur) }
+        path.Reverse() ; return path
+
+    Rend **`None`** quand la destination n'est PAS joignable (le `TryGetValue` natif echoue) --
+    c'est exactement le `path` VIDE sur lequel `IdunBattle.Operations.MoveUnitOperation$$Execute`
+    ABANDONNE le mouvement. `origin == dest` rend `[origin]` (un seul noeud), comme le natif dont
+    la boucle ne s'execute pas.
+
+    ⚠ Le gate `IsValidFinalTile(unit, to)` = `!IsTemporary(to) && IsWalkable(to)` : le volet
+    WALKABLE est implicite (une position non walkable n'entre jamais dans `best`, cf. l'arete) ;
+    `IsTemporary` n'a PAS de source offline -- RESIDU, identique a celui de
+    `get_path_node_counts_by_pos`, degradation PERMISSIVE."""
+    ok = (origin[0], origin[1])
+    od = (dest[0], dest[1])
+    if ok == od:
+        return [ok]
+    best, came = _dijkstra_by_pos(origin, neigh_by_pos, walkable_by_pos, elev_by_pos,
+                                  blocking_positions, block_entering_positions)
+    if od not in best:
+        return None                                # `cameFrom.TryGetValue` echoue -> `null`
+    path = [od]
+    cur = od
+    while cur != ok:
+        cur = came.get(cur)
+        if cur is None:
+            return None
+        path.append(cur)
+    path.reverse()
+    return path

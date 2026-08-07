@@ -264,8 +264,18 @@ VENTILATION = {
     # verdict : le site a change d'etage, et le foyer n'est pas une lecture brute.
     ("runner/operations/movement.py", "_num_tiles_moved", "getattr(sc0.ctx)", "R"):
         ("INERTE-VIVANT", "le MOVER"),
-    ("runner/operations/movement.py", "_num_tiles_moved", "getattr(sc.ctx)", "R"):
+    # #448-r1-r1-r2-r2 : la lecture « occupant bloquant » qui vivait dans `_num_tiles_moved` a
+    # DEMENAGE dans `_blocking_positions`, le foyer que `_num_tiles_moved` et `_calculate_path`
+    # partagent desormais. Meme sujet, meme gate, meme verdict -- c'est un changement d'ETAGE, pas
+    # un abandon de verdict (meme forme que le deplacement #498-r3 note ci-dessus).
+    ("runner/operations/movement.py", "_blocking_positions", "getattr(sc.ctx)", "R"):
         ("INERTE-VIVANT", "occupant bloquant, gate `not uc.alive -> continue`"),
+    ("runner/operations/movement.py", "_calculate_path", "getattr(sc.ctx)", "R"):
+        ("INERTE-VIVANT", "le MOVER"),
+    ("runner/operations/movement.py", "_tiles_are_empty", "getattr(sc.ctx)", "R"):
+        ("INERTE-VIVANT", "occupant de la tuile d'ARRIVEE : gate `not uc.alive -> continue` juste "
+                          "au-dessus -- un mort ne remplit pas la tuile (`TileContentComponent."
+                          "IsFilled` suit le retrait du plateau)"),
     ("runner/operations/movement.py", "_movement_steps", "getattr(sc.ctx)", "R"):
         ("INERTE-VIVANT", "le MOVER"),
     ("runner/operations/movement.py", "_kill_steppable_units", "getattr(sc.ctx)", "R"):

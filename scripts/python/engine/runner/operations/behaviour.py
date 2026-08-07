@@ -121,7 +121,11 @@ class FleeOperation:
             # destination ci-dessus est une approximation best-effort, cf. docstring). Jouer le
             # vecteur after-move ici FABRIQUERAIT un overwatch sur un mouvement inexistant cote
             # natif (#448-r1-r1-r2-r1, face inverse).
-            MoveUnitOperation(unit_id, to, emit_after_move=False).execute(state, EventBus())
+            # `enforce_native_gates=False` pour la MEME raison : les deux gates d'abandon
+            # (`TilesAreEmpty`, `path` vide) vivent dans `MoveUnitOperation$$Execute`, que ce
+            # call-site ne mirroite PAS. Les jouer inventerait un refus que le natif n'a pas.
+            MoveUnitOperation(unit_id, to, emit_after_move=False,
+                              enforce_native_gates=False).execute(state, EventBus())
         return {"fled": unit_id, "to": to, "flag": UnitFlagsComponent.FLED, "retrait": retrait}
 
     @staticmethod

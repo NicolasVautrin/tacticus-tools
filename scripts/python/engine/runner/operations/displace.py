@@ -405,7 +405,8 @@ class PullUnitOneTileOperation(Operation):
         # vecteur du pull est `DisplaceUnitOperation$$EventAndAbilitiesAndEffects`, porte plus bas
         # par `displace_triggers`. Cf. le docstring de `MoveUnitOperation` (#448-r1-r1-r2-r1).
         MoveUnitOperation(self.pulled_id, dest, record_tiles=False,
-                          emit_after_move=False).execute(state, bus)
+                          emit_after_move=False,
+                          enforce_native_gates=False).execute(state, bus)
         n = _add_tiles_moved(state, self.puller_id, self.pulled_id, prev_tiles, dest,
                              self.record_tiles)
         from .triggers.dispatch.move_death import displace_triggers
@@ -507,7 +508,8 @@ class SwitchPositionOperation(Operation):
             # positions par le slot `SetUnitPosition` (avec son octet a 1 = pas de
             # `ResetPreviousTile`), jamais par `MoveUnit` -> aucun vecteur after-move natif ici.
             MoveUnitOperation(self.target_id, tile_caster, set_moved=False,
-                              record_tiles=False, emit_after_move=False).execute(state, bus)
+                              record_tiles=False, emit_after_move=False,
+                              enforce_native_gates=False).execute(state, bus)
             res["target_to"] = tile_caster
             n = _add_tiles_moved(state, self.caster_id, self.target_id, [tile_target], tile_caster,
                                  self.record_tiles)
@@ -515,7 +517,8 @@ class SwitchPositionOperation(Operation):
                 moved_tiles[self.target_id] = n
         if not dead_caster:
             MoveUnitOperation(self.caster_id, tile_target, set_moved=False,
-                              record_tiles=False, emit_after_move=False).execute(state, bus)
+                              record_tiles=False, emit_after_move=False,
+                              enforce_native_gates=False).execute(state, bus)
             res["caster_to"] = tile_target
             n = _add_tiles_moved(state, self.caster_id, self.caster_id, [tile_caster], tile_target,
                                  self.record_tiles)
@@ -660,7 +663,8 @@ class DisplaceUnitOperation(Operation):
         # `emit_after_move=False` -- cf. le pull ci-dessus : `DisplaceUnitOperation$$Execute` passe
         # par `SetUnitPosition`, pas par `MoveUnit`, donc AUCUN vecteur after-move natif.
         MoveUnitOperation(self.pushed_id, dest, record_tiles=False,
-                          emit_after_move=False).execute(state, bus)
+                          emit_after_move=False,
+                          enforce_native_gates=False).execute(state, bus)
         # `AddTilesMoved(caster=pusher, target=pushed, previousTiles, tileToDisplace=dest, options)`,
         # au RANG NATIF (entre `MoveUnit` et `EventAndAbilitiesAndEffects`). NO-OP pour tout push :
         # `self.record_tiles` vaut False parce qu'aucune feuille DSL de push ne pose `+0x1c` (cf. le
@@ -831,7 +835,8 @@ class DirectDisplaceOperation(Operation):
             return res
         prev_tiles = [cur]                                # `GetTiles(target)` LU AVANT l'ecriture
         MoveUnitOperation(self.target_id, dest, set_moved=False, record_tiles=False,
-                          emit_after_move=False).execute(state, bus)
+                          emit_after_move=False,
+                          enforce_native_gates=False).execute(state, bus)
         n = _add_tiles_moved(state, self.caster_id, self.target_id, prev_tiles, dest,
                              self.record_tiles)
         from .triggers.dispatch.move_death import displace_triggers
