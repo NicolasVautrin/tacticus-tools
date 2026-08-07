@@ -582,10 +582,16 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # collapsent `First(SortTilesByUtility(...), 1)` (`first_tile_by_utility`). ZERO tirage.
     # `leaf_ctx` = `runner_tile_leaf_ctx(state, unit_id, parent_id)`, le port de `dc.units`/`dc.owner`
     # que le natif met dans le `UtilityMovementCase` de chaque feuille (#165).
-    def _sort_tiles_by_utility(tiles, unit_id, utility_type, parent_id=None):
+    # `utility_definition` (#120bis-spawn) = la definition BATIE A LA MAIN par le call-site quand il
+    # n'emprunte PAS la surcharge int de `SortTilesByUtility` -- le foyer l'accepte deja (#353-r1,
+    # `RammingSpeedAbility$$GetTileToMoveTo`), mais cet accesseur ne savait pas la transporter, donc
+    # aucun noeud DSL ne pouvait l'exprimer. `None` (defaut) = comportement INCHANGE : la definition
+    # est derivee du scalaire `utility_type`, comme pour tous les appelants existants.
+    def _sort_tiles_by_utility(tiles, unit_id, utility_type, parent_id=None,
+                               utility_definition=None):
         uid = None if unit_id is None else int(unit_id)
         pid = None if parent_id is None else int(parent_id)
-        return _stbu(state, list(tiles), None, uid, int(utility_type), pid, None,
+        return _stbu(state, list(tiles), None, uid, int(utility_type), pid, utility_definition,
                      runner_tile_leaf_ctx(state, uid, pid))
 
     # `ctx.charged_units` (`UnitComponent + 0x190`, cf. `update_charging`) : ids que l'unite a CHARGES

@@ -136,8 +136,15 @@ from ....components import (OwnerComponent, PositionComponent, UnitComponent, St
 from ....abilities.attack_type import ability_is_attack
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.summon import Spawn
-from .....entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+from .....entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster, SortTilesByUtility
 from .....entities.selectors.units import First
+from .....utilities.decider import UtilityBucket, UtilityDefinition, WeightedUtility
+from .....utilities.utility_type import UtilityType
+# Import pour son SIDE-EFFECT : le module inscrit `SwornProtector_AvoidAdjacentEnemies` (52) dans
+# `UTILITY_BY_TYPE` (patron `engine/utilities/move.py`). Sans lui, `utilities_database(52)` rend
+# `None` et `UtilityDecider.CalculateUtility` LEVE au lieu de rendre 0 en silence -- c'est voulu
+# (`engine/utilities/tile.py::utilities_database`), donc l'import est LOAD-BEARING, pas cosmetique.
+from .....utilities import sworn_protector as _sworn_protector_utility   # noqa: F401
 from .....entities.effect_type import EffectType
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
@@ -209,15 +216,54 @@ def _is_attack_event(ev: TriggerEvent) -> bool:
     return ability_is_attack(ev.ability_type)
 
 
+#: `IdunBattleLogic.Entities.Abilities.Active.Loki.SwornProtectorAbility$$GetSpawnTile` alloue un
+#: `WeightedUtility[2]` (deux `IdunBattleLogic.AI.Utilities.WeightedUtility$$.ctor` avec un
+#: `Nullable<Fix64>` VIDE = poids 1), l'enveloppe dans UN
+#: `IdunBattleLogic.AI.Utilities.UtilityBucket$$.ctor` puis dans un `UtilityDefinition` -- la MEME
+#: forme que `RammingSpeedAbility$$GetTileToMoveTo` (#353-r1) et `LeadingTheChargeAbility$$
+#: GetMoveTile` (#508), donc surtout PAS la surcharge scalaire `UtilityDefinition(utilityType)`.
+#: `UtilityDefinition( UtilityBucket([ WeightedUtility(7 = Tile, null),
+#:                                     WeightedUtility(0x34 = 52 SwornProtector_AvoidAdjacentEnemies,
+#:                                                     null) ], null) )`
+SWORN_PROTECTOR_SPAWN_TILE_UTILITY = UtilityDefinition(UtilityBucket([
+    WeightedUtility(utility_type=int(UtilityType.Tile)),
+    WeightedUtility(utility_type=int(UtilityType.SwornProtector_AvoidAdjacentEnemies)),
+]))
+
+
 def sworn_protector_spawn_tree() -> Spawn:
     """Arbre du 1er terme de
     `IdunBattleLogic.Entities.Abilities.Active.Loki.SwornProtectorAbility$$CreateBehaviour` :
         `Spawn(owner@0x148, GetSpawnTile(...), GetStringConstant(0) = astraSmnKell,
                WithStatsFromConfig(cfg, level))`
-    COLLAPSE de `GetSpawnTile` : `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(owner))),
-    1)` -> `First(CanAddUnit(AdjacentTiles(Caster())))` (le tri par utilite IA n'est pas porte, cf.
-    l'en-tete du module). `Caster()` = l'owner (triggered : Owner == Caster)."""
-    return Spawn(First(CanAddUnit(AdjacentTiles(Caster()))), SWORN_PROTECTOR_ABILITY)
+
+    `GetSpawnTile` est desormais PORTE (#120bis-spawn), noeud pour noeud :
+
+        First( SortTilesByUtilityForSummon( CanAddUnit(AdjacentTiles(tilesC)),
+                                            <definition BATIE A LA MAIN>, owner@0x148 ), 1 )
+
+    `SortTilesByUtilityForSummon(tiles, definition, parent)` =
+    `SortTilesByUtility(tiles, AllAliveMachinesSelector<provider NUL>, definition, parent)` : le
+    `dc.unit` natif vaut donc **null** et le `dc.parent` vaut l'owner -- la signature EXACTE du
+    regime SPAWN de case-205, exprimee ici par `unit_sel=None` + `parent_sel=Caster()` (dans une
+    triggered, Owner == Caster).
+
+    ⚠ La docstring de case-120bis parlait d'un `TestUnitProvider(bucket)` qui ENVELOPPERAIT le
+    bucket : au decompile du build courant, la classe allouee (`DAT_18337e6d8`) est la MEME que
+    celle que `IdunBattleLogic.Entities.DSLSelectors$$SortUnitsByDamageUtility` construit par
+    `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(this, 0x23)` -- c'est donc un
+    `UtilityDefinition`, dont le champ `+0x10` recoit le `UtilityBucket[1]`. Le nom
+    `TestUnitProvider` etait un mislabel ghidra.
+
+    Ce que ce port CHANGE, et c'est l'objet du residu : le collapse precedent
+    (`First(CanAddUnit(AdjacentTiles(Caster())))`) prenait la PREMIERE tuile libre dans l'ordre
+    `board.neighbours`. Le natif prend l'ARGMAX du bucket, dont le 2e terme vaut
+    `-20 x #ennemis adjacents a la tuile candidate` -- ce qui pose Kell du cote OPPOSE a
+    l'attaquant, comme l'ont mesure 3/3 montages live (`d(caster, creed) == 2`)."""
+    tiles = CanAddUnit(AdjacentTiles(Caster()))
+    return Spawn(First(SortTilesByUtility(tiles, unit_sel=None, parent_sel=Caster(),
+                                          utility_definition=SWORN_PROTECTOR_SPAWN_TILE_UTILITY)),
+                 SWORN_PROTECTOR_ABILITY)
 
 
 class SwornProtectorSummonKellAbility(TriggeredAbility):
