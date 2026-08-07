@@ -59,6 +59,31 @@ d'imports** : **435** chemins pour `tests/`, **446** pour `tests/engine/`, **472
   importe. La dérivation rend **exactement ces douze**, et davantage. Le travail était juste, il
   était fait au mauvais endroit.
 
+### 3bis. Où le resserrage PAIE — mesuré, et ce n'est pas là où on l'écrit
+
+Le plancher dérivé n'est pas uniforme. Pour un fichier de `tests/engine/` (**447** chemins,
+re-mesuré le 2026-08-07) :
+
+| axe | couvert par la cascade | total | part |
+|---|---:|---:|---:|
+| modules `scripts/python/engine/**` | **425** | 457 | **93 %** |
+| fichiers à la racine `scripts/python/*.py` | **20** | 995 | **2 %** |
+
+**Conséquence pour qui écrit une déclaration.** Énumérer à la main les foyers `engine/` sous test
+— ou déclarer `engine/**/*.py` — est de la **documentation honnête, et un no-op de sélection** :
+93 % de cet axe est déjà imposé par le conftest. Ce qui paie, et ce qui paie seul, c'est de
+retirer le glob **de la racine** (`scripts/python/*.py`) : il fait passer l'axe des probes de
+**995 à 20**, soit **50×**.
+
+⚠ Cela explique la forme même du gisement. La chose qu'un auteur a spontanément envie de
+déclarer (`engine/**`) est gratuite ; le glob qu'il ajoute « pour être tranquille » est
+précisément celui qui coûte. **62 déclarations sur 63** portaient un glob de racine.
+
+⚠ **Corollaire à ne pas retourner** : ce n'est pas une invitation à déclarer `engine/**` par
+paresse sous prétexte que c'est gratuit. Ça l'est *aujourd'hui*, *pour `tests/engine/`*, et
+uniquement parce que `#531-r1` reste ouvert — le jour où le conftest est allégé, le plancher
+tombe et ces déclarations redeviennent, elles, indiscriminantes.
+
 ## 4. Deux corrections de fidélité trouvées en chemin
 
 `Fermeture` ne résolvait **pas** les imports relatifs (`ast.ImportFrom` avec `level >= 1`).
