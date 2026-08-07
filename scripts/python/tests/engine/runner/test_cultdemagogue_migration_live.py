@@ -37,7 +37,16 @@ from engine.entities.effects.magnitude import ability_var
 
 import hexgeo
 
-BUILD = ["--p-units", "genesPrimus", "--a-units", "necroDestroyer"]
+# NEUTRALISATION CRIT/BLOCK SUR LES QUATRE FACES (#506, remede-type de #419-r6-r1 §3.3).
+# Ce fichier mesure des STATS DE SPAWN (`summonHp_2[level] x mult`) et des COMPTAGES -- jamais un
+# montant de degat inflige. Depuis `c4be3896` (#419-r6, le defaut passe a << equiper >>), le roster
+# 1v1 se resout AVANT le cast : mesure sur `master` nu, les 6 tests rendaient
+# `KeyError: 'units'` -- `decisionView` ne publie plus d'unites quand la bataille est FINIE, et le
+# montage lisait `dv["units"]` a nu. On epingle QUATRE SCALAIRES sur CE montage plutot que
+# `--no-bis-items`, qui restituerait le regime DEGENERE global (`CouldCrit` faux sur 106/106).
+_NO_CRIT_BLOCK = ["--crit", "0,0", "--crit-target", "0,0",
+                  "--block-player", "0,0", "--block-target", "0,0"]
+BUILD = _NO_CRIT_BLOCK + ["--p-units", "genesPrimus", "--a-units", "necroDestroyer"]
 CASTER_VIS = "genesPrimus"
 ENEMY_VIS = "necroDestroyer"
 NEO_VIS = "genesSmnNeophyte"
@@ -46,6 +55,22 @@ DEC_VIS = "genesSmnDecoy"
 
 def _dist(a, b):
     return hexgeo.distance(a, b)
+
+
+def _units(dv, ou: str):
+    """Les unites de `decisionView`, ou un ECHEC NOMME (#506).
+
+    `decisionView` ne publie PAS la cle `units` quand la bataille est terminee -- comportement connu
+    et deja gere ailleurs (`_summon_montage.py` lit `dv.get("units") or []`). La lecture nue
+    `dv["units"]` transformait ce cas en `KeyError` opaque, imputee au moteur. Un montage qui ne
+    s'installe pas ECHOUE en se NOMMANT, il ne skippe pas et il ne leve pas une erreur de cle."""
+    u = dv.get("units")
+    if u is None:
+        pytest.fail("montage cultdemagogue NON INSTALLE (%s) : `decisionView` ne publie plus "
+                    "`units` -- la bataille s'est terminee avant le cast. Cles rendues : %r"
+                    % (ou, sorted(dv) if isinstance(dv, dict) else type(dv).__name__),
+                    pytrace=False)
+    return u
 
 
 @pytest.fixture(scope="session")
@@ -69,8 +94,9 @@ def cult_demagogue(rpc, build_runner):
     for _ in range(12):
         dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
         cur = dv.get("currentPlayer")
-        isaak = next((u for u in dv["units"] if u.get("visualId") == CASTER_VIS), None)
-        enemy = next((u for u in dv["units"] if u.get("visualId") == ENEMY_VIS), None)
+        _us = _units(dv, "boucle de convergence")
+        isaak = next((u for u in _us if u.get("visualId") == CASTER_VIS), None)
+        enemy = next((u for u in _us if u.get("visualId") == ENEMY_VIS), None)
         if isaak is None or enemy is None:
             pytest.skip("isaak/enemy absent")
         ip, ep = upos(isaak), upos(enemy)
@@ -100,8 +126,9 @@ def cult_demagogue(rpc, build_runner):
         if best[0] <= 2:                                  # move m'a mis en portee -> caster CE tour
             dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
             cur = dv.get("currentPlayer")
-            isaak = next((u for u in dv["units"] if u.get("visualId") == CASTER_VIS), None)
-            enemy = next((u for u in dv["units"] if u.get("visualId") == ENEMY_VIS), None)
+            _us = _units(dv, "apres le move qui met en portee")
+            isaak = next((u for u in _us if u.get("visualId") == CASTER_VIS), None)
+            enemy = next((u for u in _us if u.get("visualId") == ENEMY_VIS), None)
             ready = True
             break
         rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)

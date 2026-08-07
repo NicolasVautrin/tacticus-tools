@@ -115,10 +115,15 @@ def _disarmed(klass):
     return _V()
 
 
-def _build(sid, seed, board, p_units, a_units):
+def _build(sid, seed, board, p_units, a_units, extra=None):
     """`rl_duel build` avec state-file PROPRE sous `logs/`. Copie de `probe_247._build`, a une
     difference PRES : le roster ADVERSE est parametrable -- c'est ce qui permet de faire du TAUNTE
-    une unite dont une ability ACTIVE est au registre (generalisation §C du rapport)."""
+    une unite dont une ability ACTIVE est au registre (generalisation §C du rapport).
+
+    `extra` (#506) = arguments `rl_duel build` SUPPLEMENTAIRES, ajoutes en QUEUE. Sert aux appelants
+    qui doivent epingler un scalaire de montage (typiquement la neutralisation crit/block des quatre
+    faces, remede-type de #419-r6-r1 §3.3). Aucun appelant existant n'en passe : le defaut `None`
+    reproduit la ligne de commande a l'identique."""
     import os
     import subprocess
     import time
@@ -126,7 +131,7 @@ def _build(sid, seed, board, p_units, a_units):
     state.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
             "--state-file", str(state), "--board", board, "--no-ai",
-            "--p-units", ",".join(p_units), "--a-units", a_units]
+            "--p-units", ",".join(p_units), "--a-units", a_units, *(extra or ())]
     deadline = time.time() + 300
     while True:
         state.unlink(missing_ok=True)

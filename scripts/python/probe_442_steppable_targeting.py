@@ -255,6 +255,56 @@ def main(argv=None) -> int:
         if not acts.get("mutated"):
             print("[FAIL] le cast natif n'a pas mute l'etat -> pas de decoy, rien a mesurer")
             return 2
+
+        # ------------------------------------------- #506 : L'ATTAQUANT DE MESURE, ET SA GEOMETRIE
+        # L'etage B n'a de sens que si l'attaquant a AU MOINS UN DECOY A PORTEE de son attaque
+        # normale : c'est la seule facon d'avoir une ligne ou le port DESARME (bit 20) rende `0x0`,
+        # donc ou le contrefactuel « ce que master rendait » soit un ACCEPT. Sans elle, le port
+        # desarme tombe sur le refus de PORTEE (`0x8000000`) et l'etage B ne conclut plus rien --
+        # l'accord natif/port, lui, reste vrai, parce que la regle 51 PRECEDE le volet portee.
+        #
+        # Le montage prenait la VICTIME du cast (qui a les decoys au contact par construction), et
+        # retombait sinon sur `foes[0]`, choisi par l'ordre de `decisionView`. Depuis `c4be3896`
+        # (#419-r6, le defaut passe a << equiper >>) les tours AI immediats des Neophytes TUENT la
+        # victime, et `foes[0]` est un ennemi quelconque, hors de portee de tout decoy : MESURE sur
+        # `master` nu, les 5 decoys rendaient `portDesarme = 0x8000000` au lieu de `0x0`.
+        #
+        # On ne subit plus ce tirage : on prend l'ennemi vivant le PLUS PROCHE d'un decoy et on
+        # l'AMENE au contact (runner `--no-ai`, `applyAction` ne verifie pas la propriete du
+        # `unitId` -- meme geste que `_make_adjacent`). La geometrie de spawn n'est jamais une
+        # excuse ; si l'approche echoue, l'etage B le DIT au lieu de rendre un accord vide.
+        dv_mid = P247._dv(sid, rid)
+        decoys_mid = [u for u in dv_mid["units"]
+                      if u.get("alive") and u.get("visualId") == DECOY_VIS]
+        foes_mid = [u for u in dv_mid["units"]
+                    if u.get("alive") and u.get("owner") != primus.get("owner")]
+        if not decoys_mid or not foes_mid:
+            print("[FAIL] apres le cast : %d decoy(s) vivant(s), %d ennemi(s) vivant(s)"
+                  % (len(decoys_mid), len(foes_mid)))
+            return 2
+
+        def _d_min(u):
+            return min(hexgeo.distance(P247._pos(u), P247._pos(x)) for x in decoys_mid)
+
+        atk_u = (next((u for u in foes_mid if int(u["id"]) == victim_id), None)
+                 or min(foes_mid, key=lambda f: (_d_min(f), int(f["id"]))))
+        aid_atk = int(atk_u["id"])
+        print("[etage B] attaquant u%d(%s) %s ; decoy le plus proche a d=%d"
+              % (aid_atk, atk_u.get("visualId"),
+                 "= la VICTIME du cast" if aid_atk == victim_id else "(la victime n'a pas survecu)",
+                 _d_min(atk_u)))
+        for _ in range(6):
+            dnow = P247._dv(sid, rid)
+            a2 = next((x for x in dnow["units"] if int(x["id"]) == aid_atk and x.get("alive")), None)
+            dec2 = [x for x in dnow["units"] if x.get("alive") and x.get("visualId") == DECOY_VIS]
+            if a2 is None or not dec2:
+                break
+            goal = min(dec2, key=lambda x: hexgeo.distance(P247._pos(a2), P247._pos(x)))
+            if hexgeo.distance(P247._pos(a2), P247._pos(goal)) <= 1:
+                break
+            if not P247._step_toward(sid, rid, aid_atk, P247._pos(goal), 1):
+                break
+
         dv_post, post_payloads = _capture(sid, rid)
         st = _mk_state(post_payloads)
 
@@ -281,17 +331,17 @@ def main(argv=None) -> int:
                                              "la regle serait VERTE ET VIDE"))
 
         # ---------------------------------------------------------------- ETAGE B : la REGLE
-        # Le CASTER de mesure est un ENNEMI des decoys qui en a au moins un a portee. On prend la
-        # victime si elle a survecu (l'etage 3 de l'arbre fait jouer les Neophytes), sinon le
-        # premier ennemi vivant des decoys.
-        foes = [u for u in dv_post["units"]
-                if u.get("alive") and u.get("owner") != primus.get("owner")]
-        atk = next((u for u in foes if int(u["id"]) == victim_id), None) or (foes[0] if foes else None)
+        # Le CASTER de mesure est l'ennemi choisi et AMENE AU CONTACT ci-dessus (#506).
+        atk = next((u for u in dv_post["units"]
+                    if u.get("alive") and int(u["id"]) == aid_atk), None)
         if atk is None or not decoys:
             print("[FAIL] pas d'attaquant vivant ou pas de decoy -> rien a mesurer")
             return 2
-        aid_atk = int(atk["id"])
         apos = P247._pos(atk)
+        d_atk = min(hexgeo.distance(apos, P247._pos(u)) for u in dv_post["units"]
+                    if u.get("alive") and int(u["id"]) in set(decoys))
+        print("[etage B] u%d(%s) @%s ; decoy le plus proche APRES approche : d=%d"
+              % (aid_atk, atk.get("visualId"), apos, d_atk))
         # UNE PAIRE (port, port DESARME) PAR ABILITY mesuree. L'attaque normale d'abord (le canal
         # le plus large : 83 abilities arment la regle par le meme chemin), puis les
         # `--extra-ability` de generalisation -- un masque DIFFERENT, lu au ctor de SA classe.

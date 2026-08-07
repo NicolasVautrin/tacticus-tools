@@ -309,11 +309,43 @@ def _ctx(rpc, case: dict, uid: int):
                          _scene.build_predictor(rpc, case["rid"]))
 
 
+def _pair_is_native_legal(ctx, ability: int, target: int) -> bool:
+    """La paire (ability, cible) est-elle EVALUABLE depuis la tuile courante, cote NATIF ?
+
+    #506 -- CE GATE MANQUAIT, et son absence faisait proposer au port des casts que le natif REFUSE.
+    Le generateur d'action du port (`ComparableAbilityGenerator._best_attack`) n'enumere QUE les
+    paires publiees par `decisionView.attackPlans`, donnee NATIVE : il herite donc de la legalite de
+    `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` sans avoir a la recalculer.
+    `port_proposes`, lui, appelait `calculate_action_utility` A NU -- il court-circuitait cette
+    legalite et mesurait donc quelque chose que le moteur ne produit jamais.
+
+    MESURE qui l'etablit (bras `kill`, `logs/mes506_legalite.py`) : sur les 10 lignes du carre,
+    TROIS ont `port_proposes = True` alors que le natif REFUSE la cible, et ce sont EXACTEMENT les
+    trois dont `abilityReason` rend `0x8000000` = `TargetIsInRange` -- la cible est hors de portee
+    de l'ability elle-meme, et le natif ne l'evalue depuis aucune de ces tuiles
+    (`origine not in ranked`). Les sept autres lignes concordent.
+
+    Ce gate n'a jamais mordu AVANT #506 parce qu'un SECOND defaut le masquait : la branche SANS ARME
+    de la prediction rendait `killSure` VRAI (prediction vide lue comme kill certain), donc le gate
+    `WillNormalAttackKill` refusait DEJA ces trois lignes -- pour la mauvaise raison. Corriger le
+    premier defaut a rendu le second visible : bug compensatoire."""
+    for ev in ((ctx.plans.get(ctx.uid) or {}).get("evals") or ()):
+        if ev.get("abilityId") == ability and ev.get("targetId") == target:
+            return ctx.origin in {(rk.get("col"), rk.get("row"))
+                                  for rk in (ev.get("ranked") or ())}
+    return False
+
+
 def port_proposes(ctx, ability: int, foes: list) -> bool:
     """Le PORT produit-il une action pour CETTE ability sur AU MOINS une des deux cibles, depuis la
-    tuile COURANTE ? `calculate_action_utility` rend `None` = le `Nullable` VIDE natif."""
+    tuile COURANTE ? `calculate_action_utility` rend `None` = le `Nullable` VIDE natif.
+
+    La paire doit d'abord etre LEGALE cote natif depuis cette tuile (`_pair_is_native_legal`, #506) --
+    sinon on compte une action que le generateur n'aurait jamais enumeree."""
     pb = get_playbook_or_default(ability)
-    return any(pb.calculate_action_utility(ctx, ctx.origin, t, ability) is not None for t in foes)
+    return any(_pair_is_native_legal(ctx, ability, t)
+               and pb.calculate_action_utility(ctx, ctx.origin, t, ability) is not None
+               for t in foes)
 
 
 @contextlib.contextmanager
