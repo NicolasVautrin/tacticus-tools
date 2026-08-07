@@ -1896,6 +1896,18 @@
     "scripts/python/engine/runner/abilities/loki/mv71.py"
    ]
   },
+  "tests/engine/test_287r11r2r1_los_summon_offline.py": {
+   "_at": 1786120522,
+   "_commit": "5391c3d5660f6360758d1d31322d7fc6572da5be",
+   "dirs": [
+    "data/symbols/rnca9r7q6c/metadata",
+    "scripts/python/engine/runner/abilities/loki"
+   ],
+   "temoins": [
+    "data/symbols/rnca9r7q6c/metadata/interface_slots.tsv",
+    "scripts/python/engine/runner/abilities/loki/mv71.py"
+   ]
+  },
   "tests/engine/test_287r4_targeting_needs_instance_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
