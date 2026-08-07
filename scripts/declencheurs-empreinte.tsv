@@ -1,5 +1,5 @@
 # format=1  declencheurs-empreinte (#486-r12) -- GENERE, jamais fusionne a la main : REGENERER (`--mesurer`) en cas de conflit.
-# commit=20320989ecd4f3133ee3e75d81b1529c019f18d7
+# commit=45ee3cb12e98be242e109ee6974c12ef447c8e74
 # Une ligne `lu` = un groupe (dossier, extension) reellement OUVERT en lecture,
 # avec son compte et DEUX temoins (le plus petit et le plus grand chemin du
 # groupe). Les temoins sont ce que le cliquet confronte aux globs declares :
@@ -390,7 +390,7 @@ probe_283:tables	lu	scripts/python/tests/engine/entities	.py	5	scripts/python/te
 probe_283:tables	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
 probe_283:tables	lu	scripts/python/tests/engine/runner	.py	473	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_283:tables	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
-probe_313	sha	fb212d8281ac09a1f5541941b36165a1c5a5b62d90fe4ba21d35403d9860a264
+probe_313	sha	ce9b6054282f0b3387703a20b4661888ed212be099772cd9f9d604f68227517e
 probe_313	nproc	1
 probe_313	proc	git
 probe_313	lu	data	.json	1	data/seed-bc.json	data/seed-bc.json
@@ -398,14 +398,14 @@ probe_313	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
 probe_313	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
 probe_313	lu	lib	.py	3	lib/hex.py	lib/state.py
 probe_313	lu	scripts/cliquets-cache	.tsv	1	scripts/cliquets-cache/probe_313_enum_mirror_bijection.tsv	scripts/cliquets-cache/probe_313_enum_mirror_bijection.tsv
-probe_313	lu	scripts/python	.py	925	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_313	lu	scripts/python	.py	991	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
 probe_313	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_313	lu	scripts/python/engine/ai	.py	7	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_313	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
-probe_313	lu	scripts/python/engine/entities	.py	29	scripts/python/engine/entities/__init__.py	scripts/python/engine/entities/victory_condition_type.py
+probe_313	lu	scripts/python/engine/entities	.py	30	scripts/python/engine/entities/__init__.py	scripts/python/engine/entities/victory_condition_type.py
 probe_313	lu	scripts/python/engine/entities/abilities	.py	4	scripts/python/engine/entities/abilities/__init__.py	scripts/python/engine/entities/abilities/triggered_ability.py
 probe_313	lu	scripts/python/engine/entities/effects	.py	6	scripts/python/engine/entities/effects/__init__.py	scripts/python/engine/entities/effects/magnitude.py
-probe_313	lu	scripts/python/engine/entities/effects/loki	.py	33	scripts/python/engine/entities/effects/loki/__init__.py	scripts/python/engine/entities/effects/loki/war_howl.py
+probe_313	lu	scripts/python/engine/entities/effects/loki	.py	35	scripts/python/engine/entities/effects/loki/__init__.py	scripts/python/engine/entities/effects/loki/war_howl.py
 probe_313	lu	scripts/python/engine/entities/pathfinding	.py	10	scripts/python/engine/entities/pathfinding/__init__.py	scripts/python/engine/entities/pathfinding/walk_pathfinder.py
 probe_313	lu	scripts/python/engine/entities/selectors	.py	7	scripts/python/engine/entities/selectors/__init__.py	scripts/python/engine/entities/selectors/units.py
 probe_313	lu	scripts/python/engine/entities/traits	.py	5	scripts/python/engine/entities/traits/__init__.py	scripts/python/engine/entities/traits/unit_trait.py
@@ -413,23 +413,23 @@ probe_313	lu	scripts/python/engine/playbook	.py	41	scripts/python/engine/playboo
 probe_313	lu	scripts/python/engine/playbook/noncomparable	.py	34	scripts/python/engine/playbook/noncomparable/__init__.py	scripts/python/engine/playbook/noncomparable/vigilance_eternal.py
 probe_313	lu	scripts/python/engine/playbook/prediction	.py	6	scripts/python/engine/playbook/prediction/__init__.py	scripts/python/engine/playbook/prediction/ramming_speed.py
 probe_313	lu	scripts/python/engine/runner	.py	9	scripts/python/engine/runner/__init__.py	scripts/python/engine/runner/state.py
-probe_313	lu	scripts/python/engine/runner/abilities	.py	29	scripts/python/engine/runner/abilities/__init__.py	scripts/python/engine/runner/abilities/worldeaters.py
-probe_313	lu	scripts/python/engine/runner/abilities/behaviours	.py	13	scripts/python/engine/runner/abilities/behaviours/__init__.py	scripts/python/engine/runner/abilities/behaviours/turnflow.py
-probe_313	lu	scripts/python/engine/runner/abilities/loki	.py	14	scripts/python/engine/runner/abilities/loki/__init__.py	scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py
+probe_313	lu	scripts/python/engine/runner/abilities	.py	31	scripts/python/engine/runner/abilities/__init__.py	scripts/python/engine/runner/abilities/worldeaters.py
+probe_313	lu	scripts/python/engine/runner/abilities/behaviours	.py	14	scripts/python/engine/runner/abilities/behaviours/__init__.py	scripts/python/engine/runner/abilities/behaviours/turnflow.py
+probe_313	lu	scripts/python/engine/runner/abilities/loki	.py	20	scripts/python/engine/runner/abilities/loki/__init__.py	scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py
 probe_313	lu	scripts/python/engine/runner/caches	.py	2	scripts/python/engine/runner/caches/__init__.py	scripts/python/engine/runner/caches/ability_and_effect_cache.py
-probe_313	lu	scripts/python/engine/runner/operations	.py	28	scripts/python/engine/runner/operations/__init__.py	scripts/python/engine/runner/operations/turnflow.py
+probe_313	lu	scripts/python/engine/runner/operations	.py	30	scripts/python/engine/runner/operations/__init__.py	scripts/python/engine/runner/operations/turnflow.py
 probe_313	lu	scripts/python/engine/runner/operations/damage_ops	.py	5	scripts/python/engine/runner/operations/damage_ops/__init__.py	scripts/python/engine/runner/operations/damage_ops/normal_like.py
-probe_313	lu	scripts/python/engine/runner/operations/triggers	.py	7	scripts/python/engine/runner/operations/triggers/__init__.py	scripts/python/engine/runner/operations/triggers/tiles.py
+probe_313	lu	scripts/python/engine/runner/operations/triggers	.py	8	scripts/python/engine/runner/operations/triggers/__init__.py	scripts/python/engine/runner/operations/triggers/tiles.py
 probe_313	lu	scripts/python/engine/runner/operations/triggers/dispatch	.py	9	scripts/python/engine/runner/operations/triggers/dispatch/__init__.py	scripts/python/engine/runner/operations/triggers/dispatch/turn.py
-probe_313	lu	scripts/python/engine/runner/operations/triggers/loki	.py	69	scripts/python/engine/runner/operations/triggers/loki/__init__.py	scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py
+probe_313	lu	scripts/python/engine/runner/operations/triggers/loki	.py	72	scripts/python/engine/runner/operations/triggers/loki/__init__.py	scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py
 probe_313	lu	scripts/python/engine/services	.py	21	scripts/python/engine/services/__init__.py	scripts/python/engine/services/victory_config.py
 probe_313	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/verify_turn_finished.py
-probe_313	lu	scripts/python/engine/utilities	.py	12	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
-probe_313	lu	scripts/python/tests	.py	44	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
-probe_313	lu	scripts/python/tests/engine	.py	246	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_313	lu	scripts/python/engine/utilities	.py	13	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
+probe_313	lu	scripts/python/tests	.py	50	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
+probe_313	lu	scripts/python/tests/engine	.py	254	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
 probe_313	lu	scripts/python/tests/engine/entities	.py	5	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
 probe_313	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
-probe_313	lu	scripts/python/tests/engine/runner	.py	433	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_313	lu	scripts/python/tests/engine/runner	.py	474	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_313	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_319	sha	a720232e15c142f7400a27d8c91c8bd4355dc64d59879a9048b0393b5f5b7600
 probe_319	nproc	11
