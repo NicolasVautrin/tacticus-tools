@@ -155,6 +155,20 @@ def defender_fixed_armor(state: State, target_id: int) -> int:
         pc = ent.get_component(PositionComponent)
         if oc is None or pc is None or oc.team != toc.team:
             continue                                      # Friends du porteur = même équipe que le défenseur
+        # VIVANTS SEULEMENT (#57m, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r1) : `AdjacentFriends(1)` est
+        # une OCCUPATION DE TUILE (`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` =
+        # `Units(AdjacentTiles(.)) - .`) -- un mort n'est plus sur le board, donc ne projette aucune
+        # aura. Ce balayage etait le SEUL des six du port sans gate de vivacite : ses cinq freres
+        # (`build_hits_board`, `_crit_carriers`, `collect_additional_hit_groups`,
+        # `_apply_ally_attack_damage_auras`, la boucle porteurs de `defender_modifiers`) en portent
+        # un depuis #57m. Il tenait par une PROPRIETE DU CAPTEUR, pas par un gate :
+        # `KillUnitOperation$$Execute` appelle TROIS fois `RemoveEffects(killed, <step>)`, donc
+        # `decisionView.units[].effects` est vide pour un mort et le `if not effs: continue` qui
+        # suit l'ecartait. Un etat construit HORS capture (greffe, seed synthetique) viole cette
+        # propriete sans erreur.
+        _uc = ent.get_component(UnitComponent)
+        if _uc is not None and not _uc.alive:
+            continue
         effs = state.effects.active_effects(uid, unit_state_for_effects(state, uid))
         if not effs:
             continue
