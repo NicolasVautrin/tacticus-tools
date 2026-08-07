@@ -215,13 +215,109 @@ L'écart vit donc dans une INTERACTION entre l'état que 1196 laisse en live et 
 
 Deux observations complémentaires, non refermées :
 
-- Dans le bras 4 (ACCORD), les comptes de tirages divergent quand même : **natif 16, port 15**. Le
-  natif consomme UN tirage de plus dans un cast où le **knockback** tire (régime « déjà
-  adjacente ») ; sans knockback (d=2) les comptes sont égaux (14/14, 15/15, 16/16 sur trois runs).
-  Piste : `ApplyKnockbackTo` consommerait un tirage que `PullUnitOneTileOperation` ne mirrore pas.
+- Dans le bras 4 (ACCORD), les comptes de tirages divergent quand même : **natif 16, port 15**.
 - Éliminés par la mesure : les effets `1516/1517 BeastSlayer_*` de la cible (le même couple accorde
   dans un runner frais), l'état de CHARGE (`charged(caster)` identique), les effets du caster
   (`[1082 Parry_ReduceHits]` dans les deux cas), la chance de crit.
+
+---
+
+## 4bis. `#524-r2`, deuxième passe — ce qui est TRANCHÉ, et ce qui reste
+
+### (a) `#524-r2` et `#511-r1` sont DEUX gisements, pas un
+
+Le « probablement le même gisement » écrit ci-dessus est **RÉFUTÉ**. Critère binaire, énoncé avant
+la mesure : *en régime NOMINAL (1ᵉʳ cast, runner frais, dégâts bit-exacts), l'état MT complet
+coïncide-t-il après le cast ?*
+
+| | régime nominal | dégâts | tirages natif / port | état MT après |
+|---|---|---|---|---|
+| `1196` (#524-r2) | 6 coups | bit-exacts | 14/14, 15/15, 16/16 (3 runs) | **IDENTIQUE bit à bit** |
+| `1225` (#511-r1) | 3 coups | bit-exacts | **8 / 13** | **DIFFÉRENT dès le 1ᵉʳ cast** |
+
+`1225` fait **moitié moins** de coups que `1196` et écarte de **+5** ; `1196` écarte de **0**.
+Une cause par-coup du vecteur ability-attack partagé produirait l'inverse. Les deux signatures
+sont donc distinctes : `#511-r1` est un écart **présent dès le premier cast** (le port tire plus
+que le natif, ou `dumpRng` n'expose pas tout côté natif) ; `#524-r2` n'apparaît **qu'au second**,
+sur un MT dont l'état coïncidait parfaitement au premier.
+
+Re-dérivé le 2026-08-07 : `SFTS_REPRENDRE=1 python probe_511_strike_from_the_shadows.py --step
+damage --casts 3`.
+
+### (b) La piste « le knockback consomme un tirage » est RÉFUTÉE — elle a été COMPTÉE
+
+`probe_524 --step pull` découpe désormais les tirages du port par étage (enveloppe de
+`PullUnitOneTileOperation.execute`, qui couvre TOUTE la queue commune de
+`IdunBattle.Operations.DisplaceUnitOperation$$Execute`, `ApplyKnockbackTo` compris) :
+
+| régime | pull | knockback | tirages port total (dont pull) | MT natif == port |
+|---|---|---|---|---|
+| d = 2 | DÉPLACE | non | 14 (**pull = 0**) | **True** |
+| d = 1 | BLOQUÉ | **oui, 1708** | 14 (**pull = 0**) | **True** |
+
+Le knockback ne coûte **aucun** tirage, ni au natif ni au port, et l'état MT coïncide dans les
+**deux** régimes. Le « natif 16 / port 15 » du bras 4 ne lui est donc pas imputable — il appartient
+à l'état laissé par le geste 1, comme le reste du résidu.
+
+Lecture du décompilé qui va avec : `IdunBattle.Operations.DisplaceUnitOperation$$ApplyKnockbackTo`
+= `if (!doIt || !UnitExtensions.IsTargetable(target)) return;` puis un montant lu au **slot 0xf**
+de la query et une opération de dégât — aucun appel de tirage sur ce chemin.
+
+### (c) Le résidu est ENTIÈREMENT dans le canal CRIT
+
+Décomposition par étage : on **éteint** le canal (`--crit "0,0"` sur les `p-units`, ce qui met
+`crit_enabled` à faux) et on rejoue le montage qui diverge.
+
+| montage | crit | natif | port | séquences | MT égaux |
+|---|---|---|---|---|---|
+| `--amorce ability --vecteur ability --dmin 2` | défaut | 3360 | 6581 | **divergentes** | False |
+| idem **`--crit "0,0"`** | éteint | **3300** | **3300** | **identiques (6/6)** | **True** |
+
+⇒ le résidu n'est ni dans l'arbre de 1196, ni dans le pull, ni dans le knockback, ni dans le
+pipeline de dégât : il est dans le **canal CRIT**, et lui seul.
+
+Décomposition du scalaire (jamais fitté) : `crit_chance` du port vaut **41** au régime par défaut
+et **15** quand la base est forcée à 0 — soit `26` (base) `+ 15`, et **15** est exactement
+`gameconfig traits.ThrillSeekers.variables.thrillSeekersExtraCritChance`. Le porteur du +15 est
+donc le trait `UnitTrait.ThrillSeekers` (1056) du CASTER, dont les events natifs du geste 2
+montrent bien le déclenchement (`[group 21] ThrillSeekers`, `[group 22] ThrillSeekers`).
+
+### (d) Hypothèse `HasEffect(activeOnly = 0)` — posée, mesurée, RÉFUTÉE
+
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ThrillSeekersAbility$$CreateBehaviour` est un
+`If` à deux branches, et la condition les sépare exactement sur le point qui nous intéresse :
+
+```
+If( HasEffect(Owner@0x148, 0x59a, activeOnly = 0, sourceFlags = 6),
+    ChangeEffectTurns(Owner, 0x59a, turns, ChangeType.Set),        // REFRESH : aucun nouveau +15
+    AddStaticStatModifierEffect(Owner, 0x59a, stat 9 = CRIT_CHANCE, +15, turns, 0) )
+```
+
+`activeOnly = 0` ⇒ le natif voit l'effet **même inactif**, alors que `decisionView` DROPPE les
+effets dont `IsActive` est faux. Un `Thrilled` survivant au geste 1 mais inactif aurait donc fait
+prendre au natif la branche REFRESH et au port la branche ADD — exactement le +15 de trop.
+
+**Mesuré, et c'est non** : avant le geste 2, `decisionView` rend `False`, l'état du port rend
+`False`, **et `decisionView` avec `includeInactive: true` rend `ABSENT`**. L'effet n'existe pas ;
+les deux côtés prennent la branche `AddStaticStatModifierEffect`, et après le cast les **deux**
+portent `Thrilled` (natif `True`, port `True`).
+
+### (e) Ce qui reste OUVERT, et le montage pour reprendre
+
+Il reste à établir **pourquoi la chance de crit EFFECTIVE du natif est plus basse que 41 au second
+cast**. Signal chiffré : sur les 6 coups du geste 2, le natif rend `Attack_DidCrit = 0` partout —
+à 41 % la probabilité en est `0,59^6 ≈ 4,2 %` — alors qu'il crite au coup 0 dans **tous** les
+régimes frais mesurés.
+
+Écartés, et à ne pas re-parcourir : le knockback (b), la chance de crit du PORT (invariante à 41
+entre les deux vecteurs), `ThrillSeekers` inactif (d), `BeastSlayer_*` de la cible, l'état de
+charge, les effets du caster, `RelentlessMarch_DangerZone` (apparu dans un seul run, dont le
+montage différait AUSSI par la distance — non retenu faute de diff propre).
+
+Reprendre par : `python probe_524_lash_of_torment.py --step chaine --amorce ability --vecteur
+ability --dmin 2 --dmax 2` (le montage reproduit à l'identique), en instrumentant le **rang du
+tirage de crit** dans `AttackDamageOperation._run_hits` plutôt que son résultat — c'est le seul
+étage que la mesure n'a pas encore ouvert.
 
 **Ce que le test de garde couvre donc** : le régime DIRECT (un cast par runner), qui est le régime
 naturel. Le régime chaîné est nommé ici, pas maquillé.

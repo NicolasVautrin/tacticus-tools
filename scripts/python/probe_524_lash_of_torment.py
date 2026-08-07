@@ -60,7 +60,7 @@ def _mk_rpc(R, sid):
     return _call
 
 
-def _build(board: str, seed: str, allie: str, ennemis: str, hp_target=None) -> tuple:
+def _build(board: str, seed: str, allie: str, ennemis: str, hp_target=None, crit=None) -> tuple:
     """`rl_duel build` avec `emperLucius` injecte. Rend `(rid, state_path)`.
 
     `hp_target` = `--hp-target` : PV des `a-units`, le levier qui rend le kill DETERMINISTE (regime
@@ -79,6 +79,10 @@ def _build(board: str, seed: str, allie: str, ennemis: str, hp_target=None) -> t
             "--p-units", "%s,%s" % (CASTER, allie), "--a-units", ennemis]
     if hp_target:
         argv += ["--hp-target", str(hp_target)]
+    # `--crit "0,0"` ETEINT le canal crit du caster : c'est la DECOMPOSITION PAR ETAGE du residu
+    # #524-r2 -- si le desaccord du 2e cast survit a crit=0, il n'est PAS dans le canal crit.
+    if crit:
+        argv += ["--crit", str(crit)]
     p = subprocess.run(argv, cwd=str(pyd), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if not state.exists():
@@ -376,7 +380,19 @@ def step_damage(board, seed, allie, ennemis, casts, dmin, dmax):
 
 
 def step_pull(board, seed, allie, ennemis, dmin, dmax):
-    """VOLET 2 -- le pull. `dmin/dmax` choisissent le regime (2..2 = deplace ; 1..1 = knockback)."""
+    """VOLET 2 -- le pull, et le COMPTE DES TIRAGES PAR ETAGE (#524-r2).
+
+    `dmin/dmax` choisissent le regime, et les deux regimes sont EXCLUSIFS l'un de l'autre :
+
+        2..2 -> le pull DEPLACE, `ApplyKnockbackTo` n'est PAS atteint
+        1..1 -> le pull ne deplace pas (arc AVANT = la tuile du caster, OCCUPEE),
+                et la branche `else` de la queue commune appelle `ApplyKnockbackTo`
+
+    C'est le regime DISCRIMINANT de la piste << le natif consomme un tirage de plus des que le
+    knockback tire >>. Elle se COMPTE : on decoupe les tirages du port en {attaque, pull} en
+    enveloppant `PullUnitOneTileOperation.execute`, et on lit le total natif au delta de `mti`.
+    Si `port_attaque == natif_total` sans knockback et `port_attaque == natif_total - 1` avec,
+    le tirage manquant est DANS le knockback."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.components import HealthComponent, PositionComponent
     from engine.runner.messages import ActiveAbilityMessage
@@ -396,6 +412,7 @@ def step_pull(board, seed, allie, ennemis, dmin, dmax):
         cid, tid = me["id"], tgt["id"]
         dv0, ob0, st, snap0 = _capture(rpc, rid, brd)
         rng = _cale_mt(rpc, rid, st)
+        mti_avant = rng.mti
         pos_caster = _pos(_by_id(dv0, cid))
         pos_avant = _pos(_by_id(dv0, tid))
         d0 = hexgeo.distance(pos_caster, pos_avant)
@@ -408,9 +425,29 @@ def step_pull(board, seed, allie, ennemis, dmin, dmax):
             print("cast REFUSE par le natif (%r) -- NON CONFRONTE" % (a0,))
             return 1
         runner = Runner(st).install_default_handlers(20)
-        runner.apply(ActiveAbilityMessage(cid, tid, ABILITY))
+        # DECOUPE DES TIRAGES DU PORT PAR ETAGE : on enveloppe l'Operation de pull et on lit le
+        # compteur du MT autour d'elle. `PullUnitOneTileOperation` couvre TOUTE la queue commune
+        # d'`IdunBattle.Operations.DisplaceUnitOperation$$Execute` (choix de tuile, deplacement,
+        # `ApplyKnockbackTo`) -- c'est exactement l'etage qu'on suspecte.
+        from engine.runner.operations.displace import PullUnitOneTileOperation as _PULL
+        _orig_pull = _PULL.execute
+        _pull_draws = []
+
+        def _pull_traced(self, state, bus):
+            avant = rng.tirages
+            out = _orig_pull(self, state, bus)
+            _pull_draws.append(rng.tirages - avant)
+            return out
+        _PULL.execute = _pull_traced
+        tirages_avant_cast = rng.tirages
+        try:
+            runner.apply(ActiveAbilityMessage(cid, tid, ABILITY))
+        finally:
+            _PULL.execute = _orig_pull
         diag = runner.ability_handler.last or {}
         res_port = diag   # `AbilityHandler.last` = {ability_type, ported, caster, target, **diag}
+        port_total = rng.tirages - tirages_avant_cast
+        port_pull = sum(_pull_draws)
 
         dv1 = _vue(rpc, rid)
         ob1 = rpc("observeBattle", {"runnerId": rid}, 60)
@@ -438,6 +475,24 @@ def step_pull(board, seed, allie, ennemis, dmin, dmax):
         # TEMOIN NON NUL : un ACCORD en regime degenere ne prouve rien.
         bouge = (pos_apres_nat != pos_avant)
         print("  la cible a-t-elle BOUGE (natif) ? %s" % bouge)
+
+        # --- LE COMPTE, par etage. ------------------------------------------------------------
+        s1 = rpc("dumpRng", {"runnerId": rid}, 30)
+        nat_total = None
+        if _ok(s1):
+            # `mti` est CYCLIQUE (0..624) : une difference brute peut etre NEGATIVE et ne compte
+            # rien. On rend le compte SEULEMENT quand les deux restent dans le meme bloc.
+            d = (s1.get("mti") or 0) - mti_avant
+            nat_total = d if d >= 0 else None
+        knock = (res_port.get("pull") or {}).get("knockback")
+        print("  TIRAGES  port total=%d  dont pull=%d  -> attaque=%d ; natif total=%s"
+              % (port_total, port_pull, port_total - port_pull, nat_total))
+        print("  knockback (port) = %s ; MT egaux ? %s"
+              % (knock,
+                 _ok(s1) and list(s1.get("mt") or []) == list(rng.mt) and s1.get("mti") == rng.mti))
+        if nat_total is not None:
+            print("  DELTA natif-port = %+d  (regime %s knockback)"
+                  % (nat_total - port_total, "AVEC" if knock else "SANS"))
         print("VERDICT PULL: %s" % ("ACCORD" if ok else "DESACCORD"))
         return 0 if ok else 1
     finally:
@@ -833,7 +888,7 @@ def step_controle(board, seed, allie, ennemis):
             pass
 
 
-def step_chaine(board, seed, allie, ennemis, vecteur, dmin=1, dmax=RANGE, amorce="ability"):
+def step_chaine(board, seed, allie, ennemis, vecteur, dmin=1, dmax=RANGE, amorce="ability", crit=None):
     """VOLET 0bis -- LE CONTROLE QUI ISOLE LE VECTEUR, a etat STRICTEMENT identique.
 
     `--step damage --casts 3` diverge au 2e cast (le port CRITE aux coups 0 et 1, le natif non), et
@@ -855,7 +910,7 @@ def step_chaine(board, seed, allie, ennemis, vecteur, dmin=1, dmax=RANGE, amorce
     R = _host()
     sid = R._resolve_session()
     rpc = _mk_rpc(R, sid)
-    rid, state = _build(board, seed, allie, ennemis)
+    rid, state = _build(board, seed, allie, ennemis, crit=crit)
     try:
         bg = rpc("boardGraph", {"runnerId": rid}, 60)
         brd = Board(bg["tiles"], adjacency="evenq")
@@ -872,11 +927,24 @@ def step_chaine(board, seed, allie, ennemis, vecteur, dmin=1, dmax=RANGE, amorce
         else:
             _act(rpc, rid, {"kind": "ability", "casterId": me["id"], "targetId": tgt["id"],
                             "abilityType": ABILITY})
-        _act(rpc, rid, {"kind": "endturn"}, 60)
-        # --- geste 2 : MEME approche, vecteur au choix ---------------------------------------
-        me, tgt = _drive_a_distance(rpc, rid, dmin, dmax, exclus=(tgt["id"],))
+        # UN `endturn` ne suffit pas toujours a rendre son ACTIVE a Lucius : selon la geometrie,
+        # `_drive_a_distance` peut rendre une configuration AU MEME TOUR, et le 2e geste revient
+        # alors `ok: true, mutated: false` -- un refus SILENCIEUX qui se lirait comme une mesure.
+        # On BOUCLE jusqu'a ce que le natif re-propose l'ability au caster (`decisionView` la liste
+        # dans `units[].abilities`), et on ECHOUE FORT si le tour ne revient pas.
+        exclu1 = tgt["id"]
+        me = tgt = None
+        for _ in range(4):
+            _act(rpc, rid, {"kind": "endturn"}, 60)
+            m2, t2 = _drive_a_distance(rpc, rid, dmin, dmax, exclus=(exclu1,))
+            if m2 is None or t2 is None:
+                continue
+            dispo = any(int(x.get("id") or -1) == ABILITY for x in (m2.get("abilities") or []))
+            if dispo:
+                me, tgt = m2, t2
+                break
         if me is None or tgt is None:
-            print("2e configuration introuvable -- NON CONFRONTE")
+            print("2e configuration introuvable (ou active non re-proposee) -- NON CONFRONTE")
             return 1
         cid, tid = me["id"], tgt["id"]
         d = hexgeo.distance(_pos(me), _pos(tgt))
@@ -888,6 +956,28 @@ def step_chaine(board, seed, allie, ennemis, vecteur, dmin=1, dmax=RANGE, amorce
         print("geste 2 : caster=%s cible=%s dist=%s vecteur=%s" % (cid, tid, d, vecteur))
         print("  etat port : charged(caster)=%s effets caster=%s cible=%s"
               % (sorted(charged_unit_ids(st, cid) or []), _effects(dv0, cid), _effects(dv0, tid)))
+        # LE CANAL DU CRIT DE CET ARBRE, ET LE SEUL : `ThrillSeekers` (trait du CASTER
+        # `emperLucius`, `UnitTrait` 1056) pose « Thrilled » (`EffectType` 1434), un stat-mod
+        # CRIT_CHANCE. Les events du geste 2 montrent qu'il se declenche -- reste a savoir si le
+        # PORT sait que le caster le PORTE DEJA au moment de la capture. `decisionView` ne le publie
+        # pas toujours (motif de SEEDING #118, nomme par `effects/loki/serene_unifier.py`), et un
+        # buff invisible a la capture est un buff que le port RE-AJOUTE au lieu de RAFRAICHIR.
+        from engine.entities.effect_type import EffectType as _ET
+        _thr = int(_ET.ThrillSeekers)                      # 0x59a = 1434 (« Thrilled »)
+        _dv_thr = _thr in (_effects(dv0, cid) or [])
+        _st_thr = bool(getattr(st, "effects", None)
+                       and st.effects.has_effect(int(cid), _thr))
+        print("  THRILLED(1434) sur le caster : decisionView=%s ; etat PORT=%s" % (_dv_thr, _st_thr))
+        # LE CRAN QUI TRANCHE : `ThrillSeekersAbility$$CreateBehaviour` teste
+        # `HasEffect(Owner, 0x59a, activeOnly = 0, sourceFlags = 6)` -- le natif voit l'effet MEME
+        # INACTIF. Or `decisionView` DROPPE les effets dont `IsActive` est faux (`readEffectsByUnit`),
+        # sauf si on lui demande `includeInactive`. Si l'effet APPARAIT avec ce drapeau et pas sans,
+        # le port prend la branche `AddStaticStatModifierEffect` (+15) la ou le natif prend
+        # `ChangeEffectTurns` (Set, aucun nouveau +15) : c'est LA cause du surplus de crit chance.
+        _dvi = rpc("decisionView", {"runnerId": rid, "allAbilities": True,
+                                    "includeInactive": True}, 150)
+        _inact = [e for e in _effets_bruts(_dvi, cid) if e.get("effectType") == _thr]
+        print("  THRILLED(1434) avec includeInactive : %s" % (_inact or "ABSENT",))
         if vecteur == "normal":
             na = next((x["id"] for x in ((me or {}).get("abilities") or [])
                        if x.get("kind") == "normal" and x.get("id") is not None), None)
@@ -940,6 +1030,29 @@ def step_chaine(board, seed, allie, ennemis, vecteur, dmin=1, dmax=RANGE, amorce
         print("  tirages port=%d ; mti avant=%s -> natif=%s port=%s ; MT egaux ? %s"
               % (rng.tirages - tirages0, mti0, (s1 or {}).get("mti"), rng.mti,
                  _ok(s1) and list(s1.get("mt") or []) == list(rng.mt) and s1.get("mti") == rng.mti))
+        # QUI PORTE LES +15 ? `ThrillSeekers` pose « Thrilled » PENDANT l'attaque (le trigger
+        # `On(PreAttackHit)` precede `_crit_params`). On lit donc l'effet APRES le cast, des deux
+        # cotes : si le PORT le pose et que le natif ne l'a pas, le +15 du port est de trop.
+        _dv2 = _vue(rpc, rid)
+        print("  THRILLED(1434) APRES le cast : natif=%s ; port=%s"
+              % (_thr in (_effects(_dv2, cid) or []),
+                 bool(getattr(st, "effects", None) and st.effects.has_effect(int(cid), _thr))))
+        # LE DECALAGE SE LIT DANS LES OPERATIONS, PAS DANS LE DEGAT. Un tirage de plus cote natif
+        # vient d'une OPERATION de plus, et une operation laisse des events. On imprime la SUITE
+        # des groupes/steps du geste 2 pour la DIFFER entre les deux amorces : ce qui apparait
+        # sous `--amorce ability` et pas sous `--amorce normal` est le suspect.
+        print("  EVENTS natif (geste 2), en ordre :")
+        for a in ((res or {}).get("actions") or []):
+            for e in (a.get("events") or []):
+                k = e.get("kind") or "?"
+                if k == "group":
+                    print("     [group %s] entity=%s source=%s"
+                          % (e.get("group"), e.get("entity"), e.get("source")))
+                elif e.get("step") is not None:
+                    print("     step=%s entity=%s target=%s" % (e.get("step"), e.get("entity"),
+                                                                e.get("target")))
+                else:
+                    print("     %s entity=%s" % (k, e.get("entity")))
         ok = (live == off)
         print("VERDICT CHAINE(%s): %s" % (vecteur, "ACCORD" if ok else "DESACCORD"))
         return 0 if ok else 1
@@ -964,6 +1077,8 @@ def main(argv) -> int:
     ap.add_argument("--dmax", type=int, default=RANGE)
     ap.add_argument("--vecteur", default="ability", choices=["ability", "normal"],
                     help="chaine : vecteur du 2e geste (ability = 1196, normal = attaque normale)")
+    ap.add_argument("--crit", default=None,
+                    help="chaine : force CritChance,CritDamage des p-units (ex. \"0,0\")")
     ap.add_argument("--amorce", default="ability", choices=["ability", "normal"],
                     help="chaine : vecteur du 1er geste (celui qui avance le MT)")
     ap.add_argument("--hp-target", type=int, default=1200,
@@ -974,7 +1089,7 @@ def main(argv) -> int:
     if a.step == "taunt":
         return step_taunt(a.board, a.seed, a.allie, a.ennemis, a.dmin, a.dmax)
     if a.step == "chaine":
-        return step_chaine(a.board, a.seed, a.allie, a.ennemis, a.vecteur, a.dmin, a.dmax, a.amorce)
+        return step_chaine(a.board, a.seed, a.allie, a.ennemis, a.vecteur, a.dmin, a.dmax, a.amorce, a.crit)
     if a.step == "controle":
         return step_controle(a.board, a.seed, a.allie, a.ennemis)
     if a.step == "taunt-bloque":
