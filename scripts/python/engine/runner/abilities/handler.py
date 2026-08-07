@@ -95,6 +95,7 @@ from .astramilitarum import (SupremeCommanderAbility, SendInTheNextWaveAbility,
                              FragBombAbility, BasiliskBarrageAbility)
 from .emperorschildren import DoomSirenAbility
 from .blacktemplars import FragstormGrenadeLauncherAbility
+from .astartes import StrikeFromTheShadowsAbility
 from ..components import is_alive_and_not_fled
 from ..components import unit_is_dead, MachineComponent
 from ..messages import ActiveAbilityMessage
@@ -260,6 +261,10 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # force l'appariement -> `IdunBattle.Entities.Triggers.OwnerIsAliveAbilityTrigger`.
     RammingSpeedAbility.ABILITY_TYPE: RammingSpeedAbility,             # 1059 (ZERO porteur gameconfig -> greffe orksKillaKan : CHARGE sur First(SortTilesByUtility(MovableTilesInRange(caster, range=5) & CanAddUnit(AdjacentTiles(cible)), [Tile(7), RammingSpeed_MostAdjacentEnemies(54)])) gatee par NOT(IsAdjacent) & AddEffect(1098 RammingSpeed_ExtraExplode -> SOI, duree DEFAUT, source = Owner) & If(OwnerIsAlive, nrOfHits=4 coups Physical sur la cible + nrOfHits_2=2 coups sur SOI-MEME) ; famille ATTACK, Execute PLAIN)
     DakkaDakkaDakkaAbility.ABILITY_TYPE: DakkaDakkaDakkaAbility,       # 1171 (orksKillaKan « Snappawrecka » Orks : Min(nrOfHits + TimesRepaired*extraHits, maxNrOfHits) coups Projectile ranged sur la cible & If(NumLeftOverHits(cible), attaque des coups GASPILLES repartis (Divide Floor + reste a la 1re) sur PickRandomly(Damageable(Unobscured(SurroundingEnemies(caster, range_2))), RandomAmount(1, Min(numLeft, Count))) ) & If(IsAlive(caster), ChangeStat(caster, Health, Subtract, PercentageOf(StatAmount(caster, Health, MAXIMUM), healthPct))))
+    # --- #511 : face COMBAT de 1225 (la face DECISION etait deja portee -- famille (b) de
+    # `entities/abilities/active_ability.py`, `MakeDamagePredictions` = GenerateMultiHitAttackPredictions).
+    # Porteur HORS pool (`astarCyrus`) -> confronte par `catalog_inject`, comme son passif HaywireMine.
+    StrikeFromTheShadowsAbility.ABILITY_TYPE: StrikeFromTheShadowsAbility,  # 1225 (astarCyrus « Cyrus » Adeptus Astartes : (AttackWithAttackDamage(Caster@0x48, Target@0x60, MinMaxDamage, Bolter, GetHits, selectionType 2) + AddEffect(0x60d StrikeFromTheShadows -> Target, source Caster, Sum(TurnsFromRounds(1), Direct(1)) TOURS)) + ResetMovement(Owner@0x30) ; l'attaque part D'ABORD, le mouvement est rendu EN DERNIER ; l'effet 0x60d est numeriquement INERTE (EffectBonus a trigger seul, six slots de magnitude a ZERO) ; PAS d'ExecuteAtomic)
 }
 
 
