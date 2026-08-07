@@ -44,7 +44,7 @@ from ...entities.effect_type import EffectType
 from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, OwnerTile,
                                              Subject, Target)
 from ...entities.selectors.geometry import EntitiesWithAnyEffect, Randomize
-from ...entities.selectors.tiles import AllTiles, AllUnits, Caster
+from ...entities.selectors.tiles import AllAliveUnits, AllTiles, Caster
 from ...entities.selectors.units import (
     AdjacentEnemies, AdjacentFriends, Enemies, SortByDistance, Sub, Union,
     UnitsThatCanHaveActiveAbilityReset, non_steppable_or_object_units
@@ -190,7 +190,8 @@ class HeavyRailRifleAbility(ActiveAbility):
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.TwinSmartMissileSystemAbility$$ExecuteBehaviour`
 # (MIRROR du DECOMPILE) :
 #
-#   targets = EntitiesWithAnyEffect( Enemies(caster@0x160, @0x80 = AllUnits, 3), 0x462 = Markerlight )
+#   targets = EntitiesWithAnyEffect( Enemies(<dsl>+0x48 = Caster, <dsl>+0x20 = AllAliveUnits, 3),
+#                                    0x462 = Markerlight )
 #             (== `IdunBattleLogic.Entities.Abilities.Active.Loki.TwinSmartMissileSystemAbility$$GetAttackTargets`,
 #              fonction NOMMEE dont le corps est REPRIS INLINE par ExecuteBehaviour)
 #   attack  = AttackWithAbilityDamage( caster@0x160, targets,
@@ -219,13 +220,15 @@ TWIN_SMART_MISSILE_SYSTEM_ID = "TwinSmartMissileSystem"
 
 def twin_smart_missile_system_attack_targets() -> EntitiesWithAnyEffect:
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.TwinSmartMissileSystemAbility$$GetAttackTargets`
-    (MIRROR) = `EntitiesWithAnyEffect(Enemies(caster@0x160, @0x80), 0x462 Markerlight)`.
+    (MIRROR) = `EntitiesWithAnyEffect(Enemies(<dsl>+0x48, <dsl>+0x20, 3), 0x462 Markerlight)`.
 
-    `@0x80` = le selecteur PARTAGE `AllAliveMachinesSelector` pose par
-    `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` = `AllUnits` (VIVANTS) cote port -- meme source
-    que `Enemies(Owner@0x148, @0x80, 3)` de Waaagh/Stormcaller. AUCUN rayon : l'ability frappe TOUT ennemi
-    marque du plateau."""
-    return EntitiesWithAnyEffect(Enemies(AllUnits()), [MARKERLIGHT])
+    `<dsl>+0x20` = le selecteur PARTAGE `IdunBattle.Entities.Selectors.AllAliveUnitsSelector` pose par
+    `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` (slot `IBattleQuery` 137
+    `GetAllAliveUnits`, pool `EntityPool.AliveUnits`) -> `AllAliveUnits()` cote port -- meme source que
+    Waaagh/Stormcaller/RadBombardment. Ce N'EST PAS `DSLSelectors$$AllUnits` (pool 8, morts inclus),
+    et ce n'est pas non plus `AllAliveMachines` (pool 6) : #514. AUCUN rayon : l'ability frappe TOUT
+    ennemi marque du plateau."""
+    return EntitiesWithAnyEffect(Enemies(AllAliveUnits()), [MARKERLIGHT])
 
 
 def twin_smart_missile_system_tree(state: "State"):

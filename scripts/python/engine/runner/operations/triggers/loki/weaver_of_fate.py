@@ -5,8 +5,14 @@ Mirror du kit natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfF
 - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$CreateTrigger` (= `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$GetTrigger` parametre par l'effet) :
     On(9=Attack)
     & AmountIsEqualOrGreater(
-        UnitsThatTakenDamageThisTurn(Enemies(caster, AllUnits), profil 0xd=13 Psychic),
+        UnitsThatTakenDamageThisTurn(
+            Enemies(<dsl>+0x30 = Owner, DSLSelectors$$AllUnits(), UnitSelectionType.Any = 0),
+            profil 0xd=13 Psychic),
         Get(3))                                  # seuil 3 EN DUR (pas une variable de niveau)
+  ⚠ La source est la primitive **pool 8** (`EntityPool.AllUnits`, MORTS INCLUS) et le
+  `selectionType` vaut **0 = Any**, la ou tous les autres call-sites du jeu passent le champ
+  partage `<dsl>+0x20` (`AllAliveUnits`) avec `3 = OnlyAliveAndTargetable`. Cf. `_enemies_of`
+  ci-dessous (#514).
     & Not(HasEffect(caster, 0x4a1=1185 WeaverOfFate_MaxOutDamage))
   `On(9)` = event GENERIQUE de FIN d'attaque (`FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute`), sans gate
   OwnerIsCaster/Target : le compte + le Not(HasEffect) sont les seuls gates.
@@ -55,10 +61,33 @@ def units_that_taken_damage_this_turn(state: State, unit_ids, profile_id: int) -
     return out
 
 
-def _alive_enemies_of(state: State, owner_id: int) -> list[int]:
-    """`Enemies(caster, AllUnits)` : unites VIVANTES d'une AUTRE equipe que le porteur (les morts
-    sont retires du board natif — `AllUnits` n'itere que les listes `units` des PlayerComponent,
-    purgees par RemoveUnitOperation IdunBattle.Operations.RemoveUnitOperation$$Execute)."""
+def _enemies_of(state: State, owner_id: int) -> list[int]:
+    """`Enemies( <dsl>+0x30 = Owner, DSLSelectors$$AllUnits(), UnitSelectionType.Any = 0 )` --
+    unites d'une AUTRE equipe que le porteur, **MORTES COMPRISES**.
+
+    ⚠ Le port filtrait `alive` jusqu'a #514, sur l'hypothese ecrite « les morts sont retires du
+    board natif ». Le decompile la REFUTE sur les DEUX etages, et les deux vont dans le meme sens :
+
+      * la SOURCE est `IdunBattleLogic.Entities.DSLSelectors$$AllUnits` ->
+        `IdunBattle.Entities.Selectors.AllUnitsSelector$$Select` -> `IBattleQuery` slot 136
+        `GetAllUnits` -> `IdunBattle.Core.Services.BattleQuery$$GetAllUnits` =
+        `state.GetPool(EntityPool.AllUnits)`, sans aucun predicat de vie -- et non le champ partage
+        `<dsl>+0x20` (`AllAliveUnitsSelector`, slot 137, `EntityPool.AliveUnits`) que prennent tous
+        les autres `Enemies`/`Friends` du jeu ;
+      * le `selectionType` passe ici est **`0 = UnitSelectionType.Any`**
+        (`IdunBattle.Entities.Enum.UnitSelectionType` = `0=Any,1=OnlyAlive,2=OnlyTargetable,
+        3=OnlyAliveAndTargetable`, et `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`
+        n'appelle `IsAlive` que sur `1` et `3`). Or TOUS les autres call-sites passent `3`. Ce `0`
+        est donc DELIBERE, et c'est le second signal independant.
+
+    CE QUE CA CHANGE, ET POURQUOI C'EST OBSERVABLE : le gate est « au moins 3 ennemis ont recu du
+    degat Psychic CE TOUR ». Un ennemi TUE par ce meme degat compte pour le natif ; il ne comptait
+    pas pour le port, qui ratait donc le declenchement dans le regime le plus frequent (les 3 cibles
+    d'une salve psychique dont une meurt). Degradation SILENCIEUSE et RESTRICTIVE.
+
+    Le pool `EntityPool.AllUnits` contient bien les morts -- MESURE, pas deduit du nom :
+    `probe_514_extra_pierce_cadavres.py` (regime `cadavre`) lit `UnitStats_ExtraPierce_Modification
+    = 10` cote natif, soit `extraPierceRatio x 1`, avec pour seul allie « defeated » un cadavre."""
     ent = state.get_entity(owner_id)
     oc = ent.get_component(OwnerComponent) if ent is not None else None
     if oc is None:
@@ -68,11 +97,10 @@ def _alive_enemies_of(state: State, owner_id: int) -> list[int]:
         if uid == owner_id:
             continue
         oc2 = e.get_component(OwnerComponent)
-        uc2 = e.get_component(UnitComponent)
         if oc2 is None or oc2.team == oc.team:
             continue
-        if uc2 is not None and not uc2.alive:
-            continue
+        if e.get_component(UnitComponent) is None:
+            continue                       # `TargetsSelector$$SelectUnit` : seules les UNITES
         out.append(uid)
     return out
 
@@ -86,7 +114,7 @@ class WeaverOfFateAbility(TriggeredAbility):
         if state.effects is not None and state.effects.has_effect(
                 self.owner_id, effect_type=WEAVER_MAXOUT):
             return False
-        enemies = _alive_enemies_of(state, self.owner_id)
+        enemies = _enemies_of(state, self.owner_id)
         hit = units_that_taken_damage_this_turn(state, enemies, _PSYCHIC)
         return len(hit) >= _THRESHOLD                          # AmountIsEqualOrGreater(..., Get(3))
 

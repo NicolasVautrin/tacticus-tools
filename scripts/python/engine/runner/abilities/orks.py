@@ -30,7 +30,7 @@ from ...entities.selectors.accessors import (
 )
 from ...entities.selectors.geometry import Cache, EntitiesWithoutEffects, UnitsWithVisualId
 from ...entities.selectors.tiles import (
-    AdjacentTiles, AllUnits, CanAddUnit, Caster, MovableTilesInRange, TileIntersect,
+    AdjacentTiles, AllAliveUnits, AllUnits, CanAddUnit, Caster, MovableTilesInRange, TileIntersect,
     tiles_unit_can_move_to_charge_target
 )
 from ...entities.selectors.units import (
@@ -97,11 +97,14 @@ def waaagh_spawn_tree(count: int) -> Spawn:
 
 def waaagh_buffed_units_selector():
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffedUnitsSelector` (== le selecteur INLINE de `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour`) :
-        `Unique( caster@0x160
-                 + AdjacentFriends(caster@0x160, 1, 3)
-                 + UnitsFromFaction(Friends(caster@0x160, @0x80, 3), 5=Orks, 3) )`
-    (`TargetsSelector.op_Addition` = union, puis `Unique` = dedup par entite). `@0x80` = le slot PARTAGE
-    « toutes les unites (vivantes) » pose par `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` -> porte `AllUnits()`.
+        `Unique( <dsl>+0x48 = Caster
+                 + AdjacentFriends(<dsl>+0x48, 1, 3)
+                 + UnitsFromFaction(Friends(<dsl>+0x48, <dsl>+0x20, 3), 5=Orks, 3) )`
+    (`TargetsSelector.op_Addition` = union, puis `Unique` = dedup par entite). `<dsl>+0x20` = le slot
+    PARTAGE `IdunBattle.Entities.Selectors.AllAliveUnitsSelector` (pool `EntityPool.AliveUnits`) pose
+    par `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` -> porte `AllAliveUnits()`. Ce n'est
+    PAS `DSLSelectors$$AllUnits`, que la MEME ability appelle deux noeuds plus loin, dans
+    `GetAttackBehaviour` (#514).
     Portee : le caster, ses allies ADJACENTS (quelle que soit leur faction) et TOUS ses allies de faction
     **Orks** (board-wide, aucun rayon).
 
@@ -109,7 +112,7 @@ def waaagh_buffed_units_selector():
     `CasterTile()` designe la MEME ancre que le `caster@0x160` natif (self exclu par `_within`, puis
     reinjecte par l'union `Caster()` — exactement l'`op_Addition(caster, adjacentFriends)` natif)."""
     return Unique(Union(Union(Caster(), AdjacentFriends(CasterTile(), Const(1))),
-                        UnitsFromFaction(Friends(AllUnits()), WAAAGH_FACTION)))
+                        UnitsFromFaction(Friends(AllAliveUnits()), WAAAGH_FACTION)))
 
 
 def waaagh_buff_tree():
@@ -265,10 +268,16 @@ def waaagh_attack_tree():
       contact (ou s'il y etait deja).
     - `UnitNormalAttackType(caster)` -> attaque NORMALE (la feuille portee `UseActiveAbility` specialise
       deja le dispatch a l'attaque normale, `AttackDamageOperation.execute`).
-    - `KillDeadUnits(Killer(@0x180), AllUnits())` : finalisation des cadavres. Le port MIRROR la structure
-      SANS re-muter (la mort est finalisee INLINE par l'attaque, cf. `behaviours/lifecycle.py`) et
-      n'exploite PAS `subject_sel` -> le noeud `Killer(...)` (non porte) est represente par son operande
-      `ActiveTarget@0x180`."""
+    - `KillDeadUnits(Killer(<dsl>+0x68 = ActiveTarget), AllUnits())` : finalisation des cadavres. Le
+      port MIRROR la structure SANS re-muter (la mort est finalisee INLINE par l'attaque, cf.
+      `behaviours/lifecycle.py`) et n'exploite PAS `subject_sel` -> le noeud `Killer(...)` (non porte)
+      est represente par son operande `ActiveTarget`.
+      ⚠ **ICI, et ICI SEULEMENT dans cette ability, le natif appelle `DSLSelectors$$AllUnits`** --
+      la primitive pool `EntityPool.AllUnits`, MORTS INCLUS (verifie au decompile de
+      `WaaaghAbility$$GetAttackBehaviour`, `rnca9r7q6c`). C'est exigé par le sens du noeud : un
+      selecteur d'unites VIVANTES ne peut, par construction, rendre aucun cadavre a finaliser --
+      le volet `downed` serait TOUJOURS vide. Le buff, deux noeuds plus haut, passe lui `+0x20`
+      (`AllAliveUnits`). #514."""
     return op_and(If(IsAdjacent(Caster(), Target()), UseActiveAbility(Caster(), Target())),
                   KillDeadUnits(ActiveTarget(), AllUnits()))
 

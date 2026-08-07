@@ -33,17 +33,51 @@ class Caster(TargetsSelector):
         return ctx.caster
 
 
-class AllUnits(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$AllUnits` -> `AllAliveMachinesSelector IdunBattle.Entities.Selectors.AllAliveMachinesSelector$$Select` : toutes les unites
-    VIVANTES de la bataille. Le primitif DSL `AllUnits` est **la variante ALIVE** (un `AllUnitsSelector`
-    natif distinct existe pour l'ensemble brut, mais `DSLFactory.AllUnits` ne l'utilise PAS). Source des
-    filtres `Enemies`/`Friends` du port (le natif `Enemies(caster, ...)` folde la source ; cote port on
-    fournit `AllUnits` a l'inner). **Le filtre alive est ICI** (mirror de AllAliveMachines), PAS via un
-    noeud `Damageable` en aval -> cf. confront LIVE #200 tracer-v2 + fix #202 (le natif GetSpawnTileSelector
-    n'a AUCUN Damageable ; c'est `AllUnits`=alive qui exclut les morts)."""
+class AllAliveUnits(TargetsSelector):
+    """Le champ PARTAGE `<DSLSelectors>+0x20` que pose `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`
+    -> `IdunBattle.Entities.Selectors.AllAliveUnitsSelector$$Select` -> `IBattleQuery` slot **137**
+    `GetAllAliveUnits` -> `IdunBattle.Core.Services.BattleQuery$$GetAllAliveUnits` :
+    `state.GetPool(EntityPool.AliveUnits)`. Unites **VIVANTES** de la bataille.
+
+    C'EST LA SOURCE DE TOUS LES `Enemies`/`Friends` DU PORT, et c'est LU, pas suppose : les call-sites
+    natifs ecrivent litteralement `Enemies(<dsl>+0x48 = Caster, <dsl>+0x20, 3)` --
+    `TwinSmartMissileSystemAbility$$GetAttackTargets`, `GetEmRuntzAbility$$GetSpawnTileSelector`,
+    `RadBombardmentAbility$$AffectedTileAmount`, `WaaaghAbility$$GetBuffedUnitsSelector`,
+    `StormcallerAbility$$ExecuteBehaviour` (avec `<dsl>+0x30 = Owner` en reference).
+
+    **Le filtre alive est ICI**, PAS via un noeud `Damageable` en aval -> confront LIVE #200 tracer-v2
+    + fix #202 (`GetSpawnTileSelector` n'a AUCUN `Damageable`, et pourtant les morts en sont exclus).
+
+    ⚠ **CE N'EST PAS `AllUnits`** (#514). Le noeud portait ce nom jusqu'au 2026-08-07 alors que
+    `IdunBattleLogic.Entities.DSLSelectors$$AllUnits` designe une AUTRE primitive, sur un AUTRE pool
+    (`EntityPool.AllUnits`, morts INCLUS) -- cf. la classe `AllUnits` ci-dessous. Les deux corps natifs
+    ne different QUE par le littéral d'`EntityPool`, ce qui rend la confusion muette."""
     def select(self, ctx):
         return [u for u in ctx.units
                 if bool(u.get("alive", True)) and (u.get("hp") or 0) > 0]
+
+
+class AllUnits(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$AllUnits` -> `IdunBattle.Entities.Selectors.AllUnitsSelector$$Select`
+    -> `IBattleQuery` slot **136** `GetAllUnits` -> `IdunBattle.Core.Services.BattleQuery$$GetAllUnits` :
+    `state.GetPool(EntityPool.AllUnits)`, **MORTS INCLUS**.
+
+    Le corps natif est le MEME que celui de `GetAllAliveUnits` / `GetAllAliveMachines` a l'ordinal
+    d'`EntityPool` pres (`8` / `0` / `6`, lus dans `data/symbols/<build>/frida/enums.tsv`) : il n'y a
+    **aucun** predicat de vie dedans. Le seul filtre du corps est le `playerEntityId` **nullable**, que
+    tous les call-sites du DSL passent a `null`. Contraste : `BattleQuery$$GetAllDeadUnits` (slot 139)
+    lit le pool `1 = DefeatedUnits` PUIS applique `IdunBattle.Entities.UnitExtensions$$IsDead` -- c'est
+    la seule des quatre a porter un predicat.
+
+    Cette primitive est RARE et se DECLARE : les seuls consommateurs legitimes sont les call-sites
+    natifs qui appellent `DSLSelectors$$AllUnits` (24 releves sur le build `rnca9r7q6c`), typiquement
+    ceux dont le predicat porte sur les MORTS -- `LeadingTheChargeAbility$$GetExtraPierceRatio`
+    (`HasBeenDefeated`), `SabreOfSacrificeAbility$$GetNumDefeatedFriendlyUnits`,
+    `WaaaghAbility$$GetAttackBehaviour` (`KillDeadUnits`). Partout ailleurs le natif passe le champ
+    partage `+0x20` -> `AllAliveUnits` ci-dessus. Le cliquet
+    `probe_514_allunits_rayon_de_souffle.py` (etape 3) refuse tout site non declare."""
+    def select(self, ctx):
+        return list(ctx.units)
 
 
 class AllTiles(TargetsSelector):

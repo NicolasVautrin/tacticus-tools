@@ -124,7 +124,7 @@ def _ctx(units, caster=None, target=None, board=None):
 def etape_a(fails: list) -> None:
     """(Q) : DEUX paires, une seule adjacente. `exists` -> VRAI, `forall` -> FAUX."""
     from engine.entities.selectors.accessors import Target
-    from engine.entities.selectors.tiles import AllUnits
+    from engine.entities.selectors.tiles import AllAliveUnits
     from engine.entities.triggers import IsAdjacent
 
     board = _toy_board()
@@ -134,14 +134,14 @@ def etape_a(fails: list) -> None:
     print("=== etape A -- (Q) quantificateur : le natif est un FORALL ===")
 
     ctx = _ctx([near, far, tgt], caster=near, target=tgt, board=board)
-    got = IsAdjacent(AllUnits(), Target()).evaluate(ctx)
+    got = IsAdjacent(AllAliveUnits(), Target()).evaluate(ctx)
     print("  A = {u1 @(3,3) ADJACENTE, u2 @(0,0) LOIN}, B = {u3 @(3,4)}  -> %r" % got)
     if got is not False:
         fails.append("A(Q) : deux paires dont UNE SEULE adjacente -> %r. Le natif rend FAUX des "
                      "qu'une paire ne l'est pas (`foreach ... if (!adj) return false`)" % got)
 
     ctx2 = _ctx([near, tgt], caster=near, target=tgt, board=board)
-    got2 = IsAdjacent(AllUnits(), Target()).evaluate(ctx2)
+    got2 = IsAdjacent(AllAliveUnits(), Target()).evaluate(ctx2)
     print("  TEMOIN : A = {u1 @(3,3)} seule (toutes les paires adjacentes)      -> %r" % got2)
     if got2 is not True:
         fails.append("A(Q) temoin : toutes les paires adjacentes -> %r (doit etre VRAI : "

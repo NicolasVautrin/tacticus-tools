@@ -139,16 +139,15 @@ COLLAPSES ET DEGRADATIONS -- NOMMES, aucun n'invente de comportement
   caster MEURT pendant la charge (overwatch/riposte au `MoveUnit`) -> pas d'attaque -> **pas de
   summon**. RESIDU NOMME `#508-r1` : porter le compteur d'attaques par tour rendrait le noeud
   reutilisable ailleurs.
-* **`AllUnits` du port FILTRE les mortes ; le natif de `GetExtraPierceRatio` ne le fait pas.**
+* **`AllUnits` (pool 8) vs `AllAliveUnits` (pool 0) -- RESOLU par #514, le helper local a DISPARU.**
   `IdunBattleLogic.Entities.DSLSelectors$$AllUnits` alloue un `AllUnitsSelector`, dont le `Select`
-  invoque **`IBattleQuery` slot 136 = `GetAllUnits`** (groupe ECS `8`) ; `AllAliveMachines` est une
-  methode SOEUR (`DSLSelectors$$AllAliveMachines` -> slot 151 `GetAllAliveMachines`, groupe `6`) --
-  les deux corps natifs sont identiques AU LITTERAL DE GROUPE PRES. Le noeud `AllUnits` du port
-  (`entities/selectors/tiles.py`) filtre `alive`, en citant `AllAliveMachinesSelector` : sur un
-  predicat `HasBeenDefeated` ce filtre rendrait le compte TOUJOURS nul. Ce port n'y touche PAS (rayon
-  de souffle : c'est le noeud source de tous les `Enemies`/`Friends`) et resout le compte par un
-  helper LOCAL, `leading_the_charge_defeated_friends_count`, qui balaie les entites du `State` sans
-  filtre de vie. Divergence signalee comme residu `#508-r1`.
+  invoque **`IBattleQuery` slot 136 = `GetAllUnits`** -> `state.GetPool(EntityPool.AllUnits)`, MORTS
+  INCLUS. Le noeud du port qui s'appelait `AllUnits` mirrorait en fait le champ PARTAGE
+  `<DSLSelectors>+0x20` = `AllAliveUnitsSelector` (slot 137, `EntityPool.AliveUnits`), source de tous
+  les `Enemies`/`Friends` -- d'ou le helper imperatif local de #508. #514 a scinde les deux
+  primitives (`entities/selectors/tiles.py`) apres avoir MESURE le rayon de souffle
+  (`probe_514_allunits_rayon_de_souffle.py`) : `GetExtraPierceRatio` est desormais un ARBRE DSL 1:1
+  sur la vraie primitive pool-8, et le helper imperatif n'existe plus.
 * **`isHidden = 1`** (7e argument des deux `AddStaticStatModifierEffect`) : le port ne modelise pas
   la visibilite UI d'un effet -- inerte offline, note pour ne pas le croire absent.
 * **`selectionType = 2`** du `AttackWithAttackDamage` : meme valeur que tous les call-sites de charge
@@ -178,15 +177,17 @@ from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.behaviours import If, op_and
 from ....entities.effect_type import EffectType
 from ....entities.effects.magnitude import ability_var
+from ....entities.formulas import Count
 from ....entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, FixedTiles,
-                                              SelectTile, Target)
-from ....entities.selectors.tiles import (AdjacentTiles, CanAddUnit, Caster, Children,
+                                              Owner, SelectTile, Subject, Target)
+from ....entities.selectors.tiles import (AdjacentTiles, AllUnits, CanAddUnit, Caster, Children,
                                           tiles_unit_can_move_to_charge_target)
-from ....entities.selectors.units import Union
+from ....entities.selectors.units import Filter, Union
 from ....entities.stats import StatType
 from ....entities.traits.unit_trait import UnitTrait, has_any_trait
 from ....entities.unit_flag import UnitFlag
-from ....entities.triggers import IsAlive
+from ....entities.triggers import (AreFriends, HasTrait, HasUnitFlag, IsAlive, Not, TriggerAnd,
+                                   TriggerOr)
 from ....utilities.decider import UtilityBucket, UtilityDefinition, WeightedUtility
 from ....utilities.tile import first_tile_by_utility, sort_tiles_by_utility
 from ....utilities.utility_type import UtilityType
@@ -265,19 +266,15 @@ def leading_the_charge_move_tile(state: "State", caster_id: int, target_id: int,
     return board.coord(best) if best is not None else None
 
 
-def _is_normal_unit(state: "State", unit_id: int) -> bool:
+def _is_normal_unit_trigger():
     """`IdunBattle.Entities.UnitExtensions$$IsNormalUnit` = `!HasTrait(Object 0xd) &&
     !HasTrait(Steppable 0x1b)` -- le predicat du `IsNormalUnitTrigger` que `GetExtraPierceRatio`
-    compose en tete de son filtre."""
-    e = state.get_entity(int(unit_id))
-    if e is None:
-        return False
-    sc = e.get_component(StatsComponent)
-    traits = getattr(sc.ctx, "traits", None) if sc is not None else None
-    return not has_any_trait(traits, (UnitTrait.Object, UnitTrait.Steppable))
+    compose en tete de son filtre. Sujet = l'element LIE par le `Filter` (slot natif `+0x180`)."""
+    return TriggerAnd(Not(HasTrait(Subject(), int(UnitTrait.Object))),
+                      Not(HasTrait(Subject(), int(UnitTrait.Steppable))))
 
 
-def _has_been_defeated(state: "State", unit_id: int) -> bool:
+def _has_been_defeated_trigger():
     """`IdunBattleLogic.Entities.DSLTriggers$$HasBeenDefeated(unit)` -- MIRROR du decompile :
 
         op_LogicalNot( IsAlive(unit) )
@@ -287,51 +284,46 @@ def _has_been_defeated(state: "State", unit_id: int) -> bool:
     Les DEUX flags sont transcrits, meme si le port n'a aucun producteur de `Fled` aujourd'hui :
     `UnitFlagsComponent` existe (cf. `UnstoppableMomentumReworked`), donc le test est REEL et non un
     placeholder -- il rendra `True` des qu'un porteur posera le flag."""
-    e = state.get_entity(int(unit_id))
-    if e is None:
-        return False
-    uc = e.get_component(UnitComponent)
-    if uc is not None and not uc.alive:
-        return True
-    from ...components import UnitFlagsComponent
-    fc = e.get_component(UnitFlagsComponent)
-    if fc is None:
-        return False
-    return bool(fc.has(int(UnitFlag.Fled))) or bool(fc.has(int(UnitFlag.Resurrected)))
+    return TriggerOr(TriggerOr(Not(IsAlive(Subject())),
+                               HasUnitFlag(Subject(), int(UnitFlag.Fled))),
+                     HasUnitFlag(Subject(), int(UnitFlag.Resurrected)))
+
+
+def leading_the_charge_defeated_friends_selector():
+    """`Filter( AllUnits(), IsNormalUnit(x) & AreFriends(owner@0x30, x) & HasBeenDefeated(x) )`
+    -- l'operande du `Count` de `GetExtraPierceRatio`, ARBRE DSL 1:1.
+
+    LA SOURCE EST `AllUnits`, LA PRIMITIVE POOL-8 -- PAS `AllAliveUnits` (#514). Le natif appelle ici
+    `IdunBattleLogic.Entities.DSLSelectors$$AllUnits`, dont
+    `IdunBattle.Entities.Selectors.AllUnitsSelector$$Select` invoque `IBattleQuery` **slot 136**
+    `GetAllUnits` -> `state.GetPool(EntityPool.AllUnits)`, MORTS INCLUS -- et non le champ partage
+    `<dsl>+0x20` (`AllAliveUnitsSelector`, slot 137, pool `EntityPool.AliveUnits`) que prennent tous
+    les `Enemies`/`Friends` du jeu. Sur un predicat `HasBeenDefeated`, une source qui filtre les
+    mortes rendrait le compte structurellement NUL : c'est le SENS du noeud qui exige le pool 8, et
+    c'est aussi ce que le decompile passe.
+
+    HISTORIQUE : #508 avait resolu ce compte par un helper IMPERATIF local, parce que le port n'avait
+    qu'UN noeud d'ensemble -- nomme `AllUnits` mais mirror du `+0x20` ALIVE. #514 a scinde les deux
+    primitives, ce qui rend l'arbre DSL disponible et supprime la degradation (residu `#508-r1`,
+    volet `AllUnits`, FERME).
+
+    `AreFriends(owner@0x30, x)` = meme camp que l'OWNER du cast. Le caster lui-meme n'est pas exclu :
+    s'il etait « defeated » il n'y aurait pas de cast."""
+    predicat = TriggerAnd(TriggerAnd(_is_normal_unit_trigger(),
+                                     AreFriends(Owner(), Subject())),
+                          _has_been_defeated_trigger())
+    return Filter(AllUnits(), predicat)
 
 
 def leading_the_charge_defeated_friends_count(state: "State", owner_id: int) -> int:
-    """`Count( Filter( AllUnits(), IsNormalUnit(x) & AreFriends(owner@0x30, x) & HasBeenDefeated(x) ) )`
-    -- le facteur du `Multiply` de `GetExtraPierceRatio`.
+    """`Count( Filter( AllUnits(), IsNormalUnit & AreFriends(owner) & HasBeenDefeated ) )` -- le
+    facteur du `Multiply` de `GetExtraPierceRatio`, evalue sur l'`AbilityEntities` du cast.
 
-    ⚠ Le noeud `AllUnits` du port FILTRE les mortes (il mirrore `AllAliveMachinesSelector`), ce qui
-    rendrait ce compte structurellement NUL. Le natif appelle `DSLSelectors$$AllUnits`, dont le
-    `AllUnitsSelector$$Select` invoque `IBattleQuery` **slot 136 `GetAllUnits`** (groupe ECS `8`) --
-    `AllAliveMachines` est une methode SOEUR (`DSLSelectors$$AllAliveMachines`, slot 151, groupe `6`),
-    les deux corps natifs ne differant QUE par ce littéral de groupe. Ce helper balaie donc les
-    entites du `State` SANS filtre de vie, plutot que de modifier un noeud partage par tous les
-    `Enemies`/`Friends` du port (cf. « COLLAPSES ET DEGRADATIONS » de l'en-tete, residu `#508-r1`).
-
-    `AreFriends(owner, x)` = meme camp que l'OWNER du cast, `OwnerComponent.team`
-    (`AreFriendsAbilityTrigger` cote natif). Le caster lui-meme n'est pas exclu : s'il etait
-    « defeated » il n'y aurait pas de cast."""
-    oe = state.get_entity(int(owner_id))
-    ooc = oe.get_component(OwnerComponent) if oe is not None else None
-    team = ooc.team if ooc is not None else None
-    if team is None:
-        return 0
-    n = 0
-    for eid, e in state.entities.items():
-        if e.get_component(UnitComponent) is None:
-            continue
-        oc = e.get_component(OwnerComponent)
-        if oc is None or oc.team != team:                      # AreFriends(owner@0x30, x)
-            continue
-        if not _is_normal_unit(state, eid):                    # IsNormalUnit(x)
-            continue
-        if _has_been_defeated(state, eid):                     # HasBeenDefeated(x)
-            n += 1
-    return n
+    `entities_from_state(state, owner_id)` pose `ctx.caster = owner`, et le noeud `Owner()` retombe
+    dessus (`Owner == Caster` sur cette ability active) -- exactement le repli que documente
+    `entities/selectors/accessors.Owner`."""
+    return Count(leading_the_charge_defeated_friends_selector()).evaluate(
+        entities_from_state(state, int(owner_id)))
 
 
 def leading_the_charge_extra_pierce_ratio(state: "State", owner_id: int) -> int:

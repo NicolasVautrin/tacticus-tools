@@ -56,7 +56,7 @@ from ....entities.traits.unit_trait import UnitTrait
 from ....entities.behaviours import op_add
 from ....entities.selectors.accessors import Target
 from ....entities.selectors.geometry import Cache
-from ....entities.selectors.tiles import AdjacentTiles, AllUnits
+from ....entities.selectors.tiles import AdjacentTiles, AllAliveUnits
 from ....entities.selectors.units import (
     Enemies, Tiles, Union, UnitsOnTilesWithEffect, UnitsWithTrait
 )
@@ -87,10 +87,11 @@ def stormcaller_tree():
     """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility$$ExecuteBehaviour` (MIRROR 1:1, cf. docstring module) :
         op_Addition( op_Addition( AddEffect(Ice, zone), AttackWithAbilityDamage(cache) ),
                      AddEffect(Stunned, UnitsWithTrait(cache, Flying), TurnsFromRounds(1)) )
-    - `cache` = `Cache(UnitsOnTilesWithEffect(Enemies(AllUnits()), Ice))` : 1re éval PENDANT la
+    - `cache` = `Cache(UnitsOnTilesWithEffect(Enemies(AllAliveUnits()), Ice))` : 1re éval PENDANT la
       feuille d'attaque (donc APRÈS la pose de glace [1] — timing natif), REJOUÉ memoïsé pour le
-      stun [3]. `Enemies(AllUnits())` = mirror `Enemies(Owner@0x148, @0x80, 3)` (source all-units,
-      référent le caster ; AllUnits = vivants, un mort n'est plus sur sa tuile).
+      stun [3]. `Enemies(AllAliveUnits())` = mirror EXACT du decompile courant (`rnca9r7q6c`) :
+      `Enemies(<dsl>+0x30 = Owner, <dsl>+0x20, 3)`, et `<dsl>+0x20` est le champ partage
+      `AllAliveUnitsSelector` (pool `EntityPool.AliveUnits`), PAS `DSLSelectors$$AllUnits` (#514).
     - attaque = feuille `AttackWithAttackDamage` en mode `multi` (`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` : sélecteur → N cibles, OrderBy = ordre de lecture == tri par id) — MÊME overload
       natif (IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage → IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage) que SpiritLeech → `execute_ability_attack` (crit/block,
       Psychic = NoBlocking + pierce 100). `ability_type=1113` = l'arg natif `AbilityOrEffect
@@ -99,7 +100,7 @@ def stormcaller_tree():
     - stun = `AddEffect(0x48a, ..., TurnsFromRounds(1))` explicite (≠ durée défaut) sur
       `UnitsWithTrait(cache, 4=Flying, 3)` (UnitsWithFlagSelector flag=1 ; le 4e arg natif `3` =
       passthrough de kind, non discriminant — cf. case-191 même signature)."""
-    cache = Cache(UnitsOnTilesWithEffect(Enemies(AllUnits()), ICE_TILE))
+    cache = Cache(UnitsOnTilesWithEffect(Enemies(AllAliveUnits()), ICE_TILE))
     ice = AddEffect(ICE_TILE, "Ice", stormcaller_get_add_ice_tiles(), duration_rounds=None)
     attack = AttackWithAttackDamage(cache, "Stormcaller", "Psychic", is_melee=False, multi=True,
                                     native_factory="ability",   # IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> AbilityDamageOperation (1 tirage/coup, cf. combat.py)
