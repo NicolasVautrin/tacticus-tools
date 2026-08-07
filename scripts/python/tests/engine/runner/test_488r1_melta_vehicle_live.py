@@ -50,6 +50,16 @@ DECLENCHEUR = {
     # d'avis sans qu'une ligne du port bouge -- c'est PRECISEMENT le gisement de cette tranche.
     "build": True,
     "toujours": False,
+    "raison": "Confrontation LIVE port-vs-natif du +50 % `Melta` vs `Vehicle` (effet 1297, pose par "
+              "l'ability GLOBALE 1211 au `MatchInit`). Le verdict depend du code du port (le mirror "
+              "`MeltaExtraDmgEffect`, son inscription dans `MATCH_WIDE_EFFECTS`, la boucle PARTAGEE "
+              "`_attacker_effect_bonuses` -- donc TOUT le pipeline de degat, prediction ET combat --, "
+              "le threading d'`att_ctx['damage_profile']` par les deux faces, et la `Scene` de "
+              "prediction), du MONTAGE (le probe, qui porte le drive des positions, l'egalisation "
+              "d'armure et TOUTES les lectures), des entrees versionnees du runner, et du BUILD "
+              "charge -- l'oracle des etages [0] a [3] et [5] etant le jeu lui-meme. Ce dernier point "
+              "n'est pas theorique : ce meme verdict a DEJA change entre deux builds (`gqfc5mff6c` "
+              "n'avait pas le `CreateTrigger` de 1211, `rnca9r7q6c` l'a).",
 }
 
 TOLERANCE = 2          # arrondis Fix64 sur le rapport 3/2 (mesure : 9014 pour 6008x1,5 = 9012)
