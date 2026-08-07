@@ -49,7 +49,11 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
                                       [ACTIF #241 — `faction_value(visualId)` = `FactionId` gameconfig
                                        -> enum, le pendant du `System.Enum.ToString` de `HasFaction`]
   friend_positions : [(col,row)]      (allies vivants self-exclu = ctx.fpos — TriggeredAbilities(2))
-  unit_has_ranged_weapon : bool ; unit_is_ai : bool ; player_door_mode : int ; contaminated_excluded : bool
+  unit_has_ranged_weapon : bool ; unit_is_ai : bool ; player_door_mode : int
+  ⚠ `contaminated_excluded` A DISPARU (#175-e) : la clé n'était peuplée par AUCUN des trois
+    constructeurs de `ctx`, et sa FORME était fausse. L'exclusion native n'est pas un booléen
+    par-décision mais `effectsDatabase.GetEffect(<type>).EntityIsImmuneToEffect(case.unit)`, dérivé
+    des seuls `unit_traits` (cf. `_entity_is_immune_to_effect`).
   is_spawning : bool                  (`IdunBattle.AI.Utilities.UtilityMovementCase$$get_IsSpawning`
                                        = `case.unit == null && case.parent != null` — le call-site SUMMON
                                        `SortTilesByUtilityForSummon` n'a PAS de sujet, cf. case-205)
@@ -206,6 +210,47 @@ def _ability_count(meta: dict, ability_id: int) -> int:
     """count d'amis (dans le rayon propre à la leaf) ayant l'ability `ability_id`."""
     counts = (meta or {}).get("ability_friend_counts") or {}
     return int(counts.get(ability_id) or counts.get(str(ability_id)) or 0)
+
+
+def _subject_trait_names(ctx: dict) -> tuple:
+    """Les NOMS de traits du SUJET, dérivés des IDS que porte `ctx["unit_traits"]`.
+
+    Même substrat, autre forme : `entity_trait_ids` est LUI-MÊME dérivé d'`entity_trait_names`
+    (`engine/entities/traits/unit_trait.py`), donc la conversion est totale — aucun id ne peut
+    sortir de l'enum. LOUDER-ON-BUG, comme le foyer d'autorité : un id hors enum LÈVE plutôt que
+    de disparaître du gate."""
+    return tuple(UnitTrait(int(t)).name for t in ((ctx or {}).get("unit_traits") or ()))
+
+
+def _entity_is_immune_to_effect(effect_type, ctx: dict) -> bool:
+    """`effectsDatabase.GetEffect(<effectType>).EntityIsImmuneToEffect(case.unit)` — les DEUX étages,
+    mirror 1:1 (#175-e), lus dans
+    `IdunBattle.AI.Utilities.DespoiledGroundUtility.u003CEvaluateMovementInStepsu003Ed__5$$MoveNext`
+    et `IdunBattle.AI.Utilities.ContaminatedUtility.u003CEvaluateMovementInStepsu003Ed__4$$MoveNext`,
+    qui l'appellent tous deux JUSTE APRÈS le gate `case.unit == null` et AVANT d'énumérer les effets
+    de la tuile :
+
+        IEffect eff = this.<+0x60>.GetEffect(<effectType>);     // IEffectsDatabase slot 0
+        if (eff.EntityIsImmuneToEffect(case.unit)) yield break; // IEffect slot 40
+
+    Les deux slots sont LUS, pas déduits : `IEffectsDatabase` n'a qu'UNE méthode
+    (`GetEffect`, slot 0, 1 argument) et `IEffect` slot 40 = `EntityIsImmuneToEffect` (1 argument) —
+    `data/symbols/<build>/metadata/interface_slots.tsv` + `global-metadata.dat`. Le champ `+0x60` est
+    le paramètre `effectsDatabase` du `.ctor` des DEUX utilities (type DÉCLARÉ lu dans
+    `frida/methods.tsv`).
+
+    Le 2e étage est le foyer DÉJÀ PORTÉ `EffectFactory.effect_def(...).entity_is_immune_to_effect`
+    (mirror d'`EffectsDatabase.Get` + du virtuel par classe) — le MÊME que consulte le gate de pose
+    `IdunBattle.Operations.AddEffectOperation$$Execute`. Le rebrancher ici plutôt que de recâbler un
+    prédicat de traits dans la feuille est ce qui évite un fork : c'est un seul nœud natif.
+
+    IMPORT DIFFÉRÉ, classe **PORTEUR** (mesure : `python -c "import engine.entities.effects.factory"`
+    dans un process FRAIS charge `engine.utilities.tile` — 102 modules `engine.*` —, donc hisser
+    fermerait un cycle). Forme B (`import <module>` puis attribut) : un binding de module reste
+    substituable, contrairement au `from X import nom`."""
+    from ..entities.effects import factory as _fx
+    return bool(_fx.EffectFactory.effect_def(int(effect_type), effect_type.name)
+                .entity_is_immune_to_effect(_subject_trait_names(ctx)))
 
 
 # ── Classes `IdunBattle.AI.Utilities.*Utility` (une par feuille ; corps DANS la méthode) ─────────────
@@ -383,13 +428,33 @@ class PowerUpTileUtility(BaseUtility):
 
 class ContaminatedUtility(BaseUtility):
     """`ContaminatedUtility` (IdunBattle.AI.Utilities.ContaminatedUtility$$.ctor ; UtilityType.Contaminated=26) ; IdunBattle.AI.Utilities.ContaminatedUtility.u003CEvaluateMovementInStepsu003Ed__4$$MoveNext : -25 si la tuile porte
-    un effet type 1244 (0x4dc) ET l'unité n'est pas exclue. `meta.tile_effect_type_ids` + `ctx.contaminated_excluded`."""
+    un effet type 1244 (0x4dc) ET l'unité n'est pas IMMUNISÉE contre lui. `meta.tile_effect_type_ids`.
+
+    Corps natif remis en C# depuis le décompilé (#175-e), dans SON ordre :
+
+        if (case.unit == null) yield break;                                  // régime SPAWN
+        if (effectsDatabase.GetEffect(Contaminated).EntityIsImmuneToEffect(case.unit)) yield break;
+        foreach (e in EffectsOwnedComponent(case.Position.MainTile))
+            if (EffectComponent(e).EffectType == 0x4dc) { u += GetUtilityValue("AffectedUnit"); break; }
+
+    DEUX gates manquaient, et les deux sont dans la MÊME instruction du natif :
+
+    * `case.unit == null` (`if (case+0x10 == 0) -> return false`, l'état 0 de la SM). La sœur
+      `DespoiledGroundUtility` le portait déjà (case-205) ; celle-ci non — en régime SPAWN elle
+      versait donc son -25 là où le natif n'émet AUCUN step.
+    * l'IMMUNITÉ. `ctx.contaminated_excluded`, le nom que le port lui donnait, n'était peuplé par
+      AUCUN des trois constructeurs de `ctx` : le gate était mort. Sa forme aussi était fausse —
+      ce n'est pas un booléen par-décision mais l'appel à DEUX étages `_entity_is_immune_to_effect`,
+      dont le second est le virtuel `ContaminatedEffect$$EntityIsImmuneToEffect`
+      (`ContagionsOfNurgle` | `IsMechanical` | `HasTrait(Immune) && CanBeImmuneTo(=true)`)."""
     UTILITY_TYPE = int(UtilityType.Contaminated)  # 26
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        if int(EffectType.Contaminated) not in _eff_ids(meta, "tile_effect_type_ids"):   # 0x4dc
+        if (ctx or {}).get("is_spawning"):            # `if (case.unit == null) yield break;`
             return 0.0
-        if (ctx or {}).get("contaminated_excluded"):
+        if _entity_is_immune_to_effect(EffectType.Contaminated, ctx):    # IEffect slot 40
+            return 0.0
+        if int(EffectType.Contaminated) not in _eff_ids(meta, "tile_effect_type_ids"):   # 0x4dc
             return 0.0
         return wt.sub("Contaminated", "AffectedUnit")
 
@@ -447,11 +512,22 @@ class DespoiledGroundUtility(BaseUtility):
     tile-effect type 1476 (0x5c4) → trait 2026 (Chaos) → ChaosAffectedUnit(-5) ; trait 26 ou 1006
     (Imperial/Xenos) → ImperialAndXenosAffectedUnit(-25). `meta.tile_effect_type_ids` + `ctx.unit_traits`.
     Première instruction du corps natif : `if (case.unit == null) yield break;` — sujet ABSENT ⇒ AUCUN
-    step émis, donc 0 (case-205)."""
+    step émis, donc 0 (case-205).
+
+    ⚠ SECONDE instruction, non portée jusqu'à #175-e : le gate d'IMMUNITÉ, à DEUX étages —
+    `effectsDatabase.GetEffect(DespoiledGround).EntityIsImmuneToEffect(case.unit)` ⇒ `yield break`.
+    Il vient AVANT l'énumération des effets de la tuile, et il MORD : `DespoiledGroundEffect` ne
+    surcharge PAS `EntityIsImmuneToEffect` (c'est le corps générique) mais surcharge bien
+    `get_CanBeImmuneTo` à **true**, si bien que le prédicat vaut `HasTrait(case.unit, Immune)`.
+    Sans lui, le port SUR-PÉNALISE toute unité immunisée (-5 Chaos / -25 Imperial-Xenos là où le
+    natif rend 0). Détail de la lecture : `_entity_is_immune_to_effect` et la docstring de
+    `engine/entities/effects/loki/status.py::DespoiledGroundEffect`."""
     UTILITY_TYPE = int(UtilityType.DespoiledGround)  # 29
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if (ctx or {}).get("is_spawning"):            # `if (case.unit == null) yield break;`
+            return 0.0
+        if _entity_is_immune_to_effect(EffectType.DespoiledGround, ctx):    # IEffect slot 40
             return 0.0
         if int(EffectType.DespoiledGround) not in _eff_ids(meta, "tile_effect_type_ids"):  # 0x5c4
             return 0.0
