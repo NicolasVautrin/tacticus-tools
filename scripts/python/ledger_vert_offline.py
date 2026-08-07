@@ -509,3 +509,54 @@ def resoudre_conflit(texte: str) -> tuple[dict, list]:
         if cle not in perdues:
             retenues[cle] = val
     return retenues, sorted(perdues)
+
+
+def main(argv=None) -> int:
+    """`--resoudre` : le point d'entree que le mecanisme n'avait pas.
+
+    Sans lui, `resoudre_conflit` etait une fonction que personne en situation de conflit ne
+    pouvait appeler -- et la reaction par defaut aurait ete de resoudre le JSON A LA MAIN, ce qui
+    est precisement la faute que la regle << on regenere, on ne fusionne pas >> vise.
+    """
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--resoudre", action="store_true",
+                    help="Resout un ledger laisse EN CONFLIT par git : abandonne les entrees "
+                         "disputees (elles rejoueront) et reecrit le fichier par le foyer "
+                         "d'ecriture, donc a l'octet pres comme une passe normale l'aurait ecrit.")
+    ap.add_argument("--racine", default=None,
+                    help="Racine du checkout (defaut : deduite de l'emplacement de ce fichier).")
+    args = ap.parse_args(argv)
+
+    racine = Path(args.racine) if args.racine else Path(__file__).resolve().parents[2]
+    if not args.resoudre:
+        entrees, anomalies = lire(racine)
+        for a in anomalies:
+            print("[ledger] %s" % a)
+        verts = sum(1 for e in entrees.values() if e.get("verdict") == VERT)
+        print("[ledger] %s : %d entree(s), %d VERT" % (CHEMIN, len(entrees), verts))
+        return 0
+
+    p = chemin(racine)
+    if not p.exists():
+        print("[ledger] %s absent -- rien a resoudre." % CHEMIN)
+        return 1
+    texte = p.read_text(encoding="utf-8")
+    if _DEBUT not in texte:
+        print("[ledger] %s ne porte AUCUN marqueur de conflit -- rien a resoudre." % CHEMIN)
+        return 0
+    retenues, abandonnees = resoudre_conflit(texte)
+    ecrire(racine, retenues)
+    print("[ledger] resolu : %d entree(s) retenue(s), %d ABANDONNEE(S) (elles rejoueront) :"
+          % (len(retenues), len(abandonnees)))
+    for cle in abandonnees[:10]:
+        print("    %s" % cle)
+    print("[ledger] une entree abandonnee coute un REJEU, jamais un faux vert -- la validite est")
+    print("[ledger] reverifiee a la lecture, contre le depot.")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys as _sys
+    _sys.exit(main())

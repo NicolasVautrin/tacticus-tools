@@ -375,6 +375,31 @@ def test_un_fichier_ABSENT_rend_un_blob_NON_MESURE_pas_un_faux(depot):
                              blobs["tests/jamais_ecrit.py"], _ANCRE, False) is not None
 
 
+def test_le_CLI_resoudre_reecrit_par_le_FOYER_d_ecriture(tmp_path, capsys):
+    """Le point d'entree existe, et il ne bricole pas le texte : il passe par `ecrire`, donc le
+    fichier resolu est a l'octet pres celui qu'une passe normale aurait produit."""
+    p = L.chemin(tmp_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(_CONFLIT, encoding="utf-8")
+    assert L.main(["--resoudre", "--racine", str(tmp_path)]) == 0
+    relues, anomalies = L.lire(tmp_path)
+    assert not anomalies, anomalies
+    assert "tests/dispute.py" not in relues
+    assert {"tests/commun.py", "tests/apres.py"} <= set(relues)
+    # ... et le fichier resolu est RELISIBLE (pas de virgule orpheline, pas de marqueur reste).
+    assert "<<<<<<<" not in p.read_text(encoding="utf-8")
+
+
+def test_le_CLI_resoudre_ne_touche_PAS_un_fichier_sans_conflit(tmp_path):
+    """Une resolution qui reecrirait un fichier sain ferait bouger `_ecrit_le` pour rien, donc
+    fabriquerait le conflit qu'elle est censee resoudre."""
+    entrees = {"tests/a.py": _entree()}
+    L.ecrire(tmp_path, entrees)
+    avant = L.chemin(tmp_path).read_text(encoding="utf-8")
+    assert L.main(["--resoudre", "--racine", str(tmp_path)]) == 0
+    assert L.chemin(tmp_path).read_text(encoding="utf-8") == avant
+
+
 def test_commits_connus_distingue_un_sha_MORT(depot):
     tete = _git(depot, "rev-parse", "HEAD").stdout.strip()
     connus = L.commits_connus(depot, [tete, "0" * 40])
