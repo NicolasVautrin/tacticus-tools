@@ -680,28 +680,21 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Screamers. La valeur est **relue** de la config (jamais codée en dur) ; l'axe deviendra mesurable
   le jour où `DiveAttackAbilityBase` gagne une héritière à deux armes. `[opus]` —
   `case-507-slashing-dive.md` §7.
-
-- **`#497-r1` — l'adjacence du RUNNER ignore la porte d'élévation du natif.**
-  `engine/dsl/base.py::_within` décide l'appartenance par `hexgeo.distance <= r` ; le natif
-  (`IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`) énumère la
-  liste d'adjacence **STOCKÉE** (`ConnectivityComponent.Neighbours`) puis applique `|dElev| < 2`.
-  La couronne hex **sur-atteint** donc dès que le terrain saute une marche. Mesuré sur `MC1_67` :
-  **18 arêtes dirigées sur 316**, **11 tuiles**. Effet observable trouvé en portant `1068
-  SilentDeath` (#497) : sur une chaîne traversant la marche 2→4, le port frappe **4** unités là où
-  le natif s'arrête à **1** (9 706 PV de dégât fantôme). Le résidu était déjà **nommé** dans la
-  docstring de `_within` (« RESIDU distinct, non traité ici ») — ce qui est neuf, c'est la mesure
-  et un porteur qui le rend grossier.
-  Deux faits le rendent actionnable : (a) le port a **déjà** la primitive juste et l'utilise
-  ailleurs — `AdjacentTiles` (selecteur de TUILES) passe par `Board.neighbours_native`, et
-  `battle_query.is_adjacent` porte les deux étages côté DÉCISION ; seule la voie UNITÉ du runner
-  ne les a pas, alors que `_tile_enum_rank` lit déjà `neighbours_native` **pour l'ordre seulement** ;
-  (b) la réparation est **monotone** — elle ne peut que retirer de la sur-atteinte, donc tout test
-  vert contre un oracle NATIF est dans une géométrie où les deux coïncident.
-  **Non pris par #497** : `_within` est le foyer de **294** call-sites `AdjacentUnits`/
-  `AdjacentEnemies`/`AdjacentFriends` dans `engine/` — le flip demande un budget de re-jeu qu'une
-  tranche mono-ability ne peut pas payer. Mesure rejouable :
-  `probe_497_silent_death.py --variantes` (étage [6] + variante `elevation`).
-  Cf. `case-497-silent-death.md` §4.
+- **`#515-r1` — le filtre `onlyWalkableTiles` du sélecteur `AdjacentTiles` n'est pas dans le
+  substrat capté.** `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` appelle son
+  itérateur avec `(tile, 0, 1, 1)` — soit, contre la signature lue dans `frida/methods.tsv`
+  (`IterateAdjacentTiles(from, onlyEmptyOrSteppable, onlyWalkableTiles, allowTemporary)`),
+  **`onlyWalkableTiles = true`**. Le capteur du `boardGraph`, lui, utilise `(t, false, false,
+  true)` (#148) : le champ `neighbours` **sur-atteint** donc encore le sélecteur, des tuiles non
+  walkable. `IdunBattle.Entities.TileExtensions$$IsWalkable(tile, checkFog)` sépare deux sous-cas :
+  le **mur** (`tile[+0x40][+0x10] != 0`) — `IsWalkable` ne lit pas l'occupant, donc il faudrait
+  qu'une unité se tienne dessus, vraisemblablement inerte ; et le **brouillard**
+  (`tile[+0x20][+0x40]`, `checkFog` étant passé à `true`) — une tuile embuée **peut** porter une
+  unité, et là le filtre mordrait. Le `boardGraph` ne publie pas ce flag : c'est le canal
+  manquant. **Rien n'est mesuré** ; le sens de l'écart est permissif, le même que celui que #515
+  vient de fermer. Pour trancher : publier `isFogged` dans le `boardGraph`, ou mesurer live si une
+  unité peut occuper une tuile refusée par `IsWalkable`. `[opus]` —
+  `case-515-adjacence-du-runner.md` §6.
 
 - **`#491-r1` — la PHASE 2 de `1069 SeekerMissileFrequencyLock` n'est pas portée.**
   `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SeekerMissileFrequencyLock_AttackAbility$$CreateBehaviour`

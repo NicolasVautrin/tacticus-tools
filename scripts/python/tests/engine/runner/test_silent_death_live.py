@@ -25,12 +25,15 @@ Ce que ce fichier GARDE, et pourquoi chaque garde existe :
   * le CONTRAT DE DISJONCTION. Une ability portee porte son masque sur SA classe, jamais dans
     `TARGETING_OPTIONS_UNPORTED` : deux copies divergeraient en silence.
 
-RESIDU HERITE, MESURE et NON GARDE ICI (`#497-r1`) : l'adjacence du runner
-(`engine/dsl/base.py::_within`) teste `hexgeo.distance <= r` alors que le natif enumere la liste
-d'adjacence STOCKEE (porte `|dElev| < 2`). Sur MC1_67 la couronne hex SUR-ATTEINT la liste native de
-**18 aretes dirigees sur 316**, et la chaine de 1068 y devient LONGUE DE 4 la ou le natif s'arrete a
-1. Aucun test n'est ecrit dessus : un test qui ASSERTE la divergence figerait le bug. La mesure vit
-dans `probe_497_silent_death.py --variantes` (variante `elevation`), etage [6].
+RESIDU HERITE `#497-r1` -- **FERME par #515**, et ce fichier n'est PAS celui qui le garde.
+L'adjacence du runner (`engine/dsl/base.py::_within`) testait `hexgeo.distance <= r` alors que le
+natif enumere la liste d'adjacence STOCKEE (porte `|dElev| < 2`) : sur MC1_67 la couronne hex
+SUR-ATTEIGNAIT la liste native de **18 aretes dirigees sur 316**, et la chaine de 1068 y devenait
+LONGUE DE 4 la ou le natif s'arrete a 1. `_within` enumere desormais, et la variante `elevation`
+est en ACCORD (`[81]` des deux cotes). La garde vit dans
+`tests/engine/runner/test_515_adjacence_elevation_live.py` -- pas ici : ce fichier garde la
+MECANIQUE de 1068, celui-la garde la PRIMITIVE d'adjacence, et les melanger ferait qu'un
+changement de l'une accuserait l'autre.
 
 Le montage (build + DRIVE des positions par `--place`/`--a-place`, tuiles CHOISIES sur les
 elevations) et TOUTES les lectures vivent dans `scripts/python/probe_497_silent_death.py` : le probe

@@ -86,7 +86,7 @@ impose (ils ont ROUGI, ils n'ont pas ete anticipes) :
 | `branche` (pools de 3 puis 2) | `[81, 83, 87, 85]` | idem | egal | **bit-exact** |
 | `cap` (5 ennemis alignes) | 4 frappes, le 5e jamais | idem | egal | **bit-exact** |
 | `mort` (PV 3000, **4 morts**) | `[81, 83, 85, 87]` | idem | egal | **bit-exact** |
-| `elevation` (marche 2→4) | `[81, 83, 85, 87]` | `[81]` | — | **DIVERGENT**, cf. §4 |
+| `elevation` (marche 2→4) | `[81, 83, 85, 87]` | `[81]` | — | **DIVERGENT** à la livraison ; **ACCORD** depuis #515, cf. §4 |
 
 Trois de ces mesures tranchent une question qu'aucune autre ne tranche :
 
@@ -104,10 +104,11 @@ Trois de ces mesures tranchent une question qu'aucune autre ne tranche :
 Gate de ciblage : `ennemi -> 0`, `allie -> TargetIsEnemy`, `soi -> TargetIsEnemy`, et l'oracle natif
 concorde (`abilityTargets.targets`, superset move-inclus, n'enumere que des ennemis).
 
-## 4. Residu `#497-r1` — l'adjacence du RUNNER ignore la porte d'elevation
+## 4. Residu `#497-r1` — l'adjacence du RUNNER ignorait la porte d'elevation — **FERME (#515)**
 
-**Ce n'est pas un defaut de ce port ; c'est un residu HERITE, deja nomme dans le code, que cette
-tranche a rendu MESURABLE.**
+**Ce n'etait pas un defaut de ce port ; c'etait un residu HERITE, deja nomme dans le code, que
+cette tranche a rendu MESURABLE.** Il est **reparé** — detail : `docs/rl/case-515-adjacence-du-runner.md`.
+Ce qui suit reste l'etat au moment de #497, et le §4bis dit ce qui a change.
 
 `engine/dsl/base.py::_within` decide l'appartenance par `hexgeo.distance <= r`. Le natif, lui,
 enumere la liste d'adjacence **STOCKEE** :
@@ -137,6 +138,22 @@ propre budget de re-jeu.
 
 **Aucun test n'est ecrit sur cette divergence** : un test qui l'ASSERTE figerait le bug. Elle vit
 comme MESURE dans `probe_497_silent_death.py --variantes`.
+
+### 4bis. Ce que #515 a change
+
+`_within` branche desormais l'etage `order='adjacent'` (rayon 1) sur `_adjacent_tiles_native`, qui
+lit la liste STOCKEE. La variante `elevation` est passee de `port [81,83,85,87]` / `natif [81]` a
+**`[81]` des deux cotes** — meme montage, meme board, meme seed. Les quatre autres scenarios
+restent bit-exacts. Le residu porte donc bien sur `_within`, et sur rien d'autre du port de 1068.
+
+La divergence est maintenant GARDEE, dans le bon sens : `tests/engine/runner/
+test_515_adjacence_elevation_live.py` (le montage `elevation` retourne, contre l'oracle natif) et
+`test_515_adjacence_elevation_offline.py` (le foyer, sa contre-epreuve, son tri-etat, et la BORNE
+— `order='surrounding'` n'a AUCUNE porte d'elevation et doit rester geometrique).
+
+L'etage `[6]` du probe reste, mais il a change de role : il ne chiffre plus un ecart de PORT, il
+chiffre une propriete du BOARD et sert de temoin de non-degenerescence (`sur_atteintes == 0` =
+plateau plat = variante `elevation` sans portee).
 
 ## 5. Livrables
 

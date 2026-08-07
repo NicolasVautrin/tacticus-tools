@@ -574,6 +574,49 @@ def _occupants_by_tile(units) -> dict:
     return occ
 
 
+def _adjacent_tiles_native(board, centers) -> "list | None":
+    """`IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` -- LES TUILES, en TRI-ETAT.
+    FOYER UNIQUE de l'etage `adjacent` : `_tile_enum_rank` en tire l'ORDRE et `_within`
+    l'ENSEMBLE, et les deux doivent etre la MEME liste (#515, residu `#497-r1`).
+
+    Rend la CONCATENATION, dans l'ordre des pieds, des voisinages natifs de chaque tuile de
+    `centers` -- l'`OrderedSet` que le natif remplit. Tri-etat, et c'est ce qui fait toute la
+    difference :
+
+      * `None` = **aucun centre resolvable sur ce board** (board absent, ou tuile hors capture)
+        -> l'appelant DOIT replier sur la geometrie. Degradation PERMISSIVE et nommee, jamais un
+        voisinage vide (meme contrat que `battle_query.is_adjacent` / `neigh_map`).
+      * `[]` = centre resolu, **zero voisin**, et c'est un resultat EXACT. Un board reel le
+        produit : `TileQuery$$IterateAdjacentTiles` porte une porte `|dElev| < 2`
+        INCONDITIONNELLE, donc une tuile dont tous les voisins stockes sont a 2 niveaux ou plus
+        ressort a vide -- mesure `C1_74`, les deux `Water` `(2,5)`/`(4,5)` a elevation 1
+        entourees de 3 et 4. Confondre les deux cas est le vice exact de `#381-r3` (il
+        INVENTAIT six voisins la ou le natif n'en a aucun), et le rejouer ici rendrait la
+        reparation inerte precisement sur les tuiles qu'elle vise.
+
+    LE SUBSTRAT PORTE DEJA LES DEUX ETAGES. `Board.neighbours_native` lit le champ
+    `boardGraph.neighbours`, capte par `BattleQuery$$GetAdjacentTiles(t, false, false, true)` --
+    donc par CE MEME iterateur, filtres de terrain OFF et porte d'elevation ON. Identite LUE :
+    `neighbours == connectivity INTERSECTE {aretes de |dElev| < 2}` (cf.
+    `Board.base_add_neighbours`). Rejouer la porte ici serait redondant, pas plus fidele."""
+    if board is None or not centers:
+        return None
+    positions: list = []
+    resolu = False
+    for c in centers:
+        if c is None:
+            continue
+        tid = board.id_at(c[0], c[1])
+        if tid is None:
+            continue                     # cette tuile-la n'est pas sur le board capte
+        resolu = True
+        for t in board.neighbours_native(tid):
+            xy = board.by_id.get(t)
+            if xy is not None:
+                positions.append((xy["col"], xy["row"]))
+    return positions if resolu else None
+
+
 def _tile_enum_rank(board, center, radius, order) -> dict:
     """{(col,row): index} = ORDRE D'ENUMERATION NATIF des tuiles parcourues par le selecteur
     d'occupation (`Units(<selecteur de tuiles>)` -> `IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select`,
@@ -609,17 +652,15 @@ def _tile_enum_rank(board, center, radius, order) -> dict:
     centers = (list(center) if isinstance(center, list)
                else [center] if isinstance(center, tuple) and len(center) == 2 else [])
     positions: list = []
-    for c in centers:
-        if c is None:
-            continue
-        if order == "adjacent" and int(radius) == 1:
-            tid = board.id_at(c[0], c[1])
-            if tid is not None:
-                for t in board.neighbours_native(tid):
-                    xy = board.by_id.get(t)
-                    if xy is not None:
-                        positions.append((xy["col"], xy["row"]))
-        else:
+    if order == "adjacent" and int(radius) == 1:
+        # meme liste que celle dont `_within` tire l'ENSEMBLE (#515) : l'ordre et l'appartenance
+        # ne peuvent pas venir de deux sources. `None` (aucun centre resolvable) -> aucun ordre
+        # impose, exactement comme avant.
+        positions = _adjacent_tiles_native(board, centers) or []
+    else:
+        for c in centers:
+            if c is None:
+                continue
             positions.extend(hexgeo.disk(c[0], c[1], int(radius)))
     rank: dict = {}
     for i, p in enumerate(positions):
@@ -642,14 +683,36 @@ def _within(units, center, radius, include_center=False, board=None, order=None)
     POSITION `(col,row)`, une LISTE de positions, **ou** un dict d'unite (-> ses pieds). Un centre non
     resolvable (unite sans position) -> aucun voisin.
 
-    `board`+`order` = ORDRE D'ENUMERATION NATIF (R28-1). Le natif ne parcourt PAS les entites : il
-    ITERE les TUILES du selecteur (`Units(AdjacentTiles/SurroundingTiles(...))`) et resout l'occupant
-    de chacune -> l'ordre de sortie est celui des TUILES, pas celui de `ctx.units`. Sans board (tests
-    unitaires, contextes offline sans graphe) l'ordre historique `ctx.units` est conserve : c'est une
-    DEGRADATION, jamais un mirror. Le tri est STABLE et l'ENSEMBLE est INCHANGE — une unite dont la
-    tuile n'apparait pas dans l'enumeration (arete d'adjacence absente du `boardGraph` alors que la
-    distance hex vaut 1) reste presente, en fin de liste : le natif, lui, ne la verrait pas du tout
-    (porte |delta elevation| < 2 d'`IterateAdjacentTiles`) -> RESIDU distinct, non traite ici.
+    `board`+`order` = ENUMERATION NATIVE DES TUILES (R28-1). Le natif ne parcourt PAS les entites :
+    il ITERE les TUILES du selecteur (`Units(AdjacentTiles/SurroundingTiles(...))`) et resout
+    l'occupant de chacune -> l'ordre de sortie est celui des TUILES, pas celui de `ctx.units`.
+
+    ⚠ ET L'ENUMERATION DECIDE AUSSI DE L'APPARTENANCE, pas seulement de l'ORDRE (#515, residu
+    `#497-r1`) -- c'est ce que cette fonction se trompait de faire. Les deux `order` ont des
+    iterateurs natifs DISTINCTS, et un seul des deux est une couronne geometrique :
+
+      * `order='adjacent'` (rayon 1) -- `IdunBattle.Core.Services.TileQuery.u003C
+        IterateAdjacentTilesu003Ed__8$$MoveNext` enumere la liste STOCKEE
+        (`tile.ConnectivityComponent.Neighbours`) puis applique une porte `|dElev| < 2`
+        INCONDITIONNELLE. **Ce n'est PAS `hexgeo.distance <= 1`** : la couronne hex SUR-ATTEINT
+        des que le terrain saute une marche. Substrat : `_adjacent_tiles_native`, qui porte les
+        deux etages (le champ `boardGraph.neighbours` est capte a travers ce meme iterateur).
+        Sans centre resolvable sur le board -> repli GEOMETRIQUE nomme (permissif), jamais un
+        voisinage vide.
+      * `order='surrounding'` (rayon quelconque) -- `IdunBattle.Core.Services.TileQuery.u003C
+        IterateSurroundingTilesu003Ed__6$$MoveNext` est une TRIPLE BOUCLE en coordonnees CUBE
+        resolue par `StateExtensions$$GetTileAt` : **aucune liste stockee, AUCUNE porte
+        d'elevation**. La distance hex y est le mirror EXACT -- brancher les deux `order` sur la
+        meme primitive serait un bug, pas une unification.
+
+    Sans board (tests unitaires, contextes offline sans graphe) : ensemble geometrique et ordre
+    historique `ctx.units`. C'est une DEGRADATION, jamais un mirror.
+
+    AMPLITUDE MESUREE (`probe_515_adjacence_rayon_de_souffle.py`, 675 boards) : la porte refuse
+    **17 204** aretes de couronne sur **196 454** (8,76 %), et MORD sur **586 boards / 675**
+    (86,8 %). Sur `MC1_67` : 18 aretes dirigees, 11 tuiles -- exactement ce que la mesure LIVE de
+    #497 avait trouve. La reparation est MONOTONE (0 violation d'inclusion sur les 675 boards) :
+    elle ne peut que RETIRER des unites, jamais en ajouter.
 
     EMPREINTES (#433-r3-r1a) -- les DEUX bouts de la relation lisent desormais les pieds :
       * le CENTRE, par `_origin_tiles` (mirror du `foreach tile in IterateTiles(entity)` qui ouvre
@@ -689,6 +752,11 @@ def _within(units, center, radius, include_center=False, board=None, order=None)
         m = _main_tile(center)                        # `op_Subtraction Tiles(origin)` : UNE tuile
         excluded = () if m is None else (m,)
     r = int(radius)
+    # L'ENSEMBLE vient de l'enumeration native des que l'iterateur natif en est une (#515).
+    # `None` = aucun centre resolvable -> repli geometrique nomme ; `[]` = zero voisin, EXACT.
+    enumeres = (_adjacent_tiles_native(board, centers)
+                if (order == "adjacent" and r == 1) else None)
+    tuiles = None if enumeres is None else {(p[0], p[1]) for p in enumeres}
     out = []
     for u in units:
         if not _is_alive(u):
@@ -696,7 +764,8 @@ def _within(units, center, radius, include_center=False, board=None, order=None)
         for f in _feet(u):
             if f in excluded:
                 continue
-            if any(hexgeo.distance(f, c) <= r for c in centers):
+            if (f in tuiles) if tuiles is not None else any(hexgeo.distance(f, c) <= r
+                                                            for c in centers):
                 out.append(u)
                 break
     if board is None or order is None or len(out) < 2:

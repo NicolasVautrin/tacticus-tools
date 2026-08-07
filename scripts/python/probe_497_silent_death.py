@@ -30,9 +30,13 @@ ETAGES MESURES (jamais un scalaire fitte -- chaque etage a son oracle natif) :
   [5] GATE DE CIBLAGE      : le masque `TargetIsEnemy` MORD (allie et self refuses), et l'oracle du
                              refus est le natif lui-meme (`abilityTargets.targets` n'enumere que des
                              ennemis).
-  [6] ADJACENCE NATIVE     : mesure de l'ECART entre la couronne hex du port (`dsl/base.py::_within`)
-                             et la liste d'adjacence STOCKEE du natif (porte d'elevation |dElev| < 2).
-                             C'est un RESIDU HERITE, pas un choix de ce port -- cf. `main()`.
+  [6] ADJACENCE NATIVE     : mesure de l'ECART TOPOLOGIQUE, sur le board du montage, entre la
+                             couronne hex et la liste d'adjacence STOCKEE (porte |dElev| < 2).
+                             ⚠ C'est une propriete du BOARD, pas du port : depuis #515,
+                             `dsl/base.py::_within` n'exploite plus cet ecart (il enumere la liste
+                             stockee), et la variante `elevation` est passee de DIVERGENTE a
+                             ACCORD. L'etage reste parce qu'il DIT si le montage est degenere --
+                             `sur_atteintes == 0` = plateau plat, ou la variante ne prouve rien.
 
 Le placement est FORCE (`--place`/`--a-place`) et il est CHOISI SUR LES ELEVATIONS : sur MC1_67, la
 colonne 2 monte de 2 a 4 entre les rangees 2 et 3, et le natif ne relie PAS deux tuiles dont
@@ -220,12 +224,16 @@ def find(dec, visual_id):
 
 
 def adjacence_ecart(bg) -> dict:
-    """ETAGE [6] -- l'ECART entre les DEUX adjacences, mesure sur le board du montage.
+    """ETAGE [6] -- l'ECART TOPOLOGIQUE entre les deux vues d'adjacence du BOARD du montage.
 
     Le natif enumere la liste d'adjacence STOCKEE (`TileQuery$$IterateAdjacentTiles` :
-    `foreach (nid in tile.ConnectivityComponent.Neighbours)` puis la porte `|dElev| < 2`) ; le port,
-    dans `engine/dsl/base.py::_within`, teste `hexgeo.distance <= r`. La couronne hex SUR-ATTEINT
-    donc la liste stockee des que le terrain saute une marche d'elevation.
+    `foreach (nid in tile.ConnectivityComponent.Neighbours)` puis la porte `|dElev| < 2`) ; la
+    couronne hex, elle, SUR-ATTEINT cette liste des que le terrain saute une marche.
+
+    ⚠ CE QUE CET ETAGE MESURE A CHANGE DE ROLE avec #515. Il chiffrait un ECART DE PORT
+    (`_within` testait `hexgeo.distance <= r`) ; ce n'est plus le cas -- le port enumere. Il
+    chiffre donc desormais une propriete du BOARD, et il sert de TEMOIN DE NON-DEGENERESCENCE :
+    `sur_atteintes == 0` signifie plateau plat, donc variante `elevation` sans portee.
 
     Rend `{aretes_hex, aretes_natives, sur_atteintes, tuiles_touchees}` -- toutes DIRIGEES."""
     import hexgeo
@@ -274,8 +282,10 @@ VARIANTES = (
      (("orksNob", (2, 6)), ("orksRuntherd", (2, 5)), ("orksBigMek", (2, 4)),
       ("orksKillaKan", (2, 3))), "3000"),
     # ELEVATION : la chaine traverse la marche 2 -> 4 de la colonne 2 (rangees 2 -> 3). Le natif ne
-    # relie PAS ces deux tuiles (`|dElev| < 2`), le port si (couronne hex). C'est la mesure du
-    # RESIDU HERITE de `dsl/base.py::_within` -- attendue DIVERGENTE, et c'est le but.
+    # relie PAS ces deux tuiles (`|dElev| < 2`). Le port non plus DEPUIS #515 -- il enumere la
+    # liste stockee au lieu de tester `hexgeo.distance <= r`. Cette variante mesurait le residu
+    # `#497-r1` (port `[81, 83, 85, 87]` contre natif `[81]`, 9 706 PV fantomes) ; elle est
+    # desormais en ACCORD, et c'est elle qui l'atteste. Garde : `test_515_adjacence_elevation_live`.
     ("elevation", (2, 1),
      (("orksNob", (2, 2)), ("orksRuntherd", (2, 3)), ("orksBigMek", (2, 4)),
       ("orksKillaKan", (2, 5))), "200000"),
