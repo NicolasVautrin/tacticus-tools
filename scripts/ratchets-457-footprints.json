@@ -4270,6 +4270,21 @@
     "scripts/python/verdict_cache.py"
    ]
   },
+  "tests/test_463r1_ecart_empreinte_offline.py": {
+   "_at": 1786110679,
+   "_commit": "3364f83e0534f3dc14e9d4fe1320f8ef4fb841b0",
+   "dirs": [
+    "scripts",
+    "scripts/python",
+    "scripts/python/tests"
+   ],
+   "temoins": [
+    "scripts/python/loop_status.py",
+    "scripts/python/probe_463r1_ecart_empreinte_offline.py",
+    "scripts/python/tests/test_463r1_ecart_empreinte_offline.py",
+    "scripts/ratchets-457-footprints.json"
+   ]
+  },
   "tests/test_464_sibling_script_offline.py": {
    "_at": 1786061293,
    "_commit": "b83c6731e233f3136dce7d6fad905c8457bf5f1f",

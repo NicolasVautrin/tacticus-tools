@@ -49,6 +49,11 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/snapshot.py",
         # PROPRE A CE FICHIER :
         "scripts/python/probe_457_offline_tests_green.py",
+        # #463-r1 : `probe_457` y prend desormais son recensement offline (`TESTS_DIR`, la
+        # convention de collecte, le filtre `_live.py`). Le perimetre que ce fichier garde EST
+        # calcule la-bas -- l'omettre serait une declaration TROP ETROITE au sens exact de
+        # #486-r15.
+        "scripts/python/probe_463r1_ecart_empreinte_offline.py",
         "scripts/python/repo_read.py", "scripts/python/declencheur_cliquet.py",
         "scripts/python/tests/**/*.py", "scripts/ratchets.ps1",
     ),

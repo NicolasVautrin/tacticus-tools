@@ -43,6 +43,14 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/snapshot.py",
         # PROPRE A CE FICHIER :
         "scripts/python/probe_457_offline_tests_green.py",
+        # #463-r1 : le FOYER du recensement offline, dont `probe_457` ET `loop_status` (tous deux
+        # sous test ici) tirent leur perimetre.
+        "scripts/python/probe_463r1_ecart_empreinte_offline.py",
+        # ROUGES PREEXISTANTS de `master`, mesures le 2026-08-07 sur `3a09dc1d` : la
+        # confrontation lisait deja ces deux-la sans qu'ils soient declares. Repares ici parce
+        # que ce fichier est de toute facon touche -- ils n'ont rien a voir avec #463-r1.
+        "scripts/python/verdict_cache.py",
+        "scripts/ratchets-457-footprints.json",
         "scripts/python/probe_486r15_declencheurs_tests.py",
         "scripts/python/declencheur_cliquet.py", "scripts/python/repo_read.py",
         "scripts/python/tests/**/*.py",
@@ -366,7 +374,14 @@ def test_le_capteur_VOIT_l_empreinte_incomplete(tmp_path):
                                  "scripts/python/tests/test_c_live.py\n")
     d = LS.mesurer_empreinte(src)
     assert d["couverture"].mesuree
-    assert d["couverture"].valeur == {"format": 2, "couverts": 1, "perimetre": 2}, \
+    # #463-r1 : la valeur porte desormais la VENTILATION (`manquants` / `fantomes`) et non plus
+    # le seul compte d'INTERSECTION -- une intersection ne montre jamais ce qui deborde. Le point
+    # que ce cas garde depuis #486-r15 est INCHANGE (le `_live.py` ne compte pas, donc
+    # `perimetre == 2`) ; l'egalite reste STRICTE, sur un dict plus large, et le manquant est
+    # desormais NOMME, ce que l'ancienne forme ne permettait pas.
+    assert d["couverture"].valeur == {"format": 2, "couverts": 1, "perimetre": 2,
+                                      "manquants": ["tests/test_b_offline.py"],
+                                      "fantomes": []}, \
         "le `_live.py` ne doit pas compter -- `probe_457` ne le selectionne pas"
     sig, _ctx = LS.signaux({"flotte": _FLOTTE, "livraison": _LIVRAISON, "harnais": _HARNAIS,
                             "empreinte": d})

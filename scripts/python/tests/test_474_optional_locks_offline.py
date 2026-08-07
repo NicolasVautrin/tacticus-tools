@@ -31,6 +31,9 @@ DECLENCHEUR = {
         # modules.
         "scripts/python/probe_474_optional_locks.py", "scripts/python/loop_status.py",
         "scripts/python/fleet_board.py",
+        # #463-r1 : `loop_status` y prend son recensement offline (le filtre du perimetre y a
+        # ete deplace, il n'est plus recopie chez lui).
+        "scripts/python/probe_463r1_ecart_empreinte_offline.py",
     ),
     "build": False,
     "toujours": False,
