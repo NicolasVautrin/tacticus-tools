@@ -13,8 +13,10 @@ l'IGNORAIT (0 degat, 0 deplacement, aucune erreur).
 `return DiveAttackAbilityBase$$.ctor(this);` — **aucune methode propre**. Toute la mecanique vit sur
 `IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase` (`.ctor`, `ExecuteBehaviour`,
 `GetTargetTilesSelector`, `GetTargetUnitsSelector`, `GetMovementBehavior`). L'autre heritiere est
-`1091 SlashingDive` — meme code, config differente (profil `Power`) ; **non portee**, elle le serait
-en changeant la seule cle de config.
+`1091 SlashingDive` — meme code, config differente (profil `Power`). **PORTEE depuis #507**
+(`case-507-slashing-dive.md`), qui a aussi deplace la base partagee dans son namespace natif
+(`engine/runner/abilities/loki/dive_attack.py`) : les deux heritieres n'y ajoutent plus que leur
+identite et leurs deux donnees de registre — comme le natif, dont les classes filles n'ont qu'un ctor.
 
     GetTargetTilesSelector() =
       DSLSelectors$$First( DSLSelectors$$TilesBehindInLine(
@@ -144,8 +146,11 @@ CSV `"164,128,91"`, que `ability_var` ne sait pas lire).
   different — donc rang des triggers on-attack different. NON mesure : il faut une unite multi-hex
   alignee sur la vague. Aucun test ne l'asserte (un test qui figerait la divergence figerait le
   residu).
-- **`1091 SlashingDive` reste non portee.** Meme base native, meme code ; seule la config change
-  (profil `Power`). Tout ce qui precede la porterait.
+- ~~**`1091 SlashingDive` reste non portee.**~~ **LEVE (#507, 2026-08-07)** — `case-507-slashing-dive.md`.
+  Le partage de la base a ete PROUVE (slot de methode runtime : `.ctor` a la MEME adresse d'entree
+  que celui de 1064, aucune surcharge a depth=0), la config relue par ability, et tout ce qui
+  precede l'a effectivement portee. Le residu `-r1` de #507 nomme le seul axe que le porteur ne
+  permet pas d'exercer (`attackRangeType` : le Screamer n'a qu'une arme).
 - **`DSLTriggers$$CanMove` est porte a un etage pres.** Le natif est
   `!HasTrait(0x418 = Stationary) && MovementComponent.IsAllowedToMove()` ; le port tient le trait et
   NOMME le second etage comme non publie — meme constat que `CasterCanMove`

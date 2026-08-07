@@ -971,13 +971,18 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # entre-temps (voir les deux paragraphes ci-dessous). Le compte de la fiche heritee etait donc
     # PERIME au moment de le reprendre -- il se re-derive, il ne se cite pas.
     #
-    # `1091 SlashingDive` N'Y EST PAS, et c'est un NON-LU assume : aucune classe
-    # `SlashingDiveAbility` n'existe dans les tables (seuls `IdunBattle.AI.Playbook.Loki.
-    # SlashingDivePlaybook` et `IdunBattle.View.AbilityConfigs.Loki.SlashingDiveVisuals` portent ce
-    # nom), donc aucun ctor a lire. L'absence ne prouve RIEN -- un ctor trivial
-    # `return <Base>$$.ctor(this);` est DEDUPLIQUE par IL2CPP et n'a qu'un seul proprietaire nomme.
-    # Trancher exige le slot de vtable de l'INSTANCE, au runtime. Deviner un masque serait pire que
-    # l'absence, donc pas d'entree.
+    # `1091 SlashingDive` N'Y EST TOUJOURS PAS, mais la RAISON A CHANGE (#507) : elle y figurait comme
+    # NON-LU (aucun `SlashingDiveAbility` dans `frida/methods.tsv` ni `ghidra/functions.tsv`), et ce
+    # non-lu etait le faux negatif que la table elle-meme prescrivait de ne pas croire -- le ctor
+    # trivial `return DiveAttackAbilityBase$$.ctor(this);` est FUSIONNE par IL2CPP avec celui de
+    # `SwoopingHawkAbility`, et ces tables sont indexees par ADRESSE. Le cran manquant, exactement
+    # celui que ce paragraphe reclamait, a ete pris AU RUNTIME (RPC `resolveMethodPtr`, build
+    # `rnca9r7q6c`) : `.ctor` a depth=0 a la MEME adresse d'entree que `SwoopingHawkAbility$$.ctor`,
+    # et `ExecuteBehaviour` / `GetTargetTilesSelector` / `GetTargetUnitsSelector` /
+    # `GetMovementBehavior` tous a depth=1 sur `DiveAttackAbilityBase` -> AUCUNE surcharge.
+    # 1091 a donc rejoint le registre COMBAT (`engine/runner/abilities/thousandsons.py::
+    # SlashingDiveAbility`) et son masque vit sur SA classe : l'ajouter ici violerait le contrat de
+    # disjonction -- MEME raison que `1186 WallOfMirrors` ci-dessous, et non plus l'inverse.
     #
     # --- FLAGS DIRECTS -- surcharge `TargetingOptions$$.ctor(this, isSelfCasting, range,
     #     forceMeleeTarget, rules, getDynamicInvalidCasterReason, getDynamicInvalidTargetReason)`,
