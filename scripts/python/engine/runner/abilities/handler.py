@@ -382,13 +382,42 @@ class AbilityHandler:
             return
         klass = ABILITY_CLASSES.get(int(msg.ability_type))
         ability = klass() if klass is not None else None
+        # #287-r14 RESOLUTION DE CIBLE -- `finalTarget = IActiveAbility.GetActualTarget(ability,
+        # caster, target)` (slot 16 -> `IdunBattle.Entities.Abilities.AActiveAbility$$GetActualTarget`
+        # -> slot `ITargetingQuery` 6 = `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`).
+        # PLACE ICI parce que c'est SA place au decompile : `ExecuteInternal` transforme la cible
+        # AVANT ses deux gates, et TOUT ce qui suit (`IsDeadUnitAndNotAllowedByAbility`,
+        # `IsInvalidTarget`, `GetTiles` du snapshot, la re-resolution, `GetAbilityEntities`) voit le
+        # finalTarget -- JAMAIS la cible de l'appelant.
+        #
+        # Ce que ca corrige : le port avait DEUX regimes d'appel la ou le natif n'en a qu'UN. Les
+        # tests live envoient `targetId: <unite>` (`_ringed_cast.cast_and_confront`) et la face
+        # DECISION portee emet `tileEntityId` -- le natif accepte les deux PARCE QU'IL RESOUT.
+        # MESURE (#287-r12, live `MC1_67` seed 777) : `1018 ValkyrieStrike` pose `1022` sur la TUILE
+        # cote natif ; en regime « id d'unite » le port le posait sur l'UNITE.
+        #
+        # `ability`/`klass` non portee -> `ActiveAbility.get_actual_target` n'est pas disponible :
+        # aucune resolution (on ne devine pas le masque d'une ability qu'on n'a pas RE-lue), meme
+        # convention que `is_invalid_target(ability=None)` -> 0.
+        target_id = (klass.get_actual_target(self.state, msg.caster_id, msg.target_id)
+                     if klass is not None else msg.target_id)
+        # `if (finalTarget == null) return 0;` -- le natif abandonne AVANT tout, sans behaviour, sans
+        # flag, sans vecteur. Porte SEULEMENT quand la resolution a REELLEMENT PERDU une cible qui
+        # existait : le port modelise « pas de cible » par `target_id is None` (convention ecrite
+        # dans `_gate_message` ci-dessus) alors que le natif n'a que des ids, donc rabattre un
+        # `None` d'ENTREE sur ce refus transformerait « ability sans cible » en « cast refuse ».
+        if msg.target_id is not None and target_id is None:
+            self.last = {"ability_type": msg.ability_type, "ported": ability is not None,
+                         "caster": msg.caster_id, "target": msg.target_id,
+                         "no_actual_target": True}
+            return
         # #429-r1 GATE CIBLE-MORTE -- mirror d'`ActiveAbilityOperation$$ExecuteInternal` :
         #     if (IsDeadUnitAndNotAllowedByAbility(abilityType, target)) return 0;
         # Le natif le place AVANT `IsInvalidTarget` (ordre relu au decompile, cf. l'en-tete de ce
         # module), donc ici. Son gate est le slot 0x11 `CanContinueOnDeadTarget`, qui lit le bit 38
         # `AllowDeadTarget` du masque de CONTINUE -- `False` pour toutes les abilities du binaire
         # sauf `GreatFrostAxe` (1089). Detail et mesure : `operations/active_ability.py`.
-        if is_dead_unit_and_not_allowed_by_ability(self.state, klass, msg.target_id):
+        if is_dead_unit_and_not_allowed_by_ability(self.state, klass, target_id):
             self.last = {"ability_type": msg.ability_type, "ported": ability is not None,
                          "caster": msg.caster_id, "target": msg.target_id,
                          "dead_target_not_allowed": True}
@@ -401,7 +430,7 @@ class AbilityHandler:
         # d'extension par ability vivent dans `targeting.py` ; une ability dont les
         # `TARGETING_OPTIONS` n'ont pas ete RE-lues n'est PAS gatee (aucun refus invente), et
         # `ability=None` (non portee) rend 0 par construction (`is_invalid_target`).
-        reason = is_invalid_target(self.state, int(msg.caster_id), msg.target_id, ability)
+        reason = is_invalid_target(self.state, int(msg.caster_id), target_id, ability)
         if reason:
             self.last = {"ability_type": msg.ability_type, "ported": ability is not None,
                          "caster": msg.caster_id, "target": msg.target_id,
@@ -411,7 +440,7 @@ class AbilityHandler:
         # GetAbilityEntities` fige `AbilityEntities@+0x38 = EntityExtensions.GetTiles(finalTarget)`
         # AVANT le `On(0x2a = PreUnitAbility)`. C'est ce fige-la que la re-resolution ci-dessous confronte a
         # l'occupation REELLE d'apres la cascade. Pris ICI, au rang natif (juste apres les gates).
-        _target_tiles = get_tiles(self.state, msg.target_id)
+        _target_tiles = get_tiles(self.state, target_id)
         # #120 `On(PreUnitAbility=0x2a)` — le vecteur d'OPERATION, emis pour TOUTE ability qui passe
         # les gates, portee ou non (il ne depend pas de la behaviour : cf. le meme raisonnement que
         # les FLAGS de tour #139 ci-dessous). Emis AVANT l'execution, comme le natif.
@@ -438,7 +467,7 @@ class AbilityHandler:
         # cible. Cet appelant-ci ne pose donc NI behaviour NI flags — c'est la re-entree qui les
         # pose, une seule fois. Meme foyer que la voie d'ATTAQUE NORMALE (damage_ops.execute) : le
         # natif n'a qu'un site, le cabler sur une seule voie recreerait le fork ferme par #120.
-        _replaced, _new_target = resolve_replaced_target(self.state, msg.target_id, _target_tiles)
+        _replaced, _new_target = resolve_replaced_target(self.state, target_id, _target_tiles)
         if _replaced:
             self._execute_for_replaced_target(msg, ability, _new_target,
                                               execute_for_replaced_target)
@@ -452,9 +481,13 @@ class AbilityHandler:
             self.last["flags"] = self._add_flags_after_execution(msg)
             self._post_unit_ability(msg)               # `On(0xe)` : dernier evenement, apres les flags
             return                            # ability non portée → behaviour no-op (présent ≠ exécuté)
-        diag = ability.execute_behaviour(self.state, msg.caster_id, msg.target_id) or {}
+        diag = ability.execute_behaviour(self.state, msg.caster_id, target_id) or {}
         self.last = {"ability_type": msg.ability_type, "ported": True,
                      "caster": msg.caster_id, "target": msg.target_id, **diag}
+        # `actual_target` n'est publie que quand la resolution a DEPLACE la cible : un diagnostic qui
+        # le porte toujours ferait diverger toutes les empreintes des tests sur un no-op.
+        if target_id != msg.target_id:
+            self.last["actual_target"] = target_id
         # `On(UnitActiveAbility=0xc)` — emis APRES l'execution de la behaviour et AVANT
         # `AddFlagsAfterAbilityExecution` (ordre lu au decompile). L'ability qui vient de s'executer
         # beneficie donc encore de tout ce que ce vecteur consomme (ex. l'override de niveau 1180 que
