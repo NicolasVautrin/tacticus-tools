@@ -108,7 +108,11 @@ SPIRIT_LEECH_BODY_IDS: tuple[int, ...] = (
     int(ActiveAbilityType.Fragstorm),                   # 1078 = 0x436
     int(ActiveAbilityType.HellfireShells),              # 1080 = 0x438
     int(ActiveAbilityType.GreatFrostAxe),               # 1089 = 0x441
-    int(ActiveAbilityType.SpiritLeech),                 # 1104 = 0x450
+    # 1104 SpiritLeech (0x450) est SORTIE de cette liste : elle a en plus son propre
+    # `SpiritLeechPlaybook$$MakeHealPredictions` (le terme lifesteal), et son entree au registre est
+    # donc `spirit_leech.SpiritLeechLifestealPlaybook`, qui DERIVE de cette classe-ci. Les treize
+    # autres identites gardent la base VIDE sur ce slot -- le symbole `$$MakeHealPredictions` n'a
+    # qu'UN proprietaire de vtable dans le build.
     int(ActiveAbilityType.CrushingClaws),               # 1105 = 0x451
     int(ActiveAbilityType.DakkaDakkaDakka),             # 1171 = 0x493
 )

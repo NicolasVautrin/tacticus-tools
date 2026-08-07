@@ -144,5 +144,24 @@ def is_adjacent_to_entity(scene, subject_uid, pos, elev=None, neigh=None) -> boo
     return any(bq.is_adjacent(t, p, ev, nm) for t in tiles)
 
 
+def unit_in_adjacent_tiles(scene, subject_uid, other_uid, elev=None, neigh=None) -> bool:
+    """`Units(AdjacentTiles(subject), unique, sel).Contains(other)` -- la question que posent les
+    trois comptages, une fois developpees leurs primitives.
+
+    Les DEUX cotes sont multi-tuiles, et c'est ce que la version << position contre position >>
+    ratait : `Units(tiles)` resout l'OCCUPANT de chaque tuile, donc `other` y figure des qu'UN de
+    ses pieds tombe dans `AdjacentTiles(subject)` -- lui-meme l'union des ring-1 de TOUS les pieds
+    de `subject`. Sur deux unites a un pied, la question se reduit a
+    `is_adjacent(pos(subject), pos(other))`, le port d'avant."""
+    if other_uid is None:
+        return False
+    others = iterate_tiles(scene, other_uid)
+    if not others:
+        return False
+    nm = neigh if neigh is not None else bq.neigh_map(scene)
+    ev = elev if elev is not None else getattr(scene, "elev_by_pos", None)
+    return any(is_adjacent_to_entity(scene, subject_uid, p, ev, nm) for p in others)
+
+
 __all__ = ["iterate_tiles", "is_targetable", "unit_matches", "adjacent_positions",
-           "is_adjacent_to_entity"]
+           "is_adjacent_to_entity", "unit_in_adjacent_tiles"]

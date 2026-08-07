@@ -118,8 +118,10 @@ ni `case@+0x18` ni `case@+0x28`.
 from __future__ import annotations
 
 from .. import battle_query as bq
+from . import adjacency as adj          # foyer PARTAGE multi-tuiles + UnitSelectionType (#419-r1-tr10-r2/-r4)
 
 from ..entities.triggered_ability_type import TriggeredAbilityType
+from ..entities.unit_selection_type import UnitSelectionType
 
 # L'UNIQUE string literal de la face ATTACK, resolu par `probe_212_bc_key_literals.py` sur le
 # symbole du `d__3$$MoveNext` (slot `+0x33b22a0`) ; = 10 sur le seed BC courant, SEULE cle
@@ -150,32 +152,35 @@ def count_additional_targets(scene, caster_uid: int, target_uid: int) -> int:
     registre."""
     if caster_uid is None or target_uid is None:
         return 0
-    cpos = scene.pos(caster_uid)
-    tpos = scene.pos(target_uid)
     cteam = scene.team(caster_uid)
-    if cpos is None or tpos is None or cteam is None:
+    if cteam is None or not adj.iterate_tiles(scene, caster_uid) \
+            or not adj.iterate_tiles(scene, target_uid):
         return 0
     elev = getattr(scene, "elev_by_pos", None)
     neigh = bq.neigh_map(scene)
     n = 0
     for u in (scene.units or ()):
         uid = u.get("id")
-        if uid is None or not u.get("alive"):
+        if uid is None:
+            continue
+        # `unitSelectionType: 3` = `UnitSelectionType.OnlyAliveAndTargetable`, applique par
+        # `UnitExtensions$$MatchesUnitSelectionType` = `IsAlive && !HasFlag(Untargetable)` --
+        # DEUX clauses, dont la seconde manquait au port (#419-r1-tr10-r4). Tri-etat : un canal
+        # d'effets muet degrade la clause `targetable` en VRAI, jamais en refus invente.
+        if not adj.unit_matches(scene, u, UnitSelectionType.OnlyAliveAndTargetable):
             continue
         # `Enemies(Caster@0x48, ..., 3)` : equipe != celle du caster (meme substrat `scene.team` que
         # tous les `IsFriend`/`IsEnemy` deja portes). Le caster est ecarte par ce filtre meme.
         if u.get("team") == cteam:
             continue
-        p = scene.pos(uid)
-        if p is None:
-            continue
         # `AdjacentEnemies(Caster@0x48)` -> `Units(AdjacentTiles(caster))` : ring-1 hex AVEC la porte
-        # d'elevation `|delta| < 2`.
-        if not bq.is_adjacent(cpos, p, elev, neigh):
+        # d'elevation `|delta| < 2`, sur TOUTES les tuiles des deux entites (#419-r1-tr10-r2).
+        if not adj.unit_in_adjacent_tiles(scene, caster_uid, uid, elev, neigh):
             continue
         # `AdjacentUnits(Target@0x60, unique: 1, sel: 3)` = `Units(AdjacentTiles(target)) - target` :
-        # meme ring-1, meme porte. `is_adjacent` etant STRICT, la cible s'auto-exclut.
-        if not bq.is_adjacent(tpos, p, elev, neigh):
+        # meme ring-1, meme porte. `AdjacentTiles` etant STRICT (`- Tiles(unit)`), la cible
+        # s'auto-exclut -- sur TOUS ses pieds, pas seulement sa MainTile.
+        if not adj.unit_in_adjacent_tiles(scene, target_uid, uid, elev, neigh):
             continue
         n += 1
     return n

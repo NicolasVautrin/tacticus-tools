@@ -22,6 +22,7 @@ from .base import ComparablePlaybook, register
 from ..predict import heal_utility
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.triggered_ability_type import TriggeredAbilityType, entity_triggered_ability_ids
+from ..services.custom_normal_attack import NORMAL_BOSS_ATTACK_TRAIT   # proxy `IsBoss` (cf. HealPlaybook)
 
 
 class NormalAttackPlaybook(ComparablePlaybook):
@@ -140,8 +141,50 @@ class HealPlaybook(ComparablePlaybook):
     `score` = le terme d'utilité par cible."""
     ability_id = int(ActiveAbilityType.Heal)  # 18 (#158)
 
+    def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
+        """`IdunBattle.AI.Playbook.Common.HealPlaybook$$ShouldExecute`, corps LU verbatim
+        (`#419-r1-tr14-r5-r2-r1-r1-r1`, build `rnca9r7q6c`) :
+
+            if (!(attackHealUtility > Fix64.op_Implicit(0))) return false;
+            if (!UnitExtensions.IsBoss(caster))              return true;
+            return caster != target;
+
+        soit `utility > 0 && (!IsBoss(caster) || caster != target)` -- **un BOSS ne se soigne pas
+        lui-meme**. Seule la premiere moitie etait portee (le `pred > 0` de `score`).
+
+        ⚠ SUBSTRAT DU `IsBoss`, et sa borne. Le natif ne lit PAS un trait : `UnitExtensions$$IsBoss`
+        resout un composant et rend l'octet `<composant>+0x88`. AUCUN canal du port ne publie ce
+        champ (ni `combatSnapshot`, ni le gameconfig, qui n'a aucune cle `isBoss`). Le port emploie
+        donc le PROXY deja acte ailleurs -- le trait `Boss` (`UnitTrait` 0x7e7 = 2023), celui que
+        `services/custom_normal_attack.NORMAL_BOSS_ATTACK_TRAIT` consomme pour dispatcher l'attaque
+        normale boss, et celui que le montage de #573 greffe pour faire basculer le natif sur `1030`.
+        Sur le seed BC courant **0 unite sur 175** le porte : la clause est donc INERTE hors greffe,
+        et c'est par greffe qu'elle se confronte.
+
+        Ce gate est celui du 18 GENERIQUE. `1167 Heal_TwistedScience` a le SIEN
+        (`TwistedScience_HealPlaybook$$ShouldExecute` = `utility > Fix64(0)` **seul**, sans la clause
+        boss) : il vit dans `TwistedScience_HealPlaybook` ci-dessous, et NE doit pas heriter d'ici."""
+        if not utility > 0.0:
+            return False
+        sc = getattr(ctx, "scene", None)
+        caster = getattr(ctx, "uid", None)
+        if sc is None or caster is None:
+            return True
+        if not self._is_boss(sc, caster):
+            return True
+        return target != caster
+
+    @staticmethod
+    def _is_boss(scene, uid) -> bool:
+        """PROXY de `UnitExtensions$$IsBoss` -- cf. la docstring de `should_execute`. Lit le FOYER de
+        traits de la face DECISION (`prediction._shared._entity_traits`, tri-etat mesure/kit)."""
+        from .prediction._shared import _entity_traits    # differe : `prediction` importe `playbook.base`
+        return NORMAL_BOSS_ATTACK_TRAIT in _entity_traits(scene, uid)
+
     def score(self, effective_heal, hp_max, is_friend, is_twisted, target_faction):
-        """Utilité de soin d'une cible, ou None si `pred <= 0` (gate `ShouldExecute`). `effective_heal` =
+        """Utilité de soin d'une cible, ou None si `pred <= 0` (première moitié du gate
+        `ShouldExecute` ; la clause BOSS vit dans `should_execute` ci-dessus, que le générateur
+        consulte à part). `effective_heal` =
         soin EFFECTIF `min(HealAmount, missing)` (le générateur le cape via `predict_heal_effective`, #79 ;
         auparavant saturé à `missing`). Le skip « cible déjà buffée TwistedScience » est un gate
         d'ÉNUMÉRATION (fait par le générateur, inconditionnel), pas ce CustomUtility."""
@@ -149,6 +192,25 @@ class HealPlaybook(ComparablePlaybook):
         custom = (100 + (100 if target_faction == "Genestealers" else 0)) if is_twisted else 0
         pred = custom + heal_term
         return pred if pred > 0 else None
+
+
+class TwistedScience_HealPlaybook(HealPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.TwistedScience_HealPlaybook` (`ComparablePlaybook<T>..ctor(this,
+    0x48f, klass)` -> ability **1167** `Heal_TwistedScience` -- ⚠ le PLAYBOOK et l'ABILITY portent
+    des noms INVERSES dans le build ; seul l'id lu au `.ctor` les apparie).
+
+    Son `$$ShouldExecute` est `attackHealUtility > Fix64.op_Implicit(0)` **SEUL** -- il ne porte PAS
+    la clause `!IsBoss(caster) || caster != target` de `Common.HealPlaybook`. Cette classe existe
+    exactement pour cela : sans elle, `1167` retombait sur `HEAL_PLAYBOOK` et aurait herite d'un gate
+    que son corps natif n'a pas (un boss porteur de TwistedScience ne pourrait plus se soigner).
+
+    Son CustomUtility (+100, +100 sur cible `Genestealers`) est deja porte par `HealPlaybook.score`,
+    d'ou l'heritage."""
+
+    ability_id = int(ActiveAbilityType.Heal_TwistedScience)   # 0x48f = 1167
+
+    def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
+        return utility > 0.0
 
 
 class HealingBalms_HealPlaybook(ComparablePlaybook):
@@ -247,12 +309,16 @@ def normal_attack_playbook(ability_id) -> NormalAttackPlaybook:
             else NORMAL_ATTACK_PLAYBOOK)
 HEAL_PLAYBOOK = HealPlaybook()
 HEALING_BALMS_HEAL_PLAYBOOK = HealingBalms_HealPlaybook()
+TWISTED_SCIENCE_HEAL_PLAYBOOK = TwistedScience_HealPlaybook()
 
 # Registre des playbooks de SOIN dispatches par `_heal_candidates` (id d'ability -> instance). Un id
-# absent retombe sur `HEAL_PLAYBOOK` (le generique 18, dont `TwistedScience_HealPlaybook` 1167 ne
-# differe que par son CustomUtility deja porte dans `HealPlaybook.score`).
+# absent retombe sur `HEAL_PLAYBOOK` (le generique 18).
+# ⚠ `1167 Heal_TwistedScience` y ENTRE depuis #419-r1-tr14-r5-r2-r1-r1-r1 : son CustomUtility est
+# bien celui de `HealPlaybook.score` (d'ou l'heritage), mais son `ShouldExecute` natif n'a PAS la
+# clause BOSS du 18 -- l'y laisser retomber lui aurait fait heriter un gate qu'il n'a pas.
 HEAL_PLAYBOOKS: dict[int, ComparablePlaybook] = {
     HEALING_BALMS_HEAL_PLAYBOOK.ability_id: HEALING_BALMS_HEAL_PLAYBOOK,
+    TWISTED_SCIENCE_HEAL_PLAYBOOK.ability_id: TWISTED_SCIENCE_HEAL_PLAYBOOK,
 }
 
 register(RepairPlaybook())

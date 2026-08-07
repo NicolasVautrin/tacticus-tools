@@ -223,6 +223,23 @@ class ComparablePlaybook(BasePlaybook):
         ce build (effet Pinned=0x429, poids 0 -> inerte). Override par sous-classe au besoin."""
         return []
 
+    def make_heal_predictions(self, ctx, caster_tile, target, ability_id, events) -> list:
+        """`ComparablePlaybook<T>.MakeHealPredictions` — la TROISIÈME branche de prédiction, à côté de
+        `MakeDamagePredictions` et `MakeEffectPredictions`. BASE = VIDE : la quasi-totalité des
+        abilities d'attaque ne prédit aucun soin.
+
+        Rend une liste de tuples `(effective_heal, target_max_hp, is_friend, is_boss)` — le format que
+        `engine.predict.heal_action_utility` (mirror du fold `CalculateUtilityFromHealEvent`, slot
+        +0x368, 2ᵉ boucle de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions`)
+        consomme.
+
+        ⚠ `events` (les `ProbableDamageEvent` déjà produits) s'ajoute aux arguments natifs : le seul
+        porteur du build, `IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$MakeHealPredictions`,
+        appelle `SpiritLeechAbility$$GetHealAmountForPrediction(target, abilityState)`, qui refait sa
+        PROPRE prédiction de dégât ; le port réutilise celle de `MakeDamagePredictions` —
+        approximation CONFRONTÉE live (#339), pas un raccourci de commodité."""
+        return []
+
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
         """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility` = `Fix64.FromInt(0)`. Terme d'ACTION
         ajouté PAR-DESSUS `u_full` (pair + Tile) dans l'assemblage du BucketAction — il n'apparaît PAS
@@ -300,6 +317,15 @@ class ComparablePlaybook(BasePlaybook):
         # Fold EFFET (branche +0x388) : base vide -> no-op pour toute ability sans override (additif).
         for ee in self.make_effect_predictions(ctx, caster_tile, target, ability_id) or []:
             u += calculate_utility_from_effect_event(ee, ctx.wt)
+        # Fold SOIN (slot +0x368, 2e boucle de `CalculateUtilityFromPredictions`) : base vide, donc
+        # no-op pour toute ability sans override. C'est le RANG NATIF du terme lifesteal de
+        # `1104 SpiritLeech` (#419-r1-tr14-r5-r2-r1-r1-r3) : il est sommé DANS
+        # `CalculateUtilityFromPredictions`, donc DANS l'argument que `CalculateActionUtility` passe
+        # à `ShouldExecute` — le port l'ajoutait au RETOUR de `calculate_action_utility`.
+        from ..predict import heal_action_utility
+        heals = self.make_heal_predictions(ctx, caster_tile, target, ability_id, events)
+        if heals:
+            u += heal_action_utility(heals)
         return u, bk
 
     def calculate_action_utility(self, ctx, caster_tile, target, ability_id) -> dict | None:

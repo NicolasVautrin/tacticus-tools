@@ -49,7 +49,8 @@ from engine.entities.active_ability_type import ActiveAbilityType   # #270-r1-r1
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.base import NO_ACTION   # sentinelle `BaseUtility` -> Nullable VIDE (#27-4g)
-from engine.playbook.common import HEAL_PLAYBOOK, HEAL_PLAYBOOKS, normal_attack_playbook
+from engine.playbook.common import (HEAL_PLAYBOOK, HEAL_PLAYBOOKS, TWISTED_SCIENCE_HEAL_PLAYBOOK,
+                                    normal_attack_playbook)
 from engine.playbook.bespoke import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.playbook.nonattack import nonattack_candidates  # #27-4b : route Comparable SANS prédiction
 from engine.playbook.excruciating_frequencies import excruciating_frequencies_candidates  # #56-t3b : 1197 ligne-AoE tuile
@@ -264,12 +265,13 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
             return None
         u_full = cand["u_full"]
         u_val = cand["u"]
-        if ab == _SPIRITLEECH_ID:
-            # #84 : SpiritLeech (Comparable) SOMME un terme LIFESTEAL (Σ HealUtility sur self + amis
-            # Tyranids adjacents à `tile`) au dégât dans `CalculateActionUtility`. Position-dépendant.
-            ls = self._spiritleech_lifesteal_util(ctx, tile, cand["pred"])
-            u_full += ls
-            u_val += ls
+        # #84 : le terme LIFESTEAL de `1104 SpiritLeech` était sommé ICI, au RETOUR de
+        # `calculate_action_utility` — donc APRÈS le gate `ShouldExecute`, alors que le natif le
+        # folde DEDANS (`SpiritLeechPlaybook$$MakeHealPredictions` -> 2ᵉ boucle de
+        # `CalculateUtilityFromPredictions`, slot +0x368). Il vit désormais à son RANG, dans
+        # `playbook.spirit_leech.SpiritLeechLifestealPlaybook.make_heal_predictions`
+        # (#419-r1-tr14-r5-r2-r1-r1-r3). L'utilité finale est inchangée (l'addition commute) ;
+        # ce qui change, c'est l'étage `u` (que `pairUtility` confronte) et l'argument du gate.
         u_action = u_full + custom
         return (u_action, u_full, u_val, cand["pred"], cand["aoe"], cand["bk"])
 
@@ -559,7 +561,10 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
                              else predict_heal_effective(heal_amt, hp_cur, hp_max, group_limit=group_limit))
                 is_friend = (me is not None and tu.get("team") == me.get("team"))
                 faction = _faction(tu.get("visualId"))
-                if pb is None:
+                if pb is None or pb is TWISTED_SCIENCE_HEAL_PLAYBOOK:
+                    # 18 generique ET 1167 `Heal_TwistedScience` : MEME CustomUtility (`HealPlaybook.
+                    # score`), gates `ShouldExecute` DIFFERENTS -- d'ou l'instance distincte, lue
+                    # plus bas pour le gate. Cf. `playbook.common.TwistedScience_HealPlaybook`.
                     pred = HEAL_PLAYBOOK.score(effective, hp_max, is_friend, is_twisted, faction)
                     balms = None
                 else:
@@ -575,7 +580,15 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
                           f"hp={hp_cur}/{hp_max} miss={missing} healAmt={heal_amt} eff={effective} "
                           f"twisted={is_twisted} balms={balms} pred={pred}", file=sys.stderr)
                 if pred is None:
-                    continue  # ShouldExecute : émet le soin SSI pred > 0
+                    continue  # ShouldExecute, 1re clause : émet le soin SSI pred > 0
+                # ShouldExecute, SECONDE clause -- `Common.HealPlaybook$$ShouldExecute` porte en plus
+                # `!IsBoss(caster) || caster != target` (#419-r1-tr14-r5-r2-r1-r1-r1). Le dispatch
+                # PAR PLAYBOOK est ce qui la rend juste : `1167`/`1212` ne l'ont PAS a leur corps
+                # natif, et leurs classes la neutralisent. `pred` EST l'argument que
+                # `CalculateActionUtility` passe au gate (custom + predictions).
+                gate_pb = pb if pb is not None else HEAL_PLAYBOOK
+                if not gate_pb.should_execute(ctx, ctx.origin, tg, aid, pred):
+                    continue
                 tpos = pos_by_id.get(tg)
                 for T in reach:
                     if tg != ctx.uid and (tpos is None or hexgeo.distance(T, tpos) > HEAL_RANGE):

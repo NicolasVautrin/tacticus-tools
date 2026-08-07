@@ -103,7 +103,9 @@ from __future__ import annotations
 
 from engine import battle_query as bq
 
+from . import adjacency as adj          # foyer PARTAGE multi-tuiles + UnitSelectionType (#419-r1-tr10-r2/-r4)
 from ..entities.triggered_ability_type import TriggeredAbilityType
+from ..entities.unit_selection_type import UnitSelectionType
 from ..services.battle_query import find_ranged_weapon
 
 # Cle du poids plat `Utilities.Default.TriggeredAbilities` (delegue `GetUtilityValue`), = 10 sur le
@@ -140,21 +142,28 @@ def count_all_targets(scene, caster_uid: int, target_uid: int, weapon_range: int
         uid = u.get("id")
         if uid is None or uid == caster_uid or uid == target_uid:
             continue
-        if not u.get("alive") or u.get("team") == cteam:
+        # `sel: 3` = `UnitSelectionType.OnlyAliveAndTargetable` : `IsAlive && !HasFlag(Untargetable)`
+        # (`UnitExtensions$$MatchesUnitSelectionType`). Le volet `Untargetable` manquait au port
+        # (#419-r1-tr10-r4) ; tri-etat -> canal muet = clause degradee en VRAI.
+        if not adj.unit_matches(scene, u, UnitSelectionType.OnlyAliveAndTargetable):
+            continue
+        if u.get("team") == cteam:
             continue
         p = scene.pos(uid)
         if p is not None:
-            foes.append(p)
+            foes.append((p, uid))
     # `SurroundingEnemies(Owner@0x30, range, unique: 1, sel: 3)` -- disque cube autour de la tuile
     # REELLE du caster, `- Tiles(unit)`, AUCUN `Unobscured` (foyer `battle_query`).
-    in_range = bq.surrounding_enemies_in_range(cpos, foes, int(weapon_range))
-    for p in foes:
+    in_range = bq.surrounding_enemies_in_range(cpos, [p for p, _ in foes], int(weapon_range))
+    for p, uid in foes:
         pk = (p[0], p[1])
         if pk not in in_range:
             continue
         # `AdjacentUnits(Target@0x60, unique: 1, sel: 3)` = `Units(AdjacentTiles(target))` : ring-1
-        # hex AVEC la porte d'elevation `|delta| < 2` d'`IterateAdjacentTiles`.
-        if not bq.is_adjacent(tpos, pk, elev, neigh):
+        # hex AVEC la porte d'elevation `|delta| < 2` d'`IterateAdjacentTiles`, sur TOUTES les
+        # tuiles des deux entites (`AdjacentTilesSelector$$Select` itere `IterateTiles`,
+        # #419-r1-tr10-r2). Foyer PARTAGE `playbook.adjacency`.
+        if not adj.unit_in_adjacent_tiles(scene, target_uid, uid, elev, neigh):
             continue
         # `Unobscured(Owner@0x30, ...)` depuis `GetMainTile(caster)`.
         if bq.is_target_tile_obscured(cpos, pk, elev):
