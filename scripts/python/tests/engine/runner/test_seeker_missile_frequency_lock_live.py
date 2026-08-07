@@ -31,6 +31,33 @@ import pytest
 
 import probe_491_seeker_missile_frequency_lock as P
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
+DECLENCHEUR = {
+    # PERIMETRE LARGE, et c'est une MESURE, pas une facilite : une premiere version listait les
+    # 14 modules « evidents » (le probe, `tau.py`, `handler.py`, `targeting.py`, les primitives
+    # d'effet...) -- l'etage d'empreinte de `probe_486r15_declencheurs_tests.py` a rendu
+    # **144 chemins lus/importes hors du perimetre declare**, dont `board.py`, `catalog_inject.py`
+    # et tout `engine/ai/`. Ce fichier importe le PROBE, qui importe `ABILITY_CLASSES` : sa
+    # fermeture d'import atteint la quasi-totalite de `scripts/python`. Declarer etroit aurait
+    # produit un FAUX VERT (le test ne serait pas rejoue quand ce qu'il mesure change).
+    # ⚠ Les DEUX formes sont necessaires : `**/` exige un SEGMENT, donc `scripts/python/**/*.py`
+    # ne voit PAS `scripts/python/board.py`.
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py",
+                "data/seed-bc.json", "data/boards/**", "data/symbols/**"),
+    # Le NATIF est l'oracle des six gardes (empreinte, bonds, degats, prediction, gate) : un
+    # changement de build peut les faire changer d'avis sans qu'une ligne du port bouge.
+    "build": True,
+    "toujours": False,
+    "raison": "Confrontation LIVE port-vs-natif de 1069. Le verdict depend du code du port "
+              "(arbre DSL + primitives d'effet + registre + masque de ciblage), du MONTAGE (le "
+              "probe, qui porte le drive des positions et TOUTES les lectures), des entrees "
+              "versionnees du runner, et du BUILD charge -- l'oracle etant le jeu lui-meme, pas "
+              "une constante ecrite ici. Le perimetre est pris a tout `scripts/python` parce que "
+              "la fermeture d'import du probe y atteint 144 chemins qu'aucune liste explicite "
+              "n'aurait devines (mesure, cf. le commentaire ci-dessus).",
+}
+
 SEEKER = 1069                  # ActiveAbilityType.SeekerMissileFrequencyLock
 MARKERLIGHT = P.MARKERLIGHT    # 1122 EffectType.Markerlight
 SEEKER_TARGET = P.SEEKER_TARGET  # 1123 EffectType.SeekerMissileFrequencyLock_Target
