@@ -47,13 +47,10 @@ import pytest
 #: `scripts/python/**` le retiendrait a chaque probe touche, ce qui ne dirait plus rien.
 DECLENCHEUR = {
     "chemins": (
-        # SOCLE COMMUN a tout fichier de test : la cascade des `conftest.py` (fixtures `autouse`,
-        # `green_skip_guard`) dont le verdict de CHAQUE test depend, et le gameconfig d'ou sortent
-        # les poids BC et les traits.
-        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/tests/engine/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
-        "scripts/python/gameconfig.py", "scripts/python/build_pin.py",
+        # LA CASCADE DES `conftest.py` N'EST PLUS ICI (dont `gameconfig`) : le foyer la DERIVE
+        # depuis #531 -- 447 chemins pour `tests/engine/`, et les sept recopies a cette place y
+        # sont, sauf `build_pin.py`, garde ci-dessous.
+        "scripts/python/build_pin.py",
         # PROPRE A CE FICHIER -- les trois foyers sous test.
         "scripts/python/engine/utilities/tile.py",
         "scripts/python/engine/entities/effects/base.py",
@@ -66,8 +63,20 @@ DECLENCHEUR = {
         # qui bouge au changement de build).
         "scripts/python/il2cpp_metadata.py",
         "scripts/python/probe_477r37_slot4_et_faces_restantes.py",
+        # ... ET CE QUE CE PROBE IMPORTE. Declarer le probe ne declare PAS sa fermeture : six
+        # freres entrent par lui, et un `ImportError` chez l'un d'eux change le verdict d'ici.
+        "scripts/python/il2cpp_provenance.py",
+        "scripts/python/probe_193c_move_playbook_terms.py",
+        "scripts/python/probe_212_bc_key_literals.py",
+        "scripts/python/probe_212_spiritual_leader_tile_term.py",
+        "scripts/python/probe_477r31_attract_mechanicals_camp.py",
+        "scripts/python/probe_477r33_non_owner_registry_gaps.py",
         "data/symbols/**",
     ),
+    # `build: True` : l'etage 1 RELIT le binaire du build (metadata + PE) et la table de symboles
+    # versionnee -- ce fichier change donc de verdict a chaque changement de `<HASH>`.
+    "build": True,
+    "toujours": False,
     "raison": (
         "Les etages 1-2 sont OFFLINE et deterministes : ils ne dependent que des foyers ci-dessus "
         "et du binaire du build. L'etage 3 monte un runner, donc il depend AUSSI de la session "

@@ -15,17 +15,14 @@ ASCII strict.
 #: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
 DECLENCHEUR = {
     "chemins": (
-        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
-        # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
-        # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le
-        # verdict de CHAQUE test depend.
-        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
-        "scripts/python/catalog_inject.py",
-        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
-        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
-        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
-        "scripts/python/engine/runner/snapshot.py",
+        # LA CASCADE DES `conftest.py` N'EST PLUS ICI : le foyer la DERIVE depuis #531 (436
+        # chemins pour `tests/`), et les douze qui etaient recopies a cette place sont TOUS
+        # dedans -- verifie, pas suppose.
+        # `livraison.py` : foyer PARTAGE arrive avec #826 (le critere de livraison tri-etat),
+        # que la fermeture atteint PAR `nettoyer_livraison`. Un foyer neuf hisse sous des
+        # declarations existantes les rougit toutes d'un coup -- c'est le cliquet qui fait
+        # son travail, pas une regression.
+        "scripts/python/livraison.py",
         # PROPRE A CE FICHIER, pose depuis la MESURE (empreinte #486-r15) : un seul
         # repertoire de deps, un seul temoin (`loop_status.py`), fermeture d'imports de trois
         # modules.

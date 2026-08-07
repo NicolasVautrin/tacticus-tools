@@ -35,17 +35,12 @@ ASCII only (console cp1252).
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
 DECLENCHEUR = {
     "chemins": (
-        # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
-        # fermeture (fixtures `autouse`, `green_skip_guard` de #455). Liste EXPLICITE et non
-        # `scripts/python/*.py` : le glob large retiendrait ce test a chaque modification d'un
-        # probe quelconque.
-        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
-        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
-        "scripts/python/catalog_inject.py",
-        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
-        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
-        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
-        "scripts/python/engine/runner/snapshot.py",
+        # LA CASCADE DES `conftest.py` N'EST PLUS ICI : le foyer la DERIVE depuis #531 (436
+        # chemins pour `tests/`), et les douze qui etaient recopies a cette place sont TOUS
+        # dedans -- verifie, pas suppose.
+        # `livraison.py` : foyer PARTAGE arrive avec #826, que la fermeture atteint PAR
+        # `nettoyer_livraison`.
+        "scripts/python/livraison.py",
         "scripts/python/fleet_board.py", "scripts/python/verdict_cache.py",
         # PROPRE A CE FICHIER : le cliquet sous test, son producteur (dont il lit le contrat par
         # import differe), le capteur qui partage son foyer, et l'empreinte VERSIONNEE que
