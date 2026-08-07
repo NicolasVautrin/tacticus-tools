@@ -108,6 +108,8 @@ from ..loki import full_throttle as _full_throttle    # noqa: F401
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
+from ..loki.drachnyen import (DrachnyenExtraAttackAbility,            # #BL-1029r (1029 -> 1485)
+                              DRACHNYEN_ABILITY)
 from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
 from ..loki.heavy_warp_flamer import (HeavyWarpFlamerAttackTrackingAbility,       # #523-r1
                                       HeavyWarpFlamerAttackTrackingResetAbility)  # (1227 -> 1546)
@@ -625,6 +627,16 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `0x613 -> 0x4d0` (EmpyricAmbush) -- les deux entrees ci-dessus. Cf. loki/heavy_warp_flamer.py.
     "HeavyWarpFlamer": [HeavyWarpFlamerAttackTrackingAbility,
                         HeavyWarpFlamerAttackTrackingResetAbility],
+    # 0x405 (1029 Drachnyen, `blackAbaddon` HERO) -> 0x5cd (1485 Drachnyen_ExtraAttack) : apres une
+    # attaque NORMALE au CONTACT du porteur, si l'effet 1471 est actif sur lui, il porte
+    # `nrOfHits` coups supplementaires (config 1029) sur l'ennemi adjacent le plus RENTABLE
+    # (`First(SortUnitsByDamageUtility(...), 1)`). L'entree du cctor est un `ToList` a UN element,
+    # LU verbatim : `GetDerivedTriggeredAbilities[0x405] = [0x5cd]` -- l'unique occurrence de
+    # chacun des deux ordinaux dans tout `StaticBattleRules.ActiveAbility$$.cctor`.
+    # Le gate `HasEffect(Owner, 0x5bf = 1471)` du trigger rend l'entree INERTE tant que l'active
+    # 1029 n'a pas ete castee -> l'inscription inconditionnelle est fidele (patron Hailstrike).
+    # Cf. loki/drachnyen.py. #BL-1029r.
+    DRACHNYEN_ABILITY: [DrachnyenExtraAttackAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability HELPER (« passive helper ») ---------------------

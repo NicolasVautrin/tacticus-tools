@@ -547,6 +547,25 @@ def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
                UnitsWithoutTrait(source, int(UnitTrait.Object)))                   # 0xd
 
 
+def non_steppable_units(source: TargetsSelector) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLSelectors$$NonSteppableUnits(source, selectionType)` -- MIRROR de
+    la FACTORY, qui n'alloue AUCUN selecteur dedie et COMPOSE textuellement :
+
+        a = UnitsWithoutTrait(source, 0x1b, selectionType)      # 27 = UnitTrait.Steppable
+        return TargetsSelector.op_BitwiseAnd(source, a)
+
+    ⚠ **CE N'EST PAS `NonSteppableOrObjectUnits`** (juste au-dessus), qui ajoute un second
+    `UnitsWithoutTrait(0xd = Object)`. Les deux factories existent et le natif les distingue :
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.Drachnyen_ExtraAttackAbility$$CreateTrigger`
+    et `$$CreateBehaviour` appellent celle-ci (SANS le volet Object), la fiche
+    `docs/rl/case-bl-1029-1020.md` Sec.5.1 ayant note l'autre. Un `Object` adjacent est donc une
+    cible VALIDE de l'extra attack.
+
+    Consommateurs natifs lus : `Drachnyen_ExtraAttackAbility$$CreateTrigger` / `$$CreateBehaviour` /
+    `$$ValidTargets`."""
+    return And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable)))       # 0x1b
+
+
 class NormalUnits(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$NormalUnits(entities, selectionType)` -- MIRROR du
     decompile (build `rnca9r7q6c`), qui COMPOSE trois noeuds deja portes :
