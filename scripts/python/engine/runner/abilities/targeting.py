@@ -903,9 +903,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `<preset>+0x28`), `forceMeleeTarget = 0 = RangedBool.True`, `range = RANGE_FROM_CONFIG`.
     #   ⚠ Elle partageait le masque de 1027/1069 mais PAS leur preset : `forceMeleeTarget` vaut 0
     #   ici contre 1 chez eux -- ne jamais generaliser un masque d'une voisine de ce bloc.
-    # 1132 KillMaimBurn -- `...Active.Loki.KillMaimBurnAbility$$.ctor`, preset `+0x40`.
-    ActiveAbilityType.KillMaimBurn: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1132
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1132 KillMaimBurn (preset `+0x40`) est SORTIE d'ici en #504, sa face COMBAT etant desormais
+    #   portee : son masque vit sur `engine/runner/abilities/worldeaters.py::KillMaimBurnAbility.
+    #   TARGETING_OPTIONS`. Valeurs INCHANGEES par la migration : `0x4000` (`TargetIsEnemy`, lu a
+    #   `<preset>+0x28`), `self_cast = False`, `range = RANGE_ADJACENT`,
+    #   `force_melee_target = RANGED_BOOL_FALSE`. C'est le CONTRAT de disjonction.
     # ⚠ 1165 MightFromBelow (preset `+0x40`) est SORTIE d'ici en #501, pour la MEME raison que 1027,
     #   1048, 1069 et 1088 : sa face COMBAT est desormais portee, donc son masque vit sur la classe
     #   du registre (`abilities/loki/might_from_below.py::MightFromBelowAbility.TARGETING_OPTIONS`).
