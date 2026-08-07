@@ -1393,7 +1393,33 @@ class _NormalAttackTargeting:
         Elle n'est CONSULTEE que si le masque du TYPE porte le bit : la cascade
         (`get_invalid_target_reason`) teste `options.has(TR.TargetMatchesDynamicRule)` avant
         d'appeler cette methode. Les 5 types a `0x4000` ne l'atteignent donc jamais -- c'est la table
-        par type (#419-r1-tr14-r5-r2-r1-r2) qui DESARME, pas cette methode."""
+        par type (#419-r1-tr14-r5-r2-r1-r2) qui DESARME, pas cette methode.
+
+        ⚠ LE CORPS DEPEND DU **TYPE CONCRET**, PAS DE « l'attaque normale » (#287-r11-r2). Le natif
+        lie `options+0x38` au slot vtable `+0x480` de **l'INSTANCE** que la fabrique a posee : un
+        type d'attaque normale qui SURCHARGE `GetDynamicInvalidTargetReason` fait donc evaluer SON
+        corps, pas celui d'`ALoki_NormalAttackAbility`. Mesure : un seul des 18 types de
+        `NORMAL_ATTACK_TARGETING_OPTIONS_BY_TYPE` est dans ce cas -- `1076
+        MV71SniperDroneSquadAttack` (`tauMarksman`), dont
+        `MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason` ne rappelle JAMAIS la
+        base. Le port appliquait la regle de la base a tout le monde : sur `tauMarksman` il rendait
+        `0` (l'unite a des armes) la ou le natif refuse quand `PickTile` ne trouve aucune tuile de
+        spawn -- degradation PERMISSIVE, sans erreur ni crash.
+
+        L'aiguillage est DERIVE (la classe declare-t-elle le corps ?), jamais une table a tenir :
+        c'est le mirror exact du « l'instance a-t-elle surcharge le slot ». `klass.__dict__` et non
+        `getattr` : `getattr` remonterait la MRO et verrait le defaut d'`ActiveAbility`, donc
+        aiguillerait TOUT le monde vers un `return 0` permissif."""
+        aid = normal_attack_type_for(state, caster_id)
+        if aid is not None:
+            # Import DIFFERE **PORTEUR** (mesure : `handler` importe les modules d'abilities, qui
+            # importent ce module -- hisser fermerait le cycle). Meme foyer et meme raison que
+            # `targeting_options_for` ci-dessous. Forme B : on lie le MODULE, pas le symbole.
+            from . import handler                                    # noqa: PLC0415
+            klass = handler.ABILITY_CLASSES.get(int(aid))
+            if klass is not None and "get_dynamic_invalid_target_reason" in klass.__dict__:
+                return int(klass().get_dynamic_invalid_target_reason(
+                    state, caster_id, target_id) or 0)
         return normal_attack_dynamic_invalid_target_reason(state, caster_id, target_id)
 
     def get_dynamic_invalid_caster_reason(self, state, caster_id) -> int:
