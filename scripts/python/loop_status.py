@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -610,6 +611,91 @@ def _session_du_worktree(chemin: str) -> str | None:
         return None
 
 
+#: Les racines dont la ligne de backlog est un COMPTEUR ROULANT : elle est mise a jour a chaque
+#: livraison partielle et RESTE ouverte. Une PR qui les nomme ne les ferme donc pas, et les
+#: signaler serait un faux positif A CHAQUE PASSE (#526-r2 le nomme explicitement).
+RESIDUS_ROULANTS = ("#217", "#419-r1")
+
+#: Titre de la section du backlog qui porte les residus OUVERTS. Une ligne qui n'y est plus est
+#: fermee, par construction.
+#:
+#: ⚠ AVEC SON ACCENT, et c'est une faute deja commise ici : ecrit `## Taches ouvertes`, il ne
+#: matchait rien, et le poste rendait PAS MESURE en permanence -- un signal muet qu'on aurait
+#: pu livrer sans le voir. C'est le tri-etat qui l'a montre (la cause `section introuvable`
+#: etait NOMMEE) ; une liste vide l'aurait cache. La borne suivante est le TEMOIN NON NUL de
+#: `probe_526r2` : le signal doit etre vu TIRER avant d'etre cru muet.
+_SECTION_OUVERTE = "## Tâches ouvertes"
+
+
+def _residus_livres(src: Sources, fenetre) -> "Mesure":
+    """Les residus qu'une PR MERGEE nomme dans son TITRE et dont la ligne est TOUJOURS ouverte.
+
+    ------------------------------------------------------------------------------------
+    POURQUOI ICI, ET PAS DANS UN CLIQUET (#526-r2)
+    ------------------------------------------------------------------------------------
+    La fraicheur d'un residu n'est pas derivable, et la cause est en AMONT : une PR qui ferme
+    un residu ne retire pas sa ligne du backlog, et rien ne l'y oblige. Mesure du 2026-08-07 :
+    10 PERIME-CANDIDAT sur 278 ; re-mesure le 2026-08-08 : **19 sur 285**. La derive a donc
+    DOUBLE en un jour -- notre cadence de livraison l'alimente plus vite qu'on ne la resorbe.
+
+    UN CLIQUET NE PEUT PAS FERMER CE GISEMENT, et ce n'est pas un arbitrage de cout : pour
+    partir de zero il faudrait NETTOYER les 19 lignes d'un coup, c'est-a-dire une modification
+    de MASSE de `docs/rl/backlog.md` -- que `CLAUDE.md` interdit, mesure a l'appui (36 des 40
+    dernieres PR mergees y touchent ; une passe qui reecrit des lignes de tableau partout ferait
+    conflit avec chaque PR en vol). Et un cliquet a SEUIL se degraderait en silence.
+
+    D'ou un signal RESTITUE plutot qu'un verdict : `loop_status` tourne au hook `Stop`, donc
+    JUSTE APRES un merge -- au moment ou il reste UNE ligne a retirer, pas dix-neuf. C'est le
+    << au fil de l'eau, jamais en masse >> que la doctrine prescrit deja pour ce fichier,
+    applique a la fraicheur. Cout : ZERO appel supplementaire, la fenetre PR est deja lue.
+
+    LE CRITERE EST LE TITRE, jamais le corps ni le message de commit -- mesure #526 : `git log`
+    corps compris rend 187/278 et ne discrimine RIEN, parce qu'un residu est cite par le commit
+    qui l'OUVRE. Le titre d'une PR mergee, lui, nomme ce qu'elle a LIVRE (10/278, dont 6
+    invisibles de tout autre signal).
+    """
+    if not fenetre.mesuree:
+        return _ko("residus livres", fenetre.cause or "PR pas mesurees")
+    chemin = src.repo / "docs" / "rl" / "backlog.md"
+    try:
+        texte = chemin.read_text(encoding="utf-8")
+    except OSError as ex:
+        return _ko("residus livres", "backlog.md illisible : %s" % str(ex)[:70])
+    tete = texte.split(_SECTION_OUVERTE, 1)
+    if len(tete) != 2:
+        # La section n'existe pas sous ce nom : on ne DEVINE pas un perimetre, on le dit.
+        return _ko("residus livres", "section %r introuvable dans backlog.md" % _SECTION_OUVERTE)
+    ouvertes = tete[1]
+    #: Les ids ouverts, en POSITION DE DEFINITION (1re cellule du tableau) -- jamais une simple
+    #: mention, qui rougirait sur presque tous les renvois croises (critere de `probe_468`).
+    definis = set(re.findall(r"^\|\s*(#\d+(?:-r\d+)*)\s*\|", ouvertes, re.MULTILINE))
+    trouves = []
+    for titre, num in _titres_mergees(src, fenetre):
+        for rid in set(re.findall(r"#\d+(?:-r\d+)+", titre)):
+            if rid in definis and not rid.startswith(RESIDUS_ROULANTS):
+                trouves.append({"residu": rid, "pr": num, "titre": titre[:70]})
+    vus, uniq = set(), []
+    for t in trouves:
+        if t["residu"] not in vus:
+            vus.add(t["residu"])
+            uniq.append(t)
+    return _ok(uniq, "titres de PR mergees x backlog `%s`" % _SECTION_OUVERTE)
+
+
+def _titres_mergees(src: Sources, fenetre) -> list:
+    """`[(titre, numero)]` des PR MERGEES de la fenetre. Liste vide si le titre n'a pas ete lu.
+
+    La fenetre de `livraison` ne porte que `number/headRefName/state` : le TITRE demande un
+    champ de plus. On ne relance PAS `gh` pour lui -- ce lecteur court sous un budget de 3 s
+    (#467-r6, ou 2,90 s pour 3,00 s rendait 5 tours sur 8 aveugles). Le titre est donc pris
+    dans le cache que `Sources` tient deja, et son absence rend une liste VIDE : le signal se
+    tait, il ne se trompe pas.
+    """
+    return [(p.get("title") or "", p.get("number"))
+            for p in (getattr(fenetre, "brutes", None) or [])
+            if (p.get("state") or "").upper() == "MERGED"]
+
+
 def mesurer_livraison(src: Sources) -> dict:
     """Toutes les entrees de la livraison, en PARALLELE.
 
@@ -697,6 +783,7 @@ def mesurer_livraison(src: Sources) -> dict:
 
     d["pr_ouvertes"] = pr_ouvertes
     d["portee_pr"] = fenetre_pr.portee()
+    d["residus_livres"] = _residus_livres(src, fenetre_pr)
     if d["worktrees"].mesuree:
         verdicts = livraison.classer(sorted(branches_agents), ancetres, fenetre_pr,
                                      cause_ancetres=cause_anc)
@@ -938,6 +1025,15 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
             "%d branche(s) d'agent LIVREE(S) et montee(s) nulle part : %s -- "
             "`python scripts/python/nettoyer_livraison.py` (DRY-RUN par defaut)"
             % (len(orph.valeur), ", ".join(b[-12:] for b in orph.valeur[:5]))))
+    rl = lv.get("residus_livres")
+    if rl is not None and rl.mesuree and rl.valeur:
+        # AU FIL DE L'EAU : ce signal arrive juste apres le merge, quand il reste UNE ligne a
+        # retirer. C'est ce qui evite la passe de masse sur `backlog.md` (#526-r2).
+        sig.append(Signal(
+            "backlog",
+            "%d residu(s) nomme(s) par une PR MERGEE et TOUJOURS ouverts dans backlog.md : %s"
+            % (len(rl.valeur),
+               ", ".join("%s (PR #%s)" % (t["residu"], t["pr"]) for t in rl.valeur[:5]))))
     if lv["pr_ouvertes"].mesuree and lv["pr_ouvertes"].valeur:
         ctx.append("PR ouvertes : %d%s (%s)"
                    % (len(lv["pr_ouvertes"].valeur), _age_gh(lv),

@@ -205,6 +205,11 @@ def _cache():
     return _CACHE
 
 
+#: Ce process a-t-il REECRIT le cache versionne ? Seul un run COMPLET le fait (cf. ci-dessous),
+#: et c'est la seule situation ou le cran de fraicheur #486-r22 a quelque chose a dire.
+_A_ECRIT = False
+
+
 def _enregistrer_si_complet() -> bool:
     """Reecrit le cache versionne SEULEMENT si ce process a couvert TOUT `engine/`.
 
@@ -285,7 +290,8 @@ def essayer_tous(mods, jobs: int = 8) -> list:
                 #: peremptoire. Un rouge se recalcule -- c'est le sens sur de l'asymetrie.
                 if rc == 0:
                     cache.poser(mod, APPEL, cle, [rc, err])
-        _enregistrer_si_complet()
+        global _A_ECRIT
+        _A_ECRIT = _enregistrer_si_complet() or _A_ECRIT
 
     return [resultats[m] for m in mods]
 
@@ -369,7 +375,9 @@ def main() -> int:
             print("   %s\n      %s" % (mod, err))
         return 1
     print("[270-r4-r2/import] OK : %d/%d modules s'importent EN PREMIER" % (len(mods), len(mods)))
-    return 0
+    # #486-r22 : le cache n'est REECRIT que par un run COMPLET (`_enregistrer_si_complet`), donc
+    # ce cran ne peut se declencher que la -- un run partiel n'ecrit rien et n'a rien a signaler.
+    return verdict_cache.rendre_compte_du_cache(_cache(), 0) if _A_ECRIT else 0
 
 
 if __name__ == "__main__":

@@ -1475,8 +1475,12 @@ def main() -> int:
             print("  REGENERER : python scripts/python/probe_477r24r1_slots_interface.py")
             return 3
         print("  OK -- chaque entree du cache vaut ce que le recalcul integral produit.")
-    elif canonique:
-        cache().enregistrer()
+    _ecrit = None
+    if canonique and not args.verifier_cache:
+        # #486-r22 : on garde le cache pour demander PLUS BAS si cette reecriture a CHANGE le
+        # fichier versionne -- un vrai rouge de gisement prime sur un rouge d'intendance.
+        _ecrit = cache()
+        _ecrit.enregistrer()
 
     rouge = bool(ecarts or faux_nom or faux_arite or faux_seuls)
     print()
@@ -1484,7 +1488,9 @@ def main() -> int:
     if table is None:
         print("  NB : l'etage 1 n'a PAS ete mesure -- ce vert ne dit rien du metadata,")
         print("       seulement que le depot est coherent avec l'entree versionnee.")
-    return 1 if rouge else 0
+    if rouge:
+        return 1
+    return verdict_cache.rendre_compte_du_cache(_ecrit, 0) if _ecrit is not None else 0
 
 
 if __name__ == "__main__":

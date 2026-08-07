@@ -198,13 +198,20 @@ soit ~12 min BLOQUANTES par PR pour une OPTIMISATION de mur.
 `--measure-missing` ne chronometre que les fichiers SANS poids et FUSIONNE dans le JSON existant.
 C'est le cas nominal (mediane 0-1 fichier offline neuf par PR) : quelques secondes au lieu de 12 min.
 
-⚠ POIDS ABSENTS N'EST PAS SANS POIDS (#463-r1). `logs/` est GITIGNORE, donc un worktree d'agent
-n'a JAMAIS de poids -- et le critere << sans poids >> y valait pour TOUT LE MONDE : mesure du
-2026-08-07 depuis un worktree, ce mode retenait **235 fichiers sur 235**, soit un `--measure`
-complet (~976 s), c'est-a-dire l'exact contraire de sa raison d'etre. C'est le tri-etat que ce
-depot tient partout ailleurs (`null` = pas mesure, jamais un zero), applique aux poids : quand le
-FICHIER de poids est absent, le seul critere applicable est l'ENTREE D'EMPREINTE, et le mode le
-DIT. Mesure apres correction : **1 fichier sur 235, 15 s de mur**.
+⚠ POIDS ABSENTS N'EST PAS SANS POIDS (#463-r1). Quand le FICHIER de poids manque, le critere
+<< sans poids >> vaut pour TOUT LE MONDE : mesure du 2026-08-07 depuis un worktree, ce mode
+retenait **235 fichiers sur 235**, soit un `--measure` complet (~976 s), c'est-a-dire l'exact
+contraire de sa raison d'etre. C'est le tri-etat que ce depot tient partout ailleurs (`null` =
+pas mesure, jamais un zero), applique aux poids : quand le FICHIER est absent, le seul critere
+applicable est l'ENTREE D'EMPREINTE, et le mode le DIT. Mesure apres correction : **1 fichier
+sur 235, 15 s de mur**.
+
+⚠ SA CAUSE PREMIERE EST FERMEE, LE TRI-ETAT RESTE (#457-r10). Ce regime etait alors NOMINAL --
+les poids vivaient sous `logs/`, gitignore, donc AUCUN worktree d'agent n'en avait jamais. Ils
+sont desormais VERSIONNES (`scripts/ratchets-457-durations.json`), donc tout checkout en a. Le
+tri-etat n'est pas retire pour autant : un fichier peut etre absent (clone partiel, artefact
+retire a la main, regime futur), et un critere qui ne saurait plus le dire retomberait dans le
+zero fabrique. On garde le cran, on corrige seulement ce qui le rendait PERMANENT.
 Corollaire : dans ce regime, AUCUN fichier de poids n'est ecrit -- une entree unique fixerait
 `defaut = max(weights.values())` de `bins_of` sur une valeur non representative, ce qui est PIRE
 que le repli md5, lequel repartit par nombre et reste honnete.
@@ -280,8 +287,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -510,21 +519,32 @@ def shard_of(rel: str, total: int) -> int:
     return int(digest[:8], 16) % total
 
 
-#: Poids MESURES (secondes par fichier), regeneres par `--measure`. VERSIONNE a dessein : sans
-#: lui, un checkout frais retomberait sur le repli md5 et paierait le mur que #457-r6 corrige.
+#: Poids MESURES (secondes par fichier), regeneres par `--measure`. VERSIONNE -- et depuis
+#: #457-r10 c'est VRAI : le fichier vit sous `scripts/`, il est suivi, un checkout frais en a.
 #:
 #: Ces poids ne conditionnent QUE la repartition. Perimes, ils coutent du MUR -- jamais un faux
 #: vert, jamais un trou : `bins_of` partitionne l'ENSEMBLE des fichiers quels que soient les
 #: poids, et la garde `test_457_r5_perimetre_offline.py` verifie l'union stricte des bins.
 #:
-#: SOUS `logs/`, JAMAIS sous `scripts/python/` (#455). Premiere version de ce mode : les poids
-#: etaient ecrits a cote du probe -- `probe_440` a ROUGI, a raison. La banque tourne en PARALLELE
-#: et plusieurs cliquets ENUMERENT `scripts/python/**` : y creer un fichier le fait apparaitre
-#: puis disparaitre sous les pieds d'un voisin. Le prix a payer est que `logs/` est gitignore,
-#: donc un checkout frais (un worktree d'agent) retombe sur le repli md5 : mur sous-optimal,
-#: verdict INCHANGE. C'est le bon arbitrage -- la correction prime sur le mur.
+#: JAMAIS SOUS `scripts/python/` (#455) -- la banque tourne en PARALLELE et plusieurs cliquets
+#: ENUMERENT cet arbre : y creer un fichier le fait apparaitre puis disparaitre sous les pieds
+#: d'un voisin (`probe_440` a ROUGI la-dessus, a raison). Mais `scripts/` LUI-MEME n'est pas
+#: enumere : c'est deja ou vit `ratchets-457-footprints.json`, ecrit par le MEME `--measure`,
+#: au MEME endroit du code. Y poser les poids n'ajoute donc aucune contrainte ni aucune
+#: concurrence -- les poids ne sont ecrits que par `--measure` / `--measure-missing`, modes de
+#: MAINTENANCE mono-process, jamais par les 8 shards de la banque.
+#:
+#: POURQUOI CE DEPLACEMENT (#457-r10). Le commentaire disait << VERSIONNE a dessein >> pendant
+#: que `_weights_path` pointait sous `logs/`, que `.gitignore` porte : `git ls-files logs/`
+#: rendait **0**, donc TOUT checkout frais retombait deja sur le repli md5 -- exactement ce que
+#: la phrase pretendait empecher. Deux issues etaient defendables ; celle-ci est celle que la
+#: MESURE commande. Cout du repli, chiffre le 2026-08-07 sur les 254 fichiers du perimetre et
+#: les poids reels (re-deriver, ne pas citer) : mur de 189,8 s a 8 shards avec les poids (LPT,
+#: charges 190 x 8) contre **377,9 s** en repli md5 (charges 378/239/210/195/166/132/115/81),
+#: soit **+99 %** -- pour un plancher insecable de 100,8 s. Le repli n'est pas << sous-optimal >>,
+#: il DOUBLE le mur, et il le doublait dans tout worktree d'agent, a chaque PR.
 def _weights_path():
-    return repo_root() / "logs" / "ratchets" / "457-durations.json"
+    return repo_root() / "scripts" / "ratchets-457-durations.json"
 
 
 def _weights() -> dict:
@@ -963,7 +983,8 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
                 print("        %s" % rel)
             print("[457] Une empreinte mesuree dans ce regime decrit le __pycache__ de la machine,")
             print("[457] pas le depot -- et elle est VERSIONNEE. Les POIDS, eux, sont ecrits.")
-            print("[457] Causes usuelles : PYTHONDONTWRITEBYTECODE=1, `logs/` non ecrivable, ou un")
+            print("[457] Causes usuelles : PYTHONDONTWRITEBYTECODE=1, miroir de bytecode non")
+            print("[457] ecrivable (%s), ou un" % _pycache_prefix())
             print("[457] module non compilable. Remede : relancer `--measure` (le prechauffage a")
             print("[457] deja tourne). Echappatoire CONSCIENTE si la lecture est APPLICATIVE")
             print("[457] (un conftest qui lit un .py comme DONNEE) : %s=1" % _ENV_ECHAPPATOIRE)
@@ -1020,20 +1041,98 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
     return 0
 
 
-def _pycache_prefix():
-    """Ou le bytecode de la MESURE est ecrit -- surtout PAS `scripts/python/**/__pycache__`.
+#: Le miroir de bytecode, HORS de tout checkout (#480-r11). Nom volontairement COURT : c'est un
+#: prefixe auquel CPython concatene le chemin ABSOLU de chaque source.
+_MIROIR_PYCACHE = "t457pyc"
 
-    `sys.pycache_prefix` (CPython >= 3.8) redirige tout le bytecode vers une arborescence miroir.
-    Deux raisons, dans cet ordre :
+
+def _pycache_prefix():
+    """Ou le bytecode de la MESURE est ecrit -- ni `scripts/python/**`, ni DANS LE CHECKOUT.
+
+    `sys.pycache_prefix` (CPython >= 3.8) redirige tout le bytecode vers une arborescence miroir,
+    en y REENCODANT le chemin ABSOLU de la source (lettre de lecteur retiree). Trois raisons de
+    ne pas le poser n'importe ou, dans cet ordre :
 
       1. #455 -- un cliquet n'ECRIT JAMAIS dans `scripts/python` : la banque tourne en parallele et
          plusieurs cliquets ENUMERENT cet arbre. Faire apparaitre des dizaines de `__pycache__`
          pendant qu'un voisin le parcourt est exactement la course mesuree entre `probe_455` et
          `probe_391`.
-      2. #464-r2 -- le prechauffage doit etre REPRODUCTIBLE. Sous `logs/` (gitignore, deja le foyer
-         des poids), il survit d'une mesure a l'autre sans jamais entrer dans un diff.
+      2. #464-r2 -- le prechauffage doit etre REPRODUCTIBLE. Il doit survivre d'une mesure a
+         l'autre sans jamais entrer dans un diff.
+      3. #480-r11 -- IL NE DOIT PAS VIVRE DANS LE CHECKOUT. C'etait le cas (`logs/ratchets/
+         457-pycache`), et le REENCODAGE y ecrivait le chemin du worktree DEUX FOIS : une fois
+         comme prefixe, une fois comme chemin reencode. Mesure du 2026-08-07 : 214 caracteres au
+         plus long dans l'arbre principal, 298 dans un worktree d'agent -- l'ecart vaut exactement
+         2 x la longueur de `\\.claude\\worktrees\\agent-<id>`. Passe 260, `git worktree remove`
+         echoue en `Filename too long` (git n'a pas `core.longpaths`, l'OS l'a) APRES avoir retire
+         l'entree admin : le repertoire reste sur disque, git ne le connait plus, et l'agent n'est
+         plus reprenable. 13 worktrees / 392 Mo accumules ainsi, en silence.
+
+         Le gisement etait EXCLUSIF : sur les 8 worktrees mesures, 217 chemins depassaient 260,
+         **tous** dans ce miroir, **aucun** ailleurs. Le sortir du checkout supprime donc la cause
+         entiere -- et il la supprime QUELLE QUE SOIT la longueur du miroir, puisque
+         `git worktree remove` n'a plus rien a supprimer la. Le nom court n'est qu'un bonus.
+
+    CE QU'ON PERD, et comment c'est repris : le miroir ne meurt plus avec le worktree. D'ou
+    `purger_miroirs_morts()`, appelee au demarrage de chaque mesure -- un sous-arbre dont la
+    SOURCE n'existe plus ne sert plus personne, et le reencodage rend la correspondance directe.
     """
-    return repo_root() / "logs" / "ratchets" / "457-pycache"
+    return Path(tempfile.gettempdir()) / _MIROIR_PYCACHE
+
+
+def _source_du_miroir(sous_arbre: Path, racine_miroir: Path) -> str:
+    """Le chemin ABSOLU de la source qu'un sous-arbre du miroir decrit.
+
+    `sys.pycache_prefix` retire la lettre de lecteur : `C:\\Users\\x\\y` devient
+    `<prefixe>\\Users\\x\\y`. On ne peut donc pas restituer le lecteur -- mais on n'en a pas
+    besoin : on teste l'existence sur le lecteur COURANT, qui est celui du depot.
+    """
+    rel = sous_arbre.relative_to(racine_miroir)
+    return str(Path(Path(racine_miroir.anchor or "C:\\")) / rel)
+
+
+def purger_miroirs_morts(profondeur: int = 8) -> list[str]:
+    """Retire du miroir les sous-arbres dont la SOURCE n'existe plus. Rend ce qui a ete retire.
+
+    C'est la contrepartie de la sortie du checkout : sans elle, chaque worktree d'agent laisse
+    son sous-arbre derriere lui. On descend jusqu'a `profondeur` niveaux et on s'arrete au
+    PREMIER niveau dont la source manque -- inutile de descendre dans un arbre deja condamne.
+
+    POURQUOI 8. La cible utile est la RACINE d'un checkout disparu, et un worktree d'agent
+    s'ecrit `<miroir>/Users/nicolasv/tacticus-tools/.claude/worktrees/agent-<id>` : SIX niveaux.
+    Huit laisse deux niveaux de marge (un depot pose plus profond, un `%TEMP%` plus decoupe)
+    sans jamais parcourir l'arbre du depot lui-meme, qui est bien plus profond -- descendre
+    sans limite couterait des milliers de `exists()` pour ne rien trouver de plus. Le probe
+    #480-r11 eprouve la MARGE : son montage synthetique est a SEPT niveaux, et il a rougi quand
+    la valeur etait 6.
+
+    Best-effort ASSUME : un echec de suppression n'interrompt rien (du bytecode en trop coute du
+    disque, jamais un verdict). Ce qui serait grave -- supprimer un sous-arbre VIVANT -- ne peut
+    pas arriver : le critere est l'ABSENCE de la source, jamais un age.
+    """
+    racine = _pycache_prefix()
+    retires: list[str] = []
+    if not racine.is_dir():
+        return retires
+
+    def descendre(d: Path, niveau: int) -> None:
+        try:
+            enfants = [x for x in d.iterdir() if x.is_dir()]
+        except OSError:
+            return
+        for x in enfants:
+            src = _source_du_miroir(x, racine)
+            if not Path(src).exists():
+                try:
+                    shutil.rmtree(x, ignore_errors=True)
+                    retires.append(src)
+                except OSError:
+                    pass
+            elif niveau < profondeur:
+                descendre(x, niveau + 1)
+
+    descendre(racine, 1)
+    return retires
 
 
 def _prechauffer_cache_pytest(perimetre: list, prefixe: str) -> int:
@@ -1087,6 +1186,13 @@ def _prechauffer_bytecode(perimetre=None) -> tuple:
     import compileall
 
     prefixe = str(_pycache_prefix())
+    # Le miroir vit HORS du checkout (#480-r11), donc il ne meurt plus avec lui : on retire ici
+    # ce qui ne decrit plus aucune source. Avant le prechauffage, pour que la mesure qui suit ne
+    # coure jamais derriere un arbre gonfle par des worktrees disparus.
+    morts = purger_miroirs_morts()
+    if morts:
+        print("[457] miroir de bytecode : %d sous-arbre(s) sans source retire(s) (ex. %s)"
+              % (len(morts), morts[0]))
     sys.pycache_prefix = prefixe
     # `PYTHONPYCACHEPREFIX` EN PLUS, et c'est INDISPENSABLE : `workers != 1` fait compiler
     # `compile_dir` dans des SOUS-PROCESS, qui n'heritent PAS d'une affectation a
@@ -1134,8 +1240,9 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
     poids_connus = _weights() if seulement_manquants else {}
     # LES POIDS SONT-ILS ABSENTS, OU LES FICHIERS SONT-ILS SANS POIDS ? (#463-r1). Deux etats que
     # `poids_connus == {}` confondait, et c'est le tri-etat que ce depot tient partout ailleurs :
-    # `logs/` est GITIGNORE, donc un worktree d'agent n'a JAMAIS de poids -- pas << 235 fichiers
-    # neufs >>, mais << je n'ai pas mesure les poids >>.
+    # un fichier de poids absent ne dit pas << 235 fichiers neufs >>, il dit << je n'ai pas
+    # mesure les poids >>. Le regime qui le rendait PERMANENT (poids sous `logs/`, gitignore,
+    # donc jamais dans un worktree) est ferme par #457-r10 ; le cran, lui, reste.
     poids_absents = seulement_manquants and not _weights_path().exists()
     if seulement_manquants:
         # DEUX criteres, et c'est le sens du mode : un fichier neuf n'a NI poids NI entree
@@ -1162,9 +1269,9 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
                                else "un poids ET une entree d'empreinte"))
             return 0
         if poids_absents:
-            print("[457] --measure-missing : POIDS ABSENTS de ce checkout (%s est gitignore, donc"
-                  " un worktree n'en a jamais). Ce n'est PAS << aucun fichier n'a de poids >> :"
-                  % _weights_path())
+            print("[457] --measure-missing : POIDS ABSENTS de ce checkout (%s introuvable -- ce"
+                  " fichier est VERSIONNE, son absence est donc ANORMALE). Ce n'est PAS"
+                  " << aucun fichier n'a de poids >> :" % _weights_path())
             print("[457] le critere retenu est le SEUL applicable, l'ENTREE D'EMPREINTE.")
         print("[457] --measure-missing : %d fichier(s) %s sur %d ; les %d autres gardent leur "
               "mesure" % (len(joues),

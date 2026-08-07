@@ -118,6 +118,12 @@ class FenetrePR:
     rendus: int | None = None
     cause: str | None = None
     source: str = "gh pr list"
+    #: Les lignes BRUTES rendues par `gh`, telles quelles. Ce module n'en consomme aucune -- il
+    #: ne lit que `number/headRefName/state`. Elles sont la pour les lecteurs qui ont besoin
+    #: d'un champ de plus (`loop_status._titres_mergees` veut le TITRE, #526-r2) SANS relancer
+    #: `gh` : ce lecteur-la court sous un budget de 3 s. Un champ absent rend simplement une
+    #: liste vide chez l'appelant -- le signal se tait, il ne se trompe pas.
+    brutes: tuple = ()
 
     @property
     def mesuree(self) -> bool:
@@ -193,7 +199,8 @@ def fenetre_des_prs(prs: list, limite: int) -> FenetrePR:
             ouvertes.setdefault(head, num)
     return FenetrePR(mergees=mergees, ouvertes=ouvertes,
                      saturee=len(prs) >= limite, limite=limite, rendus=len(prs),
-                     source="gh pr list --state all --limit %d" % limite)
+                     source="gh pr list --state all --limit %d" % limite,
+                     brutes=tuple(prs))
 
 
 _GH_RC_NOMME = {2: "annule", 4: "non authentifie (gh auth login)"}
@@ -324,6 +331,145 @@ def branches_protegees_par_worktree(sortie_porcelain: str) -> set[str]:
             if base.startswith("agent-"):
                 noms.add("worktree-" + base)
     return noms
+
+
+#: Le repertoire ou le harnais d'agents monte les worktrees, relatif a la racine du depot.
+RACINE_WORKTREES = ".claude/worktrees"
+
+ETAT_WT_ENREGISTRE = "ENREGISTRE"
+ETAT_WT_ORPHELIN = "ORPHELIN"
+ETAT_WT_DANGLING = "DANGLING"
+
+
+@dataclass(frozen=True)
+class EtatWorktrees:
+    """Ce que `git worktree list` dit -- et ce que le DISQUE dit -- des worktrees d'agents.
+
+    `mesure is False` => le porcelain n'a pas pu etre lu. Les trois listes sont alors VIDES et
+    ne valent pas constat : meme tri-etat que `FenetrePR`. Aucun chemin ne fabrique un zero.
+    """
+
+    enregistres: list[str]
+    orphelins: list[str]
+    dangling: list[str]
+    mesure: bool = True
+    cause: str | None = None
+    declares: frozenset[str] = frozenset()
+
+    def etat_de(self, chemin: str) -> str | None:
+        """L'etat d'UN repertoire quelconque, ou None si la mesure n'a pas eu lieu.
+
+        Le discriminant est la liste des chemins DECLARES par git, jamais l'enumeration d'un
+        repertoire : `fleet_board` juge des chemins lus dans des `meta.json`, qui designent
+        l'arbre PRINCIPAL alors que la mesure peut tourner depuis un worktree. Comparer a ce
+        qu'on a su ENUMERER rendait `None` pour tout le monde -- donc le repli, donc rien.
+
+        Un chemin ni declare ni present sur disque rend None : il a disparu proprement, il n'y
+        a aucune decision a prendre dessus (ce n'est pas un orphelin).
+        """
+        if not self.mesure:
+            return None
+        c = _norme(chemin)
+        if c in self.declares:
+            return ETAT_WT_ENREGISTRE
+        # ⚠ HORS DU GISEMENT, ON NE CONCLUT RIEN. Un chemin qui n'est pas un
+        # `.claude/worktrees/agent-*` n'est pas un worktree d'agent de CE depot : ce peut etre
+        # un montage de test, un checkout tiers, un chemin d'une autre machine. Le declarer
+        # ORPHELIN parce que git ne le connait pas serait une conclusion tiree d'un perimetre
+        # qu'on n'a jamais mesure -- faute commise ici : `probe_467` est devenu ROUGE (ses
+        # scenes synthetiques pointent sous `%TEMP%`) et le mode complet perdait l'etat
+        # `attente` qu'il garde precisement pour ne pas oublier un agent reprenable.
+        if "/.claude/worktrees/agent-" not in c:
+            return None
+        try:
+            existe = Path(chemin).is_dir()
+        except OSError:
+            return None
+        return ETAT_WT_ORPHELIN if existe else None
+
+    def portee(self) -> str:
+        if not self.mesure:
+            return "WORKTREES : PAS MESURES (%s)" % (self.cause or "cause non enregistree")
+        return ("WORKTREES : %d enregistre(s), %d ORPHELIN(s) (repertoire sans entree admin), "
+                "%d DANGLING (entree admin sans repertoire)"
+                % (len(self.enregistres), len(self.orphelins), len(self.dangling)))
+
+
+def _norme(p: str) -> str:
+    return str(p).replace("\\", "/").rstrip("/").lower()
+
+
+def chemins_enregistres(sortie_porcelain: str) -> list[str]:
+    """Les chemins que `git worktree list --porcelain` declare, dans l'ordre rendu."""
+    return [l[len("worktree "):].strip()
+            for l in (sortie_porcelain or "").splitlines() if l.startswith("worktree ")]
+
+
+def racine_principale(sortie_porcelain: str) -> str | None:
+    """L'arbre PRINCIPAL, derive du porcelain : git le rend toujours en PREMIER.
+
+    Necessaire parce que la mesure tourne couramment DEPUIS un worktree (`fleet_board` importe
+    par un agent), alors que le gisement -- `.claude/worktrees/agent-*` -- ne vit que dans
+    l'arbre principal. Le deriver evite d'exiger de l'appelant une racine qu'il n'a pas.
+    """
+    chemins = chemins_enregistres(sortie_porcelain)
+    return chemins[0] if chemins else None
+
+
+def etat_des_worktrees(racine, sortie_porcelain: str | None,
+                       cause: str | None = None) -> EtatWorktrees:
+    """Croise l'entree ADMIN et le DISQUE -- les deux peuvent survivre l'un sans l'autre (#480-r11).
+
+    LES DEUX PORTES, mesurees le 2026-08-07, et elles s'ouvrent en sens INVERSE :
+
+      ORPHELIN   le repertoire existe, l'entree admin NON. C'est ce que laisse un
+                 `git worktree remove` qui echoue en `Filename too long` : git retire l'entree
+                 AVANT d'echouer sur les fichiers, donc `git worktree list` dit << supprime >>
+                 pendant que des dizaines de Mo restent sur disque, `.git` compris. Un tel
+                 repertoire n'est PLUS reprenable : son `.git/worktrees/<id>` n'existe plus.
+      DANGLING   l'entree admin existe, le repertoire NON. C'est ce que laisse un test qui monte
+                 un worktree et se fait TUER (Ctrl+C, timeout, worker xdist) : son `finally`
+                 couvre une exception, pas un kill. `git worktree prune` la ramasse -- et n'est
+                 joue nulle part.
+
+    POURQUOI CE CRITERE PLUTOT QUE L'EXISTENCE DU REPERTOIRE. `fleet_board` derivait son etat
+    << EN ATTENTE -- reprenable par SendMessage >> de `Path(worktreePath).exists()` seul, donc il
+    annoncait comme reprenables des agents dont l'entree admin avait disparu. La presence du
+    repertoire prouve qu'il RESTE quelque chose, jamais que git le connait encore.
+
+    Le perimetre est `<racine>/.claude/worktrees/agent-*` : les worktrees de TEST (montes sous
+    `%TEMP%` par `test_431_build_pin_offline` et `probe_273`) sont enregistres ailleurs et
+    n'entrent donc jamais dans le compte de la flotte -- c'est deja vrai, on ne le change pas.
+    """
+    if sortie_porcelain is None:
+        return EtatWorktrees([], [], [], mesure=False,
+                             cause=cause or "git worktree list: cause non enregistree")
+    declares = chemins_enregistres(sortie_porcelain)
+    par_norme = {_norme(c) for c in declares}
+
+    # La racine est DERIVEE quand l'appelant n'en donne pas, ou en donne une qui n'heberge pas
+    # le gisement (cas normal : la mesure tourne depuis un worktree d'agent).
+    base = Path(racine) / ".claude" / "worktrees" if racine else None
+    if base is None or not base.is_dir():
+        principale = racine_principale(sortie_porcelain)
+        base = Path(principale) / ".claude" / "worktrees" if principale else base
+
+    sur_disque: list[str] = []
+    try:
+        if base is not None and base.is_dir():
+            sur_disque = [str(d) for d in sorted(base.iterdir())
+                          if d.is_dir() and d.name.startswith("agent-")]
+    except OSError as ex:
+        return EtatWorktrees([], [], [], mesure=False,
+                             cause="lecture de %s: %s" % (base, ex))
+
+    enregistres = [d for d in sur_disque if _norme(d) in par_norme]
+    orphelins = [d for d in sur_disque if _norme(d) not in par_norme]
+    # DANGLING : borne au perimetre de la FLOTTE. Une entree pointant sous `%TEMP%` appartient a
+    # un test, pas a un agent -- la ramasser ici melangerait deux gisements.
+    dangling = [c for c in declares
+                if "/.claude/worktrees/agent-" in _norme(c) and not Path(c).is_dir()]
+    return EtatWorktrees(enregistres, orphelins, dangling, declares=frozenset(par_norme))
 
 
 def garde_marquee(chemin_worktree: str) -> str | None:

@@ -1029,7 +1029,12 @@ def main() -> int:
             return 3
         print("  OK -- chaque entree du cache vaut ce que le recalcul integral produit.")
     else:
-        cache().enregistrer()
+        c = cache()
+        c.enregistrer()
+        # #486-r22 : si cette reecriture a CHANGE le fichier versionne, du code est entre depuis
+        # la derniere regeneration commitee. Le verdict ci-dessus reste juste ; c'est l'artefact
+        # qui est en retard, et sans ce cran il le resterait indefiniment.
+        return verdict_cache.rendre_compte_du_cache(c, rc)
     return rc
 
 

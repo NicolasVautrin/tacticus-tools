@@ -31,6 +31,7 @@ import html
 import json
 import os
 import subprocess
+import sys
 import time
 # `webbrowser` est importe PARESSEUSEMENT (dans `main`) : il tire une chaine de modules qui
 # pesait ~0,2 s a l'import, pour un service rendu au seul `--open`. Ce module est desormais
@@ -41,6 +42,32 @@ from pathlib import Path
 WINDOW = 1_000_000                    # fenetre du modele (opus 1M)
 REPO = Path(__file__).resolve().parents[2]
 OUT = REPO / "logs" / "fleet-board.html"
+
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# LE CRITERE D'ENREGISTREMENT, partage avec `loop_status` / `nettoyer_livraison` (#480-r11).
+# Forme B (`LV.x`) et non `from livraison import x` : un binding de module n'est jamais gele,
+# donc un patch de test mord (cf. CLAUDE.md, << HISSER EN FORME B >>).
+import livraison as LV                                                      # noqa: E402
+
+
+def _porcelain():
+    """`git worktree list --porcelain`, ou `(None, cause)`. Ne LEVE jamais.
+
+    Budget : ~30 ms. Un seul appel par passe -- le resultat est croise avec TOUS les
+    `worktreePath` des metas, jamais interroge par agent.
+    """
+    try:
+        r = subprocess.run(["git", "-C", str(REPO), "worktree", "list", "--porcelain"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=10)
+    except Exception as ex:                                                 # noqa: BLE001
+        return None, "git worktree list: %s" % str(ex)[:90]
+    if r.returncode != 0:
+        tete = next((l.strip() for l in (r.stderr or "").splitlines() if l.strip()), "")[:80]
+        return None, "git worktree list: rc=%d%s" % (r.returncode, " -- " + tete if tete else "")
+    return r.stdout, None
 
 
 # ---------------------------------------------------------------- decouverte des transcripts
@@ -141,6 +168,10 @@ SILENCE_MORT_MIN = 15.0
 # deux sur lequel il reste une decision a prendre : reprendre l'agent, ou recuperer sa branche.
 RANG = {"vif": 0, "attente": 1, "fini": 2}
 
+#: Portee de la derniere mesure de `collect` sur les worktrees (`LV.EtatWorktrees` ou None).
+#: `None` = `collect` n'a pas encore tourne -- jamais << aucun orphelin >>.
+DERNIERE_PORTEE_WT = None
+
 
 def est_vif(last_ts) -> tuple[bool, float]:
     """VIF = a ecrit recemment dans son transcript. Rend (vif, minutes de silence).
@@ -233,6 +264,8 @@ def collect(include_done: bool, only_alive: bool = False) -> list[dict]:
     rien d'autre -- ce qui autorise le pre-filtre prouve ci-dessus.
     """
     rows = []
+    porc, cause_porc = _porcelain()
+    etat_wt = LV.etat_des_worktrees(REPO, porc, cause=cause_porc)
     for p in transcripts(project_dir(), only_alive):
         aid = p.stem.replace("agent-", "")
         meta_p = p.with_name("agent-%s.meta.json" % aid)
@@ -246,8 +279,22 @@ def collect(include_done: bool, only_alive: bool = False) -> list[dict]:
         # d'il y a trois jours dont l'horodatage serait mal lu. Piege : `Path("")` vaut `Path(".")`,
         # qui existe TOUJOURS, d'ou le test de chaine non vide. Un agent lance SANS worktree
         # (`worktreePath` absent) reste juge sur la seule activite.
+        #
+        # ⚠ ET LE REPERTOIRE NE SUFFIT PAS -- IL DOIT ETRE ENREGISTRE (#480-r11). Un
+        # `git worktree remove` qui echoue en `Filename too long` retire l'entree admin AVANT
+        # d'echouer sur les fichiers : il reste alors un repertoire de dizaines de Mo que git ne
+        # connait plus, et dont le `.git/worktrees/<id>` a disparu. Un tel agent n'est PAS
+        # reprenable -- or c'est exactement ce que cette ligne annoncait. Mesure du 2026-08-07 :
+        # 14 agents annonces << reprenables par SendMessage >>, la plupart orphelins.
+        #
+        # TRI-ETAT : `etat_de` rend None quand le porcelain n'a pas pu etre lu. On retombe alors
+        # sur la seule presence -- le cote SUR pour un outil qui ne supprime rien : on prefere
+        # afficher << en attente >> a tort plutot que perdre de vue un agent vraiment reprenable.
+        # La portee le DIT (bandeau ci-dessous), donc le repli ne se lit pas comme une mesure.
         wtp = (meta.get("worktreePath") or "").strip()
-        has_wt = bool(wtp) and Path(wtp).exists()
+        existe = bool(wtp) and Path(wtp).exists()
+        etat_du_wt = etat_wt.etat_de(wtp) if wtp else None
+        has_wt = existe and etat_du_wt != LV.ETAT_WT_ORPHELIN
         if wtp and not has_wt:
             alive = False
         # TROIS etats, pas deux -- et le WORKTREE est le discriminant du troisieme.
@@ -273,6 +320,10 @@ def collect(include_done: bool, only_alive: bool = False) -> list[dict]:
         rows.append(dict(
             id=aid, name=meta.get("description") or aid, alive=alive, state=state,
             wt=wtp if has_wt else "", silence=silence,
+            # L'ORPHELIN est NOMME, pas rabattu en silence sur << fini >>. Un repertoire que git
+            # ne connait plus peut encore porter du travail non pousse : c'est une DECISION a
+            # prendre (recuperer, ou constater la perte), pas un agent classe.
+            wt_orphelin=(wtp if etat_du_wt == LV.ETAT_WT_ORPHELIN else ""),
             base=s["first"], ctx=s["last"], work=work, mins=mins,
             # < 30 s : le denominateur est trop petit pour que le quotient veuille dire quelque
             # chose (un seul aller-retour d'outil ferait 100 000 tok/min).
@@ -307,6 +358,12 @@ def collect(include_done: bool, only_alive: bool = False) -> list[dict]:
             # moi-meme ? >> -- ce qui suffit exactement a ne pas toucher au travail d'autrui.
             session=p.parent.parent.name))
     rows.sort(key=lambda r: (RANG[r["state"]], -r["ctx"]))
+    # La PORTEE de la derniere mesure, publiee a part : un lecteur doit pouvoir distinguer
+    # << 0 orphelin >> de << je n'ai pas pu demander a git >>. Elle ne peut pas voyager DANS
+    # `rows` (les consommateurs iterent la liste et ne verraient pas un element d'une autre
+    # nature), ni sur la liste elle-meme (`list` n'accepte pas d'attribut).
+    global DERNIERE_PORTEE_WT
+    DERNIERE_PORTEE_WT = etat_wt
     return rows
 
 
@@ -332,6 +389,22 @@ def console(rows) -> None:
         print("%-34s %-8s %9d %9d %9d %7.0f %9.0f %6.1f %8s"
               % (r["name"][:34], ETIQ[r["state"]], r["ctx"], r["base"], r["work"],
                  r["mins"], r["rate"], r["pct"], "--" if e is None else hm(e)))
+    # LES ORPHELINS D'ABORD : ce sont les seuls sur lesquels une DECISION peut encore etre
+    # perdue. Un agent classe << fini >> parce que son worktree a disparu proprement n'appelle
+    # rien ; un agent dont le repertoire est reste sans entree admin peut porter du travail non
+    # pousse que plus personne ne voit.
+    orph = [r for r in rows if r.get("wt_orphelin")]
+    if orph:
+        print("\n%d worktree(s) ORPHELIN(s) -- repertoire present, entree admin DISPARUE "
+              "(#480-r11) :" % len(orph))
+        print("   NON reprenables par SendMessage. Diagnostic et recuperation :")
+        print("   python scripts/python/probe_480r11_worktree_orphelin.py --diagnostic")
+        for r in orph:
+            print("   %-34s %s" % (r["name"][:34], r["wt_orphelin"]))
+    if DERNIERE_PORTEE_WT is not None and not DERNIERE_PORTEE_WT.mesure:
+        print("\n[fleet] %s" % DERNIERE_PORTEE_WT.portee())
+        print("[fleet] l'etat ATTENTE retombe donc sur la seule presence du repertoire -- il peut")
+        print("[fleet] annoncer comme reprenables des agents qui ne le sont plus.")
     n_att = sum(1 for r in rows if r["state"] == "attente")
     if n_att:
         print("\n%d agent(s) EN ATTENTE -- arretes, worktree conserve, reprenables par SendMessage :"

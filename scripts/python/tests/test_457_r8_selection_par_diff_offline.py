@@ -223,13 +223,33 @@ MODULE = "scripts/python/engine/foo.py"           # dans le domaine
 HORS_DOMAINE = "dump_boards.py"                   # `.py` A LA RACINE : le graphe ne le resout pas
 
 
-def test_le_prechauffage_vise_un_prefixe_HORS_scripts_python():
-    """#455 : la banque enumere `scripts/python` en parallele -- le bytecode ne doit pas y naitre."""
+def test_le_prechauffage_vise_un_prefixe_HORS_DU_CHECKOUT():
+    """Le bytecode de la mesure ne naît ni dans `scripts/python`, ni NULLE PART dans le checkout.
+
+    #455 -- la banque enumere `scripts/python` en parallele : y faire naitre des `__pycache__`
+    est la course mesuree entre `probe_455` et `probe_391`. Ce cran-la est inchange.
+
+    #480-r11 -- L'EXIGENCE EST DEVENUE PLUS FORTE, et l'ancienne (`/logs/` dans le prefixe) est
+    devenue FAUSSE : c'etait exactement la cause du gisement. `sys.pycache_prefix` REENCODE le
+    chemin absolu de chaque source ; sous `<worktree>/logs/`, le chemin du worktree s'ecrivait
+    donc DEUX FOIS -- 214 caracteres au plus long dans l'arbre principal, 298 dans un worktree
+    d'agent. Passe 260, `git worktree remove` echoue en `Filename too long` APRES avoir retire
+    l'entree admin : le repertoire reste, git ne le connait plus, l'agent n'est plus reprenable
+    (13 accumules, 392 Mo). Mesure : 217 chemins > 260 sur 8 worktrees, TOUS dans ce miroir,
+    AUCUN ailleurs -- le gisement etait EXCLUSIF.
+
+    `logs/` reste gitignore et reste le bon foyer pour des SORTIES ; ce qui a change, c'est que
+    ce miroir-ci ne doit pas vivre dans un repertoire que `git worktree remove` doit supprimer.
+    """
     prefixe = str(P._pycache_prefix()).replace("\\", "/")
-    pydir = str(P.repo_root() / "scripts" / "python").replace("\\", "/")
+    racine = str(P.repo_root()).replace("\\", "/")
+    pydir = racine + "/scripts/python"
     assert not prefixe.startswith(pydir), \
         "le bytecode de la mesure irait dans l'arbre de production : %s" % prefixe
-    assert "/logs/" in prefixe, "le prefixe doit vivre sous `logs/` (gitignore) : %s" % prefixe
+    assert not prefixe.lower().startswith(racine.lower()), (
+        "le miroir de bytecode vit DANS le checkout (%s) : `git worktree remove` devra le "
+        "supprimer, et butera sur MAX_PATH des que le checkout est un worktree d'agent "
+        "(#480-r11)" % prefixe)
 
 
 def test_le_garde_de_regime_reconnait_les_modules_du_domaine():

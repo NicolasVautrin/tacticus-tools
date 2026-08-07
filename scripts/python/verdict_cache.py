@@ -309,6 +309,97 @@ class CacheCliquet:
                    self.hits, self.recalculs))
 
 
+#: Le rc d'un cliquet dont le cache VERSIONNE a bouge sans etre commite (#486-r22). Distinct de
+#: `1` (gisement trouve) et des rc d'usage : ce n'est pas le DEPOT qui est fautif, c'est
+#: l'ARTEFACT GENERE qui est en retard sur lui.
+EX_CACHE_A_COMMITER = 6
+
+
+def cache_a_commiter(cache: CacheCliquet, racine: Path | None = None):
+    """Le cache versionne a-t-il ete REECRIT par ce run sans etre commite ? Tri-etat.
+
+    Rend `(perime, detail)` : `perime is None` => PAS MESURE (git muet), jamais `False`.
+
+    ------------------------------------------------------------------------------------
+    POURQUOI CE CRAN, ET POURQUOI IL EST GRATUIT (#486-r22)
+    ------------------------------------------------------------------------------------
+    Rien ne DECLENCHAIT la regeneration d'un cache. Le regime normal recalcule une entree
+    perimee, la REECRIT, et rend `rc=0` : la derive s'accumule donc sans jamais rougir, et seul
+    `--verifier-cache` -- que rien ni personne ne lance -- la voit. Mesure du 2026-08-07 dans un
+    worktree : `probe_313 --verifier-cache` rendait `rc=3` et **38** divergences (5 SHA PERIME,
+    33 ENTREE ABSENTE) pendant que le regime normal rendait `rc=0` en 10 s.
+
+    LES DEUX FORMES QU'IL FALLAIT EVITER, et pourquoi celle-ci n'en est aucune :
+
+      * exiger `--verifier-cache` VERT a chaque passe deplacerait le cout sur tout le monde --
+        c'est un recalcul integral en MODE ESPION, le mode le plus cher du cliquet ;
+      * ne l'exiger jamais laisse la derive, c'est-a-dire l'etat mesure.
+
+    Le cran retenu n'est ni l'un ni l'autre parce qu'il ne CALCULE RIEN DE PLUS : le run vient
+    d'ecrire le fichier de toute facon (`enregistrer()` reecrit integralement). On lui demande
+    juste si l'ecriture a CHANGE quelque chose. Cout : un `git status --porcelain` sur UN chemin
+    (~20 ms). Il rougit donc exactement quand du code est entre sans que le cache suive, et se
+    tait absolument le reste du temps -- y compris sur les passes ou l'arbre ne bouge pas.
+
+    CE QU'IL NE FAIT PAS. Il ne voit pas une entree FALSIFIEE de facon coherente : cela reste le
+    domaine de `verifier()` en mode espion (cf. son docstring). Les deux controles sont
+    complementaires, pas redondants -- celui-ci garde la FRAICHEUR, l'autre la FIDELITE.
+    """
+    racine = racine or RACINE
+    if not cache.actif:
+        return None, "cache DESACTIVE (%s) -- rien n'a ete ecrit, donc rien a conclure" % ENV_SANS_CACHE
+    try:
+        rel = cache.chemin.relative_to(racine).as_posix()
+    except ValueError:
+        return None, "cache hors du depot (%s)" % cache.chemin
+    # ⚠ LE CRITERE EST << DIFFERE DE L'INDEX >>, PAS << DIFFERE DE HEAD >>. Un fichier deja
+    # INDEXE part dans le commit en preparation : il n'y a plus rien a signaler, et rougir
+    # dessus rendrait le cran INEXTINGUIBLE tant que l'auteur n'a pas commite -- mesure faite,
+    # `git status --porcelain` rendait encore `M ` apres `git add` et le cliquet restait rouge.
+    # `git diff --quiet` compare exactement worktree vs index, et applique au passage la
+    # normalisation `core.autocrlf` : un fichier ecrit en LF et indexe en LF n'y parait pas
+    # modifie, alors qu'une comparaison d'octets le dirait.
+    try:
+        import subprocess
+        r = subprocess.run(["git", "-C", str(racine), "diff", "--quiet", "--", rel],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=15)
+    except Exception as ex:                                       # noqa: BLE001
+        return None, "git diff: %s" % str(ex)[:90]
+    if r.returncode == 0:
+        return False, "%s est a jour (identique a l'index)" % rel
+    if r.returncode != 1:
+        # rc 1 = differe ; tout autre rc est une PANNE, pas un constat.
+        tete = next((l.strip() for l in (r.stderr or "").splitlines() if l.strip()), "")[:80]
+        return None, "git diff: rc=%d%s" % (r.returncode, " -- " + tete if tete else "")
+    return True, "%s a ete REECRIT par ce run et n'est pas indexe" % rel
+
+
+def rendre_compte_du_cache(cache: CacheCliquet, rc: int, racine: Path | None = None) -> int:
+    """Le rc final d'un cliquet, cache pris en compte. A appeler APRES `enregistrer()`.
+
+    Un rc DEJA non nul est rendu tel quel : le gisement prime sur la fraicheur de l'artefact --
+    on ne masque jamais un vrai rouge derriere un rouge d'intendance, ni l'inverse.
+    """
+    if rc != 0:
+        return rc
+    perime, detail = cache_a_commiter(cache, racine)
+    if perime is None:
+        print("[cache] fraicheur NON MESUREE : %s" % detail)
+        print("[cache] rc INCHANGE -- une panne de capteur ne rend pas un verdict.")
+        return rc
+    if not perime:
+        return rc
+    print("")
+    print("[cache] CACHE DE VERDICT PERIME : %s" % detail)
+    print("[cache] Du code est entre depuis la derniere regeneration commitee. Le verdict du")
+    print("[cache] cliquet est JUSTE (l'entree perimee a ete recalculee) -- c'est l'ARTEFACT")
+    print("[cache] VERSIONNE qui est en retard, et il le resterait indefiniment sans ce cran.")
+    print("[cache] REMEDE : git add %s" % detail.split(" ", 1)[0])
+    print("[cache] rc=%d -- aucun verdict sur le depot." % EX_CACHE_A_COMMITER)
+    return EX_CACHE_A_COMMITER
+
+
 def verifier(cache: CacheCliquet) -> list[str]:
     """Confronte les entrees SUR DISQUE a ce que le run vient de RECALCULER. Rend les divergences.
 
