@@ -27,6 +27,8 @@ restitue le regime d'AVANT `c4be3896`, sans toucher a une ligne de code).
 | 3 | `tests/engine/runner/test_steppable_targeting_live.py` | 2 failed / 6 passed | **2 failed / 6 passed** | **8 passed** |
 | 4 | `tests/engine/runner/test_cultdemagogue_migration_live.py` | 6 errors `KeyError: 'units'` | **6 errors** | **6 passed** |
 | 5 | `tests/engine/runner/test_summon_consumers_live.py` | 1 failed | **1 failed / 28 passed** | **29 passed** |
+| 6 | `tests/engine/runner/test_murderous_swing_live.py` | 1 failed | **1 failed / 4 passed** | (cf. §3.5) |
+| 7 | `tests/engine/runner/test_jakhal_stimms_live.py` | 3 skipped / 0 passed, rc 1 | **3 skipped / 0 passed** (garde #455) | (cf. §3.5) |
 
 **Les cinq signalements sont EXACTS au test pres.** Et les quatre premiers temoins mesures
 redeviennent **integralement verts** dans le regime d'avant la bascule.
@@ -231,6 +233,67 @@ la branche sans arme : a l'epoque le port ne gatait PAS sur la portee et predisa
 hors portee. La phrase decrivait donc un port qui n'existe plus, et elle a servi d'argument pour ne
 pas re-examiner le sujet. **Un avertissement ecrit contre une borne datee peut survivre au regime
 qui le justifiait.**
+
+### 3.5 -- #6 et #7, signales en cours de tranche : DEUX classes DIFFERENTES
+
+**#7 `test_jakhal_stimms_live.py` -- garde #455, montage REPARE.** Le fichier rendait
+**0 passed / 3 skipped**, sur `crit_chance=26 != 0`. Ce n'est pas un skip de commodite : le montage
+**EXIGE** `cc == 0`, parce que son axe est un degat **PER-COUP BIT-EXACT**. La bascule #419-r6 met
+26 sur le caster, les trois tests s'eteignent, et le fichier devient INERTE -- zero assertion
+evaluee. Remede-type applique (quatre scalaires sur CE montage). **Le skip RESTE en place** : il
+garde toujours la premisse, il n'est simplement plus arme -- si le crit revenait par une autre voie,
+le garde #455 rougirait de nouveau.
+`case-419-r6-r1` §2.2 le classait deja CAUSE par la bascule (INERTE -> 3p) et **non repare** : c'est
+donc le 3e de ses 13 que cette tranche ferme.
+
+**#6 `test_murderous_swing_live.py::test_murderous_swing_count_is_reevaluated_per_target` -- NON
+RESOLU, arbitrage demande. Le MOTEUR est mesure CORRECT ; c'est l'assertion qui contredit la methode
+ECRITE DANS LE FICHIER MEME.**
+
+Mesure (`logs/inv506_t67.txt`) :
+
+    [MS C] adjacents=[77, 79, 81] hp=4855 3e-coup-temoin=4854
+    [MS C] deltas=[0, 0, 2394] extra=2394
+    [MS C] off={77: [4855], 79: [4855], 81: [4855]} | live={77: [4855], 79: [4855], 81: [4855]}
+    E  AssertionError: 3e coup reevalue [4855] <= hp 4855 : le regime ne discrimine pas
+
+Tout ce qui est teste FONCTIONNE : la bascule MULTI -> SINGLE a lieu (`deltas = [0, 0, 2394]`), les
+deux premieres cibles meurent, la troisieme meurt **live ET offline**, et `live == offline` a
+l'unite pres sur les trois cibles. L'assertion qui tombe est
+`sum(off[third]) > hp`, avec `hp = frozen_third + 1` par construction. Or `off` porte le degat
+**INFLIGE**, clampe aux PV : il vaut donc `min(coup, hp) == hp` **des que la cible meurt**.
+**`> hp` est structurellement insatisfiable dans le regime meme que le test fabrique.**
+
+Et le fichier le dit lui-meme, deux paragraphes plus haut : « c'est le LIVE qui tranche, **par une
+MORT** (le montant `Amount`, lui, est **clampe aux PV et ne separerait rien**) ». Les DEUX
+assertions qui suivent immediatement (`not _alive(st, third)` offline, `_hp_zero_live(r, third)`)
+sont exactement ce discriminant-la, et elles passent.
+
+Proposition pour arbitrage (**non appliquee**) : retirer la comparaison de montant et laisser les
+deux assertions de MORT porter le discriminant -- ou comparer le coup **RAW** (non clampe) plutot
+que le degat inflige. Je ne tranche pas : un attendu qui change demande l'arbitrage.
+
+---
+
+## 3bis. LA TAILLE DU GISEMENT -- mesuree sur ECHANTILLON, pas devinee
+
+Sept familles trouvees par sept agents differents, chacun **par accident** en validant autre chose.
+C'est la signature d'un gisement dont personne ne connait le denominateur. Ce paragraphe le mesure,
+et dit ce qu'il ne mesure pas.
+
+**Le cout d'abord** (c'est lui qui a tranche la methode). Denominateur : **500** fichiers
+`*_live.py` suivis (`git ls-files`), sur 680 `test_*.py`. Cout mesure sur MES propres passes de
+cette tranche : 46 s pour 2 fichiers, 66 s pour 1, 88 s pour 2, 126 s pour 1 -- soit **45 a 125 s
+par fichier**, plafond **4 workers** (pump partage avec cinq autres agents en vol). Un balayage
+COMPLET vaut donc **~4 h de pump monopolise**. Hors budget, et il affamerait les cinq autres.
+
+**Methode retenue -- echantillon SYSTEMATIQUE, critere enonce avant la mesure** : un fichier sur
+**21** dans l'ordre de chemin TRIE de `git ls-files` (`logs/mes506_echantillon.py`), soit **24
+fichiers**, joues en **4 groupes paralleles**. Le tirage est deterministe, reproductible, et
+surtout **independant du sujet** -- donc le taux s'extrapole, ce qu'un echantillon choisi par
+thematique ne permettrait pas.
+
+<!-- RESULTAT DE L'ECHANTILLON : renseigne apres la passe -->
 
 ---
 

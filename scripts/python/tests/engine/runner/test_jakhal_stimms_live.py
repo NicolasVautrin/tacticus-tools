@@ -105,6 +105,19 @@ def _cfg_hits(key: str = "nrOfHits") -> int:
     return int(v)
 
 
+# NEUTRALISATION CRIT/BLOCK SUR LES QUATRE FACES (#506, remede-type de #419-r6-r1 §3.3).
+# Ce fichier compare un degat PER-COUP BIT-EXACT, et son montage EXIGE deja explicitement
+# `crit_chance == 0` (`pytest.skip(f"crit_chance={cc} != 0 (bit-exact requiert cc=0)")`). Depuis
+# `c4be3896` (#419-r6, le defaut passe a << equiper >>), le caster porte `crit_chance = 26` : les
+# TROIS tests partaient en skip et le fichier rendait `0 passed / 3 skipped`, soit le garde #455
+# (`passed == 0 and skipped > 0`) -- ZERO assertion evaluee, et invisible d'un `rc`.
+# On epingle QUATRE SCALAIRES sur CE montage plutot que `--no-bis-items`, qui restituerait le regime
+# DEGENERE global. Le skip RESTE en place : il garde toujours la premisse, il n'est simplement plus
+# arme -- si un jour le crit revenait par une autre voie, il rougirait de nouveau au garde #455.
+_NO_CRIT_BLOCK = ["--crit", "0,0", "--crit-target", "0,0",
+                  "--block-player", "0,0", "--block-target", "0,0"]
+
+
 def _build(seed: str, a_units: str = A_UNITS):
     """Build un runner ISOLE (state-file unique agent+tag, chemin absolu). Renvoie (rid, state_file)."""
     tag = uuid.uuid4().hex[:8]
@@ -112,7 +125,8 @@ def _build(seed: str, a_units: str = A_UNITS):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(state_file),
-         "--board", "MC1_67", "--p-units", CASTER_VIS, "--a-units", a_units, "--hp-target", "300000"],
+         "--board", "MC1_67", "--p-units", CASTER_VIS, "--a-units", a_units, "--hp-target", "300000",
+         *_NO_CRIT_BLOCK],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not state_file.exists():
         return None, state_file
