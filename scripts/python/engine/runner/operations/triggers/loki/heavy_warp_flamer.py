@@ -93,17 +93,16 @@ persistante (1227, "PSYCHIC_ATTACKS_KEY").
 
 RESIDUS NOMMES
 --------------
-* `IdunBattleLogic.Entities.DSLSelectors$$Attacker` n'est PAS le slot `Actor@+0x40` : c'est un
-  selecteur COMPOSITE, lu en entier --
-  `If( AreEqual(<DSLSelectors+0x98>, DirectAbilitySelector(AbilityOrEffect(0x434
-  = ActiveAbilityType.MV71SniperDroneSquadAttack))), ParentSelector(Caster@+0x48), Caster@+0x48 )`.
-  (Le litteral `0x434` est LU a l'assembleur, `...DSLSelectors$$Attacker+0x38` : `mov edx,0x434` ;
-  et la classe du noeud composite est etablie par les XREFS de son `.ctor`, corps DEDUPLIQUE que
-  `DSLSelectors$$If` et `DSLSelectors$$ConditionalSelector` partagent -- le nom ghidra
-  `UnobscuredEntitiesSelector$$.ctor` est celui d'un proprietaire ARBITRAIRE.) Hors du cas
-  MV71 -- un drone T'au, dont l'attaque est creditee a son PARENT --, `Attacker` EST le CASTER de
-  l'attaque, que le port lit dans `ev.actor_id` (le meme collapse que `NeuroparasiteAbility` pour
-  `get_OwnerIsCaster`). La branche `Parent(Caster)` n'est pas modelisee.
+* `IdunBattleLogic.Entities.DSLSelectors$$Attacker` -- RESOLU par #523-r4, et il vit desormais dans
+  son FOYER UNIQUE `triggers/base.py::attacker_of` (ce module ne le collapse plus). Le sélecteur est
+  CONDITIONNEL : `If( AreEqual(<DSLSelectors+0x98>, DirectAbilitySelector(0x434 =
+  MV71SniperDroneSquadAttack)), ParentSelector(Caster@+0x48), Caster@+0x48 )`. Sur CE porteur la
+  branche MV71 est INERTE (le drone et son parent sont dans la meme equipe, donc `AreFriends` ne
+  discrimine pas, et `AreEqual(Attacker, Owner)` ne differerait que si `thousSekhetar` etait le
+  parent du drone) : cf. la docstring du foyer, qui porte la RE complete et la raison du
+  NON CONFRONTE. Les XREFS du selecteur donnent ses QUATRE consommateurs natifs -- `ShieldOfFaith`,
+  `LifeStealEffect`, `HeadwoppasKillchoppaEffect` et celui-ci ; les trois premiers ne sont PAS
+  portes, donc le rayon de souffle du residu vaut aujourd'hui EXACTEMENT ce module.
 * `AreFriends(..., comparisonType = 0, anyEntity = 0)` : `anyEntity = 0` selectionne l'une des deux
   classes de `AreFriendsAbilityTrigger` construites par `DSLTriggers$$AreFriends` ; le port ne
   modelise que la comparaison d'equipe (`comparisonType = 0 = ByCurrentTeam`, meme collapse que
@@ -129,6 +128,12 @@ from ....abilities.behaviours.persistent_data import ClearPersistentData, SetPer
 from ....components import OwnerComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
+# FORME B (`import <module>` puis `<module>.<nom>`) pour le FOYER `attacker_of`, et non
+# `from ..base import attacker_of` : un binding fige au chargement NE MORD PAS sous
+# `monkeypatch.setattr(...)` (CLAUDE.md, les 28 fichiers rouges de #484). Le foyer est le SEUL
+# point ou la branche MV71 de `DSLSelectors$$Attacker` est substituable, donc le seul par lequel
+# une garde peut prouver que ce module le CONSOMME au lieu de re-collapser.
+from .. import base as _tb
 
 #: `AbilityOrEffect(0x4cb)` -- l'id de l'ACTIVE, ecrit par la TRIGGERED (cf. lecture n.1 de l'en-tete).
 HEAVY_WARP_FLAMER = int(ActiveAbilityType.HeavyWarpFlamer)                  # 0x4cb = 1227
@@ -197,9 +202,12 @@ class HeavyWarpFlamerAttackTrackingAbility(TriggeredAbility):
         oc = ow.get_component(OwnerComponent) if ow is not None else None
         if oc is None or oc.player is None or int(oc.player) != int(pid):
             return False
-        # `Attacker` -- selecteur COMPOSITE (cf. residus de l'en-tete) qui, hors du cas MV71, rend le
-        # CASTER de l'attaque ; le port n'a qu'un canal d'attaquant sur ce vecteur, `ev.actor_id`.
-        attacker = ev.actor_id
+        # `Attacker` -- selecteur CONDITIONNEL, desormais porte dans son FOYER UNIQUE
+        # (`triggers/base.py::attacker_of`, #523-r4) : hors du cas MV71 il rend le caster de
+        # l'attaque (`ev.actor_id`, inchange) ; sur une attaque du drone `MV71SniperDroneSquad` il
+        # rend son PARENT. La branche MV71 est INERTE sur CE porteur -- cf. la docstring du foyer,
+        # qui dit pourquoi et ce qu'il faudrait pour la confronter.
+        attacker = _tb.attacker_of(state, ev)
         if attacker is None:
             return False
         # `NOT AreEqual(Attacker, Owner@+0x30)` -- le porteur ne se compte JAMAIS lui-meme.

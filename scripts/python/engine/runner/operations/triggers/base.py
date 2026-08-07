@@ -319,6 +319,79 @@ def triggered_ability_state(state: State, unit_id: int, ability_name: str):
             int(getattr(ctx, "ability_variables_multiplier", 100) or 100))
 
 
+#: `AreEqual(<DSLSelectors+0x98>, DirectAbilitySelector(0x434))` -- le littéral LU à l'assembleur
+#: (`IdunBattleLogic.Entities.DSLSelectors$$Attacker+0x38` : `mov edx,0x434`). Cf. `attacker_of`.
+ATTACKER_PARENT_ABILITY = 1076        # ActiveAbilityType.MV71SniperDroneSquadAttack
+
+
+def attacker_of(state: State, ev: "TriggerEvent") -> Optional[int]:
+    """`IdunBattleLogic.Entities.DSLSelectors$$Attacker` -- FOYER UNIQUE du sélecteur (#523-r4).
+
+    CE N'EST PAS le slot `Actor@DSLSelectors+0x40`, et ce n'est pas non plus `Caster@+0x48` nu :
+    c'est un sélecteur CONDITIONNEL, lu en entier ::
+
+        If( AreEqual(<DSLSelectors+0x98>,
+                     DirectAbilitySelector(AbilityOrEffect(0x434 = MV71SniperDroneSquadAttack))),
+            ParentSelector(Caster@+0x48),
+            Caster@+0x48 )
+
+    CE QUI EST LU, ET COMMENT :
+      * le littéral `0x434` est à l'assembleur (`...$$Attacker+0x38` : `mov edx,0x434`), pas dans
+        le décompilé -- ghidra perd le registre dans `AbilityOrEffect$$op_Implicit` ;
+      * la nature CONDITIONNELLE du nœud rendu vient des XREFS de son `.ctor` (corps DÉDUPLIQUÉ que
+        `DSLSelectors$$If` et `DSLSelectors$$ConditionalSelector` partagent) : le nom ghidra
+        `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$.ctor` est celui d'un
+        propriétaire ARBITRAIRE et ne dit RIEN -- l'ordre des arguments
+        `(services, condition, then, else)` est celui du site d'appel ;
+      * la surcharge d'`AreEqual` retenue est celle appelée par `Attacker`, et son SECOND opérande
+        est un `AbilityTypeSelector` : la comparaison porte donc sur des ABILITY-TYPES, jamais sur
+        des entités ;
+      * `ParentSelector$$Select` remonte par `IdunBattle.Entities.UnitExtensions$$GetParent`, dont
+        le port a le pendant (`UnitComponent.parent_id`, mirror de `ChildComponent.ParentId` que
+        `SpawnUnitOperation` pose au spawn).
+
+    LE SEUL POINT NON ÉPINGLÉ, et il est nommé : `<DSLSelectors+0x98>` est l'un des TROIS
+    sélecteurs sans argument que `IdunBattleLogic.Entities.DSLSelectors$$.ctor` met en cache en
+    `+0x88/+0x90/+0x98` (leur ctor commun est un corps dédupliqué, donc leurs classes ne sont pas
+    nommables hors ligne). Deux seuls candidats sont des `AbilityTypeSelector` parameterless :
+    `CurrentAbilitySelector` (dont le `$$Select` lit `AbilityEntities+0x60`) et
+    `TriggeringAbilitySelector` (`+0x98` de l'`AbilityEntities`). Le second est écrit APRÈS le
+    behaviour d'une triggered et ne couvre que `On(0xd)` (case-292) : il serait NUL sur le vecteur
+    `On(9 = Attack)` où `Attacker` est consommé. Le port lit donc `ev.ability_type`, le canal du
+    port pour `+0x60`.
+
+    SÉMANTIQUE : une attaque portée par le drone `MV71SniperDroneSquad` (T'au) est créditée à son
+    PARENT ; toute autre attaque est créditée à son caster, que ce vecteur expose en `ev.actor_id`.
+
+    ⚠ NON CONFRONTÉ, et c'est MESURÉ, pas supposé. Le seul consommateur PORTÉ de ce sélecteur est
+    `HeavyWarpFlamer_AttackTrackingAbility$$CreateTrigger`, où `Attacker` n'entre que dans
+    `NOT AreEqual(Attacker, Owner)` et `AreFriends(Attacker, Owner)`. Un drone et son parent sont
+    dans la MÊME équipe, donc `AreFriends` rend le même verdict des deux côtés ; et `AreEqual` ne
+    diffèrerait que si l'owner de `1546` ÉTAIT le parent du drone -- il faudrait greffer le passif
+    `MV71SniperDroneSquad` sur `thousSekhetar`, ET que l'attaque du drone porte un profil
+    `Psychic`, que le conjoint `CurrentAttackDamageProfilesContain(0xd)` exige. La branche est donc
+    INERTE sur ce porteur. Ce foyer existe pour que le PROCHAIN consommateur (`ShieldOfFaith`,
+    `LifeStealEffect`, `HeadwoppasKillchoppaEffect` -- les trois autres XREFS, aucune portée)
+    hérite du sélecteur au lieu de re-collapser sur l'acteur.
+
+    Rend `None` quand le vecteur ne porte pas d'acteur (le natif rendrait un ensemble vide, et tout
+    conjoint qui le consomme est alors faux)."""
+    caster = getattr(ev, "actor_id", None)
+    if caster is None:
+        return None
+    caster = int(caster)
+    if getattr(ev, "ability_type", None) is None:
+        return caster
+    if int(ev.ability_type) != ATTACKER_PARENT_ABILITY:
+        return caster
+    e = state.get_entity(caster)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    parent = getattr(uc, "parent_id", None) if uc is not None else None
+    # `ParentSelector$$Select` n'ajoute à son `OrderedSet` que les parents NON NULS : un enfant sans
+    # parent rend un ensemble VIDE, pas l'enfant lui-meme.
+    return int(parent) if parent is not None else None
+
+
 # --- Sélecteurs DSL partagés (mirror `DSLFactory.*`) : géométrie / adjacence / faction ------------
 def _unit_trait_names(state: State, unit_id: int) -> list:
     """Noms de traits gameconfig de l'unité (`StatsComponent.ctx.traits` = NOMS, cf. unit_context.py:191).

@@ -104,12 +104,38 @@ class AddPersistentData(AbilityBehaviour):
         entity = <selecteur unit>.SelectSingle(entities)          # null -> no-op
         key    = <formule dataKey>.Calculate(entities)
         value  = <formule valeur>.Calculate(entities)
-        entity.GetComponent<PersistentDataComponent>()
-              .PersistData(GetPersistentDataId(abilityOrEffect), key, value)
+        comp   = entity.GetComponent<PersistentDataComponent>()
+        comp.TryGetPersistData<T>(GetPersistentDataId(abilityOrEffect), key, out ancien)
+        value += ancien.GetValueOrDefault()                       # <- l'ACCUMULATION
+        comp.PersistData<T>(GetPersistentDataId(abilityOrEffect), key, value)
 
-    `PersistData` **ECRASE** (`Dictionary[key] = value`), il n'empile pas : c'est toute la
-    difference avec `AddToPersistentDataList`, dont le `List.Add` est inconditionnel. Un second
-    appel dans le meme tour ne fait donc rien de plus.
+    ⚠ **CETTE FEUILLE ACCUMULE — le nom `Add` dit vrai, et c'est LU A L'ASSEMBLEUR** (#523-r2).
+    `PersistData<T>` (la primitive de composant) ecrase bien, mais le behaviour RELIT AVANT
+    d'ecrire et ADDITIONNE. La sequence est celle-ci, verbatim, autour de
+    `...AddPersistentDataBehavior$$Execute+0x5a7` :
+
+        +0x591  lea   r9, [rbp+0x1f0]                 ; slot `out` du TryGet
+        +0x5a7  call  <PersistentDataComponent$$TryGetPersistData<T>>
+        +0x62e  call  <Nullable<T>$$GetValueOrDefault>   ; l'ancien, ou default(T) si absent
+        +0x65b  mov   eax, dword ptr [rbp+0x1f0]      ; eax = ancien
+        +0x668  add   dword ptr [rbp+0x1e8], eax      ; <<< valeur_formule += ancien
+        +0x684  call  <PersistentDataComponent$$PersistData<T>>
+
+    Le jumeau `SetPersistentDataBehavior$$Execute` n'appelle NI `TryGetPersistData` NI d'`add` :
+    il passe directement le resultat de la formule a `PersistData<T>`. La sequence d'appels est
+    donc bien ce qui separe les deux classes, et le sens de la difference est l'inverse de ce que
+    cette docstring affirmait avant #523-r2 (« PersistData ECRASE, il n'empile pas » -- vrai de la
+    PRIMITIVE, faux du BEHAVIOUR).
+
+    Le `add` est un `dword` : l'arithmetique est un `Int32`, ce que corrobore la formule VALEUR
+    (`IdunBattleLogic.Entities.Formulas` int, la meme surcharge `Calculate` que la `dataKey` int que
+    le natif passe ensuite a `System.Int32$$ToString`). `default(T)` vaut donc `0` -- ce que rend
+    `Nullable<int>.GetValueOrDefault()` sur une cle absente
+    (`PersistentDataComponent$$TryGetPersistData<T>` memset son `out` a 0 et n'appelle
+    `System.Nullable<T>$$.ctor` que sur succes).
+
+    OBSERVABLE : AUCUNE divergence sur le seul consommateur porte (cf. plus bas) -- ce qui est
+    exactement pourquoi personne ne l'avait vu.
 
     ⚠ DEUX SURCHARGES natives de ce noeud (`180e9f360` / `180e9f400`) : elles ne different que par
     la fabrication de la `dataKey` -- la seconde ENVELOPPE une chaine litterale dans une formule
@@ -118,8 +144,24 @@ class AddPersistentData(AbilityBehaviour):
 
     CONSOMMATEUR PORTE : `HaywireMineAbility$$CreateBehaviour`, ou la valeur est la formule
     partagee `DSLFormulas+0x20` = `Direct(1)` (le `.ctor` de `DSLFormulas` alloue `+0x18`=0,
-    `+0x20`=1, `+0x28`=2, `+0x30`=100, `+0x38`=-1). Effet PUR (`stop=False`).
-    Emet 'AddPersistentData'."""
+    `+0x20`=1, `+0x28`=2, `+0x30`=100, `+0x38`=-1).
+
+    POURQUOI CE CONSOMMATEUR NE DISCRIMINE PAS -- verifie sur les trois vecteurs de pose, pas
+    suppose. La cle est ecrite par `HaywireMineAbility` et RETIREE par
+    `HaywireMine_ResetAbility` sur `On(0x28 = UnitFinishedTurn)`, qui precede TOUJOURS le
+    `On(0x29 = UnitFinishedTurnNormally)` (`FinishUnitTurnOperation$$Execute` publie 0x28 puis
+    0x29). Aucun des trois chemins n'ecrit deux fois sans un `Clear` intercale :
+      * `On(4 = UnitAfterMove)` -> `If(count>0, pose, TriggerAbilityDelayed)` : les deux branches
+        sont EXCLUSIVES, donc au plus UN `AddPersistentData` par evaluation ;
+      * `On(0x29)` -> son gate `AmountIsZero(GetPersistentData)` ne passe que si la cle est
+        ABSENTE, donc l'ancien vaut `default = 0` et `0 + 1 == 1` ;
+      * branche `Custom` (le re-declenchement differe) -> elle n'est atteinte que lorsque le `If`
+        de l'evaluation d'origine a pris `TriggerAbilityDelayed`, donc SANS avoir ecrit.
+    Et meme un `2` fabrique ne changerait rien : le seul LECTEUR est `AmountIsZero`, faux pour 1
+    comme pour 2. La correction est donc de FIDELITE, sans observable a ce jour -- ce qui la rend
+    d'autant plus necessaire : le prochain consommateur, lui, lira la valeur.
+
+    Effet PUR (`stop=False`). Emet 'AddPersistentData' (champ `ancien` = ce qui etait en place)."""
     __slots__ = ("ability_or_effect", "unit_sel", "data_key", "value")
 
     def __init__(self, ability_or_effect: int, unit_sel: TargetsSelector, data_key, value):
@@ -141,8 +183,13 @@ class AddPersistentData(AbilityBehaviour):
             c = _component(state, (u or {}).get("id"))
             if c is None:
                 continue
-            c.persist_data(ck, val)                  # `PersistData` ECRASE (pas d'empilement)
-            posees.append({"unit": int(u["id"]), "value": val})
+            # `TryGetPersistData<T>(id, key, out ancien)` PUIS `ancien.GetValueOrDefault()` :
+            # `default(int) = 0` quand la cle est absente (cf. docstring, #523-r2).
+            ancien = c.try_get_persist_data(ck)
+            base = 0 if ancien is None else int(ancien)
+            cumul = base + int(val)                  # `add dword ptr [rbp+0x1e8], eax`
+            c.persist_data(ck, cumul)                # `PersistData<T>` ecrit la SOMME
+            posees.append({"unit": int(u["id"]), "value": cumul, "ancien": base})
         ectx.emit("AddPersistentData", ability=self.ability_or_effect, key=key, posees=posees)
         return OperationResult.ok()
 
@@ -165,16 +212,15 @@ class SetPersistentData(AbilityBehaviour):
     `IdunBattle.Entities.Triggers.AddPersistentDataBehavior$$Execute`). La sequence d'appels les
     separe : le corps d'`AddPersistentDataBehavior` appelle
     `PersistentDataComponent$$TryGetPersistData<T>` AVANT son `PersistData<T>` -- il RELIT la valeur
-    en place --, la ou celui-ci ne l'appelle PAS et se contente d'ECRIRE. Cette feuille-ci est donc
-    un ECRASEMENT PUR ; toute accumulation doit venir du noeud VALEUR au-dessus (c'est ce que fait
-    `HeavyWarpFlamer_AttackTrackingAbility`, dont la valeur est
-    `Sum(GetPersistentData(...), Direct(1))`).
+    en place, puis l'ADDITIONNE (`add dword`, cf. sa docstring) --, la ou celui-ci ne l'appelle PAS
+    et se contente d'ECRIRE. Cette feuille-ci est donc un ECRASEMENT PUR ; toute accumulation doit
+    venir du noeud VALEUR au-dessus (c'est ce que fait `HeavyWarpFlamer_AttackTrackingAbility`, dont
+    la valeur est `Sum(GetPersistentData(...), Direct(1))`).
 
-    RESIDU NOMME, hors perimetre : la docstring d'`AddPersistentData` ci-dessus decrit son natif
-    comme un ECRASEMENT PUR alors que son corps RELIT (`TryGetPersistData`). Son unique consommateur
-    porte (`HaywireMineAbility`, valeur `Direct(1)`) est gate par `AmountIsZero(GetPersistentData)`
-    et vide la cle a chaque fin de tour : accumuler ou ecraser y donne le MEME observable, donc rien
-    ne diverge aujourd'hui. Le corps d'`AddPersistentDataBehavior` reste a re-RE.
+    ⚠ ET C'EST PRECISEMENT POURQUOI CONFONDRE LES DEUX DOUBLE-COMPTERAIT : sous
+    `AddPersistentData`, le meme arbre `Sum(GetPersistentData, Direct(1))` rendrait
+    `ancien + (ancien + 1)`. La distinction n'est donc pas cosmetique -- elle porte un facteur 2
+    sur le compteur de `1546 HeavyWarpFlamer_AttackTracking`.
 
     `SelectSingle` (slot 8), pas `Select` : la feuille porte sur UNE entite -- mirror direct, la ou
     `AddPersistentData` boucle. Effet PUR (`stop=False`). Emet 'SetPersistentData'."""

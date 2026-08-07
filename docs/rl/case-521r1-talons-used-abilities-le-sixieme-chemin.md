@@ -184,22 +184,73 @@ Restauré : **15 passed**.
   `1118 DoctrinaImperatives -> 1201 DoctrinaImperatives_SetStart`,
   `1148 DaemonicOrdnance -> 1244 DaemonicOrdnance_Crit`,
   `1189 CalibaniteGreatsword -> 1316 CalibaniteGreatsword_NormalAttackAdditionalDamage`. Le rail
-  existe désormais : il ne manque que la classe et son inscription. ⚠ `1118` et `1189` sont
-  **exactement** les deux ids du `HashSet` `ABILITY_COUNTED_ONCE_PER_BATTLE`
-  (`…ActiveAbility$$ShouldAbilityOnlyBeCountedOncePerBattleAbility`) — les porter réveillerait le
-  facteur `TotalActiveAbilityUsed`, aujourd'hui inerte faute de compteur observable.
-* **`#521-r5`** — divergence de SUBSTRAT entre deux registres du même sous-système :
-  `PASSIVE_HELPER_ABILITY_TRIGGERS` lit `config_active_abilities` (canal mesuré, tri-état) quand
-  `ACTIVE_ABILITY_TRIGGERS` lit encore le seul kit gameconfig — donc aveugle à une active
-  **greffée**, qui est le seul chemin de confrontation d'une ability à porteur npc. S'y ajoute que
-  `probe_521_talons_of_the_emperor.py` ne lie pas `bind_live_rpc` : ses rejeux tournent en
-  `no-transport`, tous canaux mesurés à `None` (ses verdicts restent valides — le repli gameconfig
-  rend la même chose pour Atlacoya — mais c'est une fragilité, et elle a coûté une passe ici).
+  existe désormais : il ne manque que la classe et son inscription. **RECON FAITE (2026-08-07), le
+  port reste à faire** — état détaillé au §5bis.
+* **`#521-r5`** — **RÉSOLU (2026-08-07)**, `case-523r2-523r4-521r5-trois-lectures-sans-observable.md`
+  §3. Les deux registres lisaient bien deux substrats différents, et c'était un artefact du port :
+  `IdunBattle.Entities.Factories.UnitFactory$$AddDerivedAbilities` itère
+  `List<T>.GetEnumerator(config@+0xa0)`, **le même champ** que celui sur lequel
+  `...$$AddConfiguredAbilities` boucle pour `AddActiveAbility` → `GetPassiveHelperAbility`. Les deux
+  registres passent désormais par la même lecture tri-état. Volet 2 recensé : **291** rejeux
+  `load_state` en régime `auto` sans aucun transport ambiant (sur 550 lecteurs `auto` ; 243 héritent
+  de la fixture, 16 lient eux-mêmes) — et `probe_448_r3_r1_r1_greffe_sans_canal.py` **les blanchit
+  tous les 291** parce qu'il aplatit son graphe qualifié en noms nus (résidu **`#448-r5`**).
 * **`#521-r3`** (ouvert par #521, toujours OUVERT) — `entities/triggers.py::HasTrait` porte encore
   l'idiome `any(...)` que #521-r2 a réfuté sur son voisin `HasFaction`. Ce cas ne le tranche pas :
   les deux `HasTrait` de 1330 reçoivent un sélecteur **mono-unité** (`actor@+0x48`).
 * **`#486-r22`** — rien ne DÉCLENCHE la régénération d'un cache de verdict quand du code entre, et
   `origin/master` porte **35 divergences** invisibles du régime normal. Détail et chiffres : §6.
+
+## 5bis. `#521-r4` — la RECON des cinq, et pourquoi le port n'est PAS une formalité (2026-08-07)
+
+Aucune des cinq n'est portée. Ce qui suit est LU (décompilé, ou slot de vtable au runtime quand le
+corps est dédupliqué) ; ce qui reste ouvert est nommé.
+
+| helper | porteur de l'ACTIVE | gate | artefact natif |
+|---|---|---|---|
+| `1062 GuildBossRunAway` ← `1032 Catalyst` | `tyranBossHiveTyrantLeviathan` — **npc SEUL** | greffe à instruire | `On(0x1b = MatchEnd, true)` → `AttackTiles(Owner@+0x30)` |
+| `1128 BreathOfSilence_SetStart` ← `1070 BreathOfSilence` | **AUCUN** sur les 5 voies gameconfig | à trancher (trait / summon / tile) | trigger PARTAGÉ (ci-dessous) → `AddEffect(0x464 = 1124 BreathOfSilence_StartPosition, AbilityStateReference, Tiles(Owner@+0x30), null)` |
+| `1201 DoctrinaImperatives_SetStart` ← `1118 DoctrinaImperatives` | `admecMarshall` — **DANS LE POOL** | ✅ | trigger PARTAGÉ → `AddDynamicStatModifierEffectToOwner(0x4df = 1247 ProtectorImperative, 0x10 = FixedArmor, 0, …)` |
+| `1244 DaemonicOrdnance_Crit` ← `1148 DaemonicOrdnance` | `blackForgefiend` — **MoW spawnable** | ✅ | **CLASSE INTROUVABLE** (cf. plus bas) |
+| `1316 CalibaniteGreatsword_NormalAttackAdditionalDamage` ← `1189 CalibaniteGreatsword` | `darkaCompanion` — **DANS LE POOL** | ✅ | `On(0x4a = AttackInAtomicGroup, false) & <DSLTriggers+0x20> & OwnerIsActor & IsNormalAttack & IsMeleeAttack & HasEffect(Owner@+0x30, 0x57d = 1405 CalibaniteGreatswordSweep, 0, 6)` → `Foreach(CalibaniteGreatswordAbility$$GetSweepAdditionalTargets(active), <lambda b__3_0>)` |
+
+**Le `CreateTrigger` PARTAGÉ des deux `_SetStart`** — leurs corps sont ABSENTS de la table (l'absence
+ne prouve rien) ; résolus par slot de vtable (`resolveMethodPtr`), `BreathOfSilence_SetStartAbility`
+et `DoctrinaImperatives_SetStart` pointent **la MÊME adresse**, dont le propriétaire ghidra est
+`IdunBattleLogic.Entities.Abilities.Active.Loki.SummaryExecutionAddBaseEffectAbility$$CreateTrigger`
+(nom ARBITRAIRE). Son corps rend `<DSLTriggers+0x30>`, que
+`IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` construit :
+
+```
+this+0x30 = On(0x21 = AbilityInit, ownerNeedsToBeAlive = 0) & <this+0x70> & get_OwnerIsActor
+this+0x38 = On(0x41,               ownerNeedsToBeAlive = 0) & <this+0x70> & get_OwnerIsActor
+this+0x28 = <le `IsTurnOf(Owner)` de case-366-r1 §2>
+```
+
+`<DSLTriggers+0x70>` reste **non identifié** (posé hors d'`InitializeShared`) : c'est le dernier
+verrou de lecture de ces deux ports.
+
+**Le PIÈGE ANNONCÉ est RÉFUTÉ** : porter `1201` / `1316` ne réveille PAS `TotalActiveAbilityUsed`.
+Ce facteur est lu par `is_active_ability_counted_as_used` quand l'ability **DÉCLENCHANTE** vaut 1118
+ou 1189 — ce qui dépend des casts en bataille, pas de l'inscription du helper. Et le `CreateTrigger`
+de `1316`, lu en entier ci-dessus, n'en contient aucun ; celui de `1201` est le trigger partagé, qui
+n'en contient pas non plus.
+
+**Ce qui reste ouvert, par ability** :
+* `1244` — la classe n'existe sous AUCUN des noms essayés (`DaemonicOrdnance_Crit[Ability]` dans
+  `Abilities.{Active,Triggered,Damage}.Loki`, `IdunBattle.Entities.Abilities.Triggered.Loki`) ; la
+  seule voisine trouvée est `...Active.Loki.DaemonicOrdnance_RemoveCritChance`. À trancher par
+  énumération des classes du namespace (RPC), pas par recherche de nom.
+* `1070 BreathOfSilence` — `unit_map find --ability` rend **0 unité** sur les 5 voies dérivables du
+  gameconfig ; un zéro de cet outil n'est pas une preuve de mort (#323). Les 4 voies non couvertes
+  (trait / live-event / summon / tuile) restent à balayer.
+* `1032 Catalyst` — porteur npc SEUL. La greffe est envisageable (`case-92` §5bis) puisque
+  `GuildBossRunAwayAbility$$CreateTrigger` ne lit ni stat ni trait du caster, mais le vecteur
+  `On(MatchEnd)` demande un montage qui atteigne la fin de match.
+* `1201` et `1316` sont les deux CONFRONTABLES immédiats (porteurs dans le pool). `1201` est de très
+  loin le moins cher : un seul nœud, et son effet `1247 ProtectorImperative` est **déjà porté**
+  (`entities/effects/loki/imperative.py`). `1316` est une tranche complète (sélecteur de cibles de
+  balayage + behaviour d'attaque additionnelle).
 
 ## 6. Le cache du cliquet — un signalement que j'ai d'abord rendu FAUX
 
