@@ -502,7 +502,11 @@ class KillMaimBurnNextTarget(TargetsSelector):
             roll = int(RandomAmount(Const(self.dmg_min), Const(self.dmg_max),
                                     rng=getattr(self.state, "rng", None)).calculate(ctx))
             self.rolls.append(roll)
-            best = first_by_damage_utility(self.state, [u.get("id") for u in candidates], roll, roll)
+            # `owner_id` = le `caster@0x48` que le natif passe en `+0x20` du selecteur de tri
+            # (#494-r1) : sa POSITION entre dans la prediction PAR CIBLE, donc dans la cle.
+            _cast = getattr(ctx, "caster", None)
+            best = first_by_damage_utility(self.state, [u.get("id") for u in candidates], roll, roll,
+                                           owner_id=(_cast or {}).get("id"))
             res = [] if best is None else [u for u in candidates if u.get("id") == best]
             self.picked.append(("retarget", [u.get("id") for u in res]))
         if not res:                                        # `.Otherwise(previousTarget)`

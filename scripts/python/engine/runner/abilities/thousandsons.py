@@ -182,7 +182,13 @@ def doombolt_ordered_targets(state: "State", caster_id: int, target_id: Optional
       QUAND MEME -> la cible du message est TOUJOURS en tete (et compte dans `C`). On mirror tel quel.
 
     `candidates` = ids d'unite rendus par `doombolt_targets_selector`."""
-    ordered = list(sort_units_by_damage_utility(state, candidates, dmg_min, dmg_min))
+    # `owner_id = caster` (#494-r1) : le selecteur natif resout son `+0x20` en unite (`SelectUnit`) et
+    # passe SA POSITION a la prediction PAR CIBLE -- sans lui, la cle de tri perd sa part
+    # POSITIONNELLE (bonus d'elevation) et le classement diverge des que deux cibles ne sont pas a la
+    # meme hauteur. `candidates` arrive dans l'ORDRE SOURCE du selecteur (cube-lex), qui EST le
+    # tie-break natif : ne jamais le re-trier ici.
+    ordered = list(sort_units_by_damage_utility(state, candidates, dmg_min, dmg_min,
+                                                owner_id=caster_id))
     if target_id is None or int(caster_id) == int(target_id):
         return ordered
     tid = int(target_id)

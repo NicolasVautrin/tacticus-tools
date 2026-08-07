@@ -42,7 +42,20 @@ CASES = {
     "db-3":     ("thousAhriman", 1102, 3, "necroOverlord,necroWarden,necroWarden"),
     # 4 cibles pour N=3 coups -> repartition [1,1,1,0] : l'ORDRE du tri decide QUI ne recoit RIEN.
     # PV NATURELS (pas d'egalisation) pour que `SortUnitsByDamageUtility` ait de quoi discriminer.
+    # ⚠ CE QUE CE CAS MESURE VRAIMENT (#494-r1) : PV naturels => `fixedArmor` NATUREL et DIFFERENT
+    # d'une cible a l'autre (mesure 2026-08-07 : 2761 / 2662 / 1806 / 2161). Or l'ARMURE entre dans
+    # la prediction NATIVE et pas encore dans la cle du port (`#527-r1`) -- ce cas ne mesure donc
+    # PAS l'ordre, il mesure ce qui reste NON PORTE de la cle. Il est conserve tel quel comme
+    # TEMOIN de ce residu ; la confrontation d'ORDRE, elle, vit dans `db-4e`.
     "db-4":     ("thousAhriman", 1102, 4, "necroOverlord,necroWarden,eldarRanger,orksNob"),
+    # `db-4e` -- MEME roster, MEME geometrie, mais PV et armures EGALISES (`--hp-target` met aussi
+    # `Armor = FixedArmor` a 0). Il ne reste alors qu'une variable : la GEOMETRIE. Mesure du
+    # 2026-08-07 sur cette geometrie exacte (`probe_494r1_db4_decompose.py --egalise`) : le caster
+    # est a l'elevation 3 et `orksNob` a l'elevation 2 -- seul plus BAS, donc seul a recevoir le
+    # bonus d'elevation -- et le natif le classe DEUXIEME, juste apres la cible du message
+    # (`[77, 83, 79]`), exactement ce que rend le port depuis #494-r1. Le tri reste DISCRIMINANT :
+    # l'ordre rendu n'est ni l'ordre source (`[79, 83, 77, 81]`) ni l'ordre par id.
+    "db-4e":    ("thousAhriman", 1102, 4, "necroOverlord,necroWarden,eldarRanger,orksNob"),
 }
 # Cas ou l'on NE force PAS les PV (le tri par utilite doit voir des PV heterogenes).
 NO_HP_EQUALIZE = {"db-4"}
@@ -134,10 +147,38 @@ def drive_to(live, board, uid, dest, rounds=10):
     return _pos(live.unit(uid)) == dest if live.unit(uid) else False
 
 
-def pick_geometry(board, case, occupied_seed):
+def _elevation(board, p):
+    t = board.tile_at(p[0], p[1]) if hasattr(board, "tile_at") else None
+    return t.get("elevation") if isinstance(t, dict) else None
+
+
+def _sans_bonus_elevation(board, caster, cibles):
+    """Vrai si AUCUNE cible ne recoit le bonus d'elevation, c.-a-d. si le caster n'est plus HAUT
+    qu'aucune d'elles (`…$$CalculateElevationBonusModifier` : `attaquant > cible`).
+
+    ⚠ Une elevation INCONNUE rend FAUX -- on ne declare pas plat ce qu'on n'a pas mesure."""
+    ec = _elevation(board, caster)
+    if ec is None:
+        return False
+    for p in cibles:
+        e = _elevation(board, p)
+        if e is None or ec > e:
+            return False
+    return True
+
+
+def pick_geometry(board, case, occupied_seed, sans_bonus_elevation=False):
     """Choisit un HUB a 6 voisins marchables et rend les positions VOULUES :
        {"target": T, "extra": [...], "caster": C}.
-    `pw-chain` exige un U adjacent a S mais a distance 2 de T (bande TERTIAIRE non vide)."""
+    `pw-chain` exige un U adjacent a S mais a distance 2 de T (bande TERTIAIRE non vide).
+
+    `sans_bonus_elevation` (#494-r1) -- n'accepte qu'une geometrie ou le caster n'est plus HAUT
+    qu'aucune cible, donc ou le bonus d'elevation ne joue nulle part. C'est necessaire a tout
+    montage qui veut mesurer AUTRE CHOSE que la geometrie : depuis que la cle de tri porte sa part
+    positionnelle, une cible plus basse voit sa plage predite multipliee, ce qui deplace les seuils
+    kill/overkill. Mesure (#419-r6-r1) : sur les 1870 regimes de PV qui rendent le montage
+    `MightCrit` discriminant a plat, **0** le reste des qu'une des trois cibles recoit le bonus --
+    la fenetre « letal SOUS le seuil d'overkill » est exactement ce qu'un x1,5 fait sortir."""
     hubs = []
     for tid, t in board.by_id.items():
         if not board.walkable(tid):
@@ -164,14 +205,23 @@ def pick_geometry(board, case, occupied_seed):
         if C is None:
             continue
         if case == "pw-chain":
-            return {"target": T, "extra": [S, U], "caster": C}
-        if case == "pw-solo":
-            return {"target": T, "extra": [], "caster": C}
-        # Doombolt : les ennemis doivent etre a <= 2 hexes du CASTER (pas de la cible)
-        if case.startswith("db"):
+            geo = {"target": T, "extra": [S, U], "caster": C}
+        elif case == "pw-solo":
+            geo = {"target": T, "extra": [], "caster": C}
+        elif case.startswith("db"):
+            # Doombolt : les ennemis doivent etre a <= 2 hexes du CASTER (pas de la cible)
             n = CASES[case][2]
             spots = [T] + [p for p in ring if p != C][:n - 1]
-            return {"target": T, "extra": spots[1:], "caster": C}
+            geo = {"target": T, "extra": spots[1:], "caster": C}
+        else:
+            continue
+        # ⚠ Le critere ne porte QUE sur `extra`, pas sur `target` : la cible du MESSAGE est
+        # deplacee en tete par le `Remove(cible); Insert(0, cible)` de l'ability, donc son utilite
+        # ne participe PAS au classement. L'inclure rejetait TOUS les hubs de TOUS les boards
+        # (mesure : 0 hub retenu) -- un critere plus strict que ce que le montage exige.
+        if sans_bonus_elevation and not _sans_bonus_elevation(board, geo["caster"], geo["extra"]):
+            continue                    # hub ecarte : une cible y recevrait le bonus d'elevation
+        return geo
     return None
 
 

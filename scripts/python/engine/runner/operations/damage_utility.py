@@ -38,10 +38,49 @@ C'est pourquoi les ordinaux ne sont PLUS ecrits ici : seuls les NOMS le sont, et
 litteral VERBATIM du decompile -- garde son commentaire de nom. Un ordinal recopie se perime en
 silence au prochain build ; un nom se re-derive de `data/symbols/<build>/frida/enums.tsv`.
 
-La prediction IA est PRE-ARMURE (`armor = 0`, cf. en-tete de `services/damage_prediction`) ⇒ la PLAGE de
-degat est la MEME pour toutes les cibles ; le classement ne depend que des PV courants/max et des flags
-kill/overkill PAR cible. Ce module ne porte donc que l'etage TRI (la plage vient de l'appelant, qui sait
-quel noeud de degat le call-site branche sur +0x40/+0x48).
+⚠ **« PRE-ARMURE » N'IMPLIQUE PAS « MEME PLAGE POUR TOUTES LES CIBLES » — cette en-tete l'affirmait, et
+c'etait FAUX (#494-r1).** Le natif appelle la prediction **PAR CIBLE**, DANS la boucle `foreach u`, et il
+lui passe la **POSITION DU CASTER** (`dc+0x20 = GetUnitPosition(owner)`) en plus de `u` : le couple
+(caster, cible) entre donc dans la cle. Les feuilles POSITIONNELLES du builder partage
+`IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` —
+`…$$CalculateElevationBonusModifier` (+ElevationBonus % si la tuile de l'attaquant est plus haute) et
+`…$$CalculateTrenchReduction` — rendent la plage predite **differente d'une cible a l'autre**, sans
+qu'aucune stat de cible n'ait bouge. Le classement ne depend donc PAS que des PV et des flags
+kill/overkill : il depend AUSSI de la GEOMETRIE.
+
+MESURE qui l'etablit (`probe_494_doombolt_sort_order.py`, board `MC1_67`, seed 777, 4 x `orksNob`
+IDENTIQUES, `--hp-target` -> `Armor = FixedArmor = 0`, `statDelta` vide, 2026-08-07) :
+
+    | regime | elevations des cibles | ordre SOURCE lex(x,y) | NATIF joue              |
+    | L1     | 3 3 3 3   (= caster)  | [81, 83, 79, 85]      | [79, 81, 83]  ordre SOURCE |
+    | L2     | 3 3 3 2               | [81, 83, 79, 85]      | [79, 85, 81]  u85 REMONTE  |
+    | L3     | 3 2 3 3               | [81, 83, 79, 85]      | [79, 81, 83]  u81 RESTE    |
+
+`L1` est le temoin : elevation PLATE ⇒ cle constante ⇒ le tri stable rend l'ordre SOURCE tel quel.
+`L2`/`L3` sont des predictions HORS ECHANTILLON, ecrites avant la mesure : la seule cible plus BASSE
+que le caster remonte en tete (bonus x1,5 mesure sur le degat joue : 2216 contre 1204 et 1477).
+
+⚠ Ce que cette mesure REFUTE : la « rotation d'un cran vers la gauche » que #494 avait mesuree sur sept
+geometries et laissee NON ATTRIBUEE. Elle predisait `[79, 83, 85, 81]` sur les TROIS regimes ci-dessus,
+et les trois la contredisent. Ce n'etait pas une loi d'ordre : c'etait l'OMBRE d'une cle non constante,
+tous les montages de #494 ayant par hasard melange des elevations.
+
+Le tie-break, lui, est celui de `System.Linq.Enumerable.OrderBy` — **STABLE** ⇒ a utilite egale, l'ORDRE
+SOURCE du selecteur est conserve tel quel. Ce n'est PAS l'ordre par `id` : la chaine complete
+(`…TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext` triple boucle cube -> `BattleQuery$$GetSurroundingTiles`
+`OrderedSet.Add` -> `SurroundingTilesSelector$$Select` `OrderedSet.AddRange` -> `CombinedSelector$$SelectExclusion`
+-> `TargetsSelector$$SelectUniqueUnits` `ArraySet.Add`/`ToList` -> `UnitsByTeamSelector` -> `UnobscuredEntitiesSelector`
+-> `DSLSelectors$$Damageable`) preserve l'ordre d'insertion a chaque etage, et cet ordre est
+`cube-lex (x, y)` ASCENDANT.
+
+Ce module porte donc l'etage TRI **et** la part POSITIONNELLE de la cle (la plage brute vient toujours de
+l'appelant, qui sait quel noeud de degat le call-site branche sur +0x40/+0x48).
+
+⚠ RESTE NON PORTE dans la cle, et NOMME : l'**ARMURE** (`#527-r1` — la prediction IA est pre-armure cote
+port alors que le natif en tient compte, mesure independamment sur `AncestralFortune` puis confirmee sur
+Doombolt), le `ShouldApplyRangedInMelee` (feuille du meme builder, mais elle ne depend que de
+l'ATTAQUANT ⇒ facteur COMMUN a toutes les cibles ⇒ sans effet sur l'ORDRE, seulement sur les seuils
+kill/overkill), et les modificateurs d'EFFETS par cible.
 
 Deux call-sites portes :
   * `IdunBattleLogic.Entities.Abilities.Active.Loki.FinalJusticeAbility$$CreateBehaviour` — plage =
@@ -57,6 +96,12 @@ from typing import Optional
 
 from ..state import State
 from ..components import HealthComponent
+# FORME B (`import <module>` + acces attributaire), et le differe est HISSE : classe GRATUIT, mesure
+# le 2026-08-07 -- `import engine.runner.damage_model` en process FRAIS ne charge PAS
+# `engine.runner.operations.damage_utility`, donc aucune arete a fermer. La forme B garde en plus la
+# MORSURE d'un `monkeypatch.setattr("engine.runner.damage_model.apply_elevation_bonus", …)`.
+from .. import damage_model as _damage_model
+from ...services.damage_modifiers import DamageModifiers, apply_all_modifiers
 from ...utilities import damage_composite
 from ...weights import load as _load_weights
 
@@ -73,8 +118,32 @@ def damage_utility_weights():
     return _DAMAGE_UTILITY_WEIGHTS
 
 
+def positional_damage_range(state: State, owner_id, target_id: int, dmin: int, dmax: int):
+    """Les bornes `(dmin, dmax)` passees par les feuilles POSITIONNELLES du builder natif partage
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` — c'est ce
+    qui rend la prediction DEPENDANTE DU COUPLE (caster, cible), donc la cle de tri non constante
+    (#494-r1).
+
+    Les deux feuilles portees sont celles que le moteur expose deja, nommees, sur la signature
+    `(state, mods, attacker_id, target_id)` — MEMES fonctions que le COMBAT, pas de fork :
+      * `apply_elevation_bonus`  -> `…$$CalculateElevationBonusModifier`
+      * `apply_trench_reduction` -> `…$$CalculateTrenchReduction`
+
+    `owner_id is None` (l'appelant ne sait pas qui attaque) -> bornes rendues INCHANGEES : le port ne
+    devine pas une geometrie qu'on ne lui a pas donnee. `state.board` absent -> les deux helpers sont
+    des no-op documentes, meme resultat."""
+    if owner_id is None:
+        return int(dmin), int(dmax)
+    mods = DamageModifiers()
+    _damage_model.apply_elevation_bonus(state, mods, int(owner_id), int(target_id))
+    _damage_model.apply_trench_reduction(state, mods, int(owner_id), int(target_id))
+    if not mods.pct_list and not mods.additive:
+        return int(dmin), int(dmax)          # aucun modifier -> pas de materialisation parasite
+    return (apply_all_modifiers(int(dmin), mods), apply_all_modifiers(int(dmax), mods))
+
+
 def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
-                    might_crit: bool = False) -> float:
+                    might_crit: bool = False, owner_id=None) -> float:
     """`UtilityDecider.CalculateUtility(UtilityDefinition(0x23 = Damage), cible, prediction)` pour UNE
     cible — mirror des champs que `UtilityAttackCase$$ForDamagePrediction` lit du `DamagePredictionResult`
     (bornes santé capées/brutes, PV avant, kill = `MightBeKill`, killSure = `WillBeKill`). Bouclier non
@@ -88,6 +157,8 @@ def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
     hc = e.get_component(HealthComponent) if e is not None else None
     hp = int(hc.hp) if (hc is not None and hc.hp is not None) else 0
     max_hp = int(hc.hp_max) if (hc is not None and hc.hp_max) else hp
+    # #494-r1 : la plage est celle du COUPLE (caster, cible), pas une constante de l'appelant.
+    dmin, dmax = positional_damage_range(state, owner_id, target_id, dmin, dmax)
     pred = {"healthDmgMin": max(0, dmin), "healthDmgMax": max(0, dmax),
             # rawHealthDmg* = plage NON capee (mirror @0x24/@0x28) : `OverkillUnit` fidele via l'over-shoot
             # (dmg >= 2*PV) — la prediction pre-armure EST deja brute.
@@ -127,28 +198,40 @@ def _target_utility(state: State, target_id: int, dmin: int, dmax: int, wt,
     return damage_composite(pred, max_hp, wt)
 
 
-def sort_units_by_damage_utility(state: State, candidates, dmin: int, dmax: int) -> list:
+def sort_units_by_damage_utility(state: State, candidates, dmin: int, dmax: int,
+                                 owner_id=None) -> list:
     """`SortUnitsByDamageUtilitySelector$$Select` — les candidats TRIES par utilite Damage DECROISSANTE
-    (`OrderBy(−utilite)`). Tie-break : `OrderBy` natif STABLE sur l'ordre source ; approxime ici par `id`
-    croissant (les call-sites portes alimentent le selecteur avec un ensemble non ordonne).
+    (`OrderBy(−utilite)`).
 
-    ⚠ L'approximation du tie-break est OBSERVABLE, et #419-r6-r1 l'a vue : sur un montage ou DEUX
-    cibles avaient la MEME utilite, le live rendait `[77, 81, 83, 79]` la ou le port rend
-    `[77, 81, 79, 83]`. C'est un residu NOMME, distinct du flag `mightCrit` -- un montage qui cree
-    une egalite mesure le tie-break, pas ce qu'il croit mesurer."""
+    TIE-BREAK = l'ORDRE DE `candidates`, tel quel (#494-r1). `System.Linq.Enumerable.OrderBy` est
+    STABLE, et `sorted(key=…)` de Python l'est aussi : a utilite egale, l'ordre SOURCE du selecteur
+    est rendu intact. **C'est la responsabilite de l'appelant de fournir l'ordre du selecteur natif**
+    (pour Doombolt : l'enumeration de tuiles `cube-lex (x, y)` ASCENDANTE de
+    `…TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`, preservee par les sept etages qui
+    suivent).
+
+    ⚠ Le `sorted(int(c) for c in candidates)` qui vivait ici — un tri par `id` — est SUPPRIME : il
+    n'approximait pas la stabilite de l'`OrderBy`, il la DETRUISAIT en imposant un ordre source
+    different de celui du natif. Mesure : regime `L1` de `probe_494_doombolt_sort_order.py`, ou les
+    quatre utilites sont egales, le natif rend `[79, 81, 83, 85]` = l'ordre SOURCE.
+
+    `owner_id` = l'attaquant (`+0x20` du selecteur natif, `SelectUnit`) — necessaire a la part
+    POSITIONNELLE de la cle (cf. `positional_damage_range`). Non fourni -> cle sans geometrie."""
     wt = damage_utility_weights()
-    ordered = sorted(int(c) for c in candidates)
-    return sorted(ordered, key=lambda eid: -_target_utility(state, eid, dmin, dmax, wt))
+    src = [int(c) for c in candidates]          # ORDRE SOURCE — `OrderBy` natif STABLE
+    return sorted(src, key=lambda eid: -_target_utility(state, eid, dmin, dmax, wt,
+                                                        owner_id=owner_id))
 
 
-def first_by_damage_utility(state: State, candidates, dmin: int, dmax: int) -> Optional[int]:
+def first_by_damage_utility(state: State, candidates, dmin: int, dmax: int,
+                            owner_id=None) -> Optional[int]:
     """`First(SortUnitsByDamageUtility(…), 1)` — l'argmax du composite `UtilityType.Damage`, ou None si aucun
-    candidat. Argmax STRICT sur l'ordre `id` croissant = 1er id en cas d'egalite parfaite (== la stabilite
-    de l'`OrderBy` natif sur l'ordre source, cf. l'avertissement de `sort_units_by_damage_utility`)."""
+    candidat. Argmax STRICT sur l'ORDRE DE `candidates` = 1er de l'ordre source en cas d'egalite parfaite
+    (== la stabilite de l'`OrderBy` natif, cf. `sort_units_by_damage_utility`)."""
     best, best_util = None, None
     wt = damage_utility_weights()
-    for eid in sorted(int(c) for c in candidates):
-        util = _target_utility(state, eid, dmin, dmax, wt)
+    for eid in (int(c) for c in candidates):    # ORDRE SOURCE — jamais re-trie par `id`
+        util = _target_utility(state, eid, dmin, dmax, wt, owner_id=owner_id)
         if best_util is None or util > best_util:
             best_util, best = util, eid
     return best

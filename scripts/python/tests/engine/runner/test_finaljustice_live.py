@@ -30,6 +30,7 @@ import pytest
 
 from engine.runner.snapshot import load_state
 from engine.runner.operations import triggers as T
+from engine.runner.operations.damage_utility import positional_damage_range
 from engine.runner.operations.triggers.dispatch.move_death import after_death_triggers
 from engine.runner.components import (UnitComponent, HealthComponent,
                                       OwnerComponent, PositionComponent)
@@ -129,12 +130,24 @@ def test_finaljustice_target_sort_live(live_session, rpc, build_runner):
         hc = ent.get_component(HealthComponent)
         hp = int(hc.hp) if (hc is not None and hc.hp is not None) else 0
         mx = int(hc.hp_max) if (hc is not None and hc.hp_max) else hp
-        pred = {"healthDmgMin": max(0, dmin), "healthDmgMax": max(0, dmax),
+        # #494-r1 -- LA PLAGE EST CELLE DU COUPLE (caster, cible), pas une constante. Le natif
+        # (`…SortUnitsByDamageUtilitySelector$$Select`) appelle la prediction DANS sa boucle par
+        # cible, en lui passant la POSITION du caster : les feuilles positionnelles du builder
+        # `…$$CalculateAttackerModifiersForPrediction` (elevation, trench) la rendent differente
+        # d'une cible a l'autre. Cet oracle reste INDEPENDANT du foyer (il refait le composite),
+        # mais il doit lire les MEMES entrees, sinon il mesure un port qui n'existe plus.
+        lo, hi = positional_damage_range(state, kid, eid, dmin, dmax)
+        pred = {"healthDmgMin": max(0, lo), "healthDmgMax": max(0, hi),
                 "hpBefore": hp, "shieldBefore": 0,
-                "killSure": hp > 0 and dmin >= hp, "kill": hp > 0 and dmax >= hp}
+                "killSure": hp > 0 and lo >= hp, "kill": hp > 0 and hi >= hp}
         return damage_composite(pred, mx, wt)
 
-    argmax = sorted(adj, key=lambda e: (-_util(e), e))[0]   # max utilite, puis id croissant
+    # #494-r1 -- TIE-BREAK = L'ORDRE SOURCE (`Enumerable.OrderBy` est STABLE), jamais l'id : argmax
+    # STRICT en parcourant `adj` dans l'ordre ou le selecteur l'a rendu.
+    argmax = None
+    for _e in adj:
+        if argmax is None or _util(_e) > _util(argmax):
+            argmax = _e
     chosen = T._finaljustice_target(state, kid)
     assert chosen == argmax, f"_finaljustice_target={chosen} != argmax composite Damage {argmax}"
 
