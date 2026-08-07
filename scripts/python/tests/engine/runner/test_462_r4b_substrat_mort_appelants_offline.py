@@ -54,13 +54,36 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/operations/movement.py",
         "scripts/python/engine/runner/operations/turnflow.py",
         "scripts/python/engine/runner/operations/triggers/genestealer.py",
+        # AJOUTES SUR `master` (2026-08-08) : le cliquet rougissait ICI et pas dans le worktree
+        # d'origine, parce que la CONFRONTATION N'AVAIT PAS LE MEME NOMBRE DE SOURCES. Tant que ce
+        # fichier n'a pas d'entree d'empreinte, seule la fermeture d'IMPORTS est verifiee ; des que
+        # `--measure-missing` en grave une, les TEMOINS de ce que le fichier a reellement OUVERT
+        # s'ajoutent -- et ils sont plus larges. Rejouer le cliquet AVANT de graver l'empreinte ne
+        # peut donc pas voir ce rouge : ce n'est pas une negligence de l'auteur, c'est un ORDRE.
+        #
+        # Les six `__init__.py` sont la CASCADE DE PAQUET que l'import de chaque feuille traine
+        # (`engine.entities`, `engine.streams`, ...) ; les deux modules nommes sont ouverts par
+        # cette meme cascade, pas par une ligne `import` de ce fichier. Ils sont declares
+        # LITTERALEMENT plutot que par un glob `engine/**` : ce fichier ne veut PAS etre
+        # reselectionne a chaque edition d'une feuille d'`engine/` qu'il n'exerce pas.
+        "scripts/python/engine/entities/__init__.py",
+        "scripts/python/engine/entities/abilities/__init__.py",
+        "scripts/python/engine/entities/effects/loki/__init__.py",
+        "scripts/python/engine/runner/abilities/behaviours/__init__.py",
+        "scripts/python/engine/runner/caches/__init__.py",
+        "scripts/python/engine/runner/caches/ability_and_effect_cache.py",
+        "scripts/python/engine/streams/__init__.py",
+        "scripts/python/engine/streams/verify_turn_finished.py",
     ),
     "build": False,
     "toujours": False,
     "raison": "Garde OFFLINE d'un SUBSTRAT (le `unit_state` passe a `EffectsState.active_effects`) "
               "et d'un REGISTRE (les triggered-abilities d'un cadavre). Aucun RPC, aucun runner : "
               "tout est predicat pur ou lecture de source. La mesure vit dans "
-              "`probe_462_r4b_r1_r1_r1_r1_b_r1_r1_r3_r1_r1_appelants.py`.",
+              "`probe_462_r4b_r1_r1_r1_r1_b_r1_r1_r3_r1_r1_appelants.py`. Les huit derniers "
+              "chemins ne sont pas des foyers SOUS TEST : c'est la cascade de paquet que le "
+              "chargement des feuilles ci-dessus traine, et elle est nommee parce que l'empreinte "
+              "la MESURE -- pas parce que ce fichier en depend logiquement.",
 }
 
 import pytest                                                                   # noqa: E402
