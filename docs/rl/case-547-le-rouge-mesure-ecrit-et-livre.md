@@ -173,6 +173,18 @@ L'étage 4 est ce qui établit que **c'est le correctif qui agit**, et non le ha
 Garde : `test_547r1_mesure_missing_non_verdict_offline.py`, **9 tests**, dont le bras
 anti-sur-correction (`--measure` doit garder son `0`).
 
+⚠ **UN CLIQUET QUI LANCE LE LANCEUR DE TESTS QUI LE JOUE EST RÉCURSIF — mesuré, pas redouté.**
+Ce cliquet lance `probe_457` en sous-process ; `--measure-missing` joue les fichiers **sans entrée
+d'empreinte**, dont sa propre garde, qui rappelle le cliquet, qui relance `probe_457`…
+**~150 processus chaînés, un toutes les 12 s, 35 minutes durant**, arrêtés par un `taskkill /T`.
+Deux crans, et il a fallu les deux : le sous-process porte `TACTICUS_547R1_DANS_TEMOIN=1` et les
+trois tests qui relancent `probe_457` sautent quand ils la voient ; **et la garde est retirée du
+worktree témoin**, où elle n'a rien à faire — sa présence y faussait en plus l'étage 4, son propre
+contrôle d'ancrage la voyant mutée et rendant `1` pour une raison parasite.
+**Ce qui me l'a fait manquer deux fois** : les étages à worktree jugent l'arbre **commité**. Poser
+la garde sans la **commiter** laisse le témoin rejouer l'ancienne version — exactement ce que la
+docstring du cliquet prescrit, et que je n'avais pas appliqué à moi-même.
+
 ⚠ **L'ORDRE DES CLIQUETS NE CHANGE PAS** — `--measure-missing` **d'abord**, `probe_486r15`
 **ensuite** (#486-r29) : le mode fait toujours son travail (compléter l'empreinte), donc la
 confrontation passe bien à deux sources. **Ce qui change est la lecture de son `rc` : `99` est
