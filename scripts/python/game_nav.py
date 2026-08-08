@@ -23,6 +23,14 @@ Commandes :
     restaurer              remet la geometrie memorisee avant la premiere modification
     journal                les divergences retour-vs-effet accumulees
 
+  MENER LA BATAILLE REELLE (cf. gamenav/bataille.py -- on n'envoie JAMAIS runnerId) :
+    bataille               etat du combat + les unites a activer
+    cibles <caster> [ab]   les cibles que le NATIF valide pour cette ability
+    deplacer <u> <c> <r>   --force obligatoire : ceci mute la partie du joueur
+    lancer <c> <t> <ab>    --force obligatoire
+    finir <u>              --force obligatoire
+    ia                     --force obligatoire : laisse l'IA DU JEU jouer le tour
+
 Sortie ASCII stricte (console cp1252).
 """
 from __future__ import annotations
@@ -34,6 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from gamenav import agir as m_agir          # noqa: E402
+from gamenav import bataille as m_bataille  # noqa: E402
 from gamenav import carte as m_carte        # noqa: E402
 from gamenav import journal as m_journal    # noqa: E402
 from gamenav import regard as m_regard      # noqa: E402
@@ -51,6 +60,8 @@ def _resultat(r) -> int:
     print("avant      : %s" % r.avant)
     print("apres      : %s" % r.apres)
     print("tentatives : %d en %.1f s" % (r.tentatives, r.secondes))
+    if r.temoin:
+        print("temoin     : %s  %r -> %r" % (r.temoin, r.temoin_avant, r.temoin_apres))
     for i, b in enumerate(r.brut, 1):
         print("   retour brut %d : ok=%s%s" % (i, b.get("ok"),
                                                "  err=%s" % b["erreur"] if b.get("erreur") else ""))
@@ -59,15 +70,96 @@ def _resultat(r) -> int:
     return 0 if r.porte else 1
 
 
+def _unite(u: dict) -> str:
+    p = u.get("pos") or {}
+    return "  #%-5s %-26s hp=%-9s pos=(%s,%s) team=%s%s" % (
+        u.get("id"), str(u.get("unitId") or u.get("name") or "?")[:26],
+        "%s/%s" % (u.get("hp"), u.get("hpMax")),
+        p.get("col"), p.get("row"), u.get("team"),
+        "" if u.get("alive", True) else "  MORT")
+
+
+def _bataille(a, hote) -> int:
+    """Les commandes qui parlent a la bataille REELLE du joueur.
+
+    Les mutantes exigent `--force` : elles changent la partie en cours, et rien ne se
+    rejoue. Meme doctrine que le garde de depense de `agir.py`.
+    """
+    mutante = a.commande in ("deplacer", "lancer", "finir", "ia")
+    if mutante and not a.force:
+        print("REFUS : `%s` MUTE la partie reelle du joueur -- relancer avec --force."
+              % a.commande)
+        return 3
+
+    if a.commande == "bataille":
+        e = m_bataille.etat(hote)
+        print("ETAT : %s" % m_bataille.resume(e))
+        if not e.ok:
+            return 2 if e.ok is None else 1
+        v = m_bataille.vue(hote)
+        if not v.ok:
+            print("VUE  : %s" % m_bataille.resume(v))
+            return 2 if v.ok is None else 1
+        d = v.donnees or {}
+        aa = d.get("toActivate") or []
+        print("A ACTIVER : %d" % len(aa))
+        for u in aa:
+            print(_unite(u))
+            for ab in (u.get("abilities") or [])[:8]:
+                print("        ability %s %s" % (ab.get("abilityType"), ab.get("name") or ""))
+        return 0
+
+    if a.commande == "cibles":
+        if not a.args:
+            print("usage : cibles <casterId> [abilityType]")
+            return 1
+        ab = int(a.args[1]) if len(a.args) > 1 else None
+        r = m_bataille.cibles(hote, int(a.args[0]), ab)
+        if not r.ok:
+            print("REFUS : %s" % m_bataille.resume(r))
+            return 2 if r.ok is None else 1
+        for t in (r.donnees or {}).get("targets") or []:
+            print("  cible #%-5s %s" % (t.get("id"), t.get("unitId") or ""))
+        return 0
+
+    if a.commande == "ia":
+        r = m_bataille.laisser_l_ia_jouer(hote)
+        print("IA DU JEU : %s" % m_bataille.resume(r))
+        print("   ^ c'est la politique NATIVE qui a decide, pas l'appelant.")
+        return 0 if r.ok else (2 if r.ok is None else 1)
+
+    if a.commande == "deplacer":
+        if len(a.args) < 3:
+            print("usage : deplacer <unitId> <col> <row> --force")
+            return 1
+        r = m_bataille.deplacer(hote, int(a.args[0]), int(a.args[1]), int(a.args[2]))
+    elif a.commande == "lancer":
+        if len(a.args) < 3:
+            print("usage : lancer <casterId> <targetId> <abilityType> --force")
+            return 1
+        r = m_bataille.lancer(hote, int(a.args[0]), int(a.args[1]), int(a.args[2]))
+    else:
+        if not a.args:
+            print("usage : finir <unitId> --force")
+            return 1
+        r = m_bataille.finir(hote, int(a.args[0]))
+    print("ACTION : %s" % m_bataille.resume(r))
+    return 0 if r.ok else (2 if r.ok is None else 1)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="naviguer dans Tacticus (facade de `gamenav`)")
     ap.add_argument("commande", choices=["ou", "boutons", "clic", "maison", "aller",
                                          "capture", "bouge", "fenetre", "restaurer",
-                                         "journal"])
+                                         "journal", "bataille", "cibles", "deplacer",
+                                         "lancer", "finir", "ia"])
     ap.add_argument("args", nargs="*")
     ap.add_argument("--tout", action="store_true", help="inclure les boutons inactifs")
     ap.add_argument("--force", action="store_true", help="passer outre le garde de depense")
     ap.add_argument("-o", "--sortie", default="", help="chemin de l'image")
+    ap.add_argument("--temoin", default="",
+                    help="fragment de chemin dont le LIBELLE doit changer (preuve d'une "
+                         "SELECTION, que le jeu de chemins ne voit pas)")
     a = ap.parse_args()
 
     # --- les commandes PIXELS ne passent pas par la session Frida
@@ -122,6 +214,9 @@ def main() -> int:
         print("Rien n'est conclu sur l'etat du jeu.")
         return 2
 
+    if a.commande in ("bataille", "cibles", "deplacer", "lancer", "finir", "ia"):
+        return _bataille(a, hote)
+
     if a.commande == "ou":
         v = m_vue.regarder(hote)
         if v is None:
@@ -144,8 +239,11 @@ def main() -> int:
         if v is None:
             print("ecran NON MESURE.")
             return 2
-        for p in sorted(v.feuilles()):
-            print(p)
+        # Le LIBELLE est ce qui rend 15 `Idun_CampaignScreenLevelButton(Clone)`
+        # discernables (#595). L'afficher quand il existe, se taire sinon.
+        for b in sorted(v.boutons, key=lambda x: x.get("path", "")):
+            lab = (b.get("label") or "").strip().replace("\n", " ")
+            print("%s%s" % (b.get("path", ""), "   [%s]" % lab if lab else ""))
         print("-- %d bouton(s)%s" % (v.n, " (inactifs compris)" if a.tout else ""))
         return 0
 
@@ -176,12 +274,22 @@ def main() -> int:
     if not cands:
         print("aucun bouton ne contient %r. `boutons --tout` pour voir l'arbre." % a.args[0])
         return 1
+    # Un fragment qui designe un CONTENEUR matche aussi toute sa descendance :
+    # `Level1/Idun_CampaignScreenLevelButton(Clone)` rend 3 chemins, dont le bouton
+    # lui-meme et deux widgets de recompense DEDANS. Quand le fragment TERMINE un
+    # chemin, c'est celui-la qu'on vise -- les autres ne font que le contenir.
+    if len(cands) > 1:
+        finaux = [c for c in cands if c.lower().endswith(a.args[0].lower())]
+        if len(finaux) == 1:
+            print("(%d chemins contiennent le fragment ; UN SEUL le termine)" % len(cands))
+            cands = finaux
     if len(cands) > 1:
         print("AMBIGU : %d boutons contiennent %r -- precise." % (len(cands), a.args[0]))
         for c in cands[:12]:
             print("   " + c)
         return 1
-    return _resultat(m_agir.agir(hote, m_transport.ClicUI(cands[0]), force=a.force))
+    return _resultat(m_agir.agir(hote, m_transport.ClicUI(cands[0]), force=a.force,
+                                 temoin=a.temoin or None))
 
 
 if __name__ == "__main__":

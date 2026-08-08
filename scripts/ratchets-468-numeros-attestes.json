@@ -17,6 +17,7 @@
     "437r1|case-437-r1-overwatch-off-by-one.md": "MEME DOSSIER RE-OUVERT -- meme ecart de 1 point sur le meme test overwatch ; la ligne barree L150 est le premier passage, la ligne ouverte L268 la re-ouverture.",
     "486r23|case-486r23-ledger-du-vert-offline.md": "la ligne de backlog porte les 5 criteres de mise en service RESTES OUVERTS ; la case-doc porte le mecanisme LIVRE. Meme tache, deux etats.",
     "527r1|case-527-r1-choix-de-cible-ancestral-fortune.md": "case-doc d'une enquete NON RESOLUE : elle consigne ce qui est ELIMINE (armure seule, block) et ce qui est MESURE (seuil ]2100,2200[ => degat des 3 coups), la tache reste OUVERTE au backlog tant que la normalisation du composite n'est pas lue",
-    "594|case-594-litteraux-au-site-dappel.md": "la MESURE est banquee, la TRANCHE est ouverte : la case-doc porte la structure etablie (135/139 sur une seule arete) et DEUX hypotheses refutees, que re-deriver coute ~9 min de ghidra ; l'extracteur, lui, reste a ecrire"
+    "594|case-594-litteraux-au-site-dappel.md": "la MESURE est banquee, la TRANCHE est ouverte : la case-doc porte la structure etablie (135/139 sur une seule arete) et DEUX hypotheses refutees, que re-deriver coute ~9 min de ghidra ; l'extracteur, lui, reste a ecrire",
+    "596|case-596-fsm-entree-par-entite.md": "la ligne de backlog EST la tranche decrite par la fiche : meme mesure du 2026-08-08, meme FOYER, la fiche est son point d entree"
   }
 }

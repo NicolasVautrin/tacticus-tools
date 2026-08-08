@@ -108,6 +108,101 @@ def occupe_par_le_jeu(f: Fenetre) -> bool:
     return int(racine or sous) == f.hwnd
 
 
+# ------------------------------------------------------------------- la molette
+#
+# POURQUOI IL FAUT UNE MOLETTE, ET PAS UN CLIC DE PLUS
+# ----------------------------------------------------
+# Les listes du jeu sont VIRTUALISEES : `UnitDeploymentHud/.../ScrollContent` n'instancie
+# qu'une fenetre de portraits, et le reste du roster N'EXISTE PAS dans la hierarchie Unity.
+# `uiListAll` ne peut donc pas le voir -- ce n'est pas un defaut du capteur, c'est que
+# l'objet n'est pas ne. Aucun chemin ne permet de cliquer ce qui n'est pas monte : il faut
+# faire defiler POUR DE VRAI, puis re-mesurer.
+#
+# ⚠ ET C'EST LA SEULE PARTIE DU PAQUET QUI TOUCHE LE BUREAU DE L'UTILISATEUR. D'ou deux
+# canaux, essayes du moins intrusif au plus :
+#   "message" -- `PostMessage(WM_MOUSEWHEEL)` : le curseur ne bouge pas, la fenetre n'a pas
+#                besoin du focus. Unity lit parfois le message, parfois non (il consomme
+#                surtout le RAW INPUT) : ce canal peut donc etre INERTE, et c'est a
+#                l'appelant de le constater par l'EFFET.
+#   "input"   -- `SendInput` : porte a coup sur, mais exige que le curseur soit AU-DESSUS
+#                du jeu. On sauve la position et on la REMET, toujours.
+
+WM_MOUSEWHEEL = 0x020A
+CRAN = 120                       # WHEEL_DELTA
+_MOUSEEVENTF_WHEEL = 0x0800
+_INPUT_MOUSE = 0
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG),
+                ("mouseData", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG))]
+
+
+class _INPUT(ctypes.Structure):
+    class _U(ctypes.Union):
+        _fields_ = [("mi", _MOUSEINPUT)]
+    _anonymous_ = ("u",)
+    _fields_ = [("type", wintypes.DWORD), ("u", _U)]
+
+
+def _racine_sous(x: int, y: int) -> int:
+    _dpi_par_moniteur()
+    sous = _u32.WindowFromPoint(_PT(x, y))
+    if not sous:
+        return 0
+    return int(_u32.GetAncestor(wintypes.HWND(sous), 2) or sous)   # GA_ROOT
+
+
+def molette(crans: int, frac_x: float = 0.5, frac_y: float = 0.72,
+            canal: str = "message") -> str | None:
+    """Tourne la molette au-dessus du jeu. Rend un motif de REFUS, ou None si c'est parti.
+
+    `crans` < 0 fait defiler VERS LE BAS. `frac_x`/`frac_y` situent le point dans la
+    fenetre -- la liste de deploiement occupe la moitie basse, d'ou le defaut.
+
+    ⚠ None ne veut PAS dire << ca a defile >>, seulement << l'evenement est parti >>. Comme
+    pour le clic, le verdict se prend par l'EFFET, au-dessus.
+    """
+    f = fenetre_du_jeu()
+    if f is None:
+        return "fenetre du jeu NON MESUREE"
+    x, y = f.x + int(f.l * frac_x), f.y + int(f.h * frac_y)
+    if _racine_sous(x, y) != f.hwnd:
+        return ("le point vise (%d,%d) n'appartient pas au jeu -- une autre fenetre le "
+                "recouvre ; molette ABANDONNEE plutot que dirigee a l'aveugle" % (x, y))
+
+    delta = int(crans) * CRAN
+    if canal == "message":
+        wparam = ctypes.c_ulonglong((delta & 0xFFFF) << 16).value
+        lparam = ctypes.c_longlong((y << 16) | (x & 0xFFFF)).value
+        ok = _u32.PostMessageW(wintypes.HWND(f.hwnd), WM_MOUSEWHEEL,
+                               ctypes.c_ulonglong(wparam), ctypes.c_longlong(lparam))
+        return None if ok else "PostMessage(WM_MOUSEWHEEL) a echoue"
+
+    if canal != "input":
+        return "canal inconnu : %r (attendu 'message' ou 'input')" % canal
+
+    avant = _PT()
+    _u32.GetCursorPos(ctypes.byref(avant))
+    try:
+        _u32.SetForegroundWindow(wintypes.HWND(f.hwnd))
+        _u32.SetCursorPos(x, y)
+        time.sleep(0.05)
+        ev = _INPUT(type=_INPUT_MOUSE,
+                    u=_INPUT._U(mi=_MOUSEINPUT(0, 0, ctypes.c_uint32(delta).value,
+                                               _MOUSEEVENTF_WHEEL, 0, None)))
+        n = _u32.SendInput(1, ctypes.byref(ev), ctypes.sizeof(_INPUT))
+        if n != 1:
+            return "SendInput n'a injecte aucun evenement"
+        time.sleep(0.05)
+        return None
+    finally:
+        # La position du curseur appartient a l'utilisateur : on la remet TOUJOURS,
+        # y compris si l'injection a echoue.
+        _u32.SetCursorPos(avant.x, avant.y)
+
+
 def capturer(sortie: Path | str | None = None, premier_plan: bool = True):
     """Rend `(chemin, Fenetre)` ou `(None, motif)`. Ne livre JAMAIS une image non situee."""
     from PIL import ImageGrab
