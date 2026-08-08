@@ -29,31 +29,43 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from ...dsl.base import Const
+from ...dsl.base import AAmountFormula, Const, TargetsSelector
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import Foreach, If as IfBehaviour, op_and
-from ...entities.formulas import Count, Min, StatAmount, Sum
+from ...dsl.event_trigger_type import EventTriggerType
+from ...entities.behaviours import Foreach, If as IfBehaviour, Seq, op_add, op_and
+from ...entities.formulas import Count, Min, RandomAmount, StatAmount, Sum
 from ...entities.selectors.accessors import ActiveTarget, CasterTile, FixedTileIds, Target
-from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+from ...entities.selectors.tiles import AdjacentTiles, AllAliveUnits, CanAddUnit, Caster
 from ...entities.selectors.units import (
     AdjacentUnits, AllDeadOrResurrectedUnits, And, Damageable, Enemies, Friends, Sub,
-    SurroundingEnemies, SurroundingUnits, Union, UnitSet, UnitsWithTrait, Unobscured
+    SurroundingEnemies, SurroundingUnits, Union, UnitSet, UnitsWithTrait, Unobscured, hero_units
 )
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
-from ...entities.triggers import HasTrait
+from ...entities.triggers import ActorHasTriggeredAbility, HasTrait
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.ability_variable_type import AbilityVariableType
 from ...entities.effect_type import EffectType
+from ...entities.triggered_ability_type import TriggeredAbilityType
 from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
-from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
-                        RANGED_BOOL_TRUE, TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
+                        RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions,
+                        _dynamic_rule_adaptive_strategy)
 from .targeting_rule import TargetingRule as TR
+from .behaviours.ai_control import PerformAIAction
 from .behaviours.combat import AttackWithAttackDamage, ChainLeftOverHitsAttackDamage
 from .behaviours.context import entities_from_state
-from .behaviours.effects import AddBondEffect, AddEffect
-from .behaviours.lifecycle import RemoveAllForcedAttackTargets, RemoveUnitFromItsTiles
+from .behaviours.effects import AddBondEffect, AddEffect, RemoveEffect
+from .behaviours.lifecycle import (RemoveAllForcedAttackTargets, RemoveUnitFromItsTiles,
+                                   TriggerAbility, TRIGGERED_ABILITY_BEHAVIOURS)
+from .behaviours.stats import AddStatOverrideEffect
 from .behaviours.summon import Spawn
+# #577 : le noeud (1) d'`AdaptiveStrategy` est l'APPELANT que la branche `Custom` de
+# `RelentlessMarch` attendait depuis #328 (cf. `_relentless_march_custom`). On importe le MIRROR
+# deja porte -- surtout pas un 2e port de `...RelentlessMarchAbility$$CreateBehaviour`.
+from ..operations.triggers.loki.relentless_march import (
+    hp_to_repair as rm_hp_to_repair, relentless_march_behaviour_tree as rm_behaviour_tree)
 from .loki import _pick_randomly_n
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.formulas import Difference, If as IfAmount
@@ -66,6 +78,298 @@ from ..components import StatsComponent
 
 if TYPE_CHECKING:
     from ..state import State
+
+
+# ============ AdaptiveStrategy (necroWarden « Makhotep », actif 1005) -- #577 =====================
+#
+# i2 : « Triggers <Relentless March> again for all adjacent Non-Character friendly units and makes
+#        them immediately take an action, dealing {minDmg}-{maxDmg} Damage per hit if they attack. »
+#
+# CATEGORIE REELLE : ce n'est PAS un « EFFECT/BUFF » -- c'est un ORDONNANCEUR. Le cast ne frappe
+# personne : il OVERRIDE l'Attack d'un set d'allies, les fait AGIR, puis retire l'override. QUATRE
+# mecaniques, comptees sur les quatre noeuds de l'`op_Addition` final (l'audit n'en voyait qu'une) :
+#   (1) re-declenchement CONDITIONNEL du passif `RelentlessMarch` du caster ;
+#   (2) override de stat ATTACK sur les allies adjacents NON-Character ;
+#   (3) action IA FORCEE, une par unite, sans consommer leur tour ;
+#   (4) retrait de l'override -- sur TOUS les allies non-Character du plateau, pas sur les seuls
+#       adjacents (le selecteur du (4) N'EST PAS celui du (2) : lu, pas suppose).
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$ExecuteBehaviour` --
+# transcription du decompile (build `rnca9r7q6c`), dans l'ORDRE de la chaine `op_Addition` :
+#
+#     amount   = AActiveAbility.MinMaxDamage(this, abilityState, isPrediction: FALSE)
+#     targets  = GetNonCharacterFriendsSelector( DSLSelectors.AdjacentUnits(Caster@DSLSelectors+0x48,
+#                                                                          unique: 1, selType: 3) )
+#     everyone = GetNonCharacterFriendsSelector( AllAliveUnits@DSLSelectors+0x20 )
+#
+#     Execute(   DSLBehaviors.If( DSLTriggers.ActorHasTriggeredAbility(Caster@0x48, 0x3ec),
+#                                 DSLBehaviors.TriggerAbility(Caster@0x48, 0x3ec, actor: null,
+#                                     caster: null, target: null, unitFeetTiles: null,
+#                                     selectionType: 3, ignoreUnitHavingAbility: 0),
+#                                 else: null )
+#              + DSLBehaviors.AddStatOverrideEffect(targets, 0x3f4, statType: 0, amount,
+#                                                   turns: Nullable<int> VIDE, flag: 1)
+#              + DSLBehaviors.PerformAIAction(targets, asGroup: 0, resetTurnFlags: 1)
+#              + DSLBehaviors.RemoveEffect(everyone, Nullable<EffectType>(0x3f4),
+#                                          replaceableEffectType: null) )
+#
+# `...$$GetNonCharacterFriendsSelector(units)` (mirror 1:1, DEUX appels avec des sources DIFFERENTES) :
+#
+#     DSLSelectors.Friends(of: Caster@DSLSelectors+0x30, entities: units, selType: 3)
+#       op_Subtraction DSLSelectors.HeroUnits(units, selType: 3)
+#
+# QUALIFICATION D'ENUM -- les deux litteraux de ce corps vivent dans des enums DIFFERENTS, et leurs
+# ordinaux se ressemblent :
+#   * `0x3ec` = 1004 = `TriggeredAbilityType.RelentlessMarch` (le passif du MEME porteur, deja porte
+#     dans `operations/triggers/loki/relentless_march.py`). Dans `ActiveAbilityType`, 1004 nomme
+#     `MortisRound` -- une ability d'`ultraEliminatorSgt`, sans aucun rapport.
+#   * `0x3f4` = 1012 = `EffectType.AdaptiveStrategy_DmgOverride`. Dans `ActiveAbilityType`, 1012
+#     nomme `PrecisionShot_Aim` ; dans `TriggeredAbilityType`, `HeavyWeaponExtraDamage`.
+#   * `statType: 0` = `StatType.ATTACK` (LU : c'est le 4e parametre de la factory, transcrit dans
+#     `AddStatOverrideEffectBehaviour+0x64`).
+#
+# CE QUE CE PORT FERME. `relentless_march.py` section 3 nommait un residu : sa branche
+# `triggerType == EventTriggerType.Custom` (0x20) etait PORTEE mais SANS APPELANT cote port, parce
+# que 1005 n'etait pas dans `ABILITY_CLASSES`. Le noeud (1) ci-dessus EST cet appelant --
+# `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility` appelle
+# `ITriggeredAbility.ExecuteBy(ability, &abilityState, entities, 0x20)` avec le `0x20` EN DUR. D'ou
+# l'entree `TRIGGERED_ABILITY_BEHAVIOURS[RelentlessMarch]` plus bas.
+
+
+ADAPTIVE_STRATEGY_ID = "AdaptiveStrategy"
+#: `AddStatOverrideEffect(targets, 0x3f4, ...)` -- `EffectType`, PAS `TriggeredAbilityType`.
+ADAPTIVE_STRATEGY_OVERRIDE = int(EffectType.AdaptiveStrategy_DmgOverride)       # 0x3f4 = 1012
+#: `ActorHasTriggeredAbility(Caster, 0x3ec)` / `TriggerAbility(Caster, 0x3ec, ...)` --
+#: `TriggeredAbilityType`, PAS `ActiveAbilityType` (ou 1004 nomme `MortisRound`).
+ADAPTIVE_STRATEGY_RETRIGGER = int(TriggeredAbilityType.RelentlessMarch)         # 0x3ec = 1004
+#: `AActiveAbility$$MinMaxDamage` : `GetVariableForLevel(cfg@+0x60, 0xc)` / `(..., 0xd)`.
+ADAPTIVE_STRATEGY_MIN = AbilityVariableType.minDmg.name                        # 0xc = 12
+ADAPTIVE_STRATEGY_MAX = AbilityVariableType.maxDmg.name                        # 0xd = 13
+#: le 7e argument de la factory (`AddStatOverrideEffectBehaviour+0x78`), LITTERAL `1`. Le decompile
+#: nomme ce parametre `isHidden` ; le port a trace son usage jusqu'a `SetOverride(value, modifiable)`
+#: (cf. `behaviours/stats.py::AddStatOverrideEffect`) -- on transcrit le littéral, pas le nom.
+ADAPTIVE_STRATEGY_OVERRIDE_FLAG = True
+#: `PerformAIAction(targets, asGroup: 0, resetTurnFlags: 1)` -- les DEUX booleens sont LUS.
+ADAPTIVE_STRATEGY_AS_GROUP = False
+ADAPTIVE_STRATEGY_RESET_TURN_FLAGS = True
+
+
+def non_character_friends_selector(units: TargetsSelector) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$
+    GetNonCharacterFriendsSelector(units)` -- MIRROR 1:1, et c'est une FACTORY de composition (le
+    natif n'alloue aucun selecteur dedie) :
+
+        Friends(of: Owner@DSLSelectors+0x30, entities: units, selType: 3)
+          op_Subtraction HeroUnits(units, selType: 3)
+
+    « Non-Character » du tooltip == « pas le trait `Hero` » : `DSLSelectors$$HeroUnits(src, selType)`
+    DELEGUE litteralement a `UnitsWithTrait(src, 0x10 = UnitTrait.Hero, selType)` (d'ou le helper
+    `hero_units` deja porte, et sa docstring, qui cite CE call-site).
+
+    ⚠ LE MEME arbre `units` est repris DES DEUX COTES de la soustraction, comme le natif reprend le
+    meme argument -- il est donc evalue deux fois, exactement comme lui. C'est la MEME forme que la
+    branche `Custom` de `relentless_march_targets`, ce qui en dit le sens : rejoue par
+    `AdaptiveStrategy`, `RelentlessMarch` ne beneficie qu'aux allies NON-Character.
+
+    Le referent du `Friends` est LU (`DSLSelectors+0x30` = Owner) et non suppose : pour une ACTIVE,
+    `entities_from_state(state, caster_id, ...)` pose `owner == caster`, d'ou `Caster()`.
+
+    `selType = 3` (`UnitSelectionType.OnlyAliveAndTargetable`) : le port n'honore que le volet ALIVE
+    (meme residu nomme que `relentless_march.py`)."""
+    return Sub(Friends(units, Caster()), hero_units(units))
+
+
+def adaptive_strategy_targets() -> TargetsSelector:
+    """Le selecteur du (2) et du (3) : `GetNonCharacterFriendsSelector(AdjacentUnits(Caster@0x48))`.
+
+    `DSLSelectors$$AdjacentUnits(origin, unique, selType)` = `Units(AdjacentTiles(origin), unique,
+    selType) op_Subtraction origin` -- l'origine est EXCLUE de sa propre selection, et ce selecteur
+    ne filtre AUCUNE equipe (c'est le `Friends` au-dessus qui le fait). `unique = 1` est sans effet
+    observable (une unite = une position)."""
+    return non_character_friends_selector(AdjacentUnits(Caster()))
+
+
+def adaptive_strategy_cleanup_targets() -> TargetsSelector:
+    """Le selecteur du (4) : `GetNonCharacterFriendsSelector(AllAliveUnits@DSLSelectors+0x20)`.
+
+    ⚠ CE N'EST PAS LE SELECTEUR DU (2), et l'ecart est OBSERVABLE : le `RemoveEffect` balaie TOUS les
+    allies non-Character VIVANTS du plateau, pas les seuls adjacents. Un allie non-Character qui
+    porterait encore un `AdaptiveStrategy_DmgOverride` d'un cast anterieur -- ou qui a quitte
+    l'adjacence entre la pose et le retrait, l'action IA du (3) pouvant le DEPLACER -- est nettoye
+    par ce noeud et ne l'aurait pas ete par celui du (2). Recopier le selecteur du (2) ici aurait
+    laisse un override colle, c'est-a-dire une unite dont l'Attack reste ecrasee pour le reste de la
+    bataille.
+
+    `AllAliveUnits` = le champ PARTAGE `DSLSelectors+0x20` (`EntityPool.AliveUnits`), surtout pas
+    `AllUnits` (`EntityPool.AllUnits`, morts inclus) : les deux corps natifs ne different que par le
+    litteral d'`EntityPool`, et le port distingue les deux primitives depuis #514."""
+    return non_character_friends_selector(AllAliveUnits())
+
+
+def adaptive_strategy_tree(amount: AAmountFormula) -> Seq:
+    """`...AdaptiveStrategyAbility$$ExecuteBehaviour` -- MIRROR 1:1 de la chaine `op_Addition`, dans
+    l'ordre du decompile (`ifB + statB + aiB + remB`) :
+
+        If( ActorHasTriggeredAbility(Caster, 0x3ec), TriggerAbility(Caster, 0x3ec) )
+      + AddStatOverrideEffect(targets, 0x3f4, ATTACK, amount, turns: VIDE, flag: 1)
+      + PerformAIAction(targets, asGroup: 0, resetTurnFlags: 1)
+      + RemoveEffect(everyone, 0x3f4)
+
+    ⚠ L'ORDRE EST LOAD-BEARING, et il ne se devine pas : le (4) retire l'override que le (2) vient de
+    poser, APRES que le (3) a fait agir les unites. C'est un buff STRICTEMENT TRANSITOIRE -- le meme
+    patron net-zero que `TheQuickening` (0x510) et `GalvanicField` (1242), sauf que l'action
+    intercalee n'est pas une attaque libre mais un TOUR D'IA COMPLET.
+
+    ⚠ `turns` = un `Nullable<int>` VIDE (le decompile passe 8 octets a zero, pas un `Direct(n)`) ->
+    `duration_rounds=None, duration_turns=None` : aucun override de duree, la duree vient de
+    `DefaultAmountOfRounds` -- ce que fait deja `_resolve_duration`. Ne PAS ecrire `duration_turns=1`
+    ici : le (4) est le retrait REEL, une duree inventee le doublerait.
+
+    `amount` est le noeud MONTANT, PARESSEUX -- pas une constante : la feuille le `Calculate` UNE FOIS
+    PAR UNITE, avec le sujet lie (`param_3[4] = current` du natif). Un `RandomAmount` y consomme donc
+    UN tirage PAR CIBLE, exactement comme le natif. C'est pourquoi ce port ne resout pas le montant
+    en amont (contraste `relentless_march`, dont le natif appelle `GetVariableForLevel` puis
+    `DSLFormulas$$Direct` AVANT de batir l'arbre).
+
+    ⚠ La feuille du (3) est `PerformAIAction`, PAS `PerformAIAttack` : le natif fait agir chaque
+    unite par une passe de DECISION complete (`AiControl$$ExecuteFor(unit)`), qui peut la faire se
+    DEPLACER, caster une ability, ou ne rien faire -- « if they attack » du tooltip est une
+    CONDITION, pas une garantie. `resetTurnFlags = 1` : les flags de tour sont sauvegardes, effaces,
+    puis restaures -> l'unite agit meme si elle avait deja fini son tour, et cette action
+    supplementaire ne le consomme pas."""
+    targets = adaptive_strategy_targets()
+    # `op_add` chaine A GAUCHE, comme le decompile : `((ifB + statB) + aiB) + remB`. `Seq` est
+    # binaire cote port, exactement comme `CombinedBehaviour` (left@0x50, right@0x58) cote natif.
+    tree = op_add(IfBehaviour(ActorHasTriggeredAbility(Caster(), ADAPTIVE_STRATEGY_RETRIGGER),
+                              TriggerAbility(Caster(), ADAPTIVE_STRATEGY_RETRIGGER)),
+                  AddStatOverrideEffect(targets, ADAPTIVE_STRATEGY_OVERRIDE, int(StatType.ATTACK),
+                                        amount,
+                                        name=EffectType.AdaptiveStrategy_DmgOverride.name,
+                                        duration_rounds=None, duration_turns=None,
+                                        is_modifiable=ADAPTIVE_STRATEGY_OVERRIDE_FLAG))
+    tree = op_add(tree, PerformAIAction(targets, as_group=ADAPTIVE_STRATEGY_AS_GROUP,
+                                        reset_turn_flags=ADAPTIVE_STRATEGY_RESET_TURN_FLAGS))
+    return op_add(tree, RemoveEffect(ADAPTIVE_STRATEGY_OVERRIDE,
+                                     adaptive_strategy_cleanup_targets()))
+
+
+def _relentless_march_custom(state: "State", unit_id: int, entities, ectx):
+    """Entree de `TRIGGERED_ABILITY_BEHAVIOURS[RelentlessMarch]` -- le bout de chaine du noeud (1).
+
+    Le natif : `TriggerAbilityBehaviour$$Execute` resout ses cibles puis appelle, par unite,
+    `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility`, dont le corps fait
+    `ITriggeredAbility.ExecuteBy(ability, &abilityState, entities, 0x20)` -- le `0x20` =
+    `EventTriggerType.Custom` est EN DUR dans l'Operation, ce n'est pas un parametre du DSL. C'est
+    donc la branche `Custom` de `...RelentlessMarchAbility$$CreateBehaviour` qui s'execute, celle qui
+    SOUSTRAIT les `HeroUnits` -- et c'est ce que `relentless_march.py` section 3 annonce depuis #328
+    comme « portee, sans appelant cote port ». Ce module EST l'appelant.
+
+    `unit_id` = l'unite DECLENCHEE (ici le caster de 1005, seule cible du `TriggerAbility`) : c'est
+    elle qui devient l'OWNER de la triggered, exactement comme `ExecuteBy` prend l'`abilityState` de
+    l'entite iteree. On re-materialise donc `entities_from_state(state, unit_id, None)` plutot que de
+    reutiliser l'`entities` du cast -- le natif reconstruit lui aussi son `AbilityEntities` depuis
+    les quatre selecteurs du `TriggerAbilityBehaviour`, qui sont tous NULS ici (`actor`, `caster`,
+    `target`, `unitFeetTiles` = 0 au call-site).
+
+    Le gate « l'unite porte-t-elle 1004 » est deja applique EN AMONT, deux fois et par deux artefacts
+    natifs distincts : le predicat `ActorHasTriggeredAbility` du `If` (noeud (1)) et le
+    `GetAbilityState` de l'Operation (`_unit_has_triggered_ability`, feuille `TriggerAbility`)."""
+    amount = rm_hp_to_repair(state, int(unit_id))
+    ents = entities_from_state(state, int(unit_id), None)
+    rm_behaviour_tree(amount, int(EventTriggerType.Custom)).execute(ents, ectx)
+    return {"passive": "RelentlessMarch", "owner": int(unit_id), "amount": int(amount),
+            "trigger_type": int(EventTriggerType.Custom)}
+
+
+TRIGGERED_ABILITY_BEHAVIOURS[ADAPTIVE_STRATEGY_RETRIGGER] = _relentless_march_custom
+
+
+class AdaptiveStrategyAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$ExecuteBehaviour`
+    (id 1005, `necroWarden` « Makhotep », Necrons, HERO, dans le pool rank 17) -- cf. le bloc
+    d'en-tete de section pour la transcription du decompile et les QUATRE mecaniques.
+
+    Cast UNIT-TARGET sur un ALLIE ADJACENT NON-HERO. L'arbre, lui, ne lit PAS la cible : il part du
+    CASTER (`AdjacentUnits(Caster@DSLSelectors+0x48)`). La cible ne sert qu'au GATE -- ce qui est
+    coherent avec `isSelfCasting = 1` (cf. `TARGETING_OPTIONS` ci-dessous), puisque
+    `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget` rabat alors le role `target` sur le
+    CASTER avant de construire l'`AbilityEntities`.
+
+    ⚠ CONFRONTABILITE, et c'est une CONSEQUENCE DU GATE, pas un defaut de montage : le refus
+    dynamique est `HasTrait(target, Hero) -> TargetMatchesDynamicRule`, et en bataille de lineup
+    TOUTE unite deployee porte `Hero`. Le cast n'a donc AUCUNE cible legale tant qu'il n'y a pas un
+    allie NON-Hero adjacent -- un SUMMON, un `Object`, une unite greffee sans le trait. C'est
+    exactement la divergence que `_dynamic_rule_adaptive_strategy` (`abilities/targeting.py`)
+    documente et mesure (`C1_02`/seed 28704 : natif `targetReason = TargetMatchesDynamicRule` +
+    `UnitFlag.NoActionAvailable` POSE). La regle vit desormais SUR CETTE CLASSE (contrat de
+    disjonction), et `DYNAMIC_TARGET_RULE_UNPORTED` ne la porte plus.
+
+    Renvoie {ability, caster, target, retriggered, overrides, actions, cleaned, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.AdaptiveStrategy)        # 0x3ed = 1005
+    ABILITY_ID = ADAPTIVE_STRATEGY_ID
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$.ctor` :
+    #     range = <TargetingRange statics+0x30> = RANGE_ADJACENT        (copie de 0x18 octets)
+    #     TargetingOptions..ctor(&opts, isSelfCasting=1, &range, forceMeleeTarget=1,
+    #                            rules=0x402, getDynamicInvalidCasterReason=0,
+    #                            getDynamicInvalidTargetReason=0)
+    #     AActiveAbility..ctor(this, &opts, 2)                          # AbilityAttackType.Others
+    # FORME DIRECTE a 7 arguments (surcharge `(this, isSelfCasting, range, forceMeleeTarget, rules,
+    # getDynamicInvalidCasterReason, getDynamicInvalidTargetReason)`, tranchee par l'ADRESSE du call)
+    # -> le litteral EST le masque effectif, aucun preset, aucun `|` de flags additionnels.
+    #   0x402 = TargetMatchesDynamicRule (1<<1) | TargetIsFriendly (1<<10)  -- somme EXACTE, 0 residu
+    #   forceMeleeTarget = 1 = RangedBool.False (l'enum natif est INVERSE)
+    # ⚠ Les DEUX derniers arguments du ctor sont NULS : le delegue de regle dynamique n'est PAS pose
+    # a `options+0x38` par le ctor. C'est le slot VIRTUEL `GetDynamicInvalidTargetReason` de la
+    # sous-classe qui porte la regle -- d'ou la surcharge de methode ci-dessous, et non une entree de
+    # table. Le masque etait DEJA lu et vivait dans `TARGETING_OPTIONS_UNPORTED` ; il a ete RE-LU au
+    # decompile avant migration et est bit-identique (contrat de disjonction, #577).
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsFriendly
+    ), self_cast=True, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...AdaptiveStrategyAbility$$GetDynamicInvalidTargetReason` -- le corps natif tient en une
+        ligne (`return HasTrait(target, 0x10 = UnitTrait.Hero) ? 2 : 0`). Il n'a QU'UN mirror, celui
+        d'`abilities/targeting.py`, que cette surcharge APPELLE : #577 deplace la SOURCE (table ->
+        classe, contrat de disjonction), jamais la valeur, et surtout ne la duplique pas."""
+        return _dynamic_rule_adaptive_strategy(state, caster_id, target_id)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        e = state.get_entity(caster_id)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        ctx = getattr(sc, "ctx", None) if sc is not None else None
+        lvl = getattr(ctx, "active_ability_level", None) if ctx is not None else None
+        mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
+        # `AActiveAbility$$MinMaxDamage(this, abilityState, isPrediction: FALSE)` =
+        # `DSLFormulas.RandomAmount( GetVariableForLevel(cfg@+0x60, 0xc = minDmg),
+        #                            GetVariableForLevel(cfg@+0x60, 0xd = maxDmg) )`.
+        # Les DEUX bornes sont rarity-scale (`variablesAffectedByRarityBonus` = [minDmg, maxDmg]),
+        # ce que `ability_var` gate sur cette meme liste. Le RNG est un CHAMP du noeud cote natif
+        # (`RandomAmount+0x20`, pose par la factory depuis `DSLFactory+0x18`) -> il se passe au
+        # CONSTRUCTEUR, jamais par le contexte. `state.rng` absent -> le noeud rend sa borne MIN
+        # (degradation deterministe deja documentee sur `RandomAmount`, aucun tirage consomme).
+        mn = int(ability_var(ADAPTIVE_STRATEGY_ID, ADAPTIVE_STRATEGY_MIN, lvl,
+                             multiplier_pct=mult) or 0)
+        mx = int(ability_var(ADAPTIVE_STRATEGY_ID, ADAPTIVE_STRATEGY_MAX, lvl,
+                             multiplier_pct=mult) or 0)
+        amount = RandomAmount(Const(mn), Const(mx), rng=state.rng)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        adaptive_strategy_tree(amount).execute(entities, ectx)
+        retriggered = next((p for n, p in ectx.emitted if n == "TriggerAbility"), None)
+        overrides = [{"unit": p["unit"], "amount": p["amount"]}
+                     for n, p in ectx.emitted if n == "AddStatOverrideEffect"]
+        actions = next((p for n, p in ectx.emitted if n == "PerformAIAction"), None)
+        cleaned = [{"unit": p.get("target"), "removed": p.get("removed")}
+                   for n, p in ectx.emitted if n == "RemoveEffect"]
+        return {"ability": ADAPTIVE_STRATEGY_ID, "caster": caster_id, "target": target_id,
+                "min": mn, "max": mx, "retriggered": retriggered, "overrides": overrides,
+                "actions": actions, "cleaned": cleaned, "dsl": True}
 
 
 def harbinger_pool_selector(range_val: int):

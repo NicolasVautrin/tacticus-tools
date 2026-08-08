@@ -805,11 +805,14 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   (#498), 1019 StormOfWrath (#499), 1038 FoulInfusion (#500) et 1141 OverwhelmingWrath (#503)
     #   ont MIGRE sur leur classe. Confondre les deux est ce qui a fait ecrire quatre chiffres faux
     #   en un jour : le second N'EST PLUS ECRIT ICI, il vit dans le BLOC GENERE de l'en-tete (#519).
-    # 1005 AdaptiveStrategy -- `...Active.Loki.AdaptiveStrategyAbility$$.ctor` :
-    #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x402, 0, 0)`.
-    ActiveAbilityType.AdaptiveStrategy: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly,  # 1005
-                           self_cast=True, range=RANGE_ADJACENT,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # 1005 AdaptiveStrategy : MIGRE vers `ABILITY_CLASSES` (#577) -- sa face COMBAT est desormais
+    #   portee (`abilities/necrons.py::AdaptiveStrategyAbility.TARGETING_OPTIONS`), donc le CONTRAT
+    #   DE DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile avant
+    #   migration et est bit-identique a celui qui vivait ici
+    #   (`.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x402, 0, 0)` -- surcharge a 7 arguments
+    #   `(isSelfCasting, range, forceMeleeTarget, rules, getDynamicInvalidCasterReason,
+    #   getDynamicInvalidTargetReason)`, tranchee par l'ADRESSE du call ; les DEUX delegues sont NULS,
+    #   la regle dynamique vient du slot VIRTUEL de la sous-classe).
     # 1019 StormOfWrath -- MIGRE (#499) sur
     #   `runner/abilities/ultramarines.py::StormOfWrathAbility.TARGETING_OPTIONS` avec sa face
     #   COMBAT (le noeud `ChainAbilityDamage`) ; contrat de disjonction ci-dessus. Valeurs
@@ -1942,7 +1945,9 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
 
 
 DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
-    ActiveAbilityType.AdaptiveStrategy: _dynamic_rule_adaptive_strategy,      # 1005
+    # 1005 AdaptiveStrategy : RETIREE (#577) -- meme forme que les cinq ci-dessous,
+    # `necrons.AdaptiveStrategyAbility` SURCHARGE desormais `get_dynamic_invalid_target_reason` et
+    # APPELLE `_dynamic_rule_adaptive_strategy` ci-dessus, qui reste l'UNIQUE mirror du corps natif.
     ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
     ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
     # 1204 LeadingTheCharge : RETIREE (#508) -- meme forme, `LeadingTheChargeAbility` SURCHARGE

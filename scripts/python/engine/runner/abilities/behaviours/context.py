@@ -11,6 +11,9 @@ from ...components import (OwnerComponent, PositionComponent, UnitComponent, Sta
 from ....entities.traits.unit_trait import (UnitTrait, has_trait, grand_alliance_trait_name,
                                             entity_trait_names)
 from ....entities.effects import effect_stat_mod_key
+# #577 : substrat de `ctx.has_triggered_ability` -- foyer UNIQUE du kit declenche d'une ENTITE
+# (tri-etat mesure/repli documente sur la fonction). Feuille enum, aucun cycle.
+from ....entities.triggered_ability_type import entity_triggered_ability_ids
 from ....entities.stats import StatPart as _SP, StatType as _ST
 from ....entities.stats import StatType as _ST
 from ....utilities.tile import sort_tiles_by_utility as _stbu, runner_tile_leaf_ctx
@@ -518,6 +521,21 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # (charge consommee hors cooldown, ou en cooldown sous conditions de tour) ? C'est le predicat du
     # selecteur `UnitsThatCanHaveActiveAbilityReset` (InspiredToGreatness). None = INCONNU (canal
     # `ActiveAbilitiesComponent` absent) -> propage, jamais rabattu sur False.
+    # `ctx.has_triggered_ability` (`IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(unit,
+    # type)`, dont le corps relu est `GetComponent<TriggeredAbilityComponent>()?.TryGetAbility(type)`)
+    # : l'unite PORTE-t-elle cette triggered-ability ? Lu par le predicat
+    # `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#577).
+    # Substrat = `entity_triggered_ability_ids` -- le FOYER UNIQUE du kit declenche, le MEME que lit
+    # le gate `GetAbilityState` de `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$
+    # TriggerAbility` (`behaviours/lifecycle.py::_unit_has_triggered_ability`). Composant absent ->
+    # repli kit gameconfig, deja porte par le foyer (tri-etat documente la-bas).
+    def _has_triggered_ability(unit, triggered_ability_type):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(int(uid)) if uid is not None else None
+        sc = e.get_component(StatsComponent) if e is not None else None
+        ctx = getattr(sc, "ctx", None) if sc is not None else None
+        return int(triggered_ability_type) in set(entity_triggered_ability_ids(ctx))
+
     def _can_have_active_ability_reset(unit):
         uid = (unit or {}).get("id")
         if uid is None:
@@ -673,6 +691,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       has_effect=_has_effect, effects_from_source=_effects_from_source, children=[],
                       has_negative_modifier=_has_negative_modifier,
                       is_in_team_aura=_is_in_team_aura,
+                      has_triggered_ability=_has_triggered_ability,
                       can_have_active_ability_reset=_can_have_active_ability_reset,
                       entity_can_be_repaired=_entity_can_be_repaired,
                       entity_can_be_healed=_entity_can_be_healed,

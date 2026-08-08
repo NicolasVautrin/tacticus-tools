@@ -347,6 +347,18 @@ class DslContext:
     # `IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger` (`HasValue ? Value : false`).
     # Defaut None = coup hors serie / index inconnu -> le predicat rend False (mirror du `!HasValue`).
     is_first_hit: bool | None = None
+    # `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(unit, triggeredAbilityType)` =
+    # `unit.GetComponent<TriggeredAbilityComponent>()?.TryGetAbility(type)` -- le SEUL etage du
+    # predicat `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#577,
+    # la faute de frappe « Actort » est celle du binaire, conservee VERBATIM par la regle de citation).
+    # `has_triggered_ability(unit, triggered_ability_type) -> bool`. Defaut None (accesseur non
+    # branche = contexte hors runner) -> le noeud rend False : degradation NOMMEE par le noeud, du
+    # cote qui n'invente aucun declenchement. Fourni par `entities_from_state`, qui delegue au foyer
+    # UNIQUE du substrat `entities/triggered_ability_type.py::entity_triggered_ability_ids` -- le
+    # MEME que lit le gate `GetAbilityState` de `IdunBattle.Operations.
+    # TriggerTriggeredAbilityOperation$$TriggerAbility` (`behaviours/lifecycle.py`). Deux artefacts
+    # natifs distincts, un seul recensement du kit declenche.
+    has_triggered_ability: object | None = None
     # Verdict `IdunBattle.Core.Services.BattleQuery$$EntityCanHaveActiveAbilityReset(unit, false)` --
     # consomme par le selecteur `UnitsThatCanHaveActiveAbilityReset` (InspiredToGreatness).
     # `can_have_active_ability_reset(unit) -> bool | None` ; None = verdict INCONNU (canal

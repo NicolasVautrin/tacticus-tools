@@ -198,8 +198,14 @@ def test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE(tmp_path, capsys):
     # ligne d'attestation pour faire taire le rouge. Les quatre premiers viennent de #337, les trois
     # `get_*` de #459 (identification des slots `CasterTile`/`TargetTile`, et la preuve que le natif
     # n'a PAS de slot `OwnerTile`).
+    # ⚠ IL PEUT AUSSI DECROITRE, et c'est le sens SAIN : `ActorHasTriggeredAbility` en est SORTI
+    # (#577) parce que son unique consommateur natif -- `AdaptiveStrategyAbility$$ExecuteBehaviour`,
+    # active 1005 -- est entre dans `ABILITY_CLASSES`, donc l'arbre porte CONSTRUIT desormais le
+    # noeud. Une mention documentaire qui devient un PORT change de colonne dans la table
+    # d'attestation ET ici, dans le MEME commit -- et l'assertion suivante verifie qu'elle a bien
+    # change de colonne, au lieu d'avoir simplement disparu de la table.
     lus = {r[1] for r in trig if r[6].startswith("attestation:") and r[5] == "NON_PORTE"}
-    assert lus == {"ActorHasTriggeredAbility", "Direct", "IsFirstHitGroupInAttack",
+    assert lus == {"Direct", "IsFirstHitGroupInAttack",
                    "IsInTeamSynapseRange",
                    "get_CasterIsCasterTile", "get_OwnerIsTargetTile", "get_OwnerTileIsTarget"}, lus
 
@@ -207,3 +213,8 @@ def test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE(tmp_path, capsys):
     porte = {r[1] for r in trig if r[5] in ("PORTE", "PORTE_ALIAS_FACADE", "PORTE_HORS_FACADE")}
     assert {"get_OwnerIsCaster", "get_OwnerIsTarget", "get_OwnerIsActor",
             "TriggeringAbilityIs"} <= porte
+    # L'AUTRE PORTE du mouvement ci-dessus : sorti de `lus`, le noeud doit etre atteste PORTE --
+    # sans cette ligne, faire DISPARAITRE sa ligne de la table suffirait a faire taire le rouge.
+    assert "ActorHasTriggeredAbility" in porte, (
+        "ActorHasTriggeredAbility n'est plus NON_PORTE mais n'est pas atteste PORTE non plus : "
+        "sa ligne a-t-elle ete SUPPRIMEE de `docs/rl/dsl-port-attestations.tsv` ?")
