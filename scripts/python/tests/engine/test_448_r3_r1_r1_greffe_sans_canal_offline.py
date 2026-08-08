@@ -34,10 +34,17 @@ import probe_448_r3_r1_r1_greffe_sans_canal as P                      # noqa: E4
 
 # ─────────────────────────────────────────── etage 1 : le recensement est a zero
 
-def test_aucun_site_greffeur_sans_canal():
+@pytest.fixture(scope="module")
+def mesure_corpus():
+    """UNE seule mesure pour tout le fichier. Elle indexe 2287 fichiers (`ast.parse` de tout
+    `scripts/python`) : la payer par test ferait de chaque garde ajoutee un cout de ~90 s."""
+    return P.measure(PYDIR)
+
+
+def test_aucun_site_greffeur_sans_canal(mesure_corpus):
     """CLIQUET. Tout site `load_state` d'un fichier qui GREFFE doit alimenter le canal --
     `ability_states=<payload>`, transport ambiant lie, ou ambiant herite de `tests/conftest.py`."""
-    m = P.measure(PYDIR)
+    m = mesure_corpus
     amputes = [r for r in m["rows"]
                if not r["couvert"] and r["regime"] not in ("refused", "indirect")]
     indet = [r for r in m["rows"] if r.get("indirect") and not r["couvert"]]
@@ -47,6 +54,68 @@ def test_aucun_site_greffeur_sans_canal():
         [(P.rel(r["file"]), r["line"]) for r in amputes],)
     assert not indet, "sites INDETERMINES (greffe ici, `load_state` ailleurs, aucun ambiant) : %s" % (
         [P.rel(r["file"]) for r in indet],)
+
+
+def test_le_jeu_de_lieurs_reste_un_ensemble_de_CHEMINS(mesure_corpus):
+    """#448-r5 -- GARDE STRUCTURELLE contre le retour de l'aplatissement.
+
+    La fermeture arriere des appelants du foyer de liaison porte sur des noeuds `(module, fn)`.
+    La version #448-r3-r1-r1 la reduisait a ses seuls NOMS TERMINAUX avant de s'en servir --
+    `main`, `run`, `mesure` en font partie --, si bien que **37 SUSPECTS sur 37** etaient declares
+    « lient l'ambiant » (1526 fichiers sur 2287 a l'echelle du corpus). Garder le TYPE du jeu est
+    ce qui empeche la reecriture de revenir : un ensemble de `str` ne peut pas contenir un `Path`.
+
+    NB -- la degradation serait desormais dans le sens SUR ; `path in {<noms>}` est toujours faux,
+    donc un retour aux noms nus rendrait le probe ROUGE, pas silencieux."""
+    m = mesure_corpus
+    lieurs = m["lieurs_qualifies"]
+    assert lieurs, "aucun fichier lieur : la fermeture du foyer ne visite plus rien"
+    assert all(isinstance(p, Path) for p in lieurs), (
+        "le jeu de lieurs doit etre des CHEMINS, pas des noms : %r" % (lieurs[:5],))
+    assert all(p.exists() for p in lieurs), "des lieurs hors corpus : %r" % (lieurs[:5],)
+    # La fermeture QUALIFIEE compte plus de noeuds que de fichiers -- si l'inverse arrivait, c'est
+    # qu'on aurait recommence a compter autre chose que des `(module, fn)`.
+    assert m["n_reach_bind"] >= len(lieurs), (
+        "%d noeuds pour %d fichiers lieurs" % (m["n_reach_bind"], len(lieurs)))
+
+
+def test_un_HOMONYME_ne_fait_pas_un_lieur():
+    """#448-r5 -- LE TEMOIN, et il MORD.
+
+    Couple synthetique : `mutant_vrai_lieur.mesure` lie l'ambiant (donc le nom `mesure` entre dans
+    la fermeture), `mutant_faux_lieur.mesure` porte le MEME NOM et ne lie rien -- il greffe puis
+    charge a canal muet. Le test assertionne les DEUX cotes : que le critere APLATI de `master`
+    blanchissait ce fichier, et que le critere QUALIFIE l'accuse. Sans le premier volet, le temoin
+    ne prouverait pas que le gisement existait ; sans le second, qu'il est ferme."""
+    import ast
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        (base / "mutant_vrai_lieur.py").write_text(P.MUTANT_VRAI_LIEUR, encoding="utf-8")
+        (base / "mutant_faux_lieur.py").write_text(P.MUTANT_FAUX_LIEUR, encoding="utf-8")
+        idx = P.index(P.corpus(base), base)
+        reach_bind = P.reaching(idx["graph"],
+                                {("engine.runner.snapshot", b) for b in P.BINDERS})
+        lieurs = {p for p, m in idx["mods"].items()
+                  if any((m, fn) in reach_bind for fn in idx["per_file"].get(p, {}))}
+        vrai, faux = base / "mutant_vrai_lieur.py", base / "mutant_faux_lieur.py"
+
+        # (1) le critere APLATI -- reproduit ici a l'identique -- blanchissait le faux lieur.
+        noms_nus = {n for _m, n in reach_bind}
+        assert "mesure" in noms_nus, (
+            "le montage du temoin ne reproduit plus la faute : `mesure` doit entrer dans la "
+            "fermeture par le VRAI lieur (noms=%r)" % (sorted(noms_nus),))
+        arbre = ast.parse(faux.read_text(encoding="utf-8"))
+        assert noms_nus & (P.called_names(arbre) | P.referenced_names(arbre)), (
+            "le critere APLATI ne blanchit plus le faux lieur : le temoin ne mord plus")
+
+        # (2) le critere QUALIFIE l'accuse, et reconnait toujours le vrai lieur.
+        assert vrai in lieurs, "le VRAI lieur n'est plus reconnu : le critere est devenu aveugle"
+        assert faux not in lieurs, "un HOMONYME redevient lieur : l'aplatissement est de retour"
+        assert not P.binds_ambient(faux, lieurs), (
+            "`binds_ambient` blanchit un fichier qui ne nomme ni n'atteint le foyer")
+        assert P.binds_ambient(vrai, lieurs)
 
 
 def test_les_primitives_divergentes_sont_derivees_et_non_vides():
