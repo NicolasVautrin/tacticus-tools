@@ -762,16 +762,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 22
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 19
     #       dont hors-bloc (tete de table) ..... 4
-    #       dont bloc du pool (#433-r4) ........ 18
+    #       dont bloc du pool (#433-r4) ........ 15
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
-    #       FLAGS-DIRECTS  ..................... 9
-    #       PRESET+FLAGS   ..................... 5
+    #       FLAGS-DIRECTS  ..................... 8
+    #       PRESET+FLAGS   ..................... 4
     #       PRESET-SEUL    ..................... 0
-    #       STATIC-COPY    ..................... 8
-    #       (somme = 22)
+    #       STATIC-COPY    ..................... 7
+    #       (somme = 19)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -819,7 +819,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `runner/abilities/loki/foul_infusion.py::FoulInfusionAbility.TARGETING_OPTIONS` avec sa face
     #   COMBAT ; contrat de disjonction ci-dessus. (Le `range` y reste un DELEGUE
     #   `TargetingRange$$CustomRange(GetRange)` -> `custom_range_func()`, portee non derivable.)
-    # 1039 RitesOfRestoration -- MIGRE (#855) sur
+    # 1039 RitesOfRestoration -- MIGRE (#564) sur
     #   `runner/abilities/sisterhood.py::RitesOfRestorationAbility.TARGETING_OPTIONS` avec sa face
     #   COMBAT (`op_BitwiseAnd(Heal, Resurrect)`) ; contrat de disjonction ci-dessus. Le masque a ete
     #   RE-LU au decompile avant migration et est bit-identique a celui qui vivait ici :

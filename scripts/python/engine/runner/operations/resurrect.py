@@ -6,7 +6,7 @@ Operation (en-dessous, impératif). Chaîne native : `IdunBattle.Entities.Behavi
 
   * gardes `IsDefeated(unit)` (une unité vivante n'est pas ressuscitée) ;
   * gate `battleQuery.<slot 0x31>` = `IdunBattle.Core.Services.BattleQuery$$CanBeResurrected(unit,
-    healType)` — AJOUTÉ par #855 (mirror : `abilities/attack_query.can_be_resurrected`). Il était
+    healType)` — AJOUTÉ par #564 (mirror : `abilities/attack_query.can_be_resurrected`). Il était
     ABSENT, et c'est le même mode de panne que #520 côté heal : l'Operation mutait sans consulter le
     gate, donc une cible `UnitFlag.PreventResurrect`, `UnitTrait.PermaDeath` ou du MAUVAIS
     `HealType` (mécanique sous un resurrect non-mécanique) revenait à la vie là où le natif
@@ -21,7 +21,7 @@ Operation (en-dessous, impératif). Chaîne native : `IdunBattle.Entities.Behavi
     (l'exécution du tour = couche IA/contrôleur, pas cette Operation) ;
   * SINON (`param_7 == 0`) → `processor.<slot 0x23>(unit, 1)` =
     `IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation$$Execute(unit, reverse: false)` —
-    l'autre moitié du même `if`, AJOUTÉE par #855. C'est littéralement le « and are unable to act on
+    l'autre moitié du même `if`, AJOUTÉE par #564. C'est littéralement le « and are unable to act on
     this turn » de l'i2 de `1039 RitesOfRestoration`, le SEUL call-site porté qui prenne cette
     branche (l'Ambush de `genestealer.py` passe `takesImmediateTurn = true`) ;
   * émet `On(UnitResurrected=0x2e=46)` → `unit_resurrected_triggers` → alimente G2 `BuffFriends` + G5 ré-arme.

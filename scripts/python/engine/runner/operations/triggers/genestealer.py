@@ -469,7 +469,7 @@ class EnvAmbushResurrectAbility(TriggeredAbility):
             # `heal_type = 2` : le LITTERAL du `Resurrect(...)` d'
             # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateBehaviour`
             # (5e argument de `IdunBattleLogic.Entities.DSLBehaviors$$Resurrect`), relu au decompile
-            # avec le gate `CanBeResurrected` de #855. C'est le `HealType` « aucun filtre » --
+            # avec le gate `CanBeResurrected` de #564. C'est le `HealType` « aucun filtre » --
             # `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType` ne branche que sur 0 et 1,
             # donc 2 laisse passer mecaniques ET non-mecaniques. Ecrit EXPLICITEMENT : le defaut de
             # l'Operation (0) restreindrait Ambush aux non-mecaniques, ce que le natif ne fait pas.

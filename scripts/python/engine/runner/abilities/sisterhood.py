@@ -981,7 +981,7 @@ class ThriceBlessedConflagrationAbility(ActiveAbility):
                 "rounds": rounds, "duration_turns": turns, "dsl": True}
 
 
-# ===================== RitesOfRestoration (Isabella `adeptHospitaller`, actif 1039) -- #855 =========
+# ===================== RitesOfRestoration (Isabella `adeptHospitaller`, actif 1039) -- #564 =========
 #
 # Indices de config lus au decompile d'`IdunBattleLogic.Entities.Abilities.Active.Loki.
 # RitesOfRestorationAbility$$ExecuteBehaviour` (membres NOMMES, jamais l'ordinal nu) :

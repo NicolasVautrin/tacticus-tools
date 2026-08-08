@@ -417,7 +417,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.ValkyrieStrike: AbilityAttackType.Others,  # 1018
     ActiveAbilityType.SupremeCommander: AbilityAttackType.Others,  # 1028
     ActiveAbilityType.RevitalizingMalignancy: AbilityAttackType.Others,  # 1037
-    # RitesOfRestoration (1039, adeptHospitaller « Isabella »), #855. Litteral RELU :
+    # RitesOfRestoration (1039, adeptHospitaller « Isabella »), #564. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. TRANSCRIT du ctor : l'arbre
     # ne fait AUCUN degat (soin + resurrection), mais c'est le litteral qui decide, pas le profil --
