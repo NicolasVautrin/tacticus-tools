@@ -194,6 +194,12 @@ class Spawn(AbilityBehaviour):
         vid = ((GC.ability(self.summon_ability) or {}).get("constants") or {}) \
             .get(self.unit_id_constant)
         tiles = self.tile_selector.evaluate(entities) or []
+        # Un selecteur MONO-ENTITE (`Target@0x60` de GrotTank) rend UNE entite, pas une liste : le
+        # natif la consomme via `IEnumerable`, donc elle vaut une sequence d'un element. Sans cette
+        # normalisation la boucle ci-dessous itererait les CLES du dict -> zero tuile, spawn
+        # SILENCIEUSEMENT absent (mode de panne mesure au premier passage de `probe_567`).
+        if isinstance(tiles, dict):
+            tiles = [tiles]
         if self.pick_n is not None:                       # fold `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(tiles, n)
             from ..loki.splash import _pick_randomly_n
             tiles = _pick_randomly_n(state, tiles, int(self.pick_n))
