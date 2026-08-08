@@ -24,6 +24,7 @@ from engine.playbook.scene import Scene, step_context as _step_context  # état 
 # `decision_view_seed_body` (canal `includeInactive`), UN SEUL foyer pour les deux faces.
 from engine.runner.snapshot import active_only_rows
 from ..services.machine_of_war_position import machine_of_war_position_for_player
+from ..services import current_player as _cp   # forme B (#359-r6) : foyer `current_player_team`
 from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names, has_trait
 from engine.utilities.move import UtilityMovementCase
 
@@ -573,14 +574,13 @@ def _current_player_team(dv: dict):
     `decisionView.units[].ctrl` est `IsControlledByCurrentPlayer` (invoque natif, cf.
     `projectUnitsFull`) : l'equipe d'une unite controlee EST celle du joueur courant. On prend la
     premiere ; `None` si aucune unite controlee n'est projetee (le predicat retombe alors sur
-    l'ignorance assumee, jamais sur une equipe devinee)."""
-    for u in (dv.get("units") or []):
-        if u.get("ctrl") and u.get("team") is not None:
-            return u.get("team")
-    for m in (dv.get("mows") or []):
-        if m.get("ctrl") and m.get("team") is not None:
-            return m.get("team")
-    return None
+    l'ignorance assumee, jamais sur une equipe devinee).
+
+    #359-r6 -- ADAPTATEUR DE SUBSTRAT, plus une re-ecriture de la regle : celle-ci vit desormais
+    dans `engine/services/current_player.py`, que `engine/playbook/prediction/abilities.py` partage.
+    Ce site ne garde que ce qui lui est propre : l'ORDRE de balayage (`units` puis `mows`) et le nom
+    sous lequel trois probes l'importent."""
+    return _cp.current_player_team(dv.get("units"), dv.get("mows"))
 
 
 def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: int,

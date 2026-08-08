@@ -22,6 +22,7 @@ from ...entities.effect_type import EffectType as _EffectType
 from ...entities.traits.unit_trait import (UnitTrait as _UnitTrait, has_trait as _has_trait,
                                            trait_name as _trait_name)
 from engine.services.damage_prediction import DamagePredictionResult
+from engine.services import current_player as _cp   # forme B (#359-r6) : foyer `current_player_team`
 
 
 def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_name, attack_pos=None,
@@ -1028,18 +1029,14 @@ def _current_player_team(scene):
     `ctrl` n'est mesuree -- le consommateur (`CurrentPlayerIsOfTeam`) rend alors False, jamais une
     equipe devinee.
 
-    ⚠ DUPLICATION ASSUMEE ET NOMMEE. Le foyer de cette derivation est
-    `engine.ai.context._current_player_team` (meme regle, meme tri-etat), mais il prend une
-    `decisionView` la ou on a une `Scene`, et surtout `engine.ai.context` IMPORTE deja ce module
-    (mesure : `import engine.ai.context` charge `engine.playbook.prediction.abilities` ; l'inverse
-    est faux). L'importer d'ici FERMERAIT donc un cycle, et l'unique reparation propre -- hisser la
-    derivation dans un module que ni l'un ni l'autre ne re-entre -- exige d'editer `ai/context.py`,
-    gele par une autre tranche en vol au moment de ce port. A RESORBER quand ce fichier se libere :
-    residu `#359-r6`."""
-    for u in (getattr(scene, "units", None) or []):
-        if u.get("ctrl") and u.get("team") is not None:
-            return u.get("team")
-    return None
+    #359-r6 -- LA DUPLICATION EST RESORBEE, ET PAS PAR UN IMPORT DIFFERE. La regle vit dans
+    `engine/services/current_player.py`, une FEUILLE PURE (zero import `engine.*`) que les deux
+    consommateurs partagent : c'est l'option (1) de la doctrine (DEPLACER), pas l'option (3).
+    Importer `engine.ai.context` d'ici aurait ferme un cycle -- mesure : `import engine.ai.context`
+    charge `engine.playbook.prediction.abilities`, l'inverse est faux --, mais le foyer, lui,
+    n'est dans la cascade de personne : `engine.services` etait DEJA traverse par les deux.
+    Ce site ne garde que l'adaptation de substrat (`Scene` -> lignes)."""
+    return _cp.current_player_team(getattr(scene, "units", None))
 
 
 def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_name, attack_pos=None):
