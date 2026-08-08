@@ -42,8 +42,10 @@
 // libérée.
 
 import {
-    class_get_methods, class_get_name, findClassAnywhere, findCtorByParamCount, findMethod,
-    fieldOffsetOr, method_get_name, method_get_param_count, methodParamClassName, readMsgClass, s,
+    class_get_methods, class_get_name, class_is_valuetype, findClassAnywhere,
+    findCtorByParamCount, findMethod, fieldOffsetOr, method_get_name, method_get_param_count,
+    method_get_return_type, methodParamClassName, readIl2cppString, readMsgClass, s,
+    type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
@@ -236,6 +238,72 @@ function argIl2cpp(v: unknown): NativePointer | Refus {
         + "construire demanderait de choisir une classe, donc de deviner." };
 }
 
+/** Décode la valeur de retour d'un `il2cpp_runtime_invoke`.
+ *
+ *  ⚠ POURQUOI CE CODE EXISTE. `IdunGameHud.UnitDeployment_TryPlaceUnitOnBoard(String,
+ *  Boolean) -> Boolean` s'exécutait SANS erreur et SANS effet : en jetant la valeur de
+ *  retour, on rendait « a refusé » et « a marché » INDISCERNABLES — exactement le vice
+ *  qu'on reproche à `uiClick`, reproduit dans notre propre outil.
+ *
+ *  ⚠ ET IL DIT CE QU'IL NE SAIT PAS LIRE. `runtime_invoke` rend un objet BOXÉ pour un type
+ *  valeur (charge utile à +0x10, cf. l'en-tête de 0x10 sur tout ValueType) ; les types que
+ *  la table ci-dessous ne couvre pas sortent en `decode: false` avec leur nom de type et le
+ *  pointeur brut. Inventer une lecture plausible serait pire que de ne rien rendre. */
+function decoderRetour(mi: NativePointer, res: NativePointer): Record<string, unknown> {
+    let nom = "?";
+    let estValeur = false;
+    // ⚠ `method_get_return_type` et `class_is_valuetype` sont des exports POSSIBLEMENT NULS
+    // (résolus par IIFE dans `helpers.ts` : l'export manque sur certains builds). Sans eux
+    // on ne PEUT pas nommer le type — on le DIT, on ne rend pas un type inventé.
+    const litType = method_get_return_type;
+    const estVT = class_is_valuetype;
+    if (!litType || !estVT) {
+        return { type: null, decode: false, objet: res.toString(),
+                 note: "type de retour NON MESURE : method_get_return_type / "
+                     + "class_is_valuetype absents de cette image" };
+    }
+    try {
+        const rt = litType(mi) as NativePointer;
+        const rc = type_get_class_or_element_class(rt) as NativePointer;
+        nom = s(class_get_name(rc) as NativePointer);
+        estValeur = (estVT(rc) as number) !== 0;
+    } catch { /* nom reste "?" */ }
+
+    if (nom === "Void") return { type: "Void", decode: true, valeur: null };
+    if (res.isNull()) return { type: nom, decode: true, valeur: null };
+
+    if (estValeur) {
+        const p = res.add(0x10);              // charge utile derriere l'en-tete de boxe
+        try {
+            switch (nom) {
+                case "Boolean": return { type: nom, decode: true, valeur: p.readU8() !== 0 };
+                case "Byte": return { type: nom, decode: true, valeur: p.readU8() };
+                case "SByte": return { type: nom, decode: true, valeur: p.readS8() };
+                case "Int16": return { type: nom, decode: true, valeur: p.readS16() };
+                case "UInt16": return { type: nom, decode: true, valeur: p.readU16() };
+                case "Int32": return { type: nom, decode: true, valeur: p.readS32() };
+                case "UInt32": return { type: nom, decode: true, valeur: p.readU32() };
+                case "Int64": return { type: nom, decode: true, valeur: p.readS64().toString() };
+                case "Single": return { type: nom, decode: true, valeur: p.readFloat() };
+                case "Double": return { type: nom, decode: true, valeur: p.readDouble() };
+                default: break;
+            }
+        } catch { /* tombe dans le non-decode */ }
+        return { type: nom, decode: false, boxe: res.toString(),
+                 note: "type valeur non couvert -- lire a +0x10 si besoin" };
+    }
+
+    if (nom === "String") {
+        try { return { type: nom, decode: true, valeur: readIl2cppString(res) }; }
+        catch { /* tombe dans le non-decode */ }
+    }
+    // Type reference : le POINTEUR est la seule chose vraie qu'on puisse rendre.
+    let classeReelle: string | null = null;
+    try { classeReelle = readMsgClass(res); } catch { /* garde null */ }
+    return { type: nom, decode: false, objet: res.toString(), classeReelle,
+             note: "type reference -- objet rendu par pointeur, non deserialise" };
+}
+
 export function register(ctx: Ctx): void {
     installCapture();
 
@@ -329,10 +397,13 @@ export function register(ctx: Ctx): void {
             args.push(a as NativePointer);
         }
         const avant = etatCourant();
-        invokeMethod(mr.info, obj, args.length ? args : null);
+        const res = invokeMethod(mr.info, obj, args.length ? args : null);
         return {
             ok: true, etat: avant, methode: nom, args: bruts.length, cible: cible ?? null,
             etatApres: etatCourant(),
+            // LA VALEUR DE RETOUR : sans elle, << a refuse >> et << a marche >> sont
+            // indiscernables (cf. l'en-tete de decoderRetour).
+            retour: decoderRetour(mr.info, res),
         };
     });
 

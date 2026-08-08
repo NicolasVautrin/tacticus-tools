@@ -138,11 +138,25 @@ UnitDeploymentState.OnUnitInHand(unitId, isMoW)
 Appelé DIRECTEMENT sur `_actions._hud`, `UnitDeployment_PutIntoHand("bloodDante")` faute de la
 même façon : le défaut est bien dans cette méthode, pas dans le relais.
 
-⚠ **Le voisin `IdunGameHud.UnitDeployment_TryPlaceUnitOnBoard(String, Boolean) -> Boolean`
-s'exécute SANS erreur — et sans effet** (puissance et entités inchangées). Il rend
-probablement `false`, mais **`fsmStateInvoke` jette la valeur de retour** : le prochain cran
-est de la publier, sans quoi « a refusé » et « a marché » sont indiscernables. C'est le même
-vice que celui qu'on reproche à `uiClick`.
+⚠ **`fsmStateInvoke` PUBLIE la valeur de retour — et le no-op silencieux était un REFUS.**
+`fsmStateInvoke` la jetait ; « a refusé » et « a marché » étaient donc indiscernables, le vice
+exact qu'on reproche à `uiClick`, reproduit dans notre propre outil. Une fois publiée :
+
+| appel | retour |
+|---|---|
+| `IdunGameHud.UnitDeployment_TryPlaceUnitOnBoard("bloodDante", false)` | **`Boolean false`** |
+| `…TryPlaceUnitOnBoard("zzBidon", false)` | `Boolean false` |
+| `UnitDeploymentState.RemoveAllDeployedUnits()` | `Void null` (témoin de décodage) |
+
+La pose **refuse**, elle n'échoue pas silencieusement. Cohérent avec l'alignement PLEIN
+(`PlayerPower` 1912587, 5/5) et avec le fait que `PutIntoHand` — l'étape qui libère la pose —
+est justement celle qui faute.
+
+Le décodeur lit la charge utile à `+0x10` de l'objet BOXÉ (en-tête de 0x10 sur tout
+ValueType), et **dit ce qu'il ne sait pas lire** : type non couvert ⇒ `decode: false` avec le
+nom du type et le pointeur brut, plutôt qu'une lecture plausible. Les deux exports
+`method_get_return_type` / `class_is_valuetype` étant POSSIBLEMENT NULS (résolus par IIFE dans
+`helpers.ts`), leur absence rend `type: null` + `NON MESURE` — jamais un type inventé.
 
 ⚠ **Et le `Start!` reste hors de portée par cette voie** : `StartBattle(List<System.String>)`
 prend un type COMPOSÉ, que `fsmStateInvoke` refuse volontairement (construire une `List<T>`
