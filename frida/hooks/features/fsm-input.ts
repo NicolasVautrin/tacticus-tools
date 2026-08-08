@@ -43,7 +43,7 @@
 
 import {
     class_get_methods, class_get_name, class_is_valuetype, findClassAnywhere,
-    findCtorByParamCount, findMethod, fieldOffsetOr, method_get_name, method_get_param_count,
+    findCtorByParamCount, findMethod, findMethodByParamCount, fieldOffsetOr, method_get_name, method_get_param_count,
     method_get_return_type, methodParamClassName, readIl2cppString, readMsgClass, s,
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
@@ -304,6 +304,91 @@ function decoderRetour(mi: NativePointer, res: NativePointer): Record<string, un
              note: "type reference -- objet rendu par pointeur, non deserialise" };
 }
 
+interface Cible { obj: NativePointer; klass: NativePointer }
+
+/** Suit un chemin `target` depuis un objet de départ. Deux formes de segment :
+ *
+ *    `champ`     DÉRÉFÉRENCE le champ (cherché sur la classe réelle puis ses parents)
+ *    `methode()` APPELLE une méthode sans paramètre et continue sur son résultat
+ *
+ *  ⚠ POURQUOI LE SEGMENT APPELANT EXISTE. Mesuré : `MenuSystems+0x188` est
+ *  `unitDeploymentHud : IMenu<UnitDeploymentHud>` — un WRAPPER. Le jeu obtient l'instance
+ *  concrète par un appel de propriété, pas par un champ de plus. Sans ce segment, la
+ *  traversée s'arrête sur le wrapper et tout ce qui vit derrière reste hors d'atteinte.
+ *
+ *  ⚠ ET ELLE REFUSE DE TRAVERSER UN TYPE VALEUR. `runtime_invoke` rend un objet BOXÉ pour un
+ *  type valeur ; en continuer la traversée lirait la classe de la BOÎTE et donnerait un
+ *  chemin plausible et faux. On refuse en le nommant. */
+function traverser(depart: Cible, chemin?: string): Cible | Refus {
+    let { obj, klass } = depart;
+    if (!chemin) return { obj, klass };
+    for (const brut of chemin.split(".")) {
+        const seg = brut.trim();
+        if (!seg) continue;
+        const nomClasse = (): string => {
+            try { return s(class_get_name(klass) as NativePointer); } catch { return "?"; }
+        };
+
+        if (seg.endsWith("()")) {
+            const nom = seg.slice(0, -2);
+            // ⚠ SÉLECTION PAR ARITÉ, PAS PAR NOM. Mesuré : `Menu<T>` porte DEUX `Get` —
+            // `Get()` et `Get(Transform)` — et `findMethod` rend la PREMIÈRE trouvée, ici
+            // la mauvaise. Un segment de chemin ne passe aucun argument : c'est donc
+            // l'arité 0 qu'on cherche, explicitement.
+            const mr = findMethodByParamCount(klass, nom, 0);
+            if (!mr) {
+                const parNom = findMethod(klass, nom);
+                return { ok: false, error: "segment appelant " + JSON.stringify(seg)
+                    + " : aucune surcharge SANS PARAMETRE de " + JSON.stringify(nom)
+                    + " sur " + nomClasse()
+                    + (parNom
+                        ? " (il en existe une a " + (method_get_param_count(parNom.info) as number)
+                          + " parametre(s), qu'un segment de chemin ne peut pas appeler)"
+                        : "")
+                    + " -- `fsmStateMethods` avec le meme `target` liste ce qui existe" };
+            }
+            // Un type valeur reviendrait BOXÉ : on ne traverse pas une boîte.
+            const litType = method_get_return_type;
+            const estVT = class_is_valuetype;
+            if (litType && estVT) {
+                try {
+                    const rc = type_get_class_or_element_class(
+                        litType(mr.info) as NativePointer) as NativePointer;
+                    if ((estVT(rc) as number) !== 0) {
+                        return { ok: false, error: "segment appelant " + JSON.stringify(seg)
+                            + " rend un TYPE VALEUR (" + s(class_get_name(rc) as NativePointer)
+                            + ") -- on ne traverse pas une boite ; lire la valeur par "
+                            + "`fsmStateInvoke` sans `target` au-dela" };
+                    }
+                } catch { /* on tente l'appel quand meme */ }
+            }
+            const res = invokeMethod(mr.info, obj, null);
+            if (res.isNull()) {
+                return { ok: false, error: "segment appelant " + seg + " sur " + nomClasse()
+                    + " a rendu NUL -- rien a traverser au-dela" };
+            }
+            obj = res;
+            klass = res.readPointer();
+            continue;
+        }
+
+        const off = fieldOffsetOr(klass, seg, -1);
+        if (off < 0) {
+            return { ok: false, error: "champ " + JSON.stringify(seg) + " absent de "
+                + nomClasse() + " ni de ses parents -- `classFields` liste les champs "
+                + "(un segment APPELANT s'ecrit `nom()`)" };
+        }
+        const svc = obj.add(off).readPointer();
+        if (svc.isNull()) {
+            return { ok: false, error: "champ " + seg + " (+0x" + off.toString(16) + ") de "
+                + nomClasse() + " est NUL -- le service n'est pas branche" };
+        }
+        obj = svc;
+        klass = svc.readPointer();
+    }
+    return { obj, klass };
+}
+
 export function register(ctx: Ctx): void {
     installCapture();
 
@@ -311,14 +396,22 @@ export function register(ctx: Ctx): void {
      *  On atterrit dans un état inconnu (`MovementTargetSelectedState`, `InspectTileState`,
      *  `MachineSelection.*`…), on demande ses méthodes et leurs paramètres, puis on appelle.
      *  Aucune connaissance d'écran n'est câblée ici. Read-only. */
-    ctx.rpc.fsmStateMethods = (): Promise<unknown> => queueOnMainThread(() => {
+    ctx.rpc.fsmStateMethods = (
+        body?: { target?: string },
+    ): Promise<unknown> => queueOnMainThread(() => {
         const e = objetEtat();
         if (!e) return { ok: false, error: "aucun etat courant (FSM non capture)" };
+        // MÊME `target` que `fsmStateInvoke` : sans ça, on ne peut pas DÉCOUVRIR le nom à
+        // appeler sur un objet qu'on vient d'atteindre — et un chemin appelant se réduirait
+        // à deviner un accesseur.
+        const t = traverser(e, body?.target);
+        if (estRefus(t)) return t;
+        const { klass } = t as Cible;
         const out: Array<{ nom: string; params: string[] }> = [];
         const iter = Memory.alloc(Process.pointerSize);
         iter.writePointer(ptr(0));
         for (;;) {
-            const mi = class_get_methods(e.klass, iter) as NativePointer;
+            const mi = class_get_methods(klass, iter) as NativePointer;
             if (mi.isNull()) break;
             const n = method_get_param_count(mi) as number;
             const params: string[] = [];
@@ -327,7 +420,8 @@ export function register(ctx: Ctx): void {
         }
         return {
             ok: true,
-            etat: s(class_get_name(e.klass) as NativePointer),
+            etat: s(class_get_name(klass) as NativePointer),
+            cible: body?.target ?? null,
             methodes: out.sort((a, b) => a.nom.localeCompare(b.nom)),
         };
     });
@@ -354,32 +448,10 @@ export function register(ctx: Ctx): void {
         const e = objetEtat();
         if (!e) return { ok: false, error: "aucun etat courant" };
 
-        let obj = e.obj;
-        let klass = e.klass;
         const cible = body?.target;
-        if (cible) {
-            // Chemin POINTÉ : un service tient lui-même des services. Mesuré —
-            // `StateMachineActions.UnitDeployment_PutUnitIntoHand` n'est qu'un relais vers
-            // `_hud` (`IIdunGameHud`), et `TryRemoveUnitFromBoard` un relais vers `_views`.
-            // Sans traversée, on ne peut ni les atteindre ni distinguer « le service est nul »
-            // de « la méthode faute ».
-            for (const seg of cible.split(".")) {
-                const off = fieldOffsetOr(klass, seg, -1);
-                if (off < 0) {
-                    return { ok: false, error: "champ " + JSON.stringify(seg) + " absent de "
-                        + s(class_get_name(klass) as NativePointer)
-                        + " ni de ses parents -- `classFields` liste les champs" };
-                }
-                const svc = obj.add(off).readPointer();
-                if (svc.isNull()) {
-                    return { ok: false, error: "champ " + seg + " (+0x" + off.toString(16)
-                        + ") de " + s(class_get_name(klass) as NativePointer)
-                        + " est NUL -- le service n'est pas branche" };
-                }
-                obj = svc;
-                klass = svc.readPointer();
-            }
-        }
+        const t = traverser(e, cible);
+        if (estRefus(t)) return t;
+        const { obj, klass } = t as Cible;
 
         const nom = body?.method || "";
         const mr = findMethod(klass, nom);

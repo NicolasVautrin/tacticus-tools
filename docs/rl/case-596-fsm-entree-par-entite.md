@@ -201,13 +201,54 @@ unit)`, `HandleOnUnitInHandTapped(widget, unit)`, `HasUnitInHand() -> Boolean` (
 manquant), `HandleOnRemoveAllHeroesPressed()` (= `Clear`),
 `HandleOnStartBattleTapped(Boolean)` (= `Start!`), `GetPlayerPower() -> Int32`.
 
-⚠ **L'instance est atteignable, mais pas encore par la traversée.** Le décompilé garde sur
-`IdunGameHud._menuSystems` (`+0x1a8`, `thor.Menu.MenuSystems`) puis sur son `+0x188` — et
-`classFields` nomme ce champ : **`unitDeploymentHud : IMenu<UnitDeploymentHud>`**. La
-traversée `_actions._hud._menuSystems.unitDeploymentHud` y arrive donc, mais s'arrête sur le
-WRAPPER `IMenu<T>` : le décompilé, lui, obtient l'instance concrète par un appel (propriété
-d'interface). Prochain cran de `target` : autoriser un segment qui APPELLE, pas seulement qui
-déréférence.
+## LE SEGMENT APPELANT — `target` traverse par APPEL, et le HUD est atteint
+
+`IdunGameHud._menuSystems` (`+0x1a8`, `thor.Menu.MenuSystems`) `+0x188` est
+`unitDeploymentHud : IMenu<UnitDeploymentHud>` — un **wrapper**. Un segment `nom()` appelle
+donc une méthode sans paramètre et continue sur son résultat :
+
+```
+target: "_actions._hud._menuSystems.unitDeploymentHud.Get()"   ->  UnitDeploymentHud (122 methodes)
+```
+
+⚠ **La sélection se fait par ARITÉ, pas par nom — et c'est mesuré, pas prudentiel.**
+`Menu<T>` porte DEUX `Get` (`Get()` et `Get(Transform)`), et `findMethod` rend la PREMIÈRE :
+la mauvaise. Le garde d'arité a refusé au lieu de mal appeler (« la methode prend 1
+parametre(s) »), et `findMethodByParamCount(klass, nom, 0)` l'a réparé. Un segment appelant
+qui rendrait un TYPE VALEUR est refusé aussi : on ne traverse pas une boîte.
+
+⚠ **`fsmStateMethods` prend le MÊME `target`.** Sans ça, on ne pourrait pas DÉCOUVRIR le nom
+à appeler sur un objet qu'on vient d'atteindre — un chemin appelant se réduirait à deviner un
+accesseur. C'est ainsi que `Get()` a été trouvé, pas supposé.
+
+## CE QUE ÇA A OUVERT, ET LE MUR QUI RESTE
+
+Deux **témoins natifs** remplacent enfin les libellés d'UI : `GetPlayerPower() -> Int32` et
+`HasUnitInHand() -> Boolean`.
+
+| appel sur `UnitDeploymentHud` | effet mesuré |
+|---|---|
+| `HandleOnRemoveAllHeroesPressed()` | ✅ `GetPlayerPower()` 1912587 → **0** |
+| `PutUnitIntoHand("bloodDante")` | ⚠ **faute — ET exécute quand même** : `HasUnitInHand()` False → **True** |
+| `EmptySpawnPointTapped()` | s'exécute, aucun effet |
+| `fsmTap` sur un spawn libre, unité EN MAIN | aucun effet |
+
+⚠ **`PutUnitIntoHand` est une TROISIÈME occurrence du handler PARTIELLEMENT exécuté** (après
+le `onClick.Invoke threw` du portrait qui montait quand même le `PreviewContainer`). Il faute,
+et il met malgré tout l'unité en main. Un échec rapporté n'est donc pas un échec réel — ici
+c'est même l'inverse du besoin : c'est en fautant qu'il fait ce qu'on lui demande.
+
+⚠ **`EmptySpawnPointTapped()` ne prend AUCUN paramètre** : c'est une NOTIFICATION émise par la
+vue du point de spawn, pas une commande de pose. Appelée à nu, elle n'a aucun hex à viser.
+C'est pourquoi elle ne fait rien, et ce n'est pas une panne.
+
+⚠ **LE MUR** : unité réellement en main (`HasUnitInHand() == True`), tuile de spawn LIBRE et
+vérifiée (`inspectSpawnPoints` ∩ `boardGraph`), `fsmTap` s'exécute — et rien. L'hypothèse
+restante, non testée : `OnFingerDownThisFrameInternal` n'attend peut-être pas l'entité TUILE
+mais l'entité du **point de spawn** (`FSM.Actions.SpawnPoints.ShowSpawnPoint` en fait des
+objets de vue distincts, et `InputEntityAdapter.GetEntityAtObject` mappe l'objet TOUCHÉ, pas la
+tuile sous-jacente). À trancher en hookant `OnFingerDownThisFrameInternal` pour LIRE ce que le
+jeu passe quand un humain clique — la seule voie qui ne suppose rien.
 
 Le décodeur lit la charge utile à `+0x10` de l'objet BOXÉ (en-tête de 0x10 sur tout
 ValueType), et **dit ce qu'il ne sait pas lire** : type non couvert ⇒ `decode: false` avec le
