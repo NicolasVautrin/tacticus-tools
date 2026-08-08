@@ -85,10 +85,21 @@ def _git(args, cwd=ROOT, tolere=False):
     return p.stdout
 
 
+#: ⚠ LE GARDE ANTI-RECURSION, ET IL N'EST PAS THEORIQUE -- IL A TOURNE.
+#: Ce cliquet lance `probe_457` en sous-process. Or `probe_457 --measure-missing` JOUE les
+#: fichiers de test sans entree d'empreinte, dont la GARDE de ce cliquet
+#: (`tests/test_547r1_mesure_missing_non_verdict_offline.py`), qui re-appelle ce cliquet, qui
+#: relance `probe_457`... Mesure du 2026-08-08 : **~150 processus chainés**, un toutes les 12 s,
+#: pendant 35 minutes, avant qu'un `taskkill /T` n'arrete l'arbre. Le sous-process porte donc
+#: cette variable, et la garde SAUTE ses etages a worktree quand elle la voit -- la recursion
+#: s'arrete au niveau 1, et les etages restent exerces quand le cliquet est joue normalement.
+TEMOIN_ENV = "TACTICUS_547R1_DANS_TEMOIN"
+
+
 def _joue_457(cwd, args):
     """Lance `probe_457` en SOUS-PROCESS : c'est son `rc` de PROCESSUS qu'on garde, pas un retour
     de fonction -- c'est ce que lisent `ratchets.ps1`, les briefs et l'orchestrateur."""
-    env = dict(os.environ, TACTICUS_ALLOW_RATCHETS="1")
+    env = dict(os.environ, TACTICUS_ALLOW_RATCHETS="1", **{TEMOIN_ENV: "1"})
     p = subprocess.run([sys.executable, "probe_457_offline_tests_green.py"] + list(args),
                        cwd=str(Path(cwd) / "scripts" / "python"), capture_output=True, text=True,
                        errors="replace", env=env)

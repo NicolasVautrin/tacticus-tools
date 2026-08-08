@@ -99,8 +99,23 @@ def test_EX_NON_MESURE_nest_ni_zero_ni_un():
 
 # --------------------------------------------------------- la CONTRE-EPREUVE, rejouee
 
+def _sauter_si_dans_un_temoin():
+    """⚠ TOUT test qui lance `probe_457` en SOUS-PROCESS doit passer par ici.
+
+    Ce fichier est joue PAR `probe_457` (il est dans son perimetre offline). Les etages 2, 3 et 4
+    du cliquet relancent `probe_457` : sans garde, chaque niveau rejoue ce fichier, qui relance un
+    niveau de plus. Mesure du 2026-08-08 : **~150 processus chaines**, un toutes les 12 s, 35
+    minutes durant, avant un `taskkill /T`. Le sous-process porte `TEMOIN_ENV` ; on saute ici, et
+    les etages restent exerces au niveau du dessus."""
+    import os
+    if os.environ.get(G.TEMOIN_ENV):
+        pytest.skip("joue DANS un sous-process de ce cliquet (%s=1) : relancer `probe_457` ici "
+                    "serait une recursion infinie -- exerce au niveau du dessus" % G.TEMOIN_ENV)
+
+
 def test_le_chemin_rien_a_mesurer_ne_rend_pas_zero():
     """Etage 2 du cliquet -- le chemin EXACT du `rc = 0` historique."""
+    _sauter_si_dans_un_temoin()
     assert G.etape2() == []
 
 
@@ -111,7 +126,15 @@ def test_le_temoin_reel_et_son_mutant(etage):
     etablit que c'est le correctif qui agit, et non le hasard du montage.
 
     ⚠ Ils jugent l'arbre COMMITE (worktree temoin depuis `HEAD`), comme `probe_547` juge le
-    ledger versionne."""
+    ledger versionne.
+
+    ⚠ ET ILS SAUTENT QUAND CE FICHIER EST DEJA JOUE **DANS** UN TEMOIN -- sinon la recursion est
+    infinie, et elle l'a ETE : ce test appelle un cliquet qui lance `probe_457`, lequel joue les
+    fichiers sans entree d'empreinte, dont CE fichier. Mesure du 2026-08-08 : ~150 processus
+    chaines, un toutes les 12 s, 35 minutes durant. Le skip est NOMME et ne masque rien -- les
+    autres tests du fichier restent joues (donc `passed > 0`, cf. le garde #455), et les deux
+    etages sont exerces des que le cliquet est joue normalement."""
+    _sauter_si_dans_un_temoin()
     assert (G.etape3() if etage == 3 else G.etape4()) == []
 
 
