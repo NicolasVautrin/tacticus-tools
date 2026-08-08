@@ -112,6 +112,9 @@ from ..loki.drachnyen import (DrachnyenExtraAttackAbility,            # #BL-1029
                               DRACHNYEN_ABILITY)
 from ..loki.doctrina_imperatives import (DoctrinaImperativesSetStartAbility,   # #521-r4
                                          DOCTRINA_IMPERATIVES_ACTIVE)          # (1118 -> 1201)
+from ..loki.calibanite_greatsword import (                                     # #521-r4 / #521-r7
+    CalibaniteGreatswordNormalAttackAdditionalDamageAbility,                   # (1189 -> 1316)
+    CALIBANITE_GREATSWORD_ACTIVE)
 from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
 from ..loki.heavy_warp_flamer import (HeavyWarpFlamerAttackTrackingAbility,       # #523-r1
                                       HeavyWarpFlamerAttackTrackingResetAbility)  # (1227 -> 1546)
@@ -668,9 +671,9 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 #   1070 BreathOfSilence       -> 1128 BreathOfSilence_SetStart                    (non porte)
 #   1118 DoctrinaImperatives   -> 1201 DoctrinaImperatives_SetStart                (non porte)
 #   1148 DaemonicOrdnance      -> 1244 DaemonicOrdnance_Crit                       (non porte)
-#   1189 CalibaniteGreatsword  -> 1316 CalibaniteGreatsword_NormalAttackAdditionalDamage (non porte)
+#   1189 CalibaniteGreatsword  -> 1316 CalibaniteGreatsword_NormalAttackAdditionalDamage <- PORTE (#521-r4)
 #   1195 TalonsOfTheEmperor    -> 1330 TalonsOfTheEmperor_UsedAbilities            <- PORTE (#521-r1)
-# Les cinq non portees restent registered-but-unported cote natif : no-op fidele, elles n'ont RIEN a
+# Les trois non portees restent registered-but-unported cote natif : no-op fidele, elles n'ont RIEN a
 # faire ici tant que leur classe n'existe pas (une entree vide serait un mensonge de couverture).
 PASSIVE_HELPER_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # 0x4ab (1195 TalonsOfTheEmperor, `custoAtlacoya` HERO) -> 0x532 (1330 TalonsOfTheEmperor_Used
@@ -691,6 +694,18 @@ PASSIVE_HELPER_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # pose. Inscription FIDELE au registre natif, gain de comportement NUL, et c'est dit.
     # Cf. loki/doctrina_imperatives.py. #521-r4.
     DOCTRINA_IMPERATIVES_ACTIVE: [DoctrinaImperativesSetStartAbility],
+    # 0x4a5 (1189 CalibaniteGreatsword, `darkaCompanion` << Forcas >> HERO) -> 0x524 (1316
+    # CalibaniteGreatsword_NormalAttackAdditionalDamage) : quand Forcas est en posture SWEEP
+    # (effet 1405, pose par le TOGGLE 1189) et porte une attaque NORMALE de MELEE, il frappe EN PLUS
+    # les ennemis adjacents A LA FOIS a son empreinte et a sa cible --
+    # `Foreach(AdjacentEnemies(Caster, CasterTile, 1) & AdjacentUnits(Target, 1, 3), Attack(...))`,
+    # bornes `minDmg`/`maxDmg` de 1189 au niveau du caster, `nrOfHits_2 = 3`, profil `Power`.
+    # ⚠ L'ETAGE qui le rendait inerte est LEVE (#521-r7) : `ALoki_NormalAttackAbility$$
+    # ExecuteNormalAttack` emet `EvaluateAbilities(0x4a = AttackInAtomicGroup, immediately: true)`
+    # sur TOUTE attaque normale -- ce n'est pas `...$$ExecuteTriggerAbilities` (qui emet 0x26) qui
+    # le porte, et c'est cette lecture partielle qui avait fait conclure a l'absence d'emetteur.
+    # Cf. loki/calibanite_greatsword.py. #521-r4.
+    CALIBANITE_GREATSWORD_ACTIVE: [CalibaniteGreatswordNormalAttackAdditionalDamageAbility],
 }
 
 # --- Registre : relicAbility → triggered-ability(s) accordée(s) ------------------------------------

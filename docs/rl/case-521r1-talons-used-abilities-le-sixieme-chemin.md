@@ -316,6 +316,51 @@ nœud DSL d'`abilities/loki/strike.py`. Porter 1316 avant cet étage donnerait u
 exactement l'état de `1485` avant que #BL-1029r ne câble `On(0x26)` à la porte `UseActiveAbility`.
 Résidu **`#521-r7`**, avec la piste non vérifiée (`ActiveAbility$$GetCustomNormalAttack`).
 
+## 5quater. `#521-r7` RÉSOLU (2026-08-08) : l'émetteur existe, il était lu sur le mauvais SIBLING
+
+`ALoki_NormalAttackAbility` a **deux** queues, et #521-r4 n'en avait lu qu'une. Corps entier du
+sibling manquant :
+
+```
+ALoki_NormalAttackAbility$$ExecuteNormalAttack(this, abilityState, entities, attackWeapon):
+    custom = this.vslot(0x4a8)()                       # GetCustomNormalAttackBehaviour
+    b      = ALoki_NormalAttackAbility$$GetAttackDamageBehaviour(this, abilityState, entities,
+                                                                 attackWeapon, custom)
+    b      = b op_BitwiseAnd DSLBehaviors$$EvaluateAbilities(dsl, 0x4a, null, null, null,
+                                                             immediately: true)
+    return AActiveAbility$$ExecuteAtomic(this, b, entities, 0x3d)
+```
+
+⇒ **TOUTE attaque normale émet `On(0x4a = AttackInAtomicGroup)`**, inconditionnellement — c'est
+exactement ce que le nom de l'événement dit (l'attaque a lieu DANS un groupe atomique, celui que
+`ExecuteAtomic(0x3d)` ouvre). `...$$ExecuteTriggerAbilities`, la queue que #521-r4 avait lue, émet
+`EvaluateAbilities(0x26)` : les deux coexistent. Contraste LU :
+`IdunBattleLogic.Entities.Abilities.Active.NormalAttackAbility$$CreateBehaviour` — l'AUTRE classe
+d'attaque normale, hors namespace `Loki` — émet `EvaluateAbilities(0x26, immediately: false)`.
+
+Le rang porté est celui du natif : après les coups d'arme ET le fold primaire (tous deux dans
+`GetAttackDamageBehaviour`), **avant** le CLEAVE de #478 (`ExecuteAtomic(0x2a)`) et avant
+`On(0x26)`. D'où le paramètre `after_primary` du volet #478 côté port.
+
+**MESURE LIVE** (`probe_521r7_calibanite_sweep.py`, `MC1_67` seed 4463111, `darkaCompanion` en
+`C=(3,5)`, cible `astraBullgryn` en `T=(3,4)`, `necroWarden` en `A=(4,4)` adjacente aux deux ;
+posture basculée STRIKE 1404 → SWEEP 1405 par un cast de 1189) :
+
+| | `astraBullgryn` (primaire) | `necroWarden` (balayage) |
+|---|---|---|
+| **NATIF** | `[2074, 685, 675, 694, 666, 624]` = **5418** | `[591, 533, 603]` = **1727** |
+| **PORT** | `[1751, 503, 469, 573, 549, 484]` = 4329 | `[422, 380, 430]` = 1232 |
+| port SANS l'émetteur `On(0x4a)` | 4329 | **0** |
+| port SANS la posture 1405 | 4329 | **0** |
+
+* **STRUCTURE : ACCORD** — même ENSEMBLE d'unités touchées, même nombre de coups de balayage
+  (3/3), et les DEUX contre-épreuves MORDENT (retirer l'émetteur ou la posture éteint le balayage,
+  et rien d'autre). Le natif frappe bel et bien une unité qui n'est PAS la cible de son attaque
+  normale : l'étage est confirmé par la mesure, pas seulement par le décompilé.
+* **MAGNITUDE : ÉCART, et il est EN AMONT de cette tranche** — la cible PRIMAIRE diverge à
+  l'identique (**4329** dans les TROIS régimes du port), donc l'écart ne peut pas venir de
+  `On(0x4a)` ni de 1316, qui s'exécutent APRÈS elle. Résidu **`#521-r9`**.
+
 ### Le sélecteur, lui, est ENTIÈREMENT lu — et il ne restait aucun trou
 
 `<DSLSelectors+0x50>` = **`CasterTileSelector`** et `<+0x60>` = **`TargetSelector`**, tous deux

@@ -1416,6 +1416,54 @@ class DamageHandler:
                 return
         self.last = AttackDamageOperation.execute(
             self.state, msg.attacker_id, msg.target_id, self.spread_pct)
+        # --- #521-r7 `EvaluateAbilities(0x4a = AttackInAtomicGroup, immediately: true)` -----------
+        # C'est le vecteur qui MANQUAIT au port, et son emetteur n'est pas celui qu'on croyait.
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$
+        # ExecuteNormalAttack` -- la passe PRIMAIRE de TOUTE attaque normale, base commune de toutes
+        # les `<X>_NormalAttackAbility` (la generique `Loki_NormalAttackAbility` comprise) -- fait :
+        #     b = GetAttackDamageBehaviour(this, abilityState, entities, attackWeapon,
+        #                                  <vslot 0x4a8 GetCustomNormalAttackBehaviour>)
+        #     b = b op_BitwiseAnd DSLBehaviors$$EvaluateAbilities(dsl, 0x4a, null, null, null,
+        #                                                         immediately: true)
+        #     return AActiveAbility$$ExecuteAtomic(this, b, entities, 0x3d)
+        # -> l'emission est INCONDITIONNELLE, et c'est ce qui donne son nom a l'evenement (l'attaque
+        # a eu lieu DANS un groupe atomique). #521-r4 avait conclu « aucun emetteur sur la voie
+        # normale » en lisant le SIBLING `...$$ExecuteTriggerAbilities`, qui emet `0x26`.
+        # Contraste LU : `IdunBattleLogic.Entities.Abilities.Active.NormalAttackAbility$$
+        # CreateBehaviour` (l'AUTRE classe d'attaque normale, hors namespace `Loki`) emet
+        # `EvaluateAbilities(0x26, immediately: false)`.
+        # RANG : apres les coups d'ARME et le FOLD primaire (tous deux dans `GetAttackDamage
+        # Behaviour`), AVANT le CLEAVE (`ExecuteAtomic(0x2a)` de `Execute<X>`) et avant
+        # `ExecuteTriggerAbilities` (`On(0x26)`) -- d'ou le `after_primary` passe au volet #478 et
+        # l'appel (IDEMPOTENT) juste apres, qui couvre le cas SANS cleave.
+        # ⚠ Ce site est le JUMEAU de ceux de MV71 / du cleave / de HeavyBoltPistol : comme eux il ne
+        # couvre que la voie MESSAGE, pas les portes qui appellent `AttackDamageOperation.execute`
+        # directement (overwatch, `UseActiveAbility`, summon AI) -- meme residu `#478-r3`.
+        _atomic_group_done = []
+
+        def _evaluate_attack_in_atomic_group():
+            if _atomic_group_done or self.last is None:
+                return
+            _atomic_group_done.append(True)
+            from .triggers.dispatch import ability as _atomic_dispatch   # lazy : cycle damage<->triggers
+            from ..abilities.attack_type import NORMAL_ATTACK_KIND       # lazy : meme cycle
+            from ...dsl.event_trigger_type import EventTriggerType
+            _r = _atomic_dispatch.evaluate_abilities_for_event(
+                self.state, msg.attacker_id, self.last.get("target", msg.target_id),
+                int(EventTriggerType.AttackInAtomicGroup), bool(self.last.get("ranged")),
+                profile=self.last.get("profile"),
+                # `CurrentAbility` = le marqueur de kind attaque-normale, comme partout ailleurs sur
+                # cette voie (`pre_unit_ability_triggers(ability_type=1013)`) : c'est LUI qui
+                # satisfait le gate `IsNormalAttack` de `1316`.
+                ability_type=NORMAL_ATTACK_KIND,
+                # #521-r8 : ANTI-DOUBLE-FIRE. `FireOfAbsolution` est le SECOND consommateur natif de
+                # cet event, et le port le joue deja -- mais depuis `after_hit_normal_attack`
+                # (`On(0x26)`), donc au MAUVAIS RANG. Le rebrancher ici sans retirer l'autre site le
+                # ferait partir deux fois ; l'y migrer deplacerait des tirages `state.rng` sur
+                # `adeptRetributor` et exige sa propre mesure. Cf. `evaluate_abilities_for_event`.
+                fire_of_absolution=False)
+            if _r:
+                self.last["attack_in_atomic_group"] = _r
         # --- #478 les DEUX volets de `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour`. Les
         # quatre attaques normales CONCRETES `Boltstorm`/`RighteousRepugnance`/`Fealty`/
         # `TalonOfHorus` frappent des cibles ADDITIONNELLES (le CLEAVE) ; les DEUX PREMIERES
@@ -1464,11 +1512,18 @@ class DamageHandler:
                     # contre-epreuve : `probe_419r3_fold_attack_state.py` SUBSTITUE cet attribut
                     # de module et joue les deux regimes en une passe (aucun drapeau a passer).
                     attack_state0=(self.last.get("attack_state")
-                                   if fold_inherits_attack_state() else None))
+                                   if fold_inherits_attack_state() else None),
+                    # #521-r7 : `EvaluateAbilities(0x4a)` s'intercale ENTRE le fold et le cleave
+                    # (cf. le bloc ci-dessus). L'appel est idempotent.
+                    after_primary=_evaluate_attack_in_atomic_group)
                 if _adds.get("primary_fold"):
                     self.last["primary_fold"] = _adds["primary_fold"]
                 if _adds.get("additional_targets"):
                     self.last["additional_targets"] = _adds["additional_targets"]
+        # #521-r7 : le cas SANS cleave (l'immense majorite -- la cascade `AddNormalAttackAbility`
+        # rend un passif substituant pour 4 abilities seulement). Idempotent avec le `after_primary`
+        # ci-dessus.
+        _evaluate_attack_in_atomic_group()
         # --- #419-r1-tr14-r4 le SECOND VOLET de `TemplarInitiateNormalAttackAbility` : le COUP DE
         # PISTOLET de `HeavyBoltPistol` (1083). Ce n'est PAS un trigger d'evenement -- l'ability n'a
         # AUCUN `$$CreateTrigger` (verifie dans les DEUX tables de symboles) : elle est appelee en

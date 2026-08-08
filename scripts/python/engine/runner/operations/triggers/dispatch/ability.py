@@ -13,7 +13,7 @@ from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggerEvent
 from ..loki import _fire_of_absolution_after_attack
 from .core import evaluate_trigger_operation
-from ....abilities.attack_type import is_active_ability
+from ....abilities.attack_type import is_active_ability, is_normal_attack
 
 
 def ability_init_triggers(state: State, unit_id: int) -> list[dict]:
@@ -131,19 +131,45 @@ def unit_active_ability_triggers(state: State, caster_id: int, target_id: Option
 
 
 def evaluate_abilities_for_event(state: State, caster_id: int, target_id: int,
-                                 event: int, ranged: bool) -> list[dict]:
+                                 event: int, ranged: bool,
+                                 profile: Optional[str] = None,
+                                 ability_type: Optional[int] = None,
+                                 fire_of_absolution: bool = True) -> list[dict]:
     """Mirror `IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$Execute` (IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$.ctor, champ +0x50 = `EventTriggerType`)
     : EVALUE les abilities DÉCLENCHÉES du CASTER pour l'`EventTriggerType` `event`, INLINE dans un behaviour-tree
     (nœud DSL générique `IdunBattleLogic.Entities.DSLFactory$$EvaluateAbilities`). Callers natifs : NormalAttack
-    `EvaluateAbilities(0x26)`, ArmoriumCherub `EvaluateAbilities(0x4a=AttackInAtomicGroup)`, ArmouredMight/
-    TheQuickening (after-move).
+    `EvaluateAbilities(0x26)` (`ALoki_NormalAttackAbility$$ExecuteTriggerAbilities`) **et
+    `EvaluateAbilities(0x4a, immediately: true)`** (`...$$ExecuteNormalAttack`, #521-r7), ArmoriumCherub
+    `EvaluateAbilities(0x4a=AttackInAtomicGroup)`, ArmouredMight/TheQuickening (after-move).
 
-    `AttackInAtomicGroup` (attaque d'ability ATOMIQUE du caster, ex. ArmoriumCherub `ExecuteAtomic`) -> le passif
-    ranged `FireOfAbsolution` (SEUL passif de ce chemin PORTÉ ; les autres after-hit de l'attaque primaire fire
-    déjà DANS l'Operation d'attaque via `after_hit_ability_attack`). Ranged-only (FireOfAbsolution ne fire que
-    sur attaque RANGED). No-op pour tout autre event (rien d'autre porté ici). Extensible : un futur passif
-    keyé sur cet event s'ajoute ici."""
+    DEUX canaux, et c'est un fait du PORT, pas du natif (qui n'en a qu'un, `EvaluateTriggerOperation`) :
+
+      * le passif ranged `FireOfAbsolution` est appele IMPERATIVEMENT (il n'est dans aucun registre) ;
+      * tout le reste passe par `evaluate_trigger_operation`, donc par les registres. C'est ce second
+        canal qui rend `PASSIVE_HELPER_ABILITY_TRIGGERS` atteignable sur cet event -- son seul
+        consommateur aujourd'hui est `1316 CalibaniteGreatsword_NormalAttackAdditionalDamage`
+        (#521-r4). Le premier canal reste separe pour ne PAS doubler `FireOfAbsolution`.
+
+    `profile` / `ability_type` = les champs d'`AbilityEntities` que les gates des consommateurs lisent
+    (`IsNormalAttack(CurrentAbility)` pour 1316). `None` = non threade sur ce site (le noeud DSL
+    `EvaluateAbilities` d'une ability ne les renseigne pas) -> les gates de kind se TAISENT, ce qui est
+    exactement le comportement natif pour un cast (`ArmoriumCherub` n'est pas une attaque normale).
+
+    ⚠ `fire_of_absolution=False` -- RESIDU `#521-r8`, et c'est un ANTI-DOUBLE-FIRE, pas un gate natif.
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateTrigger` est
+    `On(0x4a = AttackInAtomicGroup, ownerNeedsToBeAlive: 1) & get_OwnerIsActor & IsRangedAttack` --
+    AUCUN gate excluant l'attaque normale. Le natif le fait donc bien fire sur l'attaque normale
+    RANGED de son porteur, et il le fait DEPUIS CE VECTEUR. Le port, lui, le joue depuis
+    `after_hit_normal_attack` (le vecteur `On(0x26)`, cf. `dispatch/attack.py`) -- comportement
+    PRESENT mais au MAUVAIS RANG (apres `On(9)`/`On(10)`, apres le cleave, au lieu d'avant). Tant que
+    cette migration de rang n'est pas MESUREE (elle deplace des tirages `state.rng` sur le seul
+    porteur `adeptRetributor`), la voie NORMALE demande `False` ici : sinon le splash partirait DEUX
+    fois. La voie ABILITY (`ArmoriumCherub`, noeud DSL) garde `True` -- c'est son unique home."""
     out: list[dict] = []
-    if int(event) == int(EventTriggerType.AttackInAtomicGroup):
+    if fire_of_absolution and int(event) == int(EventTriggerType.AttackInAtomicGroup):
         out += _fire_of_absolution_after_attack(state, caster_id, target_id, ranged)
-    return out
+    ev = TriggerEvent(int(event), caster_id, target_id, ranged=ranged, profile=profile,
+                      ability_type=ability_type,
+                      is_normal_attack=(None if ability_type is None
+                                        else is_normal_attack(ability_type)))
+    return out + evaluate_trigger_operation(state, ev)
