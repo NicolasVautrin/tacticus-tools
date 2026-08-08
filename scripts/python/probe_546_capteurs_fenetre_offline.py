@@ -225,6 +225,39 @@ def etape4_mouvement() -> list:
                   "partout redeviendrait indiscernable de « personne n'a bouge »")
     if "ToTileList" not in snap:
         ko.append("le decodage n'invoque plus `UnitPositionIdExtensions$$ToTileList`")
+    # --- #347-r3 : ce que la FENETRE du 2026-08-08 a impose -----------------------------------
+    # La disposition du `Nullable<T>` etait SUPPOSEE (`off + 8`), et la mesure a montre que la
+    # transition `null -> non-null` ne discrimine PAS les deux dispositions possibles : le
+    # drapeau « marche » aussi bien quand l'octet lu est l'octet bas du POINTEUR de liste. Le
+    # capteur doit donc DERIVER la disposition des metadonnees, et publier de quoi le contredire.
+    if "nullableLayoutOf" not in snap:
+        ko.append("la disposition du `Nullable<T>` n'est plus DERIVEE des metadonnees "
+                  "(`nullableLayoutOf`) -- elle serait de nouveau SUPPOSEE (#347-r3)")
+    # FOYER UNIQUE. `nullableLayoutOf` vit dans `internals.ts` (pose par #579-r1 sur le MEME
+    # defaut) ; la premiere reparation de ce capteur en avait ecrit une SECONDE copie ici. Une
+    # parade en deux exemplaires derive en silence -- c'est le patron que `case-287-r12` a eu a
+    # defaire en TROIS exemplaires.
+    if "function nullableLayoutOf" in snap:
+        ko.append("une COPIE locale de `nullableLayoutOf` est revenue dans rpc-snapshot.ts : "
+                  "le foyer unique est `internals.ts` (#579-r1)")
+    internals = _code_seul(_lire(HOOKS / "features" / "ai-step" / "internals.ts"))
+    if "export function nullableLayoutOf" not in internals:
+        ko.append("`internals.ts` n'EXPORTE plus `nullableLayoutOf` -- le capteur de mouvement "
+                  "ne peut plus le consommer et une copie va repousser (#347-r3)")
+    if "off + 8" in snap:
+        ko.append("`off + 8` est REVENU dans le capteur de mouvement : c'est la disposition "
+                  "SUPPOSEE que #347-r3 a retiree (`match-state.ts` mesure hasValue EN PREMIER "
+                  "sur ce build)")
+    for cle in ("nullableLayout", "decode", "raw"):
+        if cle not in snap:
+            ko.append("`actorStats[].movement` ne publie plus `%s` -- une cause de mutisme "
+                      "redeviendrait indiscernable des trois autres (#347-r3)" % cle)
+    # Les QUATRE causes doivent rester NOMMEES et DISTINCTES : c'est ce qui a manque a la
+    # premiere fenetre (`{tiles: null}` couvrait les quatre).
+    for cause in ("layout-not-derived", "hasValue-unreadable", "no-ToTileList",
+                  "null-list", "threw"):
+        if '"%s"' % cause not in snap:
+            ko.append("la cause de mutisme `%s` n'est plus nommee (#347-r3)" % cause)
     return ko
 
 

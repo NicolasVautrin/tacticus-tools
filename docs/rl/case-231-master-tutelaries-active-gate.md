@@ -158,14 +158,29 @@ fix : **5 passed**. Cibles + dependances rejouees ensemble : **23 passed** (gard
 
 ## 7. Residus (NON traites ici)
 
-- **1197 n'est publie par AUCUN canal de capture** alors que la triggered fire (mesure S 4). Deux
-  lectures possibles, non tranchees : l'effet est retire tres tot (duree portee par le dernier
-  argument d'`AddEffect`, `ctx@0xc0`, non decodee ici), ou il vit hors de
-  `EffectsOwnedComponent.ActiveEffectIds`. Tant que ce point n'est pas tranche, la PERSISTANCE du
-  marqueur cote port (le trigger 1173 reste collecte tour apres tour) n'est confrontee par rien.
-  C'est le residu le plus interessant du cas — et il demande un point d'ancrage natif a hooker
-  (`RefreshEffectsOperation$$RefreshEffect` ou l'`AddEffect` de 1096), donc pas faisable sans
-  reinjection.
+- ~~**1197 n'est publie par AUCUN canal de capture**~~ — **TRANCHE (#546, 2026-08-08)**, et
+  AUCUN hook d'ancrage n'a ete necessaire : il suffisait d'ENUMERER les entites-effet au lieu de
+  partir de la liste possedee (RPC `effectsAll`). Le regime est **POSE PUIS RETIRE** :
+
+      effectType=1197 : count=1
+        id=98 owner=81 ownerType=1 inOwnerList=False active=False removed=True
+             beingRemoved=True hasTurns=True initial=1 remaining=0 timesApplied=1
+
+  Les deux lectures ouvertes ici sont donc departagees : « retire tres tot » = **VRAI** ; « vit
+  hors de `ActiveEffectIds` » = **FAUX** (`orphanCount = 0` sur les 18 entites-effet du state).
+  ⚠ Et la duree n'etait PAS « non decodee » : elle est LUE au decompile —
+  `…MasterOfTheTutelariesAbility$$ExecuteBehaviour` passe le noeud `<DSLFormulas>+0x20`, que
+  `IdunBattleLogic.Entities.DSLFormulas$$.ctor` construit avec le litteral **1**. La mesure rend
+  `initialTurns = 1`, au chiffre pres, et c'etait une prediction faite AVANT la fenetre.
+
+  **Consequence, mesuree** : `unitAbilityStates` apres le cast rend `u81 triggered =
+  [1170, 1161, 1013]` — **1173 n'est sur AUCUNE unite**. La chaine native est entiere (pose ->
+  `ApplyInternal` -> `AddTriggeredAbility(0x495)` -> duree epuisee -> `RemoveEffectOperation` ->
+  `RevertInternal` -> `RemoveTriggeredAbility(0x495)`), donc la PERSISTANCE du marqueur cote port
+  est une **divergence PERMISSIVE** confirmee : residu **#231-r1**.
+  ⚠ Ne pas la refermer en gatant la COLLECTE — la S 3 ci-dessus etablit que ce serait eteindre
+  les `Triggered()` d'activation. Le gate est au niveau de l'INSTANCE.
+  Detail : `docs/rl/case-546-une-seule-fenetre-de-reinject.md` §6.2.
 - **`Both` (owner|target) non distingue offline.** Le port lit `state.effects.by_unit` (les
   CIBLES). Sans effet observable pour 1197 — `MasterOfTheTutelariesAbility$$ExecuteBehaviour`
   pose l'effet sur SOI (`AddEffect(0x4ad, ..., caster@0x160, caster@0x160, ctx@0xc0)`), donc

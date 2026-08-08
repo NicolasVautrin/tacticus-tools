@@ -230,25 +230,145 @@ ENTIER gardait la PROSE, pas le capteur. Les étapes 2 à 5 lisent depuis
 
 ---
 
-## 6. Ce que le rebuild emportera, et la contre-épreuve de chacun
+## 6. La fenêtre du 2026-08-08 — ce qu'elle a rendu
 
-| # | ce qui s'active | contre-épreuve APRÈS la fenêtre | verdict attendu |
+Session 3 (pid 74348), bundle frais chargé, warmup 8/8.
+
+⚠ **Le grep du `dist/hooks.js` sur disque n'était PAS le bon critère cette fois non plus** : le
+fichier a été reconstruit à 01:53:15, soit **après** l'injection de 23:56:30, et sa taille avait
+changé. Ce qui prouve qu'un capteur est chargé, c'est **la session qui répond** : les trois RPC
+appelés SANS runner rendent déjà leurs drapeaux (`doorMeasured/occupantMeasured/powerUpMeasured:
+true`, `movementLayout.componentResolved: true`, `effectsAll` ventilé).
+
+| # | contre-épreuve jouée | AVANT | APRÈS | verdict |
+|---|---|---|---|---|
+| `#287-r10-r1` | `probe_287r10_fog_capteur_live.py` (`C6_09`, 34 tuiles/63) | `hex='0x0'`, « MENT : OUI » | **`hex='0x0000000000000001'`, `reasons=['ValidRequest']`, « MENT : non »** | **FERMÉ** |
+| `#175-r` | `build --board C6_09` + `tileMeta` | — | **3** `isDoor`, **6** `isActivationTile`, appariement croisé exact | **FERMÉ** |
+| `#231-r` | cast `1096` + `effectsAll --effectType 1197` | absent des deux canaux | **id 98, `removed: True`, `initialTurns: 1`, `orphanCount: 0`** | **TRANCHÉ** |
+| `#347-r1` | `actorStats` avant/après un pas | — | canal VERT, **décodage MUET** (`tiles: null`) | **OUVERT** → `#347-r3` |
+| — | `probe_546_capteurs_fenetre_offline.py` | 0 écart | 0 écart | tenu |
+
+### 6.1 `#175-r` — le témoin NON NUL, et c'est lui qui fait la preuve
+
+3 portes / 6 activations, chaque activation pointant la bonne porte par `DoorTileId`, et
+`roomTileType = 2` sur les trois portes — **un second canal, indépendant du capteur**, concorde.
+L'appariement est identique, terme à terme, à `data/boards/global/C6_09.json` (source disque vs
+ECS live).
+
+Mais `isOpen: False` partout ne prouvait rien — un capteur qui rendrait `False` en toute
+circonstance donnerait la même chose. **On ouvre donc une porte** : l'unité marche sur `(5,2)`.
+
+| | porte `(3,1)` | porte `(5,3)` | porte `(5,6)` |
 |---|---|---|---|
-| `#287-r10-r1` | `NON_GENERIC_RULE_CODES.InFogOfWarBrokenTargetingRule = 1` | `python probe_287r10_fog_capteur_live.py` | `abilityReason` sur une tuile en brouillard rend `hex: "0x0000000000000001"` (plus `"0x0"`) avec `ruleClass: "InFogOfWarBrokenTargetingRule"` |
-| `#175-r` | `tileMeta.tiles[].door` / `occupantId` / `occupantIsPowerUp` | `python rl_duel.py build --board C6_09 --state-file <abs>` puis `tileMeta` | `doorMeasured: true` ; **3** tuiles `isDoor` et **6** `isActivationTile` sur `C6_09` ; `isActivationTileOfClosedDoor: true` tant qu'aucune porte n'est ouverte |
-| `#231-r` | RPC `effectsAll` | monter le cast de `1096` (`thousInfernalMaster`, cf. `case-231` §4) puis `effectsAll --effectType 1197` | l'un des trois régimes du §4.2 — et c'est LUI le résultat, pas un accord |
-| `#347-r1` | `actorStats[].movement` | `python probe_347_tiles_moved_call_sites.py` + `actorStats` après un pas | `movementLayout.componentResolved: true` ; `previousPositionThisTurn.tiles` non nul après le premier pas du tour, `null` au tout début |
-| — | le cliquet | `python scripts/python/probe_546_capteurs_fenetre_offline.py` | `0 ecart` — à rejouer APRÈS le rebuild, il ne dépend pas de la session |
+| avant | `isOpen: False` | `isOpen: False` | `isOpen: False` |
+| après le pas sur `(5,2)` | `False` | **`True`** | `False` |
+| prédicat de ses activations | `True, True` | **`False, False`** | `True, True` |
 
-**Ordre** : jouer `probe_546` AVANT la fenêtre (il dit si le code partira intact), puis les quatre
-contre-épreuves APRÈS.
+Les **deux** activations de la porte ouverte basculent `True → False`, les **quatre** autres ne
+bougent pas. Le prédicat natif « tuile d'activation d'une porte FERMÉE » est donc reproduit, et
+la propagation passe bien par `DoorTileId`.
+
+`occupantId` suit le déplacement `(6,1) → (5,2)`, `occupantIsPowerUp: False`.
+
+### 6.2 `#231-r` — le régime est **POSÉ PUIS RETIRÉ**, et il ferme la question du §4.2
+
+Après le cast de `1096` par `thousInfernalMaster` :
+
+```
+effectType=1197 : count=1
+  id=98 owner=81 ownerType=1 inOwnerList=False active=False removed=True beingRemoved=True
+       hasTurns=True initial=1 remaining=0 timesApplied=1 parent=None subs=[] src=81
+```
+
+Les trois régimes du §4.2 se départagent sans ambiguïté :
+
+* **jamais posé** → RÉFUTÉ : l'entité existe, et `timesApplied = 1` prouve que `ApplyInternal`
+  a tourné (donc `AddTriggeredAbility(1173)` a bien eu lieu) ;
+* **orphelin** → RÉFUTÉ : `orphanCount = 0` sur les 18 entités-effet du state ;
+* **posé puis RETIRÉ** → **c'est celui-là** (`inOwnerList: False`, `removed`, `beingRemoved`).
+
+⚠ **Et `initialTurns = 1` confirme au chiffre près une prédiction faite OFFLINE**, avant la
+fenêtre : `…MasterOfTheTutelariesAbility$$ExecuteBehaviour` passe le nœud `<DSLFormulas>+0x20`,
+que `IdunBattleLogic.Entities.DSLFormulas$$.ctor` construit avec le littéral **1**. La durée
+n'était pas « non décodée » (`case-231` §7) — elle était lisible, et elle est juste.
+
+**La conséquence, mesurée** : `unitAbilityStates` après le cast donne
+`u81 triggered = [1170, 1161, 1013]` — **`1173` n'est sur AUCUNE unité**. La chaîne native est
+donc entière : pose → `ApplyInternal` → `AddTriggeredAbility(1173)` → durée épuisée → retrait →
+`RevertInternal` → `RemoveTriggeredAbility`. Le port, lui, **garde `1173` collectée tour après
+tour** : c'est une divergence, et c'est exactement ce que `#231-r` demandait de trancher.
+Résidu **`#231-r1`**.
+
+### 6.3 `#347-r1` — le canal est VERT, le DÉCODAGE est muet
+
+Ce qui marche, et qui est le cran principal :
+
+| | u81 (bouge) | u83 (ne bouge pas) |
+|---|---|---|
+| début de tour | `previousPositionThisTurn: null` | `null` |
+| après le 1er pas | **`{...}`** (non nul) | **`null`** |
+
+`hasValue` discrimine donc, et `movementLayout` rend `componentResolved: true`,
+`toTileListResolved: true`, avec les quatre offsets **résolus PAR NOM** égaux aux replis
+décompilés (`0x78 / 0x88 / 0x98 / 0xa8`) — confirmation indépendante que le composant est bien
+`MovementComponent`.
+
+Ce qui ne marche pas : **`tiles: null` sur les quatre champs**. Le décodage est muet.
+
+⚠ **Et la transition ne discrimine PAS la cause** — c'est le point qui compte.
+`frida/hooks/game/match-state.ts` a déjà mesuré sur ce build que le `Nullable<T>` d'IL2CPP met
+**`hasValue` EN PREMIER** (`MachinePlatformComponent` : « hasValue @+0, value @+4 »). Sous cette
+disposition, l'octet lu à `off + 8` est l'octet de poids faible du **pointeur de liste** — nul
+quand le champ est vide, non nul quand la liste existe. **Le drapeau « marche » par accident**, et
+l'adresse passée à `ToTileList` désigne le drapeau au lieu de la valeur. Les deux dispositions
+expliquent exactement la même transition ; aucune mesure de terrain ne les sépare.
+
+**Ce n'était pas la seule faute, et l'autre est la mienne** : le capteur rendait `{tiles: null}`
+pour **quatre** causes distinctes (méthode non résolue, invocation levée, liste nulle, disposition
+fausse). La mesure disait « muet » sans dire de quoi — le défaut de tri-état que ce dépôt reproche
+partout ailleurs.
+
+### 6.4 L'hypothèse est CONFIRMÉE par un autre agent, sur un autre foyer — et la parade existait
+
+En cherchant à réparer, le travail de **`#579-r1`** est apparu dans la sélection de `probe_457` :
+`readAbilityState` (`internals.ts`) avait **exactement** le même défaut, mesuré le 2026-08-04 —
+il lisait les `Nullable<int>` d'`ActiveAbility` à `{ value @+0 ; hasValue @+4 }`, et deux casts
+d'une même bataille publiaient tous deux `unresetedLastTurnUsed = 1`, ce qu'un compteur
+**monotone** ne peut pas faire : le `1` publié était le bit `hasValue`. Sa conclusion, lue dans
+les métadonnées ET au décompilé : **`System.Nullable\`1` déclare `hasValue` PUIS `value`**.
+
+Deux voies indépendantes, deux foyers différents, la même disposition. Et la même signature :
+« les prédicats de PRÉSENCE coïncidaient par accident » — mot pour mot le « le drapeau marche par
+accident » du §6.3.
+
+⚠ **Corollaire, et c'est une faute que j'ai commise avant de la voir** : `#579-r1` avait déjà posé
+la parade — un `nullableLayoutOf` par réflexion dans `internals.ts`. Ma première réparation en a
+écrit une **SECONDE copie**, homonyme, dans `rpc-snapshot.ts`. C'est le patron que `case-287-r12` a
+eu à défaire en **trois** exemplaires, et il se recrée par imitation. La copie est retirée, la
+fonction d'`internals.ts` est **exportée**, et le cliquet garde les deux crans : `function
+nullableLayoutOf` interdit dans `rpc-snapshot.ts`, `export function nullableLayoutOf` exigé dans
+`internals.ts`.
+
+Le correctif ne CHOISIT donc pas la disposition, il la **LIT** — comme le natif, qui calcule
+l'adresse de `hasValue` depuis les métadonnées. S'y ajoutent les **16 octets bruts** publiés quoi
+qu'il arrive (la seule donnée qui survive à une erreur de disposition, donc la seule qui permette
+de la corriger sans réinjecter) et la **cause** nommée (`layout-not-derived` /
+`hasValue-unreadable` / `no-ToTileList` / `null-list` / `threw` / `ok`).
 
 ---
 
 ## 7. Ce qui n'est PAS couvert
 
-* Les trois capteurs neufs ne sont **NON CONFRONTÉS** — ils n'existent pas dans le bundle chargé.
-  Leur contrat est gardé statiquement (§5) ; leur VALEUR ne l'est pas.
+* **Le témoin POSITIF d'`occupantIsPowerUp` manque** : aucun power-up n'existe dans un runner
+  PvP, donc le champ n'a été vu qu'à `False`. Ce n'est pas un trou de port —
+  `UnitExtensions$$IsPowerUp` est **INVOQUÉ**, il n'y a aucun mirror à valider — mais l'axe
+  n'a pas de contre-épreuve, et il faut le dire. Le témoin de la PORTE, lui, est non nul (§6.1).
+* **`#347-r1` reste OUVERT** : le lift-off de `TheQuickening` exige les TUILES de
+  `movementStartPosition`, donc il attend `#347-r3`.
+* **La fenêtre temporelle « pendant le cast » de `1197` n'est pas observée** : le relevé du §6.2
+  est POST-cast. Dans ce montage un seul Pink Horror apparaît (les ennemis sont hors de portée) —
+  la cascade à 4 Screamers de `case-231` §4 n'a pas eu lieu. La conclusion ne s'appuie pas
+  dessus : elle est lue sur les composants (`timesApplied`, `removed`, `initialTurns`).
 * `#368-r2` (l'`ActiveCondition` d'un effet de tuile) n'est pas porté ; le port continue de
   marquer la tuile non marchable, et l'écart reste inerte pour la raison du §3.
 * Le régime ORPHELIN de `#231-r` reste une hypothèse : le décompilé montre que la voie d'ajout ne

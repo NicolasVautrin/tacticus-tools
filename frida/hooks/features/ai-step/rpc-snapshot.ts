@@ -35,7 +35,8 @@ import {
     entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getTurnsFinishedMi,
     getUnitMainTile,
     invokeBool, invokeInt, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
-    mowAbilityTypes, readAbilityState, readTileCoord, readTurnsEnded, resolveDpq, servicesOff,
+    mowAbilityTypes, nullableLayoutOf, readAbilityState, readTileCoord, readTurnsEnded, resolveDpq,
+    servicesOff,
     summarize, turnsEndedLayout, unitAbilityTypes,
     unitExtClass,
 } from "./internals.js";
@@ -1499,8 +1500,45 @@ const MOVEMENT_POS_FIELDS: ReadonlyArray<{ key: string; name: string; fallback: 
     { key: "pendingPosition", name: "PendingPosition", fallback: 0xa8 },
 ];
 
+// --- #347-r3 : la DISPOSITION du `Nullable<T>` se DÉRIVE, elle ne se suppose pas ------------
+//
+// CE QUE LA FENÊTRE DU 2026-08-08 A MESURÉ. Le canal fonctionne — la transition
+// `previousPositionThisTurn: null` -> non-null au premier pas est nette, et l'unité qui NE bouge
+// PAS reste à `null` — mais `tiles` sortait `null` sur les quatre champs : le DÉCODAGE était muet.
+//
+// ⚠ ET LA TRANSITION NE DISCRIMINE PAS LA CAUSE, c'est ce qui rend la dérivation obligatoire.
+// La version d'avant lisait `hasValue` à `off + 8`, c'est-à-dire en supposant la disposition
+// `{ T value; bool hasValue; }`. Or `frida/hooks/game/match-state.ts` a DÉJÀ mesuré l'inverse sur
+// ce build pour `MachinePlatformComponent` : « Mono Nullable<T> layout : hasValue @+0 (1B +
+// padding), value @+4 ». Sous CETTE disposition, l'octet lu à `off + 8` est l'octet de poids
+// faible du POINTEUR de liste — nul quand le champ est vide, non nul quand la liste existe : le
+// drapeau « marche » PAR ACCIDENT, et l'adresse passée à `ToTileList` désigne alors le drapeau au
+// lieu de la valeur, donc l'invocation ne rend rien. Les deux hypothèses expliquent EXACTEMENT la
+// même transition ; aucune mesure de terrain ne peut les séparer.
+//
+// LA SORTIE N'EST PAS DE CHOISIR, C'EST DE LIRE. Le natif lui-même ne suppose rien :
+// `IdunBattle.Entities.EntityExtensions$$GetPreviousPositionThisTurn` calcule l'adresse de
+// `hasValue` depuis les métadonnées du type. On fait pareil — le champ `PreviousPositionThisTurn`
+// porte son `Il2CppType`, dont la classe est le `Nullable<UnitPositionId>` INFLATÉ, dont on
+// ÉNUMÈRE les champs : `value` et `hasValue` y donnent leurs offsets. Aucune des deux
+// dispositions n'est écrite dans ce fichier.
+//
+// ⚠ **ON NE RE-DÉRIVE RIEN ICI** : `nullableLayoutOf` vit dans `./internals.js`, posé par
+// `#579-r1` sur EXACTEMENT le même défaut (`readAbilityState` lisait `hasValue` à `+4` et
+// publiait le bit à la place de la valeur — deux casts d'une même bataille rendaient tous deux
+// `unresetedLastTurnUsed = 1`, ce qu'un compteur MONOTONE ne peut pas faire). La première
+// réparation de ce capteur-ci en écrivait une SECONDE copie ; elle est retirée, et la fonction
+// d'`internals` est exportée. Deux exemplaires de la même parade, c'est le patron que
+// `case-287-r12` a déjà eu à défaire en trois exemplaires.
+//
+// Ce que le foyer rend : `{ hasValueOff, valueOff }` DÉJÀ corrigés du header d'objet BOXÉ (0x10),
+// ou `null` si la disposition n'est pas résolue — auquel cas on répond « PAS MESURÉ », jamais une
+// lecture à une convention devinée.
+
 /** Ce que le capteur a RÉSOLU — publié au niveau réponse (tri-état). */
 function movementLayout(): Record<string, unknown> {
+    const ref = movementComponentClass
+        ? nullableLayoutOf(movementComponentClass, "PreviousPositionThisTurn") : null;
     return {
         componentResolved: movementComponentClass !== null,
         toTileListResolved: toTileListMi !== null,
@@ -1508,12 +1546,21 @@ function movementLayout(): Record<string, unknown> {
             ? Object.fromEntries(MOVEMENT_POS_FIELDS.map(
                 (f) => [f.key, fieldOffsetOr(movementComponentClass, f.name, f.fallback)]))
             : null,
+        // #347-r3 — la disposition DÉRIVÉE, publiée telle quelle. `null` / `derived: false` =
+        // PAS MESURÉE : le lecteur ne doit pas pouvoir confondre « hasValue est à +8 » avec
+        // « je n'ai pas su le lire ».
+        nullableLayout: ref,
     };
 }
 
 /** Les quatre `Nullable<UnitPositionId>` d'une unité, décodées en hex.
  *  `null` (au niveau du champ) = `hasValue == 0` — le natif n'a pas de position enregistrée.
- *  `null` (au niveau de l'objet) = capteur MUET : composant absent ou classe non résolue. */
+ *  `null` (au niveau de l'objet) = capteur MUET : composant absent ou classe non résolue.
+ *
+ *  ⚠ Chaque champ publie sa CAUSE (`decode`) et ses 16 octets BRUTS. La version d'avant rendait
+ *  `{ tiles: null }` pour QUATRE causes distinctes — méthode non résolue, invocation levée, liste
+ *  nulle, disposition fausse — ce qui a coûté une fenêtre : la mesure disait « muet » sans dire
+ *  de quoi. Le brut est ce qui permet de trancher SANS réinjecter. */
 function readMovementPositions(
     entity: NativePointer, statePtr: NativePointer,
 ): Record<string, unknown> | null {
@@ -1527,14 +1574,32 @@ function readMovementPositions(
     const out: Record<string, unknown> = {};
     for (const f of MOVEMENT_POS_FIELDS) {
         const off = fieldOffsetOr(movementComponentClass, f.name, f.fallback);
+        // Les 16 octets du `Nullable`, en U32 — publiés QUOI QU'IL ARRIVE. C'est la seule donnée
+        // qui survit à une erreur de disposition, et donc la seule qui permette de la corriger.
+        const raw: number[] = [];
+        for (let i = 0; i < 4; i++) {
+            try { raw.push(cp.add(off + i * 4).readU32()); } catch { raw.push(-1); }
+        }
+        const lay = nullableLayoutOf(movementComponentClass, f.name);
+        if (!lay) {
+            out[f.key] = { raw, tiles: null, decode: "layout-not-derived" };
+            continue;
+        }
         let hasValue = false;
-        try { hasValue = cp.add(off + 8).readU8() !== 0; } catch { out[f.key] = null; continue; }
+        try { hasValue = cp.add(off + lay.hasValueOff).readU8() !== 0; }
+        catch { out[f.key] = { raw, tiles: null, decode: "hasValue-unreadable" }; continue; }
         if (!hasValue) { out[f.key] = null; continue; }
-        if (!toTileListMi) { out[f.key] = { tiles: null }; continue; }
+        if (!toTileListMi) {
+            out[f.key] = { raw, tiles: null, decode: "no-ToTileList" }; continue;
+        }
         try {
-            const list = invokeMethod(toTileListMi.info, null, [cp.add(off), statePtr]);
-            out[f.key] = { tiles: list.isNull() ? null : extractTiles(list) };
-        } catch { out[f.key] = { tiles: null }; }
+            const list = invokeMethod(
+                toTileListMi.info, null, [cp.add(off + lay.valueOff), statePtr]);
+            if (list.isNull()) { out[f.key] = { raw, tiles: null, decode: "null-list" }; continue; }
+            out[f.key] = { raw, tiles: extractTiles(list), decode: "ok" };
+        } catch (e) {
+            out[f.key] = { raw, tiles: null, decode: "threw", error: (e as Error).message };
+        }
     }
     return out;
 }
