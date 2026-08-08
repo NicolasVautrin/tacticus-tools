@@ -100,15 +100,22 @@ FLAIL_CASTER = "deathBlightlord"
 # Creed, apres le switch, est TOUJOURS `AdjacentFriends(Kell)` : il devient relais des qu'il est aussi
 # `AdjacentEnemies(caster)`. Il faut donc CHOISIR le cote par lequel le caster aborde Creed --
 # les deux positions ci-dessous sont les deux regimes, et les DEUX sont exercees (etapes 2 et 9).
-FOE_POS = (2, 1)          # le defaut : apres le switch, Creed reste ADJACENT au caster -> il est
-                          # relais Haze (regime exerce a l'etape 9).
-FOE_POS_OPPOSITE = (3, 2) # Kell spawne du cote OPPOSE au caster -> apres le switch Creed est a
-                          # DISTANCE 2 du caster, hors du pool Haze. C'est la geometrie que le natif
-                          # produit systematiquement (`SwornProtectorAbility$$GetSpawnTile` =
-                          # `First(SortTilesByUtilityForSummon(...))`, non porte -- residu documente
-                          # dans `triggers/loki/sworn_protector.py`) : MESURE LIVE 3/3 montages
-                          # (MC1_67 seed 777, MC1_67 seed 31337, C3_26 seed 777) ->
-                          # `d(caster, creed) == 2` a chaque fois, Creed intact.
+# ⚠ CES POSITIONS SONT DES ENTREES DU MONTAGE, ET LEUR EFFET A CHANGE AVEC LE PORT DE
+# `IdunBattle.Entities.Abilities.Triggered.Loki.SwornProtectorAbility$$GetSpawnTile` (#836,
+# `027cb485`). Tant que le port collapsait `First(CanAddUnit(AdjacentTiles(Caster())))`, la tuile de
+# spawn dependait de l'ordre de `board.neighbours`, donc du COTE par lequel le caster abordait Creed
+# -- d'ou les deux regimes ci-dessous. Le natif prend l'ARGMAX d'un bucket a deux termes
+# (`WeightedUtility(7 = Tile)` + `WeightedUtility(0x34 = SwornProtector_AvoidAdjacentEnemies)`,
+# poids -20 par ennemi adjacent), et desormais le port aussi : sur ce board, Kell prend TOUJOURS
+# (2,2) et Creed atterrit TOUJOURS en (2,3), pour les quatre positions de caster qui font spawner
+# Kell. Le regime ne se choisit donc plus par le COTE mais par la DISTANCE du caster a (2,3) --
+# re-derive par balayage, jamais herite de ces lignes.
+FOE_POS = (2, 1)          # le DEFAUT. Creed atterrit a DISTANCE 2 du caster, hors du pool Haze.
+FOE_POS_OPPOSITE = (3, 2) # meme regime d = 2 (l'un des trois qui le rendent) -- garde distinct
+                          # parce que l'etape 2 exerce nommement une AUTRE tuile de caster.
+FOE_POS_ADJACENT = (3, 3) # le regime RELAIS : d(caster, Creed-apres-switch) == 1, donc Creed entre
+                          # dans `AdjacentEnemies(Self) & AdjacentFriends(Target)` et encaisse le
+                          # report `HazeOfCorruption`. Exerce a l'etape 9, qui VERIFIE son montage.
 HAZE_DAMAGE_TRANSFER = 1077   # `EffectType.HazeOfCorruption_DamageTransfer` (0x435)
 OTHERS_ABILITY = 1000     # GauntletsOfUltramar -- ctor arg 2 = `Others` (aucun reveil)
 OTHERS_CASTER = "ultraCalgar"
@@ -302,14 +309,32 @@ def main() -> int:
         assert _hp(state, tgt) < hp0, "aucun degat -> le contre-cas ne discrimine rien"
 
     # --- 5. ABILITY `Others` : aucun reveil, donc aucune re-resolution --------------------------
+    # ⚠ CE QUE CETTE ETAPE MESURE EST L'ABSENCE DE RE-RESOLUTION #120bis, ET RIEN D'AUTRE. Elle
+    # l'a longtemps lue par le PROXY `h.last["target"] == creed` -- prise en defaut par #287-r14
+    # (`8abc8415`), qui a porte `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget` : tout le
+    # corps de ce natif est sous la garde `if (options.<isSelfCasting @+0x00> == 0)`, donc une
+    # ability SELF-CAST rend le CASTER sans rien resoudre. Or `1000 GauntletsOfUltramar` EST
+    # self-cast (`TargetingOptions$$SelfCastIfEnemyInCustomRangeOptions` ecrit `+0x00 = 1`, cf.
+    # `abilities/loki/splash.py::GauntletsOfUltramarAbility`) -> la cible FINALE est le caster, et le
+    # proxy est devenu FAUX sans qu'aucun comportement ne change (degat identique de part et d'autre
+    # du commit : `hp creed 400000 -> 395355`). Le discriminant est desormais NOMME.
     state, creed, foe = _fresh(foe_vis=OTHERS_CASTER)
     hp0 = _hp(state, creed)
     h = AbilityHandler(state)
     h.visit_ActiveAbilityMessage(ActiveAbilityMessage(foe, creed, OTHERS_ABILITY))
-    print("[5] ability Others (%d) : kell=%s cible frappee=%s hp creed %s -> %s"
-          % (OTHERS_ABILITY, _kell(state, creed), h.last.get("target"), hp0, _hp(state, creed)))
+    print("[5] ability Others (%d) : kell=%s cible du message=%s cible FINALE=%s "
+          "replaced=%s hp creed %s -> %s"
+          % (OTHERS_ABILITY, _kell(state, creed), creed,
+             h.last.get("actual_target", h.last.get("target")),
+             h.last.get("replaced_target", "(aucune)"), hp0, _hp(state, creed)))
     assert _kell(state, creed) is None, "Kell est apparu sur une ability Others"
-    assert h.last.get("target") == creed, "cible re-resolue sans switch"
+    assert "replaced_from" not in h.last and "replaced_target" not in h.last, (
+        "re-resolution #120bis declenchee alors qu'aucun reveil n'a spawne de remplacant")
+    # Le pendant POSITIF, qui empeche l'assertion ci-dessus d'etre vraie pour une mauvaise raison :
+    # la cible FINALE d'une self-cast est le CASTER (`GetActualTarget` sous sa garde `isSelfCasting`).
+    assert h.last.get("actual_target") == foe, (
+        "cible finale %s : `GetActualTarget` d'une ability SELF-CAST doit rendre le CASTER (%s)"
+        % (h.last.get("actual_target"), foe))
     assert _hp(state, creed) < hp0, "Creed n'a pas encaisse -> contre-cas non discriminant"
 
     # --- 6. CIBLE MORTE : `Count(targetTiles) > 0` protege les casts sur cadavre (revive) --------
@@ -364,11 +389,27 @@ def main() -> int:
     AttackDamageOperation.execute(state, foe, creed)          # 1er coup : spawn + switch
     kell = _kell(state, creed)
     hp_creed_1, hp_kell_1 = _hp(state, creed), _hp(state, kell)
-    # Creed est repousse en (1,2) : on ramene l'attaquant a son contact pour que le 2e coup le VISE
-    # depuis une tuile adjacente (la geometrie ne doit jamais etre l'excuse d'un scenario non monte).
+    # Creed est repousse par le switch : on ramene l'attaquant a son contact pour que le 2e coup le
+    # VISE depuis une tuile adjacente (la geometrie ne doit jamais etre l'excuse d'un scenario non
+    # monte).
+    # ⚠ LA TUILE D'ARRIVEE SE CHOISIT, ELLE NE SE CALCULE PAS. Ce montage prenait `(cp.col,
+    # cp.row - 1)` sans regarder QUI l'occupe. Tant que Kell spawnait ailleurs, cette case etait
+    # libre par accident ; depuis que `SwornProtectorAbility$$GetSpawnTile` est porte avec son
+    # bucket d'utilite (#836, `027cb485`), le switch laisse Creed en (2,3) et KELL en (2,2) --
+    # c'est-a-dire EXACTEMENT la case calculee. Le caster etait donc TELEPORTE SUR KELL, et le
+    # 2e coup ne frappait plus personne (`r2 = None`, `kell 4119 -> 4119`). On prend la premiere
+    # tuile adjacente a Creed qui soit sur le plateau ET LIBRE.
     fp = state.get_entity(foe).get_component(PositionComponent)
     cp = state.get_entity(creed).get_component(PositionComponent)
-    fp.col, fp.row = cp.col, cp.row - 1 if cp.row > 0 else cp.row + 1
+    occupees = {_pos(state, uid) for uid, e in state.entities.items()
+                if uid != foe and e.get_component(PositionComponent) is not None
+                and (e.get_component(UnitComponent) is None
+                     or e.get_component(UnitComponent).alive)}
+    libres = [q for q in hexgeo.neighbors(cp.col, cp.row)
+              if state.board.id_at(q[0], q[1]) is not None and q not in occupees]
+    assert libres, ("aucune tuile adjacente LIBRE autour de Creed en %s -- le montage ne peut pas "
+                    "amener le caster a son contact" % ((cp.col, cp.row),))
+    fp.col, fp.row = libres[0]
     emits = []
     # forme MODULE du consommateur (damage_ops.normal) : l'attribut est relu a l'appel,
     # donc ce patch mord quelle que soit la forme de son import (#485-r1-r1).
@@ -391,7 +432,7 @@ def main() -> int:
     assert _hp(state, kell) < hp_kell_1, "Kell n'a pas encaisse le 2e coup"
 
     # --- 9. L'AUTRE REGIME : Creed ADJACENT au caster -> il est relais `HazeOfCorruption` ---------
-    # Le montage `FOE_POS` (le defaut) laisse Creed adjacent au caster APRES le switch : il tombe
+    # Le montage `FOE_POS_ADJACENT` laisse Creed adjacent au caster APRES le switch : il tombe
     # alors dans `Damageable(AdjacentEnemies(Self@0x148) & AdjacentFriends(Target@0x178))`, se fait
     # bonder (0x435 = 1077) a la re-entree, et encaisse le degat GASPILLE par Kell quand celui-ci
     # tombe. C'est CE canal qui avait rendu l'etape 2 non discriminante (case-209, commit ed45582).
@@ -400,7 +441,7 @@ def main() -> int:
     # Creed encaisse doit etre EXACTEMENT la somme des `LeftOverDamage` de Kell -- donc RIEN du cast
     # lui-meme. Si `ExecuteForReplacedTarget` regressait, les 3 coups d'arme partiraient sur Creed
     # (bien plus que le report) et Kell n'aurait AUCUN leftover : l'egalite tomberait des deux cotes.
-    state, creed, foe = _fresh(foe_vis=FLAIL_CASTER, foe_pos=FOE_POS)
+    state, creed, foe = _fresh(foe_vis=FLAIL_CASTER, foe_pos=FOE_POS_ADJACENT)
     h = AbilityHandler(state)
     h.visit_ActiveAbilityMessage(ActiveAbilityMessage(foe, creed, FLAIL_SWING))
     kell = _kell(state, creed)
