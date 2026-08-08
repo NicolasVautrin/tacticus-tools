@@ -59,6 +59,11 @@ DECLENCHEUR = {
         # `nrOfHits`/`damageProfile`/`minDmg`/`maxDmg` viennent de la config `Drachnyen` du BUILD,
         # et les mirrors d'enum (`TriggeredAbilityType`, `EffectType`) du dump.
         "data/symbols/**",
+        # ⚠ MESURE, pas supposition (`probe_486r15` l'a rougi) : le pool passe par
+        # `operations/damage_utility.py`, dont les POIDS d'utilite viennent du bloc `Utilities` du
+        # seed BC (`engine/weights.py::load`). Le fichier est donc dans la fermeture REELLE meme si
+        # aucun test n'en parle.
+        "data/seed-bc.json",
     ),
     "build": True,
     "toujours": False,
