@@ -19,6 +19,24 @@ de niveau module est soit INSCRIT, soit ECARTE AVEC SA RAISON. Rien ne peut y et
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # Le probe sous test, et les DEUX FOYERS qu'il partitionne. Un dict de niveau module
+        # ajoute dans l'un d'eux doit faire rougir ce cliquet -- c'est tout son objet.
+        "scripts/python/probe_313_enum_mirror_bijection.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/entities/effects/factory.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Le probe, les deux foyers de registre, et le BUILD : l'etape 5 confronte chaque "
+              "cle aux enums du dump, donc un changement de build peut faire apparaitre une "
+              "cle MORTE ou EGAREE sans qu'aucun fichier Python ait bouge.",
+}
+
 import sys
 from pathlib import Path
 

@@ -14,6 +14,30 @@ expose sans qu'aucun test de valeur ne bouge. L'etage 3 balaie donc les gates de
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # LE FOYER et les TROIS gates qu'il dessert -- l'etage 3 les balaie par AST, donc un
+        # renommage de fonction ou un site qui cesse d'appeler le foyer le fait rougir.
+        "scripts/python/engine/ai/cast_positions.py",
+        "scripts/python/engine/ai/action_generators.py",
+        "scripts/python/engine/ai/state_bridge.py",
+        "scripts/python/engine/playbook/noncomparable/_base.py",
+        "scripts/python/engine/playbook/loki_custom.py",
+        # LE HARNAIS : le test garde que `projection.ts` publie encore le drapeau, faux par
+        # defaut. Un fichier TypeScript dans un declencheur de test Python n'est pas une
+        # bizarrerie -- c'est la seule facon de ne pas perdre le correctif au prochain rebase.
+        "frida/hooks/features/ai-step/projection.ts",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Le foyer `cast_positions`, les trois gates de position qu'il dessert, la source "
+              "offline qui declare ses plans complets, et le hook qui publie `rankComplete`. "
+              "Aucun de ces six ne peut bouger sans que ce cliquet doive se rejouer.",
+}
+
 import ast
 import sys
 from pathlib import Path
