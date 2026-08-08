@@ -4395,6 +4395,12 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_572_unbreakable_duty_offline.py": {
+   "_at": 1786178763,
+   "_commit": "7e5046c7ade22cc16048ad5dacf8501a55cdd06c",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",

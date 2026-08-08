@@ -762,16 +762,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 18
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 15
     #       dont hors-bloc (tete de table) ..... 4
-    #       dont bloc du pool (#433-r4) ........ 14
+    #       dont bloc du pool (#433-r4) ........ 11
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
-    #       FLAGS-DIRECTS  ..................... 7
+    #       FLAGS-DIRECTS  ..................... 4
     #       PRESET+FLAGS   ..................... 4
     #       PRESET-SEUL    ..................... 0
     #       STATIC-COPY    ..................... 7
-    #       (somme = 18)
+    #       (somme = 15)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
