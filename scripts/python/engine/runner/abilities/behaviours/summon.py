@@ -16,11 +16,66 @@ from dataclasses import replace
 from ....dsl.base import TargetsSelector, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import OwnerComponent, StatsComponent
-from .context import _unit_dict, LiveUnit
+from .context import _unit_dict, LiveUnit, main_tile_id
 from ...components import PositionComponent as _PC
 from ...operations.spawn import SpawnUnitOperation
 from ...operations.spawn import _spawn_config_grot
 from ...operations.spawn import trigger_spawned_unit_finish_turn
+
+
+class StatModifierFormula:
+    """`IdunBattle.Entities.Behaviours.StatModifierFormula` — une entree de la liste
+    `SpawnUnitOptions+0x28`, c'est-a-dire un OVERRIDE DE STAT dont la valeur n'est pas un
+    litteral de config mais une FORMULE evaluee au moment du spawn.
+
+    Layout natif LU dans `IdunBattle.Entities.Behaviours.StatModifierFormula$$.ctor(this,
+    statType, statPart, formula, entity)` : `+0x00` = le couple `(StatType, StatPart)` (deux
+    `int` contigus, ecrits par le meme helper que `IdunBattleLogic.Battle.StatModifier`),
+    `+0x08` = la formule (`IAmountFormula`), `+0x10` = le selecteur d'entite.
+
+    ⚠ `entity` n'est PAS consomme par le chemin de spawn : `IdunBattle.Entities.Behaviours.
+    SpawnUnitBehaviour$$GetStatsToOverride` lit `+0x00` (le couple) et `+0x08` (la formule),
+    appelle `formula.Calculate(entities)` et construit `StatModifier(couple, valeur, null, null)`
+    — le champ `+0x10` n'est jamais relu. Il est porte parce que le ctor l'ecrit ; l'unique
+    call-site porte (`GrotTankAbility$$ExecuteBehaviour`) y passe `null`."""
+    __slots__ = ("stat_type", "stat_part", "formula", "entity")
+
+    def __init__(self, stat_type: int, stat_part: int, formula, entity=None):
+        self.stat_type = int(stat_type)      # `StatType` (mirror `entities/stats.py`)
+        self.stat_part = int(stat_part)      # `StatPart`
+        self.formula = formula               # `IAmountFormula` (noeud V)
+        self.entity = entity                 # `ITargetsSelector` — non relu (cf. docstring)
+
+
+def get_stats_to_override(entities, formulas) -> list:
+    """`IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$GetStatsToOverride(entities, options)`
+    — VOLET `options+0x28` seulement, rendu sous la forme `[(statType, statPart, valeur), ...]`.
+
+    Le natif construit UNE liste de `StatModifier` a partir de DEUX sources, dans cet ordre :
+      1. `options+0x20` — les `StatModifier` LITTERAUX poses par `SpawnUnitOptions$$
+         SetStatFromConfig` (`summonHp`->Health, `summonDmg`->Attack, `summonArmor`->FixedArmor,
+         `summonBlockChance`/`summonBlockDmg`/`summonCritChance`/`summonCritDmg`), tous en
+         `StatPart.Initial` ;
+      2. `options+0x28` — les `StatModifierFormula`, dont il EVALUE la formule
+         (`formula.Calculate(entities)`) avant de fabriquer `StatModifier(couple, valeur)`.
+
+    Le volet 1 est deja porte, et ailleurs : c'est `operations/spawn.py::build_summon_context`
+    (`ability_var(summon_ability, "summon*")`). Cette fonction-ci ne porte donc QUE le volet 2,
+    et l'appelant l'applique APRES — c'est l'ordre natif de la liste, et il est load-bearing :
+    `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier` case `StatPart.Initial`
+    ECRASE (`+0x10`, `+0x14` et `+0x18` recoivent la valeur), donc sur un meme `StatType` la
+    DERNIERE entree gagne. GrotTank pose precisement un 2e `Health.Initial` par-dessus celui de
+    `summonHp`.
+
+    L'evaluation a lieu UNE SEULE FOIS, avant la boucle sur les tuiles (le natif appelle
+    `GetStatsToOverride` avant son enumerateur) : les N summons d'un meme cast partagent donc la
+    MEME valeur, meme si la formule lit un compteur que le spawn ferait bouger.
+
+    `formulas` vide/None -> `[]` (aucun override, comportement anterieur strictement inchange)."""
+    out: list = []
+    for smf in (formulas or []):
+        out.append((int(smf.stat_type), int(smf.stat_part), int(smf.formula.evaluate(entities))))
+    return out
 
 
 class Spawn(AbilityBehaviour):
@@ -92,21 +147,33 @@ class Spawn(AbilityBehaviour):
     VariableMultiplierPercentage=180` sur la mine posee par `astarCyrus`. Sans lui, la passive de
     la mine lirait ses variables a l'index 0 (le mode de panne #174, mesure a un facteur ~55 sur ce
     meme porteur en #462-...-c-r3-r1-r1). `None` (defaut) = comportement anterieur strictement
-    inchange (le niveau vient de l'`active_ability_level` du caster)."""
+    inchange (le niveau vient de l'`active_ability_level` du caster).
+
+    `stat_modifier_formulas` = la liste `SpawnUnitOptions+0x28` (`List<StatModifierFormula>`) : des
+    OVERRIDES DE STAT dont la valeur est une FORMULE, evaluee par `get_stats_to_override` et
+    appliquee PAR-DESSUS les stats de config (cf. la docstring de cette fonction pour l'ordre, qui
+    est load-bearing). Unique consommateur natif porte :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.GrotTankAbility$$ExecuteBehaviour`, qui pose
+    `StatModifierFormula(StatType.Health, StatPart.Initial, TankHealth(), null)` -- soit
+    « PV du Grot Tank = `summonHp` + `RoundsStarted(Caster)` x `extraHp` ». `None` (defaut) = liste
+    native VIDE = comportement anterieur strictement inchange."""
     __slots__ = ("tile_selector", "summon_ability", "pick_n", "on_appearance",
-                 "spawn_as_single_unit", "unit_id_constant", "ability_state")
+                 "spawn_as_single_unit", "unit_id_constant", "ability_state",
+                 "stat_modifier_formulas")
 
     def __init__(self, tile_selector: TargetsSelector, summon_ability: str, pick_n: int | None = None,
                  on_appearance: AbilityBehaviour | None = None,
                  spawn_as_single_unit: bool = False,
                  unit_id_constant: str = "unitId",
-                 ability_state: tuple | None = None):
+                 ability_state: tuple | None = None,
+                 stat_modifier_formulas: list | None = None):
         self.tile_selector, self.summon_ability = tile_selector, summon_ability
         self.pick_n = pick_n
         self.on_appearance = on_appearance
         self.spawn_as_single_unit = bool(spawn_as_single_unit)   # `SpawnUnitOptions+0x60`
         self.unit_id_constant = str(unit_id_constant)            # `GetStringConstant(config, <n>)`
         self.ability_state = ability_state                       # 2e arg de `WithStatsFromConfig`
+        self.stat_modifier_formulas = stat_modifier_formulas     # `SpawnUnitOptions+0x28`
 
     def execute(self, entities, ectx):
         import gameconfig as GC
@@ -130,6 +197,23 @@ class Spawn(AbilityBehaviour):
         if self.pick_n is not None:                       # fold `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(tiles, n)
             from ..loki.splash import _pick_randomly_n
             tiles = _pick_randomly_n(state, tiles, int(self.pick_n))
+        # `SpawnUnitBehaviour$$Execute` ne consomme JAMAIS l'element du selecteur tel quel : sur
+        # chaque element il enchaine `GetMainTile(element)` puis `get_Id` (les deux appels de slot
+        # que la boucle de la branche `+0x60 == 0` fait avant `ToList`), et sa branche multi-hex
+        # passe par `SpawnUnitBehaviour$$GetTileIds`, qui fait EXACTEMENT la meme paire d'appels.
+        # Le selecteur est donc a DOMAINE MIXTE : les six call-sites anterieurs lui donnent deja
+        # des ids de tuile (`CanAddUnit`, `Cache(GetSpawnTileSelector)`, ...), mais
+        # `GrotTankAbility$$ExecuteBehaviour` lui passe `Target@0x60` -- l'ENTITE-cible, qui est
+        # ici une entite-TUILE (`TargetIsTile`) mais qui arrive sous forme de dict cote port.
+        # `main_tile_id` EST le mirror de `GetMainTile(...).Id`, et il est IDEMPOTENT sur un id de
+        # tuile (sa branche de repli rend l'id tel quel) -> zero changement pour les anterieurs.
+        # Un element que le board ne resout pas est JETE, comme le natif jette un `GetMainTile`
+        # nul (`AddUnitOperation` n'est atteint que depuis une tuile).
+        tiles = [t for t in ((main_tile_id(state, t.get("id")) if isinstance(t, dict)
+                              else main_tile_id(state, t)) for t in tiles) if t is not None]
+        # `GetStatsToOverride` est appele UNE FOIS, AVANT l'enumerateur de tuiles (mirror de
+        # l'ordre natif) : les N summons d'un meme cast partagent la meme valeur d'override.
+        stat_overrides = get_stats_to_override(entities, self.stat_modifier_formulas)
         from ...operations.triggers.dispatch.ability import ability_init_triggers  # lazy : cycle spawn<->triggers
         # `SpawnUnitBehaviour$$Execute` branche `options+0x60` : soit une unite PAR tuile (defaut),
         # soit UNE unite sur `GetTileIds(tiles)` (toutes les tuiles = ses PIEDS). Le port exprime les
@@ -147,6 +231,10 @@ class Spawn(AbilityBehaviour):
                                      # monte SES passives sous l'`AbilityState` du summoner.
                                      passive_level=(None if self.ability_state is None
                                                     else self.ability_state[0]),
+                                     # `SpawnUnitOptions+0x28` evalue (volet FORMULE de
+                                     # `GetStatsToOverride`) -- applique PAR-DESSUS les stats de
+                                     # config, comme la liste native ou il vient EN SECOND.
+                                     stat_overrides=stat_overrides,
                                      # #291 : l'ORDRE natif de `TriggerSpawnedUnitBehaviours` est
                                      # on-appearance D'ABORD, `FinishUnitTurn(spawned, true)` ENSUITE
                                      # -> quand cette feuille porte un on-appearance, elle appelle le

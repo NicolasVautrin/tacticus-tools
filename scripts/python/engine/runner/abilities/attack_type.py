@@ -423,6 +423,16 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `DAMAGE(Toxic)` -- deux raisons de croire a `DirectTargetAttack`. Le natif ecrit `2`.
     ActiveAbilityType.FoulInfusion: AbilityAttackType.Others,  # 1038
     ActiveAbilityType.GetEmRuntz: AbilityAttackType.Others,  # 1045
+    # 1057 GrotTank (`orksBigMek`) -- #567. LITTERAL RELU au decompile :
+    # `...Active.Loki.GrotTankAbility$$.ctor` finit par `AActiveAbility..ctor(this, &opts, 2)`
+    # -> 3e argument = **2 = Others**. Le voisinage ne le donnait PAS : les autres SUMMON qui font
+    # attaquer leur invocation dans la foulee (`ScarabHive` 1007, `SendInTheNextWave` 1016,
+    # `Incursion` 1021, `Poxwalkers` 1040) valent tous `1 = SummonAndAttackTarget`, et GrotTank
+    # porte pourtant lui aussi un sous-behaviour d'attaque on-appearance
+    # (`PerformAIAttackFromCurrentPosition`). La difference LUE : ces quatre-la font frapper LA
+    # CIBLE DU CAST, alors que GrotTank cible une TUILE et laisse l'IA choisir. On transcrit le 3e
+    # argument, jamais la forme de l'arbre.
+    ActiveAbilityType.GrotTank: AbilityAttackType.Others,  # 1057
     ActiveAbilityType.ScarabSummon: AbilityAttackType.Others,  # 1047
     ActiveAbilityType.Waaagh: AbilityAttackType.Others,  # 1058
     ActiveAbilityType.MasterOfTheTutelaries: AbilityAttackType.Others,  # 1096
