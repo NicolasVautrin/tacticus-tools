@@ -21,6 +21,7 @@ from ..pathfinding.tile_blocking import (TILE_MOVEMENT_BLOCKING_EFFECT_TYPES,
                                              terrain_blocks_entering)
 from ..traits.unit_trait import has_any_trait
 from ..traits.unit_trait import unit_trait_names
+from ..traits.unit_trait import UnitTrait          # `Steppable` (0x1b) de la branche allowSteppable
 
 
 # --- Selecteurs de TUILES (domaine TILE = ids de tuile ; lisent ctx.board). Pont unit->tile
@@ -365,25 +366,46 @@ class CanAddUnit(TargetsSelector):
     ⚠ Les MORTS restent exclus, et c'est fidele : `KillUnitOperation` -> `RemoveUnitFromTiles` vide
     le `TileContentComponent`, donc un cadavre n'occupe plus rien cote natif non plus.
 
-    RESIDUS NOMMES : (a) `allowSteppable` n'est pas modelise PAR CALL-SITE -- le port implemente la
-    branche `allowSteppable == 0` (tout occupant bloque). C'est celle du call-site de
-    `HaywireMineAbility`, et c'est MESURE, pas suppose : au tour ou la mine occupe deja
-    `PreviousTile`, le natif ne repose RIEN (`Count(tiles) == 0` -> `TriggerAbilityDelayed`), alors
-    qu'avec `allowSteppable == 1` la tuile aurait ete rendue libre par le bras
-    `GetUnit(t).HasTrait(Steppable)`. (b) `IsTileReservedForOtherUnit` et `IsTilePendingDrafting`
-    n'ont pas d'equivalent porte (ni reservation, ni drafting)."""
-    def __init__(self, source: TargetsSelector):
+    `allow_steppable` = la branche `allowSteppable` d'`IsFreeTile`, DESORMAIS PAR CALL-SITE. Le natif
+    ne la recoit pas comme un booleen mais comme un TRIGGER (`DSLSelectors$$CanAddUnit(tiles, parent,
+    isSteppable: IAbilityTrigger)` -> `CanAddUnitTileSelector+0x28`), et
+    `IdunBattle.Entities.Selectors.CanAddUnitTileSelector$$Select` l'INVERSE, verbatim :
+
+        allowSteppable = !(<+0x28>.ShouldTrigger(entities, 0x20))
+        garde t ssi TileExtensions.CanAddUnitFromAbility(t, state, parent, allowSteppable)
+
+    `False` (defaut) = branche `allowSteppable == 0`, comportement HISTORIQUE inchange -- c'est celle
+    du call-site `HaywireMineAbility`, MESUREE (au tour ou la mine occupe deja `PreviousTile`, le
+    natif ne repose RIEN : `Count(tiles) == 0` -> `TriggerAbilityDelayed`).
+    `True` = branche `allowSteppable == 1` : une tuile dont l'occupant porte `Steppable` est LIBRE.
+    Unique porteur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$ExecuteBehaviour`
+    passe `isSteppable = <DSLTriggers+0x48>`, que `IdunBattleLogic.Entities.DSLTriggers$$.ctor` pose
+    comme `op_LogicalNot(<le trigger SANS operande de +0x40/+0x70>)` -- ce meme slot `+0x70` est deja
+    nomme `YesTrigger` par le port (`entities/effects/loki/martial_superiority.py`,
+    `.../counter_attack.py`, identifie par sa taille 16 et son absence de champ). Donc
+    `ShouldTrigger` y est TOUJOURS FAUX, donc `allowSteppable` TOUJOURS VRAI a ce call-site.
+
+    RESIDU NOMME : `IsTileReservedForOtherUnit(t, parent)` et `IsTilePendingDrafting(t, state, 0)`
+    n'ont pas d'equivalent porte (ni reservation, ni drafting) -- c'est aussi pourquoi l'argument
+    `parent` du noeud natif n'a pas de contrepartie ici : le port n'a rien a en faire."""
+    def __init__(self, source: TargetsSelector, allow_steppable: bool = False):
         self.source = source
+        self.allow_steppable = bool(allow_steppable)      # `!<+0x28>.ShouldTrigger` (cf. docstring)
 
     def select(self, ctx):
         board = getattr(ctx, "board", None)
         if board is None:
             return []
+        ht = getattr(ctx, "has_trait", None) or (lambda u, t: False)
         occ = set()
         for u in ctx.units:
             # `TileContentComponent.IsEmpty` -- l'occupation est celle de la TUILE, PAS la vitalite
             # de son occupant : cf. le bloc « OCCUPATION : le CONTENU DE LA TUILE » de la docstring.
             if not u.get("alive", True):
+                continue
+            # `IsFreeTile` branche `allowSteppable == 1` : `content.IsEmpty() || GetUnit(t).HasTrait(
+            # 0x1b = Steppable)` -- l'occupant STEPPABLE ne rend PAS la tuile occupee.
+            if self.allow_steppable and ht(u, UnitTrait.Steppable):
                 continue
             for f in _feet(u):                            # `GetTiles` (repli main tile documente)
                 t = board.id_at(f[0], f[1])
@@ -447,6 +469,28 @@ class TileIntersect(TargetsSelector):
         seen, out = set(), []
         for t in self.left.evaluate(ctx):
             if t in rs and t not in seen:
+                seen.add(t)
+                out.append(t)
+        return out
+
+
+class TileUnion(TargetsSelector):
+    """Union de deux ensembles de TUILES (ids) -- `IdunBattle.DSL.TargetsSelector$$op_Addition` du
+    domaine tile. Concatene `left` puis `right`, DEDUP (1re apparition preservee).
+
+    Homologue tile de `Union` (`selectors/units.py`), qui passe par `_units_of` et rendrait `[]` sur
+    des ids de tuile. Meme motif que `TileIntersect`/`TileUnique` juste au-dessus : le natif n'a
+    qu'UN `op_Addition`, le port en a deux ecritures parce que le domaine n'est pas type cote port.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$GetTargetTiles`
+    = `Target@0x60 op_Addition AdjacentTilesIntersection(CasterTile@0x50, Target@0x60)`."""
+    def __init__(self, left: TargetsSelector, right: TargetsSelector):
+        self.left, self.right = left, right
+
+    def select(self, ctx):
+        seen, out = set(), []
+        for t in list(self.left.evaluate(ctx)) + list(self.right.evaluate(ctx)):
+            if t not in seen:
                 seen.add(t)
                 out.append(t)
         return out

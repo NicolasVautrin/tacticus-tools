@@ -839,11 +839,12 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
     # 1087 ExemplarOfTheKauyon -- MIGRE (#488) sur `runner/abilities/tau.py::ExemplarOfTheKauyonAbility.TARGETING_OPTIONS`
     #   avec sa face COMBAT ; contrat de disjonction ci-dessus.
-    # 1121 ItItches -- `...Active.Loki.ItItchesAbility$$.ctor` :
-    #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 0, 0x80040, 0, 0)`. ⚠ `forceMeleeTarget = 0`
-    #   = `RangedBool.True` (l'enum natif est INVERSE) -- l'une des DEUX du lot hors defaut.
-    ActiveAbilityType.ItItches: TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileHasEnemyUnit, self_cast=False,  # 1121
-                           range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_TRUE),
+    # 1121 ItItches : MIGRE vers `ABILITY_CLASSES` (#550) -- sa face COMBAT est desormais portee
+    #   (`abilities/tyranids.py::ItItchesAbility.TARGETING_OPTIONS`), donc le CONTRAT DE DISJONCTION
+    #   impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile avant migration et est
+    #   bit-identique a celui qui vivait ici
+    #   (`.ctor(&opts, 0, &<TargetingRange statics+0x30>, 0, 0x80040, 0, 0)` -- `forceMeleeTarget = 0`
+    #   = `RangedBool.True`, l'enum natif etant INVERSE ; l'une des DEUX du lot hors defaut).
     # 1141 OverwhelmingWrath : MIGRE vers `ABILITY_CLASSES` (#503) -- sa face COMBAT est desormais
     #   portee (`abilities/worldeaters.py::OverwhelmingWrathAbility.TARGETING_OPTIONS`), donc le
     #   CONTRAT DE DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile

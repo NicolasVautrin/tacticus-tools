@@ -70,6 +70,7 @@ from ...services.damage_config import resolve_damage_field
 from ..components import HealthComponent, StatsComponent
 from ..components import unit_is_dead
 from ..components import unit_extensions_is_displaceable   # #498-r2 : foyer d'`IsDisplaceable`
+from ..components import unit_extensions_is_steppable      # #550 : foyer d'`IsSteppable`
 from .damage import AttackDamageOperation
 
 # Distance du push, en tuiles = 1. CONSTANTE SOURCEE (cas #68 : RE decompile + confirme live), PAS une
@@ -568,15 +569,40 @@ class DisplaceUnitOperation(Operation):
     prioritizedTiles, knockbackDamage)` -> `DisplaceUnitBehaviour(direction: 2, ..., options{+0x10 =
     knockbackDamage, +0x20 = prioritizedTiles}, targetSelectionType: 2)`.
 
+    `vector_dir` = le **`direction = 3`** du switch natif (`AdjacentVector`, #550). Le natif inline
+    ce cas dans `Execute` (le corps est le jumeau exact de `IdunBattle.Operations.
+    DisplaceUnitOperation$$FindTileWithVector`), et il est le SEUL des sept a ne PAS deriver sa
+    destination de la geometrie pousseur/poussee : elle vient d'un VECTEUR fourni en options
+    (`DisplaceUnitBehaviourOptions+0x28`, `Nullable<HexVector>`). MIRROR, verbatim :
+
+        vector   = options.<+0x28>.Value
+        mainTile = EntityExtensions.GetMainTile(target)
+        tile     = query.GetTileInDirection(mainTile, vector)            // IBattleQuery slot 95
+        if (tile == null || !TileExtensions.IsWalkable(tile, true))      tile = null
+        else if (!query.AreEntitiesAdjacent(mainTile, tile))             tile = null   // slot 96
+
+    ⚠ TROIS ECARTS AVEC `FindTileToPush` (direction 0), tous LUS : (a) la direction est la MEME pour
+    toutes les cibles d'un meme cast -- celle du vecteur -- la ou `FindTileToPush` recalcule
+    `pousseur -> poussee` par cible ; (b) **UN SEUL PAS** (pas de boucle `_PUSH_MAX_DIST`) ;
+    (c) **AUCUN test d'occupation** dans le calcul de la destination -- l'occupation est traitee en
+    AVAL, par la partie commune d'`Execute` (`content.IsFilled()` -> ecrasement du steppable, sinon
+    knockback), exactement comme pour les autres directions. Le port respecte cet ordre : la branche
+    `vector_dir` ne consulte PAS `_occupied`, et laisse le `blocker_id` a la partie commune.
+    `None` (defaut) = comportement historique INCHANGE (direction 0 ou 2 selon `prioritized_tiles`).
+    `vector_dir` est un index de `EVENQ_*` (0..5), c'est-a-dire ce que rend `_dir_index` -- le foyer
+    porte de `IBattleQuery` slot 113 `GetVector` / `DSLFormulas$$VectorFromAdjacentTo(from, to, 1)`.
+
     Retour dict {moved, to, reason} pour le journal `ectx.emit` (replay-diff live)."""
-    __slots__ = ("pusher_id", "pushed_id", "record_tiles", "prioritized_tiles")
+    __slots__ = ("pusher_id", "pushed_id", "record_tiles", "prioritized_tiles", "vector_dir")
 
     def __init__(self, pusher_id: int, pushed_id: int, record_tiles: bool = False,
-                 prioritized_tiles: "list[tuple[int, int]] | None" = None):
+                 prioritized_tiles: "list[tuple[int, int]] | None" = None,
+                 vector_dir: "int | None" = None):
         self.pusher_id = pusher_id
         self.pushed_id = pushed_id
         self.record_tiles = bool(record_tiles)
         self.prioritized_tiles = prioritized_tiles
+        self.vector_dir = vector_dir                  # `direction = 3` (AdjacentVector), cf. docstring
 
     def execute(self, state: State, bus: EventBus) -> dict:
         board = getattr(state, "board", None)
@@ -595,9 +621,64 @@ class DisplaceUnitOperation(Operation):
         # --- `IsDisplaceable(target)` (tete d'`Execute`, commune aux 7 cases) -> no-op ---
         if not unit_extensions_is_displaceable(pushed):
             return {"moved": False, "reason": "not displaceable"}
+        # --- `if (IsSteppable(target)) { KillUnit(caster, target, ForSteppable()); return; }` ---
+        # SECONDE tete d'`IdunBattle.Operations.DisplaceUnitOperation$$Execute`, commune aux 7 cases
+        # elle aussi, et ANTERIEURE au switch de direction : une unite STEPPABLE n'est JAMAIS
+        # deplacee, elle est ECRASEE. C'est ce que le tooltip d'`ItItches` appelle « Enemy steppables
+        # on affected hexes are destroyed » -- et c'est ce qui alimente le `DeadUnits(<Cache>)` que
+        # son second bloc consomme. `KillUnitOperationOptions.ForSteppable()` -> `+0x00 = 2`
+        # (`DamageReason.Steppable`, cf. `entities/damage_reason.py`) : le port passe par le foyer
+        # UNIQUE de `KillUnitOperation$$Execute` (`AttackDamageOperation._kill_unit_operation`),
+        # comme la feuille `Kill` du DSL.
+        if unit_extensions_is_steppable(pushed):
+            hc = pushed.get_component(HealthComponent)
+            if hc is not None:
+                hc.hp = 0                     # `KillUnitOperation$$Execute+0x505` : `health.hp = 0`
+            if uc is not None:
+                uc.alive = False
+            # FOYER UNIQUE du crush (`operations/movement.py::_kill_steppable_kill_unit`, #462-...) :
+            # `KillUnitOperation$$Execute` en entier sous `ForSteppable` -- meme corps que la mort
+            # par degat, `DamageReason.Steppable`, cinq evenements, trois `RemoveEffects`.
+            from .movement import _kill_steppable_kill_unit    # cycle displace <-> movement (PORTEUR)
+            death = _kill_steppable_kill_unit(state, int(self.pushed_id), int(self.pusher_id)) or []
+            return {"moved": False, "reason": "steppable crushed",
+                    "killed": [int(self.pushed_id)], "death": death}
         dest: tuple[int, int] | None = None
         blocker_id: int | None = None
-        if self.prioritized_tiles is not None:
+        if self.vector_dir is not None:
+            # `direction = 3` (AdjacentVector) : UN pas dans la direction du VECTEUR, walkable, et
+            # adjacent a la main tile (trivialement vrai pour un pas unitaire -- le natif le teste
+            # quand meme, cf. `AreEntitiesAdjacent`, slot 96). AUCUN test d'occupation dans le calcul
+            # de la destination : le natif la traite APRES, par `content.IsFilled()`.
+            nxt = _step(ppos.col, ppos.row, int(self.vector_dir))
+            nt = board.id_at(*nxt)
+            if nt is not None and board.walkable(nt):
+                occ_v = _occupied(state, self.pushed_id)
+                blocker = occ_v.get(nxt)
+                if blocker is None:
+                    dest = nxt
+                elif unit_extensions_is_steppable(state.get_entity(int(blocker))):
+                    # Partie commune d'`Execute`, DANS SON ORDRE :
+                    #   if (content.IsFilled() && IsSteppable(occupant))
+                    #        KillUnit(target, occupant, ForSteppable());   // tueur = la POUSSEE
+                    #   if (!content.IsFilled())  -> move                  // RE-TESTE apres le Kill
+                    # `KillUnitOperation` -> `RemoveUnitFromTiles` VIDE le `TileContentComponent`,
+                    # donc le second test est FAUX apres l'ecrasement et la poussee ABOUTIT.
+                    # Le port n'ecrase RIEN ICI et laisse `dest` : `MoveUnitOperation` porte deja le
+                    # FOYER UNIQUE de ce crush (`operations/movement.py::_kill_steppable_units`, qui
+                    # joue `KillUnitOperation$$Execute` en entier -- `RecordDeathReason(Steppable)`,
+                    # les cinq evenements de mort, les trois `RemoveEffects`). Ecrire un second crush
+                    # ici le jouerait DEUX FOIS. Le tueur impute differe (`MoveUnitOperation` impute
+                    # le MOVER, le natif de cette branche impute `target` -- qui EST le mover) :
+                    # aucune divergence.
+                    dest = nxt
+                else:
+                    blocker_id = blocker             # -> branche knockback (partie commune)
+            # ⚠ RESIDU NOMME (#550) : les directions 0 et 2 n'atteignent PAS ce chemin -- leur
+            # `FindTileToPush` porte fait `break` sur toute occupation, steppable comprise (le
+            # commentaire « 21b: steppable-crush / absorb » l'y signale deja). La presente tranche ne
+            # les elargit pas, faute de porteur confrontable pour les re-valider.
+        elif self.prioritized_tiles is not None:
             # `direction = 2` -> `IdunBattle.Operations.DisplaceUnitOperation$$
             # FindTileToPushToPrioritizedTiles` (#498, cf. la docstring de classe). Le cas `Count == 1`
             # est rendu TEL QUEL par le natif -- aucun `IsEmptyOrSteppable` ; c'est le cas du seul

@@ -1742,6 +1742,36 @@ def unit_extensions_is_displaceable(entity) -> bool:
     return True
 
 
+def unit_extensions_is_steppable(entity) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsSteppable(unit)` = `BaseUnitComponent$$HasTrait(unit,
+    0x1b = Steppable)`. MEME substrat de traits qu'`unit_extensions_is_displaceable` ci-dessus
+    (`entity_trait_names` : kit gameconfig + traits ACCORDES en bataille), pour la meme raison.
+
+    Foyer de la BRANCHE ECRASEMENT du push, LUE en tete d'`IdunBattle.Operations.
+    DisplaceUnitOperation$$Execute`, juste apres `IsDisplaceable` et AVANT le switch de direction :
+
+        if (UnitExtensions.IsSteppable(target)) {
+            processor.KillUnit(caster, target, KillUnitOperationOptions.ForSteppable());
+            return;                        // <- l'unite STEPPABLE poussee est TUEE, jamais deplacee
+        }
+
+    Le meme predicat est relu plus bas sur l'OCCUPANT de la destination (`content.IsFilled() &&
+    IsSteppable(occupant)` -> `KillUnit(target, occupant, ForSteppable())`), d'ou le foyer partage.
+
+    Il existe deja un mirror TILE-domain de ce predicat, `runner/abilities/targeting.py::
+    has_steppable_unit`, qui resout une TUILE en son occupant (`GetUnit`) puis teste le meme trait ;
+    il vit la-bas parce que son argument natif y transite. Celui-ci prend l'ENTITE directement --
+    c'est ce dont `operations/` a besoin, et importer `abilities/` depuis `operations/` fermerait un
+    cycle."""
+    if entity is None:
+        return False
+    sc = entity.get_component(StatsComponent)
+    uc = entity.get_component(UnitComponent)
+    traits = entity_trait_names(sc.ctx if sc is not None else None,
+                                getattr(uc, "visual_id", None) if uc is not None else None)
+    return has_any_trait(traits, (UnitTrait.Steppable,))
+
+
 # Effets dont la presence (owner OU target) fait qu'un move est un TELEPORT (cf. `set_moved_flag`) :
 # TeleportStrike_TeleportingIn(0x40b=1035)/TeleportStrike_Moving(0x40c=1036) et
 # FearOfTheUnseen_TeleportingIn(0x4d6=1238)/FearOfTheUnseen_Moving(0x4d9=1241).

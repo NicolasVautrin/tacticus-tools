@@ -36,25 +36,33 @@ from .base import ActiveAbility, convert_rounds_to_turns
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect
 from .behaviours.lifecycle import (
-    RemoveAllForcedAttackTargets, RemoveUnitFromItsTiles, TriggerAbility
+    Kill, RemoveAllForcedAttackTargets, RemoveUnitFromItsTiles, TriggerAbility
 )
-from .targeting import (RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions,
+from .behaviours.movement import (DisplaceUnitInAdjacentDirection, RemoveReservation, Reserve,
+                                  ResetMovement)
+from .behaviours.summon import PerformAIAttack, Spawn
+from .targeting import (RANGE_ADJACENT, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_TRUE, TargetingOptions,
                         has_steppable_unit, unit_of_entity, units_are_enemies)
 from .targeting_rule import TargetingRule as TR
 from ..components import OwnerComponent, StatsComponent, get_unit_feet, is_teleporting
+from ..operations.displace import _dir_index      # foyer de `IBattleQuery` slot 113 `GetVector`
 from ...dsl.base import Const
 from ...entities.active_ability_type import ActiveAbilityType
-from ...entities.behaviours import If as IfBehaviour, op_add
+from ...entities.behaviours import Group, If as IfBehaviour, op_add, op_and
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
-from ...entities.selectors.accessors import Target
-from ...entities.selectors.geometry import Entity
-from ...entities.selectors.tiles import Caster
-from ...entities.selectors.units import Enemies, SurroundingUnits, non_steppable_or_object_units
+from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, Owner, Target)
+from ...entities.selectors.geometry import Cache, Entity
+from ...entities.selectors.tiles import (AdjacentTiles, CanAddUnit, Caster, TileIntersect,
+                                         TileUnion)
+from ...entities.selectors.units import (DeadUnits, Enemies, SurroundingUnits, Tiles, Units,
+                                         non_steppable_or_object_units)
 from ...entities.triggers import HasUnitFlag, IsInTeamAura, Not
 from ...entities.triggered_ability_type import TriggeredAbilityType
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
+from ...streams.group_type import GroupType
 from ..operations.spawn import _spawn_config_grot
 from .loki import perform_ai_attack_from_current_position
 
@@ -842,4 +850,284 @@ class BurrowersAbility(ActiveAbility):
         return {"ability": BURROWERS_ID, "caster": caster_id, "target": target_id,
                 "removed_from_tiles": removed, "posed": posed, "forced_targets_removed": forced,
                 "dsl": True}
+
+
+# ============== ItItches (Parasite of Mortrex `tyranParasiteOfMortrex`, actif 1121) ===============
+#
+# ⚠ LA FICHE D'AUDIT DISAIT « SUMMON », ET C'EST VRAI MAIS TRES INCOMPLET (#550). La colonne de
+# `docs/rl/combat-ability-coverage.md` derive du `damageProfile` de l'ARME du porteur, pas du
+# behaviour. Le decompile de `...ItItchesAbility$$ExecuteBehaviour` est un COMPOSITE de cinq
+# mecaniques, dont le summon n'est que la derniere : PIN + POUSSEE VECTORIELLE + ECRASEMENT des
+# steppables + RESET du deplacement du caster + SPAWN sur les hex liberes.
+#
+# i2 (`ItItches`) : « Suppresses and pushes an adjacent enemy unit and all enemy units adjacent to
+# both the target and the Parasite of Mortrex one hex backwards. Enemy steppables on affected hexes
+# are destroyed. Then summons a Ripper Swarm in each hex vacated by this ability. The Ripper Swarms
+# can immediately attack. The Parasite of Mortrex may move again after activating this ability. »
+#
+# Les cinq propositions du tooltip s'apparient UNE A UNE aux noeuds du decompile, et c'est ce qui a
+# permis de valider la lecture : « Suppresses » = `AddEffect(0x429 = Pinned)` ; « pushes ... one hex
+# backwards » = `DisplaceUnitInAdjacentDirection(vector = VectorFromAdjacentTo(CasterTile, Tiles(
+# Target), 1))` ; « steppables are destroyed » = la tete d'`IdunBattle.Operations.
+# DisplaceUnitOperation$$Execute` (`if (IsSteppable(target)) Kill(...)`) suivie du `Kill(DeadUnits)` ;
+# « summons ... in each hex vacated » = `Foreach(CanAddUnit(<tuiles des cibles>), t => Spawn(t))` ;
+# « may move again » = `ResetMovement(Owner)`.
+
+IT_ITCHES_ID = "ItItches"
+IT_ITCHES_PINNED = int(EffectType.Pinned)         # 0x429 = 1065 -- UI « Suppressed »
+
+
+def _it_itches_selectors(tile_id):
+    """Les QUATRE selecteurs partages de `...ItItchesAbility$$ExecuteBehaviour`, construits UNE FOIS
+    par cast -- comme le natif, qui alloue ses noeuds au debut du corps et les repasse aux trois
+    `Execute`. Rend `(zone, targets, target_tiles)`.
+
+    MIRROR, en remontant les slots `DSLSelectors` (carte LUE dans
+    `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` : `+0x30 Owner · +0x38 Effect ·
+    +0x40 Actor · +0x48 Caster · +0x50 CasterTile · +0x58 CasterTiles · +0x60 Target ·
+    +0x68 ActiveTarget · ...`) :
+
+        tilesOfTarget = Cache(Tiles(Target@0x60), true)
+        targetUnits   = Cache(Enemies(Caster@0x48,
+                                      Target@0x60 op_Addition
+                                      AdjacentTilesIntersection(CasterTile@0x50, Target@0x60),
+                                      UnitSelectionType.OnlyAliveAndTargetable), true)
+        targetTiles   = Cache(Tiles(targetUnits), true)
+
+    `targetUnits` est LITTERALEMENT le corps de `...ItItchesAbility$$GetTargetUnits`, et la somme
+    `Target + AdjacentTilesIntersection(...)` celui de `$$GetTargetTiles` -- les deux accesseurs
+    existent separement parce que le PLAYBOOK les rappelle (`...ItItchesPlaybook$$
+    GetAffectedUnitsSelector`), ce qui donne une seconde lecture concordante de la geometrie.
+    `AdjacentTilesIntersection(a, b)` n'a pas de noeud dedie cote port : son corps natif EST
+    `AdjacentTiles(a) op_BitwiseAnd AdjacentTiles(b)` (relu), donc on ecrit la composition.
+
+    ⚠ **DOMAINE.** Le natif reste en domaine TUILE de bout en bout : `Target` est une entite-TUILE
+    (masque `TargetIsTile`), et `IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd`
+    resout l'occupant (`GetUnitOrMachine`) pour le TEST `IsFriend` mais ajoute l'ENTITE SOURCE au
+    resultat -- donc `Enemies(<tuiles>)` rend des TUILES. Le port passe en domaine UNITE par un
+    `Units(...)` EXPLICITE, et l'ecart est de REPRESENTATION, pas de semantique : les consommateurs
+    aval (`AddEffectOperation`, `DisplaceUnitOperation`, `KillUnitOperation`) resolvent tous
+    l'occupant, et `Tiles(<unite>)` rend sa main tile, c'est-a-dire la tuile de depart. Le seul
+    regime ou les deux divergeraient est une unite MULTI-HEX (`Tiles(tuile)` = LA tuile,
+    `Tiles(unite)` = sa main tile) -- inatteignable ici, `IsDisplaceable` refusant `BigTarget`.
+
+    ⚠ **LE `Cache` EST LOAD-BEARING**, il n'est pas decoratif : `targets` est relu APRES la poussee
+    par `DeadUnits(targets)`, et la poussee TUE les steppables. Sans memoisation, `Units` (qui ne
+    rend que des VIVANTS) les aurait deja exclus -> `DeadUnits` vide. cf. la docstring de
+    `entities/selectors/units.py::DeadUnits`.
+
+    `tile_id` materialise `Target@0x60` : le cast est TILE-TARGET (`abilityTargets` kind=tile, et la
+    face DECISION emet bien un id de TUILE -- `playbook/noncomparable/it_itches.py`)."""
+    target = FixedTileIds([tile_id])
+    zone = TileUnion(target,                                   # `Target op_Addition ...`
+                     TileIntersect(AdjacentTiles(CasterTile(as_ids=True)),   # `AdjacentTilesIntersection`
+                                   AdjacentTiles(target)))
+    targets = Cache(Enemies(Units(zone)))                      # `Cache(Enemies(Caster, zone, 3))`
+    target_tiles = Cache(Tiles(targets, as_ids=True))          # `Cache(Tiles(targetUnits))`
+    return zone, targets, target_tiles
+
+
+def it_itches_tree(tile_id, vector_dir):
+    """Les TROIS arbres de `...ItItchesAbility$$ExecuteBehaviour`, dans l'ordre NATIF. Le corps se
+    termine par trois appels distincts -- `ExecuteAtomic(...)`, `Execute(...)`, `return Execute(...)`
+    -- chacun precede d'une re-copie des 0x148 octets du contexte `entities` (meme forme que
+    `BurrowersAbility` ci-dessus). MIRROR :
+
+        [1] ExecuteAtomic( ((AddEffect(0x429 Pinned, AbilityStateReference, source: Caster@0x48,
+                                       targets: targetUnits, options: <Nullable VIDE>)
+                             op_BitwiseAnd Reserve(Owner@0x30, targetTiles))
+                            op_BitwiseAnd DisplaceUnitInAdjacentDirection(
+                                Caster@0x48, targetUnits,
+                                VectorFromAdjacentTo(CasterTile@0x50, tilesOfTarget, 1)))
+                           op_BitwiseAnd RemoveReservation(Owner@0x30, targetTiles),
+                           entities, GroupType.Ability_AtomicGroup /* 0x2a */ )
+
+        [2] Execute( ResetMovement(Owner@0x30), entities )
+
+        [3] Execute( Group( ((Reserve(Owner@0x30, targetTiles)
+                              op_BitwiseAnd Kill(Caster@0x48, DeadUnits(targetUnits),
+                                                 KillUnitBehaviourOptions.ForClearDeadUnits() /*0x100*/))
+                             op_BitwiseAnd Foreach(CanAddUnit(targetTiles, Owner@0x30,
+                                                              isSteppable: <DSLTriggers+0x48>),
+                                                   t => Spawn(Caster@0x48, t, unitId, opts)))
+                            op_BitwiseAnd RemoveReservation(Owner@0x30, targetTiles),
+                            Owner@0x30, GroupType.Ability_Summon /* 0x22 */ ),
+                     entities )
+
+           avec opts = SpawnUnitOptions.WithStatsFromConfig(config 1121, abilityState, null, null)
+                       .onAppearance(+0x18) = RemoveReservation(Owner@0x30, Tiles(ActiveTarget@0x68))
+                                              op_Addition
+                                              PerformAIAbility(ActiveTarget@0x68, <getAbilityType>,
+                                                               allowOnlyMove: false,
+                                                               overrideMovement: <DSLFormulas+0x18>,
+                                                               utilityEntity: null,
+                                                               customUtility: null)
+
+    Les deux GroupType sont LUS (`0x2a` / `0x22`), pas deduits, et nommes par le mirror
+    `engine/streams/group_type.py`.
+
+    ORDRE LOAD-BEARING : le `Pinned` precede la poussee (le natif compose `op_BitwiseAnd` de gauche a
+    droite), et le `ResetMovement` du caster precede le spawn. Les trois blocs sont executes
+    INCONDITIONNELLEMENT par le natif (trois appels separes) -- le port les rend separement pour la
+    meme raison, plutot que de les chainer par `op_and`, dont le court-circuit `Seq` ne serait
+    equivalent que tant qu'aucune feuille ne pose `stop` (elles sont toutes PURES aujourd'hui, mais
+    ce n'est pas une propriete de l'arbre, c'est une propriete de ses feuilles).
+
+    `Foreach(sel, t => Spawn(caster, t, ...))` est FOLD en `Spawn(sel, ...)` : la feuille `Spawn` du
+    port ITERE son tile-selecteur EN INTERNE (mirror de `IdunBattle.Entities.Behaviours.
+    SpawnUnitBehaviour$$Execute`), et le `Foreach` natif fige sa liste AVANT la premiere pose --
+    exactement comme le `Spawn` porte fige la sienne. Le lambda `<>c__DisplayClass2_0.
+    <ExecuteBehaviour>b__1` ne fait rien d'autre que `Spawn(Caster@0x48, <la tuile>, dc.unitId,
+    dc.opts)`, relu ; il ne lit ni `Subject` ni `ActiveTarget`, donc le fold ne perd aucune liaison.
+
+    ⚠ `getAbilityType` EST UNE HYPOTHESE, ET ELLE EST DECLAREE COMME TELLE. Le natif passe une lambda
+    de `...ItItchesAbility.<>c` dont le corps (`<ExecuteBehaviour>b__2_0`) est ABSENT des DEUX tables
+    de symboles (`frida/methods.tsv` et `ghidra/functions.tsv` du build `rnca9r7q6c`) : IL2CPP l'a
+    DEDUPLIQUEE, donc son corps est partage avec un homonyme trivial. Le seul autre producteur de ce
+    parametre dans le binaire est `IdunBattleLogic.Entities.DSLBehaviors$$
+    PerformAIAttackFromCurrentPosition`, dont la lambda (`DSLBehaviors.<>c`) est ELLE AUSSI absente
+    des deux tables, et que le port a deja tranchee en `IdunBattle.Entities.UnitExtensions$$
+    GetNormalAttackType` (`loki/summon.py::perform_ai_ability_unit_behaviour`). Les deux `<>c` sont
+    des classes de lambda SANS CAPTURE, et `GetNormalAttackType(unit:IEntity)` est justement
+    statique a un seul argument -- une lambda sans capture peut l'appeler, et deux corps identiques
+    expliquent la deduplication. S'y ajoute que les DEUX call-sites construisent le MEME
+    `PerformAIAbilityUnitBehaviour` champ pour champ (`+0x70 = 0`, `+0x78 = <DSLFormulas+0x18>` =
+    `Direct(0)`, `+0x80 = null`, `+0x90 = null`) : la seule chose qui les distingue est justement
+    cette lambda. Le port prend donc `PerformAIAttack(...)` avec ses defauts, qui sont EXACTEMENT ces
+    champs-la. **CONFRONTATION LIVE requise** : si la lambda rendait autre chose (le seul autre
+    candidat plausible est `1023 Burrowers`, la seule active du `tyranSmnRipperSwarm`), le Ripper
+    Swarm s'enfouirait au lieu d'attaquer -- observable, et c'est le test qui tranche.
+
+    `WithStatsFromConfig(config, abilityState, null, null)` : `ability_state=None` cote port, comme
+    `AlphaWarrior`/`SporeMineLauncher` (le niveau vient de l'`active_ability_level` du caster, chemin
+    valide live bit-exact par `test_alpha_warrior_live`)."""
+    zone, targets, target_tiles = _it_itches_selectors(tile_id)
+
+    # [1] -- le bloc ATOMIQUE : pin, puis poussee, encadres par la (non-)reservation des tuiles.
+    atomic = op_and(
+        op_and(
+            op_and(AddEffect(IT_ITCHES_PINNED, EffectType.Pinned.name, targets,
+                             duration_rounds=None),          # options natives = Nullable VIDE
+                   Reserve(Owner(), target_tiles)),
+            DisplaceUnitInAdjacentDirection(Caster(), targets, vector_dir)),
+        RemoveReservation(Owner(), target_tiles))
+
+    # [2] -- « The Parasite of Mortrex may move again after activating this ability. »
+    reset = ResetMovement(Owner())
+
+    # [3] -- le bloc SUMMON. `on_appearance` = `SpawnUnitOptions+0x18`, fire PAR summon par
+    # `TriggerSpawnedUnitBehaviours` avec `ActiveTarget@0x68` lie au summon fraichement pose.
+    on_appearance = op_add(RemoveReservation(Owner(), Tiles(ActiveTarget(), as_ids=True)),
+                           PerformAIAttack(ActiveTarget()))     # defauts = les champs natifs, cf. supra
+    spawn = Spawn(CanAddUnit(target_tiles, allow_steppable=True), IT_ITCHES_ID,
+                  on_appearance=on_appearance)
+    group = Group(op_and(op_and(op_and(Reserve(Owner(), target_tiles),
+                                       Kill(Caster(), DeadUnits(targets))),
+                                spawn),
+                         RemoveReservation(Owner(), target_tiles)),
+                  group_id=int(GroupType.Ability_Summon),        # 0x22, LU au call-site
+                  targets_sel=Owner())
+    return atomic, reset, group
+
+
+class ItItchesAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$ExecuteBehaviour` (id 1121,
+    `tyranParasiteOfMortrex` -- Parasite of Mortrex, namespace natif `Abilities.Active.Loki`).
+    Cast TILE-TARGET sur une tuile ADJACENTE occupee par un ennemi.
+
+    Etait un **NO-OP SILENCIEUX** avant #550 : absente d'`ABILITY_CLASSES`, donc
+    `AbilityHandler.visit_ActiveAbilityMessage` l'ignorait -- 0 degat, 0 effet, aucune erreur, alors
+    que la face DECISION (`playbook/noncomparable/it_itches.py`, deja portee) pouvait la choisir.
+
+    La face COMBAT est l'arbre `it_itches_tree(tile_id, vector_dir)` (trois blocs, cf. sa docstring).
+    `vector_dir` est resolu ICI parce que le natif l'obtient d'une FORMULE (`VectorFromAdjacentTo(
+    CasterTile@0x50, Cache(Tiles(Target@0x60)), 1)`) dont les deux operandes sont constants sur la
+    duree du cast : la tuile du caster (qui n'a pas encore bouge) et la tuile ciblee.
+
+    ⚠ **LA DIRECTION EST LA MEME POUR TOUTES LES CIBLES**, et c'est le point ou ce push differe de
+    tous les autres du port. `DisplaceUnitOperation` direction **3** (`AdjacentVector`) applique le
+    vecteur `casterTile -> tuile ciblee` a CHAQUE unite poussee, la ou `FindTileToPush`
+    (direction 0) recalculerait `pousseur -> poussee` par cible. Sur un ennemi lateral (adjacent a
+    la fois au caster et a la cible, mais pas dans l'axe), les deux geometries donnent des tuiles
+    DIFFERENTES -- c'est exactement le « one hex backwards » du tooltip, un balayage coherent et non
+    un ecartement radial.
+
+    RESIDUS NOMMES :
+    - `Reserve`/`RemoveReservation` (QUATRE occurrences) sont des NO-OP portes : le port n'a aucun
+      modele de reservation de tuile (deja nomme par `CanAddUnit`). Ils journalisent, pour que
+      l'arbre reste confrontable au decompile et que le rang soit tenu.
+    - `Kill(Caster, DeadUnits(targetUnits), ForClearDeadUnits)` est un NO-OP STRUCTUREL cote port,
+      au meme titre que `KillDeadUnits` : la mort est finalisee INLINE chez nous (le displace appelle
+      deja `AttackDamageOperation._kill_unit_operation` pour le steppable ecrase), et le gate
+      `HasFlag(6 = Dead)` du natif -- collapse en `alive` cote port -- ecarte de toute facon les
+      unites deja mortes. Il est porte pour la structure et le journal.
+    - `getAbilityType` de `PerformAIAbility` : HYPOTHESE declaree (cf. `it_itches_tree`), a
+      confronter live.
+    - Le `TargetTileHasEnemyUnit` du masque n'a pas de volet dynamique a porter (aucun
+      `GetDynamicInvalidTargetReason` sur cette classe -- verifie : la table de symboles n'en porte
+      AUCUN pour `ItItchesAbility`, qui n'expose que `.ctor`, `ExecuteBehaviour`, `GetPushVector`,
+      `GetTargetTiles`, `GetTargetUnits`).
+
+    Renvoie {ability, caster, target, tile, direction, pinned, pushed, spawned, attacks, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ItItches)     # 1121
+    ABILITY_ID = IT_ITCHES_ID
+
+    # GATE DE CIBLE -- forme de ctor = **FLAGS DIRECTS** (la 1re des trois formes), LUE verbatim dans
+    # `...ItItchesAbility$$.ctor` :
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics+0x30>, 0, 0x80040, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            <- `TargetingRange` statics+0x30 = RANGE_ADJACENT
+    #     forceMeleeTarget = 0 = `RangedBool.True` (l'enum natif est INVERSE : 0 = True, 1 = False)
+    #     rules            = 0x80040
+    # Decomposition EXHAUSTIVE de 0x80040 (0x40 + 0x80000, aucun bit residuel) :
+    #     0x40     (bit 6)  TargetIsTile           -> la cible EST une entite-tuile.
+    #     0x80000  (bit 19) TargetTileHasEnemyUnit -> cette tuile doit porter un ENNEMI.
+    # ⚠ `forceMeleeTarget = 0` est l'une des DEUX valeurs hors defaut du lot (cf. le commentaire
+    # historique de `abilities/targeting.py`, d'ou cette entree a MIGRE dans le meme commit --
+    # CONTRAT DE DISJONCTION : un masque se declare a UN seul endroit).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetIsTile | TR.TargetTileHasEnemyUnit,
+        self_cast=False, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_TRUE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        # #287-r14 : pour un masque `TargetIsTile`, le role `target` du natif est TOUJOURS
+        # l'entite-TUILE (`TargetingQuery$$GetActualTarget`), que l'appelant ait passe la tuile ou
+        # son occupant. IDEMPOTENT -> inerte quand `AbilityHandler` a deja resolu.
+        target_id = self.get_actual_target(state, caster_id, target_id)
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return {"ability": IT_ITCHES_ID, "caster": caster_id, "target": target_id,
+                    "tile": None, "direction": None, "dsl": True}
+        # `VectorFromAdjacentTo(CasterTile@0x50, Cache(Tiles(Target@0x60)), 1)` -> `GetVector`
+        # (`IBattleQuery` slot 113). `_dir_index` est le foyer porte de ce mirror (il sert deja a la
+        # face DECISION de CETTE ability). None = tuiles non adjacentes -> le natif rend son vecteur
+        # par defaut, dont `GetTileInDirection` ne tire aucune tuile : AUCUNE poussee.
+        feet = get_unit_feet(state, int(caster_id))     # `EntityExtensions$$GetTiles(Caster)`
+        cpos = feet[0] if feet else None                # `SelectTile` = la PREMIERE tuile (main tile)
+        tpos = board.coord(tile_id)
+        vector_dir = (None if (cpos is None or tpos is None)
+                      else _dir_index(cpos[0], cpos[1], tpos[0], tpos[1]))
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        atomic, reset, group = it_itches_tree(tile_id, vector_dir)
+        # TROIS executions natives distinctes, `entities` RE-MATERIALISE entre chacune (le natif
+        # re-copie les 0x148 octets du contexte avant chaque appel).
+        atomic.execute(entities_from_state(state, caster_id, tile_id), ectx)   # ExecuteAtomic(0x2a)
+        reset.execute(entities_from_state(state, caster_id, tile_id), ectx)    # Execute(ResetMovement)
+        group.execute(entities_from_state(state, caster_id, tile_id), ectx)    # Execute(Group(0x22))
+        pinned = [p["target"] for n, p in ectx.emitted
+                  if n == "AddEffect" and int(p.get("effect_type") or 0) == IT_ITCHES_PINNED]
+        pushed = [{"unit": p["pushed"], "moved": p["moved"], "to": p.get("to"),
+                   "killed": p.get("killed"), "reason": p.get("reason")}
+                  for n, p in ectx.emitted if n == "DisplaceUnitInAdjacentDirection"]
+        spawned = [{"unit": p["unit"], "tile": p.get("tile")}
+                   for n, p in ectx.emitted if n == "SpawnUnit"]
+        attacks = [a for n, p in ectx.emitted if n == "PerformAIAttack" for a in (p.get("attacks") or [])]
+        reopened = [p["subject"] for n, p in ectx.emitted if n == "ResetMovement"]
+        return {"ability": IT_ITCHES_ID, "caster": caster_id, "target": target_id, "tile": tile_id,
+                "direction": vector_dir, "summon": "tyranSmnRipperSwarm",
+                "pinned": pinned, "pushed": pushed, "spawned": spawned, "attacks": attacks,
+                "movement_reset": reopened, "dsl": True}
 
