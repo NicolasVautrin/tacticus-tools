@@ -82,8 +82,8 @@ from .tau import (HeavyRailRifleAbility, TwinSmartMissileSystemAbility, Fighting
                   SeekerMissileFrequencyLockAbility, ExemplarOfTheKauyonAbility)
 from .votann import (IronkinSteeljackAbility, AugmentedAssaultAbility, GravitonRifleAbility,
                      AncestralFortuneAbility, MassDriverAcceleratorAbility)
-from .aeldari import (EmpyricAmbushAbility, ExecutionerAbility, HarvesterOfSoulsAbility,
-                      SilentDeathAbility, SwoopingHawkAbility)
+from .aeldari import (EmpyricAmbushAbility, ExecutionerAbility, FireAndRepositionAbility,
+                      HarvesterOfSoulsAbility, SilentDeathAbility, SwoopingHawkAbility)
 from .spacewolves import GreatFrostAxeAbility, FoehammerAbility, GrapnelLauncherAbility
 from .tyranids import (SporeMineLauncherAbility, AlphaWarriorAbility, FearOfTheUnseenAbility,
                        BurrowersAbility, ItItchesAbility)
@@ -169,6 +169,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     HarvesterOfSoulsAbility.ABILITY_TYPE: HarvesterOfSoulsAbility,     # 1067 (Maugan Ra eldarMauganRa Aeldari : ranged HeavyRound cible hits=If(HasMoved,2,3) + splash MinMaxDamage2 ennemis ring1-cible ∩ rayon-3 caster, native_factory attack, ExecuteAtomic, case-220 §6.19)
     SwoopingHawkAbility.ABILITY_TYPE: SwoopingHawkAbility,             # 1064 (Aethana eldarAutarch Aeldari : VAGUE EN LIGNE -- `DiveAttackAbilityBase` : 3 tuiles `First(TilesBehindInLine(CasterTile, <tuile de contact de la cible>), 3)`, 1 coup `Piercing` par tuile aux montants `dmg[0..2]` (famille ABILITY, AUCUN crit), puis `MoveUnit` du caster sur la tuile DERRIERE la derniere cible touchee -- ou, si occupee, la tuile libre la plus proche d'elle (`ConditionalSelector`) ; `ExecuteAtomic(..., 0x2a)` ; #502)
     SlashingDiveAbility.ABILITY_TYPE: SlashingDiveAbility,             # 1091 (Screamer thousNpc2Screamer/thousSmnScreamer ThousandSons : la SECONDE heritiere de `DiveAttackAbilityBase` -- MEME code natif que 1064 (ctor FUSIONNE par IL2CPP, partage prouve au slot de methode runtime), seule la CONFIG change : profil `Power` (1064 : `Piercing`), `nrOfHits`=1, `dmg[0..2]` decroissants ; porteurs npc+summons, confrontee par le chemin de stats explicite `--explicit-stats thousNpc2Screamer:<palier>` ; #507)
+    FireAndRepositionAbility.ABILITY_TYPE: FireAndRepositionAbility,   # 1063 (Calandis eldarRanger Aeldari : TROIS feuilles `op_Addition((atk + reset) + eff)` -- (1) `UseActiveAbility(Caster, Target, UnitNormalAttackType(Caster))` = l'attaque NORMALE dispatchee (la config 1063 n'a NI minDmg/maxDmg NI nrOfHits NI damageProfile), (2) `ResetMovement(Owner)` = elle recupere deplacement + activation, PAS son active, (3) `AddEffect(1110 FireAndReposition_ReduceDmg -> ELLE-MEME, source = Caster, TurnsFromRounds(1))` dont l'effet etait deja porte par #366-r1 ; #567)
     SilentDeathAbility.ABILITY_TYPE: SilentDeathAbility,               # 1068 (Jain Zar eldarJainZar Aeldari : CHAINE DE DEGAT -- nrOfHits=3 coups Piercing melee sur la cible ADJACENTE, puis nrOfTargets=3 rebonds `Cache(PickRandomly(AdjacentUnits(maillon precedent) & <cache ennemis> - deja frappes, 1))`, memes bornes/profil/coups a chaque maillon ; `Group(..., GroupType.DamageChain)` ; #497)
     SkyStrikeAbility.ABILITY_TYPE: SkyStrikeAbility,                   # 1025 (adeptCelestine Celestine Sisterhood : charge tuile libre adjacente (vole, sans reach) + attaque melee normale base Attack+extraDmg profil/coups arme melee, template VigilanceEternal, case-220)
     GreatFrostAxeAbility.ABILITY_TYPE: GreatFrostAxeAbility,           # 1089 (spaceWulfen : glace zone cible+ring1 + attaque melee 4x Piercing mono-cible ATTACK-family, case-220 SW)
