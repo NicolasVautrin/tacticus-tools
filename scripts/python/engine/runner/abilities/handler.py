@@ -71,7 +71,7 @@ from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathF
                            MacroPlasmaIncineratorAbility, TacticalPrecisionAbility,
                            DutyEternalAbility, StormOfWrathAbility)
 from .custodes import (MartialInspirationAbility, MomentShackleAbility,
-                       TalonsOfTheEmperorAbility)
+                       TalonsOfTheEmperorAbility, VexillaMagnificaAbility)
 from .bloodangels import SavageEchoesAbility, HammerOfWrathAbility, LightOfSanguiniusAbility
 from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, ChronometronAbility,
                       MultiThreatEliminatorAbility, TunnelingHorrorAbility)
@@ -253,6 +253,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     MomentShackleAbility.ABILITY_TYPE: MomentShackleAbility,           # 1184 (custoTrajann Trajann : self-cast Heal(hpToHeal) & AddDynamicStatModifierEffect(1391 BlockChance) & (1392 BlockDamage) & AddEffect(1393 marqueur de la triggered MomentShackle_Attack), TurnsFromRounds(nrOfRounds=1) ; aucun degat)
     MartialInspirationAbility.ABILITY_TYPE: MartialInspirationAbility,  # 1191 (custoBladeChampion Kariyan Custodes : AddEffect(1408 MartialInspiration_ExtraDamage sur le CASTER, Direct(1) tour) op_BitwiseAnd AttackWithAttackDamage(Target, MinMaxDamage, Eviscerate, nrOfHits=3) -- le buff est pose AVANT l'attaque et la buffe (gate `CurrentAbilityIs(1191)`), magnitude `extraDmgPct x TotalTurnsWithAttacksMade(Owner)` donc NULLE au 1er tour de bataille, #509)
     TalonsOfTheEmperorAbility.ABILITY_TYPE: TalonsOfTheEmperorAbility,  # 1195 (custoAtlacoya Atlacoya Custodes : If(HasTrait(cible, Psyker) | HasFaction(NonSteppableOrObjectUnits(AdjacentFriends(caster)), Custodes), 1x DirectDamage, 1x Power) sur la cible adjacente ; degat = Sum(MinMaxDamage, Multiply(ConfigVar(extraDmg), If(HasEffect(caster, 1420), EffectLevel, 0))) ; AbilityAttackType = 2 Others, #521)
+    VexillaMagnificaAbility.ABILITY_TYPE: VexillaMagnificaAbility,      # 1183 (custoVexilusPraetor Aesoth Custodes : ExecuteAtomic( ((AttackWithAttackDamage(Target) & AttackWithAttackDamage(Cache(First(SortUnitsByDamageUtility(NormalUnits(AdjacentEnemies(caster)) - Target, MinMaxDamage(isPrediction:0), 3))))) & AddEffect(1162 Stunned -> Target + 2e cible, options ZEROEES = duree DEFAUT) ) & AddEffect(1383 VexillaMagnifica_DmgReduction -> Caster, TurnsFromRounds(nrOfRounds=1)), 0x2a Ability_AtomicGroup) ; le tri CONSOMME un tirage, ENTRE les deux attaques ; AbilityAttackType = 0 DirectTargetAttack ; masque 0x200004000 MIGRE depuis `TARGETING_OPTIONS_UNPORTED` ; #566)
     # --- case-decision-noop : gisement `[-D]` (la DECISION choisit, l'EXECUTION etait un NO-OP). ---
     # --- #287 : face COMBAT de SorcerousFacade, dont la face DECISION etait deja portee (#27-4e).
     SorcerousFacadeAbility.ABILITY_TYPE: SorcerousFacadeAbility,       # 1100 (thousTzaangor « Yazaghor » ThousandSons : cast sur un ALLIE Psyker -> AddEffect(1204 SorcerousFacade_AdditionalHits -> Caster + Target, TurnsFromRounds(1)) & UseActiveAbility(attaque NORMALE dirigee sur `sel` = l'ENNEMI le plus proche de `ValidNormalAttackTargets`) & KillDeadUnits(Caster, sel) & TriggerAbilityDelayed(Owner, 1180 SorcerousFacade_Switch, 3) -> SwitchPosition(Caster, Target) ; masque 0x402 MIGRE depuis `TARGETING_OPTIONS_UNPORTED`)

@@ -908,10 +908,15 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
                                  | TR.CasterIsPossibleTarget,
                            self_cast=True, range=RANGE_SELF,
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1183 VexillaMagnifica -- `...Active.Loki.VexillaMagnificaAbility$$.ctor` :
-    #   preset `+0x40` (rules 0x4000) puis `.ctor(&opts, &preset, 0x200000000)` -> 0x200004000.
-    ActiveAbilityType.VexillaMagnifica: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject, self_cast=False,  # 1183
-                           range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
+    # 1183 VexillaMagnifica : MIGRE vers `ABILITY_CLASSES` (#566) -- sa face COMBAT est desormais
+    #   portee (`abilities/custodes.py::VexillaMagnificaAbility.TARGETING_OPTIONS`), donc le CONTRAT
+    #   DE DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile avant
+    #   migration et est bit-identique a celui qui vivait ici : preset `+0x40` (`rules = 0x4000` =
+    #   `TargetIsEnemy`, `isSelfCasting = 0`, `range` <- `<TargetingRange statics>+0x30` =
+    #   RANGE_ADJACENT, `forceMeleeTarget = 1` = `RangedBool.False`) puis
+    #   `.ctor(&opts, &preset, 0x200000000)` -> `rules = additionalRules | template.rules` =
+    #   `0x200004000` = `TargetIsEnemy | TargetIsNotAnObject`. MEME couple preset/flags que
+    #   `1050 HolyDuel` ci-dessus. C'est la SOURCE qui bouge, jamais la valeur.
 
     # @FORME PRESET-SEUL
     # --- surcharge C, PRESET SEUL : copie PURE, aucun flag ajoute -------------------------------
