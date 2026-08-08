@@ -85,6 +85,12 @@
    "last": "2026-08-04T10:33:58.247000+00:00",
    "turns": 423
   },
+  "a0221d7665b287d9b": {
+   "ctx": 17275357,
+   "first": "2026-08-08T07:17:43.373000+00:00",
+   "last": "2026-08-08T07:26:49.563000+00:00",
+   "turns": 115
+  },
   "a025d214e08a172b3": {
    "ctx": 40876260,
    "first": "2026-07-25T19:28:35.292000+00:00",
@@ -1099,6 +1105,12 @@
    "last": "2026-08-05T11:14:41.664000+00:00",
    "turns": 363
   },
+  "a20de35f0c8ef5949": {
+   "ctx": 211656429,
+   "first": "2026-08-08T02:49:14.990000+00:00",
+   "last": "2026-08-08T04:42:56.532000+00:00",
+   "turns": 495
+  },
   "a20e205bbaca3c007": {
    "ctx": 1474064,
    "first": "2026-06-26T23:54:16.160000+00:00",
@@ -1441,6 +1453,12 @@
    "last": "2026-07-06T21:32:49.222000+00:00",
    "turns": 34
   },
+  "a2f1ff63c32188ffe": {
+   "ctx": 35060658,
+   "first": "2026-08-08T02:08:44.025000+00:00",
+   "last": "2026-08-08T02:42:41.180000+00:00",
+   "turns": 162
+  },
   "a2f2f9a9151c65a5c": {
    "ctx": 30298418,
    "first": "2026-07-11T17:12:52.909000+00:00",
@@ -1562,10 +1580,10 @@
    "turns": 281
   },
   "a340903fec7bc977f": {
-   "ctx": 104020,
+   "ctx": 4161053,
    "first": "2026-08-08T01:05:15.774000+00:00",
-   "last": "2026-08-08T01:05:21.162000+00:00",
-   "turns": 5
+   "last": "2026-08-08T01:13:46.159000+00:00",
+   "turns": 49
   },
   "a3426319ba1f24e00": {
    "ctx": 269044875,
@@ -1604,10 +1622,10 @@
    "turns": 267
   },
   "a3511fd0d4a877c53": {
-   "ctx": 18406549,
+   "ctx": 208534443,
    "first": "2026-08-08T00:38:54.226000+00:00",
-   "last": "2026-08-08T01:00:45.978000+00:00",
-   "turns": 105
+   "last": "2026-08-08T04:57:26.992000+00:00",
+   "turns": 544
   },
   "a3530af802c9786fc": {
    "ctx": 115848692,
@@ -1644,6 +1662,12 @@
    "first": "2026-07-31T03:06:43.453000+00:00",
    "last": "2026-07-31T04:10:39.279000+00:00",
    "turns": 200
+  },
+  "a35e731642a4b5b4f": {
+   "ctx": 91356749,
+   "first": "2026-08-08T05:16:53.497000+00:00",
+   "last": "2026-08-08T06:15:14.210000+00:00",
+   "turns": 286
   },
   "a35ebe96415274466": {
    "ctx": 8568418,
@@ -2137,6 +2161,12 @@
    "last": "2026-07-27T20:58:00.882000+00:00",
    "turns": 322
   },
+  "a471e51a1c8ca57a6": {
+   "ctx": 5031883,
+   "first": "2026-08-08T07:07:51.362000+00:00",
+   "last": "2026-08-08T07:17:41.022000+00:00",
+   "turns": 45
+  },
   "a474c243ae34070d3": {
    "ctx": 23747922,
    "first": "2026-07-09T04:53:44.942000+00:00",
@@ -2304,6 +2334,12 @@
    "first": "2026-08-04T06:26:28.981000+00:00",
    "last": "2026-08-04T08:31:33.304000+00:00",
    "turns": 305
+  },
+  "a4ccf48ef8cb02117": {
+   "ctx": 181996072,
+   "first": "2026-08-08T04:57:42.814000+00:00",
+   "last": "2026-08-08T07:15:38.550000+00:00",
+   "turns": 414
   },
   "a4cee520c51850985": {
    "ctx": 5286740,
@@ -2881,6 +2917,12 @@
    "last": "2026-08-04T17:41:46.253000+00:00",
    "turns": 36
   },
+  "a5e28dd228e430ef4": {
+   "ctx": 124367603,
+   "first": "2026-08-08T01:19:38.194000+00:00",
+   "last": "2026-08-08T02:50:37.895000+00:00",
+   "turns": 383
+  },
   "a5ea9e101f1bbb5a6": {
    "ctx": 190165201,
    "first": "2026-08-06T12:21:57.392000+00:00",
@@ -3031,6 +3073,12 @@
    "last": "2026-08-05T15:49:51.091000+00:00",
    "turns": 144
   },
+  "a662a3759dba93505": {
+   "ctx": 27141004,
+   "first": "2026-08-08T02:07:49.846000+00:00",
+   "last": "2026-08-08T02:34:57.525000+00:00",
+   "turns": 118
+  },
   "a662e27f56c2b4b06": {
    "ctx": 75942413,
    "first": "2026-08-02T00:16:50.033000+00:00",
@@ -3127,6 +3175,12 @@
    "last": "2026-08-06T09:53:31.543000+00:00",
    "turns": 266
   },
+  "a698227959c1c70da": {
+   "ctx": 218399239,
+   "first": "2026-08-08T04:16:11.503000+00:00",
+   "last": "2026-08-08T07:04:59.895000+00:00",
+   "turns": 456
+  },
   "a69b5c5168876ecd6": {
    "ctx": 18562837,
    "first": "2026-07-23T14:39:16.207000+00:00",
@@ -3198,6 +3252,12 @@
    "first": "2026-07-29T22:22:43.396000+00:00",
    "last": "2026-07-29T23:45:23.302000+00:00",
    "turns": 369
+  },
+  "a6b92c3ff99f78c71": {
+   "ctx": 41558980,
+   "first": "2026-08-08T06:56:01.197000+00:00",
+   "last": "2026-08-08T07:26:57.795000+00:00",
+   "turns": 171
   },
   "a6bf5d493ede247d8": {
    "ctx": 18014367,
@@ -3361,11 +3421,23 @@
    "last": "2026-07-30T21:05:07.934000+00:00",
    "turns": 229
   },
+  "a7072e68b47aa52bf": {
+   "ctx": 48438370,
+   "first": "2026-08-08T06:57:51.317000+00:00",
+   "last": "2026-08-08T07:26:49.647000+00:00",
+   "turns": 174
+  },
   "a70b034d9a9233e16": {
    "ctx": 8129857,
    "first": "2026-07-31T22:00:13.130000+00:00",
    "last": "2026-07-31T22:30:54.557000+00:00",
    "turns": 80
+  },
+  "a7103cfe15c77c366": {
+   "ctx": 81155741,
+   "first": "2026-08-08T01:55:19.530000+00:00",
+   "last": "2026-08-08T02:59:32.036000+00:00",
+   "turns": 271
   },
   "a7134831f5bfcf5cd": {
    "ctx": 4507617,
@@ -3864,6 +3936,12 @@
    "first": "2026-08-03T16:00:05.989000+00:00",
    "last": "2026-08-03T17:16:18.288000+00:00",
    "turns": 201
+  },
+  "a824a75c704ce78f6": {
+   "ctx": 8708260,
+   "first": "2026-08-08T05:14:11.485000+00:00",
+   "last": "2026-08-08T05:22:06.496000+00:00",
+   "turns": 71
   },
   "a829b6c92a85b5beb": {
    "ctx": 63170224,
@@ -4375,6 +4453,12 @@
    "last": "2026-08-03T09:28:13.392000+00:00",
    "turns": 274
   },
+  "a9774292f6683f3c1": {
+   "ctx": 41122641,
+   "first": "2026-08-08T06:57:19.754000+00:00",
+   "last": "2026-08-08T07:26:47.177000+00:00",
+   "turns": 160
+  },
   "a9788175d961e4665": {
    "ctx": 14377749,
    "first": "2026-07-23T15:30:37.057000+00:00",
@@ -4615,6 +4699,12 @@
    "last": "2026-08-05T15:47:38.602000+00:00",
    "turns": 201
   },
+  "aa19b5c19c03e9b83": {
+   "ctx": 61636912,
+   "first": "2026-08-08T05:15:12.998000+00:00",
+   "last": "2026-08-08T06:11:47.210000+00:00",
+   "turns": 263
+  },
   "aa19c2dd769c3d745": {
    "ctx": 2112837,
    "first": "2026-08-01T14:46:28.367000+00:00",
@@ -4837,6 +4927,12 @@
    "last": "2026-08-07T23:15:43.885000+00:00",
    "turns": 23
   },
+  "aaaa8936d70d13e8c": {
+   "ctx": 10265283,
+   "first": "2026-08-08T05:00:18.669000+00:00",
+   "last": "2026-08-08T05:06:45.449000+00:00",
+   "turns": 67
+  },
   "aaad0fb2e39364dc8": {
    "ctx": 40387382,
    "first": "2026-07-29T06:33:00.318000+00:00",
@@ -4868,10 +4964,10 @@
    "turns": 287
   },
   "aab85e98fd3b03c4d": {
-   "ctx": 254345575,
+   "ctx": 299359320,
    "first": "2026-08-07T22:44:17.550000+00:00",
-   "last": "2026-08-08T01:05:24.892000+00:00",
-   "turns": 495
+   "last": "2026-08-08T01:22:34.488000+00:00",
+   "turns": 548
   },
   "aab982323bca3d8c7": {
    "ctx": 4594001,
@@ -4968,6 +5064,12 @@
    "first": "2026-07-23T14:36:20.515000+00:00",
    "last": "2026-07-23T14:58:00.651000+00:00",
    "turns": 82
+  },
+  "ab0811e8983dc7aa9": {
+   "ctx": 113250821,
+   "first": "2026-08-08T01:33:48.731000+00:00",
+   "last": "2026-08-08T02:45:58.433000+00:00",
+   "turns": 276
   },
   "ab081ea0a75acb4b8": {
    "ctx": 87429749,
@@ -5576,10 +5678,10 @@
    "turns": 292
   },
   "acacd84d88ff6bd76": {
-   "ctx": 5544428,
+   "ctx": 192225780,
    "first": "2026-08-08T00:55:52.463000+00:00",
-   "last": "2026-08-08T01:04:49.009000+00:00",
-   "turns": 41
+   "last": "2026-08-08T04:11:48.093000+00:00",
+   "turns": 519
   },
   "acae54a1ee0c83765": {
    "ctx": 12705246,
@@ -5743,6 +5845,12 @@
    "last": "2026-08-05T09:09:53.175000+00:00",
    "turns": 242
   },
+  "ad03765eb404ead1a": {
+   "ctx": 143915769,
+   "first": "2026-08-08T03:03:02.352000+00:00",
+   "last": "2026-08-08T04:25:36.658000+00:00",
+   "turns": 397
+  },
   "ad0568a023589ca47": {
    "ctx": 73638965,
    "first": "2026-07-26T06:42:11.172000+00:00",
@@ -5802,6 +5910,12 @@
    "first": "2026-07-13T08:41:24.460000+00:00",
    "last": "2026-07-13T08:51:37.458000+00:00",
    "turns": 42
+  },
+  "ad1f904887c9ab542": {
+   "ctx": 275229716,
+   "first": "2026-08-08T04:31:59.652000+00:00",
+   "last": "2026-08-08T06:52:29.621000+00:00",
+   "turns": 530
   },
   "ad2b425cb622616cb": {
    "ctx": 104627243,
@@ -6097,6 +6211,12 @@
    "last": "2026-08-01T16:25:51.799000+00:00",
    "turns": 198
   },
+  "adc0e383eb6f877eb": {
+   "ctx": 189154122,
+   "first": "2026-08-08T02:55:38.957000+00:00",
+   "last": "2026-08-08T04:36:25.071000+00:00",
+   "turns": 431
+  },
   "adc42087ad22146b2": {
    "ctx": 101331006,
    "first": "2026-07-30T10:51:01.292000+00:00",
@@ -6284,10 +6404,10 @@
    "turns": 16
   },
   "ae15c2aae8744dbb4": {
-   "ctx": 53926288,
+   "ctx": 115916726,
    "first": "2026-08-08T00:22:06.934000+00:00",
-   "last": "2026-08-08T01:05:22.172000+00:00",
-   "turns": 230
+   "last": "2026-08-08T01:48:26.832000+00:00",
+   "turns": 366
   },
   "ae18183e618c1119a": {
    "ctx": 65753482,
@@ -6913,6 +7033,12 @@
    "last": "2026-07-28T17:55:30.319000+00:00",
    "turns": 233
   },
+  "af6c6ee4f7988d79e": {
+   "ctx": 31343974,
+   "first": "2026-08-08T06:56:27.218000+00:00",
+   "last": "2026-08-08T07:26:53.303000+00:00",
+   "turns": 131
+  },
   "af73ce2a3934750b2": {
    "ctx": 138622581,
    "first": "2026-07-27T22:27:37.377000+00:00",
@@ -7368,9 +7494,9 @@
    "turns": 27908
   },
   "2026-08-08": {
-   "agent_ctx": 1267939390,
-   "ctx": 1394342089,
-   "turns": 3812
+   "agent_ctx": 3713875435,
+   "ctx": 4062560216,
+   "turns": 10985
   }
  },
  "files": {
@@ -7388,7 +7514,7 @@
   },
   "770b6b08-a8e1-4df4-99e5-9ea0bcf65487.jsonl": {
    "first": "",
-   "offset": 10827989
+   "offset": 10892803
   },
   "85ce3eaa-558f-4617-a07c-53d13aa4a1bc.jsonl": {
    "first": "",
@@ -7457,6 +7583,10 @@
   "agent-a0220713ebc56f07f.jsonl": {
    "first": "f0128535-c60c-4cfe-994c-c365ba25b337",
    "offset": 2384575
+  },
+  "agent-a0221d7665b287d9b.jsonl": {
+   "first": "1cc7e816-2c25-49bb-8dbd-39a162b4c982",
+   "offset": 1054370
   },
   "agent-a025d214e08a172b3.jsonl": {
    "first": "995b43c9-381a-4dc6-b9c1-2aa4dd5f0308",
@@ -8134,6 +8264,10 @@
    "first": "51f0b750-53e9-4c7d-8aca-ad6b570bcf34",
    "offset": 2928536
   },
+  "agent-a20de35f0c8ef5949.jsonl": {
+   "first": "f9daa8de-1cc7-4e58-b111-8619c87e9c72",
+   "offset": 3105528
+  },
   "agent-a20e205bbaca3c007.jsonl": {
    "first": "12b8d917-20c9-4a08-96b5-551dae40b8bd",
    "offset": 204971
@@ -8362,6 +8496,10 @@
    "first": "c1223541-8ec3-4076-b299-6bc4cd0b032a",
    "offset": 347953
   },
+  "agent-a2f1ff63c32188ffe.jsonl": {
+   "first": "eaca6e82-5008-46c7-8c25-430a70bdb5b3",
+   "offset": 1433996
+  },
   "agent-a2f2f9a9151c65a5c.jsonl": {
    "first": "c895986e-f863-4c40-92b8-362ca61ae56c",
    "offset": 989354
@@ -8444,7 +8582,7 @@
   },
   "agent-a340903fec7bc977f.jsonl": {
    "first": "fb711524-4484-479e-a022-136eaad402b1",
-   "offset": 37107
+   "offset": 606409
   },
   "agent-a3426319ba1f24e00.jsonl": {
    "first": "666c16b1-188f-4b35-9201-c340516d2ad0",
@@ -8472,7 +8610,7 @@
   },
   "agent-a3511fd0d4a877c53.jsonl": {
    "first": "a0bbcd7a-a594-49cf-8e10-421fe6828e5a",
-   "offset": 736177
+   "offset": 2698488
   },
   "agent-a3530af802c9786fc.jsonl": {
    "first": "06e6ce5a-3b35-40ae-983e-2ce7f89dbeea",
@@ -8497,6 +8635,10 @@
   "agent-a35d8528382064de6.jsonl": {
    "first": "220245a9-a4cb-4064-8854-0094544f038f",
    "offset": 1487552
+  },
+  "agent-a35e731642a4b5b4f.jsonl": {
+   "first": "8e172dce-35ca-4a83-8e68-6af696171cc5",
+   "offset": 2060770
   },
   "agent-a35ebe96415274466.jsonl": {
    "first": "1354341d-d72e-490f-ba1b-a744f0d9402a",
@@ -8826,6 +8968,10 @@
    "first": "39df8811-0098-42eb-b352-2d59310da54e",
    "offset": 2460994
   },
+  "agent-a471e51a1c8ca57a6.jsonl": {
+   "first": "4e976620-56bb-4e83-8636-dca82b27f5c1",
+   "offset": 351314
+  },
   "agent-a474c243ae34070d3.jsonl": {
    "first": "9d6e256e-3721-49b2-92ed-9c8abaf5529a",
    "offset": 761558
@@ -8937,6 +9083,10 @@
   "agent-a4c9ab318b73e05ec.jsonl": {
    "first": "13dc78dd-005c-46f9-845d-14a9f73c6fee",
    "offset": 2083956
+  },
+  "agent-a4ccf48ef8cb02117.jsonl": {
+   "first": "39dc126c-6d2b-43aa-85a9-516f8f57bafa",
+   "offset": 2795790
   },
   "agent-a4cee520c51850985.jsonl": {
    "first": "6e7ff0fe-8abe-4f4c-8329-bb4acfa154ff",
@@ -9322,6 +9472,10 @@
    "first": "b9d4f23e-46bf-48af-be8b-4e5cf9d1de7e",
    "offset": 419205
   },
+  "agent-a5e28dd228e430ef4.jsonl": {
+   "first": "de26a280-1364-4172-b3dd-6299d219bb55",
+   "offset": 2271570
+  },
   "agent-a5ea9e101f1bbb5a6.jsonl": {
    "first": "f94512d6-66a6-4b23-90cf-b34db9f4eeeb",
    "offset": 2903415
@@ -9422,6 +9576,10 @@
    "first": "7cfb2d6f-3663-4b45-a883-65be849ca453",
    "offset": 1133007
   },
+  "agent-a662a3759dba93505.jsonl": {
+   "first": "f664526c-8191-4008-a4fa-5b22d635419d",
+   "offset": 1137871
+  },
   "agent-a662e27f56c2b4b06.jsonl": {
    "first": "1f66d65a-c8da-44e8-ba42-4913f5569e53",
    "offset": 1923751
@@ -9486,6 +9644,10 @@
    "first": "a97f4dc1-96a2-4cb9-83a6-19df46d049bb",
    "offset": 1987828
   },
+  "agent-a698227959c1c70da.jsonl": {
+   "first": "a5418e76-2e4b-4688-a3de-af04d3c289b7",
+   "offset": 3171144
+  },
   "agent-a69b5c5168876ecd6.jsonl": {
    "first": "0d441833-1f00-47fe-ba32-457d5e5b4f15",
    "offset": 941290
@@ -9533,6 +9695,10 @@
   "agent-a6b7360016e210682.jsonl": {
    "first": "0b20cdea-c60c-4550-a5e1-0e10372fb17d",
    "offset": 2264336
+  },
+  "agent-a6b92c3ff99f78c71.jsonl": {
+   "first": "05751463-b19b-4e58-bd5f-66a62235b905",
+   "offset": 1379512
   },
   "agent-a6bf5d493ede247d8.jsonl": {
    "first": "3b6ae364-f8d3-4ac7-897a-2e24b1e02994",
@@ -9642,9 +9808,17 @@
    "first": "d327166f-e2dd-440b-af6e-0ca74927f088",
    "offset": 1319065
   },
+  "agent-a7072e68b47aa52bf.jsonl": {
+   "first": "4e3e0bad-8105-41a2-a10a-d2d9e07a6f10",
+   "offset": 1542009
+  },
   "agent-a70b034d9a9233e16.jsonl": {
    "first": "113920c4-0021-4e9c-b69d-47a291ca08bb",
    "offset": 442914
+  },
+  "agent-a7103cfe15c77c366.jsonl": {
+   "first": "af3c312a-4942-4a08-88a2-158e8b6d33ac",
+   "offset": 1886906
   },
   "agent-a7134831f5bfcf5cd.jsonl": {
    "first": "03ea2de0-77c1-4b74-a3da-f6c6e0e2668a",
@@ -9977,6 +10151,10 @@
   "agent-a81b0b741d2cd91f7.jsonl": {
    "first": "42be08fd-703c-4104-bb1d-4228af86c339",
    "offset": 1429257
+  },
+  "agent-a824a75c704ce78f6.jsonl": {
+   "first": "5d00e811-337d-4902-a86e-5e02e3250006",
+   "offset": 798249
   },
   "agent-a829b6c92a85b5beb.jsonl": {
    "first": "36d8ad9b-e171-4f68-9eb1-77ca4f532588",
@@ -10318,6 +10496,10 @@
    "first": "60c7b575-92da-4858-a918-ac264e51139f",
    "offset": 2076785
   },
+  "agent-a9774292f6683f3c1.jsonl": {
+   "first": "efe4a9e9-5dea-484e-9815-c5c7a83f8c5d",
+   "offset": 1427018
+  },
   "agent-a9788175d961e4665.jsonl": {
    "first": "f09ecbae-4b3c-4fac-a0f9-a9fbf0b3f71f",
    "offset": 910020
@@ -10478,6 +10660,10 @@
    "first": "b1e8db0b-2b18-43c6-bdc0-67268c5467b0",
    "offset": 1431258
   },
+  "agent-aa19b5c19c03e9b83.jsonl": {
+   "first": "087b4115-443c-4ac9-9e8f-23076581b8f5",
+   "offset": 1284525
+  },
   "agent-aa19c2dd769c3d745.jsonl": {
    "first": "5cb29c77-5454-4bab-b893-ca19f31e7b59",
    "offset": 168477
@@ -10626,6 +10812,10 @@
    "first": "26b53c10-d2ca-4b96-a38e-9be075068d3e",
    "offset": 168626
   },
+  "agent-aaaa8936d70d13e8c.jsonl": {
+   "first": "ee48a7d8-853c-4f78-87ab-d173ca4563b1",
+   "offset": 883934
+  },
   "agent-aaad0fb2e39364dc8.jsonl": {
    "first": "c6d56b13-5f7b-4367-a0b0-f4950c25fe3f",
    "offset": 1310085
@@ -10648,7 +10838,7 @@
   },
   "agent-aab85e98fd3b03c4d.jsonl": {
    "first": "ef6a0bea-a1b9-41eb-a644-f613e4aaa3ed",
-   "offset": 3778723
+   "offset": 3975639
   },
   "agent-aab982323bca3d8c7.jsonl": {
    "first": "96c4998b-48cf-45e9-8dff-440d9feff6ef",
@@ -10713,6 +10903,10 @@
   "agent-ab0629538e8c906f3.jsonl": {
    "first": "270a54e1-cccb-4977-8f41-134f71b57086",
    "offset": 1181138
+  },
+  "agent-ab0811e8983dc7aa9.jsonl": {
+   "first": "011c6676-ff15-4e78-ac10-b2dda4d75371",
+   "offset": 2399644
   },
   "agent-ab081ea0a75acb4b8.jsonl": {
    "first": "f3f2e58b-1779-4ee6-82ce-f46ce306f6be",
@@ -11120,7 +11314,7 @@
   },
   "agent-acacd84d88ff6bd76.jsonl": {
    "first": "5479f57f-d6f1-4fea-83ac-073ccf1cf97c",
-   "offset": 313013
+   "offset": 2626535
   },
   "agent-acae54a1ee0c83765.jsonl": {
    "first": "3397f06d-b6c0-442e-b825-a552065335b3",
@@ -11230,6 +11424,10 @@
    "first": "c3fd112c-e3b7-492b-affc-0fc7a95f865c",
    "offset": 1505591
   },
+  "agent-ad03765eb404ead1a.jsonl": {
+   "first": "914805da-24af-49ef-97ab-075aa1c6fe0f",
+   "offset": 2509673
+  },
   "agent-ad0568a023589ca47.jsonl": {
    "first": "0bda62c1-8eb8-4d53-aba9-d2c5edc5259d",
    "offset": 2104835
@@ -11269,6 +11467,10 @@
   "agent-ad1ccfb9ec1f0ccea.jsonl": {
    "first": "6e82bd27-8b0a-4c45-b4a5-36ec43224075",
    "offset": 394647
+  },
+  "agent-ad1f904887c9ab542.jsonl": {
+   "first": "1f57a010-a4d7-49d2-ba73-436e14bc3d03",
+   "offset": 3809285
   },
   "agent-ad2b425cb622616cb.jsonl": {
    "first": "08ccb4d5-6c76-4284-aecd-f441b7e9f260",
@@ -11466,6 +11668,10 @@
    "first": "db3e605c-b749-42e0-8e4b-1e9ac79fe05a",
    "offset": 999538
   },
+  "agent-adc0e383eb6f877eb.jsonl": {
+   "first": "fb2c765d-613a-45f7-b928-ff405774f9b1",
+   "offset": 3410834
+  },
   "agent-adc42087ad22146b2.jsonl": {
    "first": "93ab8827-0aa4-411f-b9cd-1478844cca93",
    "offset": 2308948
@@ -11592,7 +11798,7 @@
   },
   "agent-ae15c2aae8744dbb4.jsonl": {
    "first": "eb7720e4-da5e-40eb-b13b-5b456071cea5",
-   "offset": 1543719
+   "offset": 2374689
   },
   "agent-ae18183e618c1119a.jsonl": {
    "first": "ea567d7a-d93c-4e20-8599-7e8e3ddad2fd",
@@ -12010,6 +12216,10 @@
    "first": "60bd9038-7230-4609-9ffc-65437ba90c77",
    "offset": 1758758
   },
+  "agent-af6c6ee4f7988d79e.jsonl": {
+   "first": "9abb2903-6781-4f7b-86d4-e25952abe7bd",
+   "offset": 1217006
+  },
   "agent-af73ce2a3934750b2.jsonl": {
    "first": "572a696c-166e-48fe-937f-02194bc29cde",
    "offset": 2996090
@@ -12160,7 +12370,7 @@
   },
   "b2170732-95be-4660-9594-e3e86a19af08.jsonl": {
    "first": "",
-   "offset": 708296622
+   "offset": 715105615
   },
   "b3ddc32a-7528-4057-9d59-bf4ca0066ab3.jsonl": {
    "first": "",
@@ -12328,6 +12538,13 @@
    ],
    "dele": 0
   },
+  "07e117adc1b0c3e01eb8c11c4bd59c34757136ed": {
+   "add": 1687,
+   "commits": [
+    "07e117adc1b0c3e01eb8c11c4bd59c34757136ed"
+   ],
+   "dele": 27
+  },
   "0828796da0d02956713fed510ae83037096cdc14": {
    "add": 1035,
    "commits": [
@@ -12399,6 +12616,13 @@
     "0a1175b70e4bb80a3f7526a0c1e36bb9e646cc6b"
    ],
    "dele": 65
+  },
+  "0a5a519f15a1b00eefe443ad60bd6f18cd2f0778": {
+   "add": 560,
+   "commits": [
+    "0a5a519f15a1b00eefe443ad60bd6f18cd2f0778"
+   ],
+   "dele": 1
   },
   "0a720d1b878bf3b080d04f9a2411ee42e38532d1": {
    "add": 1505,
@@ -13052,6 +13276,13 @@
    ],
    "dele": 27
   },
+  "20cd354ee7a2851616214bf5e20cf463bc6fc6e5": {
+   "add": 1612,
+   "commits": [
+    "20cd354ee7a2851616214bf5e20cf463bc6fc6e5"
+   ],
+   "dele": 31
+  },
   "21081b9d2860a4048020c996382cdb9ba38454d9": {
    "add": 1199,
    "commits": [
@@ -13529,6 +13760,13 @@
     "32973750a9c4ab903750c91bccf417f5dcfaf938"
    ],
    "dele": 20
+  },
+  "32b9b9d091b5ea7875a0ecf3575818e28004d1f8": {
+   "add": 2028,
+   "commits": [
+    "32b9b9d091b5ea7875a0ecf3575818e28004d1f8"
+   ],
+   "dele": 47
   },
   "32c8c781411cb250c1931e0fb720f6f5371b1b0f": {
    "add": 1266,
@@ -14507,6 +14745,13 @@
    ],
    "dele": 75
   },
+  "5c770b85ea3f80a8328b66dc29e7571d29c3659f": {
+   "add": 20,
+   "commits": [
+    "5c770b85ea3f80a8328b66dc29e7571d29c3659f"
+   ],
+   "dele": 5
+  },
   "5d5fad32a6b1cad299100d230c3466abe8b9f496": {
    "add": 2028,
    "commits": [
@@ -14789,6 +15034,13 @@
     "260bd12ea0367bf54b97ea890d448d527c2a0296"
    ],
    "dele": 64
+  },
+  "675c07ff1ecbbffaa6a14a6345178a35923a2e0d": {
+   "add": 1254,
+   "commits": [
+    "675c07ff1ecbbffaa6a14a6345178a35923a2e0d"
+   ],
+   "dele": 23
   },
   "67e6ca684d004ba40baaf71fbbb0f6befb15fbb5": {
    "add": 1080,
@@ -15084,6 +15336,13 @@
    ],
    "dele": 81
   },
+  "70e9d1da936affb1b82a1c303cefef4b7dd81a13": {
+   "add": 1857,
+   "commits": [
+    "70e9d1da936affb1b82a1c303cefef4b7dd81a13"
+   ],
+   "dele": 97
+  },
   "71360e68b479517248b293fc4826b6b6218f4e9e": {
    "add": 730,
    "commits": [
@@ -15252,6 +15511,13 @@
    ],
    "dele": 672
   },
+  "785886e48bc6fb706caace630156c2c09652c1d1": {
+   "add": 1638,
+   "commits": [
+    "785886e48bc6fb706caace630156c2c09652c1d1"
+   ],
+   "dele": 98
+  },
   "78a48a6ebc1e8c3fe7194b68499ea43e1b657fcb": {
    "add": 599,
    "commits": [
@@ -15307,6 +15573,13 @@
     "7d9f0838d4aedc605d84606f7ccd1f93d46dbe3f"
    ],
    "dele": 72
+  },
+  "79aeb9c3a36f0682dfddd38c7ffcbc5d206f0b4b": {
+   "add": 1055,
+   "commits": [
+    "79aeb9c3a36f0682dfddd38c7ffcbc5d206f0b4b"
+   ],
+   "dele": 1
   },
   "7a01025b1fbeb13515a213900af31b2a0da580c2": {
    "add": 481,
@@ -15514,6 +15787,13 @@
     "8086181f759a7bf26e4c6b7d8c9915c0cf024c0c"
    ],
    "dele": 71
+  },
+  "80ca8c3654dcc52b52128443d8e5c12e7080fb13": {
+   "add": 480,
+   "commits": [
+    "80ca8c3654dcc52b52128443d8e5c12e7080fb13"
+   ],
+   "dele": 330
   },
   "80f6d03e17cb1514b3584e1653c2ce0b93af8fc9": {
    "add": 808,
@@ -16043,6 +16323,13 @@
    ],
    "dele": 106
   },
+  "926446d4661bf00c4acaf7f3cc60d477f3b31f53": {
+   "add": 903,
+   "commits": [
+    "926446d4661bf00c4acaf7f3cc60d477f3b31f53"
+   ],
+   "dele": 699
+  },
   "92eba0b5f358611c8225b0ee0a2efe1b8b9fa851": {
    "add": 1415,
    "commits": [
@@ -16178,6 +16465,13 @@
     "965f2b00581f1146894f60b52296a6d3d109efbd"
    ],
    "dele": 45
+  },
+  "96ad246b6b6aa4b3eb184a95028ac0c94f4466e7": {
+   "add": 2081,
+   "commits": [
+    "96ad246b6b6aa4b3eb184a95028ac0c94f4466e7"
+   ],
+   "dele": 26
   },
   "96d85cf7c867ab9ec42207766d7bfb7158d1cc96": {
    "add": 1313,
@@ -16401,6 +16695,13 @@
     "9126e073a29a2aaed2e3ae4b60e5cff4c87757ae"
    ],
    "dele": 4
+  },
+  "9c9166c21d6725d57717de3fd92c295c84e820a7": {
+   "add": 783,
+   "commits": [
+    "9c9166c21d6725d57717de3fd92c295c84e820a7"
+   ],
+   "dele": 55
   },
   "9cfe145823a5a93e79d17c7dc1e11a933fd9ee88": {
    "add": 1246,
@@ -16992,6 +17293,13 @@
    ],
    "dele": 46
   },
+  "afc1ef0969c91bb90c8ab492d3fd5f63279b0d64": {
+   "add": 2855,
+   "commits": [
+    "afc1ef0969c91bb90c8ab492d3fd5f63279b0d64"
+   ],
+   "dele": 18
+  },
   "b01d7e6aa57f776f0036c2947ea0bd9896a5c9a1": {
    "add": 1045,
    "commits": [
@@ -17258,6 +17566,13 @@
     "48deecac7d3e7bc2fe632886b45120a9805dd3cd"
    ],
    "dele": 25
+  },
+  "ba6e78d2c323cde6b38264cdf636769c23460ed7": {
+   "add": 2,
+   "commits": [
+    "ba6e78d2c323cde6b38264cdf636769c23460ed7"
+   ],
+   "dele": 2
   },
   "ba9552d2af588ef9cb1c79dcb919ef0ed7114787": {
    "add": 660,
@@ -17595,12 +17910,26 @@
    ],
    "dele": 70
   },
+  "c604002327b2a662e8957eca658a73b19ee156e2": {
+   "add": 2288,
+   "commits": [
+    "c604002327b2a662e8957eca658a73b19ee156e2"
+   ],
+   "dele": 709
+  },
   "c67be4b8390f992292291f43f86696093191dd35": {
    "add": 518,
    "commits": [
     "c67be4b8390f992292291f43f86696093191dd35"
    ],
    "dele": 104
+  },
+  "c683104e390dd236932862f4f7eb1c4a36b0fca1": {
+   "add": 1453,
+   "commits": [
+    "c683104e390dd236932862f4f7eb1c4a36b0fca1"
+   ],
+   "dele": 37
   },
   "c718b4007c107cd188c1d259ff80e1b866d59fe3": {
    "add": 1142,
@@ -18134,6 +18463,13 @@
    ],
    "dele": 5
   },
+  "d8758d0329d5ea77b0253469574fb34693b03710": {
+   "add": 1484,
+   "commits": [
+    "d8758d0329d5ea77b0253469574fb34693b03710"
+   ],
+   "dele": 670
+  },
   "da38779ae844502a3c314c58516c90621910f719": {
    "add": 653,
    "commits": [
@@ -18583,6 +18919,13 @@
    ],
    "dele": 31
   },
+  "edfdda38419f4b350e0e8b71ec083ee777107737": {
+   "add": 585,
+   "commits": [
+    "edfdda38419f4b350e0e8b71ec083ee777107737"
+   ],
+   "dele": 8
+  },
   "ee1f93f81eb818be09ce2eadfcb63ca0137895b9": {
    "add": 951,
    "commits": [
@@ -18776,6 +19119,13 @@
     "f6765ffd16366314a7f0a342a8cb6aaf9fc44c5a"
    ],
    "dele": 24
+  },
+  "f6927a5216665ad59d81ff880bbaccb1f14fbb8a": {
+   "add": 1223,
+   "commits": [
+    "f6927a5216665ad59d81ff880bbaccb1f14fbb8a"
+   ],
+   "dele": 67
   },
   "f6b55f51f67b99ec920dcaf4e07ad2e4dcbeb77d": {
    "add": 989,
@@ -19124,6 +19474,11 @@
    "branch": "worktree-agent-a0220713ebc56f07f",
    "name": "Port a slice of the 43 ShouldExecute",
    "type": "opus-solver"
+  },
+  "a0221d7665b287d9b": {
+   "branch": "",
+   "name": "Inventaire primitives DSL Python",
+   "type": "Explore"
   },
   "a025d214e08a172b3": {
    "branch": "worktree-agent-a025d214e08a172b3",
@@ -19970,6 +20325,11 @@
    "name": "Cleave COMBAT des 4 abilities",
    "type": "opus-solver"
   },
+  "a20de35f0c8ef5949": {
+   "branch": "worktree-agent-a20de35f0c8ef5949",
+   "name": "Port 1050 HolyDuel",
+   "type": "opus-solver"
+  },
   "a20e205bbaca3c007": {
    "branch": "",
    "name": "RE DoorOpening leaves",
@@ -20255,6 +20615,11 @@
    "name": "RE offline ability-targeting for SLICE 2",
    "type": "re-expert"
   },
+  "a2f1ff63c32188ffe": {
+   "branch": "worktree-agent-a2f1ff63c32188ffe",
+   "name": "RE 494-r1-r1-r1 isMelee et hits",
+   "type": "re-expert"
+  },
   "a2f2f9a9151c65a5c": {
    "branch": "",
    "name": "Validate #112 MartialKatah combat",
@@ -20423,6 +20788,11 @@
   "a35d8528382064de6": {
    "branch": "worktree-agent-a35d8528382064de6",
    "name": "Face prediction du compteur de tuiles",
+   "type": "opus-solver"
+  },
+  "a35e731642a4b5b4f": {
+   "branch": "worktree-agent-a35e731642a4b5b4f",
+   "name": "Port 1063 FireAndReposition",
    "type": "opus-solver"
   },
   "a35ebe96415274466": {
@@ -20835,6 +21205,11 @@
    "name": "R1 tuile d'origine candidats",
    "type": "opus-solver"
   },
+  "a471e51a1c8ca57a6": {
+   "branch": "worktree-agent-a471e51a1c8ca57a6",
+   "name": "Port 1175 BloodChalice",
+   "type": "opus-solver"
+  },
   "a474c243ae34070d3": {
    "branch": "",
    "name": "Pin GetStuckIn combat RNG position",
@@ -20973,6 +21348,11 @@
   "a4c9ab318b73e05ec": {
    "branch": "worktree-agent-a4c9ab318b73e05ec",
    "name": "Feed the friendly-target guards",
+   "type": "opus-solver"
+  },
+  "a4ccf48ef8cb02117": {
+   "branch": "worktree-agent-a4ccf48ef8cb02117",
+   "name": "Port 1057 GrotTank summon",
    "type": "opus-solver"
   },
   "a4cee520c51850985": {
@@ -21455,6 +21835,11 @@
    "name": "Recette compacte du probe 366",
    "type": "Explore"
   },
+  "a5e28dd228e430ef4": {
+   "branch": "worktree-agent-a5e28dd228e430ef4",
+   "name": "Six residus : ce qui se perd en silence",
+   "type": "opus-solver"
+  },
   "a5ea9e101f1bbb5a6": {
    "branch": "worktree-agent-a5ea9e101f1bbb5a6",
    "name": "419-r6-r1 perimetre restant et face DECISION",
@@ -21580,6 +21965,11 @@
    "name": "L'allocateur propose un TROU sur les residus",
    "type": "opus-solver"
   },
+  "a662a3759dba93505": {
+   "branch": "worktree-agent-a662a3759dba93505",
+   "name": "RE #510-r1 slot Target vide",
+   "type": "re-expert"
+  },
   "a662e27f56c2b4b06": {
    "branch": "worktree-agent-a662e27f56c2b4b06",
    "name": "Contradiction spread slot prediction",
@@ -21660,6 +22050,11 @@
    "name": "477-r34 famille Group=Damage du StartTurn",
    "type": "opus-solver"
   },
+  "a698227959c1c70da": {
+   "branch": "worktree-agent-a698227959c1c70da",
+   "name": "Port 1039 RitesOfRestoration",
+   "type": "opus-solver"
+  },
   "a69b5c5168876ecd6": {
    "branch": "",
    "name": "Classifier P2 DarkAngels",
@@ -21718,6 +22113,11 @@
   "a6b7360016e210682": {
    "branch": "worktree-agent-a6b7360016e210682",
    "name": "Port #224-2 ExtraMoveEffect",
+   "type": "opus-solver"
+  },
+  "a6b92c3ff99f78c71": {
+   "branch": "worktree-agent-a6b92c3ff99f78c71",
+   "name": "Port 1005 AdaptiveStrategy",
    "type": "opus-solver"
   },
   "a6bf5d493ede247d8": {
@@ -21855,10 +22255,20 @@
    "name": "Fix probes writing into main data",
    "type": "opus-solver"
   },
+  "a7072e68b47aa52bf": {
+   "branch": "worktree-agent-a7072e68b47aa52bf",
+   "name": "Port 1106 WarHowl",
+   "type": "opus-solver"
+  },
   "a70b034d9a9233e16": {
    "branch": "worktree-agent-a70b034d9a9233e16",
    "name": "Mapper EffectType 1284 vers sa classe",
    "type": "re-expert"
+  },
+  "a7103cfe15c77c366": {
+   "branch": "worktree-agent-a7103cfe15c77c366",
+   "name": "Six residus faces decision",
+   "type": "opus-solver"
   },
   "a7134831f5bfcf5cd": {
    "branch": "",
@@ -22274,6 +22684,11 @@
    "branch": "worktree-agent-a81b0b741d2cd91f7",
    "name": "Fix Pinned refusal port divergence",
    "type": "opus-solver"
+  },
+  "a824a75c704ce78f6": {
+   "branch": "",
+   "name": "Recon face DECISION playbook",
+   "type": "Explore"
   },
   "a829b6c92a85b5beb": {
    "branch": "worktree-agent-a829b6c92a85b5beb",
@@ -22700,6 +23115,11 @@
    "name": "Port TheLionsWrath custom utility",
    "type": "opus-solver"
   },
+  "a9774292f6683f3c1": {
+   "branch": "worktree-agent-a9774292f6683f3c1",
+   "name": "Port 1061 UnbreakableDuty",
+   "type": "opus-solver"
+  },
   "a9788175d961e4665": {
    "branch": "",
    "name": "Classifier P2 Orks",
@@ -22900,6 +23320,11 @@
    "name": "#477-r16-r1-r1 : la branche dedup",
    "type": "opus-solver"
   },
+  "aa19b5c19c03e9b83": {
+   "branch": "worktree-agent-aa19b5c19c03e9b83",
+   "name": "Les rouges que notre cadence cree",
+   "type": "opus-solver"
+  },
   "aa19c2dd769c3d745": {
    "branch": "",
    "name": "Read UtilitiesDatabase composition",
@@ -23085,6 +23510,11 @@
    "name": "Extraire le contexte de 0x5cd",
    "type": "Explore"
   },
+  "aaaa8936d70d13e8c": {
+   "branch": "",
+   "name": "Recon port spawn existants",
+   "type": "Explore"
+  },
   "aaad0fb2e39364dc8": {
    "branch": "worktree-agent-aaad0fb2e39364dc8",
    "name": "231 gate e.active effet 1201",
@@ -23194,6 +23624,11 @@
    "branch": "",
    "name": "Classifier P2 Custodes",
    "type": "re-expert"
+  },
+  "ab0811e8983dc7aa9": {
+   "branch": "worktree-agent-ab0811e8983dc7aa9",
+   "name": "Six residus etage d emission",
+   "type": "opus-solver"
   },
   "ab081ea0a75acb4b8": {
    "branch": "worktree-agent-ab081ea0a75acb4b8",
@@ -23845,6 +24280,11 @@
    "name": "Tri par site du gate cadavre ability",
    "type": "opus-solver"
   },
+  "ad03765eb404ead1a": {
+   "branch": "worktree-agent-ad03765eb404ead1a",
+   "name": "Port 1121 ItItches summon",
+   "type": "opus-solver"
+  },
   "ad0568a023589ca47": {
    "branch": "worktree-agent-ad0568a023589ca47",
    "name": "Tile elevation utility term",
@@ -23894,6 +24334,11 @@
    "branch": "",
    "name": "Procédure RE methodes difficiles (Fable)",
    "type": "re-expert"
+  },
+  "ad1f904887c9ab542": {
+   "branch": "worktree-agent-ad1f904887c9ab542",
+   "name": "Port 1183 VexillaMagnifica",
+   "type": "opus-solver"
   },
   "ad2b425cb622616cb": {
    "branch": "worktree-agent-ad2b425cb622616cb",
@@ -24138,6 +24583,11 @@
   "adb9bd758981a0c72": {
    "branch": "worktree-agent-adb9bd758981a0c72",
    "name": "427 rouge enum_mirror ratchet",
+   "type": "opus-solver"
+  },
+  "adc0e383eb6f877eb": {
+   "branch": "worktree-agent-adc0e383eb6f877eb",
+   "name": "Port 1164 MindControl",
    "type": "opus-solver"
   },
   "adc42087ad22146b2": {
@@ -24820,6 +25270,11 @@
    "name": "VigilanceEternal TileDistanceUtility",
    "type": "opus-solver"
   },
+  "af6c6ee4f7988d79e": {
+   "branch": "worktree-agent-af6c6ee4f7988d79e",
+   "name": "Port 1101 AttemptedPossession",
+   "type": "opus-solver"
+  },
   "af73ce2a3934750b2": {
    "branch": "worktree-agent-af73ce2a3934750b2",
    "name": "R6 round materialize normal_like",
@@ -25007,18 +25462,18 @@
   }
  },
  "stat_merges": {
-  "interroges": 18,
-  "reutilises": 787
+  "interroges": 20,
+  "reutilises": 805
  },
  "stat_metas": {
-  "lus": 20,
-  "reutilises": 1170
+  "lus": 21,
+  "reutilises": 1190
  },
  "stat_tokens": {
-  "fichiers": 27,
+  "fichiers": 28,
   "fork": "",
-  "mo": 49.2,
-  "total": 1209
+  "mo": 50.1,
+  "total": 1230
  },
  "version": 2
 }
