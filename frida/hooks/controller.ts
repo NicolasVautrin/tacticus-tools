@@ -23,12 +23,17 @@ import * as bucketAudit from "./features/bucket-audit.js";
 import * as dumpComposed from "./features/dump-composed.js";
 import * as dispatchObserve from "./features/dispatch-observe.js";
 import * as whatifTrigger from "./features/whatif-trigger.js";
+import * as autoBoot from "./features/auto-boot.js";
 import * as uiNav from "./features/ui-nav.js";
 import * as warmupSingletons from "./features/warmup-singletons.js";
 import * as battleConfig from "./features/battle-config.js";
 import * as observe from "./features/observe.js";
 import * as dumpPvpBoards from "./features/dump-pvp-boards.js";
 import * as normalizeBc from "./features/normalize-bc.js";
+import * as crashTrap from "./features/crash-trap.js";
+import * as initTrace from "./features/init-trace.js";
+import * as winnerCapture from "./features/winner-capture.js";
+import * as messageTrace from "./features/message-trace.js";
 // replay-output-stream = capteur PUREMENT a la demande (#477) : le register n'arme
 // AUCUN hook (zero Interceptor). Il expose la trace textuelle canonique du natif
 // (`Replay.GetWholeBattleOutputStream`), celle-la meme que `Runner.ReplayValidator`
@@ -372,9 +377,13 @@ export function wireRpc(ctx: Ctx): void {
     [status, sim, cheat, modeSourceCapture, launch,
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
      campaignBuilder, mowBuilder, aiTrace, aiUtilityTrace, simEngine,
-     overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger,
+     overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger, autoBoot,
      uiNav, warmupSingletons, battleConfig, observe,
-     dumpPvpBoards, normalizeBc,
+     dumpPvpBoards, normalizeBc, crashTrap, initTrace,
+     // messageTrace AVANT winnerCapture — il SET `state.scoringRunnerId` / `state.applySeq`,
+     // que winnerCapture LIT pour estampiller son event. (Le troisieme lecteur, move-options,
+     // est parti avec le nettoyage : sa surface RPC etait morte et son register inerte.)
+     messageTrace, winnerCapture,
      aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
      scorerDamageTrace, effectBonusTrace, triggeredMoveTrace, triggerTrace, dslTrace, dslCtorTrace,
      // replayOutputStream = capteur on-demand (#477), n'arme rien au register.
