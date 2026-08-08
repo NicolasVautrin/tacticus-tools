@@ -145,9 +145,19 @@ Non-régression rejouée : `test_sorcerous_facade_combat_live` + `test_thunderou
   `PendingHit` **sans lever**), écrit par `SetUnitPositionOperation$$SavePreviousPosition`, effacé
   par `ResetPreviousPositionBehaviour`, donc une valeur qui dépend de l'**historique de mouvement
   du tour**. Commentaire corrigé dans `abilities/loki/quickening.py`.
-  **CAPTEUR ÉCRIT (#546), non déployé** : `actorStats[].movement` publie les quatre champs décodés
-  en hex (`UnitPositionIdExtensions$$ToTileList` INVOQUÉ) + `movementLayout` tri-état. Contre-épreuve
-  après la fenêtre : `case-546-une-seule-fenetre-de-reinject.md` §6.
+  **CAPTEUR DÉPLOYÉ ET CONFRONTÉ (#546, fenêtre du 2026-08-08) — le CANAL est vert, le DÉCODAGE
+  est MUET.** `movementLayout` rend `componentResolved: true`, `toTileListResolved: true`, et les
+  quatre offsets **résolus PAR NOM** égalent les replis décompilés (`0x78/0x88/0x98/0xa8`) : le
+  rectificatif de composant ci-dessus est confirmé par une seconde voie. La transition
+  DISCRIMINE — l'unité qui bouge passe `previousPositionThisTurn` de `null` à non-nul, celle qui
+  ne bouge pas reste `null`. Mais `tiles` sort `null` sur les quatre champs.
+  ⚠ **Et cette transition ne dit RIEN de la cause** : la disposition du `Nullable<T>` était
+  SUPPOSÉE (`hasValue` à `off + 8`) alors que `frida/hooks/game/match-state.ts` a déjà mesuré
+  `hasValue` EN PREMIER sur ce build — sous cette disposition, l'octet lu est l'octet bas du
+  POINTEUR de liste, donc le drapeau « marche » par ACCIDENT. Correctif livré : la disposition est
+  désormais **DÉRIVÉE des métadonnées**, les 16 octets bruts sont publiés, et la cause est nommée.
+  Ce résidu attend donc **`#347-r3`**, pas une fenêtre de plus.
+  Détail : `case-546-une-seule-fenetre-de-reinject.md` §6.3.
 * **`#347-r2` — mesuré en marge, hors périmètre** : `TheQuickening` **refuse** une tuile occupée par
   un **allié** (`Attackable(Units(Target))` est vide, donc aucun `MoveOut` n'est émis pour
   l'occupant et le move-in du caster échoue sur tuile pleine) ; et `GetDynamicInvalidTargetReason`

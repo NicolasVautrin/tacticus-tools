@@ -170,3 +170,25 @@ def test_mutation_ventilation_de_effectsall_retiree_rougit():
                 P.etape3_effectsall)
     assert ko, ("retirer `orphanCount` doit ROUGIR l'etape 3 : sans lui un `count: 0` ne dit "
                 "plus de quoi il est le zero")
+
+
+def test_mutation_disposition_nullable_re_supposee_rougit():
+    """#347-r3 -- LA faute que la fenetre du 2026-08-08 a rendue visible.
+
+    Revenir a `off + 8` re-suppose la disposition du `Nullable<T>`. Le cliquet doit le voir,
+    parce que la MESURE, elle, ne le peut pas : les deux dispositions produisent la MEME
+    transition `null -> non-null`, et seule l'une des deux fait sortir des tuiles."""
+    ko = _muter(SNAPSHOT,
+                "cp.add(off + lay.hasValueOff).readU8()",
+                "cp.add(off + 8).readU8()",
+                P.etape4_mouvement)
+    assert ko, "re-supposer la disposition (`off + 8`) doit ROUGIR l'etape 4"
+    assert any("off + 8" in m for m in ko), ko
+
+
+def test_mutation_cause_de_mutisme_retiree_rougit():
+    """Les quatre causes doivent rester DISTINCTES : `{tiles: null}` pour tout a coute une
+    fenetre entiere -- la mesure disait « muet » sans dire de quoi."""
+    ko = _muter(SNAPSHOT, 'decode: "null-list"', 'decode: "ko"', P.etape4_mouvement)
+    assert ko, "effacer une cause nommee doit ROUGIR l'etape 4"
+    assert any("null-list" in m for m in ko), ko
