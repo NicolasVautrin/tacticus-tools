@@ -107,7 +107,34 @@ des `VERT`**.
 les fichiers du périmètre offline **sans aucune entrée** (jamais joués), les attestations
 **périmées** (blob du test changé), et le compte des `*_live.py` hors périmètre.
 
-## 5. Ce qui reste ouvert
+## 5. Ce que le cliquet a trouvé à son PREMIER passage — quatre rouges de plus
+
+Le geste de ré-attestation (`probe_457 --depuis-ledger`, **269 fichiers / 3 833 tests / 32 min**)
+a rendu **6** entrées non-VERT, pas 1. Chacune a été rejouée dans un worktree **témoin** à
+`origin/master` **pur** (`4c3601ac`) : **quatre y rendent `rc = 1` aussi**, donc elles
+**préexistent** et ne sont pas le fait de cette tranche.
+
+| fichier | assertion | bilan sur `master` pur |
+| --- | --- | --- |
+| `test_421_effect_active_gate_offline.py` | `test_the_probe_rail_covers_the_whole_registry` | 1 failed / 12 passed |
+| `test_448_r1_stormboyz_port_offline.py` | `test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE` | 1 / 13 |
+| `test_462_r4b_r1_r1_defender_additive_carriers_offline.py` | `test_le_registre_des_producteurs_d_additif_defenseur_est_COMPLET` | 1 / 6 |
+| `test_486r15_empreinte_par_entree_offline.py` | `test_la_DETTE_ne_peut_pas_absoudre_ce_qui_declare_deja` | 1 / 26 |
+
+Le 5ᵉ (`test_270r4r2r2_differes_offline.py`) était déjà déclaré ; le 6ᵉ
+(`test_463r1_ecart_empreinte_offline.py`) était le **seul** dû à cette tranche — le fichier de
+test neuf de #547 n'avait pas d'entrée d'empreinte, ce que `--measure-missing` a réglé.
+
+Ces quatre sont **déclarés** dans `NON_VERTS_DECLARES`, avec leur assertion **verbatim** et le
+résidu **`#547-r2`**. Les taire aurait reproduit exactement la faute que ce cliquet garde ; les
+réparer à l'aveugle aurait été pire — deux de leurs foyers étaient édités par d'autres tranches
+au moment de la mesure. **La déclaration est elle-même sous cliquet** : chaque ligne rougit le
+jour où son fichier redevient vert.
+
+> **Le compte des rouges offline de `master` n'était donc pas 23, mais 23 + 5.** Aucun des cinq
+> n'était mentionné nulle part — sauf, très exactement, dans le ledger que personne ne lisait.
+
+## 6. Ce qui reste ouvert
 
 * **`#547-r1`** — `probe_457 --measure-missing` rend **`rc = 0`** quand il n'a **rien** mesuré. La
   convention de ce dépôt est `EX_NON_MESURE = 99` (« aucun verdict sur le dépôt »), et
@@ -117,6 +144,9 @@ les fichiers du périmètre offline **sans aucune entrée** (jamais joués), les
   imports différés est à **239 pour un plafond de 224**. Déclaré dans `NON_VERTS_DECLARES` : le
   sweep touche 28 fichiers partagés et chaque site doit passer par
   `migrate_485r1_barils_reexport.py morsure` avant d'être hissé en forme B.
-* **Quatre fichiers offline n'ont aucune entrée au ledger** — jamais joués, donc jamais attestés.
+* **`#547-r2`** — les quatre rouges de la section 5, **mesurés** et **non diagnostiqués**.
+* **Quatre fichiers offline n'avaient aucune entrée au ledger** — jamais joués, donc jamais
+  attestés. La passe de ré-attestation les a inscrits (269 entrées pour 269 fichiers, **0** sans
+  entrée, **0** attestation périmée).
 * **Le trou `*_live.py`** : un test offline hébergé dans un fichier `_live.py` est invisible du
   ledger comme de la banque. C'est ainsi que le rouge de `probe_120bis` a survécu.
