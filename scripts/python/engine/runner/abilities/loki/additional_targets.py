@@ -541,7 +541,8 @@ def is_melee_position(state: "State", caster_id: int, target_id: Optional[int]) 
 def execute_additional_targets_attacks(state: "State", caster_id: int, target_id: Optional[int],
                                        entry: "_Cleave", is_melee: bool,
                                        weapon_range: Optional[int] = None,
-                                       attack_state0=None) -> dict:
+                                       attack_state0=None,
+                                       after_primary=None) -> dict:
     """Joue les DEUX volets, DANS L'ORDRE NATIF, et rend
     `{"primary_fold": {...}|None, "additional_targets": [{"target": id, "attack": {...}}, ...]}`.
 
@@ -555,6 +556,14 @@ def execute_additional_targets_attacks(state: "State", caster_id: int, target_id
          `IsMeleePosition` / `IsRangedPosition` ;
       3. le CLEAVE (`Execute<X>` -> `Foreach` sous `ExecuteAtomic(0x2a)`), gate par
          `attackWeapon.IsMelee`.
+
+    `after_primary` (#521-r7) = un callable JOUE ENTRE 2 et 3, sans argument. Un seul appelant :
+    l'emission d'`EvaluateAbilities(0x4a = AttackInAtomicGroup)` que
+    `ALoki_NormalAttackAbility$$ExecuteNormalAttack` compose par `op_BitwiseAnd` APRES
+    `GetAttackDamageBehaviour` (donc apres les coups d'arme ET le fold) et AVANT que `Execute<X>`
+    n'enchaine sur son `ExecuteAtomic(0x2a)`. Ce rang n'est pas decoratif : chaque coup consomme
+    `state.rng`, donc jouer le vecteur du mauvais cote du cleave decalerait le flux. `None` (defaut)
+    = rien entre les deux volets.
 
     Les deux volets ont des gates DISTINCTES et l'un peut partir sans l'autre : c'est pourquoi ils
     sont testes separement et non par un seul `if`. Aucun des deux ne part sans cible primaire.
@@ -579,6 +588,8 @@ def execute_additional_targets_attacks(state: "State", caster_id: int, target_id
             hit = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
             if hit is not None:
                 out["primary_fold"] = {"target": hit.get("target"), "attack": hit.get("attack")}
+    if after_primary is not None:
+        after_primary()                  # #521-r7 : `EvaluateAbilities(0x4a)`, cf. la docstring
     seen = len(ectx.emitted)
     if bool(is_melee) == entry.cleaves_when_melee:
         cleave_tree(entry, is_melee, weapon_range).execute(entities, ectx)
