@@ -82,6 +82,29 @@ NON_VERTS_DECLARES = {
         "PARTAGES et chaque site doit passer par `migrate_485r1_barils_reexport.py morsure` avant "
         "d'etre hisse en FORME B. Remonter le plafond serait faire taire ; le hisser a la va-vite "
         "desarmerait des patchs deja poses (CLAUDE.md, forme A vs B).",
+    # LES QUATRE AUTRES ROUGES OFFLINE DE `master`, MESURES et NON DIAGNOSTIQUES -- residu #547-r2.
+    # Ils ne sont PAS le fait de cette tranche : chacun a ete rejoue dans un worktree TEMOIN a
+    # `origin/master` PUR (`4c3601ac`), et rend `rc=1` la aussi. Ils sont declares ici parce que
+    # les NOMMER est precisement ce que ce cliquet existe pour faire -- les taire aurait ete
+    # reproduire la faute qu'il garde. Chacun porte son assertion, pas une paraphrase.
+    "tests/engine/runner/test_421_effect_active_gate_offline.py":
+        "`test_the_probe_rail_covers_the_whole_registry` -- 1 failed / 12 passed sur `master` PUR. "
+        "Non diagnostique. Residu #547-r2.",
+    "tests/engine/test_448_r1_stormboyz_port_offline.py":
+        "`test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE` -- 1 failed / 13 passed sur `master` "
+        "PUR. Voisin THEMATIQUE du port de `SwornProtectorAbility$$GetSpawnTile` (#836), qui a "
+        "donne une `utility_definition` au noeud `SortTilesByUtility` -- lien NON ETABLI, a "
+        "verifier. Residu #547-r2.",
+    "tests/engine/test_462_r4b_r1_r1_defender_additive_carriers_offline.py":
+        "`test_le_registre_des_producteurs_d_additif_defenseur_est_COMPLET` -- 1 failed / 6 passed "
+        "sur `master` PUR. Meme FAMILLE que les registres a cliquet (`TARGETING_OPTIONS`, "
+        "`ABILITY_ATTACK_TYPE`) : un registre que notre propre cadence de portage rouvre. "
+        "Residu #547-r2.",
+    "tests/test_486r15_empreinte_par_entree_offline.py":
+        "`test_la_DETTE_ne_peut_pas_absoudre_ce_qui_declare_deja` -- 1 failed / 26 passed sur "
+        "`master` PUR ; l'assertion demande `--ecrire-dette`. Le foyer "
+        "(`probe_486r15_declencheurs_tests.py`) etait EDITE par une autre tranche au moment de "
+        "cette mesure, d'ou la declaration plutot que la regeneration. Residu #547-r2.",
 }
 
 
