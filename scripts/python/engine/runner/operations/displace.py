@@ -633,16 +633,18 @@ class DisplaceUnitOperation(Operation):
         if unit_extensions_is_steppable(pushed):
             hc = pushed.get_component(HealthComponent)
             if hc is not None:
-                hc.hp = 0                     # `KillUnitOperation$$Execute` : `health.hp = 0`
+                hc.hp = 0                     # `KillUnitOperation$$Execute+0x505` : `health.hp = 0`
             if uc is not None:
                 uc.alive = False
-            death = AttackDamageOperation._kill_unit_operation(
-                state, int(self.pushed_id), int(self.pusher_id), False) or []
+            # FOYER UNIQUE du crush (`operations/movement.py::_kill_steppable_kill_unit`, #462-...) :
+            # `KillUnitOperation$$Execute` en entier sous `ForSteppable` -- meme corps que la mort
+            # par degat, `DamageReason.Steppable`, cinq evenements, trois `RemoveEffects`.
+            from .movement import _kill_steppable_kill_unit    # cycle displace <-> movement (PORTEUR)
+            death = _kill_steppable_kill_unit(state, int(self.pushed_id), int(self.pusher_id)) or []
             return {"moved": False, "reason": "steppable crushed",
                     "killed": [int(self.pushed_id)], "death": death}
         dest: tuple[int, int] | None = None
         blocker_id: int | None = None
-        crushed_on_dest: "tuple[int, list] | None" = None   # occupant STEPPABLE ecrase (direction 3)
         if self.vector_dir is not None:
             # `direction = 3` (AdjacentVector) : UN pas dans la direction du VECTEUR, walkable, et
             # adjacent a la main tile (trivialement vrai pour un pas unitaire -- le natif le teste
@@ -655,32 +657,27 @@ class DisplaceUnitOperation(Operation):
                 blocker = occ_v.get(nxt)
                 if blocker is None:
                     dest = nxt
-                else:
+                elif unit_extensions_is_steppable(state.get_entity(int(blocker))):
                     # Partie commune d'`Execute`, DANS SON ORDRE :
                     #   if (content.IsFilled() && IsSteppable(occupant))
                     #        KillUnit(target, occupant, ForSteppable());   // tueur = la POUSSEE
                     #   if (!content.IsFilled())  -> move                  // RE-TESTE apres le Kill
                     # `KillUnitOperation` -> `RemoveUnitFromTiles` VIDE le `TileContentComponent`,
                     # donc le second test est FAUX apres l'ecrasement et la poussee ABOUTIT.
-                    be = state.get_entity(int(blocker))
-                    if unit_extensions_is_steppable(be):
-                        bhc = be.get_component(HealthComponent) if be is not None else None
-                        buc = be.get_component(UnitComponent) if be is not None else None
-                        if bhc is not None:
-                            bhc.hp = 0
-                        if buc is not None:
-                            buc.alive = False
-                        crushed = AttackDamageOperation._kill_unit_operation(
-                            state, int(blocker), int(self.pushed_id), False) or []
-                        crushed_on_dest = (int(blocker), crushed)
-                        dest = nxt                       # tuile LIBEREE -> le move a lieu
-                    else:
-                        blocker_id = blocker             # -> branche knockback (partie commune)
-            # ⚠ RESIDU NOMME (#550) : cet ecrasement de l'OCCUPANT de la destination n'est porte que
-            # sur CETTE branche. Les directions 0 et 2 le manquaient DEJA (leur `FindTileToPush`
-            # porte fait `break` sur toute occupation, steppable comprise -- le commentaire « 21b:
-            # steppable-crush / absorb » l'y signale) ; la presente tranche ne l'elargit pas, faute
-            # de porteur confrontable pour les re-valider.
+                    # Le port n'ecrase RIEN ICI et laisse `dest` : `MoveUnitOperation` porte deja le
+                    # FOYER UNIQUE de ce crush (`operations/movement.py::_kill_steppable_units`, qui
+                    # joue `KillUnitOperation$$Execute` en entier -- `RecordDeathReason(Steppable)`,
+                    # les cinq evenements de mort, les trois `RemoveEffects`). Ecrire un second crush
+                    # ici le jouerait DEUX FOIS. Le tueur impute differe (`MoveUnitOperation` impute
+                    # le MOVER, le natif de cette branche impute `target` -- qui EST le mover) :
+                    # aucune divergence.
+                    dest = nxt
+                else:
+                    blocker_id = blocker             # -> branche knockback (partie commune)
+            # ⚠ RESIDU NOMME (#550) : les directions 0 et 2 n'atteignent PAS ce chemin -- leur
+            # `FindTileToPush` porte fait `break` sur toute occupation, steppable comprise (le
+            # commentaire « 21b: steppable-crush / absorb » l'y signale deja). La presente tranche ne
+            # les elargit pas, faute de porteur confrontable pour les re-valider.
         elif self.prioritized_tiles is not None:
             # `direction = 2` -> `IdunBattle.Operations.DisplaceUnitOperation$$
             # FindTileToPushToPrioritizedTiles` (#498, cf. la docstring de classe). Le cas `Count == 1`
@@ -762,9 +759,6 @@ class DisplaceUnitOperation(Operation):
         # lazy (evite le cycle triggers<->operations). No-op si aucun trigger UnitDisplaced ne matche.
         from .triggers.dispatch.move_death import displace_triggers
         res = {"moved": True, "to": dest}
-        if crushed_on_dest is not None:                  # steppable ECRASE sur la destination
-            res["killed"] = [crushed_on_dest[0]]
-            res["death"] = crushed_on_dest[1]
         if n:
             res["tiles_moved"] = {self.pushed_id: n}
         trg = displace_triggers(state, self.pusher_id, self.pushed_id)
