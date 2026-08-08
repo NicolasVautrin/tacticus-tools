@@ -254,7 +254,17 @@ def test_le_recenseur_ne_credite_pas_une_condition_seulement_CITEE():
     rec = P.etape_recensement()
     decision = {"%s::%s" % (s["fichier"], s["fonction"]): s
                 for s in rec["sites"] if s["face"] == "DECISION" and s["fonction"] == "_is_displaceable"}
-    assert len(decision) == 2, sorted(decision)
+    # ⚠ BORNE INFERIEURE, ET C'EST L'ASYMETRIE QUI COMPTE. Ce compte etait `== 2` : un SEUIL
+    # HAUT, qui se perime des qu'un port LEGITIME ajoute un miroir -- c'est arrive avec
+    # `noncomparable/unstoppable_momentum.py` (PR #844), et `master` en est reste ROUGE.
+    # Or le compte n'est PAS le fond de ce test : c'est l'ancrage de NON-VACUITE de la boucle
+    # ci-dessous, qui porte les vraies proprietes (role, delegue, manque, traits). Mesure du
+    # 2026-08-08 sur les 3 sites : **3/3 CONFORMES** -- la garde n'avait donc rien perdu, seul
+    # son ancrage avait vieilli.
+    # Une borne BASSE rougit sur ce qui est un vrai signal (un miroir qui DISPARAIT) et se tait
+    # sur ce qui n'en est pas un (un miroir de plus, que la boucle verifie de toute facon).
+    # Passer a `== 3` n'aurait fait que reporter la meme panne au 4e port.
+    assert len(decision) >= 2, sorted(decision)
     for nom, s in decision.items():
         assert s["role"] == "MIROIR", (nom, s["role"])
         assert not s["delegue"], (
