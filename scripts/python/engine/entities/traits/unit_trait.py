@@ -214,8 +214,12 @@ def is_mechanical(trait_names: "Iterable[str] | None") -> bool:
     a fait recopier le raccourci a un seul trait. Frere exact d'`is_normal_unit` ci-dessus : meme
     forme, meme substrat, meme famille de natif.
 
-    Residu `#116-r1` : `targeting.py::is_mechanical` opere lui aussi sur des noms et devrait
-    s'appuyer sur ce foyer -- non fait ici, son fichier etant partage avec une tranche en vol."""
+    #116-r1 -- C'EST FAIT : `runner/abilities/targeting.py::is_mechanical` ne re-ecrit plus la
+    disjonction, il RESOUT son substrat (`State` + id -> noms via `_unit_traits`) et DELEGUE ici.
+    Restent DEUX exemplaires, et ils sont legitimes -- substrats qu'aucune conversion ne rapproche :
+    `runner/abilities/behaviours/stats.py::is_mechanical` (callable `has_trait` du DSL, l'entite
+    n'est pas resolue) et `playbook/non_owner.py::_is_mechanical` (IDS d'enum, `ctx["unit_traits"]`).
+    Le selecteur `MechanicalUnits` delegue au premier -- il ne compte pas pour un troisieme."""
     return has_any_trait(trait_names,
                          (UnitTrait.Mechanical, UnitTrait.LivingMetal, UnitTrait.Vehicle))
 
