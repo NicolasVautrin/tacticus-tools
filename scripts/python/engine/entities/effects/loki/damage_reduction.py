@@ -10,6 +10,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_piercing, 
                                        for_percent_subtraction_capped)
 from ..base import BaseEffect, is_turn_of_owner
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
+from ...traits.unit_trait import is_mechanical   # `UnitExtensions$$IsMechanical` -- foyer UNIQUE
 
 
 class MarkerlightEffect(BaseEffect):
@@ -167,7 +168,13 @@ class ChronometronExtraDamageEffect(BaseEffect):
         if a_team is None or s_team is None or a_team != s_team:
             return None                                        # equipe inconnue -> gate muet (fidele)
         # If(IsMechanical(caster), ConfigVar(9=extraDmg_2), ConfigVar(8=extraDmg))
-        var = "extraDmg_2" if "Mechanical" in (ac.get("traits") or ()) else "extraDmg"
+        # ⚠ #116-e -- `IdunBattle.Entities.UnitExtensions$$IsMechanical` est une DISJONCTION de
+        # TROIS traits (`Mechanical` 5 | `LivingMetal` 0x3e8 | `Vehicle` 0x405), pas le seul
+        # `Mechanical`. Ce site testait `"Mechanical" in traits` : FAUX et silencieux -- un Necron
+        # porte `LivingMetal` sans `Mechanical`, et Chronometron est une ability NECRON, donc ses
+        # allies sont massivement dans ce cas. Le raccourci ne levait pas : il lisait l'AUTRE
+        # branche du `If`, soit `extraDmg` au lieu d'`extraDmg_2`.
+        var = "extraDmg_2" if is_mechanical(ac.get("traits")) else "extraDmg"
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else self.ability_level)                        # Chronometron = ability ACTIVE du poseur
         v = ability_var("Chronometron", var, lvl, multiplier_pct=self.ability_variables_multiplier)

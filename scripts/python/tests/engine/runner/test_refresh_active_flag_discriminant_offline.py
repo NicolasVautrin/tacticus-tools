@@ -27,6 +27,25 @@ ASCII only.
 """
 from __future__ import annotations
 
+#: `chemins` est VIDE, et c'est une MESURE, pas un oubli : `probe_486r15 --proposer` rend
+#: « RIEN A DECLARER hors de la cascade » -- la fermeture d'imports de ce fichier (474 modules)
+#: tient entierement dans la cascade DERIVEE par le foyer (475 chemins), qu'on ne redeclare pas
+#: (#531). Ce fichier ne lit ni le binaire ni `data/symbols/**` : son unique source est le
+#: REGISTRE Python `EFFECT_CLASSES`, introspecte a l'execution -- d'ou `build: False`. Ce qu'il
+#: prouve : (a) le discriminant du refresh reste la SURCHARGE de `is_active` et jamais le drapeau
+#: `active_condition_ported` (case-322), et (b) l'ensemble des classes surchargeantes ne bouge
+#: dans AUCUN des deux sens sans etre inscrit -- c'est le cliquet que #229-r2 disait absent.
+DECLENCHEUR = {
+    "chemins": (),
+    "build": False,
+    "toujours": False,
+    "raison": "Aucun chemin hors cascade : la fermeture d'imports de ce fichier y tient en "
+              "entier (mesure `--proposer`). La seule source de verite du cliquet est le "
+              "registre `EFFECT_CLASSES` introspecte a l'execution, deja couvert par "
+              "`scripts/python/engine/**` de la cascade ; rien n'est fige depuis le binaire, "
+              "donc `build: False`.",
+}
+
 from engine.entities.effects_state import EffectsState
 from engine.entities.effects.base import BaseEffect
 from engine.entities.effects.factory import EFFECT_CLASSES, EffectFactory
@@ -45,6 +64,47 @@ UNPORTED = "WireweaveNet_CounterAttack"    # ne la surcharge PAS ; son flag n'es
 #                                            feuilles `ActivateEffect`/`DeactivateEffect` (la riposte
 #                                            1111 se DESARME apres son coup -- si le refresh la
 #                                            rallumait, elle repartirait le meme tour)
+
+# #229-r2 -- ENSEMBLE ATTESTE, pas un plancher. Ce fichier a d'abord garde `len(overrides) >= N`,
+# remonte A LA MAIN par quatre commits successifs (16, 17, 18, 20). Un seuil est UNIDIRECTIONNEL :
+# il rougit quand une surcharge DISPARAIT, jamais quand une ARRIVE -- donc il se perime en silence,
+# ce que ce fichier constatait lui-meme DEUX fois (« une classe entree sans que le plancher bouge »)
+# sans pouvoir l'empecher. Mesure a la reprise : plancher ecrit **20**, classes reellement
+# surchargeantes **21** -- le cliquet etait en retard d'une, et VERT.
+#
+# L'ensemble nomme corrige les deux defauts d'un coup :
+#   * il rougit dans les DEUX sens (arrivee non inscrite ET disparition) ;
+#   * il FUSIONNE PAR UNION entre deux branches paralleles. C'est la reponse a l'avertissement
+#     « ce plancher ne se choisit pas entre deux branches en conflit » : sur un NOMBRE, prendre
+#     « le mien » (18) ou « le sien » (17) donne un resultat FAUX des deux cotes puisque les deux
+#     s'ajoutent ; sur un ENSEMBLE, garder les deux lignes est la resolution evidente.
+#
+# TU AJOUTES UNE `CreateActiveCondition` PORTEE (surcharge de `is_active`) ? Inscris son nom ici
+# DANS LE MEME COMMIT -- meme regle que `TARGETING_OPTIONS`/`ABILITY_ATTACK_TYPE` au registre des
+# abilities. Ce n'est pas une loi : c'est l'etat MESURE, et le test dit lequel des deux sens a bouge.
+CONDITIONS_PORTEES_ATTESTEES = {
+    "AmuletOfTheVoidwyrm_CritDamageReduction",
+    "AnvilShield_BlockChanceBelowHealthCap",
+    "CamoCloak_DmgReduction",
+    "ContagionsOfNurgle_ArmorReduction1",
+    "ContagionsOfNurgle_ArmorReduction2",
+    "DestroyTheWitch_ExtraDamage",
+    "DestroyTheWitch_ExtraMove",
+    "HammerOfWrath_ConditionalDamage",
+    "InescapableAccuracy_extraCritChance",
+    "InescapableAccuracy_extraCritDmg",
+    "InescapableAccuracy_overrideHits",
+    "MartialSuperiority_Visual",
+    "ModifiedExoarmour_ExtraDmg",
+    "Pinned",
+    "PowerTrip_FullHealth",
+    "PsychicStalk_VisualEffect",
+    "ReinforcedHiveNode_ExtraArmor",
+    "ReinforcedHiveNode_ExtraBlock",
+    "StructuralAnalyser_Visual",
+    "VisionsOfHeresy_ExtraPierceMelee",
+    "VisionsOfHeresy_ExtraPierceRanged",
+}
 
 
 def _state_with(effect_name: str, active: bool, hp: int, hp_max: int = 1000):
@@ -78,22 +138,20 @@ def test_discriminant_is_the_is_active_override_not_the_case322_flag():
                if getattr(k, "active_condition_ported", False)}
     assert helper == overrides, (
         f"le helper ne mirrore plus la surcharge de `is_active` : {helper ^ overrides}")
-    # Le cliquet monte DELIBEREMENT avec chaque `CreateActiveCondition` portee : 13 ecrites au
-    # #366-r1b, 14 MESUREES a la reprise (`CamoCloak_DmgReduction` etait entree entre-temps sans que
-    # le plancher bouge -- preuve qu'un plancher qu'on ne remonte pas cesse d'etre un cliquet), puis
-    # 17 apres `StructuralAnalyser_Visual` (1174, #420), `InescapableAccuracy_overrideHits` (1117,
-    # #422) et `MartialSuperiority_Visual` (1255, case-366-r1), **18** apres
-    # `PsychicStalk_VisualEffect` (1216, case-366-r1), **19** sur `origin/master` au 2026-08-01
-    # (une classe entree sans que le plancher bouge : la preuve, encore, qu'un plancher non remonte
-    # cesse d'etre un cliquet), **20** avec `ReinforcedHiveNode_ExtraBlock` (1109, #366-r1).
-    # RE-DERIVER, ne jamais recopier.
-    #
-    # ⚠ CE PLANCHER NE SE CHOISIT PAS ENTRE DEUX BRANCHES EN CONFLIT. #366-r1 et #424 ont entre
-    # CHACUNE une classe surchargeante en parallele : prendre « le mien » (18) ou « le sien » (17)
-    # aurait donne un nombre FAUX dans les deux cas, puisque les deux s'AJOUTENT. Le 20 ci-dessous
-    # est RE-DERIVE par introspection du registre (19 mesurees AVANT ce port, +1), pas recopie.
-    assert len(overrides) >= 20, (
-        f"seulement {len(overrides)} classes a condition PORTEE -- une surcharge a disparu ?")
+    # #229-r2 -- CLIQUET BIDIRECTIONNEL (cf. `CONDITIONS_PORTEES_ATTESTEES` en tete de fichier).
+    # L'ancien `len(overrides) >= N` ne voyait qu'un seul des deux sens et etait VERT en retard
+    # d'une classe. On nomme les DEUX mouvements separement : ils ne demandent pas le meme geste.
+    apparues = overrides - CONDITIONS_PORTEES_ATTESTEES
+    disparues = CONDITIONS_PORTEES_ATTESTEES - overrides
+    assert not disparues, (
+        f"une surcharge de `is_active` a DISPARU du registre : {sorted(disparues)} -- c'est une "
+        "REGRESSION (l'instance ne pourra plus se rallumer/s'eteindre au refresh), pas une ligne "
+        "d'attestation a retirer. Corriger la classe, ou dire ici pourquoi la condition n'est plus "
+        "portee.")
+    assert not apparues, (
+        f"condition(s) PORTEE(S) non attestee(s) : {sorted(apparues)} -- inscris-les dans "
+        "`CONDITIONS_PORTEES_ATTESTEES` DANS LE MEME COMMIT que le port (l'ensemble est l'etat "
+        "mesure, et deux branches paralleles fusionnent par UNION).")
     assert flagged < overrides, (
         "`active_condition_ported` n'est PAS un sur-ensemble des conditions portees : "
         f"flagged={sorted(flagged)} overrides={len(overrides)}")

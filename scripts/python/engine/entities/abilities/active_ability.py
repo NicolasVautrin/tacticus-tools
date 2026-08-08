@@ -909,8 +909,8 @@ class HadesAutocannonsAbility(AActiveAbility):
         ring  = DSLSelectors$$SurroundingUnits(Target, range, unique: 1, includeCenter: 1, sel: 3)
         f     = DSLSelectors$$Friends(of: Target, entities: ring, sel: 3)
         w     = DSLSelectors$$UnitsWithTrait(f, 2 = Summon, 3)
-        asc   = SortByRow(Tiles(w), 0, 0, false) ; desc = SortReverse(asc)
-        return DSLSelectors$$If(AreEqual(CurrentPlayer, Player(1)), asc, desc)
+        desc  = DSLSelectors$$SortByRow(Tiles(w), 0, 0, false) ; asc = SortReverse(desc)
+        return DSLSelectors$$If(AreEqual(CurrentPlayer, Player(1)), desc, asc)
 
     = les **SUMMONS du camp de la CIBLE**, dans le disque de rayon `range` centré sur ELLE, cible
     INCLUSE (`includeCenter = 1`). i2 : « a targeted enemy summon and all other enemy summons within
@@ -925,11 +925,31 @@ class HadesAutocannonsAbility(AActiveAbility):
     carte (`+0x48 = caster`, `+0x60 = target`). Le contraste `+0x30 = Owner` est lisible sur
     `...HadesAutocannonsAbility$$ExecuteBehaviour`, qui attaque DEPUIS `DSLSelectors+0x30`.
 
-    NON PORTÉ, et sans effet mesurable ici : le `SortByRow`/`SortReverse` + `If(IsTopPlayer)` est un
-    ordre de LECTURE. `make_damage_predictions` émet la cible principale d'abord puis le reste ; la
-    somme d'utilité (`CalculateUtilityFromPredictions`) est insensible à l'ordre, et le compte ne l'est
-    pas non plus. HYPOTHÈSE explicite, discriminable live avec >= 2 summons dont l'ordre de `row`
-    contredit celui d'`id`.
+    #359-r2 — LE TRI EST PORTÉ (il ne l'était pas), et la RE qui vivait ici portait DEUX erreurs :
+
+      * `SortByRow(Tiles(w), 0, 0, false)` était nommé `asc`. **Faux** : le 5ᵉ argument de
+        `IdunBattleLogic.Entities.DSLSelectors$$SortByRow` est `ascending` (ctor nommé
+        `IdunBattle.Entities.Selectors.SortByRowSelector$$.ctor(this, tiles, state, pseudoRng,
+        sameColumnIsRandom, additionalSortingFormula, ascending)`, champ `+0x38`), et
+        `IdunBattle.Entities.Selectors.SortByRowSelector$$Select` prend `OrderByDescending` quand
+        il vaut 0. Le call-site passe `false` ⇒ la branche « joueur courant = team 1 » est
+        DÉCROISSANTE, et c'est `SortReverse` qui produit la croissante.
+      * `Player(1)` n'est pas « le joueur nº 1 » : le paramètre de
+        `IdunBattleLogic.Entities.DSLSelectors$$Player` est nommé `team` au décompilé et part dans
+        `PlayersByTeamSelector$$.ctor(this, state, team)`. D'où `CurrentPlayerIsOfTeam(1)`.
+
+    ⚠ CE PORT NE REPRODUIT PAS L'ORDRE DES EVENTS MESURÉ PAR #359, et ce n'est pas ce tri qui le
+    lui interdit — c'est l'ÉTAGE AU-DESSUS. Le natif boucle sur le sélecteur TEL QUEL, cible
+    incluse (`includeCenter: 1`), donc la cible principale occupe sa place TRIÉE : mesuré natif
+    `[113, 110, 116]`, la cible `110` en 2ᵉ position. Le port, lui, extrait la cible principale du
+    set (`aoe = [t for t in ab.get_aoe_targets(dctx) if t["id"] != main_tgt_id]`, dans
+    `playbook/prediction/abilities.py`) et l'émet en TÊTE — pour TOUTES les abilities AoE, pas pour
+    1147. Le tri ne peut donc réordonner que la QUEUE. Résidu `#359-r5` (foyer = cet étage
+    partagé). Ce qui EST acquis ici : l'ordre relatif des cibles AoE est désormais celui du natif,
+    et le sens dépend de l'équipe du joueur courant.
+
+    Sans effet sur le SCORE tant que le consommateur SOMME (`CalculateUtilityFromPredictions`) :
+    l'ensemble et les valeurs sont inchangés, seul l'ordre de la queue bouge.
 
     ⚠ Le natif boucle sur des entités **TUILE** (`GetAllTargets` finit par `Tiles(...)`), là où la
     face COMBAT re-résout l'occupant (`DSLSelectors$$Units(GetAllTargets())`). Le substrat de
@@ -937,15 +957,23 @@ class HadesAutocannonsAbility(AActiveAbility):
     (une tuile de summon a ce summon pour occupant), donc l'ENSEMBLE est le même ; seule l'identité
     publiée par le natif dans `ProbableDamageEvent.target` peut être celle de la TUILE."""
 
-    # `...HadesAutocannonsAbility$$GetAllTargets`, sans les nœuds de TRI (cf. docstring).
+    # `...HadesAutocannonsAbility$$GetAllTargets`, TRI COMPRIS (#359-r2 ; cf. docstring).
     # `include_center=True` = `SurroundingUnits(..., includeCenter: 1, ...)` : la cible elle-même est
     # un des summons frappés — `make_damage_predictions` la retire de l'AoE (elle est l'event
     # PRINCIPAL), donc l'ensemble émis reste exactement celui du sélecteur.
-    _AOE = dsl.UnitsWithTrait(
+    _SET = dsl.UnitsWithTrait(
         dsl.Friends(dsl.SurroundingUnits(dsl.TargetTile(), dsl.ConfigConst("range", 0),
                                          include_center=True),
                     reference=dsl.Target()),
         int(_UnitTrait.Summon))
+    # `SortByRow(Tiles(w), 0, 0, false)` — `ascending = false` ⇒ row DÉCROISSANTE (cf. docstring).
+    # Le port omet le `Tiles(...)` interposé : `SortByRow` classe par `_entity_pos`, mirror du
+    # `EntityExtensions$$GetMainTileId` que la clé native applique, et qui rend la même tuile pour
+    # une unité que pour une entité-tuile. Le garder changerait le DOMAINE du résultat (tuiles au
+    # lieu d'unités) sans changer l'ordre — or le consommateur du port lit des unités.
+    _DESC = dsl.SortByRow(_SET, ascending=False)
+    # `DSLSelectors$$If(AreEqual(CurrentPlayer, Player(1)), desc, SortReverse(desc))`
+    _AOE = dsl.SelectIf(dsl.CurrentPlayerIsOfTeam(1), _DESC, dsl.SortReverse(_DESC))
 
     def get_aoe_targets(self, ctx):
         return self._AOE.evaluate(ctx)

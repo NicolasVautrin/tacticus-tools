@@ -1167,6 +1167,39 @@ class IsPositionMachineForCurrentPlayer(AbilityTrigger):
         return pos is not None and int(pos) == self.position
 
 
+class CurrentPlayerIsOfTeam(AbilityTrigger):
+    """Mirror du TRIPLET natif `AreEqual(CurrentPlayer, Player(<team>))`, tel que
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets`
+    l'ecrit pour ancrer le SENS de son tri :
+
+        p1 = IdunBattleLogic.Entities.DSLSelectors$$CurrentPlayer()
+        p2 = IdunBattleLogic.Entities.DSLSelectors$$Player(1)
+        c  = IdunBattleLogic.Entities.DSLTriggers$$AreEqual(p1, p2)
+
+    ⚠ L'ARGUMENT DE `Player` EST UNE **TEAM**, PAS UN NUMERO DE JOUEUR : le decompile de
+    `IdunBattleLogic.Entities.DSLSelectors$$Player` nomme son parametre `team` et le transmet a
+    `IdunBattle.Entities.Selectors.PlayersByTeamSelector$$.ctor(this, state, team)`. Lire `Player(1)`
+    comme « le joueur numero 1 » donnerait la bonne reponse par accident sur un duel 1v1 et la
+    mauvaise des qu'un camp compte plusieurs joueurs.
+
+    POURQUOI UN NOEUD COMPOSITE, ET NON `AreEqual` + deux selecteurs. Le port n'a pas d'entite
+    JOUEUR : ni `CurrentPlayer` ni `Player(team)` n'auraient rien a rendre, et les ecrire rendrait
+    un `AreEqual` de deux `None` -- VRAI par accident, pour les deux camps. On mirrore donc la
+    COMPOSITION, en la nommant, plutot que trois noeuds dont deux seraient vides.
+
+    SUBSTRAT : `ctx.current_player_team`. TRI-ETAT -- `None` = **non mesure** -> False, jamais une
+    equipe devinee (meme discipline qu'`IsPositionMachineForCurrentPlayer` ci-dessus). Cote
+    DECISION le canal se derive de `units[].ctrl`, qui EST l'invocation native
+    `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer` : l'equipe d'une unite
+    controlee est celle du joueur courant."""
+    def __init__(self, team: int):
+        self.team = int(team)
+
+    def should_trigger(self, ctx):
+        cur = getattr(ctx, "current_player_team", None)
+        return cur is not None and int(cur) == self.team
+
+
 class IsMeleeAttack(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack` → `IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger` : l'ABILITY COURANTE est-elle une attaque de
     mêlée ? (type de timeline de l'ability, donnée statique gameconfig). `ctx.attack_kind == 'melee'`

@@ -195,6 +195,31 @@ def is_normal_unit(trait_names: "Iterable[str] | None") -> bool:
     return not has_any_trait(trait_names, (UnitTrait.Object, UnitTrait.Steppable))
 
 
+def is_mechanical(trait_names: "Iterable[str] | None") -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsMechanical`, mirror 1:1 sur le substrat NOMS :
+
+        return HasTrait(unit, 0x5) || HasTrait(unit, 0x3e8) || HasTrait(unit, 0x405);
+               // Mechanical = 5     LivingMetal = 1000      Vehicle = 0x405 = 1029
+
+    ⚠ **TROIS traits, pas un.** Ecrire `"Mechanical" in traits` est FAUX et silencieux : un Necron
+    porte `LivingMetal` sans porter `Mechanical`, et c'est precisement le camp ou le predicat est
+    le plus lu (`Chronometron_ExtraDamageEffect` est une ability necron). Le raccourci ne leve pas,
+    il rend juste l'autre branche du `If` -- donc une magnitude fausse, jamais une erreur.
+
+    POURQUOI ICI. Le predicat existait deja en TROIS exemplaires, chacun sur un substrat different
+    et tous corrects : `runner/abilities/behaviours/stats.py::is_mechanical` (callable `has_trait`
+    du DSL), `runner/abilities/targeting.py::is_mechanical` (un `State` + un id), et le selecteur
+    `MechanicalUnits` qui delegue au premier. Il manquait celui du substrat le plus simple -- un
+    ensemble de NOMS deja resolu, ce que porte `attacker_ctx["traits"]` -- et son absence est ce qui
+    a fait recopier le raccourci a un seul trait. Frere exact d'`is_normal_unit` ci-dessus : meme
+    forme, meme substrat, meme famille de natif.
+
+    Residu `#116-r1` : `targeting.py::is_mechanical` opere lui aussi sur des noms et devrait
+    s'appuyer sur ce foyer -- non fait ici, son fichier etant partage avec une tranche en vol."""
+    return has_any_trait(trait_names,
+                         (UnitTrait.Mechanical, UnitTrait.LivingMetal, UnitTrait.Vehicle))
+
+
 # ── Le SET DE TRAITS d'une unite (source unique) ─────────────────────────────────────────────
 # `IdunBattle.Entities.UnitExtensions$$HasTrait(unit, traitId)` delegue a
 # `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`, qui interroge TROIS collections du

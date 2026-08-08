@@ -182,6 +182,15 @@ class DslContext:
     # factory dans son trigger). None = contexte sans tour courant (prédiction, arbre purement
     # numérique) → `IsTurnOf` rend False (dégradation conservatrice).
     current_player_id: int | None = None
+    # ÉQUIPE du joueur dont c'est le tour (`TeamComponent.<+0x24>` du joueur courant) — lue par le
+    # nœud `CurrentPlayerIsOfTeam`, mirror du triplet `AreEqual(CurrentPlayer, Player(<team>))` de
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets`.
+    # ⚠ DISTINCT de `current_player_id` ci-dessus : `IdunBattleLogic.Entities.DSLSelectors$$Player`
+    # prend une **team** (son paramètre est nommé `team` au décompilé, transmis à
+    # `PlayersByTeamSelector$$.ctor`), pas un numéro de joueur — les deux coïncident sur un duel
+    # 1v1 et divergent dès qu'un camp compte plusieurs joueurs. None = **non mesuré** → le nœud
+    # rend False (dégradation conservatrice nommée, jamais une équipe devinée).
+    current_player_team: int | None = None
     # Nombre de tours DÉMARRÉS par le joueur d'une unité (`TurnComponent+0x38`, le dict PAR JOUEUR
     # que rend `TurnComponent.GetAmountOfTurnsStartedByPlayer`) — lu par le nœud `PlayerTurnsStarted`
     # (`IdunBattleLogic.Entities.DSLFormulas$$PlayerTurnsStarted` →

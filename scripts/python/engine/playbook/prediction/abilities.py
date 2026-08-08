@@ -1019,6 +1019,29 @@ _PLAYBOOK_PROFILE_OVERRIDE = {
 }
 
 
+def _current_player_team(scene):
+    """EQUIPE du joueur courant (`TeamComponent.<+0x24>`), derivee de `units[].ctrl`.
+
+    `ctrl` EST l'invocation native `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer`
+    (le hook la publie, le seam offline la reconstitue des deux memes lectures) : l'equipe d'une
+    unite CONTROLEE est celle du joueur courant. On prend la premiere ; `None` si aucune ligne
+    `ctrl` n'est mesuree -- le consommateur (`CurrentPlayerIsOfTeam`) rend alors False, jamais une
+    equipe devinee.
+
+    ⚠ DUPLICATION ASSUMEE ET NOMMEE. Le foyer de cette derivation est
+    `engine.ai.context._current_player_team` (meme regle, meme tri-etat), mais il prend une
+    `decisionView` la ou on a une `Scene`, et surtout `engine.ai.context` IMPORTE deja ce module
+    (mesure : `import engine.ai.context` charge `engine.playbook.prediction.abilities` ; l'inverse
+    est faux). L'importer d'ici FERMERAIT donc un cycle, et l'unique reparation propre -- hisser la
+    derivation dans un module que ni l'un ni l'autre ne re-entre -- exige d'editer `ai/context.py`,
+    gele par une autre tranche en vol au moment de ce port. A RESORBER quand ce fichier se libere :
+    residu `#359-r6`."""
+    for u in (getattr(scene, "units", None) or []):
+        if u.get("ctrl") and u.get("team") is not None:
+            return u.get("team")
+    return None
+
+
 def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_name, attack_pos=None):
     """`<Ability>Playbook.MakeDamagePredictions` : LISTE de `ProbableDamageEvent` = cible PRINCIPALE + AoE
     (`GetSurroundingUnits`/`GetOtherTargets`) + event SELF negatif (cout PV). `[]` si non-attaque."""
@@ -1086,7 +1109,16 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
                               # None = non mesure -> predicat False -> `dir = 4`, la branche `else`
                               # NATIVE (degradation NOMMEE). Canal : `Scene.machine_of_war_position`.
                               current_player_machine_position=getattr(
-                                  scene, "machine_of_war_position", None))
+                                  scene, "machine_of_war_position", None),
+                              # #359-r2 -- `AreEqual(CurrentPlayer, Player(<team>))`, l'ancre qui
+                              # choisit le SENS du `SortByRow` de
+                              # `...HadesAutocannonsAbility$$GetAllTargets`. Derive de `units[].ctrl`,
+                              # qui EST l'invocation native
+                              # `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer` :
+                              # l'equipe d'une unite controlee est celle du joueur courant. TRI-ETAT
+                              # -- aucune ligne `ctrl` mesuree -> None -> le noeud rend False, jamais
+                              # une equipe devinee.
+                              current_player_team=_current_player_team(scene))
         aoe = [t for t in ab.get_aoe_targets(dctx)
                if t.get("id") is not None and t.get("id") != main_tgt_id]
     base_bonus = 0
