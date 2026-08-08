@@ -1,4 +1,4 @@
-"""#270-r1 volet 2 -- GARDE : les 128 cles des DIX dicts que le build n'attribue PAS a un enum
+"""#270-r1 volet 2 -- GARDE : les 109 cles des DIX dicts que le build n'attribue PAS a un enum
 unique sont des MEMBRES, et la conversion n'a rien deplace.
 
 CE QUI DISTINGUE CE VOLET DU PREMIER, ET POURQUOI LA GARDE N'EST PAS LA MEME.
@@ -24,9 +24,13 @@ QUATRE ETAGES.
 
   * ETAGE 1 -- CLIQUET : chaque cle est une instance de l'enum LU. Ne se perime jamais ; rougit
     si une entree revient avec un ordinal nu, c.-a-d. si le gisement se rouvre.
-  * ETAGE 2 -- ANTI-DEPLACEMENT : les 128 couples (ordinal, valeur) mesures AVANT conversion sont
+  * ETAGE 2 -- ANTI-DEPLACEMENT : les 109 couples (ordinal, valeur) mesures AVANT conversion sont
     toujours la, meme valeur, meme ordre relatif. Sur-ensemble ORDONNE, pas egalite : une entree
-    AJOUTEE passe sans re-figer 128 couples.
+    AJOUTEE passe sans re-figer les couples. ⚠ Le couple est cherche dans sa SOURCE EFFECTIVE et
+    non dans le dict (`_resolveur_targeting`, #547-r4) : porter la face COMBAT d'une ability fait
+    MIGRER son masque sur la classe, ce qui n'est pas une perte -- et l'ancienne forme, qui exigeait
+    le dict, obligeait chaque port a RAYER son couple du snapshot (19 fois, puis 3 rouges sur
+    `master` le 2026-08-08). Le couple reste desormais verrouille APRES migration.
   * ETAGE 3 -- ACCESSEURS PUBLICS : les tables traversees par le chemin REEL des appelants, avec
     l'ordinal ET avec le membre. Il existe parce qu'une cle jamais jouee n'est vue par personne.
   * ETAGE 4 -- REINSERTION : `pop` + reinsertion REMPLACE la cle, contrairement a une affectation
@@ -60,6 +64,11 @@ from engine.services import ability_caster_gates as ACG  # noqa: E402
 # Les valeurs non scalaires (fonctions, `TargetingOptions`) sont normalisees par
 # `_valeur_comparable` : on fige la valeur EFFECTIVE, pas l'identite de l'objet.
 
+# ⚠ PORTER UNE ABILITY NE RETIRE PLUS RIEN D'ICI (#547-r4). Les couples ci-dessous portent des
+# notes « RETIREE (#N) » : elles sont HISTORIQUES et decrivent le regime d'avant, ou chaque port
+# devait rayer son couple a la main -- 19 ratures, 8 croisements de branches, puis 3 rouges sur
+# `master`. Depuis, le couple d'une ability portee est retrouve par `_resolveur_targeting` sur sa
+# classe : NE RIEN RAYER, c'est precisement ce qui le laisserait sans garde.
 SNAP_TARGETING_UNPORTED = (
     (1216, (32788, True, None, 1)),
     (1217, (16384, False, (0, False, False, 1, False), 1)),
@@ -292,10 +301,30 @@ SNAP_TRIANGLE_DIRS = (
     (5, (3, 2)),
 )
 
-#: (dict vivant, snapshot, enum attendu, nom lisible) -- le perimetre EXACT du volet 2.
+def _resolveur_targeting(ordinal):
+    """La valeur EFFECTIVE du masque, quelle que soit sa SOURCE (#547-r4).
+
+    `TARGETING_OPTIONS_UNPORTED` est DISJOINTE d'`ABILITY_CLASSES` : porter la face COMBAT d'une
+    ability y RETIRE son entree et pose le meme masque sur la classe. Le couple mesure n'est donc
+    pas perdu -- il a CHANGE DE SOURCE, et `targeting_options_for` (le resolveur qu'interrogent
+    reellement les appelants, deja utilise par l'etage 3 ci-dessous) continue de le rendre.
+
+    Interroger le dict BRUT faisait rougir les etages 2/cardinalite/lookup a chaque port REUSSI :
+    dix-neuf tranches ont raye leur couple du snapshot a la main, et les trois du 2026-08-08
+    (1121 `ItItches` #550, 1050 `HolyDuel` #549, 1164 `MindControl` #552) ont laisse `master`
+    ROUGE. Passer par le resolveur ELARGIT la garde au lieu de la reduire : le couple reste
+    verrouille APRES la migration, alors que l'ancienne forme le laissait sortir du snapshot --
+    une valeur alteree en migrant n'aurait plus ete confrontee a rien.
+    """
+    return T.targeting_options_for(ordinal)
+
+
+#: (dict vivant, snapshot, enum attendu, nom lisible[, resolveur]) -- le perimetre EXACT du volet 2.
+#: Le 5e element est OPTIONNEL : seule `TARGETING_OPTIONS_UNPORTED` a une SECONDE source. Pour les
+#: neuf autres tables le dict EST la source unique, et un ordinal disparu y reste une PERTE.
 CIBLES = (
     (T.TARGETING_OPTIONS_UNPORTED, SNAP_TARGETING_UNPORTED, ActiveAbilityType,
-     "runner/abilities/targeting.TARGETING_OPTIONS_UNPORTED"),
+     "runner/abilities/targeting.TARGETING_OPTIONS_UNPORTED", _resolveur_targeting),
     (ACG.DYNAMIC_CASTER_GATE_BY_ABILITY, SNAP_CASTER_GATE, ActiveAbilityType,
      "services/ability_caster_gates.DYNAMIC_CASTER_GATE_BY_ABILITY"),
     (NCB.NATIVE_PRIORITY, SNAP_NATIVE_PRIORITY, ActiveAbilityType,
@@ -315,6 +344,25 @@ CIBLES = (
     (GEO._TRIANGLE_SHAPE_DIRECTIONS, SNAP_TRIANGLE_DIRS, Corner,
      "entities/selectors/geometry._TRIANGLE_SHAPE_DIRECTIONS"),
 )
+
+
+def _cibles():
+    """`CIBLES` avec son 5e element NORMALISE (`None` = le dict est la source unique)."""
+    for c in CIBLES:
+        yield c[0], c[1], c[2], c[3], (c[4] if len(c) > 4 else None)
+
+
+def _valeur_effective(vivant, resolveur, ordinal):
+    """La valeur du couple, prise dans le dict et -- a defaut SEULEMENT -- chez le resolveur.
+
+    Rend `None` quand le couple n'est retrouvable NULLE PART : c'est ca, une vraie perte.
+    """
+    if ordinal in vivant:
+        return _valeur_comparable(vivant[ordinal])
+    if resolveur is None:
+        return None
+    v = resolveur(ordinal)
+    return None if v is None else _valeur_comparable(v)
 
 
 def _valeur_comparable(v):
@@ -348,7 +396,7 @@ def test_cles_sont_des_membres_d_enum():
     `ActiveAbilityType.X: ...`) -- ce serait la reouverture du gisement.
     """
     fautives = {}
-    for vivant, _snap, enum_attendu, nom in CIBLES:
+    for vivant, _snap, enum_attendu, nom, _res in _cibles():
         hors = [k for k in vivant if not isinstance(k, enum_attendu)]
         if hors:
             fautives[nom] = [(repr(k), type(k).__name__) for k in hors]
@@ -362,16 +410,22 @@ def test_snapshot_ordinal_valeur_et_ordre():
 
     C'est ce test qui attrape « le bon nom en face de la mauvaise valeur » -- le seul mode
     d'echec propre a une conversion de masse : il ne casse aucun import et ne leve rien.
+
+    ⚠ LE COUPLE EST CHERCHE DANS SA SOURCE EFFECTIVE, PAS DANS LE DICT (#547-r4) -- cf.
+    `_resolveur_targeting`. `ordinaux_disparus` ne nomme donc plus qu'une VRAIE perte : introuvable
+    des deux cotes. L'ORDRE, lui, ne se verifie que sur les couples restes dans le dict : une
+    migration retire une cle, elle ne permute rien, donc l'exigence devient « SOUS-SUITE ordonnee
+    du snapshot » -- une permutation reelle rougit toujours.
     """
     ecarts = {}
-    for vivant, snap, _enum, nom in CIBLES:
-        actuel = {int(k): _valeur_comparable(v) for k, v in vivant.items()}
+    for vivant, snap, _enum, nom, res in _cibles():
         attendu = dict(snap)
-        manquants = {o: v for o, v in attendu.items() if o not in actuel}
-        revalorises = {o: (v, actuel[o]) for o, v in attendu.items()
-                       if o in actuel and actuel[o] != v}
+        effectif = {o: _valeur_effective(vivant, res, o) for o in attendu}
+        manquants = {o: v for o, v in attendu.items() if effectif[o] is None}
+        revalorises = {o: (v, effectif[o]) for o, v in attendu.items()
+                       if effectif[o] is not None and effectif[o] != v}
         connus = [int(k) for k in vivant if int(k) in attendu]
-        ordre_ok = connus == [o for o, _ in snap]
+        ordre_ok = connus == [o for o, _ in snap if o in connus]
         if manquants or revalorises or not ordre_ok:
             ecarts[nom] = {"ordinaux_disparus": manquants, "valeur_changee": revalorises,
                            "ordre_preserve": ordre_ok}
@@ -380,40 +434,37 @@ def test_snapshot_ordinal_valeur_et_ordre():
 
 
 def test_cardinalites_du_volet():
-    """Le compte du volet 2 : 25 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 109 cles.
+    """Le compte du volet 2 : 25 + 12 + 22 + 13 + 9 + 3 + 7 + 6 + 6 + 6 = 109 couples MESURES.
 
-    ⚠ CE COMPTE BOUGE QUAND UNE ABILITY EST PORTEE, et c'est une DECROISSANCE ATTENDUE, pas une
-    perte : `TARGETING_OPTIONS_UNPORTED` est disjointe d'`ABILITY_CLASSES`, donc porter une face
-    COMBAT en retire l'entree (le masque migre sur la classe, valeur inchangee). Le snapshot est
-    passe de 44 a 25 : 1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490),
-    1068 (#497), 1152 (#498), 1019 (#499), 1038 (#500), 1165 (#501), 1064 (#502), 1141 (#503),
-    1132 (#504), 1129 (#505), 1204 (#508), 1191 (#509), 1177 (#510), 1197 (#512), 1195 (#521).
-    Ce que ce cliquet garde est la CONVERSION EN MEMBRES D'ENUM des cles restantes -- pas la
-    taille des tables.
-    ⚠ #505, #508, #509, #510 et #512 se sont croisees ICI : elles retiraient respectivement 1129,
-    1204, 1191, 1177 et 1197, et CHACUNE annoncait le chiffre de son propre retrait. Le chiffre a
-    ete RE-COMPTE sur `CIBLES` apres resolution -- une soustraction d'un seul cote aurait laisse le
-    test ROUGE au merge, et un `--ours`/`--theirs` aurait RESSUSCITE l'entree des autres en laissant
-    chaque cote VERT pris isolement.
-
-    ⚠ LE NOMBRE CI-DESSUS SE RE-COMPTE SUR `CIBLES`, il ne se deduit JAMAIS par soustraction du
-    chiffre ecrit a la ligne precedente. Ce n'est pas une precaution de style : les SEPT dernieres
-    sorties (#498, #499, #500, #501, #502, #503, #504, #505) ont ete faites EN PARALLELE, sur huit
-    branches, chacune aveugle aux autres. Huit soustractions successives sur le meme chiffre perime
-    en auraient manque sept -- seul un recompte apres resolution converge.
-    ⚠ #503 et #504 se sont croisees ICI : les deux annoncaient `32` (chacune n'ayant retire QUE son
-    id, 1141 / 1132), et un cote pris tel quel aurait RESSUSCITE l'entree de l'autre. #505 s'est
-    croisee avec les DEUX de la meme facon (elle annoncait `34`, n'ayant retire que 1129). La
-    resolution est l'UNION des retraits, et le chiffre est RE-DERIVE de `CIBLES` apres coup --
-    #502, #503, #504 puis #505 ont effectivement resolu ce conflit en RE-COMPTANT."""
-    tailles = [len(s) for _v, s, _e, _n in CIBLES]
+    ⚠ CE COMPTE NE BOUGE PLUS QUAND UNE ABILITY EST PORTEE (#547-r4), et c'est le changement de
+    forme du cas. Il a d'abord ete rature a la main a CHAQUE port -- 44 -> 25 en dix-neuf tranches :
+    1087 (#488), 1048 (#489), 1069 (#491), 1088 (#487), 1027 (#490), 1068 (#497), 1152 (#498),
+    1019 (#499), 1038 (#500), 1165 (#501), 1064 (#502), 1141 (#503), 1132 (#504), 1129 (#505),
+    1204 (#508), 1191 (#509), 1177 (#510), 1197 (#512), 1195 (#521) -- huit de ces tranches se sont
+    croisees ici, chacune annoncant le chiffre de son SEUL retrait, et un `--ours`/`--theirs` aurait
+    RESSUSCITE l'entree de l'autre en laissant chaque cote VERT pris isolement. Puis les trois du
+    2026-08-08 (1121 #550, 1050 #549, 1164 #552) ont laisse `master` ROUGE, faute d'une 20e rature.
+    Depuis, le snapshot n'est plus AMPUTE par un port : `_resolveur_targeting` retrouve le couple
+    sur la classe portee, donc les 109 couples restent verrouilles A VIE -- y compris apres
+    migration, ce que l'ancienne forme ne faisait pas (un couple raye n'etait plus confronte a
+    rien). Le SEUL geste qui doit encore toucher ces chiffres est un AJOUT de couple mesure.
+    """
+    tailles = [len(s) for _v, s, _e, _n, _r in _cibles()]
     assert tailles == [25, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
     assert sum(tailles) == 109
-    for vivant, snap, _enum, nom in CIBLES:
-        assert len(vivant) >= len(snap), (
-            "%s a PERDU des entrees : %d vivantes pour %d au snapshot"
-            % (nom, len(vivant), len(snap)))
+    # Le dict PEUT retrecir (migration), mais il ne peut pas se VIDER sans que plus rien ne soit
+    # mesure de son cote : on exige qu'il porte encore une part du snapshot, et que le solde
+    # manquant soit integralement retrouve chez le resolveur (l'etage 2 en verifie les valeurs).
+    for vivant, snap, _enum, nom, res in _cibles():
+        dans_le_dict = [o for o, _ in snap if o in vivant]
+        ailleurs = [o for o, _ in snap if o not in vivant]
+        assert dans_le_dict, "%s : plus AUCUN couple du snapshot dans la table" % nom
+        assert res is not None or not ailleurs, (
+            "%s a PERDU des entrees et n'a pas de seconde source : %r" % (nom, ailleurs))
+        introuvables = [o for o in ailleurs if res(o) is None]
+        assert introuvables == [], (
+            "%s : couples introuvables des DEUX cotes : %r" % (nom, introuvables))
 
 
 def test_lookup_par_int_brut():
@@ -422,12 +473,18 @@ def test_lookup_par_int_brut():
     Tous les consommateurs interrogent ces tables avec un `int` brut (`.get(int(ability_id))`,
     `table[int(direction)]`). `IntEnum` herite `__hash__` d'`int` (MRO : `IntEnum` -> `int` ->
     `ReprEnum` -> `Enum`), donc la cle `ActiveAbilityType.MartialExemplar` et l'entier `1216`
-    designent la MEME entree. On l'atteste sur les 128 couples plutot que de le supposer.
+    designent la MEME entree. On l'atteste sur les 109 couples plutot que de le supposer.
+
+    ⚠ Un couple MIGRE (face COMBAT portee) n'est plus dans le dict : la propriete se verifie alors
+    par le RESOLVEUR, interroge lui aussi avec l'`int` brut (#547-r4). Ce qui est atteste reste le
+    meme : le lookup par entier rend la valeur mesuree.
     """
-    for vivant, snap, _enum, nom in CIBLES:
+    for vivant, snap, _enum, nom, res in _cibles():
         for ordinal, valeur in snap:
-            assert ordinal in vivant, "%s : `%d in dict` est faux apres conversion" % (nom, ordinal)
-            assert _valeur_comparable(vivant[ordinal]) == valeur, (
+            assert ordinal in vivant or (res is not None and res(ordinal) is not None), (
+                "%s : `%d in dict` est faux apres conversion, et aucune autre source ne le rend"
+                % (nom, ordinal))
+            assert _valeur_effective(vivant, res, ordinal) == valeur, (
                 "%s : le lookup par int brut %d ne rend pas la valeur attendue" % (nom, ordinal))
 
 

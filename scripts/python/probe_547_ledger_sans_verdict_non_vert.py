@@ -82,18 +82,11 @@ NON_VERTS_DECLARES = {
         "PARTAGES et chaque site doit passer par `migrate_485r1_barils_reexport.py morsure` avant "
         "d'etre hisse en FORME B. Remonter le plafond serait faire taire ; le hisser a la va-vite "
         "desarmerait des patchs deja poses (CLAUDE.md, forme A vs B).",
-    # LES QUATRE AUTRES ROUGES OFFLINE DE `master`, MESURES et NON DIAGNOSTIQUES -- residu #547-r2.
+    # LES AUTRES ROUGES OFFLINE DE `master`, MESURES et NON DIAGNOSTIQUES -- residu #547-r2.
     # Ils ne sont PAS le fait de cette tranche : chacun a ete rejoue dans un worktree TEMOIN a
     # `origin/master` PUR (`4c3601ac`), et rend `rc=1` la aussi. Ils sont declares ici parce que
     # les NOMMER est precisement ce que ce cliquet existe pour faire -- les taire aurait ete
     # reproduire la faute qu'il garde. Chacun porte son assertion, pas une paraphrase.
-    "tests/engine/runner/test_421_effect_active_gate_offline.py":
-        "`test_the_probe_rail_covers_the_whole_registry` -- 1 failed / 12 passed sur `master` PUR. "
-        "Non diagnostique. Residu #547-r2. "
-        "⚠ CETTE LIGNE A DEJA DISPARU UNE FOIS, emportee par une edition voisine du dict -- et "
-        "c'est le CRAN 1 du cliquet qui l'a rattrapee au re-jeu, en la voyant revenir en "
-        "NON DECLAREE. Une declaration perdue ne se voit pas a la relecture ; elle se voit a "
-        "l'execution.",
     "tests/engine/test_448_r1_stormboyz_port_offline.py":
         "`test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE` -- 1 failed / 13 passed sur `master` "
         "PUR. Voisin THEMATIQUE du port de `SwornProtectorAbility$$GetSpawnTile` (#836), qui a "
@@ -109,11 +102,6 @@ NON_VERTS_DECLARES = {
         "(`HolyDuelDmgReductionEffect`, `probe_549_holy_duel.py --step defense` : port 1196 == "
         "natif 1196, contre-modele 2027) : la cadence de portage n'aggrave donc plus ce rouge, "
         "elle l'a REDUIT a son cas d'origine.",
-    "tests/engine/test_498r4_face_decision_is_displaceable_offline.py":
-        "`test_le_recenseur_ne_credite_pas_une_condition_seulement_CITEE` -- 1 failed / 9 passed "
-        "sur `master` PUR (`afc1ef09`). ARRIVE PENDANT CETTE TRANCHE, par un merge posterieur au "
-        "premier releve : la demonstration en direct que ce gisement se REMPLIT en continu et que "
-        "rien ne le voyait. Residu #547-r2.",
 }
 
 # ⚠ CE QUI A DEJA ETE RETIRE D'ICI, ET CE QUE CA MESURE. `test_486r15_empreinte_par_entree_offline
@@ -132,6 +120,18 @@ NON_VERTS_DECLARES = {
 # CreateRemoveEffectTrigger` existe dans `frida/methods.tsv`, et la classe n'a AUCUN
 # `CreateTargetTrigger` -> ARRAYSET. Le fichier est VERT ; la ligne devait donc sortir, sans quoi
 # elle aurait masque son prochain rouge.
+# ⚠ ET ELLE N'ETAIT PAS SORTIE : ce paragraphe a ete ecrit par #549, l'entree du dict est RESTEE.
+# `probe_547` la nommait `[DECLARATION PERIMEE]` sur `edfdda38` -- le CRAN 2 faisait donc rougir
+# `master` sur une reparation REUSSIE, ce qui est exactement le vice symetrique de celui que le
+# CRAN 1 garde. Retirer POUR DE BON fait partie de la fermeture. Re-mesure du 2026-08-08 : le
+# fichier rend 13 passed. Ligne effectivement retiree par #547-r4.
+#
+# ⚠ TROISIEME SORTIE, meme cycle : `tests/engine/test_498r4_face_decision_is_displaceable_offline
+# .py` (`test_le_recenseur_ne_credite_pas_une_condition_seulement_CITEE`, 1 failed / 9 passed) a
+# ete repare sur `master` par `627a62ac` -- un SEUIL HAUT (`== 2`) qu'un port legitime a fait
+# CROITRE, converti en borne BASSE apres MESURE des trois sites, jamais bumpe a 3. Re-mesure du
+# 2026-08-08 : 10 passed. Ligne retiree par #547-r4, qui repare trois autres fichiers de la MEME
+# famille : une assertion qui epingle une population que `ABILITY_CLASSES` deplace.
 
 
 class MontageImpossible(RuntimeError):
