@@ -133,7 +133,12 @@ from ..base import TriggeredAbility, TriggerEvent
 # `monkeypatch.setattr(...)` (CLAUDE.md, les 28 fichiers rouges de #484). Le foyer est le SEUL
 # point ou la branche MV71 de `DSLSelectors$$Attacker` est substituable, donc le seul par lequel
 # une garde peut prouver que ce module le CONSOMME au lieu de re-collapser.
-from .. import base as _tb
+# ⚠ EN ABSOLU, PAS `from .. import base` : cette seconde forme lie le nom A TRAVERS le PAQUET
+# `engine.runner.operations.triggers`, donc elle declare une arete vers le PAQUET et non vers le
+# MODULE -- elle fermait une SCC de 9 modules avec les sept `dispatch.*` que l'`__init__` du paquet
+# tire (`test_270r4r2_cycles_imports_offline::test_etage1_aucun_cycle_module_level`, ROUGE sur
+# `master`). L'absolu lie le MEME objet module, donc la morsure sous `monkeypatch` est intacte.
+import engine.runner.operations.triggers.base as _tb
 
 #: `AbilityOrEffect(0x4cb)` -- l'id de l'ACTIVE, ecrit par la TRIGGERED (cf. lecture n.1 de l'en-tete).
 HEAVY_WARP_FLAMER = int(ActiveAbilityType.HeavyWarpFlamer)                  # 0x4cb = 1227

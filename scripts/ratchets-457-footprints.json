@@ -6344,6 +6344,12 @@
     "scripts/python/targeting_reason.py"
    ]
   },
+  "tests/test_547_ledger_sans_verdict_non_vert_offline.py": {
+   "_at": 1786157060,
+   "_commit": "c5502f993beaf058568cdaad85334ae4548ed6ce",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/test_579r1_nullable_layout_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",

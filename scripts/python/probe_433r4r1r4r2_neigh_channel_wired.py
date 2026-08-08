@@ -502,7 +502,21 @@ def etape3(arbres) -> tuple[list, int]:
                    if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
             vus = set()
             for st in ast.walk(fn):              # (a) store teinte jamais relu
-                for (nom, ligne) in _cibles_assignees(st):
+                cibles = _cibles_assignees(st)
+                # DEBALLAGE : la question « la valeur de cette affectation est-elle CONSOMMEE ? »
+                # se repond au niveau du STATEMENT, pas de la cible. `best, _came = _dijkstra_by_pos
+                # (origin, neigh_by_pos, ...)` consomme `best` -- le canal a donc bien MORDU, et
+                # coter `_came` seul rendait un FAUX POSITIF (mesure : `walk_pathfinder.
+                # get_path_node_counts_by_pos`, entre avec #824 ; il rendait `master` ROUGE sur
+                # `test_arbre_courant_vert_et_perimetres_non_vides`). Une affectation SIMPLE est
+                # inchangee : son unique cible teintee est aussi son unique chance d'etre relue,
+                # et un deballage INTEGRALEMENT jete reste cote sur chacune de ses cibles.
+                # On ne regarde que les cibles TEINTEES : sinon le `self` d'un `self.x, y = ...`
+                # (toujours relu) desarmerait le critere.
+                teintees = [(n, l) for (n, l) in cibles if n in g and n != "_"]
+                if len(teintees) > 1 and any(n in lus for (n, _l) in teintees):
+                    continue
+                for (nom, ligne) in cibles:
                     if nom in g and nom != "_" and nom not in lus and (nom, ligne) not in vus:
                         vus.add((nom, ligne))
                         manquants.append((rel, ligne, fn.name, "derivation `%s` jamais relue" % nom))

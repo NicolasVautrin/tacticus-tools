@@ -31,6 +31,13 @@ DECLENCHEUR = {
         "scripts/python/declencheur_cliquet.py",
         "scripts/python/probe_486r15_declencheurs_tests.py",
         "scripts/python/repo_read.py",
+        # ⚠ SORTI DE LA CASCADE DERIVEE, DONC A DECLARER (#547). Ce fichier est un TEMOIN : le
+        # test l'OUVRE en balayant le parc, il ne l'importe pas. Il etait couvert TANT QUE
+        # `triggers/loki/heavy_warp_flamer.py` liait `from .. import base` -- une arete vers le
+        # PAQUET, qui tirait son `__init__` dans la cascade. Cette arete fermait une SCC de 9
+        # modules (`test_270r4r2_cycles_imports_offline`, ROUGE sur `master`) ; la casser en
+        # pointant le MODULE a fait ressortir ce temoin. Le declarer est la contrepartie exacte.
+        "scripts/python/engine/runner/operations/triggers/__init__.py",
     ),
     "build": False,
     "toujours": False,
@@ -38,7 +45,10 @@ DECLENCHEUR = {
         "Il garde les DEUX moities de l'arbitrage presence/forme/confrontation : le hook de "
         "collecte (`declencheur_guard`), le contrat de forme qu'il appelle desormais "
         "(`declencheur_cliquet.valider`), et le probe qui garde la confrontation. Il monte "
-        "des declarations en memoire et un arbre synthetique -- aucune donnee lue."
+        "des declarations en memoire et un arbre synthetique -- aucune donnee lue. Le 5e chemin "
+        "est d'une autre nature : c'est un TEMOIN de l'empreinte (le parc est balaye, donc "
+        "OUVERT), sorti de la cascade derivee quand l'arete `heavy_warp_flamer -> paquet "
+        "triggers` a ete cassee pour rompre un cycle d'import."
     ),
 }
 
