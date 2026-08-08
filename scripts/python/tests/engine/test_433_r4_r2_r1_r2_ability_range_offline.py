@@ -19,9 +19,13 @@ Ce que chaque garde protege :
     set de `FindRangedWeapon` -- c'est ce qui fait retomber le `threshold` sur son `?? 1` ;
   * la NON-DUPLICATION du substrat : une ability presente dans les DEUX sources (registre du runner
     et `TARGETING_OPTIONS_UNPORTED`) aurait deux verites possibles ;
-  * la PRESENCE du masque `rules` pour les abilities actives du pool hors registre
+  * la PRESENCE du masque `rules` pour les 32 abilities actives du pool
     (`#433-r4-r2-r1-r2-r2-r1-r1`) -- sans lui les etages walkability et ligne de vue sont desarmes,
-    et le bit 43 `AllowUnwalkableTargetTile` qu'aucune ne porte.
+    et le bit 43 `AllowUnwalkableTargetTile` qu'aucune ne porte. ⚠ Ces trois gardes balayaient
+    « le pool MOINS le registre COMBAT », donc leur perimetre RETRECISSAIT a chaque port : elles ont
+    laisse `master` ROUGE apres les trois ports du 2026-08-08, et perdaient au passage de vue les 22
+    abilities deja portees. Depuis `#547-r4` la population balayee est STABLE et la partition entre
+    les deux sources de masque se DERIVE.
 
 Les valeurs de reach citees ici sont celles MESUREES live (`probe_433_r4_r2_r1_ability_range.py
 --step kit`, sweep de 40 positions par kit) -- cf. `docs/rl/case-433-r4-r2-r1-r2-portees.md`.
@@ -186,52 +190,68 @@ def test_no_ability_has_two_contradictory_sources():
     assert dupes == [], "abilities a deux sources d'options : %r" % (dupes,)
 
 
-#: Les abilities ACTIVES du pool spawnable hors `ABILITY_CLASSES` (#433-r4-r2-r1-r2-r2-r1-r1).
+#: Les 32 abilities ACTIVES du pool spawnable (#433-r4-r2-r1-r2-r2-r1-r1).
 #: DERIVEE, pas choisie : `rl_duel build --list-pool` (rank courant, 97 unites regulieres) croise
-#: avec `gameconfig.activeAbilities`, moins le registre COMBAT. La liste est FIGEE ici parce que
-#: `--list-pool` exige la session host (normalisation live) et qu'un test offline ne peut pas la
-#: rejouer ; le test qui suit, lui, DERIVE son perimetre du seed BC versionne.
-#: ⚠ ELLE RETRECIT A CHAQUE PORT, et c'est voulu : `test_the_pool_abilities_carry_a_read_mask`
-#: exige aussi qu'AUCUNE entree ne soit dans `ABILITY_CLASSES` (assertion `intrus`), parce que le
-#: masque aurait alors DEUX sources. Une ability qui entre au registre doit donc SORTIR d'ici dans
-#: le meme commit -- c'est le pendant, cote perimetre, du contrat de disjonction que garde
-#: `tests/engine/runner/test_targeting_options_sources.py`.
-#: Sorties : 1087 `ExemplarOfTheKauyon` (#488), 1048 `FragstormGrenadeLauncher` (#489),
-#: 1069 `SeekerMissileFrequencyLock` (#491), 1088 `HellfyreMissileRack` (#487),
-#: 1027 `PsychicMaelstrom` (#490), 1068 `SilentDeath` (#497),
-#: 1152 `UnstoppableMomentumReworked` (#498), 1019 `StormOfWrath` (#499),
-#: 1038 `FoulInfusion` (#500), 1165 `MightFromBelow` (#501),
-#: 1064 `Loki_SwoopingHawk` (#502), 1141 `OverwhelmingWrath` (#503), 1132 `KillMaimBurn` (#504),
-#: 1129 `BloodyFury` (#505), 1204 `LeadingTheCharge` (#508),
-#: 1191 `MartialInspiration` (#509), 1177 `LightOfSanguinius` (#510),
-#: 1197 `ExcruciatingFrequencies` (#512), 1195 `TalonsOfTheEmperor` (#521) -- toutes pour la MEME
-#: raison : leur face COMBAT est portee, donc leur masque a MIGRE sur la classe. Les TREIZE
-#: dernieres sont sorties EN PARALLELE, sur des branches aveugles l'une a l'autre : la liste se
-#: relit apres resolution, elle ne se rature pas d'un seul cote.
-#: ⚠ #503, #504, #505, #508, #509, #510, #512 et #521 se sont croisees sur CETTE liste : chacune n'y
-#: retirait QUE son id (1141 / 1132 / 1129 / 1204 / 1191 / 1177 / 1197 / 1195), et un
-#: `--ours`/`--theirs` en aurait donc RESSUSCITE un -- le test serait reste VERT de chaque cote pris
-#: isolement. La resolution est l'UNION des retraits, verifiee ensuite PAR LE CODE (`intrus` == []
-#: contre `ABILITY_CLASSES`).
-POOL_ABILITIES_WITHOUT_COMBAT_CLASS = [
-    1005, 1039, 1049, 1050, 1057, 1061, 1063,
-    1101, 1106, 1121, 1164, 1175, 1183,
+#: avec `gameconfig.activeAbilities`. La liste est FIGEE ici parce que `--list-pool` exige la
+#: session host (normalisation live) et qu'un test offline ne peut pas la rejouer ; le test
+#: `test_a_read_range_is_never_a_range_without_its_mask`, lui, DERIVE son perimetre du seed BC
+#: versionne.
+#:
+#: ⚠ CETTE POPULATION NE BOUGE PAS QUAND ON PORTE -- et c'est ce qui la distingue de ce qu'elle a
+#: remplace (#547-r4). Elle a d'abord ete ecrite comme « le pool MOINS le registre COMBAT », donc
+#: elle RETRECISSAIT a chaque port : dix-neuf tranches (#487 a #521) ont du la raturer a la main,
+#: huit s'y sont croisees, et les TROIS de la cadence du 2026-08-08 (1121 `ItItches` #550,
+#: 1050 `HolyDuel` #549, 1164 `MindControl` #552) l'ont laissee ROUGE sur `master` -- un port qui
+#: REUSSIT ne doit pas faire rougir un test. Ce qui bouge, c'est la PARTITION entre les deux
+#: sources de masque ; elle se DERIVE ci-dessous, elle ne s'ecrit plus.
+#: Mesure du 2026-08-08 : 32 = 22 au registre + 10 dans `TARGETING_OPTIONS_UNPORTED`, exactement
+#: une source chacune, portee et masque lisibles pour les 32 (aucune anomalie).
+POOL_ACTIVE_ABILITIES = [
+    1005, 1019, 1027, 1038, 1039, 1048, 1049, 1050, 1057, 1061, 1063, 1064, 1068, 1069,
+    1087, 1088, 1101, 1106, 1121, 1129, 1132, 1141, 1152, 1164, 1165, 1175, 1177, 1183,
+    1191, 1195, 1197, 1204,
 ]
+
+#: Le complement, DERIVE du registre -- plus jamais rature a la main. Quatre fichiers hors de ce
+#: module l'interrogent en `not in` (`test_501_might_from_below_offline`,
+#: `test_509_martial_inspiration_live`, `test_512_excruciating_frequencies_offline`,
+#: `test_521_talons_of_the_emperor_live`) : la derivation les rend VRAIS par construction des que
+#: l'ability entre au registre, au lieu d'exiger une edition dans la meme tranche.
+POOL_ABILITIES_WITHOUT_COMBAT_CLASS = [a for a in POOL_ACTIVE_ABILITIES
+                                       if a not in ABILITY_CLASSES]
 
 
 def test_the_pool_abilities_carry_a_read_mask():
-    """`#433-r4-r2-r1-r2-r2-r1-r1` : les abilities ACTIVES du pool spawnable hors registre portent
-    desormais leur masque `rules`, pas seulement leur portee. Sans lui, `tile_removed_by_walkability`
-    et `target_is_obscured` sont DESARMES (convention permissive) et leur terme attribue des tuiles
-    que le natif retire."""
-    manquants = [a for a in POOL_ABILITIES_WITHOUT_COMBAT_CLASS
-                 if TARGETING_OPTIONS_UNPORTED.get(a) is None]
-    assert manquants == [], "masque non lu : %r" % (manquants,)
-    intrus = [a for a in POOL_ABILITIES_WITHOUT_COMBAT_CLASS if a in ABILITY_CLASSES]
-    assert intrus == [], "entrees a DEUX sources : %r" % (intrus,)
-    sans_portee = [a for a in POOL_ABILITIES_WITHOUT_COMBAT_CLASS
-                   if ar.targeting_range_of(a) is None]
+    """`#433-r4-r2-r1-r2-r2-r1-r1` : les abilities ACTIVES du pool portent leur masque `rules`, pas
+    seulement leur portee. Sans lui, `tile_removed_by_walkability` et `target_is_obscured` sont
+    DESARMES (convention permissive) et leur terme attribue des tuiles que le natif retire.
+
+    ⚠ LA PROPRIETE EST « EXACTEMENT UNE SOURCE », PAS « TOUTES DANS `TARGETING_OPTIONS_UNPORTED` »
+    (#547-r4). L'ancienne forme exigeait le masque dans la table des non-portees ET l'absence du
+    registre : une ability PORTEE la faisait rougir, alors que son masque avait simplement MIGRE.
+    La forme actuelle balaye les 32 et exige `registre XOR unported` -- elle attrape donc AUSSI ce
+    que l'ancienne ne voyait pas : une entree qui aurait quitte `TARGETING_OPTIONS_UNPORTED` sans
+    que sa classe porte de `TARGETING_OPTIONS` (masque PERDU, zero source), et la double source.
+    """
+    sans_source, deux_sources = [], []
+    for a in POOL_ACTIVE_ABILITIES:
+        cls = ABILITY_CLASSES.get(a)
+        au_registre = getattr(cls, "TARGETING_OPTIONS", None) is not None if cls else False
+        en_table = TARGETING_OPTIONS_UNPORTED.get(a) is not None
+        if au_registre and en_table:
+            deux_sources.append(a)
+        elif not au_registre and not en_table:
+            sans_source.append(a)
+    assert sans_source == [], "masque PERDU (ni registre ni table) : %r" % (sans_source,)
+    assert deux_sources == [], "entrees a DEUX sources : %r" % (deux_sources,)
+    sans_portee = [a for a in POOL_ACTIVE_ABILITIES if ar.targeting_range_of(a) is None]
     assert sans_portee == [], "portee perdue a la migration : %r" % (sans_portee,)
+    sans_masque = [a for a in POOL_ACTIVE_ABILITIES if ar._options_of(a) is None]
+    assert sans_masque == [], "masque non lisible par l'accesseur : %r" % (sans_masque,)
+    # La partition se DERIVE, mais elle ne doit pas devenir DEGENEREE : un jour ou les 32 seraient
+    # portees, les trois tests ci-dessous ne mesureraient plus rien cote `UNPORTED` sans le dire.
+    assert len(POOL_ABILITIES_WITHOUT_COMBAT_CLASS) + len(
+        [a for a in POOL_ACTIVE_ABILITIES if a in ABILITY_CLASSES]) == 32
 
 
 def test_a_read_range_is_never_a_range_without_its_mask():
@@ -266,27 +286,33 @@ def test_the_six_friendly_only_abilities_contribute_no_tile():
     lecture des 32 masques debloque. `target_tiles_zone_is_empty` ne lisait QUE `ABILITY_CLASSES`,
     donc rendait `False` pour toutes les 32 : leur zone etait versee a
     `AttackQuery$$GetAllTilesInAbilityRange` alors que le natif n'en verse AUCUNE tuile."""
-    # ⚠ LA LISTE SUIT `POOL_ABILITIES_WITHOUT_COMBAT_CLASS`, elle ne la fige pas : 1038
-    # `FoulInfusion` en est SORTIE avec son port (#500), donc n'apparait plus ici. Son masque
-    # `TargetIsFriendly && !TargetIsEnemy` est INCHANGE -- c'est le PERIMETRE balaye qui a change,
-    # et `test_the_pool_abilities_carry_a_read_mask` garde la disjonction qui l'exige.
-    attendues = [1005, 1039, 1049, 1061, 1175]
-    vides = [a for a in POOL_ABILITIES_WITHOUT_COMBAT_CLASS if ar.target_tiles_zone_is_empty(a)]
+    # ⚠ LE PERIMETRE EST LA POPULATION STABLE, PLUS LE COMPLEMENT DU REGISTRE (#547-r4). Balaye sur
+    # « le pool moins le registre », ce test perdait une porteuse a chaque port : 1038 `FoulInfusion`
+    # etait deja sortie de son perimetre avec #500 et devait etre re-testee a la main juste dessous,
+    # et le NOM du test (« six ») etait devenu faux -- il n'en balayait plus que cinq. Le masque
+    # `TargetIsFriendly && !TargetIsEnemy` d'une ability PORTEE est inchange, et
+    # `target_tiles_zone_is_empty` lit les DEUX sources : la propriete se garde donc sur les 32.
+    # Les six sont RE-MESUREES sur la population, pas heritees : [1005, 1038, 1039, 1049, 1061, 1175].
+    attendues = [1005, 1038, 1039, 1049, 1061, 1175]
+    vides = [a for a in POOL_ACTIVE_ABILITIES if ar.target_tiles_zone_is_empty(a)]
     assert vides == attendues, "court-circuit : %r" % (vides,)
     for aid in attendues:
         assert ar.ability_range_value(aid, MELEE) is None
-    # 1038 hors perimetre depuis #500, mais les DEUX proprietes tiennent toujours sur elle : le
-    # court-circuit friendly-only, et la portee non derivable du `CustomRange(GetRange)`.
-    assert ar.target_tiles_zone_is_empty(1038) is True
-    assert ar.ability_range_value(1038, MELEE) is None
 
 
 def test_bit_43_is_carried_by_none_of_the_pool_abilities():
     """Le bit 43 `AllowUnwalkableTargetTile` DESARME le `RemoveAll` de
     `IdunBattle.Core.Services.TargetingQuery$$GetTilesInRange`. Aucune des 32 ne le porte -- donc le
     terme de walkability MORD pour toutes. Un futur masque qui le porterait doit faire ROUGIR ce
-    test, pas passer inapercu."""
-    porteurs = [aid for aid, o in TARGETING_OPTIONS_UNPORTED.items() if o.rules & (1 << 43)]
+    test, pas passer inapercu.
+
+    ⚠ Le balayage passe par `_options_of`, donc par les DEUX sources (#547-r4) : lu sur le seul
+    `TARGETING_OPTIONS_UNPORTED`, il perdait de vue chaque ability portee -- 22 des 32 aujourd'hui,
+    et sa docstring promettait deja « aucune des 32 ». Les entrees de la table HORS pool restent
+    balayees, elles aussi."""
+    porteurs = [aid for aid in POOL_ACTIVE_ABILITIES if ar._options_of(aid).rules & (1 << 43)]
+    porteurs += [aid for aid, o in TARGETING_OPTIONS_UNPORTED.items()
+                 if aid not in POOL_ACTIVE_ABILITIES and o.rules & (1 << 43)]
     assert porteurs == [], "bit 43 inattendu : %r" % (porteurs,)
 
 
