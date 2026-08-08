@@ -13,17 +13,18 @@ import gameconfig as GC
 import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
-from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
-                        TargetingOptions, entity_tiles, has_steppable_unit)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_TRUE, TargetingOptions, entity_tiles, has_steppable_unit)
 from .targeting_rule import TargetingRule as TR
-from ..components import PositionComponent, StatsComponent, has_effect_of_type   # #484 : hisse
+from ..components import (HealthComponent, PositionComponent, StatsComponent,
+                          has_effect_of_type)   # #484 : hisse
 from ...services.battle_query import are_entities_adjacent
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import If, SetCache, op_add, op_and
 from ...entities.effect_type import EffectType
-from ...entities.formulas import Count, Get, VisualUnitIdFromUnitId
+from ...entities.formulas import Count, Get, Multiply, RoundsStarted, Sum, VisualUnitIdFromUnitId
 from ...entities.selectors.accessors import (
     ActiveTarget, CasterTile, FixedTileIds, FixedTiles, Owner, SelectTile, SurroundingTiles,
     Target, TargetTile
@@ -50,7 +51,7 @@ from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect
 from .behaviours.lifecycle import KillDeadUnits
 from .behaviours.movement import MoveUnit
-from .behaviours.summon import Spawn
+from .behaviours.summon import PerformAIAttack, Spawn, StatModifierFormula
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
 from ...dsl.base import _is_alive
@@ -1351,3 +1352,164 @@ class DakkaDakkaDakkaAbility(ActiveAbility):
                 "main_attack": main, "num_left": num_left,
                 "picked": [u.get("id") for u in picked], "hits_per": hits_per,
                 "leftover": leftover, "self_loss": self_loss, "range_2": range_2, "dsl": True}
+
+
+# ================================================================================================ #
+# 1057 GrotTank (`orksBigMek`, #570) -- SUMMON tile-target. UN SEUL `AActiveAbility.Execute`, mais CINQ
+# mecaniques composees dans les options de spawn :
+#   (1) `Spawn(Caster@0x48, Target@0x60, GetStringConstant(unitId), opts)` = la pose sur la tuile
+#       ADJACENTE LIBRE ciblee ;
+#   (2) `opts = SpawnUnitOptions.WithStatsFromConfig(config, abilityState, <abilitiesLevel>, null)`
+#       = les stats du summon lues du gameconfig (`summonHp` / `summonDmg` / `summonArmor`) ;
+#   (3) `abilitiesLevel = DSLFormulas.AbilityLevelAmount(Owner@0x30, <ce type d'ability>)`
+#       = le niveau sous lequel l'unite posee monte SES abilities ;
+#   (4) `opts.<+0x28> = [ StatModifierFormula(Health, Initial, TankHealth(), null) ]`
+#       = OVERRIDE des PV par une FORMULE, par-dessus le `summonHp` du (2) ;
+#   (5) `opts.<+0x18> = DSLBehaviors.PerformAIAttackFromCurrentPosition(ActiveTarget@0x68, ...)`
+#       = le sous-behaviour ON-APPEARANCE : le tank tire des qu'il apparait, SANS bouger.
+# Le tooltip i2 s'apparie noeud par noeud : « Calls in a Grot Tank in an adjacent free hex » = (1) +
+# le masque `TargetIsTile|TargetTileIsFree` ; « cannot move in its first turn, but can immediately
+# attack an enemy in range » = (5) puis le `FinishUnitTurn(spawned, isTerminated: true)` de
+# `SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` (#291, deja porte) ; « 84 Health +12 for each
+# round that has started 30 Damage 24 Armour » = (4) + (2) au niveau 2.
+# ================================================================================================ #
+
+GROT_TANK_ID = "GrotTank"
+GROT_TANK_CONST_UNIT_ID = AbilityConstantType.unitId          # GetStringConstant(0) -> "orksGrotTank"
+
+
+def grot_tank_health_formula(level: Optional[int], mult: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.GrotTankAbility$$TankHealth(abilityState)` --
+    MIRROR du decompile, dans l'ORDRE DE CONSTRUCTION natif :
+
+        extraHp   = config.GetVariableForLevel(AbilityVariableType.extraHp,  abilityState)   // 0x1e
+        rounds    = DSLFormulas.RoundsStarted(Caster@0x48)
+        perRound  = DSLFormulas.Multiply(rounds, DSLFormulas.Direct(extraHp))
+        summonHp  = config.GetVariableForLevel(AbilityVariableType.summonHp, abilityState)   // 0x29
+        return      DSLFormulas.Sum(DSLFormulas.Direct(summonHp), perRound)
+
+    Les DEUX variables sont lues au moment de la CONSTRUCTION de l'arbre (le natif appelle
+    `GetVariableForLevel` avant d'emballer le resultat dans un `Direct`), sous l'`AbilityState` du
+    CASTER -> ici `ability_var(GrotTank, <cle>, level, multiplier_pct=mult)`. Seul le terme
+    `RoundsStarted` est evalue au moment du spawn.
+
+    `RoundsStarted(<sel>)` = **SOMME** de `TurnsStarted` sur les unites du selecteur
+    (`IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate`), sans plancher ; le selecteur
+    natif est `DSLSelectors+0x48` = **Caster**, donc la somme porte sur UNE unite = le compteur de
+    tours du Big Mek. Au tour ou il caste, ce compteur vaut deja >= 1 (il est incremente au
+    StartTurn), ce qui est exactement ce que dit le tooltip (« +12 for each round that has
+    started »).
+
+    ⚠ La grandeur est bien le compteur du CASTER, pas un compteur global de manche : le natif ne
+    passe pas `AllAliveUnits` -- c'est le meme slot `+0x48` que celui du `Spawn` juste apres."""
+    summon_hp = int(ability_var(GROT_TANK_ID, AbilityVariableType.summonHp.name,
+                                level, multiplier_pct=mult) or 0)
+    extra_hp = int(ability_var(GROT_TANK_ID, AbilityVariableType.extraHp.name,
+                               level, multiplier_pct=mult) or 0)
+    return Sum(Get(summon_hp), Multiply(RoundsStarted(Caster()), Get(extra_hp)))
+
+
+def grot_tank_tree(level: Optional[int], mult: int) -> Spawn:
+    """L'UNIQUE noeud top-level de `...GrotTankAbility$$ExecuteBehaviour` :
+
+        `AActiveAbility.Execute( DSLBehaviors.Spawn(Caster@0x48, Target@0x60, unitId, opts) )`
+
+    ou `opts` porte le `StatModifierFormula` (Health/Initial/TankHealth) en `+0x28` et le
+    sous-behaviour on-appearance `PerformAIAttackFromCurrentPosition(ActiveTarget@0x68)` en `+0x18`.
+
+    Pas de `Group`, pas d'`ExecuteAtomic` : le natif n'en construit AUCUN ici (contraste GetEmRuntz,
+    qui enchaine `ExecuteAtomic(Spawn)` puis `Execute(PerformAIAttack + Foreach)`, et ItItches, qui
+    enveloppe son spawn dans un `Group(Ability_Summon)`). On ne rajoute pas d'enveloppe que le
+    decompile ne porte pas.
+
+    Le tile-selecteur est `Target@0x60` BRUT -- aucun `CanAddUnit`, aucun `AdjacentTiles` : la
+    contrainte « hex adjacent LIBRE » est portee INTEGRALEMENT par le masque de ciblage
+    (`TargetIsTile | TargetTileIsFree`, `range = TargetingRange statics+0x30` = adjacent), donc
+    elle emerge du gate, pas de l'arbre. La feuille `Spawn` normalise l'element du selecteur par
+    `GetMainTile(...).Id`, comme `SpawnUnitBehaviour$$Execute`.
+
+    `PerformAIAttack(ActiveTarget())` = les DEUX defauts de `...FromCurrentPosition` (`+0x70 = 0`
+    allowMoveAction, `+0x78 = Direct(0)` moveAmount) : le tank tire depuis SA tuile, il n'approche
+    pas. Le 5e argument natif (`false`) est ce meme `allowMoveAction`."""
+    return Spawn(Target(), GROT_TANK_ID,
+                 on_appearance=PerformAIAttack(ActiveTarget()),      # `SpawnUnitOptions+0x18`
+                 stat_modifier_formulas=[                            # `SpawnUnitOptions+0x28`
+                     StatModifierFormula(int(StatType.HEALTH), int(StatPart.INITIAL),
+                                         grot_tank_health_formula(level, mult), None)])
+
+
+class GrotTankAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.GrotTankAbility$$ExecuteBehaviour` (id 1057,
+    `orksBigMek` -- Orks). Cast TILE-TARGET : invoque `orksGrotTank` sur une tuile adjacente LIBRE,
+    avec des PV qui CROISSENT avec le nombre de tours deja commences par le caster, et une attaque
+    immediate depuis la tuile de spawn.
+
+    Cinq mecaniques, un seul `Execute` -- cf. le bandeau du module juste au-dessus.
+
+    CE QUE LE SUMMON APPORTE (recon gameconfig `orksGrotTank`, kind `summons`) : Movement 2, deux
+    armes (`Physical` 1 coup en melee ; `Blast` 3 coups, Range 3), traits `Summon` / `Mechanical` /
+    `BattleFatigue` / `Vehicle`, et UNE passive `Ramshackle` (`TriggeredAbilityType.Ramshackle` =
+    1093, effet `EffectType.Ramshackle_DmgReduction` = 1090). Cette passive N'EST PAS PORTEE (aucun
+    mirror de `IdunBattle.Entities.Effects.Loki.Ramshackle_DmgReductionEffect$$CreateDamageModifier`
+    dans `entities/effects/`) : le Grot Tank porte donc, offline, la reduction de degat en MOINS.
+    C'est un ecart NOMME, dans le sens PERMISSIF pour l'adversaire (le tank encaisse plus qu'il ne
+    devrait), pas un oubli.
+
+    `abilitiesLevel` (`SpawnUnitOptions+0x30`) : le natif y passe
+    `AbilityLevelAmount(Owner@0x30, <ce type>)`, c'est-a-dire le niveau de CETTE ability sur son
+    porteur -- la MEME grandeur que le `abilityState.level` que la feuille `Spawn` lit deja dans
+    l'`active_ability_level` du caster. On ne pose donc PAS `ability_state` : ce serait la meme
+    valeur ecrite deux fois, et le champ du port sert a exprimer un `AbilityState` ETRANGER (la
+    mine Haywire posee par un PASSIF).
+
+    Flags de tour : defauts base -> termine le tour + ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.GrotTank)   # 1057
+    ABILITY_ID = GROT_TANK_ID
+
+    # GATE DE CIBLE. `IdunBattleLogic.Entities.Abilities.Active.Loki.GrotTankAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x1040, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)
+    # Overload « FLAGS DIRECTS » a 7 arguments (5e argument -> `options+0x28`) : le litteral EST le
+    # masque effectif -- ce n'est ni l'overload PRESET+flags, ni une recopie de champ statique.
+    # Decomposition EXHAUSTIVE de 0x1040 (0x40 + 0x1000, aucun bit residuel) :
+    #     0x40    (bit 6)  TargetIsTile     -> la cible EST une entite-tuile
+    #     0x1000  (bit 12) TargetTileIsFree -> cette tuile doit etre LIBRE
+    # PORTEE : `TargetingRange` statique `+0x30` = adjacent (`RANGE_ADJACENT`), et
+    # `forceMeleeTarget = 1` = `RangedBool.False` (l'enum natif est INVERSE).
+    # Valeurs MIGREES depuis `targeting.py::TARGETING_OPTIONS_UNPORTED` (contrat de disjonction :
+    # une ability a UNE source de masque) et RE-LUES au decompile a l'occasion -- bit-identiques.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetIsTile | TR.TargetTileIsFree, self_cast=False,
+        range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        # #287-r14 RESOLUTION DE CIBLE (`TargetingQuery$$GetActualTarget`, slot 16) : sous
+        # `TargetIsTile` le role `target` natif est TOUJOURS l'entite-TUILE. IDEMPOTENT.
+        target_id = self.get_actual_target(state, caster_id, target_id)
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return {"ability": GROT_TANK_ID, "caster": caster_id, "target": target_id,
+                    "tile": None, "spawned": [], "attacks": [], "dsl": True}
+        e = state.get_entity(caster_id)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        level = getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
+        mult = int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100) if sc is not None else 100
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, tile_id)
+        grot_tank_tree(level, mult).execute(entities, ectx)
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        attacks = [a for n, p in ectx.emitted if n == "PerformAIAttack"
+                   for a in (p.get("attacks") or [])]
+        summon_vid = ((GC.ability(GROT_TANK_ID) or {}).get("constants") or {}).get("unitId")
+        # PV effectifs du (des) tank(s) pose(s) -- l'observable de l'etage `StatModifierFormula`.
+        tank_hp = []
+        for gid in spawned:
+            ge = state.get_entity(int(gid))
+            hc = ge.get_component(HealthComponent) if ge is not None else None
+            tank_hp.append(None if hc is None else hc.hp_max)
+        return {"ability": GROT_TANK_ID, "caster": caster_id, "target": target_id, "tile": tile_id,
+                "summon": summon_vid, "spawned": spawned, "tank_hp": tank_hp,
+                "attacks": attacks, "dsl": True}

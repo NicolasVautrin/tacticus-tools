@@ -46,7 +46,7 @@ from ...entities.effects.factory import (get_owner_effects_added_on_ability_init
                                              get_effect_to_be_added_to_owner_for_ability)
 from ...entities.effects.factory import get_effect_to_be_added_to_owner_for_trait
 from ...entities.effects.magnitude import ability_var
-from ...entities.stats import UnitStats, StatType
+from ...entities.stats import UnitStats, StatType, StatPart
 from ...utilities.tile import sort_tiles_by_utility
 from ..components import UnitFlagsComponent
 from engine.battle_query import is_adjacent
@@ -504,12 +504,46 @@ def _occupied_tiles(state: State) -> set:
     return out
 
 
+def apply_spawn_stat_overrides(ctx, stat_overrides) -> list:
+    """Applique au `UnitContext` FRAIS d'un summon les `StatModifier` rendus par
+    `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$GetStatsToOverride` — volet FORMULE
+    (`SpawnUnitOptions+0x28`), sous la forme `[(statType, statPart, valeur), ...]`.
+
+    Le volet LITTERAL (`options+0x20`) est deja pose par `build_summon_context` ; ceux-ci
+    viennent APRES dans la liste native, donc ils GAGNENT sur le meme `StatType`.
+
+    `StatPart.Initial` est le SEUL part porte, et c'est le seul que le natif produise sur ce
+    chemin : `SpawnUnitOptions$$SetStatFromConfig` ecrit `StatModifier(statType, 3, valeur)` en
+    dur, et l'unique `StatModifierFormula` du binaire (GrotTank) passe `3` lui aussi. Sa
+    semantique est LUE dans `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier`
+    case 3 : `+0x10` (max de base), `+0x14` (max courant) et `+0x18` (courant) recoivent TOUS la
+    valeur -- c'est un ECRASEMENT, pas un delta. Cote port, l'`initial` du `StatComponent` porte
+    la meme grandeur, et l'appelant re-lit `ctx.health` juste apres pour seeder le
+    `HealthComponent` (donc `hp == hp_max == valeur`).
+
+    Un part AUTRE que `Initial` est IGNORE et RENDU dans la liste des non-appliques : aucun
+    call-site natif n'en produit, et l'inventer poserait une semantique non lue. Renvoie la liste
+    des `(statType, statPart)` NON appliques (vide = tout applique)."""
+    skipped: list = []
+    stats = getattr(ctx, "stats", None)
+    for st, part, value in (stat_overrides or []):
+        if stats is None or int(part) != int(StatPart.INITIAL):
+            skipped.append((int(st), int(part)))
+            continue
+        stats.ensure_seeded(int(st), int(value))     # cree le composant s'il manque
+        comp = stats.components.get(int(st))
+        if comp is not None:
+            comp.initial = int(value)                # ECRASE (case 3 de `ApplyModifier`)
+    return skipped
+
+
 def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
                        level, mult: int, team, player, ai_controlled: bool = True,
                        key_suffix: str = "", parent_id: Optional[int] = None,
                        feet_tiles: Optional[list] = None,
                        finish_turn_on_spawn: bool = True,
-                       passive_level: Optional[int] = None) -> Optional[int]:
+                       passive_level: Optional[int] = None,
+                       stat_overrides: Optional[list] = None) -> Optional[int]:
     """Spawn UNE unité `visual_id` sur `tile` (id de tuile), stats `WithStatsFromConfig(summon_ability)` =
     `ability_var(summon_ability, summon*[key_suffix], level, mult)`, owner = team+player, `active_ability_level
     = level` (propagé → lève le GAP PileIn 2e-gen). Renvoie l'entity id (None si `tile` None). Partagé par
@@ -546,7 +580,15 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     e.add_component(OwnerComponent(team=team, player=player))
     ctx = build_summon_context(e.id, visual_id, summon_ability, level, mult, key_suffix=key_suffix,
                                passive_level=passive_level)
+    # `SpawnUnitBehaviour$$GetStatsToOverride`, volet FORMULE (`SpawnUnitOptions+0x28`) : il vient
+    # APRES le volet litteral dans la liste native, donc il ECRASE sur un meme StatType. C'est ce
+    # qui donne au Grot Tank ses PV `summonHp + RoundsStarted(Caster) x extraHp` par-dessus le
+    # `summonHp` seul que `build_summon_context` vient de poser. `None` -> aucun override.
+    if stat_overrides:
+        apply_spawn_stat_overrides(ctx, stat_overrides)
     e.add_component(StatsComponent(ctx=ctx))
+    # `ctx.health` est RE-LU ici : sur un override `StatPart.Initial` de `HEALTH`, `ApplyModifier`
+    # case 3 ecrit courant ET maximum -> `hp == hp_max == valeur de la formule`.
     e.add_component(HealthComponent(hp=ctx.health, hp_max=ctx.health))
     _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
     _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
