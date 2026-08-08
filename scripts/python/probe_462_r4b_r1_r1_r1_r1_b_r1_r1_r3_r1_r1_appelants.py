@@ -68,6 +68,11 @@ def _fichiers():
 _METHODES = {
     "active_effects": "COMBAT",       # `EffectsState.active_effects(uid, unit_state)`
     "unit_state": "DECISION",         # `Scene.unit_state(uid)` -- le substrat lui-meme
+    # #462-...-r1-r1-r1 : le PORTAIL de la face DECISION. `Scene.effects(uid)` appelle
+    # `unit_state(uid)` puis `EffectsState.active_effects` -- tout appelant du portail est donc un
+    # lecteur du substrat, au meme titre que les appelants directs. Les ventiler EXIGE de les
+    # enumerer : la tranche precedente les avait comptes (<< ~30 >>) sans les nommer.
+    "effects": "DECISION",
 }
 
 
@@ -169,12 +174,12 @@ VENTILATION = {
 
     # ---- face DECISION : le pendant du substrat ------------------------------------------------
     ("playbook/scene.py", "effects", "unit_state"):
-        ("NON-VENTILE", "`Scene.effects(uid)` -- le PORTAIL de la face DECISION : ~30 appelants "
-                        "sous `playbook/`, non tries par cette tranche (residu "
-                        "`#462-...-r3-r1-r1-r1`). Ce qui EST mesure ici : la `Scene` porte bien "
-                        "des morts (`build_scene_ctx` construit `pos_by_id`/`team_by_id`/`hp_by_id`"
-                        " et le `EffectsState` depuis TOUT `dv.units`), alors que `ctx_by_id` vient"
-                        " du `predictor`, donc de `combatSnapshot`, donc des VIVANTS seuls"),
+        ("INERTE-AVAL", "`Scene.effects(uid)` -- le PORTAIL de la face DECISION. La premisse du "
+                        "residu est CONFIRMEE (la `Scene` porte bien des morts : `build_scene_ctx` "
+                        "construit `pos_by_id`/`team_by_id`/`hp_by_id` et le `EffectsState` depuis "
+                        "TOUT `dv.units`, alors que `ctx_by_id` vient du `predictor`, donc des "
+                        "VIVANTS seuls) -- mais le portail ne CHOISIT aucun sujet : il relaie celui "
+                        "de son appelant. Les 16 cles d'appelants sont ventilees, 0 ATTEIGNABLE"),
     ("playbook/savior_protocols.py", "_target_has_active_markerlight", "unit_state"):
         ("INERTE-VIVANT", "`target_uid` est un VOISIN du mover, resolu par le selecteur "
                           "`AdjacentFriends` de `SaviorProtocols` -- meme argument `#57m` que "
@@ -184,7 +189,73 @@ VENTILATION = {
     ("playbook/savior_protocols.py", "_target_has_active_markerlight", "active_effects"):
         ("INERTE-VIVANT", "meme sujet que la ligne `unit_state` ci-dessus, meme motif"),
     ("playbook/scene.py", "effects", "active_effects"):
-        ("NON-VENTILE", "meme sujet que la ligne `unit_state` ci-dessus, meme residu"),
+        ("INERTE-AVAL", "le PORTAIL lui-meme. Il ne choisit aucun sujet : il relaie celui de son "
+                        "appelant, et les 15 cles d'appelants sont ventilees ci-dessous "
+                        "(#462-...-r1-r1-r1). Son verdict est donc l'union des leurs, et elle est "
+                        "INERTE : 0 ATTEIGNABLE"),
+
+    # ---- face DECISION : les APPELANTS du portail `Scene.effects` (#462-...-r1-r1-r1) -----------
+    # ENUMERES par AST (methode `effects`), pas comptes : la tranche precedente ecrivait
+    # << ~30 appelants >> ; il y a **29 appels** pour **15 cles** `(fichier, fonction)`.
+    #
+    # LA LOI DE VENTILATION EST LA MEME QUE COTE COMBAT, et son resultat est INVERSE : cote COMBAT,
+    # un balayage sur six (`defender_fixed_armor`) n'avait AUCUN gate de vivacite ; ici, les
+    # QUATRE balayages en portent un. La face DECISION etait deja saine -- ce qui ne se savait pas,
+    # puisque personne ne l'avait regardee.
+    #
+    # ⚠ MEME RESERVE QUE COTE COMBAT : le gate porte sur les PV (`(scene.hp(uid) or 0) > 0`), pas
+    # sur `uc.alive`. Il tient parce que `Scene.hp_by_id` lit `dv.units[].hp`, qui vaut 0 pour un
+    # mort. Une capture sans `hp` le rendrait inerte.
+    ("playbook/prediction/_shared.py", "_apply_ally_attack_dmg_bonus", "effects"):
+        ("INERTE-AMONT", "balayage de `scene.pos_by_id`, gate `(scene.hp(uid) or 0) > 0` DANS la "
+                         "comprehension. Pendant exact de `damage_model._apply_ally_attack_damage_"
+                         "auras`, gate compris"),
+    ("playbook/prediction/_shared.py", "_add_positional_and_defender_mods", "effects"):
+        ("INERTE-AMONT", "QUATRE appels : trois sur `att_id`/`tgt_id` (les deux combattants), le "
+                         "quatrieme est le balayage `_def_carriers` des auras-defense state-wide, "
+                         "gate `(scene.hp(uid) or 0) > 0`"),
+    ("playbook/prediction/_shared.py", "defender_prediction_block_amount", "effects"):
+        ("INERTE-VIVANT", "`tgt_id` = la CIBLE du coup"),
+    ("playbook/prediction/normal_attack.py", "_display_attack_base", "effects"):
+        ("INERTE-AMONT", "balayage `carriers` de `scene.pos_by_id`, gate "
+                         "`(scene.hp(uid) or 0) > 0`"),
+    ("playbook/prediction/normal_attack.py", "make_normal_attack_predictions", "effects"):
+        ("INERTE-AMONT", "QUATRE appels : `att_id`, `tgt_id` (x2), et le balayage `aura_sources` "
+                         "qui itere `_alive_ids` -- le gate est DANS la construction de la liste"),
+    ("playbook/prediction/normal_attack.py", "_make_mv71_drone_predictions", "effects"):
+        ("INERTE-VIVANT", "`att_id` puis `tgt_id` -- les deux combattants du coup"),
+    ("playbook/prediction/normal_attack.py", "get_additional_damage_prediction", "effects"):
+        ("INERTE-VIVANT", "`att_id` = l'ATTAQUANT"),
+    ("playbook/prediction/normal_attack.py", "get_klaw_attack1_prediction", "effects"):
+        ("INERTE-VIVANT", "`att_id` = l'ATTAQUANT"),
+    ("playbook/prediction/abilities.py", "generate_multi_hit_attack_prediction", "effects"):
+        ("INERTE-VIVANT", "`uid` = l'ATTAQUANT (passe a "
+                          "`calculate_attacker_modifiers_for_prediction`)"),
+    ("playbook/fury_of_the_ancients.py", "_get_damage_prediction", "effects"):
+        ("INERTE-VIVANT", "`uid` = l'ATTAQUANT (meme consommateur)"),
+    ("playbook/avalanche_of_muscle.py", "_predict_extra_vs_target", "effects"):
+        ("INERTE-VIVANT", "`att_id` = l'ATTAQUANT"),
+    ("playbook/heavy_bolt_pistol.py", "_predict_vs_target", "effects"):
+        ("INERTE-VIVANT", "`att_id` = l'ATTAQUANT"),
+    ("playbook/light_im_up.py", "_predict_extra_vs_target", "effects"):
+        ("INERTE-VIVANT", "`att_id` = l'ATTAQUANT"),
+    ("playbook/psyker.py", "_predict_amount_vs_target", "effects"):
+        ("INERTE-VIVANT", "`att_id` = l'ATTAQUANT"),
+    ("playbook/shrapnel.py", "_predict_vs", "effects"):
+        ("INERTE-VIVANT", "`att_id` = l'ATTAQUANT"),
+    # LE 16e, ET IL EST HORS `playbook/` -- trouve par le CLIQUET D'EXHAUSTIVITE, pas par le
+    # recensement : le residu disait << ~30 appelants sous `playbook/` >>, et une enumeration bornee
+    # a ce repertoire l'aurait rate. C'est la meme faute que le recenseur de #270-r1 a corrigee :
+    # une portee choisie ne peut pas montrer le site qu'elle exclut.
+    ("utilities/wireweave_net.py", "target_has_active_wireweave_net", "effects"):
+        ("INERTE-VIVANT", "`target_uid` = la CIBLE du mouvement que `WireweaveNet` penalise. "
+                          "Mirror de `EntityExtensions.GetOwnedEffects(target, state, 1111)"
+                          ".Any(e => e.IsActive)` : le vecteur natif evalue une cible de "
+                          "deplacement, vivante par construction"),
+    ("playbook/scene.py", "prevents_overkill", "effects"):
+        ("INERTE-VIVANT", "`uid` = l'unite dont on decide l'OVERKILL, donc celle qu'on est en "
+                          "train de tuer : elle est vivante a l'instant du test. Meme motif que "
+                          "`runner/components.py::unit_prevents_overkill` cote COMBAT"),
 }
 
 VERDICTS_A_TRAITER = ("ATTEIGNABLE",)

@@ -12,6 +12,11 @@ from dataclasses import dataclass, field
 import gameconfig as _gc
 
 from ...entities.active_ability_type import ActiveAbilityType
+from engine.ai import cast_positions as CP        # FORME B (liaison de MODULE) : le foyer
+                                                  # #350-r3a-r4 est substituable par un patcheur.
+                                                  # Differe CLASSE GRATUIT (charger `cast_positions`
+                                                  # seul ne fait pas atterrir `_base` dans
+                                                  # `sys.modules`), donc hisse.
 from engine.battle_query import count_adjacent, neigh_map
 
 
@@ -252,14 +257,20 @@ def _get_num_attack_targets_in_position(ctx: "NCContext", unit_id: int, tile: tu
     nids = _normal_attack_ids(ctx, unit_id)
     if not nids:
         return 0
+    # #350-r3a-r4 : les positions viennent du FOYER, pas de `ranked` brut. Sur la face DECISION,
+    # `computeAttackPlans` TRONQUE (`for r < maxRank`) : une tuile legale ecartee par le plafond
+    # faisait rendre un compte de cibles TROP FAIBLE -- silencieusement, et ce compte est
+    # l'utilite meme de `TheQuickeningPlaybook`. Face COMBAT (`state_bridge`) : `rankComplete`
+    # est vrai, donc zero RPC et zero changement.
     tgts = set()
     for ev in (plan.get("evals") or []):
         if ev.get("abilityId") not in nids or not ev.get("rankCount"):
             continue
-        for rk in (ev.get("ranked") or []):
-            if (rk.get("col"), rk.get("row")) == tile:
-                tgts.add(ev.get("targetId"))
-                break
+        positions = CP.positions_castables(ev, getattr(ctx, "cast_from_tiles", None),
+                                           unit_id, ev.get("targetId"), ev.get("abilityId"),
+                                           ctx.origin if unit_id == ctx.uid else None)
+        if tile in positions:
+            tgts.add(ev.get("targetId"))
     if tgts:
         return len(tgts)
     if unit_id == ctx.uid and tile in (ctx.reach_nc or []):
@@ -584,9 +595,16 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
             "mesurer ce playbook avec probe_344 --oracle nc (sinon la comparaison de sequence "
             "n'a pas de pendant offline)." % type(self).__name__)
 
-    def eligible_positions(self, ctx: NCContext, target, ranked: set) -> set:
+    def eligible_positions(self, ctx: NCContext, target, ranked: set, ev: dict | None = None) -> set:
         """Les positions d'ou la paire (cette ability, `target`) est castable — mirror de
         `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable`.
+
+        ⚠ #350-r3a-r4 -- LE CORPS A DEMENAGE dans `engine.ai.cast_positions`, foyer UNIQUE partage
+        avec le tier COMPARABLE (`ai/action_generators.py`) et les deux autres gates de position.
+        Ce qui a change ici : `ev` (l'eval du plan) est passe, donc le foyer voit le drapeau
+        `rankComplete` et n'appelle `castFromTiles` QUE quand le plan n'est pas declare complet.
+        Sur la face COMBAT (`state_bridge`), l'enumeration est deja exhaustive -> zero RPC.
+        `ev=None` -> regime PAS MESURE, donc `castFromTiles` : le comportement d'avant.
 
         POURQUOI CETTE METHODE N'EST PAS `ranked` (#350-r3a-r3). Le natif interroge
         `IdunBattle.Core.Services.AttackQuery$$GetValidTargets(caster, UnitPosition(P), ability)`
@@ -614,18 +632,11 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
         REPLI NOMME, jamais silencieux : seam absente, RPC en erreur, ou ensemble VIDE alors que le
         plan annonce `rankCount >= 1` (incoherence) -> on rend `ranked`. Un `set()` rendu dans ces
         cas ferait DISPARAITRE la cible, ce qui est pire que la troncature."""
-        fn = getattr(ctx, "cast_from_tiles", None)
-        if not callable(fn) or target is None:
-            return ranked
-        try:
-            cf = fn(ctx.uid, int(target), self.ABILITY_ID) or {}
-        except Exception:                                   # noqa: BLE001 (seam live faillible)
-            return ranked
-        out = {(t.get("col"), t.get("row")) for t in (cf.get("moveTiles") or [])
-               if t.get("col") is not None}
-        if cf.get("currentValid") and ctx.origin is not None:
-            out.add(ctx.origin)
-        return out or ranked
+        base = {"ranked": [{"col": c, "row": r} for (c, r) in ranked]}
+        if ev is not None and CP.RANK_COMPLETE in ev:
+            base[CP.RANK_COMPLETE] = ev[CP.RANK_COMPLETE]
+        return CP.positions_castables(base, getattr(ctx, "cast_from_tiles", None),
+                                      ctx.uid, target, self.ABILITY_ID, ctx.origin)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         # L'ENUMERATION DES CIBLES reste celle du plan (ordre natif preserve) : une cible castable
@@ -640,7 +651,7 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
                     if rk.get("col") is not None}
             if rset:
                 pairs.append((ev.get("targetId"),
-                              self.eligible_positions(ctx, ev.get("targetId"), rset)))
+                              self.eligible_positions(ctx, ev.get("targetId"), rset, ev)))
         if not pairs:
             return []
         best = None  # (target, tile, util)

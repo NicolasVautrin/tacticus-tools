@@ -2042,6 +2042,18 @@
     "scripts/python/tests/engine/test_270r1r1r3_role_enum_offline.py"
    ]
   },
+  "tests/engine/test_270r2_partition_foyers_offline.py": {
+   "_at": 1786157155,
+   "_commit": "b275578b0783b68205fc6f5066b9652dc01bb81c",
+   "dirs": [
+    "scripts/python/engine/entities/effects",
+    "scripts/python/engine/runner/operations/triggers/dispatch"
+   ],
+   "temoins": [
+    "scripts/python/engine/entities/effects/factory.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/registry.py"
+   ]
+  },
   "tests/engine/test_270r4_role_enum_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
@@ -2613,6 +2625,23 @@
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
    "dirs": [],
    "temoins": []
+  },
+  "tests/engine/test_350r3a_r4_cast_positions_offline.py": {
+   "_at": 1786157155,
+   "_commit": "b275578b0783b68205fc6f5066b9652dc01bb81c",
+   "dirs": [
+    "frida/hooks/features/ai-step",
+    "scripts/python/engine/ai",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable"
+   ],
+   "temoins": [
+    "frida/hooks/features/ai-step/projection.ts",
+    "scripts/python/engine/ai/action_generators.py",
+    "scripts/python/engine/ai/state_bridge.py",
+    "scripts/python/engine/playbook/loki_custom.py",
+    "scripts/python/engine/playbook/noncomparable/_base.py"
+   ]
   },
   "tests/engine/test_350r3b_triggered_average_forms_offline.py": {
    "_at": 1786110307,

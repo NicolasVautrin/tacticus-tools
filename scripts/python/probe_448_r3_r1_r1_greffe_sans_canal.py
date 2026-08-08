@@ -33,6 +33,22 @@ LES CINQ ETAGES (chacun DERIVE, aucun ne part d'une liste de noms) :
                     le fichier, ou ambiant herite (fichier de `tests/`).
   5. PORTEE      -- ce que la mesure NE VOIT PAS, imprime a chaque run.
 
+⚠ #448-r5 -- L'ETAGE 4 APLATISSAIT LE GRAPHE QU'IL VENAIT DE QUALIFIER, ET BLANCHISSAIT TOUT.
+La fermeture arriere des appelants du foyer est calculee sur des noeuds `(module, fn)` -- 121 le
+2026-08-08. Elle etait ensuite REDUITE a ses seuls NOMS TERMINAUX (70), et un fichier etait declare
+« lie l'ambiant » des qu'il MENTIONNAIT l'un de ces noms, quel que soit son module. Or la fermeture
+contient `main`, `run` et `mesure` : tout script qui finit par `sys.exit(main())` etait donc blanchi.
+Mesure : **1526 fichiers sur 2287** declares lieurs, contre **37** par le critere honnete -- et
+**37 SUSPECTS sur 37**, soit la TOTALITE du recensement. Sept d'entre eux (hors `tests/`) n'etaient
+sauves que par leur regime `given` : le jour ou l'un ajoute un `load_state` nu, l'etage 4 reste VERT.
+C'est la faute meme que la fiche parente §2 dit avoir corrigee sur le graphe de GREFFE (« un graphe
+par nom terminal rendait `main` greffeur, donc 1842 fichiers sur 1842 »), reintroduite un cran plus
+bas sur le graphe de LIAISON.
+
+Le critere est desormais l'UNION de deux voies, et la mesure etablit que les DEUX sont necessaires
+(2026-08-08) : **11** fichiers ne sont vus QUE par le graphe qualifie, **7** QUE par la mention du
+foyer (formes que le graphe syntaxique ne resout pas), **19** par les deux.
+
 Le probe est OFFLINE et PUR (aucun runner, aucune session). Usage, depuis `scripts/python` :
 
     python probe_448_r3_r1_r1_greffe_sans_canal.py
@@ -474,21 +490,38 @@ def consumer_sites(path: Path) -> list:
     return out
 
 
-def binds_ambient(path: Path, lieurs: set | None = None) -> bool:
-    """Le fichier atteint-il le foyer de liaison `snapshot.bind_live_rpc` ?
+def mentionne_le_foyer(path: Path, tree=None) -> bool:
+    """Le fichier NOMME-t-il l'un des deux binders du FOYER (`bind_live_rpc`, `live_rpc`) ?
 
-    ⚠ CRITERE DERIVE, pas une liste de noms. `lieurs` est la fermeture TRANSITIVE des appelants du
-    foyer sur le graphe qualifie : un wrapper (`rl_collect_batch.bind_ambient_rpc`) y entre tout
-    seul, et le suivant aussi. Un critere par nom terminal `bind_live_rpc` ratait exactement les
-    fichiers CORRIGES par cette tranche -- mesure du 2026-08-05, 4 faux positifs.
-
-    `lieurs=None` : repli par nom terminal, pour les usages hors mesure globale (contre-epreuve)."""
-    tree = parse(path)
+    C'est le RATTRAPAGE des formes que le graphe qualifie ne resout pas -- `obj.bind_live_rpc()` sur
+    un objet local, un callable stocke dans un dict. Il porte sur les **deux noms du FOYER**, jamais
+    sur la fermeture de ses appelants : confondre les deux est exactement ce qui blanchissait 1526
+    fichiers (#448-r5). Deux noms ne peuvent pas noyer un corpus ; soixante-dix le peuvent."""
+    if tree is None:
+        tree = parse(path)
     if tree is None:
         return False
-    if lieurs is None:
-        return bool(called_names(tree) & set(BINDERS))
-    return bool(lieurs & (called_names(tree) | referenced_names(tree)))
+    return bool(set(BINDERS) & (called_names(tree) | referenced_names(tree)))
+
+
+def binds_ambient(path: Path, fichiers_lieurs: set | None = None) -> bool:
+    """Le fichier atteint-il le foyer de liaison `snapshot.bind_live_rpc` ?
+
+    ⚠ `fichiers_lieurs` est un ensemble de **CHEMINS**, pas de noms -- et c'est le coeur de #448-r5.
+    Il est derive comme `greffeurs` et `lecteurs` le sont : un fichier y entre si l'une de SES
+    fonctions est dans la fermeture arriere QUALIFIEE des appelants du foyer. Un wrapper
+    (`rl_collect_batch.bind_ambient_rpc`) y entre tout seul, et le suivant aussi -- ce que la version
+    #448-r3-r1-r1 visait deja, avant de jeter la qualification en ne gardant que les noms terminaux.
+
+    UNION avec `mentionne_le_foyer` : le graphe est syntaxique et laisse 112 985 appels non resolus
+    (etage 5). Mesure du 2026-08-08 : **7** fichiers ne sont vus QUE par cette seconde voie, **11**
+    QUE par le graphe. Aucune des deux ne se suffit.
+
+    `fichiers_lieurs=None` : repli sur la seule mention du foyer, pour les usages hors mesure
+    globale (ou la fermeture qualifiee n'a pas ete calculee)."""
+    if fichiers_lieurs is None:
+        return mentionne_le_foyer(path)
+    return path in fichiers_lieurs or mentionne_le_foyer(path)
 
 
 def inherits_ambient(path: Path) -> bool:
@@ -517,27 +550,43 @@ def measure(root: Path) -> dict:
     greffeurs.discard(CATALOG)                      # le module des primitives n'est pas un montage
     # Fermeture TRANSITIVE des lieurs : le foyer `snapshot.bind_live_rpc` + tout wrapper qui y mene
     # (`rl_collect_batch.bind_ambient_rpc`). Derive, donc un wrapper futur y entre seul.
+    #
+    # ⚠ #448-r5 -- LA QUALIFICATION EST CONSERVEE JUSQU'AU BOUT. La version precedente faisait
+    # `lieurs = {n for _m, n in reach_bind}` : la fermeture (121 noeuds) etait reduite a 70 NOMS
+    # NUS, dont `main`, `run` et `mesure`. Le passage aux FICHIERS est le meme patron que
+    # `greffeurs` / `lecteurs` deux lignes plus haut -- c'est ce qui aurait du etre ecrit.
     reach_bind = reaching(graph, {("engine.runner.snapshot", b) for b in BINDERS})
-    lieurs = {n for _m, n in reach_bind}
+    fichiers_lieurs = {p for p, m in mods.items()
+                       if any((m, fn) in reach_bind for fn in idx["per_file"].get(p, {}))}
     suspects = sorted(greffeurs & lecteurs)
     rows = []
+    n_foyer_seul = 0
     for p in suspects:
         sites = consumer_sites(p)
-        amb = binds_ambient(p, lieurs) or inherits_ambient(p)
+        par_graphe = p in fichiers_lieurs
+        par_foyer = mentionne_le_foyer(p)
+        herite = inherits_ambient(p)
+        if par_foyer and not par_graphe:
+            n_foyer_seul += 1
+        amb = par_graphe or par_foyer or herite
+        voie = ("qualifie" if par_graphe else "foyer" if par_foyer
+                else "tests" if herite else "-")
         for lineno, regime in sites:
             couvert = regime == "given" or amb
             rows.append({"file": p, "line": lineno, "regime": regime, "ambient": amb,
-                         "couvert": couvert})
+                         "voie": voie, "couvert": couvert})
         if not sites:
             # Le fichier atteint `load_state` par une fonction d'un AUTRE module : le site n'est
             # pas ici. TRI-ETAT -- ni accuse ni blanchi. `ambiant=False` = a verifier a la main
             # (le module appele peut fournir le payload, ou pas) ; `ambiant=True` = couvert.
             rows.append({"file": p, "line": None, "regime": "indirect", "ambient": amb,
-                         "couvert": bool(amb), "indirect": True})
+                         "voie": voie, "couvert": bool(amb), "indirect": True})
     return {"primitives": prims, "divergentes": sorted(n[1] for n in divergentes),
             "prim_indet": prim_indet, "greffeurs": sorted(greffeurs), "lecteurs": sorted(lecteurs),
             "suspects": suspects, "rows": rows, "illisibles": idx["bad"],
-            "unresolved": idx["unresolved"], "n_files": len(files)}
+            "unresolved": idx["unresolved"], "n_files": len(files),
+            "n_reach_bind": len(reach_bind), "lieurs_qualifies": sorted(fichiers_lieurs),
+            "n_lieurs_foyer_seul": n_foyer_seul}
 
 
 def rel(p: Path) -> str:
@@ -561,6 +610,9 @@ def report(m: dict, details: bool) -> int:
     print("   fichiers GREFFEURS (transitif)        : %d" % len(m["greffeurs"]))
     print("   fichiers LECTEURS de load_state       : %d" % len(m["lecteurs"]))
     print("   SUSPECTS (greffent ET chargent)       : %d" % len(m["suspects"]))
+    print("   noeuds (module, fn) atteignant le foyer de LIAISON : %d" % m["n_reach_bind"])
+    print("   fichiers LIEURS par le graphe QUALIFIE : %d  (+%d suspects vus par la seule "
+          "mention du foyer)" % (len(m["lieurs_qualifies"]), m["n_lieurs_foyer_seul"]))
 
     print("")
     print("== etage 4. couverture du canal, par SITE ==")
@@ -572,9 +624,9 @@ def report(m: dict, details: bool) -> int:
         if r["couvert"] and not details:
             continue
         etat = "OK" if r["couvert"] else ("INDETERMINE" if r["regime"] == "indirect" else "AMPUTE")
-        print("   %-58s %-6s %-9s ambiant=%-5s %s"
+        print("   %-58s %-6s %-9s ambiant=%-9s %s"
               % (rel(r["file"]), r["line"] if r["line"] else "-", r["regime"],
-                 r["ambient"], etat))
+                 r.get("voie", "-"), etat))
     print("   sites totaux %d | AMPUTES %d | refus explicite %d | indirects %d (dont %d INDETERMINES)"
           % (len(m["rows"]), len(mauvais), len(refuses), len(indirects), len(indet)))
 
@@ -593,6 +645,11 @@ def report(m: dict, details: bool) -> int:
              if m["illisibles"] else ""))
     print("   - un site couvert par `ability_states=<expr>` n'est pas verifie NON VIDE ici : un")
     print("     payload en erreur passerait pour une mesure (cf. `probe_478`, qui l'assertionne).")
+    print("   - le critere de LIAISON est l'UNION `graphe qualifie` + `mention du foyer`. La")
+    print("     seconde voie compte la simple REFERENCE : un fichier qui DELIE puis RESTAURE")
+    print("     (`prev = unbind_live_rpc()` ... `bind_live_rpc(prev)`) est compte lieur alors")
+    print("     qu'il tourne delie. Prix assume du rattrapage des formes non resolues -- et il")
+    print("     porte sur DEUX noms, pas sur les 70 de la fermeture (#448-r5).")
 
     print("")
     if mauvais:
@@ -635,10 +692,37 @@ def monter_et_charger(dv, ob, snap):
     return load_state(dv, ob, snap)
 '''
 
+#: #448-r5 -- LE COUPLE HOMONYME. `mutant_vrai_lieur.mesure` lie l'ambiant, donc le nom `mesure`
+#: entre dans la fermeture des appelants du foyer. `mutant_faux_lieur` porte une fonction du MEME
+#: NOM qui, elle, ne lie rien -- et greffe puis charge a canal muet. Le critere APLATI (fermeture
+#: reduite a ses noms terminaux) le blanchit ; le critere QUALIFIE l'accuse. C'est le TEMOIN : sans
+#: ce couple, l'etage 2 ne pouvait pas voir la faute, puisqu'il passait `lieurs=None`.
+MUTANT_VRAI_LIEUR = '''
+import engine.runner.snapshot as S
+def mesure(rpc):
+    return S.bind_live_rpc(rpc)
+'''
+
+MUTANT_FAUX_LIEUR = '''
+import catalog_inject as CI
+from engine.runner.snapshot import load_state
+def mesure(x):
+    return x + 1
+def montage(bc, dv, ob, snap):
+    CI.graft_active_ability(bc, "tauCrisis", "TunnelingHorror")
+    mesure(1)
+    return load_state(dv, ob, snap)
+'''
+
 
 def mutate() -> int:
-    """Le probe sait-il ECHOUER ? Quatre fichiers synthetiques : ampute / couvert / le meme vice
-    reparti sur DEUX modules (transitivite) / l'appelant qui n'y touche pas."""
+    """Le probe sait-il ECHOUER ? SIX fichiers synthetiques : ampute / couvert / le meme vice
+    reparti sur DEUX modules (transitivite) / l'appelant qui n'y touche pas / le couple HOMONYME
+    (#448-r5), qui est le seul a exercer le chemin `fichiers_lieurs`.
+
+    ⚠ La contre-epreuve appelait `binds_ambient(p)` SANS jeu de lieurs -- donc elle validait le
+    repli, jamais le critere reellement applique par `measure`. Un instrument qui ne teste pas la
+    voie qu'il emprunte ne prouve rien : c'est ainsi que l'aplatissement a survecu au cliquet."""
     import tempfile
     rc = 0
     with tempfile.TemporaryDirectory() as td:
@@ -647,27 +731,35 @@ def mutate() -> int:
         (base / "mutant_couvert.py").write_text(MUTANT_COUVERT, encoding="utf-8")
         (base / "montage_partage.py").write_text(MUTANT_PARTAGE, encoding="utf-8")
         (base / "mutant_indirect.py").write_text(MUTANT_INDIRECT, encoding="utf-8")
+        (base / "mutant_vrai_lieur.py").write_text(MUTANT_VRAI_LIEUR, encoding="utf-8")
+        (base / "mutant_faux_lieur.py").write_text(MUTANT_FAUX_LIEUR, encoding="utf-8")
         prims, _ = derive_primitives(CATALOG)
         divergentes = {("catalog_inject", k) for k, v in prims.items() if v == "divergente"}
         idx = index(corpus(base), base)
         reach_graft = reaching(idx["graph"], divergentes)
         reach_read = reaching(idx["graph"], {("engine.runner.snapshot", CONSUMER)})
+        reach_bind = reaching(idx["graph"], {("engine.runner.snapshot", b) for b in BINDERS})
         mods = idx["mods"]
         greffeurs = {p for p, m in mods.items()
                      if any((m, fn) in reach_graft for fn in idx["per_file"].get(p, {}))}
         lecteurs = {p for p, m in mods.items()
                     if any((m, fn) in reach_read for fn in idx["per_file"].get(p, {}))}
+        fichiers_lieurs = {p for p, m in mods.items()
+                           if any((m, fn) in reach_bind for fn in idx["per_file"].get(p, {}))}
         suspects = sorted(greffeurs & lecteurs)
-        print("== contre-epreuve : 4 fichiers synthetiques ==")
+        print("== contre-epreuve : 6 fichiers synthetiques ==")
         print("   suspects detectes : %s" % ", ".join(sorted(p.name for p in suspects)))
+        print("   fichiers LIEURS (qualifie) : %s"
+              % ", ".join(sorted(p.name for p in fichiers_lieurs)))
         verdicts = {}
         for p in suspects:
-            amb = binds_ambient(p)
+            amb = binds_ambient(p, fichiers_lieurs)
             sites = consumer_sites(p)
             verdicts[p.name] = all((r == "given" or amb) for _l, r in sites) if sites else None
         print("   verdicts : %s" % verdicts)
         attendu = {"mutant_ampute.py": False, "mutant_couvert.py": True,
-                   "montage_partage.py": False, "mutant_indirect.py": None}
+                   "montage_partage.py": False, "mutant_indirect.py": None,
+                   "mutant_faux_lieur.py": False}
         for nom, att in attendu.items():
             if nom not in verdicts:
                 print("   ECHEC : %s n'est meme pas SUSPECT" % nom)
@@ -675,6 +767,18 @@ def mutate() -> int:
             elif verdicts[nom] is not att:
                 print("   ECHEC : %s -> %r, attendu %r" % (nom, verdicts[nom], att))
                 rc = 1
+        # Le TEMOIN doit MORDRE : sous le critere APLATI de #448-r3-r1-r1, le faux lieur est
+        # blanchi. Si ce n'etait plus vrai, ce mutant ne prouverait plus rien et il faudrait le
+        # refaire -- un temoin qu'on n'a jamais vu rouge ne garde rien.
+        noms_aplatis = {n for _m, n in reach_bind}
+        faux = base / "mutant_faux_lieur.py"
+        arbre = parse(faux)
+        blanchi_avant = bool(noms_aplatis & (called_names(arbre) | referenced_names(arbre)))
+        print("   TEMOIN #448-r5 : critere APLATI blanchit le faux lieur = %s (attendu True)"
+              % blanchi_avant)
+        if not blanchi_avant:
+            print("   ECHEC : le mutant homonyme ne reproduit plus la faute qu'il garde")
+            rc = 1
     print("   %s" % ("OK -- le probe discrimine" if rc == 0 else "KO"))
     return rc
 

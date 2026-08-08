@@ -673,8 +673,25 @@ class Consommateur:
     454 nomment AUTRE CHOSE -- une cle ENTIERE qui resout ne prouve donc a peu pres rien.
     """
 
-    def __init__(self, nom, mod, attr, cls, par="nom", raison=""):
+    def __init__(self, nom, mod, attr, cls, par="nom", raison="", noms_sup=None):
         self.nom, self.mod, self.attr = nom, mod, attr
+        # `noms_sup` : callable -> set de noms LEGITIMES qui ne sont dans aucun enum du build.
+        # Un seul cas, MESURE (#270-r2) : les abilities DERIVEES D'UN TRAIT. Le natif les cree par
+        # `IdunBattle.Operations.AddTraitOperation$$AddDerivedAbilities` ->
+        # `StaticBattleRules.Trait$$GetTriggeredAbility` ; le port les NOMME dans les valeurs de
+        # `TRAIT_DERIVED_ABILITIES`, et ce nom n'est pas toujours celui du membre d'enum
+        # (`Diminutive` 0x43f est nomme `DiminutiveAbility` cote port, d'apres la CLASSE native
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DiminutiveAbility` ; `ShadowInTheWarp`
+        # 0x424 est nomme comme son TRAIT). Ce sont donc des cles legitimes, mais d'un espace de
+        # noms INTERNE au port -- les compter INTROUVABLES aurait accuse deux entrees justes.
+        self.noms_sup = noms_sup
+        # `cls` peut etre un TUPLE (#270-r2). Deux registres reels sont alimentes par la boucle
+        # `abilities = activeAbilities + passiveAbilities` de `spawn.py::_seed_ability_owner_effects`,
+        # donc leurs cles vivent dans DEUX enums -- et le CLAUDE.md le dit : la VOIE ne dit pas
+        # l'enum (`ShroudPsalm` en `passiveAbilities` est un `ActiveAbilityType` ; `Maugetar` en
+        # `activeAbilities` est un `TriggeredAbilityType`). Forcer un enum unique aurait fabrique
+        # des EGAREES sur des cles justes.
+        self.classes = (cls,) if isinstance(cls, str) else tuple(cls)
         self.cls, self.par, self.raison = cls, par, raison
 
 
@@ -734,7 +751,128 @@ CONSOMMATEURS: list[Consommateur] = [
     Consommateur("EFFECT_TRIGGERS", "engine.runner.operations.triggers.dispatch.registry",
                  "EFFECT_TRIGGERS", "EffectType", par="valeur",
                  raison="effectType -> effet-trigger(s)"),
+    # --- #270-r2 : les QUATRE registres de `effects/factory.py` que la liste ECRITE avait omis.
+    # Ils ne sont pas hypothetiques (<< un huitieme dict ajoute demain >>) : ils EXISTAIENT deja,
+    # avec la meme lecture `.get(<nom>, [])`, donc la meme degradation muette. C'est l'etape 7 qui
+    # les a trouves, en partitionnant les FOYERS au lieu d'enumerer les dicts connus.
+    # `spawn.py::_seed_trait_owner_effects` : `TRAIT_OWNER_EFFECTS.get(trait_name, [])`.
+    Consommateur("TRAIT_OWNER_EFFECTS", "engine.entities.effects.factory",
+                 "TRAIT_OWNER_EFFECTS", "UnitTrait",
+                 raison="voie traits -- owner-effect pose par le trait a l'init"),
+    # `spawn.py::_seed_derived_ability_owner_effects` : `TRAIT_DERIVED_ABILITIES.get(trait_name, [])`.
+    Consommateur("TRAIT_DERIVED_ABILITIES", "engine.entities.effects.factory",
+                 "TRAIT_DERIVED_ABILITIES", "UnitTrait",
+                 raison="voie traits -- la CLE est le trait, la VALEUR l'ability derivee"),
+    # DEUX enums, et c'est LU : `spawn.py::_seed_ability_owner_effects` boucle sur
+    # `activeAbilities + passiveAbilities` -- la voie ne dit donc pas l'enum, et deux inversions
+    # connues existent (`ShroudPsalm`, `Maugetar`).
+    Consommateur("ABILITY_INIT_OWNER_EFFECTS", "engine.entities.effects.factory",
+                 "ABILITY_INIT_OWNER_EFFECTS", ("ActiveAbilityType", "TriggeredAbilityType"),
+                 raison="`<Ability>.CreateBehaviour` -> `AddEffect(owner)` a l'init",
+                 noms_sup=lambda: abilities_derivees_de_trait()),
+    Consommateur("ABILITY_OWNER_EFFECTS", "engine.entities.effects.factory",
+                 "ABILITY_OWNER_EFFECTS", ("ActiveAbilityType", "TriggeredAbilityType"),
+                 raison="`StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility`",
+                 noms_sup=lambda: abilities_derivees_de_trait()),
 ]
+
+
+def abilities_derivees_de_trait() -> set:
+    """Les noms d'ability que le PORT produit lui-meme, via `TRAIT_DERIVED_ABILITIES`.
+
+    Ce sont les valeurs du dict, pas ses cles : `{"Diminutive": ["DiminutiveAbility"]}` ->
+    `DiminutiveAbility`. `spawn.py::_seed_derived_ability_owner_effects` les passe ensuite a
+    `get_owner_effects_added_on_ability_init`, donc elles arrivent bien comme CLES
+    d'`ABILITY_INIT_OWNER_EFFECTS` -- un espace de noms interne, legitime et DERIVE."""
+    import importlib
+    d = getattr(importlib.import_module("engine.entities.effects.factory"),
+                "TRAIT_DERIVED_ABILITIES")
+    return {n for ns in d.values() for n in ns}
+
+
+def chaine_trait_derivee_cassee() -> list:
+    """LE CRAN DU DESSOUS de la chaine trait -> ability derivee -> owner-effect.
+
+    Toute valeur de `TRAIT_DERIVED_ABILITIES` doit etre CONSOMMEE quelque part, sinon le trait
+    derive une ability que rien ne materialise -- `.get(nom, [])` rend `[]`, aucun owner-effect
+    n'est pose, et le porteur perd silencieusement sa reduction. Trois destinations legitimes :
+    une cle d'`ABILITY_INIT_OWNER_EFFECTS`, une cle d'`ABILITY_OWNER_EFFECTS`, ou un membre d'enum
+    du build (auquel cas la chaine passe par la voie ordinaire)."""
+    import importlib
+    F = importlib.import_module("engine.entities.effects.factory")
+    cibles = set(F.ABILITY_INIT_OWNER_EFFECTS) | set(F.ABILITY_OWNER_EFFECTS)
+    return sorted(n for n in abilities_derivees_de_trait() if n not in cibles)
+
+
+# ------------------------------- etape 7 : la PARTITION des foyers (#270-r2)
+#
+# POURQUOI CETTE ETAPE, ET POURQUOI ELLE NE << DECOUVRE >> PAS LES REGISTRES.
+# L'etape 1 decouvre toute `IntEnum` sous `engine/`, ce qui empeche le trou de se re-creuser.
+# L'etape 5, elle, ne gardait que les dicts INSCRITS A LA MAIN -- exactement le mode de defaillance
+# que l'etape 1 existe pour fermer, reintroduit un cran plus bas.
+#
+# Decouvrir << un dict dont les cles designent un enum >> n'est PAS decidable par AST : une table de
+# constantes et un registre d'abilities ont la meme forme. La reponse n'est donc pas la decouverte
+# mais la PARTITION : dans les MODULES qui hebergent deja un registre inscrit (les foyers), TOUT
+# dict de niveau module est soit INSCRIT, soit ECARTE AVEC SA RAISON. Rien ne peut y etre muet.
+# Meme patron que le recenseur de #270-r1, qui a cesse d'enumerer des roles pour les DERIVER et
+# faire sortir l'inconnu sous `autre (<Noeud>)`.
+#
+# Effet MESURE au premier passage : 4 registres reels trouves, tous les quatre absents de la liste
+# ecrite -- `TRAIT_OWNER_EFFECTS`, `TRAIT_DERIVED_ABILITIES`, `ABILITY_INIT_OWNER_EFFECTS`,
+# `ABILITY_OWNER_EFFECTS`. Ils sont desormais inscrits ci-dessus.
+
+#: Dicts de niveau module d'un foyer qui NE SONT PAS des registres indexes par un membre d'enum.
+#: Chacun porte sa RAISON : c'est ce qui distingue un ecart raisonne d'un oubli.
+HORS_PERIMETRE: dict[str, str] = {}
+
+
+def foyers() -> set:
+    """Les modules qui hebergent au moins un registre INSCRIT. Derive de `CONSOMMATEURS`, jamais
+    ecrit : inscrire un registre dans un module neuf met AUSSITOT tout ce module sous partition."""
+    return {c.mod for c in CONSOMMATEURS}
+
+
+def dicts_de_foyer() -> list:
+    """`(module, nom)` de tout dict de niveau module d'un foyer -- par AST, jamais par import (un
+    import ferait tourner le moteur, et l'etape doit rester lisible seule)."""
+    import ast
+    out = []
+    for mod in sorted(foyers()):
+        p = REPO / "scripts" / "python" / (mod.replace(".", "/") + ".py")
+        if not p.exists():
+            out.append((mod, "<MODULE INTROUVABLE>"))
+            continue
+        arbre = ast.parse(p.read_text(encoding="utf-8"))
+        for n in arbre.body:
+            if not isinstance(n, (ast.Assign, ast.AnnAssign)):
+                continue
+            valeur = n.value
+            if not isinstance(valeur, ast.Dict):
+                continue                                  # une List/Set n'est pas lue PAR CLE
+            for t in (n.targets if isinstance(n, ast.Assign) else [n.target]):
+                if isinstance(t, ast.Name) and t.id.isupper():
+                    out.append((mod, t.id))
+    return out
+
+
+def etape_partition() -> int:
+    print("ETAPE 7 -- PARTITION des FOYERS de registre (#270-r2)")
+    inscrits = {(c.mod, c.attr) for c in CONSOMMATEURS}
+    muets = []
+    for mod, nom in dicts_de_foyer():
+        if (mod, nom) in inscrits or nom in HORS_PERIMETRE:
+            continue
+        muets.append((mod, nom))
+    print("  foyers derives de CONSOMMATEURS : %d" % len(foyers()))
+    print("  dicts de niveau module          : %d" % len(dicts_de_foyer()))
+    print("  INSCRITS %d | ECARTES AVEC RAISON %d | MUETS %d"
+          % (len(inscrits), len(HORS_PERIMETRE), len(muets)))
+    for mod, nom in muets:
+        print("     MUET   %s.%s -- ni inscrit dans CONSOMMATEURS, ni ecarte avec sa raison"
+              % (mod, nom))
+    print("")
+    return len(muets)
 
 
 PAR_CONSO = {c.nom: c for c in CONSOMMATEURS}
@@ -763,15 +901,18 @@ def cles_cassees(build: str, c: Consommateur,
                    dans un autre enum natif. C'est la signature du MAUVAIS ENUM, et le seul des
                    trois qui NOMME sa cause -- l'appariement du registre est a relire.
     """
-    m = PAR_CLS[c.cls]
-    port = membres_mirror(m.rel, m.cls)
-    jeu = enum_natif(build, m.cle)
+    ms = [PAR_CLS[x] for x in c.classes]
+    cles_natives = {m.cle for m in ms}
     cles = list(table_consommateur(c) if table is None else table)
     if c.par == "valeur":
+        port = {v for m in ms for v in membres_mirror(m.rel, m.cls)}
+        jeu = {v for m in ms for v in enum_natif(build, m.cle)}
         return ([(k, []) for k in cles if k not in port and k not in jeu],
                 [k for k in cles if k in port and k not in jeu], [])
-    noms_port = {n for ns in port.values() for n in ns}
-    noms_jeu = {n for ns in jeu.values() for n in ns}
+    noms_port = {n for m in ms for ns in membres_mirror(m.rel, m.cls).values() for n in ns}
+    noms_jeu = {n for m in ms for ns in enum_natif(build, m.cle).values() for n in ns}
+    if c.noms_sup is not None:
+        noms_jeu = noms_jeu | set(c.noms_sup())
     introuvables, mortes, egarees = [], [], []
     autres = None
     for k in cles:
@@ -783,7 +924,7 @@ def cles_cassees(build: str, c: Consommateur,
         if autres is None:
             autres = tous_les_enums(build)
         ou = sorted(cle.split(".")[-1] for cle, s in autres.items()
-                    if cle != m.cle and _echappe(k) in s)
+                    if cle not in cles_natives and _echappe(k) in s)
         (egarees if ou else introuvables).append((k, ou))
     return introuvables, mortes, egarees
 
@@ -863,6 +1004,14 @@ def etape_consommateurs(build: str) -> int:
         for k in mortes:
             print("           MORTE       %-34s le build ne la connait plus" % (k,))
         rouge += len(introuvables) + len(mortes) + len(egarees)
+    # Le cran du dessous : une ability DERIVEE d'un trait que rien ne materialise (#270-r2).
+    orphelines = chaine_trait_derivee_cassee()
+    print("  %-6s %-28s %3d abilities derivees d'un trait, %d sans consommateur"
+          % ("OK" if not orphelines else "ROUGE", "chaine TRAIT_DERIVED",
+             len(abilities_derivees_de_trait()), len(orphelines)))
+    for n in orphelines:
+        print("           ORPHELINE   %-34s derivee d'un trait, aucun owner-effect a poser" % n)
+    rouge += len(orphelines)
     print("")
     return rouge
 
@@ -973,6 +1122,11 @@ def rapport(verbose: bool, porteurs: bool = False, consommateurs: bool = True,
     # ---- Etape 6 : homonymes (inventaire pur, jamais bloquant)
     if homo:
         etape_homonymes(build)
+
+    # ---- Etape 7 : partition des foyers (#270-r2) -- PUREMENT AST, aucun import du moteur, donc
+    # elle tourne meme sous `--sans-consommateurs` : c'est justement quand on saute l'etape 5 qu'un
+    # registre muet passerait le plus facilement.
+    rouge += etape_partition()
 
     if rouge:
         print("%d ecart(s) BLOQUANT(s) -- voir ci-dessus" % rouge)

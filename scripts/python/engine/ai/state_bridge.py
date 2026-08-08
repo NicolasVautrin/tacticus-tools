@@ -491,8 +491,15 @@ def _plans_for_unit(uid: int, vid: str, origin: tuple | None, move_tiles: list,
             ranked = [{"col": c, "row": r} for (c, r) in cand_tiles
                       if hexgeo.distance((c, r), epos) <= reach]
             if ranked:
+                # `rankComplete` (#350-r3a-r4) : cette enumeration parcourt TOUTES les tuiles
+                # candidates -- il n'y a aucun plafond ici, contrairement a `computeAttackPlans`
+                # (`for (let r = 0; r < maxRank; r++)`), qui perd 21 positions sur 33 a `maxRank=6`.
+                # Le DECLARER est ce qui permet aux lecteurs de `ranked` de ne PAS payer un
+                # `castFromTiles` sur cette face -- et de ne pas non plus SUPPOSER que le plan est
+                # complet sur l'autre. Tri-etat : cf. `engine.ai.cast_positions`.
                 evals.append({"abilityId": aid, "targetId": en.get("id"),
-                              "rankCount": len(ranked), "ranked": ranked})
+                              "rankCount": len(ranked), "ranked": ranked,
+                              "rankComplete": True})
     return {"evals": evals}
 
 

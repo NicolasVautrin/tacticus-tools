@@ -18,6 +18,12 @@ def _enemy_killed_by_normal_attack(ctx: NCContext) -> bool:
     normal_ids = {a.get("id") for a in (me.get("abilities") or []) if a.get("kind") == "normal"}
     if not normal_ids:
         return False
+    # ⚠ EXPOSE A LA TRONCATURE DU PLAN, et le foyer #350-r3a-r4 NE PEUT PAS le reparer : ce gate
+    # lit `dmgMin`, champ de DEGAT qui ne vit QUE dans `ranked` -- `castFromTiles` rend des
+    # positions, pas des degats. Face DECISION : une tuile sure-kill ecartee par `maxRank` fait
+    # rendre FAUX a tort, donc Hammer est evaluee la ou le natif s'abstient
+    # (`ShouldEvaluate` = `!EnemyCouldBeKilledWithNormalAttack`). Seul le harnais peut servir ce
+    # cas -- `case-350r3a-r4-troncature-du-plan.md` §5. Face COMBAT : `ranked` complet, RAS.
     for ev in (ctx.plan.get("evals") or []):
         if ev.get("abilityId") not in normal_ids:
             continue

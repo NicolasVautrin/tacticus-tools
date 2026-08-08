@@ -54,6 +54,8 @@ from ..services.battle_query import find_melee_weapon, weapon_hits
 from ..utilities.damage import will_be_overkill
 from ..utilities.utility_type import UtilityType
 from ..ai.utilities import get_movement_utility
+from ..ai import cast_positions as CP    # #350-r3a-r4 -- forme B. Differe CLASSE GRATUIT (charger
+                                         # `cast_positions` seul ne tire pas ce module), donc hisse.
 
 # `_PROFILE_NONE` VIVAIT ICI (le `param_8` VIDE du call-site `GenerateMultiHitAttackPredictions` de
 # 1100). Il a MIGRE dans `prediction.abilities._PLAYBOOK_PROFILE_OVERRIDE[1100]` avec la fin du fork
@@ -1087,13 +1089,20 @@ class SorcerousFacadePlaybook(NonAttackComparablePlaybook):
         l'attaque normale, qui portent la cascade de ciblage native) restreint aux evals dont
         `ranked` contient `caster_tile` — c'est bien « valide DEPUIS cette tuile ».
         `SortByDistance(..., Caster)` -> distance a `ctx.origin` (position REELLE du caster).
-        `First(1)` -> le minimum, keep-first a egalite (`OrderBy` LINQ est stable)."""
+        `First(1)` -> le minimum, keep-first a egalite (`OrderBy` LINQ est stable).
+
+        Les positions passent par le FOYER `engine.ai.cast_positions` (#350-r3a-r4) : sur la face
+        DECISION `computeAttackPlans` TRONQUE a `maxRank`, donc une tuile legale ecartee par le
+        plafond faisait declarer la cible NON valide depuis `caster_tile` -- et `SelectFirst`
+        elisait alors une autre cible, ou aucune."""
         legal: list = []
         for ev in ((ctx.plans.get(ctx.uid) or {}).get("evals") or []):
             if ev.get("abilityId") not in ctx.normal_ids or not ev.get("rankCount"):
                 continue
-            if any((rk.get("col"), rk.get("row")) == caster_tile
-                   for rk in (ev.get("ranked") or [])):
+            positions = CP.positions_castables(ev, getattr(ctx, "cast_from_tiles", None),
+                                               ctx.uid, ev.get("targetId"),
+                                               ev.get("abilityId"), ctx.origin)
+            if caster_tile in positions:
                 tid = ev.get("targetId")
                 if tid is not None and tid not in legal:
                     legal.append(tid)
