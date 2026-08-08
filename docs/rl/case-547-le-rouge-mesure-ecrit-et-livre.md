@@ -119,17 +119,24 @@ a rendu **6** entrées non-VERT, pas 1. Chacune a été rejouée dans un worktre
 | `test_421_effect_active_gate_offline.py` | `test_the_probe_rail_covers_the_whole_registry` | 1 failed / 12 passed |
 | `test_448_r1_stormboyz_port_offline.py` | `test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE` | 1 / 13 |
 | `test_462_r4b_r1_r1_defender_additive_carriers_offline.py` | `test_le_registre_des_producteurs_d_additif_defenseur_est_COMPLET` | 1 / 6 |
-| `test_486r15_empreinte_par_entree_offline.py` | `test_la_DETTE_ne_peut_pas_absoudre_ce_qui_declare_deja` | 1 / 26 |
+| `test_486r15_empreinte_par_entree_offline.py` | `test_la_DETTE_ne_peut_pas_absoudre_ce_qui_declare_deja` | 1 / 26 — **réparé sur `master` pendant que cette tranche était en vol** (`dd85e821`) |
 
 Le 5ᵉ (`test_270r4r2r2_differes_offline.py`) était déjà déclaré ; le 6ᵉ
 (`test_463r1_ecart_empreinte_offline.py`) était le **seul** dû à cette tranche — le fichier de
 test neuf de #547 n'avait pas d'entrée d'empreinte, ce que `--measure-missing` a réglé.
 
-Ces quatre sont **déclarés** dans `NON_VERTS_DECLARES`, avec leur assertion **verbatim** et le
+Ces quatre ont été **déclarés** dans `NON_VERTS_DECLARES`, avec leur assertion **verbatim** et le
 résidu **`#547-r2`**. Les taire aurait reproduit exactement la faute que ce cliquet garde ; les
 réparer à l'aveugle aurait été pire — deux de leurs foyers étaient édités par d'autres tranches
 au moment de la mesure. **La déclaration est elle-même sous cliquet** : chaque ligne rougit le
 jour où son fichier redevient vert.
+
+**Et ce cran a servi avant même la livraison.** `test_486r15_empreinte_par_entree_offline.py` a
+été réparé sur `master` par `dd85e821` (« retirer de la dette un fichier qui DECLARE — signalé
+trois fois, jamais réparé ») pendant que cette tranche était en vol. Au rebase suivant, le
+**cran 2** a fait rougir sa déclaration devenue périmée, et la ligne est sortie. C'est le cycle de
+vie qu'une entrée d'ici doit avoir : **entrer parce qu'un rouge est mesuré, sortir dès qu'il ne
+l'est plus** — trois déclarations restent.
 
 > **Le compte des rouges offline de `master` n'était donc pas 23, mais 23 + 5.** Aucun des cinq
 > n'était mentionné nulle part — sauf, très exactement, dans le ledger que personne ne lisait.

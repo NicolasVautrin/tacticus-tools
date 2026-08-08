@@ -100,12 +100,20 @@ NON_VERTS_DECLARES = {
         "sur `master` PUR. Meme FAMILLE que les registres a cliquet (`TARGETING_OPTIONS`, "
         "`ABILITY_ATTACK_TYPE`) : un registre que notre propre cadence de portage rouvre. "
         "Residu #547-r2.",
-    "tests/test_486r15_empreinte_par_entree_offline.py":
-        "`test_la_DETTE_ne_peut_pas_absoudre_ce_qui_declare_deja` -- 1 failed / 26 passed sur "
-        "`master` PUR ; l'assertion demande `--ecrire-dette`. Le foyer "
-        "(`probe_486r15_declencheurs_tests.py`) etait EDITE par une autre tranche au moment de "
-        "cette mesure, d'ou la declaration plutot que la regeneration. Residu #547-r2.",
+    "tests/engine/test_498r4_face_decision_is_displaceable_offline.py":
+        "`test_le_recenseur_ne_credite_pas_une_condition_seulement_CITEE` -- 1 failed / 9 passed "
+        "sur `master` PUR (`afc1ef09`). ARRIVE PENDANT CETTE TRANCHE, par un merge posterieur au "
+        "premier releve : la demonstration en direct que ce gisement se REMPLIT en continu et que "
+        "rien ne le voyait. Residu #547-r2.",
 }
+
+# ⚠ CE QUI A DEJA ETE RETIRE D'ICI, ET CE QUE CA MESURE. `test_486r15_empreinte_par_entree_offline
+# .py` (`test_la_DETTE_ne_peut_pas_absoudre_ce_qui_declare_deja`, 1 failed / 26 passed) y a figure
+# QUELQUES HEURES : il a ete repare sur `master` par `dd85e821` (<< retirer de la dette un fichier
+# qui DECLARE -- signale trois fois, jamais repare >>) pendant que cette tranche etait en vol, et
+# le CRAN 2 l'a fait sortir au rebase suivant. C'est exactement le cycle de vie qu'une ligne d'ici
+# doit avoir : entrer parce qu'un rouge est MESURE, sortir des qu'il ne l'est plus -- et le cliquet
+# qui l'exige est ce qui empeche la liste de devenir une allowlist.
 
 
 class MontageImpossible(RuntimeError):
