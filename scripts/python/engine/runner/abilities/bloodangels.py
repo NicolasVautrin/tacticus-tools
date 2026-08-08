@@ -29,11 +29,14 @@ import hexgeo
 
 from ...dsl.base import AbilityTrigger, Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import op_and, If, AtomicGroup
+from ...entities.behaviours import op_add, op_and, If, AtomicGroup
 from ...entities.selectors.accessors import FixedTiles, Owner, Target
 from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
-from ...entities.selectors.units import (AdjacentUnits, Enemies, SurroundingUnits, Union,
+from ...entities.selectors.units import (AdjacentFriends, AdjacentUnits, Enemies, MechanicalUnits,
+                                         Sub, SurroundingUnits, Union, UnitsWithoutTrait,
                                          non_steppable_or_object_units)
+from ...entities.stats import StatType
+from ...entities.traits.unit_trait import UnitTrait
 from ...entities.abilities.active_ability import SavageEchoesAbility as SavageEchoesAbilityDecision
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
@@ -46,9 +49,9 @@ from .targeting import RANGE_ADJACENT, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, Tar
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
-from .behaviours.effects import AddEffect
+from .behaviours.effects import AddEffect, AddStaticStatModifierEffect
 from .behaviours.movement import FlyUnit, MoveUnit
-from .behaviours.stats import Heal
+from .behaviours.stats import Heal, SetHealth
 from ...utilities.tile import first_tile_by_utility
 
 if TYPE_CHECKING:
@@ -753,3 +756,207 @@ class LightOfSanguiniusAbility(ActiveAbility):
         return {"ability": "LightOfSanguinius", "caster": caster_id, "target": target_id,
                 "main_attack": main_attack, "flew_to": flew_to, "dest": dest,
                 "debuffed": debuffed, "dsl": True}
+
+
+# ===================== BloodChalice (Sanguinary Priest `bloodSanguinary`, actif 1175) -- #576 =====
+#
+# ⚠ CATEGORIE REELLE = **SET-HEALTH + 2 POSES D'EFFET**, soit TROIS mecaniques -- et l'audit
+# `docs/rl/combat-ability-coverage.md` n'en annoncait qu'UNE (`HEAL`, colonne derivee du
+# `damageProfile` de l'ARME du porteur, pas du behaviour). Le volet 1 n'est meme pas un SOIN : c'est
+# un `ChangeStat` mode 0 = **SetAbsolute**, qui peut FAIRE BAISSER les PV d'un allie au-dessus du
+# seuil. Le tooltip le dit mot pour mot (« are set to »), le decompile aussi.
+#
+# Indices de config LUS au decompile d'`IdunBattleLogic.Entities.Abilities.Active.
+# BloodChaliceAbility$$ExecuteBehaviour` (membres NOMMES, jamais l'ordinal nu) :
+#   `DSLFormulas$$ConfigConst(0x4f, ...)` -> `AbilityConstantType.healthPct`      (79) = 50 (CONSTANTE)
+#   `DSLFormulas$$ConfigVar(0x3f, ...)`   -> `AbilityVariableType.extraPierceRatio` (63) : le +percage
+#   `DSLFormulas$$ConfigVar(0x20, ...)`   -> `AbilityVariableType.hpToHeal`       (32) : le soin, LU
+#                                            dans l'EFFET 1368, PAS dans l'ability
+#
+# `...BloodChaliceAbility$$ExecuteBehaviour` -- MIRROR du decompile :
+#
+#     b1 = ChangeStat( GetTargets(), Position(HEALTH=5, 0, 0), mode **0** = SetAbsolute,
+#                      PercentageOf( StatAmount(It@DSLSelectors+0x68, HEALTH=5, MAXIMUM=2),
+#                                    ConfigConst(0x4f healthPct), roundingRule **2** = Floor ) )
+#     b2 = AddEffect( 0x558 = BloodChalice_HealOnAttack, AbilityStateReference,
+#                     source = Owner@DSLSelectors+0x30, targets = GetTargets(), TurnsFromRounds(1) )
+#     b3 = AddStaticStatModifierEffect( GetTargets(), 0x559 = BloodChalice_ExtraPiercing,
+#                                       0x15 = StatType.ExtraPierceMelee,
+#                                       ConfigVar(0x3f extraPierceRatio), TurnsFromRounds(1),
+#                                       isHidden = false )
+#     return AActiveAbility.Execute(this, op_Addition(op_Addition(b1, b2), b3))
+#
+# `Execute` PLAIN (PAS d'`ExecuteAtomic`, aucun `Group`) -> aucun `AtomicGroup`. Les trois volets
+# sont DETERMINISTES (aucun tirage), donc l'ordre ne decale pas le PRNG ; il est transcrit tel que lu.
+# ⚠ `GetTargets()` est appele DEUX fois par le natif (une instance pour b1, une autre partagee par
+# b2/b3) : deux sous-arbres distincts, meme resultat -- transcrit en deux constructions.
+#
+# i2 (`Abilities/BloodChalice_CurrentLevelDescription`) : « All adjacent friendly non-mechanical
+# units are set to {healthPct}% Health. Until the start of their next turn, affected units gain
+# +{extraPierceRatio}% pierce ratio with melee attacks and heal for {hpToHeal} Health if they
+# perform a melee attack. » -- appariement UN A UN avec les trois noeuds ci-dessus.
+#
+# La face DECISION est, elle, portee DEPUIS #82 (`playbook/bespoke.py::BloodChalicePlaybook`, override
+# total d'`EvaluateInternal`) : AVANT cette tranche, 1175 SCORAIT donc son cast et ne FAISAIT RIEN --
+# NO-OP silencieux (absente d'`ABILITY_CLASSES`, `ported: False`, 0 PV touche, aucune erreur).
+
+BLOOD_CHALICE_ID = "BloodChalice"
+BLOOD_CHALICE_HEAL_ON_ATTACK = int(EffectType.BloodChalice_HealOnAttack)    # 0x558 = 1368
+BLOOD_CHALICE_EXTRA_PIERCING = int(EffectType.BloodChalice_ExtraPiercing)   # 0x559 = 1369
+
+
+def blood_chalice_targets():
+    """`IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$GetTargets` -- MIRROR 1:1 :
+
+        adj  = AdjacentFriends(Caster@DSLSelectors+0x48, unique: true, selectionType 3)
+        mech = MechanicalUnits(adj, selectionType 3)
+        return UnitsWithoutTrait(adj op_Subtraction mech, 0x19, selectionType 3)
+
+    ⚠ SURCHARGE D'`AdjacentFriends` TRANCHEE PAR SES XREFS ENTRANTES : le build en porte DEUX, et
+    `GetTargets` appelle la 4-args **UNIT-ancree** `AdjacentFriends(this, unit, unique,
+    selectionType)`, qui se deplie en `Friends(unit, Units(AdjacentTiles(unit), unique, sel) - unit,
+    sel)` -- PAS la TILE-ancree `(this, unit, unitTile, unique)` qu'appelle
+    `...RitesOfRestorationAbility$$GetHealTargets`. La reference d'equipe EST le centre (le caster),
+    donc le collapse `reference=None` du port est exact ici.
+
+    ⚠ `0x19` est un `UnitTrait.Immune` (25), surtout pas un `EffectType` ni un `ActiveAbilityType` --
+    l'ordinal est valide dans les trois enums. Il n'apparait PAS dans le tooltip i2 : c'est une
+    exclusion muette, et la lire au decompile est la seule facon de l'avoir.
+
+    ⚠ Le retrait des mecaniques est un `op_Subtraction` sur l'ENSEMBLE `adj`, pas un predicat
+    applique en aval -- meme resultat ici (les deux etages sont des filtres purs), transcrit tel que lu.
+    Il DOUBLE le gate non-mecanique de la regle dynamique (`_dynamic_rule_blood_chalice`, qui teste
+    `IsAffectedByHealType(target, 0)`) : le premier borne l'ENSEMBLE EFFECTIVEMENT AFFECTE, le second
+    borne les cibles LEGALES du message. Les deux existent, on porte les deux."""
+    adj = AdjacentFriends(Caster())
+    return UnitsWithoutTrait(Sub(adj, MechanicalUnits(adj)), int(UnitTrait.Immune))
+
+
+def blood_chalice_tree(extra_pierce_ratio: int):
+    """UNIQUE noeud d'`...BloodChaliceAbility$$ExecuteBehaviour` (cf. le bloc RE ci-dessus).
+
+    ⚠ VOLET 1 = `ChangeStat(..., mode **0** = SetAbsolute, ...)`, PAS un soin. `IdunBattle.Entities.
+    Behaviours.ChangeStatBehaviour$$Execute` case 0 (relu pour cette tranche) :
+
+        cur = UnitExtensions.GetStat(unit, stat, 0);
+        statModifiers.Add(new StatModifier(stat, **amount**, ...));   // la valeur FINALE, absolue
+        this+0x18 += amount - cur;                                    // le delta RAPPORTE
+
+    -- le modifier impose `GetStat(stat) == amount`. Health etant une stat FILL-UP
+    (`HealthComponent`, PAS un `StatComponent`), le SetAbsolute s'y lit `hc.hp = amount`. C'est
+    exactement ce que fait la feuille `SetHealth` (`behaviours/stats.py`), deja mirror de ce meme
+    `ChangeStat(Position(HEALTH,0,0), mode 0, .)` pour BlackRage et Drachnyen.
+
+    ⚠ CONSEQUENCE OBSERVABLE, ET ELLE EST CONTRE-INTUITIVE POUR UNE ABILITY CLASSEE « HEAL » : un
+    allie adjacent AU-DESSUS de `healthPct`% de son max est **RAMENE VERS LE BAS**. Ce n'est ni un
+    bug de port ni un garde-fou a ajouter -- c'est le mode 0, et l'i2 l'ecrit (« are set to »).
+    Le gate `EntityCanBeHealed` n'intervient PAS sur ce volet : la feuille n'est pas un `Heal`.
+
+    ⚠ DEUX LITTERAUX du `PercentageOf` natif, LUS et non supposes (ils different de BlackRage sur les
+    DEUX axes, cf. la docstring de `SetHealth`) :
+      * base    = `StatAmount(It@DSLSelectors+0x68, HEALTH, **MAXIMUM=2**)` -- le max de CHAQUE cible
+                  (`It` = l'unite en cours d'iteration), jamais celui du caster ;
+      * pct     = `ConfigConst(0x4f)` = `GetNumberConstant` -> `constants.healthPct` = 50 (CONSTANTE,
+                  pas une variable per-niveau) ;
+      * arrondi = `roundingRule **2**` -> `AAmountFormula$$RoundFix64Result` mode 2 = **Floor**.
+    Sur un `hp_max` impair a 50 %, Floor et half-to-even different d'exactement 1 PV.
+
+    VOLET 2 : la SOURCE natice est `Owner@DSLSelectors+0x30`, pas `Caster@+0x48`. Pour une ability
+    ACTIVE les deux slots designent la meme entite (`AActiveAbility` pose l'owner = le caster), donc
+    le defaut `source_ref=None` du port (= le caster) est exact -- l'ecart est NOMME ici plutot que tu.
+    `scale_from_source=True` : la magnitude du soin de l'effet 1368 est un `ConfigVar(0x20 hpToHeal)`
+    resolu contre l'`AbilityState` du POSEUR, et `hpToHeal` EST dans `variablesAffectedByRarityBonus`
+    -- sans ce flag le multiplier de rarete du porteur serait perdu (meme motif que Supercharge 1208).
+
+    VOLET 3 : `isHidden = false` (litteral du call-site) = le defaut du port. `extraPierceRatio` n'est
+    PAS dans `variablesAffectedByRarityBonus` -> le multiplier y est inerte, et la valeur est resolue
+    par l'appelant puis passee en `Const` (meme patron que le `+CritChance` d'ExcruciatingFrequencies)."""
+    set_hp = SetHealth(blood_chalice_targets(), BLOOD_CHALICE_ID, "healthPct",
+                       pct_rounding=2, pct_is_constant=True)   # PercentageOf(., ., 2=Floor) ; ConfigConst
+    cibles = blood_chalice_targets()                           # 2e instance du sous-arbre, comme le natif
+    heal_eff = AddEffect(BLOOD_CHALICE_HEAL_ON_ATTACK, EffectType.BloodChalice_HealOnAttack.name,
+                         cibles, duration_rounds=1, scale_from_source=True)
+    pierce_eff = AddStaticStatModifierEffect(
+        cibles, BLOOD_CHALICE_EXTRA_PIERCING, int(StatType.EXTRA_PIERCE_MELEE),
+        Const(int(extra_pierce_ratio)), name=EffectType.BloodChalice_ExtraPiercing.name,
+        duration_rounds=1)
+    return op_add(op_add(set_hp, heal_eff), pierce_eff)        # op_Addition, op_Addition -- ordre du natif
+
+
+class BloodChaliceAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$ExecuteBehaviour` (id 1175,
+    `bloodSanguinary` « Sanguinary Priest », Blood Angels -- UNIQUE porteur).
+
+    Renvoie {ability, caster, target, set_health, heal_on_attack, extra_piercing, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.BloodChalice)   # 1175
+    ABILITY_ID = BLOOD_CHALICE_ID
+
+    # GATE DE CIBLE. `IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$.ctor` -- forme
+    # « FLAGS DIRECTS » (`IdunBattle.Core.Services.TargetingOptions$$.ctor`, le 5e argument atterrit
+    # tel quel a `options+0x28` = Rules) : le litteral EST le masque effectif. Ce n'est NI l'overload
+    # PRESET+FLAGS, NI une recopie de champ statique -- le `statics+0xb8` copie ici alimente le 3e
+    # argument (`range`, 24 octets depuis `<TargetingRange statics>+0x30` = RANGE_ADJACENT), pas les
+    # regles.
+    #     TargetingOptions..ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0xc02, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)
+    #       isSelfCasting    = 1
+    #       range            = `TargetingRange` statics+0x30 = RANGE_ADJACENT
+    #       forceMeleeTarget = 1 = RangedBool.False
+    #       rules            = 0xc02
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x0002  TargetMatchesDynamicRule    -> route vers `GetDynamicInvalidTargetReason` (porte) ;
+    #     0x0400  TargetIsFriendly            -> ALLIE uniquement ;
+    #     0x0800  AddCasterIfAtLeastOneTarget -> le caster est adjoint des qu'il y a une cible.
+    # ⚠ PAS de `TargetIsHealable` (0x0100) -- contraste avec 1002/1039, qui sont de VRAIS soins. Ici
+    # le volet 1 est un SetAbsolute, et le gate non-mecanique passe par la REGLE DYNAMIQUE seule.
+    # ⚠ Masque RE-LU au decompile pour cette migration ; bit-identique a celui qui vivait dans
+    # `TARGETING_OPTIONS_UNPORTED` (`targeting.py`), d'ou la ligne est retiree par le CONTRAT DE
+    # DISJONCTION (une ability a UNE source de masque, jamais deux).
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsFriendly
+        | TR.AddCasterIfAtLeastOneTarget
+    ), self_cast=True, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...BloodChaliceAbility$$GetDynamicInvalidTargetReason` -- le corps est DEJA porte
+        (#287-r5) dans `abilities/targeting.py::_dynamic_rule_blood_chalice`, et confronte live
+        contre l'oracle natif `abilityReason` (`probe_287r5_blood_chalice_live.py`). Cette surcharge
+        l'APPELLE, et l'entree `DYNAMIC_TARGET_RULE_UNPORTED[1175]` sort dans le meme commit -- meme
+        mouvement que 1177 (#510), 1087 (#488) et 1038 (#500).
+
+        Le corps a ete RE-LU pour cette tranche et concorde bit a bit :
+            tiles = EntityExtensions.GetTiles(target, state);
+            if (battleQuery.AreEntitiesAdjacent(tiles, casterTiles)   // this+0x20, slot 0x62
+                && UnitExtensions.IsAffectedByHealType(target, 0))    // HealType.NonMechanical
+                return 0;
+            return (caster != target) ? 2 : 0;                        // 2 = TargetMatchesDynamicRule"""
+        return int(_targeting._dynamic_rule_blood_chalice(state, caster_id, target_id) or 0)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        # SELF-CAST AoE : `target_id` ne selectionne AUCUNE cible -- l'ensemble affecte sort
+        # entierement de `GetTargets()` (allies adjacents du CASTER). Un `target_id` None est donc
+        # legitime et ne court-circuite rien (contraste 1177, qui exige sa cible).
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        sc = state.get_entity(caster_id)
+        sc = sc.get_component(StatsComponent) if sc is not None else None
+        level = getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
+        ratio = ability_var(BLOOD_CHALICE_ID, "extraPierceRatio", level)   # ConfigVar(0x3f)
+        blood_chalice_tree(int(ratio) if ratio is not None else 0).execute(entities, ectx)
+        set_health, heal_on_attack, extra_piercing = [], [], []
+        for name, p in ectx.emitted:
+            if name == "SetHealth":
+                set_health.append({"target": p.get("unit"), "hp": p.get("hp")})
+            elif name == "AddEffect" and p.get("effect_type") == BLOOD_CHALICE_HEAL_ON_ATTACK:
+                heal_on_attack.append({"target": p.get("target"), "placed": p.get("placed")})
+            elif (name == "AddStaticStatModifierEffect"
+                  and p.get("effect_type") == BLOOD_CHALICE_EXTRA_PIERCING):
+                extra_piercing.append({"target": p.get("unit"), "stat": p.get("stat"),
+                                       "amount": p.get("amount")})
+        return {"ability": BLOOD_CHALICE_ID, "caster": caster_id, "target": target_id,
+                "set_health": set_health, "heal_on_attack": heal_on_attack,
+                "extra_piercing": extra_piercing, "dsl": True}

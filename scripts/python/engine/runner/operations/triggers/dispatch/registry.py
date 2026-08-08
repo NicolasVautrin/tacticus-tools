@@ -23,7 +23,9 @@ from ..effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
                               RangedAutoAttackActivateOnTurnStart,
                               RangedAutoAttackDeactivateOnTurnStart,
                               RangedAutoAttackDeactivateOnAttack,
-                              OVERWATCH_AUTO_ATTACK, CONTAMINATED_TILE)
+                              BloodChaliceHealOnMeleeAttack,
+                              OVERWATCH_AUTO_ATTACK, CONTAMINATED_TILE,
+                              BLOOD_CHALICE_HEAL_ON_ATTACK)
 from ..genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
                           DecoysAndMisdirectionBuffFriendsAbility,
                           AmbushSummonAbility, EnvAmbushResurrectAbility,
@@ -811,6 +813,13 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
                             RangedAutoAttackActivateOnTurnStart,      # On(0x12) -> ActivateEffect
                             RangedAutoAttackDeactivateOnTurnStart,    # On(0x12) -> DeactivateEffect
                             RangedAutoAttackDeactivateOnAttack],      # On(10)   -> DeactivateEffect
+    # BloodChalice_HealOnAttack 0x558=1368 (pose par 1175, #576) : `...BloodChalice_HealOnAttackEffect
+    # $$CreateTargetTrigger` = `On(0x9 Attack, 1) & get_OwnerIsCaster & IsMeleeAttack` ->
+    # `$$CreateTargetTriggerBehaviour` = `Heal(EffectSource, Owner@0x30, ConfigVar(0x20 hpToHeal),
+    # HealBehaviourOptions.ForHeal)`. Le SECOND volet de l'effet (le +percage de
+    # `$$CreatePiercingBonusForAttack`) n'est PAS un trigger : il vit dans
+    # `entities/effects/loki/blood_chalice.py`.
+    BLOOD_CHALICE_HEAL_ON_ATTACK: [BloodChaliceHealOnMeleeAttack],    # On(9) -> Heal
     # HazeOfCorruption_DamageTransfer 0x435=1077 (case-209, bond pose par le target-finder de #207) :
     # `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger` =
     # `(OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor, bonded)) | On(0x2d = UnitRevived) | On(0x34 = UnitFled))
