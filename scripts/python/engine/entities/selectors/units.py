@@ -547,6 +547,29 @@ def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
                UnitsWithoutTrait(source, int(UnitTrait.Object)))                   # 0xd
 
 
+def units_with_traits(source: TargetsSelector, traits) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithTraits(entities, traits, selectionType)` --
+    MIRROR de la FACTORY, qui n'alloue AUCUN selecteur dedie et FOLDE la collection de traits :
+
+        left = entities
+        foreach t in traits:                                   # ordre de la `ICollection`
+            right = DSLSelectors.UnitsWithTrait(entities, t, selectionType)
+            left  = TargetsSelector.op_BitwiseAnd(left, right)
+        return left
+
+    -> **CONJONCTION** : une unite doit porter TOUS les traits, pas au moins un. Le `right` part a
+    chaque tour de `entities` (la SOURCE), jamais du `left` accumule -- on mirror la composition
+    telle quelle, l'`And` du port preservant l'ordre de son operande GAUCHE, donc l'ordre de
+    `source` traverse. Liste VIDE -> `source` inchange (c'est ce que rend la boucle native).
+
+    Consommateur porte : `...Loki.UnbreakableDutyAbility$$ExecuteBehaviour` / `$$GetAmountOfDead
+    ImperialUnits` (`[0x1a = Imperial, 0x10 = Hero]` = les « Imperial Characters » de l'i2)."""
+    left = source
+    for t in traits:
+        left = And(left, UnitsWithTrait(source, int(t)))
+    return left
+
+
 def non_steppable_units(source: TargetsSelector) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLSelectors$$NonSteppableUnits(source, selectionType)` -- MIRROR de
     la FACTORY, qui n'alloue AUCUN selecteur dedie et COMPOSE textuellement :
@@ -875,7 +898,20 @@ class ValidNormalAttackTargets(TargetsSelector):
     (`IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$GetTarget` et son
     `$$ExecuteBehaviour`, `IdunBattle.Entities.Effects.Loki.FearedInterrogator_TargetEffect$$
     CreateTargetSelector`) -> ce noeud ne les modelise pas (les ajouter sans call-site serait
-    speculatif ; le jour ou un call-site les pose, ils entrent ICI, pas dans un fork).
+    speculatif ; le jour ou un call-site les pose, ils entrent ICI, pas dans un fork). Verifie une
+    troisieme fois sur `...Loki.UnbreakableDutyAbility$$ExecuteBehaviour` (#572) : `range = 0`,
+    `ignoreRule`/`additionalRule` = deux `Nullable` ZEROEES sur la pile.
+
+    ⚠ **`unit` peut etre un selecteur de TUILE, et le natif le resout en son OCCUPANT.** Les trois
+    call-sites LUS ne s'accordent PAS sur le domaine : `SorcerousFacadeAbility$$GetTarget` passe
+    `(Caster@DSLSelectors+0x48, CasterTile@+0x50)`, `FinalJusticeAbility$$GetTarget` passe
+    `(Owner@+0x30, Tiles(Owner))`, et `UnbreakableDutyAbility$$ExecuteBehaviour` passe **`CasterTile`
+    DANS LES DEUX SLOTS** -- lu aux octets du call-site (`mov r8,[r10+0x50]` puis `mov rdx,r8` : un
+    seul chargement, deux registres). Ce n'est pas une divergence de comportement : le slot `unit`
+    est consomme par `SelectSingle` -> `IdunBattle.DSL.TargetsSelector$$SelectUnit`, dont la tete est
+    `if (IsUnitFoot(e) || IsTile(e)) e = UnitExtensions.GetUnit(e, state);` -- une tuile resout en son
+    occupant. Le port fait donc la MEME resolution, par le foyer partage `_occupants_by_tile`
+    (`dsl/base.py`), plutot que de rendre `[]` sur un `resolve_unit` qui echoue.
 
     Le filtre lui-meme est `ctx.valid_normal_attack_targets` (fourni par `entities_from_state`,
     qui delegue a `runner/abilities/targeting.py` -- LE port unique de la cascade de ciblage, avec
@@ -894,6 +930,14 @@ class ValidNormalAttackTargets(TargetsSelector):
         if fn is None:
             return []
         u = resolve_unit(self.unit, ctx)
+        if u is None:
+            # `SelectUnit` : une TUILE (ou un pied) resout en son OCCUPANT avant tout le reste.
+            # Le port n'a pas d'entite-tuile -- il compare des POSITIONS -- d'ou l'index partage.
+            occ = _occupants_by_tile(ctx.units)
+            for p in _tile_positions(self.unit, ctx, getattr(ctx, "board", None)):
+                if p in occ:
+                    u = occ[p]
+                    break
         if u is None:                                  # mirror `unit == null -> liste VIDE`
             return []
         return list(fn(u) or [])

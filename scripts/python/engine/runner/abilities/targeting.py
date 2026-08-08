@@ -762,16 +762,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 18
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 15
     #       dont hors-bloc (tete de table) ..... 4
-    #       dont bloc du pool (#433-r4) ........ 14
+    #       dont bloc du pool (#433-r4) ........ 11
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
-    #       FLAGS-DIRECTS  ..................... 7
+    #       FLAGS-DIRECTS  ..................... 4
     #       PRESET+FLAGS   ..................... 4
     #       PRESET-SEUL    ..................... 0
     #       STATIC-COPY    ..................... 7
-    #       (somme = 18)
+    #       (somme = 15)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -836,10 +836,14 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile avant
     #   migration et est bit-identique a celui qui vivait ici
     #   (`.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x1040, 0, 0)`).
-    # 1061 UnbreakableDuty -- `...Active.Loki.UnbreakableDutyAbility$$.ctor` :
-    #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x8400, 0, 0)`.
-    ActiveAbilityType.UnbreakableDuty: TargetingOptions(rules=TR.TargetIsFriendly | TR.CasterIsPossibleTarget, self_cast=True,  # 1061
-                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
+    # 1061 UnbreakableDuty : MIGRE vers `ABILITY_CLASSES` (#572) -- sa face COMBAT est desormais
+    #   portee (`abilities/blacktemplars.py::UnbreakableDutyAbility.TARGETING_OPTIONS`), donc le
+    #   CONTRAT DE DISJONCTION impose de retirer sa ligne d'ici. Le ctor a ete RELU au decompile
+    #   avant migration et la valeur qui vivait ici est CONFIRMEE champ pour champ :
+    #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x8400, 0, 0)` -- `selfCast = True`,
+    #   `range` = FROM_CONFIG (`constants.range` = 2), `forceMeleeTarget = 1` (RangedBool.False),
+    #   `rules` = `TargetIsFriendly | CasterIsPossibleTarget`. C'est la SOURCE qui bouge, jamais la
+    #   valeur.
     # 1087 ExemplarOfTheKauyon -- MIGRE (#488) sur `runner/abilities/tau.py::ExemplarOfTheKauyonAbility.TARGETING_OPTIONS`
     #   avec sa face COMBAT ; contrat de disjonction ci-dessus.
     # 1121 ItItches : MIGRE vers `ABILITY_CLASSES` (#550) -- sa face COMBAT est desormais portee

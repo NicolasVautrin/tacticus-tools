@@ -254,7 +254,23 @@ class ChangeStat(AbilityBehaviour):
 
     `amount` = int OU callable `(entities, ectx) -> int` (mag calculee LIVE, ex. `extraCritDmg x nbFree`
     lu POST-move). `source` = cle de source PARTAGEE entre l'add et le revert (revert exact par-source).
-    Emet 'ChangeStat'. PUR (stop=False)."""
+    Emet 'ChangeStat'. PUR (stop=False).
+
+    HEALTH (5) est une stat FILL-UP (`HealthComponent`, PAS un `StatComponent`) -- meme fait, meme
+    foyer que les deux feuilles voisines `SetHealth` (mode 0 SetAbsolute) et `SubtractHealthPercent`
+    (mode 3 Subtract), qui mutent toutes deux `hc.hp` DIRECTEMENT. Le mode 2 la traverse donc par la
+    MEME porte : le natif construit `StatModifier(Position(Health, Current), GetStat(Health) +
+    delta)` (branche `iVar1 == 2` de `IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute`
+    -- une valeur ABSOLUE, pas un delta) puis `DSLBehaviors$$Transform` => `hc.hp = hp + delta`.
+    Router HEALTH vers `apply_change_stat` ecrirait dans `ctx.stats[5]`, que RIEN ne relit pour les
+    PV : le soin serait SILENCIEUSEMENT perdu. Unique porteur a ce jour : `1061 UnbreakableDuty`
+    (#572, le « +extraHp de PV COURANTS » qui accompagne le +extraHp de PV MAX).
+    AUCUN clamp sur `hp_max`, et c'est DELIBERE : le natif clampe contre un maximum qui vient d'etre
+    RELEVE du meme montant par l'`AddStaticStatModifierEffectToOwner(HEALTH)` qui le PRECEDE dans la
+    meme sequence -- le clamp natif est donc INERTE sur ce call-site. Cote port,
+    `HealthComponent.hp_max` est un CHAMP FIGE que les stat-mods HEALTH (qui vivent dans `ctx.stats`)
+    ne relevent PAS : clamper ici introduirait un ecart que le natif n'a pas. Le residu est l'absence
+    de propagation stat-mod HEALTH -> `hp_max` (#572-r1), pas ce non-clamp."""
     __slots__ = ("target_sel", "stat_type", "mode", "source", "amount")
 
     def __init__(self, target_sel: TargetsSelector, stat_type: int, mode: str, source, amount=0):
@@ -274,7 +290,15 @@ class ChangeStat(AbilityBehaviour):
                 ectx.emit("ChangeStat", unit=uid, stat=self.stat_type, mode="revert", value=val)
             else:                                         # ChangeStat mode 2 (Add)
                 amt = int(self.amount(entities, ectx) if callable(self.amount) else self.amount)
-                val = apply_change_stat(state, uid, self.stat_type, self.source, amt)
+                if self.stat_type == int(StatType.HEALTH):    # stat FILL-UP -> HealthComponent (cf. docstring)
+                    e = state.get_entity(uid)
+                    hc = e.get_component(HealthComponent) if e is not None else None
+                    if hc is None or hc.hp is None:
+                        continue
+                    val = int(hc.hp) + amt                    # `GetStat(Health) + delta`, valeur ABSOLUE
+                    hc.hp = val
+                else:
+                    val = apply_change_stat(state, uid, self.stat_type, self.source, amt)
                 ectx.emit("ChangeStat", unit=uid, stat=self.stat_type, mode="add", amount=amt, value=val)
         return OperationResult.ok()
 

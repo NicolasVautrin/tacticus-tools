@@ -111,7 +111,9 @@ from .loki.status import (
     WaaaghExtraHitsEffect, WaaaghExtraMovementEffect
 )
 from .loki.structural_analyser import StructuralAnalyserVisualEffect
-from .loki.unbreakable_duty import UnbreakableDutyDamageEffect, UnbreakableDutyHealthEffect
+from .loki.unbreakable_duty import (
+    UnbreakableDutyDamageEffect, UnbreakableDutyDamageReductionEffect, UnbreakableDutyHealthEffect
+)
 from .loki.until_of_end_turn import UntilOfEndTurnEffect
 from .loki.visions_of_heresy import (
     VisionsOfHeresyExtraPierceMeleeEffect, VisionsOfHeresyExtraPierceRangedEffect
@@ -473,6 +475,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # retrait apparait). Cf. `entities/effects/loki/unbreakable_duty.py`.
     "UnbreakableDuty_Health": UnbreakableDutyHealthEffect,
     "UnbreakableDuty_Damage": UnbreakableDutyDamageEffect,
+    # UnbreakableDuty (suite) -- l'AURA de reduction, posee INCONDITIONNELLEMENT par le cast
+    # (`AddEffect(0x449 = 1097, AbilityStateReference, Owner@+0x30, TurnsFromRounds(1))`). Elle vit
+    # sur le CASTER et se PROJETTE sur `Owner + SurroundingFriends(Owner, ConfigConst(range) = 2)`
+    # via `UnbreakableDuty_DamageReductionEffect$$CreateTargetSelector` -> DEUX canaux
+    # (`create_effect_damage_malus_for_defense` pour la patte SELF,
+    # `create_aura_defense_damage_malus_for_ally` pour la patte projetee). Sans cette ligne, 1097
+    # se materialisait en `BaseEffect` NU : present dans `decisionView.effects`, contribuant ZERO.
+    "UnbreakableDuty_DamageReduction": UnbreakableDutyDamageReductionEffect,
     # ShockAssault_Buff (0x3e8 = 1000, #366-r1) -- le « +Damage for this attack » que le PASSIF
     # `ShockAssault` d'`ultraInceptorSgt` pose sur ses Inceptors avant de les faire attaquer
     # (`ShockAssaultAbility$$CreateBehaviour` = `AddStaticStatModifierEffect(<Inceptors amis

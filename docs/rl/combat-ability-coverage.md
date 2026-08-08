@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **134**
-- **NO-OP silencieux** (a porter) : **41**
-- Ventilation NO-OP : **DAMAGE**=20, **EFFECT/BUFF**=14, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **135**
+- **NO-OP silencieux** (a porter) : **40**
+- Ventilation NO-OP : **DAMAGE**=20, **EFFECT/BUFF**=13, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (41)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (40)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -56,7 +56,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1217 | TheLionsWrath | DAMAGE(Power) | 1 | N |
 | 1210 | ExemplarOfTheMontka | EFFECT/BUFF | 6 | LN |
 | 1101 | AttemptedPossession | EFFECT/BUFF | 5 | LN |
-| 1061 | UnbreakableDuty | EFFECT/BUFF | 4 | LN |
 | 1049 | CrusadeOfWrath | EFFECT/BUFF | 3 | LN |
 | 1010 | StormOfFlensingBlades | EFFECT/BUFF | 3 | N |
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
@@ -76,7 +75,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (134)
+## PORTED (registry) (135)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -184,6 +183,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1025 | SkyStrike | EFFECT/BUFF | 5 | LN |
 | 1003 | DeathFromAbove | EFFECT/BUFF | 4 | LN |
 | 1011 | TunnelingHorror | EFFECT/BUFF | 4 | NS |
+| 1061 | UnbreakableDuty | EFFECT/BUFF | 4 | LN |
 | 1140 | ExemplarOfHate | EFFECT/BUFF | 3 | LN |
 | 1186 | WallOfMirrors | EFFECT/BUFF | 2 | NS |
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
