@@ -186,6 +186,21 @@ def test_mutation_disposition_nullable_re_supposee_rougit():
     assert any("off + 8" in m for m in ko), ko
 
 
+def test_mutation_copie_locale_du_foyer_rougit():
+    """#347-r3 -- une COPIE locale de `nullableLayoutOf` doit ROUGIR.
+
+    Le foyer unique est `internals.ts` (#579-r1, MEME defaut sur `readAbilityState`). La
+    premiere reparation de ce capteur en avait ecrit une seconde ; deux exemplaires d'une meme
+    parade derivent en silence."""
+    ko = _muter(SNAPSHOT,
+                "const lay = nullableLayoutOf(movementComponentClass, f.name);",
+                "function nullableLayoutOf(k, n) { return null; }\n"
+                "        const lay = nullableLayoutOf(movementComponentClass, f.name);",
+                P.etape4_mouvement)
+    assert ko, "une copie locale du foyer doit ROUGIR l'etape 4"
+    assert any("COPIE locale" in m for m in ko), ko
+
+
 def test_mutation_cause_de_mutisme_retiree_rougit():
     """Les quatre causes doivent rester DISTINCTES : `{tiles: null}` pour tout a coute une
     fenetre entiere -- la mesure disait « muet » sans dire de quoi."""

@@ -3,12 +3,10 @@
  *  Scinde de rpc-view.ts (2026-07-11, >2300 l. — seuil ~1000 l.) ; l'API RPC est
  *  INCHANGEE (memes noms ctx.rpc.*), agregee par registerView (rpc-view.ts). */
 import {
-    class_get_element_class, class_get_fields, class_get_name, class_get_namespace,
-    class_instance_size,
-    class_is_valuetype, field_get_name, field_get_offset, field_get_type,
-    findClass, findClassAnywhere, findMethod,
-    fieldOffsetOr, findMethodByParamClasses, findMethodByParamCount, getFieldInfo, getFieldOffset,
-    readIl2cppString, s, type_get_class_or_element_class,
+    class_get_element_class, class_get_name, class_get_namespace, class_instance_size,
+    class_is_valuetype, findClass, findClassAnywhere, findMethod,
+    fieldOffsetOr, findMethodByParamClasses, findMethodByParamCount, getFieldOffset,
+    readIl2cppString, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { dumpEnum } from "../../il2cpp/enum-dump.js";
@@ -37,7 +35,8 @@ import {
     entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getTurnsFinishedMi,
     getUnitMainTile,
     invokeBool, invokeInt, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
-    mowAbilityTypes, readAbilityState, readTileCoord, readTurnsEnded, resolveDpq, servicesOff,
+    mowAbilityTypes, nullableLayoutOf, readAbilityState, readTileCoord, readTurnsEnded, resolveDpq,
+    servicesOff,
     summarize, turnsEndedLayout, unitAbilityTypes,
     unitExtClass,
 } from "./internals.js";
@@ -1524,52 +1523,17 @@ const MOVEMENT_POS_FIELDS: ReadonlyArray<{ key: string; name: string; fallback: 
 // ÉNUMÈRE les champs : `value` et `hasValue` y donnent leurs offsets. Aucune des deux
 // dispositions n'est écrite dans ce fichier.
 //
-// ⚠ Les offsets rendus par `field_get_offset` sur un ValueType incluent le header d'objet BOXÉ
-// (0x10) — même convention que la taille publiée par `classes.tsv`. On le retranche, et on publie
-// les DEUX (brut et corrigé) pour qu'un lecteur puisse contredire ce retranchement.
-interface NullableLayout {
-    valueOff: number; hasValueOff: number;
-    rawValueOff: number; rawHasValueOff: number;
-    derived: boolean; note: string;
-}
-
-/** Disposition du `Nullable<T>` porté par `<klass>.<fieldName>`, LUE dans les métadonnées.
- *  `derived: false` = la dérivation a échoué ; on ne devine PAS de repli, l'appelant le dira. */
-function nullableLayoutOf(klass: NativePointer, fieldName: string): NullableLayout | null {
-    const BOX_HEADER = 0x10;
-    try {
-        const fi = getFieldInfo(klass, fieldName);
-        if (!fi) return null;
-        const ty = field_get_type(fi) as NativePointer;
-        const nullableClass = type_get_class_or_element_class(ty) as NativePointer;
-        if (nullableClass.isNull()) return null;
-        const it = Memory.alloc(Process.pointerSize); it.writePointer(ptr(0));
-        let rawValue = -1; let rawHas = -1; const noms: string[] = [];
-        let f: NativePointer;
-        while (!(f = class_get_fields(nullableClass, it) as NativePointer).isNull()) {
-            const nom = s(field_get_name(f) as NativePointer);
-            const off = field_get_offset(f) as number;
-            noms.push(nom + "@" + off);
-            // Les deux champs de `System.Nullable<T>` s'appellent `value` et `hasValue` (casse
-            // variable selon la version d'IL2CPP) — on compare en minuscules plutôt que de figer.
-            const bas = nom.toLowerCase();
-            if (bas === "value") rawValue = off;
-            else if (bas === "hasvalue" || bas === "has_value") rawHas = off;
-        }
-        if (rawValue < 0 || rawHas < 0) {
-            return { valueOff: -1, hasValueOff: -1, rawValueOff: rawValue, rawHasValueOff: rawHas,
-                derived: false, note: "champs Nullable non trouves : [" + noms.join(", ") + "]" };
-        }
-        return {
-            valueOff: rawValue - BOX_HEADER, hasValueOff: rawHas - BOX_HEADER,
-            rawValueOff: rawValue, rawHasValueOff: rawHas,
-            derived: true, note: "[" + noms.join(", ") + "]",
-        };
-    } catch (e) {
-        return { valueOff: -1, hasValueOff: -1, rawValueOff: -1, rawHasValueOff: -1,
-            derived: false, note: "exception : " + (e as Error).message };
-    }
-}
+// ⚠ **ON NE RE-DÉRIVE RIEN ICI** : `nullableLayoutOf` vit dans `./internals.js`, posé par
+// `#579-r1` sur EXACTEMENT le même défaut (`readAbilityState` lisait `hasValue` à `+4` et
+// publiait le bit à la place de la valeur — deux casts d'une même bataille rendaient tous deux
+// `unresetedLastTurnUsed = 1`, ce qu'un compteur MONOTONE ne peut pas faire). La première
+// réparation de ce capteur-ci en écrivait une SECONDE copie ; elle est retirée, et la fonction
+// d'`internals` est exportée. Deux exemplaires de la même parade, c'est le patron que
+// `case-287-r12` a déjà eu à défaire en trois exemplaires.
+//
+// Ce que le foyer rend : `{ hasValueOff, valueOff }` DÉJÀ corrigés du header d'objet BOXÉ (0x10),
+// ou `null` si la disposition n'est pas résolue — auquel cas on répond « PAS MESURÉ », jamais une
+// lecture à une convention devinée.
 
 /** Ce que le capteur a RÉSOLU — publié au niveau réponse (tri-état). */
 function movementLayout(): Record<string, unknown> {
@@ -1617,9 +1581,8 @@ function readMovementPositions(
             try { raw.push(cp.add(off + i * 4).readU32()); } catch { raw.push(-1); }
         }
         const lay = nullableLayoutOf(movementComponentClass, f.name);
-        if (!lay || !lay.derived) {
-            out[f.key] = { raw, tiles: null, decode: "layout-not-derived",
-                layoutNote: lay ? lay.note : "getFieldInfo/type non resolus" };
+        if (!lay) {
+            out[f.key] = { raw, tiles: null, decode: "layout-not-derived" };
             continue;
         }
         let hasValue = false;

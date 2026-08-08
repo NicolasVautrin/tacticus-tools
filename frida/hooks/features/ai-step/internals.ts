@@ -193,12 +193,19 @@ export const abUnresetedLastTurnUsedOff = componentsActiveAbilityClass
  *  supposée : `champ -> type -> classe Nullable`1 -> offsets de ses champs `hasValue`/`value``.
  *  C'est déjà le patron de `game/match-state.ts` pour `UnitComponent.DeathReason`.
  *
+ *  ⚠ **EXPORTÉ (#347-r3) — FOYER UNIQUE, et il l'est devenu parce qu'une COPIE avait repoussé.**
+ *  Le capteur de mouvement d'`actorStats` (`rpc-snapshot.ts`) supposait `hasValue` à `+8` et
+ *  sortait `tiles: null` sur ses quatre champs à la fenêtre du 2026-08-08 ; sa première
+ *  réparation ré-écrivait ICI, en local, la même résolution par réflexion. Deux exemplaires de
+ *  la même parade, c'est le patron que `case-287-r12` a déjà eu à défaire en TROIS exemplaires.
+ *  Tout nouveau lecteur de `Nullable<T>` consomme CETTE fonction.
+ *
  *  ⚠ `il2cpp_field_get_offset` sur un VALUE TYPE rend l'offset BOXÉ (header 0x10 inclus) →
  *  on soustrait `0x10` pour l'offset INLINE dans la struct.
  *
  *  `null` = disposition non résolue → l'appelant répond « PAS MESURÉ », jamais une lecture
  *  à une convention devinée. */
-function nullableLayoutOf(klass: NativePointer | null, fieldName: string): {
+export function nullableLayoutOf(klass: NativePointer | null, fieldName: string): {
     hasValueOff: number; valueOff: number;
 } | null {
     if (!klass) return null;

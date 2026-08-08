@@ -233,6 +233,17 @@ def etape4_mouvement() -> list:
     if "nullableLayoutOf" not in snap:
         ko.append("la disposition du `Nullable<T>` n'est plus DERIVEE des metadonnees "
                   "(`nullableLayoutOf`) -- elle serait de nouveau SUPPOSEE (#347-r3)")
+    # FOYER UNIQUE. `nullableLayoutOf` vit dans `internals.ts` (pose par #579-r1 sur le MEME
+    # defaut) ; la premiere reparation de ce capteur en avait ecrit une SECONDE copie ici. Une
+    # parade en deux exemplaires derive en silence -- c'est le patron que `case-287-r12` a eu a
+    # defaire en TROIS exemplaires.
+    if "function nullableLayoutOf" in snap:
+        ko.append("une COPIE locale de `nullableLayoutOf` est revenue dans rpc-snapshot.ts : "
+                  "le foyer unique est `internals.ts` (#579-r1)")
+    internals = _code_seul(_lire(HOOKS / "features" / "ai-step" / "internals.ts"))
+    if "export function nullableLayoutOf" not in internals:
+        ko.append("`internals.ts` n'EXPORTE plus `nullableLayoutOf` -- le capteur de mouvement "
+                  "ne peut plus le consommer et une copie va repousser (#347-r3)")
     if "off + 8" in snap:
         ko.append("`off + 8` est REVENU dans le capteur de mouvement : c'est la disposition "
                   "SUPPOSEE que #347-r3 a retiree (`match-state.ts` mesure hasValue EN PREMIER "

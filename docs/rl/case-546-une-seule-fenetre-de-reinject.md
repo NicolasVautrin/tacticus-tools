@@ -328,13 +328,32 @@ pour **quatre** causes distinctes (méthode non résolue, invocation levée, lis
 fausse). La mesure disait « muet » sans dire de quoi — le défaut de tri-état que ce dépôt reproche
 partout ailleurs.
 
-Correctif livré (`#347-r3`), et il ne CHOISIT pas la disposition, il la **LIT** — comme le natif,
-qui calcule l'adresse de `hasValue` depuis les métadonnées : le champ porte son `Il2CppType`, dont
-la classe est le `Nullable<UnitPositionId>` inflaté, dont on énumère les champs `value` /
-`hasValue`. S'y ajoutent les **16 octets bruts** publiés quoi qu'il arrive (la seule donnée qui
-survive à une erreur de disposition, donc la seule qui permette de la corriger sans réinjecter) et
-la **cause** nommée (`layout-not-derived` / `hasValue-unreadable` / `no-ToTileList` / `null-list` /
-`threw` / `ok`).
+### 6.4 L'hypothèse est CONFIRMÉE par un autre agent, sur un autre foyer — et la parade existait
+
+En cherchant à réparer, le travail de **`#579-r1`** est apparu dans la sélection de `probe_457` :
+`readAbilityState` (`internals.ts`) avait **exactement** le même défaut, mesuré le 2026-08-04 —
+il lisait les `Nullable<int>` d'`ActiveAbility` à `{ value @+0 ; hasValue @+4 }`, et deux casts
+d'une même bataille publiaient tous deux `unresetedLastTurnUsed = 1`, ce qu'un compteur
+**monotone** ne peut pas faire : le `1` publié était le bit `hasValue`. Sa conclusion, lue dans
+les métadonnées ET au décompilé : **`System.Nullable\`1` déclare `hasValue` PUIS `value`**.
+
+Deux voies indépendantes, deux foyers différents, la même disposition. Et la même signature :
+« les prédicats de PRÉSENCE coïncidaient par accident » — mot pour mot le « le drapeau marche par
+accident » du §6.3.
+
+⚠ **Corollaire, et c'est une faute que j'ai commise avant de la voir** : `#579-r1` avait déjà posé
+la parade — un `nullableLayoutOf` par réflexion dans `internals.ts`. Ma première réparation en a
+écrit une **SECONDE copie**, homonyme, dans `rpc-snapshot.ts`. C'est le patron que `case-287-r12` a
+eu à défaire en **trois** exemplaires, et il se recrée par imitation. La copie est retirée, la
+fonction d'`internals.ts` est **exportée**, et le cliquet garde les deux crans : `function
+nullableLayoutOf` interdit dans `rpc-snapshot.ts`, `export function nullableLayoutOf` exigé dans
+`internals.ts`.
+
+Le correctif ne CHOISIT donc pas la disposition, il la **LIT** — comme le natif, qui calcule
+l'adresse de `hasValue` depuis les métadonnées. S'y ajoutent les **16 octets bruts** publiés quoi
+qu'il arrive (la seule donnée qui survive à une erreur de disposition, donc la seule qui permette
+de la corriger sans réinjecter) et la **cause** nommée (`layout-not-derived` /
+`hasValue-unreadable` / `no-ToTileList` / `null-list` / `threw` / `ok`).
 
 ---
 
