@@ -152,6 +152,36 @@ La pose **refuse**, elle n'échoue pas silencieusement. Cohérent avec l'alignem
 (`PlayerPower` 1912587, 5/5) et avec le fait que `PutIntoHand` — l'étape qui libère la pose —
 est justement celle qui faute.
 
+## ✅ L'ÉQUIPE SE COMPOSE — `TryPlaceUnitOnBoard` SUFFIT, `PutIntoHand` EST INUTILE
+
+Le `false` n'était **que** l'alignement plein. Vidé par le bouton `Clear` (prouvé par le
+témoin : `PlayerPower` 1912587 → 0), la même pose rend **`true`** :
+
+| unité | posée | `PlayerPower` |
+|---|---|---|
+| `bloodDante` | `true` | 453 134 |
+| `ultraTitus` | `true` | 661 343 |
+| `custoTrajann` | `true` | 1 004 555 |
+| `templHelbrecht` | `true` | 1 392 041 |
+| `astraYarrick` | `true` | 1 708 392 |
+| `admecDominus` | **`false`** | inchangé — plafond de 5 |
+| `bloodMephiston` | **`false`** | inchangé |
+
+⇒ **Composer l'équipe soi-même est ACQUIS**, sans présélection, sans souris, sans UI (hors le
+`Clear`). L'appel est
+`fsmStateInvoke({target: "_actions._hud", method: "UnitDeployment_TryPlaceUnitOnBoard",
+args: ["<unitId>", false]})`.
+
+⚠ **Et `PutIntoHand` n'est PAS sur le chemin.** Il faute toujours (id réel), mais il ne sert
+qu'à l'étape visuelle « unité en main » du geste HUMAIN — le portrait qu'on traîne. La pose
+directe ne passe pas par lui. Une panne qu'on croyait bloquante ne l'était pas : c'est la
+DEUXIÈME fois dans cette fiche qu'un verrou supposé se dissout (après « le roster est
+tronqué »).
+
+⚠ **Les unités du joueur ne sont TOUJOURS PAS des entités ECS en `Setup`** : `observeBattle`
+reste à 12 unités, toutes ennemies, alors que cinq héros sont bel et bien dans l'alignement.
+Le témoin de composition est `PlayerPower`, pas l'ECS.
+
 Le décodeur lit la charge utile à `+0x10` de l'objet BOXÉ (en-tête de 0x10 sur tout
 ValueType), et **dit ce qu'il ne sait pas lire** : type non couvert ⇒ `decode: false` avec le
 nom du type et le pointeur brut, plutôt qu'une lecture plausible. Les deux exports
