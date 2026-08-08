@@ -12,7 +12,10 @@
 # bornera. Ce qui est garde ici, ce n'est pas le zero : c'est qu'on sache toujours
 # QUI se derobe, et sur quel motif.
 #
-# 3 fichier(s).
+# 6 fichier(s).
+scripts/python/tests/engine/runner/test_287r14r1_resolution_tile_target_offline.py
+scripts/python/tests/test_287r13r1_refus_roster_offline.py
+scripts/python/tests/test_431r1_globs_non_recursifs_offline.py
 scripts/python/tests/test_457_r8_selection_par_diff_offline.py
 scripts/python/tests/test_464_sibling_script_offline.py
 scripts/python/tests/test_486r24_bypass_confrontation_offline.py

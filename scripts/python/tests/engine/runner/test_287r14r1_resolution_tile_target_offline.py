@@ -32,6 +32,12 @@ DECLENCHEUR = {
     "raison": "Il garde le cliquet #287-r14-r1 et l'invariant qu'il tient : toute entree neuve "
               "du registre d'abilities, et tout masque `TARGETING_OPTIONS` re-lu, peuvent le "
               "faire changer d'avis.",
+    "hors_confrontation":
+        "Deux perimetres qu'une fermeture d'imports ne borne pas : le registre ENTIER "
+        "(`ABILITY_CLASSES` tire les 129 modules d'abilities et leur cascade) et le BALAYAGE de "
+        "tout `.py` versionne, qui recense les appelants directs d'`execute_behaviour` -- ce "
+        "sont des probes et des tests, pas des imports. Les nommer reviendrait a saisir "
+        "l'inventaire que l'etage 2 existe pour deriver.",
 }
 
 

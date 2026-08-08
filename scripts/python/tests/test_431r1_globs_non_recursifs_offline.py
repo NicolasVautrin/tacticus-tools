@@ -32,6 +32,12 @@ DECLENCHEUR = {
     "raison": "Ce fichier garde EXACTEMENT le cliquet #431-r1 : son critere, son exemption de "
               "contre-epreuve et la derivation de son perimetre. Rien d'autre ne le fait "
               "changer d'avis.",
+    "hors_confrontation":
+        "Il BALAIE tout `.py` VERSIONNE (`tracked_py`, 2 287 fichiers) : c'est la propriete "
+        "meme qu'il garde -- le perimetre du cliquet est l'ARBRE, pas une liste de racines "
+        "(lecon de #458, ou une liste laissait 967 fichiers dans un trou MUET). La fermeture "
+        "d'imports ne peut donc pas le borner : nommer les 2 287 chemins reviendrait a "
+        "re-saisir l'inventaire que le cliquet existe pour eviter.",
 }
 
 

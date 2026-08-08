@@ -37,6 +37,11 @@ DECLENCHEUR = {
     "toujours": False,
     "raison": "Il garde le refus dur de `rl_duel.cmd_build` et le recenseur de rayon qui l'a "
               "justifie ; rien d'autre ne peut le faire changer d'avis.",
+    "hors_confrontation":
+        "Le RAYON se mesure en visitant TOUT `.py` versionne qui cite `rl_duel` : c'est "
+        "exactement ce que les trois derniers tests verifient (259 invocations, 245 qui "
+        "montent). La fermeture d'imports ne peut pas borner ce balayage -- et le borner "
+        "fabriquerait le sous-comptage que le refus dur repose sur son absence.",
 }
 
 ENV = "TACTICUS_ALLOW_ROSTER_DEFICIT"

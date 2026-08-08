@@ -34,7 +34,9 @@ DECLENCHEUR = {
     "chemins": ("scripts/python/engine/playbook/non_owner.py",
                 "scripts/python/engine/utilities/tile.py",
                 "scripts/python/engine/runner/operations/spawn.py",
-                "scripts/python/probe_271r5_spawn_non_owner_live.py"),
+                "scripts/python/probe_271r5_spawn_non_owner_live.py",
+                # le harnais de montage : `_build`, `Rpc`, `CountingRng`, `_ok` en viennent
+                "scripts/python/probe_130_placement_sort_rng.py"),
     "build": False,
     "toujours": False,
     "raison": "Il confronte le terme SPAWN non-owner au choix de tuile du jeu : le corps du "
