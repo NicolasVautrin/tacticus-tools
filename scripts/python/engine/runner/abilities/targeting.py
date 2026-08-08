@@ -762,16 +762,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 25
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 24
     #       dont hors-bloc (tete de table) ..... 4
-    #       dont bloc du pool (#433-r4) ........ 21
+    #       dont bloc du pool (#433-r4) ........ 20
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
     #       FLAGS-DIRECTS  ..................... 11
-    #       PRESET+FLAGS   ..................... 6
+    #       PRESET+FLAGS   ..................... 5
     #       PRESET-SEUL    ..................... 0
     #       STATIC-COPY    ..................... 8
-    #       (somme = 25)
+    #       (somme = 24)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -884,10 +884,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   trois commits. `probe_181` restait VERT tout du long -- il verifie qu'un masque EXISTE,
     #   jamais qu'il n'est declare QU'UNE FOIS. Les deux axes sont distincts : jouer le premier
     #   ne dispense pas du second.
-    # 1050 HolyDuel -- `...Active.Loki.HolyDuelAbility$$.ctor` :
-    #   preset `+0x40` (rules 0x4000) puis `.ctor(&opts, &preset, 0x200000000)` -> 0x200004000.
-    ActiveAbilityType.HolyDuel: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject, self_cast=False,  # 1050
-                           range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1050 HolyDuel (preset `+0x40` + flags `0x200000000` -> `0x200004000`) est SORTIE d'ici : sa
+    #   face COMBAT est portee, donc son masque vit sur la classe du registre
+    #   (`engine/runner/abilities/blacktemplars.py::HolyDuelAbility.TARGETING_OPTIONS`). CONTRAT DE
+    #   DISJONCTION, meme migration que 1048 juste au-dessus. Le ctor a ete RELU a cette occasion et
+    #   la valeur qui vivait ici est CONFIRMEE champ pour champ.
     # 1101 AttemptedPossession -- `...Active.Loki.AttemptedPossessionAbility$$.ctor` :
     #   preset `+0x180` (rules 0x4002) puis `.ctor(&opts, &preset, 0x200000002)` -> 0x200004002.
     #   Le `0x2` du litteral etait DEJA dans le preset : c'est le OU qui le dit, pas l'oeil.

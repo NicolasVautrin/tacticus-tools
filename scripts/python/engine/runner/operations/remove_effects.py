@@ -190,7 +190,15 @@ def _remove_sub_effects(state: State, unit_id: int, parent) -> None:
     `EffectsState.on_turn_end` (expiration par le TIMER). Un retrait ANTICIPE -- une feuille
     `RemoveEffect`, un trigger de bond -- laissait donc les enfants DERRIERE lui. Mesure du
     2026-08-05 (#462-r4b-r1-r1-r1-r1-b) : le trigger (b) retirait bien le composite 27, et
-    `[25, 26, 1237]` restaient sur la cible alors que le natif rend une liste VIDE."""
+    `[25, 26, 1237]` restaient sur la cible alors que le natif rend une liste VIDE.
+
+    ⚠ LES ENFANTS NE VIVENT PAS TOUS SUR LE PORTEUR. La liste native `SubEffects@+0x78` porte des
+    ids d'ENTITE-EFFET, sans aucune notion de porteur ; le port, qui lit le lien INVERSE
+    `parent_type`, doit donc balayer TOUS les porteurs que les specs du parent designent.
+    `IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect$$ApplyInternal` pose trois de ses quatre
+    enfants sur l'entite BONDEE (cf. `SubEffectSpec.on_bonded_entity`) : sans ce balayage, retirer
+    1091 laisserait derriere lui le `Taunted` du champion, son `HolyDuel_ExtraDmg` et son
+    `HolyDuel_DmgReduction` -- exactement le vice que ce foyer ferme, une entite plus loin."""
     specs = parent.sub_effects_on_apply()
     if not specs:
         return
@@ -198,11 +206,19 @@ def _remove_sub_effects(state: State, unit_id: int, parent) -> None:
     if eff is None:
         return
     et = int(parent.effect_type)
+    # Porteurs a balayer, DERIVES des specs (jamais ecrits a la main) : celui du parent, plus
+    # l'entite bondee des que le parent declare au moins un enfant `on_bonded_entity`.
+    carriers = [int(unit_id)]
+    bonded = getattr(parent, "bonded", None)
+    if (bonded is not None and int(bonded) != int(unit_id)
+            and any(getattr(s, "on_bonded_entity", False) for s in specs)):
+        carriers.append(int(bonded))
     # COPIE de la liste avant de muter (mirror du `new List<int>(...)` natif).
-    children = [e for e in list(eff.by_unit.get(int(unit_id), []))
-                if not e.consumed and e.parent_type is not None and int(e.parent_type) == et]
-    for child in children:
-        remove_effect_instance(state, int(unit_id), child)
+    for carrier in carriers:
+        children = [e for e in list(eff.by_unit.get(carrier, []))
+                    if not e.consumed and e.parent_type is not None and int(e.parent_type) == et]
+        for child in children:
+            remove_effect_instance(state, carrier, child)
 
 
 def remove_effects_operation(state: State, owner_id: Optional[int], *,

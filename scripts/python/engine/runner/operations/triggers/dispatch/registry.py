@@ -1094,9 +1094,9 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
 # Un MEME effect_type peut aussi entrer DEUX fois : `Taunted_OnlySpecificTargets` arme (a) ET (b),
 # et le natif ajoute alors bien DEUX `Triggered()` distincts a l'`ArraySet` (#462-r4b-r1-r1-r1-r1-b).
 #
-# Le trigger (c) `<+0x738> get_Adjacent` n'est PAS porte : le seul effet qui l'arme est 1091
-# `HolyDuel_Taunt`, que le port ne POSE jamais (l'ability 1050 n'est pas dans `ABILITY_CLASSES`).
-# Sa face NATIVE est mesuree malgre tout -- cf. `bond_removal.py` §5.
+# Le trigger (c) `<+0x738> get_Adjacent` est PORTE depuis que le port pose 1091 `HolyDuel_Taunt` --
+# le SEUL effet de toute la famille a l'armer, et l'ability 1050 qui le pose est desormais dans
+# `ABILITY_CLASSES`. 1091 entre donc lui aussi DEUX fois (gates (a) et (c)). Cf. `bond_removal.py` §5.
 for _bond_et, _bond_cls in bond_removal_registry_entries():
     EFFECT_TRIGGERS.setdefault(_bond_et, []).append(_bond_cls)
 

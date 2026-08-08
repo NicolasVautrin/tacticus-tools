@@ -34,6 +34,7 @@ if _PY not in sys.path:
 
 from engine.entities.effects.loki.damage_reduction import (                 # noqa: E402
     ChronometronExtraDamageEffect, ExemplarOfHateTargetEffect, NeuroparasiteEffect)
+from engine.entities.effects.loki.holy_duel import HolyDuelDmgReductionEffect  # noqa: E402
 from engine.runner.operations.damage import AttackDamageOperation           # noqa: E402
 from engine.services.damage_modifiers import (                              # noqa: E402
     DamageModifiers, apply_all_modifiers)
@@ -50,6 +51,10 @@ PRODUCTEURS_ATTESTES = {
         "#462-r4b-r1-r1 -- bras `chrono`, port 61 == natif 61, contre-modele 950",
     _DR + "NeuroparasiteEffect":
         "#462-r4b-r1-r1 -- bras `neuro`, port 4448 == natif 4448, contre-modele 3888",
+    "entities.effects.loki.holy_duel.HolyDuelDmgReductionEffect":
+        "#549 -- `probe_549_holy_duel.py --step defense` : le champion encaisse le coup de son "
+        "duelliste (il y est CONTRAINT, `ForcedAttackTargetsComponent`), port 1196 == natif 1196, "
+        "contre-modele ECRIT (instance 1093 consommee) 2027",
 }
 
 # --- Bras `chrono` : `Chronometron_ExtraDamage` (1550), profil `Physical` (PiercingRatio = 1). ---
@@ -154,6 +159,10 @@ def test_les_magnitudes_des_producteurs_sont_INTEGRALES():
          {"id": 1, "is_unit": True, "team": 1, "team_by_id": {9: 1}, "traits": ()}),
         (NeuroparasiteEffect, {"damage_profile": "Psychic"},
          {"id": 9, "ability_level": 50, "multiplier": 180}),
+        # #549 -- `HolyDuel_DmgReduction` (1093). Son gate est une EGALITE D'IDENTITE
+        # (`AreEqual(Actor@DSLSelectors+0x40, BondedEntityFromEffect(Effect@0x38))`), donc l'attaquant
+        # du ctx DOIT etre le bonde de l'instance, sans quoi le garde ne mesurerait rien.
+        (HolyDuelDmgReductionEffect, {"is_melee": True}, {"id": 9}),
     ]
     vus = 0
     for cls, kw, att in cas:
@@ -164,6 +173,11 @@ def test_les_magnitudes_des_producteurs_sont_INTEGRALES():
         eff.ability_level = 50
         eff.active_ability_level = 50
         eff.ability_variables_multiplier = 180
+        # #549 -- l'ENTITE BONDEE de l'instance. `HolyDuel_DmgReduction` gate sur
+        # `AreEqual(Actor@DSLSelectors+0x40, BondedEntityFromEffect(Effect@0x38))` : sans elle son
+        # gate reste ferme et le garde ne mesurerait rien (il le DIT, cf. l'assertion suivante).
+        # Inerte pour les trois autres, qui ne lisent pas ce champ.
+        eff.bonded = att.get("id")
         bonus = eff.create_effect_damage_malus_for_defense(attacker_ctx=att, **kw)
         assert bonus is not None, "%s : gate ferme -> le garde ne mesure rien" % cls.__name__
         assert bonus.owner_is_caster is False, (

@@ -1075,21 +1075,39 @@ def _load_effect_parent_links(state: State) -> None:
     instance EST son enfant. Les deux composites du port (`Stunned` 1162 -> 1165/1166/1167,
     `Taunted` 27 -> 25/26/1237) ont d'ailleurs des types d'enfant qu'aucune autre voie ne pose.
 
-    N'ECRASE JAMAIS un `parent_type` deja pose (etat mixte capture + simulation)."""
+    N'ECRASE JAMAIS un `parent_type` deja pose (etat mixte capture + simulation).
+
+    ⚠ UN ENFANT PEUT VIVRE SUR L'ENTITE BONDEE, pas sur le porteur du parent
+    (`SubEffectSpec.on_bonded_entity` -- `IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect$$
+    ApplyInternal` pose trois de ses quatre enfants sur le CHAMPION alors que 1091 vit sur
+    l'ennemi). L'appariement se fait donc dans la liste du porteur DESIGNE PAR LA SPEC, exactement
+    comme la voie de pose."""
     effects = getattr(state, "effects", None)
     if effects is None:
         return
-    for uid, effs in (getattr(effects, "by_unit", None) or {}).items():
+    by_unit = getattr(effects, "by_unit", None) or {}
+
+    def _live_by_type(carrier):
+        out = {}
+        for e in (by_unit.get(int(carrier)) or ()):
+            if not e.consumed and e.effect_type is not None:
+                out.setdefault(int(e.effect_type), e)
+        return out
+
+    for uid, effs in by_unit.items():
         live = [e for e in (effs or []) if not e.consumed]
-        if len(live) < 2:
+        if not live:
             continue
-        by_type = {}
-        for e in live:
-            if e.effect_type is not None:
-                by_type.setdefault(int(e.effect_type), e)
+        by_type = _live_by_type(uid)
         for parent in live:
             for spec in parent.sub_effects_on_apply():
-                child = by_type.get(int(spec.effect_type))
+                if getattr(spec, "on_bonded_entity", False):
+                    bonded = getattr(parent, "bonded", None)
+                    if bonded is None or int(bonded) == int(uid):
+                        continue
+                    child = _live_by_type(bonded).get(int(spec.effect_type))
+                else:
+                    child = by_type.get(int(spec.effect_type))
                 if child is not None and child is not parent and child.parent_type is None:
                     child.parent_type = int(parent.effect_type)
                     # #524-r1 : le BOND descend du parent, ici aussi. Le capteur publie bien
@@ -1099,9 +1117,14 @@ def _load_effect_parent_links(state: State) -> None:
                     # donne (`AddEffectOperation._spawn_sub_effects`). Deux foyers, un seul
                     # invariant -- et c'est le foyer que les tests LIVE traversent, puisqu'ils
                     # chargent leur `State` d'une capture.
+                    # ⚠ Le bond de l'enfant bascule AVEC son porteur : `b__0` (enfant sur le
+                    # porteur du parent) recoit `ctx.<+0x18>` = le bonde du parent, `b__1..b__3`
+                    # (enfants sur le bonde) recoivent `ctx.<+0x20>.Id` = le porteur du parent.
+                    # MEME derivation que la voie de pose (`_spawn_sub_effects`).
                     # N'ECRASE JAMAIS un bond deja pose (meme regle que `parent_type` ci-dessus).
                     if getattr(child, "bonded", None) is None:
-                        child.bonded = getattr(parent, "bonded", None)
+                        child.bonded = (int(uid) if getattr(spec, "on_bonded_entity", False)
+                                        else getattr(parent, "bonded", None))
 
 
 def _load_actor_statistics(state: State, actor_stats: dict) -> None:

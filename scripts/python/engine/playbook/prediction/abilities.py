@@ -159,7 +159,17 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                 # sans gate `IsNormalAttack` -> il
                                                                 # entre AUSSI sur ce vecteur.
                                                                 "tgt_hp": scene.hp(tgt),
-                                                                "tgt_hp_max": scene.hpmax(tgt)})
+                                                                "tgt_hp_max": scene.hpmax(tgt),
+                                                                # `Target@0x60` lu en IDENTITE :
+                                                                # gate `AreEqual(Target@0x60,
+                                                                # BondedEntityFromEffect(Effect))`
+                                                                # de `HolyDuel_ExtraDmgEffect`
+                                                                # (1092), sans gate
+                                                                # `IsNormalAttack` -> il entre
+                                                                # AUSSI sur ce vecteur. MEME cle
+                                                                # que la normale et que la face
+                                                                # COMBAT -- pas de fork.
+                                                                "tgt_id": tgt})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)

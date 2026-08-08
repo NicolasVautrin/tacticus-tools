@@ -87,9 +87,6 @@ NON_VERTS_DECLARES = {
     # `origin/master` PUR (`4c3601ac`), et rend `rc=1` la aussi. Ils sont declares ici parce que
     # les NOMMER est precisement ce que ce cliquet existe pour faire -- les taire aurait ete
     # reproduire la faute qu'il garde. Chacun porte son assertion, pas une paraphrase.
-    "tests/engine/runner/test_421_effect_active_gate_offline.py":
-        "`test_the_probe_rail_covers_the_whole_registry` -- 1 failed / 12 passed sur `master` PUR. "
-        "Non diagnostique. Residu #547-r2.",
     "tests/engine/test_448_r1_stormboyz_port_offline.py":
         "`test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE` -- 1 failed / 13 passed sur `master` "
         "PUR. Voisin THEMATIQUE du port de `SwornProtectorAbility$$GetSpawnTile` (#836), qui a "
@@ -99,7 +96,12 @@ NON_VERTS_DECLARES = {
         "`test_le_registre_des_producteurs_d_additif_defenseur_est_COMPLET` -- 1 failed / 6 passed "
         "sur `master` PUR. Meme FAMILLE que les registres a cliquet (`TARGETING_OPTIONS`, "
         "`ABILITY_ATTACK_TYPE`) : un registre que notre propre cadence de portage rouvre. "
-        "Residu #547-r2.",
+        "Residu #547-r2. ⚠ CAUSE RESTANTE NOMMEE depuis #549 : le SEUL producteur non atteste est "
+        "`HeraldOfTheApocalypseExtraDamageEffect` (inscrit au canal par #BL-1020r sans mesure de "
+        "COMBAT). #549 a traverse ce garde en confrontant SON propre producteur "
+        "(`HolyDuelDmgReductionEffect`, `probe_549_holy_duel.py --step defense` : port 1196 == "
+        "natif 1196, contre-modele 2027) : la cadence de portage n'aggrave donc plus ce rouge, "
+        "elle l'a REDUIT a son cas d'origine.",
     "tests/engine/test_498r4_face_decision_is_displaceable_offline.py":
         "`test_le_recenseur_ne_credite_pas_une_condition_seulement_CITEE` -- 1 failed / 9 passed "
         "sur `master` PUR (`afc1ef09`). ARRIVE PENDANT CETTE TRANCHE, par un merge posterieur au "
@@ -114,6 +116,15 @@ NON_VERTS_DECLARES = {
 # le CRAN 2 l'a fait sortir au rebase suivant. C'est exactement le cycle de vie qu'une ligne d'ici
 # doit avoir : entrer parce qu'un rouge est MESURE, sortir des qu'il ne l'est plus -- et le cliquet
 # qui l'exige est ce qui empeche la liste de devenir une allowlist.
+#
+# ⚠ DEUXIEME SORTIE, meme cycle : `tests/engine/runner/test_421_effect_active_gate_offline.py`
+# (`test_the_probe_rail_covers_the_whole_registry`, 1 failed / 12 passed) est retire par **#549**,
+# qui l'a DIAGNOSTIQUE en jouant le garde : `HeraldOfTheApocalypseExtraDamageRemove` etait inscrit
+# dans `EFFECT_TRIGGERS` sans rail declare dans `probe_229.RAIL` (#BL-1020r). Rail LU --
+# `IdunBattle.Entities.Effects.Loki.HeraldOfTheApocalypse_ExtraDamageEffect$$
+# CreateRemoveEffectTrigger` existe dans `frida/methods.tsv`, et la classe n'a AUCUN
+# `CreateTargetTrigger` -> ARRAYSET. Le fichier est VERT ; la ligne devait donc sortir, sans quoi
+# elle aurait masque son prochain rouge.
 
 
 class MontageImpossible(RuntimeError):

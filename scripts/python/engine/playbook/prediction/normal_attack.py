@@ -641,7 +641,15 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # sur les PV de la CIBLE DU COUP. MEMES cles que la face COMBAT
                 # (`damage_model.attacker_modifiers`) -- pas de fork.
                 "tgt_hp": scene.hp(tgt_id),
-                "tgt_hp_max": scene.hpmax(tgt_id)}
+                "tgt_hp_max": scene.hpmax(tgt_id),
+                # `Target@DSLSelectors+0x60` lu en IDENTITE, pas en position : le gate
+                # `AreEqual(Target@0x60, BondedEntityFromEffect(Effect@0x38))` de
+                # `IdunBattle.Entities.Effects.Loki.HolyDuel_ExtraDmgEffect$$
+                # CreateEffectDamageBonusForAttack` (1092) compare deux ENTITES. Le contexte portait
+                # deja ce meme noeud sous trois autres lectures (`t_pos`, `tgt_team`, `tgt_hp`) ; il
+                # lui manquait l'id. MEME cle et MEME semantique que la face COMBAT
+                # (`damage_model.attacker_modifiers`) et que le canal AURA -- pas de fork.
+                "tgt_id": tgt_id}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,
