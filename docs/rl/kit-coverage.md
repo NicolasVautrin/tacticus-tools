@@ -37,20 +37,20 @@
 | EmperorsChildren | 4 | 5 |
 | Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
-| BlackTemplars | 4 | 4 |
 | LeaguesOfVotann | 4 | 4 |
 | ThousandSons | 3 | 4 |
 | AdeptusMechanicus | 3 | 3 |
 | Aeldari | 3 | 3 |
 | AstraMilitarum | 3 | 3 |
 | BlackLegion | 3 | 3 |
+| BlackTemplars | 3 | 3 |
 | Custodes | 3 | 3 |
 | Orks | 2 | 3 |
+| Tyranids | 3 | 3 |
 | WorldEaters | 3 | 3 |
 | AdeptusAstartes | 1 | 2 |
 | Genestealers | 2 | 2 |
 | Tau | 1 | 2 |
-| Tyranids | 2 | 2 |
 
 ## Par faction (kits avec du travail)
 
@@ -92,13 +92,12 @@
 | blackHaarken | 1 | HeraldOfTheApocalypse(1020) [CD] OK | HeadClaimer | - |
 | blackPossession | 1 | Incursion(1021) [CD] OK | Possession | - |
 
-### BlackTemplars — 4 kits, 4 items
+### BlackTemplars — 3 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | templAggressor | 1 | FragstormGrenadeLauncher(1048) [CD] OK | Boltstorm | - |
 | templAncient | 1 | UnbreakableDuty(1061) [--] NO-OP EFFECT/BUFF | - | - |
-| templChampion | 1 | HolyDuel(1050) [-D] NO-OP EFFECT/BUFF | - | - |
 | templHelbrecht | 1 | CrusadeOfWrath(1049) [--] NO-OP EFFECT/BUFF | - | - |
 
 ### BloodAngels — 4 kits, 5 items
@@ -201,11 +200,12 @@
 | thousSekhetar | 1 | HeavyWarpFlamer(1227) [CD] OK | PropheticSentinel | - |
 | thousSorcerer | 1 | AttemptedPossession(1101) [--] NO-OP EFFECT/BUFF | - | - |
 
-### Tyranids — 2 kits, 2 items
+### Tyranids — 3 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | tyranBiovore | 1 | BioMinefield(1144) [--] NO-OP SUMMON<br>SporeMineLauncher(1145) [C-] OK | - | - |
+| tyranParasite | 1 | ItItches(1121) [-D] NO-OP SUMMON | - | - |
 | tyranWingedPrime | 1 | AlphaWarrior(1112) [C-] OK | SynapticLinchpin | - |
 
 ### WorldEaters — 3 kits, 3 items
@@ -218,7 +218,7 @@
 
 ## Kits lineup COMPLETS (65)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoAtlacoya, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, emperNoiseMarine, genesKelermorph, genesPatriarch, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
+adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoAtlacoya, custoTrajann, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, emperNoiseMarine, genesKelermorph, genesPatriarch, genesPrimus, necroOverlord, necroSpyder, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templChampion, templSwordBrother, thousAhriman, thousInfernalMaster, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
 
 ## HORS total — voies conditionnelles (42 abilities non portees)
 

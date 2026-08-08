@@ -1,6 +1,7 @@
 """Abilities actives des **Black Templars** (prefixe `templ*`) — face EXECUTION (runner/ECS).
 
 - `FragstormGrenadeLauncher` (1048, `templAggressor` « Brother Burchard ») — #489.
+- `HolyDuel` (1050, `templChampion` « Brother Jaeger ») — cf. le bloc dedie en bas de module.
 
 Les autres actives BT restent hors registre (cf. `docs/rl/case-220/black-templars.md`) ;
 `ThunderousAssault` (1043) vit dans `loki/strike.py` (patron partage), pas ici.
@@ -13,16 +14,20 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.ability_constant_type import AbilityConstantType
+from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.formulas import StatAmount
+from ...entities.behaviours import op_and
 from ...entities.selectors.accessors import ActiveTarget, Owner, Target
+from ...entities.selectors.tiles import Caster
 from ...entities.selectors.units import Damageable, SortByFormula, Sub, SurroundingEnemies
 from ...entities.stats import StatType
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from .base import ActiveAbility, ability_attack_params
-from .behaviours.combat import ChainLeftOverHitsAttackDamage
+from .behaviours.combat import ChainLeftOverHitsAttackDamage, UseActiveAbility
 from .behaviours.context import entities_from_state
-from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions
+from .behaviours.effects import AddBondEffect
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:                       # pragma: no cover
@@ -217,3 +222,147 @@ class FragstormGrenadeLauncherAbility(ActiveAbility):
 # Les deux constantes de config LUES au decompile, nommees (regle « un entier qui DESIGNE passe par
 # un ENUM ») : `GetNumberConstant(0x16)` et `GetNumberConstant(0x2f)`.
 assert int(AbilityConstantType.range) == 0x16 and int(AbilityConstantType.nrOfHits) == 0x2F
+
+
+# =================================================================================================== #
+# HolyDuel (1050, `templChampion` -- Brother Jaeger, HERO Black Templars)
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility$$ExecuteBehaviour` (MIRROR du
+# DECOMPILE, build `rnca9r7q6c`) :
+#
+#   [1] bond   = DSLBehaviors.AddBondEffect( 0x443 = 1091 HolyDuel_Taunt,
+#                                            AbilityStateReference,
+#                                            source       = Caster@DSLSelectors+0x48,
+#                                            targets      = Target@DSLSelectors+0x60,
+#                                            bondedEntity = Caster@DSLSelectors+0x48,
+#                                            options ZEROEES )
+#   [2] attack = DSLBehaviors.UseActiveAbility( subject     = Caster@0x48,
+#                                               targets     = Target@0x60,
+#                                               abilityType = DSLSelectors.UnitNormalAttackType(
+#                                                                 Caster@0x48),
+#                                               source      = Nullable(AbilityOrEffect(...)),
+#                                               <opts>, <opts> )
+#   AActiveAbility.Execute( entities, this, op_BitwiseAnd([1], [2]) )
+#
+# i2 : « Brother Jaeger Taunts an adjacent enemy unit and immediately performs a normal attack
+# against it. Brother Jaeger deals +582 Damage and takes -364 Damage from the target while it's
+# Taunted by him. Brother Jaeger is also Taunted by the target and the taunt does not expire with
+# rounds passed. »
+#
+# LA CATEGORIE ANNONCEE ETAIT FAUSSE, et c'est un RESULTAT : `docs/rl/combat-ability-coverage.md`
+# classait 1050 en EFFECT/BUFF (colonne derivee du `damageProfile` de l'ARME du porteur, pas du
+# behaviour). Le cast FRAPPE bel et bien -- mais par l'attaque NORMALE de l'unite ([2]), pas par une
+# `AttackWithAbilityDamage` : `abilities.HolyDuel` n'a NI `minDmg`/`maxDmg`, NI `nrOfHits`, NI
+# `damageProfile` (gameconfig : deux variables seulement, `extraDmg` et `dmgReduction`). Le +582 de
+# l'i2 n'est PAS le degat du cast : c'est le bonus additif que l'EFFET 1092 verse a chaque attaque du
+# champion contre son duelliste. Meme configuration que `Drachnyen` (1029).
+#
+# TOUT le reste du kit vit dans les EFFETS (`entities/effects/loki/holy_duel.py`) : 1091 est un
+# composite qui pose les quatre sous-effets du duel, dont les DEUX `Taunted` symetriques.
+# =================================================================================================== #
+
+HOLY_DUEL_ID = "HolyDuel"
+HOLY_DUEL_TAUNT = int(EffectType.HolyDuel_Taunt)        # 0x443 = 1091
+
+
+def holy_duel_tree():
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility$$ExecuteBehaviour`
+    (MIRROR 1:1, cf. le bloc de commentaire ci-dessus) :
+
+        op_BitwiseAnd( AddBondEffect(1091, source=Caster, targets=Target, bondedEntity=Caster),
+                       UseActiveAbility(Caster, Target, UnitNormalAttackType(Caster)) )
+
+    - `AddBondEffect(..., duration_rounds=None)` = les options natives ZEROEES (aucun
+      `TurnsFromRounds`) -> `DefaultAmountOfRounds(0x443)`, que
+      `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$
+      DefaultAmountOfRounds` rend NULL (relu : `0x443` sort par la branche `return 0` du switch)
+      -> effet PERMANENT. C'est litteralement l'i2 « the taunt does not expire with rounds passed ».
+    - `bonded_ref=Caster()` = le 5e argument natif (`bondedEntity` = `Caster@0x48`), celui que
+      `AddEffectBehaviour$$GetEffectBuilder` resout puis ecrit dans le composant de bond de
+      l'entite-effet. C'est LUI qui fait tout le duel : `HolyDuel_TauntEffect$$ApplyInternal` le
+      relit pour savoir sur QUI poser les trois sous-effets du champion.
+    - `scale_from_source=True` = le 3e argument natif `abilityState` (`AbilityStateReference` du
+      caster), que l'entite-effet BAKE et que relit `BaseEffect$$GetAbilityState` quand les
+      `ConfigVar` de 1092/1093 s'indexent (`extraDmg`/`dmgReduction` sont tous deux
+      `variablesAffectedByRarityBonus`).
+    - `UseActiveAbility(Caster(), Target())` = la feuille deja portee, specialisee au dispatch
+      d'ATTAQUE NORMALE (`UnitNormalAttackType(Caster)` -> `AttackDamageOperation.execute`,
+      resolveur d'arme par distance).
+
+    ORDRE LOAD-BEARING : le bond est pose AVANT l'attaque (`op_BitwiseAnd` evalue a gauche
+    d'abord), donc le `+extraDmg` de 1092 mord DES le coup de ce cast -- exactement comme
+    `Drachnyen` arme sa triggered avant son attaque. Aucun tirage RNG avant [2] ([1] est
+    deterministe) -> le flux `state.rng` de l'attaque est celui d'une attaque normale nue."""
+    bond = AddBondEffect(HOLY_DUEL_TAUNT, EffectType.HolyDuel_Taunt.name,
+                         source_ref=Caster(), target_ref=Target(),
+                         duration_rounds=None,          # options ZEROEES -> DefaultAmountOfRounds
+                         bonded_ref=Caster(),           # 5e argument natif : `bondedEntity`
+                         scale_from_source=True)        # 3e argument natif : `abilityState`
+    attack = UseActiveAbility(Caster(), Target())       # UnitNormalAttackType(Caster)
+    return op_and(bond, attack)
+
+
+class HolyDuelAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility$$ExecuteBehaviour` (id 1050,
+    `templChampion` « Brother Jaeger », HERO Black Templars) -- cf. le bloc de commentaire.
+
+    Kit gameconfig 1050 : `attackRangeType=Normal`, variables `extraDmg` / `dmgReduction` (les DEUX
+    `variablesAffectedByRarityBonus`). AUCUNE variable de degat propre -> le cast n'a pas d'attaque
+    d'ability, il DISPATCHE l'attaque NORMALE de l'unite.
+
+    OBSERVABLE porte : (1) effet 1091 `HolyDuel_Taunt` pose sur la CIBLE, PERMANENT, bonde au
+    champion ; par cascade de son `ApplyInternal`, (2) `Taunted` (27) sur la cible bonde au champion
+    -- donc `ForcedAttackTargetsComponent(cible) = [champion]` -- et (3) `Taunted` (27) +
+    `HolyDuel_ExtraDmg` (1092) + `HolyDuel_DmgReduction` (1093) sur le CHAMPION, bondes a la cible ;
+    (4) une attaque NORMALE dirigee sur la cible, qui beneficie DEJA du `+extraDmg`.
+
+    Face DECISION deja portee (`playbook/noncomparable/holy_duel.py`, gate `ShouldEvaluate` =
+    `!EnemyMightBeKilledWithNormalAttack`) ; CE port est la face EXECUTION, qui etait un NO-OP
+    SILENCIEUX (1050 absente d'`ABILITY_CLASSES` : `AbilityHandler.visit_ActiveAbilityMessage`
+    l'ignorait -- 0 degat, 0 effet, aucune erreur).
+
+    Renvoie {ability, caster, target, bond, attack, dsl}. Termine le tour (1050 hors des frozensets
+    de `base.py`)."""
+
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.HolyDuel)      # 1050
+    ABILITY_ID = HOLY_DUEL_ID
+
+    # GATE DE CIBLE. `IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility$$.ctor` :
+    #   1. il recopie les 0x40 octets du PRESET STATIQUE `TargetingOptions` `statics+0x40` ;
+    #   2. il passe ce preset a la surcharge **PRESET + FLAGS**
+    #      `TargetingOptions$$.ctor(&opts, &preset, 0x200000000)`, dont la seule difference avec une
+    #      copie pure est `opts.Rules = flags | preset.Rules` ;
+    #   3. puis `AActiveAbility$$.ctor(this, &opts, 0)`.
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit pour le preset `+0x40` :
+    # `+0x68` (= +0x28 relatif) `Rules = 0x4000`, `+0x60` (= +0x20) `forceMeleeTarget = 1`
+    # (`RangedBool.False`) et le `TargetingRange` statique a `onlyAdjacent` (MEME preset que
+    # `Drachnyen` 1029 / `JakhalStimms` 1131 / `KillMaimBurn` 1132 : cible ADJACENTE obligatoire, la
+    # constante de config `range` n'est PAS consultee).
+    # MASQUE EFFECTIF = `0x200000000 | 0x4000` = **0x200004000** =
+    # `TargetIsNotAnObject | TargetIsEnemy`.
+    # ⚠ Le `0x4000` vient du PRESET, pas du litteral visible -- c'est le OU qui le dit. Meme couple
+    # preset/flags que `VexillaMagnifica` (1183) ; `AttemptedPossession` (1101) porte le MEME flag
+    # `0x200000000` sur un AUTRE preset (`+0x180`, rules `0x4002`) et ne vaut donc pas la meme chose.
+    # Coherent avec l'i2 (« an adjacent enemy unit »).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject,
+                                         self_cast=False,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    # `AbilityAttackType` = 3e argument d'`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` = le
+    # litteral `0` (`DirectTargetAttack`), LU au ctor -> transcrit dans la table
+    # `ABILITY_ATTACK_TYPE` (`abilities/attack_type.py`), qui est le registre de cette donnee.
+    # TRANSCRIT, jamais deduit : l'arbre n'attaque PAS « en direct » (il dispatche l'attaque NORMALE
+    # via `UseActiveAbility`), exactement comme `Drachnyen` 1029 -- et le litteral vaut quand meme 0.
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        holy_duel_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        bond = next((p for n, p in ectx.emitted if n == "AddBondEffect"), None)
+        atk = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
+        return {"ability": HOLY_DUEL_ID, "caster": caster_id, "target": target_id,
+                "bond": bond, "attack": atk, "dsl": True}

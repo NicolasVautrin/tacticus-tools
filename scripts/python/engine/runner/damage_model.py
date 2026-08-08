@@ -553,6 +553,14 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
         att_ctx = dict(att_ctx or {})
         att_ctx["marked_effect_types"] = marked_effect_types_for_target(state, unit_id, target_id)
         att_ctx["tgt_grand_alliance"] = grand_alliance_of(state, target_id)
+        # `Target@DSLSelectors+0x60` lu en IDENTITE, pas en position : le gate
+        # `AreEqual(Target@0x60, BondedEntityFromEffect(Effect@0x38))` de
+        # `IdunBattle.Entities.Effects.Loki.HolyDuel_ExtraDmgEffect$$CreateEffectDamageBonusForAttack`
+        # compare deux ENTITES. Le contexte portait deja ce meme noeud sous trois autres lectures
+        # (`t_pos`, `tgt_team`, `tgt_hp`) ; il lui manquait l'id. MEME cle et MEME semantique que le
+        # canal AURA (`_apply_ally_attack_damage_auras`) et que l'axe COUPS
+        # (`attack_hits_context`) -- pas de nouveau vocabulaire.
+        att_ctx["tgt_id"] = int(target_id)
         # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE SELF du slot
         # `CreateEffectDamageBonusForAttack` : ses trois conjoints non-relationnels portent sur
         # l'ATTAQUANT (`HasTrait(Caster@0x48, 0x7ea = Chaos)`), sur la TUILE DE LA CIBLE

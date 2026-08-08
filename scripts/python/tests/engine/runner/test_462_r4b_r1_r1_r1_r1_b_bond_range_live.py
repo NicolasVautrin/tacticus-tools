@@ -25,9 +25,11 @@ TROIS BRAS, TROIS QUESTIONS DISTINCTES
 --------------------------------------
   B. (b) `get_Range` sur l'effet 27 `Taunted_OnlySpecificTargets` -- les DEUX faces, natif et port,
      sur le MEME etat (capture apres le taunt, avant le push).
-  C. (c) `get_Adjacent` sur l'effet 1091 `HolyDuel_Taunt` (`templChampion`, AU POOL) -- face NATIVE
-     seulement : l'ability 1050 n'est pas dans `ABILITY_CLASSES`, donc le port ne pose JAMAIS 1091.
-     Le test le DIT au lieu de le taire, et rougira le jour ou 1050 sera portee.
+  C. (c) `get_Adjacent` sur l'effet 1091 `HolyDuel_Taunt` (`templChampion`, AU POOL) -- les DEUX
+     faces depuis le port de `HolyDuelAbility` (1050). Ce bras etait native-only, et il le DISAIT :
+     son test annoncait qu'il rougirait le jour ou 1050 entrerait dans `ABILITY_CLASSES`. C'est ce
+     qui est arrive ; l'invariant s'est retourne, et le bras vient maintenant de
+     `probe_549_holy_duel.adjacency_bras`, qui mesure le natif ET le port, sur les DEUX duellistes.
   A. (a) `get_RemoveOnBondedEntityDeath` sur ce MEME effet 27 -- effet de BORD de l'entree de table
      (le virtuel vaut `true`), donc confronte lui aussi. Vecteur : le friendly-fire de `FragBomb`
      (1017), dont le splash `AdjacentUnits(Target) - Caster` touche les ALLIES. Les deux bras ne
@@ -74,10 +76,14 @@ def bras_b():
 
 @pytest.fixture(scope="module")
 def bras_c():
-    """(c) : les deux geometries, face NATIVE."""
-    import probe_462_r4b_r1_r1_r1_r1_b_bond_range as P
+    """(c) : les deux geometries, les DEUX faces.
+
+    Le bras vient desormais de `probe_549_holy_duel` : depuis le port de `HolyDuelAbility` (1050),
+    le port POSE 1091, donc la face PORT est confrontable et l'ancien bras native-only ne mesurait
+    plus que la moitie de la question."""
+    import probe_549_holy_duel as P
     sid = _sid()
-    return {m: P.holyduel_bras(sid, m) for m in ("eloigne", "proche")}
+    return {m: P.adjacency_bras(sid, m) for m in ("eloigne", "proche")}
 
 
 @pytest.fixture(scope="module")
@@ -150,28 +156,52 @@ def test_c_natif_retire_le_bond_hors_adjacence_et_le_garde_adjacent(bras_c):
     disparition, contrairement au taunt de `CrushingClaws`)."""
     e, p = bras_c["eloigne"], bras_c["proche"]
     assert e["moved"] and p["moved"], "montage : le push n'a pas eu lieu"
-    assert e["d_before"] == 1 and p["d_before"] == 1
-    assert e["d_after"] == 2 and p["d_after"] == 1
-    assert [t[0] for t in e["before"]] == [1091] and [t[0] for t in p["before"]] == [1091]
-    assert not e["after"], "NATIF : le duel survit a la perte d'adjacence (%s)" % (e["after"],)
-    assert [t[0] for t in p["after"]] == [1091], (
+    assert 1091 in e["nat_before"] and 1091 in p["nat_before"]
+    assert 1091 not in e["nat_after"], (
+        "NATIF : le duel survit a la perte d'adjacence (%s)" % (e["nat_after"],))
+    assert 1091 in p["nat_after"], (
         "CONTROLE ROUGE : le duel tombe alors que l'adjacence est INTACTE")
 
 
-def test_c_le_port_ne_pose_pas_1091_donc_ne_porte_aucun_trigger_c():
-    """PORT : il n'y a RIEN a porter, et ce test le dit au lieu de le taire.
+def test_c_port_suit_le_natif_sur_les_deux_geometries(bras_c):
+    """PORT : `BondRemoveOnAdjacencyLost`, sur l'etat capture APRES le cast et AVANT le push.
 
-    `HolyDuel_TauntEffect` est la SEULE classe qui arme (c), et son `EffectType` 1091 ne vient que
-    de l'ability 1050, absente d'`ABILITY_CLASSES`. Inscrire un trigger (c) serait du code
-    qu'aucun etat ne peut atteindre. Ce test rougira le jour ou 1050 sera portee -- et c'est ce
-    jour-la qu'il faudra ecrire `BondRemoveOnAdjacencyLost` (la mesure native, elle, est deja
-    faite : cf. le bras ci-dessus)."""
+    Ce test est l'INVERSE de celui qui vivait ici. L'ancien tenait l'invariant conditionnel
+    << tant que 1050 n'est pas portee, aucun trigger (c) >> et il est tombe au moment ou
+    `HolyDuelAbility` est entree dans `ABILITY_CLASSES` -- exactement ce qu'il annoncait. Le port
+    POSE desormais 1091, donc la question devient confrontable des DEUX cotes."""
     from engine.runner.abilities.handler import ABILITY_CLASSES
-    assert 1050 not in ABILITY_CLASSES, (
-        "`HolyDuelAbility` est portee : 1091 devient posable offline, le trigger (c) doit exister")
-    assert 1091 not in BOND_REMOVAL_GATES, (
-        "1091 est entre dans la table alors que le port ne le pose pas")
-    assert not [et for et, g in BOND_REMOVAL_GATES.items() if g.adjacent]
+    from engine.runner.operations.triggers.bond_removal import BondRemoveOnAdjacencyLost
+    e, p = bras_c["eloigne"], bras_c["proche"]
+    assert 1050 in ABILITY_CLASSES, "montage : 1050 doit etre portee pour que 1091 soit posable"
+    assert BOND_REMOVAL_GATES[1091].adjacent is True
+    assert BondRemoveOnAdjacencyLost in EFFECT_TRIGGERS.get(1091, [])
+    assert e["port_moved"] and p["port_moved"], "le push offline n'a pas eu lieu"
+    assert 1091 in e["port_before"] and 1091 in p["port_before"]
+    assert 1091 not in e["port_after"], (
+        "PORT : le duel survit hors adjacence alors que le natif le retire (%s)"
+        % (e["port_after"],))
+    assert 1091 in p["port_after"], (
+        "PORT : le duel tombe alors que l'adjacence est INTACTE")
+
+
+def test_c_le_retrait_vide_les_DEUX_duellistes(bras_c):
+    """Le duel est SYMETRIQUE : trois des quatre sous-effets de 1091 vivent sur le CHAMPION
+    (`SubEffectSpec.on_bonded_entity`), donc le retrait du parent doit vider les DEUX porteurs.
+
+    C'est le cran que `_remove_sub_effects` ne pouvait pas tenir avant ce port : il ne balayait que
+    la liste du porteur du parent, et le `Taunted` du champion, son `HolyDuel_ExtraDmg` et son
+    `HolyDuel_DmgReduction` seraient restes derriere lui -- un champion bloque (25), prive
+    d'ability (26) et portant un bonus de degat vers un duelliste qui n'existe plus."""
+    e, p = bras_c["eloigne"], bras_c["proche"]
+    assert e["nat_after"] == [] and e["nat_after_c"] == [], (
+        "NATIF : residu apres la rupture (cible=%s champion=%s)"
+        % (e["nat_after"], e["nat_after_c"]))
+    assert e["port_after"] == [] and e["port_after_c"] == [], (
+        "PORT : residu apres la rupture (cible=%s champion=%s)"
+        % (e["port_after"], e["port_after_c"]))
+    assert p["nat_after_c"] and p["port_after_c"], (
+        "CONTROLE ROUGE : le champion perd ses effets de duel alors que l'adjacence est INTACTE")
 
 
 # ================================================================================================

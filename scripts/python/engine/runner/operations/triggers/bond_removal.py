@@ -182,7 +182,7 @@ est INUTILISABLE ici : les six classes de la famille etaient DEJA materialisees 
 (session partagee, runners d'autres agents). Le pas existe (`--step attrib`) et le DIT.
 
 ================================================================================================
-5. LE TRIGGER (c) `get_Adjacent` -- MESURE au natif, NON PORTE (rien a porter)
+5. LE TRIGGER (c) `get_Adjacent` -- PORTE depuis que le port POSE 1091
 ================================================================================================
 Seul `HolyDuel_TauntEffect` l'arme, c'est-a-dire l'`EffectType 1091 HolyDuel_Taunt` que pose
 `IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility$$ExecuteBehaviour` :
@@ -192,11 +192,17 @@ Seul `HolyDuel_TauntEffect` l'arme, c'est-a-dire l'`EffectType 1091 HolyDuel_Tau
              & UseActiveAbility(caster, target, UnitNormalAttackType(caster), ...) )
 
 Le porteur `templChampion` EST au pool (rank 17), donc la face NATIVE est confrontable et l'est
-(`--step holyduellive`). Mais l'ability 1050 n'est PAS dans `ABILITY_CLASSES` : **le port ne pose
-jamais 1091**. Inscrire un trigger (c) produirait du code qu'aucun etat ne peut atteindre -- le
-piege << vacuously vrai >> du §5 de la fiche. `EffectType 1091` n'entre donc PAS dans la table :
-elle ne contient que des effets que le port POSE. Le jour ou `HolyDuelAbility` sera portee, la
-valeur mesuree est ici, et la classe `BondRemoveOnAdjacencyLost` reste a ecrire.
+(`--step holyduellive`). CE QUI A CHANGE : `HolyDuelAbility` (1050) est entree dans
+`ABILITY_CLASSES`, donc **le port pose desormais 1091** -- l'objection << vacuously vrai >> qui
+tenait ce trigger hors du fichier est levee par la MESURE, pas par un changement d'avis. La ligne
+de `BOND_REMOVAL_GATES` porte les trois virtuels tels que `--step declared` les rend :
+`get_Range` VIDE (pas de (b)), `get_Adjacent` VRAI (le (c), unique dans toute la famille),
+`get_RemoveOnBondedEntityDeath` VRAI (le (a)).
+
+⚠ (c) N'EST PAS (b) A UN SEUIL PRES : `IsInRange` compare une DISTANCE HEX, `IsAdjacent` delegue a
+`BattleQuery$$AreEntitiesAdjacent` -> `MovementUtil$$AreTilesAdjacent`, qui porte une PORTE
+D'ELEVATION et un COURT-CIRCUIT D'IDENTITE et compare les EMPREINTES COMPLETES. Cf. la docstring
+de `BondRemoveOnAdjacencyLost`.
 """
 from __future__ import annotations
 
@@ -206,12 +212,16 @@ import hexgeo
 
 from ...state import State
 from ...components import UnitComponent
+from ...components import get_unit_feet
 from ...abilities.behaviours.context import entities_from_state
 from ...abilities.behaviours.effects import RemoveEffect
 from ....dsl.effects import ExecutionContext
 from ....dsl.event_trigger_type import EventTriggerType
 from ....entities.effect_type import EffectType
 from ....entities.selectors.tiles import Caster
+# Foyer UNIQUE de `BattleQuery$$AreEntitiesAdjacent` (porte d'elevation + court-circuit d'identite
+# + empreintes completes) -- le MEME que le noeud DSL `entities/triggers.py::IsAdjacent`.
+from ....services.battle_query import are_entities_adjacent
 from .base import EffectTrigger, TriggerEvent
 from ...components import PositionComponent
 
@@ -279,6 +289,20 @@ BOND_REMOVAL_GATES: dict[int, BondRemovalGates] = {
     # mesure `--step declared`, confrontee par le bras `deathlive` du probe de ce residu.
     int(EffectType.Taunted_OnlySpecificTargets): BondRemovalGates(
         "IdunBattle.Entities.Effects.TauntedEffect", True, 1, False),
+    # Pose par `HolyDuelAbility$$ExecuteBehaviour` (1050, `templChampion`) sur la CIBLE, avec
+    # `bondedEntity` = le CASTER (`Caster@0x48` en 3e ET en 5e argument d'`AddBondEffect`). Classe
+    # native ETABLIE : c'est `IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect$$ApplyInternal`
+    # qui pose les QUATRE sous-effets du duel (les deux `Taunted` symetriques + 1092 + 1093), et
+    # c'est la seule classe du binaire a porter ce nom.
+    # Mesure `--step declared` du 2026-08-08 : `get_Range` = OWN=none (donc PAS de trigger (b)),
+    # `get_Adjacent` = OWN=true (trigger (c), la SEULE classe de la famille a l'armer),
+    # `get_RemoveOnBondedEntityDeath` = OWN=true (trigger (a)).
+    # C'est ce qui rend l'i2 exact : 1091 n'a AUCUNE duree par defaut
+    # (`StaticBattleRules.Effect$$DefaultAmountOfRounds(0x443)` -> null, relu au decompile), donc
+    # « the taunt does not expire with rounds passed » -- il tombe a la rupture d'ADJACENCE ou a la
+    # mort du bonde, jamais au tour qui passe.
+    int(EffectType.HolyDuel_Taunt): BondRemovalGates(
+        "IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect", True, None, True),
 }
 
 
@@ -423,8 +447,75 @@ class BondRemoveOnRangeExceeded(EffectTrigger):
         return _remove_bond(state, int(self.owner_id), _gate_range, "RangeExceeded")
 
 
+class BondRemoveOnAdjacencyLost(EffectTrigger):
+    """Trigger (c) d'`ABondEffect$$CreateHandleTriggerAbilitiesInternal`, gate
+    `<klass+0x738> get_Adjacent` (un `bool` : le trigger n'existe QUE s'il est vrai).
+
+        Triggered( NOT IsAdjacent(Owner@DSLSelectors+0x30,
+                                  BondedEntityFromEffect(Effect@DSLSelectors+0x38), 3)
+                   & NOT AmountIsZero(BondedEntityFromEffect(Effect))
+                   & On(0x1d = UnitPositionChanged_2),
+                   RemoveEffect(Effect) )
+
+    JUMEAU EXACT de (b) ci-dessus, au PREDICAT pres -- et les deux predicats sont des natifs
+    DIFFERENTS, pas deux ecritures du meme :
+
+      * (b) `IsInRange` -> `IsInRangeAbilityTrigger$$ShouldTrigger` = `query.GetDistance(a, b) <=
+        range` : une DISTANCE HEX pure ;
+      * (c) `IsAdjacent` -> `IsAdjacentAbilityTrigger$$ShouldTrigger` = un `forall` sur les paires
+        d'entites de `BattleQuery$$AreEntitiesAdjacent` -> `MovementUtil$$AreTilesAdjacent`, qui
+        porte une **PORTE D'ELEVATION** (`|dElev| < 2`) et un **COURT-CIRCUIT D'IDENTITE**
+        (`t1 == t2`) que la distance ignore, et qui compare les EMPREINTES COMPLETES
+        (`GetTiles`), pas les main tiles.
+      Ecrire (c) comme `distance > 1` serait donc FAUX sur un board a relief et sur toute unite
+      multi-hex. Le port passe par le foyer UNIQUE `services/battle_query.py::are_entities_adjacent`
+      -- le meme que le noeud DSL `entities/triggers.py::IsAdjacent` et que le gate de ciblage.
+
+    Le 3e argument `3` de la factory est un `UnitSelectionType` : il part au SELECTEUR (slot 3),
+    jamais dans la comparaison par paire (#433-r3). Les deux selecteurs sont ici des SINGLETONS
+    (`Owner` et `BondedEntityFromEffect`), donc le `forall` porte sur UNE paire.
+
+    Comme (a) et (b) : UNE SEULE classe pour tous les `effect_type` (c'est la BASE qui construit le
+    `Triggered()`), `effect_type` declaratif a `-1`, lookup du dispatch sur l'instance.
+
+    AUCUN gate sur l'ACTEUR de l'event, comme (b) : n'importe quel mouvement re-evalue l'adjacence
+    COURANTE. C'est ce qui rend le trigger atteignable alors meme que les DEUX duellistes portent
+    `Taunted_BlockMovement` -- un tiers qui pousse (`PushUnit`) ou un `MoveUnit` force suffit."""
+    event_id = _ON_UNIT_POSITION_CHANGED_2
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        inst = _bonded_instance(state, int(self.owner_id), _gate_adjacent)
+        if inst is None:
+            return False
+        gates = BOND_REMOVAL_GATES.get(int(inst.effect_type))
+        if gates is None or not gates.adjacent:
+            return False                        # `get_Adjacent` FAUX -> trigger NON CONSTRUIT
+        bonded = getattr(inst, "bonded", None)
+        if bonded is None:
+            return False
+        # `NOT AmountIsZero(BondedEntityFromEffect(Effect))` -- meme semantique MESUREE qu'en (a)/(b)
+        # (cf. §2) : l'entite bondee est encore resoluble dans l'etat.
+        if state.get_entity(int(bonded)) is None:
+            return False
+        fa, fb = get_unit_feet(state, int(self.owner_id)), get_unit_feet(state, int(bonded))
+        if not fa or not fb:
+            # Empreinte VIDE (entite hors plateau) : le natif rend FAUX (la double boucle
+            # d'`AreTilesAdjacent(IList, IList)` ne tourne pas), donc `NOT IsAdjacent` serait VRAI et
+            # l'effet TOMBERAIT. Le port ne RETIRE PAS -- meme choix conservateur qu'en (b), et il
+            # est DIT : le retrait est l'action, l'inaction est le repli qui n'invente rien.
+            return False
+        return not are_entities_adjacent(fa, fb, getattr(state, "board", None))
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        return _remove_bond(state, int(self.owner_id), _gate_adjacent, "AdjacencyLost")
+
+
 def _gate_range(g: BondRemovalGates) -> bool:
     return g.range is not None
+
+
+def _gate_adjacent(g: BondRemovalGates) -> bool:
+    return bool(g.adjacent)
 
 
 def _gate_on_death(g: BondRemovalGates) -> bool:
@@ -487,12 +578,15 @@ def bond_removal_registry_entries() -> list[tuple[int, type[EffectTrigger]]]:
     offline peut l'assertionner -- mais n'inscrit aucun trigger : cote natif, le `Triggered()`
     n'entre pas dans l'`ArraySet`.
 
-    (c) `get_Adjacent` n'a pas de ligne ici : aucun `effect_type` POSE par le port ne l'arme
-    (cf. §5). Inscrire une classe sans instance atteignable serait vacuement vrai."""
+    (c) `get_Adjacent` a sa ligne depuis que le port POSE `HolyDuel_Taunt` (1091) : c'est la SEULE
+    classe de la famille a l'armer, et elle est desormais atteignable (`HolyDuelAbility` 1050 est
+    entree dans `ABILITY_CLASSES`). Avant ce port, l'inscrire aurait ete vacuement vrai (cf. §5)."""
     out: list[tuple[int, type[EffectTrigger]]] = []
     for et, g in sorted(BOND_REMOVAL_GATES.items()):
         if g.remove_on_bonded_entity_death:
             out.append((et, BondRemoveOnBondedEntityDeath))
         if g.range is not None:
             out.append((et, BondRemoveOnRangeExceeded))
+        if g.adjacent:
+            out.append((et, BondRemoveOnAdjacencyLost))
     return out

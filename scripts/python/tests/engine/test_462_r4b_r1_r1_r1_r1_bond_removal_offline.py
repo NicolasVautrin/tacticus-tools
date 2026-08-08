@@ -31,7 +31,8 @@ from engine.entities.selectors.tiles import Caster  # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType                  # noqa: E402
 from engine.runner.abilities.behaviours.effects import RemoveEffect  # noqa: E402
 from engine.runner.operations.triggers.bond_removal import (                # noqa: E402
-    BOND_REMOVAL_GATES, BondRemoveOnBondedEntityDeath, BondRemoveOnRangeExceeded,
+    BOND_REMOVAL_GATES, BondRemoveOnAdjacencyLost, BondRemoveOnBondedEntityDeath,
+    BondRemoveOnRangeExceeded,
     bond_removal_tree, bond_removal_registry_entries, assert_pending_gate_consistency)
 from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS  # noqa: E402
 
@@ -56,6 +57,11 @@ _MEASURED = {
     # gates sont confrontes live : (b) par la geometrie du push, (a) par la mort du taunteur.
     int(EffectType.Taunted_OnlySpecificTargets): (
         "IdunBattle.Entities.Effects.TauntedEffect", True, 1, False, None),
+    # Le SEUL effet de toute la famille qui arme (c) `get_Adjacent`, et il est POSE par le port
+    # depuis que `HolyDuelAbility` (1050) est entree dans `ABILITY_CLASSES`. Mesure `--step
+    # declared` du 2026-08-08 : `OWN=none` / `OWN=true` / `OWN=true`.
+    int(EffectType.HolyDuel_Taunt): (
+        "IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect", True, None, True, None),
 }
 
 
@@ -174,18 +180,30 @@ def test_taunt_carries_both_triggers():
     assert BondRemoveOnBondedEntityDeath in inscrits and BondRemoveOnRangeExceeded in inscrits
 
 
-def test_no_adjacent_trigger_is_wired():
-    """(c) `get_Adjacent` : MESURE au natif (`--step holyduel` : le bond 1091 tombe des que
-    l'adjacence est perdue), mais AUCUN effet pose par le port ne l'arme -- 1091 `HolyDuel_Taunt`
-    vient de l'ability 1050, absente d'`ABILITY_CLASSES`. Inscrire un trigger (c) serait vacuement
-    vrai. Ce garde tient l'INVARIANT, pas la valeur : si un effet a `adjacent=True` entre un jour
-    dans la table, il faudra ecrire la classe -- et ce test le dira."""
+def test_adjacent_trigger_is_wired_for_every_effect_that_arms_it():
+    """(c) `get_Adjacent`, l'INVERSE de ce que ce test gardait avant le port de 1050.
+
+    L'ancien garde tenait un invariant CONDITIONNEL (« tant qu'aucun effet POSE ne l'arme, ne pas
+    ecrire la classe ») et il a fait exactement son travail : il est tombe au moment ou
+    `HolyDuelAbility` est entree dans `ABILITY_CLASSES`. La condition est levee, l'invariant se
+    retourne : tout effet a `adjacent=True` DOIT etre cable, et il doit y en avoir AU MOINS UN
+    (sinon ce test serait vacuement vert, le vice qu'il denoncait).
+
+    Le cablage reste DERIVE de la table, jamais ecrit a la main."""
     from engine.runner.abilities.handler import ABILITY_CLASSES
-    assert 1050 not in ABILITY_CLASSES, (
-        "`HolyDuelAbility` est portee : 1091 est desormais posable offline, il faut ECRIRE "
-        "`BondRemoveOnAdjacencyLost` et l'inscrire (mesure native deja faite, cf. bond_removal.py)")
-    assert not [et for et, g in BOND_REMOVAL_GATES.items() if g.adjacent], (
-        "un effet arme (c) dans la table : le trigger d'adjacence n'existe pas encore")
+    armes = [et for et, g in BOND_REMOVAL_GATES.items() if g.adjacent]
+    assert armes, "aucun effet n'arme (c) : ce garde ne verifierait plus RIEN"
+    assert int(EffectType.HolyDuel_Taunt) in armes
+    # Le seul poseur de 1091 est l'ability 1050 : si elle sortait du registre, le trigger
+    # redeviendrait vacuement vrai -- c'est l'autre sens de l'ancien garde, conserve.
+    assert 1050 in ABILITY_CLASSES, (
+        "`HolyDuelAbility` n'est plus dans `ABILITY_CLASSES` : plus rien ne pose 1091, donc "
+        "`BondRemoveOnAdjacencyLost` redevient du code qu'aucun etat ne peut atteindre")
+    wired = {et for et, cls in bond_removal_registry_entries()
+             if cls is BondRemoveOnAdjacencyLost}
+    assert wired == set(armes), "le cablage de (c) n'est pas derive de la table"
+    for et in armes:
+        assert BondRemoveOnAdjacencyLost in EFFECT_TRIGGERS.get(et, [])
 
 
 # ================================================================================================

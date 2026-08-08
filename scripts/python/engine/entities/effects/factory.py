@@ -79,6 +79,9 @@ from .loki.inescapable_accuracy import (
     InescapableAccuracyExtraCritChanceEffect, InescapableAccuracyExtraCritDamageEffect,
     InescapableAccuracyOverrideHitsEffect
 )
+from .loki.holy_duel import (
+    HolyDuelDmgReductionEffect, HolyDuelExtraDmgEffect, HolyDuelTauntEffect
+)
 from .loki.martial_inspiration import MartialInspirationExtraDamageEffect
 from .loki.martial_superiority import MartialSuperiorityVisualEffect
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
@@ -485,6 +488,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "RealityUnbound_ExtraMaxDamage": RealityUnboundExtraMaxDamageEffect,  # 1207 : +extraMaxDmg, EMPILABLE
     # Tyrant Guard (CrushingClaws) :
     "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
+    # HolyDuel (1050, templChampion « Brother Jaeger ») — `entities/effects/loki/holy_duel.py`.
+    # 1091 est un COMPOSITE dont trois des quatre enfants vivent sur l'entité BONDÉE (le champion) :
+    # les DEUX `Taunted` du duel sont symétriques.
+    "HolyDuel_Taunt": HolyDuelTauntEffect,               # 0x443 = 1091 (composite + bond)
+    "HolyDuel_ExtraDmg": HolyDuelExtraDmgEffect,         # 0x444 = 1092 (+extraDmg vs le duelliste)
+    "HolyDuel_DmgReduction": HolyDuelDmgReductionEffect,  # 0x445 = 1093 (−dmgReduction du duelliste)
     "Pinned": PinnedEffect,             # 1065 (UI « Suppressed ») — stat-mod Movement (matérialisé seul)
     # ListenUpMaggots (0x426=1062, passif d'`astraSmnKell`) : SEULE source native de modification de
     # CONSTANTE d'ability (`AddUnitActiveAbilityModification` sur `Parent(Self)` = Creed). #95-RESTE2.

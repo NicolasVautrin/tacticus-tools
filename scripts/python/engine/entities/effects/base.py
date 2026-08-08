@@ -199,6 +199,25 @@ class SubEffectSpec:
     effect_type: int
     name: str
     turns: "int | str | None" = None
+    # L'enfant est-il posé sur l'entité BONDÉE du parent au lieu de son porteur ?
+    #
+    # `AddSubEffectWithSameTurns(this, effect, <cible>, EffectBuilder(ctx, <lambda>), <type>)` prend
+    # la CIBLE en 3e argument, et rien n'oblige que ce soit le porteur du parent :
+    # `IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect$$ApplyInternal` passe `target` (le
+    # porteur) pour son PREMIER sous-effet et `<entités>.GetEntity(ABondEffect.BondedEntityId(this,
+    # effect))` pour les TROIS autres — le duel est symétrique, chacun des deux duellistes porte le
+    # composite `Taunted` de l'autre.
+    #
+    # Le BOND de l'enfant bascule AVEC le porteur, jamais séparément : les quatre lambdas du
+    # `<>c__DisplayClass9_0` appellent toutes `AddEffectBehaviour$$DefaultBondEffectBuilder`, mais
+    # `b__0` (l'enfant posé sur le porteur) lui passe `ctx.<+0x18>` = le bondé du parent, tandis que
+    # `b__1`/`b__2`/`b__3` (les enfants posés sur le bondé) lui passent `ctx.<+0x20>.Id` = le
+    # porteur du parent. UN seul champ suffit donc à décrire les deux, et il ne peut pas décrire
+    # une combinaison que le natif n'écrit pas.
+    #
+    # `False` (défaut) = le comportement de TOUS les autres composites du port (`TauntedEffect`,
+    # `StunnedEffect`) : enfant sur le porteur, bond hérité du parent.
+    on_bonded_entity: bool = False
 
 
 @dataclass

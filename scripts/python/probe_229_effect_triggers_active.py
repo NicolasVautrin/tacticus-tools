@@ -126,6 +126,17 @@ RAIL: dict[str, tuple[str, str]] = {
     # Rail ARRAYSET => AUCUN gate `IsActive` natif => le port ne doit PAS lire le flag.
     "EuphoricStrikesExtraCritRemove":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.EuphoricStrikes_ExtraCritEffect$$CreateRemoveEffectTrigger"),
+    # ROUGE PREEXISTANT DE `master`, trouve par #549 en jouant ce garde. `#BL-1020r` a inscrit la
+    # classe au registre sans lui declarer de rail, donc
+    # `test_421_effect_active_gate_offline::test_the_probe_rail_covers_the_whole_registry` echouait
+    # sur `origin/master` (verifie : la classe est dans `dispatch/registry.py` de master, absente
+    # de CE dict). MEME forme que les trois entrees ci-dessus -- un `CreateRemoveEffectTrigger`
+    # (`On(9) & OwnerIsTarget & IsUnit(caster@DSLSelectors+0x48)`) que
+    # `IdunBattle.Entities.Effects.BaseEffect$$CreateHandleTriggerAbilities` GREFFE dans l'`ArraySet`
+    # sous `Triggered(<lui>, GetRemoveEffectBehaviour())`. Rail ARRAYSET => AUCUN gate `IsActive`
+    # natif => le port ne doit PAS lire le flag.
+    "HeraldOfTheApocalypseExtraDamageRemove":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.HeraldOfTheApocalypse_ExtraDamageEffect$$CreateRemoveEffectTrigger"),
     # #513 -- le `Triggered()` de la BASE `APendingAttackEffect`, PARTAGE par ses 20 derivees (une
     # seule classe portee, N effectTypes inscrits -- meme forme que `BondRemoveOnBondedEntityDeath`).
     # Corps RELU : il appelle d'abord `ABondEffect$$CreateHandleTriggerAbilitiesInternal`, puis clot
@@ -175,6 +186,14 @@ RAIL: dict[str, tuple[str, str]] = {
     # (b) est le `Nullable<int> get_Range`, qui decide de sa CONSTRUCTION -- porte par la table
     # `BOND_REMOVAL_GATES` (champ `range`), exactement comme `<klass+0x748>` porte celui de (a).
     "BondRemoveOnRangeExceeded":
+        (ARRAYSET, "IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #549 -- (c) `<klass+0x738> get_Adjacent`, TROISIEME `Triggered()` du MEME
+    # `CreateHandleTriggerAbilitiesInternal` : meme rail que (a) et (b), meme ArraySet, donc AUCUN
+    # gate `IsActive` natif. Son seul gate de CONSTRUCTION est le virtuel booleen, porte par la
+    # table `BOND_REMOVAL_GATES` (champ `adjacent`) -- exactement comme `<+0x748>` pour (a) et
+    # `<+0x728>` pour (b). Inscrit depuis que le port POSE `HolyDuel_Taunt` (1091), le SEUL effet
+    # de la famille a l'armer.
+    "BondRemoveOnAdjacencyLost":
         (ARRAYSET, "IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal"),
     "EarlyWarningOverrideReactivateOverwatch":
         (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),

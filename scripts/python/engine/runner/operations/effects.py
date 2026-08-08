@@ -434,10 +434,44 @@ class AddEffectOperation:
         À QUOI ÇA SERT : `IdunBattle.Entities.Effects.Taunted_RefreshUnitTurnFinishedEffect$$
         get_Range` rend `Nullable<int>(1)`, comme `IdunBattle.Entities.Effects.TauntedEffect$$
         get_Range` — chaque enfant porte donc SON PROPRE gate de rupture de bond, ininterprétable
-        avec un `bonded` nul. Parent non bondé → enfants non bondés (aucun bond fabriqué)."""
+        avec un `bonded` nul. Parent non bondé → enfants non bondés (aucun bond fabriqué).
+
+        **UN ENFANT PEUT VIVRE SUR L'ENTITÉ BONDÉE** (`SubEffectSpec.on_bonded_entity`). Le 3e
+        argument d'`AddSubEffectWithSameTurns` est la CIBLE de l'enfant, et
+        `IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect$$ApplyInternal` y passe
+        `<entités>.GetEntity(ABondEffect.BondedEntityId(this, effect))` pour trois de ses quatre
+        enfants. Le bond de l'enfant bascule AVEC lui (`b__1`/`b__2`/`b__3` passent
+        `ctx.<+0x20>.Id` = le porteur du parent à `DefaultBondEffectBuilder`, là où `b__0` passe
+        `ctx.<+0x18>` = le bondé du parent) : le duel est SYMÉTRIQUE. Bondé non résolu → l'enfant
+        n'est PAS posé (le natif appellerait `AddSubEffectWithSameTurns` sur une entité nulle, ce
+        qui n'est pas un état que le port peut fabriquer).
+
+        **L'ÉTAT D'ABILITY DU PARENT DESCEND** — et ce n'est pas non plus un recâblage : les quatre
+        lambdas lisent `ctx.<+0x10>` (l'entité-effet PARENT) et en recopient les 0x28 octets
+        `+0x18..+0x38`, c'est-à-dire son `AbilityStateReference`, qu'elles passent à
+        `DefaultBondEffectBuilder`. C'est cet état que relit
+        `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState` quand le `ConfigVar` d'un enfant
+        s'indexe (`HolyDuel_ExtraDmg` = `ConfigVar(8 = extraDmg, GetAbilityState(effet))`). Sans
+        lui, l'enfant serait matérialisé et sa magnitude INERTE (`ability_var(..., None)`).
+
+        **RÉCURSION** : le natif ne « déclare » pas des enfants, il crée des entités-effets que
+        `RefreshEffectsOperation` fait passer par leur PROPRE `<Effect>.ApplyInternal`. Un enfant
+        lui-même COMPOSITE spawne donc ses enfants, et un enfant qui écrit
+        `ForcedAttackTargetsComponent` (le `27` de `TauntedEffect`) l'écrit. INERTE pour les
+        composites antérieurs (`Stunned` → 1165/1166/1167 et `Taunted` → 25/26/1237 n'ont ni
+        sous-effets ni écriture de cibles forcées) ; load-bearing dès qu'un `27` est un ENFANT,
+        ce que fait `HolyDuel_Taunt` (1091)."""
         bonded = getattr(parent, "bonded", None)
         for spec in parent.sub_effects_on_apply():
-            if state.effects.has_effect(target, effect_type=spec.effect_type, name=spec.name):
+            # CIBLE de l'enfant = 3e argument d'`AddSubEffectWithSameTurns`, et BOND de l'enfant =
+            # 3e argument de `DefaultBondEffectBuilder` : les deux basculent ENSEMBLE (cf. docstring).
+            if getattr(spec, "on_bonded_entity", False):
+                if bonded is None:
+                    continue
+                child_target, child_bonded = int(bonded), int(target)
+            else:
+                child_target, child_bonded = int(target), bonded
+            if state.effects.has_effect(child_target, effect_type=spec.effect_type, name=spec.name):
                 continue
             if spec.turns == SAME_TURNS:
                 rem = parent.remaining_turns
@@ -445,13 +479,22 @@ class AddEffectOperation:
                 rem = int(spec.turns)
             else:
                 rem = None          # 0/None natif = permanent, lié au cycle de vie du parent
-            child = EffectFactory.create({"name": spec.name, "effectType": int(spec.effect_type),
-                                          "level": None, "remaining": rem, "source": source})
-            child.target = target
+            child = EffectFactory.create(
+                {"name": spec.name, "effectType": int(spec.effect_type),
+                 "level": None, "remaining": rem, "source": source},
+                # `ctx.<+0x10>.<+0x18..+0x38>` = l'`AbilityStateReference` du PARENT, recopiée par
+                # les quatre lambdas et passée au builder de chaque enfant (cf. docstring).
+                ability_variables_multiplier=int(parent.ability_variables_multiplier or 100),
+                ability_level=parent.ability_level,
+                active_ability_level=parent.active_ability_level)
+            child.target = child_target
             child.parent_type = parent.effect_type
-            child.bonded = bonded            # `ctx.<+0x18>`, LU du parent (cf. docstring)
-            state.effects.add_effect(target, child)
-            _register_name(state, target, child.name)
+            child.bonded = child_bonded       # `ctx.<+0x18>` ou `ctx.<+0x20>.Id` (cf. docstring)
+            state.effects.add_effect(child_target, child)
+            _register_name(state, child_target, child.name)
+            # L'enfant est une ENTITÉ-EFFET : son propre `ApplyInternal` tourne (cf. docstring).
+            AddEffectOperation._spawn_sub_effects(state, source, child_target, child)
+            AddEffectOperation._apply_forced_attack_targets(state, child_target, child)
 
 
 class ChangeEffectTurnsOperation:

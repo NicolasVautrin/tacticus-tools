@@ -144,6 +144,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # NORMALE via `UseActiveAbility`) : on transcrit le 3e argument du ctor, jamais le profil de
     # degat de l'arbre. (case-bl-1029-1020)
     ActiveAbilityType.Drachnyen: AbilityAttackType.DirectTargetAttack,  # 1029
+    # HolyDuel (1050) : `...Active.Loki.HolyDuelAbility$$.ctor` recopie le preset statique
+    # `<TargetingOptions statics>+0x40`, appelle la surcharge PRESET+FLAGS (`0x200000000`) puis
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. MEME
+    # configuration que Drachnyen ci-dessus : TRANSCRIT bien que l'arbre n'attaque pas « en
+    # direct » (il dispatche l'attaque NORMALE via `UseActiveAbility`).
+    ActiveAbilityType.HolyDuel: AbilityAttackType.DirectTargetAttack,  # 1050
     ActiveAbilityType.FlailSwing: AbilityAttackType.DirectTargetAttack,  # 1042
     # StrikeFromTheShadows (1225) : `...Active.Loki.StrikeFromTheShadowsAbility$$.ctor` recopie les
     # 0x40 octets du preset statique `<TargetingOptions statics>+0x140` puis appelle
