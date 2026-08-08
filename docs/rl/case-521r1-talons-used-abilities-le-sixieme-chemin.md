@@ -252,6 +252,76 @@ n'en contient pas non plus.
   (`entities/effects/loki/imperative.py`). `1316` est une tranche complète (sélecteur de cibles de
   balayage + behaviour d'attaque additionnelle).
 
+## 5ter. Ce que #521-r4 a rendu (2026-08-08) : `1201` PORTÉ, `<+0x70>` LEVÉ, `1316` BLOQUÉ
+
+### `<DSLTriggers+0x70>` = `IdunBattle.Entities.Triggers.YesTrigger`
+
+Le « dernier verrou de lecture » de §5bis est levé : c'est le trigger **CONSTANT VRAI**, donc
+l'ÉLÉMENT NEUTRE de la conjonction — le trigger partagé se réduit à
+`On(0x21 = AbilityInit) & get_OwnerIsActor`. Trois sources concordantes, aucune devinée :
+
+1. `IdunBattleLogic.Entities.DSLTriggers$$Direct(bool)` a pour corps ENTIER
+   `return value ? this+0x40 : this+0x48`, et `DSLTriggers$$.ctor` alloue `+0x40`, l'opérande
+   **négé** de `+0x48` et `+0x70` par le **même ctor 0-arg de la même classe**. Une classe qui sert
+   de `Direct(true)` évalue vrai inconditionnellement ;
+2. appariement FORCÉ sur les 13 classes de trigger de taille 16 (parent `IdunBattle.DSL.AbilityTrigger`)
+   de `data/symbols/<build>/frida/classes.tsv` : seules `YesTrigger` et `NoTrigger` n'ont NI
+   allocateur `DSLTriggers$$<X>` nommé NI `ShouldTrigger` en table (corps triviaux dédupliqués) ;
+   `Direct` choisit entre les deux, et le membre NU est le VRAI ;
+3. `IdunBattle.Entities.Effects.BaseEffect$$NeedsRefreshing` teste `cond is <cette classe>` pour
+   conclure « la condition est constante, rien ne peut changer, pas de refresh ».
+
+### `1201` — PORTÉ, et INERTE, les deux étant dits
+
+`triggers/loki/doctrina_imperatives.py` + `PASSIVE_HELPER_ABILITY_TRIGGERS["DoctrinaImperatives"]`.
+Un seul nœud : `AddDynamicStatModifierEffectToOwner(1247 ProtectorImperative, 16 FixedArmor,
+turns = null)`, dont `DSLBehaviors$$AddDynamicStatModifierEffectToOwner` fixe **source ET targets à
+`Owner@DSLSelectors+0x30`** (self-buff) et `amount = null` (magnitude dynamique, lue par l'effet).
+
+⚠ **Le port n'émet `On(AbilityInit)` qu'au SPAWN** (`abilities/behaviours/summon.py`), et aucune
+unité portant l'active 1118 n'est spawnée — celles du roster arrivent par `load_state` avec l'effet
+déjà posé par le natif. L'inscription est donc FIDÈLE au registre et INERTE sur le régime courant.
+C'est écrit dans le module plutôt que présenté comme un gain de comportement.
+
+### `1316` — RE COMPLÈTE, port BLOQUÉ par un ÉTAGE (`#521-r7`)
+
+Les deux arbres sont lus en entier :
+
+```
+CreateTrigger  = On(0x4a = AttackInAtomicGroup, ownerNeedsToBeAlive = 0)
+                 & <DSLTriggers+0x20 = OwnerIsAlive> & get_OwnerIsActor
+                 & IsNormalAttack(<ability courante>) & IsMeleeAttack
+                 & HasEffect(Owner@DSLSelectors+0x30, 0x57d = 1405 CalibaniteGreatswordSweep, 0, 6)
+
+CreateBehaviour = Foreach( GetSweepAdditionalTargets(dsl), <CreateBehaviour>b__3_0 )
+  b__3_0(target) = GetAdditionalTargetsAttackBehavior(this, target)
+                 = Attack( Behaviors@dsl+0x78, caster = Caster@+0x48, target,
+                     AttackWithAttackDamage( caster = Caster@+0x48, targets = target,
+                       RandomAmount( ConfigVar(0x4a5 = 1189, caster, 0xc = minDmg),
+                                     ConfigVar(0x4a5 = 1189, caster, 0xd = maxDmg) ),
+                       Direct(Nullable(config.GetDamageProfile())),
+                       Direct(config.GetNumberConstant(0x32 = nrOfHits_2)) ) )
+```
+
+La config est **explicitement 1189** (le littéral `0x4a5` est passé aux deux `ConfigVar` — pas
+besoin de `GetActiveAbilityUsedForConfig` ici), `nrOfHits_2 = 3` et `damageProfile = Power` sont au
+gameconfig, l'active 1189 est déjà portée (`runner/abilities/darkangels.py`) et pose bien 1405.
+Le jumeau `GetAdditionalDamageBehaviour` est la **même** feuille SANS l'enveloppe `Attack(...)`.
+
+**CE QUI BLOQUE, et ce n'est pas la classe** : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+ALoki_NormalAttackAbility$$ExecuteTriggerAbilities` — la queue de TOUTE attaque normale — émet
+`EvaluateAbilities(**0x26**)`, **jamais `0x4a`** (corps entier lu). Le trigger de 1316 exige donc
+une attaque normale exécutée **dans un groupe ATOMIQUE**, et côté port `0x4a` n'est émis que par le
+nœud DSL d'`abilities/loki/strike.py`. Porter 1316 avant cet étage donnerait une classe INERTE —
+exactement l'état de `1485` avant que #BL-1029r ne câble `On(0x26)` à la porte `UseActiveAbility`.
+Résidu **`#521-r7`**, avec la piste non vérifiée (`ActiveAbility$$GetCustomNormalAttack`).
+
+**Reste ouvert aussi** : `<DSLSelectors+0x50>` et `<+0x60>`, les deux opérandes de
+`GetSweepAdditionalTargets` (`AdjacentEnemies(Caster@+0x48, <+0x50>, 1) & AdjacentUnits(<+0x60>,
+1, 3)`). `DSLSelectors$$InitializeShared` les alloue par le même ctor `(state)` que les onze autres
+slots, et les noms de classe que ghidra leur donne sont des mislabels — l'identification demande la
+même méthode d'appariement que celle qui a nommé `<DSLTriggers+0x20>`.
+
 ## 6. Le cache du cliquet — un signalement que j'ai d'abord rendu FAUX
 
 Ce cas ajoute un consommateur à `probe_313_enum_mirror_bijection.py`, dont le **contexte de cache
