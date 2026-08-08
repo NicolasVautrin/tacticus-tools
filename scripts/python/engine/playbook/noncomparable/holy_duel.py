@@ -19,6 +19,13 @@ def _enemy_might_be_killed_by_normal_attack(ctx: NCContext) -> bool:
     normal_ids = {a.get("id") for a in (me.get("abilities") or []) if a.get("kind") == "normal"}
     if not normal_ids:
         return False
+    # ⚠ EXPOSE A LA TRONCATURE DU PLAN, et le foyer #350-r3a-r4 NE PEUT PAS le reparer : ce gate
+    # lit les champs de DEGAT (`kill`, `dmgMax`) qui ne vivent QUE dans `ranked` -- `castFromTiles`
+    # rend des positions, pas des degats. Sur la face DECISION, `computeAttackPlans` plafonne a
+    # `maxRank`, donc une tuile qui porterait le kill peut manquer : le gate rend alors FAUX a
+    # tort (`ShouldEvaluate` = `!EnemyMightBeKilled...`), et HolyDuel est evaluee la ou le natif
+    # s'abstient. Seul le harnais peut servir ce cas -- cf. `case-350r3a-r4-troncature-du-plan.md`
+    # §5. Face COMBAT (`state_bridge`) : `ranked` est complet, aucune exposition.
     for ev in (ctx.plan.get("evals") or []):
         if ev.get("abilityId") not in normal_ids:
             continue

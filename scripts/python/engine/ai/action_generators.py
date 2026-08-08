@@ -67,6 +67,8 @@ from engine.entities.effects.magnitude import ability_var   # maxDmg/dmgPct Galv
 from engine.services.min_max_damage import min_max_avg  # `MinMaxDamage$$Avg` (#333) — lifesteal SpiritLeech (#339)
 from engine.dsl.base import _round_fix64   # `AAmountFormula$$RoundFix64Result` — PercentageOf(roundUp=1)
 from engine.ai.bucket import Action, Bucket
+from engine.ai import cast_positions          # #350-r3a-r4 : FOYER des positions non tronquees
+                                              # (forme B -- liaison de MODULE, substituable)
 from engine.services.trait_damage_limits import get_group_unit_heal_limit
 
 
@@ -380,8 +382,16 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
                 by_ab[ab],
                 key=lambda ev: (0, bq.iterate_surrounding_tiles_order_key(tgt_pos_by_id[ev["targetId"]]))
                 if ev.get("targetId") in tgt_pos_by_id else (1, ()))
-            legal = {ev.get("targetId"): {(rk.get("col"), rk.get("row"))
-                                          for rk in (ev.get("ranked") or [])}
+            # #350-r3a-r4 -- LE GATE DE POSITION PASSE PAR LE FOYER, plus par `ranked` brut.
+            # `computeAttackPlans` TRONQUE (`for (let r = 0; r < maxRank; r++)`), plafond absent
+            # du natif : a `maxRank=6` (defaut du RPC `decisionView`) 21 positions sur 33
+            # disparaissent, et `tile not in legal[tgt]` REFUSE alors une attaque que le natif
+            # autorise -- le tier COMPARABLE couvre TOUTES les attaques, attaque normale comprise,
+            # donc c'est le site le plus expose des six. Le foyer est TRI-ETAT : `rankComplete`
+            # vrai (face COMBAT, `state_bridge`) -> `ranked` tel quel, zero RPC.
+            legal = {ev.get("targetId"): cast_positions.positions_castables(
+                         ev, getattr(ctx, "cast_from_tiles", None), ctx.uid,
+                         ev.get("targetId"), ab, ctx.origin)
                      for ev in evs}
             # union des tuiles LEGALES, dans l'ordre `ranked` de premiere apparition (deterministe :
             # `legal` est un set, il ne peut pas porter d'ordre) -- ne sert qu'au filet de queue.

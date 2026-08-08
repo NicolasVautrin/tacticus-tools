@@ -38,6 +38,11 @@ export interface AttackEval {
     targetPos: { col: number; row: number } | null;
     abilityId: number; ability: string; kind: string;
     movableCount: number; rankCount: number;
+    /** #350-r3a-r4 — `ranked` est-il l'ensemble COMPLET des positions valides ?
+     *  `true` seulement si la boucle est sortie sur `best.isNull()` (épuisement).
+     *  `false` = plafond `maxRank` atteint, ou `Remove` en échec : il PEUT rester des positions.
+     *  Le champ ABSENT (bundle antérieur) se lit « pas mesuré », jamais « complet ». */
+    rankComplete: boolean;
     ranked: RankedTile[]; err: string | null;
 }
 export interface UnitAttackPlan {
@@ -189,6 +194,8 @@ export function computeAttackPlans(
                     evals.push({ targetId: tgt.id, targetVis: visById.get(tgt.id) ?? null,
                         targetPos: posById.get(tgt.id) ?? null, abilityId: ab.id,
                         ability: ab.name, kind: ab.kind, movableCount: 0, rankCount: 0,
+                        // rien n'a été énuméré : on ne sait RIEN des positions valides (#350-r3a-r4)
+                        rankComplete: false,
                         ranked: [], err: "movable: " + (e as Error).message });
                     continue;
                 }
@@ -196,6 +203,7 @@ export function computeAttackPlans(
                     evals.push({ targetId: tgt.id, targetVis: visById.get(tgt.id) ?? null,
                         targetPos: posById.get(tgt.id) ?? null, abilityId: ab.id,
                         ability: ab.name, kind: ab.kind, movableCount: 0, rankCount: 0,
+                        rankComplete: false,                        // idem (#350-r3a-r4)
                         ranked: [], err: "movable null" });
                     continue;
                 }
@@ -211,11 +219,26 @@ export function computeAttackPlans(
                 }
                 const movableCount = extractTilePtrs(set).length;
                 const ranked: RankedTile[] = [];
+                // #350-r3a-r4 — `rankComplete` DIT si la boucle a été plafonnée.
+                // Le plafond `maxRank` n'existe nulle part côté natif :
+                // `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` interroge
+                // `IdunBattle.Core.Services.AttackQuery$$GetValidTargets` UNE FOIS PAR POSITION,
+                // sans borne. À `maxRank = 6` (défaut du RPC `decisionView`) 21 positions sur 33
+                // disparaissent du plan — assez pour déplacer un argmax (mesuré, `case-350r3` §9).
+                // Le drapeau ne détronque pas (le coût du shrink-and-recall reste borné) : il rend
+                // la troncature LISIBLE, ce qui permet au port de ne payer un `castFromTiles` que
+                // là où il en a besoin, au lieu de le payer partout ou de se dégrader en silence.
+                // Faux par DÉFAUT, vrai UNIQUEMENT sur la sortie par épuisement des tuiles valides
+                // (`best.isNull()`). Les autres sorties — plafond `maxRank` atteint, `Remove` non
+                // résolu, `Remove` rendant false, exception — laissent `false` : dans tous ces cas
+                // il PEUT rester des positions valides, et le supposer serait la dégradation
+                // permissive elle-même. Un défaut à `true` aurait fait taire le cas nominal.
+                let rankComplete = false;
                 try {
                     for (let r = 0; r < maxRank; r++) {
                         const best = invokeMethod(getBestMi.info, attackQuery,
                             [u.ptr, set, tgt.ptr, abilBuf]);
-                        if (best.isNull()) break;
+                        if (best.isNull()) { rankComplete = true; break; }
                         const coord = readTileCoord(best);
                         const entry: RankedTile = { col: coord.col, row: coord.row };
                         // Dégât affiché en atterrissant sur `best` contre tgt. Pour les
@@ -284,7 +307,7 @@ export function computeAttackPlans(
                 evals.push({ targetId: tgt.id, targetVis: visById.get(tgt.id) ?? null,
                     targetPos: posById.get(tgt.id) ?? null, abilityId: ab.id,
                     ability: ab.name, kind: ab.kind, movableCount,
-                    rankCount: ranked.length, ranked, err });
+                    rankCount: ranked.length, ranked, rankComplete, err });
             }
         }
         units.push({ unitId: u.id, visualId: visById.get(u.id) ?? null,
