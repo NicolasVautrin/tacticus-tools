@@ -98,6 +98,7 @@ from .send_in_the_next_wave import SendInTheNextWavePlaybook
 from .incursion import IncursionPlaybook
 from .master_of_the_tutelaries import MasterOfTheTutelariesPlaybook
 from .supreme_commander import SupremeCommanderPlaybook
+from .hellfyre_missile_rack import HellfyreMissileRackPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -179,6 +180,13 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         # #202-C (Abraxas) — summon Pink Horror tile-target ; gates nFree(ST)>2 & nE2(ring exact
         # dist==2 du REEL)>0 ; util = 1 + (nE2-1)*10 + (nFree-3)*10 + 100 si dist(nearest, ST)==2.
         MasterOfTheTutelariesPlaybook(),  # 1096 (IdunBattle.AI.Playbook.Loki.MasterOfTheTutelariesPlaybook$$EvaluateNonComparable, slots 0x49/0x52/0x6b/0x72 resolus)
+        # #487-r1 -- face DECISION de 1088, dont la face COMBAT etait portee et confrontee (#487).
+        # Utilite CONSTANTE = #ennemis ayant pris du `DamageProfileType.Psychic` ce tour ; MIN_UTILITY
+        # = 1 (le `.cctor`), donc l'ability n'est PAS proposee tant que personne n'a ete arme.
+        # ⚠ Sa hierarchie a ete relue dans `frida/classes.tsv` : `NonComparablePlaybook`1` -- le
+        # `.ctor` du decompile NOMME `ComparablePlaybook..ctor` (corps gshared FONDU), et la fiche
+        # `case-487` §7 avait recopie ce nom.
+        HellfyreMissileRackPlaybook(),  # 1088 (IdunBattle.AI.Playbook.Loki.HellfyreMissileRackPlaybook$$EvaluateNonComparable)
     )
 }
 
@@ -248,4 +256,5 @@ __all__ = [
     "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
     "ThriceBlessedConflagrationPlaybook", "SendInTheNextWavePlaybook", "IncursionPlaybook",
     "MasterOfTheTutelariesPlaybook", "SupremeCommanderPlaybook",
+    "HellfyreMissileRackPlaybook",
 ]

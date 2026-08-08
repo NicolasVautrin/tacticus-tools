@@ -162,24 +162,94 @@ distinctes sur la meme cible (`2792` / `5984` / `1463`), toutes bit-exactes des 
 Garde commite : `tests/engine/runner/test_487_hellfyre_missile_rack_live.py` (4 tests) + fixture
 `hellfyre_case` (`tests/engine/runner/conftest.py`).
 
-## 7. Face DECISION -- lue, NON portee (residu nomme)
+## 7. Face DECISION -- PORTEE (#487-r1), apres DEUX corrections de cette fiche
 
-`IdunBattle.AI.Playbook.Loki.HellfyreMissileRackPlaybook$$EvaluateNonComparable` (RE complete) :
+`IdunBattle.AI.Playbook.Loki.HellfyreMissileRackPlaybook$$EvaluateNonComparable`, relu :
 
-    bucket  = new Bucket(0, null)
-    utility = Fix64( Sum( Select( <unites du proprietaire adverse>,
+    bucket  = new Bucket(0, Nullable<Fix64>( <1er champ statique de la classe> ))   # = Fix64(1)
+    ownerId = EntityExtensions.GetCurrentOwnerEntityId(caster)
+    utility = Fix64( Sum( Select( battleQuery.<slot itf 0x8e = GetAllEnemiesOf>(ownerId),
                                   u => UnitExtensions.HasTakenDamageOfDamageProfileThisTurn(u, 0xd)
                                        ? 1 : 0 ) ) )                       # <>c.<...>b__2_0
     foreach (t in BasePlaybook.GetEligibleTargetsSelectable(this, caster, casterMainTile))
         bucket.AddAction( BasePlaybook.GenerateAction(this, casterPosition, t, utility) )
 
 soit **une utilite CONSTANTE = le nombre d'ennemis ayant pris du Psychic ce tour**, identique pour
-toutes les cibles eligibles. `$$.ctor` -> `ComparablePlaybook<...>..ctor(this, 0x440 = 1088)`.
+toutes les cibles eligibles. Elle est calculee **avant** la boucle : ni la cible ni la position ne la
+font varier -> `AddAction` ne remplace que sur `>` STRICT, donc a utilite plate la PREMIERE paire
+(position, cible) gagne, c.-a-d. l'ORIGINE et sa premiere cible `fromHere`.
 
-Ce playbook **n'est pas porte** (aucune entree 1088 dans `engine/playbook/`). Consequence : la face
-DECISION ne sait pas encore *quand* preferer ce cast. Ce n'est pas un no-op de COMBAT (celui-la est
-ferme), mais un residu de SCORING. Il est petit et entierement lu -- candidat direct pour une tranche
-suivante.
+**Les deux lectures que la version precedente de cette section portait FAUSSES**, et qu'il a fallu
+corriger pour que le port soit juste :
+
+1. **`Bucket(0, null)` etait faux : c'est `Bucket(0, Fix64(1))`, donc `MIN_UTILITY = 1`.** Le
+   `.cctor` de la classe ecrit `Fix64(1)` dans son premier champ statique, et la leaf relit CE champ
+   pour construire le `Nullable<Fix64>`. Le gate MORD : tant qu'aucun ennemi n'a pris de Psychic ce
+   tour, l'utilite vaut `0 < 1` et le bucket reste **VIDE** -- l'ability n'est pas proposee. C'est le
+   comportement le plus discriminant du playbook ; le porter a `0` l'aurait rendu inoffensif, et
+   VERT sur tout test qui ne regarde que l'utilite.
+2. **`$$.ctor -> ComparablePlaybook<...>..ctor` etait un MISLABEL de corps gshared FONDU.** La table
+   de classes du build (`data/symbols/<build>/frida/classes.tsv`) donne le parent reel :
+   **`IdunBattle.AI.Playbook.NonComparablePlaybook`1`**. Temoin de controle dans la MEME table :
+   `ChronometronPlaybook` y est bien `ComparablePlaybook`1` -- et, coherent avec ca, elle n'a AUCUN
+   `EvaluateNonComparable`, elle override `CalculateCustomUtility`/`ShouldExecute`. La distinction
+   decide de la ROUTE : `IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists` range les
+   NonComparable dans `dict[get_Priority]`, evalues AVANT le fallback Comparable -- un port loge du
+   mauvais cote aurait fait perdre (ou gagner) l'ability contre toute attaque, sans erreur.
+   C'est exactement le piege que `CLAUDE.md` nomme : **lire la STRUCTURE d'un ctor gshared, jamais
+   son NOM**.
+
+`get_Priority` : 1088 est ABSENTE de `NATIVE_PRIORITY` (sweep exhaustif #170) -> tier **0** =
+`AbilityPriority.Normal`. Aucun override de `ShouldEvaluate` -> base `True`.
+
+### Ce qui a ete porte (#487-r1)
+
+| fichier | ajout |
+|---|---|
+| `engine/playbook/noncomparable/hellfyre_missile_rack.py` | `HellfyreMissileRackPlaybook` (utilite, gate, cible `fromHere`) |
+| `engine/playbook/noncomparable/__init__.py` | entree `PLAYBOOKS[1088]` + facade |
+| `engine/playbook/scene.py` | canal `received_damage_profiles_by_id` (`from_state`) + accesseur `has_taken_damage_of_profile_this_turn` |
+
+Le registre `ABILITY_CLASSES` / `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE` n'est PAS touche :
+l'ability y est entree avec la face COMBAT (#487), et une face DECISION n'y ajoute rien.
+
+### Le canal, et pourquoi il est TRI-ETAT
+
+`receivedDamageThisTurn` (`ActorStatisticsComponent + 0x80`) n'est publie par **AUCUN** canal de
+seed -- ni `decisionView`, ni `combatSnapshot`, ni le hook `actorStats` (qui ne porte que `+0x20`).
+C'est la MEME absence que celle deja nommee au §6 pour le rejeu COMBAT.
+
+- **Rejeu OFFLINE** : le runner TIENT le compteur (`UnitComponent.received_damage_this_turn`,
+  alimente par `runner/operations/damage.py`, vide au boundary par `turnflow`), et
+  `Scene.from_state` le transporte -> c'est le regime dans lequel ce playbook est confrontable.
+- **LIVE** : `Scene.has_taken_damage_of_profile_this_turn` rend `None` = **NON MESURE**, et le
+  playbook rend alors AUCUN candidat **en le disant**. Un `0` servi a la place serait une
+  AFFIRMATION (« personne n'a pris de Psychic ») et prononcerait un refus que le natif n'a pas
+  prononce -- degradation RESTRICTIVE silencieuse. Les deux sorties se ressemblent (liste vide) et
+  n'ont pas la meme cause : `test_487r1_hellfyre_playbook_offline.py` etage 5 les separe.
+
+Garde commite : `tests/engine/test_487r1_hellfyre_playbook_offline.py` (10 tests, 100 % offline).
+Contre-epreuves jouees -- chacune ROUGE avant le vert : `MIN_UTILITY = 0.0` (2 rouges),
+compter les ALLIES au lieu de `GetAllEnemiesOf` (1), `TESTED_PROFILE = HeavyRound` (5).
+
+### Residu ouvert : **#487-r2** -- la face DECISION n'est pas CONFRONTEE au natif
+
+Le port est valide par ses invariants (10 tests offline, 3 mutations mordues), **pas** contre
+l'oracle natif. Deux raisons cumulees, et la seconde est la vraie :
+
+1. `ncPlaybookPredict` s'ancre sur `IdunBattle.AI.Playbook.ProbableDamageEvent$$.ctor` : ce playbook
+   ne construit **aucune** prediction (son utilite est un comptage), donc cet oracle-la ne dirait
+   rien de lui. Confronter exige d'observer l'ACTION que l'IA EMET (tour IA observe), pas une
+   capture de predictions.
+2. Le montage discriminant est le gate `MIN_UTILITY = 1` : « non arme -> le natif ne propose PAS
+   1088 » contre « arme -> il la propose ». Il faut donc le montage de `probe_487` (Toth + Ahriman
+   contre 4 orks, armement par `Doombolt`) **plus** un tour IA joue sur Toth. Non joue dans cette
+   tranche.
+
+Ce n'est PAS un blocage de capteur pour le port offline (le rejeu voit le compteur), mais c'en est
+un pour toute confrontation LIVE de cette face : le point d'ancrage a hooker est
+`ActorStatisticsComponent + 0x80` cote `frida/hooks/features/ai-step/rpc-snapshot.ts` -- **la meme
+fenetre de reinject que le residu `#545-r1`**, qui vise `+0x24` du meme composant.
 
 ## 8. Residu OUVERT trouve en chemin (hors #487) -- **#494**
 

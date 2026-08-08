@@ -4042,6 +4042,16 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_487r1_hellfyre_playbook_offline.py": {
+   "_at": 1786155674,
+   "_commit": "f6927a5216665ad59d81ff880bbaccb1f14fbb8a",
+   "dirs": [
+    "data/symbols/rnca9r7q6c/frida"
+   ],
+   "temoins": [
+    "data/symbols/rnca9r7q6c/frida/classes.tsv"
+   ]
+  },
   "tests/engine/test_498r4_face_decision_is_displaceable_offline.py": {
    "_at": 1786136379,
    "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
