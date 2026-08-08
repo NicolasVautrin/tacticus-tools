@@ -50,7 +50,7 @@ l'une rendait le MEME resultat que la reference, cette lecture ne serait PAS mes
                             au lieu de l'argmax d'utilite
   * `stun_sur_cible_seule` -- `AddEffect(Stunned, Target)` au lieu de `Union(Target, sec)`
 
-TROIS REGIMES, et aucun n'est decoratif :
+QUATRE REGIMES, et aucun n'est decoratif :
   * `nominal` -- crit et block NEUTRALISES (`--crit 0,0`, `--block-target 0,0`) : la consommation
                  PRNG devient une identite LISIBLE (2 tirages par coup + 1 pour le tri), donc E2
                  MESURE le tirage du selecteur au lieu de le supposer ;
@@ -73,7 +73,7 @@ Aucune valeur attendue codee en dur : l'oracle est le natif qui tourne.
 
 Usage (depuis scripts/python, session Frida chaude) :
     python probe_566_vexilla_magnifica.py [--seed 56600] [--board MC1_67]
-                                          [--regimes nominal,bascule]
+                                          [--regimes nominal,bascule,alea,solo]
 
 ASCII only (cp1252). Dispose SES runners (jamais ceux des autres).
 """
