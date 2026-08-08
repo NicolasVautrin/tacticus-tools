@@ -2,6 +2,7 @@
 
 - `FragstormGrenadeLauncher` (1048, `templAggressor` « Brother Burchard ») — #489.
 - `HolyDuel` (1050, `templChampion` « Brother Jaeger ») — cf. le bloc dedie en bas de module.
+- `UnbreakableDuty` (1061, `templAncient` « Ancient Thoread ») — bloc dedie en bas de module (#572).
 
 Les autres actives BT restent hors registre (cf. `docs/rl/case-220/black-templars.md`) ;
 `ThunderousAssault` (1043) vit dans `loki/strike.py` (patron partage), pas ici.
@@ -14,19 +15,27 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.ability_constant_type import AbilityConstantType
+from ...entities.ability_variable_type import AbilityVariableType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
-from ...entities.formulas import StatAmount
-from ...entities.behaviours import op_and
-from ...entities.selectors.accessors import ActiveTarget, Owner, Target
+from ...entities.formulas import Count, StatAmount
+from ...entities.behaviours import If as IfBehaviour, op_add, op_and
+from ...entities.selectors.accessors import ActiveTarget, CasterTile, Owner, Target
+from ...entities.selectors.geometry import PickRandomly
 from ...entities.selectors.tiles import Caster
-from ...entities.selectors.units import Damageable, SortByFormula, Sub, SurroundingEnemies
+from ...entities.selectors.units import (AdjacentEnemies, AllDeadOrResurrectedUnits, And, Damageable,
+                                         Friends, SortByFormula, Sub, SurroundingEnemies,
+                                         ValidNormalAttackTargets, units_with_traits)
 from ...entities.stats import StatType
+from ...entities.traits.unit_trait import UnitTrait
+from ...entities.triggers import AmountIsEqualOrGreater, AmountIsGreaterThanZero
+from ..components import StatsComponent
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from .base import ActiveAbility, ability_attack_params
 from .behaviours.combat import ChainLeftOverHitsAttackDamage, UseActiveAbility
 from .behaviours.context import entities_from_state
-from .behaviours.effects import AddBondEffect
+from .behaviours.effects import AddBondEffect, AddEffect, AddStaticStatModifierEffect
+from .behaviours.stats import ChangeStat
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 
@@ -366,3 +375,257 @@ class HolyDuelAbility(ActiveAbility):
         atk = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
         return {"ability": HOLY_DUEL_ID, "caster": caster_id, "target": target_id,
                 "bond": bond, "attack": atk, "dsl": True}
+
+
+# =================================================================================================== #
+# UnbreakableDuty (1061, `templAncient` -- Ancient Thoread, HERO Black Templars)                #572 #
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.UnbreakableDutyAbility$$ExecuteBehaviour` (MIRROR du
+# DECOMPILE, build `rnca9r7q6c`) -- UN SEUL noeud terminal passe a `AActiveAbility$$Execute` :
+#
+#   extraHp  = DSLFormulas.ConfigVar(0x1e = extraHp,  AbilityState, config@this+0x60)
+#   extraDmg = DSLFormulas.ConfigVar(8    = extraDmg, AbilityState, config@this+0x60)
+#
+#   [A] hpBuff  = DSLBehaviors.AddStaticStatModifierEffectToOwner(
+#                     0x4e3 = 1251 UnbreakableDuty_Health, statType = 5 Health,
+#                     amount = extraHp, turns = **null**, isHidden = false)
+#   [B] hpFill  = DSLBehaviors.ChangeStat(targets = Owner@DSLSelectors+0x30,
+#                     stat = Stat(5 = Health, part 0 = Current), mode = 2 = Add, amount = extraHp,
+#                     modificationEntity = null, selectionType = 3 = OnlyAliveAndTargetable,
+#                     isModifiable = false, isHiddenModification = false)
+#   [C] dmgBuff = DSLBehaviors.AddStaticStatModifierEffectToOwner(
+#                     0x4e8 = 1256 UnbreakableDuty_Damage, statType = 0 Attack,
+#                     amount = extraDmg, turns = **null**, isHidden = false)
+#   [D] sel     = DSLSelectors.ValidNormalAttackTargets(CasterTile@+0x50, CasterTile@+0x50,
+#                                                       range = null, ignoreRule/additionalRule = null)
+#                 op_BitwiseAnd DSLSelectors.AdjacentEnemies(Caster@+0x48, unique = 1,
+#                                                            selectionType = 3)
+#       attack  = DSLBehaviors.UseActiveAbility(caster = Owner@+0x30,
+#                                               target = DSLSelectors.PickRandomly(sel, amount = 1,
+#                                                            allowDuplicates = 0,
+#                                                            maxDuplicatesAllowed = 0x7fffffff,
+#                                                            ignoreForcedTargets = 0),
+#                                               activeAbilityType = **0x45 = Loki_NormalAttack**,
+#                                               parentAbility = Nullable(AbilityOrEffect(this+0x10)),
+#                                               trigger/options ZEROES)
+#       free    = DSLBehaviors.If(DSLTriggers.AmountIsGreaterThanZero(DSLFormulas.Count(sel)),
+#                                 attack, null)
+#   [E] dead    = DSLSelectors.UnitsWithTraits(
+#                     DSLSelectors.Friends(of = Owner@+0x30,
+#                                          entities = DSLSelectors.AllDeadOrResurrectedUnits(),
+#                                          selectionType = 0),
+#                     [0x1a = Imperial, 0x10 = Hero], selectionType = 0)
+#       gate    = DSLTriggers.AmountIsEqualOrGreater(DSLFormulas.Count(dead), DSLFormulas.Direct(2))
+#       body    = ((A op_Addition B) op_Addition C) op_Addition free
+#       gated   = DSLBehaviors.If(gate, body, null)
+#   [F] aura    = DSLBehaviors.AddEffect(0x449 = 1097 UnbreakableDuty_DamageReduction,
+#                                        abilityState = AActiveAbility.AbilityStateReference,
+#                                        targets = Owner@+0x30,
+#                                        turns = DSLFormulas.TurnsFromRounds(1))
+#
+#   AActiveAbility.Execute(entities, this, aura op_Addition gated)
+#
+# i2 mot a mot : « Ancient Thoread and all friendly units within 2 hexes receive -33% Damage until the
+# start of their next turn. If 2 or more friendly Imperial Characters are dead upon activation of this
+# ability, Ancient Thoread gains 7275 extra Health and +1455 Damage until the end of the battle and
+# immediately performs a normal attack against an adjacent enemy. »
+#
+# LA CATEGORIE ANNONCEE EST INCOMPLETE, et c'est un RESULTAT : `docs/rl/combat-ability-coverage.md`
+# classe 1061 en EFFECT/BUFF (colonne derivee du `damageProfile` de l'ARME du porteur, pas du
+# behaviour). C'est vrai d'UNE mecanique sur CINQ. Les quatre autres sont : une AURA de reduction de
+# degat PROJETEE sur les allies (l'effet 1097 vit sur le caster et se projette via son
+# `CreateTargetSelector`) ; un SOIN direct (`ChangeStat` mode Add sur la stat FILL-UP Health, un
+# canal que le mot « buff » ne couvre pas -- il monte les PV COURANTS, pas un modificateur) ; et un
+# CAST QUI FRAPPE, par l'attaque NORMALE (`UseActiveAbility(Loki_NormalAttack)`, MEME configuration
+# que `HolyDuel` 1050 et `Drachnyen` 1029 : `abilities.UnbreakableDuty` n'a NI `minDmg`/`maxDmg`, NI
+# `nrOfHits`, NI `damageProfile` -- gameconfig : trois variables `dmgReductionPct`/`extraDmg`/
+# `extraHp` et UNE constante `range`). Les 5 mecaniques s'apparient UNE A UNE aux 5 propositions de
+# l'i2 (le +extraHp couvrant les DEUX noeuds [A] et [B], MAX et COURANT).
+#
+# ORDRE LOAD-BEARING (`op_Addition` evalue a GAUCHE d'abord) : [F] l'aura de reduction est posee
+# AVANT tout, puis dans la branche gatee [A] +maxHP, [B] +PV courants, [C] +Attack, et SEULEMENT
+# ENSUITE [D] l'attaque libre -- qui beneficie donc DEJA du `+extraDmg`. Une permutation ne changerait
+# ni le flux RNG (A/B/C sont deterministes) ni le degat de l'attaque... sauf justement si [C] passait
+# APRES [D]. C'est le seul ordre observable, et il est garde (`test_572_unbreakable_duty_offline.py`).
+# =================================================================================================== #
+
+UNBREAKABLE_DUTY_ID = "UnbreakableDuty"
+UNBREAKABLE_DUTY_DAMAGE_REDUCTION = int(EffectType.UnbreakableDuty_DamageReduction)   # 0x449 = 1097
+UNBREAKABLE_DUTY_HEALTH = int(EffectType.UnbreakableDuty_Health)                      # 0x4e3 = 1251
+UNBREAKABLE_DUTY_DAMAGE = int(EffectType.UnbreakableDuty_Damage)                      # 0x4e8 = 1256
+#: `DSLFormulas$$Direct(2)` du `AmountIsEqualOrGreater` -- le seuil de l'i2 (« 2 or more »).
+UNBREAKABLE_DUTY_MIN_DEAD_IMPERIAL_HEROES = 2
+#: Cle de source du `ChangeStat` [B]. La branche HEALTH de la feuille mute `HealthComponent.hp`
+#: directement (stat FILL-UP) et ne la lit pas ; elle reste NOMMEE pour la tracabilite.
+_UD_HEAL_SOURCE = "UnbreakableDuty:hpFill"
+
+
+def unbreakable_duty_dead_imperial_heroes():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.UnbreakableDutyAbility$$GetAmountOfDeadImperialUnits`
+    -- MIRROR 1:1 de son sous-arbre (le natif RECOPIE la meme expression, inline, dans
+    `$$ExecuteBehaviour` : un seul foyer cote port) :
+
+        UnitsWithTraits( Friends(of = Owner@DSLSelectors+0x30,
+                                 entities = AllDeadOrResurrectedUnits(),
+                                 selectionType = 0),
+                         [0x1a = Imperial, 0x10 = Hero], selectionType = 0 )
+
+    `UnitsWithTraits` est une CONJONCTION (`units_with_traits`, foyer `selectors/units.py`) : il faut
+    les DEUX traits -- « Imperial Characters » de l'i2, `Character` etant le trait `Hero` (0x10).
+    `AllDeadOrResurrectedUnits` = les morts du state PLUS les ressuscites, pas seulement les morts.
+    `Friends(of = Owner)` = de l'equipe du porteur."""
+    dead = Friends(AllDeadOrResurrectedUnits(), reference=Owner())
+    return units_with_traits(dead, (UnitTrait.Imperial, UnitTrait.Hero))   # 0x1a, 0x10
+
+
+def unbreakable_duty_free_attack_targets():
+    """Le selecteur `sel` de [D] -- MIRROR 1:1 :
+
+        ValidNormalAttackTargets(CasterTile@+0x50, CasterTile@+0x50, null, null, null)
+          op_BitwiseAnd
+        AdjacentEnemies(Caster@+0x48, unique = 1, selectionType = 3)
+
+    Les DEUX slots de `ValidNormalAttackTargets` recoivent `CasterTile` -- lu aux octets du call-site
+    (un seul `mov r8,[r10+0x50]`, recopie dans `rdx`), la ou `SorcerousFacadeAbility$$GetTarget` passe
+    `(Caster@+0x48, CasterTile@+0x50)`. Sans consequence : le slot `unit` est consomme par
+    `SelectSingle` -> `TargetsSelector$$SelectUnit`, qui resout une TUILE en son OCCUPANT (cf. la
+    docstring du noeud). On mirror le slot LU, pas le slot attendu.
+
+    `AdjacentEnemies` est la surcharge a 3 arguments (`unit, unique, selectionType`) -- **aucun rayon**,
+    donc ring-1 : « an adjacent enemy » de l'i2. L'intersection avec les cibles d'attaque normale
+    valides est ce qui fait respecter le masque de ciblage de l'attaque normale (portee, obstruction,
+    cibles interdites)."""
+    return And(ValidNormalAttackTargets(CasterTile(), CasterTile()),
+               AdjacentEnemies(Caster()))
+
+
+def unbreakable_duty_tree(extra_hp: int, extra_dmg: int):
+    """Arbre COMPLET de `...UnbreakableDutyAbility$$ExecuteBehaviour` (cf. le bloc de commentaire).
+
+    `extra_hp` / `extra_dmg` = les DEUX `ConfigVar` COLLAPSES a la valeur qu'ils rendent pour le
+    caster (`variables.extraHp` / `variables.extraDmg` indexes par l'`active_ability_level` et scales
+    par l'`AbilityVariablesMultiplierPercentage` -- les DEUX sont dans
+    `variablesAffectedByRarityBonus`). Le collapse est celui qu'on fait partout ailleurs pour un
+    `ConfigVar` d'ability ACTIVE (cf. `ability_attack_params`) : le natif resout la meme chose contre
+    l'`AbilityState` du caster, fige a la construction du behaviour.
+
+    `duration_rounds = 1` de l'`AddEffect` = le `TurnsFromRounds(1)` natif ; `duration_rounds = None`
+    des deux `AddStaticStatModifierEffect` = le `turns = null` natif -> `DefaultAmountOfRounds` ->
+    PERMANENT (« until the end of the battle » de l'i2).
+
+    `scale_from_source = True` = l'`AbilityStateReference` que l'`AddEffect` natif passe en 2e
+    argument : l'entite-effet 1097 BAKE le niveau/multiplier du CASTER, et c'est contre lui que son
+    `ConfigVar(0x46 = dmgReductionPct)` s'indexe."""
+    hp_buff = AddStaticStatModifierEffect(Owner(), UNBREAKABLE_DUTY_HEALTH, int(StatType.HEALTH),
+                                          Const(int(extra_hp)),
+                                          name=EffectType.UnbreakableDuty_Health.name,
+                                          duration_rounds=None)          # turns = null -> PERMANENT
+    hp_fill = ChangeStat(Owner(), int(StatType.HEALTH), "add", _UD_HEAL_SOURCE, int(extra_hp))
+    dmg_buff = AddStaticStatModifierEffect(Owner(), UNBREAKABLE_DUTY_DAMAGE, int(StatType.ATTACK),
+                                           Const(int(extra_dmg)),
+                                           name=EffectType.UnbreakableDuty_Damage.name,
+                                           duration_rounds=None)         # turns = null -> PERMANENT
+    sel = unbreakable_duty_free_attack_targets()
+    attack = UseActiveAbility(Owner(), PickRandomly(sel, 1))             # 0x45 = Loki_NormalAttack
+    free = IfBehaviour(AmountIsGreaterThanZero(Count(sel)), attack)
+    body = op_add(op_add(op_add(hp_buff, hp_fill), dmg_buff), free)
+    gate = AmountIsEqualOrGreater(Count(unbreakable_duty_dead_imperial_heroes()),
+                                  Const(UNBREAKABLE_DUTY_MIN_DEAD_IMPERIAL_HEROES))
+    gated = IfBehaviour(gate, body)
+    aura = AddEffect(UNBREAKABLE_DUTY_DAMAGE_REDUCTION,
+                     EffectType.UnbreakableDuty_DamageReduction.name, Owner(),
+                     duration_rounds=1, scale_from_source=True)          # TurnsFromRounds(1)
+    return op_add(aura, gated)
+
+
+class UnbreakableDutyAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.UnbreakableDutyAbility$$ExecuteBehaviour`
+    (id 1061, `templAncient` « Ancient Thoread », HERO Black Templars) -- cf. le bloc de commentaire.
+
+    CINQ mecaniques (l'audit n'en annonce qu'UNE, « EFFECT/BUFF ») :
+      1. AURA -33% de degat RECU sur le caster ET ses allies a <= `range`(2) hexes, `TurnsFromRounds(1)`
+         (effet 1097, materialise sur le CASTER et PROJETE par son `CreateTargetSelector`) ;
+      puis, SI >= 2 allies morts portant a la fois `Imperial` et `Hero` :
+      2. +`extraHp` (7275 @L65) de PV MAX, PERMANENT (effet 1251) ;
+      3. +`extraHp` de PV COURANTS (`ChangeStat` mode Add sur la stat FILL-UP Health) ;
+      4. +`extraDmg` (1455 @L65) d'ATTACK, PERMANENT (effet 1256) ;
+      5. une attaque NORMALE gratuite sur UN ennemi adjacent tire au sort parmi les cibles valides.
+
+    Face DECISION **NON PORTEE** -- residu NOMME `#572-r2` : le natif a un playbook dedie
+    (`IdunBattle.AI.Playbook.Loki.UnbreakableDutyPlaybook`, `NonComparablePlaybook<UnbreakableDuty
+    Ability>` ctor `0x425 = 1061`), dont `$$GetUseProbability` vaut `10 x <cardinal du slot de query
+    0x75(tile, range)>` puis `+40` si le gate des deux morts passe et `+70` (au lieu de `+40`) s'il
+    existe en plus une cible au slot `0x7d`. Les deux slots d'interface ne sont pas resolus -- c'est
+    ce qui manque, pas l'arbre.
+
+    Renvoie {ability, caster, target, aura, gate_passed, buffs, attack, dsl}. Termine le tour (1061
+    hors des frozensets de `base.py`)."""
+
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.UnbreakableDuty)   # 1061
+    ABILITY_ID = UNBREAKABLE_DUTY_ID
+
+    # GATE DE CIBLE. `...Active.Loki.UnbreakableDutyAbility$$.ctor` est la forme **FLAGS DIRECTS**
+    # (surcharge a 7 arguments, le litteral EST le masque) : il recopie les 3 qwords du champ statique
+    # `<TargetingRange statics>+0x18` dans un local puis appelle
+    #     `TargetingOptions$$.ctor(&opts, 1, &range, 1, 0x8400, 0, 0)`
+    # et enfin `AActiveAbility$$.ctor(this, &opts, 2)`.
+    #   selfCast          = 1
+    #   range             = `TargetingRange` statics `+0x18` = useRangeFromConfig -> `constants.range` = 2
+    #   forceMeleeTarget  = 1 = `RangedBool.False` (l'enum natif est INVERSE)
+    #   rules             = 0x8400 = `TargetIsFriendly (0x400) | CasterIsPossibleTarget (0x8000)`
+    # Coherent avec l'i2 (« Ancient Thoread AND all friendly units within 2 hexes ») : la cible est un
+    # ALLIE, et le caster est lui-meme une cible possible.
+    # Valeur RELUE au decompile a la migration : elle est bit-identique a celle qui vivait dans
+    # `TARGETING_OPTIONS_UNPORTED` (`targeting.py`), d'ou elle est RETIREE par le contrat de
+    # disjonction (une ability portee tient son masque sur SA classe).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsFriendly | TR.CasterIsPossibleTarget,
+                                         self_cast=True, range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    # `AbilityAttackType` = 3e argument d'`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` = le
+    # litteral **`2`** (`Others`), LU au ctor -> transcrit dans la table `ABILITY_ATTACK_TYPE`
+    # (`abilities/attack_type.py`), qui est le registre de cette donnee. TRANSCRIT, jamais deduit :
+    # l'arbre FRAPPE (via `UseActiveAbility`), exactement comme `HolyDuel` 1050 et `Drachnyen` 1029 --
+    # qui, eux, portent `0`. Le litteral ne se derive pas du profil de l'arbre.
+
+    def _params(self, state: "State", caster_id: int) -> tuple:
+        """`(extra_hp, extra_dmg)` = les deux `ConfigVar` collapses.
+
+        Niveau = `active_ability_level` (1061 est l'ability ACTIVE de `templAncient`), multiplier =
+        `AbilityVariablesMultiplierPercentage` de l'unite -- les DEUX variables sont dans
+        `variablesAffectedByRarityBonus` (`['extraDmg', 'extraHp']`), donc les DEUX sont scalees."""
+        e = state.get_entity(caster_id)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        ctx = sc.ctx if sc is not None else None
+        level = ctx.active_ability_level if ctx is not None else 0
+        mult = ctx.ability_variables_multiplier if ctx is not None else 100
+        extra_hp = ability_var(self.ABILITY_ID, "extraHp", level, multiplier_pct=mult) or 0
+        extra_dmg = ability_var(self.ABILITY_ID, "extraDmg", level, multiplier_pct=mult) or 0
+        return int(extra_hp), int(extra_dmg)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if state.get_entity(caster_id) is None:
+            return None
+        extra_hp, extra_dmg = self._params(state, caster_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        unbreakable_duty_tree(extra_hp, extra_dmg).execute(entities, ectx)
+        aura = next((p for n, p in ectx.emitted if n == "AddEffect"), None)
+        buffs = [p for n, p in ectx.emitted if n == "AddStaticStatModifierEffect"]
+        heal = next((p for n, p in ectx.emitted if n == "ChangeStat"), None)
+        atk = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
+        return {"ability": UNBREAKABLE_DUTY_ID, "caster": caster_id, "target": target_id,
+                "aura": aura, "gate_passed": bool(buffs), "buffs": buffs, "heal": heal,
+                "attack": atk, "dsl": True}
+
+
+# Les cles de config LUES au decompile de 1061, nommees (regle « un entier qui DESIGNE passe par un
+# ENUM »). ⚠ QUALIFICATION : `0x1e`/`8`/`0x46` sont des `AbilityVariableType` -- type DECLARE du 1er
+# parametre de `AbilityConfiguration$$GetVariableForLevel`, l'accesseur derriere `DSLFormulas$$
+# ConfigVar` -- et `0x16` un `AbilityConstantType` (`DSLFormulas$$ConfigConst`). Les ordinaux se
+# croisent : `AbilityConstantType(30)` nomme `nrOfProjectilesMax`, `(8)` nomme `unitToSpawn` et
+# `(70)` nomme `summonId` -- trois cles sans aucun rapport.
+assert int(AbilityVariableType.extraHp) == 0x1E and int(AbilityVariableType.extraDmg) == 0x08
+assert int(AbilityVariableType.dmgReductionPct) == 0x46   # relu par l'entite-effet 1097

@@ -836,10 +836,14 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile avant
     #   migration et est bit-identique a celui qui vivait ici
     #   (`.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x1040, 0, 0)`).
-    # 1061 UnbreakableDuty -- `...Active.Loki.UnbreakableDutyAbility$$.ctor` :
-    #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x8400, 0, 0)`.
-    ActiveAbilityType.UnbreakableDuty: TargetingOptions(rules=TR.TargetIsFriendly | TR.CasterIsPossibleTarget, self_cast=True,  # 1061
-                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
+    # 1061 UnbreakableDuty : MIGRE vers `ABILITY_CLASSES` (#572) -- sa face COMBAT est desormais
+    #   portee (`abilities/blacktemplars.py::UnbreakableDutyAbility.TARGETING_OPTIONS`), donc le
+    #   CONTRAT DE DISJONCTION impose de retirer sa ligne d'ici. Le ctor a ete RELU au decompile
+    #   avant migration et la valeur qui vivait ici est CONFIRMEE champ pour champ :
+    #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x8400, 0, 0)` -- `selfCast = True`,
+    #   `range` = FROM_CONFIG (`constants.range` = 2), `forceMeleeTarget = 1` (RangedBool.False),
+    #   `rules` = `TargetIsFriendly | CasterIsPossibleTarget`. C'est la SOURCE qui bouge, jamais la
+    #   valeur.
     # 1087 ExemplarOfTheKauyon -- MIGRE (#488) sur `runner/abilities/tau.py::ExemplarOfTheKauyonAbility.TARGETING_OPTIONS`
     #   avec sa face COMBAT ; contrat de disjonction ci-dessus.
     # 1121 ItItches : MIGRE vers `ABILITY_CLASSES` (#550) -- sa face COMBAT est desormais portee

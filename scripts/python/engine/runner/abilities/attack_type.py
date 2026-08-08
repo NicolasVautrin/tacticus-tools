@@ -267,6 +267,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # l'oeil -- le litteral dit `Others`. Contraste `1191 MartialInspiration`, du MEME module et du
     # MEME preset de `TargetingOptions`, dont le litteral vaut `0`.
     ActiveAbilityType.TalonsOfTheEmperor: AbilityAttackType.Others,  # 1195
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.UnbreakableDutyAbility$$.ctor` recopie les
+    # 3 qwords du champ statique `<TargetingRange statics>+0x18`, appelle la surcharge FLAGS DIRECTS
+    # `TargetingOptions..ctor(&opts, 1, &range, 1, 0x8400, 0, 0)` puis
+    # `AActiveAbility..ctor(this, &opts, 2)` : 3e argument = **2 = Others** (#572). TRANSCRIT TEL
+    # QUEL, surtout pas deduit de l'arbre : 1061 FRAPPE (attaque NORMALE gratuite dispatchee par
+    # `UseActiveAbility(Loki_NormalAttack)`), exactement comme `HolyDuel` 1050 et `Drachnyen` 1029 --
+    # qui, eux, portent `0`. Meme forme d'arbre, litteral OPPOSE : c'est le contre-exemple de plus.
+    ActiveAbilityType.UnbreakableDuty: AbilityAttackType.Others,  # 1061
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.EuphoricStrikesAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &preset, 0)` : 3e argument = **0 = DirectTargetAttack** (#522).
     # Le ctor est de la forme PRESET STATIQUE COPIE (il recopie les 0x40 octets de

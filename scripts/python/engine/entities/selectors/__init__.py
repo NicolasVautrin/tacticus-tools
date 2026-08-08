@@ -31,7 +31,7 @@ from .units import (  # noqa: F401
     UnitsFromFaction, UnitSet, Filter, UnitsDirectlyBehind, Friends, Units,
     UnitsOnTilesWithEffect, Tiles, First, Unique, UnitsWithIds, UnitsWithTrait,
     UnitsWithoutTrait, hero_units, AllDeadUnits, AllDeadOrResurrectedUnits, MechanicalUnits,
-    non_steppable_or_object_units, NormalUnits,
+    non_steppable_or_object_units, units_with_traits, NormalUnits,
     AdjacentFriends, SurroundingEnemies, SurroundingFriends, SortByFormula, SortByDistance,
     Alive, UnitsThatCanHaveActiveAbilityReset, Unobscured, UnitsDamagedThisPhase,
     ValidNormalAttackTargets,
