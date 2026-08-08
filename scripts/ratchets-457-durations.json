@@ -143,6 +143,7 @@
  "tests/engine/test_411r1_transfer_port_offline.py": 0.036,
  "tests/engine/test_418_primarch_transfer_offline.py": 0.097,
  "tests/engine/test_419r1tr12r2_stats_npc_summon_offline.py": 0.365,
+ "tests/engine/test_419r1tr14r5r2r1r1r1r3_should_execute_gates_offline.py": 0.025,
  "tests/engine/test_419r1tr14r5r2r1r2r1r1r3_tiles_in_range_order.py": 0.338,
  "tests/engine/test_433_r4_r1_filter_tiles_can_attack_offline.py": 0.018,
  "tests/engine/test_433_r4_r1_r1_wall_of_mirrors_offline.py": 0.023,

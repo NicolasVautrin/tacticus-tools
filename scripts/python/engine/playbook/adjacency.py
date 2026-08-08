@@ -14,7 +14,7 @@ la MEME approximation sur les DEUX axes ci-dessous. Trois corps auraient ete un 
     result = new OrderedSet<ITile>();
     inner  = this.<+0x20 = origin>.Select(entities);          // les tuiles du SUJET
     foreach (t in inner) {
-        foreach (n in battleQuery.<slot +0x50 = GetAdjacentTiles>(t, false, true, true))
+        foreach (n in battleQuery.<slot +0x50 = IterateAdjacentTiles>(t, false, true, true))
             if (!inner.Contains(n)) result.Add(n);            // le ring-1 MOINS l'empreinte
     }
     return result;

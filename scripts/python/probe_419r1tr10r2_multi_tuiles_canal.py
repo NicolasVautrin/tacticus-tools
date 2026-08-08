@@ -11,7 +11,7 @@ dans `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` :
 
     inner = this.<+0x20 = origin>.Select(entities);        // TOUTES les tuiles du sujet
     foreach (t in inner)
-        foreach (n in battleQuery.<+0x50 GetAdjacentTiles>(t, false, true, true))
+        foreach (n in battleQuery.<+0x50 IterateAdjacentTiles>(t, false, true, true))
             if (!inner.Contains(n)) result.Add(n);         // ring-1 de CHAQUE pied, MOINS l'empreinte
 
 ETAPES -- et l'attestation vient AVANT le verdict :

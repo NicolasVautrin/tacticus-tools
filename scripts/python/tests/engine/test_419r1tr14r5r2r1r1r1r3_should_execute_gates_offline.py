@@ -41,23 +41,46 @@ from engine.playbook.spirit_leech import SpiritLeechLifestealPlaybook
 #: Ce qui doit changer pour que cette garde puisse changer de verdict (#486-r15).
 DECLENCHEUR = {
     "chemins": (
+        # SOCLE COMMUN a tout fichier de test : la cascade des deux `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        # LES QUATRE GATES et leur registre -- l'objet meme du fichier.
+        "scripts/python/engine/playbook/should_execute_gates.py",
+        # LE RANG du lifesteal : la classe 1104 et le crochet `make_heal_predictions` + son fold.
+        "scripts/python/engine/playbook/spirit_leech.py",
+        "scripts/python/engine/playbook/base.py",
+        # LE FOYER d'adjacence PARTAGE (multi-tuiles + `UnitSelectionType`) et son mirror d'enum.
+        "scripts/python/engine/playbook/adjacency.py",
+        "scripts/python/engine/entities/unit_selection_type.py",
+        # LA CLAUSE BOSS du soin generique, et la classe 1167 qui ne la porte PAS.
+        "scripts/python/engine/playbook/common.py",
+        # LE GATE DE KILL dont 1104 DERIVE (la ventilation `REGISTERED_ELSEWHERE` est gardee ici).
+        "scripts/python/engine/playbook/normal_attack_kill_gate.py",
+        # LE SITE d'ou le terme lifesteal a ete RETIRE : un cran lit sa source (`inspect.getsource`),
+        # donc une reintroduction du terme apres le gate doit rejouer ce fichier.
+        "scripts/python/engine/ai/action_generators.py",
+        # LES DEUX ENUMS dont ce fichier FIGE des ordinaux mesures a la conversion : `probe_313`
+        # compare le mirror au BUILD et redevient vert des qu'on le regenere apres un renumerotage
+        # -- c'est le cran du dessous que ce fichier pose, il doit donc rejouer quand ils bougent.
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        # LE REGISTRE lui-meme : `get_playbook_or_default` et l'ordre d'enregistrement des modules.
+        "scripts/python/engine/playbook/__init__.py",
     ),
     "build": False,
     "toujours": False,
     "raison": (
-        "Liste VIDE, et c'est une MESURE, pas un oubli : `probe_486r15 --proposer` rend "
-        "452 modules de fermeture pour 453 chemins DEJA derives par le foyer -- tout ce que ce "
-        "fichier lit passe par un import que le foyer voit (les six modules du port qu'il garde, "
-        "`playbook/{should_execute_gates,spirit_leech,adjacency,common,normal_attack_kill_gate}` "
-        "et `entities/unit_selection_type`, plus le socle `conftest`). Declarer un chemin de plus "
-        "serait une SECONDE selection, plus etroite que la derivee, donc un faux vert en puissance. "
-        "`build: False` est LU au contenu : aucune assertion ne lit `data/symbols/**` ni le "
-        "binaire -- les ordinaux qu'elle fige (0x420, 0x447, 0x3f2, 0x47b, 0x48f, 0x45f, 0x4bc, "
-        "0x12, 0x1c, `UnitSelectionType` 0..3, `UnitTrait.Summon` 2) sont figes EN DUR ici "
-        "exprement, parce que le cliquet du dessous (`probe_313`) compare le mirror au build et "
-        "redevient VERT des qu'on regenere le mirror apres un renumerotage -- c'est le cran "
-        "manquant que ce fichier pose. `toujours: False` : ce fichier ne garde ni le harnais ni la "
-        "banque, il garde SIX foyers nommes."
+        "CES chemins parce que chacun porte une assertion NOMMEE de ce fichier, et le premier jet "
+        "-- une liste VIDE, que `--proposer` declarait pourtant 'juste' au motif que la cascade "
+        "derivee du foyer couvre les 452 modules de fermeture -- a ete REFUSE par le cliquet, avec "
+        "raison : `toujours: False` + perimetre vide = un fichier que RIEN ne rejouerait jamais. "
+        "La derivee dit ce que le fichier LIT ; la declaration doit dire ce qui le fait CHANGER "
+        "D'AVIS, et les deux ne coincident pas. Pas d'autres chemins : ce fichier n'ouvre aucune "
+        "donnee, ne monte aucun runner et n'assertionne rien sur les autres playbooks. "
+        "`build: False` est LU au contenu -- aucune assertion ne lit `data/symbols/**` ni le "
+        "binaire ; les ordinaux (0x420, 0x447, 0x3f2, 0x47b, 0x48f, 0x45f, 0x4bc, 0x12, 0x1c, "
+        "`UnitSelectionType` 0..3, `UnitTrait.Summon` = 2) sont figes EN DUR ici EXPRES, et les "
+        "deux mirrors d'enum sont declares pour cette raison-la. `toujours: False` : ce fichier ne "
+        "garde ni le harnais ni la banque, il garde HUIT foyers nommes."
     ),
 }
 
