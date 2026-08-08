@@ -938,6 +938,48 @@ _MAKE_DMG_TARGET_GATE = {ActiveAbilityType.DaemonicOrdnance: _daemonic_ordnance_
                          ActiveAbilityType.HadesAutocannons: _hades_autocannons_target_gate}   # 1147
 
 
+# ── Les playbooks qui N'EMETTENT AUCUN event pour `<Target>` separement (#359-r5) ────────────────
+# Ils BOUCLENT sur leur selecteur et rien d'autre : la cible principale n'y a droit a un event que si
+# le SELECTEUR la contient, et alors A SA PLACE dans l'ordre du selecteur -- jamais en tete.
+#
+#   for e in GetEntitiesFromSelector(<selecteur>, caster, casterPosition, target):
+#       list.AddRange(GenerateMultiHitAttackPredictions(caster, casterPosition, e, Entity(e), ...))
+#
+# C'est ce que #359 a MESURE sur `1147` : natif `[113, 110, 116]`, la cible `110` en 2e position
+# (`SurroundingUnits(..., includeCenter: 1)` l'a mise dans le selecteur, le `SortByRow` l'a classee).
+# Le port emettait `[main] + (selecteur - main)`, donc la cible toujours en tete.
+#
+# ⚠ CE N'EST PAS LE CAS GENERAL, et une correction NON REGISTREE aurait CASSE les cinq autres. Sur
+# les huit abilities du port qui surchargent `get_aoe_targets`, cinq ont bien un batch `<Target>`
+# EXPLICITE avant leur boucle -- lu au decompile, une par une :
+#
+#   `IdunBattle.AI.Playbook.Loki.HarvesterOfSoulsPlaybook$$MakeDamagePredictions`
+#       GenerateMultiHit(target, Get(sel, target), GetDamageAmountMain) PUIS AddRange(GetSurroundingUnits)
+#   `IdunBattle.AI.Playbook.Loki.PlasmaCannonPlaybook$$MakeDamagePredictions`
+#       GenerateMultiHit(target, sel+0x60) PUIS AddRange(GetValidSecondaryTargetsSelector)
+#   `IdunBattle.AI.Playbook.Loki.FrenziedFiringPlaybook$$MakeDamagePredictions`      (cf. `_frenzied_firing_inputs`)
+#   `IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$MakeDamagePredictions`
+#       GenerateMultiHit(target, sel+0x60, GetHits) PUIS boucle GetAdjacentAttackTargets (GetHits2)
+#   `IdunBattle.AI.Playbook.Loki.FragBombPlaybook$$MakeDamagePredictions`            (meme forme, temoin hors get_aoe_targets)
+#
+# `BloodyFury` (1129) est hors du sujet : son playbook est un `NonComparablePlaybook`
+# (`IdunBattle.AI.Playbook.Loki.BloodyFuryPlaybook$$EvaluateNonComparable`), il n'a PAS de
+# `MakeDamagePredictions` -- son `get_aoe_targets` est consomme par un autre chemin.
+#
+# EFFET SUR LE SCORE, mesure du rayon : AUCUN aujourd'hui. Le consommateur du terme degat SOMME
+# (`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions`),
+# et les deux seuls lecteurs de POSITION du port sont `playbook/base.py::calculate_action_utility`
+# (`main = events[0]` -> cle `pred`, puis `aoe = events[1:]`) et, en aval, `_spiritleech_lifesteal_util`
+# -- or `SpiritLeech` (1104) ne surcharge AUCUN `get_aoe_targets`, donc son `events[0]` est et reste
+# la cible. Le reste des lectures de `pred`/`aoe` est du DEBUG. Ce qui change ici est donc la
+# FIDELITE de la liste emise, pas un score : c'est la raison pour laquelle rien ne le signalait.
+_MAKE_DMG_SELECTOR_ONLY = frozenset({
+    ActiveAbilityType.HadesAutocannons,    # 1147 IdunBattle.AI.Playbook.Loki.HadesAutocannonsPlaybook$$MakeDamagePredictions
+    ActiveAbilityType.DaemonicOrdnance,    # 1148 IdunBattle.AI.Playbook.Loki.DaemonicOrdnancePlaybook$$MakeDamagePredictions
+    ActiveAbilityType.MurderousSwing,      # 1137 IdunBattle.AI.Playbook.MurderousSwingPlaybook$$MakeDamagePredictions
+})
+
+
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
@@ -1058,6 +1100,26 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     # ce qui rend le registre `_A_INLINE_IN_PLAYBOOK` (l'arrondi demi-vers-le-pair de 1100, #350)
     # ACTIF au lieu d'inerte.
     prepend_normal = ability_name in _PREPEND_NORMAL_ATTACK_EVENT
+    # #359-r5 -- ce playbook natif emet-il un event pour `<Target>` SEPAREMENT, ou boucle-t-il
+    # uniquement sur son selecteur ? Registre `_MAKE_DMG_SELECTOR_ONLY` (lu au decompile, ability par
+    # ability, contre-temoins nommes). C'est la SEULE chose qui distingue les deux formes ; la deduire
+    # dynamiquement (« le set contient-il la cible ? ») serait faux : `FrenziedFiring` a un batch
+    # `<Target>` explicite ET un selecteur qui peut contenir la cible.
+    selector_only = int(ability_id) in _MAKE_DMG_SELECTOR_ONLY
+
+    def n_targets(aoe_list) -> int:
+        """`nrEnemies` = `Enumerable.Count(<le set sur lequel le natif boucle>)`, l'argument de
+        `<Ability>.GetCorrectDamage` et de la boucle EXTERNE (`get_prediction_set_repeat`).
+
+        Famille a batch `<Target>` : le natif compte le selecteur SECONDAIRE plus la cible.
+        Famille `_MAKE_DMG_SELECTOR_ONLY` : il compte le selecteur, POINT -- ce qui, pour
+        `MurderousSwing`, est litteralement le `Enumerable.Count(entities)` que
+        `IdunBattle.AI.Playbook.MurderousSwingPlaybook$$MakeDamagePredictions` passe a
+        `IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility$$GetCorrectDamage`. Les deux
+        coincident tant que la cible est DANS le selecteur (le regime ordinaire d'une melee), et
+        divergent d'exactement 1 quand elle n'y est pas -- c'est le second ecart que #359-r5 fermait
+        sans l'avoir nomme."""
+        return len(aoe_list) if selector_only else 1 + len(aoe_list)
     # ab/cfg/aoe construits ICI (AVANT le main event) car le compte AoE TOTAL (nrEnemies = 1 + secondaires)
     # est requis pour la clause `GetCorrectDamage` (MurderousSwing : +extraDmg AJOUTE A LA BASE si UN seul
     # ennemi touche, #108). `base_bonus` = delta de base, 0 pour toute ability sans clause (get_correct_damage
@@ -1116,12 +1178,16 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
                               # -- aucune ligne `ctrl` mesuree -> None -> le noeud rend False, jamais
                               # une equipe devinee.
                               current_player_team=_current_player_team(scene))
-        aoe = [t for t in ab.get_aoe_targets(dctx)
-               if t.get("id") is not None and t.get("id") != main_tgt_id]
+        aoe = [t for t in ab.get_aoe_targets(dctx) if t.get("id") is not None]
+        if not selector_only:
+            # Famille a batch `<Target>` EXPLICITE : la cible est emise a part, en tete -- on la
+            # retire donc du batch secondaire. Pour `_MAKE_DMG_SELECTOR_ONLY`, au contraire, le
+            # selecteur EST la seule boucle du natif : il part TEL QUEL, cible incluse a sa place.
+            aoe = [t for t in aoe if t.get("id") != main_tgt_id]
     base_bonus = 0
     if ab is not None:                               # GetCorrectDamage(base, nrEnemies) - base (>= 0)
         _b = ab.get_damage()
-        base_bonus = max(0, ab.get_correct_damage(_b, 1 + len(aoe)) - _b)
+        base_bonus = max(0, ab.get_correct_damage(_b, n_targets(aoe)) - _b)
 
     # Dispatch per-ability (mirror du registre playbook natif) : un handler ability-specifique fournit ses
     # overrides d'ENTREE (base/hits/profile) ; sinon `{}` -> chemin generique config inchange. La logique
@@ -1164,13 +1230,23 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
         if nev is not None:
             events.append(nev)
 
-    main = _event(main_tgt_id)
-    if main is not None:
-        events.append(main)
-    elif _gate_fn is None:
-        # Sans gate de SELECTEUR, la cible principale EST la boucle du natif : pas d'event principal
-        # = non-attaque, et le batch AoE n'a pas lieu d'etre. Comportement historique, inchange.
-        return events
+    if selector_only:
+        # #359-r5 -- AUCUN event `<Target>` : ces playbooks n'en construisent pas. La cible n'a droit
+        # a un event que si le SELECTEUR la porte, et alors A SA PLACE, par la boucle ci-dessous.
+        # C'est ce qui reproduit la mesure de #359 sur `1147` (natif `[113, 110, 116]`, cible en 2e).
+        # Il n'y a rien a court-circuiter ici : un selecteur VIDE rend une liste vide, exactement
+        # comme le natif -- et c'est `playbook/base.py::calculate_action_utility` qui decide ensuite
+        # (garde de PORT `not events -> None`, deja documentee comme divergente du natif, qui
+        # sommerait 0). Ne pas la deplacer ici : elle vaut pour TOUTES les abilities.
+        pass
+    else:
+        main = _event(main_tgt_id)
+        if main is not None:
+            events.append(main)
+        elif _gate_fn is None:
+            # Sans gate de SELECTEUR, la cible principale EST la boucle du natif : pas d'event
+            # principal = non-attaque, et le batch AoE n'a pas lieu d'etre. Historique, inchange.
+            return events
     # AVEC un gate de selecteur (#359), l'absence d'event PRINCIPAL ne dit RIEN des autres membres :
     # le playbook ne boucle pas sur `<Target>`, il boucle sur les entites de SON selecteur, et la
     # cible demandee peut n'y etre pas alors que d'autres y sont. MESURE (#359, R3, `1147` greffee
@@ -1202,7 +1278,7 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     # `count` fois (CONFIRME LIVE : K=1->1, K=2->4, K=3->9). `get_prediction_set_repeat` = count (= 1+len(aoe),
     # taille du set) pour ces abilities, 1 sinon (lineaire INCHANGE pour toutes les autres). Ordre = blocs
     # [main,aoe...] repetes (mirror boucle externe). Refs partagees OK (util Sigma read-only). AVANT l'event SELF.
-    rep = ab.get_prediction_set_repeat(1 + len(aoe))
+    rep = ab.get_prediction_set_repeat(n_targets(aoe))
     if rep > 1:
         events = events * rep
     # Event SELF negatif — cout en PV (`ability.GetHealthToLose`), utilite NEGEE (friendly).
