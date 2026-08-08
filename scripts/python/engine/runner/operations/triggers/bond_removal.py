@@ -303,6 +303,21 @@ BOND_REMOVAL_GATES: dict[int, BondRemovalGates] = {
     # mort du bonde, jamais au tour qui passe.
     int(EffectType.HolyDuel_Taunt): BondRemovalGates(
         "IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect", True, None, True),
+    # Pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility$$ExecuteBehaviour`
+    # (#552) sur l'ALLIE taunteur, `bondedEntity` = la CIBLE mind-controlee -- le MIROIR du 27 que
+    # le meme arbre pose sur la cible, bonde a cet allie.
+    # ⚠ CETTE LIGNE ETAIT DEJA MESUREE, ET EN ATTENTE DE SON PORTEUR. §8.7 de
+    # `docs/rl/case-462-r4b-r1-r1-r1-r1-retrait-bond.md` la classait << (b) arme a `Nullable<int>(1)`,
+    # mais son `EffectType` n'est pas etabli et le port ne pose aucun de ces effets >>. Les deux
+    # verrous tombent ici : le port POSE 1367, et l'`EffectType` est etabli par le 2e argument
+    # LITTERAL de l'`AddBondEffect` de l'arbre (`0x557`) apparie au NOM de la classe native.
+    # Les TROIS virtuels sont MESURES (`probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step declared`,
+    # rejoue le 2026-08-08 : `get_Range` = corps propre `...MindControl_TaunterEffect$$get_Range`
+    # (`Nullable..ctor(&ret, 1)`, LU au decompile), `get_Adjacent` = false, et
+    # `get_RemoveOnBondedEntityDeath` = **true**).
+    int(EffectType.MindControl_Taunter): BondRemovalGates(
+        "Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.MindControl_TaunterEffect",
+        True, 1, False),
 }
 
 
