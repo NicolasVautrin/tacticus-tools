@@ -1,0 +1,609 @@
+# RECONSTRUCTION du filet perdu lors de l'incident #479-r5 (2026-08-08).
+# Le manifeste d'origine (`docs/rl/manifeste-479r1-branches-distantes-supprimees.tsv`)
+# a ete ecrit dans le tmp par la meme cause que le geste lui-meme, et est INTROUVABLE.
+# CE FICHIER N'EST PAS CE MANIFESTE. Il est derive d'une AUTRE source -- les PR
+# mergees -- et il ne dit NI quand une branche a disparu, NI par quel geste. Il dit
+# ou retrouver le CONTENU d'une branche d'agent absente d'`origin`, ce qui est la
+# fonction de filet que le manifeste portait.
+# LIMITE CONNUE : une branche disparue qui n'a JAMAIS eu de PR mergee n'y figure pas.
+# branche	pr	commit_de_merge	merge_le	titre
+worktree-agent-a98dc1099771ca1c2	2	1e26b4b5edb9	2026-07-16T16:46:10	fix(rl): #184 bloodMephiston ~1.49x = aura DaughterOfTheAbyss -33% Psychic (Atlacoya), pas le hit-count
+worktree-agent-a7d06b0a98e0e2a34	3	70b67e904250	2026-07-21T05:44:44	fix(rl): case-49x Gauntlets(1000) - utilite a DEUX ANCRAGES (ring1(T) U disque2 REEL) + gate eligibilite
+worktree-agent-a9876ee93a2ff4c50	4	cb4fb4744b6c	2026-07-22T22:07:33	fix(rl): #39 case-31A - 'gate per-joueur' 1180 = confond turnsStarted (refute live), suppression du gate team
+worktree-agent-a6ea6d75a6a7e230d	5	0b52bec56093	2026-07-23T05:47:22	#38b Gate 1118 DoctrinaImperatives : cap-branch (visualId summon) + slot 0x51 = GetFreeAdjacentTiles
+worktree-agent-a5bb57856e4d228f7	6	5e2546d015e2	2026-07-23T05:47:22	#27 CalculateCustomUtility - 2 overlays portes (ArmoriumCherub, LightOfSanguinius) + triage 20 residus
+worktree-agent-a83ff260b85a9863c	7	b1adb457e7a0	2026-07-23T05:47:22	feat(rl): #203 trait LivingMetal (regen Necron) — face COMBAT portee + validee
+worktree-agent-a44ce7eab5ef8dfad	8	54760f4f638c	2026-07-23T08:44:19	#204 TerrifyingCrescendo_ExtraDmg (1424) : additif ranged empilable emperNoiseMarine - porte + valide live bit
+worktree-agent-a97410d869c9bf5aa	9	c9c1deab7c64	2026-07-23T08:46:49	#205 trait Unstoppable (1042) - RE + verdict INVALIDABLE (movement-stop non porte)
+worktree-agent-ad09de5b1374ece98	10	edcbd098f17c	2026-07-23T10:21:12	#217 Stormcaller (1113) face COMBAT : zone Ice + 3x Psychic ennemis-sur-glace + stun Flying + gate snowball ab
+worktree-agent-a13daa9afe6e7dbf3	11	3bba9d8f4ea0	2026-07-23T10:21:12	[opus] #217 face COMBAT TheQuickening (1151, bloodMephiston) - teleport-echange + free melee attack
+worktree-agent-a0ee50ba629467e24	12	97ec41f2296d	2026-07-23T10:21:12	#217 [opus] face COMBAT BlackRage (1163, Lucien) - setHealth 30% + 3 self-buffs + charge + attaque normale
+worktree-agent-ab31c0ff18985c90b	13	c4d7efb686cb	2026-07-23T23:07:01	feat(rl): #220 P0-DAMAGE face COMBAT GauntletsOfUltramar (1000, ultraCalgar)
+worktree-agent-a6e669960dd1a7ee6	14	36e7a5c1b7bf	2026-07-23T23:07:02	#220 P0 port COMBAT AberrantHypermorph (1166 genesBiophagus) @1811b0550
+worktree-agent-ab6a8843db291105c	15	54ca5dcf6fa0	2026-07-23T23:07:02	#220 face COMBAT VigilanceEternal (1202, Tyrith custoKyrus)
+worktree-agent-a06de242bccf23040	16	2a301d98eef7	2026-07-23T23:07:02	#218 face COMBAT CordClaw (1122, admecRuststalker) - 4x DirectDamage + self-buff coups additionnels
+worktree-agent-a06379b623a980e5b	17	f00845db36a6	2026-07-23T23:07:01	#220 face COMBAT RevitalizingMalignancy (1037, deathRotbone) - heal split-trait Chaos + derivation trait allia
+worktree-agent-a35d06061a935b8a7	18	9bd3dffeb72f	2026-07-23T23:07:01	fix(rl): rngcrit-1202 - desync RNG des attaques d'ability multi-coups a cc=0 (resolve slot-8 gaspille, pas un 
+worktree-agent-a3c847bf0be4856af	19	9a9101893cd5	2026-07-24T00:20:35	#220 BringerOfDespair (1022, Angrax BlackLegion) - port face COMBAT + valide live
+worktree-agent-a5f17035710ec1bdb	21	36c916304251	2026-07-24T00:58:23	port CombatRestoratives (1002, ultraApothecary) - heal x2 split trait Imperial [opus]
+worktree-agent-a4c8e8b4f60780adf	22	d4252c71440b	2026-07-24T00:58:23	feat(rl): #220 PlasmaCannon (1150, darkaTerminator) porte + valide live
+worktree-agent-a7e54876438d7d83a	23	fc35e088589a	2026-07-24T01:56:08	feat(rl): #220 port SavageEchoes (1230, Cezare bloodTerminator)
+worktree-agent-a32f82d4117e7476e	24	8acbd4dd9006	2026-07-24T01:58:21	#220 AvalancheOfMuscle (astraBullgryn passif, AstraMilitarum) - extra-damage de charge
+worktree-agent-a53103b4b5d220e79	25	ba9552d2af58	2026-07-24T02:13:29	#220 HarbingerOfDestruction (1008, necroPlasmancer Necrons) - port face COMBAT
+worktree-agent-a1242b2098ffc5cdd	26	a8ab425deff1	2026-07-24T02:25:05	feat(rl): #220 SanctorumMissile (1062, adeptMorvenn Sisterhood) - port COMBAT arbre DSL 2-bandes, valide LIVE
+worktree-agent-afa1f5a890b354783	27	3208ac6d0fc1	2026-07-24T02:46:19	#220 IronkinSteeljack (1219, votanMemnyr Votann) - port COMBAT summon
+worktree-agent-a89fdbad247e69fa7	28	7cc195886c00	2026-07-24T03:23:27	#220 FlailSwing (1042, deathBlightlord DeathGuard) - COMBAT 3x Power + flag overkill
+worktree-agent-af4e10ea29cc3cf81	29	78a48a6ebc1e	2026-07-24T03:21:08	#220 Executioner (1066, eldarFarseer Aeldari) - face COMBAT portee + validee LIVE
+worktree-agent-a1b6009045e3d530b	30	71360e68b479	2026-07-24T04:03:00	#220 SkyStrike (1025, adeptCelestine Sisterhood) - port COMBAT charge+attaque melee normale, valide A/B + gate
+worktree-agent-a6a136c3ff0d4aad2	31	8e45ca3bf744	2026-07-24T08:09:25	#220 CondemnorStake (adeptCanoness passif, effet 1076 Sisterhood) - porte COMBAT + valide live
+worktree-agent-afa8602ae92c07436	32	9553f7c2a2c7	2026-07-24T08:18:57	#220 SporeMineLauncher (1145, tyranBiovore Biovore MoW Tyranids) - port COMBAT spawn tile-target sans on-appea
+worktree-agent-a0cb06c655a982391	33	27809903a3d8	2026-07-24T08:24:06	#220 HarvesterOfSouls (1067, eldarMauganRa Aeldari) COMBAT porte -> ranged HeavyRound cible hits=If(HasMoved,2
+worktree-agent-a2a29ebf31c1e4476	34	a20c2bc96177	2026-07-24T08:47:32	#220 MartialApotheosis (1045 necroOverlord Necrons) - COMBAT triggered turn-start anneau-1 2x Energy
+worktree-agent-a4d469330ed7334d9	35	cc61ca2aa27e	2026-07-24T08:37:23	#220 DestroyerHive (passif deathTyphus, DeathGuard) - port COMBAT + valide LIVE bit-exact
+worktree-agent-af9c9499961ce9958	36	810cdd9599bc	2026-07-24T10:06:06	#220 AlphaWarrior 1112 (tyranWingedPrime Tyranids) - port COMBAT + valide LIVE bit-exact
+worktree-agent-aeda90efd18cd97b9	37	89da371e0b05	2026-07-24T10:45:25	#220 MortisRound 1004 ultraEliminatorSgt (Ultramarines) - Attack HeavyRound 1x + PushUnit ; wiring valide, qui
+worktree-agent-a388fd7e726af0c52	38	0c6080563c46	2026-07-24T11:05:48	#220 JakhalStimms 1131 (worldJakhal Macer WorldEaters) - 4x Physical melee cible + AoE intersection adjacent-b
+worktree-agent-ae08d6304e7238821	39	d8043a88ee0b	2026-07-24T11:08:49	#220 SentinelDirectives 1139 (admecDestroyer Sy-Gex AdMec) - COMBAT porte + valide LIVE
+worktree-agent-ab3e3725353e9e4fc	40	6f4c22b3db57	2026-07-24T11:35:50	fix(rl): #45f GreatFrostAxe/Stormcaller x1.5 = elevation manquante du vecteur ability (pas la glace) + vrai bo
+worktree-agent-a5897909c4b55b90f	41	b91421346e3b	2026-07-24T11:43:30	#220 DefenderOfTheGreaterGood ExtraDmg (tauShadowsun 1182 Tau) - aura +extraDmg ranged non-Psychic portee EFFE
+worktree-agent-abc6bc2e4b6b36bda	42	b3c31e33c53f	2026-07-24T13:11:48	#47 buffs RANGED du caster sur les attaques d'ABILITY (HeavyWeapon x2 MortisRound) + knockback push bloque
+worktree-agent-ad2b425cb622616cb	43	ca88fabbe1e7	2026-07-24T13:16:09	#220 DeathFromAbove 1003 (ultraInceptorSgt Ultramarines) - summon dynamique valide LIVE bit-exact
+feat/115-ability-target-gate	92	c77c06d5a45f	2026-07-26T00:36:19	#115 GATE DE CIBLE d'ability : maillon generique + point d'extension (Waaagh 1058)
+worktree-agent-a578b7a345efcc3f2	93	47c8e68a4306	2026-07-26T01:57:47	#118 Stat-mods des effets SEEDES : par-source reversible (verdict RE) + fix du port
+feat/113-votann-lot1	94	8341bd1aa97f	2026-07-26T02:49:08	feat(rl): #113 Votann lot 1 - AugmentedAssault / GravitonRifle / AncestralFortune + leurs 4 effets
+feat/224-effect-immunity-gate	119	42de74db26e3	2026-07-26T19:13:23	feat(rl): #224 gate d'IMMUNITE d'effet (BaseEffect.EntityIsImmuneToEffect + get_CanBeImmuneTo) -- canal declar
+fix/67b-shield-ability-limits-order	120	21494b6bad00	2026-07-26T19:29:45	fix(rl): #67b ordre bouclier x limites (voie ABILITY) -- le cap porte sur le RESTE post-bouclier
+worktree-agent-aef5111fa46518448	134	2cef371ad290	2026-07-27T16:00:39	docs(rl): inventaire des residus RE-CONFRONTE au code -- 4 residus fermes, 2 entrees [fable] deja fausses, gis
+worktree-agent-a1941e07e6d1ec340	136	a8f20757593b	2026-07-27T18:12:26	feat(rl): #1203 OnToxicDamageAbility - contamination on-hit (If IsFirstHitInSeries & Maybe(25%))
+worktree-agent-a9f243149c643b464	137	8fb44f4b6b4e	2026-07-27T18:12:30	feat(rl): #241 gate de PORTEE - le moteur cesse d'accepter les casts hors portee
+worktree-agent-a31bc6d411cdb40dd	139	018fee164137	2026-07-27T19:39:11	fix(rl): R16 - les stat-mods EAGER du SEED sont attribues par-source, donc revertes
+worktree-agent-ab82b9002a00fd3cd	140	1930824d620f	2026-07-27T18:57:42	R14 - face DECISION des Machines of War : DefaultMachineTactic + routage caster Machine
+worktree-agent-a5ef6e68827ce446b	141	830f6dd7ed55	2026-07-27T19:09:48	R9 -- Chronometron_ExtraDamage (1550) : attacker_ctx elargi sur les DEUX faces, effet INERTE -> ACTIF
+worktree-agent-a28b467963ee53746	142	35a28837cddb	2026-07-27T19:11:05	fix(rl): R28 PickRandomly -- ordre SOURCE du pool (2 iterateurs natifs) + Fragstorm en HEXES
+worktree-agent-a9a0333f31b7a3852	143	d6cbe63164cb	2026-07-27T20:00:27	refactor(rl): #164 source UNIQUE des regles de ciblage - targeting.py lit l'enum GENERE
+worktree-agent-aa06aeb4d9eaef0a0	144	5da0c3170aa7	2026-07-27T20:08:28	#170 get_Priority EST surcharge sur 22 playbooks (3 portes avaient un tier FAUX)
+worktree-agent-a4bdab88b10574b0d	145	3c099494677a	2026-07-27T20:08:00	O4a - gate `Maybe(chance)` : 1 tirage RNG, a SA place dans le flux (PileIn + O6 LetTheGalaxyBurn)
+worktree-agent-a66fbed383bdb2d1f	146	59c8df4efa72	2026-07-27T20:20:14	N5 REFUTE : la chaine `&` derriere un AddEffect refuse NE TOMBE PAS (doc corrigee + garde live)
+worktree-agent-a4d8485a4e7eeb0fc	147	ec476ff5296e	2026-07-27T20:35:02	fix(rl): #172 le replay offline du cast LEGAL etait sans flux MT (test de garde rouge sur master)
+worktree-agent-a46d63cea5ff37c5e	148	dd6fd6eb2148	2026-07-27T20:58:53	R1 - tuile d'ORIGINE : premisse refutee (GetCurrentAndMovablePositionsFor), ORDRE de sweep porte
+worktree-agent-a2c85555736604d35	149	2e89ac2258f3	2026-07-27T21:12:10	#162 suites MoW rouges : DEUX defauts de HARNAIS (le montage mesurait sur un runner corrompu par son propre ou
+worktree-agent-a89edcfeababc56aa	150	c4d9a376d540	2026-07-27T21:13:39	R30 - substrat MULTI-HEX : empreinte a N pieds (representation, ancre, occupance, portee)
+worktree-agent-aaeca8b7fc98a7ad0	151	17c2d74651c0	2026-07-27T21:36:18	fix(rl): R5 - la passe IA generique choisissait une tuile ILLEGALE (gate BlockEnteringUnits, #131)
+worktree-agent-a9d827e4de4edaf10	152	fd1031e9e9a0	2026-07-27T21:48:11	R20 - de-fork residuel SpawnReplica : un seul corps PerformAIAbilityUnitBehaviour (gate de portee + after-hit)
+worktree-agent-a5412c2e8b1cef0aa	153	cf77f620a010	2026-07-27T22:03:57	refactor(rl): #169 scinder les 2 fichiers moteur >1000 lignes (damage_ops, triggers/dispatch) en packages
+worktree-agent-ac182ab5de85b432d	154	67f54b98e140	2026-07-27T22:21:47	docs(rl): inventaire des residus RE-CONFRONTE -- passe scopee par le diff (5 fermetures, 3 entrees neuves, 6 a
+worktree-agent-ac580fae1bb7cd873	155	738878c64b16	2026-07-27T22:55:07	#174 les MoW lisaient TOUTES leurs variables au NIVEAU 0 -- filtre entityType + index level-1 prouve
+worktree-agent-aba83464b8734de76	156	26b84f89e5ef	2026-07-27T23:05:16	fix(rl): R21 - seeder MOVEMENT sur un summon spawne offline (rouge Waaagh ferme ; rattachement moveAmount=null
+worktree-agent-ad7287540eac412b0	157	57fad1a40ba6	2026-07-27T23:14:51	fix(rl): #N1 ArcaneShield - vecteur On(0x1c) au lieu de On(4) + score de tri ADDITIF (la distance domine la fa
+worktree-agent-aeb757635470999a6	158	2141d2cb595e	2026-07-27T23:39:58	feat(rl): BarbedOvipositor (passif tyranParasite) - summon-on-kill, canal T
+worktree-agent-a9a934bdce61475a7	159	6b1490de76de	2026-07-27T23:43:55	feat(rl): face COMBAT de Drachnyen (1029) et HeraldOfTheApocalypse (1020) -- les 2 dernieres actives Black Leg
+worktree-agent-a974111cc8b5415ad	160	5f2825b7207e	2026-07-27T23:50:14	feat(rl): face COMBAT de FragBomb (1017) et BasiliskBarrage (1026) -- Astra Militarum
+worktree-agent-a185b9182de52bc57	161	2a89508eff9d	2026-07-27T23:50:14	feat(rl): #152 PlagueWind (1035) + Doombolt (1102) - les deux AoE Psychic HERO, face COMBAT
+worktree-agent-a2a603bf5317c3425	162	062763552a77	2026-07-27T23:52:43	#175 ctx[unit_traits] absent : 7 feuilles Tile(7) mortes en silence (+ co-gates isTerritory / effectType)
+worktree-agent-a0fc04afd17f2fb1e	163	cd9ececc8f25	2026-07-28T00:24:10	feat(rl): #154 DoomSiren (1199) et FearOfTheUnseen (1115) -- canal DirectDamage, portees + validees live
+worktree-agent-af73ce2a3934750b2	164	941179ce99d9	2026-07-28T00:30:43	R6 : execute_normal_like et additional_hits ARRONDISSENT (Fix64.Round AwayFromZero) - mesure live 60/60 + 14/1
+worktree-agent-a66f706769bd344f7	165	2095f1acdc81	2026-07-28T00:38:04	feat(rl): case-231 socle IsCharging + force_crit -- TacticalPrecision (1154) et MomentShackle (1184)
+worktree-agent-a7fa55db04c6851e6	166	3bd955bf45c2	2026-07-28T01:34:57	#1203 OnToxicDamage : granularite « serie » tranchee au decompile + garde RANGED (le port existait deja)
+worktree-agent-abda9a94bcb34f37d	167	319f49a8b579	2026-07-28T01:53:24	R6-b -- additional_hits resout en ROLL-THEN-REDUCE (2 tirages/coup) : ordre natif porte, 2 cas discriminants
+worktree-agent-aca8ffe0a69d605b1	168	64d875d28e87	2026-07-28T01:56:51	feat(rl): #181 TARGETING_OPTIONS des 13 actives Ultramarines / Sisterhood / Tyranids / SpaceWolves / AdMec / B
+worktree-agent-a0ec81a6c4bdf6d2e	169	af4ea5ae9984	2026-07-28T02:14:00	case-r32 : retrofit du gate IsCharging - le proxy has_moved sur-accordait +599/coup
+worktree-agent-abb968f31094f3ad6	170	988ab26b7b5d	2026-07-28T02:20:23	#178 fork is_overkill : FORK confirme au decompile - foyer unique + gates d'unite (PreventOverkill valide live
+worktree-agent-aba9bd42155410cca	171	f838a930e76e	2026-07-28T02:46:31	N8 -- OwnerHasFinishedMinTurns est PER-UNITE (turnsFinished @+0x5c), pas per-JOUEUR ; le seed manquant est un 
+worktree-agent-a0f372c7f3e436567	175	43c9ab98309d	2026-07-28T03:47:46	#1323 FuelledByFury_ExtraDamage : le bonus etait ABSENT sur les DEUX etages (compteur + magnitude)
+worktree-agent-a47c3d4776c7c4928	177	eb23505f8515	2026-07-28T04:43:53	R6-b'' -- le `Maybe` after-hit roule AUSSI sur les coups d'une attaque d'ABILITY
+worktree-agent-a30833e2e48811afc	178	42169004e338	2026-07-28T05:11:38	case-decision-noop : inventaire CLASSE du gisement [-D] + port de 1171 DakkaDakkaDakka (face COMBAT)
+worktree-agent-a9cf31bd3c5715d0b	179	6ea764230397	2026-07-28T05:15:13	R1-b -- l'ordre du sweep de position est [origine] + aiMovableTiles (ordre d'INSERTION) ; le tie qui le disait
+worktree-agent-a5ae0f29dcc667441	180	c12caf6c8294	2026-07-28T05:36:51	case-ischarging-hits : l'inventaire REEL des 16 xrefs d'IsCharging, et le canal COUPS porte (SagaOfTheWarriorB
+worktree-agent-acb2f6b772e5708e2	181	4b9d3b568d26	2026-07-28T05:40:25	fix(rl): MinDistance = distance HEX, pas Chebyshev -- gate GetStuckIn sur ses DEUX faces
+worktree-agent-ab0bc027b4339e6a1	182	5af3507e8e2a	2026-07-28T06:02:04	R34 : la face DECISION de l'overkill -- MightBeOverkill passe MightCrit@+0xb1, le port passait 0 (15.0 = Possi
+worktree-agent-a28c8dff9488ba550	183	5ba84bfc6045	2026-07-28T06:19:00	1137 MurderousSwing -- face COMBAT du gisement [-D] ; AmountIsGreater est STRICT (ctor deduplique) et le Count
+worktree-agent-a099fcbd0a2e42922	184	1d2fcc1f427f	2026-07-28T07:00:20	Le canal CRIT n'etait aveugle que COTE PORT -- N14 ferme, face CRIT de SagaOfTheWarriorBorn (1223) portee
+worktree-agent-a4ec786375f25ce78	185	899c84a824df	2026-07-28T07:03:34	N13 : le terme de tuile Tile(7) short -- c'est le REGISTRE du dispatcher TriggeredAbilities(2), pas une feuill
+worktree-agent-a3dda825a416dd839	186	bfd07881ac9a	2026-07-28T14:11:46	fix(rl): #155 fork de port du -25 Swamp ferme (foyer unique Loop1/Loop2) ; MaybeTrigger perime
+worktree-agent-a817340ec043a3354	187	3f9cf80db7ab	2026-07-28T14:29:00	N16 UnstoppableFerocity_Owner (1032) : un summon ne se PILOTE pas, il s'OBSERVE
+worktree-agent-aedd08c194934ff1a	188	74ff09d05456	2026-07-28T14:46:00	#159 canal #179 : un descripteur a DEUX noeuds de degat, le COMBAT lit le ROLL (live 8/8) ; le verdict Maybe L
+worktree-agent-a25c9f51d4d219ad6	190	16c1e3668f0e	2026-07-28T15:06:52	fix(rl): #38 off-by-one +1 a armure>0 -- PERIME, re-mesure 24/24 bit-exact sur les 2 vecteurs
+worktree-agent-ad510a5b8555fbdae	191	13d057e0c290	2026-07-28T15:15:05	#165 SortTilesByUtility : de-fork du collapse « tuile la plus proche » (SkyStrike / HeroicFusillade / ForwardS
+worktree-agent-a30247ac5ce66d622	192	13b2bac2c5af	2026-07-28T15:34:49	#85 DespoiledGround : vecteur On(0x10=DamageDealt) + classes d'effet 1476/1478 + DoT d'environnement
+worktree-agent-ad866b2a759d38131	193	973fa300dedd	2026-07-28T15:58:08	R6-c : bornes COMBAT des groupes `amount` du canal #179 - valeur ET consommation
+worktree-agent-a0815151e62d712ec	194	3ceea48406b3	2026-07-28T16:58:56	fix(rl): #227 LetTheGalaxyBurn -- le +1 coup est un GROUPE du canal #179, pas un coup d'ARME
+worktree-agent-ac39a546913dcd16b	195	3947dd4795f9	2026-07-28T17:05:56	#91 DutyEternal (1158) : le PRODUCTEUR multi-hex manquait, pas le substrat
+worktree-agent-af4022718beece8dd	196	a493b7b925a1	2026-07-28T17:07:19	case-165b: le terme MANQUANT de Tile(7) = la feuille gatee sur l'unite (dc.units -> GeminaeSuperiaPlaybook)
+worktree-agent-a5ac4a5642e7fdd47	197	6c16cd6a7667	2026-07-28T17:43:51	de-fork On(DamageDealt=0x10) : OnFire/OnToxic sur le bus - un bug d'ORDRE mesure live (bus 6/6 vs imperatif 3/
+worktree-agent-a1da8d087db1dbb86	198	55072cc2e529	2026-07-28T17:44:02	docs(rl): #193 inventaire re-derivable du gisement « playbooks de mouvement » (natif 108 pas 84, gisement reel
+worktree-agent-af6175aef1d281594	199	7c7ca42a4776	2026-07-28T17:56:36	#201 VigilanceEternal : porte TileDistance(33) + composite MovementSuggestion(32), supprime le collapse tuile-
+worktree-agent-ad6b8e52934902cfd	200	1453b4a9484c	2026-07-28T18:03:43	case-dpw : bornes de la cellule d'ARME de deathPutrifier - le debuff Contagion sur l'unite qui APPARAIT dans l
+worktree-agent-204-ah-channel	201	18924a7385d9	2026-07-28T18:11:22	feat(rl): #204 MasterAnnihilator (1249) + AstartesBanner (1106) -> GROUPES du canal #179
+worktree-agent-ab11b7b5b11e3e7e5	202	a6dd6b9452b8	2026-07-28T20:00:20	case-207 : HazeOfCorruption_TargetFinder -- les 2 genrand manquants de deathBlightlord
+worktree-agent-a2d359161bf3072a0	203	d2469151a98c	2026-07-28T20:06:47	#206 BlackRage (1163) + Waaagh (1058) -> foyer MovementSuggestion(32)
+worktree-agent-a956331dac85fbee1	204	149b0490c3b0	2026-07-28T20:15:53	#193c - face PORTEUR du gisement mouvement (34/45 spawnables) + FearedInterrogator 1235 / HatefulAssault 1038
+worktree-agent-208-pinned-inert	205	adf76adfab13	2026-07-28T20:55:58	#208 Pinned sur TerminatorArmour : POSE puis INERTE -- collapse defait + foyer unique du unit_state
+worktree-agent-a0854cc8b170a11dc	206	298b918eac6d	2026-07-28T20:25:27	fix(rl): case-o10 residu blackObliterator - load_state seede UnitFlag.Moved (le +25% HeavyWeapon fantome)
+worktree-agent-af4a6bd56cb78ade1	207	3eec26e2b016	2026-07-28T20:26:36	#88 A1 : volet REVIVE de FuelledByFury (ultraTitus) + emetteur d'On(PendingDeathAdded=3) localise ; A2 RE comp
+worktree-agent-a7e933401ae6f8573	208	b789b4eb3fb1	2026-07-28T21:22:04	#27-3 CalculateCustomUtility : SavageEchoes (1230) porte, SorcerousFacade (1100) retire, inventaire re-derive 
+worktree-agent-a947fb7a21bec97de	209	1fb646d93ed5	2026-07-28T21:20:13	#205 residu 165b : le call-site SUMMON de SortTilesByUtility a un sujet NULL, pas un ensemble
+worktree-agent-a1557aebdcf4302eb	210	69707df35746	2026-07-28T21:20:29	feat(rl): #209 HazeOfCorruption - charge utile du bond 1077 (report de degat sur le relais)
+worktree-agent-ae1bb9c47e8eac704	211	c0a0db562977	2026-07-28T21:38:32	#o10-a: le gate IsCharging n'a pas regresse -- c'est le test proxy qui a survecu a case-r32
+worktree-agent-a370b704c5635d14a	212	e203a7116730	2026-07-28T21:38:59	#210 BlackRage (1163) : masque de ciblage + regle dynamique livres ENSEMBLE
+worktree-agent-ada44e32beb3e8432	213	0122cc1d2b09	2026-07-28T21:49:02	feat(rl): #211 CursedPlagueBell (1071) -- playbook de mouvement a DEUX gates par voisin (trait d'alliance Chao
+worktree-agent-a1b32101eae971094	214	da7fe66da5b9	2026-07-28T22:21:52	#213 REVIVE A2 -- GhostRevive/TimeFlux (thousTerminator) : le SEUL revive NON-IN-PLACE du binaire
+worktree-agent-ae75be98ae772bc3e	215	2ef807b62be1	2026-07-28T22:16:57	#216 SavageEchoes (1230) : la prediction de degat porte extraDmg x tuiles adjacentes libres
+worktree-agent-a7a0cab05ca7e3f7f	216	618145a94529	2026-07-28T22:24:37	feat(rl): #219 le SEED de load_state porte les effets INERTES (porte includeInactive + flag lu)
+worktree-agent-ab428cfe654cd761c	217	359231a34c5b	2026-07-28T22:36:01	#222-1 ArmoriumCherub (1014) : masque de ciblage d'une ability a PRESET STATIQUE COPIE
+worktree-agent-a926daa8b0c9c7d8d	218	30e92f0a5618	2026-07-28T22:43:46	#217 action FANTOME (1100 SorcerousFacade, ennemi) -- le ROUTAGE de ciblage passe par le masque NATIF
+worktree-agent-aae41979afe4fbd88	219	57a65386a57b	2026-07-28T22:44:56	#17 s5 MinDist : ferme cote LIVE (14/14 bit-exact, tie departage premier-gagne), l ecart -700/-600 est LOCALIS
+worktree-agent-a6fce841991c942e7	220	896088907d32	2026-07-28T22:52:27	#226 le seed BC injecte n'embarquait que le bloc Unit, pas les CONFIGS D'ABILITY -> faux system error
+worktree-agent-a287cfd8d237b226b	221	0f8c28c112cd	2026-07-28T23:00:50	#228 GhostEffect / EchoesFromTheWarp (1284) : branche StatAmount NON PERTINENTE (porteur NPC pur) + correction
+worktree-agent-a03e9fb38c32d6ab7	222	b2580dc35b40	2026-07-28T23:02:17	#221 flux RNG du report HazeOfCorruption : natif 8 == port 8 (4 defauts, 2 residus clos)
+worktree-agent-a6f9a6df827806b32	223	8fada1cd54c8	2026-07-28T23:54:55	#229 Inventaire : quels effectTypes de EFFECT_TRIGGERS lisent e.active
+worktree-agent-ae8ad68aec09d586b	224	a197a163c2b5	2026-07-29T00:02:59	#225 les gates de trait de la couche DECISION lisent un substrat STATIQUE -- inventaire + foyer
+worktree-agent-a1914fa15a0de1acf	225	8d01bf296023	2026-07-29T00:10:33	#230 load_state consomme currentTurnStartTile et chargedUnitIds (combatSnapshot)
+worktree-agent-a25f123da7c606d28	226	9ac732f49922	2026-07-29T00:23:47	#17-off : la face OFFLINE de MinDist(16) compte des NOEUDS et fige UN ClosestEnemy
+worktree-agent-a93b56d7731f047e1	227	1ceb4b16175b	2026-07-29T00:31:40	case-haze-bonded : stocker l'entite BONDEE sur l'instance d'effet + chaine a 2 relais (k=2)
+worktree-agent-a930cb67410a6470a	228	ccd3e8eb5be2	2026-07-29T06:04:40	#234 load_state consomme turnsFinished (gate OwnerHasFinishedMinTurns, residu N11 ferme)
+worktree-agent-a9c5005028938e3ae	229	7299af20f270	2026-07-29T06:18:56	#232 le gate IsAffectedByHealType est absent cote DECISION (6 gates de heals.py)
+worktree-agent-aab1538dea6d8161c	230	09058d526ea4	2026-07-29T06:32:05	#haze-ord : la mort est ENQUEUEE puis drainee (RecordKill / VerifyDeaths), + le site (A) d'ApplyDamageOperatio
+worktree-agent-236-mindist-gates	231	314c13436b14	2026-07-29T06:34:48	#236 MinDist(16) : porter les 4 gates d'entree de la feuille (case.Unit / IsNonAttacking / ClosestEnemy null /
+worktree-agent-acd264de1c6fc2383	232	8abd468f8ad3	2026-07-29T06:34:57	#226-r SkyStrike (1025) : le coup suit le pipeline d'ARME (spread +-20 %), pas un StatAmount degenere
+worktree-agent-adb084ee309f7c2fd	233	be26cc8ac21f	2026-07-29T06:37:03	#231 Le report 1077 (HazeOfCorruption_DamageTransfer) lit le flag EffectComponent.IsActive
+worktree-agent-acc54d9a37d826cd9	234	b80cd844ada4	2026-07-29T07:00:20	#231 le trigger 1173 s eteint quand le marqueur 1197 est INACTIF (rail APPLY_REVERT, pas TARGETS)
+worktree-agent-a1cfa69d02f040484	235	a543a5193669	2026-07-29T07:21:42	fix(rl): 1502 RitesOfMorkai - gate EffectComponent.IsActive du rail TARGETS (residu #229)
+worktree-agent-aaad0fb2e39364dc8	236	77bbb71444ee	2026-07-29T07:13:27	#231 -- effet 1201 (AnvilShield_FrozenAttackerAdvantage) : le rail TARGETS gate sur IsActive @+0x5c
+worktree-agent-aab85cdfe6d44313e	237	31ab32300e5d	2026-07-29T07:53:57	fix(rl): case-1547 le revive ReanimationBeam (1547) lit EffectComponent.IsActive (rail TARGETS)
+worktree-agent-adf58dbbcfadfb2f6	238	4c28829e21f6	2026-07-29T07:26:59	#245 ValkyrieStrike (1018) pose son masque de ciblage -- preset statique +0x1c0 = 0x6000040
+worktree-agent-a4a47990550b72027	239	0095eb620bd1	2026-07-29T07:42:48	#227 porter RemoveUnitOperation : On(UnitRemoved = 0x25) n avait aucun emetteur
+worktree-agent-a8c9c09f9644414a0	240	e10d2c88adbc	2026-07-29T07:53:45	docs(rl): les UnitFlags SONT exposes par combatSnapshot -- 6 fiches disaient le contraire
+worktree-agent-120bis-leftover	241	294cc748999a	2026-07-29T08:01:27	fix(rl): case-120bis - le montage mono-cible du probe de re-resolution etait confondu par le PASSIF du caster 
+worktree-agent-a03c2c84be25abba2	242	211886064627	2026-07-29T08:27:26	feat(rl): #246 ThunderousAssault (1043) -> masque de ciblage 0x10004000 (ctor PRESET + FLAGS)
+worktree-agent-a22d996862a55b864	243	ef343261ddec	2026-07-29T08:28:20	#218 AmuletOfTheVoidwyrmPlaybook n'override PAS CalculateCustomUtility (faux positif de vtable) + sweep borne
+worktree-agent-aa680eb092f0bcde7	244	c5331252d27b	2026-07-29T08:41:05	fix(rl): jauge de munitions MoW - aucune operation ne l'incremente ; levier BC ; pose native de 1547 mesuree
+worktree-agent-a7a6734984b92c5cd	245	49503daf1cd7	2026-07-29T08:45:29	#229-1502 RitesOfMorkai : confrontation LIVE du gate IsActive -- Q1 et Q2 mesurees, residu +0x5e ferme
+worktree-agent-a4f2ca0a7bc9d042c	246	5567e4183ac1	2026-07-29T08:58:08	#212 SpiritualLeader (1275) : cle BC SPIRITUALLDEADER_AdjacentDecoy (faute de frappe du jeu) + cap vtbl+0x228 
+worktree-agent-a313328214ee3aef0	247	777611a4f92d	2026-07-29T09:11:00	#247 masques de ciblage 1104 SpiritLeech + 1122 CordClaw -- module strike SOLDE
+worktree-agent-aa653e87246e81fc3	248	562f5c1c4675	2026-07-29T09:21:02	feat(rl): #247 masques de ciblage du module splash -- 6 abilities, 3 formes de ctor
+worktree-agent-a7913a1aa4a4a6d75	249	61f19d49bc9f	2026-07-29T09:41:13	#249 module `deathguard` solde : les CINQ masques de ciblage poses (1037/1040/1042/1168/1169)
+worktree-agent-af1b269a9900562bb	250	2f905086f3db	2026-07-29T09:57:03	#250 module blacklegion solde -- les 5 masques de ciblage (1021/1022/1036/1147/1148) + regle TargetIsSummon
+worktree-agent-a6f744ff017b3c4a3	251	facbc4719a8b	2026-07-29T09:59:44	#250 module `summon` solde : les CINQ masques de ciblage (1007/1045/1047/1096/1166) + 2 trous generiques du ga
+worktree-agent-tau-targeting-250	252	6fb6accc823c	2026-07-29T10:03:47	#250 module `tau` solde : les CINQ masques de ciblage poses (1077/1081/1082/1160/1161) + tete de domaine
+worktree-agent-a6d54cba6b2551972	253	60bbecbc5c2c	2026-07-29T10:19:29	feat(rl): #253 les 4 masques de ciblage du module astramilitarum (1016/1028/1142/1143)
+worktree-agent-ac61f6088f01ed8c3	254	f613824c4ca8	2026-07-29T10:34:35	#254 les 4 masques de ciblage a MODULE UNIQUE (1076/1113/1118/1151) -- cliquet a ZERO entree
+worktree-agent-a865dfb2cb3eccfb1	255	47c27d70f894	2026-07-29T10:47:42	#243 test rouge PlasmaGrenade + les 3 masques splash 0x2004002 confrontes live (clamp de melee)
+worktree-agent-a7816ba389136e1bc	256	520bc0959ab2	2026-07-29T11:18:57	#242 FabricatorClawArray (1006) : le cap amis MORD et vaut 1 -- mesure X_nat PLAT a 30 pour n=1,2,3
+worktree-agent-a3d7f500e965d1155	257	7909e19a764a	2026-07-29T11:18:57	#241 feuilles de tuile 19/64 armees : le residu +25 des tuiles a decoy tombe a 0
+worktree-agent-a9b9fc8c4c5d631df	258	f7922b0d60f7	2026-07-29T11:21:58	fix(runner): le spawn NAIT de la tuile -- plus de summon fantome sans PositionComponent (#246)
+worktree-agent-a5344e1a92c377c26	259	3ee171237bca	2026-07-29T11:21:58	#247 tau : les deux GetDynamicInvalidTargetReason (1081 FightingRetreat, 1082 InspiredToGreatness) portes 1:1
+worktree-agent-ac765b87269455253	260	506dc57a3527	2026-07-29T11:36:49	#249 TargetTileHasEnemyUnit (bit 19) portee + QUATRE comptes de porteurs commites qui etaient FAUX
+worktree-agent-afa51c6e43305c403	261	e217d1b3f787	2026-07-29T16:46:07	#246 le spawn nait de la tuile -- re-confronte sur rnca9r7q6c, selecteur evalue UNE fois, 5e site durci
+worktree-agent-a82ff028f23ec0463	262	887feb03ae44	2026-07-29T17:01:01	#242 FabricatorClawArray (1006) : le cap amis re-confronte sur rnca9r7q6c + garde binaire de la RE
+worktree-agent-acc11c578ee72b5f0	263	e6159ed52af1	2026-07-29T17:13:44	#245 -- TargetIsHealable (bit 8) : la regle du filtre statique, portee sur ses DEUX porteurs
+worktree-agent-a12c49c53368dcb65	264	f38c21f81523	2026-07-29T17:14:15	#250 le trait Summon n'eteint pas CanStillBeUsed -- il rend l'unite AUTOMATIQUE (+ 1065 ScythingTalons confron
+worktree-agent-aa433abe43e9b8083	265	e1607283430f	2026-07-29T17:27:54	fix(harness): #254 la migration de build casse trois choses en silence -- seed BC perime, TILE_LEAVES decale, 
+worktree-agent-afa2ffeccd83853fc	266	93742793fc1e	2026-07-29T18:42:44	#259 couverture gshared : 4882 -> 0 mesure, voie (b) refutee au decompile, et l'axe 5 qui manquait
+worktree-agent-ab081ea0a75acb4b8	267	43af39265fe5	2026-07-29T19:07:12	fix(rl): #254-tau les trois rouges accusaient le MONTAGE -- trois causes independantes
+worktree-agent-a42a71290a2609cea	270	1d7980155f82	2026-07-29T23:07:49	#264 load_state consomme combatSnapshot.units[].traits
+worktree-agent-a5d53ad9ab28f69e4	282	a860047ef375	2026-07-30T05:22:56	#272 CapturePoint rendait 0.0 : ordinal UtilityType fige dans le test, pas un defaut du port
+worktree-agent-a0d63dfd74895ded5	283	b07bc93d2a97	2026-07-30T05:31:42	fix(rl): #277 ecart FlailSwing (1042) = DECALAGE de flux RNG (point d'entree du cast), pas un etage de formule
+worktree-agent-a3deaad17559ae35f	284	cfdddd585e9f	2026-07-30T05:46:09	fix(rl): #275 enum_maps.py -- 3 des 6 tables perimees, et un reparateur rendu
+worktree-agent-ad16fece5bdb13811	285	8aa49b934a5b	2026-07-30T06:12:12	#267 la face PREDICTION lit les traits RUNTIME, elle ne les reconstruit plus
+worktree-agent-a400bbbfe5c94ca55	286	7c3e6815e548	2026-07-30T06:04:42	#273 entrees gitignorees : resolution tri-etat, 8 lecteurs ne rendent plus un zero silencieux
+worktree-agent-ad61dece08162e70c	287	571218d45804	2026-07-30T06:25:07	fix(rl): #281 raccourci execute_behaviour -- inventaire re-derive, tri par GATE d'attaque, montage FlailSwing 
+worktree-agent-a2496bd4dbde821bf	288	99311d68447e	2026-07-30T07:15:53	feat(rl): #27-4b route Comparable SANS prediction (verrou 2) + Chronometron (1226) face DECISION
+worktree-agent-a4e56658952d455c8	289	9f3a8a411c4d	2026-07-30T07:40:44	case-224 SS4 : le gate pathfinding #131 etait INERTE en silence (sur-atteinte d'UNE tuile)
+worktree-agent-aa3c492d86a1d9df1	290	5650e7b148fc	2026-07-30T07:39:37	#45d prediction de REPARATION : magnitude sourcee de l'ARME + l'utilite n'a QU'UN terme (confronte live)
+worktree-agent-a598545988cd71b9f	291	ca79cf6c0d31	2026-07-30T09:05:03	case-cvc : cycle de vie du debuff d'aura ContagionsOfNurgle (1071/1072)
+worktree-agent-a9672771d2b49fd8a	292	0055ef4553a0	2026-07-30T08:02:48	#283 les quatre enums renumerotes : 3 executables corriges, 298 citations migrees, 2 residus chiffres
+worktree-agent-a9244a94b5b913f0a	293	3dd32dc6b2bf	2026-07-30T08:45:55	#27-4c ForwardObservers (1185) -- 2e membre de la route non-attaque
+worktree-agent-aa7c3cd8d47a697f6	294	30033500ffde	2026-07-30T09:14:55	#267-r1 : les gates de trait de la face PREDICTION lisent le substrat d'ENTITE (12 sites)
+worktree-agent-a3e95c95776807eb3	295	3cd9e63db75d	2026-07-30T09:29:28	#27-4d 1212 HealingBalms_Heal : magnitude ARME + CustomUtility Half gate par l effet (face DECISION)
+worktree-agent-a3881398de4c82531	296	5979cc54bd87	2026-07-30T09:50:02	feat(rl): #27-4e SorcerousFacade (1100) -- route ALLIEE portee, VETO #217 intact
+worktree-agent-a7f513acaad94763a	297	17172be68b51	2026-07-30T09:56:25	#236 residus : le gate 3 se lit sur un CHAMP, GetStat(CriticalChance) est lisible, closestEnemyId en attente d
+worktree-agent-a9d4479f33031895f	298	94fe24520831	2026-07-30T10:11:08	#282 PERTES_CONNUES vide est l'ETAT NOMINAL -- 4 rouges qui accusaient le MONTAGE
+worktree-agent-a37c010f59fc31665	299	088525b82f5a	2026-07-30T10:41:37	case-224 item 5 : CursedPlagueBellAttackAbility (1071) -- la riposte Psychique, et le comparateur d'aura RENVE
+worktree-agent-a1be06be9a79f5339	300	c9dde3b5d4d0	2026-07-30T10:45:08	feat(rl): #27 verrou 3 leve -- Stikkbomb (1051), penalite de tir ami portee et validee live
+worktree-agent-a0f745daa0fd4dcec	301	f0a743522c86	2026-07-30T11:13:23	#286 1212 HealingBalms_Heal - le coefficient Half MESURE live (0.4999 < c < 0.5001)
+worktree-agent-a331c00d13f853dc4	302	b5747f8b5169	2026-07-30T11:36:42	fix(rl): #292 le canal !CurrentAbilityIs lit le BON champ -- RE etablie, nom corrige, regime discriminant exer
+worktree-agent-a4ecca2aea59d3bb8	303	bce1d1dfdb3e	2026-07-30T11:38:36	#289 ResurrectionOrb (1009) -- face DECISION portee par la route non-attaque
+worktree-agent-a13e3e048685ba372	304	69cb60debc8a	2026-07-30T11:43:19	#287 SorcerousFacade (1100) - face COMBAT portee en arbre DSL
+worktree-agent-a3fe089e64fd22665	305	bde325168522	2026-07-30T12:14:15	#293 attribution de l'ecart d'aura par-unite : le COMPARATEUR, lu (ctor deduplique)
+worktree-agent-adc42087ad22146b2	306	acb0d31b8806	2026-07-30T12:22:58	#291 un SUMMON n'a jamais d'activation -- c'est le NATIF, pas le harnais
+worktree-agent-a36bc45ae3dcc9932	307	0c5bcd736992	2026-07-30T15:28:34	fix(runner): #295 IsActiveAbilityCountedAsUsed compare STRICT -- `used > 1`, pas `used >= 1`
+worktree-agent-a204711a66d976b64	308	8e9b014734cb	2026-07-30T15:33:25	#279 -- le decodeur de prediction resout ses champs PAR NOM (0 ecart sur 24), et voici ou la voie s'arrete
+worktree-agent-ab7e721d8dd5394d4	309	569f183873f9	2026-07-30T15:46:12	#298 -- le rail de DECISION de la reparation existe et l'IA le propose ; le gate est d'ETAT (EntityCanBeRepair
+worktree-agent-a29e46924daa2a154	310	a45091d376ea	2026-07-30T15:50:44	#294 -- poser le SECOND canal TriggeringAbility (+0x98), avec le montage qui le SEPARE de CurrentAbility (+0x6
+worktree-agent-ac9a622da2d8ffa9f	311	dc56164b344c	2026-07-30T16:17:56	#278 -- le canal repair_prediction rend les BONS NOMBRES : confronte live sur 2 porteurs, garde vue rouge
+worktree-agent-afc6be22e4ab3f77a	312	dc75789295fb	2026-07-30T16:26:31	test(hammer): #17 s8 Hammer -- ecart deja NUL sur rnca9r7q6c, la GARDE manquait
+worktree-agent-aba3e4b518466cf17	313	2172247cfdc2	2026-07-30T16:58:13	#27-4g : PlasmaGrenade (1098) porte -- la somme nulle est un VETO ; 1169 re-qualifie (cible TUILE, pas MoW)
+worktree-agent-a2df77931b12f9fe3	314	8d455165a70f	2026-07-30T17:08:38	#299 la reparation reguliere EXECUTE -- RepairUnitOperation + les abilities 28/1119
+worktree-agent-a2f8dc509dca87508	315	2972dea70466	2026-07-30T17:39:00	[opus] #301 Residu N18-2 : la mort publie le killTrigger sur `+0x98`, pas sur `+0x60`
+worktree-agent-ab00a8910ce1e9a2b	316	693ed0e9816f	2026-07-30T17:28:12	fix(playbook): #27-r1 MassDriverAccelerator (1222) -- le terme custom est un NO-OP natif, pas `W x amis adjace
+worktree-agent-ae4079319f7802998	317	ce9742c7db79	2026-07-30T17:53:50	#302 route de decision a cibles TUILE -- inventaire + tranche 1 (1169 PlagueburstMortar)
+worktree-agent-a9f90c23bcd0ba183	318	b0e10483a077	2026-07-30T18:48:04	#17 : les DEUX derniers residus re-derives -- l'un est fige (RNG chiffre), l'autre n'a jamais ete du RNG
+worktree-agent-ac07b68acdd743e5f	319	97978a70bda7	2026-07-30T18:19:49	[opus] #303 FabricatorClawArray -- la SECONDE reparation du necroSpyder (residu N20 ferme)
+worktree-agent-a48ab2ec012d22812	320	a70b355147eb	2026-07-30T18:31:06	[opus] #306 Residu N18-3 : asymetrie ADD/REMOVE -- sur On(63)/On(64) c'est CurrentAbilityIs qui porte l'effet 
+worktree-agent-a06ede6773dbefa9c	321	ae87046f4701	2026-07-30T19:03:44	[opus] #302 tranche 3 : porter 1148 DaemonicOrdnance sur la route a cibles TUILE
+worktree-agent-af57b17bd4d1f63e2	322	7f0f77306a9c	2026-07-30T19:32:59	#304 ModifiedExoarmour -- la premiere feuille de tuile qui se paie PAR TUILE PARCOURUE (residu N14)
+worktree-agent-ade20e6ced198e355	323	1e99fb88aa35	2026-07-30T21:10:55	#313 -- TriggeredAbilityType incomplet, et le CLIQUET qui empeche le trou de se re-creuser
+worktree-agent-a5bba9b13cd56a021	324	59f479f23ab5	2026-07-30T21:26:15	#310 LivingMetal passe par RepairUnitOperation -- son artefact natif est un Repair(ForRegenerate)
+worktree-agent-a723442b3d9c6a156	325	b7723563f71d	2026-07-30T21:24:23	test(#308): garder le +1 d'action de l'attaque normale (#64) -- montage a UN point d'utilite
+worktree-agent-a6fff6211404fa5e3	326	1fec08951aa0	2026-07-30T21:13:58	fix(#314): 22 scripts ecrivaient dans l arbre principal par chemin ABSOLU -- isolation worktree rendue etanche
+worktree-agent-a3f4e93fff5a20914	327	5e17f36bd242	2026-07-30T21:22:23	#309 l'action NULLE n'est pas un gate de generateur -- c'est InputBuilder
+worktree-agent-a6c3656237ad6d290	328	7cf641d1a4cc	2026-07-30T22:14:52	fix(#315): trois ordinaux EventTriggerType en dur resolus PAR MEMBRE, et le motif positionnel qui les cachait 
+worktree-agent-a581deb0fe0042464	329	f66a916f4ac2	2026-07-30T22:14:57	#318 EffectType/UtilityType : les 2 dernieres dettes de bijection, resorbees et mises sous garde
+worktree-agent-abc907284f64073cf	330	0acf3a2e47a2	2026-07-30T22:23:23	#319 probe_273 : le cliquet comptait des chemins fantomes et virait au vert en worktree
+worktree-agent-a0705efedd73aac1e	331	4394bd4efbbb	2026-07-30T22:30:23	#312 -- localiser PAR ETAGE l'ecart de prediction de votanChampion : c'est MakeDamagePredictions, pas la conve
+worktree-agent-af06a00bbf0f93124	332	95a491e73fd9	2026-07-30T22:32:57	#317 -- inventaire des 13 appelants de DSLBehaviors$$Repair + port de DawnBlade (1re tranche)
+worktree-agent-af775c077672e7294	333	aaa9efc4a367	2026-07-30T23:04:09	#321 -- /api/runners = registre VIVANT qui fuyait ; le gate MAX_RUNNERS est COTE HOOKS
+worktree-agent-a887f002049ca89b4	334	09a79b84dc7d	2026-07-30T23:40:34	#320 le scoring de mouvement ignorait la TUILE COURANTE -- c'est GetCurrentAndMovablePositionsFor
+worktree-agent-aa3286bb157f608ec	335	faf110fea227	2026-07-30T23:27:27	#323 unit_map: lire les 5 voies d'attribution -- 7 verdicts « 0 porteur » etaient FAUX
+worktree-agent-a48f3491137d6ea6b	336	21b2bc07728a	2026-07-30T23:42:37	feat(dsl): cartographie phase 1 -- graphe d'usage primitive <-> ability (11 180 aretes, contrat machine)
+worktree-agent-a1953da8e39e5ed8b	337	7166cbfa324d	2026-07-31T00:14:10	fix(prediction): #316 la prediction d'une ABILITY lit les traits de la CIBLE, comme la normale
+worktree-agent-a0fd3d304dcced559	338	0fae83c7aa63	2026-07-31T00:48:46	feat(#326): cartographie DSL phase 2 -- couverture du port PAR PRIMITIVE x joignabilite des porteurs
+worktree-agent-a4e82874416985d08	339	9c2b8ae81d94	2026-07-31T00:53:30	#322 ModifiedExoarmour_ExtraDmg : la magnitude s'arrondit PAR COUP -- R1 et R2 de #312 ferment ensemble
+worktree-agent-a1ef995464a440eb8	340	6169c592cc2e	2026-07-31T00:49:32	mesure(#330): VA absolues et estampilles de build dans la prose -- le garde-fou rendait un vert sur ce qu'il n
+worktree-agent-ab948eb963b589cab	341	98c7f3eed7a9	2026-07-31T00:57:33	feat(rl): #302 tranche 2 -- le terme de PREDICTION d'un tile-target a degat (1169 PlagueburstMortar)
+worktree-agent-ac172a3bcdb55289b	342	8fa65e2bf504	2026-07-31T01:03:43	#328 RelentlessMarch (les 2 faces) -- le filtre Stationary porte sur l'AddEffect, PAS sur le Repair
+worktree-agent-a4377d524885d4a1d	343	438098048fff	2026-07-31T02:13:06	feat(runner): #334 face COMBAT de DefendTheDivineWork (1117) -- deux Operations, deux selecteurs
+worktree-agent-a20a9e8e35f5243e1	344	bba609746dd5	2026-07-31T02:23:02	fix(rl): #333 l'Avg de MinMaxDamage ARRONDIT demi-vers-le-pair -- le port gardait le .5 sur tout le rail de de
+worktree-agent-ad06321b1ae27e256	345	2b032f5fcbb9	2026-07-31T02:36:02	#305 -- MassDriverAccelerator : le splash de MakeDamagePredictions porte sur l'ENNEMI adjacent, pas sur la cib
+worktree-agent-a1cce32e46e94d065	346	8808be34754c	2026-07-31T02:46:20	#335 -- residu #322-r1 : le compteur de tuiles au foyer, jusqu'au degat de COMBAT
+worktree-agent-a56261db9057a53c6	347	222b47b9cbfe	2026-07-31T03:05:19	#337 tranche 1 : les 47 CITE_A_QUALIFIER de DSLTriggers, tranchees (43 portees, 4 lues absentes)
+worktree-agent-a3426319ba1f24e00	348	adf57e70b378	2026-07-31T03:16:59	#336 / #302 tranche 4 : la population COMPLETE des abilities a cible TUILE -- 41 sur 257, 32 sans route
+worktree-agent-aa0b4f15360540973	349	bad4a654139c	2026-07-31T03:33:21	fix(#338): le choix de cible de PerformAIAttack est le moteur d'utilite natif, pas _nearest_enemy
+worktree-agent-a41c870e8c62a65b4	350	2a667d7ae437	2026-07-31T03:26:48	#339 - trois moyennes natives, trois comportements : le lifesteal SpiritLeech lisait le mauvais champ, le // 2
+worktree-agent-a2d50a808e5f93775	351	29d64d8b6dea	2026-07-31T03:30:03	#342 -- BC.Units[].Shield n'est pas un levier : le terme BOUCLIER du degat, confronte live
+worktree-agent-a4455cd29143b4ea1	352	4474d319afdd	2026-07-31T04:02:46	#341 kit-coverage : le delta etait JUSTE, c'est le FORMAT qui le rendait illisible (+ 43 abilities invisibles,
+worktree-agent-a35d8528382064de6	353	6d810fa9bf45	2026-07-31T04:16:15	#340 la face PREDICTION lit le compteur REEL de TilesMovedThisTurn (residu #322-r2)
+worktree-agent-a562a0e95d50f8239	354	5b3ddd3b44e1	2026-07-31T04:34:27	fix(#343): les deux routes tuile MUETTES emettent leur cible -- 1166 AberrantHypermorph, 1194 NovaShield
+worktree-agent-a5c50e2cd9ca6152c	355	b19e394f1dc0	2026-07-31T04:31:22	#345 - la formule d'AccurateShieldDamage : rem PER-PISTE, cap CurrentShield, TotalDamage pre-scenario
+worktree-agent-ac92b8e2313abd69b	356	9e936616b295	2026-07-31T04:51:53	fix(#344): la prediction d'ability moyenne par DEUX chaines natives, pas une
+worktree-agent-ae6a95fe513b7d423	357	7b11f756e5ef	2026-07-31T05:24:21	#347 -- porter les 2 call-sites manquants de RecordTilesMoved (AddTilesMoved / SetRevivePosition)
+worktree-agent-ad6106a45197ef992	358	ac88bc47c288	2026-07-31T05:38:29	#348 -- un acteur de free-attack APPROCHE : GenerateActionTiles(null) + MovementActionGenerator + apply du Mov
+worktree-agent-a200f3664c8126b40	359	8523f81eeed9	2026-07-31T05:59:38	#350 - lire les formes de moyenne de prediction restantes : inventaire CLOS, 18 abilities corrigees
+worktree-agent-af769fa75466dc863	360	b72ebde97e06	2026-07-31T05:54:05	#349 -- les sorties de run quittent data/ (25 sites, 19 fichiers) + cliquet probe_273 etape 0c
+worktree-agent-a4599820f39f6802f	361	6f07ab08acdd	2026-07-31T06:58:03	#354 MartialApotheosis n'a plus de porteur : le port est fidele, le TEST est orphelin
+worktree-agent-a7a9c5cceb8bb8e34	362	cff61093ef18	2026-07-31T08:02:52	fix(#351): SorcerousFacade -- le natif AJOUTE le batch a l'attaque normale, il ne s'y substitue pas
+worktree-agent-a0406a285b342da8e	363	ee1f93f81eb8	2026-07-31T08:10:28	#353 -- RammingSpeed (1059) : la prediction n'est pas ExplodesAbility\$\, c'est Get(minDmg) + un batch SELF
+worktree-agent-a7a70236f4b7d4e84	364	656a19a3f455	2026-07-31T08:18:56	#352 -- 1098 PlasmaGrenade et 1048 FragstormGrenadeLauncher : la base de prediction n'est pas une moyenne
+worktree-agent-a1d2f4a0e680fb23c	365	df5900816135	2026-07-31T08:24:10	#340-r1 : les deux voies LIVE lisent TilesMovedThisTurn -- et le capteur lisait deux de ses trois champs a com
+worktree-agent-ae960b7bd712c538f	366	ebaf522c360a	2026-07-31T09:30:46	#350-r3(a) : la face NonComparable -- le 0 event est JUSTE, l'oracle est ProbableDamageEvent..ctor (capteur li
+worktree-agent-af8038457eaef0e41	367	b2e5c08b951c	2026-07-31T09:54:19	#353-r1 (a) : GetTileToMoveTo de RammingSpeed -- utilite 54 + bucket a DEUX WeightedUtility (live 2/2 MATCH)
+worktree-agent-a6f401ce772eac5e6	368	84df2c1e2fa5	2026-07-31T09:50:38	#344-r2 SortAttackersByDamagePrediction : TROIS predictions, et la moyenne porte sur TotalDamage
+worktree-agent-aa2d2117bd36241e1	369	120cf8f2c80c	2026-07-31T09:45:42	#270-d : astarLysander ne se deploie pas -- un trait hors UnitTrait rend le BC indeserialisable (piste IconOfO
+worktree-agent-a03d4785e7cc961c9	370	1884a0c9e953	2026-07-31T09:59:00	#237 -- Forcer une relique en bataille : le verrou est le NIVEAU DE L'ABILITY, pas celui du heros
+worktree-agent-a1120fceb26910957	371	776e122b6f36	2026-07-31T10:20:05	#354-r1 : face COMBAT de MyWillBeDoneOverlord (necroOverlord) -- port confronte live, et deux defauts de VALID
+worktree-agent-350r3bc	372	3238280c68ff	2026-07-31T10:54:28	#350-r3 (b)(c) : le porteur MoW est confrontable, et 1160 evalue la TriggeredAbility 1260
+worktree-agent-ad5bfa7e9f1bc1a3e	373	21081b9d2860	2026-07-31T11:09:28	#357 -- le rail de la RELIQUE EQUIPEE : le port lit TertiaryAbility (N317-a, N317-e fermes)
+worktree-agent-aa4496f29586052a4	374	774b5642fdf8	2026-07-31T11:01:06	#356 (residu #350-r3a) : l'oracle NonComparable est OUVERT -- le capture=0 accusait le MONTAGE
+worktree-agent-a60f889454266c2e6	375	953239af9c41	2026-07-31T11:05:46	#372 get_WillBeKill : le capteur des deux entrees manquantes, le gate au port, et deux causes eliminees sur #3
+worktree-agent-affdc4fa411b5c0c5	376	470d7c9f8836	2026-07-31T11:23:49	#358 -- la magnitude de l'effet 1581 est LUE, pas inventee (residu #354-r1 ferme)
+worktree-agent-a66e1203d2e7ef1eb	377	f19106efdf34	2026-07-31T12:12:48	#360 -- l'oracle MoW etait ferme par une substitution du harnais, et la greffe cachait une sous-prediction de 
+worktree-agent-add57692ea211dcfc	378	a948d674f017	2026-07-31T12:19:41	#362 (#356-r1) : port du playbook NC KillMaimBurn (1132) -- la divergence mesuree etait l'attaque NORMALE capt
+worktree-agent-a61a8e7be8048417b	379	e42c9c2bee7b	2026-07-31T13:04:01	#363 : le canal de la relique EQUIPEE est branche PAR DEFAUT (residu #357-r1)
+worktree-agent-add0340dfc57e9fca	380	c5605291a678	2026-07-31T14:00:40	#361 (#353-r1 volet b) -- RammingSpeed : gate, pool et voisinage mis hors de cause ; capteur livre
+worktree-agent-a5a2201d3bd968f0f	381	42814ca79672	2026-07-31T13:56:50	#359 -- le volet AoE de 1147 HadesAutocannons : le natif boucle sur son selecteur, le port aussi (et c'est GAR
+worktree-agent-a71d0eb36d6edd44e	382	0cb05d4251c6	2026-07-31T15:54:16	#364 -- effet 1582 : inertie demontree, et l'inventaire d'EffectsDatabase etait aveugle a 96 enregistrements
+worktree-agent-aef9fae90f68262a3	383	699e2ec58891	2026-07-31T16:02:09	#359-r1 : le SET AoE de 1148 DaemonicOrdnance -- mirror de GetAllDamageableTargets
+worktree-agent-ab792ea8646a15321	384	6c3a07c48524	2026-07-31T16:06:32	#350-r3b : la couche TRIGGERED porte ses DEUX formes de moyenne (troncature @slot4 / demi-vers-le-pair @slot1)
+worktree-agent-a108119324c37abd2	385	85eddb73733a	2026-07-31T16:27:24	#350-r3a-r3 : le gate per-position n'etait pas une UNION -- c'etait la TRONCATURE maxRank du plan
+worktree-agent-a7ea228cbe20ade73	386	829f23fe1ca7	2026-07-31T16:31:04	#365 (residu #361-r1) : les batchs 3/4 de RammingSpeed -- la cause est l'origin GetTileToMoveTo, pas la compos
+worktree-agent-ae606b38d52574a03	387	f660dc631353	2026-07-31T16:51:25	#366 -- gisement des 96 EffectType : inventaire TRANCHE (40 portes / 6 inertes / 50 a porter)
+worktree-agent-ab42290517fdfd77c	388	566da41d45f1	2026-07-31T17:02:23	#369 -- ncPlaybookPredict indexe sur ActiveAbilityType : routage par KEY-SPACE + durcissement
+worktree-agent-af065a4e82b4a3286	389	451a4152213c	2026-07-31T17:36:39	#370 (#361-r2) : capteur du maillon interne de GetTileToMoveTo -- livre INERTE, et le verdict #386 sec.8.4 REF
+worktree-agent-aea021c1588a63baa	390	9708ad9589e9	2026-07-31T17:58:36	#371 (#366-G1) : les 11 instances generiques StaticStatModifierEffect -- l'expiration, pas le calcul
+worktree-agent-a71d55efa761a037f	391	6e2b6acb59e6	2026-07-31T18:07:58	#359-r3 : brancher le terme de PREDICTION de 1148 DaemonicOrdnance sur sa route de DECISION
+worktree-agent-acdc64b5e1fb963cd	392	1651cae3d6f2	2026-07-31T18:12:52	#373 -- porte 1107 PathOfCommand_ExtraCrit : l'axe CRIT de l'aura de l'Autarch
+worktree-agent-a7c7142eeccfbbc4b	393	7d743ba3fd1a	2026-07-31T18:21:55	#372 (#366-G3a) : DefenderOfTheGreaterGood axe COUPS -- 1183 + jumeaux drone 1306/1307
+worktree-agent-aeb4f44a1ec0da607	394	133668ce2fbb	2026-07-31T18:34:07	#374 -- le capteur movable-tiles sait lire OrderedSet (retour reel de GetMovableTilesInRange)
+worktree-agent-ac8a17845881f5ed2	395	c1c634e9d1ef	2026-07-31T18:49:11	#377 -- un runnerId n'est JAMAIS reattribue : compteur monotone, cliquet I1..I5, residu inter-session
+worktree-agent-a10fbca2e990634e3	396	25251273d496	2026-07-31T19:07:11	#375 -- le capteur triggered n'etait pas muet : le case ne nommait aucune ability (et la fixture n'arrivait ja
+worktree-agent-aef069645c1c065c7	397	7396196d4480	2026-07-31T19:31:10	#368 la POSE de 1148 DaemonicOrdnance -- le residu #359-r4 etait l'ELEVATION, pas la marchabilite
+worktree-agent-a110092b34078c63c	398	b42fc7a54a31	2026-07-31T19:36:20	#366-r1 -- 1224 SagaOfTheWarriorBorn_OtherSpaceWolves : UNE classe native pour DEUX EffectType
+worktree-agent-a177f81099a8d2d4a	399	136ccaa105db	2026-07-31T19:50:35	#379 -- estamper le state-file du sessionId, refuser franchement si divergence (tri-etat)
+worktree-agent-a792e47d34667d7dd	400	2e42caa078c9	2026-07-31T20:02:39	#366-r1 : 1345/1346 VisionsOfHeresy_ExtraPierce{Melee,Ranged} -- le canal PERCAGE est une STAT
+worktree-agent-a5d5256eca8d8acd7	401	5da3bde3a00c	2026-07-31T20:12:35	fix(#361-r3): les batchs 3/4 de RammingSpeed sortent -- la perte etait le MONTAGE (garde d'entree de FindAnyOr
+worktree-agent-a5d86df8c86f1124a	402	91a0c4296282	2026-07-31T20:25:21	#380 -- recenser les fixtures dont le patch de seed BC est ecrase en silence (1 trouvee : probe_226 bras A)
+worktree-agent-a4d810c8962c6972b	403	396588e795b4	2026-07-31T20:55:13	#378 -- exposer le lien PARENT (summoner -> summon) dans combatSnapshot.units[] et le CONSOMMER
+worktree-agent-a1678f0172fb3fb56	404	d70c60d232f1	2026-07-31T21:16:43	#366-r1 (G3) : 1181 ExemplarOfTheKauyon_AdditionalHits -- canal #179, pas celui de 1183
+worktree-agent-ad1c7c119dc37f6e3	405	40cd14ce6a65	2026-07-31T21:39:35	#366-r1 : porter 1222 WarHowl_ExtraDamage_Unstoppable (degat + chance de crit, canal crit-chance ouvert)
+worktree-agent-a5cf3a466cb91a74f	406	7afb50b0c549	2026-07-31T21:46:35	#382 (#366-r1-src) : l'AbilityState d'un effet vient de sa SOURCE, jamais de son porteur
+worktree-agent-a11b309c904341c97	407	0bf1201fd38c	2026-07-31T21:57:15	#383 -- RammingSpeed (1059) : les batchs 3/4 (EXPLOSION) portes et confrontes 4/4
+worktree-agent-a398e65a2caa23e99	408	f38ceabd027a	2026-07-31T23:05:10	#366-r1 : porte 1110 FireAndReposition_ReduceDmg (canal defense par coup, gate de tour) + le niveau d'ability 
+worktree-agent-adef4df1b2f4f3383	409	1f0de727d50e	2026-07-31T23:12:12	port(#366-r1): 1175 HatefulAssault_AlreadyAttacked -- le marqueur UntilOfEndTurn et son ability 1038
+worktree-agent-a0789132ccccc42cf	410	1fc4a9353ddc	2026-07-31T23:16:04	#366-r1 : 1284 EchoesFromTheWarp_Revive -- 2e instanciation de GhostEffect (+ canal des passives montees, + gr
+worktree-agent-ad4e4af804b66ec10	411	e3333373763f	2026-07-31T23:20:31	#366-r1 : 1115 InescapableAccuracy_extraCritChance -- le ctor fondu ne fait pas une classe
+worktree-agent-ad89b06becffcb051	412	7aa7826a8321	2026-07-31T23:24:37	#381-r1 : MovableTilesInRange rend le stop_set filtre, pas un disque
+worktree-agent-a7dfd603cb62fa433	413	376db096318e	2026-07-31T23:52:35	fix(#391): un repertoire ne porte plus qu'UN collecteur Directory -- les fixtures de conftest cessent de dispa
+worktree-agent-af9f673e6b2cceaf8	414	33907f54cf20	2026-08-01T00:23:35	feat(#366-r1): port de 1116 InescapableAccuracy_extraCritDmg (canal crit-DEGAT + scaling de rarete)
+worktree-agent-a8d9c8bcc3bee1cf2	415	c0a0696e30ed	2026-08-01T00:27:52	#389 (residu #383-r1) : face COMBAT de RammingSpeed (1059) -- le noeud <DSLTriggers+0x20> est OwnerIsAlive
+worktree-agent-a60515a8bf7fb6b72	416	4f6cba4b4297	2026-08-01T00:42:54	feat(#366-r1): 1215 PsychicStalk_ExtraAttackDamage -- %-list DEFENSEUR (pas flat_reductions), niveau PASSIF tr
+worktree-agent-a53c91a1cb3480b8e	417	ec62501351bb	2026-08-01T01:35:46	#366-r1b : 1111 WireweaveNet_CounterAttack -- riposte pre-hit once-per-enemy-turn (COMBAT + DECISION), LIVE bi
+worktree-agent-ae19d94fe1a856af8	418	8c3b9be70a72	2026-08-01T01:12:55	#366-r1 : 1014 CamoCloak_DmgReduction -- reduction plate gatee par le COUVERT (+ playbook 1003 DEAD mesure)
+worktree-agent-ad2cb84f85144c88b	419	a8e99758e722	2026-08-01T01:35:52	#392 : les deux rouges pre-existants de master -- DamageProfileIs tranchee, tripwire MartialApotheosis corrige
+worktree-agent-a7af2bc1b237ee32f	420	2261dabfcfce	2026-08-01T02:01:23	#366-r1 : 1435 PsychicStalk_FriendlyChaosExtraDamage -- l'additif ATTAQUANT, deux pattes, ecart de 664 ferme
+worktree-agent-aed9f1b675fcca879	421	ecdea99563a9	2026-08-01T02:07:48	#366-r1 -- 1174 StructuralAnalyser_Visual : gate geometrique reel, zero contribution (SOEUR de 1156, pas sa fi
+worktree-agent-a1bb9cb8c8a6b3b03	422	bc1ad263cf2a	2026-08-01T02:26:43	#366-r1 : 1117 InescapableAccuracy_overrideHits -- ouvre le canal BaseEffect BlockHitsReduction
+worktree-agent-a27dd6132f37e6906	423	f406d5a21802	2026-08-01T02:44:00	feat(#366-r1): porter 1000 ShockAssault_Buff -- classe d'effet + trigger de retrait On(0xa)
+worktree-agent-ae62323508fb0889d	424	bd0390b661e4	2026-08-01T02:57:08	#366-r1 -- 1255 MartialSuperiority_Visual : un predicat REEL que personne ne lit (porte + confronte live)
+worktree-agent-a874266fbeee61fb8	425	9cfe145823a5	2026-08-01T03:20:53	#366-r1 -- 1216 PsychicStalk_VisualEffect : predicat + selecteur portes, sortie 100% presentation (mesuree)
+worktree-agent-a40c1d91ea6985eea	426	946a155f2b1e	2026-08-01T03:12:58	#366-r1 : 1227 HarlequinsPanoply_IgnoreHits -- marqueur per-attaque + discard des coups restants
+worktree-agent-a784b26b60debd52a	427	4d222e7f5a73	2026-08-01T03:36:51	#366-r1 : porter 1108 ReinforcedHiveNode_ExtraArmor (voie SUMMON) + fix du foyer d'attribution des effets INER
+worktree-agent-a94f21de55b19896a	428	b94f11dd2b9a	2026-08-01T03:47:36	#366-r1 : effet 1113 TunnelingHorror_PendingSummon -- marqueur de bond sur TUILE, trois retraits automatiques 
+worktree-agent-af2c3482670180e50	429	737e37d082a1	2026-08-01T03:52:37	#420-r1 : cliquet de l'axe DEGAT de DefenderOfTheGreaterGood (gate Psychic nu)
+worktree-agent-adfd9d1519596e982	430	6074be97c7bb	2026-08-01T04:03:20	#366-r1-statmod : le canal statMod capte pour les DEUX classes posees cross-unite (1000, 1171)
+worktree-agent-a04a02390f37badf4	431	2c89bdd17e0a	2026-08-01T04:29:39	#366-r1-statoverride-condition : porter 1109 ReinforcedHiveNode_ExtraBlock (canal OVERRIDE part 7/8)
+worktree-agent-a5724b183c7f9c990	432	6d0516b65c98	2026-08-01T04:49:25	#366-r1-blockhits-purgeresponse : PurgeResponse (1538) porte + balayage BlockHitsReduction board-wide
+worktree-agent-a885d626209a274f6	433	fa3c7d2a90b0	2026-08-01T05:05:18	#418-r1 -- IsEffectTarget : la liste de CIBLES d'une aura, et le gate Psyker qui ne fermait jamais
+worktree-agent-ab2f262219ec25ab7	434	cf1c8f65ca09	2026-08-01T05:11:01	#366-r1-camo-seed : INERTE n'est pas ABSENT -- 2e RefreshEffects(UnitPositionChanged) du move + seed de l'owne
+worktree-agent-a3a6f2cdaf94d1fe8	435	7b265b9c3c9f	2026-08-01T05:29:14	#393 - deux rouges de #426 : HasBlockedThisTurn tranchee + derive de signature des substitutions d'execute_add
+worktree-agent-addeb63a3b2c2e6b2	436	91e3855ddf55	2026-08-01T06:24:16	#366-r1-turnof : IsTurnOf agrege par all(), set vide -> VRAI (mirror IsTurnOfUnitTrigger)
+worktree-agent-a7d07ea193c0882db	437	42335caaaaf4	2026-08-01T06:33:19	fix(#381-r4): les collapses imperatifs de MovableTilesInRange portent le gate #131
+worktree-agent-a052e8172ad2a59b3	438	d6b0687a8087	2026-08-01T06:41:35	#366-r1-tunnel-vector : porter le vecteur de pose de TunnelingHorror (1011) -- l'unite quitte le plateau
+worktree-agent-a2ba078d8153e4ad8	439	28e3541ee056	2026-08-01T06:50:47	#389-r1 : 1098 RammingSpeed_ExtraExplode est retire a PhaseEnd -- mecanisme NOMME, mirror, 5/5 bras
+worktree-agent-a3d7022b9e69b7886	440	ca89571d70c0	2026-08-01T07:54:27	#366-r1-crit-multihit : le crit-roll s'eteint au premier coup non-crit -- toute garde multi-coups a crit non n
+worktree-agent-aabe5d241d169ab74	441	5e3e6920fb92	2026-08-01T07:48:02	#381-r5 : le pathfinder ne depend PAS que d'IsLikeFlying -- branche MOUVEMENT SPECIAL portee
+worktree-agent-acb7b90c0a820a491	442	165886d7ea88	2026-08-01T08:00:56	#366-r1-tunnel-family tranche 1 : porter 1023 Burrowers -- et la clause TUILE-NULLE du volet CASTER qu'elle re
+worktree-agent-a4dfa555423530054	443	1a67c79cd773	2026-08-01T08:07:21	#366-r1-bcpatch-invisible : un patch de variable d'ability est INVISIBLE du port -- cliquet
+worktree-agent-a420bb25004e349a7	444	8d4c3f90c860	2026-08-01T08:42:26	#389-r2 : porter KillUnitOperation$$RemoveEffects -- la mort vide TOUS les effets
+worktree-agent-a5cd9f1f1d598fef3	445	78e92ff78002	2026-08-01T09:36:46	fix(#403): FlyPathfinder -- gate d'expansion et arete (ferme #381-r2)
+worktree-agent-a33c24c0452b8a0c5	446	391b81fae685	2026-08-01T09:47:07	#406 -- la file TriggerAbilityDelayed : RE du drain + le deplacement HarlequinsPanoply
+worktree-agent-a669b24c4e125910b	448	6f096703ffb6	2026-08-01T10:42:34	#366-r1 tranche 3/3 : port de 1141 StormboyzStrike + confrontation du predicat de teleport (residu #381-r5)
+worktree-agent-a88030f96d19e9e33	449	cf69007ca21f	2026-08-01T10:35:05	#407 -- le canal BLOCK ne se ferme pas comme le crit, mais son etat est per-ATTAQUE (bug de port)
+worktree-agent-aa3bcb19e10fda431	451	83cb0b801154	2026-08-01T11:47:37	#381-r3 -- le voisinage du BFS est un slot VIRTUEL, pas un mode de Board
+worktree-agent-a3b315eb83424d962	452	885a8f28e4af	2026-08-01T11:30:52	#411 : DealDamageInfo+0x1D -- l'ecrivain est le TRANSFERT DE COUP (TransferHitOperation), gate CONFRONTE
+worktree-agent-a07d7ea6d8c1eb97f	453	a42e3e31e313	2026-08-01T11:55:37	#407-r1 -- l'esquive precede le block : mapping XOR FAUX corrige, regime NON CONFRONTE (0 porteur sur 5 voies)
+worktree-agent-ad63608ffaf1c1f96	454	00fcea304a8f	2026-08-01T12:23:49	#27 tranche 4 : MortisRound (1004) porte -- le dernier residu a porteur HERO, et l'inventaire re-derive
+worktree-agent-a0b54008e4268d97f	456	78c73772f5cd	2026-08-01T13:21:20	#415 -- le rouge de #124(b) accusait un terme de PAIRE manquant (+35), pas le gate d'elevation
+worktree-agent-a9656835deb0d0281	457	a12cf7bd531d	2026-08-01T13:49:25	#448-r2 : la famille ATeleportingEffect inventoriee (4 effets) + tranche 1/4 portee -- le natif atterrit DES L
+worktree-agent-a48bb09479aa891e1	458	fc5c6ee88f70	2026-08-01T14:13:55	#27-r4 : les 4 overrides « npc-only » sont GREFFABLES -- 1216 MartialExemplar portee et confrontee
+worktree-agent-a82c5c37296c712a8	459	d7e8f74beb06	2026-08-01T15:05:46	#448-r1 : l'effet 1179 _AlreadyUsedTile a un LECTEUR (poids IA lu par NOM) -- et les trois classes StormboyzSt
+work-411-r2	460	ff685c6b292d	2026-08-01T15:14:59	#411-r2 -- le x8,06 n etait pas une divergence de port : les deux cotes ne jouaient pas la meme ability
+worktree-agent-ae880d95a91b05bd8	461	9428b3992ae7	2026-08-01T15:46:32	#415-r1 -- le -30 de WireweaveNet MORD sur la decision : confronte au natif a pairUtility EXACTEMENT egal
+worktree-agent-a6fb0887d7fec9ddb	462	a73aad12461f	2026-08-01T16:08:12	#421 -- le RAIL de probe_229 ignorait 19 classes sur 46 : 15 trous de recensement, 4 gates `IsActive` MANQUANT
+worktree-agent-a40c6605abe88a51f	463	d0ef6e1ad215	2026-08-01T15:24:04	#448-r2c : 1238 FearOfTheUnseen_TeleportingIn -- le vslot 0x738 n'est PAS neutre, et il gouverne les QUATRE tr
+worktree-agent-a2c156368beeefb02	464	396934cd45af	2026-08-01T16:00:46	#448-r2b : 1140 StormboyzStrike_TeleportingIn porte -- le Nullable VIDE est MESURE, et le gate HasTile est exe
+worktree-agent-a4182a41fa8d3c869	465	cda67e9763b1	2026-08-01T15:37:22	#419 : inventaire des playbooks TRIGGERED a 2 axes -- le gisement ATTACK vaut 29, pas 60, et la face ATTACK du
+worktree-agent-a5b1f617007da11d0	466	11864f04584b	2026-08-01T16:25:36	#420 -- Les ordinaux EventTriggerType perimes en prose : 251 citations corrigees par RE, et les DEUX gisements
+worktree-agent-acc929501a961482c	467	144342c7ecce	2026-08-01T16:45:54	#426 : le garde de cablage TransferHit skippait EN VERT sur un port vivant -- il EXECUTE desormais la chaine
+worktree-agent-427-enum-ratchet	468	68cbba11da9e	2026-08-01T16:40:20	#427 : le cliquet enum avait RAISON depuis 051219fb -- ce qui a manque, c'est de le lancer
+worktree-agent-a1bfe4cc4465b0bf1	469	f7df861e838f	2026-08-01T16:54:02	#448-r2d : 1573 TitanhammerSquad_TeleportingIn -- le vslot 0x748 n'a PAS de substrat cote port, alors on le fa
+worktree-agent-aa64943d91a16d71e	470	640abc799f25	2026-08-01T17:20:48	#418 (#411-r3) : 1511 PrimarchOfTheFirstLegion -- le Randomize coute UN tirage PAR CANDIDAT, l'ordre du pool e
+worktree-agent-aa5bcc13016378b91	471	43b19959fc26	2026-08-01T17:46:12	#430 (#427-r1) : la banque de cliquets devient UN artefact executable -- et son premier passage trouve que pro
+worktree-agent-a53b8ebf827332ab6	472	c2c1f1d436f6	2026-08-01T18:09:06	#429 : les trois inventaires comptaient les porteurs du BIT -- trois regles ne sont PAS armees par leur bit (T
+worktree-agent-a7ce4ee627d5496a9	473	2779e757fa4b	2026-08-01T18:18:42	#431 : les 5 probes echouaient FRANCHEMENT -- mais le regime silencieux etait a UNE correction de distance (55
+worktree-agent-a5bbf1953f1d50b24	474	12561b49d02d	2026-08-01T18:09:06	#433 : HasTile et IsAdjacentTiles tranchees -- le rouge test_337 sur master est referme, et le porteur mecaniq
+worktree-agent-aaf6fed5fdd5d1503	475	5857c7a31c93	2026-08-01T18:28:26	#432 : l'armure Terminator ne protegeait pas << toujours >> -- UNE attaque par tour, 44 porteurs, +12 055 de d
+worktree-agent-af3805771839f5ae7	476	1e413aff79c3	2026-08-01T18:35:21	#434 : la banque de cliquets lisait le code des AUTRES agents -- perimetre faux dans probe_283 (89 % du rappor
+worktree-agent-a57d40a0f847a4f96	477	7ff2b7a7d120	2026-08-01T19:08:10	#435 : test_337 entre a la banque de cliquets -- et rougit AUSSITOT sur WasBlock, 6e bascule et la premiere vu
+worktree-agent-a9f9abeac536f5d04	478	8db0e7490804	2026-08-01T19:36:54	#438 -- BarbedOvipositor (1204) : le playbook ATTACK porte, et le case qui portait une PREDICTION que le port 
+worktree-agent-a1ae46efe31103488	479	c2471658ed47	2026-08-01T19:49:31	#437 : On(9 = Attack) n'est pas emis par une operation de degat -- son foyer est le noeud DSL Attack(...), don
+worktree-agent-a286883a8aa041102	480	a8c419e4f8fa	2026-08-01T19:57:53	#436 : TargetIsAllowedForCaster (le TAUNT) -- armee chez 59 abilities ET par l'attaque normale, jamais par son
+worktree-agent-a0e174d9c7cdd77ff	481	96f9b360206b	2026-08-01T20:03:54	#439 : un cliquet doit pouvoir ROUGIR -- garde mecanique a l'entree de la banque (3 occurrences, toutes trouve
+worktree-agent-a50389b5a1654200b	482	ff8c5f951913	2026-08-01T20:13:27	#440 -- `probe_274` s'arrete a son propre checkout, et `probe_440` garde ce perimetre pour tout le depot (la c
+worktree-agent-a0646e950b6671d76	483	dca7fa73d89b	2026-08-01T20:30:48	#441 : `Neuroparasite` (1183) porte et confronte -- DEUX sorties, AUCUNE cle de poids, et un regime utile qui 
+worktree-agent-a96b612eab1d165ca	484	d30effd1336a	2026-08-01T21:00:26	#442 : `TargetIsNotSteppable` portee et confrontee -- 1 porteur par le bit, 83 par l'armement, et l'ATTAQUE NO
+worktree-agent-accbc0f54ee914979	485	086a1bef1db2	2026-08-01T21:16:22	#419-r1 tranche 3 : `SaviorProtocols` (1120) porte et confronte sur un porteur NATUREL -- une seule action nat
+worktree-agent-a9fd7f6b6291d0183	487	7a67aad2c978	2026-08-01T21:52:04	#419-r1 tranche 4 : `Boltstorm` (1090) face ATTACK -- premier terme PRODUIT poids x cardinal, et le cardinal c
+worktree-agent-a47a7a6cc262ac8db	488	912a95efe2d5	2026-08-01T22:51:04	#445 : `AvalancheOfMuscle` (1028) porte et confronte -- le premier playbook ATTACK qui FABRIQUE sa prediction,
+worktree-agent-a36a1fadc2cf79c2a	489	a274df1ac323	2026-08-02T00:07:54	#447 : la voie du BIT 51 de TargetIsNotSteppable confrontee au NATIF -- greffe de l'ACTIVE, et le partage 51/1
+worktree-agent-ab95ef0638aa43645	490	13dd0de35ff1	2026-08-01T23:54:45	#443-r1 : la face MOVE de `SaviorProtocols` (1120) portee -- quatre artefacts natifs, un seul a porter, et un 
+worktree-agent-a6e07a325940c1d5c	491	5ad292ed5c58	2026-08-01T23:41:37	#443-r1c : probe_193c retranchait des indices de feuille PERIMES -- et le trou etait dans le DETECTEUR (deux a
+worktree-agent-a873145373bd04277	492	cb992ce90f87	2026-08-02T00:23:08	#419-r1 tranche 7 : `FireOfAbsolution` (1017) porte et confronte -- PREMIER playbook attack qui SOMME DEUX pro
+worktree-agent-a5f142aae8518ec21	493	497aa9b7b8f5	2026-08-02T00:49:42	#419-r1 tranche 6 : `CosmicHorror` (1277) porte et confronte -- PREMIER playbook attack qui ne lit RIEN de la 
+worktree-agent-a9b741dbac391295c	494	3420db80d3e1	2026-08-02T01:31:21	#429-r2 tranche 4 : `AddCasterIfMatchesDynamicRule` (bit 3) portee et confrontee -- la TROISIEME cascade entre
+worktree-agent-aa065aa47e88b64df	495	76f68832d54f	2026-08-02T01:44:29	#419-r1 tranche 5 : LightImUp (1103) porte et CONFRONTE BIT-EXACT sur les CINQ etats -- deux corrections nees 
+worktree-agent-a353bba4221b3e42e	496	dac7c2a6781b	2026-08-02T02:14:31	#436-r1 + #443-r1a : les DEUX capteurs qui manquaient -- ECRITS, compiles, embarques ; la prochaine fenetre de
+worktree-agent-ac8453032abaff2af	497	a7af96306509	2026-08-02T01:59:52	#446-r1 : l'ecart residuel de templAggressor etait un etage PORTE et INERTE -- le mold Boltstorm_NormalAttack 
+worktree-agent-a662e27f56c2b4b06	498	8f47fd28e3d4	2026-08-02T01:53:02	#449 : le slot de montant APPLIQUE le spread +/-20 % -- la contradiction tranchee sur les BORNES, et le canal 
+worktree-agent-a1e7e265cde1d6267	499	af58df0290d5	2026-08-02T02:06:17	#446-r3 : le TROISIEME mold d'attaque normale (RighteousRepugnance, gate MELEE) porte et confronte -- le mold 
+worktree-agent-a2b0ad1edc4cbe53a	500	ea5fde16152b	2026-08-02T04:04:50	#456 -- les deux canaux TRANSPORTENT : le lien BONDE ferme le gate sur un etat HYDRATE, et le terme MOVE attri
+worktree-agent-ab98d7ae5cbf92495	501	94bcb144e1d3	2026-08-02T04:11:38	#443-r2 : onlyActive EST discriminable -- le montage manquait, pas le parametre ; et la discrimination fait to
+worktree-agent-a6ccced709d86e0ba	502	c036ff69c34f	2026-08-02T04:23:07	#433-r1 : le court-circuit d'IDENTITE d'AreTilesAdjacent porte sur 4 foyers -- et le terme JOINT (la porte d'e
+worktree-agent-ab961705f8e1d4657	503	9a005b9f72a4	2026-08-02T04:50:12	#446-r2 : le +3 anterieur au fold est un ARRONDI STRUCTUREL -- CalculateBaseDamageWithAllModifiers arrondit EN
+worktree-agent-aa678a7b2b28c9a9f	504	4739889b7555	2026-08-02T05:05:24	#419-r1-tr9 : RapidFire (1135) porte -- et le playbook a decouvert que DamageUtility lit les PV de l'ENTITE ca
+worktree-agent-a9b9cb63655c6da6f	505	7e48bf736f73	2026-08-02T05:40:02	#433-r3 : le noeud DSL IsAdjacent est un UNIVERSEL, et sa porte d'ELEVATION mord -- confronte LIVE sur deux ge
+worktree-agent-a80d1633c49292493	506	39cbcab099da	2026-08-02T05:51:41	#456-r1 : les 9 lignes du terme MOVE se ventilent en DEUX causes additives (4+5) -- et 1133 CyclicIonBlaster e
+worktree-agent-acc9c308bf9b466e8	507	0eec55accf83	2026-08-02T05:58:29	#443-r2-b1 : la face DECISION prend la MEME porte de canal que la face COMBAT -- et le -35 se referme jusqu'a 
+worktree-agent-a24f0ff93ac954535	508	959ccb6c8c86	2026-08-02T06:38:13	#455 : un fichier de test 100 % skippe est un vert qui ment -- garde + cliquet, et le premier inerte trouve et
+worktree-agent-ae18183e618c1119a	509	0828796da0d0	2026-08-02T06:19:04	#419-r1-tr9-r4 : le facteur ~2 etait un COMPTE DE COUPS -- `nrOfHits` est la BASE D'ARME du fold, que le natif
+worktree-agent-acc6050192b260e44	510	6409be500135	2026-08-02T09:57:04	#449-r2 : la face COMBAT ne transporte PAS la conclusion de #449 -- ses zeros sont JUSTES (3e porteur trouve p
+worktree-agent-a48558c938f97ca18	511	32c8c781411c	2026-08-02T10:08:32	#419-r1-tr10 : RighteousRepugnancePlaybook (1107) -- meme FORME que Boltstorm, PAS le meme cardinal : la cible
+worktree-agent-aeb40753d70190673	512	80f6d03e17cb	2026-08-02T10:24:48	#419-r1-tr9-r4-r1 : le contexte du fold est celui de l'ATTAQUE PORTEUSE -- residu REFUTE (et le corriger aurai
+worktree-agent-a158a27e4f12847ca	513	5987622b44fa	2026-08-02T10:42:11	#433-r3-r1 : les noeuds DSL de geometrie lisent l'EMPREINTE -- 5 portes, 24 recenses, et l'enonce refute dans 
+worktree-agent-a4e1da7858d2c0139	514	3fef48d062ef	2026-08-02T12:10:53	#419-r1 tranche 11 : SpecialIssueCombiMeltaPlaybook (1545) porte + confronte -- un terme de PORTEE EXACTE, et 
+worktree-agent-a41390775f700dd29	515	ae1e0b0eb32c	2026-08-02T12:18:23	#449-r2-r5 : le cliquet gardait les call-sites, PAS le defaut dont ils dependent -- perimetre, defaut, positio
+worktree-agent-aa2b8e02003301f75	516	0c062a11344c	2026-08-02T12:28:08	#457 / #433-r3-r1e : les 3 rouges accusent le MONTAGE (et un 4e defaut VERT), et la banque gagne son premier c
+worktree-agent-aa4610ac5c4a48f9e	517	23c0e8cee179	2026-08-02T12:37:53	#433-r3-r1a : la resolution d'occupant lit le TileContentComponent -- MON ENONCE REFUTE DANS LES DEUX SENS (17
+worktree-agent-abe323ddcde46e5ac	518	a9b3cc30caf4	2026-08-02T12:47:30	#419-r1 tranche 12 : ElectroShockPlaybook (1303) porte + confronte -- MEME helper de cardinal que Boltstorm/Fi
+worktree-agent-aee43d17936f62c60	519	75eb018e8b5e	2026-08-02T12:59:47	#419-r1-tr9-r4-r1-r2 : les quatre effets a gate IsNormalAttack -- ShroudPsalm (malus DEFENSEUR) et Voltagheist
+worktree-agent-a6d8761be80bcb85a	520	842429e783c7	2026-08-02T14:19:07	#459 : les accesseurs de tuile rendent l'EMPREINTE (residu #433-r3-r1a-r2), et le voisinage n'a plus qu'UNE vu
+worktree-agent-a7ad54e78680680b7	521	33015e5f2e1c	2026-08-02T18:15:21	#425 : la marque de tuile TRAVERSE le canal -- le residu de #448-r1 est refute, la cause etait le MONTAGE
+worktree-agent-a91b6d0eec2f49865	522	e5028dad1990	2026-08-02T18:20:24	#254-bc : le bloc Units du seed BC est PERIME -- le rouge de test_catalog_inject accusait la donnee, et sa sec
+worktree-agent-ac9e1bc85251b52ed	523	3b4362e0becf	2026-08-02T18:29:54	#419-r1 tranche 13 -- Shrapnel (1116) face ATTACK : la SOMME des voisins, amis COMPRIS et NIES
+worktree-agent-aeadec5e26c972b2a	524	48e5117a84d5	2026-08-02T18:09:41	#458 (#449-r2-r5-r4) : probe_431 rendait VERT sur 967 fichiers -- le perimetre se DERIVE de l'extension, et pr
+worktree-agent-a575505b611704916	525	aed8293f2036	2026-08-02T18:41:05	#419-r1-tr9-r4-r1-r2-r1 : LegendaryCommander_ExtraHits (1395) -- le consommateur en NEGATION, porte et confron
+worktree-agent-a9fed1ad130e33c2a	526	c06c0ba21ca1	2026-08-03T02:49:10	#457-r6 : le mur de la banque -- ce n'etait PAS l'AST mais l'OUVERTURE des fichiers ; mur -26 %, et 60 s reste
+worktree-agent-a3cbd63a0e289bc8f	527	b8afdd77156f	2026-08-03T08:48:38	docs(#433-r4): inventaire des consommateurs du regime d'identite d'AreTilesAdjacent
+worktree-agent-a9741a2440f45ace7	528	a86cdab49f99	2026-08-03T09:41:39	#27-r7 TheLionsWrath (1217) : le verrou n'etait pas le gate mais MakeDamagePredictions -- route NON-ATTAQUE, c
+worktree-agent-af2abbfdcaae3af5c	529	0f4172c0adc7	2026-08-03T11:07:49	#27-r6 : porter InstrumentsOfVengeance (1215) -- le terme se mesure par le CHOIX DE TUILE, et adj != surroundi
+worktree-agent-a9b43f0865b557754	530	f6b55f51f67b	2026-08-03T10:29:04	#27-r5 : MortarionsPlagueWind (1093) porte -- le verrou DSL annonce etait PERIME, et la magnitude est ENCADREE
+worktree-agent-a69d900a477a41dfd	531	8c71efbfa220	2026-08-03T10:19:42	#433-r4-r1 : le bras de rattrapage de FilterTilesIfCanAttackTargetTileFromSelector -- 1 noeud DSL et 2 abiliti
+worktree-agent-a14bc88f36dd55761	532	bc0a0e92ca44	2026-08-03T11:21:37	#448-r1 StormboyzStrike Fallback + Miss : deux des quatre pieces annoncees n'existaient pas, et la mesure PRNG
+worktree-agent-a1f316e537c9b29c0	533	c527aa5d9ee6	2026-08-03T11:49:22	#455-r4 : le rouge du cap Resilient accusait le MONTAGE -- et une 4e mutation a revele un demi-bord non garde
+worktree-agent-a3659ea4551ea3530	534	e1cc267fbd0e	2026-08-03T12:26:45	#455-r3 : le fichier a 0 TEST COLLECTE -- deux volets, aucune allowlist
+worktree-agent-a784afe170b93faa8	535	a060d9714d9a	2026-08-03T14:07:11	#433-r4-r1-r4 : la porte d'elevation du substrat DSL, branchee sur le canal du board (CONFRONTE LIVE)
+worktree-agent-ac12be4e1dedf63f4	536	89843a0a2a79	2026-08-03T12:56:30	#433-r4-r3 : les deux NonOwnerPlaybook absents du registre, et le pre-gate <slot 4> enfin LU
+worktree-agent-a3b2266bbbb0c83e3	537	15ff14e5da67	2026-08-03T17:22:11	#27-r5-r1 : les TROIS batchs de MakeDamagePredictions de PlagueWind (1035) ET MortarionsPlagueWind (1093), et 
+worktree-agent-aec471c124709365b	538	159716f07016	2026-08-03T15:08:26	#448-r1-r1 : le gate de FullThrottle -- MovementSteps ferme OFFLINE, et un seuil a 2 pas (pas 3) tranche par l
+worktree-agent-a80ffd5838308fd70	539	07d201de38f8	2026-08-03T16:14:57	#462 -- l'etat des tests LIVE que rien ne regarde : inventaire (240/419, 8 rouges) + gate du trou A
+worktree-agent-a46b4ae33fba63569	540	5ef0252f4330	2026-08-03T16:33:00	#433-r4-r3-r1 : les 10 AdjacentToOwnerNonOwnerPlaybook, un corps partage -- et un .ctor qui designe la mauvais
+worktree-agent-a829b6c92a85b5beb	541	51d0df11e8fe	2026-08-03T17:42:55	#419-r1 tranche 14 : HeavyBoltPistol (1083) face ATTACK -- la gate lit la position REELLE du caster, pas la tu
+worktree-agent-a1b364484f48084b6	542	af1328479652	2026-08-03T17:48:33	#433-r4-r2 : les deux consommateurs hors foyer d'adjacence -- et la bascule A/B mesuree sur le natif lui-meme
+worktree-agent-a81b0b741d2cd91f7	543	0e6e3ec7cba8	2026-08-03T17:32:33	#462-r4b : le rouge n'accusait aucun gate -- l'axe Pinned se lit A LA POSE des deux cotes
+worktree-agent-adca4ab103c938f92	544	b02ea792cae6	2026-08-03T17:54:49	#462-r4a : le +1 de Terrifying -- DEUX CANAUX (liste @0x18 vs Multiplier@0x30), pas un arrondi de plus
+worktree-agent-aba0dd32b984efa75	545	f86f063fbbd3	2026-08-03T18:47:41	#462-r4c : la chaine d'import MORTE de BUILD_HASH -- 5 sites, et le cliquet des imports DIFFERES (ferme #462-r
+worktree-agent-a51d1ea0c71922ecf	546	72f8b1a08b8c	2026-08-03T18:58:34	#462-r4e -- le catalogue degat echantillonnait des unites qui n'arrivent jamais en bataille
+worktree-agent-aecbc03df5662af2f	547	a5a8c84883ef	2026-08-03T19:28:47	#462-r6 : le ROUGE DE SCENARIO a un nom -- 3 rouges tranches, un type qui traverse jusqu'au ledger
+worktree-agent-ae8024f700b2a6cfb	548	6d7026f664fc	2026-08-03T19:45:16	#462-r4b-r1 : l'additif DEFENSEUR partage le slot pre-percage de l'attaquant (facteur 2,98 sur l'attaque comma
+worktree-agent-a342d32a2c151d649	549	1e096f793fb7	2026-08-03T19:53:07	#462-r4d : le trou B a un coupable nomme -- et deux taches n'avaient qu'une cause
+worktree-agent-a09b0898704b7fd3b	550	d3633dd7c6aa	2026-08-03T20:48:16	#433-r4-r2-r1 + -r2 : les deux branches d'EarlyWarningOverride (zone d'ability + threshold d'arme)
+worktree-agent-a758492282d40cde9	551	656cbf644c5d	2026-08-03T21:18:16	#419-r1-tr14-r5 : l'ecart du composite d'attaque NORMALE etait un DISPATCH lu au mauvais endroit (ferme aussi 
+worktree-agent-a9988ca3b1b445ff4	552	ccac64f04a6a	2026-08-03T21:31:00	fix(#462-r4c-r1): les probes 212/241 mesurent juste, rendent un verdict, et PILOTENT leur montage
+worktree-agent-a11fd6e8ec6a94202	553	798444e071c1	2026-08-03T21:32:55	#462-r4b-r1-r1 : confronter les deux producteurs d'additif defenseur (Chronometron, Neuroparasite) + fermer le
+worktree-agent-ae113e19a1f5ae0cc	554	f1b1a8d208bd	2026-08-03T21:41:45	#448-r1-r1-r1 : la branche VOLANTE de _movement_steps, confrontee (couple marcheur/volant + detour de vol)
+worktree-agent-a56dcc6ebea1232d5	555	11215b4d9a47	2026-08-04T00:01:13	#462-r4d-r3 : les DEUX CANAUX du meme cote en COMBAT -- port CONFIRME, et le montage debloque
+worktree-agent-adf5bf0d7d47b1be2	556	e08357873e13	2026-08-04T00:01:13	#462-r4b-r1-r1-r1 : porter la POSE de Neuroparasite et sa montee en niveau
+worktree-agent-a35064df35f76a9ee	557	8a436e267646	2026-08-04T00:01:12	#419-r1-tr14-r5-r1 / -r4 : la table de substitution d'attaque normale (14 entrees) et les deux traits qui la s
+worktree-agent-ad12299b0b1be9235	558	898a9e26c6f2	2026-08-04T00:01:12	#433-r4-r2-r1-r1 : le discriminant de deux abilities au meme preset -- GetDynamicInvalidTargetReason (6 kits E
+worktree-agent-a3a179daf07957188	559	99951cc12b75	2026-08-04T00:44:26	#448-r1-r1-r1-r1 : le compteur de tuiles d'un VOLANT -- FlyPathfinder, decorateur TELEPORT et beeline
+worktree-agent-a6b27f7cf8a679d1f	560	a20b508f2d64	2026-08-04T01:07:27	#465 -- un verdict du ledger n'est un FAIT que sur l'arbre ou il a ete mesure
+worktree-agent-a24c1a7e8873315e5	561	3cb7409689d2	2026-08-04T01:07:27	fix(#463,#464): probe_457 -- refus de mesurer hors CWD (fichier versionne vide) + mesure INCREMENTALE
+worktree-agent-a10b08e07daa42514	562	9c4f6a7e594d	2026-08-04T02:29:10	#467 : l'etat de la BOUCLE, derive et declenche par le hook Stop
+worktree-agent-acb83261f1fb1ffc6	563	22cd0eb06654	2026-08-04T02:02:27	#466 -- deux capteurs frida ecrits AVANT la fenetre : canal d'un bonus d'effet par FACE (#462-r4a-r1) et Conne
+worktree-agent-afe0c4c4939872db0	564	0a720d1b878b	2026-08-04T02:55:22	#462-r4b-r1-r1-r1-r1 : porter le RETRAIT herite d'ABondEffect (trigger (a)), confronte sur deux porteurs oppos
+worktree-agent-a2e5e29857d625b0c	565	96d85cf7c867	2026-08-04T03:20:14	#419-r1-tr14-r5-r2 : porter la voie ACTIVE du dispatch d'attaque normale
+worktree-agent-ad91526d956c02d99	566	ad4f1f7b0bb8	2026-08-04T03:54:11	#467-r6 + #467-r4 : la ligne PR aveugle (cause REFUTEE puis mesuree) et le contrat host sans temoin
+worktree-agent-a3225e770ace8e106	567	99a71aafebf5	2026-08-04T03:54:11	#464-r1 : le recensement re-derive donne 15 fichiers et non 13 -- et l'axe qui avait MORDU n'a aucun autre por
+worktree-agent-a0adc5bc41d12c050	568	3ae233a69f9c	2026-08-04T04:18:58	#433-r4-r2-r1-r1-a : les 9 gates whole-board non lus -- aucun n'est un rayon, deux etages neufs
+worktree-agent-a5a8344249f7a4ce6	569	0846b894cf1b	2026-08-04T04:29:31	#419-r1-tr14-r5-r2-r1 : porter la branche TRAIT du dispatch d'attaque normale (0x7e7 Boss -> 1030 Loki_NormalB
+worktree-agent-464-r2	570	5e5251b6d592	2026-08-04T04:56:29	fix(#464-r2): l'empreinte de probe_457 ne doit rien au __pycache__ de la machine
+worktree-agent-a337592c1cb67d387	571	d51f25f0eea6	2026-08-04T05:12:53	#448-r1-r1-r2 : le SECOND bras de MoveUnitOperation\$\, porte et confronte live
+worktree-agent-a2a287eec988ba707	572	224e1ac37f63	2026-08-04T05:25:20	#433-r4-r2-r1-r1-c : les trois gates CASTER en amont de la zone (les deux slots etaient mal nommes)
+worktree-agent-aa9eb2fefac8bc458	573	4d457b6218f2	2026-08-04T06:24:30	#419-r1-tr14-r5-r2-r1-r1 : porter le gate ShouldExecute de l'attaque normale (Explosive + utility > 0), les de
+worktree-agent-a588de97ef661c97a	574	d7c58fcbf4c8	2026-08-04T06:24:30	#433-r4-r2-r1-r2 : le 2e predicat de GetPossibleTargetsForOptions -- la LIGNE DE VUE
+worktree-agent-ad9a2395724b2be78	575	5f0d83d52032	2026-08-04T07:14:43	#419-r1-tr14-r5-r2-r2 : la garde FilterNewList du repli generique de l'attaque normale
+worktree-agent-a66e1788871f2cf1b	576	13d29938644c	2026-08-04T07:32:32	#419-r1-tr14-r5-r2-r1-r2 : les presets TargetingOptions statics+0x00 / +0x80, et le masque d'attaque normale P
+worktree-agent-ad1348efcb5f17751	577	7c5eaf0cdabc	2026-08-04T07:46:27	#448-r1-r1-r2-r1 : le vecteur after-move appartient a MoveUnitOperation (les feuilles DSL le jouent enfin)
+worktree-agent-aed905138d65218a2	578	35efa5d994d7	2026-08-04T08:01:02	#456-r2 : la DECOMPOSITION du terme MOVE confrontee, et deux gardes qui ne pouvaient pas rougir
+worktree-agent-a4020ea02efb24b45	579	6ad310c2ea2f	2026-08-04T08:55:10	feat(#466): les deux capteurs manquants de la file de fenetre -- IsAlreadyUsedThisTurn et UnitConfiguration.Ac
+worktree-agent-a4c9ab318b73e05ec	580	c718b4007c10	2026-08-04T09:05:36	fix(#433-r4-r2-r1-r2-r2): alimenter les gardes << ami >> de la ligne de vue -- le seul ecart RESTRICTIF
+worktree-agent-a0220713ebc56f07f	581	4b62a914b09a	2026-08-04T10:58:22	#419-r1-tr14-r5-r2-r1-r1-r1 : le gate ShouldExecute << l'attaque normale tue deja >>, porte sur 15 des 43 clas
+worktree-agent-a02a4ae69ab106f7d	582	be0c1549ae6f	2026-08-04T09:53:12	#437-r1 : l'ecart de 1 sur le degat du tir d'overwatch -- les deux ApplyCappedModifiers sont DEUX appels
+worktree-agent-a4388523d655bd398	583	afb3e209c416	2026-08-04T10:58:22	#419-r1-tr14-r5-r2-r1-r2-r1 : porter la regle dynamique de l'attaque normale (ecart PERMISSIF ferme)
+worktree-agent-ac95347871ed1b6e6	584	d2ede23d39c4	2026-08-04T10:58:22	#466 : confronter les deux capteurs de #563 -- un cran atteint, un cran refute
+worktree-agent-a1d14fb6a51434ed1	585	6979f7122344	2026-08-04T11:37:59	#466 : les deux capteurs confrontes -- garde FilterNewList BRANCHEE, capteur IsAlreadyUsedThisTurn MAL POSE (c
+worktree-agent-a871a604b5606857b	586	cd79401e4a49	2026-08-04T11:26:59	#437-r1-r1 : les deux gardes ne se contredisent pas -- la loi est le NOMBRE D'ACCUMULATEURS
+worktree-agent-a6ae552ef936491a4	587	f5edd5299634	2026-08-04T12:12:08	fix(#419-r1-tr14-r5-r2-r1-r2-r1-r1): get_range desarmait only_adjacent sur une valeur que la branche ne LIT PA
+worktree-agent-a4ff026aa26851621	588	da9f97e3f22d	2026-08-04T13:17:39	#437-r1-r1-r3 : la divergence prediction/combat n'existait pas -- aiPredict ne mesurait pas le coup qu'on croy
+worktree-agent-a9900482c6641d6f0	589	6f2e05488e52	2026-08-04T12:55:04	#448-r1-r1-r1-r1-r2-r1 : rebrancher les pathfinders sur le canal ConnectivityComponent
+worktree-agent-adaa396bfe7585509	590	fc51ceab9256	2026-08-04T14:02:14	#468 -- un cliquet qui voit un NUMERO de tache attribue deux fois
+worktree-agent-ae325daf2b7bfcc63	591	78d1ebe7d5ef	2026-08-04T13:28:49	#471 -- tri-etat de la banque : INDISPONIBLE n'est plus un ROUGE
+worktree-agent-af797e37f63c5f36a	592	a5bf7e0faa3c	2026-08-04T13:45:42	#419-r1-tr14-r5-r2-r1-r1-r1-r2 : le gate `utility > <seuil statique>` -- DOUZE corps, pas cinq
+worktree-agent-a1ba4c57669ac498b	593	f6e21af9f886	2026-08-04T14:44:15	#473 : le volet LIVE de probe_467r4 DIT qu'il n'a pas pu mesurer, au lieu de rougir
+worktree-agent-a8d2eece500e055e2	594	9f5be0ae8b08	2026-08-04T14:57:01	#419-r1-tr14-r5-r2-r1-r2-r1-r1 : les deux CLAMPS DE MELEE confrontes (-r4) + l'ORDRE de GetTilesInRange (-r3)
+worktree-agent-a3bb24b6d195eeeb6	595	13e2289479b0	2026-08-04T15:25:47	#472 -- un verdict de banque dit A QUOI il s'applique : JUGEE / EN COURS / NON JUGEE
+worktree-agent-a3006c81322e44a9b	596	e0020fa118ff	2026-08-04T15:21:53	#437-r1-r1-r1 : la face d'un EffectBonus est le SLOT VIRTUEL natif -- 59 classes, 9 divergences, separation in
+worktree-agent-a5495c47488dffaca	597	c0201c1b3121	2026-08-04T16:15:25	fix(#419-r1-tr14-r5-r2-r1-r1-r1-r2-r4): le seuil de ShouldExecute vaut Fix64(10), pas Fix64(1)
+worktree-agent-a6a996e977cf18b3f	598	b01d7e6aa57f	2026-08-04T16:42:42	#474 + #471-r2 : le .git/index.lock orphelin -- cause etablie, fenetre fermee, lien avec le 128 REFUTE
+worktree-agent-ae574116ce433e375	599	cf39d4494e9a	2026-08-04T16:42:41	#589-r1 -- l'AVAL de TilesMovedThisTurn : 6 call-sites ventiles, et la route Fly PURE mord
+worktree-agent-aa8f8c71c3655cbd1	600	84cc2877e72f	2026-08-04T17:01:24	#468 -- l'attribution des numeros : --suggere (r4), la collision quadruple resolue (r5), et le tri des 85 qui 
+worktree-agent-a40118857e3d2cde0	601	980313145723	2026-08-04T18:01:11	#462-r4e-o : le tag `Amount` per-coup est BORNE aux PV restants (FillUpStatComponent$$Reduce)
+worktree-agent-ad8891c85c7d4c515	602	26f298ec891a	2026-08-04T18:07:37	#475 -- les adresses en dur des hooks : REFUSER au lieu d'attacher en aveugle (6/6 perimees)
+worktree-agent-ad1809737adcfacb2	603	8973c9ea3851	2026-08-04T18:57:10	#589-r1-r1 : EmpyricAmbush -- le seul seuil de TilesMovedThisTurn qui bascule, porte ET confronte
+worktree-agent-af487952eca9bc01a	604	d59e86f4c5f7	2026-08-04T20:40:55	#433-r4-r1-r1 : porter WallOfMirrors (1186) -- oracle 1 bit + tuile d'atterrissage confrontes live
+worktree-agent-ae474a33fb47467d1	605	2c37281941c2	2026-08-04T20:21:17	#433-r4-r2-r1-r2-r2-r1 : porter l'etage AMONT de walkability de GetTilesInRange (34 -> 0 et 40 -> 0 tuiles att
+worktree-agent-a783961ccc1cf367d	606	8fb8ce4f5d5f	2026-08-04T20:50:45	#433-r4-r1-r4-r2 : is_adjacent enumere la liste STOCKEE, plus la couronne hex
+worktree-agent-a8f69117ad7d5e96b	607	7338089c2336	2026-08-04T20:54:49	#469 -- la banque de fond cede la PRIORITE, elle ne reduit pas son parallelisme
+worktree-agent-a71aadfd408cb0b3b	608	ff1d83084ad4	2026-08-04T21:05:40	#589-r1-r1-r2 : le PRODUIT compteur rebranche x seuil franchi, confronte de bout en bout
+worktree-agent-a385d70aea6dec64b	609	c82c739d12b5	2026-08-04T22:55:07	#433-r4-r2-r1-r2-r2-r1-r1 : les 32 masques du pool hors registre, lus au ctor (ferme AUSSI -r2-r1)
+worktree-agent-a1dcd2aeb337ddd08	610	e24b08fef465	2026-08-04T22:55:07	#433-r4-r1-r4-r2-r4 : l'aval du basculement d'adjacence -- 8 decisions changees sur 725 situations
+worktree-agent-aa5bd531b31c50e2d	611	6c35e9cb53ce	2026-08-04T23:02:02	#433-r4-r1-r4-r2-r1 : les quatre foyers voisins d'adjacence -- trois natifs, deux sens
+worktree-agent-a91ece7c40afafdc0	612	ea1580fdfa91	2026-08-04T23:02:02	#589-r1-r1-r1 : porter la POSE d'EmpyricAmbush (ability 1232) en arbre DSL
+worktree-agent-a1e9335550dcfd06a	613	27b51da2956d	2026-08-05T00:01:45	fix(#467-r6): chaque panne de capteur porte son NOM, et quelqu'un la lit
+worktree-agent-a6c19bed49b3f50c9	614	045a219cb47b	2026-08-05T00:33:12	#433-r4-r1-r4-r2-r1-r1 -- la garde cote la CONSOMMATION du canal de voisinage, pas sa presence
+worktree-agent-a67415c4d5206e53d	615	193a6c2ca856	2026-08-05T00:33:12	#477 -- Le harnais de test natif : pas d'oracle, mais ReplayValidator en est un (capteur livre, non execute)
+worktree-agent-ac83b7f08b3f055ed	616	8f6a77becc4a	2026-08-05T00:33:12	#589-r1-r1-r1-r1 : porter EmpyricAmbush_Reset (1555) ; EmpyricAmbush_AnyMove (1580) = dead code
+worktree-agent-a295c4dbbb6beb43d	617	05dfa085f5e8	2026-08-05T00:39:31	#433-r4-r2-r1-r2-r2-r1-r1-r1 : la zone GetTilesInRange exclut sa tuile source + 8 masques hors pool
+worktree-agent-a96c0919dccb5a664	618	6112b9690973	2026-08-05T01:05:32	feat(#589-r1-r1-r2-r1): AmuletOfTheVoidwyrm_CritDamageReduction -- l axe REDUCTION du canal crit-degat (9 bras
+worktree-agent-a0dbfbf20c13ce967	619	0ea3267010c1	2026-08-05T01:25:24	fix(#616): les 2 selecteurs de spawn NC lisent la LISTE STOCKEE, pas la geometrie
+worktree-agent-a4ec555a426af9b22	620	380a8d0b8791	2026-08-05T02:07:22	#462-r4b-r1-r1-r1-r1-c : le 4e virtuel des derivees d'APendingAttackEffect est IsExecutedIfOwnerDies
+worktree-agent-a917c1b53af147381	621	30c0762ded5a	2026-08-05T02:23:32	#462-r4e-o-r1 -- CARDINALITE des events Amount post-mort (SITE (A) par coup) + le terme +0x24 d'IsOverkill
+worktree-agent-a5bef3365860391ad	622	94d6c4b403c3	2026-08-05T02:21:15	#433-r4-r1-r4-r2-r1-r1-r1 -- RammingSpeed decide l'adjacence par le substrat natif (3 axes confrontes live)
+worktree-agent-a68cff71e4820800e	623	fe645f1c71d3	2026-08-05T02:26:22	#433-r4-r2-r1-r2-r2-r1-r1-r1-r4 : le 4e gate CASTER (GetInvalidCasterReason) -- porte, confronte live, et un r
+worktree-agent-adeb9ff46e0e90e9f	624	69412f2e7219	2026-08-05T02:30:35	#477-r5/-r6 -- les leviers de montage natifs de BattleConfiguration (UnitModifiers porte, StartingActions mesu
+worktree-agent-a7d29a3196aa526d8	625	c79741114862	2026-08-05T02:46:36	#462-r4b-r1-r1-r1-r1-c-r1 -- les effets de TUILE : le collecteur les voyait, le gate d'owner les jetait
+worktree-agent-ab3d356006cd4f1d2	626	cac24d012920	2026-08-05T02:59:12	#462-r4e-o-r1-r1 -- un coup DISCARDE n'emet aucun event UnitDamaged
+worktree-agent-ab42f4eea4e80b336	627	478801800fe4	2026-08-05T03:03:07	#433-r4-r2-r4 -- le rouge accusait l ORACLE : une contre-epreuve perimee, pas une regression
+worktree-agent-a5fe108efda782d5e	628	f9097169e773	2026-08-05T03:10:20	#462-r4e-o-r2 -- l'accumulateur +0x24 EST purge (FillUp), sauf au REVIVE : 3 sites non portes
+worktree-agent-a933644e83bdf9367	629	f1e02d318027	2026-08-05T03:34:44	#462-r4b-r1-r1-r1-r1-b -- le trigger (b) get_Range d'ABondEffect porte et confronte, (c) get_Adjacent mesure
+worktree-agent-ac6918f49a4703cc4	630	df71ee6c7181	2026-08-05T04:08:18	#433-r4-r2-r4-r1 -- une contre-epreuve par CANAL nomme sa propre peremption (25 sites, 0 muette, garde sans fa
+worktree-agent-a99afea815b98675e	631	70892ca6fefd	2026-08-05T04:16:04	#449-r2-r4 -- le spread de degat est LU dans BattleConfiguration.Damage (natif 7774 vs port 9388)
+worktree-agent-aadc722d6e4971600	632	0d99c8702021	2026-08-05T08:11:54	#462-r4b-r1-r1-r1-r1-c-r3 -- la face EFFET n'a AUCUN gate d'owner : les deux surplus levés
+worktree-agent-ae30f76fab6d2c69b	633	a87dce9cc2f6	2026-08-05T04:19:59	#429-r1 -- les deux bits READER_UNKNOWN sont localises, et le gate cible-morte est porte
+worktree-agent-a267a50e109dd8cbd	634	9562f62f633c	2026-08-05T04:25:17	#462-r4b-r1-r1-r1-r1-b-r1 : le 3e argument d'IsAdjacent est un UnitSelectionType, pas un rayon (3 sites permis
+worktree-agent-a0caf2929862ed310	635	da99fe19a840	2026-08-05T08:36:06	#462-r4b-r1-r1-r1-r1-b-r1-r1 -- BattleFatigue : porter le conjoint NOT IsObjectOrSteppable(dying), via un foye
+worktree-agent-a8cd184dfc17529e5	636	be67b121b99e	2026-08-05T08:26:48	#447-r1 : CasterIsPossibleTarget (bit 15) -- 13 sites le DECLARENT, 3 le LISENT, et le lecteur qui decide n'ex
+worktree-agent-af3a589c3a3f0dbfe	637	d79a9048dd8b	2026-08-05T08:27:49	#429-r1-r1 -- l'attaque NORMALE frappait les cadavres, et le bon etage n'etait pas celui du message
+worktree-agent-ac1c6e7d472941393	638	db490587d8dc	2026-08-05T08:33:03	#462-r4b-r1-r1-r1-r1-b-r2 -- le rail de BondRemoveOnRangeExceeded, LU au decompile (rail partage CONFIRME)
+worktree-agent-a5baecc42c5cf86a9	639	21a69fec1efd	2026-08-05T08:39:04	#449-r2-r4-r4 -- les autres champs de BC.Damage se LISENT ; 2 sont de la config MORTE
+worktree-agent-ad021f28a4b57f4ee	640	1d6db7f0c425	2026-08-05T09:20:06	#429-r1-r1-r1 -- le gate cadavre de la famille ABILITY : 1 site sur 9, les 8 autres seraient un fork
+worktree-agent-a6e32c368cfa04c35	641	f91d97dae887	2026-08-05T09:35:44	#462-r4b-r1-r1-r1-r1-c-r3-r1 -- un Steppable ECRASE perd ses effets : retrait porte, emission mesuree et NON p
+worktree-agent-aa4930cbe20fe91fa	642	2895cdcbbc19	2026-08-05T09:39:07	#446-r3b -- Fealty/TalonOfHorus : mirror de DECISION atteste live, et la face COMBAT est un CLEAVE (residu #47
+worktree-agent-a4dc65c6ca6066984	643	b9fbc426790f	2026-08-05T09:41:15	MoT : le gate {Steppable, Decoy} etait Steppable | Object -- 0 Screamer vs 1, confronte live
+worktree-agent-a235f938f5edbe8ad	644	9c38c0838beb	2026-08-05T09:53:47	#447-r1-r1 -- la branche INCLUSION du bit 15 confrontee sur la face DECISION : le blocage etait perime, et deu
+worktree-agent-ae6f32c10dfc25097	645	da38779ae844	2026-08-05T10:11:44	#270-r1 volet 1 -- les 169 cles a enum UNIQUE passent par leur membre (les 128 ambigues restent intactes)
+worktree-agent-aec77cffe4d7fa7e5	646	3267309ee663	2026-08-05T10:27:52	#462-r4b-r1-r1-r1-r1-b-r1-r1-r3 -- barbed_ovipositor : la recopie etait JUSTE sur les traits, FAUSSE sur le SU
+worktree-agent-ac73ef15ae95f0c23	647	c34b6b09764f	2026-08-05T10:51:19	#270-c TriggeredAbilityType : le mirror etait DEJA bijectif -- le trou etait le cran EN DESSOUS (dicts consomm
+worktree-agent-acb58ec821bc3fd94	648	650366ef950b	2026-08-05T10:56:52	#429-r1-r3 -- la derniere divergence cible-morte : ce n etait pas la PORTEE, c est un gate de MESSAGE (104/104
+worktree-agent-a57979a731d64b317	649	ec7fed08e361	2026-08-05T11:16:50	#462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1 -- le patron ctx.traits : inventaire ventile (66/31), et les 2 sites que la
+worktree-agent-a20da1e8bb2c875bf	650	2d5c7f953415	2026-08-05T11:18:51	#478 -- le CLEAVE de la face COMBAT : GetAdditionalDamageBehaviour a DEUX consommateurs, pas un
+worktree-agent-a9bef58fcf3338182	651	a0cc20ce113c	2026-08-05T11:24:40	#462-r4b-r1-r1-r1-r1-c-r3-r1-r1/-r2/-r3 -- le crush d'un Steppable publie ses evenements de mort, avec sa rais
+worktree-agent-a6634b5e53b101d54	652	4a3b8dd80a37	2026-08-05T11:50:22	#270-r1 volet 2 -- les 128 cles ambigues : le NOM et le TYPE DECLARE tranchent, l ordinal jamais
+worktree-agent-a69e3e7e0a70ef921	653	d6ca045d3884	2026-08-05T11:53:37	#477-r1 -- l'enregistreur de replay natif etait DESARME par NOTRE buildRunner (et la docstring qui l'affirmait
+worktree-agent-adcbf517831af803d	654	f935cfecda2e	2026-08-05T12:18:04	#478-r4 -- le cleave de Boltstorm EST confronte : l'hypothese << Owner nul >> est refutee au decompile, le zer
+worktree-agent-a9a6b2afcb595d69c	655	dad57ca40c97	2026-08-05T12:32:51	#429-r1-r3-r1 -- le perimetre du gate de message : un message, deux bouts, un predicat (Fled confronte live)
+worktree-agent-af296cf1c04087fe9	656	8321653b4002	2026-08-05T12:54:39	#477-r11 -- le format du flux de replay : deterministe au caractere pres, et ce qu'il n'a PAS
+worktree-agent-a403b7d0c9170ac76	657	3f65b5063bd6	2026-08-05T13:09:09	#462-r4b-...-c-r3-r1-r4 : On(0x35 = PostUnitKill) entre dans la sequence de mort -- rang lu a la PILE d'accola
+worktree-agent-af8359dcee8013528	658	c036633ec672	2026-08-05T13:23:55	#270-r1-r1 + #270-r3 : un recenseur ne peut pas rendre zero sur ce qu il ne visite pas -- la liste blanche de 
+worktree-agent-a55cb63e9f1546a4f	659	b84fd24352fc	2026-08-05T13:26:07	#479 -- menage des branches worktree-agent-* : 177 supprimees (manifeste), 16 non-ancetres auditees, 1 GARDEE 
+worktree-agent-aed04f77b98201d4c	660	628f08cc6cd0	2026-08-05T13:29:39	#462-r4b-r1-r1-r1-r1-c-r3-r1-r5 -- la POSE de la mine Haywire : l'ordre On(0x28)/On(0x29) rend le gate inerte,
+worktree-agent-afe1c32584e98e2f4	661	fdb35e5b4088	2026-08-05T13:39:46	#429-r1-r3-r1-r1 + -r2 : la liveness native a TROIS branches -- canal unitsNotAlive branche (tri-etat) et Unit
+worktree-agent-a47ac77513d0da0a1	662	39ae03ce6124	2026-08-05T13:38:44	mesure(#477-r15): couverture de l'emetteur de flux -- rien n'est porte, et le risque n.1 de r11 est refute
+worktree-agent-a7f9117f6b423eab6	664	e5a27b66941b	2026-08-05T14:13:05	#448-r3 -- le pas de mouvement est ATOMIQUE : trois gardes accusaient le port d'avoir perdu un trigger que le 
+worktree-agent-a499a2662509aab45	665	53837ff6cab2	2026-08-05T14:31:29	#477-r16 : la regle d'allocation des entites ECS -- MECANIQUE (9/9, 3 tailles de board)
+worktree-agent-a001af440e7077b73	666	8b8cc9a75764	2026-08-05T14:38:03	#425-r3 : le filtre `removed` est REDONDANT (2 sites sur 3) -- le troisieme est LOAD-BEARING
+worktree-agent-a40fa74a56dfb267d	667	4dbe3c15405f	2026-08-05T14:41:02	#270-r1-r1-r3 : 141 litteraux des roles DERIVES -- l'ordinal ne tranche pas, et une confusion d'enums peut etr
+worktree-agent-ae98b9d6cc839dff0	668	b2b3eaa544cf	2026-08-05T14:45:31	#477-r15 A+B+E : le port EMET le flux de replay -- 161/204 et 273/316 lignes identiques au natif, cliquet 3 et
+worktree-agent-a170ee0dbae86b096	669	b0308e6608c5	2026-08-05T15:02:47	#468-r10 -- l allocateur de numeros DIT son angle mort, et voit les deux sources en vol (2 collisions imminent
+worktree-agent-a011d6d5372116f68	671	86456959f01a	2026-08-05T15:26:40	#448-r3-r1 -- le port avait raison : la garde exigeait qu'il s'ecarte du natif, et le probe ne mesurait rien e
+worktree-agent-a64f5345a85c51632	672	38e317f1c1d8	2026-08-05T15:37:34	#477-r15-r1 : la table de litteraux IL2CPP est livree -- et Source= n'en est pas un (8/8 sont des enums, deja 
+worktree-agent-ab5d50682c685ddc4	673	eec21f39e5f3	2026-08-05T15:49:07	#477-r15 tranche D -- les 43 divergences CONNUES du flux sont fermees : 204/204, 316/316, 464/464, registre VI
+worktree-agent-aa1976e745be44e05	674	7ff7c2bc5321	2026-08-05T15:51:24	#477-r16-r1-r1 : la branche de deduplication est CONFRONTEE -- deux modeles concurrents refutes, et les gardes
+worktree-agent-a662846a06dc41590	675	f70bb322396f	2026-08-05T15:54:52	#468-r11 : la monotonie vaut des DEUX cotes, et le corps des PR entre au corpus
+worktree-agent-a7b04e4c61374e102	676	6557d21641b4	2026-08-05T16:22:26	#480-r1 / #480-r4 : hooks/scratch est du code de PRODUCTION, et le build ne savait pas ECRIRE
+worktree-agent-a8d3bc989c5dfee61	677	0ce825156f1e	2026-08-05T17:15:23	#448-r3-r1-r1 : un probe qui greffe sans alimenter le canal mesure un port AMPUTE -- le choke point REFUSE, et
+worktree-agent-a52ececbfe035163e	678	7920650f96c0	2026-08-05T16:44:01	#477-r15-r4/-r5/-r6 : les trois grandeurs que l'emetteur COPIAIT de l'oracle -- capteurs livres, ATTEND UNE FE
+worktree-agent-acfee5cf17056b359	679	d43150feb4fc	2026-08-05T17:20:16	#287-r1 : UnitFlag.NoActionAvailable -- la voie que le port ne posait par AUCUN chemin
+worktree-agent-a3c555141d28cadfe	680	6f5afa2297d3	2026-08-05T17:48:41	#480-r6 : hooks/scratch -> hooks/probes, 6 morts retires, et le code mort mesure au SYMBOLE
+worktree-agent-a135fbd5001de664e	681	d09cfc82bd55	2026-08-05T18:01:13	#270-r4 : les trois roles de litteraux jamais tries -- 62 nommes, 279 scalaires, 1 fausse attribution evitee
+worktree-agent-a463b673f576c0761	682	c9d16a4821f7	2026-08-05T18:12:38	#477-r15-r7 : les deux MAXIMUMS que l'emetteur de flux copiait -- sante MESUREE sans capteur, armure via un ca
+worktree-agent-afa9aa139002d22ee	683	b4b4f42731fa	2026-08-05T18:13:19	#477-r18 : inventaire du DEROULE DE BATAILLE dans le flux de replay
+worktree-agent-a72c9e09f7659b262	684	dbcfc19b6b50	2026-08-05T18:30:34	#287-r1-r1 : VerifyUnitTurnEnded -- la voie qui RE-OUVRE l'activation (POSE et RETRAIT du flag NoActionAvailab
+worktree-agent-af538f5ee3523bec4	685	d78c3240a82c	2026-08-05T19:05:01	#480-r8 : ventilation des 155 RPC sans appelant -- aucun n'est une feature retiree
+worktree-agent-a7e4b6f9f55824bf3	686	d54381dba7b2	2026-08-05T19:11:12	#477-r18-r5 : User_PlaceUnit -- l ancrage du deroule, egalite brute sur 2 boards
+worktree-agent-a73d651ddeda80c67	687	3f2430fc93d5	2026-08-05T19:41:58	#480-r9 + #480-r7 : frida/tools/ entre au typecheck, et les 13 exports morts tranches par leur CAUSE
+worktree-agent-a9159d3f056468285	688	3a84b97ed12a	2026-08-05T19:49:08	#270-r4-r2 : couper les 2 cycles d'import module-level d'engine/ (2 SCC -> 0), sans toucher aux 224 consommate
+worktree-agent-ab338dc706e9f0934	689	8b957bdf84a7	2026-08-05T20:13:58	#477-r19 : porter l'enveloppe System_ProcessRemovals et son ANCRAGE (cran 2 du deroule) -- cran 3 non confront
+worktree-agent-a8da83523930adde5	690	4afa81b054f3	2026-08-05T20:30:34	#419-r1-tr12-r2 : un chemin de stats EXPLICITE pour les NPC et les SUMMONS
+worktree-agent-af45590c927fca01b	691	19f02c0ff84c	2026-08-05T20:58:12	#477-r18-r4 : les 9 TagKey emis-non-atteints -- quatre causes, quatre canaux, etape [8] a ZERO
+worktree-agent-afa89ee7a905525b9	692	7a01025b1fbe	2026-08-05T21:02:11	#27-r8 : l'inventaire CalculateCustomUtility est CLOS ; le gate slot-4 de 1215 est porte (verrou reinject refu
+worktree-agent-a896f80818b560dac	693	50e6d238fc32	2026-08-05T21:06:14	#477-r20 : System_StartMatch -- enveloppe portee, contenu chiffre, et le debloqueur Effect_Refresh REFUTE
+worktree-agent-a8fe1a645be89fd5e	694	6805639f66a6	2026-08-05T21:50:39	#270-r4-r2-r2 -- trier les imports differes d'engine/ : 971 -> 347, et le graphe declare qui dit VERT sur 405 
+worktree-agent-a895ceb05a14d0af1	695	ecb20a538e57	2026-08-05T22:05:31	#477-r21 : le BLOC 1 de System_StartMatch -- l'arbre d'activation porte a l'egalite brute (363/447, 392/491, 1
+worktree-agent-a7a7f658ad653d299	696	fae25223d86f	2026-08-05T22:01:50	#482 (dispatche #253) : empreinte STRUCTURELLE par fonction -- 11 186 corps changes que le diff de data/symbol
+worktree-agent-aa120b5a10779e106	697	67e6ca684d00	2026-08-05T22:16:49	#419-r1-tr12-r2 : ElectroShock (1303) confronte sur son PORTEUR REEL (npc), terme invariant aux stats
+worktree-agent-ac3b58173b98871cc	698	98dd243fc460	2026-08-05T22:32:39	#419-r1-tr14-r1 : HeavyBoltPistol (1083) confronte sur ses porteurs REELS -- npc aux 4 crans, summon borne par
+worktree-agent-a837545e9519b56eb	699	7dd46c4b398e	2026-08-05T22:52:36	#482-r3 : archiver l'empreinte structurelle AVANT que le binaire disparaisse (3 builds sauves, dont 2 deja per
+worktree-agent-a13d229b5425a5c34	700	998d7973cbb1	2026-08-05T23:05:46	#477-r24 : RunPhase(0xd) n'est PAS la phase du revive -- le revive n'a AUCUNE phase
+worktree-agent-a67caf2c06503958d	701	594ac8383c99	2026-08-05T23:14:48	#302 tranche 5 -- le canal MachineOfWarPosition etait DEJA publie : le verrou 'exige un reinject' etait FAUX
+worktree-agent-afa6de9ef0e305df8	702	627ca6c39717	2026-08-05T23:26:09	#477-r22 : le BLOC 2 de System_StartMatch -- le TOUR porte, et recolte 24 fois hors de son groupe
+worktree-agent-a4f5c07d51b48d4cc	703	59a54b5f6376	2026-08-05T23:56:41	#419-r1-tr14-r1-r1 : l'attaque normale est gatee sur la PORTEE de l'arme -- un foyer natif, DEUX faces
+worktree-agent-a4e8042046cc86792	704	e3aac12f5674	2026-08-06T00:02:39	#477-r21-r3 : l'ALLOCATION ECS des entites d'EFFET -- la regle est SUFFISANTE, le verrou etait la SEQUENCE
+worktree-agent-ab52a9742c4515100	705	4ad978c6a391	2026-08-06T00:30:43	#270-r4-r2-r2-r2 + -r3 : les gardes du hissage ECHOUENT, elles ne RAPPORTENT plus (et le << 12 armes sur 14 >>
+worktree-agent-a89bd0c4e1cffdc3e	706	0b8982a9fb66	2026-08-06T00:35:01	#477-r24-r1/-r2 : le mapping slot d'interface SE LIT -- les deux lectures contradictoires etaient JUSTES
+worktree-agent-a6aa5782096c19b7c	707	c919fdd9cf7a	2026-08-06T00:45:13	#419-r1-tr14-r4 : la face COMBAT de HeavyBoltPistol (1083) -- le coup de pistolet de l'attaque normale substit
+worktree-agent-aafa8cd7371ca1713	729	8086181f759a	2026-08-06T06:51:02	#477-r22-r1 : le CONTENU du Group=StartTurn -- slot 0x21 RESOLU (VerifyUnitsTurnFinished, arite 0) et porte
+worktree-agent-ae292c7f3c8cfcda2	730	d170607563e9	2026-08-06T06:58:57	#287-r8 : l'etage battleQuery, l'aura Synapse, et les deux crans sous eux (13 -> 10 dettes)
+worktree-agent-a89643c00aea3960b	731	fd1bc568922b	2026-08-06T07:18:22	#419-r3 : isOutsideAttack=false est pose par 15 des 18 call-sites -- le FOLD herite de l'OngoingAttack
+worktree-agent-a4f83810af9d680a5	732	5457d00fe5ca	2026-08-06T07:32:12	#477-r32 : l'etage qui manquait n'etait pas la FENETRE -- c'est le slot cite par son NOM SEUL
+worktree-agent-a031910e9c3e5b6e9	733	965f2b00581f	2026-08-06T08:28:06	#477-r33 : le recensement des `*NonOwnerPlaybook` etait faux de trois facons, et UN SEUL confond etait arme au
+worktree-agent-a0ae7f4370252ce0c	734	f3c27e803204	2026-08-06T08:45:55	#483 : les seaux de trace etaient par runner, la PORTE ne l'etait pas
