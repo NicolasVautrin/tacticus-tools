@@ -301,11 +301,22 @@ class SortTilesByUtility(TargetsSelector):
     DOMAINE : rend des IDS d'entite-tuile (comme `CanAddUnit`/`AdjacentTiles`, sa source naturelle).
     `ctx.sort_tiles_by_utility` absent -> ordre SOURCE inchange (aucune utilite calculee)."""
     def __init__(self, source: TargetsSelector, unit_sel: TargetsSelector = None,
-                 utility_type: int = UtilityType.Tile, parent_sel: TargetsSelector = None):
+                 utility_type: int = UtilityType.Tile, parent_sel: TargetsSelector = None,
+                 utility_definition=None):
         self.source = source
         self.unit_sel = unit_sel
         self.utility_type = int(utility_type)
         self.parent_sel = parent_sel
+        # `utility_definition` (#120bis-spawn) = le 3e argument natif quand le call-site BATIT sa
+        # definition au lieu de passer un `UtilityType` scalaire -- allocation d'un
+        # `WeightedUtility[N]`, un `IdunBattleLogic.AI.Utilities.UtilityBucket$$.ctor` puis un
+        # `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(bucket)`. C'est ce que fait
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.SwornProtectorAbility$$GetSpawnTile`
+        # (`[ WeightedUtility(7 = Tile), WeightedUtility(0x34 = 52
+        # SwornProtector_AvoidAdjacentEnemies) ]`). Elle PRIME sur `utility_type` (meme regle que
+        # dans le foyer `engine/utilities/tile.py::sort_tiles_by_utility`) ; `None` = comportement
+        # INCHANGE pour tous les call-sites existants.
+        self.utility_definition = utility_definition
 
     def select(self, ctx):
         tiles = list(self.source.evaluate(ctx) or [])
@@ -314,7 +325,8 @@ class SortTilesByUtility(TargetsSelector):
             return tiles                      # cf. docstring : degradation NOMMEE, ordre source
         u = resolve_unit(self.unit_sel, ctx) if self.unit_sel is not None else None
         p = resolve_unit(self.parent_sel, ctx) if self.parent_sel is not None else None
-        return list(f(tiles, (u or {}).get("id"), self.utility_type, (p or {}).get("id")))
+        return list(f(tiles, (u or {}).get("id"), self.utility_type, (p or {}).get("id"),
+                      self.utility_definition))
 
 
 class CanAddUnit(TargetsSelector):

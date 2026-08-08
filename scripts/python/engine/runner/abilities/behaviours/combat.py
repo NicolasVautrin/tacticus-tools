@@ -1005,5 +1005,26 @@ class UseActiveAbility(AbilityBehaviour):
             res = None if state.rng is None else AttackDamageOperation.execute(
                 state, sid, tid, resolve_spread_pct(self.spread_pct, state),
                 allow_dead_caster=True)
-            ectx.emit("UseActiveAbility", subject=sid, target=tid, attack=res)
+            # VECTEUR `On(0x26 = NormalAttack)` -- #BL-1029r, volet du residu `#478-r3`.
+            # Le natif n'a qu'UN site d'emission : `ALoki_NormalAttackAbility$$
+            # ExecuteTriggerAbilities`, a la CLOTURE de l'attaque normale, donc quelle que soit la
+            # PORTE qui l'a ouverte. Le port, lui, l'emettait UNIQUEMENT depuis la voie MESSAGE
+            # (`DamageHandler.visit_AttackUnitMessage` -> `after_hit_normal_attack`) : une attaque
+            # normale dispatchee par CETTE feuille ne reveillait donc AUCUN trigger `On(0x26)`.
+            # MESURE qui l'etablit (`probe_bl_1029_1020_baseline.py`, seed 777, board MC1_67) :
+            # le cast de `Drachnyen` rend **10 coups live** sur la cible et n'en rendait que **6**
+            # offline -- les 4 manquants sont ceux de `Drachnyen_ExtraAttackAbility` (triggered
+            # 1485), dont le trigger est precisement `On(0x26)`. Les 6 premiers etaient deja
+            # bit-exacts, ce qui isole l'ecart a CE vecteur et a lui seul.
+            # `finish_attack` (les resultats du `On(9)` emis DANS l'operation) est remis EN TETE,
+            # meme ordre natif et meme forme que `DamageHandler` (`FinishAttack` precede
+            # `ExecuteTriggerAbilities`).
+            after = []
+            if res is not None:
+                from ...operations.triggers.dispatch.attack import after_hit_normal_attack
+                after = (res.get("finish_attack") or []) + after_hit_normal_attack(
+                    state, sid, res.get("target", tid), bool(res.get("ranged")),
+                    res.get("profile"), is_crit=bool(res.get("did_crit")),
+                    did_block=bool(res.get("did_block")))
+            ectx.emit("UseActiveAbility", subject=sid, target=tid, attack=res, after_hit=after)
         return OperationResult.ok()

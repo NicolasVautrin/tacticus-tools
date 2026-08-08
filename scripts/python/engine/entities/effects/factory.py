@@ -21,6 +21,7 @@ from .loki.damage_reduction import (
     DaughterOfTheAbyssFriendlyDmgReductionPctEffect, DaughterOfTheAbyssOwnerDmgReductionEffect,
     ExemplarOfHateTargetEffect, FightingRetreatDmgReductionEffect,
     FireAndRepositionReduceDmgEffect, GuardianOrganismDamageReductionEffect,
+    HeraldOfTheApocalypseExtraDamageEffect,
     LightOfSanguiniusDmgReductionEffect, MarkerlightEffect,
     MartialKatahDmgReductionEffect, NeuroparasiteEffect, NightshroudDmgReductionEffect,
     OverwhelmingWrathRangeDmgReductionEffect, PrioritisedEfficiencyDmgReductionEffect,
@@ -333,6 +334,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `If(IsMechanical(caster), extraDmg_2, extraDmg) x TimesEffectApplied` ; CONSOMME au 1er coup allie
     # (`CreateRemoveEffectTrigger` = `On(9) & …`, cf. `EFFECT_TRIGGERS[1550]`). Residu transverse R9.
     "Chronometron_ExtraDamage": ChronometronExtraDamageEffect,
+    # HeraldOfTheApocalypse (1027, pose par l'active 1020 de `blackHaarken` sur la cible ET l'ennemi
+    # DIRECTEMENT DERRIERE elle) — TROISIEME du meme mold `OwnerIsTarget` : `ForAddition(OwnerIsTarget &
+    # IsUnit(caster), ConfigVar(8 = extraDmg))` -> +degat PLAT recu, SANS gate de nature de coup ni
+    # d'equipe (contraste avec ses deux jumeaux ci-dessus) ; CONSOMME au 1er coup recu
+    # (`CreateRemoveEffectTrigger` = `On(9) & OwnerIsTarget & IsUnit(caster)`, cf. `EFFECT_TRIGGERS[1027]`).
+    # ⚠ Le NOM d'`EffectType` 1027 est `HeraldOfTheApocalypse` TOUT COURT (pas `..._ExtraDamage`) alors
+    # que la classe native s'appelle `HeraldOfTheApocalypse_ExtraDamageEffect` -- le routage se fait par
+    # le nom CAPTE, donc c'est celui-la qui est la cle. #BL-1020r.
+    "HeraldOfTheApocalypse": HeraldOfTheApocalypseExtraDamageEffect,
     # Supercharge_ExtraPiercing (1208, pose par 1103) = `ForPiercing(DamageProfileIs(Plasma) &
     # OwnerIsTarget, ConfigVar(0x3f=extraPierceRatio))` -> +percage Plasma contre la victime (axe @0x20).
     "Supercharge_ExtraPiercing": SuperchargeExtraPiercingEffect,

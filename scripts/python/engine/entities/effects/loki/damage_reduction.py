@@ -192,6 +192,70 @@ class ChronometronExtraDamageEffect(BaseEffect):
     DEFENSE_MALUS_NATIVE_FACE = "attacker"
 
 
+class HeraldOfTheApocalypseExtraDamageEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.HeraldOfTheApocalypse_ExtraDamageEffect` (effet **1027 = 0x403**)
+    -- pose sur la cible ET sur l'ennemi DIRECTEMENT DERRIERE elle par
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility$$ExecuteBehaviour`
+    (`blackHaarken` << Haarken Worldclaimer >>, active 1020). #BL-1020r, case-bl-1029-1020 Sec.5.2.
+
+    `IdunBattle.Entities.Effects.Loki.HeraldOfTheApocalypse_ExtraDamageEffect$$
+    CreateEffectDamageBonusForAttack` (MIRROR du DECOMPILE, build `rnca9r7q6c`) :
+
+        trigger = get_OwnerIsTarget & IsUnit(caster@DSLSelectors+0x48)
+        montant = ConfigVar( 8 = extraDmg, GetAbilityState(effet), config@effet+0x60 )
+        source  = Nullable<AbilityOrEffect>( 0x3fc = 1020 HeraldOfTheApocalypse )
+        -> EffectBonus.ForAddition(trigger, montant)
+
+    KIND = **ForAddition** : l'appel `IdunBattle.Entities.Effects.EffectBonus$$ForAddition` est EXPLICITE
+    dans le decompile (pas inline, contrairement a `ExemplarOfHate` / `Chronometron` ci-dessus) -> additif
+    PLAT, canal `Addition@+0x10` de `IdunBattle.Core.Services.DamageModifiers$$Add`.
+
+    DEUX conjoints, et RIEN d'autre -- pas de `IsMeleeAttack`, pas de `DamageProfileIs`, pas d'`AreFriends`
+    (contraste avec ses deux jumeaux de ce module). Le bonus vaut donc pour l'attaque de N'IMPORTE QUELLE
+    unite, alliee ou ennemie du poseur, en melee comme a distance. i2 : << Affected enemies receive
+    +<extraDmg> Damage from the next attack made by a unit against them. >>
+
+    Malgre le nom natif << ...ForAttack >>, le trigger est `OwnerIsTarget` : l'effet vit sur la VICTIME et
+    MAJORE le degat qu'elle RECOIT -> canal PORT `create_effect_damage_malus_for_defense` (meme mold que
+    `ExemplarOfHateTargetEffect` / `ChronometronExtraDamageEffect` / `NeuroparasiteEffect`).
+
+    CYCLE DE VIE -- CHARGE A USAGE UNIQUE (<< the NEXT attack >>) :
+    `...$$CreateRemoveEffectTrigger` (et son jumeau `$$GetRemoveTrigger`, corps identiques) =
+    `On(9 = EventTriggerType.Attack, ownerNeedsToBeAlive = 1) & get_OwnerIsTarget & IsUnit(caster)` ->
+    `IdunBattle.Entities.Effects.BaseEffect$$GetRemoveEffectBehaviour` = `RemoveEffect(<cette instance>)`.
+    Porte par `runner/operations/triggers/loki/herald_of_the_apocalypse.py` (`EFFECT_TRIGGERS[1027]`).
+    Sans ce retrait le port donnerait un bonus PERMANENT la ou le natif donne UNE charge -- c'est la
+    lecon de `chronometron.py`, et c'est pourquoi les deux volets sont dans la meme tranche.
+
+    MAGNITUDE : `ConfigVar` resolu contre l'`AbilityState` de la SOURCE (Haarken) -> l'`AddEffect` de
+    `runner/abilities/blacklegion.py` passe `scale_from_source=True`. `extraDmg` EST dans
+    `variablesAffectedByRarityBonus` (avec `minDmg`/`maxDmg`/`armorReduction`) -> scale par le multiplier
+    de rarete du poseur. `extraDmg[L1..65] = [18 .. 1310]` ; i2 << +1310 Damage >> = `extraDmg[65]`.
+
+    ⚠ `armorReduction` (4e variable de la config 1020) n'est lu NI par l'`ExecuteBehaviour` de 1020 NI
+    par cet effet : variable d'inventaire, non portee (case-bl-1029-1020 Sec.3)."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        ac = attacker_ctx or {}
+        if ac.get("id") is None or not ac.get("is_unit"):      # IsUnit(caster@DSLSelectors+0x48)
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else self.ability_level)                        # HeraldOfTheApocalypse = ability ACTIVE
+        v = ability_var("HeraldOfTheApocalypse", "extraDmg", lvl,
+                        multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(False, int(v)) if v else None      # owner=cible -> additif au degat RECU
+
+    # #437-r1-r1-r1 : le natif implemente `CreateEffectDamageBonusForAttack` (symbole PROPRE dans la
+    # table, pas un forwarder `DamageModifierAbilityEffect`) -> le natif verse dans `attackModifiers`,
+    # malgre le trigger `OwnerIsTarget`. REGIME DEGENERE, comme ses deux jumeaux : le canal est ADDITIF
+    # (`Addition@+0x10`) et `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` SOMME le
+    # `+0x10` des DEUX accumulateurs avant `CalculateBaseDamageWithAllModifiers` (RE #462-r4b-r1) --
+    # les deux attributions predisent le meme nombre. Posee parce qu'elle est LUE.
+    DEFENSE_MALUS_NATIVE_FACE = "attacker"
+
+
 class SuperchargeExtraPiercingEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.Supercharge_ExtraPiercingEffect` (effet **1208=0x4b8**) — pose sur
     la cible ET les <=2 unites derriere elle par

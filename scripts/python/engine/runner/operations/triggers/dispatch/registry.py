@@ -108,6 +108,10 @@ from ..loki import full_throttle as _full_throttle    # noqa: F401
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
+from ..loki.drachnyen import (DrachnyenExtraAttackAbility,            # #BL-1029r (1029 -> 1485)
+                              DRACHNYEN_ABILITY)
+from ..loki.doctrina_imperatives import (DoctrinaImperativesSetStartAbility,   # #521-r4
+                                         DOCTRINA_IMPERATIVES_ACTIVE)          # (1118 -> 1201)
 from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
 from ..loki.heavy_warp_flamer import (HeavyWarpFlamerAttackTrackingAbility,       # #523-r1
                                       HeavyWarpFlamerAttackTrackingResetAbility)  # (1227 -> 1546)
@@ -115,6 +119,8 @@ from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove
                                          ITG_OVERRIDE_LEVEL)
 from ..loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
                                 CHRONOMETRON_EXTRA_DAMAGE)
+from ..loki.herald_of_the_apocalypse import (HeraldOfTheApocalypseExtraDamageRemove,  # #BL-1020r
+                                             HERALD_OF_THE_APOCALYPSE_EFFECT)
 from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,               # #522 (1198 -> 1429)
                                      EUPHORIC_STRIKES_EXTRA_CRIT)
 from ..loki.shock_assault import (ShockAssaultBuffRemove,                          # case-366-r1 (1000)
@@ -623,6 +629,16 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `0x613 -> 0x4d0` (EmpyricAmbush) -- les deux entrees ci-dessus. Cf. loki/heavy_warp_flamer.py.
     "HeavyWarpFlamer": [HeavyWarpFlamerAttackTrackingAbility,
                         HeavyWarpFlamerAttackTrackingResetAbility],
+    # 0x405 (1029 Drachnyen, `blackAbaddon` HERO) -> 0x5cd (1485 Drachnyen_ExtraAttack) : apres une
+    # attaque NORMALE au CONTACT du porteur, si l'effet 1471 est actif sur lui, il porte
+    # `nrOfHits` coups supplementaires (config 1029) sur l'ennemi adjacent le plus RENTABLE
+    # (`First(SortUnitsByDamageUtility(...), 1)`). L'entree du cctor est un `ToList` a UN element,
+    # LU verbatim : `GetDerivedTriggeredAbilities[0x405] = [0x5cd]` -- l'unique occurrence de
+    # chacun des deux ordinaux dans tout `StaticBattleRules.ActiveAbility$$.cctor`.
+    # Le gate `HasEffect(Owner, 0x5bf = 1471)` du trigger rend l'entree INERTE tant que l'active
+    # 1029 n'a pas ete castee -> l'inscription inconditionnelle est fidele (patron Hailstrike).
+    # Cf. loki/drachnyen.py. #BL-1029r.
+    DRACHNYEN_ABILITY: [DrachnyenExtraAttackAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability HELPER (« passive helper ») ---------------------
@@ -664,6 +680,17 @@ PASSIVE_HELPER_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `...TalonsOfTheEmperorAbility$$GetExtraDamage`. Le trigger porte tous ses gates, donc
     # l'inscription inconditionnelle est fidele. Cf. loki/talons_of_the_emperor.py.
     TOTE_ACTIVE_ID: [TalonsOfTheEmperorUsedAbilitiesAbility],
+    # 0x466 (1118 DoctrinaImperatives, `admecMarshall` HERO) -> 0x4b9 (1201
+    # DoctrinaImperatives_SetStart) : a l'INIT des abilities du porteur, self-buff
+    # `AddDynamicStatModifierEffectToOwner(1247 ProtectorImperative, 16 FixedArmor, turns = null)`.
+    # Le trigger PARTAGE (`<DSLTriggers+0x30>`) se reduit a `On(0x21 = AbilityInit) & OwnerIsActor` :
+    # son 2e conjoint `<DSLTriggers+0x70>` est le `YesTrigger` CONSTANT (element neutre), ce qui
+    # LEVE le dernier verrou de lecture note par case-521r1 Sec.5bis.
+    # ⚠ INERTE sur le regime courant : le port n'emet `On(AbilityInit)` qu'au SPAWN, et aucune unite
+    # portant 1118 n'est spawnee -- celles du roster arrivent par `load_state` avec l'effet DEJA
+    # pose. Inscription FIDELE au registre natif, gain de comportement NUL, et c'est dit.
+    # Cf. loki/doctrina_imperatives.py. #521-r4.
+    DOCTRINA_IMPERATIVES_ACTIVE: [DoctrinaImperativesSetStartAbility],
 }
 
 # --- Registre : relicAbility → triggered-ability(s) accordée(s) ------------------------------------
@@ -873,6 +900,13 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # qui fait du +degat une CHARGE A USAGE UNIQUE (consommee au 1er coup d'un allie du Chronomancer),
     # et non un buff persistant. Cf. loki/chronometron.py.
     CHRONOMETRON_EXTRA_DAMAGE: [ChronometronExtraDamageRemove],      # 1550 -> retrait On(9)
+    # HeraldOfTheApocalypse 1027 (#BL-1020r, effet pose par `HeraldOfTheApocalypseAbility$$Execute
+    # Behaviour` de `blackHaarken` sur la cible ET l'ennemi derriere elle). Meme greffe generique --
+    # `HeraldOfTheApocalypse_ExtraDamageEffect$$CreateRemoveEffectTrigger` = `On(9) & OwnerIsTarget &
+    # IsUnit(caster)` -> `RemoveEffect(<cette instance>)`. ⚠ SANS l'`AreFriends(caster, EffectSource)`
+    # de 1550 : ici N'IMPORTE QUELLE unite qui attaque le porteur consomme la charge. i2 : « the NEXT
+    # attack made by a unit against them ». Cf. loki/herald_of_the_apocalypse.py.
+    HERALD_OF_THE_APOCALYPSE_EFFECT: [HeraldOfTheApocalypseExtraDamageRemove],   # 1027 -> retrait On(9)
     # EuphoricStrikes_ExtraCrit 1429 (#522, effet pose par `EuphoricStrikesAbility$$ExecuteBehaviour`
     # sur la cible d'`emperExultant` « Laviscus »). Meme greffe generique que 1180/1550 --
     # `EuphoricStrikes_ExtraCritEffect$$CreateRemoveEffectTrigger` = `On(9 = Attack, alive) &
