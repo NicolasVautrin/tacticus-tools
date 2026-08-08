@@ -229,16 +229,79 @@ Le rebase n'a pas été neutre, et c'est le cliquet qui l'a dit : #283 avait int
 raccourcis volontaires que `--step classify` a fait rougir immédiatement. Sans lui, ils seraient
 entrés dans l'inventaire comme des faux — ou pire, auraient été « corrigés ».
 
-## 7. Ce qui n'est PAS couvert
+## 6bis. `#281-r1` — les 10 `A EXAMINER`, CONFRONTÉS. Et le critère de tri est faux.
 
-* **Les 10 `A EXAMINER` ne sont pas confrontés live.** Leur inertie est établie **par lecture du
-  gate**, pas par mesure : `AbilityHasAttackType(0|1)` faux sur un buff (SwornProtector),
-  `IsNormalAttack` faux sur un cast (AnvilShield, FuryFromTheDelve). C'est un raisonnement solide
-  sur le décompilé, mais aucun de ces montages n'a été rejoué dans les deux voies pour le
-  constater. → backlog `#281-r1`.
-* **Les 7 `INDÉTERMINÉ`** — montages sans unité nommée. Le tri statique ne peut rien en dire ;
-  `probe_61_ability_hits.py` en particulier accepte n'importe quel caster en CLI, donc il EST
-  faux quand on lui passe un blightlord. → backlog `#281-r2`.
+`probe_281r1_confronte_examiner.py`. L'observable n'est pas une utilité ni un dégât : c'est le
+**retour de `pre_unit_ability_triggers`** (le foyer d'émission du vecteur côté port), instrumenté
+pendant que le montage réel est routé par `Runner.apply(ActiveAbilityMessage(...))`. Liste vide ⇒
+le vecteur n'a rien déclenché ⇒ le raccourci était équivalent, **mesuré**. Second observable,
+indépendant : empreinte d'état complète (PV / vie / position / effets de **chaque** entité) et
+**compteur de tirages** des deux voies, sur deux copies fraîches du même état-avant et du même flux.
+
+**Un témoin ouvre la mesure**, parce qu'une liste vide partout est aussi ce que rendrait une
+instrumentation qui ne mord pas — l'accord en régime dégénéré ne prouve rien. Le témoin est
+`deathBlightlord` en géométrie `near` (pool Haze non vide) :
+
+| cas | famille | fires | tirages prod / raccourci | empreinte |
+|---|---|---|---|---|
+| **témoin** | HazeOfCorruption | **1** (`pool [79]`, bond `(77,79)`) | **7 / 6** | ≠ (`HazeOfCorruption_DamageTransfer` posé d'un seul côté, cible à 75567 vs 75494) |
+| `sworn` (5 sites) | SwornProtector, cast `SupremeCommander` 1028 | **0** | 2 / 2 | = |
+| `fury` (4 sites) | FuryFromTheDelve, cast `AugmentedAssault` 1221 | **0** | 8 / 8 | = |
+| `anvil` (1 site) | AnvilShield, cast `Foehammer` 1097 | **1** | 2 / 2 | **≠** |
+
+Le témoin reproduit exactement la signature de #277 : le décalage vaut `min(|pool|, 2)` = 1 tirage.
+
+**9 des 10 sont confirmés inertes par la mesure.** Le dixième, `test_foehammer_live.py:50`,
+**DIVERGE** — et pas du tout par la famille que la fiche examinait :
+
+```
+vecteur(ability_type=1097) -> 1 trigger : {'effect': 1035, 'owner': 85, 'removed': 1, 'event': 42}
+production : ('AnvilShield_AdditionalBlock', 'AnvilShield_BlockChanceBelowHealthCap', 'TerminatorArmour_*')
+raccourci  : ('AnvilShield_AdditionalBlock', 'TeleportStrike_TeleportingIn',            'TerminatorArmour_*')
+```
+
+Le gate `IsNormalAttack` d'AnvilShield est bien fermé — c'est
+`TeleportStrikeTeleportingInRemoveOnPreUnitAbility` qui a fire. `spaceRockfist` deep-strike, donc
+il porte `TeleportStrike_TeleportingIn` (effet 1035) au premier cast ; le natif le **retire** sur
+`On(PreUnitAbility)`, le raccourci le **laisse posé**.
+
+### Le trou est dans le CRITÈRE, pas dans la lecture d'un gate
+
+`--step classify` attribue un call-site à une famille par le **porteur cité** (un `visualId` dans
+les littéraux du montage). **Six des onze abonnés portés n'ont aucun porteur** : les cinq
+`*TeleportingInRemoveOnPreUnitAbility` et `WireweaveNetCounterAttack` se déclenchent sur la présence
+d'un **EFFET**, pas d'une unité. Aucun `visualId` ne peut les révéler — le tri leur est
+structurellement aveugle, et c'est pourquoi ce montage était classé `A EXAMINER` avec la mauvaise
+famille au lieu d'`A CORRIGER`.
+
+Conséquence pratique : tout montage dont le caster **deep-strike** (Terminator) ou porte un filet
+`WireweaveNet` est faux, quel que soit son `visualId`. → résidu `#281-r4`.
+
+Le test `test_foehammer_live.py` reste **juste aujourd'hui** : il n'assert que le dégât (bit-exact),
+`dead_heroes` et `Stunned`, dont aucun ne dépend de `TeleportingIn`. Ce n'est pas une raison de le
+laisser — `TeleportingIn` rend l'unité **non ciblable**, donc son rejeu offline part d'un état que
+le natif n'a plus. Le geste n'est pas fait ici : router ce montage change son étage after-hit et
+demande sa propre validation.
+
+## 7. Ce qui n'est PAS couvert
+* **Les `INDÉTERMINÉ`** (13 après re-dérivation, 7 à l'écriture) — montages sans unité nommée.
+  **`#281-r2` : la prémisse est MESURÉE, et le refus est posé.** « Aucun porteur cité » n'était pas
+  une preuve, et ce n'en est effectivement pas une : `deathBlightlord`, **seul** porteur
+  inconditionnel, **est** dans les 168 unités du seed BC partagé — et sept unités deep-strike y
+  sont aussi (`spaceRockfist`, `blackTerminator`, `thousTerminator`, `worldTerminator`,
+  `darkaTerminator`, 2 npc), ce qui étend le vice à `#281-r4`. Un roster tiré du seed peut donc
+  tomber dessus.
+  La réponse n'est pas de la prose : `probe_281_pre_unit_ability_shortcut.py::refus_du_raccourci`
+  tranche **au runtime**, quand le caster est enfin connu, sur les deux critères que la mesure a
+  établis (famille inconditionnelle **ou** effet retiré par le vecteur). Il est câblé sur le cas
+  franc, `probe_61_ability_hits.py::_offline_cast`, qui accepte littéralement n'importe quel
+  `--caster` : il rend désormais la RAISON au lieu d'un chiffre faux.
+  Les 12 autres `INDÉTERMINÉ` ne sont **pas** câblés — ils tirent leur roster du seed BC, donc
+  leur caster n'est pas un paramètre mais une donnée du montage ; les instrumenter un par un est un
+  autre geste. Ce qui est acquis ici : le foyer de décision existe, il est re-dérivé (jamais
+  recopié), et il mord dans les deux sens (vérifié sur `deathBlightlord`, sur
+  `spaceRockfist + TeleportStrike_TeleportingIn`, et **négativement** sur `necroWarden` et sur
+  `spaceRockfist` nu).
 * **`MartialSuperiority` en position de cible** n'a **aucun** montage confronté. Le seul fichier
   qui cite `templChampion` près d'un raccourci (`test_ability_hits_channel_live.py`) le place
   comme ennemi d'un cast **ranged** ; la riposte exige `IsMeleeAttack` (prédicat POSITIONNEL :

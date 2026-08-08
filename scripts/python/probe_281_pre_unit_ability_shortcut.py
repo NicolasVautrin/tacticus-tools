@@ -361,6 +361,54 @@ EFFECT_SUBSCRIBERS_NO_KIT_CARRIER = (
 UNCONDITIONAL = sorted(f for f, g in FAMILY_GATE.items()
                        if g["attack_gate"] is None and g["role"] == "caster" and g["ported"])
 
+#: Effets dont la seule PRESENCE sur le caster rend le raccourci faux, SANS aucun porteur cite --
+#: ils sont retires par un abonne de `On(PreUnitAbility)` qui n'a pas de kit (#281-r4). Le tri par
+#: `visualId` leur est structurellement aveugle ; c'est ce qui a fait classer
+#: `test_foehammer_live.py:50` `A EXAMINER` avec la mauvaise famille au lieu d'`A CORRIGER`.
+#: MESURE (#281-r1) : `spaceRockfist` deep-strike, la production retire `TeleportStrike_TeleportingIn`
+#: et le raccourci le laisse pose.
+EFFETS_RETIRES_PAR_LE_VECTEUR = (
+    "TeleportStrike_TeleportingIn", "TitanhammerSquad_TeleportingIn",
+    "FearOfTheUnseen_TeleportingIn", "StormboyzStrike_TeleportingIn",
+)
+
+
+def refus_du_raccourci(caster_visual_id: str | None, effets_du_caster=()) -> str | None:
+    """REFUS EXECUTABLE du raccourci `execute_behaviour` -- rend la RAISON, ou `None` si rien ne
+    s'y oppose (#281-r2).
+
+    `case-281` §7 laisse ouverts 13 call-sites `INDETERMINE` : des montages qui ne NOMMENT aucune
+    unite (roster tire du seed BC, ou caster passe en CLI). Le tri statique ne peut rien en dire, et
+    << aucun porteur cite >> n'y est PAS une preuve -- MESURE : `deathBlightlord`, seul porteur
+    INCONDITIONNEL, **est** dans les 168 unites du seed BC partage, et sept unites deep-strike y
+    sont aussi. Un montage qui tire son roster du seed peut donc tomber dessus, et
+    `probe_61_ability_hits.py` accepte litteralement n'importe quel caster en argument.
+
+    La reponse n'est pas une ligne de prose : c'est un refus que le montage APPELLE, au moment ou il
+    connait enfin son caster (runtime). Les deux criteres sont ceux que la mesure a etablis :
+      * le PORTEUR appartient a une famille INCONDITIONNELLE (`UNCONDITIONAL`) ;
+      * le caster porte un EFFET que le vecteur retire (`EFFETS_RETIRES_PAR_LE_VECTEUR`) -- critere
+        SANS porteur, invisible de tout tri par `visualId`.
+
+    L'appelant decide quoi en faire (refuser, router, sauter) ; ce foyer ne fait que TRANCHER, sur
+    une base re-derivee et non recopiee."""
+    if caster_visual_id:
+        porteurs = carriers()
+        for fam in UNCONDITIONAL:
+            if caster_visual_id in (porteurs.get(fam) or ()):
+                return ("le caster `%s` porte `%s`, famille INCONDITIONNELLE : son trigger "
+                        "`On(PreUnitAbility)` fire pour N'IMPORTE QUELLE ability et consomme du RNG "
+                        "AVANT le premier coup. Le raccourci `execute_behaviour` saute ces tirages "
+                        "et lit la mauvaise fenetre du flux (signature #277)."
+                        % (caster_visual_id, fam))
+    presents = {str(e) for e in (effets_du_caster or ())}
+    touches = sorted(presents & set(EFFETS_RETIRES_PAR_LE_VECTEUR))
+    if touches:
+        return ("le caster porte %s, que `On(PreUnitAbility)` RETIRE (#281-r4) : le raccourci le "
+                "laisse pose, donc l'etat offline diverge de ce que le natif produit -- et un "
+                "`TeleportingIn` rend l'unite NON CIBLABLE." % ", ".join("`%s`" % t for t in touches))
+    return None
+
 # Montages TOLERES par le gate, avec la raison. Une entree DOIT citer pourquoi le raccourci y est
 # inoffensif ; une entree devenue inutile est signalee (pas bloquante) plutot que silencieuse.
 GATE_ALLOWLIST = {
@@ -374,6 +422,13 @@ GATE_ALLOWLIST = {
      "test_flail_swing_cast_entry_point_haze_pool_live"):
         "raccourci PRIS EXPRES : le volet (4) de #277 exige `direct != live` (anti-tautologie). "
         "Le router VIDERAIT le test de son contenu",
+    ("probe_281r1_confronte_examiner.py", "confronte"):
+        "raccourci PRIS EXPRES, et c'est LA colonne de la mesure de #281-r1 : ce probe joue les "
+        "DEUX voies sur deux copies fraiches du meme etat pour confronter les dix montages "
+        "`A EXAMINER`. Le router supprimerait la voie qu'on mesure. Il cite les porteurs des "
+        "QUATRE familles parce qu'il monte un cas par famille -- dont le TEMOIN `deathBlightlord`, "
+        "qui DOIT faire fire le vecteur (sans lui, un `0 trigger` mesure ailleurs ne prouverait "
+        "rien : accord en regime degenere)",
     ("tests/engine/runner/test_ability_hits_channel_live.py", "_frenzy_offline"):
         "le caster de CE call-site est `FRENZY_VIS = blackObliterator` ; `deathBlightlord` est la "
         "constante `CASTER_VIS` d'AUTRES volets du meme fichier (qui, eux, ne prennent pas le "

@@ -134,6 +134,19 @@ def _offline_cast(sid, rid, cid, tid, ability):
     dv = decision(sid, rid)
     ob = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
     snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 90)
+    # #281-r2 -- REFUS EXECUTABLE, et il ne peut se poser qu'ICI. Ce probe accepte litteralement
+    # n'importe quel `--caster` : le tri statique de `probe_281 --step classify` le range donc en
+    # INDETERMINE, et << aucun porteur cite >> n'y est PAS une preuve (MESURE : `deathBlightlord`,
+    # seul porteur inconditionnel, est dans les 168 unites du seed BC partage). Au runtime, en
+    # revanche, le caster est CONNU -- on tranche, et on RENVOIE la raison au lieu d'un chiffre faux.
+    _c = next((u for u in (dv.get("units") or []) if u.get("id") == int(cid)), None)
+    if _c is not None:
+        import probe_281_pre_unit_ability_shortcut as P281
+        # meme lecture que `_effects` ci-dessus : `decisionView.units[].effects[].name`
+        _refus = P281.refus_du_raccourci(_c.get("visualId"), _effects(dv, int(cid)))
+        if _refus:
+            return None, ("RACCOURCI REFUSE (#281-r2) : %s Rejoue ce cast par "
+                          "`Runner.apply(ActiveAbilityMessage(...))`." % _refus)
     st = load_state(dv, ob, snap, board=board)
     s0 = rpc(sid, "dumpRng", {"runnerId": rid}, 30)          # DERNIER RPC avant le cast live
     rng = IntBasedMersenneTwister()
