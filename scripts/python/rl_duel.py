@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 import random
 import sys
 from pathlib import Path
@@ -1058,13 +1059,29 @@ def cmd_build(sid: int, a) -> int:
                     if u.get("ctrl")), None)
     _save_state({"runnerId": rid, "bc": bc, "seed": a.seed, "myTeam": my_team,
                  "playerUnits": player_units})
+    # #287-r13-r1 : le refus est desormais DUR (rc 3), comme celui des placements -- et il l'est
+    # sur une MESURE, pas sur un principe (`probe_287r13r1_rayon_refus_roster.py`) :
+    #
+    #   * RAYON     : 16 sites sur 245 invocations qui montent une bataille (6,5 %) lisent le `rc`
+    #                 (2 `check=True`, 14 `.returncode`). Les 229 autres ne lient meme pas le
+    #                 resultat de `subprocess.run` -- et le `return 3` ci-dessous arrive APRES
+    #                 `_save_state`, donc le runner existe et le state-file est ecrit : un
+    #                 appelant qui n'inspecte pas le `rc` poursuit EXACTEMENT comme avant.
+    #                 Les 14 `--list-pool` sont hors de portee : ils n'atteignent pas ce code.
+    #   * FREQUENCE : 0 deficit sur 8 montages representatifs (roster aleatoire, MoW,
+    #                 multiplicites x4 et x6, 5v5, 1v1, board etroit) -- le cas extreme est
+    #                 d'ailleurs deja refuse EN AMONT par le garde de capacite de spawn JOUEUR
+    #                 (`N spawns joueur < M units`, rc 2). Le deficit residuel vient du cote
+    #                 ADVERSE, confie au placement natif, qui n'a pas ce garde.
+    #
+    # Le risque reel est le PRODUIT des deux, jamais l'un des deux seul.
+    #
+    # ECHAPPATOIRE CONSCIENTE, et par ENV plutot que par drapeau : un appelant que ce refus
+    # bloquerait est un probe deja ecrit, souvent celui d'un autre agent -- lui demander de
+    # modifier son fichier pour se debloquer, c'est lui faire payer notre cliquet. La variable
+    # se pose devant la commande. Meme forme que `TACTICUS_ALLOW_GREEN_SKIP` (#455).
+    allow_roster_deficit = os.environ.get("TACTICUS_ALLOW_ROSTER_DEFICIT") == "1"
     if roster_problems:
-        # ⚠ NON BLOQUANT (rc inchange), et c'est un CHOIX MESURE, pas une timidite : le rayon de
-        # souffle d'un refus dur n'est pas derivable de la config -- il faudrait REJOUER chaque
-        # montage du depot. Ce qui manquait n'etait pas le refus, c'etait le SIGNAL : `build`
-        # imprimait un roster a N entrees en en montant N-1, sans un mot. Le passer en refus dur
-        # (rc, comme les placements) est le residu #287-r13-r1, a trancher sur une mesure du
-        # nombre d'appelants affectes.
         for p in roster_problems:
             print(f"[error] roster NON MONTE: {p}", file=sys.stderr)
         print("[error] --p-units/--a-units: le roster DEMANDE n'est pas celui qui est en "
@@ -1074,6 +1091,12 @@ def cmd_build(sid: int, a) -> int:
               "NATIF, un SpawnPointGroup trop petit "
               "(SetupGameOperation$$AddPredefinedUnits). La geometrie mesuree n'est PAS celle "
               "demandee.", file=sys.stderr)
+        print("[error] Si ce montage-la est VOULU tel quel, poser "
+              "TACTICUS_ALLOW_ROSTER_DEFICIT=1 devant la commande -- le refus est alors LEVE "
+              "et le deficit reste imprime.", file=sys.stderr)
+        if allow_roster_deficit:
+            print("[warn] TACTICUS_ALLOW_ROSTER_DEFICIT=1 : refus LEVE, rc inchange. La "
+                  "geometrie mesuree n'est toujours PAS celle demandee.", file=sys.stderr)
     if placement_problems:
         for p in placement_problems:
             print(f"[error] placement NON HONORE par le natif: {p}", file=sys.stderr)
@@ -1083,12 +1106,16 @@ def cmd_build(sid: int, a) -> int:
               "de draft (TilesArePendingDrafting) ou sous brouillard (TilesAreInFog) : les "
               "quatre font un retour NUL SILENCIEUX dans "
               "IdunBattle.Operations.AddUnitOperation$$Execute.", file=sys.stderr)
-        return 3
     if modifier_problems:
         for p in modifier_problems:
             print(f"[error] unit-modifier NON HONORE par le natif: {p}", file=sys.stderr)
         print("[error] --unit-modifier: le runner est construit ET enregistre dans le "
               "state-file, mais le montage demande n'a PAS eu lieu.", file=sys.stderr)
+    # Les TROIS diagnostics sont imprimes AVANT tout retour : un montage peut echouer sur
+    # plusieurs axes a la fois, et sortir au premier cacherait les suivants -- l'appelant
+    # relancerait pour decouvrir le second. (Avant #287-r13-r1, `placement_problems` rendait 3
+    # sans jamais laisser parler `modifier_problems`.)
+    if placement_problems or modifier_problems or (roster_problems and not allow_roster_deficit):
         return 3
     return 0
 
