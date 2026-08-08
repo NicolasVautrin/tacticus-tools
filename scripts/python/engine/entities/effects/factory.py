@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki.ability_modifications import ListenUpMaggotsEffect
 from .loki.amulet_of_the_voidwyrm import AmuletOfTheVoidwyrmCritDamageReductionEffect
+from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
 from .loki.counter_attack import WireweaveNetCounterAttackEffect
 from .loki.crit_aura import PathOfCommandExtraCritEffect
@@ -353,6 +354,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Supercharge_ExtraPiercing (1208, pose par 1103) = `ForPiercing(DamageProfileIs(Plasma) &
     # OwnerIsTarget, ConfigVar(0x3f=extraPierceRatio))` -> +percage Plasma contre la victime (axe @0x20).
     "Supercharge_ExtraPiercing": SuperchargeExtraPiercingEffect,
+    # BloodChalice_HealOnAttack (1368, pose par 1175) = `ForPiercing(get_OwnerIsCaster &
+    # IsMeleeAttack, ConfigVar(0x3f=extraPierceRatio))` -> +percage sur les coups de MELEE du
+    # PORTEUR (face INVERSE de Supercharge, qui gate sur OwnerIsTarget). Son SECOND volet, le soin
+    # sur attaque melee, est un `EffectTrigger` (`operations/triggers/effect_triggers.py`). #576
+    "BloodChalice_HealOnAttack": BloodChaliceHealOnAttackEffect,
+    # BloodChalice_ExtraPiercing (1369, pose par 1175) = `AStatModifierEffect` sur
+    # `StatType.ExtraPierceMelee` ; magnitude et stat viennent de la FEUILLE de pose, pas de la
+    # classe. `CreateActiveCondition = IsCharging(Owner, Target)` NON portee (residu #576-r1). #576
+    "BloodChalice_ExtraPiercing": BloodChaliceExtraPiercingEffect,
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
     # Markerlight (1122, posé sur la CIBLE par MV71SniperDroneSquadAttack IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour (e) /
     # StructuralAnalyser IdunBattleLogic.Entities.Abilities.Triggered.Loki.StructuralAnalyser_AddMarkerlightAbility$$CreateBehaviour) : +MarkerlightDmgBonusPct% (=15, règle BC Effect) au dégât reçu des

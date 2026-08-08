@@ -431,6 +431,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # ne fait AUCUN degat (soin + resurrection), mais c'est le litteral qui decide, pas le profil --
     # le lot #499/#505 porte les deux contre-exemples dans l'autre sens.
     ActiveAbilityType.RitesOfRestoration: AbilityAttackType.Others,  # 1039
+    # BloodChalice (1175, bloodSanguinary « Sanguinary Priest »), #576. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. TRANSCRIT du ctor : l'arbre
+    # ne frappe pas (SetAbsolute de PV + deux poses d'effet), mais c'est le litteral qui decide.
+    ActiveAbilityType.BloodChalice: AbilityAttackType.Others,  # 1175
     # 1038 -- `...Active.Loki.FoulInfusionAbility$$.ctor` : `AActiveAbility..ctor(this, &opts, 2)`.
     # LITTERAL RELU au decompile, jamais deduit : l'ability EMET pourtant une attaque
     # (`UseNormalAttack` en 2e volet de son `op_Addition`), et sa categorie d'audit est

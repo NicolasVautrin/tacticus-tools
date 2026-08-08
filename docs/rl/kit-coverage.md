@@ -24,18 +24,18 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **70** ; kits avec du travail : **57**
-- Volume total : **65** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **64** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
 
 | faction | kits | items |
 |---|---:|---:|
-| BloodAngels | 4 | 5 |
 | DarkAngels | 4 | 5 |
 | EmperorsChildren | 4 | 5 |
 | Necrons | 4 | 5 |
 | SpaceWolves | 4 | 5 |
+| BloodAngels | 4 | 4 |
 | LeaguesOfVotann | 4 | 4 |
 | Sisterhood | 4 | 4 |
 | ThousandSons | 3 | 4 |
@@ -99,13 +99,13 @@
 | templAncient | 1 | UnbreakableDuty(1061) [--] NO-OP EFFECT/BUFF | - | - |
 | templHelbrecht | 1 | CrusadeOfWrath(1049) [--] NO-OP EFFECT/BUFF | - | - |
 
-### BloodAngels — 4 kits, 5 items
+### BloodAngels — 4 kits, 4 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | bloodIntercessor | 1 | HammerOfWrath(1153) [CD] OK | AggressiveOnslaught | - |
 | bloodMephiston | 1 | TheQuickening(1151) [CD] OK | FuryOfTheAncients | - |
-| bloodSanguinary | 2 | BloodChalice(1175) [--] NO-OP HEAL | SanguinaryPriest | - |
+| bloodSanguinary | 1 | BloodChalice(1175) [C-] OK | SanguinaryPriest | - |
 | bloodTerminator | 1 | SavageEchoes(1230) [CD] OK | RedRampage | - |
 
 ### Custodes — 2 kits, 2 items

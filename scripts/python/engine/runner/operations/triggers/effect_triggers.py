@@ -344,6 +344,91 @@ class RangedAutoAttackDeactivateOnAttack(EffectTrigger):
         return {"effect": "Overwatch_AutoAttack", "owner": self.owner_id, "deactivated": "owner_attacked"}
 
 
+BLOOD_CHALICE_HEAL_ON_ATTACK = int(EffectType.BloodChalice_HealOnAttack)   # 0x558 = 1368
+
+
+class BloodChaliceHealOnMeleeAttack(EffectTrigger):
+    """`IdunBattle.Entities.Effects.Loki.BloodChalice_HealOnAttackEffect` (1368, pose par
+    `1175 BloodChalice`) -- le volet SOIN. #576
+
+    `$$CreateTargetTrigger` -- MIRROR du decompile :
+
+        On(0x9 = EventTriggerType.Attack, 1)
+          op_BitwiseAnd get_OwnerIsCaster
+          op_BitwiseAnd IsMeleeAttack
+
+    `$$CreateTargetTriggerBehaviour` -- MIRROR du decompile :
+
+        amount = ConfigVar(0x20 = hpToHeal, <abilityState du poseur>, config@+0x60)
+        healer = DSLSelectors.EffectSource(effects@DSLSelectors+0x38)
+        cible  = Owner@DSLSelectors+0x30
+        return DSLBehaviors.Heal(healer, cible, amount,
+                                 IdunBattle.Entities.Behaviours.HealBehaviourOptions$$**ForHeal**)
+
+    ⚠ FABRIQUE D'OPTIONS **LUE**, pas devinee : `ForHeal` -> `(scope 0, removeEffects 1)`. Ce n'est
+    PAS `ForRegenerate` (`(1, 0)`), et les deux ne sont pas interchangeables -- `scope 1` armerait
+    le cap de groupe `GetGroupUnitHealLimit` de `PredictHeal`, et `removeEffects 0` retirerait le
+    disjunct `HasNegativeUnitEffect` du gate.
+
+    ⚠ LES DEUX ENTITES DU SOIN SONT DISTINCTES, ET LES CONFONDRE FAUSSERAIT LE GATE : le SOIGNEUR
+    est la SOURCE de l'effet (le Sanguinary Priest qui a lance le calice), la CIBLE est le PORTEUR
+    (l'allie qui vient de frapper). C'est ce couple que
+    `IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed(caster, target, scope, removeEffects)`
+    consulte -- d'ou le passage par `HealUnitOperation.execute`, qui porte le gate ET `PredictHeal`,
+    jamais une mutation directe de `HealthComponent` (c'est exactement le trou que #520 a trouve sur
+    `HealUnitOperation` et #564 sur `ResurrectUnitOperation`, deux fois la MEME panne).
+    Source non captee -> on retombe sur le porteur (`EffectSource` rendrait alors `None`, et le natif
+    passerait `null` au gate) : degradation NOMMEE, jamais un soin fabrique sans soigneur.
+
+    ⚠ `OwnerIsCaster` (couple owner@0x148 / caster@0x160) est transcrit `ev.actor_id ==
+    self.owner_id` : `TriggerEvent` ne thread PAS le slot CASTER separement de l'ACTEUR. Les deux
+    coincident sur une attaque ordinaire ; ils divergeraient sur une attaque emise POUR le porteur
+    par l'ability d'une autre unite. Ecart NOMME, non mesure ici.
+
+    i2 : « performing a melee attack heals this unit for {hpToHeal} Health. »"""
+    event_id = EventTriggerType.Attack                       # 0x9
+    effect_type = BLOOD_CHALICE_HEAL_ON_ATTACK
+
+    def _instance(self, state: State):
+        """L'entite-effet 1368 portee par `owner_id` -- porte l'`AbilityState` du POSEUR
+        (`active_ability_level` / multiplier, poses par `scale_from_source=True`) et sa SOURCE."""
+        if state.effects is None:
+            return None
+        for e in state.effects.by_unit.get(int(self.owner_id), []):
+            if not e.consumed and e.effect_type == BLOOD_CHALICE_HEAL_ON_ATTACK:
+                return e
+        return None
+
+    def matches(self, state: State, ev: "TriggerEvent") -> bool:
+        if ev.ranged is None:                                # IsMeleeAttack -- tri-etat : on se tait
+            return False
+        return int(ev.actor_id) == int(self.owner_id) and not bool(ev.ranged)
+
+    def execute_behaviour(self, state: State, ev: "TriggerEvent") -> Optional[dict]:
+        from ..heal import HealUnitOperation
+        from ....entities.effects.magnitude import ability_var as _ability_var
+        inst = self._instance(state)
+        lvl = mult = None
+        healer = self.owner_id
+        if inst is not None:
+            lvl = (inst.active_ability_level if inst.active_ability_level is not None
+                   else inst.ability_level)
+            mult = inst.ability_variables_multiplier
+            if inst.source is not None:                      # DSLSelectors.EffectSource
+                healer = int(inst.source)
+        amount = _ability_var("BloodChalice", "hpToHeal", lvl,
+                              multiplier_pct=(100 if mult is None else int(mult)))
+        if not amount:
+            return None
+        # `HealBehaviourOptions$$ForHeal` = (scope 0, removeEffects 1) -- LITTERAUX du call-site.
+        healed = HealUnitOperation.execute(state, healer, int(self.owner_id), int(amount),
+                                           scope=0, remove_effects=True)
+        if not healed:
+            return None                                      # gate refuse / deja plein : le natif n'emet rien
+        return {"effect": "BloodChalice_HealOnAttack", "owner": self.owner_id,
+                "healer": healer, "healed": healed}
+
+
 class ContaminatedTileEffect(TileEffectTrigger):
     """`IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal (effet de tuile 0x4dc) — pose le
     sous-effet `Contaminated_Unit` (0x4dd, -X% FixedArmor, 1 round) sur l'unité qui ENTRE (`On(4)` &

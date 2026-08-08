@@ -867,12 +867,15 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `TargetMatchesDynamicRule | TargetIsEnemy`. C'est la SOURCE qui bouge, jamais la valeur.
     #   ⚠ Sa regle dynamique, elle, n'a JAMAIS eu d'entree dans `DYNAMIC_TARGET_RULE_UNPORTED` :
     #   le porteur de repli rendait donc `0` (permissif). Elle est desormais PORTEE sur la classe.
-    # 1175 BloodChalice -- `...Active.BloodChaliceAbility$$.ctor` (hors namespace `Loki`) :
-    #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0xc02, 0, 0)`.
-    ActiveAbilityType.BloodChalice: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly  # 1175
-                                 | TR.AddCasterIfAtLeastOneTarget,
-                           self_cast=True, range=RANGE_ADJACENT,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # 1175 BloodChalice : SORTIE (#576) -- sa face COMBAT est portee
+    #   (`abilities/bloodangels.py::BloodChaliceAbility.TARGETING_OPTIONS`), donc le CONTRAT DE
+    #   DISJONCTION impose de retirer sa ligne d'ici. Le ctor a ete RELU au decompile avant migration
+    #   et la valeur qui vivait ici est CONFIRMEE champ pour champ :
+    #   `...Active.BloodChaliceAbility$$.ctor` (hors namespace `Loki`) =
+    #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0xc02, 0, 0)` -- `selfCast = True`,
+    #   `range` = ADJACENT, `forceMeleeTarget = 1` (RangedBool.False), `rules` =
+    #   `TargetMatchesDynamicRule | TargetIsFriendly | AddCasterIfAtLeastOneTarget`. C'est la SOURCE
+    #   qui bouge, jamais la valeur.
     # 1197 ExcruciatingFrequencies : SORTIE (#512) -- sa face COMBAT est portee, donc son masque a
     #   MIGRE sur `emperorschildren.ExcruciatingFrequenciesAbility.TARGETING_OPTIONS`. Le ctor a ete
     #   RELU a cette occasion et la valeur qui vivait ici est CONFIRMEE champ pour champ :
@@ -1949,7 +1952,9 @@ DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     # `necrons.AdaptiveStrategyAbility` SURCHARGE desormais `get_dynamic_invalid_target_reason` et
     # APPELLE `_dynamic_rule_adaptive_strategy` ci-dessus, qui reste l'UNIQUE mirror du corps natif.
     ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
-    ActiveAbilityType.BloodChalice: _dynamic_rule_blood_chalice,              # 1175
+    # 1175 BloodChalice : RETIREE (#576) -- meme forme que 1177/1087/1038, `BloodChaliceAbility`
+    # SURCHARGE `get_dynamic_invalid_target_reason` et appelle `_dynamic_rule_blood_chalice`
+    # ci-dessus, qui reste l'UNIQUE mirror du corps natif.
     # 1204 LeadingTheCharge : RETIREE (#508) -- meme forme, `LeadingTheChargeAbility` SURCHARGE
     # `get_dynamic_invalid_target_reason` et appelle `_dynamic_rule_leading_the_charge` ci-dessus,
     # qui reste l'UNIQUE mirror du corps natif.

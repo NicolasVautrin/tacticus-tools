@@ -461,13 +461,32 @@ class SetHealth(AbilityBehaviour):
     `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour` (meme overload
     `DSLFactory$$ChangeStat`, meme `Position(5,0,0)`, meme mode 0), seul le noeud montant differe :
     `Min(StatAmount(Owner@0x148, Health=5, MAXIMUM=2), Direct(ConfigVar(0x1d = hp)))`. Fourni ->
-    `new_hp = int(amount.evaluate(entities))` (clampe >= 0) et `ability_id`/`pct_var` ne sont pas lus."""
-    __slots__ = ("target_sel", "ability_id", "pct_var", "amount")
+    `new_hp = int(amount.evaluate(entities))` (clampe >= 0) et `ability_id`/`pct_var` ne sont pas lus.
+
+    ⚠ `pct_rounding` et `pct_is_constant` sont LUS au call-site natif, jamais supposes -- les deux
+    porteurs du chemin POURCENTAGE divergent sur les DEUX axes (#573) :
+      * `...BlackRageAbility$$GetSetHealthBehaviour` : `PercentageOf(., ConfigVar(hpPct), **0**)`
+        -> `AAmountFormula$$RoundFix64Result` mode 0 = Round half-to-even, et `hpPct` est une
+        VARIABLE per-niveau (`AbilityConfiguration$$GetVariableForLevel`) ;
+      * `IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$GetSetHealthBehaviour` :
+        `PercentageOf(StatAmount(It@DSLSelectors+0x68, HEALTH=5, MAXIMUM=2),
+        ConfigConst(0x4f = healthPct), **2**)` -> mode 2 = **Floor**, et `healthPct` est une
+        CONSTANTE (`AbilityConfiguration$$GetNumberConstant`, `constants.healthPct = 50`).
+    L'ecart n'est PAS cosmetique : sur un `hp_max` IMPAIR a 50 %, `hp_max/2` tombe pile sur un demi
+    -- `floor(15059*50/100) = 7529` la ou le half-to-even rend `7530`. Defauts = les valeurs de
+    BlackRage, donc aucun porteur existant ne bouge.
+
+    ⚠ La BOUCLE de cet `execute` EST l'iteration `It` du natif : `StatAmount(It, HEALTH, MAXIMUM)`
+    se lit `hc.hp_max` de la cible COURANTE, pas une valeur globale evaluee une fois. C'est ce qui
+    permet a BloodChalice de poser 50 % du max de CHAQUE allie, jamais 50 % du max du caster."""
+    __slots__ = ("target_sel", "ability_id", "pct_var", "amount", "pct_rounding", "pct_is_constant")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str | None = None,
-                 pct_var: str = "hpPct", amount=None):
+                 pct_var: str = "hpPct", amount=None, pct_rounding: int = 0,
+                 pct_is_constant: bool = False):
         self.target_sel, self.ability_id, self.pct_var = target_sel, ability_id, pct_var
         self.amount = amount
+        self.pct_rounding, self.pct_is_constant = int(pct_rounding), bool(pct_is_constant)
 
     def execute(self, entities, ectx):
         from fractions import Fraction
@@ -489,12 +508,16 @@ class SetHealth(AbilityBehaviour):
                 continue
             sc = e.get_component(StatsComponent)
             level = getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
-            pct = ability_var(self.ability_id, self.pct_var, level)     # ConfigVar(hpPct) par niveau
+            # `ConfigVar(hpPct)` per-niveau (BlackRage) OU `ConfigConst(healthPct)` (BloodChalice) --
+            # `GetVariableForLevel` vs `GetNumberConstant`, LU au call-site, jamais deduit du nom.
+            pct = (ability_var(self.ability_id, self.pct_var, is_constant=True)
+                   if self.pct_is_constant else ability_var(self.ability_id, self.pct_var, level))
             if pct is None:
                 continue
-            # PercentageOf(MaxHealth, hpPct%) mode 0 = Round half-to-even (`_round_fix64` mode 0), PAS floor
-            # (bit-exact vs live 4518 = round(15059*30/100=4517.7) ; floor donnerait 4517). SetAbsolute -> hp.
-            new_hp = _round_fix64(Fraction(int(hc.hp_max) * int(pct), 100), 0)
+            # PercentageOf(MaxHealth, pct%) -> `AAmountFormula$$RoundFix64Result` selon le 3e arg NATIF :
+            # mode 0 = Round half-to-even (BlackRage ; bit-exact vs live 4518 = round(15059*30/100),
+            # floor donnerait 4517), mode 2 = Floor (BloodChalice). SetAbsolute -> hp.
+            new_hp = _round_fix64(Fraction(int(hc.hp_max) * int(pct), 100), self.pct_rounding)
             hc.hp = new_hp
             ectx.emit("SetHealth", unit=uid, hp=new_hp, pct=int(pct))
         return OperationResult.ok()
