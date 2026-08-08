@@ -66,7 +66,26 @@ function dumpEntityComponents(opts: {
 }
 
 interface UnitObservation {
+    /** ⚠ L'ENTITE `UnitFoot`, PAS L'UNITE — et surtout PAS un id adressable.
+     *
+     *  `projectMatchState` emet UNE LIGNE PAR PIED : ce champ porte le pied, `squadId`
+     *  porte l'escouade. Une unite multi-hex a PLUSIEURS pieds pour un seul `squadId`
+     *  (mesure live, Galatian : 108/109/110 -> squadId 107), et l'ordre croissant de ce
+     *  champ EST l'ordre de `_feet` (cf. `engine/runner/snapshot.py::_load_feet`), qui
+     *  en depend. Il a donc une raison d'exister : ne pas le supprimer.
+     *
+     *  ⚠ NE JAMAIS LE PASSER a `applyAction`, `fsmInput`/`fsmTap`, ni le comparer a
+     *  `decisionView.unitId`/`targetId` : ces trois canaux adressent l'ESCOUADE. Sur une
+     *  unite mono-pied l'ecart est de +1 exactement, donc l'id fautif DESIGNE UNE AUTRE
+     *  ENTITE VALIDE et le natif echoue en silence -- mesure du 2026-08-09, six gestes
+     *  d'attaque sans effet avant que `_unit.ToString()` du FSM ne rende
+     *  `[Unit 101, unitId: spaceBlackmane]` la ou ce champ disait 102.
+     *
+     *  Le nom est trompeur et devrait etre `footId` ; le renommage touche 133 fichiers
+     *  (dont ~30 tests live) et n'est pas fait ici. */
     entityId: number;
+    /** L'ESCOUADE — c'est CELUI-CI qu'on passe partout ailleurs (`applyAction`,
+     *  `fsmInput`, `decisionView.unitId`/`targetId`, `_unit` du FSM). */
     squadId: number;
     visualId: string | null;
     /** Logical team id (1=player, 2=AI, 3=env). Use this for friend/foe. */

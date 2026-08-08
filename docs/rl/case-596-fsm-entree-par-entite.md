@@ -435,20 +435,43 @@ Aucun RPC ne publie ces ids aujourd'hui — c'est la seule voie.
 
 | geste | séquence | résultat |
 |---|---|---|
-| **sélectionner** | `down(tuileUnite)` | `FingerDownOnUnitForFirstTime`, et ça TIENT |
+| **sélectionner** | `down(tuileUnite)` puis `up(unitId)` | `UnitNormallySelected` |
 | **déplacer** | `down(tuileUnite)` `held(tuileDest)` `up(tuileDest)` | `Swipe_MovementTargetSelected` -> `UnitNormallySelected`, unité déplacée — **3/3** |
+| **attaquer** | depuis `UnitNormallySelected` : `up(cibleUnitId)` | `TryAttackFromCurrentTile` — cible passée à `hp=0`, morte |
 | **tap simple** | `down(t)` `up(t)` même tuile | retour à `NormalState` : ça NE sélectionne pas durablement |
 | **inspecter** | `down(tuileEnnemie)` `up(...)` depuis `NormalState` | `InspectEnemyState` |
-| **attaquer** | — | **NON TROUVÉ** |
 
 `BaseSelectionState$$TrySelectPlayerOwnedUnitWithActionLeft(this, entityHit, selectedUnit)`
-convertit `entityHit` en unité par `_visualBattleQuery` slot 0x19 : c'est donc la **TUILE**
-qu'on passe, pas l'unité — et le décompilé le dit avant toute expérience.
+convertit `entityHit` en unité par `_visualBattleQuery` slot 0x19 : au **`down`** on passe donc
+la **TUILE**. Au **`up`**, c'est l'inverse — `FingerDownOnUnitForFirstTime$$OnFingerUpThisFrame`
+teste `entityHit == this+0x48` (`_unit`), et `UnitNormallySelected$$OnFingerUpThisFrame` teste
+`IsUnit(entityHit)` avant `TryAttackFromCurrentTile(this, _unit, entityHit, null)`. **Le `down`
+prend la tuile, le `up` prend l'unité** ; c'est écrit dans les deux décompilés, et aucune
+expérience ne l'aurait deviné.
 
-⚠ **L'ATTAQUE RESTE OUVERTE.** Essayés sans effet, cible intacte (`hp` inchangé) à chaque fois :
-`held`+`up` sur la tuile ennemie depuis `FingerDownOnUnitForFirstTime` ; idem depuis
-`UnitNormallySelected` ; `down` sur la tuile ennemie ; `down` sur l'**entité** de l'unité
-ennemie. `OwnUnit_moved_didntAttack.UnitNormallySelected$$OnFingerDownThisFrameInternal` montre
-un `BoolExtension.Or(TrySelect…, <fermeture>)` — la fermeture est le chemin d'attaque, et elle
-n'est pas lue. C'est là qu'il faut reprendre, par le décompilé de cette fermeture, PAS par
-d'autres combinaisons de gestes.
+⚠ **DEUX ESPACES D'IDS, ET LES CONFONDRE COÛTE SIX GESTES SANS EFFET.**
+
+```
+tuile  ->  12 + col*9 + row
+unite  ->  `decisionView.unitId` / `targetId`  ==  `observeBattle.squadId`
+           JAMAIS `observeBattle.entityId`, qui est le PIED
+```
+
+`observeBattle` émet **une ligne par `UnitFoot`** : `entityId` = le pied, `squadId` = l'escouade.
+Sur une unité mono-pied l'écart vaut **+1 exactement** (mesuré : 19 `Unit` / 19 `UnitFoot`,
+deltas tous à 1), donc l'id fautif **désigne une autre entité VALIDE** — rien ne lève, le geste
+part, il ne se passe rien. Ce n'est PAS un décalage à corriger : les deux entités existent, et
+`snapshot.py::_load_feet` dépend légitimement de l'ordre croissant des pieds (Galatian : 3 pieds
+108/109/110 pour le squad 107). C'est le **nom** qui trompe.
+
+Trouvé en lisant `_unit.ToString()` du FSM, qui rend `[Unit 101, unitId: spaceBlackmane]` là où
+`observeBattle` disait `102`. **Garde exécutable** posé depuis : `fsmInput`/`fsmTap` REFUSENT un
+id de `UnitFoot` en nommant la cause. Le renommage `entityId` -> `footId` toucherait **133
+fichiers** (dont ~30 tests live) — pas fait, à ouvrir en résidu.
+
+⚠ **NE PAS TERMINER LE TOUR — LE JEU LE FAIT.** Quand toutes les unités ont joué, la transition
+vers le tour adverse est automatique. Appeler `fsmInput({kind:"endTurn"})` par-dessus fige
+l'écran dans `WaitingForPlayerTurnToEndVisuallyState` (bouton masqué, plus de sortie hors
+`Pause -> Retreat`) — reproduit **deux fois**. Le clic sur `EndTurnButton` n'a fonctionné que
+dans le cas où il RESTAIT des unités à jouer : c'est un raccourci, pas la fin de tour normale.
+Et `fsmInput endTurn` n'est pas ce que fait le bouton.

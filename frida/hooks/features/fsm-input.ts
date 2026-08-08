@@ -49,7 +49,7 @@ import {
 } from "../il2cpp/helpers.js";
 import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
-import { forEachEntity } from "../game/match-state.js";
+import { EntityType, forEachEntity } from "../game/match-state.js";
 import { runnerOff } from "../game/runner.js";
 import { state } from "../game/state.js";
 import { queueOnMainThread } from "../runtime/queue.js";
@@ -289,12 +289,40 @@ function fsmUtilisable(): NativePointer | Refus {
 /** Entité de la bataille vivante par son id ECS, ou `null` si absente.
  *  `null` en entrée est LÉGITIME (cliquer le vide) et rend le pointeur nul. */
 function entiteParId(id: number | null | undefined): NativePointer | null | "absente" {
+    const t = chercherEntite(id);
+    if (t === null || t === "absente") return t;
+    return t.ptr;
+}
+
+/** L'entité ET son `EntityType` — c'est le type qui permet de REFUSER un id de pied. */
+function chercherEntite(
+    id: number | null | undefined,
+): { ptr: NativePointer; type: number } | null | "absente" {
     if (id === null || id === undefined) return null;
     const sp = matchStateVivant();
     if (sp === null) return "absente";
-    let trouve: NativePointer | null = null;
-    forEachEntity(sp, (e, eid) => { if (eid === id) trouve = e; });
+    let trouve: { ptr: NativePointer; type: number } | null = null;
+    forEachEntity(sp, (e, eid, ty) => { if (eid === id) trouve = { ptr: e, type: ty }; });
     return trouve ?? "absente";
+}
+
+/** Motif de REFUS si `id` désigne un `UnitFoot`, sinon `null`.
+ *
+ *  ⚠ POURQUOI CE REFUS EXISTE, ET POURQUOI IL EST EXÉCUTABLE. `observeBattle` publie
+ *  `entityId` = le PIED et `squadId` = l'ESCOUADE ; le FSM, `applyAction` et
+ *  `decisionView` adressent tous l'ESCOUADE. Sur une unité mono-pied l'écart vaut +1
+ *  EXACTEMENT, donc l'id fautif désigne une AUTRE ENTITÉ VALIDE : rien ne lève, le geste
+ *  part, et il ne se passe rien. Mesuré le 2026-08-09 — six gestes d'attaque sans effet,
+ *  jusqu'à ce que `_unit.ToString()` rende `[Unit 101, unitId: spaceBlackmane]` là où
+ *  `observeBattle` disait 102. Une note en commentaire n'aurait rien arrêté. */
+function refusSiPied(id: number | null | undefined, champ: string): Refus | null {
+    const t = chercherEntite(id);
+    if (t === null || t === "absente") return null;      // absent : dit ailleurs
+    if (t.type !== EntityType.UnitFoot) return null;
+    return { ok: false, error: champ + " " + id + " designe un UnitFoot (le PIED), pas "
+        + "l'unite -- le FSM adresse l'ESCOUADE. Passer `squadId` d'`observeBattle`, ou "
+        + "`unitId`/`targetId` de `decisionView`. Sur une unite mono-pied l'ecart vaut "
+        + "+1, donc l'id fautif designe une entite VALIDE et le geste echoue en SILENCE" };
 }
 
 /** Un `UnityEngine.Vector3` en mémoire — passé PAR POINTEUR, comme le décompilé le lit. */
@@ -316,6 +344,9 @@ interface CorpsInput {
 /** Résout les deux entités d'un corps d'appel, ou rend un refus nommé. */
 function resoudre(body?: CorpsInput):
     { e: NativePointer; t: NativePointer } | Refus {
+    const pied = refusSiPied(body?.entityId, "entityId")
+        ?? refusSiPied(body?.tileEntityId, "tileEntityId");
+    if (pied) return pied;
     const e = entiteParId(body?.entityId);
     if (e === "absente") {
         return { ok: false, error: "entityId " + body?.entityId + " introuvable dans la "
