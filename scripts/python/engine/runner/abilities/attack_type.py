@@ -394,6 +394,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.GauntletsOfUltramar: AbilityAttackType.Others,  # 1000
     ActiveAbilityType.CombatRestoratives: AbilityAttackType.Others,  # 1002
     ActiveAbilityType.ResurrectionOrb: AbilityAttackType.Others,  # 1009
+    # AdaptiveStrategy (1005, necroWarden) -- #572. Litteral TRANSCRIT, jamais deduit :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$.ctor` finit par
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. La lecture est facile a
+    # se donner a POSTERIORI (le cast ne frappe personne : il override l'Attack d'allies, les fait
+    # AGIR, puis retire l'override) -- mais c'est le litteral qui tranche, pas ce raisonnement :
+    # sur ce meme axe, `WallOfMirrors` et `StormOfWrath` ci-dessus le contredisent chacun dans un
+    # sens (l'une ATTAQUE et vaut 2, l'autre n'attaque pas en direct et vaut 0).
+    ActiveAbilityType.AdaptiveStrategy: AbilityAttackType.Others,  # 1005
     # TunnelingHorror (1011, necroSmnDestroyer) -- #366-r1. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others (le behaviour n'attaque pas :

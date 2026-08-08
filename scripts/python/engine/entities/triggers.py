@@ -354,6 +354,51 @@ class HasTrait(AbilityTrigger):
         return any(ht(u, self.trait) for u in _units_of(self.unit, ctx))
 
 
+class ActorHasTriggeredAbility(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$ActorHasTriggeredAbility(unit, ability)` ->
+    `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#572) -- MIRROR
+    1:1 du decompile, qui tient en trois lignes :
+
+        unit = this.<+0x10>.Select(entities, 8)            # SelectSingle (groupType 8)
+        if (unit == null) return 0
+        return UnitExtensions.HasTriggeredAbility(unit, this.<+0x18>)
+
+    ⚠ LE NOM NATIF PORTE UNE FAUTE DE FRAPPE (`Actort...`) et elle est CONSERVEE VERBATIM dans les
+    citations ci-dessus : c'est ce qui rend le grep code <-> `data/symbols/<build>/ghidra/
+    functions.tsv` immediat. La FACTORY, elle, s'ecrit `ActorHasTriggeredAbility` -- c'est elle que
+    ce mirror homonyme suit, comme partout ailleurs dans ce module.
+
+    `HasTriggeredAbility(unit, type)` = `unit.GetComponent<TriggeredAbilityComponent>()?
+    .TryGetAbility(type)` -- une lecture du KIT DECLENCHE, pas d'un etat de cooldown. Port :
+    l'accesseur `ctx.has_triggered_ability`, qui delegue au foyer unique
+    `entities/triggered_ability_type.py::entity_triggered_ability_ids`.
+
+    DEGRADATION NOMMEE : accesseur non branche (contexte hors runner -- prediction, arbre monte a la
+    main) -> `False`. C'est le cote qui ne DECLENCHE RIEN : le seul consommateur porte est un
+    `If(<ce predicat>, TriggerAbility(...))`, donc un False laisse l'etat inchange, la ou un True
+    invente re-jouerait un passif que l'unite ne porte pas.
+
+    `resolve_unit` est le mirror du `Select(entities, 8)` natif (SelectSingle) -- la MEME resolution
+    que `RemoveAllForcedAttackTargets` et `HasTakenDamageOfDamageProfileThisTurn`.
+
+    CONSOMMATEUR PORTE (unique du build, xrefs de la factory) :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$ExecuteBehaviour`
+    (`If(ActorHasTriggeredAbility(Caster@DSLSelectors+0x48, 0x3ec = TriggeredAbilityType
+    .RelentlessMarch), TriggerAbility(...))`) -- le gate qui evite de re-declencher `RelentlessMarch`
+    sur un caster qui ne le porte pas (greffe, kit modifie)."""
+    def __init__(self, unit: TargetsSelector, triggered_ability_type):
+        self.unit, self.triggered_ability_type = unit, triggered_ability_type
+
+    def should_trigger(self, ctx):
+        u = resolve_unit(self.unit, ctx)                  # `Select(entities, 8)` = SelectSingle
+        if u is None:                                     # `unit == null` -> false
+            return False
+        acc = getattr(ctx, "has_triggered_ability", None)
+        if acc is None:
+            return False                                  # accesseur non branche (cf. docstring)
+        return bool(acc(u, int(self.triggered_ability_type)))
+
+
 class CanMove(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLTriggers$$CanMove(unit)` -> un trigger dont le predicat EST
     `IdunBattle.Entities.UnitExtensions$$CanMove(unit)`, MIRROR du decompile :
