@@ -107,6 +107,44 @@ tous les trois. Le rejet de 620×1040 venait de la **hauteur** — 2600 px physi
 ~89 % du cadre (contre 39 % à 1549×925), et le grand côté passe sous le seuil de réduction
 (~1568 px) — donc lecture **1:1**. Coût ≈ 2 200 tokens, soit deux `Read`.
 
+## Le pont libellé ↔ chemin (fenêtre du 2026-08-08, session 4)
+
+**Le déclencheur** : `uiList` rendait des **noms d'objets** là où l'humain lit des
+**libellés**. Mesuré — *aucun* bouton de l'arbre ne contient « mission » dans son chemin,
+alors que l'écran en affiche un (c'est `button_special_quests`). Sans ce pont, aucun pilote
+ne peut prendre une instruction dans le vocabulaire de l'utilisateur.
+
+`ButtonRow` porte désormais `label`, `pos` et `space`. Résolution **best effort** : une
+classe absente dégrade le champ, jamais `ensureRefs` — faire tomber tout `uiList` pour un
+champ d'agrément serait une régression bien pire que l'absence du champ.
+
+**`label` : livré.** 22 boutons sur 77 en portent, et ils sont justes — numéros de nœuds de
+campagne (60–75), `Anuphet` (nom de chapitre), `60k` / `26k` (ressources). Ordre d'essai
+`TMPro.TMP_Text` puis `UnityEngine.UI.Text` ; viser la **base** `TMP_Text` attrape aussi
+`TextMeshProUGUI`.
+
+**`pos` : NON livré, et le module le dit.** `space` vaut **`camera`** sur les 77 boutons :
+les canvases du jeu sont en **ScreenSpaceCamera**, donc `Transform.position` est en unités
+**monde**, pas en pixels écran. Le garde a rendu `null` en nommant le mode au lieu d'émettre
+des nombres plausibles et faux. Suite en `#595-r2`.
+
+⚠ **Deux gardes, parce qu'une seule hypothèse pouvait tomber de deux façons.** Le mode de
+canvas est l'un ; l'autre est le **domaine** : sur Win64 un `Vector3` (12 octets) se rend par
+**pointeur caché**, pas dans les registres xmm, et une déclaration d'ABI fausse ne lève pas —
+elle rend trois flottants crédibles. `lirePosition` borne donc par `Screen.width/height`
+(deux statiques rendant un `int`, aucune ABI douteuse) et rend `null` hors domaine. Sans ce
+second cran, le premier n'aurait rien prouvé.
+
+**La charge de la fenêtre n'était pas celle annoncée.** Sur six volets en attente : `#347-r3`,
+`#350-r3a` et `#347-r1` étaient **déjà dans l'arbre** — donc déjà dans le bundle, et le
+reinject les active gratuitement. `#552-r2`, `#545-r1` et `#487-r2` ne sont cités par **aucun**
+fichier de `frida/hooks` : ce ne sont pas des volets à embarquer, ce sont trois tranches de RE
+à écrire. Qualifier avant d'ouvrir évite de remplir une fenêtre avec du vide.
+
+Fenêtre : drain armé, `liveRunners` 0, inject **54,1 s**, `warmupError` nul, session 4.
+⚠ `session.warmed` reste à `false` alors que le warmup a réussi — le drapeau du warm-gate
+n'est pas posé par le chemin d'inject. Sans conséquence ici, mais c'est un capteur qui ment.
+
 ## Ce que ça n'est pas
 
 Ce n'est pas un pilote de campagne. La chaîne du warmup reste codée en dur

@@ -39,6 +39,20 @@ interface UiRefs {
     buttonGetOnClick: MethodRef;
     unityEventInvoke: MethodRef;
     buttonSystemType: NativePointer; // typeof(UnityEngine.UI.Button)
+
+    // --- #595 : libelle et position. TOUS OPTIONNELS.
+    // Ces classes peuvent manquer d'un build a l'autre (TMPro est un paquet, pas le coeur
+    // d'Unity). Les rendre obligatoires ferait ECHOUER `ensureRefs`, donc `uiList` en
+    // entier, pour un champ d'agrement -- une regression bien pire que l'absence du champ.
+    componentGetComponentInChildren: MethodRef | null;
+    componentGetComponentInParent: MethodRef | null;
+    transformGetPosition: MethodRef | null;
+    canvasGetRenderMode: MethodRef | null;
+    canvasSystemType: NativePointer | null;
+    /** Les types de composants texte a essayer, dans l'ordre, avec leur `get_text`. */
+    texteSystemTypes: Array<{ type: NativePointer; getText: MethodRef }>;
+    /** Taille de l'ecran, pour BORNER une position et attraper une ABI fausse. */
+    ecran: { w: number; h: number } | null;
 }
 
 let _refs: UiRefs | null = null;
@@ -118,6 +132,49 @@ export function ensureRefs(): UiRefs {
     // Build typeof(Button) for FindObjectsByType.
     const buttonSystemType = getSystemType(buttonK);
 
+    // --- #595 : libelle et position. TOUT est resolu en BEST EFFORT, jamais par `need` :
+    // une classe absente doit degrader le CHAMP, pas faire tomber `uiList`.
+    const opt = <T>(f: () => T | null): T | null => {
+        try { return f(); } catch { return null; }
+    };
+    const componentGetComponentInChildren = opt(
+        () => findMethodByParamCount(componentK, "GetComponentInChildren", 1));
+    const componentGetComponentInParent = opt(
+        () => findMethodByParamCount(componentK, "GetComponentInParent", 1));
+    const transformGetPosition = opt(() => findMethod(transformK, "get_position"));
+
+    const canvasK = opt(() => findClassAnywhere("UnityEngine", "Canvas"));
+    const canvasGetRenderMode = canvasK
+        ? opt(() => findMethod(canvasK, "get_renderMode")) : null;
+    const canvasSystemType = canvasK ? opt(() => getSystemType(canvasK)) : null;
+
+    // Ordre d'essai : TMP d'abord (le jeu est en TextMeshPro), `UI.Text` en repli.
+    // `TMP_Text` est la BASE de `TextMeshProUGUI` : la viser attrape les deux.
+    const texteSystemTypes: Array<{ type: NativePointer; getText: MethodRef }> = [];
+    for (const [ns, cls] of [["TMPro", "TMP_Text"], ["UnityEngine.UI", "Text"]] as const) {
+        const k = opt(() => findClassAnywhere(ns, cls));
+        if (!k) continue;
+        const gt = opt(() => findMethod(k, "get_text"));
+        const st = opt(() => getSystemType(k));
+        if (gt && st) texteSystemTypes.push({ type: st, getText: gt });
+    }
+
+    // `Screen.width/height` : deux statiques rendant un `int` -- pas de struct, pas d'ABI
+    // douteuse. Sert UNIQUEMENT a borner `pos` (cf. `lirePosition`).
+    let ecran: { w: number; h: number } | null = null;
+    const screenK = opt(() => findClassAnywhere("UnityEngine", "Screen"));
+    if (screenK) {
+        const gw = opt(() => findMethod(screenK, "get_width"));
+        const gh = opt(() => findMethod(screenK, "get_height"));
+        if (gw && gh) {
+            try {
+                const w = readBoxedInt(invokeMethod(gw.info, null, []));
+                const h = readBoxedInt(invokeMethod(gh.info, null, []));
+                if (w > 0 && h > 0) ecran = { w, h };
+            } catch { /* laisse null : on borne alors sur rien, et on le dit au log */ }
+        }
+    }
+
     _refs = {
         objectK, componentK, transformK, behaviourK,
         selectableK, buttonK, unityEventK,
@@ -126,7 +183,12 @@ export function ensureRefs(): UiRefs {
         transformGetParent, behaviourGetActiveAndEnabled,
         selectableGetInteractable, buttonGetOnClick, unityEventInvoke,
         buttonSystemType,
+        componentGetComponentInChildren, componentGetComponentInParent,
+        transformGetPosition, canvasGetRenderMode, canvasSystemType,
+        texteSystemTypes, ecran,
     };
+    log("[ui-nav] refs resolved (label: " + texteSystemTypes.length + " type(s) de texte, "
+        + "position: " + (transformGetPosition ? "oui" : "non") + ")");
     log("[ui-nav] refs resolved");
     return _refs;
 }
@@ -174,6 +236,12 @@ function readBoxedBool(p: NativePointer): boolean {
     return p.add(0x10).readU8() !== 0;
 }
 
+/** Un enum boxe : meme header d'objet (0x10) que le bool, valeur sur 4 octets. */
+function readBoxedInt(p: NativePointer): number {
+    if (p.isNull()) return -1;
+    return p.add(0x10).readS32();
+}
+
 function getName(r: UiRefs, obj: NativePointer): string {
     if (obj.isNull()) return "";
     try {
@@ -212,6 +280,96 @@ export interface ButtonRow {
     active: boolean;
     interactable: boolean;
     ptr: string;
+    /** Le LIBELLE lu a l'ecran (#595). `null` = pas de composant texte trouve. */
+    label: string | null;
+    /** Position du pivot en pixels ecran, ou `null` si NON ETABLIE (cf. `space`). */
+    pos: { x: number; y: number } | null;
+    /** Le mode de rendu de la canvas racine. `pos` n'a de sens qu'en `overlay`. */
+    space: "overlay" | "camera" | "world" | "inconnu";
+}
+
+// ---------------------------------------------------------------------------
+// #595 -- LE LIBELLE ET LA POSITION
+//
+// POURQUOI CES DEUX CHAMPS
+// `uiList` rendait des NOMS D'OBJETS (`button_special_quests`) la ou l'humain lit des
+// LIBELLES (<< MISSIONS >>). Mesure du 2026-08-08 : aucun bouton de l'arbre ne contient
+// << mission >> dans son chemin, alors que l'ecran en affiche un. Sans `label`, aucun
+// pilote ne peut prendre une instruction dans le vocabulaire de l'utilisateur.
+// `pos` met la capture d'ecran et l'arbre DANS LE MEME ESPACE : c'est ce qui permettra
+// d'annoter une image avec les chemins cliquables.
+//
+// ⚠ POURQUOI `pos` EST TRI-ETAT ET NON UN COUPLE DE NOMBRES
+// `Transform.position` n'est en PIXELS ECRAN que si la canvas racine est en
+// ScreenSpaceOverlay (`Canvas.renderMode == 0`). En ScreenSpaceCamera ou WorldSpace, ce
+// sont des unites monde -- des nombres parfaitement plausibles et FAUX. On lit donc le
+// mode, et on rend `null` en le NOMMANT plutot qu'un chiffre qui ment. Meme discipline que
+// partout ailleurs : une valeur non etablie se declare, elle ne se devine pas.
+// ---------------------------------------------------------------------------
+
+/** `Transform.get_position` rend un `Vector3` PAR VALEUR. `invokeMethod` ne sait pas
+ *  decoder un retour de struct (verifie : aucun sret dans `il2cpp/invoke.ts`), et le depot
+ *  n'a aucune allocation de tableau IL2CPP -- donc `GetWorldCorners` est hors de portee
+ *  sans nouvelle primitive. On passe par un `NativeFunction` dont Frida connait l'ABI. */
+function lirePosition(r: UiRefs, obj: NativePointer): { x: number; y: number } | null {
+    const ref = r.transformGetPosition;
+    if (!ref) return null;
+    let v: number[];
+    try {
+        const f = new NativeFunction(ref.ptr, ["float", "float", "float"],
+                                     ["pointer", "pointer"]);
+        v = f(obj, ref.info) as unknown as number[];
+    } catch { return null; }
+    if (!v || v.length < 2 || !isFinite(v[0]) || !isFinite(v[1])) return null;
+
+    // ⚠ LE GARDE QUI RATTRAPE UNE ABI FAUSSE.
+    // Sur Win64, un `Vector3` (12 octets) se rend par POINTEUR CACHE, pas dans les
+    // registres xmm. Si la declaration ci-dessus se trompe, on ne recoit pas une erreur :
+    // on recoit trois flottants PLAUSIBLES. Le seul controle disponible est le domaine --
+    // en ScreenSpaceOverlay, une position est forcement dans l'ecran, a une marge pres.
+    // Hors domaine, on rend `null` : non etabli, jamais un chiffre qui ment.
+    const l = r.ecran;
+    if (l) {
+        const marge = 0.25;
+        if (v[0] < -marge * l.w || v[0] > (1 + marge) * l.w
+            || v[1] < -marge * l.h || v[1] > (1 + marge) * l.h) {
+            return null;
+        }
+    }
+    return { x: Math.round(v[0]), y: Math.round(v[1]) };
+}
+
+const _MODES: Array<ButtonRow["space"]> = ["overlay", "camera", "world"];
+
+/** Le mode de rendu de la canvas racine du bouton. Remonte les parents jusqu'a un Canvas. */
+function espaceDeRendu(r: UiRefs, btn: NativePointer): ButtonRow["space"] {
+    if (!r.canvasGetRenderMode || !r.componentGetComponentInParent || !r.canvasSystemType) {
+        return "inconnu";
+    }
+    try {
+        const canvas = invokeMethod(r.componentGetComponentInParent.info, btn,
+                                    [r.canvasSystemType]);
+        if (canvas.isNull()) return "inconnu";
+        const mode = readBoxedInt(
+            invokeMethod(r.canvasGetRenderMode.info, canvas, []));
+        return _MODES[mode] ?? "inconnu";
+    } catch { return "inconnu"; }
+}
+
+/** Le texte affiche par le bouton : premier composant texte trouve dans sa descendance. */
+function lireLabel(r: UiRefs, btn: NativePointer): string | null {
+    if (!r.componentGetComponentInChildren) return null;
+    for (const t of r.texteSystemTypes) {
+        try {
+            const comp = invokeMethod(r.componentGetComponentInChildren.info, btn, [t.type]);
+            if (comp.isNull()) continue;
+            const s = invokeMethod(t.getText.info, comp, []);
+            if (s.isNull()) continue;
+            const txt = readIl2cppString(s);
+            if (txt && txt.trim()) return txt.trim();
+        } catch { /* composant absent ou incompatible : on essaie le suivant */ }
+    }
+    return null;
 }
 
 /** Enumerate every live Button. Filter applied per caller. */
@@ -247,7 +405,21 @@ export function enumerateButtons(r: UiRefs, includeAll: boolean): ButtonRow[] {
         const path = getPath(r, btn);
         const segs = path.split("/");
         const name = segs[segs.length - 1] ?? "";
-        out.push({ path, name, active, interactable, ptr: btn.toString() });
+
+        // #595 : le libelle et la position, tous deux BEST EFFORT et tri-etat.
+        const label = lireLabel(r, btn);
+        const space = espaceDeRendu(r, btn);
+        // `pos` n'est rendu QUE si l'espace est etabli comme ecran. Ailleurs, les memes
+        // nombres existent et ne veulent rien dire -- on rend `null` en nommant le mode.
+        let pos: { x: number; y: number } | null = null;
+        if (space === "overlay" && r.transformGetPosition) {
+            try {
+                const tr = invokeMethod(r.componentGetTransform.info, btn, []);
+                if (!tr.isNull()) pos = lirePosition(r, tr);
+            } catch { /* laisse null */ }
+        }
+        out.push({ path, name, active, interactable, ptr: btn.toString(),
+                   label, pos, space });
     }
     return out;
 }
