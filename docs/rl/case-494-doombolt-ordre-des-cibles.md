@@ -217,6 +217,61 @@ Le nœud d'ability (`+0x28`) reste ce qu'il désigne — `Direct(AbilityOrEffect
 `Direct(AbilityOrEffect(1132))` pour KillMaimBurn, `UnitNormalAttackType` pour FinalJustice,
 **rien** pour AncestralFortune (donc `GetNormalAttackType(owner)`).
 
+### #494-r1-r1-r1 — `hits` est CLOS par la mesure, `isMelee` est une VRAIE divergence
+
+**Volet `hits` : FERMÉ, le régime `hits > 1` N'EXISTE PAS dans ce build.** Le recensement utile
+n'est pas celui de `PredictAttack` (méthode d'interface, xrefs DATA seules) mais celui du SÉLECTEUR :
+`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$.ctor` n'a qu'UN appelant,
+`IdunBattleLogic.Entities.DSLSelectors$$SortUnitsByDamageUtility`, en **4 surcharges** — soit
+**13 call-sites / 11 abilities**, et **13/13 passent `hits = null`** (`KillMaimBurn`, `RitesOfMorkai`,
+`FinalJustice` ×2, `WyrdmakersHelm`, `Doombolt`, `MartialExemplar`, `EcstaticSlaughter` ×2,
+`VexillaMagnifica`, `Drachnyen_ExtraAttack`, `AncestralFortune` ×2). Le `hits = 1` du port est donc
+**FIDÈLE, pas une simplification** : il n'existe ni HERO, ni MoW, ni SUMMON, ni NPC pour l'exercer.
+Détail qui tranche l'intention : `AncestralFortune` et `Drachnyen_ExtraAttack` appellent bien
+`GetHits` — mais pour l'**ATTAQUE** (`DSLBehaviors$$AttackWithAttackDamage`), jamais pour le **TRI**.
+Contrôle de non-péremption au prochain build : re-jouer `list_xrefs` sur les 4 surcharges.
+
+Au passage, ce que `PredictAttackRaw` fait de `hits` **ailleurs** (donc le comportement que le port
+possède déjà par un autre chemin) : ni multiplié ni ignoré — **BOUCLÉ avec état déplété**. C'est le
+lambda `DamagePrediction.u003Cu003Ec__DisplayClass12_0$$u003CPredictAttacku003Eb__0` qui appelle
+`PredictAttackRaw` une fois, puis `for (i = 1; i < hits; i++)` en réécrivant `HitIndex` (+0x6c),
+`PreviousHitsPrediction` (+0x84) et `DefenderInitialHealth` (+0x7c) avant chaque coup, et en cumulant
+par `DamagePredictionResult.Add`. La surcharge sans `Func` ne boucle pas.
+
+**Volet `isMelee` : DIVERGENCE RÉELLE, et sa source n'est pas l'arme.** Le natif :
+`DamagePrediction$$IsMeleeAttack` → `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` =
+
+    switch (GetAbilityAttackRangeType(ability)) {
+      case None:   return false;                                        // et c'est le cas par DEFAUT
+      case Melee:  return true;                                         // sans condition de distance
+      case Ranged: return false;                                        // sans condition de distance
+      case Normal: return !HasFlag(caster, UnitFlag.ForceRangedAttack)
+                          && AreEntitiesAdjacent(casterPosition, target);
+    }
+
+La source est donc la **config de l'ability** (`attackRangeType`), pas le type d'arme. Mesure
+gameconfig `rnca9r7q6c` : sur 572 abilities, **166** portent le champ (85 `Ranged`, 71 `Melee`,
+10 `Normal`) et **406 ne le portent pas** ⇒ `None` ⇒ `false`. Le port, lui, décide par la SEULE
+adjacence (`engine/services/battle_query.py::normal_attack_is_melee` →
+`get_attack_weapon_for_default_normal_attack`) : il applique donc la branche `Normal` **à tous les
+cas**. Quatre régimes de divergence, nommés : `Melee` + cible non adjacente ; `Ranged` + cible
+adjacente ; `attackRangeType` absent ; `ForceRangedAttack` posé (le flag n'a AUCUN consommateur dans
+`engine/`). S'y ajoute une polarité de repli traître — quand aucune arme n'est éligible,
+`select_weapon_pierce` rend `is_ranged = False`, donc `is_melee = True`, l'inverse de la vérité
+native pour une unité purement ranged.
+
+⚠ **Portée BORNÉE, et c'est ce qui rend la confrontation piégeuse.** Sur la clé de tri
+(`damageProfile = null`), `isMelee` ne change la valeur native que par **`StatType.ExtraMaxDamage`**
+(25) — le bloc de perçage `ExtraPierceMelee`/`ExtraPierceRanged` est gardé par
+`if (damageProfile != null)` et reste donc inerte. Or le port ne renseigne pas du tout `extra_max`
+dans le chemin PRÉDICTION (`engine/runner/operations/attack_prediction.py`), alors que le natif
+l'applique dans `GetBaseDamageFix64` **hors** de cette garde, et que l'étage COMBAT le renseigne
+correctement. Un test qui ne monte ni `ExtraMaxDamage` (effet `RealityUnbound_ExtraMaxDamage` 1207)
+ni un effet gaté `IsMeleeAttack`/`IsRangedAttack` mesurera **0 écart** et se lira comme un vert.
+
+Résidu **`#494-r2`** : le foyer d'`isMelee` est PARTAGÉ décision↔combat (`damage_model.py` l'appelle
+aussi), donc sa correction déborde de ce cas et prend son propre numéro.
+
 ### Mesure — les HUIT régimes, `python probe_494_doombolt_sort_order.py --regime <r>`
 
 | régime | NATIF joué | PORT joué | verdict |

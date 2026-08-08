@@ -102,6 +102,23 @@ class Scene:
     # `combatSnapshot.units[].turnsFinished`, refresh par-pas via `refresh_shields`.
     # Defaut {} -> uid absent = NON CAPTE (l'accesseur rend None, le gate ne mord pas a l'aveugle).
     turns_finished_by_id: dict = field(default_factory=dict)
+    # `receivedDamageThisTurn` PER-UNITE (#487-r1) : {uid: set(DamageProfileType)} -- les CLES du
+    # Dictionary `ActorStatisticsComponent + 0x80`, ecrit par
+    # `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterReceivedDamage` et lu par
+    # `IdunBattle.Entities.UnitExtensions$$HasTakenDamageOfDamageProfileThisTurn` (PRESENCE de cle,
+    # jamais un compte). C'est le substrat de l'utilite d'`IdunBattle.AI.Playbook.Loki.
+    # HellfyreMissileRackPlaybook$$EvaluateNonComparable`.
+    # ⚠ TRI-ETAT, et le defaut est `None` = **PAS MESURE**, pas un dict vide : ce champ n'est publie
+    # par AUCUN canal live (ni `decisionView`, ni `combatSnapshot`, ni le hook `actorStats` -- qui ne
+    # porte que `+0x20`). Un `{}` servi en live se lirait « aucune unite n'a pris de degat ce tour »,
+    # ce qui est une AFFIRMATION, et elle ferait REFUSER l'ability (utilite 0 < MIN_UTILITY 1) :
+    # degradation RESTRICTIVE silencieuse. `from_state` (rejeu OFFLINE) le renseigne, parce que le
+    # runner TIENT le compteur (`UnitComponent.received_damage_this_turn`, alimente par
+    # `runner/operations/damage.py` et vide par `turnflow`) -- meme forme que #266 (flag `Moved`) et
+    # #27-r8 (`turnsFinished`) : la face DECISION LIT ce que la face COMBAT TIENT.
+    # Point d'ancrage a hooker pour la face LIVE : `ActorStatisticsComponent + 0x80`, cote
+    # `frida/hooks/features/ai-step/rpc-snapshot.ts` (meme fenetre de reinject que #545-r1).
+    received_damage_profiles_by_id: dict | None = None
     # Stat ATTACK COURANT PER-UNITE (#45-s18) : {uid: GetStat(Attack, Current)} — la lecture EXACTE des
     # noeuds DSL `StatAmount(Self, Attack, Current)` (ex. splash Psyker `IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$GetAttackDamage`).
     # DYNAMIQUE : les ValueModifications vont et viennent (aura RitesOfBattle +1298 par ADJACENCE a
@@ -295,6 +312,7 @@ class Scene:
         moved_by_id, teleported_by_id, active_ability_used_by_id = {}, {}, {}
         tiles_moved_by_id, parent_by_id = {}, {}
         turns_started_by_id, turns_finished_by_id = {}, {}
+        received_damage_profiles_by_id: dict = {}
         units: list = []
         for eid, e in state.entities.items():
             uc = e.get_component(UnitComponent)
@@ -364,6 +382,13 @@ class Scene:
             # TIENT, jamais une seconde derivation. L'entite est INSCRITE meme a 0 : c'est une
             # mesure PLEINE (le composant existe des que l'unite existe), pas une absence.
             turns_finished_by_id[eid] = int(getattr(uc, "turns_finished", 0) or 0)
+            # #487-r1 : `ActorStatisticsComponent + 0x80` LU de l'ECS (les CLES du Dictionary, pas
+            # les valeurs -- `HasTakenDamageOfDamageProfileThisTurn` = `ContainsKey`). Le compteur y
+            # est TENU par `runner/operations/damage.py` et vide au boundary de phase par
+            # `runner/operations/turnflow.py`. L'entite est INSCRITE meme avec un ensemble VIDE :
+            # c'est une mesure PLEINE (le composant existe des que l'unite existe), pas une absence.
+            received_damage_profiles_by_id[eid] = {
+                int(p) for p in (getattr(uc, "received_damage_this_turn", None) or {})}
             vis_by_id[eid] = vis
             if hc is not None:
                 hp_by_id[eid] = hc.hp
@@ -405,7 +430,8 @@ class Scene:
             prevent_overkill_by_id=prevent_overkill_by_id,
             moved_by_id=moved_by_id, teleported_by_id=teleported_by_id,
             active_ability_used_by_id=active_ability_used_by_id,
-            tiles_moved_by_id=tiles_moved_by_id, parent_by_id=parent_by_id)
+            tiles_moved_by_id=tiles_moved_by_id, parent_by_id=parent_by_id,
+            received_damage_profiles_by_id=received_damage_profiles_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
 
@@ -698,6 +724,27 @@ class Scene:
         n'a pas prononce (degradation RESTRICTIVE silencieuse)."""
         v = (self.turns_finished_by_id or {}).get(uid)
         return None if v is None else int(v)
+
+    def has_taken_damage_of_profile_this_turn(self, uid, profile_id) -> bool | None:
+        """`IdunBattle.Entities.UnitExtensions$$HasTakenDamageOfDamageProfileThisTurn(unit, profile)`
+        = `ContainsKey(ActorStatisticsComponent.receivedDamageThisTurn, profile)`.
+
+        PRESENCE d'une cle, jamais un compte -- a ne pas confondre avec
+        `...AmountOfTimesTrigger$$ShouldTrigger`, qui exige une EGALITE stricte (le mauvais choix
+        change le resultat des le 2e coup du meme profil sur la meme cible, cf. `case-487` §5).
+
+        TRI-ETAT : `None` = **canal non mesure** (regime LIVE -- aucun hook ne publie
+        `ActorStatisticsComponent + 0x80`), distinct de `False` = mesure et le profil est absent.
+        L'appelant ne doit PAS rabattre `None` sur `False` : ici un `False` invente ferait tomber
+        l'utilite d'`HellfyreMissileRack` a 0, sous son `MIN_UTILITY` de 1, donc prononcerait un
+        refus que le natif n'a pas prononce."""
+        tbl = self.received_damage_profiles_by_id
+        if tbl is None:
+            return None
+        s = tbl.get(uid)
+        if s is None:
+            return None
+        return int(profile_id) in s
 
 
 class _SceneEffectTargetWorld:
