@@ -4413,6 +4413,12 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_590_attempted_possession_offline.py": {
+   "_at": 1786180063,
+   "_commit": "33dbd52312aa780120cb1e5cd901df68375c4915",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",

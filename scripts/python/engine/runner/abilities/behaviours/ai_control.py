@@ -1,13 +1,29 @@
-"""Feuille DSL de la famille AI-CONTROL : `PerformAIAction` — faire AGIR une ou plusieurs unites TIERCES.
+"""Feuilles DSL de la famille AI-CONTROL — faire AGIR une ou plusieurs unites TIERCES.
 
-Namespace natif `IdunBattle.Entities.Behaviours`. Wrapper MINCE au-dessus de l'Operation portee
-`runner/operations/summon_ai.py::ComputerActionOperation` (la frontiere DSL/imperatif = ce `.execute`).
-Sa soeur `PerformAIAttack` (`PerformAIAbilityUnitBehaviour`) vit dans `summon.py` (couplee au spawn
-GetEmRuntz). cf. docs/rl/dsl-effect-nodes.md.
+Namespace natif `IdunBattle.Entities.Behaviours`. Wrappers MINCES au-dessus des Operations portees
+(la frontiere DSL/imperatif = leur `.execute`). cf. docs/rl/dsl-effect-nodes.md.
+
+  * `PerformAIAction` (`PerformAIActionBehaviour`) -> `operations/summon_ai.py::ComputerActionOperation` :
+    un TOUR d'IA complet, l'ability est choisie par l'IA.
+  * `PerformAIAbility` (`PerformAIAbilityUnitBehaviour`, surcharge a 6 arguments) -> le corps porte
+    `loki/summon.py::perform_ai_ability_unit_behaviour` : UNE ability IMPOSEE, avec budget de
+    deplacement et utilite personnalisee. Ajoutee par #590.
+
+⚠ **`PerformAIAbility` et `PerformAIAttack` (`summon.py`) INSTANCIENT LA MEME CLASSE NATIVE.** Le
+binaire porte trois noeuds `DSLBehaviors`/`DSLFactory` qui allouent un
+`IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour` :
+`PerformAIAttackFromCurrentPosition`, `PerformAIAttack` (tous deux dans `summon.py`) et
+`IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAbility` -- ce dernier etant le SEUL a remplir les
+champs `+0x68 getAbilityType`, `+0x78 overrideMovement`, `+0x80 utilityEntity` et
+`+0x90 customUtility` autrement que par des constantes. Le CORPS reste unique
+(`perform_ai_ability_unit_behaviour`), conformement au de-fork de #338 : cette feuille-ci ne fait
+qu'apporter les quatre parametres que les deux autres noeuds n'exposent pas.
 """
 from __future__ import annotations
 
-from ....dsl.base import TargetsSelector
+from typing import Optional
+
+from ....dsl.base import AAmountFormula, TargetsSelector
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...operations.summon_ai import ComputerActionOperation
 
@@ -62,4 +78,135 @@ class PerformAIAction(AbilityBehaviour):
                    for uid in uids]
         ectx.emit("PerformAIAction", units=uids, as_group=self.as_group,
                   reset_turn_flags=self.reset_turn_flags, results=res)
+        return OperationResult.ok()
+
+
+class PerformAIAbility(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAbility(unit, getAbilityType, allowOnlyMove,
+    overrideMovement, utilityEntity, customUtility)` -- la surcharge a SIX arguments (l'autre, a
+    trois, prend `movementTiles` et n'a qu'un appelant : `BurrowersAbility_Appear`). Elle alloue un
+    `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour` dont le `.ctor` a 8 parametres
+    ecrit (LU, c'est LA source du mapping -- pas le decompile d'`Execute`, ou ghidra decale les
+    arguments) :
+
+        +0x50 unit          +0x68 getAbilityType   +0x70 allowOnlyMove   +0x71 skipAtomicCheck
+        +0x78 overrideMovement                     +0x80 utilityEntity   +0x90 customUtility
+
+    Le CORPS reste `loki/summon.py::perform_ai_ability_unit_behaviour` -- l'UNIQUE port de
+    `PerformAIAbilityUnitBehaviour$$Execute`, partage avec `PerformAIAttack` (de-fork #338). Cette
+    feuille n'apporte que les parametres que les deux autres noeuds ne peuvent pas exprimer.
+
+    Appelants natifs recenses (xrefs de la surcharge a 6 args) : `ShockAssaultAbility$$CreateBehaviour`,
+    `ECogSupportAbility$$CreateBehaviour`,
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.AttemptedPossessionAbility$$ExecuteBehaviour`,
+    `DaGreatWaaaghAbility$$ExecuteBehaviour` + `$$GetMoveAndAttackBehaviour`,
+    `ItItchesAbility$$ExecuteBehaviour`. Seul le troisieme est porte (#590).
+
+    PARAMETRES DU PORT, et ce que chacun mirrore :
+
+      * `selector` (`+0x50`) -- les ACTEURS. Domaine UNITE (le call-site 1101 y passe le selecteur
+        des possedes) ; l'itere est resolu en ids et chaque acteur agit SEQUENTIELLEMENT, dans
+        l'ordre du selecteur, comme le `foreach` natif.
+      * `override_movement` (`+0x78`) -- un noeud VALEUR, evalue PAR ACTEUR en un `Nullable<int>`
+        passe tel quel a `ABaseAiUnitTactic$$GenerateActionTiles(unit, true, maxDistance)` : `0` =
+        la tuile COURANTE seule, une valeur > 0 = le budget de deplacement autorise. `None` (aucun
+        noeud) = la plage normale de l'unite. C'est ce champ qui porte le << Possessed Summons will
+        move before attacking >> de l'i2 de 1101.
+      * `allow_only_move` (`+0x70`) -- ajoute le `MovementActionGenerator` : l'IA peut choisir un
+        deplacement PUR si aucune attaque n'est bonne. `False` chez 1101 (litteral `0`).
+      * `custom_utility` (`+0x90`) -- un `Func<AbilityEntities, UtilityDefinition>` evalue PAR
+        ACTEUR. Cote port : un callable `(state, actor_id) -> set[int] | None` qui rend l'ensemble
+        des ids de cible AUTORISES (`None` = aucune contrainte). Cf. l'ecart nomme ci-dessous.
+      * `utility_entity` (`+0x80`) -- **NON CONSOMME** (residu `#590-r4`). C'est un selecteur
+        resolu par `SelectFirst` et passe a la couche d'utilite comme entite de reference du
+        scoring ; le moteur d'utilite porte (`engine/ai/tactic.py`) n'expose pas ce point
+        d'ancrage. 1101 y passe `Owner@sel+0x30` -- c'est-a-dire le CASTER, ce qui est aussi le
+        proprietaire courant de l'acteur au moment ou il agit (l'owner-swap a deja eu lieu) : le
+        defaut du port coincide donc sur ce call-site. Le champ est PORTE (conserve, journalise)
+        pour qu'un futur consommateur n'ait pas a re-lire le decompile.
+
+    ⚠ **`get_ability_type` (`+0x68`) N'EST PAS UN PARAMETRE DU PORT, ET C'EST UNE LECTURE.** Le
+    natif y passe un `Func<IEntity,int>` -- pour 1101, le lambda sans capture mis en cache dans le
+    singleton `<>c` d'`AttemptedPossessionAbility` (champ statique `+8`). Son CORPS est
+    **DEDUPLIQUE** : aucun symbole ne le nomme, ni dans `frida/methods.tsv` ni dans
+    `ghidra/functions.tsv` (la classe `<>c` n'y porte que son `.cctor` et le lambda
+    `<GetPreferredAttackTarget>b__5_1`). Deux sources CONCORDANTES etablissent qu'il rend
+    l'ATTAQUE NORMALE de l'acteur, sans qu'on ait lu le lambda :
+      1. i2 verbatim -- << ... immediately **perform a normal attack** against the closest enemy
+         unit ... >> ;
+      2. le generateur de candidats de la MEME ability
+         (`AttemptedPossessionAbility.<>c__DisplayClass5_0$$<GetPreferredAttackTarget>b__0`) appelle
+         `IdunBattle.Entities.UnitExtensions$$GetNormalAttackType(unit)` sur ses DEUX branches pour
+         enumerer les cibles -- il enumere donc les cibles de l'ability que le behaviour va jouer.
+    C'est le MEME corps que les deux autres noeuds de cette famille (dont un proprietaire nomme
+    existe : `ShockAssaultAbility.<>c$$<CreateBehaviour>b__1_0`, 7 slots de delegate y pointent).
+    Le port passe donc `NORMAL_ATTACK_ID`, comme `PerformAIAttack`.
+
+    ⚠ **LE `customUtility` EST MATERIALISE EN EXCLUSION DE CANDIDAT, PAS EN SCORE -- ECART NOMME.**
+    Le natif range l'utilite `IdunBattle.AI.Utilities.OnlyCertainTargetUtility` dans une
+    `UtilityDefinition` que `ActiveAbilityActionGenerator$$GenerateActions` consulte ; son
+    `$$EvaluateAttackInSteps` yield **l'une de DEUX constantes statiques** de la classe selon que
+    `this.targets.Contains(utilityAttackCase.Target)` ou non (LU : `statics+0x00` si contient,
+    `statics+0x20` sinon). **La POLARITE de ces deux constantes n'est pas lisible offline** -- la
+    classe n'a pas de `.cctor` nomme et les deux slots sont des `DAT_*`. Le port retient
+    l'ELIMINATION (une cible hors liste n'est pas candidate), pour trois raisons LUES :
+    le nom de la classe (<< Only Certain Target >>), le fait que `GetAttackCustomUtility` rend
+    **null** -- donc AUCUNE contrainte -- quand `GetPreferredAttackTarget` ne trouve rien (il ne
+    fabrique une utilite que pour CONTRAINDRE), et le fait que la << preference >> de l'i2 est
+    deja entierement resolue en amont, dans `b__0` (repli sur la liste non filtree si le filtre
+    << non possedes >> la vide) : ce qui sort est UNE cible, pas un souhait.
+    Si la constante de rejet etait seulement BASSE et non eliminatoire, le port refuserait de
+    frapper la ou le natif frapperait faute de mieux -- degradation CONSERVATRICE (on n'invente
+    pas un degat). Residu `#590-r5` (`BLOCAGE: capteur` -- trancher demande de lire les deux
+    champs statiques a l'execution).
+
+    Effet PUR (`stop=False`). Journalise `PerformAIAbility` (diag replay-diff)."""
+    __slots__ = ("selector", "override_movement", "allow_only_move", "utility_entity",
+                 "custom_utility")
+
+    def __init__(self, selector: TargetsSelector,
+                 override_movement: Optional[AAmountFormula] = None,
+                 allow_only_move: bool = False,
+                 utility_entity: Optional[TargetsSelector] = None,
+                 custom_utility=None):
+        self.selector = selector
+        self.override_movement = override_movement
+        self.allow_only_move = bool(allow_only_move)
+        self.utility_entity = utility_entity
+        self.custom_utility = custom_utility
+
+    def execute(self, entities, ectx):
+        from ..loki.summon import perform_ai_ability_unit_behaviour
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        units = self.selector.evaluate(entities) or []
+        uids = [u.get("id") for u in units if isinstance(u, dict) and u.get("id") is not None]
+        acted = []
+        for uid in uids:
+            # `+0x78` evalue PAR ACTEUR : le natif re-ecrit l'ACTEUR dans l'`AbilityEntities` avant
+            # d'appeler `Calculate`, donc la formule voit `Actor` = l'unite courante. Cote port,
+            # `entities` porte deja ce binding (`entities_from_state(... actor=...)` cote appelant) ;
+            # on le repositionne ici pour que la formule le lise sans que le call-site ait a
+            # dupliquer l'arbre par acteur.
+            move_amount = None
+            if self.override_movement is not None:
+                prev = getattr(entities, "actor", None)
+                try:
+                    entities.actor = next((u for u in units
+                                           if isinstance(u, dict) and u.get("id") == uid), None)
+                    move_amount = int(self.override_movement.evaluate(entities))
+                finally:
+                    entities.actor = prev
+            allowed = None
+            if self.custom_utility is not None:
+                allowed = self.custom_utility(state, int(uid))
+            res = perform_ai_ability_unit_behaviour(
+                state, int(uid), self.allow_only_move, move_amount,
+                allowed_targets=allowed)
+            acted.append({"unit": int(uid), "move_amount": move_amount,
+                          "allowed_targets": (sorted(allowed) if allowed is not None else None),
+                          "result": res})
+        ectx.emit("PerformAIAbility", units=uids, allow_only_move=self.allow_only_move,
+                  acted=acted)
         return OperationResult.ok()

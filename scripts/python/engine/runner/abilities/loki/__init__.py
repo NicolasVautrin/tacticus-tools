@@ -66,6 +66,10 @@ from .facade import (SorcerousFacadeAbility, sorcerous_facade_tree,
                      sorcerous_facade_switch_tree, sorcerous_facade_target_selector)
 from .foul_infusion import (FoulInfusionAbility, foul_infusion_tree,
                             foul_infusion_buff_targets, foul_infusion_attack_target)
+from .attempted_possession import (AttemptedPossessionAbility, attempted_possession_custom_utility,
+                                   attempted_possession_damage, attempted_possession_movement,
+                                   attempted_possession_preferred_target,
+                                   attempted_possession_targets, attempted_possession_tree)
 from .mind_control import (MindControlAbility, mind_control_tree,
                            mind_control_taunter_selector)
 
@@ -123,5 +127,8 @@ __all__ = [
     "FoulInfusionAbility", "foul_infusion_tree", "foul_infusion_buff_targets",
     "foul_infusion_attack_target",
     # mind_control (MindControl 1164, #552)
+    "AttemptedPossessionAbility", "attempted_possession_tree", "attempted_possession_targets",
+    "attempted_possession_movement", "attempted_possession_damage",
+    "attempted_possession_preferred_target", "attempted_possession_custom_utility",
     "MindControlAbility", "mind_control_tree", "mind_control_taunter_selector",
 ]

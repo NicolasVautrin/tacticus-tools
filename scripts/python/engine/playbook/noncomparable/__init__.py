@@ -102,6 +102,7 @@ from .supreme_commander import SupremeCommanderPlaybook
 from .hellfyre_missile_rack import HellfyreMissileRackPlaybook
 from .unstoppable_momentum import UnstoppableMomentumReworkedPlaybook
 from .mind_control import MindControlPlaybook
+from .attempted_possession import AttemptedPossessionPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -205,6 +206,14 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         # La base est `NonComparablePlaybook` -- LUE dans `classes.tsv`, le ctor gshared etant
         # mislabele `ComparablePlaybook<...>` par ghidra.
         MindControlPlaybook(),          # 1164 -- util = PV COURANTS de la cible ENNEMIE
+        # #590 -- face DECISION de `1101 AttemptedPossession`, ABSENTE jusqu'ici (comme la face
+        # COMBAT : l'ability etait un NO-OP silencieux des DEUX cotes). `IdunBattle.AI.Playbook.
+        # Loki.AttemptedPossessionPlaybook$$EvaluateNonComparable` = un COMPTEUR 1/2/3 (plancher
+        # Fix64(1), +1 si la cible a des summons, +1 si elle a une cible d'attaque normale),
+        # `MIN_UTILITY = 1` (cctor). Le port rend le PLANCHER : les deux increments exigent des
+        # substrats absents de `NCContext` (`parentId` d'une unite ennemie, cibles d'attaque par
+        # unite) -- residu `#590-r7`. Base `NonComparablePlaybook` LUE dans `classes.tsv`.
+        AttemptedPossessionPlaybook(),  # 1101 -- util = PLANCHER Fix64(1) (increments non portes)
     )
 }
 
@@ -276,5 +285,5 @@ __all__ = [
     "ThriceBlessedConflagrationPlaybook", "SendInTheNextWavePlaybook", "IncursionPlaybook",
     "MasterOfTheTutelariesPlaybook", "SupremeCommanderPlaybook",
     "HellfyreMissileRackPlaybook", "UnstoppableMomentumReworkedPlaybook",
-    "MindControlPlaybook",
+    "MindControlPlaybook", "AttemptedPossessionPlaybook",
 ]
