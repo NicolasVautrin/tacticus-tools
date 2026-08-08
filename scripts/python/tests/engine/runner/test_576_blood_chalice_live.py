@@ -206,6 +206,39 @@ def test_l_arbre_porte_les_trois_mecaniques_dans_l_ordre_natif():
     assert b.duration_rounds == 1 and c.duration_rounds == 1      # TurnsFromRounds(1) x2
 
 
+def test_le_selecteur_de_cibles_porte_ses_TROIS_etages():
+    """`GetTargets` = `UnitsWithoutTrait(AdjacentFriends(Caster) op_Subtraction
+    MechanicalUnits(AdjacentFriends(Caster)), 0x19 Immune)` -- TROIS etages, et deux d'entre eux
+    sont MUETS dans le tooltip.
+
+    ⚠ POURQUOI UNE GARDE STRUCTURELLE PLUTOT QUE LE SEUL LIVE. L'etage E3 du probe mesure que le
+    NATIF laisse le mecanique intact -- ce qu'il fait quoi qu'on ecrive cote port. Retirer le
+    `MechanicalUnits` du selecteur laisserait donc E3 VERT tout en faisant soigner (et effecter) une
+    unite que le natif refuse : exactement la panne #520/#564, invisible de tout compteur. C'est
+    cette assertion-ci qui la voit.
+
+    ⚠ Et le filtre `Immune` n'est confronte NULLE PART en live : aucune des unites du pool ne porte
+    ce trait. La structure est le SEUL canal qui le garde."""
+    from engine.entities.selectors.units import (AdjacentFriends, MechanicalUnits, Sub,
+                                                 UnitsWithoutTrait)
+    from engine.entities.traits.unit_trait import UnitTrait
+    from engine.runner.abilities.bloodangels import blood_chalice_targets
+
+    sel = blood_chalice_targets()
+    assert isinstance(sel, UnitsWithoutTrait)
+    assert int(sel.trait) == int(UnitTrait.Immune), (
+        "`0x19` est un UnitTrait.Immune -- l'ordinal est AUSSI valide dans EffectType et "
+        "ActiveAbilityType, seul le nom discrimine")
+    assert isinstance(sel.source, Sub), (
+        "l'exclusion des MECANIQUES a disparu : le port affecterait des unites que le natif REFUSE, "
+        "sans erreur et sans qu'aucun etage live ne le voie")
+    assert isinstance(sel.source.a, AdjacentFriends)
+    assert isinstance(sel.source.b, MechanicalUnits)
+    # Le natif appelle la surcharge UNIT-ancree (tranchee par ses XREFS entrantes) : centre = Caster,
+    # reference d'equipe = le MEME selecteur -> collapse `reference=None` exact ici.
+    assert sel.source.a.reference is None
+
+
 def test_le_trigger_de_soin_passe_par_l_operation_qui_porte_le_gate():
     """Le soin sur attaque melee DOIT passer par `HealUnitOperation.execute` -- qui porte le gate
     `AttackQuery$$EntityCanBeHealed` ET `PredictHeal`. C'est exactement la panne trouvee DEUX fois

@@ -154,16 +154,32 @@ def seuil_pct() -> int:
     return int(((GC.ability("BloodChalice") or {}).get("constants") or {})["healthPct"])
 
 
+def _feuille_set():
+    """LA FEUILLE `SetHealth` QUE LE PORT CONSTRUIT, extraite de l'arbre reel.
+
+    ⚠ C'est ce qui COUPLE les criteres a la VALEUR DU PORT et pas seulement a l'oracle natif : les
+    trois parametres qui decident du montant (`pct_var`, `pct_is_constant`, `pct_rounding`) sont LUS
+    SUR L'INSTANCE. Muter l'un d'eux dans `bloodangels.py` fait bouger `attendu_set`, donc rougir E1
+    (l'ecart cesse d'etre constant) ET E5 (la difference attendue change). Une constante recopiee
+    ici aurait laisse les deux etages VERTS sur un port casse -- c'est le faux vert classique."""
+    from engine.runner.abilities.bloodangels import blood_chalice_tree
+    return blood_chalice_tree(0).left.left
+
+
 def attendu_set(hp_max: int) -> int:
-    """CE QUE LE PORT CALCULE : `PercentageOf(StatAmount(It, HEALTH, MAXIMUM),
-    ConfigConst(healthPct), **2 = Floor**)`. Le critere est couple a CETTE valeur, pas au seul
-    oracle natif -- si le port change d'arrondi, de base ou de pct, E1 et E5 rougissent."""
-    import math
-    return math.floor(Fraction(int(hp_max) * seuil_pct(), 100))
+    """CE QUE LE PORT CALCULE, par SES parametres : `PercentageOf(StatAmount(It, HEALTH, MAXIMUM),
+    ConfigConst(healthPct), roundingRule)` -- mirror exact du chemin de `SetHealth.execute`."""
+    from engine.dsl.base import _round_fix64
+    from engine.entities.effects.magnitude import ability_var
+    f = _feuille_set()
+    pct = (ability_var(f.ability_id, f.pct_var, is_constant=True) if f.pct_is_constant
+           else ability_var(f.ability_id, f.pct_var, 50))
+    return _round_fix64(Fraction(int(hp_max) * int(pct), 100), f.pct_rounding)
 
 
 def attendu_set_half_even(hp_max: int) -> int:
-    """CONTRE-VALEUR d'E5 : ce que rendrait `roundingRule = 0` (l'arrondi de `BlackRage`)."""
+    """CONTRE-VALEUR d'E5 : ce que rendrait `roundingRule = 0` (l'arrondi de `BlackRage`), a pct
+    IDENTIQUE. Les deux ne se separent que si `hp_max = 3 (mod 4)` a `healthPct = 50`."""
     return round(Fraction(int(hp_max) * seuil_pct(), 100))
 
 
