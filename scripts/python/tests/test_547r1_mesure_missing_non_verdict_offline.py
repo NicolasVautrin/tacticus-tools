@@ -38,15 +38,25 @@ DECLENCHEUR = {
         # ⚠ NI DERIVE NI DERIVABLE PAR IMPORT : le cliquet CHOISIT sa cible dans ce fichier de
         # durees VERSIONNE (`_fichier_le_moins_cher`). Il est ouvert par chemin, jamais importe.
         "scripts/ratchets-457-durations.json",
+        # ⚠ LES TROIS SUIVANTS SONT DES TEMOINS, apportes par l'EMPREINTE et non par la fermeture.
+        # Ce fichier LANCE `probe_457` en sous-process (etages 2-4) : les modules que CELUI-CI
+        # importe sont OUVERTS pendant le test, donc mesures. Aucune analyse d'imports de CE
+        # fichier ne peut les voir -- c'est exactement l'ecart a DEUX SOURCES que #486-r29 decrit,
+        # et il n'apparait qu'APRES `--measure-missing`.
+        "scripts/python/ledger_vert_offline.py",
+        "scripts/python/probe_463r1_ecart_empreinte_offline.py",
+        "scripts/python/repo_read.py",
     ),
     "build": False,          # ne lit ni le binaire ni `data/symbols/**`
     "toujours": False,
     "raison": (
-        "CES chemins et pas d'autres : ce test n'importe que le cliquet et le probe qu'il juge, "
-        "et aucun des deux ne tire `engine.*`. Les etages 3-4 montent un worktree TEMOIN depuis "
-        "`HEAD` et n'ouvrent donc rien d'autre du checkout courant. Le 3e chemin est le seul "
-        "ajout MANUEL : il porte la CIBLE du contrefactuel, dont le choix est mecanique mais que "
-        "nul import ne revele -- l'omettre serait le faux vert que #486-r15 combat."
+        "CES chemins et pas d'autres, en DEUX groupes de nature differente. (1) La FERMETURE : ce "
+        "test n'importe que le cliquet et le probe qu'il juge, et aucun des deux ne tire "
+        "`engine.*`. (2) Ce qu'aucun import ne revele : la CIBLE du contrefactuel, choisie "
+        "mecaniquement dans les durees versionnees ; et les TROIS modules que `probe_457` importe "
+        "quand ce test le LANCE EN SOUS-PROCESS -- ils arrivent par les temoins de l'empreinte, "
+        "donc seulement APRES `--measure-missing` (#486-r29). Les omettre serait le faux vert que "
+        "#486-r15 combat, vu depuis l'autre bout."
     ),
 }
 

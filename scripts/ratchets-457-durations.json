@@ -267,6 +267,7 @@
  "tests/test_486r5_balayages_memoises_offline.py": 0.733,
  "tests/test_546_capteurs_fenetre_offline.py": 1.684,
  "tests/test_547_ledger_sans_verdict_non_vert_offline.py": 0.169,
+ "tests/test_547r1_mesure_missing_non_verdict_offline.py": 56.376,
  "tests/test_579r1_nullable_layout_offline.py": 0.01,
  "tests/test_additional_hits_variant_signatures_offline.py": 25.879,
  "tests/test_enum_maps_ratchet_offline.py": 0.042,
