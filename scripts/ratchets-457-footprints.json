@@ -68,6 +68,20 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/runner/test_120bis_spawn_tile_offline.py": {
+   "_at": 1786150777,
+   "_commit": "027cb48531fc84677e2b6621495d19115c524ff1",
+   "dirs": [
+    "data",
+    "scripts/python/engine/runner/operations/triggers/loki",
+    "scripts/python/engine/utilities"
+   ],
+   "temoins": [
+    "data/seed-bc.json",
+    "scripts/python/engine/runner/operations/triggers/loki/sworn_protector.py",
+    "scripts/python/engine/utilities/sworn_protector.py"
+   ]
+  },
   "tests/engine/runner/test_287r11r1r1r2_is_turn_of_unit_offline.py": {
    "_at": 1786136379,
    "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
@@ -1213,6 +1227,22 @@
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
    "dirs": [],
    "temoins": []
+  },
+  "tests/engine/runner/test_bl_1020r_herald_extra_damage_offline.py": {
+   "_at": 1786150777,
+   "_commit": "027cb48531fc84677e2b6621495d19115c524ff1",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/runner/test_bl_1029r_drachnyen_extra_attack_offline.py": {
+   "_at": 1786150777,
+   "_commit": "027cb48531fc84677e2b6621495d19115c524ff1",
+   "dirs": [
+    "data"
+   ],
+   "temoins": [
+    "data/seed-bc.json"
+   ]
   },
   "tests/engine/runner/test_block_chances_order_offline.py": {
    "_at": 1786110307,
