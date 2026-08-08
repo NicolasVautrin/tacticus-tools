@@ -43,7 +43,7 @@
 
 import {
     class_get_methods, class_get_name, findClassAnywhere, findCtorByParamCount, findMethod,
-    method_get_name, method_get_param_count, methodParamClassName, readMsgClass, s,
+    fieldOffsetOr, method_get_name, method_get_param_count, methodParamClassName, readMsgClass, s,
 } from "../il2cpp/helpers.js";
 import { createManagedString, invokeMethod } from "../il2cpp/invoke.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
@@ -264,23 +264,54 @@ export function register(ctx: Ctx): void {
         };
     });
 
-    /** APPELER une méthode de l'ÉTAT COURANT. C'est la porte générique : le déploiement s'y
-     *  pilote par `OnUnitInHand("bloodDante", false)` / `RemoveUnit("...")`, mais rien ici
-     *  ne connaît le déploiement — un autre état s'appelle de la même façon.
-     *  body: { method, args?: [...] } — cf. `argIl2cpp` pour les types acceptés. */
+    /** APPELER une méthode de l'ÉTAT COURANT, ou d'un SERVICE que cet état détient.
+     *
+     *  `target` est un nom de CHAMP de l'état (`_actions`, `_visualBattleQuery`,
+     *  `_stateChanger`, `TouchInformation`…). Sans lui, on appelle l'état lui-même.
+     *  Pourquoi ce cran : les états délèguent l'essentiel à leurs services — mesuré sur
+     *  `UnitDeploymentState.OnUnitInHand`, qui ne fait que relayer l'id à deux méthodes de
+     *  `_actions` (`IStateMachineActions`) avant de le stocker. Sans `target`, ces services
+     *  ne sont atteignables qu'à travers la méthode qui les enveloppe, donc avec ses
+     *  préconditions. Les champs se lisent par le RPC `classFields`.
+     *
+     *  Le champ est cherché sur la classe RÉELLE puis ses parents (les états dérivent tous
+     *  de `BaseSelectionState`, qui déclare la totalité des services).
+     *
+     *  body: { method, args?: [...], target?: "<champ>" } — types acceptés : cf. `argIl2cpp`. */
     ctx.rpc.fsmStateInvoke = (
-        body?: { method?: string; args?: unknown[] },
+        body?: { method?: string; args?: unknown[]; target?: string },
     ): Promise<unknown> => queueOnMainThread(() => {
         const f = fsmUtilisable();
         if (estRefus(f)) return f;
         const e = objetEtat();
         if (!e) return { ok: false, error: "aucun etat courant" };
+
+        let obj = e.obj;
+        let klass = e.klass;
+        const cible = body?.target;
+        if (cible) {
+            const off = fieldOffsetOr(e.klass, cible, -1);
+            if (off < 0) {
+                return { ok: false, error: "champ " + JSON.stringify(cible) + " absent de "
+                    + s(class_get_name(e.klass) as NativePointer)
+                    + " ni de ses parents -- `classFields` liste les champs" };
+            }
+            const svc = e.obj.add(off).readPointer();
+            if (svc.isNull()) {
+                return { ok: false, error: "champ " + cible + " (+0x" + off.toString(16)
+                    + ") est NUL -- le service n'est pas branche" };
+            }
+            obj = svc;
+            klass = svc.readPointer();
+        }
+
         const nom = body?.method || "";
-        const mr = findMethod(e.klass, nom);
+        const mr = findMethod(klass, nom);
         if (!mr) {
             return { ok: false, error: "methode " + JSON.stringify(nom) + " absente de "
-                + s(class_get_name(e.klass) as NativePointer)
-                + " -- `fsmStateMethods` liste ce qui existe" };
+                + s(class_get_name(klass) as NativePointer)
+                + (cible ? " (via le champ " + cible + ")" : "")
+                + " -- `fsmStateMethods` liste ce qui existe sur l'etat" };
         }
         const bruts = body?.args ?? [];
         const args: NativePointer[] = [];
@@ -290,9 +321,9 @@ export function register(ctx: Ctx): void {
             args.push(a as NativePointer);
         }
         const avant = etatCourant();
-        invokeMethod(mr.info, e.obj, args.length ? args : null);
+        invokeMethod(mr.info, obj, args.length ? args : null);
         return {
-            ok: true, etat: avant, methode: nom, args: bruts.length,
+            ok: true, etat: avant, methode: nom, args: bruts.length, cible: cible ?? null,
             etatApres: etatCourant(),
         };
     });

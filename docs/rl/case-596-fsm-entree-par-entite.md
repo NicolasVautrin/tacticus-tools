@@ -65,13 +65,53 @@ Le même FSM porte **toute la conduite manuelle** d'un tour : `NothingSelected.N
 péremption (matchState du FSM confronté à celui du runner live) est passée verte, avec le refus
 nommé quand elle ne l'est pas.
 
-⚠ **CE QUI NE MARCHE PAS ENCORE, ET LA PISTE EXACTE.** `OnUnitInHand("bloodDante", false)`
-faute (`system error`), de façon reproductible (3/3). Ce n'est PAS le marshalling :
-`RemoveUnit("bloodDante")` passe avec la même chaîne managée. Le décompilé montre pourquoi —
-avant de stocker l'unité, la méthode passe l'id à **deux appels d'interface** via le service
-`this+0x18` (slots `0x29` puis `0x24`), et seule la branche `unitId == null` les évite, ce qui
-explique exactement pourquoi l'essai avec `null` passait. C'est donc une **précondition ou une
-forme d'id** qui manque, à trancher en identifiant le service de `this+0x18`.
+## `this+0x18` IDENTIFIÉ — et le blocage restant est NOMMÉ
+
+Lu sur la classe VIVANTE (`classFields`), pas déduit. `UnitDeploymentState` (0x58 octets)
+hérite toute sa couche de services de `BaseSelectionState` :
+
+| offset | champ | type |
+|---|---|---|
+| `+0x10` | `_stateChanger` | `IUnitSelectionFsmStateChanger` |
+| **`+0x18`** | **`_actions`** | **`IStateMachineActions`** |
+| `+0x20` | `_state` | `IMatchState` |
+| `+0x28` | `_visualBattleQuery` | `IVisualBattleQuery` |
+| `+0x30` | `_timeQuery` | `ITimeQuery` |
+| `+0x38` | `TouchInformation` | `ITouchInformation` |
+| `+0x40` | `_isMovingCamera` | `Boolean` |
+| `+0x48` | `_currentlySelectedUnit` | `CurrentlySelectUnit` |
+| `+0x50` | `_enemySelected` | `IEntity` |
+
+Cette table confirme les trois lectures du décompilé : `+0x38` est bien le service appelé avec
+`mousePosition` par `BaseSelectionState.OnFingerDownThisFrame` ; `+0x50` est bien ce que
+`OnFingerDownThisFrameInternal` compare à `entityHit` ; et `+0x48` est le `CurrentlySelectUnit`
+dont `OnUnitInHand` écrit l'id en `+0x10` et le booléen en `+0x18`.
+
+`IStateMachineActions` porte **131** méthodes, dont le vocabulaire exact du déploiement :
+`UnitDeployment_PutUnitIntoHand(String)`, `UnitDeployment_TryRemoveUnitFromBoard(String)`,
+`UnitDeployment_ShowUnitInfoBarHud(String)`, `CreateVisualUnitDataForDeployment(String)`.
+
+⚠ **LE BLOCAGE N'EST NI L'ID NI LE CHEMIN D'APPEL — C'EST LA CRÉATION DU VISUEL.** Mesuré via
+`fsmStateInvoke({target: "_actions", ...})`, qui atteint le service directement :
+
+| appel | verdict |
+|---|---|
+| `UnitDeployment_TryRemoveUnitFromBoard("bloodDante")` | **ok** |
+| `UnitDeployment_TryRemoveUnitFromBoard("zzIdQuiNexistePas")` | **ok** |
+| `UnitDeployment_PutUnitIntoHand("zzIdQuiNexistePas")` | **ok** |
+| `UnitDeployment_PutUnitIntoHand("bloodDante")` | **`system error`** |
+| `UnitDeployment_ShowUnitInfoBarHud("bloodDante")` | **`system error`** |
+| `CreateVisualUnitDataForDeployment("bloodDante")` | **`system error`** |
+
+C'est l'id **RÉEL** qui faute, l'id **BIDON** qui passe : un id inconnu sort tôt sans rien
+faire, un id connu descend dans la construction du visuel — et c'est là que ça casse. Le
+chemin d'appel est donc DÉMONTRÉ bon (un vrai appel d'interface avec une vraie chaîne
+managée réussit), et la forme de l'id aussi.
+
+⚠ **La piste « session froide » (warmup désactivé) n'est PAS tranchée.** Un `POST
+/api/admin/warmup` puis re-entrée en bataille laisse l'appel en `system error` — mais **le
+warmup lui-même a rendu 500**, donc ce test ne réfute rien. À rejouer sur une session
+warmée pour de bon avant de conclure quoi que ce soit.
 
 ⚠ **Et le `Start!` reste hors de portée par cette voie** : `StartBattle(List<System.String>)`
 prend un type COMPOSÉ, que `fsmStateInvoke` refuse volontairement (construire une `List<T>`
