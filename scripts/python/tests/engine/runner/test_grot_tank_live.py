@@ -393,3 +393,92 @@ def test_grot_tank_summon_is_not_activatable(grot):
     assert not [i for i in fresh if i in to_activate], \
         (f"le summon {fresh} est dans toActivate {to_activate} -- `FinishUnitTurn(spawned, "
          f"isTerminated: true)` n'a pas ete applique")
+
+
+# ------------------------------------------------------------------ D1 : la face DECISION
+
+def test_grot_tank_playbook_utility_matches_native(grot):
+    """DECIDER != EXECUTER -- ce test tient l'AUTRE face.
+
+    `IdunBattle.AI.Playbook.Loki.GrotTankPlaybook$$GetUtility(caster, summonTile)` = le nombre
+    d'unites NON AMIES dans le DISQUE de rayon **3** autour de la tuile de spawn (slots
+    `IBattleQuery` 118 `GetSurroundingUnits` / 146 `AreFriends`) -- pas les adjacentes, pas toutes
+    les unites. L'oracle est `ncEvaluate --sweep`, qui invoque la leaf native PAR POSITION du
+    caster et decode `Bucket.best` ; le port recalcule le max de sa propre utilite sur les tuiles
+    de spawn eligibles depuis cette meme position.
+
+    Le rayon est ce que ce test tranche : sur le montage, les positions se ventilent en utilites
+    **1 / 2 / 3** -- un rayon 1 ou 2 les ecraserait, un predicat "toutes les unites" les
+    augmenterait. L'assertion sur la DISPERSION (au moins deux valeurs distinctes) est ce qui
+    empeche un vert degenere ou toutes les positions vaudraient la meme chose."""
+    build, rpc = grot
+    rid = build()
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180) or {}
+    cid = next((u.get("id") for u in (dv.get("units") or [])
+                if u.get("visualId") == CARRIER and u.get("alive")), None)
+    if cid is None:
+        pytest.skip("caster absent")
+    nc = rpc("ncEvaluate", {"runnerId": rid, "unitId": cid,
+                            "abilityType": GROT_TANK, "sweep": True}, 180) or {}
+    if not nc.get("ok"):
+        pytest.skip(f"ncEvaluate indispo: {nc.get('error')}")
+    assert nc.get("playbookClass") == "GrotTankPlaybook", \
+        f"le natif charge {nc.get('playbookClass')} pour 1057, pas GrotTankPlaybook"
+    rows = [r for r in (nc.get("positions") or []) if r.get("util") is not None]
+    assert rows, ("bucket natif VIDE a toutes les positions -- le montage n'atteint pas le "
+                  "regime (aucun ennemi a portee 3 d'aucune tuile de spawn)")
+
+    import hexgeo
+    from engine import battle_query as bq
+    from engine.ai import context as ai_ctx
+    from engine.playbook import noncomparable as playbooks
+    from engine.playbook import scene as scene_mod
+    from engine.playbook.noncomparable._base import eligible_target_tiles
+    from engine import weights as W
+
+    mov = rpc("aiMovableTiles", {"runnerId": rid}, 60) or {}
+    predictor = scene_mod.build_predictor(rpc, rid)
+    ctx = ai_ctx.build(rpc, rid, dv, {u.get("unitId"): u for u in (mov.get("units") or [])},
+                       cid, W.load(), predictor, debug=False)
+    nc_ctx = playbooks.NCContext(
+        uid=ctx.uid, origin=ctx.origin, reach_nc=ctx.reach_nc, epos=ctx.epos, fpos=ctx.fpos,
+        enemies=ctx.enemies, neigh_by_pos=ctx.neigh_by_pos, walkable_by_pos=ctx.walkable_by_pos,
+        plan=ctx.plans.get(ctx.uid) or {}, plans=ctx.plans, hp_cur_by_id=ctx.hp_cur_by_id,
+        elev_by_pos=ctx.elev_by_pos, ability_targets=ctx.ability_targets, wt=ctx.wt,
+        is_temporary_by_pos=ctx.is_temporary_by_pos, effects_by_pos=ctx.effects_by_pos,
+        obs_units=ctx.obs_units, tile_id_by_pos=ctx.tile_id_by_pos,
+        active_levels=ctx.active_ability_levels, units=ctx.units,
+        cast_from_tiles=ctx.cast_from_tiles, scene=ctx.scene, debug=False)
+    pb = playbooks.PLAYBOOKS.get(GROT_TANK)
+    assert pb is not None, "1057 absente du registre NonComparable"
+    _fh, union = eligible_target_tiles(nc_ctx, GROT_TANK)
+    neigh = bq.neigh_map(nc_ctx)
+    mismatch = []
+    natives = []
+    for r in rows:
+        p = r.get("pos")
+        T = tuple(p) if isinstance(p, list) else p
+        if not isinstance(T, tuple):
+            continue
+        mine = 0.0
+        for st in union:
+            if not bq.is_adjacent(T, st, nc_ctx.elev_by_pos, neigh):
+                continue
+            mine = max(mine, float(sum(1 for e in (ctx.epos or [])
+                                       if hexgeo.distance(st, (e[0], e[1]))
+                                       <= pb._UTILITY_RADIUS)))
+        natives.append(float(r["util"]))
+        if abs(float(r["util"]) - mine) >= 1e-6:
+            mismatch.append((T, r["util"], mine))
+    print(f"\n[567/nc] {len(natives)} positions ; utilites natives {sorted(set(natives))} ; "
+          f"divergences={mismatch[:6]}")
+    assert natives, "aucune position confrontee"
+    assert len(set(natives)) >= 2, \
+        (f"toutes les positions valent {set(natives)} -- regime DEGENERE : le rayon n'est pas "
+         f"discrimine, re-crafter le montage")
+    assert not mismatch, \
+        f"utilite natif != port sur {len(mismatch)} position(s) : {mismatch[:6]}"
+    cands = pb.generate_candidates(nc_ctx) or []
+    assert cands, "le natif propose et le port ne propose RIEN"
+    assert abs(float(cands[0]["pred"]) - max(natives)) < 1e-6, \
+        f"argmax port {cands[0]['pred']} != max natif {max(natives)}"

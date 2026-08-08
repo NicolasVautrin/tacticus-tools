@@ -75,6 +75,7 @@ from .heals import (
 )
 from .scarab_summon import ScarabSummonPlaybook
 from .get_em_runtz import GetEmRuntzPlaybook
+from .grot_tank import GrotTankPlaybook
 from .gauntlets_of_ultramar import GauntletsOfUltramarPlaybook
 from .hammer_of_wrath import HammerOfWrathPlaybook
 from .heroic_fusillade import HeroicFusilladePlaybook
@@ -119,6 +120,9 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         InspiredToGreatnessPlaybook(),
         ScarabSummonPlaybook(),
         GetEmRuntzPlaybook(),
+        GrotTankPlaybook(),             # 1057 — util = #ennemis dans le DISQUE r=3 autour de la
+        #                                 tuile de spawn (= la portee Blast du tank), gate u > 0
+        #                                 (IdunBattle.AI.Playbook.Loki.GrotTankPlaybook$$GetUtility)
         GauntletsOfUltramarPlaybook(),
         HammerOfWrathPlaybook(),
         HeroicFusilladePlaybook(),   # #15 (G5, Judh) — util plate=1, gates Hero+ennemi-voisin
@@ -262,7 +266,8 @@ __all__ = [
     "AberrantHypermorphPlaybook", "NovaBoostPlaybook", "NovaShieldPlaybook",
     "RitesOfRestorationPlaybook", "CombatRestorativesPlaybook", "DefendTheDivineWorkPlaybook",
     "RevitalizingMalignancyPlaybook", "InspiredToGreatnessPlaybook", "ScarabSummonPlaybook",
-    "GetEmRuntzPlaybook", "GauntletsOfUltramarPlaybook", "HammerOfWrathPlaybook",
+    "GetEmRuntzPlaybook", "GrotTankPlaybook", "GauntletsOfUltramarPlaybook",
+    "HammerOfWrathPlaybook",
     "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook", "StormcallerPlaybook",
     "ItItchesPlaybook", "TheQuickeningPlaybook", "BlackRagePlaybook", "VigilanceEternalPlaybook",
     "KillMaimBurnPlaybook", "ScarabHivePlaybook", "CordClawPlaybook", "SpawnPoxwalkersPlaybook",
