@@ -855,10 +855,15 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   TARGETING_OPTIONS`), donc le CONTRAT DE DISJONCTION impose de retirer sa ligne d'ici. Le
     #   masque a ete RE-LU au decompile avant migration et est bit-identique a celui qui vivait ici
     #   (`.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x10120040, 0, 0)`).
-    # 1164 MindControl -- `...Active.Loki.MindControlAbility$$.ctor` :
-    #   `.ctor(&opts, 0, &<TargetingRange statics+0x18>, 1, 0x4002, 0, 0)`.
-    ActiveAbilityType.MindControl: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1164
-                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
+    # 1164 MindControl : SORTIE (#552) -- sa face COMBAT est portee
+    #   (`abilities/loki/mind_control.py::MindControlAbility.TARGETING_OPTIONS`), donc le CONTRAT DE
+    #   DISJONCTION impose de retirer sa ligne d'ici. Le ctor a ete RELU au decompile avant migration
+    #   et la valeur qui vivait ici est CONFIRMEE champ pour champ :
+    #   `.ctor(&opts, 0, &<TargetingRange statics+0x18>, 1, 0x4002, 0, 0)` -- `selfCast = False`,
+    #   `range` = FROM_CONFIG (= 3), `forceMeleeTarget = 1` (RangedBool.False), `rules` =
+    #   `TargetMatchesDynamicRule | TargetIsEnemy`. C'est la SOURCE qui bouge, jamais la valeur.
+    #   ⚠ Sa regle dynamique, elle, n'a JAMAIS eu d'entree dans `DYNAMIC_TARGET_RULE_UNPORTED` :
+    #   le porteur de repli rendait donc `0` (permissif). Elle est desormais PORTEE sur la classe.
     # 1175 BloodChalice -- `...Active.BloodChaliceAbility$$.ctor` (hors namespace `Loki`) :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0xc02, 0, 0)`.
     ActiveAbilityType.BloodChalice: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly  # 1175

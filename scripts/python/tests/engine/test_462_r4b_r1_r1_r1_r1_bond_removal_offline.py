@@ -62,6 +62,15 @@ _MEASURED = {
     # declared` du 2026-08-08 : `OWN=none` / `OWN=true` / `OWN=true`.
     int(EffectType.HolyDuel_Taunt): (
         "IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect", True, None, True, None),
+    # #552 -- le MIROIR du 27 : `MindControlAbility$$ExecuteBehaviour` pose 1367 sur l'ALLIE
+    # taunteur, bonde a la CIBLE. §8.7 de la fiche #462-r4b classait cette classe << (b) arme a
+    # `Nullable<int>(1)`, mais son `EffectType` n'est pas etabli et le port ne pose aucun de ces
+    # effets >> : les deux verrous tombent avec le port de 1164 (l'`EffectType` vient du 2e
+    # argument LITTERAL de l'`AddBondEffect`, `0x557`). Les trois virtuels RE-MESURES le
+    # 2026-08-08 par `--step declared` : (a) true, (b) 1, (c) false.
+    int(EffectType.MindControl_Taunter): (
+        "Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.MindControl_TaunterEffect",
+        True, 1, False, None),
 }
 
 

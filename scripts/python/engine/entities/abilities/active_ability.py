@@ -1101,6 +1101,15 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
                          # IdunBattle.AI.Playbook.Loki.BloodyFuryPlaybook$$EvaluateNonComparable = 1 + (#ennemis adjacents) x W (heuristique de compte AoE)
     "VexillaMagnifica",  # VexillaMagnificaPlaybook : IdunBattle.AI.Playbook.Loki.VexillaMagnificaPlaybook$$EvaluateNonComparable = allié GetStat(5),
                          # skip si HasEffect(0x48a) (buff d'allié, pas du dégât)
+    "MindControl",       # MindControlPlaybook : la chaine de parents LUE dans `classes.tsv` est
+                         # `MindControlPlaybook -> NonComparablePlaybook`1 -> Playbook`1 ->
+                         # BasePlaybook` (le ctor gshared est mislabele `ComparablePlaybook<...>`
+                         # par ghidra). IdunBattle.AI.Playbook.Loki.MindControlPlaybook$$EvaluateNonComparable = `Fix64(GetStat(cible, 5 = HEALTH))`,
+                         # MIN_UTILITY = 1 (cctor) -- patron IDENTIQUE a VexillaMagnifica. AUCUN
+                         # `Make*Predictions` : le gameconfig de 1164 n'a d'ailleurs ni `minDmg` ni
+                         # `maxDmg` (seulement `dmgReduction` / `extraDmgPct`), donc le chemin de
+                         # prediction de degat n'avait rien a fabriquer -- l'entree est ici pour
+                         # que le DISPATCH soit juste, pas pour corriger un chiffre. (#552)
     "FightingRetreat",   # FightingRetreatPlaybook : NonComparablePlaybook ; EvaluateNonComparable
                          # IdunBattle.AI.Playbook.Loki.FightingRetreatPlaybook$$EvaluateNonComparable = |ennemis adj| + |alliés adj - self| (self-debuff d'ennemis,
                          # pas de dégât — inerte ici de toute façon : pas de minDmg/maxDmg)

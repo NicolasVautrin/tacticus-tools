@@ -133,6 +133,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # deduit du comportement (le lot du jour porte les deux contre-exemples : `Others` sur une
     # ability qui attaque, `DirectTargetAttack` sur une qui ne frappe pas). (#505)
     ActiveAbilityType.BloodyFury: AbilityAttackType.DirectTargetAttack,  # 1129
+    # MindControl (1164) : `...Active.Loki.MindControlAbility$$.ctor` recopie les 3 qwords du champ
+    # statique `<TargetingRange statics>+0x18`, appelle `TargetingOptions..ctor(&opts, 0, &range, 1,
+    # 0x4002, 0, 0)`, puis `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral
+    # `0`. TRANSCRIT, jamais deduit : l'arbre de 1164 NE FRAPPE PAS (quatre `AddEffect`/
+    # `AddBondEffect`, un `Inform`, deux `If` -- aucune Operation d'attaque), et le litteral vaut
+    # quand meme `DirectTargetAttack`. Meme contre-exemple que StormOfWrath (1019) et BloodyFury
+    # (1129) ci-dessus. (#552)
+    ActiveAbilityType.MindControl: AbilityAttackType.DirectTargetAttack,  # 1164
     ActiveAbilityType.BringerOfDespair: AbilityAttackType.DirectTargetAttack,  # 1022
     ActiveAbilityType.SkyStrike: AbilityAttackType.DirectTargetAttack,  # 1025
     # PsychicMaelstrom (1027) : `PsychicMaelstromAbility$$.ctor` recopie le preset statique
