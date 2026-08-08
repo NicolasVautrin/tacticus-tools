@@ -95,6 +95,11 @@ def _git(args, cwd=ROOT, tolere=False):
 #: s'arrete au niveau 1, et les etages restent exerces quand le cliquet est joue normalement.
 TEMOIN_ENV = "TACTICUS_547R1_DANS_TEMOIN"
 
+#: La garde de CE cliquet. Retiree du worktree temoin (cf. `_temoin`) : elle y fausserait la
+#: mesure, et sa presence est ce qui a arme la recursion. `TEMOIN_ENV` reste en DEFENSE, pour le
+#: jour ou un autre fichier de test relancerait `probe_457`.
+GARDE_DU_CLIQUET = "test_547r1_mesure_missing_non_verdict_offline.py"
+
 
 def _joue_457(cwd, args):
     """Lance `probe_457` en SOUS-PROCESS : c'est son `rc` de PROCESSUS qu'on garde, pas un retour
@@ -169,6 +174,14 @@ def _temoin(mute_le_correctif: bool) -> tuple:
     cible = base / "t"
     _git(["worktree", "add", "--detach", str(cible), "HEAD"], tolere=True)
     try:
+        # ⚠ LA GARDE DE CE CLIQUET N'A RIEN A FAIRE DANS LE TEMOIN, et l'y laisser FAUSSE la
+        # mesure : elle n'y a pas d'entree d'empreinte, donc `--measure-missing` la JOUE, et a
+        # l'etage 4 son propre controle d'ancrage la voit MUTEE et rougit -- le geste rendait
+        # alors `1` pour une raison PARASITE, quand l'etage veut mesurer le retour du `0`.
+        # On la retire : le temoin sert a mesurer LE GESTE, pas a rejouer la garde.
+        garde = cible / "scripts" / "python" / "tests" / GARDE_DU_CLIQUET
+        if garde.exists():
+            garde.unlink()
         rel = _fichier_le_moins_cher()
         f = cible / "scripts" / "python" / rel.replace("/", os.sep)
         if not f.exists():
