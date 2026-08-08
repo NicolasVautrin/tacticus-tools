@@ -172,6 +172,71 @@ function installTrace(): void {
     }
 }
 
+// -------------------------------------------------- EXECUTER DEPUIS L'INPUT DU JEU
+//
+// POURQUOI. Rejouer les arguments EXACTS du jeu (entité tuile, `tileHit` identique,
+// `mousePosition` capturée) ne produit rien, alors que le clic humain place l'unité. Les
+// arguments sont donc démontrés justes et il ne reste qu'une variable : le MOMENT dans la
+// frame. `queueOnMainThread` s'exécute depuis la pompe ; le jeu, lui, appelle depuis son
+// propre traitement d'input — et c'est là que la construction du visuel réussit.
+//
+// LE POINT D'ANCRAGE. `BaseSelectionState.OnFingerDownThisFrame` appelle le service
+// `TouchInformation` (champ `+0x38`) AVANT de dispatcher vers l'état : ce service vit donc
+// dans la phase d'input. On draine la file depuis lui.
+//
+// ⚠ CE HOOK PEUT NE PAS BATTRE À CHAQUE FRAME, et le module ne le SUPPOSE pas : `fsmStatus`
+// publie son compteur d'appels, et une action non drainée sort en REFUS nommé au bout du
+// délai plutôt qu'en attente muette. Si le compteur reste à 0, c'est le hook qu'il faut
+// changer — pas l'hypothèse.
+
+const touchClass = findClassAnywhere(NS, "TouchInformation");
+const miShouldMove = touchClass ? findMethod(touchClass, "ShouldMoveCamera") : null;
+let appelsInput = 0;
+const fileInput: Array<() => void> = [];
+
+function installDrainInput(): void {
+    if (!miShouldMove) return;
+    Interceptor.attach(miShouldMove.ptr, {
+        onEnter() {
+            appelsInput++;
+            if (!fileInput.length) return;
+            const f = fileInput.shift();
+            // UNE seule action par battement : on ne réentre pas en rafale dans le jeu.
+            try { f!(); } catch { /* l'action rapporte elle-meme son echec */ }
+        },
+    });
+}
+
+/** Exécute `fn` depuis la phase d'input du jeu. Rend sa valeur, ou un REFUS nommé si le
+ *  point d'ancrage n'a pas battu dans le délai — jamais une attente muette. */
+function depuisInput<T>(fn: () => T, delaiMs = 4000): Promise<T | Refus> {
+    if (!miShouldMove) {
+        return Promise.resolve({ ok: false as const,
+            error: NS + ".TouchInformation.ShouldMoveCamera non resolue -- pas de point "
+                + "d'ancrage dans la phase d'input" });
+    }
+    return new Promise((resolve) => {
+        let fini = false;
+        const action = (): void => {
+            if (fini) return;
+            fini = true;
+            try { resolve(fn()); }
+            catch (e) { resolve({ ok: false as const,
+                error: "depuis l'input : " + (e as Error).message }); }
+        };
+        fileInput.push(action);
+        setTimeout(() => {
+            if (fini) return;
+            fini = true;
+            const i = fileInput.indexOf(action);
+            if (i >= 0) fileInput.splice(i, 1);
+            resolve({ ok: false as const,
+                error: "le point d'ancrage d'input n'a pas battu en " + delaiMs + " ms ("
+                    + appelsInput + " appel(s) depuis l'inject) -- action NON JOUEE" });
+        }, delaiMs);
+    });
+}
+
 /** Le `matchState` de la bataille VIVANTE, ou null si on ne peut pas le lire. */
 function matchStateVivant(): NativePointer | null {
     if (!state.liveRunner) return null;
@@ -465,6 +530,7 @@ function traverser(depart: Cible, chemin?: string): Cible | Refus {
 export function register(ctx: Ctx): void {
     installCapture();
     installTrace();
+    installDrainInput();
 
     /** CE QUE LE JEU PASSE VRAIMENT au FSM quand un HUMAIN clique. Read-only.
      *  body: { clear?: true } -> { ok, total, gardees, entrees: [...] }
@@ -534,10 +600,16 @@ export function register(ctx: Ctx): void {
      *  Le champ est cherché sur la classe RÉELLE puis ses parents (les états dérivent tous
      *  de `BaseSelectionState`, qui déclare la totalité des services).
      *
-     *  body: { method, args?: [...], target?: "<champ>" } — types acceptés : cf. `argIl2cpp`. */
+     *  `depuisInput: true` exécute l'appel depuis la phase d'INPUT du jeu au lieu de la
+     *  pompe (cf. l'en-tête de `depuisInput`) — la seule variable qui restait quand les
+     *  arguments se sont révélés justes.
+     *
+     *  body: { method, args?: [...], target?: "<champ>", depuisInput?: true } — types
+     *  acceptés : cf. `argIl2cpp`. */
     ctx.rpc.fsmStateInvoke = (
-        body?: { method?: string; args?: unknown[]; target?: string },
-    ): Promise<unknown> => queueOnMainThread(() => {
+        body?: { method?: string; args?: unknown[]; target?: string; depuisInput?: boolean },
+    ): Promise<unknown> => {
+        const corps = () => {
         const f = fsmUtilisable();
         if (estRefus(f)) return f;
         const e = objetEtat();
@@ -571,8 +643,11 @@ export function register(ctx: Ctx): void {
             // LA VALEUR DE RETOUR : sans elle, << a refuse >> et << a marche >> sont
             // indiscernables (cf. l'en-tete de decoderRetour).
             retour: decoderRetour(mr.info, res),
+            voie: body?.depuisInput ? "input" : "pompe",
         };
-    });
+        };
+        return body?.depuisInput ? depuisInput(corps) : queueOnMainThread(corps);
+    };
 
     /** Ce que le FSM est, et ce qu'il vaut MAINTENANT. À lire AVANT d'agir : le nom de
      *  l'état courant dit ce qu'un tap va produire (déploiement, sélection, mouvement…).
@@ -593,6 +668,13 @@ export function register(ctx: Ctx): void {
             methodes: {
                 down: miDown !== null, up: miUp !== null, held: miHeld !== null,
                 back: miBack !== null, endTurn: miEndTurn !== null,
+            },
+            // Le point d'ancrage d'input SE JUGE : s'il n'a jamais battu, `depuisInput`
+            // n'est pas une voie, et il faut le dire au lieu de laisser attendre.
+            ancrageInput: {
+                arme: miShouldMove !== null,
+                appels: appelsInput,
+                enAttente: fileInput.length,
             },
         };
     });
