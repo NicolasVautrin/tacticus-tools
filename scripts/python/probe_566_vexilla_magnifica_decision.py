@@ -34,12 +34,18 @@ balayage de positions du generateur se reduit a l'origine, donc l'ensemble des c
 d'Aesoth#2 est EXACTEMENT `{A, C}`. Sans ca, une tuile de move ferait entrer B dans le jeu et le
 verdict ne dirait plus rien du filtre.
 
-SCENARIOS (le MEME etat, a UNE difference pres : le stun)
+SCENARIOS (les DEUX premiers sur le MEME etat, a UNE difference pres : le stun)
   * `sans_stun` -- Aesoth#2 decide AVANT tout cast. `PV(A) > PV(C)` -> le natif vise **A**.
                    C'est le TEMOIN : il etablit que l'utilite est bien `GetStat(Health)` et que le
                    port la porte, AVANT d'ajouter le filtre.
   * `avec_stun` -- Aesoth#1 caste 1183 sur A (A et B deviennent `Stunned`), puis Aesoth#2 decide.
                    Le natif doit BASCULER sur **C**, malgre `PV(A) > PV(C)`.
+  * `sure_kill` -- runner SEPARE (il exige d'autres PV) : C tombe a `HP_SURE_KILL`, donc l'attaque
+                   NORMALE d'Aesoth le tue a coup sur et le gate AMONT
+                   `VexillaMagnificaPlaybook$$ShouldEvaluate` = `!EnemyWillBeKilledWithNormalAttack`
+                   rend FAUX. Le natif S'ABSTIENT de 1183 -- et le port avec lui. Sans ce scenario
+                   le gate est porte et JAMAIS vu rendre FAUX : une garde qui ne le voit pas ne dit
+                   rien de lui.
 
 CONTRE-EPREUVE (port, meme etat) : `_target_is_stunned` neutralise -> le port doit REDEVENIR **A**
 au scenario `avec_stun`. Sans elle, un accord sur `C` pourrait venir de n'importe quoi d'autre.
@@ -82,6 +88,10 @@ POS_C = (5, 4)
 #: -- c'est l'ECART qui rend le verdict lisible (sans filtre, l'argmax d'utilite est A).
 HP_HAUT = 200000
 HP_BAS = 100000
+#: PV de C au scenario `sure_kill` : assez BAS pour que l'attaque NORMALE d'Aesoth le tue a COUP SUR
+#: (`BasePlaybook$$WillNormalAttackKill` lit `DamagePredictionResult$$get_WillBeKill`, donc la borne
+#: MINIMALE du coup), ce qui ferme le gate `ShouldEvaluate` = `!EnemyWillBeKilledWithNormalAttack`.
+HP_SURE_KILL = 50
 
 
 def _tile(p):
@@ -94,7 +104,8 @@ def _duel(args, timeout=400):
                           encoding="utf-8", errors="replace")
 
 
-def build(state_file: str, seed: int, board: str):
+def build(state_file: str, seed: int, board: str, hp_bas: int = HP_BAS,
+          sans_block: bool = False):
     argv = ["build", "--seed", str(seed), "--board", board, "--rank", str(RANK),
             "--p-units", "%s,%s" % (CASTER, CASTER),
             "--a-units", "%s,%s,%s" % (FOE_HAUT, FOE_2E, FOE_BAS),
@@ -109,8 +120,16 @@ def build(state_file: str, seed: int, board: str):
             "--unit-stat", "%s:Movement=0" % CASTER,
             "--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (FOE_HAUT, HP_HAUT, HP_HAUT),
             "--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (FOE_2E, HP_HAUT, HP_HAUT),
-            "--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (FOE_BAS, HP_BAS, HP_BAS),
+            "--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (FOE_BAS, hp_bas, hp_bas),
             "--state-file", state_file]
+    if sans_block:
+        # ⚠ OBLIGATOIRE pour que le gate `ShouldEvaluate` puisse rendre FAUX, et c'est une LECTURE :
+        # `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` ne compare PAS les PV au
+        # degat MINIMAL quand la cible a des SCENARIOS DE BLOCK -- il lit `blockScenarios[0]`
+        # (`this+0x38`, branche `Count >= 1`), c.-a-d. le degat SI LE COUP EST BLOQUE. Une cible a
+        # `blockChance > 0` n'est donc JAMAIS un sure-kill, quel que soit le degat. Mesure du
+        # 2026-08-08 : `tauCrisis` a 50 PV sous un coup de 50 -> `killSure = False` cote natif.
+        argv += ["--block-target", "0,0"]
     p = _duel(argv)
     if p.returncode != 0 or not os.path.exists(state_file):
         print("[build] rc=%s\n%s\n%s" % (p.returncode, (p.stdout or "")[-1500:],
@@ -131,7 +150,7 @@ def _par_position(sid, rid):
     return out, dv
 
 
-def assert_montage(par_pos):
+def assert_montage(par_pos, hp_ecart: bool = True):
     """Un montage DEGENERE rendrait l'accord trivial : on echoue AVANT de mesurer."""
     voulu = {POS_A: FOE_HAUT, POS_A1: CASTER, POS_A2: CASTER, POS_B: FOE_2E, POS_C: FOE_BAS}
     for pos, vis in voulu.items():
@@ -140,7 +159,7 @@ def assert_montage(par_pos):
             raise SystemExit("placement REFUSE en %r (attendu %s, vu %r) -- pas de mesure"
                              % (pos, vis, (u or {}).get("visualId")))
     hp_a, hp_c = par_pos[POS_A].get("hp"), par_pos[POS_C].get("hp")
-    if not (hp_a and hp_c and hp_a > hp_c):
+    if hp_ecart and not (hp_a and hp_c and hp_a > hp_c):
         raise SystemExit("PV(A)=%s doit etre STRICTEMENT > PV(C)=%s : sans cet ecart le verdict "
                          "`sans_stun` ne dirait rien de l'utilite" % (hp_a, hp_c))
 
@@ -174,13 +193,17 @@ def _stunnes(sid, rid):
 
 
 def confronte(tag, sid, rid, uid, attendu_cible):
+    """`attendu_cible = None` => on attend une ABSTENTION des deux cotes (gate `ShouldEvaluate`)."""
     nat = native_proposal(sid, rid, uid)
     port = port_proposal(sid, rid, uid)
     sans = _port_sans_filtre(sid, rid, uid)
     nat_cast = nat["ability"] == VEXILLA_MAGNIFICA
     port_cast = port.get("kind") == "ability" and port.get("ability") == VEXILLA_MAGNIFICA
-    ok = (nat_cast and port_cast and nat["target"] == port.get("target")
-          and nat["target"] == attendu_cible)
+    if attendu_cible is None:
+        ok = (not nat_cast) and (not port_cast)
+    else:
+        ok = (nat_cast and port_cast and nat["target"] == port.get("target")
+              and nat["target"] == attendu_cible)
     print("[%s] u%s  NATIF(ab=%s tgt=u%s)  PORT(%s ab=%s tgt=u%s)  "
           "PORT_SANS_FILTRE(%s ab=%s tgt=u%s)"
           % (tag, uid, nat["ability"], nat["target"], port.get("kind"), port.get("ability"),
@@ -231,13 +254,32 @@ def campagne(sid, sf, seed, board, garder=False):
     finally:
         if not garder:
             _duel(["dispose", "--state-file", sf, "--runner", str(rid)], timeout=120)
+
+    # --- 3e scenario : le GATE AMONT, sur son PROPRE runner (il exige d'autres PV, donc un autre
+    # montage). `VexillaMagnificaPlaybook$$ShouldEvaluate` = `!EnemyWillBeKilledWithNormalAttack` :
+    # un ennemi que l'attaque NORMALE d'Aesoth sure-kill fait S'ABSTENIR le natif. Sans ce
+    # scenario, le gate est porte et JAMAIS vu rendre FAUX -- une garde qui ne le voit pas ne dit
+    # rien de lui.
+    sf2 = sf.replace(".json", "_surekill.json")
+    rid2 = build(sf2, seed, board, hp_bas=HP_SURE_KILL, sans_block=True)
+    if rid2 is None:
+        print("[566d] BUILD KO (scenario sure_kill)")
+        return recs
+    try:
+        par_pos, _dv = _par_position(sid, rid2)
+        assert_montage(par_pos, hp_ecart=False)
+        a2 = par_pos[POS_A2]
+        recs.append(confronte("sure_kill", sid, rid2, a2["id"], None))
+    finally:
+        if not garder:
+            _duel(["dispose", "--state-file", sf2, "--runner", str(rid2)], timeout=120)
     return recs
 
 
 def verdict(recs) -> bool:
-    """`True` ssi les DEUX scenarios concordent ET la contre-epreuve MORD."""
-    if len(recs) < 2:
-        print("[566d] montage sterile : %d scenario(s)" % len(recs))
+    """`True` ssi les TROIS scenarios concordent ET la contre-epreuve MORD."""
+    if len(recs) < 3:
+        print("[566d] montage sterile : %d scenario(s) sur 3" % len(recs))
         return False
     ok = all(rec["ok"] for rec in recs)
     # La contre-epreuve DOIT mordre au scenario `avec_stun` : sinon le filtre n'est pas ce qui
