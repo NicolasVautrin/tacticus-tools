@@ -413,6 +413,198 @@ def etape_6_mutations(local: Path) -> None:
                                  _fenetre(cause="gh muet"))["b"].etat == LV.ETAT_NON_TRANCHEE)
 
 
+########################################################################################
+#  7. #479-r5 -- LE GESTE DISTANT, JOUE POUR DE VRAI (sur un `origin` SYNTHETIQUE)
+########################################################################################
+def _scene_distante(tmp: Path) -> tuple[Path, Path]:
+    """Un `origin` JETABLE portant QUATRE branches d'agent, une par verdict attendu.
+
+    `livree`     : squash-mergee, sans worktree, PR mergee   -> SUPPRIMEE
+    `ouverte`    : squash-mergee, mais PR OUVERTE            -> PROTEGEE
+    `montee`     : squash-mergee, mais MONTEE dans un worktree -> PROTEGEE
+    `en-vol`     : NON mergee                                -> NON LIVREE, jamais touchee
+    """
+    distant, local = tmp / "d5.git", tmp / "l5"
+    git(tmp, "init", "--bare", "-q", str(distant))
+    git(tmp, "clone", "-q", str(distant), str(local))
+    git(local, "config", "user.email", "p@479r5")
+    git(local, "config", "user.name", "p479r5")
+    (local / "a.txt").write_text("1\n", encoding="utf-8")
+    (local / ".gitignore").write_text(".claude/worktrees/\nlogs/\n", encoding="utf-8")
+    git(local, "add", "-A")
+    git(local, "commit", "-q", "-m", "base")
+    git(local, "branch", "-M", "master")
+    git(local, "push", "-q", "-u", "origin", "master")
+    (local / ".claude" / "worktrees").mkdir(parents=True)
+
+    for nom in ("livree", "ouverte", "montee", "en-vol"):
+        git(local, "checkout", "-q", "-b", "worktree-agent-" + nom)
+        (local / (nom + ".txt")).write_text(nom + "\n", encoding="utf-8")
+        git(local, "add", "-A")
+        git(local, "commit", "-q", "-m", nom)
+        git(local, "push", "-q", "-u", "origin", "worktree-agent-" + nom)
+        git(local, "checkout", "-q", "master")
+        if nom != "en-vol":                      # `en-vol` reste NON mergee
+            git(local, "merge", "-q", "--squash", "worktree-agent-" + nom)
+            git(local, "commit", "-q", "-m", "feat : %s (#%d)" % (nom, 100 + len(nom)))
+    git(local, "push", "-q", "origin", "master")
+    git(local, "fetch", "-q", "origin")
+    git(local, "worktree", "add", "-q",
+        str(local / ".claude" / "worktrees" / "agent-montee"), "worktree-agent-montee")
+    return distant, local
+
+
+class ScenePasJetable(RuntimeError):
+    """L'`origin` que le module VA REELLEMENT joindre n'est pas la scene de ce probe."""
+
+
+def _exige_scene_jetable(NL, tmp: Path, quand: str) -> None:
+    """LEVE si l'`origin` que `NL.git` joindrait n'est pas sous `tmp`. LE garde de #479-r5.
+
+    IL EXISTE PARCE QUE LA DISCIPLINE N'A PAS SUFFI, ET C'EST MESURE. La premiere tentative a
+    substitue `NL.REPO`, cru viser un `origin` monte par `git init --bare`, et adresse le VRAI
+    `origin` : `NL.git` figeait sa racine dans un DEFAUT D'ARGUMENT (`cwd: Path = REPO`, evalue
+    a l'import). Le recensement a rendu les branches reelles et le `push --delete` est parti.
+
+    On ne demande donc plus au probe de VISER juste, on lui demande de PROUVER qu'il vise juste,
+    en interrogeant le module LUI-MEME (`NL.git`) plutot que ses attributs -- une substitution
+    qui ne mord pas est invisible d'une inspection d'attributs, elle ne l'est pas d'un appel.
+    C'est la meme lecon que << verifier que la MUTATION a mordu >>, appliquee a un geste
+    irreversible : ici le prix d'un vert qui ment n'est pas un faux verdict, c'est une
+    suppression.
+    """
+    rc, out = NL.git("remote", "get-url", "origin")
+    vise = (out or "").strip().splitlines()[0].strip() if out.strip() else ""
+    if rc != 0 or not vise:
+        raise ScenePasJetable("impossible de LIRE l'`origin` vise (%s) -- on ne joue pas un "
+                              "geste irreversible sur une cible inconnue" % (out.strip()[:120],))
+    try:
+        sous_tmp = Path(vise).resolve().is_relative_to(tmp.resolve())
+    except (OSError, ValueError):
+        sous_tmp = False
+    if not sous_tmp:
+        raise ScenePasJetable(
+            "%s : `NL.git` joint l'`origin` %r, qui n'est PAS sous la scene jetable %r. "
+            "REFUS -- c'est exactement la configuration qui a fait partir un `push --delete` "
+            "sur le vrai depot le 2026-08-08." % (quand, vise, str(tmp)))
+
+
+def _refs_distantes(distant: Path) -> set:
+    out = subprocess.run(["git", "ls-remote", "--heads", str(distant)],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return {l.split("\t", 1)[1].strip().replace("refs/heads/", "")
+            for l in out.stdout.splitlines() if "\t" in l}
+
+
+def etape_7_geste_distant(tmp: Path) -> None:
+    """`--distant --appliquer` JOUE, et non plus seulement decrit (#479-r5).
+
+    LE DRY-RUN, le manifeste versionne et les trois protections etaient sous contre-epreuve ;
+    l'APPLICATION ne l'etait pas -- personne n'avait jamais vu `git push origin --delete` partir
+    depuis cet outil. Un geste irreversible qu'on n'a jamais joue est un geste dont on ne sait
+    rien : ni qu'il supprime ce qu'il annonce, ni surtout qu'il EPARGNE ce qu'il protege.
+
+    ⚠ SUR UN `origin` SYNTHETIQUE, JAMAIS SUR LE VRAI. Des agents volent pendant que ce probe
+    tourne, et une branche non encore mergee est indistinguable d'une mergee si `gh` est muet.
+    Toute la scene vit dans un `mkdtemp()`, et `NL.REPO` / `NL.MANIFESTE_DISTANT` y sont
+    substitues -- l'`origin` du depot n'est jamais joignable depuis ici.
+    """
+    print("\n[7] LE GESTE DISTANT, JOUE (#479-r5) -- sur un `origin` JETABLE")
+    import nettoyer_livraison as NL
+
+    distant, local = _scene_distante(tmp)
+
+    # LE TEMOIN NON NUL DU GARDE, et il n'est pas theorique : AVANT toute substitution, le module
+    # vise le VRAI `origin`. Le garde DOIT refuser -- c'est la configuration exacte dans laquelle
+    # un `push --delete` est parti le 2026-08-08, et la preuve que ce cran l'aurait arretee.
+    try:
+        _exige_scene_jetable(NL, tmp, "avant toute substitution")
+        verifie(False, "TEMOIN : le garde REFUSE quand le module vise le vrai `origin`")
+    except ScenePasJetable as exc:
+        verifie("n'est PAS sous la scene jetable" in str(exc),
+                "TEMOIN NON NUL : sans substitution, le garde REFUSE et NOMME la cible reelle "
+                "-- c'est ce cran qui manquait le 2026-08-08")
+    avant = _refs_distantes(distant)
+    verifie({"worktree-agent-livree", "worktree-agent-ouverte", "worktree-agent-montee",
+             "worktree-agent-en-vol"} <= avant,
+            "temoin NON NUL : l'`origin` jetable porte les 4 branches d'agent (%d refs)"
+            % len(avant))
+
+    prs = [{"number": 106, "headRefName": "worktree-agent-livree", "state": "MERGED"},
+           {"number": 107, "headRefName": "worktree-agent-ouverte", "state": "OPEN"},
+           {"number": 108, "headRefName": "worktree-agent-montee", "state": "MERGED"}]
+    manifeste = tmp / "manifeste-479r5.tsv"
+
+    vrais = (NL.REPO, NL.MANIFESTE_DISTANT, NL._gh_callable)
+    NL.REPO = local                                              # type: ignore[assignment]
+    NL.MANIFESTE_DISTANT = manifeste                             # type: ignore[assignment]
+    NL._gh_callable = lambda: (                                  # type: ignore[assignment]
+        lambda *a: (0, __import__("json").dumps(prs), ""))
+    try:
+        # LE GARDE, APRES substitution : c'est ICI qu'il compte. Avant, il constate seulement que
+        # le module vise encore le vrai depot -- ce qui est normal.
+        _exige_scene_jetable(NL, tmp, "apres substitution de NL.REPO")
+        verifie(True, "GARDE : `NL.git` joint bien l'`origin` JETABLE -- la substitution a MORDU "
+                      "(sans ce cran, un defaut d'argument fige la racine et le geste part sur "
+                      "le vrai depot ; c'est arrive)")
+        rd = NL.recenser_distant(limite_pr=200)
+        noms_d = sorted(it["branche"] for it in rd["d"])
+        verifie(all(n.startswith("worktree-agent-") and n.endswith(
+            ("livree", "ouverte", "montee", "en-vol")) for n in noms_d),
+            "SECOND garde, sur le RESULTAT : le recensement ne rend QUE des branches de la "
+            "scene (%s)" % noms_d[:6])
+        verifie(noms_d == ["worktree-agent-livree"],
+                "le RECENSEMENT ne retient que la branche LIVREE et non protegee (%s)" % noms_d)
+        proteges = sorted(it["branche"] for it in rd["protegees"])
+        verifie(proteges == ["worktree-agent-montee", "worktree-agent-ouverte"],
+                "les DEUX protections tirent : PR OUVERTE et WORKTREE monte (%s)" % proteges)
+        verifie(rd["non_livrees"] == ["worktree-agent-en-vol"],
+                "la branche NON mergee est classee NON LIVREE, MESUREE (%s)" % rd["non_livrees"])
+
+        # -- LE MANIFESTE D'ABORD. Il est le seul filet une fois `origin` efface.
+        chemin = NL.ecrire_manifeste_distant(rd["d"])
+        verifie(chemin.exists() and "worktree-agent-livree" in chemin.read_text(encoding="utf-8"),
+                "le MANIFESTE est ecrit AVANT toute suppression, et porte le SHA de resurrection")
+
+        # -- PUIS LE GESTE. C'est CE `push --delete` qui n'avait jamais ete joue.
+        faits, echecs = NL.supprimer_distantes(noms_d)
+        verifie(faits == 1 and not echecs,
+                "`git push origin --delete` a REELLEMENT supprime 1 branche (echecs : %s)"
+                % echecs)
+
+        apres = _refs_distantes(distant)
+        verifie("worktree-agent-livree" not in apres,
+                "la branche LIVREE a DISPARU d'`origin` -- le geste agit pour de vrai")
+        verifie({"worktree-agent-ouverte", "worktree-agent-montee",
+                 "worktree-agent-en-vol"} <= apres,
+                "et les TROIS autres sont INTACTES : ce qu'un geste irreversible epargne compte "
+                "autant que ce qu'il supprime (%s)" % sorted(apres))
+
+        # -- LA RESURRECTION, depuis le manifeste seul. Sans elle, le filet n'est qu'une trace.
+        sha = [l.split("\t")[1] for l in chemin.read_text(encoding="utf-8").splitlines()
+               if l.startswith("worktree-agent-livree\t")][0]
+        git(local, "push", "-q", "origin", "%s:refs/heads/worktree-agent-livree" % sha)
+        verifie("worktree-agent-livree" in _refs_distantes(distant),
+                "la branche est RESSUSCITEE depuis le seul manifeste : le filet EST un filet")
+
+        # -- ET LE REFUS QUAND `gh` EST MUET : la protection par PR est une CONDITION du geste.
+        NL._gh_callable = lambda: (                              # type: ignore[assignment]
+            lambda *a: (_ for _ in ()).throw(RuntimeError("gh: delai depasse (3 s)")))
+        muet = NL.recenser_distant(limite_pr=200)
+        verifie(muet["d"] == [],
+                "`gh` MUET -> AUCUNE suppression distante proposee, pas meme sur un ancetre "
+                "(%s)" % muet["d"])
+        verifie(len(muet["non_tranchees"]) >= 1
+                and all("PR pas mesurees" in it["cause"] for it in muet["non_tranchees"]),
+                "et la cause est NOMMEE branche par branche, jamais un zero nu")
+        verifie(_refs_distantes(distant) == apres | {"worktree-agent-livree"},
+                "l'`origin` jetable est INCHANGE apres le passage muet")
+    finally:
+        NL.REPO, NL.MANIFESTE_DISTANT, NL._gh_callable = vrais
+    verifie(NL.MANIFESTE_DISTANT != manifeste,
+            "les substitutions sont RESTAUREES : ce probe ne laisse aucun pointeur sur sa scene")
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="probe479r4-"))
     try:
@@ -422,8 +614,9 @@ def main() -> int:
         local = etape_4_bout_en_bout(tmp)
         etape_5_marque(local)
         etape_6_mutations(local)
+        etape_7_geste_distant(tmp)
     finally:
-        for w in (tmp / "l", tmp / "prot"):
+        for w in (tmp / "l", tmp / "prot", tmp / "l5"):
             if w.exists():
                 subprocess.run(["git", "-C", str(w), "worktree", "prune"],
                                capture_output=True, text=True)
