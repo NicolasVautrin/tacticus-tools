@@ -182,6 +182,33 @@ tronqué »).
 reste à 12 unités, toutes ennemies, alors que cinq héros sont bel et bien dans l'alignement.
 Le témoin de composition est `PlayerPower`, pas l'ECS.
 
+⚠ **ET LE PLATEAU NE SE MET PAS À JOUR — LE NOM NATIF LE DIT.** `IdunGameHud` n'est qu'un
+relais ; les deux méthodes descendent dans `idun.ui.UnitDeploymentHud` :
+
+```
+IdunGameHud.UnitDeployment_TryPlaceUnitOnBoard -> UnitDeploymentHud.TryMarkUnitAsPlaced   OK
+IdunGameHud.UnitDeployment_PutIntoHand         -> UnitDeploymentHud.PutUnitIntoHand       FAUTE
+```
+
+`TryMarkUnitAsPlaced` **MARQUE** l'unité comme placée dans le HUD — il ne la pose pas. D'où
+un alignement juste (`PlayerPower` monte, `Start!` s'active) et un plateau vide. Le nom seul
+suffisait à le prévoir : c'est le genre de chose qu'on ne voit qu'en lisant le symbole plutôt
+qu'en jugeant sur l'effet du premier appel qui rend `true`.
+
+La vraie pose est ailleurs sur la même classe, dont l'inventaire donne tout le vocabulaire du
+geste : **`EmptySpawnPointTapped()`** (le clic sur l'hex libre), `HandleOnUnitTapped(widget,
+unit)`, `HandleOnUnitInHandTapped(widget, unit)`, `HasUnitInHand() -> Boolean` (le témoin
+manquant), `HandleOnRemoveAllHeroesPressed()` (= `Clear`),
+`HandleOnStartBattleTapped(Boolean)` (= `Start!`), `GetPlayerPower() -> Int32`.
+
+⚠ **L'instance est atteignable, mais pas encore par la traversée.** Le décompilé garde sur
+`IdunGameHud._menuSystems` (`+0x1a8`, `thor.Menu.MenuSystems`) puis sur son `+0x188` — et
+`classFields` nomme ce champ : **`unitDeploymentHud : IMenu<UnitDeploymentHud>`**. La
+traversée `_actions._hud._menuSystems.unitDeploymentHud` y arrive donc, mais s'arrête sur le
+WRAPPER `IMenu<T>` : le décompilé, lui, obtient l'instance concrète par un appel (propriété
+d'interface). Prochain cran de `target` : autoriser un segment qui APPELLE, pas seulement qui
+déréférence.
+
 Le décodeur lit la charge utile à `+0x10` de l'objet BOXÉ (en-tête de 0x10 sur tout
 ValueType), et **dit ce qu'il ne sait pas lire** : type non couvert ⇒ `decode: false` avec le
 nom du type et le pointeur brut, plutôt qu'une lecture plausible. Les deux exports
