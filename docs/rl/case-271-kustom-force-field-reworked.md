@@ -572,3 +572,50 @@ l'eloigne aussi des zones ou le relief cree des ecarts de composite exploitables
 reste ouverte sans nouveau capteur : balayer `--preplace --loin <n>` sur beaucoup de boards en
 faisant VARIER `--loin` (l'optimum est entre les deux regimes), plutot que d'ajouter des pas.
 L'outil est en place et ventile desormais ses refus, ce qui rend ce balayage lisible.
+
+### 7.9 -- `#271-r1` : ma propre reprise etait FAUSSE ; la decomposition par etage donne la cause
+
+**2026-08-08, second passage.** Le §7.8 designait la suite : << varier `--loin`, l'optimum est
+ENTRE les deux regimes >>. **Cette piste est REFUTEE par la mesure.**
+
+`--loin 2,3,4,5` sur `MC1_67`/777, 10 positions par distance : la cause est **UNIFORME**, 10/10
+aux quatre distances, et c'est toujours << pas de paire >> -- **jamais** << proposition NON
+PURE >>. Il n'y a pas de compromis de distance a trouver.
+
+#### Ce qui a debloque le diagnostic : separer les deux causes que << pas de paire >> confondait
+
+  * **(a)** l'ECART T1-T2 est-il a portee du terme ?
+  * **(b)** parmi les tuiles a portee, le Big Mek peut-il etre voisin NATIF de T2 **SEULE** ?
+
+| board (loin=4) | mover | ecart T1-T2 (min / median / max) | (a) hors de portee | (b) voisinage intenable |
+|---|---|---|--:|--:|
+| `MC1_67` | `necroWarden` | 24.0 / 24.0 / 85.0 | 4 | 6 |
+| `MC1_67` | `orksNob` | 24.0 / 24.0 / 24.0 | 0 | **10/10** |
+| `MC1_31` | `orksNob` | 115.0 / 115.0 / 115.0 | **6/6** | 0 |
+| `C1_09` | `orksNob` | 115.0 / 115.0 / 115.0 | **6/6** | 0 |
+| `C4_09` | `orksNob` | 10.0 / 100.0 / 100.0 | 5 | 1 |
+
+#### La cause est STRUCTURELLE, et elle est la MEME que celle de `#271-r8`
+
+L'ecart entre les deux meilleures tuiles vaut **24 en minimum comme en mediane** sur `MC1_67`, et
+**100-115** ailleurs -- quand le terme vaut **au mieux 20** (ami Ork ; 10 pour un non-Ork). Le
+composite `UnitMovement(6) = Tile(7) + MinDist(16)` est **domine par `MinDist`**, dont le PAS
+entre tuiles voisines depasse le terme.
+
+C'est exactement le diagnostic de `#271-r8` sur la face ATTACK (dominee par `DamageDealt` et
+`KillUnit`, ~[0,100]). **Les deux faces butent sur la meme cause** : un terme de 10-20 dans un
+composite dont les paliers valent 24 a 115. Ce n'est pas un defaut de montage, et aucun nombre de
+positions supplementaires n'y changera rien.
+
+⚠ **Defaut du filtre, trouve au passage** : `MAX_GAP = 25` est plus PERMISSIF que le terme reel.
+Le probe annoncait donc << franchissable >> des paires que le terme ne peut pas renverser -- les
+ecarts de 24 d'`orksNob` passaient le filtre et etaient comptes en << voisinage intenable >>,
+ce qui deplacait l'accusation. La sortie imprime desormais l'ecart **et** le terme cote a cote.
+
+#### La reprise, re-designee sur la mesure
+
+Ce n'est plus une question de distance ni de nombre de positions : il faut un board dont le PAS
+de `MinDist(16)` soit **inferieur a 20**. Le probe mesure cette distribution a **cout nul** a
+chaque position (min / median / max), donc un balayage large de boards rend un **critere de
+selection** au lieu d'un chapelet de << NON CONCLUANT >>. Sur les quatre boards essayes, aucun
+ne descend sous 24 -- mais quatre boards sur 675 ne sont pas une conclusion.

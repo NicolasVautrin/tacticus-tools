@@ -24,20 +24,29 @@ if str(PYDIR) not in sys.path:
 
 import probe_287r14r1_resolution_tile_target as P  # noqa: E402
 
+#: ⚠ CE FICHIER A DEUX PERIMETRES, et le second est l'ARBRE (corrige apres #845, meme faute que
+#: son voisin #431-r1 : la declaration initiale ne nommait que la sonde + `abilities/**`, donc
+#: `toujours: False` la lisait << ne se rejoue que si le registre bouge >>).
+#:
+#:   * etage 1 -- l'INVARIANT : `ABILITY_CLASSES` et les masques `TARGETING_OPTIONS`. Borne par
+#:     `engine/runner/abilities/**`, et une fermeture d'imports le voit.
+#:   * etage 2 -- le VERDICT DE BRANCHE MORTE : il recense les appelants DIRECTS
+#:     d'`execute_behaviour` dans TOUT `.py` versionne. Ce sont des probes et des tests, donc
+#:     personne ne les IMPORTE : la fermeture est structurellement aveugle. Un probe NEUF qui
+#:     passerait une tuile a une ability unit-target ferait basculer le verdict -- et c'est
+#:     precisement le scenario que le cliquet existe pour attraper (il est ecrit au site :
+#:     << le regime etait MORT quand #287-r14-r1 a ete tranche ; il ne l'est plus >>).
+#:
+#: `toujours: True` est donc la seule declaration honnete, et elle rend le bypass
+#: `hors_confrontation` inutile : il est retire.
 DECLENCHEUR = {
-    "chemins": ("scripts/python/probe_287r14r1_resolution_tile_target.py",
-                "scripts/python/engine/runner/abilities/**/*.py"),
+    "chemins": ("*", "**"),
     "build": False,
-    "toujours": False,
-    "raison": "Il garde le cliquet #287-r14-r1 et l'invariant qu'il tient : toute entree neuve "
-              "du registre d'abilities, et tout masque `TARGETING_OPTIONS` re-lu, peuvent le "
-              "faire changer d'avis.",
-    "hors_confrontation":
-        "Deux perimetres qu'une fermeture d'imports ne borne pas : le registre ENTIER "
-        "(`ABILITY_CLASSES` tire les 129 modules d'abilities et leur cascade) et le BALAYAGE de "
-        "tout `.py` versionne, qui recense les appelants directs d'`execute_behaviour` -- ce "
-        "sont des probes et des tests, pas des imports. Les nommer reviendrait a saisir "
-        "l'inventaire que l'etage 2 existe pour deriver.",
+    "toujours": True,
+    "raison": "Deux perimetres : le registre d'abilities (etage 1) ET tout `.py` versionne "
+              "(etage 2, qui recense les appelants directs d'`execute_behaviour` -- des probes "
+              "et des tests, que personne n'importe). Un fichier NEUF peut faire basculer le "
+              "verdict de branche morte sans toucher a `engine/`.",
 }
 
 

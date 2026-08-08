@@ -25,19 +25,30 @@ if str(PYDIR) not in sys.path:
 
 import probe_431r1_globs_non_recursifs as P  # noqa: E402
 
+#: ⚠ LA PREMIERE ECRITURE DE CE CHAMP ETAIT ELLE-MEME LE VICE QU'IL GARDE (#845, corrige ici).
+#: Elle declarait `("scripts/python/probe_431r1_globs_non_recursifs.py",)` + `toujours: False`,
+#: c'est-a-dire, lue litteralement : << ce cliquet ne se rejoue que si sa propre sonde change >>.
+#: Or il balaie les 2 287 `.py` versionnes -- un fichier NEUF portant un `PurePath.match("**/…")`
+#: fautif ne l'aurait donc PAS reveille. C'est exactement le mode de panne qu'il existe pour
+#: empecher, remonte d'un cran : la lecon de #458 (une liste de racines laissait 967 fichiers dans
+#: un trou MUET) se rejouait ici sur le DECLENCHEUR, devenu a son tour la liste trop courte.
+#:
+#: `toujours: True` est la reponse, et le precedent est dans la meme famille :
+#: `tests/test_431_build_pin_offline.py` declare `("*", "**")` + `toujours: True` pour la meme
+#: raison -- son verdict depend du CONTENU de l'arbre, pas de ses imports.
+#:
+#: Le glob large ne MENT donc pas au selecteur ici : le test lit reellement des probes et des
+#: tests TIERS (il les OUVRE pour les parser), et `toujours: True` rend la question du glob
+#: sans objet pour la selection. C'est ce qui rend le bypass `hors_confrontation` INUTILE --
+#: il a ete retire, et `probe_486r15` le confirme (une declaration qui ne masque plus rien est
+#: ROUGE chez lui : << NE MASQUE RIEN -- declaration MORTE >>).
 DECLENCHEUR = {
-    "chemins": ("scripts/python/probe_431r1_globs_non_recursifs.py",),
+    "chemins": ("*", "**"),
     "build": False,
-    "toujours": False,
-    "raison": "Ce fichier garde EXACTEMENT le cliquet #431-r1 : son critere, son exemption de "
-              "contre-epreuve et la derivation de son perimetre. Rien d'autre ne le fait "
-              "changer d'avis.",
-    "hors_confrontation":
-        "Il BALAIE tout `.py` VERSIONNE (`tracked_py`, 2 287 fichiers) : c'est la propriete "
-        "meme qu'il garde -- le perimetre du cliquet est l'ARBRE, pas une liste de racines "
-        "(lecon de #458, ou une liste laissait 967 fichiers dans un trou MUET). La fermeture "
-        "d'imports ne peut donc pas le borner : nommer les 2 287 chemins reviendrait a "
-        "re-saisir l'inventaire que le cliquet existe pour eviter.",
+    "toujours": True,
+    "raison": "Son perimetre EST l'arbre : il balaie tout `.py` versionne (`tracked_py`) et "
+              "assertionne 0 faute. Tout fichier versionne, quelle que soit sa place, peut donc "
+              "le faire basculer -- y compris un fichier qui n'existe pas encore.",
 }
 
 

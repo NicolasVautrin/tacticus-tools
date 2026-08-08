@@ -858,8 +858,11 @@ def step2_nonowner_preplace(sid, seed, board, mover_vis, p_units, a_units, verbo
     candidats.sort(key=lambda p: (p[0][0] - cx) ** 2 + (p[0][1] - cy) ** 2)
 
     out = {"ok": False, "seed": seed, "board": board, "kind": "preplace:" + mover_vis}
-    causes = {"build KO": 0, "montage": 0, "pas de paire a ecart STRICT": 0,
+    causes = {"build KO": 0, "montage": 0, "ECART hors de portee du terme": 0,
+              "ecart OK, mais VOISINAGE du Big Mek intenable": 0,
               "proposition NON PURE (attaque)": 0}
+    ecarts: list = []            # ecart T1-T2 mesure a chaque position (diagnostic)
+    positions_avec_ecart = [0]   # positions ou AU MOINS une tuile est franchissable
     for cm, cb in candidats[:essais]:
         places = ["--place", "%s:%d,%d" % (mover_vis, cm[0], cm[1]),
                   "--place", "%s:%d,%d" % (CARRIER, cb[0], cb[1])]
@@ -885,19 +888,24 @@ def step2_nonowner_preplace(sid, seed, board, mover_vis, p_units, a_units, verbo
                 continue
             t1 = order[0][0]
             trouve = None
-            for t2, s2 in order[1:]:
-                gap = base[t1] - s2
-                if gap > MAX_GAP:
-                    break
-                if gap < min_gap:
-                    continue
+            # DECOMPOSITION PAR ETAGE du refus (#271-r1) : << pas de paire >> confondait DEUX
+            # causes distinctes, et les separer change le diagnostic. (a) l'ECART T1-Tk est-il
+            # franchissable par le terme (<= MAX_GAP et >= min_gap) ? (b) parmi les tuiles
+            # franchissables, y en a-t-il une dont le Big Mek soit voisin NATIF et pas de T1 ?
+            franchissables = [(t2, base[t1] - s2) for t2, s2 in order[1:]
+                              if min_gap <= base[t1] - s2 <= MAX_GAP]
+            ecarts.append(round(base[t1] - order[1][1], 1) if len(order) > 1 else None)
+            if franchissables:
+                positions_avec_ecart[0] += 1
+            for t2, gap in franchissables:
                 # le Big Mek doit etre voisin NATIF de T2 et PAS de T1 : c'est ce qui fait que le
                 # terme s'ajoute a T2 seule.
                 if cb in nb.get(t2, ()) and cb not in nb.get(t1, ()):
                     trouve = (t2, gap)
                     break
             if trouve is None:
-                causes["pas de paire a ecart STRICT"] += 1
+                causes["ECART hors de portee du terme" if not franchissables
+                       else "ecart OK, mais VOISINAGE du Big Mek intenable"] += 1
                 continue
             t2, gap = trouve
             p_off = max(base, key=lambda k: base[k])
@@ -923,22 +931,42 @@ def step2_nonowner_preplace(sid, seed, board, mover_vis, p_units, a_units, verbo
           " avec proposition native PURE" % (mover_vis, min(essais, len(candidats)), min_gap))
     print("  [%s] ventilation des refus : %s"
           % (mover_vis, ", ".join("%s=%d" % kv for kv in sorted(causes.items()) if kv[1])))
+    vus = [e for e in ecarts if e is not None]
+    if vus:
+        vus_tries = sorted(vus)
+        print("  [%s] ECART T1-T2 mesure sur %d position(s) : min=%.1f median=%.1f max=%.1f ; "
+              "terme = 10 (ami non-Ork) / 20 (Ork) ; positions ou AU MOINS une tuile est "
+              "franchissable : %d"
+              % (mover_vis, len(vus), vus_tries[0], vus_tries[len(vus_tries) // 2],
+                 vus_tries[-1], positions_avec_ecart[0]))
     return out
 
 
 def run_nonowner_preplace(sid, seeds, boards, movers, p_units, a_units, verbose,
-                          min_gap=1.0, essais=12, loin=6) -> int:
+                          min_gap=1.0, essais=12, loin=(6,)) -> int:
+    """`loin` = LISTE de distances minimales aux ennemis, essayees dans l'ordre.
+
+    LES DEUX BLOCAGES SONT ANTAGONISTES, et c'est MESURE (#271-r1, 2026-08-08) : PRES des
+    ennemis la paire a ecart STRICT existe (24 sur `MC1_67`/777) mais `aiDryRunAllUnits` propose
+    une ATTAQUE, donc une tuile hors du `UnitMovement(6)` modelise ; LOIN (`--loin 6`) la
+    proposition est un move PUR mais **14/14** n'ont plus de paire. L'optimum est donc ENTRE les
+    deux, et il ne se devine pas -- il se balaie."""
     print("")
     print("=== ETAPE 2quater : face NON-OWNER, Big Mek PRE-PLACE au build (#271-r1 voie b) ===")
+    print("    distances essayees : %s" % (list(loin),))
     rows = []
     for board in boards:
         for seed in seeds:
             print("-- board=%s seed=%s" % (board, seed))
             for m in movers:
-                rows.append((board, seed, m,
-                             step2_nonowner_preplace(sid, seed, board, m, p_units, a_units,
-                                                     verbose, min_gap=min_gap,
-                                                     essais=essais, loin=loin)))
+                for d in loin:
+                    print("   [loin=%d]" % d)
+                    r = step2_nonowner_preplace(sid, seed, board, m, p_units, a_units,
+                                                verbose, min_gap=min_gap,
+                                                essais=essais, loin=d)
+                    rows.append((board, seed, "%s/loin%d" % (m, d), r))
+                    if r.get("ok"):
+                        break
     print("")
     print("=== BILAN ETAPE 2quater ===")
     concluants = 0
@@ -1112,9 +1140,11 @@ def main():
     ap.add_argument("--gap-min", type=float, default=0.0,
                     help="etape 2 : ecart MINIMAL T1-T2 exige. >10 isole le FACTEUR 2 (x2 si Ork) : "
                          "un ami non-Ork (+10) ne suffit plus, un ami Ork (+20) oui")
-    ap.add_argument("--loin", type=int, default=6,
-                    help="etape 2quater : distance hex MINIMALE aux ennemis (ecarte les positions "
-                         "ou la proposition native serait une ATTAQUE, hors du modele de move)")
+    ap.add_argument("--loin", default="6",
+                    help="etape 2quater : distance(s) hex MINIMALE(S) aux ennemis, separees par "
+                         "des virgules. Les deux blocages sont ANTAGONISTES (pres : paire mais "
+                         "proposition d'ATTAQUE ; loin : move pur mais plus de paire) -- "
+                         "l'optimum est ENTRE, et il se balaie.")
     ap.add_argument("--essais", type=int, default=12,
                     help="etape 2quater : positions pre-placees essayees par (board, seed, mover)")
     ap.add_argument("--preplace", action="store_true",
@@ -1145,7 +1175,7 @@ def main():
                                      [m for m in a.nonowner.split(",") if m],
                                      a.p_units, a.a_units, a.verbose,
                                      min_gap=(a.gap_min or 1.0), essais=a.essais,
-                                     loin=a.loin)
+                                     loin=tuple(int(x) for x in str(a.loin).split(",") if x))
     if a.nonowner:
         pre = [int(x) for x in a.pre_steps.split(",")] if a.pre_steps else [0]
         return run_nonowner(sid, seeds, boards, [m for m in a.nonowner.split(",") if m],
