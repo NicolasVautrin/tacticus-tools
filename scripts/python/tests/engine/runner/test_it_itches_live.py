@@ -56,6 +56,58 @@ from engine.runner.components import PositionComponent, UnitComponent
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.snapshot import load_state
 
+#: Perimetre qui doit RE-JOUER ce fichier (#486-r15).
+#: Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des `conftest.py` (semantique pytest,
+        # jamais importee) porte `green_skip_guard` (#455) et les fixtures `autouse` + de montage
+        # (`host`/`live_session`) dont le verdict de CHAQUE test de ce fichier depend.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # PROPRE A CE FICHIER, pris LARGE et non feuille a feuille : charger une ability tire le
+        # registre, tout le vocabulaire DSL, les Operations, l'IA et le pathfinding -- une liste
+        # choisie serait un faux vert, elle ne pourrait pas montrer le module qu'elle a oublie.
+        # Foyers VRAIMENT load-bearing, pour la relecture humaine :
+        # `abilities/tyranids.py` (l'arbre `it_itches_tree`), `handler.py` + `attack_type.py` +
+        # `targeting.py` (les trois registres, dont le CONTRAT DE DISJONCTION du masque),
+        # `abilities/behaviours/movement.py` (les feuilles `DisplaceUnitInAdjacentDirection` /
+        # `Reserve`) et `operations/displace.py` (la direction 3 `AdjacentVector` -- c'est ce que
+        # le test discriminant mesure), `operations/movement.py` (le FOYER du crush steppable),
+        # `abilities/behaviours/summon.py` + `abilities/loki/summon.py` (le `Spawn` et le corps
+        # unique de `PerformAIAbilityUnitBehaviour`, dont le degat est confronte BIT-EXACT),
+        # `entities/selectors/{tiles,units,accessors,geometry}.py` (`CanAddUnit(allow_steppable)`,
+        # `DeadUnits`, `TileUnion`, le `Cache` LOAD-BEARING), `runner/components.py`
+        # (`unit_extensions_is_steppable`), `runner/prng.py` (l'ordre de consommation).
+        "scripts/python/engine/**/*.py",
+        # Modules de la RACINE : la cascade des `conftest.py` de `tests/engine/runner` importe une
+        # vingtaine de probes plus `hexgeo` / `engine_validate` / `rl_duel`. Ils entrent dans la
+        # fermeture de CE fichier, qu'il les cite ou non -- et `rl_duel build --place` EST le
+        # montage : sans lui la configuration a 3 cibles n'existe pas et tout part en skip.
+        "scripts/python/*.py",
+        # Le KIT : `constants.unitId` = `tyranSmnRipperSwarm` et les `summonHp/summonDmg/summonArmor`
+        # de la config 1121 -- un re-dump qui les bouge change le degat on-appearance mesure.
+        "data/gameconfig.json",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "L'arbre DSL de 1121 et ses CINQ etages, les trois registres que ce fichier "
+              "confronte (ABILITY_CLASSES / TARGETING_OPTIONS / ABILITY_ATTACK_TYPE), la "
+              "direction 3 `AdjacentVector` de `DisplaceUnitOperation` (que le test discriminant "
+              "oppose au `FindTileToPush` radial), le foyer du crush steppable, le `Spawn` et le "
+              "corps unique de `PerformAIAbilityUnitBehaviour` dont le degat est confronte "
+              "BIT-EXACT, et le kit gameconfig d'ou sortent les stats du summon. `build: True` "
+              "parce que les cinq etages se confrontent au natif par RPC : un changement de build "
+              "change le decompile dont ce port est le mirror -- et l'HYPOTHESE `getAbilityType` "
+              "(lambda DEDUPLIQUEE, illisible statiquement) n'est tenue QUE par cette mesure.",
+}
+
 AGENT_ID = "ad03765eb404ead1a"
 PYDIR = Path(__file__).resolve().parents[3]                        # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                         # racine repo
