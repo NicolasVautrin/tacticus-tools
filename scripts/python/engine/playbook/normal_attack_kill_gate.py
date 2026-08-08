@@ -108,7 +108,7 @@ SPIRIT_LEECH_BODY_IDS: tuple[int, ...] = (
     int(ActiveAbilityType.Fragstorm),                   # 1078 = 0x436
     int(ActiveAbilityType.HellfireShells),              # 1080 = 0x438
     int(ActiveAbilityType.GreatFrostAxe),               # 1089 = 0x441
-    int(ActiveAbilityType.SpiritLeech),                 # 1104 = 0x450
+    int(ActiveAbilityType.SpiritLeech),                 # 1104 = 0x450 -- cf. REGISTERED_ELSEWHERE
     int(ActiveAbilityType.CrushingClaws),               # 1105 = 0x451
     int(ActiveAbilityType.DakkaDakkaDakka),             # 1171 = 0x493
 )
@@ -126,8 +126,25 @@ SPIRIT_LEECH_BODY_IDS: tuple[int, ...] = (
 # natif choisit. Residu `#419-r1-tr14-r5-r2-r1-r1-r1-r1`.
 
 
+#: Les identites du corps `SpiritLeechPlaybook$$ShouldExecute` dont l'entree au registre est posee
+#: par un AUTRE module, parce qu'elles portent un override DE PLUS. Elles restent dans
+#: `SPIRIT_LEECH_BODY_IDS` -- cette liste enonce un FAIT NATIF (les 14 classes qui partagent le
+#: corps), pas la ventilation du port -- mais ce module ne les enregistre pas, sinon il ecraserait
+#: la classe la plus specialisee (l'ordre d'import deciderait du gagnant : exactement le genre de
+#: dependance silencieuse qu'on refuse).
+#:   * `1104 SpiritLeech` -> `spirit_leech.SpiritLeechLifestealPlaybook`, qui DERIVE d'ici et ajoute
+#:     `SpiritLeechPlaybook$$MakeHealPredictions` (le terme lifesteal, #419-r1-tr14-r5-r2-r1-r1-r3).
+#:     Le symbole `$$MakeHealPredictions` n'a qu'UN proprietaire de vtable : les treize autres
+#:     identites gardent bien la base VIDE sur ce slot.
+REGISTERED_ELSEWHERE: frozenset[int] = frozenset({
+    int(ActiveAbilityType.SpiritLeech),                 # 1104 -> playbook/spirit_leech.py
+})
+
+
 def _register_all() -> None:
     for aid in SPIRIT_LEECH_BODY_IDS:
+        if aid in REGISTERED_ELSEWHERE:
+            continue
         register(SpiritLeechPlaybook(aid))
     register(MultiThreatEliminatorPlaybook())
 

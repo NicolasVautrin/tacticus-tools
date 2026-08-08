@@ -2627,6 +2627,16 @@
     "data/seed-bc.json"
    ]
   },
+  "tests/engine/test_419r1tr14r5r2r1r1r1r3_should_execute_gates_offline.py": {
+   "_at": 1786147939,
+   "_commit": "bfa97ce8118cdab9e87ae98e6d7510ba75775b77",
+   "dirs": [
+    "scripts/python/engine/ai"
+   ],
+   "temoins": [
+    "scripts/python/engine/ai/action_generators.py"
+   ]
+  },
   "tests/engine/test_419r1tr14r5r2r1r2r1r1r3_tiles_in_range_order.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
