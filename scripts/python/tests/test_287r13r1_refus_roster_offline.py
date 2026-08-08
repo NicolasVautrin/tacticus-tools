@@ -30,18 +30,26 @@ if str(PYDIR) not in sys.path:
 
 import probe_287r13r1_rayon_refus_roster as P  # noqa: E402
 
+#: ⚠ << rien d'autre ne peut le faire changer d'avis >> ETAIT FAUX -- et c'est le refus dur
+#: lui-meme qui le rend faux (corrige apres #845, meme faute que ses deux voisins de tranche).
+#:
+#: Le dernier test garde `len(risque) * 3 < len(montent)` : si le RAYON franchit le tiers des
+#: appelants, il rougit et le refus par defaut doit etre re-arbitre. Or ce rayon se mesure en
+#: visitant TOUT `.py` versionne qui cite `rl_duel` -- **259** invocations, dont 245 qui montent
+#: une bataille. Un probe NEUF qui teste `.returncode` apres un `rl_duel build` deplace donc le
+#: verdict, sans toucher ni a `rl_duel.py` ni a la sonde. Les nommer serait re-saisir
+#: l'inventaire que l'etage 1 existe pour DERIVER, et le figer ferait exactement le
+#: sous-comptage sur l'absence duquel le refus dur repose.
+#:
+#: `toujours: True`, donc -- et le bypass `hors_confrontation` devient inutile : retire.
 DECLENCHEUR = {
-    "chemins": ("scripts/python/rl_duel.py",
-                "scripts/python/probe_287r13r1_rayon_refus_roster.py"),
+    "chemins": ("*", "**"),
     "build": False,
-    "toujours": False,
-    "raison": "Il garde le refus dur de `rl_duel.cmd_build` et le recenseur de rayon qui l'a "
-              "justifie ; rien d'autre ne peut le faire changer d'avis.",
-    "hors_confrontation":
-        "Le RAYON se mesure en visitant TOUT `.py` versionne qui cite `rl_duel` : c'est "
-        "exactement ce que les trois derniers tests verifient (259 invocations, 245 qui "
-        "montent). La fermeture d'imports ne peut pas borner ce balayage -- et le borner "
-        "fabriquerait le sous-comptage que le refus dur repose sur son absence.",
+    "toujours": True,
+    "raison": "Le RAYON qui autorise le refus dur se derive de TOUT `.py` versionne citant "
+              "`rl_duel` (259 invocations, 245 qui montent), et un test garde qu'il reste sous "
+              "le tiers. Un probe NEUF qui inspecte le `rc` d'un `build` change ce verdict sans "
+              "toucher au foyer.",
 }
 
 ENV = "TACTICUS_ALLOW_ROSTER_DEFICIT"

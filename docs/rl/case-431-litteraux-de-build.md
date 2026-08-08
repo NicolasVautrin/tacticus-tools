@@ -227,3 +227,48 @@ Deux choix de conception, tous deux **derives** et non saisis :
 Enfin le probe **prouve qu'il mord dans le meme processus que la conformite** (idiome #421) :
 10 mutants, dont **7 sains**, joues a chaque run. Un jeu tout-positif prouverait la morsure et
 jamais l'absence de bruit -- le test assertionne les deux polarites.
+
+## 11. Le vice s'est REJOUE D'UN CRAN PLUS HAUT -- sur le DECLENCHEUR du cliquet
+
+**Trouve en relecture de #845, corrige dans la foulee.** Les trois cliquets livres par cette
+tranche declaraient leur perimetre ainsi :
+
+```python
+"chemins": ("scripts/python/probe_431r1_globs_non_recursifs.py",),
+"toujours": False,
+```
+
+Lu litteralement : **ce cliquet ne se rejoue que si sa propre sonde change**. Or il balaie les
+2 287 `.py` versionnes. Un fichier NEUF portant un `PurePath.match("**/…")` fautif ne l'aurait
+donc **pas reveille** -- exactement le mode de panne qu'il existe pour empecher.
+
+C'est la lecon de #458 (une liste de racines laissait **967** fichiers dans un trou MUET),
+transposee d'un etage : cette fois c'est le **DECLENCHEUR** qui etait la liste trop courte. Le
+motif ecrit pour justifier le bypass etait juste sur le fond -- << une fermeture d'imports ne
+peut pas borner un cliquet dont le perimetre est l'ARBRE >> -- mais la conclusion ne suivait
+pas : ce n'est pas un bypass qu'il fallait, c'est `toujours: True`.
+
+**Le precedent etait dans la meme famille** : `tests/test_431_build_pin_offline.py` declare
+`("*", "**")` + `toujours: True`, et pour la raison exacte -- son verdict depend du CONTENU de
+l'arbre, pas de ses imports.
+
+| | avant | apres |
+|---|--:|--:|
+| entrees de `ratchets-486r24-bypass-confrontation.txt` | **6** | **3** |
+
+Les trois ajoutees par #845 en sont sorties, sans aucun rouge : `toujours: True` + un glob qui
+dit la verite (`("*", "**")`) rendent le bypass **inutile**. `probe_486r15` l'a confirme tout
+seul -- il porte deja le cran << declare `hors_confrontation` mais NE MASQUE RIEN : declaration
+MORTE, la retirer >>, et il a signale les trois attestations comme **PERIMEES** avant de les
+retirer.
+
+⚠ **Le glob large ne MENT au selecteur que si `toujours` est `False`.** Le critere de
+`probe_486r15` est << ce joker couvre-t-il un test ou un probe TIERS ? >> -- et ici la reponse
+est oui **parce que c'est vrai** : ces cliquets OUVRENT les tests et les probes tiers pour les
+parser. Avec `toujours: True`, la question de la selection ne se pose plus : le fichier se
+rejoue de toute facon.
+
+⚠ **Une echappatoire qui n'a plus de raison d'etre est PIRE qu'inutile** : elle documente une
+derobade qui n'existe plus, et le fichier d'attestation dit lui-meme que ce qui est garde n'est
+pas le zero mais qu'on sache **QUI se derobe et sur quel motif**. Un motif qui s'evapore doit
+faire sortir de la liste.
