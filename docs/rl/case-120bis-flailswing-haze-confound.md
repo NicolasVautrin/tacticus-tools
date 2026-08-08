@@ -143,6 +143,8 @@ Non-regression re-jouee : `test_sworn_protector_kell_live.py` + `test_haze_of_co
   degat ne fuie » ne dit RIEN du kit du caster. `deathBlightlord` etait le choix naturel (l'ability
   1042 est mono-cible et bien portee) et c'est precisement l'unite dont le passif eclabousse les
   allies adjacents de sa cible. Le bon reflexe est de qualifier le CASTER, pas seulement l'ability.
+* **`#120bis-spawn` est LIVRE (2026-08-08)** -- cf. Sec.8. Ce residu-ci est donc ferme ; les deux
+  autres puces restent ouvertes.
 * **Non couvert** : le regime « Creed relais » (etape 9) n'a **pas** d'oracle live propre -- les
   3 montages live essayes placent tous Kell du cote oppose, donc Creed hors du pool. Le canal 1077
   lui-meme, lui, est valide live par case-209 (6/6 montages bit-exact) et case-221 ; ce qui n'est pas
@@ -150,3 +152,81 @@ Non-regression re-jouee : `test_sworn_protector_kell_live.py` + `test_haze_of_co
   pas spontanement avec `SwornProtector`. Fermer ce point suppose soit de porter
   `SortTilesByUtilityForSummon`, soit de monter live une geometrie ou Creed arrive au contact du
   blightlord par un autre chemin que le switch.
+
+## 8. `#120bis-spawn` -- PORTE (2026-08-08), et la citation de Sec.4 etait PERIMEE D'UN BUILD
+
+`SwornProtectorAbility$$GetSpawnTile` relu sur `rnca9r7q6c`, terme a terme :
+
+    utilities = [ WeightedUtility(0x7,  <Nullable vide>), WeightedUtility(0x34, <Nullable vide>) ]
+    def       = new UtilityDefinition() ; def+0x10 = [ new UtilityBucket(utilities, <vide>) ]
+    First( SortTilesByUtilityForSummon( CanAddUnit(AdjacentTiles(tilesC)), def, owner@+0x30 ), 1 )
+
+TROIS lectures qui corrigent Sec.4 :
+
+1. **`0x34 = 52 SwornProtector_AvoidAdjacentEnemies`, PAS `0x33`.** Cette fiche a ete ecrite sur
+   `gqfc5mff6c`, ou `AttackTile` n'existait pas encore en 8 ; son insertion a decale de +1 les 73
+   membres suivants d'`IdunBattle.Configuration.UtilityType` (meme decalage que `Damage` 34 -> 35,
+   documente dans `operations/damage_utility.py`). `0x33 = 51` designe aujourd'hui
+   **`RoyalGuard_AvoidAdjacentEnemies`** -- un homonyme quasi parfait, qui porte en plus la MEME
+   cle BC (`AdjacentEnemy`) et la MEME valeur (-20). C'est exactement le regime ou un ordinal
+   recopie ment en silence ; le port n'ecrit que le MEMBRE.
+2. **`TestUnitProvider` est un mislabel ghidra.** La classe allouee (`DAT_18337e6d8`) est la MEME
+   que celle que `DSLSelectors$$SortUnitsByDamageUtility` construit par
+   `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(this, 0x23)` : c'est un
+   **`UtilityDefinition`**, dont le champ `+0x10` recoit le `UtilityBucket[1]`. Il n'y a pas
+   d'enveloppe supplementaire.
+3. **La feuille lit `get_UnitOrParent`, pas `case.unit`.**
+   `SwornProtector_AvoidAdjacentEnemiesUtility.<EvaluateMovementInSteps>d__1$$MoveNext` =
+   `Count( Enemies( Entity(case.get_UnitOrParent), AdjacentUnits(Entity(case.get_MovementTile), 1, 3), 3 ) )
+   x GetUtilityValue("AdjacentEnemy")`. En regime SPAWN (`case.unit == null`) le sujet est donc le
+   **PARENT** -- Creed. Son jumeau `RammingSpeed_MostAdjacentEnemies` lit `case.unit` et degrade a
+   0 : **recopier sa garde `is_spawning` aurait rendu CETTE feuille inerte sur son unique
+   call-site**, c'est-a-dire restaure le collapse qu'elle vient reparer.
+
+Poids : `Utilities.Default.SwornProtector_AvoidAdjacentEnemies.AdjacentEnemy` = **-20** (cle
+resolue par `probe_212_bc_key_literals.py`, SANS prefixe contrairement au `RAMMINGSPEED_` du
+jumeau). Le signe NEGATIF est ce qui pose Kell du cote oppose a l'attaquant.
+
+### La mesure, et sa contre-epreuve
+
+`probe_120bis_spawn_tile.py` -- board `MC1_67`, seed 4242, Creed amene sur `(3,4)` (SIX voisins
+jouables, meme geometrie que `test_sworn_protector_kell_live.py`), attaquant DEPLACE sur trois
+voisins differents. Temoin = `git archive origin/master` (`a2fff7a4`) extrait en entier, joue sur
+la MEME session et les MEMES trois montages :
+
+| montage | temoin (collapse) | ce port | natif (live) |
+|---|---|---|---|
+| att (4,4) | `d = 1` | `d = 2` | `d = 2` |
+| att (2,4) | `d = 1` | `d = 2` | `d = 2` |
+| att (3,3) | `d = 2` | `d = 1` | `d = 1` |
+| ACCORD | **0/3** | **3/3** | -- |
+
+Le 3e montage est **INVERSE** : l'accord du port n'est pas un biais « toujours 2 », c'est bien le
+TRI qui decide, montage par montage.
+
+⚠ **DEUX gardes de mesure, et sans elles le probe aurait rendu un VERT sur un port faux.**
+(a) La TUILE de Kell est rendue mais declaree **NON DISCRIMINANTE** : apres le `SwitchPosition`
+elle vaut la tuile de DEPART de Creed des deux cotes, et elle est **egale meme sur le temoin qui se
+trompe**. Un probe qui n'aurait garde qu'elle aurait valide n'importe quoi. (b) Un montage a moins
+de 2 tuiles libres autour de Creed est ECARTE (regime degenere : le tri coincide avec
+l'enumeration -- c'est ce qu'a rendu le premier jet, Creed etant sur un coin), et le probe REFUSE
+de conclure si le natif rend la meme distance sur tous les montages.
+
+### Cablage
+
+Le noeud DSL `SortTilesByUtility` et l'accesseur `ctx.sort_tiles_by_utility` transportent desormais
+une `utility_definition` batie a la main (le foyer `utilities/tile.py::sort_tiles_by_utility`
+l'acceptait deja depuis #353-r1, mais aucun noeud ne savait l'exprimer). Parametre optionnel en fin
+de signature : comportement INCHANGE pour tous les appelants existants. La feuille vit dans
+`engine/utilities/sworn_protector.py`, qui s'inscrit lui-meme dans `UTILITY_BY_TYPE` (patron
+`engine/utilities/move.py`) -- `engine/utilities/tile.py` etant le foyer d'une autre tranche en vol
+au moment de la livraison, l'entree gagnerait a rejoindre le litteral quand ce foyer sera libre.
+
+### ⚠ Un ROUGE PREEXISTANT de `master`, trouve en rejouant ce probe
+
+`probe_120bis_execute_for_replaced_target.py` **etape 5** (`assert h.last.get("target") == creed`,
+« cible re-resolue sans switch ») ECHOUE sur `origin/master` `a2fff7a4` **pur** : meme assertion,
+meme valeur (`cible frappee=2`, `kell=None`), verifie sur l'arbre temoin extrait par `git archive`
+AVANT toute edition. Ce n'est donc pas une regression de cette tranche, et il rend rouge
+`tests/engine/runner/test_pre_unit_ability_fork_live.py::test_port_reproduces_replaced_target_offline`.
+Non diagnostique ici (hors perimetre) -- signale pour attribution.
