@@ -133,6 +133,7 @@
  "tests/engine/test_350r3b_triggered_average_forms_offline.py": 0.066,
  "tests/engine/test_353_ramming_speed_prediction_offline.py": 0.769,
  "tests/engine/test_359r2_hades_sort_by_row_offline.py": 0.014,
+ "tests/engine/test_359r5_selector_only_event_order_offline.py": 0.618,
  "tests/engine/test_361_gate_probe_tristate_offline.py": 0.008,
  "tests/engine/test_365_selector_montage_offline.py": 0.012,
  "tests/engine/test_366_effects_registry_partition_offline.py": 1.92,

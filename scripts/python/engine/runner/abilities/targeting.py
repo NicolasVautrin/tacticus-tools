@@ -289,6 +289,7 @@ from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 from ...entities.traits.unit_trait import UnitTrait   # #270-r1-r1-r3
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import entity_trait_names
+from ...entities.traits import unit_trait as _unit_trait   # forme B (#116-r1) : foyer `is_mechanical`
 from ...services import battle_query as _bq
 from ...services.custom_normal_attack import custom_normal_attack
 from ...services.movement_query import get_distance
@@ -1599,10 +1600,17 @@ def is_mechanical(state: "State", unit_id) -> bool:
     son occupant si c'est une tuile) : le mirror est `_unit_traits`, comme
     `_dynamic_rule_adaptive_strategy`. Pendant `runner/abilities/behaviours/stats.py::is_mechanical`,
     qui porte le MEME natif sur le substrat DSL (`entities.has_trait`) -- un noeud natif, deux
-    substrats."""
-    tr = _unit_traits(state, int(unit_id)) or ()
-    return (UnitTrait.Mechanical.name in tr or UnitTrait.LivingMetal.name in tr
-            or UnitTrait.Vehicle.name in tr)
+    substrats.
+
+    #116-r1 -- CE SITE NE RE-ECRIT PLUS LA DISJONCTION. Il RESOUT le substrat (`State` + id -> NOMS)
+    puis DELEGUE au foyer NOMS `entities/traits/unit_trait.py::is_mechanical`. Recopier les trois
+    traits ici etait exactement le geste qui a produit le bug de `ChronometronExtraDamageEffect`
+    (#116-e) : un seul trait teste, silencieux, ratant le camp necron. Un exemplaire de moins a
+    tenir a jour si le natif ajoute un quatrieme trait.
+    L'appel passe par le MODULE (`_unit_trait.is_mechanical`), pas par un nom importe : c'est la
+    forme qui MORD au `monkeypatch` du foyer (cf. la doctrine des trois formes, `CLAUDE.md`), et
+    elle evite en prime la collision avec l'homonyme local."""
+    return _unit_trait.is_mechanical(_unit_traits(state, int(unit_id)))
 
 
 def is_affected_by_heal_type(state: "State", unit_id, heal_type: int) -> bool:

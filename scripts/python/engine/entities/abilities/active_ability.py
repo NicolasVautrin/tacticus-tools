@@ -623,9 +623,17 @@ class MurderousSwingAbility(AActiveAbility):
     AoE mêlée SELF-centrée : `IdunBattle.AI.Playbook.MurderousSwingPlaybook$$MakeDamagePredictions` construit le set `AdjacentEnemies(caster)`
     (`nrEnemies = Count(set)` -> GetCorrectDamage) PUIS boucle DEUX fois dessus (externe = MakeDamage
     Predictions ; interne = `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`) -> **count² events**, chaque
-    ennemi adjacent apparaît `count` fois (CONFIRMÉ LIVE #108 : K=1->1, K=2->4, K=3->9). `get_aoe_targets`
-    = le set (moins la cible principale, filtrée par make_damage_predictions) ; `get_prediction_set_repeat`
-    = `count` -> réplique la liste d'events count fois (mirror de la boucle externe)."""
+    ennemi adjacent apparaît `count` fois (CONFIRMÉ LIVE #108 : K=1->1, K=2->4, K=3->9).
+    `get_prediction_set_repeat` = `count` -> réplique la liste d'events count fois (mirror de la
+    boucle externe).
+
+    #359-r5 — `get_aoe_targets` rend le set ENTIER, cible COMPRISE, et `make_damage_predictions` ne
+    l'en retire plus : ce playbook n'émet **aucun** event pour `<Target>` séparément (relu au
+    décompilé — son argument `target` n'est même jamais consommé), donc la cible n'a d'event que par
+    la boucle du sélecteur, à sa place. 1137 est pour cela dans `_MAKE_DMG_SELECTOR_ONLY`, avec 1147
+    et 1148. Conséquence sur `nrEnemies` : c'est `Enumerable.Count(entities)` = la taille du set —
+    ce que le port calculait comme `1 + len(aoe)`, juste tant que la cible est DANS le set (le
+    régime ordinaire d'une mêlée), faux d'exactement 1 sinon."""
 
     _AOE = dsl.Damageable(dsl.AdjacentEnemies(dsl.CasterTile(), dsl.Const(1)))
 
@@ -636,8 +644,8 @@ class MurderousSwingAbility(AActiveAbility):
         return base + int(extra or 0)                # GetSingleUnitDamage = base + extraDmg (key 8)
 
     def get_aoe_targets(self, ctx):
-        # mirror set natif `AdjacentEnemies(caster@0x160, 1, 3)` ; make_damage_predictions retire la
-        # cible principale (main_tgt_id) -> `nrEnemies = 1 + len(aoe)` = Count(set) natif.
+        # mirror set natif `AdjacentEnemies(caster@0x160, 1, 3)`, rendu TEL QUEL (#359-r5) : c'est LA
+        # boucle du playbook, `nrEnemies = Enumerable.Count(set)` en est la taille.
         return self._AOE.evaluate(ctx)
 
     def get_prediction_set_repeat(self, n_targets: int) -> int:
@@ -938,18 +946,22 @@ class HadesAutocannonsAbility(AActiveAbility):
         `IdunBattleLogic.Entities.DSLSelectors$$Player` est nommé `team` au décompilé et part dans
         `PlayersByTeamSelector$$.ctor(this, state, team)`. D'où `CurrentPlayerIsOfTeam(1)`.
 
-    ⚠ CE PORT NE REPRODUIT PAS L'ORDRE DES EVENTS MESURÉ PAR #359, et ce n'est pas ce tri qui le
-    lui interdit — c'est l'ÉTAGE AU-DESSUS. Le natif boucle sur le sélecteur TEL QUEL, cible
-    incluse (`includeCenter: 1`), donc la cible principale occupe sa place TRIÉE : mesuré natif
-    `[113, 110, 116]`, la cible `110` en 2ᵉ position. Le port, lui, extrait la cible principale du
-    set (`aoe = [t for t in ab.get_aoe_targets(dctx) if t["id"] != main_tgt_id]`, dans
-    `playbook/prediction/abilities.py`) et l'émet en TÊTE — pour TOUTES les abilities AoE, pas pour
-    1147. Le tri ne peut donc réordonner que la QUEUE. Résidu `#359-r5` (foyer = cet étage
-    partagé). Ce qui EST acquis ici : l'ordre relatif des cibles AoE est désormais celui du natif,
-    et le sens dépend de l'équipe du joueur courant.
+    #359-r5 — L'ORDRE DES EVENTS EST FERMÉ, et ce n'était pas ce tri qui l'interdisait : c'était
+    l'ÉTAGE AU-DESSUS. Le natif boucle sur le sélecteur TEL QUEL, cible incluse
+    (`includeCenter: 1`), donc la cible principale occupe sa place TRIÉE : mesuré natif
+    `[113, 110, 116]`, la cible `110` en 2ᵉ position. Le port extrayait la cible du set et l'émettait
+    en TÊTE ; il ne le fait plus pour 1147 — l'ability est dans `_MAKE_DMG_SELECTOR_ONLY`
+    (`playbook/prediction/abilities.py`), le registre des playbooks SANS batch `<Target>`. La
+    correction est REGISTRÉE et non globale : sur les huit abilities du port qui surchargent
+    `get_aoe_targets`, CINQ ont bien un batch `<Target>` explicite (Harvester, PlasmaCannon,
+    FrenziedFiring, MassDriverAccelerator — plus FragBomb hors de ce lot), et l'appliquer à toutes
+    les aurait cassées. Les trois concernées : 1147, 1148, 1137 MurderousSwing.
 
     Sans effet sur le SCORE tant que le consommateur SOMME (`CalculateUtilityFromPredictions`) :
-    l'ensemble et les valeurs sont inchangés, seul l'ordre de la queue bouge.
+    l'ensemble et les valeurs sont inchangés, seul l'ordre bouge. Ce que la correction ferme est la
+    FIDÉLITÉ de la liste émise — et le seul lecteur de position du port (`main = events[0]` de
+    `playbook/base.py`) ne descend, en aval, que dans `_spiritleech_lifesteal_util`, qui ne
+    concerne aucune de ces trois abilities.
 
     ⚠ Le natif boucle sur des entités **TUILE** (`GetAllTargets` finit par `Tiles(...)`), là où la
     face COMBAT re-résout l'occupant (`DSLSelectors$$Units(GetAllTargets())`). Le substrat de
@@ -959,8 +971,9 @@ class HadesAutocannonsAbility(AActiveAbility):
 
     # `...HadesAutocannonsAbility$$GetAllTargets`, TRI COMPRIS (#359-r2 ; cf. docstring).
     # `include_center=True` = `SurroundingUnits(..., includeCenter: 1, ...)` : la cible elle-même est
-    # un des summons frappés — `make_damage_predictions` la retire de l'AoE (elle est l'event
-    # PRINCIPAL), donc l'ensemble émis reste exactement celui du sélecteur.
+    # un des summons frappés, et depuis #359-r5 elle reste DANS la liste rendue — `make_damage_
+    # predictions` ne l'en retire plus (1147 est dans `_MAKE_DMG_SELECTOR_ONLY`), donc l'ensemble ET
+    # l'ordre émis sont exactement ceux du sélecteur.
     _SET = dsl.UnitsWithTrait(
         dsl.Friends(dsl.SurroundingUnits(dsl.TargetTile(), dsl.ConfigConst("range", 0),
                                          include_center=True),
