@@ -7,7 +7,7 @@
 # plus y rentrer. C'est ce qui rend la convergence monotone et VISIBLE (tout
 # elargissement apparait dans un diff).
 #
-# 703 fichier(s).
+# 701 fichier(s).
 scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py
 scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_offline.py
 scripts/python/tests/engine/entities/pathfinding/test_381r5_special_movement_live.py
@@ -341,7 +341,6 @@ scripts/python/tests/engine/runner/test_purge_response_blockhits_live.py
 scripts/python/tests/engine/runner/test_rad_bombardment_live.py
 scripts/python/tests/engine/runner/test_rad_saturation_live.py
 scripts/python/tests/engine/runner/test_reality_unbound_time_flux_live.py
-scripts/python/tests/engine/runner/test_refresh_active_flag_discriminant_offline.py
 scripts/python/tests/engine/runner/test_reinforced_hive_node_live.py
 scripts/python/tests/engine/runner/test_relentless_march_live.py
 scripts/python/tests/engine/runner/test_repair_decision_rail_live.py
