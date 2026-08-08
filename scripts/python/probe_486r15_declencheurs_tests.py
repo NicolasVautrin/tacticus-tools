@@ -252,12 +252,18 @@ def ecrire_dette(manquants) -> None:
     DETTE.write_text("\n".join(entete + sorted(manquants)) + "\n", encoding="utf-8")
 
 
-def declarations(fichiers) -> tuple:
+def declarations(fichiers, lues: dict | None = None) -> tuple:
     """`({rel: declencheur}, {rel: faute})`. Lecture PARALLELE + pre-filtre par SOUS-CHAINE.
 
     Aucun fichier n'est IMPORTE : `declencheur_cliquet.lire` passe par `ast.literal_eval`, donc
     un fichier de test dont l'import PLANTE peut quand meme declarer -- et c'est exactement
     l'etat ou l'on veut le savoir.
+
+    `lues`, si fourni, recoit `rel -> declaration` pour TOUTE declaration effectivement LUE,
+    y compris MAL FORMEE (#486-r30). Sans elle, une declaration mal formee sortait en `ko`
+    et n'etait plus jamais regardee : sa faute de PERIMETRE restait CACHEE derriere sa faute de
+    FORME, et il fallait deux tranches pour trouver les deux. Un parametre de SORTIE plutot
+    qu'un 3e element de tuple, pour ne pas casser les appelants qui depaquettent une paire.
     """
     textes = repo_read.read_texts([str(ROOT / f) for f in fichiers], errors="replace")
     ok: dict = {}
@@ -274,6 +280,8 @@ def declarations(fichiers) -> tuple:
         except (DC.DeclencheurAbsent, OSError, SyntaxError) as exc:
             ko[rel] = str(exc)
             continue
+        if lues is not None and isinstance(d, dict):
+            lues[rel] = d
         fautes = DC.valider(d)
         if fautes:
             ko[rel] = "declaration MAL FORMEE : %s" % "; ".join(fautes)
@@ -530,7 +538,8 @@ def _run(argv=None) -> int:
         print("[486r15] FAIL -- le perimetre ne designe AUCUN fichier de test")
         return 1
 
-    ok, ko = declarations(fichiers)
+    lues: dict = {}
+    ok, ko = declarations(fichiers, lues)
     dette = set() if args.sans_dette else lire_dette()
 
     if args.ecrire:
@@ -588,6 +597,32 @@ def _run(argv=None) -> int:
     mauvais = 0
     for rel in hors_dette:
         print("[486r15] ROUGE -- %s : %s" % (rel, ko[rel]))
+        # UN ROUGE DOIT DIRE CE QU'IL N'A PAS REGARDE (#486-r30). Une declaration mal formee
+        # sortait ici et n'etait plus confrontee : sa faute de PERIMETRE restait CACHEE derriere
+        # sa faute de FORME. Mesure du 2026-08-08 sur `test_175e_175r_tile_meta_live.py` :
+        # `build`/`toujours` absents masquaient 6 chemins de fermeture non declares, et il a
+        # fallu DEUX tranches pour trouver les deux fautes l'une apres l'autre.
+        d = lues.get(rel)
+        if d is None:
+            print("             PERIMETRE NON EXAMINE : la declaration n'a pas pu etre LUE.")
+            mauvais += 1
+            continue
+        try:
+            globs = DC.perimetre(d, rel)
+            dec = sorted(m for m in Fermeture(ROOT).de(rel) if not DC.couvre(globs, m))
+        except Exception as exc:                                          # noqa: BLE001
+            print("             PERIMETRE NON EXAMINE : %s" % str(exc)[:90])
+            mauvais += 1
+            continue
+        if DC.hors_confrontation(d) is not None:
+            print("             perimetre : HORS CONFRONTATION (bypass declare)")
+        elif dec:
+            print("             ET SON PERIMETRE EST TROP ETROIT : %d chemin(s) hors perimetre "
+                  "-- a corriger DANS LA MEME PASSE, pas a la suivante" % len(dec))
+            for x in dec[:6]:
+                print("               %s" % x)
+        else:
+            print("             perimetre : couvert (seule la FORME est en faute)")
         mauvais += 1
     for rel, decouverts in rouges:
         print("[486r15] ROUGE -- %s DECLARE TROP ETROIT : %d chemin(s) lu(s)/importe(s) hors du "
