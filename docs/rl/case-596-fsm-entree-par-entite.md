@@ -242,13 +242,39 @@ c'est même l'inverse du besoin : c'est en fautant qu'il fait ce qu'on lui deman
 vue du point de spawn, pas une commande de pose. Appelée à nu, elle n'a aucun hex à viser.
 C'est pourquoi elle ne fait rien, et ce n'est pas une panne.
 
-⚠ **LE MUR** : unité réellement en main (`HasUnitInHand() == True`), tuile de spawn LIBRE et
-vérifiée (`inspectSpawnPoints` ∩ `boardGraph`), `fsmTap` s'exécute — et rien. L'hypothèse
-restante, non testée : `OnFingerDownThisFrameInternal` n'attend peut-être pas l'entité TUILE
-mais l'entité du **point de spawn** (`FSM.Actions.SpawnPoints.ShowSpawnPoint` en fait des
-objets de vue distincts, et `InputEntityAdapter.GetEntityAtObject` mappe l'objet TOUCHÉ, pas la
-tuile sous-jacente). À trancher en hookant `OnFingerDownThisFrameInternal` pour LIRE ce que le
-jeu passe quand un humain clique — la seule voie qui ne suppose rien.
+## LA TRACE D'INPUT — CE QUE LE JEU PASSE VRAIMENT (clic HUMAIN)
+
+`fsmTrace` hooke les DEUX entrées du FSM (`Down` n'a qu'une entité, `Up` a le couple
+`entityHit`/`tileHit` — la distinction en cause). Un clic humain sur l'hex de spawn `(0,1)` :
+
+```
+down  etat=UnitDeploymentState  pos=[231, 1043, 0]   entity = TileEntity id=13  hex (0,1)
+up    etat=UnitDeploymentState  pos=[231, 1043, 0]   entity = TileEntity id=13
+                                                     tile   = TileEntity id=13
+```
+
+⚠ **DEUX HYPOTHÈSES TOMBENT D'UN COUP.**
+1. « l'entité attendue est celle du POINT DE SPAWN, pas la tuile » — **FAUX** : c'est bien
+   `TileEntity id=13`, exactement ce que `fsmTap` passait déjà. `entityHit` et `tileHit` sont
+   d'ailleurs **le même objet**.
+2. « `mousePosition` ne sert qu'au tap-vs-swipe, `[0,0,0]` suffit » — **FAUX aussi** : le jeu
+   passe une vraie position écran.
+
+⚠ **ET REJOUER LE COUPLE EXACT NE SUFFIT PAS.** `fsmTap({entityId: 13, tileEntityId: 13,
+pos: [231, 1043, 0]})`, unité en main, tuile libre : **aucun effet**. Les arguments sont donc
+DÉMONTRÉS justes — le défaut n'est pas dans ce qu'on passe.
+
+⚠ **TOUT SE RAMÈNE À UNE SEULE CAUSE, ET ELLE ÉTAIT DÉJÀ SOUS LES YEUX.** `PutUnitIntoHand`
+faute *à l'intérieur*, après avoir levé `HasUnitInHand()` mais **avant** d'avoir construit la
+donnée visuelle (`CreateVisualUnitDataForDeployment`, qui faute identiquement). L'unité est
+donc « en main » **par le drapeau, pas par les données** — et une pose qui lit ces données ne
+trouve rien à poser. Le trio symptôme (pose inerte, `TryMarkUnitAsPlaced` qui ne peuple pas le
+plateau, `PutIntoHand` qui faute) n'est pas trois problèmes : c'est **un**.
+
+⇒ Prochaine question, et une seule : pourquoi la construction du visuel faute-t-elle depuis
+NOTRE chemin d'appel et pas depuis celui du jeu, alors que les deux sont sur le thread
+principal ? Piste : le moment dans la frame — `queueOnMainThread` s'exécute depuis la pompe,
+le jeu appelle depuis son propre traitement d'input.
 
 Le décodeur lit la charge utile à `+0x10` de l'objet BOXÉ (en-tête de 0x10 sur tout
 ValueType), et **dit ce qu'il ne sait pas lire** : type non couvert ⇒ `decode: false` avec le

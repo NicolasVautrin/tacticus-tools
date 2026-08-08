@@ -99,6 +99,79 @@ function installCapture(): void {
     });
 }
 
+// ------------------------------------------------------------------ LA TRACE
+//
+// POURQUOI ELLE EXISTE : on ne DEVINE pas ce qu'attend `OnFingerDownThisFrameInternal`.
+// `fsmTap` sur une tuile de spawn libre, unité en main, ne produit RIEN — et trois
+// hypothèses restaient ouvertes (entité tuile vs entité point-de-spawn ; `mousePosition`
+// significative ou non ; down seul vs down+up). Aucune ne se tranche au décompilé : elles se
+// tranchent en LISANT ce que le jeu passe quand un humain clique. C'est la seule voie qui ne
+// suppose rien.
+//
+// Les deux points d'entrée du FSM sont hookés parce qu'ils portent des arguments DIFFÉRENTS :
+// `Down` n'a qu'une entité, `Up` a le COUPLE `entityHit`/`tileHit` — précisément la
+// distinction en cause. Coût nul hors clic : ce sont des méthodes d'entrée souris, pas un
+// chemin chaud (≠ les getters d'UI que le dépôt proscrit de hooker).
+
+interface DescEntite {
+    ptr: string; classe: string | null; id: number | null; type: number | null;
+}
+
+const TRACE_MAX = 60;
+const trace: Array<Record<string, unknown>> = [];
+let traceTotal = 0;
+
+/** Décrit un `IEntity` reçu du jeu. Les champs `id`/`type` sont lus aux offsets que
+ *  `forEachEntity` utilise déjà (16 / 20) — s'ils ne sont pas lisibles, ils sortent `null`,
+ *  jamais un zéro. */
+function decrireEntite(p: NativePointer | null): DescEntite | null {
+    if (!p || p.isNull()) return null;
+    const d: DescEntite = { ptr: p.toString(), classe: null, id: null, type: null };
+    try { d.classe = readMsgClass(p); } catch { /* garde null */ }
+    try { d.id = p.add(16).readS32(); } catch { /* garde null */ }
+    try { d.type = p.add(20).readS32(); } catch { /* garde null */ }
+    return d;
+}
+
+function lireVec3(p: NativePointer | null): number[] | null {
+    if (!p || p.isNull()) return null;
+    try { return [p.readFloat(), p.add(4).readFloat(), p.add(8).readFloat()]; }
+    catch { return null; }
+}
+
+function noter(e: Record<string, unknown>): void {
+    traceTotal++;
+    trace.push(e);
+    if (trace.length > TRACE_MAX) trace.shift();
+}
+
+function installTrace(): void {
+    if (!fsmClass) return;
+    if (miDown) {
+        Interceptor.attach(miDown.ptr, {
+            onEnter(args) {
+                try {
+                    noter({ quoi: "down", frame: state.frameNo, etat: etatCourant(),
+                            pos: lireVec3(args[1] as NativePointer),
+                            entity: decrireEntite(args[2] as NativePointer) });
+                } catch { /* ne jamais faire tomber l'input du jeu */ }
+            },
+        });
+    }
+    if (miUp) {
+        Interceptor.attach(miUp.ptr, {
+            onEnter(args) {
+                try {
+                    noter({ quoi: "up", frame: state.frameNo, etat: etatCourant(),
+                            pos: lireVec3(args[1] as NativePointer),
+                            entity: decrireEntite(args[2] as NativePointer),
+                            tile: decrireEntite(args[3] as NativePointer) });
+                } catch { /* idem */ }
+            },
+        });
+    }
+}
+
 /** Le `matchState` de la bataille VIVANTE, ou null si on ne peut pas le lire. */
 function matchStateVivant(): NativePointer | null {
     if (!state.liveRunner) return null;
@@ -391,6 +464,28 @@ function traverser(depart: Cible, chemin?: string): Cible | Refus {
 
 export function register(ctx: Ctx): void {
     installCapture();
+    installTrace();
+
+    /** CE QUE LE JEU PASSE VRAIMENT au FSM quand un HUMAIN clique. Read-only.
+     *  body: { clear?: true } -> { ok, total, gardees, entrees: [...] }
+     *
+     *  `total` compte TOUS les appels depuis l'inject, `entrees` n'en garde que les 60
+     *  derniers : un compte qui n'égale pas la longueur dit qu'on a perdu le début, au lieu
+     *  de le laisser croire complet. */
+    ctx.rpc.fsmTrace = (
+        body?: { clear?: boolean },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        const entrees = trace.slice();
+        if (body?.clear) { trace.length = 0; traceTotal = 0; }
+        return {
+            ok: true,
+            armee: { down: miDown !== null, up: miUp !== null },
+            total: traceTotal,
+            gardees: entrees.length,
+            plafond: TRACE_MAX,
+            entrees,
+        };
+    });
 
     /** CE QUE L'ÉTAT COURANT SAIT FAIRE — l'introspection qui rend le module adaptable.
      *  On atterrit dans un état inconnu (`MovementTargetSelectedState`, `InspectTileState`,
