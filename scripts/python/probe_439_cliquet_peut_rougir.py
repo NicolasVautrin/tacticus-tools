@@ -125,6 +125,48 @@ DECLENCHEUR = {
 Z, N, S, U = "Z", "N", "S", "U"      # nul / non nul / chaine / inconnu
 ANY = frozenset({U})
 
+#: Le marqueur MACHINE qui exempte un cliquet NOMME par la banque d'en etre une ENTREE (#409-r1).
+#:
+#: `# HORS-BANQUE: <script>.py -- <raison>`, la raison pouvant CONTINUER sur les lignes de
+#: commentaire suivantes -- une raison MESUREE tient rarement en 95 colonnes, et un lecteur qui
+#: n'en verrait que la premiere ligne jugerait une raison qu'il a lui-meme tronquee (faute
+#: commise a la premiere passe : 39 caracteres lus pour une raison de sept lignes).
+#:
+#: Meme forme que `Rougit = 'compteur'` : une declaration LUE par ce probe, gardee dans les DEUX
+#: directions (une exemption qui designe une entree REELLE, ou un fichier absent du disque, est
+#: MORTE -- donc ROUGE), et jamais un moyen de faire taire un cliquet casse.
+_RX_HORS_BANQUE = re.compile(r"^\s*#\s*HORS-BANQUE\s*:\s*(probe_[0-9a-zA-Z_]+\.py)\s*--\s*(.*)$")
+
+#: Fin d'une raison : une ligne non-commentaire, un separateur, ou un nouveau marqueur.
+_RX_FIN_RAISON = re.compile(r"^\s*(?:#\s*=|#\s*HORS-BANQUE\s*:|[^#\s])")
+
+
+def exemptions_hors_banque(src: str) -> dict:
+    """`{script: raison}` -- la raison agregee sur ses lignes de continuation."""
+    out: dict = {}
+    lignes = src.splitlines()
+    i = 0
+    while i < len(lignes):
+        m = _RX_HORS_BANQUE.match(lignes[i])
+        if not m:
+            i += 1
+            continue
+        morceaux = [m.group(2).strip()]
+        i += 1
+        while i < len(lignes) and lignes[i].lstrip().startswith("#") \
+                and not _RX_FIN_RAISON.match(lignes[i]):
+            morceaux.append(lignes[i].lstrip().lstrip("#").strip())
+            i += 1
+        out[m.group(1)] = " ".join(x for x in morceaux if x)
+    return out
+
+#: Tout `probe_*.py` cite QUELQUE PART dans la banque -- prose d'en-tete comprise.
+_RX_PROBE_NOMME = re.compile(r"\b(probe_[0-9a-zA-Z_]+\.py)")
+
+#: Longueur minimale d'une raison d'exemption. Meme seuil que `declencheur_cliquet.RAISON_MIN` :
+#: une raison qui tient en trois mots ne dit pas POURQUOI, elle constate.
+RAISON_HORS_BANQUE_MIN = 40
+
 # Valeurs admises de la colonne `rougit` de la banque.
 DECL_COMPTEUR = "compteur"
 DECL_VALIDES = {"", DECL_COMPTEUR}
@@ -931,6 +973,71 @@ def limite_du_critere() -> None:
 # =====================================================================================
 #  6. MAIN
 # =====================================================================================
+def etape_nommes_hors_banque(argvs: dict) -> int:
+    """Un cliquet que la banque NOMME sans en faire une ENTREE reste MORT (#409-r1).
+
+    LE GISEMENT, ET POURQUOI LES DEUX AUTRES GARDES DE LA BANQUE SONT AVEUGLES.
+    `probe_319_scan_fidelity.py` -- seul garde de la fidelite de `probe_273` -- a CRASHE des
+    mois (`AttributeError: _root_vars`) sans que rien ne le signale. Il echappait aux deux :
+      * a CE probe (etape principale), parce qu'il n'etait PAS une entree -- on ne juge que ce
+        qu'on visite ;
+      * a `probe_486r2` (orphelin ET non executable), parce qu'il etait NOMME (dans les docs)
+        ET executable. Il n'etait ni orphelin, ni muet -- il etait simplement JAMAIS JOUE.
+
+    LE CRITERE EST BORNE, ET C'EST CE QUI LE REND UTILISABLE. Il ne demande pas << tout probe
+    doit etre un cliquet >> : sur 906 probes, l'immense majorite sont des MESURES, pas des
+    gardes. Il ne demande pas non plus << tout fichier qui NOMME un cliquet >> : mesure du
+    2026-08-08, ce critere-la rend 35 fichiers, presque tous de simples citations en docstring.
+    Il porte sur ce que la banque DIT D'ELLE-MEME : un `probe_*.py` cite dans `ratchets.ps1`
+    -- prose d'en-tete comprise -- est un probe dont la banque se sait dependante. Mesure sur
+    le meme corpus : **38 nommes, 37 entrees, 1 ecart**, et cet ecart etait reel.
+
+    L'EXEMPTION EST EXPLICITE, MOTIVEE ET GARDEE DANS LES DEUX SENS, comme `Rougit` : une
+    exemption qui designe une entree REELLE, ou un fichier ABSENT du disque, est MORTE.
+    """
+    src = BANQUE.read_text(encoding="utf-8", errors="replace")
+    entrees = {a.rsplit("/", 1)[-1] for lst in argvs.values() for a in lst if a.endswith(".py")}
+    nommes = set(_RX_PROBE_NOMME.findall(src))
+    exemptes = exemptions_hors_banque(src)
+
+    print("\n[439] cliquets NOMMES par la banque : %d ; ENTREES : %d ; exemptions declarees : %d"
+          % (len(nommes), len(entrees), len(exemptes)))
+
+    ko = 0
+    for nom in sorted(nommes - entrees):
+        raison = exemptes.get(nom)
+        if raison is None:
+            ko += 1
+            print("  ROUGE  %s est NOMME par la banque sans en etre une ENTREE : il n'est joue "
+                  "par RIEN." % nom)
+            print("         => l'ajouter a `$Ratchets`, ou poser "
+                  "`# HORS-BANQUE: %s -- <raison MESUREE>`." % nom)
+        elif len(raison.strip()) < RAISON_HORS_BANQUE_MIN:
+            ko += 1
+            print("  ROUGE  exemption de %s trop courte (%d < %d) : elle doit dire POURQUOI il "
+                  "ne peut pas entrer, pas qu'il n'y est pas."
+                  % (nom, len(raison.strip()), RAISON_HORS_BANQUE_MIN))
+        else:
+            print("  DECL  %-44s hors banque, motive : %s" % (nom, raison[:70]))
+
+    # -- LES DEUX DIRECTIONS MORTES. Une exemption qui ne masque plus rien est du copier-coller
+    #    qui a l'air de faire quelque chose -- meme regle que le bypass MORT de #486-r24.
+    for nom, _ in sorted(exemptes.items()):
+        if nom in entrees:
+            ko += 1
+            print("  ROUGE  %s est EXEMPTE alors qu'il EST une entree de la banque : exemption "
+                  "MORTE, la retirer." % nom)
+        elif not (PY_DIR / nom).exists():
+            ko += 1
+            print("  ROUGE  %s est EXEMPTE mais ABSENT du disque : exemption MORTE (renomme ou "
+                  "supprime), la retirer." % nom)
+        elif nom not in nommes:
+            ko += 1
+            print("  ROUGE  %s est EXEMPTE mais la banque ne le NOMME nulle part : l'exemption "
+                  "ne masque RIEN, la retirer." % nom)
+    return ko
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--verbose", action="store_true",
@@ -990,6 +1097,8 @@ def main(argv=None) -> int:
         if a.verbose:
             for s in v.voies:
                 print("            %s" % s)
+
+    ko += etape_nommes_hors_banque(argvs)
 
     # INVENTAIRE des formes REELLEMENT utilisees par la banque. Le brief de #439 en nommait deux
     # (`return <n>` et `rc = 1`) et demandait de BALAYER pour les trouver toutes plutot que de
