@@ -16,7 +16,7 @@ CE QUE LE PORT DOIT PRODUIRE, et ce que ce fichier garde :
       sec = Cache(First(SortUnitsByDamageUtility(NormalUnits(AdjacentEnemies(Caster)) - Target,
                                                  MinMaxDamage(isPrediction: 0), 3), 1), 1)
 
-TROIS REGIMES LIVE, et le deuxieme est OBLIGATOIRE. `sec` est un ARGMAX d'utilite de degat ; un
+QUATRE REGIMES LIVE, et le deuxieme est OBLIGATOIRE. `sec` est un ARGMAX d'utilite de degat ; un
 port qui prendrait la TETE de l'enumeration d'adjacence tomberait juste tant que les deux
 coincident. Le regime `bascule` pousse l'armure du candidat prefere au-dela des bornes de degat de
 l'ability -- la prediction du selecteur etant SANS PERCAGE (`damageProfile: null`), son utilite
@@ -25,6 +25,11 @@ il ne rend pas un vert de regime degenere.
 
 Le troisieme (`alea`) rend crit et block NATURELS : l'identite arithmetique sur les tirages n'y
 tient plus, mais le pipeline COMPLET y est exerce (les deux premiers debranchent l'alea).
+
+Le quatrieme (`solo`) EXILE les deux candidats : le pool du selecteur est VIDE. Le natif ne frappe
+et ne stunne QUE la cible du message -- et il CONSOMME QUAND MEME le tirage du tri, parce que
+`SortUnitsByDamageUtilitySelector$$Select` evalue `damage.Calculate(entities)` AVANT sa boucle par
+cible. C'est une PREDICTION du decompile, falsifiable en un entier (`2 x 1 + 1 = 3`).
 
 CE QUI EST ASSERTIONNE, et pourquoi ce n'est pas un total :
   * la SEQUENCE coup par coup (`UnitDamaged` natifs filtres sur `Active_Ability_Type = 1183` vs les
@@ -295,25 +300,35 @@ def combat():
     except Exception as e:                                    # host injoignable != verdict du port
         pytest.skip("host indisponible (%s)" % (e,))
     base = os.path.join(os.environ.get("TEMP", "."), "t566_%s.json" % os.getpid())
-    mesures, _ok = P.campagne(sid, base, 56600, P.BOARD, ["nominal", "bascule", "alea"])
+    mesures, _ok = P.campagne(sid, base, 56600, P.BOARD,
+                              ["nominal", "bascule", "alea", "solo"])
     if not mesures:
         pytest.skip("build KO -- session/host indisponible")
     return {m["regime"]: m for m in mesures}
 
 
 def _assert_cast(m):
+    pool_vide = P.REGIMES[m["regime"]][2]
     sp, sn = m["port"]["seq"], m["natif"]["seq"]
     assert m["port"]["ported"] is True, "1183 non routee par le registre (NO-OP d'avant #566)"
     assert sn, "aucun `UnitDamaged` natif attribue a 1183"
     assert sp == sn, "SEQUENCE divergente (%s) : port=%r natif=%r" % (m["regime"], sp, sn)
-    assert len(sn) == 2, ("le cast doit frapper DEUX cibles (%s) -- une seule = la 2e feuille est "
-                          "inerte" % (sn,))
     cibles = sorted({t for t, _a in sn})
     sec_n = [t for t in cibles if t != m["cible"]]
-    assert len(sec_n) == 1
-    assert m["port"]["second"] == sec_n[0], (
-        "SECONDE CIBLE divergente (%s) : port=u%s natif=u%s"
-        % (m["regime"], m["port"]["second"], sec_n[0]))
+    if pool_vide:
+        # POOL VIDE : le natif frappe la SEULE cible du message, et le port ne s'invente pas de
+        # cible de repli. Le tirage du tri, lui, tombe QUAND MEME (cf. l'identite ci-dessous).
+        assert len(sn) == 1, "regime `solo` : le natif a frappe %d cibles (%s)" % (len(sn), sn)
+        assert sec_n == [], "regime `solo` : une seconde cible native est apparue (%s)" % (sec_n,)
+        assert m["port"]["second"] is None, (
+            "regime `solo` : le port s'invente une seconde cible (u%s)" % m["port"]["second"])
+    else:
+        assert len(sn) == 2, ("le cast doit frapper DEUX cibles (%s) -- une seule = la 2e feuille "
+                              "est inerte" % (sn,))
+        assert len(sec_n) == 1
+        assert m["port"]["second"] == sec_n[0], (
+            "SECONDE CIBLE divergente (%s) : port=u%s natif=u%s"
+            % (m["regime"], m["port"]["second"], sec_n[0]))
     assert m["tirages_port"] is not None and m["tirages_port"] == m["tirages_natif"], (
         "TIRAGES divergents (%s) : port=%s natif=%s"
         % (m["regime"], m["tirages_port"], m["tirages_natif"]))
@@ -345,29 +360,53 @@ def _assert_effets(m):
     assert red_p == red_n, "BUFF SELF divergent (%s) : port=%s natif=%s" % (m["regime"], red_p, red_n)
 
 
+CONTRE_EPREUVES = ("sans_2e_attaque", "pool_sans_soustraction", "tri_par_ordre_source",
+                   "stun_sur_cible_seule")
+
+
 def _assert_contre_epreuves(m):
-    """CHAQUE contre-epreuve doit diverger : sinon la lecture qu'elle retire n'est pas mesuree par
-    ce montage, et l'accord serait un accord de hasard."""
+    """L'arbre du module rend la sequence native ; les contre-epreuves, elles, sont jugees
+    GLOBALEMENT (`test_chaque_contre_epreuve_est_discriminante`) et non par regime : le regime
+    `solo` a un pool VIDE, donc trois d'entre elles y coincident avec la reference par
+    CONSTRUCTION -- exiger la divergence regime par regime rendrait un rouge qui ne dit rien."""
     ab, sn = m["ab"], m["natif"]["seq"]
     assert ab["ref"]["seq"] == sn, "l'arbre du module ne rend pas la sequence native"
     assert sorted(ab["ref"]["stun"]) == sorted({t for t, _a in sn})
-    for nom in ("sans_2e_attaque", "pool_sans_soustraction", "tri_par_ordre_source",
-                "stun_sur_cible_seule"):
-        r = ab[nom]
-        assert (r["seq"], r["stun"]) != (ab["ref"]["seq"], ab["ref"]["stun"]), (
-            "contre-epreuve %s NON discriminante au regime %s" % (nom, m["regime"]))
 
 
-@pytest.mark.parametrize("regime", ["nominal", "bascule", "alea"])
+@pytest.mark.parametrize("regime", ["nominal", "bascule", "alea", "solo"])
 def test_sequence_seconde_cible_et_tirages(combat, regime):
     assert regime in combat, "regime %s non mesure -- montage sterile" % regime
     _assert_cast(combat[regime])
     _assert_contre_epreuves(combat[regime])
 
 
-@pytest.mark.parametrize("regime", ["nominal", "bascule", "alea"])
+@pytest.mark.parametrize("regime", ["nominal", "bascule", "alea", "solo"])
 def test_les_effets_poses(combat, regime):
     _assert_effets(combat[regime])
+
+
+def test_chaque_contre_epreuve_est_discriminante(combat):
+    """CHAQUE contre-epreuve doit diverger dans AU MOINS UN regime : sinon la lecture qu'elle
+    retire n'est mesuree NULLE PART, et l'accord du port serait un accord de hasard."""
+    for nom in CONTRE_EPREUVES:
+        diverge = [r for r, m in combat.items()
+                   if (m["ab"][nom]["seq"], m["ab"][nom]["stun"])
+                   != (m["ab"]["ref"]["seq"], m["ab"]["ref"]["stun"])]
+        assert diverge, "contre-epreuve %s NON discriminante sur AUCUN regime" % nom
+
+
+def test_le_tirage_du_tri_tombe_MEME_a_pool_VIDE(combat):
+    """PREDICTION FALSIFIABLE de la lecture du decompile :
+    `SortUnitsByDamageUtilitySelector$$Select` evalue `damage.Calculate(entities)` **AVANT** sa
+    boucle par cible, donc le `RandomAmount` est tire meme quand AUCUN candidat n'entre. Au regime
+    `solo` cela vaut `2 x 1 coup + 1 = 3` -- et la contre-epreuve `tri_par_ordre_source` (qui n'a
+    pas de tri du tout) en consomme UN DE MOINS, ce qui ATTRIBUE le tirage au tri plutot qu'a une
+    coincidence."""
+    m = combat["solo"]
+    assert m["tirages_natif"] == m["tirages_port"] == P.TIRAGES_PAR_COUP * 1 + P.TIRAGES_DU_TRI
+    assert m["ab"]["tri_par_ordre_source"]["tirages"] == m["ab"]["ref"]["tirages"] - 1, (
+        "le tirage retire par `tri_par_ordre_source` n'est pas celui du selecteur de tri")
 
 
 def test_la_seconde_cible_BASCULE_avec_l_armure(combat):

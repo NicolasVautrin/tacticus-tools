@@ -62,7 +62,12 @@ TROIS REGIMES, et aucun n'est decoratif :
   * `alea`    -- crit et block NATURELS (aucun flag) : l'identite arithmetique ci-dessus ne tient
                  plus (un `RollCritical` / `RollBlock` consomme ses propres tirages), donc le seul
                  critere est `PORT == NATIF`. C'est le regime qui exerce le pipeline COMPLET -- sans
-                 lui, les deux premiers ne mesurent qu'un chemin ou l'alea a ete debranche.
+                 lui, les deux premiers ne mesurent qu'un chemin ou l'alea a ete debranche ;
+  * `solo`    -- les DEUX candidats sont EXILES : le pool du selecteur de tri est VIDE. Le natif ne
+                 frappe QUE la cible du message et ne stunne QU'ELLE -- mais il CONSOMME QUAND MEME
+                 le tirage du tri, parce que `SortUnitsByDamageUtilitySelector$$Select` evalue
+                 `damage.Calculate(entities)` AVANT sa boucle par cible. `2 x 1 + 1 = 3` : c'est une
+                 prediction FALSIFIABLE de la lecture du decompile, et le seul regime qui la teste.
 
 Aucune valeur attendue codee en dur : l'oracle est le natif qui tourne.
 
@@ -127,8 +132,13 @@ TIRAGES_PAR_COUP = 2
 #: `SortUnitsByDamageUtilitySelector$$Select` evalue `damage.Calculate(entities)` UNE fois, et
 #: `damage` est un `RandomAmount` -> UN tirage, quel que soit le nombre de candidats.
 TIRAGES_DU_TRI = 1
-#: `{regime: (neutraliser l'alea ?, neutraliser l'armure du candidat prefere ?)}`
-REGIMES = {"nominal": (True, False), "bascule": (True, True), "alea": (False, False)}
+#: `{regime: (neutraliser l'alea ?, neutraliser l'armure du candidat prefere ?, pool VIDE ?)}`
+REGIMES = {"nominal": (True, False, False), "bascule": (True, True, False),
+           "alea": (False, False, False), "solo": (True, False, True)}
+#: Regime `solo` : les DEUX candidats sont exiles a l'autre bout du plateau -> le pool du selecteur
+#: de tri est VIDE. Tuiles prises dans la zone de spawn ADVERSE du board (le placement natif rend un
+#: NUL SILENCIEUX sur une tuile interdite / reservee / sous brouillard, et `assert_montage` le voit).
+EXIL = ((FOE_A, "6,8"), (FOE_B, "5,8"))
 #: Ce que le CAST pose, et que le rapport confronte nom par nom : `EffectType` -> nom natif dans la
 #: cascade d'events. Les sous-effets du composite `Stunned` (1165/1166/1167) sont poses par
 #: `StunnedEffect$$ApplyInternal`, pas par l'arbre : ils sont VERIFIES a part.
@@ -164,7 +174,7 @@ def _duel(args, timeout=400):
 # ------------------------------------------------------------------ montage
 
 def build(state_file: str, seed: int, board: str, regime: str, bascule_sur: str | None):
-    sans_alea, avec_bascule = REGIMES[regime]
+    sans_alea, avec_bascule, pool_vide = REGIMES[regime]
     argv = ["build", "--seed", str(seed), "--board", board, "--rank", str(RANK),
             "--p-units", "%s,%s" % (CASTER, P_FILLER),
             "--a-units", ",".join(v for v, _t in A_PLACES),
@@ -172,8 +182,9 @@ def build(state_file: str, seed: int, board: str, regime: str, bascule_sur: str 
             "--place", "%s:%s" % (CASTER, PLACE_CASTER),
             "--place", "%s:%s" % (P_FILLER, PLACE_FILLER),
             "--state-file", state_file]
+    exil = dict(EXIL) if pool_vide else {}
     for vid, tile in A_PLACES:
-        argv += ["--a-place", "%s:%s" % (vid, tile)]
+        argv += ["--a-place", "%s:%s" % (vid, exil.get(vid, tile))]
     if sans_alea:
         argv += ["--crit", "0,0", "--block-target", "0,0"]
     if avec_bascule:
@@ -201,23 +212,33 @@ def unites(sid, rid):
     return out, dv
 
 
-def assert_montage(u):
+def assert_montage(u, regime):
     """Un montage DEGENERE rendrait l'accord trivial : on echoue AVANT de mesurer, jamais apres."""
     import hexgeo
+    _sa, _ab, pool_vide = REGIMES[regime]
     manquants = [v for v in (CASTER, P_FILLER, FOE_MAIN, FOE_A, FOE_B) if v not in u]
     if manquants:
         raise SystemExit("montage invalide : unites absentes %r" % (manquants,))
     voulu = {CASTER: PLACE_CASTER, P_FILLER: PLACE_FILLER}
     voulu.update(dict(A_PLACES))
+    if pool_vide:
+        voulu.update(dict(EXIL))
     mauvais = [(v, u[v]["pos"], voulu[v]) for v in voulu
                if u[v]["pos"] != tuple(int(x) for x in voulu[v].split(","))]
     if mauvais:
         raise SystemExit("placement REFUSE -- montage invalide, pas de mesure : %r" % (mauvais,))
     c = u[CASTER]["pos"]
-    loin = [v for v in (FOE_MAIN, FOE_A, FOE_B) if hexgeo.distance(c, u[v]["pos"]) != 1]
+    # Regime `solo` : SEULE la cible du message est adjacente -> pool du selecteur de tri VIDE.
+    attendus = (FOE_MAIN,) if pool_vide else (FOE_MAIN, FOE_A, FOE_B)
+    loin = [v for v in attendus if hexgeo.distance(c, u[v]["pos"]) != 1]
     if loin:
         raise SystemExit("ennemis NON adjacents au caster (%r) : le pool du tri serait tronque"
                          % (loin,))
+    if pool_vide:
+        proches = [v for v in (FOE_A, FOE_B) if hexgeo.distance(c, u[v]["pos"]) == 1]
+        if proches:
+            raise SystemExit("regime `solo` : %r est encore adjacent -> le pool n'est PAS vide"
+                             % (proches,))
 
 
 def _ability_entry(u, aid):
@@ -427,7 +448,7 @@ def mesure(sid, state_file, seed, board, regime, bascule_sur, garder=False):
         return None
     try:
         u, dv = unites(sid, rid)
-        assert_montage(u)
+        assert_montage(u, regime)
         cid, tid = u[CASTER]["id"], u[FOE_MAIN]["id"]
         ids = [u[v]["id"] for v in (CASTER, FOE_MAIN, FOE_A, FOE_B)]
         ent = _ability_entry(u[CASTER], VEXILLA_MAGNIFICA)
@@ -483,7 +504,7 @@ def rapport(m) -> bool:
     print("   E3 2e CIBLE  PORT=u%s(%s)  NATIF=%s   (tirage du tri cote port : %s)"
           % (m["port"]["second"], noms.get(m["port"]["second"]),
              ["u%d(%s)" % (t, noms.get(t)) for t in sec_n], m["port"]["rolls"]))
-    sans_alea, _ = REGIMES[m["regime"]]
+    sans_alea, _ab, pool_vide = REGIMES[m["regime"]]
     att = TIRAGES_PAR_COUP * m["natif"]["coups_tous"] + TIRAGES_DU_TRI
     print("   E2 TIRAGES genrand_int32 : PORT=%s  NATIF=%s%s"
           % (m["tirages_port"], m["tirages_natif"],
@@ -501,7 +522,18 @@ def rapport(m) -> bool:
     if sp != sn or not sn:
         print("   !! SEQUENCE DIVERGENTE")
         ok = False
-    if len(sec_n) != 1:
+    if pool_vide:
+        # Le POOL EST VIDE : le natif ne frappe QUE la cible du message, et le port doit rendre
+        # `second = None` -- pas une cible de repli. Le tirage du tri, LUI, tombe QUAND MEME
+        # (`Select` evalue `damage.Calculate` AVANT sa boucle par cible), et c'est E2 qui le dit.
+        if sec_n:
+            print("   !! regime `solo` : le natif a frappe une SECONDE cible (%s)" % (sec_n,))
+            ok = False
+        if m["port"]["second"] is not None:
+            print("   !! regime `solo` : le port s'invente une seconde cible (u%s)"
+                  % m["port"]["second"])
+            ok = False
+    elif len(sec_n) != 1:
         print("   !! le natif n'a pas frappe exactement UNE seconde cible (%s)" % (sec_n,))
         ok = False
     elif m["port"]["second"] != sec_n[0]:
@@ -571,9 +603,10 @@ def discriminantes(mesures) -> bool:
               % (nom, diverge or "AUCUN REGIME"))
         if not diverge:
             ok = False
-    secondes = {m["regime"]: m["port"]["second"] for m in mesures}
-    print("[566] SECONDE CIBLE par regime (port) : %s" % (secondes,))
-    if len(mesures) > 1 and len(set(secondes.values())) < 2:
+    secondes = {m["regime"]: m["port"]["second"] for m in mesures
+                if not REGIMES[m["regime"]][2]}
+    print("[566] SECONDE CIBLE par regime (port, pool NON vide) : %s" % (secondes,))
+    if len(secondes) > 1 and len(set(secondes.values())) < 2:
         print("[566] !! REGIME DEGENERE : la 2e cible ne bascule pas entre les regimes -- "
               "le montage ne peut pas distinguer l'argmax d'un `First` d'ordre source")
         ok = False
@@ -614,7 +647,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Confrontation live du port COMBAT de 1183")
     ap.add_argument("--seed", type=int, default=56600)
     ap.add_argument("--board", default=BOARD)
-    ap.add_argument("--regimes", default="nominal,bascule,alea")
+    ap.add_argument("--regimes", default="nominal,bascule,alea,solo")
     ap.add_argument("--state-file", default=None)
     ap.add_argument("--garder", action="store_true")
     a = ap.parse_args(argv)
