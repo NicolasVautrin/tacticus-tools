@@ -1,296 +1,187 @@
 #!/usr/bin/env python3
-"""Se balader dans Tacticus : VOIR l'ecran, CLIQUER, et PROUVER que le clic a porte.
+"""Se balader dans Tacticus -- FACADE en ligne de commande du paquet `gamenav`.
 
-POURQUOI CE MODULE
-------------------
-Les primitives existaient deja et etaient INJOIGNABLES. `frida/hooks/features/ui-nav.ts`
-publie `uiList`, `uiListAll` et `uiClick` depuis toujours ; elles sont dans le bundle vivant.
-Mais aucune route host ne les expose et aucun client ne les appelle -- c'est pour ca qu'un
-recensement les classait << RPC sans appelant >>. Elles ne sont pas mortes : personne ne
-pouvait leur parler. Le passe-plat generique `POST /api/scripts/<id>/rpc` suffit.
+Ce fichier ne porte AUCUNE logique : tout vit dans `gamenav/`, en quatre couches
+(`transport`, `vue`, `agir`, `carte`) plus `regard`, `journal` et `secours`. Lire
+`gamenav/__init__.py` pour la mesure qui justifie chaque couche.
 
-LE POINT QUI GOUVERNE TOUT LE MODULE
-------------------------------------
-LE RETOUR DE `uiClick` NE DIT RIEN, DANS LES DEUX SENS. Mesure du 2026-08-08, session 3 :
+⚠ LES IMPORTS SONT EN FORME B (`import X` puis `X.foo()`), jamais `from X import foo`.
+Mesure du depot (#485-r1-r1) : sous `monkeypatch.setattr("module.foo", stub)`, une liaison
+`from X import foo` posee au niveau module NE MORD PAS -- c'est la cause exacte de 28 fichiers
+rouges de #484 et de 12 de la famille #429-r1. La forme B n'a aucun surcout de cascade et
+eteint aussi l'ordre-dependance.
 
-  * `ok:true` sur un clic AVALE -- documente depuis #332. `interactable == true` precede la
-    fin de l'animation du popup, et le clic emis dans cette fenetre est PERDU.
-  * `ok:false` (<< onClick.Invoke threw: system error >>) sur un clic qui A PORTE -- mesure
-    2 sur 2 sur les onglets `Idun_UI_Tabs` : l'ecran a bel et bien change a chaque fois.
+Commandes :
+    ou                     l'ecran courant, identifie par ses prefabs
+    boutons [--tout]       l'arbre des boutons (inactifs compris avec --tout)
+    clic <fragment>        clic PROUVE PAR L'EFFET (jamais par le retour de l'appel)
+    maison                 echappatoire, jamais gatee
+    aller <ecran>          suit un chemin CONNU de la carte
+    capture [-o f]         image de la fenetre du jeu, cadrage VERIFIE
+    bouge                  ce qui change entre deux captures, par bande
+    fenetre <l> <h>        redimensionne, puis RELIT ce que le systeme a accepte
+    restaurer              remet la geometrie memorisee avant la premiere modification
+    journal                les divergences retour-vs-effet accumulees
 
-Donc on ne LIT jamais `ok`. On prend une EMPREINTE de l'ecran avant, on clique, on attend un
-CHANGEMENT d'empreinte, et c'est ce changement -- lui seul -- qui vaut succes. Un clic dont
-l'empreinte ne bouge pas est un ECHEC, quel que soit son `ok`.
-
-TRI-ETAT. `None` = PAS MESURE (host injoignable, session morte). Jamais un ecran vide rendu
-comme << il n'y a rien a l'ecran >>.
-
-⚠ LA SESSION EST PARTAGEE. Naviguer DEPLACE le jeu sous les pieds de tout ce qui tourne.
-`exiger_calme()` refuse d'agir tant qu'un runner est vivant -- une lecture reste permise.
-
-⚠ NE JAMAIS cliquer ce qui DEPENSE : `PlusButton` (achat de monnaie), boutiques, offres.
-`DANGEREUX` les nomme et `cliquer()` refuse, sauf `force=True` explicite.
-
-Usage:
-    python game_nav.py ou                 # l'ecran courant + les boutons
-    python game_nav.py boutons --tout     # inclut les inactifs
-    python game_nav.py clic <fragment>    # clic valide PAR L'EFFET
-    python game_nav.py maison             # retour a l'ecran d'accueil
-
-ASCII strict en sortie (console cp1252).
+Sortie ASCII stricte (console cp1252).
 """
 from __future__ import annotations
 
 import argparse
-import json
-import re
 import sys
-import time
-import urllib.error
-import urllib.request
+from pathlib import Path
 
-HOTE = "http://127.0.0.1:8765"
-ATTENTE_EFFET_S = 6.0
-PAS_S = 0.35
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-#: Ce qu'on ne clique pas sans `--force` : tout ce qui engage une depense.
-#: ⚠ LE GARDE PORTE SUR LA FEUILLE, PAS SUR LE CHEMIN. Premiere version : un simple
-#: `"/Shop" in chemin` -- il a bloque `ShopPopup(Clone)/CloseArea`, c'est-a-dire LA SORTIE
-#: DE SECOURS du popup qu'il pretendait proteger. Un garde qui interdit de sortir d'un ecran
-#: dangereux y ENFERME au lieu d'en proteger. On regarde donc le dernier segment.
-DANGEREUX = ("PlusButton", "ResourceButton", "ShopButton", "Purchase", "Buy",
-             "button_special_BattlePass")
-#: Prefixes de feuille qui designent une depense meme sans nom exact.
-DANGEREUX_PREFIXES = ("template_offer", "offer_")
-#: Toujours autorise : ce qui FERME. Une echappatoire ne se gate jamais.
-SORTIES = ("CloseArea", "Blocker", "CloseButton", "Close", "button_close", "BackButton")
-
-#: L'ecran se NOMME par les prefabs presents dans l'arbre, jamais par un compte de boutons.
-RE_ECRAN = re.compile(r"Idun_UI_(\w+?Screen)\(Clone\)")
-RE_POPUP = re.compile(r"([A-Za-z_]*Popup)\(Clone\)")
+from gamenav import agir as m_agir          # noqa: E402
+from gamenav import carte as m_carte        # noqa: E402
+from gamenav import journal as m_journal    # noqa: E402
+from gamenav import regard as m_regard      # noqa: E402
+from gamenav import secours as m_secours    # noqa: E402
+from gamenav import transport as m_transport  # noqa: E402
+from gamenav import vue as m_vue            # noqa: E402
 
 
-def _http(chemin: str, corps=None, timeout=70):
-    donnees = None if corps is None else json.dumps(corps).encode("utf-8")
-    req = urllib.request.Request(
-        HOTE + chemin, data=donnees, method="POST" if donnees else "GET",
-        headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8", "replace"))
-
-
-def session() -> int | None:
-    """Id de la session Frida VIVANTE, ou None si PAS MESURE."""
-    try:
-        s = _http("/api/admin/status", timeout=8).get("session")
-    except Exception:                                                # noqa: BLE001
-        return None
-    if not s or s.get("status") != "running":
-        return None
-    return s.get("id")
-
-
-def rpc(sid: int, methode: str, args=None, timeout_ms=25000):
-    r = _http("/api/scripts/%d/rpc" % sid,
-              {"method": methode, "args": args or [], "timeout": timeout_ms})
-    return r.get("result")
-
-
-def exiger_calme() -> str | None:
-    """Rend un motif de REFUS si un runner est vivant, sinon None. Tri-etat : une panne
-    de capteur REFUSE aussi -- on ne navigue pas sur un budget inconnu."""
-    try:
-        d = _http("/api/admin/drain", timeout=8)
-    except Exception as ex:                                          # noqa: BLE001
-        return "budget de runners NON MESURE (%s) -- on ne bouge pas le jeu a l'aveugle" \
-               % str(ex)[:70]
-    n = d.get("liveRunners")
-    if n is None:
-        return "liveRunners NON MESURE -- on ne bouge pas le jeu a l'aveugle"
-    if n:
-        return "%d runner(s) vivant(s) : naviguer les casserait" % n
-    return None
-
-
-def boutons(sid: int, tout: bool = False) -> list[dict] | None:
-    r = rpc(sid, "uiListAll" if tout else "uiList")
-    if not r or not r.get("ok"):
-        return None
-    return r.get("buttons") or []
-
-
-def empreinte(bs: list[dict]) -> tuple:
-    """Ce qui IDENTIFIE un ecran. Le compte de boutons seul ne suffit pas : il bouge quand
-    un widget finit de charger, sans que l'ecran ait change (mesure : 38 -> 57 sur le meme
-    `HomeScreen`). On hache donc l'ENSEMBLE des chemins, plus les prefabs d'ecran."""
-    chemins = frozenset(b.get("path", "") for b in bs)
-    return (frozenset(ecrans(bs)), frozenset(popups(bs)), hash(chemins))
-
-
-def ecrans(bs: list[dict]) -> set[str]:
-    out = set()
-    for b in bs:
-        out.update(RE_ECRAN.findall(b.get("path", "")))
-    return out
-
-
-def popups(bs: list[dict]) -> set[str]:
-    out = set()
-    for b in bs:
-        out.update(RE_POPUP.findall(b.get("path", "")))
-    return out
-
-
-def ou(sid: int) -> dict | None:
-    bs = boutons(sid)
-    if bs is None:
-        return None
-    return {"ecrans": sorted(ecrans(bs)), "popups": sorted(popups(bs)),
-            "n_boutons": len(bs), "boutons": bs}
-
-
-def est_dangereux(chemin: str) -> str | None:
-    """Le verdict porte sur la FEUILLE. Une sortie n'est jamais gatee -- cf. DANGEREUX."""
-    feuille = chemin.rstrip("/").split("/")[-1]
-    if any(s.lower() in feuille.lower() for s in SORTIES):
-        return None
-    if feuille in DANGEREUX:
-        return feuille
-    for p in DANGEREUX_PREFIXES:
-        if feuille.startswith(p):
-            return p
-    return None
-
-
-def cliquer(sid: int, chemin: str, force: bool = False,
-            attente: float = ATTENTE_EFFET_S) -> dict:
-    """Clique, puis ATTEND un changement d'empreinte. Le verdict vient de l'EFFET.
-
-    Rend `{porte, avant, apres, retour_brut, secondes}`. `retour_brut` est conserve pour
-    la trace, jamais pour decider : mesure du 2026-08-08, il vaut `ok:false` sur des clics
-    qui ont porte 2 fois sur 2.
-    """
-    danger = est_dangereux(chemin)
-    if danger and not force:
-        return {"porte": False, "refus": "chemin DANGEREUX (contient %r) -- depense "
-                                         "possible. `--force` pour passer outre." % danger}
-    avant_b = boutons(sid, tout=True)
-    if avant_b is None:
-        return {"porte": None, "refus": "ecran NON MESURE avant le clic"}
-    avant = empreinte(avant_b)
-
-    brut = rpc(sid, "uiClick", [chemin])
-
-    t0 = time.time()
-    apres_b, apres = avant_b, avant
-    while time.time() - t0 < attente:
-        time.sleep(PAS_S)
-        b = boutons(sid, tout=True)
-        if b is None:
-            continue
-        e = empreinte(b)
-        if e != avant:
-            apres_b, apres = b, e
-            break
-    return {
-        "porte": apres != avant,
-        "avant": {"ecrans": sorted(ecrans(avant_b)), "n": len(avant_b)},
-        "apres": {"ecrans": sorted(ecrans(apres_b)), "n": len(apres_b)},
-        "retour_brut": brut,
-        "secondes": round(time.time() - t0, 1),
-    }
-
-
-def resoudre(bs: list[dict], fragment: str) -> list[str]:
-    """Les chemins dont le SUFFIXE contient le fragment (insensible a la casse)."""
-    f = fragment.lower()
-    return [b["path"] for b in bs if f in b.get("path", "").lower()]
-
-
-def maison(sid: int) -> dict:
-    """Retour a l'ecran d'accueil par l'onglet Home. C'est la voie de secours."""
-    bs = boutons(sid, tout=True) or []
-    cands = [p for p in resoudre(bs, "Buttons/HomeButton")]
-    if not cands:
-        return {"porte": False, "refus": "aucun onglet Home dans l'arbre courant"}
-    return cliquer(sid, cands[0], force=True)
-
-
-def _imprimer_ou(o: dict) -> None:
-    print("ECRAN   : %s" % (", ".join(o["ecrans"]) or "(aucun prefab d'ecran -- "
-                                                     "transition en cours)"))
-    if o["popups"]:
-        print("POPUP   : %s" % ", ".join(o["popups"]))
-    print("BOUTONS : %d actifs" % o["n_boutons"])
-    feuilles = {}
-    for b in o["boutons"]:
-        feuilles.setdefault(b["path"].split("/")[-1], 0)
-        feuilles[b["path"].split("/")[-1]] += 1
-    for nom, n in sorted(feuilles.items(), key=lambda kv: (-kv[1], kv[0]))[:20]:
-        print("    %3d  %s" % (n, nom))
+def _resultat(r) -> int:
+    if r.refus:
+        print("REFUS : %s" % r.refus)
+        return 3
+    print("porte      : %s" % ("OUI" if r.porte else "NON"))
+    print("cible      : %s" % r.cible)
+    print("avant      : %s" % r.avant)
+    print("apres      : %s" % r.apres)
+    print("tentatives : %d en %.1f s" % (r.tentatives, r.secondes))
+    for i, b in enumerate(r.brut, 1):
+        print("   retour brut %d : ok=%s%s" % (i, b.get("ok"),
+                                               "  err=%s" % b["erreur"] if b.get("erreur") else ""))
+    if r.brut and r.brut[0].get("ok") is not None and bool(r.brut[0]["ok"]) != bool(r.porte):
+        print("   ^ le retour CONTREDIT l'effet -- c'est pourquoi on ne le lit pas.")
+    return 0 if r.porte else 1
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("commande", choices=["ou", "boutons", "clic", "maison"])
-    ap.add_argument("fragment", nargs="?", default="")
+    ap = argparse.ArgumentParser(description="naviguer dans Tacticus (facade de `gamenav`)")
+    ap.add_argument("commande", choices=["ou", "boutons", "clic", "maison", "aller",
+                                         "capture", "bouge", "fenetre", "restaurer",
+                                         "journal"])
+    ap.add_argument("args", nargs="*")
     ap.add_argument("--tout", action="store_true", help="inclure les boutons inactifs")
     ap.add_argument("--force", action="store_true", help="passer outre le garde de depense")
+    ap.add_argument("-o", "--sortie", default="", help="chemin de l'image")
     a = ap.parse_args()
 
-    sid = session()
-    if sid is None:
+    # --- les commandes PIXELS ne passent pas par la session Frida
+    if a.commande in ("capture", "bouge", "fenetre", "restaurer"):
+        if a.commande == "capture":
+            chemin, f = m_regard.capturer(a.sortie or None)
+            if chemin is None:
+                print("capture NON FAITE : %s" % f)
+                return 2
+            print("ecrit  : %s" % chemin)
+            print("fenetre: %dx%d a (%d,%d)" % (f.l, f.h, f.x, f.y))
+            print("lecture: %s" % ("1:1 (sous le seuil de %d px)" % m_regard.SEUIL_LISIBLE
+                                   if f.lisible else
+                                   "REDUITE (grand cote %d > %d)" % (max(f.l, f.h),
+                                                                     m_regard.SEUIL_LISIBLE)))
+            return 0
+        if a.commande == "bouge":
+            b = m_regard.bouge()
+            if b is None:
+                print("delta NON MESURE (fenetre absente ou recouverte).")
+                return 2
+            print("ce qui change entre deux captures, par bande verticale :")
+            for x0, x1, pct in b:
+                print("   x %5d-%-5d : %5.1f %% %s" % (x0, x1, pct, "#" * int(pct / 4)))
+            print("   (une capture unique ne distingue pas un ETAT d'une ANIMATION ; ceci si.)")
+            return 0
+        if a.commande == "restaurer":
+            f, verdict = m_regard.restaurer()
+            print("restauration : %s" % verdict)
+            if f:
+                print("   %dx%d a (%d,%d)" % (f.l, f.h, f.x, f.y))
+            return 0
+        if len(a.args) < 2:
+            print("usage : fenetre <largeur> <hauteur>")
+            return 1
+        f, verdict = m_regard.redimensionner(int(a.args[0]), int(a.args[1]))
+        print("verdict : %s" % verdict)
+        if f:
+            print("   obtenu %dx%d a (%d,%d)" % (f.l, f.h, f.x, f.y))
+        return 0
+
+    if a.commande == "journal":
+        print(m_journal.DEFAUT.resume())
+        for l in m_journal.DEFAUT.divergences():
+            print("   DIVERGENCE %s : retour ok=%s, effet porte=%s"
+                  % (l.get("cible", "?")[:70], l.get("brut_ok"), l.get("porte")))
+        return 0
+
+    hote = m_transport.Hote()
+    if hote.session() is None:
         print("session Frida NON MESUREE (host injoignable ou session morte).")
         print("Rien n'est conclu sur l'etat du jeu.")
         return 2
 
-    if a.commande in ("clic", "maison"):
-        refus = exiger_calme()
-        if refus:
-            print("REFUS : %s" % refus)
-            return 3
-
     if a.commande == "ou":
-        o = ou(sid)
-        if o is None:
+        v = m_vue.regarder(hote)
+        if v is None:
             print("ecran NON MESURE.")
             return 2
-        _imprimer_ou(o)
+        print("ECRAN   : %s" % m_vue.identifier(v))
+        if v.popups:
+            print("POPUP   : %s" % ", ".join(sorted(v.popups)))
+        print("BOUTONS : %d actifs" % v.n)
+        feuilles: dict[str, int] = {}
+        for b in v.boutons:
+            f = b["path"].split("/")[-1]
+            feuilles[f] = feuilles.get(f, 0) + 1
+        for nom, n in sorted(feuilles.items(), key=lambda kv: (-kv[1], kv[0]))[:18]:
+            print("    %3d  %s" % (n, nom))
         return 0
 
     if a.commande == "boutons":
-        bs = boutons(sid, tout=a.tout)
-        if bs is None:
+        v = m_vue.regarder(hote, tout=a.tout)
+        if v is None:
             print("ecran NON MESURE.")
             return 2
-        for b in sorted(bs, key=lambda x: x.get("path", "")):
-            print(b.get("path", ""))
-        print("-- %d bouton(s)%s" % (len(bs), " (inactifs compris)" if a.tout else ""))
+        for p in sorted(v.feuilles()):
+            print(p)
+        print("-- %d bouton(s)%s" % (v.n, " (inactifs compris)" if a.tout else ""))
         return 0
 
     if a.commande == "maison":
-        r = maison(sid)
-        print(json.dumps(r, ensure_ascii=True, indent=2))
-        return 0 if r.get("porte") else 1
+        return _resultat(m_secours.maison(hote))
+
+    if a.commande == "aller":
+        if not a.args:
+            print("usage : aller <ecran>   (aretes connues : %d)" % len(m_carte.ARETES))
+            return 1
+        rs = m_carte.aller(hote, a.args[0])
+        rc = 0
+        for r in rs:
+            rc = _resultat(r) or rc
+        for d, v_, cibles in m_carte.proposer(m_journal.DEFAUT):
+            print("PROPOSITION d'arete : %s -> %s  (via %s)" % (d, v_, cibles[0][:60]))
+        return rc
 
     # clic
-    bs = boutons(sid, tout=True)
-    if bs is None:
+    if not a.args:
+        print("usage : clic <fragment de chemin>")
+        return 1
+    v = m_vue.regarder(hote, tout=True)
+    if v is None:
         print("ecran NON MESURE.")
         return 2
-    cands = resoudre(bs, a.fragment)
+    cands = v.feuilles(a.args[0])
     if not cands:
-        print("aucun bouton ne contient %r. `boutons --tout` pour voir l'arbre." % a.fragment)
+        print("aucun bouton ne contient %r. `boutons --tout` pour voir l'arbre." % a.args[0])
         return 1
     if len(cands) > 1:
-        print("AMBIGU : %d boutons contiennent %r -- precise." % (len(cands), a.fragment))
+        print("AMBIGU : %d boutons contiennent %r -- precise." % (len(cands), a.args[0]))
         for c in cands[:12]:
             print("   " + c)
         return 1
-    r = cliquer(sid, cands[0], force=a.force)
-    print("cible : %s" % cands[0])
-    print(json.dumps(r, ensure_ascii=True, indent=2))
-    return 0 if r.get("porte") else 1
+    return _resultat(m_agir.agir(hote, m_transport.ClicUI(cands[0]), force=a.force))
 
 
 if __name__ == "__main__":

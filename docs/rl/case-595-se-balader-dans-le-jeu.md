@@ -60,6 +60,53 @@ montre un `native_crash` répété via `il2cpp_unhandled_exception` (compteur à
   ce qui compte, puisque l'écran transitoire *est* légitimement presque vide.
 - Le jeu n'est **jamais lancé** par ce module : c'est un geste utilisateur.
 
+## L'architecture — quatre couches, chacune adossée à une mesure
+
+Le paquet `scripts/python/gamenav/` remplace le script plat. `game_nav.py` n'est plus qu'une
+façade CLI, en **forme B** (`import X` puis `X.foo()` — la forme A désarmerait les patchs,
+cf. `#485-r1-r1`).
+
+| couche | module | la mesure qui la justifie |
+|---|---|---|
+| L0 transport | `transport` | deux voies pour une intention ; le clic UI et l'invoke IL2CPP (ce dernier **déclaré et refusé** — aucun RPC générique n'existe) |
+| L1 observation | `vue` | l'écran s'identifie par ses **prefabs** ; 38 → 57 boutons sans changer d'écran |
+| L1 bis pixels | `regard` | capturer, **diffuser** deux captures, redimensionner avec mémoire du rect |
+| L2 agir | `agir` | « agir » n'existe pas : seul « agir **et prouver** » existe |
+| L3 carte | `carte` | le graphe est une **donnée** ; presque vide, et c'est honnête |
+
+Plus deux transverses : `journal` (qui rend **comptable** l'écart retour-vs-effet) et
+`secours` (jamais gaté, hors du graphe).
+
+`vue.identifier` rend **trois** valeurs, et la troisième est le point : `TRANSITOIRE` n'est
+pas une erreur, c'est un état où le jeu se tient réellement. Démonstration de bout en bout :
+`HomeScreen` → onglet Héros → `TRANSITOIRE` (2,8 s) → `maison` → `HomeScreen` (1,3 s), les
+deux transitions avec `ok=False` au retour et l'effet contraire.
+
+## Les pixels : quatre râteaux, tous silencieux
+
+1. **Deux process nommés « tacticus »** — le premier rendu est le **launcher** (minimisé,
+   160×28). Discriminer par le **chemin**, jamais par le nom, et surtout pas par « l'image
+   n'est pas noire », qui était vert dessus.
+2. **`PrintWindow` ne voit pas la swap chain d'Unity** — fragment obsolète, 464/576 pixels
+   non noirs. **Non noir n'est pas bon.**
+3. **`SetProcessDPIAware` ne suffit pas sur un bureau étendu.** Il rend le process conscient
+   du DPI *système*, soit celui du moniteur **primaire** ; l'écran de gauche est à 250 %, si
+   bien qu'on prélevait 1549×925 dans une fenêtre de 3872×2312 — **son coin supérieur
+   gauche**, lu à tort comme « l'UI déborde la fenêtre ». La bonne primitive est
+   `SetThreadDpiAwarenessContext(-4)`, per-monitor v2.
+4. **Capturer un rectangle ≠ capturer la fenêtre.** Ce qui la recouvre entre dans l'image :
+   deux captures ont ramassé les applications de l'utilisateur. `WindowFromPoint` au centre
+   le vérifie, et la capture est **abandonnée** plutôt que livrée non située.
+
+⚠ **Et il n'y avait aucune contrainte de proportion.** J'avais conclu que le jeu refusait le
+portrait après un retour spontané à 1549×925. Faux : 560×600, 500×600 et 440×600 tiennent
+tous les trois. Le rejet de 620×1040 venait de la **hauteur** — 2600 px physiques sur un
+écran qui en fait 2400. Une contrainte de débordement, pas de forme.
+
+**Le point d'équilibre mesuré** : `440×600` logique = **1100×1500** physique. Le jeu occupe
+~89 % du cadre (contre 39 % à 1549×925), et le grand côté passe sous le seuil de réduction
+(~1568 px) — donc lecture **1:1**. Coût ≈ 2 200 tokens, soit deux `Read`.
+
 ## Ce que ça n'est pas
 
 Ce n'est pas un pilote de campagne. La chaîne du warmup reste codée en dur

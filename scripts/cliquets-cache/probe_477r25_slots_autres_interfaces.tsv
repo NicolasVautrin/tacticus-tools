@@ -1811,7 +1811,7 @@ docs/rl/case-59-camouflage-hitreduction.md	w1	a242f18863252886178e248993d639344f
 docs/rl/case-59-camouflage-hitreduction.md	w3+t+n	a242f18863252886178e248993d639344f0a29047a3628ae93860bfdc2b04c14	[[],3,0,0,0,0,[],{"gameconfig":1},{}]
 docs/rl/case-59-camouflage-hitreduction.md	w3+t+vb	a242f18863252886178e248993d639344f0a29047a3628ae93860bfdc2b04c14	[[],3,0,0,0,0,[],{"gameconfig":1},{}]
 docs/rl/case-594-litteraux-au-site-dappel.md	autre_casse	781c9a0b6bdab91b07222241d6e1285dc9978df81036ef350e8b3966ff984bcc	0
-docs/rl/case-595-se-balader-dans-le-jeu.md	autre_casse	1e83b544b709f6d89bdaa914f88bb0aca3d261ef59a6543fe73998fa9e3e42c9	0
+docs/rl/case-595-se-balader-dans-le-jeu.md	autre_casse	3c8207fbb299d876d8870b452eb270831b02981b18edc6ce6b583738f17f862f	0
 docs/rl/case-60-swarm-attacker-heal-limit.md	autre_casse	3185e497b87a762e08032a607e5c30fbb12f85bb5fafc6c26c0451d3f23762a6	0
 docs/rl/case-60-swarm-attacker-heal-limit.md	w1	3185e497b87a762e08032a607e5c30fbb12f85bb5fafc6c26c0451d3f23762a6	[[],1,0,0,0,0,[],{},{}]
 docs/rl/case-60-swarm-attacker-heal-limit.md	w3+t+n	3185e497b87a762e08032a607e5c30fbb12f85bb5fafc6c26c0451d3f23762a6	[[],1,0,0,0,0,[],{},{}]
@@ -3998,9 +3998,17 @@ scripts/python/enum_maps.py	autre_casse	8dd13ad26c823de863aa82e265b47896fc8d9717
 scripts/python/extract_failed_targets.py	autre_casse	1d61f1f30d80e8ac9be0729bc78c991cbe76933b3ac12f4f284b763401827253	0
 scripts/python/fingerprint_functions.py	autre_casse	16d1b9880104f02723e849dd306007632fd8b71ddec9f5dc2a284f1a11488371	0
 scripts/python/fleet_board.py	autre_casse	a5fb0c119af942f91e00a84a16ee361b9a65471250c1a64e5219528ecb1c603b	0
-scripts/python/game_nav.py	autre_casse	e85e139ff88e35abbb567678361887b6b9079cfe283b97e630ed5fb6aa6ad0d6	0
+scripts/python/game_nav.py	autre_casse	ed8aaae82f520ef86fa8a41fbe31a7eb484ae6059245b35542bd41ac8e7d3492	0
 scripts/python/gameconfig.py	autre_casse	bc3b4e3ad16be0664b4cb4ffef17de0a7ed4e9545b82b2fc80030057a3d26cb5	0
 scripts/python/gameconfig_diff.py	autre_casse	cf70747457bbd596b8bcd357b4013e3c78abfd45aecf2ea431684513bf4718b4	0
+scripts/python/gamenav/__init__.py	autre_casse	4792af81b6d36a5327201692824c63326432ab91e8ec82bba014c2da7f8895b7	0
+scripts/python/gamenav/agir.py	autre_casse	1a6025748040238f2442a731cecb8fa70c3a25d42c6ceea499e4c1347d97bfa8	0
+scripts/python/gamenav/carte.py	autre_casse	f78b7238cce416abdc9e0336374b66519adb38f4d2ac16bd15bd5c8de2260a57	0
+scripts/python/gamenav/journal.py	autre_casse	ce027ccab342f7ed730145adeee922d07fbcc3094902766bd7037f5dbc1f4f12	0
+scripts/python/gamenav/regard.py	autre_casse	b7979881c1c2a6beb47bbcb54c0378a1517c6185a73c03f85fd76c26bd582f05	0
+scripts/python/gamenav/secours.py	autre_casse	e7276bc0031034142905b68135de9ed3d8e00124dd2826a931a97659c8407cc9	0
+scripts/python/gamenav/transport.py	autre_casse	ec54dab25576ec78c7f9546baba651716f34d68d14a6efef16d35e48da3d49c2	0
+scripts/python/gamenav/vue.py	autre_casse	46004bcdb1e7d4b40aed8d9257b7a431348afd4e7525a60fb99e5b122fd611e3	0
 scripts/python/gen_ai_targets.py	autre_casse	01df2f7e08c953cab9aedc4dc2165728b928dd41bedf9465aed49e9c9adc4e25	0
 scripts/python/gen_battle_config_java.py	autre_casse	442747af54af5360bc45397940bf39f79a89a3adb186e23a2a3f958396895d95	0
 scripts/python/gen_battlelogic_targets.py	autre_casse	eccebb83418f037055debdde97515b0a0fd72679462d3e518db6e91e6cef1e47	0
