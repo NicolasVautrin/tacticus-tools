@@ -170,7 +170,8 @@ def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
 
 
 def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_action: bool,
-                                      move_amount: Optional[int]) -> Optional[dict]:
+                                      move_amount: Optional[int],
+                                      allowed_targets: "Optional[set]" = None) -> Optional[dict]:
     """**L'UNIQUE port du corps natif `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute`**
     (un acteur), partage par les DEUX noeuds `DSLFactory` qui l'instancient — cf. les deux constructeurs
     homonymes juste en dessous (`perform_ai_attack_from_current_position`, `perform_ai_attack`). Tous les
@@ -270,16 +271,33 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     CONTRAT DE RETOUR (inchange) : `None` = AUCUNE ATTAQUE. Un DEPLACEMENT PUR (ou un deplacement suivi
     d'une mort par overwatch) rend donc `None` **apres avoir mute l'etat** -- ses huit consommateurs ne
     tiennent que la comptabilite des ATTAQUES (`_attacks_made`, `_last_attacked`, `attacks[]`), et un
-    move n'en est pas une. La cle `moved` du diag porte le deplacement quand l'attaque a bien eu lieu."""
+    move n'en est pas une. La cle `moved` du diag porte le deplacement quand l'attaque a bien eu lieu.
+
+    `allowed_targets` (#590, defaut `None` = INCHANGE pour les huit appelants existants) : le
+    `customUtility` (`behaviour+0x90`), materialise. Seul `PerformAIAbility` (la surcharge a 6
+    arguments de `DSLBehaviors$$PerformAIAbility`) le remplit ; les trois autres noeuds natifs de
+    cette famille passent `null` sur ce champ. Cf. l'ecart NOMME (score -> exclusion) dans
+    `behaviours/ai_control.py::PerformAIAbility`."""
     from ...operations.triggers.base import _in_attack_range
     # `abilityId = getAbilityType(actor)` (`behaviour+0x68`) = `UnitExtensions$$GetNormalAttackType`.
     # `aiControl.ExecuteAbilityActionFor(actor, abilityId, {allowOnlyMove, skipAtomic, true,
     #                                    Nullable<int> moveAmount, customUtility})` -- slot 0x37.
+    # `allowed_targets` (#590) : la materialisation du `customUtility` (`behaviour+0x90`) quand le
+    # call-site en fournit un -- `IdunBattle.AI.Utilities.OnlyCertainTargetUtility` restreint les
+    # cibles, et le port l'exprime en BORNANT l'enumeration plutot qu'en scorant (ecart NOMME dans
+    # `behaviours/ai_control.py::PerformAIAbility`). `None` = aucune contrainte : le gate se reduit
+    # exactement au `range_gate` d'avant, donc les huit appelants existants sont INCHANGES.
+    def _gate(t, tile):
+        if t is None or not _in_attack_range(state, unit_id, t, from_pos=tile):
+            return False
+        if allowed_targets is None:
+            return True
+        tid = t.get("id") if isinstance(t, dict) else t
+        return tid is not None and int(tid) in allowed_targets
+
     action = ai_control_execute_ability_action_for(
         state, unit_id, NORMAL_ATTACK_ID, allow_only_move=bool(allow_move_action),
-        move_amount=move_amount,
-        range_gate=lambda t, tile: t is not None and _in_attack_range(state, unit_id, t,
-                                                                     from_pos=tile))
+        move_amount=move_amount, range_gate=_gate)
     # --- `AiControl$$ApplyAiMessages(msgs)` : 1. `MoveUnitMessage` -----------------------------------
     _e = state.get_entity(unit_id)
     _pc = _e.get_component(_PC) if _e is not None else None
@@ -290,8 +308,15 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
         return None                       # tue par l'overwatch pendant l'approche -> aucune attaque
     # --- 2. `ActiveAbilityMessage` (l'attaque normale imposee) ---------------------------------------
     tgt = action.get("target") if (action or {}).get("kind") == "ability" else None
-    # Double filet : la portee EFFECTIVE est re-evaluee depuis la tuile FINALE (post-move).
+    # Double filet : la portee EFFECTIVE est re-evaluee depuis la tuile FINALE (post-move), et la
+    # contrainte `customUtility` (#590) est re-appliquee au MEME rang -- une cible elue puis devenue
+    # hors-liste (le port n'a pas de tel chemin aujourd'hui, mais le filet est symetrique du gate).
     if tgt is None or not _in_attack_range(state, unit_id, tgt):
+        return None
+    # ⚠ `tgt` est un ID (`action["target"]`), PAS un dict -- l'ecrire `tgt.get("id")` levait un
+    # `AttributeError` a la premiere cible retenue. Meme domaine que le `_in_attack_range`
+    # ci-dessus, qui prend un id lui aussi.
+    if allowed_targets is not None and int(tgt) not in allowed_targets:
         return None
     r = AttackDamageOperation.execute(state, unit_id, tgt)
     if r is None:

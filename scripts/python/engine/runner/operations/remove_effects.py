@@ -167,6 +167,17 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
     # qui n'est que le slot 0x27 la ou l'apply prend le 0x26). Borne a sa propre liste -> un trait
     # de KIT que l'effet n'avait pas ajoute n'est jamais retire.
     revert_traits_of_effect(state, eff)
+    # part OWNER-SWAP de `<Effect>.RevertInternal` (#590) -- MIRROR de
+    # `IdunBattle.Entities.Effects.Loki.AttemptedPossession_PossessedEffect$$RevertInternal`, dont le
+    # corps ENTIER est `processor.<IOperationProcessor slot 128 ResetUnitOwner>(target)`. Symetrique
+    # exact de `AddEffectOperation._apply_owner_override`. Le gate d'idempotence est DANS
+    # l'operation (`!IsOwnerOverridden` -> no-op), donc un double retrait ne fabrique pas d'owner.
+    # AXE DISJOINT du precedent : les traits et l'owner sont deux parts INDEPENDANTES du meme
+    # `RevertInternal` natif, et aucun effet connu ne porte les deux -- les enchainer est donc
+    # sans interaction (#585 x #590, resolu au rebase).
+    if eff.overrides_unit_owner():
+        from .change_unit_owner import ResetUnitOwnerOperation
+        ResetUnitOwnerOperation.execute(state, tgt)
     eff.consumed = True
     # `ActiveEffectIds.Remove(effectId)` -> le canal des NOMS (lu par la couche decision) suit.
     unregister_name(state, tgt, eff.name)

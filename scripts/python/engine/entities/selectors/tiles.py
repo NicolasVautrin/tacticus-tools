@@ -147,6 +147,46 @@ class Parent(TargetsSelector):
         return out
 
 
+class ChildrenOf(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$Children(parent)` -- le MIROIR INVERSE de `Parent`
+    ci-dessus : pour un selecteur d'entites `parent`, rend les unites dont il est le parent.
+
+    ⚠ **CE N'EST PAS `Children` (`tiles.py`, plus haut dans ce module), ET LES CONFONDRE EST UNE
+    FAUTE SILENCIEUSE.** Deux primitives natives HOMONYMES coexistent :
+      * `IdunBattleLogic.Entities.DSLFactory$$Children` -- SANS argument, `factory+0x148`, =
+        l'accumulateur des summons produits par CE cast. C'est la classe `Children` ci-dessus,
+        alimentee par la feuille `SpawnUnit` (`ctx.children`).
+      * `IdunBattleLogic.Entities.DSLSelectors$$Children(this, parent)` -- AVEC un argument, qui
+        alloue un selecteur scope sur le `parent` passe (`.ctor(state, parent, 0)`, mislabele
+        `System.Data.NameNode$$.ctor` par ghidra -- structure lue, jamais le nom). CELLE-CI.
+    Un cast qui ne spawne rien a `ctx.children` VIDE : brancher la premiere la ou le natif appelle
+    la seconde rend un selecteur toujours vide, sans erreur -- exactement le no-op invisible que ce
+    port est cense fermer. Unique consommateur porte a ce jour :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.AttemptedPossessionAbility$$ExecuteBehaviour`
+    (`Children(Target)` = les summons de la CIBLE, pas ceux du caster). (#590)
+
+    Port : meme substrat que `Parent` -- le lien `parentId` du dict d'unite
+    (`UnitComponent.parent_id` = le `Unit_Parent_Id` natif, pose au spawn par
+    `SpawnUnitOperation` ou seede par `snapshot._load_unit_parent` depuis
+    `combatSnapshot.units[].parentId`). Le natif accumule dans un `OrderedSet` (dedupliques, ordre
+    d'apparition) ; ici l'ordre est celui de `ctx.units`, et une unite ne peut avoir qu'UN parent,
+    donc aucun doublon n'est possible.
+
+    ⚠ **AUCUN filtre `alive` ici** : `DSLSelectors$$Children` rend TOUTES les entites enfants. Le
+    call-site 1101 compose explicitement `Alive(Children(Target))` -- c'est l'arbre qui filtre, pas
+    le selecteur, et le port garde cette separation."""
+    def __init__(self, parent: TargetsSelector):
+        self.parent = parent
+
+    def select(self, ctx):
+        pids = {u.get("id") for u in _units_of(self.parent, ctx)
+                if isinstance(u, dict) and u.get("id") is not None}
+        if not pids:
+            return []
+        return [c for c in ctx.units
+                if isinstance(c, dict) and c.get("parentId") in pids]
+
+
 class LastUnitAttackedBy(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$LastUnitAttackedBy` = `Entities.Selectors.LastUnitAttackedBySelector`
     (IdunBattle.Entities.Selectors.LastUnitAttackedBySelector$$Select) : dernière unité attaquée par `unit`. Port : le dict FRAIS (état POST-attaque, relu par la

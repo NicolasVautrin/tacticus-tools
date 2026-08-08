@@ -1099,6 +1099,30 @@ class BaseEffect:
         return []
 
     # ── matérialisation composite ─────────────────────────────────────────────────────────────────
+    def overrides_unit_owner(self) -> bool:
+        """Part DATA d'un `ApplyInternal` qui BASCULE LE PROPRIÉTAIRE du porteur — l'OWNER-SWAP
+        (#590).
+
+        NATIF, `IdunBattle.Entities.Effects.Loki.AttemptedPossession_PossessedEffect$$ApplyInternal`
+        — la fonction ENTIÈRE, il n'y a rien d'autre :
+
+            caster = state.<IMatchState slot 41 Get>( ABondEffect.BondedEntityId(this, effect) );
+            return processor.<IOperationProcessor slot 127 ChangeUnitOwner>(target, caster);
+
+        et son `$$RevertInternal`, tout aussi court :
+
+            return processor.<IOperationProcessor slot 128 ResetUnitOwner>(target);
+
+        Même forme que `writes_forced_attack_targets` juste au-dessus : la VALEUR n'est pas une
+        donnée de la classe (c'est le `BondedEntityId` de l'INSTANCE, `BaseEffect.bonded`), la
+        classe ne déclare que le FAIT de swapper. La couche runner
+        (`AddEffectOperation._apply_owner_override` / `remove_effect_instance`) va chercher le
+        bonded et appelle les deux Operations portées
+        (`engine/runner/operations/change_unit_owner.py`).
+
+        Défaut `False`. Unique porteur porté : `1209 AttemptedPossession_Possessed`."""
+        return False
+
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         """`<Effect>.ApplyInternal` — sous-effets (enfants) spawnés quand CET effet est appliqué.
         Défaut : aucun (effet simple). Un effet COMPOSITE (ex. Stunned) override pour déclarer ses

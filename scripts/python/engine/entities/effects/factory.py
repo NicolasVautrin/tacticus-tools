@@ -90,6 +90,7 @@ from .loki.mind_control import (
     MindControlTaunterEffect
 )
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
+from .loki.possession import AttemptedPossessionPossessedEffect
 from .loki.reality_unbound import (
     RealityUnboundExtraMaxDamageEffect, RealityUnboundMovementEffect, RealityUnboundRangeEffect
 )
@@ -564,6 +565,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "MindControl_OutoingDamageReduction": MindControlOutgoingDamageReductionEffect,
     "MindControl_IncomingDamageBonus": MindControlIncomingDamageBonusEffect,
     "MindControl_Taunter": MindControlTaunterEffect,
+    # AttemptedPossession (active 1101 thousSorcerer, effet 1209) -- l'OWNER-SWAP : son
+    # `ApplyInternal` est litteralement `ChangeUnitOwner(target, bondedEntity)` et son
+    # `RevertInternal` `ResetUnitOwner(target)` (IdunBattle.Entities.Effects.Loki.
+    # AttemptedPossession_PossessedEffect$$ApplyInternal / $$RevertInternal). Le SECOND effet de
+    # l'ability (1210 AttemptedPossession_DmgOverride) n'a AUCUNE classe native propre : c'est le
+    # `StatOverrideEffect` generique, deja porte par le canal `AddStatOverrideEffect`. (#590)
+    "AttemptedPossession_Possessed": AttemptedPossessionPossessedEffect,
     # LightOfSanguinius (active 1177 bloodDante, effet 1376) -- pose sur la CIBLE + les ennemis qui
     # l'entourent : -dmgReductionPct% sur le degat que le PORTEUR inflige, DOUBLE quand le defenseur
     # du coup est a healthPct% de PV ou moins (IdunBattle.Entities.Effects.Loki.LightOfSanguinius_

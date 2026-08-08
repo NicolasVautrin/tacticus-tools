@@ -762,16 +762,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 15
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 14
     #       dont hors-bloc (tete de table) ..... 4
-    #       dont bloc du pool (#433-r4) ........ 11
+    #       dont bloc du pool (#433-r4) ........ 10
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
     #       FLAGS-DIRECTS  ..................... 4
-    #       PRESET+FLAGS   ..................... 4
+    #       PRESET+FLAGS   ..................... 3
     #       PRESET-SEUL    ..................... 0
     #       STATIC-COPY    ..................... 7
-    #       (somme = 15)
+    #       (somme = 14)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -904,13 +904,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   (`engine/runner/abilities/blacktemplars.py::HolyDuelAbility.TARGETING_OPTIONS`). CONTRAT DE
     #   DISJONCTION, meme migration que 1048 juste au-dessus. Le ctor a ete RELU a cette occasion et
     #   la valeur qui vivait ici est CONFIRMEE champ pour champ.
-    # 1101 AttemptedPossession -- `...Active.Loki.AttemptedPossessionAbility$$.ctor` :
-    #   preset `+0x180` (rules 0x4002) puis `.ctor(&opts, &preset, 0x200000002)` -> 0x200004002.
-    #   Le `0x2` du litteral etait DEJA dans le preset : c'est le OU qui le dit, pas l'oeil.
-    ActiveAbilityType.AttemptedPossession: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy  # 1101
-                                 | TR.TargetIsNotAnObject,
-                           self_cast=False, range=RANGE_FROM_CONFIG,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1101 AttemptedPossession (preset `+0x180` = `0x4002` + flags `0x200000002` -> `0x200004002`)
+    #   est SORTIE d'ici : sa face COMBAT est portee, donc son masque vit sur la classe du registre
+    #   (`engine/runner/abilities/loki/attempted_possession.py::AttemptedPossessionAbility.
+    #   TARGETING_OPTIONS`). CONTRAT DE DISJONCTION, meme migration que 1048/1050 ci-dessus. Le ctor
+    #   a ete RELU a cette occasion et la valeur qui vivait ici est CONFIRMEE champ pour champ. (#590)
     # 1106 WarHowl : MIGRE vers `ABILITY_CLASSES` -- sa face COMBAT est desormais portee
     #   (`abilities/spacewolves.py::WarHowlAbility.TARGETING_OPTIONS`), donc le CONTRAT DE
     #   DISJONCTION impose de retirer sa ligne d'ici. Le ctor a ete RELU au decompile avant

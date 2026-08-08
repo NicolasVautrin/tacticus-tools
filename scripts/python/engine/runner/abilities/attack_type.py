@@ -141,6 +141,16 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # quand meme `DirectTargetAttack`. Meme contre-exemple que StormOfWrath (1019) et BloodyFury
     # (1129) ci-dessus. (#552)
     ActiveAbilityType.MindControl: AbilityAttackType.DirectTargetAttack,  # 1164
+    # AttemptedPossession (1101) : `...Active.Loki.AttemptedPossessionAbility$$.ctor` recopie les
+    # 0x40 octets du champ statique `<TargetingOptions statics>+0x180` (preset), appelle
+    # `TargetingOptions..ctor(&opts, &preset, 0x200000002)`, puis
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `AbilityAttackType`,
+    # et il vaut **0**. On le TRANSCRIT. Nouveau contre-exemple de la meme famille que StormOfWrath
+    # (1019), BloodyFury (1129) et MindControl (1164) : l'arbre ne contient AUCUN
+    # `AttackWithAttackDamage` ni `UseActiveAbility` -- il fait FRAPPER la cible via
+    # `PerformAIAbility`, ce qui n'est pas un coup du CASTER -- et le litteral vaut quand meme
+    # `DirectTargetAttack`. (#590)
+    ActiveAbilityType.AttemptedPossession: AbilityAttackType.DirectTargetAttack,  # 1101
     ActiveAbilityType.BringerOfDespair: AbilityAttackType.DirectTargetAttack,  # 1022
     ActiveAbilityType.SkyStrike: AbilityAttackType.DirectTargetAttack,  # 1025
     # PsychicMaelstrom (1027) : `PsychicMaelstromAbility$$.ctor` recopie le preset statique

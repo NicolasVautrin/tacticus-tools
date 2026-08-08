@@ -303,7 +303,36 @@ class AddEffectOperation:
         # natif l'écrit APRÈS ses trois `AddSubEffectWithSameTurns`
         # (`IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal`).
         AddEffectOperation._apply_forced_attack_targets(state, target, eff)
+        # `<Effect>.ApplyInternal` part OWNER-SWAP (#590) : place APRES le taunt parce que le natif
+        # n'a qu'UN porteur pour ce canal et que son `ApplyInternal` est la fonction ENTIERE
+        # (`AttemptedPossession_PossessedEffect$$ApplyInternal` = `ChangeUnitOwner(target,
+        # state.Get(BondedEntityId(effet)))` -- rien avant, rien apres). Le rang relatif aux autres
+        # parts est donc INOBSERVABLE ici, et ce commentaire le dit plutot que de le taire.
+        AddEffectOperation._apply_owner_override(state, target, eff)
         return eff
+
+    @staticmethod
+    def _apply_owner_override(state: State, target: int, eff: BaseEffect) -> None:
+        """Part OWNER-SWAP de `<Effect>.ApplyInternal` (#590) — MIRROR de
+        `IdunBattle.Entities.Effects.Loki.AttemptedPossession_PossessedEffect$$ApplyInternal` :
+
+            caster = state.<IMatchState slot 41 Get>( ABondEffect.BondedEntityId(this, effect) );
+            processor.<IOperationProcessor slot 127 ChangeUnitOwner>(target, caster);
+
+        Gate = la part DATA `BaseEffect.overrides_unit_owner()` (seul `1209
+        AttemptedPossession_Possessed` la pose). La VALEUR est le `BondedEntityId` de l'instance =
+        `eff.bonded`, exactement comme `_apply_forced_attack_targets` juste au-dessus.
+
+        `eff.bonded is None` -> **AUCUN swap**. Le natif rendrait `0` (branche `else` de
+        `ABondEffect$$BondedEntityId`, qui logge une erreur), `state.Get(0)` rendrait `null` et
+        `ChangeUnitOwner` deref-erait `OwnerComponent(null)`. Le port ne fabrique pas ce chemin :
+        `ChangeUnitOwnerOperation.execute` rend `False` sur entite absente, ce qui est la
+        degradation CONSERVATRICE (aucune unite ne change de camp par accident). Le seul poseur
+        porte passe `bondedEntity = Caster@sel+0x48`, jamais nul."""
+        if not eff.overrides_unit_owner():
+            return
+        from .change_unit_owner import ChangeUnitOwnerOperation
+        ChangeUnitOwnerOperation.execute(state, int(target), eff.bonded)
 
     @staticmethod
     def _apply_stat_mods(state: State, target: int, eff: BaseEffect) -> None:
@@ -613,6 +642,45 @@ def revert_stat_mods_of_removed_effects(state: State) -> list:
                 out.append((int(uid), e.effect_type, int(stat)))
             e.stat_mod_source = None                     # idempotence (pas de double ReverseModification)
             e.stat_mod_reverted = True
+    return out
+
+
+def revert_owner_overrides_of_removed_effects(state: State) -> list:
+    """Pendant EXACT de `revert_stat_mods_of_removed_effects` ci-dessus, sur l'axe OWNER-SWAP (#590).
+
+    Cote natif il n'y a qu'UNE voie de retrait -- `IdunBattle.Operations.RemoveEffectOperation$$Execute`
+    -> `DeactivateEffect` -> le virtuel `RevertInternal`, ici
+    `IdunBattle.Entities.Effects.Loki.AttemptedPossession_PossessedEffect$$RevertInternal` =
+    `ResetUnitOwner(target)` -- et l'EXPIRATION PAR TIMER y passe (elle est enfilee par
+    `IdunBattle.Operations.EndTurnOperation$$RefreshEffects` -> `RefreshEffectsOperation$$RefreshEffect`,
+    branche de retrait). Le port, lui, a DEUX chemins : `remove_effect_instance` (retrait explicite,
+    qui appelle deja `ResetUnitOwnerOperation`) et `EffectsState.on_turn_end`, qui se contente de
+    poser `consumed = True` sans jamais passer par l'operation. Ce foyer ferme le second.
+
+    ⚠ **CE CHEMIN EST AUJOURD'HUI INATTEIGNABLE POUR `1101`, ET C'EST POUR CA QU'IL EST ECRIT.**
+    L'arbre de `AttemptedPossessionAbility$$ExecuteBehaviour` retire l'effet dans le MEME `Execute`
+    (`... & RemoveEffect(possedes, 0x4b9)`), donc le timer `ConstantAmount(1)` n'echoit jamais sur
+    les cibles du cast. La seule voie qui laisserait un `1209` vivre jusqu'a son echeance est le
+    trigger `On(UnitAdded)` de `CreateHandleTriggerAbilitiesInternal` -- non porte (`#590-r3`).
+    Sans ce foyer, le jour ou ce residu se ferme, une unite resterait retournee POUR TOUJOURS :
+    une degradation PERMISSIVE et silencieuse, exactement la forme que #118 a deja payee sur l'axe
+    stat-mod. On ne laisse pas la porte ouverte parce qu'aujourd'hui personne n'y passe.
+
+    Idempotence : portee par le gate `!IsOwnerOverridden` de `ResetUnitOwnerOperation` lui-meme --
+    un second passage est structurellement un no-op, sans marqueur a maintenir sur l'instance.
+    Renvoie la liste des `(unit, effect_type)` revertes -- diagnostic."""
+    out: list = []
+    if state.effects is None:
+        return out
+    for uid, effs in state.effects.by_unit.items():
+        for e in effs:
+            if not (e.consumed or e.expired):
+                continue
+            if not e.overrides_unit_owner():
+                continue
+            from .change_unit_owner import ResetUnitOwnerOperation
+            if ResetUnitOwnerOperation.execute(state, int(uid)):
+                out.append((int(uid), e.effect_type))
     return out
 
 

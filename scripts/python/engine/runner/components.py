@@ -462,12 +462,34 @@ class UnitComponent(Component):
 class OwnerComponent(Component):
     """Propriétaire — `OwnerComponent` IdunBattle.Entities.Components.OwnerComponent$$.ctor. `team` = équipe (1/2) ; `player` = id du player
     (≠ team : team 1 = player 3, team 2 = player 4 ; un summon hérite team ET player du caster via
-    `SpawnUnitOptions.CopyOwner`, cf. project_summon_team_model). `player` None si non capté."""
-    __slots__ = ("team", "player")
+    `SpawnUnitOptions.CopyOwner`, cf. project_summon_team_model). `player` None si non capté.
+
+    `overridden_from` (#590) : l'OWNER-SWAP TEMPORAIRE de
+    `IdunBattle.Operations.ChangeUnitOwnerOperation$$Execute` /
+    `IdunBattle.Operations.ResetUnitOwnerOperation$$Execute`. Le natif porte DEUX slots --
+    `OwnerComponent+0x10 = OwnerPlayerEntityId` (l'origine) et `+0x14 =
+    OverriddenPlayerEntityId` (0 = pas d'override) -- et
+    `IdunBattle.Entities.Components.OwnerComponent$$get_CurrentPlayerEntityId` rend l'override
+    quand il est posé.
+
+    ⚠ **LE PORT INVERSE LEQUEL DES DEUX SLOTS PORTE LE COURANT, ET C'EST DÉLIBÉRÉ.** Ici
+    `team`/`player` restent **le COURANT** (c'est ce que lisent les ~100 sites du moteur :
+    `AreEnemies`, `Friends`, `UnitTeamSelectionType`, la décision, le rendu de `view`) et
+    `overridden_from` conserve le couple `(team, player)` D'ORIGINE, `None` quand aucun override
+    n'est actif. Mirrorer littéralement les deux slots natifs aurait exigé de router tous ces
+    lecteurs vers un `current_*` -- rayon de souffle sans rapport avec la tranche, et une
+    dégradation SILENCIEUSE (un seul lecteur oublié = swap inerte). L'observable est le même :
+    `is_owner_overridden` <=> `+0x14 != 0`, et le couple restauré au revert est bit-identique.
+
+    ⚠ Le natif ne stocke QUE le player entity id ; l'ÉQUIPE en est dérivée
+    (`PlayerComponent.Team`). Le port n'a pas d'entité-player, donc il bascule `team` ET `player`
+    -- même dérivation, matérialisée."""
+    __slots__ = ("team", "player", "overridden_from")
 
     def __init__(self, team: Optional[int], player: Optional[int] = None):
         self.team = team
         self.player = player
+        self.overridden_from = None      # `+0x14 == 0` : aucun override actif
 
 
 class MachineComponent(Component):

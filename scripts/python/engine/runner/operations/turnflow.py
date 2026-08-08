@@ -850,15 +850,28 @@ class EndTurnOperation:
         # aux stat-mods (`effect_stat_mod_key` -> `continue` sur None, donc un effet a trait SANS
         # stat-mod n'y arrive jamais). Reste COLLE au tick, comme lui.
         traits_reverted = revert_traits_of_removed_effects(state)
+        # Meme rang, TROISIEME axe (#590) : un `AttemptedPossession_Possessed` (1209) que le tick
+        # vient de faire EXPIRER doit rendre son porteur a son camp d'origine
+        # (`AttemptedPossession_PossessedEffect$$RevertInternal` = `ResetUnitOwner`). Colle au tick
+        # pour la meme raison que les deux lignes au-dessus : le natif enfile les TROIS depuis
+        # `RefreshEffectsOperation$$RefreshEffect`. No-op strict tant qu'aucune instance expiree ne
+        # declare `overrides_unit_owner()`.
+        # ⚠ Les TROIS clefs voyagent ENSEMBLE dans le dict de retour (#585 x #590, resolu au
+        # rebase) : en garder une seule ETEINDRAIT le canal de l'autre en silence -- son appelant
+        # lirait `None` et le lirait comme << rien a reverser >>.
+        from .effects import revert_owner_overrides_of_removed_effects
+        owners_reverted = revert_owner_overrides_of_removed_effects(state)
         if not advance:
             return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
                     "pilein": pilein, "next_player": None, "start": None,
-                    "stat_mods_reverted": reverted, "traits_reverted": traits_reverted}
+                    "stat_mods_reverted": reverted, "traits_reverted": traits_reverted,
+                    "owner_overrides_reverted": owners_reverted}
         nxt = ChangeTurnOperation.execute(state)
         start = StartTurnOperation.execute(state, nxt) if nxt is not None else None
         return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
                 "pilein": pilein, "next_player": nxt, "start": start,
-                "stat_mods_reverted": reverted, "traits_reverted": traits_reverted}
+                "stat_mods_reverted": reverted, "traits_reverted": traits_reverted,
+                "owner_overrides_reverted": owners_reverted}
 
 
 # ================================================================================================ #
