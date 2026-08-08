@@ -329,9 +329,129 @@ def step_adjacency(sid):
     return rc
 
 
+# ------------------------------------------------------------------------------------------------
+# --step defense : le volet DEFENSEUR (1093), sur le vecteur COMBAT
+# ------------------------------------------------------------------------------------------------
+def measure_defense(sid):
+    """`HolyDuel_DmgReduction` (1093) : le champion RECOIT le coup de son duelliste.
+
+    C'est l'autre moitie du duel, et elle n'est mesurable qu'au TOUR ADVERSE -- le porteur de l'effet
+    est le champion, le declencheur est `OwnerIsTarget & AreEqual(Actor@DSLSelectors+0x40,
+    BondedEntityFromEffect(Effect@0x38))`. Le montage n'a rien a forcer : le `Taunted` que le cast
+    pose sur la cible ecrit `ForcedAttackTargetsComponent = [champion]`, donc la victime NE PEUT
+    attaquer QUE lui.
+
+    Les deux faces partent du MEME etat, capture APRES le cast ET APRES les `endturn` -- le flux
+    `state.rng` est celui du runner (`dumpRng`), donc le tirage du coup est le meme des deux cotes.
+    Le CONTROLE est ecrit : le meme coup, port SANS la reduction (l'instance 1093 consommee), doit
+    rendre un nombre DIFFERENT -- sinon la concordance ne serait pas attribuable a l'effet."""
+    import probe_462_r4b_r1_r1_defender_additive_carriers as D
+    from engine.entities.effects.magnitude import ability_var
+    from engine.runner.components import StatsComponent
+
+    # Champion increvable : c'est LUI qui encaisse ici, et un mort rendrait la mesure inattribuable.
+    ctx = B.build_montage(sid, mode="proche", taunter=B.HOLY_DUELIST, taunter_hp=400000)
+    champ, victim = ctx["taunter"], ctx["victim"]
+    try:
+        B.cast_taunt(ctx, ability=HOLY_DUEL)
+        dv = PR.rpc(sid, "decisionView", {"runnerId": ctx["rid"], "maxRank": 1,
+                                          "allAbilities": True}, 90)
+        if HOLY_DUEL_DMG_REDUCTION not in live_family(dv, champ):
+            raise RuntimeError("montage : 1093 n'est pas sur le champion (%s)"
+                               % sorted(live_family(dv, champ)))
+        forced = [t for u in (dv.get("units") or []) if u.get("id") == victim
+                  for t in (u.get("forcedAttackTargets") or [])]
+        # Le tour passe a l'adversaire : la victime doit pouvoir agir.
+        mine = next((u.get("team") for u in (dv.get("units") or []) if u.get("ctrl")), None)
+        aenemy = 4 if mine == 1 else 3
+        for _ in range(4):
+            if dv.get("currentPlayer") == aenemy:
+                break
+            PR.act(sid, ctx["rid"], {"kind": "endturn"})
+            dv = PR.rpc(sid, "decisionView", {"runnerId": ctx["rid"], "maxRank": 1,
+                                              "allAbilities": True}, 90)
+        else:
+            raise RuntimeError("montage : le tour n'a pas bascule (currentPlayer=%s)"
+                               % dv.get("currentPlayer"))
+        normal_id = D._normal_attack_id(dv, victim)
+        if normal_id is None:
+            raise RuntimeError("montage : attaque normale de la victime introuvable")
+        legal = PR.legal_from_here(sid, ctx["rid"], victim, normal_id)
+        if champ not in legal:
+            raise RuntimeError("montage : le champion n'est pas ciblable par la victime (%s)" % legal)
+        # ETAT DE DEPART COMMUN, capture juste avant le coup.
+        board, dv0, ob0, cs0 = R1._snapshot(sid, ctx["rid"])
+        hp0 = PR.hp_of(sid, ctx["rid"])
+        # ---- PORT : arbre courant, puis CONTRE-MODELE (1093 consomme) ----
+        st = R1._seeded_state(sid, ctx["rid"], board, dv0, ob0, cs0)
+        port_dmg = _replay_normal(st, victim, champ)
+        st2 = R1._seeded_state(sid, ctx["rid"], board, dv0, ob0, cs0)
+        for e in st2.effects.by_unit.get(int(champ), []):
+            if e.effect_type is not None and int(e.effect_type) == HOLY_DUEL_DMG_REDUCTION:
+                e.consumed = True                       # CONTRE-MODELE ECRIT : duel sans reduction
+        port_sans = _replay_normal(st2, victim, champ)
+        # ---- NATIF ----
+        res = PR.act(sid, ctx["rid"], {"kind": "ability", "casterId": victim,
+                                       "targetId": champ, "abilityType": normal_id})
+        if not res.get("ok"):
+            raise RuntimeError("attaque native refusee : %s" % str(res)[:200])
+        hp1 = PR.hp_of(sid, ctx["rid"])
+        nat_dmg = (hp0[champ][0] - hp1[champ][0]) if hp0.get(champ) and hp1.get(champ) else None
+    finally:
+        PR.dispose(sid, ctx["rid"])
+
+    _sc = st.get_entity(int(champ)).get_component(StatsComponent)
+    _cctx = _sc.ctx if _sc is not None else None
+    _lvl = getattr(_cctx, "active_ability_level", None)
+    _mult = int(getattr(_cctx, "ability_variables_multiplier", 100) or 100)
+    expected = int(ability_var("HolyDuel", "dmgReduction", _lvl, multiplier_pct=_mult) or 0)
+    print("[DEF] cibles forcees de la victime : %s (le champion est %s)" % (forced, champ))
+    print("[DEF] degat RECU par le champion : natif=%s  port=%s  port SANS 1093=%s"
+          % (nat_dmg, port_dmg, port_sans))
+    print("[DEF] dmgReduction attendu : niveau=%s mult=%s%% -> %s" % (_lvl, _mult, expected))
+    return {"champ": int(champ), "victim": int(victim), "nat_dmg": nat_dmg,
+            "port_dmg": port_dmg, "port_sans": port_sans, "expected": expected,
+            "forced": forced}
+
+
+def _replay_normal(st, attacker, target):
+    """Rejoue l'attaque NORMALE cote PORT sur un etat cale sur le RNG du runner. Rend le degat
+    TOTAL inflige (delta PV du defenseur)."""
+    from engine.runner.messages import AttackUnitMessage
+    from engine.runner.runner import Runner
+    before = R1._hp(st, target)
+    Runner(st).install_default_handlers(20).apply(
+        AttackUnitMessage(int(attacker), int(target)))
+    after = R1._hp(st, target)
+    return None if (before is None or after is None) else (before - after)
+
+
+def step_defense(sid):
+    m = measure_defense(sid)
+    print("")
+    print("=" * 96)
+    rc = 0
+    if m["nat_dmg"] is None or m["port_dmg"] is None:
+        print("  INCONCLUSIF : degat non lisible")
+        return 1
+    if int(m["nat_dmg"]) != int(m["port_dmg"]):
+        print("  ROUGE : degat RECU natif=%s port=%s (ecart %d)"
+              % (m["nat_dmg"], m["port_dmg"], m["nat_dmg"] - m["port_dmg"]))
+        rc = 1
+    if m["port_sans"] is not None and int(m["port_sans"]) == int(m["port_dmg"]):
+        print("  CONTROLE ROUGE : le port rend la MEME valeur SANS 1093 -- la concordance ne serait")
+        print("  pas attribuable a la reduction (%s)" % m["port_sans"])
+        rc = 1
+    if rc == 0:
+        print("  => le champion encaisse `-dmgReduction` de son duelliste, bit-exact (%s), et le"
+              % m["nat_dmg"])
+        print("     contre-modele SANS l'effet rend %s." % m["port_sans"])
+    return rc
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", default="all", choices=["cast", "adjacency", "all"])
+    ap.add_argument("--step", default="all", choices=["cast", "adjacency", "defense", "all"])
     args = ap.parse_args()
     sid = _resolve_session()
     rc = 0
@@ -339,6 +459,8 @@ def main():
         rc |= step_cast(sid)
     if args.step in ("adjacency", "all"):
         rc |= step_adjacency(sid)
+    if args.step in ("defense", "all"):
+        rc |= step_defense(sid)
     return rc
 
 
