@@ -89,6 +89,23 @@ La voie dynamique (simuler un port et rejouer la banque) ne sépare pas les roug
 ceux qu'un vrai changement de comportement produit : un stub sans face COMBAT fidèle fabrique des
 faux positifs indistinguables. Résidu **#547-r4-r1** ouvert avec cette mesure.
 
+**Ce que la mesure ponctuelle a quand même établi, sur CETTE partition** (balayage AST des tests et
+probes versionnés, collections d'au moins 3 littéraux tous compris dans
+`ABILITY_CLASSES ∪ TARGETING_OPTIONS_UNPORTED`) :
+
+* **20** collections figées d'ids d'ability — mais le tri site par site montre qu'elles sont des
+  **lots de cas de test**, pas des recensements de la partition. Le voisin le plus proche,
+  `test_433_r4_r2_r1_r1_a_whole_board_gates_offline` (`LOT`, 9 ids), fige « les `UseWholeBoard`
+  classées `GATE_NOT_READ` avant cette tranche » et lit `ABILITY_CLASSES` : ses 9 y sont **déjà**,
+  un port ne les déplace pas.
+* **axe TAILLE — aucun rouge latent** : sur les **55** fichiers qui lisent
+  `TARGETING_OPTIONS_UNPORTED`, toutes les occurrences de `len(...)` sont soit des `print` de
+  probe, soit des assertions **DÉRIVÉES** (`total == len(ABILITY_CLASSES)`,
+  `len(TARGETING_OPTIONS_UNPORTED) > 10`). **Zéro** comparaison à un littéral.
+
+Ce n'est pas un cliquet — c'est une mesure horodatée. Le résidu reste ouvert parce que rien ne
+la **rejouera**.
+
 ## 6. Ce que la re-mesure a coûté
 
 Le ledger versionné garde le verdict : **réparer un rouge ne suffit pas**, il faut re-mesurer,
