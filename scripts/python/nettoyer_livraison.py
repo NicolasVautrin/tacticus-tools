@@ -89,9 +89,29 @@ PREFIXE_AGENT = livraison.PREFIXE_AGENT
 MANIFESTE_DISTANT = REPO / "docs" / "rl" / "manifeste-479r1-branches-distantes-supprimees.tsv"
 
 
-def git(*args: str, cwd: Path = REPO) -> tuple[int, str]:
-    p = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+def git(*args: str, cwd: Path | None = None) -> tuple[int, str]:
+    """Lance git dans `cwd`, ou dans `REPO` LU AU MOMENT DE L'APPEL.
+
+    ⚠ `cwd=None` ET JAMAIS `cwd=REPO` (#479-r5). Une valeur par defaut est evaluee A L'IMPORT :
+    ecrite `cwd: Path = REPO`, elle FIGE la racine et rend ce module INSUBSTITUABLE -- toute
+    contre-epreuve qui croit viser une scene jetable vise en realite le VRAI depot. Ce module
+    est celui qui porte `git push origin --delete` : c'est le pire endroit du depot ou laisser
+    cette faute.
+
+    MESURE, ET ELLE A COUTE (2026-08-08) : c'est exactement pourquoi le geste distant n'avait
+    JAMAIS ete joue en contre-epreuve. La premiere tentative a substitue `NL.REPO`, cru viser un
+    `origin` monte par `git init --bare`, et adresse le VRAI `origin` -- le recensement a rendu
+    les branches reelles et le `push --delete` est parti. Bilan etabli apres coup : toutes
+    ANCETRES d'`origin/master` (contenu integralement dans `master`), 0 PR ouverte a l'instant,
+    branches des agents en vol PROTEGEES par la voie worktree et intactes en local. Aucune perte
+    de contenu -- mais un geste irreversible joue hors mandat, par une faute d'idiome que ce
+    depot documente deja ailleurs (`probe_486r12`, `Empreinte.chemin=None`).
+
+    Le garde qui rend ce piege inoperant vit dans `probe_479r4` etape 7 : il REFUSE de jouer si
+    l'`origin` vise n'est pas sous son propre repertoire temporaire.
+    """
+    p = subprocess.run(["git", *args], cwd=str(cwd if cwd is not None else REPO),
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 

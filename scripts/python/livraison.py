@@ -158,8 +158,14 @@ def lire_fenetre_pr(gh, limite: int = LIMITE_MANUELLE) -> FenetrePR:
     2,71 s a eux seuls (mesure #467).
     """
     try:
+        # `title` n'est consomme par AUCUN critere d'ici -- il est demande pour que `brutes`
+        # porte le meme jeu de champs que la fenetre du hook (`loop_status`, qui demande
+        # `number,title,headRefName,isDraft,state`). Sans lui, `_residus_livres` rendait
+        # `[]` par cette voie et `probe_526r2 --etat` l'imprimait << aucun -- mesure, pas
+        # suppose >> alors que le critere (le TITRE) n'avait tout simplement pas ete lu :
+        # 0 par la voie manuelle contre 4 par la voie du hook, le meme jour (#526-r4).
         rc, out, err = gh("pr", "list", "--state", "all", "--limit", str(limite),
-                          "--json", "number,headRefName,state")
+                          "--json", "number,title,headRefName,state")
     except Exception as ex:                                       # noqa: BLE001
         return FenetrePR(cause=str(ex)[:140], limite=limite)
     if rc != 0:

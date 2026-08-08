@@ -135,6 +135,25 @@ param(
 #  directions : une entree sans declaration qui ne peut pas rougir est ROUGE (le vice de #430
 #  et #435), et une entree DECLAREE compteur qui se met a pouvoir rougir l'est aussi -- sa
 #  declaration est MORTE. Ne jamais poser ce champ pour faire taire un cliquet casse.
+#
+#  UN CLIQUET QUE CE FICHIER NOMME SANS EN FAIRE UNE ENTREE N'EST JOUE PAR RIEN (#409-r1).
+#  C'est le gisement de `probe_319` : seul garde de la fidelite de `probe_273`, il a CRASHE des
+#  mois sans que rien ne le signale -- invisible de `probe_439` (il n'etait pas une entree, et
+#  on ne juge que ce qu'on visite) ET de `probe_486r2` (il etait NOMME et EXECUTABLE, donc ni
+#  orphelin ni muet : simplement jamais joue). L'etape `etape_nommes_hors_banque` de `probe_439`
+#  ferme cette porte : tout `probe_*.py` cite ICI -- prose comprise -- doit etre une entree, ou
+#  porter une exemption MACHINE `# HORS-BANQUE: <script>.py -- <raison>`, gardee dans les deux
+#  directions (une exemption qui designe une entree reelle, un fichier absent, ou un script que
+#  ce fichier ne nomme plus, est MORTE). Mesure du 2026-08-08 : 38 nommes, 37 entrees, 1 ecart.
+#
+# HORS-BANQUE: probe_486r12_declencheurs.py -- Il rend rc=99 (BANQUE INDISPONIBLE) par
+#  construction : son empreinte versionnee est keyee sur le SHA du source de chaque cliquet,
+#  donc elle PERIME des qu'un cliquet change -- mesure du 2026-08-08, 23 entrees ABSENTES et 2
+#  PERIMEES (probe_229, probe_313). La remesurer exige `--mesurer`, qui REJOUE toute la banque
+#  sous audit hook. L'inscrire ici publierait donc un 99 permanent, c'est-a-dire la forme la
+#  plus surement desarmee d'un garde-fou -- son propre en-tete le dit. Son entree est un
+#  arbitrage de COUT qui appartient a l'orchestrateur ; ce qui change avec #409-r1, c'est que
+#  l'arbitrage est desormais ECRIT et VISIBLE au lieu d'etre un oubli indistinguable.
 # ==========================================================================================
 $Ratchets = @(
     @{ Id = 'probe_181'; Argv = @('probe_181_targeting_gaps.py')

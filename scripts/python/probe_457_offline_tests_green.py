@@ -1621,7 +1621,9 @@ def declencheurs_du_perimetre(perimetre: list, racine=None) -> tuple:
         except (declencheur_cliquet.DeclencheurAbsent, OSError, SyntaxError) as exc:
             ecartes[rel] = str(exc)
             continue
-        fautes = declencheur_cliquet.valider(d)
+        # `perimetre_derive=True` : ce selecteur ne lit que des fichiers de TEST, dont le
+        # perimetre effectif porte la cascade de harnais et le fichier lui-meme (#486-r31).
+        fautes = declencheur_cliquet.valider(d, perimetre_derive=True)
         if fautes:
             ecartes[rel] = "declaration MAL FORMEE : %s" % fautes[0]
             continue

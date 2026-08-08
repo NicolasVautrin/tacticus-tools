@@ -1278,10 +1278,32 @@ préférence de style.
 comportement changé, pas celle que l'auteur cite. (Vécu : #138 mergée sur un rouge — le test qui
 encodait l'ancien comportement était dans une autre tranche.)
 
+### ⚠ L'ORDRE, si ces cliquets sont demandés : `--measure-missing` D'ABORD, `probe_486r15` ENSUITE (#486-r29)
+
+**Cette ligne prime sur tout brief.** `probe_486r15` confronte une déclaration à l'**UNION** de
+deux sources : la fermeture d'imports et les **témoins** de l'empreinte `probe_457`. Sans entrée
+d'empreinte, la seconde source est **vide** — le cliquet vérifie la première **seule**, qui est
+strictement plus étroite. Prescrire `probe_486r15` **avant** `--measure-missing` fait donc jouer
+le cliquet dans le régime à **une** source, graver l'empreinte juste après, et livrer : la
+confrontation passe à **deux** sources **au merge**, chez le mergeur, jamais chez l'auteur.
+
+**Mesuré le 2026-08-08** : PR #832, verte chez son auteur (`probe_486r15 PASS` rapporté), rouge
+sur `master` au commit de merge `18edd540` — **8 chemins** manquants, **tous** apportés par les
+témoins, **0** par la fermeture, et l'entrée d'empreinte fautive arrivée **dans la même PR**.
+Ce n'est pas une négligence : aucun rappel de discipline ne le ferme, c'est l'**ordre** qui était
+faux. Ampleur du régime à une source sur le parc : **28 des 74** déclarations (38 %) sans entrée
+d'empreinte ; **206** chemins apportés par les témoins et invisibles de la fermeture sur les 46
+restantes.
+
+L'outil porte désormais la réserve lui-même — `VERDICT: PASS SOUS RESERVE`, avec le compte, la
+liste et l'ordre à jouer (`#486-r29`). **Ne pas se fier au seul `PASS` rapporté par un agent :
+lire s'il est plein ou sous réserve.** `--proposer` était déjà tri-état sur ce point.
+
 ### ⛔ SUSPENDUE depuis le 2026-08-07 : l'obligation de cliquet OFFLINE dans les briefs
 
-**Ne plus exiger d'un agent, avant qu'il ouvre sa PR** : `probe_486r15_declencheurs_tests.py`,
-`probe_457_offline_tests_green.py --measure-missing`, `probe_463r1`. **Décision de l'utilisateur**,
+**Ne plus exiger d'un agent, avant qu'il ouvre sa PR** : `probe_457_offline_tests_green.py
+--measure-missing` **puis** `probe_486r15_declencheurs_tests.py` (dans **cet** ordre, cf.
+ci-dessus), `probe_463r1`. **Décision de l'utilisateur**,
 levée **tant que le problème des déclencheurs trop larges n'est pas réglé** (résidus `#486-r24`,
 `#531`, tranchés par le **bypass déclaré** en cours d'écriture).
 
@@ -1313,6 +1335,12 @@ levée **tant que le problème des déclencheurs trop larges n'est pas réglé**
 >
 > **Au ré-armement**, une passe unique `--measure-missing` rattrape le lot d'un coup — et elle sera
 > alors jouée sur un parc de déclencheurs assaini, ce qui est précisément l'ordre voulu.
+>
+> ⚠ Et au ré-armement, **la clause remise au gabarit porte l'ORDRE** (§ ci-dessus) : elle a été
+> recopiée dans les briefs jusqu'au 2026-08-08 avec `probe_486r15` en tête, ce qui est exactement
+> la disposition qui rend le rouge invisible à son auteur. C'est le mode de rechute que la puce
+> « ne pas la ré-introduire par habitude » décrit — il s'est produit, sur l'ordre plutôt que sur
+> l'existence de la clause.
 
 ## Références chargées avec ce skill
 

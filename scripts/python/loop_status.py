@@ -611,10 +611,72 @@ def _session_du_worktree(chemin: str) -> str | None:
         return None
 
 
-#: Les racines dont la ligne de backlog est un COMPTEUR ROULANT : elle est mise a jour a chaque
+#: Les ids dont la ligne de backlog est un COMPTEUR ROULANT : elle est mise a jour a chaque
 #: livraison partielle et RESTE ouverte. Une PR qui les nomme ne les ferme donc pas, et les
 #: signaler serait un faux positif A CHAQUE PASSE (#526-r2 le nomme explicitement).
+#:
+#: ⚠ APPARIEMENT EXACT, JAMAIS PAR PREFIXE (#526-r4). L'ecriture d'origine etait
+#: `rid.startswith(RESIDUS_ROULANTS)`, ce qui silencait tous les DESCENDANTS -- **31 residus
+#: OUVERTS** sous `#419-r1` a la mesure du 2026-08-08 (`#419-r1-tr10-r2`, `#419-r1-tr14-r4`,
+#: ...). Chacun a sa PROPRE ligne, son propre cycle de vie et se ferme pour de bon : le
+#: caractere roulant du PARENT ne se transmet pas. Le prefixe etait inoffensif tant que la
+#: grammaire d'extraction ne savait pas produire ces ids ; il devient un baillon des qu'elle
+#: le sait (`_RE_ID_TITRE` ci-dessous).
+#:
+#: ⚠ RE-JUSTIFIES PAR LA MESURE, pas par l'inertie (#526-r4) -- ET LA FENETRE DE MESURE EST
+#: ELLE-MEME UN PIEGE. Sur les **200** dernieres PR mergees, `#419-r1` est nomme EXACTEMENT
+#: **0** fois et tronque **9** fois : sur cette fenetre, l'entree ne masque qu'une TRONCATURE,
+#: et on conclurait qu'elle est de l'inertie. Sur l'historique COMPLET (**799** PR mergees,
+#: 2026-08-08), elle masque **9** occurrences EXACTES (`#419-r1 tranche 14 : ...`, PR #541,
+#: #523, #518, #514, #495, #493, #492, #487, #485) pour **28** troncatures : l'entree est
+#: donc PLEINEMENT justifiee, et c'est la fenetre courte qui mentait. Un compte tire d'une
+#: fenetre non saturee reste un compte SUR CETTE FENETRE -- le dire fait partie de la mesure.
+#: `#217` : **0** exact et **0** tronque sur les deux fenetres (voir l'inertie ci-dessous).
+#: Critere LU en complement : les deux lignes portent un compte RE-DERIVE a chaque livraison
+#: partielle (`~~27~~ **20 au 2026-07-26**` ; `(etait 20 ; compte RE-DERIVE ... a la livraison
+#: de #419-r1-tr14)`) et restent ouvertes par construction. Ce qui change, c'est qu'un ecart
+#: n'est plus muet -- il est COMPTE dans la provenance, donc une entree qui ne masque rien se
+#: voit (`probe_526r2 --etat` restitue les deux colonnes).
+#:
+#: ⚠ `#217` EST INERTE, ET C'EST DIT PLUTOT QUE TU -- c'est une RACINE NUE, que `_RE_ID_TITRE`
+#: ne produit JAMAIS (l'exigence anti-numero-de-PR impose au moins un segment). Aucun titre ne
+#: peut donc la faire tirer, dans aucun sens. Elle est CONSERVEE, parce qu'elle redeviendrait
+#: effective si la grammaire admettait un jour les racines nues, et parce que la retirer
+#: n'econnomise rien ; mais `probe_526r2` etape 5 la RECENSE et l'imprime a chaque passe
+#: (`_roulants_inertes`), et exige qu'au moins une entree reste EFFECTIVE. Une entree inerte
+#: n'est pas une faute -- la taire en est une, et c'est exactement l'angle mort ou `#419-r1` a
+#: passe neuf tours a masquer une troncature en se faisant passer pour un compteur roulant.
 RESIDUS_ROULANTS = ("#217", "#419-r1")
+
+#: La 1re cellule du tableau, en POSITION DE DEFINITION. Grammaire ELARGIE (#526-r4) : un
+#: segment d'id n'est PAS necessairement `r<chiffres>`. Mesure du 2026-08-08 sur la section
+#: ouverte : **212 des 619** premieres cellules sont hors de l'ancienne grammaire
+#: `#\d+(?:-r\d+)*` -- des FAMILLES entieres (`#419-r1-tr14-...`, `#462-r4b-...`, `#446-r3b`,
+#: `#350-r3a`), plus les racines non numeriques (`#BF-chance`, `#PAI-c`, `#haze-ord`). Effet
+#: MESURE de l'elargissement : residus ouverts VUS **191 -> 278**, et **+1 signal reel** que
+#: personne ne pouvait voir (`#175-r`, livre par la PR #825 et toujours ouvert).
+#: Le `~~` d'une ligne fermee ne matche pas -- c'est ce qui distingue ouvert de ferme.
+_RE_ID_DEFINI = r"^\|\s*(#[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)\s*\|"
+
+#: L'id tel qu'un TITRE de PR le nomme. DEUX exigences, et chacune repare une faute mesuree :
+#:
+#: 1. LA BORNE DROITE `(?![-\w])`, ET SURTOUT LA LARGEUR (#526-r4). Sans elles,
+#:    `#\d+(?:-r\d+)+` s'arretait au premier segment non-`r<chiffres>` et FABRIQUAIT un
+#:    ANCETRE : sur `#462-r4b-r3-r1` le `+` s'arrete devant le `b` et rend `#462-r4`, un id qui
+#:    EXISTE et qui est OUVERT. Mesure sur les **200** dernieres PR mergees : **24** extractions
+#:    tronquees en 3 familles, soit **14 des 18** signaux emis qui etaient de purs faux
+#:    positifs -- c'est la cause du `#462-r4 (PR #724)` remonte par le hook `Stop`. Sur
+#:    l'historique COMPLET (**799** PR) : **88** troncatures, **10** familles.
+#:    ⚠ LA BORNE SEULE NE REPARE PAS : sous la grammaire ELARGIE, `-r4b` est un segment
+#:    ordinaire, donc c'est la LARGEUR qui dissout la troncature. Ce que la borne garde encore,
+#:    c'est le suffixe COLLE hors classe (`#116-e_bis` ne doit pas rendre `#116-e`) -- les deux
+#:    crans sont eprouves SEPAREMENT par `probe_526r2` etape 5 (a1) et (a2), justement pour que
+#:    l'un ne passe pas pour la cause du vert de l'autre.
+#: 2. AU MOINS UN SEGMENT (`+`, pas `*`), et c'est ce qui separe un id d'un NUMERO DE PR : un
+#:    titre cite couramment `#832`, qui serait un id de racine parfaitement valide. Exiger le
+#:    segment ecarte cette collision par construction. Une racine nue n'est donc jamais
+#:    signalee -- borne assumee, nommee ici plutot que decouverte plus tard.
+_RE_ID_TITRE = r"#[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+(?![-\w])"
 
 #: Titre de la section du backlog qui porte les residus OUVERTS. Une ligne qui n'y est plus est
 #: fermee, par construction.
@@ -653,47 +715,102 @@ def _residus_livres(src: Sources, fenetre) -> "Mesure":
     corps compris rend 187/278 et ne discrimine RIEN, parce qu'un residu est cite par le commit
     qui l'OUVRE. Le titre d'une PR mergee, lui, nomme ce qu'elle a LIVRE (10/278, dont 6
     invisibles de tout autre signal).
+
+    LA GRAMMAIRE DE L'ID EST LE POINT FAIBLE, ET ELLE A DEJA MENTI (#526-r4) -- voir
+    `_RE_ID_TITRE` / `_RE_ID_DEFINI` : sans borne droite, elle FABRIQUAIT l'ancetre d'un id
+    (14 des 18 signaux emis etaient ce faux positif) ; trop etroite, elle ne voyait pas
+    87 residus ouverts sur 278. Les deux sont mesurees et corrigees la-haut.
+    """
+    m = _residus_nommes(src, fenetre)
+    if not m.mesuree:
+        return m
+    retenus, ecartes = m.valeur["retenus"], m.valeur["ecartes_roulants"]
+    # UN ECART NE DOIT PAS ETRE MUET : une entree de `RESIDUS_ROULANTS` qui ne masque RIEN est
+    # de l'inertie, et c'est exactement ce que #526-r4 a trouve. Le compte part dans la
+    # provenance, donc il se lit meme quand la liste retenue est vide.
+    src_txt = "titres de PR mergees x backlog `%s`" % _SECTION_OUVERTE
+    if ecartes:
+        src_txt += " -- %d ecarte(s) par RESIDUS_ROULANTS (%s)" % (
+            len(ecartes), ", ".join(sorted({t["residu"] for t in ecartes})))
+    return _ok(retenus, src_txt)
+
+
+def _residus_nommes(src: Sources, fenetre) -> "Mesure":
+    """Ventile les ids nommes par un titre de PR mergee : `{retenus, ecartes_roulants}`.
+
+    SEPARE de `_residus_livres` pour que le cran << les COMPTEURS ROULANTS sont ecartes >>
+    soit OBSERVABLE : tant que le filtre etait interne, aucune epreuve ne pouvait distinguer
+    << l'entree a masque un id >> de << aucun id ne correspondait >>, et c'est precisement
+    dans cet angle mort que `#419-r1` a passe neuf tours a masquer une TRONCATURE (#526-r4).
     """
     if not fenetre.mesuree:
         return _ko("residus livres", fenetre.cause or "PR pas mesurees")
-    chemin = src.repo / "docs" / "rl" / "backlog.md"
-    try:
-        texte = chemin.read_text(encoding="utf-8")
-    except OSError as ex:
-        return _ko("residus livres", "backlog.md illisible : %s" % str(ex)[:70])
-    tete = texte.split(_SECTION_OUVERTE, 1)
-    if len(tete) != 2:
-        # La section n'existe pas sous ce nom : on ne DEVINE pas un perimetre, on le dit.
-        return _ko("residus livres", "section %r introuvable dans backlog.md" % _SECTION_OUVERTE)
-    ouvertes = tete[1]
-    #: Les ids ouverts, en POSITION DE DEFINITION (1re cellule du tableau) -- jamais une simple
-    #: mention, qui rougirait sur presque tous les renvois croises (critere de `probe_468`).
-    definis = set(re.findall(r"^\|\s*(#\d+(?:-r\d+)*)\s*\|", ouvertes, re.MULTILINE))
-    trouves = []
-    for titre, num in _titres_mergees(src, fenetre):
-        for rid in set(re.findall(r"#\d+(?:-r\d+)+", titre)):
-            if rid in definis and not rid.startswith(RESIDUS_ROULANTS):
-                trouves.append({"residu": rid, "pr": num, "titre": titre[:70]})
+    definis = _residus_ouverts(src)
+    if not definis.mesuree:
+        return definis
+    titres = _titres_mergees(src, fenetre)
+    if not titres.mesuree:
+        return titres
+    trouves, ecartes = [], []
+    for titre, num in titres.valeur:
+        for rid in sorted(set(re.findall(_RE_ID_TITRE, titre))):
+            if rid not in definis.valeur:
+                continue
+            item = {"residu": rid, "pr": num, "titre": titre[:70]}
+            (ecartes if rid in RESIDUS_ROULANTS else trouves).append(item)
     vus, uniq = set(), []
     for t in trouves:
         if t["residu"] not in vus:
             vus.add(t["residu"])
             uniq.append(t)
-    return _ok(uniq, "titres de PR mergees x backlog `%s`" % _SECTION_OUVERTE)
+    return _ok({"retenus": uniq, "ecartes_roulants": ecartes},
+               "titres de PR mergees x backlog `%s`" % _SECTION_OUVERTE)
 
 
-def _titres_mergees(src: Sources, fenetre) -> list:
-    """`[(titre, numero)]` des PR MERGEES de la fenetre. Liste vide si le titre n'a pas ete lu.
+def _residus_ouverts(src: Sources) -> "Mesure":
+    """Les ids DEFINIS dans la section ouverte du backlog. FOYER UNIQUE de cette grammaire.
 
-    La fenetre de `livraison` ne porte que `number/headRefName/state` : le TITRE demande un
-    champ de plus. On ne relance PAS `gh` pour lui -- ce lecteur court sous un budget de 3 s
-    (#467-r6, ou 2,90 s pour 3,00 s rendait 5 tours sur 8 aveugles). Le titre est donc pris
-    dans le cache que `Sources` tient deja, et son absence rend une liste VIDE : le signal se
-    tait, il ne se trompe pas.
+    Elle vivait en DOUBLE -- ici et dans `probe_526r2_fraicheur_backlog.py::_residus_ouverts`,
+    recopiee -- donc le probe pouvait rester vert sur une grammaire que le lecteur n'employait
+    plus, ou l'inverse. Un cran qui juge une regle qu'il a lui-meme recopiee ne juge rien.
     """
-    return [(p.get("title") or "", p.get("number"))
-            for p in (getattr(fenetre, "brutes", None) or [])
-            if (p.get("state") or "").upper() == "MERGED"]
+    chemin = src.repo / "docs" / "rl" / "backlog.md"
+    try:
+        texte = chemin.read_text(encoding="utf-8")
+    except OSError as ex:
+        return _ko("residus ouverts", "backlog.md illisible : %s" % str(ex)[:70])
+    tete = texte.split(_SECTION_OUVERTE, 1)
+    if len(tete) != 2:
+        # La section n'existe pas sous ce nom : on ne DEVINE pas un perimetre, on le dit.
+        return _ko("residus ouverts", "section %r introuvable dans backlog.md" % _SECTION_OUVERTE)
+    #: En POSITION DE DEFINITION (1re cellule du tableau) -- jamais une simple mention, qui
+    #: rougirait sur presque tous les renvois croises (critere de `probe_468`).
+    return _ok(set(re.findall(_RE_ID_DEFINI, tete[1], re.MULTILINE)),
+               "1res cellules de `%s`" % _SECTION_OUVERTE)
+
+
+def _titres_mergees(src: Sources, fenetre) -> "Mesure":
+    """`[(titre, numero)]` des PR MERGEES de la fenetre. NON MESURE si le titre n'a pas ete lu.
+
+    On ne relance PAS `gh` pour le titre -- ce lecteur court sous un budget de 3 s (#467-r6,
+    ou 2,90 s pour 3,00 s rendait 5 tours sur 8 aveugles). Le titre est pris dans le cache que
+    `Sources` tient deja.
+
+    ⚠ SON ABSENCE EST UNE PANNE, PAS UN CONSTAT (#526-r4). Ce lecteur rendait une liste VIDE
+    en s'expliquant << le signal se tait, il ne se trompe pas >> -- or il se trompait : une
+    fenetre sans champ `title` remontait jusqu'a `probe_526r2 --etat`, qui imprimait
+    << 0 residu(s) ... (aucun -- mesure, pas suppose) >>. MESURE le 2026-08-08 : la voie
+    manuelle rendait **0** et la voie du hook **4**, le meme jour, sur le meme depot. Un
+    capteur qui se tait DOIT dire qu'il se tait ; un silence rendu comme une liste vide est
+    lu comme une mesure des qu'il traverse un appelant de plus.
+    """
+    brutes = [p for p in (getattr(fenetre, "brutes", None) or [])
+              if (p.get("state") or "").upper() == "MERGED"]
+    if brutes and not any("title" in p for p in brutes):
+        return _ko("titres de PR mergees",
+                   "le champ `title` n'a pas ete demande a `gh` (%d PR mergees dans la "
+                   "fenetre, aucune ne le porte)" % len(brutes))
+    return _ok([(p.get("title") or "", p.get("number")) for p in brutes], "cache gh")
 
 
 def mesurer_livraison(src: Sources) -> dict:

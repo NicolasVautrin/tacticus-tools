@@ -221,11 +221,34 @@ def lire_par_entree(chemin) -> dict:
     return d if d is not None else {}
 
 
-def valider(d) -> list[str]:
+def valider(d, perimetre_derive: bool = False) -> list[str]:
     """Les fautes de FORME, en clair. Liste vide = la declaration est bien formee.
 
     Ce n'est PAS le controle de fidelite -- celui-la confronte la declaration a la MESURE, et
     vit dans `probe_486r12_declencheurs.py`. Ici on ne juge que ce qui se lit sans rien jouer.
+
+    `perimetre_derive` DIT SI UN PERIMETRE S'AJOUTE A CE QUI EST DECLARE (#486-r31), et c'est
+    la seule regle d'ici que ca change -- celle du perimetre VIDE. Deux populations, deux
+    verites :
+
+      * un CLIQUET de la banque (`perimetre_derive=False`, le defaut) : `perimetre(d)` ne rend
+        QUE ce qu'il declare. `toujours: False` + rien declare = rien ne le rejouera jamais ;
+      * un FICHIER DE TEST (`perimetre_derive=True`) : `perimetre(d, source_rel)` ajoute le
+        fichier LUI-MEME et la cascade de ses `conftest.py` (ajout 3 du foyer, #531). Son
+        perimetre effectif n'est donc JAMAIS vide, et `chemins: ()` y est une declaration
+        parfaitement bornee -- << rejoue-moi quand MOI ou mon harnais changent >>.
+
+    MESURE QUI L'A ETABLI (2026-08-08, `tests/engine/runner/
+    test_refresh_active_flag_discriminant_offline.py`, merge par la PR #834) : declaration
+    reelle `chemins=() build=False toujours=False` -> `valider` rendait **1 erreur** quand
+    `perimetre` rendait **475 chemins**, et `probe_486r15` rendait PASS. Deux gardes de la meme
+    famille se contredisaient sur le meme fichier au meme commit : la regle jugeait le dict
+    DECLARE pendant que sa justification parlait du perimetre EFFECTIF.
+
+    ⚠ CE QUI NE DOIT PAS EN DECOULER : que la borne disparaisse pour les tests. Un test qui
+    declare `chemins: ()` en important la moitie du moteur reste ROUGE -- par la CONFRONTATION
+    (`probe_486r15` etage 2), qui est le garde adapte a cette question. On deplace la faute vers
+    le cran qui sait la voir, on ne la supprime pas.
     """
     e: list[str] = []
     if not isinstance(d, dict):
@@ -275,7 +298,11 @@ def valider(d) -> list[str]:
 
     # Un cliquet borne SANS chemin ne serait jamais rejoue par rien : c'est le faux vert
     # absolu, et c'est la seule combinaison que la forme peut refuser a elle seule.
-    if d.get("toujours") is False and not d.get("chemins") and not d.get("build"):
+    # ⚠ SEULEMENT quand rien ne s'ajoute au declare (#486-r31) : pour un fichier de TEST, le
+    # foyer derive la cascade de harnais et le fichier lui-meme, donc le perimetre effectif
+    # n'est jamais vide et cette regle accuserait a tort (mesure : 1 erreur contre 475 chemins).
+    if (not perimetre_derive and d.get("toujours") is False
+            and not d.get("chemins") and not d.get("build")):
         e.append("`toujours: False` avec un perimetre VIDE : rien ne le rejouerait JAMAIS. "
                  "Si tu ne sais pas le borner, ecris `toujours: True` avec sa raison.")
 
