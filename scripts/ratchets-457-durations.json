@@ -208,6 +208,7 @@
  "tests/engine/test_477r34_apply_damage_offline.py": 0.05,
  "tests/engine/test_477r39_heal_unit_offline.py": 0.036,
  "tests/engine/test_487r1_hellfyre_playbook_offline.py": 0.149,
+ "tests/engine/test_498r1_unstoppable_momentum_playbook_offline.py": 0.342,
  "tests/engine/test_498r4_face_decision_is_displaceable_offline.py": 6.215,
  "tests/engine/test_498r4r1_fuite_flag_undisplaceable_offline.py": 0.051,
  "tests/engine/test_519_comptes_derives_offline.py": 23.698,

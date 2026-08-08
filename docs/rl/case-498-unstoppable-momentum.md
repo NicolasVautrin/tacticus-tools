@@ -320,4 +320,91 @@ re-jeu APRÈS rebase** — les tests concernés ne sont pas dans le périmètre 
 | **#498-r2** | **FERMÉ par #498-r3.** `IsDisplaceable` testait QUATRE refus là où le port en portait DEUX. Re-dérivé : **neuf** miroirs (pas cinq), et `SwitchPositionOperation` n'en portait **aucun**. Corrigé par un foyer unique, confronté LIVE. |
 | **#498-r3** | **FERMÉ (cette tranche).** `docs/rl/case-498-r3-is-displaceable-quatre-conditions.md`. |
 | **#498-r4** | **OUVERT.** Les deux miroirs de la face **DÉCISION** (`MortisRoundPlaybook._is_displaceable`, `ItItchesPlaybook._is_displaceable`) portent les trois traits mais pas `HasFlag(0x19 UnitFlag.Undisplaceable)` ni la tête `EntityType == Unit` : leur substrat (`Scene` / `NCContext`) ne publie que quatre `UnitFlag`. Direction PERMISSIVE. |
-| **#498-r1** | **Face DÉCISION de 1152 non portée.** `$$CanContinue` et `$$GetAllTilesInLine` sont lus (cf. §1) et le playbook `UnstoppableMomentumReworkedPlaybook$$EvaluateNonComparable` est cité par `case-477r33` comme un non-owner dont le port ne rend rien. La face COMBAT est portée et confrontée (#498) ; celle-ci est un résidu de SCORING/prévisualisation, entièrement lisible. |
+| **#498-r1** | **FERMÉ (port) — face DÉCISION portée**, cf. §6. Il restait une CONFRONTATION : résidu **#498-r5**. |
+| **#498-r5** | **OUVERT.** La face DÉCISION de 1152 est portée et gardée offline, mais pas confrontée au natif. |
+
+---
+
+## 6. Face DÉCISION — PORTÉE (#498-r1)
+
+`IdunBattle.AI.Playbook.Loki.UnstoppableMomentumReworkedPlaybook$$EvaluateNonComparable`, relu
+intégralement :
+
+    minUtility = EnemyCouldBeDamagedWithNormalAttack(caster) ? <statique[0]> : <statique[1]>
+    bucket     = new Bucket(0, Nullable<Fix64>(minUtility))
+    foreach (e in BasePlaybook.GetEligibleTargetsSelectable(this, caster, casterPosition.MainTile)) {
+        tiles = UnstoppableMomentumReworkedAbility.GetAllTilesInLine(ability).SelectTiles(e);
+        count = 0;
+        foreach (tile in tiles) {
+            trigger = UnstoppableMomentumReworkedAbility.CanContinue(ability,
+                          DSLSelectors.Entity(dsl, tile));
+            if (!trigger.<slot 5 = ShouldTrigger>(e, 0x20)) break;        // ARRET, pas `continue`
+            unit = UnitExtensions.GetUnit(tile, state);
+            if (unit != null && !UnitExtensions.IsFriend(unit, caster, state)) count++;
+        }
+        bucket.AddAction(BasePlaybook.GenerateAction(this, casterPosition, e, Fix64(count)));
+    }
+
+**Trois lectures que ni le §4 ci-dessus ni la ligne de backlog ne portaient** :
+
+1. **`MIN_UTILITY` est DYNAMIQUE, à deux valeurs.** Le `.cctor` écrit DEUX statiques — `Fix64(2)` en
+   `[0]`, `Fix64(1)` en `[+8]` — et la leaf choisit par
+   `IdunBattle.AI.Playbook.BasePlaybook$$EnemyCouldBeDamagedWithNormalAttack(caster)` : **2** si le
+   caster peut déjà toucher un ennemi à l'attaque normale, **1** sinon. Ce prédicat est
+   `GetAllNormalAttackTargets(caster).Count > 0`, où `GetAllNormalAttackTargets` est `IBattleQuery`
+   slot **0x45** `(unit, GetNormalAttackType(unit), 0)` =
+   `GetAllValidTargetsFromAllPossibleMovementTiles` — donc l'**UNION** sur les tuiles de move, PAS
+   `HasValidTargets` depuis la position courante. Un seuil scalaire aurait été faux dans un des deux
+   régimes et vert dans l'autre.
+2. **Le `break` fait de l'utilité un PRÉFIXE.** Les ennemis situés DERRIÈRE la première tuile refusée
+   par `CanContinue` ne comptent pas. Un `continue` rendrait la même valeur sur toute géométrie sans
+   blocage : seul un montage AVEC bloqueur intermédiaire sépare les deux.
+3. **`CasterTile` de la ligne est la POSITION CANDIDATE**, pas la tuile réelle du caster — LU dans
+   `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` (surcharge 3 args), qui memset
+   la struct `AbilityEntities` puis écrit `+0x40 casterTile = possibleCasterTile` et
+   `+0x48 casterTiles = ToList(possibleCasterTile)` (avec `+0x08 caster`, `+0x10 target`,
+   `+0x18 owner`, `+0x30 targetTile`, `+0x38 targetTiles`). ⚠ Ces offsets sont ceux
+   d'`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` — **à ne pas confondre** avec les slots
+   de `DSLSelectors` (`+0x20 AllUnits`, `+0x48 Caster`, `+0x60 Target`, `+0x68 ActiveTarget`), que
+   plusieurs fiches citent au même endroit.
+
+Hiérarchie LUE dans `data/symbols/<build>/frida/classes.tsv` :
+`IdunBattle.AI.Playbook.NonComparablePlaybook`1` (le nom du `.ctor` gshared ne fait pas foi — c'est
+exactement le piège qui avait faussé la fiche de #487).
+
+### Ce que le port ajoute
+
+| fichier | ajout |
+|---|---|
+| `engine/playbook/noncomparable/unstoppable_momentum.py` | `UnstoppableMomentumReworkedPlaybook` |
+| `engine/playbook/noncomparable/__init__.py` | entrée `PLAYBOOKS[1152]` + façade |
+
+Garde : `tests/engine/test_498r1_unstoppable_momentum_playbook_offline.py` (6 tests, 100 % offline).
+Contre-épreuves — chacune ROUGE avant le vert : seuil figé à 1 · `break` → `continue` · compter les
+alliés · ligne figée sur l'origine.
+
+### Écarts assumés, nommés
+
+* `IsDisplaceable` ne teste ici que les trois traits + la vie : `HasFlag(0x19)` et
+  `EntityType == Unit` ne sont pas dans le substrat DÉCISION — c'est **#498-r4**, déjà ouvert, dont
+  ce site devient un troisième porteur. Direction PERMISSIVE.
+* `IsCanAddUnit` est réduit à « tuile marchable et inoccupée » (`ctx.walkable_by_pos`, le même gate
+  statique que `HammerOfWrathPlaybook`). Direction PERMISSIVE.
+* L'éligibilité PAR POSITION est reconstituée comme partout : `fromHere` à l'origine, union
+  `targets` ailleurs (approximation d'ORDRE, cf. `eligible_target_tiles`).
+
+### ⚠ Trouvé en portant : `battle_query.get_tiles_behind` n'applique PAS le clamp du natif
+
+Le natif calcule `dir = CubeCoordinate$$DirectionTo(cube(from), cube(to))`, qui **CLAMPE chaque
+composante à ±1** (mirror porté, exact : `battle_query.direction_to`), puis avance par
+`next = cur - dir` — un pas UNITAIRE. Le mirror partagé `battle_query.get_tiles_behind` pose, lui,
+`dir = cube(to) - cube(from)` **sans clamp**. Les deux coïncident exactement quand `to` est ADJACENT
+à `from` — le régime des quatre call-sites connus — et divergent dès que la cible est plus loin : la
+ligne avance alors par bonds de `d(from, to)`.
+
+`UnstoppableMomentumReworked` est la première ability portée dont la cible n'est **pas** adjacente
+(c'est une CHARGE). Le port **ne forke pas** la géométrie : il donne au foyer partagé le PAS UNITAIRE
+comme `to` (`_first_step`), ce qui lui fait produire exactement la ligne native. La divergence du
+foyer reste OUVERTE — résidu **#510-r2** — parce qu'elle touche aussi `DarkTalonStrikePlaybook` et
+`ExcruciatingFrequenciesPlaybook`, dont les cibles-tuiles peuvent être distantes, et que la corriger
+exige de rejouer LEURS confrontations live.

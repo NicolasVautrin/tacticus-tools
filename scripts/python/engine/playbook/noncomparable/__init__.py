@@ -99,6 +99,7 @@ from .incursion import IncursionPlaybook
 from .master_of_the_tutelaries import MasterOfTheTutelariesPlaybook
 from .supreme_commander import SupremeCommanderPlaybook
 from .hellfyre_missile_rack import HellfyreMissileRackPlaybook
+from .unstoppable_momentum import UnstoppableMomentumReworkedPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -187,6 +188,11 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         # `.ctor` du decompile NOMME `ComparablePlaybook..ctor` (corps gshared FONDU), et la fiche
         # `case-487` §7 avait recopie ce nom.
         HellfyreMissileRackPlaybook(),  # 1088 (IdunBattle.AI.Playbook.Loki.HellfyreMissileRackPlaybook$$EvaluateNonComparable)
+        # #498-r1 -- face DECISION de 1152, dont la face COMBAT etait portee et confrontee (#498).
+        # Utilite = #ennemis TRAVERSES par la charge (PREFIXE : `break` a la 1re tuile ou
+        # `CanContinue` refuse) ; MIN_UTILITY **DYNAMIQUE** 2/1 selon
+        # `BasePlaybook$$EnemyCouldBeDamagedWithNormalAttack(caster)` -- deux statiques au `.cctor`.
+        UnstoppableMomentumReworkedPlaybook(),  # 1152 (IdunBattle.AI.Playbook.Loki.UnstoppableMomentumReworkedPlaybook$$EvaluateNonComparable)
     )
 }
 
@@ -256,5 +262,5 @@ __all__ = [
     "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
     "ThriceBlessedConflagrationPlaybook", "SendInTheNextWavePlaybook", "IncursionPlaybook",
     "MasterOfTheTutelariesPlaybook", "SupremeCommanderPlaybook",
-    "HellfyreMissileRackPlaybook",
+    "HellfyreMissileRackPlaybook", "UnstoppableMomentumReworkedPlaybook",
 ]
