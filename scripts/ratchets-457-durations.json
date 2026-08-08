@@ -59,6 +59,7 @@
  "tests/engine/runner/test_512_excruciating_frequencies_offline.py": 0.043,
  "tests/engine/runner/test_514_allunits_pool8_offline.py": 51.259,
  "tests/engine/runner/test_515_adjacence_elevation_offline.py": 6.146,
+ "tests/engine/runner/test_521r7_attack_in_atomic_group_offline.py": 2.717,
  "tests/engine/runner/test_523_heavy_warp_flamer_offline.py": 0.479,
  "tests/engine/runner/test_523r1_heavy_warp_flamer_tracking_offline.py": 0.023,
  "tests/engine/runner/test_523r2r4_521r5_persistent_data_attacker_substrat_offline.py": 0.434,

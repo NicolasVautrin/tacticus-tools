@@ -361,6 +361,31 @@ posture basculée STRIKE 1404 → SWEEP 1405 par un cast de 1189) :
   l'identique (**4329** dans les TROIS régimes du port), donc l'écart ne peut pas venir de
   `On(0x4a)` ni de 1316, qui s'exécutent APRÈS elle. Résidu **`#521-r9`**.
 
+### Le RAYON de l'élargissement — MESURÉ, pas affirmé (2026-08-08)
+
+`evaluate_abilities_for_event` rendait `out` ; elle rend `out + evaluate_trigger_operation(state,
+ev)` **inconditionnellement**. Affirmer « le seul consommateur atteignable est `1316` » ne suffit
+pas : c'est une portée, donc ça se mesure. Trois étages, tous **dérivés** :
+
+1. **quels EVENTS un appel peut porter** — AST de `engine/**` : les call-sites DIRECTS *et* les
+   constructions du nœud DSL `EvaluateAbilities` (le second chemin vers la même fonction).
+   Résultat : **2 sites**, `abilities/behaviours/combat.py` (le nœud) et `operations/damage.py`
+   (la voie normale) ; le nœud n'a qu'**UN** site de construction, `abilities/loki/strike.py`
+   (ArmoriumCherub). ⇒ un **SEUL** event atteignable : `AttackInAtomicGroup`.
+2. **quelles CLASSES l'écoutent** — les sept registres : **154** classes enregistrées couvrant
+   **43** events distincts, et sur `AttackInAtomicGroup` exactement **UNE** :
+   `PASSIVE_HELPER_ABILITY_TRIGGERS → CalibaniteGreatswordNormalAttackAdditionalDamageAbility`.
+3. **le rayon SECONDAIRE** — `_publish_unit_triggered_ability` republie `On(0xd =
+   UnitTriggeredAbility)` après chaque trigger porteur d'un `TRIGGERED_ABILITY_ID` : **0** classe
+   l'écoute (concordant avec la mesure de #294).
+
+`FireOfAbsolution`, deuxième consommateur natif de cet event, n'est dans **aucun** registre (il est
+appelé impérativement) : il n'entre donc pas par ce rail — c'est ce qui rend le drapeau
+`fire_of_absolution=False` suffisant comme anti-double-fire (résidu `#521-r8`).
+
+Les trois étages sont **gelés** par `tests/engine/runner/test_521r7_attack_in_atomic_group_offline.py`,
+avec témoin non nul à chacun : un balayage vide passerait sinon pour un vert.
+
 ### Le sélecteur, lui, est ENTIÈREMENT lu — et il ne restait aucun trou
 
 `<DSLSelectors+0x50>` = **`CasterTileSelector`** et `<+0x60>` = **`TargetSelector`**, tous deux
