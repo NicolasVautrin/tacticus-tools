@@ -106,14 +106,54 @@ instant, **après `endturn`** (donc quand l'unité affectée appartient à l'éq
 Le canal n'a pas changé ; le **tour**, si. Le gate `is_prediction` a été retiré le même jour, et un
 test verrouille sa non-réintroduction.
 
-La lecture qui explique la dégradation :
-`IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` résout
-d'abord son SÉLECTEUR (`this+0x10`, slot 7 `SelectSingle`) et **rend `0` = FAUX dès qu'il ne résout
-AUCUNE entité**. Un `Target@+0x60` non renseigné suffit donc à effacer la branche, sans erreur.
-**Ce qui reste NON LU** — pourquoi ce slot est vide hors-tour, c'est-à-dire la construction de
-l'`AbilityEntities` dans
-`IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` — est le
-résidu **`#510-r1`**.
+#### ⚠ L'EXPLICATION QUI VIVAIT ICI EST RÉFUTÉE (`#510-r1`, relu au décompilé)
+
+La version précédente de ce paragraphe écrivait : `IdunBattle.Entities.Conditions.
+StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` résout son sélecteur (`this+0x10`, slot 7
+`SelectSingle`) et **rend `0` = FAUX s'il ne résout rien** — donc « un `Target` non renseigné suffit
+à effacer la branche ». **La garde existe et ce corps est exact ; il n'est simplement PAS ATTEINT.**
+Trois lectures le montrent :
+
+1. `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` construit l'`AbilityEntities` avec
+   `target = request.<+0x50>` et **null-checke ce champ juste avant** (branche `throw` si nul). Sur
+   ce chemin, `TargetSelector.SelectSingle` ne peut pas rendre `null`.
+2. `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` **ne
+   construit rien** : il RECOPIE l'`AbilityEntities` reçue (copy-ctor pur, `activeTarget: null` ⇒
+   conservé) et n'écrase que **trois** champs — `+0x18 owner` (par couple effet/cible),
+   `+0x50 activePlayer` (`StateExtensions$$GetCurrentPlayer`), `+0x58 effect`. `+0x10 target` est un
+   **pass-through intégral**. Le pendant `CalculateDefenderModifiersForPrediction` est strictement
+   symétrique. **⇒ sur cet étage, le natif fait pareil que le port : il n'y a rien à corriger.**
+3. ⚠ **Le mapping cité plus haut dans cette fiche (`+0x60 Target`) est celui des slots de
+   `IdunBattleLogic.Entities.DSLSelectors`, PAS de la struct `AbilityEntities`.** Le layout réel
+   d'`AbilityEntities`, LU dans son `.ctor` (l'overload 32 params, dont Ghidra porte déjà les noms) :
+   `+0x00 actor` · `+0x08 caster` · **`+0x10 target`** · `+0x18 owner` · `+0x20 activeTarget` ·
+   `+0x28 previousActiveTarget` · `+0x30 targetTile` · `+0x38 targetTiles` · `+0x40 casterTile` ·
+   `+0x48 casterTiles` · `+0x50 activePlayer` · `+0x58 effect` · `+0x60.. currentAbilityOrEffect`
+   (taille 0x124 → 0x128 alignée). Confirmé de deux côtés :
+   `IdunBattle.Entities.Selectors.TargetSelector$$Select` lit **+0x10** et rend une liste VIDE si
+   nul ; le copy-ctor 2 params n'écrase que `+0x20`.
+
+**CAUSE CANDIDATE, mécanisme LU, non encore confrontée** : `IdunBattleLogic.Core.Services.Caches.
+CachedDamagePrediction` est un décorateur de `IDamagePrediction` dont la clé,
+`...CachedDamagePrediction.DamagePredictionKey$$.ctor(attackerId, attackerPosition, secondEntityId)`,
+**ne contient NI les PV NI les effets**. `...$$PredictNormalAttack` sert le cache ; `...$$Invalidate`
+(`_cache.Clear()`) n'est appelé que par la chaîne `IdunBattle.Operations.InvalidateCachesOperation
+$$Execute` / `IdunBattle.Runner.IdunRunner$$InvalidateCaches`. Or `aiPlaybookPredict` est
+**read-only** : il n'applique aucune opération, donc **rien n'invalide**. Un « 0,70 CONSTANT dans
+trois régimes, y compris en changeant les PV des deux unités » est exactement la signature d'une
+entrée PÉRIMÉE, et `endturn` — qui applique des opérations — la fait disparaître. Ce n'est pas encore
+une preuve : il n'est **pas** établi que le playbook interrogé passe par `PredictNormalAttack` (les
+deux `PredictAttack` sont des forwarders PURS, sans cache).
+
+⚠ **Conséquence de méthode, plus large que #510** : l'anti-confond de la table ci-dessus sépare
+« hors-tour » de « en-tour », mais **pas** « avant invalidation » de « après invalidation » — les
+deux sont confondus par construction, puisque `endturn` fait les deux. La contre-épreuve qui les
+sépare ne coûte aucun runner : appeler `aiPlaybookPredict`, muter les PV du défenseur **sans
+appliquer d'opération**, ré-appeler (réponse identique ⇒ cache), puis appliquer une action anodine
+**sans changer de tour** et ré-appeler.
+
+Résidu **`#510-r3`** : confronter cette cause. Le volet « pourquoi le slot est vide » de `#510-r1` est
+**CLOS par la lecture** — il ne l'est pas.
 
 ## Ce qui est confronté
 
