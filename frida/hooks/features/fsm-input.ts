@@ -290,19 +290,27 @@ export function register(ctx: Ctx): void {
         let klass = e.klass;
         const cible = body?.target;
         if (cible) {
-            const off = fieldOffsetOr(e.klass, cible, -1);
-            if (off < 0) {
-                return { ok: false, error: "champ " + JSON.stringify(cible) + " absent de "
-                    + s(class_get_name(e.klass) as NativePointer)
-                    + " ni de ses parents -- `classFields` liste les champs" };
+            // Chemin POINTÉ : un service tient lui-même des services. Mesuré —
+            // `StateMachineActions.UnitDeployment_PutUnitIntoHand` n'est qu'un relais vers
+            // `_hud` (`IIdunGameHud`), et `TryRemoveUnitFromBoard` un relais vers `_views`.
+            // Sans traversée, on ne peut ni les atteindre ni distinguer « le service est nul »
+            // de « la méthode faute ».
+            for (const seg of cible.split(".")) {
+                const off = fieldOffsetOr(klass, seg, -1);
+                if (off < 0) {
+                    return { ok: false, error: "champ " + JSON.stringify(seg) + " absent de "
+                        + s(class_get_name(klass) as NativePointer)
+                        + " ni de ses parents -- `classFields` liste les champs" };
+                }
+                const svc = obj.add(off).readPointer();
+                if (svc.isNull()) {
+                    return { ok: false, error: "champ " + seg + " (+0x" + off.toString(16)
+                        + ") de " + s(class_get_name(klass) as NativePointer)
+                        + " est NUL -- le service n'est pas branche" };
+                }
+                obj = svc;
+                klass = svc.readPointer();
             }
-            const svc = e.obj.add(off).readPointer();
-            if (svc.isNull()) {
-                return { ok: false, error: "champ " + cible + " (+0x" + off.toString(16)
-                    + ") est NUL -- le service n'est pas branche" };
-            }
-            obj = svc;
-            klass = svc.readPointer();
         }
 
         const nom = body?.method || "";

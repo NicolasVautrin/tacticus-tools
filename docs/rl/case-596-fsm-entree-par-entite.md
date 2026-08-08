@@ -108,10 +108,41 @@ faire, un id connu descend dans la construction du visuel — et c'est là que �
 chemin d'appel est donc DÉMONTRÉ bon (un vrai appel d'interface avec une vraie chaîne
 managée réussit), et la forme de l'id aussi.
 
-⚠ **La piste « session froide » (warmup désactivé) n'est PAS tranchée.** Un `POST
-/api/admin/warmup` puis re-entrée en bataille laisse l'appel en `system error` — mais **le
-warmup lui-même a rendu 500**, donc ce test ne réfute rien. À rejouer sur une session
-warmée pour de bon avant de conclure quoi que ce soit.
+⚠ **La piste « session froide » est MORTE, et pas pour la raison que j'avançais.** J'écrivais
+« à rejouer sur une session warmée » ; c'est sans objet — **le warmup FAIT exactement ce que
+cette mise au point fait déjà** : ouvrir une bataille de campagne, capturer, se retirer. Ce
+cycle a été rejoué une dizaine de fois à la main ici. Il n'y a rien de froid à réchauffer.
+
+## LA FAUTE, LOCALISÉE À TROIS ÉTAGES
+
+Les deux méthodes de `StateMachineActions` sont de simples **relais**, et vers des champs
+DIFFÉRENTS — d'où le contraste :
+
+```
+UnitDeployment_TryRemoveUnitFromBoard -> this+0x18 = _views : IIdunGameViews   -> OK
+UnitDeployment_PutUnitIntoHand        -> this+0x48 = _hud   : IIdunGameHud     -> FAUTE
+```
+
+`ShowUnitInfoBarHud` faute aussi : **les deux méthodes HUD tombent, la méthode `views` passe.**
+
+⚠ **`_hud` n'est PAS nul** — sondé par la traversée `target: "_actions._hud"`, il rend un
+`IdunGameHud` vivant. L'hypothèse `NullReferenceException` sur le garde
+`if (this+0x48 != 0)` est donc **réfutée**. La chaîne complète est :
+
+```
+UnitDeploymentState.OnUnitInHand(unitId, isMoW)
+  -> _actions : StateMachineActions .UnitDeployment_PutUnitIntoHand(unitId)
+       -> _hud : IdunGameHud .UnitDeployment_PutIntoHand(unitId)      <-- FAUTE ICI
+```
+
+Appelé DIRECTEMENT sur `_actions._hud`, `UnitDeployment_PutIntoHand("bloodDante")` faute de la
+même façon : le défaut est bien dans cette méthode, pas dans le relais.
+
+⚠ **Le voisin `IdunGameHud.UnitDeployment_TryPlaceUnitOnBoard(String, Boolean) -> Boolean`
+s'exécute SANS erreur — et sans effet** (puissance et entités inchangées). Il rend
+probablement `false`, mais **`fsmStateInvoke` jette la valeur de retour** : le prochain cran
+est de la publier, sans quoi « a refusé » et « a marché » sont indiscernables. C'est le même
+vice que celui qu'on reproche à `uiClick`.
 
 ⚠ **Et le `Start!` reste hors de portée par cette voie** : `StartBattle(List<System.String>)`
 prend un type COMPOSÉ, que `fsmStateInvoke` refuse volontairement (construire une `List<T>`
