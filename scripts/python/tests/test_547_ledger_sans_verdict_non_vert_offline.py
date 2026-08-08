@@ -28,16 +28,28 @@ import ledger_vert_offline as L                   # noqa: E402
 import probe_547_ledger_sans_verdict_non_vert as G  # noqa: E402
 
 #: DECLENCHEUR -- ce qui doit changer pour que ce fichier puisse changer de verdict.
-#: Il est ETROIT PARCE QUE LA FERMETURE L'EST : ce test n'importe que le cliquet et le foyer du
-#: ledger, dont aucun ne tire `engine.*` (le cliquet ne lit que `git ls-files`, `git hash-object`
-#: et un JSON). Le declarer large serait aussi faux que le declarer trop etroit.
 DECLENCHEUR = {
     "chemins": (
-        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         "scripts/python/probe_547_ledger_sans_verdict_non_vert.py",
         "scripts/python/ledger_vert_offline.py",
-        # l'artefact MESURE par le cliquet : son contenu EST le gisement.
+        # ⚠ NI DERIVE NI DERIVABLE PAR IMPORT : l'artefact que le cliquet MESURE. Aucun `import`
+        # ne le revele -- il est ouvert par chemin, et son CONTENU est le gisement. C'est
+        # exactement la classe de dependance que `--proposer` declare NON MESUREE.
         "scripts/ratchets-457-vert-offline.json",
+    ),
+    "build": False,          # ne lit ni le binaire ni `data/symbols/**`
+    "toujours": False,
+    "raison": (
+        "CES chemins et pas d'autres, parce que la fermeture de ce test est REELLEMENT etroite : "
+        "il n'importe que le cliquet et le foyer du ledger, et AUCUN des deux ne tire `engine.*` "
+        "(le cliquet ne parle qu'a `git ls-files`, `git hash-object` et un JSON). Les 447 chemins "
+        "de cascade que `--proposer` liste sont DERIVES par le foyer et ne se declarent pas "
+        "(#531). Le troisieme chemin est le seul ajout MANUEL et il est indispensable : le verdict "
+        "de ce fichier depend du CONTENU du ledger, qu'aucun import ne peut reveler -- l'omettre "
+        "serait le faux vert que #486-r15 combat, vu depuis l'autre bout. `git ls-files` fait de "
+        "TOUT fichier de test un input du perimetre, mais ce test n'assertionne sur lui que des "
+        "proprietes de FORME (non vide, suffixe), stables par construction : le declarer "
+        "declencherait a chaque test neuf du depot sans qu'aucun verdict ne puisse changer."
     ),
 }
 
