@@ -1,5 +1,21 @@
 # #596 — Jouer la bataille RÉELLE par le FSM, en donnant l'ENTITÉ au lieu d'un pixel
 
+## ✅ RÉSOLU (2026-08-08, session 8) — LIRE CECI D'ABORD
+
+**Composer l'équipe et mener la bataille sans présélection ni souris est ACQUIS.** Le verbe
+est `IdunBattle.View.FSM.StateMachineActions$$UnitDeployment_PlaceUnitOnBoard` :
+
+```
+fsmStateInvoke({target: "_actions._hud._menuSystems.unitDeploymentHud.Get()",
+                method: "HandleOnRemoveAllHeroesPressed"})          # vider d'abord
+fsmStateInvoke({target: "_actions", method: "UnitDeployment_PlaceUnitOnBoard",
+                args: [unitId, col, row, true, 11]})                # puis poser
+```
+
+Cinq héros posés, bataille lancée, chaque unité mesurée sur **l'hex demandé** — puis un
+déplacement joué (`mutated: true`). Tout le reste de cette fiche est le chemin qui y mène, y
+compris trois hypothèses réfutées. Détail et chiffres : dernière section.
+
 Mesuré le 2026-08-08, build `rnca9r7q6c`. Le déclencheur : composer soi-même l'équipe de
 déploiement, geste que l'utilisateur décrit comme « cliquer une fois sur le portrait, puis
 sur l'hex de spawn ». La première moitié passe par l'UI ; **la seconde vise le plateau, qui
@@ -329,3 +345,66 @@ prend HORS bataille.
 - **`Clear` a bien vidé la présélection** : `PlayerPower` 1912587 → 0, alors que `agir` rendait
   `porte : NON`. L'empreinte par jeu de chemins est **aveugle à une sélection** — d'où le témoin
   explicite ajouté à `gamenav/agir.py`.
+
+## LA RÉSOLUTION — la pose a DEUX crans, et je n'en appelais qu'un
+
+Le mur tenait à une lecture incomplète du décompilé, pas au moment dans la frame.
+`StateMachineActions$$UnitDeployment_PlaceUnitOnBoard(unitId, column, row, isManual, playerId)`
+— paramètres NOMMÉS, lus dans `data/symbols/<build>/frida/methods.tsv` — enchaîne :
+
+```
+1. slot 0x11 sur this+0x48 (_hud)   (unitId, false)  -> Boolean   # = TryMarkUnitAsPlaced
+   si false : RETOUR IMMEDIAT, sans rien faire, et la methode est void
+2. slot 0x1a sur this+0x18 (_views) (unitId, column, row, isManual, playerId)   # LA POSE
+```
+
+`IdunGameHud.UnitDeployment_TryPlaceUnitOnBoard` **est le cran 1 tout seul**. Je jugeais sur
+son `true` — d'où « l'alignement se remplit mais le plateau reste vide ». Le cran 2 n'a pas
+d'équivalent sur le HUD : il faut passer par `_actions`.
+
+⚠ **ET LE CRAN 1 N'EST PAS UNE LECTURE — IL MARQUE.** L'appeler pour « vérifier si ça passe »
+consomme un emplacement. Faute commise ici : trois unités marquées sans être posées, à
+re-vider. Un nom en `Try…` qui rend `Boolean` se lit comme un test ; c'en est un **et** une
+mutation.
+
+⚠ **`playerId` est le PlayerId LOGIQUE (11 = joueur, 12 = IA), pas l'id ECS.** `observe.ts` le
+dit en toutes lettres — *« Owner's PlayerEntityId (BEntityId in MatchState — not the logical
+11/12 PlayerId of the BC config) »* — et la BC live confirme : `predefinedUnits[0].playerId ==
+12` pour l'équipe nécron. Les deux espaces coexistent dans les mêmes relevés (`observeBattle`
+rend `playerId: 4` pour ces mêmes nécrons) ; confondre les deux écrirait un propriétaire faux
+sans lever d'erreur. À noter : `IdunBattle.Core.PlayerId` **n'a aucun membre nommé**
+(`classFields` : 1 champ `value__`), donc rien à convertir en enum — c'est un int typé.
+
+### Ce que ça mesure
+
+| étape | témoin | mesure |
+|---|---|---|
+| présélection restaurée à la re-entrée | `PlayerPower` | 1 912 587, et la porte rend **`false`** |
+| `HandleOnRemoveAllHeroesPressed()` | `PlayerPower` | → **0**, porte → **`true`** |
+| 5 × `PlaceUnitOnBoard` | `PlayerPower` | 453 134 → 1 146 969 → 1 595 180 → 1 596 532 → **1 912 883** |
+| `Start!` puis `observeBattle` | position ECS | **5/5 sur l'hex demandé** — (0,1)(0,0)(1,0)(1,1)(2,0) |
+| `applyAction` move | position ECS | `astraYarrick` (2,0) → **(3,1)**, `mutated: true` |
+
+⚠ **`observeBattle` était le MAUVAIS témoin pendant tout le Setup, et ça a coûté cher.** Les
+héros du joueur ne sont **pas** des entités ECS avant `Start!` : `counts.total` reste à 99,
+inchangé, pose après pose. Les 12 ennemis, eux, y sont — ce sont des `PredefinedUnits` spawnées
+au chargement de la BC. Un témoin qui montre un camp et pas l'autre se lit comme « rien ne s'est
+passé ». Le témoin de composition est `PlayerPower` ; le témoin de POSITION n'existe qu'après le
+lancement.
+
+⚠ **Un `ok: true` d'`applyAction` ne dit rien — lire `mutated`.** `move 101 -> (3,0)` rend
+`ok: true, mutated: false, changes: [], events: []` et l'unité ne bouge pas ; `(3,1)`, tirée des
+`ranked` de `decisionView`, rend `mutated: true`. La case était fausse, pas le mécanisme.
+
+### `depuisInput` : construit, et RÉFUTÉ COMME NÉCESSAIRE
+
+L'hypothèse « le moment dans la frame » est **sans objet** : la pose réussit depuis la pompe
+(`voie: "pompe"`). Elle n'a jamais été fausse — elle était sans emploi, parce que le défaut était
+un cran manquant, pas un instant manqué.
+
+⚠ **Et son point d'ancrage ne bat PAS.** `fsmStatus.ancrageInput.appels` est resté à **0** sur
+toute la session — nav, re-entrée en bataille, 5 poses, lancement, un déplacement.
+`TouchInformation.ShouldMoveCamera` n'est appelé que depuis un VRAI événement d'input, pas à
+chaque frame : sans clic humain ou `SendInput`, la file ne se draine jamais et `depuisInput`
+sortirait en refus de délai. C'est exactement ce que le compteur était là pour dire, et il le
+dit. Le module reste livré et honnête ; il ne doit pas être présenté comme une voie disponible.
