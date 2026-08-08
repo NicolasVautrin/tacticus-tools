@@ -23,7 +23,29 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-RE_ECRAN = re.compile(r"Idun_UI_(\w+?Screen)\(Clone\)")
+# L'IDENTITE D'ECRAN SE PREND AU SEGMENT LE PLUS HAUT, ET LES DEUX BORNES ONT ETE MESUREES.
+#
+# TROP ETROIT -- le motif valait `Idun_UI_(\w+?Screen)\(Clone\)` : il a rendu TRANSITOIRE
+# pendant tout un trajet de campagne (2026-08-08) alors que la position etait connue. Les
+# prefabs d'ecran ne partagent AUCUN prefixe : `Idun_UI_HomeScreen`, `Idun_CampaignScreen`,
+# `BattleEndScreenImproved`. Le seul denominateur est le suffixe `Screen`.
+#
+# TROP LARGE -- elargi au seul suffixe, il a rendu CINQ noms pour un seul ecran
+# (`Idun_CampaignScreen` + `Idun_CampaignScreenLevelButton` + `CampaignScreen_Part_1_5` + ...) :
+# les DESCENDANTS d'un ecran de campagne contiennent eux aussi << Screen >>. Une identite qui
+# grossit avec le contenu n'est plus une identite.
+#
+# D'ou la regle : on ne cherche pas dans le chemin ENTIER, on prend le PREMIER segment (le plus
+# proche de la racine) qui matche -- c'est le conteneur, pas sa descendance.
+RE_ECRAN = re.compile(r"^([A-Za-z0-9_]*?[A-Za-z0-9]Screen[A-Za-z0-9_]*)\(Clone\)$")
+
+
+def _ecran_du_chemin(chemin: str) -> str | None:
+    for seg in chemin.split("/"):
+        m = RE_ECRAN.match(seg)
+        if m:
+            return m.group(1)
+    return None
 RE_POPUP = re.compile(r"([A-Za-z_][A-Za-z0-9_]*Popup)\(Clone\)")
 #: Le chrome persistant : present sur presque tout ecran, donc jamais discriminant a lui seul.
 CHROME = ("Idun_UI_Tabs", "UI_ResourcesBar", "FullScreenButton")
@@ -69,7 +91,9 @@ def depuis_boutons(boutons: list[dict]) -> Vue:
     ecr, pop = set(), set()
     for b in boutons:
         p = b.get("path", "")
-        ecr.update(RE_ECRAN.findall(p))
+        e = _ecran_du_chemin(p)
+        if e:
+            ecr.add(e)
         pop.update(RE_POPUP.findall(p))
     return Vue(boutons=boutons, ecrans=frozenset(ecr), popups=frozenset(pop))
 
