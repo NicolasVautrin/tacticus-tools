@@ -408,3 +408,47 @@ toute la session — nav, re-entrée en bataille, 5 poses, lancement, un déplac
 chaque frame : sans clic humain ou `SendInput`, la file ne se draine jamais et `depuisInput`
 sortirait en refus de délai. C'est exactement ce que le compteur était là pour dire, et il le
 dit. Le module reste livré et honnête ; il ne doit pas être présenté comme une voie disponible.
+
+## CONDUIRE PAR LA VUE — le tour se referme, et c'est la seule voie qui le fasse
+
+⚠ **MOTEUR ET VUE NE SE MÉLANGENT PAS.** Jouer les unités par `applyAction` (moteur) puis
+demander la fin de tour à la vue la fait entrer dans `WaitingForPlayerTurnToEndVisuallyState` :
+elle masque le bouton `EndTurnButton` et attend un visuel qu'aucune de nos actions n'a produit
+(`eventCount: 0` sur toutes). Écran figé, moteur intact, plus aucune sortie — sauf
+`Pause -> Retreat`. Le `eventCount: 0` était l'avertissement ; il a été relevé et pas suivi.
+
+Les mêmes gestes joués **par la vue** referment le cycle : `EndTurnButton` -> `AiTurnState` ->
+`currentPlayer` 3 -> 4 (les nécrons jouent, `unitsAlive` 17 -> 19 : les swarms se multiplient)
+-> retour en `NormalState`, la main est à nous.
+
+### L'id d'entité-tuile se DÉRIVE
+
+```
+tileEntityId = 12 + col * 9 + row          # col 0..6, row 0..8
+```
+
+Vérifié : donne 63 ids contigus (12..74), soit exactement `observeBattle.counts.tiles`, et
+concorde avec les cinq points de spawn relevés par `fsmTrace` sur clic humain ((0,1) = 13).
+Aucun RPC ne publie ces ids aujourd'hui — c'est la seule voie.
+
+### Les gestes, mesurés
+
+| geste | séquence | résultat |
+|---|---|---|
+| **sélectionner** | `down(tuileUnite)` | `FingerDownOnUnitForFirstTime`, et ça TIENT |
+| **déplacer** | `down(tuileUnite)` `held(tuileDest)` `up(tuileDest)` | `Swipe_MovementTargetSelected` -> `UnitNormallySelected`, unité déplacée — **3/3** |
+| **tap simple** | `down(t)` `up(t)` même tuile | retour à `NormalState` : ça NE sélectionne pas durablement |
+| **inspecter** | `down(tuileEnnemie)` `up(...)` depuis `NormalState` | `InspectEnemyState` |
+| **attaquer** | — | **NON TROUVÉ** |
+
+`BaseSelectionState$$TrySelectPlayerOwnedUnitWithActionLeft(this, entityHit, selectedUnit)`
+convertit `entityHit` en unité par `_visualBattleQuery` slot 0x19 : c'est donc la **TUILE**
+qu'on passe, pas l'unité — et le décompilé le dit avant toute expérience.
+
+⚠ **L'ATTAQUE RESTE OUVERTE.** Essayés sans effet, cible intacte (`hp` inchangé) à chaque fois :
+`held`+`up` sur la tuile ennemie depuis `FingerDownOnUnitForFirstTime` ; idem depuis
+`UnitNormallySelected` ; `down` sur la tuile ennemie ; `down` sur l'**entité** de l'unité
+ennemie. `OwnUnit_moved_didntAttack.UnitNormallySelected$$OnFingerDownThisFrameInternal` montre
+un `BoolExtension.Or(TrySelect…, <fermeture>)` — la fermeture est le chemin d'attaque, et elle
+n'est pas lue. C'est là qu'il faut reprendre, par le décompilé de cette fermeture, PAS par
+d'autres combinaisons de gestes.
