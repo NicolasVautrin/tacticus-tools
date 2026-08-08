@@ -120,11 +120,23 @@ mutation **assertionne la présence du motif** (`MOTIF ABSENT -> exit 3`) et la 
   branché sur `ctx.has_ranged_weapon` et sur `playbook/adjacent_unit_preference`, qui en portait sa
   propre copie (fork résorbé). ⚠ **Ce n'est PAS** le tri d'`UnitExtensions$$IsRanged` porté par
   `services/ability_range` (« présence d'un `Range` ») : deux fonctions natives, deux seuils.
-* **Mirror** `UnitSelectionType` + `matches_unit_selection_type` (`entities/unit_selection_type.py`),
-  inscrit au registre de `probe_313` **dans le même commit**. Câblé en paramètre **optionnel** sur
-  `Friends` et `UnitsWithoutTrait` : `None` = comportement historique, donc **zéro** call-site
-  existant n'est touché. Relever le littéral aux ~100 call-sites portés est une tranche à part —
-  même régime que le flag `unique` de `Units` (résidu **#585-r1**).
+* **Câblage** du `selectionType` en paramètre **optionnel** sur `Friends` et `UnitsWithoutTrait` :
+  `None` = comportement historique, donc **zéro** call-site existant n'est touché. Relever le
+  littéral aux ~100 call-sites portés est une tranche à part — même régime que le flag `unique` de
+  `Units` (résidu **#585-r1**).
+  ⚠ **Le mirror `UnitSelectionType` et son prédicat `matches_unit_selection_type` PRÉEXISTAIENT**
+  (#524, pour la face DÉCISION — `playbook/adjacency.unit_matches`), avec leur entrée au registre
+  de `probe_313`. Cette tranche **les appelle**, elle n'en écrit pas un second : le helper
+  `selectors/units._selection_ok` ne fait que dériver `alive`/`targetable` du substrat ECS
+  (`ctx.has_unit_flag`) et déléguer, tri-état compris.
+  ⚠ **Et je les avais d'abord ÉCRASÉS.** Un `Write` sur `entities/unit_selection_type.py` a
+  remplacé le foyer par une seconde implémentation de signature différente ; `playbook/adjacency.py`
+  (hors de mon diff) appelait toujours l'ancienne. Deux tests de `test_419r1tr14r5r2r1r1r1r3_
+  should_execute_gates_offline.py` sont devenus rouges. **Aucun test que j'avais choisi ne le
+  voyait** — c'est une passe offline COMPLÈTE lancée en fond qui l'a montré, 46 min plus tard.
+  Leçon : « vérifier ce qui préexiste » doit se faire par un `git grep` du **symbole**, pas
+  seulement du chemin de fichier, et le retour de `Write` (« updated » vs « created ») est une
+  mesure qu'il faut LIRE.
 * **Canal TRAIT** — `BaseEffect.applied_traits()` (part DATA) + `operations/traits.py`
   (`AddTraitOperation` / `RemoveTraitOperation`, mirrors 1:1) + trois points de câblage :
   `AddEffectOperation.execute` (apply), `remove_effect_instance` (retrait explicite),

@@ -21,8 +21,28 @@ from ..traits.unit_trait import UnitTrait
 from ..unit_flag import UnitFlag
 # #585 : le 3e/4e argument `selectionType` des factories `DSLSelectors`, LU par
 # `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> `UnitExtensions$$MatchesUnitSelectionType`.
+# Le FOYER du predicat existe depuis #524 (face DECISION, `playbook/adjacency.py`) : on l'appelle,
+# on n'en ecrit pas un second.
 from ..unit_selection_type import UnitSelectionType, matches_unit_selection_type
 from ...battle_query import is_target_tile_obscured
+
+
+def _selection_ok(u, selection_type, ctx) -> bool:
+    """`IdunBattle.DSL.TargetsSelector$$SelectUnit(entity, selectionType)` cote RUNNER : derive les
+    deux predicats que le foyer `matches_unit_selection_type` (#524) attend, puis DELEGUE.
+
+    Le foyer vit dans `engine/entities/unit_selection_type.py` et sert deja la face DECISION
+    (`playbook/adjacency.unit_matches`, qui derive `targetable` de `UNTARGETABLE_EFFECT_TYPES`).
+    Ici le substrat est l'ECS : `alive`/`hp` du dict d'unite, et `ctx.has_unit_flag` pour le flag
+    `0x11`. Un SECOND port du predicat aurait ete un fork.
+
+    TRI-ETAT preserve : `ctx.has_unit_flag` absent -> `targetable = None` = **PAS MESURE**, et le
+    foyer degrade alors la clause en VRAI. Un `False` invente ecarterait une unite que le natif
+    compte."""
+    hf = getattr(ctx, "has_unit_flag", None)
+    targetable = None if hf is None else (not bool(hf(u, int(UnitFlag.Untargetable))))
+    alive = bool(u.get("alive", True)) and (u.get("hp") or 0) > 0
+    return matches_unit_selection_type(selection_type, alive=alive, targetable=targetable)
 
 
 class SurroundingUnits(TargetsSelector):
@@ -315,10 +335,10 @@ class Friends(TargetsSelector):
     def select(self, ctx):
         ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
         rt = (ref or {}).get("team")
-        hf = getattr(ctx, "has_unit_flag", None)
+        st = self.selection_type
         return [u for u in self.inner.evaluate(ctx)
                 if u.get("team") == rt
-                and matches_unit_selection_type(u, self.selection_type, hf)]
+                and (st is None or _selection_ok(u, st, ctx))]
 
 
 class Units(TargetsSelector):
@@ -544,10 +564,10 @@ class UnitsWithoutTrait(TargetsSelector):
 
     def select(self, ctx):
         ht = ctx.has_trait or (lambda u, t: False)
-        hf = getattr(ctx, "has_unit_flag", None)
+        st = self.selection_type
         return [u for u in self.source.evaluate(ctx)
                 if not ht(u, self.trait)
-                and matches_unit_selection_type(u, self.selection_type, hf)]
+                and (st is None or _selection_ok(u, st, ctx))]
 
 
 class UnitsWithoutRangedWeapons(TargetsSelector):
@@ -593,9 +613,8 @@ class UnitsWithoutRangedWeapons(TargetsSelector):
     def select(self, ctx):
         # `SelectUniqueUnits(<+0x18>, entities, 1)` -- le litteral `1` = `OnlyAlive` est LU dans
         # `UnitsWithoutWeaponsSelector$$Select` (`FUN_180026100(3, ..., source, entities, 1)`).
-        hf = getattr(ctx, "has_unit_flag", None)
         units = [u for u in self.source.evaluate(ctx)
-                 if matches_unit_selection_type(u, UnitSelectionType.OnlyAlive, hf)]
+                 if _selection_ok(u, UnitSelectionType.OnlyAlive, ctx)]
         hrw = getattr(ctx, "has_ranged_weapon", None)
         if hrw is None:
             return list(units)                      # accesseur non cable -> aucun filtre invente
