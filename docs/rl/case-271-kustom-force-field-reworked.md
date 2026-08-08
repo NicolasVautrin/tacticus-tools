@@ -414,3 +414,74 @@ python probe_271_kustom_force_field_reworked.py --nonowner "orksNob,necroWarden"
 ```
 
 Gardes : `tests/engine/test_kustom_force_field_reworked_live.py`.
+
+### 7.6 -- `#271-r5` : le regime SPAWN est CONFRONTE LIVE, et le natif suit le port
+
+**2026-08-08, `MC1_67` / seed 777.** Le port des trois termes de spawn (#271-r3) etait
+mirror-1:1 et garde par 8 tests offline + 5 mutations. L'OBSERVABLE -- **quelle tuile le natif
+choisit pour faire apparaitre un summon** -- n'avait jamais ete mesure. Un port mirror-1:1 avec
+des tests offline reste une HYPOTHESE tant que le natif ne l'a pas confirme.
+
+#### Le montage
+
+`probe_130_placement_sort_rng.py --case controledict` pilote deja un spawn qui passe par
+`IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` : `admecMarshall` attaque, son
+passif `ControlEdict` fait apparaitre un `admecSmnVanguard` sur l'anneau-1 du CASTER. Il ne
+discriminait pas ce terme -- son montage est un 1v1, aucun des trois porteurs n'y est. On ajoute
+**`ultraTigurius`** (`PsychicFortress` 1000, HERO **du pool** : ni relique, ni injection
+catalogue) et on le place ADJACENT au Marshall.
+
+#### La geometrie est CHERCHEE avant d'etre montee
+
+`ElevationUtility` vaut `10 x elev` : deux crans d'elevation annulent exactement le `+20`. On
+calcule donc, sur le `boardGraph` du runner (et non sur le dump versionne, qui n'en a ni la forme
+ni la metadata), toutes les configurations `(C, P, ennemi)` ou le terme RENVERSE l'argmax :
+
+| critere | compte |
+|---|--:|
+| geometries ou le `+20` renverse l'argmax | **92** |
+| ... a **DOUBLE ecart strictement positif** | **51** |
+
+⚠ **Le double ecart est ce qui separe cette confrontation de celle qui laisse `#271-r1` ouvert.**
+`strict` = de combien X bat Y **sans** le terme ; `marge` = de combien Y bat X **avec**. Un
+`strict == 0` laisserait un tie-break natif FIXE produire le meme renversement -- rien ne serait
+tranche. Un `marge == 0` ferait trancher l'argmax stable APRES, le terme n'ayant fait qu'egaliser.
+Le premier tri essaye ne retenait que `strict`, et rendait des candidats a `marge = 0` ; le tri
+final maximise `min(strict, marge)`.
+
+#### Les trois bras
+
+Geometrie retenue : `C = t13` (Marshall), `P = t14` (Tigurius), ennemi `t12` ; `strict = +10`,
+`marge = +10`.
+
+| bras | tuile de spawn |
+|---|---|
+| port **SANS** le terme (`PsychicFortressNonOwnerPlaybook` neutralise) | **t22** |
+| port **AVEC** | **t23** |
+| **NATIF** | **t23** |
+
+Le bras SANS neutralise la **seule methode**
+`PsychicFortressNonOwnerPlaybook.calculate_movement_utility_in_steps`, pas l'entree de registre :
+la question posee est << ce terme-la porte-t-il le resultat ? >>, pas << le cablage tient-il ? >>.
+Sans ce bras, un accord natif/port ne distinguerait pas les deux.
+
+Livre : `probe_271r5_spawn_non_owner_live.py` (etape 1 offline `--geometrie-seule`, etape 2 live
+a N essais) et `tests/engine/runner/test_271r5_spawn_non_owner_live.py` (4 tests, dont le temoin
+NON NUL -- un accord entre deux listes vides passerait pour un vert).
+
+#### Le rouge de `master` que cette fiche annoncait est REPARE
+
+`test_placement_sort_rng_live.py::test_utility_sort_scenario_really_discriminates` rougissait en
+`CONTRE-CONTROLE INERTE` (`tuiles M0 [26] == live [26]`). La cause n'etait pas la geometrie mais
+le **modele M0 lui-meme** : ce n'est pas l'identite, c'est `sorted(tiles)` **puis un TIRAGE** des
+que le pool depasse 1. `_discriminating_caster_tile` rendait la PREMIERE tuile qui << desaccorde >>,
+laquelle laissait un pool de **deux** candidats -- donc une chance sur deux que M0 tombe sur la
+meme tuile que le tri. Il l'a fait. Le rouge n'accusait ni le port ni le harnais : il accusait le
+tirage.
+
+Correctif : la selection maximise desormais le nombre de candidats **strictement moins bons que
+le maximum**, c'est-a-dire le nombre de tuiles que M0 peut tirer et qui le feraient diverger. La
+probabilite de coincidence passe de `1/2` a `1/len(pool)`. Elle ne devient pas nulle, et **ne
+peut pas l'etre** : M0 tire, donc aucune geometrie ne lui interdit de tomber juste. C'est le prix
+d'un contre-controle bati sur un modele STOCHASTIQUE, et il est desormais ecrit au site.
+Mesure apres correctif : **22 passed** sur le fichier entier.

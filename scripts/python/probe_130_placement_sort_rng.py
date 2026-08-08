@@ -258,10 +258,27 @@ def _tile_utility(board, tile_id, emax, emin):
 def _discriminating_caster_tile(board, occupied, exclude_tile):
     """Tuile CASTER dont l'anneau LIBRE (ordre natif `AdjacentTiles`, moins la tuile reservee a la
     cible) a son MAXIMUM d'utilite Tile(7) ailleurs qu'en TETE -> le tri par utilite et l'ordre
-    source rendent des tuiles DIFFERENTES. Rend (tuile_caster, tuile_cible, [(tuile, utilite)])."""
+    source rendent des tuiles DIFFERENTES. Rend (tuile_caster, tuile_cible, [(tuile, utilite)]).
+
+    ⚠ **LA PREMIERE GEOMETRIE QUI << DESACCORDE >> NE SUFFIT PAS, et c'est ce qui a rendu le
+    contre-controle INERTE** (`test_utility_sort_scenario_really_discriminates`, rouge sur
+    `master`). Le modele M0 n'est pas l'identite : c'est `sorted(tiles)` **puis un TIRAGE** des
+    que le pool depasse 1. Sur un pool de DEUX, il a donc une chance sur deux de tomber sur la
+    meme tuile que le tri -- et c'est exactement ce qui s'est produit (`pool natif [17, 26, 25]`,
+    donc deux candidats apres retrait de la cible ; M0 a tire 26, le live valait 26). Le rouge
+    n'accusait ni le port ni le harnais : il accusait le TIRAGE.
+
+    On ne se contente donc plus de la premiere : on prend celle qui maximise le nombre de
+    candidats STRICTEMENT moins bons que le maximum -- c'est-a-dire le nombre de tuiles que M0
+    peut tirer et qui le feraient diverger. La probabilite de coincidence tombe de `1/2` a
+    `1/len(pool)`. Elle ne devient pas NULLE, et cela reste vrai par construction : M0 tire, donc
+    aucune geometrie ne peut lui interdire de tomber juste. Le prix d'un contre-controle bati sur
+    un modele STOCHASTIQUE.
+    """
     from engine.runner.operations import spawn as SP
     elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
     emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
+    meilleur = None
     for C in sorted(board.by_id):
         if not board.walkable(C) or C in occupied or C == exclude_tile:
             continue
@@ -272,9 +289,16 @@ def _discriminating_caster_tile(board, occupied, exclude_tile):
         enemy_tile = ring[-1]
         pool = [(t, _tile_utility(board, t, emax, emin)) for t in ring if t != enemy_tile]
         us = [u for _t, u in pool]
-        if max(us) > us[0]:
-            return C, enemy_tile, pool
-    return None
+        if max(us) <= us[0]:
+            continue
+        # candidats que M0 peut tirer et qui le feraient DIVERGER du tri
+        umax = max(us)
+        divergents = sum(1 for u in us if u < umax)
+        if meilleur is None or divergents > meilleur[0]:
+            meilleur = (divergents, C, enemy_tile, pool)
+    if meilleur is None:
+        return None
+    return meilleur[1], meilleur[2], meilleur[3]
 
 
 def _forced_caster_tile(board, occupied, exclude_tile, C):
