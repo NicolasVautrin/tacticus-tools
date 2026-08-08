@@ -263,7 +263,6 @@ lib/state.py	refs	6a386158ee6d016bc96c549db77b3d86aea4bad9b8c2489deda87d27ac5dfe
 scripts/python/audit_combat_ability_coverage.py	refs	255497619827c951b47218f44adb9f54964f9d5cdda653f2b4fcb28b74930c11	[]
 scripts/python/audit_kit_coverage.py	refs	928aea239d69622bdafc555089177cd15e3aea891fe64b4da28848a917fa0796	[]
 scripts/python/audit_passive_ability_coverage.py	refs	cbbd1fde9b799ecd42f37326a117ca0c4bee1c3d213131b986bdb5509dcf5e63	[]
-scripts/python/build_call_graph.py	refs	91e044ad8d4aa2d9dfc890ed708665208dbbfb08eed26aea5400f8da53ca5168	[]
 scripts/python/catalog_inject.py	refs	0f269b48ea9b27d46c6677cdf72c65fbb6d2a55ecf00c08fd36a3f247fb3ad5c	[]
 scripts/python/engine/ai/action_generators.py	refs	0de3d9f405f735d866a8c8da423e37ba3a35ac35a8ea108062beb7d4221588b2	[["scripts/python/engine/ai/action_generators.py",84,"ActiveAbilityType","Repair_GalvanicField"],["scripts/python/engine/ai/action_generators.py",85,"ActiveAbilityType","SpiritLeech"],["scripts/python/engine/ai/action_generators.py",83,"ActiveAbilityType","Repair"],["scripts/python/engine/ai/action_generators.py",763,"StatType","ATTACK"],["scripts/python/engine/ai/action_generators.py",556,"EffectType","TwistedScience_ExtraHp"],["scripts/python/engine/ai/action_generators.py",586,"EffectType","HealingBalms_ExtraCritDamage"]]
 scripts/python/engine/ai/context.py	refs	7958510cb9993f99e7f6e677f89d77fe03eaf6aad5346fee8565ebdecea65591	[["scripts/python/engine/ai/context.py",789,"UnitTrait","Impervious"],["scripts/python/engine/ai/context.py",790,"UnitTrait","Impervious"]]

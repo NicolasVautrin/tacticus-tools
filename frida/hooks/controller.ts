@@ -6,9 +6,7 @@
 
 import * as status from "./features/status.js";
 import * as sim from "./features/sim.js";
-import * as compare from "./features/compare.js";
 import * as cheat from "./features/cheat.js";
-import * as configIo from "./features/config-io.js";
 import * as modeSourceCapture from "./features/mode-source-capture.js";
 import * as launch from "./features/launch.js";
 import * as unitAssetMap from "./features/unit-asset-map.js";
@@ -24,22 +22,13 @@ import * as overwatchFix from "./features/overwatch-fix/index.js";
 import * as bucketAudit from "./features/bucket-audit.js";
 import * as dumpComposed from "./features/dump-composed.js";
 import * as dispatchObserve from "./features/dispatch-observe.js";
-import * as effectImmunityObserve from "./features/effect-immunity-observe.js";
 import * as whatifTrigger from "./features/whatif-trigger.js";
-import * as autoBoot from "./features/auto-boot.js";
 import * as uiNav from "./features/ui-nav.js";
 import * as warmupSingletons from "./features/warmup-singletons.js";
 import * as battleConfig from "./features/battle-config.js";
 import * as observe from "./features/observe.js";
-import * as dumpBoards from "./features/dump-boards.js";
-import * as boardTrace from "./features/board-trace.js";
 import * as dumpPvpBoards from "./features/dump-pvp-boards.js";
 import * as normalizeBc from "./features/normalize-bc.js";
-import * as crashTrap from "./features/crash-trap.js";
-import * as initTrace from "./features/init-trace.js";
-import * as moveOptions from "./features/move-options.js";
-import * as winnerCapture from "./features/winner-capture.js";
-import * as messageTrace from "./features/message-trace.js";
 // replay-output-stream = capteur PUREMENT a la demande (#477) : le register n'arme
 // AUCUN hook (zero Interceptor). Il expose la trace textuelle canonique du natif
 // (`Replay.GetWholeBattleOutputStream`), celle-la meme que `Runner.ReplayValidator`
@@ -150,12 +139,6 @@ import { searchForGlobals } from "./probes/search-class.js";
 import { inspectPtr } from "./probes/inspect-ptr.js";
 import { checkMethodParams } from "./probes/check-method-params.js";
 import { checkStatsFields } from "./probes/check-stats-fields.js";
-import { registerTestFind } from "./probes/test-unity-find.js";
-import { registerTestScene } from "./probes/test-scene.js";
-import { register as registerDumpNav } from "./probes/dump-navigation-methods.js";
-import { register as registerInspectCgms } from "./probes/inspect-cgms.js";
-import { register as registerDumpIdunNavInfo } from "./probes/dump-idun-nav-info.js";
-import { register as registerTryToCampaign } from "./probes/try-to-campaign.js";
 
 
 
@@ -376,12 +359,6 @@ export function wireRpc(ctx: Ctx): void {
     ctx.rpc.searchClass = () => { searchForGlobals(); return { ok: true }; };
     ctx.rpc.inspectPtr = (p: string) => { inspectPtr(p); return { ok: true }; };
 
-    registerTestFind(ctx);
-    registerTestScene(ctx);
-    registerDumpNav(ctx);
-    registerInspectCgms(ctx);
-    registerDumpIdunNavInfo(ctx);
-    registerTryToCampaign(ctx);
     rlBridge.register(ctx);
 
     /** RPC: Get battle log segment. */
@@ -392,18 +369,14 @@ export function wireRpc(ctx: Ctx): void {
     // streams to disk instead of an in-memory ring; default L3=off so this
     // path stays cheap unless the user explicitly enables it.
     void movementTrace;
-    [status, sim, compare, cheat, configIo, modeSourceCapture, launch,
+    [status, sim, cheat, modeSourceCapture, launch,
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
      campaignBuilder, mowBuilder, aiTrace, aiUtilityTrace, simEngine,
-     overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger, autoBoot,
-     uiNav, warmupSingletons, battleConfig, observe, dumpBoards, boardTrace,
-     dumpPvpBoards, normalizeBc, crashTrap, initTrace,
-     // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
-     messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
+     overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger,
+     uiNav, warmupSingletons, battleConfig, observe,
+     dumpPvpBoards, normalizeBc,
+     aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
      scorerDamageTrace, effectBonusTrace, triggeredMoveTrace, triggerTrace, dslTrace, dslCtorTrace,
-     // effectImmunityObserve = diag on-demand (#151) : le register n'arme RIEN,
-     // et sa sonde `traitProbe` touche un chemin CHAUD (`UnitExtensions$$HasTrait`).
-     effectImmunityObserve,
      // replayOutputStream = capteur on-demand (#477), n'arme rien au register.
      replayOutputStream,
      gcProbe, hitTrace, renderBudget]
