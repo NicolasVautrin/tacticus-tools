@@ -172,3 +172,58 @@ est-il un compte rendu ou une reference.
 * **`frida/hooks/**` n'est couvert que par l'heuristique de ligne** — pas d'AST TypeScript
   ici. Les 4 occurrences trouvees sont des messages de log ; une resolution d'artefact cote
   hook passerait, elle, par `Process.findModuleByName`, jamais par un chemin.
+
+## 10. `#431-r1` : le perimetre etait deja repare -- ce qui manquait, c'etait le CLIQUET
+
+**Ferme le 2026-08-08, sur `b3e80f94`.** La fiche de residu decrivait `is_exec` comme testant
+`Path(rel).match("scripts/**/*.py")` et chiffrait **904 fichiers balayes sur 1 814**. Les deux
+etaient **perimes de six jours** : #458 avait deja remplace la liste de globs par un seau derive
+de l'EXTENSION. Re-derive :
+
+| mesure | fiche (2026-08-02) | re-derive (2026-08-08) |
+|---|---|---|
+| fichiers suivis | 1 814 `.py` sous `scripts/` | **4 255** (tout l'arbre) |
+| seau EXECUTABLE | 904 | **2 629** |
+| hors de tout seau | 910 (muets) | **0** (l'etape 0 rougit dessus) |
+| RESOLUTIONs | 17 annoncees apres correction | **0** (36 occurrences, toutes MESSAGE) |
+
+Les « 17 RESOLUTIONs synthetiques » que la fiche donnait comme prix de la correction n'existent
+pas : elles ont ete traitees dans #458 meme.
+
+### Le balayage transverse a rendu ZERO -- et c'est le resultat, pas un non-lieu
+
+La fiche demandait de chercher la meme faute ailleurs, `PurePath.match` avec `**` etant un piege
+de LANGAGE et non une etourderie locale. Balayage AST sur les **2 287** `.py` versionnes :
+
+* **1** seul `PurePath.match` avec un glob de chemin -- `test_431_build_pin_offline.py:532`,
+  et c'est la **contre-epreuve** delibiree qui isole la cause de #458 (`assert not ...`) ;
+* `glob.glob` : tous les appels a `**` portent `recursive=True` ; `fnmatch` : **0** motif `**` ;
+* **1** seul convertisseur glob -> regex maison, `declencheur_cliquet._regex`, et il est
+  **correct** (`**/` y vaut ZERO segment ou plus, semantique git pathspec).
+
+### Ce qui est livre, et pourquoi ce n'est pas une reparation
+
+`probe_431r1_globs_non_recursifs.py` + `tests/test_431r1_globs_non_recursifs_offline.py`.
+Rien n'etait casse ; un balayage ponctuel, lui, ne peut pas empecher le retour -- et ce vice
+est **muet par construction** : aucun des trois matchers ne leve, tous acceptent le motif.
+
+Le cliquet couvre les **trois** matchers qui ne developpent pas `**`, et **aucun** de ceux qui
+le developpent (`Path.glob`/`rglob`, `full_match` 3.13) -- les compter serait du bruit :
+
+| matcher | ce que `**` y devient | leve ? |
+|---|---|---|
+| `PurePath.match` | UN segment, et le match part de la DROITE | non |
+| `glob.glob` sans `recursive=True` | degrade en `*` | non |
+| `fnmatch` | `*` traverse les `/`, donc `**/` exige quand meme un `/` | non |
+
+Deux choix de conception, tous deux **derives** et non saisis :
+
+* le litteral doit etre un **glob de chemin** (`**` + `/` ou `*.`) -- sans ce discriminant, les
+  **495** litteraux de markdown gras (`**PORTE**`) des generateurs d'audit entreraient tous ;
+* l'exemption de **contre-epreuve** porte sur la FORME `assert not <appel>`, jamais sur un
+  chemin : une allowlist se perime et devient l'echappatoire. La garde tient les deux cotes --
+  un appel NON nie rougit dans le meme fichier qu'un `assert not`.
+
+Enfin le probe **prouve qu'il mord dans le meme processus que la conformite** (idiome #421) :
+10 mutants, dont **7 sains**, joues a chaque run. Un jeu tout-positif prouverait la morsure et
+jamais l'absence de bruit -- le test assertionne les deux polarites.
