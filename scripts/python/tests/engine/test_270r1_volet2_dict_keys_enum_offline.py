@@ -64,6 +64,11 @@ from engine.services import ability_caster_gates as ACG  # noqa: E402
 # Les valeurs non scalaires (fonctions, `TargetingOptions`) sont normalisees par
 # `_valeur_comparable` : on fige la valeur EFFECTIVE, pas l'identite de l'objet.
 
+# ⚠ PORTER UNE ABILITY NE RETIRE PLUS RIEN D'ICI (#547-r4). Les couples ci-dessous portent des
+# notes « RETIREE (#N) » : elles sont HISTORIQUES et decrivent le regime d'avant, ou chaque port
+# devait rayer son couple a la main -- 19 ratures, 8 croisements de branches, puis 3 rouges sur
+# `master`. Depuis, le couple d'une ability portee est retrouve par `_resolveur_targeting` sur sa
+# classe : NE RIEN RAYER, c'est precisement ce qui le laisserait sans garde.
 SNAP_TARGETING_UNPORTED = (
     (1216, (32788, True, None, 1)),
     (1217, (16384, False, (0, False, False, 1, False), 1)),
