@@ -829,7 +829,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x400, 0, 0)`.
     ActiveAbilityType.CrusadeOfWrath: TargetingOptions(rules=TR.TargetIsFriendly, self_cast=True, range=RANGE_FROM_CONFIG,  # 1049
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1057 GrotTank : MIGRE vers `ABILITY_CLASSES` (#567) -- sa face COMBAT est desormais portee
+    # 1057 GrotTank : MIGRE vers `ABILITY_CLASSES` (#570) -- sa face COMBAT est desormais portee
     #   (`runner/abilities/orks.py::GrotTankAbility.TARGETING_OPTIONS`), donc le CONTRAT DE
     #   DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile avant
     #   migration et est bit-identique a celui qui vivait ici

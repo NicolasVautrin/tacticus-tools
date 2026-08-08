@@ -1,6 +1,6 @@
-"""#567 (face DECISION) -- `GrotTankPlaybook` : bucket NATIF (`ncEvaluate`) vs port NonComparable.
+"""#570 (face DECISION) -- `GrotTankPlaybook` : bucket NATIF (`ncEvaluate`) vs port NonComparable.
 
-CE QUE CE PROBE MESURE. La face COMBAT (`probe_567_grot_tank.py`) dit ce que le cast FAIT ; celle-ci
+CE QUE CE PROBE MESURE. La face COMBAT (`probe_570_grot_tank.py`) dit ce que le cast FAIT ; celle-ci
 dit ce que l'IA CHOISIT. Le natif est `IdunBattle.AI.Playbook.Loki.GrotTankPlaybook$$
 EvaluateNonComparable`, dont l'utilite par tuile de spawn vaut
 `GrotTankPlaybook$$GetUtility(caster, summonTile)` = le nombre d'unites NON AMIES dans le disque de
@@ -20,7 +20,7 @@ Deux grandeurs sont confrontees, et elles ne sont pas redondantes :
 rendre un vert. Le montage `--caster-pos`/`--enemy-pos` existe pour eviter ce regime.
 
 Usage (depuis scripts/python) :
-    python probe_567_grot_tank_nc.py --state-file <ABSOLU> [--board MC1_67] [--seed 777]
+    python probe_570_grot_tank_nc.py --state-file <ABSOLU> [--board MC1_67] [--seed 777]
                                      [--caster-pos 4,5] [--enemy-pos 5,5] [--keep]
 
 ASCII only (cp1252).
@@ -70,7 +70,7 @@ def build(state_file: Path, board: str, seed: str, cpos, epos) -> int:
     proc = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parent),
                           capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not state_file.exists():
-        raise SystemExit("[567nc] build KO: %s" % ((proc.stderr or proc.stdout or "")[-800:]))
+        raise SystemExit("[570nc] build KO: %s" % ((proc.stderr or proc.stdout or "")[-800:]))
     return int(json.loads(state_file.read_text())["runnerId"])
 
 
@@ -86,7 +86,7 @@ def main() -> int:
 
     s = sid()
     rid = build(Path(a.state_file), a.board, a.seed, a.caster_pos, a.enemy_pos)
-    print("[567nc] runner %d monte (board %s, seed %s)" % (rid, a.board, a.seed))
+    print("[570nc] runner %d monte (board %s, seed %s)" % (rid, a.board, a.seed))
     rc = 0
     try:
         import hexgeo
@@ -100,13 +100,13 @@ def main() -> int:
         cid = next((u.get("id") for u in (dv.get("units") or [])
                     if u.get("visualId") == CASTER and u.get("alive")), None)
         if cid is None:
-            print("[567nc] ECHEC : caster absent")
+            print("[570nc] ECHEC : caster absent")
             return 1
 
         # ---------------- NATIF : le bucket par POSITION ----------------
         nc = _rpc("ncEvaluate", {"runnerId": rid, "unitId": cid,
                                  "abilityType": GROT_TANK, "sweep": True}, 180)
-        print("[567nc] NATIF ncEvaluate ok=%s playbook=%s positions=%d"
+        print("[570nc] NATIF ncEvaluate ok=%s playbook=%s positions=%d"
               % (nc.get("ok"), nc.get("playbookClass"), len(nc.get("positions") or [])))
         # Le RPC rend, PAR POSITION : `{pos, cur, hvt, util, action}` (la meilleure `BucketAction`
         # decodee -- `Bucket.best@+0x20`, `util` Fix64 @+0x18, `UnitAction.target` @+0x18), ou
@@ -141,13 +141,13 @@ def main() -> int:
             units=ctx.units, cast_from_tiles=ctx.cast_from_tiles, scene=ctx.scene, debug=False)
         pb = playbooks.PLAYBOOKS.get(GROT_TANK)
         if pb is None:
-            print("[567nc] ECHEC : 1057 absente du registre NonComparable")
+            print("[570nc] ECHEC : 1057 absente du registre NonComparable")
             return 1
         cands = pb.generate_candidates(nc_ctx) or []
-        print("[567nc] PORT  candidats=%s" % json.dumps(cands, default=str)[:400])
+        print("[570nc] PORT  candidats=%s" % json.dumps(cands, default=str)[:400])
 
         # ---------------- D1/D2 : confrontation ----------------
-        print("\n[567nc] CONFRONTATION")
+        print("\n[570nc] CONFRONTATION")
         if not non_vide:
             print("    NON CONFRONTE : le bucket natif est VIDE a toutes les positions. Ce n'est "
                   "pas un desaccord (aucun ennemi a portee 3 d'aucune tuile de spawn) -- "
@@ -212,14 +212,14 @@ def main() -> int:
             rc = 1
         elif port_util is None or nat_best is None or abs(nat_best - port_util) >= 1e-6:
             rc = 1
-        print("\n[567nc] %s" % ("PROBE OK" if rc == 0 else "PROBE : DIVERGENCE"))
+        print("\n[570nc] %s" % ("PROBE OK" if rc == 0 else "PROBE : DIVERGENCE"))
     finally:
         if not a.keep:
             try:
                 rpc(s, "disposeRunner", {"runnerId": rid}, 20)
-                print("[567nc] runner %d dispose" % rid)
+                print("[570nc] runner %d dispose" % rid)
             except Exception as exc:
-                print("[567nc] dispose KO: %s" % str(exc)[:200])
+                print("[570nc] dispose KO: %s" % str(exc)[:200])
     return rc
 
 

@@ -1355,7 +1355,7 @@ class DakkaDakkaDakkaAbility(ActiveAbility):
 
 
 # ================================================================================================ #
-# 1057 GrotTank (`orksBigMek`) -- SUMMON tile-target. UN SEUL `AActiveAbility.Execute`, mais CINQ
+# 1057 GrotTank (`orksBigMek`, #570) -- SUMMON tile-target. UN SEUL `AActiveAbility.Execute`, mais CINQ
 # mecaniques composees dans les options de spawn :
 #   (1) `Spawn(Caster@0x48, Target@0x60, GetStringConstant(unitId), opts)` = la pose sur la tuile
 #       ADJACENTE LIBRE ciblee ;

@@ -1,4 +1,4 @@
-"""GrotTankPlaybook -- decision NC du summon Grot Tank (`orksBigMek`, #567)."""
+"""GrotTankPlaybook -- decision NC du summon Grot Tank (`orksBigMek`, #570)."""
 from __future__ import annotations
 
 import hexgeo

@@ -423,7 +423,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `DAMAGE(Toxic)` -- deux raisons de croire a `DirectTargetAttack`. Le natif ecrit `2`.
     ActiveAbilityType.FoulInfusion: AbilityAttackType.Others,  # 1038
     ActiveAbilityType.GetEmRuntz: AbilityAttackType.Others,  # 1045
-    # 1057 GrotTank (`orksBigMek`) -- #567. LITTERAL RELU au decompile :
+    # 1057 GrotTank (`orksBigMek`) -- #570. LITTERAL RELU au decompile :
     # `...Active.Loki.GrotTankAbility$$.ctor` finit par `AActiveAbility..ctor(this, &opts, 2)`
     # -> 3e argument = **2 = Others**. Le voisinage ne le donnait PAS : les autres SUMMON qui font
     # attaquer leur invocation dans la foulee (`ScarabHive` 1007, `SendInTheNextWave` 1016,

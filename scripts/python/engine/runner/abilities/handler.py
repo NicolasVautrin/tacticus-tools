@@ -115,7 +115,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     ScarabHiveAbility.ABILITY_TYPE: ScarabHiveAbility,                 # 1007 ScarabHive (summoner necroSpyder, validé live)
     ScarabSummonAbility.ABILITY_TYPE: ScarabSummonAbility,             # 1047 ScarabSummon (auto-dédoublement du scarab)
     GetEmRuntzAbility.ABILITY_TYPE: GetEmRuntzAbility,                 # 1045 GetEmRuntz (summoner orksRuntherd -> grots)
-    GrotTankAbility.ABILITY_TYPE: GrotTankAbility,                     # 1057 GrotTank (orksBigMek Orks : UN `Execute(Spawn(Caster@0x48, Target@0x60, unitId, opts))` TILE-TARGET, opts portant `StatModifierFormula(Health, Initial, summonHp + RoundsStarted(Caster) x extraHp)` en +0x28 et `PerformAIAttackFromCurrentPosition(ActiveTarget@0x68)` en +0x18 -- #567)
+    GrotTankAbility.ABILITY_TYPE: GrotTankAbility,                     # 1057 GrotTank (orksBigMek Orks : UN `Execute(Spawn(Caster@0x48, Target@0x60, unitId, opts))` TILE-TARGET, opts portant `StatModifierFormula(Health, Initial, summonHp + RoundsStarted(Caster) x extraHp)` en +0x28 et `PerformAIAttackFromCurrentPosition(ActiveTarget@0x68)` en +0x18 -- #570)
     CrushingClawsAbility.ABILITY_TYPE: CrushingClawsAbility,           # 1105 (Tyrant Guard : attaque+Taunt+Suppress+splash)
     ValkyrieStrikeAbility.ABILITY_TYPE: ValkyrieStrikeAbility,         # 1018 (airstrike différé — EXCLUT le sur-tir générique)
     PlasmaGrenadeAbility.ABILITY_TYPE: PlasmaGrenadeAbility,           # 1098 (splash Plasma adjacent-cible)

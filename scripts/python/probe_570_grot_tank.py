@@ -1,4 +1,4 @@
-"""#567 -- `1057 GrotTank` (`orksBigMek`) : NATIF vs PORT, etage par etage.
+"""#570 -- `1057 GrotTank` (`orksBigMek`) : NATIF vs PORT, etage par etage.
 
 CE QUE CE PROBE MESURE, ET POURQUOI CES ETAGES-LA. `IdunBattleLogic.Entities.Abilities.Active.
 Loki.GrotTankAbility$$ExecuteBehaviour` n'a qu'UN `AActiveAbility.Execute`, mais il compose CINQ
@@ -26,7 +26,7 @@ Le port est execute sur l'etat AVANT (charge par `load_state`), le natif sur le 
 `applyAction` -- les deux verdicts sont imprimes cote a cote.
 
 Usage (depuis scripts/python) :
-    python probe_567_grot_tank.py --state-file <ABSOLU> [--board MC1_67] [--seed 777]
+    python probe_570_grot_tank.py --state-file <ABSOLU> [--board MC1_67] [--seed 777]
                                   [--turns 12] [--keep]
 
 ASCII only (cp1252).

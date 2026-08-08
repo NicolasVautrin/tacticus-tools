@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **69** ; kits avec du travail : **58**
-- Volume total : **68** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **67** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -43,11 +43,11 @@
 | AstraMilitarum | 3 | 3 |
 | BlackLegion | 3 | 3 |
 | BlackTemplars | 3 | 3 |
-| Orks | 2 | 3 |
 | WorldEaters | 3 | 3 |
 | AdeptusAstartes | 1 | 2 |
 | Aeldari | 2 | 2 |
 | Custodes | 2 | 2 |
+| Orks | 2 | 2 |
 | Tau | 1 | 2 |
 | Tyranids | 2 | 2 |
 | Genestealers | 1 | 1 |
@@ -158,11 +158,11 @@
 | necroReanimator | 2 | ReanimationBeam(1223) [--] NO-OP REPAIR<br>NanoscarabRepairProtocols(1224) [--] NO-OP REPAIR | - | - |
 | necroWarden | 1 | AdaptiveStrategy(1005) [--] NO-OP EFFECT/BUFF | - | - |
 
-### Orks — 2 kits, 3 items
+### Orks — 2 kits, 2 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| orksBigMek | 2 | GrotTank(1057) [--] NO-OP SUMMON | KustomForceFieldReworked | - |
+| orksBigMek | 1 | GrotTank(1057) [CD] OK | KustomForceFieldReworked | - |
 | orksWarboss | 1 | Waaagh(1058) [C-] OK | LightImUp | - |
 
 ### Sisterhood — 4 kits, 5 items

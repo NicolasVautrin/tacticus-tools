@@ -1,4 +1,4 @@
-"""#567 -- `1057 GrotTank` (`orksBigMek`) : la face COMBAT, etage par etage.
+"""#570 -- `1057 GrotTank` (`orksBigMek`) : la face COMBAT, etage par etage.
 
 Artefact natif : `IdunBattleLogic.Entities.Abilities.Active.Loki.GrotTankAbility$$ExecuteBehaviour`
 (DECOMPILE, mirror 1:1 -- l'arbre vit dans `engine/runner/abilities/orks.py::grot_tank_tree`).
@@ -40,7 +40,7 @@ MESURE (2026-08-08, board MC1_67, seed 777, `orksBigMek` rank 17 -> niveau 50, m
 180 %) : `summonHp = 6980`, `extraHp = 997`. A `turnsStarted = 1` le natif pose un tank a
 **7977** PV (= 6980 + 1 x 997) ; a `turnsStarted = 4`, **10968** (= 6980 + 4 x 997). Le port rend
 les memes deux valeurs. Degat on-appearance sur `orksNob` : **1522** des deux cotes. Sortie brute :
-`probe_567_grot_tank.py`.
+`probe_570_grot_tank.py`.
 
 ASCII only.
 """
@@ -277,7 +277,7 @@ def test_grot_tank_spawns_on_the_targeted_tile(grot):
     port_pc = [port_state.get_entity(int(g)).get_component(PositionComponent)
                for g in (port_out.get("spawned") or [])]
     port_tiles = sorted((pc.col, pc.row) for pc in port_pc if pc is not None)
-    print(f"\n[567/spawn] cible={tile} natif={nat_tiles} "
+    print(f"\n[570/spawn] cible={tile} natif={nat_tiles} "
           f"({[u.get('visualId') for u in fresh]}) port={port_tiles}")
     assert nat_tiles == [tuple(tile)], \
         f"le natif spawne sur {nat_tiles}, attendu la seule tuile ciblee {[tuple(tile)]}"
@@ -318,7 +318,7 @@ def test_grot_tank_health_follows_rounds_started(grot):
     port_hp = [
         port_state.get_entity(int(g)).get_component(HealthComponent).hp_max
         for g in (port_out.get("spawned") or [])]
-    print(f"\n[567/hp] turnsStarted={turns} summonHp={v_hp} extraHp={v_extra} "
+    print(f"\n[570/hp] turnsStarted={turns} summonHp={v_hp} extraHp={v_extra} "
           f"natif={nat_hp} port={port_hp}")
     assert turns >= 2, \
         (f"turnsStarted={turns} : l'etage n'est PAS discriminant (les hypotheses coincident) -- "
@@ -360,7 +360,7 @@ def test_grot_tank_onappearance_damage_bit_exact(grot):
     port_dmg: dict = {}
     for at in (port_out.get("attacks") or []):
         port_dmg[at["target"]] = port_dmg.get(at["target"], 0) + int(at.get("total") or 0)
-    print(f"\n[567/onappear] degat natif={nat_dmg} port={port_dmg}")
+    print(f"\n[570/onappear] degat natif={nat_dmg} port={port_dmg}")
     assert nat_dmg, \
         ("aucun degat on-appearance cote natif : le tank est hors de portee (montage `--place` "
          "casse) -- l'egalite serait un VERT VIDE")
@@ -388,7 +388,7 @@ def test_grot_tank_summon_is_not_activatable(grot):
              and not u.get("isDead")]
     dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1}, 60) or {}
     to_activate = list(dv.get("toActivate") or [])
-    print(f"\n[567/291] summons={fresh} toActivate={to_activate}")
+    print(f"\n[570/291] summons={fresh} toActivate={to_activate}")
     assert fresh, "aucun summon : le gate #291 n'est pas mesurable"
     assert not [i for i in fresh if i in to_activate], \
         (f"le summon {fresh} est dans toActivate {to_activate} -- `FinishUnitTurn(spawned, "
@@ -470,7 +470,7 @@ def test_grot_tank_playbook_utility_matches_native(grot):
         natives.append(float(r["util"]))
         if abs(float(r["util"]) - mine) >= 1e-6:
             mismatch.append((T, r["util"], mine))
-    print(f"\n[567/nc] {len(natives)} positions ; utilites natives {sorted(set(natives))} ; "
+    print(f"\n[570/nc] {len(natives)} positions ; utilites natives {sorted(set(natives))} ; "
           f"divergences={mismatch[:6]}")
     assert natives, "aucune position confrontee"
     assert len(set(natives)) >= 2, \
