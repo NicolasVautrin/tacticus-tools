@@ -417,6 +417,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.ValkyrieStrike: AbilityAttackType.Others,  # 1018
     ActiveAbilityType.SupremeCommander: AbilityAttackType.Others,  # 1028
     ActiveAbilityType.RevitalizingMalignancy: AbilityAttackType.Others,  # 1037
+    # RitesOfRestoration (1039, adeptHospitaller « Isabella »), #855. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. TRANSCRIT du ctor : l'arbre
+    # ne fait AUCUN degat (soin + resurrection), mais c'est le litteral qui decide, pas le profil --
+    # le lot #499/#505 porte les deux contre-exemples dans l'autre sens.
+    ActiveAbilityType.RitesOfRestoration: AbilityAttackType.Others,  # 1039
     # 1038 -- `...Active.Loki.FoulInfusionAbility$$.ctor` : `AActiveAbility..ctor(this, &opts, 2)`.
     # LITTERAL RELU au decompile, jamais deduit : l'ability EMET pourtant une attaque
     # (`UseNormalAttack` en 2e volet de son `op_Addition`), et sa categorie d'audit est

@@ -308,6 +308,17 @@ class DslContext:
     # branche = contexte hors runner) -> le selecteur `Repairable` rend [] : degradation NOMMEE par le
     # noeud, jamais un « tout passe ». Fourni par `entities_from_state`.
     entity_can_be_repaired: object | None = None
+    # Verdict `IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed(caster, target, scope,
+    # removeEffects)` -- la surcharge a QUATRE arguments (slot 0x11), celle AVEC caster, consommee par
+    # `IdunBattle.Entities.Selectors.HealableUnitsSelector$$Select` (qui resout d'abord son PROPRE
+    # selecteur de caster `+0x18`, puis appelle le slot avec `removeEffects = 1` litteral).
+    # ⚠ Ce n'est PAS le pendant exact de `entity_can_be_repaired` ci-dessus : la surcharge lue par le
+    # selecteur REPAIRABLE est celle a TROIS arguments (caster nul), celle du selecteur HEALABLE est la
+    # 4-args. L'accesseur porte donc le caster.
+    # `entity_can_be_healed(caster_unit, target_unit, scope, remove_effects) -> bool`. Defaut None
+    # (contexte hors runner) -> le selecteur `Healable` rend [] : degradation NOMMEE par le noeud,
+    # jamais un « tout passe ». Fourni par `entities_from_state`.
+    entity_can_be_healed: object | None = None
     # `IdunBattle.Entities.EntityExtensions$$HasEffectOfType(entity, state, effectsDatabase, category)`
     # -- la CATEGORIE d'effet (1 = negatif) lue dans la DEFINITION de chaque effet porte, consommee par
     # `IdunBattle.Entities.Selectors.UnitsWithEffectsOfTypeSelector$$Select`.

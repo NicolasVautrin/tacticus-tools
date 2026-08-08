@@ -101,6 +101,90 @@ class RemoveUnit(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class Resurrect(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$Resurrect(targets, targetTiles, hp, healType,
+    abilityType, options)` -> `IdunBattle.Entities.Behaviours.ResurrectBehaviour$$Execute` --
+    MIRROR du decompile, lu sur `rnca9r7q6c` (les noms de parametres de Ghidra y sont DECALES d'un
+    cran par le `sret` de l'`OperationResult` : ce que la signature nomme `entities` est le `this`
+    du behaviour, `processor` est l'`AbilityEntities`, et le vrai processor arrive en `r9`) :
+
+        hp      = <+0x60>.Calculate(entities)                         # noeud MONTANT, evalue UNE fois
+        targets = <+0x50>.Select(entities)                            # liste d'unites
+        ListExtensions.Remove(targets, t => !IsValidTarget(t))        # cf. `u003CExecuteu003Eb__9_0`
+        tiles   = <+0x58>.Select(entities)                            # liste de tuiles
+        n       = Math.Min(targets.Count, tiles.Count)
+        for (i = 0; i < n; i++)
+            processor.<slot 100>(targets[i], healType@+0x68, tiles[i], hp,
+                                 abilityType@+0x80, options@+0x6c)
+
+    Trois points STRUCTURELS, tous LUS :
+      * c'est un **ZIP** borne par `Min(|targets|, |tiles|)` -- la i-eme unite prend la i-eme tuile,
+        et le surplus de l'un ou l'autre est simplement ignore. Pas de recherche de tuile, pas de
+        re-evaluation entre iterations : les deux listes sont figees AVANT la boucle ;
+      * le PRE-FILTRE `IdunBattle.Entities.Behaviours.ResurrectBehaviour$$IsValidTarget` =
+        `IsDefeated(t) && battleQuery.CanBeResurrected(t, healType)` retire les cibles invalides
+        AVANT le zip -- donc il DECALE l'appariement unite/tuile (une cible ecartee ne consomme pas
+        sa tuile). Le porter en aval, dans l'Operation, donnerait le meme ensemble de ressuscites
+        mais PAS le meme placement ;
+      * `options` (`+0x6c`) est le booleen `takesImmediateTurn`. `1039 RitesOfRestoration` passe
+        **false** (i2 : « and are unable to act on this turn »), l'Ambush genestealer passe **true**.
+
+    Frontiere #149 respectee : la feuille est DECLARATIVE (selecteurs + zip), l'Operation en dessous
+    est imperative (`runner/operations/resurrect.py`, mirror
+    `IdunBattle.Operations.ResurrectUnitOperation$$Execute`) et porte gate, flags, PV et triggers.
+
+    `abilityType` (le `Nullable<AbilityType>` du 6e argument) n'a pas d'observable d'etat porte
+    (attribution) -> non modelise, comme le `source` de `Repair`.
+
+    Emet 'Resurrect' (amount + resurrections=[...]). PUR (stop=False)."""
+    __slots__ = ("targets_sel", "tiles_sel", "hp_fn", "heal_type", "immediate_turn")
+
+    def __init__(self, targets_sel: TargetsSelector, tiles_sel: TargetsSelector, hp_fn,
+                 heal_type: int = 0, immediate_turn: bool = False):
+        self.targets_sel, self.tiles_sel, self.hp_fn = targets_sel, tiles_sel, hp_fn
+        self.heal_type, self.immediate_turn = int(heal_type), bool(immediate_turn)
+
+    def execute(self, entities, ectx):
+        from ...operations.resurrect import ResurrectUnitOperation
+        from ..attack_query import can_be_resurrected
+        state = ectx.state
+        if state is None:
+            ectx.emit("Resurrect", hp=None, resurrections=[])
+            return OperationResult.ok()
+        # `<+0x60>.Calculate(entities)` -- le natif evalue le montant AVANT de resoudre les
+        # selecteurs ; scalaire ou callable, MEME convention que `Heal.amount_fn`/`Repair.amount_fn`.
+        hp = int((self.hp_fn(entities, ectx) if callable(self.hp_fn) else self.hp_fn) or 0)
+        # PRE-FILTRE `IsValidTarget` : `IsDefeated(t) && CanBeResurrected(t, healType)`. Il vit ICI
+        # (et pas seulement dans l'Operation) parce qu'il decale l'appariement du zip.
+        targets = []
+        for u in _units_of(self.targets_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            e = state.get_entity(int(uid))
+            uc = e.get_component(UnitComponent) if e is not None else None
+            if uc is None or uc.alive:                       # `UnitExtensions$$IsDefeated`
+                continue
+            if not can_be_resurrected(state, int(uid), self.heal_type):
+                continue
+            targets.append(int(uid))
+        tiles = list(self.tiles_sel.evaluate(entities) or [])
+        board = state.board
+        out: list = []
+        for uid, tile in zip(targets, tiles):                # zip borne par Min(|targets|, |tiles|)
+            # Domaine du selecteur de tuiles : `CanAddUnit`/`AdjacentTiles` rendent des IDS de tuile ;
+            # l'Operation, elle, prend une COORDONNEE. Conversion par le board, jamais devinee.
+            coord = tile if isinstance(tile, (tuple, list)) else (
+                board.coord(int(tile)) if board is not None else None)
+            r = ResurrectUnitOperation.execute(state, uid, coord, hp,
+                                               immediate_turn=self.immediate_turn,
+                                               heal_type=self.heal_type)
+            if r is not None:
+                out.append(r)
+        ectx.emit("Resurrect", hp=hp, resurrections=out)
+        return OperationResult.ok()
+
+
 class RemoveMachine(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$RemoveMachine(factory, sel)` ->
     `IdunBattle.Entities.Behaviours.RemoveMachineBehaviour$$Execute` : resout son selecteur `+0x50`
