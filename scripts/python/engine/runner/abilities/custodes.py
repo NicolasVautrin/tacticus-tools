@@ -1,8 +1,8 @@
 """Abilities ADEPTUS CUSTODES (namespace natif `Abilities.Active.Loki.*`) — case-231, case-509,
-case-521.
+case-521, case-566.
 
 Module DEDIE (meme org faction que `ultramarines.py` / `votann.py`). RE ghidra `gqfc5mff6c`
-(MomentShackle) et `rnca9r7q6c` (MartialInspiration, TalonsOfTheEmperor).
+(MomentShackle) et `rnca9r7q6c` (MartialInspiration, TalonsOfTheEmperor, VexillaMagnifica).
 
 ================================================================================================
 `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility$$ExecuteBehaviour`
@@ -103,12 +103,15 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+from ...dsl.base import Const, TargetsSelector, _units_of
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import If, op_and, Seq
-from ...entities.formulas import Get, If as AmountIf, Multiply
+from ...entities.behaviours import AtomicGroup, If, op_and, Seq
+from ...entities.formulas import Get, If as AmountIf, Multiply, RandomAmount
 from ...entities.selectors.accessors import CasterTile, Target
+from ...entities.selectors.geometry import Cache
 from ...entities.selectors.tiles import AdjacentTiles, Caster
-from ...entities.selectors.units import Friends, Sub, Units, non_steppable_or_object_units
+from ...entities.selectors.units import (AdjacentEnemies, Friends, NormalUnits, Sub, Union, Units,
+                                         non_steppable_or_object_units)
 from ...entities.triggers import HasEffect, HasFaction, HasTrait, TriggerOr
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
@@ -117,7 +120,8 @@ from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.unit_faction import UnitFaction
 from ..components import StatsComponent
-from .base import ActiveAbility, convert_rounds_to_turns
+from ..operations.damage_utility import first_by_damage_utility
+from .base import ActiveAbility, ability_attack_params, convert_rounds_to_turns
 from .targeting import RANGE_ADJACENT, RANGE_SELF, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAttackDamage
@@ -626,3 +630,267 @@ class TalonsOfTheEmperorAbility(ActiveAbility):
                 "profile": profile, "profile_2": profile_2, "second_profile": second,
                 "used_abilities_level": used, "extra_damage": extra["value"],
                 "attacks": attacks, "dsl": True}
+
+
+# ============ VexillaMagnifica (Aesoth `custoVexilusPraetor`, actif 1183) -- #566 ==================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.VexillaMagnificaAbility$$ExecuteBehaviour`
+# MIRROR 1:1 (slots `DSLFactory` : `+0x78 Behaviors`, `+0x80 Formulas`, `+0x90 Selectors` ;
+# slots `DSLSelectors` : `+0x48 Caster`, `+0x60 Target`) :
+#
+#     dmg     = AActiveAbility.MinMaxDamage(this, abilityState, isPrediction = 0)
+#             = DSLFormulas.RandomAmount( GetVariableForLevel(0xc = minDmg),
+#                                         GetVariableForLevel(0xd = maxDmg) )
+#     profile = AbilityConfiguration.GetDamageProfile(config@+0x60)              # constants.damageProfile
+#     hits    = AbilityConfiguration.GetNumberConstant(config@+0x60, 0x2f = nrOfHits)
+#
+#     sec = DSLSelectors.Cache(
+#               DSLSelectors.First(
+#                   DSLSelectors.SortUnitsByDamageUtility(
+#                       DSLSelectors.NormalUnits(
+#                           DSLSelectors.AdjacentEnemies(Caster@+0x48, unique = 1, selectionType = 3),
+#                           selectionType = 3 )
+#                       op_Subtraction Target@+0x60,
+#                       dmg, unitSelectionType = 3, hits = null ),
+#                   amount = 1, ignoreForcedTargets = 0 ),
+#               matchAbilityEntities = 1 )
+#
+#     b1 = DSLBehaviors.AttackWithAttackDamage(Caster@+0x48, Target@+0x60, dmg, profile, hits,
+#                                              AbilityOrEffect(this), <options ZEROEES>, selType = 2)
+#     b2 = DSLBehaviors.AttackWithAttackDamage(Caster@+0x48, sec,         dmg, profile, hits,
+#                                              AbilityOrEffect(this), <options ZEROEES>, selType = 2)
+#     b3 = DSLBehaviors.AddEffect( 0x48a = 1162 Stunned, GetAbilityStateReference(this),
+#                                  source  = Caster@+0x48,
+#                                  targets = op_Addition(Target@+0x60, sec),
+#                                  options = <struct 0x20 ZEROEE> )
+#     b4 = DSLBehaviors.AddEffect( 0x567 = 1383 VexillaMagnifica_DmgReduction,
+#                                  GetAbilityStateReference(this),
+#                                  source = Caster@+0x48, targets = Caster@+0x48,
+#                                  turns  = DSLFormulas.TurnsFromRounds(
+#                                               GetNumberConstant(0x45 = nrOfRounds) ) )
+#
+#     AActiveAbility.ExecuteAtomic( this, ((b1 & b2) & b3) & b4, entities,
+#                                   groupType = 0x2a = GroupType.Ability_AtomicGroup )
+#
+# ⚠ LES DEUX `AddEffect` N'EMPRUNTENT PAS LA MEME SURCHARGE, et c'est ce qui donne les deux DUREES.
+# Tranche par les XREFS ENTRANTES (les deux corps sont homonymes, le decompile ne les distingue pas) :
+#   * b3 -> `IdunBattleLogic.Entities.DSLBehaviors$$AddEffect(effectType, abilityState, source,
+#     targets, **options**)` -- le 6e argument est un STRUCT de 0x20 octets, ZEROEE au call-site
+#     (`local_1b8 = uStack_1b0 = local_1a8 = uStack_1a0 = 0`), donc **aucun override de duree** :
+#     l'effet 1162 prend son `DefaultAmountOfRounds` (ce que le port ecrit `duration_rounds=None`).
+#   * b4 -> `...$$AddEffect(effectType, abilityState, source, targets, **turns**)` -- le 6e argument
+#     est le NOEUD `TurnsFromRounds`, que la surcharge emballe elle-meme dans le `Nullable` des options.
+# Recopier la duree de l'un sur l'autre inventerait un `TurnsFromRounds(1)` sur le Stun.
+#
+# ⚠ `SortUnitsByDamageUtilitySelector$$Select` CONSOMME UN TIRAGE, et il le consomme ENTRE b1 ET b2.
+# Le noeud `dmg` est `RandomAmount` (`isPrediction = 0`, contraste `AncestralFortuneAbility$$
+# GetAttackTarget` qui passe `1` = `Half(Sum(...))`) : son `Calculate` finit sur
+# `query.NextInternal(min, max + 1)`. Le `Cache` etant resolu PARESSEUSEMENT par le premier
+# consommateur -- et b1 ne le touche pas -- la sequence `state.rng` est : coups de b1, PUIS le tirage
+# de tri, PUIS les coups de b2. Le collapse imperatif est donc porte DANS un `TargetsSelector`
+# (`VexillaMagnificaSecondTarget`), jamais calcule d'avance dans `execute_behaviour`.
+#
+# i2 : « Deals <nrOfHits>x <minDmg>-<maxDmg> Physical Damage to an adjacent enemy target and an
+# additional adjacent enemy unit. Both enemies are Stunned for <nrOfRounds> round, and Aesoth
+# receives -<dmgReductionPct>% Damage for <nrOfRounds> round. »
+#
+# CE QUI EST DEJA PORTE AILLEURS, et n'est donc PAS redit ici :
+#   * l'effet `1383 VexillaMagnifica_DmgReduction` -> `entities/effects/loki/damage_reduction.py::
+#     VexillaMagnificaDmgReductionEffect` (`ForPercentDecrease(ConfigVar(0x46 = dmgReductionPct))`,
+#     trigger `get_OwnerIsTarget` SEUL) ; d'ou le `scale_from_source=True` de b4, qui est ce qui
+#     donne a l'effet l'`AbilityState` de sa SOURCE (niveau d'ability + multiplier de rarete).
+#   * l'effet COMPOSITE `1162 Stunned` -> `entities/effects/loki/status.py::StunnedEffect`
+#     (3 sous-effets 1165/1166/1167).
+#   * la face DECISION -> `playbook/noncomparable/vexilla_magnifica.py`.
+
+VEXILLA_MAGNIFICA_ID = "VexillaMagnifica"                     # cle gameconfig de l'ability 1183
+VM_STUNNED = int(EffectType.Stunned)                          # 0x48a = 1162
+VM_DMG_REDUCTION = int(EffectType.VexillaMagnifica_DmgReduction)   # 0x567 = 1383
+#: `GetNumberConstant(config, 0x45)` -- `AbilityConstantType` 69 = `nrOfRounds` (duree du buff self).
+CONST_VM_NR_OF_ROUNDS = AbilityConstantType.nrOfRounds
+#: `AActiveAbility$$GetHits` = `GetNumberConstant(config, 0x2f)` -- `AbilityConstantType` 47 =
+#: `nrOfHits`. La feuille d'attaque le lit elle-meme (`hits_key` par defaut), la constante n'est
+#: nommee ici que pour que le site se re-greppe contre son symbole natif.
+CONST_VM_NR_OF_HITS = AbilityConstantType.nrOfHits
+
+
+class VexillaMagnificaSecondTarget(TargetsSelector):
+    """`First(SortUnitsByDamageUtility(<pool>, dmg, 3, null), 1)` de
+    `...VexillaMagnificaAbility$$ExecuteBehaviour` -- le SEUL etage collapse imperativement de
+    l'arbre (doctrine slice-18/19, deja appliquee a FinalJustice / AncestralFortune / Doombolt /
+    KillMaimBurn : le selecteur AI-target n'a pas d'equivalent noeud).
+
+    Le `pool` (`NormalUnits(AdjacentEnemies(Caster)) - Target`) reste un ARBRE DSL monte par
+    `vexilla_magnifica_pool()` et passe au ctor : seul le TRI + le `First` sont imperatifs.
+
+    ⚠ **UN TIRAGE PRNG, et il est PLACE.** `SortUnitsByDamageUtilitySelector$$Select` appelle
+    `damage.Calculate(entities)` UNE fois, avant la boucle par cible ; `damage` est ici
+    `AActiveAbility$$MinMaxDamage(abilityState, isPrediction: 0)` = `RandomAmount(minDmg, maxDmg)`,
+    dont le `Calculate` finit par `query.NextInternal(min, max + 1)` sur le PRNG de BATAILLE. Ce
+    noeud etant evalue PARESSEUSEMENT (via le `Cache` que b2 est le premier a consommer), le tirage
+    tombe APRES les coups de la 1re attaque -- exactement comme le natif. Le calculer dans
+    `execute_behaviour` le placerait AVANT, et desynchroniserait toute la sequence de degat.
+
+    `hits` du selecteur natif est `null` -> la prediction de tri vaut `dmgMin == dmgMax == <tirage>`
+    pour UN coup. Et le noeud d'ability `+0x28` est NUL (surcharge 4-args
+    `SortUnitsByDamageUtility(targets, damage, unitSelectionType, hits)`) -> le natif predit avec
+    `AbilityOrEffect(UnitExtensions$$GetNormalAttackType(owner))`, donc `ability_type`/`is_melee`
+    NON fournis (meme configuration qu'`AncestralFortuneAbility$$GetAttackTarget`). Le PROFIL et le
+    PERCAGE n'entrent pas dans la cle (`damageProfile: null` -> percage 0, cf. l'en-tete de
+    `operations/damage_utility.py`)."""
+    __slots__ = ("pool", "state", "dmg_min", "dmg_max", "rolls", "picked")
+
+    def __init__(self, pool: TargetsSelector, state, dmg_min: int, dmg_max: int):
+        self.pool = pool
+        self.state, self.dmg_min, self.dmg_max = state, int(dmg_min), int(dmg_max)
+        self.rolls, self.picked = [], []          # diagnostic (jamais lu par l'arbre)
+
+    def select(self, ctx):
+        candidates = _units_of(self.pool, ctx)          # `targets.Select` du selecteur de tri
+        # `damage.Calculate(entities)` -- `RandomAmount(minDmg, maxDmg)`, PRNG de BATAILLE.
+        roll = int(RandomAmount(Const(self.dmg_min), Const(self.dmg_max),
+                                rng=getattr(self.state, "rng", None)).calculate(ctx))
+        self.rolls.append(roll)
+        # `owner_id` = le `caster@+0x48` que le natif passe en `+0x20` du selecteur de tri (#494-r1) :
+        # sa POSITION entre dans la prediction PAR CIBLE, donc dans la cle (#494-r1-r1 : la cle EST
+        # cette prediction, armure et defense comprises).
+        cid = (getattr(ctx, "caster", None) or {}).get("id")
+        best = first_by_damage_utility(self.state, [u.get("id") for u in candidates], roll, roll,
+                                       owner_id=cid)
+        res = [] if best is None else [u for u in candidates if u.get("id") == best]
+        self.picked.append([u.get("id") for u in res])
+        return res
+
+
+def vexilla_magnifica_pool() -> TargetsSelector:
+    """`NormalUnits( AdjacentEnemies(Caster@+0x48, unique: 1, selectionType: 3), selectionType: 3 )
+    op_Subtraction Target@+0x60` -- MIRROR terme a terme.
+
+    `AdjacentEnemies(unit)` = `Enemies(unit, Units(AdjacentTiles(unit), unique, sel) - unit, sel)`
+    (la factory COMPOSE, elle n'alloue aucun selecteur dedie) : ennemis VIVANTS a distance hex 1 du
+    caster. `NormalUnits` retire ensuite les `Object`/`Steppable`, et la SOUSTRACTION retire la
+    cible du message -- c'est ce qui garantit que la 2e attaque frappe une AUTRE unite."""
+    return Sub(NormalUnits(AdjacentEnemies(Caster())), Target())
+
+
+def vexilla_magnifica_tree(profile: str, second: TargetsSelector, duration_turns: int) -> AtomicGroup:
+    """Arbre de `...VexillaMagnificaAbility$$ExecuteBehaviour` -- MIRROR 1:1, cf. le bloc de
+    commentaire ci-dessus :
+
+        ExecuteAtomic( ((b1 & b2) & b3) & b4, 0x2a = GroupType.Ability_AtomicGroup )
+
+    `multi=True` sur les DEUX attaques : la factory native emballe toujours son
+    `AttackDamageBehaviour` dans un `AttackBehaviour`, dont l'`Execute` resout le selecteur en LISTE
+    puis `OrderBy` si `Count > 1` -- meme pour un singleton (meme lecture que
+    `kill_maim_burn_tree`). `native_factory="attack"` (defaut) = la famille du call-site
+    (`DSLBehaviors$$AttackWithAttackDamage` -> 2 tirages/coup a `critChance = 0`). `is_melee=True` :
+    `attackRangeType = "Melee"` au kit 1183, coherent avec le `RANGE_ADJACENT` du masque.
+    `ability_type` = le 7e argument natif `AbilityOrEffect(this)` = 1183.
+
+    ORDRE LOAD-BEARING : le Stun est pose APRES les deux attaques (b3 est a droite de `b1 & b2`).
+    L'inverser ferait beneficier les deux coups du `Stunned_DamageModifier` (1167, -50 % au degat
+    SORTANT du stunne) -- un effet qui ne concerne pas ce cast, mais dont l'ordre est ce qui
+    distingue un port juste d'un port faux le jour ou un consommateur le lira.
+
+    Le Stun cible `op_Addition(Target@+0x60, sec)` = la cible du message ET la seconde cible :
+    `Union` CONCATENE, et les deux volets sont DISJOINTS par construction (le pool soustrait la
+    cible)."""
+    aid = int(ActiveAbilityType.VexillaMagnifica)                  # AbilityOrEffect(this+0x10)
+    b1 = AttackWithAttackDamage(Target(), VEXILLA_MAGNIFICA_ID, profile, is_melee=True, multi=True,
+                                native_factory="attack", ability_type=aid)
+    b2 = AttackWithAttackDamage(second, VEXILLA_MAGNIFICA_ID, profile, is_melee=True, multi=True,
+                                native_factory="attack", ability_type=aid)
+    # `duration_rounds=None` ET `duration_turns=None` : la surcharge OPTIONS du natif est appelee
+    # avec un struct ZEROEE -> AUCUN override, la duree vient du `DefaultAmountOfRounds` de 1162.
+    b3 = AddEffect(VM_STUNNED, EffectType.Stunned.name, Union(Target(), second),
+                   duration_rounds=None)
+    # `scale_from_source=True` : la magnitude de 1383 est un `ConfigVar(0x46 = dmgReductionPct)`
+    # resolu contre l'`AbilityState` de sa SOURCE (`BaseEffect$$GetAbilityState`).
+    b4 = AddEffect(VM_DMG_REDUCTION, EffectType.VexillaMagnifica_DmgReduction.name, Caster(),
+                   duration_rounds=None, duration_turns=duration_turns, scale_from_source=True)
+    return AtomicGroup(op_and(op_and(op_and(b1, b2), b3), b4))
+
+
+class VexillaMagnificaAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.VexillaMagnificaAbility$$ExecuteBehaviour`
+    (id 1183, `custoVexilusPraetor` << Aesoth >>, Adeptus Custodes). Arbre DSL
+    `vexilla_magnifica_tree()` -- cf. le bloc de commentaire au-dessus.
+
+    Kit gameconfig 1183 : `nrOfHits = 1`, `nrOfRounds = 1`, `damageProfile = Physical`
+    (`PiercingRatio: 1`), `cooldownTurns = 2` ; variables `minDmg`/`maxDmg` (les deux dans
+    `variablesAffectedByRarityBonus`) et `dmgReductionPct` (qui, lui, n'y est PAS).
+
+    OBSERVABLE DU CAST : **DEUX** coups `nrOfHits x Physical`, l'un sur la cible du message, l'autre
+    sur le MEILLEUR autre ennemi adjacent au caster (argmax d'utilite de degat) ; les deux cibles
+    `Stunned` ; le caster gagne `VexillaMagnifica_DmgReduction` pour `TurnsFromRounds(nrOfRounds)`.
+
+    CATEGORIE REELLE = **DAMAGE(Physical), MAIS a DEUX cibles + 2 effets** -- l'audit
+    `combat-ability-coverage.md` classait 1183 `DAMAGE(Physical)` par le `damageProfile` de l'ARME
+    du porteur ; la colonne est JUSTE sur l'axe degat et MUETTE sur le reste (le 2e coup, le Stun,
+    le self-buff). Le cast FRAPPE bien -- ce n'est PAS un patron 2-phases.
+
+    `AbilityAttackType` = **0** (`DirectTargetAttack`), transcrit du 3e argument litteral d'
+    `AActiveAbility..ctor(this, &opts, 0)` -- cf. `abilities/attack_type.py`.
+
+    Termine le tour (1183 hors des deux frozensets d'override de `base.py` -> flags par defaut).
+
+    HORS PERIMETRE, nomme : `IdunBattle.View.AbilityConfigs.Loki.VexillaMagnificaVisuals$$
+    ExecuteInternal` (couche VUE, aucun etat de bataille).
+
+    Retour : {ability, caster, target, profile, second_target, sort_rolls, attacks, posed, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.VexillaMagnifica)   # 1183
+    ABILITY_ID = VEXILLA_MAGNIFICA_ID
+
+    # MASQUE (#115). `...VexillaMagnificaAbility$$.ctor` -- forme **PRESET + FLAGS** : il recopie les
+    # 0x40 octets du preset `<TargetingOptions statics>+0x40` puis appelle la surcharge
+    # `TargetingOptions..ctor(&opts, &preset, 0x200000000)`, dont le corps fait
+    # `rules = additionalRules | template.rules` (LU). `IdunBattle.Core.Services.TargetingOptions$$
+    # .cctor` ecrit ce preset :
+    #   +0x40 (`isSelfCasting`)     = 0
+    #   +0x48..+0x5f (`range`)      = recopie de `<TargetingRange statics>+0x30` = RANGE_ADJACENT
+    #   +0x60 (`forceMeleeTarget`)  = 1 = RangedBool.False (l'enum natif est INVERSE)
+    #   +0x68 (`rules`)             = 0x4000 = TargetIsEnemy
+    # => masque EFFECTIF = `0x4000 | 0x200000000` = `TargetIsEnemy | TargetIsNotAnObject`. MEME
+    # preset que `MartialInspirationAbility$$.ctor` (1191) et `TalonsOfTheEmperorAbility$$.ctor`
+    # (1195) ci-dessus, MEME couple preset/flags que `HolyDuelAbility$$.ctor` (1050) -- et c'est
+    # justement pour cela qu'on le RE-LIT ability par ability : le flag `0x200000000` ne se devine
+    # d'aucun voisin. Ces valeurs VIENNENT de l'entree que cette tranche RETIRE de
+    # `TARGETING_OPTIONS_UNPORTED` (contrat de disjonction : une ability n'a qu'UNE source d'options).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=int(TR.TargetIsEnemy) | int(TR.TargetIsNotAnObject), self_cast=False,
+        range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        import gameconfig as GC
+        if target_id is None:
+            return None
+        consts = (GC.ability(self.ABILITY_ID) or {}).get("constants") or {}
+        # `AActiveAbility$$GetDamageProfile` = `AbilityConfiguration$$GetDamageProfile` =
+        # `constants.damageProfile`, LU de la config -- jamais code en dur.
+        profile = consts.get("damageProfile")
+        if not profile:
+            return None                 # `Nullable<DamageProfile>` vide -> aucun profil a passer
+        rounds = int(consts.get(CONST_VM_NR_OF_ROUNDS.name) or 0)
+        turns = convert_rounds_to_turns(state, rounds)   # TurnsFromRounds(GetNumberConstant(0x45))
+        # Bornes du noeud `dmg` = `MinMaxDamage(isPrediction: 0)` = `RandomAmount(GetVariableForLevel
+        # (0xc), GetVariableForLevel(0xd))`. Le selecteur de tri en tire UNE valeur ; les deux
+        # feuilles d'attaque, elles, relisent la MEME paire par `ability_attack_params` (le natif
+        # partage l'instance du noeud, dont `CalculateMin`/`CalculateMax` rendent les bornes).
+        bmin, bmax, _pierce, _hits = ability_attack_params(
+            state, caster_id, self.ABILITY_ID, profile, ranged=False)
+        second = Cache(VexillaMagnificaSecondTarget(vexilla_magnifica_pool(), state, bmin, bmax))
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        vexilla_magnifica_tree(profile, second, turns).execute(entities, ectx)
+        attacks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        posed = [{"effect": p.get("effect_type"), "target": p.get("target"),
+                  "placed": p.get("placed"), "active": p.get("active")}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        sec_inner = second.source
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "profile": profile, "rounds": rounds, "turns": turns,
+                "second_target": next(iter(sec_inner.picked[-1]), None) if sec_inner.picked else None,
+                "sort_rolls": list(sec_inner.rolls),
+                "attacks": attacks, "posed": posed, "dsl": True}

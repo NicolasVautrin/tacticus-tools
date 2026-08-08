@@ -470,6 +470,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # du ctor, jamais deduit -- meme si l'ability POSE un effet avant de frapper, ce qui aurait pu
     # faire croire a un `Others` (cf. 1184 juste au-dessus, qui, lui, ne frappe pas).
     ActiveAbilityType.MartialInspiration: AbilityAttackType.DirectTargetAttack,  # 1191
+    # VexillaMagnifica (1183, Aesoth custoVexilusPraetor), #566. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.VexillaMagnificaAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = **0** = DirectTargetAttack. TRANSCRIT
+    # du ctor : le cast frappe DEUX cibles (celle du message + le meilleur autre adjacent) et pose
+    # deux effets, ce qui aurait pu faire pencher pour `Others` (cf. 1195 TalonsOfTheEmperor, du
+    # MEME module et du MEME preset de `TargetingOptions`, qui est mono-cible et vaut pourtant `2`).
+    ActiveAbilityType.VexillaMagnifica: AbilityAttackType.DirectTargetAttack,  # 1183
     # SorcerousFacade (1100, Yazaghor thousTzaangor), #287. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. Coherent avec la nature du
