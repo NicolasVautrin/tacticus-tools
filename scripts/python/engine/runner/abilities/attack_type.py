@@ -139,7 +139,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `0`. TRANSCRIT, jamais deduit : l'arbre de 1164 NE FRAPPE PAS (quatre `AddEffect`/
     # `AddBondEffect`, un `Inform`, deux `If` -- aucune Operation d'attaque), et le litteral vaut
     # quand meme `DirectTargetAttack`. Meme contre-exemple que StormOfWrath (1019) et BloodyFury
-    # (1129) ci-dessus. (#598)
+    # (1129) ci-dessus. (#552)
     ActiveAbilityType.MindControl: AbilityAttackType.DirectTargetAttack,  # 1164
     ActiveAbilityType.BringerOfDespair: AbilityAttackType.DirectTargetAttack,  # 1022
     ActiveAbilityType.SkyStrike: AbilityAttackType.DirectTargetAttack,  # 1025

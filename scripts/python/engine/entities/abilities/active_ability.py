@@ -1109,7 +1109,7 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
                          # `Make*Predictions` : le gameconfig de 1164 n'a d'ailleurs ni `minDmg` ni
                          # `maxDmg` (seulement `dmgReduction` / `extraDmgPct`), donc le chemin de
                          # prediction de degat n'avait rien a fabriquer -- l'entree est ici pour
-                         # que le DISPATCH soit juste, pas pour corriger un chiffre. (#598)
+                         # que le DISPATCH soit juste, pas pour corriger un chiffre. (#552)
     "FightingRetreat",   # FightingRetreatPlaybook : NonComparablePlaybook ; EvaluateNonComparable
                          # IdunBattle.AI.Playbook.Loki.FightingRetreatPlaybook$$EvaluateNonComparable = |ennemis adj| + |alliés adj - self| (self-debuff d'ennemis,
                          # pas de dégât — inerte ici de toute façon : pas de minDmg/maxDmg)

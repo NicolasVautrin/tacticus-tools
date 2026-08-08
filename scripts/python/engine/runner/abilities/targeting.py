@@ -855,7 +855,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   TARGETING_OPTIONS`), donc le CONTRAT DE DISJONCTION impose de retirer sa ligne d'ici. Le
     #   masque a ete RE-LU au decompile avant migration et est bit-identique a celui qui vivait ici
     #   (`.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x10120040, 0, 0)`).
-    # 1164 MindControl : SORTIE (#598) -- sa face COMBAT est portee
+    # 1164 MindControl : SORTIE (#552) -- sa face COMBAT est portee
     #   (`abilities/loki/mind_control.py::MindControlAbility.TARGETING_OPTIONS`), donc le CONTRAT DE
     #   DISJONCTION impose de retirer sa ligne d'ici. Le ctor a ete RELU au decompile avant migration
     #   et la valeur qui vivait ici est CONFIRMEE champ pour champ :

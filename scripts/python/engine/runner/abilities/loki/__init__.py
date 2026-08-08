@@ -122,6 +122,6 @@ __all__ = [
     # foul_infusion (FoulInfusion 1038, #500)
     "FoulInfusionAbility", "foul_infusion_tree", "foul_infusion_buff_targets",
     "foul_infusion_attack_target",
-    # mind_control (MindControl 1164, #598)
+    # mind_control (MindControl 1164, #552)
     "MindControlAbility", "mind_control_tree", "mind_control_taunter_selector",
 ]

@@ -1,4 +1,4 @@
-"""probe_598 -- MESURE de `1164 MindControl` (`genesMagus` << Magus >>, Genestealer Cults, HERO).
+"""probe_552 -- MESURE de `1164 MindControl` (`genesMagus` << Magus >>, Genestealer Cults, HERO).
 
 DEUX QUESTIONS BINAIRES, posees AVANT la methode :
 
@@ -59,7 +59,7 @@ n'est pas un resultat.
 Sortie ASCII stricte (console cp1252). Ecrit sous `logs/`, jamais `data/` (#349).
 
 Usage:
-    python probe_598_mind_control.py [--state-name <nom>]
+    python probe_552_mind_control.py [--state-name <nom>]
 """
 from __future__ import annotations
 
@@ -328,10 +328,10 @@ def team_of(dec, uid):
 
 
 def measure(sid: int, seed: str = "777", board: str = BOARD,
-            state_name: str = "probe_598_mind_control"):
+            state_name: str = "probe_552_mind_control"):
     """Monte le scenario, joue le cast des DEUX cotes, rend `(mesures, dispose)`.
 
-    Le TEST de garde (`tests/engine/runner/test_598_mind_control_live.py`) appelle CETTE fonction :
+    Le TEST de garde (`tests/engine/runner/test_552_mind_control_live.py`) appelle CETTE fonction :
     une seule implementation du montage et des lectures, donc aucune divergence possible entre ce
     qui est MESURE ici et ce qui est GARDE la-bas."""
     state_path = LOGS / ("%s.json" % state_name)
@@ -508,7 +508,7 @@ HP_ENEMY_HIGH = 50000
 
 
 def measure_decision(sid: int, seed: str = "777", board: str = BOARD,
-                     state_name: str = "probe_598_mind_control_dec"):
+                     state_name: str = "probe_552_mind_control_dec"):
     """Face DECISION : le natif et le port choisissent-ils la MEME cible pour 1164 ?"""
     state_path = LOGS / ("%s.json" % state_name)
     rid = build(state_path, [
@@ -613,7 +613,7 @@ def _fmt(d):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--state-name", default="probe_598_mind_control")
+    ap.add_argument("--state-name", default="probe_552_mind_control")
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--face", choices=("combat", "decision", "les-deux"), default="les-deux")
@@ -628,7 +628,7 @@ def main():
         return
     m, dispose = measure(sid, seed=a.seed, board=a.board, state_name=a.state_name)
     try:
-        print("=== probe_598 -- 1164 MindControl (runner %s) ===" % m["rid"])
+        print("=== probe_552 -- 1164 MindControl (runner %s) ===" % m["rid"])
         print("caster=%s low=%s(%s PV) high=%s(%s PV) target=%s lone=%s"
               % (m["caster"], m["low"], m["hp_allies"]["low"], m["high"],
                  m["hp_allies"]["high"], m["target"], m["lone"]))
@@ -674,7 +674,7 @@ def main():
 
 
 def _print_decision(d):
-    print("=== probe_598 -- FACE DECISION (runner %s) ===" % d["rid"])
+    print("=== probe_552 -- FACE DECISION (runner %s) ===" % d["rid"])
     print("caster=%s enemy_low=%s(%s PV) enemy_high=%s(%s PV) fromHere=%s"
           % (d["caster"], d["low"], d["hp"]["low"], d["high"], d["hp"]["high"], d["from_here"]))
     print("[D1] proposition NATIVE : %s" % _fmt(d["natif"]))

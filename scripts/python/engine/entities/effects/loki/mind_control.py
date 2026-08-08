@@ -1,4 +1,4 @@
-"""Effets de `1164 MindControl` (`genesMagus` << Magus >>, Genestealer Cults) -- #598.
+"""Effets de `1164 MindControl` (`genesMagus` << Magus >>, Genestealer Cults) -- #552.
 
 TROIS effets natifs, tous poses par
 `IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility$$ExecuteBehaviour` :
@@ -152,7 +152,7 @@ class MindControlTaunterEffect(BaseEffect):
     bondedEntity=cache)` d'un cote, `AddBondEffect(1367, targets=cache, bondedEntity=Target)` de
     l'autre).
 
-    NON PORTE, ET NOMME (residu `#598-r1`) : `is_active` reste le defaut `True`. La condition
+    NON PORTE, ET NOMME (residu `#552-r1`) : `is_active` reste le defaut `True`. La condition
     interroge les EFFETS d'une AUTRE unite que le porteur (la cible bondee) et le `bondedEntity`
     de l'un de ces effets -- or `unit_state_for_effects` (le foyer unique du contexte de
     `CreateActiveCondition`, #208) est une vue du SEUL porteur et n'expose ni les effets d'autrui

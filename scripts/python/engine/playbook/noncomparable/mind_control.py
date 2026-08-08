@@ -1,4 +1,4 @@
-"""MindControlPlaybook -- face DECISION de `1164 MindControl` (`genesMagus`). #598."""
+"""MindControlPlaybook -- face DECISION de `1164 MindControl` (`genesMagus`). #552."""
 from __future__ import annotations
 
 from engine.entities.active_ability_type import ActiveAbilityType
@@ -47,7 +47,7 @@ class MindControlPlaybook(_PlanTargetPlaybook):
     de surcharge (dedup de corps triviaux) -- c'est exactement ainsi que le slot 4 de
     `VexillaMagnificaPlaybook` avait ete rate puis retrouve LIVE (#46). Le defaut de base
     (`BasePlaybook$$ShouldEvaluate` = `GetUseProbability >= 1` = True constant) est donc ce que le
-    port rend, et le residu `#598-r3` nomme la mesure qui manque : lire le slot 4 de la vtable de
+    port rend, et le residu `#552-r3` nomme la mesure qui manque : lire le slot 4 de la vtable de
     ce playbook en live (`BLOCAGE: capteur`).
 
     `PRIORITY` reste au defaut `0` (`AbilityPriority.Normal`) : 1164 est ABSENTE de la table mesuree

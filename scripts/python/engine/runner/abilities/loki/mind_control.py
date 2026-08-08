@@ -1,4 +1,4 @@
-"""`1164 MindControl` (`genesMagus` << Magus >>, Genestealer Cults) -- #598.
+"""`1164 MindControl` (`genesMagus` << Magus >>, Genestealer Cults) -- #552.
 
 `IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility$$ExecuteBehaviour` -- MIRROR du
 DECOMPILE (build `rnca9r7q6c`), terme a terme, dans l'ordre. Slots de `DSLSelectors`
@@ -276,7 +276,7 @@ class MindControlAbility(ActiveAbility):
         dans les deux tables ; le corps du lambda, lui, est DEDUPLIQUE et n'apparait NI dans
         `frida/methods.tsv` NI dans `ghidra/functions.tsv` -- la classe `<>c` n'y a qu'UNE ligne, son
         cctor). Le debloquer demande un RPC qui enumere les methodes d'une classe IMBRIQUEE, donc
-        une fenetre de reinject : residu `#598-r2` (`BLOCAGE: capteur`).
+        une fenetre de reinject : residu `#552-r2` (`BLOCAGE: capteur`).
 
         CE QUI RESTE VRAI SANS LE LIRE, et qui justifie de porter quand meme : `FilterInPlace` ne
         peut que RETIRER des elements (son corps, LU @`idun.shared.extensions.ListExtensions$$

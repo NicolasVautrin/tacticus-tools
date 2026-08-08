@@ -194,7 +194,7 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         # `CanContinue` refuse) ; MIN_UTILITY **DYNAMIQUE** 2/1 selon
         # `BasePlaybook$$EnemyCouldBeDamagedWithNormalAttack(caster)` -- deux statiques au `.cctor`.
         UnstoppableMomentumReworkedPlaybook(),  # 1152 (IdunBattle.AI.Playbook.Loki.UnstoppableMomentumReworkedPlaybook$$EvaluateNonComparable)
-        # #598 -- face DECISION de `1164 MindControl`, ABSENTE jusqu'ici (la face COMBAT l'etait
+        # #552 -- face DECISION de `1164 MindControl`, ABSENTE jusqu'ici (la face COMBAT l'etait
         # aussi : l'ability etait un NO-OP silencieux des DEUX cotes). Patron IDENTIQUE a
         # `VexillaMagnificaPlaybook` : `IdunBattle.AI.Playbook.Loki.MindControlPlaybook$$
         # EvaluateNonComparable` = `Fix64(GetStat(cible, 5 = HEALTH))`, `MIN_UTILITY = 1` (cctor).

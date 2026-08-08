@@ -1,4 +1,4 @@
-"""CONFRONT LIVE de `1164 MindControl` (`genesMagus` << Magus >>, Genestealer Cults, HERO) -- #598.
+"""CONFRONT LIVE de `1164 MindControl` (`genesMagus` << Magus >>, Genestealer Cults, HERO) -- #552.
 
 Ce que ce fichier GARDE, et pourquoi chaque garde existe :
 
@@ -32,7 +32,7 @@ Ce que ce fichier GARDE, et pourquoi chaque garde existe :
     `get_invalid_target_reason` rend 0 immediatement (degradation PERMISSIVE, invisible en
     self-play). Le masque de 1164 a MIGRE ici depuis `TARGETING_OPTIONS_UNPORTED` (contrat de
     DISJONCTION) -- ce test verifie AUSSI qu'il n'y est plus. Et la regle dynamique
-    (`GetAdjacentUnits(targetTiles, friendsOf = caster)` non vide) est NEUVE : avant #598 le port
+    (`GetAdjacentUnits(targetTiles, friendsOf = caster)` non vide) est NEUVE : avant #552 le port
     rendait `0` sur un ennemi sans aucun allie adjacent, la ou le natif refuse.
   * **la face DECISION.** Un accord COMBAT ne dit RIEN de la DECISION : `MindControlPlaybook`
     choisit la CIBLE par `Fix64(GetStat(cible, HEALTH))`. La garde confronte la proposition de
@@ -40,7 +40,7 @@ Ce que ce fichier GARDE, et pourquoi chaque garde existe :
     tres differents -- l'ennemi FAIBLE etant le PREMIER enumere.
 
 Le montage (build + DRIVE des positions par `--place`/`--a-place` + craft de PV par `--unit-stat`)
-et TOUTES les lectures vivent dans `scripts/python/probe_598_mind_control.py` : le probe MESURE,
+et TOUTES les lectures vivent dans `scripts/python/probe_552_mind_control.py` : le probe MESURE,
 ce test GARDE, une seule implementation -- aucune divergence possible entre les deux.
 
 Lit l'etat LIVE, aucune RVA ni tuile hardcodee, ASCII only.
@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import pytest
 
-import probe_598_mind_control as P
+import probe_552_mind_control as P
 
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
 #: Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
@@ -103,7 +103,7 @@ def _target_is_enemy() -> int:
 def mc(live_session):
     """UN SEUL runner pour la face COMBAT : le cast est joue une fois des DEUX cotes, les gardes
     ci-dessous relisent la MEME mesure (le cast n'est pas rejouable -- il consomme l'actif)."""
-    m, dispose = P.measure(live_session, state_name="test_598_mind_control")
+    m, dispose = P.measure(live_session, state_name="test_552_mind_control")
     try:
         yield m
     finally:
@@ -113,7 +113,7 @@ def mc(live_session):
 @pytest.fixture(scope="module")
 def mc_dec(live_session):
     """Montage SEPARE pour la face DECISION : deux ennemis LEGAUX aux PV tres differents."""
-    d, dispose = P.measure_decision(live_session, state_name="test_598_mind_control_dec")
+    d, dispose = P.measure_decision(live_session, state_name="test_552_mind_control_dec")
     try:
         yield d
     finally:
@@ -122,7 +122,7 @@ def mc_dec(live_session):
 
 def test_mind_control_execution_is_ported(mc):
     """La face EXECUTION est portee : sans elle, la DECISION choisit le cast et l'EXECUTION
-    l'IGNORE -- 0 debuff, 0 taunt, AUCUNE erreur (le no-op silencieux que #598 ferme)."""
+    l'IGNORE -- 0 debuff, 0 taunt, AUCUNE erreur (le no-op silencieux que #552 ferme)."""
     assert mc["routed"] == "handler" and mc["ported"] is True, \
         "1164 non portee (routed=%s ported=%s)" % (mc["routed"], mc["ported"])
     assert not mc["cast_error"], "cast natif bloque: %s" % mc["cast_error"]
@@ -288,7 +288,12 @@ def test_mind_control_debuffs_bite_in_both_directions(mc):
     ⚠ ON NE RECONSTITUE PAS L'ARITHMETIQUE NATIVE (arrondis Fix64 par coup, ordre des accumulateurs)
     -- le critere est le SENS, et le canal (additif PLAT contre POURCENT) est verifie separement
     sur les `EffectBonus` que le port RENDS. ANTI-DEGENERESCENCE : les deux magnitudes de config
-    doivent etre NON NULLES."""
+    doivent etre NON NULLES.
+
+    ⚠ ET LE SENS NATIF EST CONFRONTE AU SIGNE DU PORT. Sans ce dernier bloc, cette garde ne lirait
+    que l'ORACLE : aucune mutation du port ne pourrait la faire rougir, et << une garde jamais vue
+    rouge ne garde rien >>. C'est le couplage des deux cotes qui en fait une garde de PORT et pas
+    seulement un cliquet de RE."""
     assert mc["dmg_reduction"] and int(mc["dmg_reduction"]) > 0, \
         "REGIME DEGENERE : dmgReduction=%s" % mc["dmg_reduction"]
     assert mc["extra_dmg_pct"] and int(mc["extra_dmg_pct"]) > 0, \
@@ -303,6 +308,14 @@ def test_mind_control_debuffs_bite_in_both_directions(mc):
     assert all(y > x for x, y in zip(ib, ia)), \
         "1350 ne mord pas : la prediction ENTRANTE sur la cible passe de %s a %s (attendu HAUSSE " \
         "de %s %%)" % (ib, ia, mc["extra_dmg_pct"])
+    # COUPLAGE PORT <-> NATIF : le SIGNE que rend le port doit aller dans le sens que le natif
+    # MESURE. C'est ce qui rend cette garde sensible a une mutation du PORT.
+    out = mc["off_bonus"].get(OUT_DMG_REDUCTION) or {}
+    inc = mc["off_bonus"].get(IN_DMG_BONUS) or {}
+    assert (out.get("value") or 0) < 0, \
+        "le natif fait BAISSER la prediction sortante mais le port rend %s pour 1349" % out
+    assert (inc.get("value") or 0) > 0 and inc.get("kind") == "PercentIncrease", \
+        "le natif fait MONTER la prediction entrante mais le port rend %s pour 1350" % inc
 
 
 def test_mind_control_effect_bonuses_have_the_right_kind_sign_and_face(mc):
@@ -344,7 +357,7 @@ def test_mind_control_targeting_gate_and_dynamic_rule_match_the_native(mc):
 
     Le temoin est a portee 3 ET a la MEME elevation que le caster : son refus ne peut venir ni du
     volet PORTEE ni du volet OBSCURCISSEMENT -- c'est la regle dynamique, et elle seule. AVANT
-    #598 le port y rendait `0` (permissif) : cette garde est le cliquet de cette reparation.
+    #552 le port y rendait `0` (permissif) : cette garde est le cliquet de cette reparation.
 
     ANTI-DEGENERESCENCE : un accord ou TOUT vaut 0 ne prouverait rien -> on exige que le gate
     REFUSE soi, l'allie et le temoin, et ACCEPTE la cible."""
