@@ -349,7 +349,7 @@ class DslContext:
     is_first_hit: bool | None = None
     # `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(unit, triggeredAbilityType)` =
     # `unit.GetComponent<TriggeredAbilityComponent>()?.TryGetAbility(type)` -- le SEUL etage du
-    # predicat `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#572,
+    # predicat `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#577,
     # la faute de frappe « Actort » est celle du binaire, conservee VERBATIM par la regle de citation).
     # `has_triggered_ability(unit, triggered_ability_type) -> bool`. Defaut None (accesseur non
     # branche = contexte hors runner) -> le noeud rend False : degradation NOMMEE par le noeud, du

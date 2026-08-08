@@ -805,7 +805,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   (#498), 1019 StormOfWrath (#499), 1038 FoulInfusion (#500) et 1141 OverwhelmingWrath (#503)
     #   ont MIGRE sur leur classe. Confondre les deux est ce qui a fait ecrire quatre chiffres faux
     #   en un jour : le second N'EST PLUS ECRIT ICI, il vit dans le BLOC GENERE de l'en-tete (#519).
-    # 1005 AdaptiveStrategy : MIGRE vers `ABILITY_CLASSES` (#572) -- sa face COMBAT est desormais
+    # 1005 AdaptiveStrategy : MIGRE vers `ABILITY_CLASSES` (#577) -- sa face COMBAT est desormais
     #   portee (`abilities/necrons.py::AdaptiveStrategyAbility.TARGETING_OPTIONS`), donc le CONTRAT
     #   DE DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile avant
     #   migration et est bit-identique a celui qui vivait ici
@@ -1945,7 +1945,7 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
 
 
 DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
-    # 1005 AdaptiveStrategy : RETIREE (#572) -- meme forme que les cinq ci-dessous,
+    # 1005 AdaptiveStrategy : RETIREE (#577) -- meme forme que les cinq ci-dessous,
     # `necrons.AdaptiveStrategyAbility` SURCHARGE desormais `get_dynamic_invalid_target_reason` et
     # APPELLE `_dynamic_rule_adaptive_strategy` ci-dessus, qui reste l'UNIQUE mirror du corps natif.
     ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185

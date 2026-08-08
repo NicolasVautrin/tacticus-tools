@@ -394,7 +394,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.GauntletsOfUltramar: AbilityAttackType.Others,  # 1000
     ActiveAbilityType.CombatRestoratives: AbilityAttackType.Others,  # 1002
     ActiveAbilityType.ResurrectionOrb: AbilityAttackType.Others,  # 1009
-    # AdaptiveStrategy (1005, necroWarden) -- #572. Litteral TRANSCRIT, jamais deduit :
+    # AdaptiveStrategy (1005, necroWarden) -- #577. Litteral TRANSCRIT, jamais deduit :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$.ctor` finit par
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. La lecture est facile a
     # se donner a POSTERIORI (le cast ne frappe personne : il override l'Attack d'allies, les fait

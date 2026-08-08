@@ -61,7 +61,7 @@ from .behaviours.lifecycle import (RemoveAllForcedAttackTargets, RemoveUnitFromI
                                    TriggerAbility, TRIGGERED_ABILITY_BEHAVIOURS)
 from .behaviours.stats import AddStatOverrideEffect
 from .behaviours.summon import Spawn
-# #572 : le noeud (1) d'`AdaptiveStrategy` est l'APPELANT que la branche `Custom` de
+# #577 : le noeud (1) d'`AdaptiveStrategy` est l'APPELANT que la branche `Custom` de
 # `RelentlessMarch` attendait depuis #328 (cf. `_relentless_march_custom`). On importe le MIRROR
 # deja porte -- surtout pas un 2e port de `...RelentlessMarchAbility$$CreateBehaviour`.
 from ..operations.triggers.loki.relentless_march import (
@@ -80,7 +80,7 @@ if TYPE_CHECKING:
     from ..state import State
 
 
-# ============ AdaptiveStrategy (necroWarden « Makhotep », actif 1005) -- #572 =====================
+# ============ AdaptiveStrategy (necroWarden « Makhotep », actif 1005) -- #577 =====================
 #
 # i2 : « Triggers <Relentless March> again for all adjacent Non-Character friendly units and makes
 #        them immediately take an action, dealing {minDmg}-{maxDmg} Damage per hit if they attack. »
@@ -324,7 +324,7 @@ class AdaptiveStrategyAbility(ActiveAbility):
     # a `options+0x38` par le ctor. C'est le slot VIRTUEL `GetDynamicInvalidTargetReason` de la
     # sous-classe qui porte la regle -- d'ou la surcharge de methode ci-dessous, et non une entree de
     # table. Le masque etait DEJA lu et vivait dans `TARGETING_OPTIONS_UNPORTED` ; il a ete RE-LU au
-    # decompile avant migration et est bit-identique (contrat de disjonction, #572).
+    # decompile avant migration et est bit-identique (contrat de disjonction, #577).
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.TargetIsFriendly
@@ -334,7 +334,7 @@ class AdaptiveStrategyAbility(ActiveAbility):
                                           target_id: Optional[int]) -> int:
         """`...AdaptiveStrategyAbility$$GetDynamicInvalidTargetReason` -- le corps natif tient en une
         ligne (`return HasTrait(target, 0x10 = UnitTrait.Hero) ? 2 : 0`). Il n'a QU'UN mirror, celui
-        d'`abilities/targeting.py`, que cette surcharge APPELLE : #572 deplace la SOURCE (table ->
+        d'`abilities/targeting.py`, que cette surcharge APPELLE : #577 deplace la SOURCE (table ->
         classe, contrat de disjonction), jamais la valeur, et surtout ne la duplique pas."""
         return _dynamic_rule_adaptive_strategy(state, caster_id, target_id)
 

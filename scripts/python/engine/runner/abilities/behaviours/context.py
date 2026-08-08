@@ -11,7 +11,7 @@ from ...components import (OwnerComponent, PositionComponent, UnitComponent, Sta
 from ....entities.traits.unit_trait import (UnitTrait, has_trait, grand_alliance_trait_name,
                                             entity_trait_names)
 from ....entities.effects import effect_stat_mod_key
-# #572 : substrat de `ctx.has_triggered_ability` -- foyer UNIQUE du kit declenche d'une ENTITE
+# #577 : substrat de `ctx.has_triggered_ability` -- foyer UNIQUE du kit declenche d'une ENTITE
 # (tri-etat mesure/repli documente sur la fonction). Feuille enum, aucun cycle.
 from ....entities.triggered_ability_type import entity_triggered_ability_ids
 from ....entities.stats import StatPart as _SP, StatType as _ST
@@ -524,7 +524,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # `ctx.has_triggered_ability` (`IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(unit,
     # type)`, dont le corps relu est `GetComponent<TriggeredAbilityComponent>()?.TryGetAbility(type)`)
     # : l'unite PORTE-t-elle cette triggered-ability ? Lu par le predicat
-    # `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#572).
+    # `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#577).
     # Substrat = `entity_triggered_ability_ids` -- le FOYER UNIQUE du kit declenche, le MEME que lit
     # le gate `GetAbilityState` de `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$
     # TriggerAbility` (`behaviours/lifecycle.py::_unit_has_triggered_ability`). Composant absent ->

@@ -356,7 +356,7 @@ class HasTrait(AbilityTrigger):
 
 class ActorHasTriggeredAbility(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLTriggers$$ActorHasTriggeredAbility(unit, ability)` ->
-    `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#572) -- MIRROR
+    `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#577) -- MIRROR
     1:1 du decompile, qui tient en trois lignes :
 
         unit = this.<+0x10>.Select(entities, 8)            # SelectSingle (groupType 8)
