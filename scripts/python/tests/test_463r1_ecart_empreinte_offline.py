@@ -549,7 +549,12 @@ def test_sans_poids_aucun_fichier_de_poids_PARTIEL_n_est_ecrit(monkeypatch, tmp_
     rc = P457._ecrire_mesure(["tests/a_offline.py", "tests/neuf_offline.py"],
                              ["tests/neuf_offline.py"], _Horloge(), None, 0, 1.5, {},
                              complete=False, ecrire_poids=False)
-    assert rc == 0
+    # ⚠ CE TEST GARDE L'ECRITURE, PAS LE VERDICT -- et les deux etaient confondus par un `rc == 0`
+    # qui n'etait qu'un effet de bord. Depuis #547-r1, une passe PARTIELLE (`complete=False`) rend
+    # `EX_NON_MESURE` : elle n'a pas regarde la verdeur des fichiers qu'elle n'a pas joues, donc
+    # son `0` se lisait << l'arbre offline est vert >> a tort. L'objet du test -- aucun fichier de
+    # poids PARTIEL sur disque -- est inchange et reste assertionne juste en dessous.
+    assert rc == P457.EX_NON_MESURE
     assert not chemin.exists(), "aucun fichier de poids partiel ne doit apparaitre"
 
 
