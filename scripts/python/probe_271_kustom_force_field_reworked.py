@@ -775,6 +775,190 @@ def step2_nonowner(sid, seed, board, mover_vis, p_units, a_units, verbose, pre_s
         Path(state).unlink(missing_ok=True)
 
 
+def step2_nonowner_preplace(sid, seed, board, mover_vis, p_units, a_units, verbose,
+                            min_gap=1.0, essais=12, loin=6) -> dict:
+    """VOIE (b) de `#271-r1` : le Big Mek est **PRE-POSITIONNE AU BUILD**, pas deplace en jeu.
+
+    POURQUOI LA VOIE (a) NE FERMAIT PAS, MESURE. `step2_nonowner` laisse l'IA avancer `pre_steps`
+    chunks pour etaler les unites, puis DEPLACE le Big Mek sur une tuile voisine de T2 seule. Les
+    deux moities se contredisent : a `pre_steps = 0` tout le monde a son action mais le Big Mek,
+    ne au fond du spawn, n'ATTEINT aucune tuile utile ; des qu'on avance, l'IA CONSOMME son action
+    ou celle du mover. Balayage du 2026-08-08 (4 boards x 2 seeds x 2 movers x pas 0..8, 80
+    montages, `--gap-min 1`) : **0 concluant**, et la cause dominante est
+    << action deja consommee >> (38 refus sur 80), pas la geometrie.
+
+    `--place` tranche les deux d'un coup : il pose les unites AVANT le premier tour, donc sans
+    consommer d'action ET sans dependre de la portee de deplacement. C'est litteralement le
+    << pre-positionner le Big Mek DEVANT ses allies >> de la fiche.
+
+    Le critere reste celui de la voie (a) -- `min_gap >= 1` EXIGE que T1 batte STRICTEMENT T2 sans
+    le terme : sur un ex aequo, un tie-break natif constant produirait le meme resultat et la
+    mesure ne trancherait rien. C'est exactement ce que #271-r1 reproche aux deux bascules deja
+    mesurees.
+    """
+    from engine.entities.pathfinding.board import Board
+
+    # -- 1. runner SONDE : le boardGraph et la geometrie du spawn, puis on le rend tout de suite
+    rid0, state0 = _build(seed, board, p_units, a_units, [])
+    if rid0 is None:
+        return {"ok": False}
+    try:
+        bg = _r(sid, "boardGraph", {"runnerId": rid0}, 60)
+        dv0 = _r(sid, "decisionView", {"runnerId": rid0, "maxRank": 1}, 180)
+    finally:
+        _r(sid, "disposeRunner", {"runnerId": rid0}, 30)
+        Path(state0).unlink(missing_ok=True)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        print("  [%s] REFUS : boardGraph indispo -- NON MESURE" % mover_vis)
+        return {"ok": False}
+    bd = Board(bg["tiles"], adjacency="native_sym")
+    occ0 = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv0.get("units") or [])
+            if u.get("pos") and u.get("alive")}
+    mine = [u for u in (dv0.get("units") or []) if u.get("ctrl") and u.get("pos")]
+    if not mine:
+        print("  [%s] REFUS : aucune unite controlee dans la sonde" % mover_vis)
+        return {"ok": False}
+
+    # -- 2. choisir (M, B) : deux tuiles ADJACENTES (adjacence NATIVE), libres, dans la moitie du
+    #       board ou nos unites apparaissent. Le Big Mek en `B` couvre alors une PARTIE de
+    #       l'anneau de deplacement du mover parti de `M`, et pas l'autre -- ce qui est
+    #       exactement la configuration que la voie (a) n'arrivait pas a atteindre.
+    lignes = [u["pos"]["row"] for u in mine]
+    r_lo, r_hi = min(lignes), max(lignes)
+    # ⚠ LOIN DES ENNEMIS, et ce n'est pas une precaution : c'est le SECOND blocage, mesure.
+    # Le premier balayage pre-place (30 positions x 2 movers, `MC1_67`/777) a bien produit la
+    # paire a ecart STRICT que la voie (a) n'atteignait jamais (24, sur `mover@(4,4)
+    # mek@(4,5)`) -- mais `aiDryRunAllUnits` y proposait une ATTAQUE, donc une tuile issue du
+    # sweep `ActiveAbilityActionGenerator` et NON du `MovementActionGenerator` que ce probe
+    # modelise (`UnitMovement(6) = Tile(7) + MinDist(16)`). Comparer l'argmax de move a une tuile
+    # d'attaque ne mesure rien. On ecarte donc les positions a portee d'un ennemi.
+    import hexgeo
+    epos = [(u["pos"]["col"], u["pos"]["row"]) for u in (dv0.get("units") or [])
+            if u.get("pos") and u.get("alive") and not u.get("ctrl")]
+    candidats = []
+    for M in sorted(bd.by_id):
+        cm = bd.coord(M)
+        if not bd.walkable(M) or cm in occ0 or not (r_lo - 1 <= cm[1] <= r_hi + 2):
+            continue
+        if epos and min(hexgeo.distance(cm, e) for e in epos) < loin:
+            continue
+        for B in bd.neighbours(M):
+            cb = bd.coord(B)
+            if not bd.walkable(B) or cb in occ0 or cb == cm:
+                continue
+            candidats.append((cm, cb))
+    if not candidats:
+        print("  [%s] REFUS : aucune paire (mover, Big Mek) adjacente et libre" % mover_vis)
+        return {"ok": False}
+
+    # Le CENTRE d'abord : une tuile centrale laisse au mover un anneau de deplacement large, donc
+    # plus de chances qu'une paire (T1, T2) a ecart STRICT existe avec T2 seule voisine du Big Mek.
+    cx = sum(bd.coord(t)[0] for t in bd.by_id) / max(1, len(bd.by_id))
+    cy = sum(bd.coord(t)[1] for t in bd.by_id) / max(1, len(bd.by_id))
+    candidats.sort(key=lambda p: (p[0][0] - cx) ** 2 + (p[0][1] - cy) ** 2)
+
+    out = {"ok": False, "seed": seed, "board": board, "kind": "preplace:" + mover_vis}
+    causes = {"build KO": 0, "montage": 0, "pas de paire a ecart STRICT": 0,
+              "proposition NON PURE (attaque)": 0}
+    for cm, cb in candidats[:essais]:
+        places = ["--place", "%s:%d,%d" % (mover_vis, cm[0], cm[1]),
+                  "--place", "%s:%d,%d" % (CARRIER, cb[0], cb[1])]
+        rid, state = _build(seed, board, p_units, a_units, places)
+        if rid is None:
+            causes["build KO"] += 1
+            continue
+        try:
+            dv = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1}, 180)
+            ids = {u.get("visualId"): u.get("id") for u in (dv.get("units") or [])}
+            act = {u.get("id"): u.get("hasAction") for u in (dv.get("units") or [])}
+            mek, mover = ids.get(CARRIER), ids.get(mover_vis)
+            if mek is None or mover is None or not act.get(mover):
+                causes["montage"] += 1
+                continue
+            _dv, ctx, wt = _ctx_for(sid, rid, mover)
+            base = _score_map(ctx, wt, with_term=False)
+            on = _score_map(ctx, wt, with_term=True)
+            nb = {p: set(tuple(q) for q in (v or [])) for p, v in (ctx.neigh_by_pos or {}).items()}
+            order = sorted(base.items(), key=lambda kv: -kv[1])
+            if len(order) < 2:
+                causes["pas de paire a ecart STRICT"] += 1
+                continue
+            t1 = order[0][0]
+            trouve = None
+            for t2, s2 in order[1:]:
+                gap = base[t1] - s2
+                if gap > MAX_GAP:
+                    break
+                if gap < min_gap:
+                    continue
+                # le Big Mek doit etre voisin NATIF de T2 et PAS de T1 : c'est ce qui fait que le
+                # terme s'ajoute a T2 seule.
+                if cb in nb.get(t2, ()) and cb not in nb.get(t1, ()):
+                    trouve = (t2, gap)
+                    break
+            if trouve is None:
+                causes["pas de paire a ecart STRICT"] += 1
+                continue
+            t2, gap = trouve
+            p_off = max(base, key=lambda k: base[k])
+            p_on = max(on, key=lambda k: on[k])
+            nat, pure, _row = _native_move(sid, rid, mover)
+            print("  [%s/preplace] mover@%s mek@%s | T1=%s (%.2f) T2=%s (%.2f) ecart=%.2f"
+                  % (mover_vis, cm, cb, t1, base[t1], t2, base[t2], gap))
+            print("  [%s/preplace] terme(T1)=%+.1f terme(T2)=%+.1f | OFF=%s ON=%s NATIF=%s%s%s"
+                  % (mover_vis, on.get(t1, 0) - base.get(t1, 0), on.get(t2, 0) - base.get(t2, 0),
+                     p_off, p_on, nat, "" if pure else "  (proposition NON PURE : attaque)",
+                     "   <-- BASCULE" if p_on != p_off else ""))
+            if not pure:
+                causes["proposition NON PURE (attaque)"] += 1
+                continue                      # tuile issue du sweep d'ATTAQUE : hors modele
+            out.update({"ok": True, "t1": t1, "t2": t2, "gap": gap, "mover": cm, "mek": cb,
+                        "port_off": p_off, "port_on": p_on, "native": nat,
+                        "term_t2": on.get(t2, 0) - base.get(t2, 0)})
+            return out
+        finally:
+            _r(sid, "disposeRunner", {"runnerId": rid}, 30)
+            Path(state).unlink(missing_ok=True)
+    print("  [%s] REFUS : aucune des %d positions pre-placees n'a produit une paire a ecart >= %.0f"
+          " avec proposition native PURE" % (mover_vis, min(essais, len(candidats)), min_gap))
+    print("  [%s] ventilation des refus : %s"
+          % (mover_vis, ", ".join("%s=%d" % kv for kv in sorted(causes.items()) if kv[1])))
+    return out
+
+
+def run_nonowner_preplace(sid, seeds, boards, movers, p_units, a_units, verbose,
+                          min_gap=1.0, essais=12, loin=6) -> int:
+    print("")
+    print("=== ETAPE 2quater : face NON-OWNER, Big Mek PRE-PLACE au build (#271-r1 voie b) ===")
+    rows = []
+    for board in boards:
+        for seed in seeds:
+            print("-- board=%s seed=%s" % (board, seed))
+            for m in movers:
+                rows.append((board, seed, m,
+                             step2_nonowner_preplace(sid, seed, board, m, p_units, a_units,
+                                                     verbose, min_gap=min_gap,
+                                                     essais=essais, loin=loin)))
+    print("")
+    print("=== BILAN ETAPE 2quater ===")
+    concluants = 0
+    for board, seed, m, r0 in rows:
+        if not r0.get("ok"):
+            print("%-10s %-6s %-16s : NON CONCLUANT" % (board, seed, m))
+            continue
+        concluants += 1
+        verdict = ("NATIF == ON" if r0["native"] == r0["port_on"]
+                   else "NATIF == OFF" if r0["native"] == r0["port_off"]
+                   else "NATIF != les deux")
+        print("%-10s %-6s %-16s : T1=%s T2=%s ecart STRICT=%.1f terme(T2)=%+.0f | OFF=%s ON=%s "
+              "NATIF=%s | %s%s"
+              % (board, seed, m, r0["t1"], r0["t2"], r0["gap"], r0["term_t2"],
+                 r0["port_off"], r0["port_on"], r0["native"],
+                 "BASCULE -> " if r0["port_on"] != r0["port_off"] else "pas de bascule -> ",
+                 verdict))
+    return 0 if concluants else 1
+
+
 def run_nonowner(sid, seeds, boards, movers, p_units, a_units, verbose, pre_list=(0,),
                  min_gap=0.0) -> int:
     print("")
@@ -928,6 +1112,14 @@ def main():
     ap.add_argument("--gap-min", type=float, default=0.0,
                     help="etape 2 : ecart MINIMAL T1-T2 exige. >10 isole le FACTEUR 2 (x2 si Ork) : "
                          "un ami non-Ork (+10) ne suffit plus, un ami Ork (+20) oui")
+    ap.add_argument("--loin", type=int, default=6,
+                    help="etape 2quater : distance hex MINIMALE aux ennemis (ecarte les positions "
+                         "ou la proposition native serait une ATTAQUE, hors du modele de move)")
+    ap.add_argument("--essais", type=int, default=12,
+                    help="etape 2quater : positions pre-placees essayees par (board, seed, mover)")
+    ap.add_argument("--preplace", action="store_true",
+                    help="ETAPE 2quater (#271-r1 voie b) : Big Mek PRE-PLACE au build (--place), "
+                         "donc sans consommer d'action ni dependre de sa portee")
     ap.add_argument("--nonowner", default="",
                     help="ETAPE 2ter : movers (visualIds, virgules) pour la face NON-OWNER")
     ap.add_argument("--pre-steps", default="0",
@@ -948,6 +1140,12 @@ def main():
     boards = [b for b in (a.boards or a.board).split(",") if b]
     if a.adjacency:
         return step3_adjacency(sid, seeds, boards, a.p_units, a.a_units)
+    if a.nonowner and a.preplace:
+        return run_nonowner_preplace(sid, seeds, boards,
+                                     [m for m in a.nonowner.split(",") if m],
+                                     a.p_units, a.a_units, a.verbose,
+                                     min_gap=(a.gap_min or 1.0), essais=a.essais,
+                                     loin=a.loin)
     if a.nonowner:
         pre = [int(x) for x in a.pre_steps.split(",")] if a.pre_steps else [0]
         return run_nonowner(sid, seeds, boards, [m for m in a.nonowner.split(",") if m],

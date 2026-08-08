@@ -485,3 +485,90 @@ probabilite de coincidence passe de `1/2` a `1/len(pool)`. Elle ne devient pas n
 peut pas l'etre** : M0 tire, donc aucune geometrie ne lui interdit de tomber juste. C'est le prix
 d'un contre-controle bati sur un modele STOCHASTIQUE, et il est desormais ecrit au site.
 Mesure apres correctif : **22 passed** sur le fichier entier.
+
+### 7.7 -- `#271-r8` : l'ARGMAX de la face ATTACK reste NON CONFRONTE, et l'obstacle est PIRE que ce que la fiche disait
+
+**Non traite le 2026-08-08 ; ce qui suit est ce qui a ete ETABLI, pas une hypothese.**
+
+La fiche pose la condition de bascule ainsi : << faire basculer le choix du jeu exige un etat ou
+le terme **(10)** depasse l'ecart entre les deux meilleures paires >>. Relu au site du port,
+`engine/playbook/base.py::calculate_utility_from_predictions` :
+
+```python
+trig += triggered_abilities_non_owner_attack_utility(ctx, ctx.uid, ev.target, caster_tile)
+if trig:
+    ua += (-1.0 if ev.friendly else 1.0) * ev.probability * trig
+```
+
+Le terme est donc **multiplie par `ev.probability`** avant d'entrer dans l'utilite d'action --
+mirror du natif, qui somme `CalculateUtilityFromDamageEvent` = `prob1 x prob2 x composite`.
+L'ecart franchissable n'est pas `10` mais **`prob x 10`**, et il est donc **strictement plus
+petit des que la prediction n'est pas certaine**. La condition de separabilite est plus dure que
+la fiche ne l'ecrit ; toute reprise doit partir de la, sous peine de chercher une fenetre de
+10 qui n'existe pas.
+
+⚠ **La seconde voie de la fiche est PERIMEE et ne doit pas etre suivie** : elle propose << le
+canal des hooks par-tuile >>, dont les RVA sont celles du build `gqfc5mff6c` (desinstalle), et
+elle exigerait de toute facon une fenetre de reinject -- ce qu'un agent ne fait pas.
+
+Reste donc la voie 1 : chercher un etat ou les deux meilleures paires (cible, tuile) sont
+separees de moins de `prob x 10`. Elle n'a PAS ete essayee dans cette tranche : elle demande de
+scorer, cote port, TOUTES les paires candidates du composite `Damage(35)` pour en lire l'ecart --
+c'est-a-dire un balayage d'utilite d'action que le probe actuel (`probe_271r4_face_attack_live.py`,
+qui n'evalue QUE la feuille) ne sait pas faire. `WayOfTheShortBlade` (1500) est dans le meme etat,
+avec en plus une injection catalogue a monter (`tauFarsight` hors pool).
+
+**Etat : NON CONFRONTE.** Ce n'est pas << non separable >> -- aucun montage n'a ete essaye, donc
+rien n'autorise a le conclure.
+
+### 7.8 -- `#271-r1` : la voie (b) est OUTILLEE et le blocage annonce est LEVE -- mais les deux regimes s'EXCLUENT
+
+**Non ferme le 2026-08-08. Ce qui suit est mesure, et il DEPLACE la cause.**
+
+#### La voie (a), elargie, reste sterile -- et la cause n'etait pas la geometrie
+
+Balayage `--nonowner necroWarden,orksNob --gap-min 1` sur **4 boards** (`MC1_67`, `C4_09`,
+`MC1_31`, `C1_09`) x **2 seeds** x pas **0,2,4,6,8** = **80 montages** : **0 concluant**.
+Ventilation des refus, qui n'avait jamais ete faite :
+
+| cause | compte |
+|---|--:|
+| **action deja consommee** (mek et/ou mover) | **38** |
+| aucune tuile ou poser le Big Mek voisin de T2 seule | 14 |
+| autres | 28 |
+
+La cause DOMINANTE n'est donc pas geometrique : c'est que `step2_nonowner` laisse l'IA jouer
+`pre_steps` chunks pour etaler les unites, et que l'IA CONSOMME au passage l'action du Big Mek ou
+du mover. Les deux moities du montage se contredisent -- a `pre_steps = 0` le Big Mek, ne au fond
+du spawn, n'ATTEINT aucune tuile utile ; des qu'on avance, il n'a plus d'action.
+
+#### La voie (b) est livree : `--preplace`
+
+`step2_nonowner_preplace` pose le mover et le Big Mek par `--place` **AU BUILD** -- donc sans
+consommer d'action et sans dependre de la portee de deplacement. C'est litteralement le
+<< pre-positionner le Big Mek DEVANT ses allies >> de la fiche. Elle **fonctionne** : le blocage
+<< action deja consommee >> tombe a **0**, et la paire a **ecart STRICT** que la voie (a)
+n'atteignait jamais apparait des le premier montage utile --
+
+    mover@(4,4) mek@(4,5) | T1=(6,5) (-171.00) T2=(5,6) (-195.00) ecart = 24.00
+
+#### Mais le blocage RESIDUEL est ailleurs, et les deux regimes s'excluent
+
+| regime | paire a ecart STRICT | proposition native |
+|---|---|---|
+| **pres des ennemis** (30 positions x 2 movers) | **oui** (24 mesure) | **ATTAQUE** -> tuile issue du sweep `ActiveAbilityActionGenerator`, hors du `UnitMovement(6) = Tile(7) + MinDist(16)` que le probe modelise |
+| **loin des ennemis** (`--loin 6`, 14 positions x 2 movers) | **non**, 14/14 | move PUR |
+
+Et meme dans le premier regime, l'ecart trouve (**24**) **depasse le terme** (10 pour un ami
+non-Ork, 20 pour un Ork) : `OFF == ON`, aucune bascule.
+
+**Le montage cherche doit donc satisfaire TROIS conditions a la fois** -- ecart T1-T2 dans
+`1..terme`, Big Mek voisin natif de T2 **seule**, et mover hors de portee d'attaque -- et les
+deux dernieres tirent en sens INVERSE : eloigner le mover des ennemis pour obtenir un move pur
+l'eloigne aussi des zones ou le relief cree des ecarts de composite exploitables.
+
+**Etat : NON CONFRONTE, cause DEPLACEE.** Ce n'est plus << le montage n'a pas ete trouve >> mais
+<< les deux regimes s'excluent sur les boards essayes >>. Piste pour une reprise, la seule qui
+reste ouverte sans nouveau capteur : balayer `--preplace --loin <n>` sur beaucoup de boards en
+faisant VARIER `--loin` (l'optimum est entre les deux regimes), plutot que d'ajouter des pas.
+L'outil est en place et ventile desormais ses refus, ce qui rend ce balayage lisible.
