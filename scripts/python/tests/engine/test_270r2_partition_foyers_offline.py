@@ -29,6 +29,10 @@ DECLENCHEUR = {
         "scripts/python/probe_313_enum_mirror_bijection.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
         "scripts/python/engine/entities/effects/factory.py",
+        # Les deux dependances du probe, mesurees par `probe_486r15` (pas devinees) : il lit le
+        # corpus en parallele et memorise son verdict. Trop LARGE est sain, trop ETROIT est un
+        # faux vert -- c'est exactement ce que ce garde a rendu au premier passage.
+        "scripts/python/repo_read.py", "scripts/python/verdict_cache.py",
     ),
     "build": True,
     "toujours": False,
