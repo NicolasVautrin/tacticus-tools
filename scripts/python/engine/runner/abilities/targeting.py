@@ -943,11 +943,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   (`abilities/loki/psychic_maelstrom.py::PsychicMaelstromAbility.TARGETING_OPTIONS`). Le
     #   masque n'a PAS bouge (rules 0x4002, RANGE_FROM_CONFIG, forceMeleeTarget 1) -- c'est la
     #   SOURCE qui change, et le contrat de disjonction impose de retirer la ligne d'ici.
-    # 1063 FireAndReposition -- `...Active.Loki.FireAndRepositionAbility$$.ctor`, preset `+0x00`.
-    #   ⚠ `forceMeleeTarget = 2` = `RangedBool.IfRangedCaster` -- SEULE du lot dans ce regime.
-    ActiveAbilityType.FireAndReposition: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1063
-                           range=RANGE_ADJACENT_IF_MELEE_CASTER,
-                           force_melee_target=RANGED_BOOL_IF_RANGED_CASTER),
+    # ⚠ 1063 FireAndReposition (preset `+0x00`) est SORTIE d'ici en #567, MEME migration que 1064 :
+    #   sa face COMBAT est portee (`engine/runner/abilities/aeldari.py::FireAndRepositionAbility`),
+    #   donc son masque vit sur la classe du registre. Le ctor a ete RELU a cette occasion et il
+    #   CONCORDE champ pour champ avec ce que cette entree portait : preset `<statics>+0x00`,
+    #   `+0x28 = 0x4002`, `+0x20 = 2` (`RangedBool.IfRangedCaster` -- elle etait bien la SEULE du
+    #   lot dans ce regime), `+0x08` = copie de `TargetingRange statics+0x00` =
+    #   `RANGE_ADJACENT_IF_MELEE_CASTER`.
     # ⚠ 1064 Loki_SwoopingHawk (preset `+0x40`) est SORTIE d'ici en #502, MEME migration que 1068 :
     #   sa face COMBAT est portee (`engine/runner/abilities/aeldari.py::SwoopingHawkAbility`), donc
     #   son masque vit sur la classe du registre. Le ctor a ete RELU a cette occasion -- il n'a

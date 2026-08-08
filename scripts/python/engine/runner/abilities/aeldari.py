@@ -238,6 +238,11 @@ CONFRONTABILITE : `eldarJainZar` est un HERO du pool `rl_duel build --list-pool`
 aucune injection catalogue, aucun montage de relique. Portee ADJACENTE (preset `+0x40`) -> le drive
 des positions (`--place`/`--a-place`) est OBLIGATOIRE pour qu'un ennemi soit au contact, et il faut
 en aligner PLUSIEURS pour exercer la chaine au-dela du maillon 1.
+
+FireAndReposition (1063, `eldarRanger` << Calandis >>) -- #567. TROIS mecaniques, pas une : le
+decompile emboite `op_Addition(op_Addition(UseActiveAbility(Caster, Target,
+UnitNormalAttackType(Caster)), ResetMovement(Owner)), AddEffect(0x456, source = Caster,
+targets = Caster, TurnsFromRounds(1)))`. Detail complet dans le bloc dedie en bas de module.
 """
 from __future__ import annotations
 
@@ -264,14 +269,15 @@ from ...entities.stats import StatType
 from ...utilities.utility_type import UtilityType
 from ..components import PositionComponent, StatsComponent, unit_has_moved
 from .base import ActiveAbility
-from .behaviours.combat import AttackWithAbilityDamage, AttackWithAttackDamage
+from .behaviours.combat import AttackWithAbilityDamage, AttackWithAttackDamage, UseActiveAbility
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect
-from .behaviours.movement import FlyUnit, MoveUnit
+from .behaviours.movement import FlyUnit, MoveUnit, ResetMovement
 # `DiveAttackAbilityBase` vit dans le namespace natif `...Active.Loki` : le mirror y reste, et les
 # deux heritieres (1064 ici, 1091 sur `thousandsons.py`) l'importent -- jamais l'une l'autre.
 from .loki.dive_attack import DiveAttackAbility, dive_attack_profile
-from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_FROM_CONFIG,
+                        RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER,
                         RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ...entities.effects.magnitude import ability_var, ability_var_array
@@ -822,3 +828,170 @@ class SwoopingHawkAbility(DiveAttackAbility):
     # disjonction -- une ability portee porte son masque sur SA classe.
     TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
                                          range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+
+# ================== FireAndReposition (eldarRanger « Calandis », actif 1063) -- #567 ==============
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility$$ExecuteBehaviour`
+# (MIRROR du DECOMPILE, build `rnca9r7q6c`), remis en C# :
+#
+#     atk    = DSLBehaviors$$UseActiveAbility(
+#                  subject     = Caster@DSLSelectors+0x48,
+#                  targets     = Target@DSLSelectors+0x60,
+#                  abilityType = DSLSelectors$$UnitNormalAttackType(Caster@+0x48),
+#                  source      = Nullable(AbilityOrEffect$$op_Implicit(this)),
+#                  <opts>, <opts> )
+#     reset  = DSLBehaviors$$ResetMovement( targets = Owner@DSLSelectors+0x30 )
+#     eff    = DSLBehaviors$$AddEffect(
+#                  effectType   = 0x456,                      # EffectType.FireAndReposition_ReduceDmg
+#                  abilityState = AActiveAbility$$get_AbilityStateReference(this),
+#                  source       = Caster@DSLSelectors+0x48,
+#                  targets      = Caster@DSLSelectors+0x48,   # SUR ELLE-MEME
+#                  turns        = DSLFormulas$$TurnsFromRounds(1) )
+#     return AActiveAbility$$Execute(entities, this, op_Addition(op_Addition(atk, reset), eff))
+#
+# LA CATEGORIE ANNONCEE ETAIT FAUSSE, ET LE COMPTE DE MECANIQUES AUSSI.
+# `docs/rl/combat-ability-coverage.md` classait 1063 en EFFECT/BUFF -- colonne derivee du
+# `damageProfile` de l'ARME du porteur, pas du behaviour. Le decompile en porte **TROIS**, et l'i2
+# s'y apparie un pour un :
+#   << May move as normal and attack. >>                          -> [1] `UseActiveAbility`
+#   << After attacking, she may make one more normal movement. >> -> [2] `ResetMovement`
+#   << In the following enemy turn, she takes -{dmgReduction}
+#      Damage from ranged attacks. >>                             -> [3] `AddEffect(1110)`
+#   << Can only be used if Calandis has a target in range. >>     -> le masque de ciblage
+#
+# LE CAST FRAPPE, mais par l'attaque NORMALE de l'unite -- pas par une attaque d'ability. La config
+# le confirme independamment : `abilities.FireAndReposition` n'a NI `minDmg`/`maxDmg`, NI `nrOfHits`,
+# NI `damageProfile`, NI constante `range` -- **une seule variable, `dmgReduction`** (65 niveaux,
+# 30 -> 2183, `variablesAffectedByRarityBonus`). Meme configuration que `HolyDuel` (1050) et
+# `Drachnyen` (1029). Le `-2183` de l'i2 n'est donc PAS un degat : c'est la magnitude de [3].
+#
+# ORDRE LU, PAS DEVINE -- les deux `AbilityBehaviour$$op_Addition` du decompile s'emboitent
+# `(atk + reset) + eff` : l'attaque part D'ABORD, le mouvement est rendu ENSUITE, l'effet pose EN
+# DERNIER. Contraste avec `StrikeFromTheShadows` (1225), dont le natif emboite `(atk + eff) + reset`
+# -- deux abilities du meme patron a trois feuilles, deux ordres DIFFERENTS : il se lit, il ne se
+# recopie pas. DETERMINISTE hors le degat : ni `ResetMovement` ni `AddEffect` ne tirent -> le flux
+# `state.rng` est celui d'une attaque normale nue, et permuter les trois feuilles ne le decalerait
+# PAS. L'ordre reste LOAD-BEARING sur l'ETAT (cf. `test_567_fire_and_reposition_offline.py`,
+# garde d'ORDRE) -- un test « ca fire » ne le verrait pas.
+#
+# ⚠ `ResetMovement` ne rend PAS l'active : `UnitFlag.ActiveAbilityUsed(2)` n'est pas dans les quatre
+# flags que retire `ResetMovementBehavior$$Execute` (cf. `_RESET_MOVEMENT_FLAGS`). Calandis
+# re-bouge et peut attaquer normalement, elle ne peut pas re-caster.
+# ================================================================================================ #
+
+FIRE_AND_REPOSITION_ID = "FireAndReposition"                 # cle gameconfig de l'ability 1063
+FIRE_AND_REPOSITION_REDUCE_DMG = int(EffectType.FireAndReposition_ReduceDmg)   # 0x456 = 1110
+
+
+def fire_and_reposition_tree():
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility$$ExecuteBehaviour`
+    (MIRROR 1:1, cf. le bloc de commentaire ci-dessus) :
+
+        op_Addition( op_Addition( UseActiveAbility(Caster, Target, UnitNormalAttackType(Caster)),
+                                  ResetMovement(Owner) ),
+                     AddEffect(1110, source=Caster, targets=Caster, TurnsFromRounds(1)) )
+
+    - `UseActiveAbility(Caster(), Target())` = la feuille deja portee, specialisee au dispatch
+      d'ATTAQUE NORMALE (`UnitNormalAttackType(Caster@+0x48)` -> `AttackDamageOperation.execute`,
+      resolveur d'arme par distance). MEME forme que `HolyDuel` (1050) et `Drachnyen` (1029).
+    - `ResetMovement(Owner())` = le selecteur `DSLSelectors+0x30`, PAS `+0x48` : le natif ecrit bien
+      l'OWNER ici et le CASTER pour les deux autres feuilles. Les deux coincident pour une active,
+      mais on transcrit ce qui est ecrit (meme lecture que `StrikeFromTheShadows`).
+    - `AddEffect(..., Caster(), source_ref=Caster())` : la cible EST le caster (`targets` et `source`
+      lisent tous deux `DSLSelectors+0x48`) -- l'effet est un buff DEFENSIF sur soi, pas un debuff.
+    - `duration_rounds=1` = `TurnsFromRounds(1)` NU. ⚠ Ce n'est PAS le `Sum(TurnsFromRounds(1),
+      <DSLFormulas+0x20 = Direct(1)>)` de `StrikeFromTheShadows` : le decompile de 1063 passe le
+      resultat de `TurnsFromRounds` DIRECTEMENT en 6e argument d'`AddEffect`, sans `Sum`. Ecrire
+      `turns_until_end_of_current_players_next_turn` ici depasserait d'un tour.
+    - `scale_from_source=True` = le 3e argument natif `abilityState`
+      (`AActiveAbility$$get_AbilityStateReference(this)`), que l'entite-effet BAKE et que relit
+      `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`. Il est LOAD-BEARING ici :
+      `FireAndRepositionReduceDmgEffect` indexe sa magnitude sur le niveau de l'ability **ACTIVE**
+      (`ConfigVar(0x12 = dmgReduction)`, cf. `entities/effects/loki/damage_reduction.py`), et c'est
+      exactement le regime qui a refute le port initial de l'effet (#366-r1 : natif 716, port 2992,
+      parce que le niveau PASSIF avait ete lu)."""
+    atk = UseActiveAbility(Caster(), Target())          # UnitNormalAttackType(Caster@+0x48)
+    reset = ResetMovement(Owner())                      # targets = Owner@+0x30
+    eff = AddEffect(FIRE_AND_REPOSITION_REDUCE_DMG, EffectType.FireAndReposition_ReduceDmg.name,
+                    Caster(), source_ref=Caster(),      # targets ET source = Caster@+0x48
+                    duration_rounds=1,                  # `TurnsFromRounds(1)` NU (pas de `Sum`)
+                    scale_from_source=True)             # 3e argument natif : `abilityState`
+    return op_add(op_add(atk, reset), eff)
+
+
+class FireAndRepositionAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility$$ExecuteBehaviour`
+    (id **1063**, `eldarRanger` « Calandis », Aeldari) -- arbre DSL `fire_and_reposition_tree`.
+
+    CE port est la face EXECUTION, qui etait un NO-OP SILENCIEUX (1063 absente d'`ABILITY_CLASSES` :
+    `AbilityHandler.visit_ActiveAbilityMessage` l'ignorait -- 0 degat, 0 mouvement rendu, 0 effet,
+    aucune erreur). La DECISION pouvait la choisir alors que l'EXECUTION ne faisait rien.
+
+    KIT (gameconfig, ZERO hardcode) : `attackRangeType = Normal`, variables = `dmgReduction` SEULE
+    (`variablesAffectedByRarityBonus`). AUCUNE variable de degat propre, aucun `nrOfHits`, aucun
+    `damageProfile`, aucune constante -> le cast n'a pas d'attaque d'ability, il DISPATCHE l'attaque
+    NORMALE de l'unite.
+
+    OBSERVABLE porte, les TROIS volets dans l'ordre du decompile : (1) une attaque NORMALE de
+    Calandis sur la cible du message ; (2) `ResetMovement(Owner)` -- elle RECUPERE son deplacement
+    et son activation, PAS son active ; (3) l'effet 1110 `FireAndReposition_ReduceDmg` pose SUR
+    ELLE-MEME pour 1 round, dont le port est deja livre et valide live (#366-r1,
+    `entities/effects/loki/damage_reduction.py::FireAndRepositionReduceDmgEffect`).
+
+    Face DECISION **NON portee** : `IdunBattle.AI.Playbook.Loki.FireAndRepositionPlaybook` (un
+    `ComparablePlaybook<T>` a `0x427`, avec `GetTileUtility` / `GetAverageDistance`) n'a aucun
+    equivalent dans `engine/playbook/` -- residu `#567-r1`.
+
+    Diag : {ability, caster, target, attack, reset, reset_reopened, effect_placed}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.FireAndReposition)   # 1063 = 0x427
+    ABILITY_ID = FIRE_AND_REPOSITION_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET STATIQUE COPIE** :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility$$.ctor` n'appelle
+    # AUCUN `TargetingOptions$$.ctor` -- il recopie les 0x40 octets du champ STATIQUE de
+    # `TargetingOptions` a l'offset **`+0x00`** du bloc `<class>+0xb8` (le TOUT PREMIER preset), puis
+    #     AActiveAbility..ctor(this, &opts, 2)   # 3e arg = 2 = AbilityAttackType.Others
+    # Le preset lu EN ENTIER dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     <preset>+0x00 = 0                                     -> isSelfCasting = false
+    #     <preset>+0x08 = copie de `TargetingRange statics+0x00` -> **RANGE_ADJACENT_IF_MELEE_CASTER**
+    #     <preset>+0x20 = 2                                     -> forceMeleeTarget = IfRangedCaster
+    #     <preset>+0x28 = 0x4002                                -> Rules = TargetMatchesDynamicRule
+    #                                                                     | TargetIsEnemy
+    # ⚠ `forceMeleeTarget = 2` (`RangedBool.IfRangedCaster`) : 1063 est la SEULE du lot de
+    # `TARGETING_OPTIONS_UNPORTED` dans ce regime -- recopier le `1` d'une voisine serait faux.
+    # ⚠ Le `range` du preset `+0x00` est `RANGE_ADJACENT_IF_MELEE_CASTER` (`onlyAdjacent =
+    # IfNotRangedCaster`), PAS `RANGE_FROM_CONFIG` : coherent avec une config 1063 qui ne porte
+    # AUCUNE constante `range` -- il n'y en aurait rien a lire. La portee effective est celle de
+    # l'ARME de Calandis, ce que dit l'i2 (« if Calandis has a target in range »).
+    # Cette entree MIGRE depuis `TARGETING_OPTIONS_UNPORTED` (`abilities/targeting.py`) : contrat de
+    # disjonction -- une ability portee porte son masque sur SA classe.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=int(TR.TargetMatchesDynamicRule | TR.TargetIsEnemy),   # `<preset +0x00>+0x28` = 0x4002
+        self_cast=False, range=RANGE_ADJACENT_IF_MELEE_CASTER,
+        force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)             # `<preset +0x00>+0x20` = 2
+
+    # `AbilityAttackType` = 3e argument d'`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` = le
+    # litteral **`2`** (`Others`), LU au ctor -> transcrit dans la table `ABILITY_ATTACK_TYPE`
+    # (`abilities/attack_type.py`), qui est le registre de cette donnee. TRANSCRIT, jamais deduit :
+    # le cast FRAPPE bel et bien (attaque normale), ce qui ferait ecrire `DirectTargetAttack` a
+    # l'oeil -- exactement la meme configuration que `FoulInfusion` (1038) et `WallOfMirrors` (1186),
+    # deux autres dispatcheurs d'attaque normale dont le litteral vaut aussi `2`.
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        fire_and_reposition_tree().execute(entities, ectx)
+        atk = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
+        rst = next((p for n, p in ectx.emitted if n == "ResetMovement"), None)
+        eff = next((p for n, p in ectx.emitted if n == "AddEffect"), None)
+        return {"ability": FIRE_AND_REPOSITION_ID, "caster": caster_id, "target": target_id,
+                "attack": atk,
+                "reset": (rst or {}).get("subject"),
+                "reset_reopened": bool((rst or {}).get("reopened")),
+                "effect_placed": bool((eff or {}).get("placed")),
+                "dsl": True}

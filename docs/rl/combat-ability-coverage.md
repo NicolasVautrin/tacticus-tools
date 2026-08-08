@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **126**
-- **NO-OP silencieux** (a porter) : **49**
-- Ventilation NO-OP : **DAMAGE**=21, **EFFECT/BUFF**=17, **SUMMON**=6, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **129**
+- **NO-OP silencieux** (a porter) : **46**
+- Ventilation NO-OP : **DAMAGE**=21, **EFFECT/BUFF**=15, **SUMMON**=5, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (49)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (46)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -57,9 +57,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1183 | VexillaMagnifica | DAMAGE(Physical) | 1 | L |
 | 1005 | AdaptiveStrategy | EFFECT/BUFF | 6 | LN |
 | 1210 | ExemplarOfTheMontka | EFFECT/BUFF | 6 | LN |
-| 1050 | HolyDuel | EFFECT/BUFF | 6 | LN |
 | 1101 | AttemptedPossession | EFFECT/BUFF | 5 | LN |
-| 1063 | FireAndReposition | EFFECT/BUFF | 5 | LN |
 | 1061 | UnbreakableDuty | EFFECT/BUFF | 4 | LN |
 | 1049 | CrusadeOfWrath | EFFECT/BUFF | 3 | LN |
 | 1010 | StormOfFlensingBlades | EFFECT/BUFF | 3 | N |
@@ -77,14 +75,13 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1231 | TitanhammerSquad | HEAL | 1 | L |
 | 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
 | 1223 | ReanimationBeam | REPAIR | 2 | LN |
-| 1121 | ItItches | SUMMON | 7 | LN |
 | 1057 | GrotTank | SUMMON | 5 | LN |
 | 1208 | AetherStride | SUMMON | 2 | LN |
 | 1144 | BioMinefield | SUMMON | 2 | LN |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (126)
+## PORTED (registry) (129)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -181,8 +178,10 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1023 | Burrowers | EFFECT/BUFF | 6 | NS |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |
 | 1066 | Executioner | EFFECT/BUFF | 6 | LN |
+| 1050 | HolyDuel | EFFECT/BUFF | 6 | LN |
 | 1226 | Chronometron | EFFECT/BUFF | 5 | LN |
 | 1081 | FightingRetreat | EFFECT/BUFF | 5 | LN |
+| 1063 | FireAndReposition | EFFECT/BUFF | 5 | LN |
 | 1067 | HarvesterOfSouls | EFFECT/BUFF | 5 | LN |
 | 1164 | MindControl | EFFECT/BUFF | 5 | LN |
 | 1025 | SkyStrike | EFFECT/BUFF | 5 | LN |
@@ -197,6 +196,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1037 | RevitalizingMalignancy | HEAL | 4 | LN |
 | 1117 | DefendTheDivineWork | REPAIR | 6 | LN |
 | 1112 | AlphaWarrior | SUMMON | 8 | LN |
+| 1121 | ItItches | SUMMON | 7 | LN |
 | 1016 | SendInTheNextWave | SUMMON | 7 | LN |
 | 1096 | MasterOfTheTutelaries | SUMMON | 6 | LN |
 | 1009 | ResurrectionOrb | SUMMON | 6 | LN |

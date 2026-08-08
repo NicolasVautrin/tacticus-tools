@@ -478,6 +478,16 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # pas cette lecture. (`&opts` = un litteral INLINE « flags directs », rules = 0x402 -> ses
     # `TARGETING_OPTIONS` sont posees sur la classe.)
     ActiveAbilityType.SorcerousFacade: AbilityAttackType.Others,  # 1100
+    # FireAndReposition (1063, Calandis eldarRanger), #567. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility$$.ctor` recopie les
+    # 0x40 octets du preset statique `<TargetingOptions statics>+0x00` puis
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = **2 = Others**. TRANSCRIT, surtout pas
+    # deduit : le cast FRAPPE (il dispatche l'attaque NORMALE de Calandis via `UseActiveAbility`),
+    # ce qui ferait ecrire `DirectTargetAttack` a l'oeil -- et c'est la lecture INVERSE qui a ete
+    # faite pour `HolyDuel` (1050) et `Drachnyen` (1029), MEME forme d'arbre, litteral `0`. Le
+    # litteral se lit ability par ability : ni le nom, ni le profil de degat, ni la forme de l'arbre
+    # ne le predisent. Meme valeur que `FoulInfusion` (1038) et `WallOfMirrors` (1186).
+    ActiveAbilityType.FireAndReposition: AbilityAttackType.Others,  # 1063
     # Lot Tau #114 (merge d67b6ac), arrive APRES la redaction de #120 : les trois ctors passent
     # litteralement `AActiveAbility..ctor(this, &opts, 2, 0)` (relu au decompile).
     ActiveAbilityType.EarlyWarningOverride: AbilityAttackType.Others,  # 1077
