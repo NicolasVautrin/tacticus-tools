@@ -91,6 +91,7 @@ from ..abilities.handler import ABILITY_CLASSES
 from .repair import _is_boss
 from ...ai.state_bridge import _move_tiles
 from .effects import revert_stat_mods_of_removed_effects
+from .traits import revert_traits_of_removed_effects
 from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
 from .summon_ai import run_ai_control_pass
 from .triggers.dispatch.turn import end_turn_summon_triggers
@@ -843,15 +844,21 @@ class EndTurnOperation:
         # applique pour toujours. No-op strict pour toute instance sans `stat_mod_source`. Reste COLLE au
         # tick (mirror du `RefreshEffectsOperation` que `RefreshEffects` appelle en sortie de boucle).
         reverted = revert_stat_mods_of_removed_effects(state)
+        # MEME `RevertInternal`, AUTRE part : les TRAITS accordes par un effet qui vient d'expirer
+        # (`OperationProcessor$$RemoveTrait`, cf. `WarHowl_ExtraDamage_UnstoppableEffect$$
+        # RevertInternal`). Foyer separe parce que le gate d'idempotence de l'autre est specifique
+        # aux stat-mods (`effect_stat_mod_key` -> `continue` sur None, donc un effet a trait SANS
+        # stat-mod n'y arrive jamais). Reste COLLE au tick, comme lui.
+        traits_reverted = revert_traits_of_removed_effects(state)
         if not advance:
             return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
                     "pilein": pilein, "next_player": None, "start": None,
-                    "stat_mods_reverted": reverted}
+                    "stat_mods_reverted": reverted, "traits_reverted": traits_reverted}
         nxt = ChangeTurnOperation.execute(state)
         start = StartTurnOperation.execute(state, nxt) if nxt is not None else None
         return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
                 "pilein": pilein, "next_player": nxt, "start": start,
-                "stat_mods_reverted": reverted}
+                "stat_mods_reverted": reverted, "traits_reverted": traits_reverted}
 
 
 # ================================================================================================ #

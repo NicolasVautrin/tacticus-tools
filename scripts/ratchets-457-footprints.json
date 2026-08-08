@@ -1293,6 +1293,18 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/runner/test_576_war_howl_pose_offline.py": {
+   "_at": 1786177419,
+   "_commit": "10b867598b90c619360a2165c78a9bbb834eed77",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/runner/test_585_war_howl_pose_offline.py": {
+   "_at": 1786179462,
+   "_commit": "6d8bdc7904faf2ac1565910715ab1587eb2546fc",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_ability_registry_ratchet.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",

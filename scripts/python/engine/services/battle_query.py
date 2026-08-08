@@ -708,6 +708,50 @@ def weapon_hits(weapon: dict | None) -> int:
     return int((weapon or {}).get("hits") or 0)
 
 
+def has_ranged_weapon(visual_id, min_range=None) -> bool:
+    """`IdunBattle.Entities.Components.WeaponsComponent$$HasRangedWeapon(minRange)` -- le predicat
+    que `IdunBattle.Entities.UnitExtensions$$HasRangedWeapon(unit, minRange)` delegue apres avoir
+    resolu le composant. Corps natif relu (build courant), boucle VERBATIM :
+
+        foreach (w in this.Weapons) {
+            if (w.IsMelee)               continue;          // WeaponProfile$$get_IsMelee
+            if (!minRange.HasValue)      return true;       // minRange nul -> aucune comparaison
+            if (minRange.Value <= w.Range.Value) return true;
+        }
+        return false;
+
+    Le `minRange` nul COURT-CIRCUITE la comparaison de portee : tous nos call-sites portes passent
+    `null`, donc le predicat s'y reduit a « au moins une arme n'est pas `IsMelee` », c.-a-d.
+    `WeaponProfile$$get_IsRanged` (dont le corps EST `get_IsMelee ^ 1`).
+
+    ⚠ CE N'EST PAS le tri de `IdunBattle.Entities.UnitExtensions$$IsRanged` porte par
+    `engine.services.ability_range._has_ranged_weapon` (`HasTrait(0xb Ranged) || presence d'un
+    Range`) : deux fonctions natives distinctes, deux seuils. Ici le seuil est celui de
+    `weapon_is_melee` (`Range >= 2`).
+
+    SUBSTRAT : le natif itere le `WeaponsComponent` de l'ECS ; le port lit le kit gameconfig
+    (`GC.unit(visualId).weapons`), meme source que `find_ranged_weapon` / `find_melee_weapon`
+    ci-dessus -- decalque MESURE du `UnitConfiguration.Weapons` de la BC (246 armes / 175 unites,
+    0 divergence sur `IsMelee`). Ce que ce substrat ne voit pas : une arme AJOUTEE/MODIFIEE en
+    cours de bataille par un effet. Unite inconnue -> `False` (aucune arme -> la boucle native
+    n'entre jamais et rend `false`).
+
+    FOYER UNIQUE du predicat : consomme par le selecteur DSL `UnitsWithoutRangedWeapons`
+    (`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithoutRangedWeapons` ->
+    `IdunBattle.Entities.Selectors.UnitsWithoutWeaponsSelector$$Select`, qui inline exactement
+    cette boucle) et par `engine.playbook.adjacent_unit_preference` (les DEUX poids de
+    `...HatefulAssaultPlaybook$$GetAdjacentEnemyUtility`)."""
+    for w in ((GC.unit(visual_id or "") or {}).get("weapons") or []):
+        if weapon_is_melee(w):
+            continue
+        if min_range is None:
+            return True
+        r = w.get("Range")
+        if r is not None and int(min_range) <= int(r):
+            return True
+    return False
+
+
 def find_ranged_weapon(visual_id) -> dict | None:
     """`IdunBattle.Core.Services.BattleQuery$$FindRangedWeapon(unit)` -- la surcharge a UN SEUL
     argument (celle que l'interface `IBattleQuery` expose au slot `0xb3`, identifie par son proxy

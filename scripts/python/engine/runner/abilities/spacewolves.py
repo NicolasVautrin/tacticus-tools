@@ -11,6 +11,11 @@ CIBLE DIRECTE (mono-cible, ATTACK-family). Doc : docs/rl/case-220/space-wolves.m
 [1097 Foehammer | spaceRockfist «Arjac»] — 1x Power ranged (range 2) + `Stunned` sur la cible ; le
 degat porte un bonus FLAT `extraDmg x nb de HEROS morts/ressuscites de la bataille`. Cf.
 `foehammer_tree()`. Case-226.
+
+[1106 WarHowl | spaceBlackmane «Ragnar»] — BUFF D'EQUIPE board-wide, AUCUNE attaque : pose
+`WarHowl_ExtraDamage_Unstoppable` (0x4c6 = 1222) pour UN tour sur le caster ET tout ami MELEE
+non-Summon du plateau. Cf. `war_howl_tree()`. Case-366-r1 (l'effet, LECTURE) + cette tranche (la
+POSE, residu 6.3 de la meme fiche).
 """
 from __future__ import annotations
 
@@ -20,11 +25,13 @@ from ...entities.behaviours import op_and, op_add, If
 from ...entities.formulas import Count, Get, Multiply
 from ...entities.selectors.accessors import Owner, Target
 from ...entities.selectors.geometry import Cache, PickRandomly
-from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster
+from ...entities.selectors.tiles import AdjacentTiles, AllAliveUnits, CanAddUnit, Caster
 from ...entities.selectors.units import (
-    AllDeadOrResurrectedUnits, First, Tiles, Union, Units, UnitsWithTrait
+    AllDeadOrResurrectedUnits, First, Friends, Sub, Tiles, Union, Units, UnitsWithTrait,
+    UnitsWithoutRangedWeapons, UnitsWithoutTrait
 )
 from ...entities.traits.unit_trait import UnitTrait
+from ...entities.unit_selection_type import UnitSelectionType
 from ...entities.triggers import (IsAlive, IsDead, AreEqual, Not, TriggerAnd, IsCanAddUnit,
                                   AmountIsGreaterThanZero)
 from ...entities.active_ability_type import ActiveAbilityType
@@ -33,8 +40,8 @@ from ...entities.effects.magnitude import ability_var
 from ...dsl.effects import ExecutionContext
 from ..components import StatsComponent
 from .base import ActiveAbility
-from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
-                        TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
@@ -48,6 +55,14 @@ if TYPE_CHECKING:
 ICE_TILE = int(EffectType.Ice)          # 17 (0x11) — effet de TUILE Ice, duree defaut 2 rounds (idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds)
 STUNNED = int(EffectType.Stunned)       # 0x48a=1162 — effet COMPOSITE (enfants 1165/1166/1167)
 HERO_TRAIT = int(UnitTrait.Hero)        # 0x10=16 — `UnitTrait.Hero` (le « Character » de l'i2)
+# 0x4c6=1222 — le buff pose par WarHowl. Sa LECTURE (degat, crit-chance, trait) vit dans
+# `entities/effects/loki/war_howl.py` (case-366-r1) ; ce module en porte la POSE.
+WAR_HOWL_BUFF = int(EffectType.WarHowl_ExtraDamage_Unstoppable)
+SUMMON_TRAIT = int(UnitTrait.Summon)    # 0x2=2 — l'argument `trait` d'`UnitsWithoutTrait` de 1106
+# Le litteral `3` que `WarHowlAbility$$OtherBuffTargets` passe en `selectionType` a `Friends` ET a
+# `UnitsWithoutTrait`. Il MORD (#585) : une unite en DEEP STRIKE porte `UnitFlag.Untargetable` et
+# le natif ne la buffe pas, alors que tous les autres filtres la retiennent.
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 
 
 def great_frost_axe_ice_tiles() -> Union:
@@ -475,3 +490,191 @@ class GrapnelLauncherAbility(ActiveAbility):
         return {"ability": "GrapnelLauncher", "caster": caster_id, "target": target_id,
                 "pull": pulled, "main_attack": attack, "attacked": attacked, "fly": flew,
                 "knockback_range": kb_range, "dsl": True}
+
+
+# =========================== WarHowl (spaceBlackmane «Ragnar», actif 1106) ===========================
+
+def war_howl_other_buff_targets():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility$$OtherBuffTargets` — MIRROR 1:1
+    du DECOMPILE (quatre noeuds, aucune logique en plus) :
+
+        UnitsWithoutTrait(
+            UnitsWithoutRangedWeapons(
+                Friends( of        = <DSLSelectors+0x30 = Owner>,
+                         entities  = op_Subtraction(<DSLSelectors+0x20>, <+0x30 = Owner>),
+                         selection = 3 ) ),
+            trait = 0x2 = UnitTrait.Summon, selection = 3 )
+
+    `<DSLSelectors+0x20>` = le champ PARTAGE `IdunBattle.Entities.Selectors.AllAliveUnitsSelector`
+    (pool `EntityPool.AliveUnits`) que pose `IdunBattleLogic.Entities.DSLSelectors$$
+    InitializeShared` -> `AllAliveUnits()`. La soustraction du slot Owner en retire le CASTER, que
+    `war_howl_buff_targets()` re-ajoute juste apres : c'est litteralement la construction native,
+    pas une simplification.
+
+    L'ORDRE des arguments de `Friends` est LU : `DSLSelectors$$Friends(this, of, entities,
+    selectionType)` -> `UnitsFromFactionSelector..ctor(state, of, entities, flag: 1, selectionType)`,
+    donc `of` est le REFERENT d'equipe et `entities` la source. Le port l'ecrit
+    `Friends(inner = <source>, reference = Owner())`.
+
+    ⚠ **NI FACTION, NI RAYON, NI TRAIT `Hero`** — trois filtres que l'i2 laisse croire et que le
+    decompile ne porte pas : « all friendly <Characters> that don't have a normal ranged attack » ne
+    se lit PAS `UnitsWithTrait(Hero)` (le style i2 `Character` est decoratif) et ne borne aucune
+    distance. Tout ami melee non-Summon du PLATEAU recoit le buff, Space Wolf ou non.
+
+    ⚠ **MAIS UN QUATRIEME FILTRE EXISTE, ET L'I2 NE LE DIT PAS** : le `selectionType = 3` que le
+    natif passe a `Friends` ET a `UnitsWithoutTrait` = `UnitSelectionType.OnlyAliveAndTargetable`,
+    lu par `IdunBattle.DSL.TargetsSelector$$SelectUnit` ->
+    `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType` = `IsAlive && !HasFlag(0x11
+    Untargetable)`. MESURE (#585, `MC1_67 / 777`) : `spaceRockfist` est un ami MELEE non-Summon --
+    donc retenu par TOUS les autres filtres -- et le natif ne le buffe PAS au tour 1, puis LE BUFFE
+    au tour suivant. La seule chose qui change entre les deux est son `TeleportStrike_TeleportingIn`
+    (DEEP STRIKE), qui pose `UnitFlag.Untargetable`. Sans ce filtre, le port sur-buffait EN SILENCE.
+
+    Ce selecteur SERT AUSSI LA FACE DECISION : `IdunBattle.AI.Playbook.Loki.WarHowlPlaybook$$
+    GetUseProbability` l'evalue (`SelectUniqueUnits`) pour compter les allies buffables."""
+    others = Sub(AllAliveUnits(), Owner())                    # op_Subtraction(<+0x20>, Owner)
+    friends = Friends(others, reference=Owner(),              # Friends(of = Owner, entities = ...)
+                      selection_type=SELECTION)               # 4e argument natif : 3
+    return UnitsWithoutTrait(UnitsWithoutRangedWeapons(friends), SUMMON_TRAIT,
+                             selection_type=SELECTION)        # 3e argument natif : 3
+
+
+def war_howl_buff_targets():
+    """La cible d'`AddEffect` dans `IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility$$
+    ExecuteBehaviour` : `op_Addition(<DSLSelectors+0x30 = Owner>, OtherBuffTargets())`.
+
+    `ExecuteBehaviour` RECONSTRUIT le selecteur inline (il n'appelle pas `$$OtherBuffTargets`) mais
+    noeud pour noeud a l'IDENTIQUE — les deux corps sont byte-pour-byte le meme enchainement. Le
+    port les factorise, ce qui garde le fait LU : la face DECISION et la face COMBAT lisent le MEME
+    ensemble, au caster pres.
+
+    Le caster est donc TOUJOURS buffe, quelles que soient ses armes : il entre par le `op_Addition`,
+    pas par le filtre. (`spaceBlackmane` n'a de toute facon qu'une arme Chain de melee.)"""
+    return Union(Owner(), war_howl_other_buff_targets())      # op_Addition(Owner, <ci-dessus>)
+
+
+def war_howl_tree():
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility$$ExecuteBehaviour`
+    (id 1106, `spaceBlackmane` « Ragnar ») — MIRROR 1:1 du DECOMPILE, **un seul noeud** :
+
+        Execute( AddEffect( 0x4c6 = 1222 WarHowl_ExtraDamage_Unstoppable,
+                            abilityState = CreateSnapshot(<abilityState du cast>),
+                            source       = <DSLSelectors+0x48 = Caster>,
+                            targets      = op_Addition(Owner, OtherBuffTargets()),
+                            turns        = DSLFormulas.Get(1) ) )
+
+    La surcharge d'`AddEffect` est tranchee par ses XREFS ENTRANTES, pas a l'oeil : le binaire en
+    porte QUATRE du meme nom et `WarHowlAbility$$ExecuteBehaviour` appelle celle a SIX arguments
+    `(effectType, abilityState, source, targets, turns)` — la MEME que
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetBuffBehaviour`. Son `turns`
+    n'est PAS un `TurnsFromRounds` : il arrive tel quel dans le `param_6` d'
+    `IdunBattle.Operations.AddEffectOperation$$Execute`, qui ne le convertit pas -> **1 TOUR**,
+    d'ou `duration_turns=1` (et non `duration_rounds`). MESURE live concordante (case-366-r1) :
+    `Effect_RemainingTurns: 1`, et l'effet a disparu des trois porteurs apres UN seul `endturn`.
+
+    `DSLFormulas.Get(1)` est la surcharge `Get(int)` (XREF depuis `WarHowlAbility$$
+    ExecuteBehaviour`) = un noeud `DirectAmount(1)`, exactement le `dsl+0xc0` que Waaagh passe.
+
+    `scale_from_source=True` = le PORT du `CreateSnapshot(abilityState)` que le natif passe en 2e
+    argument : l'effet materialise resout ses `ConfigVar` (`extraDmg` 0x08, `extraCritChance` 0x41)
+    contre l'`AbilityState` de sa SOURCE, pas contre celle du buffe —
+    `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState` =
+    `IdunBattleLogic.Entities.DSLSelectors$$AbilityStateFromEffect(<noeud EFFET>)`, c.-a-d. celui
+    BAKE A LA POSE. Ce n'est pas cosmetique : `extraDmg` EST dans
+    `variablesAffectedByRarityBonus`, et les multiplicateurs different d'une unite a l'autre
+    (MESURE live, seed 777 / MC1_67 / rank 17 : `spaceBlackmane` = 200, `spaceWulfen` et
+    `spaceHound` = 180 -> 886x2.00 = 1772 contre round(886x1.80) = 1595). **Le port de la POSE
+    ferme donc le residu `#366-r1-src` POUR CETTE VOIE** : un effet POSE porte desormais le
+    scaling de sa source ; un effet SEEDE (chargement d'un etat ou le natif avait deja pose)
+    continue de lire le porteur — c'est le residu, et il est intact.
+
+    `source_ref=Caster()` = le 4e argument NATIF (`<DSLSelectors+0x48>`), et il DIFFERE du slot
+    `Owner` (`+0x30`) qui sert de referent au selecteur. Sur une ability ACTIVE les deux designent
+    le porteur qui caste, mais on ecrit les slots que le natif ecrit.
+
+    AUCUNE ATTAQUE, AUCUN DEGAT DIRECT : `ExecuteBehaviour` n'appelle ni `AttackWithAttackDamage`
+    ni `AttackWithAbilityDamage`. La colonne « EFFECT/BUFF » d'un audit derive du `damageProfile`
+    de l'ARME du porteur ne dit donc rien de cette ability — et elle est MUETTE sur l'octroi de
+    trait, qui est une mecanique de MOUVEMENT (cf. `applied_traits` de la classe d'effet)."""
+    return AddEffect(WAR_HOWL_BUFF, "WarHowl_ExtraDamage_Unstoppable", war_howl_buff_targets(),
+                     duration_turns=1,               # `DSLFormulas.Get(1)` -> 1 TOUR, PAS 1 round
+                     scale_from_source=True,         # `CreateSnapshot(abilityState)` = la SOURCE
+                     source_ref=Caster())            # 4e argument natif = `<DSLSelectors+0x48>`
+
+
+class WarHowlAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility$$ExecuteBehaviour` (id 1106,
+    `spaceBlackmane` « Ragnar », Space Wolves) — cf. docstring `war_howl_tree()`.
+
+    i2 : « If <Ragnar> has not moved, he and all friendly <Characters> that don't have a <normal
+    ranged attack> gain <Unstoppable> until the end of this turn. Additionally, their <normal melee
+    attacks> have +{[extraCritChance]}% Crit Chance and deal +{[extraDmg]} Damage until the end of
+    this turn. Using War Howl does not end <Ragnar>'s turn. »
+
+    CINQ mecaniques, appariees une a une aux noeuds :
+      1. gate CASTER « if Ragnar has not moved »  -> bit `CasterHasNotMoved` du masque ci-dessous ;
+      2. ciblage « he and all friendly ... »      -> `war_howl_buff_targets()` ;
+      3. « gain Unstoppable until end of turn »   -> `WarHowlExtraDamageUnstoppableEffect.
+                                                     applied_traits` (AddTrait 0x412, temporaire) ;
+      4. « +extraCritChance% Crit Chance »        -> `...$$CreateCritChanceBonus` (deja porte) ;
+      5. « +extraDmg Damage »                     -> `...$$CreateEffectDamageBonusForAttack` (idem).
+    Les points 3-5 sont les TROIS canaux de l'effet 1222 ; les points 1-2 et la POSE elle-meme sont
+    cette tranche.
+
+    Turn-flags : 1106 est dans LES DEUX inventaires d'override de `abilities/base.py`
+    (`NO_END_TURN_ABILITY_TYPES` et `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) — le cast ne termine PAS
+    le tour et ne pose PAS `ActiveAbilityUsed`, ce qui EST le dernier paragraphe de l'i2. Deja en
+    place avant cette tranche, donc rien a ajouter.
+
+    Face DECISION : `IdunBattle.AI.Playbook.Loki.WarHowlPlaybook` existe (utilite CONSTANTE
+    `Fix64(1)` par cible eligible + une `GetUseProbability` a trois paliers) et n'est PAS portee —
+    residu nomme dans le rapport de tranche, hors du perimetre de la face COMBAT."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.WarHowl)      # 1106
+    ABILITY_ID = "WarHowl"
+
+    # GATE DE CIBLE (#115) + PORTEE (#241). `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # WarHowlAbility$$.ctor` est de la forme « PRESET + FLAGS » -- le litteral visible n'est PAS le
+    # masque effectif, il faut l'OU avec le preset :
+    #     <copie des 0x40 octets de `<TargetingOptions statics>+0x280`>
+    #     TargetingOptions..ctor(&opts, &preset, 0x10)      # `rules = additionalRules | preset.rules`
+    #     AActiveAbility..ctor(this, &opts, 2)              # 3e arg = AbilityAttackType.Others
+    # Ce que `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit dans le preset `+0x280` :
+    #     +0x280 isSelfCasting    = 1
+    #     +0x288 range           <- `<TargetingRange statics>+0x60` = RANGE_SELF (`.cctor` : `+0x60 = 1`)
+    #     +0x2a0 forceMeleeTarget = 1 = RangedBool.False
+    #     +0x2a8 rules            = 0x8004
+    # -> masque EFFECTIF = 0x8004 | 0x10 = **0x8014**, decompose EXHAUSTIVEMENT :
+    #     0x4     (bit  2) CasterMatchesDynamicRule -> consulte `GetDynamicInvalidCasterReason`.
+    #             La classe n'expose AUCUN corps propre (`WarHowlAbility$$` n'a que `.ctor`,
+    #             `ExecuteBehaviour`, `OtherBuffTargets` et le `SetsEndTurnFlags` FONDU) ; l'absence
+    #             ne PROUVE rien (dedup IL2CPP) -> entree `CASTER_GATE_NOT_READ` dans
+    #             `services/ability_caster_gates.py`, inchangee par cette tranche.
+    #     0x10    (bit  4) CasterHasNotMoved        -> PORTE (c'est le « If Ragnar has not moved »).
+    #     0x8000  (bit 15) CasterIsPossibleTarget   -> PORTE (le caster est lui-meme une cible).
+    # MEME couple preset/flags que `1216 MartialExemplar`.
+    # ⚠ Ce masque VIVAIT dans `TARGETING_OPTIONS_UNPORTED` (`abilities/targeting.py`) ; il en SORT
+    # dans le meme commit que l'entree au registre -- CONTRAT DE DISJONCTION. La valeur est
+    # CONFIRMEE champ pour champ par la relecture ci-dessus : c'est la SOURCE qui bouge.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.CasterMatchesDynamicRule | TR.CasterHasNotMoved
+                                         | TR.CasterIsPossibleTarget,
+                                         self_cast=True, range=RANGE_SELF,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        """`target_id` est IGNORE : `isSelfCasting = 1` fait rendre le CASTER a
+        `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`, et l'arbre n'a de toute facon
+        aucun noeud `Target()` -- ses cibles sortent toutes du selecteur ancre sur `Owner`."""
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        war_howl_tree().execute(entities, ectx)
+        buffed: list = []
+        placed: list = []
+        for name, p in ectx.emitted:
+            if name == "AddEffect" and p.get("effect_type") == WAR_HOWL_BUFF:
+                buffed.append(p.get("target"))
+                if p.get("placed"):
+                    placed.append(p.get("target"))
+        return {"ability": "WarHowl", "caster": caster_id, "target": target_id,
+                "buff_targets": buffed, "buffed": placed, "dsl": True}

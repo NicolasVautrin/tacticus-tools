@@ -1,82 +1,85 @@
-"""`UnitSelectionType` -- le filtre que TOUT selecteur d'unite applique a sa sortie
-(`IdunBattle.Entities.Enum.UnitSelectionType`).
+"""Mirror de `IdunBattle.Entities.Enum.UnitSelectionType` + le predicat qui le LIT.
 
-C'est le 2e argument d'`IdunBattle.DSL.TargetsSelector$$SelectUnit` / `$$Select`, et le 3e de
-`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent` / `DSLSelectors$$Enemies` / ... Le foyer qui le
-consomme est `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType(unit, selectionType,
-state)`, MIRROR de son decompile (build `rnca9r7q6c`) :
+Le 3e argument de la resolution d'entites du DSL : `IdunBattle.DSL.TargetsSelector$$
+SelectUniqueUnits(entities, selectionType)` (et son jumeau `$$SelectAllUnits`) appelle
+`IdunBattle.DSL.TargetsSelector$$SelectUnit(entity, selectionType)` PAR ELEMENT, qui termine par
+
+    return UnitExtensions.MatchesUnitSelectionType(entity, selectionType, this.<+0x10 = state>)
+             ? entity : null;
+
+C'est donc un FILTRE de la resolution, applique a CHAQUE entite qu'un selecteur enumere -- pas un
+parametre decoratif. `IdunBattleLogic.Entities.DSLSelectors` le passe explicitement a la plupart de
+ses factories (`Friends(this, of, entities, 3)`, `UnitsWithoutTrait(this, source, trait, 3)`,
+`Units(tiles, unique, 3)`, ...).
+
+`IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType` -- MIRROR 1:1 du decompile :
 
     if (unit == null)                       return false;
-    if (!EntityExtensions.IsUnit(unit))     return false;
-    if (selectionType == 1)                 return UnitExtensions.IsAlive(unit, state);
-    if (selectionType == 2)                 return !UnitExtensions.HasFlag(unit, 0x11);
-    if (selectionType == 3)                 return UnitExtensions.IsAlive(unit, state)
-                                                   && !UnitExtensions.HasFlag(unit, 0x11);
-    return true;                            // 0 = Any
+    if (GetEntityType(unit) != Unit)        return false;      // slot 1 de l'entite
+    switch (selectionType) {
+      case 1: return IsAlive(unit, state);                                       // OnlyAlive
+      case 2: return !HasFlag(unit, 0x11);                                       // OnlyTargetable
+      case 3: return IsAlive(unit, state) && !HasFlag(unit, 0x11);   // OnlyAliveAndTargetable
+      default: return true;                                                      // Any (0)
+    }
 
-`0x11` = `UnitFlag.Untargetable` (17) -- cf. `engine/entities/unit_flag.py`.
+Le `0x11` est `UnitFlag.Untargetable` = 17 (QUALIFIE : 17 nomme autre chose dans les autres enums).
 
-⚠ NE PAS LE CONFONDRE avec les autres << selection types >> du build : c'est CE type-la qui est
-declare au 3e parametre d'`IsAdjacent` et au 2e de `SelectUnit`, et il n'a que QUATRE membres.
+⚠ **CE FILTRE MORD, ET IL A ETE MESURE** (#585). Une unite en DEEP STRIKE
+(`TeleportStrike_TeleportingIn`) porte `UnitFlag.Untargetable` : sur `MC1_67 / 777`,
+`spaceRockfist` est un ami MELEE non-Summon, donc RETENU par tous les autres filtres de
+`WarHowlAbility$$OtherBuffTargets` -- et le natif ne le buffe PAS au tour 1, puis LE BUFFE apres
+son atterrissage. C'est ce `selectionType = 3` qui fait la difference, rien d'autre. Un port sans
+lui sur-buffe en silence.
 
-Le mirror entre au registre de `probe_313_enum_mirror_bijection.py` DANS LE COMMIT QUI LE CREE
-(#524) -- cle LUE dans `data/symbols/<CURRENT>/frida/enums.tsv`.
+Ordinaux LUS dans `data/symbols/<build>/frida/enums.tsv` :
+`IdunBattle.Entities.Enum.UnitSelectionType  0=Any,1=OnlyAlive,2=OnlyTargetable,3=OnlyAliveAndTargetable`.
 """
 from __future__ import annotations
 
 from enum import IntEnum
 
+from .unit_flag import UnitFlag
+
 
 class UnitSelectionType(IntEnum):
-    """`IdunBattle.Entities.Enum.UnitSelectionType` -- VERBATIM du build (4 valeurs).
-
-    Re-derivable : `data/symbols/<CURRENT>/frida/enums.tsv`, cle
-    `IdunBattle.Entities.Enum.UnitSelectionType`."""
-
     Any = 0
     OnlyAlive = 1
     OnlyTargetable = 2
     OnlyAliveAndTargetable = 3
 
 
-def matches_unit_selection_type(selection_type, *, is_unit: bool | None = True,
-                                alive: bool | None = None,
-                                targetable: bool | None = None) -> bool:
-    """FOYER du mirror d'`IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`, decompile
-    relu en entier sur `rnca9r7q6c` (#419-r1-tr10-r4) :
+def matches_unit_selection_type(unit, selection_type, has_unit_flag=None) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType(unit, selectionType, state)`.
 
-        if (unit == null)                    return false;
-        if (!<IsUnit>(unit))                 return false;
-        if (selectionType == OnlyAlive)               return IsAlive(unit, state);
-        if (selectionType == OnlyTargetable)          return !HasFlag(unit, UnitFlag.Untargetable);
-        if (selectionType == OnlyAliveAndTargetable)  return IsAlive(unit, state)
-                                                             && !HasFlag(unit, Untargetable);
-        return true;                                  // Any -- et TOUTE autre valeur
+    `unit` = le dict d'unite du contexte DSL (`alive` / `hp` portent l'`IsAlive` du port ;
+    la branche `GetEntityType != Unit` n'a pas de contrepartie -- une entite-TUILE n'entre jamais
+    dans un selecteur unit-domain cote port, et `SelectUnit` l'aurait deja convertie).
 
-    ⚠ La branche par defaut est `true`, pas `false` : une valeur hors des quatre membres passe le
-    filtre. C'est ce que fait le `switch` natif (les trois tests sont des comparaisons successives,
-    et le chemin qui n'en satisfait aucune saute au `return true`). Ne pas la durcir.
+    `has_unit_flag` = l'accesseur `ctx.has_unit_flag(unit, flag)` (mirror
+    `IdunBattle.Entities.Components.UnitFlagsComponent$$Has`). **ABSENT -> le volet TARGETABLE ne
+    se prononce PAS et laisse passer** : une non-mesure ne fabrique pas un refus (meme regle que
+    `ctx.has_trait` absent -> trait absent). Le volet ALIVE, lui, est toujours evaluable.
 
-    TRI-ETAT sur les deux predicats -- `None` = **PAS MESURE**, jamais rabattu sur un booleen :
-    la clause correspondante DEGRADE EN VRAI. Un `False` invente ecarterait une unite que le natif
-    compte (degradation RESTRICTIVE silencieuse), et c'est exactement la faute que la convention
-    `turns_started` / `turns_finished` de `playbook/scene.py` nomme. C'est ce qui rend ce foyer
-    utilisable AVANT que le canal `Untargetable` existe partout : il se comporte alors comme le port
-    d'avant (volet `IsAlive` seul), sans mentir sur ce qu'il n'a pas lu.
-
-    `is_unit` : mirror du `<IsUnit>(unit)` qui precede le switch. Les appelants qui itere DEJA une
-    liste d'unites (tout `scene.units`) passent le defaut `True` -- ce n'est pas un raccourci, c'est
-    que leur substrat ne contient que des unites."""
-    if is_unit is False:
-        return False
-    st = int(selection_type)
-    if st == int(UnitSelectionType.OnlyAlive):
-        return alive is not False
-    if st == int(UnitSelectionType.OnlyTargetable):
-        return targetable is not False
-    if st == int(UnitSelectionType.OnlyAliveAndTargetable):
-        return alive is not False and targetable is not False
-    return True                                       # `Any`, et toute valeur hors enum
-
-
-__all__ = ["UnitSelectionType", "matches_unit_selection_type"]
+    `selection_type` None ou hors {1, 2, 3} -> `True` (la branche `default` du natif, qui couvre
+    `Any = 0` ET toute valeur inconnue : le `switch` decompile ne teste que 1, 2 et 3)."""
+    if not isinstance(unit, dict):
+        return False                                    # `unit == null` / entite non resolue
+    try:
+        st = int(selection_type)
+    except (TypeError, ValueError):
+        return True                                     # branche `default`
+    if st not in (int(UnitSelectionType.OnlyAlive), int(UnitSelectionType.OnlyTargetable),
+                  int(UnitSelectionType.OnlyAliveAndTargetable)):
+        return True                                     # `Any` et toute valeur inconnue
+    if st in (int(UnitSelectionType.OnlyAlive), int(UnitSelectionType.OnlyAliveAndTargetable)):
+        # `IdunBattle.Entities.UnitExtensions$$IsAlive` cote port : le meme predicat que
+        # `AllAliveUnits` (flag `Dead` + PV), c.-a-d. « cette unite est SUR LE BOARD ».
+        if not (bool(unit.get("alive", True)) and (unit.get("hp") or 0) > 0):
+            return False
+    if st in (int(UnitSelectionType.OnlyTargetable),
+              int(UnitSelectionType.OnlyAliveAndTargetable)):
+        if has_unit_flag is None:
+            return True                                 # accesseur non cable -> aucun refus invente
+        return not bool(has_unit_flag(unit, int(UnitFlag.Untargetable)))     # !HasFlag(0x11)
+    return True

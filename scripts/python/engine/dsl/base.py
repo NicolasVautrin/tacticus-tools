@@ -230,6 +230,16 @@ class DslContext:
     # `faction_of(unit)->str|None` défaut None → faction inconnue (UnitsFromFaction rend vide). Fourni par la
     # couche runner (`entities_from_state`) via `_faction(visualId)`.
     faction_of: object | None = None
+    # `IdunBattle.Entities.Components.WeaponsComponent$$HasRangedWeapon(minRange = null)` PAR UNITE
+    # -- `has_ranged_weapon(unit) -> bool` : l'unite porte-t-elle au moins une arme NON `IsMelee`
+    # (seuil `Range >= 2`, cf. `IdunShared.Battle.WeaponProfile$$get_IsMelee`) ? Meme patron
+    # d'accesseur que `has_trait`/`faction_of` : le natif lit le `WeaponsComponent` de l'ECS, hors
+    # state standard. Lu par le selecteur `UnitsWithoutRangedWeapons`
+    # (`IdunBattle.Entities.Selectors.UnitsWithoutWeaponsSelector$$Select`, qui inline la boucle).
+    # Defaut None -> le selecteur ne filtre RIEN (polarite de la branche `unit == null` du natif,
+    # qui GARDE l'entite) : une non-mesure ne fabrique pas un refus. Fourni par la couche runner
+    # (`entities_from_state`) via `engine.services.battle_query.has_ranged_weapon(visualId)`.
+    has_ranged_weapon: object | None = None
     # LISTE persistante d'une unite (`IdunBattle.Entities.Components.PersistentDataComponent$$
     # TryGetPersistDataListu003C__Il2CppFullySharedGenericStructTypeu003E`) : `persistent_data_list(
     # unit, key) -> list` = le `List<T>` range sous la cle composite `(GetPersistentDataId(

@@ -19,6 +19,9 @@ from ._shared import _entity_pos, _tile_positions
 # `has_unit_flag(u, 0xe)` (le parametre `flag` d'`UnitExtensions$$HasFlag`).
 from ..traits.unit_trait import UnitTrait
 from ..unit_flag import UnitFlag
+# #585 : le 3e/4e argument `selectionType` des factories `DSLSelectors`, LU par
+# `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> `UnitExtensions$$MatchesUnitSelectionType`.
+from ..unit_selection_type import UnitSelectionType, matches_unit_selection_type
 from ...battle_query import is_target_tile_obscured
 
 
@@ -294,14 +297,28 @@ class Friends(TargetsSelector):
     CASTER — le cas de tous les call-sites portés jusqu'ici (`Friends(caster@0x160 / Owner@0x148, ...)`,
     ex. `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentFriendlyUnits` = `Friends(Owner@0x148, ...)`).
     `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` passe `Friends(target@0x178, ...)` = alliés **de la
-    CIBLE** (donc les summons ENNEMIS du caster) — d'où le paramètre."""
-    def __init__(self, inner: TargetsSelector, reference: TargetsSelector | None = None):
+    CIBLE** (donc les summons ENNEMIS du caster) — d'où le paramètre.
+
+    `selection_type` = le 4ᵉ argument NATIF (`DSLSelectors$$Friends(this, of, entities,
+    selectionType)`), que `UnitsFromFactionSelector$$Select` transmet à `SelectUniqueUnits(source,
+    entities, selectionType)` — donc à `MatchesUnitSelectionType` PAR ÉLÉMENT. `None` (défaut) =
+    aucun filtre, le comportement HISTORIQUE de tous les call-sites déjà portés : ce paramètre n'a
+    de valeur que là où le littéral a été RE-LU (`WarHowlAbility$$OtherBuffTargets` passe `3`).
+    ⚠ Il MORD, et c'est mesuré (#585) : `OnlyAliveAndTargetable` écarte une unité en DEEP STRIKE
+    (`UnitFlag.Untargetable`) que tous les autres filtres retiennent. Relever le littéral aux ~100
+    call-sites portés est une tranche à part — même régime que le flag `unique` de `Units`."""
+    def __init__(self, inner: TargetsSelector, reference: TargetsSelector | None = None,
+                 selection_type=None):
         self.inner, self.reference = inner, reference
+        self.selection_type = selection_type
 
     def select(self, ctx):
         ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
         rt = (ref or {}).get("team")
-        return [u for u in self.inner.evaluate(ctx) if u.get("team") == rt]
+        hf = getattr(ctx, "has_unit_flag", None)
+        return [u for u in self.inner.evaluate(ctx)
+                if u.get("team") == rt
+                and matches_unit_selection_type(u, self.selection_type, hf)]
 
 
 class Units(TargetsSelector):
@@ -515,13 +532,74 @@ class UnitsWithTrait(TargetsSelector):
 class UnitsWithoutTrait(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithoutTrait(source, traitId)` → `UnitsWithFlagSelector` flag=0 : garde
     les unités où `HasFlag(unit, traitId)` est FAUX. Défaut `ctx.has_trait` None → trait absent → garde
-    TOUT."""
-    def __init__(self, source: TargetsSelector, trait):
+    TOUT.
+
+    `selection_type` = le 3ᵉ argument NATIF (`DSLSelectors$$UnitsWithoutTrait(this, source, trait,
+    selectionType)`), transmis à `SelectUniqueUnits` puis à `MatchesUnitSelectionType` par élément.
+    `None` (défaut) = aucun filtre = comportement HISTORIQUE. Cf. `Friends` pour le détail et la
+    mesure qui l'a rendu obligatoire (#585)."""
+    def __init__(self, source: TargetsSelector, trait, selection_type=None):
         self.source, self.trait = source, trait
+        self.selection_type = selection_type
 
     def select(self, ctx):
         ht = ctx.has_trait or (lambda u, t: False)
-        return [u for u in self.source.evaluate(ctx) if not ht(u, self.trait)]
+        hf = getattr(ctx, "has_unit_flag", None)
+        return [u for u in self.source.evaluate(ctx)
+                if not ht(u, self.trait)
+                and matches_unit_selection_type(u, self.selection_type, hf)]
+
+
+class UnitsWithoutRangedWeapons(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithoutRangedWeapons(entities)` ->
+    `IdunBattle.Entities.Selectors.UnitsWithoutWeaponsSelector$$Select` : garde les entites de
+    `source` dont AUCUN profil d'arme n'est `IsRanged`.
+
+    Corps natif relu (`UnitsWithoutWeaponsSelector$$Select`), la boucle VERBATIM :
+
+        foreach (entity in this.<+0x18>.SelectUniqueUnits(entities)) {
+            unit = UnitExtensions.GetUnit(entity, this.<+0x10>);
+            if (unit != null) {
+                foreach (w in unit.WeaponsComponent.Weapons)      // == $$HasRangedWeapon inline
+                    if (w.IsRanged) goto NEXT_ENTITY;             // porteuse d'arme distance -> JETEE
+            }
+            result.Add(entity);                                   // y compris si `unit == null`
+        }
+
+    DEUX points LUS, pas deduits :
+      * le predicat est `WeaponProfile$$get_IsRanged` (= `get_IsMelee ^ 1`, donc seuil `Range >= 2`),
+        **pas** « l'unite a un `Range` » -- le tri d'`UnitExtensions$$IsRanged` est un AUTRE corps
+        (cf. `engine.services.ability_range._has_ranged_weapon`) ;
+      * une entite dont `GetUnit` rend `null` (une TUILE, une MoW) est **GARDEE** : le natif saute
+        alors tout le bloc d'armes et tombe sur le `Add`. Le port le mirrore en gardant l'element
+        des que le predicat ne peut pas le classer (`visualId` absent).
+
+    SUBSTRAT : `ctx.has_ranged_weapon(unit)` -- meme patron d'accesseur que `has_trait`/`faction_of`
+    (foyer `engine.services.battle_query.has_ranged_weapon`, cable par `entities_from_state`).
+    Accesseur ABSENT -> aucun filtre (tout est garde) : c'est la MEME polarite que la branche
+    `unit == null` du natif, et la seule qui ne fabrique pas un refus depuis une non-mesure.
+
+    `selection_type` : ce noeud-ci n'en prend PAS cote natif (`DSLSelectors$$
+    UnitsWithoutRangedWeapons(this, entities)` a DEUX arguments, et
+    `UnitsWithoutWeaponsSelector$$Select` appelle `SelectUniqueUnits` avec le litteral `1` --
+    `OnlyAlive`, lu au decompile). Il est donc porte en dur, sans parametre : un `selection_type`
+    optionnel ici inviterait a passer le `3` de l'appelant, qui n'appartient PAS a ce noeud.
+
+    Call-site porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility$$
+    ExecuteBehaviour` / `$$OtherBuffTargets` (1106, `spaceBlackmane`)."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        # `SelectUniqueUnits(<+0x18>, entities, 1)` -- le litteral `1` = `OnlyAlive` est LU dans
+        # `UnitsWithoutWeaponsSelector$$Select` (`FUN_180026100(3, ..., source, entities, 1)`).
+        hf = getattr(ctx, "has_unit_flag", None)
+        units = [u for u in self.source.evaluate(ctx)
+                 if matches_unit_selection_type(u, UnitSelectionType.OnlyAlive, hf)]
+        hrw = getattr(ctx, "has_ranged_weapon", None)
+        if hrw is None:
+            return list(units)                      # accesseur non cable -> aucun filtre invente
+        return [u for u in units if not hrw(u)]
 
 
 def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:

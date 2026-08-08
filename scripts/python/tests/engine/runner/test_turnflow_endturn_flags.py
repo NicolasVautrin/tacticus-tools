@@ -121,15 +121,28 @@ def test_fighting_retreat_conditional_on_adjacency():
 # ------------------------------------------------- handler : queue d'IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal
 
 def test_handler_armorium_cherub_does_not_end_turn():
-    # 1014 est PORTEE (classe ArmoriumCherubAbility) mais le state minimal n'a pas le kit complet ->
-    # on passe par le path UNPORTED-like en retirant la classe ? NON : on teste via la table (path
-    # unported) avec un id de la famille NON porte : 1106 WarHowl (Ragnar).
+    # Ce test verifie que la table de turn-flags mord sur le chemin **NON PORTE** du handler : une
+    # ability de la famille « free action » ne doit pas terminer le tour meme quand aucune classe
+    # ne l'execute. Il lui faut donc un id qui soit DANS la famille et HORS d'`ABILITY_CLASSES`.
+    # ⚠ Le temoin etait `1106 WarHowl` -- il est PORTE depuis #585, donc `ported` y vaut desormais
+    # `True` et le test mesurait l'autre chemin. Le temoin est RE-DERIVE du code plutot que fige :
+    # c'est notre propre cadence de portage qui perime ce genre de littéral, et elle recommencera.
+    from engine.runner.abilities.base import (NO_ABILITY_USED_FLAG_ABILITY_TYPES,
+                                              NO_END_TURN_ABILITY_TYPES)
+    from engine.runner.abilities.handler import ABILITY_CLASSES
+    candidats = sorted(int(a) for a in (NO_END_TURN_ABILITY_TYPES
+                                        & NO_ABILITY_USED_FLAG_ABILITY_TYPES)
+                       if int(a) not in ABILITY_CLASSES)
+    assert candidats, ("plus AUCUNE ability de la famille free-action n'est hors registre : ce "
+                       "test n'a plus de temoin, il faut le rebatir sur un autre axe")
+    temoin = candidats[0]
     st = _mk_state()
     h = AbilityHandler(st)
-    h.visit_ActiveAbilityMessage(ActiveAbilityMessage(caster_id=1, target_id=2, ability_type=1106))
+    h.visit_ActiveAbilityMessage(ActiveAbilityMessage(caster_id=1, target_id=2,
+                                                     ability_type=temoin))
     fl = st.get_entity(1).get_component(UnitFlagsComponent)
     assert h.last["ported"] is False
-    assert h.last["flags"]["turn_finished"] is False             # Ragnar peut encore agir
+    assert h.last["flags"]["turn_finished"] is False             # le caster peut encore agir
     assert fl is None or not fl.turn_ended()
 
 

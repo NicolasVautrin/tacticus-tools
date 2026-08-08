@@ -140,6 +140,7 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
       5. `On(EffectRemoved = 0x40)` APRES tout ce qui precede.
     """
     from .ability_modifications import revert_ability_modifications
+    from .traits import revert_traits_of_effect
     from .triggers.dispatch.move_death import effect_removed_triggers, pre_effect_removed_triggers
 
     if eff is None or eff.consumed:
@@ -161,6 +162,11 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
         AddEffectOperation.revert_stat_overrides(state, tgt, eff)
     # part MODIFICATIONS D'ABILITY : `AddUnitActiveAbilityModification` rejouees en `-delta`.
     revert_ability_modifications(state, eff)
+    # part TRAITS : `OperationProcessor$$RemoveTrait` rejoue pour chaque `AddTrait` que CETTE
+    # instance avait REELLEMENT pose (mirror `WarHowl_ExtraDamage_UnstoppableEffect$$RevertInternal`,
+    # qui n'est que le slot 0x27 la ou l'apply prend le 0x26). Borne a sa propre liste -> un trait
+    # de KIT que l'effet n'avait pas ajoute n'est jamais retire.
+    revert_traits_of_effect(state, eff)
     eff.consumed = True
     # `ActiveEffectIds.Remove(effectId)` -> le canal des NOMS (lu par la couche decision) suit.
     unregister_name(state, tgt, eff.name)
