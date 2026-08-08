@@ -180,14 +180,6 @@ REGISTRE: list[Mirror] = [
     # invisible de la bijection, et c'est par ce trou que quatre mirrors sont deja passes.
     Mirror("UnitTeamSelectionType", "engine/entities/unit_team_selection_type.py",
            "IdunBattle.Entities.Enum.UnitTeamSelectionType"),
-    # #585 -- le `selectionType` que `IdunBattleLogic.Entities.DSLSelectors` passe a ses factories
-    # et que `IdunBattle.DSL.TargetsSelector$$SelectUnit` lit par
-    # `UnitExtensions$$MatchesUnitSelectionType`. Inscrit DANS LE MEME COMMIT que le mirror, comme
-    # l'exige le cliquet. Le nom COURT ne suffisait pas a l'apparier : `UnitTeamSelectionType` (juste
-    # au-dessus) est un enum DIFFERENT, a deux valeurs, sur un autre axe -- la cle est LUE dans
-    # `enums.tsv`, jamais deduite.
-    Mirror("UnitSelectionType", "engine/entities/unit_selection_type.py",
-           "IdunBattle.Entities.Enum.UnitSelectionType"),
     Mirror("DamageTrait", "engine/entities/damage_trait.py",
            "IdunBattle.Entities.Enum.DamageTrait"),
     Mirror("EventTriggerType", "engine/dsl/event_trigger_type.py",
