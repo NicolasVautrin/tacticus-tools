@@ -288,6 +288,14 @@ class AddEffectOperation:
         # (qui peut viser une AUTRE unite que le porteur — `ListenUpMaggotsEffect` = `Parent(Self)`).
         from .ability_modifications import apply_ability_modifications
         apply_ability_modifications(state, target, eff)
+        # `<Effect>.ApplyInternal` part TRAITS : le couple `OperationProcessor$$AddTrait` /
+        # `$$RemoveTrait` (slots 0x26 / 0x27 de l'`IOperationProcessor`), dont l'unique porteur lu
+        # est `IdunBattle.Entities.Effects.Loki.WarHowl_ExtraDamage_UnstoppableEffect$$ApplyInternal`
+        # (`AddTrait(target, 0x412 = UnitTrait.Unstoppable, isTemporary: 1)`). Comme les
+        # modifications d'ability juste au-dessus, le natif appelle l'Operation DIRECTEMENT depuis
+        # l'effet -- aucun noeud DSL n'y mene.
+        from .traits import apply_traits_of_effect
+        apply_traits_of_effect(state, target, eff)
         # Effet COMPOSITE : `<Effect>.ApplyInternal` spawne ses SOUS-effets (enfants) juste après le
         # parent (ex. Stunned 1162 → 1165/1166/1167). Effet-driven : la liste vient de la classe d'effet.
         AddEffectOperation._spawn_sub_effects(state, source, target, eff)

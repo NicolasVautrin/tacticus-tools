@@ -66,6 +66,7 @@
  "tests/engine/runner/test_523r2r4_521r5_persistent_data_attacker_substrat_offline.py": 0.434,
  "tests/engine/runner/test_525_mass_driver_accelerator_offline.py": 0.491,
  "tests/engine/runner/test_545_unit_flags_component_vide_offline.py": 0.026,
+ "tests/engine/runner/test_585_war_howl_pose_offline.py": 0.008,
  "tests/engine/runner/test_ability_registry_ratchet.py": 18.674,
  "tests/engine/runner/test_active_ability_counted_as_used_offline.py": 0.012,
  "tests/engine/runner/test_barbed_ovipositor_object_or_steppable_offline.py": 0.066,

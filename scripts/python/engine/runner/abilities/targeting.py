@@ -911,13 +911,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
                                  | TR.TargetIsNotAnObject,
                            self_cast=False, range=RANGE_FROM_CONFIG,
                            force_melee_target=RANGED_BOOL_FALSE),
-    # 1106 WarHowl -- `...Active.Loki.WarHowlAbility$$.ctor` :
-    #   preset `+0x280` (self 1, rules 0x8004) puis `.ctor(&opts, &preset, 0x10)` -> 0x8014.
-    #   MEME couple preset/flags que `1216 MartialExemplar` ci-dessus.
-    ActiveAbilityType.WarHowl: TargetingOptions(rules=TR.CasterMatchesDynamicRule | TR.CasterHasNotMoved  # 1106
-                                 | TR.CasterIsPossibleTarget,
-                           self_cast=True, range=RANGE_SELF,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # 1106 WarHowl : MIGRE vers `ABILITY_CLASSES` -- sa face COMBAT est desormais portee
+    #   (`abilities/spacewolves.py::WarHowlAbility.TARGETING_OPTIONS`), donc le CONTRAT DE
+    #   DISJONCTION impose de retirer sa ligne d'ici. Le ctor a ete RELU au decompile avant
+    #   migration et la valeur qui vivait ici est CONFIRMEE champ pour champ : preset `+0x280`
+    #   (`isSelfCasting = 1`, `range` <- `<TargetingRange statics>+0x60` = RANGE_SELF,
+    #   `forceMeleeTarget = 1` = `RangedBool.False`, `rules = 0x8004`) puis
+    #   `.ctor(&opts, &preset, 0x10)` -> `rules = additionalRules | template.rules` = `0x8014` =
+    #   `CasterMatchesDynamicRule | CasterHasNotMoved | CasterIsPossibleTarget`. MEME couple
+    #   preset/flags que `1216 MartialExemplar` ci-dessus. C'est la SOURCE qui bouge, jamais la
+    #   valeur.
     # 1183 VexillaMagnifica : MIGRE vers `ABILITY_CLASSES` (#566) -- sa face COMBAT est desormais
     #   portee (`abilities/custodes.py::VexillaMagnificaAbility.TARGETING_OPTIONS`), donc le CONTRAT
     #   DE DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile avant

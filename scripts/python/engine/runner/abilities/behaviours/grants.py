@@ -13,6 +13,10 @@ from ....dsl.base import TargetsSelector, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ....entities.traits.unit_trait import UnitTrait, trait_name
 from ...components import StatsComponent, TriggeredAbilityComponent
+# Forme B (module + acces attributaire, cf. CLAUDE.md) : foyer UNIQUE d'`AddTraitOperation$$Execute`,
+# partage avec le canal `applied_traits` du cycle de vie des effets. Import de TETE (aucun cycle
+# mesure : `operations.traits` ne tire que `..components`, `..state` et le mirror d'enum).
+from ...operations import traits as _tr
 
 
 class AddTrait(AbilityBehaviour):
@@ -34,7 +38,15 @@ class AddTrait(AbilityBehaviour):
     `HasTrait(0x418)` de `IdunBattle.Core.Services.MovementQuery$$GetMovablePositionsFor` (qui rend
     un ensemble VIDE de positions de mouvement) en est le consommateur natif.
 
-    Emet 'AddTrait' par unite. Effet PUR (stop=False)."""
+    Emet 'AddTrait' par unite (`added` = le booleen du `coll.Add` natif : `False` = trait DEJA
+    porte, donc le natif s'arrete la). Effet PUR (stop=False).
+
+    ⚠ DELEGUE a `operations/traits.py::AddTraitOperation` -- le mirror de
+    `IdunBattle.Operations.AddTraitOperation$$Execute`, que le natif atteint AUSSI par une autre
+    voie : le `<Effect>.ApplyInternal` d'un effet a trait, qui appelle l'Operation DIRECTEMENT par
+    le slot `0x26` de l'`IOperationProcessor` sans passer par aucun noeud DSL
+    (`WarHowl_ExtraDamage_UnstoppableEffect`). Une seconde ecriture de `ctx.traits` ici aurait ete
+    un fork de port entre les deux voies."""
     __slots__ = ("units_sel", "trait_id")
 
     def __init__(self, units_sel: TargetsSelector, trait_id):
@@ -50,16 +62,14 @@ class AddTrait(AbilityBehaviour):
             uid = u.get("id") if isinstance(u, dict) else None
             if uid is None:
                 continue
-            e = state.get_entity(int(uid))
-            sc = e.get_component(StatsComponent) if e is not None else None
-            ctx = sc.ctx if sc is not None else None
-            if ctx is None:
-                continue
-            traits = list(getattr(ctx, "traits", None) or [])
-            if name not in traits:               # collection = un SET cote natif
-                traits.append(name)
-                ctx.traits = traits
-            ectx.emit("AddTrait", unit=int(uid), trait=name)
+            # `isTemporary` : la feuille `AddTraitBehaviour` porte le flag `param_4` du
+            # `DSLFactory$$AddTrait`, que le seul call-site porte (`DutyEternalAbility`) laisse a
+            # sa valeur PERMANENTE. Cote port les deux collections natives sont fondues en un
+            # ensemble unique de NOMS (cf. `operations/traits.py`), donc le flag n'a pas
+            # d'observable distinct -- on garde le comportement HISTORIQUE de cette feuille.
+            added = _tr.AddTraitOperation.execute(state, int(uid), self.trait_id,
+                                                  is_temporary=False)
+            ectx.emit("AddTrait", unit=int(uid), trait=name, added=bool(added))
         return OperationResult.ok()
 
 

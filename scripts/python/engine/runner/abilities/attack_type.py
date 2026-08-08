@@ -430,6 +430,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # c'est exactement pourquoi la regle est de LIRE le litteral, jamais de le deduire du nom, du
     # profil de degat ni de la colonne d'audit.
     ActiveAbilityType.ItItches: AbilityAttackType.DirectTargetAttack,  # 1121
+    # 1106 WarHowl (`spaceBlackmane` « Ragnar ») -- LITTERAL RELU au decompile :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility$$.ctor` se termine par
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = **2 = Others**. TRANSCRIT, pas deduit
+    # du fait que le behaviour n'attaque pas : le lot voisin porte les deux contre-exemples
+    # (`1121 ItItches` = `DirectTargetAttack` sans degat direct, `1038 FoulInfusion` = `Others` avec
+    # une attaque). (`&opts` = la forme PRESET + FLAGS, dont le masque EFFECTIF `0x8014` vit sur
+    # `spacewolves.WarHowlAbility.TARGETING_OPTIONS`.)
+    ActiveAbilityType.WarHowl: AbilityAttackType.Others,  # 1106
     ActiveAbilityType.ValkyrieStrike: AbilityAttackType.Others,  # 1018
     ActiveAbilityType.SupremeCommander: AbilityAttackType.Others,  # 1028
     ActiveAbilityType.RevitalizingMalignancy: AbilityAttackType.Others,  # 1037

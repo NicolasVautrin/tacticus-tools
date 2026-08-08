@@ -42,6 +42,9 @@ Cas d'origine : `docs/rl/case-36-triggered-abilities-move.md` — 909 s4/s19, u8
 from __future__ import annotations
 
 from .. import battle_query as bq
+# Forme B (module + acces attributaire, cf. CLAUDE.md) : foyer UNIQUE du predicat
+# `WeaponsComponent$$HasRangedWeapon`, partage avec le selecteur DSL `UnitsWithoutRangedWeapons`.
+from ..services import battle_query as _sbq
 
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..runner.abilities.deathguard import cursed_plague_bell_damage_profile
@@ -294,8 +297,16 @@ def _weapon_is_melee(w: dict) -> bool:
 def _has_ranged_weapon(unit: dict) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$HasRangedWeapon(u, minRange=null)` ->
     `IdunBattle.Entities.Components.WeaponsComponent$$HasRangedWeapon` : `true` dès qu'UNE arme
-    n'est pas `IsMelee` (le `minRange` nul court-circuite la comparaison de portée)."""
-    return any(not _weapon_is_melee(w) for w in _unit_weapons(unit))
+    n'est pas `IsMelee` (le `minRange` nul court-circuite la comparaison de portée).
+
+    DÉLÈGUE au foyer UNIQUE `engine.services.battle_query.has_ranged_weapon` (#601) : le sélecteur
+    DSL `UnitsWithoutRangedWeapons` (`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithoutRanged
+    Weapons`) consomme le MÊME prédicat natif, et deux implémentations du même corps auraient été un
+    fork de port. Forme B (`import <module>` + accès attributaire) : un `monkeypatch.setattr` sur le
+    foyer MORD toujours, ce qu'une liaison `from X import f` au niveau module gèlerait.
+    L'adaptation de signature reste ici : ce site tient un DICT d'unité (`vis`), le foyer un
+    `visualId` — même clé gameconfig."""
+    return _sbq.has_ranged_weapon(unit.get("vis") or "")
 
 
 class FearedInterrogatorPlaybook(AdjacentToOwnerNonOwnerPlaybook):

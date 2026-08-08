@@ -5,6 +5,9 @@ docs/rl/dsl-live-context-substrate.md."""
 from __future__ import annotations
 
 from .... import battle_query as _bq
+# Forme B : foyer UNIQUE du predicat `WeaponsComponent$$HasRangedWeapon` (accesseur
+# `ctx.has_ranged_weapon`, lu par le selecteur `UnitsWithoutRangedWeapons`).
+from ....services import battle_query as _sbq
 from ....dsl.base import DslContext
 from ...components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           HealthComponent, get_unit_feet)
@@ -283,6 +286,19 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
 
     def _faction_of(unit):
         return _faction((unit or {}).get("visualId"))
+
+    # `ctx.has_ranged_weapon` (mirror `IdunBattle.Entities.Components.WeaponsComponent$$
+    # HasRangedWeapon(minRange = null)`) : le selecteur `UnitsWithoutRangedWeapons`
+    # (`IdunBattle.Entities.Selectors.UnitsWithoutWeaponsSelector$$Select`) inline cette boucle
+    # sur le `WeaponsComponent` de chaque entite. Le port passe par le kit de la BC via
+    # `visualId` -- foyer UNIQUE `engine.services.battle_query.has_ranged_weapon`, partage avec la
+    # face DECISION (`playbook/adjacent_unit_preference`).
+    # ⚠ `visualId` ABSENT (entite-TUILE, MoW sans kit) -> `False`, ce qui GARDE l'element : c'est
+    # exactement la branche `GetUnit(entity) == null` du natif, qui saute le bloc d'armes et
+    # tombe sur le `Add`. Rendre `True` y jetterait des entites que le natif conserve.
+    def _has_ranged_weapon(unit):
+        vis = (unit or {}).get("visualId")
+        return bool(_sbq.has_ranged_weapon(vis)) if vis else False
 
     # `ctx.get_stat` (mirror `IdunBattle.Entities.UnitExtensions$$GetStat`) : le noeud `StatAmount(sel, statType,
     # variant)` lit la VRAIE stat de l'unite (Attack/Health/…) via son `StatsComponent.ctx.stats` — sans
@@ -685,6 +701,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       previous_tiles=_previous_tiles,
                       entity_by_id=_entity_by_id,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
+                      has_ranged_weapon=_has_ranged_weapon,
                       has_unit_flag=_has_unit_flag,
                       has_taken_damage_of_profile_this_turn=_has_taken_damage_of_profile_this_turn,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,

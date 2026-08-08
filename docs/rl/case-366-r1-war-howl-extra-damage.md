@@ -36,8 +36,17 @@ AddEffect( 0x4c6 = 1222, CreateSnapshot(<abilityState du cast>),
 **Ni faction, ni rayon** : tout ami mêlée non-Summon reçoit le buff, Space Wolf ou non.
 
 MESURE live (MC1_67 / 777, `--no-ai`) : le cast pose 1222 sur `spaceBlackmane`, `spaceWulfen` et
-`spaceHound` ; **pas** sur `spaceRockfist` ni `spaceStormcaller` (armes à distance). L'effet
-remonte `Effect_RemainingTurns: 1` et a disparu des trois porteurs après **un seul** `endturn`.
+`spaceHound` ; **pas** sur `spaceRockfist` ni `spaceStormcaller`. L'effet remonte
+`Effect_RemainingTurns: 1` et a disparu des trois porteurs après **un seul** `endturn`.
+
+⚠ **L'explication « (armes à distance) » qui accompagnait cette mesure était FAUSSE, et #585 l'a
+réfutée en la mesurant.** `spaceRockfist` (« Arjac ») n'a **qu'une** arme, MÊLÉE (`Range` absent),
+au gameconfig **comme** dans `data/seed-bc.json` — il est donc RETENU par
+`UnitsWithoutRangedWeapons`. Deux causes distinctes l'écartaient : le **camp** (le montage de
+`probe_366_r1` ne met que deux unités côté joueur, `Friends` suffit), et surtout le
+`selectionType = 3` du sélecteur (`OnlyAliveAndTargetable`), qui écarte une unité en **deep
+strike** parce qu'elle porte `UnitFlag.Untargetable`. Montage à trois alliés du même côté et
+mesure des deux régimes : `docs/rl/case-585-war-howl-pose.md` §3.
 
 ⚠ Conséquence de montage : **le caster ne peut pas mesurer sa propre face** — le cast consomme son
 activation. Le porteur mesuré est donc toujours un ALLIÉ, donc porteur ≠ source (cf. §6).
@@ -232,7 +241,14 @@ Les 18 autres classes qui lisent une ability ACTIVE emploient déjà le repli
 `buildNormalizedBC` les deux valent 50 ⇒ écart numériquement nul, non observable dans nos harnais.
 Même famille que §6.1, même tranche à ouvrir.
 
-### 6.3 La POSE (`AddEffect` + `ApplyInternal`/`RevertInternal`) n'est pas portée
+### 6.3 ~~La POSE (`AddEffect` + `ApplyInternal`/`RevertInternal`) n'est pas portée~~ — **FERMÉ (#585)**
+
+**Résolu** : `docs/rl/case-585-war-howl-pose.md`. L'ability 1106 est au registre (`spacewolves.py::
+WarHowlAbility`), le couple `AddTrait`/`RemoveTrait` est porté (`operations/traits.py`, canal DATA
+`BaseEffect.applied_traits`), et le sélecteur de pose l'est aussi — **avec un quatrième filtre que
+cette fiche-ci n'avait pas relevé**, le `selectionType = 3`. Le paragraphe ci-dessous est conservé
+tel qu'il a été écrit ; ce qu'il annonçait est fait.
+
 
 Un moteur 100 % offline ne posera jamais 1222 de lui-même : ni l'ability `WarHowl` (1106, backlog
 `[1106 WarHowl | spaceBlackmane]`) ni les faces `AddTrait`/`RemoveTrait` de l'effet ne sont portées.

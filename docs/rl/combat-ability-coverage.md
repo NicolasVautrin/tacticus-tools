@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **135**
-- **NO-OP silencieux** (a porter) : **40**
-- Ventilation NO-OP : **DAMAGE**=20, **EFFECT/BUFF**=13, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **136**
+- **NO-OP silencieux** (a porter) : **39**
+- Ventilation NO-OP : **DAMAGE**=20, **EFFECT/BUFF**=12, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (40)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (39)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -66,7 +66,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1211 | RitesOfMorkai | EFFECT/BUFF | 1 | L |
-| 1106 | WarHowl | EFFECT/BUFF | 1 | L |
 | 1231 | TitanhammerSquad | HEAL | 1 | L |
 | 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
 | 1223 | ReanimationBeam | REPAIR | 2 | LN |
@@ -75,7 +74,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (135)
+## PORTED (registry) (136)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -188,6 +187,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1186 | WallOfMirrors | EFFECT/BUFF | 2 | NS |
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
+| 1106 | WarHowl | EFFECT/BUFF | 1 | L |
 | 1082 | InspiredToGreatness | HEAL | 5 | LN |
 | 1002 | CombatRestoratives | HEAL | 4 | LN |
 | 1037 | RevitalizingMalignancy | HEAL | 4 | LN |

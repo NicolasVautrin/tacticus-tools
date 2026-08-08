@@ -24,7 +24,7 @@ op_Implicit(activeAbility:ActiveAbilityType)`), pas a l'oeil : les quatre surcha
 meme nom. => la config lue est `abilities.WarHowl`, et le niveau qui indexe ses variables est le
 niveau d'ability **ACTIVE** de la SOURCE.
 
-## POSE — `WarHowlAbility$$ExecuteBehaviour` (face NON portee, cf. §residus)
+## POSE — `WarHowlAbility$$ExecuteBehaviour` (PORTEE depuis #585)
 
 MIRROR du decompile (`IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility$$
 ExecuteBehaviour`) :
@@ -44,10 +44,14 @@ ExecuteBehaviour`) :
 
 `WarHowlAbility$$OtherBuffTargets` est le MEME selecteur sans le `+ Caster` (il sert la face
 DECISION). Aucune restriction de faction ni de distance : **tout ami melee non-Summon** recoit le
-buff, Space Wolf ou non. MESURE live (board MC1_67, seed 777) : cast pose 1222 sur `spaceBlackmane`,
-`spaceWulfen` et `spaceHound`, PAS sur `spaceRockfist` ni `spaceStormcaller` (armes a distance).
-`turns = Get(1)` -> `Effect_RemainingTurns: 1`, et l'effet a DISPARU des trois porteurs apres un
-seul `endturn` : il ne vaut que pour le tour du cast.
+buff, Space Wolf ou non. `turns = Get(1)` -> `Effect_RemainingTurns: 1`, et l'effet DISPARAIT apres
+un seul `endturn` : il ne vaut que pour le tour du cast.
+
+⚠ Le `UnitSelectionType.OnlyAliveAndTargetable` ecrit deux fois ci-dessus **MORD** : il ecarte une
+unite en DEEP STRIKE (`UnitFlag.Untargetable`) que tous les autres filtres retiennent. C'est ce qui
+explique la mesure historique « `spaceRockfist` n'est pas buffe » -- et NON ses armes, qui sont
+melee. Le port est `engine/runner/abilities/spacewolves.py::war_howl_other_buff_targets` ;
+mesure des deux regimes : `docs/rl/case-585-war-howl-pose.md` §3.
 
 ## TROIS ARTEFACTS, TROIS CANAUX DISTINCTS
 
@@ -103,14 +107,18 @@ deux sens par le substrat d'entite (`entity_trait_names`, seede par `snapshot._l
 c'est ce meme substrat que consomme l'exemption de mouvement
 `services/static_battle_rules.py::_MOVEMENT_EXEMPT_TRAIT_IDS` (Mounted/Vehicle/Unstoppable, mirror
 `StaticBattleRules.Effect$$NotBlockingMovementOfTraits`), le SEUL consommateur natif du trait
-(case-205 §1.5). La face POSE (accorder/retirer le trait OFFLINE) n'a aucun poseur cote port tant
-que l'ability 1106 n'est pas portee -- residu nomme, cf. `docs/rl/case-366-r1-war-howl-extra-damage.md`.
+(case-205 §1.5). La face POSE (accorder/retirer le trait OFFLINE) est PORTEE depuis #585 :
+`applied_traits()` ci-dessous la DECLARE, `runner/operations/traits.py` l'EXECUTE (mirrors
+`AddTraitOperation$$Execute` / `RemoveTraitOperation$$Execute`), et trois points la cablent --
+`AddEffectOperation.execute` (apply), `remove_effect_instance` (retrait explicite),
+`EndTurnOperation` (expiration). Cf. `docs/rl/case-585-war-howl-pose.md` §5.
 """
 from __future__ import annotations
 
 from collections.abc import Mapping
 
 from ....services.effect_bonus import EffectBonus, for_addition
+from ...traits.unit_trait import UnitTrait          # `0x412 = 1042 = Unstoppable` de `ApplyInternal`
 from ..base import BaseEffect, is_melee_attack, owner_is_caster
 from ..magnitude import ability_var
 
@@ -152,6 +160,41 @@ class WarHowlExtraDamageUnstoppableEffect(BaseEffect):
         if self.active_ability_level is not None:
             return self.active_ability_level
         return self.ability_level if self.ability_level is not None else self.level
+
+    def applied_traits(self) -> "list":
+        """MIRROR de `IdunBattle.Entities.Effects.Loki.WarHowl_ExtraDamage_UnstoppableEffect$$
+        ApplyInternal` / `$$RevertInternal` :
+
+            ApplyInternal (this, owner, target, effect)
+                -> <IOperationProcessor @this+0x68>.<slot 0x26>(target, 0x412, isTemporary: 1)
+            RevertInternal(this, owner, target, effect)
+                -> <IOperationProcessor @this+0x68>.<slot 0x27>(target, 0x412, isTemporary: 1)
+
+        Les deux slots sont resolus par la MEME interface (`FUN_1800103b0` = dispatch d'interface :
+        offset d'interface a `klass+0xb0`, slot ajoute, saut dans la vtable a `klass+0x138`) et leur
+        signature `(target, trait, isTemporary)` est celle de `IdunBattle.Core.Services.
+        OperationProcessor$$AddTrait` / `$$RemoveTrait`. `0x412 = 1042 = UnitTrait.Unstoppable` --
+        QUALIFIE : 1042 vaut aussi `ActiveAbilityType.FlailSwing` et
+        `EffectType.HailOfLivingAmmunition_ExtraHits` dans d'AUTRES enums.
+
+        L'i2 l'apparie nom pour nom : « he and all friendly Characters that don't have a normal
+        ranged attack gain <Unstoppable> until the end of this turn ».
+
+        `is_temporary = True` : cote natif il choisit la collection `BaseUnitComponent+0x48` et
+        SUPPRIME la diffusion d'evenement (`AddTraitOperation$$Execute` retourne avant la
+        publication). Cote port les deux collections sont fondues (cf. `operations/traits.py`) --
+        le drapeau est transporte, sans observable distinct.
+
+        `AddDerivedAbilities` (l'etage qui suit le `coll.Add` natif) est un **NO-OP pour 1042** :
+        `0x412` n'est cle d'aucun des deux dicts statiques de
+        `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor`
+        (41 cles pour `GetTriggeredAbility`, 2 pour `GetActiveAbility`). Mesure, pas supposition.
+
+        CONSOMMATEUR NATIF du trait : `StaticBattleRules.Effect$$NotBlockingMovementOfTraits`
+        (Mounted / Vehicle / Unstoppable exemptent des effets de tuile bloquants Fire / Ice /
+        BlockEnteringUnits), lu par `IdunBattle.Entities.Pathfinding.WalkPathfinder$$
+        GetTileBlockingReasons` -- porte par `services/static_battle_rules.py`."""
+        return [(UnitTrait.Unstoppable, True)]           # AddTrait(0x412, isTemporary: 1)
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: "bool | None" = None,
                                               has_moved: "bool | None" = None,

@@ -386,6 +386,17 @@ class BaseEffect:
     # Meme regime d'attribut de classe SIMPLE que `stacks_stat_mod_on_add` (pas d'annotation -> pas de
     # field dataclass). None/[] = l'effet n'a pose aucune modification d'ability.
     applied_ability_modifications = None
+    # Journal des `AddTrait` REELLEMENT accordes par cette instance (liste de
+    # `(target, trait, is_temporary)`), rempli par `operations/traits.py::apply_traits_of_effect` et
+    # NIE par `revert_traits_of_effect` (mirror `RevertInternal` = les memes appels en RETRAIT).
+    # Meme regime d'attribut de classe SIMPLE que `applied_ability_modifications` juste au-dessus.
+    # ⚠ IL PORTE UN CRAN QUE LA DECLARATION `applied_traits()` NE PORTE PAS : le natif s'arrete des
+    # que `coll.Add(trait)` rend `false` (trait DEJA porte), donc un trait de KIT ne doit PAS partir
+    # au retrait de l'effet. Le port fusionne les deux collections natives en un seul ensemble de
+    # NOMS -> seule cette liste distingue « pose par moi » de « deja la ». MESURE (case-366-r1) :
+    # `spaceWulfen` porte `Unstoppable` au kit et recoit 1222 -- sans ce cran, l'expiration du buff
+    # lui volerait son trait permanent. None/[] = l'instance n'a accorde aucun trait.
+    applied_trait_grants = None
     # CLE de la `ValueModification` que CETTE instance a posee sur le `UnitStats` de sa cible. Cote natif
     # c'est litteralement l'ENTITE-EFFET : `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification`
     # passe `DSLFactory$$Entity(<effectEntity>)` en 6e argument de `IdunBattleLogic.Entities.DSLFactory$$ChangeStat`,
@@ -1056,6 +1067,36 @@ class BaseEffect:
         Défaut `False` = l'effet n'écrit aucune cible forcée. Unique porteur porté :
         `TauntedEffect` (27 `Taunted_OnlySpecificTargets`)."""
         return False
+
+    def applied_traits(self) -> "list":
+        """Part DATA d'un `ApplyInternal` qui ACCORDE des TRAITS au porteur — le couple
+        `OperationProcessor$$AddTrait` / `$$RemoveTrait`, et jamais l'un sans l'autre.
+
+        NATIF, le porteur LU de ce canal est `IdunBattle.Entities.Effects.Loki.
+        WarHowl_ExtraDamage_UnstoppableEffect` (0x4c6 = 1222) :
+
+            ApplyInternal (this, owner, target, effect)
+                -> <IOperationProcessor @this+0x68>.<slot 0x26>(target, 0x412, isTemporary: 1)
+            RevertInternal(this, owner, target, effect)
+                -> <IOperationProcessor @this+0x68>.<slot 0x27>(target, 0x412, isTemporary: 1)
+
+        Les deux slots sont resolus par la MEME interface et leur signature
+        `(target, trait, isTemporary)` est celle de `IdunBattle.Core.Services.OperationProcessor$$
+        AddTrait` / `$$RemoveTrait` -> `IdunBattle.Operations.AddTraitOperation$$Execute` /
+        `IdunBattle.Operations.RemoveTraitOperation$$Execute`.
+
+        Rend une liste de `(UnitTrait, is_temporary)`. Le `RevertInternal` natif rejoue LES MEMES
+        appels en RETRAIT -> la couche runner reverte en niant cette liste (pas de table separee),
+        exactement comme `ability_modifications`. Defaut `[]` = l'effet n'accorde aucun trait.
+
+        ⚠ `is_temporary` n'est PAS decoratif cote natif : il decide de la COLLECTION ecrite
+        (`BaseUnitComponent+0x40` permanents / `+0x48` temporaires) et il SUPPRIME la diffusion
+        d'evenement (`AddTraitOperation$$Execute` retourne avant la publication quand il vaut 1).
+        Cote port, les deux collections sont fondues en un seul ensemble de NOMS
+        (`UnitContext.traits`, ce que rend `UnitExtensions$$HasTrait` = la RESULTANTE) : le drapeau
+        est donc TRANSPORTE (il documente le call-site lu) mais n'a pas d'observable distinct --
+        residu NOMME, pas un oubli."""
+        return []
 
     # ── matérialisation composite ─────────────────────────────────────────────────────────────────
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
