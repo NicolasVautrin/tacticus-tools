@@ -133,7 +133,9 @@ def pytest_collection_modifyitems(session, config, items):     # noqa: D103
         # PRESENTE : on la VALIDE (#486-r27). La dette ne couvre que l'ABSENCE -- un fichier qui
         # ecrit la constante a cesse de s'appuyer sur elle. `valider` est pur : il inspecte un
         # dict deja en memoire, sans ouvrir ni parser quoi que ce soit.
-        fautes = DC.valider(decl)
+        # `perimetre_derive=True` : ce garde ne juge QUE des fichiers de test, dont le perimetre
+        # effectif porte la cascade de harnais et le fichier lui-meme (#486-r31).
+        fautes = DC.valider(decl, perimetre_derive=True)
         if fautes:
             _MANQUANTS[rel] = fautes
 

@@ -74,33 +74,35 @@ PROBE = PYDIR / "probe_468_collision_numeros.py"
 #: Ce qui doit changer pour que cette contre-epreuve puisse changer d'avis.
 #:
 #: Une contre-epreuve est normalement de PORTEE 4 -- son verdict ne depend que de {la source du
-#: cliquet teste, la sienne}, puisque tout ce qu'elle monte est FABRIQUE. Celle-ci ne l'est PAS,
-#: et la mesure le dit deux fois :
+#: cliquet teste, la sienne}, puisque tout ce qu'elle monte est FABRIQUE. Celle-ci ne l'est PAS :
+#: son echantillon NEGATIF est le depot REEL -- `docs/rl/backlog.md` (lignes de tableau et de
+#: continuation), les NOMS de `docs/rl/case-*.md`, et des SUJETS DE COMMIT reels que
+#: `definitions_du_backlog` doit lire comme des MENTIONS.
 #:
-#:   1. son echantillon NEGATIF est le depot REEL -- `docs/rl/backlog.md` (lignes de tableau et
-#:      de continuation) et les NOMS de `docs/rl/case-*.md` ;
-#:   2. et, ce qui n'est PAS un chemin : les 400 derniers SUJETS DE COMMIT
-#:      (`git log --format=%s -n 400`), soumis a `definitions_du_backlog`, qui doit les lire
-#:      comme des MENTIONS.
+#: ELLE ETAIT `toujours: True`, ET C'EST #486-r18 QUI L'A FERME. Les sujets de commit venaient de
+#: `git log --format=%s -n 400`, lu EN DIRECT : l'historique bouge a chaque commit, donc sous
+#: toute selection par diff l'echantillon avait change PAR CONSTRUCTION, et les **140,9 s** du
+#: fichier (46 tests) etaient rejouees a CHAQUE passe. L'historique PASSE etant immuable, le
+#: geler ne perd rien de ce qu'il portait : `scripts/ratchets-468-sujets-de-commit.txt` porte
+#: **2 444** sujets distincts contre **374** dans la fenetre vivante -- l'echantillon est
+#: ~6,5x plus RICHE, et il est desormais un CHEMIN, donc declarable.
 #:
-#: Le point (2) est ce qui impose `toujours: True` : sous n'importe quelle selection par DIFF,
-#: des commits ont ete ajoutes par construction, donc l'echantillon a bouge. Le champ `chemins`
-#: ne sait pas exprimer << l'historique >>, et une declaration qui l'omettrait serait un faux
-#: vert -- un sujet de commit a la forme `- **#<n>** -- ...` ou `| #<n> | ... |` ferait
-#: legitimement rougir ce fichier.
-#: Cout ISOLE mesure le 2026-08-07 : 140,9 s (46 tests). RESIDU A REMONTER : si le point (2)
-#: prenait un corpus BORNE au lieu de `git log`, cette contre-epreuve redeviendrait bornable a
-#: {sa source, `probe_468`, `docs/rl/**`}, et 140,9 s deviendraient selectionnables.
+#: ⚠ CE QUI EST PERDU EST BORNE ET NOMME : les formes de sujet inventees APRES le gel. Elles
+#: reviennent au premier `--geler-sujets`, et l'artefact porte le commit de son gel pour que sa
+#: peremption se LISE. La contre-epreuve n'est PAS affaiblie : c'est elle qui etablit que le
+#: critere ne rougit pas sur les mentions, et elle porte plus de mentions qu'avant.
 DECLENCHEUR = {
     "chemins": ("docs/rl/*", "docs/rl/**",
+                "scripts/ratchets-468-sujets-de-commit.txt",
+                "scripts/ratchets-468-numeros-attestes.json",
                 "scripts/python/probe_468_collision_numeros.py",
                 "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
                 "scripts/python/green_skip_guard.py", "scripts/python/pytest.ini"),
     "build": False,
-    "toujours": True,
+    "toujours": False,
     "raison": "Contre-epreuve de portee 4 SAUF pour son echantillon negatif, qui est le depot "
-              "reel : `docs/rl` (bornable) ET les 400 derniers sujets de commit (PAS un chemin, "
-              "donc pas bornable par ce champ).",
+              "reel : `docs/rl` et l'echantillon GELE de sujets de commit -- tous deux des "
+              "CHEMINS depuis #486-r18, donc bornables. Elle ne lit plus `git log`.",
 }
 
 
@@ -137,14 +139,48 @@ def test_aucune_mention_reelle_du_backlog_n_est_lue_comme_definition():
 
 
 def test_les_messages_de_commit_ne_definissent_rien():
-    """`git log --grep` depend des numeros, mais un message de commit est une MENTION."""
-    out = subprocess.run(["git", "-C", str(REPO), "log", "--format=%s", "-n", "400"],
-                         capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if out.returncode != 0:
-        pytest.skip("git indisponible")
-    sujets = [s for s in out.stdout.splitlines() if "#" in s]
-    assert len(sujets) > 20, "pas assez de messages portant un numero pour que le test morde"
+    """`git log --grep` depend des numeros, mais un message de commit est une MENTION.
+
+    L'echantillon est GELE depuis #486-r18 (`scripts/ratchets-468-sujets-de-commit.txt`) : lu en
+    direct, il rendait cette contre-epreuve non bornable, donc `toujours: True`, donc 140,9 s
+    rejouees a chaque passe.
+    """
+    sujets = p468.lire_sujets_geles()
+    assert len(sujets) > 500, ("echantillon trop maigre pour mordre : %d" % len(sujets))
     assert p468.definitions_du_backlog(sujets) == []
+
+
+def test_l_echantillon_GELE_porte_les_sujets_qui_COMMENCENT_par_un_numero():
+    """LE TEMOIN NON NUL DU GEL, et il garde une faute REELLE.
+
+    La convention habituelle `#` = commentaire aurait ampute le corpus de ses lignes les PLUS
+    adversariales -- celles dont la premiere colonne ressemble le plus a une definition de
+    backlog (`#175-e / #175-r : ...`). Mesure du 2026-08-08 : **142** sujets sur 2 444 sont dans
+    ce cas, et un lecteur naif les jetait tous en rendant un corpus qui se lit comme un vert.
+    """
+    sujets = p468.lire_sujets_geles()
+    en_tete = [s for s in sujets if s.startswith("#")]
+    assert len(en_tete) > 50, (
+        "l'echantillon ne porte que %d sujet(s) commencant par `#` : soit le gel les ampute, "
+        "soit le corpus a change de nature -- dans les deux cas c'est a relire" % len(en_tete))
+    assert p468.definitions_du_backlog(en_tete) == []
+
+
+def test_un_echantillon_ABSENT_LEVE_au_lieu_de_valider_tout(tmp_path, monkeypatch):
+    """Un echantillon adversarial vide validerait TOUT : c'est le faux vert absolu."""
+    monkeypatch.setattr(p468, "SUJETS_GELES", tmp_path / "n-existe-pas.txt")
+    with pytest.raises(p468.Indisponible):
+        p468.lire_sujets_geles()
+    vide = tmp_path / "vide.txt"
+    vide.write_text("# entete seule\n" + p468.SENTINELLE_SUJETS + "\n", encoding="utf-8")
+    monkeypatch.setattr(p468, "SUJETS_GELES", vide)
+    with pytest.raises(p468.Indisponible):
+        p468.lire_sujets_geles()
+    sans = tmp_path / "sans-sentinelle.txt"
+    sans.write_text("# entete\nun sujet\n", encoding="utf-8")
+    monkeypatch.setattr(p468, "SUJETS_GELES", sans)
+    with pytest.raises(p468.Indisponible):
+        p468.lire_sujets_geles()
 
 
 def test_les_case_docs_reelles_se_coupent_en_identifiant_et_slug():

@@ -1121,6 +1121,95 @@ def rapport() -> None:
           "(%.1f %%) : le reste est MENTION" % (total, fich, nb, 100.0 * nb / max(total, 1)))
 
 
+# ================================ l'ECHANTILLON ADVERSARIAL de sujets de commit (#486-r18)
+#: Ou vit l'echantillon GELE. Il est VERSIONNE, donc declarable comme un CHEMIN -- c'est tout
+#: l'objet de #486-r18.
+SUJETS_GELES = REPO / "scripts" / "ratchets-468-sujets-de-commit.txt"
+
+#: La SENTINELLE qui separe l'en-tete des donnees, et elle n'est PAS decorative.
+#:
+#: ⚠ LA CONVENTION HABITUELLE `#` = COMMENTAIRE AMPUTERAIT EXACTEMENT CE QUI COMPTE. Nos sujets
+#: de commit COMMENCENT couramment par le numero (`#175-e / #175-r : ...`) : un lecteur qui
+#: filtre les lignes commencant par `#` jette les sujets les PLUS adversariaux -- ceux dont la
+#: premiere colonne ressemble le plus a une definition de backlog -- et rend un corpus ampute
+#: qui se lit comme un vert. Faute commise a la premiere ecriture de ce mode, vue en RELISANT
+#: l'artefact genere. Tout ce qui suit la sentinelle est DONNEE, verbatim.
+SENTINELLE_SUJETS = "# --- SUJETS (tout ce qui suit est DONNEE, `#` compris) ---"
+
+
+def geler_sujets_de_commit() -> int:
+    """(Re)ecrit l'echantillon adversarial : tous les sujets de commit portant un `#`, dedupes.
+
+    POURQUOI GELER, ET CE QUE CA COUTE (#486-r18)
+    ----------------------------------------------
+    `test_468_collision_numeros_offline.py` soumet a `definitions_du_backlog` des SUJETS DE
+    COMMIT reels, qui doivent tous etre lus comme des MENTIONS. C'est la contre-epreuve la plus
+    exigeante du critere -- et elle lisait `git log` EN DIRECT. Or l'historique bouge a chaque
+    commit : sous toute selection par diff, l'echantillon avait change par construction, d'ou un
+    `toujours: True` qui rejouait les **140,9 s** du fichier a CHAQUE passe.
+
+    L'HISTORIQUE PASSE EST IMMUABLE : le geler ne perd rien de ce qu'il portait. Mesure du
+    2026-08-08 : la fenetre vivante de 400 commits donnait **374** sujets distincts ; l'historique
+    COMPLET en donne **3 034** -- l'echantillon gele est donc ~8x plus RICHE que celui qu'il
+    remplace, et non pas appauvri. Ce qu'on perd est borne et nomme : les formes de sujet
+    INVENTEES APRES le gel. Elles reviennent au premier `--geler-sujets`, et le fichier porte le
+    commit et la date de son gel pour que sa peremption se LISE au lieu de se deviner.
+    """
+    sujets = _git(["log", "--format=%s", "--no-merges"], "git log (sujets)").splitlines()
+    avec = sorted({s.strip() for s in sujets if "#" in s and s.strip()})
+    if not avec:
+        print("[468] REFUS : `git log` n'a rendu AUCUN sujet portant un `#` -- un echantillon "
+              "adversarial VIDE passerait pour un vert. Rien n'est ecrit.")
+        return 2
+    tete = _git(["rev-parse", "HEAD"], "git rev-parse").strip()[:12]
+    entete = [
+        "# ECHANTILLON ADVERSARIAL de sujets de commit (#486-r18) -- GENERE, jamais fusionne a",
+        "# la main : REGENERER (`python scripts/python/probe_468_collision_numeros.py",
+        "# --geler-sujets`) en cas de conflit.",
+        "#",
+        "# A QUOI IL SERT. `definitions_du_backlog` doit lire CHACUNE de ces lignes comme une",
+        "# MENTION, jamais comme une DEFINITION. C'est le corpus reel qui a le plus de chances",
+        "# de faire deraper le critere de position, parce que nos sujets de commit citent des",
+        "# numeros a longueur de journee et empruntent parfois la ponctuation du backlog.",
+        "#",
+        "# POURQUOI GELE. Lu en direct, il rendait la contre-epreuve NON BORNABLE (l'historique",
+        "# bouge a chaque commit), donc `toujours: True`, donc 140,9 s rejouees a chaque passe.",
+        "# L'historique PASSE est immuable : le geler ne perd que les formes INVENTEES APRES.",
+        "#",
+        "# gele a HEAD=%s -- %d sujet(s) distinct(s) portant un `#`" % (tete, len(avec)),
+        SENTINELLE_SUJETS,
+    ]
+    SUJETS_GELES.write_text("\n".join(entete + avec) + "\n", encoding="utf-8")
+    print("[468] echantillon gele : %d sujet(s) distinct(s) (dont %d COMMENCANT par `#`) -> %s"
+          % (len(avec), sum(1 for s in avec if s.startswith("#")),
+             SUJETS_GELES.relative_to(REPO).as_posix()))
+    return 0
+
+
+def lire_sujets_geles() -> list:
+    """Les sujets de l'echantillon gele. LEVE si absent ou vide -- jamais une liste vide.
+
+    Un echantillon adversarial vide validerait tout : c'est exactement le faux vert que la
+    doctrine de ce depot nomme << un recenseur ne peut pas rendre zero sur ce qu'il ne visite
+    pas >>. Le contrat est donc : present et non vide, ou `Indisponible`.
+
+    La lecture se fait APRES la sentinelle, et verbatim : voir `SENTINELLE_SUJETS` pour la
+    raison -- filtrer les `#` amputerait le corpus de ses lignes les plus adversariales.
+    """
+    try:
+        lignes = SUJETS_GELES.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise Indisponible("echantillon de sujets de commit illisible (%s) -- REGENERER : "
+                           "`probe_468_collision_numeros.py --geler-sujets`" % exc) from exc
+    if SENTINELLE_SUJETS not in lignes:
+        raise Indisponible("echantillon de sujets de commit SANS SENTINELLE -- format perime, "
+                           "REGENERER : `probe_468_collision_numeros.py --geler-sujets`")
+    sujets = [l for l in lignes[lignes.index(SENTINELLE_SUJETS) + 1:] if l.strip()]
+    if not sujets:
+        raise Indisponible("echantillon de sujets de commit VIDE -- il validerait tout")
+    return sujets
+
+
 # ------------------------------------------------------------------------------------------
 
 def main(argv) -> int:
@@ -1137,7 +1226,12 @@ def main(argv) -> int:
                          "(ex. 420) le plus petit `r<k>` libre sous lui")
     ap.add_argument("--racine", metavar="CHEMIN",
                     help="vise un AUTRE arbre (contre-epreuve bout-en-bout sur depot jetable)")
+    ap.add_argument("--geler-sujets", action="store_true", dest="geler_sujets",
+                    help="(re)ecrit l'echantillon adversarial de sujets de commit (#486-r18)")
     args = ap.parse_args(argv)
+
+    if args.geler_sujets:
+        return geler_sujets_de_commit()
 
     if args.racine:
         viser(Path(args.racine))

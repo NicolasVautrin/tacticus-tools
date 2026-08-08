@@ -115,7 +115,9 @@ def test_l_ABSENCE_reste_distincte_de_la_MALFORMATION(monkeypatch):
     ({**BONNE, "chemins": ("C:/absolu/x.py",)}, "ABSOLU"),
     ({**BONNE, "chemins": ("scripts\\python\\x.py",)}, "separateur Windows"),
     ({**BONNE, "toujours": "oui"}, "booleen"),
-    ({**BONNE, "chemins": (), "build": False}, "rien ne le rejouerait JAMAIS"),
+    ({**BONNE, "chemins": ("../dehors.py",)}, "ne sort pas du depot"),
+    ({**BONNE, "inventee": 1}, "cle(s) inconnue(s)"),
+    ({**BONNE, "chemins": 42}, "tuple/list"),
     ("pas un dict", "n'est pas un dict"),
 ])
 def test_le_hook_porte_TOUT_le_contrat_de_forme_pas_un_sous_ensemble(monkeypatch, decl, attendu):
@@ -147,6 +149,72 @@ def test_git_MUET_garde_TOUS_les_candidats(monkeypatch):
     GU.pytest_collection_modifyitems(None, None,
                                      [_Item(_Module(DECL_824), GU.RACINE / REL)])
     assert REL in GU.fautifs()
+
+
+# =====================================================================================
+#  [1bis] #486-r31 -- LA REGLE DU PERIMETRE VIDE A DEUX POPULATIONS, ET DEUX VERITES
+# =====================================================================================
+#: La declaration EXACTE de `tests/engine/runner/test_refresh_active_flag_discriminant_offline.py`
+#: (merge par la PR #834) : `valider` rendait 1 erreur quand `perimetre` rendait 475 chemins.
+VIDE = {"chemins": (), "build": False, "toujours": False,
+        "raison": "r" * (DC.RAISON_MIN + 5)}
+
+
+def test_pour_un_CLIQUET_le_perimetre_VIDE_reste_ROUGE():
+    """LE PREMIER des deux sens. Rien ne s'ajoute a ce qu'un cliquet de banque declare : son
+    perimetre effectif EST son perimetre declare, donc `toujours: False` + rien = jamais rejoue.
+    Une correction qui ne garderait que l'autre sens rouvrirait ce faux vert-la."""
+    fautes = DC.valider(VIDE)
+    assert any("perimetre VIDE" in f for f in fautes), fautes
+
+
+def test_pour_un_TEST_le_perimetre_VIDE_est_BORNE_pas_vide():
+    """LE SECOND. `perimetre(d, source_rel)` ajoute le fichier LUI-MEME et la cascade de ses
+    `conftest.py` : `chemins: ()` y dit << rejoue-moi quand MOI ou mon harnais changent >>."""
+    assert DC.valider(VIDE, perimetre_derive=True) == []
+
+
+def test_les_DEUX_temoins_sont_NON_NULS_sur_le_depot_REEL():
+    """Une regle a deux sens dont un seul est observable ne garde qu'a moitie.
+
+    Cote TEST : le perimetre effectif d'un fichier de test REEL est massivement non vide --
+    c'est la mesure (475 chemins) qui a montre la contradiction. Cote CLIQUET : `perimetre`
+    sans `source_rel` ne rend rien de plus que le declare.
+    """
+    reel = "scripts/python/tests/test_486r27_forme_au_hook_offline.py"
+    effectif = DC.perimetre(VIDE, reel)
+    assert len(effectif) > 3, effectif
+    assert reel in effectif, "le fichier LUI-MEME entre dans son propre perimetre"
+    assert DC.perimetre(VIDE) == (), "sans source_rel, rien ne s'ajoute : c'est le cas CLIQUET"
+
+
+def test_la_borne_ne_DISPARAIT_pas_pour_les_tests_elle_CHANGE_de_cran(tmp_path, monkeypatch,
+                                                                     capsys):
+    """Un test qui declare `chemins: ()` en important quelque chose reste ROUGE -- par la
+    CONFRONTATION, qui est le garde adapte a cette question. On deplace la faute vers le cran
+    qui sait la voir, on ne la supprime pas."""
+    py = tmp_path / "scripts" / "python"
+    (py / "tests").mkdir(parents=True)
+    (py / "cible.py").write_text("X = 1\n", encoding="utf-8")
+    (py / "tests" / "test_a_offline.py").write_text(
+        "DECLENCHEUR = %r\nimport cible\n" % (VIDE,), encoding="utf-8")
+    dette = tmp_path / "scripts" / "ratchets-486r15-dette-declencheurs.txt"
+    dette.write_text("# vide\n", encoding="utf-8")
+    (tmp_path / "scripts" / "ratchets-486r24-bypass-confrontation.txt").write_text(
+        "# vide\n", encoding="utf-8")
+    monkeypatch.setattr(G, "ROOT", tmp_path)
+    monkeypatch.setattr(G, "DETTE", dette)
+    monkeypatch.setattr(G, "BYPASS", tmp_path / "scripts"
+                        / "ratchets-486r24-bypass-confrontation.txt")
+    monkeypatch.setattr(G, "EMPREINTE", tmp_path / "absente.json")
+    monkeypatch.setattr(G, "fichiers_de_test", lambda: [REL])
+    monkeypatch.setattr(DC, "RACINE", tmp_path)
+    DC._HARNAIS.clear()
+    assert G.main([]) == 1
+    out = capsys.readouterr().out
+    assert "MAL FORMEE" not in out, "la FORME ne l'accuse plus -- c'etait la faute de #486-r31"
+    assert "DECLARE TROP ETROIT" in out, out[-500:]
+    assert "scripts/python/cible.py" in out
 
 
 def test_la_CONFRONTATION_n_est_PAS_descendue_dans_le_hook(monkeypatch):

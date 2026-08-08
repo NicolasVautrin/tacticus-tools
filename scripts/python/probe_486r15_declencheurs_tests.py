@@ -282,7 +282,9 @@ def declarations(fichiers, lues: dict | None = None) -> tuple:
             continue
         if lues is not None and isinstance(d, dict):
             lues[rel] = d
-        fautes = DC.valider(d)
+        # `perimetre_derive=True` : le perimetre d'un TEST porte la cascade de harnais et le
+        # fichier lui-meme, donc `chemins: ()` y est borne, pas vide (#486-r31).
+        fautes = DC.valider(d, perimetre_derive=True)
         if fautes:
             ko[rel] = "declaration MAL FORMEE : %s" % "; ".join(fautes)
             continue
