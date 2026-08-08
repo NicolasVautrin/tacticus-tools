@@ -4389,6 +4389,12 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_564_resurrect_pipeline_offline.py": {
+   "_at": 1786165356,
+   "_commit": "12afcb339f470fff3b6d554274969cce7d46ed66",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",

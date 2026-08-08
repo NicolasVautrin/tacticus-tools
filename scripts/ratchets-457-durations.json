@@ -215,6 +215,7 @@
  "tests/engine/test_519_comptes_derives_offline.py": 23.698,
  "tests/engine/test_520_heal_pipeline_offline.py": 0.028,
  "tests/engine/test_524r1_bond_sous_effets_offline.py": 0.011,
+ "tests/engine/test_564_resurrect_pipeline_offline.py": 0.436,
  "tests/engine/test_effect_1582_inertia_binary.py": 2.261,
  "tests/engine/test_fabricator_claw_cap_binary.py": 0.589,
  "tests/engine/test_lions_wrath_custom_utility.py": 0.019,

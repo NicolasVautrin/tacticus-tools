@@ -20,15 +20,15 @@ from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, op_add, op_and, If
 from ...entities.formulas import ConditionalAmount, Const as _AmountConst, Count, StatAmount, Sum
 from ...entities.selectors.accessors import (
-    FixedTileIds, FixedTiles, Subject, SurroundingTiles, Target, TargetTile
+    CasterTile, FixedTileIds, FixedTiles, Subject, SurroundingTiles, Target, TargetTile
 )
 from ...entities.selectors.geometry import (
-    FilterContinuous, PickFirstN, TileFromVector, TilesBehindInLine
+    FilterContinuous, PickFirstN, PickRandomly, TileFromVector, TilesBehindInLine
 )
-from ...entities.selectors.tiles import Caster, TileUnique
+from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit, Caster, TileUnique
 from ...entities.selectors.units import (
-    AdjacentUnits, Enemies, SortByFormula, Sub, SurroundingUnits, Tiles, Union, Units,
-    UnitsWithTrait, Unobscured
+    AdjacentUnits, AllDeadUnits, Enemies, Friends, Healable, SortByFormula, Sub, SurroundingUnits,
+    Tiles, Union, Units, UnitsAffectedByHealType, UnitsWithTrait, Unobscured
 )
 from ...entities.triggers import (Not, AreEnemies, HasFaction, HasTrait, HasUnit, IsAlive, IsAdjacent,
                                   OwnerIsAlive, TriggerAnd, IsPositionMachineForCurrentPlayer)
@@ -42,13 +42,16 @@ from ...utilities.tile import first_tile_by_utility
 from ..components import PositionComponent, UnitComponent, StatsComponent, unit_has_moved
 from ..damage_model import select_weapon, select_weapon_pierce
 from .base import ActiveAbility
-from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
-                        TargetingOptions, are_entities_adjacent, entity_tiles, get_adjacent_tiles)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_TRUE, TargetingOptions, are_entities_adjacent, entity_tiles,
+                        get_adjacent_tiles)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddBondEffect, AddEffect
+from .behaviours.lifecycle import Resurrect
 from .behaviours.movement import MoveUnit
+from .behaviours.stats import Heal
 from .base import convert_rounds_to_turns
 
 if TYPE_CHECKING:
@@ -976,3 +979,282 @@ class ThriceBlessedConflagrationAbility(ActiveAbility):
         return {"ability": THRICE_BLESSED_ID, "caster": caster_id, "target": target_id,
                 "attacks": attacks, "buff": buffs, "sisterhood_target": is_sis,
                 "rounds": rounds, "duration_turns": turns, "dsl": True}
+
+
+# ===================== RitesOfRestoration (Isabella `adeptHospitaller`, actif 1039) -- #564 =========
+#
+# Indices de config lus au decompile d'`IdunBattleLogic.Entities.Abilities.Active.Loki.
+# RitesOfRestorationAbility$$ExecuteBehaviour` (membres NOMMES, jamais l'ordinal nu) :
+#   `DSLFormulas$$ConfigVar(0x20, ...)`      -> AbilityVariableType.hpToHeal  (32) : le SOIN
+#   `DSLFormulas$$ConfigVar(0x1d, ...)`      -> AbilityVariableType.hp        (29) : les PV de retour
+#   `AbilityConfiguration$$GetNumberConstant(0x43)` -> AbilityConstantType.nrOfHeroes  (67) = 1
+#   `AbilityConfiguration$$GetNumberConstant(0x10)` -> AbilityConstantType.nrOfSummons (16) = 2
+RITES_OF_RESTORATION_ID = "RitesOfRestoration"
+
+
+def rites_of_restoration_heal_targets():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetHealTargets`
+    -- MIRROR 1:1 du decompile :
+
+        unit = selectors@+0x48                                       # Caster
+        adj  = AdjacentFriends(unit, selectors@+0x50, unique: true)  # surcharge TILE-ancree
+        return Healable(unit, op_Addition(unit, adj), scope 0)
+
+    `AdjacentFriends` a DEUX surcharges au build ; celle appelee ici est la TILE-ancree
+    (`AdjacentFriends(this, unit, unitTile, unique)`), qui se deplie en
+    `Friends(unit, Units(AdjacentTiles(unitTile), unique, 3) - unitTile, 3)` -- d'ou l'idiome
+    `Friends(AdjacentUnits(CasterTile(), 1))` du port, le MEME que `combat_restoratives_tree`
+    (`ultramarines.py`) sur le meme motif natif. `selectors+0x50` est un slot de `CasterTile`
+    (cf. `entities/selectors/accessors.py`, qui documente `+0x50`\\`+0x58`).
+
+    L'ORDRE est celui du natif : `op_Addition(caster, adjacents)` -- le CASTER D'ABORD
+    (contraste 1002, ou le natif ecrit `op_Addition(adjacents, caster)`). Sans effet observable ici
+    (le soin est PUR et le montant identique pour tous), mais transcrit tel que lu.
+
+    `Healable` = le noeud DSL (`entities/selectors/units.py`), mirror d'
+    `IdunBattle.Entities.Selectors.HealableUnitsSelector$$Select` = `EntityCanBeHealed(caster, u,
+    scope 0, removeEffects 1)`. i2 : « Heals herself and all adjacent friendly units »."""
+    caster = Caster()
+    return Healable(Union(caster, Friends(AdjacentUnits(CasterTile(), Const(1)))),
+                    caster=caster, scope=0)
+
+
+def rites_of_restoration_possible_resurrect_targets():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$
+    GetPossibleResurrectTargets` -- MIRROR 1:1 du decompile :
+
+        Friends(selectors@+0x30, AllDeadUnits)
+          |> UnitsWithTrait(0x1a)                 # 26 = UnitTrait.Imperial
+          |> UnitsAffectedByHealType(0)           # 0  = HealType non-mecanique
+
+    i2 mot a mot : « random friendly Imperial Character / Summons that have been defeated in this
+    battle [...] Only affects non-Mechanical units ». Les TROIS etages sont lus, aucun deduit :
+      * `AllDeadUnits` = `AllDefeatedUnitsSelector`, PAS `AllDeadOrResurrectedUnits` (deux factories
+        natives distinctes -- la seconde rajouterait les deja-ressuscites, qui sont VIVANTS) ;
+      * `Imperial` (0x1a) est un trait d'ALLIANCE, absent de `gameconfig.unit().traits` : il est
+        DERIVE de la GrandAlliance par `_grand_alliance_trait` (`behaviours/context.py`), deja cable
+        dans `_unit_dict` -- meme mecanique que 1002/1037 ;
+      * `UnitsAffectedByHealType(0)` = `HasTrait(AffectedByHealAndRepair)` OU **NON**-mecanique.
+
+    ⚠ Le referent de `Friends` est `selectors+0x30`, PAS `+0x48` (le `Caster` que prend la
+    resurrection de `ResurrectionOrbAbility`). Les deux slots portent des classes DIFFERENTES dans
+    `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared` ; le port les confond en `Caster()`
+    faute d'un second referent porte -- l'ecart est INERTE tant que le referent d'equipe est le
+    caster (c'est le cas de tous les call-sites portes), et il est NOMME ici plutot que tu."""
+    return UnitsAffectedByHealType(
+        UnitsWithTrait(Friends(AllDeadUnits()), int(UnitTrait.Imperial)), 0)
+
+
+def rites_of_restoration_hero_targets():
+    """`...RitesOfRestorationAbility$$GetPossibleResurrectHeroTargets` =
+    `UnitsWithTrait(GetPossibleResurrectTargets, 0x10)` -- 16 = `UnitTrait.Hero` (le « Character »
+    de l'i2). ⚠ NOM QUALIFIE : `0x10` est un `UnitTrait`, surtout pas un `EffectType`."""
+    return UnitsWithTrait(rites_of_restoration_possible_resurrect_targets(), int(UnitTrait.Hero))
+
+
+def rites_of_restoration_summon_targets():
+    """`...RitesOfRestorationAbility$$GetPossibleResurrectSummonTargets` =
+    `UnitsWithTrait(GetPossibleResurrectTargets, 0x2)` -- 2 = `UnitTrait.Summon`."""
+    return UnitsWithTrait(rites_of_restoration_possible_resurrect_targets(), int(UnitTrait.Summon))
+
+
+def rites_of_restoration_resurrect_targets(nr_of_heroes: int, nr_of_summons: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetResurrectTargets`
+    -- MIRROR 1:1, et EXACTEMENT le meme sous-arbre que celui qu'`ExecuteBehaviour` reconstruit
+    inline (les deux ont ete relus separement et sont bit-a-bit identiques) :
+
+        op_Addition( PickRandomly(HeroTargets,   GetNumberConstant(0x43), 0, 0x7fffffff, false),
+                     PickRandomly(SummonTargets, GetNumberConstant(0x10), 0, 0x7fffffff, false) )
+
+    L'ORDRE compte deux fois : (a) les HEROS d'abord, donc ils consomment les PREMIERES tuiles du
+    zip de `ResurrectBehaviour` ; (b) les deux `PickRandomly` consomment le PRNG dans cet ordre.
+    (`GetDynamicInvalidCasterReason`, lui, additionne dans l'ordre INVERSE -- il ne compte que des
+    cardinalites, donc c'est sans effet, et c'est transcrit tel quel la-bas.)
+
+    `allowDuplicates = 0`, `maxDuplicatesAllowed = 0x7fffffff`, `ignoreForcedTargets = false` :
+    litteraux du call-site."""
+    return Union(PickRandomly(rites_of_restoration_hero_targets(), nr_of_heroes),
+                 PickRandomly(rites_of_restoration_summon_targets(), nr_of_summons))
+
+
+def rites_of_restoration_resurrect_tiles():
+    """Sous-arbre TUILES d'`ExecuteBehaviour` : `CanAddUnit(AdjacentTiles(selectors@+0x50))` = les
+    hex adjacents au caster ou une unite peut etre posee (i2 : « Resurrected units appear in free
+    adjacent hexes »). MEME forme que `ResurrectionOrbAbility$$GetPossibleSpawnOrResurrectTiles`,
+    a ceci pres que l'ancre y est `+0x58` et ici `+0x50` -- les deux sont des slots de `CasterTile`
+    cote port."""
+    return CanAddUnit(AdjacentTiles(CasterTile()))
+
+
+def rites_of_restoration_tree(heal_amount: int, resurrect_hp: int,
+                              nr_of_heroes: int, nr_of_summons: int):
+    """UNIQUE noeud d'`IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$
+    ExecuteBehaviour` -- MIRROR du decompile :
+
+        heal = Heal(healer   = selectors@+0x48 (Caster),
+                    selector = GetHealTargets(),
+                    amount   = ConfigVar(0x20 hpToHeal),
+                    options  = HealBehaviourOptions.ForHeal)
+        res  = Resurrect(targets   = <GetResurrectTargets inline>,
+                         tiles     = CanAddUnit(AdjacentTiles(selectors@+0x50)),
+                         hp        = ConfigVar(0x1d hp),
+                         healType  = 0,
+                         abilityType = Nullable(AbilityType.op_Implicit(abilityState)),
+                         options   = false)
+        return AActiveAbility.Execute(this, op_BitwiseAnd(heal, res))
+
+    `Execute` PLAIN (PAS `ExecuteAtomic`, aucun `Group`) -> aucun `AtomicGroup`. `op_BitwiseAnd` =
+    `CombinedBehaviour` (sequence gauche->droite) : le SOIN part AVANT la resurrection. L'ordre est
+    load-bearing pour le RNG -- `Heal` est deterministe, mais il peut soigner une unite dont la mort
+    changerait... non : il ne ressuscite personne. Ce qui l'est vraiment, c'est que les deux
+    `PickRandomly` de la resurrection consomment le PRNG APRES le soin.
+
+    ⚠ FABRIQUE D'OPTIONS **LUE**, pas devinee :
+    `IdunBattle.Entities.Behaviours.HealBehaviourOptions$$ForHeal` -> `(scope 0, removeEffects 1)`.
+    Ce n'est PAS `ForRegenerate` (`(1, 0)`), et les deux ne sont pas interchangeables : `scope 1`
+    activerait le cap de groupe `GetGroupUnitHealLimit` de `PredictHeal` et `removeEffects 0`
+    supprimerait le disjunct `HasNegativeUnitEffect` du gate.
+
+    ⚠ `takesImmediateTurn = false` (le dernier argument de `DSLBehaviors$$Resurrect`, litteral `0`
+    au decompile) = le « and are unable to act on this turn » de l'i2. C'est ce booleen qui fait
+    prendre a `ResurrectUnitOperation` sa branche `MarkUnitAsNoActionAvailable` au lieu du
+    `RemoveTurnFlags` de l'Ambush genestealer."""
+    heal = Heal(rites_of_restoration_heal_targets(), heal_amount,
+                scope=0, remove_effects=True)             # `HealBehaviourOptions$$ForHeal`
+    res = Resurrect(rites_of_restoration_resurrect_targets(nr_of_heroes, nr_of_summons),
+                    rites_of_restoration_resurrect_tiles(), resurrect_hp,
+                    heal_type=0, immediate_turn=False)
+    return op_and(heal, res)                              # `op_BitwiseAnd` : soin PUIS resurrection
+
+
+class RitesOfRestorationAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$ExecuteBehaviour`
+    (id 1039, `adeptHospitaller` « Isabella », Adepta Sororitas -- 4 porteurs, dont 1 lineup et
+    3 npc).
+
+    ⚠ CATEGORIE REELLE = **HEAL + RESURRECT**, et l'audit `docs/rl/combat-ability-coverage.md`
+    n'annoncait que `HEAL` -- sa colonne derive du `damageProfile` de l'ARME du porteur, pas du
+    behaviour. Le volet RESURRECT est la moitie qui n'existait dans AUCUN arbre porte : le runner
+    avait bien l'Operation (`operations/resurrect.py`, atteinte par le SEUL trigger Ambush
+    genestealer), mais aucune feuille DSL `Resurrect` -- elle est ajoutee par cette tranche
+    (`behaviours/lifecycle.py`).
+
+    AVANT ce port, 1039 etait un **NO-OP SILENCIEUX** : absente d'`ABILITY_CLASSES`,
+    `AbilityHandler.visit_ActiveAbilityMessage` rendait `ported: False` -- 0 soin, 0 resurrection,
+    aucune erreur, alors que la face DECISION (`RitesOfRestorationPlaybook`,
+    `playbook/noncomparable/heals.py`) etait, elle, deja portee et SCORAIT le cast.
+
+    i2 : « Heals herself and all adjacent friendly units for {hpToHeal} Health. Resurrects
+    {nrOfHeroes} random friendly Imperial Character and up to {nrOfSummons} random friendly Imperial
+    Summons that have been defeated in this battle. Resurrected units appear in free adjacent hexes
+    with {hp} Health and are unable to act on this turn. Only affects non-Mechanical units. »
+
+    Renvoie {ability, caster, target, heal_amount, resurrect_hp, heals, resurrections, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.RitesOfRestoration)   # 1039
+    ABILITY_ID = RITES_OF_RESTORATION_ID
+
+    # GATE DE CIBLE. `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$.ctor`
+    # -- forme « FLAGS DIRECTS » (`IdunBattle.Core.Services.TargetingOptions$$.ctor`, le 5e argument
+    # atterrit tel quel a `options+0x28` = Rules) : le litteral EST le masque effectif, ce n'est ni
+    # l'overload PRESET+FLAGS ni une recopie de champ statique.
+    #     TargetingOptions..ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x8508, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)
+    #       isSelfCasting    = 1
+    #       range            = `TargetingRange` statics+0x30 = RANGE_ADJACENT
+    #       forceMeleeTarget = 1 = RangedBool.False
+    #       rules            = 0x8508
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x0008  AddCasterIfMatchesDynamicRule -> route vers `TargetingQuery$$GetCasterNotAddedReason`,
+    #             qui consulte `GetDynamicInvalidCasterReason` (porte ci-dessous) ;
+    #     0x0100  TargetIsHealable   -> `AttackQuery$$EntityCanBeHealed` (porte) ;
+    #     0x0400  TargetIsFriendly   -> ALLIE uniquement (c'est un SOIN, pas une offensive) ;
+    #     0x8000  CasterIsPossibleTarget -> le caster est une cible legale (il se soigne).
+    # ⚠ Ce masque a ete RE-LU au decompile a l'occasion de cette migration ; il est bit-identique a
+    # celui qui vivait dans `TARGETING_OPTIONS_UNPORTED` (`targeting.py`), d'ou la ligne est retiree
+    # par le CONTRAT DE DISJONCTION (une ability a UNE source de masque, jamais deux).
+    # ⚠ Voisin trompeur : 1002 CombatRestoratives, meme famille de soin adjacent, porte `0x8500` --
+    # le MEME masque MOINS `AddCasterIfMatchesDynamicRule`. Les deux sont lus separement.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.AddCasterIfMatchesDynamicRule
+        | TR.TargetIsHealable
+        | TR.TargetIsFriendly
+        | TR.CasterIsPossibleTarget),
+        self_cast=True, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_caster_reason(self, state: "State", caster_id: int) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$
+        GetDynamicInvalidCasterReason(caster, casterTiles)` -- MIRROR 1:1 du decompile :
+
+            entities   = AbilityEntities(caster, caster, caster, caster, ..., casterTiles, ...)
+            healCount  = Count( GetHealTargets().Select(entities) )
+            resCount   = Count( (UnitsWithTrait(possible, 0x2) + UnitsWithTrait(possible, 0x10))
+                                .Select(entities) )
+            tileCount  = Count( CanAddUnit(AdjacentTiles(selectors@+0x50)).Select(entities) )
+            canRes     = resCount > 0 && tileCount > 0
+            if (healCount < 1) return canRes ? 0 : 2;
+            return 0;
+
+        soit « le caster est un cast VALIDE ssi il a au moins une cible a soigner, OU au moins une
+        cible a ressusciter ET une tuile libre ou la poser ». Le `2` rendu est le litteral
+        `TargetingRule.TargetMatchesDynamicRule` -- le natif rend le code de la regle-DELEGUE tel
+        quel (meme convention que `FearOfTheUnseenAbility$$GetDynamicInvalidCasterReason`, qui rend
+        `4`). On le transcrit VERBATIM : c'est bien `2` ici, pas `4`, alors que c'est une regle de
+        CASTER dans les deux cas.
+
+        ⚠ ORDRE INVERSE, transcrit tel quel : ce corps additionne `Summon` PUIS `Hero`, la ou
+        `GetResurrectTargets` / `ExecuteBehaviour` font `Hero` PUIS `Summon`. Inobservable ici (seule
+        la cardinalite est lue), decisif la-bas (l'ordre du zip avec les tuiles).
+
+        ⚠ CE CORPS N'EST PAS `GetResurrectTargets` : il ne passe PAS par les deux `PickRandomly` (il
+        compte le vivier COMPLET, pas l'echantillon tire). Le confondre ferait dependre la legalite
+        du cast d'un tirage.
+
+        QUI L'INVOQUE : le bit `AddCasterIfMatchesDynamicRule` (0x8) du masque, via
+        `targeting.get_caster_not_added_reason` -- **pas** `get_invalid_caster_reason` (le bit
+        `CasterMatchesDynamicRule` 0x4 n'est pas dans le masque). Le cast etant SELF-CASTE, la cible
+        est le caster lui-meme, donc ce chemin est bien celui qui decide."""
+        entities = entities_from_state(state, caster_id, caster_id)
+        heal_count = len(rites_of_restoration_heal_targets().evaluate(entities) or [])
+        if heal_count >= 1:
+            return 0
+        possible = rites_of_restoration_possible_resurrect_targets()
+        res_count = len(Union(UnitsWithTrait(possible, int(UnitTrait.Summon)),
+                              UnitsWithTrait(possible, int(UnitTrait.Hero)))
+                        .evaluate(entities) or [])
+        tile_count = len(rites_of_restoration_resurrect_tiles().evaluate(entities) or [])
+        return 0 if (res_count > 0 and tile_count > 0) else int(TR.TargetMatchesDynamicRule)
+
+    def _amounts(self, state: "State", caster_id: int) -> tuple:
+        """(hpToHeal, hp, nrOfHeroes, nrOfSummons) -- les DEUX `ConfigVar` per-level et les DEUX
+        `GetNumberConstant`, lus SEPAREMENT (jamais un scalaire fitte) :
+          * `ConfigVar(0x20)` = `hpToHeal` -> le SOIN ;
+          * `ConfigVar(0x1d)` = `hp`       -> les PV de retour des ressuscites.
+        Les DEUX sont dans `variablesAffectedByRarityBonus` -> scalees par
+        `AbilityVariablesMultiplierPercentage` (mirror `ability_var(..., multiplier_pct=mult)`).
+        Les deux CONSTANTES (`nrOfHeroes` = 1, `nrOfSummons` = 2) sont lues de la config, jamais
+        recopiees : c'est la seule voie qui reste juste quand l'equilibrage bouge."""
+        e = state.get_entity(caster_id)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        cctx = sc.ctx if sc is not None else None
+        level = getattr(cctx, "active_ability_level", None)
+        mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+        heal = int(ability_var(self.ABILITY_ID, "hpToHeal", level, multiplier_pct=mult) or 0)
+        hp = int(ability_var(self.ABILITY_ID, "hp", level, multiplier_pct=mult) or 0)
+        heroes = int(ability_var(self.ABILITY_ID, "nrOfHeroes", is_constant=True) or 0)
+        summons = int(ability_var(self.ABILITY_ID, "nrOfSummons", is_constant=True) or 0)
+        return heal, hp, heroes, summons
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        heal_amount, resurrect_hp, heroes, summons = self._amounts(state, caster_id)
+        entities = entities_from_state(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        rites_of_restoration_tree(heal_amount, resurrect_hp, heroes, summons) \
+            .execute(entities, ectx)
+        heals = [p for n, p in ectx.emitted if n == "Heal"]
+        res = [p for n, p in ectx.emitted if n == "Resurrect"]
+        return {"ability": RITES_OF_RESTORATION_ID, "caster": caster_id, "target": target_id,
+                "heal_amount": heal_amount, "resurrect_hp": resurrect_hp,
+                "nr_of_heroes": heroes, "nr_of_summons": summons,
+                "heals": heals, "resurrections": res, "dsl": True}

@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **131**
-- **NO-OP silencieux** (a porter) : **44**
-- Ventilation NO-OP : **DAMAGE**=20, **EFFECT/BUFF**=15, **SUMMON**=4, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **132**
+- **NO-OP silencieux** (a porter) : **43**
+- Ventilation NO-OP : **DAMAGE**=20, **EFFECT/BUFF**=15, **SUMMON**=4, **HEAL**=2, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (44)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (43)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -69,7 +69,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1211 | RitesOfMorkai | EFFECT/BUFF | 1 | L |
 | 1106 | WarHowl | EFFECT/BUFF | 1 | L |
-| 1039 | RitesOfRestoration | HEAL | 4 | LN |
 | 1175 | BloodChalice | HEAL | 1 | L |
 | 1231 | TitanhammerSquad | HEAL | 1 | L |
 | 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
@@ -79,7 +78,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (131)
+## PORTED (registry) (132)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -193,6 +192,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1082 | InspiredToGreatness | HEAL | 5 | LN |
 | 1002 | CombatRestoratives | HEAL | 4 | LN |
 | 1037 | RevitalizingMalignancy | HEAL | 4 | LN |
+| 1039 | RitesOfRestoration | HEAL | 4 | LN |
 | 1117 | DefendTheDivineWork | REPAIR | 6 | LN |
 | 1112 | AlphaWarrior | SUMMON | 8 | LN |
 | 1121 | ItItches | SUMMON | 7 | LN |

@@ -35,7 +35,7 @@ from .units import (  # noqa: F401
     AdjacentFriends, SurroundingEnemies, SurroundingFriends, SortByFormula, SortByDistance,
     Alive, UnitsThatCanHaveActiveAbilityReset, Unobscured, UnitsDamagedThisPhase,
     ValidNormalAttackTargets,
-    UnitsAffectedByHealType, Repairable, UnitsWithEffectsOfType, UnitsWithNegativeEffects,
+    UnitsAffectedByHealType, Healable, Repairable, UnitsWithEffectsOfType, UnitsWithNegativeEffects,
 )
 
 from .tiles import (  # noqa: F401
@@ -76,7 +76,8 @@ __all__ = [
     "SurroundingEnemies", "SurroundingFriends", "SortByFormula", "SortByDistance", "Alive",
     "UnitsThatCanHaveActiveAbilityReset", "Unobscured", "UnitsDamagedThisPhase",
     "ValidNormalAttackTargets",
-    "UnitsAffectedByHealType", "Repairable", "UnitsWithEffectsOfType", "UnitsWithNegativeEffects",
+    "UnitsAffectedByHealType", "Healable", "Repairable", "UnitsWithEffectsOfType",
+    "UnitsWithNegativeEffects",
     "Owner", "PickRandomly", "Randomize",
     "Caster", "AllUnits", "AllAliveUnits", "AllTiles", "Children",
     "Parent", "LastUnitAttackedBy", "AdjacentTiles", "TileUnique", "CanAddUnit",

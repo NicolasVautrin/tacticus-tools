@@ -1058,6 +1058,54 @@ class UnitsAffectedByHealType(TargetsSelector):
                 if is_affected_by_heal_type(ht, u, self.heal_type)]
 
 
+class Healable(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$Healable(caster, targets, scope)` ->
+    `IdunBattle.Entities.Selectors.HealableUnitsSelector$$Select` -- MIRROR du decompile :
+
+        caster = <+0x18>.SelectSingle(entities, 3)            # slot 7 = selecteur MONO du soigneur
+        foreach entity in <+0x20>.Select(entities, 3) :       # slot 4 = les cibles candidates
+            if (query<+0x30>.<slot 0x11>(caster, entity, this.scope@+0x28, 1))
+                result.Add(entity)
+
+    Le slot 0x11 est `IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed`, surcharge a QUATRE
+    arguments (caster en tete) -- la MEME que le gate d'`IdunBattle.Operations.HealUnitOperation$$
+    Execute`. Le dernier argument (`removeEffects`) est le LITTERAL `1` du selecteur, pas un champ :
+    le selecteur ne porte que `scope` (`+0x28`).
+
+    ⚠ ASYMETRIE LUE, pas deduite : le jumeau `Repairable` juste en dessous appelle la surcharge a
+    TROIS arguments (SANS caster). Recopier son patron ici ferait tomber le disjunct
+    `caster != null && HasFlag(caster, 0x17 CanHealFullHealthUnits)`, qui est precisement ce qui rend
+    une cible a PLEINS PV soignable. D'ou un accesseur DISTINCT (`ctx.entity_can_be_healed`, 4 args).
+
+    Le port DELEGUE a l'unique mirror deja en place (`abilities/attack_query.entity_can_be_healed`).
+    Accesseur absent -> [] (aucun verdict d'eligibilite : degradation fidele, jamais un
+    « tout passe »).
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$
+    GetHealTargets` (`Healable(Caster, Caster + AdjacentFriends(Caster, CasterTile, unique), 0)`).
+
+    ⚠ CE NOEUD N'EST PAS L'ALTERNATIVE DE `Heal(guard=healable_heal_type_0)` : les deux mirrorent
+    des etages NATIFS differents. Le `guard` de la feuille porte le pre-filtre `HealableUnitsSelector`
+    d'un call-site qui n'a PAS de noeud `Healable` dans son arbre (1002/1037, ou le natif applique le
+    wrapper AVANT le split de trait) ; ce selecteur-ci porte le noeud quand il EST dans l'arbre. Un
+    call-site qui a les deux les ecrit tous les deux -- ils sont idempotents l'un sur l'autre."""
+    def __init__(self, source: TargetsSelector, caster: TargetsSelector | None = None,
+                 scope: int = 0, unit_selection_type: int = 3):
+        self.source, self.caster = source, caster
+        self.scope = int(scope)
+        self.unit_selection_type = int(unit_selection_type)
+
+    def select(self, ctx):
+        f = getattr(ctx, "entity_can_be_healed", None)
+        if f is None:
+            return []
+        # `<+0x18>.SelectSingle` : le SOIGNEUR. `None` (defaut) = `Caster`, ce que passe le seul
+        # call-site lu -- resolu comme partout ailleurs (`Friends.reference`, `AdjacentFriends`).
+        healer = resolve_unit(self.caster, ctx) if self.caster is not None else ctx.caster
+        return [u for u in _units_of(self.source, ctx)
+                if f(healer, u, self.scope, True)]           # `removeEffects` = litteral 1 du selecteur
+
+
 class Repairable(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$Repairable(entities, scope, removeEffects, unitsToTarget)`
     -> `IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select` -- MIRROR du decompile :

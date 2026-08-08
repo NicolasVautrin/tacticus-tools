@@ -24,7 +24,8 @@ from engine.runner.messages import ActiveAbilityMessage, FinishUnitTurnMessage
 from engine.runner.operations.turnflow import (FinishUnitTurnOperation, StartTurnOperation,
                                                add_flags_after_ability_execution)
 from engine.runner.abilities.base import (sets_end_turn_flags_for, sets_active_ability_used_flag_for,
-                                          NO_END_TURN_ABILITY_TYPES)
+                                          NO_END_TURN_ABILITY_TYPES,
+                                          NO_ABILITY_USED_FLAG_ABILITY_TYPES)
 from engine.runner.abilities.handler import AbilityHandler
 
 
@@ -135,8 +136,16 @@ def test_handler_armorium_cherub_does_not_end_turn():
 def test_handler_unported_ability_outside_family_ends_turn():
     st = _mk_state()
     h = AbilityHandler(st)
-    # 1039 = un ActiveAbilityType quelconque HORS famille et HORS registre porte.
-    h.visit_ActiveAbilityMessage(ActiveAbilityMessage(caster_id=1, target_id=2, ability_type=1039))
+    # L'id est DERIVE, plus fige : il faut un `ActiveAbilityType` HORS famille turn-flow ET HORS
+    # `ABILITY_CLASSES`, et notre propre cadence de portage perime tout litteral choisi ici -- 1039
+    # `RitesOfRestoration`, qui tenait ce role, est entree au registre (#564) et rendait ce test
+    # ROUGE en le faisant passer par le chemin PORTE.
+    from engine.runner.abilities.handler import ABILITY_CLASSES
+    from engine.entities.active_ability_type import ActiveAbilityType
+    aid = next(int(a) for a in sorted(ActiveAbilityType, key=int)
+               if int(a) not in ABILITY_CLASSES and int(a) not in NO_END_TURN_ABILITY_TYPES
+               and int(a) not in NO_ABILITY_USED_FLAG_ABILITY_TYPES and int(a) > 1000)
+    h.visit_ActiveAbilityMessage(ActiveAbilityMessage(caster_id=1, target_id=2, ability_type=aid))
     fl = st.get_entity(1).get_component(UnitFlagsComponent)
     assert h.last["ported"] is False
     assert h.last["flags"]["turn_finished"] is True

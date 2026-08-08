@@ -565,6 +565,23 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return bool(_ecbr(state, None, int(uid), scope=int(scope),
                           remove_effects=bool(remove_effects)))
 
+    # `ctx.entity_can_be_healed` (slot 0x11 d'`IAttackQuery`, lu par
+    # `IdunBattle.Entities.Selectors.HealableUnitsSelector$$Select`) : DELEGUE a l'unique mirror du
+    # predicat (`abilities/attack_query.entity_can_be_healed`). Contrairement au jumeau REPAIRABLE
+    # ci-dessus, le selecteur HEALABLE appelle la surcharge a QUATRE arguments -- il resout d'abord son
+    # PROPRE selecteur de caster (`HealableUnitsSelector+0x18`, `Caster` sur le call-site lu
+    # `RitesOfRestorationAbility$$GetHealTargets`) et le passe en tete. Le caster est donc un ARGUMENT,
+    # pas un `None` code en dur : `HasFlag(caster, CanHealFullHealthUnits)` est le disjunct qui
+    # depend de lui.
+    def _entity_can_be_healed(caster_unit, target_unit, scope=0, remove_effects=True):
+        from ..attack_query import entity_can_be_healed as _ecbh
+        tid = (target_unit or {}).get("id")
+        if tid is None:
+            return False
+        cid = (caster_unit or {}).get("id") if isinstance(caster_unit, dict) else None
+        return bool(_ecbh(state, None if cid is None else int(cid), int(tid),
+                          scope=int(scope), remove_effects=bool(remove_effects)))
+
     # `ctx.pick_randomly` (`IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select`) : le noeud
     # DSL `PickRandomly` n'a pas acces au PRNG de bataille -> il passe par cet accesseur, qui delegue
     # au foyer UNIQUE de la boucle native (`abilities/loki/splash._pick_randomly_n`, loi #130/#215 :
@@ -658,6 +675,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       is_in_team_aura=_is_in_team_aura,
                       can_have_active_ability_reset=_can_have_active_ability_reset,
                       entity_can_be_repaired=_entity_can_be_repaired,
+                      entity_can_be_healed=_entity_can_be_healed,
                       pick_randomly=_pick_randomly,
                       sort_tiles_by_utility=_sort_tiles_by_utility,
                       # `has_effect_of_type` reste NON BRANCHE : la CATEGORIE d'un effet

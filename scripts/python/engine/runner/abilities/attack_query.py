@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Optional
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 from ..components import HealthComponent
+from ..components import UnitComponent
 from ..components import UnitFlagsComponent
 from ..operations.triggers.revive_effect import is_affected_by_heal_type as _impl
 from .targeting import _is_machine
@@ -242,6 +243,65 @@ def entity_can_be_repaired(state: "State", caster_id, target_id, scope: int = 0,
     if int(scope) == 0:
         return True
     return not is_at_group_unit_heal_limit(state, target_id)
+
+
+def can_be_resurrected(state: "State", target_id, heal_type: int) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$CanBeResurrected(target, healType)` -- MIRROR 1:1 du
+    decompile (`rnca9r7q6c`) :
+
+        fled = UnitExtensions.HasFlag(target, 9 Fled);
+        if (UnitExtensions.HasFlag(target, 0x16 PreventResurrect))          return false;
+        if (!fled) {
+            if (UnitExtensions.GetStat(target, 5 Health, 0 Current) > 0)    return false;
+            if (!UnitExtensions.HasFlag(target, 6 Dead))                    return false;
+        }
+        return UnitExtensions.IsAffectedByHealType(target, healType)
+               && !UnitExtensions.HasTrait(target, 0x41a PermaDeath);
+
+    Ce n'est PAS un predicat d'`AttackQuery` mais un slot d'`IBattleQuery` (`<slot 0x31>`) ; il vit
+    ici parce que ses DEUX etages terminaux (`IsAffectedByHealType`, `HasTrait`) sont ceux de ce
+    module et qu'une deuxieme ecriture de `IsAffectedByHealType` serait un troisieme mirror du meme
+    natif. Ses DEUX consommateurs natifs l'appellent par ce slot, avec le MEME `healType` :
+
+      * `IdunBattle.Operations.ResurrectUnitOperation$$Execute` (gate #2, apres `IsDefeated`) --
+        c'est le point de branchement porte (`runner/operations/resurrect.py`) ;
+      * `IdunBattle.Entities.Behaviours.ResurrectBehaviour$$IsValidTarget` (et son jumeau
+        `u003CExecuteu003Eb__9_0`, la negation passee a `ListExtensions.Remove`) -- le pre-filtre du
+        behaviour DSL, porte par la feuille `Resurrect`.
+
+    ⚠ LA BRANCHE `fled` EST UN OU, PAS UN ET : une unite qui a FUI (`UnitFlag.Fled`) est
+    ressuscitable SANS etre morte ni a 0 PV -- le natif court-circuite les deux tests de mort pour
+    elle. Ecrit tel quel ; aucun chemin du port ne pose `Fled` sur un vivant, donc la branche est
+    inerte cote port et le rester est une MESURE, pas un oubli.
+
+    `heal_type` est un `IdunBattle.Entities.Enum.HealType` (0 = non-mecanique, 1 = mecanique) : c'est
+    lui qui separe les deux resurrections du build -- `RitesOfRestorationAbility$$ExecuteBehaviour`
+    passe `0` (i2 « Only affects non-Mechanical units ») et
+    `ResurrectionOrbAbility$$GetResurrectBehaviour` passe `1` (heros MECANIQUES). Le confondre
+    inverserait exactement l'ensemble des cibles."""
+    if target_id is None:
+        return False
+    tid = int(target_id)
+    e = state.get_entity(tid)
+    fl = e.get_component(UnitFlagsComponent) if e is not None else None
+    if fl is not None and fl.has(int(UnitFlag.PreventResurrect)):
+        return False
+    if not (fl is not None and fl.has(int(UnitFlag.Fled))):
+        hc = e.get_component(HealthComponent) if e is not None else None
+        if hc is not None and hc.hp is not None and int(hc.hp) > 0:
+            return False
+        # `HasFlag(target, 6 Dead)` : cote port le flag `UnitFlagsComponent.DEAD` n'est pose QUE par
+        # les chemins qui le mirrorent explicitement, alors que la mort d'une unite est portee par
+        # `UnitComponent.alive`. On lit donc les DEUX (disjonction), sans quoi le gate refuserait
+        # toute unite tuee par le pipeline de degat -- c'est-a-dire toutes celles que Rites vise.
+        uc = e.get_component(UnitComponent) if e is not None else None
+        dead = bool(fl is not None and fl.has(UnitFlagsComponent.DEAD)) or \
+            bool(uc is not None and not uc.alive)
+        if not dead:
+            return False
+    if not is_affected_by_heal_type(state, tid, int(heal_type)):
+        return False
+    return not _has_trait(state, tid, int(UnitTrait.PermaDeath))
 
 
 def get_owned_effect_is_active(state: "State", unit_id, effect_type: int,

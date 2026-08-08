@@ -762,16 +762,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 22
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 18
     #       dont hors-bloc (tete de table) ..... 4
-    #       dont bloc du pool (#433-r4) ........ 18
+    #       dont bloc du pool (#433-r4) ........ 14
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
-    #       FLAGS-DIRECTS  ..................... 9
-    #       PRESET+FLAGS   ..................... 5
+    #       FLAGS-DIRECTS  ..................... 7
+    #       PRESET+FLAGS   ..................... 4
     #       PRESET-SEUL    ..................... 0
-    #       STATIC-COPY    ..................... 8
-    #       (somme = 22)
+    #       STATIC-COPY    ..................... 7
+    #       (somme = 18)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -819,12 +819,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `runner/abilities/loki/foul_infusion.py::FoulInfusionAbility.TARGETING_OPTIONS` avec sa face
     #   COMBAT ; contrat de disjonction ci-dessus. (Le `range` y reste un DELEGUE
     #   `TargetingRange$$CustomRange(GetRange)` -> `custom_range_func()`, portee non derivable.)
-    # 1039 RitesOfRestoration -- `...Active.Loki.RitesOfRestorationAbility$$.ctor` :
+    # 1039 RitesOfRestoration -- MIGRE (#564) sur
+    #   `runner/abilities/sisterhood.py::RitesOfRestorationAbility.TARGETING_OPTIONS` avec sa face
+    #   COMBAT (`op_BitwiseAnd(Heal, Resurrect)`) ; contrat de disjonction ci-dessus. Le masque a ete
+    #   RE-LU au decompile avant migration et est bit-identique a celui qui vivait ici :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x8508, 0, 0)`.
-    ActiveAbilityType.RitesOfRestoration: TargetingOptions(rules=TR.AddCasterIfMatchesDynamicRule | TR.TargetIsHealable  # 1039
-                                 | TR.TargetIsFriendly | TR.CasterIsPossibleTarget,
-                           self_cast=True, range=RANGE_ADJACENT,
-                           force_melee_target=RANGED_BOOL_FALSE),
     # 1049 CrusadeOfWrath -- `...Active.Loki.CrusadeOfWrathAbility$$.ctor` :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x400, 0, 0)`.
     ActiveAbilityType.CrusadeOfWrath: TargetingOptions(rules=TR.TargetIsFriendly, self_cast=True, range=RANGE_FROM_CONFIG,  # 1049
