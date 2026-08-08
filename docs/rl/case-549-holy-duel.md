@@ -130,6 +130,11 @@ TRANSCRIT, bien que l'arbre n'attaque pas « en direct ».
   **controle** : le meme accumulateur contre une TIERCE unite ne porte AUCUN additif ;
 * rupture d'adjacence : deux bras geometriques (le meme push a une tuile pres), natif ET port
   concordants, et la cascade vide **les deux** duellistes.
+* **volet DEFENSEUR (1093)**, `--step defense` : apres le cast, le tour passe a l'adversaire et le
+  duelliste frappe le champion — il y est **CONTRAINT** par le `Taunted` que le cast lui a pose.
+  Degat RECU **port 1196 == natif 1196**, et le **contre-modele ECRIT** (la meme frappe avec
+  l'instance 1093 consommee) rend **2027** : la concordance est attribuable a l'effet, pas a une
+  compensation.
 
 **NON confronte** :
 
@@ -137,16 +142,30 @@ TRANSCRIT, bien que l'arbre n'attaque pas « en direct ».
   `tgt_id` que j'ai threade cote PREDICTION n'a **pas** ete confronte a `aiPlaybookPredict`
   (residu **#549-r1**). Degradation avant le threading : RESTRICTIVE (la prediction ignorait le
   `+extraDmg` et le `-dmgReduction` du duel).
-* **le `-dmgReduction` (1093) en situation** : le montage ne fait pas frapper le duelliste. Le gate
-  et la magnitude sont mirrores et lus, la contribution n'est pas mesuree contre le natif
-  (residu **#549-r1**).
 * **le gate (a) sur 1091** (`get_RemoveOnBondedEntityDeath = true`) : MESURE au natif, cable par
   derivation de la table, **pas** confronte live sur cet effet-la (il l'est sur l'effet 27).
 * **`EffectsState.on_turn_end`** ne cascade pas entre porteurs. Sans objet ici (1091 est permanent,
   ses enfants aussi par `SAME_TURNS`), donc laisse tel quel plutot qu'etendu a l'aveugle.
 
+## 7. DEUX rouges PREEXISTANTS de `master` traverses — un repare, un reduit
+
+Les deux sont declares dans `#547-r2` / `probe_547.NON_VERTS_DECLARES`, et les deux ont la MEME
+cause racine : `#BL-1020r` a inscrit `HeraldOfTheApocalypse` (1027) dans deux registres a cliquet
+sans y poser sa donnee.
+
+* `test_421_effect_active_gate_offline::test_the_probe_rail_covers_the_whole_registry` — **REPARE**.
+  `HeraldOfTheApocalypseExtraDamageRemove` etait au registre sans rail. Rail LU
+  (`...HeraldOfTheApocalypse_ExtraDamageEffect$$CreateRemoveEffectTrigger` existe, la classe n'a
+  AUCUN `CreateTargetTrigger`) -> ARRAYSET. Sa ligne SORT de `NON_VERTS_DECLARES` : une declaration
+  perimee masquerait le prochain rouge du fichier.
+* `test_462_r4b_r1_r1_defender_additive_carriers_offline::test_le_registre_des_producteurs_d_additif_defenseur_est_COMPLET`
+  — **REDUIT, pas repare**. `HolyDuel_DmgReduction` etait un producteur d'additif DEFENSEUR de plus,
+  donc ce port AGGRAVAIT le rouge ; il est desormais atteste avec sa mesure de COMBAT. Le SEUL
+  producteur restant est `HeraldOfTheApocalypseExtraDamageEffect`, qui exige son propre montage
+  (hors perimetre de ce cas). La declaration `#547-r2` le NOMME desormais.
+
 ## Residus
 
 * **#549-r1** — confronter la face DECISION du duel : `aiPlaybookPredict` sur le champion pendant un
-  duel actif doit porter le `+extraDmg` (1092) et le `-dmgReduction` (1093). Inclut le volet COMBAT
-  de 1093 (faire frapper le duelliste et mesurer la reduction).
+  duel actif doit porter le `+extraDmg` (1092) et le `-dmgReduction` (1093). Le volet COMBAT de 1093
+  est FERME (§6, `--step defense`).
