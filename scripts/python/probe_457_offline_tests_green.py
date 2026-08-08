@@ -890,6 +890,42 @@ def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shar
              (depuis or "(aucune)")[:8], (base or "(aucune)")[:8], comment))
 
 
+def _non_verdict_de_verdeur(constat: str) -> int:
+    """#547-r1 -- FOYER UNIQUE du refus de rendre `0` depuis une passe PARTIELLE.
+
+    LE VICE, MESURE. `--measure-missing` rendait **`rc = 0` en 2,8 s** sur un arbre portant
+    **23 tests offline rouges**, en affichant << les 261 fichier(s) du perimetre ont deja un poids
+    ET une entree d'empreinte, rien a mesurer >>. Ce mode est le geste joue EN PREMIER apres chaque
+    merge, et son `0` etait lu comme << l'offline est vert >>. Contre-epreuve EXERCEE
+    (`probe_547r1_mesure_missing_non_verdict.py`) : un `assert False` injecte dans un fichier de
+    test offline EXISTANT, commite dans un worktree temoin, le laissait **VERT**.
+
+    CE QU'IL MESURE, ET CE QU'IL NE MESURE PAS. `--measure-missing` juge la **COMPLETUDE** des
+    artefacts de selection (poids + entree d'empreinte) sur les fichiers NEUFS. Il ne joue jamais
+    un fichier deja mesure, **par construction et a dessein** : le lui faire jouer serait un
+    `--measure` complet (~976 s), paye a chaque merge par tout le monde. La verdeur d'un fichier
+    existant lui est donc **structurellement inaccessible**, et c'est un choix de COUT, pas un
+    oubli.
+
+    LE CORRECTIF EST DONC LE SILENCE SUR CET AXE, PAS UNE MESURE DE PLUS. Une passe partielle rend
+    `EX_NON_MESURE` -- la convention deja tenue par ce fichier pour << ce run n'a produit aucun
+    verdict sur le depot >> (CWD refuse, git muet, empreinte non produite). Elle garde `1` quand
+    pytest a VU un rouge parmi ce qu'elle a joue : la, le fait existe et se rapporte.
+
+    ⇒ **une passe partielle rend `1` ou `99`, JAMAIS `0`.** Il n'y a plus de lecture rassurante a
+    en tirer, ce qui est exactement l'etat des connaissances qu'elle produit.
+    """
+    print("[457] rc=%d -- CE MODE NE JUGE PAS LA VERDEUR DE L'ARBRE." % EX_NON_MESURE)
+    print("[457] %s." % constat)
+    print("[457] Il mesure la COMPLETUDE des artefacts de selection (poids + empreinte) sur les")
+    print("[457] fichiers NEUFS, et ne joue JAMAIS un fichier deja mesure -- par construction.")
+    print("[457] Pour un verdict de VERDEUR : `--since <ref>` (les fichiers IMPACTES),")
+    print("[457] `--depuis-ledger`, `--shard k/8` (tout le perimetre), ou le ledger versionne")
+    print("[457] qu'ils alimentent -- `probe_547_ledger_sans_verdict_non_vert.py`, qui rend le")
+    print("[457] verdict deja MESURE sans rien rejouer. (#547-r1)")
+    return EX_NON_MESURE
+
+
 def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
                    elapsed: float, poids_connus: dict, complete: bool = True,
                    ecrire_poids: bool = True) -> int:
@@ -1038,6 +1074,11 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
         print("[457] rc=%d -- l'arbre est VERT, mais l'EMPREINTE n'a pas ete produite "
               "(cf. ci-dessus)" % EX_NON_MESURE)
         return EX_NON_MESURE
+    if not complete:
+        # #547-r1 -- UNE PASSE PARTIELLE NE REND JAMAIS `0`. Voir `_non_verdict_de_verdeur`.
+        return _non_verdict_de_verdeur(
+            "les %d fichier(s) JOUE(S) sont verts ; les %d autres n'ont pas ete joues"
+            % (len(joues), len(perimetre) - len(joues)))
     return 0
 
 
@@ -1267,7 +1308,11 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
                   "mesurer" % (len(perimetre),
                                "une entree d'empreinte" if poids_absents
                                else "un poids ET une entree d'empreinte"))
-            return 0
+            # #547-r1 -- C'ETAIT LE CHEMIN DU `rc = 0` SUR UN ARBRE A 23 ROUGES. Rien n'a ete
+            # joue : la complétude est faite, la verdeur n'a pas ete regardee. Cf.
+            # `_non_verdict_de_verdeur`.
+            return _non_verdict_de_verdeur("AUCUN fichier n'a ete joue : la completude etait deja "
+                                           "acquise")
         if poids_absents:
             print("[457] --measure-missing : POIDS ABSENTS de ce checkout (%s introuvable -- ce"
                   " fichier est VERSIONNE, son absence est donc ANORMALE). Ce n'est PAS"
