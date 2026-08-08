@@ -14,10 +14,11 @@ fait RIEN.
       inventee ferait passer des gates de camp que le natif n'evalue pas ; et `visualId is None` est
       le discriminant par lequel le rayon de souffle reconnait une entite-tuile.
 
-  [3] LE RAYON EFFECTIF EST {1017, 1018}, ET C'EST UN CLIQUET -- pas un inventaire. Le backlog en
-      annoncait CINQ ; la mesure en rend DEUX (les seules dont l'arbre EVALUE `Target()` en regime
-      tuile). Toute ability qui ENTRE dans ce rayon sans avoir ete confrontee doit faire rougir :
-      c'est exactement le gisement que notre propre cadence de portage alimente.
+  [3] LE RAYON EFFECTIF EST {1017, 1018, 1057}, ET C'EST UN CLIQUET -- pas un inventaire. Le backlog
+      en annoncait CINQ ; la mesure en rendait DEUX (les seules dont l'arbre EVALUE `Target()` en
+      regime tuile), et `1057 GrotTank` s'y est AJOUTE avec le port #570. Toute ability qui ENTRE
+      dans ce rayon sans avoir ete confrontee doit faire rougir : c'est exactement le gisement que
+      notre propre cadence de portage alimente -- et il a mordu, comme prevu, sur cette entree-la.
 
   [4] LES DEUX SONT CONFRONTEES, et les valeurs figees ici sont celles MESUREES LIVE
       (`probe_287r12_confront_live.py`, board `MC1_67`, seed 777) :
@@ -26,6 +27,19 @@ fait RIEN.
           reste inchange). Le port d'AVANT ne posait RIEN ;
         * `1017` -- les 12 coups (6 sur la cible + 3 x 2 splash) sont bit-exacts contre le natif en
           regime TUILE ; le port d'AVANT en rendait **zero**.
+        * `1057 GrotTank` (#570) -- confrontee par `probe_570_grot_tank.py` etage E1 et par
+          `tests/engine/runner/test_grot_tank_live.py::test_grot_tank_spawns_on_the_targeted_tile`
+          (board `MC1_67`, seed 777). Son arbre est `Spawn(Caster@0x48, Target@0x60, unitId, opts)`
+          : le tile-selecteur EST le role `target`, donc l'entite-tuile en est le SUBSTRAT DIRECT --
+          natif et port posent le summon sur la MEME tuile, celle qui a ete ciblee, sur deux runs
+          independants. Le TEMOIN du no-op a ete OBSERVE, pas suppose : au premier passage du probe
+          le port rendait `spawned=[]` (la feuille iterait les CLES du dict d'entite-tuile) pendant
+          que le natif posait `orksNpc3GrotTank` en (1,1) a 7977 PV.
+          ⚠ La confrontation n'est PAS passee par `probe_287r12_confront_live.py` : ses deux volets
+          sont SPECIALISES (montage `astraBullgryn` / `astraSmnVoxcaster` injecte au catalogue) et
+          ne savent pas jouer 1057. C'est la meme QUESTION -- « le natif met-il l'entite-tuile sur
+          le role `target` ? » -- tranchee par le meme genre d'observable (une action qui n'a lieu
+          QUE si le role est materialise), sur le montage propre a cette ability.
 
   [5] `main_tile_id` SUIT L'ORDRE NATIF -- unite d'abord, tuile en REPLI.
       `IdunBattle.Entities.EntityExtensions$$GetMainTileId` essaie le composant de PIED, puis
@@ -87,12 +101,13 @@ from engine.runner.snapshot import load_state                              # noq
 FRAG_BOMB = int(ActiveAbilityType.FragBomb)                 # 1017
 VALKYRIE = int(ActiveAbilityType.ValkyrieStrike)            # 1018
 BASILISK = int(ActiveAbilityType.BasiliskBarrage)           # 1026
+GROT_TANK = int(ActiveAbilityType.GrotTank)                 # 1057
 VALK_EFFECT = 1022                                          # EffectType.ValkyrieStrike_Effect
 
 #: Le RAYON EFFECTIF, mesure : les abilities qui portent `TargetIsTile` ET dont l'arbre EVALUE le
 #: noeud `Target()` quand `target_id` designe une tuile. Toute entree neuve doit etre CONFRONTEE
 #: (cf. l'en-tete [3]) avant d'etre ajoutee ici.
-RAYON_CONFRONTE = {FRAG_BOMB, VALKYRIE}
+RAYON_CONFRONTE = {FRAG_BOMB, VALKYRIE, GROT_TANK}
 
 COLS = ROWS = 9
 POS_CASTER = (4, 1)
