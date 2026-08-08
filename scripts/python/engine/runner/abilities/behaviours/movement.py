@@ -78,6 +78,109 @@ class PushUnit(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class DisplaceUnitInAdjacentDirection(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$DisplaceUnitInAdjacentDirection(caster, target, vector)`
+    -- MIRROR du decompile, qui tient en trois lignes :
+
+        options = new DisplaceUnitBehaviourOptions();
+        options.<+0x10> = 1 ;  options.<+0x28> = vector          // Nullable<HexVector>
+        return new DisplaceUnitBehaviour(direction: 3, caster, target, options,
+                                         targetSelectionType: 2)
+
+    `direction = 3` = **AdjacentVector** : UN pas dans la direction du VECTEUR, la MEME pour toutes
+    les cibles -- cf. `operations/displace.py::DisplaceUnitOperation` (parametre `vector_dir`), ou
+    vit le mirror du calcul de destination et de l'ecrasement des steppables.
+
+    `vector` = un noeud FORMULE `IVectorFormula`. Son unique producteur porte est
+    `IdunBattleLogic.Entities.DSLFormulas$$VectorFromAdjacentTo(from, to, length)` ->
+    `IdunBattleLogic.Entities.VectorFormulas.FromToVectorFormula$$Calculate`, MIRROR :
+
+        from = <+0x10>.SelectTile(entities) ;  to = <+0x18>.SelectTile(entities)
+        if (from == null || to == null)  return <vecteur par defaut>          // statics
+        return (query.GetVector(from, to), this.<+0x20> /* = length */)       // slot 113
+
+    Le port passe la direction DEJA CALCULEE (`vector_dir`, index `EVENQ_*` 0..5) plutot qu'un noeud :
+    `_dir_index` EST le mirror porte de `GetVector` pour deux tuiles adjacentes, et il est deja le
+    foyer partage de la face DECISION (`playbook/noncomparable/it_itches.py` l'importe d'ici). Le
+    `length` du seul call-site vaut `1` -- un pas -- ce qui est exactement ce que `_step` applique.
+    `vector_dir = None` (from/to non resolus, ou non adjacents) -> AUCUN deplacement, mirror de la
+    branche `<vecteur par defaut>` du natif (dont `GetTileInDirection` ne rend aucune tuile).
+
+    `+0x10 = 1` est le `knockbackDamage` (meme champ que `PushToPrioritizedTiles` juste en dessous) :
+    quand la poussee est BLOQUEE, le degat de collision s'applique -- c'est le defaut du port
+    (`_apply_knockback_to`, branche `dest is None` de l'Operation), rien a threader.
+
+    Unique porteur : `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$ExecuteBehaviour`
+    (1121, `tyranParasiteOfMortrex`). Emet 'DisplaceUnitInAdjacentDirection' par unite. PUR."""
+    __slots__ = ("caster_sel", "targets_sel", "vector_dir")
+
+    def __init__(self, caster_sel: TargetsSelector, targets_sel: TargetsSelector,
+                 vector_dir: "int | None"):
+        self.caster_sel = caster_sel
+        self.targets_sel = targets_sel
+        self.vector_dir = vector_dir
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        caster = resolve_unit(self.caster_sel, entities)
+        if state is None or caster is None or self.vector_dir is None:
+            return OperationResult.ok()
+        caster_id = caster.get("id")
+        pushed = [u for u in _units_of(self.targets_sel, entities)
+                  if isinstance(u, dict) and u.get("id") is not None]
+        for u in sorted(pushed, key=lambda x: x["id"]):      # ordre de lecture = id (mirror Foreach natif)
+            res = DisplaceUnitOperation(caster_id, u["id"],
+                                        vector_dir=int(self.vector_dir)).execute(state, ectx.bus)
+            ectx.emit("DisplaceUnitInAdjacentDirection", caster=caster_id, pushed=u["id"],
+                      moved=bool((res or {}).get("moved")), to=(res or {}).get("to"),
+                      reason=(res or {}).get("reason"),
+                      killed=(res or {}).get("killed"),
+                      knockback=(res or {}).get("knockback"))
+        return OperationResult.ok()
+
+
+class Reserve(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$Reserve(unit, tile)` et son jumeau
+    `$$RemoveReservation(unit, tile)` : les DEUX allouent la MEME classe de behaviour, avec le MEME
+    couple d'arguments, et ne different QUE par le 3e argument du ctor (`0` pour `Reserve`, `1` pour
+    `RemoveReservation`) -- LU au decompile des deux corps, qui sont par ailleurs identiques.
+
+    **NO-OP PORTE, ET C'EST DECLARE.** Le port n'a AUCUN modele de reservation de tuile : la
+    docstring de `entities/selectors/tiles.py::CanAddUnit` le nomme deja comme residu
+    (`TileExtensions$$IsTileReservedForOtherUnit` et `$$IsTilePendingDrafting` sans equivalent).
+    La reservation native sert a EMPECHER qu'un autre etage du meme cast s'approprie une tuile
+    pendant qu'un premier etage compte dessus ; sans file d'operations differees ni drafting, le port
+    n'a pas de fenetre ou deux etages se disputeraient une tuile.
+
+    Le noeud existe pour deux raisons, aucune decorative : (1) l'arbre d'`ItItchesAbility` en porte
+    QUATRE, dont deux dans le sous-behaviour on-appearance du `Spawn` -- les taire rendrait l'arbre
+    illisible face au decompile, et le prochain lecteur croirait a un port incomplet ; (2) le jour ou
+    la reservation sera portee, le point d'ancrage est deja au bon RANG dans la sequence.
+
+    Il journalise (`ectx.emit`), donc un test PEUT observer sa presence et son ordre. Il ne mute
+    RIEN. PUR (stop=False)."""
+    __slots__ = ("unit_sel", "tiles_sel", "remove")
+
+    def __init__(self, unit_sel: TargetsSelector, tiles_sel: TargetsSelector, remove: bool = False):
+        self.unit_sel = unit_sel
+        self.tiles_sel = tiles_sel
+        self.remove = bool(remove)        # 3e arg du ctor : 0 = Reserve, 1 = RemoveReservation
+
+    def execute(self, entities, ectx):
+        u = resolve_unit(self.unit_sel, entities)
+        tiles = self.tiles_sel.evaluate(entities)
+        tiles = [] if tiles is None else (list(tiles) if isinstance(tiles, list) else [tiles])
+        ectx.emit("RemoveReservation" if self.remove else "Reserve",
+                  unit=(u or {}).get("id"), tiles=tiles)
+        return OperationResult.ok()
+
+
+def RemoveReservation(unit_sel: TargetsSelector, tiles_sel: TargetsSelector) -> Reserve:
+    """`IdunBattleLogic.Entities.DSLBehaviors$$RemoveReservation(unit, tile)` -- meme classe native
+    que `Reserve`, 3e argument du ctor a `1` (cf. la docstring de `Reserve`)."""
+    return Reserve(unit_sel, tiles_sel, remove=True)
+
+
 class PushToPrioritizedTiles(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLBehaviors$$PushToPrioritizedTiles(pushingUnit, pushedUnit,
     prioritizedTiles, knockbackDamage)` -- MIRROR du decompile :

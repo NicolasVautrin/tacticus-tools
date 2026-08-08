@@ -636,6 +636,29 @@ class AllDeadUnits(TargetsSelector):
         return [u for u in ctx.units if not _is_alive(u)]
 
 
+class DeadUnits(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$DeadUnits(entities)` -- le FILTRE, a ne pas confondre
+    avec `AllDeadUnits` ci-dessus (qui, lui, part du POOL de la bataille et n'a pas de source).
+    Le corps natif alloue son selecteur avec `(state, entities, 0)` : une SOURCE, pas un pool.
+
+    Garde les elements MORTS de `source`. `_units_of` normalise (dict seul -> `[dict]`).
+
+    ⚠ CE NOEUD N'A DE SENS QUE DERRIERE UN `Cache` -- et c'est LE couple que son unique porteur ecrit.
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$ExecuteBehaviour` construit
+    `Cache(Enemies(...))` UNE fois, POUSSE les unites (le displace TUE les steppables :
+    `IdunBattle.Operations.DisplaceUnitOperation$$Execute` tete de fonction -- `if (IsSteppable(target))
+    { Kill(caster, target, ForSteppable()); return; }`), PUIS lit `DeadUnits(<le meme Cache>)`. Sans la
+    memoisation, la source serait re-evaluee POST-displace et les morts en seraient deja exclus (le
+    `Units`/`AllAliveUnits` amont ne rend que des vivants) -> `DeadUnits` VIDE, `Kill` no-op, cadavres
+    laisses sur les tuiles, et le `CanAddUnit` aval ne trouverait aucune tuile libre. Mode de panne
+    SANS erreur."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        return [u for u in _units_of(self.source, ctx) if isinstance(u, dict) and not _is_alive(u)]
+
+
 class MechanicalUnits(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$MechanicalUnits(source, selectionType)` ->
     `IdunBattle.Entities.Selectors.MechanicalUnitsSelector$$Select` — MIRROR du decompile : garde les

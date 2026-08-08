@@ -391,6 +391,15 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # deduit du fait que le behaviour n'attaque pas (il retire le caster de ses tuiles et se pose un
     # effet).
     ActiveAbilityType.Burrowers: AbilityAttackType.Others,  # 1023
+    # 1121 ItItches (`tyranParasiteOfMortrex`) -- LITTERAL RELU au decompile, et il CONTREDIT tout
+    # ce qu'on croirait : `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = **0 = DirectTargetAttack**, alors que
+    # l'ability est classee SUMMON par l'audit, qu'elle INVOQUE bel et bien (`tyranSmnRipperSwarm`)
+    # et qu'elle n'inflige AUCUN degat direct (son seul degat possible est le knockback d'une poussee
+    # BLOQUEE). `SummonAndAttackTarget` (1) et `Others` (2) auraient tous deux paru plus naturels --
+    # c'est exactement pourquoi la regle est de LIRE le litteral, jamais de le deduire du nom, du
+    # profil de degat ni de la colonne d'audit.
+    ActiveAbilityType.ItItches: AbilityAttackType.DirectTargetAttack,  # 1121
     ActiveAbilityType.ValkyrieStrike: AbilityAttackType.Others,  # 1018
     ActiveAbilityType.SupremeCommander: AbilityAttackType.Others,  # 1028
     ActiveAbilityType.RevitalizingMalignancy: AbilityAttackType.Others,  # 1037
