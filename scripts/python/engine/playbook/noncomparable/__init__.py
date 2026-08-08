@@ -100,6 +100,7 @@ from .master_of_the_tutelaries import MasterOfTheTutelariesPlaybook
 from .supreme_commander import SupremeCommanderPlaybook
 from .hellfyre_missile_rack import HellfyreMissileRackPlaybook
 from .unstoppable_momentum import UnstoppableMomentumReworkedPlaybook
+from .mind_control import MindControlPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -193,6 +194,13 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         # `CanContinue` refuse) ; MIN_UTILITY **DYNAMIQUE** 2/1 selon
         # `BasePlaybook$$EnemyCouldBeDamagedWithNormalAttack(caster)` -- deux statiques au `.cctor`.
         UnstoppableMomentumReworkedPlaybook(),  # 1152 (IdunBattle.AI.Playbook.Loki.UnstoppableMomentumReworkedPlaybook$$EvaluateNonComparable)
+        # #598 -- face DECISION de `1164 MindControl`, ABSENTE jusqu'ici (la face COMBAT l'etait
+        # aussi : l'ability etait un NO-OP silencieux des DEUX cotes). Patron IDENTIQUE a
+        # `VexillaMagnificaPlaybook` : `IdunBattle.AI.Playbook.Loki.MindControlPlaybook$$
+        # EvaluateNonComparable` = `Fix64(GetStat(cible, 5 = HEALTH))`, `MIN_UTILITY = 1` (cctor).
+        # La base est `NonComparablePlaybook` -- LUE dans `classes.tsv`, le ctor gshared etant
+        # mislabele `ComparablePlaybook<...>` par ghidra.
+        MindControlPlaybook(),          # 1164 -- util = PV COURANTS de la cible ENNEMIE
     )
 }
 
@@ -263,4 +271,5 @@ __all__ = [
     "ThriceBlessedConflagrationPlaybook", "SendInTheNextWavePlaybook", "IncursionPlaybook",
     "MasterOfTheTutelariesPlaybook", "SupremeCommanderPlaybook",
     "HellfyreMissileRackPlaybook", "UnstoppableMomentumReworkedPlaybook",
+    "MindControlPlaybook",
 ]

@@ -15,6 +15,9 @@ dans `handler.py`/`abilities/__init__.py`, `from ..abilities.loki import X` dans
 - `stormcaller.py` — Stormcaller (1113, Njal) : zone de glace + 3x Psychic ennemis-sur-glace +
                  stun Flying (#217).
 - `imperative.py` — DoctrinaImperatives (Tan Gi'da) : toggle Protector <-> Conqueror (self-cast).
+- `mind_control.py` — MindControl (1164, `genesMagus`) : cast SANS attaque -- 2 debuffs sur la
+                 cible (-dmgReduction PLAT / +extraDmgPct % subis, 2 rounds) + un TAUNT bonde vers
+                 l'allie adjacent a la plus haute Health courante, gate par le trait `Immune`.
 
 Le vocabulaire DSL generique (combinateurs `entities/behaviours.py`, feuilles runner-couplees
 `../behaviours.py`, selecteurs/formules `entities/`) est IMPORTE par chaque module ; les arbres
@@ -63,6 +66,8 @@ from .facade import (SorcerousFacadeAbility, sorcerous_facade_tree,
                      sorcerous_facade_switch_tree, sorcerous_facade_target_selector)
 from .foul_infusion import (FoulInfusionAbility, foul_infusion_tree,
                             foul_infusion_buff_targets, foul_infusion_attack_target)
+from .mind_control import (MindControlAbility, mind_control_tree,
+                           mind_control_taunter_selector)
 
 __all__ = [
     # summon
@@ -117,4 +122,6 @@ __all__ = [
     # foul_infusion (FoulInfusion 1038, #500)
     "FoulInfusionAbility", "foul_infusion_tree", "foul_infusion_buff_targets",
     "foul_infusion_attack_target",
+    # mind_control (MindControl 1164, #598)
+    "MindControlAbility", "mind_control_tree", "mind_control_taunter_selector",
 ]

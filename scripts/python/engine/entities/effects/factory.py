@@ -84,6 +84,10 @@ from .loki.holy_duel import (
 )
 from .loki.martial_inspiration import MartialInspirationExtraDamageEffect
 from .loki.martial_superiority import MartialSuperiorityVisualEffect
+from .loki.mind_control import (
+    MindControlIncomingDamageBonusEffect, MindControlOutgoingDamageReductionEffect,
+    MindControlTaunterEffect
+)
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
 from .loki.reality_unbound import (
     RealityUnboundExtraMaxDamageEffect, RealityUnboundMovementEffect, RealityUnboundRangeEffect
@@ -529,6 +533,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ATTAQUES du porteur : -dmgReduction PLAT + -1 coup (plancher 1), 1 round (rem=2 capté).
     "FightingRetreatDmgReduction": FightingRetreatDmgReductionEffect,
     "FightingRetreatHitReduction": FightingRetreatHitReductionEffect,
+    # MindControl (active 1164, `genesMagus`) -- les TROIS effets de son arbre, cf.
+    # `entities/effects/loki/mind_control.py`. L'appariement id <-> classe est INVERSE de l'ordre
+    # des ctors dans le binaire : il vient de l'enum `EffectType`, jamais de l'ordre des symboles.
+    # 1349 : `ForAddition(get_OwnerIsCaster, Negative(ConfigVar 0x12 = dmgReduction))` = -582 PLAT
+    #        sur les attaques du porteur (face ATTAQUANT, aucun gate).
+    # 1350 : `ForPercentIncrease(get_OwnerIsTarget, ConfigVar 0xa = extraDmgPct)` = +20 % sur le
+    #        degat RECU (canal defenseur, face NATIVE attaquant -- `DEFENSE_MALUS_NATIVE_FACE`).
+    # 1367 : MARQUEUR de bond sur l'allie taunteur (`get_Range` = 1) -- aucune contribution.
+    "MindControl_OutoingDamageReduction": MindControlOutgoingDamageReductionEffect,
+    "MindControl_IncomingDamageBonus": MindControlIncomingDamageBonusEffect,
+    "MindControl_Taunter": MindControlTaunterEffect,
     # LightOfSanguinius (active 1177 bloodDante, effet 1376) -- pose sur la CIBLE + les ennemis qui
     # l'entourent : -dmgReductionPct% sur le degat que le PORTEUR inflige, DOUBLE quand le defenseur
     # du coup est a healthPct% de PV ou moins (IdunBattle.Entities.Effects.Loki.LightOfSanguinius_

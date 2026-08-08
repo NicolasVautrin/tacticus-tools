@@ -42,6 +42,12 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
                           armee », dont la SEULE semantique est `CreateActiveCondition =
                           NOT IsTurnOf(Owner)`. AUCUN consommateur logique de l'id (mesure
                           exhaustive) -> contribution de FIDELITE seule (case-366-r1).
+- `mind_control.py`     — les TROIS effets de `1164 MindControl` (`genesMagus`) : le debuff SORTANT
+                          `MindControl_OutoingDamageReduction` (1349, `-dmgReduction` PLAT, face
+                          attaquant), le debuff ENTRANT `MindControl_IncomingDamageBonus` (1350,
+                          `+extraDmgPct %` sur le degat RECU, canal defenseur / face NATIVE
+                          attaquant) et le MARQUEUR de bond `MindControl_Taunter` (1367, `get_Range`
+                          = 1, zero contribution).
 - `crit_aura.py`        — auras stat-mod dont le `StatType` ecrit chez la cible est le CRIT
                           (`PathOfCommand_ExtraCrit` 1107, eldarAutarch). Meme interface
                           `aura_stat_modification_*` que le volet block de LionHelm."""
