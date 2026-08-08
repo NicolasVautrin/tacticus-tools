@@ -316,11 +316,33 @@ nœud DSL d'`abilities/loki/strike.py`. Porter 1316 avant cet étage donnerait u
 exactement l'état de `1485` avant que #BL-1029r ne câble `On(0x26)` à la porte `UseActiveAbility`.
 Résidu **`#521-r7`**, avec la piste non vérifiée (`ActiveAbility$$GetCustomNormalAttack`).
 
-**Reste ouvert aussi** : `<DSLSelectors+0x50>` et `<+0x60>`, les deux opérandes de
-`GetSweepAdditionalTargets` (`AdjacentEnemies(Caster@+0x48, <+0x50>, 1) & AdjacentUnits(<+0x60>,
-1, 3)`). `DSLSelectors$$InitializeShared` les alloue par le même ctor `(state)` que les onze autres
-slots, et les noms de classe que ghidra leur donne sont des mislabels — l'identification demande la
-même méthode d'appariement que celle qui a nommé `<DSLTriggers+0x20>`.
+### Le sélecteur, lui, est ENTIÈREMENT lu — et il ne restait aucun trou
+
+`<DSLSelectors+0x50>` = **`CasterTileSelector`** et `<+0x60>` = **`TargetSelector`**, tous deux
+établis par ACCESSEUR NOMMÉ (la voie la plus forte, celle qui a aussi nommé `<DSLTriggers+0x20>`) :
+
+* `IdunBattleLogic.Entities.DSLTriggers$$get_CasterIsCasterTile` = `AreEqual(<+0x48>, <+0x50>)` et
+  `...$$get_OwnerIsCasterTile` = `AreEqual(<+0x30>, <+0x50>)` — dans les deux cas l'opérande gauche
+  est un slot DÉJÀ connu, donc le nom de la propriété nomme le droit, sans circularité ;
+* `IdunBattleLogic.Entities.DSLBehaviors$$Attack` passe `<+0x60>` en paramètre `target` d'
+  `AttackBehaviour..ctor`, et `...$$get_CasterIsTarget` = `AreEqual(<+0x48>, <+0x60>)`.
+  Contre-épreuve utile : `...$$get_OwnerIsTargetTile` = `AreEqual(<+0x78>, <+0x30>)` ⇒ la TUILE de
+  la cible est en `+0x78`, donc `+0x60` est bien l'UNITÉ.
+
+La surcharge appelée est `AdjacentEnemies(this, unit, unitTile, unique)` (tranchée par XREF
+entrante, pas par arité) : le 3ᵉ argument est un **SÉLECTEUR DE TUILES**, pas un scalaire — l'autre
+surcharge, `(this, unit, unique, selectionType)`, ferait de `<+0x50>` un `bool`, ce qui est exclu.
+D'où la lecture finale :
+
+```
+GetSweepAdditionalTargets = AdjacentEnemies(Caster@+0x48, CasterTile@+0x50, unique = 1)
+                          & AdjacentUnits(Target@+0x60, unique = 1, 3)
+```
+
+= **les ennemis adjacents à l'EMPREINTE du caster ET adjacents à la CIBLE**. Les deux sélecteurs
+sont déjà portés (`engine/entities/selectors/accessors.py`, qui documente la même table avec les
+mêmes preuves). ⇒ **il ne manque plus AUCUNE lecture pour porter 1316 ; il ne manque que l'étage
+`#521-r7`.**
 
 ## 6. Le cache du cliquet — un signalement que j'ai d'abord rendu FAUX
 
