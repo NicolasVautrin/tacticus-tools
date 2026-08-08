@@ -141,12 +141,80 @@ l'est plus** — trois déclarations restent.
 > **Le compte des rouges offline de `master` n'était donc pas 23, mais 23 + 5.** Aucun des cinq
 > n'était mentionné nulle part — sauf, très exactement, dans le ledger que personne ne lisait.
 
-## 6. Ce qui reste ouvert
+## 6. `#547-r1` FERMÉ — le geste de PR ne peut plus se lire comme un verdict
 
-* **`#547-r1`** — `probe_457 --measure-missing` rend **`rc = 0`** quand il n'a **rien** mesuré. La
-  convention de ce dépôt est `EX_NON_MESURE = 99` (« aucun verdict sur le dépôt »), et
-  `probe_457` la tient déjà pour ses autres pannes. Le foyer est `probe_457_offline_tests_green.py`,
-  qu'une autre tranche éditait au moment de cette mesure.
+`probe_457 --measure-missing` est le geste joué **en premier après chaque merge**. Il rendait
+`rc = 0` en 2,8 s sur l'arbre à 23 rouges, et ce `0` a été lu comme « l'offline est vert » pendant
+toute une campagne.
+
+**Le correctif est le SILENCE sur un axe qu'il ne mesure pas, pas une mesure de plus** — et c'est
+un résultat, pas un pis-aller. Ce mode juge la **complétude** des artefacts de sélection (poids +
+entrée d'empreinte) sur les fichiers **neufs** ; il ne joue **jamais** un fichier déjà mesuré, par
+construction et à dessein — le lui faire jouer serait un `--measure` complet (~976 s) payé à
+chaque merge par tout le monde. La verdeur d'un fichier **existant** lui est donc structurellement
+inaccessible.
+
+⇒ **une passe partielle rend `1` (pytest a vu un rouge parmi ce qu'elle a joué) ou
+`EX_NON_MESURE = 99`, jamais `0`.** C'est la convention que ce fichier tenait déjà pour ses autres
+non-verdicts (CWD refusé, git muet, empreinte non produite). Foyer unique
+`_non_verdict_de_verdeur`, qui **nomme** ce qu'il ne juge pas et renvoie vers ce qui juge.
+**`--measure` COMPLET garde son `0`** : lui joue tout le périmètre.
+
+**Contre-épreuve exercée, 4 étages** (`probe_547r1_mesure_missing_non_verdict.py`) :
+
+| étage | ce qu'il exerce | mesuré |
+| --- | --- | --- |
+| 1 | le discriminant est `complete` | COMPLET → `0`, PARTIEL → `99` |
+| 2 | le chemin « rien à mesurer » — celui du `rc = 0` historique | `99` |
+| 3 | **témoin réel** : `assert False` injecté dans un fichier de test offline **existant**, commité dans un worktree témoin | fichier bien rouge (`pytest rc=1`), geste → **`99`** |
+| 4 | **mutant du correctif** : on remet `return 0` | le `0` **revient** |
+
+L'étage 4 est ce qui établit que **c'est le correctif qui agit**, et non le hasard du montage.
+Garde : `test_547r1_mesure_missing_non_verdict_offline.py`, **9 tests**, dont le bras
+anti-sur-correction (`--measure` doit garder son `0`).
+
+⚠ **UN CLIQUET QUI LANCE LE LANCEUR DE TESTS QUI LE JOUE EST RÉCURSIF — mesuré, pas redouté.**
+Ce cliquet lance `probe_457` en sous-process ; `--measure-missing` joue les fichiers **sans entrée
+d'empreinte**, dont sa propre garde, qui rappelle le cliquet, qui relance `probe_457`…
+**~150 processus chaînés, un toutes les 12 s, 35 minutes durant**, arrêtés par un `taskkill /T`.
+Deux crans, et il a fallu les deux : le sous-process porte `TACTICUS_547R1_DANS_TEMOIN=1` et les
+trois tests qui relancent `probe_457` sautent quand ils la voient ; **et la garde est retirée du
+worktree témoin**, où elle n'a rien à faire — sa présence y faussait en plus l'étage 4, son propre
+contrôle d'ancrage la voyant mutée et rendant `1` pour une raison parasite.
+**Ce qui me l'a fait manquer deux fois** : les étages à worktree jugent l'arbre **commité**. Poser
+la garde sans la **commiter** laisse le témoin rejouer l'ancienne version — exactement ce que la
+docstring du cliquet prescrit, et que je n'avais pas appliqué à moi-même.
+
+⚠ **L'ORDRE DES CLIQUETS NE CHANGE PAS** — `--measure-missing` **d'abord**, `probe_486r15`
+**ensuite** (#486-r29) : le mode fait toujours son travail (compléter l'empreinte), donc la
+confrontation passe bien à deux sources. **Ce qui change est la lecture de son `rc` : `99` est
+désormais le retour NOMINAL**, et il ne doit pas être lu comme un échec.
+
+## 7. Le trou structurel, MESURÉ — `#547-r3`
+
+`probe_457` exclut les `*_live.py` **par choix** (la suite sature la session Frida partagée). Un
+test purement offline **hébergé** dans l'un d'eux n'entre donc ni dans son périmètre, ni dans le
+ledger, ni dans `probe_547`.
+
+**Mesure du 2026-08-08** — collecte pytest sur les **520** fichiers `*_live.py`, **3 322** items :
+
+| borne | critère | items | fichiers |
+| --- | --- | --- | --- |
+| **HAUTE** | clôture de fixtures ne touchant pas `LIVE_FIXTURE_ROOT` | **1 078** | 189 |
+| **BASSE** | nom de l'item terminé par `_offline` — déclaration explicite de l'auteur | **64** | 34 |
+
+La borne haute **surestime** : `probe_457` a déjà mesuré que des dizaines de `*_live.py` montent
+leur runner **à la main**, sans passer par la fixture. La borne basse est un **plancher sûr**.
+
+**Ce n'est pas théorique** : `test_pre_unit_ability_fork_live::test_port_reproduces_replaced_target_offline`
+était rouge sur `master` et a survécu à toute la campagne par ce trou — trouvé par un bisect, pas
+par un garde. Quatre fichiers sont même offline **en entier** (`live == 0`) et seulement mal
+nommés. Les trois issues, et pourquoi aucune n'est évidente, sont dans la ligne de backlog.
+
+## 8. Ce qui reste ouvert
+
+* ~~**`#547-r1`**~~ — **FERMÉ**, cf. section 6.
+* **`#547-r3`** — les **64** tests offline hébergés dans un `*_live.py`, cf. section 7.
 * **`#270-r4-r2-r2-r4`** (déjà nommé dans `test_270r4r2r2_differes_offline.py`) — le seuil des
   imports différés est à **239 pour un plafond de 224**. Déclaré dans `NON_VERTS_DECLARES` : le
   sweep touche 28 fichiers partagés et chaque site doit passer par

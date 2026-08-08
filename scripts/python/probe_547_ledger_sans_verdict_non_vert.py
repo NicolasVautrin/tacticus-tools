@@ -87,6 +87,13 @@ NON_VERTS_DECLARES = {
     # `origin/master` PUR (`4c3601ac`), et rend `rc=1` la aussi. Ils sont declares ici parce que
     # les NOMMER est precisement ce que ce cliquet existe pour faire -- les taire aurait ete
     # reproduire la faute qu'il garde. Chacun porte son assertion, pas une paraphrase.
+    "tests/engine/runner/test_421_effect_active_gate_offline.py":
+        "`test_the_probe_rail_covers_the_whole_registry` -- 1 failed / 12 passed sur `master` PUR. "
+        "Non diagnostique. Residu #547-r2. "
+        "⚠ CETTE LIGNE A DEJA DISPARU UNE FOIS, emportee par une edition voisine du dict -- et "
+        "c'est le CRAN 1 du cliquet qui l'a rattrapee au re-jeu, en la voyant revenir en "
+        "NON DECLAREE. Une declaration perdue ne se voit pas a la relecture ; elle se voit a "
+        "l'execution.",
     "tests/engine/test_448_r1_stormboyz_port_offline.py":
         "`test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE` -- 1 failed / 13 passed sur `master` "
         "PUR. Voisin THEMATIQUE du port de `SwornProtectorAbility$$GetSpawnTile` (#836), qui a "
