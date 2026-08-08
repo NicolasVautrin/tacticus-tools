@@ -236,7 +236,7 @@ Azkor worldEightbound vs 3 necroWarden, MC1_67)** :
 - Défenseur : les %-gates par profil des mods défenseur du coup bonus héritent du ctx de
   l'ARME (mirror prédiction) — un cas TerminatorArmour-vs-bonus-Psychic discriminerait.
 
-## 8. Tranche C — MasterOfTheTutelaries : LIVRÉE (COMBAT + DÉCISION portées ; décision non confrontée oracle)
+## 8. Tranche C — MasterOfTheTutelaries : LIVRÉE (COMBAT + DÉCISION portées et CONFRONTÉES)
 
 ### RE (décompilé, VAs §2 ; corrections MESURÉES live diag/probe 202c, runners 181-189)
 
@@ -326,6 +326,44 @@ chiffres — Horror `(5,8)` hp 3589, Screamer `(4,6)` hp 4487, B 2 spawns == 2 a
 C +0. Le probe lisait les pas de la cascade par ORDINAL ; la MAJ a retiré
 `StepType.RestoreArmorInfo` et décalé les cinq littéraux, ce qui faisait tomber A1/A2/A3/B **sans
 que le port soit en cause**. Les filtres passent désormais par `stream_events.step_id`/`group_id`.
+
+### La face DÉCISION, CONFRONTÉE à l'oracle (2026-08-08) — `probe_202r_decision_abraxas.py`
+
+Le volet C prévu au §5 (« walk avec Abraxas — le natif cast-il quand nous castons ? ») est **joué**.
+L'oracle est le **tour IA observé** (`engine_validate.py` marche `aiStepDryRun` et compare la
+décision du moteur sur le MÊME état), jamais `aiPredict`. Montage : `thousInfernalMaster` +
+`thousSorcerer` vs 2 `necroWarden` + `necroOverlord`, board `MC1_67`, seed `20203`.
+
+**Le pas décisif :**
+
+```
+step 12 u83: pos  native->(3, 4)      engine->(3, 4)      [EXACT]
+step 12 u83: ABIL native(ab=1096,tgt=44) engine=ability(ab=1096,tgt=44) [MATCH]
+```
+
+L'ability, la **tuile de spawn** et la position de cast concordent. Le playbook rend
+`{'target': 44, 'ability': 1096, 'to': (3, 4), 'pred': 141.0}`.
+
+**Et le sweep est DISCRIMINANT** — c'est la moitié qui manquerait sans elle, un `[MATCH]` sur un
+choix forcé ne départageant rien. Le probe instrumente `generate_candidates` pour capturer le sweep
+entier au lieu de son seul argmax :
+
+```
+64 couples (position, tuile de spawn) examinés, 62 passent les DEUX gates
+8 valeurs d'utilité distinctes : 11, 21, 31, 41, 111, 121, 131, 141
+sommet : nFree=6  nE2=2  bonus100=True  -> u = 1 + (2-1)*10 + (6-3)*10 + 100 = 141
+```
+
+Les trois termes de la formule native sont donc **exercés simultanément et non dégénérés** : `nE2`
+au-dessus de son plancher (2 > 1), `nFree` au-dessus du sien (6 > 3), et le bonus de 100 accordé.
+Agreement global du walk : positionnement 15/18 exact, abilities 17/21, stays 5/6.
+
+**Ce que la mesure NE tranche PAS — résidu `#202-r1`.** Plusieurs couples atteignent 141
+(`spawn=(3,5)` et `spawn=(2,4)` depuis plusieurs positions). Le port les départage par son
+`strict >` (« 1er max du sweep gagne ») et tombe sur la tuile du natif — mais **rien ici ne prouve
+que la règle de tie-break soit la bonne** : elle dépend de l'ordre d'énumération de `ctx.reach_nc`
+et de `_eligible_spawn_tiles`, dont l'ordre natif (`GetEligibleTargetsSelectable`) n'est pas
+établi. Un accord obtenu sur un ex aequo est un accord dont on ne connaît pas la cause.
 
 ### Résidus tranche C
 
