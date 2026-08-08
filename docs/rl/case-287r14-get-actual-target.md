@@ -198,3 +198,63 @@ du balayage** (mesuré) : ce sont ces branches-là qui dérivent en silence. Il 
 * **L'espace d'ids partagé tuile/entité** reste le résidu déjà nommé dans
   `operations/active_ability.py` : un id ambigu est tranché par l'ordre de `main_tile_id` (unité
   d'abord, tuile en repli — l'ordre natif), ce n'est pas une séparation des espaces.
+
+## 8. `#287-r14-r1` : le regime est MORT -- les 73 tetes ne seront PAS portees
+
+**Tranche le 2026-08-08.** Le residu proposait de porter la resolution sur la tete des **73**
+abilities qui divergent entre regime UNITE et regime TUILE par appel direct, en notant que ce
+regime n'est << emprunte par aucun appelant reel >>. La consigne etait de le VERIFIER d'abord.
+
+### Ce que la mesure rend
+
+| mesure | valeur |
+|---|---|
+| appels DIRECTS a `execute_behaviour` (hors `AbilityHandler`, 3+ args) | **181** |
+| dont l'expression de cible NOMME une tuile | **10** |
+| dont la classe est ecrite au site (attribution EXACTE) | **3** -- `DaemonicOrdnance` 1148, `DutyEternal` 1158, `SporeMineLauncher` 1145 |
+| ... et toutes trois sont `TargetIsTile` | **3 / 3** |
+| non attribuables (`cls().execute_behaviour(...)`) | **7**, tous dans les probes #287-r12 |
+| appelants qui passent une tuile a une ability **unit-target** | **0** |
+
+Les 7 non attribuables sont `probe_287r12_confront_live.py`, `probe_287r12_role_target_tuile.py`
+et son test : ils balaient **tout** le registre avec une tuile parce que **mesurer ce regime est
+leur objet**. Les compter en faute ferait rougir la mesure du regime sur la mesure elle-meme.
+
+**Verdict : branche morte.** Porter 73 tetes reviendrait a recopier 73 fois une ligne inerte et
+a s'en donner la maintenance -- une dette, pas un port.
+
+### Le cran qui manquait vraiment, et qui n'etait garde par rien
+
+Les 23 tetes existantes ne sont pas une couverture partielle arbitraire : elles couvrent le
+regime **symetrique**, celui qui EST emprunte -- passer une **UNITE** a une ability tile-target,
+ce que `test_valkyrie_strike_migration_live` grave. La ventilation, **derivee du registre** :
+
+| versant | entrees | resolvent en tete |
+|---|---|---|
+| `TargetIsTile` | 23 | **23** (0 manquante) |
+| non-tile | 106 | **0** (0 surplus) |
+| `TARGETING_OPTIONS` non RE-lu -- *pas mesure* | 0 | -- |
+
+Ce **23/23** n'etait garde par rien. C'est exactement la forme de `TARGETING_OPTIONS` et
+`ABILITY_ATTACK_TYPE` : **un zero que notre propre cadence de portage rouvre**, une ability
+tile-target neuve entrant au registre sans sa ligne. La degradation serait **PERMISSIVE et
+muette** -- l'ability opererait sur l'unite la ou le natif lui donne sa tuile, sans erreur.
+
+Livre : `probe_287r14r1_resolution_tile_target.py` (`--cliquet`) et
+`tests/engine/runner/test_287r14r1_resolution_tile_target_offline.py` (8 tests).
+
+Trois choix de conception, tous **derives** :
+
+* le versant `TARGETING_OPTIONS is None` a **son propre seau** -- le rabattre sur << non-tile >>
+  fabriquerait un zero (regle tri-etat de `host_inputs.py`). Il est vide aujourd'hui ; il est
+  quand meme imprime, et un test verifie que les trois seaux **partitionnent** le registre ;
+* le lecteur de la ligne est un **AST sur la source de la methode**, jamais un grep du fichier :
+  un module d'abilities en porte jusqu'a 40, un grep attribuerait a une classe la ligne de sa
+  voisine ;
+* l'attribution d'un appel est **exacte ou absente** : `XAbility().execute_behaviour(...)`
+  s'attribue, `cls().execute_behaviour(...)` non -- et les seconds sont **imprimes**, jamais
+  devines ni comptes propres.
+
+Le cliquet **assertionne son propre non-vide** (`0 tile-target` fait rougir), et l'etage 2
+verifie que le releve de sites-a-tuile n'est pas vide **avant** de conclure qu'il est conforme :
+un `hors_contrat == []` obtenu sur un releve vide ne prouverait rien.
