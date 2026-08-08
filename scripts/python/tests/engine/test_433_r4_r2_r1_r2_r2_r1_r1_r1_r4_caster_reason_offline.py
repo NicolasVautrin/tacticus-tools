@@ -35,19 +35,27 @@ GETEMRUNTZ = 1045
 def masque(monkeypatch):
     """Pose un masque CRAFTE sur `FAUX_ID`.
 
-    ⚠ LE SITE D'INJECTION EST LE MODULE **CONSOMMATEUR**, PAS LE MODULE SOURCE (#484). Tant que
-    `ability_caster_gates` importait `targeting_options_for` DANS le corps de la fonction, le nom
-    etait re-resolu sur `targeting` a chaque appel et patcher `TGT` suffisait. `492c722f`
-    (« hisser 624 imports differes d'engine/ au niveau module ») l'a hisse : le nom est desormais
-    COPIE dans le namespace d'`acg` a l'import, et un patch pose sur la source ne mord plus
-    JAMAIS. Les 21 tests de ce fichier ne mesuraient plus rien -- `invalid_caster_reason` rendait
-    `None` partout, faute de voir le masque crafte.
+    ⚠ LE SITE D'INJECTION SUIT LA FORME DE L'IMPORT, ET CELLE-CI A DEJA BASCULE DEUX FOIS. Le
+    foyer `targeting_options_for` est UNIQUE, mais la facon dont `ability_caster_gates` l'atteint
+    ne l'est pas -- et chaque bascule a casse ce fixture, dans un sens puis dans l'autre :
 
-    On patche donc `acg.targeting_options_for` -- exactement la ou le nom est LU (`acg` l'appelle
-    non qualifie, et c'est le meme binding pour `invalid_caster_reason` et `caster_gate_reason`).
-    `TGT` reste patche AUSSI : le foyer `targeting_options_for` est unique, et couvrir les deux
-    bindings rend ce montage insensible au sens dans lequel un futur refactor bougera l'import.
-    Aucune assertion, aucune valeur attendue n'a change.
+      * FORME C (import dans le CORPS de la fonction) -- le nom etait re-resolu a chaque appel,
+        patcher `TGT` mordait ;
+      * FORME A (`from ...targeting import targeting_options_for` au niveau module, `492c722f`
+        « hisser 624 imports differes d'engine/ ») -- le nom est COPIE dans le namespace d'`acg`
+        a l'import, patcher `TGT` ne mordait PLUS : les 21 tests de ce fichier ne mesuraient plus
+        rien, `invalid_caster_reason` rendant `None` partout (#484) ;
+      * FORME B (`import engine.runner.abilities.targeting as TGT` puis `TGT.targeting_options_for
+        (...)`, PR #827) -- l'etat COURANT, et celui que le CLAUDE.md prescrit. Patcher `TGT` mord
+        de nouveau, et `setattr(acg, "targeting_options_for", ...)` LEVE `AttributeError` : la
+        liaison n'existe plus. C'est cela qui a rendu `master` ROUGE sur ces 21 tests.
+
+    On patche donc `TGT.targeting_options_for` -- LE FOYER -- et on verifie que le masque atteint
+    `acg` par une mesure de COMPORTEMENT, jamais par la forme de son import : `invalid_caster_reason`
+    rend `None` quand le masque n'a PAS ete lu, un ENTIER quand il l'a ete
+    (`test_un_masque_NON_RE_LU_rend_None_pas_zero` garde ce discriminant, sans ce fixture). La
+    garde survit donc a la PROCHAINE bascule de forme, quel qu'en soit le sens -- ce qu'une garde
+    ecrite sur un binding nomme ne pouvait pas faire.
     """
     orig = TGT.targeting_options_for
 
@@ -57,12 +65,13 @@ def masque(monkeypatch):
                 return TargetingOptions(rules=int(rules))
             return orig(aid)
         monkeypatch.setattr(TGT, "targeting_options_for", _f)
-        monkeypatch.setattr(acg, "targeting_options_for", _f)
-        # GARDE D'INERTIE : sans elle, un nouveau deplacement de l'import rendrait ces tests
-        # silencieusement vacueux -- c'est EXACTEMENT ce qui vient de se produire.
-        assert acg.targeting_options_for(FAUX_ID).rules == int(rules), (
+        # GARDE D'INERTIE, en COMPORTEMENT : sans masque lu, `invalid_caster_reason` rend `None`
+        # (cf. `test_un_masque_NON_RE_LU_rend_None_pas_zero`). Un entier prouve donc que le masque
+        # crafte a traverse jusqu'a `acg`. Sans elle, un deplacement de l'import rendrait ces
+        # tests silencieusement vacueux -- c'est deja arrive.
+        assert acg.invalid_caster_reason(FAUX_ID, None) is not None, (
             "le masque crafte n'atteint pas `ability_caster_gates` : le site d'injection est "
-            "perime (cf. #484)")
+            "perime (cf. #484, puis la bascule en forme B de la PR #827)")
     return poser
 
 

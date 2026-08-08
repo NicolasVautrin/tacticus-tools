@@ -333,6 +333,48 @@ def joue(state, ctx, uid, a, b):
     assert m3 == []
 
 
+def test_e3_deballage_dont_UNE_cible_est_relue_reste_vert():
+    """LE FAUX POSITIF MESURE (#824, `walk_pathfinder.get_path_node_counts_by_pos`) : `best, _came
+    = _dijkstra_by_pos(origin, neigh_by_pos, ...)` consomme `best`, donc le canal a MORDU -- coter
+    `_came` seul faisait ROUGIR `master` sur `test_arbre_courant_vert_et_perimetres_non_vides`
+    pour une derivation qui n'a rien de morte.
+
+    Le critere se lit au niveau du STATEMENT : la valeur d'une affectation est consommee des
+    qu'UNE de ses cibles teintees est relue."""
+    arbres = _synthetique(faux="""
+from .battle_query import neigh_map
+
+
+def compte(ctx, origin):
+    %s
+    neigh_by_pos = neigh_map(ctx)
+    best, _came = _dijkstra(origin, neigh_by_pos)
+    return best
+""" % _DOC)
+    m3, t3 = G.etape3(arbres)
+    assert t3 == 1 and m3 == [], m3
+
+
+def test_e3_deballage_INTEGRALEMENT_jete_reste_ROUGE():
+    """LA CONTRE-EPREUVE du test ci-dessus, et elle est indispensable : relacher le deballage ne
+    doit PAS ouvrir une porte. Quand AUCUNE cible teintee n'est relue, la valeur est bien perdue --
+    les DEUX cibles sont cotees."""
+    arbres = _synthetique(faux="""
+from .battle_query import neigh_map
+
+
+def compte(ctx, origin):
+    %s
+    neigh_by_pos = neigh_map(ctx)
+    best, came = _dijkstra(origin, neigh_by_pos)
+    return 0
+""" % _DOC)
+    m3, _ = G.etape3(arbres)
+    assert _noms(m3) == {"compte"}, m3
+    assert sorted(m[3] for m in m3) == ["derivation `best` jamais relue",
+                                        "derivation `came` jamais relue"], m3
+
+
 def test_e3_homonyme_de_services_jete_reste_vert():
     """`services.movement_query.is_adjacent(board, a, b)` est un HOMONYME : son 3e parametre n'est
     pas le canal, et la detection RESOUT l'import (#433-r4-r1-r4-r2-r1)."""
