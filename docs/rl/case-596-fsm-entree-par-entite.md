@@ -49,6 +49,39 @@ Le même FSM porte **toute la conduite manuelle** d'un tour : `NothingSelected.N
 `MovementTargetSelectedState` → `Swipe_AttackTargetSelected`, plus `InspectTileState`,
 `MachineSelection.*`, `AiTurnState`, `MatchEndedState`. Une entrée par entité les atteint tous.
 
+## LIVRÉ ET CONFRONTÉ (2026-08-08, session 7)
+
+`frida/hooks/features/fsm-input.ts` — cinq RPC, aucune ne connaît le déploiement :
+
+| RPC | état |
+|---|---|
+| `fsmStatus` | ✅ `captures:1`, `etatCourant:"UnitDeploymentState"`, `matchState` du FSM == celui du runner live |
+| `fsmStateMethods` | ✅ rend les **12 méthodes** de l'état courant **avec leurs types** |
+| `fsmStateInvoke` | ✅ `RemoveAllDeployedUnits()`, `RemoveUnit("bloodDante")`, `OnUnitInHand(null,false)` |
+| `fsmInput` | ✅ s'exécute (`down`/`up`), n'a pas fait tomber le jeu |
+| `fsmTap` | ✅ s'exécute ; ⚠ **aucun effet observé** sur une tuile de spawn |
+
+**La capture à la construction tient** : `.ctor` fire à l'entrée en bataille, et la garde de
+péremption (matchState du FSM confronté à celui du runner live) est passée verte, avec le refus
+nommé quand elle ne l'est pas.
+
+⚠ **CE QUI NE MARCHE PAS ENCORE, ET LA PISTE EXACTE.** `OnUnitInHand("bloodDante", false)`
+faute (`system error`), de façon reproductible (3/3). Ce n'est PAS le marshalling :
+`RemoveUnit("bloodDante")` passe avec la même chaîne managée. Le décompilé montre pourquoi —
+avant de stocker l'unité, la méthode passe l'id à **deux appels d'interface** via le service
+`this+0x18` (slots `0x29` puis `0x24`), et seule la branche `unitId == null` les évite, ce qui
+explique exactement pourquoi l'essai avec `null` passait. C'est donc une **précondition ou une
+forme d'id** qui manque, à trancher en identifiant le service de `this+0x18`.
+
+⚠ **Et le `Start!` reste hors de portée par cette voie** : `StartBattle(List<System.String>)`
+prend un type COMPOSÉ, que `fsmStateInvoke` refuse volontairement (construire une `List<T>`
+demanderait de choisir une classe, donc de deviner). Le bouton UI reste la voie.
+
+⚠ **Le clic UI sur un portrait rend `ok:false, "onClick.Invoke threw: system error"` — et
+monte QUAND MÊME le `PreviewContainer`.** Le handler s'exécute donc PARTIELLEMENT. C'est une
+troisième forme du mensonge de `uiClick`, distincte des deux connues : ni un clic avalé
+rapporté vrai, ni un clic porté rapporté faux, mais un clic **à moitié exécuté**.
+
 ## La tranche
 
 1. Capturer l'instance du FSM en hookant `IdunBattle.View.FSM.UnitSelectionFsm$$.ctor`
