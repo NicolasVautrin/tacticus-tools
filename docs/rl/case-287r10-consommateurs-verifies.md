@@ -188,3 +188,75 @@ Le passage en refus dur est le résidu `#287-r13-r1`.
   peut pas les trancher, et ils ne sont **pas** déclarés sains.
 - **Le troisième terme amont** (`IsDamagedMachine && !IsMachinePrimaryAbilityType`) reste non publié
   — `cause_du_court_circuit` le range en `indeterminee`.
+
+## 7. `#287-r13-r1` : le refus dur est POSE, et le rayon etait DERIVABLE
+
+**Tranche le 2026-08-08.** Le residu disait que le refus n'avait pas ete pose << faute de
+mesure : le rayon de souffle n'est pas derivable de la config, il faudrait REJOUER chaque
+montage >>. C'est vrai de la FREQUENCE. Ce ne l'est pas du RAYON -- parce qu'**un `rc` ne casse
+que ce qui le LIT**.
+
+### Etage 1 -- le rayon (statique, exact)
+
+| classe | invocations |
+|---|--:|
+| `rl_duel ... build` au total | **259** |
+| dont `--list-pool` (n'atteint jamais `_verify_roster`) | 14 |
+| **dont montent une bataille** | **245** |
+| `rc IGNORE` (resultat lie, jamais teste) | 203 |
+| resultat meme pas lie | 26 |
+| `.returncode` teste | 14 |
+| `check=True` (leve) | 2 |
+| **RAYON** | **16 / 245 = 6,5 %** |
+
+Ce qui rend le rayon *petit* est une propriete de POSITION, pas de chance : le `return 3`
+arrive **apres `_save_state`**. Le runner existe, le state-file est ecrit, et un appelant qui
+n'inspecte pas le `rc` poursuit exactement comme avant. Sortir plus tot ferait passer le rayon
+de 16 a 245 -- et laisserait en plus un runner **orphelin**, qui mangerait le cap partage sans
+proprietaire. C'est garde (`test_le_refus_arrive_APRES_save_state`).
+
+⚠ L'etage 1 penche du cote **bruyant**, et c'est declare : `.returncode` est cherche dans tout
+le FICHIER, pas dans la seule fonction appelante. Sur-estimer un rayon fait renoncer a un refus
+qu'on aurait pu poser ; sous-estimer le fait poser un refus qui casse.
+
+### Etage 2 -- la frequence (live, echantillon)
+
+**0 deficit sur 8** montages representatifs (roster aleatoire, MoW, multiplicites x4 et x6,
+5v5, 1v1, board etroit, deux camps nommes). Resultat inattendu et instructif : le cas le plus
+evident, `x6` sur un board a 4 spawns, est **deja refuse en amont** par le garde de capacite de
+spawn JOUEUR (`N spawns joueur < M units`, rc 2). Le deficit residuel vient donc du cote
+**ADVERSE**, confie au placement natif (`SetupGameOperation$$AddPredefinedUnits`), qui n'a pas
+d'equivalent -- exactement le cas fondateur de #287-r13.
+
+Le risque reel est le **produit** des deux etages, jamais l'un des deux seul.
+
+### Ce qui est pose
+
+* `rl_duel.cmd_build` : `roster_problems` conditionne desormais le `return 3`, au meme titre que
+  `placement_problems` et `modifier_problems` ;
+* **les trois diagnostics sont imprimes AVANT tout retour.** Avant, `placement_problems` rendait
+  3 sans jamais laisser parler `modifier_problems` : l'appelant relancait pour decouvrir le
+  second ;
+* **echappatoire par ENVIRONNEMENT** -- `TACTICUS_ALLOW_ROSTER_DEFICIT=1`, meme forme que
+  `TACTICUS_ALLOW_GREEN_SKIP` (#455). Par ENV et non par drapeau, deliberement : un appelant que
+  ce refus bloquerait est un probe **deja ecrit**, souvent celui d'un autre agent -- lui
+  demander de modifier son fichier pour se debloquer lui ferait payer notre cliquet. La variable
+  se pose devant la commande. Et le **message d'erreur la NOMME** : une echappatoire qu'il faut
+  deviner n'en est pas une (garde).
+
+### La contre-epreuve, a DEUX bras sur le MEME montage
+
+`C1_02` / seed 4242, quatre `necroWarden` pour trois `--a-place` (le montage de #287-r13) :
+
+| bras | deficit detecte | `rc` |
+|---|---|--:|
+| defaut | oui | **3** |
+| `TACTICUS_ALLOW_ROSTER_DEFICIT=1` | oui | **0** |
+
+Les deux bras sont necessaires : sans le bras leve, un `rc == 3` ne distinguerait pas un refus
+d'un echec de montage ; sans le bras dur, un `rc == 0` ne distinguerait pas l'echappatoire d'une
+absence de deficit.
+
+Livre : `probe_287r13r1_rayon_refus_roster.py` (`--live` joue les trois etages) et
+`tests/test_287r13r1_refus_roster_offline.py` (8 tests, dont le cran
+<< si le rayon franchit le tiers des appelants, re-arbitrer le refus par defaut >>).
