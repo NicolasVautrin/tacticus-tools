@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **69** ; kits avec du travail : **58**
-- Volume total : **67** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **66** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **42** abilities non portees (11 mythiques, 31 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -35,9 +35,9 @@
 | BloodAngels | 4 | 5 |
 | DarkAngels | 4 | 5 |
 | EmperorsChildren | 4 | 5 |
-| Sisterhood | 4 | 5 |
 | SpaceWolves | 4 | 5 |
 | LeaguesOfVotann | 4 | 4 |
+| Sisterhood | 4 | 4 |
 | ThousandSons | 3 | 4 |
 | AdeptusMechanicus | 3 | 3 |
 | AstraMilitarum | 3 | 3 |
@@ -165,12 +165,12 @@
 | orksBigMek | 1 | GrotTank(1057) [CD] OK | KustomForceFieldReworked | - |
 | orksWarboss | 1 | Waaagh(1058) [C-] OK | LightImUp | - |
 
-### Sisterhood — 4 kits, 5 items
+### Sisterhood — 4 kits, 4 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | adeptCelestine | 1 | SkyStrike(1025) [CD] OK | GeminaeSuperia | - |
-| adeptHospitaller | 2 | RitesOfRestoration(1039) [-D] NO-OP HEAL | MedicusMinistorum | - |
+| adeptHospitaller | 1 | RitesOfRestoration(1039) [CD] OK | MedicusMinistorum | - |
 | adeptMorvenn | 1 | SanctorumMissile(1062) [CD] OK | RighteousRepugnance | - |
 | adeptRetributor | 1 | ArmoriumCherub(1014) [CD] OK | FireOfAbsolution | - |
 

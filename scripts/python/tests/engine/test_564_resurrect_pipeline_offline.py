@@ -308,7 +308,66 @@ def test_le_montant_de_PV_est_evalue_une_seule_fois():
 
 
 # --------------------------------------------------------------------------------------------
-# 4. Les DEUX donnees obligatoires du registre, figees au LITTERAL du ctor
+# 4. Le selecteur `Healable` -- il DELEGUE, et il porte le CASTER
+# --------------------------------------------------------------------------------------------
+
+def test_healable_garde_les_blesses_et_ecarte_les_pleins_PV():
+    """`HealableUnitsSelector$$Select` = `EntityCanBeHealed(caster, u, scope, removeEffects 1)` par
+    unite. Le discriminant est `AttackQuery$$IsDamagedUnit` : une cible a PLEINS PV n'est PAS
+    soignable (et c'est ce qui rend `GetHealTargets` VIDE au tour 1 -- l'observable du regime t0 du
+    test live)."""
+    from engine.dsl.base import DslContext
+    from engine.entities.selectors.units import Healable
+    st = State()
+    caster = _unite(st, alive=True, hp=HP_MAX)
+    blesse = _unite(st, alive=True, hp=HP_MAX // 2)
+    plein = _unite(st, alive=True, hp=HP_MAX)
+
+    def _ecbh(healer, target, scope, remove_effects):
+        from engine.runner.abilities.attack_query import entity_can_be_healed
+        return entity_can_be_healed(st, (healer or {}).get("id"), (target or {}).get("id"),
+                                    scope=scope, remove_effects=remove_effects)
+    ctx = DslContext(units=[_live(st, u) for u in st.entities], caster=_live(st, caster),
+                     entity_can_be_healed=_ecbh)
+    got = [u["id"] for u in Healable(UnitSet([_live(st, u) for u in (caster, blesse, plein)])
+                                     ).evaluate(ctx)]
+    assert got == [blesse], "Healable = %s, attendu [%s] (le seul blesse)" % (got, blesse)
+
+
+def test_healable_sans_accesseur_rend_VIDE_jamais_tout():
+    """Degradation NOMMEE : sans `ctx.entity_can_be_healed` (contexte hors runner), le noeud rend
+    `[]` -- jamais un « tout passe » qui ferait soigner des cibles que le natif refuse."""
+    from engine.dsl.base import DslContext
+    from engine.entities.selectors.units import Healable
+    st = State()
+    blesse = _unite(st, alive=True, hp=1)
+    ctx = DslContext(units=[_live(st, blesse)], caster=_live(st, blesse))
+    assert Healable(UnitSet([_live(st, blesse)])).evaluate(ctx) == []
+
+
+def test_healable_passe_bien_le_CASTER_au_gate():
+    """L'ASYMETRIE avec `Repairable` : le selecteur HEALABLE appelle la surcharge a QUATRE arguments
+    (caster en tete), pas la 3-args. Contre-epreuve : on substitue un accesseur qui EXIGE un caster
+    non nul -- un port qui recopierait le patron du jumeau (caster = None) rendrait `[]`."""
+    from engine.dsl.base import DslContext
+    from engine.entities.selectors.units import Healable
+    st = State()
+    caster = _unite(st, alive=True, hp=HP_MAX)
+    cible = _unite(st, alive=True, hp=1)
+    vus = []
+
+    def _exige_caster(healer, target, scope, remove_effects):
+        vus.append((healer or {}).get("id"))
+        return (healer or {}).get("id") is not None
+    ctx = DslContext(units=[_live(st, u) for u in st.entities], caster=_live(st, caster),
+                     entity_can_be_healed=_exige_caster)
+    got = [u["id"] for u in Healable(UnitSet([_live(st, cible)])).evaluate(ctx)]
+    assert vus == [caster], "le caster transmis au gate = %s, attendu [%s]" % (vus, caster)
+    assert got == [cible]
+
+
+# --------------------------------------------------------------------------------------------
+# 5. Les DEUX donnees obligatoires du registre, figees au LITTERAL du ctor
 # --------------------------------------------------------------------------------------------
 
 def test_le_masque_de_ciblage_est_celui_du_ctor():
