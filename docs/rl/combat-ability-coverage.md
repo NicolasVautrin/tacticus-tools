@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **129**
-- **NO-OP silencieux** (a porter) : **46**
-- Ventilation NO-OP : **DAMAGE**=21, **EFFECT/BUFF**=15, **SUMMON**=5, **HEAL**=3, **REPAIR**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **130**
+- **NO-OP silencieux** (a porter) : **45**
+- Ventilation NO-OP : **DAMAGE**=20, **EFFECT/BUFF**=15, **SUMMON**=5, **HEAL**=3, **REPAIR**=2
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (46)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (45)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -54,7 +54,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1056 | StranglethornCannon | DAMAGE(Blast) | 1 | N |
 | 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
 | 1217 | TheLionsWrath | DAMAGE(Power) | 1 | N |
-| 1183 | VexillaMagnifica | DAMAGE(Physical) | 1 | L |
 | 1005 | AdaptiveStrategy | EFFECT/BUFF | 6 | LN |
 | 1210 | ExemplarOfTheMontka | EFFECT/BUFF | 6 | LN |
 | 1101 | AttemptedPossession | EFFECT/BUFF | 5 | LN |
@@ -81,7 +80,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (129)
+## PORTED (registry) (130)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -174,6 +173,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1222 | MassDriverAccelerator | DAMAGE(DirectDamage) | 1 | L |
 | 1184 | MomentShackle | DAMAGE(Bolter) | 1 | L |
 | 1195 | TalonsOfTheEmperor | DAMAGE(Power) | 1 | L |
+| 1183 | VexillaMagnifica | DAMAGE(Physical) | 1 | L |
 | 1202 | VigilanceEternal | DAMAGE(Power) | 1 | L |
 | 1023 | Burrowers | EFFECT/BUFF | 6 | NS |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |
