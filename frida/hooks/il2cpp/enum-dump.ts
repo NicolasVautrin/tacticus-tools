@@ -110,6 +110,22 @@ export function dumpEnum(
     if (!ensure()) return null;
     const klass = findClass(asm, ns, cls) ?? findClassAnywhere(ns, cls);
     if (!klass) return null;
+    return dumpEnumClass(klass);
+}
+
+/** LE MÊME dump, mais à partir de la CLASSE déjà résolue.
+ *
+ *  Pourquoi cette entrée existe : un enum IMBRIQUÉ ne se retrouve pas par son nom.
+ *  `idun.ui.ScreenVisibility.State` s'appelle juste `State` pour IL2CPP, dans le namespace
+ *  `idun.ui` — un `findClassAnywhere("idun.ui", "State")` attraperait n'importe quel `State`
+ *  du namespace et publierait des noms de membres FAUX, sans lever. Quand on tient déjà le
+ *  champ, sa classe de type est la réponse EXACTE : on la passe directement.
+ *
+ *  Un seul corps, deux entrées — la duplication serait exactement la divergence que la
+ *  doctrine « un service natif = UNE fonction » interdit. */
+export function dumpEnumClass(klass: NativePointer): Record<string, string> | null {
+    if (!ensure()) return null;
+    if (klass.isNull()) return null;
 
     const out: Record<string, string> = {};
     const underlying = underlyingOf(klass);

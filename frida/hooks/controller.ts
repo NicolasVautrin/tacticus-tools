@@ -25,6 +25,7 @@ import * as dispatchObserve from "./features/dispatch-observe.js";
 import * as whatifTrigger from "./features/whatif-trigger.js";
 import * as autoBoot from "./features/auto-boot.js";
 import * as uiNav from "./features/ui-nav.js";
+import * as uiWindows from "./features/ui-windows.js";
 import * as fsmInput from "./features/fsm-input.js";
 import * as battleEvents from "./features/battle-events.js";
 import * as warmupSingletons from "./features/warmup-singletons.js";
@@ -380,7 +381,7 @@ export function wireRpc(ctx: Ctx): void {
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
      campaignBuilder, mowBuilder, aiTrace, aiUtilityTrace, simEngine,
      overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger, autoBoot,
-     uiNav, fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
+     uiNav, uiWindows, fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // messageTrace AVANT winnerCapture — il SET `state.scoringRunnerId` / `state.applySeq`,
      // que winnerCapture LIT pour estampiller son event. (Le troisieme lecteur, move-options,
