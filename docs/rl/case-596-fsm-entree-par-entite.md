@@ -429,9 +429,29 @@ du tour rend `etatApres = WaitingForPlayerTurnToEndVisuallyState`, puis 8 messag
 puis `AiTurnState`, puis `NormalState` avec la main rendue. Ce qui fige, c'est **d'agir
 pendant** cet état (cf. la section suivante) — pas l'état lui-même.
 
-⚠ **Une unité qui frappe SANS bouger garde son déplacement** : elle reste dans `toActivate` et
-le tour ne passe pas seul. C'est le régime le plus fréquent, et il se lit — inutile de le
-deviner.
+⚠ **AGIR CONSOMME LE TOUR DE L'UNITÉ — et l'exception est portée par l'ABILITY, pas par le
+fait d'avoir bougé.** Frapper consomme aussi le déplacement ; seules certaines abilities
+laissent l'unité rejouer après le cast (Vindicta, Ragnar…). Le foyer est nommé :
+
+```
+IdunBattle.Operations.ActiveAbilityOperation$$GetSkipEndTurnFlag(options, abilityImpl, entities)
+   si options+0x40[9] != 0  ->  rendre options+0x40[10]      # surcharge portee par TargetingOptions
+   sinon                    ->  slot 0x17 sur l'ability (= `<X>Ability$$SetsEndTurnFlags`),
+                                evalue sur les entites, resultat INVERSE (`^ 1`)
+```
+
+`SetsEndTurnFlags` est un **prédicat par ability** lu dans sa config
+(`WarHowlAbility$$SetsEndTurnFlags` : `this+0x30 -> +0x88 -> +0x48`) — donc il dépend de
+l'ability ET des entités du cast, jamais du déplacement restant. Deux appelants :
+`ActiveAbilityOperation$$ExecuteInternal` et `$$ExecuteForReplacedTarget`.
+
+⚠ Ne pas compter les porteurs depuis la table de symboles : `SetsEndTurnFlags` est un slot
+virtuel à corps trivial, donc dédupliqué par IL2CPP (30 xrefs DATA sur la seule entrée
+WarHowl). Cf. « L'ABSENCE d'une méthode dans les tables ne prouve RIEN ».
+
+**Ce que la mesure du 2026-08-09 montre, sans plus** : `darkaAzrael` sort de `toActivate` après
+avoir frappé depuis sa case, `ultraCalgar` y **reste** après avoir frappé depuis la sienne. Le
+discriminant est donc bien l'ability employée ; laquelle exactement n'a pas été relevée.
 
 ⚠ **Déselectionner N'EST PAS inconditionnel** : taper une case vide depuis `NormalState`
 n'annule rien, ça OUVRE `InspectTileState`. Ne déselectionner que si le FSM est ailleurs que
