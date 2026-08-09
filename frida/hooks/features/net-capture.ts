@@ -1,227 +1,180 @@
-// net-capture — CE QUE LE CLIENT ENVOIE AU SERVEUR pour une bataille de campagne.
+// net-capture — TOUT CE QUE LE CLIENT ENVOIE AU SERVEUR, capté au point de fil.
 //
-// POURQUOI. La forme des DTO se lit dans le binaire ; ce qu'ils PORTENT en vrai, non. On
-// savait que `AEndLocationRequestDto` déclare `seed : Int32` et `replay : String` — on ne
-// savait pas si `replay` part rempli, ni de quelle taille. Un champ déclaré et toujours nul
-// et un champ déclaré et gros n'ont pas du tout les mêmes conséquences, et le décompilé ne
-// les distingue pas.
+// POURQUOI CE POINT-LÀ, ET PAS LES DTO. La première version de ce module ancrait les
+// constructeurs de trois DTO de campagne (`Start`/`Complete`/`Fail`) plus
+// `ReplaySerializer$$SerializeReplay`. Ça prouvait qu'un DTO était CONSTRUIT avec son champ
+// `replay` rempli — pas qu'il PARTAIT : la sérialisation peut omettre un champ, la charge être
+// tronquée, et `GameEventQueueProcesser$$AddToQueue` montre qu'il y a une FILE, donc que
+// l'envoi est différé. Écrire « envoyé » sur cette base était la même faute qu'un `ok:true` lu
+// comme un effet.
 //
-// LES TROIS POINTS DE CAPTURE, tous FROIDS (une fois par bataille, jamais un hot path) :
+// Le point de fil est à la fois PLUS SÛR (c'est ce qui part réellement) et PLUS LARGE (il ne
+// connaît pas les types : il attrape toutes les requêtes, pas seulement les trois DTO qu'on
+// avait pensé à nommer). Les hooks de DTO sont donc RETIRÉS, pas complétés.
 //
-//   `thor.Client.DTO.Events.GameEvents.Request.StartCampaignLocationRequestDto$$.ctor`
-//       le lancement : `units` (le roster déclaré), `battleId`, l'identité du noeud.
-//   `thor.Client.DTO.Events.GameEvents.Request.CompleteCampaignLocationRequestDto$$.ctor`
-//   `thor.Client.DTO.Events.GameEvents.Request.FailCampaignLocationRequestDto$$.ctor`
-//       la fin, victoire ou défaite : `seed`, `replay`, `rewards`, `heroDetails`...
-//   `thor.Scripts.Idun.Source.IdunBattle.ReplaySerialization.ReplaySerializer$$SerializeReplay`
-//       la taille du rejeu, mesurée à la source et indépendamment du DTO.
+// Mesuré le 2026-08-10 (session 29, victoire sur `Campaign1_06`) — ce que la voie
+// `PostString` a rendu :
+//     POST api-live.loki.snowprintstudios.com/game-event/game3/   85 702 car, marque gzip @2982
+//     POST ct-live.loki.snowprintstudios.com/ct/userId/...            658 car, pas de marque
+// Le rejeu sérialisé faisait 82 324 caractères : le corps posté vaut donc le rejeu + 3 378 de
+// d'enveloppe, et la marque tombe DANS le JSON, là où commence la valeur de `replay`.
 //
-// ARMÉ À LA DEMANDE, JAMAIS AUTO-ARMÉ. Le module s'enregistre sans rien installer ; seul
-// `netCaptureArm` pose les `Interceptor.attach`. C'est la leçon de `modifier-observe` : un
-// capteur auto-armé finit par tourner pendant une session de jeu normale, et on ne s'en
-// aperçoit qu'au crash.
+// ⚠ TROIS PORTES, PAS UNE. `WwwWebHelper` expose `PostString(url, String, …)`,
+// `PostBytes(url, Byte[], …)` et `PostData(url, Byte[], …)`. On les ancre TOUTES et le journal
+// publie `via` : sans ça, « on capte tout ce qui part » resterait une hypothèse, et une
+// requête passée par une porte non ancrée se lirait comme « rien n'est parti ». Si les trois
+// voient la même charge, le journal le MONTRERA (doublons) — c'est un fait à mesurer, pas à
+// deviner. Elles sont froides (une poignée d'appels par action), pas un hot path.
 //
-// ON NE REND JAMAIS LE REJEU ENTIER. Il peut peser des mégaoctets et il n'a pas à traverser
-// le pont RPC : on publie sa LONGUEUR et un préfixe court. La longueur est le chiffre qui
-// répond à la question ; le contenu ne s'y ajouterait qu'en coût.
+// ARMÉ À LA DEMANDE, jamais auto-armé.
 
 import { findClassAnywhere, findMethod } from "../il2cpp/helpers.js";
-import { classFieldsDump } from "./ai-step/projection.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 import { log } from "../runtime/diag.js";
 
-/** Plafond du tampon : au-delà on cesse d'empiler plutôt que de grossir sans borne. Une
- *  bataille produit 2 entrées (lancement + fin), donc 200 couvre largement une session. */
+/** Plafond d'entrées : au-delà on cesse d'empiler plutôt que de grossir sans borne. */
 const CAP = 200;
-/** Ce qu'on garde d'une chaîne longue. Assez pour reconnaître un format (JSON ? base64 ?),
- *  trop peu pour peser. */
-const PREFIXE = 240;
+/** Ce qu'on garde d'un corps quand on ne le garde pas en entier. */
+const PREFIXE = 400;
+/** Budget TOTAL de caractères de corps conservés. Un corps de bataille pèse ~85 Ko ; ce budget
+ *  en laisse passer une vingtaine, après quoi on ne garde que taille + préfixe et on COMPTE
+ *  les omis. Un journal qui tronque en silence se lirait comme un journal complet. */
+const BUDGET_CORPS = 2_000_000;
 
-/** `System.String` IL2CPP : longueur @+0x10, caractères UTF-16 @+0x14. On lit la longueur
- *  SANS matérialiser la chaîne — un rejeu de plusieurs Mo deviendrait sinon une chaîne JS
- *  de plusieurs Mo pour en connaître la taille. */
-function chaineInfo(p: NativePointer): { len: number; prefixe: string | null } | null {
+/** `System.String` IL2CPP : longueur @+0x10, caractères UTF-16 @+0x14. On lit la longueur SANS
+ *  matérialiser la chaîne — connaître la taille d'un corps de 85 Ko ne doit pas coûter 85 Ko. */
+function chaine(p: NativePointer): { len: number; lire: (n: number) => string | null } | null {
     if (p.isNull()) return null;
     try {
         const len = p.add(0x10).readS32();
-        if (len < 0 || len > 0x4000000) return { len: -1, prefixe: null };
-        let prefixe: string | null = null;
-        try { prefixe = p.add(0x14).readUtf16String(Math.min(len, PREFIXE)); }
-        catch { /* prefixe reste null */ }
-        return { len, prefixe };
+        if (len < 0 || len > 0x4000000) return null;
+        return {
+            len,
+            lire: (n: number) => {
+                try { return p.add(0x14).readUtf16String(Math.min(len, n)); }
+                catch { return null; }
+            },
+        };
     } catch { return null; }
 }
 
-/** Décode UN champ selon son type. Tri-état assumé : ce qu'on ne sait pas décoder est rendu
- *  comme `{ ref: <classe>, present: bool }`, jamais comme une valeur inventée.
- *
- *  ⚠ `List<T>` : `_size` est à +0x18 (layout .NET standard `_items@0x10, _size@0x18`). C'est
- *  le SEUL type composite qu'on décode, parce que c'est le seul dont le layout soit une
- *  certitude. `Dictionary<K,V>` n'est PAS décodé : son `_count` dépend de la version du
- *  runtime, et publier un compte deviné vaudrait moins que d'avouer qu'on ne l'a pas lu. */
-function lireChamp(
-    obj: NativePointer, champ: { name: string; offset: number; type: string },
-): unknown {
-    const a = obj.add(champ.offset);
+/** `System.Byte[]` IL2CPP : longueur @+0x18, octets @+0x20. */
+function octets(p: NativePointer): { len: number; lire: (n: number) => string | null } | null {
+    if (p.isNull()) return null;
     try {
-        switch (champ.type) {
-            case "Int32": return a.readS32();
-            case "UInt32": return a.readU32();
-            case "Int64": return a.readS64().toString();
-            case "Boolean": return a.readU8() !== 0;
-            case "Single": return a.readFloat();
-            case "String": {
-                const info = chaineInfo(a.readPointer());
-                if (info === null) return null;
-                // Une chaîne courte est rendue telle quelle ; une longue (le rejeu) ne l'est
-                // jamais — on publie sa taille, ce qui est l'information utile.
-                return info.len <= PREFIXE
-                    ? info.prefixe
-                    : { len: info.len, prefixe: info.prefixe, tronque: true };
-            }
-            default: {
-                const p = a.readPointer();
-                if (p.isNull()) return null;
-                if (champ.type === "List`1") {
-                    try { return { list: champ.type, size: p.add(0x18).readS32() }; }
-                    catch { return { list: champ.type, size: null }; }
-                }
-                return { ref: champ.type, present: true };
-            }
-        }
-    } catch { return undefined; }   // undefined = ILLISIBLE, distinct de `null` = champ nul
+        const len = p.add(0x18).readS32();
+        if (len < 0 || len > 0x4000000) return null;
+        return {
+            len,
+            lire: (n: number) => {
+                try {
+                    const buf = p.add(0x20).readByteArray(Math.min(len, n));
+                    if (buf === null) return null;
+                    // Latin-1 suffit : on cherche un marqueur ASCII, pas à décoder de l'UTF-8.
+                    return Array.from(new Uint8Array(buf))
+                        .map((b) => String.fromCharCode(b)).join("");
+                } catch { return null; }
+            },
+        };
+    } catch { return null; }
 }
 
-interface Entree { quoi: string; n: number; champs: Record<string, unknown> }
+interface Envoi {
+    n: number; via: string; url: string | null; len: number | null;
+    prefixe: string | null; corps: string | null; corpsOmis?: true;
+}
 
-const tampon: Entree[] = [];
+const tampon: Envoi[] = [];
 let compteur = 0;
+let budgetRestant = BUDGET_CORPS;
+let corpsOmis = 0;
 const listeners: InvocationListener[] = [];
 const layout: Record<string, unknown> = {};
 
-/** Attache le ctor d'un DTO et publie ses champs, LUS PAR NOM après construction.
- *
- *  ⚠ On lit dans `onLeave`, pas dans `onEnter` : à l'entrée le ctor n'a encore rien écrit, et
- *  les arguments seuls perdraient ce que la classe de base a rempli. On mémorise donc `this`
- *  (= `args[0]`) à l'entrée pour le relire à la sortie. */
-function attacherCtor(ns: string, cls: string): void {
-    const klass = findClassAnywhere(ns, cls);
-    if (!klass) { layout[cls] = "classe INTROUVABLE"; return; }
-    const mi = findMethod(klass, ".ctor");
-    if (!mi || mi.ptr.isNull()) { layout[cls] = "ctor NON RESOLU"; return; }
-    const champs = classFieldsDump(klass);
-    layout[cls] = { champs: champs.length };
-    listeners.push(Interceptor.attach(mi.ptr, {
-        onEnter(args) {
-            (this as InvocationContext & { self?: NativePointer }).self = args[0];
-        },
-        onLeave() {
-            const self = (this as InvocationContext & { self?: NativePointer }).self;
-            if (!self || self.isNull() || tampon.length >= CAP) return;
-            const out: Record<string, unknown> = {};
-            for (const c of champs) {
-                const v = lireChamp(self, c);
-                if (v !== undefined) out[c.name] = v;
-                else out[c.name] = "ILLISIBLE";
-            }
-            tampon.push({ quoi: cls, n: ++compteur, champs: out });
-        },
-    }));
+function noter(
+    via: string, urlPtr: NativePointer,
+    charge: { len: number; lire: (n: number) => string | null } | null,
+): void {
+    if (tampon.length >= CAP) return;
+    let url: string | null = null;
+    try { const u = chaine(urlPtr); url = u ? u.lire(400) : null; } catch { /* url null */ }
+    if (charge === null) {
+        tampon.push({ n: ++compteur, via, url, len: null, prefixe: null, corps: null });
+        return;
+    }
+    // On garde le corps ENTIER tant que le budget le permet — c'est lui la donnée. Au-delà,
+    // taille + préfixe, et `corpsOmis` dit combien de fois on a renoncé.
+    let corps: string | null = null;
+    let omis: true | undefined;
+    if (charge.len <= budgetRestant) {
+        corps = charge.lire(charge.len);
+        if (corps !== null) budgetRestant -= charge.len;
+    } else { omis = true; corpsOmis++; }
+    tampon.push({
+        n: ++compteur, via, url, len: charge.len,
+        prefixe: charge.lire(PREFIXE), corps,
+        ...(omis ? { corpsOmis: omis } : {}),
+    });
 }
 
 export function register(ctx: Ctx): void {
-    /** Arme les quatre captures. Idempotent : un second appel ne double pas les hooks.
+    /** Arme les trois portes. Idempotent.
      *  body: {} -> { ok, armes, layout } */
     ctx.rpc.netCaptureArm = (): Promise<unknown> => queueOnMainThread(() => {
         if (listeners.length > 0) return { ok: true, deja: true, armes: listeners.length, layout };
-        const NS = "thor.Client.DTO.Events.GameEvents.Request";
-        attacherCtor(NS, "StartCampaignLocationRequestDto");
-        attacherCtor(NS, "CompleteCampaignLocationRequestDto");
-        attacherCtor(NS, "FailCampaignLocationRequestDto");
-
-        // La taille du rejeu, prise à la SOURCE — indépendante du DTO, donc capable de
-        // contredire ce qu'il publie. Deux mesures valent mieux qu'une quand l'enjeu est
-        // « le champ part-il rempli ? ».
-        const rs = findClassAnywhere(
-            "thor.Scripts.Idun.Source.IdunBattle.ReplaySerialization", "ReplaySerializer");
-        const smi = rs ? findMethod(rs, "SerializeReplay") : null;
-        if (!smi || smi.ptr.isNull()) {
-            layout.SerializeReplay = rs ? "methode NON RESOLUE" : "classe INTROUVABLE";
-        } else {
-            layout.SerializeReplay = true;
-            listeners.push(Interceptor.attach(smi.ptr, {
-                onLeave(retval) {
-                    if (tampon.length >= CAP) return;
-                    const info = chaineInfo(retval as NativePointer);
-                    tampon.push({
-                        quoi: "SerializeReplay", n: ++compteur,
-                        champs: info === null
-                            ? { retour: "NON LISIBLE" }
-                            : { len: info.len, prefixe: info.prefixe },
-                    });
-                },
-            }));
-        }
-        // --- LE POINT DE FIL, et pourquoi il est INDISPENSABLE (#599-r2) ---
-        //
-        // Hooker le ctor du DTO prouve qu'il est CONSTRUIT avec un `replay` rempli. Il ne
-        // prouve PAS qu'il part : la serialisation peut omettre le champ, la charge peut etre
-        // tronquee, l'evenement peut ne jamais quitter la file. Ecrire << envoye >> sur cette
-        // base serait la meme faute que lire un `ok:true` comme un effet.
-        //
-        // `Snowprint.ClientSdk.Web.WwwWebHelper$$PostString(url, postData, ...)` est l'endroit
-        // ou la charge devient une requete HTTP. On y lit la TAILLE, et pour les gros corps on
-        // CHERCHE la marque du rejeu (`H4sI` = base64 de l'entete gzip) : une taille seule
-        // laisserait la question ouverte, la marque tranche.
         const wh = findClassAnywhere("Snowprint.ClientSdk.Web", "WwwWebHelper");
-        const post = wh ? findMethod(wh, "PostString") : null;
-        if (!post || post.ptr.isNull()) {
-            layout.PostString = wh ? "methode NON RESOLUE" : "classe INTROUVABLE";
-        } else {
-            layout.PostString = true;
-            listeners.push(Interceptor.attach(post.ptr, {
-                onEnter(args) {
-                    if (tampon.length >= CAP) return;
-                    const champs: Record<string, unknown> = {};
-                    try {
-                        const u = chaineInfo(args[0]);
-                        champs.url = u && u.len <= 400 ? u.prefixe : (u ? u.prefixe : null);
-                    } catch { champs.url = null; }
-                    const corps = chaineInfo(args[1]);
-                    if (corps === null) { champs.corps = "NON LISIBLE"; }
-                    else {
-                        champs.len = corps.len;
-                        champs.prefixe = corps.prefixe;
-                        // On ne materialise le corps QUE s'il est gros — donc au plus une
-                        // poignee de fois, sur les seules requetes qui pourraient le porter.
-                        if (corps.len > 20000) {
-                            try {
-                                const plein = args[1].add(0x14).readUtf16String(corps.len) ?? "";
-                                champs.contientMarqueGzip = plein.indexOf("H4sI") >= 0;
-                                champs.posMarque = plein.indexOf("H4sI");
-                            } catch { champs.contientMarqueGzip = null; }
-                        } else {
-                            champs.contientMarqueGzip = false;
-                        }
-                    }
-                    tampon.push({ quoi: "PostString", n: ++compteur, champs });
-                },
-            }));
-        }
+        if (!wh) return { ok: false, error: "Snowprint.ClientSdk.Web.WwwWebHelper introuvable" };
 
-        log("[net-capture] arme : " + listeners.length + " hook(s)");
+        // `PostString` porte une String ; `PostBytes`/`PostData` un Byte[]. Le lecteur DIFFÈRE,
+        // donc on ne peut pas les ancrer par une boucle unique sans se tromper de layout.
+        const portes: Array<{ nom: string; parOctets: boolean }> = [
+            { nom: "PostString", parOctets: false },
+            { nom: "PostBytes", parOctets: true },
+            { nom: "PostData", parOctets: true },
+        ];
+        for (const porte of portes) {
+            const mi = findMethod(wh, porte.nom);
+            if (!mi || mi.ptr.isNull()) { layout[porte.nom] = "NON RESOLUE"; continue; }
+            layout[porte.nom] = true;
+            try {
+                listeners.push(Interceptor.attach(mi.ptr, {
+                    onEnter(args) {
+                        try {
+                            noter(porte.nom, args[0],
+                                  porte.parOctets ? octets(args[1]) : chaine(args[1]));
+                        } catch { /* un capteur ne jette jamais */ }
+                    },
+                }));
+            } catch { layout[porte.nom] = "ANCRAGE EN ECHEC"; }
+        }
+        Interceptor.flush();
+        log("[net-capture] arme : " + listeners.length + " porte(s)");
         return { ok: true, armes: listeners.length, layout };
     });
 
-    /** body: { reset?: true } -> { ok, count, entries } */
-    ctx.rpc.netCaptureDump = (
-        body?: { reset?: boolean },
-    ): Promise<unknown> => queueOnMainThread(() => {
-        const entries = tampon.slice();
-        const out = { ok: true, arme: listeners.length > 0, count: tampon.length, plafond: CAP,
-                      entries, layout };
-        if (body?.reset) { tampon.length = 0; }
+    /** body: { reset?, depuis?: number, sansCorps?: true, contient?: string }
+     *
+     *  `sansCorps` rend le journal SANS les charges (utile pour lister ce qui est parti sans
+     *  rapatrier des mégaoctets). `contient` filtre sur l'URL. */
+    ctx.rpc.netCaptureDump = (body?: {
+        reset?: boolean; depuis?: number; sansCorps?: boolean; contient?: string;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        const depuis = typeof body?.depuis === "number" ? body.depuis : 0;
+        const filtre = typeof body?.contient === "string" && body.contient
+            ? body.contient.toLowerCase() : null;
+        let entries = tampon.filter((e) => e.n > depuis);
+        if (filtre) entries = entries.filter((e) => (e.url ?? "").toLowerCase().includes(filtre));
+        if (body?.sansCorps) {
+            entries = entries.map((e) => ({ ...e, corps: null }));
+        }
+        const out = {
+            ok: true, arme: listeners.length > 0, count: tampon.length, plafond: CAP,
+            corpsOmis, budgetRestant, entries, layout,
+        };
+        if (body?.reset) {
+            tampon.length = 0; corpsOmis = 0; budgetRestant = BUDGET_CORPS;
+        }
         return out;
     });
 
@@ -232,7 +185,7 @@ export function register(ctx: Ctx): void {
     });
 
     ctx.rpc.netCaptureStatus = (): Promise<unknown> => queueOnMainThread(() => ({
-        ok: true, arme: listeners.length > 0, hooks: listeners.length,
-        count: tampon.length, layout,
+        ok: true, arme: listeners.length > 0, portes: listeners.length,
+        count: tampon.length, corpsOmis, budgetRestant, layout,
     }));
 }

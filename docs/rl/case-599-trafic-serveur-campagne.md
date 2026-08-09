@@ -72,6 +72,31 @@ laissé la question ouverte ; c'est la **marque** qui tranche.
 pas le savoir d'ici. Ce qu'on sait : il le REÇOIT, et `rewards` est **réclamé par le client** —
 ce qui n'est tenable que si quelque chose vérifie.
 
+### Le module est désormais WIRE-ONLY — et il a fallu TROIS portes, pas une
+
+Les hooks de DTO sont **retirés** : le point de fil est à la fois plus sûr (c'est ce qui part)
+et plus large (il ignore les types, donc il attrape toutes les requêtes, pas seulement les
+trois DTO qu'on avait pensé à nommer).
+
+⚠ **Et `PostString` seul n'aurait PAS suffi.** `WwwWebHelper` expose trois portes —
+`PostString(url, String, …)`, `PostBytes(url, Byte[], …)`, `PostData(url, Byte[], …)`. Mesuré
+sur un simple geste de navigation (session 30) :
+
+```
+PostString  len 790   ct-live.loki.snowprintstudios.com/ct/userId/...
+PostData    len 516   ct-live.loki.snowprintstudios.com/ct/userId/...
+```
+
+Deux tailles **différentes**, donc deux requêtes distinctes — pas la même charge vue deux fois
+à travers un empilement d'appels. `PostData` est une porte à part entière : ancrer la seule
+`PostString` aurait laissé cette requête sans trace, et « on capte tout ce qui part » aurait
+été FAUX sans qu'aucun symptôme ne le dise. Le journal publie `via` pour que la question reste
+mesurable au lieu d'être supposée.
+
+⚠ Le corps est conservé EN ENTIER tant qu'un budget global (2 M caractères) le permet ; au-delà
+on ne garde que taille + préfixe et `corpsOmis` compte les renoncements — un journal qui tronque
+en silence se lirait comme complet.
+
 **Confirmé par la comparaison des deux relevés** : une bataille de 2 tours avec 8 morts pèse
 `83 644` caractères contre `75 800` pour zéro tour, soit **+7 844 (+10 %)**. Les 90 % restants
 sont l'état initial, qui part quoi qu'il arrive.
