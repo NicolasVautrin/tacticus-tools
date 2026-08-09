@@ -708,11 +708,24 @@ Level1 y ajoute `AbilitiesToHide: "StormOfWrath,PsychicFortress"` et **1** point
 déploiement. Premier nœud propre de `campaign1` (aucun script pendant la bataille, aucun
 mannequin, 5 déploiements) : **Level16** (`board=C1_51`).
 
+⚠ **`observeBattle` NE PEUT PAS montrer qu'un ennemi est un mannequin** — son `visualId`
+laisse tomber le suffixe. Mesuré sur `Campaign1_06` (2026-08-09), même bataille, deux voies :
+
+```
+inspectBattleConfig  ->  necroNpc2TutFlayedOneFTUEtest:3, necroNpc1TutWarriorFTUEtest:3, ...
+observeBattle        ->  necroNpc2FlayedOne,              necroNpc1Warrior,              ...
+```
+
+Un relevé `observeBattle` d'une bataille FTUE est donc **indiscernable** d'une bataille
+ordinaire. La BC est la seule voie qui nomme le mannequin.
+
 ⚠ **HYPOTHÈSE RÉFUTÉE, ne pas la rouvrir** : « le script de tutoriel a fait lever les deux
-`Apply` » (#596-r1). La bataille était `Campaign1_62`, hors du bloc scénarisé, et les
-marqueurs `FTUEtest` / `tut_btl` sont **absents de toute la session** avant cette mesure
-(première occurrence en ligne 158374 du transcript, mes propres relevés) alors que
-`necroNpc1Warrior` / `necroNpc3Deathmark` y sont depuis la ligne 2311.
+`Apply` » (#596-r1) — **mais par UN seul argument, pas deux.** Ce qui tient : la bataille
+était `Campaign1_62` (`inspectBattleConfig`), hors du bloc scénarisé **et** hors des 13 nœuds
+à mannequins. Ce qui NE tient pas, et que j'avais écrit comme second appui : « les marqueurs
+`FTUEtest` sont absents de tout le transcript ». Le paragraphe ci-dessus dit pourquoi — nos
+relevés passent par `observeBattle`, qui **efface le suffixe**. L'absence était donc attendue
+quelle que soit la bataille, et ne prouvait rien.
 
 Re-dériver ces comptes (`dumpCampaignCatalog`), ne jamais citer ce paragraphe.
 Résidu : **#596-r2**.
