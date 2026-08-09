@@ -172,15 +172,26 @@ def popup(v: Vue | None) -> str | None:
 def identifier(v: Vue | None) -> str:
     if v is None:
         return INCONNU
-    if v.ecrans:
-        return "+".join(sorted(v.ecrans))
-    # UN POPUP EST UNE POSITION, PAS UN ENTRE-DEUX. `Vue.popups` etait collecte (cf.
-    # `depuis_boutons`) et entrait meme dans l'`empreinte`, mais AUCUN verdict ne le lisait :
-    # l'`InterstitialPopup` d'offres qui bloquait tout l'ecran se lisait `TRANSITOIRE`, et un
-    # appelant a conclu << le bouton de campagne a disparu >> (0 candidat) au lieu de << un
-    # popup est devant >>. Mesure du 2026-08-09.
+    # UN POPUP EST UNE POSITION, PAS UN ENTRE-DEUX, ET IL PASSE DEVANT L'ECRAN.
+    #
+    # `Vue.popups` etait collecte (cf. `depuis_boutons`) et entrait meme dans l'`empreinte`,
+    # mais aucun verdict ne le lisait : l'`InterstitialPopup` d'offres qui bloquait tout
+    # l'ecran se lisait `TRANSITOIRE`, et un appelant a conclu << le bouton de campagne a
+    # disparu >> (0 candidat) au lieu de << un popup est devant >>.
+    #
+    # ⚠ ET LA PREMIERE CORRECTION LAISSAIT L'ECRAN GAGNER. Elle ne traitait le popup que
+    # lorsqu'AUCUN ecran n'etait monte -- or le cas frequent est justement popup PAR-DESSUS
+    # ecran. Mesure du 2026-08-09 : une offre Battle Pass (`ShopPopup(Clone)`, avec
+    # `UI_PromotionalAsset_Layout_BattlePassExtraPremium_Full`) etait REELLEMENT devant, le
+    # RPC `uiWindows` rendait `devant=ShopPopup` (il lit l'etat que le JEU tient), et
+    # `identifier()` repondait `Idun_CampaignScreen`. J'ai d'abord accuse le RPC : c'etait
+    # l'inverse. Quand un canal DEDUIT diverge d'un canal qui LIT, on soupconne le deduit.
+    #
+    # Le popup l'emporte donc, et l'ecran de dessous reste lisible par `Vue.ecrans`.
     if v.popups:
         return popup(v) or INCONNU
+    if v.ecrans:
+        return "+".join(sorted(v.ecrans))
     if v.chrome_seul():
         return TRANSITOIRE
     return INCONNU

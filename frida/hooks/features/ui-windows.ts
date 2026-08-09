@@ -46,16 +46,14 @@
 // de combat n'est pas un écran rendu par cette couche. Ne pas lire ce `null` comme « rien à
 // l'écran » — c'est « aucune fenêtre GÉRÉE n'est devant ».
 //
-// ⚠⚠ ET `devant` N'EST PAS « CE QUE LE JOUEUR VOIT ». Mesuré le 2026-08-09, après avoir fermé
-// l'aperçu de bataille : `devant == ShopPopup` alors que l'écran affiché était la campagne —
-// `vue.py`, par l'arbre, disait `Idun_CampaignScreen`. Les deux canaux DIVERGENT ici, et c'est
-// le sondage qui a tort. Deux causes cumulées : l'écran de campagne n'est pas un
-// `ScreenVisibility` géré, et un popup fermé plus tôt peut RESTER `Rendering`. Les cinq
-// relevés concordants du premier tour portaient tous sur un régime où un popup était
-// EFFECTIVEMENT ouvert — ils ne généralisent pas.
-// ⇒ Lire `devant` comme « la seule fenêtre GÉRÉE actuellement en rendu », et croiser avec
-// `vue.py` (l'arbre) dès qu'on veut savoir ce qui est réellement affiché. Le module ne doit
-// pas être présenté comme l'oracle du premier plan tant que ce trou n'est pas fermé.
+// ⚠ UNE DIVERGENCE AVEC `vue.py` ACCUSE `vue.py`, PAS CE MODULE — vérifié le 2026-08-09.
+// Après fermeture de l'aperçu de bataille, `devant == ShopPopup` tandis que `vue.py` rendait
+// `Idun_CampaignScreen`. J'ai d'abord écrit ici que le sondage avait tort. FAUX : l'arbre
+// porte bien `ShopPopup(Clone)` (avec `UI_PromotionalAsset_Layout_BattlePassExtraPremium_Full`
+// — l'offre Battle Pass était réellement devant). `vue.py` COLLECTAIT le popup et le TAISAIT,
+// parce que son `identifier()` donnait la priorité à l'écran monté. Corrigé côté Python.
+// La leçon vaut au-delà : ce module lit l'état que le JEU tient, `vue.py` déduit d'un arbre
+// d'objets. Quand les deux divergent, c'est le déduit qu'on soupçonne en premier.
 //
 // Ce qui reste HORS de portée par cette voie, et qu'on ne prétend pas rendre :
 // `_lastScreenRendered` et `_hideableMenus` vivent sur les deux classes ORDINAIRES
