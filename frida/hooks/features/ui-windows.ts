@@ -80,8 +80,9 @@
 // slots et la nullité du pointeur ; ouvrir un menu reste un geste explicite de l'appelant.
 
 import {
-    class_get_fields, field_get_name, field_get_offset, field_get_type,
-    findClassAnywhere, findMethod, findMethodByParamCount, getSystemType, s as cstr,
+    class_get_fields, class_get_methods, field_get_name, field_get_offset, field_get_type,
+    findClassAnywhere, findMethod, findMethodByParamCount, getSystemType,
+    method_get_name, method_get_param_count, methodEntry, s as cstr,
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { dumpEnumClass } from "../il2cpp/enum-dump.js";
@@ -152,6 +153,99 @@ function membre(
 ): { v: number | null; nom: string | null } {
     if (v === null) return { v: null, nom: null };
     return { v, nom: t ? (t[v] ?? null) : null };
+}
+
+// ---------------------------------------------------------------------------------------
+// LE JOURNAL DES TRANSITIONS — ce qu'un SONDAGE ne peut pas voir
+// ---------------------------------------------------------------------------------------
+// `uiWindows` répond « qui est devant MAINTENANT ». Entre deux appels il ne voit rien : un
+// popup qui s'ouvre et se referme seul est invisible, et l'ordre de deux bascules dans la
+// même frame est perdu. C'est le même écart qu'entre `observeBattle` et `battleEvents`.
+//
+// Les points de transition sont NOMMÉS et portés par UNE seule classe, non générique — donc
+// `findMethod` mord directement, sans le piège gshared qui a laissé `bucket-audit` `enabled`
+// avec 0 fire :
+//
+//     ScreenVisibilityManager$$HandleOnScreenStartedShowing (this, screen)
+//     ScreenVisibilityManager$$HandleOnScreenFinishedShowing(this, screen)
+//     ScreenVisibilityManager$$HandleOnScreenStartedHiding  (this, screen)
+//     ScreenVisibilityManager$$Register / $$Unregister      (this, screen)
+//
+// `Register`/`Unregister` expliquent ce que le sondage a mesuré sans pouvoir l'expliquer : la
+// liste passe de 7 à 8 écrans quand `PauseMenu` se charge (`UnloadLeastRecentlyOpenedMenus`).
+//
+// ⚠ `Register` PORTE DEUX SURCHARGES de même nom ET même arité (deux adresses distinctes au
+// décompilé). `findMethod` en rendrait UNE, au hasard, et le journal raterait la moitié des
+// inscriptions sans jamais le dire. On s'attache donc à TOUTES les méthodes portant le nom, et
+// on publie le compte (`ancrages`) pour que « 0 fire » se distingue de « pas accroché ».
+
+interface Transition { n: number; quoi: string; gui: { v: number | null; nom: string | null } }
+
+const journal: Transition[] = [];
+/** Tampon glissant. Publier `ecartes` : un débordement muet ferait dater à tort une séquence. */
+let ecartes = 0;
+let recus = 0;
+let actif = false;
+let ancrages: number | null = null;   // null = hooks JAMAIS posés (≠ posés et 0 fire)
+const PLAFOND_JOURNAL = 2000;
+
+/** Résolu une fois : le champ `GuiId` de `ScreenVisibility` et sa table de membres. */
+let cGuiCache: Champ | null | undefined;
+let tGuiCache: Record<number, string> | null = null;
+
+function guiDeLEcran(screen: NativePointer): { v: number | null; nom: string | null } {
+    if (cGuiCache === undefined) {
+        const k = findClassAnywhere("idun.ui", "ScreenVisibility");
+        cGuiCache = k ? champ(k, "<GuiId>k__BackingField") : null;
+        tGuiCache = tableEnum(cGuiCache?.typeKlass ?? null);
+    }
+    return membre(lireInt(screen, cGuiCache ?? null), tGuiCache);
+}
+
+function noter(quoi: string, screen: NativePointer): void {
+    if (!actif) return;
+    try {
+        recus++;
+        journal.push({ n: recus, quoi, gui: guiDeLEcran(screen) });
+        if (journal.length > PLAFOND_JOURNAL) {
+            ecartes += journal.length - PLAFOND_JOURNAL;
+            journal.splice(0, journal.length - PLAFOND_JOURNAL);
+        }
+    } catch { /* un capteur ne jette jamais */ }
+}
+
+/** Attache TOUTES les méthodes portant ce nom — cf. l'avertissement sur les surcharges. */
+function ancrer(klass: NativePointer, nom: string, quoi: string): number {
+    let poses = 0;
+    const it = Memory.alloc(Process.pointerSize);
+    it.writePointer(ptr(0));
+    let mi: NativePointer;
+    while (!(mi = class_get_methods(klass, it) as NativePointer).isNull()) {
+        if (cstr(method_get_name(mi) as NativePointer) !== nom) continue;
+        if ((method_get_param_count(mi) as number) !== 1) continue;
+        try {
+            const p = methodEntry(mi);
+            if (p === null || p.isNull()) continue;
+            Interceptor.attach(p, {
+                onEnter(args) { noter(quoi, args[1]); },
+            });
+            poses++;
+        } catch { /* une ancre qui echoue ne doit pas emporter les autres */ }
+    }
+    return poses;
+}
+
+function installerAncrages(): number | null {
+    const klass = findClassAnywhere("idun.ui", "ScreenVisibilityManager");
+    if (!klass) return null;
+    let total = 0;
+    total += ancrer(klass, "HandleOnScreenStartedShowing", "montre-debut");
+    total += ancrer(klass, "HandleOnScreenFinishedShowing", "montre-fin");
+    total += ancrer(klass, "HandleOnScreenStartedHiding", "cache-debut");
+    total += ancrer(klass, "Register", "inscrit");
+    total += ancrer(klass, "Unregister", "retire");
+    Interceptor.flush();
+    return total;
 }
 
 export function register(ctx: Ctx): void {
@@ -279,4 +373,49 @@ export function register(ctx: Ctx): void {
                 champsAbsents: absents,
             };
         });
+
+    /** Le JOURNAL des transitions d'UI — ce qu'un sondage ne peut pas voir.
+     *
+     *  body: { start?, stop?, clear?, depuis?: number, max?: number }
+     *
+     *  `depuis = recus` du relevé précédent rend exactement les nouvelles, sans trou ni
+     *  doublon — à condition qu'`ecartes` n'ait pas bougé, ce que la réponse publie aussi.
+     *
+     *  ⚠ `stop` ARRÊTE D'ENREGISTRER, il ne DÉTACHE PAS. Retirer des `Interceptor` posés sur
+     *  cinq points chauds pour les reposer ensuite coûte plus cher que le drapeau, et un
+     *  détachement partiel laisserait un journal muet qui se lirait comme « rien ne s'est
+     *  passé ». Le dire vaut mieux que le maquiller.
+     *
+     *  ⚠ `ancrages: null` = hooks JAMAIS POSÉS. À ne pas confondre avec `ancrages: 5` et zéro
+     *  transition : le premier est une panne, le second une mesure. */
+    ctx.rpc.uiWindowEvents = (body?: {
+        start?: boolean; stop?: boolean; clear?: boolean;
+        depuis?: number; max?: number;
+    }): unknown => {
+        if (body?.stop) { actif = false; }
+        if (body?.start) {
+            if (ancrages === null) ancrages = installerAncrages();
+            if (ancrages === null) {
+                return { ok: false, error: "classe idun.ui.ScreenVisibilityManager "
+                    + "introuvable -- aucun ancrage pose" };
+            }
+            actif = true;
+        }
+        if (body?.clear) { journal.length = 0; ecartes = 0; recus = 0; }
+
+        const depuis = Math.max(0, (body?.depuis ?? 0) - ecartes);
+        const max = Math.max(1, Math.min(body?.max ?? 200, 2000));
+        const tranche = journal.slice(depuis, depuis + max);
+        return {
+            ok: true,
+            actif,
+            ancrages,
+            recus,
+            ecartes,
+            enTampon: journal.length,
+            rendus: tranche.length,
+            curseur: ecartes + depuis + tranche.length,
+            transitions: tranche,
+        };
+    };
 }
