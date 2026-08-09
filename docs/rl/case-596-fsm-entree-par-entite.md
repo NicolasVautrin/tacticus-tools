@@ -832,3 +832,59 @@ désormais, sa première version ne le faisait pas malgré sa docstring.
 `currentPlayer` change et avec `turnsEnded: 6`. Le compteur `turn` est resté à 3 tout du long :
 **il ne compte pas les rounds**, et s'en servir comme témoin de round est une erreur.
 
+
+## `#596-r1` RESSERRÉ — la fin de tour est ACCEPTÉE et COMPTÉE, et le round n'avance pas
+
+Mesuré le 2026-08-09 (`Campaign1_06`, session 22). Trois hypothèses tombent d'un coup.
+
+### Les trois gardes de `HandleOnEndTurnButtonTapped`, lues au décompilé
+
+`IdunBattle.View.FSM.UnitSelectionFsm$$HandleOnEndTurnButtonTapped` ne construit son
+`EndTurnMessage` qu'après trois filtres, et **chacun sort par un `return` MUET** :
+
+```
+cVar4 = <slot 0x66 sur _actions>   ; if (cVar4 == 0) return       <- garde 1
+uVar7 = <slot 0x6e sur _actions>   ; if (uVar7 != 0) return       <- garde 2
+                                     if (iVar5 != uVar6) return   <- garde 3
+                                     ... ChangeState<T>, puis EndTurnMessage(playerId)
+```
+
+`this+0x40` = `_actions : IStateMachineActions`, `this+0x38` = `_matchView : IMatchView`
+(`classFields` sur la classe VIVANTE). Le vocabulaire de l'interface donne les deux prédicats
+qui ont cette forme exacte : `TryGetLocalPlayerIdIfCurrentTurn(PlayerId)` (doit RÉUSSIR) et
+`IsControllingEnemies()` (doit être FAUX).
+
+⇒ **Le blocage n'a jamais eu besoin d'une exception : un garde qui tombe suffit, et il est
+silencieux par construction.**
+
+### Sauf que les gardes PASSENT
+
+Les deux prédicats sont sur `_actions`, donc appelables. Mesuré dans l'état bloqué :
+
+| appel | valeur | garde |
+|---|---|---|
+| `IsControllingEnemies()` | **false** | satisfaite (doit être fausse) |
+| `TryGetLocalPlayerIdIfCurrentTurn()` | **true** | satisfaite (doit réussir) |
+| `EndTurn()` | **true** | l'action elle-même rend vrai |
+
+Et `turnsEnded` **monte : 6 -> 9**. Puis, 35 s de veille : `currentPlayer` reste **3**,
+`toActivate` reste **[63,65,67,69,71]** (les 5, caster compris), FSM à `NormalState`,
+`pile` **vide** à chaque relevé.
+
+### Ce que ça élimine
+
+- **L'exception** — `pile` vide, capteur armé, aucune frame orpheline (cf. section précédente).
+- **Le garde qui tombe** — les deux prédicats nommables rendent la bonne valeur.
+- **Le clic avalé** — `_actions.EndTurn()` est appelé DIRECTEMENT, sans passer par l'UI, et
+  rend `true`.
+
+**La fin de tour est donc acceptée ET comptabilisée, et le round n'avance pas.** Le suspect
+descend d'un étage : `Core.Services.OperationProcessor$$EndTurn`,
+`$$ContinueTurnPhase`, `$$VerifyAutomaticTurnEnd`, et
+`IdunBattle.Entities.Components.TurnComponent$$GetNextTurnStage` — que la fiche donnait déjà
+comme rendant `null` (étape courante `+0x10` == étape cible `+0x14`).
+
+⚠ **`turnsEnded` n'est PAS un compteur de rounds et ne se lit pas comme un booléen de bascule**
+— il valait **9** avec 12 entités sur le plateau et 5 unités encore dans `toActivate`. Établir
+ce qu'il compte exactement est un préalable à toute conclusion bâtie dessus.
+
