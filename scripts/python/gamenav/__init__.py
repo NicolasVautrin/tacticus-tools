@@ -26,6 +26,12 @@ L2  `agir`       << Agir >> n'existe pas comme operation primitive, parce que le
                  `ok:false` sur trois clics qui ont porte). Seul << agir ET PROUVER >>
                  existe : empreinte avant, action, attente d'un changement d'empreinte.
 
+L2bis `deploiement` / `combat`
+                 Les deux verbes de bataille, meme discipline : le natif est `void` ou son
+                 retour ment, donc chaque cran porte SA preuve. `deploiement` compose avant
+                 le depart (temoin : la puissance de l'alignement) ; `combat` joue le tour
+                 (temoins : l'etat du FSM, les pv, les effets, `toActivate`).
+
 L3  `carte`      Le graphe des ecrans est une DONNEE, pas du code. La chaine du warmup
                  (`PLAY_BUTTON_KEY`, "campaign1", pause -> retraite -> confirm) est un
                  chemin parmi d'autres, pas une fonction figee.
@@ -42,4 +48,5 @@ Transverses :
 ASCII strict dans toute sortie console (cp1252).
 """
 
-__all__ = ["transport", "vue", "agir", "carte", "journal", "secours"]
+__all__ = ["transport", "vue", "agir", "carte", "journal", "secours",
+           "deploiement", "combat"]
