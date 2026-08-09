@@ -12,8 +12,13 @@
 // and the returned configPtr → we know which utility config a given dict
 // access belongs to.
 //
-// Off by default — RPC `aiUtilityTraceEnable()` to start, `…Disable()` to
-// stop, `…Dump(maxEntries)` to read the buffer.
+// ⚠ ARMÉ AU BOOT, pas « off by default » : `arm("aiUtility")` en fin de `register`
+// (cf. le commentaire qui l'accompagne — il reproduit l'ancien comportement global).
+// Cette ligne a dit le contraire jusqu'au 2026-08-09, et un diagnostic live a accusé
+// ce capteur d'avoir figé un tour de bataille sur la foi de cette phrase. Contre-épreuve
+// jouée : armé, l'IA joue immédiatement — il était hors de cause (`case-596`).
+// RPC : `aiUtilityTraceEnable()` / `…Disable()` / `…Dump(maxEntries)`.
+// L'état RÉEL se lit par `traceArmedStatus`, jamais dans un en-tête.
 
 import { Ctx } from "../controller.js";
 import {

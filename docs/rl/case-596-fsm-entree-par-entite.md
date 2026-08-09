@@ -409,6 +409,90 @@ chaque frame : sans clic humain ou `SendInput`, la file ne se draine jamais et `
 sortirait en refus de délai. C'est exactement ce que le compteur était là pour dire, et il le
 dit. Le module reste livré et honnête ; il ne doit pas être présenté comme une voie disponible.
 
+## FIN DE TOUR — le drapeau est `toActivate`, et le canal est le journal des MESSAGES
+
+Mesuré le 2026-08-09, build `rnca9r7q6c`, trois batailles et un runner isolé.
+
+**« Cette unité a-t-elle encore une action ? » se lit dans `decisionView.toActivate`**, et
+nulle part ailleurs : `observeBattle` ne publie AUCUN drapeau d'action (ses 13 clés par unité
+sont position / hp / armor / rank / isDead). La règle de fin de tour est **symétrique** et se
+dérive de ce seul champ :
+
+```
+toActivate == []   ->  le jeu termine le tour LUI-MEME. Ne rien toucher.
+toActivate != []   ->  il attend. Cliquer `EndTurnButton`.
+```
+
+⚠ **`WaitingForPlayerTurnToEndVisuallyState` N'EST PAS un écran figé** — c'est l'état NORMAL
+que la vue traverse pendant qu'elle termine le tour toute seule. Mesuré : la dernière frappe
+du tour rend `etatApres = WaitingForPlayerTurnToEndVisuallyState`, puis 8 messages tombent,
+puis `AiTurnState`, puis `NormalState` avec la main rendue. Ce qui fige, c'est **d'agir
+pendant** cet état (cf. la section suivante) — pas l'état lui-même.
+
+⚠ **Une unité qui frappe SANS bouger garde son déplacement** : elle reste dans `toActivate` et
+le tour ne passe pas seul. C'est le régime le plus fréquent, et il se lit — inutile de le
+deviner.
+
+⚠ **Déselectionner N'EST PAS inconditionnel** : taper une case vide depuis `NormalState`
+n'annule rien, ça OUVRE `InspectTileState`. Ne déselectionner que si le FSM est ailleurs que
+`NormalState`, et re-vérifier avant d'appuyer.
+
+### Le canal, c'est `dump`/`summary`, pas le flux d'events
+
+`battleEvents` (frame au FOND d'`applyStack`) capte **0** event pendant une bataille : le
+recorder de `game/recorder.ts` ouvre une frame par `Apply(message)`, donc tout ce que le jeu
+émet tombe dans la SIENNE, au sommet. Mesuré : `flux hors-msg +0` à chacun des 12 relevés d'un
+tour. Ce qui répond à la question, c'est le journal des messages — `src` y discrimine :
+
+```
+src = "top"  ->  nos actions            (MoveUnitMessage, ActiveAbilityMessage, EndTurnMessage)
+src = "ai"   ->  L'ADVERSAIRE JOUE      (14 a 18 messages par tour necron)
+```
+
+`battleEvents` reste utile hors bataille (146 events captés sur la nav + le déploiement).
+
+### `applyStack` non vide = un `Apply` a LEVÉ, et c'est le seul détecteur qu'on ait
+
+`Interceptor.attach` n'appelle **pas** `onLeave` quand la fonction hookée lève : chaque `Apply`
+qui jette laisse donc une frame orpheline. Le refus d'armement de `battleEvents` (« la pile
+d'apply n'est pas vide (N frame(s)) ») **est** ce détecteur, à son corps défendant.
+
+Mesuré : dans la bataille qui refusait de basculer, `N == 2` — exactement les **deux**
+`EndTurnMessage` envoyés (bouton, puis `_actions.EndTurn()`). Les deux ont été appliqués
+(journal du recorder), les deux ont vidé `toActivate`, et **aucun** n'a fait avancer le tour :
+l'exception coupe le pipeline de `IdunBattle.Messages.InputMessageProcessor$$RunPhase` avant
+son appel à `ContinueTurnPhase`. Les frames survivent à la retraite et à la bataille suivante.
+
+**Ce qui a été RÉFUTÉ en chemin** : l'armement global d'`aiUtility`
+(`frida/hooks/features/ai-utility-trace.ts`, `arm("aiUtility")` au register). Contre-épreuve
+jouée : **armé**, l'IA joue immédiatement au `EndTurnMessage` suivant (14 messages `src=ai`).
+Ce n'était pas la cause. `bucketAudit` était `installed: false`, donc inerte.
+
+**Et le chemin moteur est SAIN** : sur un runner isolé (`rl_duel build --board-pool pvp`),
+`act endturn` rend `currentPlayer` 3 -> 4 du premier coup, et `aiturn` joue 147 events. Le
+blocage était propre à cette bataille-là, pas au verbe.
+
+⚠ **Reste NON NOMMÉ** : ce qui a fait lever ces deux `Apply`. `armExceptionCtorHook` est le
+capteur à armer AVANT de rejouer le régime. Résidu **#596-r1**.
+
+### Ce que le décompilé dit du verbe, et où notre port diverge
+
+```
+IdunBattle.View.FSM.UnitSelectionFsm$$HandleOnEndTurnButtonTapped  -> ChangeState<...>
+IdunBattle.View.FSM.StateMachineActions$$EndTurn                   -> TryGetLocalPlayerIdIfCurrentTurn
+                                                                      puis new EndTurnMessage(playerId)
+IdunBattle.Messages.EndTurnMessage$$.ctor(this, playerId)          -> Nullable<PlayerId> @ +0x10
+```
+
+⚠ Le paramètre du ctor est un **`Nullable<PlayerId>`**, pas un booléen `advance` — et
+`Core.Services.OperationProcessor$$EndTurn(isAutomatically)` porte ce nom-là. Or
+`engine/runner/messages.py` déclare `EndTurnMessage(advance: bool)` et `turnflow.py` écrit que
+`EndTurnOperation$$Execute` « enqueue le changement de tour » : **le décompilé ne contient
+aucun appel à `ChangeTurnOperation`**. L'avance vient de
+`IdunBattle.Messages.InputMessageProcessor$$RunPhase` -> `ContinueTurnPhase`, qui boucle sur
+`IdunBattle.Entities.Components.TurnComponent$$GetNextTurnStage` (`null` dès que l'étape
+courante `+0x10` égale l'étape cible `+0x14`). Divergence de port à instruire — **#596-r1**.
+
 ## CONDUIRE PAR LA VUE — le tour se referme, et c'est la seule voie qui le fasse
 
 ⚠ **MOTEUR ET VUE NE SE MÉLANGENT PAS.** Jouer les unités par `applyAction` (moteur) puis
