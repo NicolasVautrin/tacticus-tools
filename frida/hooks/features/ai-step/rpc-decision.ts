@@ -28,10 +28,11 @@ import {
     ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
     attackQueryOff, battleInServicesOff, dpqInServicesOff, entityServicesClass,
     extractTiles, extractTilePtrs,
-    entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile,
+    entityExtClass, findTurnComponent, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi,
+    getUnitMainTile,
     invokeBool, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
     mowAbilityTypes, readTileCoord, readTurnsEnded, resolveDpq, servicesOff, summarize,
-    turnsEndedLayout, unitAbilityTypes,
+    turnComponentClass, turnsEndedLayout, unitAbilityTypes,
     unitExtClass,
 } from "./internals.js";
 import { applyAiMsgMi } from "../../game/ai-control.js";
@@ -249,6 +250,121 @@ export function registerViewDecision(ctx: Ctx): void {
             result = { ok: true, id, type: ty, entityPtr: e.toString(), components };
         });
         return result;
+    });
+
+    /** L'ÉTAT DE PHASE DE TOUR — les trois entiers qui décident si le round avance (#596-r1).
+     *
+     *  Lu sur le `TurnComponent` (une seule entité le porte — `StateExtensions$$GetMatchTurn` est
+     *  un `GetFirstWithComponent`). Publie de quoi trancher un tour « accepté mais qui n'avance
+     *  pas », sans deviner :
+     *
+     *   - `IdunBattle.Operations.ContinueTurnPhaseOperation$$Execute` écrit `RequestedTurnStage`
+     *     puis boucle `HandleNextTurn` tant que `GetNextTurnStage()` a une valeur ; et
+     *     `IdunBattle.Entities.Components.TurnComponent$$GetNextTurnStage` rend `null` EXACTEMENT
+     *     quand `CurrentTurnStage == RequestedTurnStage`. Deux stages égaux = plus rien à avancer.
+     *   - `IdunBattle.Operations.VerifyAutomaticTurnEndOperation$$Execute` — SEUL lecteur de
+     *     `get_IsTurnChangeBlocked` — sort MUET dans deux cas : `CurrentTurnStage == End`, ou
+     *     `IsTurnChangeBlocked && !HasTempPlayer`.
+     *   - `BlockTurnChangeCounter` est un COMPTEUR (`BlockTurnChange` +1 / `UnblockTurnChange` -1
+     *     clampé à 0), et `IdunBattle.Entities.Abilities.AActiveAbility$$ExecuteOn` l'incrémente
+     *     puis le décrémente : un cast interrompu entre les deux le laisse > 0 pour toujours.
+     *
+     *  Les offsets sont résolus PAR NOM de champ, jamais écrits en dur. Tri-état : `null` = PAS
+     *  MESURÉ (classe/champ non résolu, aucune entité porteuse) — jamais rabattu sur `0`, qui est
+     *  une valeur légitime des trois champs. `layout` dit ce qui a été résolu, comme
+     *  `turnsEndedLayout`. Read-only : aucun Interceptor, aucune écriture.
+     *  body: { runnerId? } */
+    ctx.rpc.turnPhaseState = (
+        body?: { runnerId?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        let runner: NativePointer;
+        if (typeof body?.runnerId === "number") {
+            try { runner = getRunner(body.runnerId).runner; }
+            catch (e) { return { ok: false, error: (e as Error).message }; }
+        } else if (state.liveRunner) { runner = state.liveRunner; }
+        else return { ok: false, error: "no runner — pass runnerId" };
+        if (runner.isNull()) return { ok: false, error: "runner null" };
+        const statePtr = runner.add(runnerOff.state).readPointer();
+        if (statePtr.isNull()) return { ok: false, error: "state null" };
+
+        const layout: Record<string, unknown> = { classResolved: !!turnComponentClass };
+        if (!turnComponentClass) {
+            return { ok: false, error: "TurnComponent non résolu", layout };
+        }
+        const tc = findTurnComponent(statePtr);
+        layout.componentFound = tc !== null;
+        if (tc === null) {
+            return { ok: false, error: "aucune entité ne porte TurnComponent", layout };
+        }
+
+        // Un champ absent rend `null` (PAS MESURÉ), il ne retombe sur aucun offset de secours :
+        // une constante en dur survivrait au renommage et publierait un entier voisin comme s'il
+        // était le compteur — exactement le silence qu'on cherche à supprimer.
+        const lire = (nom: string): number | null => {
+            const off = getFieldOffset(turnComponentClass!, nom);
+            layout[nom] = off >= 0 ? off : null;
+            if (off < 0) return null;
+            try { return tc.add(off).readS32(); } catch { return null; }
+        };
+        const currentTurnStage = lire("<CurrentTurnStage>k__BackingField");
+        const requestedTurnStage = lire("<RequestedTurnStage>k__BackingField");
+        const previousPlayerId = lire("<PreviousPlayerId>k__BackingField");
+        const currentPlayerId = lire("_currentPlayerId");
+        const blockTurnChangeCounter = lire("BlockTurnChangeCounter");
+
+        // `Nullable<BEntityId>` : valeur puis HasValue. On lit le drapeau, pas la valeur seule —
+        // une valeur résiduelle sans HasValue se lirait comme un joueur temporaire actif.
+        const tempOff = getFieldOffset(turnComponentClass, "TempPlayerId");
+        layout.TempPlayerId = tempOff >= 0 ? tempOff : null;
+        let tempPlayerHasValue: boolean | null = null;
+        let tempPlayerId: number | null = null;
+        if (tempOff >= 0) {
+            try {
+                tempPlayerId = tc.add(tempOff).readS32();
+                tempPlayerHasValue = tc.add(tempOff + 4).readU8() !== 0;
+            } catch { /* restent null = PAS MESURÉ */ }
+        }
+
+        // Les deux propriétés NATIVES, invoquées plutôt que réimplémentées : si elles divergent
+        // de la dérivation ci-dessous, c'est notre lecture de champ qui est fausse, et le dire
+        // vaut mieux que publier un accord fabriqué.
+        const invoquerBool = (nom: string): boolean | null => {
+            const mi = findMethodByParamCount(turnComponentClass!, nom, 0);
+            layout[nom] = !!mi;
+            if (!mi) return null;
+            try {
+                const r = invokeMethod(mi.info, tc, null);
+                return r.isNull() ? null : r.add(0x10).readU8() !== 0;
+            } catch { return null; }
+        };
+        const isTurnChangeBlocked = invoquerBool("get_IsTurnChangeBlocked");
+        const hasTempPlayer = invoquerBool("get_HasTempPlayer");
+
+        // Mirror de `GetNextTurnStage` : `null` (plus d'étape) ssi les deux stages sont égaux.
+        const nextTurnStageIsNull = (currentTurnStage === null || requestedTurnStage === null)
+            ? null : currentTurnStage === requestedTurnStage;
+        // Les deux sorties muettes de `VerifyAutomaticTurnEndOperation$$Execute`, nommées.
+        const STAGE_END = 4;      // IdunBattle.Entities.Enum.TurnStage: 0=Change 1=Prepare 2=Draft 3=Start 4=End
+        const verifyBailsOut = (currentTurnStage === null || isTurnChangeBlocked === null
+            || hasTempPlayer === null)
+            ? null
+            : (currentTurnStage === STAGE_END ? "CurrentTurnStage == End"
+                : (isTurnChangeBlocked && !hasTempPlayer)
+                    ? "IsTurnChangeBlocked && !HasTempPlayer" : null);
+
+        return {
+            ok: true,
+            comp: tc.toString(),
+            currentTurnStage, requestedTurnStage, previousPlayerId, currentPlayerId,
+            blockTurnChangeCounter, tempPlayerId, tempPlayerHasValue,
+            isTurnChangeBlocked, hasTempPlayer,
+            nextTurnStageIsNull, verifyBailsOut,
+            // Accord entre la propriété native et la dérivation du champ. `null` = l'un des deux
+            // n'est pas mesuré, donc rien à comparer — pas un désaccord.
+            blockedAgrees: (isTurnChangeBlocked === null || blockTurnChangeCounter === null)
+                ? null : isTurnChangeBlocked === (blockTurnChangeCounter > 0),
+            layout,
+        };
     });
 
     /** APPLIQUER MON COUP (Phase 5) — construit + applique une (ou des) action(s)

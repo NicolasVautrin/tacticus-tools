@@ -833,7 +833,7 @@ désormais, sa première version ne le faisait pas malgré sa docstring.
 **il ne compte pas les rounds**, et s'en servir comme témoin de round est une erreur.
 
 
-## `#596-r1` RESSERRÉ — la fin de tour est ACCEPTÉE et COMPTÉE, et le round n'avance pas
+## `#596-r1` RESSERRÉ — les deux gardes nommables PASSENT (⚠ le 3ᵉ constat de ce chapitre est RÉTRACTÉ, cf. chapitre suivant)
 
 Mesuré le 2026-08-09 (`Campaign1_06`, session 22). Trois hypothèses tombent d'un coup.
 
@@ -865,7 +865,7 @@ Les deux prédicats sont sur `_actions`, donc appelables. Mesuré dans l'état b
 |---|---|---|
 | `IsControllingEnemies()` | **false** | satisfaite (doit être fausse) |
 | `TryGetLocalPlayerIdIfCurrentTurn()` | **true** | satisfaite (doit réussir) |
-| `EndTurn()` | **true** | l'action elle-même rend vrai |
+| ~~`EndTurn()`~~ | ~~**true**~~ | **RETIRÉ — ce `true` est une CONSTANTE, cf. ci-dessous** |
 
 Et `turnsEnded` **monte : 6 -> 9**. Puis, 35 s de veille : `currentPlayer` reste **3**,
 `toActivate` reste **[63,65,67,69,71]** (les 5, caster compris), FSM à `NormalState`,
@@ -875,18 +875,76 @@ Et `turnsEnded` **monte : 6 -> 9**. Puis, 35 s de veille : `currentPlayer` reste
 
 - **L'exception** — `pile` vide, capteur armé, aucune frame orpheline (cf. section précédente).
 - **Le garde qui tombe** — les deux prédicats nommables rendent la bonne valeur.
-- **Le clic avalé** — `_actions.EndTurn()` est appelé DIRECTEMENT, sans passer par l'UI, et
-  rend `true`.
+- ~~**Le clic avalé**~~ — **RETIRÉ le 2026-08-09**, cf. la section suivante : l'appui de cette
+  ligne était le retour d'`EndTurn()`, qui ne mesure rien.
 
-**La fin de tour est donc acceptée ET comptabilisée, et le round n'avance pas.** Le suspect
-descend d'un étage : `Core.Services.OperationProcessor$$EndTurn`,
-`$$ContinueTurnPhase`, `$$VerifyAutomaticTurnEnd`, et
-`IdunBattle.Entities.Components.TurnComponent$$GetNextTurnStage` — que la fiche donnait déjà
-comme rendant `null` (étape courante `+0x10` == étape cible `+0x14`).
+
+## `#596-r1` — CE QUE J'AI PUBLIÉ COMME MESURE ÉTAIT UNE CONSTANTE, et les trois états de gel sont RÉFUTÉS
+
+Mesuré le 2026-08-09 (`Campaign1_06`, session 23), après relecture du décompilé.
+
+### Le `true` d'`EndTurn` est écrit en dur
+
+`IdunBattle.View.FSM.StateMachineActions$$EndTurn` :
+
+```
+if (!TryGetLocalPlayerIdIfCurrentTurn(this, &playerId)) { LogWarning(...); return false; }
+msg = new EndTurnMessage(playerId);
+ApplyInput(this, msg);          // <-- retour IGNORE
+return CONCAT71(..., 1);        // <-- litteral 1, jamais le resultat d'ApplyInput
+```
+
+Le seul `false` que cette méthode sache rendre est celui du prédicat de joueur. **Une fois ce
+prédicat passé, elle rend `true` quoi qu'il advienne du message.** La ligne « la fin de tour est
+ACCEPTÉE » du chapitre précédent lisait donc un littéral, et l'hypothèse « clic avalé » qu'elle
+prétendait tuer n'a jamais été testée. C'est la **même** signature que le piège déjà écrit plus
+haut dans cette fiche pour les clics UI — *ne jamais conclure du retour d'un appel qu'il a porté* —
+commise cette fois sur un appel natif.
+
+⚠ Et elle se **répète** un étage plus bas : `applyAction {kind:"finish", unitId}` rend `ok:true`
+sur les **5** unités de `toActivate`, et ni `hasAction` ni `toActivate` ne bougent. Un `ok` de
+dispatch n'est pas un effet.
+
+### Les trois états de gel du composant de tour : tous à zéro
+
+`TurnComponent` porte de quoi trancher, en clair (noms LUS par `dumpEntityComponents` sur
+l'entité 1, seule porteuse) : `<CurrentTurnStage>k__BackingField@+0x10`,
+`<RequestedTurnStage>k__BackingField@+0x14`, `BlockTurnChangeCounter@+0x30`. Relevé par le RPC
+neuf `turnPhaseState` :
+
+| grandeur | valeur | l'état de gel qu'elle testait |
+|---|---|---|
+| `BlockTurnChangeCounter` | **0** | `AActiveAbility$$ExecuteOn` bloque puis débloque : un cast interrompu entre les deux laisserait > 0 **RÉFUTÉ** |
+| `get_IsTurnChangeBlocked()` | **false** | accord natif/champ (`blockedAgrees: true`) |
+| `<CurrentTurnStage>` | **3 = `Start`** | le bail « stage == `End` » de `VerifyAutomaticTurnEndOperation$$Execute` **RÉFUTÉ** |
+| `verifyBailsOut` | **null** | aucune des deux sorties muettes de cet opérateur n'est prise |
+
+`IdunBattle.Entities.Enum.TurnStage` = `0=Change, 1=Prepare, 2=Draft, 3=Start, 4=End`.
+`IdunBattle.Entities.Components.TurnComponent$$GetNextTurnStage` rend `null` **exactement** quand
+`Current == Requested` ; `IdunBattle.Operations.ContinueTurnPhaseOperation$$Execute` écrit
+`Requested` puis fait avancer `Current` vers lui par `HandleNextTurn`. Ici `Start == Start` : la
+machine de phase est **au repos, non bloquée**, ce qui est l'état NORMAL d'un tour qui attend le
+joueur — et 5 de nos unités ont encore leur action, donc
+`VerifyAutomaticTurnEndOperation$$DidAllUnitsFinish` a **raison** de refuser la bascule.
+
+⇒ **Le gel n'est pas dans la machine de phase de tour.** Les trois pistes que la fiche désignait
+comme « suspect suivant » sont fermées.
+
+### Ce que ce spécimen ne peut PLUS trancher
+
+Il est **contaminé** : une session entière d'injection directe de messages, de casts par l'UI et
+d'appels `EndTurn` répétés. On ne peut plus y distinguer un bug du jeu de ce qu'on lui a fait.
+Toute reprise part d'une bataille NEUVE, et la première question à lui poser n'est pas « pourquoi
+ça gèle » mais **« est-ce que ça gèle »**.
 
 ⚠ **`turnsEnded` n'est PAS un compteur de rounds et ne se lit pas comme un booléen de bascule**
-— il valait **9** avec 12 entités sur le plateau et 5 unités encore dans `toActivate`. Établir
-ce qu'il compte exactement est un préalable à toute conclusion bâtie dessus.
+— il valait **9** avec 12 entités sur le plateau et 5 unités encore dans `toActivate`. Contrôle
+posé le 2026-08-09 : **6 lectures consécutives sans aucune action rendent 12, 12, 12, 12, 12, 12**
+— il ne dérive donc pas tout seul, ses sauts sont bien causés. Et ils valent **+3 deux fois de
+suite** pour des lots de 5 `finish`, quand le plateau porte exactement **3 entités `player`** :
+la grandeur est une **somme par JOUEUR** (`GetAmountOfTurnsEnded` = somme de
+`AmountOfTurnsFinishedByPlayer`), pas un compte d'unités. Établir ce qu'elle compte reste un
+préalable à toute conclusion bâtie dessus.
 
 
 ## `decisionView.effects` N'EST PAS la liste d'effets que le joueur VOIT
