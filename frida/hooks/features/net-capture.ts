@@ -163,6 +163,53 @@ export function register(ctx: Ctx): void {
                 },
             }));
         }
+        // --- LE POINT DE FIL, et pourquoi il est INDISPENSABLE (#599-r2) ---
+        //
+        // Hooker le ctor du DTO prouve qu'il est CONSTRUIT avec un `replay` rempli. Il ne
+        // prouve PAS qu'il part : la serialisation peut omettre le champ, la charge peut etre
+        // tronquee, l'evenement peut ne jamais quitter la file. Ecrire << envoye >> sur cette
+        // base serait la meme faute que lire un `ok:true` comme un effet.
+        //
+        // `Snowprint.ClientSdk.Web.WwwWebHelper$$PostString(url, postData, ...)` est l'endroit
+        // ou la charge devient une requete HTTP. On y lit la TAILLE, et pour les gros corps on
+        // CHERCHE la marque du rejeu (`H4sI` = base64 de l'entete gzip) : une taille seule
+        // laisserait la question ouverte, la marque tranche.
+        const wh = findClassAnywhere("Snowprint.ClientSdk.Web", "WwwWebHelper");
+        const post = wh ? findMethod(wh, "PostString") : null;
+        if (!post || post.ptr.isNull()) {
+            layout.PostString = wh ? "methode NON RESOLUE" : "classe INTROUVABLE";
+        } else {
+            layout.PostString = true;
+            listeners.push(Interceptor.attach(post.ptr, {
+                onEnter(args) {
+                    if (tampon.length >= CAP) return;
+                    const champs: Record<string, unknown> = {};
+                    try {
+                        const u = chaineInfo(args[0]);
+                        champs.url = u && u.len <= 400 ? u.prefixe : (u ? u.prefixe : null);
+                    } catch { champs.url = null; }
+                    const corps = chaineInfo(args[1]);
+                    if (corps === null) { champs.corps = "NON LISIBLE"; }
+                    else {
+                        champs.len = corps.len;
+                        champs.prefixe = corps.prefixe;
+                        // On ne materialise le corps QUE s'il est gros — donc au plus une
+                        // poignee de fois, sur les seules requetes qui pourraient le porter.
+                        if (corps.len > 20000) {
+                            try {
+                                const plein = args[1].add(0x14).readUtf16String(corps.len) ?? "";
+                                champs.contientMarqueGzip = plein.indexOf("H4sI") >= 0;
+                                champs.posMarque = plein.indexOf("H4sI");
+                            } catch { champs.contientMarqueGzip = null; }
+                        } else {
+                            champs.contientMarqueGzip = false;
+                        }
+                    }
+                    tampon.push({ quoi: "PostString", n: ++compteur, champs });
+                },
+            }));
+        }
+
         log("[net-capture] arme : " + listeners.length + " hook(s)");
         return { ok: true, armes: listeners.length, layout };
     });

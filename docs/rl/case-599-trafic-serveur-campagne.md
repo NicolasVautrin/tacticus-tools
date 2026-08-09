@@ -41,10 +41,36 @@ d'événements RNG (`SaveCurrentOutputStreamBufferToLastMessage`,
 `thor.Scripts.Idun.Source.IdunBattle.ReplaySerialization.ReplaySerializer$$SerializeReplay`
 sérialise. `replay` est un **paramètre du constructeur**, pas un extra optionnel.
 
-⚠ Ce qui reste NON ÉTABLI : que le serveur **vérifie** ce rejeu plutôt que de l'archiver. On
-ne peut pas le savoir d'ici. Ce qu'on sait, c'est que le client est bâti pour le rendre
-possible, et que `rewards` est **réclamé par le client** — ce qui n'est tenable que si
-quelque chose vérifie.
+### `#599-r2` — le rejeu part VRAIMENT : mesuré SUR LE FIL, pas déduit du DTO
+
+⚠ **Hooker le ctor du DTO ne prouve que la CONSTRUCTION.** La sérialisation pouvait omettre le
+champ, la charge être tronquée, l'événement ne jamais quitter la file. Cette fiche a d'abord
+écrit « le rejeu part POUR DE VRAI » sur cette seule base — c'était la même faute qu'un
+`ok:true` lu comme un effet.
+
+Le point de fil est `Snowprint.ClientSdk.Web.WwwWebHelper$$PostString(url, postData, …)`.
+Chaîne complète : `GameEventService$$CompleteCampaignLocation(…, replay:String, …)` →
+`GameEventService$$SendGameEvent` → `ClientAPI$$SendGameEvent` →
+`GameEventQueueProcesser$$AddToQueue` (une FILE — d'où l'envoi différé) → `PostString`.
+
+Mesuré le 2026-08-10 (session 29, victoire sur `Campaign1_06`) :
+
+```
+ReplaySerializer.SerializeReplay          82 324 car
+CompleteCampaignLocationRequestDto.replay 82 324 car
+POST https://api-live.loki.snowprintstudios.com/game-event/game3/
+     corps = 85 702 car   marque gzip "H4sI" PRESENTE, offset 2982
+POST https://ct-live.loki.snowprintstudios.com/ct/userId/...
+     corps = 658 car      pas de marque   (telemetrie, sans rejeu)
+```
+
+⇒ **Le corps posté = le rejeu + 3 378 caractères d'enveloppe**, et la marque gzip tombe à
+l'offset 2982, donc DANS le JSON, là où commence la valeur de `replay`. La taille seule aurait
+laissé la question ouverte ; c'est la **marque** qui tranche.
+
+⚠ Reste NON ÉTABLI : que le serveur **vérifie** ce rejeu plutôt que de l'archiver. On ne peut
+pas le savoir d'ici. Ce qu'on sait : il le REÇOIT, et `rewards` est **réclamé par le client** —
+ce qui n'est tenable que si quelque chose vérifie.
 
 **Confirmé par la comparaison des deux relevés** : une bataille de 2 tours avec 8 morts pèse
 `83 644` caractères contre `75 800` pour zéro tour, soit **+7 844 (+10 %)**. Les 90 % restants
