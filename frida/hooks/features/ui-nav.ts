@@ -425,17 +425,51 @@ export function enumerateButtons(r: UiRefs, includeAll: boolean): ButtonRow[] {
 }
 
 /** Click a button by exact path match. */
-export function clickByPath(r: UiRefs, path: string): {
-    ok: boolean; clicked?: string; err?: string;
-} {
+/** ⚠ PLUSIEURS BOUTONS PARTAGENT UN MÊME CHEMIN, ET LE PREMIER N'EST PAS CELUI QU'ON VEUT.
+ *
+ *  Mesuré le 2026-08-09 en bataille : la barre d'abilities monte DEUX
+ *  `Ability_Selection_HUD/Loki_Ability_Selection_HUD_MoW(Clone)/Button` — même parent, même
+ *  nom, donc même chemin — dont le premier est l'ATTAQUE NORMALE et le second l'actif.
+ *  `rows.find(...)` rendait donc systématiquement le mauvais, avec un `ok: true` : le clic
+ *  partait, ne faisait rien de visible, et rien ne disait qu'un second candidat existait.
+ *  C'est le vice que `agir.py` documente (« le retour est faux dans les deux sens »), commis
+ *  ici par notre propre outil.
+ *
+ *  Le défaut reste le PREMIER — quatre appels du warmup en dépendent et leurs chemins sont
+ *  uniques. Ce qui change, c'est que le retour porte `matches` : l'ambiguïté devient VISIBLE
+ *  au lieu d'être tue. `choix` la tranche explicitement, par rang ou par pointeur. */
+export function clickByPath(r: UiRefs, path: string, choix?: {
+    index?: number; ptr?: string;
+}): { ok: boolean; clicked?: string; err?: string; matches?: number; index?: number } {
     const rows = enumerateButtons(r, true);
-    const match = rows.find((b) => b.path === path);
-    if (!match) {
+    const candidats = rows.filter((b) => b.path === path);
+    if (candidats.length === 0) {
         return { ok: false, err: `no button at path: ${path}` };
+    }
+
+    let rang = 0;
+    if (typeof choix?.ptr === "string" && choix.ptr) {
+        rang = candidats.findIndex((b) => b.ptr === choix.ptr);
+        if (rang < 0) {
+            return { ok: false, matches: candidats.length,
+                err: `ptr ${choix.ptr} absent des ${candidats.length} bouton(s) a ce chemin `
+                    + `(pointeurs: ${candidats.map((b) => b.ptr).join(", ")})` };
+        }
+    } else if (typeof choix?.index === "number") {
+        rang = choix.index;
+        if (!Number.isInteger(rang) || rang < 0 || rang >= candidats.length) {
+            return { ok: false, matches: candidats.length,
+                err: `index ${choix.index} hors des ${candidats.length} bouton(s) a ce chemin` };
+        }
+    }
+    const match = candidats[rang];
+    const compte = { matches: candidats.length, index: rang };
+    if (!match) {
+        return { ok: false, ...compte, err: `no button at path: ${path}` };
     }
     if (!match.active || !match.interactable) {
         return {
-            ok: false,
+            ok: false, ...compte,
             err: `button ${path} found but not clickable ` +
                 `(active=${match.active}, interactable=${match.interactable})`,
         };
@@ -446,20 +480,20 @@ export function clickByPath(r: UiRefs, path: string): {
     try {
         onClick = invokeMethod(r.buttonGetOnClick.info, btn, []);
     } catch (e) {
-        return { ok: false, err: `get_onClick failed: ${(e as Error).message}` };
+        return { ok: false, ...compte, err: `get_onClick failed: ${(e as Error).message}` };
     }
     if (onClick.isNull()) {
-        return { ok: false, err: "Button.onClick is null" };
+        return { ok: false, ...compte, err: "Button.onClick is null" };
     }
     try {
         invokeMethod(r.unityEventInvoke.info, onClick, []);
     } catch (e) {
         return {
-            ok: false,
+            ok: false, ...compte,
             err: `onClick.Invoke threw: ${(e as Error).message}`,
         };
     }
-    return { ok: true, clicked: path };
+    return { ok: true, clicked: path, ...compte };
 }
 
 export function register(ctx: Ctx): void {
@@ -483,13 +517,26 @@ export function register(ctx: Ctx): void {
         }
     });
 
-    ctx.rpc.uiClick = (path: string) => queueOnMainThread(() => {
+    /** `uiClick(path)` ou `uiClick({ path, index?, ptr? })`.
+     *
+     *  La forme objet existe parce que plusieurs boutons peuvent partager un chemin (cf.
+     *  l'en-tête de `clickByPath`) : `index` prend le n-ième, `ptr` désigne l'exemplaire lu
+     *  dans `uiList`. Le retour porte toujours `matches` — un appelant qui reçoit `matches: 2`
+     *  sait qu'il vient d'en frapper un sur deux, ce que la forme chaîne seule taisait. */
+    ctx.rpc.uiClick = (
+        arg: string | { path?: string; index?: number; ptr?: string },
+    ) => queueOnMainThread(() => {
+        const path = typeof arg === "string" ? arg : arg?.path;
         if (typeof path !== "string" || path.length === 0) {
-            return { ok: false, err: "uiClick: path must be a non-empty string" };
+            return { ok: false, err: "uiClick: `path` (chaine non vide) requis — "
+                + "accepte aussi { path, index?, ptr? }" };
         }
+        const choix = typeof arg === "string"
+            ? undefined
+            : { index: arg?.index, ptr: arg?.ptr };
         try {
             const r = ensureRefs();
-            return clickByPath(r, path);
+            return clickByPath(r, path, choix);
         } catch (e) {
             return { ok: false, err: (e as Error).message };
         }
