@@ -16,6 +16,26 @@ TROIS ETATS, ET LE TROISIEME EST LEGITIME
                   Ce n'est PAS une erreur, c'est un etat ou le jeu se tient reellement.
     INCONNU       on n'a pas pu mesurer. Un appelant doit REFUSER de naviguer, jamais deviner.
 
+DETECTER UN POPUP SANS SCREENSHOT -- TROIS ETAGES, ET ON N'EST QU'AU PREMIER
+-----------------------------------------------------------------------------
+    1. PAR LE PREFAB (ici)       `*Popup(Clone)` dans l'arbre `uiListAll`. C'est ce que fait
+                                 `RE_POPUP`. Suffisant pour DIRE qu'un popup est la et lequel.
+    2. PAR LE BLOQUEUR           un modal installe un raycast plein ecran (`.../Blocker`) et
+                                 `thor.Menu.MenuSystems$$get_BlurredBackgroundManager` allume
+                                 un fond floute. Signal STRUCTUREL, independant du nom -- mais
+                                 `uiList` ne rend que les feuilles interactives, donc le
+                                 `Blocker` n'apparait pas toujours : NON FIABLE seul.
+    3. PAR LE JEU (verite terrain, NON PORTE)
+                                 `idun.ui.ScreenVisibilityManager` tient la pile des ecrans
+                                 montres (`Register`/`Unregister`, `CompareHideables`) et sait
+                                 lequel OBSTRUE les autres
+                                 (`DisableRenderingOfEverythingBehind`). C'est le seul etage
+                                 qui reponde a << est-ce MODAL ? >> plutot qu'a << y a-t-il un
+                                 popup ? >>.
+
+⚠ Ce module s'arrete a l'etage 1 : il rend une PRESENCE, jamais une MODALITE. Ne pas lui
+faire dire que le clic dessous est bloque -- il ne le sait pas.
+
 Ce module est PUR : il lit, il ne clique pas.
 """
 from __future__ import annotations
@@ -46,7 +66,31 @@ def _ecran_du_chemin(chemin: str) -> str | None:
         if m:
             return m.group(1)
     return None
+# DEUX MARQUES, PARCE QU'UNE SEULE EN RATE UNE SUR SIX.
+#
+# (a) le PREFAB se nomme `*Popup(Clone)` -- `InterstitialPopup`, `GenericMessagePopup`,
+#     `Idun_BattlePreviewPopup`.
+# (b) le prefab ne dit rien, mais sa DESCENDANCE porte un conteneur `Popup` /
+#     `Container - Popup`. Mesure du 2026-08-09 : `UI_PauseMenu(Clone)/CanvasGroup/Test/
+#     Popup/Container - Popup/Buttons/button_retreat` -- le menu Pause en bataille, celui par
+#     lequel on SORT d'une bataille figee, etait le seul non detecte des six releves du soir.
+#     Le nom rendu est alors le prefab ANCESTRAL le plus proche, pas le conteneur.
 RE_POPUP = re.compile(r"([A-Za-z_][A-Za-z0-9_]*Popup)\(Clone\)")
+RE_PREFAB = re.compile(r"^([A-Za-z_][A-Za-z0-9_ .\-]*)\(Clone\)$")
+RE_CONTENEUR_POPUP = re.compile(r"^(popup|container - popup)\b", re.IGNORECASE)
+
+
+def _popups_du_chemin(chemin: str) -> set[str]:
+    trouves = set(RE_POPUP.findall(chemin))
+    prefab = None
+    for seg in chemin.split("/"):
+        m = RE_PREFAB.match(seg)
+        if m:
+            prefab = m.group(1)
+            continue
+        if prefab and RE_CONTENEUR_POPUP.match(seg):
+            trouves.add(prefab)
+    return trouves
 #: Le chrome persistant : present sur presque tout ecran, donc jamais discriminant a lui seul.
 CHROME = ("Idun_UI_Tabs", "UI_ResourcesBar", "FullScreenButton")
 
@@ -94,7 +138,7 @@ def depuis_boutons(boutons: list[dict]) -> Vue:
         e = _ecran_du_chemin(p)
         if e:
             ecr.add(e)
-        pop.update(RE_POPUP.findall(p))
+        pop.update(_popups_du_chemin(p))
     return Vue(boutons=boutons, ecrans=frozenset(ecr), popups=frozenset(pop))
 
 
@@ -114,11 +158,29 @@ def regarder(hote, tout: bool = False) -> Vue | None:
     return depuis_boutons(r.get("buttons") or [])
 
 
+def popup(v: Vue | None) -> str | None:
+    """Le(s) popup(s) MONTE(S), ou None. PRESENCE, pas MODALITE -- cf. l'en-tete.
+
+    A consulter AVANT de conclure d'un << 0 candidat >> qu'un bouton a disparu : neuf fois
+    sur dix, il est derriere un popup.
+    """
+    if v is None or not v.popups:
+        return None
+    return "+".join(sorted(v.popups))
+
+
 def identifier(v: Vue | None) -> str:
     if v is None:
         return INCONNU
     if v.ecrans:
         return "+".join(sorted(v.ecrans))
+    # UN POPUP EST UNE POSITION, PAS UN ENTRE-DEUX. `Vue.popups` etait collecte (cf.
+    # `depuis_boutons`) et entrait meme dans l'`empreinte`, mais AUCUN verdict ne le lisait :
+    # l'`InterstitialPopup` d'offres qui bloquait tout l'ecran se lisait `TRANSITOIRE`, et un
+    # appelant a conclu << le bouton de campagne a disparu >> (0 candidat) au lieu de << un
+    # popup est devant >>. Mesure du 2026-08-09.
+    if v.popups:
+        return popup(v) or INCONNU
     if v.chrome_seul():
         return TRANSITOIRE
     return INCONNU
