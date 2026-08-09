@@ -431,7 +431,19 @@ pendant** cet état (cf. la section suivante) — pas l'état lui-même.
 
 ⚠ **AGIR CONSOMME LE TOUR DE L'UNITÉ — et l'exception est portée par l'ABILITY, pas par le
 fait d'avoir bougé.** Frapper consomme aussi le déplacement ; seules certaines abilities
-laissent l'unité rejouer après le cast (Vindicta, Ragnar…). Le foyer est nommé :
+laissent l'unité rejouer après le cast.
+
+**CECI EST DÉJÀ PORTÉ, NE PAS LE RE-DÉRIVER À GHIDRA.** La liste nominative est
+`NO_END_TURN_ABILITY_TYPES` (`engine/runner/abilities/base.py`) — **14 abilities**, avec
+l'unité porteuse en commentaire : `1014 ArmoriumCherub=Vindicta`, `1106 WarHowl=Ragnar`,
+`1081 FightingRetreat=Darkstrider`, `1131 JakhalStimms=Macer`… Le mécanisme est décrit dans
+`case-52-generalisation.md` § « Ce qui rend l'état atteignable » :
+`IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution` lit **deux
+virtuals INDÉPENDANTS** — `SetsActiveAbilityUsedFlag` (→ flag 2) et `SetsEndTurnFlags` (→ fin
+de tour) — d'où le second ensemble `NO_ABILITY_USED_FLAG_ABILITY_TYPES`, qui n'est pas le
+même (13 classes, cf. `1063 FireAndReposition` et `1121 ItItches`).
+
+Le seul apport de ce tour de mesure est l'étage de LECTURE du flag, côté opération :
 
 ```
 IdunBattle.Operations.ActiveAbilityOperation$$GetSkipEndTurnFlag(options, abilityImpl, entities)
@@ -440,18 +452,19 @@ IdunBattle.Operations.ActiveAbilityOperation$$GetSkipEndTurnFlag(options, abilit
                                 evalue sur les entites, resultat INVERSE (`^ 1`)
 ```
 
-`SetsEndTurnFlags` est un **prédicat par ability** lu dans sa config
-(`WarHowlAbility$$SetsEndTurnFlags` : `this+0x30 -> +0x88 -> +0x48`) — donc il dépend de
-l'ability ET des entités du cast, jamais du déplacement restant. Deux appelants :
-`ActiveAbilityOperation$$ExecuteInternal` et `$$ExecuteForReplacedTarget`.
+Appelé depuis `$$ExecuteInternal` et `$$ExecuteForReplacedTarget`. La surcharge par
+`TargetingOptions` (`options+0x40[9]`) ne figure pas dans le port — à confronter avant d'en
+faire quoi que ce soit.
+
+⚠ **NON EXPLIQUÉ, ET ÇA RESTE OUVERT** : `ultraCalgar` demeure dans `toActivate` après avoir
+lancé un `ActiveAbilityMessage` depuis sa case, là où `darkaAzrael` en sort. **Calgar n'est
+dans AUCUN des deux ensembles ci-dessus**, donc ce n'est pas ce mécanisme. L'ability employée
+n'a pas été relevée (`decisionView.evals[].abilityId` la donne, il suffisait de la lire). Ne
+pas présenter cette observation comme un exemple de `SetsEndTurnFlags`.
 
 ⚠ Ne pas compter les porteurs depuis la table de symboles : `SetsEndTurnFlags` est un slot
 virtuel à corps trivial, donc dédupliqué par IL2CPP (30 xrefs DATA sur la seule entrée
 WarHowl). Cf. « L'ABSENCE d'une méthode dans les tables ne prouve RIEN ».
-
-**Ce que la mesure du 2026-08-09 montre, sans plus** : `darkaAzrael` sort de `toActivate` après
-avoir frappé depuis sa case, `ultraCalgar` y **reste** après avoir frappé depuis la sienne. Le
-discriminant est donc bien l'ability employée ; laquelle exactement n'a pas été relevée.
 
 ⚠ **Déselectionner N'EST PAS inconditionnel** : taper une case vide depuis `NormalState`
 n'annule rien, ça OUVRE `InspectTileState`. Ne déselectionner que si le FSM est ailleurs que
