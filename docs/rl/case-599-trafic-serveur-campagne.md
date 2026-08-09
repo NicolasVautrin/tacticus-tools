@@ -148,6 +148,44 @@ Le refus d'un nœud de tutoriel ne vit donc PAS dans la couche progression ; il 
 dans l'écran ou le widget. `campaignNodeState` répond « la progression bloque-t-elle ? », pas
 « ce nœud est-il jouable ? » — s'en servir pour la seconde question donnerait un FAUX VERT.
 
+### La moitié manquante est RÉSOLUE, et hors ligne
+
+Frontière **mesurée** (clic, popup attendu) : nœuds **1,2,3,4,5 refusent · 6 et 7 ouvrent**.
+Le catalogue (`dumpCampaignCatalog`, `Standard` → `campaign1`, 75 batailles) donne le
+discriminant :
+
+| critère | nœuds concernés | partitionne {1..5} ? |
+|---|---|---|
+| `staminaCost == 0` | **1,2,3,4,5** | **OUI, exactement** |
+| `maxAttempts == null` | **1,2,3,4,5** | **OUI, exactement** |
+| `boardId` contient `_t_` | 1,2,3,4,5,**7,8,11** | NON — le 7 s'ouvre |
+
+⚠ Le `_t_` du `boardId` est le piège : il **ressemble** à un marqueur de tutoriel et se réfute
+sur un seul contre-exemple mesuré. Lire `staminaCost`/`maxAttempts`, jamais le nom du board.
+
+⚠ **`maxAttempts` n'est pas 5** sur ce corpus : `null` ×5, `3` ×9, `10` ×57, `7` ×4. Le
+plafond par nœud existe donc bien mais varie ; sa sémantique exacte (parties ? drops ?) reste
+NON ÉTABLIE — ne pas la citer comme le « 5 parties par jour ».
+
+### Pourquoi je ne VOYAIS pas le refus : il n'a aucun `Button`
+
+Mesuré en photographiant l'écran avant/après un clic sur le nœud 2, par MULTIPLICITÉ :
+
+```
+boutons ACTIFS      48 -> 48      apparus 0   disparus 0
+boutons + inactifs 455 -> 455     apparus 0   disparus 0
+```
+
+Ce qui s'affiche ne porte **aucun `UnityEngine.UI.Button`** — ce n'est pas une détection
+ratée, c'est hors de l'énumération. Et `vue.popup()` DÉRIVE les popups des *chemins de
+boutons* : sans bouton, aucun chemin, donc « rien ne s'est passé ». Cohérent avec
+`IdunLocalization.Tooltips$$Campaign_TutorialLevel(title, description)` — une **infobulle**,
+donc du texte.
+
+⇒ Le remède n'est pas un meilleur filtre : c'est d'énumérer un **autre type** (`TMP_Text` pour
+le texte à l'écran, `Image` pour l'habillage), l'axe de cécité que le correctif « inactifs »
+n'a pas touché.
+
 Piste non aboutie pour la moitié manquante : le jeu a bien la notion
 (`GetTotalAmountOfStarsClaimedExcludingTutorialLevels`, infobulle
 `IdunLocalization.Tooltips$$Campaign_TutorialLevel`, `CampaignProgression$$GetTutorialToTrigger`),
