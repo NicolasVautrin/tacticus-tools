@@ -791,3 +791,44 @@ liste dans un chemin de traversée.
 chemin : un `set` de chemins les écrase. J'ai lu « 17 -> 17 feuilles, rien n'a changé » alors
 qu'un bouton venait d'apparaître. Compter (`Counter`), jamais `set`.
 
+
+## LE BOUTON END TURN NE TERMINE PAS LE TOUR — et cette fois AUCUN `Apply` n'a levé
+
+Mesuré le 2026-08-09 sur `Campaign1_06` (session 22), FSM à `NormalState`, 5 unités dans
+`toActivate`, capteur d'exceptions armé.
+
+```
+etat de depart   turn=3  currentPlayer=3  toActivate=[63,65,67,69,71]   pile=[]
+tap 1            ok:true   AUCUN changement d'ecran
+tap 2            ok:true   EndTurnButton DISPARAIT (1 -> 0)
+apres            turn=3  currentPlayer=3  toActivate=[63,65,67,69,71]   pile=[]
+                 FSM = NormalState, veille 60 s : rien ne vient
+```
+
+Il ne reste à l'écran que `PauseButton`, un `Idun_Unit_HUD` et les deux `FullScreenButton` :
+**la seule sortie est Pause -> Retreat**, exactement le symptôme du 2026-08-08.
+
+⚠ **CE QUE ÇA FAIT À `#596-r1`.** La fiche impute le blocage à un `Apply` qui LÈVE — deux
+frames orphelines dans `applyStack` en étaient la signature. Ici le **même symptôme visible**
+se produit avec `pile` **vide** à chaque relevé, capteur armé, et sans qu'aucun
+`EndTurnMessage` ne parte (rien ne bouge côté état). Donc, au choix : deux chemins distincts
+mènent au même écran figé, ou l'exception d'hier était **concomitante et non causale**.
+L'hypothèse « une exception coupe `RunPhase` » n'est plus la seule sur la table, et ce n'est
+pas elle qui explique CE relevé-ci.
+
+⚠ **LE PREMIER TAP N'AFFICHE AUCUN PANNEAU DE CONFIRMATION** — mesuré par diff de
+multiplicité, zéro widget apparu. Le décompilé dit pourtant que `idun.ui.EndTurnButton$$OnTap`
+affiche `this+0x28` et retourne quand il n'est pas `activeSelf`. Deux lectures restent
+ouvertes : le panneau n'est pas un `Button` (donc invisible à `uiList`, qui n'énumère que des
+`UnityEngine.UI.Button` sur objets ACTIFS), ou il n'a pas été affiché du tout. **Non tranché.**
+
+⚠ **`observeBattle` GARDE LES MORTS.** `battleStatus.unitsAlive` rendait **12** après trois
+kills confirmés (`hp 43 -> 0`). Filtrer sur `isDead` est obligatoire dès qu'on compte, qu'on
+cherche une tuile libre ou qu'on choisit une cible — `gamenav.combat.unites` le fait
+désormais, sa première version ne le faisait pas malgré sa docstring.
+
+⚠ **UN NOUVEAU ROUND REMET LE CASTER DANS `toActivate`.** Après le cast de Calgar,
+`toActivate` était passé à 4 ; plus tard il est revenu à **5, Calgar compris**, sans que
+`currentPlayer` change et avec `turnsEnded: 6`. Le compteur `turn` est resté à 3 tout du long :
+**il ne compte pas les rounds**, et s'en servir comme témoin de round est une erreur.
+

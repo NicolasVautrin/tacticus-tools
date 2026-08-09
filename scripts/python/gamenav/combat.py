@@ -123,8 +123,13 @@ def tuiles(hote) -> dict | None:
     return {(t.get("col"), t.get("row")): t.get("id") for t in ts}
 
 
-def unites(hote) -> list | None:
-    """Les unites vivantes vues par `observeBattle`. None = PAS MESURE.
+def unites(hote, vivantes: bool = True) -> list | None:
+    """Les unites du plateau. None = PAS MESURE.
+
+    ⚠ `observeBattle` GARDE LES MORTS. Le defaut filtre donc sur `isDead` -- sans quoi une
+    tuile occupee par un cadavre passe pour libre, et une cible deja tuee entre dans un
+    balayage. Ce module l'a fait : sa premiere version annoncait << les unites vivantes >>
+    et ne filtrait rien. `vivantes=False` rend le releve BRUT quand on veut compter les morts.
 
     ⚠ `visualId` LAISSE TOMBER le suffixe des mannequins de tutoriel : la BC dit
     `necroNpc1TutWarriorFTUEtest`, `observeBattle` rend `necroNpc1Warrior`. Pour savoir a QUOI
@@ -134,7 +139,10 @@ def unites(hote) -> list | None:
         r = hote.rpc("observeBattle", [{}], 30000) or {}
     except Exception:                                                 # noqa: BLE001
         return None
-    return r.get("units")
+    us = r.get("units")
+    if us is None or not vivantes:
+        return us
+    return [u for u in us if not u.get("isDead")]
 
 
 def unite(hote, visual_id: str) -> dict | None:
