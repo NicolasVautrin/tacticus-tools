@@ -46,6 +46,17 @@
 // de combat n'est pas un écran rendu par cette couche. Ne pas lire ce `null` comme « rien à
 // l'écran » — c'est « aucune fenêtre GÉRÉE n'est devant ».
 //
+// ⚠⚠ ET `devant` N'EST PAS « CE QUE LE JOUEUR VOIT ». Mesuré le 2026-08-09, après avoir fermé
+// l'aperçu de bataille : `devant == ShopPopup` alors que l'écran affiché était la campagne —
+// `vue.py`, par l'arbre, disait `Idun_CampaignScreen`. Les deux canaux DIVERGENT ici, et c'est
+// le sondage qui a tort. Deux causes cumulées : l'écran de campagne n'est pas un
+// `ScreenVisibility` géré, et un popup fermé plus tôt peut RESTER `Rendering`. Les cinq
+// relevés concordants du premier tour portaient tous sur un régime où un popup était
+// EFFECTIVEMENT ouvert — ils ne généralisent pas.
+// ⇒ Lire `devant` comme « la seule fenêtre GÉRÉE actuellement en rendu », et croiser avec
+// `vue.py` (l'arbre) dès qu'on veut savoir ce qui est réellement affiché. Le module ne doit
+// pas être présenté comme l'oracle du premier plan tant que ce trou n'est pas fermé.
+//
 // Ce qui reste HORS de portée par cette voie, et qu'on ne prétend pas rendre :
 // `_lastScreenRendered` et `_hideableMenus` vivent sur les deux classes ORDINAIRES
 // (`MenuSystems`, `ScreenVisibilityManager`) — aucune n'est énumérable, et aucun
